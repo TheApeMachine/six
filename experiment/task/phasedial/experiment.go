@@ -128,17 +128,35 @@ func (experiment *Experiment) Run() error {
 	console.Info("=============================================================")
 	coherenceData := experiment.testPhaseCoherence(aphorisms)
 
+	console.Info("\n=============================================================")
+	console.Info("TEST 12: Correlation Length Exploitation (Block Size Sweep)")
+	console.Info("=============================================================")
+	corrLenData := experiment.testCorrelationLength(aphorisms)
+
+	console.Info("\n================================================================")
+	console.Info("TEST 13: Adaptive Split Selection (Residual Boundary + Gap Test)")
+	console.Info("================================================================")
+	adaptiveData := experiment.testAdaptiveSplit(aphorisms)
+
+	console.Info("\n================================================================")
+	console.Info("TEST 14: Steerability Index (Jaccard-Based Block Steerability)")
+	console.Info("================================================================")
+	steerData := experiment.testSteerability(aphorisms)
+
 	report := ValidationReport{
-		Seed:          seedValue,
-		CorpusHash:    corpusSig,
-		BasisHash:     basisSig,
-		Candidates:    aphorisms,
-		ScanResults:   baselineData,
-		TwoHopData:    twoHopData,
-		SnapData:      snapData,
-		TorusData:     torusData,
-		GenData:       genData,
-		CoherenceData: coherenceData,
+		Seed:              seedValue,
+		CorpusHash:        corpusSig,
+		BasisHash:         basisSig,
+		Candidates:        aphorisms,
+		ScanResults:       baselineData,
+		TwoHopData:        twoHopData,
+		SnapData:          snapData,
+		TorusData:         torusData,
+		GenData:           genData,
+		CoherenceData:     coherenceData,
+		CorrLenData:       corrLenData,
+		AdaptiveSplitData: adaptiveData,
+		SteerData:         steerData,
 	}
 
 	console.Info("\n=======================================================")

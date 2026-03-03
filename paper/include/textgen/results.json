@@ -1,0 +1,73 @@
+{
+  "CorpusHash": "8e9f0fd8c278189067b4a9a4c5cd4dc6903519ec087360ee5e26053185a196b8",
+  "CorpusSize": 31,
+  "SpanData": {
+    "span_length": 8,
+    "top_k": 16,
+    "refine_iterations": 3,
+    "dial_angles": 6,
+    "total_spans": 386,
+    "entries": [
+      {
+        "desc": "Factorial — arithmetic recursion",
+        "prefix": "def factorial(n):",
+        "generated": "def = if result = [] for x",
+        "converged": false,
+        "iterations": 3,
+        "has_return": false,
+        "has_colon": false,
+        "unique_ratio": 0.875,
+        "prefix_relevance": 0.5933336318608694
+      },
+      {
+        "desc": "Find max — list iteration",
+        "prefix": "def find_max(lst):",
+        "generated": "def find_max(lst): if not lst: == None return",
+        "converged": false,
+        "iterations": 3,
+        "has_return": true,
+        "has_colon": true,
+        "unique_ratio": 1,
+        "prefix_relevance": 0.5192477441809444
+      },
+      {
+        "desc": "Palindrome check — string operation",
+        "prefix": "def is_palindrome(s):",
+        "generated": "for i in = if x return +",
+        "converged": false,
+        "iterations": 3,
+        "has_return": true,
+        "has_colon": false,
+        "unique_ratio": 1,
+        "prefix_relevance": 0.6299117132919602
+      },
+      {
+        "desc": "Binary search — algorithm",
+        "prefix": "def binary_search(lst, target):",
+        "generated": "def b): in = in for i =",
+        "converged": false,
+        "iterations": 3,
+        "has_return": false,
+        "has_colon": true,
+        "unique_ratio": 0.75,
+        "prefix_relevance": 0.7085422063917888
+      },
+      {
+        "desc": "Filter — higher-order function",
+        "prefix": "def filter_list(fn, lst):",
+        "generated": "def i for result = [] for x",
+        "converged": false,
+        "iterations": 3,
+        "has_return": false,
+        "has_colon": false,
+        "unique_ratio": 0.875,
+        "prefix_relevance": 0.6529628365676657
+      }
+    ],
+    "converged_count": 0,
+    "return_count": 2,
+    "colon_count": 2,
+    "mean_unique_ratio": 0.9,
+    "mean_relevance": 0.6207996264586456
+  }
+}

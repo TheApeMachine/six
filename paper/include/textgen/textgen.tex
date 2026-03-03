@@ -1,0 +1,79 @@
+\section{BVP Span Solver: Text Generation Experiment}
+
+\subsection{Experimental Conditions}
+The experiment uses a deterministic corpus of 31 Python functions spanning arithmetic, list operations, string manipulation, sorting algorithms, and higher-order patterns. Corpus hash: \texttt{8e9f0fd8c2781890}.
+
+The span memory is constructed by extracting all contiguous $L=8$-token spans from the tokenized corpus, yielding 386 stored spans. Each span is encoded via the PhaseDial fingerprint of its token text.
+
+The BVP solver operates as follows:
+\begin{enumerate}
+    \item \textbf{Boundary encoding}: Given a function signature (prefix), compute $F_{\text{boundary}} = \text{Encode}(\text{prefix})$. If a suffix constraint is provided, combine via normalized sum.
+    \item \textbf{Diverse retrieval}: Sweep the PhaseDial through 6 angles using the 256/256 torus split, retrieving top-16 candidate spans per angle (deduplicated).
+    \item \textbf{Token voting}: For each output position $i$, collect candidate tokens weighted by their source span's similarity score. Select the highest-voted token.
+    \item \textbf{Iterative refinement}: Re-encode $\text{prefix} + \text{candidate\_span}$, re-retrieve, re-vote. Repeat for 3 iterations or until convergence (span unchanged).
+\end{enumerate}
+
+This is a pure retrieval-and-vote mechanism with no learned parameters, no attention, and no autoregressive token prediction.
+
+\subsection{Span Solver Results}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|c|c|c|c|c|}
+\hline
+\textbf{Prompt} & \textbf{Conv.} & \textbf{return} & \textbf{:} & \textbf{Uniq.} & \textbf{Rel.} \\ \hline
+Factorial — arithmetic recursion & \texttimes & \texttimes & \texttimes & 0.88 & 0.5933 \\ \hline
+Find max — list iteration & \texttimes & \checkmark & \checkmark & 1.00 & 0.5192 \\ \hline
+Palindrome check — string operation & \texttimes & \checkmark & \texttimes & 1.00 & 0.6299 \\ \hline
+Binary search — algorithm & \texttimes & \texttimes & \checkmark & 0.75 & 0.7085 \\ \hline
+Filter — higher-order function & \texttimes & \texttimes & \texttimes & 0.88 & 0.6530 \\ \hline
+\end{tabular}
+\caption{BVP Span Solver results across 5 test prompts. Conv. = converged within 3 iterations; return/: = presence of syntax markers; Uniq. = unique token ratio; Rel. = prefix-output fingerprint similarity.}
+\end{table}
+
+\subsection{Generated Spans}
+\noindent\textbf{def factorial(n):}
+
+\begin{verbatim}
+def factorial(n):
+    def = if result = [] for x
+\end{verbatim}
+
+\noindent\textbf{def find\_max(lst):}
+
+\begin{verbatim}
+def find_max(lst):
+    def find\_max(lst): if not lst: == None return
+\end{verbatim}
+
+\noindent\textbf{def is\_palindrome(s):}
+
+\begin{verbatim}
+def is_palindrome(s):
+    for i in = if x return +
+\end{verbatim}
+
+\noindent\textbf{def binary\_search(lst, target):}
+
+\begin{verbatim}
+def binary_search(lst, target):
+    def b): in = in for i =
+\end{verbatim}
+
+\noindent\textbf{def filter\_list(fn, lst):}
+
+\begin{verbatim}
+def filter_list(fn, lst):
+    def i for result = [] for x
+\end{verbatim}
+
+\subsection{Summary Statistics}
+\begin{itemize}
+    \item Convergence rate: 0/5 (0%%)
+    \item Syntax marker (return): 2/5
+    \item Syntax marker (:): 2/5
+    \item Mean unique token ratio: 0.900
+    \item Mean prefix relevance: 0.6208
+\end{itemize}
+
+The BVP span solver produces output spans through pure retrieval and weighted voting over a memory substrate, with no learned parameters. The convergence rate indicates whether the iterative refinement loop stabilizes, while syntax markers and unique token ratio measure structural quality of the generated spans.
