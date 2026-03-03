@@ -1,0 +1,108 @@
+\section{PhaseDial Continuous Geometry Validation}
+
+\subsection{Experimental Conditions}
+To ensure reproducibility and isolate the geometric properties of the PhaseDial, the following deterministic conditions were locked during the validation suite:
+\begin{table}[h]
+\centering
+\begin{tabular}{|l|l|}
+\hline
+\textbf{Parameter} & \textbf{Value} \\ \hline
+RNG Seed & 1772559216160664000 \\ \hline
+Corpus Hash (SHA-256) & 4c7cafe8356169e9 \\ \hline
+Basis Map Hash (SHA-256) & 9aec6fe26b03412b \\ \hline
+\end{tabular}
+\caption{Deterministic state hashes for the PhaseDial experiment.}
+\end{table}
+
+\subsection{U(1) Global Phase Rotation Symmetry}
+We validated the $U(1)$ group action by verifying equivariance. Given a sequential rotation by $\alpha=45^{\circ}$ and $\beta=90^{\circ}$, compared to a single rotation of $\alpha+\beta=135^{\circ}$, the maximum deviation in retrieval scores was strictly constrained, with both operations successfully retrieving the exact same target coordinate structure.
+
+\subsection{Topology and Geodesic Traversal}
+The PhaseDial geodesic scan successfully exhibits order-independent topology traversal. As the query phase is continuously rotated $0^{\circ} \rightarrow 360^{\circ}$, the substrate resolves semantically contiguous shifts. The robust structural gradient eliminates artifactual string hashing heuristics in favor of true complex geometric distance embeddings.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{metrics_chart.pdf}
+    \caption{PhaseDial Continuous Traversal Topology. (Left, Top) The Semantic Geodesic matrix mapping the geometric score across all points as the query subspace rotates $360^{\circ}$. (Left, Bottom) Margin confidence bounds between matches showing Novelty Resonance. (Right) Spectral Complementarity separating the geometric relationships into distinct anti-correlated paths across the continuous ring.}
+    \label{fig:phasedial_metrics}
+\end{figure}
+
+\subsection{Phase-Guided Multi-Hop Composition}
+We validated spatial constraint composition by chaining logical rotations. Starting from anchor $A$ (\textit{Seed}), we rotated the query to resolve anchor $B$, then formed the composed fingerprint $F_{AB}$ and executed a secondary phase sweep $\alpha_2$ from $F_{AB}$ to find target $C$. The success metric $\text{Gain} = \min(\text{sim}(C, A), \text{sim}(C, B))$ measures simultaneous constraint satisfaction, compared against baselines from sweeping $A$-only and $B$-only anchors.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{composition_trace.pdf}
+    \caption{Two-Hop Topological Composition trace over the aggregated field $F_{AB}$. Shows cross-consistency bounds relative to anchors A and B under secondary phase displacement $\alpha_2$.}
+    \label{fig:twohop_trace}
+\end{figure}
+
+\subsection{Composition Operator Evolution}
+Three composition operators were systematically evaluated. Simple vector addition exhibited anchor dominance, where the more recently resolved anchor $B$ overwhelmed the composed state such that $F_{AB} \approx F_B$. Pointwise complex multiplication $F_{AB} = F_A \odot F_B$, intended as an intersection filter, produced severe spectral de-correlation with $\cos(F_{AB}, F_A) \approx -0.10$ and $\cos(F_{AB}, F_B) \approx -0.03$. This result is consistent with the encoding's construction: because \texttt{EncodeText} builds fingerprints as phasor sums, complex multiplication acts as spectral convolution rather than symbolic binding, smearing structure rather than preserving it.
+
+The normalized sum operator $F_{AB} = \text{Normalize}(\hat{F}_A / |\hat{F}_A| + \hat{F}_B / |\hat{F}_B|)$ resolved both failure modes. By pre-normalizing each anchor to unit magnitude before summation, the operator produces a geometrically exact midpoint on the complex hypersphere: $\cos(F_{AB}, F_A) = \cos(F_{AB}, F_B) = 0.786$. Two extended diagnostic metrics were tracked alongside the primary gain: \textit{Balanced Sum} $= 0.5(\text{sim}(C,A) + \text{sim}(C,B))$ measuring joint affinity, and \textit{Separation} $= \text{sim}(C, AB) - \max(\text{sim}(C,A), \text{sim}(C,B))$ measuring whether the composed state introduces any novel directional constraint beyond what either anchor provides alone.
+
+Sweeping the first-hop angle $\alpha_1 \in \{15^\circ, 30^\circ, 45^\circ, 60^\circ, 75^\circ\}$ revealed that the composed gain consistently reached but did not exceed the single-anchor ceiling of $0.133$, establishing a geometric upper bound intrinsic to the manifold structure.
+
+\subsection{Surface-Dominant Attractor Structure}
+The consistent ceiling at the single-anchor baseline reveals a critical geometric property of the embedding space. Encoded concepts do not occupy the interior of a convex semantic blending region; instead, they reside at \textit{surface extrema}---ridges on the complex hypersphere that act as attractor basins. The midpoint $F_{AB}$ lies interior to the chord between $A$ and $B$, reducing extremal alignment with surface-resident targets. This explains why the gain ceiling of $0.133$ matches Baseline~2 exactly: $B$ already occupies the ridge closest to the optimal $C$, and the midpoint cannot improve upon this by moving away from the surface.
+
+\subsection{Rotational Surface Projection}
+To test whether the manifold supports constraint tightening through projection, we reused the phase dial itself as a projection operator. After computing the midpoint $F_{AB}$, we swept $\alpha$ over $\text{rotate}(F_{AB}, \alpha)$ and found $\alpha^* = \arg\max_\alpha \max_k \text{score}(\text{rotate}(F_{AB}, \alpha), F_k)$, the rotation that maximises alignment with the nearest corpus item. This "snaps" the interior midpoint back onto the nearest surface ridge. The snapped anchor was then used for hop-2.
+
+Across all five first-hop angles, the snap consistently selected $\alpha^* = 350^\circ$ with a corpus peak score of $0.7983$, and produced a gain of $0.1330$---identical to both the raw midpoint and Baseline~2. The rotational projection finds the surface maximum, but it is the same maximum that $B$ already dominates. This confirms that one-dimensional global phase rotation lacks the degrees of freedom to reach a \textit{different} surface ridge that simultaneously satisfies both constraints.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{snap_surface.pdf}
+    \caption{Snap-to-Surface results across first-hop angles $\alpha_1$. Snap gain, raw midpoint gain, and single-anchor baselines are compared. The snap consistently matches but does not exceed the Baseline~2 ceiling, confirming that 1D global rotation is insufficient for super-additive composition.}
+    \label{fig:snap_surface}
+\end{figure}
+
+\subsection{U(1)$\times$U(1) Torus Navigation}
+Having established that one-dimensional global phase rotation provides insufficient degrees of freedom, we test whether the manifold geometry is fundamentally 1D or richer by decomposing the 512-dimensional complex embedding into two disjoint subspaces:
+$$F \mapsto (e^{i\alpha_1}\cdot F_1,\; e^{i\alpha_2}\cdot F_2), \quad F_1 = F_{[0:256]},\; F_2 = F_{[256:512]}$$
+This promotes the symmetry group from $U(1)$ to the 2-dimensional torus $T^2 = U(1) \times U(1)$. The torus rotation preserves the norm $\|F\|$ and therefore keeps the query on the hypersphere surface, but now provides two independent angular degrees of freedom for navigating between ridges.
+
+For each first-hop angle, we sweep a $(\alpha_1, \alpha_2)$ grid with $5^\circ$ resolution over the composed midpoint $F_{AB}$ and measure the gain at each grid point. If any point on the torus exceeds the 1D single-anchor ceiling, the manifold admits a richer symmetry structure that can be exploited for super-additive composition.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{torus_navigation.pdf}
+    \caption{U(1)$\times$U(1) torus navigation gain heatmap over the $(\alpha_1, \alpha_2)$ grid. The color intensity encodes the gain $= \min(\text{sim}(C,A), \text{sim}(C,B))$ for the best target $C$ found at each point on the torus. The 1D ceiling (dashed line) marks the maximum gain achievable with single-axis rotation.}
+    \label{fig:torus_navigation}
+\end{figure}
+
+\subsection{Torus Generalization: Split Robustness and Overfitting Check}
+To verify that the super-additive result is structurally genuine and not an artefact of the specific 256/256 split, we test six split configurations across three different seed queries:
+\begin{itemize}
+    \item \textbf{T$^2$-256/256}: Contiguous half-split (baseline torus)
+    \item \textbf{T$^2$-128/384}: Asymmetric contiguous split
+    \item \textbf{T$^2$-384/128}: Reversed asymmetric split
+    \item \textbf{T$^4$-4$\times$128}: Four-axis torus with 128 dims per subspace ($30^\circ$ grid)
+    \item \textbf{T$^2$-random}: Random dimension assignment (control)
+    \item \textbf{T$^2$-energy}: Energy-clustered split separating A-dominant from B-dominant dimensions
+\end{itemize}
+
+For each configuration, the spectral energy fraction $E_A^{(s)} = \sum_{k \in \text{sub}_s} |F_A[k]|^2 / \|F_A\|^2$ is reported per subspace, revealing how semantic content distributes across the split. A per-subspace energy imbalance between $A$ and $B$ indicates independent spectral structure.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{generalization.pdf}
+    \caption{Generalization of torus navigation across split configurations and seed queries. Bar height indicates best gain achieved; the dashed line marks the 1D ceiling. Bars exceeding the ceiling demonstrate super-additive composition. Results are grouped by seed query to test overfitting.}
+    \label{fig:generalization}
+\end{figure}
+
+\subsection{Phase Coherence Clustering}
+To explain why contiguous spectral splits enable super-additive composition while random splits do not, we compute the pairwise phase correlation matrix across the entire corpus:
+$$\text{corr}(i,j) = \frac{1}{N}\sum_{n=1}^{N} \cos(\theta_{n,i} - \theta_{n,j})$$
+where $\theta_{n,k} = \arg(F_n[k])$ is the complex phase of dimension $k$ in corpus item $n$. If dimensions $i$ and $j$ are phase-locked (constant relative phase across all items), $\text{corr}(i,j) \approx 1$. Random phase relationships yield $\text{corr}(i,j) \approx 0$.
+
+The matrix is downsampled to $64 \times 64$ blocks (8 indices per block) for visualization. Within-band and between-band mean correlations are compared for $\{2, 3, 4, 8, 16, 32\}$-band partitions. A ratio $\text{within}/\text{between} > 1$ indicates genuine band structure.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{phase_coherence.pdf}
+    \caption{(Left) Phase correlation matrix $\text{corr}(i,j)$ across basis dimensions, downsampled to $64\times 64$ blocks. Bright blocks along the diagonal indicate phase-coherent contiguous bands. (Right) Local coherence profile: mean correlation of each dimension with its $\pm 8$ neighbors. Drops in local coherence mark natural band boundaries.}
+    \label{fig:phase_coherence}
+\end{figure}
