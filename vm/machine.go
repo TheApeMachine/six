@@ -150,8 +150,23 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 						// approach is to rebuild the context from the stack history.
 						contextBuf = machine.rebuildContext(stack, maxScale)
 						
+						// Backtracking rewind
 						rewound = true
-						out <- alt
+						
+						advance := max(int(float64(alt.Scale) * 0.6), 1)
+
+						for i := 0; i < advance; i++ {
+							idx := alt.Index + i
+							if idx < machine.primefield.N {
+								out <- SpanResult{
+									Index: idx,
+									Key:   machine.primefield.Key(idx),
+									Scale: alt.Scale,
+									Score: alt.Score,
+									Chord: machine.primefield.Chord(idx),
+								}
+							}
+						}
 						break
 					}
 				}
@@ -170,7 +185,24 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 					alternatives: alternatives,
 					depth:        depth,
 				})
-				out <- result
+
+				advance := int(float64(result.Scale) * 0.6)
+				if advance < 1 {
+					advance = 1
+				}
+
+				for i := 0; i < advance; i++ {
+					idx := result.Index + i
+					if idx < machine.primefield.N {
+						out <- SpanResult{
+							Index: idx,
+							Key:   machine.primefield.Key(idx),
+							Scale: result.Scale,
+							Score: result.Score,
+							Chord: machine.primefield.Chord(idx),
+						}
+					}
+				}
 				depth++
 			}
 
