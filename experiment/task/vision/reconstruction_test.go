@@ -1,13 +1,13 @@
 package vision
 
 import (
-	"encoding/base64"
 	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/store"
@@ -27,6 +27,8 @@ func TestReconstruction(t *testing.T) {
 						),
 						huggingface.DatasetWithSamples(100),
 						huggingface.DatasetWithTextColumn("img"),
+						huggingface.DatasetWithTransform(huggingface.DecodeImageBytes),
+						huggingface.DatasetWithPerSamplePos(),
 					),
 				),
 			)),
@@ -37,61 +39,32 @@ func TestReconstruction(t *testing.T) {
 		)
 
 		machine.Start()
-		loader.Holdout(50, 5, vm.HoldoutRandom)
+		loader.Holdout(50, vm.HoldoutRandom)
 		
 		Convey("When reconstructing masked out halves of images", func() {
 			var stripRows []projector.ImageStripRow
-			sampleIdx := 0
 
-			for ctx := range loader.Prompts() {
-				prompt := ctx.Tokens
-				target := ctx.Target
-				if len(prompt) == 0 {
-					continue
-				}
+			coder := tokenizer.NewMortonCoder()
+			var buf []data.Chord
 
-				// Capture original raw bytes
-				origBytes := make([]byte, len(target))
-				for i, t := range target {
-					origBytes[i] = byte(t.TokenID >> 24)
-				}
-				
-				// Reconstruct bytes
-				reconBytes := make([]byte, len(prompt))
-				for i, t := range prompt {
-					reconBytes[i] = byte(t.TokenID >> 24)
-				}
-				
-				for res := range machine.Prompt(prompt) {
-					So(res.Key, ShouldBeGreaterThan, 0)
-					reconBytes = append(reconBytes, byte(res.Key >> 24))
-					if len(reconBytes) >= len(origBytes) {
-						break
+			for chord := range loader.Generate() {
+				if chord.ActiveCount() == 0 {
+					var tokenIDs []uint64
+
+					for res := range machine.Prompt(buf) {
+						tokenIDs = append(tokenIDs, loader.Lookup([]data.Chord{res.Chord[0]})...)
 					}
-				}		
 
-				// The 'masked' image is original with zeros applied to missing spots.
-				// For the sake of the visualization, we can just supply the prompt sequence directly
-				// or reconstruct the sparse array for HoldoutRandom. With HoldoutRandom, prompt is a subset.
-				// A true mask applies 0s where tokens are missing. In this quick mapping we'll just show the generated mask sequence padded if needed.
-				maskedBytes := make([]byte, len(origBytes))
-				for _, t := range prompt {
-					if t.Pos < len(maskedBytes) {
-						maskedBytes[t.Pos] = byte(t.TokenID >> 24)
+					for _, tokenID := range tokenIDs {
+						b, _, _ := coder.Decode(tokenID)
+						fmt.Print(b)
 					}
-				}
 
-				stripRows = append(stripRows, projector.ImageStripRow{
-					Original:      base64.StdEncoding.EncodeToString(origBytes),
-					Masked:        base64.StdEncoding.EncodeToString(maskedBytes),
-					Reconstructed: base64.StdEncoding.EncodeToString(reconBytes),
-					Label:         fmt.Sprintf("CIFAR10 %d", sampleIdx),
-				})
-				sampleIdx++
-				
-				if sampleIdx >= 5 {
-					break // Just 5 strips for the figure
+					fmt.Println()
+					buf = buf[:0]
 				}
+				
+				buf = append(buf, chord)
 			}
 			
 			Convey("Artifacts should be written to the paper directory natively", func() {

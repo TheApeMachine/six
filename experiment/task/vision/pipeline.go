@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider/local"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -50,72 +51,44 @@ func NewPipeline(corpus [][]byte) *Pipeline {
 
 func (pipeline *Pipeline) Run() []ReconstructionResult {
 	pipeline.machine.Start()
-	// Split exactly into masked halves linearly
-	pipeline.loader.Holdout(50, 5, vm.HoldoutLinear) 
+	pipeline.loader.Holdout(50, vm.HoldoutLinear)
+
+	corpus, names := visionCorpus()
+
+	var prompt []data.Chord
+	for chord := range pipeline.loader.Generate() {
+		prompt = append(prompt, chord)
+	}
 
 	var results []ReconstructionResult
-	
-	// Access the visionCorpus globally within the package
-	corpus, names := visionCorpus()
-	eigenTable := buildEigenMode(corpus)
-	
-	sampleIdx := 0
-	for ctx := range pipeline.loader.Prompts() {
-		prompt := ctx.Tokens
-		originalImage := corpus[sampleIdx]
-		name := names[sampleIdx]
-		console.Info(fmt.Sprintf("--- Reconstructing %s (Prompt length: %d) ---", name, len(prompt)))
-		
-		var generatedOutput []byte
-		
-		promptBytes := make([]byte, len(prompt))
-		for i, tok := range prompt {
-			promptBytes[i] = byte(tok.TokenID >> 24)
+	for i, name := range names {
+		if i >= len(corpus) {
+			break
 		}
 
-		for res := range pipeline.machine.Prompt(prompt) {
-			if len(prompt) + len(generatedOutput) >= len(originalImage) {
-				break
-			}
-			
-			// Extract symbol from Morton Key natively via the architecture
-			symbol := byte(res.Key >> 24)
-			generatedOutput = append(generatedOutput, symbol)
-		}
-
-		fullOutput := append(promptBytes, generatedOutput...)
-		if len(fullOutput) > len(originalImage) {
-			fullOutput = fullOutput[:len(originalImage)]
-		}
-
-		matches := false
-		if len(fullOutput) == len(originalImage) {
-			matches = true
-			for i := range fullOutput {
-				if fullOutput[i] != originalImage[i] {
-					matches = false
-					break
-				}
-			}
-		}
-
-        anchorPhase, _ := weightedCircularMean(eigenTable, promptBytes)
-		closed := IsGeometricallyClosed(eigenTable, fullOutput, anchorPhase)
-
-		results = append(results, ReconstructionResult{
-			Name:      name,
-			TargetLen: len(originalImage),
-			Generated: len(fullOutput),
-			Matches:   matches,
-			Steps:     len(generatedOutput),
-			IsClosed:  closed,
-		})
-		
-		sampleIdx++
-		if sampleIdx >= len(names) {
-		    break
-		}
+		res := pipeline.processPrompt(prompt, corpus[i], name)
+		results = append(results, res)
 	}
-	
+
 	return results
+}
+
+func (pipeline *Pipeline) processPrompt(prompt []data.Chord, originalImage []byte, name string) ReconstructionResult {
+	console.Info(fmt.Sprintf("--- Reconstructing %s (Prompt length: %d) ---", name, len(prompt)))
+
+	var generatedChords []data.Chord
+
+	for res := range pipeline.machine.Prompt(prompt) {
+		if len(prompt)+len(generatedChords) >= len(originalImage) {
+			break
+		}
+		generatedChords = append(generatedChords, res.Chord[0])
+	}
+
+	return ReconstructionResult{
+		Name:      name,
+		TargetLen: len(originalImage),
+		Generated: len(generatedChords),
+		Steps:     len(generatedChords),
+	}
 }

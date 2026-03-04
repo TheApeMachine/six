@@ -4,11 +4,12 @@ import (
 	"math"
 	"unsafe"
 
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/gpu/metal"
+	"github.com/theapemachine/six/numeric"
 	"github.com/theapemachine/six/store"
-	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
@@ -43,10 +44,12 @@ func NewMachine(opts ...machineOpts) *Machine {
 
 func (machine *Machine) Start() error {
 	var chords []data.Chord
-	for token := range machine.loader.Generate() {
-		machine.primefield.Insert(token.Chord, token.TokenID)
-		chords = append(chords, token.Chord)
+
+	for chord := range machine.loader.Generate() {
+		machine.primefield.Insert(chord)
+		chords = append(chords, chord)
 	}
+	
 	return machine.eigen.BuildMultiScaleCooccurrence(chords)
 }
 
@@ -55,7 +58,6 @@ SpanResult is the output of a single GPU MultiChord probe.
 */
 type SpanResult struct {
 	Index int
-	Key   uint64
 	Score float64
 	Chord data.MultiChord
 }
@@ -65,27 +67,13 @@ Prompt simply clamps the input, executes a parallel GPU BestFill over all Fibona
 planes simultaneously, checks Eigenmode Intent alignment, and loops until
 the structure collapses or hits an end-token.
 */
-func (machine *Machine) Prompt(prompt []tokenizer.Token) chan SpanResult {
+func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 	out := make(chan SpanResult)
 
 	go func() {
 		defer close(out)
 
-		var buf []data.Chord
-
-		// 1. Emit prompt tokens as baseline results and buffer.
-		for _, token := range prompt {
-			out <- SpanResult{
-				Key:   token.TokenID,
-				Score: 1.0,
-			}
-			buf = append(buf, token.Chord)
-
-			if len(buf) > 21 {
-				buf = buf[1:]
-			}
-		}
-
+		buf := append([]data.Chord{}, prompt...)
 		currentIdx := 0
 
 		for {
@@ -95,18 +83,18 @@ func (machine *Machine) Prompt(prompt []tokenizer.Token) chan SpanResult {
 
 			// Build current active context MultiChord directly matching GPU topology
 			var activeCtx data.MultiChord
-			fibs := []int{3, 5, 8, 13, 21}
-			for i, w := range fibs {
-				start := len(buf) - w
-				if start < 0 {
-					start = 0
-				}
+
+			for i, w := range numeric.FibWindows {
+				start := max(len(buf) - w, 0)
+				
 				var agg data.Chord
+				
 				for _, c := range buf[start:] {
 					for j := range agg {
 						agg[j] |= c[j]
 					}
 				}
+				
 				activeCtx[i] = agg
 			}
 
@@ -122,10 +110,10 @@ func (machine *Machine) Prompt(prompt []tokenizer.Token) chan SpanResult {
 			)
 
 			if err != nil || bestIdx < 0 || bestIdx >= machine.primefield.N {
+				console.Error(MachineErrNotFound)
 				return
 			}
 
-			key := machine.primefield.Key(bestIdx)
 			mChord := machine.primefield.MultiChord(bestIdx)
 
 			// Semantic compass: phase from candidate chord (finest scale)
@@ -133,36 +121,37 @@ func (machine *Machine) Prompt(prompt []tokenizer.Token) chan SpanResult {
 			candTheta, candPhi := machine.eigen.PhaseForChord(&candChord)
 
 			diffTheta := math.Abs(candTheta - ctxTheta)
+			
 			if diffTheta > math.Pi {
 				diffTheta = 2*math.Pi - diffTheta
 			}
+
 			diffPhi := math.Abs(candPhi - ctxPhi)
+			
 			if diffPhi > math.Pi {
 				diffPhi = 2*math.Pi - diffPhi
 			}
 
 			// Deduct resonance percentage points for Toroidal misalignment
+			// NOTE: This should be a derived, not a guessed value.
 			score -= (diffTheta / math.Pi) * 0.10
 			score -= (diffPhi / math.Pi) * 0.10
 
-			if score < 0.6 {
-				return // End of logical continuation! Stop Generation.
-			}
-
 			out <- SpanResult{
 				Index: bestIdx,
-				Key:   key,
 				Score: score,
 				Chord: mChord,
 			}
 
 			// Append candidate chord to sliding window (chord-native)
 			buf = append(buf, candChord)
+
 			if len(buf) > 21 {
 				buf = buf[1:]
 			}
 
-			currentIdx = bestIdx + 1 // Advance
+			currentIdx = bestIdx + 1 // Advance 
+			// (NOTE: Should this not take into account the span length?)
 		}
 	}()
 
@@ -173,4 +162,14 @@ func MachineWithLoader(loader *Loader) machineOpts {
 	return func(machine *Machine) {
 		machine.loader = loader
 	}
+}
+
+type MachineError string
+
+const (
+	MachineErrNotFound MachineError = "no chord found"
+)
+
+func (e MachineError) Error() string {
+	return string(e)
 }

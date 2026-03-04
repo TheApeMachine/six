@@ -24,9 +24,11 @@ via the Fiber/fasthttp client, and emits column values through
 a channel as byte-position pairs.
 */
 type Dataset struct {
-	repo       string
-	textColumn string
-	maxSamples int
+	repo         string
+	textColumn   string
+	maxSamples   int
+	transform    func([]byte) ([]byte, error)
+	perSamplePos bool
 }
 
 type datasetOpts func(*Dataset)
@@ -44,7 +46,7 @@ func New(opts ...datasetOpts) *Dataset {
 }
 
 /*
-Generate streams the text column as (byte, position) pairs.
+Generate streams the column as (byte, position) pairs.
 The returned channel closes when all data has been emitted.
 */
 func (dataset *Dataset) Generate() chan provider.RawToken {
@@ -62,6 +64,9 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 				pos++
 			}
 			sampleID++
+			if dataset.perSamplePos {
+				pos = 0
+			}
 
 			return true
 		}); err != nil {
@@ -120,7 +125,7 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 		return fmt.Errorf("huggingface: column %s not found", dataset.textColumn)
 	}
 
-	totalBytes := 0
+	sampleCount := 0
 	valueBuf := make([]parquet.Value, 256)
 
 	for _, rg := range pFile.RowGroups() {
@@ -137,19 +142,22 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 						continue
 					}
 
-					text := string(valueBuf[i].ByteArray())
+					rawBytes := valueBuf[i].ByteArray()
+
+					if dataset.transform != nil {
+						var err error
+						if rawBytes, err = dataset.transform(rawBytes); err != nil {
+							continue
+						}
+					}
+
+					text := string(rawBytes)
 
 					if text == "" {
 						continue
 					}
 
-					if dataset.maxSamples > 0 && totalBytes+len(text) > dataset.maxSamples {
-						remaining := dataset.maxSamples - totalBytes
-
-						if remaining > 0 {
-							fn(text[:remaining])
-						}
-
+					if dataset.maxSamples > 0 && sampleCount >= dataset.maxSamples {
 						pages.Close()
 						return nil
 					}
@@ -159,7 +167,7 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 						return nil
 					}
 
-					totalBytes += len(text)
+					sampleCount++
 				}
 
 				if readErr != nil {
@@ -221,10 +229,7 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 			continue
 		}
 
-		if dataset.maxSamples > 0 && total+len(text) > dataset.maxSamples {
-			if rem := dataset.maxSamples - total; rem > 0 {
-				fn(text[:rem])
-			}
+		if dataset.maxSamples > 0 && total >= dataset.maxSamples {
 			return nil
 		}
 
@@ -232,7 +237,7 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 			return nil
 		}
 
-		total += len(text)
+		total++
 	}
 
 	return nil
@@ -380,5 +385,17 @@ func DatasetWithTextColumn(col string) datasetOpts {
 func DatasetWithSamples(n int) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.maxSamples = n
+	}
+}
+
+func DatasetWithTransform(fn func([]byte) ([]byte, error)) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.transform = fn
+	}
+}
+
+func DatasetWithPerSamplePos() datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.perSamplePos = true
 	}
 }

@@ -1,7 +1,10 @@
 package vm
 
 import (
-	"github.com/theapemachine/six/numeric"
+	"math/rand"
+
+	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 )
@@ -20,14 +23,14 @@ type Loader struct {
 	samples     int
 	prompt      bool
 	holdoutType HoldoutType
-	bufs        map[uint32][]tokenizer.Token
+	bufs        []data.Chord
 }
 
 type loaderOpts func(*Loader)
 
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
-		bufs: make(map[uint32][]tokenizer.Token),
+		bufs: make([]data.Chord, 0),
 	}
 
 	for _, opt := range opts {
@@ -41,51 +44,28 @@ func NewLoader(opts ...loaderOpts) *Loader {
 Generate yields all tokens through a channel for the Machine
 to ingest.
 */
-func (loader *Loader) Generate() chan tokenizer.Token {
-	out := make(chan tokenizer.Token)
+func (loader *Loader) Generate() chan data.Chord {
+	out := make(chan data.Chord)
 
 	go func() {
 		defer close(out)
 
 		for token := range loader.tokenizer.Generate() {
+			if !loader.validate(token) {
+				console.Error(LoaderErrInvalidToken)
+				return
+			}
+
 			if loader.prompt {
-				loader.bufs[token.SampleID] = append(loader.bufs[token.SampleID], token)
+				if token.Pos == 0 {
+					out <-<-loader.flushPrompt()
+					loader.bufs = loader.bufs[:0]
+				}
+
+				loader.bufs = append(loader.bufs, token.Chord)
 			} else {
 				loader.store.Insert(token.TokenID, token.Chord)
-				out <- token
-			}
-		}
-
-		if loader.prompt {
-			// Maintain previous Generate() fallback behaviour by flattening bufs
-			// Not guaranteed sorted by sample ID, but keeps interface intact
-			for _, buf := range loader.bufs {
-				switch loader.holdoutType {
-				case HoldoutLinear:
-					start := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
-					for _, t := range buf[start:] {
-						out <- tokenizer.Token{
-							TokenID:  t.TokenID,
-							SampleID: t.SampleID,
-							Chord:    t.Chord,
-						}
-					}
-				case HoldoutRandom:
-					// For random masking, holdout N% of tokens randomly
-					maskCount := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
-					// using simple deterministic hash of token ID for stability instead of math/rand
-					masked := 0
-					for _, t := range buf {
-						if masked < maskCount && (t.TokenID%3) == 0 {
-							out <- tokenizer.Token{
-								TokenID:  t.TokenID,
-								SampleID: t.SampleID,
-								Chord:    t.Chord,
-							}
-							masked++
-						}
-					}
-				}
+				out <- token.Chord
 			}
 		}
 	}()
@@ -93,82 +73,74 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 	return out
 }
 
-type PromptContext struct {
-	Tokens []tokenizer.Token
-	Target []tokenizer.Token
-}
-
 /*
-Prompts yields holdout samples as discrete slices for independent generation.
+flushPrompt flushes the current buffer to the store.
 */
-func (loader *Loader) Prompts() chan PromptContext {
-	out := make(chan PromptContext)
+func (loader *Loader) flushPrompt() chan data.Chord {
+	out := make(chan data.Chord)
 
 	go func() {
 		defer close(out)
 
-		// Fill bufs if empty
-		if len(loader.bufs) == 0 {
-			for _ = range loader.Generate() {
+		switch loader.holdoutType {
+		case HoldoutLinear:
+			start := int(float64(len(loader.bufs)) * float64(loader.holdout) / 100.0)
+			for _, chord := range loader.bufs[start:] {
+				out <- chord
+			}
+		case HoldoutRandom:
+			for _, chord := range loader.randomHoldout(loader.bufs) {
+				out <- chord
 			}
 		}
 
-		emitted := 0
-		for _, buf := range loader.bufs {
-			if loader.samples > 0 && emitted >= loader.samples {
-				break
-			}
-
-			var linear []tokenizer.Token
-			for _, t := range buf {
-				if t.Scale == numeric.FibWindows[0] {
-					linear = append(linear, t)
-				}
-			}
-
-			switch loader.holdoutType {
-			case HoldoutLinear:
-				start := int(float64(len(linear)) * float64(loader.holdout) / 100.0)
-				if start > 0 && start <= len(linear) {
-					out <- PromptContext{
-						Tokens: linear[:start],
-						Target: linear,
-					}
-					emitted++
-				}
-			case HoldoutRandom:
-				// Random holdout means the prompt contains holes!
-				// We keep the first 100-N% of tokens by filtering
-				maskCount := int(float64(len(linear)) * float64(loader.holdout) / 100.0)
-				var prompt []tokenizer.Token
-				masked := 0
-				for _, t := range linear {
-					// Poking holes deterministically
-					if masked < maskCount && (t.TokenID%3) == 0 {
-						masked++
-						continue
-					}
-					prompt = append(prompt, t)
-				}
-				if len(prompt) > 0 {
-					out <- PromptContext{
-						Tokens: prompt,
-						Target: linear,
-					}
-					emitted++
-				}
-			}
-		}
+		out <- data.Chord{}
 	}()
 
 	return out
 }
 
-func (loader *Loader) Holdout(n int, samples int, t HoldoutType) {
+/*
+randomHoldout removes N% of tokens from the buffer randomly.
+*/
+func (loader *Loader) randomHoldout(buf []data.Chord) []data.Chord {
+	maskCount := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
+	
+	// using simple deterministic hash of token ID for stability instead of math/rand
+	masked := make([]data.Chord, 0)
+	
+	for _, chord := range buf {
+		// Use loader.holdout as a percentage.
+		rnd := rand.Intn(100) % maskCount
+		
+		if rnd == 0 {
+			masked = append(masked, chord)
+		}
+	}
+
+	return masked
+}	
+
+func (loader *Loader) validate(token tokenizer.Token) bool {
+	return token.TokenID > 0 && token.Chord.ActiveCount() > 0
+}
+
+func (loader *Loader) Holdout(n int, t HoldoutType) {
 	loader.holdout = n
-	loader.samples = samples
 	loader.holdoutType = t
 	loader.prompt = true
+}
+
+func (loader *Loader) Lookup(chords []data.Chord) []uint64 {
+	var out []uint64
+
+	for _, chord := range chords {
+		if key := loader.store.ReverseLookup(chord); key > 0 {
+			out = append(out, key)
+		}
+	}
+
+	return out
 }
 
 func LoaderWithStore(store store.Store) loaderOpts {
@@ -187,6 +159,9 @@ type LoaderError string
 
 const (
 	LoaderErrDecode LoaderError = "failed to decode chord"
+	LoaderErrEmptyBuffer LoaderError = "empty buffer"
+	LoaderErrEmptyPrompt LoaderError = "empty prompt"
+	LoaderErrInvalidToken LoaderError = "invalid token"
 )
 
 func (e LoaderError) Error() string {

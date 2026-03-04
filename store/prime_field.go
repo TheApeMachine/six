@@ -17,7 +17,6 @@ that the GPU scans in parallel via bitwise_best_fill.
 type PrimeField struct {
 	mu     sync.RWMutex
 	chords []data.MultiChord
-	keys   []uint64
 	N      int
 
 	// buf keeps the last 21 chords to compute MultiChords dynamically on insert
@@ -28,7 +27,6 @@ func NewPrimeField() *PrimeField {
 	return &PrimeField{
 		N:      0,
 		chords: make([]data.MultiChord, 0),
-		keys:   make([]uint64, 0),
 		buf:    make([]data.Chord, 0, 21),
 	}
 }
@@ -38,11 +36,12 @@ Insert appends a chord to the flat field and records its Morton key
 for decode. It automatically expands the single chord into a MultiChord
 across all Fibonacci Windows. Returns the index assigned.
 */
-func (field *PrimeField) Insert(chord data.Chord, key uint64) {
+func (field *PrimeField) Insert(chord data.Chord) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 
 	field.buf = append(field.buf, chord)
+	
 	if len(field.buf) > 21 {
 		field.buf = field.buf[1:]
 	}
@@ -63,7 +62,6 @@ func (field *PrimeField) Insert(chord data.Chord, key uint64) {
 	}
 
 	field.chords = append(field.chords, multi)
-	field.keys = append(field.keys, key)
 	field.N++
 }
 
@@ -90,16 +88,6 @@ func (field *PrimeField) MultiChord(idx int) data.MultiChord {
 	defer field.mu.RUnlock()
 
 	return field.chords[idx]
-}
-
-/*
-Key returns the Morton key for a given index.
-*/
-func (field *PrimeField) Key(idx int) uint64 {
-	field.mu.RLock()
-	defer field.mu.RUnlock()
-
-	return field.keys[idx]
 }
 
 /*

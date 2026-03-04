@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -44,40 +45,27 @@ func NewPipeline() *Pipeline {
 
 func (pipeline *Pipeline) Run() {
 	pipeline.machine.Start()
-	pipeline.loader.Holdout(50, 5, vm.HoldoutLinear) // Set 50% holdout strings
+	pipeline.loader.Holdout(50, vm.HoldoutLinear)
 
-	sampleIdx := 0
-	for ctx := range pipeline.loader.Prompts() {
-		prompt := ctx.Tokens
-		console.Info(fmt.Sprintf("--- Sample %d (Prompt length: %d) ---", sampleIdx, len(prompt)))
-		sampleIdx++
-		count := 0
+	var prompt []data.Chord
+	for chord := range pipeline.loader.Generate() {
+		prompt = append(prompt, chord)
+	}
 
-		var generatedOutput []byte
+	if len(prompt) == 0 {
+		console.Info("No prompt chords generated.")
+		return
+	}
 
-		for res := range pipeline.machine.Prompt(prompt) {
-			if count > 100 {
-				break
-			}
-			// Skip printing the prompt baseline tokens.
-			if res.Score == 1.0 {
-				continue
-			}
+	console.Info(fmt.Sprintf("--- Prompt length: %d chords ---", len(prompt)))
 
-			// Extract the symbol from the Morton Key
-			// Encode did (symbol << 24) | pos
-			symbol := byte(res.Key >> 24)
-			generatedOutput = append(generatedOutput, symbol)
-
-			count++
+	count := 0
+	for res := range pipeline.machine.Prompt(prompt) {
+		if count > 100 {
+			break
 		}
 
-		if len(generatedOutput) > 0 {
-			console.Info(fmt.Sprintf("Generated Code (first %d tokens):", len(generatedOutput)))
-			// Print the raw generated text
-			console.Info(string(generatedOutput))
-		} else {
-			console.Info("No new code generated.")
-		}
+		console.Info(fmt.Sprintf("Chord %d: score=%.3f", res.Index, res.Score))
+		count++
 	}
 }

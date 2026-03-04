@@ -15,7 +15,6 @@ func TestNewPrimeField(t *testing.T) {
 			So(pf, ShouldNotBeNil)
 			So(pf.N, ShouldEqual, 0)
 			So(len(pf.chords), ShouldEqual, 0)
-			So(len(pf.keys), ShouldEqual, 0)
 			So(len(pf.buf), ShouldEqual, 0)
 		})
 	})
@@ -31,17 +30,13 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 			for i := range numItems {
 				chord := data.Chord{}
 				chord[0] = uint64(i + 1)
-				pf.Insert(chord, uint64(1000+i))
+				pf.Insert(chord)
 			}
 
 			So(pf.N, ShouldEqual, numItems)
 
 			// Verify multi-chord aggregation
-			So(len(pf.keys), ShouldEqual, numItems)
-
 			for i := 50; i < 150; i++ {
-				So(pf.Key(i), ShouldEqual, uint64(1000+i))
-
 				multi := pf.MultiChord(i)
 				// The buffer automatically creates OR-aggregations of up to 21 past chords
 				So(multi[0][0], ShouldNotEqual, 0)
@@ -61,7 +56,7 @@ func TestPrimeFieldField(t *testing.T) {
 		})
 
 		Convey("When calling Field on a populated field", func() {
-			pf.Insert(data.Chord{}, 42)
+			pf.Insert(data.Chord{})
 			ptr := pf.Field()
 			So(ptr, ShouldNotBeNil)
 
@@ -79,7 +74,7 @@ func TestPrimeFieldMaskUnmaskExhaustive(t *testing.T) {
 		for i := range 1000 {
 			chord := data.Chord{}
 			chord[0] = uint64(i + 1)
-			pf.Insert(chord, uint64(i))
+			pf.Insert(chord)
 		}
 
 		Convey("When masking and unmasking numerous indices", func() {
