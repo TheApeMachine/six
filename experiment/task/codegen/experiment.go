@@ -1,4 +1,4 @@
-package textgen
+package codegen
 
 import (
 	"crypto/sha256"
@@ -94,10 +94,95 @@ func (experiment *Experiment) Run() error {
 	console.Info("=============================================================")
 	spanData := experiment.testSpanSolver(corpus)
 
+	// ── Test 2: Span Ranking BVP ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 2: Span Ranking BVP (Whole-Span Selection)")
+	console.Info("=============================================================")
+	rankingData := experiment.testSpanRanking(corpus)
+
+	// ── Test 3: Span Chaining ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 3: Span Chaining (Multi-Span Generation)")
+	console.Info("=============================================================")
+	chainingData := experiment.testSpanChaining(corpus)
+
+	// ── Test 4: Overlap-Aware Span Chaining ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 4: Overlap-Aware Span Chaining")
+	console.Info("=============================================================")
+	overlapData := experiment.testOverlapChaining(corpus)
+
+	// ── Test 5: Long Program Generation ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 5: Long Program Generation")
+	console.Info("=============================================================")
+	extendedCorpus := append(corpus, longCorpus()...)
+	longGenData := experiment.testLongGeneration(extendedCorpus)
+
+	// ── Test 6: Out-of-Corpus Compositional Generation ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 6: Out-of-Corpus Compositional Generation (Zero Heuristics)")
+	console.Info("=============================================================")
+	compGenData := experiment.testCompositionalGeneration(extendedCorpus)
+
+	// ── Test 7: Structural Sensitivity Probe ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 7: Structural Sensitivity Probe")
+	console.Info("=============================================================")
+	structSensData := experiment.testStructuralSensitivity()
+
+	// ── Test 8: Eigenmode Probe ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 8: Eigenmode Probe (PCA over Span Fingerprints)")
+	console.Info("=============================================================")
+	eigenmodeData := experiment.testEigenmodeProbe(extendedCorpus)
+
+	// ── Test 9: Phase-Triggered Manifold Bridging ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 9: Phase-Triggered Manifold Bridging")
+	console.Info("=============================================================")
+	bridgingData := experiment.testPhaseBridging(extendedCorpus)
+
+	// ── Test 10: Cantilever-Gated Span Retrieval ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 10: Cantilever-Gated Span Retrieval")
+	console.Info("=============================================================")
+	cantileverData := experiment.testCantileverGating(extendedCorpus)
+
+	// ── Test 11: Relative Cantilever Scale Selection ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 11: Relative Cantilever Scale Selection")
+	console.Info("=============================================================")
+	relCantData := experiment.testRelativeCantilever(extendedCorpus)
+
+	// ── Test 12: Chord-Based Generation (BVP over FibWindow Chords) ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 12: Chord-Based Generation (BVP over FibWindow Chords)")
+	console.Info("=============================================================")
+	chordGenData := experiment.testChordGeneration(extendedCorpus)
+	// ── Test 13: Pipeline Integration ──
+	console.Info("\n=============================================================")
+	console.Info("TEST 13: Pipeline Integration (HuggingFace → Tokenizer → LSM)")
+	console.Info("=============================================================")
+	pipelineData := NewPipeline()
+	pipelineData.Run()
+
 	report := ValidationReport{
-		CorpusHash: corpusSig,
-		CorpusSize: len(corpus),
-		SpanData:   spanData,
+		CorpusHash:      corpusSig,
+		CorpusSize:      len(corpus),
+		SpanData:        spanData,
+		RankingData:     rankingData,
+		ChainingData:    chainingData,
+		OverlapData:     overlapData,
+		LongGenData:     longGenData,
+		CompGenData:     compGenData,
+		StructSensData:  structSensData,
+		EigenmodeData:   eigenmodeData,
+		BridgingData:    bridgingData,
+		CantileverData:  cantileverData,
+		RelCantData:     relCantData,
+		ChordGenData:    chordGenData,
+		PipelineData:    pipelineData,
 	}
 
 	console.Info("\n=======================================================")

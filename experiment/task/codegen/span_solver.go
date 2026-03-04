@@ -1,4 +1,4 @@
-package textgen
+package codegen
 
 import (
 	"fmt"
@@ -28,7 +28,8 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 	D := numeric.NBasis
 
 	// ── Step 1: Build span memory ──
-	const spanLen = 8   // tokens per span
+	spanLengths := numeric.FibWindows // {3, 5, 8, 13, 21}
+	const outLen = 8    // output tokens for per-position voting (middle FibWindow)
 	const topK = 16     // candidate spans to retrieve
 	const nRefine = 3   // BVP refinement iterations
 	const nDial = 6     // PhaseDial sweep angles for diversity
@@ -45,21 +46,24 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 	totalSpans := 0
 	for corpIdx, fn := range corpus {
 		tokens := tokenize(fn)
-		if len(tokens) < spanLen {
-			continue
-		}
-		for start := 0; start <= len(tokens)-spanLen; start++ {
-			span := tokens[start : start+spanLen]
-			spanText := detokenize(span)
-			fp := numeric.EncodeText(spanText)
-			readout := []byte(spanText)
-			substrate.Add(universalFilter, fp, readout)
-			spanIndex = append(spanIndex, spanMeta{tokens: span, source: corpIdx})
-			totalSpans++
+		for _, sLen := range spanLengths {
+			if len(tokens) < sLen {
+				continue
+			}
+			for start := 0; start <= len(tokens)-sLen; start++ {
+				span := make([]string, sLen)
+				copy(span, tokens[start:start+sLen])
+				spanText := detokenize(span)
+				fp := numeric.EncodeText(spanText)
+				readout := []byte(spanText)
+				substrate.Add(universalFilter, fp, readout)
+				spanIndex = append(spanIndex, spanMeta{tokens: span, source: corpIdx})
+				totalSpans++
+			}
 		}
 	}
 
-	console.Info(fmt.Sprintf("  Span memory: %d spans of length %d tokens", totalSpans, spanLen))
+	console.Info(fmt.Sprintf("  Span memory: %d spans across lengths %v", totalSpans, spanLengths))
 
 	candidates := make([]int, len(substrate.Entries))
 	for i := range candidates {
@@ -92,31 +96,31 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 		{
 			prefix:  "def factorial(n):",
 			suffix:  "",
-			spanLen: spanLen,
+			spanLen: outLen,
 			desc:    "Factorial — arithmetic recursion",
 		},
 		{
 			prefix:  "def find_max(lst):",
 			suffix:  "",
-			spanLen: spanLen,
+			spanLen: outLen,
 			desc:    "Find max — list iteration",
 		},
 		{
 			prefix:  "def is_palindrome(s):",
 			suffix:  "",
-			spanLen: spanLen,
+			spanLen: outLen,
 			desc:    "Palindrome check — string operation",
 		},
 		{
 			prefix:  "def binary_search(lst, target):",
 			suffix:  "",
-			spanLen: spanLen,
+			spanLen: outLen,
 			desc:    "Binary search — algorithm",
 		},
 		{
 			prefix:  "def filter_list(fn, lst):",
 			suffix:  "",
-			spanLen: spanLen,
+			spanLen: outLen,
 			desc:    "Filter — higher-order function",
 		},
 	}
@@ -376,6 +380,8 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 			HasColon:        r.hasColon,
 			UniqueRatio:     r.uniqueTokenRatio,
 			PrefixRelevance: r.prefixRelevance,
+			TopSpans:        r.topCandidates,
+			TopScores:       r.topScores,
 		}
 		results = append(results, entry)
 	}
@@ -389,7 +395,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 	console.Info(fmt.Sprintf("  Mean prefix relevance: %.4f", sumRelevance/n))
 
 	return SpanSolverResult{
-		SpanLength:       spanLen,
+		SpanLength:       outLen,
 		TopK:             topK,
 		RefineIterations: nRefine,
 		DialAngles:       nDial,

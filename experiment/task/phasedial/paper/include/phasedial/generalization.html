@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Torus Generalization</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        html, body { margin: 0; padding: 0; background-color: transparent; color: #0f172a; font-family: 'Helvetica Neue', Arial, sans-serif; width: 1200px; height: 700px; }
+        #chart { width: 1200px; height: 700px; background: transparent; padding: 20px; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        const genData = {"seeds":[{"seed_query":"Democracy requires individual sacrifice.","text_b":"A rolling stone gathers no moss.","single_ceiling":0.13297593189643192,"splits":[{"split_name":"T²-256/256","num_axes":2,"step_deg":5,"best_gain":0.14167383518538249,"single_ceiling":0.13297593189643192,"delta":0.008697903288950565,"super_additive":true,"best_angles":[50,239.99999999999997],"best_c":"True freedom is to be able to use any power for good.","best_sim_ca":0.14167383518538249,"best_sim_cb":0.18419606254904153,"energy_a":[0.5077818091105678,0.49221819088943225],"energy_b":[0.5343928318935924,0.46560716810640795]},{"split_name":"T²-128/384","num_axes":2,"step_deg":5,"best_gain":0.13297593189643192,"single_ceiling":0.13297593189643192,"delta":0,"super_additive":false,"best_angles":[235,325],"best_c":"Truth is stranger than fiction.","best_sim_ca":0.13297593189643192,"best_sim_cb":0.19700434693283478,"energy_a":[0.2316012102733334,0.7683987897266663],"energy_b":[0.2812646158288952,0.7187353841711052]},{"split_name":"T²-384/128","num_axes":2,"step_deg":5,"best_gain":0.13297593189643192,"single_ceiling":0.13297593189643192,"delta":0,"super_additive":false,"best_angles":[310,20],"best_c":"Truth is stranger than fiction.","best_sim_ca":0.13297593189643192,"best_sim_cb":0.19700434693283478,"energy_a":[0.7416506970039001,0.25834930299610054],"energy_b":[0.764019142290128,0.23598085770987226]},{"split_name":"T⁴-4×128","num_axes":4,"step_deg":30,"best_gain":0.14167383518538249,"single_ceiling":0.13297593189643192,"delta":0.008697903288950565,"super_additive":true,"best_angles":[29.999999999999996,149.99999999999997,239.99999999999997,90],"best_c":"True freedom is to be able to use any power for good.","best_sim_ca":0.14167383518538249,"best_sim_cb":0.18419606254904153,"energy_a":[0.2316012102733334,0.2761805988372341,0.233868887893332,0.25834930299610054],"energy_b":[0.2812646158288952,0.25312821606469754,0.22962631039653533,0.23598085770987226]},{"split_name":"T²-random","num_axes":2,"step_deg":5,"best_gain":0.13297593189643192,"single_ceiling":0.13297593189643192,"delta":0,"super_additive":false,"best_angles":[0,255.00000000000003],"best_c":"Truth is stranger than fiction.","best_sim_ca":0.13297593189643192,"best_sim_cb":0.19700434693283478,"energy_a":[0.520003329894487,0.47999667010551295],"energy_b":[0.4854854797627506,0.5145145202372502]},{"split_name":"T²-energy","num_axes":2,"step_deg":5,"best_gain":0.14167383518538249,"single_ceiling":0.13297593189643192,"delta":0.008697903288950565,"super_additive":true,"best_angles":[155,80],"best_c":"True freedom is to be able to use any power for good.","best_sim_ca":0.14167383518538249,"best_sim_cb":0.18419606254904153,"energy_a":[0.19628736618173184,0.8037126338182682],"energy_b":[0.6388965583218522,0.3611034416781484]}]},{"seed_query":"Knowledge is power.","text_b":"Silence is the master of matters.","single_ceiling":0.14785465858645333,"splits":[{"split_name":"T²-256/256","num_axes":2,"step_deg":5,"best_gain":0.14785465858645333,"single_ceiling":0.14785465858645333,"delta":0,"super_additive":false,"best_angles":[0,185],"best_c":"A rolling stone gathers no moss.","best_sim_ca":0.14785465858645333,"best_sim_cb":0.17085519341902156,"energy_a":[0.5048467723697065,0.4951532276302944],"energy_b":[0.5269815717095009,0.4730184282904983]},{"split_name":"T²-128/384","num_axes":2,"step_deg":5,"best_gain":0.13061496815366258,"single_ceiling":0.14785465858645333,"delta":-0.01723969043279075,"super_additive":false,"best_angles":[0,5],"best_c":"Freedom is the right to tell people what they do not want to hear.","best_sim_ca":0.13061496815366258,"best_sim_cb":0.3198039409475174,"energy_a":[0.24349380058945094,0.756506199410549],"energy_b":[0.26171177377150995,0.738288226228489]},{"split_name":"T²-384/128","num_axes":2,"step_deg":5,"best_gain":0.13061496815366258,"single_ceiling":0.14785465858645333,"delta":-0.01723969043279075,"super_additive":false,"best_angles":[0,10],"best_c":"Freedom is the right to tell people what they do not want to hear.","best_sim_ca":0.13061496815366258,"best_sim_cb":0.3198039409475174,"energy_a":[0.7485977523987786,0.2514022476012218],"energy_b":[0.7632487516699316,0.23675124833006847]},{"split_name":"T⁴-4×128","num_axes":4,"step_deg":30,"best_gain":0.14785465858645333,"single_ceiling":0.14785465858645333,"delta":0,"super_additive":false,"best_angles":[0,0,180,210],"best_c":"A rolling stone gathers no moss.","best_sim_ca":0.14785465858645333,"best_sim_cb":0.17085519341902156,"energy_a":[0.24349380058945094,0.2613529717802553,0.2437509800290722,0.2514022476012218],"energy_b":[0.26171177377150995,0.2652697979379908,0.23626717996042995,0.23675124833006847]},{"split_name":"T²-random","num_axes":2,"step_deg":5,"best_gain":0.13061496815366258,"single_ceiling":0.14785465858645333,"delta":-0.01723969043279075,"super_additive":false,"best_angles":[5,5],"best_c":"Freedom is the right to tell people what they do not want to hear.","best_sim_ca":0.13061496815366258,"best_sim_cb":0.3198039409475174,"energy_a":[0.4792718523955513,0.5207281476044491],"energy_b":[0.5641045926909534,0.43589540730904563]},{"split_name":"T²-energy","num_axes":2,"step_deg":5,"best_gain":0.13061496815366258,"single_ceiling":0.14785465858645333,"delta":-0.01723969043279075,"super_additive":false,"best_angles":[0,10],"best_c":"Freedom is the right to tell people what they do not want to hear.","best_sim_ca":0.13061496815366258,"best_sim_cb":0.3198039409475174,"energy_a":[0.255691657147111,0.7443083428528888],"energy_b":[0.7859087648949801,0.21409123510501943]}]},{"seed_query":"Nature does not hurry, yet everything is accomplished.","text_b":"Discipline is the bridge between goals and accomplishment.","single_ceiling":0.1913750210148435,"splits":[{"split_name":"T²-256/256","num_axes":2,"step_deg":5,"best_gain":0.1913750210148435,"single_ceiling":0.1913750210148435,"delta":0,"super_additive":false,"best_angles":[0,339.99999999999994],"best_c":"Haste makes waste.","best_sim_ca":0.1913750210148435,"best_sim_cb":0.27421253728523326,"energy_a":[0.46061021243989,0.5393897875601106],"energy_b":[0.4775956384215163,0.5224043615784816]},{"split_name":"T²-128/384","num_axes":2,"step_deg":5,"best_gain":0.1913750210148435,"single_ceiling":0.1913750210148435,"delta":0,"super_additive":false,"best_angles":[0,345],"best_c":"Haste makes waste.","best_sim_ca":0.1913750210148435,"best_sim_cb":0.27421253728523326,"energy_a":[0.24659866920567128,0.7534013307943294],"energy_b":[0.25768115663121915,0.7423188433687796]},{"split_name":"T²-384/128","num_axes":2,"step_deg":5,"best_gain":0.1913750210148435,"single_ceiling":0.1913750210148435,"delta":0,"super_additive":false,"best_angles":[0,5],"best_c":"Haste makes waste.","best_sim_ca":0.1913750210148435,"best_sim_cb":0.27421253728523326,"energy_a":[0.7319245100042137,0.2680754899957861],"energy_b":[0.7394255814143484,0.2605744185856512]},{"split_name":"T⁴-4×128","num_axes":4,"step_deg":30,"best_gain":0.1913750210148435,"single_ceiling":0.1913750210148435,"delta":0,"super_additive":false,"best_angles":[0,0,0,29.999999999999996],"best_c":"Haste makes waste.","best_sim_ca":0.1913750210148435,"best_sim_cb":0.27421253728523326,"energy_a":[0.24659866920567128,0.2140115432342185,0.2713142975643243,0.2680754899957861],"energy_b":[0.25768115663121915,0.21991448179029696,0.2618299429928311,0.2605744185856512]},{"split_name":"T²-random","num_axes":2,"step_deg":5,"best_gain":0.1913750210148435,"single_ceiling":0.1913750210148435,"delta":0,"super_additive":false,"best_angles":[0,5],"best_c":"Haste makes waste.","best_sim_ca":0.1913750210148435,"best_sim_cb":0.27421253728523326,"energy_a":[0.48417128561644085,0.5158287143835594],"energy_b":[0.5387411180033421,0.461258881996656]},{"split_name":"T²-energy","num_axes":2,"step_deg":5,"best_gain":0.1913750210148435,"single_ceiling":0.1913750210148435,"delta":0,"super_additive":false,"best_angles":[0,260],"best_c":"Haste makes waste.","best_sim_ca":0.1913750210148435,"best_sim_cb":0.27421253728523326,"energy_a":[0.24313581760986905,0.7568641823901315],"energy_b":[0.7301875031434647,0.2698124968565341]}]}],"any_super_additive":true};
+        const seeds = genData.seeds || [];
+        if (seeds.length === 0) { document.body.innerHTML = '<p>No generalization data</p>'; }
+        else {
+            // X axis: split names (from first seed)
+            const splitNames = seeds[0].splits.map(s => s.split_name);
+            const seedLabels = seeds.map(s => {
+                const q = s.seed_query;
+                return q.length > 25 ? q.substring(0, 22) + '...' : q;
+            });
+
+            const colors = ['#22c55e', '#3b82f6', '#f59e0b'];
+            const series = seeds.map((seed, si) => ({
+                name: seedLabels[si],
+                type: 'bar',
+                data: seed.splits.map(sp => sp.best_gain),
+                itemStyle: { color: colors[si % colors.length] },
+                barGap: '10%'
+            }));
+
+            // Add 1D ceiling reference line (use first seed's ceiling)
+            const ceiling = seeds[0].single_ceiling;
+            series.push({
+                name: '1D Ceiling',
+                type: 'line',
+                data: splitNames.map(() => ceiling),
+                symbol: 'none',
+                lineStyle: { type: 'dashed', width: 2, color: '#ef4444' },
+                itemStyle: { color: '#ef4444' }
+            });
+
+            // Super-additive markers
+            const markers = [];
+            seeds.forEach((seed, si) => {
+                seed.splits.forEach((sp, spi) => {
+                    if (sp.super_additive) {
+                        markers.push({
+                            coord: [spi, sp.best_gain + 0.003],
+                            value: '\u2713',
+                            itemStyle: { color: 'transparent' },
+                            label: { show: true, formatter: '\u2713', color: colors[si % colors.length], fontSize: 16, fontWeight: 'bold' }
+                        });
+                    }
+                });
+            });
+            if (markers.length > 0 && series.length > 0) {
+                series[0].markPoint = { data: markers, symbol: 'none' };
+            }
+
+            const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+            chart.setOption({
+                backgroundColor: 'transparent',
+                animation: false,
+                tooltip: { trigger: 'axis', axisPointer: { type: 'shadow' } },
+                legend: {
+                    data: [...seedLabels, '1D Ceiling'],
+                    top: '3%',
+                    textStyle: { color: '#475569', fontSize: 11 }
+                },
+                grid: { left: '8%', right: '5%', top: '15%', bottom: '18%' },
+                xAxis: {
+                    type: 'category',
+                    data: splitNames,
+                    axisLabel: { color: '#475569', rotate: 15 },
+                    name: 'Split Configuration',
+                    nameLocation: 'middle',
+                    nameGap: 40,
+                    nameTextStyle: { color: '#475569' }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLabel: { color: '#475569' },
+                    splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+                    name: 'Best Gain',
+                    nameLocation: 'middle',
+                    nameGap: 35,
+                    nameTextStyle: { color: '#475569' }
+                },
+                series: series
+            });
+        }
+    </script>
+</body>
+</html>

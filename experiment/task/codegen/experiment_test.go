@@ -1,4 +1,4 @@
-package textgen
+package codegen
 
 import (
 	"testing"

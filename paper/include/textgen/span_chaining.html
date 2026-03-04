@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Span Chaining</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5/dist/echarts.min.js"></script>
+    <style>
+        html, body { margin: 0; padding: 0; background-color: transparent; color: #0f172a; font-family: 'Helvetica Neue', Arial, sans-serif; width: 1200px; height: 700px; }
+        #chart { width: 1200px; height: 700px; background: transparent; padding: 20px; box-sizing: border-box; }
+    </style>
+</head>
+<body>
+<div id="chart"></div>
+<script>
+var data = {"total_spans":1752,"max_chains":4,"entries":[{"desc":"Factorial — arithmetic recursion","prefix":"def factorial(n):","full_text":"def factorial(n): def factorial(n): if def factorial(n): if n \u003c= def factorial(n): if n \u003c= 1: return 1 return n * factorial(n - factorial(n): if n","chain":[{"step":1,"text":"def factorial(n): if","length":3,"sim_score":0.963479105313975,"source_idx":0,"exact_match":false,"continuity":false},{"step":2,"text":"def factorial(n): if n \u003c=","length":5,"sim_score":0.7257506306867687,"source_idx":0,"exact_match":false,"continuity":false},{"step":3,"text":"def factorial(n): if n \u003c= 1: return 1 return n * factorial(n -","length":13,"sim_score":0.5206814347432135,"source_idx":0,"exact_match":false,"continuity":false},{"step":4,"text":"factorial(n): if n","length":3,"sim_score":0.5220047635848708,"source_idx":0,"exact_match":false,"continuity":false}],"chain_length":4,"has_return":true,"has_colon":true,"has_loop":false,"looks_valid":true,"single_source":true,"source_count":1},{"desc":"Find max — list iteration","prefix":"def find_max(lst):","full_text":"def find_max(lst): def find_max(lst): if def find_min(lst): if def find_max(lst): if not lst: def find_min(lst): if not lst:","chain":[{"step":1,"text":"def find_max(lst): if","length":3,"sim_score":0.9701573758352272,"source_idx":11,"exact_match":false,"continuity":false},{"step":2,"text":"def find_min(lst): if","length":3,"sim_score":0.7006995483855635,"source_idx":12,"exact_match":false,"continuity":false},{"step":3,"text":"def find_max(lst): if not lst:","length":5,"sim_score":0.5543307710077625,"source_idx":11,"exact_match":false,"continuity":false},{"step":4,"text":"def find_min(lst): if not lst:","length":5,"sim_score":0.46589170802772273,"source_idx":12,"exact_match":false,"continuity":false}],"chain_length":4,"has_return":false,"has_colon":true,"has_loop":false,"looks_valid":false,"single_source":false,"source_count":2},{"desc":"Palindrome check — string operation","prefix":"def is_palindrome(s):","full_text":"def is_palindrome(s): def is_palindrome(s): return def is_palindrome(s): return s == for i in range(len(lst)): min_idx = i for j in range(i + 1, is_palindrome(s): return s","chain":[{"step":1,"text":"def is_palindrome(s): return","length":3,"sim_score":0.9246968126659425,"source_idx":19,"exact_match":false,"continuity":false},{"step":2,"text":"def is_palindrome(s): return s ==","length":5,"sim_score":0.7044450757122765,"source_idx":19,"exact_match":false,"continuity":false},{"step":3,"text":"for i in range(len(lst)): min_idx = i for j in range(i + 1,","length":13,"sim_score":0.3662359359627241,"source_idx":25,"exact_match":false,"continuity":false},{"step":4,"text":"is_palindrome(s): return s","length":3,"sim_score":0.48801756511020195,"source_idx":19,"exact_match":false,"continuity":false}],"chain_length":4,"has_return":true,"has_colon":true,"has_loop":true,"looks_valid":true,"single_source":false,"source_count":2},{"desc":"Binary search — algorithm","prefix":"def binary_search(lst, target):","full_text":"def binary_search(lst, target): def binary_search(lst, target): def binary_search(lst, target): low, high def binary_search(lst, target): low, high = 0, len(lst) def binary_search(lst, target): low, high = 0, len(lst) - 1 while low \u003c=","chain":[{"step":1,"text":"def binary_search(lst, target):","length":3,"sim_score":1.065,"source_idx":26,"exact_match":true,"continuity":false},{"step":2,"text":"def binary_search(lst, target): low, high","length":5,"sim_score":0.79922431131346,"source_idx":26,"exact_match":false,"continuity":false},{"step":3,"text":"def binary_search(lst, target): low, high = 0, len(lst)","length":8,"sim_score":0.6029929181944422,"source_idx":26,"exact_match":false,"continuity":false},{"step":4,"text":"def binary_search(lst, target): low, high = 0, len(lst) - 1 while low \u003c=","length":13,"sim_score":0.4377615441502737,"source_idx":26,"exact_match":false,"continuity":false}],"chain_length":4,"has_return":false,"has_colon":true,"has_loop":true,"looks_valid":false,"single_source":true,"source_count":1},{"desc":"Filter — higher-order function","prefix":"def filter_list(fn, lst):","full_text":"def filter_list(fn, lst): def filter_list(fn, lst): def filter_list(fn, lst): result = def filter_list(fn, lst): result = [] for x def reduce_list(fn, lst,","chain":[{"step":1,"text":"def filter_list(fn, lst):","length":3,"sim_score":1.0650000000000002,"source_idx":29,"exact_match":true,"continuity":false},{"step":2,"text":"def filter_list(fn, lst): result =","length":5,"sim_score":0.7395434654204796,"source_idx":29,"exact_match":false,"continuity":false},{"step":3,"text":"def filter_list(fn, lst): result = [] for x","length":8,"sim_score":0.47118780096510726,"source_idx":29,"exact_match":false,"continuity":false},{"step":4,"text":"def reduce_list(fn, lst,","length":3,"sim_score":0.3963796881948073,"source_idx":30,"exact_match":true,"continuity":false}],"chain_length":4,"has_return":false,"has_colon":true,"has_loop":true,"looks_valid":false,"single_source":false,"source_count":2}],"valid_count":2,"return_count":2,"loop_count":3,"single_src_count":2};
+var chart = echarts.init(document.getElementById('chart'));
+
+var colors = ['#667eea', '#f093fb', '#4facfe', '#43e97b', '#fa709a'];
+var steps = [];
+for (var s = 1; s <= data.max_chains; s++) { steps.push('Step ' + s); }
+
+var seriesData = [];
+data.entries.forEach(function(e, idx) {
+    var name = e.prefix.replace('def ', '').replace(':', '');
+    var vals = e.chain.map(function(c) { return c.sim_score; });
+    seriesData.push({
+        name: name,
+        type: 'line',
+        data: vals,
+        lineStyle: { width: 3, color: colors[idx % 5] },
+        itemStyle: { color: colors[idx % 5] },
+        symbolSize: 10,
+        symbol: 'circle'
+    });
+});
+
+var option = {
+    backgroundColor: 'transparent',
+    tooltip: { trigger: 'axis' },
+    legend: {
+        bottom: 10,
+        textStyle: { color: '#334155', fontSize: 11 }
+    },
+    grid: { left: '8%%', right: '5%%', top: 30, bottom: 80 },
+    xAxis: {
+        type: 'category',
+        data: steps,
+        axisLabel: { color: '#334155', fontSize: 12 },
+        axisLine: { lineStyle: { color: '#94a3b8' } }
+    },
+    yAxis: {
+        type: 'value',
+        name: 'Similarity Score',
+        min: 0,
+        nameTextStyle: { color: '#334155' },
+        axisLabel: { color: '#334155' },
+        splitLine: { lineStyle: { color: '#e2e8f0' } }
+    },
+    series: seriesData
+};
+chart.setOption(option);
+</script>
+</body>
+</html>

@@ -4,150 +4,103 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math"
+	"io"
 	"os"
 	"strings"
 
 	"github.com/gofiber/fiber/v3/client"
-	"github.com/segmentio/parquet-go"
+	"github.com/parquet-go/parquet-go"
+	"github.com/theapemachine/six/provider"
 )
 
-type Sample struct {
-	buf []byte
-	seqIdx int
-}
+const hfBase = "https://huggingface.co"
 
 /*
-Dataset is a streaming adapter for huggingface datasets.
+Dataset streams raw bytes from a HuggingFace parquet dataset.
+It discovers the first train-split parquet shard, downloads it
+via the Fiber/fasthttp client, and emits column values through
+a channel as byte-position pairs.
 */
 type Dataset struct {
-	BaseURL    string
-	DatasetID  string
-	ShardFile  string
-	TextColumn string
-	MaxTokens  int
-
 	client     *client.Client
-	onProgress func(int64, int64)
+	repo       string
+	textColumn string
+	maxSamples int
 }
 
-func New() *Dataset {
-	return &Dataset{
-		client: client.New(),
-	}
+type datasetOpts func(*Dataset)
+
+/*
+row is the schema struct for GenericReader. The parquet tag maps
+to the column name in the dataset.
+*/
+type row struct {
+	Text string `parquet:"text"`
 }
 
-func (dataset *Dataset) Generate() chan Sample  {
-	return nil
-}
-
-type hfTreeEntry struct {
-	Type string `json:"type"`
-	Path string `json:"path"`
-	Size int64  `json:"size"`
-}
-
-func (dataset *Dataset) apiBase() string {
-	if dataset.BaseURL != "" {
-		return strings.TrimSuffix(dataset.BaseURL, "/")
-	}
-	return "https://huggingface.co"
-}
-
-func (dataset *Dataset) getConfig() client.Config {
-	cfg := client.Config{}
-
-	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
-		cfg.Header = map[string]string{
-			"Authorization": "Bearer " + token,
-		}
+func New(opts ...datasetOpts) *Dataset {
+	dataset := &Dataset{
+		client:     client.New(),
+		textColumn: "text",
 	}
 
-	return cfg
+	for _, opt := range opts {
+		opt(dataset)
+	}
+
+	return dataset
 }
 
 /*
-discoverParquetFile queries the HuggingFace API to find parquet files
-in the dataset repo, preferring train-split shards.
+Generate streams the text column as (byte, position) pairs.
+The returned channel closes when all data has been emitted.
 */
-func (dataset *Dataset) discoverParquetFile() (string, error) {
-	apiURL := fmt.Sprintf("%s/api/datasets/%s/tree/main?recursive=true", dataset.apiBase(), dataset.DatasetID)
-	
-	resp, err := dataset.client.Get(apiURL, dataset.getConfig())
-	
-	if err != nil {
-		return "", HuggingFaceDatasetError("build request")
-	}
+func (dataset *Dataset) Generate() chan provider.RawToken {
+	out := make(chan provider.RawToken)
 
-	if resp.StatusCode() != 200 {
-		return "", fmt.Errorf("list files for %s: HTTP %d", dataset.DatasetID, resp.StatusCode())
-	}
+	go func() {
+		defer close(out)
 
-	var entries []hfTreeEntry
-	
-	if err := json.Unmarshal(resp.Body(), &entries); err != nil {
-		return "", HuggingFaceDatasetError("parse file listing")
-	}
+		var pos uint32
+		var sampleID uint32
 
-	var parquetFiles []string
-	
-	for _, e := range entries {
-		if e.Type == "file" && strings.HasSuffix(e.Path, ".parquet") {
-			parquetFiles = append(parquetFiles, e.Path)
+		if err := dataset.streamRows(func(text string) bool {
+			for _, b := range []byte(text) {
+				out <- provider.RawToken{SampleID: sampleID, Symbol: b, Pos: pos}
+				pos++
+			}
+			sampleID++
+
+			return true
+		}); err != nil {
+			fmt.Printf("Dataset error: %v\n", err)
 		}
-	}
+	}()
 
-	if len(parquetFiles) == 0 {
-		return "", HuggingFaceDatasetError("no parquet files found")
-	}
-
-	for _, f := range parquetFiles {
-		if strings.Contains(f, "train") {
-			return f, nil
-		}
-	}
-
-	return parquetFiles[0], nil
+	return out
 }
 
 /*
-openParquet downloads the parquet shard into memory and opens it.
+streamRows discovers and downloads the shard file, then delegates
+to the appropriate format parser (JSON or Parquet).
+fn returning false stops iteration.
 */
-func (dataset *Dataset) openParquet() (*parquet.File, error) {
-	if dataset.ShardFile == "" {
-		shard, err := dataset.discoverParquetFile()
-		if err != nil {
-			return nil, err
-		}
-		dataset.ShardFile = shard
-	}
-
-	fileURL := fmt.Sprintf("%s/datasets/%s/resolve/main/%s", dataset.apiBase(), dataset.DatasetID, dataset.ShardFile)
-	
-	resp, err := dataset.client.Get(fileURL, dataset.getConfig())
-	
+func (dataset *Dataset) streamRows(fn func(string) bool) error {
+	shard, err := dataset.discoverShard()
 	if err != nil {
-		return nil, HuggingFaceDatasetError("download")
+		return err
 	}
 
-	if resp.StatusCode() != 200 {
-		return nil, HuggingFaceDatasetError("download")
-	}
-
-	// Trigger progress if available (mimicking the previous file loading experience)
-	if dataset.onProgress != nil {
-		size := int64(len(resp.Body()))
-		dataset.onProgress(size, size)
-	}
-
-	reader := bytes.NewReader(resp.Body())
-	pFile, err := parquet.OpenFile(reader, reader.Size())
-	
+	reader, size, err := dataset.downloadShard(shard)
 	if err != nil {
-		return nil, HuggingFaceDatasetError("open parquet")
+		return err
 	}
 
-	return pFile, nil
+	if strings.HasSuffix(shard, ".parquet") {
+		return dataset.streamParquet(reader, size, fn)
+	}
+
+	return dataset.streamJSON(reader, size, fn)
 }
 
 func findColumn(schema *parquet.Schema, name string) int {
@@ -159,88 +112,15 @@ func findColumn(schema *parquet.Schema, name string) int {
 	return -1
 }
 
-func columnNames(schema *parquet.Schema) []string {
-	seen := make(map[string]bool)
-	var names []string
-	for _, col := range schema.Columns() {
-		if top := col[0]; !seen[top] {
-			seen[top] = true
-			names = append(names, top)
-		}
-	}
-	return names
-}
-
-/*
-extractValue retrieves the typed value from a parquet Value based on the expected generic type T. 
-*/
-func extractValue[T string | int](val parquet.Value) T {
-	var zero T
-	switch any(zero).(type) {
-	case string:
-		switch val.Kind() {
-		case parquet.ByteArray, parquet.FixedLenByteArray:
-			return any(string(val.ByteArray())).(T)
-		default:
-			return any(val.String()).(T)
-		}
-	case int:
-		switch val.Kind() {
-		case parquet.Int32:
-			return any(int(val.Int32())).(T)
-		case parquet.Int64:
-			return any(int(val.Int64())).(T)
-		default:
-			return any(0).(T)
-		}
-	}
-	return zero
-}
-
-/*
-readColumn reads all values of type T from a single column in a row group using generics.
-*/
-func readColumn[T string | int](rg parquet.RowGroup, colIdx int) []T {
-	pages := rg.ColumnChunks()[colIdx].Pages()
-	defer pages.Close()
-
-	var result []T
-	valueBuf := make([]parquet.Value, 256)
-	
-	for page, err := pages.ReadPage(); err == nil; page, err = pages.ReadPage() {
-		valReader := page.Values()
-		for n, readErr := valReader.ReadValues(valueBuf); n > 0 || readErr == nil; n, readErr = valReader.ReadValues(valueBuf) {
-			for i := 0; i < n; i++ {
-				var val T
-				if !valueBuf[i].IsNull() {
-					val = extractValue[T](valueBuf[i])
-				} else if any(val) == int(0) {
-					// Fallback for nullable ints
-					val = any(math.MinInt32).(T)
-				}
-				result = append(result, val)
-			}
-			if readErr != nil {
-				break
-			}
-		}
-	}
-	return result
-}
-
-/*
-streamColumn streams text dynamically with significantly reduced nesting and cleaner iteration.
-*/
-func (dataset *Dataset) streamColumn(fn func(text string) bool) error {
-	pFile, err := dataset.openParquet()
+func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(string) bool) error {
+	pFile, err := parquet.OpenFile(reader, size)
 	if err != nil {
-		return err
+		return fmt.Errorf("huggingface: open parquet: %w", err)
 	}
 
-	textCol := findColumn(pFile.Schema(), dataset.TextColumn)
-
+	textCol := findColumn(pFile.Schema(), dataset.textColumn)
 	if textCol < 0 {
-		return HuggingFaceDatasetError("column not found")
+		return fmt.Errorf("huggingface: column %s not found", dataset.textColumn)
 	}
 
 	totalBytes := 0
@@ -266,8 +146,8 @@ func (dataset *Dataset) streamColumn(fn func(text string) bool) error {
 						continue
 					}
 					
-					if dataset.MaxTokens > 0 && totalBytes+len(text) > dataset.MaxTokens {
-						remaining := dataset.MaxTokens - totalBytes
+					if dataset.maxSamples > 0 && totalBytes+len(text) > dataset.maxSamples {
+						remaining := dataset.maxSamples - totalBytes
 
 						if remaining > 0 {
 							fn(text[:remaining])
@@ -297,16 +177,193 @@ func (dataset *Dataset) streamColumn(fn func(text string) bool) error {
 	return nil
 }
 
-type HuggingFaceDatasetError string
+func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(string) bool) error {
+	dec := json.NewDecoder(io.NewSectionReader(reader, 0, size))
+	var total int
 
-const (
-	ErrNoParquetFiles = HuggingFaceDatasetError("no parquet files found")
-	ErrColumnNotFound = HuggingFaceDatasetError("column not found")
-	ErrBuildRequest = HuggingFaceDatasetError("build request")
-	ErrParseFileListing = HuggingFaceDatasetError("parse file listing")
-	ErrDownload = HuggingFaceDatasetError("download")
-)
+	// Read the first token to see if it's an array
+	t, err := dec.Token()
+	if err != nil && err != io.EOF {
+		return fmt.Errorf("huggingface json: %w", err)
+	}
 
-func (err HuggingFaceDatasetError) Error() string {
-	return string(err)
+	isArray := false
+	if delim, ok := t.(json.Delim); ok && delim.String() == "[" {
+		isArray = true
+	} else if err == nil {
+		// Not an array, so if it's a map we must back up, but we can't un-read from dec.
+		// A better approach for JSONL is to decode continuously. 
+		// Since we already consumed the first token, let's just make a new decoder
+		// if it's not an array, to read it cleanly from the start.
+		dec = json.NewDecoder(io.NewSectionReader(reader, 0, size))
+	}
+
+	for {
+		if isArray && !dec.More() {
+			// Read the closing bracket
+			dec.Token()
+			break
+		}
+
+		var r map[string]interface{}
+		if err := dec.Decode(&r); err != nil {
+			if err == io.EOF {
+				break
+			}
+			// Skip malformed entries
+			continue
+		}
+
+		v, ok := r[dataset.textColumn]
+		if !ok {
+			continue
+		}
+
+		text, ok := v.(string)
+		if !ok || text == "" {
+			continue
+		}
+
+		if dataset.maxSamples > 0 && total+len(text) > dataset.maxSamples {
+			if rem := dataset.maxSamples - total; rem > 0 {
+				fn(text[:rem])
+			}
+			return nil
+		}
+
+		if !fn(text) {
+			return nil
+		}
+
+		total += len(text)
+	}
+
+	return nil
+}
+
+/*
+downloadShard streams the download via the Fiber client and returns
+a bytes.Reader (which implements io.ReaderAt) along with the size.
+*/
+func (dataset *Dataset) downloadShard(shard string) (io.ReaderAt, int64, error) {
+
+	url := fmt.Sprintf("%s/datasets/%s/resolve/main/%s", hfBase, dataset.repo, shard)
+	resp, err := dataset.request(url)
+
+	if err != nil {
+		return nil, 0, err
+	}
+
+	body := resp.RawResponse.Body()
+	r := bytes.NewReader(body)
+
+	return r, r.Size(), nil
+}
+
+/*
+discoverShard queries the HuggingFace API tree listing and returns
+the path to the first train-split .parquet, .json, or .jsonl file,
+or any valid fallback.
+*/
+func (dataset *Dataset) discoverShard() (string, error) {
+	url := fmt.Sprintf("%s/api/datasets/%s/tree/main?recursive=true", hfBase, dataset.repo)
+	resp, err := dataset.request(url)
+
+	if err != nil {
+		return "", err
+	}
+
+	var entries []struct {
+		Type string `json:"type"`
+		Path string `json:"path"`
+	}
+
+	if err := json.Unmarshal(resp.Body(), &entries); err != nil {
+		return "", fmt.Errorf("huggingface: parse listing: %w", err)
+	}
+
+	var fallback string
+
+	for _, e := range entries {
+		if e.Type != "file" {
+			continue
+		}
+
+		isSupported := strings.HasSuffix(e.Path, ".parquet") ||
+			strings.HasSuffix(e.Path, ".json") ||
+			strings.HasSuffix(e.Path, ".jsonl")
+		if !isSupported {
+			continue
+		}
+
+		if strings.Contains(e.Path, "train") {
+			return e.Path, nil
+		}
+
+		if fallback == "" {
+			fallback = e.Path
+		}
+	}
+
+	if fallback == "" {
+		return "", fmt.Errorf("huggingface: no valid parquet/json/jsonl files in %s", dataset.repo)
+	}
+
+	return fallback, nil
+}
+
+/*
+request builds and executes a GET via the Fiber client's R() builder.
+*/
+func (dataset *Dataset) request(url string) (*client.Response, error) {
+	req := dataset.client.R()
+
+	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
+		req.RawRequest.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	resp, err := req.Get(url)
+
+	if err != nil {
+		return nil, fmt.Errorf("huggingface: %w", err)
+	}
+
+	code := resp.StatusCode()
+	if code == 301 || code == 302 || code == 307 || code == 308 {
+		loc := string(resp.RawResponse.Header.Peek("Location"))
+		if loc != "" {
+			if !strings.HasPrefix(loc, "http") {
+				if strings.HasPrefix(loc, "/") {
+					loc = hfBase + loc
+				} else {
+					loc = hfBase + "/" + loc
+				}
+			}
+			return dataset.request(loc)
+		}
+	}
+
+	if code != 200 {
+		return nil, fmt.Errorf("huggingface: HTTP %d from %s", code, url)
+	}
+
+	return resp, nil
+}
+
+func DatasetWithRepo(repo string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.repo = repo
+	}
+}
+
+func DatasetWithTextColumn(col string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.textColumn = col
+	}
+}
+
+func DatasetWithSamples(n int) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.maxSamples = n
+	}
 }

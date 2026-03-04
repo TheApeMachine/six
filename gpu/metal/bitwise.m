@@ -98,6 +98,8 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
         }
         [computeEncoder setBuffer:resultBuffer offset:0 atIndex:2];
 
+        [computeEncoder setBytes:&num_chords length:sizeof(uint32_t) atIndex:3];
+
         NSUInteger threadGroupSize = bestFillPipeline.maxTotalThreadsPerThreadgroup;
         if (threadGroupSize > num_chords) threadGroupSize = num_chords;
         if (threadGroupSize == 0) threadGroupSize = 1;

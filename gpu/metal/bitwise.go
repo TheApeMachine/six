@@ -14,8 +14,8 @@ import (
 	"unsafe"
 )
 
-//go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c shader.metal -o shader.air
-//go:generate xcrun -sdk macosx metallib shader.air -o default.metallib
+//go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c bitwise.metal -o bitwise.air
+//go:generate xcrun -sdk macosx metallib bitwise.air -o default.metallib
 
 //go:embed default.metallib
 var defaultMetallib []byte

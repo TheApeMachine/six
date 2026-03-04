@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/experiment/task"
+	"github.com/theapemachine/six/experiment/task/codegen"
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/utils"
 )
@@ -39,6 +40,8 @@ var (
 			switch experimentName {
 			case "phasedial":
 				exp = phasedial.New()
+			case "codegen":
+				exp = codegen.New()
 			default:
 				log.Fatalf("Unknown experiment: %s", experimentName)
 			}
