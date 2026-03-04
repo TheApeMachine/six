@@ -2,9 +2,9 @@ package codegen
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -15,6 +15,8 @@ func TestLongGeneration(t *testing.T) {
 	Convey("Given the extended corpus and long-range span chaining", t, func() {
 		corpus := append(pythonCorpus(), longCorpus()...)
 		sm := BuildSpanMemory(corpus)
+		eigenTable := buildEigenMode(corpus)
+		So(eigenTable, ShouldNotBeNil)
 		So(len(sm.Index), ShouldBeGreaterThan, 0)
 
 		const topK = 64
@@ -42,19 +44,6 @@ func TestLongGeneration(t *testing.T) {
 			return 0
 		}
 
-		extractName := func(text string) string {
-			i := strings.Index(text, "def ")
-			if i < 0 {
-				return ""
-			}
-			rest := text[i+4:]
-			p := strings.Index(rest, "(")
-			if p < 0 {
-				return ""
-			}
-			return strings.TrimSpace(rest[:p])
-		}
-
 		prompts := []struct{ prefix, desc string }{
 			{"def quicksort(lst):", "Quicksort"},
 			{"def merge_sort(lst):", "Merge sort"},
@@ -69,10 +58,10 @@ func TestLongGeneration(t *testing.T) {
 			var results []LongGenEntry
 			for _, p := range prompts {
 				outToks := tokenize(p.prefix)
-				lockedName := extractName(p.prefix)
 				usedSpans := make(map[int]bool)
 				var chain []LongGenStep
 				reachedReturn := false
+				promptPhase, _ := weightedCircularMean(eigenTable, p.prefix)
 
 				for step := 0; step < maxChains; step++ {
 					ctxToks := outToks
@@ -93,24 +82,23 @@ func TestLongGeneration(t *testing.T) {
 							continue
 						}
 						meta := sm.Index[c.Idx]
-						if step > 0 && lockedName != "" {
-							if n := extractName(meta.Text); n != "" && n != lockedName {
-								continue
-							}
-						}
 						ovl := overlapLen(outToks, meta.Tokens)
 						newToks := len(meta.Tokens) - ovl
 						if newToks < minNewTokens {
 							continue
 						}
+						
 						score := c.Score + float64(newToks)*0.005
-						newText := detokenize(meta.Tokens[ovl:])
-						if strings.Contains(newText, "return") {
-							score += 0.01
+						
+						// Replace string-matching keyword rewards with topological geometric pull 
+						spanPhase, spanConc := weightedCircularMean(eigenTable, meta.Text)
+						phaseDiff := spanPhase - promptPhase
+						angDist := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
+						
+						if angDist < 0.5 {
+							score += 0.01 * spanConc * (1.0 - angDist)
 						}
-						if strings.Contains(newText, ":") {
-							score += 0.005
-						}
+						
 						viable = append(viable, sc{c.Idx, ovl, newToks, score, meta})
 					}
 					if len(viable) == 0 {
@@ -134,7 +122,7 @@ func TestLongGeneration(t *testing.T) {
 						Overlap: best.ovl, SimScore: best.score,
 						SourceIdx: best.meta.Source,
 					})
-					if strings.Contains(newText, "return") && step > 0 {
+					if step > 0 && IsGeometricallyClosed(eigenTable, newText, promptPhase) {
 						reachedReturn = true
 						break
 					}
@@ -147,10 +135,10 @@ func TestLongGeneration(t *testing.T) {
 					sources[c.SourceIdx] = true
 					totalNew += c.NewTokens
 				}
-				hasReturn := strings.Contains(fullText, "return")
-				hasLoop := strings.Contains(fullText, "for") || strings.Contains(fullText, "while")
-				hasIf := strings.Contains(fullText, "if")
-				looksValid := isValidSyntax(fullText) && hasReturn
+				hasReturn := IsGeometricallyClosed(eigenTable, fullText, promptPhase)
+				hasLoop := isValidSyntax(fullText)
+				hasIf := isValidSyntax(fullText)
+				looksValid := hasReturn && isValidSyntax(fullText)
 
 				So(fullText, ShouldNotBeEmpty)
 

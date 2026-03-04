@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"math"
+	"os/exec"
 	"sort"
 	"strings"
 
@@ -45,32 +46,20 @@ func weightedCircularMean(ei *geometry.EigenMode, text string) (float64, float64
 	return ei.WeightedCircularMean(textToChords(text))
 }
 
-// isValidSyntax performs a lightweight AST-like verification of Python syntax.
-// It checks for balanced parentheses, braces, brackets.
+// isValidSyntax performs a rigorous Abstract Syntax Tree (AST) compilation check.
+// Since the corpus and tests generate Python code (using `def ` and `:`), we
+// validate it by shelling out to Python's native AST parser `ast.parse`.
+// This guarantees structural, syntactical, and indentation correctness rather than
+// relying on manual brittle rune-matching constraints.
 func isValidSyntax(code string) bool {
-	stack := make([]rune, 0)
-	for _, c := range code {
-		switch c {
-		case '(', '{', '[':
-			stack = append(stack, c)
-		case ')':
-			if len(stack) == 0 || stack[len(stack)-1] != '(' {
-				return false
-			}
-			stack = stack[:len(stack)-1]
-		case '}':
-			if len(stack) == 0 || stack[len(stack)-1] != '{' {
-				return false
-			}
-			stack = stack[:len(stack)-1]
-		case ']':
-			if len(stack) == 0 || stack[len(stack)-1] != '[' {
-				return false
-			}
-			stack = stack[:len(stack)-1]
-		}
+	// A pure python statement requires balanced indents, closures, and complete structure.
+	// We inject it into `ast.parse` and check if the compiler accepts the tree.
+	cmd := exec.Command("python3", "-c", "import ast; import sys; ast.parse(sys.stdin.read())")
+	cmd.Stdin = strings.NewReader(code)
+	if err := cmd.Run(); err != nil {
+		return false
 	}
-	return len(stack) == 0
+	return true
 }
 
 func normalizeVec256(v *[256]float64) {

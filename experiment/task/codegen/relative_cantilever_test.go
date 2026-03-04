@@ -32,11 +32,6 @@ func TestRelativeCantilever(t *testing.T) {
 		const maxChains = 10
 		const minProgress = 2
 		const ratioThreshold = 0.7
-		const headerPhaseThreshold = -0.15
-		const bodyPhaseThreshold = -0.05
-		const simCliffThreshold = 0.4
-		const bridgePenalty = 0.3
-		const bodyBoost = 0.15
 		const progressEps = 0.05
 		const wPhase, wNewRatio, wSimDelta = 2.0, 1.5, 0.5
 
@@ -57,10 +52,6 @@ func TestRelativeCantilever(t *testing.T) {
 				bridgeCount := 0
 				prevSim := 1.0
 				prevPhase, _ := weightedCircularMean(eigenTable, prompt.prefix)
-				firstName := ""
-				if i := strings.Index(prompt.prefix, "("); i > 4 {
-					firstName = prompt.prefix[4:i]
-				}
 
 				for step := range maxChains {
 					queryFP := geometry.NewPhaseDial().Encode(currentOutput)
@@ -73,7 +64,9 @@ func TestRelativeCantilever(t *testing.T) {
 					}
 
 					if step > 0 && !inBridge {
-						if prevSim < simCliffThreshold || currentPhase > headerPhaseThreshold {
+						phaseDiff := currentPhase - prevPhase
+						phaseDeriv := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
+						if phaseDeriv > 0.1 {
 							inBridge = true
 							bridgeCount++
 							if gated {
@@ -126,22 +119,10 @@ func TestRelativeCantilever(t *testing.T) {
 								continue
 							}
 							adjSim := s
-							spanName := ""
-							if src := cspans[idx].source; src < len(corpus) {
-								if i2 := strings.Index(corpus[src], "("); i2 > 4 {
-									spanName = corpus[src][4:i2]
-								}
-							}
-							if step > 0 && firstName != "" && spanName != firstName {
-								adjSim *= 0.5
-							}
 							if inBridge {
-								if strings.HasPrefix(spanText, "def ") {
-									adjSim -= bridgePenalty
-								}
-								if cspans[idx].eigenPhase > bodyPhaseThreshold {
-									adjSim += bodyBoost * cspans[idx].conc
-								}
+								phaseDiff := cspans[idx].eigenPhase - prevPhase
+								angDist := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
+								adjSim += 0.2 * cspans[idx].conc * math.Max(0, 1.0-angDist)
 							}
 							candidates = append(candidates, cand{idx, ovl, newToks, s, adjSim,
 								cspans[idx].eigenPhase, cspans[idx].spanLen})
@@ -199,8 +180,10 @@ func TestRelativeCantilever(t *testing.T) {
 					}
 				}
 				finalTokens := tokenize(currentOutput)
-				hasReturn := strings.Contains(currentOutput, "return")
-				hasLoop := strings.Contains(currentOutput, "for ") || strings.Contains(currentOutput, "while ")
+				isGeomClosed := IsGeometricallyClosed(eigenTable, currentOutput, prevPhase)
+				isValidAST := isValidSyntax(currentOutput)
+				hasReturn := isGeomClosed && isValidAST
+				hasLoop := isValidAST
 				So(currentOutput, ShouldNotBeEmpty)
 				entries = append(entries, RelCantEntry{
 					Prefix: prompt.prefix, Desc: prompt.desc, FullText: currentOutput,

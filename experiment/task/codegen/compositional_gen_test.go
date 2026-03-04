@@ -16,6 +16,8 @@ func TestCompositionalGeneration(t *testing.T) {
 	Convey("Given out-of-corpus prompts and pure fingerprint similarity", t, func() {
 		corpus := append(pythonCorpus(), longCorpus()...)
 		sm := BuildSpanMemory(corpus)
+		eigenTable := buildEigenMode(corpus)
+		So(eigenTable, ShouldNotBeNil)
 		So(len(sm.Index), ShouldBeGreaterThan, 0)
 
 		const topK = 64
@@ -44,13 +46,12 @@ func TestCompositionalGeneration(t *testing.T) {
 		}
 
 		prompts := []struct{ prefix, desc, expected string }{
-			{"def is_even(n):", "Even check (not in corpus)", "return n % 2 == 0"},
-			{"def square(x):", "Square (not in corpus)", "return x * x"},
-			{"def product_list(lst):", "Product list (not in corpus)", "result = 1; for x in lst: result *= x; return result"},
-			{"def has_duplicates(lst):", "Has duplicates (not in corpus)", "seen = set()"},
-			{"def clamp(x, lo, hi):", "Clamp (not in corpus)", "if x < lo: return lo"},
-			{"def second_largest(lst):", "Second largest (not in corpus)", "similar to find_max"},
-			{"def mean(lst):", "Mean (not in corpus)", "return sum_list(lst) / len(lst)"},
+			{"def compute_pi_approx(iters):", "Pi Approximation (Novel math)", "pi = 0; for i in range(iters):"},
+			{"def lcg_next(seed, a, c, m):", "LCG PRNG (Novel math)", "return (a * seed + c) % m"},
+			{"def fibonacci_sum(n):", "Fibonacci Sum (Novel logic)", "sum = 0"},
+			{"def count_vowels(s):", "String processing (Novel logic)", "count = 0; for char in s:"},
+			{"def is_palindrome(s):", "Sequence reflection (Novel logic)", "return s == s[::-1]"},
+			{"def geometric_progression(a, r, n):", "Series generation (Novel logic)", "return [a * (r ** i) for i in range(n)]"},
 		}
 
 		Convey("When generating for out-of-corpus prompts", func() {
@@ -60,6 +61,7 @@ func TestCompositionalGeneration(t *testing.T) {
 				usedSpans := make(map[int]bool)
 				var chain []CompGenStep
 				reachedReturn := false
+				promptPhase, _ := weightedCircularMean(eigenTable, p.prefix)
 
 				for step := 0; step < maxChains; step++ {
 					ctxToks := outToks
@@ -114,7 +116,7 @@ func TestCompositionalGeneration(t *testing.T) {
 						Overlap: best.ovl, SimScore: best.score,
 						SourceIdx: best.meta.Source, SourceFn: srcFn,
 					})
-					if strings.Contains(newText, "return") && step > 0 {
+					if step > 0 && IsGeometricallyClosed(eigenTable, newText, promptPhase) {
 						reachedReturn = true
 						break
 					}
@@ -130,19 +132,36 @@ func TestCompositionalGeneration(t *testing.T) {
 					totalNew += c.NewTokens
 				}
 				expectedToks := tokenize(p.expected)
-				matched := 0
-				for _, et := range expectedToks {
-					if len(et) > 2 && strings.Contains(fullText, et) {
-						matched++
+				
+				// Compute true Longest Common Subsequence (LCS) on tokens
+				// to ensure strictly ordered, position-aware overlap rather than blind substring match
+				lcsMatrix := make([][]int, len(outToks)+1)
+				for i := range lcsMatrix {
+					lcsMatrix[i] = make([]int, len(expectedToks)+1)
+				}
+				for i := 1; i <= len(outToks); i++ {
+					for j := 1; j <= len(expectedToks); j++ {
+						if outToks[i-1] == expectedToks[j-1] {
+							lcsMatrix[i][j] = lcsMatrix[i-1][j-1] + 1
+						} else {
+							if lcsMatrix[i-1][j] > lcsMatrix[i][j-1] {
+								lcsMatrix[i][j] = lcsMatrix[i-1][j]
+							} else {
+								lcsMatrix[i][j] = lcsMatrix[i][j-1]
+							}
+						}
 					}
 				}
+				matched := lcsMatrix[len(outToks)][len(expectedToks)]
+
 				expOverlap := 0.0
 				if len(expectedToks) > 0 {
 					expOverlap = float64(matched) / float64(len(expectedToks))
 				}
 
-				hasReturn := strings.Contains(fullText, "return")
+				hasReturn := IsGeometricallyClosed(eigenTable, fullText, promptPhase)
 				hasLoop := strings.Contains(fullText, "for") || strings.Contains(fullText, "while")
+				hasConditional := strings.Contains(fullText, "if")
 
 				So(fullText, ShouldNotBeEmpty)
 
@@ -151,7 +170,7 @@ func TestCompositionalGeneration(t *testing.T) {
 					FullText: fullText, Chain: chain, ChainLength: len(chain),
 					TotalTokens: len(outToks), TotalNew: totalNew,
 					HasReturn: hasReturn, HasLoop: hasLoop,
-					HasConditional:  strings.Contains(fullText, "if"),
+					HasConditional:  hasConditional,
 					ReachedReturn:   reachedReturn,
 					SourceCount:     len(sources),
 					ExpectedOverlap: expOverlap,
