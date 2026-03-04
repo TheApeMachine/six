@@ -71,3 +71,16 @@ func WriteProse(tmplSrc string, data map[string]any, outFile string) error {
 	p.SetOutput(io.Discard)
 	return p.Generate()
 }
+
+func WriteImageStrip(rows []projector.ImageStripRow, title, caption, label, filename string) error {
+	dir, err := ensurePaperDir()
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(filepath.Join(dir, filename+".tex"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return projector.WriteImageStrip(rows, title, caption, label, dir, filename, f)
+}

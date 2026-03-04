@@ -50,8 +50,8 @@ func NewPipeline(corpus [][]byte) *Pipeline {
 
 func (pipeline *Pipeline) Run() []ReconstructionResult {
 	pipeline.machine.Start()
-	// Split exactly into masked halves
-	pipeline.loader.Holdout(50, 5) 
+	// Split exactly into masked halves linearly
+	pipeline.loader.Holdout(50, 5, vm.HoldoutLinear) 
 
 	var results []ReconstructionResult
 	
@@ -60,7 +60,8 @@ func (pipeline *Pipeline) Run() []ReconstructionResult {
 	eigenTable := buildEigenMode(corpus)
 	
 	sampleIdx := 0
-	for prompt := range pipeline.loader.Prompts() {
+	for ctx := range pipeline.loader.Prompts() {
+		prompt := ctx.Tokens
 		originalImage := corpus[sampleIdx]
 		name := names[sampleIdx]
 		console.Info(fmt.Sprintf("--- Reconstructing %s (Prompt length: %d) ---", name, len(prompt)))

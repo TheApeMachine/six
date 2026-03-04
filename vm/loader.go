@@ -6,13 +6,21 @@ import (
 	"github.com/theapemachine/six/tokenizer"
 )
 
+type HoldoutType int
+
+const (
+	HoldoutLinear HoldoutType = iota
+	HoldoutRandom
+)
+
 type Loader struct {
-	store     store.Store
-	tokenizer *tokenizer.Universal
-	holdout   int
-	samples   int
-	prompt    bool
-	bufs      map[uint32][]tokenizer.Token
+	store       store.Store
+	tokenizer   *tokenizer.Universal
+	holdout     int
+	samples     int
+	prompt      bool
+	holdoutType HoldoutType
+	bufs        map[uint32][]tokenizer.Token
 }
 
 type loaderOpts func(*Loader)
@@ -52,13 +60,30 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 			// Maintain previous Generate() fallback behaviour by flattening bufs
 			// Not guaranteed sorted by sample ID, but keeps interface intact
 			for _, buf := range loader.bufs {
-				start := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
-				for _, t := range buf[start:] {
-					out <- tokenizer.Token{
-						TokenID:  t.TokenID,
-						SampleID: t.SampleID,
-						Chord:    t.Chord,
-						// Emit all populated fields to serve backwards compatibility without breaking structural expectations
+				switch loader.holdoutType {
+				case HoldoutLinear:
+					start := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
+					for _, t := range buf[start:] {
+						out <- tokenizer.Token{
+							TokenID:  t.TokenID,
+							SampleID: t.SampleID,
+							Chord:    t.Chord,
+						}
+					}
+				case HoldoutRandom:
+					// For random masking, holdout N% of tokens randomly
+					maskCount := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
+					// using simple deterministic hash of token ID for stability instead of math/rand
+					masked := 0
+					for _, t := range buf {
+						if masked < maskCount && (t.TokenID%3) == 0 {
+							out <- tokenizer.Token{
+								TokenID:  t.TokenID,
+								SampleID: t.SampleID,
+								Chord:    t.Chord,
+							}
+							masked++
+						}
 					}
 				}
 			}
@@ -68,11 +93,16 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 	return out
 }
 
+type PromptContext struct {
+	Tokens []tokenizer.Token
+	Target []tokenizer.Token
+}
+
 /*
 Prompts yields holdout samples as discrete slices for independent generation.
 */
-func (loader *Loader) Prompts() chan []tokenizer.Token {
-	out := make(chan []tokenizer.Token)
+func (loader *Loader) Prompts() chan PromptContext {
+	out := make(chan PromptContext)
 
 	go func() {
 		defer close(out)
@@ -96,10 +126,37 @@ func (loader *Loader) Prompts() chan []tokenizer.Token {
 				}
 			}
 
-			start := int(float64(len(linear)) * float64(loader.holdout) / 100.0)
-			if start > 0 && start <= len(linear) {
-				out <- linear[:start]
-				emitted++
+			switch loader.holdoutType {
+			case HoldoutLinear:
+				start := int(float64(len(linear)) * float64(loader.holdout) / 100.0)
+				if start > 0 && start <= len(linear) {
+					out <- PromptContext{
+						Tokens: linear[:start],
+						Target: linear,
+					}
+					emitted++
+				}
+			case HoldoutRandom:
+				// Random holdout means the prompt contains holes!
+				// We keep the first 100-N% of tokens by filtering
+				maskCount := int(float64(len(linear)) * float64(loader.holdout) / 100.0)
+				var prompt []tokenizer.Token
+				masked := 0
+				for _, t := range linear {
+					// Poking holes deterministically
+					if masked < maskCount && (t.TokenID%3) == 0 {
+						masked++
+						continue
+					}
+					prompt = append(prompt, t)
+				}
+				if len(prompt) > 0 {
+					out <- PromptContext{
+						Tokens: prompt,
+						Target: linear,
+					}
+					emitted++
+				}
 			}
 		}
 	}()
@@ -107,9 +164,10 @@ func (loader *Loader) Prompts() chan []tokenizer.Token {
 	return out
 }
 
-func (loader *Loader) Holdout(n int, samples int) {
+func (loader *Loader) Holdout(n int, samples int, t HoldoutType) {
 	loader.holdout = n
 	loader.samples = samples
+	loader.holdoutType = t
 	loader.prompt = true
 }
 

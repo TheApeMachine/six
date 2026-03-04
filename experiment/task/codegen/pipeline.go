@@ -44,10 +44,11 @@ func NewPipeline() *Pipeline {
 
 func (pipeline *Pipeline) Run() {
 	pipeline.machine.Start()
-	pipeline.loader.Holdout(50, 5) // Set 50% holdout and split into 5 samples
+	pipeline.loader.Holdout(50, 5, vm.HoldoutLinear) // Set 50% holdout strings
 
 	sampleIdx := 0
-	for prompt := range pipeline.loader.Prompts() {
+	for ctx := range pipeline.loader.Prompts() {
+		prompt := ctx.Tokens
 		console.Info(fmt.Sprintf("--- Sample %d (Prompt length: %d) ---", sampleIdx, len(prompt)))
 		sampleIdx++
 		count := 0

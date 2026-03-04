@@ -93,3 +93,15 @@ func WriteProse(tmplSrc string, data map[string]any, outDir, outFile string) err
 	p.SetOutput(io.Discard)
 	return p.Generate()
 }
+
+func WriteImageStrip(rows []ImageStripRow, title, caption, label, outDir, filename string, out *os.File) error {
+	is := NewImageStrip(
+		ImageStripWithData(rows),
+		ImageStripWithMeta(title, caption, label),
+		ImageStripWithOutput(outDir, filename),
+	)
+	if out != nil {
+		is.SetOutput(out)
+	}
+	return is.Generate()
+}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/gofiber/fiber/v3/client"
@@ -243,6 +244,14 @@ a bytes.Reader (which implements io.ReaderAt) along with the size.
 */
 func (dataset *Dataset) downloadShard(shard string) (io.ReaderAt, int64, error) {
 
+	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
+	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
+	
+	if data, err := os.ReadFile(cachePath); err == nil {
+		r := bytes.NewReader(data)
+		return r, r.Size(), nil
+	}
+
 	url := fmt.Sprintf("%s/datasets/%s/resolve/main/%s", hfBase, dataset.repo, shard)
 	resp, err := dataset.request(url)
 
@@ -254,6 +263,9 @@ func (dataset *Dataset) downloadShard(shard string) (io.ReaderAt, int64, error) 
 	body := resp.RawResponse.Body()
 	bodyCopy := make([]byte, len(body))
 	copy(bodyCopy, body)
+	
+	_ = os.WriteFile(cachePath, bodyCopy, 0644)
+	
 	r := bytes.NewReader(bodyCopy)
 
 	return r, r.Size(), nil

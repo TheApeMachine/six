@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Vision Pipeline Arbitrary Byte Reconstruction</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        html, body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0; 
+            padding: 0; 
+            background-color: transparent; 
+            color: #0f172a; 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            width: 100%; 
+            height: 100%; 
+        }
+        #chart { 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%; 
+            height: 100%; 
+            background: transparent; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+const data = [{"original":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","masked":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","reconstructed":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=","label":"CIFAR10 0"}];
+const container = document.getElementById('chart');
+
+container.style.display = 'flex';
+container.style.flexDirection = 'column';
+container.style.justifyContent = 'flex-start';
+container.style.alignItems = 'center';
+container.style.gap = '20px';
+container.style.padding = '20px';
+
+function getHeatmapColor(errorVal) {
+    if (errorVal === 0) return [0, 0, 0, 255]; // perfect match is black
+    let r = Math.min(255, errorVal * 2);
+    let g = Math.max(0, 255 - (errorVal * 2));
+    let b = 0;
+    return [r, g, b, 255];
+}
+
+data.forEach((row, idx) => {
+    const rowDiv = document.createElement('div');
+    rowDiv.style.display = 'flex';
+    rowDiv.style.flexDirection = 'row';
+    rowDiv.style.alignItems = 'center';
+    rowDiv.style.gap = '20px';
+    rowDiv.style.background = '#fff';
+    rowDiv.style.padding = '10px';
+    rowDiv.style.border = '1px solid #ddd';
+
+    const labelDiv = document.createElement('div');
+    labelDiv.style.width = '100px';
+    labelDiv.style.fontWeight = 'bold';
+    labelDiv.style.textAlign = 'right';
+    labelDiv.innerText = row.label || `Sample ${idx}`;
+    rowDiv.appendChild(labelDiv);
+
+    const stageNames = ['Original', 'Masked', 'Reconstructed', 'Error Heatmap'];
+    const canvases = [];
+    const ctxs = [];
+
+    // Create 4 visible canvases
+    stageNames.forEach(name => {
+        const stageDiv = document.createElement('div');
+        stageDiv.style.display = 'flex';
+        stageDiv.style.flexDirection = 'column';
+        stageDiv.style.alignItems = 'center';
+
+        const title = document.createElement('div');
+        title.innerText = name;
+        title.style.fontSize = '12px';
+        title.style.marginBottom = '5px';
+        stageDiv.appendChild(title);
+
+        const canvas = document.createElement('canvas');
+        canvas.style.width = '128px';
+        canvas.style.height = '128px';
+        canvas.style.imageRendering = 'pixelated';
+        canvas.style.border = '1px solid #ccc';
+        
+        stageDiv.appendChild(canvas);
+        rowDiv.appendChild(stageDiv);
+        
+        canvases.push(canvas);
+        ctxs.push(canvas.getContext('2d', { willReadFrequently: true }));
+    });
+    container.appendChild(rowDiv);
+
+    // Load images
+    const imgOrig = new Image();
+    const imgMasked = new Image();
+    const imgRecon = new Image();
+    
+    let loadedCount = 0;
+    const checkReady = () => {
+        loadedCount++;
+        if (loadedCount === 3) {
+            // All 3 images loaded (or failed to load)
+            const w = Math.max(imgOrig.width || 1, imgMasked.width || 1, imgRecon.width || 1);
+            const h = Math.max(imgOrig.height || 1, imgMasked.height || 1, imgRecon.height || 1);
+            
+            canvases.forEach(c => { c.width = w; c.height = h; });
+
+            if (imgOrig.width) ctxs[0].drawImage(imgOrig, 0, 0);
+            if (imgMasked.width) ctxs[1].drawImage(imgMasked, 0, 0);
+            if (imgRecon.width) ctxs[2].drawImage(imgRecon, 0, 0);
+
+            // Compute Heatmap!
+            if (imgOrig.width && imgRecon.width) {
+                const origData = ctxs[0].getImageData(0, 0, w, h).data;
+                const reconData = ctxs[2].getImageData(0, 0, w, h).data;
+                const hmImgData = ctxs[3].createImageData(w, h);
+                
+                for (let i = 0; i < origData.length; i += 4) {
+                    const errR = Math.abs(origData[i] - reconData[i]);
+                    const errG = Math.abs(origData[i+1] - reconData[i+1]);
+                    const errB = Math.abs(origData[i+2] - reconData[i+2]);
+                    const meanErr = (errR + errG + errB) / 3;
+                    
+                    const color = getHeatmapColor(meanErr);
+                    hmImgData.data[i] = color[0];
+                    hmImgData.data[i+1] = color[1];
+                    hmImgData.data[i+2] = color[2];
+                    hmImgData.data[i+3] = 255;
+                }
+                ctxs[3].putImageData(hmImgData, 0, 0);
+            }
+        }
+    };
+
+    imgOrig.onload = checkReady;
+    imgOrig.onerror = checkReady;
+    if (row.original) imgOrig.src = "data:image/png;base64," + row.original;
+    else checkReady();
+
+    imgMasked.onload = checkReady;
+    imgMasked.onerror = checkReady;
+    if (row.masked) imgMasked.src = "data:image/png;base64," + row.masked;
+    else checkReady();
+
+    imgRecon.onload = checkReady;
+    imgRecon.onerror = checkReady;
+    if (row.reconstructed) imgRecon.src = "data:image/png;base64," + row.reconstructed;
+    else checkReady();
+});
+
+    </script>
+</body>
+</html>
