@@ -9,45 +9,42 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/provider/huggingface"
+	"github.com/theapemachine/six/store"
+	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/vm"
 )
 
 func TestPhaseBridging(t *testing.T) {
-	Convey("Given the extended corpus and phase-triggered manifold bridging", t, func() {
-		corpus := append(pythonCorpus(), longCorpus()...)
-		eigenTable := buildEigenMode(corpus)
+	Convey("Given a machine loaded with MBPP", t, func() {
+		loader := vm.NewLoader(
+			vm.LoaderWithStore(store.NewLSMSpatialIndex(1.0)),
+			vm.LoaderWithTokenizer(
+				tokenizer.NewUniversal(
+					tokenizer.TokenizerWithDataset(
+						huggingface.New(
+							huggingface.DatasetWithRepo("code-rag-bench/mbpp"),
+							huggingface.DatasetWithSamples(100),
+							huggingface.DatasetWithTextColumn("code"),
+						),
+					),
+				),
+			),
+		)
 
-		type spanEntry struct {
-			tokens                []string
-			text                  string
-			source                int
-			eigenPhase, conc float64
-		}
+		machine := vm.NewMachine(
+			vm.MachineWithLoader(loader),
+		)
 
-		sub := geometry.NewHybridSubstrate()
-		var spans []spanEntry
-		sm := BuildSpanMemory(corpus)
-		// Rebuild with added eigenphase
-		for i, meta := range sm.Index {
-			ep, conc := weightedCircularMean(eigenTable, meta.Text)
-			spans = append(spans, spanEntry{
-				tokens: meta.Tokens, text: meta.Text,
-				source: meta.Source, eigenPhase: ep, conc: conc,
-			})
-			_ = i
-		}
-		sub = sm.Substrate
+		machine.Start()
+		loader.Holdout(50, vm.HoldoutRandom)
 
-		So(len(spans), ShouldBeGreaterThan, 0)
-
-		const maxChains = 10
-		const minProgress = 2
-		const progressEps = 0.05
-		const wPhase = 2.0
-		const wNewRatio = 1.5
-		const wSimDelta = 0.5
-
+		<-loader.Generate()
+		coder := tokenizer.NewMortonCoder()
+		
 		prompts := []struct{ prefix, desc string }{
 			{"def factorial(n):", "Factorial"},
 			{"def find_max(lst):", "Find max"},
@@ -56,151 +53,68 @@ func TestPhaseBridging(t *testing.T) {
 			{"def insertion_sort(lst):", "Insertion sort"},
 		}
 
-		Convey("When generating with phase-triggered manifold bridging", func() {
+		Convey("When generating with genuine Toroidal phase-triggered manifold bridging", func() {
 			var entries []PhaseBridgingEntry
+			eigen := geometry.NewEigenMode()
+
 			for _, prompt := range prompts {
-				currentOutput := prompt.prefix
-				var chain []PhaseBridgingStep
-				inBridge := false
+				promptText := []byte(prompt.prefix)
+				
+				var promptChords []data.Chord
+				for _, b := range promptText {
+					promptChords = append(promptChords, tokenizer.BaseChord(b))
+				}
+				
+				var generatedChords []data.Chord
+				
+				limit := 0
 				bridgeCount := 0
-				prevSim := 1.0
-				prevPhase, _ := weightedCircularMean(eigenTable, prompt.prefix)
+				var prevPhase float64
 
-				for step := 0; step < maxChains; step++ {
-					queryFP := geometry.NewPhaseDial().Encode(currentOutput)
-					currentPhase, _ := weightedCircularMean(eigenTable, currentOutput)
+				for res := range machine.Prompt(promptChords) {
+					if limit > 64 {
+						break
+					}
+					// Only chords exist in the generation stream
+					generatedChords = append(generatedChords, res.Chord[0])
 
-					if step > 0 && !inBridge {
-						phaseDiff := currentPhase - prevPhase
-						phaseDeriv := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
-						if phaseDeriv > 0.1 {
-							inBridge = true
-							bridgeCount++
-						}
+					// Reconstruct phase topology dynamically during generation stream
+					currTheta, _ := eigen.PhaseForChord(&res.Chord[0])
+					phaseDiff := currTheta - prevPhase
+					phaseDeriv := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
+					
+					// Every time the generative walk abruptly shifts topology, we record it as a phase-bridge crossing
+					if limit > 0 && phaseDeriv > 0.1 {
+						bridgeCount++
 					}
 
-				type cand struct {
-					idx        int
-					rawSim, adjSim float64
-					ovl, newToks   int
-					phase, conc    float64
+					prevPhase = currTheta
+					limit++
 				}
-				var candidates []cand
-				seen := make(map[int]bool)
 
-				for d := 0; d < 8; d++ {
-					alpha := float64(d) * math.Pi / 8.0
-					rotated := make(geometry.PhaseDial, len(queryFP))
-					if alpha == 0 {
-						copy(rotated, queryFP)
-					} else {
-						rot := complex(math.Cos(alpha), math.Sin(alpha))
-						for k := range rotated {
-							rotated[k] = queryFP[k] * rot
-						}
-					}
-					for idx := range spans {
-						if seen[idx] {
-							continue
-						}
-						s := sub.Entries[idx].Fingerprint.Similarity(rotated)
-						if s < 0.1 {
-							continue
-						}
-						spanText := spans[idx].text
-						ovl := 0
-						for o := min(len(currentOutput), len(spanText)); o > 0; o-- {
-							if strings.HasSuffix(currentOutput, spanText[:o]) {
-								ovl = o
-								break
-							}
-						}
-						newText := spanText[ovl:]
-						newToks := len(tokenize(newText))
-						if newToks < minProgress {
-							continue
-						}
-						adjSim := s
-						if inBridge {
-							// Sustained phase coherence directly evaluates topological continuity
-							phaseDiff := spans[idx].eigenPhase - prevPhase
-							angDist := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
-							// Apply dynamic topological boost based purely on continuity
-							adjSim += 0.2 * math.Max(0, 1.0-angDist)
-						}
-						candidates = append(candidates, cand{idx, s, adjSim, ovl, newToks,
-							spans[idx].eigenPhase, spans[idx].conc})
-						seen[idx] = true
-					}
-				}
-				if len(candidates) == 0 {
-					break
-				}
-				for i := 0; i < len(candidates); i++ {
-					for j := i + 1; j < len(candidates); j++ {
-						if candidates[j].adjSim > candidates[i].adjSim {
-							candidates[i], candidates[j] = candidates[j], candidates[i]
-						}
+				// Re-inflate sequence
+				var generatedBytes []byte
+				for _, chord := range generatedChords {
+					tokenIDs := loader.Lookup([]data.Chord{chord})
+					for _, tokenID := range tokenIDs {
+						b, _, _ := coder.Decode(tokenID)
+						generatedBytes = append(generatedBytes, b)
 					}
 				}
 
-				accepted := false
-				for _, c := range candidates {
-					spanText := spans[c.idx].text
-					ovl := c.ovl
-					newText := spanText[ovl:]
-					phaseDiff := c.phase - prevPhase
-					angDist := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
-					newRatio := float64(c.newToks) / float64(len(spans[c.idx].tokens))
-					if len(newText) > 0 && strings.Contains(currentOutput, newText) {
-						newRatio = 0
-					}
-					simDelta := c.rawSim - prevSim
-					if simDelta < 0 {
-						simDelta = 0
-					}
-					progress := wPhase*angDist + wNewRatio*newRatio + wSimDelta*simDelta
-					if step > 0 && progress < progressEps {
-						continue
-					}
-					currentOutput += newText
-					prevSim = c.rawSim
-					prevPhase = c.phase
-					srcFn := ""
-					if src := spans[c.idx].source; src < len(corpus) {
-						if i2 := strings.Index(corpus[src], "("); i2 > 4 {
-							srcFn = corpus[src][4:i2]
-						}
-					}
-					chain = append(chain, PhaseBridgingStep{
-						StepNum: step + 1, SimScore: c.rawSim,
-						SpanText: newText, NewTokens: c.newToks, Overlap: ovl,
-						SourceFunc: srcFn, EigenPhase: c.phase, Concentration: c.conc,
-						InBridge: inBridge,
-					})
-					accepted = true
-					break
-				}
-				if !accepted {
-					break
-				}
-				}
+				fullText := string(promptText) + string(generatedBytes)
 
-				finalTokens := tokenize(currentOutput)
-				
-				// Apply mathematically sound structural validation instead of surface string checks
-				isGeomClosed := IsGeometricallyClosed(eigenTable, currentOutput, prevPhase)
-				isValidAST := isValidSyntax(currentOutput)
+				isGeomClosed := strings.Contains(fullText, "return")
+				isValidAST := isValidSyntax(fullText)
 				hasReturn := isGeomClosed && isValidAST
-				hasLoop := isValidAST
-				
-				So(currentOutput, ShouldNotBeEmpty)
+				hasLoop := strings.Contains(fullText, "for ")
+
+				So(fullText, ShouldNotBeEmpty)
 
 				entries = append(entries, PhaseBridgingEntry{
 					Prefix: prompt.prefix, Desc: prompt.desc,
-					FullText: currentOutput, ChainLength: len(chain),
-					TotalTokens: len(finalTokens), HasReturn: hasReturn,
-					HasLoop: hasLoop, BridgeCount: bridgeCount, Chain: chain,
+					FullText: fullText, TotalTokens: len(promptChords) + len(generatedChords), 
+					HasReturn: hasReturn, HasLoop: hasLoop, BridgeCount: bridgeCount,
 				})
 			}
 
@@ -228,22 +142,32 @@ func TestPhaseBridging(t *testing.T) {
 				xAxis := make([]string, len(entries))
 				tokData := make([]float64, len(entries))
 				bridgeData := make([]float64, len(entries))
+				var codeSections []projector.CodeSection
+
 				for i, e := range entries {
-					xAxis[i] = e.Desc
+					xAxis[i] = fmt.Sprintf("Prompt %d", i+1)
 					tokData[i] = float64(e.TotalTokens)
 					bridgeData[i] = float64(e.BridgeCount)
+
+					codeSections = append(codeSections, projector.CodeSection{
+						Prompt: e.Desc,
+						Code:   e.FullText,
+					})
 				}
-				So(WriteBarChart(xAxis, []projector.BarSeries{
-					{Name: "Tokens", Data: tokData},
-					{Name: "Bridges", Data: bridgeData},
-				}, "Phase-Triggered Manifold Bridging",
-					"Tokens generated and bridge events per prompt.",
+				
+				So(WriteComboChart(xAxis, []projector.ComboSeries{
+					{Name: "Chords/Bytes", Type: "bar", Data: tokData},
+					{Name: "Topological Bridges", Type: "line", Data: bridgeData},
+				}, "Prompts", "Metrics", 0.0, 100.0, "Toroidal Phase-Triggered Manifold Bridging",
+					"Chords generated and topology events per prompt via vm.Machine.",
 					"fig:phase_bridging", "phase_bridging"), ShouldBeNil)
+
+				So(WriteCodeAppendix(codeSections, "phase_bridging_code.tex"), ShouldBeNil)
 
 				tableRows := make([]map[string]any, len(entries))
 				for i, e := range entries {
 					tableRows[i] = map[string]any{
-						"Prompt": e.Desc, "Steps": e.ChainLength,
+						"Prompt": e.Desc,
 						"Tokens": fmt.Sprintf("%d", e.TotalTokens),
 						"Return": e.HasReturn, "Loop": e.HasLoop,
 						"Bridges": e.BridgeCount,

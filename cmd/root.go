@@ -48,19 +48,13 @@ func init() {
 }
 
 func initConfig() {
-	var err error
-
-	if err = writeConfig(); err != nil {
-		log.Fatal(err)
-	}
-
 	viper.SetConfigName("config")
 	viper.SetConfigType("yml")
 	viper.AddConfigPath("$HOME/." + projectName)
 
-	if err = viper.ReadInConfig(); err != nil {
-		log.Println("failed to read config file", err)
-		return
+	if err := viper.ReadInConfig(); err != nil {
+		// Just log loosely since we now optionally rely on embedded config/defaults
+		log.Println("Note: No local config file found, using defaults.", err)
 	}
 }
 

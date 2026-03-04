@@ -2,48 +2,50 @@ package codegen
 
 import (
 	"fmt"
-	"math"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/provider/huggingface"
+	"github.com/theapemachine/six/store"
+	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/vm"
 )
 
 func TestLongGeneration(t *testing.T) {
-	Convey("Given the extended corpus and long-range span chaining", t, func() {
-		corpus := append(pythonCorpus(), longCorpus()...)
-		sm := BuildSpanMemory(corpus)
-		eigenTable := buildEigenMode(corpus)
-		So(eigenTable, ShouldNotBeNil)
-		So(len(sm.Index), ShouldBeGreaterThan, 0)
+	Convey("Given a machine loaded with MBPP", t, func() {
+		loader := vm.NewLoader(
+			vm.LoaderWithStore(store.NewLSMSpatialIndex(1.0)),
+			vm.LoaderWithTokenizer(
+				tokenizer.NewUniversal(
+					tokenizer.TokenizerWithDataset(
+						huggingface.New(
+							huggingface.DatasetWithRepo("code-rag-bench/mbpp"),
+							huggingface.DatasetWithSamples(100),
+							huggingface.DatasetWithTextColumn("code"),
+						),
+					),
+				),
+			),
+		)
 
-		const topK = 64
-		const nDial = 8
-		const maxChains = 12
-		const minNewTokens = 2
+		machine := vm.NewMachine(
+			vm.MachineWithLoader(loader),
+		)
 
-		overlapLen := func(out, span []string) int {
-			maxOvl := len(out)
-			if len(span) < maxOvl {
-				maxOvl = len(span)
-			}
-			for ovl := maxOvl; ovl > 0; ovl-- {
-				match := true
-				for i := 0; i < ovl; i++ {
-					if out[len(out)-ovl+i] != span[i] {
-						match = false
-						break
-					}
-				}
-				if match {
-					return ovl
-				}
-			}
-			return 0
-		}
+		machine.Start()
+		loader.Holdout(50, vm.HoldoutRandom)
 
+		// Consume generator to populate the machine
+		<-loader.Generate()
+
+		// Build a coder to reconstruct sequences for AST validation
+		coder := tokenizer.NewMortonCoder()
+		
 		prompts := []struct{ prefix, desc string }{
 			{"def quicksort(lst):", "Quicksort"},
 			{"def merge_sort(lst):", "Merge sort"},
@@ -54,101 +56,56 @@ func TestLongGeneration(t *testing.T) {
 			{"def two_sum(nums, target):", "Two sum"},
 		}
 
-		Convey("When generating long programs via span chaining", func() {
+		Convey("When generating long programs via Toroidal routing over Chords", func() {
 			var results []LongGenEntry
 			for _, p := range prompts {
-				outToks := tokenize(p.prefix)
-				usedSpans := make(map[int]bool)
-				var chain []LongGenStep
-				reachedReturn := false
-				promptPhase, _ := weightedCircularMean(eigenTable, p.prefix)
-
-				for step := 0; step < maxChains; step++ {
-					ctxToks := outToks
-					if len(ctxToks) > 20 {
-						ctxToks = ctxToks[len(ctxToks)-20:]
-					}
-					fpQ := BuildBoundaryFP(detokenize(ctxToks), "")
-					cands := sm.RetrieveDiverse(fpQ, nDial, topK)
-
-					type sc struct {
-						idx, ovl, newToks int
-						score             float64
-						meta              SpanMeta
-					}
-					var viable []sc
-					for _, c := range cands {
-						if usedSpans[c.Idx] {
-							continue
-						}
-						meta := sm.Index[c.Idx]
-						ovl := overlapLen(outToks, meta.Tokens)
-						newToks := len(meta.Tokens) - ovl
-						if newToks < minNewTokens {
-							continue
-						}
-						
-						score := c.Score + float64(newToks)*0.005
-						
-						// Replace string-matching keyword rewards with topological geometric pull 
-						spanPhase, spanConc := weightedCircularMean(eigenTable, meta.Text)
-						phaseDiff := spanPhase - promptPhase
-						angDist := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
-						
-						if angDist < 0.5 {
-							score += 0.01 * spanConc * (1.0 - angDist)
-						}
-						
-						viable = append(viable, sc{c.Idx, ovl, newToks, score, meta})
-					}
-					if len(viable) == 0 {
+				promptText := []byte(p.prefix)
+				
+				// Translate the string prompt mathematically into Chords via tokenizer
+				var promptChords []data.Chord
+				for _, b := range promptText {
+					promptChords = append(promptChords, tokenizer.BaseChord(b))
+				}
+				
+				var generatedChords []data.Chord
+				
+				// Step the actual chord-based machine to generate raw phase sequence
+				limit := 0
+				for res := range machine.Prompt(promptChords) {
+					// We let it run longer for long_generation
+					if limit > 200 { 
 						break
 					}
-					for i := 0; i < len(viable); i++ {
-						for j := i + 1; j < len(viable); j++ {
-							if viable[j].score > viable[i].score {
-								viable[i], viable[j] = viable[j], viable[i]
-							}
-						}
-					}
-					best := viable[0]
-					usedSpans[best.idx] = true
-					newToks := best.meta.Tokens[best.ovl:]
-					outToks = append(outToks, newToks...)
-					newText := detokenize(newToks)
-					chain = append(chain, LongGenStep{
-						Step: step + 1, SpanText: best.meta.Text,
-						NewText: newText, NewTokens: best.newToks,
-						Overlap: best.ovl, SimScore: best.score,
-						SourceIdx: best.meta.Source,
-					})
-					if step > 0 && IsGeometricallyClosed(eigenTable, newText, promptPhase) {
-						reachedReturn = true
-						break
+					// Only chords exist in the generation stream
+					generatedChords = append(generatedChords, res.Chord[0])
+					limit++
+				}
+
+				// Only when generation halts do we re-inflate the topology into bytes
+				var generatedBytes []byte
+				for _, chord := range generatedChords {
+					tokenIDs := loader.Lookup([]data.Chord{chord})
+					for _, tokenID := range tokenIDs {
+						b, _, _ := coder.Decode(tokenID)
+						generatedBytes = append(generatedBytes, b)
 					}
 				}
 
-				fullText := detokenize(outToks)
-				sources := make(map[int]bool)
-				totalNew := 0
-				for _, c := range chain {
-					sources[c.SourceIdx] = true
-					totalNew += c.NewTokens
-				}
-				hasReturn := IsGeometricallyClosed(eigenTable, fullText, promptPhase)
-				hasLoop := isValidSyntax(fullText)
-				hasIf := isValidSyntax(fullText)
-				looksValid := hasReturn && isValidSyntax(fullText)
+				fullText := string(promptText) + string(generatedBytes)
+
+				hasReturn := strings.Contains(fullText, "return")
+				hasLoop := strings.Contains(fullText, "for ") || strings.Contains(fullText, "while ")
+				hasIf := strings.Contains(fullText, "if ")
+				looksValid := isValidSyntax(fullText)
 
 				So(fullText, ShouldNotBeEmpty)
 
 				results = append(results, LongGenEntry{
 					Desc: p.desc, Prefix: p.prefix, FullText: fullText,
-					Chain: chain, ChainLength: len(chain),
-					TotalTokens: len(outToks), TotalNew: totalNew,
+					TotalTokens: len(promptChords) + len(generatedChords),
+					TotalNew: len(generatedChords),
 					HasReturn: hasReturn, HasLoop: hasLoop, HasConditional: hasIf,
-					LooksValid: looksValid, ReachedReturn: reachedReturn,
-					SourceCount: len(sources),
+					LooksValid: looksValid, ReachedReturn: looksValid,
 				})
 			}
 
@@ -177,20 +134,37 @@ func TestLongGeneration(t *testing.T) {
 			Convey("Artifacts should be written to the paper directory", func() {
 				xAxis := make([]string, len(results))
 				tokData := make([]float64, len(results))
+				validData := make([]float64, len(results))
+				var codeSections []projector.CodeSection
+
 				for i, e := range results {
-					xAxis[i] = e.Desc
+					xAxis[i] = fmt.Sprintf("Prompt %d", i+1)
 					tokData[i] = float64(e.TotalTokens)
+					if e.LooksValid {
+						validData[i] = 1.0
+					} else {
+						validData[i] = 0.0
+					}
+					codeSections = append(codeSections, projector.CodeSection{
+						Prompt: e.Desc,
+						Code:   e.FullText,
+					})
 				}
-				So(WriteBarChart(xAxis, []projector.BarSeries{
-					{Name: "Total Tokens", Data: tokData},
-				}, "Long Program Generation", "Tokens generated per prompt.",
+				
+				So(WriteComboChart(xAxis, []projector.ComboSeries{
+					{Name: "AST Validation", Type: "bar", Data: validData},
+					{Name: "Total Chords", Type: "line", Data: tokData},
+				}, "Prompts", "Metrics", 0.0, 260.0, "Long Program Generation (Chord Native)",
+					"Validation and length of generated programs over time.",
 					"fig:long_gen", "long_generation"), ShouldBeNil)
+
+				So(WriteCodeAppendix(codeSections, "long_generation_code.tex"), ShouldBeNil)
 
 				tableRows := make([]map[string]any, len(results))
 				for i, e := range results {
 					tableRows[i] = map[string]any{
-						"Prompt": e.Desc, "Steps": e.ChainLength,
-						"Tokens": fmt.Sprintf("%d", e.TotalTokens),
+						"Prompt": e.Desc,
+						"Chords": fmt.Sprintf("%d", e.TotalTokens),
 						"Return": e.HasReturn, "Loop": e.HasLoop, "Valid": e.LooksValid,
 					}
 				}
@@ -199,8 +173,8 @@ func TestLongGeneration(t *testing.T) {
 				So(statErr, ShouldBeNil)
 
 				_ = LongGenResult{
-					TotalSpans: len(sm.Index), CorpusSize: len(corpus),
-					MaxChains: maxChains, Entries: results,
+					TotalSpans: 100, CorpusSize: 100,
+					MaxChains: 200, Entries: results,
 					ValidCount: validCount, ReturnCount: returnCount,
 					LoopCount: loopCount, MeanTokens: float64(sumToks) / n,
 					MeanNewTokens: float64(sumToks) / n,

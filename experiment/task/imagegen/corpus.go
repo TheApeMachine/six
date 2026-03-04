@@ -1,4 +1,4 @@
-package vision
+package imagegen
 
 func visionCorpus() ([][]byte, []string) {
 	var images [][]byte

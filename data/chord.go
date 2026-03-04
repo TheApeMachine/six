@@ -45,7 +45,7 @@ Bytes returns the chord as numeric.ChordBlocks×8 bytes (big-endian uint64s).
 */
 func (chord *Chord) Bytes() []byte {
 	b := make([]byte, numeric.ChordBlocks*8)
-	for i := 0; i < numeric.ChordBlocks; i++ {
+	for i := range numeric.ChordBlocks {
 		binary.BigEndian.PutUint64(b[i*8:], chord[i])
 	}
 	return b
@@ -173,28 +173,7 @@ func ChordHole(target, existing *Chord) (hole Chord) {
 	return hole
 }
 
-/*
-TransitiveResonance executes a structural analogy (A:B :: C:D) using pure bitwise logic.
-Given F1(A,B), F2(C,B), and F3(C,D), it returns the hypothesis H(A,D).
 
-Example: "Cat wants food" + "Dog wants food" + "Dog is animal" → "Cat is animal"
-  - B = shared context (wants food)
-  - C = shared subject (dog)
-  - A = F1 without B (cat)
-  - D = F3 without C (is animal)
-  - H = A | D (cat is animal)
-
-No neural network required — the prime substrate performs symbolic logic natively.
-*/
-func TransitiveResonance(f1, f2, f3 *Chord) Chord {
-	B := ChordGCD(f1, f2) // Shared context (Wormhole 1)
-	C := ChordGCD(f2, f3) // Shared subject (Wormhole 2)
-
-	A := ChordHole(f1, &B) // F1 without B
-	D := ChordHole(f3, &C) // F3 without C
-
-	return ChordOR(&A, &D) // Forged hypothesis (A ∪ D)
-}
 
 /*
 ChordOR returns the element-wise OR of two chords (their LCM in prime exponent space).
@@ -204,55 +183,6 @@ func ChordOR(a, b *Chord) (lcm Chord) {
 		lcm[i] = a[i] | b[i]
 	}
 	return lcm
-}
-
-// PositionalPrimeStart is the first prime index reserved for positional encoding.
-// When >= 0, ApplyPositionalShift sets chord bit at PositionalPrimeStart + (pos % PositionSlots).
-// When < 0 (default), no positional encoding (pure semantic matching).
-var PositionalPrimeStart = -1
-
-// PositionSlots is the number of distinct positions encodable when positional encoding is active.
-const PositionSlots = 64
-
-/*
-ApplyPositionalShift encodes position into the chord (for positional encoding).
-Pure semantic matching uses a no-op; positional encoding multiplies by BasisPrimes.
-When PositionalPrimeStart >= 0, sets the bit at BasisPrimes[PositionalPrimeStart + pos mod PositionSlots].
-*/
-func ApplyPositionalShift(chord *Chord, pos int) {
-	if PositionalPrimeStart < 0 {
-		return
-	}
-	primeIdx := PositionalPrimeStart + (pos % PositionSlots)
-	if primeIdx >= numeric.NBasis {
-		return
-	}
-	chord.Set(primeIdx)
-}
-
-/*
-FillScore measures how well a candidate chord fills a structural hole.
-Returns a value in [0, 1] where 1 = perfect fill with no extra primes.
-*/
-func FillScore(hole, candidate *Chord) (score float64) {
-	needed := 0
-	filled := 0
-	extra := 0
-
-	for i := range numeric.ChordBlocks {
-		h := hole[i]
-		c := candidate[i]
-
-		needed += popcount(h)
-		filled += popcount(h & c)
-		extra += popcount(c &^ h) // primes in candidate that aren't in hole
-	}
-
-	if needed == 0 {
-		return 0
-	}
-
-	return float64(filled) / (float64(needed) * (1.0 + float64(extra)))
 }
 
 /*

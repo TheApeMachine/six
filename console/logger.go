@@ -32,12 +32,12 @@ func Info(msg string) {
 	logger.handle.Info(msg)
 }
 
-func Error(err error) error {
+func Error(err error, keyvals ...any) error {
 	if err == nil {
 		return nil
 	}
 
-	logger.handle.Error(err)
+	logger.handle.Error(err, keyvals...)
 
 	return err
 }

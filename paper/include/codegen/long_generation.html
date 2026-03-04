@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Long Program Generation</title>
+    <title>Long Program Generation (Chord Native)</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
         html, body {
@@ -33,34 +33,65 @@
 <body>
     <div id="chart"></div>
     <script>
-        const xAxisData = ["Quicksort","Merge sort","DFS","BFS","Bubble sort","RLE encode","Two sum"];
-        const seriesData = [{"name":"Total Tokens","data":[13,8,9,9,105,8,8]}];
+        const xAxisData = ["Prompt 1","Prompt 2","Prompt 3","Prompt 4","Prompt 5","Prompt 6","Prompt 7"];
+        const seriesData = [{"name":"AST Validation","type":"bar","symbol":"","barWidth":"","data":[0,0,0,0,0,0,0]},{"name":"Total Chords","type":"line","symbol":"","barWidth":"","data":[220,221,223,223,222,219,227]}];
+        const yMin = 0;
+        const yMax = 260;
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
-        
+
+        const palette = ['#3b82f6','#22c55e','#94a3b8','#ef4444','#a855f7','#f59e0b','#06b6d4','#ec4899'];
+
+        const series = seriesData.map((s, i) => {
+            const color = palette[i % palette.length];
+            const base = {
+                name: s.name,
+                data: s.data,
+                itemStyle: { color },
+                lineStyle: { color }
+            };
+            if (s.type === 'bar') {
+                return { ...base, type: 'bar', barWidth: s.barWidth || '15%', itemStyle: { color, borderRadius: [4, 4, 0, 0] } };
+            } else if (s.type === 'dashed') {
+                return { ...base, type: 'line', smooth: false, symbol: s.symbol || 'diamond', symbolSize: 6,
+                         lineStyle: { color, type: 'dashed', width: 1.5 } };
+            } else {
+                // default: smooth line
+                return { ...base, type: 'line', smooth: true, symbol: s.symbol || 'circle', symbolSize: 4,
+                         lineStyle: { color, width: 2 } };
+            }
+        });
+
         const option = {
             backgroundColor: 'transparent',
             animation: false,
             tooltip: { trigger: 'axis' },
-            legend: { top: '5%', textStyle: { color: '#475569', fontSize: 12 } },
-            grid: { left: '10%', right: '10%', top: '20%', bottom: '15%' },
+            legend: {
+                top: '3%',
+                selectedMode: false,
+                textStyle: { color: '#475569', fontSize: 11 }
+            },
+            grid: { left: '10%', right: '10%', top: '18%', bottom: '15%' },
             xAxis: {
                 type: 'category',
                 data: xAxisData,
                 axisLabel: { color: '#475569' },
+                name: 'Prompts',
                 nameLocation: 'middle',
-                nameGap: 30
+                nameGap: 25,
+                nameTextStyle: { color: '#475569' }
             },
             yAxis: {
                 type: 'value',
+                min: yMin,
+                max: yMax,
                 axisLabel: { color: '#475569' },
-                splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } }
+                splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+                name: 'Metrics',
+                nameLocation: 'middle',
+                nameGap: 35,
+                nameTextStyle: { color: '#475569' }
             },
-            series: seriesData.map(s => ({
-                name: s.name,
-                type: 'bar',
-                data: s.data,
-                itemStyle: { borderRadius: [4, 4, 0, 0] }
-            }))
+            series
         };
         chart.setOption(option);
 

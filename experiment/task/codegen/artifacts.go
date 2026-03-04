@@ -125,3 +125,11 @@ func WriteProse(tmplSrc string, data map[string]any, outFile string) error {
 	p.SetOutput(io.Discard)
 	return p.Generate()
 }
+
+func WriteCodeAppendix(sections []projector.CodeSection, filename string) error {
+	dir, err := ensurePaperDir()
+	if err != nil {
+		return err
+	}
+	return projector.WriteCodeAppendix(sections, dir, filename)
+}

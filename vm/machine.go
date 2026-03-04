@@ -1,7 +1,7 @@
 package vm
 
 import (
-	"math"
+	"fmt"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
@@ -49,8 +49,13 @@ func (machine *Machine) Start() error {
 		machine.primefield.Insert(chord)
 		chords = append(chords, chord)
 	}
-	
-	return machine.eigen.BuildMultiScaleCooccurrence(chords)
+	if err := machine.eigen.BuildMultiScaleCooccurrence(chords); err != nil {
+		return console.Error(fmt.Errorf("failed to build multiscale cooccurrence: %w", err),
+			"total_chords", len(chords),
+			"store", machine.loader.holdoutType,
+		)
+	}
+	return nil
 }
 
 /*
@@ -73,33 +78,43 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 	go func() {
 		defer close(out)
 
-		buf := append([]data.Chord{}, prompt...)
+		// Track masked indices so we can unmask them when done
+		var masked []struct {
+			idx   int
+			chord data.MultiChord
+		}
+
+		defer func() {
+			for _, m := range masked {
+				machine.primefield.Unmask(m.idx, m.chord)
+			}
+		}()
+
 		currentIdx := 0
 
-		for {
-			if len(buf) == 0 {
-				return
-			}
+		for i := range prompt {
+			currentIdx += i
+			masked = append(masked, struct {
+				idx   int
+				chord data.MultiChord
+			}{currentIdx, machine.primefield.Mask(currentIdx)})
+		}
 
+		for {
 			// Build current active context MultiChord directly matching GPU topology
 			var activeCtx data.MultiChord
 
-			for i, w := range numeric.FibWindows {
-				start := max(len(buf) - w, 0)
-				
+			for i := range numeric.FibWindows {
 				var agg data.Chord
 				
-				for _, c := range buf[start:] {
+				for _, c := range prompt {
 					for j := range agg {
-						agg[j] |= c[j]
+						agg[j] = c[j]
 					}
 				}
 				
 				activeCtx[i] = agg
 			}
-
-			// Context toroidal phase from chord sequence (chord-native)
-			ctxTheta, ctxPhi := machine.eigen.SeqToroidalMeanPhase(buf)
 
 			// GPU Bitwise Search (all 5 spatial planes instantly!)
 			bestIdx, score, err := metal.BestFill(
@@ -109,49 +124,34 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 				currentIdx,
 			)
 
+			found := machine.primefield.MultiChord(bestIdx)
+
 			if err != nil || bestIdx < 0 || bestIdx >= machine.primefield.N {
-				console.Error(MachineErrNotFound)
+				console.Error(MachineErrNotFound,
+					"error", err,
+					"bestIdx", bestIdx,
+					"fieldN", machine.primefield.N,
+					"currentIdx", bestIdx,
+				)
 				return
 			}
-
-			mChord := machine.primefield.MultiChord(bestIdx)
-
-			// Semantic compass: phase from candidate chord (finest scale)
-			candChord := mChord[0]
-			candTheta, candPhi := machine.eigen.PhaseForChord(&candChord)
-
-			diffTheta := math.Abs(candTheta - ctxTheta)
 			
-			if diffTheta > math.Pi {
-				diffTheta = 2*math.Pi - diffTheta
-			}
+			// Mask the found index — zero it in the PrimeField so the 
+			// GPU can't re-find it. Store original for deferred unmask.
+			for i := range prompt {
+				original := machine.primefield.Mask(bestIdx)
 
-			diffPhi := math.Abs(candPhi - ctxPhi)
-			
-			if diffPhi > math.Pi {
-				diffPhi = 2*math.Pi - diffPhi
+				masked = append(masked, struct {
+					idx   int
+					chord data.MultiChord
+				}{bestIdx+i, original})
 			}
-
-			// Deduct resonance percentage points for Toroidal misalignment
-			// NOTE: This should be a derived, not a guessed value.
-			score -= (diffTheta / math.Pi) * 0.10
-			score -= (diffPhi / math.Pi) * 0.10
 
 			out <- SpanResult{
 				Index: bestIdx,
 				Score: score,
-				Chord: mChord,
+				Chord: found,
 			}
-
-			// Append candidate chord to sliding window (chord-native)
-			buf = append(buf, candChord)
-
-			if len(buf) > 21 {
-				buf = buf[1:]
-			}
-
-			currentIdx = bestIdx + 1 // Advance 
-			// (NOTE: Should this not take into account the span length?)
 		}
 	}()
 
@@ -161,6 +161,18 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 func MachineWithLoader(loader *Loader) machineOpts {
 	return func(machine *Machine) {
 		machine.loader = loader
+	}
+}
+
+func MachineWithPrimeField(pf *store.PrimeField) machineOpts {
+	return func(machine *Machine) {
+		machine.primefield = pf
+	}
+}
+
+func MachineWithEigenMode(eigen *geometry.EigenMode) machineOpts {
+	return func(machine *Machine) {
+		machine.eigen = eigen
 	}
 }
 

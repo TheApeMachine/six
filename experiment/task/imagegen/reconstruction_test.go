@@ -1,4 +1,4 @@
-package vision
+package imagegen
 
 import (
 	"fmt"

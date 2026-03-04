@@ -68,7 +68,7 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
 
         [computeEncoder setComputePipelineState:bestFillPipeline];
 
-        NSUInteger dictSize = (NSUInteger)num_chords * 64; // Each chord is 8x uint64 = 64 bytes
+        NSUInteger dictSize = (NSUInteger)num_chords * 320; // Each MultiChord is 5 planes × 8 × uint64 = 320 bytes
         id<MTLBuffer> dictBuffer = [device newBufferWithBytesNoCopy:(void*)dictionary_ptr length:dictSize options:MTLResourceStorageModeShared deallocator:nil];
         if (!dictBuffer) {
             // Fallback to copy if noCopy fails due to alignment
@@ -81,7 +81,7 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
         }
         [computeEncoder setBuffer:dictBuffer offset:0 atIndex:0];
 
-        id<MTLBuffer> ctxBuffer = [device newBufferWithBytes:active_context_ptr length:64 options:MTLResourceStorageModeShared];
+        id<MTLBuffer> ctxBuffer = [device newBufferWithBytes:active_context_ptr length:320 options:MTLResourceStorageModeShared];
         if (!ctxBuffer) {
             NSLog(@"Failed to create ctxBuffer");
             [computeEncoder endEncoding];

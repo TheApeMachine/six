@@ -1,4 +1,4 @@
-package vision
+package logic
 
 import (
 	"io"
@@ -21,14 +21,14 @@ func PaperDir() string {
 	wd, _ := os.Getwd()
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			paperDirMemo = filepath.Join(dir, "paper", "include", "vision")
+			paperDirMemo = filepath.Join(dir, "paper", "include", "logic")
 			return paperDirMemo
 		}
 		if dir == filepath.Dir(dir) {
 			break
 		}
 	}
-	paperDirMemo = filepath.Join(wd, "paper", "include", "vision")
+	paperDirMemo = filepath.Join(wd, "paper", "include", "logic")
 	return paperDirMemo
 }
 
@@ -58,6 +58,19 @@ func WriteBarChart(xAxis []string, series []projector.BarSeries, title, caption,
 	return projector.WriteBarChart(xAxis, series, title, caption, label, dir, filename, f)
 }
 
+func WriteComboChart(xAxis []string, series []projector.ComboSeries, xLabel, yLabel string, yMin, yMax float64, title, caption, label, filename string) error {
+	dir, err := ensurePaperDir()
+	if err != nil {
+		return err
+	}
+	f, err := os.Create(filepath.Join(dir, filename+".tex"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return projector.WriteComboChart(xAxis, series, xLabel, yLabel, yMin, yMax, title, caption, label, dir, filename, f)
+}
+
 func WriteProse(tmplSrc string, data map[string]any, outFile string) error {
 	dir, err := ensurePaperDir()
 	if err != nil {
@@ -70,17 +83,4 @@ func WriteProse(tmplSrc string, data map[string]any, outFile string) error {
 	)
 	p.SetOutput(io.Discard)
 	return p.Generate()
-}
-
-func WriteImageStrip(rows []projector.ImageStripRow, title, caption, label, filename string) error {
-	dir, err := ensurePaperDir()
-	if err != nil {
-		return err
-	}
-	f, err := os.Create(filepath.Join(dir, filename+".tex"))
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	return projector.WriteImageStrip(rows, title, caption, label, dir, filename, f)
 }

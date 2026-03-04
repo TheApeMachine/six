@@ -52,7 +52,10 @@ func (loader *Loader) Generate() chan data.Chord {
 
 		for token := range loader.tokenizer.Generate() {
 			if !loader.validate(token) {
-				console.Error(LoaderErrInvalidToken)
+				console.Error(LoaderErrInvalidToken,
+					"tokenID", token.TokenID,
+					"activeCount", token.Chord.ActiveCount(),
+				)
 				return
 			}
 
@@ -122,7 +125,7 @@ func (loader *Loader) randomHoldout(buf []data.Chord) []data.Chord {
 }	
 
 func (loader *Loader) validate(token tokenizer.Token) bool {
-	return token.TokenID > 0 && token.Chord.ActiveCount() > 0
+	return token.Chord.ActiveCount() > 0
 }
 
 func (loader *Loader) Holdout(n int, t HoldoutType) {

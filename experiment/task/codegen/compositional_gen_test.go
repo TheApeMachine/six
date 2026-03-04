@@ -2,49 +2,48 @@ package codegen
 
 import (
 	"fmt"
-	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/provider/huggingface"
+	"github.com/theapemachine/six/store"
+	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/vm"
 )
 
 func TestCompositionalGeneration(t *testing.T) {
-	Convey("Given out-of-corpus prompts and pure fingerprint similarity", t, func() {
-		corpus := append(pythonCorpus(), longCorpus()...)
-		sm := BuildSpanMemory(corpus)
-		eigenTable := buildEigenMode(corpus)
-		So(eigenTable, ShouldNotBeNil)
-		So(len(sm.Index), ShouldBeGreaterThan, 0)
+	Convey("Given a machine loaded with MBPP", t, func() {
+		loader := vm.NewLoader(
+			vm.LoaderWithStore(store.NewLSMSpatialIndex(1.0)),
+			vm.LoaderWithTokenizer(
+				tokenizer.NewUniversal(
+					tokenizer.TokenizerWithDataset(
+						huggingface.New(
+							huggingface.DatasetWithRepo("code-rag-bench/mbpp"),
+							huggingface.DatasetWithSamples(100),
+							huggingface.DatasetWithTextColumn("code"),
+						),
+					),
+				),
+			),
+		)
 
-		const topK = 64
-		const nDial = 8
-		const maxChains = 10
-		const minNewTokens = 2
+		machine := vm.NewMachine(
+			vm.MachineWithLoader(loader),
+		)
 
-		overlapLen := func(out, span []string) int {
-			maxOvl := len(out)
-			if len(span) < maxOvl {
-				maxOvl = len(span)
-			}
-			for ovl := maxOvl; ovl > 0; ovl-- {
-				match := true
-				for i := 0; i < ovl; i++ {
-					if out[len(out)-ovl+i] != span[i] {
-						match = false
-						break
-					}
-				}
-				if match {
-					return ovl
-				}
-			}
-			return 0
-		}
+		machine.Start()
+		loader.Holdout(50, vm.HoldoutRandom)
 
+		// Consume generator to populate the machine
+		<-loader.Generate()
+
+		// Build a coder to reconstruct sequences for AST validation
+		coder := tokenizer.NewMortonCoder()
+		
 		prompts := []struct{ prefix, desc, expected string }{
 			{"def compute_pi_approx(iters):", "Pi Approximation (Novel math)", "pi = 0; for i in range(iters):"},
 			{"def lcg_next(seed, a, c, m):", "LCG PRNG (Novel math)", "return (a * seed + c) % m"},
@@ -54,186 +53,97 @@ func TestCompositionalGeneration(t *testing.T) {
 			{"def geometric_progression(a, r, n):", "Series generation (Novel logic)", "return [a * (r ** i) for i in range(n)]"},
 		}
 
-		Convey("When generating for out-of-corpus prompts", func() {
+		Convey("When generating for completely out-of-corpus prompts via chords", func() {
 			var results []CompGenEntry
 			for _, p := range prompts {
-				outToks := tokenize(p.prefix)
-				usedSpans := make(map[int]bool)
-				var chain []CompGenStep
-				reachedReturn := false
-				promptPhase, _ := weightedCircularMean(eigenTable, p.prefix)
-
-				for step := 0; step < maxChains; step++ {
-					ctxToks := outToks
-					if len(ctxToks) > 20 {
-						ctxToks = ctxToks[len(ctxToks)-20:]
-					}
-					queryFP := geometry.NewPhaseDial().Encode(detokenize(ctxToks))
-					cands := sm.RetrieveDiverse(queryFP, nDial, topK)
-
-					type sc struct {
-						idx, ovl, newToks int
-						score             float64
-						meta              SpanMeta
-					}
-					var viable []sc
-					for _, c := range cands {
-						if usedSpans[c.Idx] {
-							continue
-						}
-						meta := sm.Index[c.Idx]
-						ovl := overlapLen(outToks, meta.Tokens)
-						newToks := len(meta.Tokens) - ovl
-						if newToks < minNewTokens {
-							continue
-						}
-						// Pure sim only — no heuristics
-						viable = append(viable, sc{c.Idx, ovl, newToks, c.Score, meta})
-					}
-					if len(viable) == 0 {
-						break
-					}
-					for i := 0; i < len(viable); i++ {
-						for j := i + 1; j < len(viable); j++ {
-							if viable[j].score > viable[i].score {
-								viable[i], viable[j] = viable[j], viable[i]
-							}
-						}
-					}
-					best := viable[0]
-					usedSpans[best.idx] = true
-					newToks := best.meta.Tokens[best.ovl:]
-					outToks = append(outToks, newToks...)
-					newText := detokenize(newToks)
-					srcFn := ""
-					if best.meta.Source < len(corpus) {
-						lines := strings.SplitN(corpus[best.meta.Source], "\n", 2)
-						srcFn = lines[0]
-					}
-					chain = append(chain, CompGenStep{
-						Step: step + 1, SpanText: best.meta.Text,
-						NewText: newText, NewTokens: best.newToks,
-						Overlap: best.ovl, SimScore: best.score,
-						SourceIdx: best.meta.Source, SourceFn: srcFn,
-					})
-					if step > 0 && IsGeometricallyClosed(eigenTable, newText, promptPhase) {
-						reachedReturn = true
-						break
-					}
-				}
-
-				fullText := detokenize(outToks)
-				sources := make(map[int]bool)
-				sourceFns := make(map[string]bool)
-				totalNew := 0
-				for _, c := range chain {
-					sources[c.SourceIdx] = true
-					sourceFns[c.SourceFn] = true
-					totalNew += c.NewTokens
-				}
-				expectedToks := tokenize(p.expected)
+				promptText := []byte(p.prefix)
 				
-				// Compute true Longest Common Subsequence (LCS) on tokens
-				// to ensure strictly ordered, position-aware overlap rather than blind substring match
-				lcsMatrix := make([][]int, len(outToks)+1)
-				for i := range lcsMatrix {
-					lcsMatrix[i] = make([]int, len(expectedToks)+1)
+				// Translate the string prompt mathematically into Chords via tokenizer
+				var promptChords []data.Chord
+				for _, b := range promptText {
+					promptChords = append(promptChords, tokenizer.BaseChord(b))
 				}
-				for i := 1; i <= len(outToks); i++ {
-					for j := 1; j <= len(expectedToks); j++ {
-						if outToks[i-1] == expectedToks[j-1] {
-							lcsMatrix[i][j] = lcsMatrix[i-1][j-1] + 1
-						} else {
-							if lcsMatrix[i-1][j] > lcsMatrix[i][j-1] {
-								lcsMatrix[i][j] = lcsMatrix[i-1][j]
-							} else {
-								lcsMatrix[i][j] = lcsMatrix[i][j-1]
-							}
-						}
+				
+				var generatedChords []data.Chord
+				
+				// Step the actual chord-based machine to generate raw phase sequence
+				limit := 0
+				for res := range machine.Prompt(promptChords) {
+					if limit > 64 {
+						break
+					}
+					// Only chords exist in the generation stream
+					generatedChords = append(generatedChords, res.Chord[0])
+					limit++
+				}
+
+				// Only when generation halts do we re-inflate the topology into bytes
+				var generatedBytes []byte
+				for _, chord := range generatedChords {
+					tokenIDs := loader.Lookup([]data.Chord{chord})
+					for _, tokenID := range tokenIDs {
+						b, _, _ := coder.Decode(tokenID)
+						generatedBytes = append(generatedBytes, b)
 					}
 				}
-				matched := lcsMatrix[len(outToks)][len(expectedToks)]
 
-				expOverlap := 0.0
-				if len(expectedToks) > 0 {
-					expOverlap = float64(matched) / float64(len(expectedToks))
-				}
+				fullText := string(promptText) + string(generatedBytes)
 
-				hasReturn := IsGeometricallyClosed(eigenTable, fullText, promptPhase)
+				hasReturn := strings.Contains(fullText, "return")
 				hasLoop := strings.Contains(fullText, "for") || strings.Contains(fullText, "while")
 				hasConditional := strings.Contains(fullText, "if")
+				looksValid := isValidSyntax(fullText)
 
 				So(fullText, ShouldNotBeEmpty)
 
 				results = append(results, CompGenEntry{
 					Desc: p.desc, Prefix: p.prefix, Expected: p.expected,
-					FullText: fullText, Chain: chain, ChainLength: len(chain),
-					TotalTokens: len(outToks), TotalNew: totalNew,
+					FullText: fullText, TotalNew: len(generatedChords),
 					HasReturn: hasReturn, HasLoop: hasLoop,
-					HasConditional:  hasConditional,
-					ReachedReturn:   reachedReturn,
-					SourceCount:     len(sources),
-					ExpectedOverlap: expOverlap,
+					HasConditional: hasConditional,
+					ReachedReturn:  looksValid,  // Used as general ast validation score here
 				})
 			}
 
-			returnCount, loopCount := 0, 0
-			sumOverlap := 0.0
+			validCount, loopCount := 0, 0
 			for _, e := range results {
-				if e.HasReturn {
-					returnCount++
+				if e.ReachedReturn {
+					validCount++
 				}
 				if e.HasLoop {
 					loopCount++
 				}
-				sumOverlap += e.ExpectedOverlap
 			}
-			n := float64(len(prompts))
-
-			Convey("All outputs non-empty", func() {
-				for _, e := range results {
-					So(e.FullText, ShouldNotBeEmpty)
-				}
-			})
 
 			Convey("Artifacts should be written to the paper directory", func() {
 				xAxis := make([]string, len(results))
-				ovlData := make([]float64, len(results))
+				validData := make([]float64, len(results))
+				tokensData := make([]float64, len(results))
+				var codeSections []projector.CodeSection
+
 				for i, e := range results {
-					xAxis[i] = fmt.Sprintf("%d", i+1)
-					ovlData[i] = e.ExpectedOverlap
+					xAxis[i] = fmt.Sprintf("Prompt %d", i+1)
+					if e.ReachedReturn {
+						validData[i] = 1.0
+					} else {
+						validData[i] = 0.0
+					}
+					tokensData[i] = float64(e.TotalNew)
+
+					codeSections = append(codeSections, projector.CodeSection{
+						Prompt: e.Desc,
+						Code:   e.FullText,
+					})
 				}
-				So(WriteBarChart(xAxis, []projector.BarSeries{
-					{Name: "Expected Overlap", Data: ovlData},
-				}, "Compositional Generation",
-					"Out-of-corpus expected token overlap per prompt.",
+
+				So(WriteComboChart(xAxis, []projector.ComboSeries{
+					{Name: "AST Validation Success", Type: "bar", Data: validData},
+					{Name: "Chords Generated", Type: "line", Data: tokensData},
+				}, "Prompts", "Metrics", 0.0, 64.0, "Compositional CodeGen (Chord Native)",
+					"Validation success vs chords generated over genuinely out-of-corpus pipelines.",
 					"fig:comp_gen", "compositional_gen"), ShouldBeNil)
 
-				tableRows := make([]map[string]any, len(results))
-				for i, e := range results {
-					tableRows[i] = map[string]any{
-						"Prompt": e.Desc, "Return": e.HasReturn,
-						"Loop": e.HasLoop, "ExpOvl": fmt.Sprintf("%.3f", e.ExpectedOverlap),
-					}
-				}
-				So(WriteTable(tableRows, "compositional_gen_summary.tex"), ShouldBeNil)
-				_, statErr := os.Stat(filepath.Join(PaperDir(), "compositional_gen_summary.tex"))
-				So(statErr, ShouldBeNil)
-
-				_ = CompGenResult{
-					TotalSpans: len(sm.Index), Entries: results,
-					ReturnCount: returnCount, LoopCount: loopCount,
-					MeanTokens: 0, MeanExpectedOverlap: sumOverlap / n,
-				}
-			})
-
-			Convey("Artifact: write compositional generation subsection prose", func() {
-				tmpl, err := os.ReadFile("prose/compositional_gen.tex.tmpl")
-				So(err, ShouldBeNil)
-				So(WriteProse(string(tmpl), map[string]any{
-					"MeanExpectedOverlap": sumOverlap / n,
-					"ReturnCount":         returnCount,
-				}, "compositional_gen_prose.tex"), ShouldBeNil)
+				So(WriteCodeAppendix(codeSections, "compositional_gen_code.tex"), ShouldBeNil)
 			})
 		})
 	})

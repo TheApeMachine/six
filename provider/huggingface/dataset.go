@@ -5,14 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 
-	"github.com/gofiber/fiber/v3/client"
 	"github.com/parquet-go/parquet-go"
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/provider"
-	"github.com/valyala/fasthttp"
 )
 
 const hfBase = "https://huggingface.co"
@@ -25,6 +25,7 @@ a channel as byte-position pairs.
 */
 type Dataset struct {
 	repo         string
+	subset       string
 	textColumn   string
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
@@ -63,14 +64,16 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 				out <- provider.RawToken{SampleID: sampleID, Symbol: b, Pos: pos}
 				pos++
 			}
+			
 			sampleID++
+
 			if dataset.perSamplePos {
 				pos = 0
 			}
 
 			return true
 		}); err != nil {
-			fmt.Printf("Dataset error: %v\n", err)
+			console.Error(err, "repo", dataset.repo, "column", dataset.textColumn)
 		}
 	}()
 
@@ -83,12 +86,14 @@ to the appropriate format parser (JSON or Parquet).
 fn returning false stops iteration.
 */
 func (dataset *Dataset) streamRows(fn func(string) bool) error {
-	shard, err := dataset.discoverShard()
+	shard, branch, err := dataset.discoverShard()
+	
 	if err != nil {
 		return err
 	}
 
-	reader, size, err := dataset.downloadShard(shard)
+	reader, size, err := dataset.downloadShard(shard, branch)
+	
 	if err != nil {
 		return err
 	}
@@ -102,15 +107,25 @@ func (dataset *Dataset) streamRows(fn func(string) bool) error {
 
 func findColumn(schema *parquet.Schema, name string) int {
 	for i, col := range schema.Columns() {
+		// Exact match cases
 		if len(col) > 0 && col[0] == name {
 			if len(col) == 1 {
 				return i
 			}
+
 			if len(col) == 2 && col[1] == "bytes" {
 				return i
 			}
+			
+			// If it's a nested structure (like bAbI "story" list)
+			for j, comp := range col {
+				if comp == "text" && j > 0 {
+					return i
+				}
+			}
 		}
 	}
+
 	return -1
 }
 
@@ -247,7 +262,7 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 downloadShard streams the download via the Fiber client and returns
 a bytes.Reader (which implements io.ReaderAt) along with the size.
 */
-func (dataset *Dataset) downloadShard(shard string) (io.ReaderAt, int64, error) {
+func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64, error) {
 
 	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
 	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
@@ -257,21 +272,36 @@ func (dataset *Dataset) downloadShard(shard string) (io.ReaderAt, int64, error) 
 		return r, r.Size(), nil
 	}
 
-	url := fmt.Sprintf("%s/datasets/%s/resolve/main/%s", hfBase, dataset.repo, shard)
-	resp, err := dataset.request(url)
-
+	encodedBranch := strings.ReplaceAll(branch, "/", "%2F")
+	url := fmt.Sprintf("%s/datasets/%s/resolve/%s/%s", hfBase, dataset.repo, encodedBranch, shard)
+	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, fmt.Errorf("huggingface req: %w", err)
 	}
-	defer fasthttp.ReleaseResponse(resp.RawResponse)
 
-	body := resp.RawResponse.Body()
-	bodyCopy := make([]byte, len(body))
-	copy(bodyCopy, body)
-	
-	_ = os.WriteFile(cachePath, bodyCopy, 0644)
-	
-	r := bytes.NewReader(bodyCopy)
+	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+
+	httpClient := &http.Client{}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, fmt.Errorf("huggingface: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		return nil, 0, fmt.Errorf("huggingface: HTTP %d from %s", resp.StatusCode, url)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, fmt.Errorf("huggingface read: %w", err)
+	}
+
+	_ = os.WriteFile(cachePath, body, 0644)
+
+	r := bytes.NewReader(body)
 
 	return r, r.Size(), nil
 }
@@ -281,98 +311,97 @@ discoverShard queries the HuggingFace API tree listing and returns
 the path to the first train-split .parquet, .json, or .jsonl file,
 or any valid fallback.
 */
-func (dataset *Dataset) discoverShard() (string, error) {
-	url := fmt.Sprintf("%s/api/datasets/%s/tree/main?recursive=true", hfBase, dataset.repo)
-	resp, err := dataset.request(url)
-
-	if err != nil {
-		return "", err
-	}
-	defer fasthttp.ReleaseResponse(resp.RawResponse)
-
-	var entries []struct {
+func (dataset *Dataset) discoverShard() (string, string, error) {
+	branches := []string{"main", "refs/convert/parquet"}
+	
+	var fallback string
+	var fallbackBranch string
+	
+	type Entry struct {
 		Type string `json:"type"`
 		Path string `json:"path"`
 	}
 
-	if err := json.Unmarshal(resp.Body(), &entries); err != nil {
-		return "", fmt.Errorf("huggingface: parse listing: %w", err)
-	}
+	for _, branch := range branches {
+		encodedBranch := strings.ReplaceAll(branch, "/", "%2F")
+		url := fmt.Sprintf("%s/api/datasets/%s/tree/%s?recursive=true", hfBase, dataset.repo, encodedBranch)
 
-	var fallback string
-
-	for _, e := range entries {
-		if e.Type != "file" {
+		req, err := http.NewRequest("GET", url, nil)
+		if err != nil {
 			continue
 		}
 
-		isSupported := strings.HasSuffix(e.Path, ".parquet") ||
-			strings.HasSuffix(e.Path, ".json") ||
-			strings.HasSuffix(e.Path, ".jsonl")
-		if !isSupported {
+		if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
+			req.Header.Set("Authorization", "Bearer "+token)
+		}
+
+		httpClient := &http.Client{}
+		resp, err := httpClient.Do(req)
+		if err != nil {
+			continue
+		}
+		
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
 			continue
 		}
 
-		if strings.Contains(e.Path, "train") {
-			return e.Path, nil
+		body, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			continue
 		}
 
-		if fallback == "" {
-			fallback = e.Path
+		var entries []Entry
+		if err := json.Unmarshal(body, &entries); err != nil {
+			continue
 		}
-	}
 
-	if fallback == "" {
-		return "", fmt.Errorf("huggingface: no valid parquet/json/jsonl files in %s", dataset.repo)
-	}
-
-	return fallback, nil
-}
-
-/*
-request builds and executes a GET via the Fiber client's R() builder.
-*/
-func (dataset *Dataset) request(url string) (*client.Response, error) {
-	req := client.New().R()
-	defer fasthttp.ReleaseRequest(req.RawRequest)
-
-	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
-		req.RawRequest.Header.Set("Authorization", "Bearer "+token)
-	}
-
-	resp, err := req.Get(url)
-
-	if err != nil {
-		return nil, fmt.Errorf("huggingface: %w", err)
-	}
-
-	code := resp.StatusCode()
-	if code == 301 || code == 302 || code == 307 || code == 308 {
-		loc := string(resp.RawResponse.Header.Peek("Location"))
-		if loc != "" {
-			if !strings.HasPrefix(loc, "http") {
-				if strings.HasPrefix(loc, "/") {
-					loc = hfBase + loc
-				} else {
-					loc = hfBase + "/" + loc
-				}
+		for _, e := range entries {
+			if e.Type != "file" {
+				continue
 			}
-			fasthttp.ReleaseResponse(resp.RawResponse)
-			return dataset.request(loc)
+
+			isSupported := strings.HasSuffix(e.Path, ".parquet") ||
+				strings.HasSuffix(e.Path, ".json") ||
+				strings.HasSuffix(e.Path, ".jsonl")
+			if !isSupported {
+				continue
+			}
+
+			if dataset.subset != "" && !strings.Contains(e.Path, dataset.subset) {
+				continue
+			}
+
+			if strings.Contains(e.Path, "train") {
+				return e.Path, branch, nil
+			}
+
+			if fallback == "" {
+				fallback = e.Path
+				fallbackBranch = branch
+			}
 		}
 	}
 
-	if code != 200 {
-		fasthttp.ReleaseResponse(resp.RawResponse)
-		return nil, fmt.Errorf("huggingface: HTTP %d from %s", code, url)
+	if fallback != "" {
+		return fallback, fallbackBranch, nil
 	}
 
-	return resp, nil
+	return "", "", fmt.Errorf("huggingface: no valid parquet/json/jsonl files in %s for subset %q", dataset.repo, dataset.subset)
 }
+
+
 
 func DatasetWithRepo(repo string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.repo = repo
+	}
+}
+
+func DatasetWithSubset(subset string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.subset = subset
 	}
 }
 
