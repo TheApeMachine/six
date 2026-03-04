@@ -13,7 +13,7 @@ func init() {
 }
 
 type Logger struct {
-	handle log.Logger	
+	handle log.Logger
 }
 
 func New() *Logger {
@@ -53,4 +53,3 @@ func Debug(msg string) {
 func SetLevel(level log.Level) {
 	logger.handle.SetLevel(level)
 }
-	

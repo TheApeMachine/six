@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 	"gonum.org/v1/gonum/mat"
 )
@@ -160,37 +162,37 @@ func (t *eigenPhaseTable) weightedCircularMean(text string) (phase float64, conc
 
 // PhaseBridgingStep records one step of the phase-bridging chainer.
 type PhaseBridgingStep struct {
-	StepNum    int     `json:"step"`
-	SimScore   float64 `json:"sim_score"`
-	SpanText   string  `json:"span_text"`
-	NewTokens  int     `json:"new_tokens"`
-	Overlap    int     `json:"overlap"`
-	SourceFunc string  `json:"source_func"`
-	EigenPhase float64 `json:"eigen_phase"`
+	StepNum       int     `json:"step"`
+	SimScore      float64 `json:"sim_score"`
+	SpanText      string  `json:"span_text"`
+	NewTokens     int     `json:"new_tokens"`
+	Overlap       int     `json:"overlap"`
+	SourceFunc    string  `json:"source_func"`
+	EigenPhase    float64 `json:"eigen_phase"`
 	Concentration float64 `json:"concentration"`
-	InBridge   bool    `json:"in_bridge"`
+	InBridge      bool    `json:"in_bridge"`
 }
 
 // PhaseBridgingEntry records one prompt's generation.
 type PhaseBridgingEntry struct {
-	Prefix      string             `json:"prefix"`
-	Desc        string             `json:"desc"`
-	FullText    string             `json:"full_text"`
-	ChainLength int                `json:"chain_length"`
-	TotalTokens int                `json:"total_tokens"`
-	HasReturn   bool               `json:"has_return"`
-	HasLoop     bool               `json:"has_loop"`
-	BridgeCount int                `json:"bridge_count"`
+	Prefix      string              `json:"prefix"`
+	Desc        string              `json:"desc"`
+	FullText    string              `json:"full_text"`
+	ChainLength int                 `json:"chain_length"`
+	TotalTokens int                 `json:"total_tokens"`
+	HasReturn   bool                `json:"has_return"`
+	HasLoop     bool                `json:"has_loop"`
+	BridgeCount int                 `json:"bridge_count"`
 	Chain       []PhaseBridgingStep `json:"chain"`
 }
 
 // PhaseBridgingResult holds all Test 9 results.
 type PhaseBridgingResult struct {
-	Entries      []PhaseBridgingEntry `json:"entries"`
-	MeanTokens   float64              `json:"mean_tokens"`
-	ReturnCount  int                  `json:"return_count"`
-	LoopCount    int                  `json:"loop_count"`
-	BridgeTotal  int                  `json:"bridge_total"`
+	Entries     []PhaseBridgingEntry `json:"entries"`
+	MeanTokens  float64              `json:"mean_tokens"`
+	ReturnCount int                  `json:"return_count"`
+	LoopCount   int                  `json:"loop_count"`
+	BridgeTotal int                  `json:"bridge_total"`
 }
 
 // testPhaseBridging implements Test 9: Phase-triggered Manifold Bridging.
@@ -198,7 +200,7 @@ type PhaseBridgingResult struct {
 // Combines overlap-aware span chaining with eigenphase tracking.
 // When the system detects a manifold transition (eigenphase crossing or
 // similarity cliff), it enters "bridge mode" which:
-//   - suppresses spans starting with "def " 
+//   - suppresses spans starting with "def "
 //   - boosts candidates whose eigenphase is in the body hemisphere
 //   - uses PhaseDial sweep for broader retrieval
 func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingResult {
@@ -216,18 +218,18 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 
 	// Manifold bridging thresholds
 	const headerPhaseThreshold = -0.15 // below this = header hemisphere
-	const bodyPhaseThreshold = -0.05   // above this = body hemisphere  
+	const bodyPhaseThreshold = -0.05   // above this = body hemisphere
 	const simCliffThreshold = 0.4      // similarity drop triggers bridge
 	const bridgePenalty = 0.3          // penalty for header-starting spans in bridge mode
 	const bodyBoost = 0.15             // boost for body-hemisphere spans in bridge mode
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	type spanMeta struct {
-		tokens     []string
-		source     int
-		eigenPhase float64 // precomputed weighted eigenphase
+		tokens        []string
+		source        int
+		eigenPhase    float64 // precomputed weighted eigenphase
 		concentration float64
 	}
 	var spanIndex []spanMeta
@@ -243,7 +245,7 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				readout := []byte(spanText)
 				substrate.Add(universalFilter, fp, readout)
 
@@ -262,7 +264,7 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 	console.Info(fmt.Sprintf("  Span memory: %d spans (lengths %v, corpus %d)", totalSpans, spanLengths, len(corpus)))
 
 	// Similarity function
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := 0; i < D; i++ {
@@ -328,7 +330,7 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 		prevSim := 1.0
 		prevPhase := 0.0
 
-		// Track the first function name for name-lock (like Test 4)  
+		// Track the first function name for name-lock (like Test 4)
 		firstName := ""
 		if i := strings.Index(prompt.prefix, "("); i > 4 {
 			firstName = prompt.prefix[4:i]
@@ -339,7 +341,7 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 
 		for step := 0; step < maxChains; step++ {
 			queryText := currentOutput
-			queryFP := numeric.EncodeText(queryText)
+			queryFP := geometry.NewPhaseDial().Encode(queryText)
 
 			// Compute current output eigenphase
 			currentPhase, currentConc := eigenTable.weightedCircularMean(currentOutput)
@@ -356,14 +358,14 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 
 			// Retrieve candidates with PhaseDial sweep
 			type candidate struct {
-				idx      int
-				rawSim   float64
-				adjSim   float64
-				ovl      int
-				newToks  int
-				spanLen  int
-				phase    float64
-				conc     float64
+				idx     int
+				rawSim  float64
+				adjSim  float64
+				ovl     int
+				newToks int
+				spanLen int
+				phase   float64
+				conc    float64
 			}
 			var candidates []candidate
 
@@ -375,7 +377,7 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 			seen := make(map[int]bool)
 
 			for _, alpha := range angles {
-				rotated := make(numeric.PhaseDial, D)
+				rotated := make(geometry.PhaseDial, D)
 				if alpha == 0 {
 					copy(rotated, queryFP)
 				} else {
@@ -469,10 +471,10 @@ func (experiment *Experiment) testPhaseBridging(corpus []string) PhaseBridgingRe
 			// and no similarity improvement — i.e. it's an echo of what we already have.
 
 			const (
-				progressEps     = 0.05  // minimum progress score to accept
-				wPhase          = 2.0   // weight for phase movement
-				wNewRatio       = 1.5   // weight for new-token ratio
-				wSimDelta       = 0.5   // weight for similarity delta
+				progressEps = 0.05 // minimum progress score to accept
+				wPhase      = 2.0  // weight for phase movement
+				wNewRatio   = 1.5  // weight for new-token ratio
+				wSimDelta   = 0.5  // weight for similarity delta
 			)
 
 			accepted := false

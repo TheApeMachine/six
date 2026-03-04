@@ -6,7 +6,7 @@ import (
 	"math/cmplx"
 
 	"github.com/theapemachine/six/console"
-	"github.com/theapemachine/six/numeric"
+	"github.com/theapemachine/six/geometry"
 )
 
 // testStructuralSensitivity implements Test 7: Structural Sensitivity Probe.
@@ -14,10 +14,10 @@ import (
 // Tests whether the encoding is structure-sensitive or token-count-sensitive.
 //
 // For each function prefix, we encode:
-//   1. prefix only
-//   2. prefix + comment/whitespace (structural no-op)
-//   3. prefix + unrelated token (structural noise)
-//   4. prefix + correct continuation (structural extension)
+//  1. prefix only
+//  2. prefix + comment/whitespace (structural no-op)
+//  3. prefix + unrelated token (structural noise)
+//  4. prefix + correct continuation (structural extension)
 //
 // If the encoding is structure-sensitive:
 //   - correct continuation should produce the largest directional change
@@ -30,7 +30,7 @@ import (
 //   - direction: cosine between (Fext - Fprefix) and (Ffull - Fprefix)
 func (experiment *Experiment) testStructuralSensitivity() StructSensResult {
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := range a {
@@ -45,7 +45,7 @@ func (experiment *Experiment) testStructuralSensitivity() StructSensResult {
 	}
 
 	// Vector displacement magnitude
-	vecDist := func(a, b numeric.PhaseDial) float64 {
+	vecDist := func(a, b geometry.PhaseDial) float64 {
 		var sum float64
 		for i := range a {
 			d := a[i] - b[i]
@@ -55,10 +55,10 @@ func (experiment *Experiment) testStructuralSensitivity() StructSensResult {
 	}
 
 	// Directional alignment: cos angle between (ext - prefix) and (full - prefix)
-	dirAlign := func(prefix, ext, full numeric.PhaseDial) float64 {
+	dirAlign := func(prefix, ext, full geometry.PhaseDial) float64 {
 		D := len(prefix)
-		dExt := make(numeric.PhaseDial, D)
-		dFull := make(numeric.PhaseDial, D)
+		dExt := make(geometry.PhaseDial, D)
+		dFull := make(geometry.PhaseDial, D)
 		for i := 0; i < D; i++ {
 			dExt[i] = ext[i] - prefix[i]
 			dFull[i] = full[i] - prefix[i]
@@ -67,12 +67,12 @@ func (experiment *Experiment) testStructuralSensitivity() StructSensResult {
 	}
 
 	type probe struct {
-		name      string
-		prefix    string
-		full      string // the correct full function
-		comment   string // prefix + structural no-op
-		noise     string // prefix + unrelated token
-		correct   string // prefix + correct continuation
+		name    string
+		prefix  string
+		full    string // the correct full function
+		comment string // prefix + structural no-op
+		noise   string // prefix + unrelated token
+		correct string // prefix + correct continuation
 	}
 
 	probes := []probe{
@@ -123,11 +123,11 @@ func (experiment *Experiment) testStructuralSensitivity() StructSensResult {
 	for _, p := range probes {
 		console.Info(fmt.Sprintf("\n  ┌─ %s", p.name))
 
-		fpPrefix := numeric.EncodeText(p.prefix)
-		fpFull := numeric.EncodeText(p.full)
-		fpComment := numeric.EncodeText(p.comment)
-		fpNoise := numeric.EncodeText(p.noise)
-		fpCorrect := numeric.EncodeText(p.correct)
+		fpPrefix := geometry.NewPhaseDial().Encode(p.prefix)
+		fpFull := geometry.NewPhaseDial().Encode(p.full)
+		fpComment := geometry.NewPhaseDial().Encode(p.comment)
+		fpNoise := geometry.NewPhaseDial().Encode(p.noise)
+		fpCorrect := geometry.NewPhaseDial().Encode(p.correct)
 
 		// Similarities to the full function
 		simPrefixFull := sim(fpPrefix, fpFull)

@@ -316,8 +316,6 @@ func generateFromChords(store *ChordStore, corpus []byte, prompt string) ChordGe
 	}
 }
 
-
-
 func truncateStr(s string, n int) string {
 	if len(s) <= n {
 		return s

@@ -1,6 +1,6 @@
 package data
 
 type Token struct {
-	ID uint64
+	ID    uint64
 	Chord Chord
 }

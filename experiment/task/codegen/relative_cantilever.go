@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
@@ -27,13 +29,13 @@ type RelativeCantilever struct {
 // s(21)/s(13) = 0.47 (fails ratio) — meaning the jump from 13→21
 // loses too much structural coherence to be safe.
 func relativeCantileverProbe(
-	boundaryFP numeric.PhaseDial,
+	boundaryFP geometry.PhaseDial,
 	spanIndex []cantileverSpan,
-	substrate *numeric.HybridSubstrate,
+	substrate *geometry.HybridSubstrate,
 	D int,
 	ratioThreshold float64,
 ) RelativeCantilever {
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := 0; i < D; i++ {
@@ -131,8 +133,8 @@ type RelCantEntry struct {
 
 // RelCantResult holds all Test 11 results.
 type RelCantResult struct {
-	ControlEntries []RelCantEntry `json:"control"`
-	GatedEntries   []RelCantEntry `json:"gated"`
+	ControlEntries []RelCantEntry  `json:"control"`
+	GatedEntries   []RelCantEntry  `json:"gated"`
 	ControlStats   CantileverStats `json:"control_stats"`
 	GatedStats     CantileverStats `json:"gated_stats"`
 }
@@ -168,8 +170,8 @@ func (experiment *Experiment) testRelativeCantilever(corpus []string) RelCantRes
 	// Ratio threshold: s(large)/s(small) must be ≥ this to allow the larger scale
 	const ratioThreshold = 0.7
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	var spanIndex []cantileverSpan
 
@@ -184,7 +186,7 @@ func (experiment *Experiment) testRelativeCantilever(corpus []string) RelCantRes
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				readout := []byte(spanText)
 				substrate.Add(universalFilter, fp, readout)
 
@@ -203,7 +205,7 @@ func (experiment *Experiment) testRelativeCantilever(corpus []string) RelCantRes
 
 	console.Info(fmt.Sprintf("  Span memory: %d spans (lengths %v, corpus %d)", totalSpans, spanLengths, len(corpus)))
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := 0; i < D; i++ {
@@ -279,7 +281,7 @@ func (experiment *Experiment) testRelativeCantilever(corpus []string) RelCantRes
 			}
 
 			for step := 0; step < maxChains; step++ {
-				queryFP := numeric.EncodeText(currentOutput)
+				queryFP := geometry.NewPhaseDial().Encode(currentOutput)
 				currentPhase, currentConc := eigenTable.weightedCircularMean(currentOutput)
 
 				// Relative cantilever (only in gated arm)
@@ -328,7 +330,7 @@ func (experiment *Experiment) testRelativeCantilever(corpus []string) RelCantRes
 				seen := make(map[int]bool)
 
 				for _, alpha := range angles {
-					rotated := make(numeric.PhaseDial, D)
+					rotated := make(geometry.PhaseDial, D)
 					if alpha == 0 {
 						copy(rotated, queryFP)
 					} else {

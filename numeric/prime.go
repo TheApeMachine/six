@@ -64,9 +64,11 @@ type Prime struct {
 }
 
 var prime *Prime
+var Primes []int32
 
 func init() {
 	prime = New()
+	Primes = prime.Basis
 }
 
 func New() *Prime {

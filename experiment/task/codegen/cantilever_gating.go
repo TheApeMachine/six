@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
@@ -27,13 +29,13 @@ type CantileverEstimate struct {
 // This is the bitwise equivalent of the old wave-interference cantilever:
 // instead of cos(2πw/λ), we measure fingerprint overlap at each scale.
 func cantileverProbe(
-	boundaryFP numeric.PhaseDial,
+	boundaryFP geometry.PhaseDial,
 	spanIndex []cantileverSpan,
-	substrate *numeric.HybridSubstrate,
+	substrate *geometry.HybridSubstrate,
 	D int,
 	threshold float64,
 ) CantileverEstimate {
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := 0; i < D; i++ {
@@ -99,17 +101,17 @@ type cantileverSpan struct {
 
 // CantileverStep records one step of the cantilever-gated chainer.
 type CantileverStep struct {
-	StepNum       int     `json:"step"`
-	SimScore      float64 `json:"sim_score"`
-	SpanText      string  `json:"span_text"`
-	NewTokens     int     `json:"new_tokens"`
-	Overlap       int     `json:"overlap"`
-	SourceFunc    string  `json:"source_func"`
-	SpanLen       int     `json:"span_len"`
-	CantExtent    int     `json:"cant_extent"`
-	EigenPhase    float64 `json:"eigen_phase"`
-	Progress      float64 `json:"progress"`
-	InBridge      bool    `json:"in_bridge"`
+	StepNum    int     `json:"step"`
+	SimScore   float64 `json:"sim_score"`
+	SpanText   string  `json:"span_text"`
+	NewTokens  int     `json:"new_tokens"`
+	Overlap    int     `json:"overlap"`
+	SourceFunc string  `json:"source_func"`
+	SpanLen    int     `json:"span_len"`
+	CantExtent int     `json:"cant_extent"`
+	EigenPhase float64 `json:"eigen_phase"`
+	Progress   float64 `json:"progress"`
+	InBridge   bool    `json:"in_bridge"`
 }
 
 // CantileverEntry records one prompt's generation.
@@ -179,8 +181,8 @@ func (experiment *Experiment) testCantileverGating(corpus []string) CantileverRe
 	// Cantilever threshold
 	const cantileverThreshold = 0.3
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	var spanIndex []cantileverSpan
 
@@ -195,7 +197,7 @@ func (experiment *Experiment) testCantileverGating(corpus []string) CantileverRe
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				readout := []byte(spanText)
 				substrate.Add(universalFilter, fp, readout)
 
@@ -215,7 +217,7 @@ func (experiment *Experiment) testCantileverGating(corpus []string) CantileverRe
 	console.Info(fmt.Sprintf("  Span memory: %d spans (lengths %v, corpus %d)", totalSpans, spanLengths, len(corpus)))
 
 	// Similarity function
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := 0; i < D; i++ {
@@ -291,7 +293,7 @@ func (experiment *Experiment) testCantileverGating(corpus []string) CantileverRe
 			}
 
 			for step := 0; step < maxChains; step++ {
-				queryFP := numeric.EncodeText(currentOutput)
+				queryFP := geometry.NewPhaseDial().Encode(currentOutput)
 				currentPhase, currentConc := eigenTable.weightedCircularMean(currentOutput)
 
 				// Cantilever probe (only used in gated arm)
@@ -344,7 +346,7 @@ func (experiment *Experiment) testCantileverGating(corpus []string) CantileverRe
 				seen := make(map[int]bool)
 
 				for _, alpha := range angles {
-					rotated := make(numeric.PhaseDial, D)
+					rotated := make(geometry.PhaseDial, D)
 					if alpha == 0 {
 						copy(rotated, queryFP)
 					} else {

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
@@ -17,8 +19,8 @@ import (
 // The best-scoring span is selected directly — no decomposition, no voting.
 //
 // Score(span) = sim(span_fingerprint, boundary_fingerprint)
-//             + prefix_overlap bonus
-//             + structural bonus (indentation, return, colon)
+//   - prefix_overlap bonus
+//   - structural bonus (indentation, return, colon)
 func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult {
 	D := numeric.NBasis
 
@@ -27,8 +29,8 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 	const topK = 64
 	const nDial = 8
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	type spanMeta struct {
 		tokens []string
@@ -48,7 +50,7 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				substrate.Add(universalFilter, fp, []byte(spanText))
 				spanIndex = append(spanIndex, spanMeta{
 					tokens: span,
@@ -67,7 +69,7 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 		candidates[i] = i
 	}
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := range a {
@@ -97,14 +99,14 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 
 	// Span scoring function
 	type scoredSpan struct {
-		idx       int
-		simScore  float64 // fingerprint similarity to boundary
-		prefixOvl float64 // prefix token overlap bonus
+		idx         int
+		simScore    float64 // fingerprint similarity to boundary
+		prefixOvl   float64 // prefix token overlap bonus
 		structBonus float64 // structural quality bonus
-		total     float64
+		total       float64
 	}
 
-	scoreSpan := func(spanIdx int, fpBoundary numeric.PhaseDial, prefixTokens []string) scoredSpan {
+	scoreSpan := func(spanIdx int, fpBoundary geometry.PhaseDial, prefixTokens []string) scoredSpan {
 		meta := spanIndex[spanIdx]
 		entry := substrate.Entries[spanIdx]
 
@@ -158,12 +160,12 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 		console.Info(fmt.Sprintf("  │  Prefix: %s", p.prefix))
 
 		// Build boundary fingerprint
-		fpPrefix := numeric.EncodeText(p.prefix)
-		fpBoundary := make(numeric.PhaseDial, D)
+		fpPrefix := geometry.NewPhaseDial().Encode(p.prefix)
+		fpBoundary := make(geometry.PhaseDial, D)
 		copy(fpBoundary, fpPrefix)
 
 		if p.suffix != "" {
-			fpSuffix := numeric.EncodeText(p.suffix)
+			fpSuffix := geometry.NewPhaseDial().Encode(p.suffix)
 			var norm float64
 			for k := 0; k < D; k++ {
 				fpBoundary[k] = fpPrefix[k] + fpSuffix[k]
@@ -186,7 +188,7 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 
 		for d := 0; d < nDial; d++ {
 			alpha := float64(d) * (2.0 * math.Pi / float64(nDial))
-			rotated := make(numeric.PhaseDial, D)
+			rotated := make(geometry.PhaseDial, D)
 			if d == 0 {
 				copy(rotated, fpBoundary)
 			} else {
@@ -345,15 +347,15 @@ func (experiment *Experiment) testSpanRanking(corpus []string) SpanRankingResult
 	console.Info(fmt.Sprintf("  Mean winner similarity: %.4f", sumSim/float64(nPrompts)))
 
 	return SpanRankingResult{
-		TotalSpans:     len(spanIndex),
-		SpanLengths:    spanLengths,
-		DialAngles:     nDial,
-		TopK:           topK,
-		Entries:        results,
-		ExactCount:     exactCount,
-		ReturnCount:    returnCount,
-		ColonCount:     colonCount,
-		IndentCount:    indentCount,
-		MeanWinnerSim:  sumSim / float64(nPrompts),
+		TotalSpans:    len(spanIndex),
+		SpanLengths:   spanLengths,
+		DialAngles:    nDial,
+		TopK:          topK,
+		Entries:       results,
+		ExactCount:    exactCount,
+		ReturnCount:   returnCount,
+		ColonCount:    colonCount,
+		IndentCount:   indentCount,
+		MeanWinnerSim: sumSim / float64(nPrompts),
 	}
 }

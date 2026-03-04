@@ -1,0 +1,16 @@
+\begin{table}[h]
+\centering
+\begin{tabular}{ {{ range .Headers }}|c{{ end }}| }
+\hline
+{{ range $i, $h := .Headers -}}
+{{ if $i }} & {{ end }}{{ $h }}
+{{- end }} \\
+\hline
+{{- range .Rows }}
+{{ range $i, $v := . -}}
+{{ if $i }} & {{ end }}{{ $v }}
+{{- end }} \\
+\hline
+{{- end }}
+\end{tabular}
+\end{table}

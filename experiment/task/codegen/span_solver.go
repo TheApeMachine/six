@@ -7,35 +7,37 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
 // testSpanSolver implements Test 1: Core BVP Span Solver.
 //
 // Algorithm:
-//   1. Build a span memory: tokenize each corpus function, extract all
-//      contiguous spans of length L, store each span's fingerprint (computed
-//      from its text) alongside the span tokens as readout.
-//   2. For each test prompt (function signature), build the boundary fingerprint:
-//      F_boundary = Encode(prefix) [+ Encode(suffix) if present]
-//   3. Retrieve top-K candidate spans by PhaseDial similarity.
-//   4. For each token position in the output span, collect candidate tokens
-//      weighted by their source span's similarity score. Select by weighted vote.
-//   5. Refine: re-encode prefix+candidate_span, re-retrieve, re-vote.
-//      Repeat for N iterations or until stable.
-//   6. Evaluate: syntax validity, identifier reuse, indentation correctness.
+//  1. Build a span memory: tokenize each corpus function, extract all
+//     contiguous spans of length L, store each span's fingerprint (computed
+//     from its text) alongside the span tokens as readout.
+//  2. For each test prompt (function signature), build the boundary fingerprint:
+//     F_boundary = Encode(prefix) [+ Encode(suffix) if present]
+//  3. Retrieve top-K candidate spans by PhaseDial similarity.
+//  4. For each token position in the output span, collect candidate tokens
+//     weighted by their source span's similarity score. Select by weighted vote.
+//  5. Refine: re-encode prefix+candidate_span, re-retrieve, re-vote.
+//     Repeat for N iterations or until stable.
+//  6. Evaluate: syntax validity, identifier reuse, indentation correctness.
 func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 	D := numeric.NBasis
 
 	// ── Step 1: Build span memory ──
 	spanLengths := numeric.FibWindows // {3, 5, 8, 13, 21}
-	const outLen = 8    // output tokens for per-position voting (middle FibWindow)
-	const topK = 16     // candidate spans to retrieve
-	const nRefine = 3   // BVP refinement iterations
-	const nDial = 6     // PhaseDial sweep angles for diversity
+	const outLen = 8                  // output tokens for per-position voting (middle FibWindow)
+	const topK = 16                   // candidate spans to retrieve
+	const nRefine = 3                 // BVP refinement iterations
+	const nDial = 6                   // PhaseDial sweep angles for diversity
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	type spanMeta struct {
 		tokens []string
@@ -54,7 +56,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				readout := []byte(spanText)
 				substrate.Add(universalFilter, fp, readout)
 				spanIndex = append(spanIndex, spanMeta{tokens: span, source: corpIdx})
@@ -70,7 +72,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 		candidates[i] = i
 	}
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := range a {
@@ -86,10 +88,10 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 
 	// ── Step 2: Define test prompts ──
 	type testPrompt struct {
-		prefix   string
-		suffix   string // optional boundary constraint
-		spanLen  int    // number of output tokens
-		desc     string
+		prefix  string
+		suffix  string // optional boundary constraint
+		spanLen int    // number of output tokens
+		desc    string
 	}
 
 	prompts := []testPrompt{
@@ -135,21 +137,21 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 		topCandidates   []string  // top-5 retrieved span texts
 		topScores       []float64 // their similarity scores
 		// Quality metrics
-		hasIndent       bool    // contains indentation
-		hasReturn       bool    // contains return statement
-		hasColon        bool    // contains colon (syntax marker)
+		hasIndent        bool    // contains indentation
+		hasReturn        bool    // contains return statement
+		hasColon         bool    // contains colon (syntax marker)
 		uniqueTokenRatio float64 // unique/total tokens (anti-repetition)
-		prefixRelevance float64 // similarity of output to prefix fingerprint
+		prefixRelevance  float64 // similarity of output to prefix fingerprint
 	}
 
 	solve := func(prompt testPrompt) solverResult {
 		// Build boundary fingerprint
-		fpPrefix := numeric.EncodeText(prompt.prefix)
-		fpBoundary := make(numeric.PhaseDial, D)
+		fpPrefix := geometry.NewPhaseDial().Encode(prompt.prefix)
+		fpBoundary := make(geometry.PhaseDial, D)
 		copy(fpBoundary, fpPrefix)
 
 		if prompt.suffix != "" {
-			fpSuffix := numeric.EncodeText(prompt.suffix)
+			fpSuffix := geometry.NewPhaseDial().Encode(prompt.suffix)
 			// Combine: normalized sum
 			var norm float64
 			for k := 0; k < D; k++ {
@@ -171,7 +173,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 
 		for iter := 0; iter < nRefine; iter++ {
 			// If not first iteration, re-encode boundary with current span
-			queryFP := make(numeric.PhaseDial, D)
+			queryFP := make(geometry.PhaseDial, D)
 			if iter == 0 {
 				copy(queryFP, fpBoundary)
 			} else {
@@ -179,7 +181,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 				if prompt.suffix != "" {
 					combined += "\n" + prompt.suffix
 				}
-				queryFP = numeric.EncodeText(combined)
+				queryFP = geometry.NewPhaseDial().Encode(combined)
 			}
 
 			// Retrieve candidates via PhaseDial sweep for diversity
@@ -192,7 +194,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 
 			for d := 0; d < nDial; d++ {
 				alpha := float64(d) * (2.0 * math.Pi / float64(nDial))
-				rotated := make(numeric.PhaseDial, D)
+				rotated := make(geometry.PhaseDial, D)
 				if d == 0 {
 					copy(rotated, queryFP)
 				} else {
@@ -283,7 +285,7 @@ func (experiment *Experiment) testSpanSolver(corpus []string) SpanSolverResult {
 		var topTexts []string
 		var topScores []float64
 		// Re-retrieve to get final candidates
-		finalQuery := numeric.EncodeText(prompt.prefix + "\n    " + detokenize(currentTokens))
+		finalQuery := geometry.NewPhaseDial().Encode(prompt.prefix + "\n    " + detokenize(currentTokens))
 		finalRanked := substrate.PhaseDialRank(candidates, finalQuery)
 		showN := 5
 		if len(finalRanked) < showN {

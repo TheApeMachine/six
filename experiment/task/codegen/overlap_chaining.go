@@ -7,17 +7,19 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
 // testOverlapChaining implements Test 4: Overlap-Aware Span Chaining.
 //
 // Fixes applied over Test 3:
-//   1. Overlap-aware concatenation: find longest suffix of output that is
-//      a prefix of the candidate span, append only the non-overlapping tail.
-//   2. Minimum progress: reject candidates that add fewer than minNewTokens.
-//   3. Name lock: after step 1, reject candidates that start a different
-//      function definition (def OTHER_NAME).
+//  1. Overlap-aware concatenation: find longest suffix of output that is
+//     a prefix of the candidate span, append only the non-overlapping tail.
+//  2. Minimum progress: reject candidates that add fewer than minNewTokens.
+//  3. Name lock: after step 1, reject candidates that start a different
+//     function definition (def OTHER_NAME).
 func (experiment *Experiment) testOverlapChaining(corpus []string) OverlapChainingResult {
 	D := numeric.NBasis
 
@@ -27,8 +29,8 @@ func (experiment *Experiment) testOverlapChaining(corpus []string) OverlapChaini
 	const maxChains = 6
 	const minNewTokens = 2
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	type spanMeta struct {
 		tokens []string
@@ -48,7 +50,7 @@ func (experiment *Experiment) testOverlapChaining(corpus []string) OverlapChaini
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				substrate.Add(universalFilter, fp, []byte(spanText))
 				spanIndex = append(spanIndex, spanMeta{
 					tokens: span,
@@ -67,7 +69,7 @@ func (experiment *Experiment) testOverlapChaining(corpus []string) OverlapChaini
 		allIndices[i] = i
 	}
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := range a {
@@ -149,7 +151,7 @@ func (experiment *Experiment) testOverlapChaining(corpus []string) OverlapChaini
 				queryTokens = queryTokens[len(queryTokens)-contextWindow:]
 			}
 			queryText := detokenize(queryTokens)
-			queryFP := numeric.EncodeText(queryText)
+			queryFP := geometry.NewPhaseDial().Encode(queryText)
 
 			// Retrieve diverse candidates
 			seen := make(map[int]bool)
@@ -157,7 +159,7 @@ func (experiment *Experiment) testOverlapChaining(corpus []string) OverlapChaini
 
 			for d := 0; d < nDial; d++ {
 				alpha := float64(d) * (2.0 * math.Pi / float64(nDial))
-				rotated := make(numeric.PhaseDial, D)
+				rotated := make(geometry.PhaseDial, D)
 				if d == 0 {
 					copy(rotated, queryFP)
 				} else {

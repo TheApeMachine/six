@@ -139,13 +139,13 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 					if valueBuf[i].IsNull() {
 						continue
 					}
-					
+
 					text := string(valueBuf[i].ByteArray())
 
 					if text == "" {
 						continue
 					}
-					
+
 					if dataset.maxSamples > 0 && totalBytes+len(text) > dataset.maxSamples {
 						remaining := dataset.maxSamples - totalBytes
 
@@ -156,7 +156,7 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 						pages.Close()
 						return nil
 					}
-					
+
 					if !fn(text) {
 						pages.Close()
 						return nil
@@ -164,7 +164,7 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 
 					totalBytes += len(text)
 				}
-				
+
 				if readErr != nil {
 					break
 				}
@@ -192,7 +192,7 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 		isArray = true
 	} else if err == nil {
 		// Not an array, so if it's a map we must back up, but we can't un-read from dec.
-		// A better approach for JSONL is to decode continuously. 
+		// A better approach for JSONL is to decode continuously.
 		// Since we already consumed the first token, let's just make a new decoder
 		// if it's not an array, to read it cleanly from the start.
 		dec = json.NewDecoder(io.NewSectionReader(reader, 0, size))

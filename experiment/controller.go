@@ -1,7 +1,6 @@
 package experiment
 
 type Controller struct {
-	
 }
 
 func New() *Controller {

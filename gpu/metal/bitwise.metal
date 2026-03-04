@@ -7,20 +7,13 @@ struct Chord {
     uint64_t bits[8];
 };
 
-/*
-Compute Kernel: O(1) parallel bitwise containment search.
+struct MultiChord {
+    Chord chords[5];
+};
 
-For each chord in the flat dictionary, checks how well it "fills"
-the active context using popcount-based resonance scoring.
-  - match_count = popcount(candidate & context)  — shared factors
-  - noise_count = popcount(candidate & ~context) — extra noise
-
-The winning index+score is packed into a single uint64 and reduced
-via atomic_max (score in high 32 bits sorts naturally).
-*/
 kernel void bitwise_best_fill(
-    device const Chord* dictionary [[buffer(0)]],
-    constant Chord* active_context [[buffer(1)]],
+    device const MultiChord* dictionary [[buffer(0)]],
+    constant MultiChord* active_context [[buffer(1)]],
     device atomic_ulong* best_packed_result [[buffer(2)]],
     constant uint& num_chords [[buffer(3)]],
     constant uint& target_id [[buffer(4)]],
@@ -31,15 +24,18 @@ kernel void bitwise_best_fill(
     uint match_count = 0;
     uint noise_count = 0;
 
-    Chord candidate = dictionary[id];
-    Chord ctx = active_context[0];
+    MultiChord candidate = dictionary[id];
+    MultiChord ctx = active_context[0];
 
 #pragma unroll
-    for (int i = 0; i < 8; i++) {
-        uint64_t c_bits = candidate.bits[i];
-        uint64_t a_bits = ctx.bits[i];
-        match_count += popcount(c_bits & a_bits);
-        noise_count += popcount(c_bits & ~a_bits);
+    for (int p = 0; p < 5; p++) {
+#pragma unroll
+        for (int i = 0; i < 8; i++) {
+            uint64_t c_bits = candidate.chords[p].bits[i];
+            uint64_t a_bits = ctx.chords[p].bits[i];
+            match_count += popcount(c_bits & a_bits);
+            noise_count += popcount(c_bits & ~a_bits);
+        }
     }
 
     float resonance = (float)match_count / (float)(match_count + noise_count + 1);
@@ -55,8 +51,14 @@ kernel void bitwise_best_fill(
     }
     uint inverted_dist = 65535 - distance;
 
+    // 24-bit limitation for id (up to 0xFFFFFF)
+    uint safe_id = id;
+    if (safe_id > 0xFFFFFF) {
+        safe_id = 0xFFFFFF; // Guard against 24-bit truncation
+    }
+
     // Pack: score (24-bit MSB) | inverted dist (16-bit) | raw_id (24-bit LSB)
-    uint64_t packed_result = ((uint64_t)score_fixed << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)id;
+    uint64_t packed_result = ((uint64_t)score_fixed << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)safe_id;
 
     // 1 instruction, 0 locks, 100% thread safe
     atomic_max_explicit(

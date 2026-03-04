@@ -14,6 +14,12 @@ numeric.ChordBlocks (NBasis/64). Change NBasis → Chord size updates everywhere
 type Chord [numeric.ChordBlocks]uint64
 
 /*
+MultiChord represents a token's resonance across all 5 Fibonacci window scales.
+Allows the GPU to compute multiscale consensus in a single parallel fetch.
+*/
+type MultiChord [5]Chord
+
+/*
 Has checks if the prime at index p is active in the chord.
 */
 func (chord *Chord) Has(p int) bool {
@@ -129,6 +135,19 @@ func ChordGCD(a, b *Chord) (gcd Chord) {
 	}
 
 	return gcd
+}
+
+/*
+ChordBin maps a chord to a structural bin 0..255 for indexing phase tables.
+Deterministic XOR-fold of the chord bits ensures similar chords map to nearby bins.
+Enables chord-native co-occurrence and phase lookup without byte symbols.
+*/
+func ChordBin(c *Chord) int {
+	var h uint64
+	for i := range numeric.ChordBlocks {
+		h ^= c[i]
+	}
+	return int(h % 256)
 }
 
 /*

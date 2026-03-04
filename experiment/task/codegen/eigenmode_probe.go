@@ -48,7 +48,7 @@ func (experiment *Experiment) testEigenmodeProbe(corpus []string) EigenmodeResul
 		var T [NSymbols][NSymbols]float64
 		for pos := 0; pos < len(fullCorpus); pos++ {
 			sym := fullCorpus[pos]
-			end := min(pos + w + 1, len(fullCorpus))
+			end := min(pos+w+1, len(fullCorpus))
 			for j := pos + 1; j < end; j++ {
 				T[sym][fullCorpus[j]] += 1.0
 			}
@@ -176,8 +176,8 @@ func (experiment *Experiment) testEigenmodeProbe(corpus []string) EigenmodeResul
 	spanLengths := numeric.FibWindows
 
 	type spanInfo struct {
-		text      string
-		role      string
+		text       string
+		role       string
 		eigenPhase float64
 	}
 	var spans []spanInfo
@@ -203,8 +203,8 @@ func (experiment *Experiment) testEigenmodeProbe(corpus []string) EigenmodeResul
 				meanPhase := circularMean(phases)
 
 				spans = append(spans, spanInfo{
-					text:      spanText,
-					role:      role,
+					text:       spanText,
+					role:       role,
 					eigenPhase: meanPhase,
 				})
 			}
@@ -216,10 +216,10 @@ func (experiment *Experiment) testEigenmodeProbe(corpus []string) EigenmodeResul
 
 	// ── Step 4: Per-role statistics in eigenphase space ──
 	type roleStat struct {
-		count    int
-		sinSum   float64
-		cosSum   float64
-		phases   []float64
+		count  int
+		sinSum float64
+		cosSum float64
+		phases []float64
 	}
 	roleStats := make(map[string]*roleStat)
 
@@ -264,12 +264,12 @@ func (experiment *Experiment) testEigenmodeProbe(corpus []string) EigenmodeResul
 		entries = append(entries, EigenmodeEntry{
 			Role:    role,
 			Count:   rs.count,
-			MeanPC1: meanPhase,         // repurpose: eigenphase mean
+			MeanPC1: meanPhase,                 // repurpose: eigenphase mean
 			MeanPC2: meanPhase * 180 / math.Pi, // degrees
 			MeanPC3: 0,
-			StdPC1:  circStd,           // circular std dev
-			StdPC2:  circVar,           // circular variance
-			StdPC3:  R,                 // concentration R̄
+			StdPC1:  circStd, // circular std dev
+			StdPC2:  circVar, // circular variance
+			StdPC3:  R,       // concentration R̄
 		})
 	}
 

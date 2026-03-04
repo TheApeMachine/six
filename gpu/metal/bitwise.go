@@ -52,7 +52,6 @@ func BestFill(dictionary unsafe.Pointer, numChords int, context unsafe.Pointer, 
 	packed := uint64(C.bitwise_best_fill_metal(dictionary, C.uint32_t(numChords), context, C.uint32_t(targetIdx)))
 
 	scoreFixed := uint32(packed >> 40)
-	// invertedDist := uint32((packed >> 24) & 0xFFFF)
 	bestIdx := int(packed & 0xFFFFFF)
 	bestScore := float64(scoreFixed) / 4000000.0
 

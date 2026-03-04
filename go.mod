@@ -8,6 +8,7 @@ require (
 	github.com/chromedp/chromedp v0.14.2
 	github.com/gofiber/fiber/v3 v3.0.0-beta.3
 	github.com/parquet-go/parquet-go v0.28.0
+	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	gonum.org/v1/gonum v0.17.0
@@ -29,7 +30,9 @@ require (
 	github.com/gobwas/ws v1.4.0 // indirect
 	github.com/gofiber/utils/v2 v2.0.0-beta.4 // indirect
 	github.com/google/uuid v1.6.0 // indirect
+	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
+	github.com/jtolds/gls v4.20.0+incompatible // indirect
 	github.com/klauspost/compress v1.17.10 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-colorable v0.1.13 // indirect
@@ -41,6 +44,7 @@ require (
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/sagikazarmark/locafero v0.11.0 // indirect
+	github.com/smarty/assertions v1.15.0 // indirect
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect

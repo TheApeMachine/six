@@ -8,12 +8,11 @@ import (
 	"io/fs"
 	"log"
 	"os"
+	"os/exec"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/experiment/task"
 	"github.com/theapemachine/six/experiment/task/codegen"
-	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/utils"
 )
 
@@ -26,28 +25,32 @@ which allows a developer to easily override the config file.
 var embedded embed.FS
 
 var (
-	projectName = "six"
-	experimentName       string
-	cfgFile     string
+	projectName    = "six"
+	experimentName string
+	cfgFile        string
 
 	rootCmd = &cobra.Command{
 		Use:   "six",
 		Short: "Check yo six",
 		Long:  roottxt,
 		Run: func(cmd *cobra.Command, args []string) {
-			var exp task.Interface
-			
 			switch experimentName {
 			case "phasedial":
-				exp = phasedial.New()
+				// Phasedial runs as GoConvey tests; delegate to go test
+				testCmd := exec.Command("go", "test", "-v", "./experiment/task/phasedial/...")
+				testCmd.Stdout = os.Stdout
+				testCmd.Stderr = os.Stderr
+				testCmd.Dir = utils.ProjectRoot()
+				if err := testCmd.Run(); err != nil {
+					log.Fatalf("Phasedial tests failed: %v", err)
+				}
 			case "codegen":
-				exp = codegen.New()
+				exp := codegen.New()
+				if err := exp.Run(); err != nil {
+					log.Fatalf("Experiment failed: %v", err)
+				}
 			default:
 				log.Fatalf("Unknown experiment: %s", experimentName)
-			}
-
-			if err := exp.Run(); err != nil {
-				log.Fatalf("Experiment failed: %v", err)
 			}
 		},
 	}

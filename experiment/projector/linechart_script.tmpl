@@ -1,0 +1,35 @@
+        const xAxisData = {{.XAxisDataJSON}};
+        const seriesData = {{.SeriesJSON}};
+        const yMin = {{.YMin}};
+        const yMax = {{.YMax}};
+        const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+        
+        const option = {
+            backgroundColor: 'transparent',
+            animation: false,
+            tooltip: { trigger: 'axis' },
+            legend: { top: '5%', textStyle: { color: '#475569', fontSize: 12 } },
+            grid: { left: '10%', right: '10%', top: '20%', bottom: '15%' },
+            xAxis: {
+                type: 'category',
+                data: xAxisData,
+                axisLabel: { color: '#475569' },
+                nameLocation: 'middle',
+                nameGap: 30
+            },
+            yAxis: {
+                type: 'value',
+                min: yMin,
+                max: yMax,
+                axisLabel: { color: '#475569' },
+                splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } }
+            },
+            series: seriesData.map(s => ({
+                name: s.name,
+                type: 'line',
+                data: s.data,
+                smooth: true,
+                symbol: 'none'
+            }))
+        };
+        chart.setOption(option);

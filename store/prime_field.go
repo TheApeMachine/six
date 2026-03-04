@@ -13,38 +13,56 @@ PrimeField is the flat, contiguous chord array for GPU dispatch.
 The LSM is cold storage (Morton key → chord → bytes). The PrimeField
 is the compute-side representation: a dense 1D array of 512-bit chords
 that the GPU scans in parallel via bitwise_best_fill.
-
-Architecture:
-  Ingest:  tokenizer → chord → LSM.Insert (storage) + PrimeField.Register (compute)
-  Query:   context chord → GPU scans PrimeField → returns winning index
-  Decode:  winning index → PrimeField.Key(idx) → LSM.Lookup → actual bytes
-
-Each chord is 64 bytes (8 × uint64). 1M chords = 64MB — fits on any GPU.
 */
 type PrimeField struct {
 	mu     sync.RWMutex
-	chords []data.Chord
+	chords []data.MultiChord
 	keys   []uint64
 	N      int
+
+	// buf keeps the last 21 chords to compute MultiChords dynamically on insert
+	buf []data.Chord
 }
 
 func NewPrimeField() *PrimeField {
 	return &PrimeField{
 		N:      0,
-		chords: make([]data.Chord, 0),
+		chords: make([]data.MultiChord, 0),
 		keys:   make([]uint64, 0),
+		buf:    make([]data.Chord, 0, 21),
 	}
 }
 
 /*
 Insert appends a chord to the flat field and records its Morton key
-for decode. Returns the index assigned to this chord.
+for decode. It automatically expands the single chord into a MultiChord
+across all Fibonacci Windows. Returns the index assigned.
 */
 func (field *PrimeField) Insert(chord data.Chord, key uint64) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 
-	field.chords = append(field.chords, chord)
+	field.buf = append(field.buf, chord)
+	if len(field.buf) > 21 {
+		field.buf = field.buf[1:]
+	}
+
+	var multi data.MultiChord
+	fibs := []int{3, 5, 8, 13, 21}
+
+	for i, w := range fibs {
+		start := max(len(field.buf)-w, 0)
+
+		var agg data.Chord
+		for _, c := range field.buf[start:] {
+			for j := range agg {
+				agg[j] |= c[j]
+			}
+		}
+		multi[i] = agg
+	}
+
+	field.chords = append(field.chords, multi)
 	field.keys = append(field.keys, key)
 	field.N++
 }
@@ -65,9 +83,9 @@ func (field *PrimeField) Field() unsafe.Pointer {
 }
 
 /*
-Chord returns the chord at a given index.
+Chord returns the raw MultiChord at a given index.
 */
-func (field *PrimeField) Chord(idx int) data.Chord {
+func (field *PrimeField) MultiChord(idx int) data.MultiChord {
 	field.mu.RLock()
 	defer field.mu.RUnlock()
 
@@ -88,19 +106,19 @@ func (field *PrimeField) Key(idx int) uint64 {
 Mask temporarily zeros out a chord to exclude it from BestFill searches.
 It returns the original chord so it can be unmasked later.
 */
-func (field *PrimeField) Mask(idx int) data.Chord {
+func (field *PrimeField) Mask(idx int) data.MultiChord {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 
 	original := field.chords[idx]
-	field.chords[idx] = data.Chord{}
+	field.chords[idx] = data.MultiChord{}
 	return original
 }
 
 /*
 Unmask restores a previously masked chord.
 */
-func (field *PrimeField) Unmask(idx int, chord data.Chord) {
+func (field *PrimeField) Unmask(idx int, chord data.MultiChord) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 

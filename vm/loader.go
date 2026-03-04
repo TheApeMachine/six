@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"github.com/theapemachine/six/numeric"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 )
@@ -54,9 +55,11 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 				start := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
 				for _, t := range buf[start:] {
 					out <- tokenizer.Token{
-                        Chord: t.Chord,
-                        // Not a full token, but serves backwards compatibility
-                    }
+						TokenID:  t.TokenID,
+						SampleID: t.SampleID,
+						Chord:    t.Chord,
+						// Emit all populated fields to serve backwards compatibility without breaking structural expectations
+					}
 				}
 			}
 		}
@@ -73,10 +76,11 @@ func (loader *Loader) Prompts() chan []tokenizer.Token {
 
 	go func() {
 		defer close(out)
-		
+
 		// Fill bufs if empty
 		if len(loader.bufs) == 0 {
-			for _ = range loader.Generate() { }
+			for _ = range loader.Generate() {
+			}
 		}
 
 		emitted := 0
@@ -84,9 +88,17 @@ func (loader *Loader) Prompts() chan []tokenizer.Token {
 			if loader.samples > 0 && emitted >= loader.samples {
 				break
 			}
-			start := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
-			if start < len(buf) && len(buf) > 0 {
-				out <- buf[start:]
+
+			var linear []tokenizer.Token
+			for _, t := range buf {
+				if t.Scale == numeric.FibWindows[0] {
+					linear = append(linear, t)
+				}
+			}
+
+			start := int(float64(len(linear)) * float64(loader.holdout) / 100.0)
+			if start > 0 && start <= len(linear) {
+				out <- linear[:start]
 				emitted++
 			}
 		}
@@ -116,7 +128,7 @@ func LoaderWithTokenizer(tokenizer *tokenizer.Universal) loaderOpts {
 type LoaderError string
 
 const (
-	LoaderErrDecode      LoaderError = "failed to decode chord"
+	LoaderErrDecode LoaderError = "failed to decode chord"
 )
 
 func (e LoaderError) Error() string {

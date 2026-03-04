@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
@@ -26,8 +28,8 @@ func (experiment *Experiment) testSpanChaining(corpus []string) SpanChainingResu
 	const nDial = 6
 	const maxChains = 4 // emit up to 4 spans per prompt
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	type spanMeta struct {
 		tokens []string
@@ -47,7 +49,7 @@ func (experiment *Experiment) testSpanChaining(corpus []string) SpanChainingResu
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				substrate.Add(universalFilter, fp, []byte(spanText))
 				spanIndex = append(spanIndex, spanMeta{
 					tokens: span,
@@ -66,7 +68,7 @@ func (experiment *Experiment) testSpanChaining(corpus []string) SpanChainingResu
 		allIndices[i] = i
 	}
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := range a {
@@ -81,13 +83,13 @@ func (experiment *Experiment) testSpanChaining(corpus []string) SpanChainingResu
 	}
 
 	// Retrieve + score a single span given a query fingerprint
-	retrieveBest := func(queryFP numeric.PhaseDial, prefixTokens []string, usedSpans map[int]bool) (int, float64) {
+	retrieveBest := func(queryFP geometry.PhaseDial, prefixTokens []string, usedSpans map[int]bool) (int, float64) {
 		seen := make(map[int]bool)
 		var candidates []int
 
 		for d := 0; d < nDial; d++ {
 			alpha := float64(d) * (2.0 * math.Pi / float64(nDial))
-			rotated := make(numeric.PhaseDial, D)
+			rotated := make(geometry.PhaseDial, D)
 			if d == 0 {
 				copy(rotated, queryFP)
 			} else {
@@ -186,7 +188,7 @@ func (experiment *Experiment) testSpanChaining(corpus []string) SpanChainingResu
 
 		for step := 0; step < maxChains; step++ {
 			// Build query from accumulated context
-			queryFP := numeric.EncodeText(currentContext)
+			queryFP := geometry.NewPhaseDial().Encode(currentContext)
 			contextTokens := tokenize(currentContext)
 
 			bestIdx, bestScore := retrieveBest(queryFP, contextTokens, usedSpans)

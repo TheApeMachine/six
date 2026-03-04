@@ -15,15 +15,15 @@ import (
 
 // SpanSolverEntry holds one prompt's solver result.
 type SpanSolverEntry struct {
-	Desc            string  `json:"desc"`
-	Prefix          string  `json:"prefix"`
-	Generated       string  `json:"generated"`
-	Converged       bool    `json:"converged"`
-	Iterations      int     `json:"iterations"`
-	HasReturn       bool    `json:"has_return"`
-	HasColon        bool    `json:"has_colon"`
-	UniqueRatio     float64 `json:"unique_ratio"`
-	PrefixRelevance float64 `json:"prefix_relevance"`
+	Desc            string    `json:"desc"`
+	Prefix          string    `json:"prefix"`
+	Generated       string    `json:"generated"`
+	Converged       bool      `json:"converged"`
+	Iterations      int       `json:"iterations"`
+	HasReturn       bool      `json:"has_return"`
+	HasColon        bool      `json:"has_colon"`
+	UniqueRatio     float64   `json:"unique_ratio"`
+	PrefixRelevance float64   `json:"prefix_relevance"`
 	TopSpans        []string  `json:"top_spans"`
 	TopScores       []float64 `json:"top_scores"`
 }
@@ -319,21 +319,21 @@ type EigenmodeResult struct {
 
 // ValidationReport aggregates all test results.
 type ValidationReport struct {
-	CorpusHash      string
-	CorpusSize      int
-	SpanData        SpanSolverResult
-	RankingData     SpanRankingResult
-	ChainingData    SpanChainingResult
-	OverlapData     OverlapChainingResult
-	LongGenData     LongGenResult
-	CompGenData     CompGenResult
-	StructSensData  StructSensResult
-	EigenmodeData   EigenmodeResult
-	BridgingData    PhaseBridgingResult
-	CantileverData  CantileverResult
-	RelCantData     RelCantResult
-	ChordGenData    ChordGenResult
-	PipelineData    *Pipeline
+	CorpusHash     string
+	CorpusSize     int
+	SpanData       SpanSolverResult
+	RankingData    SpanRankingResult
+	ChainingData   SpanChainingResult
+	OverlapData    OverlapChainingResult
+	LongGenData    LongGenResult
+	CompGenData    CompGenResult
+	StructSensData StructSensResult
+	EigenmodeData  EigenmodeResult
+	BridgingData   PhaseBridgingResult
+	CantileverData CantileverResult
+	RelCantData    RelCantResult
+	ChordGenData   ChordGenResult
+	PipelineData   *Pipeline
 }
 
 func generatePaperOutput(report ValidationReport) error {

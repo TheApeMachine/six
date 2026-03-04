@@ -13,9 +13,10 @@ Collision is Compression. High Z items exist solely in local memory.
 Stores Chord values directly — no encode/decode round-trip.
 
 Keys use the existing Morton encoding from tokenizer.MortonCoder:
-  Layout: (byte_value << 24) | position
-  - Bits 24-31: byte value (0-255)
-  - Bits 0-23:  sequence position
+
+	Layout: (byte_value << 24) | position
+	- Bits 24-31: byte value (0-255)
+	- Bits 0-23:  sequence position
 */
 type LSMSpatialIndex struct {
 	mu sync.RWMutex
@@ -195,7 +196,7 @@ func (idx *LSMSpatialIndex) ReverseLookup(chord data.Chord) uint64 {
 	defer idx.mu.RUnlock()
 
 	key, ok := idx.reverse[chord]
-	
+
 	if !ok {
 		return 0
 	}
@@ -274,8 +275,7 @@ func (idx *LSMSpatialIndex) QueryNeighborhood(key uint64, posRadius uint32) []da
 	}
 
 	return idx.QueryRange(
-		(byteVal << 24) | lo,
-		(byteVal << 24) | hi,
+		(byteVal<<24)|lo,
+		(byteVal<<24)|hi,
 	)
 }
-

@@ -7,18 +7,18 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
-	"github.com/theapemachine/six/numeric"
+	"github.com/theapemachine/six/geometry"
 )
 
 // Experiment holds the state for the BVP text generation experiment suite.
 type Experiment struct {
-	Substrate *numeric.HybridSubstrate
+	Substrate *geometry.HybridSubstrate
 }
 
 // New creates a new textgen experiment.
 func New() *Experiment {
 	return &Experiment{
-		Substrate: numeric.NewHybridSubstrate(),
+		Substrate: geometry.NewHybridSubstrate(),
 	}
 }
 
@@ -168,21 +168,21 @@ func (experiment *Experiment) Run() error {
 	pipelineData.Run()
 
 	report := ValidationReport{
-		CorpusHash:      corpusSig,
-		CorpusSize:      len(corpus),
-		SpanData:        spanData,
-		RankingData:     rankingData,
-		ChainingData:    chainingData,
-		OverlapData:     overlapData,
-		LongGenData:     longGenData,
-		CompGenData:     compGenData,
-		StructSensData:  structSensData,
-		EigenmodeData:   eigenmodeData,
-		BridgingData:    bridgingData,
-		CantileverData:  cantileverData,
-		RelCantData:     relCantData,
-		ChordGenData:    chordGenData,
-		PipelineData:    pipelineData,
+		CorpusHash:     corpusSig,
+		CorpusSize:     len(corpus),
+		SpanData:       spanData,
+		RankingData:    rankingData,
+		ChainingData:   chainingData,
+		OverlapData:    overlapData,
+		LongGenData:    longGenData,
+		CompGenData:    compGenData,
+		StructSensData: structSensData,
+		EigenmodeData:  eigenmodeData,
+		BridgingData:   bridgingData,
+		CantileverData: cantileverData,
+		RelCantData:    relCantData,
+		ChordGenData:   chordGenData,
+		PipelineData:   pipelineData,
 	}
 
 	console.Info("\n=======================================================")

@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 )
 
@@ -57,8 +59,8 @@ func (experiment *Experiment) testLongGeneration(corpus []string) LongGenResult 
 	const maxChains = 12
 	const minNewTokens = 2
 
-	substrate := numeric.NewHybridSubstrate()
-	var universalFilter numeric.Chord
+	substrate := geometry.NewHybridSubstrate()
+	var universalFilter data.Chord
 
 	type spanMeta struct {
 		tokens []string
@@ -78,7 +80,7 @@ func (experiment *Experiment) testLongGeneration(corpus []string) LongGenResult 
 				span := make([]string, sLen)
 				copy(span, tokens[start:start+sLen])
 				spanText := detokenize(span)
-				fp := numeric.EncodeText(spanText)
+				fp := geometry.NewPhaseDial().Encode(spanText)
 				substrate.Add(universalFilter, fp, []byte(spanText))
 				spanIndex = append(spanIndex, spanMeta{
 					tokens: span,
@@ -97,7 +99,7 @@ func (experiment *Experiment) testLongGeneration(corpus []string) LongGenResult 
 		allIndices[i] = i
 	}
 
-	sim := func(a, b numeric.PhaseDial) float64 {
+	sim := func(a, b geometry.PhaseDial) float64 {
 		var dot complex128
 		var na, nb float64
 		for i := range a {
@@ -178,7 +180,7 @@ func (experiment *Experiment) testLongGeneration(corpus []string) LongGenResult 
 				queryTokens = queryTokens[len(queryTokens)-contextWindow:]
 			}
 			queryText := detokenize(queryTokens)
-			queryFP := numeric.EncodeText(queryText)
+			queryFP := geometry.NewPhaseDial().Encode(queryText)
 
 			// Retrieve diverse candidates
 			seen := make(map[int]bool)
@@ -186,7 +188,7 @@ func (experiment *Experiment) testLongGeneration(corpus []string) LongGenResult 
 
 			for d := 0; d < nDial; d++ {
 				alpha := float64(d) * (2.0 * math.Pi / float64(nDial))
-				rotated := make(numeric.PhaseDial, D)
+				rotated := make(geometry.PhaseDial, D)
 				if d == 0 {
 					copy(rotated, queryFP)
 				} else {
@@ -221,11 +223,11 @@ func (experiment *Experiment) testLongGeneration(corpus []string) LongGenResult 
 
 			// Score and filter
 			type scoredCandidate struct {
-				idx      int
-				score    float64
-				overlap  int
-				newToks  int
-				meta     spanMeta
+				idx     int
+				score   float64
+				overlap int
+				newToks int
+				meta    spanMeta
 			}
 			var viable []scoredCandidate
 

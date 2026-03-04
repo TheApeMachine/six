@@ -1,0 +1,41 @@
+        const xAxisData = {{.XAxisDataJSON}};
+        const yAxisData = {{.YAxisDataJSON}};
+        const heatmapData = {{.DataJSON}};
+        const minVal = {{.Min}};
+        const maxVal = {{.Max}};
+        const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+        
+        const option = {
+            backgroundColor: 'transparent',
+            animation: false,
+            tooltip: { position: 'top' },
+            grid: { left: '10%', right: '15%', top: '10%', bottom: '15%' },
+            xAxis: {
+                type: 'category',
+                data: xAxisData,
+                axisLabel: { color: '#475569' }
+            },
+            yAxis: {
+                type: 'category',
+                data: yAxisData,
+                axisLabel: { color: '#475569' }
+            },
+            visualMap: {
+                min: minVal,
+                max: maxVal,
+                calculable: true,
+                orient: 'vertical',
+                right: '5%',
+                top: 'center',
+                inRange: {
+                    color: ['#000004', '#3b0f70', '#8c2981', '#de4968', '#fe9f6d', '#fcfdbf']
+                }
+            },
+            series: [{
+                name: 'Heatmap',
+                type: 'heatmap',
+                data: heatmapData,
+                itemStyle: { borderWidth: 0 }
+            }]
+        };
+        chart.setOption(option);

@@ -51,7 +51,7 @@ func (pipeline *Pipeline) Run() {
 		console.Info(fmt.Sprintf("--- Sample %d (Prompt length: %d) ---", sampleIdx, len(prompt)))
 		sampleIdx++
 		count := 0
-		
+
 		var generatedOutput []byte
 
 		for res := range pipeline.machine.Prompt(prompt) {
@@ -59,7 +59,7 @@ func (pipeline *Pipeline) Run() {
 				break
 			}
 			// Skip printing the prompt baseline tokens.
-			if res.Score == 1.0 && res.Scale == 1 {
+			if res.Score == 1.0 {
 				continue
 			}
 
@@ -70,7 +70,7 @@ func (pipeline *Pipeline) Run() {
 
 			count++
 		}
-		
+
 		if len(generatedOutput) > 0 {
 			console.Info(fmt.Sprintf("Generated Code (first %d tokens):", len(generatedOutput)))
 			// Print the raw generated text

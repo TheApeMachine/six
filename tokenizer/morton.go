@@ -23,31 +23,34 @@ func NewMortonCoder() *MortonCoder {
 }
 
 /*
-Encode packs byte, position, and Z-depth into a 64-bit Morton key.
-Layout (MSB→LSB): [8 bits Z | 32 bits Pos | 24 bits Byte].
-Z=0 is Bedrock (permanent); Z≥1 is Workbench (hypothesis). Z-Annealing
-is an O(1) bit-flip: AnnealKey clears the top 8 bits to crystallize.
+Encode packs Z-depth (scale), Symbol identity, and Position into a 64-bit Morton key.
+Layout (MSB→LSB):[8 bits Z | 24 bits Symbol | 32 bits Pos].
+Grouping by Z and Symbol allows perfectly contiguous sequence querying in the LSBs.
 */
-func (coder *MortonCoder) Encode(symbol byte, pos uint32) uint64 {
-	return (uint64(symbol) << 24) | uint64(pos)
+func (coder *MortonCoder) Encode(z uint8, pos uint32, symbol byte) uint64 {
+	return (uint64(z) << 56) | (uint64(symbol) << 32) | uint64(pos)
 }
 
 /*
-Decode unpacks the 64-bit morton key back into byte, pos, and zDepth.
+Decode unpacks the 64-bit morton key back into Z-depth, Position, and Symbol identity.
 */
-func (coder *MortonCoder) Decode(morton uint64) (byte, uint32) {
-	return byte(morton & 0xFF), uint32((morton >> 24) & 0xFFFFFFFF)
+func (coder *MortonCoder) Decode(morton uint64) (uint8, uint32, byte) {
+	z := uint8(morton >> 56)
+	symbol := byte((morton >> 32) & 0xFFFFFF)
+	pos := uint32(morton & 0xFFFFFFFF)
+
+	return z, pos, symbol
 }
 
 /*
 ChordToBytes encodes a Chord as core.ChordBlocks×8 bytes big-endian.
 */
 func (coder *MortonCoder) ChordToBytes(chord data.Chord) []byte {
-	buf := make([]byte, numeric.NSymbols*8)
-	
-	for i := range numeric.NSymbols {
+	buf := make([]byte, numeric.ChordBlocks*8)
+
+	for i := range numeric.ChordBlocks {
 		binary.BigEndian.PutUint64(buf[i*8:], chord[i])
 	}
-	
+
 	return buf
 }

@@ -17,11 +17,11 @@ Prompt marks tokens from the prompt path (lookup in LSM, not insertion).
 */
 type Token struct {
 	SampleID uint32
-	TokenID uint64
-	Pos     int
-	Scale   int
-	Prompt  bool
-	Chord   data.Chord
+	TokenID  uint64
+	Pos      int
+	Scale    int
+	Prompt   bool
+	Chord    data.Chord
 }
 
 /*
@@ -68,20 +68,24 @@ func (tokenizer *Universal) Generate() chan Token {
 		// Accumulate the raw byte stream separated by SampleID
 		corpusBySample := make(map[uint32][]byte)
 		for rawToken := range tokenizer.dataset.Generate() {
-			corpusBySample[rawToken.SampleID] = append(corpusBySample[rawToken.SampleID], rawToken.Symbol)
+			corpusBySample[rawToken.SampleID] = append(
+				corpusBySample[rawToken.SampleID], rawToken.Symbol,
+			)
 		}
 
 		// Slide FibWindows across each sample individually
 		for sampleID, corpus := range corpusBySample {
-			for _, scale := range numeric.FibWindows {
+			for scaleIndex, scale := range numeric.FibWindows {
 				if scale > len(corpus) {
 					continue
 				}
+
 				for pos := 0; pos <= len(corpus)-scale; pos++ {
 					window := corpus[pos : pos+scale]
 
 					// Chord = OR of base chords for all bytes in the window
 					var chord data.Chord
+
 					for _, b := range window {
 						base := BaseChord(b)
 						for j := range numeric.ChordBlocks {
@@ -89,8 +93,9 @@ func (tokenizer *Universal) Generate() chan Token {
 						}
 					}
 
-					// Morton key: first byte of window encodes the x, position encodes y
-					key := tokenizer.coder.Encode(window[0], uint32(pos))
+					key := tokenizer.coder.Encode(
+						uint8(scaleIndex), uint32(pos), window[0],
+					)
 
 					out <- Token{
 						SampleID: sampleID,
