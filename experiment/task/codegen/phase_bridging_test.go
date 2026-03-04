@@ -16,7 +16,7 @@ import (
 func TestPhaseBridging(t *testing.T) {
 	Convey("Given the extended corpus and phase-triggered manifold bridging", t, func() {
 		corpus := append(pythonCorpus(), longCorpus()...)
-		eigenTable := buildEigenPhaseTable(corpus)
+		eigenTable := buildEigenMode(corpus)
 
 		type spanEntry struct {
 			tokens                []string
@@ -30,7 +30,7 @@ func TestPhaseBridging(t *testing.T) {
 		sm := BuildSpanMemory(corpus)
 		// Rebuild with added eigenphase
 		for i, meta := range sm.Index {
-			ep, conc := eigenTable.weightedCircularMean(meta.Text)
+			ep, conc := weightedCircularMean(eigenTable, meta.Text)
 			spans = append(spans, spanEntry{
 				tokens: meta.Tokens, text: meta.Text,
 				source: meta.Source, eigenPhase: ep, conc: conc,
@@ -67,7 +67,7 @@ func TestPhaseBridging(t *testing.T) {
 				inBridge := false
 				bridgeCount := 0
 				prevSim := 1.0
-				prevPhase, _ := eigenTable.weightedCircularMean(prompt.prefix)
+				prevPhase, _ := weightedCircularMean(eigenTable, prompt.prefix)
 				firstName := ""
 				if i := strings.Index(prompt.prefix, "("); i > 4 {
 					firstName = prompt.prefix[4:i]
@@ -75,7 +75,7 @@ func TestPhaseBridging(t *testing.T) {
 
 				for step := 0; step < maxChains; step++ {
 					queryFP := geometry.NewPhaseDial().Encode(currentOutput)
-					currentPhase, _ := eigenTable.weightedCircularMean(currentOutput)
+					currentPhase, _ := weightedCircularMean(eigenTable, currentOutput)
 
 					if step > 0 && !inBridge {
 						phaseDiff := currentPhase - prevPhase

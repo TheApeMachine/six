@@ -17,7 +17,7 @@ func TestEigenmodeProbe(t *testing.T) {
 		corpus := append(pythonCorpus(), longCorpus()...)
 		So(len(corpus), ShouldBeGreaterThan, 0)
 
-		eigenTable := buildEigenPhaseTable(corpus)
+		eigenTable := buildEigenMode(corpus)
 		So(eigenTable, ShouldNotBeNil)
 
 		spanLengths := numeric.FibWindows
@@ -37,7 +37,7 @@ func TestEigenmodeProbe(t *testing.T) {
 					copy(span, toks[start:start+sLen])
 					spanText := detokenize(span)
 					role := classifyRole(spanText)
-					phase, _ := eigenTable.weightedCircularMean(spanText)
+					phase, _ := weightedCircularMean(eigenTable, spanText)
 					spans = append(spans, spanInfo{spanText, role, phase})
 				}
 			}

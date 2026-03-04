@@ -268,3 +268,47 @@ func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
 	bin := data.ChordBin(c)
 	return ei.PhaseTheta[bin], ei.PhasePhi[bin]
 }
+
+/*
+WeightedCircularMean computes the weighted circular mean and concentration over PhaseTheta 
+for a sequence of chords, using FreqTheta as the structural informativeness weights.
+*/
+func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, concentration float64) {
+	if len(chords) == 0 {
+		return 0, 0
+	}
+	var sinSum, cosSum, wSum float64
+	for i := range chords {
+		bin := data.ChordBin(&chords[i])
+		pT := ei.PhaseTheta[bin]
+		w := ei.FreqTheta[bin]
+		sinSum += w * math.Sin(pT)
+		cosSum += w * math.Cos(pT)
+		wSum += w
+	}
+	if wSum == 0 {
+		return 0, 0
+	}
+	phase = math.Atan2(sinSum, cosSum)
+	concentration = math.Sqrt(sinSum*sinSum+cosSum*cosSum) / wSum
+	return
+}
+
+/*
+IsGeometricallyClosed verifies structural closure entirely via native
+mathematical topology. It checks if the candidate's phase logically
+returns to an expected terminal clustered state (proving closure geometrically).
+*/
+func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase float64) bool {
+	if len(chords) == 0 {
+		return false
+	}
+	
+	cPhase, _ := ei.WeightedCircularMean(chords)
+	phaseDiff := math.Abs(cPhase - anchorPhase)
+	for phaseDiff > math.Pi {
+		phaseDiff = 2*math.Pi - phaseDiff
+	}
+	
+	return phaseDiff < 0.45
+}

@@ -17,13 +17,13 @@ import (
 func TestCantileverGating(t *testing.T) {
 	Convey("Given the extended corpus and cantilever-gated span retrieval", t, func() {
 		corpus := append(pythonCorpus(), longCorpus()...)
-		eigenTable := buildEigenPhaseTable(corpus)
+		eigenTable := buildEigenMode(corpus)
 		sm := BuildSpanMemory(corpus)
 
 		// Build cantileverSpan index
 		var cspans []cantileverSpan
 		for _, meta := range sm.Index {
-			ep, conc := eigenTable.weightedCircularMean(meta.Text)
+			ep, conc := weightedCircularMean(eigenTable, meta.Text)
 			cspans = append(cspans, cantileverSpan{
 				tokens: meta.Tokens, source: meta.Source,
 				spanLen: meta.Length, eigenPhase: ep, conc: conc,
@@ -57,7 +57,7 @@ func TestCantileverGating(t *testing.T) {
 				inBridge := false
 				bridgeCount := 0
 				prevSim := 1.0
-				prevPhase, _ := eigenTable.weightedCircularMean(prompt.prefix)
+				prevPhase, _ := weightedCircularMean(eigenTable, prompt.prefix)
 				firstName := ""
 				if i := strings.Index(prompt.prefix, "("); i > 4 {
 					firstName = prompt.prefix[4:i]
@@ -65,7 +65,7 @@ func TestCantileverGating(t *testing.T) {
 
 				for step := 0; step < maxChains; step++ {
 					queryFP := geometry.NewPhaseDial().Encode(currentOutput)
-					currentPhase, _ := eigenTable.weightedCircularMean(currentOutput)
+					currentPhase, _ := weightedCircularMean(eigenTable, currentOutput)
 
 					cantExt := 0
 					if gated {

@@ -15,14 +15,14 @@ import (
 )
 
 func TestRelativeCantilever(t *testing.T) {
-	Convey("Given the extended corpus and relative-cantilever scale selection", t, func() {
+	Convey("Given the extended corpus and relative cantilever stability", t, func() {
 		corpus := append(pythonCorpus(), longCorpus()...)
-		eigenTable := buildEigenPhaseTable(corpus)
+		eigenTable := buildEigenMode(corpus)
 		sm := BuildSpanMemory(corpus)
 
 		var cspans []cantileverSpan
 		for _, meta := range sm.Index {
-			ep, conc := eigenTable.weightedCircularMean(meta.Text)
+			ep, conc := weightedCircularMean(eigenTable, meta.Text)
 			cspans = append(cspans, cantileverSpan{
 				tokens: meta.Tokens, source: meta.Source,
 				spanLen: meta.Length, eigenPhase: ep, conc: conc,
@@ -56,15 +56,15 @@ func TestRelativeCantilever(t *testing.T) {
 				inBridge := false
 				bridgeCount := 0
 				prevSim := 1.0
-				prevPhase, _ := eigenTable.weightedCircularMean(prompt.prefix)
+				prevPhase, _ := weightedCircularMean(eigenTable, prompt.prefix)
 				firstName := ""
 				if i := strings.Index(prompt.prefix, "("); i > 4 {
 					firstName = prompt.prefix[4:i]
 				}
 
-				for step := 0; step < maxChains; step++ {
+				for step := range maxChains {
 					queryFP := geometry.NewPhaseDial().Encode(currentOutput)
-					currentPhase, _ := eigenTable.weightedCircularMean(currentOutput)
+					currentPhase, _ := weightedCircularMean(eigenTable, currentOutput)
 
 					maxSafe := numeric.FibWindows[len(numeric.FibWindows)-1]
 					if gated {
@@ -90,7 +90,7 @@ func TestRelativeCantilever(t *testing.T) {
 					}
 					var candidates []cand
 					seen := make(map[int]bool)
-					for d := 0; d < 8; d++ {
+					for d := range 8 {
 						alpha := float64(d) * math.Pi / 8.0
 						rotated := make(geometry.PhaseDial, len(queryFP))
 						if alpha == 0 {

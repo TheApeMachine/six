@@ -11,40 +11,38 @@ import (
 	"github.com/theapemachine/six/tokenizer"
 )
 
-// eigenPhaseTable wraps geometry.EigenMode with chord-native co-occurrence
-// and provides weighted circular mean over PhaseTheta for text spans.
-type eigenPhaseTable struct {
-	ei     *geometry.EigenMode
-	weight [256]float64 // structural informativeness per byte
-}
-
-// buildEigenPhaseTable builds chord sequence from corpus, runs EigenMode
-// BuildMultiScaleCooccurrence, returns wrapper for weighted phase lookup.
-func buildEigenPhaseTable(corpus []string) *eigenPhaseTable {
+// buildEigenMode builds an EigenMode topology from a text corpus.
+func buildEigenMode(corpus []string) *geometry.EigenMode {
 	var fullCorpus []byte
 	for _, fn := range corpus {
 		fullCorpus = append(fullCorpus, []byte(fn)...)
 		fullCorpus = append(fullCorpus, '\n')
 	}
-	chords := make([]data.Chord, len(fullCorpus))
-	for i, b := range fullCorpus {
-		chords[i] = tokenizer.BaseChord(b)
-	}
+	chords := textToChords(string(fullCorpus))
 	ei := geometry.NewEigenMode()
 	if err := ei.BuildMultiScaleCooccurrence(chords); err != nil {
-		// Fallback: zero phases if build fails (e.g. tiny corpus)
-		ei = geometry.NewEigenMode()
+		return geometry.NewEigenMode()
 	}
-	table := &eigenPhaseTable{ei: ei}
-	for i := 0; i < 256; i++ {
-		b := byte(i)
-		chord := tokenizer.BaseChord(b)
-		bin := data.ChordBin(&chord)
-		// Derive structural informativeness dynamically from eigenvector magnitudes
-		// (embodied in FreqTheta computed from magsTheta during EigenMode init).
-		table.weight[i] = table.ei.FreqTheta[bin]
+	return ei
+}
+
+// textToChords tokenizes a raw string into atomic topological chords.
+func textToChords(text string) []data.Chord {
+	chords := make([]data.Chord, len(text))
+	for i, b := range []byte(text) {
+		chords[i] = tokenizer.BaseChord(b)
 	}
-	return table
+	return chords
+}
+
+// IsGeometricallyClosed wraps the native geometry validation for raw text.
+func IsGeometricallyClosed(ei *geometry.EigenMode, code string, anchorPhase float64) bool {
+	return ei.IsGeometricallyClosed(textToChords(code), anchorPhase)
+}
+
+// weightedCircularMean wraps the native Toroidal weighting function over chords.
+func weightedCircularMean(ei *geometry.EigenMode, text string) (float64, float64) {
+	return ei.WeightedCircularMean(textToChords(text))
 }
 
 // isValidSyntax performs a lightweight AST-like verification of Python syntax.
@@ -73,27 +71,6 @@ func isValidSyntax(code string) bool {
 		}
 	}
 	return len(stack) == 0
-}
-
-func (t *eigenPhaseTable) weightedCircularMean(text string) (phase float64, concentration float64) {
-	if len(text) == 0 {
-		return 0, 0
-	}
-	var sinSum, cosSum, wSum float64
-	for _, b := range []byte(text) {
-		chord := tokenizer.BaseChord(b)
-		theta, _ := t.ei.PhaseForChord(&chord)
-		w := t.weight[b]
-		sinSum += w * math.Sin(theta)
-		cosSum += w * math.Cos(theta)
-		wSum += w
-	}
-	if wSum == 0 {
-		return 0, 0
-	}
-	phase = math.Atan2(sinSum, cosSum)
-	concentration = math.Sqrt(sinSum*sinSum+cosSum*cosSum) / wSum
-	return
 }
 
 func normalizeVec256(v *[256]float64) {

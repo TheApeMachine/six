@@ -11,6 +11,7 @@ import (
 	"github.com/gofiber/fiber/v3/client"
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/provider"
+	"github.com/valyala/fasthttp"
 )
 
 const hfBase = "https://huggingface.co"
@@ -22,7 +23,6 @@ via the Fiber/fasthttp client, and emits column values through
 a channel as byte-position pairs.
 */
 type Dataset struct {
-	client     *client.Client
 	repo       string
 	textColumn string
 	maxSamples int
@@ -30,17 +30,8 @@ type Dataset struct {
 
 type datasetOpts func(*Dataset)
 
-/*
-row is the schema struct for GenericReader. The parquet tag maps
-to the column name in the dataset.
-*/
-type row struct {
-	Text string `parquet:"text"`
-}
-
 func New(opts ...datasetOpts) *Dataset {
 	dataset := &Dataset{
-		client:     client.New(),
 		textColumn: "text",
 	}
 
@@ -105,8 +96,13 @@ func (dataset *Dataset) streamRows(fn func(string) bool) error {
 
 func findColumn(schema *parquet.Schema, name string) int {
 	for i, col := range schema.Columns() {
-		if len(col) == 1 && col[0] == name {
-			return i
+		if len(col) > 0 && col[0] == name {
+			if len(col) == 1 {
+				return i
+			}
+			if len(col) == 2 && col[1] == "bytes" {
+				return i
+			}
 		}
 	}
 	return -1
@@ -253,9 +249,12 @@ func (dataset *Dataset) downloadShard(shard string) (io.ReaderAt, int64, error) 
 	if err != nil {
 		return nil, 0, err
 	}
+	defer fasthttp.ReleaseResponse(resp.RawResponse)
 
 	body := resp.RawResponse.Body()
-	r := bytes.NewReader(body)
+	bodyCopy := make([]byte, len(body))
+	copy(bodyCopy, body)
+	r := bytes.NewReader(bodyCopy)
 
 	return r, r.Size(), nil
 }
@@ -272,6 +271,7 @@ func (dataset *Dataset) discoverShard() (string, error) {
 	if err != nil {
 		return "", err
 	}
+	defer fasthttp.ReleaseResponse(resp.RawResponse)
 
 	var entries []struct {
 		Type string `json:"type"`
@@ -316,7 +316,8 @@ func (dataset *Dataset) discoverShard() (string, error) {
 request builds and executes a GET via the Fiber client's R() builder.
 */
 func (dataset *Dataset) request(url string) (*client.Response, error) {
-	req := dataset.client.R()
+	req := client.New().R()
+	defer fasthttp.ReleaseRequest(req.RawRequest)
 
 	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
 		req.RawRequest.Header.Set("Authorization", "Bearer "+token)
@@ -339,11 +340,13 @@ func (dataset *Dataset) request(url string) (*client.Response, error) {
 					loc = hfBase + "/" + loc
 				}
 			}
+			fasthttp.ReleaseResponse(resp.RawResponse)
 			return dataset.request(loc)
 		}
 	}
 
 	if code != 200 {
+		fasthttp.ReleaseResponse(resp.RawResponse)
 		return nil, fmt.Errorf("huggingface: HTTP %d from %s", code, url)
 	}
 
