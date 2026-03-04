@@ -97,6 +97,7 @@ func (cs *ChordStore) bestFillGPU(context *data.Chord) (int, float64, error) {
 		unsafe.Pointer(&cs.flatChords[0]),
 		len(cs.flatChords),
 		unsafe.Pointer(context),
+		0,
 	)
 }
 

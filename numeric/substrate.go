@@ -225,5 +225,5 @@ func (hs *HybridSubstrate) FastGPUFilter(contextFilter Chord) (int, float64, err
 		dictionary[i] = entry.Filter
 	}
 
-	return metal.BestFill(unsafe.Pointer(&dictionary[0]), len(dictionary), unsafe.Pointer(&contextFilter))
+	return metal.BestFill(unsafe.Pointer(&dictionary[0]), len(dictionary), unsafe.Pointer(&contextFilter), 0)
 }

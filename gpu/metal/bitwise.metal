@@ -23,6 +23,7 @@ kernel void bitwise_best_fill(
     constant Chord* active_context [[buffer(1)]],
     device atomic_ulong* best_packed_result [[buffer(2)]],
     constant uint& num_chords [[buffer(3)]],
+    constant uint& target_id [[buffer(4)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= num_chords) return;
@@ -43,11 +44,19 @@ kernel void bitwise_best_fill(
 
     float resonance = (float)match_count / (float)(match_count + noise_count + 1);
 
-    const float SCORE_SCALE = 4294967.0f;
+    // Score maps to 4,000,000 (~22 bits)
+    const float SCORE_SCALE = 4000000.0f;
     uint score_fixed = (uint)(resonance * SCORE_SCALE);
 
-    // Pack score (high 32) | index (low 32). atomic_max sorts by score first.
-    uint64_t packed_result = ((uint64_t)score_fixed << 32) | (uint64_t)id;
+    // Distance acts as tie-breaker (16 bits)
+    uint distance = (uint)abs((int)id - (int)target_id);
+    if (distance > 65535) {
+        distance = 65535;
+    }
+    uint inverted_dist = 65535 - distance;
+
+    // Pack: score (24-bit MSB) | inverted dist (16-bit) | raw_id (24-bit LSB)
+    uint64_t packed_result = ((uint64_t)score_fixed << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)id;
 
     // 1 instruction, 0 locks, 100% thread safe
     atomic_max_explicit(

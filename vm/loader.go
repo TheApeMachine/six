@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 )
@@ -12,14 +11,14 @@ type Loader struct {
 	holdout   int
 	samples   int
 	prompt    bool
-	bufs      map[uint32][]data.Chord
+	bufs      map[uint32][]tokenizer.Token
 }
 
 type loaderOpts func(*Loader)
 
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
-		bufs: make(map[uint32][]data.Chord),
+		bufs: make(map[uint32][]tokenizer.Token),
 	}
 
 	for _, opt := range opts {
@@ -41,7 +40,7 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 
 		for token := range loader.tokenizer.Generate() {
 			if loader.prompt {
-				loader.bufs[token.SampleID] = append(loader.bufs[token.SampleID], loader.store.Lookup(token.TokenID))
+				loader.bufs[token.SampleID] = append(loader.bufs[token.SampleID], token)
 			} else {
 				loader.store.Insert(token.TokenID, token.Chord)
 				out <- token
@@ -53,9 +52,9 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 			// Not guaranteed sorted by sample ID, but keeps interface intact
 			for _, buf := range loader.bufs {
 				start := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
-				for _, chord := range buf[start:] {
+				for _, t := range buf[start:] {
 					out <- tokenizer.Token{
-                        Chord: chord,
+                        Chord: t.Chord,
                         // Not a full token, but serves backwards compatibility
                     }
 				}
@@ -69,8 +68,8 @@ func (loader *Loader) Generate() chan tokenizer.Token {
 /*
 Prompts yields holdout samples as discrete slices for independent generation.
 */
-func (loader *Loader) Prompts() chan []data.Chord {
-	out := make(chan []data.Chord)
+func (loader *Loader) Prompts() chan []tokenizer.Token {
+	out := make(chan []tokenizer.Token)
 
 	go func() {
 		defer close(out)

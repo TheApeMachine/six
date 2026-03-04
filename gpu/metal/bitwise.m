@@ -50,7 +50,7 @@ int init_metal(const char* metallib_path) {
     return initResult;
 }
 
-uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, const void* active_context_ptr) {
+uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, const void* active_context_ptr, uint32_t target_id) {
     if (!bestFillPipeline) return 0;
     if (num_chords == 0) return 0;
 
@@ -99,6 +99,7 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
         [computeEncoder setBuffer:resultBuffer offset:0 atIndex:2];
 
         [computeEncoder setBytes:&num_chords length:sizeof(uint32_t) atIndex:3];
+        [computeEncoder setBytes:&target_id length:sizeof(uint32_t) atIndex:4];
 
         NSUInteger threadGroupSize = bestFillPipeline.maxTotalThreadsPerThreadgroup;
         if (threadGroupSize > num_chords) threadGroupSize = num_chords;

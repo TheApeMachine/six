@@ -44,16 +44,17 @@ func init() {
 
 // BestFill calls the Metal compute shader to find the best match.
 // dictionary is a contiguous array of 64-byte Bitsets.
-func BestFill(dictionary unsafe.Pointer, numChords int, context unsafe.Pointer) (int, float64, error) {
+func BestFill(dictionary unsafe.Pointer, numChords int, context unsafe.Pointer, targetIdx int) (int, float64, error) {
 	if numChords == 0 {
 		return 0, 0.0, nil
 	}
 
-	packed := uint64(C.bitwise_best_fill_metal(dictionary, C.uint32_t(numChords), context))
+	packed := uint64(C.bitwise_best_fill_metal(dictionary, C.uint32_t(numChords), context, C.uint32_t(targetIdx)))
 
-	scoreFixed := uint32(packed >> 32)
-	bestIdx := int(uint32(packed))
-	bestScore := float64(scoreFixed) / 4294967.0
+	scoreFixed := uint32(packed >> 40)
+	// invertedDist := uint32((packed >> 24) & 0xFFFF)
+	bestIdx := int(packed & 0xFFFFFF)
+	bestScore := float64(scoreFixed) / 4000000.0
 
 	return bestIdx, bestScore, nil
 }
