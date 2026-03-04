@@ -8,11 +8,9 @@ import (
 	"io/fs"
 	"log"
 	"os"
-	"os/exec"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/experiment/task/codegen"
 	"github.com/theapemachine/six/utils"
 )
 
@@ -26,7 +24,6 @@ var embedded embed.FS
 
 var (
 	projectName    = "six"
-	experimentName string
 	cfgFile        string
 
 	rootCmd = &cobra.Command{
@@ -34,24 +31,6 @@ var (
 		Short: "Check yo six",
 		Long:  roottxt,
 		Run: func(cmd *cobra.Command, args []string) {
-			switch experimentName {
-			case "phasedial":
-				// Phasedial runs as GoConvey tests; delegate to go test
-				testCmd := exec.Command("go", "test", "-v", "./experiment/task/phasedial/...")
-				testCmd.Stdout = os.Stdout
-				testCmd.Stderr = os.Stderr
-				testCmd.Dir = utils.ProjectRoot()
-				if err := testCmd.Run(); err != nil {
-					log.Fatalf("Phasedial tests failed: %v", err)
-				}
-			case "codegen":
-				exp := codegen.New()
-				if err := exp.Run(); err != nil {
-					log.Fatalf("Experiment failed: %v", err)
-				}
-			default:
-				log.Fatalf("Unknown experiment: %s", experimentName)
-			}
 		},
 	}
 )
@@ -65,10 +44,6 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(
 		&cfgFile, "config", "config.yml", "config file (default is $HOME/."+projectName+"/config.yml)",
-	)
-
-	rootCmd.PersistentFlags().StringVar(
-		&experimentName, "experiment", "phasedial", "experiment to use",
 	)
 }
 

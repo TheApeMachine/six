@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chord-Based Generation</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        html, body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0; 
+            padding: 0; 
+            background-color: transparent; 
+            color: #0f172a; 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            width: 100%; 
+            height: 100%; 
+        }
+        #chart { 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%; 
+            height: 100%; 
+            background: transparent; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        const xAxisData = ["def factorial(","def find_max(","def binary_search(","def dfs(","def insertion_sort("];
+        const seriesData = [{"name":"Tokens","data":[80,152,285,370,226]},{"name":"Steps","data":[5,10,16,22,13]}];
+        const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+        
+        const option = {
+            backgroundColor: 'transparent',
+            animation: false,
+            tooltip: { trigger: 'axis' },
+            legend: { top: '5%', textStyle: { color: '#475569', fontSize: 12 } },
+            grid: { left: '10%', right: '10%', top: '20%', bottom: '15%' },
+            xAxis: {
+                type: 'category',
+                data: xAxisData,
+                axisLabel: { color: '#475569' },
+                nameLocation: 'middle',
+                nameGap: 30
+            },
+            yAxis: {
+                type: 'value',
+                axisLabel: { color: '#475569' },
+                splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } }
+            },
+            series: seriesData.map(s => ({
+                name: s.name,
+                type: 'bar',
+                data: s.data,
+                itemStyle: { borderRadius: [4, 4, 0, 0] }
+            }))
+        };
+        chart.setOption(option);
+
+    </script>
+</body>
+</html>

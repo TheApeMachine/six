@@ -28,22 +28,22 @@ func TestPhaseCoherence(t *testing.T) {
 
 		// Extract phases: θ_n_k = atan2(imag, real)
 		phases := make([][]float64, N)
-		for n := 0; n < N; n++ {
+		for n := range N {
 			phases[n] = make([]float64, D)
-			for k := 0; k < D; k++ {
+			for k := range D {
 				phases[n][k] = math.Atan2(imag(fingerprints[n][k]), real(fingerprints[n][k]))
 			}
 		}
 
 		// Compute full D×D phase correlation matrix: corr(i,j) = (1/N) Σ cos(θ_n_i − θ_n_j)
 		corrMatrix := make([][]float64, D)
-		for i := 0; i < D; i++ {
+		for i := range D {
 			corrMatrix[i] = make([]float64, D)
 		}
-		for i := 0; i < D; i++ {
+		for i := range D {
 			for j := i; j < D; j++ {
 				sum := 0.0
-				for n := 0; n < N; n++ {
+				for n := range N {
 					sum += math.Cos(phases[n][i] - phases[n][j])
 				}
 				val := sum / float64(N)
@@ -55,7 +55,7 @@ func TestPhaseCoherence(t *testing.T) {
 		Convey("When analyzing the phase correlation structure", func() {
 			// Self-correlation should be 1
 			Convey("Diagonal entries (self-correlation) should all be 1.0", func() {
-				for k := 0; k < D; k++ {
+				for k := range D {
 					So(math.Abs(corrMatrix[k][k]-1.0), ShouldBeLessThan, 1e-10)
 				}
 			})
@@ -144,12 +144,12 @@ func TestPhaseCoherence(t *testing.T) {
 					yLabels[i] = fmt.Sprintf("%d", i*blockSize)
 				}
 				var heatmapData [][]any
-				for bi := 0; bi < numBlocks; bi++ {
-					for bj := 0; bj < numBlocks; bj++ {
+				for bi := range numBlocks {
+					for bj := range numBlocks {
 						sum := 0.0
 						count := 0
-						for di := 0; di < blockSize; di++ {
-							for dj := 0; dj < blockSize; dj++ {
+						for di := range blockSize {
+							for dj := range blockSize {
 								ii := bi*blockSize + di
 								jj := bj*blockSize + dj
 								if ii != jj {
@@ -165,35 +165,53 @@ func TestPhaseCoherence(t *testing.T) {
 						heatmapData = append(heatmapData, []any{bi, bj, val})
 					}
 				}
-				f, _ := os.Create(filepath.Join(PaperDir(), "phase_coherence_heatmap.tex"))
-				err := WriteHeatMap(xLabels, yLabels, heatmapData, -0.05, 0.05,
-					"Phase Correlation Matrix (64×64 block average)",
-					"Pairwise phase correlation corr(i,j) averaged into 8-dim blocks. Absence of bright diagonal bands confirms no contiguous coherence structure.",
-					"fig:phase_coherence_heatmap", "phase_coherence_heatmap", f)
+
+				heatPanel := projector.HeatmapPanel(xLabels, yLabels, heatmapData, -0.05, 0.05, "plasma")
+				heatPanel.GridLeft = "5%"
+				heatPanel.GridRight = "47%"
+				heatPanel.GridTop = "8%"
+				heatPanel.GridBottom = "10%"
+				heatPanel.XAxisName = "Dimension Index"
+				heatPanel.YAxisName = "Dimension Index"
+				heatPanel.Title = "Phase Correlation Matrix (64×64 blocks)"
+				heatPanel.VMRight = "46%"
+				heatPanel.XInterval = 8
+				heatPanel.YInterval = 8
+
+			// Build full distance correlation slice d=1..511 for right panel
+				cCorrXLabels := make([]string, D-1)
+				cCorrData := make([]float64, D-1)
+				for d := 1; d < D; d++ {
+					cCorrXLabels[d-1] = fmt.Sprintf("%d", d)
+					cCorrData[d-1] = distCorr[d]
+				}
+
+				linePanel := projector.ChartPanel(
+					cCorrXLabels,
+					[]projector.MPSeries{
+						{Name: "C(d)", Kind: "line", Data: cCorrData, Color: "#3b82f6", Area: true},
+					},
+					projector.F64(-0.15), projector.F64(0.20),
+				)
+				linePanel.GridLeft = "60%"
+				linePanel.GridRight = "5%"
+				linePanel.GridTop = "8%"
+				linePanel.GridBottom = "10%"
+				linePanel.XAxisName = "Index Distance d"
+				linePanel.YAxisName = "C(d)"
+				linePanel.Title = "C(d) = Mean Correlation vs Index Distance"
+				linePanel.XInterval = 50
+
+				f, _ := os.Create(filepath.Join(PaperDir(), "phase_coherence.tex"))
+				err := WriteMultiPanel(
+					[]projector.MPPanel{heatPanel, linePanel},
+					1200, 800,
+					"Phase Coherence Analysis",
+					"(Left) Phase correlation matrix corr(i,j) averaged into 8-dim blocks. (Right) C(d) for all d=1..511 — negative short-range repulsion, positive long-range attraction, large boundary spike near d=511.",
+					"fig:phase_coherence", "phase_coherence", f)
 				So(err, ShouldBeNil)
 				if f != nil {
 					f.Close()
-				}
-
-				// Line chart: C(d) for d=1..64
-				xAxis := make([]string, 64)
-				cData := make([]float64, 64)
-				for d := 1; d <= 64; d++ {
-					xAxis[d-1] = fmt.Sprintf("%d", d)
-					cData[d-1] = distCorr[d]
-				}
-				lSeries := []projector.LineSeries{
-					{Name: "C(d)", Data: cData},
-				}
-				f2, _ := os.Create(filepath.Join(PaperDir(), "phase_coherence_dist_corr.tex"))
-				err2 := WriteLineChart(xAxis, lSeries,
-					"Distance-Dependent Phase Correlation C(d)",
-					"Mean phase correlation at index distance d. Negative for d<13 (repulsion), positive for d>13 (attraction). Zero crossing at d≈13 defines the characteristic correlation length.",
-					"fig:phase_coherence_dist_corr", "phase_coherence_dist_corr",
-					-0.02, 0.02, f2)
-				So(err2, ShouldBeNil)
-				if f2 != nil {
-					f2.Close()
 				}
 
 				tablePath := filepath.Join(PaperDir(), "phase_coherence_dist_bands.tex")

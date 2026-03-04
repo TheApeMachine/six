@@ -166,12 +166,18 @@ func TestSeqToroidalMeanPhase(t *testing.T) {
 	Convey("Given a populated EigenMode toroidal phase sequence", t, func() {
 		ei := NewEigenMode()
 
-		chordA := tokenizer.BaseChord('a')
-		chordB := tokenizer.BaseChord('b')
-		chordC := tokenizer.BaseChord('c')
+		// chordA and chordB must map to different ChordBins ('a'/'b' collide)
+		chordA := tokenizer.BaseChord(0)
 		binA := data.ChordBin(&chordA)
+		var chordB data.Chord
+		for b := 1; b < 256; b++ {
+			c := tokenizer.BaseChord(byte(b))
+			if data.ChordBin(&c) != binA {
+				chordB = c
+				break
+			}
+		}
 		binB := data.ChordBin(&chordB)
-		binC := data.ChordBin(&chordC)
 
 		ei.PhaseTheta[binA] = 0.0
 		ei.PhaseTheta[binB] = math.Pi / 2.0 // pointing UP (sin=1, cos=0)
@@ -191,9 +197,8 @@ func TestSeqToroidalMeanPhase(t *testing.T) {
 		})
 
 		Convey("When calculating mean of same-chord elements", func() {
-			ei.PhaseTheta[binC] = math.Pi / 2
-			ei.PhasePhi[binC] = math.Pi
-			meanTheta, meanPhi := ei.SeqToroidalMeanPhase([]data.Chord{chordC, chordC})
+			// chordB already has theta=π/2, phi=π
+			meanTheta, meanPhi := ei.SeqToroidalMeanPhase([]data.Chord{chordB, chordB})
 			So(meanTheta, ShouldAlmostEqual, math.Pi/2, 0.0001)
 			So(meanPhi, ShouldAlmostEqual, math.Pi, 0.0001)
 		})

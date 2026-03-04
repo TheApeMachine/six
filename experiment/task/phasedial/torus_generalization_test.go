@@ -270,12 +270,23 @@ func TestTorusGeneralization(t *testing.T) {
 			})
 
 			Convey("Artifacts should be written to the paper directory", func() {
-				// Group by seed: one bar per seed showing gain per split
+				// Combo chart: per-seed bars + 1D ceiling dashed line (matching original figure)
 				xAxis := make([]string, len(allSeeds[0].Splits))
 				for i, sp := range allSeeds[0].Splits {
 					xAxis[i] = sp.SplitName
 				}
-				var barSeries []projector.BarSeries
+				// Compute mean ceiling across seeds (ceiling is per-seed, use max)
+				ceilingData := make([]float64, len(allSeeds[0].Splits))
+				for i := range ceilingData {
+					maxCeiling := 0.0
+					for _, s := range allSeeds {
+						if s.Splits[i].SingleCeiling > maxCeiling {
+							maxCeiling = s.Splits[i].SingleCeiling
+						}
+					}
+					ceilingData[i] = maxCeiling
+				}
+				var comboSeries []projector.ComboSeries
 				for _, s := range allSeeds {
 					gainData := make([]float64, len(s.Splits))
 					for i, sp := range s.Splits {
@@ -285,13 +296,20 @@ func TestTorusGeneralization(t *testing.T) {
 					if len(label) > 20 {
 						label = label[:20] + "…"
 					}
-					barSeries = append(barSeries, projector.BarSeries{Name: label, Data: gainData})
+					comboSeries = append(comboSeries, projector.ComboSeries{
+						Name: label, Type: "bar", BarWidth: "12%", Data: gainData,
+					})
 				}
-				f, _ := os.Create(filepath.Join(PaperDir(), "torus_generalization_bar.tex"))
-				err := WriteBarChart(xAxis, barSeries,
+				comboSeries = append(comboSeries, projector.ComboSeries{
+					Name: "1D Ceiling", Type: "dashed", Symbol: "circle", Data: ceilingData,
+				})
+				f, _ := os.Create(filepath.Join(PaperDir(), "torus_generalization.tex"))
+				err := WriteComboChart(xAxis, comboSeries,
+					"Split Configuration", "Best Gain",
+					0, 0.25,
 					"Torus Generalization: Gain by Split and Seed Query",
-					"Best torus gain for each split configuration across three seed queries. Bars exceeding the 1D ceiling demonstrate super-additive composition.",
-					"fig:torus_generalization_bar", "torus_generalization_bar", f)
+					"Best torus gain for each split configuration across three seed queries. Bars exceeding the dashed 1D ceiling demonstrate super-additive composition.",
+					"fig:torus_generalization", "torus_generalization", f)
 				So(err, ShouldBeNil)
 				if f != nil {
 					f.Close()

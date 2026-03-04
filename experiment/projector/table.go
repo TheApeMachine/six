@@ -35,19 +35,27 @@ func (table *Table) Generate() error {
 		return err
 	}
 
-	var headers []string
+	var rawHeaders []string     // used for map key lookup
+	var displayHeaders []string // LaTeX-safe, used in the rendered table header
 	if len(table.data) > 0 {
 		for k := range table.data[0] {
-			headers = append(headers, k)
+			rawHeaders = append(rawHeaders, k)
 		}
-		sort.Strings(headers)
+		sort.Strings(rawHeaders)
+		for _, k := range rawHeaders {
+			displayHeaders = append(displayHeaders, LaTeXEscape(k))
+		}
 	}
 
 	var rows [][]any
 	for _, rowMap := range table.data {
 		var row []any
-		for _, h := range headers {
-			row = append(row, rowMap[h])
+		for _, h := range rawHeaders {
+			v := rowMap[h]
+			if s, ok := v.(string); ok {
+				v = LaTeXEscape(s)
+			}
+			row = append(row, v)
 		}
 		rows = append(rows, row)
 	}
@@ -56,7 +64,7 @@ func (table *Table) Generate() error {
 		Headers []string
 		Rows    [][]any
 	}{
-		Headers: headers,
+		Headers: displayHeaders,
 		Rows:    rows,
 	}
 

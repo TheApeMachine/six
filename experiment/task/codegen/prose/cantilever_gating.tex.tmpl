@@ -1,0 +1,11 @@
+\subsection{Cantilever-Gated Span Retrieval}
+We compared control (no gating) and cantilever-gated arms across five prompts.
+Control produced a mean of {{.ControlMeanTokens | f2}} tokens; gated produced {{.GatedMeanTokens | f2}}.
+Gating reduced bridge count ({{.ControlBridges}} vs {{.GatedBridges}}) and modulated return/loop coverage.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{cantilever_gating.pdf}
+    \caption{Tokens generated per prompt: control vs cantilever-gated retrieval.}
+    \label{fig:cantilever_gating}
+\end{figure}
