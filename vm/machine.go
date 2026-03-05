@@ -72,7 +72,7 @@ Prompt simply clamps the input, executes a parallel GPU BestFill over all Fibona
 planes simultaneously, checks Eigenmode Intent alignment, and loops until
 the structure collapses or hits an end-token.
 */
-func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
+func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *data.MultiChord) chan SpanResult {
 	out := make(chan SpanResult)
 
 	go func() {
@@ -100,6 +100,16 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 			}{currentIdx, machine.primefield.Mask(currentIdx)})
 		}
 
+
+		// We accumulate the context into a single window.
+		// As per BITWISE.md, we scan backwards from the end of the prompt until we hit a space boundary
+		// or up to a max window size (21, max Fibonacci block size)
+		window := 21
+		start := len(prompt) - window
+		if start < 0 {
+			start = 0
+		}
+		
 		for {
 			// Build current active context MultiChord directly matching GPU topology
 			var activeCtx data.MultiChord
@@ -107,13 +117,21 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 			for i := range numeric.FibWindows {
 				var agg data.Chord
 				
-				for _, c := range prompt {
+				for _, c := range prompt[start:] {
 					for j := range agg {
-						agg[j] = c[j]
+						agg[j] |= c[j] // Bitwise OR to accumulate semantic features
 					}
 				}
 				
 				activeCtx[i] = agg
+			}
+
+			// Prepare ExpectedReality pointer
+			var expectedPtr unsafe.Pointer
+			if expectedReality != nil {
+				expectedPtr = unsafe.Pointer(expectedReality)
+			} else {
+				expectedPtr = unsafe.Pointer(&activeCtx) // Fallback to normal context matching
 			}
 
 			// GPU Bitwise Search (all 5 spatial planes instantly!)
@@ -121,6 +139,7 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 				machine.primefield.Field(),
 				machine.primefield.N,
 				unsafe.Pointer(&activeCtx),
+				expectedPtr,
 				currentIdx,
 			)
 
@@ -139,7 +158,7 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 			// Mask the found index — zero it in the PrimeField so the 
 			// GPU can't re-find it. Store original for deferred unmask.
 			for i := range prompt {
-				original := machine.primefield.Mask(bestIdx)
+				original := machine.primefield.Mask(bestIdx + i)
 
 				masked = append(masked, struct {
 					idx   int
@@ -147,11 +166,46 @@ func (machine *Machine) Prompt(prompt []data.Chord) chan SpanResult {
 				}{bestIdx+i, original})
 			}
 
-			out <- SpanResult{
-				Index: bestIdx,
-				Score: score,
-				Chord: found,
+			// We only care about the first layer [0] for immediate sequence tokenization
+			foundChord := found[0]
+			activeChord := activeCtx[0]
+			
+			// If our current prompt perfectly overlaps the bedrock chord, it means 
+			// the wave completely canceled out (0 entropy hole). To continue the generation,
+			// we must step the read head forward by 1 index to grab the "next" token!
+			missingChord := data.ChordHole(&foundChord, &activeChord)
+			
+			if missingChord.ActiveCount() == 0 {
+				// Perfect match up to this point! The missing piece is literally the NEXT token
+				// inside the found bedrock geometry. So we advance the index.
+				if bestIdx+len(prompt) < machine.primefield.N {
+					nextChord := machine.primefield.MultiChord(bestIdx + len(prompt))
+					missingChord = nextChord[0]
+				}
 			}
+
+			// The GPU found a topological match (`bestIdx`) for our prompt.
+			// Because `bestIdx` points to the *start* of where our active context matched in the 
+			// PrimeField historical store, we must advance exactly `len(prompt)` tokens 
+			// forward to retrieve the NEW characters that exist AFTER the prompt sequence.
+			startIndex := bestIdx
+			if missingChord.ActiveCount() == 0 {
+				startIndex = bestIdx + len(prompt)
+			}
+			for offset := 0; offset < 10 && startIndex+offset < machine.primefield.N; offset++ {
+				rawChord := machine.primefield.MultiChord(startIndex + offset)[0]
+				var singleChord data.MultiChord
+				singleChord[0] = rawChord // We package it in the format the decoder expects
+
+				out <- SpanResult{
+					Index: startIndex + offset,
+					Score: score,
+					Chord: singleChord,
+				}
+			}
+			
+			// We only want the sequence corresponding to the very first prompt completion chunk.
+			break
 		}
 	}()
 

@@ -70,7 +70,7 @@ func TestCantileverGating(t *testing.T) {
 					maxLimit = 32 // Hard restrict cantilever search boundary
 				}
 				
-				for res := range machine.Prompt(promptChords) {
+				for res := range machine.Prompt(promptChords, nil) {
 					if limit > maxLimit {
 						break
 					}

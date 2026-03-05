@@ -68,7 +68,7 @@ func TestCompositionalGeneration(t *testing.T) {
 				
 				// Step the actual chord-based machine to generate raw phase sequence
 				limit := 0
-				for res := range machine.Prompt(promptChords) {
+				for res := range machine.Prompt(promptChords, nil) {
 					if limit > 64 {
 						break
 					}

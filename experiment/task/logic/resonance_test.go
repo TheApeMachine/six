@@ -94,7 +94,7 @@ func TestTransitiveResonance(t *testing.T) {
 					if chord.ActiveCount() == 0 {
 						// Null chord (Boundary holdout marker reached) -> Ask Machine to Prompt
 						resCount := 0
-						for res := range machine.Prompt(buf) {
+						for res := range machine.Prompt(buf, nil) {
 							// For test stability, we just ensure it generated valid spatial completions
 							So(res.Score, ShouldBeGreaterThanOrEqualTo, 0.0)
 							resCount++

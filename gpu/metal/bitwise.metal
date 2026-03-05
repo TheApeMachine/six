@@ -17,15 +17,19 @@ kernel void bitwise_best_fill(
     device atomic_ulong* best_packed_result [[buffer(2)]],
     constant uint& num_chords [[buffer(3)]],
     constant uint& target_id [[buffer(4)]],
+    constant MultiChord* expected_reality [[buffer(5)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= num_chords) return;
 
-    uint match_count = 0;
-    uint noise_count = 0;
-
     MultiChord candidate = dictionary[id];
     MultiChord ctx = active_context[0];
+    MultiChord expected = expected_reality[0];
+
+    uint ctx_match_count = 0;
+    uint ctx_noise_count = 0;
+    uint exp_match_count = 0;
+    uint exp_noise_count = 0;
 
 #pragma unroll
     for (int p = 0; p < 5; p++) {
@@ -33,16 +37,27 @@ kernel void bitwise_best_fill(
         for (int i = 0; i < 8; i++) {
             uint64_t c_bits = candidate.chords[p].bits[i];
             uint64_t a_bits = ctx.chords[p].bits[i];
-            match_count += popcount(c_bits & a_bits);
-            noise_count += popcount(c_bits & ~a_bits);
+            uint64_t e_bits = expected.chords[p].bits[i];
+
+            ctx_match_count += popcount(c_bits & a_bits);
+            ctx_noise_count += popcount(c_bits & ~a_bits);
+            
+            exp_match_count += popcount(c_bits & e_bits);
+            exp_noise_count += popcount(c_bits & ~e_bits);
         }
     }
 
-    float resonance = (float)match_count / (float)(match_count + noise_count + 1);
-
-    // Score maps to 4,000,000 (~22 bits)
-    const float SCORE_SCALE = 4000000.0f;
-    uint score_fixed = (uint)(resonance * SCORE_SCALE);
+    uint ctx_total = ctx_match_count + ctx_noise_count + 1;
+    uint exp_total = exp_match_count + exp_noise_count + 1;
+    
+    // Scale directly using integer math (maps to 4,000,000 ~22 bits)
+    uint SCORE_SCALE = 4000000;
+    
+    uint ctx_score = (ctx_match_count * SCORE_SCALE) / ctx_total;
+    uint exp_score = (exp_match_count * SCORE_SCALE) / exp_total;
+    
+    // Blend context and expected resonance using purely integer arithmetic
+    uint score_fixed = (ctx_score + exp_score) / 2;
 
     // Distance acts as tie-breaker (16 bits)
     uint distance = (uint)abs((int)id - (int)target_id);

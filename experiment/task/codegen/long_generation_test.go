@@ -71,7 +71,7 @@ func TestLongGeneration(t *testing.T) {
 				
 				// Step the actual chord-based machine to generate raw phase sequence
 				limit := 0
-				for res := range machine.Prompt(promptChords) {
+				for res := range machine.Prompt(promptChords, nil) {
 					// We let it run longer for long_generation
 					if limit > 200 { 
 						break

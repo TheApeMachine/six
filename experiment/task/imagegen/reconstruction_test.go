@@ -51,7 +51,7 @@ func TestReconstruction(t *testing.T) {
 				if chord.ActiveCount() == 0 {
 					var tokenIDs []uint64
 
-					for res := range machine.Prompt(buf) {
+					for res := range machine.Prompt(buf, nil) {
 						tokenIDs = append(tokenIDs, loader.Lookup([]data.Chord{res.Chord[0]})...)
 					}
 

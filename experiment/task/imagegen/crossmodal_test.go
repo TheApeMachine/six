@@ -141,7 +141,7 @@ func TestCrossModalRetrieval(t *testing.T) {
 			}
 
 			bestIdx, bestScore, err := metal.BestFill(
-				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), 0,
+				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
 			)
 
 			Convey("Then BestFill identifies the correct letter", func() {
@@ -216,7 +216,7 @@ func TestCrossModalRetrieval(t *testing.T) {
 				}
 
 				bestIdx, _, _ := metal.BestFill(
-					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), 0,
+					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
 				)
 
 				fmt.Printf("%-8s", queryName)

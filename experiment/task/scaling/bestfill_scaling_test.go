@@ -79,7 +79,7 @@ func benchBestFill(b *testing.B, corpusSize int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), 0)
+		metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), nil, 0)
 	}
 }
 
@@ -121,7 +121,7 @@ func TestBestFillO1Scaling(t *testing.T) {
 
 				// Warm up GPU pipeline
 				for i := 0; i < 5; i++ {
-					metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), 0)
+					metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), nil, 0)
 				}
 
 				// Timed runs
@@ -131,7 +131,7 @@ func TestBestFillO1Scaling(t *testing.T) {
 
 				for i := 0; i < iterations; i++ {
 					start := time.Now()
-					idx, score, _ := metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), 0)
+					idx, score, _ := metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), nil, 0)
 					latencies[i] = time.Since(start).Nanoseconds()
 					lastIdx = idx
 					lastScore = score

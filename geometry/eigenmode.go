@@ -1,13 +1,13 @@
 package geometry
 
 import (
-	"fmt"
 	"math"
 	"math/cmplx"
 	"sort"
 
 	"gonum.org/v1/gonum/mat"
 
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/numeric"
 )
@@ -153,22 +153,32 @@ func (ei *EigenMode) buildChordCooccurrenceInto(C *[256][256]float64, chords []d
 	}
 }
 
-func (ei *EigenMode) toroidalEigenvectors(C *[256][256]float64) (vT1, vT2, vP1, vP2 [256]float64, err error) {
+func (ei *EigenMode) toroidalEigenvectors(
+	C *[256][256]float64,
+) (vT1, vT2, vP1, vP2 [256]float64, err error) {
 	data := make([]float64, 256*256)
+
 	for i := range 256 {
 		for j := range 256 {
 			data[i*256+j] = C[i][j]
 		}
 	}
+
 	dense := mat.NewDense(256, 256, data)
 
 	var eig mat.Eigen
+
 	if !eig.Factorize(dense, mat.EigenRight) {
-		return vT1, vT2, vP1, vP2, fmt.Errorf("eigenmode: eig.Factorize failed on %dx%d matrix", 256, 256)
+		return vT1, vT2, vP1, vP2, console.Error(
+			EigenErrorFactorizeFailed,
+			"x", 256,
+			"y", 256,
+		)
 	}
 
 	values := eig.Values(nil)
 	indices := make([]int, 256)
+
 	for i := range 256 {
 		indices[i] = i
 	}
@@ -240,6 +250,7 @@ Chord-native: uses ChordBin to look up phases—no raw bytes.
 */
 func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float64) {
 	n := len(chords)
+
 	if n == 0 {
 		return 0, 0
 	}
@@ -311,4 +322,14 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 	}
 	
 	return phaseDiff < 0.45
+}
+
+type EigenError string
+
+const (
+	EigenErrorFactorizeFailed EigenError = "eig.Factorize failed"
+)
+
+func (err EigenError) Error() string {
+	return string(err)
 }

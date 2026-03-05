@@ -120,7 +120,7 @@ func TestContradictionResolution(t *testing.T) {
 				}
 
 				bestGPUIdx, bestGPUScore, err := metal.BestFill(
-					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), 0,
+					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
 				)
 
 				So(err, ShouldBeNil)

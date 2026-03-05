@@ -70,7 +70,7 @@ func TestRelativeCantilever(t *testing.T) {
 					maxLimit = 16 // Hard restrict relative cantilever ratio boundary
 				}
 				
-				for res := range machine.Prompt(promptChords) {
+				for res := range machine.Prompt(promptChords, nil) {
 					if limit > maxLimit {
 						break
 					}

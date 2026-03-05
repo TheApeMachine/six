@@ -71,7 +71,7 @@ func TestPhaseBridging(t *testing.T) {
 				bridgeCount := 0
 				var prevPhase float64
 
-				for res := range machine.Prompt(promptChords) {
+				for res := range machine.Prompt(promptChords, nil) {
 					if limit > 64 {
 						break
 					}

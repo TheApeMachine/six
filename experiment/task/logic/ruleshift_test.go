@@ -68,11 +68,11 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			}
 
 			// Warm up
-			metal.BestFill(pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), 0)
+			metal.BestFill(pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0)
 
 			start1 := time.Now()
 			bestIdx1, score1, err := metal.BestFill(
-				pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), 0,
+				pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0,
 			)
 			latency1 := time.Since(start1)
 
@@ -95,11 +95,11 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			pf2.Insert(ruleAE)
 
 			// Warm up
-			metal.BestFill(pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), 0)
+			metal.BestFill(pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0)
 
 			start2 := time.Now()
 			bestIdx2, score2, err := metal.BestFill(
-				pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), 0,
+				pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0,
 			)
 			latency2 := time.Since(start2)
 

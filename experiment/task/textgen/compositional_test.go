@@ -126,7 +126,7 @@ func TestCompositionalCompletion(t *testing.T) {
 			}
 
 			bestIdx, bestScore, err := metal.BestFill(
-				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), 0,
+				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
 			)
 
 			Convey("Then the GPU finds a high-resonance match", func() {

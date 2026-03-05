@@ -78,7 +78,7 @@ func (pipeline *Pipeline) processPrompt(prompt []data.Chord, originalImage []byt
 
 	var generatedChords []data.Chord
 
-	for res := range pipeline.machine.Prompt(prompt) {
+	for res := range pipeline.machine.Prompt(prompt, nil) {
 		if len(prompt)+len(generatedChords) >= len(originalImage) {
 			break
 		}

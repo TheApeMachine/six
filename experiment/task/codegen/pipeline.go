@@ -60,7 +60,7 @@ func (pipeline *Pipeline) Run() {
 	console.Info(fmt.Sprintf("--- Prompt length: %d chords ---", len(prompt)))
 
 	count := 0
-	for res := range pipeline.machine.Prompt(prompt) {
+	for res := range pipeline.machine.Prompt(prompt, nil) {
 		if count > 100 {
 			break
 		}
