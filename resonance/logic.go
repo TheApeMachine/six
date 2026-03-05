@@ -1,6 +1,8 @@
 package resonance
 
 import (
+	"math/bits"
+
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/numeric"
 )
@@ -84,10 +86,5 @@ func TransitiveResonance(f1, f2, f3 *data.Chord) data.Chord {
 popcount counts the number of 1-bits in a uint64
 */
 func popcount(x uint64) (count int) {
-	for x != 0 {
-		x &= x - 1
-		count++
-	}
-
-	return count
+	return bits.OnesCount64(x)
 }

@@ -40,7 +40,26 @@ func NewBarChart(opts ...barChartOpts) *BarChart {
 
 func (chart *BarChart) SetOutput(out io.Writer) { chart.out = out }
 
-func (chart *BarChart) Generate() error {
+func (chart *BarChart) RenderHTML(w io.Writer) error {
+	xData, _ := json.Marshal(chart.xAxisData)
+	sData, _ := json.Marshal(chart.series)
+	script := execTemplate(barchartScriptTmpl, struct {
+		XAxisDataJSON string
+		SeriesJSON    string
+	}{string(xData), string(sData)})
+	html, err := renderChartHTML(chart.title, 1200, 600, script)
+	if err != nil {
+		return err
+	}
+	_, err = w.Write([]byte(html))
+	return err
+}
+
+func (chart *BarChart) RenderLaTeX(w io.Writer) error {
+	return emitFigure(chart.filename, chart.caption, chart.label, w)
+}
+
+func (chart *BarChart) GenerateToDisk() error {
 	xData, _ := json.Marshal(chart.xAxisData)
 	sData, _ := json.Marshal(chart.series)
 	script := execTemplate(barchartScriptTmpl, struct {
@@ -54,7 +73,7 @@ func (chart *BarChart) Generate() error {
 	if err := renderAndExport(html, chart.outDir, chart.filename); err != nil {
 		return err
 	}
-	return emitFigure(chart.filename, chart.caption, chart.label, chart.out)
+	return chart.RenderLaTeX(chart.out)
 }
 
 func BarChartWithAxes(xAxis []string, series []BarSeries) barChartOpts {

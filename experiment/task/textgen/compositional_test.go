@@ -7,7 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/gpu/metal"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/resonance"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -120,13 +120,13 @@ func TestCompositionalCompletion(t *testing.T) {
 			}
 
 			queryChord := sentenceChord("the quick red")
-			var queryCtx data.MultiChord
-			for plane := 0; plane < 5; plane++ {
-				queryCtx[plane] = queryChord
+			var queryCtx geometry.IcosahedralManifold
+			for i := 0; i < 8; i++ {
+				queryCtx.Cubes[0][0][i] = queryChord[i]
 			}
 
-			bestIdx, bestScore, err := metal.BestFill(
-				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
+			bestIdx, bestScore, err := kernel.BestFill(
+				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 			)
 
 			Convey("Then the GPU finds a high-resonance match", func() {
@@ -149,8 +149,8 @@ func TestCompositionalCompletion(t *testing.T) {
 				// is best-filled by the CORRECT completing word.
 				// So we verify the structural hole analysis works regardless of which
 				// sentence the GPU picked.
-				matchedChord := pf.MultiChord(bestIdx)
-				hole := data.ChordHole(&matchedChord[0], &queryChord)
+				matchedChord := pf.Manifold(bestIdx)
+				hole := data.ChordHole(&matchedChord.Cubes[0][0], &queryChord)
 
 				carChord := wordChords["car"]
 				foxChord := wordChords["fox"]

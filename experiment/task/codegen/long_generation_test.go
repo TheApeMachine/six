@@ -77,7 +77,7 @@ func TestLongGeneration(t *testing.T) {
 						break
 					}
 					// Only chords exist in the generation stream
-					generatedChords = append(generatedChords, res.Chord[0])
+					generatedChords = append(generatedChords, res.Chord.Cubes[0][0])
 					limit++
 				}
 

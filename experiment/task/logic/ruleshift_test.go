@@ -6,6 +6,8 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/theapemachine/six/geometry"
+
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/gpu/metal"
@@ -62,17 +64,17 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			pf1 := store.NewPrimeField()
 			pf1.Insert(ruleAB)
 
-			var queryCtx data.MultiChord
-			for plane := 0; plane < 5; plane++ {
-				queryCtx[plane] = A
+			var queryCtx geometry.IcosahedralManifold
+			for i := 0; i < 8; i++ {
+				queryCtx.Cubes[0][0][i] = A[i]
 			}
 
 			// Warm up
-			metal.BestFill(pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0)
+			metal.BestFill(pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
 
 			start1 := time.Now()
 			bestIdx1, score1, err := metal.BestFill(
-				pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0,
+				pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 			)
 			latency1 := time.Since(start1)
 
@@ -80,9 +82,9 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			So(score1, ShouldBeGreaterThan, 0.0)
 
 			// Verify the winner contains B's primes
-			winner1 := pf1.MultiChord(bestIdx1)
+			winner1 := pf1.Manifold(bestIdx1)
 			for _, p := range []int{100, 101, 102, 103, 104} {
-				So(winner1[0].Has(p), ShouldBeTrue)
+				So(winner1.Cubes[0][0].Has(p), ShouldBeTrue)
 			}
 
 			fmt.Printf("\n--- Rule-Shift Adaptation (GPU) ---\n")
@@ -95,11 +97,11 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			pf2.Insert(ruleAE)
 
 			// Warm up
-			metal.BestFill(pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0)
+			metal.BestFill(pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
 
 			start2 := time.Now()
 			bestIdx2, score2, err := metal.BestFill(
-				pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0,
+				pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 			)
 			latency2 := time.Since(start2)
 
@@ -107,12 +109,12 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			So(score2, ShouldBeGreaterThan, 0.0)
 
 			// Verify the winner contains E's primes and NOT B's primes
-			winner2 := pf2.MultiChord(bestIdx2)
+			winner2 := pf2.Manifold(bestIdx2)
 			for _, p := range []int{200, 201, 202, 203, 204} {
-				So(winner2[0].Has(p), ShouldBeTrue)
+				So(winner2.Cubes[0][0].Has(p), ShouldBeTrue)
 			}
 			for _, p := range []int{100, 101, 102, 103, 104} {
-				So(winner2[0].Has(p), ShouldBeFalse)
+				So(winner2.Cubes[0][0].Has(p), ShouldBeFalse)
 			}
 
 			fmt.Printf("Phase 2: Query A → idx=%d (contains E-primes, no B-primes), score=%.4f, latency=%s\n",

@@ -79,10 +79,10 @@ func (pipeline *Pipeline) processPrompt(prompt []data.Chord, originalImage []byt
 	var generatedChords []data.Chord
 
 	for res := range pipeline.machine.Prompt(prompt, nil) {
-		if len(prompt)+len(generatedChords) >= len(originalImage) {
+		generatedChords = append(generatedChords, res.Chord.Cubes[0][0])
+		if len(generatedChords) >= 5 {
 			break
 		}
-		generatedChords = append(generatedChords, res.Chord[0])
 	}
 
 	return ReconstructionResult{

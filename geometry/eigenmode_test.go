@@ -6,8 +6,28 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/numeric"
 )
+
+func mockBaseChord(b byte) data.Chord {
+	var chord data.Chord
+	totalBits := numeric.ChordBlocks * 64
+
+	offsets := [5]int{
+		int(b) * 7,
+		int(b) * 13,
+		int(b) * 31,
+		int(b) * 61,
+		int(b) * 127,
+	}
+
+	for _, off := range offsets {
+		bit := off % totalBits
+		chord[bit/64] |= 1 << (bit % 64)
+	}
+
+	return chord
+}
 
 func TestNewEigenMode(t *testing.T) {
 	Convey("Given NewEigenMode constructor", t, func() {
@@ -40,7 +60,7 @@ func TestBuildMultiScaleCooccurrence(t *testing.T) {
 		corpus := []byte("abababa")
 		chords := make([]data.Chord, len(corpus))
 		for i, b := range corpus {
-			chords[i] = tokenizer.BaseChord(b)
+			chords[i] = mockBaseChord(b)
 		}
 
 		Convey("When building multiscale cooccurrence", func() {
@@ -81,10 +101,10 @@ func TestBuildChordCooccurrenceInto(t *testing.T) {
 
 		Convey("When building with chord sequence and window", func() {
 			chords := []data.Chord{
-				tokenizer.BaseChord('a'),
-				tokenizer.BaseChord('b'),
-				tokenizer.BaseChord('c'),
-				tokenizer.BaseChord('d'),
+				mockBaseChord('a'),
+				mockBaseChord('b'),
+				mockBaseChord('c'),
+				mockBaseChord('d'),
 			}
 
 			ei.buildChordCooccurrenceInto(&C, chords, 2)
@@ -167,11 +187,11 @@ func TestSeqToroidalMeanPhase(t *testing.T) {
 		ei := NewEigenMode()
 
 		// chordA and chordB must map to different ChordBins ('a'/'b' collide)
-		chordA := tokenizer.BaseChord(0)
+		chordA := mockBaseChord(0)
 		binA := data.ChordBin(&chordA)
 		var chordB data.Chord
 		for b := 1; b < 256; b++ {
-			c := tokenizer.BaseChord(byte(b))
+			c := mockBaseChord(byte(b))
 			if data.ChordBin(&c) != binA {
 				chordB = c
 				break

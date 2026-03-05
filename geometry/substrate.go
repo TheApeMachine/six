@@ -6,10 +6,8 @@ import (
 	"math/cmplx"
 	"sort"
 	"strings"
-	"unsafe"
 
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/gpu/metal"
 	"github.com/theapemachine/six/numeric"
 )
 
@@ -269,23 +267,3 @@ type GeodesicStep struct {
 	Ranked      []CandidateScore
 }
 
-/*
-FastGPUFilter provides an example of utilizing the existing Metal BestFill
-capability as a fast path for exact 1-nearest-neighbor.
-Since current Metal compute only gives the very best result, this acts
-as a bridging utility.
-*/
-func (hs *HybridSubstrate) FastGPUFilter(contextFilter data.Chord) (int, float64, error) {
-	if len(hs.Entries) == 0 {
-		return 0, 0, nil
-	}
-
-	// We need to pack the filters contiguously to send to the GPU.
-	// Since SubstrateEntry has extra fields, we construct a flat array of just Chords.
-	dictionary := make([]data.Chord, len(hs.Entries))
-	for i, entry := range hs.Entries {
-		dictionary[i] = entry.Filter
-	}
-
-	return metal.BestFill(unsafe.Pointer(&dictionary[0]), len(dictionary), unsafe.Pointer(&contextFilter), nil, 0)
-}

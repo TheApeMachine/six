@@ -76,10 +76,10 @@ func TestPhaseBridging(t *testing.T) {
 						break
 					}
 					// Only chords exist in the generation stream
-					generatedChords = append(generatedChords, res.Chord[0])
+					generatedChords = append(generatedChords, res.Chord.Cubes[0][0])
 
 					// Reconstruct phase topology dynamically during generation stream
-					currTheta, _ := eigen.PhaseForChord(&res.Chord[0])
+					currTheta, _ := eigen.PhaseForChord(&res.Chord.Cubes[0][0])
 					phaseDiff := currTheta - prevPhase
 					phaseDeriv := math.Abs(math.Atan2(math.Sin(phaseDiff), math.Cos(phaseDiff)))
 					

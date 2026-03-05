@@ -42,10 +42,10 @@ func (result Result[T]) Map(fn func(T) T) Result[T] {
 }
 
 /*
-Map applies a function to the value in a Result, returning a new Result 
-with the result of the function. Monadic chaining.
+FlatMap applies a function to the value in a Result, returning a new Result 
+with the result of the function. Monadic chaining for functions that can fail.
 */
-func Map[T, U any](result Result[T], fn func(T) (U, error)) Result[U] {
+func FlatMap[T, U any](result Result[T], fn func(T) (U, error)) Result[U] {
 	if result.err != nil {
 		return Fail[U](result.err)
 	}

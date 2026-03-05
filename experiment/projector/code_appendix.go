@@ -58,12 +58,7 @@ func (p *CodeAppendix) Generate() error {
 	}
 
 	for i := range p.sections {
-		p.sections[i].Label = strings.Map(func(r rune) rune {
-			if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
-				return r
-			}
-			return '_'
-		}, strings.ToLower(p.sections[i].Prompt))
+		p.sections[i].Label = sanitizeLabel(p.sections[i].Prompt)
 	}
 
 	templateData := struct {
@@ -96,4 +91,13 @@ func WriteCodeAppendix(sections []CodeSection, outDir, filename string) error {
 		CodeAppendixWithOutput(f),
 	)
 	return ca.Generate()
+}
+
+func sanitizeLabel(prompt string) string {
+	return strings.Map(func(r rune) rune {
+		if r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' {
+			return r
+		}
+		return '_'
+	}, strings.ToLower(prompt))
 }

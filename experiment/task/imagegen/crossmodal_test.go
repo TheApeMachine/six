@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/gpu/metal"
 	"github.com/theapemachine/six/store"
 )
@@ -135,13 +136,13 @@ func TestCrossModalRetrieval(t *testing.T) {
 			// Partial prompt: top 3 rows of "A"
 			promptChord := partialImageChord(binaryImages["A"], 3)
 
-			var queryCtx data.MultiChord
-			for plane := 0; plane < 5; plane++ {
-				queryCtx[plane] = promptChord
+			var queryCtx geometry.IcosahedralManifold
+			for i := 0; i < 8; i++ {
+				queryCtx.Cubes[0][0][i] = promptChord[i]
 			}
 
 			bestIdx, bestScore, err := metal.BestFill(
-				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
+				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 			)
 
 			Convey("Then BestFill identifies the correct letter", func() {
@@ -155,11 +156,11 @@ func TestCrossModalRetrieval(t *testing.T) {
 					bestIdx, letters[bestIdx], bestScore)
 
 				// Calculate the hole (missing pixels)
-				fullChord := pf.MultiChord(bestIdx)
-				hole := data.ChordHole(&fullChord[0], &promptChord)
+				fullChord := pf.Manifold(bestIdx)
+				hole := data.ChordHole(&fullChord.Cubes[0][0], &promptChord)
 
 				fmt.Printf("\nReconstruction analysis:\n")
-				fmt.Printf("  Full image bits:   %d\n", fullChord[0].ActiveCount())
+				fmt.Printf("  Full image bits:   %d\n", fullChord.Cubes[0][0].ActiveCount())
 				fmt.Printf("  Prompt bits:       %d\n", promptChord.ActiveCount())
 				fmt.Printf("  Hole bits:         %d\n", hole.ActiveCount())
 
@@ -210,20 +211,20 @@ func TestCrossModalRetrieval(t *testing.T) {
 			for qi, queryName := range letters {
 				prompt := partialImageChord(binaryImages[queryName], 3)
 
-				var queryCtx data.MultiChord
-				for plane := 0; plane < 5; plane++ {
-					queryCtx[plane] = prompt
-				}
+				var queryCtx geometry.IcosahedralManifold
+				for i := 0; i < 8; i++ {
+				queryCtx.Cubes[0][0][i] = prompt[i]
+			}
 
 				bestIdx, _, _ := metal.BestFill(
-					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
+					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 				)
 
 				fmt.Printf("%-8s", queryName)
 
 				for ci := range letters {
-					candidate := pf.MultiChord(ci)
-					sim := data.ChordSimilarity(&prompt, &candidate[0])
+					candidate := pf.Manifold(ci)
+					sim := data.ChordSimilarity(&prompt, &candidate.Cubes[0][0])
 
 					marker := " "
 					if ci == bestIdx {

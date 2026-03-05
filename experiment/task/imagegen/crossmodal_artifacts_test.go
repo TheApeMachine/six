@@ -13,6 +13,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/gpu/metal"
 	"github.com/theapemachine/six/store"
 )
@@ -96,18 +97,18 @@ func TestCrossModalReconstructionArtifact(t *testing.T) {
 					}
 				}
 
-				var queryCtx data.MultiChord
-				for plane := 0; plane < 5; plane++ {
-					queryCtx[plane] = promptChord
-				}
+				var queryCtx geometry.IcosahedralManifold
+				for i := 0; i < 8; i++ {
+				queryCtx.Cubes[0][0][i] = promptChord[i]
+			}
 
 				bestIdx, _, err := metal.BestFill(
-					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0,
+					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 				)
 				So(err, ShouldBeNil)
 
-				fullChord := pf.MultiChord(bestIdx)
-				hole := data.ChordHole(&fullChord[0], &promptChord)
+				fullChord := pf.Manifold(bestIdx)
+				hole := data.ChordHole(&fullChord.Cubes[0][0], &promptChord)
 
 				// Render original
 				origB64 := gridToPNG(img, func(row, col int) color.RGBA {

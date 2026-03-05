@@ -12,4 +12,5 @@ type Store interface {
 	Insert(key uint64, value data.Chord)
 	Lookup(key uint64) data.Chord
 	ReverseLookup(chord data.Chord) uint64
+	SleepCycle(stopCh <-chan struct{})
 }

@@ -74,7 +74,7 @@ func TestCantileverGating(t *testing.T) {
 					if limit > maxLimit {
 						break
 					}
-					generatedChords = append(generatedChords, res.Chord[0])
+					generatedChords = append(generatedChords, res.Chord.Cubes[0][0])
 					limit++
 				}
 

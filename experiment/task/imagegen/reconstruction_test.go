@@ -52,7 +52,7 @@ func TestReconstruction(t *testing.T) {
 					var tokenIDs []uint64
 
 					for res := range machine.Prompt(buf, nil) {
-						tokenIDs = append(tokenIDs, loader.Lookup([]data.Chord{res.Chord[0]})...)
+						tokenIDs = append(tokenIDs, loader.Lookup([]data.Chord{res.Chord.Cubes[0][0]})...)
 					}
 
 					for _, tokenID := range tokenIDs {

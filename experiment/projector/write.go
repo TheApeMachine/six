@@ -29,7 +29,7 @@ func WriteBarChart(xAxis []string, series []BarSeries, title, caption, label, ou
 	if out != nil {
 		c.SetOutput(out)
 	}
-	return c.Generate()
+	return c.GenerateToDisk()
 }
 
 func WriteLineChart(xAxis []string, series []LineSeries, title, caption, label, outDir, filename string, yMin, yMax float64, out *os.File) error {

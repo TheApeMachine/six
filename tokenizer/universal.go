@@ -2,8 +2,10 @@ package tokenizer
 
 import (
 	"context"
+	"math"
 
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
 	"github.com/theapemachine/six/provider"
 )
@@ -73,38 +75,118 @@ func (tokenizer *Universal) Generate() chan Token {
 			)
 		}
 
-		// Slide FibWindows across each sample individually
+		// Adaptive Topological Chunking
 		for sampleID, corpus := range corpusBySample {
-			for scaleIndex, scale := range numeric.FibWindows {
-				if scale > len(corpus) {
+			if len(corpus) == 0 {
+				continue
+			}
+
+			eigen := geometry.NewEigenMode()
+			
+			var emaPop float64 = 0
+			var emaPhase float64 = 0
+			
+			pos := 0 // chunk sequence index
+			startIdx := 0
+			
+			for i := 0; i < len(corpus); i++ {
+				wStart := i - 2
+				if wStart < startIdx {
+					wStart = startIdx
+				}
+				
+				var windowChord data.Chord
+				for k := wStart; k <= i; k++ {
+					base := BaseChord(corpus[k])
+					for j := range numeric.ChordBlocks {
+						windowChord[j] |= base[j]
+					}
+				}
+				
+				pop := float64(windowChord.ActiveCount())
+				theta, phi := eigen.PhaseForChord(&windowChord)
+				phase := math.Sqrt(theta*theta + phi*phi)
+				
+				if i == startIdx {
+					emaPop = pop
+					emaPhase = phase
 					continue
 				}
-
-				for pos := 0; pos <= len(corpus)-scale; pos++ {
-					window := corpus[pos : pos+scale]
-
-					// Chord = OR of base chords for all bytes in the window
-					var chord data.Chord
-
-					for _, b := range window {
-						base := BaseChord(b)
+				
+				deltaPop := math.Abs(pop - emaPop)
+				deltaPhase := math.Abs(phase - emaPhase)
+				
+				emaPop = (emaPop * 0.8) + (pop * 0.2)
+				emaPhase = (emaPhase * 0.8) + (phase * 0.2)
+				
+				chunkLen := i - startIdx + 1
+				// Standard delimiters + natural phase boundaries
+				isDelimiter := corpus[i] == 0 || corpus[i] == '\n' || corpus[i] == ' ' || corpus[i] == '.'
+				
+				// Thresholds for natural topological boundaries
+				if chunkLen > 1 && (deltaPop > 3.0 || deltaPhase > math.Pi/8 || isDelimiter || chunkLen > 32) {
+					cutIdx := i
+					if isDelimiter {
+						cutIdx = i + 1
+					}
+					
+					var chunkChord data.Chord
+					for k := startIdx; k < cutIdx; k++ {
+						base := BaseChord(corpus[k])
 						for j := range numeric.ChordBlocks {
-							chord[j] |= base[j]
+							chunkChord[j] |= base[j]
 						}
 					}
+					
+					scale := cutIdx - startIdx
+					zDepth := uint8(scale)
+					if scale > 255 {
+						zDepth = 255
+					}
 
-					key := tokenizer.coder.Encode(
-						uint8(scaleIndex), uint32(pos), window[0],
-					)
-
+					key := tokenizer.coder.Encode(zDepth, uint32(pos), corpus[startIdx])
 					out <- Token{
 						SampleID: sampleID,
 						TokenID:  key,
 						Pos:      pos,
 						Scale:    scale,
 						Prompt:   false,
-						Chord:    chord,
+						Chord:    chunkChord,
 					}
+					
+					if isDelimiter || (cutIdx > 0 && (corpus[cutIdx-1] == '\n' || corpus[cutIdx-1] == '.')) {
+						pos = 0 // Reset sequence index on hard semantic breaks
+					} else {
+						pos++
+					}
+					
+					startIdx = cutIdx
+					i = cutIdx - 1 // allow loop i++ to advance to next byte after cut
+				}
+			}
+			
+			// Yield any remainder
+			if startIdx < len(corpus) {
+				var chunkChord data.Chord
+				for k := startIdx; k < len(corpus); k++ {
+					base := BaseChord(corpus[k])
+					for j := range numeric.ChordBlocks {
+						chunkChord[j] |= base[j]
+					}
+				}
+				scale := len(corpus) - startIdx
+				zDepth := uint8(scale)
+				if scale > 255 {
+					zDepth = 255
+				}
+				key := tokenizer.coder.Encode(zDepth, uint32(pos), corpus[startIdx])
+				out <- Token{
+					SampleID: sampleID,
+					TokenID:  key,
+					Pos:      pos,
+					Scale:    scale,
+					Prompt:   false,
+					Chord:    chunkChord,
 				}
 			}
 		}

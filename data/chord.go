@@ -3,8 +3,10 @@ package data
 import (
 	"encoding/binary"
 	"math/bits"
+	"sync"
 
 	"github.com/theapemachine/six/numeric"
+	"github.com/theapemachine/six/pool"
 )
 
 /*
@@ -92,12 +94,7 @@ func (chord *Chord) ActiveCount() (n int) {
 popcount counts the number of 1-bits in a uint64
 */
 func popcount(x uint64) (count int) {
-	for x != 0 {
-		x &= x - 1
-		count++
-	}
-
-	return count
+	return bits.OnesCount64(x)
 }
 
 /*
@@ -213,3 +210,63 @@ func (chord *Chord) Flatten() FlatChord {
 
 	return flat
 }
+
+var (
+	batchPool *pool.Pool
+	flattenPoolOnce sync.Once
+)
+
+func initFlattenPool() {
+	batchPool = pool.NewPool()
+}
+
+/*
+FlattenBatched converts a slice of sparse Chords into a slice of FlatChords asychronously.
+It uses a pre-warmed, auto-scaling worker pool to prevent CPU-bound loop starvation 
+without the overhead of goroutine creation.
+*/
+func FlattenBatched(chords []Chord, workers int) []FlatChord {
+	flattenPoolOnce.Do(initFlattenPool)
+
+	if workers <= 0 {
+		workers = 4
+	}
+	n := len(chords)
+	out := make([]FlatChord, n)
+
+	if n == 0 {
+		return out
+	}
+
+	chunkSize := (n + workers - 1) / workers
+	if chunkSize == 0 {
+		chunkSize = 1
+	}
+
+	done := make(chan struct{}, workers)
+	
+	activeWorkers := 0
+	for w := 0; w < workers; w++ {
+		start := w * chunkSize
+		end := min(start + chunkSize, n)
+		if start >= n {
+			break
+		}
+		
+		s, e := start, end
+		batchPool.Do(func() {
+			for i := s; i < e; i++ {
+				out[i] = chords[i].Flatten()
+			}
+			done <- struct{}{}
+		})
+		activeWorkers++
+	}
+
+	for i := 0; i < activeWorkers; i++ {
+		<-done
+	}
+
+	return out
+}
+

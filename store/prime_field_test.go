@@ -14,8 +14,8 @@ func TestNewPrimeField(t *testing.T) {
 			pf := NewPrimeField()
 			So(pf, ShouldNotBeNil)
 			So(pf.N, ShouldEqual, 0)
-			So(len(pf.chords), ShouldEqual, 0)
-			So(len(pf.buf), ShouldEqual, 0)
+			So(len(pf.manifolds), ShouldEqual, 0)
+			So(pf.eigen, ShouldNotBeNil)
 		})
 	})
 }
@@ -35,12 +35,11 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 
 			So(pf.N, ShouldEqual, numItems)
 
-			// Verify multi-chord aggregation
+			// Verify topological accumulation mapping
 			for i := 50; i < 150; i++ {
-				multi := pf.MultiChord(i)
-				// The buffer automatically creates OR-aggregations of up to 21 past chords
-				So(multi[0][0], ShouldNotEqual, 0)
-				So(multi[4][0], ShouldNotEqual, 0)
+				manifold := pf.Manifold(i)
+				// The buffer dynamically populates the Cubes[0][0] origin block
+				So(manifold.Cubes[0][0][0], ShouldNotEqual, 0)
 			}
 		})
 	})
@@ -60,9 +59,9 @@ func TestPrimeFieldField(t *testing.T) {
 			ptr := pf.Field()
 			So(ptr, ShouldNotBeNil)
 
-			// Verify it points to the first multichord
-			chordsPtr := unsafe.Pointer(&pf.chords[0])
-			So(ptr, ShouldEqual, chordsPtr)
+			// Verify it points to the first manifold
+			manifoldsPtr := unsafe.Pointer(&pf.manifolds[0])
+			So(ptr, ShouldEqual, manifoldsPtr)
 		})
 	})
 }
@@ -85,15 +84,15 @@ func TestPrimeFieldMaskUnmaskExhaustive(t *testing.T) {
 				original := pf.Mask(idx)
 
 				// The internal chord should be zeroed out
-				masked := pf.MultiChord(idx)
-				for j := 0; j < 5; j++ {
-					So(masked[j][0], ShouldEqual, 0)
+				masked := pf.Manifold(idx)
+				for j := 0; j < 8; j++ {
+					So(masked.Cubes[0][0][j], ShouldEqual, 0)
 				}
 
 				// Unmask it
 				pf.Unmask(idx, original)
-				unmasked := pf.MultiChord(idx)
-				So(unmasked[0][0], ShouldEqual, original[0][0])
+				unmasked := pf.Manifold(idx)
+				So(unmasked.Cubes[0][0][0], ShouldEqual, original.Cubes[0][0][0])
 			}
 		})
 	})

@@ -41,6 +41,13 @@ func NewLoader(opts ...loaderOpts) *Loader {
 }
 
 /*
+Store returns the underlying store abstraction for direct access.
+*/
+func (loader *Loader) Store() store.Store {
+	return loader.store
+}
+
+/*
 Generate yields all tokens through a channel for the Machine
 to ingest.
 */
@@ -107,16 +114,10 @@ func (loader *Loader) flushPrompt() chan data.Chord {
 randomHoldout removes N% of tokens from the buffer randomly.
 */
 func (loader *Loader) randomHoldout(buf []data.Chord) []data.Chord {
-	maskCount := int(float64(len(buf)) * float64(loader.holdout) / 100.0)
-	
-	// using simple deterministic hash of token ID for stability instead of math/rand
 	masked := make([]data.Chord, 0)
 	
 	for _, chord := range buf {
-		// Use loader.holdout as a percentage.
-		rnd := rand.Intn(100) % maskCount
-		
-		if rnd == 0 {
+		if rand.Intn(100) >= loader.holdout {
 			masked = append(masked, chord)
 		}
 	}
