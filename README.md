@@ -1,5 +1,11 @@
 # six
 
+> !NOTE
+> This is a research project under active development.
+> Certain code architectural decisions are built for speed, not for comfort.
+> The project actively seeks out critique and feedback, and prefers to focus 
+> on the core research questions and mechanics.
+
 This research project started from a simple question: "Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?"
 
 It may surprise how long the road towards simplicity is, mine took me through oscillators, thermodynamic computation, quantum hydrodynamics, fractal wave mechanics, and finally to simple bitwise integer arithmetic (which turn out to still be wave mechanics, if you look close enough).
