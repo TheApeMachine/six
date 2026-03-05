@@ -6,19 +6,7 @@ import (
 	config "github.com/theapemachine/six/core"
 )
 
-func init() {
-	var sum float64
 
-	for _, w := range config.Numeric.Windows {
-		sum += 1.0 / float64(w)
-	}
-
-	windowWeights := make([]float64, len(config.Numeric.Windows))
-
-	for i, w := range config.Numeric.Windows {
-		windowWeights[i] = (1.0 / float64(w)) / sum
-	}
-}
 
 type Prime struct {
 	Basis []int32

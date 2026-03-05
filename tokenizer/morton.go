@@ -1,9 +1,6 @@
 package tokenizer
 
 import (
-	"encoding/binary"
-
-	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 )
 
@@ -46,11 +43,8 @@ func (coder *MortonCoder) Decode(morton uint64) (uint8, uint32, byte) {
 ChordToBytes encodes a Chord as core.ChordBlocks×8 bytes big-endian.
 */
 func (coder *MortonCoder) ChordToBytes(chord data.Chord) []byte {
-	buf := make([]byte, config.Numeric.ChordBlocks*8)
+	buf := chord.Bytes()
 
-	for i := range config.Numeric.ChordBlocks {
-		binary.BigEndian.PutUint64(buf[i*8:], uint64(chord.Bytes()[i]))
-	}
 
 	return buf
 }

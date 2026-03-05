@@ -18,7 +18,10 @@ func PaperDir() string {
 		paperDirMemo = d
 		return paperDirMemo
 	}
-	wd, _ := os.Getwd()
+	wd, err := os.Getwd()
+	if err != nil {
+		panic("failed to get working directory: " + err.Error())
+	}
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			paperDirMemo = filepath.Join(dir, "paper", "include", "codegen")

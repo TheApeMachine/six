@@ -270,3 +270,34 @@ func FlattenBatched(chords []Chord, workers int) []FlatChord {
 	return out
 }
 
+/*
+RollLeft executes a discrete spatial permutation (circular shift) on the chord.
+This permanently binds sequential position to the semantic geometry before superposition.
+*/
+func (chord *Chord) RollLeft(shift int) Chord {
+	if shift == 0 {
+		return *chord
+	}
+
+	var out Chord
+	shift = shift % config.NBasis
+
+	// Fast sparse-array permutation
+	for i := 0; i < config.ChordBlocks; i++ {
+		block := chord[i]
+		for block != 0 {
+			// Find next active bit
+			bitIdx := bits.TrailingZeros64(block)
+			primeIdx := i*64 + bitIdx
+
+			// Shift and wrap around the config.NBasis Torus
+			newPrimeIdx := (primeIdx + shift) % config.NBasis
+			out.Set(newPrimeIdx)
+
+			// Clear the bit we just processed
+			block &= block - 1
+		}
+	}
+
+	return out
+}

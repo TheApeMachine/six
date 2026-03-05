@@ -15,6 +15,18 @@ PrimeField is the flat, contiguous array of IcosahedralManifolds for GPU dispatc
 The LSM is cold storage. The PrimeField is the compute-side representation:
 a dense 1D array of 135-block primitive manifolds that the GPU scans in parallel.
 */
+
+func ChordPortalIndices(chord data.Chord) (int, int) {
+	var h uint64
+	b := chord.Bytes()
+	for i := 0; i < len(b); i++ {
+		h = (h << 5) | (h >> 59)
+		h ^= uint64(b[i])
+	}
+	cubeIdx := int(h % 5)
+	blockIdx := int((h / 5) % 27)
+	return cubeIdx, blockIdx
+}
 type PrimeField struct {
 	mu        sync.RWMutex
 	manifolds []geometry.IcosahedralManifold
@@ -93,13 +105,7 @@ func (field *PrimeField) Insert(chord data.Chord) {
 	}
 	
 	// Uniform hash-based multi-portal injection
-	var h uint64
-	for i := 0; i < len(chord); i++ {
-		h = (h << 5) | (h >> 59)
-		h ^= uint64(chord.Bytes()[i])
-	}
-	cubeIdx := int(h % 5)
-	blockIdx := int((h / 5) % 27)
+	cubeIdx, blockIdx := ChordPortalIndices(chord)
 
 	// Inject semantic data into mapped portal
 	field.activeState.Cubes[cubeIdx][blockIdx] = data.ChordOR(&field.activeState.Cubes[cubeIdx][blockIdx], &chord)

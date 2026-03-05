@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"runtime"
+	"sync"
 
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/console"
@@ -42,9 +43,9 @@ func init() {
 	viper.SetConfigFile("/Users/theapemachine/go/src/github.com/theapemachine/six/cmd/cfg/config.yml")
 	_ = viper.ReadInConfig()
 
-	ctx = New()
+	_, err := New()
 
-	if err := ctx.Load(); err != nil {
+	if err != nil {
 		os.Exit(1)
 	}
 }
@@ -77,8 +78,14 @@ type Distributed struct {
 	LocalShardThreshold int
 }
 
-func New() *Config {
-	return ctx
+var loadOnce sync.Once
+var loadErr error
+
+func New() (*Config, error) {
+	loadOnce.Do(func() {
+		loadErr = ctx.Load()
+	})
+	return ctx, loadErr
 }
 
 func (ctx *Config) Load() error {
@@ -87,22 +94,35 @@ func (ctx *Config) Load() error {
 	ctx.Architecture.Epsilon = v.GetFloat64("architecture.numerics.epsilon")
 	ctx.Architecture.NSymbols = v.GetInt("architecture.numerics.nsymbols")
 	ctx.Architecture.NBasis = v.GetInt("architecture.numerics.nbasis")
+
+	if ctx.Architecture.NBasis != NBasis {
+		return console.Error(
+			ConfigError("architecture.numerics.nbasis mismatch"),
+			"expected",
+			NBasis,
+			"got",
+			ctx.Architecture.NBasis,
+		)
+	}
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
-	ctx.Architecture.WindowWeights = v.Get("architecture.numerics.windowWeights").([]float64)
+	if value, ok := v.Get("architecture.numerics.windowWeights").([]float64); ok {
+		ctx.Architecture.WindowWeights = value
+	} else {
+		ctx.Architecture.WindowWeights = []float64{0.2, 0.2, 0.2, 0.2, 0.2}
+	}
 	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
 
-	ctx.Workers.Min = v.GetInt("system.workers.min")
-	ctx.Workers.Max = v.GetInt("system.workers.max")
-
 	minWorkers := v.GetInt("system.workers.min")
-
 	maxWorkersStr := v.GetString("system.workers.max")
 	maxWorkers := v.GetInt("system.workers.max")
 
 	if maxWorkersStr == "CPU" {
 		maxWorkers = runtime.NumCPU()
 	}
+
+	ctx.Workers.Min = minWorkers
+	ctx.Workers.Max = maxWorkers
 
 	if maxWorkers == 0 || maxWorkers < minWorkers {
 		return console.Error(

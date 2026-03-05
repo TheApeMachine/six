@@ -108,7 +108,7 @@ func TestLSMSpatialIndexReverseLookupExhaustive(t *testing.T) {
 		for i := 0; i < 500; i++ {
 			key := uint64(i)
 			chord := data.Chord{}
-			chord.Set(i + 123) // Put data in another prime block
+			chord[2] = uint64(i + 123) // Put data in another prime block
 
 			idx.Insert(key, chord)
 			chords = append(chords, chord)

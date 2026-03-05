@@ -42,13 +42,7 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 				chord := data.Chord{}
 				chord.Set(i + 1)
 
-				var h uint64
-				for j := 0; j < len(chord); j++ {
-					h = (h << 5) | (h >> 59)
-					h ^= uint64(chord.Bytes()[j])
-				}
-				cubeIdx := int(h % 5)
-				blockIdx := int((h / 5) % 27)
+				cubeIdx, blockIdx := ChordPortalIndices(chord)
 
 				// The buffer dynamically populates the mapped portal block
 				So(manifold.Cubes[cubeIdx][blockIdx].Bytes()[0], ShouldNotEqual, 0)

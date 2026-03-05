@@ -6,20 +6,30 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/experiment/task/codegen"
 )
 
 func TestPipeline(t *testing.T) {
-	for _, experiment := range []PipelineExperiment{} {
+	experiments := []PipelineExperiment{
+		codegen.NewLanguagesExperiment(),
+	}
+	for _, experiment := range experiments {
 		Convey("Given code generation experiment: "+experiment.Name(), t, func() {
-			pipeline := NewPipeline(
+			pipeline, err := NewPipeline(
 				PipelineWithExperiment(experiment),
 			)
 
+			So(err, ShouldBeNil)
 			So(pipeline, ShouldNotBeNil)
 
 			Convey("When:"+experiment.Name()+" produces an outcome", func() {
 				So(pipeline.Run(), ShouldBeNil)
-				So(experiment.Outcome())
+				actual, assert, expected := experiment.Outcome()
+				if expected == nil {
+					So(actual, assert.(func(interface{}, ...interface{}) string))
+				} else {
+					So(actual, assert.(func(interface{}, ...interface{}) string), expected)
+				}
 
 				Convey("It should produce the needed paper artifacts", func() {
 					So(WriteTable(

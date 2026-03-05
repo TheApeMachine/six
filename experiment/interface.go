@@ -11,10 +11,10 @@ type Result interface {
 	Score() float64
 }
 
-func GetLoader(dataset provider.Dataset) *vm.Loader {
+func GetLoader(dataset provider.Dataset, lsmSpatialIndex float64) *vm.Loader {
 	return vm.NewLoader(
 		vm.LoaderWithStore(
-			store.NewLSMSpatialIndex(1.0),
+			store.NewLSMSpatialIndex(lsmSpatialIndex),
 		),
 		vm.LoaderWithTokenizer(
 			tokenizer.NewUniversal(

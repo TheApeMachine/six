@@ -1,5 +1,7 @@
 package geometry
 
+import "strconv"
+
 // UnifiedGeodesicMatrix is the 60x60 lookup table storing the shortest-path
 // geodesic distances between the 60 discrete chiral states of the Icosahedral Manifold ($A_5$).
 // It universally houses both the 24-state $O$ metrics and 60-state $A_5$ metrics.
@@ -44,6 +46,10 @@ func init() {
 		}
 	}
 
+	if len(states) != 60 {
+		panic("expected 60 states, found " + strconv.Itoa(len(states)))
+	}
+
 	// 2. Compute all-pairs shortest path matrix
 	for i, start := range states {
 		dist := make(map[a5State]byte)
@@ -66,7 +72,11 @@ func init() {
 		}
 
 		for j, end := range states {
-			UnifiedGeodesicMatrix[i*60+j] = dist[end]
+			if value, ok := dist[end]; ok {
+				UnifiedGeodesicMatrix[i*60+j] = value
+			} else {
+				UnifiedGeodesicMatrix[i*60+j] = 255 // Sentinel for unreachable
+			}
 		}
 	}
 }

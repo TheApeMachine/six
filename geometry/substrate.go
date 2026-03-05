@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"encoding/binary"
 	"math"
 	"math/bits"
 	"math/cmplx"
@@ -91,12 +92,13 @@ func (hs *HybridSubstrate) BitwiseFilter(contextFilter data.Chord, topK int) []i
 		noiseCount := 0
 
 		for j := 0; j < config.Numeric.ChordBlocks; j++ {
-			cBits := entry.Filter.Bytes()[j]
-			aBits := contextFilter.Bytes()[j]
+			off := j * 8
+			cBits := binary.LittleEndian.Uint64(entry.Filter.Bytes()[off : off+8])
+			aBits := binary.LittleEndian.Uint64(contextFilter.Bytes()[off : off+8])
 
 			// same logic as the Metal bitwise shader
-			matchCount += bits.OnesCount64(uint64(cBits) & uint64(aBits))
-			noiseCount += bits.OnesCount64(uint64(cBits) & ^uint64(aBits))
+			matchCount += bits.OnesCount64(cBits & aBits)
+			noiseCount += bits.OnesCount64(cBits & ^aBits)
 		}
 
 		// simplified resonance score (unscaled)

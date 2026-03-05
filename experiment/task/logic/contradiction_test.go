@@ -115,9 +115,9 @@ func TestContradictionResolution(t *testing.T) {
 				}
 
 				// Build GPU query context
+				cIdx, bIdx := store.ChordPortalIndices(queryChord)
 				var queryCtx geometry.IcosahedralManifold
-				queryCtx.Cubes[0][0] = queryChord
-
+				queryCtx.Cubes[cIdx][bIdx] = queryChord
 				bestGPUIdx, bestGPUScore, err := kernel.BestFill(
 					pf.Field(), pf.N, unsafe.Pointer(
 						&queryCtx,
@@ -130,6 +130,8 @@ func TestContradictionResolution(t *testing.T) {
 				)
 
 				So(err, ShouldBeNil)
+				actual := pf.Manifold(bestGPUIdx)
+				So(actual.Cubes[cIdx][bIdx].Has(1001), ShouldBeTrue)
 				So(bestGPUScore, ShouldBeGreaterThan, 0.0)
 
 				fmt.Printf("\n--- Contradiction Resolution (GPU) ---\n")

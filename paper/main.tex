@@ -140,10 +140,19 @@
 
 \maketitle
 
+\section{Architecture}
+
+\graphicspath{{include/architecture/}}
+
+\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
+\FloatBarrier
+\clearpage
+
 \section{Codegen}
 
 \graphicspath{{include/codegen/}}
 
+\InputIfFileExists{include/codegen/Languages_summary.tex}{}{}
 \InputIfFileExists{include/codegen/cantilever_gating.tex}{}{}
 \InputIfFileExists{include/codegen/cantilever_gating_code.tex}{}{}
 \InputIfFileExists{include/codegen/cantilever_gating_prose.tex}{}{}

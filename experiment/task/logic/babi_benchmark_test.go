@@ -2,10 +2,8 @@ package logic
 
 import (
 	"fmt"
-	"os"
 	"testing"
 
-	"github.com/parquet-go/parquet-go"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -13,93 +11,6 @@ import (
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
-
-/*
-bAbIStory holds one parsed bAbI example with context sentences
-and question/answer pairs extracted from the parquet row.
-*/
-type babiStory struct {
-	contexts []string
-	questions []string
-	answers   []string
-}
-
-/*
-loadBAbIParquet reads the locally cached bAbI parquet file and
-extracts stories. Each parquet row = one story with parallel arrays.
-*/
-func loadBAbIParquet(path string, maxStories int) ([]babiStory, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	stat, _ := f.Stat()
-	pFile, err := parquet.OpenFile(f, stat.Size())
-	if err != nil {
-		return nil, err
-	}
-
-	// Columns: [0]=id, [1]=type, [2]=text, [3]=supporting_ids, [4]=answer
-	var stories []babiStory
-	
-	for _, rg := range pFile.RowGroups() {
-		rows := rg.Rows()
-		buf := make([]parquet.Row, 1)
-		
-		for {
-			n, err := rows.ReadRows(buf)
-			if n == 0 || err != nil {
-				break
-			}
-
-			story := babiStory{}
-			
-			// Parse the flat value list by column index
-			var types []int
-			var texts []string
-			var answers []string
-			
-			for _, v := range buf[0] {
-				switch v.Column() {
-				case 1: // type
-					types = append(types, int(v.Int64()))
-				case 2: // text
-					texts = append(texts, v.String())
-				case 4: // answer
-					answers = append(answers, v.String())
-				}
-			}
-			
-			for i := range texts {
-				if i < len(types) && types[i] == 0 {
-					story.contexts = append(story.contexts, texts[i])
-				} else if i < len(types) && types[i] == 1 {
-					story.questions = append(story.questions, texts[i])
-					if i < len(answers) {
-						story.answers = append(story.answers, answers[i])
-					}
-				}
-			}
-			
-			if len(story.questions) > 0 {
-				stories = append(stories, story)
-			}
-			
-			if maxStories > 0 && len(stories) >= maxStories {
-				break
-			}
-		}
-		
-		rows.Close()
-		if maxStories > 0 && len(stories) >= maxStories {
-			break
-		}
-	}
-	
-	return stories, nil
-}
 
 /*
 TestBabiBenchmark runs bAbI QA through the FULL pipeline:

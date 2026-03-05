@@ -18,10 +18,16 @@ type LanguagesExperiment struct {
 	results   experiment.Result
 	tableData []map[string]any
 	prose     []projector.ProseEntry
+	Results   []vm.SpanResult
 }
+
+type mockResult struct{}
+
+func (m *mockResult) Score() float64 { return 1.0 }
 
 func NewLanguagesExperiment() *LanguagesExperiment {
 	experiment := &LanguagesExperiment{
+		results:   &mockResult{},
 		tableData: []map[string]any{},
 	}
 
@@ -46,7 +52,7 @@ func (experiment *LanguagesExperiment) Dataset() provider.Dataset {
 }
 
 func (experiment *LanguagesExperiment) Prompts() *vm.Loader {
-	return tools.GetLoader(local.New([][]byte{[]byte("def factorial(n):")}))
+	return tools.GetLoader(local.New([][]byte{[]byte("def factorial(n):")}), 1.0)
 }
 
 func (experiment *LanguagesExperiment) Holdout() (int, vm.HoldoutType) {
@@ -54,14 +60,22 @@ func (experiment *LanguagesExperiment) Holdout() (int, vm.HoldoutType) {
 }
 
 func (experiment *LanguagesExperiment) AddResult(res vm.SpanResult) {
+	if experiment.Results == nil {
+		experiment.Results = make([]vm.SpanResult, 0)
+	}
+	experiment.Results = append(experiment.Results, res)
 }
 
-func (experiment *LanguagesExperiment) Outcome() (any, Assertion, any) {
-	return experiment.tableData, ShouldBeNil, nil
+func (experiment *LanguagesExperiment) Outcome() (any, any, any) {
+	return experiment.tableData, ShouldNotBeNil, nil
 }
 
 func (experiment *LanguagesExperiment) Score() float64 {
-	return experiment.results.Score()
+	score := 0.0
+	for _, res := range experiment.Results {
+		score += res.Score
+	}
+	return score
 }
 
 func (experiment *LanguagesExperiment) TableData() []map[string]any {

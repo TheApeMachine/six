@@ -1,7 +1,6 @@
 package task
 
 import (
-	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/store"
@@ -15,7 +14,7 @@ type PipelineExperiment interface {
 	Prompts() *vm.Loader
 	Holdout() (int, vm.HoldoutType)
 	AddResult(vm.SpanResult)
-	Outcome() (any, Assertion, any)
+	Outcome() (any, any, any)
 	TableData() []map[string]any
 }
 
@@ -26,11 +25,15 @@ type Pipeline struct {
 
 type pipelineOpts func(*Pipeline)
 
-func NewPipeline(opts ...pipelineOpts) *Pipeline {
+func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	pipeline := &Pipeline{}
 
 	for _, opt := range opts {
 		opt(pipeline)
+	}
+
+	if pipeline.experiment == nil {
+		return nil, PipelineError("missing experiment: use PipelineWithExperiment")
 	}
 
 	pipeline.machine = vm.NewMachine(
@@ -48,7 +51,7 @@ func NewPipeline(opts ...pipelineOpts) *Pipeline {
 		),
 	)
 
-	return pipeline
+	return pipeline, nil
 }
 
 func (pipeline *Pipeline) Run() error {
@@ -61,9 +64,13 @@ func (pipeline *Pipeline) Run() error {
 		if chord.ActiveCount() == 0 {
 			pipeline.Prompt(prompt)
 			prompt = prompt[:0]
+		} else {
+			prompt = append(prompt, chord)
 		}
+	}
 
-		prompt = append(prompt, chord)
+	if len(prompt) > 0 {
+		pipeline.Prompt(prompt)
 	}
 
 	return nil

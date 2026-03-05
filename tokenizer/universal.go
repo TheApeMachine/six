@@ -95,8 +95,10 @@ func (tokenizer *Universal) Generate() chan Token {
 				var windowChord data.Chord
 				for k := wStart; k <= i; k++ {
 					base := BaseChord(corpus[k])
+					localPos := k - wStart
+					boundChord := base.RollLeft(localPos * 13)
 					for j := range config.Numeric.ChordBlocks {
-						windowChord.Bytes()[j] |= base.Bytes()[j]
+						windowChord[j] |= boundChord[j]
 					}
 				}
 
@@ -117,21 +119,20 @@ func (tokenizer *Universal) Generate() chan Token {
 				emaPhase = (emaPhase * 0.8) + (phase * 0.2)
 
 				chunkLen := i - startIdx + 1
-				// Standard delimiters + natural phase boundaries
-				isDelimiter := corpus[i] == 0 || corpus[i] == '\n' || corpus[i] == ' ' || corpus[i] == '.'
+				// Identify true topological boundaries by math, not grammar
+				isTopologicalBoundary := deltaPhase > math.Pi/4 // Extreme outlier threshold
 
-				// Thresholds for natural topological boundaries
-				if chunkLen > 1 && (deltaPop > 3.0 || deltaPhase > math.Pi/8 || isDelimiter || chunkLen > 32) {
+				// Thresholds for natural chunking boundaries
+				if chunkLen > 1 && (deltaPop > 3.0 || deltaPhase > math.Pi/8 || chunkLen > 32) {
 					cutIdx := i
-					if isDelimiter {
-						cutIdx = i + 1
-					}
 
 					var chunkChord data.Chord
 					for k := startIdx; k < cutIdx; k++ {
 						base := BaseChord(corpus[k])
+						localPos := k - startIdx
+						boundChord := base.RollLeft(localPos * 13)
 						for j := range config.Numeric.ChordBlocks {
-							chunkChord.Bytes()[j] |= base.Bytes()[j]
+							chunkChord[j] |= boundChord[j]
 						}
 					}
 
@@ -151,8 +152,8 @@ func (tokenizer *Universal) Generate() chan Token {
 						Chord:    chunkChord,
 					}
 
-					if isDelimiter || (cutIdx > 0 && (corpus[cutIdx-1] == '\n' || corpus[cutIdx-1] == '.')) {
-						pos = 0 // Reset sequence index on hard semantic breaks
+					if isTopologicalBoundary {
+						pos = 0 // Reset sequence index on true topological breaks
 					} else {
 						pos++
 					}
@@ -167,8 +168,10 @@ func (tokenizer *Universal) Generate() chan Token {
 				var chunkChord data.Chord
 				for k := startIdx; k < len(corpus); k++ {
 					base := BaseChord(corpus[k])
+					localPos := k - startIdx
+					boundChord := base.RollLeft(localPos * 13)
 					for j := range config.Numeric.ChordBlocks {
-						chunkChord.Bytes()[j] |= base.Bytes()[j]
+						chunkChord[j] |= boundChord[j]
 					}
 				}
 				scale := len(corpus) - startIdx
@@ -212,7 +215,7 @@ func BaseChord(b byte) data.Chord {
 
 	for _, off := range offsets {
 		bit := off % totalBits
-		chord.Bytes()[bit/64] |= 1 << (bit % 64)
+		chord.Set(bit)
 	}
 
 	return chord

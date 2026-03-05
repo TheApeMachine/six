@@ -9,6 +9,9 @@ import (
 	"text/template"
 )
 
+// ProseEntry represents a conditional prose block used by the projector
+// to render descriptions when Condition() evaluates true.
+// Condition determines if the fragment is rendered, while Description is the text.
 type ProseEntry struct {
 	Condition   func() bool
 	Description string

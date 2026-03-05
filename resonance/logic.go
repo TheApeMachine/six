@@ -40,13 +40,13 @@ func FillScore(hole, candidate *data.Chord) (score float64) {
 	filled := 0
 	extra := 0
 
-	for i := range config.Numeric.ChordBlocks {
-		h := hole.Bytes()[i]
-		c := candidate.Bytes()[i]
+	for i := range config.ChordBlocks {
+		h := hole[i]
+		c := candidate[i]
 
-		needed += popcount(uint64(h))
-		filled += popcount(uint64(h) & uint64(c))
-		extra += popcount(uint64(c) &^ uint64(h)) // primes in candidate that aren't in hole
+		needed += popcount(h)
+		filled += popcount(h & c)
+		extra += popcount(c &^ h) // primes in candidate that aren't in hole
 	}
 
 	if needed == 0 {
