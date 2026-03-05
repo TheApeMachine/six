@@ -60,7 +60,6 @@ func bestFillDistributedPacked(
 	numChords int,
 	contextPtr unsafe.Pointer,
 	expectedPtr unsafe.Pointer,
-	targetIdx int,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if len(workers) == 0 {
@@ -122,9 +121,9 @@ func bestFillDistributedPacked(
 				shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*numeric.ManifoldBytes)
 				dictCopy := append([]byte(nil), shardBytes...)
 
-				packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, expCopy, targetIdx-start, lutCopy, timeout)
+				packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, expCopy, lutCopy, timeout)
 				if callErr != nil {
-					fallbackPacked, fbErr := cpu.BestFillCPUPackedBytes(dictCopy, end-start, ctxCopy, expCopy, targetIdx-start, lutCopy)
+					fallbackPacked, fbErr := cpu.BestFillCPUPackedBytes(dictCopy, end-start, ctxCopy, expCopy, lutCopy)
 					if fbErr != nil {
 						errCh <- callErr
 						return
@@ -149,7 +148,7 @@ func bestFillDistributedPacked(
 				}
 				end := min(start+chunkSize, numChords)
 				shardPtr := unsafe.Pointer(uintptr(dictionary) + uintptr(start*numeric.ManifoldBytes))
-				packed, runErr := BestFillLocalPacked(shardPtr, end-start, contextPtr, expectedPtr, targetIdx-start, geodesicLUT)
+				packed, runErr := BestFillLocalPacked(shardPtr, end-start, contextPtr, expectedPtr, geodesicLUT)
 				if runErr != nil {
 					errCh <- runErr
 					return
@@ -175,7 +174,6 @@ func remoteBestFillPacked(
 	numChords int,
 	context []byte,
 	expected []byte,
-	targetIdx int,
 	geodesicLUT []byte,
 	timeout time.Duration,
 ) (uint64, error) {
@@ -192,7 +190,7 @@ func remoteBestFillPacked(
 	enc := capnp.NewEncoder(conn)
 	dec := capnp.NewDecoder(conn)
 
-	msg, err := newWorkRequestMessage(dictionary, numChords, targetIdx, context, expected, geodesicLUT)
+	msg, err := newWorkRequestMessage(dictionary, numChords, context, expected, geodesicLUT)
 	if err != nil {
 		return 0, err
 	}
@@ -253,7 +251,7 @@ func handleDistributedConn(conn net.Conn) {
 			return
 		}
 
-		dict, numChords, targetIdx, ctxBytes, expBytes, lutBytes, parseErr := parseWorkRequestMessage(msg)
+		dict, numChords, ctxBytes, expBytes, lutBytes, parseErr := parseWorkRequestMessage(msg)
 		if parseErr != nil {
 			resp, _ := newWorkResponseMessage(0, messageErrInvalid)
 			_ = enc.Encode(resp)
@@ -265,7 +263,6 @@ func handleDistributedConn(conn net.Conn) {
 			numChords,
 			numeric.FirstPtr(ctxBytes),
 			numeric.FirstPtr(expBytes),
-			targetIdx,
 			numeric.FirstPtr(lutBytes),
 		)
 		if runErr != nil {
@@ -284,7 +281,6 @@ func handleDistributedConn(conn net.Conn) {
 func newWorkRequestMessage(
 	dictionary []byte,
 	numChords int,
-	targetIdx int,
 	context []byte,
 	expected []byte,
 	geodesicLUT []byte,
@@ -301,7 +297,6 @@ func newWorkRequestMessage(
 	st := capnp.Struct(root)
 	st.SetUint16(0, messageTypeWorkRequest)
 	st.SetUint32(4, uint32(numChords))
-	st.SetUint32(8, uint32(int32(targetIdx)))
 	if err = st.SetData(0, dictionary); err != nil {
 		return nil, err
 	}
@@ -336,45 +331,44 @@ func newWorkResponseMessage(packed uint64, code uint32) (*capnp.Message, error) 
 	return msg, nil
 }
 
-func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, int, []byte, []byte, []byte, error) {
+func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, []byte, []byte, []byte, error) {
 	root, err := msg.Root()
 	if err != nil {
-		return nil, 0, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, err
 	}
 	st := root.Struct()
 	if st.Uint16(0) != messageTypeWorkRequest {
-		return nil, 0, 0, nil, nil, nil, fmt.Errorf("unexpected message type: %d", st.Uint16(0))
+		return nil, 0, nil, nil, nil, fmt.Errorf("unexpected message type: %d", st.Uint16(0))
 	}
 
 	numChords := int(st.Uint32(4))
-	targetIdx := int(int32(st.Uint32(8)))
 
 	dict, err := readStructData(st, 0)
 	if err != nil {
-		return nil, 0, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, err
 	}
 	context, err := readStructData(st, 1)
 	if err != nil {
-		return nil, 0, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, err
 	}
 	expected, err := readStructData(st, 2)
 	if err != nil {
-		return nil, 0, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, err
 	}
 	lut, err := readStructData(st, 3)
 	if err != nil {
-		return nil, 0, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, err
 	}
 
 	if len(dict) < numChords*numeric.ManifoldBytes {
-		return nil, 0, 0, nil, nil, nil, fmt.Errorf("invalid dictionary payload")
+		return nil, 0, nil, nil, nil, fmt.Errorf("invalid dictionary payload")
 	}
 
 	if len(context) < numeric.ManifoldBytes || len(expected) < numeric.ManifoldBytes {
-		return nil, 0, 0, nil, nil, nil, fmt.Errorf("invalid context or expected payload")
+		return nil, 0, nil, nil, nil, fmt.Errorf("invalid context or expected payload")
 	}
 
-	return dict, numChords, targetIdx, context, expected, lut, nil
+	return dict, numChords, context, expected, lut, nil
 }
 
 func parseWorkResponseMessage(msg *capnp.Message) (uint64, uint32, error) {

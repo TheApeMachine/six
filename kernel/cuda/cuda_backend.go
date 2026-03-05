@@ -33,7 +33,6 @@ func BestFillCUDAPacked(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
-	targetIdx int,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if !cudaAvailable() {
@@ -51,7 +50,6 @@ func BestFillCUDAPacked(
 		C.uint32_t(numChords),
 		context,
 		expectedReality,
-		C.uint32_t(targetIdx),
 		geodesicLUT,
 	))
 

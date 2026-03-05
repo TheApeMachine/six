@@ -2,7 +2,6 @@ package vm
 
 import (
 	"fmt"
-	"math"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
@@ -10,6 +9,7 @@ import (
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
+	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
@@ -47,9 +47,14 @@ func (machine *Machine) Start() error {
 	machine.stopCh = make(chan struct{})
 	var chords []data.Chord
 
-	for chord := range machine.loader.Generate() {
-		machine.primefield.Insert(chord)
-		chords = append(chords, chord)
+	for token := range machine.loader.GenerateTokens() {
+		machine.primefield.InsertWithRef(token.Chord, store.GeomRef{
+			TokenID:  token.TokenID,
+			SampleID: token.SampleID,
+			Pos:      token.Pos,
+			Boundary: token.Boundary,
+		})
+		chords = append(chords, token.Chord)
 	}
 
 	fmt.Println("Start inserted chords:", len(chords)) // Debug!
@@ -83,9 +88,77 @@ func (machine *Machine) Stop() {
 SpanResult is the output of a single GPU MultiChord probe.
 */
 type SpanResult struct {
-	Index int
-	Score float64
-	Chord geometry.IcosahedralManifold
+	Index    int
+	Score    float64
+	Chord    geometry.IcosahedralManifold
+	TokenID  uint64
+	SampleID uint32
+	Pos      uint32
+	Symbol   byte
+}
+
+type SpanMatch struct {
+	MatchIndex int
+	StartIndex int
+	EndIndex   int
+	Score      float64
+	SampleID   uint32
+	StartPos   uint32
+	EndPos     uint32
+}
+
+func (machine *Machine) BestSpan(prompt []data.Chord, expectedReality *geometry.IcosahedralManifold) (SpanMatch, error) {
+	if len(prompt) == 0 {
+		return SpanMatch{
+			MatchIndex: -1,
+			StartIndex: -1,
+			EndIndex:   -1,
+		}, nil
+	}
+
+	window := 21
+	start := max(len(prompt)-window, 0)
+
+	tempField := store.NewPrimeField()
+	for _, chord := range prompt[start:] {
+		tempField.Insert(chord)
+	}
+	activeCtx := tempField.Manifold(tempField.N - 1)
+	expectedPtr := unsafe.Pointer(expectedReality)
+	if expectedReality == nil {
+		expectedPtr = unsafe.Pointer(&activeCtx)
+	}
+	dictPtr, numChords := machine.primefield.Snapshot()
+
+	match, err := kernel.BestSpan(
+		dictPtr,
+		numChords,
+		unsafe.Pointer(&activeCtx),
+		expectedPtr,
+		unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+	)
+	if err != nil {
+		return SpanMatch{}, err
+	}
+	if match.Index < 0 || match.Index >= numChords {
+		return SpanMatch{}, MachineErrNotFound
+	}
+
+	replayRefs, endIdx := machine.primefield.ReplaySpan(match.Index+1, 4096)
+	span := SpanMatch{
+		MatchIndex: match.Index,
+		StartIndex: match.Index + 1,
+		EndIndex:   endIdx,
+		Score:      match.Score,
+	}
+
+	if len(replayRefs) > 0 {
+		span.SampleID = replayRefs[0].SampleID
+		span.StartPos = replayRefs[0].Pos
+		span.EndPos = replayRefs[len(replayRefs)-1].Pos
+	}
+
+	return span, nil
 }
 
 /*
@@ -99,174 +172,43 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 	go func() {
 		defer close(out)
 
-		// Track masked indices so we can unmask them when done
-		var masked []struct {
-			idx   int
-			chord geometry.IcosahedralManifold
-		}
-
-		defer func() {
-			for _, m := range masked {
-				machine.primefield.Unmask(m.idx, m.chord)
-			}
-		}()
-
-		startIdx := max(machine.primefield.N - len(prompt), 0)
-		currentIdx := startIdx
-
-		for range prompt {
-			if currentIdx < machine.primefield.N {
-				masked = append(masked, struct {
-					idx   int
-					chord geometry.IcosahedralManifold
-				}{currentIdx, machine.primefield.Mask(currentIdx)})
-				currentIdx++
-			}
-		}
-
-		// We accumulate the context into a single window.
-		// As per BITWISE.md, we scan backwards from the end of the prompt until we hit a space boundary
-		// or up to a max window size (21, max Fibonacci block size)
-		window := 21
-		start := max(len(prompt) - window, 0)
-
-		for {
-			// Build current active context Manifold directly matching GPU topology
-			var activeCtx geometry.IcosahedralManifold
-			if len(prompt[start:]) > 0 {
-				tempField := store.NewPrimeField()
-				for _, c := range prompt[start:] {
-					tempField.Insert(c)
-				}
-				activeCtx = tempField.Manifold(tempField.N - 1)
-			}
-
-			// Prepare ExpectedReality pointer
-			var expectedPtr unsafe.Pointer
-			if expectedReality != nil {
-				expectedPtr = unsafe.Pointer(expectedReality)
-			} else {
-				expectedPtr = unsafe.Pointer(&activeCtx) // Fallback to normal context matching
-			}
-
-			dictPtr, numChords := machine.primefield.Snapshot()
-
-			// GPU Bitwise Search - System 1 (Fast, Discrete)
-			bestIdx, score, err := kernel.BestFill(
-				dictPtr,
-				numChords,
-				unsafe.Pointer(&activeCtx),
-				expectedPtr,
-				currentIdx,
-				unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+		span, err := machine.BestSpan(prompt, expectedReality)
+		if err != nil {
+			console.Error(MachineErrNotFound,
+				"error", err,
 			)
+			return
+		}
+		if span.MatchIndex < 0 {
+			return
+		}
 
-			// Ambiguity Check & Hybrid Routing (System 2)
-			if err == nil && bestIdx >= 0 && machine.eigen != nil {
-				// Temporarily zero the best result
-				originalRoot := machine.primefield.Mask(bestIdx)
+		coder := tokenizer.NewMortonCoder()
+		replayRefs, _ := machine.primefield.ReplaySpan(span.StartIndex, 4096)
+		generatedText := make([]byte, 0, len(replayRefs))
 
-				// Re-run GPU search to find the second-best competitor
-				altDictPtr, altNumChords := machine.primefield.Snapshot()
-				altIdx, altScore, _ := kernel.BestFill(
-					altDictPtr,
-					altNumChords,
-					unsafe.Pointer(&activeCtx),
-					expectedPtr,
-					currentIdx,
-					unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
-				)
+		for offset, ref := range replayRefs {
+			_, _, symbol := coder.Decode(ref.TokenID)
+			generatedText = append(generatedText, symbol)
 
-				machine.primefield.Unmask(bestIdx, originalRoot)
-
-				// If the score differential is extremely tight, we have logical contradiction
-				// or semantic ambiguity. Route to System 2 (EigenMode) for slow, continuous resolution.
-				if (score - altScore) < 0.05 {
-					// 1. Establish the "Anchor Phase" of our current context
-					ctxTheta, ctxPhi := machine.eigen.SeqToroidalMeanPhase(prompt[start:])
-
-					// 2. Fetch the discrete candidate manifolds
-					cand1 := machine.primefield.Manifold(bestIdx).Cubes[0][0]
-					cand2 := machine.primefield.Manifold(altIdx).Cubes[0][0]
-
-					// 3. Extrapolate candidate continuous phases
-					c1Theta, c1Phi := machine.eigen.PhaseForChord(&cand1)
-					c2Theta, c2Phi := machine.eigen.PhaseForChord(&cand2)
-
-					// 4. Calculate toroidal L2 distance inside S1 x S1
-					dist1 := math.Sqrt(math.Pow(c1Theta-ctxTheta, 2) + math.Pow(c1Phi-ctxPhi, 2))
-					dist2 := math.Sqrt(math.Pow(c2Theta-ctxTheta, 2) + math.Pow(c2Phi-ctxPhi, 2))
-
-					// 5. System 2 Override: If candidate 2 is topologically closer, override System 1
-					if dist2 < dist1 {
-						bestIdx = altIdx
-						score = altScore
-					}
-				}
-			}
-
-			found := machine.primefield.Manifold(bestIdx)
-
-			if err != nil || bestIdx < 0 || bestIdx >= machine.primefield.N {
-				console.Error(MachineErrNotFound,
-					"error", err,
-					"bestIdx", bestIdx,
-					"fieldN", machine.primefield.N,
-					"currentIdx", bestIdx,
-				)
-				return
-			}
-
-			// Mask the found index — zero it in the PrimeField so the
-			// GPU can't re-find it. Store original for deferred unmask.
-			for i := range prompt {
-				if bestIdx+i >= machine.primefield.N {
-					break
-				}
-				original := machine.primefield.Mask(bestIdx + i)
-
-				masked = append(masked, struct {
-					idx   int
-					chord geometry.IcosahedralManifold
-				}{bestIdx + i, original})
-			}
-
-			// We only care about the origin origin block [0][0] for immediate sequence tokenization
-			foundChord := found.Cubes[0][0]
-			activeChord := activeCtx.Cubes[0][0]
-
-			// If our current prompt perfectly overlaps the bedrock chord, it means
-			// the wave completely canceled out (0 entropy hole). To continue the generation,
-			// we must step the read head forward by 1 index to grab the "next" token!
-			missingChord := data.ChordHole(&foundChord, &activeChord)
-
-			if missingChord.ActiveCount() == 0 {
-				// Perfect match up to this point! The missing piece is literally the NEXT token
-				// inside the found bedrock geometry. So we advance the index.
-				if bestIdx+len(prompt) < machine.primefield.N {
-					nextManifold := machine.primefield.Manifold(bestIdx + len(prompt))
-					missingChord = nextManifold.Cubes[0][0]
-				}
-			}
-
-			// The GPU found a topological match (`bestIdx`) for our prompt.
-			// Because `bestIdx` points to the *start* of where our active context matched in the
-			// PrimeField historical store, we must advance exactly `len(prompt)` tokens
-			// forward to retrieve the NEW characters that exist AFTER the prompt sequence.
-			startIndex := bestIdx
-			if missingChord.ActiveCount() == 0 {
-				startIndex = bestIdx + len(prompt)
-			}
-			for offset := 0; offset < 10 && startIndex+offset < machine.primefield.N; offset++ {
-				manifold := machine.primefield.Manifold(startIndex + offset)
-
-				out <- SpanResult{
-					Index: startIndex + offset,
-					Score: score,
-					Chord: manifold,
-				}
+			replayIdx := span.StartIndex + offset
+			out <- SpanResult{
+				Index:    replayIdx,
+				Score:    span.Score,
+				Chord:    machine.primefield.Manifold(replayIdx),
+				TokenID:  ref.TokenID,
+				SampleID: ref.SampleID,
+				Pos:      ref.Pos,
+				Symbol:   symbol,
 			}
 		}
+
+		console.Info("Machine Generation Completed",
+			"match", span.MatchIndex,
+			"start", span.StartIndex,
+			"end", span.EndIndex,
+			"output", string(generatedText),
+		)
 	}()
 
 	return out

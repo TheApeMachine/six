@@ -9,7 +9,6 @@ uint64_t bitwise_best_fill_cuda(
     uint32_t num_chords,
     const void* active_context_ptr,
     const void* expected_reality_ptr,
-    uint32_t target_id,
     const void* geodesic_lut_ptr
 );
 

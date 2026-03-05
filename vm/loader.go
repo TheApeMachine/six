@@ -48,8 +48,41 @@ func (loader *Loader) Store() store.Store {
 }
 
 /*
-Generate yields all tokens through a channel for the Machine
-to ingest.
+GenerateTokens yields tokenizer tokens for the ingest path while preserving
+exact geometric metadata alongside each chord.
+*/
+func (loader *Loader) GenerateTokens() chan tokenizer.Token {
+	out := make(chan tokenizer.Token)
+
+	go func() {
+		defer close(out)
+
+		for token := range loader.tokenizer.Generate() {
+			if token.Boundary {
+				if !loader.prompt {
+					out <- token
+				}
+				continue
+			}
+
+			if !loader.validate(token) {
+				console.Error(LoaderErrInvalidToken,
+					"tokenID", token.TokenID,
+					"activeCount", token.Chord.ActiveCount(),
+				)
+				return
+			}
+
+			loader.store.Insert(token.TokenID, token.Chord)
+			out <- token
+		}
+	}()
+
+	return out
+}
+
+/*
+Generate yields prompt chords or ingest chords, depending on loader mode.
 */
 func (loader *Loader) Generate() chan data.Chord {
 	out := make(chan data.Chord)
@@ -58,6 +91,16 @@ func (loader *Loader) Generate() chan data.Chord {
 		defer close(out)
 
 		for token := range loader.tokenizer.Generate() {
+			if token.Boundary {
+				if loader.prompt {
+					for c := range loader.flushPrompt() {
+						out <- c
+					}
+					loader.bufs = loader.bufs[:0]
+				}
+				continue
+			}
+
 			if !loader.validate(token) {
 				console.Error(LoaderErrInvalidToken,
 					"tokenID", token.TokenID,
@@ -67,16 +110,19 @@ func (loader *Loader) Generate() chan data.Chord {
 			}
 
 			if loader.prompt {
-				if token.Pos == 0 {
-					out <-<-loader.flushPrompt()
-					loader.bufs = loader.bufs[:0]
-				}
-
 				loader.bufs = append(loader.bufs, token.Chord)
-			} else {
-				loader.store.Insert(token.TokenID, token.Chord)
-				out <- token.Chord
+				continue
 			}
+
+			loader.store.Insert(token.TokenID, token.Chord)
+			out <- token.Chord
+		}
+
+		if loader.prompt && len(loader.bufs) > 0 {
+			for c := range loader.flushPrompt() {
+				out <- c
+			}
+			loader.bufs = loader.bufs[:0]
 		}
 	}()
 
@@ -84,7 +130,7 @@ func (loader *Loader) Generate() chan data.Chord {
 }
 
 /*
-flushPrompt flushes the current buffer to the store.
+flushPrompt flushes the current buffer as a prompt sequence.
 */
 func (loader *Loader) flushPrompt() chan data.Chord {
 	out := make(chan data.Chord)
@@ -115,7 +161,7 @@ randomHoldout removes N% of tokens from the buffer randomly.
 */
 func (loader *Loader) randomHoldout(buf []data.Chord) []data.Chord {
 	masked := make([]data.Chord, 0)
-	
+
 	for _, chord := range buf {
 		if rand.Intn(100) >= loader.holdout {
 			masked = append(masked, chord)
@@ -123,7 +169,7 @@ func (loader *Loader) randomHoldout(buf []data.Chord) []data.Chord {
 	}
 
 	return masked
-}	
+}
 
 func (loader *Loader) validate(token tokenizer.Token) bool {
 	return token.Chord.ActiveCount() > 0
@@ -162,9 +208,9 @@ func LoaderWithTokenizer(tokenizer *tokenizer.Universal) loaderOpts {
 type LoaderError string
 
 const (
-	LoaderErrDecode LoaderError = "failed to decode chord"
-	LoaderErrEmptyBuffer LoaderError = "empty buffer"
-	LoaderErrEmptyPrompt LoaderError = "empty prompt"
+	LoaderErrDecode       LoaderError = "failed to decode chord"
+	LoaderErrEmptyBuffer  LoaderError = "empty buffer"
+	LoaderErrEmptyPrompt  LoaderError = "empty prompt"
 	LoaderErrInvalidToken LoaderError = "invalid token"
 )
 

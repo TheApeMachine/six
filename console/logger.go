@@ -1,6 +1,7 @@
 package console
 
 import (
+	"io"
 	"os"
 
 	"github.com/charmbracelet/log"
@@ -17,9 +18,18 @@ type Logger struct {
 }
 
 func New() *Logger {
+	var out io.Writer = os.Stderr
+
+	// Open the log file for appending using an absolute path
+	file, err := os.OpenFile("/Users/theapemachine/go/src/github.com/theapemachine/six/six.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	if err == nil {
+		// Output to both stderr and the file
+		out = io.MultiWriter(os.Stderr, file)
+	}
+
 	return &Logger{
 		handle: *log.NewWithOptions(
-			os.Stderr,
+			out,
 			log.Options{
 				ReportTimestamp: true,
 				ReportCaller:    true,
@@ -28,8 +38,8 @@ func New() *Logger {
 	}
 }
 
-func Info(msg string) {
-	logger.handle.Info(msg)
+func Info(msg string, keyvals ...any) {
+	logger.handle.Info(msg, keyvals...)
 }
 
 func Error(err error, keyvals ...any) error {

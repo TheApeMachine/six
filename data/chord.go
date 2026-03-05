@@ -16,12 +16,6 @@ config.ChordBlocks (NBasis/64). Centralized in core config.
 type Chord [config.ChordBlocks]uint64
 
 /*
-MultiChord represents a token's resonance across all 5 Fibonacci window scales.
-Allows the GPU to compute multiscale consensus in a single parallel fetch.
-*/
-type MultiChord [5]Chord
-
-/*
 Has checks if the prime at index p is active in the chord.
 */
 func (chord *Chord) Has(p int) bool {
@@ -54,15 +48,43 @@ func (chord *Chord) Bytes() []byte {
 }
 
 /*
+BaseChord returns a deterministic base chord for a byte value.
+Uses coprime spreading to set 5 bits in the 512-bit chord,
+ensuring each of the 256 byte values gets a unique signature.
+*/
+func BaseChord(b byte) Chord {
+	var chord Chord
+	totalBits := config.Numeric.ChordBlocks * 64
+
+	// 5 coprime multipliers spread across the chord space
+	offsets := [5]int{
+		int(b) * 7,
+		int(b) * 13,
+		int(b) * 31,
+		int(b) * 61,
+		int(b) * 127,
+	}
+
+	for _, off := range offsets {
+		bit := off % totalBits
+		chord.Set(bit)
+	}
+
+	return chord
+}
+
+/*
 ChordFromBytes parses ChordBlocks×8 bytes (big-endian) back into a Chord.
 */
 func ChordFromBytes(b []byte) (c Chord) {
 	if len(b) < config.ChordBlocks*8 {
 		return c
 	}
-	for i := 0; i < config.ChordBlocks; i++ {
+
+	for i := range config.ChordBlocks {
 		c[i] = binary.BigEndian.Uint64(b[i*8:])
 	}
+
 	return c
 }
 
@@ -76,6 +98,7 @@ func ChordLCM(chords []Chord) (lcm Chord) {
 			lcm[i] |= ch[i]
 		}
 	}
+
 	return lcm
 }
 
@@ -141,9 +164,11 @@ Enables chord-native co-occurrence and phase lookup without byte symbols.
 */
 func ChordBin(c *Chord) int {
 	var h uint64
+
 	for i := range config.ChordBlocks {
 		h ^= c[i]
 	}
+
 	return int(h % 256)
 }
 
@@ -170,8 +195,6 @@ func ChordHole(target, existing *Chord) (hole Chord) {
 	return hole
 }
 
-
-
 /*
 ChordOR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
@@ -179,6 +202,7 @@ func ChordOR(a, b *Chord) (lcm Chord) {
 	for i := range config.ChordBlocks {
 		lcm[i] = a[i] | b[i]
 	}
+
 	return lcm
 }
 
@@ -212,7 +236,7 @@ func (chord *Chord) Flatten() FlatChord {
 }
 
 var (
-	batchPool *pool.Pool
+	batchPool       *pool.Pool
 	flattenPoolOnce sync.Once
 )
 
@@ -222,7 +246,7 @@ func initFlattenPool() {
 
 /*
 FlattenBatched converts a slice of sparse Chords into a slice of FlatChords asychronously.
-It uses a pre-warmed, auto-scaling worker pool to prevent CPU-bound loop starvation 
+It uses a pre-warmed, auto-scaling worker pool to prevent CPU-bound loop starvation
 without the overhead of goroutine creation.
 */
 func FlattenBatched(chords []Chord, workers int) []FlatChord {
@@ -244,15 +268,15 @@ func FlattenBatched(chords []Chord, workers int) []FlatChord {
 	}
 
 	done := make(chan struct{}, workers)
-	
+
 	activeWorkers := 0
 	for w := 0; w < workers; w++ {
 		start := w * chunkSize
-		end := min(start + chunkSize, n)
+		end := min(start+chunkSize, n)
 		if start >= n {
 			break
 		}
-		
+
 		s, e := start, end
 		batchPool.Do(func() {
 			for i := s; i < e; i++ {

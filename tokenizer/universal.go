@@ -3,7 +3,9 @@ package tokenizer
 import (
 	"context"
 	"math"
+	"sync"
 
+	"github.com/theapemachine/six/console"
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
@@ -11,19 +13,208 @@ import (
 )
 
 /*
-Token carries a FibWindow chunk from the corpus.
-TokenID is the Morton key for the first byte of the chunk.
-Scale is the FibWindow size (3, 5, 8, 13, or 21).
-Chord is the OR-aggregate of base chords for all bytes in the window.
-Prompt marks tokens from the prompt path (lookup in LSM, not insertion).
+Token is the byte-level bridge between the geometric and wave domains.
+TokenID is the exact replay address; Chord is the wave-space identity used
+for matching.
 */
 type Token struct {
 	SampleID uint32
 	TokenID  uint64
-	Pos      int
-	Scale    int
+	Symbol   byte
+	Pos      uint32
+	Scale    uint8
+	Boundary bool
 	Prompt   bool
 	Chord    data.Chord
+}
+
+type Calibration struct {
+	mu               sync.RWMutex
+	TargetDensityMin float64
+	TargetDensityMax float64
+	SensitivityPop   float64
+	SensitivityPhase float64
+}
+
+func NewCalibration() *Calibration {
+	// Base mathematical derivations purely on the Golden Ratio
+	// since the spatial chunking logic is FibWindow-based.
+	phi := (1.0 + math.Sqrt(5.0)) / 2.0
+
+	return &Calibration{
+		// Target densities scale recursively inside the hyperdimensional subspace
+		TargetDensityMin: 1.0 / math.Pow(phi, 3), // ~0.236
+		TargetDensityMax: 1.0 / math.Pow(phi, 2), // ~0.382
+
+		// Start Z-score thresholds at exactly 1 Golden Ratio standard deviation
+		SensitivityPop:   phi,
+		SensitivityPhase: phi,
+	}
+}
+
+/*
+Recalibrate is currently a placeholder for future dynamic threshold calibration.
+*/
+func (calibration *Calibration) Recalibrate() {
+	calibration.mu.RLock()
+	defer calibration.mu.RUnlock()
+}
+
+/*
+Sequencer is a mechanism that splits an incoming data stream into sequences
+based on the topological properties of the data.
+*/
+type Sequencer struct {
+	calibration *Calibration
+	eigen       *geometry.EigenMode
+	phi         float64
+	phiFast     float64
+	phiMed      float64
+	emaAlpha    float64
+	tokens      []Token
+}
+
+func NewSequencer(calibration *Calibration) *Sequencer {
+	phi := (1.0 + math.Sqrt(5.0)) / 2.0
+
+	return &Sequencer{
+		calibration: calibration,
+		eigen:       geometry.NewEigenMode(),
+		phi:         phi,
+		phiFast:     math.Pow(phi, -9), // ~0.013
+		phiMed:      math.Pow(phi, -6), // ~0.055
+		emaAlpha:    math.Pow(phi, -3), // ~0.236
+	}
+}
+
+func (sequencer *Sequencer) Analyze(pos int) (reset bool) {
+	// Derive bounds topologically from architecture constants
+	topoThresh := math.Pi / config.Numeric.FrequencySpread // Max Phase shift amortized by basis depth
+
+	// Fast and Medium adjustment sensitivities (powers of phi!)
+	var emaPop float64 = 0
+	var emaPhase float64 = 0
+	var coherenceTime int
+
+	// Welford variance accumulators
+	var popMean, popM2, phaseMean, phaseM2, count float64
+
+	var windowChord data.Chord
+
+	pop := float64(windowChord.ActiveCount())
+	theta, phi := sequencer.eigen.PhaseForChord(&windowChord)
+	phase := math.Sqrt(theta*theta + phi*phi)
+
+	if pos == 0 {
+		emaPop = pop
+		emaPhase = phase
+	}
+
+	deltaPop := math.Abs(pop - emaPop)
+	deltaPhase := math.Abs(phase - emaPhase)
+
+	// Golden ratio decay smoothing
+	emaPop = (emaPop * (1.0 - sequencer.emaAlpha)) + (pop * sequencer.emaAlpha)
+	emaPhase = (emaPhase * (1.0 - sequencer.emaAlpha)) + (phase * sequencer.emaAlpha)
+
+	// Continuous stream variance derivation (Welford's online algorithm)
+	count++
+	popDiff := deltaPop - popMean
+	popMean += popDiff / count
+	popM2 += popDiff * (deltaPop - popMean)
+
+	phaseDiff := deltaPhase - phaseMean
+	phaseMean += phaseDiff / count
+	phaseM2 += phaseDiff * (deltaPhase - phaseMean)
+
+	popStdDev := 0.0
+	phaseStdDev := 0.0
+
+	if count > 1 {
+		popStdDev = math.Sqrt(popM2 / count)
+		phaseStdDev = math.Sqrt(phaseM2 / count)
+	}
+
+	// The dynamically derived thresholds via Z-scores
+	popThresh := popMean + (popStdDev * sequencer.calibration.SensitivityPop)
+	phaseThresh := phaseMean + (phaseStdDev * sequencer.calibration.SensitivityPhase)
+
+	if deltaPhase < phaseThresh {
+		coherenceTime++
+	}
+
+	// Identify true topological boundaries by math, not grammar
+	isTopologicalBoundary := deltaPhase > topoThresh
+
+	// Thresholds for natural chunking boundaries
+	if deltaPop > popThresh || deltaPhase > phaseThresh {
+		var chunkChord data.Chord
+
+		// Feedback 1: Per-primitive density feedback (Fast, continuous)
+		density := float64(chunkChord.ActiveCount()) / float64(config.Numeric.ChordBlocks*64)
+
+		if density > sequencer.calibration.TargetDensityMax {
+			// Too dense -> Boundaries are too wide -> Decrease threshold multiplier
+			sequencer.thresholdMultiplier(-1)
+		} else if density < sequencer.calibration.TargetDensityMin {
+			// Too sparse -> Boundaries are too narrow -> Increase threshold multiplier
+			sequencer.thresholdMultiplier(1)
+		}
+
+		if isTopologicalBoundary {
+			console.Info(
+				"Topological Boundary Detected",
+				"sequence", chunkChord,
+			)
+
+			reset = true // Reset sequence index on true topological breaks
+		}
+
+		coherenceTime = 0
+	}
+
+	// Sync back continuous fast updates to the shared calibration state
+	// We gently ease back towards base phi using phiMed
+	sequencer.calibration.mu.Lock()
+	sequencer.calibration.SensitivityPop = sequencer.syncBack(sequencer.calibration.SensitivityPop)
+	sequencer.calibration.SensitivityPhase = sequencer.syncBack(sequencer.calibration.SensitivityPhase)
+	sequencer.calibration.mu.Unlock()
+
+	return reset
+}
+
+func (sequencer *Sequencer) thresholdMultiplier(direction float64) {
+	sequencer.calibration.SensitivityPop *= (direction + sequencer.phiFast)
+}
+
+func (sequencer *Sequencer) syncBack(element float64) float64 {
+	return (element*(1.0-sequencer.phiMed) + element*sequencer.phiMed)
+}
+
+/*
+FeedbackRetrievalQuality acts as the slow, global supervisor for the tokenizer.
+Should be called by BestFill downstream when retrieval performance deviates.
+overDiscriminated (true) means we missed relevant matches (false negatives), implying
+boundaries are too wide/chaotic.
+underDiscriminated (true) means we matched unrelated things (false positives), implying
+boundaries aren't detecting enough variance.
+*/
+func (sequencer *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
+	sequencer.calibration.mu.Lock()
+	defer sequencer.calibration.mu.Unlock()
+
+	phi := (1.0 + math.Sqrt(5.0)) / 2.0
+	phiSlow := math.Pow(phi, -5) // ~0.090
+
+	if overDiscriminated {
+		// Over-discriminating means too rigidly separating; raise bases to ignore more noise
+		sequencer.calibration.SensitivityPop *= (1.0 + phiSlow)
+		sequencer.calibration.SensitivityPhase *= (1.0 + phiSlow)
+	} else if underDiscriminated {
+		// Under-discriminating means not seeing enough fine detail; lower bases to be more sensitive
+		sequencer.calibration.SensitivityPop *= (1.0 - phiSlow)
+		sequencer.calibration.SensitivityPhase *= (1.0 - phiSlow)
+	}
 }
 
 /*
@@ -32,16 +223,21 @@ tokens. Each position in the stream produces one token per FibWindow scale.
 The chord for each chunk is the OR of base chords of all bytes in the window.
 */
 type Universal struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	coder   *MortonCoder
-	dataset provider.Dataset
+	ctx       context.Context
+	cancel    context.CancelFunc
+	coder     *MortonCoder
+	dataset   provider.Dataset
+	sequencer *Sequencer
+	sampleID  uint32
 }
 
 type universalOpts func(*Universal)
 
 func NewUniversal(opts ...universalOpts) *Universal {
-	tokenizer := &Universal{}
+	tokenizer := &Universal{
+		coder:     NewMortonCoder(),
+		sequencer: NewSequencer(NewCalibration()),
+	}
 
 	for _, opt := range opts {
 		opt(tokenizer)
@@ -51,15 +247,11 @@ func NewUniversal(opts ...universalOpts) *Universal {
 }
 
 /*
-Generate streams FibWindow-chunked tokens from the dataset.
+Generate streams deterministic byte-level tokens.
 
-For each position in the byte stream, it produces a token per FibWindow
-scale (3, 5, 8, 13, 21). Each token's chord is the OR of base chords
-for all bytes in that window.
-
-This is where the radix trie structure emerges: the Morton key
-encodes (byte_value, position), so identical prefixes share key prefixes,
-and the LSM's sorted levels naturally cluster them.
+For the current memorization path, one byte occurrence becomes one Token,
+and sample transitions emit explicit boundary markers so the PrimeField can
+reset between sequences.
 */
 func (tokenizer *Universal) Generate() chan Token {
 	out := make(chan Token)
@@ -67,158 +259,41 @@ func (tokenizer *Universal) Generate() chan Token {
 	go func() {
 		defer close(out)
 
-		// Accumulate the raw byte stream separated by SampleID
-		corpusBySample := make(map[uint32][]byte)
+		var (
+			prevSample uint32
+			haveSample bool
+		)
+
 		for rawToken := range tokenizer.dataset.Generate() {
-			corpusBySample[rawToken.SampleID] = append(
-				corpusBySample[rawToken.SampleID], rawToken.Symbol,
-			)
+			if haveSample && rawToken.SampleID != prevSample {
+				out <- Token{
+					SampleID: prevSample,
+					Boundary: true,
+				}
+			}
+
+			out <- Token{
+				SampleID: rawToken.SampleID,
+				TokenID:  tokenizer.coder.Encode(0, rawToken.Pos, rawToken.Symbol),
+				Symbol:   rawToken.Symbol,
+				Pos:      rawToken.Pos,
+				Scale:    0,
+				Chord:    data.BaseChord(rawToken.Symbol),
+			}
+
+			prevSample = rawToken.SampleID
+			haveSample = true
 		}
 
-		// Adaptive Topological Chunking
-		for sampleID, corpus := range corpusBySample {
-			if len(corpus) == 0 {
-				continue
-			}
-
-			eigen := geometry.NewEigenMode()
-
-			var emaPop float64 = 0
-			var emaPhase float64 = 0
-
-			pos := 0 // chunk sequence index
-			startIdx := 0
-
-			for i := 0; i < len(corpus); i++ {
-				wStart := max(i-2, startIdx)
-
-				var windowChord data.Chord
-				for k := wStart; k <= i; k++ {
-					base := BaseChord(corpus[k])
-					localPos := k - wStart
-					boundChord := base.RollLeft(localPos * 13)
-					for j := range config.Numeric.ChordBlocks {
-						windowChord[j] |= boundChord[j]
-					}
-				}
-
-				pop := float64(windowChord.ActiveCount())
-				theta, phi := eigen.PhaseForChord(&windowChord)
-				phase := math.Sqrt(theta*theta + phi*phi)
-
-				if i == startIdx {
-					emaPop = pop
-					emaPhase = phase
-					continue
-				}
-
-				deltaPop := math.Abs(pop - emaPop)
-				deltaPhase := math.Abs(phase - emaPhase)
-
-				emaPop = (emaPop * 0.8) + (pop * 0.2)
-				emaPhase = (emaPhase * 0.8) + (phase * 0.2)
-
-				chunkLen := i - startIdx + 1
-				// Identify true topological boundaries by math, not grammar
-				isTopologicalBoundary := deltaPhase > math.Pi/4 // Extreme outlier threshold
-
-				// Thresholds for natural chunking boundaries
-				if chunkLen > 1 && (deltaPop > 3.0 || deltaPhase > math.Pi/8 || chunkLen > 32) {
-					cutIdx := i
-
-					var chunkChord data.Chord
-					for k := startIdx; k < cutIdx; k++ {
-						base := BaseChord(corpus[k])
-						localPos := k - startIdx
-						boundChord := base.RollLeft(localPos * 13)
-						for j := range config.Numeric.ChordBlocks {
-							chunkChord[j] |= boundChord[j]
-						}
-					}
-
-					scale := cutIdx - startIdx
-					zDepth := uint8(scale)
-					if scale > 255 {
-						zDepth = 255
-					}
-
-					key := tokenizer.coder.Encode(zDepth, uint32(pos), corpus[startIdx])
-					out <- Token{
-						SampleID: sampleID,
-						TokenID:  key,
-						Pos:      pos,
-						Scale:    scale,
-						Prompt:   false,
-						Chord:    chunkChord,
-					}
-
-					if isTopologicalBoundary {
-						pos = 0 // Reset sequence index on true topological breaks
-					} else {
-						pos++
-					}
-
-					startIdx = cutIdx
-					i = cutIdx - 1 // allow loop i++ to advance to next byte after cut
-				}
-			}
-
-			// Yield any remainder
-			if startIdx < len(corpus) {
-				var chunkChord data.Chord
-				for k := startIdx; k < len(corpus); k++ {
-					base := BaseChord(corpus[k])
-					localPos := k - startIdx
-					boundChord := base.RollLeft(localPos * 13)
-					for j := range config.Numeric.ChordBlocks {
-						chunkChord[j] |= boundChord[j]
-					}
-				}
-				scale := len(corpus) - startIdx
-				zDepth := uint8(scale)
-				if scale > 255 {
-					zDepth = 255
-				}
-				key := tokenizer.coder.Encode(zDepth, uint32(pos), corpus[startIdx])
-				out <- Token{
-					SampleID: sampleID,
-					TokenID:  key,
-					Pos:      pos,
-					Scale:    scale,
-					Prompt:   false,
-					Chord:    chunkChord,
-				}
+		if haveSample {
+			out <- Token{
+				SampleID: prevSample,
+				Boundary: true,
 			}
 		}
 	}()
 
 	return out
-}
-
-/*
-BaseChord returns a deterministic base chord for a byte value.
-Uses coprime spreading to set 5 bits in the 512-bit chord,
-ensuring each of the 256 byte values gets a unique signature.
-*/
-func BaseChord(b byte) data.Chord {
-	var chord data.Chord
-	totalBits := config.Numeric.ChordBlocks * 64
-
-	// 5 coprime multipliers spread across the chord space
-	offsets := [5]int{
-		int(b) * 7,
-		int(b) * 13,
-		int(b) * 31,
-		int(b) * 61,
-		int(b) * 127,
-	}
-
-	for _, off := range offsets {
-		bit := off % totalBits
-		chord.Set(bit)
-	}
-
-	return chord
 }
 
 func TokenizerWithContext(ctx context.Context) universalOpts {

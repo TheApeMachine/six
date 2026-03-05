@@ -23,13 +23,8 @@ func TestPipeline(t *testing.T) {
 			So(pipeline, ShouldNotBeNil)
 
 			Convey("When:"+experiment.Name()+" produces an outcome", func() {
-				So(pipeline.Run(), ShouldBeNil)
-				actual, assert, expected := experiment.Outcome()
-				if expected == nil {
-					So(actual, assert.(func(interface{}, ...interface{}) string))
-				} else {
-					So(actual, assert.(func(interface{}, ...interface{}) string), expected)
-				}
+				So(pipeline.Run(), ShouldBeNil)				
+				So(experiment.Outcome())
 
 				Convey("It should produce the needed paper artifacts", func() {
 					So(WriteTable(

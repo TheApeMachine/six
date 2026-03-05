@@ -99,14 +99,10 @@ kernel void bitwise_best_fill(
     // Fetch true geodesic path distance between chiral states
     uint geodesic_dist = (uint)geodesic_lut[q_rot_state * 60 + c_rot_state];
     
-    // Combine physical index location and shortest geodesic path as tie-breaker
-    uint index_dist = (uint)abs((int)id - (int)target_id);
-    if (index_dist > 65535) {
-        index_dist = 65535;
-    }
-    
-    // 16-bit tie breaker constraint: invert so highest bits represent lowest distance 
-    uint inverted_dist = 65535 - ((index_dist + geodesic_dist) / 2);
+    (void)target_id;
+
+    // 16-bit tie breaker constraint: invert so highest bits represent lowest distance
+    uint inverted_dist = 65535 - geodesic_dist;
 
     // Bounds checking for 24-bit LSB packing
     uint safe_id = id;

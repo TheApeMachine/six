@@ -22,7 +22,6 @@ type backendRunner struct {
 		numChords int,
 		context unsafe.Pointer,
 		expectedReality unsafe.Pointer,
-		targetIdx int,
 		geodesicLUT unsafe.Pointer,
 	) (uint64, error)
 	available func() bool
@@ -30,16 +29,20 @@ type backendRunner struct {
 
 var defaultBackendOrder = []string{"cuda", "metal", "cpu"}
 
-func BestFill(
+type SpanMatch struct {
+	Index int
+	Score float64
+}
+
+func BestSpan(
 	dictionary unsafe.Pointer,
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
-	targetIdx int,
 	geodesicLUT unsafe.Pointer,
-) (int, float64, error) {
+) (SpanMatch, error) {
 	if numChords == 0 {
-		return 0, 0.0, nil
+		return SpanMatch{Index: -1}, nil
 	}
 
 	if expectedReality == nil {
@@ -55,11 +58,13 @@ func BestFill(
 			numChords,
 			context,
 			expectedReality,
-			targetIdx,
 			geodesicLUT,
 		); err == nil {
 			idx, score := numeric.DecodePacked(packed)
-			return idx, score, nil
+			return SpanMatch{
+				Index: idx,
+				Score: score,
+			}, nil
 		}
 	}
 
@@ -68,16 +73,44 @@ func BestFill(
 		numChords,
 		context,
 		expectedReality,
-		targetIdx,
 		geodesicLUT,
 	)
 
 	if err != nil {
-		return 0, 0.0, err
+		return SpanMatch{}, err
 	}
 
 	idx, score := numeric.DecodePacked(packed)
-	return idx, score, nil
+	return SpanMatch{
+		Index: idx,
+		Score: score,
+	}, nil
+}
+
+func BestFill(
+	dictionary unsafe.Pointer,
+	numChords int,
+	context unsafe.Pointer,
+	expectedReality unsafe.Pointer,
+	_ int,
+	geodesicLUT unsafe.Pointer,
+) (int, float64, error) {
+	match, err := BestSpan(
+		dictionary,
+		numChords,
+		context,
+		expectedReality,
+		geodesicLUT,
+	)
+	if err != nil {
+		return 0, 0.0, err
+	}
+
+	if match.Index < 0 {
+		return 0, 0.0, nil
+	}
+
+	return match.Index, match.Score, nil
 }
 
 func BestFillLocalPacked(
@@ -85,7 +118,6 @@ func BestFillLocalPacked(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
-	targetIdx int,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if dictionary == nil {
@@ -108,7 +140,6 @@ func BestFillLocalPacked(
 			numChords,
 			context,
 			expectedReality,
-			targetIdx,
 			geodesicLUT,
 		)
 	}
@@ -122,7 +153,6 @@ func BestFillLocalPacked(
 			numChords,
 			context,
 			expectedReality,
-			targetIdx,
 			geodesicLUT,
 		)
 	}
@@ -154,7 +184,6 @@ func BestFillLocalPacked(
 					end-start,
 					context,
 					expectedReality,
-					targetIdx-start,
 					geodesicLUT,
 				)
 				if err != nil {
@@ -185,7 +214,6 @@ func runBackendWithFallback(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
-	targetIdx int,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	packed, err := backend.run(
@@ -193,7 +221,6 @@ func runBackendWithFallback(
 		numChords,
 		context,
 		expectedReality,
-		targetIdx,
 		geodesicLUT,
 	)
 
@@ -210,7 +237,6 @@ func runBackendWithFallback(
 		numChords,
 		context,
 		expectedReality,
-		targetIdx,
 		geodesicLUT,
 	)
 }
@@ -234,7 +260,6 @@ func configuredBackends() []backendRunner {
 				numChords int,
 				context unsafe.Pointer,
 				expectedReality unsafe.Pointer,
-				targetIdx int,
 				geodesicLUT unsafe.Pointer,
 			) (uint64, error) {
 				return cpu.BestFillCPUPacked(
@@ -242,7 +267,6 @@ func configuredBackends() []backendRunner {
 					numChords,
 					context,
 					expectedReality,
-					targetIdx,
 					geodesicLUT,
 				)
 			},

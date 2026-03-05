@@ -16,7 +16,6 @@ func BestFillCUDAPacked(
 	_ int,
 	_ unsafe.Pointer,
 	_ unsafe.Pointer,
-	_ int,
 	_ unsafe.Pointer,
 ) (uint64, error) {
 	return 0, errors.New("cuda backend unavailable")

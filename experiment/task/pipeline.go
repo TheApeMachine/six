@@ -1,6 +1,7 @@
 package task
 
 import (
+	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/store"
@@ -14,7 +15,7 @@ type PipelineExperiment interface {
 	Prompts() *vm.Loader
 	Holdout() (int, vm.HoldoutType)
 	AddResult(vm.SpanResult)
-	Outcome() (any, any, any)
+	Outcome() (any, gc.Assertion, any)
 	TableData() []map[string]any
 }
 
@@ -59,6 +60,7 @@ func (pipeline *Pipeline) Run() error {
 
 	var prompt []data.Chord
 	prompts := pipeline.experiment.Prompts()
+	prompts.Holdout(pipeline.experiment.Holdout())
 
 	for chord := range prompts.Generate() {
 		if chord.ActiveCount() == 0 {

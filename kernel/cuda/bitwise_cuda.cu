@@ -35,7 +35,6 @@ __global__ void bitwise_best_fill_kernel(
     uint32_t num_chords,
     const IcosahedralManifold* active_context,
     const IcosahedralManifold* expected_reality,
-    uint32_t target_id,
     const uint8_t* geodesic_lut,
     unsigned long long* out_packed
 ) {
@@ -88,9 +87,7 @@ __global__ void bitwise_best_fill_kernel(
         geodesic_dist = geodesic_lut[context_rot * 60 + candidate_rot];
     }
 
-    int index_dist = abs((int)id - (int)target_id);
-    uint16_t combined_dist = (uint16_t)min(65535, index_dist + (int)geodesic_dist);
-    uint16_t inverted_dist = 65535 - combined_dist;
+    uint16_t inverted_dist = 65535 - geodesic_dist;
 
     unsigned long long packed =
         (((unsigned long long)(score_fixed & 0xFFFFFF)) << 40) |
@@ -118,7 +115,6 @@ uint64_t bitwise_best_fill_cuda(
     uint32_t num_chords,
     const void* active_context_ptr,
     const void* expected_reality_ptr,
-    uint32_t target_id,
     const void* geodesic_lut_ptr
 ) {
     if (!dictionary_ptr || !active_context_ptr || num_chords == 0) {
@@ -183,7 +179,6 @@ uint64_t bitwise_best_fill_cuda(
         num_chords,
         d_context,
         d_expected,
-        target_id,
         d_lut,
         d_result
     );

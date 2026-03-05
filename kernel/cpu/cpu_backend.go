@@ -13,7 +13,6 @@ func BestFillCPUPacked(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
-	targetIdx int,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if numChords == 0 {
@@ -44,7 +43,7 @@ func BestFillCPUPacked(
 		}
 	}
 
-	return BestFillCPUPackedBytes(dictBytes, numChords, ctxBytes, expBytes, targetIdx, lutBytes)
+	return BestFillCPUPackedBytes(dictBytes, numChords, ctxBytes, expBytes, lutBytes)
 }
 
 func BestFillCPUPackedBytes(
@@ -52,7 +51,6 @@ func BestFillCPUPackedBytes(
 	numChords int,
 	ctxBytes []byte,
 	expBytes []byte,
-	targetIdx int,
 	lutBytes []byte,
 ) (uint64, error) {
 	if numChords < 0 {
@@ -113,9 +111,7 @@ func BestFillCPUPackedBytes(
 			geodDist = uint16(lutBytes[ctxRot*60+rotCandidate])
 		}
 
-		indexDist := numeric.AbsInt(id - targetIdx)
-		combined := min(65535, indexDist+int(geodDist))
-		invertedDist := uint16(65535 - combined)
+		invertedDist := uint16(65535 - geodDist)
 
 		packed := numeric.PackResult(scoreFixed, invertedDist, id)
 		if packed > bestPacked {
