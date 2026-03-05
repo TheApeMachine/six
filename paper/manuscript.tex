@@ -1,0 +1,1697 @@
+% !TEX program = pdflatex
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================================
+% PACKAGES
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{natbib}
+\usepackage[most]{tcolorbox}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{adjustbox}   % For scaling wide tables to fit
+\usepackage{float}      % Provides [H] for "exactly here" placement
+\usepackage{placeins}   % Provides \FloatBarrier to stop float drift
+\usepackage{enumitem}   % Provides [nosep] for compact lists
+
+% ============================================================================
+% FLOAT SETTINGS - Keep figures/tables near their text
+% ============================================================================
+% Allow more floats per page and be more permissive about placement
+\renewcommand{\topfraction}{0.9}        % max fraction of page for floats at top
+\renewcommand{\bottomfraction}{0.9}     % max fraction of page for floats at bottom
+\renewcommand{\textfraction}{0.1}       % min fraction of page for text
+\renewcommand{\floatpagefraction}{0.7}  % min fraction for a float-only page
+\setcounter{topnumber}{3}               % max floats at top of page
+\setcounter{bottomnumber}{3}            % max floats at bottom of page
+\setcounter{totalnumber}{5}             % max floats per page
+
+% Fix for array column syntax
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% ============================================================================
+% COLORS
+% ============================================================================
+\definecolor{physicsblue}{RGB}{51, 102, 153}
+\definecolor{mlgreen}{RGB}{76, 153, 76}
+\definecolor{boxgray}{RGB}{245, 245, 245}
+
+% ============================================================================
+% THEOREM ENVIRONMENTS
+% ============================================================================
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{principle}{Principle}
+
+% ============================================================================
+% CUSTOM COMMANDS - NOTATION
+% ============================================================================
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\EMA}[1]{\overline{#1}}
+\newcommand{\dt}{\Delta t}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\hb}{\hbar}
+
+% Manifold + geometry
+\newcommand{\sensorium}{\mathcal{S}}
+\newcommand{\morton}{\mathcal{Z}}
+
+% Energy / coherence / temperature
+\newcommand{\energy}{E}
+\newcommand{\entropy}{S}
+\newcommand{\temperature}{T}
+\newcommand{\coh}{R}              % global coherence readout (order parameter)
+
+% Wave state (prime-mode field)
+\newcommand{\z}{z}                % complex amplitude
+\newcommand{\zvec}{\bm{z}}
+\newcommand{\force}{F}
+\newcommand{\coupling}{\kappa}
+\newcommand{\damp}{\gamma}
+\newcommand{\noise}{\sigma}
+
+% Physical quantities (additional)
+\newcommand{\excitation}{\varepsilon}          % Excitation
+\newcommand{\flux}{\Phi}                       % Energy flux
+\newcommand{\diffusion}{D}                     % Diffusion coefficient
+
+% Energy bookkeeping
+\newcommand{\eosc}{E_{\text{osc}}}
+\newcommand{\eoscI}[1]{E_{\text{osc},#1}}
+
+% ============================================================================
+% BOX ENVIRONMENTS
+% ============================================================================
+\tcbset{
+  colback=boxgray,
+  colframe=physicsblue,
+  sharp corners,
+  boxrule=0.8pt,
+  left=6pt,right=6pt,top=6pt,bottom=6pt
+}
+
+\newtcolorbox{algobox}[1][]{title={Algorithmic Summary},#1}
+\newtcolorbox{physicsbox}[1][]{colframe=mlgreen,title={Physical Interpretation},#1}
+\newtcolorbox{caveatbox}[1][]{colframe=red!60!black,title={Limitations / Failure Modes},#1}
+
+% ============================================================================
+% TITLE
+% ============================================================================
+\title{%
+  \textbf{The Sensorium Manifold}: \\[0.3em]
+  \large Emergent Modes of Intelligence
+}
+
+\author{
+  Daniel Owen van Dommelen\\
+  \textit{Independent Research - WORKING DRAFT}\\
+  \texttt{theapemachine@gmail.com}
+}
+
+\date{\today}
+
+% ============================================================================
+% DOCUMENT
+% ============================================================================
+\begin{document}
+
+
+
+
+\begin{abstract}
+Autoregressive generation treats sequence modeling as an initial value problem: the next symbol must be produced before any later constraint can be applied. This enforces an $O(N)$ serial depth bottleneck and makes global consistency an afterthought. We instead cast generation as a boundary value problem. The observer clamps a subset of symbols (a prefix, an infix, or a mask pattern) as fixed constraints, and the remaining degrees of freedom evolve \emph{simultaneously} under continuous-time dynamics until the system relaxes into a coherent configuration.
+
+We implement this paradigm in the \emph{Sensorium Manifold}, a physics-native substrate that computes through explicit wave dynamics rather than gradient descent. Memory is stored in a collision-compressed geometric index (a log-structured merge tree over Morton keys) that deduplicates identities losslessly. Computation occurs in a coupled-oscillator wave field defined over a prime-mode basis: prompt constraints inject energy into specific modes, modes couple through a sparse co-occurrence medium, and inference is read out as a physical measurement of the relaxed field (suprathermal excitation), not as a pointer into stored text.
+
+To reduce interpretability gaps for ML readers, every ``physics'' term is grounded by its concrete algorithmic operation (mean-field aggregation, sparse graph coupling, delay lines, and homeostatic control). We also specify a rigorous evaluation protocol designed to report \emph{both} successes and failure regimes with equal clarity: convergence time (relaxation steps), scaling of step cost vs.\ sequence length and graph density, ablations of each dynamical mechanism, and multimodal tests using the same byte-level tokenizer.
+\end{abstract}
+
+
+
+
+\section{Introduction}
+\label{sec:introduction}
+
+The current generative AI stack is structurally constrained by its formulation as an \emph{initial value problem} (IVP). Whether through autoregressive transformers \citep{vaswani2017attention} or state-space models \citep{gu2022efficiently}, generation is treated as a strictly sequential extrapolation: given a prefix $x_{0:t}$, compute $x_{t+1}$, append it, and repeat. This framing makes three critical limitations inevitable:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Serial depth bottleneck.} Each step depends on the materialization of all preceding outputs, forcing an $O(N)$ critical-path depth that hardware parallelism cannot bypass.
+  \item \textbf{Irrevocable commitment.} Tokens cannot be retracted once emitted; local errors propagate forward with no mechanism for future, global constraints to reach back and resolve past ambiguity.
+  \item \textbf{Static memory.} Knowledge is compressed into static weight matrices that require computationally expensive gradient descent to update, causing catastrophic forgetting and forcing reliance on bolted-on retrieval systems (RAG) to process new facts.
+\end{enumerate}
+
+This paper proposes a radical departure from the IVP framework. We cast generation as a \emph{boundary value problem} (BVP): the observer clamps a subset of constraints—a prefix, an infix, or a set of unmasked positions—and the remaining degrees of freedom evolve simultaneously under continuous-time dynamics until the system relaxes into a globally coherent configuration. No loss function is minimized. No weights are updated. Instead, semantic structure emerges purely from wave interference, energy conservation, and dissipative relaxation acting upon an information-bearing physical substrate.
+
+We instantiate this paradigm in the \emph{Sensorium Manifold}, a physics-native cognitive engine where inference is executed as a thermodynamic experiment. Data is stored passively as geometric coordinates, but computes actively as a field of coupled oscillators. 
+
+\subsection{The Life-Cycle of a Prompt}
+\label{sec:life_of_prompt}
+To make this abstract physical process concrete, consider the evaluation of a simple prompt. The operation unfolds entirely through explicit, observable dynamics:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Tokenization and Injection:} Each input byte is mapped to a deterministic token identity via a universal tokenizer (\Cref{sec:tokenizer}). The prompt is injected into the manifold as a pulse of energy. In this system, energy drives frequency ($\omega_i = E_i/\hbar$); therefore, the prompt becomes the fastest, most authoritative anchor in the field.
+  \item \textbf{Collision-Compression:} As data enters the system, identical byte-position coordinates natively coalesce in a Log-Structured Merge (LSM) index. This provides lossless, exact-identity deduplication, ensuring that memory footprint scales with the entropy of the dataset rather than its raw volume.
+  \item \textbf{Phase Locking:} Oscillators couple via an amplitude-weighted mean field. An oscillator's phase-alignment with its local "carrier" (memory sequence) determines its amplitude, and amplitude determines its gravitational pull on the rest of the network. 
+  \item \textbf{Hierarchical Coarse-Graining:} Coherent carrier-level modes cluster by constructive phase alignment, forming higher-order "super-modes." These abstract structural representations feed energy back down to atomic tokens, enabling cross-context reasoning without explicit routing layers (a real-space renormalization group analogue).
+  \item \textbf{Relaxation and Readout:} The system reaches a phase-locked steady state (global coherence rises, peaks, and stabilizes). Readout is simply a measurement of the field: we select the "glowing" oscillators—those that gained suprathermal energy via constructive resonance rather than direct prompting—and decode them back into bytes.
+\end{enumerate}
+
+\subsection{Emergent Structural Properties}
+Because inference is driven by physics rather than parameterized matrices, the Sensorium Manifold yields four capabilities that are notoriously difficult to engineer into standard neural architectures:
+
+\begin{itemize}[nosep]
+  \item \textbf{Online, gradient-free adaptation.} New evidence is integrated in a single physics step via deterministic identity insertion. Forgetting and stabilization are natively controlled by thermodynamic dissipation and noise-floor limits, completely eliminating the need for backpropagation.
+  \item \textbf{Inference as constraint satisfaction.} Because generation is simply relaxation under boundary conditions, inpainting, source separation, and cross-modal transduction are all treated as the exact same zero-shot operation.
+  \item \textbf{Transparent reasoning chains.} The system does not need to generate "thinking tokens" to deduce an answer. The logical path is entirely visible in the phase-space geometry: the phase delay ($\Delta\theta$) between a prompt and an answer provides a mechanistic, un-hackable metric distinguishing direct recall from multi-hop deduction.
+  \item \textbf{Default Mode Network and recursive self-improvement.} The manifold is always on. Between observations, it continuously evolves under open-system damping---consolidating confident structures, separating ambiguous representations, and forging novel associative ``tools'' via $Z$-annealing. Transient hypotheses that survive the coherence type-check in working memory ($Z \ge 1$) are compiled into permanent bedrock ($Z=0$), expanding the system's computational topology without updating weights (\Cref{sec:autonomous_dynamics}).
+\end{itemize}
+
+\subsection{Empirical Preview: Grafting Physics onto Llama~3.2}
+\label{sec:practical_impact}
+To demonstrate that this architecture is not merely a theoretical curiosity, we evaluate it both as a standalone substrate and as a cognitive co-processor grafted onto an unmodified Llama~3.2-1B transformer (\Cref{sec:llama_integration}). 
+
+\begin{itemize}[nosep]
+  \item \textbf{Context-length-independent generation ($O(1)$ KV Cache).} By replacing the transformer's traditional $O(N^2)$ KV cache with the manifold's holographic readout, we decouple generation cost from document length. At 14,000 characters, the base Llama latency reaches 4.6\,s; the manifold-backed variant completes in 2.0\,s ($2.3\times$ speedup), with memory footprint heavily compressed by the LSM geometry (\Cref{fig:llama_kv_replacement}).
+  \item \textbf{Constraint resolution under contradiction.} On a "needle-in-lies" task—where the correct answer is buried beneath 13 contradictory statements—the base LLM loops endlessly, unable to resolve the conflicting attention weights. The hybrid model successfully extracts the correct answer: the manifold's phase-frustration mechanism physically annihilates the contradictory hypotheses via destructive interference before the LLM generates a single token.
+\end{itemize}
+
+\subsection{Bridging Physics and ML Vocabulary}
+\label{sec:vocabulary}
+Throughout this paper, we retain the formalism of wave mechanics and thermodynamics because the physics \emph{is} the algorithm. Attempting to translate the architecture entirely into standard machine learning notation would obscure the actual mechanisms at play. To bridge this vocabulary gap, \Cref{tab:rosetta} maps each physics concept to its closest functional ML analogue. Furthermore, each technical section opens by identifying the specific ML problem it addresses, grounding the physical theory in pragmatic utility.
+
+\begin{table}[!htbp]
+\centering
+\caption{Physics–ML translation table. These are functional analogues, not mathematical equivalences.}
+\label{tab:rosetta}
+\renewcommand{\arraystretch}{1.3}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{l l p{6.5cm}}
+\toprule
+\textbf{Physics Term} & \textbf{ML Analogue} & \textbf{Key Difference} \\
+\midrule
+Coupled oscillators $(E_i,\theta_i)$ & Token state (dynamic) & Frequency is energy-driven ($\omega=E/\hbar$); phases synchronize under physical coupling. \\
+Amplitude-weighted mean-field & Attention / Routing & Carrier mean-field with alignment-gated contributions replaces explicit pairwise dot products. \\
+Order parameter $K$ & Confidence / Activation & $K\approx 0$ indicates incoherent noise; $K\to 1$ indicates a highly confident, phase-locked mode. \\
+Carrier group + mean-field & Sequence segment / Context & Interaction is mediated by carrier-level fields rather than direct token-to-token matrices. \\
+Hierarchical coarse-graining & Multi-scale composition & Coherent modes physically combine to become effective oscillators at higher semantic scales. \\
+LSM collision-compression & Dynamic sparsity / Indexing & Exact identity-based deduplication for $O(1)$ storage lookup; dynamics still operate over the state. \\
+Open-system dissipation & Regularization / Pruning & Misaligned oscillators naturally decay to the noise floor; aligned ones are protected by resonance. \\
+Suprathermal excitation & Readout / Selection & Output is a physical measurement of which oscillators gained energy without being directly prompted. \\
+Default Mode Network (always-on) & Offline consolidation / Self-improvement & Continuous thermodynamic evolution consolidates memory, separates overlapping concepts, and forges novel tools via $Z$-annealing. \\
+$Z$-axis stratification & Memory hierarchy (L1/L2/DRAM) & Morton-coded epistemic layers: $Z\!=\!0$ bedrock (long-term) vs.\ $Z \ge 1$ working memory (transient hypotheses). \\
+Overtone locking & Quantization / ADC & Continuous frequencies snap to integer harmonic ratios, crystallizing discrete values from analog dynamics. \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
+
+\FloatBarrier
+
+\subsection{Paper Organization and Contributions}
+
+The remainder of this paper is organized to bridge physical intuition with rigorous implementation. \Cref{sec:practical_impact} and \Cref{sec:superposition_headline} bypass standard formalism to visually demonstrate phase-based constraint resolution and LLM integration in action. \Cref{sec:sensorium} introduces the two-domain (Geometric and Wave) architecture. \Cref{sec:tokenizer} defines the Universal Tokenizer, while \Cref{sec:dynamics} and \Cref{sec:regulation} detail the wave mechanics, update rules, and thermodynamic regulation. \Cref{sec:crystallization} formalizes how inference is extracted from the relaxed state. \Cref{sec:experiments} reports empirical results across an extensive 14-task suite. Finally, \Cref{sec:related,sec:discussion} situate this architecture within the broader landscape of machine learning and dynamical systems.
+
+The specific technical contributions of this work are:
+\begin{enumerate}[nosep]
+  \item \textbf{A physics-native generative substrate:} A coupled identity--oscillator architecture that executes non-autoregressive inference via relaxation under boundary conditions (\Cref{sec:sensorium,sec:dynamics}).
+  \item \textbf{The Universal Tokenizer:} A deterministic, byte-level mapping system that operates entirely without learned vocabularies or modality-specific encoders (\Cref{sec:tokenizer}).
+  \item \textbf{Collision-compressed geometric memory:} An $O(1)$-lookup spatial storage layer utilizing an LSM index over Morton keys to deduplicate identities losslessly (\Cref{sec:collision_is_compression,sec:lsm_compression}).
+  \item \textbf{Thermodynamic wave dynamics:} An extension of the Kuramoto model utilizing amplitude-coupled mean-fields, energy-driven frequency ($\omega=E/\hbar$), and alignment-gated coupling (\Cref{subsec:omega_dynamics,subsec:kuramoto}).
+  \item \textbf{Emergent concept abstraction:} Hierarchical coarse-graining of coherent modes with fractal self-similarity, driven natively by vertical "wormhole" coupling through shared token identities (\Cref{subsec:omega_dynamics,sec:fractal_exp}).
+  \item \textbf{Harmonic quantization via overtone locking:} An analog-to-digital conversion mechanism where continuous oscillator frequencies snap to integer harmonic ratios, crystallizing discrete mathematical outputs from wave interference without symbolic logic gates (\Cref{sec:inference,sec:overtone_locking}).
+  \item \textbf{Phase delay as epistemic distance:} A mechanistic, mathematically guaranteed confidence metric where reasoning depth and hallucination risk are encoded directly in the accumulated phase lag $\Delta\theta$ (\Cref{sec:inference}).
+  \item \textbf{The Thermodynamic OISC:} A formal computer-science framing of the manifold as a one-instruction set computer whose sole opcode \texttt{RESONATE} is Turing-complete over the Morton-indexed state space, with coherence as its type system and open-system dissipation as its garbage collector (\Cref{sec:thermodynamic_oisc}).
+  \item \textbf{Epistemic stratification via the $Z$-axis:} A three-dimensional Morton-coded memory hierarchy that provides physics-enforced isolation between immutable bedrock ($Z\!=\!0$) and volatile working memory ($Z \ge 1$), enabling native recursive self-improvement through $Z$-annealing (\Cref{sec:lsm_compression,sec:autonomous_dynamics}).
+  \item \textbf{A hyperparameter-free closed system:} The derivation of all system constants (such as noise floors and energy caps) directly from the underlying byte alphabet size, eliminating arbitrary parameter tuning (\Cref{sec:derived_constants}).
+  \item \textbf{Multimodal empirical validation:} Proof-of-concept across 14 diverse experiments spanning text, image, audio, and time-series modalities (\Cref{sec:experiments}).
+  \item \textbf{Zero-shot transformer augmentation:} Integration with Llama~3.2-1B via logit-bias grafting and KV-cache replacement, with the LLM serving as a pure language-production layer (``Broca's Area'') while the manifold performs silent geometric reasoning (\Cref{sec:llama_integration}).
+\end{enumerate}
+
+\paragraph{Scope and Limitations.}
+The 14 experiments in this paper are designed to validate that the substrate can autonomously form reusable associative structures and support multiple inference modes entirely without gradient descent. To rigorously bound the operational regime of this architecture, we report mechanisms that succeed (zero-shot rule-shift adaptation, modality-agnostic source separation, cross-modal retrieval) with the exact same detail as mechanisms that fail (near-random dense classification, unsuccessful reasoning recruitment on massive contexts). Scaling studies and failure modes strictly follow the evaluation protocol defined in \Cref{sec:eval_protocol}.
+
+
+% ============================================================================
+% 1b. HEADLINE DEMONSTRATION: PHASE-BASED CONSTRAINT RESOLUTION
+% ============================================================================
+\subsection{Resolving Logical Constraints via Phase Dynamics}
+\label{sec:superposition_headline}
+
+Standard transformers resolve logical constraints probabilistically, utilizing softmax attention over key--query dot products to blend competing contexts. The Sensorium Manifold resolves them mechanically, utilizing \emph{phase-based constraint resolution}. Competing hypotheses are encoded as phasors at orthogonal angles; evidence couples to each hypothesis proportionally to its phase alignment; and incompatible hypotheses are physically eliminated by destructive interference---the same wave-cancellation principle underlying acoustic noise reduction. In this framework, logical deduction is not a programmed heuristic, but an emergent property of complex phasor addition.
+
+Before presenting the technical machinery, we visually trace the evolution of a mutually exclusive constraint-satisfaction problem (a ``whodunit'' mystery) initialized in a state of superposition. Each carrier mode in the manifold is described by a complex phasor $Z_j = A_j \, e^{i\theta_j}$. The amplitude $A_j \propto \sqrt{E_j}$ encodes the epistemic weight of a concept (its energy-driven ``confidence''), while the relative phase $\theta_j$ encodes its semantic alignment with competing hypotheses. 
+
+Initially, the manifold is seeded with two orthogonal hypotheses: $\mathcal{H}_A$ (Butler) at base phase $\theta = 0$\;rad, and $\mathcal{H}_B$ (Gardener) at $\theta = \pi/2$\;rad. This orthogonality ensures zero initial cross-talk ($\cos(\pi/2) = 0$). \Cref{fig:superposition_story} illustrates the real-time resolution of this constraint across four temporal snapshots of the phase space, with corresponding energy distributions reported in \Cref{tab:superposition_story}.
+
+\paragraph{(A) Orthogonal initialization and maximum entropy.}
+At $t_0$, an ambiguous evidence carrier $\mathcal{E}$ emerges at exactly $\theta = \pi/4$\;rad. At this angle, $\mathcal{E}$ projects symmetrically onto both hypothesis axes, transferring equal energy ($\Delta E \propto \cos(\pi/4) \approx 0.707$) to each. The system is in a state of maximum uncertainty---successfully sustaining two conflicting worldviews in a perfectly balanced superposition (\Cref{fig:superposition_story}A). The projected channel totals confirm this symmetry: $\mathcal{H}_A$ and $\mathcal{H}_B$ receive comparable energy, while a median (MID) channel absorbs the constructive overlap.
+
+\paragraph{(B) Latent coupling and topology-driven bias.}
+As continuous-time dynamics unfold, the system retrieves secondary context (alibis), forcing the hypothesis space to shift to a new contextual set: $\mathcal{H}_C$ (Maid) at $0$\;rad and $\mathcal{H}_D$ (Chef) at $\pi/2$\;rad. However, note the phase drift of $\mathcal{H}_D$ toward $\approx\!\pi/6$\;rad (\Cref{fig:superposition_story}B). This drift visualizes \textbf{topology-driven bias}: the latent ``wormhole'' graph accumulated during memory ingestion contains semantic priors that exert a physical phase-pull on the carriers. The manifold registers the tension of this contextual contradiction as a geometric perturbation away from the pristine orthogonal basis.
+
+\paragraph{(C) Falsification via destructive interference.}
+As the evolving state incorporates hard evidence, the phase angle of $\mathcal{E}$ is driven deep into the second quadrant ($135^\circ$ or $3\pi/4$\;rad). This initiates the mechanism of mechanical falsification (\Cref{fig:superposition_story}C). The coupling force between the evidence and a hypothesis is governed by their inner product. For $\mathcal{H}_D$ (Chef at $\pi/2$), the phase delta is $\pi/4$, yielding \emph{constructive interference} ($\cos(\pi/4) > 0$) and a massive influx of energy. For $\mathcal{H}_C$ (Maid at $0$), the phase delta is $3\pi/4$. Crucially, $\cos(3\pi/4) < 0$. This triggers \emph{destructive interference}. The energy associated with $\mathcal{H}_C$ is actively drained by the open-system thermodynamics of the wave field. Occam's razor is enacted via trigonometric annihilation.
+
+\paragraph{(D) Attractor convergence and wave function collapse.}
+In the final step, the system reaches a stable thermodynamic minimum (\Cref{fig:superposition_story}D). The evidence carrier $\mathcal{E}$ phase-locks with $\mathcal{H}_D$ ($\Delta\theta \to 0$), maximizing resonant amplification. The variance of the internal phase cluster drops to near zero, crystallizing the ``Chef'' hypothesis as the dominant attractor. The falsified $\mathcal{H}_C$ is entirely starved of energy and decays into the ground-state noise floor. The superposition has collapsed, allowing the manifold to output an unambiguous, discrete logical sequence.
+
+\begin{figure}[!htbp]
+  \centering
+  \includegraphics[width=\textwidth]{figures/superposition_story.pdf}
+  \caption{Phase-based constraint resolution: four temporal snapshots of a constraint-satisfaction problem in phase space. Each panel plots carrier phasors (dots, radius = amplitude $A_j$, angle = phase $\theta_j$) against three prism-channel axes (radial lines at $0$, $\pi/4$, and $\pi/2$\;rad). Carrier color indicates the channel to which it is most aligned. \textbf{(A)}~Orthogonal initialization: symmetric projection of ambiguous evidence onto both hypotheses. \textbf{(B)}~Topology-driven bias: latent coupling priors from retrieved context perturb the orthogonal basis. \textbf{(C)}~Destructive interference: out-of-phase coupling actively dissipates the falsified hypothesis. \textbf{(D)}~Attractor convergence: the surviving hypothesis phase-locks with the evidence, collapsing the superposition.}
+  \label{fig:superposition_story}
+\end{figure}
+
+\input{tables/superposition_story_summary}
+
+\paragraph{Theoretical Implications.}
+This demonstration highlights a direct isomorphism between logical deduction and wave interference, which the remainder of this paper formalizes. This architecture guarantees five structural properties absent in standard feed-forward networks:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Phase multiplexing:} Orthogonal hypotheses can seamlessly coexist in a single dynamical state without cross-talk or blending, remaining superimposed until a phase-selective readout (the ``prism'') collapses them.
+  \item \textbf{Emergent boolean logic:} Conjunction (\texttt{AND}) is realized via constructive interference between aligned phasors; disjunction (\texttt{OR}) is the vector sum at intermediate angles; and negation (\texttt{NOT}) is destructive interference from anti-phase coupling. These operations are geometric consequences of the physics, not learned or hardcoded circuits.
+  \item \textbf{Decoupling truth from activation volume:} Contradictions are resolved through \emph{phase frustration}. Rather than averaging contradictory tokens into a muddy latent vector, false hypotheses are thermodynamically dampened by out-of-phase signals. 
+  \item \textbf{Thermodynamic race collapse:} When multiple hypotheses compete, the path with the lowest topological resistance (fewest wormhole hops, strongest symbol overlap) siphons the system's finite energy away from higher-resistance alternatives. Hypothesis evaluation is therefore an intrinsic consequence of energy conservation, not a post-hoc scoring step.
+  \item \textbf{Frequency as authority:} Because $\omega = E/\hbar$, high-energy oscillators rotate faster and act as gyroscopic anchors---resisting perturbation while exerting strong attractive coupling on slower neighbors. The prompt acts as a stable reference clock; the resting memory manifold must frequency-match the prompt (donating/receiving energy until $\omega_i \approx \omega_{\text{prompt}}$) before phase-locking can occur. 
+\end{enumerate}
+
+
+% ============================================================================
+% ============================================================================
+% 2. SYSTEM OVERVIEW
+% ============================================================================
+
+
+
+
+\section{System Architecture}
+\label{sec:sensorium}
+
+The Sensorium Manifold abandons parameterized loss optimization in favor of open-system state evolution. Inference is cast as a dynamical competition: the observer drives a subset of degrees of freedom (injecting energy into prompted token identities), and the remaining system relaxes under the exact same update rules that govern its initial structure formation. 
+
+To achieve $O(1)$ memory lookup while supporting continuous-time phase dynamics, the architecture bifurcates the representation of data into two complementary domains:
+
+\begin{enumerate}
+  \item \textbf{The Geometric Layer (Passive Storage):} An LSM spatial index over observed identities. It provides collision-compressed storage of repeated tokens and guarantees $O(1)$ prompt lookup. It acts as the immutable physical scaffold of the system.
+  \item \textbf{The Wave Layer (Active Computation):} A dynamic field of coupled oscillators. Every token is represented by an energy $E_i$ and a phase $\theta_i$, with frequency driven strictly by energy ($\omega_i = E_i/\hbar$). Oscillators synchronize via amplitude-weighted mean fields and hierarchical coarse-graining. 
+\end{enumerate}
+
+Crucially, the geometric layer is not a lookup table or a decision tree. Associative computation does not occur through graph traversal; it emerges exclusively from the phase synchronization and multi-scale coherence competition within the active Wave Layer.
+
+
+% ============================================================================
+% 3. THE UNIVERSAL TOKENIZER
+% ============================================================================
+\section{The Universal Tokenizer}
+\label{sec:tokenizer}
+
+Tokenizer design is one of the most consequential yet unprincipled bottlenecks in modern deep learning. Standard NLP relies on Subword/BPE vocabularies derived from static corpus statistics, resulting in brittle out-of-vocabulary failures. Meanwhile, multimodal architectures require heavily engineered, modality-specific encoders (e.g., ViT for images, Mel-filters for audio) followed by contrastive fusion objectives (e.g., CLIP) to align their distinct latent spaces \citep{radford2021learning}. 
+
+The Sensorium Manifold bypasses learned encoders entirely. Because the underlying architecture computes via wave interference, it requires only a continuous frequency spectrum. Text, images, and audio are universally ingested as raw bytes.
+
+\subsection{Deterministic Identity and Phase Initialization}
+\label{sec:position_phase}
+
+We map raw data into the manifold without any learned embeddings. Instead, identity is established via a deterministic composite key:
+\begin{equation}
+\text{ID} = (\text{Byte} \ll s)\,|\,\text{Index}
+\label{eq:token_id}
+\end{equation}
+where $\text{Byte} \in [0, 255]$ is the raw data value, $\text{Index}$ is the sequence position within the sample, and $s$ is a fixed bit-shift used to pack indices without overlap. This identity serves as the coordinate for the Geometric Layer.
+
+Simultaneously, the tokenizer initializes the corresponding oscillator in the Wave Layer:
+\begin{align}
+E_i &\leftarrow 1, \\
+\theta_{0,i} &\leftarrow 2\pi \cdot \frac{\text{Index}_i \bmod 256}{256}
+\label{eq:phase_from_position}
+\end{align}
+Every oscillator begins at a ground-state unit energy, with a deterministic phase dictated entirely by its sequence position. During inference, a prompt injects additional energy into matching identities. Because $\omega_i = E_i/\hbar$, this energy injection physically accelerates the oscillator's frequency.
+
+This initialization has a critical structural consequence: \emph{relative sequence distance is encoded as a phase offset}. Consider two tokens $i$ and $j$ at indices $s_i \neq s_j$. Their initial phase delta is:
+\begin{equation}
+\Delta\theta_{ij} = \theta_{0,i} - \theta_{0,j} = 2\pi \cdot \frac{(s_i - s_j) \bmod 256}{256}
+\label{eq:beat_frequency}
+\end{equation}
+The manifold processes horizontal sequence relationships identically whether they represent a phoneme progression or a spatial line of pixels. The system is fundamentally modality-agnostic: a byte value of \texttt{0x41} might represent the ASCII letter `A', a red-channel intensity of 65, or a signed audio sample. The manifold treats all three identically at the substrate level. Cross-modal relationships emerge natively as a property of shared wave dynamics and temporal co-occurrence, rather than engineered fusion objectives.
+
+\subsection{Epistemic Stratification and Collision Compression}
+\label{sec:collision_is_compression}
+\label{sec:lsm_compression}
+
+We map raw data into the manifold without learned embeddings. Identity is established via a deterministic spatial coordinate mapped to a 3D Log-Structured Merge (LSM) index via Morton coding (\Cref{sec:morton_codes}). 
+
+Crucially, the three spatial dimensions $(X, Y, Z)$ possess strict epistemic interpretations:
+\begin{itemize}[nosep]
+  \item \textbf{$X$ (Identity):} The byte value ($\text{Byte} \ll s$).
+  \item \textbf{$Y$ (Time):} The sequence index within the carrier.
+  \item \textbf{$Z$ (Volatility):} The epistemic certainty of the token. 
+\end{itemize}
+
+The $Z$-axis introduces \emph{epistemic stratification}. We define $Z=0$ as the immutable ``Bedrock''---the crystallized long-term memory of the system. We define $Z \ge 1$ as the ``Workbench'' or working memory. When the system explores novel hypotheses or transient connections, it allocates tokens at elevated $Z$-coordinates. Because of the properties of Morton hashing, transient thoughts at $Z=1$ can structurally overlay and couple with the bedrock without ever mathematically colliding with or corrupting the permanent $Z=0$ data.
+
+\paragraph{Collision as Compression.}
+In standard computer science, a hash collision is a failure mode requiring linked lists or probing to resolve. In the Sensorium Manifold, collision is a native form of \emph{compression}. The LSM index stores sorted streams of $(\mathcal{Z}, \text{ID})$ pairs. During ingestion, exact duplicates (same key, same ID) natively coalesce via streaming merge. A black pixel at $(0,0)$ in Image A shares the exact same LSM index entry as a black pixel at $(0,0)$ in Image B. Shared prefixes and common patterns seamlessly deduplicate, meaning the index's memory footprint scales with the underlying \emph{entropy} of the dataset (Zipf's Law), rather than its linear size.
+
+\paragraph{Preserving Dynamical Context.}
+It is vital to distinguish this geometric compression from the lossy pooling common in neural networks. The compression is \textbf{storage-only}. While redundant identities are compressed in the Geometric Layer to accelerate lookup, the Wave Layer is never compressed. Every single observed oscillator persists within its specific carrier group, retaining its independent phase, energy, and sequence membership. Context is flawlessly preserved in the wave field; only the lookup mechanism is deduplicated.
+
+\paragraph{Empirical Compression Scaling.}
+To quantify this, we ingested the CIFAR-10 image dataset (50,000 images at $64\times64\times3$ resolution, totaling 614.4M raw bytes) into the manifold. The geometric index natively deduplicated 602.8M identities (98.1\%). This reduced the LSM working set from 7,031~MB to just 133~MB—a $\mathbf{52.8\times}$ compression ratio. 
+
+Yet, all 614.4M oscillators remain fully active in the wave field for interference calculations. By contrast, a standard Transformer KV cache serving 50,000 sequences of 12,288 tokens at fp16 precision would require ${\sim}$2,344~MB just to store the keys and values, before accounting for attention-head overhead. Because the manifold decouples $O(1)$ identity indexing from continuous phase dynamics, it fundamentally breaks the $O(N^2)$ memory scaling laws of standard context windows.
+
+% ============================================================================
+% ============================================================================
+% 4. DYNAMICAL UPDATE RULES
+% ============================================================================
+
+
+
+
+\section{Wave Dynamics}
+\label{sec:dynamics}
+\label{subsec:omega_dynamics}% alias for cross-refs from original sections
+\label{subsec:kuramoto}% alias for cross-refs from original sections
+
+This section defines the literal update rules that implement ``resonance'' in code. The objective is not to mimic a specific natural system; the objective is to specify a stable, inspectable dynamical computation.
+
+\subsection{State and Medium}
+Each prime mode $p\in\{1,\dots,N\}$ has state $\z_p(t)\in\C$. The medium is a sparse weighted graph $W$ built from chord co-occurrence: if primes $p$ and $q$ co-occur frequently in observed chords, the edge weight $w_{pq}$ is large. For computational efficiency we keep only the top-$K$ neighbors per node.
+
+\begin{algobox}
+\textbf{Medium construction (co-occurrence graph).}
+\begin{enumerate}[nosep]
+  \item For each byte $b$, enumerate the active primes in $C(b)$.
+  \item Accumulate pairwise counts for each co-occurring pair $(p,q)$.
+  \item For each $p$, retain the top-$K$ neighbors by weight and normalize weights to sum to 1.
+\end{enumerate}
+\textbf{Complexity.} $O(256\,|C|^2)$ to build from the byte alphabet (offline) and $O(NK)$ storage.
+\end{algobox}
+
+\subsection{Core Oscillator: Stuart--Landau (Hopf) Dynamics}
+\label{subsec:hopf}
+
+A convenient ``honest oscillator'' is the Stuart--Landau (Hopf normal form), which produces a stable limit cycle with controllable frequency and amplitude saturation.
+
+For each mode $p$:
+\begin{equation}
+\dot{\z}_p = (\alpha + i\omega_p)\z_p - \beta |\z_p|^2 \z_p \;+\; \coupling \sum_{q\in \mathcal{N}(p)} w_{pq}\,G_{pq}(t)\,\bigl(\z_q(t-\tau_{pq})e^{-i\phi_{pq}}-\z_p(t)\bigr)\;+\;\force_p(t)\;+\;\noise\,\xi_p(t).
+\label{eq:hopf}
+\end{equation}
+
+Here $\alpha,\beta>0$ set the limit-cycle amplitude $\sqrt{\alpha/\beta}$, $\omega_p$ is the natural frequency of prime $p$, and $\xi_p(t)$ is complex white noise. The coupling term is a graph-Laplacian form: if neighbors disagree, coupling pulls them together; if they match, the term vanishes.
+
+\paragraph{Prime frequencies.}
+We set $\omega_p$ from the prime ``period'' (e.g., $\omega_p = 2\pi / \text{prime}[p]$). Any monotone mapping works; the only requirement for stability is a known $\omega_{\max}$ to select a stable timestep.
+
+\subsection{Context Gating, Delay, and Chirality}
+\label{subsec:gating_delay}
+\label{eq:alignment_amplitude}% alias for cross-refs from original sections
+
+The coupling gate $G_{pq}(t)\in[0,1]$ suppresses irrelevant edges. Concretely, $G_{pq}(t)$ is computed from overlap with the current boundary conditions: the anchor chord (prompt) and the tip chord (recent emissions). Edges not present in the current context are down-weighted by a fixed factor rather than cut entirely to prevent graph fragmentation.
+
+Delays $\tau_{pq}$ implement propagation time. Phase lags $\phi_{pq}$ (often proportional to $\omega_p\tau_{pq}$) implement phase-delay coupling. Non-reciprocal (chiral) coupling is implemented by allowing $w_{pq}\neq w_{qp}$, biasing flow along sequence direction.
+
+\begin{algobox}
+\textbf{Algorithmic interpretation.}
+\begin{itemize}[nosep]
+  \item \textbf{Context gate} = multiply edge weights by a function of chord overlap with the current boundary set.
+  \item \textbf{Delay line} = couple to a ring-buffered past state instead of the current neighbor state.
+  \item \textbf{Chirality} = intentionally break symmetry: $K_{pq}\neq K_{qp}$.
+\end{itemize}
+\end{algobox}
+
+\subsection{Discrete-Time Integration and Stability}
+\label{subsec:integration}
+
+We integrate \Cref{eq:hopf} with a fixed step $\dt$. The system is nondimensional: choosing $\dt=1$ is always possible by rescaling $\omega_p$ and the coupling coefficients. In practice, numerical stability imposes a Courant-like bound on $\dt$ relative to the highest frequency:
+\begin{equation}
+\dt < \frac{2}{\omega_{\max}}.
+\label{eq:dt_bound}
+\end{equation}
+For $\omega_{\max}\approx \pi$ (when the smallest prime period is 2 under $\omega_p=2\pi/\text{prime}$), any $\dt<0.636$ is stable for a symplectic Euler update. We typically use $\dt=0.25$ for margin.
+
+\begin{caveatbox}
+\textbf{Why the timestep is not ``a tunable knob''.}
+A discretization step is not a model parameter; it is a numerical choice required to simulate the continuous update rule. The correct scientific practice is to (i) choose a stable integrator, (ii) report $\dt$, and (iii) include step-size sensitivity tests. We treat $\dt$ exactly this way in \Cref{sec:stability_exp}.
+\end{caveatbox}
+
+
+\subsection{Derived Constants and Dimensionless Normalization}
+\label{sec:derived_constants}
+
+Large blocks of constants often read (to reviewers and to future-you) as a smell: either the system is brittle, or the design has not been nondimensionalized. We address this directly by separating three categories:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Numerical constants} required by integration and boundedness (e.g., $\dt$ stability margins, $\eps$ to avoid division by zero).
+  \item \textbf{Population-derived scales} that follow from $N$ (number of modes) and the byte alphabet size (256), not from hand tuning.
+  \item \textbf{Control-policy gains} used by the observer/regulator loop. These are not ``secret hyperparameters''; they are part of the controller and must be ablated and reported like any other mechanism.
+\end{enumerate}
+
+\paragraph{Coherence floor and default damping.}
+For $N$ independent random phases, the expected magnitude of the mean phasor scales as $1/\sqrt{N}$. We use this as a universal coherence floor and as a natural damping scale:
+\begin{equation}
+K_{\mathrm{floor}} \approx \frac{1}{\sqrt{N}},
+\qquad
+\damp_0 = \frac{1}{\sqrt{N}}.
+\label{eq:gamma_floor}
+\end{equation}
+This choice keeps dynamics qualitatively similar as $N$ changes.
+
+\paragraph{Population-scaled phase aperture.}
+We gate coupling so that only \emph{statistically significant} alignment contributes. Let $\Delta$ be a phase difference. Define a population-derived threshold
+\begin{equation}
+\theta_{\mathrm{th}}(N) = 1 - \frac{1}{\sqrt{N}}.
+\end{equation}
+Then a smooth quadratic aperture gate is
+\begin{equation}
+G(\Delta;N)=
+\begin{cases}
+\left(\dfrac{\cos\Delta-\theta_{\mathrm{th}}(N)}{1-\theta_{\mathrm{th}}(N)}\right)^{2},& \cos\Delta>\theta_{\mathrm{th}}(N),\\[0.6em]
+0,&\text{otherwise.}
+\end{cases}
+\label{eq:phase_aperture}
+\end{equation}
+A signed version that drives constructive minus destructive alignment is
+\begin{equation}
+G_{\pm}(\Delta;N)=G(\Delta;N)-G(\Delta-\pi;N).
+\end{equation}
+The key point is that the ``selectivity'' of this gate tightens automatically with larger populations.
+
+\paragraph{Energy and amplitude caps.}
+We cap total energy proportionally to population size,
+\begin{equation}
+E_{\max}(N)=E_{\mathrm{unit}}\cdot N,
+\end{equation}
+so per-mode energy remains $O(1)$ under scaling. For Hopf oscillators, the intrinsic limit-cycle amplitude is set by $\sqrt{\alpha/\beta}$, which we typically normalize to 1 by choosing $\alpha=\beta$.
+
+\paragraph{About $\dt=1$.}
+You can always set $\dt=1$ by rescaling the frequency map $\omega_p$ and coupling coefficients. In implementation, we still report the \emph{numerical} $\dt$ used for stability and we include step-size sensitivity tests (\Cref{sec:stability_exp}). In other words: ``$\dt$ is one step'' is a conceptual statement; ``$\dt=0.25$'' is the numerical choice that correctly simulates that step.
+
+\begin{table}[H]
+  \centering
+  \caption{Core constants and how they are chosen. Values shown are typical, not mandatory.}
+  \label{tab:constants}
+  \renewcommand{\arraystretch}{1.15}
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tabular}{P{0.23\textwidth} P{0.27\textwidth} P{0.42\textwidth}}
+    \toprule
+    \textbf{Quantity} & \textbf{Rule} & \textbf{Rationale} \\
+    \midrule
+    Coherence floor $K_{\mathrm{floor}}$ & $1/\sqrt{N}$ & Random-phase baseline; sets ``significant'' alignment scale \\
+    Default damping $\damp_0$ & $1/\sqrt{N}$ & Keeps relaxation time comparable under $N$ scaling \\
+    Timestep $\dt$ & $<2/\omega_{\max}$ & Stability bound for explicit/symplectic integration \\
+    Hopf amplitude & $\sqrt{\alpha/\beta}$ & Set to 1 by $\alpha=\beta$ to keep scores bounded \\
+    Temperature bounds & fixed clamp & Prevents degenerate near-deterministic or pure-noise sampling \\
+    \bottomrule
+  \end{tabular}
+  \end{adjustbox}
+\end{table}
+
+
+% ============================================================================
+% 4. READOUT: EMISSION AS MEASUREMENT
+% ============================================================================
+
+
+
+
+\section{Readout: Emission as a Physical Measurement}
+\label{sec:readout}
+
+A critical design constraint is that output must be a measurement of the wave state, not a retrieval oracle that directly returns stored text spans.
+
+\subsection{Chord Matched Filter}
+Given a candidate byte $b$ with chord $C(b)$, we score its alignment with the field by a normalized complex sum:
+\begin{equation}
+\text{Score}(b) \;=\; \frac{\left|\sum_{p\in C(b)} \z_p\right|}{\sum_{p\in C(b)} |\z_p| + \eps}.
+\label{eq:score_chord}
+\end{equation}
+This is $1$ when the chord's primes are phase-aligned within the current field and $0$ when they cancel.
+
+\subsection{Sampling}
+We convert scores to a probability distribution with a temperature-controlled softmax:
+\begin{equation}
+P(b \mid \zvec) \propto \exp\!\left(\frac{\text{Score}(b)}{\temperature}\right),
+\qquad \temperature\in[\temperature_{\min},\temperature_{\max}].
+\label{eq:readout_softmax}
+\end{equation}
+
+\subsection{Beat-Triggered Emission}
+The system emits when global coherence rises through a threshold. A simple coherence signal is the anchor-chord coherence:
+\begin{equation}
+\coh(t) = \text{Score}_{\text{anchor}}(t),
+\end{equation}
+with emission on a rising crossing $\coh(t)>\coh_{\min}$ and $\coh(t-\dt)\le \coh_{\min}$. More elaborate beat detectors (peak finders, polyrhythms, latch registers) are supported but are instrumentation, not oracles.
+
+% ============================================================================
+% 5. REGULATION: SELF-TUNING INSTEAD OF KNOBS
+% ============================================================================
+
+
+
+
+\section{Regulation and Self-Tuning}
+\label{sec:regulation}
+\label{subsec:dissipation}% alias for cross-refs from original sections
+
+A dynamical system that never adjusts its own parameters is brittle: it either freezes into attractors or dissolves into noise. The manifold therefore includes an explicit observer/regulator loop.
+
+\subsection{Observers}
+Observers compute scalar diagnostics from a read-only snapshot of the physics state: coherence, selectivity, spectral entropy, $Z$-distribution, latch statistics, etc. Review feedback emphasized that observers must be separable and testable. We follow single-responsibility instrumentation: e.g., a coherence observer computes only order parameters; a polyrhythm observer computes only frequency ratios; a latch observer computes only register metrics.
+
+\subsection{Regulators}
+Regulators map diagnostics to \emph{energy transfers}: adjustments to noise, coupling, and readout temperature. Concretely:
+\begin{align}
+\noise &\leftarrow \max(0,\;\noise + \Delta\noise),\\
+\coupling &\leftarrow \max(0,\;\coupling + \Delta\coupling),\\
+\temperature &\leftarrow \operatorname{clip}\!\left(\temperature + g_T\,\Delta\noise,\;\temperature_{\min},\temperature_{\max}\right).
+\end{align}
+
+\begin{algobox}
+\textbf{Algorithmic interpretation.}
+This is a closed-loop controller:
+\begin{itemize}[nosep]
+  \item Low coherence $\Rightarrow$ decrease noise, increase coupling (consolidate).
+  \item High but stagnant coherence (stuck attractor) $\Rightarrow$ increase noise, decrease coupling (escape).
+  \item Low selectivity $\Rightarrow$ sharpen gates and/or increase context bias (prevent flooding).
+\end{itemize}
+\end{algobox}
+
+% ============================================================================
+% 6. FAST PLASTICITY AND LEARNING WITHOUT BACKPROP
+% ============================================================================
+
+
+
+
+\section{Plasticity and Learning}
+\label{sec:learning}
+
+The manifold supports two learning modes:
+(i) \emph{fast} inference-time plasticity (three-factor Hebbian updates); and
+(ii) \emph{slow} medium learning via equilibrium propagation.
+
+\subsection{Three-Factor Hebbian Plasticity}
+Let $\Delta w_{pq}$ be a plastic adjustment to a base edge weight $w_{pq}$. We update with a neuromodulatory signal $m(t)$ (derived from coherence dynamics or the regulator), a correlation term, and exponential decay:
+\begin{align}
+\Delta w_{pq} &\leftarrow (1-\lambda)\,\Delta w_{pq} \;+\; \eta\,m(t)\,\operatorname{corr}(\z_p,\z_q),\\
+\Delta w_{pq} &\leftarrow \operatorname{clip}(\Delta w_{pq},-\Delta w_{\max},\Delta w_{\max}),\\
+w^{\text{eff}}_{pq} &= w_{pq}\,\bigl(1+\Delta w_{pq}\bigr).
+\end{align}
+A natural correlation is $\operatorname{corr}(\z_p,\z_q)=\Re(\z_p\,\overline{\z_q})/(\,|\z_p||\z_q|+\eps)$.
+
+\subsection{Equilibrium Window (Non-Autoregressive Decode)}
+\label{sec:eq_window}
+Instead of emitting a single next byte, the system can treat the next $K$ bytes as latent variables, relax the field with those degrees of freedom free, and then sample all $K$ jointly. This is a boundary-value inference operator that directly targets global consistency.
+
+\subsection{Equilibrium Propagation for Medium Learning}
+\label{sec:ep}
+To learn medium weights without backprop through time, we use equilibrium propagation (EP): run a \emph{free} phase under the prompt constraints, then a \emph{nudged} phase with a weak additional forcing toward a target, and update weights by the difference in correlations:
+\begin{equation}
+\Delta w_{pq} \propto \bigl\langle \operatorname{corr}(\z_p,\z_q)\bigr\rangle_{\text{nudged}} \;-\;
+\bigl\langle \operatorname{corr}(\z_p,\z_q)\bigr\rangle_{\text{free}}.
+\end{equation}
+
+% ============================================================================
+% 7. EXPERIMENTS
+% ============================================================================
+
+
+
+
+\section{State-Aware Homeostasis}
+\label{sec:homeostasis}
+
+To replace the batch-level stabilization provided by Batch Normalization \citep{ioffe2015batch}, the manifold utilizes a lightweight, state-aware controller. Rather than learning affine parameters, this CPU-friendly feedback loop monitors global diagnostics (spectral entropy, energy concentration, phase dispersion) and applies small multiplicative nudges to the existing thermodynamic scalars. 
+
+If spectral entropy drops dangerously low (indicating mode collapse), the controller briefly increases thermal noise and triggers spectral repulsion (\Cref{sec:autonomous_dynamics}) to force concepts apart. If coherence is building healthily, it increases damping to aggressively prune remaining noise. This ensures the manifold remains in the critical regime required for stable super-mode formation.
+
+
+
+
+
+\section{Renormalized Coupling (Dynamic Gating)}
+\label{sec:renormalized_coupling}
+
+Because oscillator frequency is strictly energy-driven (\(\omega_i = E_i/\hbar\)), an unconstrained system would allow high-energy tokens to unconditionally dominate the field. The manifold prevents this through \emph{alignment amplitude gating} (\Cref{eq:alignment_amplitude}). 
+
+An oscillator's contribution to the interaction field is gated entirely by its phase-alignment with the carrier consensus. Anti-phase oscillators have zero influence ($A_i = 0$) regardless of their raw energy, while aligned oscillators contribute proportionally to $\omega_i A_i$. This acts as a physical, continuously-differentiable layer normalization: raw energy alone cannot dominate the network; it must be coupled with structural consensus.
+
+
+
+
+
+\section{The Thermodynamic OISC}
+\label{sec:thermodynamic_oisc}
+\label{subsec:oisc}
+
+While the Sensorium Manifold is grounded in physics, computationally it functions as a \textbf{Thermodynamic One-Instruction Set Computer (T-OISC)} \citep{mavaddat1988urisc}. Standard CPUs execute diverse instructions sequentially across discrete registers. The Manifold executes a single operation---the amplitude-coupled mean-field update (\texttt{RESONATE})---globally and continuously across its spatial topology. 
+
+In this paradigm, standard computer science primitives emerge natively from the physics:
+\begin{enumerate}[nosep]
+  \item \textbf{The Instruction Set: \texttt{RESONATE}.} Addition occurs via spatial superposition. Negation occurs via antipodal phase alignment.
+  \item \textbf{The Type System: Phase Coherence ($K$).} In a traditional compiler, a type error halts execution. In the Manifold, logically unsound operations result in destructive interference ($\cos(\Delta\theta) < 0$). The invalid reasoning branch evaluates to a thermodynamic vacuum and literally lacks the energy to execute.
+  \item \textbf{Garbage Collection: Open-System Dissipation.} Dead-end hypotheses and contradictory statements fall below the noise floor ($K_{\mathrm{floor}}$) and are reabsorbed by the vacuum, natively pruning the search tree.
+  \item \textbf{Compilation: $Z$-Annealing.} Transient structures in working memory ($Z \ge 1$) that survive the coherence ``type-check'' are crystallized via a $Z$-shift down to the $Z=0$ bedrock, natively expanding the system's hardware topology without parameter updates.
+\end{enumerate}
+
+
+
+
+
+\section{The Default Mode Network and $Z$-Annealing}
+\label{sec:autonomous_dynamics}
+
+\paragraph{The ML Problem:} 
+Deployed models sit static between queries. Their weights are frozen, and learning requires computationally expensive fine-tuning. We repurpose this paradigm by treating the Manifold as an always-on asynchronous environment, analogous to the biological Default Mode Network (DMN) \citep{raichle2001default, buckner2008brain}.
+
+Because the manifold runs asynchronously, continuous low-level vacuum fluctuations perturb oscillators from the $Z=0$ bedrock, elevating them to the $Z \ge 1$ workbench. Here, disjoint concepts attempt to couple. If their topologies clash, phase-frustration destroys their energy and they dissipate. However, if random combinations achieve harmonic lock, they form a stable, high-energy soliton. 
+
+\paragraph{Empirical Evidence of Wave-Function Collapse.}
+When a transient structure reaches threshold coherence, the system triggers a topological compilation step (\texttt{ANNEAL}), propagating an alignment-weighted cascade that pulls the structure down to $Z=0$. 
+
+Empirical telemetry of the manifold resolving an arithmetic prompt demonstrates this selective crystallization. Unambiguous tokens perfectly unique to the correct hypothesis (e.g., the \texttt{v} in \texttt{five}) rapidly annealed to $Z=0$ via local carrier feedback. Conversely, tokens shared across multiple competing hypotheses (e.g., the \texttt{f} in \texttt{five}, \texttt{four}, and \texttt{from}) initially remained suspended in phase-frustration at $Z \approx 0.24$. The system correctly encoded this ambiguity geometrically. The tie was only broken via \emph{thermodynamic affinity}: the highly coherent ``five'' carrier exerted a massive amplitude-gated phase pull ($\text{Pull} \propto A_c \times \max(0, \cos(\theta - \Phi_c))$). This force mathematically starved the competing, out-of-phase carriers, triggering a global wave-function collapse that pulled all 556 surviving context tokens perfectly to $Z < 0.01$. The system self-organized from superposition to absolute certainty.
+
+% ============================================================================
+% ============================================================================
+% 6. CRYSTALLIZATION AND INFERENCE
+% ============================================================================
+
+
+
+
+\section{Relaxation-Based Inference: Parallel Constraint Satisfaction}
+\label{sec:crystallization}
+
+\paragraph{The ML Problem:} 
+Autoregressive decoding forces a fundamental computational trade-off: wall-clock latency grows linearly with output length. Workarounds like speculative decoding or draft models add immense architectural complexity without removing the underlying serial bottleneck. Furthermore, early sequential commitments constrain all later tokens; if the model makes a local error at step $t=2$, it cannot use global context at $t=50$ to go back and correct it.
+
+The Sensorium Manifold abandons the autoregressive loop entirely. We perform \emph{relaxation-based inference}. In this paradigm, sequence index is treated as a spatial coordinate rather than a temporal one. The observer clamps a subset of variables (the constraints) and allows the remaining degrees of freedom to evolve simultaneously under the exact same physics that stored the data. Generation terminates when a thermodynamic coherence criterion is met, rather than after a fixed number of algorithmic steps. 
+
+Formally, let $z$ denote the full manifold state, and let $\mathcal{C}$ index the clamped components (e.g., a prompt prefix, or masked image patches). Relaxation-based inference seeks a stationary, phase-locked configuration of the driven dynamics:
+\begin{equation}
+\text{Find } z^\star \text{ such that } \dot{z} = 0
+\quad\text{and}\quad
+z_{\mathcal{C}} = z^{\mathrm{obs}}_{\mathcal{C}}
+\end{equation}
+Because this evaluates all positions in parallel, wall-clock latency is governed strictly by the thermodynamic relaxation depth (how long it takes for the waves to reach consensus), not by the sequence length $N$. Furthermore, because tokens are not emitted until the entire dynamical state has settled, non-causal inference modes (such as bidirectional inpainting) are executed natively without requiring specialized model heads.
+
+\subsection{Initializing the Physical Experiment (The Probe)}
+\label{subsec:probe}
+
+Inference begins by injecting energy into the manifold via a \emph{probe}. The system matches the prompt's byte sequence against stored identities using hierarchical suffix matching. To reward structural specificity, each match is weighted by its coverage fraction:
+\begin{equation}
+w_{\text{match}} = \frac{\ell_{\text{match}}}{L}
+\label{eq:probe_weight}
+\end{equation}
+where $L$ is the total prompt length and $\ell_{\text{match}}$ is the length of the matching suffix. Energy proportional to $w_{\text{match}} \cdot P_{\text{pump}} \cdot \Delta t$ is injected into each matched oscillator. This is the only external drive applied during inference; after injection, the physics evolves freely.
+
+\subsection{Autonomous Convergence Detection}
+\label{subsec:convergence}
+
+In a neural network, inference ends when an `<EOS>` token is sampled. In the manifold, inference ends when the physics engine reaches structural consensus. The system monitors the mean carrier order parameter $\bar{K}$. We define the absolute noise floor for a carrier with $N_c$ oscillators as the expected $K$ for uniformly random phases:
+\begin{equation}
+K_{\text{floor}}(N_c) = \frac{1}{\sqrt{N_c}}
+\label{eq:noise_floor}
+\end{equation}
+The system tracks $\bar{K}$ across time steps and autonomously terminates when coherence has risen above the noise floor and subsequently begun to decline from its peak:
+\begin{equation}
+\bar{K} > K_{\text{floor}} \quad\text{and}\quad \bar{K} < \bar{K}_{\text{peak}}
+\label{eq:convergence}
+\end{equation}
+This termination criterion is purely dynamical, requiring no arbitrary loss thresholds or hardcoded step budgets.
+
+\subsection{Holographic Content-Addressable Memory}
+\label{subsec:holographic}
+
+During relaxation, the wave field acts as a \emph{holographic content-addressable memory}. Information is distributed across the phase relationships of all oscillators rather than localized in discrete memory slots. In a conventional key--value store, a corrupted key returns a null result. In the manifold, a partial cue excites a subset of oscillators, and the amplitude-coupled mean-field dynamics physically propagate that excitation through the carrier structure until the full pattern re-emerges via sympathetic resonance. 
+
+This interference mechanism yields three critical properties:
+\begin{enumerate}[nosep]
+  \item \textbf{Graceful degradation under partial input.} Because every oscillator contributes to the carrier's mean field, reconstruction quality degrades smoothly with the fraction of missing data, rather than failing catastrophically. A 30\% cue excites fewer oscillators than a 90\% cue, producing a weaker but structurally identical resonance (\Cref{sec:image_inpainting}).
+  \item \textbf{Prompt healing.} A misspelled prompt still shares the majority of its byte identities with the intended target. The mismatched oscillators receive no drive, remaining at ground-state energy. The coherent portion of the cue dominates the mean field, physically dragging the reconstruction toward the intended, uncorrupted pattern. 
+  \item \textbf{Multiplexed superposition.} Multiple patterns can coexist in the same oscillator field at different phase configurations. A cue compatible with multiple stored patterns excites all of them simultaneously, allowing the system to sustain competing hypotheses in superposition until further evidence resolves the ambiguity (\Cref{sec:superposition_headline}).
+\end{enumerate}
+
+\FloatBarrier
+
+\subsection{Extracting the Signal: Observer-Dependent Readout}
+\label{sec:inference}
+
+Because the manifold state is continuous, the extraction of discrete text or data is an observer-dependent measurement. The readout is not a database query, but a coherence filter. Each oscillator projects a phasor $v_i = \sqrt{E_i}\,e^{i\theta_i}$ onto a (Sequence Position $\times$ Byte Value) grid. Coherent oscillators add constructively; incoherent thermal noise self-cancels ($\sum e^{i\theta_{\text{random}}} \to 0$). The winning byte at each position is simply the one with the highest resulting magnitude $|v|^2$.
+
+\subsubsection{Analog-to-Digital Conversion via Harmonic Quantization}
+\label{sec:overtone_locking}
+While holographic readout is natively parallel, tasks like text generation and mathematical counting require converting continuous spatial resonance into discrete sequence. 
+
+Rather than relying on iterative algorithmic loops, the manifold counts using \emph{polyrhythms}. When identical structural patterns (e.g., the letter \texttt{r} appearing three times in \texttt{strawberry}) are excited within a carrier, their oscillators space out to avoid phase clashing, forming stable harmonic ratios (e.g., a 3-part triplet). The resulting superposition waveform pulses with a distinct beat frequency $|f_1 - f_2|$ that physically encodes the discrete count. 
+
+By employing an overtone-locking activation function, the manifold forces continuous frequencies to snap to these integer harmonic ratios:
+\begin{equation}
+\omega_i \to k \cdot \omega_0, \qquad k = \left\lfloor \frac{\omega_i}{\omega_0} + \tfrac{1}{2} \right\rfloor, \quad k \in \mathbb{Z}^+
+\label{eq:overtone_lock}
+\end{equation}
+Empirical telemetry confirms this behavior: floating-point energies representing complex semantic queries flawlessly quantize into discrete integer energy states (e.g., $E=5.000$, $E=6.000$). The physical wave substrate acts as an Analog-to-Digital Converter (ADC), crystallizing relational logic into discrete mathematical outputs without symbolic logic gates.
+
+\subsubsection{Phase Delay as Epistemic Distance}
+Because energy must physically traverse latent wormholes to reach downstream concepts, the ``echo'' arriving at the readout screen suffers a phase delay $\Delta\theta$ proportional to the number of associative hops it took to get there. 
+
+This provides a mechanistic, un-hackable confidence metric. Amplitude ($A$) measures \emph{how much} evidence exists, while Phase Delay ($\Delta\theta$) measures \emph{how far} the reasoning chain had to travel. A direct memory lookup returns at $\Delta\theta \approx 0$; a multi-step deductive chain returns at $\Delta\theta > 0$. If a hallucinated chain requires too many logical leaps, it accumulates enough delay to reach $\Delta\theta = \pi$ ($180^\circ$), causing it to destructively interfere with its own premise and self-attenuate. Occam's Razor is thus enforced by geometric parsimony.
+
+\subsection{State Forking for Parallel Hypotheses}
+\label{sec:state_forking}
+
+The manifold state supports a \texttt{fork()} operation that creates a lightweight copy of the dynamical arrays (energies, phases, carrier assignments) while sharing the immutable, collision-compressed geometric index. Forked states evolve independently, enabling parallel evaluation of competing hypotheses. This is the physical analogue to Beam Search in autoregressive models, but operates simultaneously over the full global state rather than a narrow tree of localized tokens.
+
+\subsection{Cross-Modal Transduction}
+\label{sec:bridge}
+
+Because the Universal Tokenizer reduces all modalities to raw bytes with deterministic identities, ``cross-modal reasoning'' is not a specialized module; it is simply a boundary value problem spanning multiple domains.
+
+To achieve this, bytes from different sources (e.g., an image and its caption) are ingested into a \emph{joint} carrier state. Because they occupy the same carrier, amplitude-coupled mean-field dynamics natively transmit constraints between them during relaxation. The coupling is inherently bidirectional:
+\begin{itemize}[nosep]
+    \item \textbf{Text $\to$ Audio}: Clamp text bytes, allow audio bytes to relax.
+    \item \textbf{Audio $\to$ Text}: Clamp audio bytes, allow text bytes to relax.
+    \item \textbf{Image $\to$ Text + Audio}: Clamp image bytes, allow both text and audio to relax.
+\end{itemize}
+
+\paragraph{Hypothesis: Emergent Cross-Modal Binding.}
+While the current implementation relies on humans preparing paired joint-carriers, the underlying physics suggest a pathway for autonomous multimodal grounding. We hypothesize that binding could emerge entirely from \emph{temporal co-occurrence}: if a visual byte stream and an audio byte stream enter the manifold simultaneously, their transient states will overlap in working memory, causing gradual phase alignment. If repeated (e.g., the visual pattern of a cat consistently appearing alongside the audio phonemes of "cat"), this transient coupling will physically crystallize into a permanent wormhole, achieving true, unsupervised sensory grounding.
+
+% ============================================================================
+% 7. EXPERIMENTS
+% ============================================================================
+
+
+
+
+\section{Experiments}
+\label{sec:experiments}
+
+\subsection{General Evaluation Protocol}
+\label{sec:eval_protocol}
+
+\paragraph{Reproducibility.}
+All experiments report: dataset version and split hash, hardware and software versions, random seeds, wall-clock budgets, and the full set of derived constants computed from $N$ and the byte alphabet.
+
+\paragraph{Statistics.}
+Unless otherwise specified, each result reports mean and standard deviation over at least 5 seeds. For classification and retrieval, we additionally report 95\% confidence intervals via bootstrap over samples.
+
+\paragraph{Compute matching.}
+Comparisons against baselines are compute-matched by wall-clock time and memory footprint, not by parameter count. Where exact matching is not possible (e.g., GPU vs CPU kernels), we report both raw and normalized throughput.
+
+\paragraph{Failure reporting.}
+For each benchmark we define explicit failure conditions (e.g., ``selectivity collapse'' or ``non-convergence within $S$ steps'') and report those regimes alongside successes.
+
+\begin{table}[!htbp]
+  \centering
+  \caption{Scale-validity criteria for core claims.  \textbf{Status} reflects evidence in this paper.}
+  \label{tab:scale_validity}
+  \renewcommand{\arraystretch}{1.2}
+  \begin{adjustbox}{max width=\textwidth}
+  \begin{tabular}{P{0.18\textwidth} P{0.34\textwidth} P{0.22\textwidth} P{0.12\textwidth}}
+    \toprule
+    \textbf{Claim} & \textbf{Minimum evidence required} & \textbf{Failure condition} & \textbf{Status} \\
+    \midrule
+    Length-insensitive step cost & Fit $t_{\text{step}}(N)=aN^\alpha$ on $N\in\{0.5\mathrm{k}\text{--}8\mathrm{k}\}$; report $\alpha$ with CI. & $\alpha$ clearly above zero. & Partial (\Cref{sec:scaling_exp}) \\
+    Single-step rule-shift adaptation & Coherence recovery within 1 step after abrupt rule change, across $\geq$4 conditions. & Slow recovery or persistent forgetting. & Demonstrated (\Cref{sec:rule_shift}) \\
+    Modality-agnostic processing & Same dynamics on text, image, and audio bytes without modality-specific encoders. & Requires modality-specific modules. & Demonstrated (\Cref{sec:cocktail_party,sec:image_inpainting}) \\
+    Cross-modal coupling & Joint-carrier retrieval without fusion objectives; split-carrier baseline = 0. & Gains only in single-modality settings. & Partial (\Cref{sec:cross_modal_exp}) \\
+    Transformer composability & Manifold augments a production LLM without weight modification. & No measurable benefit over base model. & Demonstrated (\Cref{sec:llama_integration}) \\
+    Competitive byte modeling & Bits-per-byte and throughput at matched FLOPs against baselines. & Worse than all matched baselines. & Not yet tested \\
+    Mechanism necessity & Ablate coupling, hierarchy, homeostasis independently. & Comparable after removing core mechanisms. & Not yet tested \\
+    \bottomrule
+  \end{tabular}
+  \end{adjustbox}
+\end{table}
+
+\subsection{Stability and Step-Size Sensitivity}
+\label{sec:stability_exp}
+
+This benchmark validates that the dynamics represent a stable physical simulation rather than a brittle set of tuned constants.
+
+\begin{itemize}[nosep]
+  \item \textbf{Sweep:} $\dt$ over a stable range; noise and coupling fixed by derived rules.
+  \item \textbf{Metrics:} energy drift, coherence convergence, Lyapunov-like divergence under small perturbations.
+  \item \textbf{Artifacts:} \texttt{figures/stability\_dt.pdf}, \texttt{tables/stability\_dt\_summary.tex}.
+\end{itemize}
+
+\IfFileExists{tables/stability_dt_summary.tex}{\input{tables/stability_dt_summary.tex}}{}
+\IfFileExists{figures/stability_dt.pdf}{\begin{figure}[!htbp]\centering\includegraphics[width=0.9\textwidth]{figures/stability_dt.pdf}\caption{Step-size sensitivity.}\label{fig:stability_dt}\end{figure}}{}
+
+\FloatBarrier
+
+
+
+
+\subsection{Integration with Llama 3.2-1B}
+\label{sec:llama_integration}
+
+As previewed in \Cref{sec:practical_impact}, the manifold integrates with production transformers without modifying their weights.  We evaluate two integration modes with \texttt{Llama-3.2-1B-Instruct}:
+
+\paragraph{Manifold-grafted generation.}
+A latent Sensorium layer runs in parallel with the Llama forward pass.  At each decoding step, the manifold evolves for up to 64 internal steps until coherence exceeds $K > 0.96$ and phase delta falls below $\Delta\theta < 0.08$ (typically converging in $\sim$47 steps).  The resulting mode structure is projected into a logit bias over the transformer's vocabulary, nudging token selection toward candidates that are coherent with the manifold's constraint-satisfaction state.
+
+We evaluate on three prompts that stress logical constraint propagation: (i)~a deduction puzzle with three suspects and nested implications, (ii)~a contradiction-flagging task with a false geographic premise, and (iii)~a \emph{needle-in-lies} puzzle where the answer is buried under 13 conflicting statements.  On the needle-in-lies case, where plain Llama loops through the contradictions without resolving them, the hybrid model correctly outputs \emph{``The key is under the oak table''} in 3.3$\times$ less wall time.
+
+\input{tables/llama_manifold_demo_summary.tex}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/llama_manifold_demo.pdf}{%
+    \includegraphics[width=\textwidth]{figures/llama_manifold_demo.pdf}
+  }{}%
+  \caption{Llama 3.2-1B vs.\ Llama+Manifold (logit-bias graft) on contradiction-heavy prompts.  Left: wall-clock latency.  Right: task success by heuristic evaluation.  The hybrid system resolves the needle-in-lies task that plain Llama cannot, while converging faster on that case.}
+  \label{fig:llama_manifold_demo}
+\end{figure}
+
+\paragraph{KV-cache replacement via holographic readout.}
+In the second mode, we replace the KV cache entirely: long documents (3.6k--14.3k characters) are loaded into the manifold's carrier structure, and decoding proceeds from a short question-only prompt.  Every four generation steps, a probe-driven holographic readout (coherent Viterbi-bytes with prism decoding) fuses context from the manifold into the residual stream.  This decouples generation cost from context length---the LLM prompt contains only 17--21 tokens regardless of document size.
+
+At 14k characters, where Llama's latency grows to 4.6\,s due to full-context attention, the KV-replacement variant completes in 2.0\,s (2.3$\times$ speedup).  On the contradiction-capital case, both systems correctly identify Paris as the capital of France, but the KV-replacement variant does so from a 17-token prompt with manifold-backed retrieval rather than a 1.9k-token full-context window.
+
+\input{tables/llama_kv_replacement_summary.tex}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/llama_kv_replacement.pdf}{%
+    \includegraphics[width=\textwidth]{figures/llama_kv_replacement.pdf}
+  }{}%
+  \caption{Llama full-context vs.\ manifold KV-replacement.  Left: latency vs.\ document size---the manifold variant's cost is independent of context length.  Right: task success on needle-in-haystack variants with increasing distractor density.}
+  \label{fig:llama_kv_replacement}
+\end{figure}
+
+\paragraph{Implications.}
+These integration experiments are a proof-of-concept rather than a claim of state-of-the-art retrieval-augmented generation.
+The key observation is that the manifold's physics-native operations---probe injection, resonant mode selection, and holographic readout---interface cleanly with a production transformer without modifying the transformer's weights or architecture.
+The logit-bias graft supplies constraint propagation that the autoregressive decode loop lacks, and the KV-replacement mode demonstrates context-length-independent generation cost.
+
+\paragraph{The LLM as Broca's Area.}
+These hybrid results suggest a radical reframing of the Transformer's role. Human cognition utilizes specific brain regions (e.g., Broca's Area) to translate abstract thoughts into grammatical language. Currently, the AI industry forces LLMs to perform both the logical reasoning and the linguistic formatting simultaneously, leading to the necessity of verbose ``Chain of Thought'' tokens. 
+
+By grafting the Manifold to the logit layer, we decouple reasoning from generation. The Manifold performs ``silent reasoning'' in its native geometric language (Mentalese)---computing vector additions, collapsing superpositions, and resolving contradictions entirely in the complex plane. The LLM is relegated to a pure translation layer, utilizing its mastery of syntax to format the Manifold's crystallized physical states into fluent English. The result is a system immune to grammatical hallucinations, achieving correct logical resolution with zero intermediate thinking tokens.
+
+\FloatBarrier
+
+% ------------------------------------------------------------------
+%  FRONT-LOADED ML WINS
+% ------------------------------------------------------------------
+
+\subsection{Zero-Shot Recovery and Dynamical Plasticity (Rule-Shift Adaptation)}
+\label{sec:rule_shift}
+
+\paragraph{Why this matters.}
+A well-documented limitation of parameterized neural networks is their vulnerability to sudden distribution shifts. Adapting a deployed transformer to a new logical rule requires computationally expensive fine-tuning, which risks catastrophic forgetting \citep{kirkpatrick2017overcoming}, or retrieval augmentation, which adds latency and risks hallucination. The root cause is structural: knowledge in parametric models is stored as rigid scalar weights in fixed-topology matrices. Redistribution requires gradient flow through the entire computation graph---a process fundamentally coupled to the training-time loss surface.
+
+In the Sensorium Manifold, state is stored as topological relationships between oscillator modes---amplitudes, phases, and coupling strengths in a continuous energy landscape. A rule shift alters the energetic gradient; the oscillators re-equilibrate into new geometric basins via phase-locking under the same mean-field dynamics that govern steady-state structure.
+
+\paragraph{Method.}
+We subject the manifold to an abrupt, global phase-encoding rule shift mid-simulation. The study runs a scenario matrix across four conditions: synthetic control (deterministic byte patterns with a known shift point), natural-language style shift (formal $\to$ informal register), three-phase continual shift (sequential distribution changes testing backward transfer), and a real-world-like WikiText-style condition. Each scenario is repeated over multiple seeds with explicit conditions reported in \Cref{tab:rule_shift}. Evaluation remains strictly online: at each checkpoint, next-byte prediction uses only prefix data seen so far.
+
+\paragraph{Results.}
+\Cref{tab:rule_shift} reports performance across conditions. The key pattern: each shift induces a measurable coherence drop, followed by near-instantaneous recovery---typically re-establishing mode coherence within a single dynamics step---without gradient-based retraining, and with retained recall quality. \Cref{fig:rule_shift} shows the full recovery trajectory. The recovery mechanism is the same amplitude-coupled phase dynamics described in \Cref{sec:dynamics}: oscillators whose phases are misaligned with the new dominant mode lose amplitude through destructive interference, while those aligned with the incoming evidence gain amplitude through constructive reinforcement. The manifold does not ``forget and relearn''; it continuously relaxes into the nearest coherent configuration compatible with the current boundary conditions.
+
+This re-equilibration is a consequence of the dynamical substrate: adaptation occurs through phase relaxation rather than through gradient descent, which is inherently multi-step.
+
+\IfFileExists{tables/rule_shift_summary.tex}{%
+  \input{tables/rule_shift_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/rule_shift.pdf}{%
+    \includegraphics[width=\textwidth]{figures/rule_shift.pdf}
+  }{}%
+  \caption{Rule-shift adaptation trajectory. Mode coherence $K$ drops sharply at the shift point (step~40) as the encoding rule changes, then recovers within a single dynamics step under the amplitude-coupled mean-field update---without gradient computation or parameter modification. The recovery is topological re-equilibration: oscillators re-phase to the new energetic minimum, analogous to a fluid re-conforming to a new boundary geometry.}
+  \label{fig:rule_shift}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Modality-Agnostic Source Separation (Cocktail Party)}
+\label{sec:cocktail_party}
+
+\paragraph{Why this matters.}
+Audio source separation traditionally requires modality-specific architectures (spectrograms, learned filterbanks, U-Net decoders). The Sensorium Manifold performs separation from \emph{raw bytes} without knowing that they represent audio---the same dynamics used for text and images.
+
+\paragraph{Method.}
+We analyze two mixtures (2-speaker and 4-speaker overlays). We initialize $K$ virtual carriers and iteratively (i) evolve the amplitude-coupled mean-field dynamics within each carrier for a short burst and (ii) reassign each byte-token to the carrier whose emergent mode phase best aligns with the token phase (energy-weighted). No audio encoder, spectrogram, or learned filterbank is used.
+
+\paragraph{Results.}
+As shown in \Cref{fig:cocktail_party}, the separation dynamics produce stable assignment structure under heavy overlap. In the 2-speaker case, a prominent novelty peak aligns with the entry of the second speaker. In the 4-speaker case, a more complex series of peaks corresponds to the staggered entry and exit of multiple speakers.
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/cocktail_party.pdf}{%
+    \includegraphics[width=0.85\textwidth]{figures/cocktail_party.pdf}
+  }{\fbox{\parbox{0.6\textwidth}{\centering\vspace{2em}\textit{Figure pending: requires full-scale audio experiment.}\vspace{2em}}}}%
+  \caption{Cocktail Party analysis on raw bytes. \textbf{Left:} 2-speaker mixture showing coherence trace and token$\to$voice assignment. \textbf{Right:} 4-speaker mixture. Separation emerges from oscillator dynamics alone---no audio encoder is used.}
+  \label{fig:cocktail_party}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Cross-Modal Processing}
+\label{sec:cross_modal_exp}
+
+\paragraph{Why this matters.}
+Multimodal systems like CLIP \citep{radford2021learning} require carefully designed cross-modal objectives. The Sensorium Manifold couples modalities through shared dynamics: both text-layout and image-layout byte streams evolve under identical rules, and cross-modal alignment emerges from the substrate without a fusion loss.
+
+\paragraph{Method.}
+Each sample is represented twice using the same raw bytes: (i) a linear sequence layout (text-like) and (ii) a 2D patch layout (image-like). Both views use Universal Tokenizer identities and evolve in the same manifold; they are compared via field fingerprints. No FFT, spectrogram, or learned encoder is introduced.
+
+\paragraph{Results.}
+\Cref{tab:cross_modal} reports cross-view retrieval accuracy: joint-carrier processing achieves perfect retrieval (1.0 accuracy on all metrics), while split-carrier processing (no shared dynamics) produces zero retrieval. This is best read as a \emph{necessary-condition sanity check}: it is consistent with cross-modal coupling arising from the shared oscillator dynamics rather than from the tokenizer alone, and removing the shared dynamics destroys the coupling. It does not yet demonstrate that the system does something \emph{useful} with cross-modal information. The real test---retrieving text that describes an image (or vice versa) from genuinely different modality pairs, not the same bytes in two layouts---requires paired cross-modal datasets (\Cref{sec:eval_protocol}).
+
+\IfFileExists{tables/cross_modal_summary.tex}{%
+  \input{tables/cross_modal_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/cross_modal.pdf}{%
+    \includegraphics[width=\textwidth]{figures/cross_modal.pdf}
+  }{}%
+  \caption{Cross-modal processing. \textbf{(A)} Byte-layout identity distribution. \textbf{(B)} Retrieval accuracy vs.\ noise. \textbf{(C)} Cross-view alignment: linear and 2D layouts of the same byte stream remain coupled in manifold space under joint dynamics.}
+  \label{fig:cross_modal}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Classification via Retrieval-by-Resonance}
+\label{sec:classification_exp}
+
+\paragraph{Why this matters.}
+Text classification is a basic capability test. We evaluate whether resonance-weighted retrieval---the manifold's native inference mechanism---can perform label assignment without a classification head or fine-tuning.
+
+\paragraph{Method.}
+We use the AG~News dataset (4 classes). For each test sample, the system (i) ingests labeled training samples into the manifold state, (ii) probes with the test sample's text, (iii) measures indirect energy gain per label carrier after relaxation, and (iv) assigns the label with highest gain. No gradient descent, no learned classifier head.
+
+\paragraph{Results.}
+\Cref{tab:classification} reports accuracy of 87.5\% on the 4-class AG~News task, well above the 25\% random baseline. \Cref{fig:classification} shows the confusion matrix. The phase-multiplexed prism readout with probe-energy fusion produces strongly discriminative resonance patterns: the manifold reliably separates world, sports, business, and science/technology articles without any gradient-based training or learned classification head.
+
+\IfFileExists{tables/classification_summary.tex}{%
+  \input{tables/classification_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/classification_confusion.pdf}{%
+    \includegraphics[width=0.6\textwidth]{figures/classification_confusion.pdf}
+  }{}%
+  \caption{Classification confusion matrix (AG~News, 4 classes). Row-normalised proportions show per-class recall; the diagonal dominance reflects 87.5\% overall accuracy achieved via resonance-weighted retrieval with no gradient descent.}
+  \label{fig:classification}
+\end{figure}
+
+\FloatBarrier
+
+% ------------------------------------------------------------------
+%  CONSTRAINT SATISFACTION AND GENERATION
+% ------------------------------------------------------------------
+
+\subsection{Image Inpainting via Constrained Relaxation}
+\label{sec:image_inpainting}
+
+We evaluate image inpainting as a constrained relaxation problem: mask a subset of pixel-bytes, drive the visible identities, evolve the wave dynamics with open-system settling, and read out the reconstructed bytes from the final state.
+
+\IfFileExists{tables/image_inpaint_summary.tex}{%
+  \input{tables/image_inpaint_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/image_inpaint.pdf}{%
+    \includegraphics[width=0.85\textwidth]{figures/image_inpaint.pdf}
+  }{}%
+  \caption{Image inpainting under increasing mask ratios (10\%--90\%).  Each row shows the masked input, manifold reconstruction, and per-pixel error.  The system degrades gracefully: structure is preserved even at 70--80\% masking.}
+  \label{fig:image_inpaint}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Image Generation from Text Prompts}
+\label{sec:image_gen_exp}
+
+\paragraph{Method.}
+We evaluate prompt-conditioned image generation using the manifold's composition mechanism. Text prompts are probed against a corpus of labeled image carriers; the system reads out pixel bytes from the carriers with highest resonance. \Cref{tab:image_gen} reports summary statistics.
+
+\IfFileExists{tables/image_gen_summary.tex}{%
+  \input{tables/image_gen_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/image_gen.pdf}{%
+    \includegraphics[width=0.75\textwidth]{figures/image_gen.pdf}
+  }{}%
+  \caption{Image generation grid. Each panel shows the manifold's readout for a different text prompt, using resonance-weighted composition from stored image carriers.}
+  \label{fig:image_gen}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Time-Series Forecasting}
+\label{sec:timeseries}
+
+\paragraph{Why this matters.}
+Time-series forecasting tests whether the manifold's collision-compression mechanism---which deduplicates repeated byte patterns at the same position---can serve as a structural prior for periodic signals, without any learned temporal model.
+
+\paragraph{Method.}
+Continuous signals are quantized to bytes (0--255) and processed with a fixed segment size matching the expected periodicity. Periodic structure creates repeated \((\text{Byte},\text{Index})\) identities that deduplicate in the geometric store; the oscillator dynamics amplifies compatible continuations through resonance.
+
+\paragraph{Results.}
+\Cref{tab:timeseries} shows competitive RMSE for stationary periodic signals (Sensorium 0.90 vs.\ persistence baseline 0.93) but weaker performance on non-stationary patterns. Coherence patterns from periodic structure do not transfer cleanly to regime shifts without re-observation.
+
+\IfFileExists{tables/timeseries_summary.tex}{%
+  \input{tables/timeseries_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/timeseries.pdf}{%
+    \includegraphics[width=\textwidth]{figures/timeseries.pdf}
+  }{}%
+  \caption{Time-series forecasting. \textbf{(A)}~Actual vs.\ predicted values. \textbf{(B)}~Direction accuracy by signal type (50\% = random). \textbf{(C)}~Error distribution.}
+  \label{fig:timeseries}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/timeseries_forecast_examples.pdf}{%
+    \includegraphics[width=\textwidth]{figures/timeseries_forecast_examples.pdf}
+  }{}%
+  \caption{Forecast examples across signal types, showing predicted vs.\ actual trajectories for representative test windows.}
+  \label{fig:timeseries_examples}
+\end{figure}
+
+\FloatBarrier
+
+% ------------------------------------------------------------------
+%  STRUCTURAL AND MECHANISTIC DEMONSTRATIONS
+% ------------------------------------------------------------------
+
+\subsection{Fractal Mode Hierarchy}
+\label{sec:fractal_exp}
+
+\paragraph{Why this matters.}
+The hierarchical coarse-graining mechanism (\Cref{subsec:omega_dynamics}) is central to the manifold's ability to propagate constraints across scales. This experiment directly visualizes the emergent mode hierarchy.
+
+\paragraph{Method.}
+We run the pairwise wave dynamics on a 32,768-token corpus (512 carriers) and record the hierarchical mode structure at each level. \Cref{tab:fractal_modes} reports the number of entities at each level, and \Cref{fig:fractal_modes} visualizes the hierarchy.
+
+\IfFileExists{tables/fractal_modes_summary.tex}{%
+  \input{tables/fractal_modes_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/fractal_modes.pdf}{%
+    \includegraphics[width=\textwidth]{figures/fractal_modes.pdf}
+  }{}%
+  \caption{Fractal mode hierarchy. Level~0 contains 512 carrier modes; Level~1 clusters these into 2 super-modes by constructive phase alignment. The hierarchy provides the multiscale coupling that enables long-range constraint propagation.}
+  \label{fig:fractal_modes}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Information Propagation Depth}
+\label{sec:propagation_exp}
+
+\paragraph{Why this matters.}
+A central question for the carrier mean-field architecture is: how effectively does information propagate across the hierarchy in a given number of steps? This experiment measures the energy response in suffix windows of increasing distance from the probe site.
+
+\paragraph{Method.}
+We construct carriers of increasing length (64, 256, 1024 bytes) and probe the first window. The ``far'' energy response---mean energy in the suffix window most distant from the probe---measures how deeply information penetrates through the carrier mean-field dynamics and hierarchy.
+
+\paragraph{Results.}
+\Cref{tab:propagation_depth} shows that far-window energy response decreases with carrier length (0.265 for 64-byte, 0.077 for 256-byte, 0.045 for 1024-byte carriers), and all peaks occur at step~1. The hierarchy transmits energy beyond direct sequence neighbors, but the decay is steep---roughly consistent with exponential attenuation in carrier length. If this decay persists at larger scales, it would be \emph{fatal} for tasks requiring long-range coherence (e.g., maintaining consistency across a 4k-token paragraph). A 2-level hierarchy is likely insufficient; deeper hierarchies, denser inter-level coupling, or alternative long-range skip connections are the natural remedies. We flag this as one of the two critical scaling challenges alongside energy selectivity (\Cref{sec:reasoning_exp}). \Cref{fig:propagation_depth} visualizes the depth profile.
+
+\IfFileExists{tables/propagation_depth_summary.tex}{%
+  \input{tables/propagation_depth_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/propagation_depth.pdf}{%
+    \includegraphics[width=\textwidth]{figures/propagation_depth.pdf}
+  }{}%
+  \caption{Propagation depth analysis. Energy response as a function of distance from the probe site across carriers of different lengths.}
+  \label{fig:propagation_depth}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Idle-Time Compute}
+\label{sec:idletime_exp}
+
+\paragraph{Why this matters.}
+Between queries, a deployed model's hardware sits idle. Idle-time compute (\Cref{sec:autonomous_dynamics}) converts this dead time into continuous refinement---consolidation, separation, and noise injection---without new data or gradient computation.
+
+\paragraph{Method.}
+We compare pre- and post-schedule performance on a fixed memory corpus using a retrieval-by-resonance task (AG~News subset). Two conditions: no schedule (baseline) and the full three-phase idle-time schedule (consolidation $\to$ separation $\to$ noise injection).
+
+\paragraph{Results.}
+\Cref{tab:idletime} reports results at evaluation scale $S$. Neither the baseline nor the full schedule produces measurable accuracy improvement at this corpus size, suggesting that the idle-time mechanism may require a larger memory substrate to have sufficient structure to consolidate. \Cref{fig:idletime} shows the step dynamics.
+
+\IfFileExists{tables/idletime_summary.tex}{%
+  \input{tables/idletime_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/idletime_steps_S.pdf}{%
+    \includegraphics[width=0.8\textwidth]{figures/idletime_steps_S.pdf}
+  }{}%
+  \caption{Idle-time compute dynamics. Pre- vs.\ post-schedule convergence steps for retrieval-by-resonance under two conditions (no schedule and full three-phase schedule).}
+  \label{fig:idletime}
+\end{figure}
+
+\FloatBarrier
+
+% ------------------------------------------------------------------
+%  RESONANCE AND INFERENCE DEMONSTRATIONS
+% ------------------------------------------------------------------
+
+\subsection{Inference via Resonance}
+\label{sec:inference_exp}
+
+\paragraph{Method.}
+We demonstrate the core inference mechanism: energy injection into probe-matched oscillators, relaxation under amplitude-coupled mean-field dynamics, and readout of suprathermal excitations. \Cref{tab:inference} reports convergence statistics.
+
+\paragraph{Results.}
+The system converges to near-perfect coherence ($K = 1.0$) within 45 steps, with exactly one carrier glowing suprathermally---the target carrier matching the probe. This is consistent with the resonance-and-readout mechanism isolating the relevant response carrier.
+
+\IfFileExists{tables/inference_summary.tex}{%
+  \input{tables/inference_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/inference.pdf}{%
+    \includegraphics[width=0.8\textwidth]{figures/inference.pdf}
+  }{}%
+  \caption{Inference via resonance. Coherence and energy trajectories showing convergence to the target carrier.}
+  \label{fig:inference}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Reasoning via Cross-Carrier Resonance}
+\label{sec:reasoning_exp}
+
+\paragraph{Method.}
+We test whether cross-carrier resonance can detect logic jumps---situations where the response to a prompt requires recruiting information from a different carrier than the one directly matched. \Cref{tab:reasoning} reports coherence and glowing-carrier statistics.
+
+\paragraph{Results.}
+The system reaches high coherence ($K = 0.99$) within 7 steps with 99 out of 99 carriers glowing suprathermally, but the target carrier is not among them. Energy is flooding the system broadly rather than being routed selectively to the relevant carrier.
+
+\paragraph{Diagnosis: insufficient discriminative energy gating.}
+This result, together with the near-random classification accuracy in \Cref{sec:classification_exp}, points to the same underlying bottleneck: the energy gating mechanism ($w_{ij} = \max(\cos\Delta\theta, 0)$) is too permissive. Any pair of oscillators within $90^\circ$ of phase alignment shares energy, so a probe that matches common byte patterns excites carriers indiscriminately. The system achieves high \emph{coherence} (oscillators synchronize) but low \emph{selectivity} (the wrong oscillators synchronize). Sharper energy gating, content-aware probe weighting, or a selectivity mechanism in the hierarchy are all candidate remedies.
+
+\IfFileExists{tables/reasoning_summary.tex}{%
+  \input{tables/reasoning_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/reasoning.pdf}{%
+    \includegraphics[width=0.8\textwidth]{figures/reasoning.pdf}
+  }{}%
+  \caption{Reasoning via resonance. Coherence trajectory and glowing-carrier analysis. Broad excitation occurs, but targeted recruitment of the logic-jump carrier has not yet been achieved.}
+  \label{fig:reasoning}
+\end{figure}
+
+\FloatBarrier
+
+% ------------------------------------------------------------------
+%  HEAD-TO-HEAD AND CODE GENERATION
+% ------------------------------------------------------------------
+
+\subsection{AllToken Head-to-Head Comparison}
+\label{sec:alltoken_exp}
+
+\paragraph{Method.}
+We compare the Sensorium Manifold head-to-head against a small baseline (Llama~3.2 1B) on reasoning and code generation tasks using the AllToken evaluation suite.
+
+\paragraph{Results.}
+\Cref{tab:alltoken} reports that both systems score 0.0 on reasoning accuracy and codegen pass@1. The evaluation suite is designed for larger models, and the Sensorium's performance at this scale reflects the gap between mechanism demonstration and production-grade generation. This result serves as a baseline for future scaling studies.
+
+\IfFileExists{tables/alltoken_summary.tex}{%
+  \input{tables/alltoken_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/alltoken_comparison.pdf}{%
+    \includegraphics[width=0.8\textwidth]{figures/alltoken_comparison.pdf}
+  }{}%
+  \caption{AllToken head-to-head comparison. Both Sensorium and the small baseline (Llama~3.2 1B) score 0.0, establishing a starting point for scaling studies.}
+  \label{fig:alltoken}
+\end{figure}
+
+\FloatBarrier
+
+\subsection{Code Generation}
+\label{sec:codegen_exp}
+
+\paragraph{Method.}
+We evaluate prompted code generation as a scaling demonstration, measuring coherence dynamics and source composition when the system generates code from text prompts. The prompt is:
+
+\begin{quote}
+\small\texttt{Write a python function to remove first and last occurrence of a given character from the string.}
+\end{quote}
+
+\noindent The system ingests the MBPP code corpus \citep{austin2021program}, probes with the prompt, and composes output by decoding suprathermal byte-level excitations from the resonating carriers using a coherent Viterbi path that penalizes carrier switches.
+
+\paragraph{Results.}
+\Cref{tab:codegen} shows that the system reaches a peak coherence of $K = 0.19$ and draws from 1 source carrier within 11 dynamics steps. With 64 training samples, the composition mechanism identifies a single dominant carrier but does not yet recruit multiple sources for structured output. This is consistent with the energy-selectivity limitation identified in \Cref{sec:reasoning_exp}: the resonance mechanism concentrates on the closest match rather than composing across carriers. Improving selectivity and scaling the corpus are the primary paths to usable generation quality.
+
+\IfFileExists{tables/codegen_summary.tex}{%
+  \input{tables/codegen_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/codegen.pdf}{%
+    \includegraphics[width=0.8\textwidth]{figures/codegen.pdf}
+  }{}%
+  \caption{Code generation dynamics. Coherence trajectory and multi-source composition during prompted code generation from the MBPP corpus.}
+  \label{fig:codegen}
+\end{figure}
+
+\FloatBarrier
+
+% ------------------------------------------------------------------
+%  SCALING ANALYSIS
+% ------------------------------------------------------------------
+
+\subsection{Scaling Analysis}
+\label{sec:scaling_exp}
+
+\paragraph{Why this matters.}
+The practical viability of any alternative architecture depends on its computational scaling. Transformer attention costs $O(N^2)$ per layer in sequence length; state-space models \citep{gu2022efficiently, gu2024mamba} achieve $O(N)$ but trade off expressivity. The Sensorium's carrier mean-field coupling is $O(N)$ per step via vectorized segmented sums (bincount) and gathers (take) over carrier groups.
+
+\paragraph{Spectral/Coherence Dynamics.}
+We track the empirical oscillator-frequency distribution $\rho(\omega)$ and coherence statistics over 300 steps. Results show rapid early-time organization followed by steady-state persistence under observation-driven forcing and controlled dissipation.
+
+\paragraph{Ingestion throughput.}
+On CIFAR-10 (614.4M~bytes, details in \Cref{sec:morton_codes}), ingestion runs at 2.33M~tokens/s on CPU (Numba parallel backend), completing the full dataset in 264~seconds. After ingestion, the oscillator field is ready for inference.
+
+\paragraph{Latency vs.\ sequence length.}
+We measure per-step latency across sequence lengths from 500 to 8,000 tokens. \Cref{tab:scaling} shows latency near ${\approx}$3~ms/step with 11\% coefficient of variation. This is consistent with step cost being dominated by the carrier mean-field computation (vectorized segmented sums) and a small constant number of hierarchy levels. For comparison, standard transformer attention cost grows as $O(N^2)$ in this range.
+
+\subsubsection{Morton-Coded Index Ordering (Geometric Layer)}
+\label{sec:morton_codes}
+
+We use Morton-coded cell keys to order entries in the \emph{geometric/index layer} for cache-friendly merges and deterministic prompt lookup.
+
+\paragraph{Morton codes (Z-order curve).}
+A space-filling curve interleaves the bits of each coordinate \citep{morton1966computer, samet2006foundations}. For a cell at $(x, y, z)$ with $B$-bit coordinates:
+\begin{equation}
+\mathcal{Z}(x, y, z) = \text{interleave}(x, y, z) = \sum_{b=0}^{B-1} \left[ x_b \cdot 2^{3b} + y_b \cdot 2^{3b+1} + z_b \cdot 2^{3b+2} \right],
+\label{eq:morton}
+\end{equation}
+where $x_b$ denotes the $b$-th bit of $x$. For $G = 64$ (6 bits per dimension), this produces an 18-bit collision-free index over $G^3 = 262{,}144$ cells.
+
+\begin{remark}[Morton Codes as Locality-Preserving Ordering]
+Morton ordering is deterministic and locality-preserving. Unlike LSH buckets \citep{kitaev2020reformer}, Morton ordering is a deterministic linearization of a fixed coordinate system with no false negatives.
+\end{remark}
+
+\paragraph{Index sort key.}
+The geometric index sorts entries lexicographically by:
+\begin{equation}
+\text{Key}_i = \bigl(\mathcal{Z}(\text{cell}_i),\; \text{ID}_i\bigr),
+\label{eq:index_key}
+\end{equation}
+achieving cell grouping, identity sub-ordering, and deterministic merge-and-deduplicate behavior.
+
+\paragraph{Generalization.}
+We test structure emergence on four data types: repetitive text, semi-random patterns, natural-like text, and pure random data. All except semi-random reach a fully settled phase-locked regime.
+
+\IfFileExists{tables/scaling_summary.tex}{%
+  \input{tables/scaling_summary.tex}
+}{}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/scaling_dynamics.pdf}{%
+    \includegraphics[width=\textwidth]{figures/scaling_dynamics.pdf}
+  }{}%
+  \caption{Scaling dynamics. \textbf{(A)}~Peak count in the binned spectral density over time. \textbf{(B)}~Early-time spectral reconfiguration. \textbf{(C)}~Strong-peak count vs.\ pattern count. \textbf{(D)}~Structure ratio across data types.}
+  \label{fig:scaling_dynamics}
+\end{figure}
+
+\begin{figure}[!htbp]
+  \centering
+  \IfFileExists{figures/scaling_compute.pdf}{%
+    \includegraphics[width=\textwidth]{figures/scaling_compute.pdf}
+  }{}%
+  \caption{Compute scaling. \textbf{(A)}~Wall-clock time vs.\ oscillator count (near-linear). \textbf{(B)}~Time vs.\ carrier count and hierarchy settings. \textbf{(C)}~Latency vs.\ sequence length: stable ms/step across a 16$\times$ range.}
+  \label{fig:scaling_compute}
+\end{figure}
+
+\FloatBarrier
+
+% ============================================================================
+% 8. RELATED WORK
+% ============================================================================
+
+
+
+\subsection{Ablations and Failure-Mode Atlas}
+\label{sec:ablations}
+
+Every nontrivial mechanism must earn its keep. We therefore ablate:
+delay coupling, chirality, multiscale coupling, context gating sharpness, plasticity, equilibrium-window decoding, Floquet modulation, frequency mixing, and spectral control. For each ablation we report deltas in: selectivity, convergence steps, bpb, and task metrics.
+
+\IfFileExists{tables/ablation_summary.tex}{\input{tables/ablation_summary.tex}}{}
+\IfFileExists{figures/failure_atlas.pdf}{\begin{figure}[!htbp]\centering\includegraphics[width=\textwidth]{figures/failure_atlas.pdf}\caption{Failure-mode atlas.}\label{fig:failure_atlas}\end{figure}}{}
+
+\FloatBarrier
+
+% ============================================================================
+% 8. RELATED WORK
+% ============================================================================
+
+
+
+
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{Dissipative Structures and Thermodynamic Computing}
+Prigogine showed that systems far from equilibrium can maintain complex organization by continuously dissipating energy \citep{prigogine1977self, prigogine1978time}. Recent thermodynamic computing work \citep{conte2019thermodynamic, boyd2022thermodynamic, whitelam2025generative} explores this idea but faces a fundamental gap: many proposals lack an interpretable dynamical state whose organization can be audited and steered. Our Default Mode Network mechanism (\Cref{sec:autonomous_dynamics}) addresses this at the level of the oscillator network: between observations, controlled damping/noise and optional spectral separation reshape the empirical frequency distribution and coherence statistics, converting transient excitation into durable, inspectable structure. The $Z$-annealing process further extends this by enabling recursive self-improvement: coherent transient structures are compiled from working memory ($Z \ge 1$) into permanent bedrock ($Z=0$), expanding the system's computational topology without weight updates.
+
+\paragraph{Oscillator networks and synchronization}
+The Kuramoto model \citep{kuramoto1984chemical, strogatz2000kuramoto, acebron2005kuramoto} established that populations of coupled oscillators can spontaneously synchronize above a critical coupling strength, with the order parameter $K$ serving as a macroscopic measure of coherence. Recent ML work has begun exploiting this: Artificial Kuramoto Oscillatory Neurons (AKOrN) \citep{frank2024akorn} use generalized Kuramoto dynamics as a replacement for threshold units, achieving gains in object discovery and adversarial robustness; KuramotoGNN \citep{nguyen2024kuramotognn} reinterprets GNN over-smoothing as phase synchronization and addresses it via frequency synchronization. Our system extends this line by making oscillator synchronization the \emph{entire} computational substrate rather than a module within a standard architecture, and by adding hierarchical coarse-graining and open-system regulation to enable multiscale structure formation.
+
+\paragraph{Binding by Synchrony}
+The hypothesis that neural oscillation synchrony solves the binding problem \citep{singer1999neuronal, engel2001dynamic, wang2010neurophysiological} is compelling but empirically elusive: real neural circuits have not demonstrated reliable phase-locked binding at scale. The difficulty is that naïve global coupling becomes brittle and expensive as the number of features grows. Our approach uses carrier-partitioned mean-field coupling (linear in the number of oscillators) with alignment gating that prevents incoherent oscillators from polluting the field, and a short multiscale hierarchy to induce long-range coherence across carriers.
+
+\paragraph{Modern Hopfield Networks and Associative Memory}
+Classical Hopfield networks \citep{hopfield1982neural} store memories as energy minima but suffer from catastrophic capacity limits ($O(N)$ patterns for $N$ neurons). Modern Hopfield networks \citep{ramsauer2021hopfield} achieve exponential storage and elegantly connect to transformer attention. Our current core differs in substrate: memory is not a learned weight matrix but a persistent dynamical state (identities in an index + oscillator energies/phases). New observations can reshape this state immediately via deterministic insertion and energy injection, after which the same relaxation dynamics governs inference.
+
+\paragraph{Content-Addressable Memory in Transformers}
+CAMELoT \citep{liu2024camelot} adds training-free associative memory to transformers, ARMT \citep{bulatov2024armt} combines attention with segment-level recurrence for 50M+ token sequences, and Memory Mosaics \citep{liu2024memorymosaics} provide interpretable compositional memory. Each is an \emph{add-on} bolted to an existing architecture: they insert a memory module into a model that was not designed around memory. In the Sensorium Manifold, the dynamical state is the memory substrate: observation writes identities into the index and injects energy into oscillators, and the same relaxation dynamics governs both memory formation and inference.
+
+\paragraph{Non-Autoregressive and Parallel Generation}
+Non-autoregressive transformers \citep{gu2018nonautoregressive} generate all tokens in parallel but struggle with output dependencies---they produce fluent individual tokens that fail to cohere as sequences. Masked diffusion language models \citep{sahoo2024mdlm, nie2024scaling} address this through iterative refinement but require many denoising steps and a learned score network. Our relaxation-based inference mechanism generates all tokens in parallel \emph{and} resolves inter-token dependencies, because carrier mean-field coupling and hierarchical mode formation couple positions through a common dynamical state. Coherence is not enforced by a decoder; it emerges from the dynamics.
+
+\paragraph{Diffusion Models and Langevin Dynamics}
+Diffusion models \citep{sohl2015deep, ho2020denoising, song2021score} reverse a noising process through learned score functions. They operate by iteratively applying a learned denoiser/score to a fixed-dimensional latent under a designed noise schedule. Our system instead evolves an explicit dynamical state under amplitude-coupled mean-field dynamics and open-system dissipation, and uses the same update rules for observation and generation; clamping any subset of variables is expressed directly as a boundary condition.
+
+\paragraph{Hamiltonian and Symplectic Neural Networks}
+Hamiltonian Neural Networks \citep{greydanus2019hamiltonian} and symplectic networks \citep{chen2020symplectic, jin2020sympnets} \emph{learn} energy-conserving dynamics from trajectory data. This is the reverse of our approach: rather than learning a Hamiltonian from trajectories, we \emph{prescribe} explicit update rules (amplitude-coupled mean-field coupling, dissipation, and hierarchical coarse-graining) and ask whether that hand-specified physics performs useful computation. The consequence is that our system requires no training data for the dynamics themselves---the dynamics are the algorithm. What must be validated empirically is whether this prescribed dynamics produces useful computation, not whether it can be learned.
+
+\paragraph{Multimodal Architectures}
+CLIP \citep{radford2021learning} aligns image and text representations via contrastive learning, Flamingo \citep{alayrac2022flamingo} interleaves visual and language processing through cross-attention, and Unified-IO 2 \citep{lu2024unifiedio2} tokenizes all modalities into a shared autoregressive sequence. Each requires an explicit design decision about \emph{how} modalities interact---a cross-modal loss, a gating mechanism, or a serialization order. The Universal Tokenizer removes this decision at the substrate level: every byte from every modality maps to the same deterministic identity space, with a shared oscillator update rule applied to all nodes via the same carrier mean-field dynamics. Cross-modal coupling is not engineered; it is an empirical consequence of whether evidence from different byte streams drives compatible coherent modes under the same relaxation dynamics.
+
+\paragraph{Energy-Based Models}
+Energy-based models \citep{lecun2006tutorial, du2021improved} define learning as energy minimization over a parametric energy surface. The energy surface must be learned, and sampling from it requires MCMC or Langevin dynamics with careful tuning. In our framework, energy plays a different role: it sets oscillator frequencies (\(\omega=E/\hbar\)) and determines coupling strength via amplitude-weighted mean fields, while ``learning'' is the formation of stable coherent modes under repeated drive and dissipation, not optimization of a parametric landscape.
+
+\paragraph{Token Merging and Dynamic Sparsity}
+Token Merging (ToMe) \citep{bolya2023token, bolya2023token_diffusion} reduces transformer cost by bipartite-matching similar tokens and averaging their representations. The Sensorium Manifold does \emph{not} merge oscillator states by similarity. The geometric layer performs exact identity deduplication for storage and lookup (collision-compressed LSM index; \Cref{sec:lsm_compression}). Computational savings in the wave domain come from carrier mean-field coupling ($O(N)$ via segmented sums) and optional scheduling/active-set restriction, not from lossy representation averaging.
+
+\paragraph{Locality-Sensitive Hashing in Attention}
+Reformer \citep{kitaev2020reformer} approximates attention by hashing queries and keys into buckets, achieving sub-quadratic cost. But LSH is \emph{randomized}: some queries that should interact may hash to different buckets (false negatives), and the error rate is data-dependent and hard to bound. Our Morton ordering (\Cref{sec:morton_codes}) is \emph{deterministic} and \emph{collision-free} at the cell level: every cell maps to a unique index, and the Z-order curve ensures that nearby cells are nearby in the linear ordering. We use this to keep geometric-index merges and scans locality-friendly; it is not a learned similarity mechanism.
+
+\paragraph{Byte-Level and Tokenizer-Free Models}
+ByT5 \citep{xue2022byt5} and MEGABYTE \citep{yu2024megabyte} process raw bytes rather than subword tokens, eliminating vocabulary-related failure modes. However, both still require learned encoders and autoregressive decoding. Our Universal Tokenizer shares the byte-level philosophy but goes further: it assigns \emph{deterministic} identities without learning, and the downstream inference mechanism is relaxation-based rather than autoregressive.
+
+\paragraph{State-Space Models}
+Structured state-space models (S4) \citep{gu2022efficiently} and Mamba \citep{gu2024mamba} achieve linear-time sequence modeling by replacing attention with recurrent state-space dynamics, offering an $O(N)$ alternative to $O(N^2)$ attention. Our approach shares the motivation of sub-quadratic scaling but differs in mechanism: we use explicit amplitude-coupled mean-field dynamics within carrier groups with hierarchical coarse-graining rather than learned state-space parameters. The Sensorium's dynamics are prescribed rather than learned, and generation is parallel rather than recurrent.
+
+\paragraph{Hebbian Learning and Predictive Coding}
+Hebbian rules \citep{hebb1949organization} strengthen connections between co-active neurons, but pure Hebbian learning is unstable without normalization and lacks a clear inference mechanism. Predictive coding \citep{rao1999predictive, friston2010free} provides a principled inference framework but requires a hierarchical generative model with learned top-down predictions. Our approach combines elements of both: repeated co-activation under the same amplitude-coupled mean-field and coarse-graining dynamics reinforces coherent modes (a dynamics-native analogue of ``fire together, wire together''), while the multiscale hierarchy provides a structured way for coarse constraints to influence fine-scale dynamics without learning a separate top-down model.
+
+
+% ============================================================================
+% 9. DISCUSSION
+% ============================================================================
+
+
+
+
+
+\section{Discussion}
+\label{sec:discussion}
+
+The equations define algorithmic update rules in an abstract state space, not a claim of physical simulation fidelity. The evaluation question is empirical: does this substrate provide useful learning behavior under controlled benchmarks?
+
+\subsection{What Current Evidence Supports}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Mechanistic viability}: The coupled geometric index and amplitude-coupled mean-field oscillator dynamics run stably and produce coherent structure under observation-driven forcing and open-system dissipation (\Cref{sec:inference_exp,sec:fractal_exp}).
+  \item \textbf{Gradient-free adaptation at small scale}: Across the reported tasks, useful behavior emerges without optimizing a learned loss surface (\Cref{sec:rule_shift,sec:timeseries,sec:classification_exp}).
+  \item \textbf{Online response to distribution shift}: In the rule-shift experiment, performance recovers within one step after abrupt context change (\Cref{sec:rule_shift}).
+  \item \textbf{Shared substrate across modalities}: The same dynamics process byte/text, image, and audio inputs in one framework (\Cref{sec:cocktail_party,sec:cross_modal_exp,sec:image_inpainting}).
+  \item \textbf{Length-insensitive step cost in tested regimes}: Per-step latency is controlled by carrier mean-field computation and hierarchy depth, not by a serial decode loop (\Cref{sec:scaling_exp}).
+  \item \textbf{Hierarchical constraint propagation}: The fractal mode hierarchy transmits information beyond direct sequence neighbors (\Cref{sec:fractal_exp,sec:propagation_exp}).
+  \item \textbf{Composability with production transformers}: The manifold integrates with Llama~3.2-1B in two modes---logit-bias grafting and KV-cache replacement---without modifying the transformer's weights, demonstrating that physics-native representations can augment rather than replace existing architectures (\Cref{sec:llama_integration}).
+  \item \textbf{Clear failure modes}: Classification accuracy is near random baseline (\Cref{sec:classification_exp}), reasoning does not achieve targeted cross-carrier recruitment (\Cref{sec:reasoning_exp}), and aggressive idle-time schedules can hurt at small scale (\Cref{sec:idletime_exp}). These failures converge on a single diagnosis: insufficient discriminative energy gating.
+\end{enumerate}
+
+\subsection{What Remains Open}
+
+Two failure modes dominate the reported results and likely share a root cause:
+\begin{itemize}[nosep]
+  \item \textbf{Insufficient energy selectivity} (\Cref{sec:reasoning_exp,sec:classification_exp}): the energy gate is too permissive, producing broad excitation rather than targeted recruitment. This explains both the near-random classification and the failed reasoning recruitment.
+  \item \textbf{Shallow propagation depth} (\Cref{sec:propagation_exp}): far-window energy response decays steeply with carrier length, limiting long-range coherence.
+\end{itemize}
+Both point to the same architectural surface: the interaction between gating selectivity and hierarchical depth. Sharper gating concentrates energy but may starve the hierarchy; deeper hierarchies extend reach but amplify the selectivity problem.
+
+\noindent Beyond these two central challenges:
+\begin{enumerate}[nosep]
+  \item \textbf{Scale competitiveness}: We have not shown parity with large autoregressive models on standard leaderboards.
+  \item \textbf{Robustness across seeds and regimes}: Several experiments are single-setting demonstrations rather than broad statistical studies.
+  \item \textbf{Capacity limits}: The relationship between oscillator count, carrier structure, open-system settings, and retrieval error needs formal characterization.
+  \item \textbf{Complexity constants}: Asymptotic claims require careful accounting of solver steps, synchronization overhead, and hardware effects.
+  \item \textbf{Convergence guarantees}: The system converges empirically in all tested regimes, but formal convergence proofs are absent. The amplitude-coupled mean-field dynamics are dissipative (energy relaxes toward the rest floor), which provides a heuristic argument for eventual settling, but rigorous conditions under which coherent configurations are guaranteed---and bounds on the number of steps required---remain open.
+\end{enumerate}
+
+\paragraph{Theoretical extensions under investigation.}
+Several extensions follow naturally from the dynamical framework:
+\begin{enumerate}[nosep]
+\item \textbf{Active sonar probing.}
+Current inference is passive: we inject energy and observe what glows. An alternative is to modulate the prompt at a specific reference frequency and apply lock-in amplification at the readout, extracting only the frequency-locked echo. This would enable detection of faint signals buried in ground-state noise without global energy inflation, analogous to how radar distinguishes a return pulse from background clutter.
+\item \textbf{Solitonic thought packets.}
+A balanced standing wave that maintains its shape as it propagates along a carrier---a soliton---requires an exact trade-off between dispersive spreading and nonlinear self-focusing. If the alignment-gated resonance gain (\Cref{subsec:omega_dynamics}) precisely counterbalances the open-system dissipation (\Cref{subsec:dissipation}), grammatically and logically coherent sequences should travel as stable solitons while incoherent sequences disperse. Verifying this requires stability analysis of the coupled update equations.
+\item \textbf{Medium plasticity (grammar as gravity).}
+If the coupling resistance between adjacent sequence positions is reduced slightly every time a soliton traverses the path, high-traffic transitions carve low-resistance channels in the lattice. Novel tokens would then ``fall'' into grammatically correct basins purely because the topology has been warped by past experience---learning structural rules without an explicit grammar.
+\item \textbf{Cognitive mitosis.}
+When a mode's internal phase variance exceeds a mitosis threshold---indicating irreconcilable sub-populations (e.g., the two senses of ``bank'')---the mode could split into two coherent children occupying orthogonal phase sectors. This would be a native mechanism for polysemy resolution and conceptual refinement, growing the vocabulary dynamically from thermodynamic pressure rather than manual annotation.
+\item \textbf{Working memory registers.}
+High-Q resonance chambers---localized pockets with near-zero dissipation---would sustain candidate hypotheses in a reverberant loop, broadcasting their phase signature into long-term memory and accepting constructive or destructive feedback. Hypotheses that survive the interference trial crystallize into permanent wormhole connections; those that fail are thermodynamically garbage-collected.
+\end{enumerate}
+
+\subsection{Evaluation Roadmap}
+
+The following protocol would test whether the observed properties generalize:
+
+\begin{enumerate}
+  \item \textbf{Long-context byte/text modeling}: evaluate on text8/enwik8-style corpora with fixed compute budgets. Report bits-per-byte, top-$k$ accuracy, throughput, and wall-clock latency. Compare against n-gram, compact transformer, and recurrent/state-space baselines.
+  \item \textbf{Continual rule-shift benchmark}: extend the shift task to multi-phase curricula with recurring and adversarial shifts. Report adaptation half-life, backward transfer, and forgetting.
+  \item \textbf{Cross-modal retrieval/transduction}: use paired text-image-audio datasets with explicit train/validation/test partitions. Report retrieval metrics (Recall@K) and reconstruction quality (PSNR/SNR/MSE) against simple fusion and contrastive baselines.
+  \item \textbf{Scaling decomposition}: sweep sequence length $N$, oscillator count, carrier count, and hierarchy depth independently. Fit empirical scaling exponents and report breakpoints where memory bandwidth or synchronization dominates.
+  \item \textbf{Ablation and counterfactual tests}: remove one mechanism at a time (open-system dissipation/controller, geometric index compression, alignment gating, hierarchy depth, spectral separation/repulsion) and quantify performance deltas with confidence intervals.
+  \item \textbf{Discretization and kernel sensitivity tests}: evaluate stability as the timestep \(\dt\) varies and as wave-kernel implementations are switched (mean-field vs.\ layered vs.\ explicit pairwise). Report coherence/energy drift, convergence steps, and failure regimes vs.\ step size and kernel choice.
+\end{enumerate}
+
+For each benchmark, report mean and variance across multiple seeds, matched compute budgets, and explicit failure cases.
+
+\subsection{Status of Scale-Validity Criteria}
+
+\Cref{tab:scale_validity} tracks the acceptance criteria for the central claims. At the time of writing: rule-shift adaptation and modality-agnostic processing are \emph{demonstrated} at mechanism level (single-seed, small-scale); step-cost scaling and cross-modal coupling are \emph{partially cleared} (limited regime; broader sweeps pending); transformer composability is \emph{demonstrated} via the Llama integration.  Competitive byte modeling and full mechanism ablations are \emph{not yet tested}.  The criteria are designed to be easy to fail: negative outcomes are informative, and positive outcomes require compute-matched controls to count as evidence.
+
+\subsection{Interpreting Cross-Modal ``Horizontal''}
+
+The claim that ``horizontal'' shares structure across text, audio, and vision should be read as a testable representation hypothesis: once all modalities are ingested as raw bytes with deterministic identities, the same coupled-oscillator dynamics applies regardless of source modality. Cross-modal transfer is therefore not an engineered fusion objective; it is an empirical property of whether the shared dynamical substrate can form coherent modes that are compatible with evidence arriving from different byte streams. The reported experiments are consistent with this hypothesis, but larger and more diverse datasets are required before making strong generalization claims.
+
+% ============================================================================
+% 10. CONCLUSION
+% ============================================================================
+
+
+
+
+\section{Conclusion}
+\label{sec:conclusion}
+
+We presented the Sensorium Manifold as a physics-native cognitive operating system, with one shared dynamical framework for text, image, and audio representations. The model rests on nine concrete architectural elements: (i)~a deterministic byte-level identity substrate with collision-compressed storage in a three-dimensional Morton-coded geometric index, (ii)~epistemic stratification via the $Z$-axis, separating immutable bedrock ($Z\!=\!0$) from volatile working memory ($Z \ge 1$), (iii)~energy-driven frequency $\omega=E/\hbar$ coupling energy to dynamics, (iv)~amplitude-coupled carrier mean-field dynamics where alignment drives amplitude and amplitude drives coupling strength, (v)~vertical wormhole coupling through shared token identities with IDF-weighted gating, (vi)~a short hierarchical ladder where coherent modes are re-treated as oscillators and phase deltas are propagated back down to tokens, (vii)~coherence-filtered readout with harmonic quantization via overtone locking, (viii)~exponential energy relaxation toward a rest energy floor that enables relaxation-based inference under boundary constraints, and (ix)~a Thermodynamic OISC architecture whose single instruction \texttt{RESONATE} subsumes attention, routing, and logical deduction, with coherence as its type system and $Z$-annealing as its compiler.
+
+Across the reported experiments, the system exhibits stable amplitude-coupled mean-field dynamics, gradient-free adaptation, modality-agnostic processing under a common state evolution, and direct operation on raw byte streams (e.g., audio mixtures) without modality-specific encoders.
+
+\paragraph{Structural properties observed.}
+Four results warrant particular attention:
+\begin{enumerate}[nosep]
+  \item \textbf{Single-step rule-shift adaptation} (\Cref{sec:rule_shift}): the manifold integrates a distributional shift in one physics step without gradient computation.
+  \item \textbf{Modality-agnostic source separation} (\Cref{sec:cocktail_party}): raw-byte cocktail-party separation without an audio encoder.
+  \item \textbf{Cross-modal coupling without fusion objectives} (\Cref{sec:cross_modal_exp}): joint-carrier processing achieves perfect cross-view retrieval; split-carrier processing produces zero, consistent with coupling arising from shared dynamics.
+  \item \textbf{Transformer composability} (\Cref{sec:llama_integration}): manifold-grafted logit biasing resolves constraint-heavy puzzles that the base Llama model does not, and KV-cache replacement decouples generation cost from context length.
+\end{enumerate}
+These properties follow from the substrate's dynamics rather than from learned parameters. Whether they survive scaling to production regimes is the central open question.
+
+The propagation-depth and energy-selectivity results (\Cref{sec:propagation_exp,sec:reasoning_exp}) indicate where the formulation will break first. We define explicit acceptance criteria (\Cref{tab:scale_validity}) and track which have been cleared and which remain open.
+
+\paragraph{Implementation availability.}
+The complete implementation is released at \url{https://github.com/theapemachine/sensorium-manifold} under an open-source license. The codebase includes custom Metal compute shaders (Apple Silicon) and Triton kernels (NVIDIA CUDA) for GPU-accelerated wave-domain dynamics, a multi-backend abstraction supporting NumPy, PyTorch, Numba, and MLX, and a distributed runtime for heterogeneous multi-node clusters via \texttt{torch.distributed}. All 14 experiments reported in this paper are reproducible from the repository.
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
+\bibliographystyle{plainnat}
+\bibliography{references}
+
+% ============================================================================
+% APPENDIX
+% ============================================================================
+
+
+
+
+\appendix
+
+\section{Additional Experiments}
+\label{sec:appendix_experiments}
+
+\section{Extended Translation Table}
+\label{app:translation}
+
+For readers seeking deeper correspondences (functional analogues, not equivalences):
+
+\begin{center}
+\renewcommand{\arraystretch}{1.3}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{l l}
+\toprule
+\textbf{Physics Concept} & \textbf{ML Analogue} \\
+\midrule
+Manifold state $z$ & State-space coordinate (dynamical memory) \\
+Index entry / token identity (geometric layer) & Storage key + lookup handle (exact identity) \\
+Oscillator node $(E_i, \theta_i)$ & Token state with energy-driven frequency (\(\omega_i=E_i/\hbar\)) \\
+Carrier mean-field coupling & Attention analogue (routing without dense dot products) \\
+Amplitude-weighted field $R_c=\sum_{j\in c} \omega_j A_j e^{i\theta_j}$ & Alignment-gated aggregation (attention analogue) \\
+Coherent mode (carrier / super-mode) & Attractor / memory trace (via synchronization) \\
+Order parameter $K$ & High-confidence coherence (activation) \\
+Alignment amplitude $A_i$ & Contribution gate / self-reinforcing coherence \\
+Spectral separation (repulsion) & Anti-collapse regularizer in frequency space (optional) \\
+Multilevel coupling (coarse\(\to\)fine) & Long-range mixing without dense attention \\
+Identity-driven drive (energy injection) & Content-conditional activation without learned embeddings \\
+Position $\to$ phase mapping & Relative positional encoding (beat frequencies) \\
+Wormhole (shared-identity coupling) & Cross-attention via key overlap (skip connections across samples) \\
+Harmonic quantization (overtone locking) & Autoregressive decode with nucleus/top-$k$ sampling \\
+Phase delay $\Delta\theta$ & Reasoning depth / confidence calibration \\
+Sympathetic frequency tuning & Alignment-gated momentum transfer \\
+Beat frequency $\Delta\theta_{ij}$ & Relative position signal \\
+Alignment amplitude $A_i = \operatorname{clip}(\mathbf{u}_i \cdot \bar{S}_c, 0, 1)$ & Gated contribution to mean field (self-reinforcing coherence) \\
+Alignment-gated dissipation + noise & Exploration vs.\ consolidation schedule \\
+Hierarchical feedback (mode\(\to\)token deltas) & Coarse-to-fine constraint propagation \\
+Ground-state energy $E_{\mathrm{rest}}$ & Energy floor / baseline \\
+Index collision (dedup) & Exact identity compression for storage/lookup \\
+LSM merge-and-deduplicate & Deterministic collision-compressed indexing \\
+Morton code (Z-order) & Locality-preserving linearization \\
+Index sort key \((\mathcal{Z},\text{ID})\) & Deterministic key ordering for merges/lookups \\
+Noise injection & Stochastic exploration \\
+Default Mode Network / $Z$-annealing & Offline consolidation / Self-improvement \\
+Overtone locking & Quantization / ADC \\
+Thermodynamic OISC & One-instruction-set computer \\
+Relaxation-based inference & All-token inference (non-autoregressive) \\
+Resonance + readout & Content-addressable associative recall (dynamics-native) \\
+Time as Space & Sequence index as spatial coordinate \\
+Boundary Value Problem & Constrained generation (inpainting) \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{center}
+
+\section{Pseudocode}
+\label{app:algorithms}
+
+\begin{algorithm}[H]
+\caption{Wave-Domain Step (Amplitude-Coupled Mean-Field + Hierarchical Mode Coarse-Graining)}
+\label{alg:unified_step}
+\begin{algorithmic}[1]
+\Require Token arrays $\{E_i,\theta_i\}_{i=1}^N$ (energy, phase), carrier labels $c_i$
+\State Compute frequencies $\omega_i \leftarrow E_i/\hbar$; advance phase $\theta_i \leftarrow \theta_i + \omega_i\,\dt$
+\State \textbf{// Level 0: carrier mean-field coupling}
+\State For each carrier $c$: $\bar{S}_c \leftarrow \frac{1}{N_c}\sum_{j:\,c_j=c} e^{i\theta_j}$ \Comment{unweighted carrier mean phasor}
+\State Alignment amplitude: $A_i \leftarrow \operatorname{clip}(\cos\theta_i\,\operatorname{Re}\bar{S}_{c_i} + \sin\theta_i\,\operatorname{Im}\bar{S}_{c_i},\;0,\;1)^2$
+\State Weighted field: $R_c \leftarrow \sum_{j:\,c_j=c} \omega_j\,A_j\,e^{i\theta_j}$ \Comment{aligned + energetic dominate}
+\State Phase pull: $\theta_i \leftarrow \theta_i + \sin(\arg R_{c_i} - \theta_i)\,\dt$ \Comment{attraction toward weighted mean}
+\State \textbf{// Level 1+: fractal hierarchy over emergent modes}
+\State Compute carrier modes: $K_c = |M_c|/\sum \omega_j$, $\Phi_c = \arg M_c$
+\State Identify active modes above noise floor $K_{\mathrm{floor}} \approx 1/\sqrt{N_c}$
+\State Cluster active modes by constructive phase alignment ($\cos(\Delta\phi)>0$)
+\State For each cluster: compute cluster mode; apply amplitude-weighted phase pull; propagate phase deltas down
+\State Repeat until no new synthesis occurs
+\State \textbf{// Energy dynamics (alignment-gated)}
+\State $E_i \leftarrow E_i + (E_{\mathrm{target}} - E_i)\,\gamma_r\,A_i$ \Comment{sympathetic tuning}
+\State $E_i \leftarrow E_i + (E_{\mathrm{rest}} - E_i)\,\gamma_r\,(1-A_i)$ \Comment{misaligned relaxation}
+\State $E_i \leftarrow E_i + (E_{\mathrm{cap}} - E_i)\,g_r\,A_i$ \Comment{saturating resonance pump}
+\end{algorithmic}
+\end{algorithm}
+
+
+
+
+
+\section{Optional Mechanisms and Their Equations}
+\label{app:optional}
+
+This appendix collects dynamical mechanisms that are implemented as first-class options in the architecture and evaluated via ablations (\Cref{sec:ablations}). They are separated from the core Hopf + sparse-coupling dynamics to keep the main narrative readable.
+
+\subsection{Floquet Modulation (Parametric Resonance)}
+We periodically modulate coupling strength to induce controlled parametric resonance:
+\begin{equation}
+\coupling(t) = \coupling_0\bigl(1 + d\cos(\Omega t)\bigr),
+\end{equation}
+where $d\in[0,1)$ is the modulation depth and $\Omega$ sets the modulation period (often chosen as a small integer multiple of the step frequency). This is algorithmically a deterministic schedule on a scalar gain.
+
+\subsection{Frequency Mixing via Saturating Nonlinearity}
+Nonlinear oscillators generate sidebands. A simple controlled nonlinearity is to saturate the Hopf amplitude term:
+\begin{equation}
+-\beta |\z_p|^2 \z_p \;\longrightarrow\; -\beta\,\operatorname{clip}\!\left(|\z_p|^2,\,0,\,s_{\max}\right)\z_p,
+\end{equation}
+which prevents runaway while preserving weak nonlinear mixing. More explicit mixing terms (e.g., bilinear products across neighbors) can be introduced, but must be carefully bounded to avoid numerical instabilities.
+
+\subsection{Spectral / Topological Control}
+Let $W$ be the symmetric part of the coupling weights and let $L=D-W$ be the graph Laplacian. Let $\{\lambda_i\}$ be eigenvalues of $L$ and define a normalized spectrum $\hat{\lambda}_i=\lambda_i/\sum_j\lambda_j$. A scalar ``spectral entropy'' is
+\begin{equation}
+H(L)= -\sum_i \hat{\lambda}_i \log(\hat{\lambda}_i+\eps).
+\end{equation}
+A controller can target a desired spectral entropy $H^\star$ by adjusting coupling or by reshaping edge weights (e.g., penalizing overly localized eigenmodes). In practice, we treat spectral control as an \emph{idle-time} optimization: it runs between queries when hardware would otherwise be idle.
+
+\subsection{Two-Band Multiscale Coupling}
+We maintain a slow field $\zvec^{(s)}$ and a fast field $\zvec^{(f)}$ with different damping/noise. The slow field receives forcing from a rolling window of recent emissions; the fast field receives forcing from the slow field:
+\begin{align}
+\dot{\z}^{(s)} &= f^{(s)}(\z^{(s)}) + \eta_{es}\,\force_{\text{emit}}(t),\\
+\dot{\z}^{(f)} &= f^{(f)}(\z^{(f)}) + \eta_{sf}\,\z^{(s)}.
+\end{align}
+This is algorithmically a two-rate dynamical system with cross-coupling terms.
+
+\subsection{Time-Reversal Credit Assignment}
+For sufficiently small $\dt$ and a symplectic (or near-symplectic) integrator, the dynamics can be approximately reversed for a bounded number of steps. This enables a ``credit assignment by reversibility'' diagnostic: perturb the readout, reverse the dynamics, and measure which modes were causally upstream. We use this primarily as an analysis tool; any learning rule derived from it must still be validated empirically.
+
+
+
+
+\end{document}

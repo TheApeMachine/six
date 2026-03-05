@@ -1,0 +1,317 @@
+% !TEX program = pdflatex
+\documentclass[11pt,a4paper]{article}
+
+% ============================================================================
+% PACKAGES
+% ============================================================================
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{amsmath,amssymb,amsthm}
+\usepackage{mathtools}
+\usepackage{bm}
+\usepackage{algorithm}
+\usepackage{algpseudocode}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{hyperref}
+\usepackage{cleveref}
+\usepackage{xcolor}
+\usepackage{microtype}
+\usepackage[margin=1in]{geometry}
+\usepackage{caption}
+\usepackage{subcaption}
+\usepackage{natbib}
+\usepackage[most]{tcolorbox}
+\usepackage{array}
+\usepackage{colortbl}
+\usepackage{adjustbox}   % For scaling wide tables to fit
+\usepackage{float}      % Provides [H] for "exactly here" placement
+\usepackage{placeins}   % Provides \FloatBarrier to stop float drift
+\usepackage{enumitem}   % Provides [nosep] for compact lists
+
+% ============================================================================
+% FLOAT SETTINGS - Keep figures/tables near their text
+% ============================================================================
+% Allow more floats per page and be more permissive about placement
+\renewcommand{\topfraction}{0.9}        % max fraction of page for floats at top
+\renewcommand{\bottomfraction}{0.9}     % max fraction of page for floats at bottom
+\renewcommand{\textfraction}{0.1}       % min fraction of page for text
+\renewcommand{\floatpagefraction}{0.7}  % min fraction for a float-only page
+\setcounter{topnumber}{3}               % max floats at top of page
+\setcounter{bottomnumber}{3}            % max floats at bottom of page
+\setcounter{totalnumber}{5}             % max floats per page
+
+% Fix for array column syntax
+\newcolumntype{P}[1]{>{\raggedright\arraybackslash}p{#1}}
+
+% ============================================================================
+% COLORS
+% ============================================================================
+\definecolor{physicsblue}{RGB}{51, 102, 153}
+\definecolor{mlgreen}{RGB}{76, 153, 76}
+\definecolor{boxgray}{RGB}{245, 245, 245}
+
+% ============================================================================
+% THEOREM ENVIRONMENTS
+% ============================================================================
+\newtheorem{definition}{Definition}
+\newtheorem{proposition}{Proposition}
+\newtheorem{remark}{Remark}
+\newtheorem{principle}{Principle}
+
+% ============================================================================
+% CUSTOM COMMANDS - NOTATION
+% ============================================================================
+\newcommand{\R}{\mathbb{R}}
+\newcommand{\C}{\mathbb{C}}
+\newcommand{\E}{\mathbb{E}}
+\newcommand{\EMA}[1]{\overline{#1}}
+\newcommand{\dt}{\Delta t}
+\newcommand{\eps}{\varepsilon}
+\newcommand{\hb}{\hbar}
+
+% Manifold + geometry
+\newcommand{\sensorium}{\mathcal{S}}
+\newcommand{\morton}{\mathcal{Z}}
+
+% Energy / coherence / temperature
+\newcommand{\energy}{E}
+\newcommand{\entropy}{S}
+\newcommand{\temperature}{T}
+\newcommand{\coh}{R}              % global coherence readout (order parameter)
+
+% Wave state (prime-mode field)
+\newcommand{\z}{z}                % complex amplitude
+\newcommand{\zvec}{\bm{z}}
+\newcommand{\force}{F}
+\newcommand{\coupling}{\kappa}
+\newcommand{\damp}{\gamma}
+\newcommand{\noise}{\sigma}
+
+% Physical quantities (additional)
+\newcommand{\excitation}{\varepsilon}          % Excitation
+\newcommand{\flux}{\Phi}                       % Energy flux
+\newcommand{\diffusion}{D}                     % Diffusion coefficient
+
+% Energy bookkeeping
+\newcommand{\eosc}{E_{\text{osc}}}
+\newcommand{\eoscI}[1]{E_{\text{osc},#1}}
+
+% ============================================================================
+% BOX ENVIRONMENTS
+% ============================================================================
+\tcbset{
+  colback=boxgray,
+  colframe=physicsblue,
+  sharp corners,
+  boxrule=0.8pt,
+  left=6pt,right=6pt,top=6pt,bottom=6pt
+}
+
+\newtcolorbox{algobox}[1][]{title={Algorithmic Summary},#1}
+\newtcolorbox{physicsbox}[1][]{colframe=mlgreen,title={Physical Interpretation},#1}
+\newtcolorbox{caveatbox}[1][]{colframe=red!60!black,title={Limitations / Failure Modes},#1}
+
+% ============================================================================
+% TITLE
+% ============================================================================
+\title{%
+  \textbf{The Sensorium Manifold}: \\[0.3em]
+  \large Emergent Modes of Intelligence
+}
+
+\author{
+  Daniel Owen van Dommelen\\
+  \textit{Independent Research - WORKING DRAFT}\\
+  \texttt{theapemachine@gmail.com}
+}
+
+\date{\today}
+
+% ============================================================================
+% DOCUMENT
+% ============================================================================
+\usepackage{newunicodechar}
+\newunicodechar{₁}{\ensuremath{_1}}
+\newunicodechar{₂}{\ensuremath{_2}}
+\newunicodechar{α}{\ensuremath{\alpha}}
+
+\begin{document}
+
+\maketitle
+
+\section{Codegen}
+
+\graphicspath{{include/codegen/}}
+
+\InputIfFileExists{include/codegen/cantilever_gating.tex}{}{}
+\InputIfFileExists{include/codegen/cantilever_gating_code.tex}{}{}
+\InputIfFileExists{include/codegen/cantilever_gating_prose.tex}{}{}
+\InputIfFileExists{include/codegen/cantilever_gating_summary.tex}{}{}
+\InputIfFileExists{include/codegen/chord_generation.tex}{}{}
+\InputIfFileExists{include/codegen/chord_generation_prose.tex}{}{}
+\InputIfFileExists{include/codegen/chord_generation_summary.tex}{}{}
+\InputIfFileExists{include/codegen/compositional_gen.tex}{}{}
+\InputIfFileExists{include/codegen/compositional_gen_code.tex}{}{}
+\InputIfFileExists{include/codegen/compositional_gen_prose.tex}{}{}
+\InputIfFileExists{include/codegen/compositional_gen_summary.tex}{}{}
+\InputIfFileExists{include/codegen/eigenmode_probe.tex}{}{}
+\InputIfFileExists{include/codegen/eigenmode_probe_prose.tex}{}{}
+\InputIfFileExists{include/codegen/eigenmode_summary.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_c++.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_c++_prose.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_c++_summary.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_code.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_go.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_go_prose.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_go_summary.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_haskell.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_haskell_prose.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_haskell_summary.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_lisp.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_lisp_prose.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_lisp_summary.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_prose.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_python.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_python_prose.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_python_summary.tex}{}{}
+\InputIfFileExists{include/codegen/long_generation_summary.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_c++.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_c++_prose.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_c++_summary.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_go.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_go_prose.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_go_summary.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_haskell.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_haskell_prose.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_haskell_summary.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_lisp.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_lisp_prose.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_lisp_summary.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_prose.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_python.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_python_prose.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_python_summary.tex}{}{}
+\InputIfFileExists{include/codegen/overlap_chaining_summary.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_c++.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_c++_prose.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_c++_summary.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_code.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_go.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_go_prose.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_go_summary.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_haskell.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_haskell_prose.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_haskell_summary.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_lisp.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_lisp_prose.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_lisp_summary.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_prose.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_python.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_python_prose.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_python_summary.tex}{}{}
+\InputIfFileExists{include/codegen/phase_bridging_summary.tex}{}{}
+\InputIfFileExists{include/codegen/relative_cantilever.tex}{}{}
+\InputIfFileExists{include/codegen/relative_cantilever_code.tex}{}{}
+\InputIfFileExists{include/codegen/relative_cantilever_prose.tex}{}{}
+\InputIfFileExists{include/codegen/relative_cantilever_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_c++.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_c++_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_c++_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_go.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_go_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_go_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_haskell.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_haskell_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_haskell_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_lisp.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_lisp_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_lisp_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_python.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_python_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_python_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_chaining_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_ranking.tex}{}{}
+\InputIfFileExists{include/codegen/span_ranking_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_ranking_summary.tex}{}{}
+\InputIfFileExists{include/codegen/span_solver.tex}{}{}
+\InputIfFileExists{include/codegen/span_solver_prose.tex}{}{}
+\InputIfFileExists{include/codegen/span_solver_summary.tex}{}{}
+\InputIfFileExists{include/codegen/structural_sensitivity.tex}{}{}
+\InputIfFileExists{include/codegen/structural_sensitivity_prose.tex}{}{}
+\InputIfFileExists{include/codegen/structural_sensitivity_summary.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\section{Logic}
+
+\graphicspath{{include/logic/}}
+
+\InputIfFileExists{include/logic/expected_reality_scaling.tex}{}{}
+\InputIfFileExists{include/logic/expected_reality_scaling_chart.tex}{}{}
+\InputIfFileExists{include/logic/expected_reality_scaling_table.tex}{}{}
+\InputIfFileExists{include/logic/logic_analogy_benchmark.tex}{}{}
+\InputIfFileExists{include/logic/logic_babi_accuracy.tex}{}{}
+\InputIfFileExists{include/logic/logic_babi_benchmark.tex}{}{}
+\InputIfFileExists{include/logic/logic_resonance_accuracy.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\section{Phasedial}
+
+\graphicspath{{include/phasedial/}}
+
+\InputIfFileExists{include/phasedial/adaptive_split_boundaries.tex}{}{}
+\InputIfFileExists{include/phasedial/adaptive_split_gap.tex}{}{}
+\InputIfFileExists{include/phasedial/adaptive_split_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/baseline_falsification_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/chunking_variation_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/composition_trace.tex}{}{}
+\InputIfFileExists{include/phasedial/corr_length_bar.tex}{}{}
+\InputIfFileExists{include/phasedial/corr_length_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/equivariance.tex}{}{}
+\InputIfFileExists{include/phasedial/partial_deletion_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/permutation_metrics.tex}{}{}
+\InputIfFileExists{include/phasedial/permutation_metrics_chart.tex}{}{}
+\InputIfFileExists{include/phasedial/permutation_novelty.tex}{}{}
+\InputIfFileExists{include/phasedial/permutation_score_heatmap.tex}{}{}
+\InputIfFileExists{include/phasedial/permutation_traces.tex}{}{}
+\InputIfFileExists{include/phasedial/phase_coherence.tex}{}{}
+\InputIfFileExists{include/phasedial/phase_coherence_dist_bands.tex}{}{}
+\InputIfFileExists{include/phasedial/phase_coherence_dist_corr.tex}{}{}
+\InputIfFileExists{include/phasedial/phase_coherence_heatmap.tex}{}{}
+\InputIfFileExists{include/phasedial/query_robustness_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/snap_surface.tex}{}{}
+\InputIfFileExists{include/phasedial/snap_surface_bar.tex}{}{}
+\InputIfFileExists{include/phasedial/snap_surface_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/steerability_validation.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_generalization.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_generalization_bar.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_generalization_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_landscape.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_navigation.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_navigation_bar.tex}{}{}
+\InputIfFileExists{include/phasedial/torus_navigation_summary.tex}{}{}
+\InputIfFileExists{include/phasedial/two_hop_gain_by_alpha1.tex}{}{}
+\InputIfFileExists{include/phasedial/two_hop_heatmap.tex}{}{}
+\InputIfFileExists{include/phasedial/two_hop_summary.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\section{Vision}
+
+\graphicspath{{include/vision/}}
+
+\InputIfFileExists{include/vision/crossmodal_reconstruction.tex}{}{}
+\InputIfFileExists{include/vision/vision_cifar10_strip.tex}{}{}
+\InputIfFileExists{include/vision/vision_pipeline_summary.tex}{}{}
+\InputIfFileExists{include/vision/vision_reconstruction_summary.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\end{document}

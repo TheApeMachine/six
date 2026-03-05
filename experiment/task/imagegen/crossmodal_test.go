@@ -8,7 +8,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/gpu/metal"
+	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
 )
 
@@ -141,7 +141,7 @@ func TestCrossModalRetrieval(t *testing.T) {
 				queryCtx.Cubes[0][0][i] = promptChord[i]
 			}
 
-			bestIdx, bestScore, err := metal.BestFill(
+			bestIdx, bestScore, err := kernel.BestFill(
 				pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 			)
 
@@ -213,11 +213,18 @@ func TestCrossModalRetrieval(t *testing.T) {
 
 				var queryCtx geometry.IcosahedralManifold
 				for i := 0; i < 8; i++ {
-				queryCtx.Cubes[0][0][i] = prompt[i]
-			}
+					queryCtx.Cubes[0][0][i] = prompt[i]
+				}
 
-				bestIdx, _, _ := metal.BestFill(
-					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+				bestIdx, _, _ := kernel.BestFill(
+					pf.Field(), pf.N, unsafe.Pointer(
+						&queryCtx,
+					),
+					nil,
+					0,
+					unsafe.Pointer(
+						&geometry.UnifiedGeodesicMatrix[0],
+					),
 				)
 
 				fmt.Printf("%-8s", queryName)

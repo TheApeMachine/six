@@ -8,6 +8,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/resonance"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -41,9 +42,9 @@ Corpus:
   - "the quick red car"
 
 This test verifies two things:
-1. The ChordHole between the query and the best-matching sentence
-   structurally resembles the completing word.
-2. The completing word "car" fills the hole better than "fox" or "bear".
+ 1. The ChordHole between the query and the best-matching sentence
+    structurally resembles the completing word.
+ 2. The completing word "car" fills the hole better than "fox" or "bear".
 */
 func TestCompositionalCompletion(t *testing.T) {
 	Convey("Given a small corpus of sentences stored as hyper-chords", t, func() {
@@ -76,11 +77,11 @@ func TestCompositionalCompletion(t *testing.T) {
 			fmt.Printf("Query: 'the quick red'\n\n")
 
 			type holeResult struct {
-				sentence  string
-				holeBits  int
-				carFill   float64
-				foxFill   float64
-				bearFill  float64
+				sentence string
+				holeBits int
+				carFill  float64
+				foxFill  float64
+				bearFill float64
 			}
 
 			var results []holeResult

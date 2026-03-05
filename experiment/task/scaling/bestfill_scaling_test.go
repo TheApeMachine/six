@@ -8,10 +8,10 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/kernel/metal"
 	"github.com/theapemachine/six/store"
 )
 
@@ -81,7 +81,7 @@ func benchBestFill(b *testing.B, corpusSize int) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		metal.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
+		kernel.BestFill(pf.Field(), pf.N, unsafe.Pointer(&ctx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
 	}
 }
 
@@ -99,10 +99,10 @@ func TestBestFillO1Scaling(t *testing.T) {
 		iterations := 50
 
 		type result struct {
-			Size       int
-			MedianNs   int64
-			BestIdx    int
-			BestScore  float64
+			Size        int
+			MedianNs    int64
+			BestIdx     int
+			BestScore   float64
 			ContextBits int
 		}
 

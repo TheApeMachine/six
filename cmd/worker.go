@@ -8,7 +8,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/kernel"
+	kernel "github.com/theapemachine/six/kernel"
 )
 
 var workerAddr string

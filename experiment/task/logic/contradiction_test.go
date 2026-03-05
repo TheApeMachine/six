@@ -8,7 +8,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/gpu/metal"
+	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/resonance"
 	"github.com/theapemachine/six/store"
 )
@@ -117,11 +117,18 @@ func TestContradictionResolution(t *testing.T) {
 				// Build GPU query context
 				var queryCtx geometry.IcosahedralManifold
 				for i := 0; i < 8; i++ {
-				queryCtx.Cubes[0][0][i] = queryChord[i]
-			}
+					queryCtx.Cubes[0][0][i] = queryChord[i]
+				}
 
-				bestGPUIdx, bestGPUScore, err := metal.BestFill(
-					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+				bestGPUIdx, bestGPUScore, err := kernel.BestFill(
+					pf.Field(), pf.N, unsafe.Pointer(
+						&queryCtx,
+					),
+					nil,
+					0,
+					unsafe.Pointer(
+						&geometry.UnifiedGeodesicMatrix[0],
+					),
 				)
 
 				So(err, ShouldBeNil)

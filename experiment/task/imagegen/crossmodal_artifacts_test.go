@@ -14,7 +14,7 @@ import (
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/gpu/metal"
+	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
 )
 
@@ -99,10 +99,10 @@ func TestCrossModalReconstructionArtifact(t *testing.T) {
 
 				var queryCtx geometry.IcosahedralManifold
 				for i := 0; i < 8; i++ {
-				queryCtx.Cubes[0][0][i] = promptChord[i]
-			}
+					queryCtx.Cubes[0][0][i] = promptChord[i]
+				}
 
-				bestIdx, _, err := metal.BestFill(
+				bestIdx, _, err := kernel.BestFill(
 					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 				)
 				So(err, ShouldBeNil)

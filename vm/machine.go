@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
 )
 
@@ -50,7 +51,7 @@ func (machine *Machine) Start() error {
 		machine.primefield.Insert(chord)
 		chords = append(chords, chord)
 	}
-	
+
 	fmt.Println("Start inserted chords:", len(chords)) // Debug!
 
 	if err := machine.eigen.BuildMultiScaleCooccurrence(chords); err != nil {
@@ -126,7 +127,6 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 			}
 		}
 
-
 		// We accumulate the context into a single window.
 		// As per BITWISE.md, we scan backwards from the end of the prompt until we hit a space boundary
 		// or up to a max window size (21, max Fibonacci block size)
@@ -135,7 +135,7 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 		if start < 0 {
 			start = 0
 		}
-		
+
 		for {
 			// Build current active context Manifold directly matching GPU topology
 			var activeCtx geometry.IcosahedralManifold
@@ -156,7 +156,7 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 			}
 
 			dictPtr, numChords := machine.primefield.Snapshot()
-			
+
 			// GPU Bitwise Search - System 1 (Fast, Discrete)
 			bestIdx, score, err := kernel.BestFill(
 				dictPtr,
@@ -169,9 +169,9 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 
 			// Ambiguity Check & Hybrid Routing (System 2)
 			if err == nil && bestIdx >= 0 && machine.eigen != nil {
-				// Temporarily zero the best result 
+				// Temporarily zero the best result
 				originalRoot := machine.primefield.Mask(bestIdx)
-				
+
 				// Re-run GPU search to find the second-best competitor
 				altDictPtr, altNumChords := machine.primefield.Snapshot()
 				altIdx, altScore, _ := kernel.BestFill(
@@ -182,27 +182,27 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 					currentIdx,
 					unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 				)
-				
+
 				machine.primefield.Unmask(bestIdx, originalRoot)
-				
+
 				// If the score differential is extremely tight, we have logical contradiction
 				// or semantic ambiguity. Route to System 2 (EigenMode) for slow, continuous resolution.
 				if (score - altScore) < 0.05 {
 					// 1. Establish the "Anchor Phase" of our current context
 					ctxTheta, ctxPhi := machine.eigen.SeqToroidalMeanPhase(prompt[start:])
-					
+
 					// 2. Fetch the discrete candidate manifolds
 					cand1 := machine.primefield.Manifold(bestIdx).Cubes[0][0]
 					cand2 := machine.primefield.Manifold(altIdx).Cubes[0][0]
-					
+
 					// 3. Extrapolate candidate continuous phases
 					c1Theta, c1Phi := machine.eigen.PhaseForChord(&cand1)
 					c2Theta, c2Phi := machine.eigen.PhaseForChord(&cand2)
-					
+
 					// 4. Calculate toroidal L2 distance inside S1 x S1
 					dist1 := math.Sqrt(math.Pow(c1Theta-ctxTheta, 2) + math.Pow(c1Phi-ctxPhi, 2))
 					dist2 := math.Sqrt(math.Pow(c2Theta-ctxTheta, 2) + math.Pow(c2Phi-ctxPhi, 2))
-					
+
 					// 5. System 2 Override: If candidate 2 is topologically closer, override System 1
 					if dist2 < dist1 {
 						bestIdx = altIdx
@@ -222,8 +222,8 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 				)
 				return
 			}
-			
-			// Mask the found index — zero it in the PrimeField so the 
+
+			// Mask the found index — zero it in the PrimeField so the
 			// GPU can't re-find it. Store original for deferred unmask.
 			for i := range prompt {
 				if bestIdx+i >= machine.primefield.N {
@@ -240,12 +240,12 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 			// We only care about the origin origin block [0][0] for immediate sequence tokenization
 			foundChord := found.Cubes[0][0]
 			activeChord := activeCtx.Cubes[0][0]
-			
-			// If our current prompt perfectly overlaps the bedrock chord, it means 
+
+			// If our current prompt perfectly overlaps the bedrock chord, it means
 			// the wave completely canceled out (0 entropy hole). To continue the generation,
 			// we must step the read head forward by 1 index to grab the "next" token!
 			missingChord := data.ChordHole(&foundChord, &activeChord)
-			
+
 			if missingChord.ActiveCount() == 0 {
 				// Perfect match up to this point! The missing piece is literally the NEXT token
 				// inside the found bedrock geometry. So we advance the index.
@@ -256,8 +256,8 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 			}
 
 			// The GPU found a topological match (`bestIdx`) for our prompt.
-			// Because `bestIdx` points to the *start* of where our active context matched in the 
-			// PrimeField historical store, we must advance exactly `len(prompt)` tokens 
+			// Because `bestIdx` points to the *start* of where our active context matched in the
+			// PrimeField historical store, we must advance exactly `len(prompt)` tokens
 			// forward to retrieve the NEW characters that exist AFTER the prompt sequence.
 			startIndex := bestIdx
 			if missingChord.ActiveCount() == 0 {
@@ -272,9 +272,6 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 					Chord: manifold,
 				}
 			}
-			
-			// We only want the sequence corresponding to the very first prompt completion chunk.
-			break
 		}
 	}()
 

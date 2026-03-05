@@ -7,10 +7,10 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/gpu/metal"
 	"github.com/theapemachine/six/resonance"
 	"github.com/theapemachine/six/store"
 )
@@ -70,11 +70,13 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			}
 
 			// Warm up
-			metal.BestFill(pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
+			kernel.BestFill(pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
 
 			start1 := time.Now()
-			bestIdx1, score1, err := metal.BestFill(
-				pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+			bestIdx1, score1, err := kernel.BestFill(
+				pf1.Field(), pf1.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(
+					&geometry.UnifiedGeodesicMatrix[0],
+				),
 			)
 			latency1 := time.Since(start1)
 
@@ -97,11 +99,15 @@ func TestRuleShiftAdaptation(t *testing.T) {
 			pf2.Insert(ruleAE)
 
 			// Warm up
-			metal.BestFill(pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]))
+			kernel.BestFill(pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(
+				&geometry.UnifiedGeodesicMatrix[0],
+			))
 
 			start2 := time.Now()
-			bestIdx2, score2, err := metal.BestFill(
-				pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+			bestIdx2, score2, err := kernel.BestFill(
+				pf2.Field(), pf2.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(
+					&geometry.UnifiedGeodesicMatrix[0],
+				),
 			)
 			latency2 := time.Since(start2)
 
