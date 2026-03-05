@@ -4,14 +4,14 @@ import (
 	"math"
 	"math/cmplx"
 
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 // BuildBoundaryFP encodes prefix+suffix into a normalized combined fingerprint.
 func BuildBoundaryFP(prefix, suffix string) geometry.PhaseDial {
-	D := numeric.NBasis
+	D := config.Numeric.NBasis
 	fp := geometry.NewPhaseDial().Encode(prefix)
 	if suffix == "" {
 		return fp
@@ -57,7 +57,7 @@ func BuildSpanMemory(corpus []string) SpanMemory {
 
 	for corpIdx, fn := range corpus {
 		toks := tokenize(fn)
-		for _, sLen := range numeric.FibWindows {
+		for _, sLen := range config.Numeric.Windows {
 			if len(toks) < sLen {
 				continue
 			}
@@ -88,7 +88,7 @@ type ScoredSpan struct {
 // RetrieveDiverse sweeps nDial torus angles, deduplicates, and returns up to
 // topK candidates sorted by score descending.
 func (sm SpanMemory) RetrieveDiverse(fpBoundary geometry.PhaseDial, nDial, topK int) []ScoredSpan {
-	D := numeric.NBasis
+	D := config.Numeric.NBasis
 	seen := make(map[int]bool)
 	var out []ScoredSpan
 

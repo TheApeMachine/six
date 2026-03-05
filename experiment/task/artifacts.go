@@ -1,4 +1,4 @@
-package codegen
+package task
 
 import (
 	"io"
@@ -37,39 +37,49 @@ func ensurePaperDir() (string, error) {
 	return dir, os.MkdirAll(dir, 0755)
 }
 
-// ─── Thin wrappers — all logic lives in projector.Write* ──────────────────
-
 func WriteTable(data []map[string]any, outFile string) error {
 	dir, err := ensurePaperDir()
+
 	if err != nil {
 		return err
 	}
+
 	return projector.WriteTable(data, dir, outFile)
 }
 
 func WriteBarChart(xAxis []string, series []projector.BarSeries, title, caption, label, filename string) error {
 	dir, err := ensurePaperDir()
+
 	if err != nil {
 		return err
 	}
+
 	f, err := os.Create(filepath.Join(dir, filename+".tex"))
+
 	if err != nil {
 		return err
 	}
+
 	defer f.Close()
+
 	return projector.WriteBarChart(xAxis, series, title, caption, label, dir, filename, f)
 }
 
 func WriteLineChart(xAxis []string, series []projector.LineSeries, title, caption, label, filename string, yMin, yMax float64) error {
 	dir, err := ensurePaperDir()
+
 	if err != nil {
 		return err
 	}
+
 	f, err := os.Create(filepath.Join(dir, filename+".tex"))
+
 	if err != nil {
 		return err
 	}
+
 	defer f.Close()
+
 	return projector.WriteLineChart(xAxis, series, title, caption, label, dir, filename, yMin, yMax, f)
 }
 

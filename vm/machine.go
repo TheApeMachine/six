@@ -111,13 +111,10 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 			}
 		}()
 
-		startIdx := machine.primefield.N - len(prompt)
-		if startIdx < 0 {
-			startIdx = 0
-		}
+		startIdx := max(machine.primefield.N - len(prompt), 0)
 		currentIdx := startIdx
 
-		for _ = range prompt {
+		for range prompt {
 			if currentIdx < machine.primefield.N {
 				masked = append(masked, struct {
 					idx   int
@@ -131,10 +128,7 @@ func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.Ic
 		// As per BITWISE.md, we scan backwards from the end of the prompt until we hit a space boundary
 		// or up to a max window size (21, max Fibonacci block size)
 		window := 21
-		start := len(prompt) - window
-		if start < 0 {
-			start = 0
-		}
+		start := max(len(prompt) - window, 0)
 
 		for {
 			// Build current active context Manifold directly matching GPU topology

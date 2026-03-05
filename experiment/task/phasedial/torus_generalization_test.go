@@ -11,18 +11,18 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 // localContiguousSplit builds a DimMap assigning dims to contiguous subspaces.
 // boundaries are end-indices: e.g. [256, 512] → sub0=[0,256), sub1=[256,512).
 func localContiguousSplit(numAxes int, boundaries []int) []int {
-	dimMap := make([]int, numeric.NBasis)
+	dimMap := make([]int, config.Numeric.NBasis)
 	sub := 0
-	for k := 0; k < numeric.NBasis; k++ {
+	for k := 0; k < config.Numeric.NBasis; k++ {
 		if sub < numAxes-1 && k >= boundaries[sub] {
 			sub++
 		}
@@ -34,8 +34,8 @@ func localContiguousSplit(numAxes int, boundaries []int) []int {
 // localRandomSplit builds a DimMap via a deterministic random permutation.
 func localRandomSplit(numAxes, dimsPerAxis int, seed int64) []int {
 	rng := rand.New(rand.NewSource(seed))
-	perm := rng.Perm(numeric.NBasis)
-	dimMap := make([]int, numeric.NBasis)
+	perm := rng.Perm(config.Numeric.NBasis)
+	dimMap := make([]int, config.Numeric.NBasis)
 	for i, dim := range perm {
 		sub := i / dimsPerAxis
 		if sub >= numAxes {
@@ -52,15 +52,15 @@ func localEnergySplit(fpA, fpB geometry.PhaseDial) []int {
 		k    int
 		diff float64
 	}
-	dims := make([]dimE, numeric.NBasis)
-	for k := 0; k < numeric.NBasis; k++ {
+	dims := make([]dimE, config.Numeric.NBasis)
+	for k := 0; k < config.Numeric.NBasis; k++ {
 		eA := real(fpA[k])*real(fpA[k]) + imag(fpA[k])*imag(fpA[k])
 		eB := real(fpB[k])*real(fpB[k]) + imag(fpB[k])*imag(fpB[k])
 		dims[k] = dimE{k: k, diff: eA - eB}
 	}
 	sort.Slice(dims, func(i, j int) bool { return dims[i].diff < dims[j].diff })
-	dimMap := make([]int, numeric.NBasis)
-	half := numeric.NBasis / 2
+	dimMap := make([]int, config.Numeric.NBasis)
+	half := config.Numeric.NBasis / 2
 	for i, d := range dims {
 		if i < half {
 			dimMap[d.k] = 0
@@ -94,8 +94,8 @@ func TestTorusGeneralization(t *testing.T) {
 			for i, a := range angles {
 				factors[i] = cmplx.Rect(1.0, a)
 			}
-			rotated := make(geometry.PhaseDial, numeric.NBasis)
-			for k := 0; k < numeric.NBasis; k++ {
+			rotated := make(geometry.PhaseDial, config.Numeric.NBasis)
+			for k := 0; k < config.Numeric.NBasis; k++ {
 				rotated[k] = fp[k] * factors[dimMap[k]]
 			}
 			return rotated

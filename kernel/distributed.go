@@ -95,12 +95,12 @@ func bestFillDistributedPacked(
 	expCopy := append([]byte(nil), expectedBytes...)
 	lutCopy := append([]byte(nil), lutBytes...)
 
-	chunkSize := config.Get().System.Distributed.Chunk
+	chunkSize := config.System.Chunk
 	if chunkSize < 256 {
 		chunkSize = 256
 	}
-	timeout := time.Duration(config.Get().System.Distributed.Timeout) * time.Millisecond
-	remoteOnly := config.Get().System.Distributed.RemoteOnly
+	timeout := time.Duration(config.System.Timeout) * time.Millisecond
+	remoteOnly := config.System.RemoteOnly
 
 	var next atomic.Int64
 	var best atomic.Uint64

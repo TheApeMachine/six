@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestSteerability(t *testing.T) {
@@ -31,7 +31,7 @@ func TestSteerability(t *testing.T) {
 			candidates[i] = i
 		}
 
-		D := numeric.NBasis // 512
+		D := config.Numeric.NBasis // 512
 
 		// topKSet returns the top-K retrieval set as a map of entry indices.
 		const K = 8

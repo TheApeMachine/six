@@ -4,9 +4,9 @@ import (
 	"context"
 	"math"
 
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 	"github.com/theapemachine/six/provider"
 )
 
@@ -82,62 +82,59 @@ func (tokenizer *Universal) Generate() chan Token {
 			}
 
 			eigen := geometry.NewEigenMode()
-			
+
 			var emaPop float64 = 0
 			var emaPhase float64 = 0
-			
+
 			pos := 0 // chunk sequence index
 			startIdx := 0
-			
+
 			for i := 0; i < len(corpus); i++ {
-				wStart := i - 2
-				if wStart < startIdx {
-					wStart = startIdx
-				}
-				
+				wStart := max(i-2, startIdx)
+
 				var windowChord data.Chord
 				for k := wStart; k <= i; k++ {
 					base := BaseChord(corpus[k])
-					for j := range numeric.ChordBlocks {
-						windowChord[j] |= base[j]
+					for j := range config.Numeric.ChordBlocks {
+						windowChord.Bytes()[j] |= base.Bytes()[j]
 					}
 				}
-				
+
 				pop := float64(windowChord.ActiveCount())
 				theta, phi := eigen.PhaseForChord(&windowChord)
 				phase := math.Sqrt(theta*theta + phi*phi)
-				
+
 				if i == startIdx {
 					emaPop = pop
 					emaPhase = phase
 					continue
 				}
-				
+
 				deltaPop := math.Abs(pop - emaPop)
 				deltaPhase := math.Abs(phase - emaPhase)
-				
+
 				emaPop = (emaPop * 0.8) + (pop * 0.2)
 				emaPhase = (emaPhase * 0.8) + (phase * 0.2)
-				
+
 				chunkLen := i - startIdx + 1
 				// Standard delimiters + natural phase boundaries
 				isDelimiter := corpus[i] == 0 || corpus[i] == '\n' || corpus[i] == ' ' || corpus[i] == '.'
-				
+
 				// Thresholds for natural topological boundaries
 				if chunkLen > 1 && (deltaPop > 3.0 || deltaPhase > math.Pi/8 || isDelimiter || chunkLen > 32) {
 					cutIdx := i
 					if isDelimiter {
 						cutIdx = i + 1
 					}
-					
+
 					var chunkChord data.Chord
 					for k := startIdx; k < cutIdx; k++ {
 						base := BaseChord(corpus[k])
-						for j := range numeric.ChordBlocks {
-							chunkChord[j] |= base[j]
+						for j := range config.Numeric.ChordBlocks {
+							chunkChord.Bytes()[j] |= base.Bytes()[j]
 						}
 					}
-					
+
 					scale := cutIdx - startIdx
 					zDepth := uint8(scale)
 					if scale > 255 {
@@ -153,25 +150,25 @@ func (tokenizer *Universal) Generate() chan Token {
 						Prompt:   false,
 						Chord:    chunkChord,
 					}
-					
+
 					if isDelimiter || (cutIdx > 0 && (corpus[cutIdx-1] == '\n' || corpus[cutIdx-1] == '.')) {
 						pos = 0 // Reset sequence index on hard semantic breaks
 					} else {
 						pos++
 					}
-					
+
 					startIdx = cutIdx
 					i = cutIdx - 1 // allow loop i++ to advance to next byte after cut
 				}
 			}
-			
+
 			// Yield any remainder
 			if startIdx < len(corpus) {
 				var chunkChord data.Chord
 				for k := startIdx; k < len(corpus); k++ {
 					base := BaseChord(corpus[k])
-					for j := range numeric.ChordBlocks {
-						chunkChord[j] |= base[j]
+					for j := range config.Numeric.ChordBlocks {
+						chunkChord.Bytes()[j] |= base.Bytes()[j]
 					}
 				}
 				scale := len(corpus) - startIdx
@@ -202,7 +199,7 @@ ensuring each of the 256 byte values gets a unique signature.
 */
 func BaseChord(b byte) data.Chord {
 	var chord data.Chord
-	totalBits := numeric.ChordBlocks * 64
+	totalBits := config.Numeric.ChordBlocks * 64
 
 	// 5 coprime multipliers spread across the chord space
 	offsets := [5]int{
@@ -215,7 +212,7 @@ func BaseChord(b byte) data.Chord {
 
 	for _, off := range offsets {
 		bit := off % totalBits
-		chord[bit/64] |= 1 << (bit % 64)
+		chord.Bytes()[bit/64] |= 1 << (bit % 64)
 	}
 
 	return chord

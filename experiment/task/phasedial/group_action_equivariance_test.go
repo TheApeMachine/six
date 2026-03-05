@@ -7,8 +7,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestGroupActionEquivariance(t *testing.T) {
@@ -24,15 +24,15 @@ func TestGroupActionEquivariance(t *testing.T) {
 			}
 		}
 		So(seedFP, ShouldNotBeNil)
-		So(len(seedFP), ShouldEqual, numeric.NBasis)
+		So(len(seedFP), ShouldEqual, config.Numeric.NBasis)
 
 		alphaDeg, betaDeg := 45.0, 90.0
 		alphaRad := alphaDeg * (math.Pi / 180.0)
 		betaRad := betaDeg * (math.Pi / 180.0)
 
 		Convey("When applying α=45° then β=90° sequentially vs α+β=135° combined", func() {
-			seqDial := make(geometry.PhaseDial, numeric.NBasis)
-			combDial := make(geometry.PhaseDial, numeric.NBasis)
+			seqDial := make(geometry.PhaseDial, config.Numeric.NBasis)
+			combDial := make(geometry.PhaseDial, config.Numeric.NBasis)
 			fa, fb := cmplx.Rect(1.0, alphaRad), cmplx.Rect(1.0, betaRad)
 			fab := cmplx.Rect(1.0, alphaRad+betaRad)
 			for k, v := range seedFP {
@@ -66,8 +66,8 @@ func TestGroupActionEquivariance(t *testing.T) {
 					fa2 := cmplx.Rect(1.0, aRad)
 					fb2 := cmplx.Rect(1.0, bRad)
 					fab2 := cmplx.Rect(1.0, aRad+bRad)
-					sd := make(geometry.PhaseDial, numeric.NBasis)
-					cd := make(geometry.PhaseDial, numeric.NBasis)
+					sd := make(geometry.PhaseDial, config.Numeric.NBasis)
+					cd := make(geometry.PhaseDial, config.Numeric.NBasis)
 					for k, v := range seedFP {
 						sd[k] = v * fa2 * fb2
 						cd[k] = v * fab2

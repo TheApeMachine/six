@@ -31,7 +31,7 @@ func PackResult(scoreFixed int32, invertedDist uint16, id int) uint64 {
 }
 
 func RebasePackedID(packed uint64, base int) uint64 {
-	id := max(int(packed&0xFFFFFF) + base, 0)
+	id := max(int(packed&0xFFFFFF)+base, 0)
 	return (packed &^ uint64(0xFFFFFF)) | uint64(id&0xFFFFFF)
 }
 
@@ -39,11 +39,11 @@ func PtrToBytes(ptr unsafe.Pointer, n int) ([]byte, error) {
 	if n == 0 {
 		return nil, nil
 	}
-	
+
 	if ptr == nil {
 		return nil, fmt.Errorf("nil pointer for %d bytes", n)
 	}
-	
+
 	return unsafe.Slice((*byte)(ptr), n), nil
 }
 

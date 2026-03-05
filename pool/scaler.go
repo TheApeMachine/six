@@ -11,10 +11,10 @@ Scaler evaluates the latency of workers in a Pool and scales the
 number of workers up or down to division load optimally.
 */
 type Scaler struct {
-	pool    *Pool
-	current *state
-	minWorkers     int
-	maxWorkers     int
+	pool       *Pool
+	current    *state
+	minWorkers int
+	maxWorkers int
 }
 
 type state struct {
@@ -23,12 +23,12 @@ type state struct {
 	trend bool
 }
 
-func NewScaler(p *Pool) *Scaler {	
+func NewScaler(p *Pool) *Scaler {
 	s := &Scaler{
-		pool:    p,
-		current: &state{prev: 0, ok: true, trend: false},
-		minWorkers:     config.Get().System.Workers.Min,
-		maxWorkers:     config.Get().System.Workers.Max,
+		pool:       p,
+		current:    &state{prev: 0, ok: true, trend: false},
+		minWorkers: config.Workers.Min,
+		maxWorkers: config.Workers.Max,
 	}
 
 	s.initialize()
@@ -87,7 +87,7 @@ func (scaler *Scaler) initialize() {
 
 			switch scaler.current.ok {
 			case true:
-				// Latency is stable or dropping, safe to scale up for more throughput 
+				// Latency is stable or dropping, safe to scale up for more throughput
 				// if we have queued jobs. We cap it to avoid extreme scaling.
 				if workerCount < 1024 {
 					scaler.pool.addWorker()

@@ -7,8 +7,8 @@ import (
 	"sort"
 	"strings"
 
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/numeric"
 )
 
 /*
@@ -90,13 +90,13 @@ func (hs *HybridSubstrate) BitwiseFilter(contextFilter data.Chord, topK int) []i
 		matchCount := 0
 		noiseCount := 0
 
-		for j := 0; j < numeric.ChordBlocks; j++ {
-			cBits := entry.Filter[j]
-			aBits := contextFilter[j]
+		for j := 0; j < config.Numeric.ChordBlocks; j++ {
+			cBits := entry.Filter.Bytes()[j]
+			aBits := contextFilter.Bytes()[j]
 
 			// same logic as the Metal bitwise shader
-			matchCount += bits.OnesCount64(cBits & aBits)
-			noiseCount += bits.OnesCount64(cBits & ^aBits)
+			matchCount += bits.OnesCount64(uint64(cBits) & uint64(aBits))
+			noiseCount += bits.OnesCount64(uint64(cBits) & ^uint64(aBits))
 		}
 
 		// simplified resonance score (unscaled)
@@ -266,4 +266,3 @@ type GeodesicStep struct {
 	BestReadout []byte
 	Ranked      []CandidateScore
 }
-

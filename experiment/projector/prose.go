@@ -9,6 +9,11 @@ import (
 	"text/template"
 )
 
+type ProseEntry struct {
+	Condition   func() bool
+	Description string
+}
+
 // Prose renders a LaTeX prose snippet (subsection, paragraph, table prose, etc.)
 // by executing a Go text/template against a data map of real experiment values.
 // The template uses standard Go template syntax:  {{.Ceiling | printf "%.4f"}}

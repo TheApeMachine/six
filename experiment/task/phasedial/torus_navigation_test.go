@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestTorusNavigation(t *testing.T) {
@@ -20,17 +20,17 @@ func TestTorusNavigation(t *testing.T) {
 		seedQuery := "Democracy requires individual sacrifice."
 		fingerprintA := geometry.NewPhaseDial().Encode(seedQuery)
 
-		splitPoint := numeric.NBasis / 2 // 256
+		splitPoint := config.Numeric.NBasis / 2 // 256
 
 		// torusRotate applies independent phase rotations to each half of the embedding.
 		torusRotate := func(fp geometry.PhaseDial, alpha1, alpha2 float64) geometry.PhaseDial {
 			f1 := cmplx.Rect(1.0, alpha1)
 			f2 := cmplx.Rect(1.0, alpha2)
-			out := make(geometry.PhaseDial, numeric.NBasis)
+			out := make(geometry.PhaseDial, config.Numeric.NBasis)
 			for k := 0; k < splitPoint; k++ {
 				out[k] = fp[k] * f1
 			}
-			for k := splitPoint; k < numeric.NBasis; k++ {
+			for k := splitPoint; k < config.Numeric.NBasis; k++ {
 				out[k] = fp[k] * f2
 			}
 			return out

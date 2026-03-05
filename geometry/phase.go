@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/cmplx"
 
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/numeric"
 )
@@ -11,7 +12,7 @@ import (
 type PhaseDial []complex128
 
 func NewPhaseDial() PhaseDial {
-	return make(PhaseDial, numeric.NBasis)
+	return make(PhaseDial, config.Numeric.NBasis)
 }
 
 /*
@@ -24,7 +25,7 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 		return dial
 	}
 
-	for k := 0; k < numeric.NBasis; k++ {
+	for k := 0; k < config.Numeric.NBasis; k++ {
 		var sum complex128
 		omega := float64(numeric.Primes[k])
 
@@ -32,7 +33,7 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 			// Structural phase from chord: sum of primes at active bits in dimension k's neighborhood
 			// Use ChordBin as a structural identity proxy for phase contribution
 			bin := data.ChordBin(&chords[t])
-			structuralPrime := float64(numeric.Primes[bin%numeric.NSymbols])
+			structuralPrime := float64(numeric.Primes[bin%config.Numeric.NSymbols])
 
 			phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
 			sum += cmplx.Rect(1.0, phase)
@@ -55,12 +56,12 @@ func (dial PhaseDial) Encode(text string) PhaseDial {
 		return dial
 	}
 
-	for k := 0; k < numeric.NBasis; k++ {
+	for k := 0; k < config.Numeric.NBasis; k++ {
 		var sum complex128
 		omega := float64(numeric.Primes[k])
 
 		for t, b := range bytes {
-			symbolPrime := float64(numeric.Primes[int(b)%numeric.NSymbols])
+			symbolPrime := float64(numeric.Primes[int(b)%config.Numeric.NSymbols])
 			phase := (omega * float64(t+1) * 0.1) + (symbolPrime * 0.1)
 			sum += cmplx.Rect(1.0, phase)
 		}

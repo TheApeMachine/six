@@ -8,16 +8,16 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestPhaseCoherence(t *testing.T) {
 	Convey("Given all aphorism fingerprints for pairwise phase correlation analysis", t, func() {
 		aphorisms := Aphorisms
 		N := len(aphorisms)
-		D := numeric.NBasis
+		D := config.Numeric.NBasis
 
 		fingerprints := make([]geometry.PhaseDial, N)
 		for i, text := range aphorisms {

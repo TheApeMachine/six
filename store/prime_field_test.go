@@ -6,6 +6,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 )
 
 func TestNewPrimeField(t *testing.T) {
@@ -29,7 +30,7 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 
 			for i := range numItems {
 				chord := data.Chord{}
-				chord[0] = uint64(i + 1)
+				chord.Set(i + 1)
 				pf.Insert(chord)
 			}
 
@@ -38,8 +39,19 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 			// Verify topological accumulation mapping
 			for i := 50; i < 150; i++ {
 				manifold := pf.Manifold(i)
-				// The buffer dynamically populates the Cubes[0][0] origin block
-				So(manifold.Cubes[0][0][0], ShouldNotEqual, 0)
+				chord := data.Chord{}
+				chord.Set(i + 1)
+
+				var h uint64
+				for j := 0; j < len(chord); j++ {
+					h = (h << 5) | (h >> 59)
+					h ^= uint64(chord.Bytes()[j])
+				}
+				cubeIdx := int(h % 5)
+				blockIdx := int((h / 5) % 27)
+
+				// The buffer dynamically populates the mapped portal block
+				So(manifold.Cubes[cubeIdx][blockIdx].Bytes()[0], ShouldNotEqual, 0)
 			}
 		})
 	})
@@ -72,7 +84,7 @@ func TestPrimeFieldMaskUnmaskExhaustive(t *testing.T) {
 
 		for i := range 1000 {
 			chord := data.Chord{}
-			chord[0] = uint64(i + 1)
+			chord.Set(i + 1)
 			pf.Insert(chord)
 		}
 
@@ -83,16 +95,14 @@ func TestPrimeFieldMaskUnmaskExhaustive(t *testing.T) {
 			for _, idx := range indicesToTest {
 				original := pf.Mask(idx)
 
-				// The internal chord should be zeroed out
+				// The internal manifold should be completely zeroed out
 				masked := pf.Manifold(idx)
-				for j := 0; j < 8; j++ {
-					So(masked.Cubes[0][0][j], ShouldEqual, 0)
-				}
+				So(masked, ShouldResemble, geometry.IcosahedralManifold{})
 
 				// Unmask it
 				pf.Unmask(idx, original)
 				unmasked := pf.Manifold(idx)
-				So(unmasked.Cubes[0][0][0], ShouldEqual, original.Cubes[0][0][0])
+				So(unmasked, ShouldResemble, original)
 			}
 		})
 	})

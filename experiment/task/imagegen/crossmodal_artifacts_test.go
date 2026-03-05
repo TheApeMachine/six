@@ -48,7 +48,7 @@ var masks = []maskStrategy{
 	}},
 }
 
-func gridToPNG(grid [7][5]int, mask func(row, col int) color.RGBA) string {
+func gridToPNG(mask func(row, col int) color.RGBA) string {
 	w, h := 5*pixelScale, 7*pixelScale
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
 
@@ -98,9 +98,7 @@ func TestCrossModalReconstructionArtifact(t *testing.T) {
 				}
 
 				var queryCtx geometry.IcosahedralManifold
-				for i := 0; i < 8; i++ {
-					queryCtx.Cubes[0][0][i] = promptChord[i]
-				}
+				queryCtx.Cubes[0][0] = promptChord
 
 				bestIdx, _, err := kernel.BestFill(
 					pf.Field(), pf.N, unsafe.Pointer(&queryCtx), nil, 0, unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
@@ -111,7 +109,7 @@ func TestCrossModalReconstructionArtifact(t *testing.T) {
 				hole := data.ChordHole(&fullChord.Cubes[0][0], &promptChord)
 
 				// Render original
-				origB64 := gridToPNG(img, func(row, col int) color.RGBA {
+				origB64 := gridToPNG(func(row, col int) color.RGBA {
 					if img[row][col] == 1 {
 						return colorFG
 					}
@@ -119,7 +117,7 @@ func TestCrossModalReconstructionArtifact(t *testing.T) {
 				})
 
 				// Render masked
-				maskedB64 := gridToPNG(img, func(row, col int) color.RGBA {
+				maskedB64 := gridToPNG(func(row, col int) color.RGBA {
 					if m.visible(row, col) {
 						if img[row][col] == 1 {
 							return colorFG
@@ -130,7 +128,7 @@ func TestCrossModalReconstructionArtifact(t *testing.T) {
 				})
 
 				// Render reconstructed
-				reconB64 := gridToPNG(img, func(row, col int) color.RGBA {
+				reconB64 := gridToPNG(func(row, col int) color.RGBA {
 					if m.visible(row, col) {
 						if img[row][col] == 1 {
 							return colorFG

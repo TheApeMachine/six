@@ -116,9 +116,7 @@ func TestContradictionResolution(t *testing.T) {
 
 				// Build GPU query context
 				var queryCtx geometry.IcosahedralManifold
-				for i := 0; i < 8; i++ {
-					queryCtx.Cubes[0][0][i] = queryChord[i]
-				}
+				queryCtx.Cubes[0][0] = queryChord
 
 				bestGPUIdx, bestGPUScore, err := kernel.BestFill(
 					pf.Field(), pf.N, unsafe.Pointer(

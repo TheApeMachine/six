@@ -8,8 +8,8 @@ import (
 	"gonum.org/v1/gonum/mat"
 
 	"github.com/theapemachine/six/console"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/numeric"
 )
 
 /*
@@ -53,15 +53,15 @@ func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
 
 	// Generate inverse window scales for FibWeights
 	var sum float64
-	fibWeights := make([]float64, len(numeric.FibWindows))
-	for _, w := range numeric.FibWindows {
+	fibWeights := make([]float64, len(config.Numeric.Windows))
+	for _, w := range config.Numeric.Windows {
 		sum += 1.0 / float64(w)
 	}
-	for i, w := range numeric.FibWindows {
+	for i, w := range config.Numeric.Windows {
 		fibWeights[i] = (1.0 / float64(w)) / sum
 	}
 
-	for wi, w := range numeric.FibWindows {
+	for wi, w := range config.Numeric.Windows {
 		weight := fibWeights[wi]
 
 		var C [256][256]float64
@@ -94,7 +94,7 @@ func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
 
 			freqTheta := 1.0
 			if maxMagTheta > 0 {
-				freqTheta = 1.0 + (magsTheta[i]/maxMagTheta)*numeric.FrequencySpread
+				freqTheta = 1.0 + (magsTheta[i]/maxMagTheta)*config.Numeric.FrequencySpread
 			}
 			freqThetaAcc[i] += weight * freqTheta
 
@@ -104,7 +104,7 @@ func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
 
 			freqPhi := 1.0
 			if maxMagPhi > 0 {
-				freqPhi = 1.0 + (magsPhi[i]/maxMagPhi)*numeric.FrequencySpread
+				freqPhi = 1.0 + (magsPhi[i]/maxMagPhi)*config.Numeric.FrequencySpread
 			}
 			freqPhiAcc[i] += weight * freqPhi
 		}
@@ -281,7 +281,7 @@ func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
 }
 
 /*
-WeightedCircularMean computes the weighted circular mean and concentration over PhaseTheta 
+WeightedCircularMean computes the weighted circular mean and concentration over PhaseTheta
 for a sequence of chords, using FreqTheta as the structural informativeness weights.
 */
 func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, concentration float64) {
@@ -314,13 +314,13 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 	if len(chords) == 0 {
 		return false
 	}
-	
+
 	cPhase, _ := ei.WeightedCircularMean(chords)
 	phaseDiff := math.Abs(cPhase - anchorPhase)
 	for phaseDiff > math.Pi {
 		phaseDiff = 2*math.Pi - phaseDiff
 	}
-	
+
 	return phaseDiff < 0.45
 }
 

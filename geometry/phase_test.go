@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/numeric"
+	config "github.com/theapemachine/six/core"
 )
 
 func TestNewPhaseDial(t *testing.T) {
@@ -15,7 +15,7 @@ func TestNewPhaseDial(t *testing.T) {
 			dial := NewPhaseDial()
 			So(dial, ShouldNotBeNil)
 			// Ensure it scales correctly via the shared underlying NBasis primitives
-			So(len(dial), ShouldEqual, numeric.NBasis)
+			So(len(dial), ShouldEqual, config.Numeric.NBasis)
 			for _, val := range dial {
 				So(real(val), ShouldEqual, 0)
 				So(imag(val), ShouldEqual, 0)

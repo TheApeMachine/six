@@ -5,13 +5,13 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/numeric"
 )
 
 func mockBaseChord(b byte) data.Chord {
 	var chord data.Chord
-	totalBits := numeric.ChordBlocks * 64
+	totalBits := config.Numeric.ChordBlocks * 64
 
 	offsets := [5]int{
 		int(b) * 7,
@@ -23,7 +23,7 @@ func mockBaseChord(b byte) data.Chord {
 
 	for _, off := range offsets {
 		bit := off % totalBits
-		chord[bit/64] |= 1 << (bit % 64)
+		chord.Set(bit)
 	}
 
 	return chord

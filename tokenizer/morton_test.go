@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestEncode(t *testing.T) {
@@ -61,24 +61,24 @@ func TestChordToBytes(t *testing.T) {
 			chord := data.Chord{}
 			buf := coder.ChordToBytes(chord)
 
-			So(len(buf), ShouldEqual, numeric.ChordBlocks*8)
+			So(len(buf), ShouldEqual, config.Numeric.ChordBlocks*8)
 			for _, b := range buf {
 				So(b, ShouldEqual, 0)
 			}
 		})
 
 		Convey("When converting a populated chord to bytes", func() {
-			chord := data.Chord{}
+			buf := make([]byte, config.Numeric.ChordBlocks*8)
+			binary.BigEndian.PutUint64(buf[0:8], 0x1122334455667788)
+			binary.BigEndian.PutUint64(buf[(config.Numeric.ChordBlocks-1)*8:config.Numeric.ChordBlocks*8], 0x8877665544332211)
+			chord := data.ChordFromBytes(buf)
 
-			chord[0] = 0x1122334455667788
-			chord[numeric.ChordBlocks-1] = 0x8877665544332211
+			buf = coder.ChordToBytes(chord)
 
-			buf := coder.ChordToBytes(chord)
-
-			So(len(buf), ShouldEqual, numeric.ChordBlocks*8)
+			So(len(buf), ShouldEqual, config.Numeric.ChordBlocks*8)
 
 			val0 := binary.BigEndian.Uint64(buf[0:8])
-			valLast := binary.BigEndian.Uint64(buf[(numeric.ChordBlocks-1)*8 : numeric.ChordBlocks*8])
+			valLast := binary.BigEndian.Uint64(buf[(config.Numeric.ChordBlocks-1)*8 : config.Numeric.ChordBlocks*8])
 
 			So(val0, ShouldEqual, uint64(0x1122334455667788))
 			So(valLast, ShouldEqual, uint64(0x8877665544332211))

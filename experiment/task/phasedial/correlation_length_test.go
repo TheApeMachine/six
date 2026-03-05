@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestCorrelationLength(t *testing.T) {
@@ -80,8 +80,8 @@ func TestCorrelationLength(t *testing.T) {
 		hardRotate := func(fp geometry.PhaseDial, boundary int, a1, a2 float64) geometry.PhaseDial {
 			f1 := cmplx.Rect(1.0, a1)
 			f2 := cmplx.Rect(1.0, a2)
-			rotated := make(geometry.PhaseDial, numeric.NBasis)
-			for k := 0; k < numeric.NBasis; k++ {
+			rotated := make(geometry.PhaseDial, config.Numeric.NBasis)
+			for k := 0; k < config.Numeric.NBasis; k++ {
 				if k < boundary {
 					rotated[k] = fp[k] * f1
 				} else {
@@ -93,9 +93,9 @@ func TestCorrelationLength(t *testing.T) {
 
 		// Overlapping rotation: linear phase blend in the shared region.
 		overlapRotate := func(fp geometry.PhaseDial, b0End, b1Start int, a1, a2 float64) geometry.PhaseDial {
-			rotated := make(geometry.PhaseDial, numeric.NBasis)
+			rotated := make(geometry.PhaseDial, config.Numeric.NBasis)
 			overlapLen := float64(b0End - b1Start)
-			for k := 0; k < numeric.NBasis; k++ {
+			for k := 0; k < config.Numeric.NBasis; k++ {
 				var angle float64
 				switch {
 				case k < b1Start:

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
@@ -103,8 +104,8 @@ func TestBaselineFalsification(t *testing.T) {
 		// Scramble the basis primes to destroy objective frequency structure,
 		// exactly as per the original baseline_falsification.go experiment.
 		basisPrimes := numeric.New().Basis
-		scrambledPrimes := make([]int32, numeric.NBasis)
-		for i := 0; i < numeric.NBasis; i++ {
+		scrambledPrimes := make([]int32, config.Numeric.NBasis)
+		for i := 0; i < config.Numeric.NBasis; i++ {
 			scrambledPrimes[i] = basisPrimes[i]
 		}
 		rng := rand.New(rand.NewSource(99))
@@ -122,13 +123,13 @@ func TestBaselineFalsification(t *testing.T) {
 
 		for i, text := range aphorisms {
 			// Encode with scrambled basis (inline, same as original baseline_falsification.go)
-			brokenDial := make(geometry.PhaseDial, numeric.NBasis)
+			brokenDial := make(geometry.PhaseDial, config.Numeric.NBasis)
 			bytes := []byte(text)
-			for k := 0; k < numeric.NBasis; k++ {
+			for k := 0; k < config.Numeric.NBasis; k++ {
 				var sum complex128
 				omega := float64(scrambledPrimes[k])
 				for t, b := range bytes {
-					symbolPrime := float64(scrambledPrimes[int(b)%numeric.NSymbols])
+					symbolPrime := float64(scrambledPrimes[int(b)%config.Numeric.NSymbols])
 					phase := (omega * float64(t+1) * 0.1) + (symbolPrime * 0.1)
 					sum += cmplx.Rect(1.0, phase)
 				}

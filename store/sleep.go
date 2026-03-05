@@ -53,21 +53,21 @@ func (idx *LSMSpatialIndex) consolidateAndOrthogonalize() {
 
 			// Calculate resonance (shared bits)
 			var shared int
-			for j := range c1 {
-				shared += bits.OnesCount64(c1[j] & c2[j])
+			for j := range c1.Bytes() {
+				shared += bits.OnesCount64(uint64(c1.Bytes()[j]) & uint64(c2.Bytes()[j]))
 			}
 
 			// If they are highly resonant (e.g. share > 30% of active bits) but aren't identical
 			if shared > 15 && shared < 40 {
 				// Orthogonalize: Push their phase apart
 				// We do this by dropping shared bits from the denser one
-				// and re-allocating them to a distinct phase subspace. 
+				// and re-allocating them to a distinct phase subspace.
 				// For the sake of the deterministic physics, we'll just zero the shared bits
 				// on one of them (Destructive Interference).
-				for j := range c1 {
-					overlap := c1[j] & c2[j]
+				for j := range c1.Bytes() {
+					overlap := uint64(c1.Bytes()[j]) & uint64(c2.Bytes()[j])
 					if overlap > 0 {
-						c2[j] &= ^overlap // zero out the overlap in c2
+						c2.Bytes()[j] &= byte(^overlap) // zero out the overlap in c2
 						modified = true
 					}
 				}

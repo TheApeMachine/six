@@ -9,10 +9,10 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
 )
 
 func TestAdaptiveSplit(t *testing.T) {
@@ -32,7 +32,7 @@ func TestAdaptiveSplit(t *testing.T) {
 			candidates[i] = i
 		}
 
-		D := numeric.NBasis
+		D := config.Numeric.NBasis
 		seedQuery := "Democracy requires individual sacrifice."
 		fpA := geometry.NewPhaseDial().Encode(seedQuery)
 

@@ -5,15 +5,15 @@ import (
 	"math/bits"
 	"sync"
 
-	"github.com/theapemachine/six/numeric"
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/pool"
 )
 
 /*
-Chord is the prime signature bitset. Size derived from numeric.NBasis via
-numeric.ChordBlocks (NBasis/64). Change NBasis → Chord size updates everywhere.
+Chord is the prime signature bitset. Size derived from config.NBasis via
+config.ChordBlocks (NBasis/64). Centralized in core config.
 */
-type Chord [numeric.ChordBlocks]uint64
+type Chord [config.ChordBlocks]uint64
 
 /*
 MultiChord represents a token's resonance across all 5 Fibonacci window scales.
@@ -43,11 +43,11 @@ func (chord *Chord) Clear(p int) {
 }
 
 /*
-Bytes returns the chord as numeric.ChordBlocks×8 bytes (big-endian uint64s).
+Bytes returns the chord as config.ChordBlocks×8 bytes (big-endian uint64s).
 */
 func (chord *Chord) Bytes() []byte {
-	b := make([]byte, numeric.ChordBlocks*8)
-	for i := range numeric.ChordBlocks {
+	b := make([]byte, config.ChordBlocks*8)
+	for i := range config.ChordBlocks {
 		binary.BigEndian.PutUint64(b[i*8:], chord[i])
 	}
 	return b
@@ -57,10 +57,10 @@ func (chord *Chord) Bytes() []byte {
 ChordFromBytes parses ChordBlocks×8 bytes (big-endian) back into a Chord.
 */
 func ChordFromBytes(b []byte) (c Chord) {
-	if len(b) < numeric.ChordBlocks*8 {
+	if len(b) < config.ChordBlocks*8 {
 		return c
 	}
-	for i := 0; i < numeric.ChordBlocks; i++ {
+	for i := 0; i < config.ChordBlocks; i++ {
 		c[i] = binary.BigEndian.Uint64(b[i*8:])
 	}
 	return c
@@ -84,7 +84,7 @@ ActiveCount returns the number of active basis primes in this
 chord using popcount.
 */
 func (chord *Chord) ActiveCount() (n int) {
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		n += popcount(chord[i])
 	}
 	return n
@@ -104,14 +104,14 @@ Used for debug output (which primes were assigned).
 func ChordPrimeIndices(chord *Chord) []int {
 	var out []int
 
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		block := chord[i]
 
 		for block != 0 {
 			bitIdx := bits.TrailingZeros64(block)
 			primeIdx := i*64 + bitIdx
 
-			if primeIdx < numeric.NBasis {
+			if primeIdx < config.NBasis {
 				out = append(out, primeIdx)
 			}
 
@@ -127,7 +127,7 @@ ChordGCD returns the element-wise AND of two chords (their GCD in
 prime exponent space). Shared factors.
 */
 func ChordGCD(a, b *Chord) (gcd Chord) {
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		gcd[i] = a[i] & b[i]
 	}
 
@@ -141,7 +141,7 @@ Enables chord-native co-occurrence and phase lookup without byte symbols.
 */
 func ChordBin(c *Chord) int {
 	var h uint64
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		h ^= c[i]
 	}
 	return int(h % 256)
@@ -151,7 +151,7 @@ func ChordBin(c *Chord) int {
 ChordSimilarity returns the number of shared prime exponents (popcount of AND).
 */
 func ChordSimilarity(a, b *Chord) (sim int) {
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		sim += popcount(a[i] & b[i])
 	}
 
@@ -163,7 +163,7 @@ ChordHole computes the "structural vacuum" — what's missing from a
 target chord given the parts we already have (target AND NOT existing).
 */
 func ChordHole(target, existing *Chord) (hole Chord) {
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		hole[i] = target[i] &^ existing[i]
 	}
 
@@ -176,7 +176,7 @@ func ChordHole(target, existing *Chord) (hole Chord) {
 ChordOR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
 func ChordOR(a, b *Chord) (lcm Chord) {
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		lcm[i] = a[i] | b[i]
 	}
 	return lcm
@@ -187,7 +187,7 @@ FlatChord is a dense array of active prime indices used for optimal GPU iteratio
 It eliminates bit-twiddling thread divergence in SIMT architectures.
 */
 type FlatChord struct {
-	ActivePrimes [numeric.NBasis]uint16
+	ActivePrimes [config.NBasis]uint16
 	Count        uint16
 	_            uint16 // Padding
 }
@@ -198,7 +198,7 @@ Flatten converts the sparse bitset into a densely packed array of active prime i
 func (chord *Chord) Flatten() FlatChord {
 	var flat FlatChord
 
-	for i := range numeric.ChordBlocks {
+	for i := range config.ChordBlocks {
 		block := chord[i]
 		for block != 0 {
 			bitIdx := uint16(bits.TrailingZeros64(block))

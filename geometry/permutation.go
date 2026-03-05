@@ -102,3 +102,35 @@ func (m *IcosahedralManifold) Permute5Cycle(a, b, c, d, e int) {
 	m.Cubes[b] = m.Cubes[a]
 	m.Cubes[a] = tmp
 }
+
+var (
+	// Micro_Rotate_X represents a 90-degree rotation around the X-axis (Pitch).
+	Micro_Rotate_X = [27]int{
+		18, 19, 20, 9, 10, 11, 0, 1, 2, 21, 22, 23, 12, 13, 14, 3, 4, 5, 24, 25, 26, 15, 16, 17, 6, 7, 8,
+	}
+
+	// Micro_Rotate_Y represents a 90-degree rotation around the Y-axis (Yaw).
+	Micro_Rotate_Y = [27]int{
+		18, 9, 0, 21, 12, 3, 24, 15, 6, 19, 10, 1, 22, 13, 4, 25, 16, 7, 20, 11, 2, 23, 14, 5, 26, 17, 8,
+	}
+
+	// Micro_Rotate_Z represents a 90-degree rotation around the Z-axis (Roll).
+	Micro_Rotate_Z = [27]int{
+		6, 3, 0, 7, 4, 1, 8, 5, 2, 15, 12, 9, 16, 13, 10, 17, 14, 11, 24, 21, 18, 25, 22, 19, 26, 23, 20,
+	}
+)
+
+// RotateX applies a 90-degree pitch to the 27 blocks of the MacroCube.
+func (cube *MacroCube) RotateX() {
+	cube.ApplyPermutation(Micro_Rotate_X)
+}
+
+// RotateY applies a 90-degree yaw to the 27 blocks of the MacroCube.
+func (cube *MacroCube) RotateY() {
+	cube.ApplyPermutation(Micro_Rotate_Y)
+}
+
+// RotateZ applies a 90-degree roll to the 27 blocks of the MacroCube.
+func (cube *MacroCube) RotateZ() {
+	cube.ApplyPermutation(Micro_Rotate_Z)
+}

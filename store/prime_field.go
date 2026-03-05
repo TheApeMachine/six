@@ -63,30 +63,46 @@ func (field *PrimeField) Insert(chord data.Chord) {
 
 	// Execute Pure Topological Triggers (No Linguistic Semantics)
 	if pop == 0 {
-		// Hard Structural Break -> Identity () + Macro_Rotate_X
+		// Hard Structural Break -> Identity () + Micro_Rotate_X
 		// Resets Winding, spins global RotState to demarcate boundaries
 		field.activeState.Header.ResetWinding()
 		currentRot := field.activeState.Header.RotState()
 		field.activeState.Header.SetRotState((currentRot + 1) % 60)
 		field.runLength = 0
+		for c := 0; c < 5; c++ {
+			field.activeState.Cubes[c].RotateX()
+		}
 	} else if field.runLength > 4 {
 		// Low-Entropy Loop (Variance < Threshold) -> 5-Cycle Maximum Entropy Sweep
 		field.activeState.Permute5Cycle(0, 1, 2, 3, 4)
 	} else if deltaPop > 5 {
-		// Density Spike (+Popcount) -> 3-Cycle
+		// Density Spike (+Popcount) -> 3-Cycle + Micro_Rotate_Y
 		field.activeState.Permute3Cycle(0, 1, 2)
+		for c := 0; c < 5; c++ {
+			field.activeState.Cubes[c].RotateY()
+		}
 	} else if deltaPhase > math.Pi/4 {
-		// Phase Inversion / Orthogonal Shift -> Double Transposition
+		// Phase Inversion / Orthogonal Shift -> Double Transposition + Micro_Rotate_Z
 		field.activeState.PermuteDoubleTransposition(0, 3, 1, 4)
+		for c := 0; c < 5; c++ {
+			field.activeState.Cubes[c].RotateZ()
+		}
 	} else if deltaPop < -5 {
 		// Density Trough (-Popcount) -> 3-Cycle
 		field.activeState.Permute3Cycle(0, 2, 1)
 	}
 	
-	// Inject semantic data into local origin
-	for i := 0; i < 8; i++ {
-		field.activeState.Cubes[0][0][i] |= chord[i]
+	// Uniform hash-based multi-portal injection
+	var h uint64
+	for i := 0; i < len(chord); i++ {
+		h = (h << 5) | (h >> 59)
+		h ^= uint64(chord.Bytes()[i])
 	}
+	cubeIdx := int(h % 5)
+	blockIdx := int((h / 5) % 27)
+
+	// Inject semantic data into mapped portal
+	field.activeState.Cubes[cubeIdx][blockIdx] = data.ChordOR(&field.activeState.Cubes[cubeIdx][blockIdx], &chord)
 
 	field.manifolds = append(field.manifolds, field.activeState)
 	field.N++

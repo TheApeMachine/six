@@ -30,7 +30,7 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 				for pos := 0; pos < 1000; pos++ {
 					key := (uint64(b) << 24) | uint64(pos)
 					chord := data.Chord{}
-					chord[0] = uint64(b + pos + 1)
+					chord.Set(b + pos + 1)
 					idx.Insert(key, chord)
 				}
 			}
@@ -42,7 +42,7 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 				for pos := 0; pos < 1000; pos += 100 { // check every 100th pos
 					key := (uint64(b) << 24) | uint64(pos)
 					res := idx.Lookup(key)
-					So(res[0], ShouldEqual, uint64(b+pos+1))
+					So(res.Bytes()[0], ShouldEqual, uint64(b+pos+1))
 				}
 			}
 
@@ -61,7 +61,7 @@ func TestLSMSpatialIndexQueriesExhaustive(t *testing.T) {
 			for pos := 0; pos < 2000; pos++ {
 				key := (uint64(b) << 24) | uint64(pos)
 				chord := data.Chord{}
-				chord[0] = uint64(b + pos + 1)
+				chord.Set(b + pos + 1)
 				idx.Insert(key, chord)
 			}
 		}
@@ -108,7 +108,7 @@ func TestLSMSpatialIndexReverseLookupExhaustive(t *testing.T) {
 		for i := 0; i < 500; i++ {
 			key := uint64(i)
 			chord := data.Chord{}
-			chord[2] = uint64(i + 123) // Put data in another prime block
+			chord.Set(i + 123) // Put data in another prime block
 
 			idx.Insert(key, chord)
 			chords = append(chords, chord)
