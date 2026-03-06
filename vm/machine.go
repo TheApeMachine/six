@@ -5,6 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
+
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
@@ -21,7 +22,6 @@ and 5-plane Parallel MultiChord searches.
 type Machine struct {
 	loader     *Loader
 	primefield *store.PrimeField
-	eigen      *geometry.EigenMode
 	stopCh     chan struct{}
 }
 
@@ -33,7 +33,6 @@ NewMachine creates a new Machine.
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
 		primefield: store.NewPrimeField(),
-		eigen:      geometry.NewEigenMode(),
 	}
 
 	for _, opt := range opts {
@@ -45,30 +44,9 @@ func NewMachine(opts ...machineOpts) *Machine {
 
 func (machine *Machine) Start() error {
 	machine.stopCh = make(chan struct{})
-	var chords []data.Chord
 
-	for token := range machine.loader.GenerateTokens() {
-		machine.primefield.InsertWithRef(token.Chord, store.GeomRef{
-			TokenID:  token.TokenID,
-			SampleID: token.SampleID,
-			Pos:      token.Pos,
-			Boundary: token.Boundary,
-		})
-		chords = append(chords, token.Chord)
-	}
-
-	fmt.Println("Start inserted chords:", len(chords)) // Debug!
-
-	if err := machine.eigen.BuildMultiScaleCooccurrence(chords); err != nil {
-		return console.Error(fmt.Errorf("failed to build multiscale cooccurrence: %w", err),
-			"total_chords", len(chords),
-			"store", machine.loader.holdoutType,
-		)
-	}
-
-	// Start asynchronous continuous metabolic consolidation
-	if machine.loader != nil && machine.loader.Store() != nil {
-		go machine.loader.Store().SleepCycle(machine.stopCh)
+	for range machine.loader.Generate() {
+		// Loader now intrinsically pipes topological sequences into the PrimeField
 	}
 
 	return nil
@@ -85,130 +63,144 @@ func (machine *Machine) Stop() {
 }
 
 /*
-SpanResult is the output of a single GPU MultiChord probe.
-*/
-type SpanResult struct {
-	Index    int
-	Score    float64
-	Chord    geometry.IcosahedralManifold
-	TokenID  uint64
-	SampleID uint32
-	Pos      uint32
-	Symbol   byte
-}
-
-type SpanMatch struct {
-	MatchIndex int
-	StartIndex int
-	EndIndex   int
-	Score      float64
-	SampleID   uint32
-	StartPos   uint32
-	EndPos     uint32
-}
-
-func (machine *Machine) BestSpan(prompt []data.Chord, expectedReality *geometry.IcosahedralManifold) (SpanMatch, error) {
-	if len(prompt) == 0 {
-		return SpanMatch{
-			MatchIndex: -1,
-			StartIndex: -1,
-			EndIndex:   -1,
-		}, nil
-	}
-
-	window := 21
-	start := max(len(prompt)-window, 0)
-
-	tempField := store.NewPrimeField()
-	for _, chord := range prompt[start:] {
-		tempField.Insert(chord)
-	}
-	activeCtx := tempField.Manifold(tempField.N - 1)
-	expectedPtr := unsafe.Pointer(expectedReality)
-	if expectedReality == nil {
-		expectedPtr = unsafe.Pointer(&activeCtx)
-	}
-	dictPtr, numChords := machine.primefield.Snapshot()
-
-	match, err := kernel.BestSpan(
-		dictPtr,
-		numChords,
-		unsafe.Pointer(&activeCtx),
-		expectedPtr,
-		unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
-	)
-	if err != nil {
-		return SpanMatch{}, err
-	}
-	if match.Index < 0 || match.Index >= numChords {
-		return SpanMatch{}, MachineErrNotFound
-	}
-
-	replayRefs, endIdx := machine.primefield.ReplaySpan(match.Index+1, 4096)
-	span := SpanMatch{
-		MatchIndex: match.Index,
-		StartIndex: match.Index + 1,
-		EndIndex:   endIdx,
-		Score:      match.Score,
-	}
-
-	if len(replayRefs) > 0 {
-		span.SampleID = replayRefs[0].SampleID
-		span.StartPos = replayRefs[0].Pos
-		span.EndPos = replayRefs[len(replayRefs)-1].Pos
-	}
-
-	return span, nil
-}
-
-/*
 Prompt simply clamps the input, executes a parallel GPU BestFill over all Fibonacci
 planes simultaneously, checks Eigenmode Intent alignment, and loops until
 the structure collapses or hits an end-token.
 */
-func (machine *Machine) Prompt(prompt []data.Chord, expectedReality *geometry.IcosahedralManifold) chan SpanResult {
-	out := make(chan SpanResult)
+func (machine *Machine) Prompt(
+	prompt []data.Chord,
+	expectedReality *geometry.IcosahedralManifold,
+) chan byte {
+	out := make(chan byte)
 
 	go func() {
 		defer close(out)
 
-		span, err := machine.BestSpan(prompt, expectedReality)
-		if err != nil {
-			console.Error(MachineErrNotFound,
-				"error", err,
-			)
-			return
-		}
-		if span.MatchIndex < 0 {
+		if machine.primefield.N == 0 {
 			return
 		}
 
-		coder := tokenizer.NewMortonCoder()
-		replayRefs, _ := machine.primefield.ReplaySpan(span.StartIndex, 4096)
-		generatedText := make([]byte, 0, len(replayRefs))
+		chords := make([]data.Chord, len(prompt))
+		copy(chords, prompt)
 
-		for offset, ref := range replayRefs {
-			_, _, symbol := coder.Decode(ref.TokenID)
-			generatedText = append(generatedText, symbol)
+		// Spin-Up Phase: Process prompt to build angular momentum
+		var zNext uint32
+		var byteVal byte
 
-			replayIdx := span.StartIndex + offset
-			out <- SpanResult{
-				Index:    replayIdx,
-				Score:    span.Score,
-				Chord:    machine.primefield.Manifold(replayIdx),
-				TokenID:  ref.TokenID,
-				SampleID: ref.SampleID,
-				Pos:      ref.Pos,
-				Symbol:   symbol,
+		for _, chord := range chords {
+			if key := machine.loader.Store().ReverseLookup(chord); key > 0 {
+				_, _, byteVal = tokenizer.NewMortonCoder().Decode(key)
+				out <- byteVal
+			}
+
+			// Feed the prompt through the Sequencer to build momentum context
+			reset, _ := machine.loader.tokenizer.Sequencer().Analyze(int(zNext), chord)
+
+			if reset {
+				zNext = 0
+			} else {
+				zNext++
 			}
 		}
 
-		console.Info("Machine Generation Completed",
-			"match", span.MatchIndex,
-			"start", span.StartIndex,
-			"end", span.EndIndex,
-			"output", string(generatedText),
-		)
+		// Initial State tracking for geodesic trajectory
+		momentum, lastEvents := machine.primefield.Momentum()
+		_, phiPhaseThresh := machine.loader.tokenizer.Sequencer().Phase()
+		phiDecay := machine.loader.tokenizer.Sequencer().Phi()
+
+		var expRealPtr unsafe.Pointer
+		if expectedReality != nil {
+			expRealPtr = unsafe.Pointer(expectedReality)
+		}
+
+		// Freewheel Phase: Predict forward using momentum
+		// Calculate starting topological offset from the ingested prompt
+		startIdx := len(chords)
+		zNext = uint32(startIdx)
+
+		for range 256 {
+			// Natural EOS: generation stops when kinetic rotational energy dissipates
+			if momentum < phiPhaseThresh {
+				break
+			}
+
+			// Apply geodesic extrapolation: Move the mathematical query context forward
+			// based on the trajectory defined by the last causal topological events
+			var queryCtx geometry.IcosahedralManifold
+			for _, ev := range lastEvents {
+				// Apply transition matrix to step the state machine forward along the geodesic
+				for c := range 5 {
+					currentRotState := queryCtx.Header.RotState()
+					nextRotState := geometry.StateTransitionMatrix[currentRotState][ev]
+					queryCtx.Header.SetRotState(nextRotState)
+
+					// Apply local topological rotation
+					switch ev {
+					case geometry.EventDensitySpike:
+						queryCtx.Cubes[c].RotateX()
+					case geometry.EventPhaseInversion:
+						queryCtx.Cubes[c].RotateY()
+					case geometry.EventDensityTrough:
+						queryCtx.Cubes[c].RotateZ()
+					case geometry.EventLowVarianceFlux:
+						queryCtx.Cubes[c].RotateX()
+						queryCtx.Cubes[c].RotateX()
+					}
+				}
+			}
+
+			// Momentum Decay: Physics-based structural friction
+			momentum *= phiDecay
+
+			// Broadcast the predicted coordinate to GPU BestFill inference
+			// to find the exact historical block that occupies this extrapolated space
+			bestIdx, _, err := kernel.BestFill(
+				machine.primefield.Field(),
+				machine.primefield.N, // Still searches the entire accumulated Field
+				unsafe.Pointer(&queryCtx),
+				expRealPtr,
+				0,
+				unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+			)
+
+			if err != nil {
+				fmt.Println("BESTFILL ERROR:", err)
+				break
+			}
+
+			console.Trace("BestFill Retrieved Geodesic Target", "bestIdx", bestIdx)
+			matched := machine.primefield.Manifold(bestIdx)
+
+			// Resolve the exact geometric coordinate we are attempting to fill.
+			// The stream intrinsically routes linearly through the 5x27 structure
+			cubeIndex := int(zNext) % 5
+			blockIndex := int(zNext) % 27
+
+			nextChord := matched.Cubes[cubeIndex][blockIndex]
+
+			// Diagnostics: Does the extracted chord contain mass?
+			fmt.Printf("Z: %d | C: %d | B: %d | Idx: %d | Active: %d\n", zNext, cubeIndex, blockIndex, bestIdx, nextChord.ActiveCount())
+
+			if nextChord.ActiveCount() == 0 {
+				break
+			}
+
+			// Translate generated HDC geometric pattern back into standard byte byte
+			if key := machine.loader.Store().ReverseLookup(nextChord); key > 0 {
+				_, _, b := tokenizer.NewMortonCoder().Decode(key)
+				console.Trace("Decoded token byte", "byte", string(b), "key", key)
+				out <- b
+			}
+
+			// Advance positional sequencing exactly as ingestion did
+			reset, evs := machine.loader.tokenizer.Sequencer().Analyze(int(zNext), nextChord)
+			if reset {
+				zNext = 0
+				lastEvents = evs
+			} else {
+				zNext++
+			}
+		}
 	}()
 
 	return out
@@ -226,16 +218,11 @@ func MachineWithPrimeField(pf *store.PrimeField) machineOpts {
 	}
 }
 
-func MachineWithEigenMode(eigen *geometry.EigenMode) machineOpts {
-	return func(machine *Machine) {
-		machine.eigen = eigen
-	}
-}
-
 type MachineError string
 
 const (
-	MachineErrNotFound MachineError = "no chord found"
+	ErrNoChordFound                MachineError = "no chord found"
+	ErrMultiScaleCooccurrenceBuild MachineError = "failed to build multiscale cooccurrence"
 )
 
 func (e MachineError) Error() string {

@@ -11,7 +11,6 @@ import (
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/resonance"
 	"github.com/theapemachine/six/store"
-	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
@@ -23,7 +22,7 @@ func sentenceChord(s string) data.Chord {
 	var chord data.Chord
 
 	for _, b := range []byte(s) {
-		base := tokenizer.BaseChord(b)
+		base := data.BaseChord(b)
 		for j := range chord {
 			chord[j] |= base[j]
 		}
@@ -116,8 +115,8 @@ func TestCompositionalCompletion(t *testing.T) {
 		Convey("When using GPU BestFill to find the most resonant sentence", func() {
 			pf := store.NewPrimeField()
 
-			for _, chord := range sentChords {
-				pf.Insert(chord)
+			for i, chord := range sentChords {
+				pf.Insert(byte(i), uint32(i), chord, []int{})
 			}
 
 			queryChord := sentenceChord("the quick red")

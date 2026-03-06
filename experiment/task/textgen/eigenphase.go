@@ -3,7 +3,6 @@ package textgen
 import (
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/tokenizer"
 )
 
 // buildEigenMode builds an EigenMode topology from a text corpus.
@@ -25,7 +24,7 @@ func buildEigenMode(corpus []string) *geometry.EigenMode {
 func textToChords(text string) []data.Chord {
 	chords := make([]data.Chord, len(text))
 	for i, b := range []byte(text) {
-		chords[i] = tokenizer.BaseChord(b)
+		chords[i] = data.BaseChord(b)
 	}
 	return chords
 }

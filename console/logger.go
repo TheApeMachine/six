@@ -14,7 +14,8 @@ func init() {
 }
 
 type Logger struct {
-	handle log.Logger
+	handle      log.Logger
+	traceHandle log.Logger
 }
 
 func New() *Logger {
@@ -27,7 +28,7 @@ func New() *Logger {
 		out = io.MultiWriter(os.Stderr, file)
 	}
 
-	return &Logger{
+	l := &Logger{
 		handle: *log.NewWithOptions(
 			out,
 			log.Options{
@@ -36,10 +37,27 @@ func New() *Logger {
 			},
 		),
 	}
+
+	if err == nil {
+		l.traceHandle = *log.NewWithOptions(
+			file,
+			log.Options{
+				ReportTimestamp: true,
+				ReportCaller:    true,
+				Level:           log.DebugLevel,
+			},
+		)
+	}
+
+	return l
 }
 
 func Info(msg string, keyvals ...any) {
 	logger.handle.Info(msg, keyvals...)
+}
+
+func Trace(msg string, keyvals ...any) {
+	logger.traceHandle.Debug(msg, keyvals...)
 }
 
 func Error(err error, keyvals ...any) error {

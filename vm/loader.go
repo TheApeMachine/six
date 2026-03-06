@@ -18,19 +18,20 @@ const (
 
 type Loader struct {
 	store       store.Store
+	primefield  *store.PrimeField
 	tokenizer   *tokenizer.Universal
 	holdout     int
 	samples     int
 	prompt      bool
 	holdoutType HoldoutType
-	bufs        []data.Chord
+	bufs        []tokenizer.Token
 }
 
 type loaderOpts func(*Loader)
 
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
-		bufs: make([]data.Chord, 0),
+		bufs: make([]tokenizer.Token, 0),
 	}
 
 	for _, opt := range opts {
@@ -48,40 +49,6 @@ func (loader *Loader) Store() store.Store {
 }
 
 /*
-GenerateTokens yields tokenizer tokens for the ingest path while preserving
-exact geometric metadata alongside each chord.
-*/
-func (loader *Loader) GenerateTokens() chan tokenizer.Token {
-	out := make(chan tokenizer.Token)
-
-	go func() {
-		defer close(out)
-
-		for token := range loader.tokenizer.Generate() {
-			if token.Boundary {
-				if !loader.prompt {
-					out <- token
-				}
-				continue
-			}
-
-			if !loader.validate(token) {
-				console.Error(LoaderErrInvalidToken,
-					"tokenID", token.TokenID,
-					"activeCount", token.Chord.ActiveCount(),
-				)
-				return
-			}
-
-			loader.store.Insert(token.TokenID, token.Chord)
-			out <- token
-		}
-	}()
-
-	return out
-}
-
-/*
 Generate yields prompt chords or ingest chords, depending on loader mode.
 */
 func (loader *Loader) Generate() chan data.Chord {
@@ -91,14 +58,13 @@ func (loader *Loader) Generate() chan data.Chord {
 		defer close(out)
 
 		for token := range loader.tokenizer.Generate() {
-			if token.Boundary {
+			if token.Pos == 0 && len(loader.bufs) > 0 {
 				if loader.prompt {
 					for c := range loader.flushPrompt() {
 						out <- c
 					}
 					loader.bufs = loader.bufs[:0]
 				}
-				continue
 			}
 
 			if !loader.validate(token) {
@@ -110,11 +76,15 @@ func (loader *Loader) Generate() chan data.Chord {
 			}
 
 			if loader.prompt {
-				loader.bufs = append(loader.bufs, token.Chord)
+				loader.bufs = append(loader.bufs, token)
 				continue
 			}
 
 			loader.store.Insert(token.TokenID, token.Chord)
+			if loader.primefield != nil {
+				_, _, byteVal := tokenizer.NewMortonCoder().Decode(token.TokenID)
+				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
+			}
 			out <- token.Chord
 		}
 
@@ -141,12 +111,19 @@ func (loader *Loader) flushPrompt() chan data.Chord {
 		switch loader.holdoutType {
 		case HoldoutLinear:
 			start := int(float64(len(loader.bufs)) * float64(loader.holdout) / 100.0)
-			for _, chord := range loader.bufs[start:] {
-				out <- chord
+			for _, token := range loader.bufs[:start] {
+				out <- token.Chord
+			}
+			for _, token := range loader.bufs[start:] {
+				loader.store.Insert(token.TokenID, token.Chord)
+				if loader.primefield != nil {
+					_, _, byteVal := tokenizer.NewMortonCoder().Decode(token.TokenID)
+					loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
+				}
 			}
 		case HoldoutRandom:
-			for _, chord := range loader.randomHoldout(loader.bufs) {
-				out <- chord
+			for _, token := range loader.randomHoldout(loader.bufs) {
+				out <- token.Chord
 			}
 		}
 
@@ -157,14 +134,20 @@ func (loader *Loader) flushPrompt() chan data.Chord {
 }
 
 /*
-randomHoldout removes N% of tokens from the buffer randomly.
+randomHoldout removes N% of tokens from the buffer randomly and pushes the rest into store.
 */
-func (loader *Loader) randomHoldout(buf []data.Chord) []data.Chord {
-	masked := make([]data.Chord, 0)
+func (loader *Loader) randomHoldout(buf []tokenizer.Token) []tokenizer.Token {
+	masked := make([]tokenizer.Token, 0)
 
-	for _, chord := range buf {
+	for _, token := range buf {
 		if rand.Intn(100) >= loader.holdout {
-			masked = append(masked, chord)
+			masked = append(masked, token)
+		} else {
+			loader.store.Insert(token.TokenID, token.Chord)
+			if loader.primefield != nil {
+				_, _, byteVal := tokenizer.NewMortonCoder().Decode(token.TokenID)
+				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
+			}
 		}
 	}
 
@@ -196,6 +179,12 @@ func (loader *Loader) Lookup(chords []data.Chord) []uint64 {
 func LoaderWithStore(store store.Store) loaderOpts {
 	return func(loader *Loader) {
 		loader.store = store
+	}
+}
+
+func LoaderWithPrimeField(pf *store.PrimeField) loaderOpts {
+	return func(loader *Loader) {
+		loader.primefield = pf
 	}
 }
 

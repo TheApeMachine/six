@@ -14,8 +14,8 @@ func TestNewPrimeField(t *testing.T) {
 		Convey("When creating a new instance", func() {
 			pf := NewPrimeField()
 			So(pf, ShouldNotBeNil)
-			So(pf.N, ShouldEqual, 0)
-			So(len(pf.manifolds), ShouldEqual, 0)
+			So(pf.N, ShouldEqual, 1)
+			So(len(pf.manifolds), ShouldEqual, 1)
 			So(pf.eigen, ShouldNotBeNil)
 		})
 	})
@@ -26,27 +26,28 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 		pf := NewPrimeField()
 
 		Convey("When inserting a large sequence of chords", func() {
-			numItems := 10000
+			numItems := 1000
 
+			// Simulate distinct topological chords being ingested.
+			// It should continuously map across the 5x27 geometry and trigger
+			// entropy rotations on dense blocks instead of scaling the array length.
 			for i := range numItems {
 				chord := data.Chord{}
-				chord.Set(i + 1)
-				pf.Insert(chord)
+				chord.Set((i + 1) % 512)
+				pf.Insert(byte(i), uint32(i), chord, []int{}) // byte selects cube, pos selects block
 			}
 
-			So(pf.N, ShouldEqual, numItems)
+			So(pf.N, ShouldEqual, 1)
 
-			// Verify topological accumulation mapping
-			for i := 50; i < 150; i++ {
-				manifold := pf.Manifold(i)
-				chord := data.Chord{}
-				chord.Set(i + 1)
+			// Verify topological accumulation mapping on the single manifold
+			manifold := pf.Manifold(0)
 
-				cubeIdx, blockIdx := ChordPortalIndices(chord)
+			cubeIdx := byte(1) % 5
+			blockIdx := (uint32(1)) % 27
 
-				// The buffer dynamically populates the mapped portal block
-				So(manifold.Cubes[cubeIdx][blockIdx].Bytes()[0], ShouldNotEqual, 0)
-			}
+			// The buffer dynamically populates the mapped portal block.
+			bitIdx := 1 % 512
+			So(manifold.Cubes[cubeIdx][blockIdx][bitIdx/64], ShouldNotEqual, 0)
 		})
 	})
 }
@@ -55,13 +56,7 @@ func TestPrimeFieldField(t *testing.T) {
 	Convey("Given a PrimeField", t, func() {
 		pf := NewPrimeField()
 
-		Convey("When calling Field on an empty field", func() {
-			ptr := pf.Field()
-			So(ptr == nil, ShouldBeTrue)
-		})
-
-		Convey("When calling Field on a populated field", func() {
-			pf.Insert(data.Chord{})
+		Convey("When calling Field on an allocated field", func() {
 			ptr := pf.Field()
 			So(ptr, ShouldNotBeNil)
 
@@ -76,28 +71,23 @@ func TestPrimeFieldMaskUnmaskExhaustive(t *testing.T) {
 	Convey("Given a populated PrimeField", t, func() {
 		pf := NewPrimeField()
 
-		for i := range 1000 {
+		for i := range 10 {
 			chord := data.Chord{}
-			chord.Set(i + 1)
-			pf.Insert(chord)
+			chord.Set((i + 1) % 512)
+			pf.Insert(byte(i), uint32(i), chord, []int{})
 		}
 
-		Convey("When masking and unmasking numerous indices", func() {
-			// Let's test picking random-like spots
-			indicesToTest := []int{0, 10, 500, 999}
+		Convey("When masking and unmasking index 0", func() {
+			original := pf.Mask(0)
 
-			for _, idx := range indicesToTest {
-				original := pf.Mask(idx)
+			// The internal manifold should be completely zeroed out
+			masked := pf.Manifold(0)
+			So(masked, ShouldResemble, geometry.IcosahedralManifold{})
 
-				// The internal manifold should be completely zeroed out
-				masked := pf.Manifold(idx)
-				So(masked, ShouldResemble, geometry.IcosahedralManifold{})
-
-				// Unmask it
-				pf.Unmask(idx, original)
-				unmasked := pf.Manifold(idx)
-				So(unmasked, ShouldResemble, original)
-			}
+			// Unmask it
+			pf.Unmask(0, original)
+			unmasked := pf.Manifold(0)
+			So(unmasked, ShouldResemble, original)
 		})
 	})
 }

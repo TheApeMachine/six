@@ -16,7 +16,7 @@ func (m *IcosahedralManifold) ConditionMitosis() bool {
 	}
 
 	activeBits := 0
-	for i := 0; i < 27; i++ {
+	for i := range 27 {
 		activeBits += m.Cubes[0][i].ActiveCount()
 	}
 
@@ -30,8 +30,8 @@ func (m *IcosahedralManifold) ConditionDeMitosis() bool {
 	}
 
 	activeBits := 0
-	for c := 0; c < 5; c++ {
-		for i := 0; i < 27; i++ {
+	for c := range 5 {
+		for i := range 27 {
 			activeBits += m.Cubes[c][i].ActiveCount()
 		}
 	}
@@ -61,7 +61,7 @@ func (m *IcosahedralManifold) DeMitosis() {
 
 	// Zero out orthogonal subspaces so the memory penalty is negated (structurally sparse)
 	for c := 1; c < 5; c++ {
-		for i := 0; i < 27; i++ {
+		for i := range 27 {
 			m.Cubes[c][i] = data.Chord{}
 		}
 	}
@@ -71,7 +71,7 @@ func (m *IcosahedralManifold) DeMitosis() {
 // Used for internal Micro_Rotate_X, Y, Z logic.
 func (cube *MacroCube) ApplyPermutation(indices [27]int) {
 	var next MacroCube
-	for i := 0; i < 27; i++ {
+	for i := range 27 {
 		next[indices[i]] = cube[i]
 	}
 	*cube = next

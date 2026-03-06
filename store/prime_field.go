@@ -1,7 +1,6 @@
 package store
 
 import (
-	"math"
 	"sync"
 	"unsafe"
 
@@ -15,123 +14,125 @@ PrimeField is the flat, contiguous array of IcosahedralManifolds for GPU dispatc
 The LSM is cold storage. The PrimeField is the compute-side representation:
 a dense 1D array of 135-block primitive manifolds that the GPU scans in parallel.
 */
-
-func ChordPortalIndices(chord data.Chord) (int, int) {
-	var h uint64
-	b := chord.Bytes()
-	for i := range b {
-		h = (h << 5) | (h >> 59)
-		h ^= uint64(b[i])
-	}
-	cubeIdx := int(h % 5)
-	blockIdx := int((h / 5) % 27)
-	return cubeIdx, blockIdx
-}
-
 type PrimeField struct {
 	mu        sync.RWMutex
 	manifolds []geometry.IcosahedralManifold
-	refs      []GeomRef
 	N         int
 
-	activeState geometry.IcosahedralManifold
-	eigen       *geometry.EigenMode
-	prevPop     int
-	prevPhase   float64
-	runLength   int
+	eigen      *geometry.EigenMode
+	momentum   float64
+	lastEvents []int
 }
 
-// GeomRef is the exact replay address corresponding to one PrimeField index.
-// It is not part of the searchable wave state.
-type GeomRef struct {
-	TokenID  uint64
-	SampleID uint32
-	Pos      uint32
-	Boundary bool
-}
-
+/*
+NewPrimeField creates a new PrimeField.
+*/
 func NewPrimeField() *PrimeField {
 	return &PrimeField{
-		N:         0,
-		manifolds: make([]geometry.IcosahedralManifold, 0),
-		refs:      make([]GeomRef, 0),
+		N:         1,
+		manifolds: make([]geometry.IcosahedralManifold, 1),
 		eigen:     geometry.NewEigenMode(),
 	}
 }
 
 /*
-Insert appends a chord by dynamically applying topological A_5 permutations
-to the Active Manifold based on continuous sequence derivatives (\Delta).
+Insert appends a chord by merging it directly into the active manifold.
+The stream inherently applies topological rotations passed as events.
 */
-func (field *PrimeField) Insert(chord data.Chord) {
-	field.InsertWithRef(chord, GeomRef{})
-}
-
-/*
-InsertWithRef appends a chord plus its exact replay address.
-*/
-func (field *PrimeField) InsertWithRef(chord data.Chord, ref GeomRef) {
+func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, events []int) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 
-	// Calculate topological \Delta (Flux)
-	pop := chord.ActiveCount()
-	deltaPop := pop - field.prevPop
-
-	// Low-entropy loop tracking
-	if deltaPop >= -1 && deltaPop <= 1 {
-		field.runLength++
-	} else {
-		field.runLength = 0
+	for _, event := range events {
+		field.applyEvent(event)
 	}
 
-	field.prevPop = pop
-
-	theta, phi := field.eigen.PhaseForChord(&chord)
-	phase := math.Sqrt(theta*theta + phi*phi)
-	deltaPhase := math.Abs(phase - field.prevPhase)
-	field.prevPhase = phase
-
-	// Execute Pure Topological Triggers (No Linguistic Semantics)
-	if pop == 0 {
-		// Hard Structural Break -> Identity () + Micro_Rotate_X
-		// Resets Winding, spins global RotState to demarcate boundaries
-		field.activeState.Header.ResetWinding()
-		currentRot := field.activeState.Header.RotState()
-		field.activeState.Header.SetRotState((currentRot + 1) % 60)
-		field.runLength = 0
-		for c := range 5 {
-			field.activeState.Cubes[c].RotateX()
-		}
-	} else if field.runLength > 4 {
-		// Low-Entropy Loop (Variance < Threshold) -> 5-Cycle Maximum Entropy Sweep
-		field.activeState.Permute5Cycle(0, 1, 2, 3, 4)
-	} else if deltaPop > 5 {
-		// Density Spike (+Popcount) -> 3-Cycle + Micro_Rotate_Y
-		field.activeState.Permute3Cycle(0, 1, 2)
-		for c := range 5 {
-			field.activeState.Cubes[c].RotateY()
-		}
-	} else if deltaPhase > math.Pi/4 {
-		// Phase Inversion / Orthogonal Shift -> Double Transposition + Micro_Rotate_Z
-		field.activeState.PermuteDoubleTransposition(0, 3, 1, 4)
-		for c := range 5 {
-			field.activeState.Cubes[c].RotateZ()
-		}
-	} else if deltaPop < -5 {
-		// Density Trough (-Popcount) -> 3-Cycle
-		field.activeState.Permute3Cycle(0, 2, 1)
+	if len(events) > 0 {
+		field.lastEvents = events
 	}
 
-	// Uniform hash-based multi-portal injection
-	cubeIdx, blockIdx := ChordPortalIndices(chord)
+	// 1. Thermodynamic/Entropy Routing
+	// Maps chronologic time onto the intersecting Cubes to preserve Sequence.
+	// Byte Value = x (cube index), Sequence Index = y (block index).
+	cubeIndex := int(byteVal) % 5
+	blockIndex := int(pos) % 27
 
-	// Inject semantic data into mapped portal
-	field.activeState.Cubes[cubeIdx][blockIdx] = data.ChordOR(&field.activeState.Cubes[cubeIdx][blockIdx], &chord)
+	// 2. Entropy Routing (The Relief Valve)
+	// If the targeted ingestion block has hit the Shannon limit,
+	// mechanically rotate the cube to swing it out of the firing line
+	// and expose fresh, sparse structure BEFORE inserting.
+	density := float64(field.manifolds[0].Cubes[cubeIndex][blockIndex].ActiveCount()) / 512.0
+	if density >= geometry.MitosisThreshold {
+		field.applyEvent(geometry.EventDensitySpike)
+		field.lastEvents = []int{geometry.EventDensitySpike}
+	}
 
-	field.manifolds = append(field.manifolds, field.activeState)
-	field.refs = append(field.refs, ref)
-	field.N++
+	// 3. Physically merge the prime chord into the specific Rubik's Cube coordinate.
+	merged := data.ChordOR(&field.manifolds[0].Cubes[cubeIndex][blockIndex], &chord)
+	field.manifolds[0].Cubes[cubeIndex][blockIndex] = merged
+}
+
+/*
+SetMomentum updates the current rotational velocity coefficient (DeltaPhase).
+*/
+func (field *PrimeField) SetMomentum(momentum float64) {
+	field.mu.Lock()
+	defer field.mu.Unlock()
+	field.momentum = momentum
+}
+
+/*
+Momentum returns the current rotational velocity coefficient and the
+last driving sequence of topological events.
+*/
+func (field *PrimeField) Momentum() (float64, []int) {
+	field.mu.RLock()
+	defer field.mu.RUnlock()
+	return field.momentum, field.lastEvents
+}
+
+/*
+Rotate applies physical geometric permutations across the active manifold.
+This is the heart of the non-commutative reasoning engine: structural events
+viscerally spin the topological data.
+*/
+func (field *PrimeField) Rotate(events []int) {
+	field.mu.Lock()
+	defer field.mu.Unlock()
+
+	for _, event := range events {
+		field.applyEvent(event)
+	}
+}
+
+func (field *PrimeField) applyEvent(event int) {
+	// 1. Apply local Micro-Rotations to all 5 MacroCubes simultaneously
+	for c := range 5 {
+		switch event {
+		case geometry.EventDensitySpike:
+			field.manifolds[0].Cubes[c].RotateX()
+		case geometry.EventPhaseInversion:
+			field.manifolds[0].Cubes[c].RotateY()
+		case geometry.EventDensityTrough:
+			field.manifolds[0].Cubes[c].RotateZ()
+		case geometry.EventLowVarianceFlux:
+			// 180 degree rotation sweeping entropy
+			field.manifolds[0].Cubes[c].RotateX()
+			field.manifolds[0].Cubes[c].RotateX()
+		}
+	}
+
+	// 2. Apply global A_5 tracking permutations across the 5 MacroCubes
+	switch event {
+	case geometry.EventDensitySpike:
+		field.manifolds[0].Permute3Cycle(0, 1, 2)
+	case geometry.EventPhaseInversion:
+		field.manifolds[0].PermuteDoubleTransposition(0, 3, 1, 4)
+	case geometry.EventDensityTrough:
+		field.manifolds[0].Permute3Cycle(0, 2, 1)
+	case geometry.EventLowVarianceFlux:
+		field.manifolds[0].Permute5Cycle(0, 1, 2, 3, 4)
+	}
 }
 
 /*
@@ -172,54 +173,6 @@ func (field *PrimeField) Manifold(idx int) geometry.IcosahedralManifold {
 	defer field.mu.RUnlock()
 
 	return field.manifolds[idx]
-}
-
-/*
-Ref returns the replay metadata for a given field index.
-*/
-func (field *PrimeField) Ref(idx int) GeomRef {
-	field.mu.RLock()
-	defer field.mu.RUnlock()
-
-	return field.refs[idx]
-}
-
-/*
-ReplayRefs returns the exact replay addresses from start until a boundary or limit.
-*/
-func (field *PrimeField) ReplayRefs(start, limit int) []GeomRef {
-	refs, _ := field.ReplaySpan(start, limit)
-	return refs
-}
-
-/*
-ReplaySpan returns the exact replay addresses from start until a boundary or limit,
-plus the inclusive end index inside the PrimeField for the replayed span.
-*/
-func (field *PrimeField) ReplaySpan(start, limit int) ([]GeomRef, int) {
-	field.mu.RLock()
-	defer field.mu.RUnlock()
-
-	if start < 0 {
-		start = 0
-	}
-
-	if limit <= 0 {
-		limit = field.N - start
-	}
-
-	out := make([]GeomRef, 0, min(limit, max(field.N-start, 0)))
-	endIdx := start - 1
-	for idx := start; idx < field.N && len(out) < limit; idx++ {
-		ref := field.refs[idx]
-		if ref.Boundary {
-			break
-		}
-		out = append(out, ref)
-		endIdx = idx
-	}
-
-	return out, endIdx
 }
 
 /*

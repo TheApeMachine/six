@@ -36,7 +36,8 @@ type datasetOpts func(*Dataset)
 
 func New(opts ...datasetOpts) *Dataset {
 	dataset := &Dataset{
-		textColumn: "text",
+		textColumn:   "text",
+		perSamplePos: true,
 	}
 
 	for _, opt := range opts {
@@ -64,7 +65,7 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 				out <- provider.RawToken{SampleID: sampleID, Symbol: b, Pos: pos}
 				pos++
 			}
-			
+
 			sampleID++
 
 			if dataset.perSamplePos {
@@ -87,13 +88,13 @@ fn returning false stops iteration.
 */
 func (dataset *Dataset) streamRows(fn func(string) bool) error {
 	shard, branch, err := dataset.discoverShard()
-	
+
 	if err != nil {
 		return err
 	}
 
 	reader, size, err := dataset.downloadShard(shard, branch)
-	
+
 	if err != nil {
 		return err
 	}
@@ -116,7 +117,7 @@ func findColumn(schema *parquet.Schema, name string) int {
 			if len(col) == 2 && col[1] == "bytes" {
 				return i
 			}
-			
+
 			// If it's a nested structure (like bAbI "story" list)
 			for j, comp := range col {
 				if comp == "text" && j > 0 {
@@ -266,7 +267,7 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 
 	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
 	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
-	
+
 	if data, err := os.ReadFile(cachePath); err == nil {
 		r := bytes.NewReader(data)
 		return r, r.Size(), nil
@@ -313,10 +314,10 @@ or any valid fallback.
 */
 func (dataset *Dataset) discoverShard() (string, string, error) {
 	branches := []string{"main", "refs/convert/parquet"}
-	
+
 	var fallback string
 	var fallbackBranch string
-	
+
 	type Entry struct {
 		Type string `json:"type"`
 		Path string `json:"path"`
@@ -340,7 +341,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 		if err != nil {
 			continue
 		}
-		
+
 		if resp.StatusCode != http.StatusOK {
 			resp.Body.Close()
 			continue
@@ -390,8 +391,6 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 
 	return "", "", fmt.Errorf("huggingface: no valid parquet/json/jsonl files in %s for subset %q", dataset.repo, dataset.subset)
 }
-
-
 
 func DatasetWithRepo(repo string) datasetOpts {
 	return func(dataset *Dataset) {

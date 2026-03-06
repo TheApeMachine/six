@@ -26,11 +26,11 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 		Convey("When inserting massive numbers of structured keys", func() {
 			// We iterate over 10 different target bytes, each with 1000 sequential positions.
 			// This generates 10,000 distinct chords and thoroughly exercises LSM level merges.
-			for b := 0; b < 10; b++ {
-				for pos := 0; pos < 1000; pos++ {
+			for b := range 10 {
+				for pos := range 1000 {
 					key := (uint64(b) << 24) | uint64(pos)
 					chord := data.Chord{}
-					chord.Set(b + pos + 1)
+					chord.Set((b + pos + 1) % 512)
 					idx.Insert(key, chord)
 				}
 			}
@@ -38,11 +38,17 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 			So(idx.totalCount, ShouldEqual, 10000)
 
 			// Exhaustively verify lookups work across varying LSM levels seamlessly
-			for b := 0; b < 10; b++ {
+			for b := range 10 {
 				for pos := 0; pos < 1000; pos += 100 { // check every 100th pos
 					key := (uint64(b) << 24) | uint64(pos)
 					res := idx.Lookup(key)
-					So(res.Bytes()[0], ShouldEqual, uint64(b+pos+1))
+
+					// Re-derive the expected byte block value of the 512-bit slice
+					bitIdx := (b + pos + 1) % 512
+					expectedBlock := uint64(1 << (bitIdx % 64))
+					blockIdx := bitIdx / 64
+
+					So(res[blockIdx], ShouldEqual, expectedBlock)
 				}
 			}
 
@@ -61,7 +67,7 @@ func TestLSMSpatialIndexQueriesExhaustive(t *testing.T) {
 			for pos := 0; pos < 2000; pos++ {
 				key := (uint64(b) << 24) | uint64(pos)
 				chord := data.Chord{}
-				chord.Set(b + pos + 1)
+				chord.Set((b + pos + 1) % 512)
 				idx.Insert(key, chord)
 			}
 		}

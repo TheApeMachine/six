@@ -9,6 +9,19 @@ import "strconv"
 // without runtime floating-point \arccos execution.
 var UnifiedGeodesicMatrix [3600]byte
 
+// StateTransitionMatrix is a 60x4 lookup table containing the
+// Cayley table (A_5 State Machine) for the 4 permitted geometric topologies.
+// [currentState][topologicalEvent] = nextState
+var StateTransitionMatrix [60][4]uint8
+
+// Topological Events mapping to A_5 Generators
+const (
+	EventLowVarianceFlux = 0 // 5-Cycle
+	EventDensitySpike    = 1 // 3-Cycle
+	EventDensityTrough   = 2 // Inverse 3-Cycle
+	EventPhaseInversion  = 3 // Double Transposition
+)
+
 type a5State [5]byte
 
 func (s a5State) apply(p a5State) a5State {
@@ -21,10 +34,10 @@ func (s a5State) apply(p a5State) a5State {
 
 func init() {
 	// Generators corresponding to the 4 permitted topological triggers in PrimeField
-	gen5 := a5State{4, 0, 1, 2, 3}       // 5-Cycle
-	gen3 := a5State{2, 0, 1, 3, 4}       // 3-Cycle
-	gen3inv := a5State{1, 2, 0, 3, 4}    // Inverse 3-Cycle
-	genD := a5State{3, 4, 2, 0, 1}       // Double Transposition
+	gen5 := a5State{4, 0, 1, 2, 3}    // 5-Cycle
+	gen3 := a5State{2, 0, 1, 3, 4}    // 3-Cycle
+	gen3inv := a5State{1, 2, 0, 3, 4} // Inverse 3-Cycle
+	genD := a5State{3, 4, 2, 0, 1}    // Double Transposition
 
 	generators := []a5State{gen5, gen3, gen3inv, genD}
 
@@ -48,6 +61,14 @@ func init() {
 
 	if len(states) != 60 {
 		panic("expected 60 states, found " + strconv.Itoa(len(states)))
+	}
+
+	// 1.5 Compute Cayley Table for O(1) State Transitions
+	for i, start := range states {
+		for eventIdx, g := range generators {
+			next := start.apply(g)
+			StateTransitionMatrix[i][eventIdx] = uint8(stateMap[next])
+		}
 	}
 
 	// 2. Compute all-pairs shortest path matrix

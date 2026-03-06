@@ -23,7 +23,7 @@ func TestPipeline(t *testing.T) {
 			So(pipeline, ShouldNotBeNil)
 
 			Convey("When:"+experiment.Name()+" produces an outcome", func() {
-				So(pipeline.Run(), ShouldBeNil)				
+				So(pipeline.Run(), ShouldBeNil)
 				So(experiment.Outcome())
 
 				Convey("It should produce the needed paper artifacts", func() {
