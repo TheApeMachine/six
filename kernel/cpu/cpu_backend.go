@@ -8,6 +8,65 @@ import (
 	"github.com/theapemachine/six/numeric"
 )
 
+const (
+	overlapWeight       int64 = 500
+	fillWeight          int64 = 900
+	expectationWeight   int64 = 250
+	contradictionWeight int64 = 650
+	scoreShiftBits            = 10
+)
+
+type scoreTerms struct {
+	overlap        uint32
+	fill           uint32
+	expectation    uint32
+	missingSupport uint32
+	vetoViolation  uint32
+}
+
+func (t scoreTerms) contradiction() uint32 {
+	return t.missingSupport + t.vetoViolation
+}
+
+func scoreFromTerms(t scoreTerms) int32 {
+	return int32(
+		int64(t.overlap)*overlapWeight+
+			int64(t.fill)*fillWeight+
+			int64(t.expectation)*expectationWeight-
+			int64(t.contradiction())*contradictionWeight,
+	) >> scoreShiftBits
+}
+
+func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, cubeBase int) scoreTerms {
+	var terms scoreTerms
+
+	for c := 0; c < 4; c++ {
+		for b := 0; b < 27; b++ {
+			for i := 0; i < 8; i++ {
+				offset := (c*27+b)*8 + i
+				vetoOffset := (4*27+b)*8 + i
+
+				candidate := dictWords[cubeBase+offset]
+				ctx := ctxWords[1+offset]
+				exp := expWords[1+offset]
+				missing := exp &^ ctx
+
+				vetoCtx := ctxWords[1+vetoOffset]
+				candidateVeto := dictWords[cubeBase+vetoOffset]
+
+				terms.overlap += uint32(bits.OnesCount64(candidate & ctx))
+				terms.fill += uint32(bits.OnesCount64(candidate & missing))
+				terms.expectation += uint32(bits.OnesCount64(candidate & exp))
+				terms.missingSupport += uint32(bits.OnesCount64(ctx &^ candidate))
+				terms.vetoViolation += uint32(bits.OnesCount64(candidate & vetoCtx))
+				terms.vetoViolation += uint32(bits.OnesCount64(candidateVeto & ctx))
+			}
+		}
+	}
+
+	return terms
+}
+
 func BestFillCPUPacked(
 	dictionary unsafe.Pointer,
 	numChords int,
@@ -88,37 +147,9 @@ func BestFillCPUPackedBytes(
 			continue
 		}
 
-		var overlap uint32
-		var fill uint32
-		var contradiction uint32
-		var expectation uint32
-
 		cubeBase := base + 1
-		for c := 0; c < 4; c++ {
-			for b := 0; b < 27; b++ {
-				for i := 0; i < 8; i++ {
-					offset := (c*27+b)*8 + i
-					vetoOffset := (4*27+b)*8 + i
-
-					candidate := dictWords[cubeBase+offset]
-					ctx := ctxWords[1+offset]
-					exp := expWords[1+offset]
-					missing := exp &^ ctx
-
-					vetoCtx := ctxWords[1+vetoOffset]
-					candidateVeto := dictWords[cubeBase+vetoOffset]
-
-					overlap += uint32(bits.OnesCount64(candidate & ctx))
-					fill += uint32(bits.OnesCount64(candidate & missing))
-					expectation += uint32(bits.OnesCount64(candidate & exp))
-					contradiction += uint32(bits.OnesCount64(ctx &^ candidate))
-					contradiction += uint32(bits.OnesCount64(candidate & vetoCtx))
-					contradiction += uint32(bits.OnesCount64(candidateVeto & ctx))
-				}
-			}
-		}
-
-		scoreFixed := int32((int64(overlap)*500 + int64(fill)*900 + int64(expectation)*250 - int64(contradiction)*650) >> 10)
+		terms := accumulateScoreTerms(dictWords, ctxWords, expWords, cubeBase)
+		scoreFixed := scoreFromTerms(terms)
 
 		rotCandidate := int((header >> 9) & 0x3F)
 		geodDist := uint16(255)

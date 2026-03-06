@@ -9,6 +9,23 @@ import (
 	"github.com/theapemachine/six/vm"
 )
 
+type Scores struct {
+	Exact   float64
+	Partial float64
+	Fuzzy   float64
+}
+
+type ExperimentalData struct {
+	Idx           int
+	Name          string
+	Prefix        []byte
+	Holdout       []byte
+	Observed      []byte
+	ErrorRatio    []byte
+	Scores        Scores
+	WeightedTotal float64
+}
+
 type Result interface {
 	Score() float64
 }

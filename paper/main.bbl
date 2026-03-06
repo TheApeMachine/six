@@ -1,0 +1,81 @@
+\begin{thebibliography}{11}
+\providecommand{\natexlab}[1]{#1}
+\providecommand{\url}[1]{\texttt{#1}}
+\expandafter\ifx\csname urlstyle\endcsname\relax
+  \providecommand{\doi}[1]{doi: #1}\else
+  \providecommand{\doi}{doi: \begingroup \urlstyle{rm}\Url}\fi
+
+\bibitem[Belkin and Niyogi(2003)]{belkin2003laplacian}
+Mikhail Belkin and Partha Niyogi.
+\newblock Laplacian eigenmaps for dimensionality reduction and data
+  representation.
+\newblock \emph{Neural Computation}, 15\penalty0 (6):\penalty0 1373--1396,
+  2003.
+\newblock \doi{10.1162/089976603321780317}.
+
+\bibitem[Bender et~al.(2015)Bender, Farach-Colton, Fineman, Fogel, Kuszmaul,
+  and Nelson]{bender2007introduction}
+Michael~A. Bender, Mart{\'\i}n Farach-Colton, Jeremy~T. Fineman, Yonatan~R.
+  Fogel, Bradley~C. Kuszmaul, and Jelani Nelson.
+\newblock An introduction to {B$\varepsilon$}-trees and write-optimization.
+\newblock In \emph{;login: The USENIX Magazine}, volume~40, 2015.
+\newblock Earlier version appeared as ``Cache-Oblivious Streaming B-trees''
+  (SPAA 2007).
+
+\bibitem[Bronstein et~al.(2021)Bronstein, Bruna, Cohen, and
+  Veli{\v{c}}kovi{\'c}]{bronstein2021geometric}
+Michael~M. Bronstein, Joan Bruna, Taco Cohen, and Petar Veli{\v{c}}kovi{\'c}.
+\newblock Geometric deep learning: Grids, groups, graphs, geodesics, and
+  gauges.
+\newblock \emph{arXiv preprint arXiv:2104.13478}, 2021.
+
+\bibitem[Cohen and Welling(2016)]{cohen2016group}
+Taco~S. Cohen and Max Welling.
+\newblock Group equivariant convolutional networks.
+\newblock In \emph{Proceedings of the 33rd International Conference on Machine
+  Learning (ICML)}, pages 2990--2999, 2016.
+
+\bibitem[Gayler(2003)]{gayler2003vector}
+Ross~W. Gayler.
+\newblock Vector symbolic architectures answer {J}ackendoff's challenges for
+  cognitive neuroscience.
+\newblock In \emph{International Conference on Cognitive Science (ICCS)}, 2003.
+
+\bibitem[Kanerva(2009)]{kanerva2009hyperdimensional}
+Pentti Kanerva.
+\newblock Hyperdimensional computing: An introduction to computing in
+  distributed representation with high-dimensional random vectors.
+\newblock \emph{Cognitive Computation}, 1\penalty0 (2):\penalty0 139--159,
+  2009.
+\newblock \doi{10.1007/s12559-009-9009-8}.
+
+\bibitem[Knill(2013)]{knill2013dirac}
+Oliver Knill.
+\newblock The {D}irac operator of a graph.
+\newblock \emph{arXiv preprint arXiv:1306.2166}, 2013.
+
+\bibitem[Morton(1966)]{morton1966computer}
+Guy~M. Morton.
+\newblock A computer oriented geodetic data base and a new technique in file
+  sequencing.
+\newblock Technical report, IBM Ltd., 1966.
+
+\bibitem[O'Neil et~al.(1996)O'Neil, Cheng, Gawlick, and O'Neil]{oneil1996lsm}
+Patrick O'Neil, Edward Cheng, Dieter Gawlick, and Elizabeth O'Neil.
+\newblock The log-structured merge-tree ({LSM}-tree).
+\newblock In \emph{Acta Informatica}, volume~33, pages 351--385, 1996.
+\newblock \doi{10.1007/s002360050048}.
+
+\bibitem[Samet(2006)]{samet2006foundations}
+Hanan Samet.
+\newblock \emph{Foundations of Multidimensional and Metric Data Structures}.
+\newblock Morgan Kaufmann, 2006.
+
+\bibitem[Witten et~al.(1987)Witten, Neal, and Cleary]{witten1987arithmetic}
+Ian~H. Witten, Radford~M. Neal, and John~G. Cleary.
+\newblock Arithmetic coding for data compression.
+\newblock \emph{Communications of the ACM}, 30\penalty0 (6):\penalty0 520--540,
+  1987.
+\newblock \doi{10.1145/214762.214771}.
+
+\end{thebibliography}

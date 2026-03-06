@@ -1,0 +1,49 @@
+This is BibTeX, Version 0.99d (TeX Live 2025)
+Capacity: max_strings=200000, hash_size=200000, hash_prime=170003
+The top-level auxiliary file: main.aux
+The style file: plainnat.bst
+Database file #1: references.bib
+Warning--can't use both volume and number fields in bender2007introduction
+Warning--can't use both volume and number fields in oneil1996lsm
+You've used 11 entries,
+            2773 wiz_defined-function locations,
+            660 strings with 6765 characters,
+and the built_in function-call counts, 5033 in all, are:
+= -- 449
+> -- 257
+< -- 11
++ -- 89
+- -- 78
+* -- 380
+:= -- 767
+add.period$ -- 38
+call.type$ -- 11
+change.case$ -- 59
+chr.to.int$ -- 11
+cite$ -- 24
+duplicate$ -- 249
+empty$ -- 431
+format.name$ -- 93
+if$ -- 1062
+int.to.chr$ -- 1
+int.to.str$ -- 1
+missing$ -- 11
+newline$ -- 68
+num.names$ -- 44
+pop$ -- 122
+preamble$ -- 1
+purify$ -- 48
+quote$ -- 0
+skip$ -- 191
+stack$ -- 0
+substring$ -- 175
+swap$ -- 38
+text.length$ -- 4
+text.prefix$ -- 0
+top$ -- 0
+type$ -- 116
+warning$ -- 2
+while$ -- 45
+width$ -- 0
+write$ -- 157
+(There were 2 warnings)

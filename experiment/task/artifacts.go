@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
+	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 )
 
@@ -40,7 +41,7 @@ func ensurePaperDir() (string, error) {
 	return dir, os.MkdirAll(dir, 0755)
 }
 
-func WriteTable(data []map[string]any, outFile string) error {
+func WriteTable(data []tools.ExperimentalData, outFile string) error {
 	dir, err := ensurePaperDir()
 
 	if err != nil {

@@ -4,6 +4,7 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
+	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -15,9 +16,9 @@ type PipelineExperiment interface {
 	Dataset() provider.Dataset
 	Prompts() *tokenizer.Prompt
 	Holdout() (int, tokenizer.HoldoutType)
-	AddResult(map[string]any)
+	AddResult(tools.ExperimentalData)
 	Outcome() (any, gc.Assertion, any)
-	TableData() []map[string]any
+	TableData() []tools.ExperimentalData
 }
 
 type Pipeline struct {
@@ -25,12 +26,19 @@ type Pipeline struct {
 	experiment PipelineExperiment
 	loader     *vm.Loader
 	testIdx    int
+	chordMap   map[data.Chord]byte
 }
 
 type pipelineOpts func(*Pipeline)
 
 func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
-	pipeline := &Pipeline{}
+	pipeline := &Pipeline{
+		chordMap: make(map[data.Chord]byte),
+	}
+
+	for b := range 256 {
+		pipeline.chordMap[data.BaseChord(byte(b))] = byte(b)
+	}
 
 	for _, opt := range opts {
 		opt(pipeline)
@@ -84,30 +92,26 @@ func (pipeline *Pipeline) Run() error {
 
 func (pipeline *Pipeline) Prompt(prompt []data.Chord) {
 	var bRes []byte
+
 	for res := range pipeline.machine.Prompt(prompt, nil) {
 		bRes = append(bRes, res)
 	}
 
 	console.Trace("pipeline prompt response", "response", string(bRes))
 
-	// Build reverse lookup map once to avoid O(256) inner scan per chord
-	chordToByteMap := make(map[data.Chord]byte)
-	for b := range 256 {
-		chordToByteMap[data.BaseChord(byte(b))] = byte(b)
-	}
-
 	var bPrompt []byte
+
 	for _, chord := range prompt {
-		if b, ok := chordToByteMap[chord]; ok {
+		if b, ok := pipeline.chordMap[chord]; ok {
 			bPrompt = append(bPrompt, b)
 		}
 	}
 
-	pipeline.experiment.AddResult(map[string]any{
-		"testIdx":    pipeline.testIdx,
-		"experiment": pipeline.experiment.Name(),
-		"prompt":     bPrompt,
-		"result":     bRes,
+	pipeline.experiment.AddResult(tools.ExperimentalData{
+		Idx:      pipeline.testIdx,
+		Name:     pipeline.experiment.Name(),
+		Prefix:   bPrompt,
+		Observed: bRes,
 	})
 
 	pipeline.testIdx++

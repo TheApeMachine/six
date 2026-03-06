@@ -138,7 +138,9 @@ func applyEventsToContext(queryCtx *geometry.IcosahedralManifold, events []int) 
 	for _, ev := range events {
 		currentRotState := queryCtx.Header.RotState()
 		nextRotState := geometry.StateTransitionMatrix[currentRotState][ev]
-		queryCtx.Header.SetRotState(nextRotState)
+		if nextRotState != 255 {
+			queryCtx.Header.SetRotState(nextRotState)
+		}
 
 		for c := range 5 {
 			switch ev {

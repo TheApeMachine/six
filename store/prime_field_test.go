@@ -130,3 +130,156 @@ func TestPrimeFieldMaskUnmaskExhaustive(t *testing.T) {
 		})
 	})
 }
+
+func TestPrimeFieldInsertTracksHeaderRotationState(t *testing.T) {
+	Convey("Given a PrimeField ingesting eventful chords", t, func() {
+		pf := NewPrimeField()
+		events := []int{
+			geometry.EventDensitySpike,
+			geometry.EventPhaseInversion,
+			geometry.EventDensityTrough,
+			geometry.EventLowVarianceFlux,
+		}
+
+		expectedRot := uint8(0)
+		for i, ev := range events {
+			chord := data.Chord{}
+			chord.Set((i*17 + 3) % 512)
+			pf.Insert(byte(i), uint32(i+1), chord, []int{ev})
+			expectedRot = geometry.StateTransitionMatrix[expectedRot][ev]
+		}
+
+		Convey("Then active manifold header rotation tracks the same transition matrix", func() {
+			active := pf.Manifold(0)
+			So(active.Header.RotState(), ShouldEqual, expectedRot)
+		})
+	})
+}
+
+func TestPrimeFieldInsertTriggersMitosisAtDensityThreshold(t *testing.T) {
+	Convey("Given a PrimeField accumulating dense support evidence", t, func() {
+		pf := NewPrimeField()
+
+		pos := uint32(1)
+		enteredMitosis := false
+		for i := 0; i < 2500; i++ {
+			chord := data.Chord{}
+			base := (i * 31) % 512
+			for k := 0; k < 24; k++ {
+				chord.Set((base + k*17) % 512)
+			}
+
+			pf.Insert(0, pos, chord, nil)
+			if pf.Manifold(0).Header.State() == 1 {
+				enteredMitosis = true
+				break
+			}
+			pos++
+		}
+
+		Convey("Then the active manifold flips into mitosis state at least once", func() {
+			So(enteredMitosis, ShouldBeTrue)
+		})
+	})
+}
+
+func TestPrimeFieldRotateIncrementsWindingInMitosis(t *testing.T) {
+	Convey("Given a PrimeField already in mitosis mode", t, func() {
+		pf := NewPrimeField()
+		pf.manifolds[0].Header.SetState(1)
+
+		pf.Rotate([]int{geometry.EventDensitySpike, geometry.EventPhaseInversion})
+
+		Convey("Then each event increments winding", func() {
+			active := pf.Manifold(0)
+			So(active.Header.Winding(), ShouldEqual, 2)
+		})
+	})
+}
+
+func TestPrimeFieldInsertDeMitosisResetsHeaderAndOrthogonalCubes(t *testing.T) {
+	Convey("Given a sparse mitosed manifold with nonzero winding", t, func() {
+		pf := NewPrimeField()
+		pf.manifolds[0].Header.SetState(1)
+		pf.manifolds[0].Header.SetRotState(59)
+		pf.manifolds[0].Header.IncrementWinding()
+		pf.manifolds[0].Header.IncrementWinding()
+		pf.manifolds[0].Header.IncrementWinding()
+
+		pf.manifolds[0].Cubes[1][0].Set(3)
+		pf.manifolds[0].Cubes[4][26].Set(7)
+
+		seed := data.Chord{}
+		seed.Set(11)
+		pf.manifolds[0].Cubes[0][0] = seed
+
+		first := data.Chord{}
+		first.Set(13)
+		pf.Insert(0, 1, first, nil)
+
+		second := data.Chord{}
+		second.Set(17)
+		pf.Insert(0, 2, second, nil)
+
+		third := data.Chord{}
+		third.Set(19)
+		pf.Insert(0, 3, third, nil)
+
+		Convey("Then de-mitosis restores cubic state invariants", func() {
+			active := pf.Manifold(0)
+			So(active.Header.State(), ShouldEqual, 0)
+			So(active.Header.RotState(), ShouldEqual, 11)
+			So(active.Header.Winding(), ShouldEqual, 0)
+			So(active.Cubes[1][0].ActiveCount(), ShouldEqual, 0)
+			So(active.Cubes[4][26].ActiveCount(), ShouldEqual, 0)
+		})
+	})
+}
+
+func TestPrimeFieldInsertRequiresSustainedSparseStreakForDeMitosis(t *testing.T) {
+	Convey("Given a sparse mitosed manifold with nonzero winding", t, func() {
+		pf := NewPrimeField()
+		pf.manifolds[0].Header.SetState(1)
+		pf.manifolds[0].Header.IncrementWinding()
+		pf.manifolds[0].Header.IncrementWinding()
+		pf.manifolds[0].Header.IncrementWinding()
+
+		for i := 0; i < 2; i++ {
+			chord := data.Chord{}
+			chord.Set((i + 1) * 23)
+			pf.Insert(0, uint32(i+1), chord, nil)
+		}
+
+		Convey("Then de-mitosis does not trigger before the sparse streak threshold", func() {
+			active := pf.Manifold(0)
+			So(active.Header.State(), ShouldEqual, 1)
+		})
+	})
+}
+
+func TestPrimeFieldInsertKeepsMitosisWhenAnchorCubeStillDense(t *testing.T) {
+	Convey("Given a mitosed manifold with dense anchor cube", t, func() {
+		pf := NewPrimeField()
+		pf.manifolds[0].Header.SetState(1)
+		pf.manifolds[0].Header.IncrementWinding()
+		pf.manifolds[0].Header.IncrementWinding()
+
+		bitsToSet := geometry.TotalBitsPerCube * 3 / 10
+		for block := 0; block < 27 && bitsToSet > 0; block++ {
+			for bit := 0; bit < 512 && bitsToSet > 0; bit++ {
+				pf.manifolds[0].Cubes[0][block].Set(bit)
+				bitsToSet--
+			}
+		}
+
+		chord := data.Chord{}
+		chord.Set(5)
+		pf.Insert(0, 2, chord, nil)
+
+		Convey("Then de-mitosis does not trigger prematurely", func() {
+			active := pf.Manifold(0)
+			So(active.Header.State(), ShouldEqual, 1)
+			So(active.Header.Winding(), ShouldBeGreaterThanOrEqualTo, 2)
+		})
+	})
+}

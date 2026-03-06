@@ -11,7 +11,7 @@ import (
 // Write functions accept an explicit outDir so callers don't need to repeat
 // the ensurePaperDir + projector construction boilerplate.
 
-func WriteTable(data []map[string]any, outDir, outFile string) error {
+func WriteTable(data any, outDir, outFile string) error {
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
 	}
@@ -21,7 +21,10 @@ func WriteTable(data []map[string]any, outDir, outFile string) error {
 	}
 	defer f.Close()
 	defer TriggerAutoBuild()
-	return NewTable(TableWithData(data), TableWithOutput(f)).Generate()
+	return NewTable(
+		TableWithData(data),
+		TableWithOutput(f),
+	).Generate()
 }
 
 var autobuildOnce sync.Once

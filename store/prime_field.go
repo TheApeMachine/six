@@ -23,9 +23,17 @@ type PrimeField struct {
 	momentum   float64
 	lastEvents []int
 	cleanup    [4][]data.Chord
+
+	deMitosisHoldInserts  int
+	deMitosisSparseStreak int
 }
 
 const maxCleanupPrototypesPerClass = 32
+
+const (
+	deMitosisPostMitosisHoldInserts = 2
+	deMitosisSparseStreakRequired   = 3
+)
 
 func hasEvent(events []int, wanted int) bool {
 	for _, event := range events {
@@ -231,6 +239,54 @@ func (field *PrimeField) freezeActiveIfBoundary(pos uint32) {
 	field.N = len(field.manifolds)
 }
 
+func (field *PrimeField) cubeDensity(cubeIdx int) float64 {
+	activeBits := 0
+	for blockIdx := range 27 {
+		activeBits += field.manifolds[0].Cubes[cubeIdx][blockIdx].ActiveCount()
+	}
+
+	return float64(activeBits) / float64(geometry.TotalBitsPerCube)
+}
+
+func (field *PrimeField) shouldDeMitosis() bool {
+	active := &field.manifolds[0]
+	if active.Header.State() == 0 {
+		field.deMitosisHoldInserts = 0
+		field.deMitosisSparseStreak = 0
+		return false
+	}
+
+	if active.Header.Winding() == 0 {
+		field.deMitosisSparseStreak = 0
+		return false
+	}
+
+	if field.deMitosisHoldInserts > 0 {
+		field.deMitosisHoldInserts--
+		field.deMitosisSparseStreak = 0
+		return false
+	}
+
+	if !active.ConditionDeMitosis() {
+		field.deMitosisSparseStreak = 0
+		return false
+	}
+
+	if field.cubeDensity(0) >= geometry.DeMitosisThreshold {
+		field.deMitosisSparseStreak = 0
+		return false
+	}
+
+	field.deMitosisSparseStreak++
+	if field.deMitosisSparseStreak < deMitosisSparseStreakRequired {
+		return false
+	}
+
+	field.deMitosisSparseStreak = 0
+
+	return true
+}
+
 /*
 Insert appends a chord by merging it directly into the active manifold.
 The stream inherently applies topological rotations passed as events.
@@ -274,6 +330,18 @@ func (field *PrimeField) Insert(_ byte, pos uint32, chord data.Chord, events []i
 		field.manifolds[0].Cubes[vetoCube][blockIndex] = vetoMerged
 	}
 
+	if field.manifolds[0].Header.State() == 0 && field.manifolds[0].ConditionMitosis() {
+		field.manifolds[0].Mitosis()
+		field.deMitosisHoldInserts = deMitosisPostMitosisHoldInserts
+		field.deMitosisSparseStreak = 0
+	}
+
+	if field.shouldDeMitosis() {
+		field.manifolds[0].DeMitosis()
+		field.deMitosisHoldInserts = 0
+		field.deMitosisSparseStreak = 0
+	}
+
 	field.rememberPrototype(blockIndex, chord)
 }
 
@@ -311,6 +379,18 @@ func (field *PrimeField) Rotate(events []int) {
 }
 
 func (field *PrimeField) applyEvent(event int) {
+	state := int(field.manifolds[0].Header.RotState())
+	if state >= 0 && state < len(geometry.StateTransitionMatrix) {
+		next := geometry.StateTransitionMatrix[state][event]
+		if next != 255 {
+			field.manifolds[0].Header.SetRotState(next)
+		}
+	}
+
+	if field.manifolds[0].Header.State() == 1 {
+		field.manifolds[0].Header.IncrementWinding()
+	}
+
 	// 1. Apply local Micro-Rotations to all 5 MacroCubes simultaneously
 	for c := range 5 {
 		switch event {

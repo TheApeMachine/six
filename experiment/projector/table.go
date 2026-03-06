@@ -3,18 +3,22 @@ package projector
 import (
 	"bytes"
 	_ "embed"
+	"fmt"
 	"io"
 	"os"
 	"sort"
 	"text/template"
+
+	tools "github.com/theapemachine/six/experiment"
 )
 
 //go:embed table.tmpl
 var tableTmpl string
 
 type Table struct {
-	data []map[string]any
-	out  io.Writer
+	headers []string
+	rows    [][]any
+	out     io.Writer
 }
 
 type tableOpts func(*Table)
@@ -35,37 +39,12 @@ func (table *Table) Generate() error {
 		return err
 	}
 
-	var rawHeaders []string     // used for map key lookup
-	var displayHeaders []string // LaTeX-safe, used in the rendered table header
-	if len(table.data) > 0 {
-		for k := range table.data[0] {
-			rawHeaders = append(rawHeaders, k)
-		}
-		sort.Strings(rawHeaders)
-		for _, k := range rawHeaders {
-			displayHeaders = append(displayHeaders, LaTeXEscape(k))
-		}
-	}
-
-	var rows [][]any
-	for _, rowMap := range table.data {
-		var row []any
-		for _, h := range rawHeaders {
-			v := rowMap[h]
-			if s, ok := v.(string); ok {
-				v = LaTeXEscape(s)
-			}
-			row = append(row, v)
-		}
-		rows = append(rows, row)
-	}
-
 	templateData := struct {
 		Headers []string
 		Rows    [][]any
 	}{
-		Headers: displayHeaders,
-		Rows:    rows,
+		Headers: table.headers,
+		Rows:    table.rows,
 	}
 
 	var buf bytes.Buffer
@@ -77,9 +56,50 @@ func (table *Table) Generate() error {
 	return err
 }
 
-func TableWithData(data []map[string]any) tableOpts {
+func TableWithData(data any) tableOpts {
 	return func(table *Table) {
-		table.data = data
+		switch v := data.(type) {
+		case []tools.ExperimentalData:
+			table.headers = []string{"Idx", "Name", "Exact", "Partial", "Fuzzy", "Total"}
+			for _, d := range v {
+				table.rows = append(table.rows, []any{
+					d.Idx,
+					LaTeXEscape(d.Name),
+					fmt.Sprintf("%.4f", d.Scores.Exact),
+					fmt.Sprintf("%.4f", d.Scores.Partial),
+					fmt.Sprintf("%.4f", d.Scores.Fuzzy),
+					fmt.Sprintf("%.4f", d.WeightedTotal),
+				})
+			}
+		case []map[string]any:
+			if len(v) == 0 {
+				return
+			}
+			// Use sorted keys as headers for stability.
+			keys := make([]string, 0, len(v[0]))
+			for k := range v[0] {
+				keys = append(keys, k)
+			}
+			sort.Strings(keys)
+
+			// Escape headers for LaTeX while keeping original keys for lookup.
+			table.headers = make([]string, len(keys))
+			for i, k := range keys {
+				table.headers[i] = LaTeXEscape(k)
+			}
+
+			for _, m := range v {
+				row := make([]any, len(keys))
+				for i, k := range keys {
+					val := m[k]
+					if s, ok := val.(string); ok {
+						val = LaTeXEscape(s)
+					}
+					row[i] = val
+				}
+				table.rows = append(table.rows, row)
+			}
+		}
 	}
 }
 

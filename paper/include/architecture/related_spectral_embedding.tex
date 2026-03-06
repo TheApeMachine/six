@@ -1,0 +1,23 @@
+\subsection{Spectral Embedding and Toroidal Manifold Discovery}
+\label{sec:related_spectral_embedding}
+
+The Sensorium Manifold's \emph{EigenMode} logic---deriving the intrinsic topology of the data from the subdominant eigenvectors of the chord-transition matrix---is grounded in \emph{Spectral Graph Theory} and its application to nonlinear dimensionality reduction.
+
+\paragraph{Laplacian Eigenmaps and Manifold Learning.}
+Belkin and Niyogi's \emph{Laplacian Eigenmaps} \citep{belkin2003laplacian} established that the eigenvectors of the graph Laplacian $L = D - W$ (where $W$ is a similarity-weighted adjacency matrix and $D$ is its degree matrix) provide optimal low-dimensional embeddings that preserve local neighborhood structure. Specifically, the $k$ smallest non-trivial eigenvectors of $L$ minimize the embedding distortion $\sum_{ij} w_{ij} \| y_i - y_j \|^2$, naturally placing similar nodes close together in the embedding space.
+
+The Sensorium applies this principle to the \emph{chord co-occurrence graph}. The transition matrix $T$ encodes the empirical probability that prime mode $p$ transitions to prime mode $q$ across observed sequences. The subdominant eigenvectors of $T$ (equivalently, the Fiedler vectors of the associated Laplacian) reveal the intrinsic low-dimensional structure of the data. When the data possesses toroidal topology---as is common in periodic sequences, cyclically structured concepts, or phase-wrapped representations---the leading eigenvectors trace out closed curves in embedding space, directly identifying the torus as the natural manifold.
+
+\paragraph{The Dirac Operator and Geodesic Computation.}
+For calculating distances within the icosahedral manifold structure, we draw on Knill's formulation of the \emph{Dirac operator of a graph} \citep{knill2013dirac}. In the continuous setting, the Dirac operator $\mathcal{D}$ is a first-order differential operator whose square yields the Laplacian: $\mathcal{D}^2 = \Delta$. Knill's discrete construction defines an analogous operator on finite graphs, where:
+
+\begin{itemize}[nosep]
+  \item The \emph{spectrum} of $\mathcal{D}$ encodes both the topology (via its kernel, related to Betti numbers) and the geometry (via its non-zero eigenvalues) of the graph.
+  \item \emph{Geodesic distances} between nodes can be computed from the spectral data of $\mathcal{D}$, avoiding explicit shortest-path algorithms on the combinatorial graph.
+\end{itemize}
+
+The Sensorium's \emph{Geodesic Lookup Table} (LUT) precomputes pairwise distances between the 60 icosahedral orientations using the graph-Dirac spectrum. During runtime, phase-delay calculations (\Cref{sec:inference}) and entropy-routing decisions (\Cref{sec:entropy_routing}) reference this LUT to determine the topological distance between any two manifold positions in $O(1)$ time, without traversing the rotational graph.
+
+\paragraph{Why the Torus Emerges.}
+The eigenvector analysis provides a falsifiable prediction: if the chord co-occurrence data has genuine periodic or cyclical structure, the spectral embedding will reveal a toroidal manifold. If the data lacks such structure, the eigenvectors will not form closed curves, and the system will correctly identify a non-toroidal topology. This spectral self-diagnosis is a built-in consistency check---the manifold does not assume toroidal structure; it \emph{discovers} it from the data's transition statistics.
+
