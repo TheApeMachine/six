@@ -2,23 +2,22 @@ package logic
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/experiment"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/vm"
+	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
-BabiExperiment tests the ability of the system to generate code for
-various programming languages.
+BabiExperiment evaluates question-answering performance using the
+facebook/babi_qa dataset.
 */
 type BabiExperiment struct {
 	tableData []map[string]any
 	prose     []projector.ProseEntry
-	results   []experiment.Result
 	dataset   provider.Dataset
+	prompt    *tokenizer.Prompt
 }
 
 func NewBabiExperiment() *BabiExperiment {
@@ -30,8 +29,6 @@ func NewBabiExperiment() *BabiExperiment {
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 			huggingface.DatasetWithTextColumn("story"),
 		),
-
-		results: make([]experiment.Result, 0),
 	}
 
 	experiment.prose = []projector.ProseEntry{
@@ -54,23 +51,39 @@ func (experiment *BabiExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *BabiExperiment) Prompts() *vm.Loader {
-	return tools.GetLoader(experiment.dataset, 1.0)
+func (experiment *BabiExperiment) Prompts() *tokenizer.Prompt {
+	experiment.prompt = tokenizer.NewPrompt(
+		tokenizer.PromptWithDataset(experiment.dataset),
+		tokenizer.PromptWithHoldout(experiment.Holdout()),
+	)
+
+	return experiment.prompt
 }
 
-func (experiment *BabiExperiment) Holdout() (int, vm.HoldoutType) {
-	return 0, vm.HoldoutLinear
+func (experiment *BabiExperiment) Holdout() (int, tokenizer.HoldoutType) {
+	return 0, tokenizer.RIGHT
 }
 
 /*
-AddResult should emperically prove that the system generated the correct
-code for the given prompt. It should compare the generated code with the
-expected code and produce a score between 0 and 1.
+AddResult should emperically prove that the system answered the question
+correctly. It should compare the generated answer with the expected answer
+and produce a score between 0 and 1.
 */
 func (experiment *BabiExperiment) AddResult(results map[string]any) {
-	// Compare the result to the prompt, and get a difference in percentage.
-	prompt := results["prompt"].([]byte)
-	res := results["result"].([]byte)
+	var prompt, res []byte
+
+	if val, ok := results["prompt"]; ok {
+		if b, ok := val.([]byte); ok {
+			prompt = b
+		}
+	}
+
+	if val, ok := results["result"]; ok {
+		if b, ok := val.([]byte); ok {
+			res = b
+		}
+	}
+
 	results["scores"] = tools.ByteScores(prompt, res)
 	experiment.tableData = append(experiment.tableData, results)
 }
@@ -84,10 +97,22 @@ func (experiment *BabiExperiment) Outcome() (any, gc.Assertion, any) {
 }
 
 func (experiment *BabiExperiment) Score() float64 {
+	if len(experiment.tableData) == 0 {
+		return 0
+	}
+
 	total := 0.0
 
 	for _, data := range experiment.tableData {
-		scores := data["scores"].(map[string]float64)
+		scoresVal, ok := data["scores"]
+		if !ok {
+			continue
+		}
+
+		scores, ok := scoresVal.(map[string]float64)
+		if !ok {
+			continue
+		}
 
 		total += tools.WeightedTotal(
 			scores["exact"],

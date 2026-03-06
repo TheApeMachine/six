@@ -20,6 +20,7 @@ type Loader struct {
 	store       store.Store
 	primefield  *store.PrimeField
 	tokenizer   *tokenizer.Universal
+	coder       *tokenizer.MortonCoder
 	holdout     int
 	samples     int
 	prompt      bool
@@ -31,7 +32,8 @@ type loaderOpts func(*Loader)
 
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
-		bufs: make([]tokenizer.Token, 0),
+		bufs:  make([]tokenizer.Token, 0),
+		coder: tokenizer.NewMortonCoder(),
 	}
 
 	for _, opt := range opts {
@@ -82,7 +84,7 @@ func (loader *Loader) Generate() chan data.Chord {
 
 			loader.store.Insert(token.TokenID, token.Chord)
 			if loader.primefield != nil {
-				_, _, byteVal := tokenizer.NewMortonCoder().Decode(token.TokenID)
+				_, _, byteVal := loader.coder.Decode(token.TokenID)
 				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
 			}
 			out <- token.Chord
@@ -117,7 +119,7 @@ func (loader *Loader) flushPrompt() chan data.Chord {
 			for _, token := range loader.bufs[start:] {
 				loader.store.Insert(token.TokenID, token.Chord)
 				if loader.primefield != nil {
-					_, _, byteVal := tokenizer.NewMortonCoder().Decode(token.TokenID)
+					_, _, byteVal := loader.coder.Decode(token.TokenID)
 					loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
 				}
 			}
@@ -145,7 +147,7 @@ func (loader *Loader) randomHoldout(buf []tokenizer.Token) []tokenizer.Token {
 		} else {
 			loader.store.Insert(token.TokenID, token.Chord)
 			if loader.primefield != nil {
-				_, _, byteVal := tokenizer.NewMortonCoder().Decode(token.TokenID)
+				_, _, byteVal := loader.coder.Decode(token.TokenID)
 				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
 			}
 		}

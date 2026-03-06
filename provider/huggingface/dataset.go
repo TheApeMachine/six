@@ -422,8 +422,8 @@ func DatasetWithTransform(fn func([]byte) ([]byte, error)) datasetOpts {
 	}
 }
 
-func DatasetWithPerSamplePos() datasetOpts {
+func DatasetWithContinuousPos() datasetOpts {
 	return func(dataset *Dataset) {
-		dataset.perSamplePos = true
+		dataset.perSamplePos = false
 	}
 }

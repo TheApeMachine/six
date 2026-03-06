@@ -9,7 +9,8 @@ const (
 	TotalBitsPerCube   = 27 * 512
 )
 
-// ConditionMitosis evaluates the global density of the primary MacroCube.
+// ConditionMitosis evaluates whether "virtual mitosis" should trigger.
+// Mechanically, this is a pure density threshold over the preallocated Cubes[0] array.
 func (m *IcosahedralManifold) ConditionMitosis() bool {
 	if m.Header.State() == 1 {
 		return false // Already mitosed
@@ -39,7 +40,8 @@ func (m *IcosahedralManifold) ConditionDeMitosis() bool {
 	return float64(activeBits)/float64(TotalBitsPerCube*5) < DeMitosisThreshold
 }
 
-// Mitosis triggers the 1-clock-cycle state flip and unlocks the 60 Rotational States.
+// Mitosis performs virtual mitosis as a state flip only.
+// No memory is allocated here; Cubes[1..4] are already preallocated.
 func (m *IcosahedralManifold) Mitosis() {
 	if m.Header.State() == 1 {
 		return
@@ -68,7 +70,7 @@ func (m *IcosahedralManifold) DeMitosis() {
 }
 
 // ApplyPermutation executes an exact 27-block structural re-indexing on a MacroCube.
-// Used for internal Micro_Rotate_X, Y, Z logic.
+// This is the concrete runtime meaning of "rotation": fixed index remapping.
 func (cube *MacroCube) ApplyPermutation(indices [27]int) {
 	var next MacroCube
 	for i := range 27 {

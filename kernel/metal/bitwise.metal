@@ -53,20 +53,14 @@ kernel void bitwise_best_fill(
     uint16_t q_rot_state = (ctx.header.data >> 9) & 0x3F;
     uint16_t c_rot_state = (candidate.header.data >> 9) & 0x3F;
 
-    // Determine sparse cube limits based on Mitosis state
-    int max_cubes = (c_state == 1) ? 5 : 1;
-
-    uint ctx_match_count = 0;
-    uint ctx_noise_count = 0;
-    uint exp_match_count = 0;
-    uint exp_noise_count = 0;
+    uint overlap_count = 0;
+    uint fill_count = 0;
+    uint contradiction_count = 0;
+    uint expectation_count = 0;
 
     // PASS 3 & 4: Coarse SIMD & Dense Micro Popcount
 #pragma unroll
-    for (int c = 0; c < 5; c++) {
-        // Warp bypass for structurally sparse 8.64KB primitives (Cubic Mode)
-        if (c >= max_cubes) break; 
-        
+    for (int c = 0; c < 4; c++) {
 #pragma unroll
         for (int b = 0; b < 27; b++) {
 #pragma unroll
@@ -74,26 +68,24 @@ kernel void bitwise_best_fill(
                 uint64_t c_bits = candidate.cubes[c].blocks[b].bits[i];
                 uint64_t a_bits = ctx.cubes[c].blocks[b].bits[i];
                 uint64_t e_bits = expected.cubes[c].blocks[b].bits[i];
+                uint64_t m_bits = e_bits & ~a_bits;
+                uint64_t v_bits = ctx.cubes[4].blocks[b].bits[i];
+                uint64_t c_veto_bits = candidate.cubes[4].blocks[b].bits[i];
 
-                ctx_match_count += popcount(c_bits & a_bits);
-                ctx_noise_count += popcount(c_bits & ~a_bits);
-                
-                exp_match_count += popcount(c_bits & e_bits);
-                exp_noise_count += popcount(c_bits & ~e_bits);
+                overlap_count += popcount(c_bits & a_bits);
+                fill_count += popcount(c_bits & m_bits);
+                expectation_count += popcount(c_bits & e_bits);
+                contradiction_count += popcount(a_bits & ~c_bits);
+                contradiction_count += popcount(c_bits & v_bits);
+                contradiction_count += popcount(c_veto_bits & a_bits);
             }
         }
     }
 
-    uint ctx_total = ctx_match_count + ctx_noise_count + 1;
-    uint exp_total = exp_match_count + exp_noise_count + 1;
-    
-    // Scale purely on integer boundaries 
-    uint SCORE_SCALE = 4000000;
-    uint ctx_score = (ctx_match_count * SCORE_SCALE) / ctx_total;
-    uint exp_score = (exp_match_count * SCORE_SCALE) / exp_total;
-    
-    // Teleological blending
-    uint score_fixed = (ctx_score + exp_score) / 2;
+    int score_fixed = int((int64_t(overlap_count) * 500 +
+                           int64_t(fill_count) * 900 +
+                           int64_t(expectation_count) * 250 -
+                           int64_t(contradiction_count) * 650) >> 10);
 
     // PASS 5: O(1) Ambiguity Resolution (LUT)
     // Fetch true geodesic path distance between chiral states
@@ -109,7 +101,8 @@ kernel void bitwise_best_fill(
     if (safe_id > 0xFFFFFF) { safe_id = 0xFFFFFF; }
 
     // Pack: score (24-bit MSB) | inverted dist (16-bit) | raw_id (24-bit LSB)
-    uint64_t packed_result = ((uint64_t)score_fixed << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)safe_id;
+    uint64_t score_u24 = (uint64_t)(score_fixed & 0xFFFFFF);
+    uint64_t packed_result = (score_u24 << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)safe_id;
 
     // Lock-free maximum aggregate
     atomic_max_explicit(

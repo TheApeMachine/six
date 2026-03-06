@@ -88,22 +88,37 @@ func BestFillCPUPackedBytes(
 			continue
 		}
 
-		var hamming uint32
-		var disorder uint32
+		var overlap uint32
+		var fill uint32
+		var contradiction uint32
 		var expectation uint32
 
 		cubeBase := base + 1
-		for i := 0; i < numeric.CubeWords; i++ {
-			candidate := dictWords[cubeBase+i]
-			ctx := ctxWords[1+i]
-			exp := expWords[1+i]
+		for c := 0; c < 4; c++ {
+			for b := 0; b < 27; b++ {
+				for i := 0; i < 8; i++ {
+					offset := (c*27+b)*8 + i
+					vetoOffset := (4*27+b)*8 + i
 
-			hamming += uint32(bits.OnesCount64(candidate & ctx))
-			disorder += uint32(bits.OnesCount64(candidate &^ ctx))
-			expectation += uint32(bits.OnesCount64(candidate & exp))
+					candidate := dictWords[cubeBase+offset]
+					ctx := ctxWords[1+offset]
+					exp := expWords[1+offset]
+					missing := exp &^ ctx
+
+					vetoCtx := ctxWords[1+vetoOffset]
+					candidateVeto := dictWords[cubeBase+vetoOffset]
+
+					overlap += uint32(bits.OnesCount64(candidate & ctx))
+					fill += uint32(bits.OnesCount64(candidate & missing))
+					expectation += uint32(bits.OnesCount64(candidate & exp))
+					contradiction += uint32(bits.OnesCount64(ctx &^ candidate))
+					contradiction += uint32(bits.OnesCount64(candidate & vetoCtx))
+					contradiction += uint32(bits.OnesCount64(candidateVeto & ctx))
+				}
+			}
 		}
 
-		scoreFixed := int32((int64(hamming)*500 + int64(expectation)*1000 - int64(disorder)*300) >> 10)
+		scoreFixed := int32((int64(overlap)*500 + int64(fill)*900 + int64(expectation)*250 - int64(contradiction)*650) >> 10)
 
 		rotCandidate := int((header >> 9) & 0x3F)
 		geodDist := uint16(255)

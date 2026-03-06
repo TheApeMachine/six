@@ -63,7 +63,7 @@ func (tokenizer *Universal) Generate() chan Token {
 	go func() {
 		defer close(out)
 
-		var pos uint32
+		tokenizer.pos = 0
 		var z uint8
 
 		for rawToken := range tokenizer.dataset.Generate() {
@@ -71,17 +71,18 @@ func (tokenizer *Universal) Generate() chan Token {
 			reset, events := tokenizer.sequencer.Analyze(int(rawToken.Pos), chord)
 
 			out <- Token{
-				TokenID: tokenizer.coder.Encode(z, pos, rawToken.Symbol),
+				TokenID: tokenizer.coder.Encode(z, tokenizer.pos, rawToken.Symbol),
 				Z:       z,
-				Pos:     pos,
+				Pos:     tokenizer.pos,
 				Chord:   chord,
 				Events:  events,
 			}
 
-			pos++
+			tokenizer.pos++
 
 			if reset {
-				pos = 0
+				tokenizer.pos = 0
+				z++
 			}
 		}
 	}()

@@ -1,9 +1,8 @@
 package task
 
 import (
-	"fmt"
-
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/store"
@@ -25,6 +24,7 @@ type Pipeline struct {
 	machine    *vm.Machine
 	experiment PipelineExperiment
 	loader     *vm.Loader
+	testIdx    int
 }
 
 type pipelineOpts func(*Pipeline)
@@ -83,33 +83,34 @@ func (pipeline *Pipeline) Run() error {
 }
 
 func (pipeline *Pipeline) Prompt(prompt []data.Chord) {
-	testIdx := 0
-
 	var bRes []byte
 	for res := range pipeline.machine.Prompt(prompt, nil) {
 		bRes = append(bRes, res)
 	}
 
-	fmt.Println(string(bRes))
+	console.Trace("pipeline prompt response", "response", string(bRes))
+
+	// Build reverse lookup map once to avoid O(256) inner scan per chord
+	chordToByteMap := make(map[data.Chord]byte)
+	for b := range 256 {
+		chordToByteMap[data.BaseChord(byte(b))] = byte(b)
+	}
 
 	var bPrompt []byte
 	for _, chord := range prompt {
-		for b := range 256 {
-			if chord == data.BaseChord(byte(b)) {
-				bPrompt = append(bPrompt, byte(b))
-				break
-			}
+		if b, ok := chordToByteMap[chord]; ok {
+			bPrompt = append(bPrompt, b)
 		}
 	}
 
-	limit := min(len(bRes), len(bPrompt))
-
 	pipeline.experiment.AddResult(map[string]any{
-		"testIdx":    testIdx,
+		"testIdx":    pipeline.testIdx,
 		"experiment": pipeline.experiment.Name(),
 		"prompt":     bPrompt,
-		"result":     bRes[:limit],
+		"result":     bRes,
 	})
+
+	pipeline.testIdx++
 }
 
 func PipelineWithExperiment(experiment PipelineExperiment) pipelineOpts {

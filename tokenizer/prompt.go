@@ -22,6 +22,7 @@ type Prompt struct {
 	dataset    provider.Dataset
 	tokens     [][]data.Chord
 	values     [][]string
+	outputs    [][]string
 	holdout    HoldoutType
 	percentage int
 }
@@ -63,28 +64,53 @@ func (prompt *Prompt) Next() (out []data.Chord) {
 		return nil
 	}
 
-	// Popping stacks for breakfast.
+	// Pop both tokens and values in lockstep.
+	var valOut []string
 	prompt.tokens, out = prompt.tokens[1:], prompt.tokens[0]
+	prompt.values, valOut = prompt.values[1:], prompt.values[0]
 
 	if len(out) > 0 && prompt.percentage > 0 {
 		keep := int(float64(len(out)) * float64(100-prompt.percentage) / 100.0)
+		if keep > len(out) {
+			keep = len(out)
+		}
+		if keep > len(valOut) {
+			keep = len(valOut)
+		}
 		if keep > 0 {
 			switch prompt.holdout {
 			case RIGHT, BOTTOM:
 				out = out[:keep]
+				valOut = valOut[:keep]
 			case LEFT, TOP:
 				out = out[len(out)-keep:]
+				valOut = valOut[len(valOut)-keep:]
+			case RANDOM:
+				// TODO: implement random holdout selection
+				out = out[:keep]
+				valOut = valOut[:keep]
+			case CENTER:
+				// TODO: implement center holdout selection
+				out = out[:keep]
+				valOut = valOut[:keep]
 			default:
 				out = out[:keep]
+				valOut = valOut[:keep]
 			}
 		}
 	}
+
+	prompt.outputs = append(prompt.outputs, valOut)
 
 	return out
 }
 
 func (prompt *Prompt) Value(idx int) string {
-	return strings.Join(prompt.values[idx], "")
+	if idx < 0 || idx >= len(prompt.outputs) {
+		return ""
+	}
+
+	return strings.Join(prompt.outputs[idx], "")
 }
 
 func PromptWithDataset(dataset provider.Dataset) promptOpts {

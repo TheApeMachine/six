@@ -70,8 +70,8 @@ Example: "Cat wants food" + "Dog wants food" + "Dog is animal" → "Cat is anima
 No neural network required — the prime substrate performs symbolic logic natively.
 */
 func TransitiveResonance(f1, f2, f3 *data.Chord) data.Chord {
-	B := data.ChordGCD(f1, f2) // Shared context (Wormhole 1)
-	C := data.ChordGCD(f2, f3) // Shared subject (Wormhole 2)
+	B := data.ChordGCD(f1, f2) // Shared context ("wormhole" = bitwise intersection: f1 & f2)
+	C := data.ChordGCD(f2, f3) // Shared subject ("wormhole" = bitwise intersection: f2 & f3)
 
 	A := data.ChordHole(f1, &B) // F1 without B
 	D := data.ChordHole(f3, &C) // F3 without C

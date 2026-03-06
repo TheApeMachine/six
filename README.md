@@ -15,17 +15,41 @@ As a matter of fact, this is the sixth architecture that was built from the grou
 > I would like to set your mind at ease.
 > Yes, symbolic A.I. died a long time ago, and so did the perceptron.
 
-## The Bridge: SVD and Binarization
+## The Bridge: Conceptual Model vs Runtime Path
 
-How do 512 bits represent abstract concepts or generative oscillators? This is the bridge between beautiful continuous math (waves) and brutalist discrete math (bits).
+How do 512 bits represent abstract concepts or generative oscillators? This project maintains two views of that bridge: an ideal continuous derivation and the hardware path actually executed at runtime.
 
-In a continuous model, a token is represented by a set of prime frequencies (oscillators). When you combine tokens, their waves interfere. In a discrete model meant to run on consumer hardware, you can't evaluate millions of continuous cosine functions on a GPU efficiently. You have to discretize them. 
+### Conceptual Model (Research Ideal)
 
-Here is the conceptual pipeline of how oscillators become bits:
+In a continuous model, a token is represented by prime-frequency interactions. A classic derivation path is:
 
-1. **The Continuous Space (PPMI):** We start by analyzing how tokens co-occur in a text corpus. This creates a massive matrix of relationships (Positive Pointwise Mutual Information). This matrix represents the "resonance" between all possible tokens.
-2. **The Frequencies (SVD):** We run Singular Value Decomposition (SVD) on this matrix. SVD extracts the principal components—the fundamental "frequencies" or "eigenvectors" of the dataset. These are the basis oscillators.
-3. **The Discretization (Binarization):** Instead of keeping these frequencies as continuous floating-point numbers (which are slow to compute), we binarize them. We take the top 512 most important frequencies (the 512 dimensions of the SVD). If a token resonates strongly with frequency #42, we set bit 42 to `1`. If it doesn't, we set it to `0`.
+1. **The Continuous Space (PPMI):** Analyze token co-occurrence to build a resonance matrix.
+2. **The Frequencies (SVD/Eigendecomposition):** Extract principal oscillators/eigen-directions.
+3. **The Discretization (Binarization):** Project those continuous components into binary occupancy.
+
+This remains the mathematical framing used to reason about the architecture.
+
+### Runtime Path (Current Implementation)
+
+The live code path favors deterministic bitwise transforms for throughput and latency:
+
+1. **Deterministic byte projection:** `data.BaseChord` maps each byte into a 512-bit chord using fixed coprime offsets.
+2. **Windowing and boundary detection:** `tokenizer/sequencer.go` uses phase/variance heuristics to segment stream structure.
+3. **Bitwise composition and retrieval:** Runtime matching uses `|`, `&`, and `popcount` across geometric manifolds.
+
+This trade-off is intentional: running full matrix factorization per token on consumer hardware would dominate latency. The implementation preserves the oscillator intuition while compiling inference down to integer/bitwise operations.
+
+### Where Continuous Factorization Exists Today
+
+Continuous linear algebra is not absent; it is scoped. `geometry/eigenmode.go` builds co-occurrence structures and computes toroidal eigenvectors for phase-space organization and ambiguity handling, rather than executing per-token SVD in the hot generation loop.
+
+### Terminology Grounding (Term -> Mechanic)
+
+To keep the conceptual language readable for systems contributors:
+
+- **Wormhole** -> bitwise intersection of active primes (`ChordGCD`, effectively `A & B`).
+- **Virtual mitosis** -> threshold-triggered manifold state flip over preallocated cube arrays (no runtime allocation).
+- **Topological entropy routing** -> deterministic rotation/permutation plus sparse bitwise filtering.
 
 ## Why Bitwise Math Is Wave Interference
 

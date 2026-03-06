@@ -2,23 +2,22 @@ package imagegen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/experiment"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/vm"
+	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
-ReconstructionExperiment tests the ability of the system to generate code for
-various programming languages.
+ReconstructionExperiment evaluates image reconstruction quality using the
+cifar10 dataset, testing how well the system can model and reconstruct images.
 */
 type ReconstructionExperiment struct {
 	tableData []map[string]any
 	prose     []projector.ProseEntry
-	results   []experiment.Result
 	dataset   provider.Dataset
+	prompt    *tokenizer.Prompt
 }
 
 func NewReconstructionExperiment() *ReconstructionExperiment {
@@ -29,8 +28,6 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumn("img"),
 		),
-
-		results: make([]experiment.Result, 0),
 	}
 
 	experiment.prose = []projector.ProseEntry{
@@ -46,30 +43,46 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 }
 
 func (experiment *ReconstructionExperiment) Name() string {
-	return "babi_benchmark"
+	return "reconstruction"
 }
 
 func (experiment *ReconstructionExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *ReconstructionExperiment) Prompts() *vm.Loader {
-	return tools.GetLoader(experiment.dataset, 1.0)
+func (experiment *ReconstructionExperiment) Prompts() *tokenizer.Prompt {
+	experiment.prompt = tokenizer.NewPrompt(
+		tokenizer.PromptWithDataset(experiment.dataset),
+		tokenizer.PromptWithHoldout(experiment.Holdout()),
+	)
+
+	return experiment.prompt
 }
 
-func (experiment *ReconstructionExperiment) Holdout() (int, vm.HoldoutType) {
-	return 0, vm.HoldoutLinear
+func (experiment *ReconstructionExperiment) Holdout() (int, tokenizer.HoldoutType) {
+	return 0, tokenizer.RIGHT
 }
 
 /*
-AddResult should emperically prove that the system generated the correct
-code for the given prompt. It should compare the generated code with the
-expected code and produce a score between 0 and 1.
+AddResult should emperically prove that the system reconstructed the correct
+image for the given prompt. It should compare the generated output with the
+expected output and produce a score between 0 and 1.
 */
 func (experiment *ReconstructionExperiment) AddResult(results map[string]any) {
-	// Compare the result to the prompt, and get a difference in percentage.
-	prompt := results["prompt"].([]byte)
-	res := results["result"].([]byte)
+	var prompt, res []byte
+
+	if val, ok := results["prompt"]; ok {
+		if b, ok := val.([]byte); ok {
+			prompt = b
+		}
+	}
+
+	if val, ok := results["result"]; ok {
+		if b, ok := val.([]byte); ok {
+			res = b
+		}
+	}
+
 	results["scores"] = tools.ByteScores(prompt, res)
 	experiment.tableData = append(experiment.tableData, results)
 }
@@ -83,10 +96,22 @@ func (experiment *ReconstructionExperiment) Outcome() (any, gc.Assertion, any) {
 }
 
 func (experiment *ReconstructionExperiment) Score() float64 {
+	if len(experiment.tableData) == 0 {
+		return 0
+	}
+
 	total := 0.0
 
 	for _, data := range experiment.tableData {
-		scores := data["scores"].(map[string]float64)
+		scoresVal, ok := data["scores"]
+		if !ok {
+			continue
+		}
+
+		scores, ok := scoresVal.(map[string]float64)
+		if !ok {
+			continue
+		}
 
 		total += tools.WeightedTotal(
 			scores["exact"],

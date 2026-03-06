@@ -36,6 +36,15 @@ func New() *Logger {
 				ReportCaller:    true,
 			},
 		),
+		// Always initialize traceHandle to a safe fallback (stderr)
+		traceHandle: *log.NewWithOptions(
+			os.Stderr,
+			log.Options{
+				ReportTimestamp: true,
+				ReportCaller:    true,
+				Level:           log.DebugLevel,
+			},
+		),
 	}
 
 	if err == nil {

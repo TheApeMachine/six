@@ -7,10 +7,10 @@ import (
 
 type Calibrator struct {
 	mu               sync.RWMutex
-	TargetDensityMin float64
-	TargetDensityMax float64
-	SensitivityPop   float64
-	SensitivityPhase float64
+	targetDensityMin float64
+	targetDensityMax float64
+	sensitivityPop   float64
+	sensitivityPhase float64
 }
 
 func NewCalibrator() *Calibrator {
@@ -20,19 +20,59 @@ func NewCalibrator() *Calibrator {
 
 	return &Calibrator{
 		// Target densities scale recursively inside the hyperdimensional subspace
-		TargetDensityMin: 1.0 / math.Pow(phi, 3), // ~0.236
-		TargetDensityMax: 1.0 / math.Pow(phi, 2), // ~0.382
+		targetDensityMin: 1.0 / math.Pow(phi, 3), // ~0.236
+		targetDensityMax: 1.0 / math.Pow(phi, 2), // ~0.382
 
 		// Start Z-score thresholds at exactly 1 Golden Ratio standard deviation
-		SensitivityPop:   phi,
-		SensitivityPhase: phi,
+		sensitivityPop:   phi,
+		sensitivityPhase: phi,
 	}
+}
+
+// Thread-safe getters
+
+func (c *Calibrator) TargetDensityMin() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.targetDensityMin
+}
+
+func (c *Calibrator) TargetDensityMax() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.targetDensityMax
+}
+
+func (c *Calibrator) SensitivityPop() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sensitivityPop
+}
+
+func (c *Calibrator) SensitivityPhase() float64 {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.sensitivityPhase
+}
+
+// Thread-safe setters
+
+func (c *Calibrator) SetSensitivityPop(v float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sensitivityPop = v
+}
+
+func (c *Calibrator) SetSensitivityPhase(v float64) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.sensitivityPhase = v
 }
 
 /*
 Recalibrate is currently a placeholder for future dynamic threshold calibration.
 */
 func (calibrator *Calibrator) Recalibrate() {
-	calibrator.mu.RLock()
-	defer calibrator.mu.RUnlock()
+	calibrator.mu.Lock()
+	defer calibrator.mu.Unlock()
 }

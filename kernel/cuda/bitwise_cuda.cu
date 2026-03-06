@@ -57,12 +57,13 @@ __global__ void bitwise_best_fill_kernel(
         return;
     }
 
-    uint32_t hamming_score = 0;
-    uint32_t disorder_score = 0;
+    uint32_t overlap_score = 0;
+    uint32_t fill_score = 0;
+    uint32_t contradiction_score = 0;
     uint32_t expectation_score = 0;
 
     #pragma unroll
-    for (int c = 0; c < 5; c++) {
+    for (int c = 0; c < 4; c++) {
         #pragma unroll
         for (int b = 0; b < 27; b++) {
             #pragma unroll
@@ -70,15 +71,21 @@ __global__ void bitwise_best_fill_kernel(
                 uint64_t candidate_bits = candidate->cubes[c].blocks[b].bits[i];
                 uint64_t context_bits = active_context->cubes[c].blocks[b].bits[i];
                 uint64_t expected_bits = expected_reality->cubes[c].blocks[b].bits[i];
+                uint64_t missing_bits = expected_bits & ~context_bits;
+                uint64_t veto_context_bits = active_context->cubes[4].blocks[b].bits[i];
+                uint64_t candidate_veto_bits = candidate->cubes[4].blocks[b].bits[i];
 
-                hamming_score += __popcll(candidate_bits & context_bits);
-                disorder_score += __popcll(candidate_bits & ~context_bits);
+                overlap_score += __popcll(candidate_bits & context_bits);
+                fill_score += __popcll(candidate_bits & missing_bits);
+                contradiction_score += __popcll(context_bits & ~candidate_bits);
+                contradiction_score += __popcll(candidate_bits & veto_context_bits);
+                contradiction_score += __popcll(candidate_veto_bits & context_bits);
                 expectation_score += __popcll(candidate_bits & expected_bits);
             }
         }
     }
 
-    int score_fixed = (hamming_score * 500 + expectation_score * 1000 - disorder_score * 300) >> 10;
+    int score_fixed = (overlap_score * 500 + fill_score * 900 + expectation_score * 250 - contradiction_score * 650) >> 10;
 
     uint16_t candidate_rot = manifold_rot_state(candidate);
     uint16_t context_rot = manifold_rot_state(active_context);

@@ -163,13 +163,46 @@ Deterministic XOR-fold of the chord bits ensures similar chords map to nearby bi
 Enables chord-native co-occurrence and phase lookup without byte symbols.
 */
 func ChordBin(c *Chord) int {
-	var h uint64
-
-	for i := range config.ChordBlocks {
-		h ^= c[i]
+	seeds := [8]uint64{
+		0x9e3779b185ebca87,
+		0xc2b2ae3d27d4eb4f,
+		0x165667b19e3779f9,
+		0x85ebca77c2b2ae63,
+		0x27d4eb2f165667c5,
+		0x94d049bb133111eb,
+		0xd6e8feb86659fd93,
+		0xa4093822299f31d1,
 	}
 
-	return int(h % 256)
+	var acc [8]int
+
+	for i := range config.ChordBlocks {
+		block := c[i]
+		for block != 0 {
+			bit := bits.TrailingZeros64(block)
+			idx := uint64(i*64 + bit + 1)
+
+			for j := range seeds {
+				h := idx*seeds[j] + (idx << uint(j+1))
+				if h>>63 == 1 {
+					acc[j]++
+				} else {
+					acc[j]--
+				}
+			}
+
+			block &= block - 1
+		}
+	}
+
+	var bin int
+	for j := range acc {
+		if acc[j] >= 0 {
+			bin |= 1 << j
+		}
+	}
+
+	return bin
 }
 
 /*

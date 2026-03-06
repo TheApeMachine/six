@@ -70,11 +70,11 @@ func TestGenerate(t *testing.T) {
 				for _, tk := range tokens {
 					// In this architecture, we decode token ID to verify properties if needed
 					z, _, symbol := coder.Decode(tk.TokenID)
-					// Verify Decode works and tokens exist
+					// Verify Decode works, Z depth matches, and tokens exist
+					So(z, ShouldEqual, tk.Z)
 					if symbol > 0 {
 						s1Tokens = append(s1Tokens, tk)
 					}
-					_ = z
 				}
 
 				So(len(s1Tokens), ShouldBeGreaterThan, 0)

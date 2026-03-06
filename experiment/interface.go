@@ -26,6 +26,21 @@ func GetLoader(dataset provider.Dataset, lsmSpatialIndex float64) *vm.Loader {
 	)
 }
 
+// countPrefixMatches returns the number of positions where expected[i] == retrieved[i]
+// up to min(len(expected), len(retrieved)).
+func countPrefixMatches(expected, retrieved []byte) int {
+	matches := 0
+	shorter := min(len(expected), len(retrieved))
+
+	for i := range shorter {
+		if expected[i] == retrieved[i] {
+			matches++
+		}
+	}
+
+	return matches
+}
+
 func ByteScores(expected, retrieved []byte) map[string]float64 {
 	if len(expected) == 0 && len(retrieved) == 0 {
 		return map[string]float64{
@@ -47,33 +62,15 @@ func ByteScores(expected, retrieved []byte) map[string]float64 {
 	}
 
 	// 2. Partial match - correct bytes, no garbage penalty
-	// Only scores the overlap, length difference doesn't matter
-	shorter := min(len(expected), len(retrieved))
-	if shorter > 0 {
-		matches := 0
-
-		for i := range shorter {
-			if expected[i] == retrieved[i] {
-				matches++
-			}
-		}
-
+	matches := countPrefixMatches(expected, retrieved)
+	if len(expected) > 0 {
 		partial = float64(matches) / float64(len(expected))
 	}
 
 	// 3. Fuzzy match - correct bytes, but extra garbage penalized
-	// Penalizes retrieved being longer than expected
-	if len(retrieved) > 0 {
-		matches := 0
-		shorter := min(len(expected), len(retrieved))
-
-		for i := range shorter {
-			if expected[i] == retrieved[i] {
-				matches++
-			}
-		}
-
-		fuzzy = float64(matches) / float64(max(len(expected), len(retrieved)))
+	longer := max(len(expected), len(retrieved))
+	if longer > 0 {
+		fuzzy = float64(matches) / float64(longer)
 	}
 
 	return map[string]float64{

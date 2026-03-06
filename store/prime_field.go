@@ -22,6 +22,173 @@ type PrimeField struct {
 	eigen      *geometry.EigenMode
 	momentum   float64
 	lastEvents []int
+	cleanup    [4][]data.Chord
+}
+
+const maxCleanupPrototypesPerClass = 32
+
+func hasEvent(events []int, wanted int) bool {
+	for _, event := range events {
+		if event == wanted {
+			return true
+		}
+	}
+
+	return false
+}
+
+func cubeFromEvents(events []int) int {
+	switch {
+	case hasEvent(events, geometry.EventPhaseInversion):
+		return 3
+	case hasEvent(events, geometry.EventDensitySpike):
+		return 1
+	case hasEvent(events, geometry.EventLowVarianceFlux):
+		return 2
+	case hasEvent(events, geometry.EventDensityTrough):
+		return 4
+	default:
+		return 0
+	}
+}
+
+func blockFromChordDynamics(pos uint32, chord data.Chord, events []int) int {
+	if len(events) == 0 {
+		return int(pos) % 27
+	}
+
+	role := int(pos % 3)
+
+	temporal := 1
+	if hasEvent(events, geometry.EventDensityTrough) {
+		temporal = 0
+	} else if hasEvent(events, geometry.EventDensitySpike) {
+		temporal = 2
+	}
+
+	scale := 0
+	active := chord.ActiveCount()
+	if hasEvent(events, geometry.EventLowVarianceFlux) || active >= 32 {
+		scale = 2
+	} else if active >= 12 {
+		scale = 1
+	}
+
+	return role + 3*temporal + 9*scale
+}
+
+func supportCubeFromEvents(events []int) int {
+	cube := cubeFromEvents(events)
+	if cube == 4 {
+		return 0
+	}
+
+	return cube
+}
+
+func vetoCubeFromSupport(cube int) int {
+	if cube == 4 {
+		return 3
+	}
+
+	return 4
+}
+
+func cleanupClassFromBlock(blockIdx int) int {
+	if blockIdx >= 18 {
+		return 3
+	}
+
+	return blockIdx % 3
+}
+
+func similarEnough(a, b *data.Chord) bool {
+	aActive := a.ActiveCount()
+	bActive := b.ActiveCount()
+	if aActive == 0 || bActive == 0 {
+		return false
+	}
+
+	minActive := aActive
+	if bActive < minActive {
+		minActive = bActive
+	}
+
+	sim := data.ChordSimilarity(a, b)
+	return sim*2 >= minActive
+}
+
+func (field *PrimeField) rememberPrototype(blockIdx int, chord data.Chord) {
+	class := cleanupClassFromBlock(blockIdx)
+	bucket := field.cleanup[class]
+
+	bestIdx := -1
+	bestSim := -1
+	for i := range bucket {
+		sim := data.ChordSimilarity(&bucket[i], &chord)
+		if sim > bestSim {
+			bestSim = sim
+			bestIdx = i
+		}
+	}
+
+	if bestIdx >= 0 && similarEnough(&bucket[bestIdx], &chord) {
+		shared := data.ChordGCD(&bucket[bestIdx], &chord)
+		if shared.ActiveCount() > 0 {
+			bucket[bestIdx] = shared
+		} else {
+			bucket[bestIdx] = chord
+		}
+		field.cleanup[class] = bucket
+		return
+	}
+
+	if len(bucket) < maxCleanupPrototypesPerClass {
+		field.cleanup[class] = append(bucket, chord)
+		return
+	}
+
+	worstIdx := 0
+	worstSim := data.ChordSimilarity(&bucket[0], &chord)
+	for i := 1; i < len(bucket); i++ {
+		sim := data.ChordSimilarity(&bucket[i], &chord)
+		if sim < worstSim {
+			worstSim = sim
+			worstIdx = i
+		}
+	}
+
+	bucket[worstIdx] = chord
+	field.cleanup[class] = bucket
+}
+
+func (field *PrimeField) snapPrototype(blockIdx int, chord data.Chord) data.Chord {
+	class := cleanupClassFromBlock(blockIdx)
+	bucket := field.cleanup[class]
+	if len(bucket) == 0 {
+		return chord
+	}
+
+	bestIdx := 0
+	bestSim := data.ChordSimilarity(&bucket[0], &chord)
+	for i := 1; i < len(bucket); i++ {
+		sim := data.ChordSimilarity(&bucket[i], &chord)
+		if sim > bestSim {
+			bestSim = sim
+			bestIdx = i
+		}
+	}
+
+	a := chord.ActiveCount()
+	if a == 0 {
+		return chord
+	}
+
+	if bestSim*4 >= a*3 {
+		return bucket[bestIdx]
+	}
+
+	return chord
 }
 
 /*
@@ -35,13 +202,44 @@ func NewPrimeField() *PrimeField {
 	}
 }
 
+func (field *PrimeField) activeHasSignal() bool {
+	for cubeIdx := range 5 {
+		for blockIdx := range 27 {
+			if field.manifolds[0].Cubes[cubeIdx][blockIdx].ActiveCount() > 0 {
+				return true
+			}
+		}
+	}
+
+	return false
+}
+
+func (field *PrimeField) freezeActiveIfBoundary(pos uint32) {
+	if pos != 0 {
+		return
+	}
+
+	if !field.activeHasSignal() {
+		return
+	}
+
+	next := make([]geometry.IcosahedralManifold, len(field.manifolds)+1)
+	copy(next, field.manifolds)
+	next[len(field.manifolds)] = field.manifolds[0]
+	next[0] = geometry.IcosahedralManifold{}
+	field.manifolds = next
+	field.N = len(field.manifolds)
+}
+
 /*
 Insert appends a chord by merging it directly into the active manifold.
 The stream inherently applies topological rotations passed as events.
 */
-func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, events []int) {
+func (field *PrimeField) Insert(_ byte, pos uint32, chord data.Chord, events []int) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
+
+	field.freezeActiveIfBoundary(pos)
 
 	for _, event := range events {
 		field.applyEvent(event)
@@ -51,25 +249,32 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 		field.lastEvents = events
 	}
 
-	// 1. Thermodynamic/Entropy Routing
-	// Maps chronologic time onto the intersecting Cubes to preserve Sequence.
-	// Byte Value = x (cube index), Sequence Index = y (block index).
-	cubeIndex := int(byteVal) % 5
-	blockIndex := int(pos) % 27
+	supportCube := supportCubeFromEvents(events)
+	vetoCube := vetoCubeFromSupport(supportCube)
+	blockIndex := blockFromChordDynamics(pos, chord, events)
 
 	// 2. Entropy Routing (The Relief Valve)
 	// If the targeted ingestion block has hit the Shannon limit,
 	// mechanically rotate the cube to swing it out of the firing line
 	// and expose fresh, sparse structure BEFORE inserting.
-	density := float64(field.manifolds[0].Cubes[cubeIndex][blockIndex].ActiveCount()) / 512.0
+	density := float64(field.manifolds[0].Cubes[supportCube][blockIndex].ActiveCount()) / 512.0
 	if density >= geometry.MitosisThreshold {
 		field.applyEvent(geometry.EventDensitySpike)
 		field.lastEvents = []int{geometry.EventDensitySpike}
 	}
 
-	// 3. Physically merge the prime chord into the specific Rubik's Cube coordinate.
-	merged := data.ChordOR(&field.manifolds[0].Cubes[cubeIndex][blockIndex], &chord)
-	field.manifolds[0].Cubes[cubeIndex][blockIndex] = merged
+	current := field.manifolds[0].Cubes[supportCube][blockIndex]
+	veto := data.ChordHole(&current, &chord)
+
+	merged := data.ChordOR(&current, &chord)
+	field.manifolds[0].Cubes[supportCube][blockIndex] = merged
+
+	if veto.ActiveCount() > 0 {
+		vetoMerged := data.ChordOR(&field.manifolds[0].Cubes[vetoCube][blockIndex], &veto)
+		field.manifolds[0].Cubes[vetoCube][blockIndex] = vetoMerged
+	}
+
+	field.rememberPrototype(blockIndex, chord)
 }
 
 /*
@@ -148,6 +353,28 @@ func (field *PrimeField) Snapshot() (unsafe.Pointer, int) {
 	}
 
 	return unsafe.Pointer(&field.manifolds[0]), field.N
+}
+
+func (field *PrimeField) SearchSnapshot() (unsafe.Pointer, int, int) {
+	field.mu.RLock()
+	defer field.mu.RUnlock()
+
+	if field.N == 0 || len(field.manifolds) == 0 {
+		return nil, 0, 0
+	}
+
+	if len(field.manifolds) == 1 {
+		return unsafe.Pointer(&field.manifolds[0]), 1, 0
+	}
+
+	return unsafe.Pointer(&field.manifolds[1]), len(field.manifolds) - 1, 1
+}
+
+func (field *PrimeField) CleanupSnap(blockIdx int, chord data.Chord) data.Chord {
+	field.mu.RLock()
+	defer field.mu.RUnlock()
+
+	return field.snapPrototype(blockIdx, chord)
 }
 
 /*

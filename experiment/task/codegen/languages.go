@@ -5,7 +5,6 @@ import (
 	"math"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/experiment"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/provider"
@@ -20,18 +19,10 @@ various programming languages.
 type LanguagesExperiment struct {
 	tableData []map[string]any
 	prose     []projector.ProseEntry
-	results   []experiment.Result
 	dataset   provider.Dataset
 	prompt    *tokenizer.Prompt
 	manifold  [][]byte
 	seen      map[string]struct{}
-}
-
-type SpanAttempt struct {
-	Score  float64
-	Output string
-	Tokens int
-	Empty  bool
 }
 
 func NewLanguagesExperiment() *LanguagesExperiment {
@@ -44,7 +35,6 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 			huggingface.DatasetWithSamples(10),
 			huggingface.DatasetWithTextColumn("code"),
 		),
-		results: make([]experiment.Result, 0),
 	}
 
 	experiment.prose = []projector.ProseEntry{
@@ -88,8 +78,20 @@ expected code and produce a score between 0 and 1.
 func (experiment *LanguagesExperiment) AddResult(results map[string]any) {
 	idx := len(experiment.tableData)
 	target := []byte(experiment.prompt.Value(idx))
-	prefix := results["prompt"].([]byte)
-	observed := results["result"].([]byte)
+
+	var prefix, observed []byte
+
+	if val, ok := results["prompt"]; ok {
+		if b, ok := val.([]byte); ok {
+			prefix = b
+		}
+	}
+
+	if val, ok := results["result"]; ok {
+		if b, ok := val.([]byte); ok {
+			observed = b
+		}
+	}
 
 	experiment.addEndpoint(target)
 
@@ -136,7 +138,15 @@ func (experiment *LanguagesExperiment) Score() float64 {
 	total := 0.0
 
 	for _, data := range experiment.tableData {
-		scores := data["scores"].(map[string]float64)
+		scoresVal, ok := data["scores"]
+		if !ok {
+			continue
+		}
+
+		scores, ok := scoresVal.(map[string]float64)
+		if !ok {
+			continue
+		}
 
 		total += tools.WeightedTotal(
 			scores["exact"],

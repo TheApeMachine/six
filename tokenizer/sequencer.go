@@ -18,6 +18,7 @@ type Sequencer struct {
 	phi        float64
 	phiFast    float64
 	phiMed     float64
+	phiSlow    float64
 	emaAlpha   float64
 
 	// Welford variance accumulators
@@ -42,6 +43,7 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 		phi:        phi,
 		phiFast:    math.Pow(phi, -9), // ~0.013
 		phiMed:     math.Pow(phi, -6), // ~0.055
+		phiSlow:    math.Pow(phi, -5), // ~0.090
 		emaAlpha:   math.Pow(phi, -3), // ~0.236
 	}
 }
@@ -135,12 +137,17 @@ func (sequencer *Sequencer) deriveThresholds() (float64, float64) {
 	phaseStdDev := 0.0
 
 	if sequencer.count > 1 {
-		popStdDev = math.Sqrt(sequencer.popM2 / sequencer.count)
-		phaseStdDev = math.Sqrt(sequencer.phaseM2 / sequencer.count)
+		// Unbiased sample standard deviation: M2 / (count - 1)
+		popStdDev = math.Sqrt(sequencer.popM2 / (sequencer.count - 1))
+		phaseStdDev = math.Sqrt(sequencer.phaseM2 / (sequencer.count - 1))
 	}
 
-	popThresh := sequencer.popMean + (popStdDev * sequencer.calibrator.SensitivityPop)
-	phaseThresh := sequencer.phaseMean + (phaseStdDev * sequencer.calibrator.SensitivityPhase)
+	// Read calibrator fields under read lock
+	sensPop := sequencer.calibrator.SensitivityPop()
+	sensPhase := sequencer.calibrator.SensitivityPhase()
+
+	popThresh := sequencer.popMean + (popStdDev * sensPop)
+	phaseThresh := sequencer.phaseMean + (phaseStdDev * sensPhase)
 
 	return popThresh, phaseThresh
 }
@@ -152,9 +159,13 @@ multipliers if the chunk boundaries are forming too sparse or too dense.
 func (sequencer *Sequencer) calibrate(current data.Chord) {
 	density := float64(current.ActiveCount()) / float64(config.Numeric.ChordBlocks*64)
 
-	if density > sequencer.calibrator.TargetDensityMax {
+	// Read calibrator fields under read lock
+	maxDensity := sequencer.calibrator.TargetDensityMax()
+	minDensity := sequencer.calibrator.TargetDensityMin()
+
+	if density > maxDensity {
 		sequencer.thresholdMultiplier(-1)
-	} else if density < sequencer.calibrator.TargetDensityMin {
+	} else if density < minDensity {
 		sequencer.thresholdMultiplier(1)
 	}
 }
@@ -165,13 +176,21 @@ back to the globally shared calibrator state using a median smoothing factor.
 */
 func (sequencer *Sequencer) syncCalibration() {
 	sequencer.calibrator.mu.Lock()
-	sequencer.calibrator.SensitivityPop = sequencer.syncBack(sequencer.calibrator.SensitivityPop, sequencer.phi)
-	sequencer.calibrator.SensitivityPhase = sequencer.syncBack(sequencer.calibrator.SensitivityPhase, sequencer.phi)
+	sequencer.calibrator.sensitivityPop = sequencer.syncBack(sequencer.calibrator.sensitivityPop, sequencer.phi)
+	sequencer.calibrator.sensitivityPhase = sequencer.syncBack(sequencer.calibrator.sensitivityPhase, sequencer.phi)
 	sequencer.calibrator.mu.Unlock()
 }
 
 func (sequencer *Sequencer) thresholdMultiplier(direction float64) {
-	sequencer.calibrator.SensitivityPop *= (direction + sequencer.phiFast)
+	// Clamp the multiplier to a non-negative value to avoid sign-flipping
+	multiplier := direction + sequencer.phiFast
+	if multiplier < 0 {
+		multiplier = sequencer.phiFast
+	}
+
+	sequencer.calibrator.mu.Lock()
+	sequencer.calibrator.sensitivityPop *= multiplier
+	sequencer.calibrator.mu.Unlock()
 }
 
 func (sequencer *Sequencer) syncBack(current float64, target float64) float64 {
@@ -190,17 +209,14 @@ func (sequencer *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDis
 	sequencer.calibrator.mu.Lock()
 	defer sequencer.calibrator.mu.Unlock()
 
-	phi := (1.0 + math.Sqrt(5.0)) / 2.0
-	phiSlow := math.Pow(phi, -5) // ~0.090
-
 	if overDiscriminated {
 		// Over-discriminating means too rigidly separating; raise bases to ignore more noise
-		sequencer.calibrator.SensitivityPop *= (1.0 + phiSlow)
-		sequencer.calibrator.SensitivityPhase *= (1.0 + phiSlow)
+		sequencer.calibrator.sensitivityPop *= (1.0 + sequencer.phiSlow)
+		sequencer.calibrator.sensitivityPhase *= (1.0 + sequencer.phiSlow)
 	} else if underDiscriminated {
 		// Under-discriminating means not seeing enough fine detail; lower bases to be more sensitive
-		sequencer.calibrator.SensitivityPop *= (1.0 - phiSlow)
-		sequencer.calibrator.SensitivityPhase *= (1.0 - phiSlow)
+		sequencer.calibrator.sensitivityPop *= (1.0 - sequencer.phiSlow)
+		sequencer.calibrator.sensitivityPhase *= (1.0 - sequencer.phiSlow)
 	}
 }
 

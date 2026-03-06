@@ -34,7 +34,7 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 			for i := range numItems {
 				chord := data.Chord{}
 				chord.Set((i + 1) % 512)
-				pf.Insert(byte(i), uint32(i), chord, []int{}) // byte selects cube, pos selects block
+				pf.Insert(byte(i), uint32(i), chord, []int{})
 			}
 
 			So(pf.N, ShouldEqual, 1)
@@ -42,12 +42,51 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 			// Verify topological accumulation mapping on the single manifold
 			manifold := pf.Manifold(0)
 
-			cubeIdx := byte(1) % 5
-			blockIdx := (uint32(1)) % 27
+			bitIdx := (1 + 1) % 512
+			var found bool
+			for cubeIdx := range 5 {
+				for blockIdx := range 27 {
+					if manifold.Cubes[cubeIdx][blockIdx][bitIdx/64]&(uint64(1)<<uint(bitIdx%64)) != 0 {
+						found = true
+						break
+					}
+				}
+				if found {
+					break
+				}
+			}
 
-			// The buffer dynamically populates the mapped portal block.
-			bitIdx := 1 % 512
-			So(manifold.Cubes[cubeIdx][blockIdx][bitIdx/64], ShouldNotEqual, 0)
+			So(found, ShouldBeTrue)
+		})
+	})
+}
+
+func TestPrimeFieldFreezeBoundaryCreatesFrozenBank(t *testing.T) {
+	Convey("Given a PrimeField with active manifold data", t, func() {
+		pf := NewPrimeField()
+
+		chA := data.BaseChord('a')
+		chB := data.BaseChord('b')
+		chC := data.BaseChord('c')
+
+		pf.Insert('a', 0, chA, []int{})
+		pf.Insert('b', 1, chB, []int{})
+		pf.Insert('c', 0, chC, []int{})
+
+		Convey("When a new segment boundary arrives", func() {
+			So(pf.N, ShouldEqual, 2)
+			So(len(pf.manifolds), ShouldEqual, 2)
+
+			frozen := pf.Manifold(1)
+			active := pf.Manifold(0)
+
+			So(frozen.Cubes[cubeFromEvents(nil)][blockFromChordDynamics(0, chA, nil)].ActiveCount(), ShouldBeGreaterThan, 0)
+			So(active.Cubes[cubeFromEvents(nil)][blockFromChordDynamics(0, chC, nil)].ActiveCount(), ShouldBeGreaterThan, 0)
+
+			ptr, n, offset := pf.SearchSnapshot()
+			So(ptr, ShouldNotBeNil)
+			So(n, ShouldEqual, 1)
+			So(offset, ShouldEqual, 1)
 		})
 	})
 }
