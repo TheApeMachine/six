@@ -35,6 +35,7 @@ __global__ void bitwise_best_fill_kernel(
     uint32_t num_chords,
     const IcosahedralManifold* active_context,
     const IcosahedralManifold* expected_reality,
+    const uint16_t* expected_precision,
     const uint8_t* geodesic_lut,
     unsigned long long* out_packed
 ) {
@@ -59,13 +60,17 @@ __global__ void bitwise_best_fill_kernel(
 
     uint32_t overlap_score = 0;
     uint32_t fill_score = 0;
-    uint32_t contradiction_score = 0;
-    uint32_t expectation_score = 0;
+    uint64_t expectation_scaled = 0;
+    uint64_t missing_scaled = 0;
+    uint64_t veto_scaled = 0;
 
     #pragma unroll
     for (int c = 0; c < 4; c++) {
         #pragma unroll
         for (int b = 0; b < 27; b++) {
+            uint64_t support_precision = expected_precision ? (uint64_t)expected_precision[c * 27 + b] : 1024ULL;
+            uint64_t veto_precision = expected_precision ? (uint64_t)expected_precision[4 * 27 + b] : 1024ULL;
+
             #pragma unroll
             for (int i = 0; i < 8; i++) {
                 uint64_t candidate_bits = candidate->cubes[c].blocks[b].bits[i];
@@ -77,15 +82,26 @@ __global__ void bitwise_best_fill_kernel(
 
                 overlap_score += __popcll(candidate_bits & context_bits);
                 fill_score += __popcll(candidate_bits & missing_bits);
-                contradiction_score += __popcll(context_bits & ~candidate_bits);
-                contradiction_score += __popcll(candidate_bits & veto_context_bits);
-                contradiction_score += __popcll(candidate_veto_bits & context_bits);
-                expectation_score += __popcll(candidate_bits & expected_bits);
+
+                expectation_scaled += (uint64_t)__popcll(candidate_bits & expected_bits) * support_precision;
+                missing_scaled += (uint64_t)__popcll(context_bits & ~candidate_bits) * support_precision;
+
+                uint64_t veto_count = __popcll(candidate_bits & veto_context_bits);
+                veto_count += __popcll(candidate_veto_bits & context_bits);
+                veto_scaled += veto_count * veto_precision;
             }
         }
     }
 
-    int score_fixed = (overlap_score * 500 + fill_score * 900 + expectation_score * 250 - contradiction_score * 650) >> 10;
+    uint64_t expectation_score = expectation_scaled / 1024ULL;
+    uint64_t contradiction_score = (missing_scaled / 1024ULL) + (veto_scaled / 1024ULL);
+
+    int score_fixed = (int)((
+        (int64_t)overlap_score * 500 +
+        (int64_t)fill_score * 900 +
+        (int64_t)expectation_score * 250 -
+        (int64_t)contradiction_score * 650
+    ) >> 10);
 
     uint16_t candidate_rot = manifold_rot_state(candidate);
     uint16_t context_rot = manifold_rot_state(active_context);
@@ -122,6 +138,7 @@ uint64_t bitwise_best_fill_cuda(
     uint32_t num_chords,
     const void* active_context_ptr,
     const void* expected_reality_ptr,
+    const void* expected_precision_ptr,
     const void* geodesic_lut_ptr
 ) {
     if (!dictionary_ptr || !active_context_ptr || num_chords == 0) {
@@ -132,11 +149,13 @@ uint64_t bitwise_best_fill_cuda(
 
     size_t dict_size = (size_t)num_chords * sizeof(IcosahedralManifold);
     size_t manifold_size = sizeof(IcosahedralManifold);
+    size_t precision_size = 5 * 27 * sizeof(uint16_t);
     size_t lut_size = 60 * 60;
 
     IcosahedralManifold* d_dict = NULL;
     IcosahedralManifold* d_context = NULL;
     IcosahedralManifold* d_expected = NULL;
+    uint16_t* d_precision = NULL;
     uint8_t* d_lut = NULL;
     unsigned long long* d_result = NULL;
 
@@ -169,6 +188,17 @@ uint64_t bitwise_best_fill_cuda(
         }
     }
 
+    if (expected_precision_ptr) {
+        if (cudaMalloc((void**)&d_precision, precision_size) != cudaSuccess) {
+            if (d_lut) cudaFree(d_lut);
+            cudaFree(d_result);
+            cudaFree(d_expected);
+            cudaFree(d_context);
+            cudaFree(d_dict);
+            return 0;
+        }
+    }
+
     unsigned long long zero = 0;
     cudaMemcpy(d_dict, dictionary_ptr, dict_size, cudaMemcpyHostToDevice);
     cudaMemcpy(d_context, active_context_ptr, manifold_size, cudaMemcpyHostToDevice);
@@ -176,6 +206,9 @@ uint64_t bitwise_best_fill_cuda(
     cudaMemcpy(d_result, &zero, sizeof(unsigned long long), cudaMemcpyHostToDevice);
     if (d_lut) {
         cudaMemcpy(d_lut, geodesic_lut_ptr, lut_size, cudaMemcpyHostToDevice);
+    }
+    if (d_precision) {
+        cudaMemcpy(d_precision, expected_precision_ptr, precision_size, cudaMemcpyHostToDevice);
     }
 
     int block_size = 256;
@@ -186,6 +219,7 @@ uint64_t bitwise_best_fill_cuda(
         num_chords,
         d_context,
         d_expected,
+        d_precision,
         d_lut,
         d_result
     );
@@ -195,6 +229,9 @@ uint64_t bitwise_best_fill_cuda(
 
     if (d_lut) {
         cudaFree(d_lut);
+    }
+    if (d_precision) {
+        cudaFree(d_precision);
     }
     cudaFree(d_result);
     cudaFree(d_expected);

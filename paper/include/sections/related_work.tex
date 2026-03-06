@@ -1,0 +1,45 @@
+% ============================================================================
+% RELATED WORK (Additional to Architecture-Specific Citations)
+% ============================================================================
+
+\paragraph{Hyperdimensional Computing and VSAs.}
+The Chord representation is most directly situated within Hyperdimensional
+Computing (HDC) and Vector Symbolic Architectures (VSA).  Classical VSA
+frameworks use high-dimensional random vectors ($D \geq 10{,}000$) with
+binding, bundling, and permutation operations.  Our 512-bit Chord provides
+a far more aggressive compression, trading dimensionality for the
+non-commutative rotational manifold that escapes the Shannon capacity limit
+via topological entropy routing (\Cref{sec:entropy_routing}).
+
+\paragraph{Discrete Symmetry Groups in ML.}
+Equivariant neural networks exploit continuous symmetry groups (rotations,
+translations) to build inductive biases.  Our use of the discrete alternating
+group $A_5$ (the symmetry group of the icosahedron, order 60) is
+architecturally distinct: rather than learning equivariant features, we use
+$A_5$ permutations as the \emph{computational substrate itself}---syntactic
+events directly manipulate geometric state through group actions.
+
+\paragraph{Content-Addressable Memory.}
+Hopfield networks, modern Hopfield networks, and transformer-based
+associative memories store patterns as energy minima or attention-weighted
+retrievals.  Our system differs in substrate: memory is not a learned weight
+matrix but a persistent geometric index of bitwise manifolds.  New
+observations reshape memory immediately via deterministic insertion.
+
+\paragraph{Byte-Level Models.}
+ByT5 and MEGABYTE process raw bytes to eliminate vocabulary failures, but
+retain learned encoders and autoregressive decoding.  Our Universal Tokenizer
+assigns deterministic identities without learning, and downstream inference
+is parallel BestFill rather than autoregressive.
+
+\paragraph{Non-Autoregressive Generation.}
+Masked language models and diffusion-based text generators produce tokens
+in parallel but struggle with output coherence.  Our BVP formulation resolves
+inter-position dependencies through shared manifold topology---structural
+coherence is a geometric constraint, not a decoding heuristic.
+
+% TODO: Add citations for each paragraph once bibliography is finalized.
+% TODO: Consider adding comparisons to:
+%   - State-space models (S4, Mamba)
+%   - Energy-based models
+%   - Token Merging / dynamic sparsity approaches

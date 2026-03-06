@@ -83,8 +83,8 @@ func Warn(msg string) {
 	logger.handle.Warn(msg)
 }
 
-func Debug(msg string) {
-	logger.handle.Debug(msg)
+func Debug(msg string, keyvals ...any) {
+	logger.handle.Debug(msg, keyvals...)
 }
 
 func SetLevel(level log.Level) {

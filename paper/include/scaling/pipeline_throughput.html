@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>End-to-End Pipeline Throughput</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        html, body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin: 0; 
+            padding: 0; 
+            background-color: transparent; 
+            color: #0f172a; 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            width: 100%; 
+            height: 100%; 
+        }
+        #chart { 
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            width: 100%; 
+            height: 100%; 
+            background: transparent; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        const panels = [{"kind":"chart","title":"Pipeline Latency Breakdown","gridLeft":"8%","gridRight":"52%","gridTop":"10%","gridBottom":"12%","xLabels":["1K","5K","10K","50K","100K"],"xAxisName":"Corpus Size (bytes)","xInterval":0,"xShow":true,"yLabels":null,"yAxisName":"Latency (ms)","yInterval":0,"heatData":null,"heatMin":0,"heatMax":0,"colorScheme":"","showVM":false,"vmRight":"","series":[{"name":"Ingest (tokenize+store)","kind":"bar","symbol":"","barWidth":"35%","area":false,"data":[0.269,1.312,2.567,13.12,26.296],"color":"#2563eb"},{"name":"BestFill query","kind":"bar","symbol":"","barWidth":"35%","area":false,"data":[0.01,0.014,0.028,0.09,0.149],"color":"#059669"}],"yMin":0,"yMax":null},{"kind":"chart","title":"Ingestion Throughput","gridLeft":"58%","gridRight":"5%","gridTop":"10%","gridBottom":"12%","xLabels":["1K","5K","10K","50K","100K"],"xAxisName":"Corpus Size (bytes)","xInterval":0,"xShow":true,"yLabels":null,"yAxisName":"MB/s","yInterval":0,"heatData":null,"heatMin":0,"heatMax":0,"colorScheme":"","showVM":false,"vmRight":"","series":[{"name":"Ingest Rate (MB/s)","kind":"line","symbol":"circle","barWidth":"","area":false,"data":[3.717472118959108,3.8109756097560976,3.895597974289053,3.8109756097560976,3.8028597505324004],"color":"#7c3aed"}],"yMin":0,"yMax":null}];
+
+        /* ── Unified Design System ─────────────────────────────────────── */
+        const PALETTES = {
+            viridis:   ['#1e3a5f','#2563eb','#60a5fa','#e8f0fe','#fef3c7','#f59e0b','#c2410c','#7c2d12'],
+            magma:     ['#1e3a5f','#2563eb','#60a5fa','#e8f0fe','#fef3c7','#f59e0b','#c2410c','#7c2d12'],
+            plasma:    ['#1e3a5f','#3b82f6','#93c5fd','#fefce8','#fbbf24','#dc2626'],
+            diverging: ['#1e40af','#3b82f6','#93c5fd','#f8fafc','#fca5a5','#dc2626','#991b1b']
+        };
+        const SERIES_COLORS = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];
+
+        const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+
+        const grids      = [];
+        const xAxes      = [];
+        const yAxes      = [];
+        const series     = [];
+        const visualMaps = [];
+        const legendItems = [];
+        const titles     = [];
+
+        panels.forEach((panel, pi) => {
+            // ── grid ──────────────────────────────────────────────────────────
+            grids.push({
+                left:   panel.gridLeft   || '5%',
+                right:  panel.gridRight  || '5%',
+                top:    panel.gridTop    || '5%',
+                bottom: panel.gridBottom || '5%'
+            });
+
+            if (panel.title) {
+                titles.push({
+                    text: panel.title,
+                    left: panel.gridLeft || '5%',
+                    top:  panel.gridTop  || '5%',
+                    textStyle: { color: '#0f172a', fontSize: 13 }
+                });
+            }
+
+            const xInterval = panel.xInterval != null && panel.xInterval > 0 ? panel.xInterval - 1 : 'auto';
+            const yInterval = panel.yInterval != null && panel.yInterval > 0 ? panel.yInterval - 1 : 'auto';
+
+            if (panel.kind === 'heatmap') {
+                // ── X axis (category) ─────────────────────────────────────────
+                xAxes.push({
+                    gridIndex: pi,
+                    type: 'category',
+                    data: panel.xLabels || [],
+                    show: panel.xShow !== false,
+                    axisLabel: { color: '#475569', interval: xInterval },
+                    name: panel.xAxisName || '',
+                    nameLocation: 'middle',
+                    nameGap: 25,
+                    nameTextStyle: { color: '#475569' }
+                });
+
+                // ── Y axis (category for heatmap rows) ────────────────────────
+                xAxes.push({
+                    gridIndex: pi,
+                    type: 'category',
+                    data: panel.xLabels || [],
+                    show: false
+                });
+
+                yAxes.push({
+                    gridIndex: pi,
+                    type: 'category',
+                    data: panel.yLabels || [],
+                    axisLabel: { color: '#475569', fontSize: 8, interval: yInterval },
+                    name: panel.yAxisName || '',
+                    nameLocation: 'middle',
+                    nameGap: 45,
+                    nameTextStyle: { color: '#475569' },
+                    splitArea: { show: false }
+                });
+
+                // extra placeholder yAxis so xAxisIndex/yAxisIndex stay aligned
+                yAxes.push({ gridIndex: pi, show: false });
+
+                // ── visualMap ─────────────────────────────────────────────────
+                if (panel.showVM) {
+                    visualMaps.push({
+                        seriesIndex: series.length,
+                        min: panel.heatMin,
+                        max: panel.heatMax,
+                        calculable: true,
+                        orient: 'vertical',
+                        right: panel.vmRight || '44%',
+                        top: '10%',
+                        bottom: '15%',
+                        dimension: 2,
+                        inRange: { color: PALETTES[panel.colorScheme || 'viridis'] },
+                        textStyle: { color: '#0f172a' }
+                    });
+                }
+
+                series.push({
+                    type: 'heatmap',
+                    xAxisIndex: pi * 2,
+                    yAxisIndex: pi * 2,
+                    data: panel.heatData || [],
+                    itemStyle: { borderWidth: 0 }
+                });
+
+            } else {
+                // ── chart panel (line / bar / combo) ──────────────────────────
+                xAxes.push({
+                    gridIndex: pi,
+                    type: 'category',
+                    data: panel.xLabels || [],
+                    show: panel.xShow !== false,
+                    axisLabel: { color: '#475569', interval: xInterval },
+                    name: panel.xAxisName || '',
+                    nameLocation: 'middle',
+                    nameGap: 25,
+                    nameTextStyle: { color: '#475569' }
+                });
+                // placeholder duplicate so indices stay in sync with heatmap panels
+                xAxes.push({ gridIndex: pi, show: false, type: 'category', data: [] });
+
+                const yOpts = {
+                    gridIndex: pi,
+                    type: 'value',
+                    axisLabel: { color: '#475569' },
+                    splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+                    name: panel.yAxisName || '',
+                    nameLocation: 'middle',
+                    nameGap: 40,
+                    nameTextStyle: { color: '#475569' }
+                };
+                if (panel.yMin != null) yOpts.min = panel.yMin;
+                if (panel.yMax != null) yOpts.max = panel.yMax;
+                yAxes.push(yOpts);
+                yAxes.push({ gridIndex: pi, show: false });
+
+                (panel.series || []).forEach((s, si) => {
+                    const color = s.color || SERIES_COLORS[si % SERIES_COLORS.length];
+                    legendItems.push(s.name);
+
+                    if (s.kind === 'bar') {
+                        series.push({
+                            name: s.name,
+                            type: 'bar',
+                            xAxisIndex: pi * 2,
+                            yAxisIndex: pi * 2,
+                            data: s.data,
+                            barWidth: s.barWidth || '20%',
+                            itemStyle: { color, borderRadius: [4, 4, 0, 0] }
+                        });
+                    } else if (s.kind === 'dashed') {
+                        series.push({
+                            name: s.name,
+                            type: 'line',
+                            xAxisIndex: pi * 2,
+                            yAxisIndex: pi * 2,
+                            data: s.data,
+                            smooth: false,
+                            symbol: s.symbol || 'diamond',
+                            symbolSize: 6,
+                            lineStyle: { color, type: 'dashed', width: 1.5 },
+                            itemStyle: { color }
+                        });
+                    } else if (s.kind === 'dotted') {
+                        series.push({
+                            name: s.name,
+                            type: 'line',
+                            xAxisIndex: pi * 2,
+                            yAxisIndex: pi * 2,
+                            data: s.data,
+                            smooth: false,
+                            symbol: s.symbol || 'circle',
+                            symbolSize: 4,
+                            lineStyle: { color, type: 'dotted', width: 2 },
+                            itemStyle: { color }
+                        });
+                    } else {
+                        // smooth line (default)
+                        const base = {
+                            name: s.name,
+                            type: 'line',
+                            xAxisIndex: pi * 2,
+                            yAxisIndex: pi * 2,
+                            data: s.data,
+                            smooth: true,
+                            symbol: s.symbol || 'none',
+                            symbolSize: 4,
+                            lineStyle: { color, width: 2 },
+                            itemStyle: { color }
+                        };
+                        if (s.area) base.areaStyle = { opacity: 0.1, origin: 0, color };
+                        series.push(base);
+                    }
+                });
+            }
+        });
+
+        chart.setOption({
+            backgroundColor: 'transparent',
+            animation: false,
+            tooltip:  { position: 'top' },
+            title:    titles,
+            grid:     grids,
+            xAxis:    xAxes,
+            yAxis:    yAxes,
+            series:   series,
+            visualMap: visualMaps,
+            legend: {
+                data: legendItems,
+                selectedMode: false,
+                top:   '1%',
+                right: '2%',
+                textStyle: { color: '#475569', fontSize: 11 }
+            }
+        });
+
+    </script>
+</body>
+</html>

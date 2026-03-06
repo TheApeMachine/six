@@ -1,0 +1,76 @@
+% ============================================================================
+% MANIFOLD CAPACITY AND NONCOMMUTATIVE PRODUCT STRUCTURE
+% ============================================================================
+\subsection{Manifold Capacity and Noncommutative Product Structure}
+\label{sec:related_manifold_capacity}
+
+\paragraph{Manifold Capacity Theory.}
+Chung, Lee, and Sompolinsky \citep{chung2018classification} developed a
+statistical-physics theory of \emph{perceptual manifold capacity}---the
+maximum number of object manifolds that can be linearly separated by a
+downstream readout.  Their framework establishes that capacity depends not
+on ambient dimensionality alone but on the \emph{geometry} of the manifolds:
+their intrinsic dimension, radius, and center correlations.  Recent
+extensions \citep{cohen2024manifoldcapacity} apply this theory across
+biological neural recordings and artificial networks, introducing
+\emph{Geometric measures from Correlated Manifold Capacity} (GCMC) that
+analytically connect neural co-variabilities to downstream task efficiency.
+
+The Sensorium Manifold provides a concrete, fully characterized instantiation
+of this theoretical framework.  Each IcosahedralManifold in the PrimeField
+is a discrete perceptual manifold with:
+\begin{itemize}[nosep]
+  \item \textbf{Intrinsic dimension:}  Bounded by the number of active
+        prime factors in the constituent Chords (typically 5 bits per byte
+        $\times$ sequence length).
+  \item \textbf{Radius:}  Controlled by the ChordOR superposition density
+        within each MacroCube block.
+  \item \textbf{Center correlations:}  Determined by the $A_5$ rotational
+        state, which geometrically separates manifolds that share
+        byte-level content but differ in syntactic structure.
+\end{itemize}
+
+The BestFill resonance score (\Cref{sec:five_pass}) is effectively a
+linear readout over this manifold space: it computes a weighted inner
+product (via popcount) that separates the query manifold from all candidates.
+The achievable capacity---how many distinct memory entries BestFill can
+discriminate---is therefore directly governed by the geometric properties
+that Chung's theory characterizes.  Formal application of manifold capacity
+bounds to the Chord representation is a natural direction for future work.
+
+\paragraph{Noncommutative $C^*$-algebra Structure.}
+Hataya and Hashimoto \citep{hataya2023noncommutative} provide the formal
+proof that noncommutative product structures in parameter spaces induce
+``powerful effects'' in learning structured features.  Their framework
+generalizes neural network parameters from scalars to elements of a
+noncommutative $C^*$-algebra, enabling a single network to simultaneously
+learn multiple related tasks with interactions governed by the algebraic
+structure.
+
+The $A_5$ permutation group that governs our manifold rotations is a
+finite noncommutative algebra with precisely the properties that Hataya and
+Hashimoto formalize:
+\begin{enumerate}[nosep]
+  \item \textbf{Product non-commutativity:}  $\pi_1 \circ \pi_2 \neq
+        \pi_2 \circ \pi_1$ for generic permutations $\pi_1, \pi_2 \in A_5$.
+        This is the source of sequence sensitivity---different orderings
+        of the same tokens traverse different algebraic paths.
+  \item \textbf{Closure and invertibility:}  Every $A_5$ permutation has
+        a unique inverse, and the composition of any two permutations is
+        again in $A_5$.  This guarantees that De-Mitosis can always
+        reverse a Mitosis transition, and that the Geodesic LUT entries
+        are well-defined.
+  \item \textbf{Irreducibility:}  As a simple group, $A_5$ has no
+        non-trivial normal subgroups.  The 60 orientational states are
+        algebraically indecomposable---no subset of rotations can be
+        ``factored out'' without destroying the entire structure.
+\end{enumerate}
+
+Where Hataya and Hashimoto's framework \emph{learns} the algebraic
+structure through gradient descent, our architecture \emph{prescribes} it
+through the icosahedral geometry.  The rotational events detected by the
+Sequencer (\Cref{sec:sequencer}) are the algebraic operations; the BestFill
+pipeline is the readout.  The question of whether this prescribed
+noncommutative structure yields the ``powerful effects'' that their theory
+predicts is answered empirically by the experiments in
+\Cref{sec:experiments}.

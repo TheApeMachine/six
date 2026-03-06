@@ -1,0 +1,37 @@
+% ============================================================================
+% ABSTRACT
+% ============================================================================
+\begin{abstract}
+Current generative architectures treat sequence modeling as an initial value
+problem: gradient-trained weights predict the next token before any future
+constraint can be applied.  We reject this framing entirely and cast
+generation as a \emph{boundary value problem} (BVP).  The observer clamps a
+subset of symbols as fixed constraints and the remaining degrees of freedom
+are resolved simultaneously via massively parallel bitwise resonance search.
+
+We instantiate this paradigm in a physics-native substrate built on three
+layers:
+\begin{enumerate}[nosep]
+  \item A \textbf{Thermodynamic Trie} (the PrimeField) that routes tokens
+        through an $A_5$-symmetric Icosahedral Manifold using deterministic
+        topological rotations, achieving lossless collision-compression and
+        $O(1)$ identity lookup via Morton-coded spatial indexing.
+  \item A \textbf{512-bit Chord} representation where each byte value maps to
+        a deterministic prime-basis bitset, and bitwise operations (\texttt{OR},
+        \texttt{AND}, \texttt{popcount}) execute discrete wave interference at
+        single-cycle throughput.
+  \item A \textbf{Toroidal Eigenmode} navigation layer that steers generation
+        along dense trajectories on an $S^1 \times S^1$ phase torus, derived
+        from chord co-occurrence eigenvectors---preventing echo-loop
+        entrapment.
+\end{enumerate}
+
+No loss function is minimized.  No weights are updated.  Inference is a
+parallel GPU popcount scan (BestFill) across the entire memory substrate,
+modulated by eigenmode intent alignment and structural vacuum detection
+(ChordHole).  We validate the architecture across code generation, logical
+reasoning, phase-dial generalization, and cross-modal vision tasks, reporting
+both successes and failure regimes with equal detail.
+
+% TODO: Add final summary statistics from experiments once available.
+\end{abstract}

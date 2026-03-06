@@ -13,35 +13,53 @@ const (
 	fillWeight          int64 = 900
 	expectationWeight   int64 = 250
 	contradictionWeight int64 = 650
+	precisionUnity      int64 = 1024
 	scoreShiftBits            = 10
+	precisionBytes            = 5 * 27 * 2
 )
 
 type scoreTerms struct {
-	overlap        uint32
-	fill           uint32
-	expectation    uint32
-	missingSupport uint32
-	vetoViolation  uint32
+	overlap              uint32
+	fill                 uint32
+	expectationScaled    uint64
+	missingSupportScaled uint64
+	vetoViolationScaled  uint64
 }
 
-func (t scoreTerms) contradiction() uint32 {
-	return t.missingSupport + t.vetoViolation
+func precisionFor(precisionWords []uint16, cube, block int) uint16 {
+	if len(precisionWords) < 5*27 {
+		return uint16(precisionUnity)
+	}
+
+	return precisionWords[cube*27+block]
 }
 
 func scoreFromTerms(t scoreTerms) int32 {
+	if precisionUnity == 0 {
+		return 0
+	}
+
+	expectation := int64(t.expectationScaled) / precisionUnity
+	missingSupport := int64(t.missingSupportScaled) / precisionUnity
+	vetoViolation := int64(t.vetoViolationScaled) / precisionUnity
+	contradiction := missingSupport + vetoViolation
+
 	return int32(
 		int64(t.overlap)*overlapWeight+
 			int64(t.fill)*fillWeight+
-			int64(t.expectation)*expectationWeight-
-			int64(t.contradiction())*contradictionWeight,
+			expectation*expectationWeight-
+			contradiction*contradictionWeight,
 	) >> scoreShiftBits
 }
 
-func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, cubeBase int) scoreTerms {
+func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, precisionWords []uint16, cubeBase int) scoreTerms {
 	var terms scoreTerms
 
 	for c := 0; c < 4; c++ {
 		for b := 0; b < 27; b++ {
+			supportPrecision := uint64(precisionFor(precisionWords, c, b))
+			vetoPrecision := uint64(precisionFor(precisionWords, 4, b))
+
 			for i := 0; i < 8; i++ {
 				offset := (c*27+b)*8 + i
 				vetoOffset := (4*27+b)*8 + i
@@ -56,10 +74,15 @@ func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, cubeBase int) 
 
 				terms.overlap += uint32(bits.OnesCount64(candidate & ctx))
 				terms.fill += uint32(bits.OnesCount64(candidate & missing))
-				terms.expectation += uint32(bits.OnesCount64(candidate & exp))
-				terms.missingSupport += uint32(bits.OnesCount64(ctx &^ candidate))
-				terms.vetoViolation += uint32(bits.OnesCount64(candidate & vetoCtx))
-				terms.vetoViolation += uint32(bits.OnesCount64(candidateVeto & ctx))
+
+				expectationCount := uint64(bits.OnesCount64(candidate & exp))
+				missingCount := uint64(bits.OnesCount64(ctx &^ candidate))
+				vetoCount := uint64(bits.OnesCount64(candidate & vetoCtx))
+				vetoCount += uint64(bits.OnesCount64(candidateVeto & ctx))
+
+				terms.expectationScaled += expectationCount * supportPrecision
+				terms.missingSupportScaled += missingCount * supportPrecision
+				terms.vetoViolationScaled += vetoCount * vetoPrecision
 			}
 		}
 	}
@@ -72,6 +95,7 @@ func BestFillCPUPacked(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if numChords == 0 {
@@ -102,7 +126,15 @@ func BestFillCPUPacked(
 		}
 	}
 
-	return BestFillCPUPackedBytes(dictBytes, numChords, ctxBytes, expBytes, lutBytes)
+	var precisionData []byte
+	if expectedPrecision != nil {
+		precisionData, err = numeric.PtrToBytes(expectedPrecision, precisionBytes)
+		if err != nil {
+			return 0, err
+		}
+	}
+
+	return BestFillCPUPackedBytes(dictBytes, numChords, ctxBytes, expBytes, precisionData, lutBytes)
 }
 
 func BestFillCPUPackedBytes(
@@ -110,6 +142,7 @@ func BestFillCPUPackedBytes(
 	numChords int,
 	ctxBytes []byte,
 	expBytes []byte,
+	precisionData []byte,
 	lutBytes []byte,
 ) (uint64, error) {
 	if numChords < 0 {
@@ -128,6 +161,14 @@ func BestFillCPUPackedBytes(
 	dictWords := unsafe.Slice((*uint64)(unsafe.Pointer(&dictBytes[0])), len(dictBytes)/8)
 	ctxWords := unsafe.Slice((*uint64)(unsafe.Pointer(&ctxBytes[0])), len(ctxBytes)/8)
 	expWords := unsafe.Slice((*uint64)(unsafe.Pointer(&expBytes[0])), len(expBytes)/8)
+
+	var precisionWords []uint16
+	if len(precisionData) > 0 {
+		if len(precisionData) < precisionBytes {
+			return 0, fmt.Errorf("precision buffer too small: have=%d want=%d", len(precisionData), precisionBytes)
+		}
+		precisionWords = unsafe.Slice((*uint16)(unsafe.Pointer(&precisionData[0])), len(precisionData)/2)
+	}
 
 	ctxHeader := uint16(ctxWords[0] & 0xFFFF)
 	ctxWinding := uint8((ctxHeader >> 5) & 0xF)
@@ -148,7 +189,7 @@ func BestFillCPUPackedBytes(
 		}
 
 		cubeBase := base + 1
-		terms := accumulateScoreTerms(dictWords, ctxWords, expWords, cubeBase)
+		terms := accumulateScoreTerms(dictWords, ctxWords, expWords, precisionWords, cubeBase)
 		scoreFixed := scoreFromTerms(terms)
 
 		rotCandidate := int((header >> 9) & 0x3F)

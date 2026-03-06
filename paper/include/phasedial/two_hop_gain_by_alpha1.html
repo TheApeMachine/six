@@ -36,7 +36,9 @@
         const xAxisData = ["15°","30°","45°","60°","75°"];
         const seriesData = [{"name":"Base1","data":[0.10938039770693596,0.10938039770693596,0.10938039770693596,0.10938039770693596,0.10938039770693596]},{"name":"Base2","data":[0.13297593189643192,0.13297593189643192,0.13297593189643192,0.13297593189643192,0.13297593189643192]},{"name":"Composed","data":[0.13297593189643192,0.13297593189643192,0.13297593189643192,0.13297593189643192,0.13297593189643192]}];
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
-        
+
+        const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];
+
         const option = {
             backgroundColor: 'transparent',
             animation: false,
@@ -55,14 +57,15 @@
                 axisLabel: { color: '#475569' },
                 splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } }
             },
-            series: seriesData.map(s => ({
+            series: seriesData.map((s, i) => ({
                 name: s.name,
                 type: 'bar',
                 data: s.data,
-                itemStyle: { borderRadius: [4, 4, 0, 0] }
+                itemStyle: { color: palette[i % palette.length], borderRadius: [4, 4, 0, 0] }
             }))
         };
         chart.setOption(option);
+
 
     </script>
 </body>

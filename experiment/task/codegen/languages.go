@@ -29,7 +29,7 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 		seen:      make(map[string]struct{}),
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("code-rag-bench/mbpp"),
-			huggingface.DatasetWithSamples(10),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumn("code"),
 		),
 	}
@@ -64,7 +64,7 @@ func (experiment *LanguagesExperiment) Prompts() *tokenizer.Prompt {
 }
 
 func (experiment *LanguagesExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.RIGHT
+	return 50, tokenizer.LEFT
 }
 
 /*

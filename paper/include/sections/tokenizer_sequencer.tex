@@ -1,0 +1,165 @@
+% ============================================================================
+% UNIVERSAL TOKENIZER AND TOPOLOGICAL SEQUENCER
+% ============================================================================
+\subsection{The Universal Tokenizer}
+\label{sec:universal_tokenizer}
+\label{sec:tokenizer_sequencer}
+
+The Universal Tokenizer converts raw byte streams into geometric tokens
+without learned vocabularies or modality-specific encoders.  Each byte
+occurrence at position $\textit{pos}$ with scale index $z$ and symbol
+value $s$ produces one Token:
+
+\begin{equation}
+  \text{TokenID} = \mathcal{M}(z, s, \textit{pos})
+  \label{eq:token_id}
+\end{equation}
+
+\noindent where $\mathcal{M}$ is the Morton code (\Cref{eq:morton_key}).
+The corresponding Chord is the deterministic $\mathbf{c}(s)$ from
+\Cref{eq:base_chord}, bound to its sequential position via RollLeft
+(\Cref{eq:roll_left}).
+
+From the moment data is tokenized, the system never examines raw byte
+values again until final output rendering.  All downstream computation
+operates exclusively on Chords and TokenIDs.
+
+\subsection{The Topological Sequencer}
+\label{sec:sequencer}
+
+The Sequencer segments incoming data streams into sequences based on
+\emph{topological properties} of the data itself, not on corpus-derived
+statistics (BPE) or fixed window sizes.
+
+\paragraph{Step 1: Measurement.}
+For each token at position $t$ with chord $\mathbf{c}_t$, the Sequencer
+extracts two geometric signals:
+
+\begin{align}
+  \text{pop}_t &= \|\mathbf{c}_t\|_1 = \texttt{popcount}(\mathbf{c}_t)
+  &&\text{(Geometric population count)}
+  \label{eq:pop} \\[4pt]
+  \text{phase}_t &= \sqrt{\Theta_{b_t}^2 + \Phi_{b_t}^2}
+  &&\text{(Toroidal phase magnitude)}
+  \label{eq:phase_mag}
+\end{align}
+
+where $b_t = \operatorname{ChordBin}(\mathbf{c}_t)$ and $\Theta, \Phi$ are
+the EigenMode phase tables (\Cref{sec:multi_scale}).
+
+\paragraph{Step 2: Golden Ratio Exponential Smoothing.}
+Running estimates are maintained via exponential moving averages with
+the golden ratio as the decay constant:
+
+\begin{equation}
+  \varphi = \frac{1 + \sqrt{5}}{2},
+  \qquad
+  \alpha = \varphi^{-3} \approx 0.236
+  \label{eq:golden_ratio}
+\end{equation}
+
+\begin{align}
+  \overline{\text{pop}}_t &= (1 - \alpha)\,\overline{\text{pop}}_{t-1}
+                          + \alpha \cdot \text{pop}_t
+  \label{eq:ema_pop} \\
+  \overline{\text{phase}}_t &= (1 - \alpha)\,\overline{\text{phase}}_{t-1}
+                             + \alpha \cdot \text{phase}_t
+  \label{eq:ema_phase}
+\end{align}
+
+The golden ratio is not arbitrary: $\varphi^{-3}$ provides a smoothing
+constant that balances responsiveness to structural changes against
+noise suppression, with the irrational decay rate preventing aliasing
+with any periodic structure in the data.
+
+\paragraph{Step 3: Welford's Online Variance.}
+The absolute deviations $\Delta_{\text{pop}} = |\text{pop}_t - \overline{\text{pop}}_t|$
+and $\Delta_{\text{phase}} = |\text{phase}_t - \overline{\text{phase}}_t|$
+are tracked using Welford's single-pass online variance algorithm, which
+maintains running mean $\bar{x}_n$ and sum of squared deviations $M_{2,n}$:
+
+\begin{align}
+  \delta_n &= \Delta_n - \bar{x}_{n-1}
+  \label{eq:welford_delta} \\
+  \bar{x}_n &= \bar{x}_{n-1} + \frac{\delta_n}{n}
+  \label{eq:welford_mean} \\
+  M_{2,n} &= M_{2,n-1} + \delta_n \cdot (\Delta_n - \bar{x}_n)
+  \label{eq:welford_m2}
+\end{align}
+
+The unbiased sample standard deviation is $\hat{\sigma}_n = \sqrt{M_{2,n} / (n-1)}$.
+
+\paragraph{Step 4: Dynamic Z-Score Thresholding.}
+Boundary events are triggered when absolute deviations exceed
+adaptive thresholds derived from the running variance and shared
+calibrator sensitivity targets $\gamma_{\text{pop}}, \gamma_{\text{phase}}$:
+
+\begin{align}
+  \tau_{\text{pop}} &= \bar{\Delta}_{\text{pop}} + \hat{\sigma}_{\text{pop}}
+                      \cdot \gamma_{\text{pop}}
+  \label{eq:thresh_pop} \\
+  \tau_{\text{phase}} &= \bar{\Delta}_{\text{phase}}
+                        + \hat{\sigma}_{\text{phase}}
+                        \cdot \gamma_{\text{phase}}
+  \label{eq:thresh_phase}
+\end{align}
+
+An additional hard topological boundary fires when:
+
+\begin{equation}
+  \Delta_{\text{phase}} > \frac{\pi}{\kappa}
+  \label{eq:topo_bound}
+\end{equation}
+
+where $\kappa$ is the \texttt{FrequencySpread} hyperparameter.
+
+\paragraph{Step 5: Event Classification.}
+Boundary events are classified into topological triggers that drive the
+non-commutative rotations of the manifold (\Cref{sec:manifold_layout}):
+
+\begin{center}
+\begin{tabular}{lll}
+  \toprule
+  \textbf{Event} & \textbf{Condition} & \textbf{Manifold Action} \\
+  \midrule
+  \textsc{DensitySpike}
+    & $\Delta_{\text{pop}} > \tau_{\text{pop}}$ and
+      $\text{pop}_t > \overline{\text{pop}}_t$
+    & 3-Cycle $(0\,1\,2)$ \\
+  \textsc{DensityTrough}
+    & $\Delta_{\text{pop}} > \tau_{\text{pop}}$ and
+      $\text{pop}_t < \overline{\text{pop}}_t$
+    & 3-Cycle $(0\,2\,1)$ \\
+  \textsc{PhaseInversion}
+    & $\Delta_{\text{phase}} > \tau_{\text{phase}}$ or
+      $\Delta_{\text{phase}} > \pi/\kappa$
+    & Double transposition $(0\,3)(1\,4)$ \\
+  \textsc{LowVarianceFlux}
+    & coherence time $> 10$
+    & 5-Cycle $(0\,1\,2\,3\,4)$ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Closed-Loop Calibration}
+\label{sec:calibration}
+
+The Sequencer incorporates bidirectional feedback at two timescales:
+
+\begin{itemize}[nosep]
+  \item \textbf{High-frequency (local):}  When a boundary fires, the local
+        chord density $\rho = \|\mathbf{c}\|_1 / D$ is compared against
+        target density bounds $[\rho_{\min}, \rho_{\max}]$.  If $\rho >
+        \rho_{\max}$, the sensitivity $\gamma$ is decreased by
+        $\varphi^{-9} \approx 0.013$; if $\rho < \rho_{\min}$, it is
+        increased symmetrically.
+  \item \textbf{Low-frequency (global):}  BestFill retrieval quality
+        reports adjust calibration at rate $\varphi^{-5} \approx 0.090$:
+        over-discrimination (missed relevant matches) raises $\gamma$ to
+        widen boundaries; under-discrimination (matched unrelated content)
+        lowers $\gamma$ to sharpen boundaries.
+\end{itemize}
+
+\noindent Local-to-global synchronization uses a median smoothing merge
+at rate $\varphi^{-6} \approx 0.055$, ensuring that fast local adaptations
+propagate gradually to the global state without oscillatory instability.

@@ -1,0 +1,146 @@
+% ============================================================================
+% TOROIDAL EIGENMODE NAVIGATION
+% ============================================================================
+\subsection{Chord Co-occurrence and Markov Transition Matrix}
+\label{sec:eigenmode_cooccurrence}
+
+For each Fibonacci window scale $w \in \mathcal{W} = \{3, 5, 8, 13, 21\}$,
+we build a $256 \times 256$ chord-bin co-occurrence matrix $C^{(w)}$ from
+the ingested chord sequence $(\mathbf{c}_1, \ldots, \mathbf{c}_N)$:
+
+\begin{equation}
+  C^{(w)}_{ij} = \bigl|\{t : \operatorname{ChordBin}(\mathbf{c}_t) = i
+    \;\land\; \exists\, t < s \leq t+w
+    \text{ with } \operatorname{ChordBin}(\mathbf{c}_s) = j\}\bigr|
+  \label{eq:cooccurrence}
+\end{equation}
+
+Each row is L1-normalized to form a row-stochastic Markov transition matrix:
+
+\begin{equation}
+  T^{(w)}_{ij} = \frac{C^{(w)}_{ij}}{\sum_{k=0}^{255} C^{(w)}_{ik}}
+  \label{eq:markov}
+\end{equation}
+
+\subsection{Eigenvector Extraction and Phase Assignment}
+\label{sec:eigen_extraction}
+
+The eigendecomposition of $T^{(w)}$ yields eigenvalues
+$\lambda_0 \geq |\lambda_1| \geq |\lambda_2| \geq \cdots$ sorted by
+modulus.  The dominant eigenvalue $\lambda_0 = 1$  corresponds to the
+stationary distribution and is discarded.  The two leading
+\emph{subdominant} eigenvector pairs define orthogonal phase planes:
+
+\begin{itemize}[nosep]
+  \item \textbf{Primary plane (Theta):} Eigenvectors at $\lambda_1, \lambda_2$
+        define $\mathbf{v}^{(w)}_{T,1}, \mathbf{v}^{(w)}_{T,2} \in \mathbb{R}^{256}$.
+  \item \textbf{Secondary plane (Phi):} Eigenvectors at $\lambda_3, \lambda_4$
+        define $\mathbf{v}^{(w)}_{P,1}, \mathbf{v}^{(w)}_{P,2} \in \mathbb{R}^{256}$.
+\end{itemize}
+
+If the eigenvalues form a complex conjugate pair $\lambda = \alpha \pm i\beta$,
+we extract phases directly from the complex eigenvector; otherwise, we use
+the two real eigenvectors as a basis.  For each structural bin $b$:
+
+\begin{equation}
+  \theta^{(w)}_b = \operatorname{atan2}\!\bigl(v^{(w)}_{T,2}[b],\;
+                                               v^{(w)}_{T,1}[b]\bigr),
+  \qquad
+  \phi^{(w)}_b = \operatorname{atan2}\!\bigl(v^{(w)}_{P,2}[b],\;
+                                              v^{(w)}_{P,1}[b]\bigr)
+  \label{eq:phase_assignment}
+\end{equation}
+
+\paragraph{Eigenvector Magnitude as Frequency.}
+The magnitude of the eigenvector projection measures the
+\emph{structural informativeness} of each bin at scale $w$:
+
+\begin{equation}
+  f^{(w)}_{\theta,b} = 1 + \frac{\sqrt{v_{T,1}[b]^2 + v_{T,2}[b]^2}}
+                                 {\max_{b'} \sqrt{v_{T,1}[b']^2 + v_{T,2}[b']^2}}
+                        \cdot \kappa
+  \label{eq:frequency}
+\end{equation}
+
+where $\kappa$ is the \texttt{FrequencySpread} hyperparameter controlling
+the range of frequency modulation.
+
+\subsection{Multi-Scale Circular Averaging}
+\label{sec:multi_scale}
+
+Phases from all window scales are fused via inverse-window-weighted
+\emph{circular averaging} to produce scale-invariant phase assignments.
+The weight for scale $w$ is:
+
+\begin{equation}
+  \alpha_w = \frac{1/w}{\sum_{w' \in \mathcal{W}} 1/w'}
+  \label{eq:fib_weight}
+\end{equation}
+
+The circular mean uses the standard directional statistics formula to
+avoid wraparound artifacts at $\pm\pi$:
+
+\begin{equation}
+  \Theta_b = \operatorname{atan2}\!\Bigl(
+    \sum_{w \in \mathcal{W}} \alpha_w \sin\theta^{(w)}_b,\;\;
+    \sum_{w \in \mathcal{W}} \alpha_w \cos\theta^{(w)}_b
+  \Bigr)
+  \label{eq:circular_mean}
+\end{equation}
+
+\noindent and identically for $\Phi_b$.  The final phase map
+$\{\Theta_b, \Phi_b\}_{b=0}^{255}$ embeds all 256 structural bins onto
+the 2-torus $\mathbb{T}^2 = S^1 \times S^1$.
+
+\subsection{Sequential Phase Tracking and Intent Alignment}
+\label{sec:toroidal_steering}
+
+During generation, the accumulated sequential phase is tracked as a weighted
+circular mean over the emitted chord sequence $(\mathbf{c}_1, \ldots,
+\mathbf{c}_n)$:
+
+\begin{equation}
+  \bar{\theta}_n = \operatorname{atan2}\!\Bigl(
+    \sum_{i=1}^{n} f_{\theta, b_i} \sin \Theta_{b_i},\;\;
+    \sum_{i=1}^{n} f_{\theta, b_i} \cos \Theta_{b_i}
+  \Bigr)
+  \label{eq:seq_phase}
+\end{equation}
+
+where $b_i = \operatorname{ChordBin}(\mathbf{c}_i)$ and $f_{\theta, b_i}$
+is the frequency weight.  The \emph{concentration parameter}
+$\kappa_n$ (analogous to the $\kappa$ parameter of the von Mises
+distribution) measures phase coherence:
+
+\begin{equation}
+  \kappa_n = \frac{\sqrt{S_n^2 + C_n^2}}{W_n}, \qquad
+  S_n = \sum_{i=1}^{n} f_i \sin \Theta_{b_i}, \quad
+  C_n = \sum_{i=1}^{n} f_i \cos \Theta_{b_i}, \quad
+  W_n = \sum_{i=1}^{n} f_i
+  \label{eq:concentration}
+\end{equation}
+
+Values of $\kappa_n$ near 1 indicate strong phase alignment (the trajectory
+is coherent); values near 0 indicate phase diffusion (semantic drift).
+
+\subsection{Geometric Closure Detection}
+\label{sec:geometric_closure}
+
+Generation terminates when the candidate chord sequence's weighted circular
+mean phase returns to within a threshold $\delta$ of the anchor phase
+$\bar{\theta}_{\text{anchor}}$ established at prompt initialization:
+
+\begin{equation}
+  \Delta\theta = \min\bigl(|\bar{\theta}_n - \bar{\theta}_{\text{anchor}}|,\;\;
+                           2\pi - |\bar{\theta}_n - \bar{\theta}_{\text{anchor}}|\bigr)
+  < \delta
+  \label{eq:closure}
+\end{equation}
+
+with $\delta = 0.45$ radians.  This constitutes a topological proof of
+structural closure: the generative trajectory has completed a semantically
+coherent loop on the torus.  Because $\mathbb{T}^2$ is a compact manifold,
+every trajectory is pre-compact (bounded), and the density of the
+trajectory---guaranteed by the irrationality of the eigenvalue ratios for
+generic data---prevents entrapment in isolated fixed points or periodic
+orbits.

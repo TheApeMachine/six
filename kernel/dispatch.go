@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	config "github.com/theapemachine/six/core"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel/cpu"
 	"github.com/theapemachine/six/kernel/cuda"
 	"github.com/theapemachine/six/kernel/metal"
@@ -22,6 +23,7 @@ type backendRunner struct {
 		numChords int,
 		context unsafe.Pointer,
 		expectedReality unsafe.Pointer,
+		expectedPrecision unsafe.Pointer,
 		geodesicLUT unsafe.Pointer,
 	) (uint64, error)
 	available func() bool
@@ -41,6 +43,17 @@ func BestSpan(
 	expectedReality unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (SpanMatch, error) {
+	return BestSpanWithPrecision(dictionary, numChords, context, expectedReality, nil, geodesicLUT)
+}
+
+func BestSpanWithPrecision(
+	dictionary unsafe.Pointer,
+	numChords int,
+	context unsafe.Pointer,
+	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
+	geodesicLUT unsafe.Pointer,
+) (SpanMatch, error) {
 	if numChords == 0 {
 		return SpanMatch{Index: -1}, nil
 	}
@@ -58,6 +71,7 @@ func BestSpan(
 			numChords,
 			context,
 			expectedReality,
+			expectedPrecision,
 			geodesicLUT,
 		); err == nil {
 			idx, score := numeric.DecodePacked(packed)
@@ -73,6 +87,7 @@ func BestSpan(
 		numChords,
 		context,
 		expectedReality,
+		expectedPrecision,
 		geodesicLUT,
 	)
 
@@ -95,11 +110,39 @@ func BestFill(
 	_ int,
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error) {
-	match, err := BestSpan(
+	return BestFillWithPrecision(dictionary, numChords, context, expectedReality, nil, geodesicLUT)
+}
+
+func BestFillWithExpectedField(
+	dictionary unsafe.Pointer,
+	numChords int,
+	context unsafe.Pointer,
+	expectedReality unsafe.Pointer,
+	expectedField *geometry.ExpectedField,
+	geodesicLUT unsafe.Pointer,
+) (int, float64, error) {
+	var precisionPtr unsafe.Pointer
+	if expectedField != nil {
+		precisionPtr = unsafe.Pointer(&expectedField.Precision[0][0])
+	}
+
+	return BestFillWithPrecision(dictionary, numChords, context, expectedReality, precisionPtr, geodesicLUT)
+}
+
+func BestFillWithPrecision(
+	dictionary unsafe.Pointer,
+	numChords int,
+	context unsafe.Pointer,
+	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
+	geodesicLUT unsafe.Pointer,
+) (int, float64, error) {
+	match, err := BestSpanWithPrecision(
 		dictionary,
 		numChords,
 		context,
 		expectedReality,
+		expectedPrecision,
 		geodesicLUT,
 	)
 	if err != nil {
@@ -118,6 +161,7 @@ func BestFillLocalPacked(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if dictionary == nil {
@@ -140,6 +184,7 @@ func BestFillLocalPacked(
 			numChords,
 			context,
 			expectedReality,
+			expectedPrecision,
 			geodesicLUT,
 		)
 	}
@@ -153,6 +198,7 @@ func BestFillLocalPacked(
 			numChords,
 			context,
 			expectedReality,
+			expectedPrecision,
 			geodesicLUT,
 		)
 	}
@@ -184,6 +230,7 @@ func BestFillLocalPacked(
 					end-start,
 					context,
 					expectedReality,
+					expectedPrecision,
 					geodesicLUT,
 				)
 				if err != nil {
@@ -214,6 +261,7 @@ func runBackendWithFallback(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	packed, err := backend.run(
@@ -221,6 +269,7 @@ func runBackendWithFallback(
 		numChords,
 		context,
 		expectedReality,
+		expectedPrecision,
 		geodesicLUT,
 	)
 
@@ -237,6 +286,7 @@ func runBackendWithFallback(
 		numChords,
 		context,
 		expectedReality,
+		expectedPrecision,
 		geodesicLUT,
 	)
 }
@@ -244,13 +294,45 @@ func runBackendWithFallback(
 func configuredBackends() []backendRunner {
 	runners := map[string]backendRunner{
 		"cuda": {
-			name:      "cuda",
-			run:       cuda.BestFillCUDAPacked,
+			name: "cuda",
+			run: func(
+				dictionary unsafe.Pointer,
+				numChords int,
+				context unsafe.Pointer,
+				expectedReality unsafe.Pointer,
+				expectedPrecision unsafe.Pointer,
+				geodesicLUT unsafe.Pointer,
+			) (uint64, error) {
+				return cuda.BestFillCUDAPacked(
+					dictionary,
+					numChords,
+					context,
+					expectedReality,
+					expectedPrecision,
+					geodesicLUT,
+				)
+			},
 			available: cuda.CudaAvailable,
 		},
 		"metal": {
-			name:      "metal",
-			run:       metal.BestFillMetalPacked,
+			name: "metal",
+			run: func(
+				dictionary unsafe.Pointer,
+				numChords int,
+				context unsafe.Pointer,
+				expectedReality unsafe.Pointer,
+				expectedPrecision unsafe.Pointer,
+				geodesicLUT unsafe.Pointer,
+			) (uint64, error) {
+				return metal.BestFillMetalPacked(
+					dictionary,
+					numChords,
+					context,
+					expectedReality,
+					expectedPrecision,
+					geodesicLUT,
+				)
+			},
 			available: metal.MetalAvailable,
 		},
 		"cpu": {
@@ -260,6 +342,7 @@ func configuredBackends() []backendRunner {
 				numChords int,
 				context unsafe.Pointer,
 				expectedReality unsafe.Pointer,
+				expectedPrecision unsafe.Pointer,
 				geodesicLUT unsafe.Pointer,
 			) (uint64, error) {
 				return cpu.BestFillCPUPacked(
@@ -267,6 +350,7 @@ func configuredBackends() []backendRunner {
 					numChords,
 					context,
 					expectedReality,
+					expectedPrecision,
 					geodesicLUT,
 				)
 			},

@@ -29,7 +29,8 @@ kernel void bitwise_best_fill(
     constant uint& num_chords [[buffer(3)]],
     constant uint& target_id [[buffer(4)]],
     constant IcosahedralManifold* expected_reality [[buffer(5)]],
-    constant uint8_t* geodesic_lut [[buffer(6)]],
+    constant ushort* expected_precision [[buffer(6)]],
+    constant uint8_t* geodesic_lut [[buffer(7)]],
     uint id [[thread_position_in_grid]]
 ) {
     if (id >= num_chords) return;
@@ -55,14 +56,18 @@ kernel void bitwise_best_fill(
 
     uint overlap_count = 0;
     uint fill_count = 0;
-    uint contradiction_count = 0;
-    uint expectation_count = 0;
+    uint64_t expectation_scaled = 0;
+    uint64_t missing_scaled = 0;
+    uint64_t veto_scaled = 0;
 
     // PASS 3 & 4: Coarse SIMD & Dense Micro Popcount
 #pragma unroll
     for (int c = 0; c < 4; c++) {
 #pragma unroll
         for (int b = 0; b < 27; b++) {
+            uint64_t support_precision = expected_precision ? uint64_t(expected_precision[c * 27 + b]) : uint64_t(1024);
+            uint64_t veto_precision = expected_precision ? uint64_t(expected_precision[4 * 27 + b]) : uint64_t(1024);
+
 #pragma unroll
             for (int i = 0; i < 8; i++) {
                 uint64_t c_bits = candidate.cubes[c].blocks[b].bits[i];
@@ -74,13 +79,19 @@ kernel void bitwise_best_fill(
 
                 overlap_count += popcount(c_bits & a_bits);
                 fill_count += popcount(c_bits & m_bits);
-                expectation_count += popcount(c_bits & e_bits);
-                contradiction_count += popcount(a_bits & ~c_bits);
-                contradiction_count += popcount(c_bits & v_bits);
-                contradiction_count += popcount(c_veto_bits & a_bits);
+
+                expectation_scaled += uint64_t(popcount(c_bits & e_bits)) * support_precision;
+                missing_scaled += uint64_t(popcount(a_bits & ~c_bits)) * support_precision;
+
+                uint64_t veto_count = uint64_t(popcount(c_bits & v_bits));
+                veto_count += uint64_t(popcount(c_veto_bits & a_bits));
+                veto_scaled += veto_count * veto_precision;
             }
         }
     }
+
+    uint64_t expectation_count = expectation_scaled / 1024;
+    uint64_t contradiction_count = (missing_scaled / 1024) + (veto_scaled / 1024);
 
     int score_fixed = int((int64_t(overlap_count) * 500 +
                            int64_t(fill_count) * 900 +
@@ -89,7 +100,10 @@ kernel void bitwise_best_fill(
 
     // PASS 5: O(1) Ambiguity Resolution (LUT)
     // Fetch true geodesic path distance between chiral states
-    uint geodesic_dist = (uint)geodesic_lut[q_rot_state * 60 + c_rot_state];
+    uint geodesic_dist = 255;
+    if (geodesic_lut && q_rot_state < 60 && c_rot_state < 60) {
+        geodesic_dist = (uint)geodesic_lut[q_rot_state * 60 + c_rot_state];
+    }
     
     (void)target_id;
 

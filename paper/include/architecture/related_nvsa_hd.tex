@@ -1,0 +1,64 @@
+% ============================================================================
+% NEURO-VECTOR-SYMBOLIC ARCHITECTURES AND HD COMPUTING HARDWARE
+% ============================================================================
+\subsection{Neuro-Vector-Symbolic Architectures and HD Computing Hardware}
+\label{sec:related_nvsa}
+
+The most direct bridge between classical neural architectures and the
+prime-basis Chord substrate is the emerging family of
+\emph{Neuro-Vector-Symbolic Architectures} (NVSA).  Hersche et al.\
+\citep{hersche2023nvsa} demonstrated that combining neural front-ends with
+VSA back-ends solves Raven's Progressive Matrices---a benchmark for
+abstract visual reasoning---more accurately and with orders-of-magnitude
+fewer gradient steps than pure deep-learning baselines.  Their key insight
+is that the VSA's algebraic closure under binding and bundling provides a
+\emph{native factorization substrate}: the network learns to project
+perception into a high-dimensional space where combinatorial decomposition
+is a single algebraic operation rather than an iterative optimization.
+
+The Sensorium Manifold pushes this factorization principle further in two
+respects:
+\begin{enumerate}[nosep]
+  \item \textbf{No neural front-end:}  Where NVSA uses a learned encoder
+        to project pixels into VSA space, our Universal Tokenizer assigns
+        deterministic prime-basis identities directly from raw bytes.
+        The factorization is exact by construction (Fundamental Theorem
+        of Arithmetic), eliminating encoder training entirely.
+  \item \textbf{Non-commutative extension:}  Classical VSA binding operators
+        (circular convolution, Hadamard products) are commutative---they
+        cannot natively distinguish ``dog bites man'' from ``man bites dog''
+        without positional permutations.  The $A_5$ rotational manifold
+        makes non-commutativity structural: syntactic order is physically
+        encoded by the path through the icosahedral group.
+\end{enumerate}
+
+\paragraph{HD Computing as a Hardware Paradigm.}
+Rahimi et al.\ \citep{rahimi2017hd} established hyperdimensional computing
+as a nanoscalable paradigm, demonstrating that HD vectors with thousands
+of dimensions can perform classification, language recognition, and
+biosignal processing with simple, fast-learning algorithms amenable to
+3D nanometer circuit technology.  Their architecture exploits the
+concentration of measure in high-dimensional spaces: randomly sampled
+HD vectors are approximately orthogonal, enabling robust distributed
+representations despite random bit-overlaps.
+
+Our 512-bit Chord operates in a far lower dimensionality ($D = 512$ vs.\
+$D \geq 4{,}000$ in classical HD), trading the probabilistic near-orthogonality
+guarantee for exact prime-factor uniqueness.  The compensation mechanism is
+the non-commutative manifold: where classical HD relies on dimensionality
+for collision resistance, we rely on the $60$-state $A_5$ rotational
+register plus the 4-bit winding counter to separate sequences that share
+identical Chord content.  This is a fundamentally different point in the
+design space---deterministic algebraic separation vs.\ probabilistic
+geometric separation.
+
+\paragraph{VSA on Emerging Hardware.}
+Kleyko et al.\ \citep{kleyko2022vsa} provide a comprehensive survey of VSA
+as a computing framework for emerging hardware, from in-memory computing to
+neuromorphic chips.  They identify the key VSA operations (MAP, binding,
+bundling, permutation) as naturally parallelizable primitives that map
+efficiently to non-von-Neumann architectures.  Our Metal/CUDA/CPU kernel
+dispatch layer (\Cref{sec:multi_backend}) instantiates exactly this
+principle: the entire BestFill pipeline reduces to SIMD bitwise operations
+with no data-dependent branching, making it trivially portable across
+any hardware that supports popcount and integer comparison.

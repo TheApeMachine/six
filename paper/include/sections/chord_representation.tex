@@ -1,0 +1,151 @@
+% ============================================================================
+% THE 512-BIT CHORD REPRESENTATION
+% ============================================================================
+\subsection{Deterministic Prime-Basis Identity}
+\label{sec:base_chord}
+\label{sec:chord_representation}
+
+Let $D = 512$ denote the chord dimensionality and let $\mathcal{B} = \{0,
+\ldots, 255\}$ be the byte alphabet.  Every byte value $b \in \mathcal{B}$
+is mapped to a deterministic binary vector $\mathbf{c}(b) \in \{0,1\}^{D}$
+by activating exactly five bits at positions given by coprime spreading:
+
+\begin{equation}
+  \mathcal{P}(b) = \bigl\{7b \bmod D,\; 13b \bmod D,\; 31b \bmod D,\;
+                          61b \bmod D,\; 127b \bmod D\bigr\}
+  \label{eq:base_chord}
+\end{equation}
+
+\begin{equation}
+  c_i(b) =
+  \begin{cases}
+    1 & \text{if } i \in \mathcal{P}(b), \\
+    0 & \text{otherwise.}
+  \end{cases}
+  \label{eq:indicator}
+\end{equation}
+
+\noindent Because the multipliers $\{7, 13, 31, 61, 127\}$ are pairwise
+coprime and $D = 2^9$, distinct byte values receive distinct activation
+patterns (verified by exhaustive enumeration over all $256$ values).  The
+resulting chord is extremely sparse: $\|\mathbf{c}(b)\|_1 = 5$ out of
+$D = 512$ bits, yielding a sparsity ratio of $5/512 \approx 0.98\%$.
+
+\paragraph{Why Coprime Multipliers.}
+The choice of coprime multipliers is not arbitrary.  Multiplying by a prime
+$p$ and reducing modulo a power of two $D = 2^k$ generates a permutation
+of the residues $\{0, \ldots, D-1\}$ if and only if $\gcd(p, D) = 1$.
+Since all five multipliers are odd primes and $D$ is a power of two, each
+multiplier independently generates a distinct full-period permutation,
+maximizing the minimum Hamming distance between any two byte chords.
+
+\subsection{Algebraic Operations}
+\label{sec:chord_algebra}
+
+The Chord supports a closed algebra of compositional operations.  Each
+executes in $O(D/w)$ time where $w$ is the SIMD word width (64 for
+\texttt{uint64}, yielding $D/w = 8$ operations per chord):
+
+\begin{align}
+  \textbf{ChordOR:}\quad
+    (\mathbf{a} \lor \mathbf{b})_i
+    &= a_i \lor b_i
+    &&\text{(Superposition / LCM)}
+    \label{eq:chord_or} \\[4pt]
+  \textbf{ChordGCD:}\quad
+    (\mathbf{a} \land \mathbf{b})_i
+    &= a_i \land b_i
+    &&\text{(Shared factors / Intersection)}
+    \label{eq:chord_gcd} \\[4pt]
+  \textbf{ChordHole:}\quad
+    H(\mathbf{t}, \mathbf{e})_i
+    &= t_i \land \lnot e_i
+    &&\text{(Structural Vacuum)}
+    \label{eq:chord_hole} \\[4pt]
+  \textbf{Similarity:}\quad
+    \text{sim}(\mathbf{a}, \mathbf{b})
+    &= \sum_{i=0}^{D-1} a_i \cdot b_i
+    = \texttt{popcount}(\mathbf{a} \land \mathbf{b})
+    &&\text{(Discrete dot product)}
+    \label{eq:chord_sim}
+\end{align}
+
+\paragraph{Equivalence to Inner Product.}
+For binary vectors $\mathbf{a}, \mathbf{b} \in \{0,1\}^D$, the real-valued
+inner product $\langle \mathbf{a}, \mathbf{b} \rangle$ reduces exactly to
+the popcount of their bitwise AND:
+\begin{equation}
+  \langle \mathbf{a}, \mathbf{b} \rangle
+  = \sum_{i=0}^{D-1} a_i \, b_i
+  = \bigl| \{i : a_i = 1 \land b_i = 1\} \bigr|
+  = \texttt{popcount}(\mathbf{a} \mathbin{\&} \mathbf{b})
+  \label{eq:inner_product}
+\end{equation}
+This identity is the mechanism by which single-cycle integer instructions
+execute semantic similarity computation.
+
+\subsection{Positional Binding via Circular Shift}
+\label{sec:roll_left}
+
+To encode sequential position without destroying content, we define the
+\emph{RollLeft} operator as a circular permutation over bit indices:
+
+\begin{equation}
+  \text{RollLeft}(\mathbf{c},\, s)_i = c_{(i - s) \bmod D}
+  \label{eq:roll_left}
+\end{equation}
+
+Because circular shifts are invertible and non-commutative with
+superposition, positional binding preserves all algebraic properties while
+ensuring that re-ordered sequences produce distinct chords:
+
+\begin{equation}
+  \text{RollLeft}(\mathbf{c}_d, 0) \lor \text{RollLeft}(\mathbf{c}_o, 1)
+  \lor \text{RollLeft}(\mathbf{c}_g, 2)
+  \;\neq\;
+  \text{RollLeft}(\mathbf{c}_g, 0) \lor \text{RollLeft}(\mathbf{c}_o, 1)
+  \lor \text{RollLeft}(\mathbf{c}_d, 2)
+  \label{eq:dog_god}
+\end{equation}
+
+\noindent That is, $\texttt{``dog''} \neq \texttt{``god''}$ in the chord
+representation.
+
+\subsection{SimHash Structural Binning}
+\label{sec:chord_bin}
+
+The \emph{ChordBin} operator maps any chord $\mathbf{c}$ to an 8-bit
+structural bin $b \in \{0, \ldots, 255\}$ via a SimHash-style random
+hyperplane projection.  Given $k = 8$ fixed seed values
+$\{s_1, \ldots, s_8\}$, the accumulator for plane $j$ sums signed
+contributions from each active bit:
+
+\begin{equation}
+  \text{acc}_j = \sum_{i : c_i = 1}
+  \begin{cases}
+    +1 & \text{if } h(i, s_j) \geq 2^{63}, \\
+    -1 & \text{otherwise,}
+  \end{cases}
+  \qquad
+  h(i, s_j) = i \cdot s_j + (i \ll (j+1))
+  \label{eq:simhash}
+\end{equation}
+
+The bin is then the 8-bit integer whose $j$-th bit is $[\text{acc}_j \geq 0]$.
+Chords with high Hamming similarity map to the same or nearby bins with
+high probability, enabling the EigenMode phase table
+(\Cref{sec:eigenmode_cooccurrence}) to use a fixed-size $256 \times 256$
+co-occurrence matrix without per-chord storage.
+
+\subsection{FlatChord: GPU-Optimized Dense Representation}
+\label{sec:flat_chord}
+
+For GPU dispatch, the sparse 512-bit Chord is converted to a \emph{FlatChord}:
+a dense array of at most $D$ active prime indices $\{p_1, \ldots, p_k\}$
+where $k = \|\mathbf{c}\|_1$.  This eliminates bit-twiddling thread
+divergence in SIMT architectures: every thread iterates over exactly
+$k$ entries rather than scanning all $D/64 = 8$ blocks.
+
+Batched flattening across $N$ chords is parallelized via a pre-warmed,
+auto-scaling worker pool, yielding amortized $O(k)$ per chord with
+near-zero goroutine creation overhead.

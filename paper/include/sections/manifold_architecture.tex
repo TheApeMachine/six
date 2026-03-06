@@ -1,0 +1,146 @@
+% ============================================================================
+% THE NESTED SO(3) FRACTAL MANIFOLD
+% ============================================================================
+\subsection{Structural Layout}
+\label{sec:manifold_layout}
+
+The base geometric primitive is a \emph{MacroCube}---a
+$3 \times 3 \times 3$ array of 512-bit Chord fields indexed $\mathbf{m}
+\in \{0, \ldots, 26\}$.  The total state per MacroCube is
+$27 \times 512 = 13{,}824$ bits.
+
+Because the chiral octahedral group $\mathbf{O}$ acts on the cube via
+rigid-body rotations, we define micro-rotations as fixed index
+permutations $\sigma \in S_{27}$:
+
+\begin{align}
+  R_X &: \mathbf{m} \mapsto \sigma_X(\mathbf{m})
+  &&\text{(Pitch, $+90^{\circ}$ about $X$)}
+  \label{eq:rot_x} \\
+  R_Y &: \mathbf{m} \mapsto \sigma_Y(\mathbf{m})
+  &&\text{(Yaw, $+90^{\circ}$ about $Y$)}
+  \label{eq:rot_y} \\
+  R_Z &: \mathbf{m} \mapsto \sigma_Z(\mathbf{m})
+  &&\text{(Roll, $+90^{\circ}$ about $Z$)}
+  \label{eq:rot_z}
+\end{align}
+
+where $\sigma_X, \sigma_Y, \sigma_Z$ are precomputed permutation tables
+(see Appendix).  These compositions are \emph{non-commutative}:
+
+\begin{equation}
+  R_X \circ R_Y \neq R_Y \circ R_X
+  \label{eq:non_comm}
+\end{equation}
+
+Consequently, two distinct orderings of the same semantic content (e.g.,
+``Dog bites Man'' vs.\ ``Man bites Dog'') traverse different rotational
+paths and land on different micro-blocks, producing geometrically
+distinguishable fingerprints without artificial positional encodings.
+
+\subsection{The Icosahedral Manifold and $A_5$ Extension}
+\label{sec:icosahedral_manifold}
+
+Each memory primitive is pre-allocated as an \texttt{IcosahedralManifold}:
+5 MacroCubes ($5 \times 27 = 135$ total blocks) stored contiguously:
+
+\begin{verbatim}
+type IcosahedralManifold struct {
+    Header  uint16       // State(1b) | RotState(6b) | Winding(4b) | Reserved(5b)
+    Cubes   [5]MacroCube // 135 total Chord blocks
+}
+\end{verbatim}
+
+\noindent Total bits per manifold: $135 \times 512 = 69{,}120$ bits
+$= 8{,}640$ bytes $\approx 8.64$~KB.  In baseline Cubic mode
+(\texttt{State=0}), only \texttt{Cubes[0]} is active.
+
+\paragraph{$A_5$ Macro-Permutations.}
+Post-mitosis, macro-topology is governed by the alternating group
+$A_5 \cong \text{Sym}(\text{Icosahedron})$, which consists exclusively
+of \emph{even permutations} of 5 elements.  Three generator types suffice:
+
+\begin{align}
+  \textbf{3-Cycle:}\quad
+    \pi_{(a\,b\,c)} &: \text{Cubes}[a] \to \text{Cubes}[b] \to
+                       \text{Cubes}[c] \to \text{Cubes}[a]
+  \label{eq:3cycle} \\[3pt]
+  \textbf{Double Transposition:}\quad
+    \pi_{(a\,b)(c\,d)} &: \text{Cubes}[a] \leftrightarrow \text{Cubes}[b],\;\;
+                          \text{Cubes}[c] \leftrightarrow \text{Cubes}[d]
+  \label{eq:double_trans} \\[3pt]
+  \textbf{5-Cycle:}\quad
+    \pi_{(a\,b\,c\,d\,e)} &: \text{Cubes}[a] \to \text{Cubes}[b] \to
+                              \cdots \to \text{Cubes}[e] \to \text{Cubes}[a]
+  \label{eq:5cycle}
+\end{align}
+
+Each permutation executes as an array index swap in $O(1)$ without data
+copying.
+
+\subsection{The 16-Bit Rotation Header}
+\label{sec:rotation_header}
+
+A compact \texttt{uint16} header tracks the full orientational history:
+
+\begin{center}
+\begin{tabular}{cccc}
+  \toprule
+  \textbf{Bit 15} & \textbf{Bits 14--9} & \textbf{Bits 8--5} & \textbf{Bits 4--0} \\
+  \midrule
+  State & RotState & Winding & Reserved \\
+  $\{$Cubic, Ico$\}$ &
+  $\in [0, 59]$ & $\bmod\; 16$ & --- \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+The \textbf{RotState} indexes the precomputed Unified Geodesic Matrix---a
+symmetric $60 \times 60$ lookup table storing pairwise angular distances
+$d(r_i, r_j) = \arccos\bigl(|q_i \cdot q_j|\bigr)$ between all $A_5$
+orientations, requiring only $60 \times 60 = 3{,}600$ bytes (fits in L1
+cache).  Because no floating-point quaternion math occurs during encoding,
+quaternion drift is physically impossible.
+
+\subsection{Virtual Mitosis: $O(1)$ Phase Transition}
+\label{sec:mitosis}
+
+Mitosis triggers when the global macro-density of \texttt{Cubes[0]}
+reaches a precise threshold:
+
+\begin{equation}
+  \rho_0 = \frac{\sum_{i=0}^{26}
+    \|\text{Cubes}[0][i]\|_1}{27 \times 512} \geq 0.45
+  \label{eq:mitosis_thresh}
+\end{equation}
+
+The transition is a single-cycle state flip:
+
+\begin{enumerate}[nosep]
+  \item \texttt{Cubes[0]} retains its exact saturated state.
+  \item \texttt{Cubes[1..4]} remain zeroed (empty orthogonal subspaces
+        ready to receive entropy).
+  \item \texttt{State} flips from 0 to 1, unlocking 60 rotational states.
+\end{enumerate}
+
+\paragraph{De-Mitosis (Reversible Collapse).}
+When global density across all 5 cubes drops below a sparsity threshold:
+
+\begin{equation}
+  \frac{\sum_{c=0}^{4}\sum_{i=0}^{26}
+    \|\text{Cubes}[c][i]\|_1}{5 \times 27 \times 512} < 0.25
+  \label{eq:demitosis_thresh}
+\end{equation}
+
+the Geodesic LUT identifies the minimum-energy $A_5$ permutation to
+return \texttt{Cubes[0]} to canonical orientation, the dispersed attributes
+of \texttt{Cubes[1..4]} are pooled back via majority-vote fractal
+condensation, and the State reverts to 0.
+
+\paragraph{Entropy Budget.}
+In Cubic mode ($|\mathbf{O}| = 24$), the rotational register carries
+$\log_2 24 \approx 4.58$ bits of structural entropy.  After mitosis
+($|A_5| = 60$), this expands to $\log_2 60 \approx 5.91$ bits.  Combined
+with the 4-bit winding counter ($\log_2 16 = 4$ bits), the total
+orientational entropy budget is $\approx 9.91$ bits per manifold---sufficient
+to distinguish $2^{9.91} \approx 961$ unique structural configurations.

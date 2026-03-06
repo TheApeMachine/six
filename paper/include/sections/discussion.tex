@@ -1,0 +1,92 @@
+% ============================================================================
+% DISCUSSION
+% ============================================================================
+\subsection{What Current Evidence Supports}
+\label{sec:evidence_supports}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Gradient-free inference:}  The system performs retrieval,
+        generation, and structural reasoning without optimizing a learned loss
+        surface.  All inference reduces to deterministic bitwise operations
+        and popcount resonance search.
+  \item \textbf{Modality-agnostic processing:}  The same byte-level tokenizer
+        and Chord representation processes text, images, and structured data
+        through identical pipelines---no modality-specific encoders.
+  \item \textbf{Non-commutative sequence encoding:}  The $A_5$ rotational
+        manifold natively encodes syntactic order through geometric
+        permutations, eliminating the need for learned positional
+        embeddings.
+  \item \textbf{Lossless collision-compression:}  The PrimeField's Chord-OR
+        insertion achieves significant memory reduction while preserving
+        all structural information needed for retrieval.
+  \item \textbf{Hardware-native parallelism:}  The entire BestFill pipeline
+        is designed for GPU warp architecture, with integer pre-filters
+        and SIMD popcount operating at single-cycle throughput.
+\end{enumerate}
+
+\subsection{Known Limitations and Failure Modes}
+\label{sec:limitations}
+
+\begin{enumerate}[nosep]
+  \item \textbf{Energy selectivity:}  The popcount resonance score is
+        permissive---any candidate sharing common byte patterns scores
+        highly.  Sharper gating (e.g., weighted popcount, structural vacuum
+        filtering) is needed for discriminative retrieval.
+  \item \textbf{Propagation depth:}  Information propagation through the
+        manifold hierarchy decays with structural distance.  Deep multi-hop
+        reasoning chains attenuate rapidly.
+  \item \textbf{Scale competitiveness:}  The system has not been benchmarked
+        against large autoregressive models on standard leaderboards.
+  \item \textbf{Convergence guarantees:}  The cantilever generation loop
+        converges empirically but lacks formal convergence proofs.
+  \item \textbf{Sparse chord coverage:}  With only 5 bits set per byte,
+        the 512-bit chord is very sparse.  The capacity limits of this
+        representation under heavy superposition need formal characterization.
+\end{enumerate}
+
+\subsection{Evaluation Roadmap}
+\label{sec:roadmap}
+
+\paragraph{Planned Ablation Studies.}
+\begin{itemize}[nosep]
+  \item Disable EigenMode steering (flat popcount only) to isolate the
+        contribution of toroidal phase alignment.
+  \item Vary chord width ($D \in \{128, 256, 512, 1024\}$) to characterize
+        the sparsity--capacity trade-off.
+  \item Vary manifold depth (Cubic-only vs.\ Icosahedral) to measure the
+        entropy routing contribution.
+  \item Disable winding counter to test syntactic depth discrimination.
+\end{itemize}
+
+\paragraph{Scaling Experiments.}
+\begin{itemize}[nosep]
+  \item Dictionary size vs.\ BestFill latency: characterize the empirical
+        scaling constant for 1K to 10M manifolds.
+  \item Chord width vs.\ retrieval accuracy: determine the minimum $D$ for
+        each modality.
+  \item Compression ratio vs.\ corpus size: validate the predicted
+        increasing-compression-with-scale behavior from Zipfian theory
+        (\Cref{sec:collision_is_compression}).
+\end{itemize}
+
+\paragraph{Novel Modality: Protein Secondary Structure.}
+As a test of the architecture's genuine modality-agnosticism, we plan
+experiments on protein secondary structure prediction using amino acid
+sequences as raw byte input.  This domain provides a particularly
+compelling test case:
+\begin{enumerate}[nosep]
+  \item The input alphabet (20 amino acid letters) is a strict subset
+        of the byte range, requiring no architectural modification.
+  \item Protein backbone geometry is governed by torsion angle pairs
+        $(\phi, \psi)$ that naturally inhabit a torus $S^1 \times S^1$---
+        the same manifold topology that EigenMode discovers from
+        co-occurrence statistics.
+  \item Secondary structure elements ($\alpha$-helices, $\beta$-sheets)
+        are defined by \emph{periodic local patterns} in residue
+        sequence---precisely the type of non-commutative rotational
+        structure that the manifold is designed to encode.
+  \item The $O(1)$ rotation and popcount-based search offer an
+        asymptotic advantage over molecular dynamics ($O(N^2)$ per
+        timestep) for conformational space exploration.
+\end{enumerate}
+

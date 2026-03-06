@@ -62,6 +62,7 @@ func BestFillMetalPacked(
 	numChords int,
 	context unsafe.Pointer,
 	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if !MetalAvailable() {
@@ -82,6 +83,7 @@ func BestFillMetalPacked(
 			C.uint32_t(numChords),
 			context,
 			expectedReality,
+			expectedPrecision,
 			geodesicLUT,
 		),
 	)

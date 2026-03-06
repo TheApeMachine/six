@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
@@ -25,6 +26,16 @@ type bestFillFn func(
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error)
 
+type bestFillWithFieldFn func(
+	dictionary unsafe.Pointer,
+	numChords int,
+	context unsafe.Pointer,
+	expectedReality unsafe.Pointer,
+	expectedField *geometry.ExpectedField,
+	mode int,
+	geodesicLUT unsafe.Pointer,
+) (int, float64, error)
+
 type recentSeed struct {
 	pos    uint32
 	chord  data.Chord
@@ -36,6 +47,18 @@ type slotMask struct {
 	Missing  [5][27]bool
 	Hole     [5][27]data.Chord
 	Count    int
+}
+
+type BranchPolicy struct {
+	Enabled         bool
+	MarginThreshold float64
+	MaxRetained     int
+}
+
+type ObservabilitySnapshot struct {
+	LowMarginEvents  uint64
+	RetainedBranches uint64
+	AnchorVetoEvents uint64
 }
 
 func hasSeedEvent(events []int, wanted int) bool {
@@ -289,10 +312,15 @@ prompting. Simplifies generation loops using Toroidal Eigenmodes
 and 5-plane Parallel MultiChord searches.
 */
 type Machine struct {
-	loader     *Loader
-	primefield *store.PrimeField
-	bestFill   bestFillFn
-	stopCh     chan struct{}
+	loader            *Loader
+	primefield        *store.PrimeField
+	bestFill          bestFillFn
+	bestFillWithField bestFillWithFieldFn
+	branchPolicy      BranchPolicy
+	lowMarginEvents   atomic.Uint64
+	retainedBranches  atomic.Uint64
+	anchorVetoEvents  atomic.Uint64
+	stopCh            chan struct{}
 }
 
 type machineOpts func(*Machine)
@@ -302,8 +330,27 @@ NewMachine creates a new Machine.
 */
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
-		primefield: store.NewPrimeField(),
-		bestFill:   kernel.BestFill,
+		primefield:   store.NewPrimeField(),
+		bestFill:     kernel.BestFill,
+		branchPolicy: BranchPolicy{Enabled: false, MarginThreshold: 0.05, MaxRetained: 2},
+		bestFillWithField: func(
+			dictionary unsafe.Pointer,
+			numChords int,
+			context unsafe.Pointer,
+			expectedReality unsafe.Pointer,
+			expectedField *geometry.ExpectedField,
+			_ int,
+			geodesicLUT unsafe.Pointer,
+		) (int, float64, error) {
+			return kernel.BestFillWithExpectedField(
+				dictionary,
+				numChords,
+				context,
+				expectedReality,
+				expectedField,
+				geodesicLUT,
+			)
+		},
 	}
 
 	for _, opt := range opts {
@@ -333,6 +380,13 @@ func (machine *Machine) Stop() {
 	}
 }
 
+func (machine *Machine) PromptWithExpectedField(
+	prompt []data.Chord,
+	expectedField *geometry.ExpectedField,
+) chan byte {
+	return machine.promptInternal(prompt, geometry.ExpectedManifoldFromField(expectedField), expectedField)
+}
+
 /*
 Prompt simply clamps the input, executes a parallel GPU BestFill over all Fibonacci
 planes simultaneously, checks Eigenmode Intent alignment, and loops until
@@ -341,6 +395,14 @@ the structure collapses or hits an end-token.
 func (machine *Machine) Prompt(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
+) chan byte {
+	return machine.promptInternal(prompt, expectedReality, nil)
+}
+
+func (machine *Machine) promptInternal(
+	prompt []data.Chord,
+	expectedReality *geometry.IcosahedralManifold,
+	expectedField *geometry.ExpectedField,
 ) chan byte {
 	out := make(chan byte)
 
@@ -415,6 +477,9 @@ func (machine *Machine) Prompt(
 
 			vetoBlock := seedBlock(zNext, anchor, lastEvents)
 			expectedCtx.Cubes[4][vetoBlock] = data.ChordOR(&expectedCtx.Cubes[4][vetoBlock], &anchor)
+			if anchor.ActiveCount() > 0 {
+				machine.anchorVetoEvents.Add(1)
+			}
 			expRealPtr := unsafe.Pointer(&expectedCtx)
 
 			// Momentum Decay: Physics-based structural friction
@@ -431,6 +496,7 @@ func (machine *Machine) Prompt(
 			blockIndex := seedBlock(zNext, anchor, lastEvents)
 
 			cycleGuard := make(map[int]struct{}, maxReasoningHops)
+			retained := 0
 			lastBestIdx := -1
 			previousScore := -1.0
 			for range maxReasoningHops {
@@ -439,14 +505,31 @@ func (machine *Machine) Prompt(
 					break
 				}
 
-				bestIdx, score, err := machine.bestFill(
-					dictionaryPtr,
-					dictionaryN,
-					unsafe.Pointer(&queryCtx),
-					expRealPtr,
-					0,
-					unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+				var (
+					bestIdx int
+					score   float64
+					err     error
 				)
+				if expectedField != nil {
+					bestIdx, score, err = machine.bestFillWithField(
+						dictionaryPtr,
+						dictionaryN,
+						unsafe.Pointer(&queryCtx),
+						expRealPtr,
+						expectedField,
+						0,
+						unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+					)
+				} else {
+					bestIdx, score, err = machine.bestFill(
+						dictionaryPtr,
+						dictionaryN,
+						unsafe.Pointer(&queryCtx),
+						expRealPtr,
+						0,
+						unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+					)
+				}
 
 				if err != nil {
 					console.Error(err, "context", "BestFill generation")
@@ -460,6 +543,17 @@ func (machine *Machine) Prompt(
 
 				resolvedIdx := bestIdx + dictionaryOffset
 				lastBestIdx = bestIdx
+
+				if machine.branchPolicy.Enabled && previousScore >= 0 {
+					margin := score - previousScore
+					if margin < machine.branchPolicy.MarginThreshold {
+						machine.lowMarginEvents.Add(1)
+						if retained < machine.branchPolicy.MaxRetained {
+							machine.retainedBranches.Add(1)
+							retained++
+						}
+					}
+				}
 				if _, seen := cycleGuard[resolvedIdx]; seen {
 					break
 				}
@@ -528,7 +622,35 @@ func MachineWithBestFill(fn bestFillFn) machineOpts {
 	return func(machine *Machine) {
 		if fn != nil {
 			machine.bestFill = fn
+			machine.bestFillWithField = func(
+				dictionary unsafe.Pointer,
+				numChords int,
+				context unsafe.Pointer,
+				expectedReality unsafe.Pointer,
+				_ *geometry.ExpectedField,
+				mode int,
+				geodesicLUT unsafe.Pointer,
+			) (int, float64, error) {
+				return fn(dictionary, numChords, context, expectedReality, mode, geodesicLUT)
+			}
 		}
+	}
+}
+
+func MachineWithBranchPolicy(policy BranchPolicy) machineOpts {
+	return func(machine *Machine) {
+		if policy.MaxRetained <= 0 {
+			policy.MaxRetained = 1
+		}
+		machine.branchPolicy = policy
+	}
+}
+
+func (machine *Machine) Observability() ObservabilitySnapshot {
+	return ObservabilitySnapshot{
+		LowMarginEvents:  machine.lowMarginEvents.Load(),
+		RetainedBranches: machine.retainedBranches.Load(),
+		AnchorVetoEvents: machine.anchorVetoEvents.Load(),
 	}
 }
 

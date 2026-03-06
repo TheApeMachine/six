@@ -24,5 +24,135 @@ Before the local micro-block crosses the entropy peak and loses discriminative c
 
 If the global macro-density of the 27-block structure itself reaches the 0.45 threshold, the system executes an $O(1)$ \textit{Virtual Mitosis}. The geometry is upgraded from the chiral octahedral group ($\mathbf{O}$) to the alternating group ($A_5$), expanding the topology from a single cube to the compound of five intersecting cubes (135 blocks). 
 
+\subsection{State Space Analysis: Topology as a Capacity Multiplier}
+\label{sec:state_space}
+
+The fundamental architectural insight is that \emph{representational
+capacity can be increased by adding topology rather than parameters}.
+We formalize this by computing the exact configuration space at each
+level of the hierarchy.
+
+\paragraph{Level 1: The 512-Bit Chord.}
+A single chord occupies $D = 512$ bits of storage and admits
+$2^{512} \approx 1.34 \times 10^{154}$ possible states.  This is
+the Shannon-limited micro-state.
+
+\paragraph{Level 2: The MacroCube ($3 \times 3 \times 3$).}
+Twenty-seven chords are arranged in a rigid lattice, yielding:
+\begin{equation}
+  |\Omega_{\text{cube}}| = (2^{512})^{27} = 2^{13{,}824}
+  \approx 10^{4{,}162}
+  \label{eq:state_cube}
+\end{equation}
+The memory footprint is $27 \times 64 = 1{,}728$ bytes $\approx 1.7$~KB.
+
+\paragraph{Level 3: The Icosahedral Manifold (Post-Mitosis).}
+Five MacroCubes expand the lattice to 135 chords:
+\begin{equation}
+  |\Omega_{\text{ico}}| = 2^{135 \times 512} = 2^{69{,}120}
+  \approx 10^{20{,}809}
+  \label{eq:state_ico}
+\end{equation}
+Memory: $135 \times 64 + 2 = 8{,}642$ bytes $\approx 8.64$~KB.
+
+\paragraph{Level 4: Rotational State Multiplier.}
+The 16-bit rotation header tracks orientational history.  In Cubic mode
+($|\mathbf{O}| = 24$), each distinct bit configuration can exist in 24
+geometrically distinguishable states.  Post-mitosis ($|A_5| = 60$), this
+rises to 60.  Combined with the 4-bit winding counter
+($2^4 = 16$ winding states):
+
+\begin{equation}
+  |\Omega_{\text{total}}| = 2^{69{,}120} \times 60 \times 16
+  = 2^{69{,}120} \times 960
+  \label{eq:state_total}
+\end{equation}
+
+Because the $A_5$ rotations are \emph{non-commutative}, the
+rotational path matters---two sequences of operations that arrive at
+the same final $A_5$ element via different paths produce identical
+bit configurations but encode different syntactic histories in the
+intermediate states.  The effective state space is therefore
+\emph{path-dependent}, further multiplying the distinguishable
+configurations beyond the static count.
+
+\paragraph{Comparison with Parameter-Count Scaling.}
+Table~\ref{tab:capacity_comparison} contrasts the Sensorium's
+topology-driven capacity with conventional parameter scaling.
+
+\begin{table}[h]
+  \centering
+  \caption{Memory footprint vs.\ representational state space.  The
+           Sensorium achieves exponentially larger state spaces per byte
+           by exploiting group-theoretic multipliers rather than
+           increasing parameter counts.}
+  \label{tab:capacity_comparison}
+  \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Architecture}
+      & \textbf{Memory}
+      & \textbf{State Space}
+      & \textbf{$\log_{10}$ States/KB} \\
+    \midrule
+    512-dim float32 embedding
+      & 2 KB
+      & $\sim 2^{16{,}384}$ (continuous)
+      & $\sim 2{,}466$ \\
+    GPT-2 ($117$M params, float16)
+      & 234 MB
+      & $\sim 2^{1.87 \times 10^9}$
+      & $\sim 2{,}406$ \\
+    \addlinespace
+    Single MacroCube (Cubic)
+      & 1.7 KB
+      & $2^{13{,}824} \times 24 \times 16$
+      & $\sim 2{,}450$ \\
+    Single IcosahedralManifold
+      & 8.64 KB
+      & $2^{69{,}120} \times 60 \times 16$
+      & $\sim 2{,}408$ \\
+    1M Manifolds (GPU batch)
+      & 8.6 GB
+      & $(2^{69{,}120})^{10^6}$
+      & $\sim 2{,}408$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+\noindent The key observation is that the states-per-KB ratio is
+\emph{comparable} across architectures---because information density is
+ultimately governed by Shannon's limit on the bits themselves.  What
+differs is the \emph{structure} of the state space:
+
+\begin{itemize}[nosep]
+  \item In a flat embedding, all $2^{D}$ states are reachable by
+        arbitrary bit flips.  Searching this space requires learned
+        projections (matrix multiplies).
+  \item In the manifold architecture, the state space is
+        \emph{factored} into $2^{D} \times |G| \times |\text{Winding}|$
+        where $|G|$ is the symmetry group order.  The group structure
+        imposes a \emph{coordinate system} on the state space, making
+        navigation $O(1)$ via the Geodesic LUT.
+\end{itemize}
+
+The practical consequence: 1 million IcosahedralManifolds fit in
+$\sim$8.6~GB of VRAM (a single consumer GPU), yet the aggregate
+state space dwarfs the parameter space of the largest language models.
+Because all operations reduce to popcount and integer comparison
+(no floating-point matrix multiplies), the entire memory substrate is
+scanned in milliseconds.
+
 \subsection{Implications for Scaling}
-Through this mechanism, the architecture explicitly respects the Shannon limit at the micro-state (the 512-bit chord) but successfully circumvents it at the macro-state. By converting scalar density pressure into geometric expansion, the system naturally diffuses semantic heat. This allows the architecture to encode practically unbounded, highly contextual sequences inside an aggressively constrained 8.64 KB memory footprint, enabling $O(1)$ ambiguity resolution over millions of nested manifolds natively on consumer GPU hardware.
+Through this mechanism, the architecture explicitly respects the Shannon
+limit at the micro-state (the 512-bit chord) but circumvents it at the
+macro-state by converting scalar density pressure into geometric expansion.
+The system naturally diffuses semantic heat across the manifold topology,
+enabling $O(1)$ ambiguity resolution over millions of manifolds natively
+on consumer GPU hardware.
+
+The analogy to physical systems is precise: protein folding achieves
+astronomically large conformational spaces ($\gg 10^{100}$) from
+sequences of only thousands of atoms, because \emph{spatial geometry
+multiplies the configuration space exponentially}.  The Sensorium
+exploits the same principle: values $\times$ permutations $\times$
+rotational paths---topology as a capacity multiplier.

@@ -1,0 +1,81 @@
+% ============================================================================
+% TOPOLOGICAL NEURAL NETWORKS AND THE EMERGING TDL FRONTIER
+% ============================================================================
+\subsection{Topological Neural Networks and the Symbolic$\leftrightarrow$Neuro Frontier}
+\label{sec:related_topological_nn}
+
+\paragraph{Topological Graph Neural Networks.}
+Horn et al.\ \citep{horn2022togl} introduced TOGL, a layer that infuses
+Graph Neural Networks with global topological information derived from
+persistent homology.  Their key contribution is demonstrating that standard
+GNN message-passing---which propagates information along edges---misses
+structural invariants that are only visible at the \emph{topological}
+level: connected components ($H_0$), loops ($H_1$), and voids ($H_2$).
+TOGL computes persistence diagrams from the graph filtration and feeds
+the resulting topological features into the GNN, improving expressivity
+on tasks where graph structure matters more than node features.
+
+The Sensorium Manifold addresses the same expressivity gap through a
+fundamentally different mechanism.  Rather than computing topological
+summaries \emph{post hoc} from a graph filtration, our architecture
+\emph{embeds data into a topological space ab initio}:
+\begin{itemize}[nosep]
+  \item \textbf{$H_0$ (connected components):}  Analogous to the
+        carrier/manifold partitioning in the PrimeField---each frozen
+        manifold is a distinct connected component of the memory substrate.
+  \item \textbf{$H_1$ (loops):}  The toroidal phase trajectory on the
+        $S^1 \times S^1$ EigenMode torus is a native $H_1$ structure---generation
+        terminates when the phase trajectory closes a loop
+        (\Cref{sec:geometric_closure}).
+  \item \textbf{Filtration:}  The Virtual Mitosis threshold ($\rho \geq 0.45$)
+        defines a natural filtration over the manifold space: as chord
+        density increases, topological complexity grows from a single
+        MacroCube (Cubic mode) to the full $A_5$ icosahedral manifold.
+\end{itemize}
+
+The trade-off is computational: TOGL computes persistence diagrams (which
+can be expensive for large graphs) to \emph{detect} topology; our system
+does not detect topology---it \emph{is} the topology.  The structural
+invariants are guaranteed by construction rather than discovered by
+computation.
+
+\paragraph{Topological Deep Learning as the New Frontier.}
+Papillon et al.\ \citep{papillon2024tdl} position topological deep learning
+(TDL) as the next frontier for relational learning, arguing that graph-based
+representations are fundamentally limited to pairwise relationships, while
+real-world data exhibits higher-order interactions (simplicial complexes,
+cell complexes, hypergraphs).  Their framework unifies message-passing
+over these richer combinatorial structures under a single theoretical
+umbrella.
+
+The Sensorium's Chord superposition naturally encodes higher-order
+relationships: when $n$ bytes are superposed via \texttt{ChordOR}, the
+resulting 512-bit pattern captures all $\binom{n}{k}$ subset overlaps
+simultaneously through the popcount inner product.  This is not pairwise
+attention---it is a holographic encoding where every subset of the input
+contributes to the structural fingerprint.  The $A_5$ rotational path
+then imposes a strict ordering on these higher-order relationships,
+converting unstructured set-overlap into geometrically precise sequence
+encoding.
+
+\paragraph{The Symbolic$\leftrightarrow$Neuro$\leftrightarrow$Symbolic Pipeline.}
+A broader trend in 2024--2025 research involves ``Symbolic $\to$ Neuro
+$\to$ Symbolic'' pipelines: structured data is mapped to a vector space,
+processed via geometric operations, and reconstructed as interpretable
+symbols.  The Sensorium implements a maximally compressed version of this
+pipeline:
+\begin{enumerate}[nosep]
+  \item \textbf{Symbolic $\to$ Geometric:}  Raw bytes are deterministically
+        mapped to 512-bit Chords and inserted into the $A_5$ rotational
+        manifold.  No learning.
+  \item \textbf{Geometric Processing:}  BestFill executes massively parallel
+        popcount resonance search across the memory substrate, modulated
+        by EigenMode toroidal steering.
+  \item \textbf{Geometric $\to$ Symbolic:}  Retrieved manifolds are decoded
+        back to byte sequences via readout, producing interpretable output.
+\end{enumerate}
+The entire pipeline is deterministic, invertible (via the Geodesic LUT),
+and executes without gradient descent.  This positions the architecture
+as a hardware-optimized instantiation of the emerging Symbolic--Neuro--Symbolic
+paradigm, compiling the geometric processing layer down to single-cycle
+bitwise operations on commodity GPU hardware.

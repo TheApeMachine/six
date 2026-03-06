@@ -17,6 +17,7 @@ func BestFillMetalPacked(
 	_ unsafe.Pointer,
 	_ unsafe.Pointer,
 	_ unsafe.Pointer,
+	_ unsafe.Pointer,
 ) (uint64, error) {
 	return 0, errors.New("metal backend unavailable")
 }

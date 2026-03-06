@@ -2,8 +2,10 @@ package geometry
 
 import (
 	"testing"
+	"unsafe"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/theapemachine/six/numeric"
 )
 
 func TestManifoldHeader(t *testing.T) {
@@ -48,4 +50,8 @@ func TestManifoldHeader(t *testing.T) {
 	assert.Equal(t, uint8(1), header.State())
 	assert.Equal(t, uint8(59), header.RotState())
 	assert.Equal(t, uint8(3), header.Winding())
+}
+
+func TestIcosahedralManifold_LayoutSize(t *testing.T) {
+	assert.Equal(t, numeric.ManifoldBytes, int(unsafe.Sizeof(IcosahedralManifold{})))
 }

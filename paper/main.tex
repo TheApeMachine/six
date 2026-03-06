@@ -140,30 +140,78 @@
 
 \maketitle
 
-\section{Architecture}
+% ============================================================================
+% ABSTRACT
+% ============================================================================
+\InputIfFileExists{include/sections/abstract.tex}{}{}
 
-\graphicspath{{include/architecture/}}
+% ============================================================================
+% 1. INTRODUCTION
+% ============================================================================
+\section{Introduction}
+\label{sec:introduction}
 
-\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
-\FloatBarrier
-
-\InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
-\FloatBarrier
-
-\InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
-\FloatBarrier
-
-\InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}
-\FloatBarrier
-
-\InputIfFileExists{include/architecture/related_spectral_embedding.tex}{}{}
-\FloatBarrier
-
-\InputIfFileExists{include/architecture/related_hardware_accel.tex}{}{}
+\InputIfFileExists{include/sections/introduction.tex}{}{}
 \FloatBarrier
 \clearpage
 
-\section{Codegen}
+% ============================================================================
+% 2. SYSTEM ARCHITECTURE
+% ============================================================================
+\section{System Architecture}
+\label{sec:system_architecture}
+
+% --- 2.1 The 512-bit Chord Representation ---
+\InputIfFileExists{include/sections/chord_representation.tex}{}{}
+\FloatBarrier
+
+% --- 2.2 The Nested SO(3) Fractal Manifold ---
+\InputIfFileExists{include/sections/manifold_architecture.tex}{}{}
+\FloatBarrier
+
+% --- 2.3 Topological Entropy Routing ---
+\graphicspath{{include/architecture/}}
+\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
+\FloatBarrier
+
+% --- 2.4 Universal Tokenizer and Sequencer ---
+\InputIfFileExists{include/sections/tokenizer_sequencer.tex}{}{}
+\FloatBarrier
+
+% --- 2.5 Toroidal Eigenmode Navigation ---
+\InputIfFileExists{include/sections/eigenmode_navigation.tex}{}{}
+\FloatBarrier
+
+% --- 2.6 PrimeField: The Thermodynamic Trie ---
+\InputIfFileExists{include/sections/primefield_storage.tex}{}{}
+\FloatBarrier
+
+% --- 2.7 The GPU BestFill Pipeline ---
+\InputIfFileExists{include/sections/bestfill_pipeline.tex}{}{}
+\FloatBarrier
+
+% --- 2.8 Generation as a Boundary Value Problem ---
+\InputIfFileExists{include/sections/bvp_generation.tex}{}{}
+\FloatBarrier
+
+% --- 2.9 Hybrid Substrate (PhaseDial Scoring) ---
+\InputIfFileExists{include/sections/hybrid_substrate.tex}{}{}
+\FloatBarrier
+
+% --- 2.10 The Virtual Machine ---
+\InputIfFileExists{include/sections/vm_machine.tex}{}{}
+\FloatBarrier
+\clearpage
+
+% ============================================================================
+% 3. EXPERIMENTS
+% ============================================================================
+\section{Experiments}
+\label{sec:experiments}
+
+% --- 3.1 Code Generation ---
+\subsection{Code Generation}
+\label{sec:codegen_experiments}
 
 \graphicspath{{include/codegen/}}
 
@@ -272,7 +320,9 @@
 \FloatBarrier
 \clearpage
 
-\section{Logic}
+% --- 3.2 Logic ---
+\subsection{Logic}
+\label{sec:logic_experiments}
 
 \graphicspath{{include/logic/}}
 
@@ -286,7 +336,9 @@
 \FloatBarrier
 \clearpage
 
-\section{Phasedial}
+% --- 3.3 PhaseDial ---
+\subsection{PhaseDial}
+\label{sec:phasedial_experiments}
 
 \graphicspath{{include/phasedial/}}
 
@@ -327,7 +379,9 @@
 \FloatBarrier
 \clearpage
 
-\section{Vision}
+% --- 3.4 Vision ---
+\subsection{Vision}
+\label{sec:vision_experiments}
 
 \graphicspath{{include/vision/}}
 
@@ -338,6 +392,72 @@
 \FloatBarrier
 \clearpage
 
+% --- 3.5 Scaling ---
+\subsection{Scaling}
+\label{sec:scaling_experiments}
+
+\graphicspath{{include/scaling/}}
+
+\InputIfFileExists{include/scaling/bestfill_scaling.tex}{}{}
+\InputIfFileExists{include/scaling/compression_ratio.tex}{}{}
+\InputIfFileExists{include/scaling/compression_summary.tex}{}{}
+\InputIfFileExists{include/scaling/sequencer_boundaries.tex}{}{}
+\InputIfFileExists{include/scaling/pipeline_throughput.tex}{}{}
+\FloatBarrier
+\clearpage
+
+% ============================================================================
+% 4. RELATED WORK
+% ============================================================================
+\section{Related Work}
+\label{sec:related}
+
+% Architecture-specific citation sections
+\graphicspath{{include/architecture/}}
+\InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_nvsa_hd.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_manifold_capacity.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_spectral_embedding.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_topological_nn.tex}{}{}
+\FloatBarrier
+\InputIfFileExists{include/architecture/related_hardware_accel.tex}{}{}
+\FloatBarrier
+
+% General related work
+\InputIfFileExists{include/sections/related_work.tex}{}{}
+\FloatBarrier
+\clearpage
+
+% ============================================================================
+% 5. DISCUSSION
+% ============================================================================
+\section{Discussion}
+\label{sec:discussion}
+
+\InputIfFileExists{include/sections/discussion.tex}{}{}
+\FloatBarrier
+\clearpage
+
+% ============================================================================
+% 6. CONCLUSION
+% ============================================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+\InputIfFileExists{include/sections/conclusion.tex}{}{}
+\FloatBarrier
+
+% ============================================================================
+% REFERENCES
+% ============================================================================
 \bibliographystyle{plainnat}
 \bibliography{references}
 

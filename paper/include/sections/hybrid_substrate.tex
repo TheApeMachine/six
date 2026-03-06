@@ -1,0 +1,43 @@
+% ============================================================================
+% HYBRID SUBSTRATE: BITWISE FILTER + PHASE DIAL SCORING
+% ============================================================================
+\subsection{Two-Phase Retrieval Pipeline}
+\label{sec:hybrid_pipeline}
+
+The HybridSubstrate provides an alternative retrieval pathway that combines
+the speed of bitwise filtering with the precision of continuous complex
+scoring:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Phase 1 --- Bitwise Filter:}
+        All memory entries are scored against the context Chord using
+        popcount-based resonance (identical to BestFill Pass 4).  The top-$K$
+        candidates are retained.
+  \item \textbf{Phase 2 --- PhaseDial Scoring:}
+        The surviving candidates are evaluated against a complex-valued
+        \emph{PhaseDial} fingerprint using full complex cosine similarity:
+        \begin{equation}
+          \text{sim}(\mathbf{a}, \mathbf{b}) =
+          \frac{\operatorname{Re}\!\left(\sum_i \bar{a}_i \, b_i\right)}
+               {\|\mathbf{a}\| \cdot \|\mathbf{b}\|}
+          \label{eq:complex_cosine}
+        \end{equation}
+  \item \textbf{Phase 3 --- Readout:}
+        The payload of the highest-scoring entry is returned.
+\end{enumerate}
+
+\subsection{Geodesic Phase Scanning}
+\label{sec:geodesic_scan}
+
+The GeodesicScan sweeps a seed PhaseDial fingerprint through $360^\circ$ of
+phase rotation in discrete steps, ranking all candidates at each angle.
+This produces a full rotational landscape revealing:
+\begin{itemize}[nosep]
+  \item The phase angle at which margin (score gap between 1st and 2nd
+        candidates) is maximized---indicating maximum discriminability.
+  \item Entropy variations across the rotation, revealing structural
+        symmetries in the memory substrate.
+\end{itemize}
+
+% TODO: Add geodesic scan heatmap visualization.
+% TODO: Report phase scanning overhead vs accuracy improvement.

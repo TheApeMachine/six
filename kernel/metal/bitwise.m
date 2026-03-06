@@ -50,7 +50,7 @@ int init_metal(const char* metallib_path) {
     return initResult;
 }
 
-uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, const void* active_context_ptr, const void* expected_reality_ptr, const void* geodesic_lut_ptr) {
+uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, const void* active_context_ptr, const void* expected_reality_ptr, const void* expected_precision_ptr, const void* geodesic_lut_ptr) {
     if (!bestFillPipeline) return 0;
     if (num_chords == 0) return 0;
 
@@ -85,12 +85,14 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
         static id<MTLBuffer> cachedCtxBuffer = nil;
         static id<MTLBuffer> cachedResultBuffer = nil;
         static id<MTLBuffer> cachedExpectedBuffer = nil;
+        static id<MTLBuffer> cachedPrecisionBuffer = nil;
         static id<MTLBuffer> cachedLutBuffer = nil;
 
         if (cachedCtxBuffer == nil) {
             cachedCtxBuffer = [device newBufferWithLength:8648 options:MTLResourceStorageModeShared];
             cachedResultBuffer = [device newBufferWithLength:8 options:MTLResourceStorageModeShared];
             cachedExpectedBuffer = [device newBufferWithLength:8648 options:MTLResourceStorageModeShared];
+            cachedPrecisionBuffer = [device newBufferWithLength:(5 * 27 * sizeof(uint16_t)) options:MTLResourceStorageModeShared];
             cachedLutBuffer = [device newBufferWithLength:3600 options:MTLResourceStorageModeShared];
         }
 
@@ -110,7 +112,12 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
         
         if (geodesic_lut_ptr) {
             memcpy([cachedLutBuffer contents], geodesic_lut_ptr, 3600);
-            [computeEncoder setBuffer:cachedLutBuffer offset:0 atIndex:6];
+            [computeEncoder setBuffer:cachedLutBuffer offset:0 atIndex:7];
+        }
+
+        if (expected_precision_ptr) {
+            memcpy([cachedPrecisionBuffer contents], expected_precision_ptr, (5 * 27 * sizeof(uint16_t)));
+            [computeEncoder setBuffer:cachedPrecisionBuffer offset:0 atIndex:6];
         }
 
         [computeEncoder setBytes:&num_chords length:sizeof(uint32_t) atIndex:3];

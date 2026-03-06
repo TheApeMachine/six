@@ -1,0 +1,6 @@
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{pipeline_throughput.pdf}
+    \caption{(Left) Latency breakdown for the full tokenizer → LSM store → BestFill pipeline. Ingestion (tokenize + Morton-encode + LSM insert) dominates at large corpus sizes; BestFill query time remains sub-millisecond due to collision-compression reducing the effective dictionary. (Right) Ingestion throughput in MB/s stabilizes as the pipeline reaches steady-state memory bandwidth.}
+    \label{fig:pipeline_throughput}
+\end{figure}

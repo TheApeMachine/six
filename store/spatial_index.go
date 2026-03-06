@@ -149,6 +149,13 @@ func (idx *LSMSpatialIndex) mergeAndDeduplicate(
 	return outKeys, outVals
 }
 
+// Count returns the number of unique entries stored across all LSM levels.
+func (idx *LSMSpatialIndex) Count() int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.totalCount
+}
+
 /*
 Lookup performs key → chord lookup. Binary search across all LSM levels.
 Returns the chord and true if found, zero chord and false otherwise.

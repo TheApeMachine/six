@@ -113,6 +113,64 @@ func TestMachineIntegration_ExpectedRealityPropagatesToBestFill(t *testing.T) {
 	require.True(t, sawExpectedReality.Load())
 }
 
+func TestMachineIntegration_ExpectedFieldPropagatesToBestFill(t *testing.T) {
+	var sawExpectedField atomic.Bool
+
+	bestFill := func(_ unsafe.Pointer, _ int, _ unsafe.Pointer, expectedReality unsafe.Pointer, _ int, _ unsafe.Pointer) (int, float64, error) {
+		expected := (*geometry.IcosahedralManifold)(expectedReality)
+		if expected.Cubes[0][0].Has(511) {
+			sawExpectedField.Store(true)
+		}
+
+		return 0, 1.0, nil
+	}
+
+	machine, pf := buildIntegrationMachine([][]byte{
+		[]byte("ab"),
+		[]byte("ac"),
+	}, bestFill)
+
+	machine.Start()
+	pf.SetMomentum(100.0)
+
+	expectedField := geometry.NewExpectedField()
+	expectedField.Support[0][0].Set(511)
+
+	out := collectBytes(machine.PromptWithExpectedField(promptToChords("a"), &expectedField))
+	require.NotEmpty(t, out)
+	require.True(t, sawExpectedField.Load())
+}
+
+func TestMachineIntegration_PromptWithExpectedFieldNilAndEmptyMatchesPromptNil(t *testing.T) {
+	bestFill := func(_ unsafe.Pointer, _ int, _ unsafe.Pointer, _ unsafe.Pointer, _ int, _ unsafe.Pointer) (int, float64, error) {
+		return 0, 1.0, nil
+	}
+
+	inputs := [][]byte{
+		[]byte("ab"),
+		[]byte("ac"),
+	}
+
+	machineNil, pfNil := buildIntegrationMachine(inputs, bestFill)
+	machineNil.Start()
+	pfNil.SetMomentum(100.0)
+	outputNil := collectBytes(machineNil.Prompt(promptToChords("a"), nil))
+
+	machineFieldNil, pfFieldNil := buildIntegrationMachine(inputs, bestFill)
+	machineFieldNil.Start()
+	pfFieldNil.SetMomentum(100.0)
+	outputFieldNil := collectBytes(machineFieldNil.PromptWithExpectedField(promptToChords("a"), nil))
+
+	machineFieldEmpty, pfFieldEmpty := buildIntegrationMachine(inputs, bestFill)
+	machineFieldEmpty.Start()
+	pfFieldEmpty.SetMomentum(100.0)
+	emptyField := geometry.NewExpectedField()
+	outputFieldEmpty := collectBytes(machineFieldEmpty.PromptWithExpectedField(promptToChords("a"), &emptyField))
+
+	require.Equal(t, outputNil, outputFieldNil)
+	require.Equal(t, outputNil, outputFieldEmpty)
+}
+
 func TestMachineIntegration_PromptFillsNextTokenFromCorpus(t *testing.T) {
 	machine, pf := buildIntegrationMachine([][]byte{
 		[]byte("ab"),

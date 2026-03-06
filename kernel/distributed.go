@@ -18,14 +18,15 @@ import (
 )
 
 const (
-	messageTypeWorkRequest  = 1
-	messageTypeWorkResponse = 2
+	messageTypeWorkRequest  = 11
+	messageTypeWorkResponse = 12
 
 	messageErrNone      = 0
 	messageErrInvalid   = 1
 	messageErrCompute   = 2
 	messageDataSize     = 32
-	messagePointerCount = 4
+	messagePointerCount = 5
+	precisionBytes      = 5 * 27 * 2
 )
 
 func distributedWorkersFromEnv() []string {
@@ -60,6 +61,7 @@ func bestFillDistributedPacked(
 	numChords int,
 	contextPtr unsafe.Pointer,
 	expectedPtr unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if len(workers) == 0 {
@@ -83,8 +85,15 @@ func bestFillDistributedPacked(
 	}
 
 	var lutBytes []byte
+	var precisionData []byte
 	if geodesicLUT != nil {
 		lutBytes, err = numeric.PtrToBytes(geodesicLUT, numeric.GeodesicMatrixSize)
+		if err != nil {
+			return 0, err
+		}
+	}
+	if expectedPrecision != nil {
+		precisionData, err = numeric.PtrToBytes(expectedPrecision, precisionBytes)
 		if err != nil {
 			return 0, err
 		}
@@ -92,6 +101,7 @@ func bestFillDistributedPacked(
 
 	ctxCopy := append([]byte(nil), contextBytes...)
 	expCopy := append([]byte(nil), expectedBytes...)
+	precisionCopy := append([]byte(nil), precisionData...)
 	lutCopy := append([]byte(nil), lutBytes...)
 
 	chunkSize := config.System.Chunk
@@ -121,9 +131,9 @@ func bestFillDistributedPacked(
 				shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*numeric.ManifoldBytes)
 				dictCopy := append([]byte(nil), shardBytes...)
 
-				packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, expCopy, lutCopy, timeout)
+				packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, expCopy, precisionCopy, lutCopy, timeout)
 				if callErr != nil {
-					fallbackPacked, fbErr := cpu.BestFillCPUPackedBytes(dictCopy, end-start, ctxCopy, expCopy, lutCopy)
+					fallbackPacked, fbErr := cpu.BestFillCPUPackedBytes(dictCopy, end-start, ctxCopy, expCopy, precisionCopy, lutCopy)
 					if fbErr != nil {
 						errCh <- callErr
 						return
@@ -148,7 +158,7 @@ func bestFillDistributedPacked(
 				}
 				end := min(start+chunkSize, numChords)
 				shardPtr := unsafe.Pointer(uintptr(dictionary) + uintptr(start*numeric.ManifoldBytes))
-				packed, runErr := BestFillLocalPacked(shardPtr, end-start, contextPtr, expectedPtr, geodesicLUT)
+				packed, runErr := BestFillLocalPacked(shardPtr, end-start, contextPtr, expectedPtr, expectedPrecision, geodesicLUT)
 				if runErr != nil {
 					errCh <- runErr
 					return
@@ -174,6 +184,7 @@ func remoteBestFillPacked(
 	numChords int,
 	context []byte,
 	expected []byte,
+	precision []byte,
 	geodesicLUT []byte,
 	timeout time.Duration,
 ) (uint64, error) {
@@ -190,7 +201,7 @@ func remoteBestFillPacked(
 	enc := capnp.NewEncoder(conn)
 	dec := capnp.NewDecoder(conn)
 
-	msg, err := newWorkRequestMessage(dictionary, numChords, context, expected, geodesicLUT)
+	msg, err := newWorkRequestMessage(dictionary, numChords, context, expected, precision, geodesicLUT)
 	if err != nil {
 		return 0, err
 	}
@@ -251,7 +262,7 @@ func handleDistributedConn(conn net.Conn) {
 			return
 		}
 
-		dict, numChords, ctxBytes, expBytes, lutBytes, parseErr := parseWorkRequestMessage(msg)
+		dict, numChords, ctxBytes, expBytes, precisionBytes, lutBytes, parseErr := parseWorkRequestMessage(msg)
 		if parseErr != nil {
 			resp, _ := newWorkResponseMessage(0, messageErrInvalid)
 			_ = enc.Encode(resp)
@@ -263,6 +274,7 @@ func handleDistributedConn(conn net.Conn) {
 			numChords,
 			numeric.FirstPtr(ctxBytes),
 			numeric.FirstPtr(expBytes),
+			numeric.FirstPtr(precisionBytes),
 			numeric.FirstPtr(lutBytes),
 		)
 		if runErr != nil {
@@ -283,6 +295,7 @@ func newWorkRequestMessage(
 	numChords int,
 	context []byte,
 	expected []byte,
+	precision []byte,
 	geodesicLUT []byte,
 ) (*capnp.Message, error) {
 	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
@@ -306,7 +319,10 @@ func newWorkRequestMessage(
 	if err = st.SetData(2, expected); err != nil {
 		return nil, err
 	}
-	if err = st.SetData(3, geodesicLUT); err != nil {
+	if err = st.SetData(3, precision); err != nil {
+		return nil, err
+	}
+	if err = st.SetData(4, geodesicLUT); err != nil {
 		return nil, err
 	}
 
@@ -331,44 +347,54 @@ func newWorkResponseMessage(packed uint64, code uint32) (*capnp.Message, error) 
 	return msg, nil
 }
 
-func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, []byte, []byte, []byte, error) {
+func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, []byte, []byte, []byte, []byte, error) {
 	root, err := msg.Root()
 	if err != nil {
-		return nil, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, nil, err
 	}
 	st := root.Struct()
 	if st.Uint16(0) != messageTypeWorkRequest {
-		return nil, 0, nil, nil, nil, fmt.Errorf("unexpected message type: %d", st.Uint16(0))
+		return nil, 0, nil, nil, nil, nil, fmt.Errorf("unexpected message type: %d", st.Uint16(0))
 	}
 
 	numChords := int(st.Uint32(4))
 
 	dict, err := readStructData(st, 0)
 	if err != nil {
-		return nil, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, nil, err
 	}
 	context, err := readStructData(st, 1)
 	if err != nil {
-		return nil, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, nil, err
 	}
 	expected, err := readStructData(st, 2)
 	if err != nil {
-		return nil, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, nil, err
 	}
-	lut, err := readStructData(st, 3)
+	precision, err := readStructData(st, 3)
 	if err != nil {
-		return nil, 0, nil, nil, nil, err
+		return nil, 0, nil, nil, nil, nil, err
+	}
+	lut, err := readStructData(st, 4)
+	if err != nil {
+		return nil, 0, nil, nil, nil, nil, err
 	}
 
 	if len(dict) < numChords*numeric.ManifoldBytes {
-		return nil, 0, nil, nil, nil, fmt.Errorf("invalid dictionary payload")
+		return nil, 0, nil, nil, nil, nil, fmt.Errorf("invalid dictionary payload")
 	}
 
 	if len(context) < numeric.ManifoldBytes || len(expected) < numeric.ManifoldBytes {
-		return nil, 0, nil, nil, nil, fmt.Errorf("invalid context or expected payload")
+		return nil, 0, nil, nil, nil, nil, fmt.Errorf("invalid context or expected payload")
+	}
+	if len(precision) > 0 && len(precision) < precisionBytes {
+		return nil, 0, nil, nil, nil, nil, fmt.Errorf("invalid precision payload")
+	}
+	if len(lut) > 0 && len(lut) < numeric.GeodesicMatrixSize {
+		return nil, 0, nil, nil, nil, nil, fmt.Errorf("invalid geodesic payload")
 	}
 
-	return dict, numChords, context, expected, lut, nil
+	return dict, numChords, context, expected, precision, lut, nil
 }
 
 func parseWorkResponseMessage(msg *capnp.Message) (uint64, uint32, error) {

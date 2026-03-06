@@ -1,0 +1,141 @@
+% ============================================================================
+% THE GPU BESTFILL PIPELINE
+% ============================================================================
+\subsection{Problem Statement}
+\label{sec:bestfill_problem}
+
+Given a context chord $\mathbf{q} \in \{0,1\}^D$ and a
+dictionary (PrimeField) of $N$ stored IcosahedralManifolds
+$\{\mathcal{D}_i\}_{i=1}^{N}$, the BestFill operation returns:
+
+\begin{equation}
+  i^* = \operatorname*{arg\,max}_{1 \leq i \leq N}\;
+        \text{Score}(\mathbf{q}, \mathcal{D}_i)
+  \label{eq:bestfill_argmax}
+\end{equation}
+
+Subject to the constraint that $\mathbf{q}$ and $\mathcal{D}_i$ pass all
+pre-filter checks.  This is the system's sole inference primitive---all
+generation, retrieval, and reasoning reduce to repeated BestFill calls.
+
+\subsection{The 5-Pass Retrieval Pipeline}
+\label{sec:five_pass}
+
+The GPU executes a hierarchical elimination pipeline designed to exploit
+SIMT warp architecture.  Each pass is strictly monotone:
+$N_{\text{pass}_{k+1}} \leq N_{\text{pass}_k}$.
+
+\paragraph{Pass 1: Winding Filter (Integer, $O(1)$ per candidate).}
+Extract the 4-bit winding counter $w_i$ from header:
+\begin{equation}
+  w_i = \bigl(\text{Header}_i \gg 5\bigr) \mathbin{\&} 0\text{xF}
+  \label{eq:winding}
+\end{equation}
+Reject candidates where $w_i \neq w_q$.  This eliminates manifolds from
+incompatible syntactic depths.
+
+\paragraph{Pass 2: Group State Filter (Integer, $O(1)$).}
+Extract the 1-bit state flag $\sigma_i = \text{Header}_i \gg 15$.
+Reject candidates where $\sigma_i \neq \sigma_q$ (Cubic $\neq$
+Icosahedral).
+
+\paragraph{Pass 3: Coarse Popcount (Bitwise SIMD, $O(D/w)$).}
+Compute the condensed macro-shadow chord $\hat{\mathbf{d}}_i$
+(ChordOR over all 27 blocks of \texttt{Cubes[0]}) and evaluate:
+
+\begin{equation}
+  \hat{s}_i = \texttt{popcount}(\mathbf{q} \mathbin{\&} \hat{\mathbf{d}}_i)
+  \label{eq:coarse_score}
+\end{equation}
+
+Candidates with $\hat{s}_i < \tau_{\text{coarse}}$ are discarded before
+the expensive full-structure comparison.
+
+\paragraph{Pass 4: Dense Popcount (Memory Bandwidth, $O(135 \cdot D/w)$).}
+For surviving candidates, compute the full FillScore over all active blocks:
+
+\begin{equation}
+  \text{Score}_i =
+    \frac{\sum_{c=0}^{4}\sum_{j=0}^{26}
+          \texttt{popcount}\bigl(\mathbf{q} \mathbin{\&}
+                                \mathcal{D}_i.\text{Cubes}[c][j]\bigr)}
+         {\sum_{c,j}
+          \texttt{popcount}\bigl(\mathbf{q} \mathbin{\&}
+                                \mathcal{D}_i.\text{Cubes}[c][j]\bigr)
+          \;+\;
+          \sum_{c,j}
+          \texttt{popcount}\bigl(\mathcal{D}_i.\text{Cubes}[c][j]
+                                \mathbin{\&} \lnot\,\mathbf{q}\bigr)
+          \;+\; 1}
+  \label{eq:dense_score}
+\end{equation}
+
+This is the multi-block generalization of FillScore
+(\Cref{eq:fill_score}), summing resonance and noise across all 135
+chord fields.  The $+1$ in the denominator prevents division by zero.
+
+\paragraph{Pass 5: Geodesic LUT Disambiguation (L1 Cache, $O(1)$).}
+For tied scores, the 6-bit \texttt{RotState} indices $r_i, r_j$ of
+competing candidates are used to fetch exact geometric distances from the
+precomputed $60 \times 60$ Unified Geodesic Matrix:
+
+\begin{equation}
+  d(r_i, r_j) = \arccos\bigl(|q_i \cdot q_j|\bigr), \qquad
+  d \in [0, \pi]
+  \label{eq:geodesic_lut}
+\end{equation}
+
+The candidate with shorter geodesic distance to the query state wins.
+The entire matrix occupies 3,600 bytes and fits in L1 cache, making
+lookups free relative to memory bandwidth.
+
+\subsection{Packed Score Representation}
+\label{sec:packed_score}
+
+To enable lock-free parallel reduction across GPU threads, the score
+and index are packed into a single atomic \texttt{uint64}:
+
+\begin{equation}
+  \text{packed} = \bigl(\lfloor \text{Score} \times 2^{32}\rfloor \ll 32\bigr)
+                  \;\big|\; \text{Index}
+  \label{eq:packed}
+\end{equation}
+
+The winner is determined by a single \texttt{AtomicMax} operation per
+thread group.  Because the score occupies the high 32 bits, lexicographic
+integer comparison correctly preserves score ordering.
+
+\subsection{Multi-Backend Dispatch}
+\label{sec:multi_backend}
+
+The kernel dispatch layer supports Metal (Apple Silicon), CUDA (NVIDIA),
+and CPU (fallback) backends with automatic fallback ordering.  For large
+dictionaries ($N > N_{\text{shard}}$), heterogeneous local sharding
+distributes work:
+
+\begin{equation}
+  i^* = \operatorname*{arg\,max}_{b \in \text{Backends}}
+        \operatorname*{arg\,max}_{i \in \text{Shard}(b)}
+        \text{Score}(\mathbf{q}, \mathcal{D}_i)
+  \label{eq:hetero_shard}
+\end{equation}
+
+Each backend atomically publishes its local winner via
+\texttt{CompareAndSwap} on the global packed score.
+
+\subsection{Expected Reality Modulation}
+\label{sec:expected_reality}
+
+BestFill accepts an optional \emph{ExpectedReality} manifold
+$\mathbf{e} \in \{0,1\}^D$---a structural template representing the
+anticipated shape of the continuation.  When provided, the vacuum is
+computed against $\mathbf{e}$ rather than $\mathbf{q}$:
+
+\begin{equation}
+  \mathbf{h} = \mathbf{e} \mathbin{\&} \lnot\,\mathbf{q}
+  \label{eq:expected_reality}
+\end{equation}
+
+and FillScore is evaluated as $\text{FillScore}(\mathbf{h}, \mathcal{D}_i)$,
+enabling the system to search for spans that fill a specific structural
+vacuum rather than merely maximizing context overlap.

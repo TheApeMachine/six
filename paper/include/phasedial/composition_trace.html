@@ -38,7 +38,9 @@
         const yMin = -1;
         const yMax = 1;
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
-        
+
+        const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];
+
         const option = {
             backgroundColor: 'transparent',
             animation: false,
@@ -59,15 +61,21 @@
                 axisLabel: { color: '#475569' },
                 splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } }
             },
-            series: seriesData.map(s => ({
-                name: s.name,
-                type: 'line',
-                data: s.data,
-                smooth: true,
-                symbol: 'none'
-            }))
+            series: seriesData.map((s, i) => {
+                const color = palette[i % palette.length];
+                return {
+                    name: s.name,
+                    type: 'line',
+                    data: s.data,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { color, width: 2 },
+                    itemStyle: { color }
+                };
+            })
         };
         chart.setOption(option);
+
 
     </script>
 </body>
