@@ -1,7 +1,6 @@
 package task
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,15 +9,11 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/stretchr/testify/require"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
+	"github.com/theapemachine/six/experiment/task/phasedial"
+	"github.com/theapemachine/six/experiment/task/textgen"
 )
-
-// slugify turns an experiment name like "Text Classification" into "text_classification"
-func slugify(name string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
-}
 
 func labelValue(label *int) any {
 	if label == nil {
@@ -29,9 +24,12 @@ func labelValue(label *int) any {
 }
 
 func TestPipeline(t *testing.T) {
-	experiments := []PipelineExperiment{
+	experiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
 		classification.NewTextClassificationExperiment(),
+		textgen.NewTextOverlapExperiment(),
+		textgen.NewOutOfCorpusExperiment(),
+		phasedial.NewTorusGeneralizationExperiment(),
 	}
 
 	for _, experiment := range experiments {
@@ -45,155 +43,26 @@ func TestPipeline(t *testing.T) {
 
 			Convey("When: "+experiment.Name()+" produces an outcome", func() {
 				So(pipeline.Run(), ShouldBeNil)
-				type scoreExperiment interface {
-					Score() float64
-				}
-				if scored, ok := experiment.(scoreExperiment); ok {
-					score := scored.Score()
-					So(score, ShouldBeGreaterThanOrEqualTo, 0.0)
-					So(score, ShouldBeLessThanOrEqualTo, 1.0)
-				} else {
-					So(experiment.Outcome())
-				}
 
-				Convey("It should produce the needed paper artifacts", func() {
+				outcome, assertion, expected := experiment.Outcome()
+				So(outcome, assertion, expected)
+
+				Convey("It should have produced the expected artifacts", func() {
 					section := experiment.Section()
-					slug := slugify(experiment.Name())
 
-					// Summary table
-					So(WriteTable(
-						experiment.TableData(),
-						slug+"_summary.tex",
-						section,
-					), ShouldBeNil)
+					// Every experiment should at least have a summary table (implicitly or explicitly)
+					// But we only check the ones defined in Artifacts() or the main summary if we still write it.
+					// Since we moved everything to Artifacts(), we check those.
 
-					_, statErr := os.Stat(
-						filepath.Join(PaperDir(section),
-							slug+"_summary.tex"),
-					)
-					So(statErr, ShouldBeNil)
-
-					// Score breakdown figure: classification → confusion matrix, codegen → bar chart.
-					data := experiment.TableData()
-					if len(data) > 0 {
-						// Check if this experiment provides class labels (classification task).
-						type classLabeler interface {
-							ClassLabels() []string
+					for _, artifact := range experiment.Artifacts() {
+						path := filepath.Join(PaperDir(section), artifact.FileName)
+						if !strings.HasSuffix(path, ".tex") && !strings.HasSuffix(path, ".pdf") && !strings.Contains(path, ".") {
+							// Artifacts without extension are likely charts (which become .pdf)
+							path += ".pdf"
 						}
-						if cl, ok := experiment.(classLabeler); ok {
-							// ── Confusion matrix for classification tasks ──
-							labels := cl.ClassLabels()
-							n := len(labels)
 
-							// Compute predicted labels via k-NN byte similarity.
-							type predictor interface {
-								ComputePredictions()
-							}
-							if pred, ok := experiment.(predictor); ok {
-								pred.ComputePredictions()
-							}
-
-							// Re-fetch data (PredLabel is now populated).
-							data = experiment.TableData()
-
-							matrix := make([][]int, n)
-							for i := range matrix {
-								matrix[i] = make([]int, n)
-							}
-
-							for _, d := range data {
-								trueLabel := d.TrueLabel
-								predLabel := d.PredLabel
-								if trueLabel == nil || predLabel == nil {
-									t.Logf("skipping confusion matrix entry idx=%d: missing labels true=%v pred=%v", d.Idx, labelValue(trueLabel), labelValue(predLabel))
-									continue
-								}
-								if *trueLabel < 0 || *trueLabel >= n || *predLabel < 0 || *predLabel >= n {
-									t.Logf("skipping confusion matrix entry idx=%d: out-of-range labels true=%d pred=%d n=%d data=%+v", d.Idx, *trueLabel, *predLabel, n, d)
-									continue
-								}
-
-								matrix[*trueLabel][*predLabel]++
-							}
-
-							// Use the experiment's Score() method for the mean resonance score.
-							type scoreExperiment interface {
-								Score() float64
-							}
-							var meanScore float64
-							if scored, ok := experiment.(scoreExperiment); ok {
-								meanScore = scored.Score()
-							}
-
-							chartName := slug + "_scores"
-							So(WriteConfusionMatrix(
-								labels,
-								matrix,
-								meanScore,
-								experiment.Name()+" — Confusion Matrix",
-								fmt.Sprintf("Confusion matrix showing predicted vs.\\ true class assignments for %s.", experiment.Name()),
-								"fig:"+slug+"_confusion",
-								chartName,
-								section,
-							), ShouldBeNil)
-						} else {
-							// ── Bar chart for non-classification tasks ──
-							// Aggregate scores per category (Name).
-							type accum struct {
-								exact, partial, fuzzy, weighted float64
-								n                               int
-							}
-
-							groups := map[string]*accum{}
-							var order []string
-							for _, d := range data {
-								key := d.Name
-								if key == "" {
-									key = slug
-								}
-								a, ok := groups[key]
-								if !ok {
-									a = &accum{}
-									groups[key] = a
-									order = append(order, key)
-								}
-								a.exact += d.Scores.Exact
-								a.partial += d.Scores.Partial
-								a.fuzzy += d.Scores.Fuzzy
-								a.weighted += d.WeightedTotal
-								a.n++
-							}
-
-							xAxis := order
-							exactData := make([]float64, len(order))
-							partialData := make([]float64, len(order))
-							fuzzyData := make([]float64, len(order))
-							weightedData := make([]float64, len(order))
-
-							for i, key := range order {
-								a := groups[key]
-								exactData[i] = a.exact / float64(a.n)
-								partialData[i] = a.partial / float64(a.n)
-								fuzzyData[i] = a.fuzzy / float64(a.n)
-								weightedData[i] = a.weighted / float64(a.n)
-							}
-
-							chartName := slug + "_scores"
-							So(WriteBarChart(
-								xAxis,
-								[]projector.BarSeries{
-									{Name: "Exact", Data: exactData},
-									{Name: "Partial", Data: partialData},
-									{Name: "Fuzzy", Data: fuzzyData},
-									{Name: "Weighted", Data: weightedData},
-								},
-								experiment.Name()+" — Score Breakdown",
-								fmt.Sprintf("Mean exact, partial, fuzzy, and weighted scores for %s.", experiment.Name()),
-								"fig:"+slug+"_scores",
-								chartName,
-								section,
-							), ShouldBeNil)
-						}
+						_, statErr := os.Stat(path)
+						So(statErr, ShouldBeNil)
 					}
 				})
 			})

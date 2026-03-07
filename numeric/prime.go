@@ -6,8 +6,6 @@ import (
 	config "github.com/theapemachine/six/core"
 )
 
-
-
 type Prime struct {
 	Basis []int32
 }

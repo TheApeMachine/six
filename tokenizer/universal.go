@@ -13,11 +13,12 @@ TokenID is the exact replay address; Chord is the wave-space identity used
 for matching.
 */
 type Token struct {
-	TokenID uint64
-	Z       uint8
-	Pos     uint32
-	Chord   data.Chord
-	Events  []int
+	TokenID    uint64
+	Z          uint8
+	Pos        uint32
+	Chord      data.Chord
+	Events     []int
+	IsBoundary bool
 }
 
 /*
@@ -77,11 +78,12 @@ func (tokenizer *Universal) Generate() chan Token {
 			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), chord)
 
 			out <- Token{
-				TokenID: tokenizer.coder.Encode(z, tokenizer.pos, rawToken.Symbol),
-				Z:       z,
-				Pos:     tokenizer.pos,
-				Chord:   chord,
-				Events:  events,
+				TokenID:    tokenizer.coder.Encode(z, tokenizer.pos, rawToken.Symbol),
+				Z:          z,
+				Pos:        tokenizer.pos,
+				Chord:      chord,
+				Events:     events,
+				IsBoundary: reset,
 			}
 
 			tokenizer.pos++

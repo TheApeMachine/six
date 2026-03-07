@@ -45,6 +45,5 @@ ChordToBytes encodes a Chord as core.ChordBlocks×8 bytes big-endian.
 func (coder *MortonCoder) ChordToBytes(chord data.Chord) []byte {
 	buf := chord.Bytes()
 
-
 	return buf
 }

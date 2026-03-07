@@ -140,7 +140,7 @@ func TestArrive_InterferenceEmitsToken(t *testing.T) {
 
 	// Pre-fill a face with some data.
 	existing := data.BaseChord(10)
-	face := dominantFace(&existing)
+	face := selfAddressFace(&existing)
 	routed := node.Rot.Forward(face)
 	node.Cube[routed] = existing
 

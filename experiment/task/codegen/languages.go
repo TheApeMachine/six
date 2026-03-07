@@ -1,9 +1,13 @@
 package codegen
 
 import (
+	"strings"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/geometry"
+
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
@@ -77,12 +81,7 @@ code for the given prompt. It should compare the generated code with the
 expected code and produce a score between 0 and 1.
 */
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
-	byteScores := tools.ByteScores(results.Holdout, results.Observed)
-	results.Scores = tools.Scores{
-		Exact:   byteScores["exact"],
-		Partial: byteScores["partial"],
-		Fuzzy:   byteScores["fuzzy"],
-	}
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
 	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
 
 	experiment.tableData = append(experiment.tableData, results)
@@ -110,6 +109,27 @@ func (experiment *LanguagesExperiment) Score() float64 {
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *LanguagesExperiment) TableData() []tools.ExperimentalData {
+func (experiment *LanguagesExperiment) TableData() any {
 	return experiment.tableData
+}
+
+func (experiment *LanguagesExperiment) Artifacts() []tools.Artifact {
+	return []tools.Artifact{
+		{
+			Type:     tools.ArtifactBarChart,
+			FileName: slugify(experiment.Name()) + "_scores",
+			Data:     experiment.tableData,
+			Title:    experiment.Name() + " — Score Breakdown",
+			Caption:  "Mean exact, partial, fuzzy, and weighted scores for " + experiment.Name() + ".",
+			Label:    "fig:" + slugify(experiment.Name()) + "_scores",
+		},
+	}
+}
+
+func (experiment *LanguagesExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+	return nil
+}
+
+func slugify(name string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }

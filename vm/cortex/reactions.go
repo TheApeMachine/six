@@ -3,6 +3,7 @@ package cortex
 import (
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/resonance"
 )
 
 /*
@@ -27,9 +28,10 @@ func (n *Node) Arrive(tok Token) []Token {
 	}
 
 	// ── SELF-ADDRESSED ACCUMULATION ───────────────────────────────────
-	// Determine which face this chord lands on by finding the chord's
-	// dominant activation, then routing through the node's rotational lens.
-	face := dominantFace(&tok.Chord)
+	// Determine which face this chord lands on using the Fermat cube
+	// self-addressing property (byte value = face), then route through
+	// the node's rotational lens.
+	face := selfAddressFace(&tok.Chord)
 	routed := n.Rot.Forward(face)
 
 	// Snapshot before merge (needed for interference detection).
@@ -44,8 +46,6 @@ func (n *Node) Arrive(tok Token) []Token {
 	// ChordHole computes what the incoming chord contributes that the
 	// existing state contradicts: target AND NOT existing.
 	// If there IS a hole, the contradiction signal propagates outward.
-	// This is how the graph "disagrees" — contradictions are not suppressed;
-	// they flow to neighbors for resolution.
 	hole := data.ChordHole(&tok.Chord, &before)
 	if hole.ActiveCount() > 0 && tok.TTL > 1 {
 		emitted = append(emitted, Token{
@@ -55,11 +55,35 @@ func (n *Node) Arrive(tok Token) []Token {
 		})
 	}
 
+	// ── TRANSITIVE RESONANCE ─────────────────────────────────────────
+	// When a node has accumulated enough context (CubeChord) and the
+	// incoming token shares structure with it, fire TransitiveResonance
+	// to produce analogical inferences — the (A:B::C:D) operation.
+	//
+	// F1 = incoming chord, F2 = node's summary, F3 = face content after merge.
+	// H = the bits F1 uniquely contributes beyond shared context, PLUS
+	//     the bits the face content uniquely contributes beyond shared context.
+	// This is multi-hop reasoning as an emergent property of interference.
+	summary := n.CubeChord()
+	if summary.ActiveCount() > 5 && tok.Chord.ActiveCount() > 3 {
+		shared := data.ChordGCD(&tok.Chord, &summary)
+		if shared.ActiveCount() > 1 { // sufficient pairwise overlap
+			faceContent := n.Cube[routed]
+			h := resonance.TransitiveResonance(&tok.Chord, &summary, &faceContent)
+			if h.ActiveCount() > 2 && tok.TTL > 1 {
+				emitted = append(emitted, Token{
+					Chord:  h,
+					Origin: n.ID,
+					TTL:    tok.TTL - 1,
+				})
+			}
+		}
+	}
+
 	// ── DENSITY-TRIGGERED MITOSIS (the "ARCHITECT" mechanism) ────────
 	// When a face crosses the thermodynamic saturation threshold,
 	// the node is overwhelmed. It emits a "pressure" signal carrying
-	// the saturated face's full content. The graph ticker will use
-	// this to spawn a new node (structural growth from density pressure).
+	// the saturated face's full content.
 	if n.FaceDensity(routed) >= geometry.MitosisThreshold {
 		emitted = append(emitted, Token{
 			Chord:  n.Cube[routed],
@@ -67,7 +91,6 @@ func (n *Node) Arrive(tok Token) []Token {
 			TTL:    tok.TTL - 1,
 		})
 		// Partially drain the saturated face to relieve pressure.
-		// Keep only the shared harmonics (GCD of before and after).
 		n.Cube[routed] = data.ChordGCD(&before, &tok.Chord)
 	}
 
@@ -77,51 +100,44 @@ func (n *Node) Arrive(tok Token) []Token {
 /*
 Hole computes the node's "curiosity" — the structural vacuum of its cube.
 
-For each face, the hole is what a fully active reference chord has that
-this face does not. The aggregate hole across all faces represents what
-the node is "missing" and can be used as a BestFill query to the PrimeField.
-
-Returns a chord representing the node's total informational deficit,
-and a boolean indicating whether the deficit is significant enough
-to warrant a bedrock query.
+Uses resonance.FillScore to evaluate whether the deficit is significant
+enough to warrant a bedrock query, replacing the raw ActiveCount threshold.
 */
 func (n *Node) Hole() (data.Chord, bool) {
-	// Build a reference chord from the node's own summary.
 	summary := n.CubeChord()
 	if summary.ActiveCount() == 0 {
 		return data.Chord{}, false
 	}
 
-	// The hole is the complement: what the summary COULD have but doesn't.
-	// We take the most active face as the "expected topology" and compute
-	// What it lacks using ChordHole against the summary.
-	bestFace := n.BestFace()
-	if bestFace == 256 {
+	bestFaceIdx := n.bestPhysicalFace()
+	if bestFaceIdx == 256 {
 		return data.Chord{}, false
 	}
 
-	peak := n.Cube[bestFace]
+	peak := n.Cube[bestFaceIdx]
 	hole := data.ChordHole(&peak, &summary)
 
-	// Threshold: only dream if the hole has meaningful structure
-	// (at least 3 active bits — avoid noise-driven queries).
-	return hole, hole.ActiveCount() >= 3
+	// Use FillScore to evaluate if the hole is structurally significant.
+	// FillScore returns [0,1] where 1 = perfect fill needed. We want holes
+	// that the peak could largely fill but the summary can't.
+	quality := resonance.FillScore(&peak, &summary)
+	insufficiency := 1.0 - quality
+
+	// Dream if the hole has meaningful structure AND the node has significant gaps.
+	return hole, hole.ActiveCount() >= 3 && insufficiency > 0.1
 }
 
-/*
-dominantFace returns the face index (0–256) that best matches a chord
-according to the Fermat cube self-addressing scheme.
-
-For a BaseChord(b), this naturally returns a position related to b.
-For composed chords, we use the ChordBin function to deterministically
-fold the chord into a face index within the 257-face range.
-*/
-func dominantFace(c *data.Chord) int {
-	bin := data.ChordBin(c)
-	// ChordBin returns 0..255 — map into the 257-face space.
-	// Values 0-255 map to data faces; 256 is reserved for delimiter.
-	if bin < 0 {
-		bin = 0
+// bestPhysicalFace returns the raw physical face index with highest popcount.
+// This is the internal version without rotation reversal.
+func (n *Node) bestPhysicalFace() int {
+	bestFace := 256
+	bestCount := 0
+	for i := range geometry.CubeFaces {
+		cnt := n.Cube[i].ActiveCount()
+		if cnt > bestCount {
+			bestCount = cnt
+			bestFace = i
+		}
 	}
-	return bin % geometry.CubeFaces
+	return bestFace
 }

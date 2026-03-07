@@ -3,18 +3,15 @@ package vm
 import (
 	"unsafe"
 
-	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/vm/cortex"
-	"github.com/theapemachine/six/vm/generation"
 )
 
 // maxGenerationSteps is the maximum number of tokens to generate in a single prompt.
 const maxGenerationSteps = 256
-const maxReasoningHops = 3
 
 type bestFillFn func(
 	dictionary unsafe.Pointer,
@@ -25,42 +22,21 @@ type bestFillFn func(
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error)
 
-type bestFillWithFieldFn func(
-	dictionary unsafe.Pointer,
-	numChords int,
-	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	expectedField *geometry.ExpectedField,
-	mode int,
-	geodesicLUT unsafe.Pointer,
-) (int, float64, error)
-
-type BranchPolicy struct {
-	Enabled         bool
-	MarginThreshold float64
-	MaxRetained     int
-}
-
-type ObservabilitySnapshot struct {
-	LowMarginEvents  uint64
-	RetainedBranches uint64
-	AnchorVetoEvents uint64
-}
-
 /*
 Machine is the entrypoint to the architecture.
 It loads the initial data into the store and is then ready for
-prompting. Simplifies generation loops using Toroidal Eigenmodes
-and 5-plane Parallel MultiChord searches.
+prompting. Generation uses the reactive cortex graph — a volatile
+working-memory network of resonating MacroCubes that vibrates
+until convergence, emitting output via BestFace decoding.
 */
 type Machine struct {
-	loader            *Loader
-	primefield        *store.PrimeField
-	bestFill          bestFillFn
-	bestFillWithField bestFillWithFieldFn
-	policy            *generation.PolicyTracker
-	stopCh            chan struct{}
-	useCortex         bool
+	loader     *Loader
+	primefield *store.PrimeField
+	substrate  *geometry.HybridSubstrate
+	bestFill   bestFillFn
+	stopCh     chan struct{}
+	eigenMode  *geometry.EigenMode
+	sequencer  cortex.Analyzer
 }
 
 type machineOpts func(*Machine)
@@ -72,25 +48,6 @@ func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
 		primefield: store.NewPrimeField(),
 		bestFill:   kernel.BestFill,
-		policy:     generation.NewPolicyTracker(generation.DefaultBranchPolicy()),
-		bestFillWithField: func(
-			dictionary unsafe.Pointer,
-			numChords int,
-			context unsafe.Pointer,
-			expectedReality unsafe.Pointer,
-			expectedField *geometry.ExpectedField,
-			_ int,
-			geodesicLUT unsafe.Pointer,
-		) (int, float64, error) {
-			return kernel.BestFillWithExpectedField(
-				dictionary,
-				numChords,
-				context,
-				expectedReality,
-				expectedField,
-				geodesicLUT,
-			)
-		},
 	}
 
 	for _, opt := range opts {
@@ -102,16 +59,50 @@ func NewMachine(opts ...machineOpts) *Machine {
 
 func (machine *Machine) Start() error {
 	machine.stopCh = make(chan struct{})
+	machine.substrate = geometry.NewHybridSubstrate()
 
-	for range machine.loader.Generate() {
-		// Loader now intrinsically pipes topological sequences into the PrimeField
+	// Ensure the Loader has all internal dependencies.
+	if machine.loader.store == nil {
+		machine.loader.store = store.NewLSMSpatialIndex(1.0)
+	}
+	machine.loader.primefield = machine.primefield
+
+	var sequence []data.Chord
+	for res := range machine.loader.Generate() {
+		sequence = append(sequence, res.Chord)
+
+		if res.IsBoundary {
+			// Sequence complete: encode as PhaseDial and add to substrate.
+			// We use a zero filter for now as experiments typically use the
+			// fingerprint directly. Readout is currently the segment index.
+			dial := geometry.NewPhaseDial()
+			dial = dial.EncodeFromChords(sequence)
+
+			machine.substrate.Add(
+				data.Chord{},
+				dial,
+				[]byte("sequence"), // Readout will be refined later
+			)
+			sequence = sequence[:0]
+		}
+	}
+
+	// Build EigenModes from the ingested manifold topology.
+	machine.primefield.BuildEigenModes()
+	machine.eigenMode = machine.primefield.EigenMode()
+
+	// Wire the Sequencer with the trained EigenMode.
+	if machine.loader.Tokenizer() != nil && machine.loader.Tokenizer().Sequencer() != nil {
+		seq := machine.loader.Tokenizer().Sequencer()
+		seq.SetEigenMode(machine.eigenMode)
+		machine.sequencer = seq
 	}
 
 	return nil
 }
 
 /*
-Stop terminates the Machine and signaling any background processes to finish.
+Stop terminates the Machine and signals any background processes to finish.
 */
 func (machine *Machine) Stop() {
 	if machine.stopCh != nil {
@@ -120,119 +111,66 @@ func (machine *Machine) Stop() {
 	}
 }
 
+/*
+PromptWithExpectedField generates output from the prompt using the cortex,
+biased by the expected field (classification precision target).
+*/
 func (machine *Machine) PromptWithExpectedField(
 	prompt []data.Chord,
 	expectedField *geometry.ExpectedField,
 ) chan byte {
-	return machine.promptInternal(prompt, geometry.ExpectedManifoldFromField(expectedField), expectedField)
+	expected := geometry.ExpectedManifoldFromField(expectedField)
+	return machine.prompt(prompt, expected, expectedField)
 }
 
 /*
-Prompt simply clamps the input, executes a parallel GPU BestFill over all Fibonacci
-planes simultaneously, checks Eigenmode Intent alignment, and loops until
-the structure collapses or hits an end-token.
+Prompt generates output from the prompt using the cortex.
 */
 func (machine *Machine) Prompt(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
 ) chan byte {
-	return machine.promptInternal(prompt, expectedReality, nil)
+	return machine.prompt(prompt, expectedReality, nil)
 }
 
-func (machine *Machine) promptInternal(
+/*
+prompt spawns a volatile cortex graph that vibrates until convergence.
+All generation mechanics (Sequencer events, EigenMode wind, momentum decay,
+rotation-aware BestFace, survivor write-back) are handled by the cortex.
+*/
+func (machine *Machine) prompt(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
 	expectedField *geometry.ExpectedField,
 ) chan byte {
-	return machine.promptCortex(prompt, expectedReality)
-}
-
-// promptCortex spawns a volatile cortex graph that vibrates until convergence,
-// representing the core spatial inference process.
-func (machine *Machine) promptCortex(
-	prompt []data.Chord,
-	expectedReality *geometry.IcosahedralManifold,
-) chan byte {
-	console.Info("machine: starting generation with cortex model",
-		"promptLen", len(prompt),
-	)
+	var stopCh <-chan struct{}
+	if machine.stopCh != nil {
+		stopCh = machine.stopCh
+	}
 
 	graph := cortex.New(cortex.Config{
-		InitialNodes: 8,
-		PrimeField:   machine.primefield,
-		BestFill:     cortex.BestFillFunc(machine.bestFill),
-		MaxTicks:     maxGenerationSteps * 4, // budget: 4 ticks per output byte
-		MaxOutput:    maxGenerationSteps,
+		InitialNodes:  8,
+		PrimeField:    machine.primefield,
+		Substrate:     machine.substrate,
+		BestFill:      cortex.BestFillFunc(machine.bestFill),
+		EigenMode:     machine.eigenMode,
+		Sequencer:     machine.sequencer,
+		ExpectedField: expectedField,
+		StopCh:        stopCh,
+		MaxTicks:      maxGenerationSteps * 4,
+		MaxOutput:     maxGenerationSteps,
 	})
 
 	return graph.Think(prompt, expectedReality)
 }
 
+func (machine *Machine) Substrate() *geometry.HybridSubstrate {
+	return machine.substrate
+}
+
 func MachineWithLoader(loader *Loader) machineOpts {
 	return func(machine *Machine) {
 		machine.loader = loader
-	}
-}
-
-func MachineWithPrimeField(pf *store.PrimeField) machineOpts {
-	return func(machine *Machine) {
-		machine.primefield = pf
-	}
-}
-
-func MachineWithBestFill(fn bestFillFn) machineOpts {
-	return func(machine *Machine) {
-		if fn != nil {
-			machine.bestFill = fn
-			machine.bestFillWithField = func(
-				dictionary unsafe.Pointer,
-				numChords int,
-				context unsafe.Pointer,
-				expectedReality unsafe.Pointer,
-				_ *geometry.ExpectedField,
-				mode int,
-				geodesicLUT unsafe.Pointer,
-			) (int, float64, error) {
-				return fn(dictionary, numChords, context, expectedReality, mode, geodesicLUT)
-			}
-		}
-	}
-}
-
-func MachineWithBranchPolicy(policy BranchPolicy) machineOpts {
-	return func(machine *Machine) {
-		if machine.policy == nil {
-			machine.policy = generation.NewPolicyTracker(generation.DefaultBranchPolicy())
-		}
-		machine.policy.SetPolicy(generation.BranchPolicy{
-			Enabled:         policy.Enabled,
-			MarginThreshold: policy.MarginThreshold,
-			MaxRetained:     policy.MaxRetained,
-		})
-	}
-}
-
-// MachineWithCortex enables the reactive working-memory cortex.
-// When active, prompts spawn a volatile graph of resonating MacroCubes
-// instead of the linear Runner. The old Runner path remains accessible
-// when cortex mode is not enabled.
-func MachineWithCortex() machineOpts {
-	return func(machine *Machine) {
-		machine.useCortex = true
-	}
-}
-
-func (machine *Machine) Observability() ObservabilitySnapshot {
-	if machine.policy == nil {
-		return ObservabilitySnapshot{}
-	}
-
-	snapshot := machine.policy.Snapshot()
-
-	return ObservabilitySnapshot{
-		LowMarginEvents:  snapshot.LowMarginEvents,
-		RetainedBranches: snapshot.RetainedBranches,
-		AnchorVetoEvents: snapshot.AnchorVetoEvents,
 	}
 }
 

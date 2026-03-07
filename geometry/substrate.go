@@ -5,6 +5,7 @@ import (
 	"math"
 	"math/bits"
 	"math/cmplx"
+	"slices"
 	"sort"
 	"strings"
 
@@ -214,16 +215,79 @@ func ReadoutText(readout []byte) string {
 	return string(readout)
 }
 
+// Candidates returns a slice of all entry indices.
+func (hs *HybridSubstrate) Candidates() []int {
+	c := make([]int, len(hs.Entries))
+	for i := range c {
+		c[i] = i
+	}
+	return c
+}
+
+// TopExcluding returns the index of the highest ranked entry that is not in the excluded list.
+func (hs *HybridSubstrate) TopExcluding(ranked []CandidateScore, excluded ...string) int {
+	for _, r := range ranked {
+		text := ReadoutText(hs.Entries[r.Idx].Readout)
+		found := slices.Contains(excluded, text)
+		if !found {
+			return r.Idx
+		}
+	}
+	return ranked[0].Idx // Fallback
+}
+
+// BestGain calculates the maximum similarity gain across a full rotational sweep.
+func (hs *HybridSubstrate) BestGain(fpScan, fpA, fpB PhaseDial, excludeA, excludeB string) float64 {
+	bestGain := -1.0
+	for s := range 360 {
+		alpha := float64(s) * (math.Pi / 180.0)
+		rot := fpScan.Rotate(alpha)
+		rnk := hs.PhaseDialRank(hs.Candidates(), rot)
+		topIdx := hs.TopExcluding(rnk, excludeA, excludeB)
+		efp := hs.Entries[topIdx].Fingerprint
+		gain := math.Min(efp.Similarity(fpA), efp.Similarity(fpB))
+		if gain > bestGain {
+			bestGain = gain
+		}
+	}
+	return bestGain
+}
+
+// HopResult captures the results of a single navigational hop.
+type HopResult struct {
+	FingerprintB  PhaseDial
+	FingerprintAB PhaseDial
+	TextB         string
+}
+
+// FirstHop performs a rotational hop from a starting fingerprint.
+func (hs *HybridSubstrate) FirstHop(fpA PhaseDial, alpha float64, textA string) HopResult {
+	fpB_virtual := fpA.Rotate(alpha)
+	rnk := hs.PhaseDialRank(hs.Candidates(), fpB_virtual)
+	idxB := hs.TopExcluding(rnk, textA)
+	fpB := hs.Entries[idxB].Fingerprint
+	textB := ReadoutText(hs.Entries[idxB].Readout)
+
+	// Composed fingerprint (A + B)
+	fpAB := make(PhaseDial, len(fpA))
+	for k := range fpA {
+		fpAB[k] = fpA[k] + fpB[k]
+	}
+
+	return HopResult{
+		FingerprintB:  fpB,
+		FingerprintAB: fpAB,
+		TextB:         textB,
+	}
+}
+
 /*
 GeodesicScan performs a phase rotation scan: for each step 0..steps, rotates
 seedFP by step*(360/steps) degrees, ranks all candidates, and returns step results.
 Candidates are all entry indices. StepDeg is degrees per step (e.g. 5.0 for 73 steps).
 */
 func (hs *HybridSubstrate) GeodesicScan(seedFP PhaseDial, steps int, stepDeg float64) []GeodesicStep {
-	candidates := make([]int, len(hs.Entries))
-	for i := range candidates {
-		candidates[i] = i
-	}
+	candidates := hs.Candidates()
 	var results []GeodesicStep
 	for s := 0; s <= steps; s++ {
 		alphaRadians := float64(s) * stepDeg * (math.Pi / 180.0)

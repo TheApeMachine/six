@@ -7,7 +7,6 @@ import (
 
 const (
 	// defaultInboxSize is the channel buffer depth per node.
-	// Deep enough to absorb bursts without blocking senders.
 	defaultInboxSize = 32
 
 	// defaultTTL controls how many hops a token can survive.
@@ -79,15 +78,12 @@ func (n *Node) Energy() float64 {
 }
 
 // FaceDensity returns the fractional occupancy of a single face (0.0 – 1.0).
-// The denominator is 257 (logical bits), not 512 (physical width).
 func (n *Node) FaceDensity(face int) float64 {
 	return float64(n.Cube[face].ActiveCount()) / 257.0
 }
 
 // Send enqueues a token for processing on the next tick.
 // Non-blocking: if the inbox is full the token is silently dropped.
-// Dropped tokens model thermodynamic dissipation — the node cannot absorb
-// faster than it processes.
 func (n *Node) Send(tok Token) {
 	select {
 	case n.inbox <- tok:
@@ -97,8 +93,6 @@ func (n *Node) Send(tok Token) {
 }
 
 // DrainInbox collects all pending tokens for processing.
-// Called once per tick. After draining, the channel is empty,
-// ready for the next round of sends.
 func (n *Node) DrainInbox() []Token {
 	var batch []Token
 	for {
@@ -112,12 +106,11 @@ func (n *Node) DrainInbox() []Token {
 }
 
 /*
-BestFace scans all 257 faces of the cube and returns the face index with the
-highest popcount (strongest resonance signal). If no face is active, returns
-256 (delimiter = stop signal).
+BestFace scans all 257 faces of the cube and returns the LOGICAL face index
+(the byte value) with the highest popcount. The physical face is mapped back
+through the node's GFRotation inverse to recover the self-addressed byte value.
 
-This is the output decoding step: face index IS the predicted byte value,
-thanks to the Fermat cube self-addressing property.
+If no face is active, returns 256 (delimiter = stop signal).
 */
 func (n *Node) BestFace() int {
 	bestFace := 256 // default to delimiter (stop)
@@ -129,13 +122,17 @@ func (n *Node) BestFace() int {
 			bestFace = i
 		}
 	}
+	// Reverse the rotation to recover the logical byte value.
+	// Physical face → Rot.Reverse → logical byte.
+	if bestFace < 256 {
+		bestFace = n.Rot.Reverse(bestFace)
+	}
 	return bestFace
 }
 
 /*
 CubeChord compresses the entire MacroCube into a single summary chord
-by OR-folding all 257 face chords. This is the node's "signature" —
-useful for resonance-based routing comparisons.
+by OR-folding all 257 face chords. This is the node's "signature".
 */
 func (n *Node) CubeChord() data.Chord {
 	var summary data.Chord

@@ -6,6 +6,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/geometry"
+
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
@@ -102,12 +104,7 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		}
 	}
 
-	byteScores := tools.ByteScores(results.Holdout, results.Observed)
-	results.Scores = tools.Scores{
-		Exact:   byteScores["exact"],
-		Partial: byteScores["partial"],
-		Fuzzy:   byteScores["fuzzy"],
-	}
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
 	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
 
 	experiment.tableData = append(experiment.tableData, results)
@@ -130,8 +127,29 @@ func (experiment *TextClassificationExperiment) Score() float64 {
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *TextClassificationExperiment) TableData() []tools.ExperimentalData {
+func (experiment *TextClassificationExperiment) TableData() any {
 	return experiment.tableData
+}
+
+func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
+	return []tools.Artifact{
+		{
+			Type:     tools.ArtifactConfusionMatrix,
+			FileName: slugify(experiment.Name()) + "_scores",
+			Data:     experiment.tableData,
+			Title:    experiment.Name() + " — Confusion Matrix",
+			Caption:  "Confusion matrix showing predicted vs. true class assignments for " + experiment.Name() + ".",
+			Label:    "fig:" + slugify(experiment.Name()) + "_confusion",
+		},
+	}
+}
+
+func (experiment *TextClassificationExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+	return nil
+}
+
+func slugify(name string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }
 
 /*

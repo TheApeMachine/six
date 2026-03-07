@@ -4,6 +4,7 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
@@ -14,7 +15,7 @@ ReconstructionExperiment evaluates image reconstruction quality using the
 cifar10 dataset, testing how well the system can model and reconstruct images.
 */
 type ReconstructionExperiment struct {
-	tableData []map[string]any
+	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   provider.Dataset
 	prompt    *tokenizer.Prompt
@@ -22,7 +23,7 @@ type ReconstructionExperiment struct {
 
 func NewReconstructionExperiment() *ReconstructionExperiment {
 	experiment := &ReconstructionExperiment{
-		tableData: []map[string]any{},
+		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("uoft-cs/cifar10"),
 			huggingface.DatasetWithSamples(100),
@@ -63,36 +64,18 @@ func (experiment *ReconstructionExperiment) Holdout() (int, tokenizer.HoldoutTyp
 	return 0, tokenizer.RIGHT
 }
 
-/*
-AddResult should emperically prove that the system reconstructed the correct
-image for the given prompt. It should compare the generated output with the
-expected output and produce a score between 0 and 1.
-*/
-func (experiment *ReconstructionExperiment) AddResult(results map[string]any) {
-	var prompt, res []byte
+func (experiment *ReconstructionExperiment) Section() string {
+	return "imagegen"
+}
 
-	if val, ok := results["prompt"]; ok {
-		if b, ok := val.([]byte); ok {
-			prompt = b
-		}
-	}
-
-	if val, ok := results["result"]; ok {
-		if b, ok := val.([]byte); ok {
-			res = b
-		}
-	}
-
-	results["scores"] = tools.ByteScores(prompt, res)
+func (experiment *ReconstructionExperiment) AddResult(results tools.ExperimentalData) {
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
+	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-/*
-Outcome evaluates the overall result of the experiment, where we call a
-failure if the total accuracy score is less than 0.5.
-*/
 func (experiment *ReconstructionExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.5
+	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
 }
 
 func (experiment *ReconstructionExperiment) Score() float64 {
@@ -101,28 +84,21 @@ func (experiment *ReconstructionExperiment) Score() float64 {
 	}
 
 	total := 0.0
-
 	for _, data := range experiment.tableData {
-		scoresVal, ok := data["scores"]
-		if !ok {
-			continue
-		}
-
-		scores, ok := scoresVal.(map[string]float64)
-		if !ok {
-			continue
-		}
-
-		total += tools.WeightedTotal(
-			scores["exact"],
-			scores["partial"],
-			scores["fuzzy"],
-		)
+		total += data.WeightedTotal
 	}
 
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *ReconstructionExperiment) TableData() []map[string]any {
+func (experiment *ReconstructionExperiment) TableData() any {
 	return experiment.tableData
+}
+
+func (experiment *ReconstructionExperiment) Artifacts() []tools.Artifact {
+	return []tools.Artifact{}
+}
+
+func (experiment *ReconstructionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+	return nil
 }

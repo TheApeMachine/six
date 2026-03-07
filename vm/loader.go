@@ -45,12 +45,23 @@ func (loader *Loader) Tokenizer() *tokenizer.Universal {
 }
 
 /*
+LoadResult bundles the ingested chord with metadata from the sequencer,
+allowing the Machine to identify structural boundaries during Start().
+*/
+type LoadResult struct {
+	Chord      data.Chord
+	Pos        uint32
+	IsBoundary bool
+	Events     []int
+}
+
+/*
 Generate tokenizes the dataset and ingests every token into the Store
-and PrimeField. Returns a channel of chords for downstream consumers
+and PrimeField. Returns a channel of LoadResults for downstream consumers
 (e.g. Machine.Start drains this to completion).
 */
-func (loader *Loader) Generate() chan data.Chord {
-	out := make(chan data.Chord, 1024)
+func (loader *Loader) Generate() chan LoadResult {
+	out := make(chan LoadResult, 1024)
 
 	go func() {
 		defer close(out)
@@ -69,7 +80,12 @@ func (loader *Loader) Generate() chan data.Chord {
 				_, _, byteVal := loader.coder.Decode(token.TokenID)
 				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
 			}
-			out <- token.Chord
+			out <- LoadResult{
+				Chord:      token.Chord,
+				Pos:        token.Pos,
+				IsBoundary: token.IsBoundary,
+				Events:     token.Events,
+			}
 		}
 	}()
 

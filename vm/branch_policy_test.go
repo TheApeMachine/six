@@ -4,23 +4,23 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/theapemachine/six/vm/cortex"
 )
 
-func TestMachineWithBranchPolicyComposesPolicyTracker(t *testing.T) {
-	machine := NewMachine(MachineWithBranchPolicy(BranchPolicy{
-		Enabled:         true,
-		MarginThreshold: 0.05,
-		MaxRetained:     0,
-	}))
+// TestCortexSnapshotCounters verifies that the cortex graph tracks
+// observability counters (replacing the old PolicyTracker test).
+func TestCortexSnapshotCounters(t *testing.T) {
+	graph := cortex.New(cortex.Config{
+		InitialNodes: 4,
+		MaxTicks:     32,
+		MaxOutput:    8,
+	})
 
-	retained := 0
-	machine.policy.TrackMargin(0.01, &retained)
-	machine.policy.TrackMargin(0.02, &retained)
-	machine.policy.TrackAnchorVeto()
-
-	snapshot := machine.Observability()
-	require.Equal(t, uint64(2), snapshot.LowMarginEvents)
-	require.Equal(t, uint64(1), snapshot.RetainedBranches)
-	require.Equal(t, uint64(1), snapshot.AnchorVetoEvents)
-	require.Equal(t, 1, retained)
+	snap := graph.Snapshot()
+	require.Equal(t, 0, snap.TotalTicks)
+	require.Equal(t, 4, snap.FinalNodes)
+	require.Equal(t, 0, snap.BedrockQueries)
+	require.Equal(t, 0, snap.MitosisEvents)
+	require.Equal(t, 0, snap.PruneEvents)
+	require.Equal(t, 0, snap.OutputBytes)
 }

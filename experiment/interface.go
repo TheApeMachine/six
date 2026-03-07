@@ -3,7 +3,10 @@ package experiment
 import (
 	"bytes"
 	"math"
+	"strings"
 
+	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -35,8 +38,44 @@ type ScoreWeights struct {
 	Fuzzy   float64
 }
 
+type ArtifactType string
+
+const (
+	ArtifactTable           ArtifactType = "table"
+	ArtifactBarChart        ArtifactType = "bar"
+	ArtifactLineChart       ArtifactType = "line"
+	ArtifactComboChart      ArtifactType = "combo"
+	ArtifactHeatMap         ArtifactType = "heatmap"
+	ArtifactConfusionMatrix ArtifactType = "confusion"
+	ArtifactMultiPanel      ArtifactType = "multipanel"
+	ArtifactProse           ArtifactType = "prose"
+	ArtifactImageStrip      ArtifactType = "imagestrip"
+)
+
+type Artifact struct {
+	Type     ArtifactType
+	FileName string
+	Data     any
+	Title    string
+	Caption  string
+	Label    string
+}
+
 type Result interface {
 	Score() float64
+}
+
+type PipelineExperiment interface {
+	Name() string
+	Section() string
+	Dataset() provider.Dataset
+	Prompts() *tokenizer.Prompt
+	Holdout() (int, tokenizer.HoldoutType)
+	AddResult(ExperimentalData)
+	Outcome() (any, gc.Assertion, any)
+	TableData() any
+	Artifacts() []Artifact
+	Finalize(*geometry.HybridSubstrate) error
 }
 
 func GetLoader(dataset provider.Dataset, lsmSpatialIndex float64) *vm.Loader {
@@ -67,12 +106,12 @@ func countPrefixMatches(expected, retrieved []byte) int {
 	return matches
 }
 
-func ByteScores(expected, retrieved []byte) map[string]float64 {
+func ByteScores(expected, retrieved []byte) Scores {
 	if len(expected) == 0 && len(retrieved) == 0 {
-		return map[string]float64{
-			"exact":   0,
-			"partial": 0,
-			"fuzzy":   0,
+		return Scores{
+			Exact:   0,
+			Partial: 0,
+			Fuzzy:   0,
 		}
 	}
 
@@ -99,10 +138,10 @@ func ByteScores(expected, retrieved []byte) map[string]float64 {
 		fuzzy = float64(matches) / float64(longer)
 	}
 
-	return map[string]float64{
-		"exact":   exact,
-		"partial": partial,
-		"fuzzy":   fuzzy,
+	return Scores{
+		Exact:   exact,
+		Partial: partial,
+		Fuzzy:   fuzzy,
 	}
 }
 
@@ -192,4 +231,8 @@ func WeightedTotal(scores ...float64) float64 {
 
 func OptionalLabel(label int) *int {
 	return &label
+}
+
+func Slugify(name string) string {
+	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }

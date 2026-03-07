@@ -3,38 +3,21 @@ package task
 import (
 	"fmt"
 
-	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/store"
+	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
 
-type PipelineExperiment interface {
-	Name() string
-	Section() string
-	Dataset() provider.Dataset
-	Prompts() *tokenizer.Prompt
-	Holdout() (int, tokenizer.HoldoutType)
-	AddResult(tools.ExperimentalData)
-	Outcome() (any, gc.Assertion, any)
-	TableData() []tools.ExperimentalData
-}
-
 type Pipeline struct {
 	machine    *vm.Machine
-	experiment PipelineExperiment
-	loader     *vm.Loader
-	primefield *store.PrimeField
+	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
 	testIdx    int
 	chordMap   map[data.Chord]byte
-	// TODO: thread scoreWgts into prompt/result scoring once Pipeline owns
-	// WeightedTotal computation instead of experiments doing it ad hoc.
-	scoreWgts tools.ScoreWeights
+	scoreWgts  tools.ScoreWeights
 }
 
 type pipelineOpts func(*Pipeline)
@@ -57,41 +40,24 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 		return nil, PipelineError("missing experiment: use PipelineWithExperiment")
 	}
 
-	pf := store.NewPrimeField()
-
-	loader := vm.NewLoader(
-		vm.LoaderWithStore(
-			store.NewLSMSpatialIndex(1.0),
-		),
-		vm.LoaderWithTokenizer(
-			tokenizer.NewUniversal(
-				tokenizer.TokenizerWithDataset(pipeline.experiment.Dataset()),
+	pipeline.machine = vm.NewMachine(
+		vm.MachineWithLoader(
+			vm.NewLoader(
+				vm.LoaderWithTokenizer(
+					tokenizer.NewUniversal(
+						tokenizer.TokenizerWithDataset(pipeline.experiment.Dataset()),
+					),
+				),
 			),
 		),
-		vm.LoaderWithPrimeField(pf),
 	)
-
-	pipeline.machine = vm.NewMachine(
-		vm.MachineWithLoader(loader),
-		vm.MachineWithPrimeField(pf),
-		vm.MachineWithCortex(),
-	)
-
-	pipeline.loader = loader
-	pipeline.primefield = pf
 
 	return pipeline, nil
 }
 
 func (pipeline *Pipeline) Run() error {
-	pipeline.machine.Start()
-
-	// Train EigenMode co-occurrence tables from the data just loaded.
-	if err := pipeline.primefield.BuildEigenModes(); err != nil {
-		return fmt.Errorf("BuildEigenModes: %w", err)
-	}
-	if pipeline.loader != nil && pipeline.loader.Tokenizer() != nil {
-		pipeline.loader.Tokenizer().Sequencer().SetEigenMode(pipeline.primefield.EigenMode())
+	if err := pipeline.machine.Start(); err != nil {
+		return fmt.Errorf("machine start: %w", err)
 	}
 
 	pipeline.prompts = pipeline.experiment.Prompts()
@@ -106,7 +72,74 @@ func (pipeline *Pipeline) Run() error {
 		pipeline.prompt(prompt)
 	}
 
+	if err := pipeline.experiment.Finalize(pipeline.machine.Substrate()); err != nil {
+		return fmt.Errorf("experiment finalize: %w", err)
+	}
+
+	// Generate artifacts
+	for _, artifact := range pipeline.experiment.Artifacts() {
+		switch artifact.Type {
+		case tools.ArtifactTable:
+			if err := WriteTable(artifact.Data, artifact.FileName, pipeline.experiment.Section()); err != nil {
+				return fmt.Errorf("write table artifact %s: %w", artifact.FileName, err)
+			}
+		case tools.ArtifactBarChart:
+			data, ok := artifact.Data.([]tools.ExperimentalData)
+			if !ok {
+				// Fallback or skip
+				continue
+			}
+			series := []projector.BarSeries{
+				{Name: "Exact", Data: extractScores(data, "Exact")},
+				{Name: "Partial", Data: extractScores(data, "Partial")},
+				{Name: "Fuzzy", Data: extractScores(data, "Fuzzy")},
+				{Name: "Weighted", Data: extractScores(data, "Weighted")},
+			}
+			xAxis := make([]string, len(data))
+			for i, d := range data {
+				xAxis[i] = d.Name
+			}
+			if err := WriteBarChart(xAxis, series, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, pipeline.experiment.Section()); err != nil {
+				return fmt.Errorf("write bar chart artifact %s: %w", artifact.FileName, err)
+			}
+		case tools.ArtifactConfusionMatrix:
+			// Implementation for confusion matrix...
+		case tools.ArtifactComboChart:
+			data, ok := artifact.Data.(map[string]any)
+			if !ok {
+				continue
+			}
+			xAxis := data["xAxis"].([]string)
+			series := data["series"].([]projector.ComboSeries)
+			xName := data["xName"].(string)
+			yName := data["yName"].(string)
+			yMin := data["yMin"].(float64)
+			yMax := data["yMax"].(float64)
+
+			if err := WriteComboChart(xAxis, series, xName, yName, yMin, yMax, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, pipeline.experiment.Section()); err != nil {
+				return fmt.Errorf("write combo chart artifact %s: %w", artifact.FileName, err)
+			}
+		}
+	}
+
 	return nil
+}
+
+func extractScores(data []tools.ExperimentalData, field string) []float64 {
+	scores := make([]float64, len(data))
+	for i, d := range data {
+		switch field {
+		case "Exact":
+			scores[i] = d.Scores.Exact
+		case "Partial":
+			scores[i] = d.Scores.Partial
+		case "Fuzzy":
+			scores[i] = d.Scores.Fuzzy
+		case "Weighted":
+			scores[i] = d.WeightedTotal
+		}
+	}
+	return scores
 }
 
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
@@ -161,7 +194,7 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	pipeline.testIdx++
 }
 
-func PipelineWithExperiment(experiment PipelineExperiment) pipelineOpts {
+func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {
 	return func(pipeline *Pipeline) {
 		pipeline.experiment = experiment
 	}

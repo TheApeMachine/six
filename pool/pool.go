@@ -24,16 +24,16 @@ NewPool instantiates a worker pool with an auto-scaler.
 */
 func NewPool() *Pool {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	p := &Pool{
 		ctx:     ctx,
 		cancel:  cancel,
 		workers: make(chan chan Job, 10000), // generous buffer to prevent blocking
 		jobs:    make(chan Job, 10000),
 	}
-	
+
 	p.Run()
-	
+
 	return p
 }
 
@@ -83,7 +83,7 @@ func (p *Pool) removeWorker() {
 	if len(p.activeWorkers) > 0 {
 		worker := p.activeWorkers[0]
 		p.activeWorkers = p.activeWorkers[1:]
-		
+
 		worker.Close()
 	}
 }
@@ -91,19 +91,19 @@ func (p *Pool) removeWorker() {
 func (p *Pool) WorkerCount() int {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	return len(p.activeWorkers)
 }
 
 func (p *Pool) TotalLatency() int64 {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	var total int64
-	
+
 	for _, w := range p.activeWorkers {
 		total += int64(w.Latency())
 	}
-	
+
 	return total
 }

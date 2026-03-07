@@ -6,18 +6,21 @@ import (
 
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 )
 
 /*
 Tick advances the cortex by one discrete time step.
 
-Each tick has five phases:
+Each tick has six phases:
 
  1. DRAIN — All nodes drain their inboxes.
  2. REACT — Each node processes arrivals (accumulation, interference, rotation).
  3. ROUTE — Emitted tokens are routed to neighbors via topological gravity.
- 4. DREAM — Nodes with curiosity (ChordHole) query the PrimeField.
- 5. PRUNE — Energy-starved nodes are removed; convergence is checked.
+ 4. SEQUENCE — Source node chords are analyzed for topological events;
+    events become LAW (rotation) tokens injected into the graph.
+ 5. DREAM — Nodes with curiosity (ChordHole) query the PrimeField.
+ 6. PRUNE — Energy-starved nodes are removed; convergence is checked.
 
 Returns true if the graph has converged (sink energy is stable).
 */
@@ -25,8 +28,6 @@ func (g *Graph) Tick() bool {
 	g.tick++
 
 	// ── Phase 1+2: DRAIN & REACT ──────────────────────────────────
-	// Each node drains its inbox and processes arrivals in isolation.
-	// This is safe to parallelize since each node owns its cube exclusively.
 	type emission struct {
 		from   *Node
 		tokens []Token
@@ -51,8 +52,6 @@ func (g *Graph) Tick() bool {
 	}
 
 	// ── Phase 3: ROUTE ────────────────────────────────────────────
-	// Route emitted tokens to the best neighbor via resonance gravity.
-	// Mitosis tokens (from density-triggered emissions) also spawn new nodes.
 	for _, em := range emissions {
 		for _, tok := range em.tokens {
 			if tok.TTL <= 0 {
@@ -61,9 +60,8 @@ func (g *Graph) Tick() bool {
 
 			// If the emitting node has very high density on the token's
 			// dominant face, this is a mitosis event → spawn a new node.
-			face := dominantFace(&tok.Chord)
+			face := selfAddressFace(&tok.Chord)
 			if em.from.FaceDensity(face) < 0.01 && tok.Chord.ActiveCount() > 20 {
-				// High-content token from a nearly-empty face = mitosis debris.
 				child := g.SpawnNode(em.from)
 				child.Send(tok)
 				continue
@@ -77,12 +75,36 @@ func (g *Graph) Tick() bool {
 		}
 	}
 
-	// ── Phase 4: DREAM ────────────────────────────────────────────
-	// Curiosity-driven bedrock queries. Only check every 4 ticks
-	// to avoid GPU over-saturation.
+	// ── Phase 4: SEQUENCE ─────────────────────────────────────────
+	// Analyze the source node's current state through the Sequencer to
+	// derive topological events. Each event becomes a LAW (rotation) token
+	// that propagates through the graph, shifting node perspectives.
+	if g.config.Sequencer != nil && g.tick%2 == 0 {
+		sourceChord := g.source.CubeChord()
+		if sourceChord.ActiveCount() > 0 {
+			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), sourceChord)
+
+			for _, ev := range events {
+				rot := geometry.EventRotation(ev)
+				lawTok := NewRotationToken(rot, -1)
+				// Broadcast LAW to all nodes — topological events are global perspective shifts.
+				for _, node := range g.nodes {
+					node.Send(lawTok)
+				}
+			}
+
+			g.seqPos++
+			if reset {
+				g.seqPos = 0
+				g.seqZ++
+			}
+		}
+	}
+
+	// ── Phase 5: DREAM ────────────────────────────────────────────
 	if g.tick%4 == 0 {
 		if g.config.EigenMode != nil {
-			// Phase-directed dreaming: nodes most out of phase with the global mean dream first.
+			// Phase-directed dreaming: nodes most out of phase dream first.
 			allChords := make([]data.Chord, 0, len(g.nodes))
 			for _, n := range g.nodes {
 				allChords = append(allChords, n.CubeChord())
@@ -103,7 +125,6 @@ func (g *Graph) Tick() bool {
 				}
 				cands = append(cands, dreamCand{node: n, dev: dev})
 			}
-			// Sort descending by deviation
 			sort.Slice(cands, func(i, j int) bool {
 				return cands[i].dev > cands[j].dev
 			})
@@ -118,7 +139,7 @@ func (g *Graph) Tick() bool {
 		}
 	}
 
-	// ── Phase 5: PRUNE & CONVERGE ─────────────────────────────────
+	// ── Phase 6: PRUNE & CONVERGE ─────────────────────────────────
 	if g.tick%16 == 0 {
 		g.prune()
 	}
@@ -128,8 +149,6 @@ func (g *Graph) Tick() bool {
 
 /*
 prune removes energy-starved nodes that are not the source or sink.
-A node is starved if its total popcount density falls below 1% AND
-it has been alive for at least 32 ticks (grace period for newly spawned nodes).
 */
 func (g *Graph) prune() {
 	const (
@@ -139,7 +158,6 @@ func (g *Graph) prune() {
 
 	alive := make([]*Node, 0, len(g.nodes))
 	for _, node := range g.nodes {
-		// Never prune source or sink.
 		if node == g.source || node == g.sink {
 			alive = append(alive, node)
 			continue
@@ -149,10 +167,10 @@ func (g *Graph) prune() {
 			alive = append(alive, node)
 			continue
 		}
-		// Node dies: disconnect from all neighbors.
 		for _, neighbor := range node.edges {
 			pruneEdge(neighbor, node)
 		}
+		g.pruneEvents++
 		console.Info("cortex prune",
 			"nodeID", node.ID,
 			"energy", node.Energy(),
@@ -162,7 +180,6 @@ func (g *Graph) prune() {
 	g.nodes = alive
 }
 
-// pruneEdge removes `target` from `node`'s edge list.
 func pruneEdge(node, target *Node) {
 	for i, e := range node.edges {
 		if e == target {
@@ -175,12 +192,14 @@ func pruneEdge(node, target *Node) {
 /*
 checkConvergence determines whether the graph has reached a stable state.
 Convergence requires energy stability (±1% over ConvergenceWindow ticks)
-and, if EigenMode is active, Toroidal Closure (the sink phase matches the global mean).
+and, if EigenMode is active, Toroidal Closure.
+
+Additionally checks momentum decay from the Sequencer: if momentum drops
+below the Sequencer's phase threshold, generation should stop.
 */
 func (g *Graph) checkConvergence() bool {
 	sinkEnergy := g.sink.Energy()
 
-	// Check if energy is stable (delta < 1%)
 	delta := sinkEnergy - g.sinkLastEnergy
 	if delta < 0 {
 		delta = -delta
@@ -197,8 +216,7 @@ func (g *Graph) checkConvergence() bool {
 	g.sinkLastEnergy = sinkEnergy
 	stable := g.sinkStableCount >= g.config.ConvergenceWindow
 
-	// If EigenMode is active, demand Toroidal Closure:
-	// The sink's phase must have rotated back to the global graph baseline.
+	// Toroidal Closure: the sink's phase must match the global graph baseline.
 	if stable && g.config.EigenMode != nil {
 		allChords := make([]data.Chord, 0, len(g.nodes))
 		for _, n := range g.nodes {
@@ -218,11 +236,7 @@ func (g *Graph) checkConvergence() bool {
 
 /*
 Survivors returns all nodes with energy above the given threshold.
-These are candidates for writing back to the PrimeField as new long-term
-memories after the graph dissolves.
-
-The returned slice excludes the source and sink nodes (their content
-is transient prompt/output context, not learned knowledge).
+These are candidates for writing back to the PrimeField.
 */
 func (g *Graph) Survivors(threshold float64) []*Node {
 	var result []*Node
@@ -244,5 +258,30 @@ This is how the prompt enters the cortex.
 func (g *Graph) InjectChords(chords []data.Chord) {
 	for _, c := range chords {
 		g.source.Send(NewDataToken(c, -1))
+	}
+}
+
+/*
+InjectWithSequencer feeds prompt chords into the source node AND runs each
+through the Sequencer to generate topological events. Events become LAW
+(rotation) tokens injected alongside data tokens — the graph experiences
+both the content and the structural dynamics of the prompt.
+*/
+func (g *Graph) InjectWithSequencer(chords []data.Chord) {
+	for _, c := range chords {
+		g.source.Send(NewDataToken(c, -1))
+
+		if g.config.Sequencer != nil {
+			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), c)
+			for _, ev := range events {
+				rot := geometry.EventRotation(ev)
+				g.source.Send(NewRotationToken(rot, -1))
+			}
+			g.seqPos++
+			if reset {
+				g.seqPos = 0
+				g.seqZ++
+			}
+		}
 	}
 }

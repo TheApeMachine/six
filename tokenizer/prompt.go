@@ -50,38 +50,54 @@ type Prompt struct {
 	holdout    HoldoutType
 	percentage int
 	substrings []string // for SUBSTRING holdout
+	values     []string // for explicit values
 }
 
 type promptOpts func(*Prompt)
 
 func NewPrompt(opts ...promptOpts) *Prompt {
-	p := &Prompt{}
+	p := &Prompt{
+		substrings: []string{},
+		values:     []string{},
+	}
 
 	for _, opt := range opts {
 		opt(p)
 	}
 
-	var (
-		chords []data.Chord
-		values []string
-	)
-
-	flush := func() {
-		if len(chords) == 0 {
-			return
+	for _, v := range p.values {
+		var chords []data.Chord
+		var values []string
+		for _, b := range []byte(v) {
+			chords = append(chords, data.BaseChord(b))
+			values = append(values, string(b))
 		}
 		p.samples = append(p.samples, p.buildSample(chords, values))
-		chords, values = nil, nil
 	}
 
-	for token := range p.dataset.Generate() {
-		if token.Pos == 0 && len(chords) > 0 {
-			flush()
+	if p.dataset != nil {
+		var (
+			chords []data.Chord
+			values []string
+		)
+
+		flush := func() {
+			if len(chords) == 0 {
+				return
+			}
+			p.samples = append(p.samples, p.buildSample(chords, values))
+			chords, values = nil, nil
 		}
-		chords = append(chords, data.BaseChord(token.Symbol))
-		values = append(values, string(token.Symbol))
+
+		for token := range p.dataset.Generate() {
+			if token.Pos == 0 && len(chords) > 0 {
+				flush()
+			}
+			chords = append(chords, data.BaseChord(token.Symbol))
+			values = append(values, string(token.Symbol))
+		}
+		flush()
 	}
-	flush()
 
 	return p
 }
@@ -237,5 +253,11 @@ func PromptWithSubstringHoldout(substrings []string) promptOpts {
 	return func(p *Prompt) {
 		p.holdout = SUBSTRING
 		p.substrings = substrings
+	}
+}
+
+func PromptWithValues(values []string) promptOpts {
+	return func(p *Prompt) {
+		p.values = values
 	}
 }
