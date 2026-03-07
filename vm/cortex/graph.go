@@ -1,6 +1,7 @@
 package cortex
 
 import (
+	"math"
 	"unsafe"
 
 	"github.com/theapemachine/six/data"
@@ -32,6 +33,11 @@ type Config struct {
 
 	// BestFill is the GPU resonance search kernel.
 	BestFill BestFillFunc
+
+	// EigenMode provides the global phase landscape (optional).
+	// When provided, it acts as a routing prior ("the wind") and checks
+	// geometric closure for convergence.
+	EigenMode *geometry.EigenMode
 
 	// MaxTicks is the convergence timeout. After this many ticks the graph
 	// force-extracts whatever output it has. Default: 256.
@@ -186,18 +192,46 @@ func (g *Graph) SpawnNode(parent *Node) *Node {
 bestNeighbor selects the edge with highest resonance to the given chord.
 This is "Topological Gravity" — tokens naturally flow toward nodes
 whose existing content has the most constructive interference.
+
+If EigenMode is configured, routing is also biased by the "Toroidal Wind".
+Tokens prefer to flow to neighbors that maintain the chord's geometric phase
+trajectory, penalizing large phase jumps.
 */
 func (g *Graph) bestNeighbor(from *Node, c data.Chord) *Node {
 	var best *Node
-	bestSim := -1
+	bestScore := -1.0
+
+	var tokenTheta float64
+	useWind := g.config.EigenMode != nil
+	if useWind {
+		tokenTheta, _ = g.config.EigenMode.PhaseForChord(&c)
+	}
+
 	for _, neighbor := range from.edges {
 		nSum := neighbor.CubeChord()
-		sim := data.ChordSimilarity(&c, &nSum)
-		if sim > bestSim {
-			bestSim = sim
+		sim := float64(data.ChordSimilarity(&c, &nSum))
+
+		score := sim
+		if useWind {
+			neighborTheta, _ := g.config.EigenMode.PhaseForChord(&nSum)
+			phaseDelta := math.Abs(tokenTheta - neighborTheta)
+
+			// Shortest path around torus boundary
+			for phaseDelta > math.Pi {
+				phaseDelta = 2*math.Pi - phaseDelta
+			}
+
+			// Wind factor: 1.0 down to ~0.24 depending on phase disagreement
+			wind := 1.0 / (1.0 + phaseDelta)
+			score = sim * wind
+		}
+
+		if score > bestScore {
+			bestScore = score
 			best = neighbor
 		}
 	}
+
 	return best
 }
 

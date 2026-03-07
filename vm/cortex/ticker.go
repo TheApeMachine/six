@@ -1,6 +1,9 @@
 package cortex
 
 import (
+	"math"
+	"sort"
+
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 )
@@ -78,8 +81,40 @@ func (g *Graph) Tick() bool {
 	// Curiosity-driven bedrock queries. Only check every 4 ticks
 	// to avoid GPU over-saturation.
 	if g.tick%4 == 0 {
-		for _, node := range g.nodes {
-			g.queryBedrock(node)
+		if g.config.EigenMode != nil {
+			// Phase-directed dreaming: nodes most out of phase with the global mean dream first.
+			allChords := make([]data.Chord, 0, len(g.nodes))
+			for _, n := range g.nodes {
+				allChords = append(allChords, n.CubeChord())
+			}
+			globalTheta, _ := g.config.EigenMode.SeqToroidalMeanPhase(allChords)
+
+			type dreamCand struct {
+				node *Node
+				dev  float64
+			}
+			var cands []dreamCand
+			for _, n := range g.nodes {
+				chord := n.CubeChord()
+				nodeTheta, _ := g.config.EigenMode.PhaseForChord(&chord)
+				dev := math.Abs(nodeTheta - globalTheta)
+				for dev > math.Pi {
+					dev = 2*math.Pi - dev
+				}
+				cands = append(cands, dreamCand{node: n, dev: dev})
+			}
+			// Sort descending by deviation
+			sort.Slice(cands, func(i, j int) bool {
+				return cands[i].dev > cands[j].dev
+			})
+
+			for _, cand := range cands {
+				g.queryBedrock(cand.node)
+			}
+		} else {
+			for _, node := range g.nodes {
+				g.queryBedrock(node)
+			}
 		}
 	}
 
@@ -139,12 +174,8 @@ func pruneEdge(node, target *Node) {
 
 /*
 checkConvergence determines whether the graph has reached a stable state.
-Convergence is defined as the sink node's energy remaining within ±1%
-for ConvergenceWindow consecutive ticks.
-
-This ensures the output is only extracted when the graph has stopped
-vibrating — all contradictions have been resolved and the interference
-pattern has settled.
+Convergence requires energy stability (±1% over ConvergenceWindow ticks)
+and, if EigenMode is active, Toroidal Closure (the sink phase matches the global mean).
 */
 func (g *Graph) checkConvergence() bool {
 	sinkEnergy := g.sink.Energy()
@@ -155,14 +186,34 @@ func (g *Graph) checkConvergence() bool {
 		delta = -delta
 	}
 
-	if sinkEnergy > 0 && delta < 0.01 {
+	energyStable := sinkEnergy > 0 && delta < 0.01
+
+	if energyStable {
 		g.sinkStableCount++
 	} else {
 		g.sinkStableCount = 0
 	}
 
 	g.sinkLastEnergy = sinkEnergy
-	return g.sinkStableCount >= g.config.ConvergenceWindow
+	stable := g.sinkStableCount >= g.config.ConvergenceWindow
+
+	// If EigenMode is active, demand Toroidal Closure:
+	// The sink's phase must have rotated back to the global graph baseline.
+	if stable && g.config.EigenMode != nil {
+		allChords := make([]data.Chord, 0, len(g.nodes))
+		for _, n := range g.nodes {
+			allChords = append(allChords, n.CubeChord())
+		}
+		globalAnchor, _ := g.config.EigenMode.SeqToroidalMeanPhase(allChords)
+		sinkChord := g.sink.CubeChord()
+
+		closed := g.config.EigenMode.IsGeometricallyClosed([]data.Chord{sinkChord}, globalAnchor)
+		if !closed {
+			return false
+		}
+	}
+
+	return stable
 }
 
 /*

@@ -2,33 +2,30 @@ package geometry
 
 import (
 	"math"
-	"math/cmplx"
-	"sort"
 
-	"gonum.org/v1/gonum/mat"
-
-	"github.com/theapemachine/six/console"
-	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 )
 
 /*
-EigenMode maps chord structural bins (0–255) to toroidal phases derived from
-chord co-occurrence statistics. Co-occurrence is built from chord transitions
-within FibWindows—no raw bytes, only chords and TokenIDs.
+EigenMode maps arbitrary chord structures to a global toroidal phase space (Theta, Phi).
+Unlike legacy Markov transition matrices, this implementation is entirely
+chord-native and analytical: it derives the global shape of the sequence
+from the intrinsic Fourier transform across the 257-dimensional GF(257) substrate.
+
+Theta: Circular mean of prime activations. Perfectly mirrors topological translation (RotateX).
+Phi: Spectral density moment (information content).
 */
 type EigenMode struct {
-	PhaseTheta [256]float64
-	PhasePhi   [256]float64
-	FreqTheta  [256]float64
-	FreqPhi    [256]float64
-	Trained    bool
+	Trained bool // Always true, kept for interface compatibility
 }
 
 type eigenModeOpts func(*EigenMode)
 
+// NewEigenMode creates a new stateless, chord-native phase evaluator.
 func NewEigenMode(opts ...eigenModeOpts) *EigenMode {
-	ei := &EigenMode{}
+	ei := &EigenMode{
+		Trained: true,
+	}
 
 	for _, opt := range opts {
 		opt(ei)
@@ -38,256 +35,74 @@ func NewEigenMode(opts ...eigenModeOpts) *EigenMode {
 }
 
 /*
-BuildMultiScaleCooccurrence generates toroidal phases from chord co-occurrence.
-Uses ChordBin to map chords to structural bins 0–255; transition matrix is
-built from chord sequences at each FibWindow scale. Chord-native: no raw bytes.
+BuildMultiScaleCooccurrence is a no-op for the analytical EigenMode.
+Legacy implementations required building massive 256x256 transition matrices
+and running eigendecomposition. The analytical model is instantly ready.
 */
 func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
-	ei.Trained = false
-
-	n := len(chords)
-	if n == 0 {
-		return nil
-	}
-
-	var sinThetaAcc, cosThetaAcc [256]float64
-	var sinPhiAcc, cosPhiAcc [256]float64
-	var freqThetaAcc, freqPhiAcc [256]float64
-
-	// Generate inverse window scales for FibWeights
-	var sum float64
-	fibWeights := make([]float64, len(config.Numeric.Windows))
-	for _, w := range config.Numeric.Windows {
-		sum += 1.0 / float64(w)
-	}
-	for i, w := range config.Numeric.Windows {
-		fibWeights[i] = (1.0 / float64(w)) / sum
-	}
-
-	for wi, w := range config.Numeric.Windows {
-		weight := fibWeights[wi]
-
-		var C [256][256]float64
-		ei.buildChordCooccurrenceInto(&C, chords, w)
-
-		vT1, vT2, vP1, vP2, err := ei.toroidalEigenvectors(&C)
-		if err != nil {
-			return err
-		}
-
-		var maxMagTheta, maxMagPhi float64
-		magsTheta := make([]float64, 256)
-		magsPhi := make([]float64, 256)
-
-		for i := range 256 {
-			magsTheta[i] = math.Sqrt(vT1[i]*vT1[i] + vT2[i]*vT2[i])
-			if magsTheta[i] > maxMagTheta {
-				maxMagTheta = magsTheta[i]
-			}
-			magsPhi[i] = math.Sqrt(vP1[i]*vP1[i] + vP2[i]*vP2[i])
-			if magsPhi[i] > maxMagPhi {
-				maxMagPhi = magsPhi[i]
-			}
-		}
-
-		for i := range 256 {
-			phaseTheta := math.Atan2(vT2[i], vT1[i])
-			sinThetaAcc[i] += weight * math.Sin(phaseTheta)
-			cosThetaAcc[i] += weight * math.Cos(phaseTheta)
-
-			freqTheta := 1.0
-			if maxMagTheta > 0 {
-				freqTheta = 1.0 + (magsTheta[i]/maxMagTheta)*config.Numeric.FrequencySpread
-			}
-			freqThetaAcc[i] += weight * freqTheta
-
-			phasePhi := math.Atan2(vP2[i], vP1[i])
-			sinPhiAcc[i] += weight * math.Sin(phasePhi)
-			cosPhiAcc[i] += weight * math.Cos(phasePhi)
-
-			freqPhi := 1.0
-			if maxMagPhi > 0 {
-				freqPhi = 1.0 + (magsPhi[i]/maxMagPhi)*config.Numeric.FrequencySpread
-			}
-			freqPhiAcc[i] += weight * freqPhi
-		}
-	}
-
-	// Circular mean of the weighted phase contributions for the Torus
-	for i := range 256 {
-		ei.PhaseTheta[i] = math.Atan2(sinThetaAcc[i], cosThetaAcc[i])
-		ei.FreqTheta[i] = freqThetaAcc[i]
-
-		ei.PhasePhi[i] = math.Atan2(sinPhiAcc[i], cosPhiAcc[i])
-		ei.FreqPhi[i] = freqPhiAcc[i]
-	}
-
 	ei.Trained = true
-
 	return nil
 }
 
-func (ei *EigenMode) buildChordCooccurrenceInto(C *[256][256]float64, chords []data.Chord, windowSize int) {
-	for i := range 256 {
-		for j := range 256 {
-			C[i][j] = 0
-		}
+/*
+PhaseForChord maps a single chord to (theta, phi) purely through its
+intrinsic geometric bit distribution over GF(257).
+*/
+func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
+	indices := data.ChordPrimeIndices(c)
+	var sinSum, cosSum float64
+
+	// Theta: the circular mean of active subsets in the GF(257) space.
+	// This captures structural orientation. A topological ShiftX on the chord
+	// precisely translates this Theta phase around the torus.
+	for _, idx := range indices {
+		angle := 2 * math.Pi * float64(idx) / 257.0
+		sinSum += math.Sin(angle)
+		cosSum += math.Cos(angle)
 	}
 
-	n := len(chords)
-	for pos := 0; pos < n; pos++ {
-		binI := data.ChordBin(&chords[pos])
-		end := min(pos+windowSize+1, n)
-		for j := pos + 1; j < end; j++ {
-			binJ := data.ChordBin(&chords[j])
-			C[binI][binJ] += 1.0
-		}
+	if sinSum == 0 && cosSum == 0 {
+		theta = 0
+	} else {
+		theta = math.Atan2(sinSum, cosSum)
 	}
 
-	// L1-normalize each row -> Markov transition matrix (row sums = 1)
-	for i := range 256 {
-		var sum float64
-		for j := range 256 {
-			sum += C[i][j]
-		}
-		if sum > 0 {
-			for j := range 256 {
-				C[i][j] /= sum
-			}
-		}
-	}
-}
+	// Phi: captures information density spread over the full 2π cycle.
+	// We normalize the ActiveCount against the maximum expected typical
+	// working memory density (for BaseChords it's ~5, here scaled out against
+	// the 257 parameterization base, effectively becoming a density phase).
+	phi = 2 * math.Pi * float64(c.ActiveCount()) / 257.0
 
-func (ei *EigenMode) toroidalEigenvectors(
-	C *[256][256]float64,
-) (vT1, vT2, vP1, vP2 [256]float64, err error) {
-	data := make([]float64, 256*256)
-
-	for i := range 256 {
-		for j := range 256 {
-			data[i*256+j] = C[i][j]
-		}
-	}
-
-	dense := mat.NewDense(256, 256, data)
-
-	var eig mat.Eigen
-
-	if !eig.Factorize(dense, mat.EigenRight) {
-		return vT1, vT2, vP1, vP2, console.Error(
-			EigenErrorFactorizeFailed,
-			"x", 256,
-			"y", 256,
-		)
-	}
-
-	values := eig.Values(nil)
-	indices := make([]int, 256)
-
-	for i := range 256 {
-		indices[i] = i
-	}
-
-	sort.Slice(indices, func(a, b int) bool {
-		modA := cmplx.Abs(values[indices[a]])
-		modB := cmplx.Abs(values[indices[b]])
-		return modA > modB
-	})
-
-	var vecs mat.CDense
-	eig.VectorsTo(&vecs)
-
-	extractPair := func(idx1, idx2 int, out1, out2 *[256]float64) {
-		lam1 := values[idx1]
-		lam2 := values[idx2]
-
-		if imag(lam1) != 0 {
-			for i := range 256 {
-				v := vecs.At(i, idx1)
-				out1[i] = real(v)
-				out2[i] = imag(v)
-			}
-		} else if imag(lam2) != 0 {
-			for i := range 256 {
-				v := vecs.At(i, idx2)
-				out1[i] = real(v)
-				out2[i] = imag(v)
-			}
-		} else {
-			for i := range 256 {
-				out1[i] = real(vecs.At(i, idx1))
-				out2[i] = real(vecs.At(i, idx2))
-			}
-		}
-	}
-
-	// Primary subdominant plane (Theta)
-	extractPair(indices[1], indices[2], &vT1, &vT2)
-
-	// Secondary subdominant plane (Phi)
-	extractPair(indices[3], indices[4], &vP1, &vP2)
-
-	ei.normalizeVec(&vT1)
-	ei.normalizeVec(&vT2)
-	ei.normalizeVec(&vP1)
-	ei.normalizeVec(&vP2)
-
-	return vT1, vT2, vP1, vP2, nil
-}
-
-func (ei *EigenMode) normalizeVec(v *[256]float64) {
-	var normSq float64
-	for i := range 256 {
-		normSq += v[i] * v[i]
-	}
-	if normSq < 1e-12 {
-		return
-	}
-	norm := math.Sqrt(normSq)
-	for i := range 256 {
-		v[i] /= norm
-	}
+	return theta, phi
 }
 
 /*
-SeqToroidalMeanPhase returns the circular means of eigen phases for a chord sequence.
-Chord-native: uses ChordBin to look up phases—no raw bytes.
+SeqToroidalMeanPhase returns the circular means of the intrinsic phases
+for a sequence of chords.
 */
 func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float64) {
 	n := len(chords)
-
 	if n == 0 {
 		return 0, 0
 	}
 
-	var sinThetaSum, cosThetaSum float64
-	var sinPhiSum, cosPhiSum float64
+	var sinTSum, cosTSum float64
+	var sinPSum, cosPSum float64
 
 	for i := range chords {
-		bin := data.ChordBin(&chords[i])
-		pT := ei.PhaseTheta[bin]
-		sinThetaSum += math.Sin(pT)
-		cosThetaSum += math.Cos(pT)
-
-		pP := ei.PhasePhi[bin]
-		sinPhiSum += math.Sin(pP)
-		cosPhiSum += math.Cos(pP)
+		t, p := ei.PhaseForChord(&chords[i])
+		sinTSum += math.Sin(t)
+		cosTSum += math.Cos(t)
+		sinPSum += math.Sin(p)
+		cosPSum += math.Cos(p)
 	}
 
-	return math.Atan2(sinThetaSum, cosThetaSum), math.Atan2(sinPhiSum, cosPhiSum)
-}
-
-/*
-PhaseForChord returns (theta, phi) for a single chord via ChordBin lookup.
-*/
-func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
-	bin := data.ChordBin(c)
-	return ei.PhaseTheta[bin], ei.PhasePhi[bin]
+	return math.Atan2(sinTSum, cosTSum), math.Atan2(sinPSum, cosPSum)
 }
 
 /*
 WeightedCircularMean computes the weighted circular mean and concentration over PhaseTheta
-for a sequence of chords, using FreqTheta as the structural informativeness weights.
+for a sequence of chords. Weight is driven by chord structural density.
 */
 func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, concentration float64) {
 	if len(chords) == 0 {
@@ -295,11 +110,13 @@ func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, c
 	}
 	var sinSum, cosSum, wSum float64
 	for i := range chords {
-		bin := data.ChordBin(&chords[i])
-		pT := ei.PhaseTheta[bin]
-		w := ei.FreqTheta[bin]
-		sinSum += w * math.Sin(pT)
-		cosSum += w * math.Cos(pT)
+		t, _ := ei.PhaseForChord(&chords[i])
+		w := float64(chords[i].ActiveCount())
+		if w <= 0 {
+			w = 1.0 // safeguard zero-density
+		}
+		sinSum += w * math.Sin(t)
+		cosSum += w * math.Cos(t)
 		wSum += w
 	}
 	if wSum == 0 {
@@ -311,9 +128,8 @@ func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, c
 }
 
 /*
-IsGeometricallyClosed verifies structural closure entirely via native
-mathematical topology. It checks if the candidate's phase logically
-returns to an expected terminal clustered state (proving closure geometrically).
+IsGeometricallyClosed verifies structural closure by checking if the sequence's
+weighted mean phase trajectory closely returns to the expected anchor phase.
 */
 func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase float64) bool {
 	if len(chords) == 0 {
@@ -322,6 +138,8 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 
 	cPhase, _ := ei.WeightedCircularMean(chords)
 	phaseDiff := math.Abs(cPhase - anchorPhase)
+
+	// Shortest path around torus boundary
 	for phaseDiff > math.Pi {
 		phaseDiff = 2*math.Pi - phaseDiff
 	}
@@ -329,6 +147,7 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 	return phaseDiff < 0.45
 }
 
+// EigenError preserved for interface compatibility.
 type EigenError string
 
 const (

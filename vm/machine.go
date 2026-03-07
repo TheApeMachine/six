@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/vm/cortex"
 	"github.com/theapemachine/six/vm/generation"
 )
 
@@ -61,6 +62,7 @@ type Machine struct {
 	bestFillWithField bestFillWithFieldFn
 	policy            *generation.PolicyTracker
 	stopCh            chan struct{}
+	useCortex         bool
 }
 
 type machineOpts func(*Machine)
@@ -144,6 +146,42 @@ func (machine *Machine) promptInternal(
 	expectedReality *geometry.IcosahedralManifold,
 	expectedField *geometry.ExpectedField,
 ) chan byte {
+	// ── CORTEX PATH: reactive working-memory graph ──────────────
+	if machine.useCortex {
+		return machine.promptCortex(prompt, expectedReality)
+	}
+
+	// ── RUNNER PATH: linear sliding-window generation ────────────
+	return machine.promptRunner(prompt, expectedReality, expectedField)
+}
+
+// promptCortex spawns a volatile cortex graph that vibrates until convergence,
+// replacing the linear Runner loop with a spatial inference process.
+func (machine *Machine) promptCortex(
+	prompt []data.Chord,
+	expectedReality *geometry.IcosahedralManifold,
+) chan byte {
+	console.Info("machine: using cortex mode",
+		"promptLen", len(prompt),
+	)
+
+	graph := cortex.New(cortex.Config{
+		InitialNodes: 8,
+		PrimeField:   machine.primefield,
+		BestFill:     cortex.BestFillFunc(machine.bestFill),
+		MaxTicks:     maxGenerationSteps * 4, // budget: 4 ticks per output byte
+		MaxOutput:    maxGenerationSteps,
+	})
+
+	return graph.Think(prompt, expectedReality)
+}
+
+// promptRunner is the original linear sliding-window generation path.
+func (machine *Machine) promptRunner(
+	prompt []data.Chord,
+	expectedReality *geometry.IcosahedralManifold,
+	expectedField *geometry.ExpectedField,
+) chan byte {
 	policy := machine.policy
 	seq := machine.loader.tokenizer.Sequencer()
 
@@ -181,7 +219,7 @@ func (machine *Machine) promptInternal(
 		RecentLimit:        12,
 	})
 	if err != nil {
-		console.Error(err, "context", "Machine.promptInternal")
+		console.Error(err, "context", "Machine.promptRunner")
 		out := make(chan byte)
 		close(out)
 		return out
@@ -231,6 +269,16 @@ func MachineWithBranchPolicy(policy BranchPolicy) machineOpts {
 			MarginThreshold: policy.MarginThreshold,
 			MaxRetained:     policy.MaxRetained,
 		})
+	}
+}
+
+// MachineWithCortex enables the reactive working-memory cortex.
+// When active, prompts spawn a volatile graph of resonating MacroCubes
+// instead of the linear Runner. The old Runner path remains accessible
+// when cortex mode is not enabled.
+func MachineWithCortex() machineOpts {
+	return func(machine *Machine) {
+		machine.useCortex = true
 	}
 }
 

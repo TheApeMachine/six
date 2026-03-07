@@ -34,193 +34,93 @@ func TestNewEigenMode(t *testing.T) {
 		Convey("When creating with no options", func() {
 			ei := NewEigenMode()
 			So(ei, ShouldNotBeNil)
-			So(len(ei.PhaseTheta), ShouldEqual, 256)
-			So(len(ei.PhasePhi), ShouldEqual, 256)
-			So(len(ei.FreqTheta), ShouldEqual, 256)
-			So(len(ei.FreqPhi), ShouldEqual, 256)
+			So(ei.Trained, ShouldBeTrue) // Analytical mode is always trained
 		})
 
 		Convey("When creating with options", func() {
 			opt := func(ei *EigenMode) {
-				ei.FreqTheta[0] = 42.0
-				ei.FreqPhi[0] = 73.0
+				ei.Trained = false // dummy test
 			}
 			ei := NewEigenMode(opt)
-			So(ei.FreqTheta[0], ShouldEqual, 42.0)
-			So(ei.FreqPhi[0], ShouldEqual, 73.0)
+			So(ei.Trained, ShouldBeFalse)
 		})
 	})
 }
 
-func TestBuildMultiScaleCooccurrence(t *testing.T) {
-	Convey("Given an EigenMode and chord sequence", t, func() {
+func TestAnalyticalPhaseGeneration(t *testing.T) {
+	Convey("Given a chord-native EigenMode", t, func() {
 		ei := NewEigenMode()
 
-		// Chord-native: build from chord sequence (no raw bytes)
-		corpus := []byte("abababa")
-		chords := make([]data.Chord, len(corpus))
-		for i, b := range corpus {
-			chords[i] = mockBaseChord(b)
-		}
-
-		Convey("When building multiscale cooccurrence", func() {
-			err := ei.BuildMultiScaleCooccurrence(chords)
-			So(err, ShouldBeNil)
-
-			// Simple check that it modified state over zero-values
-			var hasNonZeroThetaFreq, hasNonZeroPhiFreq bool
-			for i := range 256 {
-				if ei.FreqTheta[i] > 0.0 {
-					hasNonZeroThetaFreq = true
-				}
-				if ei.FreqPhi[i] > 0.0 {
-					hasNonZeroPhiFreq = true
-				}
-			}
-			So(hasNonZeroThetaFreq, ShouldBeTrue)
-			So(hasNonZeroPhiFreq, ShouldBeTrue)
+		Convey("When computing phase for an empty chord", func() {
+			var empty data.Chord
+			theta, phi := ei.PhaseForChord(&empty)
+			So(theta, ShouldEqual, 0)
+			So(phi, ShouldEqual, 0)
 		})
 
-		Convey("When handling empty chords", func() {
-			emptyEI := NewEigenMode()
-			err := emptyEI.BuildMultiScaleCooccurrence(nil)
-			So(err, ShouldBeNil)
-			// Phase and Frequency should remain unmodified (zeroed)
-			So(emptyEI.PhaseTheta[0], ShouldEqual, 0)
-			So(emptyEI.FreqTheta[0], ShouldEqual, 0)
-			So(emptyEI.PhasePhi[0], ShouldEqual, 0)
-			So(emptyEI.FreqPhi[0], ShouldEqual, 0)
+		Convey("When computing phase for a mock base chord", func() {
+			chord := mockBaseChord('A')
+			theta, phi := ei.PhaseForChord(&chord)
+
+			// The mock chord sets 5 bits, so density is 5.
+			// Phi = 2 * π * 5 / 257 ≈ 0.122
+			expectedPhi := 2.0 * math.Pi * 5.0 / 257.0
+
+			So(phi, ShouldAlmostEqual, expectedPhi, 0.001)
+
+			// Theta should be within [-π, π]
+			So(theta, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
 		})
-	})
-}
 
-func TestBuildChordCooccurrenceInto(t *testing.T) {
-	Convey("Given an EigenMode and a target matrix", t, func() {
-		ei := NewEigenMode()
-		var C [256][256]float64
+		Convey("When computing mean sequence phase for empty chords", func() {
+			theta, phi := ei.SeqToroidalMeanPhase(nil)
+			So(theta, ShouldEqual, 0)
+			So(phi, ShouldEqual, 0)
+		})
 
-		Convey("When building with chord sequence and window", func() {
+		Convey("When computing mean sequence phase", func() {
 			chords := []data.Chord{
-				mockBaseChord('a'),
-				mockBaseChord('b'),
-				mockBaseChord('c'),
-				mockBaseChord('d'),
+				mockBaseChord('A'),
+				mockBaseChord('A'),
 			}
 
-			ei.buildChordCooccurrenceInto(&C, chords, 2)
+			// Sequence of identical chords should yield same phase as a single chord
+			singleTheta, singlePhi := ei.PhaseForChord(&chords[0])
+			seqTheta, seqPhi := ei.SeqToroidalMeanPhase(chords)
 
-			// Row sums = 1 (Markov normalization)
-			binA := data.ChordBin(&chords[0])
-			var rowSum float64
-			for j := range 256 {
-				rowSum += C[binA][j]
-			}
-			So(rowSum, ShouldEqual, 1.0)
-		})
-
-		Convey("When chords are empty", func() {
-			ei.buildChordCooccurrenceInto(&C, nil, 5)
-			for i := range 256 {
-				for j := range 256 {
-					So(C[i][j], ShouldEqual, 0)
-				}
-			}
+			So(seqTheta, ShouldAlmostEqual, singleTheta, 0.001)
+			So(seqPhi, ShouldAlmostEqual, singlePhi, 0.001)
 		})
 	})
 }
 
-func TestToroidalEigenvectors(t *testing.T) {
-	Convey("Given a populated co-occurrence matrix", t, func() {
-		ei := NewEigenMode()
-		var C [256][256]float64
-		// Create a uniform transition matrix
-		val := 1.0 / 256.0
-		for i := range 256 {
-			for j := range 256 {
-				C[i][j] = val
-			}
-		}
-
-		Convey("When extracting toroidal eigenvectors (Theta and Phi planes)", func() {
-			vT1, vT2, vP1, vP2, err := ei.toroidalEigenvectors(&C)
-
-			// Uniform matrix should successfully factorize
-			So(err, ShouldBeNil)
-
-			// Eigenvectors should have equal length 256
-			So(len(vT1), ShouldEqual, 256)
-			So(len(vT2), ShouldEqual, 256)
-			So(len(vP1), ShouldEqual, 256)
-			So(len(vP2), ShouldEqual, 256)
-		})
-	})
-}
-
-func TestNormalizeVec(t *testing.T) {
-	Convey("Given a vector normalizer", t, func() {
+func TestGeometricalClosure(t *testing.T) {
+	Convey("Given IsGeometricallyClosed", t, func() {
 		ei := NewEigenMode()
 
-		Convey("When normalizing a non-zero vector", func() {
-			var v [256]float64
-			v[0] = 3.0
-			v[1] = 4.0 // magnitude 5
-
-			ei.normalizeVec(&v)
-
-			So(v[0], ShouldEqual, 3.0/5.0)
-			So(v[1], ShouldEqual, 4.0/5.0)
+		Convey("When sequence is empty", func() {
+			So(ei.IsGeometricallyClosed(nil, 0), ShouldBeFalse)
 		})
 
-		Convey("When handling a zero vector", func() {
-			var v [256]float64
-			ei.normalizeVec(&v)
+		Convey("When sequence returns exactly to anchor phase", func() {
+			chords := []data.Chord{mockBaseChord('X')}
+			anchor, _ := ei.WeightedCircularMean(chords)
 
-			for i := range 256 {
-				So(v[i], ShouldEqual, 0.0)
+			// Same sequence should have distance 0 from its own anchor
+			So(ei.IsGeometricallyClosed(chords, anchor), ShouldBeTrue)
+		})
+
+		Convey("When sequence drifts to opposite side of Torus", func() {
+			chordsA := []data.Chord{mockBaseChord('X')}
+			anchor, _ := ei.WeightedCircularMean(chordsA)
+
+			// We manually specify an anchor that is π radians away
+			oppositeAnchor := anchor + math.Pi
+			if oppositeAnchor > math.Pi {
+				oppositeAnchor -= 2 * math.Pi
 			}
-		})
-	})
-}
 
-func TestSeqToroidalMeanPhase(t *testing.T) {
-	Convey("Given a populated EigenMode toroidal phase sequence", t, func() {
-		ei := NewEigenMode()
-
-		// chordA and chordB must map to different ChordBins ('a'/'b' collide)
-		chordA := mockBaseChord(0)
-		binA := data.ChordBin(&chordA)
-		var chordB data.Chord
-		for b := 1; b < 256; b++ {
-			c := mockBaseChord(byte(b))
-			if data.ChordBin(&c) != binA {
-				chordB = c
-				break
-			}
-		}
-		binB := data.ChordBin(&chordB)
-
-		ei.PhaseTheta[binA] = 0.0
-		ei.PhaseTheta[binB] = math.Pi / 2.0 // pointing UP (sin=1, cos=0)
-		ei.PhasePhi[binA] = -math.Pi / 2.0  // pointing DOWN
-		ei.PhasePhi[binB] = math.Pi         // pointing LEFT
-
-		Convey("When calculating mean phase of chord sequence", func() {
-			meanTheta, meanPhi := ei.SeqToroidalMeanPhase([]data.Chord{chordA, chordB})
-			So(meanTheta, ShouldAlmostEqual, math.Pi/4, 0.0001)
-			So(meanPhi, ShouldAlmostEqual, -3.0*math.Pi/4.0, 0.0001)
-		})
-
-		Convey("When calculating mean phase for empty chords", func() {
-			meanTheta, meanPhi := ei.SeqToroidalMeanPhase(nil)
-			So(meanTheta, ShouldEqual, 0.0)
-			So(meanPhi, ShouldEqual, 0.0)
-		})
-
-		Convey("When calculating mean of same-chord elements", func() {
-			// chordB already has theta=π/2, phi=π
-			meanTheta, meanPhi := ei.SeqToroidalMeanPhase([]data.Chord{chordB, chordB})
-			So(meanTheta, ShouldAlmostEqual, math.Pi/2, 0.0001)
-			So(meanPhi, ShouldAlmostEqual, math.Pi, 0.0001)
+			So(ei.IsGeometricallyClosed(chordsA, oppositeAnchor), ShouldBeFalse)
 		})
 	})
 }
