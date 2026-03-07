@@ -13,17 +13,15 @@ func TestEncode(t *testing.T) {
 	Convey("Given a MortonCoder", t, func() {
 		coder := NewMortonCoder()
 
-		Convey("When Encoding exhaustively over symbols and depth", func() {
+		Convey("When Encoding exhaustively over symbols and positions", func() {
 			positions := []uint32{0, 1, 123456, 0x80000000, 0xFFFFFFFF}
 
 			for _, pos := range positions {
-				for z := range 256 {
-					for symbol := range 256 {
-						expect := uint64(z)<<56 | uint64(symbol)<<32 | uint64(pos)
-						tokenID := coder.Encode(uint8(z), pos, byte(symbol))
+				for symbol := range 256 {
+					expect := uint64(symbol)<<32 | uint64(pos)
+					tokenID := coder.Encode(pos, byte(symbol))
 
-						So(tokenID, ShouldEqual, expect)
-					}
+					So(tokenID, ShouldEqual, expect)
 				}
 			}
 		})
@@ -34,19 +32,16 @@ func TestDecode(t *testing.T) {
 	Convey("Given a MortonCoder", t, func() {
 		coder := NewMortonCoder()
 
-		Convey("When Decoding exhaustively over symbols and depth", func() {
+		Convey("When Decoding exhaustively over symbols and positions", func() {
 			positions := []uint32{0, 1, 123456, 0x80000000, 0xFFFFFFFF}
 
 			for _, pos := range positions {
-				for z := range 256 {
-					for symbol := range 256 {
-						tokenID := coder.Encode(uint8(z), pos, byte(symbol))
-						decZ, decPos, decSymbol := coder.Decode(tokenID)
+				for symbol := range 256 {
+					tokenID := coder.Encode(pos, byte(symbol))
+					decPos, decSymbol := coder.Decode(tokenID)
 
-						So(decZ, ShouldEqual, uint8(z))
-						So(decPos, ShouldEqual, pos)
-						So(decSymbol, ShouldEqual, byte(symbol))
-					}
+					So(decPos, ShouldEqual, pos)
+					So(decSymbol, ShouldEqual, byte(symbol))
 				}
 			}
 		})

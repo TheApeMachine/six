@@ -17,18 +17,17 @@ facebook/babi_qa dataset.
 type BabiExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	dataset   provider.Dataset
+	dataset   *huggingface.BabiQADataset
 	prompt    *tokenizer.Prompt
 }
 
 func NewBabiExperiment() *BabiExperiment {
 	experiment := &BabiExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset: huggingface.New(
+		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
 			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
-			huggingface.DatasetWithTextColumn("story"),
 		),
 	}
 
@@ -53,9 +52,22 @@ func (experiment *BabiExperiment) Dataset() provider.Dataset {
 }
 
 func (experiment *BabiExperiment) Prompts() *tokenizer.Prompt {
+	samples, err := experiment.dataset.Samples()
+	if err != nil {
+		return tokenizer.NewPrompt()
+	}
+
+	promptSamples := make([]tokenizer.PromptSample, 0, len(samples))
+	for _, sample := range samples {
+		promptSamples = append(promptSamples, tokenizer.PromptSample{
+			Visible: sample.Visible,
+			HeldOut: sample.Answer,
+			Full:    sample.Full,
+		})
+	}
+
 	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+		tokenizer.PromptWithSamples(promptSamples),
 	)
 
 	return experiment.prompt
@@ -70,7 +82,7 @@ func (experiment *BabiExperiment) Section() string {
 }
 
 func (experiment *BabiExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(results.Prefix, results.Observed)
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
 	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
 	experiment.tableData = append(experiment.tableData, results)
 }

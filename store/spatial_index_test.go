@@ -8,8 +8,8 @@ import (
 	"github.com/theapemachine/six/tokenizer"
 )
 
-func encodeMortonKey(z uint8, pos uint32, symbol byte) uint64 {
-	return tokenizer.NewMortonCoder().Encode(z, pos, symbol)
+func encodeMortonKey(pos uint32, symbol byte) uint64 {
+	return tokenizer.NewMortonCoder().Encode(pos, symbol)
 }
 
 func TestNewLSMSpatialIndex(t *testing.T) {
@@ -33,7 +33,7 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 			// This generates 10,000 distinct chords and thoroughly exercises LSM level merges.
 			for b := range 10 {
 				for pos := range 1000 {
-					key := encodeMortonKey(0, uint32(pos), byte(b))
+					key := encodeMortonKey(uint32(pos), byte(b))
 					chord := data.Chord{}
 					chord.Set((b + pos + 1) % 512)
 					idx.Insert(key, chord)
@@ -45,7 +45,7 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 			// Exhaustively verify lookups work across varying LSM levels seamlessly
 			for b := range 10 {
 				for pos := 0; pos < 1000; pos += 100 { // check every 100th pos
-					key := encodeMortonKey(0, uint32(pos), byte(b))
+					key := encodeMortonKey(uint32(pos), byte(b))
 					res := idx.Lookup(key)
 
 					// Re-derive the expected byte block value of the 512-bit slice
@@ -58,7 +58,7 @@ func TestLSMSpatialIndexInsertAndLookupExhaustive(t *testing.T) {
 			}
 
 			// Non-existent lookups
-			resNo := idx.Lookup(encodeMortonKey(0, 500, 99))
+			resNo := idx.Lookup(encodeMortonKey(500, 99))
 			So(resNo, ShouldResemble, data.Chord{})
 		})
 	})
@@ -68,30 +68,28 @@ func TestLSMSpatialIndexQueriesExhaustive(t *testing.T) {
 	Convey("Given a heavily populated LSMSpatialIndex", t, func() {
 		idx := NewLSMSpatialIndex(1.0)
 
-		for z := uint8(0); z < 2; z++ {
-			for b := 0; b < 5; b++ {
-				for pos := 0; pos < 2000; pos++ {
-					key := encodeMortonKey(z, uint32(pos), byte(b))
-					chord := data.Chord{}
-					chord.Set((int(z) + b + pos + 1) % 512)
-					idx.Insert(key, chord)
-				}
+		for b := 0; b < 5; b++ {
+			for pos := 0; pos < 2000; pos++ {
+				key := encodeMortonKey(uint32(pos), byte(b))
+				chord := data.Chord{}
+				chord.Set((b + pos + 1) % 512)
+				idx.Insert(key, chord)
 			}
 		}
 
 		Convey("When doing exact range query boundaries", func() {
-			keyLo := encodeMortonKey(0, 500, 1)
-			keyHi := encodeMortonKey(0, 1499, 1)
+			keyLo := encodeMortonKey(500, 1)
+			keyHi := encodeMortonKey(1499, 1)
 			res := idx.QueryRange(keyLo, keyHi)
 			// from 500 to 1499 inclusive = 1000 elements
 			So(len(res), ShouldEqual, 1000)
 		})
 
 		Convey("When querying globally by byte identity", func() {
-			// Since we inserted 2000 of every byte (0 to 4) on two Z planes...
+			// Since we inserted 2000 of every byte (0 to 4) on one absolute position plane...
 			for b := 0; b < 5; b++ {
 				resB := idx.QueryByByte(byte(b))
-				So(len(resB), ShouldEqual, 4000)
+				So(len(resB), ShouldEqual, 2000)
 			}
 
 			// Empty byte
@@ -100,13 +98,13 @@ func TestLSMSpatialIndexQueriesExhaustive(t *testing.T) {
 		})
 
 		Convey("When querying targeted spatial neighborhoods", func() {
-			// For z=1, byte 2, pos 1000, radius 50. Range: [950, 1050] = 101 elements.
-			keyTarget := encodeMortonKey(1, 1000, 2)
+			// For byte 2, pos 1000, radius 50. Range: [950, 1050] = 101 elements.
+			keyTarget := encodeMortonKey(1000, 2)
 			res := idx.QueryNeighborhood(keyTarget, 50)
 			So(len(res), ShouldEqual, 101)
 
 			// Boundary radius exceeding zero (pos 10, radius 20 -> bounds [0, 30] = 31 elements)
-			keyTargetLow := encodeMortonKey(1, 10, 2)
+			keyTargetLow := encodeMortonKey(10, 2)
 			resLow := idx.QueryNeighborhood(keyTargetLow, 20)
 			So(len(resLow), ShouldEqual, 31)
 		})

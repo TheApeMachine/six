@@ -199,3 +199,10 @@ func TestPipelineRunSupportsScalingExperimentsWithoutDatasets(t *testing.T) {
 	require.NoError(t, pipeline.Run())
 	require.Equal(t, 1, reporter.resultsCalls)
 }
+
+func TestFormatLogPayloadQuotesBinaryData(t *testing.T) {
+	t.Parallel()
+
+	require.Equal(t, "plain text", formatLogPayload("plain text"))
+	require.Equal(t, "\"PNG\\x00\\xff\"", formatLogPayload("PNG\x00\xff"))
+}

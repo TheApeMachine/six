@@ -38,6 +38,13 @@ type sample struct {
 	fullStr []string     // the complete original, joined by Full()
 }
 
+// PromptSample explicitly defines a visible prompt and its held-out target.
+type PromptSample struct {
+	Visible string
+	HeldOut string
+	Full    string
+}
+
 /*
 Prompt synchronously materialises a dataset into a stack of samples,
 each split into a visible part (returned by Next) and a held-out target
@@ -51,6 +58,7 @@ type Prompt struct {
 	percentage int
 	substrings []string // for SUBSTRING holdout
 	values     []string // for explicit values
+	explicit   []PromptSample
 }
 
 type promptOpts func(*Prompt)
@@ -75,9 +83,23 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 		p.samples = append(p.samples, p.buildSample(chords, values))
 	}
 
+	for _, explicit := range p.explicit {
+		full := explicit.Full
+		if full == "" {
+			full = explicit.Visible + explicit.HeldOut
+		}
+
+		p.samples = append(p.samples, sample{
+			visible: stringsToChords(explicit.Visible),
+			visStr:  bytesToStrings([]byte(explicit.Visible)),
+			heldOut: explicit.HeldOut,
+			fullStr: bytesToStrings([]byte(full)),
+		})
+	}
+
 	// Explicit values define the evaluation set; do not silently append
 	// dataset-derived prompts on top of them.
-	if p.dataset != nil && len(p.values) == 0 {
+	if p.dataset != nil && len(p.values) == 0 && len(p.explicit) == 0 {
 		var (
 			chords []data.Chord
 			values []string
@@ -235,6 +257,22 @@ func (p *Prompt) Len() int {
 	return len(p.samples) - p.cursor
 }
 
+func stringsToChords(text string) []data.Chord {
+	chords := make([]data.Chord, 0, len(text))
+	for _, b := range []byte(text) {
+		chords = append(chords, data.BaseChord(b))
+	}
+	return chords
+}
+
+func bytesToStrings(data []byte) []string {
+	values := make([]string, 0, len(data))
+	for _, b := range data {
+		values = append(values, string(b))
+	}
+	return values
+}
+
 func PromptWithDataset(dataset provider.Dataset) promptOpts {
 	return func(p *Prompt) {
 		p.dataset = dataset
@@ -261,5 +299,11 @@ func PromptWithSubstringHoldout(substrings []string) promptOpts {
 func PromptWithValues(values []string) promptOpts {
 	return func(p *Prompt) {
 		p.values = values
+	}
+}
+
+func PromptWithSamples(samples []PromptSample) promptOpts {
+	return func(p *Prompt) {
+		p.explicit = samples
 	}
 }

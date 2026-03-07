@@ -20,23 +20,23 @@ func NewMortonCoder() *MortonCoder {
 }
 
 /*
-Encode packs Z-depth (scale), Symbol identity, and Position into a 64-bit Morton key.
-Layout (MSB→LSB):[8 bits Z | 24 bits Symbol | 32 bits Pos].
-Grouping by Z and Symbol allows perfectly contiguous sequence querying in the LSBs.
+Encode packs Symbol identity and absolute Position into a 64-bit Morton key.
+Layout (MSB→LSB):[24 zero bits | 8 bits Symbol | 32 bits absolute Pos].
+Grouping by Symbol keeps same-byte neighborhoods contiguous in the LSBs while
+the position remains a unique replay address across sequencer resets.
 */
-func (coder *MortonCoder) Encode(z uint8, pos uint32, symbol byte) uint64 {
-	return (uint64(z) << 56) | (uint64(symbol) << 32) | uint64(pos)
+func (coder *MortonCoder) Encode(pos uint32, symbol byte) uint64 {
+	return (uint64(symbol) << 32) | uint64(pos)
 }
 
 /*
-Decode unpacks the 64-bit morton key back into Z-depth, Position, and Symbol identity.
+Decode unpacks the 64-bit Morton key back into absolute Position and Symbol identity.
 */
-func (coder *MortonCoder) Decode(morton uint64) (uint8, uint32, byte) {
-	z := uint8(morton >> 56)
-	symbol := byte((morton >> 32) & 0xFFFFFF)
+func (coder *MortonCoder) Decode(morton uint64) (uint32, byte) {
+	symbol := byte((morton >> 32) & 0xFF)
 	pos := uint32(morton & 0xFFFFFFFF)
 
-	return z, pos, symbol
+	return pos, symbol
 }
 
 /*

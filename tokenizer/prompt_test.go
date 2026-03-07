@@ -127,3 +127,27 @@ func TestPromptExplicitValuesOverrideDatasetSamples(t *testing.T) {
 	require.Len(t, first, len("explicit sample"))
 	require.Equal(t, 0, prompt.Len())
 }
+
+func TestPromptExplicitSamplesOverrideDatasetSamples(t *testing.T) {
+	t.Parallel()
+
+	prompt := NewPrompt(
+		PromptWithDataset(promptMockDataset{samples: []string{"dataset sample"}}),
+		PromptWithSamples([]PromptSample{
+			{
+				Visible: "story question?",
+				HeldOut: "answer",
+				Full:    "story question? answer",
+			},
+		}),
+	)
+
+	require.Equal(t, 1, prompt.Len())
+	require.Equal(t, "story question?", prompt.Value(0))
+	require.Equal(t, "answer", prompt.HeldOut(0))
+	require.Equal(t, "story question? answer", prompt.Full(0))
+
+	first := prompt.Next()
+	require.Len(t, first, len("story question?"))
+	require.Equal(t, 0, prompt.Len())
+}

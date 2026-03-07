@@ -2,6 +2,9 @@ package task
 
 import (
 	"fmt"
+	"strconv"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
@@ -117,6 +120,25 @@ func extractScores(data []tools.ExperimentalData, field string) []float64 {
 	return scores
 }
 
+func formatLogPayload(payload string) string {
+	if payload == "" {
+		return `""`
+	}
+	if !utf8.ValidString(payload) {
+		return strconv.QuoteToASCII(payload)
+	}
+	for _, r := range payload {
+		if r == '\n' || r == '\r' || r == '\t' {
+			continue
+		}
+		if !unicode.IsPrint(r) {
+			return strconv.QuoteToASCII(payload)
+		}
+	}
+
+	return payload
+}
+
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	var bRes []byte
 
@@ -136,12 +158,12 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 
 	console.Info("PROMPT")
 	fmt.Println()
-	fmt.Println(pipeline.prompts.Value(pipeline.testIdx))
+	fmt.Println(formatLogPayload(pipeline.prompts.Value(pipeline.testIdx)))
 	fmt.Println()
 	if heldOut != "" {
 		console.Info("HOLDOUT")
 		fmt.Println()
-		fmt.Println(heldOut)
+		fmt.Println(formatLogPayload(heldOut))
 		fmt.Println()
 	}
 

@@ -9,15 +9,14 @@ import (
 
 /*
 LSMSpatialIndex is the geometric domain's data structure.
-Collision is Compression. High Z items exist solely in local memory.
+Collision is Compression.
 Stores Chord values directly — no encode/decode round-trip.
 
 Keys use the existing Morton encoding from tokenizer.MortonCoder:
 
-	Layout: [8 bits Z | 24 bits Symbol | 32 bits Position]
-	- Bits 56-63: Z depth / scale
+	Layout: [24 zero bits | 8 bits Symbol | 32 bits Position]
 	- Bits 32-55: symbol identity
-	- Bits 0-31:  sequence position
+	- Bits 0-31:  absolute replay position
 */
 type LSMSpatialIndex struct {
 	mu sync.RWMutex
@@ -234,19 +233,14 @@ func (idx *LSMSpatialIndex) QueryRange(lo, hi uint64) []data.Chord {
 
 /*
 QueryByByte returns all chords for a given byte value, regardless of
-position or Z depth. Each Z plane contributes one contiguous range
-for the same symbol identity.
+position.
 
 O(log N) per LSM level via binary search.
 */
 func (idx *LSMSpatialIndex) QueryByByte(b byte) []data.Chord {
-	var results []data.Chord
-	for z := range 256 {
-		lo := (uint64(z) << 56) | (uint64(b) << 32)
-		hi := lo | 0xFFFFFFFF
-		results = append(results, idx.QueryRange(lo, hi)...)
-	}
-	return results
+	lo := uint64(b) << 32
+	hi := lo | 0xFFFFFFFF
+	return idx.QueryRange(lo, hi)
 }
 
 /*
@@ -254,15 +248,14 @@ QueryNeighborhood returns all chords that share the same byte value
 and fall within posRadius positions of the given position.
 
 This is the BestFill pre-filter: given a prompt token's Morton key,
-narrow the store down to the local neighborhood on the same Z plane.
+narrow the store down to the local neighborhood for that byte identity.
 
-Key layout: [8 bits Z | 24 bits Symbol | 32 bits Position]
-So "same byte, same Z, nearby position" = keys in
-[z<<56 | byte<<32 | (pos-r), z<<56 | byte<<32 | (pos+r)].
+Key layout: [24 zero bits | 8 bits Symbol | 32 bits Position]
+So "same byte, nearby position" = keys in
+[byte<<32 | (pos-r), byte<<32 | (pos+r)].
 */
 func (idx *LSMSpatialIndex) QueryNeighborhood(key uint64, posRadius uint32) []data.Chord {
-	z := key >> 56
-	symbol := (key >> 32) & 0xFFFFFF
+	symbol := (key >> 32) & 0xFF
 	pos := uint32(key)
 
 	lo := uint32(0)
@@ -275,7 +268,7 @@ func (idx *LSMSpatialIndex) QueryNeighborhood(key uint64, posRadius uint32) []da
 		hi = ^uint32(0)
 	}
 
-	base := (z << 56) | (symbol << 32)
+	base := symbol << 32
 	return idx.QueryRange(
 		base|uint64(lo),
 		base|uint64(hi),

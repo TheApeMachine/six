@@ -9,12 +9,12 @@ import (
 
 /*
 Token is the byte-level bridge between the geometric and wave domains.
-TokenID is the exact replay address; Chord is the wave-space identity used
-for matching.
+TokenID is the exact replay address in the observed stream; Pos is the
+sequencer-local position inside the current discovered segment. Chord is
+the wave-space identity used for matching.
 */
 type Token struct {
 	TokenID    uint64
-	Z          uint8
 	Pos        uint32
 	Chord      data.Chord
 	Events     []int
@@ -69,32 +69,25 @@ func (tokenizer *Universal) Generate() chan Token {
 		defer close(out)
 
 		tokenizer.pos = 0
-		var z uint8
+		var streamPos uint32
 
 		for rawToken := range tokenizer.dataset.Generate() {
-			if rawToken.Pos == 0 {
-				tokenizer.pos = 0
-				z = 0
-				// Analyze(0, ...) inherently resets the Sequencer's EMA due to pos == 0 branch
-			}
-
 			chord := data.BaseChord(rawToken.Symbol)
 			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), chord)
 
 			out <- Token{
-				TokenID:    tokenizer.coder.Encode(z, tokenizer.pos, rawToken.Symbol),
-				Z:          z,
+				TokenID:    tokenizer.coder.Encode(streamPos, rawToken.Symbol),
 				Pos:        tokenizer.pos,
 				Chord:      chord,
 				Events:     events,
 				IsBoundary: reset,
 			}
 
+			streamPos++
 			tokenizer.pos++
 
 			if reset {
 				tokenizer.pos = 0
-				z++
 			}
 		}
 	}()

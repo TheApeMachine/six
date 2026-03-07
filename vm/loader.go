@@ -77,7 +77,7 @@ func (loader *Loader) Generate() chan LoadResult {
 
 			loader.store.Insert(token.TokenID, token.Chord)
 			if loader.primefield != nil {
-				_, _, byteVal := loader.coder.Decode(token.TokenID)
+				_, byteVal := loader.coder.Decode(token.TokenID)
 				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
 			}
 			out <- LoadResult{

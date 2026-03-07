@@ -66,12 +66,14 @@ func TestGenerate(t *testing.T) {
 
 			Convey("It should dynamically chunk Sample 1 using topological boundaries", func() {
 				var s1Tokens []Token
+				var absolutePos uint32
 
 				for _, tk := range tokens {
 					// In this architecture, we decode token ID to verify properties if needed
-					z, _, symbol := coder.Decode(tk.TokenID)
-					// Verify Decode works, Z depth matches, and tokens exist
-					So(z, ShouldEqual, tk.Z)
+					pos, symbol := coder.Decode(tk.TokenID)
+					// Verify Decode works, absolute positions are monotonic, and tokens exist.
+					So(pos, ShouldEqual, absolutePos)
+					absolutePos++
 					if symbol > 0 {
 						s1Tokens = append(s1Tokens, tk)
 					}
@@ -85,8 +87,6 @@ func TestGenerate(t *testing.T) {
 					if tk.Pos == 0 {
 						resets++
 					}
-					_, pos, _ := coder.Decode(tk.TokenID)
-					So(pos, ShouldEqual, uint32(tk.Pos))
 				}
 				So(resets, ShouldBeGreaterThan, 0)
 			})
