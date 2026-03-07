@@ -48,11 +48,11 @@ func (hm *HeatMap) Generate() error {
 		Min           float64
 		Max           float64
 	}{string(xData), string(yData), string(hData), hm.min, hm.max})
-	html, err := renderChartHTML(hm.title, 1200, 800, script)
+	html, err := renderChartHTML(hm.title, chartW, chartH, script)
 	if err != nil {
 		return err
 	}
-	if err := renderAndExport(html, hm.outDir, hm.filename); err != nil {
+	if err := renderAndExport(html, hm.outDir, hm.filename, chartW, chartH); err != nil {
 		return err
 	}
 	return emitFigure(hm.filename, hm.caption, hm.label, hm.out)

@@ -18,9 +18,9 @@ import (
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c bitwise.metal -o bitwise.air
-//go:generate xcrun -sdk macosx metallib bitwise.air -o default.metallib
+//go:generate xcrun -sdk macosx metallib bitwise.air -o bitwise.metallib
 
-//go:embed default.metallib
+//go:embed bitwise.metallib
 var defaultMetallib []byte
 
 var metalReady atomic.Bool

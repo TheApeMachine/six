@@ -26,7 +26,7 @@ const (
 	messageErrCompute   = 2
 	messageDataSize     = 32
 	messagePointerCount = 5
-	precisionBytes      = 5 * 27 * 2
+	precisionBytes      = 5 * 257 * 2 // 5 cubes × CubeFaces × sizeof(uint16)
 )
 
 func distributedWorkersFromEnv() []string {

@@ -7,15 +7,17 @@ struct Chord {
     uint64_t bits[8];
 };
 
+constant int CUBE_FACES = 257; // Fermat prime 2^8+1
+
 struct MacroCube {
-    Chord blocks[27];
+    Chord blocks[257];
 };
 
 struct ManifoldHeader {
     uint16_t data;
 };
 
-// V0.6 Primary Primitive (8.64KB SIMD Aligned)
+// V0.6 Primary Primitive (82248 bytes)
 struct IcosahedralManifold {
     ManifoldHeader header;
     uint8_t _padding[6];
@@ -27,7 +29,7 @@ kernel void bitwise_best_fill(
     constant IcosahedralManifold* active_context [[buffer(1)]],
     device atomic_ulong* best_packed_result [[buffer(2)]],
     constant uint& num_chords [[buffer(3)]],
-    constant uint& target_id [[buffer(4)]],
+    constant uint& base_offset [[buffer(4)]],
     constant IcosahedralManifold* expected_reality [[buffer(5)]],
     constant ushort* expected_precision [[buffer(6)]],
     constant uint8_t* geodesic_lut [[buffer(7)]],
@@ -64,9 +66,9 @@ kernel void bitwise_best_fill(
 #pragma unroll
     for (int c = 0; c < 4; c++) {
 #pragma unroll
-        for (int b = 0; b < 27; b++) {
-            uint64_t support_precision = expected_precision ? uint64_t(expected_precision[c * 27 + b]) : uint64_t(1024);
-            uint64_t veto_precision = expected_precision ? uint64_t(expected_precision[4 * 27 + b]) : uint64_t(1024);
+        for (int b = 0; b < CUBE_FACES; b++) {
+            uint64_t support_precision = expected_precision ? uint64_t(expected_precision[c * CUBE_FACES + b]) : uint64_t(1024);
+            uint64_t veto_precision = expected_precision ? uint64_t(expected_precision[4 * CUBE_FACES + b]) : uint64_t(1024);
 
 #pragma unroll
             for (int i = 0; i < 8; i++) {
@@ -104,21 +106,20 @@ kernel void bitwise_best_fill(
     if (geodesic_lut && q_rot_state < 60 && c_rot_state < 60) {
         geodesic_dist = (uint)geodesic_lut[q_rot_state * 60 + c_rot_state];
     }
-    
-    (void)target_id;
 
     // 16-bit tie breaker constraint: invert so highest bits represent lowest distance
     uint inverted_dist = 65535 - geodesic_dist;
 
-    // Bounds checking for 24-bit LSB packing
-    uint safe_id = id;
-    if (safe_id > 0xFFFFFF) { safe_id = 0xFFFFFF; }
+    // Global dictionary index = tile-local id + base_offset
+    uint global_id = id + base_offset;
+    if (global_id > 0xFFFFFF) { global_id = 0xFFFFFF; }
 
-    // Pack: score (24-bit MSB) | inverted dist (16-bit) | raw_id (24-bit LSB)
+    // Pack: score (24-bit MSB) | inverted dist (16-bit) | global_id (24-bit LSB)
     uint64_t score_u24 = (uint64_t)(score_fixed & 0xFFFFFF);
-    uint64_t packed_result = (score_u24 << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)safe_id;
+    uint64_t packed_result = (score_u24 << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)global_id;
 
-    // Lock-free maximum aggregate
+    // Lock-free maximum aggregate — works across tiled dispatches
+    // sharing the same result buffer within a single command buffer.
     atomic_max_explicit(
         best_packed_result,
         (ulong)packed_result,

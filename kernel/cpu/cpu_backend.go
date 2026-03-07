@@ -9,13 +9,14 @@ import (
 )
 
 const (
+	cubeFaces           int   = 257 // must match geometry.CubeFaces
 	overlapWeight       int64 = 500
 	fillWeight          int64 = 900
 	expectationWeight   int64 = 250
 	contradictionWeight int64 = 650
 	precisionUnity      int64 = 1024
 	scoreShiftBits            = 10
-	precisionBytes            = 5 * 27 * 2
+	precisionBytes            = 5 * cubeFaces * 2
 )
 
 type scoreTerms struct {
@@ -27,11 +28,11 @@ type scoreTerms struct {
 }
 
 func precisionFor(precisionWords []uint16, cube, block int) uint16 {
-	if len(precisionWords) < 5*27 {
+	if len(precisionWords) < 5*cubeFaces {
 		return uint16(precisionUnity)
 	}
 
-	return precisionWords[cube*27+block]
+	return precisionWords[cube*cubeFaces+block]
 }
 
 func scoreFromTerms(t scoreTerms) int32 {
@@ -56,13 +57,13 @@ func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, precisionWords
 	var terms scoreTerms
 
 	for c := 0; c < 4; c++ {
-		for b := 0; b < 27; b++ {
+		for b := 0; b < cubeFaces; b++ {
 			supportPrecision := uint64(precisionFor(precisionWords, c, b))
 			vetoPrecision := uint64(precisionFor(precisionWords, 4, b))
 
 			for i := 0; i < 8; i++ {
-				offset := (c*27+b)*8 + i
-				vetoOffset := (4*27+b)*8 + i
+				offset := (c*cubeFaces+b)*8 + i
+				vetoOffset := (4*cubeFaces+b)*8 + i
 
 				candidate := dictWords[cubeBase+offset]
 				ctx := ctxWords[1+offset]

@@ -6,7 +6,7 @@ import "github.com/theapemachine/six/data"
 const (
 	MitosisThreshold   = 0.45
 	DeMitosisThreshold = 0.25
-	TotalBitsPerCube   = 27 * 512
+	TotalBitsPerCube   = CubeFaces * 512
 )
 
 // ConditionMitosis evaluates whether "virtual mitosis" should trigger.
@@ -17,7 +17,7 @@ func (m *IcosahedralManifold) ConditionMitosis() bool {
 	}
 
 	activeBits := 0
-	for i := range 27 {
+	for i := range CubeFaces {
 		activeBits += m.Cubes[0][i].ActiveCount()
 	}
 
@@ -32,7 +32,7 @@ func (m *IcosahedralManifold) ConditionDeMitosis() bool {
 
 	activeBits := 0
 	for c := range 5 {
-		for i := range 27 {
+		for i := range CubeFaces {
 			activeBits += m.Cubes[c][i].ActiveCount()
 		}
 	}
@@ -63,23 +63,73 @@ func (m *IcosahedralManifold) DeMitosis() {
 
 	// Zero out orthogonal subspaces so the memory penalty is negated (structurally sparse)
 	for c := 1; c < 5; c++ {
-		for i := range 27 {
+		for i := range CubeFaces {
 			m.Cubes[c][i] = data.Chord{}
 		}
 	}
 }
 
-// ApplyPermutation executes an exact 27-block structural re-indexing on a MacroCube.
-// This is the concrete runtime meaning of "rotation": fixed index remapping.
-func (cube *MacroCube) ApplyPermutation(indices [27]int) {
-	var next MacroCube
-	for i := range 27 {
-		next[indices[i]] = cube[i]
+/*
+GF(257) Affine Rotation Tables
+
+Because 257 is prime, modular arithmetic mod 257 forms a perfect finite
+field GF(257). The existing SO(3) rotation mechanics (RotateX/Y/Z as 3D
+cyclic shifts on a 3×3×3 grid) no longer apply since 257 is prime and
+cannot be factored into a 3D grid.
+
+We replace them with three affine transformations:
+
+	f(p) = (a·p + b) mod 257
+
+These are non-commutative by construction:
+
+	Y(X(p)) = 3·(p+1) = 3p + 3
+	X(Y(p)) = 3p + 1
+	3p + 3 ≠ 3p + 1 → sequence order is preserved.
+
+The affine group Aff(GF(257)) has order 257 × 256 = 65,792 states,
+compared to the old O group (24) or A₅ group (60).
+
+3 is a primitive root of 257: 3^256 ≡ 1 (mod 257) and no smaller
+power returns to 1. This means Y visits all 256 non-zero faces
+in a single cycle.
+*/
+var (
+	// MicroRotateX — Translation: f(p) = (p + 1) mod 257
+	// A pure topological step. Every block moves one position forward.
+	MicroRotateX [CubeFaces]int
+
+	// MicroRotateY — Dilation: f(p) = (3·p) mod 257
+	// 3 is a primitive root of 257. Multiplicative spin visits every
+	// non-zero position exactly once per full cycle.
+	MicroRotateY [CubeFaces]int
+
+	// MicroRotateZ — Affine Combination: f(p) = (3·p + 1) mod 257
+	// Combines translation and dilation. Maximum divergence trajectory.
+	MicroRotateZ [CubeFaces]int
+
+	// Scratch buffer for permutations, avoids 16 KB temp allocation per rotation.
+	permScratch MacroCube
+)
+
+func init() {
+	for p := range CubeFaces {
+		MicroRotateX[p] = (p + 1) % CubeFaces
+		MicroRotateY[p] = (3 * p) % CubeFaces
+		MicroRotateZ[p] = (3*p + 1) % CubeFaces
 	}
-	*cube = next
 }
 
-// Permute3Cycle executes an A_5 even permutation: a 3-Cycle (a -> b -> c -> a).
+// ApplyPermutation executes a CubeFaces-block structural re-indexing on a MacroCube.
+// Uses a pre-allocated scratch buffer to avoid per-call allocation.
+func (cube *MacroCube) ApplyPermutation(indices [CubeFaces]int) {
+	for i, dst := range indices {
+		permScratch[dst] = cube[i]
+	}
+	*cube = permScratch
+}
+
+// Permute3Cycle executes an A₅ even permutation: a 3-Cycle (a -> b -> c -> a).
 // Modifies the macro-topology of the 5 intersecting cubes.
 func (m *IcosahedralManifold) Permute3Cycle(a, b, c int) {
 	tmp := m.Cubes[c]
@@ -88,14 +138,14 @@ func (m *IcosahedralManifold) Permute3Cycle(a, b, c int) {
 	m.Cubes[a] = tmp
 }
 
-// PermuteDoubleTransposition executes an A_5 even permutation: (a b)(c d).
+// PermuteDoubleTransposition executes an A₅ even permutation: (a b)(c d).
 // Swaps two disconnected pairs of macro-cubes simultaneously.
 func (m *IcosahedralManifold) PermuteDoubleTransposition(a, b, c, d int) {
 	m.Cubes[a], m.Cubes[b] = m.Cubes[b], m.Cubes[a]
 	m.Cubes[c], m.Cubes[d] = m.Cubes[d], m.Cubes[c]
 }
 
-// Permute5Cycle executes a full A_5 entropy sweep: (a b c d e).
+// Permute5Cycle executes a full A₅ entropy sweep: (a b c d e).
 func (m *IcosahedralManifold) Permute5Cycle(a, b, c, d, e int) {
 	tmp := m.Cubes[e]
 	m.Cubes[e] = m.Cubes[d]
@@ -105,34 +155,17 @@ func (m *IcosahedralManifold) Permute5Cycle(a, b, c, d, e int) {
 	m.Cubes[a] = tmp
 }
 
-var (
-	// MicroRotateX represents a 90-degree rotation around the X-axis (Pitch).
-	MicroRotateX = [27]int{
-		18, 19, 20, 9, 10, 11, 0, 1, 2, 21, 22, 23, 12, 13, 14, 3, 4, 5, 24, 25, 26, 15, 16, 17, 6, 7, 8,
-	}
-
-	// MicroRotateY represents a 90-degree rotation around the Y-axis (Yaw).
-	MicroRotateY = [27]int{
-		18, 9, 0, 21, 12, 3, 24, 15, 6, 19, 10, 1, 22, 13, 4, 25, 16, 7, 20, 11, 2, 23, 14, 5, 26, 17, 8,
-	}
-
-	// MicroRotateZ represents a 90-degree rotation around the Z-axis (Roll).
-	MicroRotateZ = [27]int{
-		6, 3, 0, 7, 4, 1, 8, 5, 2, 15, 12, 9, 16, 13, 10, 17, 14, 11, 24, 21, 18, 25, 22, 19, 26, 23, 20,
-	}
-)
-
-// RotateX applies a 90-degree pitch to the 27 blocks of the MacroCube.
+// RotateX applies a GF(257) translation to the CubeFaces blocks of the MacroCube.
 func (cube *MacroCube) RotateX() {
 	cube.ApplyPermutation(MicroRotateX)
 }
 
-// RotateY applies a 90-degree yaw to the 27 blocks of the MacroCube.
+// RotateY applies a GF(257) dilation to the CubeFaces blocks of the MacroCube.
 func (cube *MacroCube) RotateY() {
 	cube.ApplyPermutation(MicroRotateY)
 }
 
-// RotateZ applies a 90-degree roll to the 27 blocks of the MacroCube.
+// RotateZ applies a GF(257) affine combination to the CubeFaces blocks of the MacroCube.
 func (cube *MacroCube) RotateZ() {
 	cube.ApplyPermutation(MicroRotateZ)
 }

@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/console"
@@ -26,10 +28,17 @@ a channel as byte-position pairs.
 type Dataset struct {
 	repo         string
 	subset       string
+	split        string
 	textColumn   string
+	textColumns  []string
+	labelColumn  string
+	labelAppend  []string // when set, appends " → <label_name>" to each sample's text
 	maxSamples   int
 	transform    func([]byte) ([]byte, error)
 	perSamplePos bool
+
+	mu     sync.RWMutex
+	labels map[uint32]int
 }
 
 type datasetOpts func(*Dataset)
@@ -38,6 +47,7 @@ func New(opts ...datasetOpts) *Dataset {
 	dataset := &Dataset{
 		textColumn:   "text",
 		perSamplePos: true,
+		labels:       make(map[uint32]int),
 	}
 
 	for _, opt := range opts {
@@ -45,6 +55,25 @@ func New(opts ...datasetOpts) *Dataset {
 	}
 
 	return dataset
+}
+
+// rowVisitor is called once per sample with the joined text, optional label, and sample index.
+type rowVisitor func(text string, label int, hasLabel bool, sampleIdx uint32) bool
+
+// textColumns returns the effective list of text columns to read.
+func (dataset *Dataset) effectiveTextColumns() []string {
+	if len(dataset.textColumns) > 0 {
+		return dataset.textColumns
+	}
+	return []string{dataset.textColumn}
+}
+
+// LabelForSample returns the label stored during streaming for the given sampleID.
+func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
+	dataset.mu.RLock()
+	defer dataset.mu.RUnlock()
+	v, ok := dataset.labels[id]
+	return v, ok
 }
 
 /*
@@ -58,15 +87,29 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 		defer close(out)
 
 		var pos uint32
-		var sampleID uint32
 
-		if err := dataset.streamRows(func(text string) bool {
+		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
+			if hasLabel {
+				dataset.mu.Lock()
+				dataset.labels[sampleIdx] = label
+				dataset.mu.Unlock()
+			}
+
 			for _, b := range []byte(text) {
-				out <- provider.RawToken{SampleID: sampleID, Symbol: b, Pos: pos}
+				out <- provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
 				pos++
 			}
 
-			sampleID++
+			// When labelAppend is configured, append " → <label_name>" to the
+			// sample's byte stream so the manifold stores article+label as a
+			// single continuous sequence (classification-as-generation).
+			if hasLabel && len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
+				suffix := " " + dataset.labelAppend[label]
+				for _, b := range []byte(suffix) {
+					out <- provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
+					pos++
+				}
+			}
 
 			if dataset.perSamplePos {
 				pos = 0
@@ -74,7 +117,7 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 
 			return true
 		}); err != nil {
-			console.Error(err, "repo", dataset.repo, "column", dataset.textColumn)
+			console.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		}
 	}()
 
@@ -86,7 +129,7 @@ streamRows discovers and downloads the shard file, then delegates
 to the appropriate format parser (JSON or Parquet).
 fn returning false stops iteration.
 */
-func (dataset *Dataset) streamRows(fn func(string) bool) error {
+func (dataset *Dataset) streamRows(fn rowVisitor) error {
 	shard, branch, err := dataset.discoverShard()
 
 	if err != nil {
@@ -130,18 +173,26 @@ func findColumn(schema *parquet.Schema, name string) int {
 	return -1
 }
 
-func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(string) bool) error {
+func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn rowVisitor) error {
 	pFile, err := parquet.OpenFile(reader, size)
 	if err != nil {
 		return fmt.Errorf("huggingface: open parquet: %w", err)
 	}
 
-	textCol := findColumn(pFile.Schema(), dataset.textColumn)
-	if textCol < 0 {
-		return fmt.Errorf("huggingface: column %s not found", dataset.textColumn)
+	cols := dataset.effectiveTextColumns()
+
+	// Multi-column path: use row-level reader to join columns.
+	if len(cols) > 1 || dataset.labelColumn != "" {
+		return dataset.streamParquetRows(pFile, cols, fn)
 	}
 
-	sampleCount := 0
+	// Single-column fast path: use column-level page iteration.
+	textCol := findColumn(pFile.Schema(), cols[0])
+	if textCol < 0 {
+		return fmt.Errorf("huggingface: column %s not found", cols[0])
+	}
+
+	var sampleCount int
 	valueBuf := make([]parquet.Value, 256)
 
 	for _, rg := range pFile.RowGroups() {
@@ -178,7 +229,7 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 						return nil
 					}
 
-					if !fn(text) {
+					if !fn(text, 0, false, uint32(sampleCount)) {
 						pages.Close()
 						return nil
 					}
@@ -198,7 +249,110 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn func(st
 	return nil
 }
 
-func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(string) bool) error {
+// streamParquetRows reads full rows when multi-column join or label extraction is needed.
+func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string, fn rowVisitor) error {
+	pReader := parquet.NewReader(pFile)
+	defer pReader.Close()
+
+	// Build column name → field index mapping from the schema.
+	type colInfo struct {
+		name string
+		idx  int
+	}
+
+	fields := pReader.Schema().Fields()
+	fieldIndex := make(map[string]int, len(fields))
+	for i, f := range fields {
+		fieldIndex[f.Name()] = i
+	}
+
+	// Resolve text column indices.
+	var textIndices []colInfo
+	for _, name := range textCols {
+		if idx, ok := fieldIndex[name]; ok {
+			textIndices = append(textIndices, colInfo{name, idx})
+		} else {
+			return fmt.Errorf("huggingface: text column %q not found", name)
+		}
+	}
+
+	// Resolve optional label column index.
+	labelIdx := -1
+	if dataset.labelColumn != "" {
+		if idx, ok := fieldIndex[dataset.labelColumn]; ok {
+			labelIdx = idx
+		} else {
+			console.Warn(fmt.Sprintf("label column %q not found, continuing without labels",
+				dataset.labelColumn))
+		}
+	}
+
+	rows := make([]parquet.Row, 1)
+	var sampleCount int
+
+	for {
+		n, err := pReader.ReadRows(rows)
+		if n == 0 && err != nil {
+			break
+		}
+
+		row := rows[0]
+
+		if dataset.maxSamples > 0 && sampleCount >= dataset.maxSamples {
+			return nil
+		}
+
+		// Join text columns with a space.
+		var parts []string
+		for _, ci := range textIndices {
+			if ci.idx >= len(row) {
+				continue
+			}
+			v := row[ci.idx]
+			if v.IsNull() {
+				continue
+			}
+			s := string(v.ByteArray())
+			if s != "" {
+				parts = append(parts, s)
+			}
+		}
+
+		text := strings.Join(parts, " ")
+		if text == "" {
+			continue
+		}
+
+		if dataset.transform != nil {
+			transformed, err := dataset.transform([]byte(text))
+			if err != nil {
+				continue
+			}
+			text = string(transformed)
+		}
+
+		// Extract label.
+		var label int
+		hasLabel := false
+		if labelIdx >= 0 && labelIdx < len(row) {
+			v := row[labelIdx]
+			if !v.IsNull() {
+				label = int(v.Int64())
+				hasLabel = true
+			}
+		}
+
+		if !fn(text, label, hasLabel, uint32(sampleCount)) {
+			return nil
+		}
+
+		sampleCount++
+	}
+
+	return nil
+}
+
+func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor) error {
 	dec := json.NewDecoder(io.NewSectionReader(reader, 0, size))
 	var total int
 
@@ -212,16 +366,13 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 	if delim, ok := t.(json.Delim); ok && delim.String() == "[" {
 		isArray = true
 	} else if err == nil {
-		// Not an array, so if it's a map we must back up, but we can't un-read from dec.
-		// A better approach for JSONL is to decode continuously.
-		// Since we already consumed the first token, let's just make a new decoder
-		// if it's not an array, to read it cleanly from the start.
 		dec = json.NewDecoder(io.NewSectionReader(reader, 0, size))
 	}
 
+	cols := dataset.effectiveTextColumns()
+
 	for {
 		if isArray && !dec.More() {
-			// Read the closing bracket
 			dec.Token()
 			break
 		}
@@ -231,17 +382,21 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 			if err == io.EOF {
 				break
 			}
-			// Skip malformed entries
 			continue
 		}
 
-		v, ok := r[dataset.textColumn]
-		if !ok {
-			continue
+		// Join text columns.
+		var parts []string
+		for _, col := range cols {
+			if v, ok := r[col]; ok {
+				if s, ok := v.(string); ok && s != "" {
+					parts = append(parts, s)
+				}
+			}
 		}
 
-		text, ok := v.(string)
-		if !ok || text == "" {
+		text := strings.Join(parts, " ")
+		if text == "" {
 			continue
 		}
 
@@ -249,7 +404,25 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn func(strin
 			return nil
 		}
 
-		if !fn(text) {
+		// Extract optional label.
+		var label int
+		hasLabel := false
+		if dataset.labelColumn != "" {
+			if v, ok := r[dataset.labelColumn]; ok {
+				switch lv := v.(type) {
+				case float64:
+					label = int(lv)
+					hasLabel = true
+				case string:
+					if n, err := strconv.Atoi(lv); err == nil {
+						label = n
+						hasLabel = true
+					}
+				}
+			}
+		}
+
+		if !fn(text, label, hasLabel, uint32(total)) {
 			return nil
 		}
 
@@ -374,7 +547,11 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 				continue
 			}
 
-			if strings.Contains(e.Path, "train") {
+			targetSplit := dataset.split
+			if targetSplit == "" {
+				targetSplit = "train"
+			}
+			if strings.Contains(e.Path, targetSplit) {
 				return e.Path, branch, nil
 			}
 
@@ -407,6 +584,38 @@ func DatasetWithSubset(subset string) datasetOpts {
 func DatasetWithTextColumn(col string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.textColumn = col
+	}
+}
+
+// DatasetWithTextColumns joins multiple columns per row with a space separator.
+func DatasetWithTextColumns(cols ...string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.textColumns = cols
+	}
+}
+
+// DatasetWithLabelColumn stores integer labels from the given column during streaming.
+// Use LabelForSample(id) to retrieve them.
+func DatasetWithLabelColumn(col string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.labelColumn = col
+	}
+}
+
+// DatasetWithLabelAppend enables classification-as-generation by appending the
+// label name to each sample's text stream. The labels slice maps integer label
+// indices to human-readable names (e.g. []string{"world","sports","business","sci_tech"}).
+func DatasetWithLabelAppend(labels []string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.labelAppend = labels
+	}
+}
+
+// DatasetWithSplit selects which split to load (e.g. "train", "test").
+// Defaults to "train" if not set.
+func DatasetWithSplit(split string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.split = split
 	}
 }
 

@@ -50,6 +50,10 @@ func (experiment *LanguagesExperiment) Name() string {
 	return "Languages"
 }
 
+func (experiment *LanguagesExperiment) Section() string {
+	return "codegen"
+}
+
 func (experiment *LanguagesExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }

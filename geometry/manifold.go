@@ -43,12 +43,19 @@ func (h *ManifoldHeader) ResetWinding() {
 	*h = (*h & 0xFE1F)
 }
 
-// MacroCube represents the canonical 'Rubik's Cube' of continuous fields.
-// 27 micro-blocks, each 512-bits, representing the baseline 3x3x3 topological mapping.
-type MacroCube [27]data.Chord
+// CubeFaces is the number of blocks per MacroCube.
+// 257 is a Fermat prime (2⁸+1). Its multiplicative group GF(257)* is cyclic
+// of order 256, making every face geometrically unique. Byte values 0–255
+// map directly to faces 0–255; face 256 is the structural delimiter.
+const CubeFaces = 257
+
+// MacroCube represents a single cube in the icosahedral manifold.
+// Each face is a 512-bit chord. With CubeFaces=257, byte values self-address
+// their own face — no modulo, no hash, no projection.
+type MacroCube [CubeFaces]data.Chord
 
 // IcosahedralManifold is the universal SIMD-aligned Baseline/Mitosis memory layout.
-// Consists of 5 intersecting MacroCubes mathematically forming the $A_5$ graph.
+// Consists of 5 intersecting MacroCubes mathematically forming the A₅ graph.
 type IcosahedralManifold struct {
 	Header ManifoldHeader
 	_      [6]byte // Padding to ensure 8-byte alignment for the Cubes array

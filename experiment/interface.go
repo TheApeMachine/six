@@ -2,6 +2,7 @@ package experiment
 
 import (
 	"bytes"
+	"math"
 
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/store"
@@ -24,6 +25,14 @@ type ExperimentalData struct {
 	ErrorRatio    []byte
 	Scores        Scores
 	WeightedTotal float64
+	TrueLabel     int // ground-truth class index (-1 = unused)
+	PredLabel     int // predicted class index  (-1 = unused)
+}
+
+type ScoreWeights struct {
+	Exact   float64
+	Partial float64
+	Fuzzy   float64
 }
 
 type Result interface {
@@ -97,19 +106,86 @@ func ByteScores(expected, retrieved []byte) map[string]float64 {
 	}
 }
 
-func WeightedTotal(scores ...float64) float64 {
+func DefaultScoreWeights() ScoreWeights {
+	return ScoreWeights{
+		Exact:   1.0,
+		Partial: 0.5,
+		Fuzzy:   1.0 / 3.0,
+	}
+}
+
+func WeightedByteScores(scores map[string]float64, weights ScoreWeights) float64 {
+	return WeightedTotalWithWeights(
+		weights,
+		scores["exact"],
+		scores["partial"],
+		scores["fuzzy"],
+	)
+}
+
+func normalizeWeights(weights ScoreWeights) ScoreWeights {
+	if math.IsNaN(weights.Exact) || math.IsInf(weights.Exact, 0) {
+		weights.Exact = 0
+	}
+	if math.IsNaN(weights.Partial) || math.IsInf(weights.Partial, 0) {
+		weights.Partial = 0
+	}
+	if math.IsNaN(weights.Fuzzy) || math.IsInf(weights.Fuzzy, 0) {
+		weights.Fuzzy = 0
+	}
+
+	if weights.Exact < 0 {
+		weights.Exact = 0
+	}
+	if weights.Partial < 0 {
+		weights.Partial = 0
+	}
+	if weights.Fuzzy < 0 {
+		weights.Fuzzy = 0
+	}
+
+	total := weights.Exact + weights.Partial + weights.Fuzzy
+	if total == 0 {
+		return DefaultScoreWeights()
+	}
+
+	return weights
+}
+
+func WeightedTotalWithWeights(weights ScoreWeights, scores ...float64) float64 {
 	if len(scores) == 0 {
 		return 0.0
 	}
+
+	weights = normalizeWeights(weights)
+	baseWeights := []float64{weights.Exact, weights.Partial, weights.Fuzzy}
 
 	totalWeight := 0.0
 	weightedSum := 0.0
 
 	for i, score := range scores {
-		weight := 1.0 / float64(i+1)
+		weight := 0.0
+		if i < len(baseWeights) {
+			weight = baseWeights[i]
+		} else {
+			weight = 1.0 / float64(i+1)
+		}
+
+		if weight <= 0 {
+			continue
+		}
+
 		weightedSum += score * weight
 		totalWeight += weight
 	}
 
+	if totalWeight == 0 {
+		return 0.0
+	}
+
 	return weightedSum / totalWeight
+}
+
+func WeightedTotal(scores ...float64) float64 {
+	return WeightedTotalWithWeights(DefaultScoreWeights(), scores...)
 }

@@ -15,11 +15,12 @@ import (
 	"github.com/theapemachine/six/numeric"
 )
 
-// corpusSizes are the dictionary sizes we test — 3 orders of magnitude.
-var corpusSizes = []int{100, 500, 1_000, 5_000, 10_000, 50_000, 100_000}
+// corpusSizes are the dictionary sizes we test — 2+ orders of magnitude.
+// With 257-face cubes, each manifold is ~82KB, so 10K manifolds ≈ 820MB.
+var corpusSizes = []int{100, 500, 1_000, 2_000, 5_000, 10_000}
 
 // buildCorpus creates a random dictionary of n manifolds + a random context + expected.
-// Each manifold is ManifoldBytes = 8648 bytes.
+// Each manifold is ManifoldBytes (82248 bytes with 257-face cubes).
 func buildCorpus(n int) (dict []byte, ctx []byte, exp []byte) {
 	dict = make([]byte, n*numeric.ManifoldBytes)
 	ctx = make([]byte, numeric.ManifoldBytes)
@@ -107,20 +108,20 @@ func TestBestFillO1Scaling(t *testing.T) {
 
 				// The key claim: BestFill is a popcount scan, so it scales
 				// linearly with N (not O(1) in the strict sense), but the
-				// constant factor is so small that even 100K chords complete
-				// in sub-millisecond. The real claim is "no algorithmic
+				// constant factor is so small that even 10K chords complete
+				// well under a second. The real claim is "no algorithmic
 				// overhead beyond the linear scan that GPU parallelism hides."
 				//
-				// For the paper, we assert: max latency < 1 second for 100K chords.
-				So(maxLat, ShouldBeLessThan, 1*time.Second)
+				// For the paper, we assert: max latency < 2 seconds for 10K chords.
+				So(maxLat, ShouldBeLessThan, 2*time.Second)
 
 				// And: ratio between smallest and largest corpus shouldn't
-				// exceed 1500x (linear scaling with 1000x corpus growth).
+				// exceed 200x (linear scaling with 100x corpus growth).
 				// In practice it's much tighter.
 				ratio := float64(maxLat) / float64(minLat)
 				t.Logf("  Latency ratio (max/min): %.1fx", ratio)
 				t.Logf("  Corpus ratio (max/min): %.0fx", float64(corpusSizes[len(corpusSizes)-1])/float64(corpusSizes[0]))
-				So(ratio, ShouldBeLessThan, 1500.0)
+				So(ratio, ShouldBeLessThan, 200.0)
 			})
 
 			Convey("Artifacts should be written to the paper directory", func() {

@@ -44,13 +44,13 @@ func (is *ImageStrip) Generate() error {
 	script := execTemplate(imageStripScriptTmpl, struct {
 		DataJSON string
 	}{string(dataJSON)})
-	
+
 	height := len(is.rows)*180 + 100 // Estimate dynamic height
 	html, err := renderChartHTML(is.title, 800, height, script)
 	if err != nil {
 		return err
 	}
-	if err := renderAndExport(html, is.outDir, is.filename); err != nil {
+	if err := renderAndExport(html, is.outDir, is.filename, 800, height); err != nil {
 		return err
 	}
 	return emitFigure(is.filename, is.caption, is.label, is.out)

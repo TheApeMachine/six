@@ -90,11 +90,28 @@ func (sequencer *Sequencer) Analyze(pos int, current data.Chord) (bool, []int) {
 /*
 measure extracts the geometric population count and spatial phase
 from the current token's chord representation.
+
+Phase is derived from ChordBin — a deterministic structural hash of the
+chord's bit pattern mapped to [0, 2π). If the EigenMode has been trained
+(via BuildMultiScaleCooccurrence), its co-occurrence-informed phases are
+used instead. This gives immediate phase signal from the first byte while
+preserving the upgrade path to trained eigenmodes.
 */
 func (sequencer *Sequencer) measure(pos int, current data.Chord) (float64, float64) {
 	pop := float64(current.ActiveCount())
+
+	// Try trained EigenMode phases first.
 	theta, phi := sequencer.eigen.PhaseForChord(&current)
 	phase := math.Sqrt(theta*theta + phi*phi)
+
+	// If EigenMode is untrained (all zeros), use intrinsic ChordBin phase.
+	// Scale to [0, 1) — not [0, 2π) — because ChordBin is a SimHash that
+	// produces effectively random values for nearby bytes. A full 2π range
+	// overwhelms the EMA and fires events on every byte.
+	if phase == 0 {
+		bin := data.ChordBin(&current)
+		phase = float64(bin) / 256.0
+	}
 
 	if pos == 0 {
 		sequencer.emaPop = pop

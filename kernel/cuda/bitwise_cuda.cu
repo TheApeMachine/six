@@ -9,7 +9,7 @@ typedef struct {
 } Chord;
 
 typedef struct {
-    Chord blocks[27];
+    Chord blocks[257];
 } MacroCube;
 
 typedef struct {
@@ -67,9 +67,9 @@ __global__ void bitwise_best_fill_kernel(
     #pragma unroll
     for (int c = 0; c < 4; c++) {
         #pragma unroll
-        for (int b = 0; b < 27; b++) {
-            uint64_t support_precision = expected_precision ? (uint64_t)expected_precision[c * 27 + b] : 1024ULL;
-            uint64_t veto_precision = expected_precision ? (uint64_t)expected_precision[4 * 27 + b] : 1024ULL;
+        for (int b = 0; b < 257; b++) {
+            uint64_t support_precision = expected_precision ? (uint64_t)expected_precision[c * 257 + b] : 1024ULL;
+            uint64_t veto_precision = expected_precision ? (uint64_t)expected_precision[4 * 257 + b] : 1024ULL;
 
             #pragma unroll
             for (int i = 0; i < 8; i++) {
@@ -149,7 +149,7 @@ uint64_t bitwise_best_fill_cuda(
 
     size_t dict_size = (size_t)num_chords * sizeof(IcosahedralManifold);
     size_t manifold_size = sizeof(IcosahedralManifold);
-    size_t precision_size = 5 * 27 * sizeof(uint16_t);
+    size_t precision_size = 5 * 257 * sizeof(uint16_t);
     size_t lut_size = 60 * 60;
 
     IcosahedralManifold* d_dict = NULL;

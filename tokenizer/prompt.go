@@ -8,7 +8,11 @@ import (
 )
 
 /*
-HoldoutType selects which region of each sample is masked for evaluation.
+HoldoutType selects which region of each sample is masked (held out).
+
+  - RIGHT:     remove pct% from the END.
+  - LEFT:      remove pct% from the START.
+  - SUBSTRING: remove exact substring matches (e.g. label names).
 */
 type HoldoutType uint
 
@@ -19,23 +23,25 @@ const (
 	BOTTOM
 	LEFT
 	CENTER
+	SUBSTRING
 )
 
 /*
-sample is a single prompt entry that carries its full chord sequence,
-the partition boundary, and the original string values in lockstep.
+sample carries the precomputed visible and held-out portions of a prompt.
+All slicing is done at materialisation time in flush(), so Next/Value/HeldOut
+are simple lookups.
 */
 type sample struct {
-	chords []data.Chord // full sequence
-	values []string     // full string tokens
-	keep   int          // index boundary: chords[:keep] = foundation, values[keep:] = holdout
+	visible []data.Chord // what Next() returns
+	visStr  []string     // parallel to visible, joined by Value()
+	heldOut string       // what HeldOut() returns
+	fullStr []string     // the complete original, joined by Full()
 }
 
 /*
-Prompt synchronously materialises a dataset into a popping stack of
-samples, each split into a foundation (returned by Next) and a holdout
-target (returned by Value).  The full prompt is always stored; only the
-split point determines what the caller sees.
+Prompt synchronously materialises a dataset into a stack of samples,
+each split into a visible part (returned by Next) and a held-out target
+(returned by Value/HeldOut).
 */
 type Prompt struct {
 	dataset    provider.Dataset
@@ -43,6 +49,7 @@ type Prompt struct {
 	cursor     int
 	holdout    HoldoutType
 	percentage int
+	substrings []string // for SUBSTRING holdout
 }
 
 type promptOpts func(*Prompt)
@@ -54,7 +61,6 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 		opt(p)
 	}
 
-	// Materialise every sample from the dataset.
 	var (
 		chords []data.Chord
 		values []string
@@ -64,12 +70,7 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 		if len(chords) == 0 {
 			return
 		}
-		k := splitPoint(len(chords), p.percentage, p.holdout)
-		p.samples = append(p.samples, sample{
-			chords: chords,
-			values: values,
-			keep:   k,
-		})
+		p.samples = append(p.samples, p.buildSample(chords, values))
 		chords, values = nil, nil
 	}
 
@@ -86,27 +87,86 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 }
 
 /*
-splitPoint returns the index that separates foundation from holdout.
+buildSample splits chords/values into visible and held-out portions
+based on the configured holdout type.
 */
-func splitPoint(n, pct int, ht HoldoutType) int {
-	if pct <= 0 || n == 0 {
-		return n // no holdout → keep everything
-	}
+func (p *Prompt) buildSample(chords []data.Chord, values []string) sample {
+	full := make([]string, len(values))
+	copy(full, values)
 
-	keep := min(max(int(float64(n)*float64(100-pct)/100.0), 0), n)
-
-	switch ht {
-	case LEFT, TOP:
-		// holdout is at the start → foundation is the tail
-		return n - keep
-	default: // RIGHT, BOTTOM, RANDOM, CENTER all default to tail holdout
-		return keep
+	switch p.holdout {
+	case SUBSTRING:
+		return p.buildSubstringSample(chords, values, full)
+	default:
+		return p.buildPositionalSample(chords, values, full)
 	}
 }
 
-/*
-Next pops the next sample, returning only the foundation chords.
+func (p *Prompt) buildPositionalSample(chords []data.Chord, values []string, full []string) sample {
+	n := len(chords)
+	if p.percentage <= 0 || n == 0 {
+		// No holdout — everything visible.
+		return sample{visible: chords, visStr: values, fullStr: full}
+	}
 
+	held := min(max(int(float64(n)*float64(p.percentage)/100.0), 1), n)
+
+	switch p.holdout {
+	case LEFT, TOP:
+		// Hold out the first `held` elements.
+		return sample{
+			visible: chords[held:],
+			visStr:  values[held:],
+			heldOut: strings.Join(values[:held], ""),
+			fullStr: full,
+		}
+	default:
+		// Hold out the last `held` elements.
+		cut := n - held
+		return sample{
+			visible: chords[:cut],
+			visStr:  values[:cut],
+			heldOut: strings.Join(values[cut:], ""),
+			fullStr: full,
+		}
+	}
+}
+
+func (p *Prompt) buildSubstringSample(chords []data.Chord, values []string, full []string) sample {
+	text := strings.Join(values, "")
+
+	// Find which substring appears and strip it.
+	for _, sub := range p.substrings {
+		idx := strings.LastIndex(text, sub)
+		if idx < 0 {
+			continue
+		}
+
+		// Map the byte index back to the values/chords slice index.
+		// Each value is a single byte (one character), so byte index = slice index.
+		end := idx + len(sub)
+		vis := make([]data.Chord, 0, len(chords)-len(sub))
+		visStr := make([]string, 0, len(values)-len(sub))
+
+		vis = append(vis, chords[:idx]...)
+		vis = append(vis, chords[end:]...)
+		visStr = append(visStr, values[:idx]...)
+		visStr = append(visStr, values[end:]...)
+
+		return sample{
+			visible: vis,
+			visStr:  visStr,
+			heldOut: sub,
+			fullStr: full,
+		}
+	}
+
+	// No substring found — nothing held out.
+	return sample{visible: chords, visStr: values, fullStr: full}
+}
+
+/*
+Next pops the next sample, returning only the visible chords.
 Returns nil when the stack is exhausted.
 */
 func (p *Prompt) Next() []data.Chord {
@@ -116,37 +176,28 @@ func (p *Prompt) Next() []data.Chord {
 
 	s := p.samples[p.cursor]
 	p.cursor++
-
-	switch {
-	case s.keep == len(s.chords):
-		return s.chords
-	case s.keep == 0:
-		return s.chords[:0] // holdout everything
-	default:
-		return s.chords[:s.keep]
-	}
+	return s.visible
 }
 
 /*
-Value returns the held-out target string for the sample at idx.
-
-The holdout region is the complement of what Next returned.
+Value returns the visible portion of the sample at idx as a string.
+Same content as Next() but without advancing the cursor.
 */
 func (p *Prompt) Value(idx int) string {
 	if idx < 0 || idx >= len(p.samples) {
 		return ""
 	}
+	return strings.Join(p.samples[idx].visStr, "")
+}
 
-	s := p.samples[idx]
-
-	switch {
-	case s.keep >= len(s.values):
-		return "" // nothing held out
-	case s.keep == 0:
-		return strings.Join(s.values, "")
-	default:
-		return strings.Join(s.values[s.keep:], "")
+/*
+HeldOut returns the masked portion of the sample at idx as a string.
+*/
+func (p *Prompt) HeldOut(idx int) string {
+	if idx < 0 || idx >= len(p.samples) {
+		return ""
 	}
+	return p.samples[idx].heldOut
 }
 
 /*
@@ -156,8 +207,7 @@ func (p *Prompt) Full(idx int) string {
 	if idx < 0 || idx >= len(p.samples) {
 		return ""
 	}
-
-	return strings.Join(p.samples[idx].values, "")
+	return strings.Join(p.samples[idx].fullStr, "")
 }
 
 /*
@@ -177,5 +227,15 @@ func PromptWithHoldout(percentage int, holdoutType HoldoutType) promptOpts {
 	return func(p *Prompt) {
 		p.holdout = holdoutType
 		p.percentage = percentage
+	}
+}
+
+// PromptWithSubstringHoldout configures SUBSTRING holdout mode.
+// Any occurrence of the given strings will be stripped from each sample's
+// visible portion and stored as the held-out target.
+func PromptWithSubstringHoldout(substrings []string) promptOpts {
+	return func(p *Prompt) {
+		p.holdout = SUBSTRING
+		p.substrings = substrings
 	}
 }

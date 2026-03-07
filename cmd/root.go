@@ -23,8 +23,8 @@ which allows a developer to easily override the config file.
 var embedded embed.FS
 
 var (
-	projectName    = "six"
-	cfgFile        string
+	projectName = "six"
+	cfgFile     string
 
 	rootCmd = &cobra.Command{
 		Use:   "six",

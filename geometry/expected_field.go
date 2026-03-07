@@ -6,7 +6,7 @@ type ExpectedField struct {
 	Header    ManifoldHeader
 	Support   [4]MacroCube
 	Veto      MacroCube
-	Precision [5][27]uint16
+	Precision [5][CubeFaces]uint16
 }
 
 func NewExpectedField() ExpectedField {

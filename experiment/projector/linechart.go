@@ -51,11 +51,11 @@ func (chart *LineChart) Generate() error {
 		YMin          float64
 		YMax          float64
 	}{string(xData), string(sData), chart.yMin, chart.yMax})
-	html, err := renderChartHTML(chart.title, 1200, 800, script)
+	html, err := renderChartHTML(chart.title, chartW, chartH, script)
 	if err != nil {
 		return err
 	}
-	if err := renderAndExport(html, chart.outDir, chart.filename); err != nil {
+	if err := renderAndExport(html, chart.outDir, chart.filename, chartW, chartH); err != nil {
 		return err
 	}
 	return emitFigure(chart.filename, chart.caption, chart.label, chart.out)

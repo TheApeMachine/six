@@ -45,7 +45,7 @@ func TestPrimeFieldInsertExhaustive(t *testing.T) {
 			bitIdx := (1 + 1) % 512
 			var found bool
 			for cubeIdx := range 5 {
-				for blockIdx := range 27 {
+				for blockIdx := range geometry.CubeFaces {
 					if manifold.Cubes[cubeIdx][blockIdx][bitIdx/64]&(uint64(1)<<uint(bitIdx%64)) != 0 {
 						found = true
 						break
@@ -80,8 +80,9 @@ func TestPrimeFieldFreezeBoundaryCreatesFrozenBank(t *testing.T) {
 			frozen := pf.Manifold(1)
 			active := pf.Manifold(0)
 
-			So(frozen.Cubes[cubeFromEvents(nil)][blockFromChordDynamics(0, chA, nil)].ActiveCount(), ShouldBeGreaterThan, 0)
-			So(active.Cubes[cubeFromEvents(nil)][blockFromChordDynamics(0, chC, nil)].ActiveCount(), ShouldBeGreaterThan, 0)
+			// Self-addressing: byte value IS the face index.
+			So(frozen.Cubes[cubeFromEvents(nil)][int('a')].ActiveCount(), ShouldBeGreaterThan, 0)
+			So(active.Cubes[cubeFromEvents(nil)][int('c')].ActiveCount(), ShouldBeGreaterThan, 0)
 
 			ptr, n, offset := pf.SearchSnapshot()
 			So(ptr, ShouldNotBeNil)
@@ -160,25 +161,33 @@ func TestPrimeFieldInsertTriggersMitosisAtDensityThreshold(t *testing.T) {
 	Convey("Given a PrimeField accumulating dense support evidence", t, func() {
 		pf := NewPrimeField()
 
-		pos := uint32(1)
-		enteredMitosis := false
-		for i := 0; i < 2500; i++ {
-			chord := data.Chord{}
-			base := (i * 31) % 512
-			for k := 0; k < 24; k++ {
-				chord.Set((base + k*17) % 512)
+		// Pre-fill cube[0] to just under 45% density using bits within [0,511].
+		// We set full 512-bit blocks to maximize density per block.
+		total := float64(geometry.TotalBitsPerCube)
+		target := int(total*0.449) + 1
+		for block := 0; block < geometry.CubeFaces && target > 0; block++ {
+			for bit := 0; bit < 512 && target > 0; bit++ {
+				pf.manifolds[0].Cubes[0][block].Set(bit)
+				target--
 			}
-
-			pf.Insert(0, pos, chord, nil)
-			if pf.Manifold(0).Header.State() == 1 {
-				enteredMitosis = true
-				break
-			}
-			pos++
 		}
 
+		// Verify we're just under the threshold.
+		So(pf.manifolds[0].ConditionMitosis(), ShouldBeFalse)
+
+		// Insert a dense chord to push density over 45%.
+		// byteVal=255 → face 255, which is not fully saturated by the pre-fill
+		// (the pre-fill filled 115 full blocks + partial block 116).
+		// Force the density check to fire on this insert (stride counter at 63).
+		pf.insertsSinceDensityCheck = 63
+		chord := data.Chord{}
+		for k := 0; k < 256; k++ {
+			chord.Set(k)
+		}
+		pf.Insert(255, 1, chord, nil)
+
 		Convey("Then the active manifold flips into mitosis state at least once", func() {
-			So(enteredMitosis, ShouldBeTrue)
+			So(pf.Manifold(0).Header.State(), ShouldEqual, uint8(1))
 		})
 	})
 }
@@ -207,20 +216,24 @@ func TestPrimeFieldInsertDeMitosisResetsHeaderAndOrthogonalCubes(t *testing.T) {
 		pf.manifolds[0].Header.IncrementWinding()
 
 		pf.manifolds[0].Cubes[1][0].Set(3)
-		pf.manifolds[0].Cubes[4][26].Set(7)
+		pf.manifolds[0].Cubes[4][256].Set(7)
 
 		seed := data.Chord{}
 		seed.Set(11)
 		pf.manifolds[0].Cubes[0][0] = seed
 
+		// Force density check to fire on each insert.
+		pf.insertsSinceDensityCheck = 63
 		first := data.Chord{}
 		first.Set(13)
 		pf.Insert(0, 1, first, nil)
 
+		pf.insertsSinceDensityCheck = 63
 		second := data.Chord{}
 		second.Set(17)
 		pf.Insert(0, 2, second, nil)
 
+		pf.insertsSinceDensityCheck = 63
 		third := data.Chord{}
 		third.Set(19)
 		pf.Insert(0, 3, third, nil)
@@ -231,7 +244,7 @@ func TestPrimeFieldInsertDeMitosisResetsHeaderAndOrthogonalCubes(t *testing.T) {
 			So(active.Header.RotState(), ShouldEqual, 11)
 			So(active.Header.Winding(), ShouldEqual, 0)
 			So(active.Cubes[1][0].ActiveCount(), ShouldEqual, 0)
-			So(active.Cubes[4][26].ActiveCount(), ShouldEqual, 0)
+			So(active.Cubes[4][256].ActiveCount(), ShouldEqual, 0)
 		})
 	})
 }
@@ -244,7 +257,9 @@ func TestPrimeFieldInsertRequiresSustainedSparseStreakForDeMitosis(t *testing.T)
 		pf.manifolds[0].Header.IncrementWinding()
 		pf.manifolds[0].Header.IncrementWinding()
 
+		// Force density check to fire on each insert.
 		for i := 0; i < 2; i++ {
+			pf.insertsSinceDensityCheck = 63
 			chord := data.Chord{}
 			chord.Set((i + 1) * 23)
 			pf.Insert(0, uint32(i+1), chord, nil)
@@ -265,13 +280,15 @@ func TestPrimeFieldInsertKeepsMitosisWhenAnchorCubeStillDense(t *testing.T) {
 		pf.manifolds[0].Header.IncrementWinding()
 
 		bitsToSet := geometry.TotalBitsPerCube * 3 / 10
-		for block := 0; block < 27 && bitsToSet > 0; block++ {
+		for block := 0; block < geometry.CubeFaces && bitsToSet > 0; block++ {
 			for bit := 0; bit < 512 && bitsToSet > 0; bit++ {
 				pf.manifolds[0].Cubes[0][block].Set(bit)
 				bitsToSet--
 			}
 		}
 
+		// Force density check to fire.
+		pf.insertsSinceDensityCheck = 63
 		chord := data.Chord{}
 		chord.Set(5)
 		pf.Insert(0, 2, chord, nil)

@@ -43,7 +43,7 @@ type MPPanel struct {
 	YLabels     []string `json:"yLabels"`
 	YAxisName   string   `json:"yAxisName"`
 	YInterval   int      `json:"yInterval"`
-	HeatData    [][]any  `json:"heatData"`    // [[xi, yi, value], …]
+	HeatData    [][]any  `json:"heatData"` // [[xi, yi, value], …]
 	HeatMin     float64  `json:"heatMin"`
 	HeatMax     float64  `json:"heatMax"`
 	ColorScheme string   `json:"colorScheme"` // "viridis" | "magma" | "plasma"
@@ -91,7 +91,7 @@ func (mp *MultiPanel) Generate() error {
 	if err != nil {
 		return err
 	}
-	if err := renderAndExport(html, mp.outDir, mp.filename); err != nil {
+	if err := renderAndExport(html, mp.outDir, mp.filename, mp.width, mp.height); err != nil {
 		return err
 	}
 	return emitFigure(mp.filename, mp.caption, mp.label, mp.out)

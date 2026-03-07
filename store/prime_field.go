@@ -23,9 +23,12 @@ type PrimeField struct {
 	momentum   float64
 	lastEvents []int
 	cleanup    [4][]data.Chord
+	chords     []data.Chord        // accumulated for EigenMode training
+	rot        geometry.GFRotation // composable GF(257) rotation state — O(1) per event
 
-	deMitosisHoldInserts  int
-	deMitosisSparseStreak int
+	deMitosisHoldInserts     int
+	deMitosisSparseStreak    int
+	insertsSinceDensityCheck int // stride counter for expensive density scans
 }
 
 const maxCleanupPrototypesPerClass = 32
@@ -58,31 +61,6 @@ func cubeFromEvents(events []int) int {
 	default:
 		return 0
 	}
-}
-
-func blockFromChordDynamics(pos uint32, chord data.Chord, events []int) int {
-	if len(events) == 0 {
-		return int(pos) % 27
-	}
-
-	role := int(pos % 3)
-
-	temporal := 1
-	if hasEvent(events, geometry.EventDensityTrough) {
-		temporal = 0
-	} else if hasEvent(events, geometry.EventDensitySpike) {
-		temporal = 2
-	}
-
-	scale := 0
-	active := chord.ActiveCount()
-	if hasEvent(events, geometry.EventLowVarianceFlux) || active >= 32 {
-		scale = 2
-	} else if active >= 12 {
-		scale = 1
-	}
-
-	return role + 3*temporal + 9*scale
 }
 
 func supportCubeFromEvents(events []int) int {
@@ -207,12 +185,13 @@ func NewPrimeField() *PrimeField {
 		N:         1,
 		manifolds: make([]geometry.IcosahedralManifold, 1),
 		eigen:     geometry.NewEigenMode(),
+		rot:       geometry.IdentityRotation(),
 	}
 }
 
 func (field *PrimeField) activeHasSignal() bool {
 	for cubeIdx := range 5 {
-		for blockIdx := range 27 {
+		for blockIdx := range geometry.CubeFaces {
 			if field.manifolds[0].Cubes[cubeIdx][blockIdx].ActiveCount() > 0 {
 				return true
 			}
@@ -220,6 +199,25 @@ func (field *PrimeField) activeHasSignal() bool {
 	}
 
 	return false
+}
+
+/*
+BuildEigenModes trains the EigenMode co-occurrence tables from chords
+accumulated during Insert calls. Call this once after all data has been
+ingested (e.g. after Machine.Start completes) so downstream phase lookups
+return trained values.
+*/
+func (field *PrimeField) BuildEigenModes() error {
+	field.mu.RLock()
+	chords := make([]data.Chord, len(field.chords))
+	copy(chords, field.chords)
+	field.mu.RUnlock()
+
+	if len(chords) == 0 {
+		return nil
+	}
+
+	return field.eigen.BuildMultiScaleCooccurrence(chords)
 }
 
 func (field *PrimeField) freezeActiveIfBoundary(pos uint32) {
@@ -237,11 +235,15 @@ func (field *PrimeField) freezeActiveIfBoundary(pos uint32) {
 	next[0] = geometry.IcosahedralManifold{}
 	field.manifolds = next
 	field.N = len(field.manifolds)
+
+	// Reset rotation state for the fresh active manifold.
+	// The frozen manifold's data layout already reflects its rotation history.
+	field.rot = geometry.IdentityRotation()
 }
 
 func (field *PrimeField) cubeDensity(cubeIdx int) float64 {
 	activeBits := 0
-	for blockIdx := range 27 {
+	for blockIdx := range geometry.CubeFaces {
 		activeBits += field.manifolds[0].Cubes[cubeIdx][blockIdx].ActiveCount()
 	}
 
@@ -289,12 +291,14 @@ func (field *PrimeField) shouldDeMitosis() bool {
 
 /*
 Insert appends a chord by merging it directly into the active manifold.
-The stream inherently applies topological rotations passed as events.
+The byte value determines the cube face (self-addressing: blockIndex = int(byteVal)).
+Sequence position is encoded in the rotational state via GF(257) affine transforms.
 */
-func (field *PrimeField) Insert(_ byte, pos uint32, chord data.Chord, events []int) {
+func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, events []int) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 
+	field.chords = append(field.chords, chord)
 	field.freezeActiveIfBoundary(pos)
 
 	for _, event := range events {
@@ -303,20 +307,31 @@ func (field *PrimeField) Insert(_ byte, pos uint32, chord data.Chord, events []i
 
 	if len(events) > 0 {
 		field.lastEvents = events
+
+		// Each topological event injects energy proportional to the chord's
+		// structural complexity. ActiveCount (popcount) measures how much
+		// information the chord carries — no EigenMode training needed,
+		// deterministic from the first byte.
+		field.momentum += float64(chord.ActiveCount())
 	}
 
 	supportCube := supportCubeFromEvents(events)
 	vetoCube := vetoCubeFromSupport(supportCube)
-	blockIndex := blockFromChordDynamics(pos, chord, events)
 
-	// 2. Entropy Routing (The Relief Valve)
-	// If the targeted ingestion block has hit the Shannon limit,
-	// mechanically rotate the cube to swing it out of the firing line
+	// Self-addressing with GF(257) rotation: the byte value maps to a
+	// face via the composed rotation state. This encodes sequence position
+	// without physically rearranging cube data.
+	blockIndex := field.rot.Forward(int(byteVal))
+
+	// Entropy Routing: if the targeted block hits Shannon limit,
+	// compose a DensitySpike rotation to swing the index mapping
 	// and expose fresh, sparse structure BEFORE inserting.
 	density := float64(field.manifolds[0].Cubes[supportCube][blockIndex].ActiveCount()) / 512.0
 	if density >= geometry.MitosisThreshold {
 		field.applyEvent(geometry.EventDensitySpike)
 		field.lastEvents = []int{geometry.EventDensitySpike}
+		// Recompute block index after the rotation change.
+		blockIndex = field.rot.Forward(int(byteVal))
 	}
 
 	current := field.manifolds[0].Cubes[supportCube][blockIndex]
@@ -330,16 +345,24 @@ func (field *PrimeField) Insert(_ byte, pos uint32, chord data.Chord, events []i
 		field.manifolds[0].Cubes[vetoCube][blockIndex] = vetoMerged
 	}
 
-	if field.manifolds[0].Header.State() == 0 && field.manifolds[0].ConditionMitosis() {
-		field.manifolds[0].Mitosis()
-		field.deMitosisHoldInserts = deMitosisPostMitosisHoldInserts
-		field.deMitosisSparseStreak = 0
-	}
+	// Density-based phase transitions: only check every 64 inserts.
+	// With 257-face cubes, scanning all blocks is expensive; density
+	// changes gradually so periodic checks are sufficient.
+	field.insertsSinceDensityCheck++
+	if field.insertsSinceDensityCheck >= 64 {
+		field.insertsSinceDensityCheck = 0
 
-	if field.shouldDeMitosis() {
-		field.manifolds[0].DeMitosis()
-		field.deMitosisHoldInserts = 0
-		field.deMitosisSparseStreak = 0
+		if field.manifolds[0].Header.State() == 0 && field.manifolds[0].ConditionMitosis() {
+			field.manifolds[0].Mitosis()
+			field.deMitosisHoldInserts = deMitosisPostMitosisHoldInserts
+			field.deMitosisSparseStreak = 0
+		}
+
+		if field.shouldDeMitosis() {
+			field.manifolds[0].DeMitosis()
+			field.deMitosisHoldInserts = 0
+			field.deMitosisSparseStreak = 0
+		}
 	}
 
 	field.rememberPrototype(blockIndex, chord)
@@ -391,23 +414,12 @@ func (field *PrimeField) applyEvent(event int) {
 		field.manifolds[0].Header.IncrementWinding()
 	}
 
-	// 1. Apply local Micro-Rotations to all 5 MacroCubes simultaneously
-	for c := range 5 {
-		switch event {
-		case geometry.EventDensitySpike:
-			field.manifolds[0].Cubes[c].RotateX()
-		case geometry.EventPhaseInversion:
-			field.manifolds[0].Cubes[c].RotateY()
-		case geometry.EventDensityTrough:
-			field.manifolds[0].Cubes[c].RotateZ()
-		case geometry.EventLowVarianceFlux:
-			// 180 degree rotation sweeping entropy
-			field.manifolds[0].Cubes[c].RotateX()
-			field.manifolds[0].Cubes[c].RotateX()
-		}
-	}
+	// Compose the GF(257) micro-rotation into the running state.
+	// O(1) arithmetic replaces O(257 × 5 × 64) bytes of data movement.
+	field.rot = field.rot.Compose(geometry.EventRotation(event))
 
-	// 2. Apply global A_5 tracking permutations across the 5 MacroCubes
+	// A₅ macro-permutations across the 5 cubes — these are cheap
+	// struct swaps, not per-face data copies.
 	switch event {
 	case geometry.EventDensitySpike:
 		field.manifolds[0].Permute3Cycle(0, 1, 2)

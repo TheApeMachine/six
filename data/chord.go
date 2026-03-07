@@ -10,10 +10,26 @@ import (
 )
 
 /*
-Chord is the prime signature bitset. Size derived from config.NBasis via
-config.ChordBlocks (NBasis/64). Centralized in core config.
+Chord is the prime signature bitset. Storage is [8]uint64 (512 bits) for GPU
+alignment, but only the lower 257 bits are logically valid — one bit per face
+of the Fermat cube (CubeFaces = 257). Bits [257..511] must always be zero.
+Call Sanitize() after any raw bitwise OR to enforce this invariant.
 */
 type Chord [config.ChordBlocks]uint64
+
+/*
+Sanitize zeroes bits [257..511] to enforce the 257-bit logical width invariant.
+Bit 256 (the delimiter face) is preserved. Word 4 keeps its lowest bit
+(bit 256); words 5..7 are fully zeroed.
+*/
+func (chord *Chord) Sanitize() {
+	// Word layout: word[0] = bits 0..63, word[1] = 64..127, ...
+	// word[4] = bits 256..319 → only bit 256 (the LSB) is valid.
+	chord[4] &= 1 // keep only bit 256
+	chord[5] = 0
+	chord[6] = 0
+	chord[7] = 0
+}
 
 /*
 Has checks if the prime at index p is active in the chord.
@@ -49,14 +65,14 @@ func (chord *Chord) Bytes() []byte {
 
 /*
 BaseChord returns a deterministic base chord for a byte value.
-Uses coprime spreading to set 5 bits in the 512-bit chord,
+Uses coprime spreading to set 5 bits in the 257-bit logical chord space,
 ensuring each of the 256 byte values gets a unique signature.
 */
 func BaseChord(b byte) Chord {
 	var chord Chord
-	totalBits := config.Numeric.ChordBlocks * 64
+	const logicalBits = 257 // CubeFaces — must match geometry.CubeFaces
 
-	// 5 coprime multipliers spread across the chord space
+	// 5 coprime multipliers spread across the logical chord space
 	offsets := [5]int{
 		int(b) * 7,
 		int(b) * 13,
@@ -66,7 +82,7 @@ func BaseChord(b byte) Chord {
 	}
 
 	for _, off := range offsets {
-		bit := off % totalBits
+		bit := off % logicalBits
 		chord.Set(bit)
 	}
 
@@ -99,6 +115,7 @@ func ChordLCM(chords []Chord) (lcm Chord) {
 		}
 	}
 
+	lcm.Sanitize()
 	return lcm
 }
 
@@ -236,6 +253,7 @@ func ChordOR(a, b *Chord) (lcm Chord) {
 		lcm[i] = a[i] | b[i]
 	}
 
+	lcm.Sanitize()
 	return lcm
 }
 
@@ -336,22 +354,22 @@ func (chord *Chord) RollLeft(shift int) Chord {
 		return *chord
 	}
 
+	const logicalBits = 257 // CubeFaces
 	var out Chord
-	shift = shift % config.NBasis
+	shift = shift % logicalBits
 
-	// Fast sparse-array permutation
+	// Fast sparse-array permutation within the 257-bit logical width
 	for i := 0; i < config.ChordBlocks; i++ {
 		block := chord[i]
 		for block != 0 {
-			// Find next active bit
 			bitIdx := bits.TrailingZeros64(block)
 			primeIdx := i*64 + bitIdx
 
-			// Shift and wrap around the config.NBasis Torus
-			newPrimeIdx := (primeIdx + shift) % config.NBasis
-			out.Set(newPrimeIdx)
+			if primeIdx < logicalBits {
+				newPrimeIdx := (primeIdx + shift) % logicalBits
+				out.Set(newPrimeIdx)
+			}
 
-			// Clear the bit we just processed
 			block &= block - 1
 		}
 	}

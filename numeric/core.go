@@ -6,9 +6,9 @@ import (
 )
 
 const (
-	ManifoldBytes      = 8648
+	ManifoldBytes      = 82248 // 8 (header+pad) + 5 × 257 × 64
 	ManifoldWords      = ManifoldBytes / 8
-	CubeWords          = 5 * 27 * 8
+	CubeWords          = 5 * 257 * 8
 	GeodesicMatrixSize = 60 * 60
 	ScoreScale         = 4_000_000.0
 )

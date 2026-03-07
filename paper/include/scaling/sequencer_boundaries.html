@@ -2,38 +2,36 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=1200, initial-scale=1.0">
     <title>Topological Boundary Detection</title>
     <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
     <style>
-        html, body {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin: 0; 
-            padding: 0; 
-            background-color: transparent; 
-            color: #0f172a; 
-            font-family: 'Helvetica Neue', Arial, sans-serif; 
-            width: 100%; 
-            height: 100%; 
+         
+        @page {
+            size: 1200px 500px;
+            margin: 0;
         }
-        #chart { 
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%; 
-            height: 100%; 
-            background: transparent; 
-            padding: 0; 
-            box-sizing: border-box; 
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 1200px;
+            height: 500px;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: #0f172a;
+        }
+        #chart {
+            width: 1200px;
+            height: 500px;
         }
     </style>
 </head>
 <body>
     <div id="chart"></div>
     <script>
-        const panels = [{"kind":"chart","title":"Topological Event Distribution","gridLeft":"8%","gridRight":"52%","gridTop":"10%","gridBottom":"15%","xLabels":["5-Cycle\n(LowVar)","3-Cycle\n(Spike)","Inv 3-Cycle\n(Trough)","DblTrans\n(Phase)"],"xAxisName":"A₅ Event Type","xInterval":0,"xShow":true,"yLabels":null,"yAxisName":"Count","yInterval":0,"heatData":null,"heatMin":0,"heatMax":0,"colorScheme":"","showVM":false,"vmRight":"","series":[{"name":"Structured Text","kind":"bar","symbol":"","barWidth":"20%","area":false,"data":[0,0,161,0],"color":"#2563eb"},{"name":"Source Code","kind":"bar","symbol":"","barWidth":"20%","area":false,"data":[0,0,51,0],"color":"#059669"},{"name":"Binary-Like","kind":"bar","symbol":"","barWidth":"20%","area":false,"data":[0,3,41,0],"color":"#dc2626"}],"yMin":0,"yMax":null},{"kind":"chart","title":"Segmentation Profile","gridLeft":"58%","gridRight":"5%","gridTop":"10%","gridBottom":"15%","xLabels":["Structured\nText","Source\nCode","Binary-\nLike"],"xAxisName":"Corpus Type","xInterval":0,"xShow":true,"yLabels":null,"yAxisName":"Length / Rate","yInterval":0,"heatData":null,"heatMin":0,"heatMax":0,"colorScheme":"","showVM":false,"vmRight":"","series":[{"name":"Avg Segment Length","kind":"bar","symbol":"","barWidth":"35%","area":false,"data":[6.518518518518518,10.057692307692308,22.22222222222222],"color":"#7c3aed"},{"name":"Boundary Rate (%)","kind":"line","symbol":"diamond","barWidth":"","area":false,"data":[15.246212121212121,9.751434034416825,4.3999999999999995],"color":"#d97706"}],"yMin":0,"yMax":null}];
+        const panels = [{"kind":"chart","title":"Topological Event Distribution","gridLeft":"8%","gridRight":"52%","gridTop":"10%","gridBottom":"15%","xLabels":["5-Cycle\n(LowVar)","3-Cycle\n(Spike)","Inv 3-Cycle\n(Trough)","DblTrans\n(Phase)"],"xAxisName":"A₅ Event Type","xInterval":0,"xShow":true,"yLabels":null,"yAxisName":"Count","yInterval":0,"heatData":null,"heatMin":0,"heatMax":0,"colorScheme":"","showVM":false,"vmRight":"","series":[{"name":"Structured Text","kind":"bar","symbol":"","barWidth":"20%","area":false,"data":[19,0,0,238],"color":"#2563eb"},{"name":"Source Code","kind":"bar","symbol":"","barWidth":"20%","area":false,"data":[7,0,0,168],"color":"#059669"},{"name":"Binary-Like","kind":"bar","symbol":"","barWidth":"20%","area":false,"data":[10,7,4,285],"color":"#dc2626"}],"yMin":0,"yMax":null},{"kind":"chart","title":"Segmentation Profile","gridLeft":"58%","gridRight":"5%","gridTop":"10%","gridBottom":"15%","xLabels":["Structured\nText","Source\nCode","Binary-\nLike"],"xAxisName":"Corpus Type","xInterval":0,"xShow":true,"yLabels":null,"yAxisName":"Length / Rate","yInterval":0,"heatData":null,"heatMin":0,"heatMax":0,"colorScheme":"","showVM":false,"vmRight":"","series":[{"name":"Avg Segment Length","kind":"bar","symbol":"","barWidth":"35%","area":false,"data":[4.093023255813954,2.971590909090909,3.3112582781456954],"color":"#7c3aed"},{"name":"Boundary Rate (%)","kind":"line","symbol":"diamond","barWidth":"","area":false,"data":[24.33712121212121,33.460803059273424,30.099999999999998],"color":"#d97706"}],"yMin":0,"yMax":null}];
 
         /* ── Unified Design System ─────────────────────────────────────── */
         const PALETTES = {

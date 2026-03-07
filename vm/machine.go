@@ -1,16 +1,14 @@
 package vm
 
 import (
-	"sync/atomic"
 	"unsafe"
-
-	"github.com/theapemachine/six/console"
 
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/vm/generation"
 )
 
 // maxGenerationSteps is the maximum number of tokens to generate in a single prompt.
@@ -36,19 +34,6 @@ type bestFillWithFieldFn func(
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error)
 
-type recentSeed struct {
-	pos    uint32
-	chord  data.Chord
-	events []int
-}
-
-type slotMask struct {
-	Observed [5][27]bool
-	Missing  [5][27]bool
-	Hole     [5][27]data.Chord
-	Count    int
-}
-
 type BranchPolicy struct {
 	Enabled         bool
 	MarginThreshold float64
@@ -59,250 +44,6 @@ type ObservabilitySnapshot struct {
 	LowMarginEvents  uint64
 	RetainedBranches uint64
 	AnchorVetoEvents uint64
-}
-
-func hasSeedEvent(events []int, wanted int) bool {
-	for _, ev := range events {
-		if ev == wanted {
-			return true
-		}
-	}
-
-	return false
-}
-
-func seedCube(events []int) int {
-	switch {
-	case hasSeedEvent(events, geometry.EventPhaseInversion):
-		return 3
-	case hasSeedEvent(events, geometry.EventDensitySpike):
-		return 1
-	case hasSeedEvent(events, geometry.EventLowVarianceFlux):
-		return 2
-	case hasSeedEvent(events, geometry.EventDensityTrough):
-		return 4
-	default:
-		return 0
-	}
-}
-
-func supportSeedCube(events []int) int {
-	cube := seedCube(events)
-	if cube == 4 {
-		return 0
-	}
-
-	return cube
-}
-
-func vetoSeedCube(cube int) int {
-	if cube == 4 {
-		return 3
-	}
-
-	return 4
-}
-
-func seedBlock(pos uint32, chord data.Chord, events []int) int {
-	if len(events) == 0 {
-		return int(pos) % 27
-	}
-
-	role := int(pos % 3)
-
-	temporal := 1
-	if hasSeedEvent(events, geometry.EventDensityTrough) {
-		temporal = 0
-	} else if hasSeedEvent(events, geometry.EventDensitySpike) {
-		temporal = 2
-	}
-
-	scale := 0
-	active := chord.ActiveCount()
-	if hasSeedEvent(events, geometry.EventLowVarianceFlux) || active >= 32 {
-		scale = 2
-	} else if active >= 12 {
-		scale = 1
-	}
-
-	return role + 3*temporal + 9*scale
-}
-
-func pushRecentSeed(recent []recentSeed, seed recentSeed, limit int) []recentSeed {
-	recent = append(recent, seed)
-	if len(recent) <= limit {
-		return recent
-	}
-
-	trimFrom := len(recent) - limit
-	out := make([]recentSeed, limit)
-	copy(out, recent[trimFrom:])
-	return out
-}
-
-func seedQueryContext(queryCtx *geometry.IcosahedralManifold, recent []recentSeed) {
-	for _, seed := range recent {
-		cubeIdx := supportSeedCube(seed.events)
-		vetoIdx := vetoSeedCube(cubeIdx)
-		blockIdx := seedBlock(seed.pos, seed.chord, seed.events)
-		current := queryCtx.Cubes[cubeIdx][blockIdx]
-		veto := data.ChordHole(&current, &seed.chord)
-		merged := data.ChordOR(&current, &seed.chord)
-		queryCtx.Cubes[cubeIdx][blockIdx] = merged
-
-		if veto.ActiveCount() > 0 {
-			vetoMerged := data.ChordOR(&queryCtx.Cubes[vetoIdx][blockIdx], &veto)
-			queryCtx.Cubes[vetoIdx][blockIdx] = vetoMerged
-		}
-	}
-}
-
-func applyEventsToContext(queryCtx *geometry.IcosahedralManifold, events []int) {
-	for _, ev := range events {
-		currentRotState := queryCtx.Header.RotState()
-		nextRotState := geometry.StateTransitionMatrix[currentRotState][ev]
-		if nextRotState != 255 {
-			queryCtx.Header.SetRotState(nextRotState)
-		}
-
-		for c := range 5 {
-			switch ev {
-			case geometry.EventDensitySpike:
-				queryCtx.Cubes[c].RotateX()
-			case geometry.EventPhaseInversion:
-				queryCtx.Cubes[c].RotateY()
-			case geometry.EventDensityTrough:
-				queryCtx.Cubes[c].RotateZ()
-			case geometry.EventLowVarianceFlux:
-				queryCtx.Cubes[c].RotateX()
-				queryCtx.Cubes[c].RotateX()
-			}
-		}
-	}
-}
-
-func mergeManifold(dst *geometry.IcosahedralManifold, src *geometry.IcosahedralManifold) {
-	for c := range 5 {
-		for b := range 27 {
-			dst.Cubes[c][b] = data.ChordOR(&dst.Cubes[c][b], &src.Cubes[c][b])
-		}
-	}
-}
-
-func deriveSlotMask(
-	queryCtx *geometry.IcosahedralManifold,
-	expectedReality *geometry.IcosahedralManifold,
-	targetCube, targetBlock int,
-) slotMask {
-	var mask slotMask
-
-	for c := range 5 {
-		for b := range 27 {
-			if queryCtx.Cubes[c][b].ActiveCount() > 0 {
-				mask.Observed[c][b] = true
-			}
-		}
-	}
-
-	for b := range 27 {
-		hasSupportEvidence := false
-		for c := 0; c < 4; c++ {
-			if mask.Observed[c][b] {
-				hasSupportEvidence = true
-				break
-			}
-		}
-
-		for c := 0; c < 4; c++ {
-			if mask.Observed[c][b] {
-				if expectedReality != nil {
-					hole := data.ChordHole(&expectedReality.Cubes[c][b], &queryCtx.Cubes[c][b])
-					if hole.ActiveCount() > 0 {
-						mask.Missing[c][b] = true
-						mask.Hole[c][b] = hole
-						mask.Count++
-					}
-				}
-				continue
-			}
-
-			if c == targetCube && b == targetBlock {
-				mask.Missing[c][b] = true
-				if expectedReality != nil {
-					mask.Hole[c][b] = expectedReality.Cubes[c][b]
-				}
-				mask.Count++
-				continue
-			}
-
-			if hasSupportEvidence {
-				mask.Missing[c][b] = true
-				mask.Count++
-				continue
-			}
-
-			if expectedReality != nil && expectedReality.Cubes[c][b].ActiveCount() > 0 {
-				mask.Missing[c][b] = true
-				mask.Hole[c][b] = expectedReality.Cubes[c][b]
-				mask.Count++
-			}
-		}
-
-		if !mask.Observed[4][b] && hasSupportEvidence {
-			mask.Missing[4][b] = true
-			mask.Count++
-		}
-	}
-
-	return mask
-}
-
-func integrateFill(
-	queryCtx *geometry.IcosahedralManifold,
-	matched *geometry.IcosahedralManifold,
-	mask slotMask,
-	primefield *store.PrimeField,
-) int {
-	filled := 0
-
-	for c := range 5 {
-		for b := range 27 {
-			if !mask.Missing[c][b] {
-				continue
-			}
-
-			candidate := matched.Cubes[c][b]
-			if candidate.ActiveCount() == 0 {
-				continue
-			}
-
-			fillChord := candidate
-			if mask.Hole[c][b].ActiveCount() > 0 {
-				fillChord = data.ChordGCD(&candidate, &mask.Hole[c][b])
-				if fillChord.ActiveCount() == 0 {
-					continue
-				}
-			}
-
-			if c < 4 {
-				fillChord = primefield.CleanupSnap(b, fillChord)
-				prior := queryCtx.Cubes[c][b]
-				veto := data.ChordHole(&prior, &fillChord)
-				queryCtx.Cubes[c][b] = data.ChordOR(&prior, &fillChord)
-
-				if veto.ActiveCount() > 0 {
-					vetoCube := vetoSeedCube(c)
-					queryCtx.Cubes[vetoCube][b] = data.ChordOR(&queryCtx.Cubes[vetoCube][b], &veto)
-				}
-			} else {
-				queryCtx.Cubes[c][b] = data.ChordOR(&queryCtx.Cubes[c][b], &fillChord)
-			}
-
-			filled++
-		}
-	}
-
-	return filled
 }
 
 /*
@@ -316,10 +57,7 @@ type Machine struct {
 	primefield        *store.PrimeField
 	bestFill          bestFillFn
 	bestFillWithField bestFillWithFieldFn
-	branchPolicy      BranchPolicy
-	lowMarginEvents   atomic.Uint64
-	retainedBranches  atomic.Uint64
-	anchorVetoEvents  atomic.Uint64
+	policy            *generation.PolicyTracker
 	stopCh            chan struct{}
 }
 
@@ -330,9 +68,9 @@ NewMachine creates a new Machine.
 */
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
-		primefield:   store.NewPrimeField(),
-		bestFill:     kernel.BestFill,
-		branchPolicy: BranchPolicy{Enabled: false, MarginThreshold: 0.05, MaxRetained: 2},
+		primefield: store.NewPrimeField(),
+		bestFill:   kernel.BestFill,
+		policy:     generation.NewPolicyTracker(generation.DefaultBranchPolicy()),
 		bestFillWithField: func(
 			dictionary unsafe.Pointer,
 			numChords int,
@@ -404,206 +142,46 @@ func (machine *Machine) promptInternal(
 	expectedReality *geometry.IcosahedralManifold,
 	expectedField *geometry.ExpectedField,
 ) chan byte {
-	out := make(chan byte)
+	policy := machine.policy
+	if policy == nil {
+		policy = generation.NewPolicyTracker(generation.DefaultBranchPolicy())
+		machine.policy = policy
+	}
 
-	go func() {
-		defer close(out)
+	seq := machine.loader.tokenizer.Sequencer()
 
-		if machine.primefield.N == 0 {
-			return
+	// Derive byte values from chords via reverse lookup.
+	// The Fermat cube needs raw byte values for self-addressing.
+	coder := tokenizer.NewMortonCoder()
+	promptBytes := make([]byte, len(prompt))
+	for i, chord := range prompt {
+		if key := machine.loader.Store().ReverseLookup(chord); key > 0 {
+			_, _, b := coder.Decode(key)
+			promptBytes[i] = b
 		}
+	}
 
-		chords := make([]data.Chord, len(prompt))
-		copy(chords, prompt)
+	runner := generation.NewRunner(generation.RunnerConfig{
+		Prompt:          prompt,
+		PromptBytes:     promptBytes,
+		ExpectedReality: expectedReality,
+		ExpectedField:   expectedField,
+		PrimeField:      machine.primefield,
+		Sequencer:       seq,
+		ReverseLookup: func(chord data.Chord) uint64 {
+			return machine.loader.Store().ReverseLookup(chord)
+		},
+		BestFill:           generation.BestFillFn(machine.bestFill),
+		BestFillWithField:  generation.BestFillWithFieldFn(machine.bestFillWithField),
+		OnBranchPolicy:     policy.TrackMargin,
+		OnAnchorVeto:       policy.TrackAnchorVeto,
+		StopCh:             machine.stopCh,
+		MaxGenerationSteps: maxGenerationSteps,
+		MaxReasoningHops:   maxReasoningHops,
+		RecentLimit:        12,
+	})
 
-		// Reuse a single MortonCoder for all decode operations
-		coder := tokenizer.NewMortonCoder()
-
-		// Spin-Up Phase: Process prompt to build angular momentum
-		var zNext uint32
-		var byteVal byte
-		recent := make([]recentSeed, 0, 12)
-
-		for _, chord := range chords {
-			if key := machine.loader.Store().ReverseLookup(chord); key > 0 {
-				_, _, byteVal = coder.Decode(key)
-				out <- byteVal
-			}
-
-			// Feed the prompt through the Sequencer to build momentum context
-			pos := zNext
-			reset, evs := machine.loader.tokenizer.Sequencer().Analyze(int(zNext), chord)
-			recent = pushRecentSeed(recent, recentSeed{pos: pos, chord: chord, events: evs}, 12)
-
-			if reset {
-				zNext = 0
-			} else {
-				zNext++
-			}
-		}
-
-		// Initial State tracking for geodesic trajectory
-		momentum, lastEvents := machine.primefield.Momentum()
-		_, phiPhaseThresh := machine.loader.tokenizer.Sequencer().Phase()
-		phiDecay := machine.loader.tokenizer.Sequencer().Phi()
-
-		// Freewheel Phase: Predict forward using momentum
-		// Calculate starting topological offset from the ingested prompt
-		startIdx := len(chords)
-		zNext = uint32(startIdx)
-
-		for range maxGenerationSteps {
-			// Natural EOS: generation stops when kinetic rotational energy dissipates
-			if momentum < phiPhaseThresh {
-				break
-			}
-
-			// Apply geodesic extrapolation: Move the mathematical query context forward
-			// based on the trajectory defined by the last causal topological events
-			var queryCtx geometry.IcosahedralManifold
-			seedQueryContext(&queryCtx, recent)
-			applyEventsToContext(&queryCtx, lastEvents)
-
-			anchor := data.Chord{}
-			if len(chords) > 0 {
-				anchor = chords[len(chords)-1]
-			}
-
-			var expectedCtx geometry.IcosahedralManifold = queryCtx
-			applyEventsToContext(&expectedCtx, lastEvents)
-			if expectedReality != nil {
-				mergeManifold(&expectedCtx, expectedReality)
-			}
-
-			vetoBlock := seedBlock(zNext, anchor, lastEvents)
-			expectedCtx.Cubes[4][vetoBlock] = data.ChordOR(&expectedCtx.Cubes[4][vetoBlock], &anchor)
-			if anchor.ActiveCount() > 0 {
-				machine.anchorVetoEvents.Add(1)
-			}
-			expRealPtr := unsafe.Pointer(&expectedCtx)
-
-			// Momentum Decay: Physics-based structural friction
-			momentum *= phiDecay
-
-			// Broadcast the predicted coordinate to GPU BestFill inference
-			// to find the exact historical block that occupies this extrapolated space
-			dictionaryPtr, dictionaryN, dictionaryOffset := machine.primefield.SearchSnapshot()
-			if dictionaryN == 0 {
-				break
-			}
-
-			cubeIndex := supportSeedCube(lastEvents)
-			blockIndex := seedBlock(zNext, anchor, lastEvents)
-
-			cycleGuard := make(map[int]struct{}, maxReasoningHops)
-			retained := 0
-			lastBestIdx := -1
-			previousScore := -1.0
-			for range maxReasoningHops {
-				mask := deriveSlotMask(&queryCtx, &expectedCtx, cubeIndex, blockIndex)
-				if mask.Count == 0 {
-					break
-				}
-
-				var (
-					bestIdx int
-					score   float64
-					err     error
-				)
-				if expectedField != nil {
-					bestIdx, score, err = machine.bestFillWithField(
-						dictionaryPtr,
-						dictionaryN,
-						unsafe.Pointer(&queryCtx),
-						expRealPtr,
-						expectedField,
-						0,
-						unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
-					)
-				} else {
-					bestIdx, score, err = machine.bestFill(
-						dictionaryPtr,
-						dictionaryN,
-						unsafe.Pointer(&queryCtx),
-						expRealPtr,
-						0,
-						unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
-					)
-				}
-
-				if err != nil {
-					console.Error(err, "context", "BestFill generation")
-					break
-				}
-
-				if previousScore >= 0 && score <= previousScore {
-					break
-				}
-				previousScore = score
-
-				resolvedIdx := bestIdx + dictionaryOffset
-				lastBestIdx = bestIdx
-
-				if machine.branchPolicy.Enabled && previousScore >= 0 {
-					margin := score - previousScore
-					if margin < machine.branchPolicy.MarginThreshold {
-						machine.lowMarginEvents.Add(1)
-						if retained < machine.branchPolicy.MaxRetained {
-							machine.retainedBranches.Add(1)
-							retained++
-						}
-					}
-				}
-				if _, seen := cycleGuard[resolvedIdx]; seen {
-					break
-				}
-				cycleGuard[resolvedIdx] = struct{}{}
-
-				console.Trace("BestFill Retrieved Geodesic Target", "bestIdx", bestIdx)
-				matched := machine.primefield.Manifold(resolvedIdx)
-				filled := integrateFill(&queryCtx, &matched, mask, machine.primefield)
-				if filled == 0 {
-					break
-				}
-
-				applyEventsToContext(&queryCtx, lastEvents)
-			}
-
-			nextChord := queryCtx.Cubes[cubeIndex][blockIndex]
-
-			console.Trace("generation step",
-				"z", zNext,
-				"cube", cubeIndex,
-				"block", blockIndex,
-				"bestIdx", lastBestIdx,
-				"active", nextChord.ActiveCount(),
-			)
-
-			if nextChord.ActiveCount() == 0 {
-				break
-			}
-
-			// Translate generated HDC geometric pattern back into standard byte byte
-			if key := machine.loader.Store().ReverseLookup(nextChord); key > 0 {
-				_, _, b := coder.Decode(key)
-				console.Trace("Decoded token byte", "byte", string(b), "key", key)
-				out <- b
-			}
-
-			// Advance positional sequencing exactly as ingestion did
-			reset, evs := machine.loader.tokenizer.Sequencer().Analyze(int(zNext), nextChord)
-			recent = pushRecentSeed(recent, recentSeed{pos: zNext, chord: nextChord, events: evs}, 12)
-			chords = append(chords, nextChord)
-			if reset {
-				zNext = 0
-				lastEvents = evs
-			} else {
-				zNext++
-			}
-		}
-	}()
-
-	return out
+	return runner.Run()
 }
 
 func MachineWithLoader(loader *Loader) machineOpts {
@@ -639,18 +217,28 @@ func MachineWithBestFill(fn bestFillFn) machineOpts {
 
 func MachineWithBranchPolicy(policy BranchPolicy) machineOpts {
 	return func(machine *Machine) {
-		if policy.MaxRetained <= 0 {
-			policy.MaxRetained = 1
+		if machine.policy == nil {
+			machine.policy = generation.NewPolicyTracker(generation.DefaultBranchPolicy())
 		}
-		machine.branchPolicy = policy
+		machine.policy.SetPolicy(generation.BranchPolicy{
+			Enabled:         policy.Enabled,
+			MarginThreshold: policy.MarginThreshold,
+			MaxRetained:     policy.MaxRetained,
+		})
 	}
 }
 
 func (machine *Machine) Observability() ObservabilitySnapshot {
+	if machine.policy == nil {
+		return ObservabilitySnapshot{}
+	}
+
+	snapshot := machine.policy.Snapshot()
+
 	return ObservabilitySnapshot{
-		LowMarginEvents:  machine.lowMarginEvents.Load(),
-		RetainedBranches: machine.retainedBranches.Load(),
-		AnchorVetoEvents: machine.anchorVetoEvents.Load(),
+		LowMarginEvents:  snapshot.LowMarginEvents,
+		RetainedBranches: snapshot.RetainedBranches,
+		AnchorVetoEvents: snapshot.AnchorVetoEvents,
 	}
 }
 

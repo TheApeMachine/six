@@ -8,9 +8,10 @@ import (
 	"sync"
 )
 
-// Write functions accept an explicit outDir so callers don't need to repeat
-// the ensurePaperDir + projector construction boilerplate.
-
+/*
+WriteTable generate a LaTeX table as a paper artifact.
+It will be automatically included in the final paper.
+*/
 func WriteTable(data any, outDir, outFile string) error {
 	if err := os.MkdirAll(outDir, 0755); err != nil {
 		return err
@@ -29,20 +30,25 @@ func WriteTable(data any, outDir, outFile string) error {
 
 var autobuildOnce sync.Once
 
-// TriggerAutoBuild spawns a background bash script to debounce and compile the paper automatically.
+// TriggerAutoBuild spawns a background bash script to
+// debounce and compile the paper automatically.
 func TriggerAutoBuild() {
 	autobuildOnce.Do(func() {
 		wd, _ := os.Getwd()
 		rootDir := ""
 		for d := wd; d != ""; d = filepath.Dir(d) {
-			if _, err := os.Stat(filepath.Join(d, "go.mod")); err == nil {
+			if _, err := os.Stat(
+				filepath.Join(d, "go.mod"),
+			); err == nil {
 				rootDir = d
 				break
 			}
+
 			if d == filepath.Dir(d) {
 				break
 			}
 		}
+
 		if rootDir == "" {
 			return
 		}
@@ -64,35 +70,75 @@ fi
 	})
 }
 
-func WriteBarChart(xAxis []string, series []BarSeries, title, caption, label, outDir, filename string, out *os.File) error {
+func WriteBarChart(
+	xAxis []string,
+	series []BarSeries,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	out *os.File,
+) error {
 	defer TriggerAutoBuild()
+
 	c := NewBarChart(
 		BarChartWithAxes(xAxis, series),
 		BarChartWithMeta(title, caption, label),
 		BarChartWithOutput(outDir, filename),
 	)
+
 	if out != nil {
 		c.SetOutput(out)
 	}
+
 	return c.GenerateToDisk()
 }
 
-func WriteLineChart(xAxis []string, series []LineSeries, title, caption, label, outDir, filename string, yMin, yMax float64, out *os.File) error {
+func WriteLineChart(
+	xAxis []string,
+	series []LineSeries,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	yMin,
+	yMax float64,
+	out *os.File,
+) error {
 	defer TriggerAutoBuild()
+
 	c := NewLineChart(
 		LineChartWithAxes(xAxis, series),
 		LineChartWithMeta(title, caption, label),
 		LineChartWithOutput(outDir, filename),
 		LineChartWithYRange(yMin, yMax),
 	)
+
 	if out != nil {
 		c.SetOutput(out)
 	}
+
 	return c.Generate()
 }
 
-func WriteComboChart(xAxis []string, series []ComboSeries, xName, yName string, yMin, yMax float64, title, caption, label, outDir, filename string, out *os.File) error {
+func WriteComboChart(
+	xAxis []string,
+	series []ComboSeries,
+	xName,
+	yName string,
+	yMin,
+	yMax float64,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	out *os.File,
+) error {
 	defer TriggerAutoBuild()
+
 	c := NewComboChart(
 		ComboChartWithAxes(xAxis, series),
 		ComboChartWithAxisLabels(xName, yName),
@@ -100,59 +146,135 @@ func WriteComboChart(xAxis []string, series []ComboSeries, xName, yName string, 
 		ComboChartWithOutput(outDir, filename),
 		ComboChartWithYRange(yMin, yMax),
 	)
+
 	if out != nil {
 		c.SetOutput(out)
 	}
+
 	return c.Generate()
 }
 
-func WriteHeatMap(xAxis, yAxis []string, data [][]any, minV, maxV float64, title, caption, label, outDir, filename string, out *os.File) error {
+func WriteHeatMap(
+	xAxis,
+	yAxis []string,
+	data [][]any,
+	minV,
+	maxV float64,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	out *os.File,
+) error {
 	defer TriggerAutoBuild()
+
 	hm := NewHeatMap(
 		HeatMapWithData(xAxis, yAxis, data, minV, maxV),
 		HeatMapWithMeta(title, caption, label),
 		HeatMapWithOutput(outDir, filename),
 	)
+
 	if out != nil {
 		hm.SetOutput(out)
 	}
+
 	return hm.Generate()
 }
 
-func WriteMultiPanel(panels []MPPanel, width, height int, title, caption, label, outDir, filename string, out *os.File) error {
+func WriteConfusionMatrix(
+	labels []string,
+	matrix [][]int,
+	meanScore float64,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	out *os.File,
+) error {
 	defer TriggerAutoBuild()
+
+	cm := NewConfusionMatrix(
+		ConfusionMatrixWithData(labels, matrix),
+		ConfusionMatrixWithMeta(title, caption, label),
+		ConfusionMatrixWithOutput(outDir, filename),
+		ConfusionMatrixWithMeanScore(meanScore),
+	)
+
+	if out != nil {
+		cm.SetOutput(out)
+	}
+
+	return cm.Generate()
+}
+
+func WriteMultiPanel(
+	panels []MPPanel,
+	width,
+	height int,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	out *os.File,
+) error {
+	defer TriggerAutoBuild()
+
 	mp := NewMultiPanel(
 		MultiPanelWithPanels(panels...),
 		MultiPanelWithMeta(title, caption, label),
 		MultiPanelWithOutput(outDir, filename),
 		MultiPanelWithSize(width, height),
 	)
+
 	if out != nil {
 		mp.SetOutput(out)
 	}
+
 	return mp.Generate()
 }
 
-func WriteProse(tmplSrc string, data map[string]any, outDir, outFile string) error {
+func WriteProse(
+	tmplSrc string,
+	data map[string]any,
+	outDir,
+	outFile string,
+) error {
 	defer TriggerAutoBuild()
+
 	p := NewProse(
 		ProseWithTemplate(tmplSrc),
 		ProseWithData(data),
 		ProseWithOutput(outDir, outFile),
 	)
+
 	p.SetOutput(io.Discard)
+
 	return p.Generate()
 }
 
-func WriteImageStrip(rows []ImageStripRow, title, caption, label, outDir, filename string, out *os.File) error {
+func WriteImageStrip(
+	rows []ImageStripRow,
+	title,
+	caption,
+	label,
+	outDir,
+	filename string,
+	out *os.File,
+) error {
 	defer TriggerAutoBuild()
+
 	is := NewImageStrip(
 		ImageStripWithData(rows),
 		ImageStripWithMeta(title, caption, label),
 		ImageStripWithOutput(outDir, filename),
 	)
+
 	if out != nil {
 		is.SetOutput(out)
 	}
+
 	return is.Generate()
 }

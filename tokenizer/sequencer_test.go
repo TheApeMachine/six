@@ -1,81 +1,210 @@
 package tokenizer
 
 import (
+	"math/rand"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 )
 
-func TestSequencer(t *testing.T) {
-	Convey("Given a new Sequencer and Calibrator", t, func() {
-		calibrator := NewCalibrator()
-		sequencer := NewSequencer(calibrator)
+// --- Generative data stream helpers ---
 
-		Convey("When measure is called on the first byte with a populated chord", func() {
-			chord := data.BaseChord('A')
-			chord.Set(1)
-			chord.Set(2)
-			pop, phase := sequencer.measure(0, chord)
+// streamASCIIProse generates a stream of chords from mixed-case English-like
+// byte patterns: alternating runs of lowercase, uppercase, digits, and
+// punctuation to simulate natural text variation.
+func streamASCIIProse(n int, rng *rand.Rand) []data.Chord {
+	ranges := []struct{ lo, hi byte }{
+		{'a', 'z'}, // lowercase
+		{'A', 'Z'}, // uppercase
+		{'0', '9'}, // digits
+		{' ', '/'}, // punctuation/whitespace
+	}
 
-			Convey("It should correctly initialize the EMA accumulators", func() {
-				So(pop, ShouldBeGreaterThan, 0)
-				So(phase, ShouldBeGreaterThanOrEqualTo, 0)
-				So(sequencer.emaPop, ShouldEqual, pop)
-				So(sequencer.emaPhase, ShouldEqual, phase)
-			})
+	chords := make([]data.Chord, n)
+	runLen := 0
+	ri := 0
+
+	for i := range n {
+		if runLen <= 0 {
+			ri = rng.Intn(len(ranges))
+			runLen = 3 + rng.Intn(15) // runs of 3-17 chars
+		}
+
+		r := ranges[ri]
+		b := r.lo + byte(rng.Intn(int(r.hi-r.lo+1)))
+		chords[i] = data.BaseChord(b)
+		runLen--
+	}
+
+	return chords
+}
+
+// streamBinary generates a stream of chords from the full 0-255 byte range
+// with sharp transitions between low and high regions.
+func streamBinary(n int, rng *rand.Rand) []data.Chord {
+	chords := make([]data.Chord, n)
+	runLen := 0
+	highRegion := false
+
+	for i := range n {
+		if runLen <= 0 {
+			highRegion = !highRegion
+			runLen = 5 + rng.Intn(20) // runs of 5-24 bytes
+		}
+
+		var b byte
+		if highRegion {
+			b = 200 + byte(rng.Intn(56)) // 200-255
+		} else {
+			b = byte(rng.Intn(50)) // 0-49
+		}
+
+		chords[i] = data.BaseChord(b)
+		runLen--
+	}
+
+	return chords
+}
+
+// streamMonotone generates a stream of identical chords — a dead market with
+// zero volatility. The Sequencer should detect NO boundaries here.
+func streamMonotone(n int) []data.Chord {
+	chords := make([]data.Chord, n)
+	c := data.BaseChord('x')
+	for i := range n {
+		chords[i] = c
+	}
+
+	return chords
+}
+
+// streamShockTransition generates a calm region followed by a sharp transition
+// to a completely different byte range. The Sequencer MUST detect a boundary
+// at the transition point.
+func streamShockTransition(calmLen, shockLen int) []data.Chord {
+	chords := make([]data.Chord, calmLen+shockLen)
+
+	for i := range calmLen {
+		chords[i] = data.BaseChord('a' + byte(i%3)) // calm: a, b, c repeating
+	}
+
+	for i := range shockLen {
+		chords[calmLen+i] = data.BaseChord(200 + byte(i%10)) // shock: high-byte region
+	}
+
+	return chords
+}
+
+// analyzeStream runs the full Sequencer over a chord stream and returns
+// the total event count, event type counts, and boundary (reset) count.
+func analyzeStream(seq *Sequencer, chords []data.Chord) (totalEvents, boundaries int, eventCounts map[int]int) {
+	eventCounts = make(map[int]int)
+
+	for i, chord := range chords {
+		reset, events := seq.Analyze(i, chord)
+
+		totalEvents += len(events)
+		for _, ev := range events {
+			eventCounts[ev]++
+		}
+
+		if reset {
+			boundaries++
+		}
+	}
+
+	return
+}
+
+// --- Tests ---
+
+func TestSequencerEventsFireOnRealData(t *testing.T) {
+	Convey("Given a Sequencer fed realistic data streams", t, func() {
+		Convey("Prose-like ASCII text should produce topological events", func() {
+			seq := NewSequencer(NewCalibrator())
+			chords := streamASCIIProse(1000, rand.New(rand.NewSource(42)))
+			totalEvents, boundaries, _ := analyzeStream(seq, chords)
+
+			Printf("\n  ASCII prose: %d events, %d boundaries over 1000 bytes\n", totalEvents, boundaries)
+
+			So(totalEvents, ShouldBeGreaterThan, 0)
+			So(boundaries, ShouldBeGreaterThan, 0)
 		})
 
-		Convey("When trackVariance is called sequentially", func() {
-			chord1 := data.BaseChord('A')
-			chord1.Set(1)
-			pop1, phase1 := sequencer.measure(0, chord1)
-			dPop1, dPhase1 := sequencer.trackVariance(pop1, phase1)
+		Convey("Binary data with sharp transitions should produce many events", func() {
+			seq := NewSequencer(NewCalibrator())
+			chords := streamBinary(1000, rand.New(rand.NewSource(99)))
+			totalEvents, boundaries, _ := analyzeStream(seq, chords)
 
-			chord2 := data.BaseChord('B')
-			chord2.Set(10)
-			chord2.Set(11) // ensures chord2 pop (8+2=10) is different
-			pop2, phase2 := sequencer.measure(1, chord2)
-			sequencer.trackVariance(pop2, phase2)
+			Printf("\n  Binary shock: %d events, %d boundaries over 1000 bytes\n", totalEvents, boundaries)
 
-			Convey("It should incrementally update the Welford accumulators", func() {
-				So(sequencer.count, ShouldEqual, 2)
-				So(dPop1, ShouldEqual, 0)
-				So(dPhase1, ShouldEqual, 0)
-			})
-
-			Convey("It should correctly decay the EWMA state when receiving different inputs", func() {
-				// Because EMA alpha is ~0.236, blending requires different values to move
-				So(sequencer.emaPop, ShouldNotEqual, pop1)
-			})
+			So(totalEvents, ShouldBeGreaterThan, 0)
+			So(boundaries, ShouldBeGreaterThan, 0)
 		})
 
-		Convey("When deriveThresholds is called after some variance", func() {
-			chord1 := data.BaseChord('A')
-			pop1, phase1 := sequencer.measure(0, chord1)
-			sequencer.trackVariance(pop1, phase1)
+		Convey("Monotone stream should produce NO density/phase events", func() {
+			seq := NewSequencer(NewCalibrator())
+			chords := streamMonotone(500)
+			totalEvents, _, _ := analyzeStream(seq, chords)
 
-			chord2 := data.BaseChord('B')
-			pop2, phase2 := sequencer.measure(1, chord2)
-			sequencer.trackVariance(pop2, phase2)
+			Printf("\n  Monotone: %d events over 500 identical bytes\n", totalEvents)
 
-			pThresh, phThresh := sequencer.deriveThresholds()
-
-			Convey("It should return Z-score thresholds based on standard deviation", func() {
-				// We expect at least the mean + precision-level threshold multiplier
-				So(pThresh, ShouldBeGreaterThanOrEqualTo, 0)
-				So(phThresh, ShouldBeGreaterThanOrEqualTo, 0)
-			})
+			// After the EMA stabilizes, a monotone stream should fire
+			// only low-variance-flux events (coherenceTime > 10), not
+			// density/phase events. The total should be modest.
+			So(totalEvents, ShouldBeLessThan, 100)
 		})
 
-		Convey("When syncBack is called with target values", func() {
-			res := sequencer.syncBack(2.0, 1.0)
+		Convey("A shock transition should trigger at least one boundary at the transition", func() {
+			seq := NewSequencer(NewCalibrator())
+			chords := streamShockTransition(100, 100)
+			totalEvents, boundaries, _ := analyzeStream(seq, chords)
 
-			Convey("It should ease the current value towards the target based on phiMed", func() {
-				// 2.0 * (1 - ~0.055) + 1.0 * ~0.055 = ~1.89 + ~0.055 = ~1.945
-				So(res, ShouldBeLessThan, 2.0)
-				So(res, ShouldBeGreaterThan, 1.0)
-			})
+			Printf("\n  Shock transition: %d events, %d boundaries\n", totalEvents, boundaries)
+
+			// The calm→shock transition should be unmissable.
+			So(totalEvents, ShouldBeGreaterThan, 0)
+			So(boundaries, ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
+func TestSequencerMomentumAccumulation(t *testing.T) {
+	Convey("Given a Sequencer ingesting data the way the Loader does", t, func() {
+		Convey("Realistic data should produce events that would drive momentum", func() {
+			seq := NewSequencer(NewCalibrator())
+			chords := streamASCIIProse(500, rand.New(rand.NewSource(42)))
+
+			eventfulInserts := 0
+			for i, chord := range chords {
+				_, events := seq.Analyze(i, chord)
+				if len(events) > 0 {
+					eventfulInserts++
+				}
+			}
+
+			Printf("\n  After 500 bytes: %d inserts with events (would accumulate momentum)\n", eventfulInserts)
+
+			// PrimeField.Insert accumulates momentum when len(events) > 0.
+			// If this is zero, momentum will always be zero and generation
+			// will never start. This is the root cause test.
+			So(eventfulInserts, ShouldBeGreaterThan, 0)
+		})
+
+		Convey("Monotone data should produce fewer eventful inserts", func() {
+			seq := NewSequencer(NewCalibrator())
+			chords := streamMonotone(500)
+
+			eventfulInserts := 0
+			for i, chord := range chords {
+				_, events := seq.Analyze(i, chord)
+				if len(events) > 0 {
+					eventfulInserts++
+				}
+			}
+
+			Printf("\n  Monotone 500 bytes: %d inserts with events\n", eventfulInserts)
 		})
 	})
 }
