@@ -14,9 +14,10 @@ Stores Chord values directly — no encode/decode round-trip.
 
 Keys use the existing Morton encoding from tokenizer.MortonCoder:
 
-	Layout: (byte_value << 24) | position
-	- Bits 24-31: byte value (0-255)
-	- Bits 0-23:  sequence position
+	Layout: [8 bits Z | 24 bits Symbol | 32 bits Position]
+	- Bits 56-63: Z depth / scale
+	- Bits 32-55: symbol identity
+	- Bits 0-31:  sequence position
 */
 type LSMSpatialIndex struct {
 	mu sync.RWMutex
@@ -164,7 +165,7 @@ func (idx *LSMSpatialIndex) Lookup(tokenID uint64) data.Chord {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	for _, keys := range idx.levelsKeys {
+	for level, keys := range idx.levelsKeys {
 		if keys == nil {
 			continue
 		}
@@ -173,7 +174,7 @@ func (idx *LSMSpatialIndex) Lookup(tokenID uint64) data.Chord {
 		for lo <= hi {
 			mid := (lo + hi) / 2
 			if keys[mid] == tokenID {
-				return idx.levelsVals[indexOf(idx.levelsKeys, keys)][mid]
+				return idx.levelsVals[level][mid]
 			} else if keys[mid] < tokenID {
 				lo = mid + 1
 			} else {
@@ -183,16 +184,6 @@ func (idx *LSMSpatialIndex) Lookup(tokenID uint64) data.Chord {
 	}
 
 	return data.Chord{}
-}
-
-// indexOf returns the level index for a given keys slice.
-func indexOf(levels [][]uint64, target []uint64) int {
-	for i, l := range levels {
-		if len(l) > 0 && len(target) > 0 && &l[0] == &target[0] {
-			return i
-		}
-	}
-	return 0
 }
 
 /*
@@ -243,15 +234,19 @@ func (idx *LSMSpatialIndex) QueryRange(lo, hi uint64) []data.Chord {
 
 /*
 QueryByByte returns all chords for a given byte value, regardless of
-position. Since keys are (byte << 24) | pos, all entries for byte b
-live in the contiguous range [b<<24, (b+1)<<24 - 1].
+position or Z depth. Each Z plane contributes one contiguous range
+for the same symbol identity.
 
 O(log N) per LSM level via binary search.
 */
 func (idx *LSMSpatialIndex) QueryByByte(b byte) []data.Chord {
-	lo := uint64(b) << 24
-	hi := lo | 0xFFFFFF
-	return idx.QueryRange(lo, hi)
+	var results []data.Chord
+	for z := range 256 {
+		lo := (uint64(z) << 56) | (uint64(b) << 32)
+		hi := lo | 0xFFFFFFFF
+		results = append(results, idx.QueryRange(lo, hi)...)
+	}
+	return results
 }
 
 /*
@@ -259,30 +254,30 @@ QueryNeighborhood returns all chords that share the same byte value
 and fall within posRadius positions of the given position.
 
 This is the BestFill pre-filter: given a prompt token's Morton key,
-narrow the 50M-entry store down to the spatial neighborhood before
-dispatching to the GPU.
+narrow the store down to the local neighborhood on the same Z plane.
 
-Key layout: (byte << 24) | pos
-So "same byte, nearby position" = keys in [byte<<24 | (pos-r), byte<<24 | (pos+r)].
+Key layout: [8 bits Z | 24 bits Symbol | 32 bits Position]
+So "same byte, same Z, nearby position" = keys in
+[z<<56 | byte<<32 | (pos-r), z<<56 | byte<<32 | (pos+r)].
 */
 func (idx *LSMSpatialIndex) QueryNeighborhood(key uint64, posRadius uint32) []data.Chord {
-	byteVal := key >> 24
-	pos := key & 0xFFFFFF
+	z := key >> 56
+	symbol := (key >> 32) & 0xFFFFFF
+	pos := uint32(key)
 
-	lo := pos
-	if uint32(pos) > posRadius {
-		lo = pos - uint64(posRadius)
-	} else {
-		lo = 0
+	lo := uint32(0)
+	if pos > posRadius {
+		lo = pos - posRadius
 	}
 
-	hi := pos + uint64(posRadius)
-	if hi > 0xFFFFFF {
-		hi = 0xFFFFFF
+	hi := pos + posRadius
+	if hi < pos {
+		hi = ^uint32(0)
 	}
 
+	base := (z << 56) | (symbol << 32)
 	return idx.QueryRange(
-		(byteVal<<24)|lo,
-		(byteVal<<24)|hi,
+		base|uint64(lo),
+		base|uint64(hi),
 	)
 }

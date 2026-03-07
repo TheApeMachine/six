@@ -11,10 +11,13 @@ const (
 	CubeWords          = 5 * 257 * 8
 	GeodesicMatrixSize = 60 * 60
 	ScoreScale         = 4_000_000.0
+	packedScoreBias    = 1 << 23
+	packedScoreMax     = packedScoreBias - 1
+	packedScoreMin     = -packedScoreBias
 )
 
 func DecodePacked(packed uint64) (int, float64) {
-	scoreFixed := uint32(packed >> 40)
+	scoreFixed := int32((packed>>40)&0xFFFFFF) - int32(packedScoreBias)
 	bestIdx := int(packed & 0xFFFFFF)
 	bestScore := float64(scoreFixed) / ScoreScale
 	return bestIdx, bestScore
@@ -25,7 +28,16 @@ func PackResult(scoreFixed int32, invertedDist uint16, id int) uint64 {
 		id = 0
 	}
 
-	return (uint64(uint32(scoreFixed)&0xFFFFFF) << 40) |
+	if scoreFixed < packedScoreMin {
+		scoreFixed = packedScoreMin
+	}
+	if scoreFixed > packedScoreMax {
+		scoreFixed = packedScoreMax
+	}
+
+	scoreBits := uint64(uint32(int64(scoreFixed) + int64(packedScoreBias)))
+
+	return (scoreBits << 40) |
 		(uint64(invertedDist) << 24) |
 		uint64(id&0xFFFFFF)
 }

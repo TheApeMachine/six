@@ -115,7 +115,15 @@ kernel void bitwise_best_fill(
     if (global_id > 0xFFFFFF) { global_id = 0xFFFFFF; }
 
     // Pack: score (24-bit MSB) | inverted dist (16-bit) | global_id (24-bit LSB)
-    uint64_t score_u24 = (uint64_t)(score_fixed & 0xFFFFFF);
+    constant int score_bias = 1 << 23;
+    if (score_fixed < -score_bias) {
+        score_fixed = -score_bias;
+    }
+    if (score_fixed > score_bias - 1) {
+        score_fixed = score_bias - 1;
+    }
+
+    uint64_t score_u24 = (uint64_t)(score_fixed + score_bias);
     uint64_t packed_result = (score_u24 << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)global_id;
 
     // Lock-free maximum aggregate — works across tiled dispatches

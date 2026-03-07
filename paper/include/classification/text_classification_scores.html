@@ -32,23 +32,21 @@
     <div id="chart"></div>
     <script>
         const labels = ["world","sports","business","sci_tech"];
-        const matrix = [[100,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
-        const accuracy = 1.000000;
-        const macroF1 = 0.250000;
+        const matrix = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,0]];
+        const accuracy = 0.000000;
+        const macroF1 = 0.000000;
         const resonance = 0.000000;
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
         // Build row-normalised proportions and heatmap data.
         const heatData = [];
         let totalSamples = 0;
-        let classesSeen = 0;
         let recallSum = 0;
 
         const rowSums = labels.map((_, y) => {
             const sum = matrix[y].reduce((s, v) => s + v, 0);
             const recall = sum > 0 ? (matrix[y][y] / sum) : 0;
             recallSum += recall;
-            if (sum > 0) classesSeen++;
             totalSamples += sum;
             return sum;
         });

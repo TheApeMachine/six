@@ -53,8 +53,12 @@ func renderAndExport(html string, outDir, filename string, dims ...int) error {
 		return err
 	}
 	w, h := 0, 0
-	if len(dims) >= 2 {
+	switch len(dims) {
+	case 0:
+	case 2:
 		w, h = dims[0], dims[1]
+	default:
+		return fmt.Errorf("projector.renderAndExport(%s): invalid dims %v; expected 0 or 2 values (width,height)", htmlPath, dims)
 	}
 	return ExportPDFWithSize(htmlPath, filepath.Join(outDir, filename+".pdf"), w, h)
 }

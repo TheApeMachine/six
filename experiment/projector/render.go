@@ -50,8 +50,8 @@ func ExportPDFWithSize(htmlPath, pdfPath string, width, height int) error {
 		chromedp.ActionFunc(func(ctx context.Context) error {
 			var err error
 			// Paper size in inches (96 DPI).
-			paperW := float64(width) / 96.0
-			paperH := float64(height) / 96.0
+			paperW := pxToInches(width)
+			paperH := pxToInches(height)
 			buf, _, err = page.PrintToPDF().
 				WithPrintBackground(true).
 				WithPreferCSSPageSize(true).

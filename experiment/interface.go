@@ -25,8 +25,8 @@ type ExperimentalData struct {
 	ErrorRatio    []byte
 	Scores        Scores
 	WeightedTotal float64
-	TrueLabel     int // ground-truth class index (-1 = unused)
-	PredLabel     int // predicted class index  (-1 = unused)
+	TrueLabel     *int
+	PredLabel     *int
 }
 
 type ScoreWeights struct {
@@ -188,4 +188,8 @@ func WeightedTotalWithWeights(weights ScoreWeights, scores ...float64) float64 {
 
 func WeightedTotal(scores ...float64) float64 {
 	return WeightedTotalWithWeights(DefaultScoreWeights(), scores...)
+}
+
+func OptionalLabel(label int) *int {
+	return &label
 }

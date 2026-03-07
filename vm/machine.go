@@ -1,8 +1,10 @@
 package vm
 
 import (
+	"fmt"
 	"unsafe"
 
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
@@ -143,11 +145,6 @@ func (machine *Machine) promptInternal(
 	expectedField *geometry.ExpectedField,
 ) chan byte {
 	policy := machine.policy
-	if policy == nil {
-		policy = generation.NewPolicyTracker(generation.DefaultBranchPolicy())
-		machine.policy = policy
-	}
-
 	seq := machine.loader.tokenizer.Sequencer()
 
 	// Derive byte values from chords via reverse lookup.
@@ -155,13 +152,16 @@ func (machine *Machine) promptInternal(
 	coder := tokenizer.NewMortonCoder()
 	promptBytes := make([]byte, len(prompt))
 	for i, chord := range prompt {
-		if key := machine.loader.Store().ReverseLookup(chord); key > 0 {
-			_, _, b := coder.Decode(key)
-			promptBytes[i] = b
+		key := machine.loader.Store().ReverseLookup(chord)
+		if key == 0 {
+			console.Warn(fmt.Sprintf("machine prompt reverse lookup missing: index=%d chord=%v", i, chord))
+			continue
 		}
+		_, _, b := coder.Decode(key)
+		promptBytes[i] = b
 	}
 
-	runner := generation.NewRunner(generation.RunnerConfig{
+	runner, err := generation.NewRunner(generation.RunnerConfig{
 		Prompt:          prompt,
 		PromptBytes:     promptBytes,
 		ExpectedReality: expectedReality,
@@ -180,6 +180,12 @@ func (machine *Machine) promptInternal(
 		MaxReasoningHops:   maxReasoningHops,
 		RecentLimit:        12,
 	})
+	if err != nil {
+		console.Error(err, "context", "Machine.promptInternal")
+		out := make(chan byte)
+		close(out)
+		return out
+	}
 
 	return runner.Run()
 }

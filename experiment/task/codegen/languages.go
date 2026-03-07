@@ -68,7 +68,7 @@ func (experiment *LanguagesExperiment) Prompts() *tokenizer.Prompt {
 }
 
 func (experiment *LanguagesExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.LEFT
+	return 50, tokenizer.RIGHT
 }
 
 /*

@@ -96,6 +96,12 @@ func (experiment *TextClassificationExperiment) Holdout() (int, tokenizer.Holdou
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
+	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
+		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
+			results.TrueLabel = tools.OptionalLabel(label)
+		}
+	}
+
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -126,8 +132,8 @@ co-occurs in the machine's generated output.
 
 Scoring:
   - Exactly one label found → confident prediction.
-  - Multiple labels found  → ambiguous, discard (PredLabel = -1).
-  - No labels found        → no prediction (PredLabel = -1).
+  - Multiple labels found  → ambiguous, discard (PredLabel = nil).
+  - No labels found        → no prediction (PredLabel = nil).
 */
 func (experiment *TextClassificationExperiment) ComputePredictions() {
 	n := len(experiment.tableData)
@@ -138,6 +144,8 @@ func (experiment *TextClassificationExperiment) ComputePredictions() {
 	numClasses := len(agNewsLabels)
 
 	for i := range experiment.tableData {
+		experiment.tableData[i].PredLabel = nil
+
 		generated := string(experiment.tableData[i].Observed)
 		if len(generated) == 0 {
 			continue
@@ -151,7 +159,7 @@ func (experiment *TextClassificationExperiment) ComputePredictions() {
 		}
 
 		if len(found) == 1 {
-			experiment.tableData[i].PredLabel = found[0]
+			experiment.tableData[i].PredLabel = tools.OptionalLabel(found[0])
 		}
 	}
 }

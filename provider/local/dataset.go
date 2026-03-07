@@ -11,7 +11,7 @@ func New(corpus [][]byte) *Dataset {
 }
 
 func (ds *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken)
+	out := make(chan provider.RawToken, 4096)
 	go func() {
 		defer close(out)
 		for sampleID, data := range ds.corpus {

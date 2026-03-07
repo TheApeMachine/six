@@ -33,7 +33,7 @@ func NewDataset(dir string) *Dataset {
 }
 
 func (d *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken)
+	out := make(chan provider.RawToken, 4096)
 
 	go func() {
 		defer close(out)

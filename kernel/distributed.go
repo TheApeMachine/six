@@ -13,6 +13,7 @@ import (
 
 	"capnproto.org/go/capnp/v3"
 	config "github.com/theapemachine/six/core"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel/cpu"
 	"github.com/theapemachine/six/numeric"
 )
@@ -26,7 +27,7 @@ const (
 	messageErrCompute   = 2
 	messageDataSize     = 32
 	messagePointerCount = 5
-	precisionBytes      = 5 * 257 * 2 // 5 cubes × CubeFaces × sizeof(uint16)
+	precisionBytes      = 5 * geometry.CubeFaces * 2 // 5 cubes × CubeFaces × sizeof(uint16)
 )
 
 func distributedWorkersFromEnv() []string {

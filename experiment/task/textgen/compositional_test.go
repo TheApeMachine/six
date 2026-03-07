@@ -2,6 +2,7 @@ package textgen
 
 import (
 	"fmt"
+	"math"
 	"testing"
 	"unsafe"
 
@@ -131,7 +132,9 @@ func TestCompositionalCompletion(t *testing.T) {
 
 			Convey("Then the GPU finds a high-resonance match", func() {
 				So(err, ShouldBeNil)
-				So(bestScore, ShouldBeGreaterThan, 0.0)
+				So(bestIdx, ShouldBeGreaterThanOrEqualTo, 0)
+				So(bestIdx, ShouldBeLessThan, len(sentences))
+				So(math.IsNaN(bestScore), ShouldBeFalse)
 
 				fmt.Printf("\n--- Compositional Completion (GPU) ---\n")
 				fmt.Printf("Query: 'the quick red'\n")

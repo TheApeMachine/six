@@ -33,6 +33,12 @@ func normalizeBranchPolicy(policy BranchPolicy) BranchPolicy {
 	if policy.MaxRetained <= 0 {
 		policy.MaxRetained = 1
 	}
+	if policy.MarginThreshold < 0 {
+		policy.MarginThreshold = 0
+	}
+	if policy.MarginThreshold > 1 {
+		policy.MarginThreshold = 1
+	}
 
 	return policy
 }

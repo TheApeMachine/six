@@ -32,7 +32,9 @@ type Pipeline struct {
 	prompts    *tokenizer.Prompt
 	testIdx    int
 	chordMap   map[data.Chord]byte
-	scoreWgts  tools.ScoreWeights
+	// TODO: thread scoreWgts into prompt/result scoring once Pipeline owns
+	// WeightedTotal computation instead of experiments doing it ad hoc.
+	scoreWgts tools.ScoreWeights
 }
 
 type pipelineOpts func(*Pipeline)
@@ -85,7 +87,10 @@ func (pipeline *Pipeline) Run() error {
 
 	// Train EigenMode co-occurrence tables from the data just loaded.
 	if err := pipeline.primefield.BuildEigenModes(); err != nil {
-		console.Error(err, "context", "BuildEigenModes")
+		return fmt.Errorf("BuildEigenModes: %w", err)
+	}
+	if pipeline.loader != nil && pipeline.loader.Tokenizer() != nil {
+		pipeline.loader.Tokenizer().Sequencer().SetEigenMode(pipeline.primefield.EigenMode())
 	}
 
 	pipeline.prompts = pipeline.experiment.Prompts()
@@ -118,10 +123,18 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		}
 	}
 
+	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)
+
 	console.Info("PROMPT")
 	fmt.Println()
 	fmt.Println(pipeline.prompts.Value(pipeline.testIdx))
 	fmt.Println()
+	if heldOut != "" {
+		console.Info("HOLDOUT")
+		fmt.Println()
+		fmt.Println(heldOut)
+		fmt.Println()
+	}
 
 	// Extract the generated portion (everything after the prompt echo)
 	var generated []byte
@@ -133,6 +146,7 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		Idx:      pipeline.testIdx,
 		Name:     pipeline.experiment.Name(),
 		Prefix:   bPrompt,
+		Holdout:  []byte(heldOut),
 		Observed: generated,
 	})
 

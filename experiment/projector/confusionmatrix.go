@@ -41,9 +41,18 @@ func NewConfusionMatrix(opts ...confusionMatrixOpts) *ConfusionMatrix {
 func (cm *ConfusionMatrix) SetOutput(out io.Writer) { cm.out = out }
 
 func (cm *ConfusionMatrix) Generate() error {
-	acc, f1 := cm.metrics()
-	labelsJSON, _ := json.Marshal(cm.labels)
-	matrixJSON, _ := json.Marshal(cm.matrix)
+	acc, f1, err := cm.metrics()
+	if err != nil {
+		return err
+	}
+	labelsJSON, err := json.Marshal(cm.labels)
+	if err != nil {
+		return fmt.Errorf("confusion matrix labels json: %w", err)
+	}
+	matrixJSON, err := json.Marshal(cm.matrix)
+	if err != nil {
+		return fmt.Errorf("confusion matrix matrix json: %w", err)
+	}
 
 	script := execTemplate(confusionMatrixScriptTmpl, struct {
 		LabelsJSON string
@@ -70,10 +79,19 @@ func (cm *ConfusionMatrix) Generate() error {
 }
 
 // metrics computes accuracy and macro-averaged F1 from the confusion matrix.
-func (cm *ConfusionMatrix) metrics() (accuracy, macroF1 float64) {
+func (cm *ConfusionMatrix) metrics() (accuracy, macroF1 float64, err error) {
 	n := len(cm.labels)
 	if n == 0 {
-		return 0, 0
+		return 0, 0, nil
+	}
+
+	if len(cm.matrix) != n {
+		return 0, 0, fmt.Errorf("confusion matrix metrics: labels=%d rows=%d", n, len(cm.matrix))
+	}
+	for rowIdx, row := range cm.matrix {
+		if len(row) != n {
+			return 0, 0, fmt.Errorf("confusion matrix metrics: row %d has %d columns, want %d", rowIdx, len(row), n)
+		}
 	}
 
 	total := 0
@@ -124,7 +142,7 @@ func (cm *ConfusionMatrix) metrics() (accuracy, macroF1 float64) {
 	if validClasses > 0 {
 		macroF1 = f1Sum / float64(validClasses)
 	}
-	return accuracy, macroF1
+	return accuracy, macroF1, nil
 }
 
 // --- Functional options ---

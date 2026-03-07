@@ -100,15 +100,15 @@ preserving the upgrade path to trained eigenmodes.
 func (sequencer *Sequencer) measure(pos int, current data.Chord) (float64, float64) {
 	pop := float64(current.ActiveCount())
 
-	// Try trained EigenMode phases first.
-	theta, phi := sequencer.eigen.PhaseForChord(&current)
-	phase := math.Sqrt(theta*theta + phi*phi)
-
-	// If EigenMode is untrained (all zeros), use intrinsic ChordBin phase.
-	// Scale to [0, 1) — not [0, 2π) — because ChordBin is a SimHash that
-	// produces effectively random values for nearby bytes. A full 2π range
-	// overwhelms the EMA and fires events on every byte.
-	if phase == 0 {
+	phase := 0.0
+	if sequencer.eigen != nil && sequencer.eigen.Trained {
+		theta, phi := sequencer.eigen.PhaseForChord(&current)
+		phase = math.Sqrt(theta*theta + phi*phi)
+	} else {
+		// If EigenMode is untrained, use intrinsic ChordBin phase.
+		// Scale to [0, 1) — not [0, 2π) — because ChordBin is a SimHash that
+		// produces effectively random values for nearby bytes. A full 2π range
+		// overwhelms the EMA and fires events on every byte.
 		bin := data.ChordBin(&current)
 		phase = float64(bin) / 256.0
 	}
@@ -251,4 +251,13 @@ Phi returns the golden ratio scaling factor used by the Sequencer.
 */
 func (sequencer *Sequencer) Phi() float64 {
 	return sequencer.phi
+}
+
+func (sequencer *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
+	if eigen == nil {
+		sequencer.eigen = geometry.NewEigenMode()
+		return
+	}
+
+	sequencer.eigen = eigen
 }

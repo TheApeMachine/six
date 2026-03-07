@@ -70,15 +70,35 @@ func SeedBlock(byteVal byte) int {
 }
 
 func PushRecentSeed(recent []RecentSeed, seed RecentSeed, limit int) []RecentSeed {
-	recent = append(recent, seed)
-	if len(recent) <= limit {
-		return recent
+	if limit <= 0 {
+		return recent[:0]
 	}
 
-	trimFrom := len(recent) - limit
-	out := make([]RecentSeed, limit)
-	copy(out, recent[trimFrom:])
-	return out
+	if len(recent) < limit {
+		return append(recent, seed)
+	}
+
+	copy(recent, recent[1:])
+	recent[len(recent)-1] = seed
+	return recent
+}
+
+func lookupNextRotState(currentRotState uint8, ev int) (uint8, bool) {
+	if ev < 0 {
+		return 255, false
+	}
+
+	stateIdx := int(currentRotState)
+	if stateIdx < 0 || stateIdx >= len(geometry.StateTransitionMatrix) {
+		return 255, false
+	}
+
+	row := geometry.StateTransitionMatrix[stateIdx]
+	if ev >= len(row) {
+		return 255, false
+	}
+
+	return row[ev], true
 }
 
 // SeedQueryContext builds the query context by placing each recent seed's
@@ -116,7 +136,10 @@ func ApplyEventsRotation(queryCtx *geometry.IcosahedralManifold, events []int) g
 
 	for _, ev := range events {
 		currentRotState := queryCtx.Header.RotState()
-		nextRotState := geometry.StateTransitionMatrix[currentRotState][ev]
+		nextRotState, ok := lookupNextRotState(currentRotState, ev)
+		if !ok {
+			continue
+		}
 		if nextRotState != 255 {
 			queryCtx.Header.SetRotState(nextRotState)
 		}
@@ -133,7 +156,10 @@ func ApplyEventsRotation(queryCtx *geometry.IcosahedralManifold, events []int) g
 func ApplyEventsToContext(queryCtx *geometry.IcosahedralManifold, events []int) {
 	for _, ev := range events {
 		currentRotState := queryCtx.Header.RotState()
-		nextRotState := geometry.StateTransitionMatrix[currentRotState][ev]
+		nextRotState, ok := lookupNextRotState(currentRotState, ev)
+		if !ok {
+			continue
+		}
 		if nextRotState != 255 {
 			queryCtx.Header.SetRotState(nextRotState)
 		}
@@ -167,7 +193,7 @@ func MergeManifold(dst *geometry.IcosahedralManifold, src *geometry.IcosahedralM
 // The returned face index is the PHYSICAL index. To recover the logical
 // byte value, pass it through the rotation's inverse (not needed for
 // output since the rotation is tracked).
-func BestFace(queryCtx *geometry.IcosahedralManifold, cubeIndex int) (int, data.Chord) {
+func BestFace(queryCtx *geometry.IcosahedralManifold, cubeIndex int) (int, data.Chord, bool) {
 	bestFace := -1
 	bestCount := 0
 	var bestChord data.Chord
@@ -181,7 +207,11 @@ func BestFace(queryCtx *geometry.IcosahedralManifold, cubeIndex int) (int, data.
 		}
 	}
 
-	return bestFace, bestChord
+	if bestFace < 0 {
+		return -1, data.Chord{}, false
+	}
+
+	return bestFace, bestChord, true
 }
 
 func DeriveSlotMask(

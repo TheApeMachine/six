@@ -9,6 +9,10 @@ import (
 	"github.com/theapemachine/six/geometry"
 )
 
+func forceNextDensityCheck(pf *PrimeField) {
+	pf.insertsSinceDensityCheck = 63
+}
+
 func TestNewPrimeField(t *testing.T) {
 	Convey("Given a NewPrimeField constructor", t, func() {
 		Convey("When creating a new instance", func() {
@@ -179,7 +183,7 @@ func TestPrimeFieldInsertTriggersMitosisAtDensityThreshold(t *testing.T) {
 		// byteVal=255 → face 255, which is not fully saturated by the pre-fill
 		// (the pre-fill filled 115 full blocks + partial block 116).
 		// Force the density check to fire on this insert (stride counter at 63).
-		pf.insertsSinceDensityCheck = 63
+		forceNextDensityCheck(pf)
 		chord := data.Chord{}
 		for k := 0; k < 256; k++ {
 			chord.Set(k)
@@ -223,17 +227,17 @@ func TestPrimeFieldInsertDeMitosisResetsHeaderAndOrthogonalCubes(t *testing.T) {
 		pf.manifolds[0].Cubes[0][0] = seed
 
 		// Force density check to fire on each insert.
-		pf.insertsSinceDensityCheck = 63
+		forceNextDensityCheck(pf)
 		first := data.Chord{}
 		first.Set(13)
 		pf.Insert(0, 1, first, nil)
 
-		pf.insertsSinceDensityCheck = 63
+		forceNextDensityCheck(pf)
 		second := data.Chord{}
 		second.Set(17)
 		pf.Insert(0, 2, second, nil)
 
-		pf.insertsSinceDensityCheck = 63
+		forceNextDensityCheck(pf)
 		third := data.Chord{}
 		third.Set(19)
 		pf.Insert(0, 3, third, nil)
@@ -259,7 +263,7 @@ func TestPrimeFieldInsertRequiresSustainedSparseStreakForDeMitosis(t *testing.T)
 
 		// Force density check to fire on each insert.
 		for i := 0; i < 2; i++ {
-			pf.insertsSinceDensityCheck = 63
+			forceNextDensityCheck(pf)
 			chord := data.Chord{}
 			chord.Set((i + 1) * 23)
 			pf.Insert(0, uint32(i+1), chord, nil)
@@ -288,7 +292,7 @@ func TestPrimeFieldInsertKeepsMitosisWhenAnchorCubeStillDense(t *testing.T) {
 		}
 
 		// Force density check to fire.
-		pf.insertsSinceDensityCheck = 63
+		forceNextDensityCheck(pf)
 		chord := data.Chord{}
 		chord.Set(5)
 		pf.Insert(0, 2, chord, nil)

@@ -1,6 +1,10 @@
 package geometry
 
-import "github.com/theapemachine/six/data"
+import (
+	"sync"
+
+	"github.com/theapemachine/six/data"
+)
 
 // Threshold constants for the dynamic topological phase transition.
 const (
@@ -108,8 +112,11 @@ var (
 	// Combines translation and dilation. Maximum divergence trajectory.
 	MicroRotateZ [CubeFaces]int
 
-	// Scratch buffer for permutations, avoids 16 KB temp allocation per rotation.
-	permScratch MacroCube
+	permScratchPool = sync.Pool{
+		New: func() any {
+			return new(MacroCube)
+		},
+	}
 )
 
 func init() {
@@ -121,12 +128,15 @@ func init() {
 }
 
 // ApplyPermutation executes a CubeFaces-block structural re-indexing on a MacroCube.
-// Uses a pre-allocated scratch buffer to avoid per-call allocation.
+// Uses a pooled scratch buffer to avoid per-call allocation without sharing
+// mutable state across goroutines.
 func (cube *MacroCube) ApplyPermutation(indices [CubeFaces]int) {
+	scratch := permScratchPool.Get().(*MacroCube)
 	for i, dst := range indices {
-		permScratch[dst] = cube[i]
+		scratch[dst] = cube[i]
 	}
-	*cube = permScratch
+	*cube = *scratch
+	permScratchPool.Put(scratch)
 }
 
 // Permute3Cycle executes an A₅ even permutation: a 3-Cycle (a -> b -> c -> a).

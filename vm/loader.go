@@ -40,13 +40,17 @@ func (loader *Loader) Store() store.Store {
 	return loader.store
 }
 
+func (loader *Loader) Tokenizer() *tokenizer.Universal {
+	return loader.tokenizer
+}
+
 /*
 Generate tokenizes the dataset and ingests every token into the Store
 and PrimeField. Returns a channel of chords for downstream consumers
 (e.g. Machine.Start drains this to completion).
 */
 func (loader *Loader) Generate() chan data.Chord {
-	out := make(chan data.Chord)
+	out := make(chan data.Chord, 1024)
 
 	go func() {
 		defer close(out)

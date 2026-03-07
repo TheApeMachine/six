@@ -4,12 +4,14 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 )
 
 var paperDirMemo = make(map[string]string)
+var paperDirMemoMu sync.RWMutex
 
 // PaperDir returns the output directory for paper artifacts.
 // If section is provided, it uses that subdirectory under paper/include/.
@@ -20,13 +22,18 @@ func PaperDir(section ...string) string {
 		sec = section[0]
 	}
 
-	if d, ok := paperDirMemo[sec]; ok {
+	paperDirMemoMu.RLock()
+	d, ok := paperDirMemo[sec]
+	paperDirMemoMu.RUnlock()
+	if ok {
 		return d
 	}
 
 	if d := os.Getenv("SIX_PAPER_DIR"); d != "" {
 		result := filepath.Join(d, sec)
+		paperDirMemoMu.Lock()
 		paperDirMemo[sec] = result
+		paperDirMemoMu.Unlock()
 		return result
 	}
 
@@ -38,7 +45,9 @@ func PaperDir(section ...string) string {
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			result := filepath.Join(dir, "paper", "include", sec)
+			paperDirMemoMu.Lock()
 			paperDirMemo[sec] = result
+			paperDirMemoMu.Unlock()
 			return result
 		}
 		if dir == filepath.Dir(dir) {
@@ -47,7 +56,9 @@ func PaperDir(section ...string) string {
 	}
 
 	result := filepath.Join(wd, "paper", "include", sec)
+	paperDirMemoMu.Lock()
 	paperDirMemo[sec] = result
+	paperDirMemoMu.Unlock()
 	return result
 }
 

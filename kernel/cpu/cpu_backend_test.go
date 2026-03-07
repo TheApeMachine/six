@@ -116,10 +116,10 @@ func legacyBestFillCPUPackedBytes(
 
 		cubeBase := base + 1
 		for c := 0; c < 4; c++ {
-			for b := 0; b < cubeFaces; b++ {
+			for b := 0; b < geometry.CubeFaces; b++ {
 				for i := 0; i < 8; i++ {
-					offset := (c*cubeFaces+b)*8 + i
-					vetoOffset := (4*cubeFaces+b)*8 + i
+					offset := (c*geometry.CubeFaces+b)*8 + i
+					vetoOffset := (4*geometry.CubeFaces+b)*8 + i
 
 					candidate := dictWords[cubeBase+offset]
 					ctx := ctxWords[1+offset]

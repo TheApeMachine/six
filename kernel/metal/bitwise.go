@@ -12,6 +12,7 @@ import "C"
 import (
 	_ "embed"
 	"errors"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"unsafe"
@@ -21,7 +22,7 @@ import (
 //go:generate xcrun -sdk macosx metallib bitwise.air -o bitwise.metallib
 
 //go:embed bitwise.metallib
-var defaultMetallib []byte
+var bitwiseMetallib []byte
 
 var metalReady atomic.Bool
 
@@ -34,7 +35,7 @@ func init() {
 
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.Write(defaultMetallib); err != nil {
+	if _, err := tmpFile.Write(bitwiseMetallib); err != nil {
 		tmpFile.Close()
 		return
 	}
@@ -77,15 +78,19 @@ func BestFillMetalPacked(
 		expectedReality = context
 	}
 
-	packed := uint64(
-		C.bitwise_best_fill_metal(
-			dictionary,
-			C.uint32_t(numChords),
-			context,
-			expectedReality,
-			expectedPrecision,
-			geodesicLUT,
-		),
+	var packed C.uint64_t
+	status := C.bitwise_best_fill_metal(
+		dictionary,
+		C.uint32_t(numChords),
+		context,
+		expectedReality,
+		expectedPrecision,
+		geodesicLUT,
+		&packed,
 	)
-	return packed, nil
+	if status != 0 {
+		return 0, fmt.Errorf("metal best fill failed: status=%d", int(status))
+	}
+
+	return uint64(packed), nil
 }

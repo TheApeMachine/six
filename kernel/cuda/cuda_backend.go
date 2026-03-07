@@ -36,7 +36,7 @@ func BestFillCUDAPacked(
 	expectedPrecision unsafe.Pointer,
 	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
-	if !cudaAvailable() {
+	if !CudaAvailable() {
 		return 0, errors.New("cuda backend unavailable")
 	}
 	if numChords == 0 {

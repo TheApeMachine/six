@@ -26,7 +26,8 @@ func IdentityRotation() GFRotation {
 
 // Forward maps a logical face index to its physical position under this rotation.
 func (r GFRotation) Forward(face int) int {
-	return (int(r.A)*face + int(r.B)) % CubeFaces
+	raw := int(r.A)*face + int(r.B)
+	return (raw%CubeFaces + CubeFaces) % CubeFaces
 }
 
 // Compose returns the rotation equivalent to applying r first, then other.

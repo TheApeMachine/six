@@ -53,9 +53,12 @@ int init_metal(const char* metallib_path) {
     return initResult;
 }
 
-uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, const void* active_context_ptr, const void* expected_reality_ptr, const void* expected_precision_ptr, const void* geodesic_lut_ptr) {
-    if (!bestFillPipeline) return 0;
-    if (num_chords == 0) return 0;
+int bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, const void* active_context_ptr, const void* expected_reality_ptr, const void* expected_precision_ptr, const void* geodesic_lut_ptr, uint64_t* out_result) {
+    if (!bestFillPipeline || out_result == NULL) return -1;
+    if (num_chords == 0) {
+        *out_result = 0;
+        return 0;
+    }
 
     @autoreleasepool {
         // Query the device's actual maximum buffer length.
@@ -68,6 +71,7 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
 
         // Determine number of tiles needed.
         uint32_t numTiles = (num_chords + maxManifoldsPerTile - 1) / maxManifoldsPerTile;
+        int partialFailure = 0;
 
         // Pre-allocate shared buffers (context, result, expected, precision, lut).
         // These are the same across all tiles — allocate once, reuse.
@@ -105,7 +109,7 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
         id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
         if (!commandBuffer) {
             NSLog(@"Failed to create commandBuffer");
-            return 0;
+            return -2;
         }
 
         for (uint32_t tile = 0; tile < numTiles; tile++) {
@@ -126,13 +130,15 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
             }
             if (!dictBuffer) {
                 NSLog(@"Failed to create dictBuffer for tile %u (size=%lu)", tile, (unsigned long)tileBytes);
-                continue; // Skip this tile, process remaining tiles.
+                partialFailure = -3;
+                break;
             }
 
             id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
             if (!computeEncoder) {
                 [dictBuffer release];
-                continue;
+                partialFailure = -4;
+                break;
             }
 
             [computeEncoder setComputePipelineState:bestFillPipeline];
@@ -168,12 +174,16 @@ uint64_t bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords
             [dictBuffer release];
         }
 
+        if (partialFailure != 0) {
+            return partialFailure;
+        }
+
         // Single commit, single sync — all tiles processed on GPU back-to-back.
         [commandBuffer commit];
         [commandBuffer waitUntilCompleted];
 
         uint64_t* result_ptr = (uint64_t*)[cachedResultBuffer contents];
-        uint64_t final_res = *result_ptr;
-        return final_res;
+        *out_result = *result_ptr;
+        return 0;
     }
 }

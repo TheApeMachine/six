@@ -1,6 +1,7 @@
 package generation
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
@@ -57,7 +58,23 @@ type Runner struct {
 	config RunnerConfig
 }
 
-func NewRunner(config RunnerConfig) *Runner {
+func NewRunner(config RunnerConfig) (*Runner, error) {
+	if config.PrimeField == nil {
+		return nil, fmt.Errorf("generation.NewRunner: missing RunnerConfig.PrimeField")
+	}
+	if config.Sequencer == nil {
+		return nil, fmt.Errorf("generation.NewRunner: missing RunnerConfig.Sequencer")
+	}
+	if config.ReverseLookup == nil {
+		return nil, fmt.Errorf("generation.NewRunner: missing RunnerConfig.ReverseLookup")
+	}
+	if config.ExpectedField != nil && config.BestFillWithField == nil {
+		return nil, fmt.Errorf("generation.NewRunner: missing RunnerConfig.BestFillWithField for ExpectedField generation")
+	}
+	if config.ExpectedField == nil && config.BestFill == nil {
+		return nil, fmt.Errorf("generation.NewRunner: missing RunnerConfig.BestFill")
+	}
+
 	if config.MaxGenerationSteps <= 0 {
 		config.MaxGenerationSteps = 256
 	}
@@ -68,11 +85,11 @@ func NewRunner(config RunnerConfig) *Runner {
 		config.RecentLimit = 12
 	}
 
-	return &Runner{config: config}
+	return &Runner{config: config}, nil
 }
 
 func (runner *Runner) Run() chan byte {
-	out := make(chan byte)
+	out := make(chan byte, 1)
 
 	go func() {
 		defer close(out)
@@ -94,6 +111,7 @@ func (runner *Runner) run(out chan byte) {
 
 	var zNext uint32
 	recent := make([]RecentSeed, 0, runner.config.RecentLimit)
+	var lastByteVal byte
 
 	// Compose rotation state from prompt replay.
 	// No physical permutations — just O(1) arithmetic per event.
@@ -104,11 +122,17 @@ func (runner *Runner) run(out chan byte) {
 		var byteVal byte
 		if i < len(runner.config.PromptBytes) {
 			byteVal = runner.config.PromptBytes[i]
-		} else if key := runner.config.ReverseLookup(chord); key > 0 {
-			_, _, byteVal = coder.Decode(key)
+		} else if runner.config.ReverseLookup != nil {
+			if key := runner.config.ReverseLookup(chord); key > 0 {
+				_, _, byteVal = coder.Decode(key)
+			}
 		}
 
-		out <- byteVal
+		if !runner.sendOrStop(out, byteVal) {
+			return
+		}
+
+		lastByteVal = byteVal
 
 		pos := zNext
 		reset, events := runner.config.Sequencer.Analyze(int(zNext), chord)
@@ -149,14 +173,6 @@ func (runner *Runner) run(out chan byte) {
 		"phiDecay", phiDecay,
 		"promptLen", len(chords),
 	)
-
-	zNext = uint32(len(chords))
-
-	// Track the last known byte for veto placement.
-	var lastByteVal byte
-	if len(runner.config.PromptBytes) > 0 {
-		lastByteVal = runner.config.PromptBytes[len(runner.config.PromptBytes)-1]
-	}
 
 	for range runner.config.MaxGenerationSteps {
 		if runner.shouldStop() {
@@ -227,6 +243,10 @@ func (runner *Runner) run(out chan byte) {
 			)
 
 			if runner.config.ExpectedField != nil {
+				if runner.config.BestFillWithField == nil {
+					console.Error(fmt.Errorf("generation runner: nil RunnerConfig.BestFillWithField"), "context", "BestFill generation")
+					return
+				}
 				bestIdx, score, err = runner.config.BestFillWithField(
 					dictionaryPtr,
 					dictionaryN,
@@ -237,6 +257,10 @@ func (runner *Runner) run(out chan byte) {
 					unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 				)
 			} else {
+				if runner.config.BestFill == nil {
+					console.Error(fmt.Errorf("generation runner: nil RunnerConfig.BestFill"), "context", "BestFill generation")
+					return
+				}
 				bestIdx, score, err = runner.config.BestFill(
 					dictionaryPtr,
 					dictionaryN,
@@ -282,7 +306,7 @@ func (runner *Runner) run(out chan byte) {
 		// Output: scan all 257 faces on the support cube.
 		// Since data is placed at face=byteVal (self-addressing), the
 		// face index with highest activity IS the predicted byte value.
-		bestFace, nextChord := BestFace(&queryCtx, cubeIndex)
+		bestFace, nextChord, ok := BestFace(&queryCtx, cubeIndex)
 
 		console.Trace("generation step",
 			"z", zNext,
@@ -292,7 +316,7 @@ func (runner *Runner) run(out chan byte) {
 			"active", nextChord.ActiveCount(),
 		)
 
-		if bestFace < 0 || nextChord.ActiveCount() == 0 {
+		if !ok || nextChord.ActiveCount() == 0 {
 			console.Info("generation exit: no active face", "z", zNext, "cube", cubeIndex)
 			break
 		}
@@ -306,7 +330,9 @@ func (runner *Runner) run(out chan byte) {
 		// The face index IS the byte value. No inverse mapping needed.
 		nextByte := byte(bestFace)
 
-		out <- nextByte
+		if !runner.sendOrStop(out, nextByte) {
+			return
+		}
 		lastByteVal = nextByte
 
 		reset, events := runner.config.Sequencer.Analyze(int(zNext), nextChord)
@@ -321,12 +347,35 @@ func (runner *Runner) run(out chan byte) {
 		}, runner.config.RecentLimit)
 		chords = append(chords, nextChord)
 
+		if len(events) > 0 {
+			lastEvents = events
+		}
+
 		if reset {
 			zNext = 0
-			lastEvents = events
 		} else {
 			zNext++
 		}
+	}
+}
+
+func (runner *Runner) sendOrStop(out chan byte, v byte) bool {
+	select {
+	case out <- v:
+		return true
+	default:
+	}
+
+	if runner.config.StopCh == nil {
+		out <- v
+		return true
+	}
+
+	select {
+	case out <- v:
+		return true
+	case <-runner.config.StopCh:
+		return false
 	}
 }
 

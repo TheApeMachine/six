@@ -22,6 +22,7 @@ type EigenMode struct {
 	PhasePhi   [256]float64
 	FreqTheta  [256]float64
 	FreqPhi    [256]float64
+	Trained    bool
 }
 
 type eigenModeOpts func(*EigenMode)
@@ -42,6 +43,8 @@ Uses ChordBin to map chords to structural bins 0–255; transition matrix is
 built from chord sequences at each FibWindow scale. Chord-native: no raw bytes.
 */
 func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
+	ei.Trained = false
+
 	n := len(chords)
 	if n == 0 {
 		return nil
@@ -118,6 +121,8 @@ func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
 		ei.PhasePhi[i] = math.Atan2(sinPhiAcc[i], cosPhiAcc[i])
 		ei.FreqPhi[i] = freqPhiAcc[i]
 	}
+
+	ei.Trained = true
 
 	return nil
 }

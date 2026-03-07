@@ -18,6 +18,7 @@ import (
 )
 
 const hfBase = "https://huggingface.co"
+const labelBatchSize = 64
 
 /*
 Dataset streams raw bytes from a HuggingFace parquet dataset.
@@ -39,6 +40,12 @@ type Dataset struct {
 
 	mu     sync.RWMutex
 	labels map[uint32]int
+
+	cacheMu      sync.Mutex
+	cacheCond    *sync.Cond
+	cacheReady   bool
+	cacheLoading bool
+	cachedTokens []provider.RawToken
 }
 
 type datasetOpts func(*Dataset)
@@ -49,6 +56,7 @@ func New(opts ...datasetOpts) *Dataset {
 		perSamplePos: true,
 		labels:       make(map[uint32]int),
 	}
+	dataset.cacheCond = sync.NewCond(&dataset.cacheMu)
 
 	for _, opt := range opts {
 		opt(dataset)
@@ -81,22 +89,50 @@ Generate streams the column as (byte, position) pairs.
 The returned channel closes when all data has been emitted.
 */
 func (dataset *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken)
+	out := make(chan provider.RawToken, 4096)
 
 	go func() {
 		defer close(out)
 
+		if cached, ok := dataset.snapshotCachedTokens(); ok {
+			dataset.replayCachedTokens(out, cached)
+			return
+		}
+
+		if !dataset.tryStartCacheLoad() {
+			dataset.replayCachedTokens(out, dataset.waitForCachedTokens())
+			return
+		}
+
 		var pos uint32
+		labelBatch := make(map[uint32]int, labelBatchSize)
+		tokens := make([]provider.RawToken, 0, 4096)
+		flushLabels := func() {
+			if len(labelBatch) == 0 {
+				return
+			}
+
+			dataset.mu.Lock()
+			for sampleIdx, label := range labelBatch {
+				dataset.labels[sampleIdx] = label
+			}
+			dataset.mu.Unlock()
+			clear(labelBatch)
+		}
+		defer flushLabels()
 
 		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
 			if hasLabel {
-				dataset.mu.Lock()
-				dataset.labels[sampleIdx] = label
-				dataset.mu.Unlock()
+				labelBatch[sampleIdx] = label
+				if len(labelBatch) >= labelBatchSize {
+					flushLabels()
+				}
 			}
 
 			for _, b := range []byte(text) {
-				out <- provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
+				token := provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
+				tokens = append(tokens, token)
+				out <- token
 				pos++
 			}
 
@@ -106,7 +142,9 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 			if hasLabel && len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
 				suffix := " " + dataset.labelAppend[label]
 				for _, b := range []byte(suffix) {
-					out <- provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
+					token := provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
+					tokens = append(tokens, token)
+					out <- token
 					pos++
 				}
 			}
@@ -117,11 +155,75 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 
 			return true
 		}); err != nil {
+			dataset.finishCacheLoad(nil, false)
 			console.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
+			return
 		}
+
+		dataset.finishCacheLoad(tokens, true)
 	}()
 
 	return out
+}
+
+func (dataset *Dataset) snapshotCachedTokens() ([]provider.RawToken, bool) {
+	dataset.cacheMu.Lock()
+	defer dataset.cacheMu.Unlock()
+
+	if !dataset.cacheReady {
+		return nil, false
+	}
+
+	cached := make([]provider.RawToken, len(dataset.cachedTokens))
+	copy(cached, dataset.cachedTokens)
+	return cached, true
+}
+
+func (dataset *Dataset) tryStartCacheLoad() bool {
+	dataset.cacheMu.Lock()
+	defer dataset.cacheMu.Unlock()
+
+	if dataset.cacheReady || dataset.cacheLoading {
+		return false
+	}
+
+	dataset.cacheLoading = true
+	return true
+}
+
+func (dataset *Dataset) waitForCachedTokens() []provider.RawToken {
+	dataset.cacheMu.Lock()
+	defer dataset.cacheMu.Unlock()
+
+	for dataset.cacheLoading {
+		dataset.cacheCond.Wait()
+	}
+
+	if !dataset.cacheReady {
+		return nil
+	}
+
+	cached := make([]provider.RawToken, len(dataset.cachedTokens))
+	copy(cached, dataset.cachedTokens)
+	return cached
+}
+
+func (dataset *Dataset) finishCacheLoad(tokens []provider.RawToken, ok bool) {
+	dataset.cacheMu.Lock()
+	defer dataset.cacheMu.Unlock()
+
+	if ok {
+		dataset.cachedTokens = tokens
+		dataset.cacheReady = true
+	}
+	dataset.cacheLoading = false
+	dataset.cacheCond.Broadcast()
+}
+
+func (dataset *Dataset) replayCachedTokens(out chan provider.RawToken, tokens []provider.RawToken) {
+	for _, token := range tokens {
+		out <- token
+	}
 }
 
 /*
@@ -337,8 +439,14 @@ func (dataset *Dataset) streamParquetRows(pFile *parquet.File, textCols []string
 		if labelIdx >= 0 && labelIdx < len(row) {
 			v := row[labelIdx]
 			if !v.IsNull() {
-				label = int(v.Int64())
-				hasLabel = true
+				switch v.Kind() {
+				case parquet.Int32:
+					label = int(v.Int32())
+					hasLabel = true
+				case parquet.Int64:
+					label = int(v.Int64())
+					hasLabel = true
+				}
 			}
 		}
 

@@ -10,6 +10,12 @@ import (
 //go:embed imagestrip_script.tmpl
 var imageStripScriptTmpl string
 
+const (
+	imageStripWidth      = 800
+	imageStripRowHeight  = 180
+	imageStripBaseHeight = 100
+)
+
 type ImageStripRow struct {
 	Original      string `json:"original"`      // Base64 encoded image
 	Masked        string `json:"masked"`        // Base64 encoded image
@@ -39,18 +45,25 @@ func NewImageStrip(opts ...imageStripOpts) *ImageStrip {
 
 func (is *ImageStrip) SetOutput(out io.Writer) { is.out = out }
 
+func imageStripDimensions(rows int) (width, height int) {
+	return imageStripWidth, rows*imageStripRowHeight + imageStripBaseHeight
+}
+
 func (is *ImageStrip) Generate() error {
-	dataJSON, _ := json.Marshal(is.rows)
+	dataJSON, err := json.Marshal(is.rows)
+	if err != nil {
+		return err
+	}
 	script := execTemplate(imageStripScriptTmpl, struct {
 		DataJSON string
 	}{string(dataJSON)})
 
-	height := len(is.rows)*180 + 100 // Estimate dynamic height
-	html, err := renderChartHTML(is.title, 800, height, script)
+	width, height := imageStripDimensions(len(is.rows))
+	html, err := renderChartHTML(is.title, width, height, script)
 	if err != nil {
 		return err
 	}
-	if err := renderAndExport(html, is.outDir, is.filename, 800, height); err != nil {
+	if err := renderAndExport(html, is.outDir, is.filename, width, height); err != nil {
 		return err
 	}
 	return emitFigure(is.filename, is.caption, is.label, is.out)

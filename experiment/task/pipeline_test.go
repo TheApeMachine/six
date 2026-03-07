@@ -20,6 +20,14 @@ func slugify(name string) string {
 	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }
 
+func labelValue(label *int) any {
+	if label == nil {
+		return nil
+	}
+
+	return *label
+}
+
 func TestPipeline(t *testing.T) {
 	experiments := []PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
@@ -94,11 +102,18 @@ func TestPipeline(t *testing.T) {
 							}
 
 							for _, d := range data {
-								t := d.TrueLabel
-								p := d.PredLabel
-								if t >= 0 && t < n && p >= 0 && p < n {
-									matrix[t][p]++
+								trueLabel := d.TrueLabel
+								predLabel := d.PredLabel
+								if trueLabel == nil || predLabel == nil {
+									t.Logf("skipping confusion matrix entry idx=%d: missing labels true=%v pred=%v", d.Idx, labelValue(trueLabel), labelValue(predLabel))
+									continue
 								}
+								if *trueLabel < 0 || *trueLabel >= n || *predLabel < 0 || *predLabel >= n {
+									t.Logf("skipping confusion matrix entry idx=%d: out-of-range labels true=%d pred=%d n=%d data=%+v", d.Idx, *trueLabel, *predLabel, n, d)
+									continue
+								}
+
+								matrix[*trueLabel][*predLabel]++
 							}
 
 							// Use the experiment's Score() method for the mean resonance score.

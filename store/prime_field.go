@@ -214,10 +214,28 @@ func (field *PrimeField) BuildEigenModes() error {
 	field.mu.RUnlock()
 
 	if len(chords) == 0 {
+		field.mu.Lock()
+		field.chords = nil
+		field.mu.Unlock()
 		return nil
 	}
 
-	return field.eigen.BuildMultiScaleCooccurrence(chords)
+	if err := field.eigen.BuildMultiScaleCooccurrence(chords); err != nil {
+		return err
+	}
+
+	field.mu.Lock()
+	field.chords = nil
+	field.mu.Unlock()
+
+	return nil
+}
+
+func (field *PrimeField) EigenMode() *geometry.EigenMode {
+	field.mu.RLock()
+	defer field.mu.RUnlock()
+
+	return field.eigen
 }
 
 func (field *PrimeField) freezeActiveIfBoundary(pos uint32) {
@@ -229,11 +247,8 @@ func (field *PrimeField) freezeActiveIfBoundary(pos uint32) {
 		return
 	}
 
-	next := make([]geometry.IcosahedralManifold, len(field.manifolds)+1)
-	copy(next, field.manifolds)
-	next[len(field.manifolds)] = field.manifolds[0]
-	next[0] = geometry.IcosahedralManifold{}
-	field.manifolds = next
+	field.manifolds = append(field.manifolds, field.manifolds[0])
+	field.manifolds[0] = geometry.IcosahedralManifold{}
 	field.N = len(field.manifolds)
 
 	// Reset rotation state for the fresh active manifold.

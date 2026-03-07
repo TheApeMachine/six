@@ -8,14 +8,12 @@
         // Build row-normalised proportions and heatmap data.
         const heatData = [];
         let totalSamples = 0;
-        let classesSeen = 0;
         let recallSum = 0;
 
         const rowSums = labels.map((_, y) => {
             const sum = matrix[y].reduce((s, v) => s + v, 0);
             const recall = sum > 0 ? (matrix[y][y] / sum) : 0;
             recallSum += recall;
-            if (sum > 0) classesSeen++;
             totalSamples += sum;
             return sum;
         });

@@ -58,7 +58,7 @@ and from the moment data is tokenized, we must never look at byte values
 again, until it is time to render the final output.
 */
 func (tokenizer *Universal) Generate() chan Token {
-	out := make(chan Token)
+	out := make(chan Token, 4096)
 
 	go func() {
 		defer close(out)
