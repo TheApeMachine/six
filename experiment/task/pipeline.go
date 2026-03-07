@@ -6,12 +6,19 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
 
+type pipelineMachine interface {
+	Start() error
+	Prompt([]data.Chord, *geometry.IcosahedralManifold) chan byte
+	Substrate() *geometry.HybridSubstrate
+}
+
 type Pipeline struct {
-	machine    *vm.Machine
+	machine    pipelineMachine
 	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
 	testIdx    int
@@ -66,7 +73,7 @@ func (pipeline *Pipeline) Run() error {
 
 	pipeline.prompts = pipeline.experiment.Prompts()
 
-	for {
+	for pipeline.prompts != nil {
 		prompt := pipeline.prompts.Next()
 
 		if prompt == nil {
@@ -138,13 +145,7 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		fmt.Println()
 	}
 
-	// Extract the generated portion (everything after the prompt echo)
-	var generated []byte
-	if len(bRes) >= len(bPrompt) {
-		generated = bRes[len(bPrompt):]
-	} else {
-		generated = []byte{}
-	}
+	generated := append([]byte(nil), bRes...)
 
 	console.Info("OBSERVED")
 	fmt.Println()

@@ -110,3 +110,20 @@ func TestPromptNoHoldout(t *testing.T) {
 	require.Equal(t, "", prompt.HeldOut(0))
 	require.Equal(t, "abc", prompt.Full(0))
 }
+
+func TestPromptExplicitValuesOverrideDatasetSamples(t *testing.T) {
+	t.Parallel()
+
+	prompt := NewPrompt(
+		PromptWithDataset(promptMockDataset{samples: []string{"dataset sample"}}),
+		PromptWithValues([]string{"explicit sample"}),
+	)
+
+	require.Equal(t, 1, prompt.Len())
+	require.Equal(t, "explicit sample", prompt.Value(0))
+	require.Equal(t, "", prompt.HeldOut(0))
+
+	first := prompt.Next()
+	require.Len(t, first, len("explicit sample"))
+	require.Equal(t, 0, prompt.Len())
+}

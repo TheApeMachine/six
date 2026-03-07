@@ -1,0 +1,60 @@
+{
+  "caption": "Best torus gain for each split configuration.",
+  "data": {
+    "x_axis": [
+      "T²-256/256",
+      "T²-random",
+      "T²-energy"
+    ],
+    "series": [
+      {
+        "name": "Democracy requires individual sacrifice.",
+        "type": "bar",
+        "bar_width": "12%",
+        "data": [
+          0.23751266440365368,
+          0.22054647519574505,
+          0.22581926482659898
+        ]
+      },
+      {
+        "name": "Knowledge is power.",
+        "type": "bar",
+        "bar_width": "12%",
+        "data": [
+          0.29627040530143645,
+          0.29627040530143645,
+          0.29627040530143645
+        ]
+      },
+      {
+        "name": "Nature does not hurry, yet everything is accomplished.",
+        "type": "bar",
+        "bar_width": "12%",
+        "data": [
+          0.2064429679610336,
+          0.2064429679610336,
+          0.2064429679610336
+        ]
+      },
+      {
+        "name": "1D Ceiling",
+        "type": "dashed",
+        "symbol": "circle",
+        "data": [
+          0.29627040530143645,
+          0.29627040530143645,
+          0.29627040530143645
+        ]
+      }
+    ],
+    "x_name": "Split Configuration",
+    "y_name": "Best Gain",
+    "y_min": 0,
+    "y_max": 0.25
+  },
+  "file_name": "torus_generalization",
+  "label": "fig:torus_generalization",
+  "title": "Torus Generalization",
+  "type": "combo"
+}

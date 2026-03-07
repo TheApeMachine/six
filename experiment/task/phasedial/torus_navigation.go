@@ -28,12 +28,54 @@ type TorusNavigationExperiment struct {
 	heatPanel        tools.Panel
 	chartPanel       tools.Panel
 	tableRows        []map[string]any
+	splitPoint       int
+	alpha1List       []float64
 }
 
-func NewTorusNavigationExperiment() *TorusNavigationExperiment {
-	return &TorusNavigationExperiment{
-		tableData: []tools.ExperimentalData{},
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+type torusNavigationOpt func(*TorusNavigationExperiment)
+
+func NewTorusNavigationExperiment(opts ...torusNavigationOpt) *TorusNavigationExperiment {
+	experiment := &TorusNavigationExperiment{
+		tableData:  []tools.ExperimentalData{},
+		dataset:    tools.NewLocalProvider(tools.Aphorisms),
+		splitPoint: config.Numeric.NBasis / 2,
+		alpha1List: []float64{15.0, 30.0, 45.0, 60.0, 75.0},
+	}
+
+	for _, opt := range opts {
+		opt(experiment)
+	}
+
+	if experiment.splitPoint <= 0 || experiment.splitPoint >= config.Numeric.NBasis {
+		experiment.splitPoint = config.Numeric.NBasis / 2
+	}
+
+	if len(experiment.alpha1List) == 0 {
+		experiment.alpha1List = []float64{15.0, 30.0, 45.0, 60.0, 75.0}
+	}
+
+	return experiment
+}
+
+func TorusNavigationWithDataset(dataset provider.Dataset) torusNavigationOpt {
+	return func(experiment *TorusNavigationExperiment) {
+		if dataset != nil {
+			experiment.dataset = dataset
+		}
+	}
+}
+
+func TorusNavigationWithSplitPoint(splitPoint int) torusNavigationOpt {
+	return func(experiment *TorusNavigationExperiment) {
+		experiment.splitPoint = splitPoint
+	}
+}
+
+func TorusNavigationWithAlphaList(alpha1List []float64) torusNavigationOpt {
+	return func(experiment *TorusNavigationExperiment) {
+		if len(alpha1List) > 0 {
+			experiment.alpha1List = append([]float64(nil), alpha1List...)
+		}
 	}
 }
 
@@ -89,7 +131,7 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 	seedQuery := "Democracy requires individual sacrifice."
 	fingerprintA := geometry.NewPhaseDial().Encode(seedQuery)
 
-	splitPoint := config.Numeric.NBasis / 2 // 256
+	splitPoint := experiment.splitPoint
 
 	torusRotate := func(fp geometry.PhaseDial, alpha1, alpha2 float64) geometry.PhaseDial {
 		f1 := cmplx.Rect(1.0, alpha1)
@@ -120,10 +162,9 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 
 	const stepDeg = 5.0
 	gridSize := int(360.0 / stepDeg)
-	alpha1List := []float64{15.0, 30.0, 45.0, 60.0, 75.0}
 	var slices []torusSlice
 
-	for _, hopAlpha1Deg := range alpha1List {
+	for _, hopAlpha1Deg := range experiment.alpha1List {
 		hop := sub.FirstHop(fingerprintA, hopAlpha1Deg*(math.Pi/180.0), seedQuery)
 		fpA, fpB, fpAB := fingerprintA, hop.FingerprintB, hop.FingerprintAB
 		textB := hop.TextB
@@ -175,7 +216,7 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 		i, j int
 		gain float64
 	}
-	hop1 := sub.FirstHop(fingerprintA, alpha1List[0]*(math.Pi/180.0), seedQuery)
+	hop1 := sub.FirstHop(fingerprintA, experiment.alpha1List[0]*(math.Pi/180.0), seedQuery)
 	fpA1, fpB1, fpAB1 := fingerprintA, hop1.FingerprintB, hop1.FingerprintAB
 	textB1 := hop1.TextB
 	for i := 0; i < gridSize; i++ {
@@ -204,7 +245,7 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 
 	experiment.heatPanel = tools.Panel{
 		Kind:        "heatmap",
-		Title:       fmt.Sprintf("Torus Gain Landscape (hop α₁=%.0f°)", alpha1List[0]),
+		Title:       fmt.Sprintf("Torus Gain Landscape (hop α₁=%.0f°)", experiment.alpha1List[0]),
 		GridLeft:    "8%",
 		GridRight:   "47%",
 		GridTop:     "8%",

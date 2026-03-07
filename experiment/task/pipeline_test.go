@@ -11,25 +11,30 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
+	"github.com/theapemachine/six/experiment/task/imagegen"
+	"github.com/theapemachine/six/experiment/task/logic"
+	"github.com/theapemachine/six/experiment/task/misc"
 	"github.com/theapemachine/six/experiment/task/phasedial"
+	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
 )
-
-func labelValue(label *int) any {
-	if label == nil {
-		return nil
-	}
-
-	return *label
-}
 
 func TestPipeline(t *testing.T) {
 	experiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
 		classification.NewTextClassificationExperiment(),
-		textgen.NewTextOverlapExperiment(),
+		textgen.NewCompositionalExperiment(),
+		textgen.NewProseChainingExperiment(),
 		textgen.NewOutOfCorpusExperiment(),
+		textgen.NewTextOverlapExperiment(),
 		phasedial.NewTorusGeneralizationExperiment(),
+		imagegen.NewReconstructionExperiment(),
+		logic.NewBabiExperiment(),
+		misc.NewProteinStructureExperiment(),
+		scaling.NewBestFillScalingExperiment(),
+		scaling.NewCompressionExperiment(),
+		scaling.NewPipelineThroughputExperiment(),
+		scaling.NewSequencerExperiment(),
 	}
 
 	for _, experiment := range experiments {

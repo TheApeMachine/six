@@ -75,7 +75,9 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 		p.samples = append(p.samples, p.buildSample(chords, values))
 	}
 
-	if p.dataset != nil {
+	// Explicit values define the evaluation set; do not silently append
+	// dataset-derived prompts on top of them.
+	if p.dataset != nil && len(p.values) == 0 {
 		var (
 			chords []data.Chord
 			values []string

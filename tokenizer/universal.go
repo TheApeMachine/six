@@ -60,6 +60,10 @@ again, until it is time to render the final output.
 */
 func (tokenizer *Universal) Generate() chan Token {
 	out := make(chan Token, 4096)
+	if tokenizer.dataset == nil {
+		close(out)
+		return out
+	}
 
 	go func() {
 		defer close(out)

@@ -273,6 +273,7 @@ func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 
 		if g.config.Sequencer != nil {
 			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), c)
+			g.accumulateMomentum(c, events)
 			for _, ev := range events {
 				rot := geometry.EventRotation(ev)
 				g.source.Send(NewRotationToken(rot, -1))
@@ -284,4 +285,12 @@ func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 			}
 		}
 	}
+}
+
+func (g *Graph) accumulateMomentum(chord data.Chord, events []int) {
+	if len(events) == 0 {
+		return
+	}
+
+	g.momentum += float64(chord.ActiveCount())
 }

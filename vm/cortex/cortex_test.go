@@ -1,6 +1,7 @@
 package cortex
 
 import (
+	"math"
 	"testing"
 
 	"github.com/theapemachine/six/data"
@@ -298,4 +299,49 @@ func TestThink_ProducesOutput(t *testing.T) {
 	t.Logf("cortex output: %d bytes, raw: %v", len(result), result)
 	t.Logf("cortex final state: %d nodes, %d total ticks",
 		len(g.nodes), g.tick)
+}
+
+type momentumTestAnalyzer struct {
+	events    []int
+	threshold float64
+	phi       float64
+}
+
+func (analyzer momentumTestAnalyzer) Analyze(int, data.Chord) (bool, []int) {
+	return false, analyzer.events
+}
+
+func (analyzer momentumTestAnalyzer) Phase() (float64, float64) {
+	return 0, analyzer.threshold
+}
+
+func (analyzer momentumTestAnalyzer) Phi() float64 {
+	return analyzer.phi
+}
+
+func TestThink_UsesEventMomentumBeforeThresholdStop(t *testing.T) {
+	g := New(Config{
+		InitialNodes: 8,
+		MaxTicks:     64,
+		MaxOutput:    4,
+		Sequencer: momentumTestAnalyzer{
+			events:    []int{geometry.EventDensitySpike},
+			threshold: 1.5,
+			phi:       (1.0 + math.Sqrt(5.0)) / 2.0,
+		},
+	})
+
+	expected := &geometry.IcosahedralManifold{}
+	expected.Cubes[0][42] = data.BaseChord(42)
+
+	out := g.Think([]data.Chord{data.BaseChord('A')}, expected)
+
+	var result []byte
+	for b := range out {
+		result = append(result, b)
+	}
+
+	if len(result) == 0 {
+		t.Fatal("expected event momentum to carry generation past the initial threshold gate")
+	}
 }

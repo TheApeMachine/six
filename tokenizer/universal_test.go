@@ -96,3 +96,18 @@ func TestGenerate(t *testing.T) {
 		})
 	})
 }
+
+func TestGenerateWithNilDataset(t *testing.T) {
+	t.Parallel()
+
+	tokenizer := NewUniversal()
+
+	count := 0
+	for range tokenizer.Generate() {
+		count++
+	}
+
+	if count != 0 {
+		t.Fatalf("expected no tokens from nil dataset, got %d", count)
+	}
+}

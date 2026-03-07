@@ -1,6 +1,8 @@
 package cortex
 
 import (
+	"math"
+
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
@@ -71,14 +73,6 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 			}
 		}
 
-		// Initialize momentum from Sequencer if available.
-		if g.config.Sequencer != nil {
-			_, phiThresh := g.config.Sequencer.Phase()
-			if phiThresh > 0 {
-				g.momentum = 1.0
-			}
-		}
-
 		console.Info("cortex warmup complete",
 			"ticks", g.tick,
 			"nodes", len(g.nodes),
@@ -97,7 +91,7 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 		phiDecay := 1.0
 		var phiThresh float64
 		if g.config.Sequencer != nil {
-			phiDecay = g.config.Sequencer.Phi()
+			phiDecay = sequencerDecay(g.config.Sequencer.Phi())
 			_, phiThresh = g.config.Sequencer.Phase()
 		}
 
@@ -154,6 +148,7 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 			// Continue Sequencer analysis on the generated output.
 			if g.config.Sequencer != nil {
 				reset, events := g.config.Sequencer.Analyze(int(g.seqPos), reinjection)
+				g.accumulateMomentum(reinjection, events)
 				for _, ev := range events {
 					rot := geometry.EventRotation(ev)
 					g.source.Send(NewRotationToken(rot, -1))
@@ -193,4 +188,20 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 	}()
 
 	return out
+}
+
+func sequencerDecay(phi float64) float64 {
+	if phi <= 0 {
+		return 1.0
+	}
+
+	if phi > 1.0 {
+		phi = 1.0 / phi
+	}
+
+	if phi <= 0 || phi >= 1.0 {
+		return (math.Sqrt(5.0) - 1.0) / 2.0
+	}
+
+	return phi
 }

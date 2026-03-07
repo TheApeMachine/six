@@ -203,7 +203,7 @@ func New(cfg Config) *Graph {
 	g := &Graph{
 		config:   cfg,
 		nodes:    make([]*Node, 0, cfg.InitialNodes),
-		momentum: 1.0, // Full momentum at start
+		momentum: 0.0,
 	}
 
 	// Spawn seed nodes.

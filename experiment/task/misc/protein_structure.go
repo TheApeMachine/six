@@ -4,6 +4,7 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
@@ -23,8 +24,8 @@ naturally encode the periodic local patterns that define secondary structure:
   - Coils:     aperiodic connectors
 
 Dataset: proteinea/secondary_structure_prediction (HuggingFace)
-  - Column "input_seq":  amino acid sequence
-  - Column "structure":  H/E/C structure labels (ground truth)
+  - Column "input":  amino acid sequence
+  - Column "dssp3":  H/E/C structure labels (ground truth)
 */
 type ProteinStructureExperiment struct {
 	tableData []tools.ExperimentalData
@@ -43,7 +44,7 @@ func NewProteinStructureExperiment() *ProteinStructureExperiment {
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("proteinea/secondary_structure_prediction"),
 			huggingface.DatasetWithSamples(20),
-			huggingface.DatasetWithTextColumn("input_seq"),
+			huggingface.DatasetWithTextColumns("input", "dssp3"),
 		),
 	}
 
@@ -63,6 +64,10 @@ func (experiment *ProteinStructureExperiment) Name() string {
 	return "ProteinStructure"
 }
 
+func (experiment *ProteinStructureExperiment) Section() string {
+	return "misc"
+}
+
 func (experiment *ProteinStructureExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
@@ -77,14 +82,17 @@ func (experiment *ProteinStructureExperiment) Prompts() *tokenizer.Prompt {
 }
 
 func (experiment *ProteinStructureExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	// Hold out the last 20 residues for structure prediction
-	return 20, tokenizer.RIGHT
+	// Hold out the last 50 bytes for structure prediction
+	return 50, tokenizer.RIGHT
 }
 
 /*
 AddResult records an experimental observation.
 */
 func (experiment *ProteinStructureExperiment) AddResult(results tools.ExperimentalData) {
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
+	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
+
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -111,6 +119,23 @@ func (experiment *ProteinStructureExperiment) Score() float64 {
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *ProteinStructureExperiment) TableData() []tools.ExperimentalData {
+func (experiment *ProteinStructureExperiment) TableData() any {
 	return experiment.tableData
+}
+
+func (experiment *ProteinStructureExperiment) Artifacts() []tools.Artifact {
+	return []tools.Artifact{
+		{
+			Type:     tools.ArtifactBarChart,
+			FileName: tools.Slugify(experiment.Name()) + "_scores",
+			Data:     experiment.tableData,
+			Title:    experiment.Name() + " — Score Breakdown",
+			Caption:  "Mean exact, partial, fuzzy, and weighted scores for " + experiment.Name() + ".",
+			Label:    "fig:" + tools.Slugify(experiment.Name()) + "_scores",
+		},
+	}
+}
+
+func (experiment *ProteinStructureExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+	return nil
 }

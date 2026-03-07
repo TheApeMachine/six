@@ -26,8 +26,6 @@ func NewProseChainingExperiment() *ProseChainingExperiment {
 	}
 }
 
-// ... (existing methods) ...
-
 func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
 }

@@ -1,0 +1,32 @@
+{
+  "artifacts": [
+    {
+      "caption": "Mean exact, partial, fuzzy, and weighted scores for Compositional.",
+      "file_name": "compositional_scores",
+      "label": "fig:compositional_scores",
+      "title": "Compositional — Score Breakdown",
+      "type": "bar"
+    }
+  ],
+  "name": "Compositional",
+  "results": [
+    {
+      "Idx": 0,
+      "Name": "Compositional",
+      "Prefix": "dGhlIHF1aWNrIHJl",
+      "Holdout": "ZA==",
+      "Observed": "vzu/",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    }
+  ],
+  "score": 0,
+  "section": "textgen"
+}

@@ -1,0 +1,327 @@
+{
+  "artifacts": [
+    {
+      "caption": "Best torus gain for each split configuration.",
+      "file_name": "torus_generalization",
+      "label": "fig:torus_generalization",
+      "title": "Torus Generalization",
+      "type": "combo"
+    },
+    {
+      "caption": "Summary of best gains for each split and seed.",
+      "file_name": "torus_generalization_summary.tex",
+      "label": "tab:torus_generalization",
+      "title": "Torus Generalization Summary",
+      "type": "table"
+    }
+  ],
+  "name": "Torus Generalization",
+  "results": [
+    {
+      "Idx": 0,
+      "Name": "Torus Generalization",
+      "Prefix": "RGVtb2NyYWN5IHJlcXVpcmVzIGluZGl2aWR1YWwgc2FjcmlmaWNlLg==",
+      "Holdout": "",
+      "Observed": "vzs=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 1,
+      "Name": "Torus Generalization",
+      "Prefix": "S25vd2xlZGdlIGlzIHBvd2VyLg==",
+      "Holdout": "",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 2,
+      "Name": "Torus Generalization",
+      "Prefix": "TmF0dXJlIGRvZXMgbm90IGh1cnJ5LCB5ZXQgZXZlcnl0aGluZyBpcyBhY2NvbXBsaXNoZWQu",
+      "Holdout": "",
+      "Observed": "vzs=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 3,
+      "Name": "Torus Generalization",
+      "Prefix": "VGhlIG9ubHkgd2F5IHRvIGhhdmUgYSBmcmllbmQgaXMgdG8gYmUgb25lLg==",
+      "Holdout": "",
+      "Observed": "vzu/Ow==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 4,
+      "Name": "Torus Generalization",
+      "Prefix": "VG8gYmUsIG9yIG5vdCB0byBiZSwgdGhhdCBpcyB0aGUgcXVlc3Rpb24u",
+      "Holdout": "",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 5,
+      "Name": "Torus Generalization",
+      "Prefix": "QWxsIGhhcHB5IGZhbWlsaWVzIGFyZSBhbGlrZTsgZWFjaCB1bmhhcHB5IGZhbWlseSBpcyB1bmhhcHB5IGluIGl0cyBvd24gd2F5Lg==",
+      "Holdout": "",
+      "Observed": "vzs=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 6,
+      "Name": "Torus Generalization",
+      "Prefix": "SXQgd2FzIHRoZSBiZXN0IG9mIHRpbWVzLCBpdCB3YXMgdGhlIHdvcnN0IG9mIHRpbWVzLg==",
+      "Holdout": "",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 7,
+      "Name": "Torus Generalization",
+      "Prefix": "SW4gYSBob2xlIGluIHRoZSBncm91bmQgdGhlcmUgbGl2ZWQgYSBob2JiaXQu",
+      "Holdout": "",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 8,
+      "Name": "Torus Generalization",
+      "Prefix": "VGhlIHNreSBhYm92ZSB0aGUgcG9ydCB3YXMgdGhlIGNvbG9yIG9mIHRlbGV2aXNpb24sIHR1bmVkIHRvIGEgZGVhZCBjaGFubmVsLg==",
+      "Holdout": "",
+      "Observed": "vzs=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 9,
+      "Name": "Torus Generalization",
+      "Prefix": "SXQgaXMgYSB0cnV0aCB1bml2ZXJzYWxseSBhY2tub3dsZWRnZWQsIHRoYXQgYSBzaW5nbGUgbWFuIGluIHBvc3Nlc3Npb24gb2YgYSBnb29kIGZvcnR1bmUsIG11c3QgYmUgaW4gd2FudCBvZiBhIHdpZmUu",
+      "Holdout": "",
+      "Observed": "vzu/Ow==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-256/256",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.23751266440365368,
+        "Partial": 0.23751266440365368,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.23751266440365368,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.22054647519574505,
+        "Partial": 0.23751266440365368,
+        "Fuzzy": -0.016966189207908627
+      },
+      "WeightedTotal": 0.22054647519574505,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.22581926482659898,
+        "Partial": 0.23751266440365368,
+        "Fuzzy": -0.011693399577054703
+      },
+      "WeightedTotal": 0.22581926482659898,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-256/256",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.29627040530143645,
+        "Partial": 0.29627040530143645,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.29627040530143645,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.29627040530143645,
+        "Partial": 0.29627040530143645,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.29627040530143645,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.29627040530143645,
+        "Partial": 0.29627040530143645,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.29627040530143645,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-256/256",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.2064429679610336,
+        "Partial": 0.2075255150449184,
+        "Fuzzy": -0.001082547083884805
+      },
+      "WeightedTotal": 0.2064429679610336,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.2064429679610336,
+        "Partial": 0.2075255150449184,
+        "Fuzzy": -0.001082547083884805
+      },
+      "WeightedTotal": 0.2064429679610336,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.2064429679610336,
+        "Partial": 0.2075255150449184,
+        "Fuzzy": -0.001082547083884805
+      },
+      "WeightedTotal": 0.2064429679610336,
+      "TrueLabel": null,
+      "PredLabel": null
+    }
+  ],
+  "score": 0.11536939601123199,
+  "section": "phasedial"
+}
