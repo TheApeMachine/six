@@ -3,6 +3,7 @@ package console
 import (
 	"io"
 	"os"
+	"path/filepath"
 
 	"github.com/charmbracelet/log"
 )
@@ -21,8 +22,14 @@ type Logger struct {
 func New() *Logger {
 	var out io.Writer = os.Stderr
 
+	wd, err := os.Getwd()
+
+	if err != nil {
+		panic(err)
+	}
+
 	// Open the log file for appending using an absolute path
-	file, err := os.OpenFile("/Users/theapemachine/go/src/github.com/theapemachine/six/six.log", os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+	file, err := os.OpenFile(filepath.Join(wd, "six.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
 	if err == nil {
 		// Output to both stderr and the file
 		out = io.MultiWriter(os.Stderr, file)

@@ -10,7 +10,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/provider"
@@ -27,15 +26,45 @@ type TorusGeneralizationExperiment struct {
 	tableData   []tools.ExperimentalData
 	dataset     provider.Dataset
 	prompt      *tokenizer.Prompt
-	comboSeries []projector.ComboSeries
+	comboSeries []tools.ComboSeries
 	tableRows   []map[string]any
 	xAxis       []string
+	seedQueries []string
 }
 
-func NewTorusGeneralizationExperiment() *TorusGeneralizationExperiment {
-	return &TorusGeneralizationExperiment{
+type torusGeneralizationOpt func(*TorusGeneralizationExperiment)
+
+func NewTorusGeneralizationExperiment(opts ...torusGeneralizationOpt) *TorusGeneralizationExperiment {
+	experiment := &TorusGeneralizationExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		seedQueries: []string{
+			"Democracy requires individual sacrifice.",
+			"Knowledge is power.",
+			"Nature does not hurry, yet everything is accomplished.",
+		},
+	}
+
+	for _, opt := range opts {
+		opt(experiment)
+	}
+
+	return experiment
+}
+
+func TorusGeneralizationWithDataset(dataset provider.Dataset) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if dataset != nil {
+			experiment.dataset = dataset
+		}
+	}
+}
+
+func TorusGeneralizationWithSeedQueries(seedQueries []string) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if len(seedQueries) > 0 {
+			experiment.seedQueries = append([]string(nil), seedQueries...)
+		}
 	}
 }
 
@@ -141,12 +170,6 @@ func localEnergySplit(fpA, fpB geometry.PhaseDial) []int {
 }
 
 func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
-	seedQueries := []string{
-		"Democracy requires individual sacrifice.",
-		"Knowledge is power.",
-		"Nature does not hurry, yet everything is accomplished.",
-	}
-
 	compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB string) float64 {
 		ceiling := -1.0
 		for s := 0; s < 360; s++ {
@@ -191,7 +214,7 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 	}
 
 	var allSeeds []seedResult
-	for _, seedQuery := range seedQueries {
+	for _, seedQuery := range experiment.seedQueries {
 		fingerprintA := geometry.NewPhaseDial().Encode(seedQuery)
 		hop := sub.FirstHop(fingerprintA, 45.0*(math.Pi/180.0), seedQuery)
 		fpB, fpAB := hop.FingerprintB, hop.FingerprintAB
@@ -259,11 +282,11 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 		for i, sp := range s.Splits {
 			gainData[i] = sp.BestGain
 		}
-		experiment.comboSeries = append(experiment.comboSeries, projector.ComboSeries{
+		experiment.comboSeries = append(experiment.comboSeries, tools.ComboSeries{
 			Name: s.SeedQuery, Type: "bar", BarWidth: "12%", Data: gainData,
 		})
 	}
-	experiment.comboSeries = append(experiment.comboSeries, projector.ComboSeries{
+	experiment.comboSeries = append(experiment.comboSeries, tools.ComboSeries{
 		Name: "1D Ceiling", Type: "dashed", Symbol: "circle", Data: ceilingData,
 	})
 
@@ -297,13 +320,13 @@ func (experiment *TorusGeneralizationExperiment) Artifacts() []tools.Artifact {
 		{
 			Type:     tools.ArtifactComboChart,
 			FileName: "torus_generalization",
-			Data: map[string]any{
-				"xAxis":  experiment.xAxis,
-				"series": experiment.comboSeries,
-				"xName":  "Split Configuration",
-				"yName":  "Best Gain",
-				"yMin":   0.0,
-				"yMax":   0.25,
+			Data: tools.ComboChartData{
+				XAxis:  experiment.xAxis,
+				Series: experiment.comboSeries,
+				XName:  "Split Configuration",
+				YName:  "Best Gain",
+				YMin:   0.0,
+				YMax:   0.25,
 			},
 			Title:   "Torus Generalization",
 			Caption: "Best torus gain for each split configuration.",

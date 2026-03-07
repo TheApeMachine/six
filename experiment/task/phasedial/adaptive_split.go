@@ -9,7 +9,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/provider"
@@ -315,9 +314,9 @@ func (experiment *AdaptiveSplitExperiment) Artifacts() []tools.Artifact {
 		{
 			Type:     tools.ArtifactBarChart,
 			FileName: "adaptive_split_gap",
-			Data: map[string]any{
-				"xAxis":  experiment.gapXAxis,
-				"series": []projector.BarSeries{{Name: "Best Gain", Data: experiment.gapGains}},
+			Data: tools.BarChartData{
+				XAxis:  experiment.gapXAxis,
+				Series: []tools.BarSeries{{Name: "Best Gain", Data: experiment.gapGains}},
 			},
 			Title:   "Adaptive Split Gap Experiment",
 			Caption: "Best gain for each gap size.",

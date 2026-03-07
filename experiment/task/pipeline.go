@@ -6,7 +6,6 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
@@ -18,6 +17,7 @@ type Pipeline struct {
 	testIdx    int
 	chordMap   map[data.Chord]byte
 	scoreWgts  tools.ScoreWeights
+	reporter   Reporter
 }
 
 type pipelineOpts func(*Pipeline)
@@ -38,6 +38,10 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 
 	if pipeline.experiment == nil {
 		return nil, PipelineError("missing experiment: use PipelineWithExperiment")
+	}
+
+	if pipeline.reporter == nil {
+		pipeline.reporter = NewProjectorReporter()
 	}
 
 	pipeline.machine = vm.NewMachine(
@@ -76,49 +80,13 @@ func (pipeline *Pipeline) Run() error {
 		return fmt.Errorf("experiment finalize: %w", err)
 	}
 
-	// Generate artifacts
-	for _, artifact := range pipeline.experiment.Artifacts() {
-		switch artifact.Type {
-		case tools.ArtifactTable:
-			if err := WriteTable(artifact.Data, artifact.FileName, pipeline.experiment.Section()); err != nil {
-				return fmt.Errorf("write table artifact %s: %w", artifact.FileName, err)
-			}
-		case tools.ArtifactBarChart:
-			data, ok := artifact.Data.([]tools.ExperimentalData)
-			if !ok {
-				// Fallback or skip
-				continue
-			}
-			series := []projector.BarSeries{
-				{Name: "Exact", Data: extractScores(data, "Exact")},
-				{Name: "Partial", Data: extractScores(data, "Partial")},
-				{Name: "Fuzzy", Data: extractScores(data, "Fuzzy")},
-				{Name: "Weighted", Data: extractScores(data, "Weighted")},
-			}
-			xAxis := make([]string, len(data))
-			for i, d := range data {
-				xAxis[i] = d.Name
-			}
-			if err := WriteBarChart(xAxis, series, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, pipeline.experiment.Section()); err != nil {
-				return fmt.Errorf("write bar chart artifact %s: %w", artifact.FileName, err)
-			}
-		case tools.ArtifactConfusionMatrix:
-			// Implementation for confusion matrix...
-		case tools.ArtifactComboChart:
-			data, ok := artifact.Data.(map[string]any)
-			if !ok {
-				continue
-			}
-			xAxis := data["xAxis"].([]string)
-			series := data["series"].([]projector.ComboSeries)
-			xName := data["xName"].(string)
-			yName := data["yName"].(string)
-			yMin := data["yMin"].(float64)
-			yMax := data["yMax"].(float64)
+	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
+		return fmt.Errorf("write results snapshot: %w", err)
+	}
 
-			if err := WriteComboChart(xAxis, series, xName, yName, yMin, yMax, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, pipeline.experiment.Section()); err != nil {
-				return fmt.Errorf("write combo chart artifact %s: %w", artifact.FileName, err)
-			}
+	for _, artifact := range pipeline.experiment.Artifacts() {
+		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
+			return fmt.Errorf("write %s artifact %s: %w", artifact.Type, artifact.FileName, err)
 		}
 	}
 
@@ -203,6 +171,12 @@ func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {
 func PipelineWithScoreWeights(weights tools.ScoreWeights) pipelineOpts {
 	return func(pipeline *Pipeline) {
 		pipeline.scoreWgts = weights
+	}
+}
+
+func PipelineWithReporter(reporter Reporter) pipelineOpts {
+	return func(pipeline *Pipeline) {
+		pipeline.reporter = reporter
 	}
 }
 

@@ -8,7 +8,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/provider"
@@ -26,8 +25,8 @@ type TorusNavigationExperiment struct {
 	dataset          provider.Dataset
 	prompt           *tokenizer.Prompt
 	anySuperAdditive bool
-	heatPanel        projector.MPPanel
-	chartPanel       projector.MPPanel
+	heatPanel        tools.Panel
+	chartPanel       tools.Panel
 	tableRows        []map[string]any
 }
 
@@ -203,17 +202,27 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 		heatData[i] = []any{c.i, c.j, c.gain}
 	}
 
-	experiment.heatPanel = projector.HeatmapPanel(axLabels, axLabels, heatData, -0.15, 0.20, "viridis")
-	experiment.heatPanel.GridLeft = "8%"
-	experiment.heatPanel.GridRight = "47%"
-	experiment.heatPanel.GridTop = "8%"
-	experiment.heatPanel.GridBottom = "10%"
-	experiment.heatPanel.XAxisName = "Torus α₁ (dims 0–255)"
-	experiment.heatPanel.YAxisName = "Torus α₂ (dims 256–511)"
-	experiment.heatPanel.Title = fmt.Sprintf("Torus Gain Landscape (hop α₁=%.0f°)", alpha1List[0])
-	experiment.heatPanel.VMRight = "46%"
-	experiment.heatPanel.XInterval = 9
-	experiment.heatPanel.YInterval = 9
+	experiment.heatPanel = tools.Panel{
+		Kind:        "heatmap",
+		Title:       fmt.Sprintf("Torus Gain Landscape (hop α₁=%.0f°)", alpha1List[0]),
+		GridLeft:    "8%",
+		GridRight:   "47%",
+		GridTop:     "8%",
+		GridBottom:  "10%",
+		XLabels:     axLabels,
+		XAxisName:   "Torus α₁ (dims 0–255)",
+		XInterval:   9,
+		XShow:       true,
+		YLabels:     axLabels,
+		YAxisName:   "Torus α₂ (dims 256–511)",
+		YInterval:   9,
+		HeatData:    heatData,
+		HeatMin:     -0.15,
+		HeatMax:     0.20,
+		ColorScheme: "viridis",
+		ShowVM:      true,
+		VMRight:     "46%",
+	}
 
 	xAxis := make([]string, len(slices))
 	base1Data := make([]float64, len(slices))
@@ -225,18 +234,25 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 		base2Data[i] = s.Base2Gain
 		torusData[i] = s.BestTorusGain
 	}
-	experiment.chartPanel = projector.ChartPanel(xAxis, []projector.MPSeries{
-		{Name: "Torus Best", Kind: "bar", BarWidth: "30%", Data: torusData, Color: "#22c55e"},
-		{Name: "Baseline A", Kind: "dashed", Symbol: "diamond", Data: base1Data, Color: "#94a3b8"},
-		{Name: "Baseline B", Kind: "dashed", Symbol: "triangle", Data: base2Data, Color: "#ef4444"},
-	}, projector.F64(-0.1), projector.F64(0.45))
-	experiment.chartPanel.GridLeft = "62%"
-	experiment.chartPanel.GridRight = "5%"
-	experiment.chartPanel.GridTop = "8%"
-	experiment.chartPanel.GridBottom = "10%"
-	experiment.chartPanel.XAxisName = "First-Hop Angle"
-	experiment.chartPanel.YAxisName = "Gain"
-	experiment.chartPanel.Title = "Torus vs 1D Baselines"
+	experiment.chartPanel = tools.Panel{
+		Kind:       "chart",
+		Title:      "Torus vs 1D Baselines",
+		GridLeft:   "62%",
+		GridRight:  "5%",
+		GridTop:    "8%",
+		GridBottom: "10%",
+		XLabels:    xAxis,
+		XAxisName:  "First-Hop Angle",
+		XShow:      true,
+		YAxisName:  "Gain",
+		Series: []tools.PanelSeries{
+			{Name: "Torus Best", Kind: "bar", BarWidth: "30%", Data: torusData, Color: "#22c55e"},
+			{Name: "Baseline A", Kind: "dashed", Symbol: "diamond", Data: base1Data, Color: "#94a3b8"},
+			{Name: "Baseline B", Kind: "dashed", Symbol: "triangle", Data: base2Data, Color: "#ef4444"},
+		},
+		YMin: tools.Float64Ptr(-0.1),
+		YMax: tools.Float64Ptr(0.45),
+	}
 
 	experiment.tableRows = make([]map[string]any, len(slices))
 	for i, s := range slices {
@@ -269,10 +285,10 @@ func (experiment *TorusNavigationExperiment) Artifacts() []tools.Artifact {
 		{
 			Type:     tools.ArtifactMultiPanel,
 			FileName: "torus_navigation",
-			Data: map[string]any{
-				"panels": []projector.MPPanel{experiment.heatPanel, experiment.chartPanel},
-				"width":  1200,
-				"height": 900,
+			Data: tools.MultiPanelData{
+				Panels: []tools.Panel{experiment.heatPanel, experiment.chartPanel},
+				Width:  1200,
+				Height: 900,
 			},
 			Title:   "U(1)×U(1) Torus Navigation",
 			Caption: "(Left) Full T²(α₁,α₂) gain grid for first-hop α₁=15°. Dark = destructive, warm = constructive. (Right) T² best gain (bar) vs single-axis baselines (dashed) across all first-hop angles; bars exceeding dashed lines are super-additive.",

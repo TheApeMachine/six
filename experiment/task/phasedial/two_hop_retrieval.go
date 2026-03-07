@@ -6,7 +6,6 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/provider"
@@ -206,15 +205,15 @@ func (experiment *TwoHopRetrievalExperiment) Artifacts() []tools.Artifact {
 		{
 			Type:     tools.ArtifactLineChart,
 			FileName: "composition_trace",
-			Data: map[string]any{
-				"xAxis": experiment.phases,
-				"series": []projector.LineSeries{
+			Data: tools.LineChartData{
+				XAxis: experiment.phases,
+				Series: []tools.LineSeries{
 					{Name: "sim(C,A)", Data: experiment.simCA},
 					{Name: "sim(C,B)", Data: experiment.simCB},
 					{Name: "Gain min(CA,CB)", Data: experiment.gains},
 				},
-				"yMin": -1.0,
-				"yMax": 1.0,
+				YMin: -1.0,
+				YMax: 1.0,
 			},
 			Title:   "Two-Hop Composition Trace",
 			Caption: "Phase displacement sweep: sim(C,A), sim(C,B), and gain for composed midpoint.",
@@ -223,9 +222,9 @@ func (experiment *TwoHopRetrievalExperiment) Artifacts() []tools.Artifact {
 		{
 			Type:     tools.ArtifactBarChart,
 			FileName: "two_hop_gain_by_alpha1",
-			Data: map[string]any{
-				"xAxis": experiment.xAxis,
-				"series": []projector.BarSeries{
+			Data: tools.BarChartData{
+				XAxis: experiment.xAxis,
+				Series: []tools.BarSeries{
 					{Name: "Base1", Data: experiment.base1Data},
 					{Name: "Base2", Data: experiment.base2Data},
 					{Name: "Composed", Data: experiment.composedData},

@@ -3,11 +3,13 @@ package config
 import (
 	"math"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/console"
+	"k8s.io/client-go/util/homedir"
 )
 
 // Canonical architecture constants for type definitions (Go requires compile-time array sizes).
@@ -40,7 +42,9 @@ func init() {
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
 	viper.SetDefault("architecture.numerics.windowWeights", []float64{0.2, 0.2, 0.2, 0.2, 0.2})
 
-	viper.SetConfigFile("/Users/theapemachine/go/src/github.com/theapemachine/six/cmd/cfg/config.yml")
+	home := homedir.HomeDir()
+
+	viper.SetConfigFile(filepath.Join(home, ".six", "config.yml"))
 	_ = viper.ReadInConfig()
 
 	_, err := New()
