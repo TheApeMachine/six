@@ -49,7 +49,7 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 }
 
 func (sequencer *Sequencer) Analyze(pos int, current data.Chord) (bool, []int) {
-	pop, phase := sequencer.measure(pos, current)
+	pop, phase := sequencer.measure(pos, current, true)
 	deltaPop, deltaPhase := sequencer.trackVariance(pop, phase)
 	popThresh, phaseThresh := sequencer.deriveThresholds()
 
@@ -84,7 +84,45 @@ func (sequencer *Sequencer) Analyze(pos int, current data.Chord) (bool, []int) {
 
 	sequencer.syncCalibration()
 
-	return len(events) > 0, events
+	return isTopologicalBoundary, events
+}
+
+/*
+Forecast accurately simulates Analyze without mutating any internal state.
+It is extremely cheap and used for O(256) inference branching.
+*/
+func (sequencer *Sequencer) Forecast(pos int, current data.Chord) (bool, []int) {
+	pop, phase := sequencer.measure(pos, current, false)
+
+	// Dry run variance
+	deltaPop := math.Abs(pop - sequencer.emaPop) // ...
+
+	// ... rest unchanged ...
+	deltaPhase := math.Abs(phase - sequencer.emaPhase)
+
+	popThresh, phaseThresh := sequencer.deriveThresholds()
+
+	var events []int
+	topoThresh := math.Pi / config.Numeric.FrequencySpread
+	isTopologicalBoundary := deltaPhase > topoThresh
+
+	if deltaPop > popThresh {
+		if pop > sequencer.emaPop {
+			events = append(events, geometry.EventDensitySpike)
+		} else {
+			events = append(events, geometry.EventDensityTrough)
+		}
+	}
+
+	if isTopologicalBoundary || deltaPhase > phaseThresh {
+		events = append(events, geometry.EventPhaseInversion)
+	}
+
+	if len(events) == 0 && sequencer.coherenceTime > 10 {
+		events = append(events, geometry.EventLowVarianceFlux)
+	}
+
+	return isTopologicalBoundary, events
 }
 
 /*
@@ -97,7 +135,7 @@ chord's bit pattern mapped to [0, 2π). If the EigenMode has been trained
 used instead. This gives immediate phase signal from the first byte while
 preserving the upgrade path to trained eigenmodes.
 */
-func (sequencer *Sequencer) measure(pos int, current data.Chord) (float64, float64) {
+func (sequencer *Sequencer) measure(pos int, current data.Chord, track bool) (float64, float64) {
 	pop := float64(current.ActiveCount())
 
 	phase := 0.0
@@ -113,7 +151,7 @@ func (sequencer *Sequencer) measure(pos int, current data.Chord) (float64, float
 		phase = float64(bin) / 256.0
 	}
 
-	if pos == 0 {
+	if track && pos == 0 {
 		sequencer.emaPop = pop
 		sequencer.emaPhase = phase
 	}

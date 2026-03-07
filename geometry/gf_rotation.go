@@ -30,6 +30,25 @@ func (r GFRotation) Forward(face int) int {
 	return (raw%CubeFaces + CubeFaces) % CubeFaces
 }
 
+// Reverse maps a physical face index back to its logical byte value.
+// It computes the inverse of the affine transform over GF(257).
+func (r GFRotation) Reverse(face int) int {
+	var invA int
+	for i := 1; i < CubeFaces; i++ {
+		if (int(r.A)*i)%CubeFaces == 1 {
+			invA = i
+			break
+		}
+	}
+
+	val := (face - int(r.B)) % CubeFaces
+	if val < 0 {
+		val += CubeFaces
+	}
+
+	return (invA * val) % CubeFaces
+}
+
 // Compose returns the rotation equivalent to applying r first, then other.
 // other(r(x)) = other.A · (r.A·x + r.B) + other.B
 //

@@ -135,210 +135,54 @@
 \newunicodechar{₁}{\ensuremath{_1}}
 \newunicodechar{₂}{\ensuremath{_2}}
 \newunicodechar{α}{\ensuremath{\alpha}}
+\newunicodechar{ℓ}{\ensuremath{\ell}}
 
 \begin{document}
 
 \maketitle
 
-% ============================================================================
-% ABSTRACT
-% ============================================================================
-\InputIfFileExists{include/sections/abstract.tex}{}{}
+\section{Architecture}
 
-% ============================================================================
-% 1. INTRODUCTION
-% ============================================================================
-\section{Introduction}
-\label{sec:introduction}
-
-\InputIfFileExists{include/sections/introduction.tex}{}{}
-\FloatBarrier
-\clearpage
-
-% ============================================================================
-% 2. SYSTEM ARCHITECTURE
-% ============================================================================
-\section{System Architecture}
-\label{sec:system_architecture}
-
-% --- 2.1 The 512-bit Chord Representation ---
-\InputIfFileExists{include/sections/chord_representation.tex}{}{}
-\FloatBarrier
-
-% --- 2.2 The Nested SO(3) Fractal Manifold ---
-\InputIfFileExists{include/sections/manifold_architecture.tex}{}{}
-\FloatBarrier
-
-% --- 2.3 Topological Entropy Routing ---
 \graphicspath{{include/architecture/}}
+
 \InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
-\FloatBarrier
-
-% --- 2.4 Universal Tokenizer and Sequencer ---
-\InputIfFileExists{include/sections/tokenizer_sequencer.tex}{}{}
-\FloatBarrier
-
-% --- 2.5 Toroidal Eigenmode Navigation ---
-\InputIfFileExists{include/sections/eigenmode_navigation.tex}{}{}
-\FloatBarrier
-
-% --- 2.6 PrimeField: The Thermodynamic Trie ---
-\InputIfFileExists{include/sections/primefield_storage.tex}{}{}
-\FloatBarrier
-
-% --- 2.7 The GPU BestFill Pipeline ---
-\InputIfFileExists{include/sections/bestfill_pipeline.tex}{}{}
-\FloatBarrier
-
-% --- 2.8 Generation as a Boundary Value Problem ---
-\InputIfFileExists{include/sections/bvp_generation.tex}{}{}
-\FloatBarrier
-
-% --- 2.9 Hybrid Substrate (PhaseDial Scoring) ---
-\InputIfFileExists{include/sections/hybrid_substrate.tex}{}{}
-\FloatBarrier
-
-% --- 2.10 The Virtual Machine ---
-\InputIfFileExists{include/sections/vm_machine.tex}{}{}
+\InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
+\InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}
+\InputIfFileExists{include/architecture/related_hardware_accel.tex}{}{}
+\InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
+\InputIfFileExists{include/architecture/related_manifold_capacity.tex}{}{}
+\InputIfFileExists{include/architecture/related_nvsa_hd.tex}{}{}
+\InputIfFileExists{include/architecture/related_spectral_embedding.tex}{}{}
+\InputIfFileExists{include/architecture/related_topological_nn.tex}{}{}
 \FloatBarrier
 \clearpage
 
-% ============================================================================
-% 3. EXPERIMENTS
-% ============================================================================
-\section{Experiments}
-\label{sec:experiments}
+\section{Classification}
 
-% --- 3.1 Code Generation ---
-\subsection{Code Generation}
-\label{sec:codegen_experiments}
+\graphicspath{{include/classification/}}
+
+\InputIfFileExists{include/classification/text_classification_scores.tex}{}{}
+\InputIfFileExists{include/classification/text_classification_summary.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\section{Codegen}
 
 \graphicspath{{include/codegen/}}
 
-\InputIfFileExists{include/codegen/Languages_summary.tex}{}{}
-\InputIfFileExists{include/codegen/cantilever_gating.tex}{}{}
-\InputIfFileExists{include/codegen/cantilever_gating_code.tex}{}{}
-\InputIfFileExists{include/codegen/cantilever_gating_prose.tex}{}{}
-\InputIfFileExists{include/codegen/cantilever_gating_summary.tex}{}{}
-\InputIfFileExists{include/codegen/chord_generation.tex}{}{}
-\InputIfFileExists{include/codegen/chord_generation_prose.tex}{}{}
-\InputIfFileExists{include/codegen/chord_generation_summary.tex}{}{}
-\InputIfFileExists{include/codegen/compositional_gen.tex}{}{}
-\InputIfFileExists{include/codegen/compositional_gen_code.tex}{}{}
-\InputIfFileExists{include/codegen/compositional_gen_prose.tex}{}{}
-\InputIfFileExists{include/codegen/compositional_gen_summary.tex}{}{}
-\InputIfFileExists{include/codegen/eigenmode_probe.tex}{}{}
-\InputIfFileExists{include/codegen/eigenmode_probe_prose.tex}{}{}
-\InputIfFileExists{include/codegen/eigenmode_summary.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_c++.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_c++_prose.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_c++_summary.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_code.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_go.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_go_prose.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_go_summary.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_haskell.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_haskell_prose.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_haskell_summary.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_lisp.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_lisp_prose.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_lisp_summary.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_prose.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_python.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_python_prose.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_python_summary.tex}{}{}
-\InputIfFileExists{include/codegen/long_generation_summary.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_c++.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_c++_prose.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_c++_summary.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_go.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_go_prose.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_go_summary.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_haskell.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_haskell_prose.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_haskell_summary.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_lisp.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_lisp_prose.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_lisp_summary.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_prose.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_python.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_python_prose.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_python_summary.tex}{}{}
-\InputIfFileExists{include/codegen/overlap_chaining_summary.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_c++.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_c++_prose.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_c++_summary.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_code.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_go.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_go_prose.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_go_summary.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_haskell.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_haskell_prose.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_haskell_summary.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_lisp.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_lisp_prose.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_lisp_summary.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_prose.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_python.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_python_prose.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_python_summary.tex}{}{}
-\InputIfFileExists{include/codegen/phase_bridging_summary.tex}{}{}
-\InputIfFileExists{include/codegen/relative_cantilever.tex}{}{}
-\InputIfFileExists{include/codegen/relative_cantilever_code.tex}{}{}
-\InputIfFileExists{include/codegen/relative_cantilever_prose.tex}{}{}
-\InputIfFileExists{include/codegen/relative_cantilever_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_c++.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_c++_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_c++_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_go.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_go_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_go_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_haskell.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_haskell_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_haskell_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_lisp.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_lisp_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_lisp_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_python.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_python_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_python_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_chaining_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_ranking.tex}{}{}
-\InputIfFileExists{include/codegen/span_ranking_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_ranking_summary.tex}{}{}
-\InputIfFileExists{include/codegen/span_solver.tex}{}{}
-\InputIfFileExists{include/codegen/span_solver_prose.tex}{}{}
-\InputIfFileExists{include/codegen/span_solver_summary.tex}{}{}
-\InputIfFileExists{include/codegen/structural_sensitivity.tex}{}{}
-\InputIfFileExists{include/codegen/structural_sensitivity_prose.tex}{}{}
-\InputIfFileExists{include/codegen/structural_sensitivity_summary.tex}{}{}
+\InputIfFileExists{include/codegen/languages_scores.tex}{}{}
+\InputIfFileExists{include/codegen/languages_summary.tex}{}{}
 \FloatBarrier
 \clearpage
 
-% --- 3.2 Logic ---
-\subsection{Logic}
-\label{sec:logic_experiments}
+\section{Logic}
 
 \graphicspath{{include/logic/}}
 
-\InputIfFileExists{include/logic/expected_reality_scaling.tex}{}{}
-\InputIfFileExists{include/logic/expected_reality_scaling_chart.tex}{}{}
-\InputIfFileExists{include/logic/expected_reality_scaling_table.tex}{}{}
-\InputIfFileExists{include/logic/logic_analogy_benchmark.tex}{}{}
-\InputIfFileExists{include/logic/logic_babi_accuracy.tex}{}{}
-\InputIfFileExists{include/logic/logic_babi_benchmark.tex}{}{}
-\InputIfFileExists{include/logic/logic_resonance_accuracy.tex}{}{}
 \FloatBarrier
 \clearpage
 
-% --- 3.3 PhaseDial ---
-\subsection{PhaseDial}
-\label{sec:phasedial_experiments}
+\section{Phasedial}
 
 \graphicspath{{include/phasedial/}}
 
@@ -354,111 +198,59 @@
 \InputIfFileExists{include/phasedial/partial_deletion_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/permutation_metrics.tex}{}{}
 \InputIfFileExists{include/phasedial/permutation_metrics_chart.tex}{}{}
-\InputIfFileExists{include/phasedial/permutation_novelty.tex}{}{}
-\InputIfFileExists{include/phasedial/permutation_score_heatmap.tex}{}{}
-\InputIfFileExists{include/phasedial/permutation_traces.tex}{}{}
 \InputIfFileExists{include/phasedial/phase_coherence.tex}{}{}
 \InputIfFileExists{include/phasedial/phase_coherence_dist_bands.tex}{}{}
-\InputIfFileExists{include/phasedial/phase_coherence_dist_corr.tex}{}{}
-\InputIfFileExists{include/phasedial/phase_coherence_heatmap.tex}{}{}
 \InputIfFileExists{include/phasedial/query_robustness_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/snap_surface.tex}{}{}
-\InputIfFileExists{include/phasedial/snap_surface_bar.tex}{}{}
 \InputIfFileExists{include/phasedial/snap_surface_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/steerability_validation.tex}{}{}
 \InputIfFileExists{include/phasedial/torus_generalization.tex}{}{}
-\InputIfFileExists{include/phasedial/torus_generalization_bar.tex}{}{}
 \InputIfFileExists{include/phasedial/torus_generalization_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/torus_landscape.tex}{}{}
 \InputIfFileExists{include/phasedial/torus_navigation.tex}{}{}
-\InputIfFileExists{include/phasedial/torus_navigation_bar.tex}{}{}
 \InputIfFileExists{include/phasedial/torus_navigation_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/two_hop_gain_by_alpha1.tex}{}{}
-\InputIfFileExists{include/phasedial/two_hop_heatmap.tex}{}{}
 \InputIfFileExists{include/phasedial/two_hop_summary.tex}{}{}
 \FloatBarrier
 \clearpage
 
-% --- 3.4 Vision ---
-\subsection{Vision}
-\label{sec:vision_experiments}
-
-\graphicspath{{include/vision/}}
-
-\InputIfFileExists{include/vision/crossmodal_reconstruction.tex}{}{}
-\InputIfFileExists{include/vision/vision_cifar10_strip.tex}{}{}
-\InputIfFileExists{include/vision/vision_pipeline_summary.tex}{}{}
-\InputIfFileExists{include/vision/vision_reconstruction_summary.tex}{}{}
-\FloatBarrier
-\clearpage
-
-% --- 3.5 Scaling ---
-\subsection{Scaling}
-\label{sec:scaling_experiments}
+\section{Scaling}
 
 \graphicspath{{include/scaling/}}
 
 \InputIfFileExists{include/scaling/bestfill_scaling.tex}{}{}
 \InputIfFileExists{include/scaling/compression_ratio.tex}{}{}
 \InputIfFileExists{include/scaling/compression_summary.tex}{}{}
-\InputIfFileExists{include/scaling/sequencer_boundaries.tex}{}{}
 \InputIfFileExists{include/scaling/pipeline_throughput.tex}{}{}
+\InputIfFileExists{include/scaling/sequencer_boundaries.tex}{}{}
 \FloatBarrier
 \clearpage
 
-% ============================================================================
-% 4. RELATED WORK
-% ============================================================================
-\section{Related Work}
-\label{sec:related}
+\section{Sections}
 
-% Architecture-specific citation sections
-\graphicspath{{include/architecture/}}
-\InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_nvsa_hd.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_manifold_capacity.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_spectral_embedding.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_topological_nn.tex}{}{}
-\FloatBarrier
-\InputIfFileExists{include/architecture/related_hardware_accel.tex}{}{}
-\FloatBarrier
+\graphicspath{{include/sections/}}
 
-% General related work
-\InputIfFileExists{include/sections/related_work.tex}{}{}
-\FloatBarrier
-\clearpage
-
-% ============================================================================
-% 5. DISCUSSION
-% ============================================================================
-\section{Discussion}
-\label{sec:discussion}
-
-\InputIfFileExists{include/sections/discussion.tex}{}{}
-\FloatBarrier
-\clearpage
-
-% ============================================================================
-% 6. CONCLUSION
-% ============================================================================
-\section{Conclusion}
-\label{sec:conclusion}
-
+\InputIfFileExists{include/sections/abstract.tex}{}{}
+\InputIfFileExists{include/sections/bestfill_pipeline.tex}{}{}
+\InputIfFileExists{include/sections/bvp_generation.tex}{}{}
+\InputIfFileExists{include/sections/chord_representation.tex}{}{}
 \InputIfFileExists{include/sections/conclusion.tex}{}{}
+\InputIfFileExists{include/sections/discussion.tex}{}{}
+\InputIfFileExists{include/sections/eigenmode_navigation.tex}{}{}
+\InputIfFileExists{include/sections/hybrid_substrate.tex}{}{}
+\InputIfFileExists{include/sections/introduction.tex}{}{}
+\InputIfFileExists{include/sections/manifold_architecture.tex}{}{}
+\InputIfFileExists{include/sections/primefield_storage.tex}{}{}
+\InputIfFileExists{include/sections/related_work.tex}{}{}
+\InputIfFileExists{include/sections/tokenizer_sequencer.tex}{}{}
+\InputIfFileExists{include/sections/vm_machine.tex}{}{}
 \FloatBarrier
+\clearpage
 
-% ============================================================================
-% REFERENCES
-% ============================================================================
-\bibliographystyle{plainnat}
-\bibliography{references}
+\section{Vision}
+
+\graphicspath{{include/vision/}}
+
+\FloatBarrier
+\clearpage
 
 \end{document}

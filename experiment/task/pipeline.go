@@ -74,6 +74,7 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	pipeline.machine = vm.NewMachine(
 		vm.MachineWithLoader(loader),
 		vm.MachineWithPrimeField(pf),
+		vm.MachineWithCortex(),
 	)
 
 	pipeline.loader = loader
@@ -138,9 +139,16 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 
 	// Extract the generated portion (everything after the prompt echo)
 	var generated []byte
-	if len(bRes) > len(bPrompt) {
+	if len(bRes) >= len(bPrompt) {
 		generated = bRes[len(bPrompt):]
+	} else {
+		generated = []byte{}
 	}
+
+	console.Info("OBSERVED")
+	fmt.Println()
+	fmt.Printf("%q\n", string(generated))
+	fmt.Println()
 
 	pipeline.experiment.AddResult(tools.ExperimentalData{
 		Idx:      pipeline.testIdx,

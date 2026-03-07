@@ -1,6 +1,8 @@
 package generation
 
 import (
+	"slices"
+
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/store"
@@ -11,6 +13,7 @@ type RecentSeed struct {
 	ByteVal byte // The byte value — its face index on the Fermat cube.
 	Chord   data.Chord
 	Events  []int
+	Rot     geometry.GFRotation
 }
 
 type SlotMask struct {
@@ -21,13 +24,7 @@ type SlotMask struct {
 }
 
 func HasSeedEvent(events []int, wanted int) bool {
-	for _, ev := range events {
-		if ev == wanted {
-			return true
-		}
-	}
-
-	return false
+	return slices.Contains(events, wanted)
 }
 
 func SeedCube(events []int) int {
@@ -111,11 +108,16 @@ func lookupNextRotState(currentRotState uint8, ev int) (uint8, bool) {
 // but does NOT affect where data is placed in the query context.
 func SeedQueryContext(queryCtx *geometry.IcosahedralManifold, recent []RecentSeed, rot geometry.GFRotation) {
 	for _, seed := range recent {
+		// Apply physical layout permutations for the new events to all previously placed tokens,
+		// ensuring the query context topology matches the stored PrimeField topology.
+		ApplyEventsToContext(queryCtx, seed.Events)
+
 		cubeIdx := SupportSeedCube(seed.Events)
 		vetoIdx := VetoSeedCube(cubeIdx)
 
-		// Self-addressing: byteVal IS the face, matching PrimeField.Insert.
-		blockIdx := SeedBlock(seed.ByteVal)
+		// Self-addressing: byteVal IS the face, mapped through the GFRotation
+		// matching the exact topological state when PrimeField was updated.
+		blockIdx := seed.Rot.Forward(int(seed.ByteVal))
 
 		current := queryCtx.Cubes[cubeIdx][blockIdx]
 		veto := data.ChordHole(&current, &seed.Chord)
@@ -150,9 +152,6 @@ func ApplyEventsRotation(queryCtx *geometry.IcosahedralManifold, events []int) g
 	return rot
 }
 
-// ApplyEventsToContext physically rotates cube data. Only used for
-// PrimeField Insert paths where physical layout matters for storage.
-// The generation path uses composable GFRotation instead.
 func ApplyEventsToContext(queryCtx *geometry.IcosahedralManifold, events []int) {
 	for _, ev := range events {
 		currentRotState := queryCtx.Header.RotState()
@@ -164,18 +163,19 @@ func ApplyEventsToContext(queryCtx *geometry.IcosahedralManifold, events []int) 
 			queryCtx.Header.SetRotState(nextRotState)
 		}
 
-		for c := range 5 {
-			switch ev {
-			case geometry.EventDensitySpike:
-				queryCtx.Cubes[c].RotateX()
-			case geometry.EventPhaseInversion:
-				queryCtx.Cubes[c].RotateY()
-			case geometry.EventDensityTrough:
-				queryCtx.Cubes[c].RotateZ()
-			case geometry.EventLowVarianceFlux:
-				queryCtx.Cubes[c].RotateX()
-				queryCtx.Cubes[c].RotateX()
-			}
+		if queryCtx.Header.State() == 1 {
+			queryCtx.Header.IncrementWinding()
+		}
+
+		switch ev {
+		case geometry.EventDensitySpike:
+			queryCtx.Permute3Cycle(0, 1, 2)
+		case geometry.EventPhaseInversion:
+			queryCtx.PermuteDoubleTransposition(0, 3, 1, 4)
+		case geometry.EventDensityTrough:
+			queryCtx.Permute3Cycle(0, 2, 1)
+		case geometry.EventLowVarianceFlux:
+			queryCtx.Permute5Cycle(0, 1, 2, 3, 4)
 		}
 	}
 }
@@ -214,6 +214,35 @@ func BestFace(queryCtx *geometry.IcosahedralManifold, cubeIndex int) (int, data.
 	return bestFace, bestChord, true
 }
 
+func BestPredictedFace(priorCtx, finalCtx *geometry.IcosahedralManifold) (int, data.Chord, bool) {
+	bestFace := -1
+	bestCount := 0
+	var bestChord data.Chord
+
+	for c := range 4 {
+		for face := range geometry.CubeFaces {
+			prior := priorCtx.Cubes[c][face]
+			final := finalCtx.Cubes[c][face]
+
+			// The hole represents what was newly populated into the context.
+			hole := data.ChordHole(&prior, &final)
+			count := hole.ActiveCount()
+
+			if count > bestCount {
+				bestCount = count
+				bestFace = face
+				bestChord = hole
+			}
+		}
+	}
+
+	if bestFace < 0 {
+		return -1, data.Chord{}, false
+	}
+
+	return bestFace, bestChord, true
+}
+
 func DeriveSlotMask(
 	queryCtx *geometry.IcosahedralManifold,
 	expectedReality *geometry.IcosahedralManifold,
@@ -231,14 +260,14 @@ func DeriveSlotMask(
 
 	for b := range geometry.CubeFaces {
 		hasSupportEvidence := false
-		for c := 0; c < 4; c++ {
+		for c := range 4 {
 			if mask.Observed[c][b] {
 				hasSupportEvidence = true
 				break
 			}
 		}
 
-		for c := 0; c < 4; c++ {
+		for c := range 4 {
 			if mask.Observed[c][b] {
 				if expectedReality != nil {
 					hole := data.ChordHole(&expectedReality.Cubes[c][b], &queryCtx.Cubes[c][b])
@@ -251,7 +280,7 @@ func DeriveSlotMask(
 				continue
 			}
 
-			if c == targetCube && b == targetBlock {
+			if c == targetCube && (b == targetBlock || targetBlock == -1) {
 				mask.Missing[c][b] = true
 				if expectedReality != nil {
 					mask.Hole[c][b] = expectedReality.Cubes[c][b]

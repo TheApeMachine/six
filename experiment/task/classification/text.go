@@ -102,6 +102,14 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		}
 	}
 
+	byteScores := tools.ByteScores(results.Holdout, results.Observed)
+	results.Scores = tools.Scores{
+		Exact:   byteScores["exact"],
+		Partial: byteScores["partial"],
+		Fuzzy:   byteScores["fuzzy"],
+	}
+	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
+
 	experiment.tableData = append(experiment.tableData, results)
 }
 

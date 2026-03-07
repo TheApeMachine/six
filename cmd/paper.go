@@ -49,16 +49,17 @@ var paperCmd = &cobra.Command{
 		for _, line := range preamble {
 			fmt.Fprintln(mainFile, line)
 		}
-		
-		// Add unicode handling for the tests that emit α₁ and α₂
+
+		// Add unicode handling for the tests that emit α₁, α₂, and ℓ
 		fmt.Fprintln(mainFile, "\\usepackage{newunicodechar}")
 		fmt.Fprintln(mainFile, "\\newunicodechar{₁}{\\ensuremath{_1}}")
 		fmt.Fprintln(mainFile, "\\newunicodechar{₂}{\\ensuremath{_2}}")
 		fmt.Fprintln(mainFile, "\\newunicodechar{α}{\\ensuremath{\\alpha}}")
-		
+		fmt.Fprintln(mainFile, "\\newunicodechar{ℓ}{\\ensuremath{\\ell}}")
+
 		fmt.Fprintln(mainFile, "")
 		fmt.Fprintln(mainFile, "\\begin{document}")
-		
+
 		fmt.Fprintln(mainFile, "")
 		fmt.Fprintln(mainFile, "\\maketitle")
 		fmt.Fprintln(mainFile, "")
@@ -75,11 +76,11 @@ var paperCmd = &cobra.Command{
 			if !entry.IsDir() {
 				continue
 			}
-			
+
 			moduleName := entry.Name()
 			// Capitalize module name for section
 			sectionName := strings.ToUpper(moduleName[:1]) + moduleName[1:]
-			
+
 			fmt.Fprintf(mainFile, "\\section{%s}\n\n", sectionName)
 			fmt.Fprintf(mainFile, "\\graphicspath{{include/%s/}}\n\n", moduleName)
 
@@ -104,7 +105,7 @@ var paperCmd = &cobra.Command{
 				texFile = strings.ReplaceAll(texFile, "\\", "/")
 				fmt.Fprintf(mainFile, "\\InputIfFileExists{%s}{}{}\n", texFile)
 			}
-			
+
 			fmt.Fprintln(mainFile, "\\FloatBarrier")
 			fmt.Fprintln(mainFile, "\\clearpage")
 			fmt.Fprintln(mainFile, "")

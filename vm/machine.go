@@ -1,7 +1,6 @@
 package vm
 
 import (
-	"fmt"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
@@ -9,7 +8,6 @@ import (
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/store"
-	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm/cortex"
 	"github.com/theapemachine/six/vm/generation"
 )
@@ -146,22 +144,16 @@ func (machine *Machine) promptInternal(
 	expectedReality *geometry.IcosahedralManifold,
 	expectedField *geometry.ExpectedField,
 ) chan byte {
-	// ── CORTEX PATH: reactive working-memory graph ──────────────
-	if machine.useCortex {
-		return machine.promptCortex(prompt, expectedReality)
-	}
-
-	// ── RUNNER PATH: linear sliding-window generation ────────────
-	return machine.promptRunner(prompt, expectedReality, expectedField)
+	return machine.promptCortex(prompt, expectedReality)
 }
 
 // promptCortex spawns a volatile cortex graph that vibrates until convergence,
-// replacing the linear Runner loop with a spatial inference process.
+// representing the core spatial inference process.
 func (machine *Machine) promptCortex(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
 ) chan byte {
-	console.Info("machine: using cortex mode",
+	console.Info("machine: starting generation with cortex model",
 		"promptLen", len(prompt),
 	)
 
@@ -174,58 +166,6 @@ func (machine *Machine) promptCortex(
 	})
 
 	return graph.Think(prompt, expectedReality)
-}
-
-// promptRunner is the original linear sliding-window generation path.
-func (machine *Machine) promptRunner(
-	prompt []data.Chord,
-	expectedReality *geometry.IcosahedralManifold,
-	expectedField *geometry.ExpectedField,
-) chan byte {
-	policy := machine.policy
-	seq := machine.loader.tokenizer.Sequencer()
-
-	// Derive byte values from chords via reverse lookup.
-	// The Fermat cube needs raw byte values for self-addressing.
-	coder := tokenizer.NewMortonCoder()
-	promptBytes := make([]byte, len(prompt))
-	for i, chord := range prompt {
-		key := machine.loader.Store().ReverseLookup(chord)
-		if key == 0 {
-			console.Warn(fmt.Sprintf("machine prompt reverse lookup missing: index=%d chord=%v", i, chord))
-			continue
-		}
-		_, _, b := coder.Decode(key)
-		promptBytes[i] = b
-	}
-
-	runner, err := generation.NewRunner(generation.RunnerConfig{
-		Prompt:          prompt,
-		PromptBytes:     promptBytes,
-		ExpectedReality: expectedReality,
-		ExpectedField:   expectedField,
-		PrimeField:      machine.primefield,
-		Sequencer:       seq,
-		ReverseLookup: func(chord data.Chord) uint64 {
-			return machine.loader.Store().ReverseLookup(chord)
-		},
-		BestFill:           generation.BestFillFn(machine.bestFill),
-		BestFillWithField:  generation.BestFillWithFieldFn(machine.bestFillWithField),
-		OnBranchPolicy:     policy.TrackMargin,
-		OnAnchorVeto:       policy.TrackAnchorVeto,
-		StopCh:             machine.stopCh,
-		MaxGenerationSteps: maxGenerationSteps,
-		MaxReasoningHops:   maxReasoningHops,
-		RecentLimit:        12,
-	})
-	if err != nil {
-		console.Error(err, "context", "Machine.promptRunner")
-		out := make(chan byte)
-		close(out)
-		return out
-	}
-
-	return runner.Run()
 }
 
 func MachineWithLoader(loader *Loader) machineOpts {

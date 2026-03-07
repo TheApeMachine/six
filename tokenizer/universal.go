@@ -67,8 +67,14 @@ func (tokenizer *Universal) Generate() chan Token {
 		var z uint8
 
 		for rawToken := range tokenizer.dataset.Generate() {
+			if rawToken.Pos == 0 {
+				tokenizer.pos = 0
+				z = 0
+				// Analyze(0, ...) inherently resets the Sequencer's EMA due to pos == 0 branch
+			}
+
 			chord := data.BaseChord(rawToken.Symbol)
-			reset, events := tokenizer.sequencer.Analyze(int(rawToken.Pos), chord)
+			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), chord)
 
 			out <- Token{
 				TokenID: tokenizer.coder.Encode(z, tokenizer.pos, rawToken.Symbol),

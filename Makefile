@@ -8,5 +8,5 @@ metal:
 
 paper:
 	-go test ./experiment/task/...
-	go run cmd/paper/main.go
+	go run main.go paper
 	cd paper && pdflatex main.tex

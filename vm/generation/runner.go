@@ -143,11 +143,13 @@ func (runner *Runner) run(out chan byte) {
 		}
 
 		recent = PushRecentSeed(recent, RecentSeed{
-			Pos: pos, ByteVal: byteVal, Chord: chord, Events: events,
+			Pos: pos, ByteVal: byteVal, Chord: chord, Events: events, Rot: rot,
 		}, runner.config.RecentLimit)
 
+		pos++
 		if reset {
 			zNext = 0
+			pos = 0
 		} else {
 			zNext++
 		}
@@ -218,19 +220,27 @@ func (runner *Runner) run(out chan byte) {
 			break
 		}
 
+		console.Trace("dictionary snapshot length", "n", dictionaryN, "offset", dictionaryOffset)
+
 		cubeIndex := SupportSeedCube(lastEvents)
+
+		var priorCtx geometry.IcosahedralManifold
+		MergeManifold(&priorCtx, &queryCtx)
 
 		cycleGuard := make(map[int]struct{}, runner.config.MaxReasoningHops)
 		retained := 0
-		lastBestIdx := -1
 		previousScore := -1.0
+
+		var matched geometry.IcosahedralManifold
 
 		for range runner.config.MaxReasoningHops {
 			if runner.shouldStop() {
 				return
 			}
 
-			mask := DeriveSlotMask(&queryCtx, &expectedCtx, cubeIndex, -1)
+			// We don't restrict to just cubeIndex. We want to pull in any highly relevant face
+			// across ALL data cubes, in case the next token rotated somewhere else.
+			mask := DeriveSlotMask(&queryCtx, &expectedCtx, -1, -1)
 			if mask.Count == 0 {
 				console.Info("generation exit: empty mask", "cube", cubeIndex)
 				break
@@ -289,61 +299,102 @@ func (runner *Runner) run(out chan byte) {
 			previousScore = score
 
 			resolvedIdx := bestIdx + dictionaryOffset
-			lastBestIdx = bestIdx
 			if _, seen := cycleGuard[resolvedIdx]; seen {
 				break
 			}
 			cycleGuard[resolvedIdx] = struct{}{}
 
 			console.Trace("BestFill Retrieved Geodesic Target", "bestIdx", bestIdx)
-			matched := runner.config.PrimeField.Manifold(resolvedIdx)
+			matched = runner.config.PrimeField.Manifold(resolvedIdx)
 			filled := IntegrateFill(&queryCtx, &matched, mask, runner.config.PrimeField)
+			// ADD THIS LOG:
+			console.Info("IntegrateFill executed", "filled", filled, "bestIdx", resolvedIdx)
 			if filled == 0 {
 				break
 			}
 		}
 
-		// Output: scan all 257 faces on the support cube.
-		// Since data is placed at face=byteVal (self-addressing), the
-		// face index with highest activity IS the predicted byte value.
-		bestFace, nextChord, ok := BestFace(&queryCtx, cubeIndex)
+		// Scan all 256 possible bytes and forward-simulate topological routing
+		bestByte := byte(0)
+		bestScore := -1 // use int since ActiveCount returns int
+		var bestEvents []int
+		var bestChord data.Chord
+		var bestReset bool
+
+		for b := 0; b < 256; b++ {
+			candidateByte := byte(b)
+			candidateChord := data.BaseChord(candidateByte)
+
+			reset, evs := runner.config.Sequencer.Analyze(int(zNext), candidateChord)
+
+			testRot := rot
+			for _, e := range evs {
+				testRot = testRot.Compose(geometry.EventRotation(e))
+			}
+			faceIdx := testRot.Forward(int(candidateByte))
+
+			// We don't know the exact A5 rotation alignment at freeze-time, but intra-cube
+			// offsets (faces) are permutation-invariant. Collapse the depth dimension!
+			var mergedManifold data.Chord
+			var mergedPrior data.Chord
+
+			for c := 0; c < 5; c++ {
+				mergedManifold = data.ChordOR(&mergedManifold, &matched.Cubes[c][faceIdx])
+				mergedPrior = data.ChordOR(&mergedPrior, &priorCtx.Cubes[c][faceIdx])
+			}
+
+			// hole represents the 'novelty' in the manifold: what is present there,
+			// but NOT present anywhere in our recent priorCtx at this face.
+			hole := data.ChordHole(&mergedManifold, &mergedPrior)
+			shared := data.ChordGCD(&candidateChord, &hole)
+			score := shared.ActiveCount()
+
+			if score > bestScore {
+				bestScore = score
+				bestByte = candidateByte
+				bestEvents = evs
+				bestChord = candidateChord
+				bestReset = reset
+			}
+		}
 
 		console.Trace("generation step",
 			"z", zNext,
-			"cube", cubeIndex,
-			"bestFace", bestFace,
-			"bestIdx", lastBestIdx,
-			"active", nextChord.ActiveCount(),
+			"bestByte", bestByte,
+			"bestScore", bestScore,
 		)
 
-		if !ok || nextChord.ActiveCount() == 0 {
-			console.Info("generation exit: no active face", "z", zNext, "cube", cubeIndex)
+		if bestScore <= 0 {
+			var nonZeroCount int
+			for c := 0; c < 5; c++ {
+				for f := 0; f < 257; f++ {
+					if matched.Cubes[c][f].ActiveCount() > 0 {
+						nonZeroCount++
+					}
+				}
+			}
+			console.Info("generation exit: no active candidate", "z", zNext, "matched_faces", nonZeroCount)
 			break
 		}
 
-		// Face 256 is the structural delimiter.
-		if bestFace >= 256 {
-			console.Info("generation exit: delimiter face", "z", zNext)
-			break
-		}
+		nextByte := bestByte
+		nextChord := bestChord
+		events := bestEvents
 
-		// The face index IS the byte value. No inverse mapping needed.
-		nextByte := byte(bestFace)
+		// We must actually mutate the sequencer state to accurately follow the time series
+		runner.config.Sequencer.Analyze(int(zNext), nextChord)
 
 		if !runner.sendOrStop(out, nextByte) {
 			return
 		}
 		lastByteVal = nextByte
 
-		reset, events := runner.config.Sequencer.Analyze(int(zNext), nextChord)
-
-		// Compose new event rotations — O(1) per event, zero data movement.
-		for _, ev := range events {
-			rot = rot.Compose(geometry.EventRotation(ev))
+		for _, e := range events {
+			rot = rot.Compose(geometry.EventRotation(e))
 		}
 
 		recent = PushRecentSeed(recent, RecentSeed{
-			Pos: zNext, ByteVal: nextByte, Chord: nextChord, Events: events,
+			Pos: zNext, ByteVal: nextByte, Chord: nextChord, Events: events, Rot: rot,
 		}, runner.config.RecentLimit)
 		chords = append(chords, nextChord)
 
@@ -351,7 +402,7 @@ func (runner *Runner) run(out chan byte) {
 			lastEvents = events
 		}
 
-		if reset {
+		if bestReset {
 			zNext = 0
 		} else {
 			zNext++
