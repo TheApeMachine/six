@@ -41,23 +41,24 @@ func (t *Token) IsRotational() bool {
 
 /*
 DecodeRotation extracts (A, B) coefficients from a rotation chord.
-The two set bit positions in the 257-bit logical range are interpreted as
-the multiplicative and additive coefficients respectively.
+
+NewRotationToken sets bits at positions A and B. ChordPrimeIndices returns
+indices in ascending order. By convention, the LARGER index is always the
+multiplicative coefficient A (which must be ≥1 for a valid GF(257) bijection),
+and the smaller index is the additive offset B.
 
 Precondition: IsRotational() must be true.
 
-Returns IdentityRotation if the chord is degenerate (A == 0).
+Returns IdentityRotation if the chord is degenerate.
 */
 func (t *Token) DecodeRotation() geometry.GFRotation {
 	indices := data.ChordPrimeIndices(&t.Chord)
 	if len(indices) < 2 {
 		return geometry.IdentityRotation()
 	}
-	a, b := uint16(indices[0]), uint16(indices[1])
-	// A must be non-zero for a valid GF(257) bijection.
-	if a == 0 {
-		a, b = b, a
-	}
+	// indices are ascending: [smaller, larger].
+	// A = larger (multiplicative, must be ≥1), B = smaller (additive).
+	a, b := uint16(indices[1]), uint16(indices[0])
 	if a == 0 {
 		return geometry.IdentityRotation()
 	}
