@@ -1,7 +1,6 @@
 *.log
 *.bin
 *.DS_Store
-*.txt
 six_geometry_reasoning_plan.md
 thoughts/ledgers/CONTINUITY_ses_33cd.md
 .gitignore
