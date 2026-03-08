@@ -80,6 +80,11 @@ func (tokenizer *Universal) Generate() chan Token {
 			if rawToken.SampleID != tokenizer.sampleID {
 				tokenizer.sampleID = rawToken.SampleID
 				tokenizer.tokens.Reset()
+				console.Trace(
+					"tokenizer-boundary",
+					"sequence", tokenizer.tokens.String(),
+				)
+				tokenizer.pos = 0
 			}
 
 			chord := data.BaseChord(rawToken.Symbol)
@@ -99,15 +104,15 @@ func (tokenizer *Universal) Generate() chan Token {
 			streamPos++
 			tokenizer.pos++
 
-			if reset {
-				console.Trace(
-					"tokenizer-boundary",
-					"sequence", tokenizer.tokens.String(),
-				)
+			// if reset {
+			// 	console.Trace(
+			// 		"tokenizer-boundary",
+			// 		"sequence", tokenizer.tokens.String(),
+			// 	)
 
-				tokenizer.tokens.Reset()
-				tokenizer.pos = 0
-			}
+			// 	tokenizer.tokens.Reset()
+			// 	tokenizer.pos = 0
+			// }
 		}
 
 		// Emit the trailing data after the last boundary as a final sequence.
