@@ -39,14 +39,14 @@
       "Name": "Text Overlap",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": "ZSBtYW4gaW4gcG9zc2Vzc2lvbiBvZiBhIGdvb2QgZm9ydHVuZSwgbXVzdCBiZSBpbiB3YW50IG9mIGEgd2lmZS4=",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -83,6 +83,6 @@
       "PredLabel": null
     }
   ],
-  "score": 1,
+  "score": 0.8,
   "section": "textgen"
 }

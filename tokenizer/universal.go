@@ -103,16 +103,6 @@ func (tokenizer *Universal) Generate() chan Token {
 
 			streamPos++
 			tokenizer.pos++
-
-			// if reset {
-			// 	console.Trace(
-			// 		"tokenizer-boundary",
-			// 		"sequence", tokenizer.tokens.String(),
-			// 	)
-
-			// 	tokenizer.tokens.Reset()
-			// 	tokenizer.pos = 0
-			// }
 		}
 
 		// Emit the trailing data after the last boundary as a final sequence.

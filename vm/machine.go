@@ -79,7 +79,7 @@ func (machine *Machine) Start() error {
 		if isBoundary {
 			// Write explicit pointers into face 256
 			rot := geometry.IdentityRotation()
-			for i := 0; i <= len(bytesSeq); i++ {
+			for i := 0; i < len(bytesSeq); i++ {
 				var ptr data.Chord
 				for j := 0; j < 5; j++ {
 					ptr.Set(rand.Intn(257))
@@ -123,7 +123,7 @@ func (machine *Machine) Start() error {
 	// Flush trailing chords that arrived after the last boundary.
 	if len(sequence) > 0 {
 		rot := geometry.IdentityRotation()
-		for i := 0; i <= len(bytesSeq); i++ {
+		for i := 0; i < len(bytesSeq); i++ {
 			var ptr data.Chord
 			for j := 0; j < 5; j++ {
 				ptr.Set(rand.Intn(257))

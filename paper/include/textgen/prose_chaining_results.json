@@ -7,7 +7,7 @@
       "Name": "Prose Chaining",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "dmUgdGhlIHBvcnQgd2FzIHRoZSBjb2xvciBvZiB0ZWxldmlzaW9uLCB0dW5lZCB0byBhIGRlYWQgY2hhbm5lbC4=",
+      "Observed": "c3Npb24gb2YgYSBnb29kIGZvcnR1bmUsIG11c3QgYmUgaW4gd2FudCBvZiBhIHdpZmUu",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -39,14 +39,14 @@
       "Name": "Prose Chaining",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": "byBhIGRlYWQgY2hhbm5lbC4=",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -83,6 +83,6 @@
       "PredLabel": null
     }
   ],
-  "score": 1,
+  "score": 0.8,
   "section": "textgen"
 }

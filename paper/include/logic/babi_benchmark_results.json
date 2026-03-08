@@ -7,7 +7,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gV2hlcmUgaXMgTWFyeT8=",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "cmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgU2FuZHJhPyBiYXRocm9vbQ==",
+      "Observed": "cmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgaGFsbHdheS4gSm9obiB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBEYW5pZWw/IGhhbGx3YXk=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,14 +23,14 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "IGhhbGx3YXk=",
+      "Observed": "bCBtb3ZlZCB0byB0aGUgaGFsbHdheS4gSm9obiB3ZW50IHRvIHRoZSBnYXJkZW4uIEpvaG4gdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCBqb3VybmV5ZWQgdG8gdGhlIGJlZHJvb20uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gd2VudCB0byB0aGUgYmVkcm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgRGFuaWVsPyBoYWxsd2F5",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.14285714285714285,
-        "Fuzzy": 0.125
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.06168831168831168,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -39,7 +39,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gbW92ZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "IEpvaG4gdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCBqb3VybmV5ZWQgdG8gdGhlIGJlZHJvb20uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGhhbGx3YXkuIFdoZXJlIGlzIEpvaG4/IG9mZmljZQ==",
+      "Observed": "IEpvaG4gdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCBqb3VybmV5ZWQgdG8gdGhlIGJlZHJvb20uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gd2VudCB0byB0aGUgYmVkcm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgRGFuaWVsPyBoYWxsd2F5",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -71,14 +71,14 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gbW92ZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIGhhbGx3YXkuIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "IGJhdGhyb29t",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.125,
-        "Fuzzy": 0.1111111111111111
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.054292929292929296,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -87,14 +87,14 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIFNhbmRyYT8=",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "d2VudCBiYWNrIHRvIHRoZSBoYWxsd2F5LiBTYW5kcmEgbW92ZWQgdG8gdGhlIGdhcmRlbi4gSm9obiBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBEYW5pZWw/IG9mZmljZQ==",
+      "Observed": "bGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCBqb3VybmV5ZWQgdG8gdGhlIGJlZHJvb20uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gd2VudCB0byB0aGUgYmVkcm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgRGFuaWVsPyBoYWxsd2F5",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0,
-        "Fuzzy": 0
+        "Partial": 0.125,
+        "Fuzzy": 0.006060606060606061
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.03519283746556474,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -103,14 +103,14 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBXaGVyZSBpcyBTYW5kcmE/",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "Y2sgdG8gdGhlIGhhbGx3YXkuIFNhbmRyYSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIG1vdmVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGJhdGhyb29tLiBXaGVyZSBpcyBEYW5pZWw/IGhhbGx3YXk=",
+      "Observed": "bGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGdhcmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgaGFsbHdheS4gSm9obiB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBEYW5pZWw/IGhhbGx3YXk=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0,
-        "Fuzzy": 0
+        "Partial": 0.125,
+        "Fuzzy": 0.003278688524590164
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.03468703427719821,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -119,14 +119,14 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGdhcmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "eWVkIHRvIHRoZSBiYXRocm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBKb2huIHdlbnQgYmFjayB0byB0aGUgZ2FyZGVuLiBKb2huIG1vdmVkIHRvIHRoZSBiZWRyb29tLiBXaGVyZSBpcyBTYW5kcmE/IGJhdGhyb29t",
+      "Observed": "dG8gdGhlIGhhbGx3YXkuIEpvaG4gd2VudCB0byB0aGUgYmVkcm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgRGFuaWVsPyBoYWxsd2F5",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.125,
-        "Fuzzy": 0.006172839506172839
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.035213243546576886,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -151,18 +151,18 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGdhcmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgaGFsbHdheS4gSm9obiB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBEYW5pZWw/",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "dmVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGJhdGhyb29tLiBNYXJ5IG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIEpvaG4gd2VudCBiYWNrIHRvIHRoZSBnYXJkZW4uIEpvaG4gbW92ZWQgdG8gdGhlIGJlZHJvb20uIFdoZXJlIGlzIFNhbmRyYT8gYmF0aHJvb20=",
+      "Observed": "IGhhbGx3YXk=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0,
-        "Fuzzy": 0
+        "Partial": 0.14285714285714285,
+        "Fuzzy": 0.125
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.06168831168831168,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0.02014337189775786,
+  "score": 0.01818074178808354,
   "section": "logic"
 }
