@@ -140,6 +140,11 @@ type Graph struct {
 	outputBytes    int
 }
 
+type faceCandidate struct {
+	face  int
+	score int
+}
+
 // Self-address cache: maps Chord → byte value.
 // Precomputed for all 256 BaseChords; composed chords are resolved via
 // similarity scan and cached.
@@ -165,30 +170,79 @@ This replaces the old ChordBin-based dominantFace which broke the Fermat cube
 self-addressing property (byte value = face index).
 */
 func selfAddressFace(c *data.Chord) int {
-	selfAddrMu.RLock()
-	if face, ok := selfAddrCache[*c]; ok {
-		selfAddrMu.RUnlock()
-		return face
+	candidates := selfAddressCandidates(c, 1)
+	if len(candidates) == 0 {
+		return 256
 	}
-	selfAddrMu.RUnlock()
 
-	// Similarity scan: find the byte whose BaseChord best matches.
-	bestByte := 0
-	bestSim := -1
-	for b := range 256 {
-		bc := data.BaseChord(byte(b))
-		sim := data.ChordSimilarity(c, &bc)
-		if sim > bestSim {
-			bestSim = sim
-			bestByte = b
+	return candidates[0].face
+}
+
+func appendFaceCandidate(top []faceCandidate, cand faceCandidate, limit int) []faceCandidate {
+	insertAt := len(top)
+	for i := range top {
+		if cand.score > top[i].score {
+			insertAt = i
+			break
 		}
 	}
 
-	selfAddrMu.Lock()
-	selfAddrCache[*c] = bestByte
-	selfAddrMu.Unlock()
+	if len(top) < limit {
+		top = append(top, faceCandidate{})
+	}
+	if insertAt < len(top) {
+		copy(top[insertAt+1:], top[insertAt:len(top)-1])
+		top[insertAt] = cand
+	}
 
-	return bestByte
+	if len(top) > limit {
+		top = top[:limit]
+	}
+
+	return top
+}
+
+func selfAddressCandidates(c *data.Chord, limit int) []faceCandidate {
+	if limit <= 0 {
+		return nil
+	}
+
+	selfAddrMu.RLock()
+	if face, ok := selfAddrCache[*c]; ok {
+		selfAddrMu.RUnlock()
+		return []faceCandidate{{face: face, score: c.ActiveCount()}}
+	}
+	selfAddrMu.RUnlock()
+
+	var top []faceCandidate
+	for b := range 256 {
+		bc := data.BaseChord(byte(b))
+		sim := data.ChordSimilarity(c, &bc)
+		if sim <= 0 {
+			continue
+		}
+
+		top = appendFaceCandidate(top, faceCandidate{face: b, score: sim}, limit)
+	}
+
+	if len(top) == 0 {
+		// Fall back to the chord's active faces directly when no base face
+		// meaningfully explains the structure.
+		for _, idx := range data.ChordPrimeIndices(c) {
+			if idx >= 256 {
+				continue
+			}
+			top = appendFaceCandidate(top, faceCandidate{face: idx, score: 1}, limit)
+		}
+	}
+
+	if len(top) > 0 {
+		selfAddrMu.Lock()
+		selfAddrCache[*c] = top[0].face
+		selfAddrMu.Unlock()
+	}
+
+	return top
 }
 
 /*
@@ -382,12 +436,12 @@ func (g *Graph) queryBedrock(node *Node) {
 		return
 	}
 
-	hole, shouldDream := node.Hole()
+	anchor, hole, shouldDream := node.Hole()
 	if !shouldDream {
 		return
 	}
 
-	dictPtr, dictN, _ := g.config.PrimeField.SearchSnapshot()
+	dictPtr, dictN, dictOffset := g.config.PrimeField.SearchSnapshot()
 	if dictN == 0 {
 		return
 	}
@@ -407,27 +461,38 @@ func (g *Graph) queryBedrock(node *Node) {
 
 	for d := range nDial {
 		// Build query context, optionally rotated.
-		var ctx geometry.IcosahedralManifold
-		queryHole := hole
+		var (
+			ctx      geometry.IcosahedralManifold
+			expected geometry.IcosahedralManifold
+		)
+		ctx.Header = node.Header
+		expected.Header = node.Header
+
+		queryAnchor := anchor
+		queryExpected := data.ChordOR(&anchor, &hole)
 
 		if d > 0 && g.config.EigenMode != nil {
-			// Apply torus rotation: shift the hole's face placement by
-			// rotating the self-address offset. This queries different
-			// manifold regions for the same structural deficit.
+			// Apply torus rotation: shift the anchor placement to query
+			// neighboring manifold regions for the same deficit pattern.
 			angle := basePhase + float64(d)*math.Pi/float64(nDial*2)
 			shift := int(angle*257/(2*math.Pi)) % 257
-			face := (selfAddressFace(&hole) + shift) % 257
-			ctx.Cubes[0][face] = queryHole
+			face := (selfAddressFace(&queryAnchor) + shift) % 257
+			if face < 0 {
+				face += 257
+			}
+			ctx.Cubes[0][face] = queryAnchor
+			expected.Cubes[0][face] = queryExpected
 		} else {
-			face := selfAddressFace(&hole)
-			ctx.Cubes[0][face] = queryHole
+			face := selfAddressFace(&queryAnchor)
+			ctx.Cubes[0][face] = queryAnchor
+			expected.Cubes[0][face] = queryExpected
 		}
 
 		bestIdx, score, err := g.config.BestFill(
 			dictPtr,
 			dictN,
 			unsafe.Pointer(&ctx),
-			unsafe.Pointer(&ctx),
+			unsafe.Pointer(&expected),
 			0,
 			unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
 		)
@@ -438,13 +503,16 @@ func (g *Graph) queryBedrock(node *Node) {
 		// Scan ALL faces of the matched manifold for the best hole-filler.
 		// This is the candidate-scoring pipeline from textgen/compositional:
 		// for each face, compute FillScore(hole, face_chord) and take the best.
-		matched := g.config.PrimeField.Manifold(bestIdx)
+		matched := g.config.PrimeField.Manifold(dictOffset + bestIdx)
 		for face := range geometry.CubeFaces {
 			faceChord := matched.Cubes[0][face]
 			if faceChord.ActiveCount() == 0 {
 				continue
 			}
 			quality := resonance.FillScore(&hole, &faceChord)
+			if anchor.ActiveCount() > 0 {
+				quality += 0.25 * (float64(data.ChordSimilarity(&anchor, &faceChord)) / float64(anchor.ActiveCount()))
+			}
 			if quality > bestFill {
 				bestFill = quality
 				bestChord = faceChord

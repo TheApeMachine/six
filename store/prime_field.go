@@ -177,6 +177,23 @@ func (field *PrimeField) snapPrototype(blockIdx int, chord data.Chord) data.Chor
 	return chord
 }
 
+func shouldOverwriteSupport(current, incoming *data.Chord) bool {
+	if current.ActiveCount() == 0 {
+		return true
+	}
+
+	shared := data.ChordSimilarity(current, incoming)
+	staleChord := data.ChordHole(current, incoming)
+	freshChord := data.ChordHole(incoming, current)
+	stale := staleChord.ActiveCount()
+	fresh := freshChord.ActiveCount()
+
+	// If the new observation introduces substantial new structure and most
+	// of the old support is now stale, bias toward replacement instead of
+	// monotonic OR accumulation.
+	return fresh > 0 && stale > shared
+}
+
 /*
 NewPrimeField creates a new PrimeField.
 */
@@ -352,8 +369,12 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 	current := field.manifolds[0].Cubes[supportCube][blockIndex]
 	veto := data.ChordHole(&current, &chord)
 
-	merged := data.ChordOR(&current, &chord)
-	field.manifolds[0].Cubes[supportCube][blockIndex] = merged
+	if shouldOverwriteSupport(&current, &chord) {
+		field.manifolds[0].Cubes[supportCube][blockIndex] = chord
+	} else {
+		merged := data.ChordOR(&current, &chord)
+		field.manifolds[0].Cubes[supportCube][blockIndex] = merged
+	}
 
 	if veto.ActiveCount() > 0 {
 		vetoMerged := data.ChordOR(&field.manifolds[0].Cubes[vetoCube][blockIndex], &veto)

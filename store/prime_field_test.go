@@ -161,6 +161,32 @@ func TestPrimeFieldInsertTracksHeaderRotationState(t *testing.T) {
 	})
 }
 
+func TestPrimeFieldInsertPrefersLatestSupportOnConflict(t *testing.T) {
+	Convey("Given a PrimeField support block receiving conflicting observations", t, func() {
+		pf := NewPrimeField()
+
+		var first data.Chord
+		first.Set(11)
+		first.Set(17)
+
+		var second data.Chord
+		second.Set(29)
+		second.Set(31)
+
+		pf.Insert(42, 1, first, nil)
+		pf.Insert(42, 2, second, nil)
+
+		active := pf.Manifold(0)
+		support := active.Cubes[cubeFromEvents(nil)][42]
+		veto := active.Cubes[vetoCubeFromSupport(cubeFromEvents(nil))][42]
+
+		Convey("Then the latest chord replaces stale support and stale bits move to veto", func() {
+			So(support, ShouldResemble, second)
+			So(data.ChordSimilarity(&veto, &first), ShouldEqual, first.ActiveCount())
+		})
+	})
+}
+
 func TestPrimeFieldInsertTriggersMitosisAtDensityThreshold(t *testing.T) {
 	Convey("Given a PrimeField accumulating dense support evidence", t, func() {
 		pf := NewPrimeField()

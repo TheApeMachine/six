@@ -82,6 +82,38 @@ func TestBestFillCPUPackedBytes_ParityWithLegacyLoop(t *testing.T) {
 	}
 }
 
+func TestBestFillCPUPackedBytes_DefaultHeaderActsAsWildcard(t *testing.T) {
+	var ctx geometry.IcosahedralManifold
+	ctx.Cubes[0][0].Set(1)
+
+	var exp geometry.IcosahedralManifold
+	exp.Cubes[0][0].Set(1)
+	exp.Cubes[0][0].Set(2)
+
+	dict := make([]geometry.IcosahedralManifold, 2)
+
+	dict[0].Header.SetState(1)
+	dict[0].Cubes[0][0].Set(1)
+	dict[0].Cubes[0][0].Set(2)
+
+	dict[1].Header.SetState(0)
+	dict[1].Cubes[0][0].Set(1)
+
+	dictBytes := unsafe.Slice((*byte)(unsafe.Pointer(&dict[0])), len(dict)*numeric.ManifoldBytes)
+	ctxBytes := unsafe.Slice((*byte)(unsafe.Pointer(&ctx)), numeric.ManifoldBytes)
+	expBytes := unsafe.Slice((*byte)(unsafe.Pointer(&exp)), numeric.ManifoldBytes)
+
+	got, err := BestFillCPUPackedBytes(dictBytes, len(dict), ctxBytes, expBytes, nil, nil)
+	if err != nil {
+		t.Fatalf("BestFillCPUPackedBytes returned error: %v", err)
+	}
+
+	bestIdx, _ := numeric.DecodePacked(got)
+	if bestIdx != 0 {
+		t.Fatalf("default header should not filter out higher-scoring candidate: got=%d want=0", bestIdx)
+	}
+}
+
 func legacyBestFillCPUPackedBytes(
 	dictBytes []byte,
 	numChords int,

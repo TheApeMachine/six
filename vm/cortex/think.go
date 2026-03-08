@@ -8,6 +8,42 @@ import (
 	"github.com/theapemachine/six/geometry"
 )
 
+func (g *Graph) bestOutputCandidate() (int, int, data.Chord, bool) {
+	sourceSummary := g.source.CubeChord()
+
+	bestLogical := 256
+	bestPhysical := -1
+	bestScore := -1.0
+	bestChord := data.Chord{}
+
+	for physical := range geometry.CubeFaces {
+		faceChord := g.sink.Cube[physical]
+		count := faceChord.ActiveCount()
+		if count == 0 {
+			continue
+		}
+
+		logical := g.sink.Rot.Reverse(physical)
+		if logical == 256 {
+			continue
+		}
+
+		score := float64(count)
+		if sourceSummary.ActiveCount() > 0 {
+			score += 0.35 * float64(data.ChordSimilarity(&sourceSummary, &faceChord))
+		}
+
+		if score > bestScore {
+			bestLogical = logical
+			bestPhysical = physical
+			bestScore = score
+			bestChord = faceChord
+		}
+	}
+
+	return bestLogical, bestPhysical, bestChord, bestPhysical >= 0
+}
+
 /*
 Think is the top-level cortex execution.
 
@@ -110,21 +146,11 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 				break
 			}
 
-			face := g.sink.BestFace()
+			face, physicalFace, emittedChord, ok := g.bestOutputCandidate()
 
-			// Face 256 = delimiter → sequence complete.
-			if face == 256 {
+			// No viable face → sequence complete.
+			if !ok || face == 256 {
 				console.Info("cortex stop: delimiter",
-					"bytesGenerated", i,
-					"totalTicks", g.tick,
-				)
-				break
-			}
-
-			// Reverse back to physical face to check if active.
-			physicalFace := g.sink.Rot.Forward(face)
-			if g.sink.Cube[physicalFace].ActiveCount() == 0 {
-				console.Info("cortex stop: exhausted",
 					"bytesGenerated", i,
 					"totalTicks", g.tick,
 				)
@@ -141,14 +167,13 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 			// Decay momentum.
 			g.momentum *= phiDecay
 
-			// ── REINJECT: cascade output back as input with Sequencer ──
-			reinjection := data.BaseChord(byte(face))
-			g.source.Send(NewDataToken(reinjection, -1))
+			// ── REINJECT: cascade output back as input with its full chord ──
+			g.source.Send(NewDataToken(emittedChord, -1))
 
 			// Continue Sequencer analysis on the generated output.
 			if g.config.Sequencer != nil {
-				reset, events := g.config.Sequencer.Analyze(int(g.seqPos), reinjection)
-				g.accumulateMomentum(reinjection, events)
+				reset, events := g.config.Sequencer.Analyze(int(g.seqPos), emittedChord)
+				g.accumulateMomentum(emittedChord, events)
 				for _, ev := range events {
 					rot := geometry.EventRotation(ev)
 					g.source.Send(NewRotationToken(rot, -1))

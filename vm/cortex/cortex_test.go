@@ -159,6 +159,32 @@ func TestArrive_InterferenceEmitsToken(t *testing.T) {
 	}
 }
 
+func TestNodeHole_UsesSummaryMinusPeak(t *testing.T) {
+	node := NewNode(0, 0)
+
+	left := data.BaseChord(20)
+	right := data.BaseChord(21)
+	peak := data.ChordOR(&left, &right)
+	side := data.BaseChord(10)
+
+	node.Cube[20] = peak
+	node.Cube[10] = side
+
+	anchor, hole, shouldDream := node.Hole()
+	expectedSummary := node.CubeChord()
+	expectedHole := data.ChordHole(&expectedSummary, &peak)
+
+	if anchor != peak {
+		t.Fatal("anchor should be the densest face chord")
+	}
+	if hole != expectedHole {
+		t.Fatal("hole should be the summary minus the densest face")
+	}
+	if !shouldDream {
+		t.Fatal("node with a non-empty deficit should dream")
+	}
+}
+
 // ── Graph Tests ──────────────────────────────────────────────────
 
 func TestGraph_SmallWorldTopology(t *testing.T) {

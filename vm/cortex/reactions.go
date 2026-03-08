@@ -24,6 +24,18 @@ func (n *Node) Arrive(tok Token) []Token {
 	if tok.IsRotational() {
 		incoming := tok.DecodeRotation()
 		n.Rot = n.Rot.Compose(incoming)
+		if event, ok := geometry.RotationEvent(incoming); ok {
+			state := int(n.Header.RotState())
+			if state >= 0 && state < len(geometry.StateTransitionMatrix) {
+				next := geometry.StateTransitionMatrix[state][event]
+				if next != 255 {
+					n.Header.SetRotState(next)
+				}
+			}
+			if n.Header.State() == 1 {
+				n.Header.IncrementWinding()
+			}
+		}
 		return nil // fully absorbed — no output
 	}
 
@@ -31,28 +43,36 @@ func (n *Node) Arrive(tok Token) []Token {
 	// Determine which face this chord lands on using the Fermat cube
 	// self-addressing property (byte value = face), then route through
 	// the node's rotational lens.
-	face := selfAddressFace(&tok.Chord)
-	routed := n.Rot.Forward(face)
-
-	// Snapshot before merge (needed for interference detection).
-	before := n.Cube[routed]
-
-	// Merge via ChordOR — accumulative superposition.
-	n.Cube[routed] = data.ChordOR(&n.Cube[routed], &tok.Chord)
+	candidates := selfAddressCandidates(&tok.Chord, 4)
+	if len(candidates) == 0 {
+		return nil
+	}
 
 	var emitted []Token
+	routedFaces := make([]int, 0, len(candidates))
 
-	// ── DESTRUCTIVE INTERFERENCE → EMISSION ──────────────────────────
-	// ChordHole computes what the incoming chord contributes that the
-	// existing state contradicts: target AND NOT existing.
-	// If there IS a hole, the contradiction signal propagates outward.
-	hole := data.ChordHole(&tok.Chord, &before)
-	if hole.ActiveCount() > 0 && tok.TTL > 1 {
-		emitted = append(emitted, Token{
-			Chord:  hole,
-			Origin: n.ID,
-			TTL:    tok.TTL - 1,
-		})
+	for _, candidate := range candidates {
+		routed := n.Rot.Forward(candidate.face)
+		routedFaces = append(routedFaces, routed)
+
+		// Snapshot before merge (needed for interference detection).
+		before := n.Cube[routed]
+
+		// Merge via ChordOR — accumulative superposition.
+		n.Cube[routed] = data.ChordOR(&n.Cube[routed], &tok.Chord)
+
+		// ── DESTRUCTIVE INTERFERENCE → EMISSION ──────────────────────
+		// ChordHole computes what the incoming chord contributes that the
+		// existing state contradicts: target AND NOT existing.
+		// If there IS a hole, the contradiction signal propagates outward.
+		hole := data.ChordHole(&tok.Chord, &before)
+		if hole.ActiveCount() > 0 && tok.TTL > 1 {
+			emitted = append(emitted, Token{
+				Chord:  hole,
+				Origin: n.ID,
+				TTL:    tok.TTL - 1,
+			})
+		}
 	}
 
 	// ── TRANSITIVE RESONANCE ─────────────────────────────────────────
@@ -68,7 +88,7 @@ func (n *Node) Arrive(tok Token) []Token {
 	if summary.ActiveCount() > 5 && tok.Chord.ActiveCount() > 3 {
 		shared := data.ChordGCD(&tok.Chord, &summary)
 		if shared.ActiveCount() > 1 { // sufficient pairwise overlap
-			faceContent := n.Cube[routed]
+			faceContent := n.Cube[routedFaces[0]]
 			h := resonance.TransitiveResonance(&tok.Chord, &summary, &faceContent)
 			if h.ActiveCount() > 2 && tok.TTL > 1 {
 				emitted = append(emitted, Token{
@@ -84,14 +104,23 @@ func (n *Node) Arrive(tok Token) []Token {
 	// When a face crosses the thermodynamic saturation threshold,
 	// the node is overwhelmed. It emits a "pressure" signal carrying
 	// the saturated face's full content.
-	if n.FaceDensity(routed) >= geometry.MitosisThreshold {
+	for _, routed := range routedFaces {
+		if n.FaceDensity(routed) < geometry.MitosisThreshold {
+			continue
+		}
+
+		n.Header.SetState(1)
 		emitted = append(emitted, Token{
 			Chord:  n.Cube[routed],
 			Origin: n.ID,
 			TTL:    tok.TTL - 1,
 		})
-		// Partially drain the saturated face to relieve pressure.
-		n.Cube[routed] = data.ChordGCD(&before, &tok.Chord)
+		// Partially drain the saturated face to relieve pressure without
+		// erasing all local context.
+		drained := data.ChordHole(&n.Cube[routed], &tok.Chord)
+		if drained.ActiveCount() > 0 {
+			n.Cube[routed] = drained
+		}
 	}
 
 	return emitted
@@ -99,32 +128,25 @@ func (n *Node) Arrive(tok Token) []Token {
 
 /*
 Hole computes the node's "curiosity" — the structural vacuum of its cube.
-
-Uses resonance.FillScore to evaluate whether the deficit is significant
-enough to warrant a bedrock query, replacing the raw ActiveCount threshold.
+It returns the dominant face chord plus the remainder of the node summary
+that the dominant face does not yet explain.
 */
-func (n *Node) Hole() (data.Chord, bool) {
+func (n *Node) Hole() (data.Chord, data.Chord, bool) {
 	summary := n.CubeChord()
 	if summary.ActiveCount() == 0 {
-		return data.Chord{}, false
+		return data.Chord{}, data.Chord{}, false
 	}
 
 	bestFaceIdx := n.bestPhysicalFace()
 	if bestFaceIdx == 256 {
-		return data.Chord{}, false
+		return data.Chord{}, data.Chord{}, false
 	}
 
 	peak := n.Cube[bestFaceIdx]
-	hole := data.ChordHole(&peak, &summary)
-
-	// Use FillScore to evaluate if the hole is structurally significant.
-	// FillScore returns [0,1] where 1 = perfect fill needed. We want holes
-	// that the peak could largely fill but the summary can't.
-	quality := resonance.FillScore(&peak, &summary)
-	insufficiency := 1.0 - quality
+	hole := data.ChordHole(&summary, &peak)
 
 	// Dream if the hole has meaningful structure AND the node has significant gaps.
-	return hole, hole.ActiveCount() >= 3 && insufficiency > 0.1
+	return peak, hole, hole.ActiveCount() >= 3 && summary.ActiveCount() > peak.ActiveCount()
 }
 
 // bestPhysicalFace returns the raw physical face index with highest popcount.

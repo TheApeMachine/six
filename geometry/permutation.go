@@ -8,7 +8,7 @@ import (
 
 // Threshold constants for the dynamic topological phase transition.
 const (
-	MitosisThreshold   = 0.45
+	MitosisThreshold   = 0.45 // The Shannon Sidestep
 	DeMitosisThreshold = 0.25
 	TotalBitsPerCube   = CubeFaces * 512
 )

@@ -7,7 +7,7 @@
       "Name": "Text Overlap",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "vzu/",
+      "Observed": "KDu5Ow==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,7 +23,7 @@
       "Name": "Text Overlap",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "vzu/",
+      "Observed": "KDu5Ow==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -39,7 +39,7 @@
       "Name": "Text Overlap",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": "vzu/",
+      "Observed": "KDu5Ow==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -55,7 +55,7 @@
       "Name": "Text Overlap",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "Ozu/",
+      "Observed": "eDs=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -71,7 +71,7 @@
       "Name": "Text Overlap",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": "vzs=",
+      "Observed": "KDu5",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,

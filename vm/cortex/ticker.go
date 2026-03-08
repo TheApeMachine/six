@@ -199,13 +199,14 @@ below the Sequencer's phase threshold, generation should stop.
 */
 func (g *Graph) checkConvergence() bool {
 	sinkEnergy := g.sink.Energy()
+	minStableEnergy := 8.0 / float64(geometry.CubeFaces*257)
 
 	delta := sinkEnergy - g.sinkLastEnergy
 	if delta < 0 {
 		delta = -delta
 	}
 
-	energyStable := sinkEnergy > 0 && delta < 0.01
+	energyStable := sinkEnergy >= minStableEnergy && delta < 0.01
 
 	if energyStable {
 		g.sinkStableCount++

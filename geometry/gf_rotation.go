@@ -73,6 +73,23 @@ var (
 	RotationZ = GFRotation{A: 3, B: 1}
 )
 
+// RotationEvent maps a canonical GF(257) micro-rotation back to the
+// topological event that generated it.
+func RotationEvent(rot GFRotation) (int, bool) {
+	switch rot {
+	case RotationX:
+		return EventDensitySpike, true
+	case RotationY:
+		return EventPhaseInversion, true
+	case RotationZ:
+		return EventDensityTrough, true
+	case RotationX.Compose(RotationX):
+		return EventLowVarianceFlux, true
+	default:
+		return 0, false
+	}
+}
+
 // EventRotation returns the GFRotation corresponding to a topological event.
 func EventRotation(event int) GFRotation {
 	switch event {

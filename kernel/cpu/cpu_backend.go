@@ -175,6 +175,7 @@ func BestFillCPUPackedBytes(
 	ctxWinding := uint8((ctxHeader >> 5) & 0xF)
 	ctxState := uint8((ctxHeader >> 15) & 0x1)
 	ctxRot := int((ctxHeader >> 9) & 0x3F)
+	ctxHasBoundarySignal := ctxState != 0 || ctxWinding != 0
 
 	var bestPacked uint64
 
@@ -182,11 +183,13 @@ func BestFillCPUPackedBytes(
 		base := id * numeric.ManifoldWords
 		header := uint16(dictWords[base] & 0xFFFF)
 
-		if uint8((header>>5)&0xF) != ctxWinding {
-			continue
-		}
-		if uint8((header>>15)&0x1) != ctxState {
-			continue
+		if ctxHasBoundarySignal {
+			if uint8((header>>5)&0xF) != ctxWinding {
+				continue
+			}
+			if uint8((header>>15)&0x1) != ctxState {
+				continue
+			}
 		}
 
 		cubeBase := base + 1
@@ -199,7 +202,10 @@ func BestFillCPUPackedBytes(
 			geodDist = uint16(lutBytes[ctxRot*60+rotCandidate])
 		}
 
-		invertedDist := uint16(65535 - geodDist)
+		invertedDist := uint16(65535)
+		if ctxHasBoundarySignal || ctxRot != 0 {
+			invertedDist = uint16(65535 - geodDist)
+		}
 
 		packed := numeric.PackResult(scoreFixed, invertedDist, id)
 		if packed > bestPacked {
