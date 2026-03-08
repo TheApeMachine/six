@@ -103,10 +103,10 @@ func (experiment *ChunkingBaselineExperiment) Finalize(sub *geometry.HybridSubst
 	var seedFingerprint geometry.PhaseDial
 
 	for i, text := range chunks {
-		fp := geometry.NewPhaseDial().Encode(text)
+		fp := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(text))
 		substrate.Add(data.Chord{}, fp, []byte(fmt.Sprintf("Chunk %d: %s", i, text)))
 		if strings.Contains(text, "Democracy requires individual sacrifice.") {
-			seedFingerprint = geometry.NewPhaseDial().Encode("Democracy requires individual sacrifice.")
+			seedFingerprint = geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes("Democracy requires individual sacrifice."))
 		}
 	}
 
@@ -159,7 +159,7 @@ func (experiment *ChunkingBaselineExperiment) Finalize(sub *geometry.HybridSubst
 			scrambledSeedFP = append(geometry.PhaseDial{}, brokenDial...)
 		}
 
-		normalFP := geometry.NewPhaseDial().Encode(text)
+		normalFP := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(text))
 		normalSubstrate.Add(data.Chord{}, normalFP, []byte(fmt.Sprintf("%d: %s", i, text)))
 		if text == "Democracy requires individual sacrifice." {
 			normalSeedFP = append(geometry.PhaseDial{}, normalFP...)

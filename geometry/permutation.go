@@ -6,14 +6,21 @@ import (
 	"github.com/theapemachine/six/data"
 )
 
-// Threshold constants for the dynamic topological phase transition.
+/*
+Threshold constants for dynamic topological phase transition.
+MitosisTrigger when Cubes[0] density ≥ 45%; DeMitosis when global density < 25%.
+TotalBitsPerCube = 257×512 for density normalization.
+*/
 const (
-	MitosisThreshold   = 0.45 // The Shannon Sidestep
+	MitosisThreshold   = 0.45 // Shannon Sidestep
 	DeMitosisThreshold = 0.25
 	TotalBitsPerCube   = CubeFaces * 512
 )
 
-// ConditionMitosis evaluates whether "virtual mitosis" should trigger.
+/*
+ConditionMitosis evaluates whether virtual mitosis should trigger.
+Returns true when Cubes[0] active-bit density ≥ MitosisThreshold and not already mitosed.
+*/
 // Mechanically, this is a pure density threshold over the preallocated Cubes[0] array.
 func (m *IcosahedralManifold) ConditionMitosis() bool {
 	if m.Header.State() == 1 {
@@ -28,7 +35,10 @@ func (m *IcosahedralManifold) ConditionMitosis() bool {
 	return float64(activeBits)/float64(TotalBitsPerCube) >= MitosisThreshold
 }
 
-// ConditionDeMitosis evaluates the global density across all 5 MacroCubes.
+/*
+ConditionDeMitosis evaluates whether to collapse back to cubic mode.
+Returns true when global density across all 5 cubes < DeMitosisThreshold and already mitosed.
+*/
 func (m *IcosahedralManifold) ConditionDeMitosis() bool {
 	if m.Header.State() == 0 {
 		return false // Already cubic
@@ -44,8 +54,10 @@ func (m *IcosahedralManifold) ConditionDeMitosis() bool {
 	return float64(activeBits)/float64(TotalBitsPerCube*5) < DeMitosisThreshold
 }
 
-// Mitosis performs virtual mitosis as a state flip only.
-// No memory is allocated here; Cubes[1..4] are already preallocated.
+/*
+Mitosis performs virtual mitosis as a state flip.
+Sets State=1; Cubes[1..4] are preallocated, no allocation here.
+*/
 func (m *IcosahedralManifold) Mitosis() {
 	if m.Header.State() == 1 {
 		return
@@ -53,9 +65,11 @@ func (m *IcosahedralManifold) Mitosis() {
 	m.Header.SetState(1)
 }
 
-// DeMitosis executes the reversible structured collapse back to Cubic mode.
-// Note: Geodesic Pathfinding and Fractal Pooling Cascade are handled externally
-// before invoking this state flip.
+/*
+DeMitosis executes the reversible collapse back to Cubic mode.
+Sets State=0, resets RotState mod 24, clears winding, zeroes Cubes[1..4].
+Geodesic pathfinding and fractal pooling are handled externally beforehand.
+*/
 func (m *IcosahedralManifold) DeMitosis() {
 	if m.Header.State() == 0 {
 		return
@@ -127,9 +141,11 @@ func init() {
 	}
 }
 
-// ApplyPermutation executes a CubeFaces-block structural re-indexing on a MacroCube.
-// Uses a pooled scratch buffer to avoid per-call allocation without sharing
-// mutable state across goroutines.
+/*
+ApplyPermutation re-indexes CubeFaces blocks according to indices.
+scratch[dst] = cube[i] for each i; uses a pooled buffer to avoid allocation.
+Thread-safe via sync.Pool.
+*/
 func (cube *MacroCube) ApplyPermutation(indices [CubeFaces]int) {
 	scratch := permScratchPool.Get().(*MacroCube)
 	for i, dst := range indices {
@@ -139,8 +155,10 @@ func (cube *MacroCube) ApplyPermutation(indices [CubeFaces]int) {
 	permScratchPool.Put(scratch)
 }
 
-// Permute3Cycle executes an A₅ even permutation: a 3-Cycle (a -> b -> c -> a).
-// Modifies the macro-topology of the 5 intersecting cubes.
+/*
+Permute3Cycle executes the A₅ 3-cycle (a,b,c): cube a→b, b→c, c→a.
+Modifies the macro-topology of the 5 intersecting cubes.
+*/
 func (m *IcosahedralManifold) Permute3Cycle(a, b, c int) {
 	tmp := m.Cubes[c]
 	m.Cubes[c] = m.Cubes[b]
@@ -148,14 +166,19 @@ func (m *IcosahedralManifold) Permute3Cycle(a, b, c int) {
 	m.Cubes[a] = tmp
 }
 
-// PermuteDoubleTransposition executes an A₅ even permutation: (a b)(c d).
-// Swaps two disconnected pairs of macro-cubes simultaneously.
+/*
+PermuteDoubleTransposition executes (a b)(c d): swaps cubes a↔b and c↔d.
+A₅ even permutation; two disconnected transpositions.
+*/
 func (m *IcosahedralManifold) PermuteDoubleTransposition(a, b, c, d int) {
 	m.Cubes[a], m.Cubes[b] = m.Cubes[b], m.Cubes[a]
 	m.Cubes[c], m.Cubes[d] = m.Cubes[d], m.Cubes[c]
 }
 
-// Permute5Cycle executes a full A₅ entropy sweep: (a b c d e).
+/*
+Permute5Cycle executes the A₅ 5-cycle (a b c d e): a→b→c→d→e→a.
+Full entropy sweep over the five macro-cubes.
+*/
 func (m *IcosahedralManifold) Permute5Cycle(a, b, c, d, e int) {
 	tmp := m.Cubes[e]
 	m.Cubes[e] = m.Cubes[d]
@@ -165,17 +188,23 @@ func (m *IcosahedralManifold) Permute5Cycle(a, b, c, d, e int) {
 	m.Cubes[a] = tmp
 }
 
-// RotateX applies a GF(257) translation to the CubeFaces blocks of the MacroCube.
+/*
+RotateX applies GF(257) translation f(p)=(p+1) mod 257 to all faces.
+*/
 func (cube *MacroCube) RotateX() {
 	cube.ApplyPermutation(MicroRotateX)
 }
 
-// RotateY applies a GF(257) dilation to the CubeFaces blocks of the MacroCube.
+/*
+RotateY applies GF(257) dilation f(p)=3p mod 257 to all faces.
+*/
 func (cube *MacroCube) RotateY() {
 	cube.ApplyPermutation(MicroRotateY)
 }
 
-// RotateZ applies a GF(257) affine combination to the CubeFaces blocks of the MacroCube.
+/*
+RotateZ applies GF(257) affine f(p)=(3p+1) mod 257 to all faces.
+*/
 func (cube *MacroCube) RotateZ() {
 	cube.ApplyPermutation(MicroRotateZ)
 }

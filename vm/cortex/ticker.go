@@ -68,9 +68,12 @@ func (g *Graph) Tick() bool {
 			}
 
 			// Normal routing: topological gravity.
-			neighbor := g.bestNeighbor(em.from, tok.Chord)
-			if neighbor != nil {
-				neighbor.Send(tok)
+			// When scores are degenerate (unstructured medium), broadcast
+			// to all neighbors — waves spread omnidirectionally until the
+			// medium develops structure to guide them.
+			targets := g.routeTargets(em.from, tok.Chord)
+			for _, target := range targets {
+				target.Send(tok)
 			}
 		}
 	}
@@ -82,13 +85,17 @@ func (g *Graph) Tick() bool {
 	if g.config.Sequencer != nil && g.tick%2 == 0 {
 		sourceChord := g.source.CubeChord()
 		if sourceChord.ActiveCount() > 0 {
-			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), sourceChord)
+			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), byte(g.source.BestFace()&0xFF))
 
 			for _, ev := range events {
 				rot := geometry.EventRotation(ev)
 				lawTok := NewRotationToken(rot, -1)
-				// Broadcast LAW to all nodes — topological events are global perspective shifts.
+				// Broadcast LAW to all nodes except the sink — the sink is
+				// an observation point whose rotation must stay stable.
 				for _, node := range g.nodes {
+					if node == g.sink {
+						continue
+					}
 					node.Send(lawTok)
 				}
 			}
@@ -256,7 +263,7 @@ This is how the prompt enters the cortex.
 func (g *Graph) InjectChords(chords []data.Chord) {
 	for _, c := range chords {
 		positioned := c.RollLeft(int(g.seqPos))
-		g.source.Send(NewDataToken(positioned, -1))
+		g.source.Send(NewDataToken(positioned, c.IntrinsicFace(), -1))
 		g.seqPos++
 	}
 }
@@ -274,17 +281,23 @@ func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 
 		if g.config.Sequencer != nil {
 			var events []int
-			reset, events = g.config.Sequencer.Analyze(int(g.seqPos), positioned)
+			reset, events = g.config.Sequencer.Analyze(int(g.seqPos), byte(c.IntrinsicFace()&0xFF))
 			g.accumulateMomentum(positioned, events)
 			for _, ev := range events {
 				rot := geometry.EventRotation(ev)
-				g.source.Send(NewRotationToken(rot, -1))
+				lawTok := NewRotationToken(rot, -1)
+				for _, node := range g.nodes {
+					if node == g.sink {
+						continue
+					}
+					node.Send(lawTok)
+				}
 			}
 		}
 
-		g.source.Send(NewDataToken(positioned, -1))
-
+		g.source.Send(NewDataToken(positioned, c.IntrinsicFace(), -1))
 		g.seqPos++
+
 		if reset {
 			g.seqPos = 0
 			g.seqZ++

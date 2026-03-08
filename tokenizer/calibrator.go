@@ -14,17 +14,15 @@ type Calibrator struct {
 }
 
 func NewCalibrator() *Calibrator {
-	// Base mathematical derivations purely on the Golden Ratio
-	// for the sequencer's spatial boundary sensitivity.
 	phi := (1.0 + math.Sqrt(5.0)) / 2.0
 
 	return &Calibrator{
-		// Target densities scale recursively inside the hyperdimensional subspace
-		targetDensityMin: 1.0 / math.Pow(phi, 3), // ~0.236
-		targetDensityMax: 1.0 / math.Pow(phi, 2), // ~0.382
+		targetDensityMin: 1.0 / math.Pow(phi, 3),
+		targetDensityMax: 1.0 / math.Pow(phi, 2),
 
-		// Start Z-score thresholds at exactly 1 Golden Ratio standard deviation
-		sensitivityPop:   phi,
+		// BIC penalty scale: 1.0 yields practical boundary detection on typical
+		// byte streams; phi (≈1.618) over-penalizes and suppresses splits.
+		sensitivityPop:   1.0,
 		sensitivityPhase: phi,
 	}
 }

@@ -19,19 +19,27 @@ type GFRotation struct {
 	B uint16 // additive offset
 }
 
-// IdentityRotation returns the identity transformation f(x) = x.
+/*
+IdentityRotation returns the identity transformation f(x) = x.
+A=1, B=0; every face maps to itself. Used as the neutral element for composition.
+*/
 func IdentityRotation() GFRotation {
 	return GFRotation{A: 1, B: 0}
 }
 
-// Forward maps a logical face index to its physical position under this rotation.
+/*
+Forward maps a logical face index to its physical position under this rotation.
+Computes (A·face + B) mod 257 with proper handling of negative modulo.
+*/
 func (r GFRotation) Forward(face int) int {
 	raw := int(r.A)*face + int(r.B)
 	return (raw%CubeFaces + CubeFaces) % CubeFaces
 }
 
-// Reverse maps a physical face index back to its logical byte value.
-// It computes the inverse of the affine transform over GF(257).
+/*
+Reverse maps a physical face index back to its logical byte value.
+Computes the inverse affine transform: finds A⁻¹ in GF(257) then (face - B)·A⁻¹ mod 257.
+*/
 func (r GFRotation) Reverse(face int) int {
 	var invA int
 	for i := 1; i < CubeFaces; i++ {
@@ -49,10 +57,11 @@ func (r GFRotation) Reverse(face int) int {
 	return (invA * val) % CubeFaces
 }
 
-// Compose returns the rotation equivalent to applying r first, then other.
-// other(r(x)) = other.A · (r.A·x + r.B) + other.B
-//
-//	= (other.A·r.A)·x + (other.A·r.B + other.B)
+/*
+Compose returns the rotation equivalent to applying r first, then other.
+other(r(x)) = other.A·(r.A·x + r.B) + other.B = (other.A·r.A)·x + (other.A·r.B + other.B).
+Enables O(1) composition without data movement.
+*/
 func (r GFRotation) Compose(other GFRotation) GFRotation {
 	return GFRotation{
 		A: uint16((int(other.A) * int(r.A)) % CubeFaces),
@@ -60,8 +69,10 @@ func (r GFRotation) Compose(other GFRotation) GFRotation {
 	}
 }
 
-// The three micro-rotations as GF(257) affine transforms.
-// These match the existing MicroRotateX/Y/Z permutation tables.
+/*
+The three micro-rotations as GF(257) affine transforms.
+Match the permutation tables in permutation.go; used for O(1) composition instead of table lookup.
+*/
 var (
 	// RotationX is a translation: f(x) = (x + 1) mod 257
 	RotationX = GFRotation{A: 1, B: 1}
@@ -73,8 +84,10 @@ var (
 	RotationZ = GFRotation{A: 3, B: 1}
 )
 
-// RotationEvent maps a canonical GF(257) micro-rotation back to the
-// topological event that generated it.
+/*
+RotationEvent maps a canonical GF(257) micro-rotation back to the topological event.
+Returns (event, true) if rot matches RotationX/Y/Z or XX; (0, false) otherwise.
+*/
 func RotationEvent(rot GFRotation) (int, bool) {
 	switch rot {
 	case RotationX:
@@ -90,7 +103,11 @@ func RotationEvent(rot GFRotation) (int, bool) {
 	}
 }
 
-// EventRotation returns the GFRotation corresponding to a topological event.
+/*
+EventRotation returns the GFRotation corresponding to a topological event.
+EventDensitySpike→X, EventPhaseInversion→Y, EventDensityTrough→Z, EventLowVarianceFlux→XX.
+Unknown events return IdentityRotation.
+*/
 func EventRotation(event int) GFRotation {
 	switch event {
 	case EventDensitySpike:
@@ -107,8 +124,10 @@ func EventRotation(event int) GFRotation {
 	}
 }
 
-// ComposeEvents composes all event rotations in sequence, returning
-// a single GFRotation equivalent to applying them all.
+/*
+ComposeEvents composes all event rotations in sequence.
+Returns a single GFRotation equivalent to applying each EventRotation in order.
+*/
 func ComposeEvents(events []int) GFRotation {
 	rot := IdentityRotation()
 	for _, ev := range events {

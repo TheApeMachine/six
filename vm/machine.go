@@ -10,9 +10,6 @@ import (
 	"github.com/theapemachine/six/vm/cortex"
 )
 
-// maxGenerationSteps is the maximum number of tokens to generate in a single prompt.
-const maxGenerationSteps = 256
-
 type bestFillFn func(
 	dictionary unsafe.Pointer,
 	numChords int,
@@ -65,6 +62,7 @@ func (machine *Machine) Start() error {
 	if machine.loader.store == nil {
 		machine.loader.store = store.NewLSMSpatialIndex(1.0)
 	}
+
 	machine.loader.primefield = machine.primefield
 
 	var sequence []data.Chord
@@ -83,8 +81,21 @@ func (machine *Machine) Start() error {
 				dial,
 				[]byte("sequence"), // Readout will be refined later
 			)
+
 			sequence = sequence[:0]
 		}
+	}
+
+	// Flush trailing chords that arrived after the last boundary.
+	if len(sequence) > 0 {
+		dial := geometry.NewPhaseDial()
+		dial = dial.EncodeFromChords(sequence)
+
+		machine.substrate.Add(
+			data.Chord{},
+			dial,
+			[]byte("sequence"),
+		)
 	}
 
 	// Build EigenModes from the ingested manifold topology.
@@ -112,38 +123,14 @@ func (machine *Machine) Stop() {
 }
 
 /*
-PromptWithExpectedField generates output from the prompt using the cortex,
-biased by the expected field (classification precision target).
-*/
-func (machine *Machine) PromptWithExpectedField(
-	prompt []data.Chord,
-	expectedField *geometry.ExpectedField,
-) chan byte {
-	expected := geometry.ExpectedManifoldFromField(expectedField)
-	return machine.prompt(prompt, expected, expectedField)
-}
-
-/*
 Prompt generates output from the prompt using the cortex.
 */
 func (machine *Machine) Prompt(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
 ) chan byte {
-	return machine.prompt(prompt, expectedReality, nil)
-}
-
-/*
-prompt spawns a volatile cortex graph that vibrates until convergence.
-All generation mechanics (Sequencer events, EigenMode wind, momentum decay,
-rotation-aware BestFace, survivor write-back) are handled by the cortex.
-*/
-func (machine *Machine) prompt(
-	prompt []data.Chord,
-	expectedReality *geometry.IcosahedralManifold,
-	expectedField *geometry.ExpectedField,
-) chan byte {
 	var stopCh <-chan struct{}
+	
 	if machine.stopCh != nil {
 		stopCh = machine.stopCh
 	}
@@ -155,10 +142,7 @@ func (machine *Machine) prompt(
 		BestFill:      cortex.BestFillFunc(machine.bestFill),
 		EigenMode:     machine.eigenMode,
 		Sequencer:     machine.sequencer,
-		ExpectedField: expectedField,
 		StopCh:        stopCh,
-		MaxTicks:      maxGenerationSteps / 2, // lowered to 128
-		MaxOutput:     maxGenerationSteps,
 	})
 
 	return graph.Think(prompt, expectedReality)

@@ -156,9 +156,13 @@ int bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, con
             }
             if (expected_precision_ptr) {
                 [computeEncoder setBuffer:cachedPrecisionBuffer offset:0 atIndex:6];
+            } else {
+                [computeEncoder setBuffer:nil offset:0 atIndex:6];
             }
             if (geodesic_lut_ptr) {
                 [computeEncoder setBuffer:cachedLutBuffer offset:0 atIndex:7];
+            } else {
+                [computeEncoder setBuffer:nil offset:0 atIndex:7];
             }
 
             NSUInteger threadGroupSize = bestFillPipeline.maxTotalThreadsPerThreadgroup;

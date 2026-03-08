@@ -3,299 +3,341 @@ package tokenizer
 import (
 	"math"
 
-	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 )
 
 /*
-Sequencer is a mechanism that splits an incoming data stream into sequences
-based on the topological properties of the data.
+Sequencer discovers natural boundaries in a raw byte stream using the
+Minimum Description Length (MDL) principle.
 */
 type Sequencer struct {
 	calibrator *Calibrator
 	eigen      *geometry.EigenMode
 	phi        float64
-	phiFast    float64
-	phiMed     float64
-	phiSlow    float64
-	emaAlpha   float64
 
-	// Welford variance accumulators
-	emaPop        float64
-	emaPhase      float64
-	popMean       float64
-	popM2         float64
-	phaseMean     float64
-	phaseM2       float64
-	count         float64
-	coherenceTime int
+	buf  []byte
+	dist *Distribution
 
-	tokens []Token
+	prevSegLen  int
+	fluxEmitted bool
+
+	lastByteVal  float64
+	lastEigenMag float64
+
+	emaPhase float64
+	emaPop   float64
+
+	tokens     []Token
+	candidates []candidate
+	offset     int
+
+	// MinSegmentBytes: minimum bytes per segment for statistical
+	// significance. Default 4; increase for noisier streams.
+	MinSegmentBytes int
+}
+
+type candidate struct {
+	k       int
+	gain    float64 // penalized MDL gain; used as confidence for emission
+	entropy float64 // entropy jump at split (optional extra evidence)
 }
 
 func NewSequencer(calibrator *Calibrator) *Sequencer {
-	phi := (1.0 + math.Sqrt(5.0)) / 2.0
-
 	return &Sequencer{
-		calibrator: calibrator,
-		eigen:      geometry.NewEigenMode(),
-		phi:        phi,
-		phiFast:    math.Pow(phi, -9), // ~0.013
-		phiMed:     math.Pow(phi, -6), // ~0.055
-		phiSlow:    math.Pow(phi, -5), // ~0.090
-		emaAlpha:   math.Pow(phi, -3), // ~0.236
+		calibrator:      calibrator,
+		eigen:           geometry.NewEigenMode(),
+		phi:             (1.0 + math.Sqrt(5.0)) / 2.0,
+		dist:            NewDistribution(),
+		MinSegmentBytes: 4,
 	}
 }
 
-func (sequencer *Sequencer) Analyze(pos int, current data.Chord) (bool, []int) {
-	pop, phase := sequencer.measure(pos, current, true)
-	deltaPop, deltaPhase := sequencer.trackVariance(pop, phase)
-	popThresh, phaseThresh := sequencer.deriveThresholds()
+func slog(c int) float64 {
+	if c <= 0 {
+		return 0
+	}
+	return float64(c) * math.Log(float64(c))
+}
 
+func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
+	val, delta, eigenMag := seq.computeSignal(byteVal)
+
+	seq.buf = append(seq.buf, byteVal)
+	seq.dist.Add(byteVal)
+
+	isBoundary, k, gain := seq.detectBoundary(seq.buf[seq.offset:], seq.dist)
 	var events []int
 
-	topoThresh := math.Pi / config.Numeric.FrequencySpread
-	isTopologicalBoundary := deltaPhase > topoThresh
+	if isBoundary {
+		absK := seq.offset + k
+		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain})
+		seq.offset = absK
 
-	if deltaPop > popThresh {
-		if pop > sequencer.emaPop {
-			events = append(events, geometry.EventDensitySpike)
-		} else {
-			events = append(events, geometry.EventDensityTrough)
+		// Reset distribution for the next search window.
+		// Any bytes added to seq.buf AFTER absK should be in the new distribution.
+		seq.dist = NewDistribution()
+		for _, b := range seq.buf[seq.offset:] {
+			seq.dist.Add(b)
 		}
 	}
 
-	if isTopologicalBoundary || deltaPhase > phaseThresh {
+	if len(seq.candidates) >= 2 {
+		seq.balanceCandidates()
+	}
+
+	// Emit when we have a stable sequence of candidates.
+	// We wait for 2 candidates to ensure the first one is well-balanced.
+	if len(seq.candidates) >= 2 {
+		emitK := seq.candidates[0].k
+
+		events = append(events, seq.classifyDirection(seq.buf, emitK))
 		events = append(events, geometry.EventPhaseInversion)
-	}
 
-	if deltaPhase < phaseThresh {
-		sequencer.coherenceTime++
-	}
+		seq.emitSplit(emitK)
 
-	if len(events) > 0 {
-		sequencer.calibrate(current)
-		sequencer.coherenceTime = 0
-	} else if sequencer.coherenceTime > 10 {
-		events = append(events, geometry.EventLowVarianceFlux)
-		sequencer.coherenceTime = 0
-	}
+		// Shift all remaining candidates and the offset.
+		seq.candidates = seq.candidates[1:]
 
-	sequencer.syncCalibration()
-
-	return isTopologicalBoundary, events
-}
-
-/*
-Forecast accurately simulates Analyze without mutating any internal state.
-It is extremely cheap and used for O(256) inference branching.
-*/
-func (sequencer *Sequencer) Forecast(pos int, current data.Chord) (bool, []int) {
-	pop, phase := sequencer.measure(pos, current, false)
-
-	// Dry run variance
-	deltaPop := math.Abs(pop - sequencer.emaPop) // ...
-
-	// ... rest unchanged ...
-	deltaPhase := math.Abs(phase - sequencer.emaPhase)
-
-	popThresh, phaseThresh := sequencer.deriveThresholds()
-
-	var events []int
-	topoThresh := math.Pi / config.Numeric.FrequencySpread
-	isTopologicalBoundary := deltaPhase > topoThresh
-
-	if deltaPop > popThresh {
-		if pop > sequencer.emaPop {
-			events = append(events, geometry.EventDensitySpike)
-		} else {
-			events = append(events, geometry.EventDensityTrough)
+		for i := range seq.candidates {
+			seq.candidates[i].k -= emitK
 		}
+
+		seq.offset -= emitK
+		seq.updateEMA(val, delta, eigenMag)
+
+		return true, events
 	}
 
-	if isTopologicalBoundary || deltaPhase > phaseThresh {
-		events = append(events, geometry.EventPhaseInversion)
-	}
-
-	if len(events) == 0 && sequencer.coherenceTime > 10 {
+	if seq.hasFlux() {
 		events = append(events, geometry.EventLowVarianceFlux)
+		seq.fluxEmitted = true
 	}
 
-	return isTopologicalBoundary, events
+	seq.updateEMA(val, delta, eigenMag)
+	return false, events
 }
 
-/*
-measure extracts the geometric population count and spatial phase
-from the current token's chord representation.
-
-Phase is derived from ChordBin — a deterministic structural hash of the
-chord's bit pattern mapped to [0, 2π). If the EigenMode has been trained
-(via BuildMultiScaleCooccurrence), its co-occurrence-informed phases are
-used instead. This gives immediate phase signal from the first byte while
-preserving the upgrade path to trained eigenmodes.
-*/
-func (sequencer *Sequencer) measure(pos int, current data.Chord, track bool) (float64, float64) {
-	pop := float64(current.ActiveCount())
-
-	phase := 0.0
-	if sequencer.eigen != nil && sequencer.eigen.Trained {
-		theta, phi := sequencer.eigen.PhaseForChord(&current)
-		phase = math.Sqrt(theta*theta + phi*phi)
-	} else {
-		// If EigenMode is untrained, use intrinsic ChordBin phase.
-		// Scale to [0, 1) — not [0, 2π) — because ChordBin is a SimHash that
-		// produces effectively random values for nearby bytes. A full 2π range
-		// overwhelms the EMA and fires events on every byte.
-		bin := data.ChordBin(&current)
-		phase = float64(bin) / 256.0
-	}
-
-	if track && pos == 0 {
-		sequencer.emaPop = pop
-		sequencer.emaPhase = phase
-	}
-
-	return pop, phase
+func (seq *Sequencer) hasFlux() bool {
+	return seq.prevSegLen > 0 && (len(seq.buf)-seq.offset) >= seq.prevSegLen && !seq.fluxEmitted
 }
 
-/*
-trackVariance applies Golden Ratio exponential smoothing to recent measurements
-and maintains a running Welford's online variance calculation to construct
-concept-drift resistant boundaries.
-*/
-func (sequencer *Sequencer) trackVariance(pop, phase float64) (float64, float64) {
-	deltaPop := math.Abs(pop - sequencer.emaPop)
-	deltaPhase := math.Abs(phase - sequencer.emaPhase)
+func (seq *Sequencer) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
+	val = float64(byteVal)
 
-	sequencer.emaPop = (sequencer.emaPop * (1.0 - sequencer.emaAlpha)) + (pop * sequencer.emaAlpha)
-	sequencer.emaPhase = (sequencer.emaPhase * (1.0 - sequencer.emaAlpha)) + (phase * sequencer.emaAlpha)
-
-	sequencer.count++
-	popDiff := deltaPop - sequencer.popMean
-	sequencer.popMean += popDiff / sequencer.count
-	sequencer.popM2 += popDiff * (deltaPop - sequencer.popMean)
-
-	phaseDiff := deltaPhase - sequencer.phaseMean
-	sequencer.phaseMean += phaseDiff / sequencer.count
-	sequencer.phaseM2 += phaseDiff * (deltaPhase - sequencer.phaseMean)
-
-	return deltaPop, deltaPhase
-}
-
-/*
-deriveThresholds calculates the dynamic Z-score boundaries based on the
-current signal variance and the shared calibrator sensitivity targets.
-*/
-func (sequencer *Sequencer) deriveThresholds() (float64, float64) {
-	popStdDev := 0.0
-	phaseStdDev := 0.0
-
-	if sequencer.count > 1 {
-		// Unbiased sample standard deviation: M2 / (count - 1)
-		popStdDev = math.Sqrt(sequencer.popM2 / (sequencer.count - 1))
-		phaseStdDev = math.Sqrt(sequencer.phaseM2 / (sequencer.count - 1))
-	}
-
-	// Read calibrator fields under read lock
-	sensPop := sequencer.calibrator.SensitivityPop()
-	sensPhase := sequencer.calibrator.SensitivityPhase()
-
-	popThresh := sequencer.popMean + (popStdDev * sensPop)
-	phaseThresh := sequencer.phaseMean + (phaseStdDev * sensPhase)
-
-	return popThresh, phaseThresh
-}
-
-/*
-calibrate applies high-frequency density feedback to adjust sensitivity
-multipliers if the chunk boundaries are forming too sparse or too dense.
-*/
-func (sequencer *Sequencer) calibrate(current data.Chord) {
-	density := float64(current.ActiveCount()) / float64(config.Numeric.ChordBlocks*64)
-
-	// Read calibrator fields under read lock
-	maxDensity := sequencer.calibrator.TargetDensityMax()
-	minDensity := sequencer.calibrator.TargetDensityMin()
-
-	if density > maxDensity {
-		sequencer.thresholdMultiplier(-1)
-	} else if density < minDensity {
-		sequencer.thresholdMultiplier(1)
-	}
-}
-
-/*
-syncCalibration atomically merges the fast-loop local sensitivity adjustments
-back to the globally shared calibrator state using a median smoothing factor.
-*/
-func (sequencer *Sequencer) syncCalibration() {
-	sequencer.calibrator.mu.Lock()
-	sequencer.calibrator.sensitivityPop = sequencer.syncBack(sequencer.calibrator.sensitivityPop, sequencer.phi)
-	sequencer.calibrator.sensitivityPhase = sequencer.syncBack(sequencer.calibrator.sensitivityPhase, sequencer.phi)
-	sequencer.calibrator.mu.Unlock()
-}
-
-func (sequencer *Sequencer) thresholdMultiplier(direction float64) {
-	// Clamp the multiplier to a non-negative value to avoid sign-flipping
-	multiplier := direction + sequencer.phiFast
-	if multiplier < 0 {
-		multiplier = sequencer.phiFast
-	}
-
-	sequencer.calibrator.mu.Lock()
-	sequencer.calibrator.sensitivityPop *= multiplier
-	sequencer.calibrator.mu.Unlock()
-}
-
-func (sequencer *Sequencer) syncBack(current float64, target float64) float64 {
-	return (current*(1.0-sequencer.phiMed) + target*sequencer.phiMed)
-}
-
-/*
-FeedbackRetrievalQuality acts as the slow, global supervisor for the tokenizer.
-Should be called by BestFill downstream when retrieval performance deviates.
-overDiscriminated (true) means we missed relevant matches (false negatives), implying
-boundaries are too wide/chaotic.
-underDiscriminated (true) means we matched unrelated things (false positives), implying
-boundaries aren't detecting enough variance.
-*/
-func (sequencer *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
-	sequencer.calibrator.mu.Lock()
-	defer sequencer.calibrator.mu.Unlock()
-
-	if overDiscriminated {
-		// Over-discriminating means too rigidly separating; raise bases to ignore more noise
-		sequencer.calibrator.sensitivityPop *= (1.0 + sequencer.phiSlow)
-		sequencer.calibrator.sensitivityPhase *= (1.0 + sequencer.phiSlow)
-	} else if underDiscriminated {
-		// Under-discriminating means not seeing enough fine detail; lower bases to be more sensitive
-		sequencer.calibrator.sensitivityPop *= (1.0 - sequencer.phiSlow)
-		sequencer.calibrator.sensitivityPhase *= (1.0 - sequencer.phiSlow)
-	}
-}
-
-/*
-Phase returns the current exponential moving average of the phase (Angular Momentum),
-and the dynamically derived variance threshold for use in continuous generation decay.
-*/
-func (sequencer *Sequencer) Phase() (float64, float64) {
-	_, phaseThresh := sequencer.deriveThresholds()
-	return sequencer.emaPhase, phaseThresh
-}
-
-/*
-Phi returns the golden ratio scaling factor used by the Sequencer.
-*/
-func (sequencer *Sequencer) Phi() float64 {
-	return sequencer.phi
-}
-
-func (sequencer *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
-	if eigen == nil {
-		sequencer.eigen = geometry.NewEigenMode()
+	if seq.eigen != nil && seq.eigen.Trained {
+		c := data.BaseChord(byteVal)
+		theta, phi := seq.eigen.PhaseForChord(&c)
+		eigenMag = math.Hypot(theta, phi)
+		delta = math.Abs(eigenMag - seq.lastEigenMag)
 		return
 	}
 
-	sequencer.eigen = eigen
+	delta = math.Abs(val - seq.lastByteVal)
+	return
+}
+
+func (seq *Sequencer) detectBoundary(buf []byte, dist *Distribution) (bool, int, float64) {
+	n := len(buf)
+	minSeg := max(seq.MinSegmentBytes, 2)
+
+	if n < 2*minSeg {
+		return false, 0, 0
+	}
+
+	penaltyScale := 1.0
+
+	if seq.calibrator != nil && seq.calibrator.sensitivityPop > 0 {
+		penaltyScale = seq.calibrator.sensitivityPop
+	}
+
+	bestK := 0
+	maxGain := 0.0
+
+	costFull := dist.Cost()
+	left := NewDistribution()
+	right := NewDistribution()
+	*right = *dist // fast copy of histogram state
+
+	for i := 1; i < n; i++ {
+		b := buf[i-1]
+
+		left.Add(b)
+		right.Remove(b)
+
+		// Guard: segments must have enough evidence to be statistically significant.
+		if i < minSeg || n-i < minSeg {
+			continue
+		}
+
+		gain := costFull - (left.Cost() + right.Cost())
+
+		// BIC-like penalty: reflect both submodels.
+		// Multinomial has (numDistinct-1) free parameters per side.
+		leftParams := max(left.numDistinct-1, 1)
+		rightParams := max(right.numDistinct-1, 1)
+		smallerN := min(n-i, i)
+		penalty := penaltyScale * 0.5 * float64(leftParams+rightParams) * math.Log(float64(smallerN))
+
+		if gain-penalty > maxGain {
+			maxGain = gain - penalty
+			bestK = i
+		}
+	}
+
+	return maxGain > 0, bestK, maxGain
+}
+
+func (seq *Sequencer) emitSplit(k int) {
+	seq.prevSegLen = k
+	seq.buf = append([]byte(nil), seq.buf[k:]...) // force copy to avoid leaks
+	seq.fluxEmitted = false
+}
+
+func (seq *Sequencer) balanceCandidates() {
+	if len(seq.candidates) < 2 {
+		return
+	}
+
+	c1 := &seq.candidates[0]
+	c2 := &seq.candidates[1]
+
+	combinedBuf := seq.buf[:c2.k]
+	jointDist := seq.getDistribution(0, c2.k)
+
+	found, bestK, gain := seq.detectBoundary(combinedBuf, jointDist)
+	if !found {
+		seq.candidates = seq.candidates[1:]
+		return
+	}
+
+	// Similarity check: if left and right are nearly identical distributions,
+	// the split is likely spurious — merge and keep c2 as the outer boundary.
+	d1 := seq.getDistribution(0, bestK)
+	d2 := seq.getDistribution(bestK, c2.k)
+	if seq.isSimilar(d1, d2) {
+		seq.candidates = seq.candidates[1:]
+		return
+	}
+
+	c1.k = bestK
+	c1.gain = gain
+}
+
+func (seq *Sequencer) getDistribution(start, end int) *Distribution {
+	dist := NewDistribution()
+	for _, b := range seq.buf[start:end] {
+		dist.Add(b)
+	}
+	return dist
+}
+
+func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
+	if d1.n == 0 || d2.n == 0 {
+		return false
+	}
+
+	c1 := d1.Cost() / float64(d1.n)
+	c2 := d2.Cost() / float64(d2.n)
+
+	return math.Abs(c1-c2) < 0.2
+}
+
+// classifyDirection compares mean byte values of the left and right segments
+// around the boundary at k. Uses only the segment-local regions, not full buffer history.
+func (seq *Sequencer) classifyDirection(buf []byte, k int) int {
+	if k <= 0 || k >= len(buf) {
+		return geometry.EventDensityTrough
+	}
+	var leftSum, rightSum int
+	for _, b := range buf[:k] {
+		leftSum += int(b)
+	}
+	for _, b := range buf[k:] {
+		rightSum += int(b)
+	}
+	leftMean := float64(leftSum) / float64(k)
+	rightMean := float64(rightSum) / float64(len(buf)-k)
+	if rightMean > leftMean {
+		return geometry.EventDensitySpike
+	}
+	return geometry.EventDensityTrough
+}
+
+func (seq *Sequencer) updateEMA(val, delta, eigenMag float64) {
+	seq.lastByteVal = val
+	if seq.eigen != nil && seq.eigen.Trained {
+		seq.lastEigenMag = eigenMag
+	}
+	n := max(len(seq.buf), 1)
+	alpha := 1.0 / float64(n)
+	seq.emaPop = seq.emaPop*(1-alpha) + val*alpha
+	seq.emaPhase = seq.emaPhase*(1-alpha) + delta*alpha
+}
+
+func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
+	buf := append(seq.buf, byteVal)
+	dist := *seq.dist
+	dist.Add(byteVal)
+
+	window := buf[seq.offset:]
+	isBoundary, k, _ := seq.detectBoundary(window, &dist)
+	if !isBoundary {
+		return false, nil
+	}
+
+	// Classify using only the active window, not full buffer history.
+	events := append([]int{}, seq.classifyDirection(window, k))
+	events = append(events, geometry.EventPhaseInversion)
+	return true, events
+}
+
+func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
+	if seq.calibrator == nil {
+		return
+	}
+	seq.calibrator.mu.Lock()
+	defer seq.calibrator.mu.Unlock()
+	adjust := 1.0 / seq.phi
+	if overDiscriminated {
+		seq.calibrator.sensitivityPop *= (1.0 + adjust)
+	} else if underDiscriminated {
+		seq.calibrator.sensitivityPop *= (1.0 - adjust)
+	}
+	seq.calibrator.sensitivityPop = math.Max(0.05, math.Min(20.0, seq.calibrator.sensitivityPop))
+}
+
+func (seq *Sequencer) Phase() (float64, float64) {
+	return seq.emaPhase, seq.dist.Cost() / float64(max(seq.dist.n, 1))
+}
+
+func (seq *Sequencer) Phi() float64 { return seq.phi }
+
+func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
+	if eigen == nil {
+		seq.eigen = geometry.NewEigenMode()
+		return
+	}
+	seq.eigen = eigen
+}
+
+func (seq *Sequencer) Flush() (bool, []int) {
+	if len(seq.candidates) == 0 {
+		return false, nil
+	}
+
+	emitK := seq.candidates[0].k
+	events := append([]int{}, seq.classifyDirection(seq.buf, emitK))
+	events = append(events, geometry.EventPhaseInversion)
+
+	seq.emitSplit(emitK)
+
+	// Shift all remaining candidates and the offset.
+	seq.candidates = seq.candidates[1:]
+	for i := range seq.candidates {
+		seq.candidates[i].k -= emitK
+	}
+	seq.offset -= emitK
+
+	return true, events
 }

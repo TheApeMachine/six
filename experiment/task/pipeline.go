@@ -203,6 +203,12 @@ func PipelineWithReporter(reporter Reporter) pipelineOpts {
 	}
 }
 
+func PipelineWithSnapshotReporter() pipelineOpts {
+	return func(pipeline *Pipeline) {
+		pipeline.reporter = NewSnapshotReporter()
+	}
+}
+
 type PipelineError string
 
 const (

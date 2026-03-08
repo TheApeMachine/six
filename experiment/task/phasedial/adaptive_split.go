@@ -77,7 +77,7 @@ func (experiment *AdaptiveSplitExperiment) TableData() any {
 func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	D := config.Numeric.NBasis
 	seedQuery := "Democracy requires individual sacrifice."
-	fpA := geometry.NewPhaseDial().Encode(seedQuery)
+	fpA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
 
 	hop := sub.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQuery)
 	fpB, fpAB := hop.FingerprintB, hop.FingerprintAB

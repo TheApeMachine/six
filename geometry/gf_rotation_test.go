@@ -3,85 +3,117 @@ package geometry
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	. "github.com/smartystreets/goconvey/convey"
 )
 
 func TestGFRotation_Identity(t *testing.T) {
-	id := IdentityRotation()
-	for face := range CubeFaces {
-		require.Equal(t, face, id.Forward(face), "identity should map face to itself")
-	}
+	Convey("Given IdentityRotation", t, func() {
+		id := IdentityRotation()
+		Convey("When mapping each face forward", func() {
+			for face := range CubeFaces {
+				So(id.Forward(face), ShouldEqual, face)
+			}
+		})
+	})
 }
 
 func TestGFRotation_ForwardMatchesMicroRotateX(t *testing.T) {
-	for face := 0; face < CubeFaces; face++ {
-		expected := MicroRotateX[face]
-		actual := RotationX.Forward(face)
-		require.Equal(t, expected, actual, "RotationX.Forward(%d) should match MicroRotateX", face)
-	}
+	Convey("Given RotationX", t, func() {
+		Convey("When Forward is applied to each face", func() {
+			for face := 0; face < CubeFaces; face++ {
+				So(RotationX.Forward(face), ShouldEqual, MicroRotateX[face])
+			}
+		})
+	})
 }
 
 func TestGFRotation_ForwardMatchesMicroRotateY(t *testing.T) {
-	for face := range CubeFaces {
-		expected := MicroRotateY[face]
-		actual := RotationY.Forward(face)
-		require.Equal(t, expected, actual, "RotationY.Forward(%d) should match MicroRotateY", face)
-	}
+	Convey("Given RotationY", t, func() {
+		Convey("When Forward is applied to each face", func() {
+			for face := range CubeFaces {
+				So(RotationY.Forward(face), ShouldEqual, MicroRotateY[face])
+			}
+		})
+	})
 }
 
 func TestGFRotation_ForwardMatchesMicroRotateZ(t *testing.T) {
-	for face := range CubeFaces {
-		expected := MicroRotateZ[face]
-		actual := RotationZ.Forward(face)
-		require.Equal(t, expected, actual, "RotationZ.Forward(%d) should match MicroRotateZ", face)
-	}
+	Convey("Given RotationZ", t, func() {
+		Convey("When Forward is applied to each face", func() {
+			for face := range CubeFaces {
+				So(RotationZ.Forward(face), ShouldEqual, MicroRotateZ[face])
+			}
+		})
+	})
 }
 
 func TestGFRotation_CompositionMatchesSequentialPermutation(t *testing.T) {
-	// Compose Y then X: should match applying MicroRotateX[MicroRotateY[face]]
-	composed := RotationY.Compose(RotationX) // X ∘ Y
-
-	for face := range CubeFaces {
-		yResult := MicroRotateY[face]
-		expected := MicroRotateX[yResult]
-		actual := composed.Forward(face)
-		require.Equal(t, expected, actual, "X(Y(%d)): composed=%d, sequential=%d", face, actual, expected)
-	}
+	Convey("Given RotationY.Compose(RotationX)", t, func() {
+		composed := RotationY.Compose(RotationX)
+		Convey("When Forward matches sequential MicroRotateX[MicroRotateY[face]]", func() {
+			for face := range CubeFaces {
+				expected := MicroRotateX[MicroRotateY[face]]
+				So(composed.Forward(face), ShouldEqual, expected)
+			}
+		})
+	})
 }
 
 func TestGFRotation_InverseRoundTrips(t *testing.T) {
-	rots := []GFRotation{RotationX, RotationY, RotationZ, RotationX.Compose(RotationY)}
+	Convey("Given RotationX, Y, Z, and Y.Compose(X)", t, func() {
+		rots := []GFRotation{RotationX, RotationY, RotationZ, RotationX.Compose(RotationY)}
+		Convey("When applying Forward then inverse for each face", func() {
+			for _, rot := range rots {
+				aInv := 1
+				base := int(rot.A)
+				for range 255 {
+					aInv = (aInv * base) % CubeFaces
+				}
+				for face := range CubeFaces {
+					phys := rot.Forward(face)
+					logical := ((phys - int(rot.B) + CubeFaces) * aInv) % CubeFaces
+					So(logical, ShouldEqual, face)
+				}
+			}
+		})
+	})
+}
 
-	for _, rot := range rots {
-		// Compute inverse: a⁻¹ = a^255 mod 257
-		aInv := 1
-		base := int(rot.A)
-		for range 255 {
-			aInv = (aInv * base) % CubeFaces
-		}
+func TestComposeEvents_MatchesSequentialRotation(t *testing.T) {
+	Convey("Given ComposeEvents(DensitySpike, PhaseInversion, DensityTrough)", t, func() {
+		events := []int{EventDensitySpike, EventPhaseInversion, EventDensityTrough}
+		composed := ComposeEvents(events)
 
+		Convey("When Forward matches sequential X Y Z permutation", func() {
+			for face := range CubeFaces {
+				result := face
+				result = MicroRotateX[result]
+				result = MicroRotateY[result]
+				result = MicroRotateZ[result]
+				So(composed.Forward(face), ShouldEqual, result)
+			}
+		})
+	})
+}
+
+func BenchmarkGFRotationForward(b *testing.B) {
+	rot := RotationX.Compose(RotationY)
+	for b.Loop() {
 		for face := range CubeFaces {
-			phys := rot.Forward(face)
-			logical := ((phys - int(rot.B) + CubeFaces) * aInv) % CubeFaces
-			require.Equal(t, face, logical,
-				"inverse(forward(%d)) should round-trip for rot=(%d,%d)", face, rot.A, rot.B)
+			_ = rot.Forward(face)
 		}
 	}
 }
 
-func TestComposeEvents_MatchesSequentialRotation(t *testing.T) {
-	events := []int{EventDensitySpike, EventPhaseInversion, EventDensityTrough}
-	composed := ComposeEvents(events)
+func BenchmarkGFRotationCompose(b *testing.B) {
+	for b.Loop() {
+		_ = RotationZ.Compose(RotationY.Compose(RotationX))
+	}
+}
 
-	// Apply the same events as sequential physical permutation
-	for face := range CubeFaces {
-		result := face
-		result = MicroRotateX[result] // DensitySpike = RotateX
-		result = MicroRotateY[result] // PhaseInversion = RotateY
-		result = MicroRotateZ[result] // DensityTrough = RotateZ
-
-		actual := composed.Forward(face)
-		require.Equal(t, result, actual,
-			"composed events at face %d: got %d, want %d", face, actual, result)
+func BenchmarkComposeEvents(b *testing.B) {
+	events := []int{EventDensitySpike, EventPhaseInversion, EventDensityTrough, EventLowVarianceFlux}
+	for b.Loop() {
+		_ = ComposeEvents(events)
 	}
 }

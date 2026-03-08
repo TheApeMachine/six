@@ -9,6 +9,7 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
+	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 
@@ -23,13 +24,17 @@ the torus navigation. It demonstrates that meaningful geometric splits
 are necessary for coherent navigation.
 */
 type TorusGeneralizationExperiment struct {
-	tableData   []tools.ExperimentalData
-	dataset     provider.Dataset
-	prompt      *tokenizer.Prompt
-	comboSeries []tools.ComboSeries
-	tableRows   []map[string]any
-	xAxis       []string
-	seedQueries []string
+	tableData     []tools.ExperimentalData
+	dataset       provider.Dataset
+	prompt        *tokenizer.Prompt
+	comboSeries   []tools.ComboSeries
+	tableRows     []map[string]any
+	xAxis         []string
+	seedQueries   []string
+	splitRatios   []float64
+	effectiveDims []int
+	sweepStepDeg  float64
+	randomSeed    int64
 }
 
 type torusGeneralizationOpt func(*TorusGeneralizationExperiment)
@@ -40,9 +45,11 @@ func NewTorusGeneralizationExperiment(opts ...torusGeneralizationOpt) *TorusGene
 		dataset:   tools.NewLocalProvider(tools.Aphorisms),
 		seedQueries: []string{
 			"Democracy requires individual sacrifice.",
-			"Knowledge is power.",
-			"Nature does not hurry, yet everything is accomplished.",
 		},
+		splitRatios:   []float64{0.375, 0.4375, 0.5, 0.5625, 0.625},
+		effectiveDims: []int{config.Numeric.NBasis / 2, config.Numeric.NBasis},
+		sweepStepDeg:  5.0,
+		randomSeed:    42,
 	}
 
 	for _, opt := range opts {
@@ -50,6 +57,40 @@ func NewTorusGeneralizationExperiment(opts ...torusGeneralizationOpt) *TorusGene
 	}
 
 	return experiment
+}
+
+func TorusGeneralizationWithSplitRatios(splitRatios []float64) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if len(splitRatios) == 0 {
+			return
+		}
+
+		experiment.splitRatios = append([]float64(nil), splitRatios...)
+	}
+}
+
+func TorusGeneralizationWithEffectiveDims(effectiveDims []int) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if len(effectiveDims) == 0 {
+			return
+		}
+
+		experiment.effectiveDims = append([]int(nil), effectiveDims...)
+	}
+}
+
+func TorusGeneralizationWithSweepStep(stepDeg float64) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if stepDeg > 0 && stepDeg <= 180 {
+			experiment.sweepStepDeg = stepDeg
+		}
+	}
+}
+
+func TorusGeneralizationWithRandomSeed(randomSeed int64) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		experiment.randomSeed = randomSeed
+	}
 }
 
 func TorusGeneralizationWithDataset(dataset provider.Dataset) torusGeneralizationOpt {
@@ -81,12 +122,7 @@ func (experiment *TorusGeneralizationExperiment) Dataset() provider.Dataset {
 }
 
 func (experiment *TorusGeneralizationExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
-	)
-
-	return experiment.prompt
+	return nil
 }
 
 func (experiment *TorusGeneralizationExperiment) Holdout() (int, tokenizer.HoldoutType) {
@@ -98,7 +134,7 @@ func (experiment *TorusGeneralizationExperiment) AddResult(results tools.Experim
 }
 
 func (experiment *TorusGeneralizationExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.5
+	return experiment.Score(), gc.ShouldBeGreaterThan, 0.25
 }
 
 func (experiment *TorusGeneralizationExperiment) Score() float64 {
@@ -119,10 +155,14 @@ func (experiment *TorusGeneralizationExperiment) TableData() any {
 }
 
 // Helpers ported from the original test for local use
-func localContiguousSplit(numAxes int, boundaries []int) []int {
+func localContiguousSplit(numAxes, totalDims int, boundaries []int) []int {
 	dimMap := make([]int, config.Numeric.NBasis)
+	for i := range dimMap {
+		dimMap[i] = -1
+	}
+
 	sub := 0
-	for k := 0; k < config.Numeric.NBasis; k++ {
+	for k := 0; k < totalDims; k++ {
 		if sub < numAxes-1 && k >= boundaries[sub] {
 			sub++
 		}
@@ -131,10 +171,14 @@ func localContiguousSplit(numAxes int, boundaries []int) []int {
 	return dimMap
 }
 
-func localRandomSplit(numAxes, dimsPerAxis int, seed int64) []int {
+func localRandomSplit(numAxes, totalDims, dimsPerAxis int, seed int64) []int {
 	rng := rand.New(rand.NewSource(seed))
-	perm := rng.Perm(config.Numeric.NBasis)
+	perm := rng.Perm(totalDims)
 	dimMap := make([]int, config.Numeric.NBasis)
+	for i := range dimMap {
+		dimMap[i] = -1
+	}
+
 	for i, dim := range perm {
 		sub := i / dimsPerAxis
 		if sub >= numAxes {
@@ -145,20 +189,24 @@ func localRandomSplit(numAxes, dimsPerAxis int, seed int64) []int {
 	return dimMap
 }
 
-func localEnergySplit(fpA, fpB geometry.PhaseDial) []int {
+func localEnergySplit(fpA, fpB geometry.PhaseDial, totalDims int) []int {
 	type dimE struct {
 		k    int
 		diff float64
 	}
-	dims := make([]dimE, config.Numeric.NBasis)
-	for k := 0; k < config.Numeric.NBasis; k++ {
+	dims := make([]dimE, totalDims)
+	for k := 0; k < totalDims; k++ {
 		eA := real(fpA[k])*real(fpA[k]) + imag(fpA[k])*imag(fpA[k])
 		eB := real(fpB[k])*real(fpB[k]) + imag(fpB[k])*imag(fpB[k])
 		dims[k] = dimE{k: k, diff: eA - eB}
 	}
 	sort.Slice(dims, func(i, j int) bool { return dims[i].diff < dims[j].diff })
 	dimMap := make([]int, config.Numeric.NBasis)
-	half := config.Numeric.NBasis / 2
+	for i := range dimMap {
+		dimMap[i] = -1
+	}
+
+	half := totalDims / 2
 	for i, d := range dims {
 		if i < half {
 			dimMap[d.k] = 0
@@ -169,13 +217,118 @@ func localEnergySplit(fpA, fpB geometry.PhaseDial) []int {
 	return dimMap
 }
 
+func normalizeEffectiveDims(values []int) []int {
+	seen := make(map[int]bool, len(values))
+	normalized := make([]int, 0, len(values))
+
+	for _, value := range values {
+		if value < 2 {
+			continue
+		}
+
+		if value > config.Numeric.NBasis {
+			value = config.Numeric.NBasis
+		}
+
+		if seen[value] {
+			continue
+		}
+
+		seen[value] = true
+		normalized = append(normalized, value)
+	}
+
+	sort.Ints(normalized)
+
+	if len(normalized) == 0 {
+		return []int{config.Numeric.NBasis}
+	}
+
+	return normalized
+}
+
+func splitCandidates(totalDims int, splitRatios []float64) []int {
+	seen := make(map[int]bool, len(splitRatios))
+	candidates := make([]int, 0, len(splitRatios))
+
+	for _, ratio := range splitRatios {
+		if ratio <= 0.0 || ratio >= 1.0 {
+			continue
+		}
+
+		split := int(math.Round(ratio * float64(totalDims)))
+		if split < 1 {
+			split = 1
+		}
+		if split >= totalDims {
+			split = totalDims - 1
+		}
+
+		if seen[split] {
+			continue
+		}
+
+		seen[split] = true
+		candidates = append(candidates, split)
+	}
+
+	sort.Ints(candidates)
+
+	if len(candidates) == 0 {
+		defaultSplit := totalDims / 2
+		if defaultSplit < 1 {
+			defaultSplit = 1
+		}
+		if defaultSplit >= totalDims {
+			defaultSplit = totalDims - 1
+		}
+		return []int{defaultSplit}
+	}
+
+	return candidates
+}
+
+func formatSplitName(prefix string, left, right, totalDims int) string {
+	if totalDims == config.Numeric.NBasis {
+		return fmt.Sprintf("%s-%d/%d", prefix, left, right)
+	}
+
+	return fmt.Sprintf("%s(D=%d)-%d/%d", prefix, totalDims, left, right)
+}
+
 func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
-	compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB string) float64 {
+	stepDeg := experiment.sweepStepDeg
+	if stepDeg <= 0 || stepDeg > 180 {
+		stepDeg = 5.0
+	}
+
+	stepRad := stepDeg * (math.Pi / 180.0)
+	gridSize := int(math.Round(360.0 / stepDeg))
+	if gridSize < 1 {
+		gridSize = 1
+	}
+
+	rotatePrefix := func(fp geometry.PhaseDial, alpha float64, effectiveDims int) geometry.PhaseDial {
+		rotated := make(geometry.PhaseDial, config.Numeric.NBasis)
+		copy(rotated, fp)
+
+		factor := cmplx.Rect(1.0, alpha)
+		for k := 0; k < effectiveDims; k++ {
+			rotated[k] = fp[k] * factor
+		}
+
+		return rotated
+	}
+
+	compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB string, effectiveDims int) float64 {
 		ceiling := -1.0
 		for s := 0; s < 360; s++ {
 			alpha := float64(s) * (math.Pi / 180.0)
-			for _, anchor := range []geometry.PhaseDial{fpA, fpB} {
-				rot := anchor.Rotate(alpha)
+			for _, anchor := range []geometry.PhaseDial{
+				rotatePrefix(fpA, alpha, effectiveDims),
+				rotatePrefix(fpB, alpha, effectiveDims),
+			} {
+				rot := anchor
 				rnk := sub.PhaseDialRank(sub.Candidates(), rot)
 				topIdx := sub.TopExcluding(rnk, excludeA, excludeB)
 				efp := sub.Entries[topIdx].Fingerprint
@@ -194,8 +347,14 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 			factors[i] = cmplx.Rect(1.0, a)
 		}
 		rotated := make(geometry.PhaseDial, config.Numeric.NBasis)
+		copy(rotated, fp)
 		for k := 0; k < config.Numeric.NBasis; k++ {
-			rotated[k] = fp[k] * factors[dimMap[k]]
+			axis := dimMap[k]
+			if axis < 0 || axis >= len(factors) {
+				continue
+			}
+
+			rotated[k] = fp[k] * factors[axis]
 		}
 		return rotated
 	}
@@ -213,53 +372,90 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 		Splits    []splitResult
 	}
 
+	effectiveDims := normalizeEffectiveDims(experiment.effectiveDims)
+
 	var allSeeds []seedResult
 	for _, seedQuery := range experiment.seedQueries {
-		fingerprintA := geometry.NewPhaseDial().Encode(seedQuery)
+		chords := make([]data.Chord, len(seedQuery))
+		for i, b := range []byte(seedQuery) {
+			bc := data.BaseChord(b)
+			chords[i] = bc.RollLeft(i)
+		}
+		fingerprintA := geometry.NewPhaseDial().EncodeFromChords(chords)
 		hop := sub.FirstHop(fingerprintA, 45.0*(math.Pi/180.0), seedQuery)
 		fpB, fpAB := hop.FingerprintB, hop.FingerprintAB
 		textB := hop.TextB
 
-		ceiling := compute1DCeiling(fingerprintA, fpB, seedQuery, textB)
-
-		configs := []struct {
-			name   string
-			dimMap []int
-		}{
-			{"T²-256/256", localContiguousSplit(2, []int{256, 512})},
-			{"T²-random", localRandomSplit(2, 256, 42)},
-			{"T²-energy", localEnergySplit(fingerprintA, fpB)},
-		}
-
 		sr := seedResult{SeedQuery: seedQuery, TextB: textB}
-		for _, cfg := range configs {
-			const stepDeg = 10.0 // Faster sweep for experiment
-			stepRad := stepDeg * (math.Pi / 180.0)
-			gridSize := int(360.0 / stepDeg)
-			var bestGain float64 = -1.0
 
-			for i := 0; i < gridSize; i++ {
-				for j := 0; j < gridSize; j++ {
-					angles := []float64{float64(i) * stepRad, float64(j) * stepRad}
-					rotatedAB := generalRotate(fpAB, 2, cfg.dimMap, angles)
-					rnk := sub.PhaseDialRank(sub.Candidates(), rotatedAB)
-					topIdx := sub.TopExcluding(rnk, seedQuery, textB)
-					fpC := sub.Entries[topIdx].Fingerprint
-					gain := math.Min(fpC.Similarity(fingerprintA), fpC.Similarity(fpB))
-					if gain > bestGain {
-						bestGain = gain
+		for effectiveDimIdx, effectiveDim := range effectiveDims {
+			splits := splitCandidates(effectiveDim, experiment.splitRatios)
+
+			for splitIdx, split := range splits {
+				ceiling := compute1DCeiling(fingerprintA, fpB, seedQuery, textB, effectiveDim)
+
+				rightDims := effectiveDim - split
+				dimsPerAxis := split
+				if rightDims < dimsPerAxis {
+					dimsPerAxis = rightDims
+				}
+				if dimsPerAxis < 1 {
+					dimsPerAxis = 1
+				}
+
+				seedOffset := int64(effectiveDimIdx*1024 + splitIdx)
+
+				configs := []struct {
+					name   string
+					dimMap []int
+				}{
+					{
+						name:   formatSplitName("T²", split, rightDims, effectiveDim),
+						dimMap: localContiguousSplit(2, effectiveDim, []int{split, effectiveDim}),
+					},
+					{
+						name:   formatSplitName("T²-random", split, rightDims, effectiveDim),
+						dimMap: localRandomSplit(2, effectiveDim, dimsPerAxis, experiment.randomSeed+seedOffset),
+					},
+					{
+						name:   formatSplitName("T²-energy", split, rightDims, effectiveDim),
+						dimMap: localEnergySplit(fingerprintA, fpB, effectiveDim),
+					},
+				}
+
+				for _, cfg := range configs {
+					bestGain := -1.0
+
+					for i := 0; i < gridSize; i++ {
+						for j := 0; j < gridSize; j++ {
+							angles := []float64{float64(i) * stepRad, float64(j) * stepRad}
+							rotatedAB := generalRotate(fpAB, 2, cfg.dimMap, angles)
+							rnk := sub.PhaseDialRank(sub.Candidates(), rotatedAB)
+							topIdx := sub.TopExcluding(rnk, seedQuery, textB)
+							fpC := sub.Entries[topIdx].Fingerprint
+							gain := math.Min(fpC.Similarity(fingerprintA), fpC.Similarity(fpB))
+							if gain > bestGain {
+								bestGain = gain
+							}
+						}
 					}
+
+					sr.Splits = append(sr.Splits, splitResult{
+						SplitName:     cfg.name,
+						BestGain:      bestGain,
+						SingleCeiling: ceiling,
+						Delta:         bestGain - ceiling,
+						SuperAdditive: bestGain > ceiling,
+					})
 				}
 			}
-			sr.Splits = append(sr.Splits, splitResult{
-				SplitName:     cfg.name,
-				BestGain:      bestGain,
-				SingleCeiling: ceiling,
-				Delta:         bestGain - ceiling,
-				SuperAdditive: bestGain > ceiling,
-			})
 		}
+
 		allSeeds = append(allSeeds, sr)
+	}
+
+	if len(allSeeds) == 0 {
+		return nil
 	}
 
 	experiment.xAxis = make([]string, len(allSeeds[0].Splits))

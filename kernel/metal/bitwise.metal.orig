@@ -37,10 +37,10 @@ kernel void bitwise_best_fill(
 ) {
     if (id >= num_chords) return;
 
-    device const IcosahedralManifold& candidate = dictionary[id];
-    constant IcosahedralManifold& ctx = active_context[0];
+    IcosahedralManifold candidate = dictionary[id];
+    IcosahedralManifold ctx = active_context[0];
     // Expected reality acts as teleological anchor (can be ignored if null on host side)
-    constant IcosahedralManifold& expected = expected_reality[0];
+    IcosahedralManifold expected = expected_reality[0];
 
     // PASS 1: Winding Filter (Integer)  [Winding is bits 5..8]
     uint16_t q_winding = (ctx.header.data >> 5) & 0x0F;
@@ -115,7 +115,7 @@ kernel void bitwise_best_fill(
     if (global_id > 0xFFFFFF) { global_id = 0xFFFFFF; }
 
     // Pack: score (24-bit MSB) | inverted dist (16-bit) | global_id (24-bit LSB)
-    const int score_bias = 1 << 23;
+    constant int score_bias = 1 << 23;
     if (score_fixed < -score_bias) {
         score_fixed = -score_bias;
     }

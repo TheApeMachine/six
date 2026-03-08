@@ -19,161 +19,337 @@
   "results": [
     {
       "Idx": 0,
-      "Name": "Torus Generalization",
-      "Prefix": "RGVtb2NyYWN5IHJlcXVpcmVzIGluZGl2aWR1YWwgc2FjcmlmaWNlLg==",
-      "Holdout": "",
+      "Name": "T²(D=256)-96/160",
+      "Prefix": null,
+      "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 1,
-      "Name": "Torus Generalization",
-      "Prefix": "S25vd2xlZGdlIGlzIHBvd2VyLg==",
-      "Holdout": "",
-      "Observed": "KX2cKLU=",
-      "ErrorRatio": null,
-      "Scores": {
-        "Exact": 0,
-        "Partial": 0,
-        "Fuzzy": 0
-      },
-      "WeightedTotal": 0,
-      "TrueLabel": null,
-      "PredLabel": null
-    },
-    {
-      "Idx": 2,
-      "Name": "Torus Generalization",
-      "Prefix": "TmF0dXJlIGRvZXMgbm90IGh1cnJ5LCB5ZXQgZXZlcnl0aGluZyBpcyBhY2NvbXBsaXNoZWQu",
-      "Holdout": "",
+      "Idx": 0,
+      "Name": "T²-random(D=256)-96/160",
+      "Prefix": null,
+      "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 3,
-      "Name": "Torus Generalization",
-      "Prefix": "VGhlIG9ubHkgd2F5IHRvIGhhdmUgYSBmcmllbmQgaXMgdG8gYmUgb25lLg==",
-      "Holdout": "",
-      "Observed": "KLU=",
-      "ErrorRatio": null,
-      "Scores": {
-        "Exact": 0,
-        "Partial": 0,
-        "Fuzzy": 0
-      },
-      "WeightedTotal": 0,
-      "TrueLabel": null,
-      "PredLabel": null
-    },
-    {
-      "Idx": 4,
-      "Name": "Torus Generalization",
-      "Prefix": "VG8gYmUsIG9yIG5vdCB0byBiZSwgdGhhdCBpcyB0aGUgcXVlc3Rpb24u",
-      "Holdout": "",
+      "Idx": 0,
+      "Name": "T²-energy(D=256)-96/160",
+      "Prefix": null,
+      "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 5,
-      "Name": "Torus Generalization",
-      "Prefix": "QWxsIGhhcHB5IGZhbWlsaWVzIGFyZSBhbGlrZTsgZWFjaCB1bmhhcHB5IGZhbWlseSBpcyB1bmhhcHB5IGluIGl0cyBvd24gd2F5Lg==",
-      "Holdout": "",
+      "Idx": 0,
+      "Name": "T²(D=256)-112/144",
+      "Prefix": null,
+      "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 6,
-      "Name": "Torus Generalization",
-      "Prefix": "SXQgd2FzIHRoZSBiZXN0IG9mIHRpbWVzLCBpdCB3YXMgdGhlIHdvcnN0IG9mIHRpbWVzLg==",
-      "Holdout": "",
+      "Idx": 0,
+      "Name": "T²-random(D=256)-112/144",
+      "Prefix": null,
+      "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 7,
-      "Name": "Torus Generalization",
-      "Prefix": "SW4gYSBob2xlIGluIHRoZSBncm91bmQgdGhlcmUgbGl2ZWQgYSBob2JiaXQu",
-      "Holdout": "",
+      "Idx": 0,
+      "Name": "T²-energy(D=256)-112/144",
+      "Prefix": null,
+      "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 8,
-      "Name": "Torus Generalization",
-      "Prefix": "VGhlIHNreSBhYm92ZSB0aGUgcG9ydCB3YXMgdGhlIGNvbG9yIG9mIHRlbGV2aXNpb24sIHR1bmVkIHRvIGEgZGVhZCBjaGFubmVsLg==",
-      "Holdout": "",
-      "Observed": "JQ==",
+      "Idx": 0,
+      "Name": "T²(D=256)-128/128",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
-      "Idx": 9,
-      "Name": "Torus Generalization",
-      "Prefix": "SXQgaXMgYSB0cnV0aCB1bml2ZXJzYWxseSBhY2tub3dsZWRnZWQsIHRoYXQgYSBzaW5nbGUgbWFuIGluIHBvc3Nlc3Npb24gb2YgYSBnb29kIGZvcnR1bmUsIG11c3QgYmUgaW4gd2FudCBvZiBhIHdpZmUu",
-      "Holdout": "",
-      "Observed": "JQ==",
+      "Idx": 0,
+      "Name": "T²-random(D=256)-128/128",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy(D=256)-128/128",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²(D=256)-144/112",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random(D=256)-144/112",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy(D=256)-144/112",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²(D=256)-160/96",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random(D=256)-160/96",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy(D=256)-160/96",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-192/320",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random-192/320",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy-192/320",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-224/288",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-random-224/288",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 0,
+      "Name": "T²-energy-224/288",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -185,143 +361,143 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.2866650794451349,
-        "Partial": 0.2866650794451349,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.2866650794451349,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-random",
+      "Name": "T²-random-256/256",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.2866650794451349,
-        "Partial": 0.2866650794451349,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.2866650794451349,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-energy",
+      "Name": "T²-energy-256/256",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.2866650794451349,
-        "Partial": 0.2866650794451349,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.2866650794451349,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-256/256",
+      "Name": "T²-288/224",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.3362165959387514,
-        "Partial": 0.3362165959387514,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.3362165959387514,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-random",
+      "Name": "T²-random-288/224",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.3362165959387514,
-        "Partial": 0.3362165959387514,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.3362165959387514,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-energy",
+      "Name": "T²-energy-288/224",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.3359477821583494,
-        "Partial": 0.3362165959387514,
-        "Fuzzy": -0.00026881378040199966
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.3359477821583494,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-256/256",
+      "Name": "T²-320/192",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.20314072449325118,
-        "Partial": 0.20314072449325118,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.20314072449325118,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-random",
+      "Name": "T²-random-320/192",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.20314072449325118,
-        "Partial": 0.20314072449325118,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.20314072449325118,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     },
     {
       "Idx": 0,
-      "Name": "T²-energy",
+      "Name": "T²-energy-320/192",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.20314072449325118,
-        "Partial": 0.20314072449325118,
+        "Exact": 0.5489131756884974,
+        "Partial": 0.5489131756884974,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.20314072449325118,
+      "WeightedTotal": 0.5489131756884974,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0.1304104413605795,
+  "score": 0.5489131756884974,
   "section": "phasedial"
 }

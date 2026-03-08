@@ -19,9 +19,15 @@ type EigenMode struct {
 	Trained bool // Always true, kept for interface compatibility
 }
 
+/*
+eigenModeOpts configures EigenMode at construction. Used for interface compatibility.
+*/
 type eigenModeOpts func(*EigenMode)
 
-// NewEigenMode creates a new stateless, chord-native phase evaluator.
+/*
+NewEigenMode creates a new stateless, chord-native phase evaluator.
+No training is required; the analytical model is instantly ready.
+*/
 func NewEigenMode(opts ...eigenModeOpts) *EigenMode {
 	ei := &EigenMode{
 		Trained: true,
@@ -147,13 +153,19 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 	return phaseDiff < 0.45
 }
 
-// EigenError preserved for interface compatibility.
+/*
+EigenError represents legacy eigendecomposition failure.
+Preserved for interface compatibility; analytical EigenMode does not emit it.
+*/
 type EigenError string
 
 const (
 	EigenErrorFactorizeFailed EigenError = "eig.Factorize failed"
 )
 
+/*
+Error implements the error interface.
+*/
 func (err EigenError) Error() string {
 	return string(err)
 }

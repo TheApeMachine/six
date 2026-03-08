@@ -350,16 +350,29 @@ IntrinsicFace returns a deterministic face index (0-255) for a chord based
 on its lowest active prime within the structural range. Returns 256 if none.
 */
 func (chord *Chord) IntrinsicFace() int {
-	for i := range 4 {
-		if chord[i] != 0 {
-			bit := bits.TrailingZeros64(chord[i])
-			idx := i*64 + int(bit)
-			if idx < 256 {
-				return idx
-			}
+	if chord.ActiveCount() == 0 {
+		return 256
+	}
+
+	bestFace := 256
+	bestSim := 0
+
+	for b := 0; b < 256; b++ {
+		bc := BaseChord(byte(b))
+		sim := ChordSimilarity(chord, &bc)
+		if sim > bestSim {
+			bestSim = sim
+			bestFace = b
 		}
 	}
-	return 256
+
+	// Because BaseChords are 5 bits dense, we require at least 2 matching
+	// prime factors to assume deliberate resonance over random noise overlap.
+	if bestSim < 2 {
+		return 256
+	}
+
+	return bestFace
 }
 
 /*

@@ -43,7 +43,7 @@ func (n *Node) Arrive(tok Token) []Token {
 	// Determine which face this chord lands on using the Fermat cube
 	// self-addressing property (byte value = face), then route through
 	// the node's rotational lens.
-	logicalFace := tok.Chord.IntrinsicFace()
+	logicalFace := tok.LogicalFace
 	if logicalFace == 256 {
 		return nil
 	}
@@ -61,9 +61,10 @@ func (n *Node) Arrive(tok Token) []Token {
 	hole := data.ChordHole(&tok.Chord, &before)
 	if hole.ActiveCount() > 0 && tok.TTL > 1 {
 		emitted = append(emitted, Token{
-			Chord:  hole,
-			Origin: n.ID,
-			TTL:    tok.TTL - 1,
+			Chord:       hole,
+			LogicalFace: tok.LogicalFace,
+			Origin:      n.ID,
+			TTL:         tok.TTL - 1,
 		})
 	}
 
@@ -84,9 +85,10 @@ func (n *Node) Arrive(tok Token) []Token {
 			h := resonance.TransitiveResonance(&tok.Chord, &summary, &faceContent)
 			if h.ActiveCount() > 2 && tok.TTL > 1 {
 				emitted = append(emitted, Token{
-					Chord:  h,
-					Origin: n.ID,
-					TTL:    tok.TTL - 1,
+					Chord:       h,
+					LogicalFace: tok.LogicalFace,
+					Origin:      n.ID,
+					TTL:         tok.TTL - 1,
 				})
 			}
 		}
@@ -99,9 +101,10 @@ func (n *Node) Arrive(tok Token) []Token {
 	if n.FaceDensity(routed) >= geometry.MitosisThreshold {
 		n.Header.SetState(1)
 		emitted = append(emitted, Token{
-			Chord:  n.Cube[routed],
-			Origin: n.ID,
-			TTL:    tok.TTL - 1,
+			Chord:       n.Cube[routed],
+			LogicalFace: tok.LogicalFace,
+			Origin:      n.ID,
+			TTL:         tok.TTL - 1,
 		})
 		// Retain only the stable overlap between prior state and the incoming
 		// chord so saturated faces keep consensus structure rather than echoing

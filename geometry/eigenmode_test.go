@@ -91,6 +91,32 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 			So(seqTheta, ShouldAlmostEqual, singleTheta, 0.001)
 			So(seqPhi, ShouldAlmostEqual, singlePhi, 0.001)
 		})
+
+		Convey("When calling BuildMultiScaleCooccurrence", func() {
+			chords := []data.Chord{mockBaseChord('a'), mockBaseChord('b')}
+			err := ei.BuildMultiScaleCooccurrence(chords)
+			So(err, ShouldBeNil)
+			So(ei.Trained, ShouldBeTrue)
+		})
+	})
+}
+
+func TestEigenModeWeightedCircularMean(t *testing.T) {
+	Convey("Given WeightedCircularMean", t, func() {
+		ei := NewEigenMode()
+
+		Convey("When chords slice is empty", func() {
+			phase, conc := ei.WeightedCircularMean(nil)
+			So(phase, ShouldEqual, 0)
+			So(conc, ShouldEqual, 0)
+		})
+
+		Convey("When computing for single chord", func() {
+			chords := []data.Chord{mockBaseChord('X')}
+			phase, conc := ei.WeightedCircularMean(chords)
+			So(phase, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
+			So(conc, ShouldBeBetweenOrEqual, 0, 1)
+		})
 	})
 }
 
@@ -123,4 +149,37 @@ func TestGeometricalClosure(t *testing.T) {
 			So(ei.IsGeometricallyClosed(chordsA, oppositeAnchor), ShouldBeFalse)
 		})
 	})
+}
+
+func BenchmarkEigenModePhaseForChord(b *testing.B) {
+	ei := NewEigenMode()
+	chord := mockBaseChord('A')
+	b.ResetTimer()
+	for b.Loop() {
+		ei.PhaseForChord(&chord)
+	}
+}
+
+func BenchmarkEigenModeSeqToroidalMeanPhase(b *testing.B) {
+	ei := NewEigenMode()
+	chords := make([]data.Chord, 64)
+	for idx := range chords {
+		chords[idx] = mockBaseChord(byte(idx % 256))
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		ei.SeqToroidalMeanPhase(chords)
+	}
+}
+
+func BenchmarkEigenModeWeightedCircularMean(b *testing.B) {
+	ei := NewEigenMode()
+	chords := make([]data.Chord, 64)
+	for idx := range chords {
+		chords[idx] = mockBaseChord(byte(idx % 256))
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		ei.WeightedCircularMean(chords)
+	}
 }

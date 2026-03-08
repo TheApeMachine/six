@@ -20,9 +20,10 @@ TTL prevents infinite loops: a token dies after TTL hops regardless of
 whether any node consumes it.
 */
 type Token struct {
-	Chord  data.Chord
-	Origin int // source node ID (-1 for external injection / bedrock pull)
-	TTL    int // remaining hop budget
+	Chord       data.Chord
+	LogicalFace int // pure 0-255 byte identity, or 256
+	Origin      int // source node ID (-1 for external injection / bedrock pull)
+	TTL         int // remaining hop budget
 }
 
 /*
@@ -74,19 +75,21 @@ func NewRotationToken(rot geometry.GFRotation, origin int) Token {
 	c.Set(int(rot.A))
 	c.Set(int(rot.B))
 	return Token{
-		Chord:  c,
-		Origin: origin,
-		TTL:    defaultTTL,
+		Chord:       c,
+		LogicalFace: 256,
+		Origin:      origin,
+		TTL:         defaultTTL,
 	}
 }
 
 /*
 NewDataToken wraps an existing chord as a data-carrying token.
 */
-func NewDataToken(chord data.Chord, origin int) Token {
+func NewDataToken(chord data.Chord, logicalFace int, origin int) Token {
 	return Token{
-		Chord:  chord,
-		Origin: origin,
-		TTL:    defaultTTL,
+		Chord:       chord,
+		LogicalFace: logicalFace,
+		Origin:      origin,
+		TTL:         defaultTTL,
 	}
 }

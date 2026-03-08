@@ -3,12 +3,14 @@ package vm
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider/local"
 	"github.com/theapemachine/six/tokenizer"
 )
+
+// --- Corpus and machine builders ---
 
 // buildCorpus creates a realistic corpus of Python-like code snippets.
 func buildCorpus() [][]byte {
@@ -76,90 +78,84 @@ func collectBytes(out <-chan byte) []byte {
 	return res
 }
 
-func TestMachineIntegration_IngestsCorpusIntoManifolds(t *testing.T) {
-	machine := buildTestMachine(buildCorpus())
-	require.NoError(t, machine.Start())
+// --- Tests ---
 
-	pf := machine.primefield
-	require.GreaterOrEqual(t, pf.N, 2, "corpus should produce multiple manifolds via freeze boundary")
+func TestMachineIntegration(t *testing.T) {
+	Convey("Given a Machine built from a corpus", t, func() {
+		Convey("Ingesting corpus should produce multiple manifolds via freeze boundary", func() {
+			machine := buildTestMachine(buildCorpus())
+			So(machine.Start(), ShouldBeNil)
 
-	ptr, n, offset := pf.SearchSnapshot()
-	require.NotNil(t, ptr)
-	require.Greater(t, n, 0, "dictionary should have entries")
-	require.GreaterOrEqual(t, offset, 0)
+			pf := machine.primefield
+			So(pf.N, ShouldBeGreaterThanOrEqualTo, 2)
 
-	totalActive := 0
-	for i := 0; i < pf.N; i++ {
-		m := pf.Manifold(i)
-		for cube := range 5 {
-			for face := range 257 {
-				totalActive += m.Cubes[cube][face].ActiveCount()
+			ptr, n, offset := pf.SearchSnapshot()
+			So(ptr, ShouldNotBeNil)
+			So(n, ShouldBeGreaterThan, 0)
+			So(offset, ShouldBeGreaterThanOrEqualTo, 0)
+
+			totalActive := 0
+			for i := 0; i < pf.N; i++ {
+				m := pf.Manifold(i)
+				for cube := range 5 {
+					for face := range 257 {
+						totalActive += m.Cubes[cube][face].ActiveCount()
+					}
+				}
 			}
-		}
-	}
-	require.Greater(t, totalActive, 1000, "corpus should produce substantial manifold density")
-}
+			So(totalActive, ShouldBeGreaterThan, 1000)
+		})
 
-func TestMachineIntegration_EigenModeAndSequencerWired(t *testing.T) {
-	machine := buildTestMachine(buildCorpus())
-	require.NoError(t, machine.Start())
+		Convey("Start should wire EigenMode and Sequencer", func() {
+			machine := buildTestMachine(buildCorpus())
+			So(machine.Start(), ShouldBeNil)
 
-	// Start() should have wired EigenMode and Sequencer automatically.
-	require.NotNil(t, machine.eigenMode, "EigenMode should be wired after Start")
-	require.NotNil(t, machine.sequencer, "Sequencer should be wired after Start")
-}
+			So(machine.eigenMode, ShouldNotBeNil)
+			So(machine.sequencer, ShouldNotBeNil)
+		})
 
-func TestMachineIntegration_GeneratesOutput(t *testing.T) {
-	machine := buildTestMachine(buildCorpus())
-	require.NoError(t, machine.Start())
+		Convey("Prompt should generate output", func() {
+			machine := buildTestMachine(buildCorpus())
+			So(machine.Start(), ShouldBeNil)
 
-	out := collectBytes(machine.Prompt(promptToChords("def add("), nil))
-	t.Logf("cortex generated %d bytes from prompt", len(out))
-}
+			out := collectBytes(machine.Prompt(promptToChords("def add("), nil))
+			Printf("\n  cortex generated %d bytes from prompt\n", len(out))
+		})
 
-func TestMachineIntegration_DifferentPromptsProduceDifferentOutput(t *testing.T) {
-	machine1 := buildTestMachine(buildCorpus())
-	require.NoError(t, machine1.Start())
-	out1 := collectBytes(machine1.Prompt(promptToChords("def add("), nil))
+		Convey("Different prompts should produce different output", func() {
+			machine1 := buildTestMachine(buildCorpus())
+			So(machine1.Start(), ShouldBeNil)
+			out1 := collectBytes(machine1.Prompt(promptToChords("def add("), nil))
 
-	machine2 := buildTestMachine(buildCorpus())
-	require.NoError(t, machine2.Start())
-	out2 := collectBytes(machine2.Prompt(promptToChords("for i in"), nil))
+			machine2 := buildTestMachine(buildCorpus())
+			So(machine2.Start(), ShouldBeNil)
+			out2 := collectBytes(machine2.Prompt(promptToChords("for i in"), nil))
 
-	if len(out1) > 0 && len(out2) > 0 {
-		require.NotEqual(t, out1, out2, "different prompts should produce different output")
-	}
-}
+			if len(out1) > 0 && len(out2) > 0 {
+				So(out1, ShouldNotResemble, out2)
+			}
+		})
 
-func TestMachineIntegration_ExpectedRealitySeededIntoSink(t *testing.T) {
-	machine := buildTestMachine(buildCorpus())
-	require.NoError(t, machine.Start())
+		Convey("Expected reality seeded into sink should steer generation", func() {
+			machine := buildTestMachine(buildCorpus())
+			So(machine.Start(), ShouldBeNil)
 
-	expectedReality := &geometry.IcosahedralManifold{}
-	expectedReality.Cubes[0][0].Set(100)
+			expectedReality := &geometry.IcosahedralManifold{}
+			expectedReality.Cubes[0][0].Set(100)
 
-	out := collectBytes(machine.Prompt(promptToChords("def "), expectedReality))
-	t.Logf("generated %d bytes with expected reality", len(out))
-}
+			out := collectBytes(machine.Prompt(promptToChords("def "), expectedReality))
+			Printf("\n  generated %d bytes with expected reality\n", len(out))
+		})
 
-func TestMachineIntegration_ExpectedFieldAccepted(t *testing.T) {
-	machine := buildTestMachine(buildCorpus())
-	require.NoError(t, machine.Start())
+		Convey("Stop should terminate generation", func() {
+			machine := buildTestMachine(buildCorpus())
+			So(machine.Start(), ShouldBeNil)
 
-	expectedField := geometry.NewExpectedField()
-	expectedField.Support[0][0].Set(100)
+			ch := machine.Prompt(promptToChords("def "), nil)
+			machine.Stop()
 
-	out := collectBytes(machine.PromptWithExpectedField(promptToChords("def "), &expectedField))
-	t.Logf("generated %d bytes with expected field", len(out))
-}
-
-func TestMachineIntegration_StopTerminatesGeneration(t *testing.T) {
-	machine := buildTestMachine(buildCorpus())
-	require.NoError(t, machine.Start())
-
-	ch := machine.Prompt(promptToChords("def "), nil)
-	machine.Stop()
-
-	out := collectBytes(ch)
-	t.Logf("generated %d bytes before stop", len(out))
+			out := collectBytes(ch)
+			Printf("\n  generated %d bytes before stop\n", len(out))
+		})
+	})
 }

@@ -353,7 +353,7 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 	// Self-addressing with GF(257) rotation: the byte value maps to a
 	// face via the composed rotation state. This encodes sequence position
 	// without physically rearranging cube data.
-	logicalFace := chord.IntrinsicFace()
+	logicalFace := int(byteVal)
 	blockIndex := field.rot.Forward(logicalFace)
 
 	// Entropy Routing: if the targeted block hits Shannon limit,

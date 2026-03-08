@@ -20,16 +20,60 @@ rotations across different split boundaries. It identifies the optimal
 boundary for independent perspective shifts.
 */
 type SteerabilityExperiment struct {
-	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
-	accuracy  float64
+	tableData       []tools.ExperimentalData
+	dataset         provider.Dataset
+	prompt          *tokenizer.Prompt
+	accuracy        float64
+	splitCandidates []int
+	sweepStepDeg    float64
 }
 
-func NewSteerabilityExperiment() *SteerabilityExperiment {
-	return &SteerabilityExperiment{
-		tableData: []tools.ExperimentalData{},
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+type steerabilityOpt func(*SteerabilityExperiment)
+
+func NewSteerabilityExperiment(opts ...steerabilityOpt) *SteerabilityExperiment {
+	experiment := &SteerabilityExperiment{
+		tableData:       []tools.ExperimentalData{},
+		dataset:         tools.NewLocalProvider(tools.Aphorisms),
+		splitCandidates: []int{192, 224, 256, 288, 320},
+		sweepStepDeg:    5.0,
+	}
+
+	for _, opt := range opts {
+		opt(experiment)
+	}
+
+	if len(experiment.splitCandidates) == 0 {
+		experiment.splitCandidates = []int{192, 224, 256, 288, 320}
+	}
+
+	if experiment.sweepStepDeg <= 0 || experiment.sweepStepDeg > 180 {
+		experiment.sweepStepDeg = 5.0
+	}
+
+	return experiment
+}
+
+func SteerabilityWithDataset(dataset provider.Dataset) steerabilityOpt {
+	return func(experiment *SteerabilityExperiment) {
+		if dataset != nil {
+			experiment.dataset = dataset
+		}
+	}
+}
+
+func SteerabilityWithSplitCandidates(splitCandidates []int) steerabilityOpt {
+	return func(experiment *SteerabilityExperiment) {
+		if len(splitCandidates) > 0 {
+			experiment.splitCandidates = append([]int(nil), splitCandidates...)
+		}
+	}
+}
+
+func SteerabilityWithSweepStep(stepDeg float64) steerabilityOpt {
+	return func(experiment *SteerabilityExperiment) {
+		if stepDeg > 0 && stepDeg <= 180 {
+			experiment.sweepStepDeg = stepDeg
+		}
 	}
 }
 
@@ -129,7 +173,7 @@ func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSub
 	}
 
 	seedQuery := "Democracy requires individual sacrifice."
-	fpA := geometry.NewPhaseDial().Encode(seedQuery)
+	fpA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
 	hop := substrate.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQuery)
 	fpAB := hop.FingerprintAB
 	textB := hop.TextB
@@ -163,12 +207,37 @@ func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSub
 	validations := []struct {
 		name string
 		b    int
-	}{
-		{"192/320", 192},
-		{"224/288", 224},
-		{"256/256", 256},
-		{"288/224", 288},
-		{"320/192", 320},
+	}{}
+
+	seen := make(map[int]bool, len(experiment.splitCandidates))
+	for _, splitCandidate := range experiment.splitCandidates {
+		if splitCandidate < 1 || splitCandidate >= D {
+			continue
+		}
+
+		if seen[splitCandidate] {
+			continue
+		}
+
+		seen[splitCandidate] = true
+		validations = append(validations, struct {
+			name string
+			b    int
+		}{
+			name: fmt.Sprintf("%d/%d", splitCandidate, D-splitCandidate),
+			b:    splitCandidate,
+		})
+	}
+
+	if len(validations) == 0 {
+		half := D / 2
+		validations = append(validations, struct {
+			name string
+			b    int
+		}{
+			name: fmt.Sprintf("%d/%d", half, D-half),
+			b:    half,
+		})
 	}
 
 	var results []valResult
@@ -177,7 +246,7 @@ func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSub
 		sR := steerability(fpAB, v.b, D)
 		sMin := math.Min(sL, sR)
 
-		const stepDeg = 5.0
+		stepDeg := experiment.sweepStepDeg
 		gridSize := int(360.0 / stepDeg)
 		bestGain := -1.0
 		for i := 0; i < gridSize; i++ {

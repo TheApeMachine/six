@@ -129,7 +129,7 @@ func (experiment *TorusNavigationExperiment) TableData() any {
 
 func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	seedQuery := "Democracy requires individual sacrifice."
-	fingerprintA := geometry.NewPhaseDial().Encode(seedQuery)
+	fingerprintA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
 
 	splitPoint := experiment.splitPoint
 

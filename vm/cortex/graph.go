@@ -21,10 +21,10 @@ type BestFillFunc func(
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error)
 
-// Analyzer derives topological events from chord sequences.
+// Analyzer derives topological events from byte sequences.
 // The tokenizer.Sequencer satisfies this interface.
 type Analyzer interface {
-	Analyze(pos int, current data.Chord) (reset bool, events []int)
+	Analyze(pos int, byteVal byte) (reset bool, events []int)
 	Phase() (ema float64, threshold float64)
 	Phi() float64
 }
@@ -259,7 +259,7 @@ func (g *Graph) collectRecallCandidates(
 		matched := g.config.PrimeField.Mask(absIdx)
 		masked = append(masked, maskedManifold{idx: absIdx, manifold: matched})
 
-		for cube := 0; cube < 4; cube++ {
+		for cube := range 4 {
 			for face := range geometry.CubeFaces {
 				faceChord := matched.Cubes[cube][face]
 				if faceChord.ActiveCount() == 0 {
@@ -467,6 +467,62 @@ func (g *Graph) bestNeighbor(from *Node, c data.Chord) *Node {
 }
 
 /*
+routeTargets returns the set of nodes a token should be sent to.
+
+When the routing medium has structure (at least one neighbor has positive
+resonance), this returns a single best neighbor — directional gravity.
+
+When all neighbors score zero (unstructured medium), this returns ALL
+neighbors — omnidirectional wave propagation. A perturbation in an
+unstructured medium spreads in all directions.
+*/
+func (g *Graph) routeTargets(from *Node, c data.Chord) []*Node {
+	var best *Node
+	bestScore := -1.0
+	allZero := true
+
+	var tokenTheta float64
+	useWind := g.config.EigenMode != nil
+	if useWind {
+		tokenTheta, _ = g.config.EigenMode.PhaseForChord(&c)
+	}
+
+	for _, neighbor := range from.edges {
+		nSum := neighbor.CubeChord()
+		sim := float64(data.ChordSimilarity(&c, &nSum))
+
+		score := sim
+		if useWind {
+			neighborTheta, _ := g.config.EigenMode.PhaseForChord(&nSum)
+			phaseDelta := math.Abs(tokenTheta - neighborTheta)
+			for phaseDelta > math.Pi {
+				phaseDelta = 2*math.Pi - phaseDelta
+			}
+			wind := 1.0 / (1.0 + phaseDelta)
+			score = sim * wind
+		}
+
+		if score > 0 {
+			allZero = false
+		}
+		if score > bestScore {
+			bestScore = score
+			best = neighbor
+		}
+	}
+
+	if allZero {
+		// Degenerate case: broadcast to all neighbors.
+		return from.edges
+	}
+
+	if best != nil {
+		return []*Node{best}
+	}
+	return nil
+}
+
+/*
 queryBedrock fires multi-angle BestFill queries against the PrimeField using
 the node's ChordHole as the base query. This is "Thermodynamic Suction" with
 diverse torus sweep — the node dreams about what it's missing from multiple
@@ -546,9 +602,10 @@ func (g *Graph) queryBedrock(node *Node) {
 		}
 
 		node.Send(Token{
-			Chord:  cand.chord,
-			Origin: -1,
-			TTL:    ttl,
+			Chord:       cand.chord,
+			LogicalFace: cand.chord.IntrinsicFace(),
+			Origin:      -1,
+			TTL:         ttl,
 		})
 	}
 }

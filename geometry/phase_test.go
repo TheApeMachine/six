@@ -24,65 +24,75 @@ func TestNewPhaseDial(t *testing.T) {
 	})
 }
 
-func TestPhaseDialEncode(t *testing.T) {
-	Convey("Given an empty PhaseDial instance", t, func() {
+func TestPhaseDialEncodeFromChords(t *testing.T) {
+	Convey("Given a PhaseDial and chord sequences", t, func() {
 		dial := NewPhaseDial()
 
-		Convey("When encoding an empty string", func() {
-			encoded := dial.Encode("")
-			// Given nothing to rotate, it returns the zero array
-			for i := range encoded {
-				So(real(encoded[i]), ShouldEqual, 0)
-				So(imag(encoded[i]), ShouldEqual, 0)
+		Convey("When encoding an empty chord sequence", func() {
+			encoded := dial.EncodeFromChords(nil)
+			So(encoded, ShouldNotBeNil)
+			for idx := range encoded {
+				So(real(encoded[idx]), ShouldEqual, 0)
+				So(imag(encoded[idx]), ShouldEqual, 0)
 			}
 		})
 
-		Convey("When encoding extremely small structural tokens", func() {
-			text := "a"
-			encoded := dial.Encode(text)
-
-			// Validate geometric fingerprint norm is roughly 1.0 (magnitude)
+		Convey("When encoding a single chord", func() {
+			chords := ChordSeqFromBytes("a")
+			encoded := dial.EncodeFromChords(chords)
 			var mag float64
 			for _, val := range encoded {
-				r, i := real(val), imag(val)
-				mag += r*r + i*i
+				re, im := real(val), imag(val)
+				mag += re*re + im*im
 			}
 			So(math.Sqrt(mag), ShouldAlmostEqual, 1.0, 0.0001)
-
-			// Ensure non-zero mapping
 			So(encoded[0], ShouldNotEqual, complex(0, 0))
 		})
 
-		Convey("When encoding longer structural sequences", func() {
-			text1 := "hello world"
-			text2 := "world hello" // Anagram to ensure order dictates phase angles
+		Convey("When encoding different chord orderings", func() {
+			chordsA := ChordSeqFromBytes("hello world")
+			chordsB := ChordSeqFromBytes("world hello")
+			encodedA := NewPhaseDial().EncodeFromChords(chordsA)
+			encodedB := NewPhaseDial().EncodeFromChords(chordsB)
 
-			encodedA := NewPhaseDial().Encode(text1)
-			encodedB := NewPhaseDial().Encode(text2)
-
-			// Normalization test
+			// Normalization: both should be unit magnitude
 			var magA, magB float64
 			for i := range encodedA {
-				r, iPhase := real(encodedA[i]), imag(encodedA[i])
-				magA += r*r + iPhase*iPhase
-
-				rB, iPhaseB := real(encodedB[i]), imag(encodedB[i])
-				magB += rB*rB + iPhaseB*iPhaseB
+				r, im := real(encodedA[i]), imag(encodedA[i])
+				magA += r*r + im*im
+				rB, imB := real(encodedB[i]), imag(encodedB[i])
+				magB += rB*rB + imB*imB
 			}
 			So(math.Sqrt(magA), ShouldAlmostEqual, 1.0, 0.0001)
 			So(math.Sqrt(magB), ShouldAlmostEqual, 1.0, 0.0001)
 
-			// Structural divergence test -> Different semantic order creates different holograms
+			// Structural divergence: different order creates different holograms
 			differences := 0
 			for i := 0; i < len(encodedA); i++ {
-				// Due to floating point math, we measure concrete differences directly
-				dist := cmplx.Abs(encodedA[i] - encodedB[i])
-				if dist > 0.001 {
+				if cmplx.Abs(encodedA[i]-encodedB[i]) > 0.001 {
 					differences++
 				}
 			}
-			// They should drastically diverge over the NBasis space
 			So(differences, ShouldBeGreaterThan, 100)
+
+			// Similarity should be bounded and not nearly identical
+			sim := encodedA.Similarity(encodedB)
+			So(sim, ShouldBeBetweenOrEqual, -1, 1)
+			So(sim, ShouldNotAlmostEqual, 1.0, 0.01)
 		})
 	})
+}
+
+func BenchmarkNewPhaseDial(b *testing.B) {
+	for b.Loop() {
+		_ = NewPhaseDial()
+	}
+}
+
+func BenchmarkPhaseDialEncodeFromChords(b *testing.B) {
+	dial := NewPhaseDial()
+	chords := ChordSeqFromBytes("benchmark chord sequence for phase encoding")
+	for b.Loop() {
+		_ = dial.EncodeFromChords(chords)
+	}
 }

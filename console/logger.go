@@ -1,7 +1,6 @@
 package console
 
 import (
-	"io"
 	"os"
 	"path/filepath"
 
@@ -20,8 +19,6 @@ type Logger struct {
 }
 
 func New() *Logger {
-	var out io.Writer = os.Stderr
-
 	wd, err := os.Getwd()
 
 	if err != nil {
@@ -29,15 +26,19 @@ func New() *Logger {
 	}
 
 	// Open the log file for appending using an absolute path
-	file, err := os.OpenFile(filepath.Join(wd, "six.log"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
-	if err == nil {
-		// Output to both stderr and the file
-		out = io.MultiWriter(os.Stderr, file)
+	file, err := os.OpenFile(
+		filepath.Join(wd, "six.log"),
+		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		0666,
+	)
+
+	if err != nil {
+		panic(err)
 	}
 
 	l := &Logger{
 		handle: *log.NewWithOptions(
-			out,
+			os.Stderr,
 			log.Options{
 				ReportTimestamp: true,
 				ReportCaller:    true,
@@ -45,24 +46,13 @@ func New() *Logger {
 		),
 		// Always initialize traceHandle to a safe fallback (stderr)
 		traceHandle: *log.NewWithOptions(
-			os.Stderr,
+			file,
 			log.Options{
-				ReportTimestamp: true,
-				ReportCaller:    true,
+				ReportTimestamp: false,
+				ReportCaller:    false,
 				Level:           log.DebugLevel,
 			},
 		),
-	}
-
-	if err == nil {
-		l.traceHandle = *log.NewWithOptions(
-			file,
-			log.Options{
-				ReportTimestamp: true,
-				ReportCaller:    true,
-				Level:           log.DebugLevel,
-			},
-		)
 	}
 
 	return l
@@ -86,7 +76,7 @@ func Error(err error, keyvals ...any) error {
 	return err
 }
 
-func Warn(msg string) {
+func Warn(msg string, keyvals ...any) {
 	logger.handle.Warn(msg)
 }
 

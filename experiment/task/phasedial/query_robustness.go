@@ -113,8 +113,8 @@ func (experiment *QueryRobustnessExperiment) Finalize(substrate *geometry.Hybrid
 		}
 	}
 
-	corruptedFP := geometry.NewPhaseDial().Encode(string(maskedQuery))
-	cleanFP := geometry.NewPhaseDial().Encode(rawQuery)
+	corruptedFP := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(string(maskedQuery)))
+	cleanFP := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(rawQuery))
 
 	corruptedResults := substrate.GeodesicScan(corruptedFP, 72, 5.0)
 	cleanResults := substrate.GeodesicScan(cleanFP, 72, 5.0)

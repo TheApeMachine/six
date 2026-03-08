@@ -4,54 +4,81 @@ import (
 	"testing"
 	"unsafe"
 
-	"github.com/stretchr/testify/assert"
+	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/numeric"
 )
 
 func TestManifoldHeader(t *testing.T) {
-	var header ManifoldHeader
+	Convey("Given a ManifoldHeader", t, func() {
+		var header ManifoldHeader
 
-	// Test State (1 bit)
-	header.SetState(1)
-	assert.Equal(t, uint8(1), header.State())
+		Convey("When setting State to 1", func() {
+			header.SetState(1)
+			So(header.State(), ShouldEqual, uint8(1))
+		})
 
-	header.SetState(0)
-	assert.Equal(t, uint8(0), header.State())
+		Convey("When setting State to 0", func() {
+			header.SetState(0)
+			So(header.State(), ShouldEqual, uint8(0))
+		})
 
-	// Test RotState (6 bits: 0-63)
-	header.SetRotState(42)
-	assert.Equal(t, uint8(42), header.RotState())
+		Convey("When setting RotState to 42", func() {
+			header.SetRotState(42)
+			So(header.RotState(), ShouldEqual, uint8(42))
+		})
 
-	// Test RotState Overflow (should mask to 6 bits)
-	header.SetRotState(65) // 65 & 0x3F = 1
-	assert.Equal(t, uint8(1), header.RotState())
+		Convey("When RotState overflows (65 masks to 6 bits)", func() {
+			header.SetRotState(65)
+			So(header.RotState(), ShouldEqual, uint8(1))
+		})
 
-	// Test Winding Increment (modulo 16)
-	for i := 0; i < 16; i++ {
-		assert.Equal(t, uint8(i), header.Winding())
-		header.IncrementWinding()
-	}
-	assert.Equal(t, uint8(0), header.Winding())
+		Convey("When incrementing Winding through 16 steps", func() {
+			for i := 0; i < 16; i++ {
+				So(header.Winding(), ShouldEqual, uint8(i))
+				header.IncrementWinding()
+			}
+			So(header.Winding(), ShouldEqual, uint8(0))
+		})
 
-	// Test Reset Winding
-	header.IncrementWinding()
-	header.IncrementWinding()
-	assert.Equal(t, uint8(2), header.Winding())
-	header.ResetWinding()
-	assert.Equal(t, uint8(0), header.Winding())
+		Convey("When ResetWinding after increments", func() {
+			header.IncrementWinding()
+			header.IncrementWinding()
+			So(header.Winding(), ShouldEqual, uint8(2))
+			header.ResetWinding()
+			So(header.Winding(), ShouldEqual, uint8(0))
+		})
 
-	// Test cross-contamination
-	header.SetState(1)
-	header.SetRotState(59)
-	header.IncrementWinding()
-	header.IncrementWinding()
-	header.IncrementWinding()
-
-	assert.Equal(t, uint8(1), header.State())
-	assert.Equal(t, uint8(59), header.RotState())
-	assert.Equal(t, uint8(3), header.Winding())
+		Convey("When State, RotState and Winding are set together", func() {
+			header.SetState(1)
+			header.SetRotState(59)
+			header.IncrementWinding()
+			header.IncrementWinding()
+			header.IncrementWinding()
+			So(header.State(), ShouldEqual, uint8(1))
+			So(header.RotState(), ShouldEqual, uint8(59))
+			So(header.Winding(), ShouldEqual, uint8(3))
+		})
+	})
 }
 
 func TestIcosahedralManifold_LayoutSize(t *testing.T) {
-	assert.Equal(t, numeric.ManifoldBytes, int(unsafe.Sizeof(IcosahedralManifold{})))
+	Convey("Given IcosahedralManifold", t, func() {
+		Convey("When checking layout size", func() {
+			So(int(unsafe.Sizeof(IcosahedralManifold{})), ShouldEqual, numeric.ManifoldBytes)
+		})
+	})
+}
+
+func BenchmarkManifoldHeaderOps(b *testing.B) {
+	var header ManifoldHeader
+	n := 0
+	for b.Loop() {
+		header.SetState(uint8(n & 1))
+		header.SetRotState(uint8(n % 60))
+		header.IncrementWinding()
+		_ = header.State()
+		_ = header.RotState()
+		_ = header.Winding()
+		n++
+	}
 }

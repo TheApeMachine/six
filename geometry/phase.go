@@ -9,10 +9,33 @@ import (
 	"github.com/theapemachine/six/numeric"
 )
 
+/*
+PhaseDial is a 512-dimensional complex vector representing rotational phase gradients.
+Each dimension uses a prime frequency (omega) to accumulate phase from position and
+structural identity; encoding produces unit-normalized holographic fingerprints suitable
+for similarity and composition. Use EncodeFromChords for chord sequences.
+*/
 type PhaseDial []complex128
 
+/*
+NewPhaseDial allocates a zero-initialized PhaseDial of NBasis dimensions.
+Used before EncodeFromChords to produce a holographic representation.
+*/
 func NewPhaseDial() PhaseDial {
 	return make(PhaseDial, config.Numeric.NBasis)
+}
+
+/*
+ChordSeqFromBytes produces a chord sequence from raw bytes via BaseChord.
+Used when text/bytes are the input source for EncodeFromChords.
+*/
+func ChordSeqFromBytes(text string) []data.Chord {
+	bytes := []byte(text)
+	chords := make([]data.Chord, len(bytes))
+	for idx, b := range bytes {
+		chords[idx] = data.BaseChord(b)
+	}
+	return chords
 }
 
 /*
@@ -30,39 +53,13 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 		omega := float64(numeric.Primes[k])
 
 		for t := range chords {
-			// Structural phase from chord: sum of primes at active bits in dimension k's neighborhood
-			// Use ChordBin as a structural identity proxy for phase contribution
+			// Structural phase from chord: sum of primes at active bits in
+			// dimension k's neighborhood. Use ChordBin as a structural identity
+			// proxy for phase contribution.
 			bin := data.ChordBin(&chords[t])
 			structuralPrime := float64(numeric.Primes[bin%config.Numeric.NSymbols])
 
 			phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
-			sum += cmplx.Rect(1.0, phase)
-		}
-
-		dial[k] = sum
-	}
-
-	return dial.normalize()
-}
-
-/*
-Encode takes a raw byte sequence and generates a 512-dimension PhaseDial.
-Legacy entrypoint for text; prefer EncodeFromChords for chord-native pipelines.
-*/
-func (dial PhaseDial) Encode(text string) PhaseDial {
-	bytes := []byte(text)
-
-	if len(bytes) == 0 {
-		return dial
-	}
-
-	for k := 0; k < config.Numeric.NBasis; k++ {
-		var sum complex128
-		omega := float64(numeric.Primes[k])
-
-		for t, b := range bytes {
-			symbolPrime := float64(numeric.Primes[int(b)%config.Numeric.NSymbols])
-			phase := (omega * float64(t+1) * 0.1) + (symbolPrime * 0.1)
 			sum += cmplx.Rect(1.0, phase)
 		}
 
@@ -89,7 +86,8 @@ func (dial PhaseDial) Rotate(angleRadians float64) PhaseDial {
 }
 
 /*
-Similarity returns cosine similarity between two PhaseDial vectors (real part of normalized inner product).
+Similarity returns cosine similarity between two PhaseDial vectors
+(real part of normalized inner product).
 */
 func (dial PhaseDial) Similarity(other PhaseDial) float64 {
 	if len(dial) != len(other) || len(dial) == 0 {
@@ -142,6 +140,10 @@ func (dial PhaseDial) ComposeMidpoint(other PhaseDial) PhaseDial {
 	return out
 }
 
+/*
+norm returns the L2 magnitude of the dial (sqrt of sum of squared components).
+Used internally by ComposeMidpoint and Similarity; exported methods use normalize.
+*/
 func (dial PhaseDial) norm() float64 {
 	var n float64
 	for _, v := range dial {
@@ -150,6 +152,10 @@ func (dial PhaseDial) norm() float64 {
 	return math.Sqrt(n)
 }
 
+/*
+normalize divides each component by the L2 norm so the dial has unit magnitude.
+EncodeFromChords calls this before returning; preserves receiver in-place.
+*/
 func (dial PhaseDial) normalize() PhaseDial {
 	var norm float64
 

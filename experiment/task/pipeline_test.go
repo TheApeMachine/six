@@ -3,7 +3,6 @@ package task
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -20,7 +19,7 @@ import (
 )
 
 func TestPipeline(t *testing.T) {
-	experiments := []tools.PipelineExperiment{
+	allExperiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
 		classification.NewTextClassificationExperiment(),
 		textgen.NewCompositionalExperiment(),
@@ -37,38 +36,46 @@ func TestPipeline(t *testing.T) {
 		scaling.NewSequencerExperiment(),
 	}
 
+	experiments := allExperiments
+	if testing.Short() {
+		experiments = []tools.PipelineExperiment{
+			scaling.NewSequencerExperiment(),
+			scaling.NewCompressionExperiment(),
+		}
+	}
+
 	for _, experiment := range experiments {
-		Convey("Given experiment: "+experiment.Name(), t, func() {
-			pipeline, err := NewPipeline(
-				PipelineWithExperiment(experiment),
-			)
+		experiment := experiment
+		t.Run(experiment.Name(), func(t *testing.T) {
+			Convey("Given experiment: "+experiment.Name(), t, func() {
+				pipeline, err := NewPipeline(
+					PipelineWithExperiment(experiment),
+					PipelineWithSnapshotReporter(),
+				)
 
-			So(err, ShouldBeNil)
-			So(pipeline, ShouldNotBeNil)
+				So(err, ShouldBeNil)
+				So(pipeline, ShouldNotBeNil)
 
-			Convey("When: "+experiment.Name()+" produces an outcome", func() {
-				So(pipeline.Run(), ShouldBeNil)
+				Convey("When: "+experiment.Name()+" produces an outcome", func() {
+					So(pipeline.Run(), ShouldBeNil)
 
-				outcome, assertion, expected := experiment.Outcome()
-				So(outcome, assertion, expected)
+					outcome, assertion, expected := experiment.Outcome()
+					So(outcome, assertion, expected)
 
-				Convey("It should have produced the expected artifacts", func() {
-					section := experiment.Section()
+					Convey("It should have produced serialized result and artifact snapshots", func() {
+						section := experiment.Section()
 
-					// Every experiment should at least have a summary table (implicitly or explicitly)
-					// But we only check the ones defined in Artifacts() or the main summary if we still write it.
-					// Since we moved everything to Artifacts(), we check those.
+						resultsPath := filepath.Join(PaperDir(section), tools.Slugify(experiment.Name())+"_results.json")
+						_, resultsErr := os.Stat(resultsPath)
+						So(resultsErr, ShouldBeNil)
 
-					for _, artifact := range experiment.Artifacts() {
-						path := filepath.Join(PaperDir(section), artifact.FileName)
-						if !strings.HasSuffix(path, ".tex") && !strings.HasSuffix(path, ".pdf") && !strings.Contains(path, ".") {
-							// Artifacts without extension are likely charts (which become .pdf)
-							path += ".pdf"
+						for _, artifact := range experiment.Artifacts() {
+							path := filepath.Join(PaperDir(section), artifactJSONFileName(artifact.FileName))
+
+							_, statErr := os.Stat(path)
+							So(statErr, ShouldBeNil)
 						}
-
-						_, statErr := os.Stat(path)
-						So(statErr, ShouldBeNil)
-					}
+					})
 				})
 			})
 		})

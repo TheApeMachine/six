@@ -78,7 +78,7 @@ func (experiment *TwoHopRetrievalExperiment) TableData() any {
 
 func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	seedQuery := "Democracy requires individual sacrifice."
-	fingerprintA := geometry.NewPhaseDial().Encode(seedQuery)
+	fingerprintA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
 	alpha1List := []float64{15.0, 30.0, 45.0, 60.0, 75.0}
 
 	type TwoHopRow struct {

@@ -2,7 +2,9 @@ package tokenizer
 
 import (
 	"context"
+	"strings"
 
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider"
 )
@@ -33,6 +35,7 @@ type Universal struct {
 	dataset   provider.Dataset
 	sequencer *Sequencer
 	pos       uint32
+	tokens    strings.Builder
 }
 
 type universalOpts func(*Universal)
@@ -74,9 +77,11 @@ func (tokenizer *Universal) Generate() chan Token {
 		for rawToken := range tokenizer.dataset.Generate() {
 			chord := data.BaseChord(rawToken.Symbol)
 			chord = chord.RollLeft(int(tokenizer.pos))
-			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), chord)
+			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), rawToken.Symbol)
 
-			out <- Token{
+			tokenizer.tokens.WriteByte(rawToken.Symbol)
+
+			token := Token{
 				TokenID:    tokenizer.coder.Encode(streamPos, rawToken.Symbol),
 				Pos:        tokenizer.pos,
 				Chord:      chord,
@@ -84,12 +89,29 @@ func (tokenizer *Universal) Generate() chan Token {
 				IsBoundary: reset,
 			}
 
+			out <- token
+
 			streamPos++
 			tokenizer.pos++
 
 			if reset {
+				console.Trace(
+					"tokenizer-boundary",
+					"sequence", tokenizer.tokens.String(),
+				)
+
+				tokenizer.tokens.Reset()
 				tokenizer.pos = 0
 			}
+		}
+
+		// Emit the trailing data after the last boundary as a final sequence.
+		if tokenizer.tokens.Len() > 0 {
+			console.Trace(
+				"tokenizer-boundary",
+				"sequence", tokenizer.tokens.String(),
+			)
+			tokenizer.tokens.Reset()
 		}
 	}()
 

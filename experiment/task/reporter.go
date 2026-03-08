@@ -16,11 +16,26 @@ type Reporter interface {
 type ProjectorReporter struct {
 }
 
+type SnapshotReporter struct {
+}
+
 func NewProjectorReporter() *ProjectorReporter {
 	return &ProjectorReporter{}
 }
 
+func NewSnapshotReporter() *SnapshotReporter {
+	return &SnapshotReporter{}
+}
+
 func (reporter *ProjectorReporter) WriteResults(experiment tools.PipelineExperiment) error {
+	return writeResultsSnapshot(experiment)
+}
+
+func (reporter *SnapshotReporter) WriteResults(experiment tools.PipelineExperiment) error {
+	return writeResultsSnapshot(experiment)
+}
+
+func writeResultsSnapshot(experiment tools.PipelineExperiment) error {
 	snapshot := map[string]any{
 		"name":    experiment.Name(),
 		"section": experiment.Section(),
@@ -42,11 +57,7 @@ func (reporter *ProjectorReporter) WriteResults(experiment tools.PipelineExperim
 }
 
 func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperiment, artifact tools.Artifact) error {
-	if err := WriteJSONFile(
-		artifactSnapshot(artifact),
-		artifactJSONFileName(artifact.FileName),
-		experiment.Section(),
-	); err != nil {
+	if err := writeArtifactSnapshot(experiment, artifact); err != nil {
 		return err
 	}
 
@@ -104,6 +115,22 @@ func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperi
 	default:
 		return fmt.Errorf("unsupported artifact type %q", artifact.Type)
 	}
+}
+
+func (reporter *SnapshotReporter) WriteArtifact(experiment tools.PipelineExperiment, artifact tools.Artifact) error {
+	return writeArtifactSnapshot(experiment, artifact)
+}
+
+func writeArtifactSnapshot(experiment tools.PipelineExperiment, artifact tools.Artifact) error {
+	if err := WriteJSONFile(
+		artifactSnapshot(artifact),
+		artifactJSONFileName(artifact.FileName),
+		experiment.Section(),
+	); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func artifactSnapshot(artifact tools.Artifact) map[string]any {

@@ -1,41 +1,12 @@
 package cortex
 
 import (
+	"math"
+
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 )
-
-const hologramNoiseFloor = 3.5
-
-func holographicProbe(nodes []*Node, pos int) (byte, float64) {
-	bestByte := byte(0)
-	bestScore := 0.0
-
-	for b := range 256 {
-		testChord := data.BaseChord(byte(b))
-		testChord = testChord.RollLeft(pos)
-		logicalFace := testChord.IntrinsicFace()
-
-		if logicalFace == 256 {
-			continue
-		}
-
-		var score float64
-		for _, n := range nodes {
-			routed := n.Rot.Forward(logicalFace)
-			nodeFace := n.Cube[routed]
-			score += float64(data.ChordSimilarity(&testChord, &nodeFace))
-		}
-
-		if score > bestScore {
-			bestScore = score
-			bestByte = byte(b)
-		}
-	}
-
-	return bestByte, bestScore
-}
 
 /*
 Think is the top-level cortex execution.
@@ -46,7 +17,7 @@ Lifecycle:
  2. SEED    — Expected reality / expected field are seeded into the sink
     as structural attractors.
  3. VIBRATE — The tick loop runs until convergence or timeout.
- 4. EXTRACT — The converged sink hologram is probed position-by-position.
+ 4. EXTRACT — The trajectory span is walked over the clustered state using Momentum.
  5. COMMIT  — Surviving dense nodes are written back to the PrimeField.
  6. DEATH   — The graph dissolves. The chan is closed.
 
@@ -60,34 +31,50 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 
 		g.InjectWithSequencer(prompt)
 
+		// Bootstrap momentum from prompt energy: each chord contributes
+		// structural complexity. Without a sequencer, no events fire and
+		// momentum would stay 0, making extraction impossible.
+		if g.momentum == 0 {
+			for _, c := range prompt {
+				g.momentum += float64(c.ActiveCount())
+			}
+		}
+
 		if expected != nil {
 			for i := range geometry.CubeFaces {
+				if i > 255 {
+					break // face 256 is delimiter, not a byte
+				}
 				if expected.Cubes[0][i].ActiveCount() > 0 {
-					g.sink.Send(NewDataToken(expected.Cubes[0][i], -1))
+					g.sink.Send(NewDataToken(expected.Cubes[0][i], i, -1))
 				}
 			}
 		}
 
 		if g.config.ExpectedField != nil {
-			for cube := range 5 {
-				for face := range geometry.CubeFaces {
+			for cube := 0; cube < 5; cube++ {
+				for face := 0; face < geometry.CubeFaces; face++ {
 					if g.config.ExpectedField.Precision[cube][face] > 0.0 {
 						bc := data.BaseChord(byte(face % 256))
-						g.sink.Send(NewDataToken(bc, -1))
+						g.sink.Send(NewDataToken(bc, face%256, -1))
 					}
 				}
 			}
 		}
 
-		converged := false
+		minTicks := g.config.MaxTicks / 4
+		if minTicks < 16 {
+			minTicks = 16
+		}
 		aborted := false
-		for range g.config.MaxTicks {
+		for i := 0; i < g.config.MaxTicks; i++ {
 			if g.stopped() {
 				aborted = true
 				break
 			}
-			if g.Tick() {
-				converged = true
+			converged := g.Tick()
+			if i >= minTicks && converged {
+				console.Info("cortex convergence reached early", "ticks", i)
 				break
 			}
 		}
@@ -98,30 +85,91 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 			summary = data.ChordOR(&summary, &cubeChord)
 		}
 
-		console.Info("cortex convergence reached",
-			"converged", converged,
-			"aborted", aborted,
-			"ticks", g.tick,
-			"nodes", len(g.nodes),
-			"sinkEnergy", g.sink.Energy(),
-			"summaryBits", summary.ActiveCount(),
-		)
+		// ── EXTRACT: cascade re-injection loop ─────────────────────
+		if !aborted && summary.ActiveCount() > 0 {
+			phiDecay := 1.0
+			var phiThresh float64
+			if g.config.Sequencer != nil {
+				phiDecay = sequencerDecay(g.config.Sequencer.Phi())
+				_, phiThresh = g.config.Sequencer.Phase()
+			}
 
-		if !aborted {
-			startPos := int(g.seqPos)
-			for offset := 0; offset < g.config.MaxOutput; offset++ {
-				bestByte, bestScore := holographicProbe(g.nodes, startPos+offset)
-				if bestScore < hologramNoiseFloor {
+			if phiThresh <= 0 {
+				phiThresh = 0.01
+			}
+
+			for {
+				if g.stopped() {
 					break
 				}
 
-				out <- bestByte
+				if g.momentum < phiThresh {
+					console.Info("cortex span collapse (momentum exhausted)",
+						"momentum", g.momentum,
+						"threshold", phiThresh,
+						"extracted", g.outputBytes,
+					)
+					break
+				}
+
+				// Read the sink's best face — face index IS the byte value
+				bestByte := g.sink.BestFace()
+				if bestByte >= 256 {
+					console.Info("cortex span collapse (sink silent)",
+						"extracted", g.outputBytes,
+					)
+					break
+				}
+
+				out <- byte(bestByte)
 				g.outputBytes++
+
+				// Wipe the consumed face in the sink to prevent echo
+				physFace := g.sink.Rot.Forward(bestByte)
+				if physFace < 257 {
+					g.sink.Cube[physFace] = data.Chord{}
+				}
+
+				// Cascade re-injection: feed the emitted byte back into
+				// the source as the next sensory frame
+				reChord := data.BaseChord(byte(bestByte))
+				reChord = reChord.RollLeft(int(g.seqPos))
+				g.source.Send(NewDataToken(reChord, bestByte, -1))
+
+				// Advance sequencer
+				if g.config.Sequencer != nil {
+					reset, events := g.config.Sequencer.Analyze(int(g.seqPos), byte(bestByte))
+					for _, ev := range events {
+						rot := geometry.EventRotation(ev)
+						for _, node := range g.nodes {
+							if node == g.sink {
+								continue
+							}
+							node.Send(NewRotationToken(rot, -1))
+						}
+					}
+					g.seqPos++
+					if reset {
+						g.seqPos = 0
+					}
+				} else {
+					g.seqPos++
+				}
+
+				// Re-vibrate: let the graph settle after the re-injection
+				for tick := 0; tick < 8; tick++ {
+					if g.stopped() {
+						break
+					}
+					g.Tick()
+				}
+
+				// Decay momentum
+				g.momentum *= phiDecay
 			}
 		}
 
 		written := g.WriteSurvivors(0.1)
-
 		snap := g.Snapshot()
 		console.Info("cortex dissolved",
 			"totalTicks", snap.TotalTicks,
@@ -136,4 +184,17 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 	}()
 
 	return out
+}
+
+func sequencerDecay(phi float64) float64 {
+	if phi <= 0.0 {
+		return 1.0
+	}
+	if phi > 1.0 {
+		phi = 1.0 / phi
+	}
+	if phi <= 0.0 || phi >= 1.0 {
+		return (math.Sqrt(5.0) - 1.0) / 2.0
+	}
+	return phi
 }

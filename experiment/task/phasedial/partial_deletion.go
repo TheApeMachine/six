@@ -88,7 +88,7 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 }
 
 func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	results := substrate.GeodesicScan(geometry.NewPhaseDial().Encode("Democracy requires individual sacrifice."), 72, 5.0)
+	results := substrate.GeodesicScan(geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes("Democracy requires individual sacrifice.")), 72, 5.0)
 
 	experiment.AddResult(tools.ExperimentalData{
 		Name:          "Partial Deletion",
