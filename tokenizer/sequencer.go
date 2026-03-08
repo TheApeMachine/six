@@ -53,6 +53,32 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 	}
 }
 
+func (seq *Sequencer) CloneEmpty() *Sequencer {
+	return &Sequencer{
+		calibrator:      seq.calibrator,
+		eigen:           seq.eigen,
+		phi:             seq.phi,
+		dist:            NewDistribution(),
+		MinSegmentBytes: seq.MinSegmentBytes,
+	}
+}
+
+func (seq *Sequencer) Clone() *Sequencer {
+	c := seq.CloneEmpty()
+	c.buf = append([]byte(nil), seq.buf...)
+	c.dist = seq.dist.Clone()
+	c.prevSegLen = seq.prevSegLen
+	c.fluxEmitted = seq.fluxEmitted
+	c.lastByteVal = seq.lastByteVal
+	c.lastEigenMag = seq.lastEigenMag
+	c.emaPhase = seq.emaPhase
+	c.emaPop = seq.emaPop
+	c.tokens = append([]Token(nil), seq.tokens...)
+	c.candidates = append([]candidate(nil), seq.candidates...)
+	c.offset = seq.offset
+	return c
+}
+
 func slog(c int) float64 {
 	if c <= 0 {
 		return 0

@@ -45,12 +45,29 @@ func (loader *Loader) Tokenizer() *tokenizer.Universal {
 }
 
 /*
+ChordToByte resolves a chord to its byte identity via Lookup + Morton Decode.
+*/
+func (loader *Loader) ChordToByte(chord data.Chord) (byte, bool) {
+	if loader.store == nil {
+		return data.ChordToByte(&chord), true
+	}
+	keys := loader.Lookup([]data.Chord{chord})
+	if len(keys) == 0 {
+		return data.ChordToByte(&chord), false
+	}
+	_, symbol := loader.coder.Decode(keys[0])
+	return symbol, true
+}
+
+/*
 LoadResult bundles the ingested chord with metadata from the sequencer,
 allowing the Machine to identify structural boundaries during Start().
 */
 type LoadResult struct {
 	Chord      data.Chord
+	Symbol     byte
 	Pos        uint32
+	SampleID   uint32
 	IsBoundary bool
 	Events     []int
 }
@@ -67,7 +84,7 @@ func (loader *Loader) Generate() chan LoadResult {
 		defer close(out)
 
 		for token := range loader.tokenizer.Generate() {
-			if !loader.validate(token) {
+			if !loader.validate(token) && !token.IsBoundary {
 				console.Error(LoaderErrInvalidToken,
 					"tokenID", token.TokenID,
 					"activeCount", token.Chord.ActiveCount(),
@@ -75,15 +92,22 @@ func (loader *Loader) Generate() chan LoadResult {
 				return
 			}
 
-			loader.store.Insert(token.TokenID, token.Chord)
+			var byteVal byte
+			_, byteVal = loader.coder.Decode(token.TokenID)
 
-			if loader.primefield != nil {
-				_, byteVal := loader.coder.Decode(token.TokenID)
-				loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
+			if token.Chord.ActiveCount() > 0 {
+				loader.store.Insert(token.TokenID, token.Chord)
+
+				if loader.primefield != nil {
+					loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
+				}
 			}
+
 			out <- LoadResult{
 				Chord:      token.Chord,
+				Symbol:     byteVal,
 				Pos:        token.Pos,
+				SampleID:   token.SampleID,
 				IsBoundary: token.IsBoundary,
 				Events:     token.Events,
 			}

@@ -25,11 +25,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -41,11 +41,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -57,11 +57,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -73,11 +73,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -89,11 +89,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -105,11 +105,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -121,11 +121,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -137,11 +137,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -153,11 +153,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -169,11 +169,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -185,11 +185,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -201,11 +201,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -217,11 +217,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -233,11 +233,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -249,11 +249,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -265,11 +265,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -281,11 +281,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -297,11 +297,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -313,11 +313,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -329,11 +329,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -345,11 +345,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -361,11 +361,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -377,11 +377,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -393,11 +393,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -409,11 +409,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -425,11 +425,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -441,11 +441,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -457,11 +457,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -473,11 +473,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -489,15 +489,15 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.5489131756884974,
-        "Partial": 0.5489131756884974,
+        "Exact": 0,
+        "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5489131756884974,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0.5489131756884974,
+  "score": 0,
   "section": "phasedial"
 }

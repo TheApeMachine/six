@@ -105,6 +105,22 @@ func ChordFromBytes(b []byte) (c Chord) {
 }
 
 /*
+ChordToByte compares the logical signature of the chord against the 256 possible bytes.
+It strips the sequence pointer in word[7] before checking.
+*/
+func ChordToByte(chord *Chord) byte {
+	var search Chord = *chord
+	search[7] = 0 // Strip sequence pointer
+	for b := 0; b < 256; b++ {
+		test := BaseChord(byte(b))
+		if search == test {
+			return byte(b)
+		}
+	}
+	return 0
+}
+
+/*
 ChordLCM returns the element-wise OR of chords — the LCM in prime exponent space.
 Used for aggregating span chords (words, sentences, n-grams).
 */

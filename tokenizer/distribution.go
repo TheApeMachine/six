@@ -13,6 +13,11 @@ func NewDistribution() *Distribution {
 	return &Distribution{}
 }
 
+func (dist *Distribution) Clone() *Distribution {
+	c := *dist
+	return &c
+}
+
 func (dist *Distribution) Add(b byte) {
 	old := dist.counts[b]
 	dist.sumSLogC += slog(old+1) - slog(old)

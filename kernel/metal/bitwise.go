@@ -94,3 +94,35 @@ func BestFillMetalPacked(
 
 	return uint64(packed), nil
 }
+
+func HolographicRecallMetalPacked(
+	substrateFilters unsafe.Pointer,
+	numFilters int,
+	primeField unsafe.Pointer,
+	targetRotA uint32,
+	targetRotB uint32,
+) (uint64, error) {
+	if !MetalAvailable() {
+		return 0, errors.New("metal backend unavailable")
+	}
+
+	if numFilters == 0 {
+		return 0, nil
+	}
+
+	var packed C.uint64_t
+	status := C.holographic_recall_metal(
+		substrateFilters,
+		C.uint32_t(numFilters),
+		primeField,
+		C.uint32_t(targetRotA),
+		C.uint32_t(targetRotB),
+		&packed,
+	)
+
+	if status != 0 {
+		return 0, fmt.Errorf("metal holographic recall failed: status=%d", int(status))
+	}
+
+	return uint64(packed), nil
+}

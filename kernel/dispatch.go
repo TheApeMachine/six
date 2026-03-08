@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	config "github.com/theapemachine/six/core"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel/cpu"
 	"github.com/theapemachine/six/kernel/cuda"
@@ -111,6 +112,42 @@ func BestFill(
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error) {
 	return BestFillWithPrecision(dictionary, numChords, context, expectedReality, nil, geodesicLUT)
+}
+
+func HolographicRecall(
+	substrateFilters []data.Chord,
+	primeField unsafe.Pointer,
+	targetRot geometry.GFRotation,
+) (SpanMatch, error) {
+	if len(substrateFilters) == 0 {
+		return SpanMatch{Index: -1}, nil
+	}
+
+	targetRotA := uint32(targetRot.A)
+	targetRotB := uint32(targetRot.B)
+
+	var filtersPtr unsafe.Pointer
+	if len(substrateFilters) > 0 {
+		filtersPtr = unsafe.Pointer(&substrateFilters[0])
+	}
+
+	packed, err := metal.HolographicRecallMetalPacked(
+		filtersPtr,
+		len(substrateFilters),
+		primeField,
+		targetRotA,
+		targetRotB,
+	)
+
+	if err != nil {
+		return SpanMatch{}, err
+	}
+
+	idx, score := numeric.DecodePacked(packed)
+	return SpanMatch{
+		Index: idx,
+		Score: score,
+	}, nil
 }
 
 func BestFillWithExpectedField(

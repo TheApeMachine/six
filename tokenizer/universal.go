@@ -18,6 +18,7 @@ the wave-space identity used for matching.
 type Token struct {
 	TokenID    uint64
 	Pos        uint32
+	SampleID   uint32
 	Chord      data.Chord
 	Events     []int
 	IsBoundary bool
@@ -36,6 +37,7 @@ type Universal struct {
 	sequencer *Sequencer
 	pos       uint32
 	tokens    strings.Builder
+	sampleID  uint32
 }
 
 type universalOpts func(*Universal)
@@ -75,21 +77,24 @@ func (tokenizer *Universal) Generate() chan Token {
 		var streamPos uint32
 
 		for rawToken := range tokenizer.dataset.Generate() {
+			if rawToken.SampleID != tokenizer.sampleID {
+				tokenizer.sampleID = rawToken.SampleID
+				tokenizer.tokens.Reset()
+			}
+
 			chord := data.BaseChord(rawToken.Symbol)
-			chord = chord.RollLeft(int(tokenizer.pos))
 			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), rawToken.Symbol)
 
 			tokenizer.tokens.WriteByte(rawToken.Symbol)
 
-			token := Token{
+			out <- Token{
 				TokenID:    tokenizer.coder.Encode(streamPos, rawToken.Symbol),
 				Pos:        tokenizer.pos,
+				SampleID:   rawToken.SampleID,
 				Chord:      chord,
 				Events:     events,
 				IsBoundary: reset,
 			}
-
-			out <- token
 
 			streamPos++
 			tokenizer.pos++

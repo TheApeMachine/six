@@ -6,6 +6,7 @@
 static id<MTLDevice> device = nil;
 static id<MTLCommandQueue> commandQueue = nil;
 static id<MTLComputePipelineState> bestFillPipeline = nil;
+static id<MTLComputePipelineState> recallPipeline = nil;
 
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
@@ -45,6 +46,11 @@ int init_metal(const char* metallib_path) {
             NSLog(@"Failed to create compute pipeline state: %@", error);
             initResult = -5;
             return;
+        }
+
+        id<MTLFunction> recallFunc = [library newFunctionWithName:@"holographic_recall"];
+        if (recallFunc) {
+            recallPipeline = [device newComputePipelineStateWithFunction:recallFunc error:&error];
         }
 
         initResult = 0; // Success
@@ -183,6 +189,75 @@ int bitwise_best_fill_metal(const void* dictionary_ptr, uint32_t num_chords, con
         }
 
         // Single commit, single sync — all tiles processed on GPU back-to-back.
+        [commandBuffer commit];
+        [commandBuffer waitUntilCompleted];
+
+        uint64_t* result_ptr = (uint64_t*)[cachedResultBuffer contents];
+        *out_result = *result_ptr;
+        return 0;
+    }
+}
+
+int holographic_recall_metal(const void* substrate_filters_ptr, uint32_t num_filters, const void* prime_field_ptr, uint32_t target_rot_a, uint32_t target_rot_b, uint64_t* out_result) {
+    if (!recallPipeline || out_result == NULL) return -1;
+    if (num_filters == 0) {
+        *out_result = 0;
+        return 0;
+    }
+
+    @autoreleasepool {
+        NSUInteger filtersBytes = (NSUInteger)num_filters * 64; // 512 bits = 64 bytes per Chord
+
+        static id<MTLBuffer> cachedResultBuffer = nil;
+        static id<MTLBuffer> cachedPrimeFieldBuffer = nil;
+        
+        if (cachedResultBuffer == nil) {
+            cachedResultBuffer = [device newBufferWithLength:8 options:MTLResourceStorageModeShared];
+        }
+        if (cachedPrimeFieldBuffer == nil) {
+            cachedPrimeFieldBuffer = [device newBufferWithLength:MANIFOLD_BYTES options:MTLResourceStorageModeShared];
+        }
+
+        uint64_t initial_val = 0;
+        memcpy([cachedResultBuffer contents], &initial_val, 8);
+        memcpy([cachedPrimeFieldBuffer contents], prime_field_ptr, MANIFOLD_BYTES); // Assuming single manifold for now
+        
+        uint32_t target_rot[2] = { target_rot_a, target_rot_b };
+
+        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+        if (!commandBuffer) return -2;
+
+        id<MTLBuffer> filtersBuffer = [device newBufferWithBytesNoCopy:(void*)substrate_filters_ptr length:filtersBytes options:MTLResourceStorageModeShared deallocator:nil];
+        if (!filtersBuffer) {
+            filtersBuffer = [device newBufferWithBytes:substrate_filters_ptr length:filtersBytes options:MTLResourceStorageModeShared];
+        }
+        if (!filtersBuffer) return -3;
+
+        id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
+        if (!computeEncoder) {
+            [filtersBuffer release];
+            return -4;
+        }
+
+        [computeEncoder setComputePipelineState:recallPipeline];
+        [computeEncoder setBuffer:filtersBuffer offset:0 atIndex:0];
+        [computeEncoder setBuffer:cachedPrimeFieldBuffer offset:0 atIndex:1];
+        [computeEncoder setBytes:target_rot length:sizeof(uint32_t) * 2 atIndex:2];
+        [computeEncoder setBuffer:cachedResultBuffer offset:0 atIndex:3];
+        [computeEncoder setBytes:&num_filters length:sizeof(uint32_t) atIndex:4];
+
+        NSUInteger threadGroupSize = recallPipeline.maxTotalThreadsPerThreadgroup;
+        if (threadGroupSize > num_filters) threadGroupSize = num_filters;
+        if (threadGroupSize == 0) threadGroupSize = 1;
+
+        MTLSize threadgroups = MTLSizeMake((num_filters + threadGroupSize - 1) / threadGroupSize, 1, 1);
+        MTLSize threadsPerThreadgroup = MTLSizeMake(threadGroupSize, 1, 1);
+
+        [computeEncoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threadsPerThreadgroup];
+        [computeEncoder endEncoding];
+        
+        [filtersBuffer release];
+
         [commandBuffer commit];
         [commandBuffer waitUntilCompleted];
 

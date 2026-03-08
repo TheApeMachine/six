@@ -20,6 +20,17 @@ type GFRotation struct {
 }
 
 /*
+RotationForByte maps a single byte to an injective GF(257) transform.
+*/
+func RotationForByte(b byte) GFRotation {
+	val := uint16(b)
+	return GFRotation{
+		A: val + 1,
+		B: (val * 31) % 257,
+	}
+}
+
+/*
 IdentityRotation returns the identity transformation f(x) = x.
 A=1, B=0; every face maps to itself. Used as the neutral element for composition.
 */

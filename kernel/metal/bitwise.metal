@@ -134,3 +134,53 @@ kernel void bitwise_best_fill(
         memory_order_relaxed
     );
 }
+
+kernel void holographic_recall(
+    device const Chord* substrate_filters [[buffer(0)]],
+    device const IcosahedralManifold* prime_field [[buffer(1)]],
+    constant uint2* target_rot [[buffer(2)]],
+    device atomic_ulong* best_packed_result [[buffer(3)]],
+    constant uint& num_filters [[buffer(4)]],
+    uint id [[thread_position_in_grid]]
+) {
+    if (id >= num_filters) return;
+
+    uint slot = (target_rot[0].x * 256 + target_rot[0].y) % 257;
+
+    Chord query = prime_field[0].cubes[0].blocks[slot];
+    device const Chord& candidate = substrate_filters[id];
+
+    uint match_count = 0;
+    uint noise_count = 0;
+
+#pragma unroll
+    for (int i = 0; i < 8; i++) {
+        uint64_t c_bits = candidate.bits[i];
+        uint64_t q_bits = query.bits[i];
+
+        match_count += popcount(c_bits & q_bits);
+        noise_count += popcount(c_bits & ~q_bits);
+    }
+
+    uint denominator = match_count + noise_count + 1;
+    int res_score = (int)(((uint64_t)match_count * 1000000) / denominator);
+
+    uint inverted_dist = 65535;
+
+    const int score_bias = 1 << 23;
+    if (res_score < -score_bias) {
+        res_score = -score_bias;
+    }
+    if (res_score > score_bias - 1) {
+        res_score = score_bias - 1;
+    }
+
+    uint64_t score_u24 = (uint64_t)(res_score + score_bias);
+    uint64_t packed_result = (score_u24 << 40) | ((uint64_t)inverted_dist << 24) | (uint64_t)id;
+
+    atomic_max_explicit(
+        best_packed_result,
+        (ulong)packed_result,
+        memory_order_relaxed
+    );
+}

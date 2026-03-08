@@ -15,18 +15,18 @@
       "Name": "Compositional",
       "Prefix": "dGhlIHF1aWNrIHJl",
       "Holdout": "ZA==",
-      "Observed": "ZSAgICAgICAgY2NjY2VlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlaGhoaGhoaA==",
+      "Observed": "ZCBjYXI=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0,
+  "score": 1,
   "section": "textgen"
 }

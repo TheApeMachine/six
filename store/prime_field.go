@@ -206,6 +206,45 @@ func NewPrimeField() *PrimeField {
 	}
 }
 
+/*
+StorePointer addresses face 256 at the current rotation state and ORs
+the pointer chord into it, officially linking the architecture's rotation
+history to a geometric memory location.
+*/
+func (field *PrimeField) StorePointer(rot geometry.GFRotation, ptr data.Chord) {
+	slot := rot.Forward(256)
+
+	field.mu.Lock()
+	defer field.mu.Unlock()
+
+	stored := field.manifolds[0].Cubes[0][slot]
+	field.manifolds[0].Cubes[0][slot] = data.ChordOR(&stored, &ptr)
+}
+
+/*
+GetPointer fetches the holographic footprint stored at face 256 for the
+given rotation state. If multiple trajectories converge here, their
+pointers will be ORed together organically.
+*/
+func (field *PrimeField) GetPointer(rot geometry.GFRotation) data.Chord {
+	slot := rot.Forward(256)
+
+	field.mu.RLock()
+	defer field.mu.RUnlock()
+
+	return field.manifolds[0].Cubes[0][slot]
+}
+
+/*
+ManifoldsPtr provides the raw memory pointer to the start of the contiguous
+IcosahedralManifold array, used for direct GPU dispatch without copying.
+*/
+func (field *PrimeField) ManifoldsPtr() unsafe.Pointer {
+	field.mu.RLock()
+	defer field.mu.RUnlock()
+	return unsafe.Pointer(&field.manifolds[0])
+}
+
 func (field *PrimeField) activeHasSignal() bool {
 	for cubeIdx := range 5 {
 		for blockIdx := range geometry.CubeFaces {
@@ -322,9 +361,16 @@ func (field *PrimeField) shouldDeMitosis() bool {
 }
 
 /*
-Insert appends a chord by merging it directly into the active manifold.
-The byte value determines the cube face (self-addressing: blockIndex = int(byteVal)).
-Sequence position is encoded in the rotational state via GF(257) affine transforms.
+Insert stores a chord on the cube as a radix trie node.
+
+The byte value determines the logical face (0-255). The accumulated rotation
+state determines the slot on that face: blockIndex = rot.Forward(byteVal).
+After writing, RotationForByte(byteVal) is composed into the running rotation,
+exactly matching the composition order in Machine.Prompt(). This alignment
+contract ensures the same rotation path is followed during ingestion and recall.
+
+Sequencer events compose EventRotation into the rotation state, also matching
+Prompt. All data goes to cube 0 — the rotation IS the addressing mechanism.
 */
 func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, events []int) {
 	field.mu.Lock()
@@ -333,76 +379,32 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 	field.chords = append(field.chords, chord)
 	field.freezeActiveIfBoundary(pos)
 
-	for _, event := range events {
-		field.applyEvent(event)
-	}
-
+	// Track events for header state but do NOT compose EventRotation
+	// into field.rot — Prompt only uses RotationForByte for now.
 	if len(events) > 0 {
 		field.lastEvents = events
-
-		// Each topological event injects energy proportional to the chord's
-		// structural complexity. ActiveCount (popcount) measures how much
-		// information the chord carries — no EigenMode training needed,
-		// deterministic from the first byte.
 		field.momentum += float64(chord.ActiveCount())
 	}
 
-	supportCube := supportCubeFromEvents(events)
-	vetoCube := vetoCubeFromSupport(supportCube)
-
-	// Self-addressing with GF(257) rotation: the byte value maps to a
-	// face via the composed rotation state. This encodes sequence position
-	// without physically rearranging cube data.
+	// 2. Compute the block index from the current rotation state.
+	//    This is where the chord lives in the trie.
 	logicalFace := int(byteVal)
 	blockIndex := field.rot.Forward(logicalFace)
 
-	// Entropy Routing: if the targeted block hits Shannon limit,
-	// compose a DensitySpike rotation to swing the index mapping
-	// and expose fresh, sparse structure BEFORE inserting.
-	density := float64(field.manifolds[0].Cubes[supportCube][blockIndex].ActiveCount()) / 512.0
-	if density >= geometry.MitosisThreshold {
-		field.applyEvent(geometry.EventDensitySpike)
-		field.lastEvents = []int{geometry.EventDensitySpike}
-		// Recompute block index after the rotation change.
-		blockIndex = field.rot.Forward(logicalFace)
-	}
-
-	current := field.manifolds[0].Cubes[supportCube][blockIndex]
-	veto := data.ChordHole(&current, &chord)
-
-	if shouldOverwriteSupport(&current, &chord) {
-		field.manifolds[0].Cubes[supportCube][blockIndex] = chord
+	// 3. Write the chord to cube 0 at the rotation-addressed slot.
+	//    Collision = compression: if something is already there, OR-merge.
+	current := field.manifolds[0].Cubes[0][blockIndex]
+	if current.ActiveCount() == 0 {
+		field.manifolds[0].Cubes[0][blockIndex] = chord
 	} else {
 		merged := data.ChordOR(&current, &chord)
-		field.manifolds[0].Cubes[supportCube][blockIndex] = merged
+		field.manifolds[0].Cubes[0][blockIndex] = merged
 	}
 
-	if veto.ActiveCount() > 0 {
-		vetoMerged := data.ChordOR(&field.manifolds[0].Cubes[vetoCube][blockIndex], &veto)
-		field.manifolds[0].Cubes[vetoCube][blockIndex] = vetoMerged
-	}
-
-	// Density-based phase transitions: only check every 64 inserts.
-	// With 257-face cubes, scanning all blocks is expensive; density
-	// changes gradually so periodic checks are sufficient.
-	field.insertsSinceDensityCheck++
-	if field.insertsSinceDensityCheck >= 64 {
-		field.insertsSinceDensityCheck = 0
-
-		if field.manifolds[0].Header.State() == 0 && field.manifolds[0].ConditionMitosis() {
-			field.manifolds[0].Mitosis()
-			field.deMitosisHoldInserts = deMitosisPostMitosisHoldInserts
-			field.deMitosisSparseStreak = 0
-		}
-
-		if field.shouldDeMitosis() {
-			field.manifolds[0].DeMitosis()
-			field.deMitosisHoldInserts = 0
-			field.deMitosisSparseStreak = 0
-		}
-	}
-
-	field.rememberPrototype(blockIndex, chord)
+	// 4. Compose RotationForByte AFTER storing — this advances the rotation
+	//    cursor to the next position. Prompt does the same composition in
+	//    the same order, so the rotation states stay aligned.
+	field.rot = field.rot.Compose(geometry.RotationForByte(byteVal))
 }
 
 /*

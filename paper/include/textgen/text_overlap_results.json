@@ -7,7 +7,7 @@
       "Name": "Text Overlap",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "IG8gICwsLA==",
+      "Observed": "c3Npb24gb2YgYSBnb29kIGZvcnR1bmUsIG11c3QgYmUgaW4gd2FudCBvZiBhIHdpZmUu",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,7 +23,7 @@
       "Name": "Text Overlap",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "ICAgIElJSUk=",
+      "Observed": "byBhIGRlYWQgY2hhbm5lbC4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -39,14 +39,14 @@
       "Name": "Text Overlap",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": "bCAgICA=",
+      "Observed": "ZSBtYW4gaW4gcG9zc2Vzc2lvbiBvZiBhIGdvb2QgZm9ydHVuZSwgbXVzdCBiZSBpbiB3YW50IG9mIGEgd2lmZS4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -55,7 +55,7 @@
       "Name": "Text Overlap",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "IG4gICAgIA==",
+      "Observed": "IHdpZmUu",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -71,7 +71,7 @@
       "Name": "Text Overlap",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": "bCBhcCAgICAg",
+      "Observed": "aGUgZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYml0Lg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -83,6 +83,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.8,
+  "score": 1,
   "section": "textgen"
 }

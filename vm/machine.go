@@ -1,6 +1,7 @@
 package vm
 
 import (
+	"math/rand"
 	"unsafe"
 
 	"github.com/theapemachine/six/data"
@@ -66,28 +67,80 @@ func (machine *Machine) Start() error {
 	machine.loader.primefield = machine.primefield
 
 	var sequence []data.Chord
-	for res := range machine.loader.Generate() {
-		sequence = append(sequence, res.Chord)
+	var bytesSeq []byte
+	var currentSampleID uint32
+	var lastPos uint32
+	first := true
 
-		if res.IsBoundary {
-			// Sequence complete: encode as PhaseDial and add to substrate.
-			// We use a zero filter for now as experiments typically use the
-			// fingerprint directly. Readout is currently the segment index.
+	for res := range machine.loader.Generate() {
+		// Detect boundary: change in SampleID or gap in Pos
+		isBoundary := !first && (res.SampleID != currentSampleID || res.Pos != lastPos+1)
+
+		if isBoundary {
+			// Write explicit pointers into face 256
+			rot := geometry.IdentityRotation()
+			for i := 0; i <= len(bytesSeq); i++ {
+				var ptr data.Chord
+				for j := 0; j < 5; j++ {
+					ptr.Set(rand.Intn(257))
+				}
+
+				machine.primefield.StorePointer(rot, ptr)
+
+				suffix := make([]byte, len(bytesSeq)-i)
+				copy(suffix, bytesSeq[i:])
+
+				machine.substrate.Add(ptr, geometry.NewPhaseDial(), suffix)
+
+				if i < len(bytesSeq) {
+					rot = rot.Compose(geometry.RotationForByte(bytesSeq[i]))
+				}
+			}
+
 			dial := geometry.NewPhaseDial()
 			dial = dial.EncodeFromChords(sequence)
 
 			machine.substrate.Add(
 				data.Chord{},
 				dial,
-				[]byte("sequence"), // Readout will be refined later
+				[]byte("sequence"),
 			)
 
 			sequence = sequence[:0]
+			bytesSeq = bytesSeq[:0]
 		}
+
+		if res.Chord.ActiveCount() > 0 {
+			sequence = append(sequence, res.Chord)
+			bytesSeq = append(bytesSeq, res.Symbol)
+		}
+
+		currentSampleID = res.SampleID
+		lastPos = res.Pos
+		first = false
 	}
 
 	// Flush trailing chords that arrived after the last boundary.
 	if len(sequence) > 0 {
+		rot := geometry.IdentityRotation()
+		for i := 0; i <= len(bytesSeq); i++ {
+			var ptr data.Chord
+			for j := 0; j < 5; j++ {
+				ptr.Set(rand.Intn(257))
+			}
+
+			machine.primefield.StorePointer(rot, ptr)
+
+			suffix := make([]byte, len(bytesSeq)-i)
+			copy(suffix, bytesSeq[i:])
+
+			machine.substrate.Add(ptr, geometry.NewPhaseDial(), suffix)
+
+			if i < len(bytesSeq) {
+				rot = rot.Compose(geometry.RotationForByte(bytesSeq[i]))
+			}
+		}
+
 		dial := geometry.NewPhaseDial()
 		dial = dial.EncodeFromChords(sequence)
 
@@ -123,29 +176,73 @@ func (machine *Machine) Stop() {
 }
 
 /*
-Prompt generates output from the prompt using the cortex.
+Prompt generates output using O(1) holographic lookup.
+
+The prompt bytes construct a precise GF(257) rotational state.
+Because affine transforms are non-commutative, this state exactly
+addresses the matching position in the trie. We do a singular map
+lookup and stream out the stored suffix.
 */
 func (machine *Machine) Prompt(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
 ) chan byte {
-	var stopCh <-chan struct{}
-	
-	if machine.stopCh != nil {
-		stopCh = machine.stopCh
-	}
+	out := make(chan byte, 1024)
 
-	graph := cortex.New(cortex.Config{
-		InitialNodes:  8,
-		PrimeField:    machine.primefield,
-		Substrate:     machine.substrate,
-		BestFill:      cortex.BestFillFunc(machine.bestFill),
-		EigenMode:     machine.eigenMode,
-		Sequencer:     machine.sequencer,
-		StopCh:        stopCh,
-	})
+	go func() {
+		defer close(out)
 
-	return graph.Think(prompt, expectedReality)
+		rot := geometry.IdentityRotation()
+
+		var promptStr []byte
+		var pos uint32
+		for _, p := range prompt {
+			var b byte
+			if machine.loader != nil {
+				b, _ = machine.loader.ChordToByte(p)
+			} else {
+				b = data.ChordToByte(&p)
+			}
+
+			if machine.sequencer != nil {
+				reset, _ := machine.sequencer.Analyze(int(pos), b)
+				if reset {
+					rot = geometry.IdentityRotation()
+					pos = 0
+				}
+			}
+
+			promptStr = append(promptStr, b)
+			rot = rot.Compose(geometry.RotationForByte(b))
+			pos++
+		}
+
+		filters := machine.substrate.Filters()
+
+		var bestSuffix []byte
+		if len(filters) > 0 {
+			match, err := kernel.HolographicRecall(filters, machine.primefield.ManifoldsPtr(), rot)
+			println("MACHINE PROMPT:", len(promptStr), string(promptStr))
+			println("MATCH IDX", match.Index, "SCORE", match.Score)
+			if err == nil && match.Index >= 0 && match.Score > 0 {
+				bestSuffix = machine.substrate.Entries[match.Index].Readout
+			}
+		}
+
+		for _, b := range bestSuffix {
+			if machine.stopCh != nil {
+				select {
+				case <-machine.stopCh:
+					return
+				case out <- b:
+				}
+			} else {
+				out <- b
+			}
+		}
+	}()
+
+	return out
 }
 
 func (machine *Machine) Substrate() *geometry.HybridSubstrate {

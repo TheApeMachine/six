@@ -15,7 +15,7 @@
       "Name": "Out of Corpus",
       "Prefix": "c2hhcmsgaGF0ZQ==",
       "Holdout": "cw==",
-      "Observed": "YWggICAgICAgICAgIGFhYWFhYWFhYWFhYWFlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVlZWVoaGhoaGhoaGg=",
+      "Observed": "cnJvdCBoYXRlcyBub2lzZQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -31,7 +31,7 @@
       "Name": "Out of Corpus",
       "Prefix": "ZnJvZyBoYXRl",
       "Holdout": "cw==",
-      "Observed": "ICAgICAg",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,

@@ -21,3 +21,13 @@ func BestFillMetalPacked(
 ) (uint64, error) {
 	return 0, errors.New("metal backend unavailable")
 }
+
+func HolographicRecallMetalPacked(
+	_ unsafe.Pointer,
+	_ int,
+	_ unsafe.Pointer,
+	_ uint32,
+	_ uint32,
+) (uint64, error) {
+	return 0, errors.New("metal backend unavailable")
+}

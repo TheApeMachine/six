@@ -52,6 +52,21 @@ func (hs *HybridSubstrate) Add(filter data.Chord, fingerprint PhaseDial, readout
 }
 
 /*
+Filters returns a contiguous array of all candidate Filter chords,
+suitable for dispatching to the GPU for completely separate resonance scoring.
+*/
+func (hs *HybridSubstrate) Filters() []data.Chord {
+	if len(hs.Entries) == 0 {
+		return nil
+	}
+	filters := make([]data.Chord, len(hs.Entries))
+	for i, e := range hs.Entries {
+		filters[i] = e.Filter
+	}
+	return filters
+}
+
+/*
 Retrieve runs the two-phase pipeline: BitwiseFilter → PhaseDialScoring → readout.
 Returns the Readout of the best-matching entry, or nil if no entries or no candidates.
 */
