@@ -6,7 +6,7 @@
       "Name": "Compositional",
       "Prefix": "dGhlIHF1aWNrIHJl",
       "Holdout": "ZA==",
-      "Observed": null,
+      "Observed": "JQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,

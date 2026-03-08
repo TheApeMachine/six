@@ -346,6 +346,23 @@ func FlattenBatched(chords []Chord, workers int) []FlatChord {
 }
 
 /*
+IntrinsicFace returns a deterministic face index (0-255) for a chord based
+on its lowest active prime within the structural range. Returns 256 if none.
+*/
+func (chord *Chord) IntrinsicFace() int {
+	for i := range 4 {
+		if chord[i] != 0 {
+			bit := bits.TrailingZeros64(chord[i])
+			idx := i*64 + int(bit)
+			if idx < 256 {
+				return idx
+			}
+		}
+	}
+	return 256
+}
+
+/*
 RollLeft executes a discrete spatial permutation (circular shift) on the chord.
 This permanently binds sequential position to the semantic geometry before superposition.
 */

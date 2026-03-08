@@ -171,7 +171,7 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 
 	console.Info("OBSERVED")
 	fmt.Println()
-	fmt.Printf("%q\n", string(generated))
+	fmt.Println(formatLogPayload(string(generated)))
 	fmt.Println()
 
 	pipeline.experiment.AddResult(tools.ExperimentalData{

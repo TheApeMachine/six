@@ -60,8 +60,8 @@ func (g *Graph) Tick() bool {
 
 			// If the emitting node has very high density on the token's
 			// dominant face, this is a mitosis event → spawn a new node.
-			face := selfAddressFace(&tok.Chord)
-			if em.from.FaceDensity(face) < 0.01 && tok.Chord.ActiveCount() > 20 {
+			face := tok.Chord.IntrinsicFace()
+			if face < 257 && em.from.FaceDensity(face) < 0.01 && tok.Chord.ActiveCount() > 20 {
 				child := g.SpawnNode(em.from)
 				child.Send(tok)
 				continue

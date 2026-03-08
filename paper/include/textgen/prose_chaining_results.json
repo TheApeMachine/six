@@ -7,7 +7,7 @@
       "Name": "Prose Chaining",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "dWWs",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,14 +23,14 @@
       "Name": "Prose Chaining",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "ICBhDK5Em2qXbp0hRA1pIio5SI6JGCke5BkEA4q+rCo2NhIEF2laBTIgGNNJSDRxhZeBQjtZkvrhUCZISmoVFRc6Wm+EDltb5qiRHwROAk1eowt8Dst4wxV8CHc4OhQsgBaGl1oxgA8IXBc4KGA2LQZnfgMbDQcPVOtZC3wTdLkDMhCp6Qd7ltIWcn1YeF65VXnzATcGuQcgFnwKvRQkH0DLdi8tBW4WCgrttgQEC4XxBQHJqRKvMyxFM5wJhc8pJQFuEQKvgLIFnKZJjNlELJuGSwFQJBUPDxemKJ4uailUQCGLMjYEU0m2CBIIBEXenSMybYZhxCySEHzY/ahTFA==",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -55,14 +55,14 @@
       "Name": "Prose Chaining",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "ICBhDK6Em2ofbgshRCRpdSo5SBCZF4UoOtIMra0JrCo29yWXg2laHRYHGNM+NTRxhReBWDtZkvoYlCYXFx4lChc6WiiEiltb5uaDHx5OhVReowt8DhWvPjY2XFI4OqcsFhY8dkIDDAcHXEY4C1upDgpnfjMbDQcPVOs5pzEWdANPUh+NewdcllYoEstJeFpLVaPzAXMMuUEPFnwKAhQbH0CMdgEtdgSVCgq2tjUEC9krjqWRLg5SMyynIZwJWFQpJRYSswJwPUwFnKZ3jClGLI1LS09QJIsPD2UUKK8SagQ7AhWLMnPPZUm0BCdunX0iY3XXbVdhEEuSahwcYahTHg==",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -71,7 +71,7 @@
       "Name": "Prose Chaining",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": null,
+      "Observed": "JQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -83,6 +83,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.4,
+  "score": 0,
   "section": "textgen"
 }

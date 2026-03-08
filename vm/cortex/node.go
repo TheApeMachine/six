@@ -7,7 +7,7 @@ import (
 
 const (
 	// defaultInboxSize is the channel buffer depth per node.
-	defaultInboxSize = 32
+	defaultInboxSize = 256
 
 	// defaultTTL controls how many hops a token can survive.
 	defaultTTL = 8

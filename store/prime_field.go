@@ -353,7 +353,8 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 	// Self-addressing with GF(257) rotation: the byte value maps to a
 	// face via the composed rotation state. This encodes sequence position
 	// without physically rearranging cube data.
-	blockIndex := field.rot.Forward(int(byteVal))
+	logicalFace := chord.IntrinsicFace()
+	blockIndex := field.rot.Forward(logicalFace)
 
 	// Entropy Routing: if the targeted block hits Shannon limit,
 	// compose a DensitySpike rotation to swing the index mapping
@@ -363,7 +364,7 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 		field.applyEvent(geometry.EventDensitySpike)
 		field.lastEvents = []int{geometry.EventDensitySpike}
 		// Recompute block index after the rotation change.
-		blockIndex = field.rot.Forward(int(byteVal))
+		blockIndex = field.rot.Forward(logicalFace)
 	}
 
 	current := field.manifolds[0].Cubes[supportCube][blockIndex]

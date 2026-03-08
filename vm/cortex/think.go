@@ -6,16 +6,28 @@ import (
 	"github.com/theapemachine/six/geometry"
 )
 
-const hologramNoiseFloor = 2.0
+const hologramNoiseFloor = 3.5
 
-func holographicProbe(summary data.Chord, pos int) (byte, float64) {
+func holographicProbe(nodes []*Node, pos int) (byte, float64) {
 	bestByte := byte(0)
 	bestScore := 0.0
 
 	for b := range 256 {
 		testChord := data.BaseChord(byte(b))
 		testChord = testChord.RollLeft(pos)
-		score := float64(data.ChordSimilarity(&testChord, &summary))
+		logicalFace := testChord.IntrinsicFace()
+
+		if logicalFace == 256 {
+			continue
+		}
+
+		var score float64
+		for _, n := range nodes {
+			routed := n.Rot.Forward(logicalFace)
+			nodeFace := n.Cube[routed]
+			score += float64(data.ChordSimilarity(&testChord, &nodeFace))
+		}
+
 		if score > bestScore {
 			bestScore = score
 			bestByte = byte(b)
@@ -80,7 +92,12 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 			}
 		}
 
-		summary := g.sink.CubeChord()
+		var summary data.Chord
+		for _, n := range g.nodes {
+			cubeChord := n.CubeChord()
+			summary = data.ChordOR(&summary, &cubeChord)
+		}
+
 		console.Info("cortex convergence reached",
 			"converged", converged,
 			"aborted", aborted,
@@ -91,8 +108,9 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 		)
 
 		if !aborted {
-			for pos := 0; pos < g.config.MaxOutput; pos++ {
-				bestByte, bestScore := holographicProbe(summary, pos)
+			startPos := int(g.seqPos)
+			for offset := 0; offset < g.config.MaxOutput; offset++ {
+				bestByte, bestScore := holographicProbe(g.nodes, startPos+offset)
 				if bestScore < hologramNoiseFloor {
 					break
 				}

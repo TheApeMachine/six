@@ -155,7 +155,7 @@ func TestArrive_InterferenceEmitsToken(t *testing.T) {
 
 	// Pre-fill a face with some data.
 	existing := data.BaseChord(10)
-	face := selfAddressFace(&existing)
+	face := existing.IntrinsicFace()
 	routed := node.Rot.Forward(face)
 	node.Cube[routed] = existing
 
@@ -173,26 +173,6 @@ func TestArrive_InterferenceEmitsToken(t *testing.T) {
 	}
 }
 
-func TestArrive_ComposedChordRoutesToMultipleFaces(t *testing.T) {
-	node := NewNode(0, 0)
-
-	left := data.BaseChord(10)
-	right := data.BaseChord(20)
-	composed := data.ChordOR(&left, &right)
-
-	node.Arrive(NewDataToken(composed, -1))
-
-	leftFace := node.Rot.Forward(10)
-	rightFace := node.Rot.Forward(20)
-
-	if node.Cube[leftFace].ActiveCount() == 0 {
-		t.Fatal("expected composed chord to activate the left routed face")
-	}
-	if node.Cube[rightFace].ActiveCount() == 0 {
-		t.Fatal("expected composed chord to activate the right routed face")
-	}
-}
-
 func TestNodeHole_UsesSummaryMinusPeak(t *testing.T) {
 	node := NewNode(0, 0)
 
@@ -204,7 +184,7 @@ func TestNodeHole_UsesSummaryMinusPeak(t *testing.T) {
 	node.Cube[20] = peak
 	node.Cube[10] = side
 
-	anchor, hole, shouldDream := node.Hole()
+	anchor, hole, _, shouldDream := node.Hole()
 	expectedSummary := node.CubeChord()
 	expectedHole := data.ChordHole(&expectedSummary, &peak)
 
@@ -387,14 +367,19 @@ func TestInjectWithSequencer_BindsPromptPosition(t *testing.T) {
 // ── Integration Test ─────────────────────────────────────────────
 
 func TestHolographicProbe_DecodesPositionBoundSequence(t *testing.T) {
+	node := NewNode(0, 0)
+	nodes := []*Node{node}
+
 	first := data.BaseChord('A')
 	first = first.RollLeft(0)
+	node.Cube[first.IntrinsicFace()] = first
+
 	second := data.BaseChord('B')
 	second = second.RollLeft(1)
-	summary := data.ChordOR(&first, &second)
+	node.Cube[second.IntrinsicFace()] = data.ChordOR(&node.Cube[second.IntrinsicFace()], &second)
 
-	got0, score0 := holographicProbe(summary, 0)
-	got1, score1 := holographicProbe(summary, 1)
+	got0, score0 := holographicProbe(nodes, 0)
+	got1, score1 := holographicProbe(nodes, 1)
 
 	if got0 != 'A' || score0 < 5 {
 		t.Fatalf("probe at pos 0 = (%q, %.1f), want ('A', >=5)", got0, score0)
@@ -416,10 +401,10 @@ func TestThink_ProducesOutput(t *testing.T) {
 	first = first.RollLeft(0)
 	second := data.BaseChord('B')
 	second = second.RollLeft(1)
-	superposition := data.ChordOR(&first, &second)
 
 	expected := &geometry.IcosahedralManifold{}
-	expected.Cubes[0][0] = superposition
+	expected.Cubes[0][first.IntrinsicFace()] = first
+	expected.Cubes[0][second.IntrinsicFace()] = data.ChordOR(&expected.Cubes[0][second.IntrinsicFace()], &second)
 
 	out := g.Think(nil, expected)
 

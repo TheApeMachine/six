@@ -2,7 +2,6 @@ package cortex
 
 import (
 	"math"
-	"sync"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
@@ -147,169 +146,9 @@ const (
 	recallScoreFloor         = 0.05
 )
 
-type faceCandidate struct {
-	face  int
-	score int
-}
-
 type recallCandidate struct {
 	chord data.Chord
 	score float64
-}
-
-// Self-address cache: maps Chord → byte value.
-// Precomputed for all 256 BaseChords; composed chords cache their strongest
-// face bundle so repeated routing does not collapse back to top-1.
-var (
-	selfAddrMu    sync.RWMutex
-	selfAddrCache = func() map[data.Chord][]faceCandidate {
-		m := make(map[data.Chord][]faceCandidate, 256)
-		for b := range 256 {
-			m[data.BaseChord(byte(b))] = []faceCandidate{{face: b, score: 5}}
-		}
-		return m
-	}()
-)
-
-/*
-selfAddressFace resolves a chord to its self-addressed face index (0–255).
-
-For BaseChords, this is a direct lookup (O(1)).
-For composed chords, it finds the byte value whose BaseChord has the highest
-similarity and caches the result.
-
-This replaces the old ChordBin-based dominantFace which broke the Fermat cube
-self-addressing property (byte value = face index).
-*/
-func selfAddressFace(c *data.Chord) int {
-	candidates := selfAddressCandidates(c, 1)
-	if len(candidates) == 0 {
-		return 256
-	}
-
-	return candidates[0].face
-}
-
-func appendFaceCandidate(top []faceCandidate, cand faceCandidate, limit int) []faceCandidate {
-	for i := range top {
-		if top[i].face != cand.face {
-			continue
-		}
-		if cand.score <= top[i].score {
-			return top
-		}
-		top = append(top[:i], top[i+1:]...)
-		break
-	}
-
-	insertAt := len(top)
-	for i := range top {
-		if cand.score > top[i].score {
-			insertAt = i
-			break
-		}
-	}
-
-	if len(top) < limit {
-		top = append(top, faceCandidate{})
-	}
-	if insertAt < len(top) {
-		copy(top[insertAt+1:], top[insertAt:len(top)-1])
-		top[insertAt] = cand
-	}
-
-	if len(top) > limit {
-		top = top[:limit]
-	}
-
-	return top
-}
-
-func selfAddressCandidates(c *data.Chord, limit int) []faceCandidate {
-	if limit <= 0 {
-		return nil
-	}
-
-	selfAddrMu.RLock()
-	if cached, ok := selfAddrCache[*c]; ok {
-		selfAddrMu.RUnlock()
-		if len(cached) < limit {
-			limit = len(cached)
-		}
-		out := make([]faceCandidate, limit)
-		copy(out, cached[:limit])
-		return out
-	}
-	selfAddrMu.RUnlock()
-
-	searchLimit := limit
-	if searchLimit < maxSelfAddressCandidates {
-		searchLimit = maxSelfAddressCandidates
-	}
-
-	var top []faceCandidate
-	for b := range 256 {
-		bc := data.BaseChord(byte(b))
-		sim := data.ChordSimilarity(c, &bc)
-		if sim <= 0 {
-			continue
-		}
-
-		top = appendFaceCandidate(top, faceCandidate{face: b, score: sim}, searchLimit)
-	}
-
-	if len(top) == 0 {
-		// Fall back to the chord's active faces directly when no base face
-		// meaningfully explains the structure.
-		for _, idx := range data.ChordPrimeIndices(c) {
-			if idx >= 256 {
-				continue
-			}
-			top = appendFaceCandidate(top, faceCandidate{face: idx, score: 1}, searchLimit)
-		}
-	}
-
-	top = pruneFaceCandidates(top, searchLimit)
-
-	if len(top) > 0 {
-		cached := make([]faceCandidate, len(top))
-		copy(cached, top)
-
-		selfAddrMu.Lock()
-		selfAddrCache[*c] = cached
-		selfAddrMu.Unlock()
-	}
-
-	return top
-}
-
-func pruneFaceCandidates(cands []faceCandidate, limit int) []faceCandidate {
-	if len(cands) == 0 {
-		return nil
-	}
-
-	bestScore := cands[0].score
-	threshold := (bestScore*4 + 4) / 5
-	if threshold < 1 {
-		threshold = 1
-	}
-
-	pruned := make([]faceCandidate, 0, len(cands))
-	for _, cand := range cands {
-		if cand.score < threshold {
-			continue
-		}
-		pruned = append(pruned, cand)
-		if len(pruned) == limit {
-			break
-		}
-	}
-
-	if len(pruned) == 0 {
-		return cands[:1]
-	}
-
-	return pruned
 }
 
 func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit int) []recallCandidate {
@@ -347,7 +186,7 @@ func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit in
 	return top
 }
 
-func recallQueryManifolds(node *Node, anchor, hole data.Chord, dial, total int, basePhase float64) (geometry.IcosahedralManifold, geometry.IcosahedralManifold) {
+func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dial, total int, basePhase float64) (geometry.IcosahedralManifold, geometry.IcosahedralManifold) {
 	var (
 		ctx      geometry.IcosahedralManifold
 		expected geometry.IcosahedralManifold
@@ -355,21 +194,20 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, dial, total int, 
 	ctx.Header = node.Header
 	expected.Header = node.Header
 
-	queryAnchor := anchor
-	queryExpected := data.ChordOR(&anchor, &hole)
-	face := selfAddressFace(&queryAnchor)
-
+	shift := 0
 	if dial > 0 && total > 1 {
 		angle := basePhase + float64(dial)*math.Pi/float64(total*2)
-		shift := int(angle*257/(2*math.Pi)) % 257
-		face = (face + shift) % 257
-		if face < 0 {
-			face += 257
+		shift = int(angle*257/(2*math.Pi)) % 257
+		if shift < 0 {
+			shift += 257
 		}
 	}
 
-	ctx.Cubes[0][face] = queryAnchor
-	expected.Cubes[0][face] = queryExpected
+	for f := 0; f < 257; f++ {
+		sf := (f + shift) % 257
+		ctx.Cubes[0][sf] = node.Cube[f]
+		expected.Cubes[0][sf] = node.Cube[f]
+	}
 
 	return ctx, expected
 }
@@ -649,7 +487,7 @@ func (g *Graph) queryBedrock(node *Node) {
 		return
 	}
 
-	anchor, hole, shouldDream := node.Hole()
+	anchor, hole, physicalFace, shouldDream := node.Hole()
 	if !shouldDream {
 		return
 	}
@@ -672,7 +510,7 @@ func (g *Graph) queryBedrock(node *Node) {
 	var recalled []recallCandidate
 
 	for d := range nDial {
-		ctx, expected := recallQueryManifolds(node, anchor, hole, d, nDial, basePhase)
+		ctx, expected := recallQueryManifolds(node, anchor, hole, physicalFace, d, nDial, basePhase)
 		dialCandidates := g.collectRecallCandidates(
 			dictPtr,
 			dictN,

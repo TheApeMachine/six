@@ -38,7 +38,7 @@
       "Name": "Torus Generalization",
       "Prefix": "S25vd2xlZGdlIGlzIHBvd2VyLg==",
       "Holdout": "",
-      "Observed": null,
+      "Observed": "IGV3DB/qk2oDJklz6SRzKhAMeh8EF50oOgMTDhwJELA294WXLgK/LBacjNNnNRmThSEGCzt1W/oYGiYXGR4lCm46WiiEigRl5jGDLh7UCgkDEDISyyav/jaNXA9YWAEsFhBbBrIxEweXXPZjKFsMDsy5aw89DQlY6+s5DnxFdAMYFAeNEQdcHQytRctJIga5mufzJKQMEgsW/RwKChQbH0BXAgErqQQKChsDSDUFC9krjqWRLvoxAuK4UpyMvFQ7FpObswPvPQUFHfEFHimpBOn5ZhFQJAcP+GUUKwESdGoCQCECMtsGGAm0BCduAgJFB5wJDwFhuggwahwKGRsoBQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -70,7 +70,7 @@
       "Name": "Torus Generalization",
       "Prefix": "VGhlIG9ubHkgd2F5IHRvIGhhdmUgYSBmcmllbmQgaXMgdG8gYmUgb25lLg==",
       "Holdout": "",
-      "Observed": null,
+      "Observed": "ZmVhLBODBQTzKnoDMgVpAvQBSAkIGCkeoBkEJSG+OjkmQxJJFyoUBbIgwl9Jrll5H5eBE5pZBCgPMDkUGidOdDcRMBMSDpMxEAEWHwSTWgwiow0kDhw1RAcNCA04NRTRDRaG1UJ5JA9WTxc4C0UuFtTTXh0bLgdjVCFZCycGWDFGgBBEEVg+PS0WCBFYMA27BxwbPjcGKgcgDi8zveALHw0DwiFCBW4TAgHtKAk2CykiBV6RAgEKnSwmNQEJArlTJQcId1gUFTkFVNwCAdlELHsGaBMD4xUKbBcQWgkumAlULSEenA8TUxQioBJuAyW3BaARPeUo3iwEEGQu/UsaFA==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -86,7 +86,7 @@
       "Name": "Torus Generalization",
       "Prefix": "VG8gYmUsIG9yIG5vdCB0byBiZSwgdGhhdCBpcyB0aGUgcXVlc3Rpb24u",
       "Holdout": "",
-      "Observed": null,
+      "Observed": "ZmVpLBMSIwTcGB8DoCcgAhvnnwkpYwYeLyPWJYoJ67BBixKXUBgUBbKcIANJIll5SpcGATt1BAeL0yZISh4ldEI6AiFOigQUBiZIsQQgAgzVOg0ki0nE2weVCH9YxhQPC6Tn/hBaYw8I68peKBIu69QwXgM9DRiBVBfGCwwOf7k9MJmpdy8DNxcWGgsXKg3VLKML0zeZ0iMg1GfMeqdVHxHLCyMbBW7JAgHtpyw2C4U4LwGpogqbDCwmNQEJVBkqCztudwNGgLIFUn85CVGgLAEKngQzkRVWbHi1Yp4uAQlUAt8LnKQRdgFWoBIEAkW3nxYcngYieiwHAnw0GblTFA==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -102,7 +102,7 @@
       "Name": "Torus Generalization",
       "Prefix": "QWxsIGhhcHB5IGZhbWlsaWVzIGFyZSBhbGlrZTsgZWFjaCB1bmhhcHB5IGZhbWlseSBpcyB1bmhhcHB5IGluIGl0cyBvd24gd2F5Lg==",
       "Holdout": "",
-      "Observed": null,
+      "Observed": "IGVhDBNEBWrzJgtzqQ1pIvQ5SAnqGF0e5BkEJRy+GE8mNiUEIiEGHbIgs/pnrll5H5eBWJpZuwgYUDcUGh8VdDeBWpGEDpMxEKgWHx6TWgwhowsSWByv0AV8XF84NacsgAGG1Qa5gA8JZhdYCwypLdTTKx0bLgc/VMhZC3wGDswDgBAJEQfHli0WctRYIg25BRzpPnMG+wcgb3zVveAkogHhAi9CoG4TCgHtDATpC9oiegEIAgEKAiwmNZyMAs9TJQcId4IUFTkFe9wCutlELHuGSwFQ4xV7JhcQWgkumGUCQCEMnG0EGEkGMicYBBm3BaBcMuVh3iySPGQu/UsWFA==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -118,7 +118,7 @@
       "Name": "Torus Generalization",
       "Prefix": "SXQgd2FzIHRoZSBiZXN0IG9mIHRpbWVzLCBpdCB3YXMgdGhlIHdvcnN0IG9mIHRpbWVzLg==",
       "Holdout": "",
-      "Observed": null,
+      "Observed": "ZmUzLBODBWUKQHoDMgVUAk0BSAlDGEkeoBkEJX1LOuZHixJhFyonBWIBRl9Jrll5SiY=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -134,7 +134,7 @@
       "Name": "Torus Generalization",
       "Prefix": "SW4gYSBob2xlIGluIHRoZSBncm91bmQgdGhlcmUgbGl2ZWQgYSBob2JiaXQu",
       "Holdout": "",
-      "Observed": "Zg==",
+      "Observed": "dWU=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -185,11 +185,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.23751266440365368,
-        "Partial": 0.23751266440365368,
+        "Exact": 0.2866650794451349,
+        "Partial": 0.2866650794451349,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.23751266440365368,
+      "WeightedTotal": 0.2866650794451349,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -201,11 +201,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.22054647519574505,
-        "Partial": 0.23751266440365368,
-        "Fuzzy": -0.016966189207908627
+        "Exact": 0.2866650794451349,
+        "Partial": 0.2866650794451349,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.22054647519574505,
+      "WeightedTotal": 0.2866650794451349,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -217,11 +217,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.22054647519574505,
-        "Partial": 0.23751266440365368,
-        "Fuzzy": -0.016966189207908627
+        "Exact": 0.2866650794451349,
+        "Partial": 0.2866650794451349,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.22054647519574505,
+      "WeightedTotal": 0.2866650794451349,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -233,11 +233,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.29627040530143645,
-        "Partial": 0.29627040530143645,
+        "Exact": 0.3362165959387514,
+        "Partial": 0.3362165959387514,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.29627040530143645,
+      "WeightedTotal": 0.3362165959387514,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -249,11 +249,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.29627040530143645,
-        "Partial": 0.29627040530143645,
+        "Exact": 0.3362165959387514,
+        "Partial": 0.3362165959387514,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.29627040530143645,
+      "WeightedTotal": 0.3362165959387514,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -265,11 +265,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.29627040530143645,
-        "Partial": 0.29627040530143645,
-        "Fuzzy": 0
+        "Exact": 0.3359477821583494,
+        "Partial": 0.3362165959387514,
+        "Fuzzy": -0.00026881378040199966
       },
-      "WeightedTotal": 0.29627040530143645,
+      "WeightedTotal": 0.3359477821583494,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -281,11 +281,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.2064429679610336,
-        "Partial": 0.2075255150449184,
-        "Fuzzy": -0.001082547083884805
+        "Exact": 0.20314072449325118,
+        "Partial": 0.20314072449325118,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.2064429679610336,
+      "WeightedTotal": 0.20314072449325118,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -297,11 +297,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.2064429679610336,
-        "Partial": 0.2075255150449184,
-        "Fuzzy": -0.001082547083884805
+        "Exact": 0.20314072449325118,
+        "Partial": 0.20314072449325118,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.2064429679610336,
+      "WeightedTotal": 0.20314072449325118,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -313,15 +313,15 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0.2064429679610336,
-        "Partial": 0.2075255150449184,
-        "Fuzzy": -0.001082547083884805
+        "Exact": 0.20314072449325118,
+        "Partial": 0.20314072449325118,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.2064429679610336,
+      "WeightedTotal": 0.20314072449325118,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0.11509188076750285,
+  "score": 0.1304104413605795,
   "section": "phasedial"
 }
