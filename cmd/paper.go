@@ -4,29 +4,33 @@ import (
 	"bufio"
 	"fmt"
 	"io/fs"
-	"log"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 )
 
 var paperCmd = &cobra.Command{
 	Use:   "paper",
-	Short: "Run distributed best-fill worker",
-	Long:  "Starts a Cap'n Proto-based worker that serves heterogeneous best-fill shard requests.",
-	Run: func(cmd *cobra.Command, args []string) {
-		paperDir := "paper"
+	Short: "Compile LaTeX paper from experiment artifacts",
+	Long:  "Aggregates generated chart graphics and LaTeX fragments into a unified main.tex.",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		paperDir := viper.GetString("paper.dir")
+		if paperDir == "" {
+			paperDir = "paper"
+		}
 		includeDir := filepath.Join(paperDir, "include")
 		manuscriptPath := filepath.Join(paperDir, "manuscript.tex")
 		mainTexPath := filepath.Join(paperDir, "main.tex")
+		preamblePath := filepath.Join(paperDir, "preamble.tex")
 
 		// Read preamble from manuscript.tex
 		manuscriptFile, err := os.Open(manuscriptPath)
 		if err != nil {
-			log.Fatalf("Failed to open manuscript.tex: %v", err)
+			return fmt.Errorf("failed to open manuscript.tex: %w", err)
 		}
 		defer manuscriptFile.Close()
 
@@ -42,7 +46,7 @@ var paperCmd = &cobra.Command{
 
 		mainFile, err := os.Create(mainTexPath)
 		if err != nil {
-			log.Fatalf("Failed to create main.tex: %v", err)
+			return fmt.Errorf("failed to create main.tex: %w", err)
 		}
 		defer mainFile.Close()
 
@@ -50,12 +54,11 @@ var paperCmd = &cobra.Command{
 			fmt.Fprintln(mainFile, line)
 		}
 
-		// Add unicode handling for the tests that emit α₁, α₂, and ℓ
-		fmt.Fprintln(mainFile, "\\usepackage{newunicodechar}")
-		fmt.Fprintln(mainFile, "\\newunicodechar{₁}{\\ensuremath{_1}}")
-		fmt.Fprintln(mainFile, "\\newunicodechar{₂}{\\ensuremath{_2}}")
-		fmt.Fprintln(mainFile, "\\newunicodechar{α}{\\ensuremath{\\alpha}}")
-		fmt.Fprintln(mainFile, "\\newunicodechar{ℓ}{\\ensuremath{\\ell}}")
+		// Append external preamble file (unicode char defs, etc.) if it exists.
+		if preambleBytes, err := os.ReadFile(preamblePath); err == nil {
+			fmt.Fprintln(mainFile, "")
+			fmt.Fprintln(mainFile, strings.TrimRight(string(preambleBytes), "\n"))
+		}
 
 		fmt.Fprintln(mainFile, "")
 		fmt.Fprintln(mainFile, "\\begin{document}")
@@ -69,7 +72,7 @@ var paperCmd = &cobra.Command{
 		if err != nil {
 			// If include dir does not exist, just end document
 			fmt.Fprintln(mainFile, "\\end{document}")
-			return
+			return nil
 		}
 
 		for _, entry := range entries {
@@ -113,6 +116,7 @@ var paperCmd = &cobra.Command{
 
 		fmt.Fprintln(mainFile, "\\end{document}")
 		fmt.Println("Generated paper/main.tex successfully.")
+		return nil
 	},
 }
 

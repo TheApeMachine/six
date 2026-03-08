@@ -1,0 +1,77 @@
+package pool
+
+import (
+	"sync"
+	"time"
+)
+
+// BackPressureRegulator limits job intake when the system is under
+// pressure (queue deep, latency high).
+type BackPressureRegulator struct {
+	mu sync.RWMutex
+
+	maxQueueSize      int
+	targetProcessTime time.Duration
+	pressureWindow    time.Duration
+	currentPressure   float64
+	metrics           *Metrics
+	lastCheck         time.Time
+}
+
+// NewBackPressureRegulator creates a regulator that starts limiting
+// at 80% pressure.
+func NewBackPressureRegulator(maxQueueSize int, targetProcessTime, pressureWindow time.Duration) *BackPressureRegulator {
+	return &BackPressureRegulator{
+		maxQueueSize:      maxQueueSize,
+		targetProcessTime: targetProcessTime,
+		pressureWindow:    pressureWindow,
+		currentPressure:   0.0,
+		lastCheck:         time.Now(),
+	}
+}
+
+func (bp *BackPressureRegulator) Observe(metrics *Metrics) {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+	bp.metrics = metrics
+	bp.updatePressure()
+}
+
+func (bp *BackPressureRegulator) Limit() bool {
+	bp.mu.RLock()
+	defer bp.mu.RUnlock()
+	return bp.currentPressure >= 0.8
+}
+
+func (bp *BackPressureRegulator) Renormalize() {
+	bp.mu.Lock()
+	defer bp.mu.Unlock()
+
+	if bp.metrics != nil &&
+		bp.metrics.JobQueueSize < bp.maxQueueSize/2 &&
+		bp.metrics.AverageJobLatency < bp.targetProcessTime {
+		bp.currentPressure = max(0.0, bp.currentPressure-0.1)
+	}
+}
+
+func (bp *BackPressureRegulator) updatePressure() {
+	if bp.metrics == nil {
+		return
+	}
+
+	queuePressure := float64(bp.metrics.JobQueueSize) / float64(bp.maxQueueSize)
+
+	timingPressure := 0.0
+	if bp.metrics.AverageJobLatency > 0 {
+		timingPressure = float64(bp.metrics.AverageJobLatency) / float64(bp.targetProcessTime)
+	}
+
+	bp.currentPressure = min(1.0, max(0.0, queuePressure*0.6+timingPressure*0.4))
+}
+
+// GetPressure returns the current pressure level (0.0–1.0).
+func (bp *BackPressureRegulator) GetPressure() float64 {
+	bp.mu.RLock()
+	defer bp.mu.RUnlock()
+	return bp.currentPressure
+}

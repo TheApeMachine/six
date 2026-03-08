@@ -8,7 +8,7 @@ import (
 
 /*
 Threshold constants for dynamic topological phase transition.
-MitosisTrigger when Cubes[0] density ≥ 45%; DeMitosis when global density < 25%.
+Mitosis when Cubes[0] active-bit density ≥ 45%; DeMitosis when global density < 25%.
 TotalBitsPerCube = 257×512 for density normalization.
 */
 const (
@@ -18,10 +18,9 @@ const (
 )
 
 /*
-ConditionMitosis evaluates whether virtual mitosis should trigger.
-Returns true when Cubes[0] active-bit density ≥ MitosisThreshold and not already mitosed.
+ConditionMitosis returns true when Cubes[0] active-bit density ≥ MitosisThreshold
+and State is not already mitosed (State != 1).
 */
-// Mechanically, this is a pure density threshold over the preallocated Cubes[0] array.
 func (m *IcosahedralManifold) ConditionMitosis() bool {
 	if m.Header.State() == 1 {
 		return false // Already mitosed
@@ -36,8 +35,8 @@ func (m *IcosahedralManifold) ConditionMitosis() bool {
 }
 
 /*
-ConditionDeMitosis evaluates whether to collapse back to cubic mode.
-Returns true when global density across all 5 cubes < DeMitosisThreshold and already mitosed.
+ConditionDeMitosis returns true when global active-bit density across all 5 cubes
+< DeMitosisThreshold and State is already mitosed (State == 1).
 */
 func (m *IcosahedralManifold) ConditionDeMitosis() bool {
 	if m.Header.State() == 0 {

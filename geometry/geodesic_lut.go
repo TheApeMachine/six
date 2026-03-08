@@ -3,10 +3,9 @@ package geometry
 import "strconv"
 
 /*
-UnifiedGeodesicMatrix is the 60×60 lookup table of shortest-path geodesic distances
-between the 60 discrete chiral states of the Icosahedral Manifold (A₅).
-Precomputed for O(1) ambiguity resolution on the GPU without runtime arccos.
-Populated at init from BFS over the A₅ generator group.
+UnifiedGeodesicMatrix is the 60×60 table of shortest-path distances between
+A₅ group states. Precomputed at init via BFS for O(1) state-distance lookup
+without runtime graph traversal.
 */
 var UnifiedGeodesicMatrix [3600]byte
 

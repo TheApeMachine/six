@@ -7,7 +7,7 @@
       "Name": "Text Overlap",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "c3Npb24gb2YgYSBnb29kIGZvcnR1bmUsIG11c3QgYmUgaW4gd2FudCBvZiBhIHdpZmUu",
+      "Observed": "d2xlLmlkS25vYWYgc3JpY2VnIGNpc2VsLm9lcyB0biBvdE5hcHVvZXJld3IgIGh1ZHJlICB0cmV5LHl2aXkgcnMgdG5oaWFnZWNvcGNtZS5kbFQgaWVob25sd2VheSAgIHRzb2F2aCBpIGZyaGF5ZWlucyBkIG9lIGJlb24gLlRiZSBvLCAgdG5vdHRvICByYiBvdCxoZWF0IHNpIHRoZWllbnRzdW8gcW1pcGllLiB5QWhhcGZhbGxzOyBlYWNoICBha25yZXVhbCBoYWkgZXBwbWYgaXlsIGFpcGFscHkgbnl1aHMgSWl0bndudyBzeSBhb3cuaWhzICB0ZXQgZiB0b3NlYiB0cyAgIGl0ZWltc2EsdHdhIG9lIGh3dHIgc3RvbWlmc0llLiBuZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYmlldC4gVCBhaHQgIG9pbG4gaGVlIHBvcmF0IHcgc2VzaGJlYSB5ayBvdmhoZWMgdG8gdGlsb3Igb2VsdG9lbiwgdHVuZGVmZCAgIHRvIGEgZGllY2Foc2FubmxlIHQuIGFJc2kgdHYgcml1dW5laHJ2dHNhbCwgdGxod2xlZGdveSBhY25kYSB0YXMgaW5lZ2tsZSBtbmFuaSBvZnNuZXMgc2EgIGlvb2RzIGdvb2YsdG9udXIgZW11c3QgYiBlb3Qgd2FpIG5uYWYgIGZ3LmVp",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,7 +23,7 @@
       "Name": "Text Overlap",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "byBhIGRlYWQgY2hhbm5lbC4=",
+      "Observed": "d2xlLmlkS25vYWYgc3JpY2VnIGNpc2VsLm9lcyB0biBvdE5hcHVvZXJld3IgIGh1ZHJlICB0cmV5LHl2aXkgcnMgdG5oaWFnZWNvcGNtZS5kbFQgaWVob25sd2VheSAgIHRzb2F2aCBpIGZyaGF5ZWlucyBkIG9lIGJlb24gLlRiZSBvLCAgdG5vdHRvICByYiBvdCxoZWF0IHNpIHRoZWllbnRzdW8gcW1pcGllLiB5QWhhcGZhbGxzOyBlYWNoICBha25yZXVhbCBoYWkgZXBwbWYgaXlsIGFpcGFscHkgbnl1aHMgSWl0bndudyBzeSBhb3cuaWhzICB0ZXQgZiB0b3NlYiB0cyAgIGl0ZWltc2EsdHdhIG9lIGh3dHIgc3RvbWlmc0llLiBuZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYmlldC4gVCBhaHQgIG9pbG4gaGVlIHBvcmF0IHcgc2VzaGJlYSB5ayBvdmhoZWMgdG8gdGlsb3Igb2VsdG9lbiwgdHVuZGVmZCAgIHRvIGEgZGllY2Foc2FubmxlIHQuIGFJc2kgdHYgcml1dW5laHJ2dHNhbCwgdGxod2xlZGdveSBhY25kYSB0YXMgaW5lZ2tsZSBtbmFuaSBvZnNuZXMgc2EgIGlvb2RzIGdvb2YsdG9udXIgZW11c3QgYiBlb3Qgd2FpIG5uYWYgIGZ3LmVp",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -39,14 +39,14 @@
       "Name": "Text Overlap",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": null,
+      "Observed": "d2xlLmlkS25vYWYgc3JpY2VnIGNpc2VsLm9lcyB0biBvdE5hcHVvZXJld3IgIGh1ZHJlICB0cmV5LHl2aXkgcnMgdG5oaWFnZWNvcGNtZS5kbFQgaWVob25sd2VheSAgIHRzb2F2aCBpIGZyaGF5ZWlucyBkIG9lIGJlb24gLlRiZSBvLCAgdG5vdHRvICByYiBvdCxoZWF0IHNpIHRoZWllbnRzdW8gcW1pcGllLiB5QWhhcGZhbGxzOyBlYWNoICBha25yZXVhbCBoYWkgZXBwbWYgaXlsIGFpcGFscHkgbnl1aHMgSWl0bndudyBzeSBhb3cuaWhzICB0ZXQgZiB0b3NlYiB0cyAgIGl0ZWltc2EsdHdhIG9lIGh3dHIgc3RvbWlmc0llLiBuZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYmlldC4gVCBhaHQgIG9pbG4gaGVlIHBvcmF0IHcgc2VzaGJlYSB5ayBvdmhoZWMgdG8gdGlsb3Igb2VsdG9lbiwgdHVuZGVmZCAgIHRvIGEgZGllY2Foc2FubmxlIHQuIGFJc2kgdHYgcml1dW5laHJ2dHNhbCwgdGxod2xlZGdveSBhY25kYSB0YXMgaW5lZ2tsZSBtbmFuaSBvZnNuZXMgc2EgIGlvb2RzIGdvb2YsdG9udXIgZW11c3QgYiBlb3Qgd2FpIG5uYWYgIGZ3LmVp",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -55,7 +55,7 @@
       "Name": "Text Overlap",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "IHdpZmUu",
+      "Observed": "d2xlLmlkS25vYWYgc3JpY2VnIGNpc2VsLm9lcyB0biBvdE5hcHVvZXJld3IgIGh1ZHJlICB0cmV5LHl2aXkgcnMgdG5oaWFnZWNvcGNtZS5kbFQgaWVob25sd2VheSAgIHRzb2F2aCBpIGZyaGF5ZWlucyBkIG9lIGJlb24gLlRiZSBvLCAgdG5vdHRvICByYiBvdCxoZWF0IHNpIHRoZWllbnRzdW8gcW1pcGllLiB5QWhhcGZhbGxzOyBlYWNoICBha25yZXVhbCBoYWkgZXBwbWYgaXlsIGFpcGFscHkgbnl1aHMgSWl0bndudyBzeSBhb3cuaWhzICB0ZXQgZiB0b3NlYiB0cyAgIGl0ZWltc2EsdHdhIG9lIGh3dHIgc3RvbWlmc0llLiBuZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYmlldC4gVCBhaHQgIG9pbG4gaGVlIHBvcmF0IHcgc2VzaGJlYSB5ayBvdmhoZWMgdG8gdGlsb3Igb2VsdG9lbiwgdHVuZGVmZCAgIHRvIGEgZGllY2Foc2FubmxlIHQuIGFJc2kgdHYgcml1dW5laHJ2dHNhbCwgdGxod2xlZGdveSBhY25kYSB0YXMgaW5lZ2tsZSBtbmFuaSBvZnNuZXMgc2EgIGlvb2RzIGdvb2YsdG9udXIgZW11c3QgYiBlb3Qgd2FpIG5uYWYgIGZ3LmVp",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -71,7 +71,7 @@
       "Name": "Text Overlap",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": "aGUgZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYml0Lg==",
+      "Observed": "d2xlLmlkS25vYWYgc3JpY2VnIGNpc2VsLm9lcyB0biBvdE5hcHVvZXJld3IgIGh1ZHJlICB0cmV5LHl2aXkgcnMgdG5oaWFnZWNvcGNtZS5kbFQgaWVob25sd2VheSAgIHRzb2F2aCBpIGZyaGF5ZWlucyBkIG9lIGJlb24gLlRiZSBvLCAgdG5vdHRvICByYiBvdCxoZWF0IHNpIHRoZWllbnRzdW8gcW1pcGllLiB5QWhhcGZhbGxzOyBlYWNoICBha25yZXVhbCBoYWkgZXBwbWYgaXlsIGFpcGFscHkgbnl1aHMgSWl0bndudyBzeSBhb3cuaWhzICB0ZXQgZiB0b3NlYiB0cyAgIGl0ZWltc2EsdHdhIG9lIGh3dHIgc3RvbWlmc0llLiBuZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYmlldC4gVCBhaHQgIG9pbG4gaGVlIHBvcmF0IHcgc2VzaGJlYSB5ayBvdmhoZWMgdG8gdGlsb3Igb2VsdG9lbiwgdHVuZGVmZCAgIHRvIGEgZGllY2Foc2FubmxlIHQuIGFJc2kgdHYgcml1dW5laHJ2dHNhbCwgdGxod2xlZGdveSBhY25kYSB0YXMgaW5lZ2tsZSBtbmFuaSBvZnNuZXMgc2EgIGlvb2RzIGdvb2YsdG9udXIgZW11c3QgYiBlb3Qgd2FpIG5uYWYgIGZ3LmVp",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -83,6 +83,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.8,
+  "score": 1,
   "section": "textgen"
 }

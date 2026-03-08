@@ -6,10 +6,8 @@ import (
 )
 
 /*
-SleepCycle is an asynchronous metabolic process that runs when the system
-is idle or periodically. It simulates "sleep" by scanning the memory
-substrate (the LSM tree) and orthogonalizing highly overlapping
-(resonant) concepts to prevent catastrophic forgetting.
+SleepCycle runs consolidateAndOrthogonalize every 5 seconds until stopCh is closed.
+Reduces overlap between adjacent chords in the LSM to keep entries distinct.
 */
 func (idx *LSMSpatialIndex) SleepCycle(stopCh <-chan struct{}) {
 	ticker := time.NewTicker(5 * time.Second) // "Sleep" every 5 seconds for simulation
@@ -26,10 +24,8 @@ func (idx *LSMSpatialIndex) SleepCycle(stopCh <-chan struct{}) {
 }
 
 /*
-consolidateAndOrthogonalize performs the actual memory grooming.
-It iterates over recent memory levels, finds chord pairs that have
-high resonance (popcount > Threshold) but aren't identical, and
-pushes them perfectly orthogonal by flipping their shared noise bits.
+consolidateAndOrthogonalize finds adjacent chord pairs with shared bits (15 < shared < 40),
+then removes the overlap from the second chord so the pair is more distinct.
 */
 func (idx *LSMSpatialIndex) consolidateAndOrthogonalize() {
 	idx.mu.Lock()

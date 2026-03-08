@@ -21,6 +21,9 @@ type Loader struct {
 
 type loaderOpts func(*Loader)
 
+/*
+NewLoader creates a Loader. Use LoaderWithStore, LoaderWithPrimeField, LoaderWithTokenizer.
+*/
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
 		coder: tokenizer.NewMortonCoder(),
@@ -40,23 +43,11 @@ func (loader *Loader) Store() store.Store {
 	return loader.store
 }
 
+/*
+Tokenizer returns the Universal tokenizer. Nil if not set.
+*/
 func (loader *Loader) Tokenizer() *tokenizer.Universal {
 	return loader.tokenizer
-}
-
-/*
-ChordToByte resolves a chord to its byte identity via Lookup + Morton Decode.
-*/
-func (loader *Loader) ChordToByte(chord data.Chord) (byte, bool) {
-	if loader.store == nil {
-		return data.ChordToByte(&chord), true
-	}
-	keys := loader.Lookup([]data.Chord{chord})
-	if len(keys) == 0 {
-		return data.ChordToByte(&chord), false
-	}
-	_, symbol := loader.coder.Decode(keys[0])
-	return symbol, true
 }
 
 /*
@@ -133,24 +124,36 @@ func (loader *Loader) Lookup(chords []data.Chord) []uint64 {
 	return out
 }
 
+/*
+LoaderWithStore sets the LSM spatial index for chord-key storage.
+*/
 func LoaderWithStore(store store.Store) loaderOpts {
 	return func(loader *Loader) {
 		loader.store = store
 	}
 }
 
+/*
+LoaderWithPrimeField sets the PrimeField for manifold ingestion during Generate.
+*/
 func LoaderWithPrimeField(pf *store.PrimeField) loaderOpts {
 	return func(loader *Loader) {
 		loader.primefield = pf
 	}
 }
 
+/*
+LoaderWithTokenizer sets the Universal tokenizer. Required for Generate.
+*/
 func LoaderWithTokenizer(tokenizer *tokenizer.Universal) loaderOpts {
 	return func(loader *Loader) {
 		loader.tokenizer = tokenizer
 	}
 }
 
+/*
+LoaderError is a typed error for Loader failures.
+*/
 type LoaderError string
 
 const (
@@ -160,6 +163,9 @@ const (
 	LoaderErrInvalidToken LoaderError = "invalid token"
 )
 
+/*
+Error implements the error interface for LoaderError.
+*/
 func (e LoaderError) Error() string {
 	return string(e)
 }

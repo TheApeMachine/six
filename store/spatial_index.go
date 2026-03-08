@@ -33,7 +33,7 @@ type LSMSpatialIndex struct {
 }
 
 /*
-NewLSMSpatialIndex creates a new LSMSpatialIndex.
+NewLSMSpatialIndex allocates an empty LSM index. cellSize is reserved for future use.
 */
 func NewLSMSpatialIndex(cellSize float64) *LSMSpatialIndex {
 	return &LSMSpatialIndex{
@@ -149,7 +149,9 @@ func (idx *LSMSpatialIndex) mergeAndDeduplicate(
 	return outKeys, outVals
 }
 
-// Count returns the number of unique entries stored across all LSM levels.
+/*
+Count returns the number of unique key-value entries across all LSM levels.
+*/
 func (idx *LSMSpatialIndex) Count() int {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()

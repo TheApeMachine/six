@@ -11,16 +11,17 @@ import (
 )
 
 /*
-Dataset loads an entire directory of images and streams them out as
-pure raw byte signals. It does not use pixel patches, convolutions, or
-frequency domain transforms. It simply unfolds the 2D image into a 1D sequence
-of RGBA bytes. The Universal tokenizer handles the spatial/structural embedding
-through overlapping Fibonacci phase windows on this raw signal.
+Dataset walks a directory, decodes images (JPEG/PNG), and streams RGB bytes
+in row-major order. Unfolds 2D to 1D; no patches, convolutions, or transforms.
+Skips alpha; emits three RawTokens per pixel (r,g,b at same Pos).
 */
 type Dataset struct {
 	paths []string
 }
 
+/*
+NewDataset walks dir recursively, collects file paths (non-dirs), and returns a Dataset.
+*/
 func NewDataset(dir string) *Dataset {
 	var paths []string
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -32,6 +33,10 @@ func NewDataset(dir string) *Dataset {
 	return &Dataset{paths: paths}
 }
 
+/*
+Generate returns a channel that emits RawTokens (SampleID, Symbol, Pos) for each RGB byte.
+Closes when all images are streamed. Skips files that fail to decode.
+*/
 func (d *Dataset) Generate() chan provider.RawToken {
 	out := make(chan provider.RawToken, 4096)
 

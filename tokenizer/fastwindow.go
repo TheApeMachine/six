@@ -16,6 +16,9 @@ type FastWindow struct {
 	drifts int
 }
 
+/*
+NewFastWindow allocates a sliding window of the given size. O(1) push; recalc every size*2 pushes.
+*/
 func NewFastWindow(size int) *FastWindow {
 	return &FastWindow{
 		data: make([]float64, size),
@@ -23,6 +26,9 @@ func NewFastWindow(size int) *FastWindow {
 	}
 }
 
+/*
+Push adds val to the window, evicting the oldest if full. Triggers recalc to prevent float drift.
+*/
 func (window *FastWindow) Push(val float64) {
 	if window.count == window.size {
 		old := window.data[window.head]
@@ -57,6 +63,9 @@ func (window *FastWindow) recalc() {
 	window.drifts = 0
 }
 
+/*
+SimulatePush returns mean and stddev as if val were pushed without modifying the window.
+*/
 func (window *FastWindow) SimulatePush(val float64) (mean, stddev float64) {
 	simSum := window.sum + val
 	simSumSq := window.sumSq + (val * val)
@@ -83,10 +92,16 @@ func (window *FastWindow) SimulatePush(val float64) (mean, stddev float64) {
 	return mean, stddev
 }
 
+/*
+Warmed returns true when the window has received at least size values.
+*/
 func (window *FastWindow) Warmed() bool {
 	return window.count >= window.size
 }
 
+/*
+Stats returns the current mean and sample stddev of the window contents.
+*/
 func (window *FastWindow) Stats() (mean, stddev float64) {
 	if window.count == 0 {
 		return 0, 0

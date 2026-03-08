@@ -7,18 +7,21 @@ import (
 	"github.com/theapemachine/six/data"
 )
 
-// PositionalPrimeStart is the first prime index reserved for positional encoding.
-// When >= 0, ApplyPositionalShift sets chord bit at PositionalPrimeStart + (pos % PositionSlots).
-// When < 0 (default), no positional encoding (pure semantic matching).
+/*
+PositionalPrimeStart is the first prime index for positional encoding. When >= 0,
+ApplyPositionalShift sets chord bit at PositionalPrimeStart + (pos % PositionSlots).
+When < 0 (default), no positional encoding (pure semantic matching).
+*/
 var PositionalPrimeStart = -1
 
-// PositionSlots is the number of distinct positions encodable when positional encoding is active.
+/*
+PositionSlots is the number of distinct position slots (pos mod PositionSlots).
+*/
 const PositionSlots = 64
 
 /*
-ApplyPositionalShift encodes position into the chord (for positional encoding).
-Pure semantic matching uses a no-op; positional encoding multiplies by BasisPrimes.
-When PositionalPrimeStart >= 0, sets the bit at BasisPrimes[PositionalPrimeStart + pos mod PositionSlots].
+ApplyPositionalShift sets the chord bit at index PositionalPrimeStart + (pos % PositionSlots)
+when PositionalPrimeStart >= 0. Otherwise no-op.
 */
 func ApplyPositionalShift(chord *data.Chord, pos int) {
 	if PositionalPrimeStart < 0 {
@@ -32,8 +35,8 @@ func ApplyPositionalShift(chord *data.Chord, pos int) {
 }
 
 /*
-FillScore measures how well a candidate chord fills a structural hole.
-Returns a value in [0, 1] where 1 = perfect fill with no extra primes.
+FillScore measures how well candidate covers hole (ChordHole target/existing).
+Score = filled / (needed * (1 + extra)); 1.0 when hole fully covered with no excess primes.
 */
 func FillScore(hole, candidate *data.Chord) (score float64) {
 	needed := 0
@@ -57,21 +60,13 @@ func FillScore(hole, candidate *data.Chord) (score float64) {
 }
 
 /*
-TransitiveResonance executes a structural analogy (A:B :: C:D) using pure bitwise logic.
-Given F1(A,B), F2(C,B), and F3(C,D), it returns the hypothesis H(A,D).
-
-Example: "Cat wants food" + "Dog wants food" + "Dog is animal" → "Cat is animal"
-  - B = shared context (wants food)
-  - C = shared subject (dog)
-  - A = F1 without B (cat)
-  - D = F3 without C (is animal)
-  - H = A | D (cat is animal)
-
-No neural network required — the prime substrate performs symbolic logic natively.
+TransitiveResonance computes structural analogy (A:B :: C:D) via chord GCD/Hole.
+B = GCD(f1,f2), C = GCD(f2,f3), A = Hole(f1,B), D = Hole(f3,C). Returns A|D.
+Example: f1=cat+food, f2=dog+food, f3=dog+animal → A=cat, D=animal → cat|animal.
 */
 func TransitiveResonance(f1, f2, f3 *data.Chord) data.Chord {
-	B := data.ChordGCD(f1, f2) // Shared context ("wormhole" = bitwise intersection: f1 & f2)
-	C := data.ChordGCD(f2, f3) // Shared subject ("wormhole" = bitwise intersection: f2 & f3)
+	B := data.ChordGCD(f1, f2) // Shared context
+	C := data.ChordGCD(f2, f3) // Shared subject
 
 	A := data.ChordHole(f1, &B) // F1 without B
 	D := data.ChordHole(f3, &C) // F3 without C
@@ -79,11 +74,11 @@ func TransitiveResonance(f1, f2, f3 *data.Chord) data.Chord {
 	bA := A
 	bD := D
 
-	return data.ChordOR(&bA, &bD) // Forged hypothesis (A ∪ D)
+	return data.ChordOR(&bA, &bD)
 }
 
 /*
-popcount counts the number of 1-bits in a uint64
+popcount returns the number of set bits in x.
 */
 func popcount(x uint64) (count int) {
 	return bits.OnesCount64(x)

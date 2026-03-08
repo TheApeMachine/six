@@ -9,8 +9,11 @@ import (
 	_ "image/png"
 )
 
-// DecodeImageBytes decodes a compressed image (PNG/JPEG), normalises it
-// to NRGBA, and returns the raw pixel bytes. Suitable as a Dataset transform.
+/*
+DecodeImageBytes decodes PNG/JPEG bytes to NRGBA and returns the raw pixel buffer.
+Use as a Dataset transform (e.g. DatasetWithTransform) when the HuggingFace column
+holds compressed image bytes.
+*/
 func DecodeImageBytes(raw []byte) ([]byte, error) {
 	src, _, err := image.Decode(bytes.NewReader(raw))
 	if err != nil {

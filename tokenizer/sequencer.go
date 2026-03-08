@@ -43,6 +43,10 @@ type candidate struct {
 	entropy float64 // entropy jump at split (optional extra evidence)
 }
 
+/*
+NewSequencer creates a Sequencer with optional calibrator for BIC penalty tuning.
+Default MinSegmentBytes=4.
+*/
 func NewSequencer(calibrator *Calibrator) *Sequencer {
 	return &Sequencer{
 		calibrator:      calibrator,
@@ -53,6 +57,10 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 	}
 }
 
+/*
+CloneEmpty returns a new Sequencer with the same config (calibrator, eigen, phi)
+but empty buffer, distribution, and candidates.
+*/
 func (seq *Sequencer) CloneEmpty() *Sequencer {
 	return &Sequencer{
 		calibrator:      seq.calibrator,
@@ -63,6 +71,9 @@ func (seq *Sequencer) CloneEmpty() *Sequencer {
 	}
 }
 
+/*
+Clone returns a deep copy of the Sequencer including buffer, dist, candidates, and offset.
+*/
 func (seq *Sequencer) Clone() *Sequencer {
 	c := seq.CloneEmpty()
 	c.buf = append([]byte(nil), seq.buf...)
@@ -86,6 +97,11 @@ func slog(c int) float64 {
 	return float64(c) * math.Log(float64(c))
 }
 
+/*
+Analyze appends byteVal, runs MDL boundary detection, and optionally emits a split.
+Returns (true, events) when a boundary is committed; (false, events) otherwise.
+events are geometry.Event* constants for PrimeField.Rotate.
+*/
 func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
@@ -269,8 +285,10 @@ func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
 	return math.Abs(c1-c2) < 0.2
 }
 
-// classifyDirection compares mean byte values of the left and right segments
-// around the boundary at k. Uses only the segment-local regions, not full buffer history.
+/*
+classifyDirection returns EventDensitySpike if right-mean > left-mean, else EventDensityTrough.
+Compares buf[:k] vs buf[k:] mean byte values.
+*/
 func (seq *Sequencer) classifyDirection(buf []byte, k int) int {
 	if k <= 0 || k >= len(buf) {
 		return geometry.EventDensityTrough
@@ -301,6 +319,10 @@ func (seq *Sequencer) updateEMA(val, delta, eigenMag float64) {
 	seq.emaPhase = seq.emaPhase*(1-alpha) + delta*alpha
 }
 
+/*
+Forecast runs boundary detection on buf+byteVal without committing.
+Returns (true, events) if a boundary would be at k; (false, nil) otherwise.
+*/
 func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
 	buf := append(seq.buf, byteVal)
 	dist := *seq.dist
@@ -318,6 +340,11 @@ func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
 	return true, events
 }
 
+/*
+FeedbackRetrievalQuality adjusts calibrator.sensitivityPop by 1/phi.
+overDiscriminated: increase penalty (fewer splits). underDiscriminated: decrease.
+Clamps sensitivityPop to [0.05, 20].
+*/
 func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
 	if seq.calibrator == nil {
 		return
@@ -333,12 +360,21 @@ func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscrimin
 	seq.calibrator.sensitivityPop = math.Max(0.05, math.Min(20.0, seq.calibrator.sensitivityPop))
 }
 
+/*
+Phase returns (emaPhase, costPerByte). costPerByte = dist.Cost()/n.
+*/
 func (seq *Sequencer) Phase() (float64, float64) {
 	return seq.emaPhase, seq.dist.Cost() / float64(max(seq.dist.n, 1))
 }
 
+/*
+Phi returns the golden-ratio tuning constant (≈1.618).
+*/
 func (seq *Sequencer) Phi() float64 { return seq.phi }
 
+/*
+SetEigenMode replaces the internal EigenMode. Nil resets to NewEigenMode().
+*/
 func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
 	if eigen == nil {
 		seq.eigen = geometry.NewEigenMode()
@@ -347,6 +383,10 @@ func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
 	seq.eigen = eigen
 }
 
+/*
+Flush commits the first candidate as a boundary and returns (true, events).
+Returns (false, nil) if no candidates. Same event format as Analyze.
+*/
 func (seq *Sequencer) Flush() (bool, []int) {
 	if len(seq.candidates) == 0 {
 		return false, nil

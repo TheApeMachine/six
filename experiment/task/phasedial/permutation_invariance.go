@@ -1,6 +1,8 @@
 package phasedial
 
 import (
+	"math"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
@@ -60,7 +62,14 @@ func (experiment *PermutationInvarianceExperiment) Outcome() (any, gc.Assertion,
 }
 
 func (experiment *PermutationInvarianceExperiment) Score() float64 {
-	return 1.0
+	if len(experiment.tableData) == 0 {
+		return math.NaN() // Not yet computed
+	}
+	total := 0.0
+	for _, data := range experiment.tableData {
+		total += data.WeightedTotal
+	}
+	return total / float64(len(experiment.tableData))
 }
 
 func (experiment *PermutationInvarianceExperiment) TableData() any {

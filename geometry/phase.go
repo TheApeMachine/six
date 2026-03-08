@@ -12,14 +12,14 @@ import (
 /*
 PhaseDial is a 512-dimensional complex vector representing rotational phase gradients.
 Each dimension uses a prime frequency (omega) to accumulate phase from position and
-structural identity; encoding produces unit-normalized holographic fingerprints suitable
-for similarity and composition. Use EncodeFromChords for chord sequences.
+structural identity; encoding produces unit-normalized vectors suitable for cosine
+similarity and vector addition. Use EncodeFromChords for chord sequences.
 */
 type PhaseDial []complex128
 
 /*
 NewPhaseDial allocates a zero-initialized PhaseDial of NBasis dimensions.
-Used before EncodeFromChords to produce a holographic representation.
+Used before EncodeFromChords to produce a unit-normalized phase vector.
 */
 func NewPhaseDial() PhaseDial {
 	return make(PhaseDial, config.Numeric.NBasis)

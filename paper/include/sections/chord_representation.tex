@@ -1,11 +1,11 @@
 % ============================================================================
-% THE 512-BIT CHORD REPRESENTATION
+% THE 257-BIT CHORD REPRESENTATION
 % ============================================================================
 \subsection{Deterministic Prime-Basis Identity}
 \label{sec:base_chord}
 \label{sec:chord_representation}
 
-Let $D = 512$ denote the chord dimensionality and let $\mathcal{B} = \{0,
+Let $D = 257$ denote the chord dimensionality and let $\mathcal{B} = \{0,
 \ldots, 255\}$ be the byte alphabet.  Every byte value $b \in \mathcal{B}$
 is mapped to a deterministic binary vector $\mathbf{c}(b) \in \{0,1\}^{D}$
 by activating exactly five bits at positions given by coprime spreading:
@@ -29,7 +29,7 @@ by activating exactly five bits at positions given by coprime spreading:
 coprime and $D = 2^9$, distinct byte values receive distinct activation
 patterns (verified by exhaustive enumeration over all $256$ values).  The
 resulting chord is extremely sparse: $\|\mathbf{c}(b)\|_1 = 5$ out of
-$D = 512$ bits, yielding a sparsity ratio of $5/512 \approx 0.98\%$.
+$D = 257$ bits, yielding a sparsity ratio of $5/257 \approx 1.95\%$.
 
 \paragraph{Why Coprime Multipliers.}
 The choice of coprime multipliers is not arbitrary.  Multiplying by a prime
@@ -140,7 +140,7 @@ co-occurrence matrix without per-chord storage.
 \subsection{FlatChord: GPU-Optimized Dense Representation}
 \label{sec:flat_chord}
 
-For GPU dispatch, the sparse 512-bit Chord is converted to a \emph{FlatChord}:
+For GPU dispatch, the sparse 257-bit Chord is converted to a \emph{FlatChord}:
 a dense array of at most $D$ active prime indices $\{p_1, \ldots, p_k\}$
 where $k = \|\mathbf{c}\|_1$.  This eliminates bit-twiddling thread
 divergence in SIMT architectures: every thread iterates over exactly

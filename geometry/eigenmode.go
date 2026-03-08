@@ -7,13 +7,12 @@ import (
 )
 
 /*
-EigenMode maps arbitrary chord structures to a global toroidal phase space (Theta, Phi).
-Unlike legacy Markov transition matrices, this implementation is entirely
-chord-native and analytical: it derives the global shape of the sequence
-from the intrinsic Fourier transform across the 257-dimensional GF(257) substrate.
+EigenMode maps chords to toroidal phase (Theta, Phi) from their bit distribution.
+Chord-native and analytical: no transition matrices; derives phase from
+prime activations over GF(257).
 
-Theta: Circular mean of prime activations. Perfectly mirrors topological translation (RotateX).
-Phi: Spectral density moment (information content).
+Theta: Circular mean of active prime angles (2π·idx/257). Matches RotateX translation.
+Phi: 2π·ActiveCount/257 — scales popcount into [0,2π).
 */
 type EigenMode struct {
 	Trained bool // Always true, kept for interface compatibility
@@ -58,9 +57,8 @@ func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
 	indices := data.ChordPrimeIndices(c)
 	var sinSum, cosSum float64
 
-	// Theta: the circular mean of active subsets in the GF(257) space.
-	// This captures structural orientation. A topological ShiftX on the chord
-	// precisely translates this Theta phase around the torus.
+	// Theta: circular mean of angles 2π·idx/257 for active prime indices.
+	// RotateX on the chord translates Theta around the torus.
 	for _, idx := range indices {
 		angle := 2 * math.Pi * float64(idx) / 257.0
 		sinSum += math.Sin(angle)
@@ -73,10 +71,7 @@ func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
 		theta = math.Atan2(sinSum, cosSum)
 	}
 
-	// Phi: captures information density spread over the full 2π cycle.
-	// We normalize the ActiveCount against the maximum expected typical
-	// working memory density (for BaseChords it's ~5, here scaled out against
-	// the 257 parameterization base, effectively becoming a density phase).
+	// Phi: ActiveCount scaled into [0, 2π) for toroidal phase.
 	phi = 2 * math.Pi * float64(c.ActiveCount()) / 257.0
 
 	return theta, phi
@@ -107,8 +102,8 @@ func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float
 }
 
 /*
-WeightedCircularMean computes the weighted circular mean and concentration over PhaseTheta
-for a sequence of chords. Weight is driven by chord structural density.
+WeightedCircularMean computes the circular mean of Theta phases, weighted by ActiveCount per chord.
+Returns (phase, concentration) where concentration = |R|/wSum and R is the resultant vector.
 */
 func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, concentration float64) {
 	if len(chords) == 0 {
@@ -134,8 +129,8 @@ func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, c
 }
 
 /*
-IsGeometricallyClosed verifies structural closure by checking if the sequence's
-weighted mean phase trajectory closely returns to the expected anchor phase.
+IsGeometricallyClosed returns true when the sequence's weighted circular mean phase
+is within 0.45 radians of anchorPhase (shortest path around the torus).
 */
 func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase float64) bool {
 	if len(chords) == 0 {

@@ -6,14 +6,14 @@
       "Name": "Languages",
       "Prefix": "ZGVmIHJlbW92ZV9PY2MocyxjaCk6IA0KICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSk6IA0KICAgICAgICBpZiAoc1tpXSA9PSBjaCk6IA0KICAgICAgICAgICAgcyA9IHNbMCA6IGldICsgc1tpICsgMTpdIA0KICAgICAgICAgICAgYnJlYWsNCg==",
       "Holdout": "ICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
-      "Observed": "ICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
+      "Observed": "cngoOg0pCiBhdCBNcmwgdWVzdCAgPSByZXN0ZG9NICgsZXlrcz11ICkNbQpydCAgIGV1cm4gcnNlbHV0",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.03597122302158273,
+        "Fuzzy": 0.03597122302158273
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.016350555918901243,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -22,14 +22,14 @@
       "Name": "Languages",
       "Prefix": "ZGVmIHNvcnRfbWF0cml4KE0pOg0KICAgIHJlc3VsdCA9IHNv",
       "Holdout": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
-      "Observed": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
+      "Observed": "cngoOg0pCiBhdCBNcmwgdWVzdCAgPSByZXN0ZG9NICgsZXlrcz11ICkNbQpydCAgIGV1cm4gcnNlbHV0",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.11428571428571428,
+        "Fuzzy": 0.06666666666666667
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.04329004329004329,
       "TrueLabel": null,
       "PredLabel": null
     }

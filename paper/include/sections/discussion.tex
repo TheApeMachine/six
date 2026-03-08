@@ -40,7 +40,7 @@
   \item \textbf{Convergence guarantees:}  The cantilever generation loop
         converges empirically but lacks formal convergence proofs.
   \item \textbf{Sparse chord coverage:}  With only 5 bits set per byte,
-        the 512-bit chord is very sparse.  The capacity limits of this
+        the 257-bit chord is very sparse.  The capacity limits of this
         representation under heavy superposition need formal characterization.
 \end{enumerate}
 
@@ -51,7 +51,7 @@
 \begin{itemize}[nosep]
   \item Disable EigenMode steering (flat popcount only) to isolate the
         contribution of toroidal phase alignment.
-  \item Vary chord width ($D \in \{128, 256, 512, 1024\}$) to characterize
+  \item Vary chord width ($D \in \{128, 257, 512, 1024\}$) to characterize
         the sparsity--capacity trade-off.
   \item Vary manifold depth (Cubic-only vs.\ Icosahedral) to measure the
         entropy routing contribution.

@@ -249,8 +249,7 @@ func (g *Graph) Survivors(threshold float64) []*Node {
 }
 
 /*
-InjectChords feeds a sequence of chords into the source node as data tokens.
-This is how the prompt enters the cortex.
+InjectChords sends each chord as a data token to the source. No Sequencer events.
 */
 func (g *Graph) InjectChords(chords []data.Chord) {
 	for _, c := range chords {
@@ -260,10 +259,8 @@ func (g *Graph) InjectChords(chords []data.Chord) {
 }
 
 /*
-InjectWithSequencer feeds prompt chords into the source node AND runs each
-through the Sequencer to generate topological events. Events become LAW
-(rotation) tokens injected alongside data tokens — the graph experiences
-both the content and the structural dynamics of the prompt.
+InjectWithSequencer sends each chord as data + RotationForByte(face) to all nodes.
+If Sequencer is set, runs Analyze and injects EventRotation tokens for each event.
 */
 func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 	for _, c := range chords {

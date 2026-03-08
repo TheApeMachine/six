@@ -9,14 +9,14 @@ In information theoretic terms, the representational capacity of a binary vector
 Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector ($D = 10,000$ to $D = 100,000$). However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
 
 \subsection{Dynamic Manifolds as Entropy Relief Valves}
-Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic chord to a highly compressed 512-bit vector, but geometrically map 27 such chords into a $3 \times 3 \times 3$ nested $SO(3)$ manifold (the \textit{MacroCube}).
+Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic chord to a highly compressed 257-bit vector, but geometrically map 257 such chords into a nested manifold (the \textit{MacroCube}), addressed by $GF(257)$ affine transformations.
 
 By establishing a rigid, non-commutative rotational lattice, the architecture avoids local saturation through \textbf{Topological Entropy Routing}. Ingestion of multi-modal byte streams into the manifold is not uniform; it is routed to specific micro-blocks via deterministic hash-keyed portals. 
 
 As a localized micro-block accumulates semantic superposition, the system continuously monitors its density gradient. When the population density approaches the Shannon maximum—specifically configured in the architecture as $\rho \ge 0.45$ (\texttt{MitosisThreshold})—the manifold reacts mechanically.
 
 \subsection{Geometric Expansion and Virtual Mitosis}
-Before the local micro-block crosses the entropy peak and loses discriminative capacity, the system triggers a discrete Lie group rotation (e.g., a $90^\circ$ transposition along the X, Y, or Z axis). Because 3D rotations are non-commutative ($R_x R_y \neq R_y R_x$), this physical manipulation achieves two simultaneous topological functions:
+Before the local micro-block crosses the entropy peak and loses discriminative capacity, the system triggers an affine transformation over the finite field $GF(257)$. Because affine transformations $f(p) = (ap + b) \pmod{257}$ are non-commutative, this mathematical manipulation achieves two simultaneous topological functions:
 \begin{enumerate}
     \item \textbf{Sequence Encoding:} The rotational trajectory inherently encodes the grammatical or temporal sequence of the incoming data, eliminating the need for artificial positional embeddings.
     \item \textbf{Entropy Diffusion:} The highly saturated, high-entropy block is mechanically swung out of the active ingestion portal and preserved in the structural background of the manifold. Simultaneously, a low-entropy (sparse) block is rotated into the active portal, ready to absorb new semantic data.
@@ -32,45 +32,44 @@ capacity can be increased by adding topology rather than parameters}.
 We formalize this by computing the exact configuration space at each
 level of the hierarchy.
 
-\paragraph{Level 1: The 512-Bit Chord.}
-A single chord occupies $D = 512$ bits of storage and admits
-$2^{512} \approx 1.34 \times 10^{154}$ possible states.  This is
+\paragraph{Level 1: The 257-Bit Chord.}
+A single chord occupies $D = 257$ bits of storage and admits
+$2^{257} \approx 2.31 \times 10^{77}$ possible states.  This is
 the Shannon-limited micro-state.
 
-\paragraph{Level 2: The MacroCube ($3 \times 3 \times 3$).}
-Twenty-seven chords are arranged in a rigid lattice, yielding:
+\paragraph{Level 2: The MacroCube (257 faces).}
+257 chords are arranged in a rigid ring lattice, yielding:
 \begin{equation}
-  |\Omega_{\text{cube}}| = (2^{512})^{27} = 2^{13{,}824}
-  \approx 10^{4{,}162}
+  |\Omega_{\text{cube}}| = (2^{257})^{257} = 2^{66{,}049}
+  \approx 10^{19{,}882}
   \label{eq:state_cube}
 \end{equation}
-The memory footprint is $27 \times 64 = 1{,}728$ bytes $\approx 1.7$~KB.
+The memory footprint is $257 \times 64 = 16{,}448$ bytes $\approx 16.4$~KB.
 
 \paragraph{Level 3: The Icosahedral Manifold (Post-Mitosis).}
-Five MacroCubes expand the lattice to 135 chords:
+Five MacroCubes expand the lattice to 1285 chords:
 \begin{equation}
-  |\Omega_{\text{ico}}| = 2^{135 \times 512} = 2^{69{,}120}
-  \approx 10^{20{,}809}
+  |\Omega_{\text{ico}}| = 2^{1285 \times 257} = 2^{330{,}245}
+  \approx 10^{99{,}413}
   \label{eq:state_ico}
 \end{equation}
-Memory: $135 \times 64 + 2 = 8{,}642$ bytes $\approx 8.64$~KB.
+Memory: $1285 \times 64 + 2 = 82{,}242$ bytes $\approx 82$~KB.
 
 \paragraph{Level 4: Rotational State Multiplier.}
-The 16-bit rotation header tracks orientational history.  In Cubic mode
-($|\mathbf{O}| = 24$), each distinct bit configuration can exist in 24
-geometrically distinguishable states.  Post-mitosis ($|A_5| = 60$), this
-rises to 60.  Combined with the 4-bit winding counter
+The 16-bit rotation header tracks orientational history.  In Affine mode, each distinct bit configuration can exist in $257 \times 256 = 65{,}792$
+geometrically distinguishable states.  Post-mitosis with the $A_5$ working primitive, this
+rotational memory space interacts with a 60-state macro-permutation.  Combined with the 4-bit winding counter
 ($2^4 = 16$ winding states):
 
 \begin{equation}
-  |\Omega_{\text{total}}| = 2^{69{,}120} \times 60 \times 16
-  = 2^{69{,}120} \times 960
+  |\Omega_{\text{total}}| = 2^{330{,}245} \times 65{,}792 \times 16
+  = 2^{330{,}245} \times 1{,}052{,}672
   \label{eq:state_total}
 \end{equation}
 
-Because the $A_5$ rotations are \emph{non-commutative}, the
+Because the $GF(257)$ affine transformations are \emph{non-commutative}, the
 rotational path matters---two sequences of operations that arrive at
-the same final $A_5$ element via different paths produce identical
+the same final affine element via different paths produce identical
 bit configurations but encode different syntactic histories in the
 intermediate states.  The effective state space is therefore
 \emph{path-dependent}, further multiplying the distinguishable
@@ -94,7 +93,7 @@ topology-driven capacity with conventional parameter scaling.
       & \textbf{State Space}
       & \textbf{$\log_{10}$ States/KB} \\
     \midrule
-    512-dim float32 embedding
+    257-dim float32 embedding
       & 2 KB
       & $\sim 2^{16{,}384}$ (continuous)
       & $\sim 2{,}466$ \\
@@ -103,18 +102,18 @@ topology-driven capacity with conventional parameter scaling.
       & $\sim 2^{1.87 \times 10^9}$
       & $\sim 2{,}406$ \\
     \addlinespace
-    Single MacroCube (Cubic)
-      & 1.7 KB
-      & $2^{13{,}824} \times 24 \times 16$
-      & $\sim 2{,}450$ \\
+    Single MacroCube (Affine)
+      & 16.4 KB
+      & $2^{66{,}049} \times 65{,}792 \times 16$
+      & $\sim 1{,}212$ \\
     Single IcosahedralManifold
-      & 8.64 KB
-      & $2^{69{,}120} \times 60 \times 16$
-      & $\sim 2{,}408$ \\
+      & 82 KB
+      & $2^{330{,}245} \times 65{,}792 \times 16$
+      & $\sim 1{,}211$ \\
     1M Manifolds (GPU batch)
-      & 8.6 GB
-      & $(2^{69{,}120})^{10^6}$
-      & $\sim 2{,}408$ \\
+      & 82 GB
+      & $(2^{330{,}245})^{10^6}$
+      & $\sim 1{,}211$ \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -144,7 +143,7 @@ scanned in milliseconds.
 
 \subsection{Implications for Scaling}
 Through this mechanism, the architecture explicitly respects the Shannon
-limit at the micro-state (the 512-bit chord) but circumvents it at the
+limit at the micro-state (the 257-bit chord) but circumvents it at the
 macro-state by converting scalar density pressure into geometric expansion.
 The system naturally diffuses semantic heat across the manifold topology,
 enabling $O(1)$ ambiguity resolution over millions of manifolds natively

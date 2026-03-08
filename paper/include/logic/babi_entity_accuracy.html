@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1200, initial-scale=1.0">
+    <title>bAbI Task 1 — Per-Entity Accuracy</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+         
+        @page {
+            size: 1200px 800px;
+            margin: 0;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 1200px;
+            height: 800px;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: #0f172a;
+        }
+        #chart {
+            width: 1200px;
+            height: 800px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        const xAxisData = ["Daniel","John","Mary","Sandra"];
+        const seriesData = [{"name":"Accuracy","type":"bar","symbol":"","barWidth":"40%","data":[1,1,1,1]},{"name":"Count","type":"line","symbol":"circle","barWidth":"","data":[6,7,3,9]}];
+        const yMin = 0;
+        const yMax = 9.9;
+        const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+
+        const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];
+
+        const series = seriesData.map((s, i) => {
+            const color = palette[i % palette.length];
+            const base = {
+                name: s.name,
+                data: s.data,
+                itemStyle: { color },
+                lineStyle: { color }
+            };
+            if (s.type === 'bar') {
+                return { ...base, type: 'bar', barWidth: s.barWidth || '15%', itemStyle: { color, borderRadius: [4, 4, 0, 0] } };
+            } else if (s.type === 'dashed') {
+                return { ...base, type: 'line', smooth: false, symbol: s.symbol || 'diamond', symbolSize: 6,
+                         lineStyle: { color, type: 'dashed', width: 1.5 } };
+            } else {
+                // default: smooth line
+                return { ...base, type: 'line', smooth: true, symbol: s.symbol || 'circle', symbolSize: 4,
+                         lineStyle: { color, width: 2 } };
+            }
+        });
+
+        const option = {
+            backgroundColor: 'transparent',
+            animation: false,
+            tooltip: { trigger: 'axis' },
+            legend: {
+                top: '3%',
+                selectedMode: false,
+                textStyle: { color: '#475569', fontSize: 11 }
+            },
+            grid: { left: '10%', right: '10%', top: '18%', bottom: '15%' },
+            xAxis: {
+                type: 'category',
+                data: xAxisData,
+                axisLabel: { color: '#475569' },
+                name: 'Entity',
+                nameLocation: 'middle',
+                nameGap: 25,
+                nameTextStyle: { color: '#475569' }
+            },
+            yAxis: {
+                type: 'value',
+                min: yMin,
+                max: yMax,
+                axisLabel: { color: '#475569' },
+                splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } },
+                name: 'Value',
+                nameLocation: 'middle',
+                nameGap: 35,
+                nameTextStyle: { color: '#475569' }
+            },
+            series
+        };
+        chart.setOption(option);
+
+    </script>
+</body>
+</html>

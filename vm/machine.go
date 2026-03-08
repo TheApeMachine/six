@@ -1,12 +1,17 @@
 package vm
 
 import (
+	"context"
+	"fmt"
 	"math/rand"
+	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
+	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/vm/cortex"
 )
@@ -21,18 +26,18 @@ type bestFillFn func(
 ) (int, float64, error)
 
 /*
-Machine is the entrypoint to the architecture.
-It loads the initial data into the store and is then ready for
-prompting. Generation uses the reactive cortex graph — a volatile
-working-memory network of resonating MacroCubes that vibrates
-until convergence, emitting output via BestFace decoding.
+Machine is the top-level VM: Loader ingests data; Think/Prompt produce output.
+Start() runs ingestion (substrate + PrimeField), trains EigenMode, wires Sequencer.
+Think uses the cortex graph; Prompt uses substrate suffix lookup.
 */
 type Machine struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
 	loader     *Loader
+	pool       *pool.Pool
 	primefield *store.PrimeField
 	substrate  *geometry.HybridSubstrate
 	bestFill   bestFillFn
-	stopCh     chan struct{}
 	eigenMode  *geometry.EigenMode
 	sequencer  cortex.Analyzer
 }
@@ -40,7 +45,8 @@ type Machine struct {
 type machineOpts func(*Machine)
 
 /*
-NewMachine creates a new Machine.
+NewMachine creates a Machine with PrimeField and kernel.BestFill. Use MachineWithLoader,
+MachineWithPool to configure. Pool defaults to pool.New() if nil.
 */
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
@@ -52,11 +58,29 @@ func NewMachine(opts ...machineOpts) *Machine {
 		opt(machine)
 	}
 
+	if machine.ctx == nil {
+		ctx := context.Background()
+		machine.ctx, machine.cancel = context.WithCancel(ctx)
+	}
+
+	if machine.pool == nil {
+		machine.pool = pool.New(
+			context.Background(),
+			1,
+			runtime.NumCPU(),
+			pool.NewConfig(),
+		)
+	}
+
 	return machine
 }
 
+/*
+Start runs ingestion: drains loader.Generate(), builds suffix entries per sample,
+merges into substrate and PrimeField, calls BuildEigenModes, wires Sequencer.
+Requires loader to be set via MachineWithLoader.
+*/
 func (machine *Machine) Start() error {
-	machine.stopCh = make(chan struct{})
 	machine.substrate = geometry.NewHybridSubstrate()
 
 	// Ensure the Loader has all internal dependencies.
@@ -68,88 +92,62 @@ func (machine *Machine) Start() error {
 
 	var sequence []data.Chord
 	var bytesSeq []byte
-	var currentSampleID uint32
-	var lastPos uint32
-	first := true
+
+	idx := 0
+	wg := sync.WaitGroup{}
 
 	for res := range machine.loader.Generate() {
-		// Detect boundary: change in SampleID or gap in Pos
-		isBoundary := !first && (res.SampleID != currentSampleID || res.Pos != lastPos+1)
+		wg.Add(1)
 
-		if isBoundary {
-			// Write explicit pointers into face 256
-			rot := geometry.IdentityRotation()
-			for i := 0; i < len(bytesSeq); i++ {
-				var ptr data.Chord
-				for j := 0; j < 5; j++ {
-					ptr.Set(rand.Intn(257))
+		machine.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
+			defer wg.Done()
+
+			if res.IsBoundary {
+				// Write suffix entries for the completed sample.
+				rot := geometry.IdentityRotation()
+
+				for i := 0; i < len(bytesSeq); i++ {
+					var ptr data.Chord
+
+					for range 5 {
+						ptr.Set(rand.Intn(257))
+					}
+
+					machine.primefield.StorePointer(rot, ptr)
+
+					suffix := make([]byte, len(bytesSeq)-i)
+					copy(suffix, bytesSeq[i:])
+
+					machine.substrate.Add(ptr, geometry.NewPhaseDial(), suffix)
+
+					if i < len(bytesSeq) {
+						rot = rot.Compose(geometry.RotationForByte(bytesSeq[i]))
+					}
 				}
 
-				machine.primefield.StorePointer(rot, ptr)
+				dial := geometry.NewPhaseDial()
+				dial = dial.EncodeFromChords(sequence)
 
-				suffix := make([]byte, len(bytesSeq)-i)
-				copy(suffix, bytesSeq[i:])
+				machine.substrate.Add(
+					data.Chord{},
+					dial,
+					[]byte("sequence"),
+				)
 
-				machine.substrate.Add(ptr, geometry.NewPhaseDial(), suffix)
-
-				if i < len(bytesSeq) {
-					rot = rot.Compose(geometry.RotationForByte(bytesSeq[i]))
-				}
+				sequence = sequence[:0]
+				bytesSeq = bytesSeq[:0]
 			}
 
-			dial := geometry.NewPhaseDial()
-			dial = dial.EncodeFromChords(sequence)
+			if res.Chord.ActiveCount() > 0 {
+				sequence = append(sequence, res.Chord)
+				bytesSeq = append(bytesSeq, res.Symbol)
+			}
 
-			machine.substrate.Add(
-				data.Chord{},
-				dial,
-				[]byte("sequence"),
-			)
-
-			sequence = sequence[:0]
-			bytesSeq = bytesSeq[:0]
-		}
-
-		if res.Chord.ActiveCount() > 0 {
-			sequence = append(sequence, res.Chord)
-			bytesSeq = append(bytesSeq, res.Symbol)
-		}
-
-		currentSampleID = res.SampleID
-		lastPos = res.Pos
-		first = false
+			return nil, nil
+		})
 	}
 
-	// Flush trailing chords that arrived after the last boundary.
-	if len(sequence) > 0 {
-		rot := geometry.IdentityRotation()
-		for i := 0; i < len(bytesSeq); i++ {
-			var ptr data.Chord
-			for j := 0; j < 5; j++ {
-				ptr.Set(rand.Intn(257))
-			}
-
-			machine.primefield.StorePointer(rot, ptr)
-
-			suffix := make([]byte, len(bytesSeq)-i)
-			copy(suffix, bytesSeq[i:])
-
-			machine.substrate.Add(ptr, geometry.NewPhaseDial(), suffix)
-
-			if i < len(bytesSeq) {
-				rot = rot.Compose(geometry.RotationForByte(bytesSeq[i]))
-			}
-		}
-
-		dial := geometry.NewPhaseDial()
-		dial = dial.EncodeFromChords(sequence)
-
-		machine.substrate.Add(
-			data.Chord{},
-			dial,
-			[]byte("sequence"),
-		)
-	}
+	wg.Wait()
 
 	// Build EigenModes from the ingested manifold topology.
 	machine.primefield.BuildEigenModes()
@@ -169,27 +167,18 @@ func (machine *Machine) Start() error {
 Stop terminates the Machine and signals any background processes to finish.
 */
 func (machine *Machine) Stop() {
-	if machine.stopCh != nil {
-		close(machine.stopCh)
-		machine.stopCh = nil
-	}
+	machine.cancel()
 }
 
 /*
-Think generates output using the volatile cortex graph — a reactive
-working-memory network that reasons about the prompt by composing
-rotation states and dreaming against the bedrock PrimeField.
-
-Unlike Prompt (which does O(1) holographic suffix lookup), Think
-creates a cortex graph, injects the prompt with sequencer-driven
-topological events, vibrates until convergence, and extracts output
-from the sink node. The question acts as a geometric transformation
-that filters the accumulated premise state.
+Think creates a cortex Graph, injects prompt with Sequencer events, runs Tick()
+until convergence, returns the sink's output channel. Uses PrimeField/Substrate
+for recall. For bAbI-style extraction, see cortex.Think.
 */
 func (machine *Machine) Think(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
-) chan byte {
+) chan []byte {
 	cfg := cortex.Config{
 		InitialNodes: 8,
 		PrimeField:   machine.primefield,
@@ -197,7 +186,6 @@ func (machine *Machine) Think(
 		BestFill:     kernel.BestFill,
 		EigenMode:    machine.eigenMode,
 		Sequencer:    machine.sequencer,
-		StopCh:       machine.stopCh,
 		MaxTicks:     256,
 		MaxOutput:    512,
 	}
@@ -207,68 +195,31 @@ func (machine *Machine) Think(
 }
 
 /*
-Prompt generates output using O(1) holographic lookup.
-
-The prompt bytes construct a precise GF(257) rotational state.
-Because affine transforms are non-commutative, this state exactly
-addresses the matching position in the trie. We do a singular map
-lookup and stream out the stored suffix.
+Prompt composes rot = RotationForByte for each prompt chord, calls
+HolographicRecall(filters, manifolds, rot), streams the matched suffix bytes.
+No cortex; O(1) suffix lookup via GF(257) rotational addressing.
 */
 func (machine *Machine) Prompt(
 	prompt []data.Chord,
 	expectedReality *geometry.IcosahedralManifold,
-) chan byte {
-	out := make(chan byte, 1024)
+) chan []byte {
+	out := make(chan []byte)
 
 	go func() {
 		defer close(out)
 
 		rot := geometry.IdentityRotation()
-
-		var promptStr []byte
-		var pos uint32
-		for _, p := range prompt {
-			var b byte
-			if machine.loader != nil {
-				b, _ = machine.loader.ChordToByte(p)
-			} else {
-				b = data.ChordToByte(&p)
-			}
-
-			if machine.sequencer != nil {
-				reset, _ := machine.sequencer.Analyze(int(pos), b)
-				if reset {
-					rot = geometry.IdentityRotation()
-					pos = 0
-				}
-			}
-
-			promptStr = append(promptStr, b)
-			rot = rot.Compose(geometry.RotationForByte(b))
-			pos++
-		}
-
 		filters := machine.substrate.Filters()
 
-		var bestSuffix []byte
 		if len(filters) > 0 {
-			match, err := kernel.HolographicRecall(filters, machine.primefield.ManifoldsPtr(), rot)
-			println("MACHINE PROMPT:", len(promptStr), string(promptStr))
-			println("MATCH IDX", match.Index, "SCORE", match.Score)
-			if err == nil && match.Index >= 0 && match.Score > 0 {
-				bestSuffix = machine.substrate.Entries[match.Index].Readout
-			}
-		}
+			match, err := kernel.HolographicRecall(
+				filters,
+				machine.primefield.ManifoldsPtr(),
+				rot,
+			)
 
-		for _, b := range bestSuffix {
-			if machine.stopCh != nil {
-				select {
-				case <-machine.stopCh:
-					return
-				case out <- b:
-				}
-			} else {
-				out <- b
+			if err == nil && match.Index >= 0 && match.Score > 0 {
+				out <- machine.substrate.Entries[match.Index].Readout
 			}
 		}
 	}()
@@ -276,16 +227,43 @@ func (machine *Machine) Prompt(
 	return out
 }
 
+/*
+Substrate returns the HybridSubstrate populated by Start.
+*/
 func (machine *Machine) Substrate() *geometry.HybridSubstrate {
 	return machine.substrate
 }
 
+/*
+WithContext adds a context to the machine
+*/
+func (machine *Machine) WithContext(ctx context.Context) machineOpts {
+	return func(machine *Machine) {
+		machine.ctx, machine.cancel = context.WithCancel(ctx)
+	}
+}
+
+/*
+MachineWithLoader sets the Loader for ingestion. Required for Start.
+*/
 func MachineWithLoader(loader *Loader) machineOpts {
 	return func(machine *Machine) {
 		machine.loader = loader
 	}
 }
 
+/*
+MachineWithPool sets the worker pool for parallel suffix construction in Start.
+*/
+func MachineWithPool(p *pool.Pool) machineOpts {
+	return func(machine *Machine) {
+		machine.pool = p
+	}
+}
+
+/*
+MachineError is a typed error for Machine failures.
+*/
 type MachineError string
 
 const (
@@ -293,6 +271,9 @@ const (
 	ErrMultiScaleCooccurrenceBuild MachineError = "failed to build multiscale cooccurrence"
 )
 
+/*
+Error implements the error interface for MachineError.
+*/
 func (e MachineError) Error() string {
 	return string(e)
 }

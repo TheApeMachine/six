@@ -2,108 +2,266 @@ package pool
 
 import (
 	"context"
+	"fmt"
 	"sync"
+	"time"
+
+	"github.com/charmbracelet/log"
 )
 
-/*
-Pool is a set of Worker types, each running their own pre-warmed goroutine.
-Any object can schedule work on the worker pool. The pool auto-scales
-to keep the system saturated without overloading it.
-*/
+// Pool is a dynamically-scaling worker pool with circuit breakers,
+// backpressure, metrics, and broadcast groups.
 type Pool struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	workers       chan chan Job
-	jobs          chan Job
-	activeWorkers []*Worker
-	mu            sync.RWMutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	quit       chan struct{}
+	wg         sync.WaitGroup
+	workers    chan chan Job
+	jobs       chan Job
+	store      *ResultStore
+	scaler     *Scaler
+	metrics    *Metrics
+	breakers   map[string]*CircuitBreaker
+	workerMu   sync.Mutex
+	workerList []*Worker
+	breakersMu sync.RWMutex
+	config     *Config
 }
 
-/*
-NewPool instantiates a worker pool with an auto-scaler.
-*/
-func NewPool() *Pool {
-	ctx, cancel := context.WithCancel(context.Background())
-
+// New creates a Pool that starts with minWorkers goroutines and scales
+// up to maxWorkers based on queue depth.
+func New(ctx context.Context, minWorkers, maxWorkers int, config *Config) *Pool {
+	ctx, cancel := context.WithCancel(ctx)
 	p := &Pool{
-		ctx:     ctx,
-		cancel:  cancel,
-		workers: make(chan chan Job, 10000), // generous buffer to prevent blocking
-		jobs:    make(chan Job, 10000),
+		ctx:        ctx,
+		cancel:     cancel,
+		breakers:   make(map[string]*CircuitBreaker),
+		workerList: make([]*Worker, 0),
+		quit:       make(chan struct{}),
+		jobs:       make(chan Job, maxWorkers*10),
+		workers:    make(chan chan Job, maxWorkers),
+		store:      NewResultStore(),
+		metrics:    NewMetrics(),
+		config:     config,
 	}
 
-	p.Run()
+	for i := 0; i < minWorkers; i++ {
+		p.startWorker()
+	}
+
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.manage()
+	}()
+
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		p.collectMetrics()
+	}()
+
+	scalerConfig := &ScalerConfig{
+		TargetLoad:         2.0,
+		ScaleUpThreshold:   4.0,
+		ScaleDownThreshold: 1.0,
+		Cooldown:           500 * time.Millisecond,
+	}
+	p.scaler = NewScaler(p, minWorkers, maxWorkers, scalerConfig)
 
 	return p
 }
 
-/*
-Do schedules a new job onto the worker pool.
-*/
-func (p *Pool) Do(job Job) {
-	p.jobs <- job
-}
-
-/*
-Run starts the dispatcher and auto-scaler.
-*/
-func (p *Pool) Run() {
-	NewScaler(p)
-	go p.dispatch()
-}
-
-func (p *Pool) dispatch() {
+func (p *Pool) manage() {
 	for {
 		select {
-		case job := <-p.jobs:
-			// Get the first available worker
-			jobChannel := <-p.workers
-			// Send the job to the worker
-			jobChannel <- job
 		case <-p.ctx.Done():
 			return
+		case job := <-p.jobs:
+			// Scale up on demand when no workers or all busy.
+			if p.scaler != nil {
+				p.scaler.ScaleUpIfNeeded(1)
+			}
+
+			deadline := time.Now().Add(p.getSchedulingTimeout())
+			dispatched := false
+			for !dispatched && time.Now().Before(deadline) {
+				select {
+				case <-p.ctx.Done():
+					return
+				case workerChan := <-p.workers:
+					select {
+					case workerChan <- job:
+						dispatched = true
+					case <-p.ctx.Done():
+						return
+					}
+				case <-time.After(100 * time.Millisecond):
+					if p.scaler != nil {
+						p.scaler.ScaleUpIfNeeded(1)
+					}
+				}
+			}
+			if !dispatched {
+				log.Warn("no available workers, job timed out", "job", job.ID)
+				p.store.StoreError(job.ID, fmt.Errorf("no available workers"), job.TTL)
+			}
 		}
 	}
 }
 
+func (p *Pool) collectMetrics() {
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-p.ctx.Done():
+			return
+		case <-ticker.C:
+			p.metrics.mu.Lock()
+			p.metrics.JobQueueSize = len(p.jobs)
+			p.metrics.ActiveWorkers = len(p.workers)
+			p.metrics.mu.Unlock()
+		}
+	}
+}
+
+// Schedule submits a job and returns a channel that will receive the result.
+func (p *Pool) Schedule(id string, fn func() (any, error), opts ...JobOption) chan *Result {
+	ctx, cancel := context.WithTimeout(p.ctx, p.getSchedulingTimeout())
+	defer cancel()
+
+	job := Job{
+		ID: id,
+		Fn: fn,
+		RetryPolicy: &RetryPolicy{
+			MaxAttempts: 3,
+			Strategy:    &ExponentialBackoff{Initial: time.Second},
+		},
+		StartTime: time.Now(),
+	}
+
+	for _, opt := range opts {
+		opt(&job)
+	}
+
+	if job.CircuitID != "" {
+		breaker := p.getCircuitBreaker(job)
+		if breaker != nil && !breaker.Allow() {
+			ch := make(chan *Result, 1)
+			ch <- &Result{
+				Error:     fmt.Errorf("circuit breaker %s is open", job.CircuitID),
+				CreatedAt: time.Now(),
+			}
+			close(ch)
+			return ch
+		}
+	}
+
+	select {
+	case p.jobs <- job:
+		return p.store.Await(id)
+	case <-ctx.Done():
+		ch := make(chan *Result, 1)
+		ch <- &Result{
+			Error:     fmt.Errorf("job scheduling timeout: %w", ctx.Err()),
+			CreatedAt: time.Now(),
+		}
+		close(ch)
+
+		p.metrics.mu.Lock()
+		p.metrics.SchedulingFailures++
+		p.metrics.mu.Unlock()
+
+		return ch
+	}
+}
+
+// CreateBroadcastGroup creates a named broadcast group for fan-out.
+func (p *Pool) CreateBroadcastGroup(id string, ttl time.Duration) *BroadcastGroup {
+	return p.store.CreateBroadcastGroup(id, ttl)
+}
+
+// Subscribe returns a channel receiving results from a broadcast group.
+func (p *Pool) Subscribe(groupID string) chan *Result {
+	return p.store.Subscribe(groupID)
+}
+
+// Metrics returns the pool's metrics instance.
+func (p *Pool) Metrics() *Metrics {
+	return p.metrics
+}
+
+func (p *Pool) startWorker() {
+	worker := &Worker{
+		pool:   p,
+		jobs:   make(chan Job),
+		cancel: nil,
+	}
+	p.workerMu.Lock()
+	p.workerList = append(p.workerList, worker)
+	p.workerMu.Unlock()
+
+	p.metrics.mu.Lock()
+	p.metrics.WorkerCount++
+	p.metrics.mu.Unlock()
+
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
+		worker.run()
+	}()
+}
+
+func (p *Pool) getCircuitBreaker(job Job) *CircuitBreaker {
+	if job.CircuitID == "" || job.CircuitConfig == nil {
+		return nil
+	}
+
+	p.breakersMu.Lock()
+	defer p.breakersMu.Unlock()
+
+	breaker, exists := p.breakers[job.CircuitID]
+	if !exists {
+		breaker = &CircuitBreaker{
+			maxFailures:  job.CircuitConfig.MaxFailures,
+			resetTimeout: job.CircuitConfig.ResetTimeout,
+			halfOpenMax:  job.CircuitConfig.HalfOpenMax,
+			state:        CircuitClosed,
+		}
+		p.breakers[job.CircuitID] = breaker
+	}
+
+	return breaker
+}
+
+func (p *Pool) getSchedulingTimeout() time.Duration {
+	if p.config != nil && p.config.SchedulingTimeout > 0 {
+		return p.config.SchedulingTimeout
+	}
+	return 5 * time.Second
+}
+
+// Close gracefully shuts down the pool, draining in-flight jobs.
 func (p *Pool) Close() {
+	if p == nil {
+		return
+	}
+
 	p.cancel()
-}
+	p.wg.Wait()
 
-func (p *Pool) addWorker() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	p.activeWorkers = append(p.activeWorkers, NewWorker(p))
-}
-
-func (p *Pool) removeWorker() {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	if len(p.activeWorkers) > 0 {
-		worker := p.activeWorkers[0]
-		p.activeWorkers = p.activeWorkers[1:]
-
-		worker.Close()
+	p.workerMu.Lock()
+	for _, worker := range p.workerList {
+		close(worker.jobs)
 	}
-}
+	p.workerList = nil
+	p.workerMu.Unlock()
 
-func (p *Pool) WorkerCount() int {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
+	close(p.quit)
+	close(p.jobs)
+	close(p.workers)
 
-	return len(p.activeWorkers)
-}
-
-func (p *Pool) TotalLatency() int64 {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	var total int64
-
-	for _, w := range p.activeWorkers {
-		total += int64(w.Latency())
-	}
-
-	return total
+	p.store.Close()
 }

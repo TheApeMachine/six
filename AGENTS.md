@@ -87,6 +87,7 @@ func (objectName *ObjectName) Close() (err error) {
 > If you see something that is not yours that can be done with less code, refactor it.
 > However, if less code means less performance, then always choose performance.
 > We like clever code, readability is for amateurs.
+> Keep the comments free of metaphor or needless complexity in their language.
 
 ```go
 // Wrong

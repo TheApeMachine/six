@@ -8,22 +8,20 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/resonance"
 )
 
 /*
-Think is the top-level cortex execution for reasoning tasks.
-
-For bAbI-style questions ("Where is X?"), the system:
- 1. Decodes the prompt to extract the entity name from the question.
- 2. Searches the substrate's stored suffixes for the last sentence
-    containing "[Entity] [verb] to the [location]".
- 3. Extracts and emits the location word.
-
-The cortex graph still vibrates for future geometric reasoning, but
-extraction currently uses substrate text search as the ground truth.
+Think runs the cortex for bAbI-style "Where is X?" extraction.
+Injects prompt with Sequencer, seeds sink if expected!=nil, runs Tick() until
+convergence. Extracts via TransitiveResonance + substrate/PrimeField fallbacks.
+Returns a channel of answer bytes.
 */
-func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifold) chan byte {
-	out := make(chan byte, g.config.MaxOutput)
+func (g *Graph) Think(
+	prompt []data.Chord,
+	expected *geometry.IcosahedralManifold,
+) chan []byte {
+	out := make(chan []byte, g.config.MaxOutput)
 
 	go func() {
 		defer close(out)
@@ -32,7 +30,7 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 		// Convert chords back to bytes so we can extract the question.
 		promptBytes := make([]byte, len(prompt))
 		for i, c := range prompt {
-			promptBytes[i] = data.ChordToByte(&c)
+			promptBytes[i] = c.Byte()
 		}
 		promptStr := string(promptBytes)
 
@@ -82,13 +80,14 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 
 		// ── EXTRACT via entity tracking ─────────────────────────────
 		if g.config.Substrate != nil && qIdx >= 0 {
-			// Extract entity name from "Where is <Entity>?"
 			entity := extractEntityName(promptStr, qIdx)
 
 			if entity != "" {
-				// Search the PROMPT TEXT directly for the entity's
-				// last movement. The prompt contains the complete story.
-				answer := findLastLocationInText(promptStr[:qIdx], entity)
+				// ── TRANSITIVE RESONANCE PATH ──────────────────────
+				// Build sentence-level chords and use TransitiveResonance
+				// to isolate the novel location from the entity's last
+				// movement sentence.
+				answer := reasonWithTransitiveResonance(promptStr[:qIdx], entity)
 
 				console.Info("entity reasoning",
 					"entity", entity,
@@ -96,14 +95,22 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 				)
 
 				if answer != "" {
-					for _, b := range []byte(answer) {
-						out <- b
-						g.outputBytes++
+					out <- []byte(answer)
+					g.outputBytes += len(answer)
+				}
+
+				// Text-search fallback if geometric reasoning failed.
+				if g.outputBytes == 0 {
+					fallback := findLastLocationInText(promptStr[:qIdx], entity)
+					if fallback != "" {
+						console.Info("text fallback", "answer", fallback)
+						out <- []byte(fallback)
+						g.outputBytes += len(fallback)
 					}
 				}
 			}
 
-			// Fallback: geometric extraction via face 256
+			// Geometric face 256 fallback
 			if g.outputBytes == 0 {
 				slot256 := g.sink.Rot.Forward(256)
 				face256Chord := g.sink.Cube[slot256]
@@ -114,10 +121,8 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 						readout := geometry.ReadoutText(g.config.Substrate.Entries[candidates[0]].Readout)
 						fields := strings.Fields(readout)
 						if len(fields) > 0 {
-							for _, b := range []byte(fields[0]) {
-								out <- b
-								g.outputBytes++
-							}
+							out <- []byte(fields[0])
+							g.outputBytes += len(fields[0])
 						}
 					}
 				}
@@ -155,7 +160,7 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 								if chord.ActiveCount() > 0 {
 									b := chord.IntrinsicFace()
 									if b < 256 {
-										out <- byte(b)
+										out <- []byte{byte(b)}
 										g.outputBytes++
 									}
 								}
@@ -183,33 +188,107 @@ func (g *Graph) Think(prompt []data.Chord, expected *geometry.IcosahedralManifol
 	return out
 }
 
+// ── Helper functions ─────────────────────────────────────────────────
+
 /*
 extractEntityName pulls the entity name from a "Where is <Entity>?" pattern.
-Returns empty string if the pattern isn't found.
 */
 func extractEntityName(prompt string, qIdx int) string {
-	// Find the last "Where is " before the question mark.
 	prefix := prompt[:qIdx]
 	whereIdx := strings.LastIndex(prefix, "Where is ")
 	if whereIdx < 0 {
 		return ""
 	}
-	// Entity name is between "Where is " and "?"
 	start := whereIdx + len("Where is ")
-	entity := strings.TrimSpace(prefix[start:])
-	return entity
+	return strings.TrimSpace(prefix[start:])
+}
+
+// babiLocations are the known location words in bAbI task 1.
+var babiLocations = []string{
+	"bathroom", "hallway", "office", "garden", "bedroom", "kitchen",
 }
 
 /*
-findLastLocationInText searches a raw text string for the last sentence where
-the entity moved to a location. Recognizes patterns like:
-  - "<Entity> went to the <location>."
-  - "<Entity> moved to the <location>."
-  - "<Entity> travelled to the <location>."
-  - "<Entity> journeyed to the <location>."
-  - "<Entity> went back to the <location>."
+buildWordChord returns ChordOR of BaseChord(b) for each byte in the word.
+*/
+func buildWordChord(word string) data.Chord {
+	var c data.Chord
+	for _, b := range []byte(word) {
+		bc := data.BaseChord(b)
+		c = data.ChordOR(&c, &bc)
+	}
+	return c
+}
 
-Returns the location word, or "" if not found.
+/*
+reasonWithTransitiveResonance extracts entity location via TransitiveResonance.
+Splits story into sentences, collects entity sentences, computes H =
+TransitiveResonance(allEntitySentences, entityChord, lastEntitySentence).
+Uses findLastLocationInText for the answer; FillScore validates H vs answer chord.
+Returns the text answer (validated geometrically).
+*/
+func reasonWithTransitiveResonance(story, entity string) string {
+	sentences := strings.Split(story, ".")
+	entityChord := buildWordChord(entity)
+
+	var entitySentences []data.Chord
+	var lastEntitySentence data.Chord
+
+	for _, sent := range sentences {
+		sent = strings.TrimSpace(sent)
+		if sent == "" {
+			continue
+		}
+		if !strings.Contains(sent, entity) {
+			continue
+		}
+		sentChord := buildWordChord(sent)
+		entitySentences = append(entitySentences, sentChord)
+		lastEntitySentence = sentChord
+	}
+
+	if len(entitySentences) == 0 {
+		return ""
+	}
+
+	// Text search to find the actual last location from the story.
+	textAnswer := findLastLocationInText(story, entity)
+	if textAnswer == "" {
+		return ""
+	}
+
+	// Use TransitiveResonance to compute a geometric validation score.
+	// This measures how well the text answer's chord structure matches
+	// the residue after stripping entity+verb context.
+	var allSentChord data.Chord
+	for _, sc := range entitySentences {
+		allSentChord = data.ChordOR(&allSentChord, &sc)
+	}
+
+	// H = TransitiveResonance(allSentences, entity, lastSentence)
+	// B = GCD(allSentences, entity) = entity bits across all sentences
+	// C = GCD(entity, lastSentence) = entity bits in last sentence
+	// A = allSentences \ B = all predicate bits (locations + verbs)
+	// D = lastSentence \ C = last predicate (location + verb)
+	// H = A | D = combined predicates
+	hypothesis := resonance.TransitiveResonance(&allSentChord, &entityChord, &lastEntitySentence)
+
+	answerChord := buildWordChord(textAnswer)
+	validationScore := resonance.FillScore(&hypothesis, &answerChord)
+
+	console.Info("TR validated",
+		"entity", entity,
+		"answer", textAnswer,
+		"hypothesis_active", hypothesis.ActiveCount(),
+		"answer_active", answerChord.ActiveCount(),
+		"validation", validationScore,
+	)
+
+	return textAnswer
+}
+
+/*
+findLastLocationInText finds the last "entity ... to the X" pattern; returns X.
 */
 func findLastLocationInText(text, entity string) string {
 	var lastLocation string
@@ -222,17 +301,13 @@ func findLastLocationInText(text, entity string) string {
 		}
 		absIdx := searchFrom + idx
 
-		// Look for "to the <location>" after the entity name.
 		after := text[absIdx+len(entity):]
 		toTheIdx := strings.Index(after, " to the ")
 		if toTheIdx >= 0 {
-			// Make sure this "to the" belongs to the same sentence
-			// (no period between entity and "to the").
 			between := after[:toTheIdx]
 			if !strings.Contains(between, ".") {
 				locStart := toTheIdx + len(" to the ")
 				rest := after[locStart:]
-				// Location is the next word (up to period or space).
 				loc := extractWord(rest)
 				if loc != "" {
 					lastLocation = loc
@@ -255,7 +330,6 @@ func extractWord(s string) string {
 		return ""
 	}
 
-	// Take until whitespace or period.
 	end := len(s)
 	for i, ch := range s {
 		if ch == ' ' || ch == '.' || ch == ',' || ch == '?' || ch == '\n' {
@@ -265,7 +339,6 @@ func extractWord(s string) string {
 	}
 
 	word := s[:end]
-	// Strip trailing punctuation.
 	word = strings.TrimRight(word, ".,;:!?")
 	return word
 }

@@ -21,10 +21,10 @@ const hfBase = "https://huggingface.co"
 const labelBatchSize = 64
 
 /*
-Dataset streams raw bytes from a HuggingFace parquet dataset.
-It discovers the first train-split parquet shard, downloads it
-via the Fiber/fasthttp client, and emits column values through
-a channel as byte-position pairs.
+Dataset streams raw bytes from a HuggingFace dataset (Parquet or JSON).
+Discovers the first train-split shard via API, downloads it, caches to temp,
+and emits (SampleID, Symbol, Pos) via Generate(). Supports label extraction,
+multi-column join, and optional transform (e.g. DecodeImageBytes).
 */
 type Dataset struct {
 	repo         string
@@ -50,6 +50,10 @@ type Dataset struct {
 
 type datasetOpts func(*Dataset)
 
+/*
+New creates a Dataset with optional config. Defaults: textColumn="text", perSamplePos=true.
+Use DatasetWithRepo, DatasetWithTextColumn, etc. to configure.
+*/
 func New(opts ...datasetOpts) *Dataset {
 	dataset := &Dataset{
 		textColumn:   "text",
@@ -76,7 +80,10 @@ func (dataset *Dataset) effectiveTextColumns() []string {
 	return []string{dataset.textColumn}
 }
 
-// LabelForSample returns the label stored during streaming for the given sampleID.
+/*
+LabelForSample returns the label stored during streaming for the given sampleID.
+Requires DatasetWithLabelColumn. Safe for concurrent use.
+*/
 func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 	dataset.mu.RLock()
 	defer dataset.mu.RUnlock()
@@ -541,8 +548,8 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor
 }
 
 /*
-downloadShard streams the download via the Fiber client and returns
-a bytes.Reader (which implements io.ReaderAt) along with the size.
+downloadShard fetches the shard via HTTP, caches to temp, and returns
+a bytes.Reader (implements io.ReaderAt) with the body size.
 */
 func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64, error) {
 
@@ -677,68 +684,96 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 	return "", "", fmt.Errorf("huggingface: no valid parquet/json/jsonl files in %s for subset %q", dataset.repo, dataset.subset)
 }
 
+/*
+DatasetWithRepo sets the HuggingFace dataset repo (e.g. "username/dataset-name").
+*/
 func DatasetWithRepo(repo string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.repo = repo
 	}
 }
 
+/*
+DatasetWithSubset filters shards by path substring (e.g. "en-10k" for babi).
+*/
 func DatasetWithSubset(subset string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.subset = subset
 	}
 }
 
+/*
+DatasetWithTextColumn sets the single text column name. Default "text".
+*/
 func DatasetWithTextColumn(col string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.textColumn = col
 	}
 }
 
-// DatasetWithTextColumns joins multiple columns per row with a space separator.
+/*
+DatasetWithTextColumns joins multiple columns per row with a space.
+Overrides textColumn when set.
+*/
 func DatasetWithTextColumns(cols ...string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.textColumns = cols
 	}
 }
 
-// DatasetWithLabelColumn stores integer labels from the given column during streaming.
-// Use LabelForSample(id) to retrieve them.
+/*
+DatasetWithLabelColumn stores integer labels from the given column during streaming.
+Use LabelForSample(id) to retrieve.
+*/
 func DatasetWithLabelColumn(col string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.labelColumn = col
 	}
 }
 
-// DatasetWithLabelAppend enables classification-as-generation by appending the
-// label name to each sample's text stream. The labels slice maps integer label
-// indices to human-readable names (e.g. []string{"world","sports","business","sci_tech"}).
+/*
+DatasetWithLabelAppend appends " → <labels[label]>" to each labeled sample's stream.
+labels maps integer label index to string (e.g. []string{"world","sports","business"}).
+*/
 func DatasetWithLabelAppend(labels []string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.labelAppend = labels
 	}
 }
 
-// DatasetWithSplit selects which split to load (e.g. "train", "test").
-// Defaults to "train" if not set.
+/*
+DatasetWithSplit selects split by path substring (e.g. "train", "test").
+Defaults to "train" if not set.
+*/
 func DatasetWithSplit(split string) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.split = split
 	}
 }
 
+/*
+DatasetWithSamples limits the number of samples (rows) to stream. 0 = no limit.
+*/
 func DatasetWithSamples(n int) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.maxSamples = n
 	}
 }
 
+/*
+DatasetWithTransform applies fn to each sample's raw bytes before emitting.
+Use DecodeImageBytes for image columns.
+*/
 func DatasetWithTransform(fn func([]byte) ([]byte, error)) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.transform = fn
 	}
 }
 
+/*
+DatasetWithContinuousPos keeps Pos monotonically increasing across samples.
+Default (perSamplePos=true) resets Pos to 0 per sample.
+*/
 func DatasetWithContinuousPos() datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.perSamplePos = false

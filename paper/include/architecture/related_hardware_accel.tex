@@ -12,10 +12,10 @@ The Sensorium repurposes the LSM merge for a fundamentally different function: \
 The choice of Morton (Z-order) coding (\Cref{sec:morton_codes}) for the LSM sort key exploits the space-filling curve's \emph{locality-preserving} property \citep{morton1966computer, samet2006foundations}: points that are spatially adjacent in the 3D $(X, Y, Z)$ coordinate system map to nearby positions in the 1D key space. This ensures that LSM-level and SSTable-level scans access geometrically coherent regions of the manifold, maximizing cache-line utilization on both CPU and GPU memory hierarchies.
 
 \paragraph{Metal Compute Kernels and SIMD Bitwise Operations.}
-The wave-domain computation---bitwise AND/OR/XOR, popcount, and circular shift on 512-bit chords---maps directly onto the SIMD instruction sets of modern hardware:
+The wave-domain computation---bitwise AND/OR/XOR, popcount, and circular shift on 257-bit chords---maps directly onto the SIMD instruction sets of modern hardware:
 
 \begin{itemize}[nosep]
-  \item \textbf{Apple Metal:} The Sensorium's Metal compute shaders execute chord operations across threadgroups, with each thread processing one 512-bit chord as a \texttt{uint4} $\times$ 4 vector. Popcount is implemented via the hardware \texttt{popcount} intrinsic, achieving single-cycle throughput per 32-bit lane.
+  \item \textbf{Apple Metal:} The Sensorium's Metal compute shaders execute chord operations across threadgroups, with each thread processing one 257-bit chord as a \texttt{uint4} $\times$ 4 vector. Popcount is implemented via the hardware \texttt{popcount} intrinsic, achieving single-cycle throughput per 32-bit lane.
   \item \textbf{NVIDIA CUDA/Triton:} Equivalent kernels dispatch chord operations across warps, with coalesced memory access patterns ensuring full memory bandwidth utilization for the \texttt{BestFill} resonance search.
 \end{itemize}
 

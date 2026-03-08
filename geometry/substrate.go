@@ -254,8 +254,9 @@ func (hs *HybridSubstrate) TopExcluding(ranked []CandidateScore, excluded ...str
 }
 
 /*
-BestGain performs a 360-step rotational sweep of fpScan, ranking at each step.
-Returns the maximum min(Similarity(efp,fpA), Similarity(efp,fpB)) over top non-excluded entries.
+BestGain sweeps fpScan through 360 rotation steps; at each step ranks candidates
+and selects the top non-excluded entry. Returns the maximum over all steps of
+min(Similarity(efp,fpA), Similarity(efp,fpB)) where efp is that entry's fingerprint.
 */
 func (hs *HybridSubstrate) BestGain(fpScan, fpA, fpB PhaseDial, excludeA, excludeB string) float64 {
 	bestGain := -1.0

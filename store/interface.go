@@ -3,10 +3,9 @@ package store
 import "github.com/theapemachine/six/data"
 
 /*
-Store is the interface for the spatial index.
-Insert takes a Morton key and a Chord.
-Lookup does key → chord (binary search across LSM levels).
-ReverseLookup does chord → key (from the reverse index).
+Store is the interface for chord-key storage with LSM-style indexing.
+Insert(key, value), Lookup(key)→chord, ReverseLookup(chord)→key.
+SleepCycle runs background consolidation (see store/sleep.go) until stopCh closes.
 */
 type Store interface {
 	Insert(key uint64, value data.Chord)

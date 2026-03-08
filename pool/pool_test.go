@@ -1,7 +1,8 @@
 package pool
 
 import (
-	"sync"
+	"context"
+	"fmt"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -9,169 +10,166 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 )
 
-const poolBootstrapWait = 350 * time.Millisecond
-
-func TestNewPool(t *testing.T) {
-	Convey("Given NewPool", t, func() {
-		Convey("When creating a new pool", func() {
-			p := NewPool()
-			defer p.Close()
-
-			Convey("Then it returns a non-nil pool", func() {
-				So(p, ShouldNotBeNil)
-			})
-			Convey("Then it has initialized channels", func() {
-				So(p.workers, ShouldNotBeNil)
-				So(p.jobs, ShouldNotBeNil)
-			})
-		})
-	})
-}
-
-func TestPoolDo(t *testing.T) {
-	Convey("Given a running pool", t, func() {
-		p := NewPool()
+func TestScheduleAndRetrieve(t *testing.T) {
+	Convey("Given a Pool with 2 min and 4 max workers", t, func() {
+		p := New(context.Background(), 2, 4, NewConfig())
 		defer p.Close()
 
-		time.Sleep(poolBootstrapWait)
-
-		Convey("When Do is called with a job", func() {
-			executed := atomic.Bool{}
-			done := make(chan struct{})
-
-			p.Do(func() {
-				executed.Store(true)
-				close(done)
+		Convey("When Schedule is called with a job that returns 42", func() {
+			ch := p.Schedule("job-1", func() (any, error) {
+				return 42, nil
 			})
 
-			Convey("Then the job executes", func() {
+			Convey("The result channel should receive value 42 with no error", func() {
 				select {
-				case <-done:
-					So(executed.Load(), ShouldBeTrue)
-				case <-time.After(2 * time.Second):
-					t.Fatal("job did not execute within 2s")
+				case r := <-ch:
+					So(r.Error, ShouldBeNil)
+					So(r.Value, ShouldEqual, 42)
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for result")
 				}
 			})
 		})
 	})
 }
 
-func TestPoolDoMany(t *testing.T) {
-	Convey("Given a running pool", t, func() {
-		p := NewPool()
+func TestScheduleError(t *testing.T) {
+	Convey("Given a Pool", t, func() {
+		p := New(context.Background(), 2, 4, NewConfig())
 		defer p.Close()
 
-		time.Sleep(poolBootstrapWait)
+		Convey("When Schedule is called with a job that returns an error", func() {
+			ch := p.Schedule("job-err", func() (any, error) {
+				return nil, fmt.Errorf("intentional failure")
+			})
 
-		Convey("When many jobs are submitted", func() {
-			const numJobs = 50
-			var count atomic.Int32
-			var wg sync.WaitGroup
-			wg.Add(numJobs)
+			Convey("The result channel should receive the error", func() {
+				select {
+				case r := <-ch:
+					So(r.Error, ShouldNotBeNil)
+					So(r.Error.Error(), ShouldEqual, "intentional failure")
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for error result")
+				}
+			})
+		})
+	})
+}
 
-			for i := 0; i < numJobs; i++ {
-				p.Do(func() {
-					count.Add(1)
-					wg.Done()
+func TestConcurrentSchedule(t *testing.T) {
+	Convey("Given a Pool with 4 min and 8 max workers", t, func() {
+		p := New(context.Background(), 4, 8, NewConfig())
+		defer p.Close()
+
+		Convey("When 100 jobs are scheduled concurrently", func() {
+			const n = 100
+			var completed int64
+			channels := make([]chan *Result, n)
+			for i := 0; i < n; i++ {
+				id := fmt.Sprintf("concurrent-%d", i)
+				channels[i] = p.Schedule(id, func() (any, error) {
+					atomic.AddInt64(&completed, 1)
+					return "done", nil
 				})
 			}
 
-			wg.Wait()
-
-			Convey("Then all jobs execute", func() {
-				So(count.Load(), ShouldEqual, numJobs)
+			Convey("All jobs should complete successfully", func() {
+				for i, ch := range channels {
+					select {
+					case r := <-ch:
+						So(r.Error, ShouldBeNil)
+						So(r.Value, ShouldEqual, "done")
+					case <-time.After(10 * time.Second):
+						t.Fatalf("job %d timed out", i)
+					}
+				}
+				So(atomic.LoadInt64(&completed), ShouldEqual, n)
 			})
 		})
 	})
 }
 
-func TestPoolClose(t *testing.T) {
-	Convey("Given a running pool", t, func() {
-		p := NewPool()
-
-		Convey("When Close is called", func() {
-			p.Close()
-
-			Convey("Then it does not panic", func() {
-				So(func() { p.Close() }, ShouldNotPanic)
-			})
-			Convey("Then Do after close may block or panic - caller responsibility", func() {
-				// Close cancels context; dispatch exits. Do(job) sends to unbuffered...
-				// Actually jobs channel has buffer 10000. So Do might succeed but job never runs.
-				// We just verify Close doesn't panic.
-			})
-		})
-	})
-}
-
-func TestPoolWorkerCount(t *testing.T) {
-	Convey("Given a running pool", t, func() {
-		p := NewPool()
+func TestBroadcastGroup(t *testing.T) {
+	Convey("Given a Pool and a BroadcastGroup", t, func() {
+		p := New(context.Background(), 2, 4, NewConfig())
 		defer p.Close()
+		bg := p.CreateBroadcastGroup("test-group", time.Minute)
+		ch := bg.Subscribe("sub-1", 10)
 
-		Convey("When pool has bootstrapped", func() {
-			time.Sleep(poolBootstrapWait)
+		Convey("When Send is called with a result", func() {
+			r := NewResult("hello")
+			bg.Send(r)
 
-			Convey("Then WorkerCount is at least 1", func() {
-				So(p.WorkerCount(), ShouldBeGreaterThanOrEqualTo, 1)
+			Convey("Subscribers should receive the result", func() {
+				select {
+				case got := <-ch:
+					So(got.Value, ShouldEqual, "hello")
+				case <-time.After(time.Second):
+					t.Fatal("timed out waiting for broadcast")
+				}
 			})
 		})
 	})
 }
 
-func TestPoolTotalLatency(t *testing.T) {
-	Convey("Given a running pool", t, func() {
-		p := NewPool()
-		defer p.Close()
+func TestCircuitBreaker(t *testing.T) {
+	Convey("Given a CircuitBreaker with max 2 failures", t, func() {
+		Convey("Initially Allow should return true", func() {
+			cb := NewCircuitBreaker(2, 100*time.Millisecond, 1)
+			So(cb.Allow(), ShouldBeTrue)
+		})
 
-		time.Sleep(poolBootstrapWait)
+		Convey("After 2 RecordFailure calls, Allow should return false", func() {
+			cb := NewCircuitBreaker(2, 100*time.Millisecond, 1)
+			cb.RecordFailure()
+			cb.RecordFailure()
+			So(cb.Allow(), ShouldBeFalse)
+		})
 
-		Convey("When a job that takes measurable time runs", func() {
-			done := make(chan struct{})
-			p.Do(func() {
-				time.Sleep(5 * time.Millisecond)
-				close(done)
-			})
-			<-done
+		Convey("After reset timeout, Allow should return true (half-open)", func() {
+			cb := NewCircuitBreaker(2, 100*time.Millisecond, 1)
+			cb.RecordFailure()
+			cb.RecordFailure()
+			time.Sleep(150 * time.Millisecond)
+			So(cb.Allow(), ShouldBeTrue)
+		})
 
-			time.Sleep(10 * time.Millisecond)
-
-			Convey("Then TotalLatency reflects execution time", func() {
-				total := p.TotalLatency()
-				So(total, ShouldBeGreaterThan, 0)
-			})
+		Convey("After successful probe in half-open, breaker should close", func() {
+			cb := NewCircuitBreaker(2, 100*time.Millisecond, 1)
+			cb.RecordFailure()
+			cb.RecordFailure()
+			time.Sleep(150 * time.Millisecond)
+			cb.Allow()
+			cb.RecordSuccess()
+			So(cb.Allow(), ShouldBeTrue)
 		})
 	})
 }
 
-// --- Benchmarks ---
-
-func BenchmarkPoolDo(b *testing.B) {
-	p := NewPool()
+func BenchmarkSchedule(b *testing.B) {
+	p := New(context.Background(), 4, 16, NewConfig())
 	defer p.Close()
-
-	time.Sleep(poolBootstrapWait)
-
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		done := make(chan struct{})
-		p.Do(func() { close(done) })
-		<-done
+		ch := p.Schedule(fmt.Sprintf("bench-%d", i), func() (any, error) {
+			return i, nil
+		})
+		<-ch
 	}
 }
 
-func BenchmarkPoolDoParallel(b *testing.B) {
-	p := NewPool()
+func BenchmarkBroadcastSend(b *testing.B) {
+	p := New(context.Background(), 2, 4, NewConfig())
 	defer p.Close()
-
-	time.Sleep(poolBootstrapWait)
-
-	b.ResetTimer()
-	b.RunParallel(func(pb *testing.PB) {
-		for pb.Next() {
-			done := make(chan struct{})
-			p.Do(func() { close(done) })
-			<-done
+	bg := p.CreateBroadcastGroup("bench-group", time.Minute)
+	ch := bg.Subscribe("sub", 1000)
+	go func() {
+		for range ch {
 		}
-	})
+	}()
+	r := NewResult("payload")
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		bg.Send(r)
+	}
 }

@@ -3,14 +3,14 @@ package cmd
 import (
 	"bytes"
 	"embed"
-	"fmt"
 	"io"
 	"io/fs"
-	"log"
 	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/errnie"
 	"github.com/theapemachine/six/utils"
 )
 
@@ -54,42 +54,47 @@ func initConfig() {
 
 	if err := viper.ReadInConfig(); err != nil {
 		// Just log loosely since we now optionally rely on embedded config/defaults
-		log.Println("Note: No local config file found, using defaults.", err)
+		console.Warn(
+			"Note: No local config file found, using defaults.",
+			"error", err,
+		)
 	}
 }
 
-func writeConfig() (err error) {
-	var (
-		home, _ = os.UserHomeDir()
-		fh      fs.File
-		buf     bytes.Buffer
-	)
-
+func writeConfig() error {
+	home, _ := os.UserHomeDir()
 	fullPath := home + "/." + projectName + "/" + cfgFile
 
 	if utils.CheckFileExists(fullPath) {
-		return
+		return nil
 	}
 
-	if fh, err = embedded.Open("cfg/" + cfgFile); err != nil {
-		return fmt.Errorf("failed to open embedded config file: %w", err)
-	}
+	result := errnie.FlatMap(
+		errnie.Try(embedded.Open("cfg/"+cfgFile)),
+		func(fh fs.File) ([]byte, error) {
+			defer fh.Close()
+			var buf bytes.Buffer
 
-	defer fh.Close()
+			if _, err := io.Copy(&buf, fh); err != nil {
+				return nil, err
+			}
 
-	if _, err = io.Copy(&buf, fh); err != nil {
-		return fmt.Errorf("failed to read embedded config file: %w", err)
-	}
+			return buf.Bytes(), nil
+		},
+	)
 
-	if err = os.Mkdir(home+"/."+projectName, os.ModePerm); err != nil {
-		return fmt.Errorf("failed to create config directory: %w", err)
-	}
+	result = errnie.FlatMap(result, func(data []byte) ([]byte, error) {
+		if err := os.MkdirAll(home+"/."+projectName, os.ModePerm); err != nil {
+			return nil, err
+		}
+		return data, nil
+	})
 
-	if err = os.WriteFile(fullPath, buf.Bytes(), 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
+	result = errnie.FlatMap(result, func(data []byte) ([]byte, error) {
+		return data, os.WriteFile(fullPath, data, 0644)
+	})
 
-	return
+	return result.Err()
 }
 
 const roottxt = `

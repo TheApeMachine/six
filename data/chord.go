@@ -2,6 +2,7 @@ package data
 
 import (
 	"encoding/binary"
+	"fmt"
 	"math/bits"
 	"sync"
 
@@ -50,6 +51,25 @@ Clear deactivates the prime at index p.
 */
 func (chord *Chord) Clear(p int) {
 	chord[p/64] &^= (1 << (p % 64))
+}
+
+/*
+Byte finds the byte whose BaseChord matches this chord's logical signature.
+Zeros word[7] before lookup so sequence metadata does not affect the match.
+*/
+func (chord *Chord) Byte() byte {
+	var search Chord = *chord
+	search[7] = 0 // Strip sequence pointer
+
+	for b := range 256 {
+		test := BaseChord(byte(b))
+
+		if search == test {
+			return byte(b)
+		}
+	}
+
+	return 0
 }
 
 /*
@@ -102,22 +122,6 @@ func ChordFromBytes(b []byte) (c Chord) {
 	}
 
 	return c
-}
-
-/*
-ChordToByte compares the logical signature of the chord against the 256 possible bytes.
-It strips the sequence pointer in word[7] before checking.
-*/
-func ChordToByte(chord *Chord) byte {
-	var search Chord = *chord
-	search[7] = 0 // Strip sequence pointer
-	for b := 0; b < 256; b++ {
-		test := BaseChord(byte(b))
-		if search == test {
-			return byte(b)
-		}
-	}
-	return 0
 }
 
 /*
@@ -250,8 +254,7 @@ func ChordSimilarity(a, b *Chord) (sim int) {
 }
 
 /*
-ChordHole computes the "structural vacuum" — what's missing from a
-target chord given the parts we already have (target AND NOT existing).
+ChordHole returns target AND NOT existing — bits set in target but not in existing.
 */
 func ChordHole(target, existing *Chord) (hole Chord) {
 	for i := range config.ChordBlocks {
@@ -291,6 +294,7 @@ func (chord *Chord) Flatten() FlatChord {
 
 	for i := range config.ChordBlocks {
 		block := chord[i]
+
 		for block != 0 {
 			bitIdx := uint16(bits.TrailingZeros64(block))
 			flat.ActivePrimes[flat.Count] = uint16(i*64) + bitIdx
@@ -302,26 +306,13 @@ func (chord *Chord) Flatten() FlatChord {
 	return flat
 }
 
-var (
-	batchPool       *pool.Pool
-	flattenPoolOnce sync.Once
-)
-
-func initFlattenPool() {
-	batchPool = pool.NewPool()
-}
-
 /*
-FlattenBatched converts a slice of sparse Chords into a slice of FlatChords asychronously.
-It uses a pre-warmed, auto-scaling worker pool to prevent CPU-bound loop starvation
-without the overhead of goroutine creation.
+FlattenBatched converts a slice of sparse Chords into a slice of FlatChords.
+If a pool is provided, each chord is scheduled as an independent task and the
+pool's built-in scaler handles concurrency — no manual worker-count tuning.
+Falls back to synchronous execution when no pool is available.
 */
-func FlattenBatched(chords []Chord, workers int) []FlatChord {
-	flattenPoolOnce.Do(initFlattenPool)
-
-	if workers <= 0 {
-		workers = 4
-	}
+func FlattenBatched(chords []Chord, p *pool.Pool) []FlatChord {
 	n := len(chords)
 	out := make([]FlatChord, n)
 
@@ -329,41 +320,26 @@ func FlattenBatched(chords []Chord, workers int) []FlatChord {
 		return out
 	}
 
-	chunkSize := (n + workers - 1) / workers
-	if chunkSize == 0 {
-		chunkSize = 1
-	}
+	wg := sync.WaitGroup{}
 
-	done := make(chan struct{}, workers)
+	for i := range chords {
+		wg.Add(1)
+		idx := i
 
-	activeWorkers := 0
-	for w := 0; w < workers; w++ {
-		start := w * chunkSize
-		end := min(start+chunkSize, n)
-		if start >= n {
-			break
-		}
-
-		s, e := start, end
-		batchPool.Do(func() {
-			for i := s; i < e; i++ {
-				out[i] = chords[i].Flatten()
-			}
-			done <- struct{}{}
+		p.Schedule(fmt.Sprintf("flatten-%d", idx), func() (any, error) {
+			defer wg.Done()
+			out[idx] = chords[idx].Flatten()
+			return nil, nil
 		})
-		activeWorkers++
 	}
 
-	for i := 0; i < activeWorkers; i++ {
-		<-done
-	}
-
+	wg.Wait()
 	return out
 }
 
 /*
-IntrinsicFace returns a deterministic face index (0-255) for a chord based
-on its lowest active prime within the structural range. Returns 256 if none.
+IntrinsicFace returns the byte face (0-255) whose BaseChord has maximum overlap
+with this chord. Returns 256 if no face has at least 2 matching primes.
 */
 func (chord *Chord) IntrinsicFace() int {
 	if chord.ActiveCount() == 0 {
@@ -373,7 +349,7 @@ func (chord *Chord) IntrinsicFace() int {
 	bestFace := 256
 	bestSim := 0
 
-	for b := 0; b < 256; b++ {
+	for b := range 256 {
 		bc := BaseChord(byte(b))
 		sim := ChordSimilarity(chord, &bc)
 		if sim > bestSim {
@@ -392,8 +368,8 @@ func (chord *Chord) IntrinsicFace() int {
 }
 
 /*
-RollLeft executes a discrete spatial permutation (circular shift) on the chord.
-This permanently binds sequential position to the semantic geometry before superposition.
+RollLeft circular-shifts the chord within the 257-bit logical width.
+Binds sequential position to geometry before superposition.
 */
 func (chord *Chord) RollLeft(shift int) Chord {
 	if shift == 0 {

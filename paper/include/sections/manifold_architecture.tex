@@ -5,9 +5,9 @@
 \label{sec:manifold_layout}
 
 The base geometric primitive is a \emph{MacroCube}---a
-$3 \times 3 \times 3$ array of 512-bit Chord fields indexed $\mathbf{m}
+$257-face$ array of 257-bit Chord fields indexed $\mathbf{m}
 \in \{0, \ldots, 26\}$.  The total state per MacroCube is
-$27 \times 512 = 13{,}824$ bits.
+$257 \times 257 = 66{,}049$ bits.
 
 Because the chiral octahedral group $\mathbf{O}$ acts on the cube via
 rigid-body rotations, we define micro-rotations as fixed index
@@ -42,7 +42,7 @@ distinguishable fingerprints without artificial positional encodings.
 \label{sec:icosahedral_manifold}
 
 Each memory primitive is pre-allocated as an \texttt{IcosahedralManifold}:
-5 MacroCubes ($5 \times 27 = 135$ total blocks) stored contiguously:
+5 MacroCubes ($5 \times 257 = 1{,}285$ total blocks) stored contiguously:
 
 \begin{verbatim}
 type IcosahedralManifold struct {
@@ -51,7 +51,7 @@ type IcosahedralManifold struct {
 }
 \end{verbatim}
 
-\noindent Total bits per manifold: $135 \times 512 = 69{,}120$ bits
+\noindent Total bits per manifold: $1{,}285 \times 257 = 330{,}245$ bits
 $= 8{,}640$ bytes $\approx 8.64$~KB.  In baseline Cubic mode
 (\texttt{State=0}), only \texttt{Cubes[0]} is active.
 
@@ -110,7 +110,7 @@ reaches a precise threshold:
 
 \begin{equation}
   \rho_0 = \frac{\sum_{i=0}^{26}
-    \|\text{Cubes}[0][i]\|_1}{27 \times 512} \geq 0.45
+    \|\text{Cubes}[0][i]\|_1}{257 \times 257} \geq 0.45
   \label{eq:mitosis_thresh}
 \end{equation}
 
@@ -128,7 +128,7 @@ When global density across all 5 cubes drops below a sparsity threshold:
 
 \begin{equation}
   \frac{\sum_{c=0}^{4}\sum_{i=0}^{26}
-    \|\text{Cubes}[c][i]\|_1}{5 \times 27 \times 512} < 0.25
+    \|\text{Cubes}[c][i]\|_1}{5 \times 257 \times 257} < 0.25
   \label{eq:demitosis_thresh}
 \end{equation}
 

@@ -52,3 +52,24 @@ func FlatMap[T, U any](result Result[T], fn func(T) (U, error)) Result[U] {
 
 	return Try(fn(result.value))
 }
+
+/*
+Err returns the error held by this Result, or nil if it succeeded.
+*/
+func (result Result[T]) Err() error {
+	return result.err
+}
+
+/*
+Value returns the success value held by this Result.
+*/
+func (result Result[T]) Value() T {
+	return result.value
+}
+
+/*
+Unwrap returns both the value and error, mirroring Go's conventional (T, error).
+*/
+func (result Result[T]) Unwrap() (T, error) {
+	return result.value, result.err
+}

@@ -5,6 +5,10 @@ import (
 	"sync"
 )
 
+/*
+Calibrator holds BIC penalty and density thresholds for Sequencer boundary detection.
+sensitivityPop scales the MDL penalty; sensitivityPhase for phase-based signals.
+*/
 type Calibrator struct {
 	mu               sync.RWMutex
 	targetDensityMin float64
@@ -13,6 +17,10 @@ type Calibrator struct {
 	sensitivityPhase float64
 }
 
+/*
+NewCalibrator creates a Calibrator with phi-based defaults: targetDensity 1/phi³..1/phi²,
+sensitivityPop=1, sensitivityPhase=phi.
+*/
 func NewCalibrator() *Calibrator {
 	phi := (1.0 + math.Sqrt(5.0)) / 2.0
 
@@ -26,8 +34,6 @@ func NewCalibrator() *Calibrator {
 		sensitivityPhase: phi,
 	}
 }
-
-// Thread-safe getters
 
 func (c *Calibrator) TargetDensityMin() float64 {
 	c.mu.RLock()
@@ -53,8 +59,6 @@ func (c *Calibrator) SensitivityPhase() float64 {
 	return c.sensitivityPhase
 }
 
-// Thread-safe setters
-
 func (c *Calibrator) SetSensitivityPop(v float64) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -68,7 +72,7 @@ func (c *Calibrator) SetSensitivityPhase(v float64) {
 }
 
 /*
-Recalibrate is currently a placeholder for future dynamic threshold calibration.
+Recalibrate is a placeholder for future dynamic threshold adjustment. No-op.
 */
 func (calibrator *Calibrator) Recalibrate() {
 	calibrator.mu.Lock()

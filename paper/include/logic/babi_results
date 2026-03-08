@@ -1,0 +1,58 @@
+\begin{table}[h]
+\centering
+\begin{tabular}{ |c|c|c|c|c|c| }
+\hline
+Idx & Name & Exact & Partial & Fuzzy & Total \\
+\hline
+0 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+1 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+2 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+3 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+4 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+5 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+6 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+7 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+8 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+9 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+10 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+11 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+12 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+13 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+14 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+15 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+16 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+17 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+18 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+19 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+20 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+21 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+22 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+23 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+24 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+\end{tabular}
+\end{table}

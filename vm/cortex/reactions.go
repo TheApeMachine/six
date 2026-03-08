@@ -120,9 +120,8 @@ func (n *Node) Arrive(tok Token) []Token {
 }
 
 /*
-Hole computes the node's "curiosity" — the structural vacuum of its cube.
-It returns the dominant face chord plus the remainder of the node summary
-that the dominant face does not yet explain.
+Hole returns (peak, hole, bestFaceIdx, shouldDream). peak = highest-popcount face;
+hole = ChordHole(summary, peak). shouldDream when hole has ≥3 bits and summary > peak.
 */
 func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	summary := n.CubeChord()
@@ -142,8 +141,10 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	return peak, hole, bestFaceIdx, hole.ActiveCount() >= 3 && summary.ActiveCount() > peak.ActiveCount()
 }
 
-// bestPhysicalFace returns the raw physical face index with highest popcount.
-// This is the internal version without rotation reversal.
+/*
+bestPhysicalFace returns the physical face index (0-257) with highest ActiveCount.
+No rotation reversal (unlike BestFace).
+*/
 func (n *Node) bestPhysicalFace() int {
 	bestFace := 256
 	bestCount := 0

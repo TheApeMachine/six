@@ -1,0 +1,409 @@
+{
+  "caption": "Per-sample exact/partial/fuzzy scores. N=25, exact accuracy=100.0%, mean partial=1.000. Subset: en-10k-qa1.",
+  "data": [
+    {
+      "Idx": 0,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gV2hlcmUgaXMgTWFyeT8=",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 1,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFdoZXJlIGlzIERhbmllbD8=",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 2,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gbW92ZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIERhbmllbD8=",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 3,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gbW92ZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIGhhbGx3YXkuIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgRGFuaWVsPw==",
+      "Holdout": "b2ZmaWNl",
+      "Observed": "b2ZmaWNl",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 4,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgYmF0aHJvb20uIEpvaG4gd2VudCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gbW92ZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIGhhbGx3YXkuIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgU2FuZHJhPw==",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 5,
+      "Name": "babi_benchmark",
+      "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIFNhbmRyYT8=",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 6,
+      "Name": "babi_benchmark",
+      "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBXaGVyZSBpcyBTYW5kcmE/",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 7,
+      "Name": "babi_benchmark",
+      "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGdhcmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgU2FuZHJhPw==",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 8,
+      "Name": "babi_benchmark",
+      "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGdhcmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgaGFsbHdheS4gV2hlcmUgaXMgSm9obj8=",
+      "Holdout": "b2ZmaWNl",
+      "Observed": "b2ZmaWNl",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 9,
+      "Name": "babi_benchmark",
+      "Prefix": "U2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgYmF0aHJvb20uIE1hcnkgd2VudCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGdhcmRlbi4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUgaGFsbHdheS4gSm9obiB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBEYW5pZWw/",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 10,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIEpvaG4/",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 11,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIFdoZXJlIGlzIE1hcnk/",
+      "Holdout": "YmVkcm9vbQ==",
+      "Observed": "YmVkcm9vbQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 12,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgZ2FyZGVuLiBXaGVyZSBpcyBKb2huPw==",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 13,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgZ2FyZGVuLiBTYW5kcmEgd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBiYXRocm9vbS4gV2hlcmUgaXMgSm9obj8=",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 14,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgZ2FyZGVuLiBTYW5kcmEgd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBiYXRocm9vbS4gSm9obiB3ZW50IHRvIHRoZSBvZmZpY2UuIE1hcnkgbW92ZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgU2FuZHJhPw==",
+      "Holdout": "YmVkcm9vbQ==",
+      "Observed": "YmVkcm9vbQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 15,
+      "Name": "babi_benchmark",
+      "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgRGFuaWVsPw==",
+      "Holdout": "YmVkcm9vbQ==",
+      "Observed": "YmVkcm9vbQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 16,
+      "Name": "babi_benchmark",
+      "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIFdoZXJlIGlzIFNhbmRyYT8=",
+      "Holdout": "a2l0Y2hlbg==",
+      "Observed": "a2l0Y2hlbg==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 17,
+      "Name": "babi_benchmark",
+      "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gV2hlcmUgaXMgU2FuZHJhPw==",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 18,
+      "Name": "babi_benchmark",
+      "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgdG8gdGhlIGJhdGhyb29tLiBXaGVyZSBpcyBTYW5kcmE/",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 19,
+      "Name": "babi_benchmark",
+      "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgdG8gdGhlIGJhdGhyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgbW92ZWQgdG8gdGhlIGhhbGx3YXkuIFdoZXJlIGlzIERhbmllbD8=",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 20,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIEpvaG4/",
+      "Holdout": "YmF0aHJvb20=",
+      "Observed": "YmF0aHJvb20=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 21,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBXaGVyZSBpcyBNYXJ5Pw==",
+      "Holdout": "Z2FyZGVu",
+      "Observed": "Z2FyZGVu",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 22,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBTYW5kcmEgd2VudCB0byB0aGUgaGFsbHdheS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIFdoZXJlIGlzIEpvaG4/",
+      "Holdout": "a2l0Y2hlbg==",
+      "Observed": "a2l0Y2hlbg==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 23,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBTYW5kcmEgd2VudCB0byB0aGUgaGFsbHdheS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIG9mZmljZS4gSm9obiBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBXaGVyZSBpcyBTYW5kcmE/",
+      "Holdout": "aGFsbHdheQ==",
+      "Observed": "aGFsbHdheQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 24,
+      "Name": "babi_benchmark",
+      "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBTYW5kcmEgd2VudCB0byB0aGUgaGFsbHdheS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIG9mZmljZS4gSm9obiBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBKb2huPw==",
+      "Holdout": "b2ZmaWNl",
+      "Observed": "b2ZmaWNl",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": null,
+      "PredLabel": null
+    }
+  ],
+  "file_name": "babi_results",
+  "label": "tab:babi_results",
+  "title": "bAbI Task 1 — Per-Sample Results",
+  "type": "table"
+}

@@ -1,6 +1,8 @@
 package scaling
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
@@ -9,10 +11,10 @@ import (
 )
 
 /*
-SequencerExperiment evaluates the topological boundary detection mechanism.
-It analyzes byte streams for A₅ events (low variance flux, density spikes,
-phase inversions) to identify natural structural boundaries and segment the
-input stream.
+SequencerExperiment evaluates boundary detection and retrieval quality.
+Provides a 1000-sample synthetic dataset. The Pipeline ingests through the
+Sequencer and prompts with held-out suffixes. Score reflects retrieval accuracy
+over all prompts.
 */
 type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
@@ -23,28 +25,26 @@ type SequencerExperiment struct {
 func NewSequencerExperiment() *SequencerExperiment {
 	return &SequencerExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   nil,
+		dataset:   NewSyntheticDataset(128, 1000, 77),
 	}
 }
 
-func (experiment *SequencerExperiment) Name() string {
-	return "Sequencer"
-}
-
-func (experiment *SequencerExperiment) Section() string {
-	return "scaling"
-}
-
+func (experiment *SequencerExperiment) Name() string    { return "Sequencer" }
+func (experiment *SequencerExperiment) Section() string { return "scaling" }
 func (experiment *SequencerExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
 func (experiment *SequencerExperiment) Prompts() *tokenizer.Prompt {
-	return nil
+	experiment.prompt = tokenizer.NewPrompt(
+		tokenizer.PromptWithDataset(experiment.dataset),
+		tokenizer.PromptWithHoldout(experiment.Holdout()),
+	)
+	return experiment.prompt
 }
 
 func (experiment *SequencerExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+	return 32, tokenizer.RIGHT
 }
 
 func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData) {
@@ -56,7 +56,14 @@ func (experiment *SequencerExperiment) Outcome() (any, gc.Assertion, any) {
 }
 
 func (experiment *SequencerExperiment) Score() float64 {
-	return 1.0
+	if len(experiment.tableData) == 0 {
+		return 0.0
+	}
+	total := 0.0
+	for _, data := range experiment.tableData {
+		total += data.WeightedTotal
+	}
+	return total / float64(len(experiment.tableData))
 }
 
 func (experiment *SequencerExperiment) TableData() any {
@@ -64,9 +71,30 @@ func (experiment *SequencerExperiment) TableData() any {
 }
 
 func (experiment *SequencerExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{}
+	return []tools.Artifact{
+		{
+			Type:     tools.ArtifactBarChart,
+			FileName: "sequencer_scores",
+			Data:     experiment.tableData,
+			Title:    "Sequencer Retrieval Quality",
+			Caption:  "Retrieval accuracy across 1000 synthetic samples after Sequencer-driven ingestion.",
+			Label:    "fig:sequencer_scores",
+		},
+	}
 }
 
 func (experiment *SequencerExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+	entries := len(substrate.Entries)
+
+	experiment.AddResult(tools.ExperimentalData{
+		Idx:  len(experiment.tableData),
+		Name: fmt.Sprintf("Summary: %d substrate entries", entries),
+		Scores: tools.Scores{
+			Exact:   float64(entries),
+			Partial: experiment.Score(),
+		},
+		WeightedTotal: experiment.Score(),
+	})
+
 	return nil
 }

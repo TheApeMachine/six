@@ -5,6 +5,10 @@ import (
 	"unsafe"
 )
 
+/*
+Manifold and scoring layout constants for GPU and packed-result encoding.
+ManifoldBytes = header(8) + 5×257×64; ScoreScale maps fixed-point scores.
+*/
 const (
 	ManifoldBytes      = 82248 // 8 (header+pad) + 5 × 257 × 64
 	ManifoldWords      = ManifoldBytes / 8
@@ -16,6 +20,10 @@ const (
 	packedScoreMin     = -packedScoreBias
 )
 
+/*
+DecodePacked extracts bestIdx (low 24b) and bestScore (next 24b, bias-shifted) from a packed uint64.
+Score is decoded as (raw - packedScoreBias) / ScoreScale.
+*/
 func DecodePacked(packed uint64) (int, float64) {
 	scoreFixed := int32((packed>>40)&0xFFFFFF) - int32(packedScoreBias)
 	bestIdx := int(packed & 0xFFFFFF)
@@ -23,6 +31,11 @@ func DecodePacked(packed uint64) (int, float64) {
 	return bestIdx, bestScore
 }
 
+/*
+PackResult encodes scoreFixed, invertedDist, and id into a single uint64.
+Layout: score(bits 40–63), invertedDist(bits 24–39), id(bits 0–23).
+Clamps scoreFixed to packedScoreMin..packedScoreMax.
+*/
 func PackResult(scoreFixed int32, invertedDist uint16, id int) uint64 {
 	if id < 0 {
 		id = 0
@@ -42,11 +55,18 @@ func PackResult(scoreFixed int32, invertedDist uint16, id int) uint64 {
 		uint64(id&0xFFFFFF)
 }
 
+/*
+RebasePackedID adds base to the packed id field (low 24b), preserving score and invertedDist.
+*/
 func RebasePackedID(packed uint64, base int) uint64 {
 	id := max(int(packed&0xFFFFFF)+base, 0)
 	return (packed &^ uint64(0xFFFFFF)) | uint64(id&0xFFFFFF)
 }
 
+/*
+PtrToBytes returns a byte slice over the memory at ptr of length n.
+Returns nil for n==0 or ptr==nil.
+*/
 func PtrToBytes(ptr unsafe.Pointer, n int) ([]byte, error) {
 	if n == 0 {
 		return nil, nil
@@ -59,6 +79,9 @@ func PtrToBytes(ptr unsafe.Pointer, n int) ([]byte, error) {
 	return unsafe.Slice((*byte)(ptr), n), nil
 }
 
+/*
+FirstPtr returns a pointer to the first byte of b, or nil if b is empty.
+*/
 func FirstPtr(b []byte) unsafe.Pointer {
 	if len(b) == 0 {
 		return nil
@@ -67,6 +90,9 @@ func FirstPtr(b []byte) unsafe.Pointer {
 	return unsafe.Pointer(&b[0])
 }
 
+/*
+AbsInt returns the absolute value of v.
+*/
 func AbsInt(v int) int {
 	if v < 0 {
 		return -v

@@ -1,0 +1,43 @@
+{
+  "caption": "Accuracy (bars) and sample count (line) per entity. N=25 samples.",
+  "data": {
+    "x_axis": [
+      "Daniel",
+      "John",
+      "Mary",
+      "Sandra"
+    ],
+    "series": [
+      {
+        "name": "Accuracy",
+        "type": "bar",
+        "bar_width": "40%",
+        "data": [
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Count",
+        "type": "line",
+        "symbol": "circle",
+        "data": [
+          6,
+          7,
+          3,
+          9
+        ]
+      }
+    ],
+    "x_name": "Entity",
+    "y_name": "Value",
+    "y_min": 0,
+    "y_max": 9.9
+  },
+  "file_name": "babi_entity_accuracy",
+  "label": "fig:babi_entity_accuracy",
+  "title": "bAbI Task 1 — Per-Entity Accuracy",
+  "type": "combo"
+}

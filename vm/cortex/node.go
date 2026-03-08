@@ -37,7 +37,9 @@ type Node struct {
 	cubeChordDirty bool
 }
 
-// NewNode creates a fresh node with an identity rotation lens and an empty cube.
+/*
+NewNode allocates a node with IdentityRotation, empty Cube, and buffered inbox.
+*/
 func NewNode(id, birthTick int) *Node {
 	return &Node{
 		ID:             id,
@@ -48,8 +50,10 @@ func NewNode(id, birthTick int) *Node {
 	}
 }
 
-// Connect establishes a directed edge from this node to `other`.
-// Duplicate and self-edges are silently ignored.
+/*
+Connect adds other to n's outgoing edges. Ignores nil, self, and duplicates.
+For bidirectional topology, call both n.Connect(other) and other.Connect(n).
+*/
 func (n *Node) Connect(other *Node) {
 	if other == nil || other == n {
 		return
@@ -62,16 +66,18 @@ func (n *Node) Connect(other *Node) {
 	n.edges = append(n.edges, other)
 }
 
-// Edges returns the current neighbor list. Read-only view.
+/*
+Edges returns the neighbor list. Read-only.
+*/
 func (n *Node) Edges() []*Node { return n.edges }
 
-// EdgeCount returns the number of outgoing edges.
+/*
+EdgeCount returns the number of outgoing edges.
+*/
 func (n *Node) EdgeCount() int { return len(n.edges) }
 
 /*
-Energy derives the thermodynamic state of the node from the total popcount
-density of its MacroCube. This is the ONLY energy accounting — no separate
-counter. A fully saturated cube returns 1.0, an empty cube returns 0.0.
+Energy returns total Cube popcount / (CubeFaces×257). Range [0, 1]. No separate counter.
 */
 func (n *Node) Energy() float64 {
 	total := 0
@@ -82,13 +88,16 @@ func (n *Node) Energy() float64 {
 	return float64(total) / float64(geometry.CubeFaces*257)
 }
 
-// FaceDensity returns the fractional occupancy of a single face (0.0 – 1.0).
+/*
+FaceDensity returns ActiveCount(face)/257 for the given physical face.
+*/
 func (n *Node) FaceDensity(face int) float64 {
 	return float64(n.Cube[face].ActiveCount()) / 257.0
 }
 
-// Send enqueues a token for processing on the next tick.
-// Non-blocking: if the inbox is full the token is silently dropped.
+/*
+Send enqueues tok for the next DrainInbox. Non-blocking; drops if inbox full.
+*/
 func (n *Node) Send(tok Token) {
 	select {
 	case n.inbox <- tok:
@@ -97,7 +106,9 @@ func (n *Node) Send(tok Token) {
 	}
 }
 
-// DrainInbox collects all pending tokens for processing.
+/*
+DrainInbox removes and returns all tokens currently in the inbox.
+*/
 func (n *Node) DrainInbox() []Token {
 	var batch []Token
 	for {
@@ -153,8 +164,9 @@ func (n *Node) CubeChord() data.Chord {
 	return summary
 }
 
-// InvalidateChordCache marks the cached CubeChord as stale.
-// Must be called after any direct write to Node.Cube.
+/*
+InvalidateChordCache marks the CubeChord cache stale. Call after any Cube write.
+*/
 func (n *Node) InvalidateChordCache() {
 	n.cubeChordDirty = true
 }

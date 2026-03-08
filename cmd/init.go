@@ -1,21 +1,22 @@
 package cmd
 
 import (
-	"log"
-
 	"github.com/spf13/cobra"
+	"github.com/theapemachine/six/console"
 )
 
 var initCmd = &cobra.Command{
 	Use:   "init",
 	Short: "Initialize default configuration",
 	Long:  `Explicitly generate the default local configuration file ($HOME/.six/config.yml).`,
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		if err := writeConfig(); err != nil {
-			log.Fatalf("Error initializing configuration: %v\n", err)
-		} else {
-			log.Println("Configuration successfully populated.")
+			return console.Error(err, "stage", "config initialization")
 		}
+
+		console.Info("Configuration successfully populated.")
+
+		return nil
 	},
 }
 

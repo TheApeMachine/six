@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"context"
-	"log"
+	"fmt"
 	"os"
 	"os/signal"
 	"syscall"
@@ -17,13 +17,14 @@ var workerCmd = &cobra.Command{
 	Use:   "worker",
 	Short: "Run distributed best-fill worker",
 	Long:  "Starts a Cap'n Proto-based worker that serves heterogeneous best-fill shard requests.",
-	Run: func(cmd *cobra.Command, args []string) {
+	RunE: func(cmd *cobra.Command, args []string) error {
 		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer cancel()
 
 		if err := kernel.StartDistributedWorker(ctx, workerAddr); err != nil {
-			log.Fatalf("distributed worker failed: %v", err)
+			return fmt.Errorf("distributed worker failed: %w", err)
 		}
+		return nil
 	},
 }
 

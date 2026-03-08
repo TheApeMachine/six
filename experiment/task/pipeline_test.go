@@ -50,7 +50,7 @@ func TestPipeline(t *testing.T) {
 			Convey("Given experiment: "+experiment.Name(), t, func() {
 				pipeline, err := NewPipeline(
 					PipelineWithExperiment(experiment),
-					PipelineWithSnapshotReporter(),
+					PipelineWithReporter(NewProjectorReporter()),
 				)
 
 				So(err, ShouldBeNil)

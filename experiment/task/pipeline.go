@@ -9,20 +9,12 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
 
-type pipelineMachine interface {
-	Start() error
-	Prompt([]data.Chord, *geometry.IcosahedralManifold) chan byte
-	Think([]data.Chord, *geometry.IcosahedralManifold) chan byte
-	Substrate() *geometry.HybridSubstrate
-}
-
 type Pipeline struct {
-	machine    pipelineMachine
+	machine    *vm.Machine
 	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
 	testIdx    int
@@ -145,15 +137,11 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 
 	// Use cortex Think() for reasoning tasks (holdout=0), Prompt() for recall.
 	holdout, _ := pipeline.experiment.Holdout()
-	var out chan byte
-	if holdout == 0 {
-		out = pipeline.machine.Think(promptChords, nil)
-	} else {
-		out = pipeline.machine.Prompt(promptChords, nil)
-	}
 
-	for res := range out {
-		bRes = append(bRes, res)
+	if holdout == 0 {
+		bRes = <-pipeline.machine.Think(promptChords, nil)
+	} else {
+		bRes = <-pipeline.machine.Prompt(promptChords, nil)
 	}
 
 	// Reconstruct the prompt bytes from input chords

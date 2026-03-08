@@ -62,7 +62,7 @@ func (experiment *SnapToSurfaceExperiment) Outcome() (any, gc.Assertion, any) {
 
 func (experiment *SnapToSurfaceExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
-		return 1.0 // Baseline
+		return 0.0 // No data yet
 	}
 	total := 0.0
 	for _, data := range experiment.tableData {

@@ -38,7 +38,9 @@ type sample struct {
 	fullStr []string     // the complete original, joined by Full()
 }
 
-// PromptSample explicitly defines a visible prompt and its held-out target.
+/*
+PromptSample defines Visible (prompt), HeldOut (target), and Full (complete) for explicit samples.
+*/
 type PromptSample struct {
 	Visible string
 	HeldOut string
@@ -63,6 +65,10 @@ type Prompt struct {
 
 type promptOpts func(*Prompt)
 
+/*
+NewPrompt builds a Prompt from opts. With dataset: materializes samples from Generate().
+With values: one sample per string. With explicit: uses PromptSample slices directly.
+*/
 func NewPrompt(opts ...promptOpts) *Prompt {
 	p := &Prompt{
 		substrings: []string{},
@@ -273,12 +279,18 @@ func bytesToStrings(data []byte) []string {
 	return values
 }
 
+/*
+PromptWithDataset sets the dataset; samples are built from dataset.Generate() on NewPrompt.
+*/
 func PromptWithDataset(dataset provider.Dataset) promptOpts {
 	return func(p *Prompt) {
 		p.dataset = dataset
 	}
 }
 
+/*
+PromptWithHoldout sets percentage (0-100) and type (LEFT,RIGHT,CENTER,etc.) for splitting.
+*/
 func PromptWithHoldout(percentage int, holdoutType HoldoutType) promptOpts {
 	return func(p *Prompt) {
 		p.holdout = holdoutType
@@ -286,9 +298,10 @@ func PromptWithHoldout(percentage int, holdoutType HoldoutType) promptOpts {
 	}
 }
 
-// PromptWithSubstringHoldout configures SUBSTRING holdout mode.
-// Any occurrence of the given strings will be stripped from each sample's
-// visible portion and stored as the held-out target.
+/*
+PromptWithSubstringHoldout sets SUBSTRING mode; strips first matching substring from visible,
+stores it as HeldOut. Uses LastIndex (rightmost match).
+*/
 func PromptWithSubstringHoldout(substrings []string) promptOpts {
 	return func(p *Prompt) {
 		p.holdout = SUBSTRING
@@ -296,12 +309,18 @@ func PromptWithSubstringHoldout(substrings []string) promptOpts {
 	}
 }
 
+/*
+PromptWithValues adds one sample per string. Each character becomes a BaseChord.
+*/
 func PromptWithValues(values []string) promptOpts {
 	return func(p *Prompt) {
 		p.values = values
 	}
 }
 
+/*
+PromptWithSamples uses explicit PromptSample slices. Overrides dataset/values if both set.
+*/
 func PromptWithSamples(samples []PromptSample) promptOpts {
 	return func(p *Prompt) {
 		p.explicit = samples

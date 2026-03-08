@@ -7,7 +7,7 @@
       "Name": "Prose Chaining",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "c3Npb24gb2YgYSBnb29kIGZvcnR1bmUsIG11c3QgYmUgaW4gd2FudCBvZiBhIHdpZmUu",
+      "Observed": "ZSBnIHJvIGh0ZGVucnVlICBvbGFpaSBiYmV2aGR0LiBlaGtUeWJhIGV0IG9oZXBydG92IGFmIGN3ZXRobyBzciBvbyB0bGVsdmlzZWlvbiAsdXRuIGRlYSBuIG90IG5laGNkZWRsYWEuaUkgIHN0dHJhdCAgaHV1bnJ2ZWlzbGFsIGF5Y2t3b2xuZWdkZWQsaGFzdCBhIHRpIGxnbmluIGEgIG5tcGVvc25zZiAgc2Fvc2RvIG9yb3V0bmYsdGVtIHVzYiAgaW4gd2VmYXRuYSAgIHdlZmku",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,7 +23,7 @@
       "Name": "Prose Chaining",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "byBhIGRlYWQgY2hhbm5lbC4=",
+      "Observed": "ZSBnIHJvIGh0ZGVucnVlICBvbGFpaSBiYmV2aGR0LiBlaGtUeWJhIGV0IG9oZXBydG92IGFmIGN3ZXRobyBzciBvbyB0bGVsdmlzZWlvbiAsdXRuIGRlYSBuIG90IG5laGNkZWRsYWEuaUkgIHN0dHJhdCAgaHV1bnJ2ZWlzbGFsIGF5Y2t3b2xuZWdkZWQsaGFzdCBhIHRpIGxnbmluIGEgIG5tcGVvc25zZiAgc2Fvc2RvIG9yb3V0bmYsdGVtIHVzYiAgaW4gd2VmYXRuYSAgIHdlZmku",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -39,14 +39,14 @@
       "Name": "Prose Chaining",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": null,
+      "Observed": "ZSBnIHJvIGh0ZGVucnVlICBvbGFpaSBiYmV2aGR0LiBlaGtUeWJhIGV0IG9oZXBydG92IGFmIGN3ZXRobyBzciBvbyB0bGVsdmlzZWlvbiAsdXRuIGRlYSBuIG90IG5laGNkZWRsYWEuaUkgIHN0dHJhdCAgaHV1bnJ2ZWlzbGFsIGF5Y2t3b2xuZWdkZWQsaGFzdCBhIHRpIGxnbmluIGEgIG5tcGVvc25zZiAgc2Fvc2RvIG9yb3V0bmYsdGVtIHVzYiAgaW4gd2VmYXRuYSAgIHdlZmku",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -55,7 +55,7 @@
       "Name": "Prose Chaining",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "IHdpZmUu",
+      "Observed": "ZSBnIHJvIGh0ZGVucnVlICBvbGFpaSBiYmV2aGR0LiBlaGtUeWJhIGV0IG9oZXBydG92IGFmIGN3ZXRobyBzciBvbyB0bGVsdmlzZWlvbiAsdXRuIGRlYSBuIG90IG5laGNkZWRsYWEuaUkgIHN0dHJhdCAgaHV1bnJ2ZWlzbGFsIGF5Y2t3b2xuZWdkZWQsaGFzdCBhIHRpIGxnbmluIGEgIG5tcGVvc25zZiAgc2Fvc2RvIG9yb3V0bmYsdGVtIHVzYiAgaW4gd2VmYXRuYSAgIHdlZmku",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -71,7 +71,7 @@
       "Name": "Prose Chaining",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": "aGUgZ3JvdW5kIHRoZXJlIGxpdmVkIGEgaG9iYml0Lg==",
+      "Observed": "ZSBnIHJvIGh0ZGVucnVlICBvbGFpaSBiYmV2aGR0LiBlaGtUeWJhIGV0IG9oZXBydG92IGFmIGN3ZXRobyBzciBvbyB0bGVsdmlzZWlvbiAsdXRuIGRlYSBuIG90IG5laGNkZWRsYWEuaUkgIHN0dHJhdCAgaHV1bnJ2ZWlzbGFsIGF5Y2t3b2xuZWdkZWQsaGFzdCBhIHRpIGxnbmluIGEgIG5tcGVvc25zZiAgc2Fvc2RvIG9yb3V0bmYsdGVtIHVzYiAgaW4gd2VmYXRuYSAgIHdlZmku",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -83,6 +83,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.8,
+  "score": 1,
   "section": "textgen"
 }

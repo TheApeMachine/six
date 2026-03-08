@@ -12,7 +12,10 @@ import (
 	"github.com/theapemachine/six/store"
 )
 
-// BestFillFunc is the GPU resonance search function injected from vm.Machine.
+/*
+BestFillFunc is the GPU resonance search; injected from vm.Machine.
+Returns (bestManifoldIndex, score, error).
+*/
 type BestFillFunc func(
 	dictionary unsafe.Pointer,
 	numChords int,
@@ -22,8 +25,9 @@ type BestFillFunc func(
 	geodesicLUT unsafe.Pointer,
 ) (int, float64, error)
 
-// Analyzer derives topological events from byte sequences.
-// The tokenizer.Sequencer satisfies this interface.
+/*
+Analyzer produces (reset, events) from (pos, byte). tokenizer.Sequencer implements it.
+*/
 type Analyzer interface {
 	Analyze(pos int, byteVal byte) (reset bool, events []int)
 	Phase() (ema float64, threshold float64)
@@ -98,7 +102,9 @@ func (c *Config) defaults() {
 	}
 }
 
-// CortexSnapshot holds observability counters for the cortex.
+/*
+CortexSnapshot holds tick/node/query counts for observability.
+*/
 type CortexSnapshot struct {
 	TotalTicks     int
 	FinalNodes     int
@@ -110,9 +116,8 @@ type CortexSnapshot struct {
 }
 
 /*
-Graph is the volatile working-memory cortex.
-It is born from a prompt, vibrates until convergence, and dies when thought completes.
-Surviving dense nodes are written back to the PrimeField as new memories.
+Graph is the cortex: source/sink nodes, ring+small-world topology.
+Runs Tick() until convergence; survivors with Energy ≥ threshold are writable to PrimeField.
 */
 type Graph struct {
 	config Config
@@ -425,19 +430,29 @@ func New(cfg Config) *Graph {
 	return g
 }
 
-// Nodes returns the current node list. Read-only view.
+/*
+Nodes returns the current node list.
+*/
 func (g *Graph) Nodes() []*Node { return g.nodes }
 
-// Source returns the graph's injection point.
+/*
+Source returns the prompt injection node.
+*/
 func (g *Graph) Source() *Node { return g.source }
 
-// Sink returns the graph's extraction point.
+/*
+Sink returns the output extraction node.
+*/
 func (g *Graph) Sink() *Node { return g.sink }
 
-// Tick returns the current tick count.
+/*
+TickCount returns the number of Tick() calls completed.
+*/
 func (g *Graph) TickCount() int { return g.tick }
 
-// Snapshot returns observability counters.
+/*
+Snapshot returns observability counters.
+*/
 func (g *Graph) Snapshot() CortexSnapshot {
 	return CortexSnapshot{
 		TotalTicks:     g.tick,
@@ -502,11 +517,8 @@ func (g *Graph) SpawnNode(parent *Node) *Node {
 }
 
 /*
-bestNeighbor selects the edge with highest resonance to the given chord.
-This is "Topological Gravity" — tokens naturally flow toward nodes
-whose existing content has the most constructive interference.
-
-If EigenMode is configured, routing is also biased by the "Toroidal Wind".
+bestNeighbor returns the neighbor with highest ChordSimilarity to c.
+If EigenMode is set, score is scaled by 1/(1+phaseDelta) (phase-aligned routing).
 */
 func (g *Graph) bestNeighbor(from *Node, c data.Chord) *Node {
 	var best *Node
@@ -603,20 +615,11 @@ func (g *Graph) routeTargets(from *Node, c data.Chord) []*Node {
 }
 
 /*
-queryBedrock fires multi-angle BestFill queries against the PrimeField using
-the node's ChordHole as the base query. This is "Thermodynamic Suction" with
-diverse torus sweep — the node dreams about what it's missing from multiple
-rotational perspectives, finding memories that a single-angle query would miss.
-
-Ported from textgen/fixture.go's RetrieveDiverse pattern:
- 1. Compute the node's ChordHole.
- 2. For each of nDial torus angles, rotate the query context and fire BestFill.
- 3. For each match, scan ALL 257 faces for the best hole-filler (not just the
-    self-addressed face).
- 4. Inject the best hole-filler as a token.
-
-When EigenMode is available, the sweep angles are biased by the node's phase
-deviation from the global mean — nodes more out-of-phase explore wider angles.
+queryBedrock runs BestFill over PrimeField using the node's Hole (anchor, hole).
+nDial sweep angles when EigenMode is set (4 angles); otherwise single query.
+For each match, collects recall candidates (ChordHole filler) and sends top
+scorers as tokens. Nodes with higher phase deviation from global mean use
+wider sweep.
 */
 func (g *Graph) queryBedrock(node *Node) {
 	if g.config.PrimeField == nil || g.config.BestFill == nil {
@@ -698,13 +701,8 @@ func (g *Graph) queryBedrock(node *Node) {
 }
 
 /*
-WriteSurvivors commits dense surviving node cubes back to the PrimeField
-as new long-term memories. This is the learning loop — what the cortex
-discovered during thought persists into the bedrock.
-
-Each face of a survivor's MacroCube is written as a chord at the face's
-self-addressed position, using the node's accumulated rotational state
-to derive topological events.
+WriteSurvivors inserts each survivor's Cube faces into PrimeField.
+Face at physical index i → Insert(Rot.Reverse(i), ...). Returns count of faces written.
 */
 func (g *Graph) WriteSurvivors(threshold float64) int {
 	if g.config.PrimeField == nil {

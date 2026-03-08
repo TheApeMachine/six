@@ -30,14 +30,15 @@ tokens. Each byte occurrence becomes one Token, and RollLeft binds the
 sequencer-local position directly into the chord geometry.
 */
 type Universal struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	coder     *MortonCoder
-	dataset   provider.Dataset
-	sequencer *Sequencer
-	pos       uint32
-	tokens    strings.Builder
-	sampleID  uint32
+	ctx          context.Context
+	cancel       context.CancelFunc
+	coder        *MortonCoder
+	dataset      provider.Dataset
+	sequencer    *Sequencer
+	pos          uint32
+	tokens       strings.Builder
+	sampleID     uint32
+	useSequencer bool
 }
 
 type universalOpts func(*Universal)
@@ -65,6 +66,7 @@ again, until it is time to render the final output.
 */
 func (tokenizer *Universal) Generate() chan Token {
 	out := make(chan Token, 4096)
+
 	if tokenizer.dataset == nil {
 		close(out)
 		return out
@@ -72,6 +74,9 @@ func (tokenizer *Universal) Generate() chan Token {
 
 	go func() {
 		defer close(out)
+		defer func() {
+			out <- Token{IsBoundary: true}
+		}()
 
 		tokenizer.pos = 0
 		var streamPos uint32
@@ -80,15 +85,39 @@ func (tokenizer *Universal) Generate() chan Token {
 			if rawToken.SampleID != tokenizer.sampleID {
 				tokenizer.sampleID = rawToken.SampleID
 				tokenizer.tokens.Reset()
+
 				console.Trace(
 					"tokenizer-boundary",
 					"sequence", tokenizer.tokens.String(),
 				)
-				tokenizer.pos = 0
+
+				// Reset sequencer state per sample so the buffer
+				// doesn't grow unbounded across samples.
+				if tokenizer.useSequencer {
+					tokenizer.sequencer = NewSequencer(NewCalibrator())
+				} else {
+					tokenizer.pos = 0
+				}
 			}
 
 			chord := data.BaseChord(rawToken.Symbol)
-			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), rawToken.Symbol)
+
+			var (
+				reset  bool
+				events []int
+			)
+
+			if tokenizer.useSequencer {
+				reset, events = tokenizer.sequencer.Analyze(
+					int(tokenizer.pos), rawToken.Symbol,
+				)
+
+				tokenizer.pos++
+
+				if reset {
+					tokenizer.pos = 0
+				}
+			}
 
 			tokenizer.tokens.WriteByte(rawToken.Symbol)
 
@@ -118,6 +147,10 @@ func (tokenizer *Universal) Generate() chan Token {
 	return out
 }
 
+func (tokenizer *Universal) Sequencer() *Sequencer {
+	return tokenizer.sequencer
+}
+
 func TokenizerWithContext(ctx context.Context) universalOpts {
 	return func(tokenizer *Universal) {
 		tokenizer.ctx, tokenizer.cancel = context.WithCancel(ctx)
@@ -136,6 +169,8 @@ func TokenizerWithDataset(dataset provider.Dataset) universalOpts {
 	}
 }
 
-func (tokenizer *Universal) Sequencer() *Sequencer {
-	return tokenizer.sequencer
+func TokenizerWithSequencer() universalOpts {
+	return func(tokenizer *Universal) {
+		tokenizer.useSequencer = true
+	}
 }

@@ -8,16 +8,17 @@ import (
 )
 
 /*
-Dataset loads an entire directory of audio files and streams them out as
-pure raw byte signals. Like Vision, no DSP, FFT, or Mel-spectrograms are used.
-The bytes of the audio samples are literally flattened and fed perfectly
-unaltered to the Universal Tokenizer, turning sound primitives into topological
-memory chords.
+Dataset walks a directory of audio files and streams raw PCM bytes.
+Assumes RIFF WAV: skips first 44 bytes (header), streams remainder as-is.
+No DSP, FFT, or Mel. Emits one RawToken per sample byte.
 */
 type Dataset struct {
 	paths []string
 }
 
+/*
+NewDataset walks dir recursively, collects file paths (non-dirs), and returns a Dataset.
+*/
 func NewDataset(dir string) *Dataset {
 	var paths []string
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
@@ -31,6 +32,10 @@ func NewDataset(dir string) *Dataset {
 	return &Dataset{paths: paths}
 }
 
+/*
+Generate returns a channel that emits RawTokens for each PCM byte (after WAV header).
+Closes when all files are streamed. Skips files shorter than 45 bytes.
+*/
 func (d *Dataset) Generate() chan provider.RawToken {
 	out := make(chan provider.RawToken, 4096)
 

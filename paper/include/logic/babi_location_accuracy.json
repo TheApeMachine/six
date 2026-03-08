@@ -1,0 +1,41 @@
+{
+  "caption": "Accuracy per target location. N=25 samples.",
+  "data": {
+    "x_axis": [
+      "bathroom",
+      "bedroom",
+      "garden",
+      "hallway",
+      "kitchen",
+      "office"
+    ],
+    "series": [
+      {
+        "name": "Accuracy",
+        "data": [
+          1,
+          1,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Count (÷10)",
+        "data": [
+          0.9,
+          0.3,
+          0.1,
+          0.7,
+          0.2,
+          0.3
+        ]
+      }
+    ]
+  },
+  "file_name": "babi_location_accuracy",
+  "label": "fig:babi_location_accuracy",
+  "title": "bAbI Task 1 — Per-Location Accuracy",
+  "type": "bar"
+}

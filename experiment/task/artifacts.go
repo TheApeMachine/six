@@ -2,6 +2,7 @@ package task
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -40,7 +41,8 @@ func PaperDir(section ...string) string {
 
 	wd, err := os.Getwd()
 	if err != nil {
-		panic("failed to get working directory: " + err.Error())
+		fmt.Fprintf(os.Stderr, "FATAL: failed to get working directory: %v\n", err)
+		os.Exit(1)
 	}
 
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {

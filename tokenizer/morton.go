@@ -40,7 +40,7 @@ func (coder *MortonCoder) Decode(morton uint64) (uint32, byte) {
 }
 
 /*
-ChordToBytes encodes a Chord as core.ChordBlocks×8 bytes big-endian.
+ChordToBytes returns chord.Bytes() — ChordBlocks×8 bytes big-endian. Delegates to data.Chord.
 */
 func (coder *MortonCoder) ChordToBytes(chord data.Chord) []byte {
 	buf := chord.Bytes()

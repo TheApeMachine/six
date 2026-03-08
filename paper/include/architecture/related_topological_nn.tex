@@ -50,7 +50,7 @@ umbrella.
 
 The Sensorium's Chord superposition naturally encodes higher-order
 relationships: when $n$ bytes are superposed via \texttt{ChordOR}, the
-resulting 512-bit pattern captures all $\binom{n}{k}$ subset overlaps
+resulting 257-bit pattern captures all $\binom{n}{k}$ subset overlaps
 simultaneously through the popcount inner product.  This is not pairwise
 attention---it is a holographic encoding where every subset of the input
 contributes to the structural fingerprint.  The $A_5$ rotational path
@@ -66,7 +66,7 @@ symbols.  The Sensorium implements a maximally compressed version of this
 pipeline:
 \begin{enumerate}[nosep]
   \item \textbf{Symbolic $\to$ Geometric:}  Raw bytes are deterministically
-        mapped to 512-bit Chords and inserted into the $A_5$ rotational
+        mapped to 257-bit Chords and inserted into the $GF(257)$ rotational
         manifold.  No learning.
   \item \textbf{Geometric Processing:}  BestFill executes massively parallel
         popcount resonance search across the memory substrate, modulated

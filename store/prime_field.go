@@ -207,9 +207,8 @@ func NewPrimeField() *PrimeField {
 }
 
 /*
-StorePointer addresses face 256 at the current rotation state and ORs
-the pointer chord into it, officially linking the architecture's rotation
-history to a geometric memory location.
+StorePointer ORs ptr into face 256 at the slot given by rot.Forward(256).
+Face 256 is the structural delimiter; used for sequence pointers.
 */
 func (field *PrimeField) StorePointer(rot geometry.GFRotation, ptr data.Chord) {
 	slot := rot.Forward(256)
@@ -222,9 +221,8 @@ func (field *PrimeField) StorePointer(rot geometry.GFRotation, ptr data.Chord) {
 }
 
 /*
-GetPointer fetches the holographic footprint stored at face 256 for the
-given rotation state. If multiple trajectories converge here, their
-pointers will be ORed together organically.
+GetPointer returns the chord stored at face 256 for the given rotation state.
+Collisions are OR-merged during StorePointer.
 */
 func (field *PrimeField) GetPointer(rot geometry.GFRotation) data.Chord {
 	slot := rot.Forward(256)
@@ -258,10 +256,8 @@ func (field *PrimeField) activeHasSignal() bool {
 }
 
 /*
-BuildEigenModes trains the EigenMode co-occurrence tables from chords
-accumulated during Insert calls. Call this once after all data has been
-ingested (e.g. after Machine.Start completes) so downstream phase lookups
-return trained values.
+BuildEigenModes passes accumulated chords to EigenMode.BuildMultiScaleCooccurrence.
+Call after ingestion; clears field.chords. EigenMode is analytical (no-op build).
 */
 func (field *PrimeField) BuildEigenModes() error {
 	field.mu.RLock()
@@ -287,6 +283,9 @@ func (field *PrimeField) BuildEigenModes() error {
 	return nil
 }
 
+/*
+EigenMode returns the PrimeField's EigenMode for phase lookups (Theta, Phi).
+*/
 func (field *PrimeField) EigenMode() *geometry.EigenMode {
 	field.mu.RLock()
 	defer field.mu.RUnlock()
@@ -427,9 +426,8 @@ func (field *PrimeField) Momentum() (float64, []int) {
 }
 
 /*
-Rotate applies physical geometric permutations across the active manifold.
-This is the heart of the non-commutative reasoning engine: structural events
-viscerally spin the topological data.
+Rotate applies each event's A₅ permutation to the 5 cubes and composes
+EventRotation into field.rot. Updates RotState via StateTransitionMatrix.
 */
 func (field *PrimeField) Rotate(events []int) {
 	field.mu.Lock()
@@ -486,6 +484,10 @@ func (field *PrimeField) Snapshot() (unsafe.Pointer, int) {
 	return unsafe.Pointer(&field.manifolds[0]), field.N
 }
 
+/*
+SearchSnapshot returns a pointer to the frozen manifold array (excluding active manifold[0]),
+the count of frozen manifolds, and the start offset. For single-manifold fields returns (manifold[0], 1, 0).
+*/
 func (field *PrimeField) SearchSnapshot() (unsafe.Pointer, int, int) {
 	field.mu.RLock()
 	defer field.mu.RUnlock()
@@ -501,6 +503,10 @@ func (field *PrimeField) SearchSnapshot() (unsafe.Pointer, int, int) {
 	return unsafe.Pointer(&field.manifolds[1]), len(field.manifolds) - 1, 1
 }
 
+/*
+CleanupSnap returns the best-matching prototype from the cleanup bucket for blockIdx,
+or the chord unchanged if no prototype meets the similarity threshold (≥75% overlap).
+*/
 func (field *PrimeField) CleanupSnap(blockIdx int, chord data.Chord) data.Chord {
 	field.mu.RLock()
 	defer field.mu.RUnlock()

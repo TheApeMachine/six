@@ -1,0 +1,16 @@
+\subsection{Topological Sequencing and Boundary Analysis}
+\label{sec:topological_sequencing}
+
+For the dynamic manifold to correctly adapt to the linguistic or structural entropy of an incoming byte stream, the system employs a \textbf{Sequencer} that converts unstructured streams into discrete \textbf{Topological Events} (encoded as \texttt{LAW} tokens).
+
+Traditional sub-word boundaries (like BPE) rely on statically computed occurrence frequencies. Our architecture replaces this with a continuous, streaming formulation of the Minimum Description Length (MDL) principle to identify natural "hinge points" where the information distribution drastically diverges.
+
+\subsubsection{MDL Boundary Detection and Buffering}
+The Sequencer identifies boundaries by splitting sequences where the cost of separating an active segment into two independent probability distributions optimally outperforms treating them as uniform. This is evaluated with a strict Information Criterion penalty for the addition of the structural split itself.
+
+Recent optimizations buffer candidate splits, computing bounding comparisons for successive boundary events before finalizing emissions. The system evaluates $N$ recent candidates, validating whether trailing splits are statistically redundant. If multiple splits express similar localized distributions, the Sequencer triggers a fallback merge, effectively collapsing fragmented structural boundaries.
+
+\subsubsection{Structural Z-Scores and Affine Transitions}
+Boundary sensitivity inherently relies on dynamic Z-scores calculated through the Standard Error of the Mean (SEM). The calculation maintains real-time variance estimates, classifying structural boundaries without assuming any fixed underlying linguistic priors. 
+
+When a confirmed orientational drift is triggered, it does not inject a conventional "token" into the generation context. Instead, the Sequencer outputs an affine geometric rotation (updating the trajectory states). This uniquely shifts the projection angle for all subsequent data injected into the $Z=0$ Bedrock, natively mapping sequence chronology to discrete topology.

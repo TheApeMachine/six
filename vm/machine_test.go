@@ -120,18 +120,18 @@ func TestMachineIntegration(t *testing.T) {
 			machine := buildTestMachine(buildCorpus())
 			So(machine.Start(), ShouldBeNil)
 
-			out := collectBytes(machine.Prompt(promptToChords("def add("), nil))
+			out := <-machine.Prompt(promptToChords("def add("), nil)
 			So(len(out), ShouldBeGreaterThanOrEqualTo, 0)
 		})
 
 		Convey("Different prompts should produce different output", func() {
 			machine1 := buildTestMachine(buildCorpus())
 			So(machine1.Start(), ShouldBeNil)
-			out1 := collectBytes(machine1.Prompt(promptToChords("def add("), nil))
+			out1 := <-machine1.Prompt(promptToChords("def add("), nil)
 
 			machine2 := buildTestMachine(buildCorpus())
 			So(machine2.Start(), ShouldBeNil)
-			out2 := collectBytes(machine2.Prompt(promptToChords("for i in"), nil))
+			out2 := <-machine2.Prompt(promptToChords("for i in"), nil)
 
 			if len(out1) > 0 && len(out2) > 0 {
 				So(out1, ShouldNotResemble, out2)
@@ -145,7 +145,7 @@ func TestMachineIntegration(t *testing.T) {
 			expectedReality := &geometry.IcosahedralManifold{}
 			expectedReality.Cubes[0][0].Set(100)
 
-			out := collectBytes(machine.Prompt(promptToChords("def "), expectedReality))
+			out := <-machine.Prompt(promptToChords("def "), expectedReality)
 			So(out, ShouldNotBeNil)
 		})
 
@@ -156,7 +156,7 @@ func TestMachineIntegration(t *testing.T) {
 			ch := machine.Prompt(promptToChords("def "), nil)
 			machine.Stop()
 
-			out := collectBytes(ch)
+			out := ch
 			So(out, ShouldNotBeNil)
 		})
 	})
@@ -169,7 +169,7 @@ func TestMachinePromptOutputValidUTF8(t *testing.T) {
 		So(machine.Start(), ShouldBeNil)
 
 		Convey("When Prompt generates output", func() {
-			out := collectBytes(machine.Prompt(promptToChords("def add("), nil))
+			out := <-machine.Prompt(promptToChords("def add("), nil)
 
 			Convey("Then output is valid UTF-8", func() {
 				So(utf8.Valid(out), ShouldBeTrue)
@@ -185,7 +185,7 @@ func TestMachinePromptOutputFullyPrintable(t *testing.T) {
 		So(machine.Start(), ShouldBeNil)
 
 		Convey("When Prompt generates output", func() {
-			out := collectBytes(machine.Prompt(promptToChords("def add("), nil))
+			out := <-machine.Prompt(promptToChords("def add("), nil)
 
 			Convey("Then every byte is printable or whitespace", func() {
 				for _, b := range out {
@@ -204,7 +204,7 @@ func TestMachinePromptOutputFullyInVocabulary(t *testing.T) {
 		So(machine.Start(), ShouldBeNil)
 
 		Convey("When Prompt generates output", func() {
-			out := collectBytes(machine.Prompt(promptToChords("def add("), nil))
+			out := <-machine.Prompt(promptToChords("def add("), nil)
 
 			Convey("Then every byte exists in the corpus", func() {
 				for _, b := range out {
@@ -226,7 +226,7 @@ func TestMachinePromptPerfectRetrieval(t *testing.T) {
 		So(machine.Start(), ShouldBeNil)
 
 		Convey("When prompting with the document prefix", func() {
-			out := collectBytes(machine.Prompt(promptToChords(prefix), nil))
+			out := <-machine.Prompt(promptToChords(prefix), nil)
 			observed := string(out)
 
 			Convey("Then output equals the exact continuation", func() {
@@ -245,7 +245,7 @@ func TestMachinePromptOutputBounded(t *testing.T) {
 		So(machine.Start(), ShouldBeNil)
 
 		Convey("When Prompt runs to completion", func() {
-			out := collectBytes(machine.Prompt(promptToChords("def "), nil))
+			out := <-machine.Prompt(promptToChords("def "), nil)
 
 			Convey("Then output length is bounded by MaxOutput", func() {
 				So(len(out), ShouldBeLessThanOrEqualTo, 256)
@@ -265,7 +265,7 @@ func BenchmarkMachinePrompt(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		out := collectBytes(machine.Prompt(prompt, nil))
+		out := <-machine.Prompt(prompt, nil)
 		_ = out
 	}
 }

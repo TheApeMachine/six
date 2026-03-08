@@ -12,8 +12,11 @@ import (
 	"k8s.io/client-go/util/homedir"
 )
 
-// Canonical architecture constants for type definitions (Go requires compile-time array sizes).
-// Runtime values live in Architecture; these must match config defaults.
+/*
+Canonical architecture constants for type definitions.
+Go requires compile-time array sizes; runtime values live in Architecture.
+These must match config defaults.
+*/
 const (
 	NBasis      = 512
 	ChordBlocks = NBasis / 64
@@ -52,6 +55,10 @@ func init() {
 	}
 }
 
+/*
+Config holds the singleton configuration for the runtime.
+Binds architecture numerics, distributed system params, and worker limits.
+*/
 type Config struct {
 	Architecture Architecture
 	System       Distributed
@@ -61,6 +68,10 @@ type Config struct {
 	}
 }
 
+/*
+Architecture holds numerics for chord dimension, basis size, and frequency spread.
+Drives compile-time array allocation and runtime computations.
+*/
 type Architecture struct {
 	Epsilon         float64
 	NSymbols        int
@@ -71,6 +82,10 @@ type Architecture struct {
 	FrequencySpread float64
 }
 
+/*
+Distributed holds worker endpoints, chunk size, and sharding behavior.
+Controls whether work runs local, remote, or hybrid.
+*/
 type Distributed struct {
 	Workers             []string
 	Chunk               int
@@ -83,6 +98,10 @@ type Distributed struct {
 var loadOnce sync.Once
 var loadErr error
 
+/*
+New returns the singleton Config, loading from viper on first call.
+Thread-safe via sync.Once.
+*/
 func New() (*Config, error) {
 	loadOnce.Do(func() {
 		loadErr = ctx.Load()
@@ -90,6 +109,10 @@ func New() (*Config, error) {
 	return ctx, loadErr
 }
 
+/*
+Load populates Config from viper, validating NBasis and worker limits.
+Exits with non-zero on mismatch or invalid config.
+*/
 func (ctx *Config) Load() error {
 	v := viper.GetViper()
 
@@ -141,12 +164,19 @@ func (ctx *Config) Load() error {
 	return nil
 }
 
+/*
+ConfigError is a typed error for config validation failures.
+Enables typed checks in console output.
+*/
 type ConfigError string
 
 const (
 	ErrBadMaxWorkerConfig ConfigError = "max workers config is bad"
 )
 
+/*
+Error implements the error interface for ConfigError.
+*/
 func (err ConfigError) Error() string {
 	return string(err)
 }

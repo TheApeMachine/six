@@ -12,12 +12,20 @@ import (
 	"github.com/theapemachine/six/provider"
 )
 
+/*
+BabiQASample holds one bAbI QA sample: Visible (context+question), Answer, and Full (same as Visible).
+Used for entity/location extraction and retrieval evaluation.
+*/
 type BabiQASample struct {
 	Visible string
 	Answer  string
 	Full    string
 }
 
+/*
+BabiQADataset wraps a HuggingFace Dataset configured for bAbI QA.
+Parses the story/answer/type structure into BabiQASamples. Defaults: facebook/babi_qa, en-10k-qa1.
+*/
 type BabiQADataset struct {
 	base *Dataset
 
@@ -26,6 +34,10 @@ type BabiQADataset struct {
 	err     error
 }
 
+/*
+NewBabiQA creates a BabiQADataset. Accepts same opts as Dataset (repo, subset, etc.).
+Defaults repo to facebook/babi_qa, subset to en-10k-qa1.
+*/
 func NewBabiQA(opts ...datasetOpts) *BabiQADataset {
 	base := New(opts...)
 	if base.repo == "" {
@@ -38,6 +50,10 @@ func NewBabiQA(opts ...datasetOpts) *BabiQADataset {
 	return &BabiQADataset{base: base}
 }
 
+/*
+Generate returns a channel that emits RawTokens for each byte of Full across all samples.
+Closes when done. Loads and parses the bAbI shard on first use.
+*/
 func (dataset *BabiQADataset) Generate() chan provider.RawToken {
 	out := make(chan provider.RawToken, 4096)
 
@@ -66,6 +82,10 @@ func (dataset *BabiQADataset) Generate() chan provider.RawToken {
 	return out
 }
 
+/*
+Samples loads the bAbI shard (once), parses story/answer/type, and returns all BabiQASamples.
+Each sample has Visible (context+question), Answer, Full. Safe to call concurrently.
+*/
 func (dataset *BabiQADataset) Samples() ([]BabiQASample, error) {
 	dataset.once.Do(func() {
 		dataset.err = dataset.load()
