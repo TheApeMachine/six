@@ -28,11 +28,7 @@ func (g *Graph) Tick() bool {
 	g.tick++
 
 	// ── Phase 1+2: DRAIN & REACT ──────────────────────────────────
-	type emission struct {
-		from   *Node
-		tokens []Token
-	}
-	emissions := make([]emission, 0, len(g.nodes))
+	g.emitBuf = g.emitBuf[:0]
 
 	for _, node := range g.nodes {
 		drained := node.DrainInbox()
@@ -47,12 +43,12 @@ func (g *Graph) Tick() bool {
 		}
 
 		if len(allEmitted) > 0 {
-			emissions = append(emissions, emission{from: node, tokens: allEmitted})
+			g.emitBuf = append(g.emitBuf, tickEmission{from: node, tokens: allEmitted})
 		}
 	}
 
 	// ── Phase 3: ROUTE ────────────────────────────────────────────
-	for _, em := range emissions {
+	for _, em := range g.emitBuf {
 		for _, tok := range em.tokens {
 			if tok.TTL <= 0 {
 				continue
@@ -112,17 +108,13 @@ func (g *Graph) Tick() bool {
 	if g.tick%4 == 0 {
 		if g.config.EigenMode != nil {
 			// Phase-directed dreaming: nodes most out of phase dream first.
-			allChords := make([]data.Chord, 0, len(g.nodes))
+			g.chordBuf = g.chordBuf[:0]
 			for _, n := range g.nodes {
-				allChords = append(allChords, n.CubeChord())
+				g.chordBuf = append(g.chordBuf, n.CubeChord())
 			}
-			globalTheta, _ := g.config.EigenMode.SeqToroidalMeanPhase(allChords)
+			globalTheta, _ := g.config.EigenMode.SeqToroidalMeanPhase(g.chordBuf)
 
-			type dreamCand struct {
-				node *Node
-				dev  float64
-			}
-			var cands []dreamCand
+			g.dreamBuf = g.dreamBuf[:0]
 			for _, n := range g.nodes {
 				chord := n.CubeChord()
 				nodeTheta, _ := g.config.EigenMode.PhaseForChord(&chord)
@@ -130,13 +122,13 @@ func (g *Graph) Tick() bool {
 				for dev > math.Pi {
 					dev = 2*math.Pi - dev
 				}
-				cands = append(cands, dreamCand{node: n, dev: dev})
+				g.dreamBuf = append(g.dreamBuf, tickDreamCand{node: n, dev: dev})
 			}
-			sort.Slice(cands, func(i, j int) bool {
-				return cands[i].dev > cands[j].dev
+			sort.Slice(g.dreamBuf, func(i, j int) bool {
+				return g.dreamBuf[i].dev > g.dreamBuf[j].dev
 			})
 
-			for _, cand := range cands {
+			for _, cand := range g.dreamBuf {
 				g.queryBedrock(cand.node)
 			}
 		} else {
@@ -223,11 +215,11 @@ func (g *Graph) checkConvergence() bool {
 
 	// Toroidal Closure: the sink's phase must match the global graph baseline.
 	if stable && g.config.EigenMode != nil {
-		allChords := make([]data.Chord, 0, len(g.nodes))
+		g.chordBuf = g.chordBuf[:0]
 		for _, n := range g.nodes {
-			allChords = append(allChords, n.CubeChord())
+			g.chordBuf = append(g.chordBuf, n.CubeChord())
 		}
-		globalAnchor, _ := g.config.EigenMode.SeqToroidalMeanPhase(allChords)
+		globalAnchor, _ := g.config.EigenMode.SeqToroidalMeanPhase(g.chordBuf)
 		sinkChord := g.sink.CubeChord()
 
 		closed := g.config.EigenMode.IsGeometricallyClosed([]data.Chord{sinkChord}, globalAnchor)
@@ -262,8 +254,7 @@ This is how the prompt enters the cortex.
 */
 func (g *Graph) InjectChords(chords []data.Chord) {
 	for _, c := range chords {
-		positioned := c.RollLeft(int(g.seqPos))
-		g.source.Send(NewDataToken(positioned, c.IntrinsicFace(), -1))
+		g.source.Send(NewDataToken(c, c.IntrinsicFace(), -1))
 		g.seqPos++
 	}
 }
@@ -276,26 +267,34 @@ both the content and the structural dynamics of the prompt.
 */
 func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 	for _, c := range chords {
-		positioned := c.RollLeft(int(g.seqPos))
 		reset := false
+		symbol := byte(c.IntrinsicFace() & 0xFF)
 
 		if g.config.Sequencer != nil {
 			var events []int
-			reset, events = g.config.Sequencer.Analyze(int(g.seqPos), byte(c.IntrinsicFace()&0xFF))
-			g.accumulateMomentum(positioned, events)
+			reset, events = g.config.Sequencer.Analyze(int(g.seqPos), symbol)
+			g.accumulateMomentum(c, events)
 			for _, ev := range events {
 				rot := geometry.EventRotation(ev)
 				lawTok := NewRotationToken(rot, -1)
 				for _, node := range g.nodes {
-					if node == g.sink {
-						continue
-					}
 					node.Send(lawTok)
 				}
 			}
 		}
 
-		g.source.Send(NewDataToken(positioned, c.IntrinsicFace(), -1))
+		// Advance the lens for every token to stay aligned with Bedrock ingestion.
+		dataRot := geometry.RotationForByte(symbol)
+		dataTok := NewDataToken(c, c.IntrinsicFace(), -1)
+		lawTok := NewRotationToken(dataRot, -1)
+
+		for _, node := range g.nodes {
+			if node == g.source {
+				node.Send(dataTok)
+			}
+			node.Send(lawTok)
+		}
+
 		g.seqPos++
 
 		if reset {

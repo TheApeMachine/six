@@ -83,7 +83,13 @@ func (experiment *BabiExperiment) Section() string {
 
 func (experiment *BabiExperiment) AddResult(results tools.ExperimentalData) {
 	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
+
+	results.WeightedTotal = tools.WeightedTotal(
+		results.Scores.Exact,
+		results.Scores.Partial,
+		results.Scores.Fuzzy,
+	)
+
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -112,6 +118,8 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
 }
 
-func (experiment *BabiExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+func (experiment *BabiExperiment) Finalize(
+	substrate *geometry.HybridSubstrate,
+) error {
 	return nil
 }

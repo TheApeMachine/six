@@ -17,6 +17,7 @@ import (
 type pipelineMachine interface {
 	Start() error
 	Prompt([]data.Chord, *geometry.IcosahedralManifold) chan byte
+	Think([]data.Chord, *geometry.IcosahedralManifold) chan byte
 	Substrate() *geometry.HybridSubstrate
 }
 
@@ -142,7 +143,16 @@ func formatLogPayload(payload string) string {
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	var bRes []byte
 
-	for res := range pipeline.machine.Prompt(promptChords, nil) {
+	// Use cortex Think() for reasoning tasks (holdout=0), Prompt() for recall.
+	holdout, _ := pipeline.experiment.Holdout()
+	var out chan byte
+	if holdout == 0 {
+		out = pipeline.machine.Think(promptChords, nil)
+	} else {
+		out = pipeline.machine.Prompt(promptChords, nil)
+	}
+
+	for res := range out {
 		bRes = append(bRes, res)
 	}
 

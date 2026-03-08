@@ -31,15 +31,20 @@ type Node struct {
 	inbox   chan Token
 	traffic int
 	birth   int // tick at which this node was created
+
+	// Cached cube chord — OR-fold of all 257 face chords.
+	cubeChordCache data.Chord
+	cubeChordDirty bool
 }
 
 // NewNode creates a fresh node with an identity rotation lens and an empty cube.
 func NewNode(id, birthTick int) *Node {
 	return &Node{
-		ID:    id,
-		Rot:   geometry.IdentityRotation(),
-		inbox: make(chan Token, defaultInboxSize),
-		birth: birthTick,
+		ID:             id,
+		Rot:            geometry.IdentityRotation(),
+		inbox:          make(chan Token, defaultInboxSize),
+		birth:          birthTick,
+		cubeChordDirty: true,
 	}
 }
 
@@ -133,11 +138,36 @@ func (n *Node) BestFace() int {
 /*
 CubeChord compresses the entire MacroCube into a single summary chord
 by OR-folding all 257 face chords. This is the node's "signature".
+Result is cached and invalidated on any Cube write.
 */
 func (n *Node) CubeChord() data.Chord {
+	if !n.cubeChordDirty {
+		return n.cubeChordCache
+	}
 	var summary data.Chord
 	for i := range geometry.CubeFaces {
 		summary = data.ChordOR(&summary, &n.Cube[i])
 	}
+	n.cubeChordCache = summary
+	n.cubeChordDirty = false
 	return summary
+}
+
+// InvalidateChordCache marks the cached CubeChord as stale.
+// Must be called after any direct write to Node.Cube.
+func (n *Node) InvalidateChordCache() {
+	n.cubeChordDirty = true
+}
+
+/*
+WipeFace clears the 512-bit chord at the specified logical face index.
+The physical face is determined by the current GF(257) lens.
+*/
+func (n *Node) WipeFace(logicalFace int) {
+	if logicalFace < 0 || logicalFace >= geometry.CubeFaces {
+		return
+	}
+	physFace := n.Rot.Forward(logicalFace)
+	n.Cube[physFace] = data.Chord{}
+	n.InvalidateChordCache()
 }

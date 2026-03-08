@@ -50,6 +50,10 @@ func (machine *stubPipelineMachine) Prompt(_ []data.Chord, _ *geometry.Icosahedr
 	return out
 }
 
+func (machine *stubPipelineMachine) Think(prompt []data.Chord, expected *geometry.IcosahedralManifold) chan byte {
+	return machine.Prompt(prompt, expected)
+}
+
 func (machine *stubPipelineMachine) Substrate() *geometry.HybridSubstrate {
 	if machine.substrate == nil {
 		machine.substrate = geometry.NewHybridSubstrate()

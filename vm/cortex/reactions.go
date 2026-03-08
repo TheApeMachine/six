@@ -1,6 +1,7 @@
 package cortex
 
 import (
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/resonance"
@@ -39,15 +40,8 @@ func (n *Node) Arrive(tok Token) []Token {
 		return nil // fully absorbed — no output
 	}
 
-	// ── SELF-ADDRESSED ACCUMULATION ───────────────────────────────────
-	// Determine which face this chord lands on using the Fermat cube
-	// self-addressing property (byte value = face), then route through
-	// the node's rotational lens.
+	// ─────────────────────────────────────────────────────────────────
 	logicalFace := tok.LogicalFace
-	if logicalFace == 256 {
-		return nil
-	}
-
 	var emitted []Token
 	routed := n.Rot.Forward(logicalFace)
 
@@ -56,8 +50,10 @@ func (n *Node) Arrive(tok Token) []Token {
 
 	// Merge via ChordOR — accumulative superposition.
 	n.Cube[routed] = data.ChordOR(&n.Cube[routed], &tok.Chord)
+	n.InvalidateChordCache()
 
 	// ── DESTRUCTIVE INTERFERENCE → EMISSION ──────────────────────
+	// Residues flow through the graph via topological gravity.
 	hole := data.ChordHole(&tok.Chord, &before)
 	if hole.ActiveCount() > 0 && tok.TTL > 1 {
 		emitted = append(emitted, Token{
@@ -69,14 +65,8 @@ func (n *Node) Arrive(tok Token) []Token {
 	}
 
 	// ── TRANSITIVE RESONANCE ─────────────────────────────────────────
-	// When a node has accumulated enough context (CubeChord) and the
-	// incoming token shares structure with it, fire TransitiveResonance
-	// to produce analogical inferences — the (A:B::C:D) operation.
-	//
-	// F1 = incoming chord, F2 = node's summary, F3 = face content after merge.
-	// H = the bits F1 uniquely contributes beyond shared context, PLUS
-	//     the bits the face content uniquely contributes beyond shared context.
-	// This is multi-hop reasoning as an emergent property of interference.
+	// Results of multi-hop reasoning are directed to LogicalFace 256
+	// (the working register).
 	summary := n.CubeChord()
 	if summary.ActiveCount() > 5 && tok.Chord.ActiveCount() > 3 {
 		shared := data.ChordGCD(&tok.Chord, &summary)
@@ -84,9 +74,17 @@ func (n *Node) Arrive(tok Token) []Token {
 			faceContent := n.Cube[routed]
 			h := resonance.TransitiveResonance(&tok.Chord, &summary, &faceContent)
 			if h.ActiveCount() > 2 && tok.TTL > 1 {
+				if tok.LogicalFace != 256 {
+					console.Info("transitive resonance",
+						"node", n.ID,
+						"tok_face", tok.LogicalFace,
+						"h_active", h.ActiveCount(),
+					)
+				}
+
 				emitted = append(emitted, Token{
 					Chord:       h,
-					LogicalFace: tok.LogicalFace,
+					LogicalFace: 256, // Store in working register
 					Origin:      n.ID,
 					TTL:         tok.TTL - 1,
 				})
@@ -115,6 +113,7 @@ func (n *Node) Arrive(tok Token) []Token {
 		} else {
 			n.Cube[routed] = data.Chord{}
 		}
+		n.InvalidateChordCache()
 	}
 
 	return emitted

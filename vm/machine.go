@@ -176,6 +176,37 @@ func (machine *Machine) Stop() {
 }
 
 /*
+Think generates output using the volatile cortex graph — a reactive
+working-memory network that reasons about the prompt by composing
+rotation states and dreaming against the bedrock PrimeField.
+
+Unlike Prompt (which does O(1) holographic suffix lookup), Think
+creates a cortex graph, injects the prompt with sequencer-driven
+topological events, vibrates until convergence, and extracts output
+from the sink node. The question acts as a geometric transformation
+that filters the accumulated premise state.
+*/
+func (machine *Machine) Think(
+	prompt []data.Chord,
+	expectedReality *geometry.IcosahedralManifold,
+) chan byte {
+	cfg := cortex.Config{
+		InitialNodes: 8,
+		PrimeField:   machine.primefield,
+		Substrate:    machine.substrate,
+		BestFill:     kernel.BestFill,
+		EigenMode:    machine.eigenMode,
+		Sequencer:    machine.sequencer,
+		StopCh:       machine.stopCh,
+		MaxTicks:     256,
+		MaxOutput:    512,
+	}
+
+	graph := cortex.New(cfg)
+	return graph.Think(prompt, expectedReality)
+}
+
+/*
 Prompt generates output using O(1) holographic lookup.
 
 The prompt bytes construct a precise GF(257) rotational state.

@@ -138,6 +138,23 @@ type Graph struct {
 	mitosisEvents  int
 	pruneEvents    int
 	outputBytes    int
+
+	// Pre-allocated tick buffers (zero GC pressure).
+	emitBuf  []tickEmission
+	dreamBuf []tickDreamCand
+	chordBuf []data.Chord
+}
+
+// tickEmission groups a node with its emitted tokens from a single tick.
+type tickEmission struct {
+	from   *Node
+	tokens []Token
+}
+
+// tickDreamCand pairs a node with its phase deviation for dream prioritization.
+type tickDreamCand struct {
+	node *Node
+	dev  float64
 }
 
 const (
@@ -671,6 +688,12 @@ func (g *Graph) queryBedrock(node *Node) {
 			Origin:      -1,
 			TTL:         ttl,
 		})
+
+		console.Info("bedrock recall",
+			"node", node.ID,
+			"score", cand.score,
+			"chord_active", cand.chord.ActiveCount(),
+		)
 	}
 }
 
@@ -716,4 +739,33 @@ func (g *Graph) WriteSurvivors(threshold float64) int {
 	}
 
 	return written
+}
+
+/*
+Wipe clears all 257 faces of the node's working memory.
+Preserves internal rotation lens and birth tick.
+*/
+func (n *Node) Wipe() {
+	for i := range n.Cube {
+		n.Cube[i] = data.Chord{}
+	}
+	n.InvalidateChordCache()
+}
+
+/*
+Wipe clears the working memory (MacroCube) of all nodes in the graph.
+*/
+func (g *Graph) Wipe() {
+	for _, n := range g.nodes {
+		n.Wipe()
+	}
+}
+
+/*
+WipeFace clears a specific logical face across all nodes in the graph.
+*/
+func (g *Graph) WipeFace(logicalFace int) {
+	for _, n := range g.nodes {
+		n.WipeFace(logicalFace)
+	}
 }

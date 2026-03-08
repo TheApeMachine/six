@@ -6,14 +6,14 @@
       "Name": "Text Classification",
       "Prefix": "RmVhcnMgZm9yIFQgTiBwZW5zaW9uIGFmdGVyIHRhbGtzIFVuaW9ucyByZXByZXNlbnRpbmcgd29ya2VycyBhdCBUdXJuZXIgICBOZXdhbGwgc2F5IHRoZXkgYXJlICdkaXNhcHBvaW50ZWQnIGFmdGVyIHRhbGtzIHdpdGggc3RyaWNrZW4gcGFyZW50IGZpcm0gRmVkZXJhbCBNb2d1bC4=",
       "Holdout": "IHNjaV90ZWNo",
-      "Observed": "IHNjaV90ZWNo",
+      "Observed": "eQ==",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": 3,
       "PredLabel": null
     },
@@ -22,7 +22,7 @@
       "Name": "Text Classification",
       "Prefix": "VGhlIFJhY2UgaXMgT246IFNlY29uZCBQcml2YXRlIFRlYW0gU2V0cyBMYXVuY2ggRGF0ZSBmb3IgSHVtYW4gU3BhY2VmbGlnaHQgKFNQQUNFLmNvbSkgU1BBQ0UuY29tIC0gVE9ST05UTywgQ2FuYWRhIC0tIEEgc2Vjb25kXHRlYW0gb2Ygcm9ja2V0ZWVycyBjb21wZXRpbmcgZm9yIHRoZSAgIzM2OzEwIG1pbGxpb24gQW5zYXJpIFggUHJpemUsIGEgY29udGVzdCBmb3JccHJpdmF0ZWx5IGZ1bmRlZCBzdWJvcmJpdGFsIHNwYWNlIGZsaWdodCwgaGFzIG9mZmljaWFsbHkgYW5ub3VuY2VkIHRoZSBmaXJzdFxsYXVuY2ggZGF0ZSBmb3IgaXRzIG1hbm5lZCByb2NrZXQu",
       "Holdout": "",
-      "Observed": null,
+      "Observed": "ZQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
