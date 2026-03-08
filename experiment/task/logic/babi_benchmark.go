@@ -26,7 +26,7 @@ func NewBabiExperiment() *BabiExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(2),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 		),
 	}

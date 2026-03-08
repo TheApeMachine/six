@@ -270,7 +270,6 @@ both the content and the structural dynamics of the prompt.
 func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 	for _, c := range chords {
 		positioned := c.RollLeft(int(g.seqPos))
-		g.source.Send(NewDataToken(positioned, -1))
 		reset := false
 
 		if g.config.Sequencer != nil {
@@ -282,6 +281,8 @@ func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 				g.source.Send(NewRotationToken(rot, -1))
 			}
 		}
+
+		g.source.Send(NewDataToken(positioned, -1))
 
 		g.seqPos++
 		if reset {

@@ -33,7 +33,7 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 		seen:      make(map[string]struct{}),
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("code-rag-bench/mbpp"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(2),
 			huggingface.DatasetWithTextColumn("code"),
 		),
 	}

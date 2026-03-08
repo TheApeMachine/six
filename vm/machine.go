@@ -157,7 +157,7 @@ func (machine *Machine) prompt(
 		Sequencer:     machine.sequencer,
 		ExpectedField: expectedField,
 		StopCh:        stopCh,
-		MaxTicks:      maxGenerationSteps * 4,
+		MaxTicks:      maxGenerationSteps / 2, // lowered to 128
 		MaxOutput:     maxGenerationSteps,
 	})
 

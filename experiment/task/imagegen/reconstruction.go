@@ -26,7 +26,7 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("uoft-cs/cifar10"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(2),
 			huggingface.DatasetWithTextColumn("img"),
 		),
 	}

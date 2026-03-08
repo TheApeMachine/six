@@ -2,12 +2,12 @@ package cortex
 
 import (
 	"math"
+	"sort"
 	"unsafe"
 
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/resonance"
 	"github.com/theapemachine/six/store"
 )
 
@@ -212,20 +212,6 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dia
 	return ctx, expected
 }
 
-func scoreRecallCandidate(anchor, hole, faceChord *data.Chord, matchScore float64) float64 {
-	quality := resonance.FillScore(hole, faceChord)
-	if quality <= 0 {
-		return 0
-	}
-
-	score := quality + 0.5*matchScore
-	if anchor.ActiveCount() > 0 {
-		score += 0.25 * (float64(data.ChordSimilarity(anchor, faceChord)) / float64(anchor.ActiveCount()))
-	}
-
-	return score
-}
-
 func (g *Graph) collectRecallCandidates(
 	dictPtr unsafe.Pointer,
 	dictN int,
@@ -280,18 +266,32 @@ func (g *Graph) collectRecallCandidates(
 					continue
 				}
 
-				score := scoreRecallCandidate(anchor, hole, &faceChord, matchScore)
+				novel := data.ChordHole(&faceChord, anchor)
+				if novel.ActiveCount() == 0 {
+					continue
+				}
+
+				score := matchScore
+				if faceChord.ActiveCount() > 0 {
+					score += 0.05 * float64(faceChord.ActiveCount())
+				}
 				if score < recallScoreFloor {
 					continue
 				}
 
-				top = appendRecallCandidate(top, recallCandidate{
+				// Do not artificially cap the manifold extraction.
+				top = append(top, recallCandidate{
 					chord: faceChord,
 					score: score,
-				}, limit)
+				})
 			}
 		}
 	}
+
+	// Sort by score descending
+	sort.Slice(top, func(i, j int) bool {
+		return top[i].score > top[j].score
+	})
 
 	return top
 }
@@ -508,6 +508,7 @@ func (g *Graph) queryBedrock(node *Node) {
 	}
 
 	var recalled []recallCandidate
+	seen := make(map[data.Chord]bool)
 
 	for d := range nDial {
 		ctx, expected := recallQueryManifolds(node, anchor, hole, physicalFace, d, nDial, basePhase)
@@ -522,7 +523,10 @@ func (g *Graph) queryBedrock(node *Node) {
 			recallCompetitionWidth,
 		)
 		for _, cand := range dialCandidates {
-			recalled = appendRecallCandidate(recalled, cand, recallInjectionLimit)
+			if !seen[cand.chord] {
+				seen[cand.chord] = true
+				recalled = append(recalled, cand)
+			}
 		}
 	}
 

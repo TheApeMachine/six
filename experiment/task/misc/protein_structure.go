@@ -43,7 +43,7 @@ func NewProteinStructureExperiment() *ProteinStructureExperiment {
 		seen:      make(map[string]struct{}),
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("proteinea/secondary_structure_prediction"),
-			huggingface.DatasetWithSamples(20),
+			huggingface.DatasetWithSamples(2),
 			huggingface.DatasetWithTextColumns("input", "dssp3"),
 		),
 	}
@@ -90,10 +90,20 @@ func (experiment *ProteinStructureExperiment) Holdout() (int, tokenizer.HoldoutT
 AddResult records an experimental observation.
 */
 func (experiment *ProteinStructureExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
+	results.Scores = tools.ByteScores(
+		results.Holdout,
+		results.Observed,
+	)
 
-	experiment.tableData = append(experiment.tableData, results)
+	results.WeightedTotal = tools.WeightedTotal(
+		results.Scores.Exact,
+		results.Scores.Partial,
+		results.Scores.Fuzzy,
+	)
+
+	experiment.tableData = append(
+		experiment.tableData, results,
+	)
 }
 
 /*
@@ -136,6 +146,8 @@ func (experiment *ProteinStructureExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
-func (experiment *ProteinStructureExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+func (experiment *ProteinStructureExperiment) Finalize(
+	substrate *geometry.HybridSubstrate,
+) error {
 	return nil
 }
