@@ -149,11 +149,17 @@ const (
 type recallCandidate struct {
 	chord data.Chord
 	score float64
+	face  int
+}
+
+type recallCandidateKey struct {
+	chord data.Chord
+	face  int
 }
 
 func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit int) []recallCandidate {
 	for i := range top {
-		if top[i].chord != cand.chord {
+		if top[i].chord != cand.chord || top[i].face != cand.face {
 			continue
 		}
 		if cand.score <= top[i].score {
@@ -191,8 +197,12 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dia
 		ctx      geometry.IcosahedralManifold
 		expected geometry.IcosahedralManifold
 	)
-	ctx.Header = node.Header
-	expected.Header = node.Header
+	ctx.Header = 0
+	expected.Header = 0
+
+	if physicalFace < 0 || physicalFace >= geometry.CubeFaces {
+		return ctx, expected
+	}
 
 	shift := 0
 	if dial > 0 && total > 1 {
@@ -203,10 +213,55 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dia
 		}
 	}
 
-	for f := 0; f < 257; f++ {
-		sf := (f + shift) % 257
-		ctx.Cubes[0][sf] = node.Cube[f]
-		expected.Cubes[0][sf] = node.Cube[f]
+	type faceDensity struct {
+		face   int
+		active int
+	}
+
+	shiftedFace := func(face int) int {
+		return (face + shift) % geometry.CubeFaces
+	}
+
+	anchorFace := shiftedFace(physicalFace)
+	anchorExpected := data.ChordOR(&anchor, &hole)
+	for cube := 0; cube < 4; cube++ {
+		ctx.Cubes[cube][anchorFace] = anchor
+		expected.Cubes[cube][anchorFace] = anchorExpected
+	}
+
+	var ranked []faceDensity
+	for face := range geometry.CubeFaces {
+		if face == physicalFace {
+			continue
+		}
+
+		active := node.Cube[face].ActiveCount()
+		if active == 0 {
+			continue
+		}
+
+		ranked = append(ranked, faceDensity{face: face, active: active})
+	}
+
+	sort.Slice(ranked, func(i, j int) bool {
+		if ranked[i].active == ranked[j].active {
+			return ranked[i].face < ranked[j].face
+		}
+
+		return ranked[i].active > ranked[j].active
+	})
+
+	for idx, faceDensity := range ranked {
+		if idx >= 3 {
+			break
+		}
+
+		face := faceDensity.face
+		shifted := shiftedFace(face)
+		for cube := 0; cube < 4; cube++ {
+			ctx.Cubes[cube][shifted] = node.Cube[face]
+			expected.Cubes[cube][shifted] = node.Cube[face]
+		}
 	}
 
 	return ctx, expected
@@ -271,9 +326,14 @@ func (g *Graph) collectRecallCandidates(
 					continue
 				}
 
+				filler := data.ChordGCD(&novel, hole)
+				if filler.ActiveCount() == 0 {
+					continue
+				}
+
 				score := matchScore
-				if faceChord.ActiveCount() > 0 {
-					score += 0.05 * float64(faceChord.ActiveCount())
+				if filler.ActiveCount() > 0 {
+					score += 0.05 * float64(filler.ActiveCount())
 				}
 				if score < recallScoreFloor {
 					continue
@@ -283,6 +343,7 @@ func (g *Graph) collectRecallCandidates(
 				top = append(top, recallCandidate{
 					chord: faceChord,
 					score: score,
+					face:  face,
 				})
 			}
 		}
@@ -564,7 +625,7 @@ func (g *Graph) queryBedrock(node *Node) {
 	}
 
 	var recalled []recallCandidate
-	seen := make(map[data.Chord]bool)
+	seen := make(map[recallCandidateKey]bool)
 
 	for d := range nDial {
 		ctx, expected := recallQueryManifolds(node, anchor, hole, physicalFace, d, nDial, basePhase)
@@ -579,8 +640,9 @@ func (g *Graph) queryBedrock(node *Node) {
 			recallCompetitionWidth,
 		)
 		for _, cand := range dialCandidates {
-			if !seen[cand.chord] {
-				seen[cand.chord] = true
+			key := recallCandidateKey{chord: cand.chord, face: cand.face}
+			if !seen[key] {
+				seen[key] = true
 				recalled = append(recalled, cand)
 			}
 		}
@@ -603,7 +665,7 @@ func (g *Graph) queryBedrock(node *Node) {
 
 		node.Send(Token{
 			Chord:       cand.chord,
-			LogicalFace: cand.chord.IntrinsicFace(),
+			LogicalFace: node.Rot.Reverse(cand.face),
 			Origin:      -1,
 			TTL:         ttl,
 		})

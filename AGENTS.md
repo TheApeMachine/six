@@ -12,6 +12,7 @@ Also, very important to keep in mind that we are reframing the A.I. tasks (exper
 > !NOTE
 > A common mistake is to think of data as "bytes" or "words" or "sentences". Do not do this. There are only Chords.
 > This is a system that should reason about Chords, and nothing else.
+> Also, do not try to make the tokenizer split things by sample id, the real world doesn't give you sample ids.
 
 ## Core Philosophy
 
