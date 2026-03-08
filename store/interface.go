@@ -4,7 +4,7 @@ import "github.com/theapemachine/six/data"
 
 /*
 Store is the interface for the spatial index.
-Insert takes a Morton key and a Chord (the FibWindow aggregate).
+Insert takes a Morton key and a Chord.
 Lookup does key → chord (binary search across LSM levels).
 ReverseLookup does chord → key (from the reverse index).
 */

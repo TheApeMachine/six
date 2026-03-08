@@ -37,10 +37,8 @@ func init() {
 	viper.SetDefault("architecture.numerics.epsilon", 1e-9)
 	viper.SetDefault("architecture.numerics.nsymbols", 256)
 	viper.SetDefault("architecture.numerics.nbasis", 512)
-	viper.SetDefault("architecture.numerics.windows", []int{3, 5, 8, 13, 21})
 	viper.SetDefault("architecture.numerics.chordBlocks", 16)
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
-	viper.SetDefault("architecture.numerics.windowWeights", []float64{0.2, 0.2, 0.2, 0.2, 0.2})
 
 	home := homedir.HomeDir()
 
@@ -109,11 +107,6 @@ func (ctx *Config) Load() error {
 		)
 	}
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
-	if value, ok := v.Get("architecture.numerics.windowWeights").([]float64); ok {
-		ctx.Architecture.WindowWeights = value
-	} else {
-		ctx.Architecture.WindowWeights = []float64{0.2, 0.2, 0.2, 0.2, 0.2}
-	}
 	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
 

@@ -2,11 +2,6 @@ package tokenizer
 
 import "math"
 
-const (
-	maxFibWindows = 14   // Max size 987. Caps memory/CPU usage
-	epsilon       = 1e-9 // Prevents division by zero on flatlines
-)
-
 /*
 FastWindow replaces container/ring with an O(1) array-backed sliding window.
 It includes anti-drift recalibration to prevent floating-point errors over long streams.

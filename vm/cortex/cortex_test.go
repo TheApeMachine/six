@@ -8,6 +8,7 @@ import (
 
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/numeric"
 	"github.com/theapemachine/six/store"
 )
 
@@ -41,6 +42,16 @@ func TestAppendRecallCandidate_PreservesDistinctFacesForSameChord(t *testing.T) 
 	}
 	if top[0].face != 10 || top[1].face != 11 {
 		t.Fatalf("candidate faces = [%d %d], want [10 11]", top[0].face, top[1].face)
+	}
+}
+
+func TestRecallScoreFloor_IsScaledToNumericScoreSpace(t *testing.T) {
+	want := recallMinFixedScore / numeric.ScoreScale
+	if recallScoreFloor != want {
+		t.Fatalf("recallScoreFloor = %v, want %v", recallScoreFloor, want)
+	}
+	if recallScoreFloor >= 0.01 {
+		t.Fatalf("recallScoreFloor = %v, want a sub-0.01 normalized threshold", recallScoreFloor)
 	}
 }
 

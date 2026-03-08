@@ -45,10 +45,8 @@ func createMockDataset(samples ...string) *MockDataset {
 
 func TestGenerate(t *testing.T) {
 	Convey("Given a Dataset with multiple samples", t, func() {
-		// Sample 1: length > 21 to cover all FibWindows (3, 5, 8, 13, 21)
 		sample1Str := "this is a sufficiently long string to test all windows" // len 54
-		// Sample 2: length 15 to cover FibWindows (3, 5, 8, 13)
-		sample2Str := "a second sample" // len 15
+		sample2Str := "a second sample"                                        // len 15
 
 		dataset := createMockDataset(sample1Str, sample2Str)
 

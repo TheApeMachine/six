@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/numeric"
 	"github.com/theapemachine/six/store"
 )
 
@@ -143,7 +144,8 @@ const (
 	maxSelfAddressCandidates = 4
 	recallCompetitionWidth   = 4
 	recallInjectionLimit     = 4
-	recallScoreFloor         = 0.05
+	recallMinFixedScore      = 1024.0
+	recallScoreFloor         = recallMinFixedScore / numeric.ScoreScale
 )
 
 type recallCandidate struct {
