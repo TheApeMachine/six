@@ -193,9 +193,6 @@ func pruneEdge(node, target *Node) {
 checkConvergence determines whether the graph has reached a stable state.
 Convergence requires energy stability (±1% over ConvergenceWindow ticks)
 and, if EigenMode is active, Toroidal Closure.
-
-Additionally checks momentum decay from the Sequencer: if momentum drops
-below the Sequencer's phase threshold, generation should stop.
 */
 func (g *Graph) checkConvergence() bool {
 	sinkEnergy := g.sink.Energy()
@@ -258,7 +255,9 @@ This is how the prompt enters the cortex.
 */
 func (g *Graph) InjectChords(chords []data.Chord) {
 	for _, c := range chords {
-		g.source.Send(NewDataToken(c, -1))
+		positioned := c.RollLeft(int(g.seqPos))
+		g.source.Send(NewDataToken(positioned, -1))
+		g.seqPos++
 	}
 }
 
@@ -270,20 +269,24 @@ both the content and the structural dynamics of the prompt.
 */
 func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 	for _, c := range chords {
-		g.source.Send(NewDataToken(c, -1))
+		positioned := c.RollLeft(int(g.seqPos))
+		g.source.Send(NewDataToken(positioned, -1))
+		reset := false
 
 		if g.config.Sequencer != nil {
-			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), c)
-			g.accumulateMomentum(c, events)
+			var events []int
+			reset, events = g.config.Sequencer.Analyze(int(g.seqPos), positioned)
+			g.accumulateMomentum(positioned, events)
 			for _, ev := range events {
 				rot := geometry.EventRotation(ev)
 				g.source.Send(NewRotationToken(rot, -1))
 			}
-			g.seqPos++
-			if reset {
-				g.seqPos = 0
-				g.seqZ++
-			}
+		}
+
+		g.seqPos++
+		if reset {
+			g.seqPos = 0
+			g.seqZ++
 		}
 	}
 }

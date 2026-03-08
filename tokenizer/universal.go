@@ -22,9 +22,9 @@ type Token struct {
 }
 
 /*
-Universal converts a byte stream from a Dataset into FibWindow-chunked
-tokens. Each position in the stream produces one token per FibWindow scale.
-The chord for each chunk is the OR of base chords of all bytes in the window.
+Universal converts a byte stream from a Dataset into position-bound byte
+tokens. Each byte occurrence becomes one Token, and RollLeft binds the
+sequencer-local position directly into the chord geometry.
 */
 type Universal struct {
 	ctx       context.Context
@@ -73,6 +73,7 @@ func (tokenizer *Universal) Generate() chan Token {
 
 		for rawToken := range tokenizer.dataset.Generate() {
 			chord := data.BaseChord(rawToken.Symbol)
+			chord = chord.RollLeft(int(tokenizer.pos))
 			reset, events := tokenizer.sequencer.Analyze(int(tokenizer.pos), chord)
 
 			out <- Token{

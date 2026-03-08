@@ -1,12 +1,26 @@
 package cortex
 
 import (
-	"math"
+	"reflect"
 	"testing"
+	"unsafe"
 
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/store"
 )
+
+func setPrimeFieldManifolds(t *testing.T, field *store.PrimeField, manifolds []geometry.IcosahedralManifold) {
+	t.Helper()
+
+	fieldValue := reflect.ValueOf(field).Elem()
+
+	manifoldsField := fieldValue.FieldByName("manifolds")
+	reflect.NewAt(manifoldsField.Type(), unsafe.Pointer(manifoldsField.UnsafeAddr())).Elem().Set(reflect.ValueOf(manifolds))
+
+	nField := fieldValue.FieldByName("N")
+	reflect.NewAt(nField.Type(), unsafe.Pointer(nField.UnsafeAddr())).Elem().SetInt(int64(len(manifolds)))
+}
 
 // ── Node Tests ───────────────────────────────────────────────────
 
@@ -159,6 +173,26 @@ func TestArrive_InterferenceEmitsToken(t *testing.T) {
 	}
 }
 
+func TestArrive_ComposedChordRoutesToMultipleFaces(t *testing.T) {
+	node := NewNode(0, 0)
+
+	left := data.BaseChord(10)
+	right := data.BaseChord(20)
+	composed := data.ChordOR(&left, &right)
+
+	node.Arrive(NewDataToken(composed, -1))
+
+	leftFace := node.Rot.Forward(10)
+	rightFace := node.Rot.Forward(20)
+
+	if node.Cube[leftFace].ActiveCount() == 0 {
+		t.Fatal("expected composed chord to activate the left routed face")
+	}
+	if node.Cube[rightFace].ActiveCount() == 0 {
+		t.Fatal("expected composed chord to activate the right routed face")
+	}
+}
+
 func TestNodeHole_UsesSummaryMinusPeak(t *testing.T) {
 	node := NewNode(0, 0)
 
@@ -295,79 +329,192 @@ func TestTick_Convergence(t *testing.T) {
 	}
 }
 
-// ── Integration Test ─────────────────────────────────────────────
+type recordingAnalyzer struct {
+	positions []int
+	chords    []data.Chord
+}
 
-func TestThink_ProducesOutput(t *testing.T) {
-	// Create a cortex with no PrimeField (no bedrock dreams).
-	// Inject a simple prompt and check that Think produces bytes.
+func (analyzer *recordingAnalyzer) Analyze(pos int, chord data.Chord) (bool, []int) {
+	analyzer.positions = append(analyzer.positions, pos)
+	analyzer.chords = append(analyzer.chords, chord)
+	return false, nil
+}
+
+func (analyzer *recordingAnalyzer) Phase() (float64, float64) {
+	return 0, 0
+}
+
+func (analyzer *recordingAnalyzer) Phi() float64 {
+	return 0
+}
+
+func TestInjectWithSequencer_BindsPromptPosition(t *testing.T) {
+	analyzer := &recordingAnalyzer{}
 	g := New(Config{
-		InitialNodes: 8,
-		MaxTicks:     128,
-		MaxOutput:    8,
+		InitialNodes: 4,
+		Sequencer:    analyzer,
 	})
 
-	// Build a small prompt: "AB"
-	prompt := []data.Chord{
-		data.BaseChord('A'),
-		data.BaseChord('B'),
+	base := data.BaseChord('A')
+	g.InjectWithSequencer([]data.Chord{base, base})
+
+	drained := g.source.DrainInbox()
+	if len(drained) != 2 {
+		t.Fatalf("expected 2 injected prompt tokens, got %d", len(drained))
 	}
 
-	out := g.Think(prompt, nil)
+	want0 := base.RollLeft(0)
+	want1 := base.RollLeft(1)
+
+	if drained[0].Chord != want0 {
+		t.Fatal("first prompt chord was not position-bound at pos 0")
+	}
+	if drained[1].Chord != want1 {
+		t.Fatal("second prompt chord was not position-bound at pos 1")
+	}
+
+	if len(analyzer.chords) != 2 {
+		t.Fatalf("expected analyzer to observe 2 prompt chords, got %d", len(analyzer.chords))
+	}
+	if analyzer.positions[0] != 0 || analyzer.positions[1] != 1 {
+		t.Fatalf("analyzer positions = %v, want [0 1]", analyzer.positions)
+	}
+	if analyzer.chords[0] != want0 || analyzer.chords[1] != want1 {
+		t.Fatal("sequencer should analyze the position-bound prompt chords")
+	}
+}
+
+// ── Integration Test ─────────────────────────────────────────────
+
+func TestHolographicProbe_DecodesPositionBoundSequence(t *testing.T) {
+	first := data.BaseChord('A')
+	first = first.RollLeft(0)
+	second := data.BaseChord('B')
+	second = second.RollLeft(1)
+	summary := data.ChordOR(&first, &second)
+
+	got0, score0 := holographicProbe(summary, 0)
+	got1, score1 := holographicProbe(summary, 1)
+
+	if got0 != 'A' || score0 < 5 {
+		t.Fatalf("probe at pos 0 = (%q, %.1f), want ('A', >=5)", got0, score0)
+	}
+	if got1 != 'B' || score1 < 5 {
+		t.Fatalf("probe at pos 1 = (%q, %.1f), want ('B', >=5)", got1, score1)
+	}
+}
+
+func TestThink_ProducesOutput(t *testing.T) {
+	g := New(Config{
+		InitialNodes:      8,
+		MaxTicks:          128,
+		MaxOutput:         8,
+		ConvergenceWindow: 3,
+	})
+
+	first := data.BaseChord('A')
+	first = first.RollLeft(0)
+	second := data.BaseChord('B')
+	second = second.RollLeft(1)
+	superposition := data.ChordOR(&first, &second)
+
+	expected := &geometry.IcosahedralManifold{}
+	expected.Cubes[0][0] = superposition
+
+	out := g.Think(nil, expected)
 
 	var result []byte
 	for b := range out {
 		result = append(result, b)
 	}
 
-	// We don't know WHAT the cortex produces without a PrimeField,
-	// but it should produce SOMETHING (the prompt data propagates
-	// and BestFace should find at least one active face).
-	t.Logf("cortex output: %d bytes, raw: %v", len(result), result)
-	t.Logf("cortex final state: %d nodes, %d total ticks",
-		len(g.nodes), g.tick)
+	if len(result) < 2 {
+		t.Fatalf("expected at least 2 decoded bytes, got %d", len(result))
+	}
+	if result[0] != 'A' || result[1] != 'B' {
+		t.Fatalf("decoded bytes = %q, want prefix %q", result, []byte{'A', 'B'})
+	}
 }
 
-type momentumTestAnalyzer struct {
-	events    []int
-	threshold float64
-	phi       float64
-}
+func TestQueryBedrock_InjectsCompetitiveRecallCandidates(t *testing.T) {
+	field := store.NewPrimeField()
 
-func (analyzer momentumTestAnalyzer) Analyze(int, data.Chord) (bool, []int) {
-	return false, analyzer.events
-}
+	left := data.BaseChord(30)
+	right := data.BaseChord(40)
 
-func (analyzer momentumTestAnalyzer) Phase() (float64, float64) {
-	return 0, analyzer.threshold
-}
+	var manifolds [3]geometry.IcosahedralManifold
+	manifolds[1].Cubes[0][30] = left
+	manifolds[2].Cubes[0][40] = right
+	setPrimeFieldManifolds(t, field, manifolds[:])
 
-func (analyzer momentumTestAnalyzer) Phi() float64 {
-	return analyzer.phi
-}
-
-func TestThink_UsesEventMomentumBeforeThresholdStop(t *testing.T) {
+	bestFillCalls := 0
 	g := New(Config{
-		InitialNodes: 8,
-		MaxTicks:     64,
-		MaxOutput:    4,
-		Sequencer: momentumTestAnalyzer{
-			events:    []int{geometry.EventDensitySpike},
-			threshold: 1.5,
-			phi:       (1.0 + math.Sqrt(5.0)) / 2.0,
+		InitialNodes: 4,
+		PrimeField:   field,
+		BestFill: func(
+			dictionary unsafe.Pointer,
+			numChords int,
+			context unsafe.Pointer,
+			expectedReality unsafe.Pointer,
+			mode int,
+			geodesicLUT unsafe.Pointer,
+		) (int, float64, error) {
+			bestFillCalls++
+			dict := unsafe.Slice((*geometry.IcosahedralManifold)(dictionary), numChords)
+
+			bestIdx := -1
+			bestScore := 0.0
+			for i := range dict {
+				switch {
+				case dict[i].Cubes[0][30].ActiveCount() > 0:
+					if 0.9 > bestScore {
+						bestIdx = i
+						bestScore = 0.9
+					}
+				case dict[i].Cubes[0][40].ActiveCount() > 0:
+					if 0.8 > bestScore {
+						bestIdx = i
+						bestScore = 0.8
+					}
+				}
+			}
+
+			if bestIdx < 0 {
+				return 0, 0, nil
+			}
+
+			return bestIdx, bestScore, nil
 		},
 	})
 
-	expected := &geometry.IcosahedralManifold{}
-	expected.Cubes[0][42] = data.BaseChord(42)
+	hole := data.ChordOR(&left, &right)
+	anchorLeft := data.BaseChord(5)
+	anchorRight := data.BaseChord(6)
+	anchor := data.ChordOR(&anchorLeft, &anchorRight)
+	g.source.Cube[5] = anchor
+	g.source.Cube[6] = hole
 
-	out := g.Think([]data.Chord{data.BaseChord('A')}, expected)
+	g.queryBedrock(g.source)
 
-	var result []byte
-	for b := range out {
-		result = append(result, b)
+	recalled := g.source.DrainInbox()
+	if bestFillCalls < 2 {
+		t.Fatalf("expected repeated BestFill calls for competitive recall, got %d", bestFillCalls)
+	}
+	if len(recalled) < 2 {
+		t.Fatalf("expected multiple recall candidates, got %d", len(recalled))
 	}
 
-	if len(result) == 0 {
-		t.Fatal("expected event momentum to carry generation past the initial threshold gate")
+	var sawLeft, sawRight bool
+	for _, tok := range recalled {
+		switch tok.Chord {
+		case left:
+			sawLeft = true
+		case right:
+			sawRight = true
+		}
+	}
+
+	if !sawLeft || !sawRight {
+		t.Fatalf("expected both recall competitors, sawLeft=%v sawRight=%v", sawLeft, sawRight)
 	}
 }

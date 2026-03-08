@@ -15,7 +15,7 @@ type Calibrator struct {
 
 func NewCalibrator() *Calibrator {
 	// Base mathematical derivations purely on the Golden Ratio
-	// since the spatial chunking logic is FibWindow-based.
+	// for the sequencer's spatial boundary sensitivity.
 	phi := (1.0 + math.Sqrt(5.0)) / 2.0
 
 	return &Calibrator{

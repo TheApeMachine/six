@@ -140,20 +140,32 @@ type Graph struct {
 	outputBytes    int
 }
 
+const (
+	maxSelfAddressCandidates = 4
+	recallCompetitionWidth   = 4
+	recallInjectionLimit     = 4
+	recallScoreFloor         = 0.05
+)
+
 type faceCandidate struct {
 	face  int
 	score int
 }
 
+type recallCandidate struct {
+	chord data.Chord
+	score float64
+}
+
 // Self-address cache: maps Chord → byte value.
-// Precomputed for all 256 BaseChords; composed chords are resolved via
-// similarity scan and cached.
+// Precomputed for all 256 BaseChords; composed chords cache their strongest
+// face bundle so repeated routing does not collapse back to top-1.
 var (
 	selfAddrMu    sync.RWMutex
-	selfAddrCache = func() map[data.Chord]int {
-		m := make(map[data.Chord]int, 256)
+	selfAddrCache = func() map[data.Chord][]faceCandidate {
+		m := make(map[data.Chord][]faceCandidate, 256)
 		for b := range 256 {
-			m[data.BaseChord(byte(b))] = b
+			m[data.BaseChord(byte(b))] = []faceCandidate{{face: b, score: 5}}
 		}
 		return m
 	}()
@@ -179,6 +191,17 @@ func selfAddressFace(c *data.Chord) int {
 }
 
 func appendFaceCandidate(top []faceCandidate, cand faceCandidate, limit int) []faceCandidate {
+	for i := range top {
+		if top[i].face != cand.face {
+			continue
+		}
+		if cand.score <= top[i].score {
+			return top
+		}
+		top = append(top[:i], top[i+1:]...)
+		break
+	}
+
 	insertAt := len(top)
 	for i := range top {
 		if cand.score > top[i].score {
@@ -208,11 +231,21 @@ func selfAddressCandidates(c *data.Chord, limit int) []faceCandidate {
 	}
 
 	selfAddrMu.RLock()
-	if face, ok := selfAddrCache[*c]; ok {
+	if cached, ok := selfAddrCache[*c]; ok {
 		selfAddrMu.RUnlock()
-		return []faceCandidate{{face: face, score: c.ActiveCount()}}
+		if len(cached) < limit {
+			limit = len(cached)
+		}
+		out := make([]faceCandidate, limit)
+		copy(out, cached[:limit])
+		return out
 	}
 	selfAddrMu.RUnlock()
+
+	searchLimit := limit
+	if searchLimit < maxSelfAddressCandidates {
+		searchLimit = maxSelfAddressCandidates
+	}
 
 	var top []faceCandidate
 	for b := range 256 {
@@ -222,7 +255,7 @@ func selfAddressCandidates(c *data.Chord, limit int) []faceCandidate {
 			continue
 		}
 
-		top = appendFaceCandidate(top, faceCandidate{face: b, score: sim}, limit)
+		top = appendFaceCandidate(top, faceCandidate{face: b, score: sim}, searchLimit)
 	}
 
 	if len(top) == 0 {
@@ -232,14 +265,194 @@ func selfAddressCandidates(c *data.Chord, limit int) []faceCandidate {
 			if idx >= 256 {
 				continue
 			}
-			top = appendFaceCandidate(top, faceCandidate{face: idx, score: 1}, limit)
+			top = appendFaceCandidate(top, faceCandidate{face: idx, score: 1}, searchLimit)
 		}
 	}
 
+	top = pruneFaceCandidates(top, searchLimit)
+
 	if len(top) > 0 {
+		cached := make([]faceCandidate, len(top))
+		copy(cached, top)
+
 		selfAddrMu.Lock()
-		selfAddrCache[*c] = top[0].face
+		selfAddrCache[*c] = cached
 		selfAddrMu.Unlock()
+	}
+
+	return top
+}
+
+func pruneFaceCandidates(cands []faceCandidate, limit int) []faceCandidate {
+	if len(cands) == 0 {
+		return nil
+	}
+
+	bestScore := cands[0].score
+	threshold := (bestScore*4 + 4) / 5
+	if threshold < 1 {
+		threshold = 1
+	}
+
+	pruned := make([]faceCandidate, 0, len(cands))
+	for _, cand := range cands {
+		if cand.score < threshold {
+			continue
+		}
+		pruned = append(pruned, cand)
+		if len(pruned) == limit {
+			break
+		}
+	}
+
+	if len(pruned) == 0 {
+		return cands[:1]
+	}
+
+	return pruned
+}
+
+func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit int) []recallCandidate {
+	for i := range top {
+		if top[i].chord != cand.chord {
+			continue
+		}
+		if cand.score <= top[i].score {
+			return top
+		}
+		top = append(top[:i], top[i+1:]...)
+		break
+	}
+
+	insertAt := len(top)
+	for i := range top {
+		if cand.score > top[i].score {
+			insertAt = i
+			break
+		}
+	}
+
+	if len(top) < limit {
+		top = append(top, recallCandidate{})
+	}
+	if insertAt < len(top) {
+		copy(top[insertAt+1:], top[insertAt:len(top)-1])
+		top[insertAt] = cand
+	}
+
+	if len(top) > limit {
+		top = top[:limit]
+	}
+
+	return top
+}
+
+func recallQueryManifolds(node *Node, anchor, hole data.Chord, dial, total int, basePhase float64) (geometry.IcosahedralManifold, geometry.IcosahedralManifold) {
+	var (
+		ctx      geometry.IcosahedralManifold
+		expected geometry.IcosahedralManifold
+	)
+	ctx.Header = node.Header
+	expected.Header = node.Header
+
+	queryAnchor := anchor
+	queryExpected := data.ChordOR(&anchor, &hole)
+	face := selfAddressFace(&queryAnchor)
+
+	if dial > 0 && total > 1 {
+		angle := basePhase + float64(dial)*math.Pi/float64(total*2)
+		shift := int(angle*257/(2*math.Pi)) % 257
+		face = (face + shift) % 257
+		if face < 0 {
+			face += 257
+		}
+	}
+
+	ctx.Cubes[0][face] = queryAnchor
+	expected.Cubes[0][face] = queryExpected
+
+	return ctx, expected
+}
+
+func scoreRecallCandidate(anchor, hole, faceChord *data.Chord, matchScore float64) float64 {
+	quality := resonance.FillScore(hole, faceChord)
+	if quality <= 0 {
+		return 0
+	}
+
+	score := quality + 0.5*matchScore
+	if anchor.ActiveCount() > 0 {
+		score += 0.25 * (float64(data.ChordSimilarity(anchor, faceChord)) / float64(anchor.ActiveCount()))
+	}
+
+	return score
+}
+
+func (g *Graph) collectRecallCandidates(
+	dictPtr unsafe.Pointer,
+	dictN int,
+	dictOffset int,
+	ctx *geometry.IcosahedralManifold,
+	expected *geometry.IcosahedralManifold,
+	anchor *data.Chord,
+	hole *data.Chord,
+	limit int,
+) []recallCandidate {
+	if limit <= 0 {
+		return nil
+	}
+
+	type maskedManifold struct {
+		idx      int
+		manifold geometry.IcosahedralManifold
+	}
+
+	var (
+		masked []maskedManifold
+		top    []recallCandidate
+	)
+
+	defer func() {
+		for i := len(masked) - 1; i >= 0; i-- {
+			g.config.PrimeField.Unmask(masked[i].idx, masked[i].manifold)
+		}
+	}()
+
+	for attempt := 0; attempt < limit; attempt++ {
+		bestIdx, matchScore, err := g.config.BestFill(
+			dictPtr,
+			dictN,
+			unsafe.Pointer(ctx),
+			unsafe.Pointer(expected),
+			0,
+			unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+		)
+		if err != nil || matchScore < recallScoreFloor || bestIdx < 0 || bestIdx >= dictN {
+			break
+		}
+
+		absIdx := dictOffset + bestIdx
+		matched := g.config.PrimeField.Mask(absIdx)
+		masked = append(masked, maskedManifold{idx: absIdx, manifold: matched})
+
+		for cube := 0; cube < 4; cube++ {
+			for face := range geometry.CubeFaces {
+				faceChord := matched.Cubes[cube][face]
+				if faceChord.ActiveCount() == 0 {
+					continue
+				}
+
+				score := scoreRecallCandidate(anchor, hole, &faceChord, matchScore)
+				if score < recallScoreFloor {
+					continue
+				}
+
+				top = appendRecallCandidate(top, recallCandidate{
+					chord: faceChord,
+					score: score,
+				}, limit)
+			}
+		}
 	}
 
 	return top
@@ -456,80 +669,46 @@ func (g *Graph) queryBedrock(node *Node) {
 		basePhase, _ = g.config.EigenMode.PhaseForChord(&hole)
 	}
 
-	bestChord := data.Chord{}
-	bestFill := -1.0
+	var recalled []recallCandidate
 
 	for d := range nDial {
-		// Build query context, optionally rotated.
-		var (
-			ctx      geometry.IcosahedralManifold
-			expected geometry.IcosahedralManifold
-		)
-		ctx.Header = node.Header
-		expected.Header = node.Header
-
-		queryAnchor := anchor
-		queryExpected := data.ChordOR(&anchor, &hole)
-
-		if d > 0 && g.config.EigenMode != nil {
-			// Apply torus rotation: shift the anchor placement to query
-			// neighboring manifold regions for the same deficit pattern.
-			angle := basePhase + float64(d)*math.Pi/float64(nDial*2)
-			shift := int(angle*257/(2*math.Pi)) % 257
-			face := (selfAddressFace(&queryAnchor) + shift) % 257
-			if face < 0 {
-				face += 257
-			}
-			ctx.Cubes[0][face] = queryAnchor
-			expected.Cubes[0][face] = queryExpected
-		} else {
-			face := selfAddressFace(&queryAnchor)
-			ctx.Cubes[0][face] = queryAnchor
-			expected.Cubes[0][face] = queryExpected
-		}
-
-		bestIdx, score, err := g.config.BestFill(
+		ctx, expected := recallQueryManifolds(node, anchor, hole, d, nDial, basePhase)
+		dialCandidates := g.collectRecallCandidates(
 			dictPtr,
 			dictN,
-			unsafe.Pointer(&ctx),
-			unsafe.Pointer(&expected),
-			0,
-			unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+			dictOffset,
+			&ctx,
+			&expected,
+			&anchor,
+			&hole,
+			recallCompetitionWidth,
 		)
-		if err != nil || score < 0.05 {
-			continue
-		}
-
-		// Scan ALL faces of the matched manifold for the best hole-filler.
-		// This is the candidate-scoring pipeline from textgen/compositional:
-		// for each face, compute FillScore(hole, face_chord) and take the best.
-		matched := g.config.PrimeField.Manifold(dictOffset + bestIdx)
-		for face := range geometry.CubeFaces {
-			faceChord := matched.Cubes[0][face]
-			if faceChord.ActiveCount() == 0 {
-				continue
-			}
-			quality := resonance.FillScore(&hole, &faceChord)
-			if anchor.ActiveCount() > 0 {
-				quality += 0.25 * (float64(data.ChordSimilarity(&anchor, &faceChord)) / float64(anchor.ActiveCount()))
-			}
-			if quality > bestFill {
-				bestFill = quality
-				bestChord = faceChord
-			}
+		for _, cand := range dialCandidates {
+			recalled = appendRecallCandidate(recalled, cand, recallInjectionLimit)
 		}
 	}
 
-	if bestFill < 0.05 {
+	if len(recalled) == 0 {
 		return
 	}
 
-	// Inject the best hole-filling chord back into the node.
-	node.Send(Token{
-		Chord:  bestChord,
-		Origin: -1, // from bedrock
-		TTL:    3,  // short-lived memory recall
-	})
+	bestScore := recalled[0].score
+	for _, cand := range recalled {
+		if cand.score < bestScore*0.35 {
+			continue
+		}
+
+		ttl := 2
+		if cand.score >= bestScore*0.8 {
+			ttl = 3
+		}
+
+		node.Send(Token{
+			Chord:  cand.chord,
+			Origin: -1,
+			TTL:    ttl,
+		})
+	}
 }
 
 /*

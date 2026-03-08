@@ -50,13 +50,18 @@ func (n *Node) Arrive(tok Token) []Token {
 
 	var emitted []Token
 	routedFaces := make([]int, 0, len(candidates))
+	beforeByFace := make(map[int]data.Chord, len(candidates))
 
 	for _, candidate := range candidates {
 		routed := n.Rot.Forward(candidate.face)
+		if _, seen := beforeByFace[routed]; seen {
+			continue
+		}
 		routedFaces = append(routedFaces, routed)
 
 		// Snapshot before merge (needed for interference detection).
 		before := n.Cube[routed]
+		beforeByFace[routed] = before
 
 		// Merge via ChordOR — accumulative superposition.
 		n.Cube[routed] = data.ChordOR(&n.Cube[routed], &tok.Chord)
@@ -88,8 +93,11 @@ func (n *Node) Arrive(tok Token) []Token {
 	if summary.ActiveCount() > 5 && tok.Chord.ActiveCount() > 3 {
 		shared := data.ChordGCD(&tok.Chord, &summary)
 		if shared.ActiveCount() > 1 { // sufficient pairwise overlap
-			faceContent := n.Cube[routedFaces[0]]
-			h := resonance.TransitiveResonance(&tok.Chord, &summary, &faceContent)
+			var bundleContent data.Chord
+			for _, routed := range routedFaces {
+				bundleContent = data.ChordOR(&bundleContent, &n.Cube[routed])
+			}
+			h := resonance.TransitiveResonance(&tok.Chord, &summary, &bundleContent)
 			if h.ActiveCount() > 2 && tok.TTL > 1 {
 				emitted = append(emitted, Token{
 					Chord:  h,
@@ -115,11 +123,14 @@ func (n *Node) Arrive(tok Token) []Token {
 			Origin: n.ID,
 			TTL:    tok.TTL - 1,
 		})
-		// Partially drain the saturated face to relieve pressure without
-		// erasing all local context.
-		drained := data.ChordHole(&n.Cube[routed], &tok.Chord)
-		if drained.ActiveCount() > 0 {
-			n.Cube[routed] = drained
+		// Retain only the stable overlap between prior state and the incoming
+		// chord so saturated faces keep consensus structure rather than echoing
+		// the entire bundle indefinitely.
+		if before, ok := beforeByFace[routed]; ok {
+			consensus := data.ChordGCD(&before, &tok.Chord)
+			if consensus.ActiveCount() > 0 {
+				n.Cube[routed] = consensus
+			}
 		}
 	}
 

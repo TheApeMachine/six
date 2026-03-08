@@ -15,7 +15,7 @@
       "Name": "Out of Corpus",
       "Prefix": "c2hhcmsgaGF0ZQ==",
       "Holdout": "cw==",
-      "Observed": null,
+      "Observed": "c2Wswx6DkwTGYgHW6QRyAkkiSy2Z0wEohRC4QQFAZRQsixiXPoW/jYoHwI5QNRgQ4m76Ah4QBAUYSWEQCIRgcHCFgSgNMvg+Rq8fMoH9OEeungtcXwZIPgcEXIZsQjoMBA+AukIQPjbsZ0ZeDDUu9swwfk5sFw84A6b+NzH2+kk9ypwdd1hzIwwWYIpJCloLmi4GZgsjesktLXwKLGhVAVRUQD0HkSsZ4zEFw5F/C28aDERcC3oGpzM0D5wJDQU1Q05mbpUCGwKge9yWAZ6pAUWlVcsyHa5MSWUqyJULfAQ7KZFUCgmodghRsicIGAps8ZxHOdiQqBKRahhmFAzGOQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -31,7 +31,7 @@
       "Name": "Out of Corpus",
       "Prefix": "ZnJvZyBoYXRl",
       "Holdout": "cw==",
-      "Observed": null,
+      "Observed": "VXOO",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,

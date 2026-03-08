@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/provider"
 )
 
@@ -74,6 +75,9 @@ func TestGenerate(t *testing.T) {
 					// Verify Decode works, absolute positions are monotonic, and tokens exist.
 					So(pos, ShouldEqual, absolutePos)
 					absolutePos++
+					want := data.BaseChord(symbol)
+					want = want.RollLeft(int(tk.Pos))
+					So(tk.Chord, ShouldEqual, want)
 					if symbol > 0 {
 						s1Tokens = append(s1Tokens, tk)
 					}

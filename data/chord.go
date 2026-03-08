@@ -359,7 +359,7 @@ func (chord *Chord) RollLeft(shift int) Chord {
 	shift = shift % logicalBits
 
 	// Fast sparse-array permutation within the 257-bit logical width
-	for i := 0; i < config.ChordBlocks; i++ {
+	for i := range config.ChordBlocks {
 		block := chord[i]
 		for block != 0 {
 			bitIdx := bits.TrailingZeros64(block)
