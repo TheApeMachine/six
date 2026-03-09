@@ -3,7 +3,6 @@ package geometry
 import (
 	"math"
 	"math/bits"
-	"math/cmplx"
 	"sort"
 
 	config "github.com/theapemachine/six/core"
@@ -116,9 +115,17 @@ func (hs *HybridSubstrate) BitwiseFilter(
 		score int
 	}
 
-	scores := make([]candidateScore, len(hs.Entries))
+	if topK <= 0 || len(hs.Entries) == 0 {
+		return []int{}
+	}
 
-	for i, entry := range hs.Entries {
+	if topK > len(hs.Entries) {
+		topK = len(hs.Entries)
+	}
+
+	scores := make([]candidateScore, 0, topK)
+
+	for idx, entry := range hs.Entries {
 		matchCount := 0
 		noiseCount := 0
 
@@ -127,21 +134,32 @@ func (hs *HybridSubstrate) BitwiseFilter(
 			noiseCount += bits.OnesCount64(entry.Filter[j] &^ contextFilter[j])
 		}
 
-		resScore := int((float64(matchCount) / float64(matchCount+noiseCount+1)) * 1e6)
-		scores[i] = candidateScore{idx: i, score: resScore}
+		score := int((float64(matchCount) / float64(matchCount+noiseCount+1)) * 1e6)
+		insertAt := len(scores)
+
+		for i := range scores {
+			if score > scores[i].score {
+				insertAt = i
+				break
+			}
+		}
+
+		if insertAt == len(scores) && len(scores) == topK {
+			continue
+		}
+
+		scores = append(scores, candidateScore{})
+		copy(scores[insertAt+1:], scores[insertAt:])
+		scores[insertAt] = candidateScore{idx: idx, score: score}
+
+		if len(scores) > topK {
+			scores = scores[:topK]
+		}
 	}
 
-	sort.Slice(scores, func(i, j int) bool {
-		return scores[i].score > scores[j].score // Descending
-	})
+	result := make([]int, len(scores))
 
-	if topK > len(scores) {
-		topK = len(scores)
-	}
-
-	result := make([]int, topK)
-
-	for i := 0; i < topK; i++ {
+	for i := range scores {
 		result[i] = scores[i].idx
 	}
 
@@ -211,25 +229,25 @@ func (hs *HybridSubstrate) complexCosineSimilarity(a, b PhaseDial) float64 {
 		return 0
 	}
 
-	var dot complex128
+	var dotReal float64
 	var normA, normB float64
 
 	for i := range a {
-		// Conjugate of a[i] * b[i]
-		valA := a[i]
-		valB := b[i]
-		dot += cmplx.Conj(valA) * valB
+		ar := real(a[i])
+		ai := imag(a[i])
+		br := real(b[i])
+		bi := imag(b[i])
 
-		normA += real(valA)*real(valA) + imag(valA)*imag(valA)
-		normB += real(valB)*real(valB) + imag(valB)*imag(valB)
+		dotReal += ar*br + ai*bi
+		normA += ar*ar + ai*ai
+		normB += br*br + bi*bi
 	}
 
 	if normA == 0 || normB == 0 {
 		return 0
 	}
 
-	// Real projection of the dot product over the norms
-	return real(dot) / (math.Sqrt(normA) * math.Sqrt(normB))
+	return dotReal / (math.Sqrt(normA) * math.Sqrt(normB))
 }
 
 /*

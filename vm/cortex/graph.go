@@ -20,6 +20,7 @@ type Graph struct {
 	cancel  context.CancelFunc
 	backend kernel.Backend
 	nodes   []*Node
+	rots    []geometry.GFRotation
 	source  *Node
 	sink    *Node
 	tick    int
@@ -260,11 +261,17 @@ func (graph *Graph) NearestNode(target geometry.GFRotation) *Node {
 		return nil
 	}
 
-	layout := make([]geometry.GFRotation, nodeCount)
+	if cap(graph.rots) < nodeCount {
+		graph.rots = make([]geometry.GFRotation, nodeCount)
+	} else {
+		graph.rots = graph.rots[:nodeCount]
+	}
 
 	for idx, node := range graph.nodes {
-		layout[idx] = node.Rot
+		graph.rots[idx] = node.Rot
 	}
+
+	layout := graph.rots
 
 	packed, err := graph.backend.Resolve(
 		unsafe.Pointer(&layout[0]),

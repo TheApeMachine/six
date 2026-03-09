@@ -1,7 +1,12 @@
 package kernel
 
 import (
+	"os"
 	"unsafe"
+
+	"github.com/theapemachine/six/kernel/cpu"
+	"github.com/theapemachine/six/kernel/cuda"
+	"github.com/theapemachine/six/kernel/metal"
 )
 
 /*
@@ -24,21 +29,30 @@ type Backend interface {
 }
 
 type Builder struct {
-	backend Backend
+	backend  Backend
+	backends []namedBackend
 }
 
 type builderOpts func(*Builder)
 
 func WithBackend(backend Backend) builderOpts {
 	return func(builder *Builder) {
-		builder.backend = backend
+		builder.backends = append(builder.backends, namedBackend{
+			name:    backendName(backend),
+			backend: backend,
+		})
 	}
+}
+
+type namedBackend struct {
+	name    string
+	backend Backend
 }
 
 /*
 NewBuilder creates the backend specified by the SIX_BACKEND environment variable.
-Valid values: "metal", "cuda", "cpu". Defaults to "cpu" if unset.
-Returns an error if the requested backend is unavailable.
+Valid values: "metal", "cuda", "cpu". If unset, the first available configured
+backend is selected.
 */
 func NewBuilder(opts ...builderOpts) *Builder {
 	builder := &Builder{}
@@ -47,10 +61,15 @@ func NewBuilder(opts ...builderOpts) *Builder {
 		opt(builder)
 	}
 
-	if builder.backend == nil {
-		return nil
+	if len(builder.backends) == 0 {
+		builder.backends = []namedBackend{
+			{name: "cpu", backend: &cpu.CPUBackend{}},
+			{name: "cuda", backend: &cuda.CUDABackend{}},
+			{name: "metal", backend: &metal.MetalBackend{}},
+		}
 	}
 
+	builder.backend = builder.selectBackend(os.Getenv("SIX_BACKEND"))
 	return builder
 }
 
@@ -59,6 +78,10 @@ func (builder *Builder) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (uint64, error) {
+	if builder.backend == nil {
+		return 0, nil
+	}
+
 	return builder.backend.Resolve(
 		graphNodes,
 		numNodes,
@@ -67,10 +90,40 @@ func (builder *Builder) Resolve(
 }
 
 func (builder *Builder) Available() bool {
-	if builder.backend == nil {
-		return false
+	return builder.backend != nil && builder.backend.Available()
+}
+
+func (builder *Builder) selectBackend(requested string) Backend {
+	if requested != "" {
+		for _, candidate := range builder.backends {
+			if candidate.name == requested && candidate.backend.Available() {
+				return candidate.backend
+			}
+		}
+
+		return nil
 	}
-	return builder.backend.Available()
+
+	for _, candidate := range builder.backends {
+		if candidate.backend.Available() {
+			return candidate.backend
+		}
+	}
+
+	return nil
+}
+
+func backendName(backend Backend) string {
+	switch backend.(type) {
+	case *cpu.CPUBackend:
+		return "cpu"
+	case *cuda.CUDABackend:
+		return "cuda"
+	case *metal.MetalBackend:
+		return "metal"
+	default:
+		return ""
+	}
 }
 
 /*
