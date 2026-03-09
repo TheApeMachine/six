@@ -9,7 +9,7 @@ form \textit{''Where is Entity?''}. The correct
 answer is the last location the entity moved to.
 
 \paragraph{Test Conditions.}
-The experiment evaluated 500 samples from the
+The experiment evaluated 50 samples from the
 \texttt{facebook/babi\_qa} dataset (subset \texttt{en-10k-qa1}).
 Reasoning was performed using TransitiveResonance-validated
 entity tracking: the system extracts the entity name from the
@@ -19,74 +19,74 @@ geometric validation score measuring structural plausibility
 of the answer chord against the hypothesis residue.
 
 \paragraph{Results.}
-The system achieved an exact-match accuracy of 0.0000\%
-across all 500 samples, with a mean partial score of
-0.000.
-A total of 500 samples failed exact match.
+The system achieved an exact-match accuracy of 2.0000\%
+across all 50 samples, with a mean partial score of
+0.075.
+A total of 49 samples failed exact match.
 Table~\ref{tab:babi_failures} lists the first 20 failure cases.
 
 \paragraph{Per-Entity Analysis.}
-\textbf{Daniel}: 0/127 correct (0.0000\%).
-\textbf{John}: 0/130 correct (0.0000\%).
-\textbf{Mary}: 0/120 correct (0.0000\%).
-\textbf{Sandra}: 0/123 correct (0.0000\%).
+\textbf{Daniel}: 0/17 correct (0.0000\%).
+\textbf{John}: 0/13 correct (0.0000\%).
+\textbf{Mary}: 0/5 correct (0.0000\%).
+\textbf{Sandra}: 1/15 correct (6.6667\%).
 
 \paragraph{Per-Location Analysis.}
-\textbf{bathroom}: 0/97 correct (0.0000\%).
-\textbf{bedroom}: 0/81 correct (0.0000\%).
-\textbf{garden}: 0/79 correct (0.0000\%).
-\textbf{hallway}: 0/84 correct (0.0000\%).
-\textbf{kitchen}: 0/89 correct (0.0000\%).
-\textbf{office}: 0/70 correct (0.0000\%).
+\textbf{bathroom}: 1/12 correct (8.3333\%).
+\textbf{bedroom}: 0/8 correct (0.0000\%).
+\textbf{garden}: 0/4 correct (0.0000\%).
+\textbf{hallway}: 0/10 correct (0.0000\%).
+\textbf{kitchen}: 0/10 correct (0.0000\%).
+\textbf{office}: 0/6 correct (0.0000\%).
 \begin{table}[h]
 \centering
 \caption{bAbI Task~1 failure cases (first 20).
-Exact-match accuracy: 0.0000\%.
-$N=500$, subset: \texttt{en-10k-qa1}.}
+Exact-match accuracy: 2.0000\%.
+$N=50$, subset: \texttt{en-10k-qa1}.}
 \label{tab:babi_failures}
 \begin{tabular}{|r|l|l|l|}
 \hline
 \textbf{Idx} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
 \hline
-0 & Mary & bathroom &  \\
+0 & Mary & bathroom & Mary mov \\
 \hline
-1 & Daniel & hallway &  \\
+1 & Daniel & hallway & Mary mo \\
 \hline
-2 & Daniel & hallway &  \\
+2 & Daniel & hallway & arden.  \\
 \hline
-3 & Daniel & office &  \\
+3 & Daniel & office &  to th \\
 \hline
-4 & Sandra & bathroom &  \\
+4 & Sandra & bathroom & is Danie \\
 \hline
-5 & Sandra & bathroom &  \\
+5 & Sandra & bathroom & the bath \\
 \hline
-6 & Sandra & bathroom &  \\
+6 & Sandra & bathroom &  Where i \\
 \hline
-7 & Sandra & bathroom &  \\
+8 & John & office & athroo \\
 \hline
-8 & John & office &  \\
+9 & Daniel & hallway & yed to  \\
 \hline
-9 & Daniel & hallway &  \\
+10 & John & bathroom &  to the  \\
 \hline
-10 & John & bathroom &  \\
+11 & Mary & bedroom & eyed to \\
 \hline
-11 & Mary & bedroom &  \\
+12 & John & bathroom & neyed to \\
 \hline
-12 & John & bathroom &  \\
+13 & John & bathroom & . Where  \\
 \hline
-13 & John & bathroom &  \\
+14 & Sandra & bedroom & eyed to \\
 \hline
-14 & Sandra & bedroom &  \\
+15 & Daniel & bedroom & d to th \\
 \hline
-15 & Daniel & bedroom &  \\
+16 & Sandra & kitchen & d to th \\
 \hline
-16 & Sandra & kitchen &  \\
+17 & Sandra & hallway & d to th \\
 \hline
-17 & Sandra & hallway &  \\
+18 & Sandra & hallway & d to th \\
 \hline
-18 & Sandra & hallway &  \\
+19 & Daniel & hallway & d to th \\
 \hline
-19 & Daniel & hallway &  \\
+20 & John & bathroom & eyed to  \\
 \hline
 \end{tabular}
 \end{table}

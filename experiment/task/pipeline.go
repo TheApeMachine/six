@@ -103,7 +103,7 @@ func (pipeline *Pipeline) Run() error {
 		pipeline.prompt(prompt)
 	}
 
-	if err := pipeline.experiment.Finalize(nil); err != nil {
+	if err := pipeline.experiment.Finalize(pipeline.loader.Substrate()); err != nil {
 		return fmt.Errorf("experiment finalize: %w", err)
 	}
 

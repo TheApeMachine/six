@@ -1,5 +1,5 @@
 {
-  "caption": "Accuracy per target location. N=500 samples.",
+  "caption": "Accuracy per target location. N=50 samples.",
   "data": {
     "x_axis": [
       "bathroom",
@@ -13,7 +13,7 @@
       {
         "name": "Accuracy",
         "data": [
-          0,
+          0.08333333333333333,
           0,
           0,
           0,
@@ -24,12 +24,12 @@
       {
         "name": "Count (÷10)",
         "data": [
-          9.7,
-          8.1,
-          7.9,
-          8.4,
-          8.9,
-          7
+          1.2,
+          0.8,
+          0.4,
+          1,
+          1,
+          0.6
         ]
       }
     ]

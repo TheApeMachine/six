@@ -57,6 +57,31 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 }
 
 /*
+AddChordPhase incrementally adds a single chord's phase to an unnormalized PhaseDial.
+This allows O(N) instead of O(N^2) sequential dial construction.
+*/
+func (dial PhaseDial) AddChordPhase(chord data.Chord, t int) {
+	for k := 0; k < config.Numeric.NBasis; k++ {
+		omega := float64(numeric.Primes[k])
+		bin := data.ChordBin(&chord)
+		structuralPrime := float64(numeric.Primes[bin%config.Numeric.NSymbols])
+
+		phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
+		dial[k] += cmplx.Rect(1.0, phase)
+	}
+}
+
+/*
+CopyAndNormalize returns a cloned, normalized copy of the dial.
+Useful when accumulating phases incrementally.
+*/
+func (dial PhaseDial) CopyAndNormalize() PhaseDial {
+	out := make(PhaseDial, len(dial))
+	copy(out, dial)
+	return out.normalize()
+}
+
+/*
 Rotate applies a global phase rotation e^{iθ} to each dimension.
 Returns a new PhaseDial; the receiver is unchanged.
 */

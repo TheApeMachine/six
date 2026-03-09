@@ -6,7 +6,7 @@
       "Name": "Out of Corpus",
       "Prefix": "c2hhcmsgaGF0ZQ==",
       "Holdout": "cw==",
-      "Observed": null,
+      "Observed": "ZQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -22,7 +22,7 @@
       "Name": "Out of Corpus",
       "Prefix": "ZnJvZyBoYXRl",
       "Holdout": "cw==",
-      "Observed": null,
+      "Observed": "IA==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,

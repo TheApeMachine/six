@@ -30,7 +30,7 @@ func NewBabiExperiment() *BabiExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(10),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 		),
 	}

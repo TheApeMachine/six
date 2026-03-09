@@ -151,6 +151,7 @@ func (loader *Loader) buildPhaseDial(
 	rot := geometry.IdentityRotation()
 
 	var activePrefix data.Chord
+	runningDial := geometry.NewPhaseDial()
 
 	for i := 0; i < len(sequence); i++ {
 		if i > 0 {
@@ -164,9 +165,11 @@ func (loader *Loader) buildPhaseDial(
 		suffix := make([]data.Chord, len(sequence)-i)
 		copy(suffix, sequence[i:])
 
-		dial := geometry.NewPhaseDial()
+		var dial geometry.PhaseDial
 		if i > 0 {
-			dial = dial.EncodeFromChords(sequence[:i])
+			dial = runningDial.CopyAndNormalize()
+		} else {
+			dial = geometry.NewPhaseDial()
 		}
 
 		loader.substrate.Add(
@@ -177,11 +180,11 @@ func (loader *Loader) buildPhaseDial(
 			rot = rot.Compose(
 				geometry.RotationForChord(sequence[i]),
 			)
+			runningDial.AddChordPhase(sequence[i], i)
 		}
 	}
 
-	dial := geometry.NewPhaseDial()
-	dial = dial.EncodeFromChords(sequence)
+	dial := runningDial.CopyAndNormalize()
 
 	loader.substrate.Add(
 		data.Chord{},

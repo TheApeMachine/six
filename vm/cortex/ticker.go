@@ -1,7 +1,6 @@
 package cortex
 
 import (
-	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
@@ -283,12 +282,6 @@ func (graph *Graph) prune() {
 		}
 
 		graph.pruneEvents++
-
-		console.Info("cortex prune",
-			"nodeID", node.ID,
-			"energy", node.Energy(),
-			"age", age,
-		)
 	}
 
 	graph.nodes = alive
@@ -320,10 +313,9 @@ func (graph *Graph) checkConvergence() bool {
 	}
 
 	energyStable := sinkEnergy >= minStableEnergy && delta < 0.01
+	graph.sinkStableCount++
 
-	if energyStable {
-		graph.sinkStableCount++
-	} else {
+	if !energyStable {
 		graph.sinkStableCount = 0
 	}
 
