@@ -362,36 +362,25 @@ func (field *PrimeField) shouldDeMitosis() bool {
 /*
 Insert stores a chord on the cube as a radix trie node.
 
-The byte value determines the logical face (0-255). The accumulated rotation
-state determines the slot on that face: blockIndex = rot.Forward(byteVal).
-After writing, RotationForByte(byteVal) is composed into the running rotation,
-exactly matching the composition order in Machine.Prompt(). This alignment
-contract ensures the same rotation path is followed during ingestion and recall.
+The chord's IntrinsicFace determines the logical face (0-255). The accumulated
+rotation state determines the slot: blockIndex = rot.Forward(logicalFace).
+After writing, RotationForChord is composed into the running rotation,
+matching the composition order during recall.
 
-Sequencer events compose EventRotation into the rotation state, also matching
-Prompt. All data goes to cube 0 — the rotation IS the addressing mechanism.
+All data goes to cube 0 — the rotation IS the addressing mechanism.
 */
-func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, events []int) {
+func (field *PrimeField) Insert(chord data.Chord) {
 	field.mu.Lock()
 	defer field.mu.Unlock()
 
 	field.chords = append(field.chords, chord)
-	field.freezeActiveIfBoundary(pos)
 
-	// Track events for header state but do NOT compose EventRotation
-	// into field.rot — Prompt only uses RotationForByte for now.
-	if len(events) > 0 {
-		field.lastEvents = events
-		field.momentum += float64(chord.ActiveCount())
-	}
-
-	// 2. Compute the block index from the current rotation state.
-	//    This is where the chord lives in the trie.
-	logicalFace := int(byteVal)
+	// Compute the block index from the current rotation state.
+	logicalFace := chord.IntrinsicFace()
 	blockIndex := field.rot.Forward(logicalFace)
 
-	// 3. Write the chord to cube 0 at the rotation-addressed slot.
-	//    Collision = compression: if something is already there, OR-merge.
+	// Write the chord to cube 0 at the rotation-addressed slot.
+	// Collision = compression: if something is already there, OR-merge.
 	current := field.manifolds[0].Cubes[0][blockIndex]
 	if current.ActiveCount() == 0 {
 		field.manifolds[0].Cubes[0][blockIndex] = chord
@@ -400,10 +389,9 @@ func (field *PrimeField) Insert(byteVal byte, pos uint32, chord data.Chord, even
 		field.manifolds[0].Cubes[0][blockIndex] = merged
 	}
 
-	// 4. Compose RotationForByte AFTER storing — this advances the rotation
-	//    cursor to the next position. Prompt does the same composition in
-	//    the same order, so the rotation states stay aligned.
-	field.rot = field.rot.Compose(geometry.RotationForByte(byteVal))
+	// Compose RotationForChord AFTER storing — this advances the rotation
+	// cursor to the next position.
+	field.rot = field.rot.Compose(geometry.RotationForChord(chord))
 }
 
 /*

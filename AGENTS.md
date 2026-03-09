@@ -131,3 +131,19 @@ Always add benchmarks too, so we can measure performance.
 Make sure tests and benchmarks are truly meaningful, don't test for testing's sake, make sure it truly validates the code. Also, be somewhat intelligent about your test data, and create a generator to generate some significant data. Just a toy set proves very little.
 
 If you encounter any tests not following this pattern, rewrite them properly.
+
+## Experiments
+
+There are strict, non-negotiable rules for running experiments.
+
+1. Always use the `pipeline.go` and `pipeline_test.go` harness
+2. Do not change the harness in any way, shape, or form without discussion
+3. Always use the full `vm.Machine` to excercise the real architecture
+4. Use real data, not toy data.
+5. DO NOT CHEAT, USE ORACLES, FAKE RESULTS, OR ANYTHING ELSE! DO NOT CUT CORNERS!
+
+Experiments are about emperical results, and we want to report both the good, and the bad.
+
+If we get good results, we need to push it to the limit, so we know where the breaking points are, and either fix it, or report it. No matter what want to report the breaking points, wherever those may be.
+
+If we get bad results, we need to understand why, and fix it.

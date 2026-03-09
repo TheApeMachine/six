@@ -627,3 +627,879 @@ export default function App() {
   );
 }
 ```
+
+```
+import { useState, useEffect, useRef, useCallback } from "react";
+import * as THREE from "three";
+
+// ── GF(257) ──────────────────────────────────────────────────────────────────
+const N = 257;
+const IDENT = { a: 1, b: 0 };
+
+function modInverse(a, m) {
+  let [or,r]=[a,m],[os,s]=[1,0];
+  while(r){const q=Math.floor(or/r);[or,r]=[r,or-q*r];[os,s]=[s,os-q*s];}
+  return ((os%m)+m)%m;
+}
+function composeAffine(f, g) {
+  return { a: (g.a * f.a) % N, b: (g.a * f.b + g.b) % N };
+}
+
+// face256Source: which chord currently sits at position 256
+// depends on the cube's discrete rotation state
+function face256Source({ a, b }) {
+  return ((256 - b + N) * modInverse(a, N)) % N;
+}
+function affStr({ a, b }) {
+  return a===1?(b===0?"p":`p+${b}`):(b===0?`${a}p`:`${a}p+${b}`);
+}
+function stateHue({ a, b }) { return (a/256*280 + b/256*80) % 360; }
+
+// ── DISCRETE ROTATION ALGEBRA ────────────────────────────────────────────────
+// A cube rotation is 90°, 180°, or 270° around X, Y, or Z.
+// Each maps to an affine transform over GF(257).
+// 90° rotations use the generators; 180° = compose twice; 270° = compose thrice.
+const ROT_TABLE = {
+  X_90:  {a:1, b:1},    // p+1
+  X_180: {a:1, b:2},    // p+2  (compose X_90 twice)
+  X_270: {a:1, b:256},  // p+256 ≡ p-1 mod 257
+  Y_90:  {a:3, b:0},    // 3p
+  Y_180: {a:9, b:0},    // 9p   (compose Y_90 twice)
+  Y_270: {a:86,b:0},    // 86p  (3^(-1) mod 257 = 86, i.e. 3^3 mod 257... actually 3*86=258≡1)
+  Z_90:  {a:3, b:1},    // 3p+1
+  Z_180: {a:9, b:4},    // compose Z_90 twice: 3(3p+1)+1 = 9p+4
+  Z_270: {a:86,b:171},  // inverse of Z_90
+};
+
+// Pick a rotation based on the derived opcode flavor
+function pickRotation(op) {
+  if (op === "ROTATE_X") {
+    const picks = ["X_90","X_180","X_270"];
+    return picks[Math.floor(Math.random()*3)];
+  }
+  if (op === "ROTATE_Y") {
+    const picks = ["Y_90","Y_180","Y_270"];
+    return picks[Math.floor(Math.random()*3)];
+  }
+  if (op === "ROTATE_Z") {
+    const picks = ["Z_90","Z_180","Z_270"];
+    return picks[Math.floor(Math.random()*3)];
+  }
+  return null;
+}
+
+// Quaternion for a discrete rotation
+function rotQuaternion(rotKey) {
+  const axis = rotKey[0]; // X, Y, or Z
+  const deg = parseInt(rotKey.split("_")[1]); // 90, 180, 270
+  const rad = (deg * Math.PI) / 180;
+  const ax = axis === "X" ? new THREE.Vector3(1,0,0) :
+             axis === "Y" ? new THREE.Vector3(0,1,0) :
+                            new THREE.Vector3(0,0,1);
+  return new THREE.Quaternion().setFromAxisAngle(ax, rad);
+}
+
+const OPCODES = {
+  ROTATE_X:{ css:"#3377ff", desc:"f(p)=p+k  (X axis)",  aff:null },
+  ROTATE_Y:{ css:"#9933ff", desc:"f(p)=3^k·p (Y axis)", aff:null },
+  ROTATE_Z:{ css:"#ff2266", desc:"f(p)=3^k·p+k (Z axis)",aff:null },
+  ALIGN:   { css:"#00ffcc", desc:"compose sender",     aff:null },
+  SEARCH:  { css:"#ff8800", desc:"nearest neighbor",   aff:null },
+  SYNC:    { css:"#ffd700", desc:"midpoint",           aff:null },
+  FORK:    { css:"#44ff88", desc:"spawn tool",         aff:{a:1,b:2} },
+  COMPOSE: { css:"#ff44ff", desc:"wire pipelines",     aff:null },
+  LOOP:    { css:"#ffaa00", desc:"iterate dataset",    aff:null },
+  CALL:    { css:"#00eeff", desc:"enter subgraph",     aff:null },
+  RETURN:  { css:"#ff6600", desc:"exit + pop stack",   aff:null },
+  SYNTH:   { css:"#cc44ff", desc:"O(1) recall",        aff:null },
+};
+
+function deriveOpcode(stA, stB) {
+  const b = (face256Source(stA) + face256Source(stB)) % N;
+  if(b<32)  return "ROTATE_X";
+  if(b<64)  return "ROTATE_Y";
+  if(b<96)  return "ROTATE_Z";
+  if(b<128) return "ALIGN";
+  if(b<160) return "SEARCH";
+  if(b<192) return "SYNC";
+  if(b<220) return "FORK";
+  return "COMPOSE";
+}
+
+const _gc={};
+function makeGlow(hex){
+  if(_gc[hex]) return _gc[hex];
+  const c=new THREE.Color(hex);
+  const r=Math.round(c.r*255),g=Math.round(c.g*255),b=Math.round(c.b*255);
+  const sz=96,cv=document.createElement("canvas"); cv.width=cv.height=sz;
+  const ctx=cv.getContext("2d");
+  const gr=ctx.createRadialGradient(sz/2,sz/2,0,sz/2,sz/2,sz/2);
+  gr.addColorStop(0,`rgba(${r},${g},${b},1)`);
+  gr.addColorStop(0.3,`rgba(${r},${g},${b},0.55)`);
+  gr.addColorStop(0.7,`rgba(${r},${g},${b},0.1)`);
+  gr.addColorStop(1,`rgba(${r},${g},${b},0)`);
+  ctx.fillStyle=gr; ctx.fillRect(0,0,sz,sz);
+  const t=new THREE.CanvasTexture(cv); _gc[hex]=t; return t;
+}
+
+// Dataset: 8 affine states representing "observations"
+const DATASET=[
+  {a:3,  b:47 }, {a:9,  b:12 }, {a:27, b:81 }, {a:81, b:200},
+  {a:3,  b:155}, {a:9,  b:230}, {a:27, b:44 }, {a:81, b:99 },
+];
+const DATASET_LABELS=[
+  "Mary→bathroom","John→hallway","Daniel→hallway","Sandra→garden",
+  "John→office","Sandra→bathroom","Mary→hallway","Daniel→office",
+];
+
+// Node roles
+const ROLES={
+  INPUT: { css:"#00ff88", glow:"#00ff88", geo:"box",  fixed:true  },
+  OUTPUT:{ css:"#4488ff", glow:"#4488ff", geo:"box",  fixed:true  },
+  PROC:  { css:"#00ccff", glow:"#00ccff", geo:"box",  fixed:false },
+  TOOL:  { css:"#ff44ff", glow:"#ff44ff", geo:"octa", fixed:false },
+};
+
+export default function App() {
+  const mountRef=useRef(null);
+  const simRef=useRef(null);
+  const [log,setLog]=useState([]);
+  const [selected,setSelected]=useState(null);
+  const [nodeInfo,setNodeInfo]=useState(null);
+  const [progState,setProgState]=useState({iteration:0,phase:"idle",accumState:IDENT,stackDepth:0});
+  const [toolCount,setToolCount]=useState(0);
+  const [running,setRunning]=useState(false);
+  const [rotLog,setRotLog]=useState([]);
+
+  const pushLog=useCallback((msg,color="#6688aa")=>{
+    setLog(prev=>[{msg,color,id:Math.random()},...prev].slice(0,20));
+  },[]);
+  const pushRotLog=useCallback((msg,color="#3377ff")=>{
+    setRotLog(prev=>[{msg,color,id:Math.random()},...prev].slice(0,8));
+  },[]);
+
+  useEffect(()=>{
+    const el=mountRef.current; if(!el) return;
+    const W=el.clientWidth,H=el.clientHeight;
+    const renderer=new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    renderer.setSize(W,H); renderer.setClearColor(0x010408,1);
+    el.appendChild(renderer.domElement);
+    const scene=new THREE.Scene();
+    scene.fog=new THREE.FogExp2(0x010408,0.00055);
+    const camera=new THREE.PerspectiveCamera(56,W/H,0.5,6000);
+    camera.position.set(0,200,820);
+
+    // stars
+    {const n=1200,p=new Float32Array(n*3);for(let i=0;i<n;i++){const r=2000+Math.random()*3000,t=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);p[i*3]=r*Math.sin(ph)*Math.cos(t);p[i*3+1]=r*Math.sin(ph)*Math.sin(t);p[i*3+2]=r*Math.cos(ph);}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x334455,size:1.3,transparent:true,opacity:0.4,depthWrite:false})));}
+
+    const nodes=[],edges=[],tokens=[];
+    let frameN=0,selectedIdx=null;
+    let progRunning=false,iteration=0;
+    const callStack=[];
+    let accumState={...IDENT};
+
+    // camera
+    let camTheta=0,camPhi=1.1,camR=820,autoOrbit=true,drag=false,prevM={x:0,y:0},lastAct=0;
+    const camSmooth=new THREE.Vector3();
+    const onMove=e=>{if(!drag)return;camTheta-=(e.clientX-prevM.x)*0.007;camPhi=Math.max(0.2,Math.min(Math.PI-0.2,camPhi+(e.clientY-prevM.y)*0.007));prevM={x:e.clientX,y:e.clientY};lastAct=Date.now();};
+    const onUp=()=>{drag=false;};
+    renderer.domElement.addEventListener("mousedown",e=>{drag=true;autoOrbit=false;prevM={x:e.clientX,y:e.clientY};lastAct=Date.now();});
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    renderer.domElement.addEventListener("wheel",e=>{camR=Math.max(200,Math.min(1800,camR+e.deltaY*0.5));lastAct=Date.now();},{passive:true});
+    const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();
+    renderer.domElement.addEventListener("click",e=>{
+      if(drag)return;
+      const rect=renderer.domElement.getBoundingClientRect();
+      mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+      mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+      ray.setFromCamera(mouse,camera);
+      const hits=ray.intersectObjects(nodes.map(n=>n.coreMesh));
+      if(hits.length>0){const idx=nodes.findIndex(n=>n.coreMesh===hits[0].object);selectedIdx=idx;setSelected(idx);}
+    });
+
+    // ── NODE ──
+    function makeNode(x,y,z,role,label,initState){
+      const rd=ROLES[role]||ROLES.PROC;
+      const state=initState?{...initState}:{...IDENT};
+      const pos=new THREE.Vector3(x,y,z);
+      const col=new THREE.Color(rd.css);
+
+      // Cube geometry — represents 257 faces (256 vocab + 1 register)
+      const coreGeo = role==="TOOL" ? new THREE.OctahedronGeometry(14,0) : new THREE.BoxGeometry(22,22,22);
+      const coreMat=new THREE.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:0.9});
+      const coreMesh=new THREE.Mesh(coreGeo,coreMat); coreMesh.position.copy(pos); scene.add(coreMesh);
+
+      const fillGeo=role==="TOOL"?new THREE.OctahedronGeometry(10,0):new THREE.BoxGeometry(16,16,16);
+      const fillMesh=new THREE.Mesh(fillGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:role==="INPUT"||role==="OUTPUT"?0.15:0.07}));
+      fillMesh.position.copy(pos); scene.add(fillMesh);
+
+      const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(rd.glow),blending:THREE.AdditiveBlending,transparent:true,opacity:role==="INPUT"||role==="OUTPUT"?0.65:0.35,depthWrite:false}));
+      halo.scale.setScalar(role==="INPUT"||role==="OUTPUT"?110:80); halo.position.copy(pos); scene.add(halo);
+
+      // face256 indicator — the register face marker
+      const f256m=new THREE.Mesh(new THREE.SphereGeometry(3,8,8),new THREE.MeshBasicMaterial({color:0xff8800}));
+      f256m.position.copy(pos).add(new THREE.Vector3(16,16,0)); scene.add(f256m);
+      const f256g=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow("#ff8800"),blending:THREE.AdditiveBlending,transparent:true,opacity:0.8,depthWrite:false}));
+      f256g.scale.setScalar(22); f256g.position.copy(f256m.position); scene.add(f256g);
+
+      // Face256 direction indicator — shows which cube face currently holds register
+      const arrowGeo = new THREE.ConeGeometry(3, 10, 6);
+      const arrowMat = new THREE.MeshBasicMaterial({color:0xff8800, transparent:true, opacity:0.7});
+      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+      arrowMesh.position.copy(pos); scene.add(arrowMesh);
+
+      let ring=null;
+      if(role==="TOOL"){ring=new THREE.Mesh(new THREE.RingGeometry(20,22,32),new THREE.MeshBasicMaterial({color:0xff44ff,side:THREE.DoubleSide,transparent:true,opacity:0.35}));ring.position.copy(pos);scene.add(ring);}
+
+      // Discrete rotation state: quaternion tracks accumulated orientation
+      const discreteQuat = new THREE.Quaternion(); // current orientation
+      const targetQuat = new THREE.Quaternion();    // target after pending rotation
+      const rotAnimProgress = { v: 1.0 };           // 1.0 = no animation in progress
+      const rotHistory = [];                         // log of rotations applied
+
+      return {
+        idx:nodes.length, state, pos, role, label,
+        coreMesh, coreMat, fillMesh, halo,
+        f256m, f256g, arrowMesh,
+        ring, flash:0, birthFrame:frameN, receivedOps:[],
+        // discrete rotation tracking
+        discreteQuat, targetQuat, rotAnimProgress,
+        rotHistory, rotCount: 0,
+      };
+    }
+
+    function updateNodeColor(nd){
+      if(nd.role==="INPUT"||nd.role==="OUTPUT"||nd.role==="TOOL") return;
+      const col=new THREE.Color().setHSL(stateHue(nd.state)/360,0.85,0.55);
+      nd.coreMat.color.copy(col); nd.fillMesh.material.color.copy(col);
+      nd.halo.material.map=makeGlow(`#${col.getHexString()}`); nd.halo.material.needsUpdate=true;
+      const fh=face256Source(nd.state)/256;
+      const fc=new THREE.Color().setHSL(fh*0.8,1.0,0.6);
+      nd.f256m.material.color.copy(fc);
+      nd.f256g.material.map=makeGlow(`#${fc.getHexString()}`); nd.f256g.material.needsUpdate=true;
+    }
+
+    // ── APPLY DISCRETE ROTATION ──
+    // Only called when a ROTATE opcode fires. This is the core mechanic:
+    // rotation changes face256, which cascades to all connected edge opcodes.
+    function applyDiscreteRotation(nd, rotKey) {
+      const rotAff = ROT_TABLE[rotKey];
+      if (!rotAff) return;
+
+      // Compose the rotation into the node's affine state
+      nd.state = composeAffine(nd.state, rotAff);
+      nd.rotCount++;
+      nd.rotHistory.push(rotKey);
+      if (nd.rotHistory.length > 12) nd.rotHistory.shift();
+
+      // Animate: set target quaternion
+      const deltaQ = rotQuaternion(rotKey);
+      nd.targetQuat.copy(nd.discreteQuat).multiply(deltaQ);
+      nd.rotAnimProgress.v = 0.0; // start animation
+
+      updateNodeColor(nd);
+
+      // CASCADE: recalculate all connected edges
+      const oldOps = {};
+      for (const ed of edges) {
+        if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) {
+          oldOps[edges.indexOf(ed)] = ed.op;
+          refreshEdge(ed);
+        }
+      }
+
+      // Log which edges changed opcodes
+      for (const ed of edges) {
+        if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) {
+          const edIdx = edges.indexOf(ed);
+          if (oldOps[edIdx] && oldOps[edIdx] !== ed.op) {
+            pushLog(`  ⟳ edge N${ed.aIdx}↔N${ed.bIdx}: ${oldOps[edIdx]}→${ed.op}`, OPCODES[ed.op]?.css||"#fff");
+            pushRotLog(`N${nd.idx} ${rotKey} → edge ${ed.aIdx}↔${ed.bIdx} now ${ed.op}`, OPCODES[ed.op]?.css||"#fff");
+          }
+        }
+      }
+
+      pushLog(`⟳ N${nd.idx} ${rotKey}  face256=${face256Source(nd.state)}`, "#ff8800");
+      pushRotLog(`N${nd.idx} ${rotKey} → f256=${face256Source(nd.state)}`, "#ff8800");
+    }
+
+    // ── EDGE ──
+    function makeEdge(aIdx,bIdx,forcedOp,isLoop){
+      const na=nodes[aIdx],nb=nodes[bIdx]; if(!na||!nb) return null;
+      const op=forcedOp||deriveOpcode(na.state,nb.state);
+      const css=OPCODES[op]?.css||"#fff";
+      const pts=[na.pos.clone(),nb.pos.clone()];
+      const geo=new THREE.BufferGeometry().setFromPoints(pts);
+      const mat=new THREE.LineBasicMaterial({color:new THREE.Color(css),transparent:true,opacity:isLoop?0.7:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
+      const line=new THREE.Line(geo,mat); scene.add(line);
+
+      // Opcode label sprite (small glow at midpoint showing current op)
+      const midGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:0.5,depthWrite:false}));
+      midGlow.scale.setScalar(isLoop?22:14);
+      midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5); scene.add(midGlow);
+
+      let arrow=null;
+      if(isLoop){
+        arrow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:0.85,depthWrite:false}));
+        arrow.scale.setScalar(20);
+        arrow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5); scene.add(arrow);
+      }
+      return {aIdx,bIdx,op,line,mat,geo,isLoop,arrow,midGlow,forcedOp:!!forcedOp,css};
+    }
+
+    function refreshEdge(ed){
+      const na=nodes[ed.aIdx],nb=nodes[ed.bIdx]; if(!na||!nb) return;
+      if(!ed.forcedOp){
+        const nop=deriveOpcode(na.state,nb.state);
+        if(nop!==ed.op){
+          ed.op=nop;
+          ed.css=OPCODES[nop]?.css||"#fff";
+          ed.mat.color.set(new THREE.Color(ed.css));
+          // Update midpoint glow color
+          ed.midGlow.material.map=makeGlow(ed.css);
+          ed.midGlow.material.needsUpdate=true;
+        }
+      }
+      const arr=ed.geo.attributes.position.array;
+      arr[0]=na.pos.x;arr[1]=na.pos.y;arr[2]=na.pos.z;arr[3]=nb.pos.x;arr[4]=nb.pos.y;arr[5]=nb.pos.z;
+      ed.geo.attributes.position.needsUpdate=true;
+      ed.midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5);
+      if(ed.arrow){ed.arrow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5);ed.arrow.material.opacity=0.5+Math.sin(frameN*0.07)*0.35;}
+      ed.mat.opacity=ed.isLoop?0.4+Math.sin(frameN*0.06)*0.3:0.22+Math.sin(frameN*0.035+ed.aIdx)*0.1;
+    }
+
+    // ── TOKEN ──
+    function makeToken(fromNode,toNode,op,isExec,carryState){
+      const css=OPCODES[op]?.css||"#fff"; const col=new THREE.Color(css);
+      const sz=isExec?5.5:4;
+      const mesh=new THREE.Mesh(isExec?new THREE.OctahedronGeometry(sz,0):new THREE.SphereGeometry(sz,8,8),new THREE.MeshBasicMaterial({color:isExec?0xffffff:col}));
+      mesh.position.copy(fromNode.pos); scene.add(mesh);
+      const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(isExec?"#ffffff":css),blending:THREE.AdditiveBlending,transparent:true,opacity:1.0,depthWrite:false}));
+      sprite.scale.setScalar(isExec?40:24); sprite.position.copy(fromNode.pos); scene.add(sprite);
+      const TRAIL=14,tArr=new Float32Array(TRAIL*3),tGeo=new THREE.BufferGeometry();
+      tGeo.setAttribute("position",new THREE.BufferAttribute(tArr,3)); tGeo.setDrawRange(0,0);
+      const tLine=new THREE.Line(tGeo,new THREE.LineBasicMaterial({color:isExec?0xffffff:col,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
+      scene.add(tLine);
+      return {fromNode,toNode,op,isExec,carryState:carryState?{...carryState}:{...IDENT},progress:0,trail:[],dead:false,mesh,sprite,tLine,tGeo,tArr,TRAIL,onArrive:null};
+    }
+
+    function disposeToken(tok){
+      scene.remove(tok.mesh);tok.mesh.material.dispose();tok.mesh.geometry.dispose();
+      scene.remove(tok.sprite);tok.sprite.material.dispose();
+      scene.remove(tok.tLine);tok.tGeo.dispose();tok.tLine.material.dispose();
+    }
+
+    function sendToken(fromIdx,toIdx,op,isExec,carry,onArrive){
+      const na=nodes[fromIdx],nb=nodes[toIdx]; if(!na||!nb) return;
+      const tok=makeToken(na,nb,op,isExec,carry); tok.onArrive=onArrive; tokens.push(tok);
+    }
+
+    // ── TOPOLOGICAL DISPATCH ──────────────────────────────────────────────
+    // No switch statement. Every opcode is a geometric rule over GF(257).
+    // "LOOP" and "RETURN" are not special instructions — they are wire
+    // behaviors. The onArrive callback IS the wire. Data is the clock.
+    const DISPATCH = {
+      // Discrete physical rotations — the cube turns, face256 shifts, edges cascade
+      ROTATE_X: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_X")); },
+      ROTATE_Y: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_Y")); },
+      ROTATE_Z: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_Z")); },
+
+      // Affine compositions — geometry combining with geometry
+      ALIGN:   (nd, tok) => { nd.state = composeAffine(nd.state, tok.fromNode.state); },
+      COMPOSE: (nd, tok) => { nd.state = composeAffine(nd.state, tok.carryState); },
+      SYNC:    (nd, tok) => {
+        nd.state = {
+          a: Math.max(1, Math.round((nd.state.a + tok.fromNode.state.a) / 2)),
+          b: Math.round((nd.state.b + tok.fromNode.state.b) / 2) % N
+        };
+      },
+
+      // Nearest-neighbor in GF(257) state space
+      SEARCH: (nd, tok) => {
+        let best = null, bestD = Infinity;
+        for (const n of nodes) {
+          if (n === nd) continue;
+          const da = Math.abs(n.state.a - nd.state.a) / 256;
+          const db = Math.abs(n.state.b - nd.state.b) / 256;
+          const d = Math.sqrt(da * da + db * db);
+          if (d < bestD) { bestD = d; best = n; }
+        }
+        if (best) { best.flash = 28; pushLog(`SEARCH → N${best.idx} (d=${bestD.toFixed(3)})`, "#ff8800"); }
+      },
+
+      // Mitosis — compose + crystallize a tool node
+      FORK: (nd, tok) => {
+        nd.state = composeAffine(nd.state, tok.fromNode.state);
+        if (nodes.length < 16) synthesizeTool(nd, tok.carryState);
+      },
+
+      // Stack operations — storing/restoring chords (face256 as frame register)
+      CALL: (nd, tok) => {
+        callStack.push({ returnIdx: tok.fromNode.idx, state: { ...tok.carryState } });
+        nd.state = composeAffine(nd.state, tok.carryState);
+        pushLog(`CALL N${nd.idx} [stack=${callStack.length}]`, "#00eeff");
+      },
+      RETURN: (nd, tok) => {
+        if (callStack.length > 0) {
+          const frame = callStack.pop();
+          pushLog(`RETURN → N${frame.returnIdx} [stack=${callStack.length}]`, "#ff6600");
+        }
+      },
+
+      // Pure wire behaviors — the topology does the work, not the opcode name
+      LOOP:  (nd, _tok) => { /* wire from OUT→IN: onArrive callback IS the loop */ },
+      SYNTH: (nd, _tok) => { nd.flash = 35; pushLog(`◆ N${nd.idx} O(1) recall`, "#cc44ff"); },
+    };
+
+    function applyToken(tok) {
+      const nd = tok.toNode, op = tok.op;
+      nd.flash = 20;
+      nd.receivedOps = [op, ...nd.receivedOps].slice(0, 5);
+
+      // Dispatch: geometry decides behavior, not a CPU instruction decoder
+      const rule = DISPATCH[op];
+      if (rule) rule(nd, tok);
+      else nd.state = composeAffine(nd.state, tok.fromNode.state); // fallback: pure compose
+
+      // The wire fires. onArrive IS the dataflow edge.
+      // No special-casing for LOOP or RETURN — the callback chain is the topology.
+      if (tok.onArrive) tok.onArrive(nd.state);
+
+      // State changed → cascade edge opcodes (rotations handle this internally)
+      if (op !== "ROTATE_X" && op !== "ROTATE_Y" && op !== "ROTATE_Z") {
+        updateNodeColor(nd);
+        for (const ed of edges) {
+          if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) refreshEdge(ed);
+        }
+      }
+
+      pushLog(`[N${tok.fromNode.idx}→N${nd.idx}] ${op}`, OPCODES[op]?.css || "#fff");
+    }
+
+    function updateTokenTick(tok){
+      if(tok.dead) return;
+      tok.trail.unshift(tok.mesh.position.clone());
+      if(tok.trail.length>tok.TRAIL) tok.trail.pop();
+      tok.progress+=0.022+Math.random()*0.004;
+      const t=Math.min(tok.progress,1);
+      tok.mesh.position.lerpVectors(tok.fromNode.pos,tok.toNode.pos,t);
+      tok.sprite.position.copy(tok.mesh.position);
+      if(tok.isExec){tok.mesh.rotation.y+=0.1;tok.mesh.rotation.x+=0.07;}
+      const n=tok.trail.length;
+      for(let i=0;i<n;i++){tok.tArr[i*3]=tok.trail[i].x;tok.tArr[i*3+1]=tok.trail[i].y;tok.tArr[i*3+2]=tok.trail[i].z;}
+      tok.tGeo.attributes.position.needsUpdate=true; tok.tGeo.setDrawRange(0,n);
+      if(tok.progress>=1){applyToken(tok);tok.dead=true;}
+    }
+
+    // ── TOOL SYNTHESIS ──
+    function synthesizeTool(fromNode,crystallizedState){
+      const dir=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(150+Math.random()*60);
+      const tn=makeNode(fromNode.pos.x+dir.x,fromNode.pos.y+dir.y,fromNode.pos.z+dir.z,"TOOL",`T${nodes.filter(n=>n.role==="TOOL").length}`,crystallizedState||fromNode.state);
+      tn.idx=nodes.length; nodes.push(tn);
+      const ed=makeEdge(fromNode.idx,tn.idx,"SYNTH",false);
+      if(ed){ed.forcedOp=true;ed.css=OPCODES.SYNTH.css;ed.mat.color.set(new THREE.Color(OPCODES.SYNTH.css));edges.push(ed);}
+      if(nodes.length>3){
+        const ri=Math.floor(Math.random()*(nodes.length-1));
+        const ed2=makeEdge(ri,tn.idx,"COMPOSE",false);
+        if(ed2){ed2.forcedOp=true;ed2.css=OPCODES.COMPOSE.css;ed2.mat.color.set(new THREE.Color(OPCODES.COMPOSE.css));edges.push(ed2);}
+      }
+      setToolCount(nodes.filter(n=>n.role==="TOOL").length);
+      pushLog(`◆ TOOL crystallized (N${tn.idx})`,"#cc44ff");
+    }
+
+    // ── PROGRAM SEQUENCER ──
+    const IN=0,SR=1,RV=2,AL=3,OUT=4;
+
+    function stepProgram(inState){
+      if(!progRunning) return;
+      if(iteration>=DATASET.length){
+        progRunning=false; setRunning(false);
+        setProgState({iteration,phase:"✓ done",accumState:{...accumState},stackDepth:callStack.length});
+        pushLog(`── complete (${DATASET.length} iterations) ──`,"#00ff88"); return;
+      }
+      const input=DATASET[iteration];
+      accumState=inState?composeAffine(inState,input):composeAffine(IDENT,input);
+      nodes[IN].state={...input}; nodes[IN].flash=15; updateNodeColor(nodes[IN]);
+      const iter=++iteration;
+      pushLog(`── iter ${iter}: ${DATASET_LABELS[iter-1]} ──`,"#334466");
+      setProgState({iteration:iter,phase:`running ${iter}/${DATASET.length}`,accumState:{...accumState},stackDepth:callStack.length});
+
+      // ── PURE TOPOLOGICAL EXECUTION (SELF-CLOCKING) ──
+      // Tokens fire only when the previous token arrives. No external timers.
+      // Data is the clock. The wire topology IS the program.
+      sendToken(IN, SR, "SEARCH", true, {...accumState}, (state1) => {
+        if(!progRunning) return;
+        sendToken(SR, RV, "CALL", true, state1, (state2) => {
+          if(!progRunning) return;
+          sendToken(RV, AL, "RETURN", true, state2, (state3) => {
+            if(!progRunning) return;
+            sendToken(AL, OUT, "ALIGN", true, state3, (state4) => {
+              if(!progRunning) return;
+              // The geometric LOOP: OUT connects back to IN.
+              // No "case LOOP" needed — the wire IS the loop.
+              sendToken(OUT, IN, "LOOP", true, state4, (state5) => {
+                if(progRunning) stepProgram(state5);
+              });
+            });
+          });
+        });
+      });
+    }
+
+    // ── INIT GRAPH ──
+    const nd0=makeNode(  0, 200,   0,"INPUT","IN",    IDENT       ); nd0.idx=0; nodes.push(nd0);
+    const nd1=makeNode(-220,  30,  90,"PROC","SEARCH",{a:3,b:47}  ); nd1.idx=1; nodes.push(nd1);
+    const nd2=makeNode(  0,   0,-210,"PROC","RESOLVE",{a:9,b:12}  ); nd2.idx=2; nodes.push(nd2);
+    const nd3=makeNode( 220,  30,  90,"PROC","ALIGN",  {a:3,b:81} ); nd3.idx=3; nodes.push(nd3);
+    const nd4=makeNode(  0,-200,   0,"OUTPUT","OUT",  IDENT       ); nd4.idx=4; nodes.push(nd4);
+    const nd5=makeNode(-180,-100, -80,"PROC","INDEX",  {a:27,b:200}); nd5.idx=5; nodes.push(nd5);
+    const nd6=makeNode( 180,-100, -80,"PROC","STORE",  {a:81,b:44} ); nd6.idx=6; nodes.push(nd6);
+    for(const nd of nodes) updateNodeColor(nd);
+
+    // pipeline edges (fixed)
+    const pipe=[[IN,SR,"SEARCH"],[SR,RV,"CALL"],[RV,AL,"RETURN"],[AL,OUT,"ALIGN"]];
+    for(const [a,b,op] of pipe){
+      const ed=makeEdge(a,b,op,false);
+      if(ed){ed.forcedOp=true;ed.css=OPCODES[op].css;ed.mat.color.set(new THREE.Color(OPCODES[op].css));edges.push(ed);}
+    }
+    const loopEd=makeEdge(OUT,IN,"LOOP",true);
+    if(loopEd){loopEd.forcedOp=true;loopEd.css=OPCODES.LOOP.css;loopEd.mat.color.set(new THREE.Color(OPCODES.LOOP.css));edges.push(loopEd);}
+    // aux dynamic edges — these derive opcodes from face256!
+    for(const [a,b] of [[1,5],[5,4],[2,6],[6,3],[5,6]]){
+      const ed=makeEdge(a,b,null,false); if(ed) edges.push(ed);
+    }
+
+    simRef.current={
+      start:()=>{
+        if(progRunning) return;
+        progRunning=true; iteration=0; accumState={...IDENT};
+        callStack.length=0; setRunning(true);
+        setProgState({iteration:0,phase:"starting…",accumState:IDENT,stackDepth:0});
+        pushLog("── program start ──","#00ff88");
+        nodes[IN].state={...IDENT}; nodes[OUT].state={...IDENT};
+        updateNodeColor(nodes[IN]); updateNodeColor(nodes[OUT]);
+        setTimeout(()=>stepProgram(null),300);
+      },
+      stop:()=>{progRunning=false;setRunning(false);setProgState(p=>({...p,phase:"stopped"}));},
+      fire:()=>{if(!edges.length)return;const e=edges.filter(e=>!e.isLoop);if(e.length){const ed=e[Math.floor(Math.random()*e.length)];sendToken(ed.aIdx,ed.bIdx,ed.op,false,{...IDENT},null);}},
+      info:(idx)=>{const nd=nodes[idx];if(!nd)return null;return{state:{...nd.state},f256:face256Source(nd.state),label:nd.label,role:nd.role,ops:[...nd.receivedOps],rotCount:nd.rotCount,rotHistory:[...nd.rotHistory]};},
+    };
+
+    // ── ANIMATE ──
+    const _com=new THREE.Vector3(); let animId;
+    const _tmpQ = new THREE.Quaternion();
+    const animate=()=>{
+      animId=requestAnimationFrame(animate); frameN++;
+      if(!drag&&Date.now()-lastAct>3000) autoOrbit=true;
+      if(autoOrbit) camTheta+=0.0014;
+      _com.set(0,0,0); for(const n of nodes) _com.add(n.pos);
+      if(nodes.length) _com.divideScalar(nodes.length);
+      camSmooth.lerp(_com,0.02);
+      const sp=Math.sin(camPhi),cp=Math.cos(camPhi);
+      camera.position.set(camSmooth.x+camR*sp*Math.sin(camTheta),camSmooth.y+camR*cp,camSmooth.z+camR*sp*Math.cos(camTheta));
+      camera.lookAt(camSmooth);
+
+      for(const nd of nodes){
+        const age=Math.min((frameN-nd.birthFrame)/30,1);
+        const fl=nd.flash>0?nd.flash/20:0; if(nd.flash>0) nd.flash--;
+
+        // ── DISCRETE ROTATION ANIMATION ──
+        // Cubes do NOT spin. They only rotate when a ROTATE opcode fires.
+        // Smoothly slerp toward the target quaternion.
+        if (nd.rotAnimProgress.v < 1.0) {
+          nd.rotAnimProgress.v = Math.min(1.0, nd.rotAnimProgress.v + 0.04);
+          // Ease-out cubic
+          const t = nd.rotAnimProgress.v;
+          const eased = 1 - Math.pow(1 - t, 3);
+          _tmpQ.slerpQuaternions(nd.discreteQuat, nd.targetQuat, eased);
+          nd.coreMesh.quaternion.copy(_tmpQ);
+          nd.fillMesh.quaternion.copy(_tmpQ);
+          // When done, snap to target
+          if (nd.rotAnimProgress.v >= 1.0) {
+            nd.discreteQuat.copy(nd.targetQuat);
+            nd.coreMesh.quaternion.copy(nd.targetQuat);
+            nd.fillMesh.quaternion.copy(nd.targetQuat);
+          }
+        }
+
+        nd.coreMesh.scale.setScalar(age*(1+fl*0.5));
+        nd.fillMesh.scale.setScalar(age*(1+fl*0.5));
+
+        if(nd.ring){nd.ring.rotation.z+=0.012;nd.ring.position.copy(nd.pos);nd.ring.material.opacity=0.2+fl*0.35;}
+        const bh=nd.role==="INPUT"||nd.role==="OUTPUT"?110:nd.role==="TOOL"?95:78;
+        nd.halo.scale.setScalar(bh*age+fl*32);
+        nd.halo.material.opacity=(nd.role==="INPUT"||nd.role==="OUTPUT"?0.55:0.28)+fl*0.42;
+        if(nd.idx===selectedIdx){nd.halo.scale.setScalar(118*age);nd.halo.material.opacity=0.82;}
+
+        // face256 orbiter — orbits slowly to indicate which face holds the register
+        const f256val = face256Source(nd.state);
+        const orbitAngle = (f256val / 256) * Math.PI * 2 + frameN * 0.008;
+        const orbitR = 20;
+        nd.f256m.position.set(
+          nd.pos.x + Math.cos(orbitAngle) * orbitR,
+          nd.pos.y + Math.sin(orbitAngle * 0.7) * orbitR,
+          nd.pos.z + Math.sin(orbitAngle) * orbitR * 0.5
+        );
+        nd.f256g.position.copy(nd.f256m.position);
+
+        // Arrow points in direction determined by face256 value
+        const arrowDir = new THREE.Vector3(
+          Math.cos(f256val / 256 * Math.PI * 2),
+          Math.sin(f256val / 128 * Math.PI),
+          Math.cos(f256val / 64 * Math.PI)
+        ).normalize();
+        nd.arrowMesh.position.copy(nd.pos).addScaledVector(arrowDir, 16);
+        nd.arrowMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), arrowDir);
+        nd.arrowMesh.material.opacity = 0.4 + fl * 0.4;
+      }
+
+      if(frameN%50===0) for(const ed of edges) refreshEdge(ed);
+
+      for(let i=tokens.length-1;i>=0;i--){
+        updateTokenTick(tokens[i]);
+        if(tokens[i].dead){disposeToken(tokens[i]);tokens.splice(i,1);}
+      }
+
+      // Ambient tokens (only when idle) — use dynamic edges so rotations cascade
+      if(!progRunning&&frameN%120===0&&tokens.length<6){
+        const dynamic=edges.filter(e=>!e.isLoop&&!e.forcedOp);
+        if(dynamic.length){
+          const e=dynamic[Math.floor(Math.random()*dynamic.length)];
+          sendToken(e.aIdx,e.bIdx,e.op,false,{...IDENT},null);
+        }
+      }
+
+      if(frameN%20===0){
+        if(selectedIdx!==null&&simRef.current) setNodeInfo(simRef.current.info(selectedIdx));
+        setToolCount(nodes.filter(n=>n.role==="TOOL").length);
+        setProgState(p=>({...p,accumState:{...accumState},stackDepth:callStack.length}));
+      }
+
+      renderer.render(scene,camera);
+    };
+    animate();
+
+    const onResize=()=>{const W=el.clientWidth,H=el.clientHeight;camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);};
+    window.addEventListener("resize",onResize);
+    return()=>{
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize",onResize);
+      window.removeEventListener("mousemove",onMove);
+      window.removeEventListener("mouseup",onUp);
+      if(el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+      renderer.dispose();
+    };
+  },[pushLog,pushRotLog]);
+
+  const mf={fontFamily:'"JetBrains Mono","Fira Code","Courier New",monospace'};
+  const OC=k=>OPCODES[k]?.css||"#fff";
+
+  return (
+    <div style={{display:"flex",height:"100vh",background:"#010408",...mf}}>
+      <div style={{flex:1,position:"relative",overflow:"hidden"}}>
+        <div ref={mountRef} style={{width:"100%",height:"100%"}}/>
+
+        {/* Legend */}
+        <div style={{position:"absolute",top:14,left:14,fontSize:9,lineHeight:2.1,
+          pointerEvents:"none",background:"rgba(1,4,8,0.82)",border:"1px solid #0a1422",padding:"10px 14px"}}>
+          <div style={{color:"#223344",letterSpacing:2,marginBottom:4}}>NODE ROLES</div>
+          {[["#00ff88","▣","IN  — program entry, always IDENT"],
+            ["#4488ff","▣","OUT — accumulates result, LOOP source"],
+            ["#00ccff","▣","PROC — 257-face cube (256 vocab + register)"],
+            ["#ff44ff","◆","TOOL — crystallized solution, O(1)"],
+          ].map(([c,s,l])=>(
+            <div key={l} style={{display:"flex",gap:5}}>
+              <span style={{color:c}}>{s}</span><span style={{color:"#1a3040"}}>{l}</span>
+            </div>
+          ))}
+          <div style={{color:"#ff8800",marginTop:4,fontSize:8}}>● = face 256 register (rotation-dependent)</div>
+          <div style={{color:"#334466",marginTop:2,fontSize:7,lineHeight:1.6}}>
+            Cubes only rotate on ROTATE opcodes<br/>
+            90° / 180° / 270° discrete steps<br/>
+            Rotation shifts face256 → changes edge opcodes
+          </div>
+        </div>
+
+        {/* Rotation cascade log */}
+        <div style={{position:"absolute",top:14,right:280,
+          background:"rgba(1,4,8,0.82)",border:"1px solid #0a1422",
+          padding:"8px 12px",fontSize:8,lineHeight:1.9,pointerEvents:"none",
+          minWidth:180,maxWidth:260}}>
+          <div style={{color:"#223344",letterSpacing:2,marginBottom:4}}>ROTATION CASCADE</div>
+          {rotLog.length===0 ? (
+            <div style={{color:"#0a1a28",fontSize:8}}>no rotations yet</div>
+          ) : rotLog.map((e,i)=>(
+            <div key={e.id} style={{color:e.color,opacity:Math.max(0.15,1-i*0.12)}}>{e.msg}</div>
+          ))}
+        </div>
+
+        {/* Program pipeline */}
+        <div style={{position:"absolute",bottom:14,left:14,
+          background:"rgba(1,4,8,0.85)",border:"1px solid #0a1422",
+          padding:"10px 16px",fontSize:9,lineHeight:2,pointerEvents:"none"}}>
+          <div style={{color:"#223344",letterSpacing:2,marginBottom:5}}>RUNNING PROGRAM</div>
+          <div style={{display:"flex",alignItems:"center",gap:3,flexWrap:"wrap"}}>
+            {[{l:"IN",c:"#00ff88"},{o:"SEARCH",c:OC("SEARCH")},{l:"SEARCH",c:"#00ccff"},
+              {o:"CALL",c:OC("CALL")},{l:"RESOLVE",c:"#00ccff"},{o:"RETURN",c:OC("RETURN")},
+              {l:"ALIGN",c:"#00ccff"},{o:"ALIGN",c:OC("ALIGN")},{l:"OUT",c:"#4488ff"},
+              {o:"LOOP",c:OC("LOOP")},{l:"IN",c:"#00ff88"},
+            ].map((item,i)=>(
+              item.o
+                ? <span key={i} style={{color:item.c,fontSize:8}}>─{item.o}→</span>
+                : <span key={i} style={{color:item.c,border:`1px solid ${item.c}44`,padding:"0 5px",fontWeight:"bold"}}>{item.l}</span>
+            ))}
+          </div>
+          <div style={{color:"#1a3040",fontSize:8,marginTop:3}}>
+            self-clocking: each token fires only when the previous arrives · no timers
+          </div>
+        </div>
+      </div>
+
+      {/* Side panel */}
+      <div style={{width:265,background:"#00020a",borderLeft:"1px solid #0a1422",
+        display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+        {/* Controls */}
+        <div style={{padding:"14px 16px 12px",borderBottom:"1px solid #0a1422"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:"#00ffcc",opacity:0.35,marginBottom:4}}>GF(257) AI VM</div>
+          <div style={{fontSize:9,color:"#2a4050",lineHeight:1.8,marginBottom:10}}>
+            257 faces per cube: 256 vocab + 1 register<br/>
+            data is the clock · the wire is the opcode
+          </div>
+          <div style={{display:"flex",gap:5}}>
+            <button onClick={()=>simRef.current?.start()} disabled={running} style={{
+              flex:2,background:running?"#060e14":"#001a10",
+              border:`1px solid ${running?"#0a1a20":"#00ff8877"}`,
+              color:running?"#0a2010":"#00ff88",
+              padding:"9px",cursor:running?"not-allowed":"pointer",fontSize:9,letterSpacing:1,...mf}}>
+              {running?"▶ RUNNING…":"▶ RUN"}</button>
+            <button onClick={()=>simRef.current?.stop()} style={{background:"#180008",border:"1px solid #ff444433",color:"#ff4444",padding:"9px 10px",cursor:"pointer",fontSize:9,...mf}}>■</button>
+            <button onClick={()=>simRef.current?.fire()} style={{background:"#001020",border:"1px solid #00ffcc22",color:"#00ffcc",padding:"9px 10px",cursor:"pointer",fontSize:9,...mf}}>~</button>
+          </div>
+        </div>
+
+        {/* Program state */}
+        <div style={{padding:"12px 16px",borderBottom:"1px solid #0a1422"}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:8}}>PROGRAM STATE</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
+            {[
+              {l:"iteration",v:`${progState.iteration} / ${DATASET.length}`,c:"#00ff88"},
+              {l:"phase",    v:progState.phase,                             c:"#00ccff"},
+              {l:"call stack",v:`depth ${progState.stackDepth}`,            c:"#00eeff"},
+              {l:"tools",    v:toolCount,                                   c:"#cc44ff"},
+            ].map(({l,v,c})=>(
+              <div key={l} style={{background:"#030810",padding:"7px 9px"}}>
+                <div style={{fontSize:7,color:"#0a1a28",marginBottom:2}}>{l}</div>
+                <div style={{fontSize:10,color:c,fontWeight:"bold"}}>{v}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{background:"#030810",padding:"8px 10px"}}>
+            <div style={{fontSize:7,color:"#0a1a28",marginBottom:3}}>accumulated state</div>
+            <div style={{fontSize:11,color:"#00ffcc"}}>f(p) = {affStr(progState.accumState)}</div>
+            <div style={{display:"flex",gap:8,fontSize:8,color:"#0a2030",marginTop:2}}>
+              <span>a={progState.accumState.a}</span>
+              <span>b={progState.accumState.b}</span>
+              <span style={{color:"#ff8800"}}>f256={face256Source(progState.accumState)}</span>
+            </div>
+            <div style={{position:"relative",width:"100%",height:18,background:"#020610",marginTop:6,border:"1px solid #0a1422"}}>
+              <div style={{position:"absolute",
+                left:`${(progState.accumState.a-1)/255*86+7}%`,
+                top:"50%",width:5,height:5,borderRadius:"50%",
+                background:"#00ffcc",boxShadow:"0 0 5px #00ffcc",
+                transform:"translate(-50%,-50%)"}}/>
+            </div>
+          </div>
+        </div>
+
+        {/* Dataset */}
+        <div style={{padding:"10px 16px",borderBottom:"1px solid #0a1422"}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:6}}>DATASET</div>
+          <div style={{display:"flex",flexDirection:"column",gap:3}}>
+            {DATASET.map((d,i)=>{
+              const active=i===progState.iteration-1;
+              const done=i<progState.iteration-1;
+              return (
+                <div key={i} style={{display:"flex",gap:6,alignItems:"center",
+                  padding:"3px 7px",fontSize:8,
+                  background:active?"#001a10":done?"#04080e":"#020610",
+                  border:`1px solid ${active?"#00ff8855":done?"#0a2010":"#0a1422"}`,
+                }}>
+                  <span style={{color:active?"#00ff88":done?"#1a3040":"#0a1a28",minWidth:16}}>{i+1}.</span>
+                  <span style={{color:active?"#c8e8f0":done?"#1a3040":"#0a1a28",flex:1}}>{DATASET_LABELS[i]}</span>
+                  <span style={{color:active?"#00ffcc":"#0a1a28"}}>{affStr(d)}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Selected node */}
+        <div style={{padding:"10px 16px",borderBottom:"1px solid #0a1422",minHeight:80}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:5}}>
+            {selected!==null?`N${selected} · ${nodeInfo?.label||""} · ${nodeInfo?.role||""}`:"CLICK A NODE"}
+          </div>
+          {nodeInfo&&selected!==null?(
+            <>
+              <div style={{fontSize:10,color:"#c8e8f0",marginBottom:3}}>
+                f(p) = <span style={{color:"#00ffcc"}}>{affStr(nodeInfo.state)}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                <span style={{fontSize:8,color:"#1a3040"}}>face256</span>
+                <div style={{width:8,height:8,borderRadius:"50%",
+                  background:`hsl(${nodeInfo.f256/256*280},100%,60%)`,
+                  boxShadow:`0 0 5px hsl(${nodeInfo.f256/256*280},100%,60%)`}}/>
+                <span style={{fontSize:9,color:"#ff8800"}}>{nodeInfo.f256}</span>
+              </div>
+              <div style={{fontSize:8,color:"#0a2030",marginBottom:3}}>
+                rotations: <span style={{color:"#3377ff"}}>{nodeInfo.rotCount}</span>
+                {nodeInfo.rotHistory.length>0 && (
+                  <span style={{color:"#1a3040",marginLeft:6}}>
+                    [{nodeInfo.rotHistory.slice(-4).join(", ")}]
+                  </span>
+                )}
+              </div>
+              <div style={{fontSize:8,color:"#0a1a28"}}>
+                ops: {nodeInfo.ops.map((op,i)=><span key={i} style={{color:OC(op),marginRight:3}}>{op}</span>)}
+              </div>
+            </>
+          ):(
+            <div style={{fontSize:9,color:"#060e18",lineHeight:1.9}}>inspect rotation state<br/>face 256 register · rotation history</div>
+          )}
+        </div>
+
+        {/* Log */}
+        <div style={{flex:1,padding:"10px 16px",overflow:"hidden",minHeight:0}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:5}}>LOG</div>
+          {log.map((e,i)=>(
+            <div key={e.id} style={{fontSize:9,lineHeight:1.85,color:e.color,opacity:Math.max(0.05,1-i*0.05)}}>{e.msg}</div>
+          ))}
+        </div>
+
+        {/* Footer — wire geometry reference */}
+        <div style={{padding:"7px 16px",borderTop:"1px solid #0a1422"}}>
+          <div style={{fontSize:7,color:"#060e18",lineHeight:1.9,display:"flex",flexWrap:"wrap",gap:"0 12px"}}>
+            {[
+              {op:"ROTATE_X",label:"RX",note:"discrete X turn"},
+              {op:"ROTATE_Y",label:"RY",note:"discrete Y turn"},
+              {op:"ROTATE_Z",label:"RZ",note:"discrete Z turn"},
+              {op:"COMPOSE",label:"∘",note:"carry state"},
+              {op:"LOOP",label:"↺",note:"wire back"},
+              {op:"CALL",label:"↓",note:"push chord"},
+              {op:"RETURN",label:"↑",note:"pop chord"},
+              {op:"SYNTH",label:"◆",note:"crystallize"},
+            ].map(({op,label,note})=>(
+              <span key={op}><span style={{color:OC(op)}}>{label}</span> {note}</span>
+            ))}
+          </div>
+          <div style={{fontSize:6,color:"#060e14",marginTop:2}}>
+            no switch · no timer · data is the clock · the wire is the opcode
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+```

@@ -128,8 +128,8 @@ func (experiment *TorusNavigationExperiment) TableData() any {
 }
 
 func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
-	seedQuery := "Democracy requires individual sacrifice."
-	fingerprintA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
+	seedQueryChords := sub.Entries[0].Readout
+	fingerprintA := sub.Entries[0].Fingerprint
 
 	splitPoint := experiment.splitPoint
 
@@ -148,14 +148,12 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 
 	type torusSlice struct {
 		HopAlpha1     float64
-		TextB         string
 		Base1Gain     float64
 		Base2Gain     float64
 		SingleCeiling float64
 		BestTorusGain float64
 		BestTorusA1   float64
 		BestTorusA2   float64
-		BestTorusC    string
 		SuperAdditive bool
 		Delta         float64
 	}
@@ -165,29 +163,27 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 	var slices []torusSlice
 
 	for _, hopAlpha1Deg := range experiment.alpha1List {
-		hop := sub.FirstHop(fingerprintA, hopAlpha1Deg*(math.Pi/180.0), seedQuery)
+		hop := sub.FirstHop(fingerprintA, hopAlpha1Deg*(math.Pi/180.0), seedQueryChords)
 		fpA, fpB, fpAB := fingerprintA, hop.FingerprintB, hop.FingerprintAB
-		textB := hop.TextB
+		readoutB := hop.ReadoutB
 
-		base1 := sub.BestGain(fpA, fpA, fpB, seedQuery, textB)
-		base2 := sub.BestGain(fpB, fpA, fpB, seedQuery, textB)
+		base1 := sub.BestGain(fpA, fpA, fpB, seedQueryChords, readoutB)
+		base2 := sub.BestGain(fpB, fpA, fpB, seedQueryChords, readoutB)
 		ceiling := math.Max(base1, base2)
 
 		var bestGain float64 = -1
 		var bestA1, bestA2 float64
-		var bestC string
 		for i := 0; i < gridSize; i++ {
 			a1 := float64(i) * stepDeg * (math.Pi / 180.0)
 			for j := 0; j < gridSize; j++ {
 				a2 := float64(j) * stepDeg * (math.Pi / 180.0)
 				ranked := sub.PhaseDialRank(sub.Candidates(), torusRotate(fpAB, a1, a2))
-				topIdx := sub.TopExcluding(ranked, seedQuery, textB)
+				topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB)
 				fpC := sub.Entries[topIdx].Fingerprint
 				if g := math.Min(fpC.Similarity(fpA), fpC.Similarity(fpB)); g > bestGain {
 					bestGain = g
 					bestA1 = float64(i) * stepDeg
 					bestA2 = float64(j) * stepDeg
-					bestC = geometry.ReadoutText(sub.Entries[topIdx].Readout)
 				}
 			}
 		}
@@ -198,14 +194,12 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 		}
 		slices = append(slices, torusSlice{
 			HopAlpha1:     hopAlpha1Deg,
-			TextB:         textB,
 			Base1Gain:     base1,
 			Base2Gain:     base2,
 			SingleCeiling: ceiling,
 			BestTorusGain: bestGain,
 			BestTorusA1:   bestA1,
 			BestTorusA2:   bestA2,
-			BestTorusC:    bestC,
 			SuperAdditive: sa,
 			Delta:         bestGain - ceiling,
 		})
@@ -216,15 +210,15 @@ func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstr
 		i, j int
 		gain float64
 	}
-	hop1 := sub.FirstHop(fingerprintA, experiment.alpha1List[0]*(math.Pi/180.0), seedQuery)
+	hop1 := sub.FirstHop(fingerprintA, experiment.alpha1List[0]*(math.Pi/180.0), seedQueryChords)
 	fpA1, fpB1, fpAB1 := fingerprintA, hop1.FingerprintB, hop1.FingerprintAB
-	textB1 := hop1.TextB
+	readoutB1 := hop1.ReadoutB
 	for i := 0; i < gridSize; i++ {
 		a1 := float64(i) * stepDeg * (math.Pi / 180.0)
 		for j := 0; j < gridSize; j++ {
 			a2 := float64(j) * stepDeg * (math.Pi / 180.0)
 			ranked := sub.PhaseDialRank(sub.Candidates(), torusRotate(fpAB1, a1, a2))
-			topIdx := sub.TopExcluding(ranked, seedQuery, textB1)
+			topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB1)
 			fpC := sub.Entries[topIdx].Fingerprint
 			gain := math.Min(fpC.Similarity(fpA1), fpC.Similarity(fpB1))
 			landscape = append(landscape, struct {

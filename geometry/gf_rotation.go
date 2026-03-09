@@ -1,5 +1,11 @@
 package geometry
 
+import (
+	"slices"
+
+	"github.com/theapemachine/six/data"
+)
+
 /*
 GFRotation represents a composable affine transformation over GF(257):
 
@@ -20,10 +26,11 @@ type GFRotation struct {
 }
 
 /*
-RotationForByte maps a single byte to an injective GF(257) transform.
+RotationForChord maps a single chord to an injective GF(257) transform.
 */
-func RotationForByte(b byte) GFRotation {
-	val := uint16(b)
+func RotationForChord(c data.Chord) GFRotation {
+	val := uint16(c.ActiveCount())
+
 	return GFRotation{
 		A: val + 1,
 		B: (val * 31) % 257,
@@ -42,25 +49,26 @@ func IdentityRotation() GFRotation {
 Forward maps a logical face index to its physical position under this rotation.
 Computes (A·face + B) mod 257 with proper handling of negative modulo.
 */
-func (r GFRotation) Forward(face int) int {
-	raw := int(r.A)*face + int(r.B)
-	return (raw%CubeFaces + CubeFaces) % CubeFaces
+func (rot GFRotation) Forward(face int) int {
+	return (int(rot.A)*face + int(rot.B)%CubeFaces + CubeFaces) % CubeFaces
 }
 
 /*
 Reverse maps a physical face index back to its logical byte value.
 Computes the inverse affine transform: finds A⁻¹ in GF(257) then (face - B)·A⁻¹ mod 257.
 */
-func (r GFRotation) Reverse(face int) int {
+func (rot GFRotation) Reverse(face int) int {
 	var invA int
+
 	for i := 1; i < CubeFaces; i++ {
-		if (int(r.A)*i)%CubeFaces == 1 {
+		if (int(rot.A)*i)%CubeFaces == 1 {
 			invA = i
 			break
 		}
 	}
 
-	val := (face - int(r.B)) % CubeFaces
+	val := (face - int(rot.B)) % CubeFaces
+
 	if val < 0 {
 		val += CubeFaces
 	}
@@ -73,16 +81,17 @@ Compose returns the rotation equivalent to applying r first, then other.
 other(r(x)) = other.A·(r.A·x + r.B) + other.B = (other.A·r.A)·x + (other.A·r.B + other.B).
 Enables O(1) composition without data movement.
 */
-func (r GFRotation) Compose(other GFRotation) GFRotation {
+func (rot GFRotation) Compose(other GFRotation) GFRotation {
 	return GFRotation{
-		A: uint16((int(other.A) * int(r.A)) % CubeFaces),
-		B: uint16((int(other.A)*int(r.B) + int(other.B)) % CubeFaces),
+		A: uint16((int(other.A) * int(rot.A)) % CubeFaces),
+		B: uint16((int(other.A)*int(rot.B) + int(other.B)) % CubeFaces),
 	}
 }
 
 /*
 The three micro-rotations as GF(257) affine transforms.
-Match the permutation tables in permutation.go; used for O(1) composition instead of table lookup.
+Match the permutation tables in permutation.go;
+used for O(1) composition instead of table lookup.
 */
 var (
 	// RotationX is a translation: f(x) = (x + 1) mod 257
@@ -141,8 +150,10 @@ Returns a single GFRotation equivalent to applying each EventRotation in order.
 */
 func ComposeEvents(events []int) GFRotation {
 	rot := IdentityRotation()
-	for _, ev := range events {
+
+	for ev := range slices.Values(events) {
 		rot = rot.Compose(EventRotation(ev))
 	}
+
 	return rot
 }

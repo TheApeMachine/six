@@ -81,8 +81,15 @@ code for the given prompt. It should compare the generated code with the
 expected code and produce a score between 0 and 1.
 */
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
+	results.Scores = tools.ByteScores(
+		results.Holdout, results.Observed,
+	)
+
+	results.WeightedTotal = tools.WeightedTotal(
+		results.Scores.Exact,
+		results.Scores.Partial,
+		results.Scores.Fuzzy,
+	)
 
 	experiment.tableData = append(experiment.tableData, results)
 }
@@ -126,10 +133,14 @@ func (experiment *LanguagesExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
-func (experiment *LanguagesExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+func (experiment *LanguagesExperiment) Finalize(
+	substrate *geometry.HybridSubstrate,
+) error {
 	return nil
 }
 
 func slugify(name string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
+	return strings.ReplaceAll(
+		strings.ToLower(strings.TrimSpace(name)), " ", "_",
+	)
 }

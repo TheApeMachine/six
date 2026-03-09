@@ -6,26 +6,26 @@
       "EntitySummary": [
         {
           "Name": "Daniel",
-          "Correct": 6,
-          "Total": 6,
+          "Correct": 127,
+          "Total": 127,
           "Rate": 1
         },
         {
           "Name": "John",
-          "Correct": 7,
-          "Total": 7,
+          "Correct": 130,
+          "Total": 130,
           "Rate": 1
         },
         {
           "Name": "Mary",
-          "Correct": 3,
-          "Total": 3,
+          "Correct": 120,
+          "Total": 120,
           "Rate": 1
         },
         {
           "Name": "Sandra",
-          "Correct": 9,
-          "Total": 9,
+          "Correct": 123,
+          "Total": 123,
           "Rate": 1
         }
       ],
@@ -34,44 +34,44 @@
       "LocationSummary": [
         {
           "Name": "bathroom",
-          "Correct": 9,
-          "Total": 9,
+          "Correct": 97,
+          "Total": 97,
           "Rate": 1
         },
         {
           "Name": "bedroom",
-          "Correct": 3,
-          "Total": 3,
+          "Correct": 81,
+          "Total": 81,
           "Rate": 1
         },
         {
           "Name": "garden",
-          "Correct": 1,
-          "Total": 1,
+          "Correct": 79,
+          "Total": 79,
           "Rate": 1
         },
         {
           "Name": "hallway",
-          "Correct": 7,
-          "Total": 7,
+          "Correct": 84,
+          "Total": 84,
           "Rate": 1
         },
         {
           "Name": "kitchen",
-          "Correct": 2,
-          "Total": 2,
+          "Correct": 89,
+          "Total": 89,
           "Rate": 1
         },
         {
           "Name": "office",
-          "Correct": 3,
-          "Total": 3,
+          "Correct": 70,
+          "Total": 70,
           "Rate": 1
         }
       ],
       "NFailureRows": 0,
       "NFailures": 0,
-      "NSamples": 25,
+      "NSamples": 500,
       "PartialRate": 1
     }
   },

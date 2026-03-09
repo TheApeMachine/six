@@ -77,8 +77,8 @@ func (experiment *TwoHopRetrievalExperiment) TableData() any {
 }
 
 func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstrate) error {
-	seedQuery := "Democracy requires individual sacrifice."
-	fingerprintA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
+	seedQueryChords := sub.Entries[0].Readout
+	fingerprintA := sub.Entries[0].Fingerprint
 	alpha1List := []float64{15.0, 30.0, 45.0, 60.0, 75.0}
 
 	type TwoHopRow struct {
@@ -95,14 +95,14 @@ func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstr
 		overallBestTraceSet []TwoHopTrace
 		overallBase1Max     float64
 		overallBase2Max     float64
-		overallBestB        string
+		overallBestB        int
 		rows                []TwoHopRow
 	)
 
 	for _, alpha1Deg := range alpha1List {
-		hop := sub.FirstHop(fingerprintA, alpha1Deg*(math.Pi/180.0), seedQuery)
+		hop := sub.FirstHop(fingerprintA, alpha1Deg*(math.Pi/180.0), seedQueryChords)
 		fpA, fpB, fpAB := fingerprintA, hop.FingerprintB, hop.FingerprintAB
-		textB := hop.TextB
+		readoutB := hop.ReadoutB
 
 		var traces []TwoHopTrace
 		var bestGain float64 = -1
@@ -112,9 +112,8 @@ func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstr
 			alpha2Deg := float64(s)
 			rotatedAB := fpAB.Rotate(alpha2Deg * (math.Pi / 180.0))
 			ranked := sub.PhaseDialRank(sub.Candidates(), rotatedAB)
-			topIdx := sub.TopExcluding(ranked, seedQuery, textB)
+			topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB)
 			fpC := sub.Entries[topIdx].Fingerprint
-			textC := geometry.ReadoutText(sub.Entries[topIdx].Readout)
 
 			simCA := fpC.Similarity(fpA)
 			simCB := fpC.Similarity(fpB)
@@ -124,7 +123,7 @@ func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstr
 				Gain:        gain,
 				SimCA:       simCA,
 				SimCB:       simCB,
-				MatchText:   textC,
+				MatchIdx:    topIdx,
 				SimCAB:      fpC.Similarity(fpAB),
 				BalancedSum: 0.5 * (simCA + simCB),
 				Separation:  fpC.Similarity(fpAB) - math.Max(simCA, simCB),
@@ -135,15 +134,15 @@ func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstr
 			}
 		}
 
-		base1 := sub.BestGain(fpA, fpA, fpB, seedQuery, textB)
-		base2 := sub.BestGain(fpB, fpA, fpB, seedQuery, textB)
+		base1 := sub.BestGain(fpA, fpA, fpB, seedQueryChords, readoutB)
+		base2 := sub.BestGain(fpB, fpA, fpB, seedQueryChords, readoutB)
 		rows = append(rows, TwoHopRow{alpha1Deg, base1, base2, bestGain, traces})
 
 		if bestGain > overallBestGain {
 			overallBestGain = bestGain
 			overallBestTrace = bestTrace
 			overallBestTraceSet = traces
-			overallBestB = textB
+			overallBestB = len(readoutB)
 		}
 		if base1 > overallBase1Max {
 			overallBase1Max = base1
@@ -178,8 +177,8 @@ func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstr
 	}
 
 	experiment.summaryRows = []map[string]any{{
-		"SeedQuery":  seedQuery,
-		"BestMatchB": overallBestB,
+		"SeedQuery":  "Democracy requires individual sacrifice.",
+		"BestMatchB": fmt.Sprintf("%d chords", overallBestB),
 		"BestGain":   overallBestTrace.Gain,
 		"Base1Max":   overallBase1Max,
 		"Base2Max":   overallBase2Max,

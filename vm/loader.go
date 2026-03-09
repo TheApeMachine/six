@@ -1,8 +1,13 @@
 package vm
 
 import (
-	"github.com/theapemachine/six/console"
+	"fmt"
+	"math/rand"
+	"sync"
+
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 )
@@ -15,8 +20,11 @@ construction and holdout logic live in tokenizer.Prompt.
 type Loader struct {
 	store      store.Store
 	primefield *store.PrimeField
+	substrate  *geometry.HybridSubstrate
+	eigenmode  *geometry.EigenMode
 	tokenizer  *tokenizer.Universal
 	coder      *tokenizer.MortonCoder
+	pool       *pool.Pool
 }
 
 type loaderOpts func(*Loader)
@@ -64,52 +72,99 @@ type LoadResult struct {
 }
 
 /*
+Start the loader and provide everything with the data it needs.
+*/
+func (loader *Loader) Start() error {
+	return loader.generate()
+}
+
+/*
 Generate tokenizes the dataset and ingests every token into the Store
 and PrimeField. Returns a channel of LoadResults for downstream consumers
 (e.g. Machine.Start drains this to completion).
 */
-func (loader *Loader) Generate() chan LoadResult {
-	out := make(chan LoadResult, 1024)
+func (loader *Loader) generate() error {
+	var sequence []data.Chord
 
-	go func() {
-		defer close(out)
+	idx := 0
+	wg := sync.WaitGroup{}
 
-		for token := range loader.tokenizer.Generate() {
-			if !loader.validate(token) && !token.IsBoundary {
-				console.Error(LoaderErrInvalidToken,
-					"tokenID", token.TokenID,
-					"activeCount", token.Chord.ActiveCount(),
-				)
-				return
-			}
+	for token := range loader.tokenizer.Generate() {
+		if token.Chord.ActiveCount() > 0 {
+			loader.store.Insert(token.TokenID, token.Chord)
 
-			var byteVal byte
-			_, byteVal = loader.coder.Decode(token.TokenID)
+			loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
+				defer wg.Done()
 
-			if token.Chord.ActiveCount() > 0 {
-				loader.store.Insert(token.TokenID, token.Chord)
-
-				if loader.primefield != nil {
-					loader.primefield.Insert(byteVal, token.Pos, token.Chord, token.Events)
+				if token.IsBoundary {
+					loader.buildPhaseDial(sequence)
 				}
+
+				if token.Chord.ActiveCount() > 0 {
+					sequence = append(sequence, token.Chord)
+				}
+
+				return nil, nil
+			})
+
+			// Build EigenModes from the ingested manifold topology.
+			loader.primefield.BuildEigenModes()
+			loader.eigenmode = loader.primefield.EigenMode()
+
+			// Wire the Sequencer with the trained EigenMode.
+			if loader.Tokenizer() != nil && loader.Tokenizer().Sequencer() != nil {
+				seq := loader.Tokenizer().Sequencer()
+				seq.SetEigenMode(loader.eigenmode)
 			}
 
-			out <- LoadResult{
-				Chord:      token.Chord,
-				Symbol:     byteVal,
-				Pos:        token.Pos,
-				SampleID:   token.SampleID,
-				IsBoundary: token.IsBoundary,
-				Events:     token.Events,
+			if loader.primefield != nil {
+				loader.primefield.Insert(token.Chord)
 			}
 		}
-	}()
+	}
 
-	return out
+	return nil
 }
 
-func (loader *Loader) validate(token tokenizer.Token) bool {
-	return token.Chord.ActiveCount() > 0
+func (loader *Loader) buildPhaseDial(
+	sequence []data.Chord,
+) {
+	// Write suffix entries for the completed sample.
+	rot := geometry.IdentityRotation()
+
+	for i := 0; i < len(sequence); i++ {
+		var ptr data.Chord
+
+		for range 5 {
+			ptr.Set(rand.Intn(257))
+		}
+
+		loader.primefield.StorePointer(rot, ptr)
+
+		suffix := make([]data.Chord, len(sequence)-i)
+		copy(suffix, sequence[i:])
+
+		loader.substrate.Add(
+			ptr, geometry.NewPhaseDial(), suffix,
+		)
+
+		if i < len(sequence) {
+			rot = rot.Compose(
+				geometry.RotationForChord(sequence[i]),
+			)
+		}
+	}
+
+	dial := geometry.NewPhaseDial()
+	dial = dial.EncodeFromChords(sequence)
+
+	loader.substrate.Add(
+		data.Chord{},
+		dial,
+		sequence,
+	)
+
+	sequence = sequence[:0]
 }
 
 func (loader *Loader) Lookup(chords []data.Chord) []uint64 {
@@ -148,6 +203,15 @@ LoaderWithTokenizer sets the Universal tokenizer. Required for Generate.
 func LoaderWithTokenizer(tokenizer *tokenizer.Universal) loaderOpts {
 	return func(loader *Loader) {
 		loader.tokenizer = tokenizer
+	}
+}
+
+/*
+LoaderWithPool sets the pool for parallel processing.
+*/
+func LoaderWithPool(pool *pool.Pool) loaderOpts {
+	return func(loader *Loader) {
+		loader.pool = pool
 	}
 }
 

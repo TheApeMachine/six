@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
+	"github.com/theapemachine/six/data"
 )
 
 func TestNewPhaseDial(t *testing.T) {
@@ -38,7 +39,7 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 		})
 
 		Convey("When encoding a single chord", func() {
-			chords := ChordSeqFromBytes("a")
+			chords := []data.Chord{data.BaseChord('a')}
 			encoded := dial.EncodeFromChords(chords)
 			var mag float64
 			for _, val := range encoded {
@@ -50,8 +51,8 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 		})
 
 		Convey("When encoding different chord orderings", func() {
-			chordsA := ChordSeqFromBytes("hello world")
-			chordsB := ChordSeqFromBytes("world hello")
+			chordsA := testChords("hello world")
+			chordsB := testChords("world hello")
 			encodedA := NewPhaseDial().EncodeFromChords(chordsA)
 			encodedB := NewPhaseDial().EncodeFromChords(chordsB)
 
@@ -91,7 +92,7 @@ func BenchmarkNewPhaseDial(b *testing.B) {
 
 func BenchmarkPhaseDialEncodeFromChords(b *testing.B) {
 	dial := NewPhaseDial()
-	chords := ChordSeqFromBytes("benchmark chord sequence for phase encoding")
+	chords := testChords("benchmark chord sequence for phase encoding")
 	for b.Loop() {
 		_ = dial.EncodeFromChords(chords)
 	}

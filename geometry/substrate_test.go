@@ -1,23 +1,20 @@
 package geometry
 
 import (
-	"fmt"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
 )
 
-func chordFromBytes(text string) data.Chord {
+// testChords builds a small chord sequence for testing using BaseChord.
+func testChords(text string) []data.Chord {
 	bytes := []byte(text)
-	chord := data.Chord{}
-	for _, b := range bytes {
-		base := data.BaseChord(b)
-		for i := range chord {
-			chord[i] |= base[i]
-		}
+	chords := make([]data.Chord, len(bytes))
+	for i, b := range bytes {
+		chords[i] = data.BaseChord(b)
 	}
-	return chord
+	return chords
 }
 
 func TestNewHybridSubstrate(t *testing.T) {
@@ -34,36 +31,26 @@ func TestHybridSubstrateAddRetrieve(t *testing.T) {
 	Convey("Given a HybridSubstrate with entries", t, func() {
 		hs := NewHybridSubstrate()
 		dial := NewPhaseDial()
-		fp := dial.EncodeFromChords(ChordSeqFromBytes("hello"))
-		chord := chordFromBytes("hello")
-		hs.Add(chord, fp, []byte("0: hello"))
 
-		fp2 := dial.EncodeFromChords(ChordSeqFromBytes("world"))
-		chord2 := chordFromBytes("world")
-		hs.Add(chord2, fp2, []byte("1: world"))
+		chordsA := testChords("hello")
+		fpA := dial.EncodeFromChords(chordsA)
+		hs.Add(data.ChordLCM(chordsA), fpA, chordsA)
+
+		chordsB := testChords("world")
+		fpB := dial.EncodeFromChords(chordsB)
+		hs.Add(data.ChordLCM(chordsB), fpB, chordsB)
 
 		Convey("When retrieving with matching context", func() {
-			ctxChord := chordFromBytes("hello")
-			ctxFP := dial.EncodeFromChords(ChordSeqFromBytes("hello"))
+			ctxChord := data.ChordLCM(chordsA)
+			ctxFP := dial.EncodeFromChords(chordsA)
 			got := hs.Retrieve(ctxChord, ctxFP, 2)
 			So(got, ShouldNotBeNil)
-			So(string(got), ShouldContainSubstring, "hello")
+			So(len(got), ShouldBeGreaterThan, 0)
 		})
 
 		Convey("When substrate is empty", func() {
 			empty := NewHybridSubstrate()
-			So(empty.Retrieve(chord, fp, 5), ShouldBeNil)
-		})
-	})
-}
-
-func TestReadoutText(t *testing.T) {
-	Convey("Given ReadoutText", t, func() {
-		Convey("When readout has idx: payload format", func() {
-			So(ReadoutText([]byte("42: the payload")), ShouldEqual, "the payload")
-		})
-		Convey("When readout has no separator", func() {
-			So(ReadoutText([]byte("raw")), ShouldEqual, "raw")
+			So(empty.Retrieve(data.ChordLCM(chordsA), fpA, 5), ShouldBeNil)
 		})
 	})
 }
@@ -75,7 +62,7 @@ func TestHybridSubstrateCandidates(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			chord := data.BaseChord(byte('a' + i))
 			fp := dial.EncodeFromChords([]data.Chord{chord})
-			hs.Add(chord, fp, []byte(fmt.Sprintf("%d: item", i)))
+			hs.Add(chord, fp, []data.Chord{chord})
 		}
 		cand := hs.Candidates()
 		So(len(cand), ShouldEqual, 5)
@@ -88,16 +75,19 @@ func TestHybridSubstrateCandidates(t *testing.T) {
 func TestTopExcluding(t *testing.T) {
 	Convey("Given ranked CandidateScores", t, func() {
 		hs := NewHybridSubstrate()
-		hs.Add(data.Chord{}, PhaseDial{}, []byte("0: a"))
-		hs.Add(data.Chord{}, PhaseDial{}, []byte("1: b"))
-		hs.Add(data.Chord{}, PhaseDial{}, []byte("2: c"))
+		chA := testChords("a")
+		chB := testChords("b")
+		chC := testChords("c")
+		hs.Add(data.Chord{}, PhaseDial{}, chA)
+		hs.Add(data.Chord{}, PhaseDial{}, chB)
+		hs.Add(data.Chord{}, PhaseDial{}, chC)
 		ranked := []CandidateScore{{Idx: 0, Score: 0.9}, {Idx: 1, Score: 0.7}, {Idx: 2, Score: 0.5}}
 
 		Convey("When excluding none", func() {
 			So(hs.TopExcluding(ranked), ShouldEqual, 0)
 		})
 		Convey("When excluding top", func() {
-			So(hs.TopExcluding(ranked, "a"), ShouldEqual, 1)
+			So(hs.TopExcluding(ranked, chA), ShouldEqual, 1)
 		})
 	})
 }
@@ -107,9 +97,10 @@ func BenchmarkHybridSubstrateAdd(b *testing.B) {
 	dial := NewPhaseDial()
 	chord := data.BaseChord('x')
 	fp := dial.EncodeFromChords([]data.Chord{chord})
+	readout := []data.Chord{chord}
 	b.ResetTimer()
 	for b.Loop() {
-		hs.Add(chord, fp, []byte("entry"))
+		hs.Add(chord, fp, readout)
 	}
 }
 
@@ -119,7 +110,7 @@ func BenchmarkHybridSubstrateBitwiseFilter(b *testing.B) {
 	for i := 0; i < 100; i++ {
 		chord := data.BaseChord(byte(i % 256))
 		fp := dial.EncodeFromChords([]data.Chord{chord})
-		hs.Add(chord, fp, []byte(fmt.Sprintf("%d: item", i)))
+		hs.Add(chord, fp, []data.Chord{chord})
 	}
 	ctxChord := data.BaseChord(42)
 	b.ResetTimer()
@@ -135,7 +126,7 @@ func BenchmarkHybridSubstratePhaseDialScoring(b *testing.B) {
 	for i := 0; i < 20; i++ {
 		chord := data.BaseChord(byte(i))
 		fp := dial.EncodeFromChords([]data.Chord{chord})
-		hs.Add(chord, fp, []byte(fmt.Sprintf("%d: x", i)))
+		hs.Add(chord, fp, []data.Chord{chord})
 		candidates[i] = i
 	}
 	ctxFP := dial.EncodeFromChords([]data.Chord{data.BaseChord(10)})

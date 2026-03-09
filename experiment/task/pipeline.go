@@ -18,7 +18,6 @@ type Pipeline struct {
 	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
 	testIdx    int
-	chordMap   map[data.Chord]byte
 	scoreWgts  tools.ScoreWeights
 	reporter   Reporter
 }
@@ -27,12 +26,7 @@ type pipelineOpts func(*Pipeline)
 
 func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	pipeline := &Pipeline{
-		chordMap:  make(map[data.Chord]byte),
 		scoreWgts: tools.DefaultScoreWeights(),
-	}
-
-	for b := range 256 {
-		pipeline.chordMap[data.BaseChord(byte(b))] = byte(b)
 	}
 
 	for _, opt := range opts {
@@ -79,7 +73,7 @@ func (pipeline *Pipeline) Run() error {
 		pipeline.prompt(prompt)
 	}
 
-	if err := pipeline.experiment.Finalize(pipeline.machine.Substrate()); err != nil {
+	if err := pipeline.experiment.Finalize(nil); err != nil {
 		return fmt.Errorf("experiment finalize: %w", err)
 	}
 
@@ -88,8 +82,15 @@ func (pipeline *Pipeline) Run() error {
 	}
 
 	for _, artifact := range pipeline.experiment.Artifacts() {
-		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
-			return fmt.Errorf("write %s artifact %s: %w", artifact.Type, artifact.FileName, err)
+		if err := pipeline.reporter.WriteArtifact(
+			pipeline.experiment, artifact,
+		); err != nil {
+			return fmt.Errorf(
+				"write %s artifact %s: %w",
+				artifact.Type,
+				artifact.FileName,
+				err,
+			)
 		}
 	}
 
@@ -98,6 +99,7 @@ func (pipeline *Pipeline) Run() error {
 
 func extractScores(data []tools.ExperimentalData, field string) []float64 {
 	scores := make([]float64, len(data))
+
 	for i, d := range data {
 		switch field {
 		case "Exact":
@@ -110,6 +112,7 @@ func extractScores(data []tools.ExperimentalData, field string) []float64 {
 			scores[i] = d.WeightedTotal
 		}
 	}
+
 	return scores
 }
 
@@ -117,13 +120,16 @@ func formatLogPayload(payload string) string {
 	if payload == "" {
 		return `""`
 	}
+
 	if !utf8.ValidString(payload) {
 		return strconv.QuoteToASCII(payload)
 	}
+
 	for _, r := range payload {
 		if r == '\n' || r == '\r' || r == '\t' {
 			continue
 		}
+
 		if !unicode.IsPrint(r) {
 			return strconv.QuoteToASCII(payload)
 		}
@@ -133,23 +139,15 @@ func formatLogPayload(payload string) string {
 }
 
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
-	var bRes []byte
+	var chordRes []data.Chord
 
 	// Use cortex Think() for reasoning tasks (holdout=0), Prompt() for recall.
 	holdout, _ := pipeline.experiment.Holdout()
 
 	if holdout == 0 {
-		bRes = <-pipeline.machine.Think(promptChords, nil)
+		chordRes = <-pipeline.machine.Think(promptChords)
 	} else {
-		bRes = <-pipeline.machine.Prompt(promptChords, nil)
-	}
-
-	// Reconstruct the prompt bytes from input chords
-	var bPrompt []byte
-	for _, chord := range promptChords {
-		if b, ok := pipeline.chordMap[chord]; ok {
-			bPrompt = append(bPrompt, b)
-		}
+		chordRes = <-pipeline.machine.Prompt(promptChords)
 	}
 
 	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)
@@ -158,6 +156,7 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	fmt.Println()
 	fmt.Println(formatLogPayload(pipeline.prompts.Value(pipeline.testIdx)))
 	fmt.Println()
+
 	if heldOut != "" {
 		console.Info("HOLDOUT")
 		fmt.Println()
@@ -165,19 +164,13 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		fmt.Println()
 	}
 
-	generated := append([]byte(nil), bRes...)
-
-	console.Info("OBSERVED")
-	fmt.Println()
-	fmt.Println(formatLogPayload(string(generated)))
-	fmt.Println()
+	console.Info("OBSERVED",
+		"chords", len(chordRes),
+	)
 
 	pipeline.experiment.AddResult(tools.ExperimentalData{
-		Idx:      pipeline.testIdx,
-		Name:     pipeline.experiment.Name(),
-		Prefix:   bPrompt,
-		Holdout:  []byte(heldOut),
-		Observed: generated,
+		Idx:  pipeline.testIdx,
+		Name: pipeline.experiment.Name(),
 	})
 
 	pipeline.testIdx++

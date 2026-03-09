@@ -54,5 +54,955 @@ Idx & Name & Exact & Partial & Fuzzy & Total \\
 \hline
 24 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \hline
+25 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+26 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+27 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+28 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+29 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+30 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+31 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+32 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+33 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+34 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+35 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+36 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+37 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+38 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+39 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+40 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+41 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+42 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+43 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+44 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+45 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+46 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+47 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+48 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+49 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+50 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+51 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+52 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+53 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+54 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+55 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+56 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+57 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+58 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+59 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+60 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+61 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+62 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+63 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+64 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+65 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+66 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+67 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+68 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+69 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+70 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+71 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+72 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+73 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+74 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+75 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+76 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+77 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+78 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+79 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+80 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+81 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+82 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+83 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+84 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+85 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+86 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+87 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+88 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+89 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+90 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+91 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+92 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+93 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+94 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+95 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+96 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+97 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+98 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+99 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+100 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+101 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+102 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+103 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+104 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+105 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+106 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+107 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+108 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+109 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+110 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+111 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+112 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+113 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+114 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+115 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+116 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+117 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+118 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+119 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+120 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+121 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+122 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+123 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+124 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+125 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+126 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+127 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+128 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+129 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+130 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+131 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+132 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+133 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+134 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+135 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+136 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+137 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+138 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+139 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+140 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+141 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+142 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+143 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+144 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+145 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+146 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+147 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+148 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+149 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+150 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+151 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+152 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+153 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+154 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+155 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+156 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+157 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+158 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+159 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+160 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+161 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+162 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+163 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+164 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+165 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+166 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+167 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+168 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+169 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+170 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+171 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+172 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+173 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+174 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+175 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+176 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+177 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+178 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+179 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+180 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+181 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+182 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+183 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+184 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+185 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+186 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+187 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+188 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+189 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+190 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+191 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+192 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+193 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+194 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+195 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+196 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+197 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+198 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+199 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+200 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+201 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+202 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+203 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+204 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+205 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+206 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+207 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+208 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+209 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+210 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+211 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+212 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+213 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+214 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+215 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+216 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+217 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+218 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+219 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+220 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+221 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+222 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+223 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+224 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+225 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+226 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+227 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+228 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+229 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+230 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+231 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+232 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+233 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+234 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+235 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+236 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+237 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+238 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+239 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+240 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+241 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+242 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+243 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+244 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+245 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+246 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+247 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+248 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+249 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+250 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+251 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+252 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+253 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+254 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+255 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+256 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+257 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+258 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+259 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+260 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+261 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+262 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+263 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+264 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+265 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+266 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+267 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+268 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+269 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+270 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+271 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+272 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+273 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+274 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+275 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+276 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+277 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+278 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+279 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+280 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+281 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+282 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+283 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+284 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+285 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+286 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+287 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+288 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+289 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+290 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+291 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+292 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+293 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+294 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+295 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+296 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+297 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+298 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+299 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+300 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+301 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+302 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+303 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+304 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+305 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+306 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+307 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+308 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+309 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+310 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+311 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+312 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+313 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+314 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+315 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+316 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+317 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+318 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+319 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+320 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+321 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+322 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+323 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+324 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+325 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+326 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+327 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+328 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+329 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+330 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+331 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+332 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+333 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+334 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+335 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+336 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+337 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+338 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+339 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+340 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+341 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+342 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+343 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+344 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+345 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+346 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+347 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+348 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+349 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+350 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+351 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+352 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+353 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+354 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+355 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+356 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+357 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+358 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+359 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+360 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+361 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+362 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+363 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+364 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+365 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+366 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+367 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+368 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+369 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+370 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+371 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+372 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+373 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+374 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+375 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+376 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+377 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+378 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+379 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+380 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+381 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+382 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+383 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+384 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+385 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+386 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+387 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+388 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+389 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+390 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+391 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+392 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+393 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+394 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+395 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+396 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+397 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+398 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+399 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+400 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+401 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+402 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+403 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+404 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+405 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+406 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+407 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+408 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+409 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+410 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+411 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+412 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+413 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+414 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+415 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+416 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+417 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+418 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+419 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+420 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+421 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+422 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+423 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+424 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+425 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+426 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+427 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+428 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+429 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+430 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+431 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+432 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+433 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+434 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+435 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+436 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+437 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+438 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+439 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+440 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+441 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+442 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+443 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+444 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+445 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+446 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+447 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+448 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+449 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+450 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+451 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+452 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+453 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+454 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+455 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+456 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+457 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+458 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+459 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+460 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+461 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+462 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+463 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+464 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+465 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+466 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+467 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+468 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+469 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+470 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+471 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+472 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+473 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+474 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+475 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+476 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+477 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+478 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+479 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+480 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+481 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+482 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+483 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+484 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+485 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+486 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+487 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+488 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+489 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+490 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+491 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+492 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+493 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+494 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+495 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+496 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+497 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+498 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
+499 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\hline
 \end{tabular}
 \end{table}

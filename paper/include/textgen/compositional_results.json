@@ -13,20 +13,20 @@
     {
       "Idx": 0,
       "Name": "Compositional",
-      "Prefix": "dGhlIHF1aWNrIHJl",
-      "Holdout": "ZA==",
-      "Observed": "Y2sgcmVkIGNhcg==",
+      "Prefix": null,
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 1,
+  "score": 0,
   "section": "textgen"
 }

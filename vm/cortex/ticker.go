@@ -281,7 +281,7 @@ func (g *Graph) InjectWithSequencer(chords []data.Chord) {
 		}
 
 		// Advance the lens for every token to stay aligned with Bedrock ingestion.
-		dataRot := geometry.RotationForByte(symbol)
+		dataRot := geometry.RotationForChord(c)
 		dataTok := NewDataToken(c, c.IntrinsicFace(), -1)
 		lawTok := NewRotationToken(dataRot, -1)
 

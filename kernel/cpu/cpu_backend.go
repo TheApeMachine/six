@@ -56,12 +56,12 @@ func scoreFromTerms(t scoreTerms) int32 {
 func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, precisionWords []uint16, cubeBase int) scoreTerms {
 	var terms scoreTerms
 
-	for c := 0; c < 4; c++ {
-		for b := 0; b < geometry.CubeFaces; b++ {
+	for c := range 4 {
+		for b := range geometry.CubeFaces {
 			supportPrecision := uint64(precisionFor(precisionWords, c, b))
 			vetoPrecision := uint64(precisionFor(precisionWords, 4, b))
 
-			for i := 0; i < 8; i++ {
+			for i := range 8 {
 				offset := (c*geometry.CubeFaces+b)*8 + i
 				vetoOffset := (4*geometry.CubeFaces+b)*8 + i
 

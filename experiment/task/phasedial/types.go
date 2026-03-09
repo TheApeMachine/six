@@ -6,7 +6,7 @@ type TwoHopTrace struct {
 	Gain        float64 `json:"gain"`
 	SimCA       float64 `json:"sim_ca"`
 	SimCB       float64 `json:"sim_cb"`
-	MatchText   string  `json:"match_text"`
+	MatchIdx    int     `json:"match_idx"`
 	SimCAB      float64 `json:"sim_cab"`
 	BalancedSum float64 `json:"balanced_sum"`
 	Separation  float64 `json:"separation"`

@@ -1,38 +1,41 @@
 package geometry
 
 import (
-	"encoding/binary"
 	"math"
 	"math/bits"
 	"math/cmplx"
-	"slices"
 	"sort"
-	"strings"
 
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 )
 
 /*
-SubstrateEntry is a hybrid memory unit: 512-bit Chord filter, PhaseDial fingerprint, and readout payload.
-Bitwise filter enables fast candidate pruning; PhaseDial enables precise ranking.
+SubstrateEntry is a hybrid memory unit:
+512-bit Chord filter,
+PhaseDial fingerprint,
+and readout payload.
+Bitwise filter enables fast candidate pruning;
+PhaseDial enables precise ranking.
 */
 type SubstrateEntry struct {
 	Filter      data.Chord
 	Fingerprint PhaseDial
-	Readout     []byte
+	Readout     []data.Chord
 }
 
 /*
 HybridSubstrate stores entries and retrieves via two-phase pipeline:
-(1) BitwiseFilter → top-K candidates by chord overlap, (2) PhaseDialScoring → best match.
+(1) BitwiseFilter → top-K candidates by chord overlap,
+(2) PhaseDialScoring → best match.
 */
 type HybridSubstrate struct {
 	Entries []SubstrateEntry
 }
 
 /*
-NewHybridSubstrate allocates an empty HybridSubstrate ready for Add operations.
+NewHybridSubstrate allocates an empty HybridSubstrate
+ready for Add operations.
 */
 func NewHybridSubstrate() *HybridSubstrate {
 	return &HybridSubstrate{
@@ -41,9 +44,14 @@ func NewHybridSubstrate() *HybridSubstrate {
 }
 
 /*
-Add appends a new SubstrateEntry (filter, fingerprint, readout) to the substrate.
+Add appends a new SubstrateEntry (filter, fingerprint, readout)
+to the substrate.
 */
-func (hs *HybridSubstrate) Add(filter data.Chord, fingerprint PhaseDial, readout []byte) {
+func (hs *HybridSubstrate) Add(
+	filter data.Chord,
+	fingerprint PhaseDial,
+	readout []data.Chord,
+) {
 	hs.Entries = append(hs.Entries, SubstrateEntry{
 		Filter:      filter,
 		Fingerprint: fingerprint,
@@ -59,10 +67,13 @@ func (hs *HybridSubstrate) Filters() []data.Chord {
 	if len(hs.Entries) == 0 {
 		return nil
 	}
+
 	filters := make([]data.Chord, len(hs.Entries))
+
 	for i, e := range hs.Entries {
 		filters[i] = e.Filter
 	}
+
 	return filters
 }
 
@@ -70,7 +81,11 @@ func (hs *HybridSubstrate) Filters() []data.Chord {
 Retrieve runs the two-phase pipeline: BitwiseFilter → PhaseDialScoring → readout.
 Returns the Readout of the best-matching entry, or nil if no entries or no candidates.
 */
-func (hs *HybridSubstrate) Retrieve(contextFilter data.Chord, contextFingerprint PhaseDial, topK int) []byte {
+func (hs *HybridSubstrate) Retrieve(
+	contextFilter data.Chord,
+	contextFingerprint PhaseDial,
+	topK int,
+) []data.Chord {
 	if len(hs.Entries) == 0 {
 		return nil
 	}
@@ -93,30 +108,25 @@ func (hs *HybridSubstrate) Retrieve(contextFilter data.Chord, contextFingerprint
 BitwiseFilter scores entries by chord overlap (match/noise ratio).
 Returns top-K entry indices descending by score. Software popcount; GPU could accelerate.
 */
-func (hs *HybridSubstrate) BitwiseFilter(contextFilter data.Chord, topK int) []int {
+func (hs *HybridSubstrate) BitwiseFilter(
+	contextFilter data.Chord, topK int,
+) []int {
 	type candidateScore struct {
 		idx   int
 		score int
 	}
 
 	scores := make([]candidateScore, len(hs.Entries))
+
 	for i, entry := range hs.Entries {
 		matchCount := 0
 		noiseCount := 0
 
-		for j := 0; j < config.Numeric.ChordBlocks; j++ {
-			off := j * 8
-			cBits := binary.LittleEndian.Uint64(entry.Filter.Bytes()[off : off+8])
-			aBits := binary.LittleEndian.Uint64(contextFilter.Bytes()[off : off+8])
-
-			// same logic as the Metal bitwise shader
-			matchCount += bits.OnesCount64(cBits & aBits)
-			noiseCount += bits.OnesCount64(cBits & ^aBits)
+		for j := range config.Numeric.ChordBlocks {
+			matchCount += bits.OnesCount64(entry.Filter[j] & contextFilter[j])
+			noiseCount += bits.OnesCount64(entry.Filter[j] &^ contextFilter[j])
 		}
 
-		// simplified resonance score (unscaled)
-		// For accurate sorting, higher match/noise ratio is better
-		// We use an integer score logic roughly similar to float scaling
 		resScore := int((float64(matchCount) / float64(matchCount+noiseCount+1)) * 1e6)
 		scores[i] = candidateScore{idx: i, score: resScore}
 	}
@@ -130,6 +140,7 @@ func (hs *HybridSubstrate) BitwiseFilter(contextFilter data.Chord, topK int) []i
 	}
 
 	result := make([]int, topK)
+
 	for i := 0; i < topK; i++ {
 		result[i] = scores[i].idx
 	}
@@ -149,8 +160,11 @@ type CandidateScore struct {
 PhaseDialRank scores candidates by complex cosine similarity to contextFingerprint.
 Returns CandidateScore slice ordered descending by Score.
 */
-func (hs *HybridSubstrate) PhaseDialRank(candidates []int, contextFingerprint PhaseDial) []CandidateScore {
+func (hs *HybridSubstrate) PhaseDialRank(
+	candidates []int, contextFingerprint PhaseDial,
+) []CandidateScore {
 	scores := make([]CandidateScore, len(candidates))
+
 	for i, idx := range candidates {
 		entry := hs.Entries[idx]
 		score := hs.complexCosineSimilarity(entry.Fingerprint, contextFingerprint)
@@ -168,7 +182,9 @@ func (hs *HybridSubstrate) PhaseDialRank(candidates []int, contextFingerprint Ph
 PhaseDialScoring returns the index of the candidate with highest PhaseDial similarity.
 Returns -1 if no candidates.
 */
-func (hs *HybridSubstrate) PhaseDialScoring(candidates []int, contextFingerprint PhaseDial) int {
+func (hs *HybridSubstrate) PhaseDialScoring(
+	candidates []int, contextFingerprint PhaseDial,
+) int {
 	bestIdx := -1
 	var bestScore float64 = -math.MaxFloat64
 
@@ -186,8 +202,9 @@ func (hs *HybridSubstrate) PhaseDialScoring(candidates []int, contextFingerprint
 }
 
 /*
-complexCosineSimilarity returns the real part of the normalized Hermitian inner product.
-Same as PhaseDial.Similarity; internal helper for substrate scoring.
+complexCosineSimilarity returns the real part of the normalized
+Hermitian inner product. Same as PhaseDial.Similarity; internal
+helper for substrate scoring.
 */
 func (hs *HybridSubstrate) complexCosineSimilarity(a, b PhaseDial) float64 {
 	if len(a) != len(b) || len(a) == 0 {
@@ -216,18 +233,6 @@ func (hs *HybridSubstrate) complexCosineSimilarity(a, b PhaseDial) float64 {
 }
 
 /*
-ReadoutText parses "idx: payload" format, returning the payload part.
-Falls back to raw readout if no ": " separator.
-*/
-func ReadoutText(readout []byte) string {
-	parts := strings.SplitN(string(readout), ": ", 2)
-	if len(parts) == 2 {
-		return parts[1]
-	}
-	return string(readout)
-}
-
-/*
 Candidates returns indices 0..len(Entries)-1 for full-substrate PhaseDialRank scans.
 */
 func (hs *HybridSubstrate) Candidates() []int {
@@ -239,103 +244,129 @@ func (hs *HybridSubstrate) Candidates() []int {
 }
 
 /*
-TopExcluding returns the highest-ranked entry index whose ReadoutText is not in excluded.
-Falls back to ranked[0].Idx if all are excluded.
-*/
-func (hs *HybridSubstrate) TopExcluding(ranked []CandidateScore, excluded ...string) int {
-	for _, r := range ranked {
-		text := ReadoutText(hs.Entries[r.Idx].Readout)
-		found := slices.Contains(excluded, text)
-		if !found {
-			return r.Idx
-		}
-	}
-	return ranked[0].Idx // Fallback
-}
-
-/*
-BestGain sweeps fpScan through 360 rotation steps; at each step ranks candidates
-and selects the top non-excluded entry. Returns the maximum over all steps of
-min(Similarity(efp,fpA), Similarity(efp,fpB)) where efp is that entry's fingerprint.
-*/
-func (hs *HybridSubstrate) BestGain(fpScan, fpA, fpB PhaseDial, excludeA, excludeB string) float64 {
-	bestGain := -1.0
-	for s := range 360 {
-		alpha := float64(s) * (math.Pi / 180.0)
-		rot := fpScan.Rotate(alpha)
-		rnk := hs.PhaseDialRank(hs.Candidates(), rot)
-		topIdx := hs.TopExcluding(rnk, excludeA, excludeB)
-		efp := hs.Entries[topIdx].Fingerprint
-		gain := math.Min(efp.Similarity(fpA), efp.Similarity(fpB))
-		if gain > bestGain {
-			bestGain = gain
-		}
-	}
-	return bestGain
-}
-
-/*
-HopResult holds the result of FirstHop: fingerprint at B, composed A+B fingerprint, and readout text.
+HopResult holds the result of FirstHop: fingerprint at B,
+composed A+B fingerprint, and readout chords.
 */
 type HopResult struct {
 	FingerprintB  PhaseDial
 	FingerprintAB PhaseDial
-	TextB         string
+	ReadoutB      []data.Chord
 }
 
 /*
-FirstHop rotates fpA by alpha, ranks candidates, selects best excluding textA.
-Returns HopResult with fpB, composed fpAB (A+B), and textB.
+FirstHop finds the best PhaseDial match for seedFP rotated by alpha,
+composes the seed and match fingerprints, and returns the result.
+Excludes entries whose readout matches excludeReadout.
 */
-func (hs *HybridSubstrate) FirstHop(fpA PhaseDial, alpha float64, textA string) HopResult {
-	fpB_virtual := fpA.Rotate(alpha)
-	rnk := hs.PhaseDialRank(hs.Candidates(), fpB_virtual)
-	idxB := hs.TopExcluding(rnk, textA)
-	fpB := hs.Entries[idxB].Fingerprint
-	textB := ReadoutText(hs.Entries[idxB].Readout)
+func (hs *HybridSubstrate) FirstHop(
+	seedFP PhaseDial, alpha float64, excludeReadout []data.Chord,
+) HopResult {
+	rotated := seedFP.Rotate(alpha)
+	candidates := hs.Candidates()
+	ranked := hs.PhaseDialRank(candidates, rotated)
 
-	// Composed fingerprint (A + B)
-	fpAB := make(PhaseDial, len(fpA))
-	for k := range fpA {
-		fpAB[k] = fpA[k] + fpB[k]
+	bestIdx := hs.TopExcluding(ranked, excludeReadout)
+	bestEntry := hs.Entries[bestIdx]
+
+	// Compose: element-wise product of seed and matched fingerprints
+	composed := make(PhaseDial, len(seedFP))
+	for k := range seedFP {
+		if k < len(bestEntry.Fingerprint) {
+			composed[k] = seedFP[k] * bestEntry.Fingerprint[k]
+		}
 	}
 
 	return HopResult{
-		FingerprintB:  fpB,
-		FingerprintAB: fpAB,
-		TextB:         textB,
+		FingerprintB:  bestEntry.Fingerprint,
+		FingerprintAB: composed,
+		ReadoutB:      bestEntry.Readout,
 	}
+}
+
+/*
+TopExcluding returns the index of the highest-ranked candidate whose
+readout does not match any of the excluded chord sequences.
+Falls back to the top candidate if all are excluded.
+*/
+func (hs *HybridSubstrate) TopExcluding(
+	ranked []CandidateScore, excluded ...[]data.Chord,
+) int {
+	for _, cand := range ranked {
+		readout := hs.Entries[cand.Idx].Readout
+		skip := false
+
+		for _, excl := range excluded {
+			if chordsEqual(readout, excl) {
+				skip = true
+				break
+			}
+		}
+
+		if !skip {
+			return cand.Idx
+		}
+	}
+
+	if len(ranked) > 0 {
+		return ranked[0].Idx
+	}
+
+	return 0
+}
+
+func chordsEqual(a, b []data.Chord) bool {
+	if len(a) != len(b) {
+		return false
+	}
+
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+
+	return true
 }
 
 /*
 GeodesicScan rotates seedFP by stepDeg at each step 0..steps.
-For each step, ranks all candidates and records Phase, Margin, Entropy, BestIdx, BestReadout, Ranked.
+For each step, ranks all candidates and records Phase, Margin,
+Entropy, BestIdx, BestReadout, Ranked.
 */
-func (hs *HybridSubstrate) GeodesicScan(seedFP PhaseDial, steps int, stepDeg float64) []GeodesicStep {
+func (hs *HybridSubstrate) GeodesicScan(
+	seedFP PhaseDial, steps int, stepDeg float64,
+) []GeodesicStep {
 	candidates := hs.Candidates()
 	var results []GeodesicStep
+
 	for s := 0; s <= steps; s++ {
 		alphaRadians := float64(s) * stepDeg * (math.Pi / 180.0)
 		rotated := seedFP.Rotate(alphaRadians)
 		ranked := hs.PhaseDialRank(candidates, rotated)
 		best := ranked[0]
 		margin := 0.0
+
 		if len(ranked) > 1 {
 			margin = best.Score - ranked[1].Score
 		}
+
 		var entropy float64
 		pSum := 0.0
+
 		for _, r := range ranked {
 			pSum += math.Max(0, r.Score)
 		}
+
 		if pSum > 0 {
 			for _, r := range ranked {
 				p := math.Max(0, r.Score) / pSum
+
 				if p > 0 {
 					entropy -= p * math.Log2(p)
 				}
 			}
 		}
+
 		results = append(results, GeodesicStep{
 			Phase:       float64(s) * stepDeg,
 			Margin:      margin,
@@ -356,6 +387,36 @@ type GeodesicStep struct {
 	Margin      float64
 	Entropy     float64
 	BestIdx     int
-	BestReadout []byte
+	BestReadout []data.Chord
 	Ranked      []CandidateScore
+}
+
+/*
+BestGain sweeps 360° of single-axis rotation on queryFP, excludes entries
+matching any of the excluded chord sequences, and returns the best
+min(sim(C, refA), sim(C, refB)) score. This is the 1D baseline for
+comparison against torus (2D) gains.
+*/
+func (hs *HybridSubstrate) BestGain(
+	queryFP PhaseDial,
+	refA, refB PhaseDial,
+	excluded ...[]data.Chord,
+) float64 {
+	candidates := hs.Candidates()
+	bestGain := -1.0
+
+	for s := range 360 {
+		alpha := float64(s) * (math.Pi / 180.0)
+		rotated := queryFP.Rotate(alpha)
+		ranked := hs.PhaseDialRank(candidates, rotated)
+		topIdx := hs.TopExcluding(ranked, excluded...)
+		fpC := hs.Entries[topIdx].Fingerprint
+		gain := math.Min(fpC.Similarity(refA), fpC.Similarity(refB))
+
+		if gain > bestGain {
+			bestGain = gain
+		}
+	}
+
+	return bestGain
 }

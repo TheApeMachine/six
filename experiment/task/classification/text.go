@@ -36,9 +36,11 @@ var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
 // used by SUBSTRING holdout to strip them from prompts.
 var labelSuffixes = func() []string {
 	out := make([]string, len(agNewsLabels))
+
 	for i, l := range agNewsLabels {
 		out[i] = " " + l
 	}
+
 	return out
 }()
 
@@ -60,6 +62,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			Condition: func() bool {
 				return experiment.Score() > 0.5
 			},
+
 			Description: "The system is able to classify text into correct categories.",
 		},
 	}
@@ -163,6 +166,7 @@ Scoring:
 */
 func (experiment *TextClassificationExperiment) ComputePredictions() {
 	n := len(experiment.tableData)
+
 	if n == 0 {
 		return
 	}
@@ -173,12 +177,14 @@ func (experiment *TextClassificationExperiment) ComputePredictions() {
 		experiment.tableData[i].PredLabel = nil
 
 		generated := string(experiment.tableData[i].Observed)
+
 		if len(generated) == 0 {
 			continue
 		}
 
 		var found []int
-		for c := 0; c < numClasses; c++ {
+
+		for c := range numClasses {
 			if strings.Contains(generated, agNewsLabels[c]) {
 				found = append(found, c)
 			}

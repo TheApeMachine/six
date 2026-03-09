@@ -76,12 +76,12 @@ func (experiment *AdaptiveSplitExperiment) TableData() any {
 
 func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	D := config.Numeric.NBasis
-	seedQuery := "Democracy requires individual sacrifice."
-	fpA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
+	seedQueryChords := sub.Entries[0].Readout
+	fpA := sub.Entries[0].Fingerprint
 
-	hop := sub.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQuery)
+	hop := sub.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQueryChords)
 	fpB, fpAB := hop.FingerprintB, hop.FingerprintAB
-	textB := hop.TextB
+	readoutB := hop.ReadoutB
 
 	ceiling := -1.0
 	for s := 0; s < 360; s++ {
@@ -89,7 +89,7 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 		for _, anchor := range []geometry.PhaseDial{fpA, fpB} {
 			rot := anchor.Rotate(alpha)
 			rnk := sub.PhaseDialRank(sub.Candidates(), rot)
-			topIdx := sub.TopExcluding(rnk, seedQuery, textB)
+			topIdx := sub.TopExcluding(rnk, seedQueryChords, readoutB)
 			efp := sub.Entries[topIdx].Fingerprint
 			g := math.Min(efp.Similarity(fpA), efp.Similarity(fpB))
 			if g > ceiling {
@@ -117,14 +117,14 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 					}
 				}
 				rnk := sub.PhaseDialRank(sub.Candidates(), rotated)
-				topIdx := sub.TopExcluding(rnk, seedQuery, textB)
+				topIdx := sub.TopExcluding(rnk, seedQueryChords, readoutB)
 				efp := sub.Entries[topIdx].Fingerprint
 				gain := math.Min(efp.Similarity(fpA), efp.Similarity(fpB))
 				if gain > bestGain {
 					bestGain = gain
 					bestA1 = float64(i) * stepDeg
 					bestA2 = float64(j) * stepDeg
-					bestC = geometry.ReadoutText(sub.Entries[topIdx].Readout)
+					bestC = fmt.Sprintf("entry-%d", topIdx)
 				}
 			}
 		}
@@ -232,7 +232,7 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 					}
 				}
 				rnk := sub.PhaseDialRank(sub.Candidates(), rotated)
-				topIdx := sub.TopExcluding(rnk, seedQuery, textB)
+				topIdx := sub.TopExcluding(rnk, seedQueryChords, readoutB)
 				efp := sub.Entries[topIdx].Fingerprint
 				g := math.Min(efp.Similarity(fpA), efp.Similarity(fpB))
 				if g > bestGain {

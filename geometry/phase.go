@@ -26,19 +26,6 @@ func NewPhaseDial() PhaseDial {
 }
 
 /*
-ChordSeqFromBytes produces a chord sequence from raw bytes via BaseChord.
-Used when text/bytes are the input source for EncodeFromChords.
-*/
-func ChordSeqFromBytes(text string) []data.Chord {
-	bytes := []byte(text)
-	chords := make([]data.Chord, len(bytes))
-	for idx, b := range bytes {
-		chords[idx] = data.BaseChord(b)
-	}
-	return chords
-}
-
-/*
 EncodeFromChords generates a 512-dim PhaseDial from a chord sequence.
 Chord-native: uses chord structure (active primes) and position for phase;
 no raw bytes. The chord's prime signature maps to rotational phase gradients.

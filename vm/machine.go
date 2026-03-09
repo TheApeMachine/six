@@ -2,57 +2,35 @@ package vm
 
 import (
 	"context"
-	"fmt"
-	"math/rand"
 	"runtime"
-	"sync"
-	"unsafe"
 
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/pool"
-	"github.com/theapemachine/six/store"
-	"github.com/theapemachine/six/vm/cortex"
+	"github.com/theapemachine/six/validate"
 )
-
-type bestFillFn func(
-	dictionary unsafe.Pointer,
-	numChords int,
-	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	mode int,
-	geodesicLUT unsafe.Pointer,
-) (int, float64, error)
 
 /*
 Machine is the top-level VM: Loader ingests data; Think/Prompt produce output.
-Start() runs ingestion (substrate + PrimeField), trains EigenMode, wires Sequencer.
-Think uses the cortex graph; Prompt uses substrate suffix lookup.
+Start() runs ingestion (substrate); Think and Prompt resolve through the Backend.
 */
 type Machine struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	loader     *Loader
-	pool       *pool.Pool
-	primefield *store.PrimeField
-	substrate  *geometry.HybridSubstrate
-	bestFill   bestFillFn
-	eigenMode  *geometry.EigenMode
-	sequencer  cortex.Analyzer
+	ctx     context.Context
+	cancel  context.CancelFunc
+	loader  *Loader
+	pool    *pool.Pool
+	backend kernel.Backend
 }
 
 type machineOpts func(*Machine)
 
 /*
-NewMachine creates a Machine with PrimeField and kernel.BestFill. Use MachineWithLoader,
-MachineWithPool to configure. Pool defaults to pool.New() if nil.
+NewMachine creates a Machine. Use MachineWithLoader, MachineWithPool,
+MachineWithBackend to configure. Pool defaults to pool.New() if nil.
+Backend defaults to kernel.NewBackend() (from SIX_BACKEND env) if nil.
 */
 func NewMachine(opts ...machineOpts) *Machine {
-	machine := &Machine{
-		primefield: store.NewPrimeField(),
-		bestFill:   kernel.BestFill,
-	}
+	machine := &Machine{}
 
 	for _, opt := range opts {
 		opt(machine)
@@ -72,95 +50,29 @@ func NewMachine(opts ...machineOpts) *Machine {
 		)
 	}
 
+	if machine.backend == nil {
+		b, err := kernel.NewBackend()
+		if err != nil {
+			panic("failed to initialize backend: " + err.Error())
+		}
+		machine.backend = b
+	}
+
+	validate.Require(map[string]any{
+		"backend": machine.backend,
+		"loader":  machine.loader,
+		"pool":    machine.pool,
+	})
+
 	return machine
 }
 
 /*
-Start runs ingestion: drains loader.Generate(), builds suffix entries per sample,
-merges into substrate and PrimeField, calls BuildEigenModes, wires Sequencer.
+Start runs ingestion: drains loader.Generate(), builds suffix entries per sample.
 Requires loader to be set via MachineWithLoader.
 */
 func (machine *Machine) Start() error {
-	machine.substrate = geometry.NewHybridSubstrate()
-
-	// Ensure the Loader has all internal dependencies.
-	if machine.loader.store == nil {
-		machine.loader.store = store.NewLSMSpatialIndex(1.0)
-	}
-
-	machine.loader.primefield = machine.primefield
-
-	var sequence []data.Chord
-	var bytesSeq []byte
-
-	idx := 0
-	wg := sync.WaitGroup{}
-
-	for res := range machine.loader.Generate() {
-		wg.Add(1)
-
-		machine.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
-			defer wg.Done()
-
-			if res.IsBoundary {
-				// Write suffix entries for the completed sample.
-				rot := geometry.IdentityRotation()
-
-				for i := 0; i < len(bytesSeq); i++ {
-					var ptr data.Chord
-
-					for range 5 {
-						ptr.Set(rand.Intn(257))
-					}
-
-					machine.primefield.StorePointer(rot, ptr)
-
-					suffix := make([]byte, len(bytesSeq)-i)
-					copy(suffix, bytesSeq[i:])
-
-					machine.substrate.Add(ptr, geometry.NewPhaseDial(), suffix)
-
-					if i < len(bytesSeq) {
-						rot = rot.Compose(geometry.RotationForByte(bytesSeq[i]))
-					}
-				}
-
-				dial := geometry.NewPhaseDial()
-				dial = dial.EncodeFromChords(sequence)
-
-				machine.substrate.Add(
-					data.Chord{},
-					dial,
-					[]byte("sequence"),
-				)
-
-				sequence = sequence[:0]
-				bytesSeq = bytesSeq[:0]
-			}
-
-			if res.Chord.ActiveCount() > 0 {
-				sequence = append(sequence, res.Chord)
-				bytesSeq = append(bytesSeq, res.Symbol)
-			}
-
-			return nil, nil
-		})
-	}
-
-	wg.Wait()
-
-	// Build EigenModes from the ingested manifold topology.
-	machine.primefield.BuildEigenModes()
-	machine.eigenMode = machine.primefield.EigenMode()
-
-	// Wire the Sequencer with the trained EigenMode.
-	if machine.loader.Tokenizer() != nil && machine.loader.Tokenizer().Sequencer() != nil {
-		seq := machine.loader.Tokenizer().Sequencer()
-		seq.SetEigenMode(machine.eigenMode)
-		machine.sequencer = seq
-	}
-
-	return nil
+	return machine.loader.Start()
 }
 
 /*
@@ -171,56 +83,37 @@ func (machine *Machine) Stop() {
 }
 
 /*
-Think creates a cortex Graph, injects prompt with Sequencer events, runs Tick()
-until convergence, returns the sink's output channel. Uses PrimeField/Substrate
-for recall. For bAbI-style extraction, see cortex.Think.
+Prompt resolves prompt chords through the Backend for O(1) suffix recall.
+Returns a channel of chord sequences.
 */
-func (machine *Machine) Think(
-	prompt []data.Chord,
-	expectedReality *geometry.IcosahedralManifold,
-) chan []byte {
-	cfg := cortex.Config{
-		InitialNodes: 8,
-		PrimeField:   machine.primefield,
-		Substrate:    machine.substrate,
-		BestFill:     kernel.BestFill,
-		EigenMode:    machine.eigenMode,
-		Sequencer:    machine.sequencer,
-		MaxTicks:     256,
-		MaxOutput:    512,
-	}
-
-	graph := cortex.New(cfg)
-	return graph.Think(prompt, expectedReality)
-}
-
-/*
-Prompt composes rot = RotationForByte for each prompt chord, calls
-HolographicRecall(filters, manifolds, rot), streams the matched suffix bytes.
-No cortex; O(1) suffix lookup via GF(257) rotational addressing.
-*/
-func (machine *Machine) Prompt(
-	prompt []data.Chord,
-	expectedReality *geometry.IcosahedralManifold,
-) chan []byte {
-	out := make(chan []byte)
+func (machine *Machine) Prompt(prompt []data.Chord) chan []data.Chord {
+	out := make(chan []data.Chord)
 
 	go func() {
 		defer close(out)
 
-		rot := geometry.IdentityRotation()
-		filters := machine.substrate.Filters()
+		if len(prompt) == 0 {
+			return
+		}
 
-		if len(filters) > 0 {
-			match, err := kernel.HolographicRecall(
-				filters,
-				machine.primefield.ManifoldsPtr(),
-				rot,
-			)
+		results, err := machine.backend.Resolve(prompt)
 
-			if err == nil && match.Index >= 0 && match.Score > 0 {
-				out <- machine.substrate.Entries[match.Index].Readout
+		if err != nil {
+			return
+		}
+
+		var output []data.Chord
+
+		for _, packed := range results {
+			idx, score := kernel.DecodePacked(packed)
+
+			if idx >= 0 && score > 0 {
+				output = append(output, prompt[idx%len(prompt)])
 			}
+		}
+
+		if len(output) > 0 {
+			out <- output
 		}
 	}()
 
@@ -228,14 +121,14 @@ func (machine *Machine) Prompt(
 }
 
 /*
-Substrate returns the HybridSubstrate populated by Start.
+Backend returns the configured Backend for external access.
 */
-func (machine *Machine) Substrate() *geometry.HybridSubstrate {
-	return machine.substrate
+func (machine *Machine) Backend() kernel.Backend {
+	return machine.backend
 }
 
 /*
-WithContext adds a context to the machine
+WithContext adds a context to the machine.
 */
 func (machine *Machine) WithContext(ctx context.Context) machineOpts {
 	return func(machine *Machine) {
@@ -258,6 +151,15 @@ MachineWithPool sets the worker pool for parallel suffix construction in Start.
 func MachineWithPool(p *pool.Pool) machineOpts {
 	return func(machine *Machine) {
 		machine.pool = p
+	}
+}
+
+/*
+MachineWithBackend sets the kernel backend for chord resolution.
+*/
+func MachineWithBackend(b kernel.Backend) machineOpts {
+	return func(machine *Machine) {
+		machine.backend = b
 	}
 }
 

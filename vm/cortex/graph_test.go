@@ -25,13 +25,18 @@ func setPrimeFieldManifolds(
 	fieldValue := reflect.ValueOf(field).Elem()
 
 	manifoldsField := fieldValue.FieldByName("manifolds")
+
 	reflect.NewAt(
 		manifoldsField.Type(),
 		unsafe.Pointer(manifoldsField.UnsafeAddr()),
 	).Elem().Set(reflect.ValueOf(manifolds))
 
 	nField := fieldValue.FieldByName("N")
-	reflect.NewAt(nField.Type(), unsafe.Pointer(nField.UnsafeAddr())).Elem().SetInt(int64(len(manifolds)))
+
+	reflect.NewAt(
+		nField.Type(),
+		unsafe.Pointer(nField.UnsafeAddr()),
+	).Elem().SetInt(int64(len(manifolds)))
 }
 
 // recordingAnalyzer implements Analyzer for tests that need to observe sequencer calls.

@@ -11,8 +11,6 @@ package metal
 import "C"
 import (
 	_ "embed"
-	"errors"
-	"fmt"
 	"os"
 	"sync/atomic"
 	"unsafe"
@@ -25,6 +23,63 @@ import (
 var bitwiseMetallib []byte
 
 var metalReady atomic.Bool
+
+type MetalBackend struct{}
+
+func (backend *MetalBackend) Available() bool {
+	return metalReady.Load()
+}
+
+func (backend *MetalBackend) Resolve(
+	dictionary unsafe.Pointer,
+	numChords int,
+	context unsafe.Pointer,
+	expectedReality unsafe.Pointer,
+	expectedPrecision unsafe.Pointer,
+	geodesicLUT unsafe.Pointer,
+) (uint64, error) {
+	if !backend.Available() {
+		return 0, MetalErrorUnavailable
+	}
+
+	if numChords == 0 {
+		return 0, nil
+	}
+
+	if expectedReality == nil {
+		expectedReality = context
+	}
+
+	var packed C.uint64_t
+
+	status := C.bitwise_best_fill_metal(
+		dictionary,
+		C.uint32_t(numChords),
+		context,
+		expectedReality,
+		expectedPrecision,
+		geodesicLUT,
+		&packed,
+	)
+
+	if status != 0 {
+		return 0, MetalErrorResolveFailed
+	}
+
+	return uint64(packed), nil
+}
+
+type MetalError string
+
+const (
+	MetalErrorUnavailable   MetalError = "metal backend unavailable"
+	MetalErrorInitFailed    MetalError = "metal backend init failed"
+	MetalErrorResolveFailed MetalError = "metal backend resolve failed"
+)
+
+func (err MetalError) Error() string {
+	return string(err)
+}
 
 func init() {
 	tmpFile, err := os.CreateTemp("", "sensorium-shader-*.metallib")
@@ -52,77 +107,4 @@ func init() {
 	}
 
 	metalReady.Store(true)
-}
-
-func MetalAvailable() bool {
-	return metalReady.Load()
-}
-
-func BestFillMetalPacked(
-	dictionary unsafe.Pointer,
-	numChords int,
-	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	expectedPrecision unsafe.Pointer,
-	geodesicLUT unsafe.Pointer,
-) (uint64, error) {
-	if !MetalAvailable() {
-		return 0, errors.New("metal backend unavailable")
-	}
-
-	if numChords == 0 {
-		return 0, nil
-	}
-
-	if expectedReality == nil {
-		expectedReality = context
-	}
-
-	var packed C.uint64_t
-	status := C.bitwise_best_fill_metal(
-		dictionary,
-		C.uint32_t(numChords),
-		context,
-		expectedReality,
-		expectedPrecision,
-		geodesicLUT,
-		&packed,
-	)
-	if status != 0 {
-		return 0, fmt.Errorf("metal best fill failed: status=%d", int(status))
-	}
-
-	return uint64(packed), nil
-}
-
-func HolographicRecallMetalPacked(
-	substrateFilters unsafe.Pointer,
-	numFilters int,
-	primeField unsafe.Pointer,
-	targetRotA uint32,
-	targetRotB uint32,
-) (uint64, error) {
-	if !MetalAvailable() {
-		return 0, errors.New("metal backend unavailable")
-	}
-
-	if numFilters == 0 {
-		return 0, nil
-	}
-
-	var packed C.uint64_t
-	status := C.holographic_recall_metal(
-		substrateFilters,
-		C.uint32_t(numFilters),
-		primeField,
-		C.uint32_t(targetRotA),
-		C.uint32_t(targetRotB),
-		&packed,
-	)
-
-	if status != 0 {
-		return 0, fmt.Errorf("metal holographic recall failed: status=%d", int(status))
-	}
-
-	return uint64(packed), nil
 }

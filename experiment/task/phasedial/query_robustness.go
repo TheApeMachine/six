@@ -5,6 +5,7 @@ import (
 	"math/rand"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 
@@ -101,20 +102,21 @@ func (experiment *QueryRobustnessExperiment) Artifacts() []tools.Artifact {
 }
 
 func (experiment *QueryRobustnessExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	rawQuery := "Democracy requires individual sacrifice."
 	rng := rand.New(rand.NewSource(7))
-	queryBytes := []byte(rawQuery)
-	maskedQuery := make([]byte, len(queryBytes))
-	for i, b := range queryBytes {
-		if rng.Float32() > 0.3 {
-			maskedQuery[i] = b
-		} else {
-			maskedQuery[i] = '_'
+
+	// Clean query from substrate entry 0
+	cleanChords := substrate.Entries[0].Readout
+	cleanFP := substrate.Entries[0].Fingerprint
+
+	// Corrupt 30% of chords by clearing random bits
+	corruptedChords := make([]data.Chord, len(cleanChords))
+	copy(corruptedChords, cleanChords)
+	for i := range corruptedChords {
+		if rng.Float32() < 0.3 {
+			corruptedChords[i] = data.Chord{} // zero out the chord
 		}
 	}
-
-	corruptedFP := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(string(maskedQuery)))
-	cleanFP := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(rawQuery))
+	corruptedFP := geometry.NewPhaseDial().EncodeFromChords(corruptedChords)
 
 	corruptedResults := substrate.GeodesicScan(corruptedFP, 72, 5.0)
 	cleanResults := substrate.GeodesicScan(cleanFP, 72, 5.0)
@@ -125,13 +127,13 @@ func (experiment *QueryRobustnessExperiment) Finalize(substrate *geometry.Hybrid
 		{
 			Query:      "Clean",
 			ScanSteps:  len(cleanResults),
-			Step0Match: geometry.ReadoutText(cleanResults[0].BestReadout),
+			Step0Match: fmt.Sprintf("entry-%d", cleanResults[0].BestIdx),
 			CorruptSim: "1.0000",
 		},
 		{
-			Query:      fmt.Sprintf("Corrupted: %s", string(maskedQuery)),
+			Query:      fmt.Sprintf("Corrupted (30%% dropout, %d chords)", len(corruptedChords)),
 			ScanSteps:  len(corruptedResults),
-			Step0Match: geometry.ReadoutText(corruptedResults[0].BestReadout),
+			Step0Match: fmt.Sprintf("entry-%d", corruptedResults[0].BestIdx),
 			CorruptSim: fmt.Sprintf("%.4f", sim),
 		},
 	}

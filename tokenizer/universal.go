@@ -10,15 +10,15 @@ import (
 )
 
 /*
-Token is the byte-level bridge between the geometric and wave domains.
-TokenID is the exact replay address in the observed stream; Pos is the
-sequencer-local position inside the current discovered segment. Chord is
-the wave-space identity used for matching.
+Token is the output of the tokenizer — the BOUNDARY between bytes and geometry.
+
+Once a Token is emitted, nothing downstream may use raw bytes. The TokenID
+is the Morton-coded replay address (stored in the LSM with the Chord); the
+Chord is the sole geometric identity used for all downstream matching,
+reasoning, and recall.
 */
 type Token struct {
 	TokenID    uint64
-	Pos        uint32
-	SampleID   uint32
 	Chord      data.Chord
 	Events     []int
 	IsBoundary bool
@@ -123,8 +123,6 @@ func (tokenizer *Universal) Generate() chan Token {
 
 			out <- Token{
 				TokenID:    tokenizer.coder.Encode(streamPos, rawToken.Symbol),
-				Pos:        tokenizer.pos,
-				SampleID:   rawToken.SampleID,
 				Chord:      chord,
 				Events:     events,
 				IsBoundary: reset,

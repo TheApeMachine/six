@@ -172,14 +172,14 @@ func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSub
 		return sumJ / float64(nAngles)
 	}
 
-	seedQuery := "Democracy requires individual sacrifice."
-	fpA := geometry.NewPhaseDial().EncodeFromChords(geometry.ChordSeqFromBytes(seedQuery))
-	hop := substrate.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQuery)
+	seedQueryChords := substrate.Entries[0].Readout
+	fpA := substrate.Entries[0].Fingerprint
+	hop := substrate.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQueryChords)
 	fpAB := hop.FingerprintAB
-	textB := hop.TextB
+	readoutB := hop.ReadoutB
 
-	if textB == "" {
-		return fmt.Errorf("could not find textB for steerability")
+	if len(readoutB) == 0 {
+		return fmt.Errorf("could not find readoutB for steerability")
 	}
 
 	ceiling := -1.0
@@ -188,7 +188,7 @@ func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSub
 		for _, anchor := range []geometry.PhaseDial{fpA, hop.FingerprintB} {
 			rot := anchor.Rotate(alpha)
 			rnk := substrate.PhaseDialRank(candidates, rot)
-			topIdx := substrate.TopExcluding(rnk, seedQuery, textB)
+			topIdx := substrate.TopExcluding(rnk, seedQueryChords, readoutB)
 			efp := substrate.Entries[topIdx].Fingerprint
 			g := math.Min(efp.Similarity(fpA), efp.Similarity(hop.FingerprintB))
 			if g > ceiling {
@@ -264,7 +264,7 @@ func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSub
 					}
 				}
 				rnk := substrate.PhaseDialRank(candidates, rotated)
-				topIdx := substrate.TopExcluding(rnk, seedQuery, textB)
+				topIdx := substrate.TopExcluding(rnk, seedQueryChords, readoutB)
 				efp := substrate.Entries[topIdx].Fingerprint
 				g := math.Min(efp.Similarity(fpA), efp.Similarity(hop.FingerprintB))
 				if g > bestGain {

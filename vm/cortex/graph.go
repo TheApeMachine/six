@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/numeric"
+	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/store"
 )
 
@@ -23,6 +24,7 @@ type BestFillFunc func(
 	expectedReality unsafe.Pointer,
 	mode int,
 	geodesicLUT unsafe.Pointer,
+	p *pool.Pool,
 ) (int, float64, error)
 
 /*
@@ -51,6 +53,9 @@ type Config struct {
 
 	// BestFill is the GPU resonance search kernel.
 	BestFill BestFillFunc
+
+	// Pool is the worker pool for parallelizing kernel dispatch.
+	Pool *pool.Pool
 
 	// EigenMode provides the global phase landscape.
 	// When provided, it acts as a routing prior ("the wind") and checks
@@ -88,15 +93,19 @@ func (c *Config) defaults() {
 	if c.InitialNodes <= 0 {
 		c.InitialNodes = 8
 	}
+
 	if c.MaxTicks <= 0 {
 		c.MaxTicks = 256
 	}
+
 	if c.MaxOutput <= 0 {
 		c.MaxOutput = 256
 	}
+
 	if c.InboxSize <= 0 {
 		c.InboxSize = defaultInboxSize
 	}
+
 	if c.ConvergenceWindow <= 0 {
 		c.ConvergenceWindow = 8
 	}
@@ -163,11 +172,9 @@ type tickDreamCand struct {
 }
 
 const (
-	maxSelfAddressCandidates = 4
-	recallCompetitionWidth   = 4
-	recallInjectionLimit     = 4
-	recallMinFixedScore      = 1024.0
-	recallScoreFloor         = recallMinFixedScore / numeric.ScoreScale
+	recallCompetitionWidth = 4
+	recallMinFixedScore    = 1024.0
+	recallScoreFloor       = recallMinFixedScore / numeric.ScoreScale
 )
 
 type recallCandidate struct {
@@ -181,19 +188,26 @@ type recallCandidateKey struct {
 	face  int
 }
 
-func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit int) []recallCandidate {
+func appendRecallCandidate(
+	top []recallCandidate,
+	cand recallCandidate,
+	limit int,
+) []recallCandidate {
 	for i := range top {
 		if top[i].chord != cand.chord || top[i].face != cand.face {
 			continue
 		}
+
 		if cand.score <= top[i].score {
 			return top
 		}
+
 		top = append(top[:i], top[i+1:]...)
 		break
 	}
 
 	insertAt := len(top)
+
 	for i := range top {
 		if cand.score > top[i].score {
 			insertAt = i
@@ -204,6 +218,7 @@ func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit in
 	if len(top) < limit {
 		top = append(top, recallCandidate{})
 	}
+
 	if insertAt < len(top) {
 		copy(top[insertAt+1:], top[insertAt:len(top)-1])
 		top[insertAt] = cand
@@ -216,11 +231,17 @@ func appendRecallCandidate(top []recallCandidate, cand recallCandidate, limit in
 	return top
 }
 
-func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dial, total int, basePhase float64) (geometry.IcosahedralManifold, geometry.IcosahedralManifold) {
+func recallQueryManifolds(
+	node *Node,
+	anchor, hole data.Chord,
+	physicalFace, dial, total int,
+	basePhase float64,
+) (geometry.IcosahedralManifold, geometry.IcosahedralManifold) {
 	var (
 		ctx      geometry.IcosahedralManifold
 		expected geometry.IcosahedralManifold
 	)
+
 	ctx.Header = 0
 	expected.Header = 0
 
@@ -229,9 +250,11 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dia
 	}
 
 	shift := 0
+
 	if dial > 0 && total > 1 {
 		angle := basePhase + float64(dial)*math.Pi/float64(total*2)
 		shift = int(angle*257/(2*math.Pi)) % 257
+
 		if shift < 0 {
 			shift += 257
 		}
@@ -248,18 +271,21 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dia
 
 	anchorFace := shiftedFace(physicalFace)
 	anchorExpected := data.ChordOR(&anchor, &hole)
-	for cube := 0; cube < 4; cube++ {
+
+	for cube := range 4 {
 		ctx.Cubes[cube][anchorFace] = anchor
 		expected.Cubes[cube][anchorFace] = anchorExpected
 	}
 
 	var ranked []faceDensity
+
 	for face := range geometry.CubeFaces {
 		if face == physicalFace {
 			continue
 		}
 
 		active := node.Cube[face].ActiveCount()
+
 		if active == 0 {
 			continue
 		}
@@ -282,7 +308,8 @@ func recallQueryManifolds(node *Node, anchor, hole data.Chord, physicalFace, dia
 
 		face := faceDensity.face
 		shifted := shiftedFace(face)
-		for cube := 0; cube < 4; cube++ {
+
+		for cube := range 4 {
 			ctx.Cubes[cube][shifted] = node.Cube[face]
 			expected.Cubes[cube][shifted] = node.Cube[face]
 		}
@@ -329,6 +356,7 @@ func (g *Graph) collectRecallCandidates(
 			unsafe.Pointer(expected),
 			0,
 			unsafe.Pointer(&geometry.UnifiedGeodesicMatrix[0]),
+			g.config.Pool,
 		)
 		if err != nil || matchScore < recallScoreFloor || bestIdx < 0 || bestIdx >= dictN {
 			break
@@ -341,24 +369,29 @@ func (g *Graph) collectRecallCandidates(
 		for cube := range 4 {
 			for face := range geometry.CubeFaces {
 				faceChord := matched.Cubes[cube][face]
+
 				if faceChord.ActiveCount() == 0 {
 					continue
 				}
 
 				novel := data.ChordHole(&faceChord, anchor)
+
 				if novel.ActiveCount() == 0 {
 					continue
 				}
 
 				filler := data.ChordGCD(&novel, hole)
+
 				if filler.ActiveCount() == 0 {
 					continue
 				}
 
 				score := matchScore
+
 				if filler.ActiveCount() > 0 {
 					score += 0.05 * float64(filler.ActiveCount())
 				}
+
 				if score < recallScoreFloor {
 					continue
 				}
@@ -405,6 +438,7 @@ func New(cfg Config) *Graph {
 
 	// Ring topology: each node connects to its immediate neighbors.
 	n := len(g.nodes)
+
 	for i := range n {
 		g.nodes[i].Connect(g.nodes[(i+1)%n])
 		g.nodes[(i+1)%n].Connect(g.nodes[i])
@@ -414,10 +448,12 @@ func New(cfg Config) *Graph {
 	for i := range n {
 		far1 := (i + n/3) % n
 		far2 := (i + 2*n/3) % n
+
 		if far1 != i {
 			g.nodes[i].Connect(g.nodes[far1])
 			g.nodes[far1].Connect(g.nodes[i])
 		}
+
 		if far2 != i {
 			g.nodes[i].Connect(g.nodes[far2])
 			g.nodes[far2].Connect(g.nodes[i])
@@ -470,6 +506,7 @@ func (g *Graph) stopped() bool {
 	if g.config.StopCh == nil {
 		return false
 	}
+
 	select {
 	case <-g.config.StopCh:
 		return true
@@ -497,17 +534,21 @@ func (g *Graph) SpawnNode(parent *Node) *Node {
 	parentSummary := parent.CubeChord()
 	var bestNode *Node
 	bestSim := 0
+
 	for _, n := range g.nodes {
 		if n == child || n == parent {
 			continue
 		}
+
 		nSummary := n.CubeChord()
 		sim := data.ChordSimilarity(&parentSummary, &nSummary)
+
 		if sim > bestSim {
 			bestSim = sim
 			bestNode = n
 		}
 	}
+
 	if bestNode != nil {
 		child.Connect(bestNode)
 		bestNode.Connect(child)
@@ -526,6 +567,7 @@ func (g *Graph) bestNeighbor(from *Node, c data.Chord) *Node {
 
 	var tokenTheta float64
 	useWind := g.config.EigenMode != nil
+
 	if useWind {
 		tokenTheta, _ = g.config.EigenMode.PhaseForChord(&c)
 	}
@@ -535,6 +577,7 @@ func (g *Graph) bestNeighbor(from *Node, c data.Chord) *Node {
 		sim := float64(data.ChordSimilarity(&c, &nSum))
 
 		score := sim
+
 		if useWind {
 			neighborTheta, _ := g.config.EigenMode.PhaseForChord(&nSum)
 			phaseDelta := math.Abs(tokenTheta - neighborTheta)
@@ -575,6 +618,7 @@ func (g *Graph) routeTargets(from *Node, c data.Chord) []*Node {
 
 	var tokenTheta float64
 	useWind := g.config.EigenMode != nil
+
 	if useWind {
 		tokenTheta, _ = g.config.EigenMode.PhaseForChord(&c)
 	}
@@ -584,12 +628,15 @@ func (g *Graph) routeTargets(from *Node, c data.Chord) []*Node {
 		sim := float64(data.ChordSimilarity(&c, &nSum))
 
 		score := sim
+
 		if useWind {
 			neighborTheta, _ := g.config.EigenMode.PhaseForChord(&nSum)
 			phaseDelta := math.Abs(tokenTheta - neighborTheta)
+
 			for phaseDelta > math.Pi {
 				phaseDelta = 2*math.Pi - phaseDelta
 			}
+
 			wind := 1.0 / (1.0 + phaseDelta)
 			score = sim * wind
 		}
@@ -597,6 +644,7 @@ func (g *Graph) routeTargets(from *Node, c data.Chord) []*Node {
 		if score > 0 {
 			allZero = false
 		}
+
 		if score > bestScore {
 			bestScore = score
 			best = neighbor
@@ -611,6 +659,7 @@ func (g *Graph) routeTargets(from *Node, c data.Chord) []*Node {
 	if best != nil {
 		return []*Node{best}
 	}
+
 	return nil
 }
 
@@ -627,11 +676,13 @@ func (g *Graph) queryBedrock(node *Node) {
 	}
 
 	anchor, hole, physicalFace, shouldDream := node.Hole()
+
 	if !shouldDream {
 		return
 	}
 
 	dictPtr, dictN, dictOffset := g.config.PrimeField.SearchSnapshot()
+
 	if dictN == 0 {
 		return
 	}
@@ -641,6 +692,7 @@ func (g *Graph) queryBedrock(node *Node) {
 	// Determine sweep parameters. More diverse sweep when EigenMode is available.
 	nDial := 1
 	var basePhase float64
+
 	if g.config.EigenMode != nil {
 		nDial = 4 // 4 torus angles for diverse recall
 		basePhase, _ = g.config.EigenMode.PhaseForChord(&hole)
@@ -661,8 +713,10 @@ func (g *Graph) queryBedrock(node *Node) {
 			&hole,
 			recallCompetitionWidth,
 		)
+
 		for _, cand := range dialCandidates {
 			key := recallCandidateKey{chord: cand.chord, face: cand.face}
+
 			if !seen[key] {
 				seen[key] = true
 				recalled = append(recalled, cand)
@@ -681,6 +735,7 @@ func (g *Graph) queryBedrock(node *Node) {
 		}
 
 		ttl := 2
+
 		if cand.score >= bestScore*0.8 {
 			ttl = 3
 		}
@@ -717,14 +772,8 @@ func (g *Graph) WriteSurvivors(threshold float64) int {
 			if node.Cube[face].ActiveCount() == 0 {
 				continue
 			}
-			// Reverse the rotation to get the logical byte value.
-			logicalByte := byte(node.Rot.Reverse(face))
-			g.config.PrimeField.Insert(
-				logicalByte,
-				uint32(written),
-				node.Cube[face],
-				nil, // no events for consolidated memories
-			)
+
+			g.config.PrimeField.Insert(node.Cube[face])
 			written++
 		}
 	}
@@ -747,6 +796,7 @@ func (n *Node) Wipe() {
 	for i := range n.Cube {
 		n.Cube[i] = data.Chord{}
 	}
+
 	n.InvalidateChordCache()
 }
 

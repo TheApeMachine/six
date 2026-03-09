@@ -320,7 +320,7 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 		return rotated
 	}
 
-	compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB string, effectiveDims int) float64 {
+	compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB []data.Chord, effectiveDims int) float64 {
 		ceiling := -1.0
 		for s := 0; s < 360; s++ {
 			alpha := float64(s) * (math.Pi / 180.0)
@@ -368,7 +368,6 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 	}
 	type seedResult struct {
 		SeedQuery string
-		TextB     string
 		Splits    []splitResult
 	}
 
@@ -376,23 +375,19 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 
 	var allSeeds []seedResult
 	for _, seedQuery := range experiment.seedQueries {
-		chords := make([]data.Chord, len(seedQuery))
-		for i, b := range []byte(seedQuery) {
-			bc := data.BaseChord(b)
-			chords[i] = bc.RollLeft(i)
-		}
-		fingerprintA := geometry.NewPhaseDial().EncodeFromChords(chords)
-		hop := sub.FirstHop(fingerprintA, 45.0*(math.Pi/180.0), seedQuery)
+		seedQueryChords := sub.Entries[0].Readout
+		fingerprintA := sub.Entries[0].Fingerprint
+		hop := sub.FirstHop(fingerprintA, 45.0*(math.Pi/180.0), seedQueryChords)
 		fpB, fpAB := hop.FingerprintB, hop.FingerprintAB
-		textB := hop.TextB
+		readoutB := hop.ReadoutB
 
-		sr := seedResult{SeedQuery: seedQuery, TextB: textB}
+		sr := seedResult{SeedQuery: seedQuery}
 
 		for effectiveDimIdx, effectiveDim := range effectiveDims {
 			splits := splitCandidates(effectiveDim, experiment.splitRatios)
 
 			for splitIdx, split := range splits {
-				ceiling := compute1DCeiling(fingerprintA, fpB, seedQuery, textB, effectiveDim)
+				ceiling := compute1DCeiling(fingerprintA, fpB, seedQueryChords, readoutB, effectiveDim)
 
 				rightDims := effectiveDim - split
 				dimsPerAxis := split
@@ -431,7 +426,7 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 							angles := []float64{float64(i) * stepRad, float64(j) * stepRad}
 							rotatedAB := generalRotate(fpAB, 2, cfg.dimMap, angles)
 							rnk := sub.PhaseDialRank(sub.Candidates(), rotatedAB)
-							topIdx := sub.TopExcluding(rnk, seedQuery, textB)
+							topIdx := sub.TopExcluding(rnk, seedQueryChords, readoutB)
 							fpC := sub.Entries[topIdx].Fingerprint
 							gain := math.Min(fpC.Similarity(fingerprintA), fpC.Similarity(fpB))
 							if gain > bestGain {
