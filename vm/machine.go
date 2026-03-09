@@ -4,6 +4,8 @@ import (
 	"context"
 
 	"github.com/theapemachine/six/kernel"
+	"github.com/theapemachine/six/kernel/cpu"
+	"github.com/theapemachine/six/kernel/cuda"
 	"github.com/theapemachine/six/kernel/metal"
 	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/validate"
@@ -45,6 +47,8 @@ func NewMachine(opts ...machineOpts) *Machine {
 	if machine.backend == nil {
 		machine.backend = kernel.NewBuilder(
 			kernel.WithBackend(&metal.MetalBackend{}),
+			kernel.WithBackend(&cuda.CUDABackend{}),
+			kernel.WithBackend(&cpu.CPUBackend{}),
 		)
 	}
 

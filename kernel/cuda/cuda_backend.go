@@ -2,12 +2,17 @@
 
 package cuda
 
-import "unsafe"
+import (
+	"unsafe"
+
+	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel/internal/resolve"
+)
 
 type CUDABackend struct{}
 
 func (backend *CUDABackend) Available() bool {
-	return false
+	return true
 }
 
 func (backend *CUDABackend) Resolve(
@@ -15,5 +20,12 @@ func (backend *CUDABackend) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (uint64, error) {
-	return 0, nil
+	if numNodes <= 0 || graphNodes == nil || context == nil {
+		return 0, nil
+	}
+
+	nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)
+	ctx := (*geometry.GFRotation)(context)
+
+	return resolve.PackedNearest(nodes, *ctx), nil
 }
