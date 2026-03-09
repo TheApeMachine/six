@@ -35,10 +35,21 @@ func (graph *Graph) Step() bool {
 
 		for side := 0; side < 6; side++ {
 			for rot := 0; rot < 4; rot++ {
-				for i := 0; i < 256; i++ {
-					chord := graph.sink.Cube.Get(side, rot, i)
-					if chord.ActiveCount() > 0 {
-						res = append(res, chord)
+				chord := graph.sink.Cube.Get(side, rot, 256)
+				if chord.ActiveCount() > 0 {
+					res = append(res, chord)
+				}
+			}
+		}
+
+		if len(res) == 0 {
+			for side := 0; side < 6; side++ {
+				for rot := 0; rot < 4; rot++ {
+					for i := 0; i < 256; i++ {
+						chord := graph.sink.Cube.Get(side, rot, i)
+						if chord.ActiveCount() > 0 {
+							res = append(res, chord)
+						}
 					}
 				}
 			}

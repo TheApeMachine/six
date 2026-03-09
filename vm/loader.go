@@ -2,7 +2,6 @@ package vm
 
 import (
 	"fmt"
-	"math/rand"
 	"sync"
 
 	"github.com/theapemachine/six/data"
@@ -98,25 +97,25 @@ func (loader *Loader) generate() error {
 	wg := sync.WaitGroup{}
 
 	for token := range loader.tokenizer.Generate() {
+		if token.IsBoundary {
+			if len(sequence) > 0 {
+				seqCopy := make([]data.Chord, len(sequence))
+				copy(seqCopy, sequence)
+
+				wg.Add(1)
+				loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
+					defer wg.Done()
+					loader.buildPhaseDial(seqCopy)
+					return nil, nil
+				})
+
+				sequence = sequence[:0]
+			}
+		}
+
 		if token.Chord.ActiveCount() > 0 {
 			if loader.store != nil {
 				loader.store.Insert(token.TokenID, token.Chord)
-			}
-
-			if token.IsBoundary {
-				if len(sequence) > 0 {
-					seqCopy := make([]data.Chord, len(sequence))
-					copy(seqCopy, sequence)
-
-					wg.Add(1)
-					loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
-						defer wg.Done()
-						loader.buildPhaseDial(seqCopy)
-						return nil, nil
-					})
-
-					sequence = sequence[:0]
-				}
 			}
 
 			if token.Chord.ActiveCount() > 0 && !token.IsBoundary {
@@ -151,22 +150,22 @@ func (loader *Loader) buildPhaseDial(
 	// Write suffix entries for the completed sample.
 	rot := geometry.IdentityRotation()
 
-	for i := 0; i < len(sequence); i++ {
-		var ptr data.Chord
+	var activePrefix data.Chord
 
-		for range 5 {
-			ptr.Set(rand.Intn(257))
+	for i := 0; i < len(sequence); i++ {
+		if i > 0 {
+			activePrefix = data.ChordOR(&activePrefix, &sequence[i-1])
 		}
 
 		if loader.primefield != nil {
-			loader.primefield.StorePointer(rot, ptr)
+			loader.primefield.StorePointer(rot, activePrefix)
 		}
 
 		suffix := make([]data.Chord, len(sequence)-i)
 		copy(suffix, sequence[i:])
 
 		loader.substrate.Add(
-			ptr, geometry.NewPhaseDial(), suffix,
+			activePrefix, geometry.NewPhaseDial(), suffix,
 		)
 
 		if i < len(sequence) {

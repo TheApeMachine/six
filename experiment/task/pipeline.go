@@ -71,6 +71,7 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	pipeline.coder = tokenizer.NewMortonCoder()
 	pipeline.loader = vm.NewLoader(
 		vm.LoaderWithStore(store.NewLSMSpatialIndex(0)),
+		vm.LoaderWithPrimeField(store.NewPrimeField()),
 		vm.LoaderWithPool(workerPool),
 		vm.LoaderWithTokenizer(
 			tokenizer.NewUniversal(
@@ -245,6 +246,8 @@ wait_result:
 			_, symbol := pipeline.coder.Decode(key)
 			outBytes = append(outBytes, symbol)
 		}
+
+		break
 	}
 
 	console.Info("OBSERVED TEXT", "text", string(outBytes))
