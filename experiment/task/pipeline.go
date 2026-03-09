@@ -20,7 +20,8 @@ import (
 type Pipeline struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
-	broadcast  pool.BroadcastGroup
+	pool       *pool.Pool
+	broadcast  *pool.BroadcastGroup
 	booter     *vm.Booter
 	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
@@ -33,18 +34,19 @@ type pipelineOpts func(*Pipeline)
 
 func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	pool := pool.New(
+	workerPool := pool.New(
 		ctx, 1, runtime.NumCPU(), nil,
 	)
 
 	pipeline := &Pipeline{
 		ctx:       ctx,
 		cancel:    cancel,
-		broadcast: *pool.CreateBroadcastGroup("broadcast", time.Second*10),
+		pool:      workerPool,
+		broadcast: workerPool.CreateBroadcastGroup("broadcast", time.Second*10),
 		scoreWgts: tools.DefaultScoreWeights(),
 		booter: vm.NewBooter(
 			vm.BooterWithContext(ctx),
-			vm.BooterWithPool(pool),
+			vm.BooterWithPool(workerPool),
 		),
 	}
 
@@ -66,6 +68,9 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
+	pipeline.booter.Start()
+	defer pipeline.booter.Stop()
+
 	pipeline.prompts = pipeline.experiment.Prompts()
 
 	for pipeline.prompts != nil {

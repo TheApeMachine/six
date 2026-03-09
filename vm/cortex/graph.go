@@ -42,6 +42,8 @@ type Graph struct {
 	bedrockQueries int
 	mitosisEvents  int
 	pruneEvents    int
+
+	broadcast *pool.BroadcastGroup
 }
 
 type graphOpts func(*Graph)
@@ -326,6 +328,15 @@ GraphWithBackend injects the GPU kernel backend.
 func GraphWithBackend(backend kernel.Backend) graphOpts {
 	return func(graph *Graph) {
 		graph.backend = backend
+	}
+}
+
+/*
+GraphWithBroadcast sets the broadcast group for outputting results.
+*/
+func GraphWithBroadcast(broadcast *pool.BroadcastGroup) graphOpts {
+	return func(graph *Graph) {
+		graph.broadcast = broadcast
 	}
 }
 

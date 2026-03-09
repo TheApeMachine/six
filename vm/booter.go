@@ -54,6 +54,7 @@ func (booter *Booter) Start() {
 
 	graph := cortex.NewGraph(
 		cortex.GraphWithContext(booter.ctx),
+		cortex.GraphWithBroadcast(broadcast),
 	)
 
 	systems := []System{
