@@ -2,6 +2,7 @@ package geometry
 
 import (
 	"slices"
+	"strconv"
 
 	"github.com/theapemachine/six/data"
 )
@@ -43,6 +44,34 @@ A=1, B=0; every face maps to itself. Used as the neutral element for composition
 */
 func IdentityRotation() GFRotation {
 	return GFRotation{A: 1, B: 0}
+}
+
+/*
+Face256Source returns the logical face value currently occupying physical face 256.
+
+FINALDEMO.txt uses this as the geometric register that drives opcode selection.
+Because Reverse maps a physical face back into logical face space, face256 is
+simply the inverse mapping of the delimiter face.
+*/
+func (rot GFRotation) Face256Source() int {
+	return rot.Reverse(CubeFaces - 1)
+}
+
+/*
+AffineString renders the affine transform in the same compact form used by the
+FINALDEMO proof of concept.
+*/
+func (rot GFRotation) AffineString() string {
+	switch {
+	case rot.A == 1 && rot.B == 0:
+		return "p"
+	case rot.A == 1:
+		return "p+" + strconv.Itoa(int(rot.B))
+	case rot.B == 0:
+		return strconv.Itoa(int(rot.A)) + "p"
+	default:
+		return strconv.Itoa(int(rot.A)) + "p+" + strconv.Itoa(int(rot.B))
+	}
 }
 
 /*
@@ -102,6 +131,24 @@ var (
 
 	// RotationZ is an affine combination: f(x) = (3·x + 1) mod 257
 	RotationZ = GFRotation{A: 3, B: 1}
+
+	// RotationX180 is the FINALDEMO half-turn representative around X.
+	RotationX180 = GFRotation{A: 1, B: 2}
+
+	// RotationX270 is the FINALDEMO inverse quarter-turn around X.
+	RotationX270 = GFRotation{A: 1, B: 256}
+
+	// RotationY180 is the FINALDEMO half-turn representative around Y.
+	RotationY180 = GFRotation{A: 9, B: 0}
+
+	// RotationY270 is the FINALDEMO inverse quarter-turn around Y.
+	RotationY270 = GFRotation{A: 86, B: 0}
+
+	// RotationZ180 is the FINALDEMO half-turn representative around Z.
+	RotationZ180 = GFRotation{A: 9, B: 4}
+
+	// RotationZ270 is the FINALDEMO inverse quarter-turn around Z.
+	RotationZ270 = GFRotation{A: 86, B: 171}
 )
 
 /*
