@@ -1,0 +1,831 @@
+import { useState, useEffect, useRef, useCallback } from "react";
+import * as THREE from "three";
+
+// ── GF(257) ──────────────────────────────────────────────────────────────────
+const N = 257;
+const IDENT = { a: 1, b: 0 };
+
+function modInverse(a, m) {
+  let [or,r]=[a,m],[os,s]=[1,0];
+  while(r){const q=Math.floor(or/r);[or,r]=[r,or-q*r];[os,s]=[s,os-q*s];}
+  return ((os%m)+m)%m;
+}
+function composeAffine(f, g) {
+  return { a: (g.a * f.a) % N, b: (g.a * f.b + g.b) % N };
+}
+function face256Source({ a, b }) {
+  return ((256 - b + N) * modInverse(a, N)) % N;
+}
+function affStr({ a, b }) {
+  return a===1?(b===0?"p":`p+${b}`):(b===0?`${a}p`:`${a}p+${b}`);
+}
+function stateHue({ a, b }) { return (a/256*280 + b/256*80) % 360; }
+
+// ── DISCRETE ROTATION ALGEBRA ────────────────────────────────────────────────
+const ROT_TABLE = {
+  X_90:  {a:1, b:1},    // p+1
+  X_180: {a:1, b:2},    // p+2  (compose X_90 twice)
+  X_270: {a:1, b:256},  // p+256 ≡ p-1 mod 257
+  Y_90:  {a:3, b:0},    // 3p
+  Y_180: {a:9, b:0},    // 9p   (compose Y_90 twice)
+  Y_270: {a:86,b:0},    // 86p  (3⁻¹ mod 257 = 86, since 3×86 = 258 ≡ 1)
+  Z_90:  {a:3, b:1},    // 3p+1
+  Z_180: {a:9, b:4},    // compose Z_90 twice: 3(3p+1)+1 = 9p+4
+  Z_270: {a:86,b:171},  // inverse of Z_90
+};
+
+function pickRotation(op) {
+  const axis = op.split("_")[1];
+  const picks = [`${axis}_90`,`${axis}_180`,`${axis}_270`];
+  return picks[Math.floor(Math.random()*3)];
+}
+
+function rotQuaternion(rotKey) {
+  const axis = rotKey[0];
+  const deg = parseInt(rotKey.split("_")[1]);
+  const rad = (deg * Math.PI) / 180;
+  const ax = axis === "X" ? new THREE.Vector3(1,0,0) :
+             axis === "Y" ? new THREE.Vector3(0,1,0) :
+                            new THREE.Vector3(0,0,1);
+  return new THREE.Quaternion().setFromAxisAngle(ax, rad);
+}
+
+const OPCODES = {
+  ROTATE_X:{ css:"#3377ff", band:"rotate" },
+  ROTATE_Y:{ css:"#9933ff", band:"rotate" },
+  ROTATE_Z:{ css:"#ff2266", band:"rotate" },
+  ALIGN:   { css:"#00ffcc", band:"stable" },
+  SEARCH:  { css:"#ff8800", band:"stable" },
+  SYNC:    { css:"#ffd700", band:"stable" },
+  FORK:    { css:"#44ff88", band:"growth" },
+  COMPOSE: { css:"#ff44ff", band:"growth" },
+};
+
+function deriveOpcode(stA, stB) {
+  const b = (face256Source(stA) + face256Source(stB)) % N;
+  if(b<32)  return "ROTATE_X";
+  if(b<64)  return "ROTATE_Y";
+  if(b<96)  return "ROTATE_Z";
+  if(b<128) return "ALIGN";
+  if(b<160) return "SEARCH";
+  if(b<192) return "SYNC";
+  if(b<220) return "FORK";
+  return "COMPOSE";
+}
+
+// ── OPCODE BAND CLASSIFICATION ──
+// rotate (0-95):  volatile — physically rotates cube, cascades edges
+// stable (96-191): stabilizing — ALIGN, SEARCH, SYNC converge states
+// growth (192-256): structural — FORK spawns nodes, COMPOSE wires them
+function opBand(op) { return OPCODES[op]?.band || "stable"; }
+
+const _gc={};
+function makeGlow(hex){
+  if(_gc[hex]) return _gc[hex];
+  const c=new THREE.Color(hex);
+  const r=Math.round(c.r*255),g=Math.round(c.g*255),b=Math.round(c.b*255);
+  const sz=96,cv=document.createElement("canvas"); cv.width=cv.height=sz;
+  const ctx=cv.getContext("2d");
+  const gr=ctx.createRadialGradient(sz/2,sz/2,0,sz/2,sz/2,sz/2);
+  gr.addColorStop(0,`rgba(${r},${g},${b},1)`);
+  gr.addColorStop(0.3,`rgba(${r},${g},${b},0.55)`);
+  gr.addColorStop(0.7,`rgba(${r},${g},${b},0.1)`);
+  gr.addColorStop(1,`rgba(${r},${g},${b},0)`);
+  ctx.fillStyle=gr; ctx.fillRect(0,0,sz,sz);
+  const t=new THREE.CanvasTexture(cv); _gc[hex]=t; return t;
+}
+
+// ── SEED STATES ──────────────────────────────────────────────────────────────
+// No dataset, no labels. Raw GF(257) states scattered across the group.
+// The substrate discovers its own structure.
+const SEED_STATES = [
+  {a:3,   b:47 },   // generator neighborhood
+  {a:86,  b:12 },   // inverse neighborhood
+  {a:27,  b:200},   // deep in the group
+  {a:1,   b:128},   // pure translation
+  {a:9,   b:81 },   // second-order generator
+];
+
+export default function App() {
+  const mountRef=useRef(null);
+  const simRef=useRef(null);
+  const [log,setLog]=useState([]);
+  const [selected,setSelected]=useState(null);
+  const [nodeInfo,setNodeInfo]=useState(null);
+  const [metrics,setMetrics]=useState({
+    nodes:0, edges:0, stableEdges:0, volatileEdges:0,
+    growthEdges:0, totalRotations:0, forks:0, tick:0
+  });
+  const [running,setRunning]=useState(false);
+  const [speed,setSpeed]=useState(1);
+
+  const pushLog=useCallback((msg,color="#6688aa")=>{
+    setLog(prev=>[{msg,color,id:Math.random()},...prev].slice(0,24));
+  },[]);
+
+  useEffect(()=>{
+    const el=mountRef.current; if(!el) return;
+    const W=el.clientWidth,H=el.clientHeight;
+    const renderer=new THREE.WebGLRenderer({antialias:true});
+    renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+    renderer.setSize(W,H); renderer.setClearColor(0x010408,1);
+    el.appendChild(renderer.domElement);
+    const scene=new THREE.Scene();
+    scene.fog=new THREE.FogExp2(0x010408,0.00045);
+    const camera=new THREE.PerspectiveCamera(56,W/H,0.5,6000);
+    camera.position.set(0,200,820);
+
+    // stars
+    {const n=1400,p=new Float32Array(n*3);for(let i=0;i<n;i++){const r=2000+Math.random()*3000,t=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);p[i*3]=r*Math.sin(ph)*Math.cos(t);p[i*3+1]=r*Math.sin(ph)*Math.sin(t);p[i*3+2]=r*Math.cos(ph);}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x334455,size:1.3,transparent:true,opacity:0.4,depthWrite:false})));}
+
+    const nodes=[],edges=[],tokens=[];
+    let frameN=0,selectedIdx=null;
+    let substrateRunning=false;
+    let totalRotations=0, totalForks=0, tick=0;
+
+    // camera
+    let camTheta=0,camPhi=1.1,camR=820,autoOrbit=true,drag=false,prevM={x:0,y:0},lastAct=0;
+    const camSmooth=new THREE.Vector3();
+    const onMove=e=>{if(!drag)return;camTheta-=(e.clientX-prevM.x)*0.007;camPhi=Math.max(0.2,Math.min(Math.PI-0.2,camPhi+(e.clientY-prevM.y)*0.007));prevM={x:e.clientX,y:e.clientY};lastAct=Date.now();};
+    const onUp=()=>{drag=false;};
+    renderer.domElement.addEventListener("mousedown",e=>{drag=true;autoOrbit=false;prevM={x:e.clientX,y:e.clientY};lastAct=Date.now();});
+    window.addEventListener("mousemove",onMove);
+    window.addEventListener("mouseup",onUp);
+    renderer.domElement.addEventListener("wheel",e=>{camR=Math.max(200,Math.min(1800,camR+e.deltaY*0.5));lastAct=Date.now();},{passive:true});
+    const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();
+    renderer.domElement.addEventListener("click",e=>{
+      if(drag)return;
+      const rect=renderer.domElement.getBoundingClientRect();
+      mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+      mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+      ray.setFromCamera(mouse,camera);
+      const hits=ray.intersectObjects(nodes.map(n=>n.coreMesh));
+      if(hits.length>0){const idx=nodes.findIndex(n=>n.coreMesh===hits[0].object);selectedIdx=idx;setSelected(idx);}
+    });
+
+    // ── NODE ──
+    function makeNode(x,y,z,initState,label){
+      const state=initState?{...initState}:{...IDENT};
+      const pos=new THREE.Vector3(x,y,z);
+      const col=new THREE.Color().setHSL(stateHue(state)/360,0.85,0.55);
+
+      const coreGeo = new THREE.BoxGeometry(22,22,22);
+      const coreMat=new THREE.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:0.9});
+      const coreMesh=new THREE.Mesh(coreGeo,coreMat); coreMesh.position.copy(pos); scene.add(coreMesh);
+
+      const fillGeo=new THREE.BoxGeometry(16,16,16);
+      const fillMesh=new THREE.Mesh(fillGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.08}));
+      fillMesh.position.copy(pos); scene.add(fillMesh);
+
+      const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(`#${col.getHexString()}`),blending:THREE.AdditiveBlending,transparent:true,opacity:0.3,depthWrite:false}));
+      halo.scale.setScalar(80); halo.position.copy(pos); scene.add(halo);
+
+      const f256m=new THREE.Mesh(new THREE.SphereGeometry(3,8,8),new THREE.MeshBasicMaterial({color:0xff8800}));
+      f256m.position.copy(pos).add(new THREE.Vector3(16,16,0)); scene.add(f256m);
+      const f256g=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow("#ff8800"),blending:THREE.AdditiveBlending,transparent:true,opacity:0.8,depthWrite:false}));
+      f256g.scale.setScalar(22); f256g.position.copy(f256m.position); scene.add(f256g);
+
+      const arrowGeo = new THREE.ConeGeometry(3, 10, 6);
+      const arrowMat = new THREE.MeshBasicMaterial({color:0xff8800, transparent:true, opacity:0.6});
+      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
+      arrowMesh.position.copy(pos); scene.add(arrowMesh);
+
+      const discreteQuat = new THREE.Quaternion();
+      const targetQuat = new THREE.Quaternion();
+      const rotAnimProgress = { v: 1.0 };
+
+      return {
+        idx:nodes.length, state, pos, label: label||`N${nodes.length}`,
+        coreMesh, coreMat, fillMesh, halo,
+        f256m, f256g, arrowMesh,
+        flash:0, birthFrame:frameN, receivedOps:[],
+        discreteQuat, targetQuat, rotAnimProgress,
+        rotCount: 0, stableCount: 0,
+      };
+    }
+
+    function updateNodeColor(nd){
+      const col=new THREE.Color().setHSL(stateHue(nd.state)/360,0.85,0.55);
+      nd.coreMat.color.copy(col); nd.fillMesh.material.color.copy(col);
+      nd.halo.material.map=makeGlow(`#${col.getHexString()}`); nd.halo.material.needsUpdate=true;
+      const fh=face256Source(nd.state)/256;
+      const fc=new THREE.Color().setHSL(fh*0.8,1.0,0.6);
+      nd.f256m.material.color.copy(fc);
+      nd.f256g.material.map=makeGlow(`#${fc.getHexString()}`); nd.f256g.material.needsUpdate=true;
+    }
+
+    // ── DISCRETE ROTATION ──
+    function applyDiscreteRotation(nd, rotKey) {
+      const rotAff = ROT_TABLE[rotKey];
+      if (!rotAff) return;
+      nd.state = composeAffine(nd.state, rotAff);
+      nd.rotCount++;
+      nd.stableCount = 0;
+      totalRotations++;
+      const deltaQ = rotQuaternion(rotKey);
+      nd.targetQuat.copy(nd.discreteQuat).multiply(deltaQ);
+      nd.rotAnimProgress.v = 0.0;
+      updateNodeColor(nd);
+
+      const changed = [];
+      for (const ed of edges) {
+        if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) {
+          const oldOp = ed.op;
+          refreshEdge(ed);
+          if (ed.op !== oldOp) changed.push({from: oldOp, to: ed.op});
+        }
+      }
+      if (changed.length > 0) {
+        pushLog(`⟳ N${nd.idx} ${rotKey} → ${changed.length} edge${changed.length>1?"s":""} cascaded`, "#ff8800");
+      }
+    }
+
+    // ── EDGE ──
+    function hasEdgeBetween(a, b) {
+      for (const e of edges) {
+        if ((e.aIdx===a && e.bIdx===b) || (e.aIdx===b && e.bIdx===a)) return true;
+      }
+      return false;
+    }
+
+    function makeEdge(aIdx,bIdx){
+      const na=nodes[aIdx],nb=nodes[bIdx]; if(!na||!nb) return null;
+      if (hasEdgeBetween(aIdx, bIdx)) return null;
+      const op=deriveOpcode(na.state,nb.state);
+      const css=OPCODES[op]?.css||"#fff";
+      const pts=[na.pos.clone(),nb.pos.clone()];
+      const geo=new THREE.BufferGeometry().setFromPoints(pts);
+      const mat=new THREE.LineBasicMaterial({color:new THREE.Color(css),transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false});
+      const line=new THREE.Line(geo,mat); scene.add(line);
+
+      const midGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:0.4,depthWrite:false}));
+      midGlow.scale.setScalar(12);
+      midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5); scene.add(midGlow);
+
+      return {
+        aIdx, bIdx, op, line, mat, geo, midGlow, css,
+        stableFrames: 0,
+        lastOpChange: frameN,
+        tokensSent: 0,
+      };
+    }
+
+    function refreshEdge(ed){
+      const na=nodes[ed.aIdx],nb=nodes[ed.bIdx]; if(!na||!nb) return;
+      const nop=deriveOpcode(na.state,nb.state);
+      if(nop!==ed.op){
+        ed.op=nop;
+        ed.css=OPCODES[nop]?.css||"#fff";
+        ed.mat.color.set(new THREE.Color(ed.css));
+        ed.midGlow.material.map=makeGlow(ed.css);
+        ed.midGlow.material.needsUpdate=true;
+        ed.stableFrames=0;
+        ed.lastOpChange=frameN;
+      } else {
+        ed.stableFrames++;
+      }
+      const arr=ed.geo.attributes.position.array;
+      arr[0]=na.pos.x;arr[1]=na.pos.y;arr[2]=na.pos.z;arr[3]=nb.pos.x;arr[4]=nb.pos.y;arr[5]=nb.pos.z;
+      ed.geo.attributes.position.needsUpdate=true;
+      ed.midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5);
+
+      const stability = Math.min(ed.stableFrames / 200, 1);
+      const band = opBand(ed.op);
+      const baseOpacity = band === "rotate" ? 0.15 : band === "stable" ? 0.3 : 0.25;
+      ed.mat.opacity = baseOpacity + stability * 0.45;
+      ed.midGlow.scale.setScalar(10 + stability * 18);
+      ed.midGlow.material.opacity = 0.25 + stability * 0.55;
+    }
+
+    // ── TOKEN ──
+    function makeToken(fromNode,toNode,op,carryState){
+      const css=OPCODES[op]?.css||"#fff"; const col=new THREE.Color(css);
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(4,8,8),new THREE.MeshBasicMaterial({color:col}));
+      mesh.position.copy(fromNode.pos); scene.add(mesh);
+      const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:1.0,depthWrite:false}));
+      sprite.scale.setScalar(24); sprite.position.copy(fromNode.pos); scene.add(sprite);
+      const TRAIL=12,tArr=new Float32Array(TRAIL*3),tGeo=new THREE.BufferGeometry();
+      tGeo.setAttribute("position",new THREE.BufferAttribute(tArr,3)); tGeo.setDrawRange(0,0);
+      const tLine=new THREE.Line(tGeo,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:0.4,blending:THREE.AdditiveBlending,depthWrite:false}));
+      scene.add(tLine);
+      return {fromNode,toNode,op,carryState:carryState?{...carryState}:{...IDENT},progress:0,trail:[],dead:false,mesh,sprite,tLine,tGeo,tArr,TRAIL,onArrive:null};
+    }
+
+    function disposeToken(tok){
+      scene.remove(tok.mesh);tok.mesh.material.dispose();tok.mesh.geometry.dispose();
+      scene.remove(tok.sprite);tok.sprite.material.dispose();
+      scene.remove(tok.tLine);tok.tGeo.dispose();tok.tLine.material.dispose();
+    }
+
+    function sendToken(fromIdx,toIdx,op,carry,onArrive){
+      const na=nodes[fromIdx],nb=nodes[toIdx]; if(!na||!nb) return;
+      const tok=makeToken(na,nb,op,carry); tok.onArrive=onArrive; tokens.push(tok);
+      for (const ed of edges) {
+        if ((ed.aIdx===fromIdx&&ed.bIdx===toIdx)||(ed.aIdx===toIdx&&ed.bIdx===fromIdx)) {
+          ed.tokensSent++;
+        }
+      }
+    }
+
+    // ── TOPOLOGICAL DISPATCH ──────────────────────────────────────────────
+    // No switch. No CPU. Every opcode is a geometric rule over GF(257).
+    const DISPATCH = {
+      ROTATE_X: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_X")); },
+      ROTATE_Y: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_Y")); },
+      ROTATE_Z: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_Z")); },
+
+      ALIGN: (nd, tok) => {
+        nd.state = composeAffine(nd.state, tok.fromNode.state);
+        nd.stableCount++;
+      },
+      COMPOSE: (nd, tok) => {
+        nd.state = composeAffine(nd.state, tok.carryState);
+      },
+      SYNC: (nd, tok) => {
+        nd.state = {
+          a: Math.max(1, Math.round((nd.state.a + tok.fromNode.state.a) / 2)),
+          b: Math.round((nd.state.b + tok.fromNode.state.b) / 2) % N
+        };
+        nd.stableCount++;
+      },
+      SEARCH: (nd, tok) => {
+        // Find nearest neighbor in GF(257) state space
+        let best = null, bestD = Infinity;
+        for (const n of nodes) {
+          if (n === nd) continue;
+          const da = Math.abs(n.state.a - nd.state.a) / 256;
+          const db = Math.abs(n.state.b - nd.state.b) / 256;
+          const d = Math.sqrt(da * da + db * db);
+          if (d < bestD) { bestD = d; best = n; }
+        }
+        if (best) {
+          best.flash = 20;
+          nd.stableCount++;
+          // SELF-WIRING: if no edge exists to nearest neighbor, create one.
+          // This is how the graph discovers its own topology.
+          if (!hasEdgeBetween(nd.idx, best.idx) && edges.length < 60) {
+            const newEd = makeEdge(nd.idx, best.idx);
+            if (newEd) {
+              edges.push(newEd);
+              pushLog(`SEARCH wired N${nd.idx}↔N${best.idx} (d=${bestD.toFixed(3)})`, "#ff8800");
+            }
+          }
+        }
+      },
+      FORK: (nd, tok) => {
+        // SELF-ASSEMBLY: grow the graph. No external command needed.
+        nd.state = composeAffine(nd.state, tok.fromNode.state);
+        if (nodes.length < 24) {
+          spawnNode(nd, tok.carryState);
+        }
+      },
+    };
+
+    function applyToken(tok) {
+      const nd = tok.toNode, op = tok.op;
+      nd.flash = 16;
+      nd.receivedOps = [op, ...nd.receivedOps].slice(0, 6);
+
+      const rule = DISPATCH[op];
+      if (rule) rule(nd, tok);
+      else nd.state = composeAffine(nd.state, tok.fromNode.state);
+
+      if (tok.onArrive) tok.onArrive(nd.state);
+
+      if (op !== "ROTATE_X" && op !== "ROTATE_Y" && op !== "ROTATE_Z") {
+        updateNodeColor(nd);
+        for (const ed of edges) {
+          if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) refreshEdge(ed);
+        }
+      }
+
+      pushLog(`[N${tok.fromNode.idx}→N${nd.idx}] ${op}`, OPCODES[op]?.css || "#fff");
+      tick++;
+    }
+
+    function updateTokenTick(tok){
+      if(tok.dead) return;
+      tok.trail.unshift(tok.mesh.position.clone());
+      if(tok.trail.length>tok.TRAIL) tok.trail.pop();
+      tok.progress+=0.02+Math.random()*0.004;
+      const t=Math.min(tok.progress,1);
+      tok.mesh.position.lerpVectors(tok.fromNode.pos,tok.toNode.pos,t);
+      tok.sprite.position.copy(tok.mesh.position);
+      const n=tok.trail.length;
+      for(let i=0;i<n;i++){tok.tArr[i*3]=tok.trail[i].x;tok.tArr[i*3+1]=tok.trail[i].y;tok.tArr[i*3+2]=tok.trail[i].z;}
+      tok.tGeo.attributes.position.needsUpdate=true; tok.tGeo.setDrawRange(0,n);
+      if(tok.progress>=1){applyToken(tok);tok.dead=true;}
+    }
+
+    // ── SELF-ASSEMBLY: SPAWN NODE ──────────────────────────────────────
+    // FORK grows the graph. New node gets dynamic edges to parent + nearby nodes.
+    // ALL edges derive opcodes from face256 geometry. No forced ops.
+    function spawnNode(parent, crystallizedState) {
+      totalForks++;
+      const angle = Math.random() * Math.PI * 2;
+      const elev = (Math.random() - 0.5) * Math.PI;
+      const dist = 120 + Math.random() * 80;
+      const x = parent.pos.x + Math.cos(angle) * Math.cos(elev) * dist;
+      const y = parent.pos.y + Math.sin(elev) * dist;
+      const z = parent.pos.z + Math.sin(angle) * Math.cos(elev) * dist;
+
+      const nd = makeNode(x, y, z, crystallizedState || parent.state);
+      nd.idx = nodes.length;
+      nodes.push(nd);
+      updateNodeColor(nd);
+
+      // Wire to parent
+      const parentEdge = makeEdge(parent.idx, nd.idx);
+      if (parentEdge) edges.push(parentEdge);
+
+      // Wire to 1-2 nearest existing nodes (not parent)
+      const dists = nodes.slice(0, -1)
+        .map((n, i) => ({idx: i, d: n.pos.distanceTo(nd.pos)}))
+        .filter(x => x.idx !== parent.idx)
+        .sort((a, b) => a.d - b.d);
+
+      const wireCount = 1 + (Math.random() > 0.5 ? 1 : 0);
+      for (let i = 0; i < Math.min(wireCount, dists.length); i++) {
+        const newEd = makeEdge(dists[i].idx, nd.idx);
+        if (newEd) edges.push(newEd);
+      }
+
+      pushLog(`◆ FORK → N${nd.idx} (${edges.length} edges)`, "#44ff88");
+    }
+
+    // ── SUBSTRATE TICK ──────────────────────────────────────────────────
+    // No program. No sequencer. Tokens fire on edges based on the graph's
+    // own geometry. Volatile edges fire more often (inverse stability weighting).
+    // This creates natural pressure: unstable regions get more activity.
+    function substrateTick() {
+      if (!substrateRunning) return;
+      if (edges.length === 0) return;
+
+      let totalWeight = 0;
+      const weights = edges.map(ed => {
+        const w = 1 / (1 + ed.stableFrames * 0.02);
+        totalWeight += w;
+        return w;
+      });
+
+      let r = Math.random() * totalWeight;
+      let chosen = edges[0];
+      for (let i = 0; i < edges.length; i++) {
+        r -= weights[i];
+        if (r <= 0) { chosen = edges[i]; break; }
+      }
+
+      // Direction: token flows from higher face256 to lower (geometric gradient)
+      const f256A = face256Source(nodes[chosen.aIdx].state);
+      const f256B = face256Source(nodes[chosen.bIdx].state);
+      const fromIdx = f256A >= f256B ? chosen.aIdx : chosen.bIdx;
+      const toIdx = fromIdx === chosen.aIdx ? chosen.bIdx : chosen.aIdx;
+
+      const carry = { ...nodes[fromIdx].state };
+      sendToken(fromIdx, toIdx, chosen.op, carry, null);
+    }
+
+    // ── INIT: SEED CLUSTER ──────────────────────────────────────────────
+    const positions = [
+      [0, 100, 0], [-160, -40, 80], [160, -40, 80],
+      [0, -40, -160], [0, -160, 0],
+    ];
+    for (let i = 0; i < SEED_STATES.length; i++) {
+      const [x,y,z] = positions[i];
+      const nd = makeNode(x, y, z, SEED_STATES[i], `S${i}`);
+      nd.idx = nodes.length;
+      nodes.push(nd);
+      updateNodeColor(nd);
+    }
+
+    // Wire seed: connect each to 2-3 neighbors (all dynamic)
+    for (let i = 0; i < nodes.length; i++) {
+      for (let j = i + 1; j < nodes.length; j++) {
+        if (Math.random() < 0.55) {
+          const ed = makeEdge(i, j);
+          if (ed) edges.push(ed);
+        }
+      }
+    }
+    // Ensure ring connectivity
+    for (let i = 0; i < nodes.length; i++) {
+      const j = (i + 1) % nodes.length;
+      if (!hasEdgeBetween(i, j)) {
+        const ed = makeEdge(i, j);
+        if (ed) edges.push(ed);
+      }
+    }
+
+    pushLog("seed cluster: 5 cubes, all edges dynamic", "#334466");
+    pushLog("no pipeline — structure emerges from GF(257)", "#334466");
+
+    let currentSpeed = 1;
+
+    simRef.current={
+      start:()=>{
+        if(substrateRunning) return;
+        substrateRunning=true; setRunning(true);
+        pushLog("── substrate active ──","#00ff88");
+      },
+      stop:()=>{substrateRunning=false;setRunning(false);pushLog("── substrate paused ──","#ff4444");},
+      fire:()=>{substrateTick();},
+      setSpeed:(s)=>{ currentSpeed=s; },
+      info:(idx)=>{
+        const nd=nodes[idx];if(!nd)return null;
+        const myEdges = edges.filter(e=>e.aIdx===idx||e.bIdx===idx);
+        const stableE = myEdges.filter(e=>opBand(e.op)==="stable").length;
+        const rotateE = myEdges.filter(e=>opBand(e.op)==="rotate").length;
+        const growthE = myEdges.filter(e=>opBand(e.op)==="growth").length;
+        return{
+          state:{...nd.state}, f256:face256Source(nd.state),
+          label:nd.label, rotCount:nd.rotCount,
+          stableCount:nd.stableCount,
+          ops:[...nd.receivedOps],
+          edgeCount:myEdges.length, stableE, rotateE, growthE,
+        };
+      },
+    };
+
+    // ── ANIMATE ──
+    const _com=new THREE.Vector3(); let animId;
+    const _tmpQ = new THREE.Quaternion();
+    let lastSubstrateTick = 0;
+
+    const animate=()=>{
+      animId=requestAnimationFrame(animate); frameN++;
+      if(!drag&&Date.now()-lastAct>3000) autoOrbit=true;
+      if(autoOrbit) camTheta+=0.0012;
+      _com.set(0,0,0); for(const n of nodes) _com.add(n.pos);
+      if(nodes.length) _com.divideScalar(nodes.length);
+      camSmooth.lerp(_com,0.02);
+      const sp=Math.sin(camPhi),cp=Math.cos(camPhi);
+      camera.position.set(camSmooth.x+camR*sp*Math.sin(camTheta),camSmooth.y+camR*cp,camSmooth.z+camR*sp*Math.cos(camTheta));
+      camera.lookAt(camSmooth);
+
+      // Substrate: fire tokens based on speed
+      const tickInterval = Math.max(16, Math.round(65 / currentSpeed));
+      if (substrateRunning && frameN - lastSubstrateTick >= tickInterval && tokens.length < 10) {
+        substrateTick();
+        lastSubstrateTick = frameN;
+      }
+
+      for(const nd of nodes){
+        const age=Math.min((frameN-nd.birthFrame)/30,1);
+        const fl=nd.flash>0?nd.flash/18:0; if(nd.flash>0) nd.flash--;
+
+        if (nd.rotAnimProgress.v < 1.0) {
+          nd.rotAnimProgress.v = Math.min(1.0, nd.rotAnimProgress.v + 0.04);
+          const t = nd.rotAnimProgress.v;
+          const eased = 1 - Math.pow(1 - t, 3);
+          _tmpQ.slerpQuaternions(nd.discreteQuat, nd.targetQuat, eased);
+          nd.coreMesh.quaternion.copy(_tmpQ);
+          nd.fillMesh.quaternion.copy(_tmpQ);
+          if (nd.rotAnimProgress.v >= 1.0) {
+            nd.discreteQuat.copy(nd.targetQuat);
+            nd.coreMesh.quaternion.copy(nd.targetQuat);
+            nd.fillMesh.quaternion.copy(nd.targetQuat);
+          }
+        }
+
+        nd.coreMesh.scale.setScalar(age*(1+fl*0.4));
+        nd.fillMesh.scale.setScalar(age*(1+fl*0.4));
+
+        const stabilityGlow = Math.min(nd.stableCount / 20, 1);
+        const baseHalo = 70 + stabilityGlow * 40;
+        nd.halo.scale.setScalar(baseHalo*age+fl*28);
+        nd.halo.material.opacity=0.2+stabilityGlow*0.3+fl*0.4;
+        if(nd.idx===selectedIdx){nd.halo.scale.setScalar(118*age);nd.halo.material.opacity=0.82;}
+
+        const f256val = face256Source(nd.state);
+        const orbitAngle = (f256val / 256) * Math.PI * 2 + frameN * 0.008;
+        const orbitR = 20;
+        nd.f256m.position.set(
+          nd.pos.x + Math.cos(orbitAngle) * orbitR,
+          nd.pos.y + Math.sin(orbitAngle * 0.7) * orbitR,
+          nd.pos.z + Math.sin(orbitAngle) * orbitR * 0.5
+        );
+        nd.f256g.position.copy(nd.f256m.position);
+
+        const arrowDir = new THREE.Vector3(
+          Math.cos(f256val / 256 * Math.PI * 2),
+          Math.sin(f256val / 128 * Math.PI),
+          Math.cos(f256val / 64 * Math.PI)
+        ).normalize();
+        nd.arrowMesh.position.copy(nd.pos).addScaledVector(arrowDir, 16);
+        nd.arrowMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), arrowDir);
+        nd.arrowMesh.material.opacity = 0.3 + fl * 0.4;
+      }
+
+      if(frameN%30===0) for(const ed of edges) refreshEdge(ed);
+
+      for(let i=tokens.length-1;i>=0;i--){
+        updateTokenTick(tokens[i]);
+        if(tokens[i].dead){disposeToken(tokens[i]);tokens.splice(i,1);}
+      }
+
+      if(frameN%15===0){
+        if(selectedIdx!==null&&simRef.current) setNodeInfo(simRef.current.info(selectedIdx));
+        const stableE = edges.filter(e => opBand(e.op)==="stable").length;
+        const volatileE = edges.filter(e => opBand(e.op)==="rotate").length;
+        const growthE = edges.filter(e => opBand(e.op)==="growth").length;
+        setMetrics({
+          nodes:nodes.length, edges:edges.length,
+          stableEdges:stableE, volatileEdges:volatileE, growthEdges:growthE,
+          totalRotations, forks:totalForks, tick,
+        });
+      }
+
+      renderer.render(scene,camera);
+    };
+    animate();
+
+    const onResize=()=>{const W=el.clientWidth,H=el.clientHeight;camera.aspect=W/H;camera.updateProjectionMatrix();renderer.setSize(W,H);};
+    window.addEventListener("resize",onResize);
+    return()=>{
+      cancelAnimationFrame(animId);
+      window.removeEventListener("resize",onResize);
+      window.removeEventListener("mousemove",onMove);
+      window.removeEventListener("mouseup",onUp);
+      if(el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+      renderer.dispose();
+    };
+  },[pushLog]);
+
+  const mf={fontFamily:'"JetBrains Mono","Fira Code","Courier New",monospace'};
+  const OC=k=>OPCODES[k]?.css||"#fff";
+
+  const totalE = metrics.edges || 1;
+  const stableRatio = ((metrics.stableEdges / totalE) * 100).toFixed(0);
+  const rotateRatio = ((metrics.volatileEdges / totalE) * 100).toFixed(0);
+  const growthRatio = ((metrics.growthEdges / totalE) * 100).toFixed(0);
+
+  return (
+    <div style={{display:"flex",height:"100vh",background:"#010408",...mf}}>
+      <div style={{flex:1,position:"relative",overflow:"hidden"}}>
+        <div ref={mountRef} style={{width:"100%",height:"100%"}}/>
+
+        {/* Legend */}
+        <div style={{position:"absolute",top:14,left:14,fontSize:9,lineHeight:2,
+          pointerEvents:"none",background:"rgba(1,4,8,0.85)",border:"1px solid #0a1422",padding:"10px 14px"}}>
+          <div style={{color:"#223344",letterSpacing:2,marginBottom:4}}>SELF-ASSEMBLING SUBSTRATE</div>
+          <div style={{color:"#1a3040",fontSize:8,lineHeight:1.8,marginBottom:6}}>
+            No fixed pipeline. No program counter.<br/>
+            Structure emerges from GF(257) geometry.
+          </div>
+          <div style={{color:"#223344",letterSpacing:1,marginBottom:3,fontSize:8}}>EDGE BANDS</div>
+          {[
+            ["#3377ff","━","ROTATE (0–95): volatile, cascades"],
+            ["#00ffcc","━","STABLE (96–191): ALIGN · SEARCH · SYNC"],
+            ["#44ff88","━","GROWTH (192–256): FORK · COMPOSE"],
+          ].map(([c,s,l])=>(
+            <div key={l} style={{display:"flex",gap:5}}>
+              <span style={{color:c}}>{s}</span><span style={{color:"#1a3040",fontSize:8}}>{l}</span>
+            </div>
+          ))}
+          <div style={{color:"#ff8800",marginTop:4,fontSize:7}}>
+            ● face256 register · bright edges = stable<br/>
+            dim edges = volatile · large glow = convergent node
+          </div>
+        </div>
+
+        {/* Stability gauge */}
+        <div style={{position:"absolute",bottom:14,left:14,
+          background:"rgba(1,4,8,0.85)",border:"1px solid #0a1422",
+          padding:"10px 16px",pointerEvents:"none",minWidth:220}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#223344",marginBottom:6}}>EDGE BAND DISTRIBUTION</div>
+          <div style={{display:"flex",height:8,borderRadius:2,overflow:"hidden",marginBottom:6,background:"#030810"}}>
+            <div style={{width:`${rotateRatio}%`,background:"#3377ff",transition:"width 0.5s"}}/>
+            <div style={{width:`${stableRatio}%`,background:"#00ffcc",transition:"width 0.5s"}}/>
+            <div style={{width:`${growthRatio}%`,background:"#44ff88",transition:"width 0.5s"}}/>
+          </div>
+          <div style={{display:"flex",gap:12,fontSize:8}}>
+            <span style={{color:"#3377ff"}}>{rotateRatio}% volatile</span>
+            <span style={{color:"#00ffcc"}}>{stableRatio}% stable</span>
+            <span style={{color:"#44ff88"}}>{growthRatio}% growth</span>
+          </div>
+          <div style={{color:"#0a1a28",fontSize:7,marginTop:4}}>
+            watch: does the stable band grow as attractors form?
+          </div>
+        </div>
+      </div>
+
+      {/* Side panel */}
+      <div style={{width:265,background:"#00020a",borderLeft:"1px solid #0a1422",
+        display:"flex",flexDirection:"column",overflow:"hidden"}}>
+
+        {/* Controls */}
+        <div style={{padding:"14px 16px 12px",borderBottom:"1px solid #0a1422"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:"#00ffcc",opacity:0.35,marginBottom:4}}>GF(257) SUBSTRATE</div>
+          <div style={{fontSize:9,color:"#2a4050",lineHeight:1.8,marginBottom:10}}>
+            no program · no clock · data is the clock<br/>
+            SEARCH auto-wires · FORK spawns · edges cascade
+          </div>
+          <div style={{display:"flex",gap:5,marginBottom:6}}>
+            <button onClick={()=>simRef.current?.start()} disabled={running} style={{
+              flex:2,background:running?"#060e14":"#001a10",
+              border:`1px solid ${running?"#0a1a20":"#00ff8877"}`,
+              color:running?"#0a2010":"#00ff88",
+              padding:"9px",cursor:running?"not-allowed":"pointer",fontSize:9,letterSpacing:1,...mf}}>
+              {running?"▶ ACTIVE":"▶ START"}</button>
+            <button onClick={()=>simRef.current?.stop()} style={{background:"#180008",border:"1px solid #ff444433",color:"#ff4444",padding:"9px 10px",cursor:"pointer",fontSize:9,...mf}}>■</button>
+            <button onClick={()=>simRef.current?.fire()} style={{background:"#001020",border:"1px solid #00ffcc22",color:"#00ffcc",padding:"9px 10px",cursor:"pointer",fontSize:9,...mf}} title="manual tick">~</button>
+          </div>
+          <div style={{display:"flex",gap:4}}>
+            {[{l:"×½",v:0.5},{l:"×1",v:1},{l:"×2",v:2},{l:"×4",v:4}].map(({l,v})=>(
+              <button key={v} onClick={()=>{setSpeed(v);simRef.current?.setSpeed(v);}}
+                style={{flex:1,background:speed===v?"#0a1a28":"#020810",
+                  border:`1px solid ${speed===v?"#00ffcc44":"#0a1422"}`,
+                  color:speed===v?"#00ffcc":"#0a1a28",
+                  padding:"5px",cursor:"pointer",fontSize:8,...mf}}>{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {/* Metrics */}
+        <div style={{padding:"12px 16px",borderBottom:"1px solid #0a1422"}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:8}}>SUBSTRATE METRICS</div>
+          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}}>
+            {[
+              {l:"nodes",     v:metrics.nodes,          c:"#00ccff"},
+              {l:"edges",     v:metrics.edges,          c:"#00ccff"},
+              {l:"stable",    v:metrics.stableEdges,    c:"#00ffcc"},
+              {l:"volatile",  v:metrics.volatileEdges,  c:"#3377ff"},
+              {l:"growth",    v:metrics.growthEdges,    c:"#44ff88"},
+              {l:"rotations", v:metrics.totalRotations, c:"#9933ff"},
+              {l:"forks",     v:metrics.forks,          c:"#44ff88"},
+              {l:"ticks",     v:metrics.tick,           c:"#334466"},
+            ].map(({l,v,c})=>(
+              <div key={l} style={{background:"#030810",padding:"6px 9px"}}>
+                <div style={{fontSize:7,color:"#0a1a28",marginBottom:1}}>{l}</div>
+                <div style={{fontSize:10,color:c,fontWeight:"bold"}}>{v}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Selected node */}
+        <div style={{padding:"10px 16px",borderBottom:"1px solid #0a1422",minHeight:90}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:5}}>
+            {selected!==null?`N${selected} · ${nodeInfo?.label||""}`:"CLICK A NODE"}
+          </div>
+          {nodeInfo&&selected!==null?(
+            <>
+              <div style={{fontSize:10,color:"#c8e8f0",marginBottom:3}}>
+                f(p) = <span style={{color:"#00ffcc"}}>{affStr(nodeInfo.state)}</span>
+              </div>
+              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
+                <span style={{fontSize:8,color:"#1a3040"}}>face256</span>
+                <div style={{width:8,height:8,borderRadius:"50%",
+                  background:`hsl(${nodeInfo.f256/256*280},100%,60%)`,
+                  boxShadow:`0 0 5px hsl(${nodeInfo.f256/256*280},100%,60%)`}}/>
+                <span style={{fontSize:9,color:"#ff8800"}}>{nodeInfo.f256}</span>
+              </div>
+              <div style={{fontSize:8,color:"#0a2030",marginBottom:3}}>
+                <span style={{color:"#9933ff"}}>rot:{nodeInfo.rotCount}</span>
+                <span style={{color:"#00ffcc",marginLeft:8}}>stable streak:{nodeInfo.stableCount}</span>
+              </div>
+              <div style={{display:"flex",gap:8,fontSize:8,color:"#0a2030",marginBottom:3}}>
+                <span>edges: {nodeInfo.edgeCount}</span>
+                <span style={{color:"#00ffcc"}}>{nodeInfo.stableE}s</span>
+                <span style={{color:"#3377ff"}}>{nodeInfo.rotateE}r</span>
+                <span style={{color:"#44ff88"}}>{nodeInfo.growthE}g</span>
+              </div>
+              <div style={{fontSize:8,color:"#0a1a28"}}>
+                ops: {nodeInfo.ops.map((op,i)=><span key={i} style={{color:OC(op),marginRight:3}}>{op}</span>)}
+              </div>
+            </>
+          ):(
+            <div style={{fontSize:9,color:"#060e18",lineHeight:1.9}}>
+              inspect node state · edge bands<br/>
+              rotation count · stability streak
+            </div>
+          )}
+        </div>
+
+        {/* Log */}
+        <div style={{flex:1,padding:"10px 16px",overflow:"hidden",minHeight:0}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:5}}>LOG</div>
+          {log.map((e,i)=>(
+            <div key={e.id} style={{fontSize:8,lineHeight:1.8,color:e.color,opacity:Math.max(0.05,1-i*0.04)}}>{e.msg}</div>
+          ))}
+        </div>
+
+        {/* Footer */}
+        <div style={{padding:"7px 16px",borderTop:"1px solid #0a1422"}}>
+          <div style={{fontSize:7,color:"#060e18",lineHeight:1.9,display:"flex",flexWrap:"wrap",gap:"0 10px"}}>
+            {[
+              {op:"ROTATE_X",l:"RX"},{op:"ROTATE_Y",l:"RY"},{op:"ROTATE_Z",l:"RZ"},
+              {op:"ALIGN",l:"ALN"},{op:"SEARCH",l:"SRC"},{op:"SYNC",l:"SYN"},
+              {op:"FORK",l:"FRK"},{op:"COMPOSE",l:"CMP"},
+            ].map(({op,l})=>(
+              <span key={op}><span style={{color:OC(op)}}>{l}</span></span>
+            ))}
+          </div>
+          <div style={{fontSize:6,color:"#060e14",marginTop:2}}>
+            SEARCH auto-wires · FORK spawns · stable edges brighten · volatile edges fire more
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
