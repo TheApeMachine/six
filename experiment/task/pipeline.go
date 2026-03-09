@@ -155,9 +155,33 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	_, _ = pipeline.experiment.Holdout()
 	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)
 
+	resCh := pipeline.broadcast.Subscribe("pipeline-prompt", 10)
+	defer pipeline.broadcast.Unsubscribe("pipeline-prompt")
+
 	pipeline.broadcast.Send(
-		pool.NewResult(promptChords),
+		pool.NewResult(*pool.NewPoolValue(
+			pool.WithKey[[]data.Chord]("prompt"),
+			pool.WithValue(promptChords),
+		)),
 	)
+
+wait_result:
+	for {
+		select {
+		case res := <-resCh:
+			if res != nil && res.Value != nil {
+				if pv, ok := res.Value.(pool.PoolValue[[]data.Chord]); ok {
+					if pv.Key == "results" {
+						chordRes = pv.Value
+						break wait_result
+					}
+				}
+			}
+		case <-time.After(2 * time.Second):
+			// Cortex didn't respond in time or hasn't converged
+			break wait_result
+		}
+	}
 
 	console.Info("PROMPT")
 	fmt.Println()

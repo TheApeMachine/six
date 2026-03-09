@@ -92,6 +92,35 @@ func TestTopExcluding(t *testing.T) {
 	})
 }
 
+func TestHybridSubstrateBitwiseFilter(t *testing.T) {
+	Convey("Given substrate entries with different overlap scores", t, func() {
+		hs := NewHybridSubstrate()
+		dial := NewPhaseDial()
+
+		readoutA := testChords("alpha")
+		readoutB := testChords("beta")
+		readoutC := testChords("gamma")
+
+		filterA := data.ChordLCM(readoutA)
+		filterB := data.ChordLCM(readoutB)
+		filterC := data.ChordLCM(readoutC)
+
+		hs.Add(filterA, dial.EncodeFromChords(readoutA), readoutA)
+		hs.Add(filterB, dial.EncodeFromChords(readoutB), readoutB)
+		hs.Add(filterC, dial.EncodeFromChords(readoutC), readoutC)
+
+		Convey("BitwiseFilter should keep the top scoring indices", func() {
+			ranked := hs.BitwiseFilter(filterA, 2)
+
+			So(ranked, ShouldResemble, []int{0, 2})
+		})
+
+		Convey("BitwiseFilter should handle zero topK", func() {
+			So(hs.BitwiseFilter(filterA, 0), ShouldResemble, []int{})
+		})
+	})
+}
+
 func BenchmarkHybridSubstrateAdd(b *testing.B) {
 	hs := NewHybridSubstrate()
 	dial := NewPhaseDial()

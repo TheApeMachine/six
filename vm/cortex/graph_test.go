@@ -5,6 +5,9 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel"
+	"github.com/theapemachine/six/kernel/cpu"
 )
 
 func TestNewGraph(t *testing.T) {
@@ -85,6 +88,27 @@ func TestStepAdvancesTick(t *testing.T) {
 
 		Convey("TickCount should match step count", func() {
 			So(graph.TickCount(), ShouldEqual, 5)
+		})
+	})
+}
+
+func TestNearestNode(t *testing.T) {
+	Convey("Given a graph with a kernel backend", t, func() {
+		graph := NewGraph(
+			GraphWithBackend(
+				kernel.NewBuilder(
+					kernel.WithBackend(&cpu.CPUBackend{}),
+				),
+			),
+		)
+
+		graph.nodes[0].Rot = geometry.GFRotation{A: 1, B: 0}
+		graph.nodes[1].Rot = geometry.GFRotation{A: 13, B: 21}
+		graph.nodes[2].Rot = geometry.GFRotation{A: 33, B: 55}
+
+		Convey("NearestNode should resolve the closest rotation", func() {
+			nearest := graph.NearestNode(geometry.GFRotation{A: 12, B: 21})
+			So(nearest, ShouldEqual, graph.nodes[1])
 		})
 	})
 }
