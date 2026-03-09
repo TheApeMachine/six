@@ -25,15 +25,15 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 7,
-        "Partial": 0.875,
+        "Exact": 1,
+        "Partial": 0.125,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.875,
+      "WeightedTotal": 0.125,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0.875,
+  "score": 0.125,
   "section": "architecture"
 }

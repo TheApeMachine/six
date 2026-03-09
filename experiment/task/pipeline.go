@@ -12,7 +12,9 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
+	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
@@ -22,6 +24,8 @@ type Pipeline struct {
 	cancel     context.CancelFunc
 	pool       *pool.Pool
 	broadcast  *pool.BroadcastGroup
+	loader     *vm.Loader
+	coder      *tokenizer.MortonCoder
 	booter     *vm.Booter
 	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
@@ -64,10 +68,25 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 		pipeline.reporter = NewProjectorReporter()
 	}
 
+	pipeline.coder = tokenizer.NewMortonCoder()
+	pipeline.loader = vm.NewLoader(
+		vm.LoaderWithStore(store.NewLSMSpatialIndex(0)),
+		vm.LoaderWithPool(workerPool),
+		vm.LoaderWithTokenizer(
+			tokenizer.NewUniversal(
+				tokenizer.TokenizerWithDataset(pipeline.experiment.Dataset()),
+			),
+		),
+	)
+
 	return pipeline, nil
 }
 
 func (pipeline *Pipeline) Run() error {
+	if err := pipeline.loader.Start(); err != nil {
+		return fmt.Errorf("loader start: %w", err)
+	}
+
 	pipeline.booter.Start()
 	defer pipeline.booter.Stop()
 
@@ -199,9 +218,43 @@ wait_result:
 		"chords", len(chordRes),
 	)
 
+	lsmCount := 0
+	if lsm, ok := pipeline.loader.Store().(*store.LSMSpatialIndex); ok && lsm != nil {
+		lsmCount = lsm.Count()
+	}
+	var outBytes []byte
+	var dbgActive []int
+	for _, chord := range chordRes {
+		dbgActive = append(dbgActive, chord.ActiveCount())
+	}
+	if len(dbgActive) > 5 {
+		dbgActive = dbgActive[:5]
+	}
+	console.Info("OBSERVED TEXT DEBUG", "lsmCount", lsmCount, "substrate", len(pipeline.loader.Substrate().Entries), "chords", len(chordRes), "active", dbgActive)
+
+	for _, residue := range chordRes {
+		if residue.ActiveCount() == 0 {
+			continue
+		}
+
+		seq := pipeline.loader.Substrate().Retrieve(
+			residue, geometry.NewPhaseDial(), 1,
+		)
+
+		for _, key := range pipeline.loader.Lookup(seq) {
+			_, symbol := pipeline.coder.Decode(key)
+			outBytes = append(outBytes, symbol)
+		}
+	}
+
+	console.Info("OBSERVED TEXT", "text", string(outBytes))
+
 	pipeline.experiment.AddResult(tools.ExperimentalData{
-		Idx:  pipeline.testIdx,
-		Name: pipeline.experiment.Name(),
+		Idx:      pipeline.testIdx,
+		Name:     pipeline.experiment.Name(),
+		Prefix:   []byte(pipeline.prompts.Value(pipeline.testIdx)),
+		Holdout:  []byte(heldOut),
+		Observed: outBytes,
 	})
 
 	pipeline.testIdx++

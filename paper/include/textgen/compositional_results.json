@@ -13,8 +13,8 @@
     {
       "Idx": 0,
       "Name": "Compositional",
-      "Prefix": null,
-      "Holdout": null,
+      "Prefix": "dGhlIHF1aWNrIHJl",
+      "Holdout": "ZA==",
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {

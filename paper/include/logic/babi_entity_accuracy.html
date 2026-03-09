@@ -31,10 +31,10 @@
 <body>
     <div id="chart"></div>
     <script>
-        const xAxisData = ["unknown"];
-        const seriesData = [{"name":"Accuracy","type":"bar","symbol":"","barWidth":"40%","data":[0]},{"name":"Count","type":"line","symbol":"circle","barWidth":"","data":[500]}];
+        const xAxisData = ["Daniel","John","Mary","Sandra"];
+        const seriesData = [{"name":"Accuracy","type":"bar","symbol":"","barWidth":"40%","data":[0,0,0,0]},{"name":"Count","type":"line","symbol":"circle","barWidth":"","data":[127,130,120,123]}];
         const yMin = 0;
-        const yMax = 550;
+        const yMax = 143;
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
         const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];

@@ -60,6 +60,13 @@ func (loader *Loader) Tokenizer() *tokenizer.Universal {
 }
 
 /*
+Substrate returns the current geometric substrate.
+*/
+func (loader *Loader) Substrate() *geometry.HybridSubstrate {
+	return loader.substrate
+}
+
+/*
 LoadResult bundles the ingested chord with metadata from the sequencer,
 allowing the Machine to identify structural boundaries during Start().
 */
@@ -96,20 +103,25 @@ func (loader *Loader) generate() error {
 				loader.store.Insert(token.TokenID, token.Chord)
 			}
 
-			wg.Add(1)
-			loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
-				defer wg.Done()
+			if token.IsBoundary {
+				if len(sequence) > 0 {
+					seqCopy := make([]data.Chord, len(sequence))
+					copy(seqCopy, sequence)
 
-				if token.IsBoundary {
-					loader.buildPhaseDial(sequence)
+					wg.Add(1)
+					loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
+						defer wg.Done()
+						loader.buildPhaseDial(seqCopy)
+						return nil, nil
+					})
+
+					sequence = sequence[:0]
 				}
+			}
 
-				if token.Chord.ActiveCount() > 0 {
-					sequence = append(sequence, token.Chord)
-				}
-
-				return nil, nil
-			})
+			if token.Chord.ActiveCount() > 0 && !token.IsBoundary {
+				sequence = append(sequence, token.Chord)
+			}
 
 			// Build EigenModes from the ingested manifold topology.
 			if loader.primefield != nil {
@@ -146,7 +158,9 @@ func (loader *Loader) buildPhaseDial(
 			ptr.Set(rand.Intn(257))
 		}
 
-		loader.primefield.StorePointer(rot, ptr)
+		if loader.primefield != nil {
+			loader.primefield.StorePointer(rot, ptr)
+		}
 
 		suffix := make([]data.Chord, len(sequence)-i)
 		copy(suffix, sequence[i:])

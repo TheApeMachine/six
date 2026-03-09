@@ -2,7 +2,10 @@
   "caption": "Accuracy (bars) and sample count (line) per entity. N=500 samples.",
   "data": {
     "x_axis": [
-      "unknown"
+      "Daniel",
+      "John",
+      "Mary",
+      "Sandra"
     ],
     "series": [
       {
@@ -10,6 +13,9 @@
         "type": "bar",
         "bar_width": "40%",
         "data": [
+          0,
+          0,
+          0,
           0
         ]
       },
@@ -18,14 +24,17 @@
         "type": "line",
         "symbol": "circle",
         "data": [
-          500
+          127,
+          130,
+          120,
+          123
         ]
       }
     ],
     "x_name": "Entity",
     "y_name": "Value",
     "y_min": 0,
-    "y_max": 550
+    "y_max": 143
   },
   "file_name": "babi_entity_accuracy",
   "label": "fig:babi_entity_accuracy",

@@ -5,9 +5,27 @@
     "data": {
       "EntitySummary": [
         {
-          "Name": "unknown",
+          "Name": "Daniel",
           "Correct": 0,
-          "Total": 500,
+          "Total": 127,
+          "Rate": 0
+        },
+        {
+          "Name": "John",
+          "Correct": 0,
+          "Total": 130,
+          "Rate": 0
+        },
+        {
+          "Name": "Mary",
+          "Correct": 0,
+          "Total": 120,
+          "Rate": 0
+        },
+        {
+          "Name": "Sandra",
+          "Correct": 0,
+          "Total": 123,
           "Rate": 0
         }
       ],
@@ -15,130 +33,160 @@
       "FailureRows": [
         [
           "0",
-          "unknown",
-          "",
+          "Mary",
+          "bathroom",
           ""
         ],
         [
           "1",
-          "unknown",
-          "",
+          "Daniel",
+          "hallway",
           ""
         ],
         [
           "2",
-          "unknown",
-          "",
+          "Daniel",
+          "hallway",
           ""
         ],
         [
           "3",
-          "unknown",
-          "",
+          "Daniel",
+          "office",
           ""
         ],
         [
           "4",
-          "unknown",
-          "",
+          "Sandra",
+          "bathroom",
           ""
         ],
         [
           "5",
-          "unknown",
-          "",
+          "Sandra",
+          "bathroom",
           ""
         ],
         [
           "6",
-          "unknown",
-          "",
+          "Sandra",
+          "bathroom",
           ""
         ],
         [
           "7",
-          "unknown",
-          "",
+          "Sandra",
+          "bathroom",
           ""
         ],
         [
           "8",
-          "unknown",
-          "",
+          "John",
+          "office",
           ""
         ],
         [
           "9",
-          "unknown",
-          "",
+          "Daniel",
+          "hallway",
           ""
         ],
         [
           "10",
-          "unknown",
-          "",
+          "John",
+          "bathroom",
           ""
         ],
         [
           "11",
-          "unknown",
-          "",
+          "Mary",
+          "bedroom",
           ""
         ],
         [
           "12",
-          "unknown",
-          "",
+          "John",
+          "bathroom",
           ""
         ],
         [
           "13",
-          "unknown",
-          "",
+          "John",
+          "bathroom",
           ""
         ],
         [
           "14",
-          "unknown",
-          "",
+          "Sandra",
+          "bedroom",
           ""
         ],
         [
           "15",
-          "unknown",
-          "",
+          "Daniel",
+          "bedroom",
           ""
         ],
         [
           "16",
-          "unknown",
-          "",
+          "Sandra",
+          "kitchen",
           ""
         ],
         [
           "17",
-          "unknown",
-          "",
+          "Sandra",
+          "hallway",
           ""
         ],
         [
           "18",
-          "unknown",
-          "",
+          "Sandra",
+          "hallway",
           ""
         ],
         [
           "19",
-          "unknown",
-          "",
+          "Daniel",
+          "hallway",
           ""
         ]
       ],
       "LocationSummary": [
         {
-          "Name": "",
+          "Name": "bathroom",
           "Correct": 0,
-          "Total": 500,
+          "Total": 97,
+          "Rate": 0
+        },
+        {
+          "Name": "bedroom",
+          "Correct": 0,
+          "Total": 81,
+          "Rate": 0
+        },
+        {
+          "Name": "garden",
+          "Correct": 0,
+          "Total": 79,
+          "Rate": 0
+        },
+        {
+          "Name": "hallway",
+          "Correct": 0,
+          "Total": 84,
+          "Rate": 0
+        },
+        {
+          "Name": "kitchen",
+          "Correct": 0,
+          "Total": 89,
+          "Rate": 0
+        },
+        {
+          "Name": "office",
+          "Correct": 0,
+          "Total": 70,
           "Rate": 0
         }
       ],
