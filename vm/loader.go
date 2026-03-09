@@ -164,8 +164,13 @@ func (loader *Loader) buildPhaseDial(
 		suffix := make([]data.Chord, len(sequence)-i)
 		copy(suffix, sequence[i:])
 
+		dial := geometry.NewPhaseDial()
+		if i > 0 {
+			dial = dial.EncodeFromChords(sequence[:i])
+		}
+
 		loader.substrate.Add(
-			activePrefix, geometry.NewPhaseDial(), suffix,
+			activePrefix, dial, suffix,
 		)
 
 		if i < len(sequence) {

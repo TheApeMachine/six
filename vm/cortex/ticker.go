@@ -33,8 +33,8 @@ func (graph *Graph) Step() bool {
 	if converged && graph.broadcast != nil {
 		var res []data.Chord
 
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
+		for side := range 6 {
+			for rot := range 4 {
 				chord := graph.sink.Cube.Get(side, rot, 256)
 				if chord.ActiveCount() > 0 {
 					res = append(res, chord)
@@ -43,9 +43,9 @@ func (graph *Graph) Step() bool {
 		}
 
 		if len(res) == 0 {
-			for side := 0; side < 6; side++ {
-				for rot := 0; rot < 4; rot++ {
-					for i := 0; i < 256; i++ {
+			for side := range 6 {
+				for rot := range 4 {
+					for i := range 256 {
 						chord := graph.sink.Cube.Get(side, rot, i)
 						if chord.ActiveCount() > 0 {
 							res = append(res, chord)
@@ -54,8 +54,6 @@ func (graph *Graph) Step() bool {
 				}
 			}
 		}
-
-		console.Info("CONVERGED", "resLen", len(res))
 
 		graph.broadcast.Send(pool.NewResult(
 			*pool.NewPoolValue(
@@ -207,11 +205,6 @@ func (graph *Graph) injectEntropyFloor() {
 	target.Rot = target.Rot.Compose(rot)
 	target.InvalidateChordCache()
 	graph.lastRotationTick = graph.tick
-
-	console.Info("entropy floor",
-		"nodeID", target.ID,
-		"quiet", quiet,
-	)
 }
 
 // xorshift random for fast probabilistic routing

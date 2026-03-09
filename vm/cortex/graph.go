@@ -245,9 +245,9 @@ func (graph *Graph) routeTargets(from *Node, chord data.Chord) []*Node {
 Wipe clears all 257 faces of the node's working memory.
 */
 func (node *Node) Wipe() {
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			for i := 0; i < 257; i++ {
+	for side := range 6 {
+		for rot := range 4 {
+			for i := range 257 {
 				node.Cube.Set(side, rot, i, data.Chord{})
 			}
 		}

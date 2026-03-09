@@ -239,12 +239,15 @@ wait_result:
 		}
 
 		seq := pipeline.loader.Substrate().Retrieve(
-			residue, geometry.NewPhaseDial(), 1,
+			residue, geometry.NewPhaseDial().EncodeFromChords(promptChords), 50,
 		)
 
 		for _, key := range pipeline.loader.Lookup(seq) {
 			_, symbol := pipeline.coder.Decode(key)
 			outBytes = append(outBytes, symbol)
+			if len(heldOut) > 0 && len(outBytes) >= len(heldOut) {
+				break
+			}
 		}
 
 		break
