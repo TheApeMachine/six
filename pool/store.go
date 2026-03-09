@@ -136,6 +136,10 @@ func (rs *ResultStore) CreateBroadcastGroup(id string, ttl time.Duration) *Broad
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
+	if group, exists := rs.groups[id]; exists {
+		return group
+	}
+
 	group := NewBroadcastGroup(id, ttl, 100)
 	rs.groups[id] = group
 	return group

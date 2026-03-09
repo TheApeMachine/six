@@ -1,14 +1,9 @@
 package vm
 
 import (
-	"context"
 	"unicode"
 
 	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/pool"
-	"github.com/theapemachine/six/provider/local"
-	"github.com/theapemachine/six/store"
-	"github.com/theapemachine/six/tokenizer"
 )
 
 // --- Corpus and machine builders ---
@@ -74,25 +69,7 @@ func isPrintableASCII(b byte) bool {
 // buildTestMachine creates a Machine from a corpus using the standard API.
 // Tests access internal fields directly (same package).
 func buildTestMachine(corpus [][]byte) *Machine {
-	testPool := pool.New(
-		context.Background(),
-		1, 4,
-		pool.NewConfig(),
-	)
-
-	return NewMachine(
-		MachineWithPool(testPool),
-		MachineWithLoader(
-			NewLoader(
-				LoaderWithStore(store.NewLSMSpatialIndex(1.0)),
-				LoaderWithTokenizer(
-					tokenizer.NewUniversal(
-						tokenizer.TokenizerWithDataset(local.New(corpus)),
-					),
-				),
-			),
-		),
-	)
+	return NewMachine()
 }
 
 func promptToChords(prompt string) []data.Chord {

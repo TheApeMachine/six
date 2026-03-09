@@ -2,6 +2,11 @@ package kernel
 
 import (
 	"unsafe"
+
+	config "github.com/theapemachine/six/core"
+	"github.com/theapemachine/six/kernel/cpu"
+	"github.com/theapemachine/six/kernel/cuda"
+	"github.com/theapemachine/six/kernel/metal"
 )
 
 /*
@@ -48,7 +53,20 @@ func NewBuilder(opts ...builderOpts) *Builder {
 	}
 
 	if builder.backend == nil {
-		return nil
+		switch config.System.Backend {
+		case "metal":
+			builder.backend = NewBuilder(
+				WithBackend(&metal.MetalBackend{}),
+			)
+		case "cuda":
+			builder.backend = NewBuilder(
+				WithBackend(&cuda.CUDABackend{}),
+			)
+		case "cpu":
+			builder.backend = NewBuilder(
+				WithBackend(&cpu.CPUBackend{}),
+			)
+		}
 	}
 
 	return builder

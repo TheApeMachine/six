@@ -51,7 +51,8 @@ func TestArrive_DataToken(t *testing.T) {
 			})
 			Convey("The chord should land on the routed physical face", func() {
 				routed := node.Rot.Forward(42)
-				So(node.Cube[routed].ActiveCount(), ShouldBeGreaterThan, 0)
+				c := node.Cube.Get(0, 0, routed)
+				So(c.ActiveCount(), ShouldBeGreaterThan, 0)
 			})
 		})
 		Convey("When LogicalFace is 256, it should be ignored", func() {
@@ -88,8 +89,8 @@ func TestNodeHole(t *testing.T) {
 			c20, c21 := data.BaseChord(20), data.BaseChord(21)
 			peak := data.ChordOR(&c20, &c21)
 			side := data.BaseChord(10)
-			node.Cube[20] = peak
-			node.Cube[10] = side
+			node.Cube.Set(0, 0, 20, peak)
+			node.Cube.Set(0, 0, 10, side)
 
 			anchor, hole, physicalFace, shouldDream := node.Hole()
 			expectedSummary := node.CubeChord()
@@ -111,7 +112,7 @@ func TestNodeHole(t *testing.T) {
 		Convey("When the cube has only one face with no deficit", func() {
 			node := NewNode(0, 0)
 			single := data.BaseChord(5)
-			node.Cube[5] = single
+			node.Cube.Set(0, 0, 5, single)
 
 			_, _, _, shouldDream := node.Hole()
 			Convey("It should not dream (hole would be empty)", func() {

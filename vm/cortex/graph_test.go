@@ -13,12 +13,12 @@ func TestNewGraph(t *testing.T) {
 
 		Convey("It should create a small-world topology", func() {
 			So(len(graph.Nodes()), ShouldBeGreaterThanOrEqualTo, 2)
-			So(graph.Source(), ShouldEqual, graph.Nodes()[0])
-			So(graph.Sink(), ShouldEqual, graph.Nodes()[len(graph.Nodes())-1])
+			So(graph.Source() == graph.Nodes()[0], ShouldBeTrue)
+			So(graph.Sink() == graph.Nodes()[len(graph.Nodes())-1], ShouldBeTrue)
 		})
 
 		Convey("Source and sink should be distinct", func() {
-			So(graph.Source(), ShouldNotEqual, graph.Sink())
+			So(graph.Source() == graph.Sink(), ShouldBeFalse)
 		})
 
 		Convey("Every node should have at least 2 edges", func() {
@@ -33,7 +33,7 @@ func TestSpawnNode(t *testing.T) {
 	Convey("Given a graph with a parent node having data", t, func() {
 		graph := NewGraph()
 		parent := graph.Nodes()[0]
-		parent.Cube[10] = data.BaseChord(10)
+		parent.Cube.Set(0, 0, 10, data.BaseChord(10))
 		nodesBefore := len(graph.Nodes())
 
 		Convey("When SpawnNode is called", func() {

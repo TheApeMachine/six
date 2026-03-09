@@ -15,16 +15,12 @@ const (
 
 /*
 Node is a single reactive unit in the cortex graph.
-It owns a MacroCube (257 faces × 512 bits = 16 KB) as volatile working memory,
-a GF(257) rotation state as its geometric "lens", and an inbox channel for
-receiving Chord tokens from neighbors.
-
+It owns a 3D Cube (6 sides x 4 rotations x 257 chords) as volatile working memory.
 Energy is never stored separately — it IS the total popcount density of the cube.
-A dense cube is energetic. A sparse cube is starved.
 */
 type Node struct {
 	ID      int
-	Cube    geometry.MacroCube
+	Cube    geometry.Cube
 	Rot     geometry.GFRotation
 	Header  geometry.ManifoldHeader
 	edges   []*Edge
@@ -70,11 +66,16 @@ func (n *Node) Connect(other *Node) {
 		}
 	}
 
+	patchA := Patch{Side: n.EdgeCount() % 6, Rot: (n.EdgeCount() / 6) % 4}
+	patchB := Patch{Side: other.EdgeCount() % 6, Rot: (other.EdgeCount() / 6) % 4}
+
 	edge := &Edge{
-		A:  n,
-		B:  other,
-		Op: DeriveOpcode(n.Rot, other.Rot),
+		A:      n,
+		B:      other,
+		PatchA: patchA,
+		PatchB: patchB,
 	}
+	edge.Refresh()
 
 	n.edges = append(n.edges, edge)
 	other.edges = append(other.edges, edge)
@@ -91,22 +92,34 @@ EdgeCount returns the number of connections.
 func (n *Node) EdgeCount() int { return len(n.edges) }
 
 /*
-Energy returns total Cube popcount / (CubeFaces×257). Range [0, 1]. No separate counter.
+Energy returns total Cube popcount density. Range [0, 1]. No separate counter.
 */
 func (n *Node) Energy() float64 {
 	total := 0
-	for i := range geometry.CubeFaces {
-		total += n.Cube[i].ActiveCount()
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			for i := 0; i < 256; i++ {
+				chord := n.Cube.Get(side, rot, i)
+				total += chord.ActiveCount()
+			}
+		}
 	}
-	// 257 faces × 257 logical bits (max popcount per chord in the 257-bit invariant)
-	return float64(total) / float64(geometry.CubeFaces*257)
+	// 24 patches × 256 faces × 257 logical bits
+	return float64(total) / float64(24*256*257)
 }
 
 /*
-FaceDensity returns ActiveCount(face)/257 for the given physical face.
+FaceDensity returns sum of ActiveCount(face)/257 across all 24 patches for the given physical face.
 */
 func (n *Node) FaceDensity(face int) float64 {
-	return float64(n.Cube[face].ActiveCount()) / 257.0
+	total := 0
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			chord := n.Cube.Get(side, rot, face)
+			total += chord.ActiveCount()
+		}
+	}
+	return float64(total) / float64(24.0*257.0)
 }
 
 /*
@@ -145,8 +158,14 @@ If no face is active, returns 256 (delimiter = stop signal).
 func (n *Node) BestFace() int {
 	bestFace := 256 // default to delimiter (stop)
 	bestCount := 0
-	for i := range geometry.CubeFaces {
-		cnt := n.Cube[i].ActiveCount()
+	for i := 0; i < 256; i++ {
+		cnt := 0
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
+				chord := n.Cube.Get(side, rot, i)
+				cnt += chord.ActiveCount()
+			}
+		}
 		if cnt > bestCount {
 			bestCount = cnt
 			bestFace = i
@@ -170,8 +189,13 @@ func (n *Node) CubeChord() data.Chord {
 		return n.cubeChordCache
 	}
 	var summary data.Chord
-	for i := range geometry.CubeFaces {
-		summary = data.ChordOR(&summary, &n.Cube[i])
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			for i := 0; i < 256; i++ {
+				c := n.Cube.Get(side, rot, i)
+				summary = data.ChordOR(&summary, &c)
+			}
+		}
 	}
 	n.cubeChordCache = summary
 	n.cubeChordDirty = false
@@ -194,6 +218,10 @@ func (n *Node) WipeFace(logicalFace int) {
 		return
 	}
 	physFace := n.Rot.Forward(logicalFace)
-	n.Cube[physFace] = data.Chord{}
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			n.Cube.Set(side, rot, physFace, data.Chord{})
+		}
+	}
 	n.InvalidateChordCache()
 }

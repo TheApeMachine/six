@@ -39,7 +39,8 @@ func genNodeWithMultiFaceDensity(faceCount int, densityPerFace int) *Node {
 		if chord.ActiveCount() == 0 {
 			chord = data.BaseChord(byte(face % 256))
 		}
-		node.Cube[face] = data.ChordOR(&node.Cube[face], &chord)
+		existing := node.Cube.Get(0, 0, face)
+		node.Cube.Set(0, 0, face, data.ChordOR(&existing, &chord))
 	}
 
 	return node
@@ -106,7 +107,7 @@ func TestNodeEnergy(t *testing.T) {
 		Convey("When a face has data, Energy should increase proportionally", func() {
 			node := NewNode(0, 0)
 			chord := data.BaseChord(42)
-			node.Cube[42] = chord
+			node.Cube.Set(0, 0, 42, chord)
 
 			energy := node.Energy()
 			So(energy, ShouldBeGreaterThan, 0)
@@ -131,11 +132,11 @@ func TestNodeFaceDensity(t *testing.T) {
 			node := NewNode(0, 0)
 			chord := data.BaseChord(100)
 			face := chord.IntrinsicFace()
-			node.Cube[face] = chord
+			node.Cube.Set(0, 0, face, chord)
 
 			density := node.FaceDensity(face)
 			So(density, ShouldBeGreaterThan, 0)
-			So(density, ShouldEqual, float64(chord.ActiveCount())/257.0)
+			So(density, ShouldEqual, float64(chord.ActiveCount())/(24.0*257.0))
 		})
 	})
 }
@@ -174,7 +175,7 @@ func TestNodeBestFace(t *testing.T) {
 			node := NewNode(0, 0)
 			chord := data.BaseChord('H')
 			face := chord.IntrinsicFace()
-			node.Cube[face] = chord
+			node.Cube.Set(0, 0, face, chord)
 
 			So(node.BestFace(), ShouldEqual, int('H'))
 		})
@@ -187,10 +188,12 @@ func TestNodeBestFace(t *testing.T) {
 			dense = data.ChordOR(&dense, &d101)
 			dense = data.ChordOR(&dense, &d102)
 
-			node.Cube[42] = sparse
-			node.Cube[100] = dense
+			node.Cube.Set(0, 0, 42, sparse)
+			node.Cube.Set(0, 0, 100, dense)
+			c100 := node.Cube.Get(0, 0, 100)
+			c42 := node.Cube.Get(0, 0, 42)
 
-			So(node.Cube[100].ActiveCount(), ShouldBeGreaterThan, node.Cube[42].ActiveCount())
+			So(c100.ActiveCount(), ShouldBeGreaterThan, c42.ActiveCount())
 			So(node.BestFace(), ShouldEqual, 100)
 		})
 		Convey("When rotation is applied, BestFace should decode via Reverse", func() {
@@ -198,7 +201,7 @@ func TestNodeBestFace(t *testing.T) {
 			node.Rot = geometry.DefaultRotTable.Y90
 			logicalH := int('H')
 			physFace := node.Rot.Forward(logicalH)
-			node.Cube[physFace] = data.BaseChord(byte(logicalH))
+			node.Cube.Set(0, 0, physFace, data.BaseChord(byte(logicalH)))
 
 			So(node.BestFace(), ShouldEqual, logicalH)
 		})
@@ -210,8 +213,8 @@ func TestNodeCubeChord(t *testing.T) {
 		node := NewNode(0, 0)
 		c1 := data.BaseChord(10)
 		c2 := data.BaseChord(20)
-		node.Cube[10] = c1
-		node.Cube[20] = c2
+		node.Cube.Set(0, 0, 10, c1)
+		node.Cube.Set(0, 0, 20, c2)
 
 		Convey("CubeChord should OR-fold all faces", func() {
 			summary := node.CubeChord()

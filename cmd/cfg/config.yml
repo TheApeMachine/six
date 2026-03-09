@@ -1,6 +1,7 @@
 loglevel: debug
 
 system:
+  backend: metal
   workers:
     min: 2
     max: CPU

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -17,7 +18,10 @@ import (
 )
 
 type Pipeline struct {
-	machine    *vm.Machine
+	ctx        context.Context
+	cancel     context.CancelFunc
+	broadcast  pool.BroadcastGroup
+	booter     *vm.Booter
 	experiment tools.PipelineExperiment
 	prompts    *tokenizer.Prompt
 	testIdx    int
@@ -28,8 +32,20 @@ type Pipeline struct {
 type pipelineOpts func(*Pipeline)
 
 func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
+	ctx, cancel := context.WithCancel(context.Background())
+	pool := pool.New(
+		ctx, 1, runtime.NumCPU(), nil,
+	)
+
 	pipeline := &Pipeline{
+		ctx:       ctx,
+		cancel:    cancel,
+		broadcast: *pool.CreateBroadcastGroup("broadcast", time.Second*10),
 		scoreWgts: tools.DefaultScoreWeights(),
+		booter: vm.NewBooter(
+			vm.BooterWithContext(ctx),
+			vm.BooterWithPool(pool),
+		),
 	}
 
 	for _, opt := range opts {
@@ -37,39 +53,19 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	}
 
 	if pipeline.experiment == nil {
-		return nil, PipelineError("missing experiment: use PipelineWithExperiment")
+		return nil, PipelineError(
+			"missing experiment: use PipelineWithExperiment",
+		)
 	}
 
 	if pipeline.reporter == nil {
 		pipeline.reporter = NewProjectorReporter()
 	}
 
-	pipeline.machine = vm.NewMachine(
-		vm.MachineWithPool(pool.New(
-			context.Background(),
-			1, runtime.NumCPU(),
-			pool.NewConfig(),
-		)),
-		vm.MachineWithLoader(
-			vm.NewLoader(
-				vm.LoaderWithTokenizer(
-					tokenizer.NewUniversal(
-						tokenizer.TokenizerWithDataset(pipeline.experiment.Dataset()),
-					),
-				),
-			),
-		),
-	)
-
 	return pipeline, nil
 }
 
 func (pipeline *Pipeline) Run() error {
-	if err := pipeline.machine.Start(); err != nil {
-		return fmt.Errorf("machine start: %w", err)
-	}
-	defer pipeline.machine.Stop()
-
 	pipeline.prompts = pipeline.experiment.Prompts()
 
 	for pipeline.prompts != nil {
@@ -151,17 +147,12 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	var chordRes []data.Chord
 
 	// Use cortex Think() for reasoning tasks (holdout=0), Prompt() for recall.
-	holdout, _ := pipeline.experiment.Holdout()
-
-	if holdout == 0 {
-		// TODO: restore Think when cortex backend is integrated
-		// chordRes = <-pipeline.machine.Think(promptChords)
-	} else {
-		// TODO: prompt handling moved to cortex System via broadcast
-		_ = promptChords
-	}
-
+	_, _ = pipeline.experiment.Holdout()
 	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)
+
+	pipeline.broadcast.Send(
+		pool.NewResult(promptChords),
+	)
 
 	console.Info("PROMPT")
 	fmt.Println()

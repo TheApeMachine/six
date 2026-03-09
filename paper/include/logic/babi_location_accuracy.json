@@ -2,34 +2,19 @@
   "caption": "Accuracy per target location. N=500 samples.",
   "data": {
     "x_axis": [
-      "bathroom",
-      "bedroom",
-      "garden",
-      "hallway",
-      "kitchen",
-      "office"
+      ""
     ],
     "series": [
       {
         "name": "Accuracy",
         "data": [
-          1,
-          1,
-          1,
-          1,
-          1,
-          1
+          0
         ]
       },
       {
         "name": "Count (÷10)",
         "data": [
-          9.7,
-          8.1,
-          7.9,
-          8.4,
-          8.9,
-          7
+          50
         ]
       }
     ]

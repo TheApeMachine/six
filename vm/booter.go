@@ -17,31 +17,6 @@ type System interface {
 }
 
 /*
-CortexSystem wraps a cortex.Graph as a System.
-Extracts pool.PoolValue from pool.Result for the cortex interface.
-*/
-type CortexSystem struct {
-	graph *cortex.Graph
-}
-
-/*
-Tick unwraps the broadcast Result into a PoolValue and forwards to cortex.
-*/
-func (cortexSystem *CortexSystem) Tick(result *pool.Result) {
-	if result == nil || result.Value == nil {
-		cortexSystem.graph.Tick(pool.PoolValue[any]{})
-		return
-	}
-
-	if pv, ok := result.Value.(pool.PoolValue[any]); ok {
-		cortexSystem.graph.Tick(pv)
-		return
-	}
-
-	cortexSystem.graph.Tick(pool.PoolValue[any]{Value: result.Value})
-}
-
-/*
 Booter is the single goroutine that owns the broadcast loop.
 It routes messages to all registered systems and drives the tick clock.
 */
@@ -77,18 +52,12 @@ func (booter *Booter) Start() {
 
 	subscription := broadcast.Subscribe("booter", 128)
 
-	machine := NewMachine(
-		MachineWithPool(booter.pool),
-		MachineWithBroadcast(broadcast),
-	)
-
 	graph := cortex.NewGraph(
 		cortex.GraphWithContext(booter.ctx),
 	)
 
 	systems := []System{
-		machine,
-		&CortexSystem{graph: graph},
+		graph,
 	}
 
 	go func() {
@@ -102,6 +71,11 @@ func (booter *Booter) Start() {
 				for _, system := range systems {
 					system.Tick(msg)
 				}
+			default:
+				for _, system := range systems {
+					system.Tick(nil)
+				}
+				time.Sleep(time.Millisecond) // tick continuously but gently
 			}
 		}
 	}()

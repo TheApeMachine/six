@@ -95,8 +95,8 @@ func (exp *ChannelRoutingExperiment) Finalize(sub *geometry.HybridSubstrate) err
 	nodes := g.Nodes()
 	for _, n := range nodes {
 		// Give all nodes some baseline energy to survive pruning
-		for j := range 128 {
-			n.Cube[j] = data.BaseChord(255)
+		for j := 0; j < 128; j++ {
+			n.Cube.Set(0, 0, j, data.BaseChord(255))
 		}
 	}
 

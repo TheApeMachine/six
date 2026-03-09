@@ -95,6 +95,7 @@ Distributed holds worker endpoints, chunk size, and sharding behavior.
 Controls whether work runs local, remote, or hybrid.
 */
 type Distributed struct {
+	Backend             string
 	Workers             []string
 	Chunk               int
 	Timeout             int
@@ -149,6 +150,7 @@ func (ctx *Config) Load() error {
 		maxWorkers = runtime.NumCPU()
 	}
 
+	ctx.System.Backend = "metal"
 	ctx.Workers.Min = minWorkers
 	ctx.Workers.Max = maxWorkers
 

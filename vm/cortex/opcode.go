@@ -1,6 +1,6 @@
 package cortex
 
-import "github.com/theapemachine/six/geometry"
+import "github.com/theapemachine/six/data"
 
 /*
 Opcode defines the GF(257) topological operation to perform.
@@ -36,31 +36,34 @@ func (opcode Opcode) Band() string {
 
 /*
 DeriveOpcode computes the operation geometrically dictated by two connection endpoints.
-Band boundaries: rotate ~43%, stable ~45%, growth ~12%.
-Tuned to prevent growth-dominated freeze.
+It uses purely bitwise operations (ActiveCount, ChordHole, ChordSimilarity) on the
+257th chords (Geometric Gates) mapped to the connected topological patches.
 */
-func DeriveOpcode(stateA, stateB geometry.GFRotation) Opcode {
-	faceA := stateA.Reverse(256)
-	faceB := stateB.Reverse(256)
+func DeriveOpcode(gateA, gateB data.Chord) Opcode {
+	countA := gateA.ActiveCount()
+	countB := gateB.ActiveCount()
 
-	val := (faceA + faceB) % 257
-
-	switch {
-	case val < 40:
-		return OpRotateX
-	case val < 80:
-		return OpRotateY
-	case val < 110:
-		return OpRotateZ
-	case val < 150:
-		return OpAlign
-	case val < 190:
+	// 1. Both gates are totally empty (void) - search wavefront
+	if countA == 0 && countB == 0 {
 		return OpSearch
-	case val < 225:
-		return OpSync
-	case val < 245:
-		return OpFork
-	default:
-		return OpCompose
 	}
+
+	// 2. Growth (information transfer from source to void)
+	if (countA == 0 && countB > 0) || (countA > 0 && countB == 0) {
+		return OpFork
+	}
+
+	// 3. Sync (Geometric Resolution) -> When Gate A and Gate B share exact shapes or exact holes
+	sim := data.ChordSimilarity(&gateA, &gateB)
+	if sim > 0 && sim == countA && sim == countB {
+		return OpSync
+	}
+
+	// 4. Align -> Partial similarities pulling them together
+	if sim > 0 {
+		return OpAlign
+	}
+
+	// 5. Total conflict (no shared properties) -> Forces Rotate
+	return OpRotateX // Systematically dodging the conflict
 }

@@ -5,74 +5,147 @@
     "data": {
       "EntitySummary": [
         {
-          "Name": "Daniel",
-          "Correct": 127,
-          "Total": 127,
-          "Rate": 1
-        },
-        {
-          "Name": "John",
-          "Correct": 130,
-          "Total": 130,
-          "Rate": 1
-        },
-        {
-          "Name": "Mary",
-          "Correct": 120,
-          "Total": 120,
-          "Rate": 1
-        },
-        {
-          "Name": "Sandra",
-          "Correct": 123,
-          "Total": 123,
-          "Rate": 1
+          "Name": "unknown",
+          "Correct": 0,
+          "Total": 500,
+          "Rate": 0
         }
       ],
-      "ExactRate": 1,
-      "FailureRows": [],
+      "ExactRate": 0,
+      "FailureRows": [
+        [
+          "0",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "1",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "2",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "3",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "4",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "5",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "6",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "7",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "8",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "9",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "10",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "11",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "12",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "13",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "14",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "15",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "16",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "17",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "18",
+          "unknown",
+          "",
+          ""
+        ],
+        [
+          "19",
+          "unknown",
+          "",
+          ""
+        ]
+      ],
       "LocationSummary": [
         {
-          "Name": "bathroom",
-          "Correct": 97,
-          "Total": 97,
-          "Rate": 1
-        },
-        {
-          "Name": "bedroom",
-          "Correct": 81,
-          "Total": 81,
-          "Rate": 1
-        },
-        {
-          "Name": "garden",
-          "Correct": 79,
-          "Total": 79,
-          "Rate": 1
-        },
-        {
-          "Name": "hallway",
-          "Correct": 84,
-          "Total": 84,
-          "Rate": 1
-        },
-        {
-          "Name": "kitchen",
-          "Correct": 89,
-          "Total": 89,
-          "Rate": 1
-        },
-        {
-          "Name": "office",
-          "Correct": 70,
-          "Total": 70,
-          "Rate": 1
+          "Name": "",
+          "Correct": 0,
+          "Total": 500,
+          "Rate": 0
         }
       ],
-      "NFailureRows": 0,
-      "NFailures": 0,
+      "NFailureRows": 20,
+      "NFailures": 500,
       "NSamples": 500,
-      "PartialRate": 1
+      "PartialRate": 0
     }
   },
   "file_name": "babi_analysis.tex",

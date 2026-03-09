@@ -20,7 +20,6 @@ import (
 )
 
 func TestPipeline(t *testing.T) {
-	t.Skip("Skipping pipeline tests because the core vm prompt generation is temporarily disabled for kernel porting.")
 	allExperiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
 		classification.NewTextClassificationExperiment(),

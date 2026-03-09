@@ -72,10 +72,15 @@ func (n *Node) Arrive(tok Token) {
 		n.searchPending = true
 	}
 
-	// Token data is absorbed directly into the MacroCube
+	// Token data is absorbed directly into the Cube
 	// guided by the node's GF(257) lens.
 	routed := n.Rot.Forward(tok.LogicalFace)
-	n.Cube[routed] = data.ChordOR(&n.Cube[routed], &tok.Chord)
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			c := n.Cube.Get(side, rot, routed)
+			n.Cube.Set(side, rot, routed, data.ChordOR(&c, &tok.Chord))
+		}
+	}
 	n.InvalidateChordCache()
 }
 
@@ -94,7 +99,13 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 		return data.Chord{}, data.Chord{}, 256, false
 	}
 
-	peak := n.Cube[bestFaceIdx]
+	var peak data.Chord
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			c := n.Cube.Get(side, rot, bestFaceIdx)
+			peak = data.ChordOR(&peak, &c)
+		}
+	}
 	hole := data.ChordHole(&summary, &peak)
 
 	// Dream if the hole has meaningful structure AND the node has significant gaps.
@@ -102,14 +113,20 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 }
 
 /*
-bestPhysicalFace returns the physical face index (0-257) with highest ActiveCount.
+bestPhysicalFace returns the physical face index (0-257) with highest aggregate ActiveCount.
 No rotation reversal (unlike BestFace).
 */
 func (n *Node) bestPhysicalFace() int {
 	bestFace := 256
 	bestCount := 0
-	for i := range geometry.CubeFaces {
-		cnt := n.Cube[i].ActiveCount()
+	for i := 0; i < 256; i++ {
+		cnt := 0
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
+				chord := n.Cube.Get(side, rot, i)
+				cnt += chord.ActiveCount()
+			}
+		}
 		if cnt > bestCount {
 			bestCount = cnt
 			bestFace = i

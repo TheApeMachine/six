@@ -19,20 +19,66 @@ geometric validation score measuring structural plausibility
 of the answer chord against the hypothesis residue.
 
 \paragraph{Results.}
-The system achieved an exact-match accuracy of 100.0000\%
+The system achieved an exact-match accuracy of 0.0000\%
 across all 500 samples, with a mean partial score of
-1.000.
+0.000.
+A total of 500 samples failed exact match.
+Table~\ref{tab:babi_failures} lists the first 20 failure cases.
 
 \paragraph{Per-Entity Analysis.}
-\textbf{Daniel}: 127/127 correct (100.0000\%).
-\textbf{John}: 130/130 correct (100.0000\%).
-\textbf{Mary}: 120/120 correct (100.0000\%).
-\textbf{Sandra}: 123/123 correct (100.0000\%).
+\textbf{unknown}: 0/500 correct (0.0000\%).
 
 \paragraph{Per-Location Analysis.}
-\textbf{bathroom}: 97/97 correct (100.0000\%).
-\textbf{bedroom}: 81/81 correct (100.0000\%).
-\textbf{garden}: 79/79 correct (100.0000\%).
-\textbf{hallway}: 84/84 correct (100.0000\%).
-\textbf{kitchen}: 89/89 correct (100.0000\%).
-\textbf{office}: 70/70 correct (100.0000\%).
+\textbf{}: 0/500 correct (0.0000\%).
+\begin{table}[h]
+\centering
+\caption{bAbI Task~1 failure cases (first 20).
+Exact-match accuracy: 0.0000\%.
+$N=500$, subset: \texttt{en-10k-qa1}.}
+\label{tab:babi_failures}
+\begin{tabular}{|r|l|l|l|}
+\hline
+\textbf{Idx} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
+\hline
+0 & unknown &  &  \\
+\hline
+1 & unknown &  &  \\
+\hline
+2 & unknown &  &  \\
+\hline
+3 & unknown &  &  \\
+\hline
+4 & unknown &  &  \\
+\hline
+5 & unknown &  &  \\
+\hline
+6 & unknown &  &  \\
+\hline
+7 & unknown &  &  \\
+\hline
+8 & unknown &  &  \\
+\hline
+9 & unknown &  &  \\
+\hline
+10 & unknown &  &  \\
+\hline
+11 & unknown &  &  \\
+\hline
+12 & unknown &  &  \\
+\hline
+13 & unknown &  &  \\
+\hline
+14 & unknown &  &  \\
+\hline
+15 & unknown &  &  \\
+\hline
+16 & unknown &  &  \\
+\hline
+17 & unknown &  &  \\
+\hline
+18 & unknown &  &  \\
+\hline
+19 & unknown &  &  \\
+\hline
+\end{tabular}
+\end{table}

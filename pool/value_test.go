@@ -9,13 +9,13 @@ import (
 
 func TestNewPoolValue(t *testing.T) {
 	Convey("NewPoolValue with no opts returns empty PoolValue", t, func() {
-		pv := NewPoolValue()
+		pv := NewPoolValue[any]()
 		So(pv, ShouldNotBeNil)
 		So(pv.Key, ShouldEqual, "")
 		So(pv.Value, ShouldBeNil)
 	})
 	Convey("NewPoolValue with WithKey sets Key", t, func() {
-		pv := NewPoolValue(WithKey("state"))
+		pv := NewPoolValue(WithKey[any]("state"))
 		So(pv.Key, ShouldEqual, "state")
 	})
 	Convey("NewPoolValue with WithValue sets Value", t, func() {
@@ -24,7 +24,7 @@ func TestNewPoolValue(t *testing.T) {
 	})
 	Convey("NewPoolValue with both opts", t, func() {
 		snap := "snapshot"
-		pv := NewPoolValue(WithKey("state"), WithValue(snap))
+		pv := NewPoolValue(WithKey[string]("state"), WithValue(snap))
 		So(pv.Key, ShouldEqual, "state")
 		So(pv.Value, ShouldEqual, snap)
 	})
@@ -32,7 +32,7 @@ func TestNewPoolValue(t *testing.T) {
 
 func TestPoolValueTTL(t *testing.T) {
 	Convey("PoolValue TTL can be set", t, func() {
-		pv := &PoolValue{TTL: time.Second}
+		pv := &PoolValue[any]{TTL: time.Second}
 		So(pv.TTL, ShouldEqual, time.Second)
 	})
 }

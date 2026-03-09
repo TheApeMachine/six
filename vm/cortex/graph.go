@@ -2,12 +2,17 @@ package cortex
 
 import (
 	"context"
+	"errors"
 	"unsafe"
 
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/errnie"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/kernel"
+	"github.com/theapemachine/six/kernel/cpu"
+	"github.com/theapemachine/six/kernel/cuda"
+	"github.com/theapemachine/six/kernel/metal"
 	"github.com/theapemachine/six/pool"
 )
 
@@ -57,6 +62,23 @@ func NewGraph(opts ...graphOpts) *Graph {
 		opt(graph)
 	}
 
+	if graph.backend == nil {
+		switch config.System.Backend {
+		case "metal":
+			graph.backend = kernel.NewBuilder(
+				kernel.WithBackend(&metal.MetalBackend{}),
+			)
+		case "cuda":
+			graph.backend = kernel.NewBuilder(
+				kernel.WithBackend(&cuda.CUDABackend{}),
+			)
+		case "cpu":
+			graph.backend = kernel.NewBuilder(
+				kernel.WithBackend(&cpu.CPUBackend{}),
+			)
+		}
+	}
+
 	for i := range config.Cortex.InitialNodes {
 		node := NewNode(i, 0)
 		graph.nodes = append(graph.nodes, node)
@@ -94,11 +116,12 @@ func NewGraph(opts ...graphOpts) *Graph {
 /*
 Tick processes a PoolValue and steps the cortex.
 */
-func (graph *Graph) Tick(pv pool.PoolValue[any]) {
-	switch pv.Key {
-	case "prompt":
-		if chords, ok := pv.Value.([]data.Chord); ok {
-			graph.InjectChords(chords)
+func (graph *Graph) Tick(result *pool.Result) {
+	if result != nil && result.Value != nil {
+		if pv, ok := result.Value.(pool.PoolValue[[]data.Chord]); ok {
+			if pv.Key == "prompt" {
+				graph.InjectChords(pv.Value)
+			}
 		}
 	}
 
@@ -220,8 +243,12 @@ func (graph *Graph) routeTargets(from *Node, chord data.Chord) []*Node {
 Wipe clears all 257 faces of the node's working memory.
 */
 func (node *Node) Wipe() {
-	for i := range node.Cube {
-		node.Cube[i] = data.Chord{}
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			for i := 0; i < 257; i++ {
+				node.Cube.Set(side, rot, i, data.Chord{})
+			}
+		}
 	}
 
 	node.InvalidateChordCache()
@@ -266,23 +293,22 @@ func (graph *Graph) NearestNode(target geometry.GFRotation) *Node {
 		layout[idx] = node.Rot
 	}
 
-	packed, err := graph.backend.Resolve(
-		unsafe.Pointer(&layout[0]),
-		nodeCount,
-		unsafe.Pointer(&target),
-	)
+	return errnie.FlatMap(
+		errnie.Try(graph.backend.Resolve(
+			unsafe.Pointer(&layout[0]),
+			nodeCount,
+			unsafe.Pointer(&target),
+		)),
+		func(packed uint64) (*Node, error) {
+			bestIdx, _ := kernel.DecodePacked(packed)
 
-	if err != nil {
-		return nil
-	}
+			if bestIdx < 0 || bestIdx >= nodeCount {
+				return nil, errors.New("nearest node index out of range")
+			}
 
-	bestIdx, _ := kernel.DecodePacked(packed)
-
-	if bestIdx < 0 || bestIdx >= nodeCount {
-		return nil
-	}
-
-	return graph.nodes[bestIdx]
+			return graph.nodes[bestIdx], nil
+		},
+	).Value()
 }
 
 /*
@@ -301,4 +327,14 @@ func GraphWithBackend(backend kernel.Backend) graphOpts {
 	return func(graph *Graph) {
 		graph.backend = backend
 	}
+}
+
+type GraphError string
+
+const (
+	ErrBadValue GraphError = "bad value"
+)
+
+func (err GraphError) Error() string {
+	return string(err)
 }
