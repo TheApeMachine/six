@@ -16,11 +16,11 @@ import (
 	"unsafe"
 )
 
-//go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c bitwise.metal -o bitwise.air
-//go:generate xcrun -sdk macosx metallib bitwise.air -o bitwise.metallib
+//go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air
+//go:generate xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 
-//go:embed bitwise.metallib
-var bitwiseMetallib []byte
+//go:embed resolver.metallib
+var resolverMetallib []byte
 
 var metalReady atomic.Bool
 
@@ -31,34 +31,24 @@ func (backend *MetalBackend) Available() bool {
 }
 
 func (backend *MetalBackend) Resolve(
-	dictionary unsafe.Pointer,
-	numChords int,
+	graphNodes unsafe.Pointer,
+	numNodes int,
 	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	expectedPrecision unsafe.Pointer,
-	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
 	if !backend.Available() {
 		return 0, MetalErrorUnavailable
 	}
 
-	if numChords == 0 {
+	if numNodes == 0 {
 		return 0, nil
-	}
-
-	if expectedReality == nil {
-		expectedReality = context
 	}
 
 	var packed C.uint64_t
 
-	status := C.bitwise_best_fill_metal(
-		dictionary,
-		C.uint32_t(numChords),
+	status := C.resolve_resonance_metal(
+		graphNodes,
+		C.uint32_t(numNodes),
 		context,
-		expectedReality,
-		expectedPrecision,
-		geodesicLUT,
 		&packed,
 	)
 
@@ -90,7 +80,7 @@ func init() {
 
 	defer os.Remove(tmpFile.Name())
 
-	if _, err := tmpFile.Write(bitwiseMetallib); err != nil {
+	if _, err := tmpFile.Write(resolverMetallib); err != nil {
 		tmpFile.Close()
 		return
 	}

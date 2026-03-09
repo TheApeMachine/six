@@ -41,7 +41,9 @@ type BroadcastMetrics struct {
 }
 
 // NewBroadcastGroup creates a group with the given TTL and max queue depth.
-func NewBroadcastGroup(id string, ttl time.Duration, maxQueue int) *BroadcastGroup {
+func NewBroadcastGroup(
+	id string, ttl time.Duration, maxQueue int,
+) *BroadcastGroup {
 	return &BroadcastGroup{
 		ID:           id,
 		subscribers:  make(map[string]chan *Result),
@@ -54,7 +56,9 @@ func NewBroadcastGroup(id string, ttl time.Duration, maxQueue int) *BroadcastGro
 }
 
 // Subscribe registers a new subscriber and returns its receive channel.
-func (bg *BroadcastGroup) Subscribe(subscriberID string, bufferSize int, rules ...RoutingRule) chan *Result {
+func (bg *BroadcastGroup) Subscribe(
+	subscriberID string, bufferSize int, rules ...RoutingRule,
+) chan *Result {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 

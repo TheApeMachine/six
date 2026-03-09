@@ -1,23 +1,19 @@
-//go:build !cuda || !cgo
+//go:build !cuda
 
 package cuda
 
-import (
-	"errors"
-	"unsafe"
-)
+import "unsafe"
 
-func CudaAvailable() bool {
+type CUDABackend struct{}
+
+func (backend *CUDABackend) Available() bool {
 	return false
 }
 
-func BestFillCUDAPacked(
-	_ unsafe.Pointer,
-	_ int,
-	_ unsafe.Pointer,
-	_ unsafe.Pointer,
-	_ unsafe.Pointer,
-	_ unsafe.Pointer,
+func (backend *CUDABackend) Resolve(
+	graphNodes unsafe.Pointer,
+	numNodes int,
+	context unsafe.Pointer,
 ) (uint64, error) {
-	return 0, errors.New("cuda backend unavailable")
+	return 0, nil
 }

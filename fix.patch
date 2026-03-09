@@ -1,0 +1,31 @@
+--- vm/booter.go
++++ vm/booter.go
+@@ -36,20 +36,22 @@
+ 
+ 	subscription := broadcast.Subscribe("broadcast", 128)
+ 
+- systems := []System{NewMachine()}
++m := NewMachine()
++systems := []System[any]{m}
+ 
+ 	go func() {
+ 		defer booter.cancel()
+- machine.Start()
++m.Start()
+ 
+ 		for {
+ 			select {
+ 			case <-booter.ctx.Done():
+ 				return
+ 			case msg := <-subscription:
+- __argumentsfor _, system := range systems {
+- __CF_USER_TEXT_ENCODING=system.Tick(msg)
+- __arguments}
++if pv, ok := msg.Value.(pool.PoolValue[any]); ok {
++for _, system := range systems {
++system.Tick(pv)
++}
++}
+ 			}
+ 		}
+ 	}()

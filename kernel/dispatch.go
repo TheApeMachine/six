@@ -5,26 +5,22 @@ import (
 )
 
 /*
-Backend is the sole interface for resolving chord queries against a dictionary.
+Backend is the sole interface for resolving topological queries against the network.
 
-Each query chord is compared against all dictionary entries using chord overlap
-(popcount of AND / popcount of AND + popcount of AND-NOT). The backend returns
-one packed uint64 per query containing the best-matching entry index and its score.
+Each query node's GF(257) state is compared against all nodes in the thermodynamic field.
+The backend calculates geometric distance mapping. It returns one packed uint64
+per query containing the best-matching entry index and its distance score.
 
-Implementations exist for Metal (GPU), CUDA (GPU), and CPU (software popcount).
-The caller selects one backend at startup via SIX_BACKEND env var. There is no
-fallback chain: if the configured backend fails, the error propagates.
+Implementations exist for Metal (GPU), CUDA (GPU), and CPU.
+The caller selects one backend at startup via SIX_BACKEND env var.
 */
 type Backend interface {
 	Available() bool
 	Resolve(
-		dictionary unsafe.Pointer,
-		numChords int,
+		graphNodes unsafe.Pointer,
+		numNodes int,
 		context unsafe.Pointer,
-		expectedReality unsafe.Pointer,
-		expectedPrecision unsafe.Pointer,
-		geodesicLUT unsafe.Pointer,
-	) ([]uint64, error)
+	) (uint64, error)
 }
 
 type Builder struct {
@@ -32,6 +28,12 @@ type Builder struct {
 }
 
 type builderOpts func(*Builder)
+
+func WithBackend(backend Backend) builderOpts {
+	return func(builder *Builder) {
+		builder.backend = backend
+	}
+}
 
 /*
 NewBuilder creates the backend specified by the SIX_BACKEND environment variable.
@@ -53,25 +55,33 @@ func NewBuilder(opts ...builderOpts) *Builder {
 }
 
 func (builder *Builder) Resolve(
-	dictionary unsafe.Pointer,
-	numChords int,
+	graphNodes unsafe.Pointer,
+	numNodes int,
 	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	expectedPrecision unsafe.Pointer,
-	geodesicLUT unsafe.Pointer,
-) ([]uint64, error) {
+) (uint64, error) {
 	return builder.backend.Resolve(
-		dictionary,
-		numChords,
+		graphNodes,
+		numNodes,
 		context,
-		expectedReality,
-		expectedPrecision,
-		geodesicLUT,
 	)
 }
 
-func WithBackend(backend Backend) builderOpts {
-	return func(builder *Builder) {
-		builder.backend = backend
+func (builder *Builder) Available() bool {
+	if builder.backend == nil {
+		return false
 	}
+	return builder.backend.Available()
+}
+
+/*
+DecodePacked unwraps the 64-bit result from the kernel backend.
+The backend returns (131072 - distance_squared) in the upper 32 bits,
+and the node index in the lower 32 bits. High values = lower distance.
+*/
+func DecodePacked(packed uint64) (idx int, distSq float64) {
+	invertedDist := uint32(packed >> 32)
+	idxU32 := uint32(packed & 0xFFFFFFFF)
+
+	distSq = float64(131072 - invertedDist)
+	return int(idxU32), distSq
 }

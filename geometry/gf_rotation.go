@@ -89,34 +89,73 @@ func (rot GFRotation) Compose(other GFRotation) GFRotation {
 }
 
 /*
-The three micro-rotations as GF(257) affine transforms.
-Match the permutation tables in permutation.go;
-used for O(1) composition instead of table lookup.
+ModInverse computes a⁻¹ mod m using the extended Euclidean algorithm.
 */
-var (
-	// RotationX is a translation: f(x) = (x + 1) mod 257
-	RotationX = GFRotation{A: 1, B: 1}
+func ModInverse(a, m int) int {
+	or, r := a, m
+	os, s := 1, 0
 
-	// RotationY is a dilation by primitive root 3: f(x) = (3·x) mod 257
-	RotationY = GFRotation{A: 3, B: 0}
+	for r != 0 {
+		q := or / r
+		or, r = r, or-q*r
+		os, s = s, os-q*s
+	}
 
-	// RotationZ is an affine combination: f(x) = (3·x + 1) mod 257
-	RotationZ = GFRotation{A: 3, B: 1}
-)
+	res := (os % m)
+	if res < 0 {
+		res += m
+	}
+
+	return res
+}
+
+/*
+RotationTable holds the 9 core topological transformations derived from a generator.
+*/
+type RotationTable struct {
+	X90, X180, X270 GFRotation
+	Y90, Y180, Y270 GFRotation
+	Z90, Z180, Z270 GFRotation
+}
+
+/*
+BuildRotTable computes the geometric operators from a given GF(257) generator 'g'.
+X operations are additive translations. Y and Z are multiplicative dilations and affine combos.
+*/
+func BuildRotTable(g uint16) RotationTable {
+	gi := uint16(ModInverse(int(g), CubeFaces))
+	g2 := (g * g) % CubeFaces
+
+	return RotationTable{
+		X90:  GFRotation{A: 1, B: 1},
+		X180: GFRotation{A: 1, B: 2},
+		X270: GFRotation{A: 1, B: 256},
+
+		Y90:  GFRotation{A: g, B: 0},
+		Y180: GFRotation{A: g2, B: 0},
+		Y270: GFRotation{A: gi, B: 0},
+
+		Z90:  GFRotation{A: g, B: 1},
+		Z180: GFRotation{A: g2, B: (g + 1) % CubeFaces},
+		Z270: GFRotation{A: gi, B: (CubeFaces - gi) % CubeFaces},
+	}
+}
+
+var DefaultRotTable = BuildRotTable(3)
 
 /*
 RotationEvent maps a canonical GF(257) micro-rotation back to the topological event.
-Returns (event, true) if rot matches RotationX/Y/Z or XX; (0, false) otherwise.
+Returns (event, true) if rot matches X90/Y90/Z90 or XX; (0, false) otherwise.
 */
 func RotationEvent(rot GFRotation) (int, bool) {
 	switch rot {
-	case RotationX:
+	case DefaultRotTable.X90:
 		return EventDensitySpike, true
-	case RotationY:
+	case DefaultRotTable.Y90:
 		return EventPhaseInversion, true
-	case RotationZ:
+	case DefaultRotTable.Z90:
 		return EventDensityTrough, true
-	case RotationX.Compose(RotationX):
+	case DefaultRotTable.X180:
 		return EventLowVarianceFlux, true
 	default:
 		return 0, false
@@ -131,14 +170,13 @@ Unknown events return IdentityRotation.
 func EventRotation(event int) GFRotation {
 	switch event {
 	case EventDensitySpike:
-		return RotationX
+		return DefaultRotTable.X90
 	case EventPhaseInversion:
-		return RotationY
+		return DefaultRotTable.Y90
 	case EventDensityTrough:
-		return RotationZ
+		return DefaultRotTable.Z90
 	case EventLowVarianceFlux:
-		// Double RotationX: f(x) = ((x+1)+1) mod 257 = (x+2) mod 257
-		return RotationX.Compose(RotationX)
+		return DefaultRotTable.X180
 	default:
 		return IdentityRotation()
 	}

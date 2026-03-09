@@ -119,7 +119,7 @@ func (field *PrimeField) rememberPrototype(blockIdx int, chord data.Chord) {
 	}
 
 	if bestIdx >= 0 && similarEnough(&bucket[bestIdx], &chord) {
-		shared := data.ChordGCD(&bucket[bestIdx], &chord)
+		shared := data.ChordAND(&bucket[bestIdx], &chord)
 		if shared.ActiveCount() > 0 {
 			bucket[bestIdx] = shared
 		} else {

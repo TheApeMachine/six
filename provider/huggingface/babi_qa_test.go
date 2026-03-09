@@ -28,7 +28,7 @@ func TestBuildBabiQASamples(t *testing.T) {
 	)
 	require.Equal(t, "bathroom", samples[0].Answer)
 	require.Equal(t,
-		"Mary moved to the bathroom. John went to the hallway. Where is Mary? bathroom",
+		"Mary moved to the bathroom. John went to the hallway. Where is Mary?",
 		samples[0].Full,
 	)
 

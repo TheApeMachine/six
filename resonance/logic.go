@@ -65,8 +65,8 @@ B = GCD(f1,f2), C = GCD(f2,f3), A = Hole(f1,B), D = Hole(f3,C). Returns A|D.
 Example: f1=cat+food, f2=dog+food, f3=dog+animal → A=cat, D=animal → cat|animal.
 */
 func TransitiveResonance(f1, f2, f3 *data.Chord) data.Chord {
-	B := data.ChordGCD(f1, f2) // Shared context
-	C := data.ChordGCD(f2, f3) // Shared subject
+	B := data.ChordAND(f1, f2) // Shared context
+	C := data.ChordAND(f2, f3) // Shared subject
 
 	A := data.ChordHole(f1, &B) // F1 without B
 	D := data.ChordHole(f3, &C) // F3 without C

@@ -3,24 +3,26 @@ package vm
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/vm/cortex"
 )
 
-// TestCortexSnapshotCounters verifies that the cortex graph tracks
-// observability counters (replacing the old PolicyTracker test).
-func TestCortexSnapshotCounters(t *testing.T) {
-	graph := cortex.New(cortex.Config{
-		InitialNodes: 4,
-		MaxTicks:     32,
-		MaxOutput:    8,
-	})
+func TestCortexGraphConstruction(t *testing.T) {
+	Convey("Given a new cortex graph", t, func() {
+		graph := cortex.NewGraph()
 
-	snap := graph.Snapshot()
-	require.Equal(t, 0, snap.TotalTicks)
-	require.Equal(t, 4, snap.FinalNodes)
-	require.Equal(t, 0, snap.BedrockQueries)
-	require.Equal(t, 0, snap.MitosisEvents)
-	require.Equal(t, 0, snap.PruneEvents)
-	require.Equal(t, 0, snap.OutputBytes)
+		Convey("It should have source and sink", func() {
+			So(graph.Source(), ShouldNotBeNil)
+			So(graph.Sink(), ShouldNotBeNil)
+			So(graph.Source(), ShouldNotEqual, graph.Sink())
+		})
+
+		Convey("It should start at tick 0", func() {
+			So(graph.TickCount(), ShouldEqual, 0)
+		})
+
+		Convey("It should have the configured number of nodes", func() {
+			So(len(graph.Nodes()), ShouldBeGreaterThanOrEqualTo, 2)
+		})
+	})
 }

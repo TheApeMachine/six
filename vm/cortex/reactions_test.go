@@ -13,21 +13,20 @@ func TestArrive_RotationToken(t *testing.T) {
 		node := NewNode(0, 0)
 
 		Convey("When a RotationY token arrives", func() {
-			tok := NewRotationToken(geometry.RotationY, -1)
-			emitted := node.Arrive(tok)
-			So(emitted, ShouldBeEmpty)
+			tok := NewRotationToken(geometry.DefaultRotTable.Y90, -1)
+			node.Arrive(tok)
 
 			Convey("The node's lens should compose to RotationY", func() {
-				So(node.Rot.A, ShouldEqual, geometry.RotationY.A)
-				So(node.Rot.B, ShouldEqual, geometry.RotationY.B)
+				So(node.Rot.A, ShouldEqual, geometry.DefaultRotTable.Y90.A)
+				So(node.Rot.B, ShouldEqual, geometry.DefaultRotTable.Y90.B)
 			})
 		})
 		Convey("When multiple rotation tokens arrive in sequence", func() {
-			_ = node.Arrive(NewRotationToken(geometry.RotationX, -1))
-			_ = node.Arrive(NewRotationToken(geometry.RotationY, -1))
+			node.Arrive(NewRotationToken(geometry.DefaultRotTable.X90, -1))
+			node.Arrive(NewRotationToken(geometry.DefaultRotTable.Y90, -1))
 
 			Convey("The final rotation should be X composed with Y", func() {
-				expected := geometry.RotationX.Compose(geometry.RotationY)
+				expected := geometry.DefaultRotTable.X90.Compose(geometry.DefaultRotTable.Y90)
 				So(node.Rot.A, ShouldEqual, expected.A)
 				So(node.Rot.B, ShouldEqual, expected.B)
 			})
@@ -44,14 +43,11 @@ func TestArrive_DataToken(t *testing.T) {
 			tok.TTL = 5
 
 			energyBefore := node.Energy()
-			emitted := node.Arrive(tok)
+			node.Arrive(tok)
 			energyAfter := node.Energy()
 
 			Convey("Energy should increase", func() {
 				So(energyAfter, ShouldBeGreaterThan, energyBefore)
-			})
-			Convey("Fresh node with single token typically has no interference emission", func() {
-				So(len(emitted), ShouldBeGreaterThanOrEqualTo, 0)
 			})
 			Convey("The chord should land on the routed physical face", func() {
 				routed := node.Rot.Forward(42)
@@ -64,91 +60,8 @@ func TestArrive_DataToken(t *testing.T) {
 			c.Set(1)
 			c.Set(3)
 			tok := Token{Chord: c, LogicalFace: 256, TTL: 5}
-			emitted := node.Arrive(tok)
-			So(emitted, ShouldBeEmpty)
+			node.Arrive(tok)
 			So(node.traffic, ShouldEqual, 1)
-		})
-	})
-}
-
-func TestArrive_InterferenceEmission(t *testing.T) {
-	Convey("Given a node with pre-existing face data", t, func() {
-		node := NewNode(0, 0)
-		existing := data.BaseChord(10)
-		face := existing.IntrinsicFace()
-		routed := node.Rot.Forward(face)
-		node.Cube[routed] = existing
-
-		Convey("When an overlapping chord with novel bits arrives", func() {
-			incoming := data.BaseChord(11)
-			hole := data.ChordHole(&incoming, &existing)
-			tok := NewDataToken(incoming, incoming.IntrinsicFace(), -1)
-			tok.TTL = 5
-
-			emitted := node.Arrive(tok)
-
-			Convey("If hole has content, interference may emit a token", func() {
-				if hole.ActiveCount() > 0 {
-					So(len(emitted) >= 0, ShouldBeTrue)
-					for _, e := range emitted {
-						So(e.TTL, ShouldEqual, 4)
-						So(e.Origin, ShouldEqual, node.ID)
-					}
-				}
-			})
-		})
-	})
-}
-
-func TestArrive_TransitiveResonance(t *testing.T) {
-	Convey("Given a node with sufficient cube context", t, func() {
-		node := NewNode(0, 0)
-		for i := 0; i < 8; i++ {
-			chord := data.BaseChord(byte(i))
-			face := chord.IntrinsicFace()
-			routed := node.Rot.Forward(face)
-			node.Cube[routed] = data.ChordOR(&node.Cube[routed], &chord)
-		}
-
-		summary := node.CubeChord()
-		Convey("When an overlapping chord arrives with shared structure", func() {
-			incoming := data.BaseChord(3)
-			shared := data.ChordGCD(&incoming, &summary)
-			tok := NewDataToken(incoming, incoming.IntrinsicFace(), -1)
-			tok.TTL = 5
-
-			emitted := node.Arrive(tok)
-
-			Convey("If shared overlap is sufficient, transitive resonance may emit", func() {
-				if shared.ActiveCount() > 1 && summary.ActiveCount() > 5 {
-					So(len(emitted) >= 0, ShouldBeTrue)
-				}
-			})
-		})
-	})
-}
-
-func TestArrive_MitosisEmission(t *testing.T) {
-	Convey("Given a node whose face crosses MitosisThreshold", t, func() {
-		node := NewNode(0, 0)
-		face := 20
-		var chord data.Chord
-		for bit := 0; bit < 120; bit++ {
-			chord.Set(bit % 257)
-		}
-		node.Cube[face] = chord
-
-		density := node.FaceDensity(face)
-		Convey("When density >= MitosisThreshold and data token arrives", func() {
-			if density >= geometry.MitosisThreshold {
-				tok := NewDataToken(data.BaseChord(20), 20, -1)
-				tok.TTL = 5
-				emitted := node.Arrive(tok)
-
-				Convey("It should emit a pressure token", func() {
-					So(len(emitted), ShouldBeGreaterThan, 0)
-				})
-			}
 		})
 	})
 }
@@ -216,17 +129,17 @@ func BenchmarkArrive_DataToken(b *testing.B) {
 	b.ResetTimer()
 	for range b.N {
 		n := NewNode(0, 0)
-		_ = n.Arrive(tok)
+		n.Arrive(tok)
 	}
 }
 
 func BenchmarkArrive_RotationToken(b *testing.B) {
-	tok := NewRotationToken(geometry.RotationY, -1)
+	tok := NewRotationToken(geometry.DefaultRotTable.Y90, -1)
 
 	b.ResetTimer()
 	for range b.N {
 		n := NewNode(0, 0)
-		_ = n.Arrive(tok)
+		n.Arrive(tok)
 	}
 }
 

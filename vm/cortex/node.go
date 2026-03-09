@@ -27,10 +27,15 @@ type Node struct {
 	Cube    geometry.MacroCube
 	Rot     geometry.GFRotation
 	Header  geometry.ManifoldHeader
-	edges   []*Node
+	edges   []*Edge
 	inbox   chan Token
+	Signals []Token // observability for routed signals
 	traffic int
 	birth   int // tick at which this node was created
+
+	// searchPending is set by OpSearch to signal the graph
+	// to perform topological expansion from this node.
+	searchPending bool
 
 	// Cached cube chord — OR-fold of all 257 face chords.
 	cubeChordCache data.Chord
@@ -45,34 +50,43 @@ func NewNode(id, birthTick int) *Node {
 		ID:             id,
 		Rot:            geometry.IdentityRotation(),
 		inbox:          make(chan Token, defaultInboxSize),
+		Signals:        make([]Token, 0),
 		birth:          birthTick,
 		cubeChordDirty: true,
 	}
 }
 
 /*
-Connect adds other to n's outgoing edges. Ignores nil, self, and duplicates.
-For bidirectional topology, call both n.Connect(other) and other.Connect(n).
+Connect establishes a mutual topological Edge between n and other. Ignores nil, self, and duplicates.
+For bidirectional topology, this maintains a single Edge instance referenced by both.
 */
 func (n *Node) Connect(other *Node) {
 	if other == nil || other == n {
 		return
 	}
 	for _, e := range n.edges {
-		if e == other {
+		if e.A == other || e.B == other {
 			return
 		}
 	}
-	n.edges = append(n.edges, other)
+
+	edge := &Edge{
+		A:  n,
+		B:  other,
+		Op: DeriveOpcode(n.Rot, other.Rot),
+	}
+
+	n.edges = append(n.edges, edge)
+	other.edges = append(other.edges, edge)
 }
 
 /*
-Edges returns the neighbor list. Read-only.
+Edges returns the associated connected edges.
 */
-func (n *Node) Edges() []*Node { return n.edges }
+func (n *Node) Edges() []*Edge { return n.edges }
 
 /*
-EdgeCount returns the number of outgoing edges.
+EdgeCount returns the number of connections.
 */
 func (n *Node) EdgeCount() int { return len(n.edges) }
 

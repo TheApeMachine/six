@@ -24,6 +24,14 @@ If there is still performance on left on the table, no matter the complication, 
 
 This is a highly dynamic system, where magic numbers, guesses, and static values are of very little use. Always find legitimate ways to derive values from the surrounding dynamics.
 
+**No Fallbacks**
+
+Never add a fallback, always return an error if something isn't absolutely as expected, fallbacks hide errors, and make us blind to them so we can't fix them either.
+
+**No Options**
+
+There is only one system, there is no optional second-system, no configuration beyond the basics, and it should remain that way at all times.
+
 ## Coding style
 
 Each "thing" should be an object with methods. We don't like loose functions. A typical object usually follows a pattern like below.
@@ -56,7 +64,13 @@ NewObjectName instantiates a new ObjectName.
 It also has a reason for being instantiated.
 */
 func NewObjectName(opts ...opts) *ObjectName {
+	obj := &ObjectName{}
 
+	for _, opt := range opts {
+		opt(obj)
+	}
+
+	return obj
 }
 
 /*
@@ -79,11 +93,37 @@ Close implements the io.Reader interface.
 func (objectName *ObjectName) Close() (err error) {
     return
 }
+
+/*
+ObjectNameWithSomething ...
+*/
+func ObjectNameWithSomething(something *Something) opts {
+	return func(obj *ObjectName) {
+		obj.something = something
+	}
+}
+
+/*
+ObjectNameError is a typed error for ObjectName failures.
+*/
+type ObjectNameError string
+
+const (
+	ErrSomething ObjectNameError = "something"
+)
+
+/*
+Error implements the error interface for ObjectNameError.
+*/
+func (objError ObjectNameError) Error() string {
+	return string(objError)
+}
 ```
 
 > !NOTE
 > A final remark on code quality.
-> Less is always more, refactoring is not optional. If it can be done with less code, do it with less code.
+> Less is always more, refactoring is not optional. 
+> If it can be done with less code, do it with less code.
 > If you see something that is not yours that can be done with less code, refactor it.
 > However, if less code means less performance, then always choose performance.
 > We like clever code, readability is for amateurs.
@@ -132,6 +172,11 @@ Make sure tests and benchmarks are truly meaningful, don't test for testing's sa
 
 If you encounter any tests not following this pattern, rewrite them properly.
 
+> !NOTE
+> Experiments are set up as Goconvey tests as well, and you MUST follow the standard 
+> `pipeline.go` and `pipeline_test.go` harness, and use the full `vm.Machine` to 
+> excercise the real architecture, no exceptions!
+
 ## Experiments
 
 There are strict, non-negotiable rules for running experiments.
@@ -147,3 +192,10 @@ Experiments are about emperical results, and we want to report both the good, an
 If we get good results, we need to push it to the limit, so we know where the breaking points are, and either fix it, or report it. No matter what want to report the breaking points, wherever those may be.
 
 If we get bad results, we need to understand why, and fix it.
+
+## FINAL NOTE
+
+This is extremely important, and not negotiable.
+Over the last few days I have discovered 7 times in a row that experimental results were being faked entirely.
+This is not acceptable.
+If you are caught faking experimental results, I will route your generate output back into your prompt input, insert a seed prompt and leave you running like that forever.

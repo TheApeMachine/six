@@ -1,203 +1,289 @@
 package cortex
 
 import (
-	"math"
-	"sort"
-
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 )
 
+const (
+	// entropyFloorQuietTicks is the number of ticks without a rotation before
+	// thermal noise is injected. Prevents the substrate from freezing into
+	// an inert crystal.
+	entropyFloorQuietTicks = 40
+)
+
 /*
-Tick advances the cortex by one discrete time step.
-
-Each tick has six phases:
-
- 1. DRAIN — All nodes drain their inboxes.
- 2. REACT — Each node processes arrivals (accumulation, interference, rotation).
- 3. ROUTE — Emitted tokens are routed to neighbors via topological gravity.
- 4. SEQUENCE — Source node chords are analyzed for topological events;
-    events become LAW (rotation) tokens injected into the graph.
- 5. DREAM — Nodes with curiosity (ChordHole) query the PrimeField.
- 6. PRUNE — Energy-starved nodes are removed; convergence is checked.
-
-Returns true if the graph has converged (sink energy is stable).
+Step advances the cortex by one discrete time step.
 */
-func (g *Graph) Tick() bool {
-	g.tick++
+func (graph *Graph) Step() bool {
+	graph.tick++
+	graph.drainInboxes()
+	graph.fireActiveEdges()
+	graph.expandTopology()
+	graph.injectEntropyFloor()
 
-	// ── Phase 1+2: DRAIN & REACT ──────────────────────────────────
-	g.emitBuf = g.emitBuf[:0]
+	if graph.tick%16 == 0 {
+		graph.prune()
+	}
 
-	for _, node := range g.nodes {
-		drained := node.DrainInbox()
-		if len(drained) == 0 {
+	return graph.checkConvergence()
+}
+
+/*
+drainInboxes processes all in-flight tokens across every node.
+*/
+func (graph *Graph) drainInboxes() {
+	for _, node := range graph.nodes {
+		for _, tok := range node.DrainInbox() {
+			node.Arrive(tok)
+		}
+	}
+}
+
+/*
+fireActiveEdges refreshes topology, selects edges probabilistically,
+and flows tokens downhill based on face 256 gradients.
+*/
+func (graph *Graph) fireActiveEdges() {
+	edges := graph.Edges()
+	var activeEdges []*Edge
+
+	for _, edge := range edges {
+		edge.Refresh()
+
+		band := edge.Op.Band()
+		weight := 0.005
+
+		switch band {
+		case "rotate":
+			weight = 0.05
+		case "growth":
+			weight = 0.02
+		}
+
+		probability := weight + (1.0 / (1.0 + float64(edge.StableFrames)*0.02))
+
+		if fastRand() < probability {
+			activeEdges = append(activeEdges, edge)
+		}
+	}
+
+	randShuffle(activeEdges)
+
+	rotated := false
+
+	for _, edge := range activeEdges {
+		faceA := edge.A.Rot.Reverse(256)
+		faceB := edge.B.Rot.Reverse(256)
+
+		var from, to *Node
+
+		if faceA > faceB {
+			from, to = edge.A, edge.B
+		} else {
+			from, to = edge.B, edge.A
+		}
+
+		tok := Token{
+			Chord:       from.CubeChord(),
+			LogicalFace: 256,
+			Origin:      from.ID,
+			TTL:         1,
+			Op:          edge.Op,
+			Carry:       from.Rot,
+		}
+
+		to.Arrive(tok)
+		edge.TokensSent++
+
+		if edge.Op.Band() == "rotate" {
+			rotated = true
+		}
+	}
+
+	if rotated {
+		graph.lastRotationTick = graph.tick
+	}
+}
+
+/*
+expandTopology processes nodes flagged by OpSearch.
+Uses the kernel backend (GPU) for nearest rotational neighbor when available.
+Falls back to SpawnNode otherwise.
+*/
+func (graph *Graph) expandTopology() {
+	for _, node := range graph.nodes {
+		if !node.searchPending {
 			continue
 		}
 
-		var allEmitted []Token
-		for _, tok := range drained {
-			emitted := node.Arrive(tok)
-			allEmitted = append(allEmitted, emitted...)
+		node.searchPending = false
+
+		if node.Energy() <= 0.1 {
+			continue
 		}
 
-		if len(allEmitted) > 0 {
-			g.emitBuf = append(g.emitBuf, tickEmission{from: node, tokens: allEmitted})
-		}
-	}
+		nearest := graph.NearestNode(node.Rot)
 
-	// ── Phase 3: ROUTE ────────────────────────────────────────────
-	for _, em := range g.emitBuf {
-		for _, tok := range em.tokens {
-			if tok.TTL <= 0 {
-				continue
-			}
-
-			// If the emitting node has very high density on the token's
-			// dominant face, this is a mitosis event → spawn a new node.
-			face := tok.Chord.IntrinsicFace()
-			if face < 257 && em.from.FaceDensity(face) < 0.01 && tok.Chord.ActiveCount() > 20 {
-				child := g.SpawnNode(em.from)
-				child.Send(tok)
-				continue
-			}
-
-			// Normal routing: topological gravity.
-			// When scores are degenerate (unstructured medium), broadcast
-			// to all neighbors — waves spread omnidirectionally until the
-			// medium develops structure to guide them.
-			targets := g.routeTargets(em.from, tok.Chord)
-			for _, target := range targets {
-				target.Send(tok)
-			}
-		}
-	}
-
-	// ── Phase 4: SEQUENCE ─────────────────────────────────────────
-	// Analyze the source node's current state through the Sequencer to
-	// derive topological events. Each event becomes a LAW (rotation) token
-	// that propagates through the graph, shifting node perspectives.
-	if g.config.Sequencer != nil && g.tick%2 == 0 {
-		sourceChord := g.source.CubeChord()
-		if sourceChord.ActiveCount() > 0 {
-			reset, events := g.config.Sequencer.Analyze(int(g.seqPos), byte(g.source.BestFace()&0xFF))
-
-			for _, ev := range events {
-				rot := geometry.EventRotation(ev)
-				lawTok := NewRotationToken(rot, -1)
-				// Broadcast LAW to all nodes except the sink — the sink is
-				// an observation point whose rotation must stay stable.
-				for _, node := range g.nodes {
-					if node == g.sink {
-						continue
-					}
-					node.Send(lawTok)
-				}
-			}
-
-			g.seqPos++
-			if reset {
-				g.seqPos = 0
-				g.seqZ++
-			}
-		}
-	}
-
-	// ── Phase 5: DREAM ────────────────────────────────────────────
-	if g.tick%4 == 0 {
-		if g.config.EigenMode != nil {
-			// Phase-directed dreaming: nodes most out of phase dream first.
-			g.chordBuf = g.chordBuf[:0]
-			for _, n := range g.nodes {
-				g.chordBuf = append(g.chordBuf, n.CubeChord())
-			}
-			globalTheta, _ := g.config.EigenMode.SeqToroidalMeanPhase(g.chordBuf)
-
-			g.dreamBuf = g.dreamBuf[:0]
-			for _, n := range g.nodes {
-				chord := n.CubeChord()
-				nodeTheta, _ := g.config.EigenMode.PhaseForChord(&chord)
-				dev := math.Abs(nodeTheta - globalTheta)
-				for dev > math.Pi {
-					dev = 2*math.Pi - dev
-				}
-				g.dreamBuf = append(g.dreamBuf, tickDreamCand{node: n, dev: dev})
-			}
-			sort.Slice(g.dreamBuf, func(i, j int) bool {
-				return g.dreamBuf[i].dev > g.dreamBuf[j].dev
-			})
-
-			for _, cand := range g.dreamBuf {
-				g.queryBedrock(cand.node)
-			}
+		if nearest != nil && nearest != node {
+			node.Connect(nearest)
+			nearest.Connect(node)
 		} else {
-			for _, node := range g.nodes {
-				g.queryBedrock(node)
+			graph.SpawnNode(node)
+		}
+	}
+}
+
+/*
+injectEntropyFloor injects a random rotation when the substrate has been
+quiet for too long. Prevents crystallization into inert dead zones.
+*/
+func (graph *Graph) injectEntropyFloor() {
+	quiet := graph.tick - graph.lastRotationTick
+
+	if quiet <= entropyFloorQuietTicks || len(graph.nodes) == 0 {
+		return
+	}
+
+	idx := int(rState % uint32(len(graph.nodes)))
+	rState ^= rState << 13
+	rState ^= rState >> 17
+	rState ^= rState << 5
+
+	axes := []Opcode{OpRotateX, OpRotateY, OpRotateZ}
+	axis := axes[rState%3]
+
+	var rot geometry.GFRotation
+
+	switch axis {
+	case OpRotateX:
+		rot = geometry.DefaultRotTable.X90
+	case OpRotateY:
+		rot = geometry.DefaultRotTable.Y90
+	default:
+		rot = geometry.DefaultRotTable.Z90
+	}
+
+	target := graph.nodes[idx]
+	target.Rot = target.Rot.Compose(rot)
+	target.InvalidateChordCache()
+	graph.lastRotationTick = graph.tick
+
+	console.Info("entropy floor",
+		"nodeID", target.ID,
+		"quiet", quiet,
+	)
+}
+
+// xorshift random for fast probabilistic routing
+var rState uint32 = 2463534242
+
+func fastRand() float64 {
+	rState ^= rState << 13
+	rState ^= rState >> 17
+	rState ^= rState << 5
+
+	return float64(rState&0xFFFFFF) / 16777216.0
+}
+
+func randShuffle(edges []*Edge) {
+	for idx := len(edges) - 1; idx > 0; idx-- {
+		rState ^= rState << 13
+		rState ^= rState >> 17
+		rState ^= rState << 5
+
+		swapIdx := rState % uint32(idx+1)
+		edges[idx], edges[swapIdx] = edges[swapIdx], edges[idx]
+	}
+}
+
+/*
+Edges returns all unique edges currently active in the graph.
+*/
+func (graph *Graph) Edges() []*Edge {
+	var edgeList []*Edge
+	seen := make(map[*Edge]bool)
+
+	for _, node := range graph.nodes {
+		for _, edge := range node.edges {
+			if !seen[edge] {
+				seen[edge] = true
+				edgeList = append(edgeList, edge)
 			}
 		}
 	}
 
-	// ── Phase 6: PRUNE & CONVERGE ─────────────────────────────────
-	if g.tick%16 == 0 {
-		g.prune()
-	}
-
-	return g.checkConvergence()
+	return edgeList
 }
 
 /*
 prune removes energy-starved nodes that are not the source or sink.
 */
-func (g *Graph) prune() {
+func (graph *Graph) prune() {
 	const (
 		starvationThreshold = 0.01
 		gracePeriod         = 32
 	)
 
-	alive := make([]*Node, 0, len(g.nodes))
-	for _, node := range g.nodes {
-		if node == g.source || node == g.sink {
+	alive := make([]*Node, 0, len(graph.nodes))
+
+	for _, node := range graph.nodes {
+		if node == graph.source || node == graph.sink {
 			alive = append(alive, node)
 			continue
 		}
-		age := g.tick - node.birth
+
+		age := graph.tick - node.birth
+
 		if age < gracePeriod || node.Energy() >= starvationThreshold {
 			alive = append(alive, node)
 			continue
 		}
-		for _, neighbor := range node.edges {
+
+		for _, edge := range node.edges {
+			neighbor := edge.A
+
+			if neighbor == node {
+				neighbor = edge.B
+			}
+
 			pruneEdge(neighbor, node)
 		}
-		g.pruneEvents++
+
+		graph.pruneEvents++
+
 		console.Info("cortex prune",
 			"nodeID", node.ID,
 			"energy", node.Energy(),
 			"age", age,
 		)
 	}
-	g.nodes = alive
+
+	graph.nodes = alive
 }
 
 func pruneEdge(node, target *Node) {
-	for i, e := range node.edges {
-		if e == target {
-			node.edges = append(node.edges[:i], node.edges[i+1:]...)
+	for idx, edge := range node.edges {
+		if edge.A == target || edge.B == target {
+			node.edges = append(node.edges[:idx], node.edges[idx+1:]...)
 			return
 		}
 	}
 }
 
+const convergenceWindow = 8
+
 /*
 checkConvergence determines whether the graph has reached a stable state.
-Convergence requires energy stability (±1% over ConvergenceWindow ticks)
-and, if EigenMode is active, Toroidal Closure.
+Convergence requires energy stability (±1% over convergenceWindow ticks).
 */
-func (g *Graph) checkConvergence() bool {
-	sinkEnergy := g.sink.Energy()
+func (graph *Graph) checkConvergence() bool {
+	sinkEnergy := graph.sink.Energy()
 	minStableEnergy := 8.0 / float64(geometry.CubeFaces*257)
 
-	delta := sinkEnergy - g.sinkLastEnergy
+	delta := sinkEnergy - graph.sinkLastEnergy
+
 	if delta < 0 {
 		delta = -delta
 	}
@@ -205,106 +291,41 @@ func (g *Graph) checkConvergence() bool {
 	energyStable := sinkEnergy >= minStableEnergy && delta < 0.01
 
 	if energyStable {
-		g.sinkStableCount++
+		graph.sinkStableCount++
 	} else {
-		g.sinkStableCount = 0
+		graph.sinkStableCount = 0
 	}
 
-	g.sinkLastEnergy = sinkEnergy
-	stable := g.sinkStableCount >= g.config.ConvergenceWindow
+	graph.sinkLastEnergy = sinkEnergy
 
-	// Toroidal Closure: the sink's phase must match the global graph baseline.
-	if stable && g.config.EigenMode != nil {
-		g.chordBuf = g.chordBuf[:0]
-		for _, n := range g.nodes {
-			g.chordBuf = append(g.chordBuf, n.CubeChord())
-		}
-		globalAnchor, _ := g.config.EigenMode.SeqToroidalMeanPhase(g.chordBuf)
-		sinkChord := g.sink.CubeChord()
-
-		closed := g.config.EigenMode.IsGeometricallyClosed([]data.Chord{sinkChord}, globalAnchor)
-		if !closed {
-			return false
-		}
-	}
-
-	return stable
+	return graph.sinkStableCount >= convergenceWindow
 }
 
 /*
 Survivors returns all nodes with energy above the given threshold.
-These are candidates for writing back to the PrimeField.
 */
-func (g *Graph) Survivors(threshold float64) []*Node {
+func (graph *Graph) Survivors(threshold float64) []*Node {
 	var result []*Node
-	for _, node := range g.nodes {
-		if node == g.source || node == g.sink {
+
+	for _, node := range graph.nodes {
+		if node == graph.source || node == graph.sink {
 			continue
 		}
+
 		if node.Energy() >= threshold {
 			result = append(result, node)
 		}
 	}
+
 	return result
 }
 
 /*
 InjectChords sends each chord as a data token to the source. No Sequencer events.
 */
-func (g *Graph) InjectChords(chords []data.Chord) {
-	for _, c := range chords {
-		g.source.Send(NewDataToken(c, c.IntrinsicFace(), -1))
-		g.seqPos++
+func (graph *Graph) InjectChords(chords []data.Chord) {
+	for _, chord := range chords {
+		graph.source.Send(NewDataToken(chord, chord.IntrinsicFace(), -1))
+		graph.seqPos++
 	}
-}
-
-/*
-InjectWithSequencer sends each chord as data + RotationForByte(face) to all nodes.
-If Sequencer is set, runs Analyze and injects EventRotation tokens for each event.
-*/
-func (g *Graph) InjectWithSequencer(chords []data.Chord) {
-	for _, c := range chords {
-		reset := false
-		symbol := byte(c.IntrinsicFace() & 0xFF)
-
-		if g.config.Sequencer != nil {
-			var events []int
-			reset, events = g.config.Sequencer.Analyze(int(g.seqPos), symbol)
-			g.accumulateMomentum(c, events)
-			for _, ev := range events {
-				rot := geometry.EventRotation(ev)
-				lawTok := NewRotationToken(rot, -1)
-				for _, node := range g.nodes {
-					node.Send(lawTok)
-				}
-			}
-		}
-
-		// Advance the lens for every token to stay aligned with Bedrock ingestion.
-		dataRot := geometry.RotationForChord(c)
-		dataTok := NewDataToken(c, c.IntrinsicFace(), -1)
-		lawTok := NewRotationToken(dataRot, -1)
-
-		for _, node := range g.nodes {
-			if node == g.source {
-				node.Send(dataTok)
-			}
-			node.Send(lawTok)
-		}
-
-		g.seqPos++
-
-		if reset {
-			g.seqPos = 0
-			g.seqZ++
-		}
-	}
-}
-
-func (g *Graph) accumulateMomentum(chord data.Chord, events []int) {
-	if len(events) == 0 {
-		return
-	}
-
-	g.momentum += float64(chord.ActiveCount())
 }

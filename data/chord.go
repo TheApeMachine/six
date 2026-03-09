@@ -183,10 +183,10 @@ func ChordPrimeIndices(chord *Chord) []int {
 }
 
 /*
-ChordGCD returns the element-wise AND of two chords (their GCD in
+ChordAND returns the element-wise AND of two chords (their GCD in
 prime exponent space). Shared factors.
 */
-func ChordGCD(a, b *Chord) (gcd Chord) {
+func ChordAND(a, b *Chord) (gcd Chord) {
 	for i := range config.ChordBlocks {
 		gcd[i] = a[i] & b[i]
 	}

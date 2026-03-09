@@ -26,6 +26,7 @@ var ctx = &Config{}
 var Numeric = &ctx.Architecture
 var System = &ctx.System
 var Workers = &ctx.Workers
+var Cortex = &ctx.CortexConfig
 
 func init() {
 	viper.SetDefault("system.workers.min", 2)
@@ -42,6 +43,8 @@ func init() {
 	viper.SetDefault("architecture.numerics.nbasis", 512)
 	viper.SetDefault("architecture.numerics.chordBlocks", 16)
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
+
+	viper.SetDefault("cortex.initialNodes", 8)
 
 	home := homedir.HomeDir()
 
@@ -66,6 +69,7 @@ type Config struct {
 		Min int
 		Max int
 	}
+	CortexConfig CortexConfig
 }
 
 /*
@@ -80,6 +84,10 @@ type Architecture struct {
 	WindowWeights   []float64
 	ChordBlocks     int
 	FrequencySpread float64
+}
+
+type CortexConfig struct {
+	InitialNodes int
 }
 
 /*
@@ -160,6 +168,8 @@ func (ctx *Config) Load() error {
 	ctx.System.RemoteOnly = v.GetBool("system.distributed.remoteOnly")
 	ctx.System.HeteroLocal = v.GetBool("system.distributed.heteroLocal")
 	ctx.System.LocalShardThreshold = v.GetInt("system.distributed.localShardThreshold")
+
+	ctx.CortexConfig.InitialNodes = v.GetInt("cortex.initialNodes")
 
 	return nil
 }

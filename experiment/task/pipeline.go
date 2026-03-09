@@ -1,7 +1,9 @@
 package task
 
 import (
+	"context"
 	"fmt"
+	"runtime"
 	"strconv"
 	"unicode"
 	"unicode/utf8"
@@ -9,6 +11,7 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
 )
@@ -42,6 +45,11 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	}
 
 	pipeline.machine = vm.NewMachine(
+		vm.MachineWithPool(pool.New(
+			context.Background(),
+			1, runtime.NumCPU(),
+			pool.NewConfig(),
+		)),
 		vm.MachineWithLoader(
 			vm.NewLoader(
 				vm.LoaderWithTokenizer(
@@ -60,6 +68,7 @@ func (pipeline *Pipeline) Run() error {
 	if err := pipeline.machine.Start(); err != nil {
 		return fmt.Errorf("machine start: %w", err)
 	}
+	defer pipeline.machine.Stop()
 
 	pipeline.prompts = pipeline.experiment.Prompts()
 
@@ -145,9 +154,11 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	holdout, _ := pipeline.experiment.Holdout()
 
 	if holdout == 0 {
-		chordRes = <-pipeline.machine.Think(promptChords)
+		// TODO: restore Think when cortex backend is integrated
+		// chordRes = <-pipeline.machine.Think(promptChords)
 	} else {
-		chordRes = <-pipeline.machine.Prompt(promptChords)
+		// TODO: prompt handling moved to cortex System via broadcast
+		_ = promptChords
 	}
 
 	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)

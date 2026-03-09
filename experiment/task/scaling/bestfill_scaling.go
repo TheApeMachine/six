@@ -5,10 +5,8 @@ import (
 	"time"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/kernel"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/tokenizer"
 )
@@ -99,13 +97,16 @@ func (experiment *BestFillScalingExperiment) Finalize(
 		return fmt.Errorf("no filters in substrate")
 	}
 
-	backend, err := kernel.NewBackend()
-	if err != nil {
-		return fmt.Errorf("failed to create backend: %w", err)
-	}
+	// TODO: Replace with new pointer-based API
+	/*
+		builder := kernel.NewBuilder(kernel.WithBackend(&metal.MetalBackend{}))
+		if err != nil {
+			return fmt.Errorf("failed to create backend: %w", err)
+		}
+	*/
 
 	// Use the first filter as the query chord.
-	queryChord := filters[0]
+	// queryChord := filters[0]
 
 	sizes := []int{100, 500, 1000, 5000, len(filters)}
 
@@ -119,18 +120,22 @@ func (experiment *BestFillScalingExperiment) Finalize(
 		}
 
 		// Set dictionary to the subset
-		if cpuBackend, ok := backend.(*kernel.CPUBackend); ok {
-			cpuBackend.SetDictionary(filters[:dictSize])
-		}
+		/*
+			if cpuBackend, ok := backend.(*kernel.CPUBackend); ok {
+				cpuBackend.SetDictionary(filters[:dictSize])
+			}
+		*/
 
 		const trials = 10
 		var totalDur time.Duration
 
-		for range trials {
-			t0 := time.Now()
-			_, _ = backend.Resolve([]data.Chord{queryChord})
-			totalDur += time.Since(t0)
-		}
+		/*
+			for range trials {
+				t0 := time.Now()
+				_, _ = backend.Resolve([]data.Chord{queryChord})
+				totalDur += time.Since(t0)
+			}
+		*/
 
 		avgUs := float64(totalDur.Microseconds()) / float64(trials)
 		usPerEntry := avgUs / float64(dictSize)

@@ -21,7 +21,7 @@ func TestGFRotation_ForwardMatchesMicroRotateX(t *testing.T) {
 	Convey("Given RotationX", t, func() {
 		Convey("When Forward is applied to each face", func() {
 			for face := 0; face < CubeFaces; face++ {
-				So(RotationX.Forward(face), ShouldEqual, MicroRotateX[face])
+				So(DefaultRotTable.X90.Forward(face), ShouldEqual, MicroRotateX[face])
 			}
 		})
 	})
@@ -31,7 +31,7 @@ func TestGFRotation_ForwardMatchesMicroRotateY(t *testing.T) {
 	Convey("Given RotationY", t, func() {
 		Convey("When Forward is applied to each face", func() {
 			for face := range CubeFaces {
-				So(RotationY.Forward(face), ShouldEqual, MicroRotateY[face])
+				So(DefaultRotTable.Y90.Forward(face), ShouldEqual, MicroRotateY[face])
 			}
 		})
 	})
@@ -41,7 +41,7 @@ func TestGFRotation_ForwardMatchesMicroRotateZ(t *testing.T) {
 	Convey("Given RotationZ", t, func() {
 		Convey("When Forward is applied to each face", func() {
 			for face := range CubeFaces {
-				So(RotationZ.Forward(face), ShouldEqual, MicroRotateZ[face])
+				So(DefaultRotTable.Z90.Forward(face), ShouldEqual, MicroRotateZ[face])
 			}
 		})
 	})
@@ -49,7 +49,7 @@ func TestGFRotation_ForwardMatchesMicroRotateZ(t *testing.T) {
 
 func TestGFRotation_CompositionMatchesSequentialPermutation(t *testing.T) {
 	Convey("Given RotationY.Compose(RotationX)", t, func() {
-		composed := RotationY.Compose(RotationX)
+		composed := DefaultRotTable.Y90.Compose(DefaultRotTable.X90)
 		Convey("When Forward matches sequential MicroRotateX[MicroRotateY[face]]", func() {
 			for face := range CubeFaces {
 				expected := MicroRotateX[MicroRotateY[face]]
@@ -61,7 +61,7 @@ func TestGFRotation_CompositionMatchesSequentialPermutation(t *testing.T) {
 
 func TestGFRotation_InverseRoundTrips(t *testing.T) {
 	Convey("Given RotationX, Y, Z, and Y.Compose(X)", t, func() {
-		rots := []GFRotation{RotationX, RotationY, RotationZ, RotationX.Compose(RotationY)}
+		rots := []GFRotation{DefaultRotTable.X90, DefaultRotTable.Y90, DefaultRotTable.Z90, DefaultRotTable.X90.Compose(DefaultRotTable.Y90)}
 		Convey("When applying Forward then inverse for each face", func() {
 			for _, rot := range rots {
 				aInv := 1
@@ -97,7 +97,7 @@ func TestComposeEvents_MatchesSequentialRotation(t *testing.T) {
 }
 
 func BenchmarkGFRotationForward(b *testing.B) {
-	rot := RotationX.Compose(RotationY)
+	rot := DefaultRotTable.X90.Compose(DefaultRotTable.Y90)
 	for b.Loop() {
 		for face := range CubeFaces {
 			_ = rot.Forward(face)
@@ -107,7 +107,7 @@ func BenchmarkGFRotationForward(b *testing.B) {
 
 func BenchmarkGFRotationCompose(b *testing.B) {
 	for b.Loop() {
-		_ = RotationZ.Compose(RotationY.Compose(RotationX))
+		_ = DefaultRotTable.Z90.Compose(DefaultRotTable.Y90.Compose(DefaultRotTable.X90))
 	}
 }
 

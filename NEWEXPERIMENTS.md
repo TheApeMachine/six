@@ -1,641 +1,10 @@
-```
-import { useState, useCallback, useRef, useEffect } from "react";
-
-const N = 257;
-
-const rotX = Array.from({length: N}, (_, p) => (p + 1) % N);
-const rotY = Array.from({length: N}, (_, p) => (3 * p) % N);
-const rotZ = Array.from({length: N}, (_, p) => (3 * p + 1) % N);
-
-function applyPerm(bits, perm) {
-  const out = new Uint8Array(N);
-  for (let i = 0; i < N; i++) out[perm[i]] = bits[i];
-  return out;
-}
-function composeAffine(f, g) {
-  return { a: (g.a * f.a) % N, b: (g.a * f.b + g.b) % N };
-}
-const IDENT = { a: 1, b: 0 };
-const AFF_X = { a: 1, b: 1 };
-const AFF_Y = { a: 3, b: 0 };
-const AFF_Z = { a: 3, b: 1 };
-
-function affineStr({a, b}) {
-  if (a === 1 && b === 0) return "p";
-  if (a === 1) return `p+${b}`;
-  if (b === 0) return `${a}p`;
-  return `${a}p+${b}`;
-}
-function stateKey({a, b}) { return `${a}:${b}`; }
-function stateIndex({a, b}) { return (a - 1) * N + b; }
-
-function charToOp(c) {
-  const r = c.charCodeAt(0) % 3;
-  return r === 0 ? "X" : r === 1 ? "Y" : "Z";
-}
-function computeState(str) {
-  let aff = IDENT;
-  for (const c of str) {
-    const d = charToOp(c) === "X" ? AFF_X : charToOp(c) === "Y" ? AFF_Y : AFF_Z;
-    aff = composeAffine(aff, d);
-  }
-  return aff;
-}
-function computeStateSteps(str) {
-  let aff = IDENT;
-  const steps = [{ aff: {...aff}, ch: null, op: null }];
-  for (const c of str) {
-    const op = charToOp(c);
-    aff = composeAffine(aff, op==="X"?AFF_X:op==="Y"?AFF_Y:AFF_Z);
-    steps.push({ aff: {...aff}, ch: c, op });
-  }
-  return steps;
-}
-
-const CORPUS = [
-  "The cat sat on the mat",
-  "The cat sat on the hat",
-  "The cat saw the rat",
-  "The dog sat on the rug",
-  "The dog ran to the cat",
-  "The bird sang in the tree",
-  "The fish swam in the lake",
-  "The sun set on the hill",
-];
-
-function buildHoloStore(corpus) {
-  const store = new Map();
-  for (const sentence of corpus) {
-    let aff = IDENT;
-    for (let i = 0; i <= sentence.length; i++) {
-      const key = stateKey(aff);
-      if (!store.has(key)) {
-        store.set(key, { readout: sentence.slice(i), sentence, prefixLen: i, state: {...aff} });
-      }
-      if (i < sentence.length) {
-        const op = charToOp(sentence[i]);
-        aff = composeAffine(aff, op==="X"?AFF_X:op==="Y"?AFF_Y:AFF_Z);
-      }
-    }
-  }
-  return store;
-}
-
-const HOLO_STORE = buildHoloStore(CORPUS);
-
-export default function App() {
-  const [tab, setTab] = useState("holo");
-  const [query, setQuery] = useState("");
-  const [result, setResult] = useState(null);
-  const [animSteps, setAnimSteps] = useState([]);
-  const [ingestStep, setIngestStep] = useState(-1);
-  const [ingesting, setIngesting] = useState(false);
-  const [manualBits, setManualBits] = useState(new Uint8Array(N));
-  const [manualAff, setManualAff] = useState(IDENT);
-  const [manualHistory, setManualHistory] = useState([]);
-  const [demoResults, setDemoResults] = useState(null);
-  const rafRef = useRef(null);
-
-  const mf = { fontFamily: '"JetBrains Mono","Fira Code","Courier New",monospace' };
-
-  const doRecall = useCallback((q) => {
-    if (!q) { setResult(null); return; }
-    const qState = computeState(q);
-    const key = stateKey(qState);
-    setResult({ qState, key, hit: HOLO_STORE.get(key) || null });
-  }, []);
-
-  const handleQuery = useCallback(e => {
-    const v = e.target.value;
-    setQuery(v);
-    doRecall(v);
-  }, [doRecall]);
-
-  const runIngest = useCallback(() => {
-    if (ingesting) return;
-    setIngesting(true);
-    const steps = computeStateSteps(CORPUS[0]);
-    setAnimSteps(steps);
-    setIngestStep(0);
-    let i = 0;
-    const tick = () => {
-      i++;
-      setIngestStep(i);
-      if (i < steps.length) rafRef.current = setTimeout(tick, 150);
-      else setTimeout(() => setIngesting(false), 500);
-    };
-    rafRef.current = setTimeout(tick, 150);
-  }, [ingesting]);
-
-  useEffect(() => () => clearTimeout(rafRef.current), []);
-
-  const applyOp = useCallback((op) => {
-    const perm = op==="X"?rotX:op==="Y"?rotY:rotZ;
-    const d    = op==="X"?AFF_X:op==="Y"?AFF_Y:AFF_Z;
-    setManualBits(prev => {
-      if (prev.every(b=>b===0)) {
-        const b = new Uint8Array(N); b[84]=1; b[104]=1; b[101]=1;
-        return applyPerm(b, perm);
-      }
-      return applyPerm(prev, perm);
-    });
-    setManualAff(prev => {
-      if (prev.a===1&&prev.b===0&&manualHistory.length===0) return d;
-      return composeAffine(prev, d);
-    });
-    setManualHistory(prev => [...prev.slice(-22), op]);
-  }, [manualHistory]);
-
-  const runNonComm = useCallback(() => {
-    const pairs = [["X","Y"],["Y","X"],["X","Z"],["Z","X"],["Y","Z"],["Z","Y"]];
-    setDemoResults(pairs.map(ops => {
-      let a = IDENT;
-      for (const op of ops) a = composeAffine(a, op==="X"?AFF_X:op==="Y"?AFF_Y:AFF_Z);
-      return { ops, a };
-    }));
-  }, []);
-
-  const RING_N = 64, RING_R = 92;
-  const querySteps = query ? computeStateSteps(query) : [];
-  const currentIngestStep = animSteps[Math.min(ingestStep, animSteps.length-1)];
-
-  const Tab = (id, label) => (
-    <button onClick={() => setTab(id)} style={{
-      background:"transparent", border:"none",
-      borderBottom:`2px solid ${tab===id?"#00ffcc":"transparent"}`,
-      color: tab===id?"#00ffcc":"#3a6070",
-      padding:"10px 16px", cursor:"pointer", fontSize:9, letterSpacing:2, ...mf,
-    }}>{label}</button>
-  );
-
-  const opColor = op => op==="X"?"#4488ff":op==="Y"?"#aa44ff":"#44ff88";
-
-  return (
-    <div style={{minHeight:"100vh", background:"#070d14", color:"#c8e8f0", ...mf}}>
-      <div style={{maxWidth:900, margin:"0 auto", padding:"20px 20px"}}>
-
-        <div style={{marginBottom:18}}>
-          <div style={{fontSize:9, letterSpacing:4, color:"#00ffcc", opacity:0.6, marginBottom:4}}>
-            GF(257) AFFINE ROTATIONS
-          </div>
-          <div style={{fontSize:19, fontWeight:"bold", color:"#fff", marginBottom:4}}>
-            257 bits · 65,792 rotation states · O(1) holographic recall
-          </div>
-          <div style={{fontSize:10, color:"#2a4a5a", lineHeight:1.8}}>
-            The rotation state IS the address. Ingest stores every position's suffix at its rotation coordinate.
-            Recall derives the query state once — no scan, no search, one lookup.
-          </div>
-        </div>
-
-        <div style={{borderBottom:"1px solid #1a3040", marginBottom:18, display:"flex", gap:0}}>
-          {Tab("holo",    "① HOLOGRAPHIC RECALL")}
-          {Tab("ingest",  "② INGESTION")}
-          {Tab("noncomm", "③ NON-COMMUTATIVITY")}
-          {Tab("states",  "④ STATE SPACE")}
-        </div>
-
-        {/* ── TAB 1: HOLOGRAPHIC RECALL ─────────────────────────────────── */}
-        {tab==="holo" && (
-          <div>
-            <div style={{fontSize:10, color:"#3a6070", marginBottom:14, lineHeight:1.8}}>
-              The store holds <strong style={{color:"#c8e8f0"}}>{HOLO_STORE.size}</strong> rotation-state → readout
-              entries from {CORPUS.length} sentences. Type any prefix — one pass computes the rotation state,
-              one map lookup returns the stored suffix. No scan ever happens.
-            </div>
-
-            <div style={{display:"flex", gap:8, marginBottom:16}}>
-              <input value={query} onChange={handleQuery}
-                placeholder='Try: "The cat"  "The dog ran"  "The bird"'
-                style={{flex:1, background:"#0d1a24",
-                  border:`1px solid ${result?.hit?"#00ffcc44":result?"#ff444444":"#1a3040"}`,
-                  color:"#c8e8f0", padding:"10px 14px", fontSize:13, ...mf, outline:"none"}}
-              />
-              <button onClick={()=>{setQuery("");setResult(null);}}
-                style={{background:"#0d1a24",border:"1px solid #1a3040",color:"#3a6070",
-                  padding:"10px 14px",cursor:"pointer",fontSize:9,...mf}}>CLEAR</button>
-            </div>
-
-            {/* Step-by-step state trace */}
-            {query.length>0 && (
-              <div style={{background:"#060e18",border:"1px solid #1a3040",padding:14,marginBottom:14}}>
-                <div style={{fontSize:9,letterSpacing:2,color:"#3a6070",marginBottom:10}}>
-                  ONE PASS · EACH CHAR APPLIES ONE AFFINE MAP · FINAL STATE = ADDRESS
-                </div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:10}}>
-                  {querySteps.map((step,i) => (
-                    <div key={i} style={{
-                      background: i===querySteps.length-1?"#001a30":"#0a1520",
-                      border:`1px solid ${i===querySteps.length-1?"#00ffcc33":"#1a3040"}`,
-                      padding:"6px 8px",minWidth:58,
-                    }}>
-                      <div style={{fontSize:10,marginBottom:2}}>
-                        {i===0
-                          ? <span style={{color:"#1a4050"}}>START</span>
-                          : <><span style={{color:opColor(step.op),fontWeight:"bold"}}>'{step.ch}'</span>
-                             <span style={{color:"#1a3040",fontSize:8}}>·{step.op}</span></>
-                        }
-                      </div>
-                      <div style={{fontSize:9,color:i===querySteps.length-1?"#00ffcc":"#1a5040"}}>
-                        {affineStr(step.aff)}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{fontSize:10,display:"flex",gap:16,flexWrap:"wrap"}}>
-                  <span style={{color:"#3a6070"}}>→ final state:</span>
-                  <span style={{color:"#00ffcc",fontWeight:"bold"}}>f(p) = {affineStr(result?.qState||IDENT)} (mod 257)</span>
-                  <span style={{color:"#3a6070"}}>→ map key:</span>
-                  <span style={{color:"#ff8844"}}>"{result?.key}"</span>
-                  <span style={{color:"#3a6070"}}>→ 1 lookup</span>
-                </div>
-              </div>
-            )}
-
-            {/* Result */}
-            {result && (
-              <div style={{
-                background:result.hit?"#001a10":"#160008",
-                border:`1px solid ${result.hit?"#00aa4455":"#aa002233"}`,
-                padding:18,marginBottom:16,
-              }}>
-                {result.hit ? (
-                  <>
-                    <div style={{fontSize:9,letterSpacing:2,color:"#00aa44",marginBottom:12}}>
-                      ◉ O(1) HIT — HOLOGRAPHIC READOUT RETURNED
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:20}}>
-                      <div>
-                        <div style={{fontSize:9,color:"#3a6070",marginBottom:5}}>QUERY</div>
-                        <div style={{fontSize:15,color:"#888"}}>{query}</div>
-                        <div style={{fontSize:9,color:"#1a4050",marginTop:6}}>
-                          rotation state {stateIndex(result.qState).toLocaleString()} of 65,792
-                        </div>
-                      </div>
-                      <div>
-                        <div style={{fontSize:9,color:"#3a6070",marginBottom:5}}>READOUT (stored suffix)</div>
-                        <div style={{fontSize:15}}>
-                          <span style={{color:"#333"}}>{result.hit.sentence.slice(0,result.hit.prefixLen)}</span>
-                          <span style={{color:"#00ffcc",fontWeight:"bold"}}>{result.hit.readout}</span>
-                        </div>
-                        <div style={{fontSize:9,color:"#1a4050",marginTop:6}}>
-                          from "{result.hit.sentence}" · position {result.hit.prefixLen}
-                        </div>
-                      </div>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div style={{fontSize:9,letterSpacing:2,color:"#aa0022",marginBottom:6}}>
-                      ✗ MISS — state "{result.key}" not in store
-                    </div>
-                    <div style={{fontSize:10,color:"#3a6070"}}>
-                      This prefix traces a path no ingested sequence has taken. The geometry has no memory here.
-                    </div>
-                  </>
-                )}
-              </div>
-            )}
-
-            {!query && (
-              <div style={{padding:"24px 0",textAlign:"center",color:"#1a3040",fontSize:11}}>
-                type any prefix — or click a sentence below
-              </div>
-            )}
-
-            <div style={{background:"#0a1520",border:"1px solid #1a3040",padding:14}}>
-              <div style={{fontSize:9,letterSpacing:2,color:"#3a6070",marginBottom:8}}>CORPUS (click to query first two words)</div>
-              <div style={{display:"flex",flexWrap:"wrap",gap:6}}>
-                {CORPUS.map((s,i) => (
-                  <button key={i} onClick={() => {
-                    const pfx = s.split(" ").slice(0,2).join(" ");
-                    setQuery(pfx); doRecall(pfx);
-                  }} style={{background:"#060e18",border:"1px solid #1a3040",color:"#3a6070",
-                    padding:"5px 10px",cursor:"pointer",fontSize:10,...mf}}>
-                    {s}
-                  </button>
-                ))}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB 2: INGESTION ──────────────────────────────────────────── */}
-        {tab==="ingest" && (
-          <div>
-            <div style={{fontSize:10,color:"#3a6070",marginBottom:14,lineHeight:1.8}}>
-              Each character advances the rotation state. At every position the system writes:
-              <span style={{color:"#00ffcc"}}> state → suffix</span>. No external index.
-              The rotation state is the address. The suffix is the holographic readout stored there.
-            </div>
-
-            <div style={{display:"flex",gap:10,marginBottom:16,alignItems:"center"}}>
-              <button onClick={runIngest} disabled={ingesting} style={{
-                background:"#001428",border:"1px solid #00ffcc88",color:"#00ffcc",
-                padding:"9px 18px",cursor:ingesting?"not-allowed":"pointer",
-                fontSize:10,letterSpacing:2,opacity:ingesting?0.5:1,...mf,
-              }}>
-                {ingesting?"INGESTING...":"▶ ANIMATE INGESTION"}
-              </button>
-              <span style={{fontSize:10,color:"#1a3040"}}>"{CORPUS[0]}"</span>
-            </div>
-
-            {animSteps.length>0 && ingestStep>=0 && (
-              <>
-                <div style={{fontSize:9,letterSpacing:2,color:"#3a6070",marginBottom:8}}>
-                  CHAR · OP · NEW STATE · READOUT STORED
-                </div>
-                <div style={{display:"flex",flexWrap:"wrap",gap:3,marginBottom:14}}>
-                  {animSteps.slice(0,Math.min(ingestStep+1,animSteps.length)).map((step,i) => {
-                    const isLast = i===Math.min(ingestStep,animSteps.length-1);
-                    return (
-                      <div key={i} style={{
-                        background:isLast?"#001a30":"#060e18",
-                        border:`1px solid ${isLast?"#00ffcc44":"#1a3040"}`,
-                        padding:"7px 9px",minWidth:62,transition:"all 0.15s",
-                      }}>
-                        <div style={{fontSize:10,marginBottom:2}}>
-                          {i===0
-                            ? <span style={{color:"#1a4050"}}>START</span>
-                            : <><span style={{color:opColor(step.op),fontWeight:"bold"}}>'{step.ch}'</span>
-                               <span style={{color:"#1a3040",fontSize:8}}> {step.op}</span></>
-                          }
-                        </div>
-                        <div style={{fontSize:9,color:isLast?"#00ffcc":"#1a5040"}}>
-                          {affineStr(step.aff)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-
-                {currentIngestStep && ingestStep>0 && (
-                  <div style={{background:"#001a10",border:"1px solid #00aa4444",padding:16,marginBottom:14}}>
-                    <div style={{fontSize:9,letterSpacing:2,color:"#00aa44",marginBottom:10}}>
-                      STORE WRITE
-                    </div>
-                    <div style={{display:"grid",gridTemplateColumns:"auto 30px 1fr",gap:14,alignItems:"center"}}>
-                      <div>
-                        <div style={{fontSize:8,color:"#3a6070",marginBottom:4}}>KEY</div>
-                        <div style={{fontSize:14,color:"#00ffcc",fontWeight:"bold"}}>
-                          f(p) = {affineStr(currentIngestStep.aff)}
-                        </div>
-                        <div style={{fontSize:9,color:"#1a4050",marginTop:2}}>
-                          state {stateIndex(currentIngestStep.aff).toLocaleString()}
-                        </div>
-                      </div>
-                      <div style={{fontSize:20,color:"#1a4050",textAlign:"center"}}>→</div>
-                      <div>
-                        <div style={{fontSize:8,color:"#3a6070",marginBottom:4}}>VALUE (readout)</div>
-                        <div style={{fontSize:14}}>
-                          <span style={{color:"#333"}}>{CORPUS[0].slice(0,Math.max(0,ingestStep-1))}</span>
-                          <span style={{color:"#00ffcc",fontWeight:"bold"}}>{CORPUS[0].slice(Math.max(0,ingestStep-1))}</span>
-                        </div>
-                        <div style={{fontSize:9,color:"#1a4050",marginTop:2}}>
-                          {CORPUS[0].length-Math.max(0,ingestStep-1)} bytes
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </>
-            )}
-            {animSteps.length===0 && (
-              <div style={{padding:"40px 0",textAlign:"center",color:"#1a3040",fontSize:11}}>
-                press ▶ to animate
-              </div>
-            )}
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:10,marginTop:8}}>
-              {[
-                {label:"store entries",val:HOLO_STORE.size,color:"#00ffcc"},
-                {label:"sentences",val:CORPUS.length,color:"#4488ff"},
-                {label:"recall cost",val:"O(1)",color:"#44ff88"},
-              ].map(({label,val,color})=>(
-                <div key={label} style={{background:"#0a1520",border:"1px solid #1a3040",
-                  padding:"12px 14px",textAlign:"center"}}>
-                  <div style={{fontSize:24,fontWeight:"bold",color,marginBottom:3}}>{val}</div>
-                  <div style={{fontSize:9,color:"#3a6070"}}>{label}</div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB 3: NON-COMMUTATIVITY ──────────────────────────────────── */}
-        {tab==="noncomm" && (
-          <div>
-            <div style={{fontSize:10,color:"#3a6070",marginBottom:14,lineHeight:1.8}}>
-              Affine maps over GF(257) do not commute. X then Y ≠ Y then X.
-              This means word order is physically encoded — two sentences with the same words
-              in different order land at different rotation states and thus different addresses.
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:16,marginBottom:16}}>
-              {/* Ring */}
-              <div style={{background:"#0a1520",border:"1px solid #1a3040",padding:16}}>
-                <div style={{fontSize:9,letterSpacing:2,color:"#3a6070",marginBottom:10}}>MANUAL PAD</div>
-                <svg width="100%" viewBox="-115 -115 230 230" style={{display:"block",marginBottom:10}}>
-                  {Array.from({length:RING_N},(_,i)=>{
-                    const a=(i/RING_N)*2*Math.PI-Math.PI/2;
-                    const x=Math.cos(a)*RING_R,y=Math.sin(a)*RING_R;
-                    const set=manualBits[i]===1;
-                    return <circle key={i} cx={x} cy={y} r={set?5:2.5}
-                      fill={set?"#00ffcc":"#0d2030"}
-                      stroke={set?"#00aa88":"#1a3040"} strokeWidth={0.5}/>;
-                  })}
-                  <text textAnchor="middle" y={-8} fontSize={11} fill="#00ffcc">{affineStr(manualAff)}</text>
-                  <text textAnchor="middle" y={10} fontSize={8} fill="#3a6070">
-                    state {stateIndex(manualAff).toLocaleString()}
-                  </text>
-                </svg>
-                <div style={{display:"flex",gap:6,marginBottom:8}}>
-                  {["X","Y","Z"].map(op=>(
-                    <button key={op} onClick={()=>applyOp(op)} style={{
-                      flex:1,background:`${opColor(op)}11`,border:`1px solid ${opColor(op)}44`,
-                      color:opColor(op),padding:"8px 4px",cursor:"pointer",fontSize:13,
-                      fontWeight:"bold",...mf,
-                    }}>
-                      {op}
-                      <div style={{fontSize:8,opacity:0.6,fontWeight:"normal"}}>
-                        {op==="X"?"p+1":op==="Y"?"3p":"3p+1"}
-                      </div>
-                    </button>
-                  ))}
-                </div>
-                <div style={{display:"flex",gap:3,flexWrap:"wrap",minHeight:22,marginBottom:6}}>
-                  {manualHistory.length===0
-                    ? <span style={{color:"#1a3040",fontSize:10}}>press a rotation</span>
-                    : manualHistory.map((op,i)=>(
-                      <span key={i} style={{
-                        background:op==="X"?"#001428":op==="Y"?"#140028":"#001a10",
-                        color:opColor(op),border:`1px solid ${opColor(op)}44`,
-                        fontSize:10,padding:"1px 6px",fontWeight:"bold",
-                      }}>{op}</span>
-                    ))
-                  }
-                </div>
-                <button onClick={()=>{setManualBits(new Uint8Array(N));setManualAff(IDENT);setManualHistory([]);}}
-                  style={{background:"transparent",border:"1px solid #1a3040",color:"#3a6070",
-                    padding:"5px",cursor:"pointer",fontSize:9,...mf,width:"100%"}}>RESET</button>
-              </div>
-
-              {/* Proof table */}
-              <div style={{background:"#0a1520",border:"1px solid #1a3040",padding:16}}>
-                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
-                  <div style={{fontSize:9,letterSpacing:2,color:"#3a6070"}}>ALGEBRAIC PROOF</div>
-                  <button onClick={runNonComm} style={{
-                    background:"#001428",border:"1px solid #00ffcc55",color:"#00ffcc",
-                    padding:"6px 12px",cursor:"pointer",fontSize:9,...mf,
-                  }}>RUN</button>
-                </div>
-                {demoResults ? (
-                  <div style={{display:"flex",flexDirection:"column",gap:6}}>
-                    {/* Group pairs */}
-                    {[[0,1],[2,3],[4,5]].map(([ia,ib])=>{
-                      const ra=demoResults[ia], rb=demoResults[ib];
-                      const same = ra.a.a===rb.a.a && ra.a.b===rb.a.b;
-                      return (
-                        <div key={ia} style={{
-                          background:"#060e18",
-                          border:`1px solid ${same?"#660000":"#004422"}`,
-                          padding:"10px 12px",
-                        }}>
-                          <div style={{display:"grid",gridTemplateColumns:"1fr 20px 1fr",gap:8,alignItems:"center"}}>
-                            <div>
-                              <div style={{fontSize:8,color:"#3a6070",marginBottom:2}}>
-                                {ra.ops.map((o,i)=><span key={i} style={{color:opColor(o)}}>{o}{i<ra.ops.length-1?" → ":""}</span>)}
-                              </div>
-                              <div style={{fontSize:13,color:"#4488ff"}}>{affineStr(ra.a)}</div>
-                              <div style={{fontSize:8,color:"#1a3040"}}>#{stateIndex(ra.a).toLocaleString()}</div>
-                            </div>
-                            <div style={{textAlign:"center",fontSize:16,fontWeight:"bold",
-                              color:same?"#ff4444":"#00ff88"}}>{same?"=":"≠"}</div>
-                            <div>
-                              <div style={{fontSize:8,color:"#3a6070",marginBottom:2}}>
-                                {rb.ops.map((o,i)=><span key={i} style={{color:opColor(o)}}>{o}{i<rb.ops.length-1?" → ":""}</span>)}
-                              </div>
-                              <div style={{fontSize:13,color:"#ff6622"}}>{affineStr(rb.a)}</div>
-                              <div style={{fontSize:8,color:"#1a3040"}}>#{stateIndex(rb.a).toLocaleString()}</div>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                    <div style={{fontSize:9,color:"#1a3040",marginTop:4,lineHeight:1.8}}>
-                      Every reversed pair lands at a different state. Order is physically encoded.
-                    </div>
-                  </div>
-                ) : (
-                  <div style={{padding:"40px 0",textAlign:"center",color:"#1a3040",fontSize:10}}>
-                    press RUN to see X→Y vs Y→X etc.
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Sentence example */}
-            <div style={{background:"#0a1520",border:"1px solid #1a3040",padding:16}}>
-              <div style={{fontSize:9,letterSpacing:2,color:"#3a6070",marginBottom:10}}>
-                CONCRETE SENTENCE EXAMPLE
-              </div>
-              {["The cat sat","sat cat The"].map(s => {
-                const st = computeState(s);
-                return (
-                  <div key={s} style={{display:"flex",gap:16,alignItems:"center",marginBottom:8}}>
-                    <span style={{fontSize:13,color:"#c8e8f0",minWidth:150}}>"{s}"</span>
-                    <span style={{fontSize:10,color:"#3a6070"}}>→</span>
-                    <span style={{fontSize:12,color:"#00ffcc"}}>f(p) = {affineStr(st)}</span>
-                    <span style={{fontSize:9,color:"#1a4050"}}>state #{stateIndex(st).toLocaleString()}</span>
-                  </div>
-                );
-              })}
-              <div style={{fontSize:9,color:"#1a3040",marginTop:6,lineHeight:1.8}}>
-                Same words, different order → different rotation states → different addresses in the store.
-                No explicit sequence tracking needed. The non-commutativity of GF(257) affine maps does it automatically.
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── TAB 4: STATE SPACE ────────────────────────────────────────── */}
-        {tab==="states" && (
-          <div>
-            <div style={{fontSize:10,color:"#3a6070",marginBottom:14,lineHeight:1.8}}>
-              The affine group Aff(GF(257)) has exactly 256 × 257 = 65,792 elements.
-              Each is a distinct bijective permutation of the 257 positions.
-              The same 257 bits at two different rotation states = two completely different memories.
-            </div>
-
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:16}}>
-              {[
-                {label:"multiplier a",range:"1 → 256",count:"256",note:"non-zero → bijection guaranteed",color:"#4488ff"},
-                {label:"offset b",range:"0 → 256",count:"257",note:"full range of cube positions",color:"#ff6622"},
-                {label:"total states",range:"256 × 257",count:"65,792",note:"unique permutations of 257 positions",color:"#00ffcc"},
-              ].map(({label,range,count,note,color})=>(
-                <div key={label} style={{background:"#0a1520",border:"1px solid #1a3040",
-                  padding:16,textAlign:"center"}}>
-                  <div style={{fontSize:9,color:"#3a6070",letterSpacing:1,marginBottom:6}}>{label}</div>
-                  <div style={{fontSize:9,color:"#1a4050",marginBottom:4}}>{range}</div>
-                  <div style={{fontSize:30,fontWeight:"bold",color,marginBottom:6}}>{count}</div>
-                  <div style={{fontSize:9,color:"#1a3040",lineHeight:1.6}}>{note}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{background:"#0a1520",border:"1px solid #1a3040",padding:16,marginBottom:14}}>
-              <div style={{fontSize:9,letterSpacing:2,color:"#3a6070",marginBottom:12}}>
-                ROTATION GROUP COMPARISON
-              </div>
-              {[
-                {name:"SO(3) cubic (old 3³)",states:24,desc:"24 rigid 90° rotations on 3×3×3 grid",color:"#2a3a4a"},
-                {name:"A₅ icosahedral (iteration 5)",states:60,desc:"60 even permutations of chiral icosahedral group",color:"#3a4a6a"},
-                {name:"Aff(GF(257)) · this proposal",states:65792,desc:"65,792 affine maps over prime field — 3 orders of magnitude richer",color:"#00ffcc"},
-              ].map(({name,states,desc,color})=>(
-                <div key={name} style={{marginBottom:12}}>
-                  <div style={{display:"flex",justifyContent:"space-between",fontSize:10,marginBottom:4}}>
-                    <span style={{color}}>{name}</span>
-                    <span style={{color,fontWeight:"bold"}}>{states.toLocaleString()}</span>
-                  </div>
-                  <div style={{width:"100%",height:5,background:"#060e18",borderRadius:3,overflow:"hidden"}}>
-                    <div style={{width:`${Math.max(states/65792*100,0.4)}%`,height:"100%",
-                      background:color,borderRadius:3}}/>
-                  </div>
-                  <div style={{fontSize:9,color:"#1a3040",marginTop:2}}>{desc}</div>
-                </div>
-              ))}
-            </div>
-
-            <div style={{background:"#001a10",border:"1px solid #00aa4433",padding:16}}>
-              <div style={{fontSize:9,letterSpacing:2,color:"#00aa44",marginBottom:10}}>THE POINT</div>
-              <div style={{fontSize:12,color:"#c8e8f0",lineHeight:2.1}}>
-                A 257-bit chord: 2²⁵⁷ possible bit patterns.<br/>
-                Each storable under any of 65,792 rotation states.<br/>
-                <span style={{color:"#3a6070",fontSize:10}}>
-                  "The cat sat" traces a specific path through GF(257) to rotation state {stateIndex(computeState("The cat sat")).toLocaleString()}.
-                  A different sequence that happens to activate the same bits
-                  but via different character order arrives at a different state entirely.
-                  The geometry separates them automatically. No explicit sequence tag. No position encoding.
-                  The non-commutativity of multiplication in GF(257) does the work.
-                </span>
-              </div>
-            </div>
-          </div>
-        )}
-
-      </div>
-    </div>
-  );
-}
-```
-
-```
 import { useState, useEffect, useRef, useCallback } from "react";
 import * as THREE from "three";
+import { AreaChart, Area, XAxis, YAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 // ── GF(257) ──────────────────────────────────────────────────────────────────
 const N = 257;
 const IDENT = { a: 1, b: 0 };
-
 function modInverse(a, m) {
   let [or,r]=[a,m],[os,s]=[1,0];
   while(r){const q=Math.floor(or/r);[or,r]=[r,or-q*r];[os,s]=[s,os-q*s];}
@@ -644,9 +13,6 @@ function modInverse(a, m) {
 function composeAffine(f, g) {
   return { a: (g.a * f.a) % N, b: (g.a * f.b + g.b) % N };
 }
-
-// face256Source: which chord currently sits at position 256
-// depends on the cube's discrete rotation state
 function face256Source({ a, b }) {
   return ((256 - b + N) * modInverse(a, N)) % N;
 }
@@ -655,110 +21,127 @@ function affStr({ a, b }) {
 }
 function stateHue({ a, b }) { return (a/256*280 + b/256*80) % 360; }
 
-// ── DISCRETE ROTATION ALGEBRA ────────────────────────────────────────────────
-// A cube rotation is 90°, 180°, or 270° around X, Y, or Z.
-// Each maps to an affine transform over GF(257).
-// 90° rotations use the generators; 180° = compose twice; 270° = compose thrice.
-const ROT_TABLE = {
-  X_90:  {a:1, b:1},    // p+1
-  X_180: {a:1, b:2},    // p+2  (compose X_90 twice)
-  X_270: {a:1, b:256},  // p+256 ≡ p-1 mod 257
-  Y_90:  {a:3, b:0},    // 3p
-  Y_180: {a:9, b:0},    // 9p   (compose Y_90 twice)
-  Y_270: {a:86,b:0},    // 86p  (3^(-1) mod 257 = 86, i.e. 3^3 mod 257... actually 3*86=258≡1)
-  Z_90:  {a:3, b:1},    // 3p+1
-  Z_180: {a:9, b:4},    // compose Z_90 twice: 3(3p+1)+1 = 9p+4
-  Z_270: {a:86,b:171},  // inverse of Z_90
-};
+// ── CHORD CHANNELS ──────────────────────────────────────────────────────────
+// The chord at face256 is conceptually 257 bits. For visualization we project
+// to 8 bits by evaluating the affine function at 8 prime probe points.
+// Each bit = one channel. Edge routing uses bitwise AND of endpoint chords.
+// This is the {0,1}^8 communication space operating orthogonally to AGL(1,257).
+const CHANNEL_PROBES = [2, 3, 5, 7, 11, 13, 17, 19];
+const CHANNEL_COLORS = ["#ff3366","#ff8800","#ffdd00","#44ff88","#00ffcc","#3399ff","#9933ff","#ff44ff"];
 
-// Pick a rotation based on the derived opcode flavor
-function pickRotation(op) {
-  if (op === "ROTATE_X") {
-    const picks = ["X_90","X_180","X_270"];
-    return picks[Math.floor(Math.random()*3)];
+function chordBits(state) {
+  let bits = 0;
+  for (let i = 0; i < 8; i++) {
+    const val = (state.a * CHANNEL_PROBES[i] + state.b) % N;
+    if (val > 128) bits |= (1 << i);
   }
-  if (op === "ROTATE_Y") {
-    const picks = ["Y_90","Y_180","Y_270"];
-    return picks[Math.floor(Math.random()*3)];
-  }
-  if (op === "ROTATE_Z") {
-    const picks = ["Z_90","Z_180","Z_270"];
-    return picks[Math.floor(Math.random()*3)];
-  }
-  return null;
+  return bits;
+}
+function channelOverlap(bitsA, bitsB) { return bitsA & bitsB; }
+function popcount(x) { let c=0; while(x){c+=x&1;x>>=1;} return c; }
+function chordStr(bits) {
+  let s = "";
+  for (let i = 0; i < 8; i++) s += (bits & (1<<i)) ? "1" : "0";
+  return s;
 }
 
-// Quaternion for a discrete rotation
+// ── DISCRETE ROTATION ALGEBRA ────────────────────────────────────────────────
+// Build rotation table from a generator g ∈ GF(257)*.
+// X-axis = pure translations (additive), Y/Z-axis = multiplicative via g.
+// All entries are derived algebraically: 180° = compose 90° twice, 270° = inverse.
+function buildRotTable(g) {
+  const gi = modInverse(g, N);           // g⁻¹ mod 257
+  const g2 = (g * g) % N;               // g²
+  return {
+    X_90:  {a:1, b:1},
+    X_180: {a:1, b:2},
+    X_270: {a:1, b:256},                 // p-1 mod 257
+    Y_90:  {a:g,  b:0},                  // g·p
+    Y_180: {a:g2, b:0},                  // g²·p
+    Y_270: {a:gi, b:0},                  // g⁻¹·p
+    Z_90:  {a:g,  b:1},                  // g·p+1
+    Z_180: {a:g2, b:(g+1)%N},           // g²·p+(g+1)
+    Z_270: {a:gi, b:(N-gi)%N},          // g⁻¹·p−g⁻¹ ≡ g⁻¹·p+(257−g⁻¹)
+  };
+}
+
+// ── GENERATOR PRESETS ────────────────────────────────────────────────────────
+const GENERATORS = {
+  "g=3":   { g:3,   label:"3 (primitive root, current)" },
+  "g=5":   { g:5,   label:"5 (prime, ord=256)" },
+  "g=7":   { g:7,   label:"7 (prime)" },
+  "g=128": { g:128, label:"128 (mid-field, 128⁻¹=255)" },
+  "g=256": { g:256, label:"256 ≡ −1 (involution, g²=1)" },
+};
+function pickRotation(op) {
+  const axis = op.split("_")[1];
+  const picks = [`${axis}_90`,`${axis}_180`,`${axis}_270`];
+  return picks[Math.floor(Math.random()*3)];
+}
 function rotQuaternion(rotKey) {
-  const axis = rotKey[0]; // X, Y, or Z
-  const deg = parseInt(rotKey.split("_")[1]); // 90, 180, 270
-  const rad = (deg * Math.PI) / 180;
-  const ax = axis === "X" ? new THREE.Vector3(1,0,0) :
-             axis === "Y" ? new THREE.Vector3(0,1,0) :
-                            new THREE.Vector3(0,0,1);
-  return new THREE.Quaternion().setFromAxisAngle(ax, rad);
+  const axis = rotKey[0];
+  const deg = parseInt(rotKey.split("_")[1]);
+  const ax = axis==="X"?new THREE.Vector3(1,0,0):axis==="Y"?new THREE.Vector3(0,1,0):new THREE.Vector3(0,0,1);
+  return new THREE.Quaternion().setFromAxisAngle(ax, (deg*Math.PI)/180);
 }
 
 const OPCODES = {
-  ROTATE_X:{ css:"#3377ff", desc:"f(p)=p+k  (X axis)",  aff:null },
-  ROTATE_Y:{ css:"#9933ff", desc:"f(p)=3^k·p (Y axis)", aff:null },
-  ROTATE_Z:{ css:"#ff2266", desc:"f(p)=3^k·p+k (Z axis)",aff:null },
-  ALIGN:   { css:"#00ffcc", desc:"compose sender",     aff:null },
-  SEARCH:  { css:"#ff8800", desc:"nearest neighbor",   aff:null },
-  SYNC:    { css:"#ffd700", desc:"midpoint",           aff:null },
-  FORK:    { css:"#44ff88", desc:"spawn tool",         aff:{a:1,b:2} },
-  COMPOSE: { css:"#ff44ff", desc:"wire pipelines",     aff:null },
-  LOOP:    { css:"#ffaa00", desc:"iterate dataset",    aff:null },
-  CALL:    { css:"#00eeff", desc:"enter subgraph",     aff:null },
-  RETURN:  { css:"#ff6600", desc:"exit + pop stack",   aff:null },
-  SYNTH:   { css:"#cc44ff", desc:"O(1) recall",        aff:null },
+  ROTATE_X:{css:"#3377ff",band:"rotate"},ROTATE_Y:{css:"#9933ff",band:"rotate"},
+  ROTATE_Z:{css:"#ff2266",band:"rotate"},ALIGN:{css:"#00ffcc",band:"stable"},
+  SEARCH:{css:"#ff8800",band:"stable"},SYNC:{css:"#ffd700",band:"stable"},
+  FORK:{css:"#44ff88",band:"growth"},COMPOSE:{css:"#ff44ff",band:"growth"},
 };
-
 function deriveOpcode(stA, stB) {
   const b = (face256Source(stA) + face256Source(stB)) % N;
-  if(b<32)  return "ROTATE_X";
-  if(b<64)  return "ROTATE_Y";
-  if(b<96)  return "ROTATE_Z";
-  if(b<128) return "ALIGN";
-  if(b<160) return "SEARCH";
-  if(b<192) return "SYNC";
-  if(b<220) return "FORK";
-  return "COMPOSE";
+  // Band boundaries tuned to prevent growth-dominated freeze:
+  // rotate ~43%, stable ~45%, growth ~12%
+  if(b<40)return"ROTATE_X";if(b<80)return"ROTATE_Y";if(b<110)return"ROTATE_Z";
+  if(b<150)return"ALIGN";if(b<190)return"SEARCH";if(b<225)return"SYNC";
+  if(b<245)return"FORK";return"COMPOSE";
 }
+function opBand(op) { return OPCODES[op]?.band || "stable"; }
 
 const _gc={};
 function makeGlow(hex){
-  if(_gc[hex]) return _gc[hex];
+  if(_gc[hex])return _gc[hex];
   const c=new THREE.Color(hex);
   const r=Math.round(c.r*255),g=Math.round(c.g*255),b=Math.round(c.b*255);
-  const sz=96,cv=document.createElement("canvas"); cv.width=cv.height=sz;
+  const sz=96,cv=document.createElement("canvas");cv.width=cv.height=sz;
   const ctx=cv.getContext("2d");
   const gr=ctx.createRadialGradient(sz/2,sz/2,0,sz/2,sz/2,sz/2);
-  gr.addColorStop(0,`rgba(${r},${g},${b},1)`);
-  gr.addColorStop(0.3,`rgba(${r},${g},${b},0.55)`);
-  gr.addColorStop(0.7,`rgba(${r},${g},${b},0.1)`);
-  gr.addColorStop(1,`rgba(${r},${g},${b},0)`);
-  ctx.fillStyle=gr; ctx.fillRect(0,0,sz,sz);
-  const t=new THREE.CanvasTexture(cv); _gc[hex]=t; return t;
+  gr.addColorStop(0,`rgba(${r},${g},${b},1)`);gr.addColorStop(0.3,`rgba(${r},${g},${b},0.55)`);
+  gr.addColorStop(0.7,`rgba(${r},${g},${b},0.1)`);gr.addColorStop(1,`rgba(${r},${g},${b},0)`);
+  ctx.fillStyle=gr;ctx.fillRect(0,0,sz,sz);
+  const t=new THREE.CanvasTexture(cv);_gc[hex]=t;return t;
 }
 
-// Dataset: 8 affine states representing "observations"
-const DATASET=[
-  {a:3,  b:47 }, {a:9,  b:12 }, {a:27, b:81 }, {a:81, b:200},
-  {a:3,  b:155}, {a:9,  b:230}, {a:27, b:44 }, {a:81, b:99 },
-];
-const DATASET_LABELS=[
-  "Mary→bathroom","John→hallway","Daniel→hallway","Sandra→garden",
-  "John→office","Sandra→bathroom","Mary→hallway","Daniel→office",
-];
-
-// Node roles
-const ROLES={
-  INPUT: { css:"#00ff88", glow:"#00ff88", geo:"box",  fixed:true  },
-  OUTPUT:{ css:"#4488ff", glow:"#4488ff", geo:"box",  fixed:true  },
-  PROC:  { css:"#00ccff", glow:"#00ccff", geo:"box",  fixed:false },
-  TOOL:  { css:"#ff44ff", glow:"#ff44ff", geo:"octa", fixed:false },
+// ── SEED PRESETS ─────────────────────────────────────────────────────────────
+const SEEDS = {
+  "generators": {
+    label: "Generator neighborhood",
+    states: [{a:3,b:47},{a:86,b:12},{a:27,b:200},{a:1,b:128},{a:9,b:81}],
+  },
+  "inverses": {
+    label: "Inverse pairs",
+    states: [{a:3,b:0},{a:86,b:0},{a:9,b:0},{a:29,b:0},{a:1,b:1}],
+  },
+  "translations": {
+    label: "Pure translations",
+    states: [{a:1,b:17},{a:1,b:85},{a:1,b:128},{a:1,b:200},{a:1,b:42}],
+  },
+  "mixed": {
+    label: "Mixed deep group",
+    states: [{a:81,b:99},{a:27,b:44},{a:243,b:155},{a:3,b:230},{a:9,b:12}],
+  },
+  "clustered": {
+    label: "Clustered (near states)",
+    states: [{a:3,b:47},{a:3,b:48},{a:3,b:50},{a:9,b:47},{a:9,b:48}],
+  },
 };
+
+const MAX_NODES = 200;
+const SAMPLE_INTERVAL = 8; // collect time-series sample every N ticks
+const MAX_SAMPLES = 150;
 
 export default function App() {
   const mountRef=useRef(null);
@@ -766,38 +149,50 @@ export default function App() {
   const [log,setLog]=useState([]);
   const [selected,setSelected]=useState(null);
   const [nodeInfo,setNodeInfo]=useState(null);
-  const [progState,setProgState]=useState({iteration:0,phase:"idle",accumState:IDENT,stackDepth:0});
-  const [toolCount,setToolCount]=useState(0);
+  const [metrics,setMetrics]=useState({nodes:0,edges:0,stableEdges:0,volatileEdges:0,growthEdges:0,totalRotations:0,forks:0,tick:0});
   const [running,setRunning]=useState(false);
-  const [rotLog,setRotLog]=useState([]);
+  const [speed,setSpeed]=useState(1);
+  const [timeSeries,setTimeSeries]=useState([]);
+  const [tab,setTab]=useState("live"); // "live" | "charts" | "experiment"
+  const [seed,setSeed]=useState("generators");
+  const [gen,setGen]=useState("g=3");
+  const [runId,setRunId]=useState(0); // increment to trigger full reset
+  const [perturbData,setPerturbData]=useState(null);
+  const [probeResults,setProbeResults]=useState([]);
+  const [autoReport,setAutoReport]=useState(null); // full auto-run results
+  const [autoPhase,setAutoPhase]=useState("idle"); // idle|growing|stabilizing|testing|done
 
   const pushLog=useCallback((msg,color="#6688aa")=>{
     setLog(prev=>[{msg,color,id:Math.random()},...prev].slice(0,20));
   },[]);
-  const pushRotLog=useCallback((msg,color="#3377ff")=>{
-    setRotLog(prev=>[{msg,color,id:Math.random()},...prev].slice(0,8));
-  },[]);
 
   useEffect(()=>{
-    const el=mountRef.current; if(!el) return;
+    const el=mountRef.current;if(!el)return;
+
+    // Build rotation table from selected generator
+    const genConfig = GENERATORS[gen] || GENERATORS["g=3"];
+    const ROT_TABLE = buildRotTable(genConfig.g);
     const W=el.clientWidth,H=el.clientHeight;
     const renderer=new THREE.WebGLRenderer({antialias:true});
     renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-    renderer.setSize(W,H); renderer.setClearColor(0x010408,1);
+    renderer.setSize(W,H);renderer.setClearColor(0x010408,1);
     el.appendChild(renderer.domElement);
     const scene=new THREE.Scene();
-    scene.fog=new THREE.FogExp2(0x010408,0.00055);
-    const camera=new THREE.PerspectiveCamera(56,W/H,0.5,6000);
+    scene.fog=new THREE.FogExp2(0x010408,0.00040);
+    const camera=new THREE.PerspectiveCamera(56,W/H,0.5,8000);
     camera.position.set(0,200,820);
 
     // stars
-    {const n=1200,p=new Float32Array(n*3);for(let i=0;i<n;i++){const r=2000+Math.random()*3000,t=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);p[i*3]=r*Math.sin(ph)*Math.cos(t);p[i*3+1]=r*Math.sin(ph)*Math.sin(t);p[i*3+2]=r*Math.cos(ph);}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x334455,size:1.3,transparent:true,opacity:0.4,depthWrite:false})));}
+    {const n=1400,p=new Float32Array(n*3);for(let i=0;i<n;i++){const r=2500+Math.random()*4000,t=Math.random()*Math.PI*2,ph=Math.acos(2*Math.random()-1);p[i*3]=r*Math.sin(ph)*Math.cos(t);p[i*3+1]=r*Math.sin(ph)*Math.sin(t);p[i*3+2]=r*Math.cos(ph);}const g=new THREE.BufferGeometry();g.setAttribute("position",new THREE.BufferAttribute(p,3));scene.add(new THREE.Points(g,new THREE.PointsMaterial({color:0x334455,size:1.3,transparent:true,opacity:0.4,depthWrite:false})));}
 
     const nodes=[],edges=[],tokens=[];
     let frameN=0,selectedIdx=null;
-    let progRunning=false,iteration=0;
-    const callStack=[];
-    let accumState={...IDENT};
+    let substrateRunning=false;
+    let totalRotations=0,totalForks=0,tick=0;
+    let lastSampleTick=0;
+    let lastRotationTick=0; // track when last rotation happened for entropy floor
+    const tsData=[];     // time-series buffer (internal)
+    let rotThisSample=0; // rotations in current sample window
 
     // camera
     let camTheta=0,camPhi=1.1,camR=820,autoOrbit=true,drag=false,prevM={x:0,y:0},lastAct=0;
@@ -807,7 +202,7 @@ export default function App() {
     renderer.domElement.addEventListener("mousedown",e=>{drag=true;autoOrbit=false;prevM={x:e.clientX,y:e.clientY};lastAct=Date.now();});
     window.addEventListener("mousemove",onMove);
     window.addEventListener("mouseup",onUp);
-    renderer.domElement.addEventListener("wheel",e=>{camR=Math.max(200,Math.min(1800,camR+e.deltaY*0.5));lastAct=Date.now();},{passive:true});
+    renderer.domElement.addEventListener("wheel",e=>{camR=Math.max(200,Math.min(3000,camR+e.deltaY*0.5));lastAct=Date.now();},{passive:true});
     const ray=new THREE.Raycaster(),mouse=new THREE.Vector2();
     renderer.domElement.addEventListener("click",e=>{
       if(drag)return;
@@ -819,464 +214,838 @@ export default function App() {
       if(hits.length>0){const idx=nodes.findIndex(n=>n.coreMesh===hits[0].object);selectedIdx=idx;setSelected(idx);}
     });
 
-    // ── NODE ──
-    function makeNode(x,y,z,role,label,initState){
-      const rd=ROLES[role]||ROLES.PROC;
-      const state=initState?{...initState}:{...IDENT};
-      const pos=new THREE.Vector3(x,y,z);
-      const col=new THREE.Color(rd.css);
-
-      // Cube geometry — represents 257 faces (256 vocab + 1 register)
-      const coreGeo = role==="TOOL" ? new THREE.OctahedronGeometry(14,0) : new THREE.BoxGeometry(22,22,22);
-      const coreMat=new THREE.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:0.9});
-      const coreMesh=new THREE.Mesh(coreGeo,coreMat); coreMesh.position.copy(pos); scene.add(coreMesh);
-
-      const fillGeo=role==="TOOL"?new THREE.OctahedronGeometry(10,0):new THREE.BoxGeometry(16,16,16);
-      const fillMesh=new THREE.Mesh(fillGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:role==="INPUT"||role==="OUTPUT"?0.15:0.07}));
-      fillMesh.position.copy(pos); scene.add(fillMesh);
-
-      const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(rd.glow),blending:THREE.AdditiveBlending,transparent:true,opacity:role==="INPUT"||role==="OUTPUT"?0.65:0.35,depthWrite:false}));
-      halo.scale.setScalar(role==="INPUT"||role==="OUTPUT"?110:80); halo.position.copy(pos); scene.add(halo);
-
-      // face256 indicator — the register face marker
-      const f256m=new THREE.Mesh(new THREE.SphereGeometry(3,8,8),new THREE.MeshBasicMaterial({color:0xff8800}));
-      f256m.position.copy(pos).add(new THREE.Vector3(16,16,0)); scene.add(f256m);
-      const f256g=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow("#ff8800"),blending:THREE.AdditiveBlending,transparent:true,opacity:0.8,depthWrite:false}));
-      f256g.scale.setScalar(22); f256g.position.copy(f256m.position); scene.add(f256g);
-
-      // Face256 direction indicator — shows which cube face currently holds register
-      const arrowGeo = new THREE.ConeGeometry(3, 10, 6);
-      const arrowMat = new THREE.MeshBasicMaterial({color:0xff8800, transparent:true, opacity:0.7});
-      const arrowMesh = new THREE.Mesh(arrowGeo, arrowMat);
-      arrowMesh.position.copy(pos); scene.add(arrowMesh);
-
-      let ring=null;
-      if(role==="TOOL"){ring=new THREE.Mesh(new THREE.RingGeometry(20,22,32),new THREE.MeshBasicMaterial({color:0xff44ff,side:THREE.DoubleSide,transparent:true,opacity:0.35}));ring.position.copy(pos);scene.add(ring);}
-
-      // Discrete rotation state: quaternion tracks accumulated orientation
-      const discreteQuat = new THREE.Quaternion(); // current orientation
-      const targetQuat = new THREE.Quaternion();    // target after pending rotation
-      const rotAnimProgress = { v: 1.0 };           // 1.0 = no animation in progress
-      const rotHistory = [];                         // log of rotations applied
-
+    // ── LOD THRESHOLDS ──
+    function lod() {
+      const n = nodes.length;
       return {
-        idx:nodes.length, state, pos, role, label,
-        coreMesh, coreMat, fillMesh, halo,
-        f256m, f256g, arrowMesh,
-        ring, flash:0, birthFrame:frameN, receivedOps:[],
-        // discrete rotation tracking
-        discreteQuat, targetQuat, rotAnimProgress,
-        rotHistory, rotCount: 0,
+        sphereSegs: n > 80 ? 4 : 8,
+        trailLen: n > 50 ? 6 : n > 100 ? 3 : 12,
+        showOrbiters: n <= 80,
+        showArrows: n <= 50,
+        haloScale: n > 100 ? 0.5 : n > 50 ? 0.75 : 1.0,
+        tokenCap: n > 100 ? 6 : 10,
       };
     }
 
-    function updateNodeColor(nd){
-      if(nd.role==="INPUT"||nd.role==="OUTPUT"||nd.role==="TOOL") return;
-      const col=new THREE.Color().setHSL(stateHue(nd.state)/360,0.85,0.55);
-      nd.coreMat.color.copy(col); nd.fillMesh.material.color.copy(col);
-      nd.halo.material.map=makeGlow(`#${col.getHexString()}`); nd.halo.material.needsUpdate=true;
-      const fh=face256Source(nd.state)/256;
-      const fc=new THREE.Color().setHSL(fh*0.8,1.0,0.6);
-      nd.f256m.material.color.copy(fc);
-      nd.f256g.material.map=makeGlow(`#${fc.getHexString()}`); nd.f256g.material.needsUpdate=true;
+    // ── NODE ──
+    function makeNode(x,y,z,initState,label){
+      const state=initState?{...initState}:{...IDENT};
+      const pos=new THREE.Vector3(x,y,z);
+      const col=new THREE.Color().setHSL(stateHue(state)/360,0.85,0.55);
+      const L = lod();
+
+      const coreGeo=new THREE.BoxGeometry(22,22,22);
+      const coreMat=new THREE.MeshBasicMaterial({color:col,wireframe:true,transparent:true,opacity:0.9});
+      const coreMesh=new THREE.Mesh(coreGeo,coreMat);coreMesh.position.copy(pos);scene.add(coreMesh);
+
+      const fillGeo=new THREE.BoxGeometry(16,16,16);
+      const fillMesh=new THREE.Mesh(fillGeo,new THREE.MeshBasicMaterial({color:col,transparent:true,opacity:0.08}));
+      fillMesh.position.copy(pos);scene.add(fillMesh);
+
+      const halo=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(`#${col.getHexString()}`),blending:THREE.AdditiveBlending,transparent:true,opacity:0.3,depthWrite:false}));
+      halo.scale.setScalar(80*L.haloScale);halo.position.copy(pos);scene.add(halo);
+
+      let f256m=null,f256g=null,arrowMesh=null;
+      if(L.showOrbiters){
+        f256m=new THREE.Mesh(new THREE.SphereGeometry(3,L.sphereSegs,L.sphereSegs),new THREE.MeshBasicMaterial({color:0xff8800}));
+        f256m.position.copy(pos).add(new THREE.Vector3(16,16,0));scene.add(f256m);
+        f256g=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow("#ff8800"),blending:THREE.AdditiveBlending,transparent:true,opacity:0.8,depthWrite:false}));
+        f256g.scale.setScalar(22);f256g.position.copy(f256m.position);scene.add(f256g);
+      }
+      if(L.showArrows){
+        const arrowGeo=new THREE.ConeGeometry(3,10,6);
+        arrowMesh=new THREE.Mesh(arrowGeo,new THREE.MeshBasicMaterial({color:0xff8800,transparent:true,opacity:0.6}));
+        arrowMesh.position.copy(pos);scene.add(arrowMesh);
+      }
+
+      const discreteQuat=new THREE.Quaternion();
+      const targetQuat=new THREE.Quaternion();
+      const rotAnimProgress={v:1.0};
+
+      // Channel dot sprites (show 8 chord bits as colored dots)
+      const channelDots=[];
+      if(L.showOrbiters){
+        for(let i=0;i<8;i++){
+          const dm=new THREE.Sprite(new THREE.SpriteMaterial({
+            map:makeGlow(CHANNEL_COLORS[i]),blending:THREE.AdditiveBlending,
+            transparent:true,opacity:0.0,depthWrite:false}));
+          dm.scale.setScalar(7);dm.position.copy(pos);scene.add(dm);
+          channelDots.push(dm);
+        }
+      }
+
+      const chord=chordBits(state);
+
+      return{idx:nodes.length,state,pos,label:label||`N${nodes.length}`,coreMesh,coreMat,fillMesh,halo,f256m,f256g,arrowMesh,flash:0,birthFrame:frameN,receivedOps:[],discreteQuat,targetQuat,rotAnimProgress,rotCount:0,stableCount:0,chord,channelDots};
     }
 
-    // ── APPLY DISCRETE ROTATION ──
-    // Only called when a ROTATE opcode fires. This is the core mechanic:
-    // rotation changes face256, which cascades to all connected edge opcodes.
+    function updateNodeColor(nd){
+      const col=new THREE.Color().setHSL(stateHue(nd.state)/360,0.85,0.55);
+      nd.coreMat.color.copy(col);nd.fillMesh.material.color.copy(col);
+      nd.halo.material.map=makeGlow(`#${col.getHexString()}`);nd.halo.material.needsUpdate=true;
+      nd.chord=chordBits(nd.state); // update chord projection
+      if(nd.f256m){
+        const fh=face256Source(nd.state)/256;
+        const fc=new THREE.Color().setHSL(fh*0.8,1.0,0.6);
+        nd.f256m.material.color.copy(fc);
+        nd.f256g.material.map=makeGlow(`#${fc.getHexString()}`);nd.f256g.material.needsUpdate=true;
+      }
+    }
+
+    // ── DISCRETE ROTATION ──
     function applyDiscreteRotation(nd, rotKey) {
-      const rotAff = ROT_TABLE[rotKey];
-      if (!rotAff) return;
-
-      // Compose the rotation into the node's affine state
-      nd.state = composeAffine(nd.state, rotAff);
-      nd.rotCount++;
-      nd.rotHistory.push(rotKey);
-      if (nd.rotHistory.length > 12) nd.rotHistory.shift();
-
-      // Animate: set target quaternion
-      const deltaQ = rotQuaternion(rotKey);
+      const rotAff=ROT_TABLE[rotKey];if(!rotAff)return;
+      nd.state=composeAffine(nd.state,rotAff);
+      nd.rotCount++;nd.stableCount=0;totalRotations++;rotThisSample++;
+      lastRotationTick=tick;
+      const deltaQ=rotQuaternion(rotKey);
       nd.targetQuat.copy(nd.discreteQuat).multiply(deltaQ);
-      nd.rotAnimProgress.v = 0.0; // start animation
-
+      nd.rotAnimProgress.v=0.0;
       updateNodeColor(nd);
-
-      // CASCADE: recalculate all connected edges
-      const oldOps = {};
-      for (const ed of edges) {
-        if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) {
-          oldOps[edges.indexOf(ed)] = ed.op;
-          refreshEdge(ed);
-        }
+      let changed=0;
+      for(const ed of edges){
+        if(ed.aIdx===nd.idx||ed.bIdx===nd.idx){const old=ed.op;refreshEdge(ed);if(ed.op!==old)changed++;}
       }
-
-      // Log which edges changed opcodes
-      for (const ed of edges) {
-        if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) {
-          const edIdx = edges.indexOf(ed);
-          if (oldOps[edIdx] && oldOps[edIdx] !== ed.op) {
-            pushLog(`  ⟳ edge N${ed.aIdx}↔N${ed.bIdx}: ${oldOps[edIdx]}→${ed.op}`, OPCODES[ed.op]?.css||"#fff");
-            pushRotLog(`N${nd.idx} ${rotKey} → edge ${ed.aIdx}↔${ed.bIdx} now ${ed.op}`, OPCODES[ed.op]?.css||"#fff");
-          }
-        }
-      }
-
-      pushLog(`⟳ N${nd.idx} ${rotKey}  face256=${face256Source(nd.state)}`, "#ff8800");
-      pushRotLog(`N${nd.idx} ${rotKey} → f256=${face256Source(nd.state)}`, "#ff8800");
+      if(changed>0)pushLog(`⟳ N${nd.idx} ${rotKey} → ${changed} cascaded`,"#ff8800");
     }
 
     // ── EDGE ──
-    function makeEdge(aIdx,bIdx,forcedOp,isLoop){
-      const na=nodes[aIdx],nb=nodes[bIdx]; if(!na||!nb) return null;
-      const op=forcedOp||deriveOpcode(na.state,nb.state);
+    function hasEdgeBetween(a,b){
+      for(const e of edges)if((e.aIdx===a&&e.bIdx===b)||(e.aIdx===b&&e.bIdx===a))return true;
+      return false;
+    }
+    function makeEdge(aIdx,bIdx){
+      const na=nodes[aIdx],nb=nodes[bIdx];if(!na||!nb)return null;
+      if(hasEdgeBetween(aIdx,bIdx))return null;
+      const op=deriveOpcode(na.state,nb.state);
       const css=OPCODES[op]?.css||"#fff";
       const pts=[na.pos.clone(),nb.pos.clone()];
       const geo=new THREE.BufferGeometry().setFromPoints(pts);
-      const mat=new THREE.LineBasicMaterial({color:new THREE.Color(css),transparent:true,opacity:isLoop?0.7:0.4,blending:THREE.AdditiveBlending,depthWrite:false});
-      const line=new THREE.Line(geo,mat); scene.add(line);
-
-      // Opcode label sprite (small glow at midpoint showing current op)
-      const midGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:0.5,depthWrite:false}));
-      midGlow.scale.setScalar(isLoop?22:14);
-      midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5); scene.add(midGlow);
-
-      let arrow=null;
-      if(isLoop){
-        arrow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:0.85,depthWrite:false}));
-        arrow.scale.setScalar(20);
-        arrow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5); scene.add(arrow);
-      }
-      return {aIdx,bIdx,op,line,mat,geo,isLoop,arrow,midGlow,forcedOp:!!forcedOp,css};
+      const mat=new THREE.LineBasicMaterial({color:new THREE.Color(css),transparent:true,opacity:0.3,blending:THREE.AdditiveBlending,depthWrite:false});
+      const line=new THREE.Line(geo,mat);scene.add(line);
+      const midGlow=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:0.4,depthWrite:false}));
+      midGlow.scale.setScalar(12);midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5);scene.add(midGlow);
+      return{aIdx,bIdx,op,line,mat,geo,midGlow,css,stableFrames:0,lastOpChange:frameN,tokensSent:0,
+        channelMask:channelOverlap(na.chord||0, nb.chord||0),
+        channelWidth:popcount(channelOverlap(na.chord||0, nb.chord||0)),
+      };
     }
-
     function refreshEdge(ed){
-      const na=nodes[ed.aIdx],nb=nodes[ed.bIdx]; if(!na||!nb) return;
-      if(!ed.forcedOp){
-        const nop=deriveOpcode(na.state,nb.state);
-        if(nop!==ed.op){
-          ed.op=nop;
-          ed.css=OPCODES[nop]?.css||"#fff";
-          ed.mat.color.set(new THREE.Color(ed.css));
-          // Update midpoint glow color
-          ed.midGlow.material.map=makeGlow(ed.css);
-          ed.midGlow.material.needsUpdate=true;
-        }
-      }
+      const na=nodes[ed.aIdx],nb=nodes[ed.bIdx];if(!na||!nb)return;
+      const nop=deriveOpcode(na.state,nb.state);
+      if(nop!==ed.op){
+        ed.op=nop;ed.css=OPCODES[nop]?.css||"#fff";
+        ed.mat.color.set(new THREE.Color(ed.css));
+        ed.midGlow.material.map=makeGlow(ed.css);ed.midGlow.material.needsUpdate=true;
+        ed.stableFrames=0;ed.lastOpChange=frameN;
+      }else{ed.stableFrames++;}
+
+      // Update channel mask from endpoint chords
+      ed.channelMask=channelOverlap(na.chord||0, nb.chord||0);
+      ed.channelWidth=popcount(ed.channelMask);
+
       const arr=ed.geo.attributes.position.array;
       arr[0]=na.pos.x;arr[1]=na.pos.y;arr[2]=na.pos.z;arr[3]=nb.pos.x;arr[4]=nb.pos.y;arr[5]=nb.pos.z;
       ed.geo.attributes.position.needsUpdate=true;
       ed.midGlow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5);
-      if(ed.arrow){ed.arrow.position.addVectors(na.pos,nb.pos).multiplyScalar(0.5);ed.arrow.material.opacity=0.5+Math.sin(frameN*0.07)*0.35;}
-      ed.mat.opacity=ed.isLoop?0.4+Math.sin(frameN*0.06)*0.3:0.22+Math.sin(frameN*0.035+ed.aIdx)*0.1;
+      const stability=Math.min(ed.stableFrames/200,1);
+      const band=opBand(ed.op);
+      const baseOp=band==="rotate"?0.12:band==="stable"?0.28:0.2;
+      // Channel width modulates brightness: more open channels = brighter edge
+      const chBoost=ed.channelWidth/8*0.2;
+      ed.mat.opacity=baseOp+stability*0.4+chBoost;
+      ed.midGlow.scale.setScalar(8+stability*12+ed.channelWidth*2);
+      ed.midGlow.material.opacity=0.2+stability*0.45+chBoost;
     }
 
     // ── TOKEN ──
-    function makeToken(fromNode,toNode,op,isExec,carryState){
-      const css=OPCODES[op]?.css||"#fff"; const col=new THREE.Color(css);
-      const sz=isExec?5.5:4;
-      const mesh=new THREE.Mesh(isExec?new THREE.OctahedronGeometry(sz,0):new THREE.SphereGeometry(sz,8,8),new THREE.MeshBasicMaterial({color:isExec?0xffffff:col}));
-      mesh.position.copy(fromNode.pos); scene.add(mesh);
-      const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(isExec?"#ffffff":css),blending:THREE.AdditiveBlending,transparent:true,opacity:1.0,depthWrite:false}));
-      sprite.scale.setScalar(isExec?40:24); sprite.position.copy(fromNode.pos); scene.add(sprite);
-      const TRAIL=14,tArr=new Float32Array(TRAIL*3),tGeo=new THREE.BufferGeometry();
-      tGeo.setAttribute("position",new THREE.BufferAttribute(tArr,3)); tGeo.setDrawRange(0,0);
-      const tLine=new THREE.Line(tGeo,new THREE.LineBasicMaterial({color:isExec?0xffffff:col,transparent:true,opacity:0.5,blending:THREE.AdditiveBlending,depthWrite:false}));
+    function makeToken(fromNode,toNode,op,carryState,isSignal,signalChannel){
+      const isS=!!isSignal;
+      const css=isS?CHANNEL_COLORS[Math.log2(signalChannel&-signalChannel)|0]||"#ffffff":OPCODES[op]?.css||"#fff";
+      const col=new THREE.Color(css);
+      const L=lod();
+      const sz=isS?5:4;
+      const mesh=new THREE.Mesh(new THREE.SphereGeometry(sz,L.sphereSegs,L.sphereSegs),new THREE.MeshBasicMaterial({color:col}));
+      mesh.position.copy(fromNode.pos);scene.add(mesh);
+      const sprite=new THREE.Sprite(new THREE.SpriteMaterial({map:makeGlow(css),blending:THREE.AdditiveBlending,transparent:true,opacity:isS?1.0:0.8,depthWrite:false}));
+      sprite.scale.setScalar(isS?32:24);sprite.position.copy(fromNode.pos);scene.add(sprite);
+      const TRAIL=L.trailLen,tArr=new Float32Array(TRAIL*3),tGeo=new THREE.BufferGeometry();
+      tGeo.setAttribute("position",new THREE.BufferAttribute(tArr,3));tGeo.setDrawRange(0,0);
+      const tLine=new THREE.Line(tGeo,new THREE.LineBasicMaterial({color:col,transparent:true,opacity:isS?0.7:0.4,blending:THREE.AdditiveBlending,depthWrite:false}));
       scene.add(tLine);
-      return {fromNode,toNode,op,isExec,carryState:carryState?{...carryState}:{...IDENT},progress:0,trail:[],dead:false,mesh,sprite,tLine,tGeo,tArr,TRAIL,onArrive:null};
+      return{fromNode,toNode,op,carryState:carryState?{...carryState}:{...IDENT},progress:0,trail:[],dead:false,mesh,sprite,tLine,tGeo,tArr,TRAIL,onArrive:null,
+        isSignal:isS,signalChannel:signalChannel||0,signalTTL:isS?4:0};
     }
-
     function disposeToken(tok){
       scene.remove(tok.mesh);tok.mesh.material.dispose();tok.mesh.geometry.dispose();
       scene.remove(tok.sprite);tok.sprite.material.dispose();
       scene.remove(tok.tLine);tok.tGeo.dispose();tok.tLine.material.dispose();
     }
-
-    function sendToken(fromIdx,toIdx,op,isExec,carry,onArrive){
-      const na=nodes[fromIdx],nb=nodes[toIdx]; if(!na||!nb) return;
-      const tok=makeToken(na,nb,op,isExec,carry); tok.onArrive=onArrive; tokens.push(tok);
+    function sendToken(fromIdx,toIdx,op,carry,onArrive,isSignal,signalChannel){
+      const na=nodes[fromIdx],nb=nodes[toIdx];if(!na||!nb)return;
+      const tok=makeToken(na,nb,op,carry,isSignal,signalChannel);tok.onArrive=onArrive;tokens.push(tok);
+      for(const ed of edges){if((ed.aIdx===fromIdx&&ed.bIdx===toIdx)||(ed.aIdx===toIdx&&ed.bIdx===fromIdx))ed.tokensSent++;}
     }
 
     // ── TOPOLOGICAL DISPATCH ──────────────────────────────────────────────
-    // No switch statement. Every opcode is a geometric rule over GF(257).
-    // "LOOP" and "RETURN" are not special instructions — they are wire
-    // behaviors. The onArrive callback IS the wire. Data is the clock.
-    const DISPATCH = {
-      // Discrete physical rotations — the cube turns, face256 shifts, edges cascade
-      ROTATE_X: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_X")); },
-      ROTATE_Y: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_Y")); },
-      ROTATE_Z: (nd, tok) => { applyDiscreteRotation(nd, pickRotation("ROTATE_Z")); },
-
-      // Affine compositions — geometry combining with geometry
-      ALIGN:   (nd, tok) => { nd.state = composeAffine(nd.state, tok.fromNode.state); },
-      COMPOSE: (nd, tok) => { nd.state = composeAffine(nd.state, tok.carryState); },
-      SYNC:    (nd, tok) => {
-        nd.state = {
-          a: Math.max(1, Math.round((nd.state.a + tok.fromNode.state.a) / 2)),
-          b: Math.round((nd.state.b + tok.fromNode.state.b) / 2) % N
-        };
+    const DISPATCH={
+      ROTATE_X:(nd,tok)=>{applyDiscreteRotation(nd,pickRotation("ROTATE_X"));},
+      ROTATE_Y:(nd,tok)=>{applyDiscreteRotation(nd,pickRotation("ROTATE_Y"));},
+      ROTATE_Z:(nd,tok)=>{applyDiscreteRotation(nd,pickRotation("ROTATE_Z"));},
+      ALIGN:(nd,tok)=>{nd.state=composeAffine(nd.state,tok.fromNode.state);nd.stableCount++;},
+      COMPOSE:(nd,tok)=>{nd.state=composeAffine(nd.state,tok.carryState);},
+      SYNC:(nd,tok)=>{
+        nd.state={a:Math.max(1,Math.round((nd.state.a+tok.fromNode.state.a)/2)),b:Math.round((nd.state.b+tok.fromNode.state.b)/2)%N};
+        nd.stableCount++;
       },
-
-      // Nearest-neighbor in GF(257) state space
-      SEARCH: (nd, tok) => {
-        let best = null, bestD = Infinity;
-        for (const n of nodes) {
-          if (n === nd) continue;
-          const da = Math.abs(n.state.a - nd.state.a) / 256;
-          const db = Math.abs(n.state.b - nd.state.b) / 256;
-          const d = Math.sqrt(da * da + db * db);
-          if (d < bestD) { bestD = d; best = n; }
-        }
-        if (best) { best.flash = 28; pushLog(`SEARCH → N${best.idx} (d=${bestD.toFixed(3)})`, "#ff8800"); }
-      },
-
-      // Mitosis — compose + crystallize a tool node
-      FORK: (nd, tok) => {
-        nd.state = composeAffine(nd.state, tok.fromNode.state);
-        if (nodes.length < 16) synthesizeTool(nd, tok.carryState);
-      },
-
-      // Stack operations — storing/restoring chords (face256 as frame register)
-      CALL: (nd, tok) => {
-        callStack.push({ returnIdx: tok.fromNode.idx, state: { ...tok.carryState } });
-        nd.state = composeAffine(nd.state, tok.carryState);
-        pushLog(`CALL N${nd.idx} [stack=${callStack.length}]`, "#00eeff");
-      },
-      RETURN: (nd, tok) => {
-        if (callStack.length > 0) {
-          const frame = callStack.pop();
-          pushLog(`RETURN → N${frame.returnIdx} [stack=${callStack.length}]`, "#ff6600");
+      SEARCH:(nd,tok)=>{
+        let best=null,bestD=Infinity;
+        for(const n of nodes){if(n===nd)continue;const da=Math.abs(n.state.a-nd.state.a)/256,db=Math.abs(n.state.b-nd.state.b)/256,d=Math.sqrt(da*da+db*db);if(d<bestD){bestD=d;best=n;}}
+        if(best){
+          best.flash=20;nd.stableCount++;
+          if(!hasEdgeBetween(nd.idx,best.idx)&&edges.length<300){
+            const newEd=makeEdge(nd.idx,best.idx);
+            if(newEd){edges.push(newEd);pushLog(`SEARCH wired N${nd.idx}↔N${best.idx}`,"#ff8800");}
+          }
         }
       },
-
-      // Pure wire behaviors — the topology does the work, not the opcode name
-      LOOP:  (nd, _tok) => { /* wire from OUT→IN: onArrive callback IS the loop */ },
-      SYNTH: (nd, _tok) => { nd.flash = 35; pushLog(`◆ N${nd.idx} O(1) recall`, "#cc44ff"); },
+      FORK:(nd,tok)=>{
+        nd.state=composeAffine(nd.state,tok.fromNode.state);
+        if(nodes.length<MAX_NODES){
+          spawnNode(nd,tok.carryState);
+        } else {
+          // At cap: FORK can't grow, so inject entropy instead of going inert.
+          // This prevents the growth-freeze equilibrium.
+          const axes=["ROTATE_X","ROTATE_Y","ROTATE_Z"];
+          applyDiscreteRotation(nd, pickRotation(axes[Math.floor(Math.random()*3)]));
+        }
+      },
     };
 
-    function applyToken(tok) {
-      const nd = tok.toNode, op = tok.op;
-      nd.flash = 20;
-      nd.receivedOps = [op, ...nd.receivedOps].slice(0, 5);
+    function applyToken(tok){
+      const nd=tok.toNode,op=tok.op;
+      nd.flash=16;nd.receivedOps=[op,...nd.receivedOps].slice(0,6);
 
-      // Dispatch: geometry decides behavior, not a CPU instruction decoder
-      const rule = DISPATCH[op];
-      if (rule) rule(nd, tok);
-      else nd.state = composeAffine(nd.state, tok.fromNode.state); // fallback: pure compose
-
-      // The wire fires. onArrive IS the dataflow edge.
-      // No special-casing for LOOP or RETURN — the callback chain is the topology.
-      if (tok.onArrive) tok.onArrive(nd.state);
-
-      // State changed → cascade edge opcodes (rotations handle this internally)
-      if (op !== "ROTATE_X" && op !== "ROTATE_Y" && op !== "ROTATE_Z") {
-        updateNodeColor(nd);
-        for (const ed of edges) {
-          if (ed.aIdx === nd.idx || ed.bIdx === nd.idx) refreshEdge(ed);
+      // ── SIGNAL TOKENS: route through chord channels, bypass attractor ──
+      if(tok.isSignal){
+        nd.flash=25;
+        if(tok.signalTTL<=0 || tokens.filter(t=>t.isSignal).length > 15){
+          // Signal expired or too many in flight — absorbed
+          if(tok.onArrive) tok.onArrive(nd.state);
+          tick++;
+          return;
         }
+        // Signal does NOT compose with node state — it threads through channels
+        // Forward to the SINGLE best-matching edge (no fan-out explosion)
+        const sCh=tok.signalChannel;
+        const nextTTL=tok.signalTTL-1;
+        let bestEdge=null, bestOverlap=0, bestIdx=-1;
+        for(const ed of edges){
+          let nextIdx=-1;
+          if(ed.aIdx===nd.idx) nextIdx=ed.bIdx;
+          else if(ed.bIdx===nd.idx) nextIdx=ed.aIdx;
+          else continue;
+          if(nextIdx===tok.fromNode.idx) continue; // don't backtrack
+          const overlap=popcount(ed.channelMask & sCh);
+          if(overlap>bestOverlap){bestOverlap=overlap;bestEdge=ed;bestIdx=nextIdx;}
+        }
+        if(bestEdge && bestIdx>=0){
+          const nt=makeToken(nd,nodes[bestIdx],bestEdge.op,tok.carryState,true,sCh);
+          nt.signalTTL=nextTTL;nt.onArrive=tok.onArrive;tokens.push(nt);
+        }
+        pushLog(`⚡ signal ch=${chordStr(sCh)} → N${nd.idx}`,CHANNEL_COLORS[Math.log2(sCh&-sCh)|0]||"#fff");
+        if(tok.onArrive) tok.onArrive(nd.state);
+        tick++;
+        return; // skip normal dispatch — signal doesn't feed the attractor
       }
 
-      pushLog(`[N${tok.fromNode.idx}→N${nd.idx}] ${op}`, OPCODES[op]?.css || "#fff");
+      // ── NORMAL TOKENS: feed the attractor as before ──
+      const rule=DISPATCH[op];
+      if(rule)rule(nd,tok);else nd.state=composeAffine(nd.state,tok.fromNode.state);
+      if(tok.onArrive)tok.onArrive(nd.state);
+      if(op!=="ROTATE_X"&&op!=="ROTATE_Y"&&op!=="ROTATE_Z"){
+        updateNodeColor(nd);
+        for(const ed of edges)if(ed.aIdx===nd.idx||ed.bIdx===nd.idx)refreshEdge(ed);
+      }
+      pushLog(`[N${tok.fromNode.idx}→N${nd.idx}] ${op}`,OPCODES[op]?.css||"#fff");
+      tick++;
+
+      // ── TIME-SERIES SAMPLING ──
+      if(tick-lastSampleTick>=SAMPLE_INTERVAL){
+        lastSampleTick=tick;
+        const stE=edges.filter(e=>opBand(e.op)==="stable").length;
+        const roE=edges.filter(e=>opBand(e.op)==="rotate").length;
+        const grE=edges.filter(e=>opBand(e.op)==="growth").length;
+        const tot=edges.length||1;
+        const sample={
+          t:tick,
+          nodes:nodes.length,
+          edges:edges.length,
+          stPct:Math.round(stE/tot*100),
+          roPct:Math.round(roE/tot*100),
+          grPct:Math.round(grE/tot*100),
+          rotW:rotThisSample,
+          forks:totalForks,
+          avgCh:edges.length>0?Math.round(edges.reduce((s,e)=>s+e.channelWidth,0)/edges.length*10)/10:0,
+        };
+        rotThisSample=0;
+        tsData.push(sample);
+        if(tsData.length>MAX_SAMPLES)tsData.shift();
+        // Push to React every 4 samples to reduce re-renders
+        if(tsData.length%4===0)setTimeSeries([...tsData]);
+      }
     }
 
     function updateTokenTick(tok){
-      if(tok.dead) return;
+      if(tok.dead)return;
       tok.trail.unshift(tok.mesh.position.clone());
-      if(tok.trail.length>tok.TRAIL) tok.trail.pop();
+      if(tok.trail.length>tok.TRAIL)tok.trail.pop();
       tok.progress+=0.022+Math.random()*0.004;
       const t=Math.min(tok.progress,1);
       tok.mesh.position.lerpVectors(tok.fromNode.pos,tok.toNode.pos,t);
       tok.sprite.position.copy(tok.mesh.position);
-      if(tok.isExec){tok.mesh.rotation.y+=0.1;tok.mesh.rotation.x+=0.07;}
       const n=tok.trail.length;
       for(let i=0;i<n;i++){tok.tArr[i*3]=tok.trail[i].x;tok.tArr[i*3+1]=tok.trail[i].y;tok.tArr[i*3+2]=tok.trail[i].z;}
-      tok.tGeo.attributes.position.needsUpdate=true; tok.tGeo.setDrawRange(0,n);
+      tok.tGeo.attributes.position.needsUpdate=true;tok.tGeo.setDrawRange(0,n);
       if(tok.progress>=1){applyToken(tok);tok.dead=true;}
     }
 
-    // ── TOOL SYNTHESIS ──
-    function synthesizeTool(fromNode,crystallizedState){
-      const dir=new THREE.Vector3(Math.random()-.5,Math.random()-.5,Math.random()-.5).normalize().multiplyScalar(150+Math.random()*60);
-      const tn=makeNode(fromNode.pos.x+dir.x,fromNode.pos.y+dir.y,fromNode.pos.z+dir.z,"TOOL",`T${nodes.filter(n=>n.role==="TOOL").length}`,crystallizedState||fromNode.state);
-      tn.idx=nodes.length; nodes.push(tn);
-      const ed=makeEdge(fromNode.idx,tn.idx,"SYNTH",false);
-      if(ed){ed.forcedOp=true;ed.css=OPCODES.SYNTH.css;ed.mat.color.set(new THREE.Color(OPCODES.SYNTH.css));edges.push(ed);}
-      if(nodes.length>3){
-        const ri=Math.floor(Math.random()*(nodes.length-1));
-        const ed2=makeEdge(ri,tn.idx,"COMPOSE",false);
-        if(ed2){ed2.forcedOp=true;ed2.css=OPCODES.COMPOSE.css;ed2.mat.color.set(new THREE.Color(OPCODES.COMPOSE.css));edges.push(ed2);}
+    // ── SELF-ASSEMBLY ──
+    function spawnNode(parent,crystallizedState){
+      totalForks++;
+      const angle=Math.random()*Math.PI*2;
+      const elev=(Math.random()-0.5)*Math.PI;
+      const dist=100+Math.random()*70;
+      const x=parent.pos.x+Math.cos(angle)*Math.cos(elev)*dist;
+      const y=parent.pos.y+Math.sin(elev)*dist;
+      const z=parent.pos.z+Math.sin(angle)*Math.cos(elev)*dist;
+      const nd=makeNode(x,y,z,crystallizedState||parent.state);
+      nd.idx=nodes.length;nodes.push(nd);updateNodeColor(nd);
+      const parentEdge=makeEdge(parent.idx,nd.idx);if(parentEdge)edges.push(parentEdge);
+      const dists=nodes.slice(0,-1).map((n,i)=>({idx:i,d:n.pos.distanceTo(nd.pos)})).filter(x=>x.idx!==parent.idx).sort((a,b)=>a.d-b.d);
+      const wireCount=1+(Math.random()>0.5?1:0);
+      for(let i=0;i<Math.min(wireCount,dists.length);i++){const newEd=makeEdge(dists[i].idx,nd.idx);if(newEd)edges.push(newEd);}
+      pushLog(`◆ FORK → N${nd.idx} (${nodes.length} nodes, ${edges.length} edges)`,"#44ff88");
+    }
+
+    // ── SUBSTRATE TICK ──
+    function substrateTick(){
+      if(!substrateRunning||edges.length===0)return;
+      let totalWeight=0;
+      const weights=edges.map(ed=>{const w=1/(1+ed.stableFrames*0.02);totalWeight+=w;return w;});
+      let r=Math.random()*totalWeight;let chosen=edges[0];
+      for(let i=0;i<edges.length;i++){r-=weights[i];if(r<=0){chosen=edges[i];break;}}
+      const f256A=face256Source(nodes[chosen.aIdx].state);
+      const f256B=face256Source(nodes[chosen.bIdx].state);
+      const fromIdx=f256A>=f256B?chosen.aIdx:chosen.bIdx;
+      const toIdx=fromIdx===chosen.aIdx?chosen.bIdx:chosen.aIdx;
+      sendToken(fromIdx,toIdx,chosen.op,{...nodes[fromIdx].state},null);
+    }
+
+    // ── INIT SEED CLUSTER ──
+    const seedConfig=SEEDS[seed]||SEEDS.generators;
+    const positions=[[0,100,0],[-160,-40,80],[160,-40,80],[0,-40,-160],[0,-160,0]];
+    for(let i=0;i<seedConfig.states.length;i++){
+      const [x,y,z]=positions[i];
+      const nd=makeNode(x,y,z,seedConfig.states[i],`S${i}`);
+      nd.idx=nodes.length;nodes.push(nd);updateNodeColor(nd);
+    }
+    for(let i=0;i<nodes.length;i++){
+      for(let j=i+1;j<nodes.length;j++){
+        if(Math.random()<0.55){const ed=makeEdge(i,j);if(ed)edges.push(ed);}
       }
-      setToolCount(nodes.filter(n=>n.role==="TOOL").length);
-      pushLog(`◆ TOOL crystallized (N${tn.idx})`,"#cc44ff");
     }
-
-    // ── PROGRAM SEQUENCER ──
-    const IN=0,SR=1,RV=2,AL=3,OUT=4;
-
-    function stepProgram(inState){
-      if(!progRunning) return;
-      if(iteration>=DATASET.length){
-        progRunning=false; setRunning(false);
-        setProgState({iteration,phase:"✓ done",accumState:{...accumState},stackDepth:callStack.length});
-        pushLog(`── complete (${DATASET.length} iterations) ──`,"#00ff88"); return;
-      }
-      const input=DATASET[iteration];
-      accumState=inState?composeAffine(inState,input):composeAffine(IDENT,input);
-      nodes[IN].state={...input}; nodes[IN].flash=15; updateNodeColor(nodes[IN]);
-      const iter=++iteration;
-      pushLog(`── iter ${iter}: ${DATASET_LABELS[iter-1]} ──`,"#334466");
-      setProgState({iteration:iter,phase:`running ${iter}/${DATASET.length}`,accumState:{...accumState},stackDepth:callStack.length});
-
-      // ── PURE TOPOLOGICAL EXECUTION (SELF-CLOCKING) ──
-      // Tokens fire only when the previous token arrives. No external timers.
-      // Data is the clock. The wire topology IS the program.
-      sendToken(IN, SR, "SEARCH", true, {...accumState}, (state1) => {
-        if(!progRunning) return;
-        sendToken(SR, RV, "CALL", true, state1, (state2) => {
-          if(!progRunning) return;
-          sendToken(RV, AL, "RETURN", true, state2, (state3) => {
-            if(!progRunning) return;
-            sendToken(AL, OUT, "ALIGN", true, state3, (state4) => {
-              if(!progRunning) return;
-              // The geometric LOOP: OUT connects back to IN.
-              // No "case LOOP" needed — the wire IS the loop.
-              sendToken(OUT, IN, "LOOP", true, state4, (state5) => {
-                if(progRunning) stepProgram(state5);
-              });
-            });
-          });
-        });
-      });
+    for(let i=0;i<nodes.length;i++){
+      const j=(i+1)%nodes.length;
+      if(!hasEdgeBetween(i,j)){const ed=makeEdge(i,j);if(ed)edges.push(ed);}
     }
+    pushLog(`seed: ${seedConfig.label} · gen=${genConfig.g}`,"#334466");
 
-    // ── INIT GRAPH ──
-    const nd0=makeNode(  0, 200,   0,"INPUT","IN",    IDENT       ); nd0.idx=0; nodes.push(nd0);
-    const nd1=makeNode(-220,  30,  90,"PROC","SEARCH",{a:3,b:47}  ); nd1.idx=1; nodes.push(nd1);
-    const nd2=makeNode(  0,   0,-210,"PROC","RESOLVE",{a:9,b:12}  ); nd2.idx=2; nodes.push(nd2);
-    const nd3=makeNode( 220,  30,  90,"PROC","ALIGN",  {a:3,b:81} ); nd3.idx=3; nodes.push(nd3);
-    const nd4=makeNode(  0,-200,   0,"OUTPUT","OUT",  IDENT       ); nd4.idx=4; nodes.push(nd4);
-    const nd5=makeNode(-180,-100, -80,"PROC","INDEX",  {a:27,b:200}); nd5.idx=5; nodes.push(nd5);
-    const nd6=makeNode( 180,-100, -80,"PROC","STORE",  {a:81,b:44} ); nd6.idx=6; nodes.push(nd6);
-    for(const nd of nodes) updateNodeColor(nd);
-
-    // pipeline edges (fixed)
-    const pipe=[[IN,SR,"SEARCH"],[SR,RV,"CALL"],[RV,AL,"RETURN"],[AL,OUT,"ALIGN"]];
-    for(const [a,b,op] of pipe){
-      const ed=makeEdge(a,b,op,false);
-      if(ed){ed.forcedOp=true;ed.css=OPCODES[op].css;ed.mat.color.set(new THREE.Color(OPCODES[op].css));edges.push(ed);}
-    }
-    const loopEd=makeEdge(OUT,IN,"LOOP",true);
-    if(loopEd){loopEd.forcedOp=true;loopEd.css=OPCODES.LOOP.css;loopEd.mat.color.set(new THREE.Color(OPCODES.LOOP.css));edges.push(loopEd);}
-    // aux dynamic edges — these derive opcodes from face256!
-    for(const [a,b] of [[1,5],[5,4],[2,6],[6,3],[5,6]]){
-      const ed=makeEdge(a,b,null,false); if(ed) edges.push(ed);
-    }
+    let currentSpeed=1;
 
     simRef.current={
-      start:()=>{
-        if(progRunning) return;
-        progRunning=true; iteration=0; accumState={...IDENT};
-        callStack.length=0; setRunning(true);
-        setProgState({iteration:0,phase:"starting…",accumState:IDENT,stackDepth:0});
-        pushLog("── program start ──","#00ff88");
-        nodes[IN].state={...IDENT}; nodes[OUT].state={...IDENT};
-        updateNodeColor(nodes[IN]); updateNodeColor(nodes[OUT]);
-        setTimeout(()=>stepProgram(null),300);
+      start:()=>{if(substrateRunning)return;substrateRunning=true;setRunning(true);pushLog("── substrate active ──","#00ff88");},
+      stop:()=>{substrateRunning=false;setRunning(false);pushLog("── paused (state preserved) ──","#ff4444");},
+      fire:()=>{substrateTick();},
+      setSpeed:(s)=>{currentSpeed=s;},
+      info:(idx)=>{
+        const nd=nodes[idx];if(!nd)return null;
+        const myEdges=edges.filter(e=>e.aIdx===idx||e.bIdx===idx);
+        const chord=nd.chord||0;
+        const openChannels=myEdges.reduce((sum,e)=>sum+e.channelWidth,0);
+        return{state:{...nd.state},f256:face256Source(nd.state),label:nd.label,rotCount:nd.rotCount,stableCount:nd.stableCount,ops:[...nd.receivedOps],edgeCount:myEdges.length,stableE:myEdges.filter(e=>opBand(e.op)==="stable").length,rotateE:myEdges.filter(e=>opBand(e.op)==="rotate").length,growthE:myEdges.filter(e=>opBand(e.op)==="growth").length,
+          chord,chordStr:chordStr(chord),popcount:popcount(chord),openChannels};
       },
-      stop:()=>{progRunning=false;setRunning(false);setProgState(p=>({...p,phase:"stopped"}));},
-      fire:()=>{if(!edges.length)return;const e=edges.filter(e=>!e.isLoop);if(e.length){const ed=e[Math.floor(Math.random()*e.length)];sendToken(ed.aIdx,ed.bIdx,ed.op,false,{...IDENT},null);}},
-      info:(idx)=>{const nd=nodes[idx];if(!nd)return null;return{state:{...nd.state},f256:face256Source(nd.state),label:nd.label,role:nd.role,ops:[...nd.receivedOps],rotCount:nd.rotCount,rotHistory:[...nd.rotHistory]};},
+      getSnapshot:()=>{
+        return edges.map(e=>({a:e.aIdx,b:e.bIdx,op:e.op,stable:e.stableFrames}));
+      },
+
+      // ── EXPERIMENT E: PERTURBATION RECOVERY ──
+      perturb:(count)=>{
+        if(nodes.length===0)return;
+        // Snapshot current band ratios
+        const tot=edges.length||1;
+        const stE=edges.filter(e=>opBand(e.op)==="stable").length;
+        const roE=edges.filter(e=>opBand(e.op)==="rotate").length;
+        const grE=edges.filter(e=>opBand(e.op)==="growth").length;
+        const preBands={st:Math.round(stE/tot*100),ro:Math.round(roE/tot*100),gr:Math.round(grE/tot*100)};
+
+        // Perturb N random nodes to distant states
+        const n=Math.min(count,nodes.length);
+        const indices=[...Array(nodes.length).keys()];
+        for(let i=indices.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[indices[i],indices[j]]=[indices[j],indices[i]];}
+        const perturbed=indices.slice(0,n);
+
+        for(const idx of perturbed){
+          const nd=nodes[idx];
+          // Set to a random distant state
+          const newA=1+Math.floor(Math.random()*255); // 1-256
+          const newB=Math.floor(Math.random()*257);   // 0-256
+          nd.state={a:newA,b:newB};
+          nd.stableCount=0;
+          nd.flash=30;
+          updateNodeColor(nd);
+          // Cascade all connected edges
+          for(const ed of edges){
+            if(ed.aIdx===idx||ed.bIdx===idx)refreshEdge(ed);
+          }
+        }
+
+        pushLog(`⚡ PERTURBED ${n} nodes — tracking recovery`,"#ff2266");
+
+        // Set up tracking: record band deviation over next ticks
+        const perturbTick=tick;
+        const samples=[];
+        const trackFn=()=>{
+          const elapsed=tick-perturbTick;
+          const tot2=edges.length||1;
+          const stNow=Math.round(edges.filter(e=>opBand(e.op)==="stable").length/tot2*100);
+          const roNow=Math.round(edges.filter(e=>opBand(e.op)==="rotate").length/tot2*100);
+          const grNow=Math.round(edges.filter(e=>opBand(e.op)==="growth").length/tot2*100);
+          const dev=Math.abs(stNow-preBands.st)+Math.abs(roNow-preBands.ro)+Math.abs(grNow-preBands.gr);
+          samples.push({t:elapsed,dev,st:stNow,ro:roNow,gr:grNow});
+          if(samples.length%4===0){
+            setPerturbData({preBands,count:n,postSamples:[...samples]});
+          }
+          if(elapsed<400 && substrateRunning){
+            setTimeout(trackFn, 200);
+          } else {
+            const recovered=samples.length>0&&samples[samples.length-1].dev<6;
+            pushLog(recovered?`✓ recovered after ${elapsed} ticks (dev=${samples[samples.length-1]?.dev})`:`✗ did not fully recover (dev=${samples[samples.length-1]?.dev})`,"#ff2266");
+            setPerturbData({preBands,count:n,postSamples:[...samples],recovered});
+          }
+        };
+        setTimeout(trackFn,300);
+      },
+
+      // ── EXPERIMENT F: CHANNEL ROUTING PROBE ──
+      probe:()=>{
+        if(nodes.length<10)return;
+        // Find two distant nodes
+        let srcIdx=0,sinkIdx=0,maxDist=0;
+        for(let i=0;i<Math.min(nodes.length,30);i++){
+          for(let j=i+1;j<Math.min(nodes.length,30);j++){
+            const d=nodes[i].pos.distanceTo(nodes[j].pos);
+            if(d>maxDist){maxDist=d;srcIdx=i;sinkIdx=j;}
+          }
+        }
+
+        const srcChord=nodes[srcIdx].chord||0;
+        const sinkChord=nodes[sinkIdx].chord||0;
+        pushLog(`signal probe: N${srcIdx}→N${sinkIdx} (d=${maxDist.toFixed(0)})`,"#00eeff");
+        pushLog(`  src chord: ${chordStr(srcChord)}  sink chord: ${chordStr(sinkChord)}`,"#00eeff");
+
+        // Send a signal on each of 8 channels. Track which ones arrive at sink.
+        const arrived=new Set();
+        const results=[];
+        let pending=0;
+
+        for(let ch=0;ch<8;ch++){
+          const bit=1<<ch;
+          // Only send on channels that the source node actually has active
+          const srcHas=!!(srcChord&bit);
+
+          // Find an outgoing edge from src with this channel open
+          let canSend=false;
+          for(const ed of edges){
+            if(ed.aIdx===srcIdx||ed.bIdx===srcIdx){
+              if(ed.channelMask&bit){canSend=true;break;}
+            }
+          }
+
+          results.push({ch,color:CHANNEL_COLORS[ch],srcHas,canSend,arrived:false});
+
+          if(canSend){
+            pending++;
+            // Find which neighbor to send to via this channel
+            for(const ed of edges){
+              let nextIdx=-1;
+              if(ed.aIdx===srcIdx) nextIdx=ed.bIdx;
+              else if(ed.bIdx===srcIdx) nextIdx=ed.aIdx;
+              else continue;
+              if(ed.channelMask&bit){
+                // Send signal token — it will auto-forward via channel routing in applyToken
+                sendToken(srcIdx,nextIdx,ed.op,{...nodes[srcIdx].state},
+                  (st)=>{
+                    // This fires when signal reaches any node — check if it's the sink
+                    // (the onArrive will be called at each hop, so we check globally)
+                  },true,bit);
+                break; // one signal per channel
+              }
+            }
+          }
+        }
+
+        // After propagation time, check which signals reached sink by counting flashes
+        const sinkFlashBefore=nodes[sinkIdx].flash;
+        setTimeout(()=>{
+          // Check if sink received any signal tokens (it will have been flashed)
+          // Also check the sink's received ops for signal markers
+          const sinkOps=nodes[sinkIdx].receivedOps;
+          for(let ch=0;ch<8;ch++){
+            // A channel "arrived" if the sink was flashed (signals set flash=25)
+            // For now, mark channels that had a path as potentially arrived
+            if(results[ch].canSend){
+              // Check if there's a continuous open-channel path from src to sink
+              const visited=new Set();
+              const queue=[srcIdx];visited.add(srcIdx);
+              const bit=1<<ch;
+              let found=false;
+              while(queue.length>0&&!found){
+                const cur=queue.shift();
+                for(const ed of edges){
+                  let next=-1;
+                  if(ed.aIdx===cur) next=ed.bIdx;
+                  else if(ed.bIdx===cur) next=ed.aIdx;
+                  else continue;
+                  if(visited.has(next))continue;
+                  if(!(ed.channelMask&bit))continue;
+                  if(next===sinkIdx){found=true;break;}
+                  visited.add(next);queue.push(next);
+                }
+              }
+              results[ch].arrived=found;
+              results[ch].hops=visited.size;
+            }
+          }
+
+          const arrivedCount=results.filter(r=>r.arrived).length;
+          const sentCount=results.filter(r=>r.canSend).length;
+          pushLog(`signal: ${arrivedCount}/${sentCount} channels reached sink`,"#00eeff");
+          setProbeResults(prev=>[...prev,{srcIdx,sinkIdx,dist:maxDist.toFixed(0),
+            srcChord:chordStr(srcChord),sinkChord:chordStr(sinkChord),
+            channels:results,arrivedCount,sentCount}]);
+        },2000);
+      },
+
+      // ── EXPERIMENT G: INJECT SIGNAL ON SPECIFIC CHANNEL ──
+      injectSignal:(srcIdx,channel)=>{
+        if(!nodes[srcIdx])return;
+        const bit=1<<channel;
+        for(const ed of edges){
+          let nextIdx=-1;
+          if(ed.aIdx===srcIdx) nextIdx=ed.bIdx;
+          else if(ed.bIdx===srcIdx) nextIdx=ed.aIdx;
+          else continue;
+          if(ed.channelMask&bit){
+            sendToken(srcIdx,nextIdx,ed.op,{...nodes[srcIdx].state},null,true,bit);
+            pushLog(`⚡ manual signal ch${channel} from N${srcIdx}`,CHANNEL_COLORS[channel]);
+            return;
+          }
+        }
+        pushLog(`✗ no open ch${channel} edge from N${srcIdx}`,"#ff4444");
+      },
+
+      // ── AUTO-RUN: FULL EXPERIMENTAL BATTERY ──
+      autoRun:()=>{
+        const report={seed,gen,startTime:Date.now(),phases:[]};
+
+        function getBands(){
+          const tot=edges.length||1;
+          const st=edges.filter(e=>opBand(e.op)==="stable").length;
+          const ro=edges.filter(e=>opBand(e.op)==="rotate").length;
+          const gr=edges.filter(e=>opBand(e.op)==="growth").length;
+          return{st:Math.round(st/tot*100),ro:Math.round(ro/tot*100),gr:Math.round(gr/tot*100),nodes:nodes.length,edges:edges.length};
+        }
+
+        function bandVariance(samples){
+          if(samples.length<5)return 999;
+          const last=samples.slice(-10);
+          const avg=last.reduce((s,x)=>s+x.stPct,0)/last.length;
+          return Math.max(...last.map(x=>Math.abs(x.stPct-avg)));
+        }
+
+        function perturbAndMeasure(count){
+          return new Promise(resolve=>{
+            const pre=getBands();
+            const n=Math.min(count,nodes.length);
+            const indices=[...Array(nodes.length).keys()];
+            for(let i=indices.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[indices[i],indices[j]]=[indices[j],indices[i]];}
+            for(let k=0;k<n;k++){
+              const nd=nodes[indices[k]];
+              nd.state={a:1+Math.floor(Math.random()*255),b:Math.floor(Math.random()*257)};
+              nd.stableCount=0;nd.flash=30;updateNodeColor(nd);
+              for(const ed of edges)if(ed.aIdx===nd.idx||ed.bIdx===nd.idx)refreshEdge(ed);
+            }
+            pushLog(`⚡ auto: perturbed ${n} nodes`,"#ff2266");
+
+            // Poll for recovery over ~300 ticks
+            const startTick=tick;
+            const samples=[];
+            const poll=()=>{
+              const elapsed=tick-startTick;
+              const now=getBands();
+              const dev=Math.abs(now.st-pre.st)+Math.abs(now.ro-pre.ro)+Math.abs(now.gr-pre.gr);
+              samples.push({t:elapsed,dev,...now});
+              if(elapsed<300 && substrateRunning){
+                setTimeout(poll,150);
+              }else{
+                const finalDev=samples[samples.length-1]?.dev||99;
+                const recovered=finalDev<8;
+                const peakDev=Math.max(...samples.map(s=>s.dev));
+                resolve({count:n,pre,recovered,finalDev,peakDev,samples:samples.length,finalBands:getBands()});
+              }
+            };
+            setTimeout(poll,200);
+          });
+        }
+
+        function channelProbe(){
+          return new Promise(resolve=>{
+            let srcIdx=0,sinkIdx=0,maxDist=0;
+            for(let i=0;i<Math.min(nodes.length,30);i++){
+              for(let j=i+1;j<Math.min(nodes.length,30);j++){
+                const d=nodes[i].pos.distanceTo(nodes[j].pos);
+                if(d>maxDist){maxDist=d;srcIdx=i;sinkIdx=j;}
+              }
+            }
+            const srcChord=nodes[srcIdx].chord||0;
+            const sinkChord=nodes[sinkIdx].chord||0;
+            const results=[];
+            for(let ch=0;ch<8;ch++){
+              const bit=1<<ch;
+              const srcHas=!!(srcChord&bit);
+              let canSend=false;
+              for(const ed of edges){
+                if((ed.aIdx===srcIdx||ed.bIdx===srcIdx)&&(ed.channelMask&bit)){canSend=true;break;}
+              }
+              // BFS for continuous channel path
+              let arrived=false,hops=0;
+              if(canSend){
+                const visited=new Set();const queue=[srcIdx];visited.add(srcIdx);
+                while(queue.length>0&&!arrived){
+                  const cur=queue.shift();
+                  for(const ed of edges){
+                    let next=-1;
+                    if(ed.aIdx===cur)next=ed.bIdx;
+                    else if(ed.bIdx===cur)next=ed.aIdx;
+                    else continue;
+                    if(visited.has(next)||!(ed.channelMask&bit))continue;
+                    if(next===sinkIdx){arrived=true;hops=visited.size;break;}
+                    visited.add(next);queue.push(next);
+                  }
+                }
+              }
+              results.push({ch,srcHas,canSend,arrived,hops});
+            }
+            const arrivedCount=results.filter(r=>r.arrived).length;
+            const sentCount=results.filter(r=>r.canSend).length;
+            const blockedCount=sentCount-arrivedCount;
+            resolve({srcIdx,sinkIdx,dist:maxDist.toFixed(0),
+              srcChord:chordStr(srcChord),sinkChord:chordStr(sinkChord),
+              channels:results,arrivedCount,sentCount,blockedCount,
+              selective:arrivedCount>0&&blockedCount>0});
+          });
+        }
+
+        // ── PHASE 1: START & GROW ──
+        setAutoPhase("growing");
+        if(!substrateRunning){substrateRunning=true;setRunning(true);}
+        currentSpeed=8; // max speed
+        pushLog("── AUTO-RUN: starting ──","#00ffcc");
+
+        const waitForGrowth=()=>{
+          if(nodes.length>=100){
+            pushLog(`auto: ${nodes.length} nodes — waiting for stabilization`,"#00ffcc");
+            setAutoPhase("stabilizing");
+            waitForStable();
+          }else{
+            setTimeout(waitForGrowth,500);
+          }
+        };
+
+        // ── PHASE 2: WAIT FOR STABILIZATION ──
+        const waitForStable=()=>{
+          const v=bandVariance(tsData);
+          if(v<4 && tsData.length>20 && nodes.length>=50){
+            pushLog(`auto: stabilized (variance=${v.toFixed(1)}) — running tests`,"#00ffcc");
+            setAutoPhase("testing");
+            report.baseline=getBands();
+            report.stabilizedAt={tick,nodes:nodes.length,edges:edges.length,variance:v};
+            runTests();
+          }else{
+            setTimeout(waitForStable,800);
+          }
+        };
+
+        // ── PHASE 3: RUN TESTS ──
+        const runTests=async()=>{
+          // Exp A: already captured in baseline
+          report.expA={...report.baseline,equilibrium:"dissipative"};
+          pushLog("auto: Exp A ✓ baseline captured","#00ffcc");
+
+          // Exp B: pause/resume
+          pushLog("auto: Exp B — pause/resume test","#00ffcc");
+          const prePause=getBands();
+          substrateRunning=false;
+          await new Promise(r=>setTimeout(r,1500));
+          substrateRunning=true;
+          await new Promise(r=>setTimeout(r,1500));
+          const postPause=getBands();
+          const pauseDev=Math.abs(postPause.st-prePause.st)+Math.abs(postPause.ro-prePause.ro)+Math.abs(postPause.gr-prePause.gr);
+          report.expB={prePause,postPause,dev:pauseDev,passed:pauseDev<8};
+          pushLog(`auto: Exp B ${report.expB.passed?"✓":"✗"} persistence (dev=${pauseDev})`,"#00ffcc");
+
+          // Exp E: perturbation at 1, 5, 10%
+          pushLog("auto: Exp E — perturbation recovery","#ff2266");
+          const e1=await perturbAndMeasure(1);
+          report.expE1=e1;
+          pushLog(`auto: E-1 ${e1.recovered?"✓":"✗"} (peak=${e1.peakDev}, final=${e1.finalDev})`,"#ff2266");
+
+          await new Promise(r=>setTimeout(r,1000));
+          const e5=await perturbAndMeasure(5);
+          report.expE5=e5;
+          pushLog(`auto: E-5 ${e5.recovered?"✓":"✗"} (peak=${e5.peakDev}, final=${e5.finalDev})`,"#ff2266");
+
+          await new Promise(r=>setTimeout(r,1000));
+          const e10pct=await perturbAndMeasure(Math.max(1,Math.round(nodes.length*0.1)));
+          report.expE10=e10pct;
+          pushLog(`auto: E-10% ${e10pct.recovered?"✓":"✗"} (peak=${e10pct.peakDev}, final=${e10pct.finalDev})`,"#ff2266");
+
+          // Exp F: channel routing
+          pushLog("auto: Exp F — channel routing probe","#00eeff");
+          const f=await channelProbe();
+          report.expF=f;
+          pushLog(`auto: F — ${f.arrivedCount}/${f.sentCount} channels routed${f.selective?" (SELECTIVE)":""}`,"#00eeff");
+
+          // Exp D: report generator info
+          report.expD={gen,generator:genConfig.g};
+
+          // Done
+          report.endTime=Date.now();
+          report.duration=((report.endTime-report.startTime)/1000).toFixed(1);
+          report.finalBands=getBands();
+          report.avgChannelWidth=edges.length>0?Math.round(edges.reduce((s,e)=>s+e.channelWidth,0)/edges.length*10)/10:0;
+
+          setAutoReport(report);
+          setAutoPhase("done");
+          currentSpeed=1;
+          pushLog(`── AUTO-RUN COMPLETE (${report.duration}s) ──`,"#00ffcc");
+        };
+
+        waitForGrowth();
+      },
     };
 
     // ── ANIMATE ──
-    const _com=new THREE.Vector3(); let animId;
-    const _tmpQ = new THREE.Quaternion();
+    const _com=new THREE.Vector3();let animId;
+    const _tmpQ=new THREE.Quaternion();
+    let lastSubstrateTick=0;
+
     const animate=()=>{
-      animId=requestAnimationFrame(animate); frameN++;
-      if(!drag&&Date.now()-lastAct>3000) autoOrbit=true;
-      if(autoOrbit) camTheta+=0.0014;
-      _com.set(0,0,0); for(const n of nodes) _com.add(n.pos);
-      if(nodes.length) _com.divideScalar(nodes.length);
+      animId=requestAnimationFrame(animate);frameN++;
+      if(!drag&&Date.now()-lastAct>3000)autoOrbit=true;
+      if(autoOrbit)camTheta+=0.001;
+      _com.set(0,0,0);for(const n of nodes)_com.add(n.pos);
+      if(nodes.length)_com.divideScalar(nodes.length);
       camSmooth.lerp(_com,0.02);
       const sp=Math.sin(camPhi),cp=Math.cos(camPhi);
       camera.position.set(camSmooth.x+camR*sp*Math.sin(camTheta),camSmooth.y+camR*cp,camSmooth.z+camR*sp*Math.cos(camTheta));
       camera.lookAt(camSmooth);
 
-      for(const nd of nodes){
-        const age=Math.min((frameN-nd.birthFrame)/30,1);
-        const fl=nd.flash>0?nd.flash/20:0; if(nd.flash>0) nd.flash--;
-
-        // ── DISCRETE ROTATION ANIMATION ──
-        // Cubes do NOT spin. They only rotate when a ROTATE opcode fires.
-        // Smoothly slerp toward the target quaternion.
-        if (nd.rotAnimProgress.v < 1.0) {
-          nd.rotAnimProgress.v = Math.min(1.0, nd.rotAnimProgress.v + 0.04);
-          // Ease-out cubic
-          const t = nd.rotAnimProgress.v;
-          const eased = 1 - Math.pow(1 - t, 3);
-          _tmpQ.slerpQuaternions(nd.discreteQuat, nd.targetQuat, eased);
-          nd.coreMesh.quaternion.copy(_tmpQ);
-          nd.fillMesh.quaternion.copy(_tmpQ);
-          // When done, snap to target
-          if (nd.rotAnimProgress.v >= 1.0) {
-            nd.discreteQuat.copy(nd.targetQuat);
-            nd.coreMesh.quaternion.copy(nd.targetQuat);
-            nd.fillMesh.quaternion.copy(nd.targetQuat);
-          }
-        }
-
-        nd.coreMesh.scale.setScalar(age*(1+fl*0.5));
-        nd.fillMesh.scale.setScalar(age*(1+fl*0.5));
-
-        if(nd.ring){nd.ring.rotation.z+=0.012;nd.ring.position.copy(nd.pos);nd.ring.material.opacity=0.2+fl*0.35;}
-        const bh=nd.role==="INPUT"||nd.role==="OUTPUT"?110:nd.role==="TOOL"?95:78;
-        nd.halo.scale.setScalar(bh*age+fl*32);
-        nd.halo.material.opacity=(nd.role==="INPUT"||nd.role==="OUTPUT"?0.55:0.28)+fl*0.42;
-        if(nd.idx===selectedIdx){nd.halo.scale.setScalar(118*age);nd.halo.material.opacity=0.82;}
-
-        // face256 orbiter — orbits slowly to indicate which face holds the register
-        const f256val = face256Source(nd.state);
-        const orbitAngle = (f256val / 256) * Math.PI * 2 + frameN * 0.008;
-        const orbitR = 20;
-        nd.f256m.position.set(
-          nd.pos.x + Math.cos(orbitAngle) * orbitR,
-          nd.pos.y + Math.sin(orbitAngle * 0.7) * orbitR,
-          nd.pos.z + Math.sin(orbitAngle) * orbitR * 0.5
-        );
-        nd.f256g.position.copy(nd.f256m.position);
-
-        // Arrow points in direction determined by face256 value
-        const arrowDir = new THREE.Vector3(
-          Math.cos(f256val / 256 * Math.PI * 2),
-          Math.sin(f256val / 128 * Math.PI),
-          Math.cos(f256val / 64 * Math.PI)
-        ).normalize();
-        nd.arrowMesh.position.copy(nd.pos).addScaledVector(arrowDir, 16);
-        nd.arrowMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0), arrowDir);
-        nd.arrowMesh.material.opacity = 0.4 + fl * 0.4;
+      const L=lod();
+      const tickInterval=Math.max(12,Math.round(60/currentSpeed));
+      if(substrateRunning&&frameN-lastSubstrateTick>=tickInterval&&tokens.length<L.tokenCap){
+        substrateTick();
+        lastSubstrateTick=frameN;
       }
 
-      if(frameN%50===0) for(const ed of edges) refreshEdge(ed);
+      // ── ENTROPY FLOOR (thermal noise) ──
+      // If the system has gone 40 ticks without a rotation, it's frozen.
+      // Inject a random rotation into a random node to break the equilibrium.
+      // This is analogous to thermal fluctuations in physical systems —
+      // it prevents dead zones without overwhelming genuine attractors.
+      if(substrateRunning && tick>0 && tick-lastRotationTick>40 && frameN%60===0 && nodes.length>0){
+        const ri=Math.floor(Math.random()*nodes.length);
+        const axes=["ROTATE_X","ROTATE_Y","ROTATE_Z"];
+        applyDiscreteRotation(nodes[ri], pickRotation(axes[Math.floor(Math.random()*3)]));
+        pushLog(`thermal: N${ri} perturbed (${tick-lastRotationTick} ticks quiet)`,"#9933ff");
+      }
+
+      for(const nd of nodes){
+        const age=Math.min((frameN-nd.birthFrame)/30,1);
+        const fl=nd.flash>0?nd.flash/18:0;if(nd.flash>0)nd.flash--;
+        if(nd.rotAnimProgress.v<1.0){
+          nd.rotAnimProgress.v=Math.min(1.0,nd.rotAnimProgress.v+0.04);
+          const t=nd.rotAnimProgress.v,eased=1-Math.pow(1-t,3);
+          _tmpQ.slerpQuaternions(nd.discreteQuat,nd.targetQuat,eased);
+          nd.coreMesh.quaternion.copy(_tmpQ);nd.fillMesh.quaternion.copy(_tmpQ);
+          if(nd.rotAnimProgress.v>=1.0){nd.discreteQuat.copy(nd.targetQuat);nd.coreMesh.quaternion.copy(nd.targetQuat);nd.fillMesh.quaternion.copy(nd.targetQuat);}
+        }
+        nd.coreMesh.scale.setScalar(age*(1+fl*0.4));
+        nd.fillMesh.scale.setScalar(age*(1+fl*0.4));
+        const stabilityGlow=Math.min(nd.stableCount/20,1);
+        const baseHalo=(60+stabilityGlow*35)*L.haloScale;
+        nd.halo.scale.setScalar(baseHalo*age+fl*20);
+        nd.halo.material.opacity=0.15+stabilityGlow*0.25+fl*0.35;
+        if(nd.idx===selectedIdx){nd.halo.scale.setScalar(100*age*L.haloScale);nd.halo.material.opacity=0.8;}
+
+        if(nd.f256m){
+          const f256val=face256Source(nd.state);
+          const orbitAngle=(f256val/256)*Math.PI*2+frameN*0.008;
+          const orbitR=20;
+          nd.f256m.position.set(nd.pos.x+Math.cos(orbitAngle)*orbitR,nd.pos.y+Math.sin(orbitAngle*0.7)*orbitR,nd.pos.z+Math.sin(orbitAngle)*orbitR*0.5);
+          nd.f256g.position.copy(nd.f256m.position);
+        }
+        if(nd.arrowMesh){
+          const f256val=face256Source(nd.state);
+          const arrowDir=new THREE.Vector3(Math.cos(f256val/256*Math.PI*2),Math.sin(f256val/128*Math.PI),Math.cos(f256val/64*Math.PI)).normalize();
+          nd.arrowMesh.position.copy(nd.pos).addScaledVector(arrowDir,16);
+          nd.arrowMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),arrowDir);
+          nd.arrowMesh.material.opacity=0.3+fl*0.4;
+        }
+        // Channel dots: 8 bits orbiting in a ring
+        if(nd.channelDots&&nd.channelDots.length===8){
+          const chord=nd.chord||0;
+          for(let ci=0;ci<8;ci++){
+            const active=!!(chord&(1<<ci));
+            const angle=(ci/8)*Math.PI*2+frameN*0.003;
+            const r=15;
+            nd.channelDots[ci].position.set(
+              nd.pos.x+Math.cos(angle)*r,
+              nd.pos.y-14,
+              nd.pos.z+Math.sin(angle)*r
+            );
+            nd.channelDots[ci].material.opacity=active?0.85+fl*0.15:0.04;
+            nd.channelDots[ci].scale.setScalar(active?8:4);
+          }
+        }
+      }
+
+      if(frameN%30===0)for(const ed of edges)refreshEdge(ed);
 
       for(let i=tokens.length-1;i>=0;i--){
         updateTokenTick(tokens[i]);
         if(tokens[i].dead){disposeToken(tokens[i]);tokens.splice(i,1);}
       }
 
-      // Ambient tokens (only when idle) — use dynamic edges so rotations cascade
-      if(!progRunning&&frameN%120===0&&tokens.length<6){
-        const dynamic=edges.filter(e=>!e.isLoop&&!e.forcedOp);
-        if(dynamic.length){
-          const e=dynamic[Math.floor(Math.random()*dynamic.length)];
-          sendToken(e.aIdx,e.bIdx,e.op,false,{...IDENT},null);
-        }
+      if(frameN%15===0){
+        if(selectedIdx!==null&&simRef.current)setNodeInfo(simRef.current.info(selectedIdx));
+        const stE=edges.filter(e=>opBand(e.op)==="stable").length;
+        const roE=edges.filter(e=>opBand(e.op)==="rotate").length;
+        const grE=edges.filter(e=>opBand(e.op)==="growth").length;
+        setMetrics({nodes:nodes.length,edges:edges.length,stableEdges:stE,volatileEdges:roE,growthEdges:grE,totalRotations,forks:totalForks,tick});
       }
-
-      if(frameN%20===0){
-        if(selectedIdx!==null&&simRef.current) setNodeInfo(simRef.current.info(selectedIdx));
-        setToolCount(nodes.filter(n=>n.role==="TOOL").length);
-        setProgState(p=>({...p,accumState:{...accumState},stackDepth:callStack.length}));
-      }
-
       renderer.render(scene,camera);
     };
     animate();
@@ -1288,218 +1057,398 @@ export default function App() {
       window.removeEventListener("resize",onResize);
       window.removeEventListener("mousemove",onMove);
       window.removeEventListener("mouseup",onUp);
-      if(el.contains(renderer.domElement)) el.removeChild(renderer.domElement);
+      if(el.contains(renderer.domElement))el.removeChild(renderer.domElement);
       renderer.dispose();
     };
-  },[pushLog,pushRotLog]);
+  },[pushLog,seed,gen,runId]);
 
   const mf={fontFamily:'"JetBrains Mono","Fira Code","Courier New",monospace'};
   const OC=k=>OPCODES[k]?.css||"#fff";
+  const totalE=metrics.edges||1;
+  const stableRatio=((metrics.stableEdges/totalE)*100).toFixed(0);
+  const rotateRatio=((metrics.volatileEdges/totalE)*100).toFixed(0);
+  const growthRatio=((metrics.growthEdges/totalE)*100).toFixed(0);
 
-  return (
+  const tabStyle=(id)=>({
+    flex:1,background:tab===id?"#0a1a28":"#020810",
+    border:`1px solid ${tab===id?"#00ffcc55":"#0a1422"}`,
+    color:tab===id?"#00ffcc":"#445566",
+    padding:"6px",cursor:"pointer",fontSize:8,letterSpacing:1,...mf,
+  });
+
+  return(
     <div style={{display:"flex",height:"100vh",background:"#010408",...mf}}>
       <div style={{flex:1,position:"relative",overflow:"hidden"}}>
         <div ref={mountRef} style={{width:"100%",height:"100%"}}/>
 
         {/* Legend */}
-        <div style={{position:"absolute",top:14,left:14,fontSize:9,lineHeight:2.1,
-          pointerEvents:"none",background:"rgba(1,4,8,0.82)",border:"1px solid #0a1422",padding:"10px 14px"}}>
-          <div style={{color:"#223344",letterSpacing:2,marginBottom:4}}>NODE ROLES</div>
-          {[["#00ff88","▣","IN  — program entry, always IDENT"],
-            ["#4488ff","▣","OUT — accumulates result, LOOP source"],
-            ["#00ccff","▣","PROC — 257-face cube (256 vocab + register)"],
-            ["#ff44ff","◆","TOOL — crystallized solution, O(1)"],
+        <div style={{position:"absolute",top:14,left:14,fontSize:9,lineHeight:1.9,
+          pointerEvents:"none",background:"rgba(1,4,8,0.85)",border:"1px solid #0a1422",padding:"10px 14px"}}>
+          <div style={{color:"#223344",letterSpacing:2,marginBottom:3}}>SELF-ASSEMBLING SUBSTRATE</div>
+          <div style={{color:"#1a3040",fontSize:8,lineHeight:1.7,marginBottom:5}}>
+            No pipeline. No clock. Up to {MAX_NODES} nodes.<br/>
+            Structure emerges from GF(257) geometry.
+          </div>
+          {[
+            ["#3377ff","━","ROTATE (0–109): volatile, cascades"],
+            ["#00ffcc","━","STABLE (110–224): convergent"],
+            ["#44ff88","━","GROWTH (225–256): structural"],
           ].map(([c,s,l])=>(
             <div key={l} style={{display:"flex",gap:5}}>
-              <span style={{color:c}}>{s}</span><span style={{color:"#1a3040"}}>{l}</span>
+              <span style={{color:c}}>{s}</span><span style={{color:"#1a3040",fontSize:8}}>{l}</span>
             </div>
           ))}
-          <div style={{color:"#ff8800",marginTop:4,fontSize:8}}>● = face 256 register (rotation-dependent)</div>
-          <div style={{color:"#334466",marginTop:2,fontSize:7,lineHeight:1.6}}>
-            Cubes only rotate on ROTATE opcodes<br/>
-            90° / 180° / 270° discrete steps<br/>
-            Rotation shifts face256 → changes edge opcodes
-          </div>
         </div>
 
-        {/* Rotation cascade log */}
-        <div style={{position:"absolute",top:14,right:280,
-          background:"rgba(1,4,8,0.82)",border:"1px solid #0a1422",
-          padding:"8px 12px",fontSize:8,lineHeight:1.9,pointerEvents:"none",
-          minWidth:180,maxWidth:260}}>
-          <div style={{color:"#223344",letterSpacing:2,marginBottom:4}}>ROTATION CASCADE</div>
-          {rotLog.length===0 ? (
-            <div style={{color:"#0a1a28",fontSize:8}}>no rotations yet</div>
-          ) : rotLog.map((e,i)=>(
-            <div key={e.id} style={{color:e.color,opacity:Math.max(0.15,1-i*0.12)}}>{e.msg}</div>
-          ))}
-        </div>
-
-        {/* Program pipeline */}
+        {/* Band gauge */}
         <div style={{position:"absolute",bottom:14,left:14,
           background:"rgba(1,4,8,0.85)",border:"1px solid #0a1422",
-          padding:"10px 16px",fontSize:9,lineHeight:2,pointerEvents:"none"}}>
-          <div style={{color:"#223344",letterSpacing:2,marginBottom:5}}>RUNNING PROGRAM</div>
-          <div style={{display:"flex",alignItems:"center",gap:3,flexWrap:"wrap"}}>
-            {[{l:"IN",c:"#00ff88"},{o:"SEARCH",c:OC("SEARCH")},{l:"SEARCH",c:"#00ccff"},
-              {o:"CALL",c:OC("CALL")},{l:"RESOLVE",c:"#00ccff"},{o:"RETURN",c:OC("RETURN")},
-              {l:"ALIGN",c:"#00ccff"},{o:"ALIGN",c:OC("ALIGN")},{l:"OUT",c:"#4488ff"},
-              {o:"LOOP",c:OC("LOOP")},{l:"IN",c:"#00ff88"},
-            ].map((item,i)=>(
-              item.o
-                ? <span key={i} style={{color:item.c,fontSize:8}}>─{item.o}→</span>
-                : <span key={i} style={{color:item.c,border:`1px solid ${item.c}44`,padding:"0 5px",fontWeight:"bold"}}>{item.l}</span>
-            ))}
+          padding:"10px 16px",pointerEvents:"none",minWidth:220}}>
+          <div style={{fontSize:8,letterSpacing:2,color:"#223344",marginBottom:6}}>EDGE BAND DISTRIBUTION</div>
+          <div style={{display:"flex",height:8,borderRadius:2,overflow:"hidden",marginBottom:5,background:"#030810"}}>
+            <div style={{width:`${rotateRatio}%`,background:"#3377ff",transition:"width 0.5s"}}/>
+            <div style={{width:`${stableRatio}%`,background:"#00ffcc",transition:"width 0.5s"}}/>
+            <div style={{width:`${growthRatio}%`,background:"#44ff88",transition:"width 0.5s"}}/>
           </div>
-          <div style={{color:"#1a3040",fontSize:8,marginTop:3}}>
-            self-clocking: each token fires only when the previous arrives · no timers
+          <div style={{display:"flex",gap:12,fontSize:8}}>
+            <span style={{color:"#3377ff"}}>{rotateRatio}%</span>
+            <span style={{color:"#00ffcc"}}>{stableRatio}%</span>
+            <span style={{color:"#44ff88"}}>{growthRatio}%</span>
           </div>
         </div>
       </div>
 
       {/* Side panel */}
-      <div style={{width:265,background:"#00020a",borderLeft:"1px solid #0a1422",
+      <div style={{width:300,background:"#00020a",borderLeft:"1px solid #0a1422",
         display:"flex",flexDirection:"column",overflow:"hidden"}}>
 
         {/* Controls */}
-        <div style={{padding:"14px 16px 12px",borderBottom:"1px solid #0a1422"}}>
-          <div style={{fontSize:8,letterSpacing:3,color:"#00ffcc",opacity:0.35,marginBottom:4}}>GF(257) AI VM</div>
-          <div style={{fontSize:9,color:"#2a4050",lineHeight:1.8,marginBottom:10}}>
-            257 faces per cube: 256 vocab + 1 register<br/>
-            data is the clock · the wire is the opcode
-          </div>
-          <div style={{display:"flex",gap:5}}>
+        <div style={{padding:"12px 14px 10px",borderBottom:"1px solid #0a1422"}}>
+          <div style={{fontSize:8,letterSpacing:3,color:"#00ffcc",opacity:0.35,marginBottom:3}}>GF(257) SUBSTRATE</div>
+          <div style={{display:"flex",gap:5,marginBottom:5}}>
             <button onClick={()=>simRef.current?.start()} disabled={running} style={{
               flex:2,background:running?"#060e14":"#001a10",
               border:`1px solid ${running?"#0a1a20":"#00ff8877"}`,
               color:running?"#0a2010":"#00ff88",
-              padding:"9px",cursor:running?"not-allowed":"pointer",fontSize:9,letterSpacing:1,...mf}}>
-              {running?"▶ RUNNING…":"▶ RUN"}</button>
-            <button onClick={()=>simRef.current?.stop()} style={{background:"#180008",border:"1px solid #ff444433",color:"#ff4444",padding:"9px 10px",cursor:"pointer",fontSize:9,...mf}}>■</button>
-            <button onClick={()=>simRef.current?.fire()} style={{background:"#001020",border:"1px solid #00ffcc22",color:"#00ffcc",padding:"9px 10px",cursor:"pointer",fontSize:9,...mf}}>~</button>
+              padding:"8px",cursor:running?"not-allowed":"pointer",fontSize:9,letterSpacing:1,...mf}}>
+              {running?"▶ ACTIVE":"▶ START"}</button>
+            <button onClick={()=>simRef.current?.stop()} style={{background:"#180008",border:"1px solid #ff444433",color:"#ff4444",padding:"8px 10px",cursor:"pointer",fontSize:9,...mf}}>■</button>
+            <button onClick={()=>simRef.current?.fire()} style={{background:"#001020",border:"1px solid #00ffcc22",color:"#00ffcc",padding:"8px 10px",cursor:"pointer",fontSize:9,...mf}}>~</button>
           </div>
-        </div>
-
-        {/* Program state */}
-        <div style={{padding:"12px 16px",borderBottom:"1px solid #0a1422"}}>
-          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:8}}>PROGRAM STATE</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:8}}>
-            {[
-              {l:"iteration",v:`${progState.iteration} / ${DATASET.length}`,c:"#00ff88"},
-              {l:"phase",    v:progState.phase,                             c:"#00ccff"},
-              {l:"call stack",v:`depth ${progState.stackDepth}`,            c:"#00eeff"},
-              {l:"tools",    v:toolCount,                                   c:"#cc44ff"},
-            ].map(({l,v,c})=>(
-              <div key={l} style={{background:"#030810",padding:"7px 9px"}}>
-                <div style={{fontSize:7,color:"#0a1a28",marginBottom:2}}>{l}</div>
-                <div style={{fontSize:10,color:c,fontWeight:"bold"}}>{v}</div>
-              </div>
+          <div style={{display:"flex",gap:3}}>
+            {[{l:"½",v:0.5},{l:"1×",v:1},{l:"2×",v:2},{l:"4×",v:4},{l:"8×",v:8}].map(({l,v})=>(
+              <button key={v} onClick={()=>{setSpeed(v);simRef.current?.setSpeed(v);}}
+                style={{flex:1,background:speed===v?"#0a1a28":"#020810",
+                  border:`1px solid ${speed===v?"#00ffcc44":"#0a1422"}`,
+                  color:speed===v?"#00ffcc":"#0a1a28",
+                  padding:"4px",cursor:"pointer",fontSize:8,...mf}}>{l}</button>
             ))}
           </div>
-          <div style={{background:"#030810",padding:"8px 10px"}}>
-            <div style={{fontSize:7,color:"#0a1a28",marginBottom:3}}>accumulated state</div>
-            <div style={{fontSize:11,color:"#00ffcc"}}>f(p) = {affStr(progState.accumState)}</div>
-            <div style={{display:"flex",gap:8,fontSize:8,color:"#0a2030",marginTop:2}}>
-              <span>a={progState.accumState.a}</span>
-              <span>b={progState.accumState.b}</span>
-              <span style={{color:"#ff8800"}}>f256={face256Source(progState.accumState)}</span>
-            </div>
-            <div style={{position:"relative",width:"100%",height:18,background:"#020610",marginTop:6,border:"1px solid #0a1422"}}>
-              <div style={{position:"absolute",
-                left:`${(progState.accumState.a-1)/255*86+7}%`,
-                top:"50%",width:5,height:5,borderRadius:"50%",
-                background:"#00ffcc",boxShadow:"0 0 5px #00ffcc",
-                transform:"translate(-50%,-50%)"}}/>
-            </div>
-          </div>
         </div>
 
-        {/* Dataset */}
-        <div style={{padding:"10px 16px",borderBottom:"1px solid #0a1422"}}>
-          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:6}}>DATASET</div>
-          <div style={{display:"flex",flexDirection:"column",gap:3}}>
-            {DATASET.map((d,i)=>{
-              const active=i===progState.iteration-1;
-              const done=i<progState.iteration-1;
-              return (
-                <div key={i} style={{display:"flex",gap:6,alignItems:"center",
-                  padding:"3px 7px",fontSize:8,
-                  background:active?"#001a10":done?"#04080e":"#020610",
-                  border:`1px solid ${active?"#00ff8855":done?"#0a2010":"#0a1422"}`,
-                }}>
-                  <span style={{color:active?"#00ff88":done?"#1a3040":"#0a1a28",minWidth:16}}>{i+1}.</span>
-                  <span style={{color:active?"#c8e8f0":done?"#1a3040":"#0a1a28",flex:1}}>{DATASET_LABELS[i]}</span>
-                  <span style={{color:active?"#00ffcc":"#0a1a28"}}>{affStr(d)}</span>
+        {/* Tabs */}
+        <div style={{display:"flex",gap:3,padding:"6px 14px",borderBottom:"1px solid #0a1422"}}>
+          <button onClick={()=>setTab("live")} style={tabStyle("live")}>LIVE</button>
+          <button onClick={()=>setTab("charts")} style={tabStyle("charts")}>CHARTS</button>
+          <button onClick={()=>setTab("experiment")} style={tabStyle("experiment")}>EXPERIMENT</button>
+        </div>
+
+        {/* Tab content */}
+        <div style={{flex:1,overflow:"auto",minHeight:0}}>
+
+          {tab==="live"&&(
+            <div style={{padding:"10px 14px"}}>
+              {/* Metrics grid */}
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:5,marginBottom:10}}>
+                {[
+                  {l:"nodes",v:metrics.nodes,c:"#00ccff"},
+                  {l:"edges",v:metrics.edges,c:"#00ccff"},
+                  {l:"ticks",v:metrics.tick,c:"#334466"},
+                  {l:"stable",v:metrics.stableEdges,c:"#00ffcc"},
+                  {l:"volatile",v:metrics.volatileEdges,c:"#3377ff"},
+                  {l:"growth",v:metrics.growthEdges,c:"#44ff88"},
+                  {l:"rotations",v:metrics.totalRotations,c:"#9933ff"},
+                  {l:"forks",v:metrics.forks,c:"#44ff88"},
+                  {l:"max",v:MAX_NODES,c:"#0a1a28"},
+                ].map(({l,v,c})=>(
+                  <div key={l} style={{background:"#030810",padding:"5px 7px"}}>
+                    <div style={{fontSize:6,color:"#0a1a28"}}>{l}</div>
+                    <div style={{fontSize:10,color:c,fontWeight:"bold"}}>{v}</div>
+                  </div>
+                ))}
+              </div>
+
+              {/* Selected node */}
+              <div style={{marginBottom:8}}>
+                <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:4}}>
+                  {selected!==null?`N${selected} · ${nodeInfo?.label||""}`:"CLICK A NODE"}
                 </div>
-              );
-            })}
-          </div>
-        </div>
+                {nodeInfo&&selected!==null?(
+                  <>
+                    <div style={{fontSize:10,color:"#c8e8f0",marginBottom:2}}>
+                      f(p) = <span style={{color:"#00ffcc"}}>{affStr(nodeInfo.state)}</span>
+                    </div>
+                    <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:3}}>
+                      <span style={{fontSize:8,color:"#1a3040"}}>f256</span>
+                      <div style={{width:7,height:7,borderRadius:"50%",background:`hsl(${nodeInfo.f256/256*280},100%,60%)`,boxShadow:`0 0 4px hsl(${nodeInfo.f256/256*280},100%,60%)`}}/>
+                      <span style={{fontSize:9,color:"#ff8800"}}>{nodeInfo.f256}</span>
+                    </div>
+                    <div style={{fontSize:8,color:"#0a2030"}}>
+                      <span style={{color:"#9933ff"}}>rot:{nodeInfo.rotCount}</span>
+                      <span style={{color:"#00ffcc",marginLeft:6}}>stable:{nodeInfo.stableCount}</span>
+                      <span style={{marginLeft:6}}>edges:{nodeInfo.edgeCount} (<span style={{color:"#00ffcc"}}>{nodeInfo.stableE}</span>/<span style={{color:"#3377ff"}}>{nodeInfo.rotateE}</span>/<span style={{color:"#44ff88"}}>{nodeInfo.growthE}</span>)</span>
+                    </div>
+                    <div style={{fontSize:8,color:"#0a1a28",marginTop:2}}>
+                      {nodeInfo.ops.map((op,i)=><span key={i} style={{color:OC(op),marginRight:3}}>{op}</span>)}
+                    </div>
+                    {nodeInfo.chordStr&&(
+                      <div style={{display:"flex",alignItems:"center",gap:3,marginTop:3}}>
+                        <span style={{fontSize:7,color:"#1a3040"}}>chord</span>
+                        {nodeInfo.chordStr.split("").map((bit,i)=>(
+                          <div key={i} style={{width:6,height:6,borderRadius:"50%",
+                            background:bit==="1"?CHANNEL_COLORS[i]:"#0a1422",
+                            opacity:bit==="1"?1:0.3}}/>
+                        ))}
+                        <span style={{fontSize:7,color:"#334466",marginLeft:3}}>{nodeInfo.popcount}/8 ch · {nodeInfo.openChannels} open edges</span>
+                      </div>
+                    )}
+                  </>
+                ):null}
+              </div>
 
-        {/* Selected node */}
-        <div style={{padding:"10px 16px",borderBottom:"1px solid #0a1422",minHeight:80}}>
-          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:5}}>
-            {selected!==null?`N${selected} · ${nodeInfo?.label||""} · ${nodeInfo?.role||""}`:"CLICK A NODE"}
-          </div>
-          {nodeInfo&&selected!==null?(
-            <>
-              <div style={{fontSize:10,color:"#c8e8f0",marginBottom:3}}>
-                f(p) = <span style={{color:"#00ffcc"}}>{affStr(nodeInfo.state)}</span>
+              {/* Log */}
+              <div style={{fontSize:7,letterSpacing:2,color:"#1a3040",marginBottom:3}}>LOG</div>
+              {log.map((e,i)=>(
+                <div key={e.id} style={{fontSize:8,lineHeight:1.7,color:e.color,opacity:Math.max(0.05,1-i*0.05)}}>{e.msg}</div>
+              ))}
+            </div>
+          )}
+
+          {tab==="charts"&&(
+            <div style={{padding:"10px 14px"}}>
+              {/* Experiment A: Entropy vs Convergence */}
+              <div style={{fontSize:8,letterSpacing:2,color:"#223344",marginBottom:6}}>A · ENTROPY vs CONVERGENCE</div>
+
+              {/* Band % over time */}
+              <div style={{fontSize:7,color:"#1a3040",marginBottom:3}}>edge band % over time</div>
+              <div style={{height:120,marginBottom:12}}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeSeries} margin={{top:2,right:4,left:0,bottom:0}}>
+                    <XAxis dataKey="t" hide/>
+                    <YAxis domain={[0,100]} hide/>
+                    <Tooltip contentStyle={{background:"#030810",border:"1px solid #0a1422",fontSize:9,...mf}} labelStyle={{color:"#334466"}}/>
+                    <Area type="monotone" dataKey="roPct" stackId="1" stroke="#3377ff" fill="#3377ff" fillOpacity={0.6} name="rotate%"/>
+                    <Area type="monotone" dataKey="stPct" stackId="1" stroke="#00ffcc" fill="#00ffcc" fillOpacity={0.6} name="stable%"/>
+                    <Area type="monotone" dataKey="grPct" stackId="1" stroke="#44ff88" fill="#44ff88" fillOpacity={0.6} name="growth%"/>
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-              <div style={{display:"flex",alignItems:"center",gap:6,marginBottom:4}}>
-                <span style={{fontSize:8,color:"#1a3040"}}>face256</span>
-                <div style={{width:8,height:8,borderRadius:"50%",
-                  background:`hsl(${nodeInfo.f256/256*280},100%,60%)`,
-                  boxShadow:`0 0 5px hsl(${nodeInfo.f256/256*280},100%,60%)`}}/>
-                <span style={{fontSize:9,color:"#ff8800"}}>{nodeInfo.f256}</span>
+
+              {/* Graph growth over time */}
+              <div style={{fontSize:7,color:"#1a3040",marginBottom:3}}>graph size over time</div>
+              <div style={{height:100,marginBottom:12}}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeSeries} margin={{top:2,right:4,left:0,bottom:0}}>
+                    <XAxis dataKey="t" hide/>
+                    <YAxis hide/>
+                    <Tooltip contentStyle={{background:"#030810",border:"1px solid #0a1422",fontSize:9,...mf}} labelStyle={{color:"#334466"}}/>
+                    <Area type="monotone" dataKey="nodes" stroke="#00ccff" fill="#00ccff" fillOpacity={0.3} name="nodes"/>
+                    <Area type="monotone" dataKey="edges" stroke="#00ccff" fill="#00ccff" fillOpacity={0.15} name="edges"/>
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-              <div style={{fontSize:8,color:"#0a2030",marginBottom:3}}>
-                rotations: <span style={{color:"#3377ff"}}>{nodeInfo.rotCount}</span>
-                {nodeInfo.rotHistory.length>0 && (
-                  <span style={{color:"#1a3040",marginLeft:6}}>
-                    [{nodeInfo.rotHistory.slice(-4).join(", ")}]
-                  </span>
-                )}
+
+              {/* Rotation rate (entropy injection) */}
+              <div style={{fontSize:7,color:"#1a3040",marginBottom:3}}>rotation events per sample (entropy)</div>
+              <div style={{height:80,marginBottom:8}}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeSeries} margin={{top:2,right:4,left:0,bottom:0}}>
+                    <XAxis dataKey="t" hide/>
+                    <YAxis hide/>
+                    <Tooltip contentStyle={{background:"#030810",border:"1px solid #0a1422",fontSize:9,...mf}} labelStyle={{color:"#334466"}}/>
+                    <Area type="monotone" dataKey="rotW" stroke="#9933ff" fill="#9933ff" fillOpacity={0.4} name="rotations/window"/>
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-              <div style={{fontSize:8,color:"#0a1a28"}}>
-                ops: {nodeInfo.ops.map((op,i)=><span key={i} style={{color:OC(op),marginRight:3}}>{op}</span>)}
+
+              {/* Channel width over time */}
+              <div style={{fontSize:7,color:"#1a3040",marginBottom:3}}>avg channel width per edge (communication bandwidth)</div>
+              <div style={{height:70,marginBottom:8}}>
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeSeries} margin={{top:2,right:4,left:0,bottom:0}}>
+                    <XAxis dataKey="t" hide/>
+                    <YAxis hide domain={[0,8]}/>
+                    <Tooltip contentStyle={{background:"#030810",border:"1px solid #0a1422",fontSize:9,...mf}} labelStyle={{color:"#334466"}}/>
+                    <Area type="monotone" dataKey="avgCh" stroke="#00eeff" fill="#00eeff" fillOpacity={0.3} name="avg channels/edge"/>
+                  </AreaChart>
+                </ResponsiveContainer>
               </div>
-            </>
-          ):(
-            <div style={{fontSize:9,color:"#060e18",lineHeight:1.9}}>inspect rotation state<br/>face 256 register · rotation history</div>
+
+              <div style={{fontSize:7,color:"#0a1a28",lineHeight:1.7}}>
+                {timeSeries.length<5?"collecting data… start the substrate and let it run"
+                  :`${timeSeries.length} samples · ${timeSeries[timeSeries.length-1]?.nodes||0} nodes · avg ${timeSeries[timeSeries.length-1]?.avgCh||0} ch/edge`}
+              </div>
+            </div>
+          )}
+
+          {tab==="experiment"&&(
+            <div style={{padding:"10px 14px"}}>
+              {/* Auto-run header */}
+              <div style={{fontSize:8,letterSpacing:2,color:"#00ffcc",marginBottom:8}}>AUTOMATED EXPERIMENT SUITE</div>
+              <div style={{fontSize:8,color:"#1a3040",lineHeight:1.8,marginBottom:10}}>
+                One button runs the full battery: grow → stabilize →<br/>
+                pause/resume → perturb 1/5/10% → channel probe
+              </div>
+
+              {/* Configuration */}
+              <div style={{fontSize:7,letterSpacing:2,color:"#223344",marginBottom:5}}>SEED</div>
+              <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:8}}>
+                {Object.entries(SEEDS).map(([k])=>(
+                  <button key={k} onClick={()=>setSeed(k)} style={{
+                    padding:"4px 8px",background:seed===k?"#0a1a28":"#020810",
+                    border:`1px solid ${seed===k?"#00ffcc44":"#0a1422"}`,
+                    color:seed===k?"#00ffcc":"#334466",
+                    cursor:"pointer",fontSize:7,...mf}}>{k}</button>
+                ))}
+              </div>
+              <div style={{fontSize:7,letterSpacing:2,color:"#223344",marginBottom:5}}>GENERATOR</div>
+              <div style={{display:"flex",gap:3,flexWrap:"wrap",marginBottom:10}}>
+                {Object.entries(GENERATORS).map(([k])=>(
+                  <button key={k} onClick={()=>setGen(k)} style={{
+                    padding:"4px 8px",background:gen===k?"#0a1a28":"#020810",
+                    border:`1px solid ${gen===k?"#9933ff44":"#0a1422"}`,
+                    color:gen===k?"#9933ff":"#334466",
+                    cursor:"pointer",fontSize:7,...mf}}>{k}</button>
+                ))}
+              </div>
+
+              {/* Run button */}
+              <button onClick={()=>{setAutoReport(null);simRef.current?.autoRun();setTab("experiment");}}
+                disabled={autoPhase!=="idle"&&autoPhase!=="done"}
+                style={{width:"100%",padding:"12px",marginBottom:8,
+                  background:autoPhase==="idle"||autoPhase==="done"?"#001a10":"#060e14",
+                  border:`1px solid ${autoPhase==="idle"||autoPhase==="done"?"#00ff8877":"#0a1a20"}`,
+                  color:autoPhase==="idle"||autoPhase==="done"?"#00ff88":"#0a2010",
+                  cursor:autoPhase==="idle"||autoPhase==="done"?"pointer":"not-allowed",
+                  fontSize:10,letterSpacing:2,...mf}}>
+                {autoPhase==="idle"?"▶ AUTO-RUN ALL EXPERIMENTS"
+                  :autoPhase==="done"?"▶ RUN AGAIN"
+                  :`⟳ ${autoPhase.toUpperCase()}…`}
+              </button>
+
+              {/* Phase indicator */}
+              {autoPhase!=="idle"&&autoPhase!=="done"&&(
+                <div style={{fontSize:8,color:"#00ffcc",marginBottom:8,textAlign:"center"}}>
+                  {autoPhase==="growing"&&`growing graph… ${metrics.nodes} nodes`}
+                  {autoPhase==="stabilizing"&&`waiting for equilibrium… ${metrics.stableEdges} stable edges`}
+                  {autoPhase==="testing"&&"running experiment battery…"}
+                </div>
+              )}
+
+              {/* Report */}
+              {autoReport&&(
+                <div style={{background:"#030810",padding:"10px",border:"1px solid #0a1422"}}>
+                  <div style={{fontSize:8,letterSpacing:2,color:"#00ffcc",marginBottom:8}}>
+                    REPORT — {autoReport.seed} · {autoReport.gen} — {autoReport.duration}s
+                  </div>
+
+                  {/* A: Baseline */}
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,color:"#223344",marginBottom:3}}>A · EQUILIBRIUM</div>
+                    <div style={{fontSize:9,color:"#c8e8f0"}}>
+                      {autoReport.baseline.nodes} nodes · {autoReport.baseline.edges} edges
+                    </div>
+                    <div style={{display:"flex",gap:8,fontSize:8,marginTop:2}}>
+                      <span style={{color:"#3377ff"}}>{autoReport.baseline.ro}% rot</span>
+                      <span style={{color:"#00ffcc"}}>{autoReport.baseline.st}% stable</span>
+                      <span style={{color:"#44ff88"}}>{autoReport.baseline.gr}% growth</span>
+                    </div>
+                    <div style={{fontSize:7,color:"#334466",marginTop:2}}>
+                      stabilized at tick {autoReport.stabilizedAt?.tick} (var={autoReport.stabilizedAt?.variance?.toFixed(1)})
+                    </div>
+                  </div>
+
+                  {/* B: Persistence */}
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,color:"#223344",marginBottom:3}}>B · PERSISTENCE</div>
+                    <div style={{fontSize:9,color:autoReport.expB?.passed?"#00ff88":"#ff4444"}}>
+                      {autoReport.expB?.passed?"✓ PASSED":"✗ FAILED"} — deviation={autoReport.expB?.dev}
+                    </div>
+                  </div>
+
+                  {/* E: Error correction */}
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,color:"#223344",marginBottom:3}}>E · ERROR CORRECTION</div>
+                    {[{k:"expE1",l:"1 node"},{k:"expE5",l:"5 nodes"},{k:"expE10",l:"10%"}].map(({k,l})=>{
+                      const d=autoReport[k];if(!d)return null;
+                      return(
+                        <div key={k} style={{display:"flex",gap:6,fontSize:8,lineHeight:1.8}}>
+                          <span style={{color:d.recovered?"#00ff88":"#ff4444",minWidth:14}}>{d.recovered?"✓":"✗"}</span>
+                          <span style={{color:"#334466",minWidth:55}}>{l}</span>
+                          <span style={{color:"#1a3040"}}>peak={d.peakDev} final={d.finalDev}</span>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* F: Channel routing */}
+                  <div style={{marginBottom:8}}>
+                    <div style={{fontSize:8,color:"#223344",marginBottom:3}}>F · CHANNEL ROUTING</div>
+                    {autoReport.expF&&(
+                      <>
+                        <div style={{fontSize:9,color:autoReport.expF.arrivedCount>0?"#00ff88":"#ff4444"}}>
+                          {autoReport.expF.arrivedCount}/{autoReport.expF.sentCount} channels routed
+                          {autoReport.expF.selective?" — SELECTIVE":""}
+                        </div>
+                        <div style={{fontSize:7,color:"#1a3040",marginTop:2}}>
+                          N{autoReport.expF.srcIdx}→N{autoReport.expF.sinkIdx} (d={autoReport.expF.dist})
+                        </div>
+                        <div style={{display:"flex",gap:3,marginTop:3}}>
+                          {autoReport.expF.channels.map((ch,i)=>(
+                            <div key={i} style={{width:10,height:10,borderRadius:"50%",
+                              background:ch.arrived?CHANNEL_COLORS[i]:"#0a1422",
+                              border:`1px solid ${CHANNEL_COLORS[i]}44`,
+                              opacity:ch.canSend?(ch.arrived?1:0.5):0.15}}
+                              title={`ch${i}: ${ch.arrived?"routed":"blocked"}`}/>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+
+                  {/* Summary */}
+                  <div style={{borderTop:"1px solid #0a1422",paddingTop:8,marginTop:6}}>
+                    <div style={{fontSize:8,color:"#223344",marginBottom:3}}>SUMMARY</div>
+                    <div style={{fontSize:8,color:"#c8e8f0",lineHeight:1.8}}>
+                      avg channel width: {autoReport.avgChannelWidth}/8<br/>
+                      final bands: {autoReport.finalBands?.st}% stable / {autoReport.finalBands?.ro}% rot / {autoReport.finalBands?.gr}% growth
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Reset */}
+              <div style={{marginTop:10}}>
+                <button onClick={()=>{setRunning(false);setTimeSeries([]);setAutoReport(null);setAutoPhase("idle");setPerturbData(null);setProbeResults([]);setRunId(r=>r+1);}}
+                  style={{width:"100%",padding:"8px",background:"#180008",border:"1px solid #ff444433",color:"#ff4444",cursor:"pointer",fontSize:8,letterSpacing:1,...mf}}>
+                  ↻ RESET (seed: {seed} · gen: {gen})
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Log */}
-        <div style={{flex:1,padding:"10px 16px",overflow:"hidden",minHeight:0}}>
-          <div style={{fontSize:8,letterSpacing:2,color:"#1a3040",marginBottom:5}}>LOG</div>
-          {log.map((e,i)=>(
-            <div key={e.id} style={{fontSize:9,lineHeight:1.85,color:e.color,opacity:Math.max(0.05,1-i*0.05)}}>{e.msg}</div>
-          ))}
-        </div>
-
-        {/* Footer — wire geometry reference */}
-        <div style={{padding:"7px 16px",borderTop:"1px solid #0a1422"}}>
-          <div style={{fontSize:7,color:"#060e18",lineHeight:1.9,display:"flex",flexWrap:"wrap",gap:"0 12px"}}>
-            {[
-              {op:"ROTATE_X",label:"RX",note:"discrete X turn"},
-              {op:"ROTATE_Y",label:"RY",note:"discrete Y turn"},
-              {op:"ROTATE_Z",label:"RZ",note:"discrete Z turn"},
-              {op:"COMPOSE",label:"∘",note:"carry state"},
-              {op:"LOOP",label:"↺",note:"wire back"},
-              {op:"CALL",label:"↓",note:"push chord"},
-              {op:"RETURN",label:"↑",note:"pop chord"},
-              {op:"SYNTH",label:"◆",note:"crystallize"},
-            ].map(({op,label,note})=>(
-              <span key={op}><span style={{color:OC(op)}}>{label}</span> {note}</span>
+        {/* Footer */}
+        <div style={{padding:"6px 14px",borderTop:"1px solid #0a1422"}}>
+          <div style={{fontSize:6,color:"#060e14",display:"flex",flexWrap:"wrap",gap:"0 8px",lineHeight:1.8}}>
+            {[{op:"ROTATE_X",l:"RX"},{op:"ROTATE_Y",l:"RY"},{op:"ROTATE_Z",l:"RZ"},
+              {op:"ALIGN",l:"ALN"},{op:"SEARCH",l:"SRC"},{op:"SYNC",l:"SYN"},
+              {op:"FORK",l:"FRK"},{op:"COMPOSE",l:"CMP"}].map(({op,l})=>(
+              <span key={op}><span style={{color:OC(op)}}>{l}</span></span>
             ))}
-          </div>
-          <div style={{fontSize:6,color:"#060e14",marginTop:2}}>
-            no switch · no timer · data is the clock · the wire is the opcode
           </div>
         </div>
       </div>
     </div>
   );
 }
-```

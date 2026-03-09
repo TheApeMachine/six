@@ -34,7 +34,8 @@ NewLoader creates a Loader. Use LoaderWithStore, LoaderWithPrimeField, LoaderWit
 */
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
-		coder: tokenizer.NewMortonCoder(),
+		coder:     tokenizer.NewMortonCoder(),
+		substrate: geometry.NewHybridSubstrate(),
 	}
 
 	for _, opt := range opts {
@@ -91,8 +92,11 @@ func (loader *Loader) generate() error {
 
 	for token := range loader.tokenizer.Generate() {
 		if token.Chord.ActiveCount() > 0 {
-			loader.store.Insert(token.TokenID, token.Chord)
+			if loader.store != nil {
+				loader.store.Insert(token.TokenID, token.Chord)
+			}
 
+			wg.Add(1)
 			loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
 				defer wg.Done()
 
@@ -108,8 +112,10 @@ func (loader *Loader) generate() error {
 			})
 
 			// Build EigenModes from the ingested manifold topology.
-			loader.primefield.BuildEigenModes()
-			loader.eigenmode = loader.primefield.EigenMode()
+			if loader.primefield != nil {
+				loader.primefield.BuildEigenModes()
+				loader.eigenmode = loader.primefield.EigenMode()
+			}
 
 			// Wire the Sequencer with the trained EigenMode.
 			if loader.Tokenizer() != nil && loader.Tokenizer().Sequencer() != nil {
@@ -123,6 +129,7 @@ func (loader *Loader) generate() error {
 		}
 	}
 
+	wg.Wait()
 	return nil
 }
 

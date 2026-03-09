@@ -75,9 +75,11 @@ func TestNodeConnect(t *testing.T) {
 		Convey("When connecting A to B", func() {
 			nodeA.Connect(nodeB)
 
-			Convey("It should add B to A's edges", func() {
+			Convey("It should add an edge connecting A and B", func() {
 				So(nodeA.EdgeCount(), ShouldEqual, 1)
-				So(nodeA.Edges()[0], ShouldEqual, nodeB)
+				edge := nodeA.Edges()[0]
+				connected := edge.A == nodeB || edge.B == nodeB
+				So(connected, ShouldBeTrue)
 			})
 			Convey("When connecting A to B again, it should not duplicate", func() {
 				nodeA.Connect(nodeB)
@@ -193,7 +195,7 @@ func TestNodeBestFace(t *testing.T) {
 		})
 		Convey("When rotation is applied, BestFace should decode via Reverse", func() {
 			node := NewNode(0, 0)
-			node.Rot = geometry.RotationY
+			node.Rot = geometry.DefaultRotTable.Y90
 			logicalH := int('H')
 			physFace := node.Rot.Forward(logicalH)
 			node.Cube[physFace] = data.BaseChord(byte(logicalH))

@@ -1,217 +1,104 @@
 package cpu
 
 import (
-	"fmt"
-	"math/bits"
+	"sync"
 	"unsafe"
 
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/numeric"
+	"github.com/tphakala/simd/f32"
 )
 
-const (
-	overlapWeight       int64 = 500
-	fillWeight          int64 = 900
-	expectationWeight   int64 = 250
-	contradictionWeight int64 = 650
-	precisionUnity      int64 = 1024
-	scoreShiftBits            = 10
-	precisionBytes            = 5 * geometry.CubeFaces * 2
-)
-
-type scoreTerms struct {
-	overlap              uint32
-	fill                 uint32
-	expectationScaled    uint64
-	missingSupportScaled uint64
-	vetoViolationScaled  uint64
+var bufPool = sync.Pool{
+	New: func() any {
+		return &simdBufs{}
+	},
 }
 
-func precisionFor(precisionWords []uint16, cube, block int) uint16 {
-	if len(precisionWords) < 5*geometry.CubeFaces {
-		return uint16(precisionUnity)
+type simdBufs struct {
+	aVals   []float32
+	bVals   []float32
+	ctxAVec []float32
+	ctxBVec []float32
+	da      []float32
+	db      []float32
+	distSq  []float32
+}
+
+func (bufs *simdBufs) ensure(size int) {
+	if cap(bufs.aVals) >= size {
+		bufs.aVals = bufs.aVals[:size]
+		bufs.bVals = bufs.bVals[:size]
+		bufs.ctxAVec = bufs.ctxAVec[:size]
+		bufs.ctxBVec = bufs.ctxBVec[:size]
+		bufs.da = bufs.da[:size]
+		bufs.db = bufs.db[:size]
+		bufs.distSq = bufs.distSq[:size]
+		return
 	}
 
-	return precisionWords[cube*geometry.CubeFaces+block]
+	bufs.aVals = make([]float32, size)
+	bufs.bVals = make([]float32, size)
+	bufs.ctxAVec = make([]float32, size)
+	bufs.ctxBVec = make([]float32, size)
+	bufs.da = make([]float32, size)
+	bufs.db = make([]float32, size)
+	bufs.distSq = make([]float32, size)
 }
 
-func scoreFromTerms(t scoreTerms) int32 {
-	if precisionUnity == 0 {
-		return 0
-	}
+/*
+CPUBackend resolves nearest-node queries using SIMD-accelerated distance computation.
+*/
+type CPUBackend struct{}
 
-	expectation := int64(t.expectationScaled) / precisionUnity
-	missingSupport := int64(t.missingSupportScaled) / precisionUnity
-	vetoViolation := int64(t.vetoViolationScaled) / precisionUnity
-	contradiction := missingSupport + vetoViolation
-
-	return int32(
-		int64(t.overlap)*overlapWeight+
-			int64(t.fill)*fillWeight+
-			expectation*expectationWeight-
-			contradiction*contradictionWeight,
-	) >> scoreShiftBits
+/*
+Available always returns true for the CPU backend.
+*/
+func (backend *CPUBackend) Available() bool {
+	return true
 }
 
-func accumulateScoreTerms(dictWords, ctxWords, expWords []uint64, precisionWords []uint16, cubeBase int) scoreTerms {
-	var terms scoreTerms
-
-	for c := range 4 {
-		for b := range geometry.CubeFaces {
-			supportPrecision := uint64(precisionFor(precisionWords, c, b))
-			vetoPrecision := uint64(precisionFor(precisionWords, 4, b))
-
-			for i := range 8 {
-				offset := (c*geometry.CubeFaces+b)*8 + i
-				vetoOffset := (4*geometry.CubeFaces+b)*8 + i
-
-				candidate := dictWords[cubeBase+offset]
-				ctx := ctxWords[1+offset]
-				exp := expWords[1+offset]
-				missing := exp &^ ctx
-
-				vetoCtx := ctxWords[1+vetoOffset]
-				candidateVeto := dictWords[cubeBase+vetoOffset]
-
-				terms.overlap += uint32(bits.OnesCount64(candidate & ctx))
-				terms.fill += uint32(bits.OnesCount64(candidate & missing))
-
-				expectationCount := uint64(bits.OnesCount64(candidate & exp))
-				missingCount := uint64(bits.OnesCount64(ctx &^ candidate))
-				vetoCount := uint64(bits.OnesCount64(candidate & vetoCtx))
-				vetoCount += uint64(bits.OnesCount64(candidateVeto & ctx))
-
-				terms.expectationScaled += expectationCount * supportPrecision
-				terms.missingSupportScaled += missingCount * supportPrecision
-				terms.vetoViolationScaled += vetoCount * vetoPrecision
-			}
-		}
-	}
-
-	return terms
-}
-
-func BestFillCPUPacked(
-	dictionary unsafe.Pointer,
-	numChords int,
+/*
+Resolve finds the graph node with the smallest GF(257) geometric distance
+to the context rotation. Uses SIMD f32 operations for vectorized distance
+computation: 8x throughput on AVX, 4x on NEON vs scalar loop.
+*/
+func (backend *CPUBackend) Resolve(
+	graphNodes unsafe.Pointer,
+	numNodes int,
 	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	expectedPrecision unsafe.Pointer,
-	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
-	if numChords == 0 {
+	if numNodes <= 0 || graphNodes == nil || context == nil {
 		return 0, nil
 	}
 
-	dictBytes, err := numeric.PtrToBytes(dictionary, numChords*numeric.ManifoldBytes)
-	if err != nil {
-		return 0, err
-	}
-	ctxBytes, err := numeric.PtrToBytes(context, numeric.ManifoldBytes)
-	if err != nil {
-		return 0, err
-	}
-	if expectedReality == nil {
-		expectedReality = context
-	}
-	expBytes, err := numeric.PtrToBytes(expectedReality, numeric.ManifoldBytes)
-	if err != nil {
-		return 0, err
-	}
+	nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)
+	ctx := (*geometry.GFRotation)(context)
 
-	var lutBytes []byte
-	if geodesicLUT != nil {
-		lutBytes, err = numeric.PtrToBytes(geodesicLUT, numeric.GeodesicMatrixSize)
-		if err != nil {
-			return 0, err
-		}
+	bufs := bufPool.Get().(*simdBufs)
+	defer bufPool.Put(bufs)
+
+	bufs.ensure(numNodes)
+
+	ctxA := float32(ctx.A)
+	ctxB := float32(ctx.B)
+
+	for idx := range numNodes {
+		bufs.aVals[idx] = float32(nodes[idx].A)
+		bufs.bVals[idx] = float32(nodes[idx].B)
+		bufs.ctxAVec[idx] = ctxA
+		bufs.ctxBVec[idx] = ctxB
 	}
 
-	var precisionData []byte
-	if expectedPrecision != nil {
-		precisionData, err = numeric.PtrToBytes(expectedPrecision, precisionBytes)
-		if err != nil {
-			return 0, err
-		}
-	}
+	f32.Sub(bufs.da, bufs.aVals, bufs.ctxAVec)
+	f32.Sub(bufs.db, bufs.bVals, bufs.ctxBVec)
+	f32.Mul(bufs.da, bufs.da, bufs.da)
+	f32.Mul(bufs.db, bufs.db, bufs.db)
+	f32.Add(bufs.distSq, bufs.da, bufs.db)
 
-	return BestFillCPUPackedBytes(dictBytes, numChords, ctxBytes, expBytes, precisionData, lutBytes)
-}
+	bestIdx := f32.MinIdx(bufs.distSq)
+	bestDistSq := min(uint32(bufs.distSq[bestIdx]), 131072)
+	invertedDist := uint32(131072) - bestDistSq
+	packed := (uint64(invertedDist) << 32) | uint64(uint32(bestIdx))
 
-func BestFillCPUPackedBytes(
-	dictBytes []byte,
-	numChords int,
-	ctxBytes []byte,
-	expBytes []byte,
-	precisionData []byte,
-	lutBytes []byte,
-) (uint64, error) {
-	if numChords < 0 {
-		return 0, fmt.Errorf("invalid chord count: %d", numChords)
-	}
-	if len(dictBytes) < numChords*numeric.ManifoldBytes {
-		return 0, fmt.Errorf("dictionary buffer too small: have=%d want=%d", len(dictBytes), numChords*numeric.ManifoldBytes)
-	}
-	if len(ctxBytes) < numeric.ManifoldBytes {
-		return 0, fmt.Errorf("context buffer too small: have=%d want=%d", len(ctxBytes), numeric.ManifoldBytes)
-	}
-	if len(expBytes) < numeric.ManifoldBytes {
-		return 0, fmt.Errorf("expected buffer too small: have=%d want=%d", len(expBytes), numeric.ManifoldBytes)
-	}
-
-	dictWords := unsafe.Slice((*uint64)(unsafe.Pointer(&dictBytes[0])), len(dictBytes)/8)
-	ctxWords := unsafe.Slice((*uint64)(unsafe.Pointer(&ctxBytes[0])), len(ctxBytes)/8)
-	expWords := unsafe.Slice((*uint64)(unsafe.Pointer(&expBytes[0])), len(expBytes)/8)
-
-	var precisionWords []uint16
-	if len(precisionData) > 0 {
-		if len(precisionData) < precisionBytes {
-			return 0, fmt.Errorf("precision buffer too small: have=%d want=%d", len(precisionData), precisionBytes)
-		}
-		precisionWords = unsafe.Slice((*uint16)(unsafe.Pointer(&precisionData[0])), len(precisionData)/2)
-	}
-
-	ctxHeader := uint16(ctxWords[0] & 0xFFFF)
-	ctxWinding := uint8((ctxHeader >> 5) & 0xF)
-	ctxState := uint8((ctxHeader >> 15) & 0x1)
-	ctxRot := int((ctxHeader >> 9) & 0x3F)
-	ctxHasBoundarySignal := ctxState != 0 || ctxWinding != 0
-
-	var bestPacked uint64
-
-	for id := range numChords {
-		base := id * numeric.ManifoldWords
-		header := uint16(dictWords[base] & 0xFFFF)
-
-		if ctxHasBoundarySignal {
-			if uint8((header>>5)&0xF) != ctxWinding {
-				continue
-			}
-			if uint8((header>>15)&0x1) != ctxState {
-				continue
-			}
-		}
-
-		cubeBase := base + 1
-		terms := accumulateScoreTerms(dictWords, ctxWords, expWords, precisionWords, cubeBase)
-		scoreFixed := scoreFromTerms(terms)
-
-		rotCandidate := int((header >> 9) & 0x3F)
-		geodDist := uint16(255)
-		if len(lutBytes) >= numeric.GeodesicMatrixSize && ctxRot < 60 && rotCandidate < 60 {
-			geodDist = uint16(lutBytes[ctxRot*60+rotCandidate])
-		}
-
-		invertedDist := uint16(65535)
-		if ctxHasBoundarySignal || ctxRot != 0 {
-			invertedDist = uint16(65535 - geodDist)
-		}
-
-		packed := numeric.PackResult(scoreFixed, invertedDist, id)
-		if packed > bestPacked {
-			bestPacked = packed
-		}
-	}
-
-	return bestPacked, nil
+	return packed, nil
 }

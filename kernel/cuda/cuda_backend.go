@@ -1,59 +1,19 @@
-//go:build cuda && cgo
+//go:build cuda
 
 package cuda
 
-/*
-#cgo CFLAGS: -I${SRCDIR}
-#cgo darwin LDFLAGS: -L${SRCDIR} -lsixcuda -lcudart
-#cgo linux LDFLAGS: -L${SRCDIR} -lsixcuda -lcudart
-#include "cuda.h"
-*/
-import "C"
+import "unsafe"
 
-import (
-	"errors"
-	"sync/atomic"
-	"unsafe"
-)
+type CUDABackend struct{}
 
-var cudaReady atomic.Bool
-
-func init() {
-	if C.init_cuda() == 0 {
-		cudaReady.Store(true)
-	}
+func (backend *CUDABackend) Available() bool {
+	return false
 }
 
-func CudaAvailable() bool {
-	return cudaReady.Load()
-}
-
-func BestFillCUDAPacked(
-	dictionary unsafe.Pointer,
-	numChords int,
+func (backend *CUDABackend) Resolve(
+	graphNodes unsafe.Pointer,
+	numNodes int,
 	context unsafe.Pointer,
-	expectedReality unsafe.Pointer,
-	expectedPrecision unsafe.Pointer,
-	geodesicLUT unsafe.Pointer,
 ) (uint64, error) {
-	if !CudaAvailable() {
-		return 0, errors.New("cuda backend unavailable")
-	}
-	if numChords == 0 {
-		return 0, nil
-	}
-	if expectedReality == nil {
-		expectedReality = context
-	}
-
-	packed := uint64(C.bitwise_best_fill_cuda(
-		dictionary,
-		C.uint32_t(numChords),
-		context,
-		expectedReality,
-		expectedPrecision,
-		geodesicLUT,
-	))
-
-	return packed, nil
+	return 0, nil
 }

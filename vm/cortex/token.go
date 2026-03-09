@@ -24,61 +24,27 @@ type Token struct {
 	LogicalFace int // pure 0-255 byte identity, or 256
 	Origin      int // source node ID (-1 for external injection / bedrock pull)
 	TTL         int // remaining hop budget
+
+	Op    Opcode              // computed geometric opcode
+	Carry geometry.GFRotation // the GF(257) lens of the sender
+
+	// NEW: Computation vs Physics bifurcation
+	IsSignal   bool       // true = pure computational routing, bypasses physical state update
+	SignalMask data.Chord // bit-channel constraints for routing this signal
 }
 
 /*
-IsRotational detects whether this token encodes a GF(257) rotation transform.
-
-Detection heuristic: a rotation chord has exactly 2 active bits in the
-257-bit logical range. The two active bit positions encode (A, B) coefficients
-for the affine transform f(x) = (A·x + B) mod 257.
-
-This is a structural signature — a normal data chord produced by BaseChord
-or ChordOR will have 5+ active bits. A rotation chord is deliberately sparse.
-*/
-func (t *Token) IsRotational() bool {
-	return t.Chord.ActiveCount() == 2
-}
-
-/*
-DecodeRotation extracts (A, B) coefficients from a rotation chord.
-
-NewRotationToken sets bits at positions A and B. ChordPrimeIndices returns
-indices in ascending order. By convention, the LARGER index is always the
-multiplicative coefficient A (which must be ≥1 for a valid GF(257) bijection),
-and the smaller index is the additive offset B.
-
-Precondition: IsRotational() must be true.
-
-Returns IdentityRotation if the chord is degenerate.
-*/
-func (t *Token) DecodeRotation() geometry.GFRotation {
-	indices := data.ChordPrimeIndices(&t.Chord)
-	if len(indices) < 2 {
-		return geometry.IdentityRotation()
-	}
-	// indices are ascending: [smaller, larger].
-	// A = larger (multiplicative, must be ≥1), B = smaller (additive).
-	a, b := uint16(indices[1]), uint16(indices[0])
-	if a == 0 {
-		return geometry.IdentityRotation()
-	}
-	return geometry.GFRotation{A: a, B: b}
-}
-
-/*
-NewRotationToken creates a LAW-equivalent token carrying a GF(257) rotation.
-The chord is deliberately sparse: exactly 2 bits set at positions A and B.
+NewRotationToken creates a token carrying a GF(257) geometric action.
+It uses OpCompose to directly apply the transform to the receiver's lens.
 */
 func NewRotationToken(rot geometry.GFRotation, origin int) Token {
-	var c data.Chord
-	c.Set(int(rot.A))
-	c.Set(int(rot.B))
 	return Token{
-		Chord:       c,
 		LogicalFace: 256,
 		Origin:      origin,
 		TTL:         defaultTTL,
+		Op:          OpCompose,
+		Carry:       rot,
+		IsSignal:    false, // By default physics
 	}
 }
 
@@ -91,5 +57,21 @@ func NewDataToken(chord data.Chord, logicalFace int, origin int) Token {
 		LogicalFace: logicalFace,
 		Origin:      origin,
 		TTL:         defaultTTL,
+		IsSignal:    false, // By default physics
+	}
+}
+
+/*
+NewSignalToken creates a token that threads the needle for pure computation,
+bypassing the global equilibrium attractor to travel over open face-channels.
+*/
+func NewSignalToken(chord data.Chord, mask data.Chord, origin int) Token {
+	return Token{
+		Chord:       chord,
+		LogicalFace: 256,
+		Origin:      origin,
+		TTL:         defaultTTL * 2, // Signals typically traverse further
+		IsSignal:    true,
+		SignalMask:  mask,
 	}
 }

@@ -131,6 +131,7 @@
 % ============================================================================
 % DOCUMENT
 % ============================================================================
+
 \usepackage{newunicodechar}
 \newunicodechar{₁}{\ensuremath{_1}}
 \newunicodechar{₂}{\ensuremath{_2}}
@@ -145,9 +146,10 @@
 
 \graphicspath{{include/architecture/}}
 
-\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
+\InputIfFileExists{include/architecture/channel_routing_prose.tex}{}{}
+\InputIfFileExists{include/architecture/channel_routing_success.tex}{}{}
 \InputIfFileExists{include/architecture/cortex_and_bedrock.tex}{}{}
-\InputIfFileExists{include/architecture/topological_sequencing.tex}{}{}
+\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
 \InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
 \InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}
 \InputIfFileExists{include/architecture/related_hardware_accel.tex}{}{}
@@ -156,6 +158,7 @@
 \InputIfFileExists{include/architecture/related_nvsa_hd.tex}{}{}
 \InputIfFileExists{include/architecture/related_spectral_embedding.tex}{}{}
 \InputIfFileExists{include/architecture/related_topological_nn.tex}{}{}
+\InputIfFileExists{include/architecture/topological_sequencing.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -164,7 +167,6 @@
 \graphicspath{{include/classification/}}
 
 \InputIfFileExists{include/classification/text_classification_scores.tex}{}{}
-\InputIfFileExists{include/classification/text_classification_summary.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -173,7 +175,13 @@
 \graphicspath{{include/codegen/}}
 
 \InputIfFileExists{include/codegen/languages_scores.tex}{}{}
-\InputIfFileExists{include/codegen/languages_summary.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\section{Imagegen}
+
+\graphicspath{{include/imagegen/}}
+
 \FloatBarrier
 \clearpage
 
@@ -181,6 +189,17 @@
 
 \graphicspath{{include/logic/}}
 
+\InputIfFileExists{include/logic/babi_analysis.tex}{}{}
+\InputIfFileExists{include/logic/babi_entity_accuracy.tex}{}{}
+\InputIfFileExists{include/logic/babi_location_accuracy.tex}{}{}
+\FloatBarrier
+\clearpage
+
+\section{Misc}
+
+\graphicspath{{include/misc/}}
+
+\InputIfFileExists{include/misc/proteinstructure_scores.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -188,30 +207,8 @@
 
 \graphicspath{{include/phasedial/}}
 
-\InputIfFileExists{include/phasedial/adaptive_split_boundaries.tex}{}{}
-\InputIfFileExists{include/phasedial/adaptive_split_gap.tex}{}{}
-\InputIfFileExists{include/phasedial/adaptive_split_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/baseline_falsification_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/chunking_variation_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/composition_trace.tex}{}{}
-\InputIfFileExists{include/phasedial/corr_length_bar.tex}{}{}
-\InputIfFileExists{include/phasedial/corr_length_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/equivariance.tex}{}{}
-\InputIfFileExists{include/phasedial/partial_deletion_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/permutation_metrics.tex}{}{}
-\InputIfFileExists{include/phasedial/permutation_metrics_chart.tex}{}{}
-\InputIfFileExists{include/phasedial/phase_coherence.tex}{}{}
-\InputIfFileExists{include/phasedial/phase_coherence_dist_bands.tex}{}{}
-\InputIfFileExists{include/phasedial/query_robustness_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/snap_surface.tex}{}{}
-\InputIfFileExists{include/phasedial/snap_surface_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/steerability_validation.tex}{}{}
 \InputIfFileExists{include/phasedial/torus_generalization.tex}{}{}
 \InputIfFileExists{include/phasedial/torus_generalization_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/torus_navigation.tex}{}{}
-\InputIfFileExists{include/phasedial/torus_navigation_summary.tex}{}{}
-\InputIfFileExists{include/phasedial/two_hop_gain_by_alpha1.tex}{}{}
-\InputIfFileExists{include/phasedial/two_hop_summary.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -219,11 +216,7 @@
 
 \graphicspath{{include/scaling/}}
 
-\InputIfFileExists{include/scaling/bestfill_scaling.tex}{}{}
-\InputIfFileExists{include/scaling/compression_ratio.tex}{}{}
-\InputIfFileExists{include/scaling/compression_summary.tex}{}{}
-\InputIfFileExists{include/scaling/pipeline_throughput.tex}{}{}
-\InputIfFileExists{include/scaling/sequencer_boundaries.tex}{}{}
+\InputIfFileExists{include/scaling/sequencer_scores.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -248,10 +241,12 @@
 \FloatBarrier
 \clearpage
 
-\section{Vision}
+\section{Textgen}
 
-\graphicspath{{include/vision/}}
+\graphicspath{{include/textgen/}}
 
+\InputIfFileExists{include/textgen/compositional_scores.tex}{}{}
+\InputIfFileExists{include/textgen/out_of_corpus_scores.tex}{}{}
 \FloatBarrier
 \clearpage
 

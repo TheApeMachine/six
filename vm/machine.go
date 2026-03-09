@@ -2,32 +2,33 @@ package vm
 
 import (
 	"context"
-	"runtime"
 
-	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/kernel"
+	"github.com/theapemachine/six/kernel/metal"
 	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/validate"
 )
 
 /*
-Machine is the top-level VM: Loader ingests data; Think/Prompt produce output.
-Start() runs ingestion (substrate); Think and Prompt resolve through the Backend.
+Machine is the top-level VM: Loader ingests data; the Cortex reasons.
+Tick receives broadcast messages and dispatches work through the pool.
+Pool and Broadcast are injected by the Booter; Machine never creates its own.
 */
 type Machine struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	loader  *Loader
-	pool    *pool.Pool
-	backend kernel.Backend
+	ctx       context.Context
+	cancel    context.CancelFunc
+	broadcast *pool.BroadcastGroup
+	loader    *Loader
+	pool      *pool.Pool
+	backend   kernel.Backend
 }
 
 type machineOpts func(*Machine)
 
 /*
-NewMachine creates a Machine. Use MachineWithLoader, MachineWithPool,
-MachineWithBackend to configure. Pool defaults to pool.New() if nil.
-Backend defaults to kernel.NewBackend() (from SIX_BACKEND env) if nil.
+NewMachine creates a Machine.
+Pool must be injected via MachineWithPool (from Booter).
+Backend defaults to kernel.NewBuilder if nil.
 */
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{}
@@ -41,27 +42,14 @@ func NewMachine(opts ...machineOpts) *Machine {
 		machine.ctx, machine.cancel = context.WithCancel(ctx)
 	}
 
-	if machine.pool == nil {
-		machine.pool = pool.New(
-			context.Background(),
-			1,
-			runtime.NumCPU(),
-			pool.NewConfig(),
-		)
-	}
-
 	if machine.backend == nil {
-		b, err := kernel.NewBackend()
-		if err != nil {
-			panic("failed to initialize backend: " + err.Error())
-		}
-		machine.backend = b
+		machine.backend = kernel.NewBuilder(
+			kernel.WithBackend(&metal.MetalBackend{}),
+		)
 	}
 
 	validate.Require(map[string]any{
 		"backend": machine.backend,
-		"loader":  machine.loader,
-		"pool":    machine.pool,
 	})
 
 	return machine
@@ -83,41 +71,11 @@ func (machine *Machine) Stop() {
 }
 
 /*
-Prompt resolves prompt chords through the Backend for O(1) suffix recall.
-Returns a channel of chord sequences.
+Tick processes a broadcast Result and dispatches work through the pool.
+This is the System interface implementation. No goroutines are spawned here;
+all work runs inside pool.Schedule.
 */
-func (machine *Machine) Prompt(prompt []data.Chord) chan []data.Chord {
-	out := make(chan []data.Chord)
-
-	go func() {
-		defer close(out)
-
-		if len(prompt) == 0 {
-			return
-		}
-
-		results, err := machine.backend.Resolve(prompt)
-
-		if err != nil {
-			return
-		}
-
-		var output []data.Chord
-
-		for _, packed := range results {
-			idx, score := kernel.DecodePacked(packed)
-
-			if idx >= 0 && score > 0 {
-				output = append(output, prompt[idx%len(prompt)])
-			}
-		}
-
-		if len(output) > 0 {
-			out <- output
-		}
-	}()
-
-	return out
+func (machine *Machine) Tick(result *pool.Result) {
 }
 
 /*
@@ -128,9 +86,9 @@ func (machine *Machine) Backend() kernel.Backend {
 }
 
 /*
-WithContext adds a context to the machine.
+MachineWithContext adds a context to the machine.
 */
-func (machine *Machine) WithContext(ctx context.Context) machineOpts {
+func MachineWithContext(ctx context.Context) machineOpts {
 	return func(machine *Machine) {
 		machine.ctx, machine.cancel = context.WithCancel(ctx)
 	}
@@ -146,20 +104,29 @@ func MachineWithLoader(loader *Loader) machineOpts {
 }
 
 /*
-MachineWithPool sets the worker pool for parallel suffix construction in Start.
+MachineWithPool injects the shared worker pool from the Booter.
 */
-func MachineWithPool(p *pool.Pool) machineOpts {
+func MachineWithPool(workerPool *pool.Pool) machineOpts {
 	return func(machine *Machine) {
-		machine.pool = p
+		machine.pool = workerPool
 	}
 }
 
 /*
 MachineWithBackend sets the kernel backend for chord resolution.
 */
-func MachineWithBackend(b kernel.Backend) machineOpts {
+func MachineWithBackend(backend kernel.Backend) machineOpts {
 	return func(machine *Machine) {
-		machine.backend = b
+		machine.backend = backend
+	}
+}
+
+/*
+MachineWithBroadcast sets the broadcast group for inter-system messaging.
+*/
+func MachineWithBroadcast(broadcast *pool.BroadcastGroup) machineOpts {
+	return func(machine *Machine) {
+		machine.broadcast = broadcast
 	}
 }
 
@@ -176,6 +143,6 @@ const (
 /*
 Error implements the error interface for MachineError.
 */
-func (e MachineError) Error() string {
-	return string(e)
+func (machineError MachineError) Error() string {
+	return string(machineError)
 }
