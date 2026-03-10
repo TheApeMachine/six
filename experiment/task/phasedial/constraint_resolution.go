@@ -3,6 +3,7 @@ package phasedial
 import (
 	"fmt"
 	"math"
+	"sort"
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
@@ -77,7 +78,7 @@ dot-product similarity against each suspect's fingerprint and picks the
 angle of the maximum.  In the polar figure this maps to the radial spoke
 that the substrate's belief is most aligned with.
 */
-func phaseAngleOf(suspectIdx int, n int) float64 {
+func phaseAngleOf(suspectIdx int) float64 {
 	// Map suspect index to evenly-spaced angles at 0°, 45°, 90°, 135°.
 	return float64(suspectIdx) * 45.0
 }
@@ -209,6 +210,8 @@ func (exp *ConstraintResolutionExperiment) AddResult(result tools.ExperimentalDa
 	exp.stepAlignments = append(exp.stepAlignments, alignments)
 
 	result.Name = fmt.Sprintf("clue%02d", clueIdx)
+	// Repurpose tools.Scores to store per-suspect fuzzy alignments (suspects 0-2).
+	// This avoids creating a completely new type just to record experimental data.
 	result.Scores = tools.Scores{
 		Exact:   alignments[0],
 		Partial: alignments[1],
@@ -290,7 +293,7 @@ func (exp *ConstraintResolutionExperiment) Artifacts() []tools.Artifact {
 			radius := 0.15 + 0.85*(avg[si]/maxVal)
 			points = append(points, projector.PolarPoint{
 				Label:  sus.Name,
-				Angle:  phaseAngleOf(si, nSteps),
+				Angle:  phaseAngleOf(si),
 				Radius: radius,
 				Color:  suspectColors[si],
 			})
@@ -301,7 +304,7 @@ func (exp *ConstraintResolutionExperiment) Artifacts() []tools.Artifact {
 		evidenceRadius := 0.0
 		totalWeight := 0.0
 		for si := range crSuspects {
-			evidenceAngle += phaseAngleOf(si, nSteps) * avg[si]
+			evidenceAngle += phaseAngleOf(si) * avg[si]
 			evidenceRadius += avg[si]
 			totalWeight += avg[si]
 		}
@@ -324,10 +327,10 @@ func (exp *ConstraintResolutionExperiment) Artifacts() []tools.Artifact {
 		for i := range sorted {
 			sorted[i] = i
 		}
-		if len(sorted) >= 2 && avg[sorted[0]] < avg[sorted[1]] {
-			sorted[0], sorted[1] = sorted[1], sorted[0]
-		}
-		midAngle := (phaseAngleOf(sorted[0], nSteps) + phaseAngleOf(sorted[1], nSteps)) / 2.0
+		sort.Slice(sorted, func(i, j int) bool {
+			return avg[sorted[i]] > avg[sorted[j]]
+		})
+		midAngle := (phaseAngleOf(sorted[0]) + phaseAngleOf(sorted[1])) / 2.0
 		midRadius := (avg[sorted[0]] + avg[sorted[1]]) / 2.0 * 0.7
 		points = append(points, projector.PolarPoint{
 			Label:  "MID",

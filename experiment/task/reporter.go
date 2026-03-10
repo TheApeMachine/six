@@ -45,6 +45,9 @@ func WriteExperimentsIndex() error {
 	sectionMu.Unlock()
 
 	if len(entries) == 0 {
+		dir := filepath.Join("paper", "include", "sections")
+		out := filepath.Join(dir, "experiments.tex")
+		_ = os.Remove(out)
 		return nil
 	}
 
@@ -97,6 +100,9 @@ type SnapshotReporter struct {
 }
 
 func NewProjectorReporter() *ProjectorReporter {
+	sectionMu.Lock()
+	sectionRegistry = nil
+	sectionMu.Unlock()
 	return &ProjectorReporter{}
 }
 
@@ -138,10 +144,7 @@ func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperi
 		return err
 	}
 
-	// Register self-contained section files for the experiments index.
-	if artifact.Type == tools.ArtifactProse && strings.HasSuffix(artifact.FileName, "_section.tex") {
-		registerSection(experiment.Section(), artifact.FileName)
-	}
+
 
 	switch artifact.Type {
 	case tools.ArtifactTable:
@@ -187,7 +190,11 @@ func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperi
 		if err != nil {
 			return err
 		}
-		return WriteProse(data.Template, data.Data, artifact.FileName, experiment.Section())
+		err = WriteProse(data.Template, data.Data, artifact.FileName, experiment.Section())
+		if err == nil && strings.HasSuffix(artifact.FileName, "_section.tex") {
+			registerSection(experiment.Section(), artifact.FileName)
+		}
+		return err
 	case tools.ArtifactImageStrip:
 		data, err := imageStripData(artifact.Data)
 		if err != nil {

@@ -369,9 +369,4 @@ chord attractor boundaries at this substrate size.
 	}
 }
 
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
-}
+

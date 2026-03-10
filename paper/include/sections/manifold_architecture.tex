@@ -1,59 +1,59 @@
 % ============================================================================
-% THE NESTED SO(3) FRACTAL MANIFOLD
+% THE FERMAT CUBE AND ICOSAHEDRAL MANIFOLD
 % ============================================================================
 \subsection{Structural Layout}
 \label{sec:manifold_layout}
+\label{sec:manifold_architecture}
 
-The base geometric primitive is a \emph{MacroCube}---a
-$257-face$ array of 257-bit Chord fields indexed $\mathbf{m}
-\in \{0, \ldots, 26\}$.  The total state per MacroCube is
-$257 \times 257 = 66{,}049$ bits.
+The base geometric primitive is a \emph{Fermat Cube}---a three-dimensional
+array of $6 \times 4 \times 257 = 6{,}168$ Chord positions.  Each of the 6
+physical sides carries 4 rotational orientations ($0^\circ$, $90^\circ$,
+$180^\circ$, $270^\circ$), and each orientation holds 257 chords: 256 data
+faces (one per byte value) plus a control chord at face index 256.
 
-Because the chiral octahedral group $\mathbf{O}$ acts on the cube via
-rigid-body rotations, we define micro-rotations as fixed index
-permutations $\sigma \in S_{27}$:
+\begin{verbatim}
+type Side [4][CubeFaces]data.Chord   // 4 rotations × 257 chords
+type Cube struct {
+    Sides [6]Side                     // 6 physical faces
+}
+\end{verbatim}
 
-\begin{align}
-  R_X &: \mathbf{m} \mapsto \sigma_X(\mathbf{m})
-  &&\text{(Pitch, $+90^{\circ}$ about $X$)}
-  \label{eq:rot_x} \\
-  R_Y &: \mathbf{m} \mapsto \sigma_Y(\mathbf{m})
-  &&\text{(Yaw, $+90^{\circ}$ about $Y$)}
-  \label{eq:rot_y} \\
-  R_Z &: \mathbf{m} \mapsto \sigma_Z(\mathbf{m})
-  &&\text{(Roll, $+90^{\circ}$ about $Z$)}
-  \label{eq:rot_z}
-\end{align}
+\noindent The control chord at face 256 is structurally protected: data
+ingestion never writes to it.  In the Cortex (§\ref{sec:dual_architecture}),
+the control chord determines edge opcodes between connected cubes.
 
-where $\sigma_X, \sigma_Y, \sigma_Z$ are precomputed permutation tables
-(see Appendix).  These compositions are \emph{non-commutative}:
+All rotational addressing is performed via composable affine transformations
+over the Galois field $\operatorname{GF}(257)$:
 
 \begin{equation}
-  R_X \circ R_Y \neq R_Y \circ R_X
-  \label{eq:non_comm}
+  f(x) = (a \cdot x + b) \pmod{257}, \qquad
+  a \in \{1, \ldots, 256\},\; b \in \{0, \ldots, 256\}
+  \label{eq:gf_affine}
 \end{equation}
 
-Consequently, two distinct orderings of the same semantic content (e.g.,
-``Dog bites Man'' vs.\ ``Man bites Dog'') traverse different rotational
-paths and land on different micro-blocks, producing geometrically
-distinguishable fingerprints without artificial positional encodings.
+Because $257 = 2^8 + 1$ is a Fermat prime, $\operatorname{GF}(257)^*$ is
+cyclic of order 256---every non-zero element generates the full
+multiplicative group.  This ensures that \emph{every} byte value maps
+bijectively to a unique face, and composition of rotations is closed under
+the group operation (§\ref{sec:composition}).
 
 \subsection{The Icosahedral Manifold and $A_5$ Extension}
 \label{sec:icosahedral_manifold}
 
 Each memory primitive is pre-allocated as an \texttt{IcosahedralManifold}:
-5 MacroCubes ($5 \times 257 = 1{,}285$ total blocks) stored contiguously:
+5 Fermat Cubes stored contiguously with a compact orientational header:
 
 \begin{verbatim}
 type IcosahedralManifold struct {
-    Header  uint16       // State(1b) | RotState(6b) | Winding(4b) | Reserved(5b)
-    Cubes   [5]MacroCube // 135 total Chord blocks
+    Header  ManifoldHeader   // 16-bit orientational state
+    Cubes   [5]FermatCube    // 5 × 257 = 1,285 chord faces per cube
 }
 \end{verbatim}
 
-\noindent Total bits per manifold: $1{,}285 \times 257 = 330{,}245$ bits
-$= 8{,}640$ bytes $\approx 8.64$~KB.  In baseline Cubic mode
-(\texttt{State=0}), only \texttt{Cubes[0]} is active.
+\noindent In flat addressing mode (one cube), total state per Fermat Cube is
+$6 \times 4 \times 257 \times 257 = 1{,}585{,}176$ bits.
+
+In baseline Cubic mode (\texttt{State=0}), only \texttt{Cubes[0]} is active.
 
 \paragraph{$A_5$ Macro-Permutations.}
 Post-mitosis, macro-topology is governed by the alternating group
@@ -109,8 +109,8 @@ Mitosis triggers when the global macro-density of \texttt{Cubes[0]}
 reaches a precise threshold:
 
 \begin{equation}
-  \rho_0 = \frac{\sum_{i=0}^{26}
-    \|\text{Cubes}[0][i]\|_1}{257 \times 257} \geq 0.45
+  \rho_0 = \frac{\text{total active bits in Cubes[0]}}
+                {\text{total chord positions} \times 257} \geq 0.45
   \label{eq:mitosis_thresh}
 \end{equation}
 
@@ -124,14 +124,7 @@ The transition is a single-cycle state flip:
 \end{enumerate}
 
 \paragraph{De-Mitosis (Reversible Collapse).}
-When global density across all 5 cubes drops below a sparsity threshold:
-
-\begin{equation}
-  \frac{\sum_{c=0}^{4}\sum_{i=0}^{26}
-    \|\text{Cubes}[c][i]\|_1}{5 \times 257 \times 257} < 0.25
-  \label{eq:demitosis_thresh}
-\end{equation}
-
+When global density across all 5 cubes drops below a sparsity threshold,
 the Geodesic LUT identifies the minimum-energy $A_5$ permutation to
 return \texttt{Cubes[0]} to canonical orientation, the dispersed attributes
 of \texttt{Cubes[1..4]} are pooled back via majority-vote fractal

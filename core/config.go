@@ -144,6 +144,15 @@ func (ctx *Config) Load() error {
 	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
 	ctx.Architecture.ShannonCapacity = v.GetFloat64("architecture.numerics.shannonCapacity")
+	if ctx.Architecture.ShannonCapacity < 0.0 || ctx.Architecture.ShannonCapacity > 1.0 {
+		return console.Error(
+			ConfigError("architecture.numerics.shannonCapacity out of bounds"),
+			"expected",
+			"0.0 <= shannonCapacity <= 1.0",
+			"got",
+			ctx.Architecture.ShannonCapacity,
+		)
+	}
 
 	minWorkers := v.GetInt("system.workers.min")
 	maxWorkersStr := v.GetString("system.workers.max")

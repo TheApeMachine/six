@@ -16,8 +16,9 @@ sentence structure and vocabulary repetition — ideal for testing whether the
 substrate detects shared structural boundaries between ingested story spans
 and novel test prompts.
 
-The experiment ingests 20 TinyStories samples, then tests 40% right holdout
-on each. The task is to generate a continuation that bridges smoothly into
+The experiment ingests 100 TinyStories samples, then tests 40% right holdout
+on novel samples to see if the boundary detection logic latches onto
+the task of generating a continuation that bridges smoothly into
 an adjacent corpus region, exploiting the substrate's ability to detect the
 overlapping chord patterns between the prompt boundary and a learned sequence.
 

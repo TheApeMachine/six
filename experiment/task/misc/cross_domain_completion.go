@@ -68,28 +68,27 @@ func NewCrossDomainCompletionExperiment() *CrossDomainCompletionExperiment {
 		domainNames[i] = d.Name
 	}
 
-	// Build one dataset per domain. Explicit calls avoid the need for an
-	// exported option type.
-	nlDataset := huggingface.New(
-		huggingface.DatasetWithRepo("wikimedia/wikipedia"),
-		huggingface.DatasetWithSubset("20231101.en"),
-		huggingface.DatasetWithSamples(crossDomainSamplesPerDomain),
-		huggingface.DatasetWithTextColumn("text"),
-	)
-	codeDataset := huggingface.New(
-		huggingface.DatasetWithRepo("bigcode/the-stack-smol"),
-		huggingface.DatasetWithSubset("data/python"),
-		huggingface.DatasetWithSamples(crossDomainSamplesPerDomain),
-		huggingface.DatasetWithTextColumn("content"),
-	)
-	bioDataset := huggingface.New(
-		huggingface.DatasetWithRepo("proteinea/secondary_structure_prediction"),
-		huggingface.DatasetWithSamples(crossDomainSamplesPerDomain),
-		huggingface.DatasetWithTextColumns("input", "dssp3"),
-	)
+	datasets := make([]provider.Dataset, len(crossDomains))
+	for i, d := range crossDomains {
+		if len(d.Columns) == 1 {
+			datasets[i] = huggingface.New(
+				huggingface.DatasetWithRepo(d.Repo),
+				huggingface.DatasetWithSubset(d.Subset),
+				huggingface.DatasetWithSamples(crossDomainSamplesPerDomain),
+				huggingface.DatasetWithTextColumn(d.Columns[0]),
+			)
+		} else {
+			datasets[i] = huggingface.New(
+				huggingface.DatasetWithRepo(d.Repo),
+				huggingface.DatasetWithSubset(d.Subset),
+				huggingface.DatasetWithSamples(crossDomainSamplesPerDomain),
+				huggingface.DatasetWithTextColumns(d.Columns...),
+			)
+		}
+	}
 
 	experiment.mds = &multiDomainDataset{
-		datasets:    []provider.Dataset{nlDataset, codeDataset, bioDataset},
+		datasets:    datasets,
 		domainNames: domainNames,
 	}
 
@@ -389,8 +388,8 @@ func (experiment *CrossDomainCompletionExperiment) Finalize(
 }
 
 // ── multiDomainDataset ────────────────────────────────────────────────────────
-// Concatenates token streams from multiple datasets; encodes domain index in
-// the upper 8 bits of SampleID for downstream use if needed.
+// Concatenates token streams from multiple datasets. SampleID contains
+// the original sample identifier.
 
 type multiDomainDataset struct {
 	datasets    []provider.Dataset
@@ -401,9 +400,8 @@ func (m *multiDomainDataset) Generate() chan provider.RawToken {
 	out := make(chan provider.RawToken, 4096)
 	go func() {
 		defer close(out)
-		for i, ds := range m.datasets {
+		for _, ds := range m.datasets {
 			for tok := range ds.Generate() {
-				tok.SampleID = uint32(i)<<24 | (tok.SampleID & 0x00FFFFFF)
 				out <- tok
 			}
 		}

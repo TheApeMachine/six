@@ -7,31 +7,32 @@ problem: gradient-trained weights predict the next token before any future
 constraint can be applied.  We reject this framing entirely and cast
 generation as a \emph{boundary value problem} (BVP).  The observer clamps a
 subset of symbols as fixed constraints and the remaining degrees of freedom
-are resolved simultaneously via massively parallel bitwise resonance search.
+are resolved simultaneously via massively parallel geometric resonance search.
 
 We instantiate this paradigm in a physics-native substrate built on three
 layers:
 \begin{enumerate}[nosep]
-  \item A \textbf{Thermodynamic Trie} (the PrimeField) that routes tokens
-        through an $A_5$-symmetric Icosahedral Manifold using deterministic
-        topological rotations, achieving lossless collision-compression and
-        $O(1)$ identity lookup via Morton-coded spatial indexing.
+  \item A \textbf{Fermat Cube} geometry where each byte value self-addresses
+        a unique face of a $6 \times 4 \times 257$ three-dimensional chord
+        lattice, with sequential structure encoded as composable affine
+        transformations over the Galois field $\operatorname{GF}(257)$.
   \item A \textbf{257-bit Chord} representation where each byte value maps to
         a deterministic prime-basis bitset, and bitwise operations (\texttt{OR},
         \texttt{AND}, \texttt{popcount}) execute discrete wave interference at
         single-cycle throughput.
-  \item A \textbf{Toroidal Eigenmode} navigation layer that steers generation
-        along dense trajectories on an $S^1 \times S^1$ phase torus, derived
-        from chord co-occurrence eigenvectors---preventing echo-loop
-        entrapment.
+  \item An \textbf{Analytical Phase} navigation layer that maps chords onto a
+        $S^1 \times S^1$ phase torus via their intrinsic prime-index geometry,
+        enabling deterministic closure detection and intent steering without
+        trained co-occurrence models.
 \end{enumerate}
 
 No loss function is minimized.  No weights are updated.  Inference is a
-parallel GPU popcount scan (BestFill) across the entire memory substrate,
-modulated by eigenmode intent alignment and structural vacuum detection
-(ChordHole).  We validate the architecture across code generation, logical
-reasoning, phase-dial generalization, and cross-modal vision tasks, reporting
-both successes and failure regimes with equal detail.
-
-% TODO: Add final summary statistics from experiments once available.
+single-pass $\operatorname{GF}(257)$ geometric distance scan across the
+entire memory substrate, resolving the nearest rotational state via integer
+arithmetic on GPU.  A two-phase hybrid retrieval pipeline (bitwise filter
+followed by complex-valued PhaseDial scoring) provides precise candidate
+ranking.  We validate the architecture across text classification, code
+generation, logical reasoning, phase-dial generalization, image
+reconstruction, and cross-modal tasks, reporting both successes and failure
+regimes with equal detail.
 \end{abstract}

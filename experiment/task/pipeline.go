@@ -18,6 +18,8 @@ import (
 	"github.com/theapemachine/six/vm"
 )
 
+const pipelineDrainTimeout = 2 * time.Second
+
 type promptFailure struct {
 	idx      int
 	prompt   string
@@ -104,7 +106,11 @@ func (pipeline *Pipeline) Run() error {
 	if profErr != nil {
 		fmt.Fprintf(os.Stderr, "profiler init skipped: %v\n", profErr)
 	}
-	defer prof.Stop()
+	defer func() {
+		if prof != nil {
+			prof.Stop()
+		}
+	}()
 
 	t0 := time.Now()
 
@@ -144,7 +150,7 @@ func (pipeline *Pipeline) Run() error {
 	}
 	pipeline.timing.finalizeDur = time.Since(finalizeStart)
 
-	_ = t0 // suppress unused warning
+	fmt.Printf("Pipeline %s total execution time: %v\n", pipeline.experiment.Name(), time.Since(t0))
 
 	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
 		return fmt.Errorf("write results snapshot: %w", err)
@@ -210,7 +216,7 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		)),
 	)
 
-	timeout := time.NewTimer(2 * time.Second)
+	timeout := time.NewTimer(pipelineDrainTimeout)
 	defer timeout.Stop()
 
 wait_result:

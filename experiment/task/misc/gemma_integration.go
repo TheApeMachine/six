@@ -19,7 +19,7 @@ import (
 	"github.com/gomlx/gemma/transformers"
 	"github.com/gomlx/gemma/trees"
 	"github.com/gomlx/gomlx/backends"
-	. "github.com/gomlx/gomlx/graph"
+	"github.com/gomlx/gomlx/graph"
 	"github.com/gomlx/gomlx/ml/context"
 	"github.com/gomlx/gomlx/types/tensors"
 )
@@ -293,7 +293,11 @@ func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstr
 		return fmt.Errorf("GemmaIntegration: HF_TOKEN not set")
 	}
 
-	dataDir := strings.ReplaceAll(giDataDir, "~", os.Getenv("HOME"))
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		home = os.TempDir()
+	}
+	dataDir := strings.ReplaceAll(giDataDir, "~", home)
 	ctx := context.New()
 
 	vocab, err := hfd.Download(ctx, giModelID, hfToken, dataDir)
@@ -317,7 +321,9 @@ func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstr
 		t0 := time.Now()
 		plain, ferr := sampler.SampleMaxTokens([]string{cas.Prompt}, giMaxTokens)
 		res.PlainSec = time.Since(t0).Seconds()
-		if ferr == nil && len(plain) > 0 {
+		if ferr != nil {
+			fmt.Printf("sampler.SampleMaxTokens failed: %v (prompt: %s)\n", ferr, cas.Prompt)
+		} else if len(plain) > 0 {
 			res.PlainOK = strings.Contains(strings.ToLower(plain[0]), cas.Contains)
 		}
 
@@ -325,7 +331,9 @@ func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstr
 		text, steps, ferr := exp.sampleWithBias(backend, ctx, sampler, cas.Prompt, bias)
 		res.HybridSec = time.Since(t1).Seconds()
 		res.HybridSteps = steps
-		if ferr == nil {
+		if ferr != nil {
+			fmt.Printf("exp.sampleWithBias failed: %v (prompt: %s)\n", ferr, cas.Prompt)
+		} else {
 			res.HybridOK = strings.Contains(strings.ToLower(text), cas.Contains)
 		}
 
@@ -342,7 +350,9 @@ func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstr
 		t0 := time.Now()
 		full, ferr := sampler.SampleMaxTokens([]string{fullPrompt}, giMaxTokens)
 		res.PlainSec = time.Since(t0).Seconds()
-		if ferr == nil && len(full) > 0 {
+		if ferr != nil {
+			fmt.Printf("sampler.SampleMaxTokens failed: %v (prompt: %s)\n", ferr, fullPrompt)
+		} else if len(full) > 0 {
 			res.PlainOK = strings.Contains(strings.ToLower(full[0]), cas.Contains)
 		}
 
@@ -351,7 +361,9 @@ func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstr
 		text, steps, ferr := exp.sampleWithBias(backend, ctx, sampler, cas.Question, bias)
 		res.HybridSec = time.Since(t1).Seconds()
 		res.HybridSteps = steps
-		if ferr == nil {
+		if ferr != nil {
+			fmt.Printf("exp.sampleWithBias failed: %v (prompt: %s)\n", ferr, cas.Question)
+		} else {
 			res.HybridOK = strings.Contains(strings.ToLower(text), cas.Contains)
 		}
 
@@ -450,16 +462,10 @@ func (exp *GemmaIntegrationExperiment) sampleWithBias(
 		buf[1+i] = int32(id)
 	}
 
-	// Positions: 0..len(prompt), then plateau at len(prompt)+1 for generated tokens.
 	positions := make([]int32, batchSize*totalLen)
-	for i := range totalLen {
-		if i <= len(promptIDs) {
-			positions[i] = int32(i)
-		} else {
-			positions[i] = int32(len(promptIDs) + 1)
-		}
+	for i := range positions {
+		positions[i] = int32(i % totalLen)
 	}
-	posTensor := tensors.FromFlatDataAndDimensions(positions, batchSize, totalLen)
 
 	cache, err := transformers.NewCache(sampler.Config, batchSize)
 	if err != nil {
@@ -509,7 +515,6 @@ func (exp *GemmaIntegrationExperiment) sampleWithBias(
 		stepNum = nextStep
 	}
 
-	_ = posTensor // positions used via raw slice
 
 	ids := make([]int, len(generated))
 	for i, id := range generated {
@@ -533,30 +538,43 @@ func (exp *GemmaIntegrationExperiment) forwardStep(
 ) (*tensors.Tensor, error) {
 	cacheStruct := cache.Data
 
-	exec := context.NewExec(backend, ctx, func(ctx *context.Context, inputs []*Node) []*Node {
+	exec := context.NewExec(backend, ctx, func(ctx *context.Context, inputs []*graph.Node) []*graph.Node {
 		tokNode := inputs[0]
 		posNode := inputs[1]
 		maskNode := inputs[2]
 
 		// Reconstruct the cache tree as *Node values for the graph.
-		cacheNodes := trees.Map(cacheStruct, func(_ trees.Path, t *tensors.Tensor) *Node {
-			return Const(tokNode.Graph(), t)
+		cacheNodes := trees.Map(cacheStruct, func(_ trees.Path, t *tensors.Tensor) *graph.Node {
+			return graph.Const(tokNode.Graph(), t)
 		})
 		logits := transformers.GemmaWithCache(
 			ctx.In("model"), sampler.Config, tokNode, posNode, cacheNodes, maskNode,
 		)
-		return []*Node{logits}
+		
+		ret := []*graph.Node{logits}
+		for _, leaf := range trees.ValuesAsList(cacheNodes) {
+			ret = append(ret, leaf)
+		}
+		return ret
 	})
 
 	outputs := exec.Call(curTok, curPos, mask)
 	if len(outputs) == 0 {
 		return nil, fmt.Errorf("forwardStep: no output from exec")
 	}
+	
+	outIdx := 1
+	cache.Data = trees.Map(cacheStruct, func(_ trees.Path, _ *tensors.Tensor) *tensors.Tensor {
+		t := outputs[outIdx]
+		outIdx++
+		return t // trees.Map handles building the new tree
+	})
+	
 	return outputs[0], nil
 }
 
 func argMax(data []float32) int32 {
-	best, bestIdx := float32(-1e38), int32(0)
+	best, bestIdx := float32(math.Inf(-1)), int32(0)
 	for i, v := range data {
 		if v > best {
 			best = v
@@ -669,21 +687,13 @@ func (exp *GemmaIntegrationExperiment) Artifacts() []tools.Artifact {
 	}
 
 	// Compute summary stats for prose.
-	graftOKPlain, graftOKHybrid := 0, 0
-	plainMean, hybridMean := 0.0, 0.0
-	for _, r := range exp.graftResults {
-		if r.PlainOK {
-			graftOKPlain++
-		}
-		if r.HybridOK {
-			graftOKHybrid++
-		}
-		plainMean += r.PlainSec
-		hybridMean += r.HybridSec
-	}
-	if len(exp.graftResults) > 0 {
-		plainMean /= float64(len(exp.graftResults))
-		hybridMean /= float64(len(exp.graftResults))
+	graftOKPlain := int(plainOKSum)
+	graftOKHybrid := int(hybridOKSum)
+	plainMean := 0.0
+	hybridMean := 0.0
+	if ng > 0 {
+		plainMean = plainSecSum / ng
+		hybridMean = hybridSecSum / ng
 	}
 
 	proseTemplate := `\subsection{Integration with Gemma 2B-IT}

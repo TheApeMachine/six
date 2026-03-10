@@ -21,12 +21,16 @@ type PipelineThroughputExperiment struct {
 	dataset    provider.Dataset
 	prompt     *tokenizer.Prompt
 	ingestTime time.Time
+	sampleLen  int
+	nSamples   int
 }
 
 func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 	return &PipelineThroughputExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset:   NewSyntheticDataset(128, 50, 42),
+		sampleLen: 128,
+		nSamples:  50,
 	}
 }
 
@@ -80,7 +84,7 @@ func (experiment *PipelineThroughputExperiment) RawOutput() bool { return false 
 
 func (experiment *PipelineThroughputExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	elapsed := time.Since(experiment.ingestTime)
-	totalBytes := 1000 * 128
+	totalBytes := experiment.nSamples * experiment.sampleLen
 	entries := len(substrate.Entries)
 
 	kbPerSec := 0.0

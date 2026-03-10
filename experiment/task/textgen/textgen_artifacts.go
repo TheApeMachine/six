@@ -134,7 +134,7 @@ func CompositionalArtifacts(tableData []tools.ExperimentalData, score float64) [
 \paragraph{Task Description.}
 The compositional experiment evaluates whether the substrate can reconstruct
 the ending of a short story based on structural patterns learned from other
-stories.  The corpus is \texttt{roneneldan/TinyStories} (20 ingested samples):
+stories.  The corpus is \texttt{roneneldan/TinyStories} ({{.NSamples}} ingested samples):
 a collection of English short stories for children, characterised by highly
 regular grammar (''Once upon a time there was a [adj] [noun] who liked to
 [verb]\ldots'') and controlled vocabulary with substantial cross-story overlap.
@@ -160,7 +160,7 @@ scale.  Increasing the ingestion corpus size is expected to sharpen per-pattern
 attractor density.
 {{- else}}
 \paragraph{Assessment.}
-Recall quality was low.  At 20 ingested samples the substrate has not yet
+Recall quality was low.  At {{.NSamples}} ingested samples the substrate has not yet
 accumulated sufficient TinyStories pattern density to reliably reconstruct
 held-out story endings.  A larger ingestion corpus will yield clearer results.
 {{- end}}
@@ -177,6 +177,7 @@ Figure~\ref{fig:compositional_map} shows the trial outcome map.
 			"Score":       score,
 			"ExactRate":   exactRate,
 			"PartialRate": partialRate,
+			"NSamples":    100,
 		},
 		trialMapPanels(tableData, score),
 		"compositional_map",
@@ -314,7 +315,7 @@ func TextOverlapArtifacts(tableData []tools.ExperimentalData, score float64) []t
 
 \paragraph{Task Description.}
 The text overlap experiment evaluates overlap-aware span bridging using
-\texttt{roneneldan/TinyStories} (20 ingested samples, 40\% RIGHT holdout).
+\texttt{roneneldan/TinyStories} ({{.NSamples}} ingested samples, 40\% RIGHT holdout).
 TinyStories was chosen for its vocabulary regularity: stories share canonical
 verbs, settings, and character archetypes, creating a dense web of chord
 attractor bridges across samples.  This controlled overlap is precisely
@@ -344,7 +345,7 @@ the score reflects.
 Overlap detection was weak.  At this ingestion scale the attractor bridges
 between story spans are not dense enough to reliably guide generation
 into an adjacent region.  Scaling the ingestion corpus is the primary
-levier for improvement.
+lever for improvement.
 {{- end}}
 
 Figure~\ref{fig:text_overlap_map} shows the trial outcome map.
@@ -354,7 +355,7 @@ Figure~\ref{fig:text_overlap_map} shows the trial outcome map.
 		"Text Overlap",
 		tableData,
 		proseTemplate,
-		map[string]any{"N": n, "Score": score},
+		map[string]any{"N": n, "Score": score, "NSamples": 100},
 		trialMapPanels(tableData, score),
 		"text_overlap_map",
 		fmt.Sprintf("Text overlap trial map. N=%d TinyStories prompts, 40%% holdout.", n),

@@ -297,13 +297,7 @@ func sanitizeForLaTeX(raw []byte) string {
 	return sb.String()
 }
 
-func truncate(s string, n int) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= n {
-		return s
-	}
-	return s[:n] + "\\ldots"
-}
+
 
 // fmtDur formats a duration as a compact human-readable string.
 func fmtDur(d time.Duration) string {

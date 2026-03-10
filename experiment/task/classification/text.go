@@ -158,7 +158,6 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 	}
 
 	total, correct := 0, 0
-	predicted := 0
 	recallSum := 0.0
 	f1Sum := 0.0
 	validClasses := 0
@@ -172,7 +171,6 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 				correct += matrix[c][j]
 			}
 		}
-		predicted += rowSum
 		if rowSum > 0 {
 			recallSum += float64(matrix[c][c]) / float64(rowSum)
 		}
@@ -219,7 +217,7 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 		{"Balanced Accuracy", fmt.Sprintf("%.1f%%", balancedAcc*100)},
 		{"Macro-F1", fmt.Sprintf("%.3f", macroF1)},
 		{"Mean Resonance", fmt.Sprintf("%.4f", score)},
-		{"Predicted", fmt.Sprintf("%d / %d", predicted, n)},
+		{"Predicted", fmt.Sprintf("%d / %d", total, n)},
 		{"Sample Size (N)", fmt.Sprintf("%d", n)},
 	}
 

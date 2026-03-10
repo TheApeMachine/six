@@ -107,7 +107,7 @@ and arrival latency in graph ticks (right panel). {{.Passes}} of 8 channels
 routed successfully ({{.Pct}}\%), giving a mean isolation score of
 {{.Mean | f2}}.
 
-{{if ge .Passes 6 -}}
+{{if ge .Passes 8 -}}
 The substrate correctly isolated all tested channels, demonstrating that
 bitwise masking provides a reliable multiplexing layer above the thermodynamic
 attractor structure.

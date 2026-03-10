@@ -104,7 +104,7 @@ func (experiment *LanguagesExperiment) Holdout() (int, tokenizer.HoldoutType) {
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
 	// Prompts are ordered: 2 per language in humanEvalLanguages order.
 	// testIdx / samplesPerLang gives the language index.
-	const samplesPerLang = 2
+	const samplesPerLang = 100
 	langIdx := results.Idx / samplesPerLang
 	if langIdx < len(humanEvalLanguages) {
 		results.Name = humanEvalLanguages[langIdx].DisplayName
@@ -326,7 +326,6 @@ func (m *multiDataset) Generate() chan provider.RawToken {
 				tok.SampleID = uint32(i)<<24 | (tok.SampleID & 0x00FFFFFF)
 				out <- tok
 			}
-			_ = i
 		}
 	}()
 	return out

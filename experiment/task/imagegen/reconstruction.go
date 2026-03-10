@@ -358,7 +358,8 @@ func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 		for x := 0; x < w; x++ {
 			idx := (y*w + x) * cifarC
 			if idx+3 >= len(pixels) {
-				break
+				img.SetNRGBA(x, y, color.NRGBA{R: 0, G: 0, B: 0, A: 0})
+				continue
 			}
 			img.SetNRGBA(x, y, color.NRGBA{
 				R: pixels[idx],
@@ -370,6 +371,7 @@ func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
+		fmt.Printf("png.Encode failed: %v\n", err)
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes())
