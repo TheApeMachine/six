@@ -37,11 +37,10 @@ func (experiment *BestFillScalingExperiment) Dataset() provider.Dataset {
 }
 
 func (experiment *BestFillScalingExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
-	)
-	return experiment.prompt
+	// The substrate is populated during Loader.Start()
+	// We don't need to run 5000 prompts through the active inference Cortex
+	// just to benchmark the latency of raw BestFill.
+	return nil
 }
 
 func (experiment *BestFillScalingExperiment) Holdout() (int, tokenizer.HoldoutType) {
