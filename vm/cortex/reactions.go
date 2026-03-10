@@ -24,24 +24,24 @@ func (n *Node) Arrive(tok Token) {
 		sim := data.ChordSimilarity(&tok.Chord, &cubeChord)
 
 		// If they share structural primes (e.g. 'Sandra'), they resonate.
-		// We only react if the node has novel context to offer (it's not just a blank relay).
-		if sim > 0 && cubeChord.ActiveCount() > tok.Chord.ActiveCount() {
-			// Physical deduction: extract the context present in the memory but missing in the query.
-			reaction := data.ChordHole(&cubeChord, &tok.Chord)
+		if sim > 0 {
+			minResonance := max(tok.Chord.ActiveCount()/2, 1)
 
-			if reaction.ActiveCount() > 0 {
-				// The reaction produces a Reflection Signal containing the answer (e.g. 'Garden')
-				reflection := NewSignalToken(reaction, reaction, n.ID)
-				reflection.TTL = tok.TTL // Inherit remaining kinetic energy
+			if sim >= minResonance {
+				reaction := data.ChordHole(&cubeChord, &tok.Chord)
 
-				// Propagate the reflection outward
-				for _, ed := range n.edges {
-					neighbor := ed.A
-					if neighbor == n {
-						neighbor = ed.B
-					}
-					if neighbor.ID != tok.Origin {
-						neighbor.Send(reflection)
+				if reaction.ActiveCount() > 0 {
+					reflection := NewSignalToken(reaction, reaction, n.ID)
+					reflection.TTL = tok.TTL // Inherit remaining kinetic energy
+
+					for _, ed := range n.edges {
+						neighbor := ed.A
+						if neighbor == n {
+							neighbor = ed.B
+						}
+						if neighbor.ID != tok.Origin {
+							neighbor.Send(reflection)
+						}
 					}
 				}
 			}
@@ -162,6 +162,18 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 		}
 	}
 
+	if bestAnchorSize == 0 {
+		for side := range 6 {
+			for rot := range 4 {
+				faceChord := n.Cube.Get(side, rot, bestFaceIdx)
+				bestAnchor = data.ChordOR(&bestAnchor, &faceChord)
+			}
+		}
+
+		bestResidue = data.ChordHole(&summary, &bestAnchor)
+		bestAnchorSize = bestAnchor.ActiveCount()
+	}
+
 	return bestAnchor, bestResidue, bestFaceIdx, bestAnchorSize >= 3 && bestResidue.ActiveCount() > 0
 }
 
@@ -171,10 +183,10 @@ bestPhysicalFace returns the physical face index (0-257) with highest aggregate 
 func (n *Node) bestPhysicalFace() int {
 	bestFace := 256
 	bestCount := 0
-	for i := 0; i < 256; i++ {
+	for i := range 256 {
 		cnt := 0
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
+		for side := range 6 {
+			for rot := range 4 {
 				chord := n.Cube.Get(side, rot, i)
 				cnt += chord.ActiveCount()
 			}

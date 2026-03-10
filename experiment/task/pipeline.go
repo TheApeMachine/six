@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"strconv"
+	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -219,14 +220,12 @@ wait_result:
 		"chords", len(chordRes),
 	)
 
-	lsmCount := 0
-	if lsm, ok := pipeline.loader.Store().(*store.LSMSpatialIndex); ok && lsm != nil {
-		lsmCount = lsm.Count()
-	}
 	var dbgActive []int
+
 	for _, chord := range chordRes {
 		dbgActive = append(dbgActive, chord.ActiveCount())
 	}
+
 	if len(dbgActive) > 5 {
 		dbgActive = dbgActive[:5]
 	}
@@ -244,13 +243,8 @@ wait_result:
 		readout = pipeline.loader.Substrate().Retrieve(assistedFilter, assistedDial, 50)
 	}
 
-	if len(readout) == 0 && len(chordRes) > 0 {
-		readout = chordRes
-	}
-
-	console.Info("OBSERVED TEXT DEBUG", "lsmCount", lsmCount, "substrate", len(pipeline.loader.Substrate().Entries), "cortex", len(chordRes), "active", dbgActive, "readout", len(readout))
-
 	outBytes := pipeline.decodeReadout(readout)
+	outBytes = pipeline.normalizeObserved(outBytes)
 
 	console.Info("OBSERVED TEXT", "text", string(outBytes))
 
@@ -287,6 +281,61 @@ func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 	}
 
 	return out
+}
+
+func (pipeline *Pipeline) normalizeObserved(observed []byte) []byte {
+	text := strings.TrimSpace(string(observed))
+	if text == "" {
+		return []byte(text)
+	}
+
+	if idx := strings.LastIndex(text, "?"); idx >= 0 {
+		tail := strings.TrimSpace(text[idx+1:])
+		if tail == "" {
+			return []byte(text)
+		}
+
+		candidate := firstAlphaToken(tail)
+		if candidate != "" {
+			return []byte(candidate)
+		}
+
+		return []byte(tail)
+	}
+
+	return []byte(text)
+}
+
+func firstAlphaToken(text string) string {
+	tokens := alphaTokens(text)
+	if len(tokens) == 0 {
+		return ""
+	}
+
+	return tokens[0]
+}
+
+func alphaTokens(text string) []string {
+	tokens := make([]string, 0, 16)
+	var tokenBuilder strings.Builder
+
+	for _, runeVal := range strings.ToLower(text) {
+		if unicode.IsLetter(runeVal) {
+			tokenBuilder.WriteRune(runeVal)
+			continue
+		}
+
+		if tokenBuilder.Len() > 0 {
+			tokens = append(tokens, tokenBuilder.String())
+			tokenBuilder.Reset()
+		}
+	}
+
+	if tokenBuilder.Len() > 0 {
+		tokens = append(tokens, tokenBuilder.String())
+	}
+
+	return tokens
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {

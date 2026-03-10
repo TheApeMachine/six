@@ -43,6 +43,23 @@ func createMockDataset(samples ...string) *MockDataset {
 	return &MockDataset{Tokens: tokens}
 }
 
+func createMockDatasetWithStartID(startID uint32, samples ...string) *MockDataset {
+	var tokens []provider.RawToken
+
+	for i, sample := range samples {
+		sampleID := startID + uint32(i)
+
+		for _, char := range sample {
+			tokens = append(tokens, provider.RawToken{
+				SampleID: sampleID,
+				Symbol:   byte(char),
+			})
+		}
+	}
+
+	return &MockDataset{Tokens: tokens}
+}
+
 func TestGenerate(t *testing.T) {
 	Convey("Given a Dataset with multiple samples", t, func() {
 		sample1Str := "this is a sufficiently long string to test all windows" // len 54
@@ -121,6 +138,29 @@ func TestGenerateEmitsBoundaryBetweenSamples(t *testing.T) {
 			}
 
 			Convey("It should emit a boundary between samples and at stream end", func() {
+				So(boundaries, ShouldEqual, 2)
+			})
+		})
+	})
+}
+
+func TestGenerateEmitsBoundaryWhenFirstSampleIDIsZero(t *testing.T) {
+	Convey("Given a Dataset whose first sample ID is zero", t, func() {
+		dataset := createMockDatasetWithStartID(0, "abc", "def")
+		tokenizer := NewUniversal(
+			TokenizerWithDataset(dataset),
+		)
+
+		Convey("When Generate is called", func() {
+			boundaries := 0
+
+			for token := range tokenizer.Generate() {
+				if token.IsBoundary {
+					boundaries++
+				}
+			}
+
+			Convey("It should still emit a boundary between samples and at stream end", func() {
 				So(boundaries, ShouldEqual, 2)
 			})
 		})

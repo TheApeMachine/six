@@ -86,34 +86,29 @@ func (tokenizer *Universal) Generate() chan Token {
 		var hasSample bool
 
 		for rawToken := range tokenizer.dataset.Generate() {
-			if rawToken.SampleID != tokenizer.sampleID {
-				if hasSample {
-					out <- Token{IsBoundary: true}
-				}
-
+			if !hasSample {
 				hasSample = true
 				tokenizer.sampleID = rawToken.SampleID
 				tokenizer.tokens.Reset()
 				tokenizer.pos = 0
+			}
 
-				if rawToken.SampleID != tokenizer.sampleID {
-					console.Trace(
-						"tokenizer-boundary",
-						"sequence", tokenizer.tokens.String(),
-					)
+			if rawToken.SampleID != tokenizer.sampleID {
+				console.Trace(
+					"tokenizer-boundary",
+					"sequence", tokenizer.tokens.String(),
+				)
 
-					// Emit a boundary token for the END of the previous sample (if any).
-					if tokenizer.tokens.Len() > 0 {
-						out <- Token{IsBoundary: true}
-					}
+				if tokenizer.tokens.Len() > 0 {
+					out <- Token{IsBoundary: true}
+				}
 
-					tokenizer.sampleID = rawToken.SampleID
-					tokenizer.tokens.Reset()
-					tokenizer.pos = 0
+				tokenizer.sampleID = rawToken.SampleID
+				tokenizer.tokens.Reset()
+				tokenizer.pos = 0
 
-					if tokenizer.useSequencer {
-						tokenizer.sequencer = NewSequencer(NewCalibrator())
-					}
+				if tokenizer.useSequencer {
+					tokenizer.sequencer = NewSequencer(NewCalibrator())
 				}
 			}
 

@@ -6,194 +6,80 @@
       "EntitySummary": [
         {
           "Name": "Daniel",
-          "Correct": 0,
+          "Correct": 16,
           "Total": 17,
-          "Rate": 0
+          "Rate": 0.9411764705882353
         },
         {
           "Name": "John",
-          "Correct": 0,
+          "Correct": 13,
           "Total": 13,
-          "Rate": 0
+          "Rate": 1
         },
         {
           "Name": "Mary",
-          "Correct": 0,
+          "Correct": 5,
           "Total": 5,
-          "Rate": 0
+          "Rate": 1
         },
         {
           "Name": "Sandra",
-          "Correct": 0,
+          "Correct": 15,
           "Total": 15,
-          "Rate": 0
+          "Rate": 1
         }
       ],
-      "ExactRate": 0,
+      "ExactRate": 0.98,
       "FailureRows": [
         [
-          "0",
-          "Mary",
-          "bathroom",
-          "hn went to the hallway"
-        ],
-        [
-          "1",
+          "49",
           "Daniel",
-          "hallway",
-          "nt to the hallway"
-        ],
-        [
-          "2",
-          "Daniel",
-          "hallway",
-          "nt to the hallway"
-        ],
-        [
-          "3",
-          "Daniel",
-          "office",
-          "nt to the hallway"
-        ],
-        [
-          "4",
-          "Sandra",
-          "bathroom",
-          "nt to the hallway"
-        ],
-        [
-          "5",
-          "Sandra",
-          "bathroom",
-          "e"
-        ],
-        [
-          "6",
-          "Sandra",
-          "bathroom",
-          "m"
-        ],
-        [
-          "7",
-          "Sandra",
-          "bathroom",
-          "m"
-        ],
-        [
-          "8",
-          "John",
-          "office",
-          "lway"
-        ],
-        [
-          "9",
-          "Daniel",
-          "hallway",
-          "allway"
-        ],
-        [
-          "10",
-          "John",
-          "bathroom",
-          "m"
-        ],
-        [
-          "11",
-          "Mary",
-          "bedroom",
-          "lway"
-        ],
-        [
-          "12",
-          "John",
-          "bathroom",
-          "y"
-        ],
-        [
-          "13",
-          "John",
-          "bathroom",
-          "ent to the hallway"
-        ],
-        [
-          "14",
-          "Sandra",
-          "bedroom",
-          "ent to the hallway"
-        ],
-        [
-          "15",
-          "Daniel",
-          "bedroom",
-          "n"
-        ],
-        [
-          "16",
-          "Sandra",
           "kitchen",
-          "n"
-        ],
-        [
-          "17",
-          "Sandra",
-          "hallway",
-          "n"
-        ],
-        [
-          "18",
-          "Sandra",
-          "hallway",
-          "n"
-        ],
-        [
-          "19",
-          "Daniel",
-          "hallway",
-          "n"
+          "bathroom"
         ]
       ],
       "LocationSummary": [
         {
           "Name": "bathroom",
-          "Correct": 0,
+          "Correct": 12,
           "Total": 12,
-          "Rate": 0
+          "Rate": 1
         },
         {
           "Name": "bedroom",
-          "Correct": 0,
+          "Correct": 8,
           "Total": 8,
-          "Rate": 0
+          "Rate": 1
         },
         {
           "Name": "garden",
-          "Correct": 0,
+          "Correct": 4,
           "Total": 4,
-          "Rate": 0
+          "Rate": 1
         },
         {
           "Name": "hallway",
-          "Correct": 0,
+          "Correct": 10,
           "Total": 10,
-          "Rate": 0
+          "Rate": 1
         },
         {
           "Name": "kitchen",
-          "Correct": 0,
+          "Correct": 9,
           "Total": 10,
-          "Rate": 0
+          "Rate": 0.9
         },
         {
           "Name": "office",
-          "Correct": 0,
+          "Correct": 6,
           "Total": 6,
-          "Rate": 0
+          "Rate": 1
         }
       ],
-      "NFailureRows": 20,
-      "NFailures": 50,
+      "NFailureRows": 1,
+      "NFailures": 1,
       "NSamples": 50,
-      "PartialRate": 0.13690476190476195
+      "PartialRate": 0.9828571428571429
     }
   },
   "file_name": "babi_analysis.tex",

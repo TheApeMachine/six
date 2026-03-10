@@ -155,27 +155,32 @@ through the node's GFRotation inverse to recover the self-addressed byte value.
 
 If no face is active, returns 256 (delimiter = stop signal).
 */
-func (n *Node) BestFace() int {
+func (node *Node) BestFace() int {
 	bestFace := 256 // default to delimiter (stop)
 	bestCount := 0
-	for i := 0; i < 256; i++ {
+
+	for i := range 256 {
 		cnt := 0
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
-				chord := n.Cube.Get(side, rot, i)
+
+		for side := range 6 {
+			for rot := range 4 {
+				chord := node.Cube.Get(side, rot, i)
 				cnt += chord.ActiveCount()
 			}
 		}
+
 		if cnt > bestCount {
 			bestCount = cnt
 			bestFace = i
 		}
 	}
+
 	// Reverse the rotation to recover the logical byte value.
 	// Physical face → Rot.Reverse → logical byte.
 	if bestFace < 256 {
-		bestFace = n.Rot.Reverse(bestFace)
+		bestFace = node.Rot.Reverse(bestFace)
 	}
+
 	return bestFace
 }
 
@@ -184,44 +189,51 @@ CubeChord compresses the entire MacroCube into a single summary chord
 by OR-folding all 257 face chords. This is the node's "signature".
 Result is cached and invalidated on any Cube write.
 */
-func (n *Node) CubeChord() data.Chord {
-	if !n.cubeChordDirty {
-		return n.cubeChordCache
+func (node *Node) CubeChord() data.Chord {
+	if !node.cubeChordDirty {
+		return node.cubeChordCache
 	}
+
 	var summary data.Chord
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			for i := 0; i < 256; i++ {
-				c := n.Cube.Get(side, rot, i)
+
+	for side := range 6 {
+		for rot := range 4 {
+			for i := range 256 {
+				c := node.Cube.Get(side, rot, i)
 				summary = data.ChordOR(&summary, &c)
 			}
 		}
 	}
-	n.cubeChordCache = summary
-	n.cubeChordDirty = false
+
+	node.cubeChordCache = summary
+	node.cubeChordDirty = false
+
 	return summary
 }
 
 /*
 InvalidateChordCache marks the CubeChord cache stale. Call after any Cube write.
 */
-func (n *Node) InvalidateChordCache() {
-	n.cubeChordDirty = true
+func (node *Node) InvalidateChordCache() {
+	node.cubeChordDirty = true
 }
 
 /*
 WipeFace clears the 512-bit chord at the specified logical face index.
 The physical face is determined by the current GF(257) lens.
 */
-func (n *Node) WipeFace(logicalFace int) {
+func (node *Node) WipeFace(logicalFace int) {
 	if logicalFace < 0 || logicalFace >= geometry.CubeFaces {
 		return
 	}
-	physFace := n.Rot.Forward(logicalFace)
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			n.Cube.Set(side, rot, physFace, data.Chord{})
+
+	physFace := node.Rot.Forward(logicalFace)
+
+	for side := range 6 {
+		for rot := range 4 {
+			node.Cube.Set(side, rot, physFace, data.Chord{})
 		}
 	}
-	n.InvalidateChordCache()
+
+	node.InvalidateChordCache()
 }

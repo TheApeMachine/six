@@ -113,8 +113,6 @@ func TestNearestNode(t *testing.T) {
 	})
 }
 
-// Replace TestBabiReasoning in vm/cortex/graph_test.go
-
 func TestBabiReasoning(t *testing.T) {
 	Convey("Given a Graph for the bAbI task", t, func() {
 		graph := NewGraph()
