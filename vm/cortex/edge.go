@@ -27,6 +27,8 @@ type Edge struct {
 	// Computed as Channel = ChordAND(A.CubeChord(), B.CubeChord())
 	ChannelMask data.Chord
 
+	ControlMask data.Chord
+
 	// Observational metrics
 	TokensSent int
 }
@@ -50,6 +52,7 @@ func (edge *Edge) Refresh() {
 	aChord := edge.A.CubeChord()
 	bChord := edge.B.CubeChord()
 	edge.ChannelMask = data.ChordAND(&aChord, &bChord)
+	edge.ControlMask = data.ChordAND(&gateA, &gateB)
 }
 
 /*

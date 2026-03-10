@@ -122,7 +122,6 @@ func (graph *Graph) Tick(result *pool.Result) {
 	if result != nil && result.Value != nil {
 		if pv, ok := result.Value.(pool.PoolValue[[]data.Chord]); ok {
 			if pv.Key == "prompt" {
-				graph.Wipe()
 				graph.InjectChords(pv.Value)
 			}
 		}

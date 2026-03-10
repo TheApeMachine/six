@@ -102,6 +102,25 @@ func TestInjectChords(t *testing.T) {
 	})
 }
 
+func TestInjectChords_ControlChordBecomesSignal(t *testing.T) {
+	Convey("Given a graph and a control-bearing chord", t, func() {
+		g := NewGraph()
+		control := data.Chord{}
+		control.Set(256)
+
+		Convey("When InjectChords is called", func() {
+			g.InjectChords([]data.Chord{control})
+			drained := g.source.DrainInbox()
+
+			Convey("It should inject a signal token", func() {
+				So(len(drained), ShouldEqual, 1)
+				So(drained[0].IsSignal, ShouldBeTrue)
+				So(drained[0].SignalMask.Has(256), ShouldBeTrue)
+			})
+		})
+	})
+}
+
 func TestStopped(t *testing.T) {
 	Convey("Given a graph", t, func() {
 		g := NewGraph()

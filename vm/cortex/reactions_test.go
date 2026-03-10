@@ -122,6 +122,43 @@ func TestNodeHole(t *testing.T) {
 	})
 }
 
+func TestArrive_SignalTokenControlPlaneRouting(t *testing.T) {
+	Convey("Given two connected nodes with a shared control gate", t, func() {
+		a := NewNode(0, 0)
+		b := NewNode(1, 0)
+		a.Connect(b)
+
+		edge := a.Edges()[0]
+
+		channel := data.BaseChord('K')
+		a.Cube.Set(0, 0, 42, channel)
+		b.Cube.Set(0, 0, 42, channel)
+		a.InvalidateChordCache()
+		b.InvalidateChordCache()
+
+		control := data.Chord{}
+		control.Set(256)
+		a.Cube.Set(edge.PatchA.Side, edge.PatchA.Rot, 256, control)
+		b.Cube.Set(edge.PatchB.Side, edge.PatchB.Rot, 256, control)
+		edge.Refresh()
+
+		query := control
+		tok := NewSignalToken(query, query, -1)
+		tok.TTL = 2
+
+		Convey("When a control-bearing signal arrives", func() {
+			a.Arrive(tok)
+			drained := b.DrainInbox()
+
+			Convey("It should route through the control resonance despite channel mismatch", func() {
+				So(len(drained), ShouldBeGreaterThan, 0)
+				So(drained[0].IsSignal, ShouldBeTrue)
+				So(drained[0].TTL, ShouldBeLessThanOrEqualTo, 2)
+			})
+		})
+	})
+}
+
 func BenchmarkArrive_DataToken(b *testing.B) {
 	chord := data.BaseChord('A')
 	tok := NewDataToken(chord, 65, -1)

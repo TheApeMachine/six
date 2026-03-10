@@ -17,48 +17,65 @@ func (n *Node) Arrive(tok Token) {
 
 	if tok.IsSignal {
 		n.Signals = append(n.Signals, tok)
-		// Collision Phase: If signal matches node's memory, react
+
+		// 1. Memory Resonance (The Deduction Phase)
+		// A signal interacts with the node's crystallized mass.
 		cubeChord := n.CubeChord()
-		if data.ChordSimilarity(&tok.Chord, &cubeChord) > 0 {
+		sim := data.ChordSimilarity(&tok.Chord, &cubeChord)
+
+		// If they share structural primes (e.g. 'Sandra'), they resonate.
+		// We only react if the node has novel context to offer (it's not just a blank relay).
+		if sim > 0 && cubeChord.ActiveCount() > tok.Chord.ActiveCount() {
+			// Physical deduction: extract the context present in the memory but missing in the query.
 			reaction := data.ChordHole(&cubeChord, &tok.Chord)
+
 			if reaction.ActiveCount() > 0 {
-				// The bits that are in the node but NOT in the query form the answer.
-				// Emit as a Data token (IsSignal=false) so it flows down the gradient to Sink.
-				n.Send(NewDataToken(reaction, 256, n.ID))
+				// The reaction produces a Reflection Signal containing the answer (e.g. 'Garden')
+				reflection := NewSignalToken(reaction, reaction, n.ID)
+				reflection.TTL = tok.TTL // Inherit remaining kinetic energy
+
+				// Propagate the reflection outward
+				for _, ed := range n.edges {
+					neighbor := ed.A
+					if neighbor == n {
+						neighbor = ed.B
+					}
+					if neighbor.ID != tok.Origin {
+						neighbor.Send(reflection)
+					}
+				}
 			}
 		}
 
-		// Computation bypasses the attractor. Thread the needle.
 		if tok.TTL <= 1 {
 			return // signal dies
 		}
 
+		// 2. Wave Propagation
+		// Forward the original query signal along open channels.
 		for _, ed := range n.edges {
-			// Don't bounce back to origin
 			neighbor := ed.A
 			if neighbor == n {
 				neighbor = ed.B
 			}
-
 			if neighbor.ID == tok.Origin {
 				continue
 			}
 
+			// Diffuse along compatible channels or open unstructured space
 			overlap := data.ChordAND(&tok.SignalMask, &ed.ChannelMask)
-			if overlap.ActiveCount() > 0 {
-				neighbor.Send(Token{
-					Chord:       tok.Chord,
-					LogicalFace: tok.LogicalFace,
-					Origin:      n.ID, // Update origin so it doesn't bounce back next hop
-					TTL:         tok.TTL - 1,
-					Op:          tok.Op,
-					Carry:       tok.Carry,
-					IsSignal:    true,
-					SignalMask:  tok.SignalMask,
-				})
+			controlOpen := false
+			if tok.SignalMask.ActiveCount() == 1 && tok.SignalMask.Has(256) {
+				controlOpen = ed.ControlMask.ActiveCount() > 0
+			}
+
+			if overlap.ActiveCount() > 0 || controlOpen || ed.ChannelMask.ActiveCount() == 0 {
+				forward := tok
+				forward.TTL--
+				forward.Origin = n.ID
+				neighbor.Send(forward)
 			}
 		}
-
 		return
 	}
 
@@ -109,8 +126,7 @@ func (n *Node) Arrive(tok Token) {
 
 /*
 Hole computes the geometric residue between the node's total mass and the
-Topological Intersection (anchor) with its neighbors. The difference is the unique
-geometry (residue) which becomes the geometric lock.
+Topological Intersection (anchor) with its neighbors.
 Returns (anchor, residue, bestFaceIdx, shouldDream)
 */
 func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
@@ -151,7 +167,6 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 
 /*
 bestPhysicalFace returns the physical face index (0-257) with highest aggregate ActiveCount.
-No rotation reversal (unlike BestFace).
 */
 func (n *Node) bestPhysicalFace() int {
 	bestFace := 256

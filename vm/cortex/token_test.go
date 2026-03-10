@@ -40,6 +40,33 @@ func TestNewDataToken(t *testing.T) {
 	})
 }
 
+func TestNewSignalToken(t *testing.T) {
+	Convey("Given NewSignalToken", t, func() {
+		dataChord := data.BaseChord('Q')
+		control := data.Chord{}
+		control.Set(256)
+		signalChord := data.ChordOR(&dataChord, &control)
+		mask := signalChord
+
+		Convey("When creating a control-bearing signal", func() {
+			tok := NewSignalToken(signalChord, mask, -1)
+
+			Convey("It should remain in signal mode", func() {
+				So(tok.IsSignal, ShouldBeTrue)
+			})
+
+			Convey("It should preserve the control-plane bit in SignalMask", func() {
+				So(tok.SignalMask.Has(256), ShouldBeTrue)
+			})
+
+			Convey("It should preserve explicit mask constraints", func() {
+				overlap := data.ChordAND(&tok.SignalMask, &mask)
+				So(overlap.ActiveCount(), ShouldBeGreaterThan, 0)
+			})
+		})
+	})
+}
+
 func BenchmarkNewRotationToken(b *testing.B) {
 	rot := geometry.DefaultRotTable.Y90
 	for range b.N {
@@ -51,5 +78,15 @@ func BenchmarkNewDataToken(b *testing.B) {
 	chord := data.BaseChord('A')
 	for range b.N {
 		_ = NewDataToken(chord, 65, -1)
+	}
+}
+
+func BenchmarkNewSignalToken(b *testing.B) {
+	chord := data.Chord{}
+	chord.Set(256)
+	mask := chord
+
+	for range b.N {
+		_ = NewSignalToken(chord, mask, -1)
 	}
 }

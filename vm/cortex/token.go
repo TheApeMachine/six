@@ -33,6 +33,13 @@ type Token struct {
 	SignalMask data.Chord // bit-channel constraints for routing this signal
 }
 
+var controlPlaneMask = func() data.Chord {
+	var mask data.Chord
+	mask.Set(256)
+
+	return mask
+}()
+
 /*
 NewRotationToken creates a token carrying a GF(257) geometric action.
 It uses OpCompose to directly apply the transform to the receiver's lens.
@@ -74,4 +81,8 @@ func NewSignalToken(chord data.Chord, mask data.Chord, origin int) Token {
 		IsSignal:    true,
 		SignalMask:  mask,
 	}
+}
+
+func chordControlPlane(chord data.Chord) data.Chord {
+	return data.ChordAND(&chord, &controlPlaneMask)
 }

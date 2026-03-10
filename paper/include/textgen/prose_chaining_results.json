@@ -7,7 +7,7 @@
       "Name": "Prose Chaining",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "YmUs",
+      "Observed": "b3QgdG8gYmUsIHRoYXQgaXMgdGhlIHF1ZXN0aW9uLg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -23,7 +23,7 @@
       "Name": "Prose Chaining",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "dGhl",
+      "Observed": "ZXN0IG9mIHRpbWVzLCBpdCB3YXMgdGhlIHdvcnN0IG9mIHRpbWVzLg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -39,7 +39,7 @@
       "Name": "Prose Chaining",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": "Q2FsbA==",
+      "Observed": "b2xlIGluIHRoZSBncm91bmQgdGhlcmUgbGl2ZWQgYSBob2JiaXQu",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -55,7 +55,7 @@
       "Name": "Prose Chaining",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "aG9sZQ==",
+      "Observed": "dGhlIGdyb3VuZCB0aGVyZSBsaXZlZCBhIGhvYmJpdC4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -71,7 +71,7 @@
       "Name": "Prose Chaining",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": "aGFwcHk=",
+      "Observed": "aWVzIGFyZSBhbGlrZTsgZWFjaCB1bmhhcHB5IGZhbWlseSBpcyB1bmhhcHB5IGluIGl0cyBvd24gd2F5Lg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
