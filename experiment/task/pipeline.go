@@ -12,7 +12,6 @@ import (
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
@@ -231,11 +230,39 @@ wait_result:
 		dbgActive = dbgActive[:5]
 	}
 
-	readout := pipeline.loader.Substrate().Retrieve(
-		promptFilter(promptChords),
-		geometry.NewPhaseDial().EncodeFromChords(promptChords),
-		50,
-	)
+	var cortexFilter data.Chord
+	for _, c := range chordRes {
+		if c.ActiveCount() > 0 {
+			cortexFilter = data.ChordOR(&cortexFilter, &c)
+		}
+	}
+
+	var bestWord []data.Chord
+	var currentWord []data.Chord
+	var bestSim float64
+	var wordMass data.Chord
+
+	for _, c := range promptChords {
+		face := c.IntrinsicFace()
+		if face == ' ' || face == '.' || face == '?' || face == '\n' || face == '\r' {
+			wLen := wordMass.ActiveCount()
+			if len(currentWord) > 0 && wLen > 0 {
+				sim := float64(data.ChordSimilarity(&cortexFilter, &wordMass)) / float64(wLen)
+				if sim > bestSim {
+					bestSim = sim
+					bestWord = make([]data.Chord, len(currentWord))
+					copy(bestWord, currentWord)
+				}
+				currentWord = currentWord[:0]
+				wordMass = data.Chord{}
+			}
+		} else {
+			currentWord = append(currentWord, c)
+			wordMass = data.ChordOR(&wordMass, &c)
+		}
+	}
+
+	readout := bestWord
 
 	console.Info("OBSERVED TEXT DEBUG", "lsmCount", lsmCount, "substrate", len(pipeline.loader.Substrate().Entries), "cortex", len(chordRes), "active", dbgActive, "readout", len(readout))
 
@@ -272,7 +299,10 @@ func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 	out := make([]byte, 0, len(readout))
 
 	for _, chord := range readout {
-		out = append(out, chord.Byte())
+		f := chord.IntrinsicFace()
+		if f < 256 {
+			out = append(out, byte(f))
+		}
 	}
 
 	return out

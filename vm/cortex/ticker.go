@@ -35,24 +35,64 @@ func (graph *Graph) Step() bool {
 
 	if converged && graph.broadcast != nil {
 		var res []data.Chord
+		var queryNode *Node
 
-		for side := range 6 {
-			for rot := range 4 {
-				chord := graph.sink.Cube.Get(side, rot, 256)
-				if chord.ActiveCount() > 0 {
-					res = append(res, chord)
+		// Find the last node that received data (the Query node)
+		for i := len(graph.nodes) - 1; i >= 0; i-- {
+			if graph.nodes[i] != graph.source && graph.nodes[i] != graph.sink {
+				cc := graph.nodes[i].CubeChord()
+				if cc.ActiveCount() > 0 {
+					queryNode = graph.nodes[i]
+					break
 				}
 			}
 		}
 
+		if queryNode != nil {
+			var bestEdge *Edge
+			var maxSim int
+
+			// Find the most resonant neighbor (the target statement)
+			for _, ed := range queryNode.edges {
+				sim := ed.ChannelMask.ActiveCount()
+				if sim > maxSim {
+					maxSim = sim
+					bestEdge = ed
+				}
+			}
+
+			if bestEdge != nil {
+				targetNode := bestEdge.A
+				if targetNode == queryNode {
+					targetNode = bestEdge.B
+				}
+
+				// Pure Novelty Extraction:
+				// Subtract structural overlaps from ALL nodes in the graph to shed verbs, stop words, and entities,
+				// leaving only the completely unique geometric signature of the node (the novel location).
+				summary := targetNode.CubeChord()
+				var structuralMask data.Chord
+
+				for _, otherNode := range graph.nodes {
+					if otherNode != targetNode && otherNode != graph.source && otherNode != graph.sink {
+						otherSummary := otherNode.CubeChord()
+						overlap := data.ChordAND(&summary, &otherSummary)
+						structuralMask = data.ChordOR(&structuralMask, &overlap)
+					}
+				}
+
+				ansResidue := data.ChordHole(&summary, &structuralMask)
+				res = append(res, ansResidue)
+			}
+		}
+
+		// Fallback to sink gate if resonance failed
 		if len(res) == 0 {
 			for side := range 6 {
 				for rot := range 4 {
-					for i := range 256 {
-						chord := graph.sink.Cube.Get(side, rot, i)
-						if chord.ActiveCount() > 0 {
-							res = append(res, chord)
-						}
+					chord := graph.sink.Cube.Get(side, rot, graph.sink.Rot.Forward(256))
+					if chord.ActiveCount() > 0 {
+						res = append(res, chord)
 					}
 				}
 			}
@@ -117,15 +157,27 @@ func (graph *Graph) fireActiveEdges() {
 		faceB := edge.B.Rot.Reverse(256)
 
 		var from, to *Node
+		var toGate data.Chord
 
 		if faceA > faceB {
 			from, to = edge.A, edge.B
+			toGate = edge.B.Cube.Get(edge.PatchB.Side, edge.PatchB.Rot, edge.B.Rot.Forward(256))
 		} else {
 			from, to = edge.B, edge.A
+			toGate = edge.A.Cube.Get(edge.PatchA.Side, edge.PatchA.Rot, edge.A.Rot.Forward(256))
+		}
+
+		payload := from.CubeChord()
+		if toGate.ActiveCount() > 0 {
+			filtered := data.ChordAND(&payload, &toGate)
+			if filtered.ActiveCount() == 0 {
+				continue // Gate is physically blocking this data shape
+			}
+			payload = filtered // Only the exact matching geometry passes
 		}
 
 		tok := Token{
-			Chord:       from.CubeChord(),
+			Chord:       payload,
 			LogicalFace: 256,
 			Origin:      from.ID,
 			TTL:         1,
@@ -347,13 +399,24 @@ func (graph *Graph) Survivors(threshold float64) []*Node {
 	return result
 }
 
-/*
-InjectChords sends each chord as a data token to the source. No Sequencer events.
-*/
 func (graph *Graph) InjectChords(chords []data.Chord) {
+	targetIdx := 0
+	currentTarget := graph.nodes[targetIdx]
+
 	for _, chord := range chords {
-		graph.source.Send(NewDataToken(chord, chord.IntrinsicFace(), -1))
+		currentTarget.Send(NewDataToken(chord, chord.IntrinsicFace(), -1))
 		graph.seqPos++
+
+		face := chord.IntrinsicFace()
+		if face == '.' || face == '?' || face == '\n' {
+			targetIdx++
+			if targetIdx >= len(graph.nodes)-1 { // leave sink alone if possible
+				graph.SpawnNode(currentTarget)
+			}
+			if targetIdx < len(graph.nodes) {
+				currentTarget = graph.nodes[targetIdx]
+			}
+		}
 	}
 }
 

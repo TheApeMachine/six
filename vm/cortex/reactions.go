@@ -108,8 +108,10 @@ func (n *Node) Arrive(tok Token) {
 }
 
 /*
-Hole returns (peak, hole, bestFaceIdx, shouldDream). peak = highest-popcount face;
-hole = ChordHole(summary, peak). shouldDream when hole has ≥3 bits and summary > peak.
+Hole computes the geometric residue between the node's total mass and the
+Topological Intersection (anchor) with its neighbors. The difference is the unique
+geometry (residue) which becomes the geometric lock.
+Returns (anchor, residue, bestFaceIdx, shouldDream)
 */
 func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	summary := n.CubeChord()
@@ -122,17 +124,29 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 		return data.Chord{}, data.Chord{}, 256, false
 	}
 
-	var peak data.Chord
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			c := n.Cube.Get(side, rot, bestFaceIdx)
-			peak = data.ChordOR(&peak, &c)
+	var bestAnchor data.Chord
+	var bestResidue data.Chord
+	var bestAnchorSize int
+
+	for _, ed := range n.edges {
+		neighbor := ed.A
+		if neighbor == n {
+			neighbor = ed.B
+		}
+
+		neighborSummary := neighbor.CubeChord()
+		anchor := data.ChordAND(&summary, &neighborSummary)
+		residue := data.ChordHole(&summary, &anchor)
+
+		anchorSize := anchor.ActiveCount()
+		if anchorSize > bestAnchorSize && residue.ActiveCount() > 0 {
+			bestAnchorSize = anchorSize
+			bestAnchor = anchor
+			bestResidue = residue
 		}
 	}
-	hole := data.ChordHole(&summary, &peak)
 
-	// Dream if the hole has meaningful structure AND the node has significant gaps.
-	return peak, hole, bestFaceIdx, hole.ActiveCount() >= 3 && summary.ActiveCount() > peak.ActiveCount()
+	return bestAnchor, bestResidue, bestFaceIdx, bestAnchorSize >= 3 && bestResidue.ActiveCount() > 0
 }
 
 /*

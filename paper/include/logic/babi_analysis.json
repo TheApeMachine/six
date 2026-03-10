@@ -6,15 +6,15 @@
       "EntitySummary": [
         {
           "Name": "Daniel",
-          "Correct": 0,
+          "Correct": 1,
           "Total": 17,
-          "Rate": 0
+          "Rate": 0.058823529411764705
         },
         {
           "Name": "John",
-          "Correct": 0,
+          "Correct": 2,
           "Total": 13,
-          "Rate": 0
+          "Rate": 0.15384615384615385
         },
         {
           "Name": "Mary",
@@ -29,141 +29,141 @@
           "Rate": 0
         }
       ],
-      "ExactRate": 0,
+      "ExactRate": 0.06,
       "FailureRows": [
         [
           "0",
           "Mary",
           "bathroom",
-          "m"
+          ""
         ],
         [
           "1",
           "Daniel",
           "hallway",
-          "ay"
+          ""
         ],
         [
           "2",
           "Daniel",
           "hallway",
-          "m"
+          "to"
         ],
         [
           "3",
           "Daniel",
           "office",
-          "m"
+          "to"
         ],
         [
           "4",
           "Sandra",
           "bathroom",
-          "m"
+          "to"
         ],
         [
           "5",
           "Sandra",
           "bathroom",
-          "oom"
+          "to"
         ],
         [
           "6",
           "Sandra",
           "bathroom",
-          "oom"
+          "to"
         ],
         [
           "7",
           "Sandra",
           "bathroom",
-          "oom"
+          "to"
         ],
         [
           "8",
           "John",
           "office",
-          "n"
+          "to"
         ],
         [
           "9",
           "Daniel",
           "hallway",
-          "n"
+          "to"
         ],
         [
           "10",
           "John",
           "bathroom",
-          "edroom"
+          "is"
         ],
         [
           "11",
           "Mary",
           "bedroom",
-          "edroom"
+          "is"
         ],
         [
           "12",
           "John",
           "bathroom",
-          "edroom"
+          "went"
         ],
         [
           "13",
           "John",
           "bathroom",
-          "edroom"
+          "to"
         ],
         [
           "14",
           "Sandra",
           "bedroom",
-          "edroom"
+          "travelled"
         ],
         [
           "15",
           "Daniel",
           "bedroom",
-          "n"
+          "to"
         ],
         [
           "16",
           "Sandra",
           "kitchen",
-          "n"
+          "to"
         ],
         [
           "17",
           "Sandra",
           "hallway",
-          "n"
+          "journeyed"
         ],
         [
           "18",
           "Sandra",
           "hallway",
-          "n"
+          "Sandra"
         ],
         [
           "19",
           "Daniel",
           "hallway",
-          "n"
+          "bathroom"
         ]
       ],
       "LocationSummary": [
         {
           "Name": "bathroom",
-          "Correct": 0,
+          "Correct": 2,
           "Total": 12,
-          "Rate": 0
+          "Rate": 0.16666666666666666
         },
         {
           "Name": "bedroom",
-          "Correct": 0,
+          "Correct": 1,
           "Total": 8,
-          "Rate": 0
+          "Rate": 0.125
         },
         {
           "Name": "garden",
@@ -191,9 +191,9 @@
         }
       ],
       "NFailureRows": 20,
-      "NFailures": 50,
+      "NFailures": 47,
       "NSamples": 50,
-      "PartialRate": 0.02047619047619047
+      "PartialRate": 0.0854761904761905
     }
   },
   "file_name": "babi_analysis.tex",
