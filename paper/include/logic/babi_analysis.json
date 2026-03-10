@@ -83,43 +83,43 @@
           "8",
           "John",
           "office",
-          "m"
+          "n"
         ],
         [
           "9",
           "Daniel",
           "hallway",
-          "m"
+          "n"
         ],
         [
           "10",
           "John",
           "bathroom",
-          "m"
+          "edroom"
         ],
         [
           "11",
           "Mary",
           "bedroom",
-          "m"
+          "edroom"
         ],
         [
           "12",
           "John",
           "bathroom",
-          "m"
+          "edroom"
         ],
         [
           "13",
           "John",
           "bathroom",
-          "ay"
+          "edroom"
         ],
         [
           "14",
           "Sandra",
           "bedroom",
-          "ay"
+          "edroom"
         ],
         [
           "15",
@@ -193,7 +193,7 @@
       "NFailureRows": 20,
       "NFailures": 50,
       "NSamples": 50,
-      "PartialRate": 0.017619047619047618
+      "PartialRate": 0.02047619047619047
     }
   },
   "file_name": "babi_analysis.tex",

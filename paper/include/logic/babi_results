@@ -26,13 +26,13 @@ Idx & Name & Exact & Partial & Fuzzy & Total \\
 \hline
 10 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \hline
-11 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+11 & babi\_benchmark & 0.0000 & 0.1429 & 0.1429 & 0.0649 \\
 \hline
 12 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \hline
 13 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \hline
-14 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+14 & babi\_benchmark & 0.0000 & 0.1429 & 0.1429 & 0.0649 \\
 \hline
 15 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \hline
@@ -96,7 +96,7 @@ Idx & Name & Exact & Partial & Fuzzy & Total \\
 \hline
 45 & babi\_benchmark & 0.0000 & 0.1429 & 0.1429 & 0.0649 \\
 \hline
-46 & babi\_benchmark & 0.0000 & 0.1429 & 0.1429 & 0.0649 \\
+46 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \hline
 47 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \hline
