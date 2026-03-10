@@ -12,7 +12,7 @@ cuda:
 		&& cd ../../
 
 paper:
-	-go test -v ./experiment/task/
+	go test -v ./experiment/task/
 	go run main.go paper
 	cd paper && pdflatex -interaction=nonstopmode main.tex
 	cd paper && pdflatex -interaction=nonstopmode main.tex

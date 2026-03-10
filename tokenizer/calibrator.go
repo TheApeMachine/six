@@ -22,6 +22,19 @@ type Calibrator struct {
 	entropyFloor float64
 }
 
+const (
+	// sensitivityDecayFactor prevents over-sensitivity when data is too quiet.
+	sensitivityDecayFactor = 0.95
+	// sensitivityGrowFactor forces higher penalties on highly volatile streams.
+	sensitivityGrowFactor = 1.05
+	// sensitivityClampMin prevents the penalty from disappearing entirely.
+	sensitivityClampMin = 0.05
+	// sensitivityClampMax prevents the penalty from suppressing all splits.
+	sensitivityClampMax = 20.0
+	// volatilityMultiplier defines the delta from entropyFloor to trigger growth.
+	volatilityMultiplier = 3.0
+)
+
 /*
 NewCalibrator creates a Calibrator with phi-based defaults: targetDensity 1/phi³..1/phi²,
 sensitivityPop=1, sensitivityPhase=phi.
@@ -106,18 +119,19 @@ func (calibrator *Calibrator) Recalibrate(events []int) {
 
 	mean, _ := calibrator.window.Stats()
 
-	// Adjust sensitivity using adaptive feedback loop
+	// Adjust sensitivity using adaptive feedback loop.
+	// We use decay/grow factors to maintain stability vs responsiveness.
 	if mean < calibrator.entropyFloor {
-		// Stuck in a monotonous region, decrease sensitivity
-		calibrator.sensitivityPop *= 0.95
-		if calibrator.sensitivityPop < 0.05 {
-			calibrator.sensitivityPop = 0.05
+		// Stuck in a monotonous region, decrease sensitivity.
+		calibrator.sensitivityPop *= sensitivityDecayFactor
+		if calibrator.sensitivityPop < sensitivityClampMin {
+			calibrator.sensitivityPop = sensitivityClampMin
 		}
-	} else if mean > calibrator.entropyFloor*3 {
-		// Highly volatile data, increase penalty
-		calibrator.sensitivityPop *= 1.05
-		if calibrator.sensitivityPop > 20.0 {
-			calibrator.sensitivityPop = 20.0
+	} else if mean > calibrator.entropyFloor*volatilityMultiplier {
+		// Highly volatile data, increase penalty to avoid noise splits.
+		calibrator.sensitivityPop *= sensitivityGrowFactor
+		if calibrator.sensitivityPop > sensitivityClampMax {
+			calibrator.sensitivityPop = sensitivityClampMax
 		}
 	}
 }

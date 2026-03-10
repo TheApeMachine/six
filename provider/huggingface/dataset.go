@@ -11,10 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/provider"
+	"crypto/sha256"
+	"encoding/hex"
 )
 
 const hfBase = "https://huggingface.co"
@@ -603,22 +606,35 @@ that subsequent calls — even from a fresh Dataset instance — bypass
 the network entirely.
 */
 func (dataset *Dataset) discoverShard() (string, string, error) {
-	// Derive a stable key from repo + split + subset for the sidecar cache.
-	keyParts := []string{dataset.repo}
-	if dataset.split != "" {
-		keyParts = append(keyParts, dataset.split)
-	}
-	if dataset.subset != "" {
-		keyParts = append(keyParts, dataset.subset)
-	}
-	sidecarKey := strings.ReplaceAll(strings.Join(keyParts, "_"), "/", "_")
+	// Compute a stable hash of the concatenated components to eliminate collisions.
+	hash := sha256.New()
+	hash.Write([]byte(dataset.repo))
+	hash.Write([]byte("\x00"))
+	hash.Write([]byte(dataset.split))
+	hash.Write([]byte("\x00"))
+	hash.Write([]byte(dataset.subset))
+	sidecarKey := hex.EncodeToString(hash.Sum(nil))
 	sidecarPath := filepath.Join(os.TempDir(), "six_hf_shard_"+sidecarKey+".txt")
 
-	// Return cached discovery result without any network access.
-	if raw, err := os.ReadFile(sidecarPath); err == nil {
-		parts := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)
-		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
-			return parts[0], parts[1], nil
+	// Check for sidecar freshness against a configurable TTL.
+	ttlStr := os.Getenv("SIX_HF_SIDECAR_TTL")
+	ttl := 24 * time.Hour // default 1 day
+	if ttlStr != "" {
+		if d, err := time.ParseDuration(ttlStr); err == nil {
+			ttl = d
+		}
+	}
+
+	if info, err := os.Stat(sidecarPath); err == nil {
+		if time.Since(info.ModTime()) < ttl {
+			if raw, err := os.ReadFile(sidecarPath); err == nil {
+				parts := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)
+				if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+					return parts[0], parts[1], nil
+				}
+			}
+		} else {
+			_ = os.Remove(sidecarPath)
 		}
 	}
 

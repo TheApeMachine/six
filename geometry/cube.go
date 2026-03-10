@@ -43,11 +43,10 @@ func (c *Cube) Set(side, rot, face int, chord data.Chord) {
 	c.Sides[side][rot][face] = chord
 }
 
-/*
-ORInto ORs the given chord directly into the slot at (side, rot, face).
-No intermediate copy, no Sanitize (caller ensures inputs are 257-bit valid).
-*/
 func (c *Cube) ORInto(side, rot, face int, chord *data.Chord) {
+	if side < 0 || side >= 6 || rot < 0 || rot >= 4 || face < 0 || face >= 257 {
+		panic("geometry: cube index out of range")
+	}
 	dst := &c.Sides[side][rot][face]
 
 	for i := range dst {

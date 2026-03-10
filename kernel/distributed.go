@@ -44,6 +44,10 @@ func NewDistributedBackend(opts ...distributedOpts) *DistributedBackend {
 		opt(backend)
 	}
 
+	if backend.pool == nil {
+		panic("DistributedBackend: DistributedWithPool must be provided")
+	}
+
 	return backend
 }
 
@@ -59,6 +63,14 @@ func (backend *DistributedBackend) Resolve(
 	if graphNodes == nil || contextPtr == nil {
 		return 0, fmt.Errorf("invalid distributed pointers")
 	}
+
+	resolveCtx := backend.ctx
+	if resolveCtx == nil {
+		resolveCtx = context.Background()
+	}
+
+	rctx, cancel := context.WithTimeout(resolveCtx, time.Duration(config.System.Timeout)*time.Millisecond)
+	defer cancel()
 
 	ctxSlice := unsafe.Slice((*byte)(contextPtr), nodeBytes)
 	ctxCopy := append([]byte(nil), ctxSlice...)
@@ -100,7 +112,7 @@ func (backend *DistributedBackend) Resolve(
 	resChans := make([]chan *pool.Result, len(chunks))
 	for i, chunk := range chunks {
 		start, end := chunk.start, chunk.end
-		addr := "[IP_ADDRESS]"
+		addr := config.System.Workers[i%len(config.System.Workers)]
 
 		shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
 		shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)
@@ -119,6 +131,7 @@ func (backend *DistributedBackend) Resolve(
 			jobFn,
 			pool.WithCircuitBreaker(addr, 3, 5*time.Second),
 			pool.WithTTL(5*time.Second),
+			pool.WithContext(rctx),
 		)
 	}
 
@@ -126,8 +139,11 @@ func (backend *DistributedBackend) Resolve(
 	errCh := make(chan error, len(chunks))
 
 	for i, chunk := range chunks {
-		res := <-resChans[i]
-		if res.Error != nil {
+		select {
+		case <-rctx.Done():
+			return 0, rctx.Err()
+		case res := <-resChans[i]:
+			if res.Error != nil {
 			if localBuilder != nil {
 				fallbackWg.Add(1)
 				// Schedule failure fallback locally
@@ -141,21 +157,29 @@ func (backend *DistributedBackend) Resolve(
 					return numeric.RebasePackedID(packed, start), nil
 				}
 
-				fbCh := backend.pool.Schedule(fmt.Sprintf("local-%d", chunk.start), localFn, pool.WithTTL(5*time.Second))
+				fbCh := backend.pool.Schedule(fmt.Sprintf("local-%d", chunk.start), localFn, pool.WithTTL(5*time.Second), pool.WithContext(rctx))
 				go func() {
 					defer fallbackWg.Done()
-					fbRes := <-fbCh
-					if fbRes.Error != nil {
-						errCh <- fbRes.Error
-					} else {
-						atomicMaxPacked(&best, fbRes.Value.(uint64))
+					select {
+					case <-rctx.Done():
+						return
+					case fbRes := <-fbCh:
+						if fbRes.Error != nil {
+							errCh <- fbRes.Error
+						} else if v, ok := fbRes.Value.(uint64); ok {
+							atomicMaxPacked(&best, v)
+						} else {
+							fmt.Printf("distributed: local Resolve returned non-uint64: %T\n", fbRes.Value)
+						}
 					}
 				}()
 			} else {
 				errCh <- res.Error
 			}
+		} else if v, ok := res.Value.(uint64); ok {
+			atomicMaxPacked(&best, v)
 		} else {
-			atomicMaxPacked(&best, res.Value.(uint64))
+			fmt.Printf("distributed: remote Resolve returned non-uint64: %T\n", res.Value)
 		}
 	}
 

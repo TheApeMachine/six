@@ -153,7 +153,12 @@ func (n *Node) DrainInbox() []Token {
 		case tok := <-n.inbox:
 			n.drainBuf = append(n.drainBuf, tok)
 		default:
-			return n.drainBuf
+			if len(n.drainBuf) == 0 {
+				return nil
+			}
+			out := make([]Token, len(n.drainBuf))
+			copy(out, n.drainBuf)
+			return out
 		}
 	}
 }

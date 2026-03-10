@@ -30,7 +30,7 @@ type PrimeField struct {
 	deMitosisSparseStreak    int
 	insertsSinceDensityCheck int // stride counter for expensive density scans
 
-	sm *MathematicalStateMachine
+	sm *mathematicalStateMachine
 }
 
 const maxCleanupPrototypesPerClass = 32
@@ -206,7 +206,7 @@ func NewPrimeField() *PrimeField {
 		eigen:     geometry.NewEigenMode(),
 		rot:       geometry.IdentityRotation(),
 	}
-	pf.sm = NewMathematicalStateMachine()
+	pf.sm = newMathematicalStateMachine()
 	pf.sm.Subscribe(pf)
 	return pf
 }

@@ -61,7 +61,7 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 
 /*
 EncodeFromChordsParallel is the pool-accelerated variant of EncodeFromChords.
-The outer loop over NBasis dimensions is embarassingly parallel — each k writes
+The outer loop over NBasis dimensions is embarrassingly parallel — each k writes
 to dial[k] with no cross-dependency — so we fan out to the pool and join before
 the serial normalize pass.
 
@@ -91,11 +91,10 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 	for k := range nBasis {
 		omega := float64(numeric.Primes[k])
 
-		p.Schedule(fmt.Sprintf("phasedial-k%d", k), func() (any, error) {
+		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", k), func() (any, error) {
 			defer wg.Done()
 			var sum complex128
-			for t, chord := range chords {
-				_ = chord // chord already in bins
+			for t := range chords {
 				structuralPrime := float64(numeric.Primes[bins[t]%config.Numeric.NSymbols])
 				phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
 				sum += cmplx.Rect(1.0, phase)
@@ -103,6 +102,16 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 			dial[k] = sum // each k owns a distinct index — no race
 			return nil, nil
 		})
+
+		go func(ch chan *pool.Result) {
+			if ch == nil {
+				return
+			}
+			res := <-ch
+			if res != nil && res.Error != nil {
+				fmt.Printf("phasedial-k%d scheduling error: %v\n", k, res.Error)
+			}
+		}(resCh)
 	}
 
 	wg.Wait()

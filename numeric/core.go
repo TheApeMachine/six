@@ -106,8 +106,7 @@ func AbsInt(v int) int {
 type NumericError string
 
 const (
-	NumericNilPointerError   NumericError = "nil pointer"
-	NumericErrorInvalidInput NumericError = "invalid input"
+	NumericNilPointerError NumericError = "nil pointer"
 )
 
 func (err NumericError) Error() string {

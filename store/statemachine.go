@@ -1,6 +1,8 @@
 package store
 
 import (
+	"sync"
+
 	"github.com/theapemachine/six/geometry"
 )
 
@@ -14,29 +16,49 @@ type ManifoldSubscriber interface {
 	ApplyState(state uint8)
 }
 
-type MathematicalStateMachine struct {
+type mathematicalStateMachine struct {
+	mu       sync.RWMutex
 	rotState uint8
 	state    uint8
 	subs     []ManifoldSubscriber
 }
 
-func NewMathematicalStateMachine() *MathematicalStateMachine {
-	return &MathematicalStateMachine{}
+func newMathematicalStateMachine() *mathematicalStateMachine {
+	return &mathematicalStateMachine{}
 }
 
-func (sm *MathematicalStateMachine) Subscribe(sub ManifoldSubscriber) {
+func (sm *mathematicalStateMachine) Subscribe(sub ManifoldSubscriber) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	for _, s := range sm.subs {
+		if s == sub {
+			return
+		}
+	}
 	sm.subs = append(sm.subs, sub)
 }
 
-func (sm *MathematicalStateMachine) RotState() uint8 {
+func (sm *mathematicalStateMachine) RotState() uint8 {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	return sm.rotState
 }
 
-func (sm *MathematicalStateMachine) State() uint8 {
+func (sm *mathematicalStateMachine) State() uint8 {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
 	return sm.state
 }
 
-func (sm *MathematicalStateMachine) ApplyEvent(event int) {
+func (sm *mathematicalStateMachine) ApplyEvent(event int) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	if event < 0 || event >= len(geometry.StateTransitionMatrix[0]) {
+		return
+	}
+
 	if int(sm.rotState) < len(geometry.StateTransitionMatrix) {
 		next := geometry.StateTransitionMatrix[sm.rotState][event]
 		if next != 255 {
@@ -78,7 +100,10 @@ func (sm *MathematicalStateMachine) ApplyEvent(event int) {
 	}
 }
 
-func (sm *MathematicalStateMachine) Mitosis() {
+func (sm *mathematicalStateMachine) mitosis() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
 	if sm.state == 1 {
 		return
 	}
@@ -88,7 +113,10 @@ func (sm *MathematicalStateMachine) Mitosis() {
 	}
 }
 
-func (sm *MathematicalStateMachine) DeMitosis() {
+func (sm *mathematicalStateMachine) deMitosis() {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
 	if sm.state == 0 {
 		return
 	}
