@@ -12,9 +12,9 @@
         },
         {
           "Name": "John",
-          "Correct": 13,
+          "Correct": 12,
           "Total": 13,
-          "Rate": 1
+          "Rate": 0.9230769230769231
         },
         {
           "Name": "Mary",
@@ -24,18 +24,30 @@
         },
         {
           "Name": "Sandra",
-          "Correct": 15,
+          "Correct": 14,
           "Total": 15,
-          "Rate": 1
+          "Rate": 0.9333333333333333
         }
       ],
-      "ExactRate": 0.96,
+      "ExactRate": 0.92,
       "FailureRows": [
         [
-          "37",
+          "1",
           "Daniel",
-          "bedroom",
-          "edroom"
+          "hallway",
+          "allway"
+        ],
+        [
+          "17",
+          "Sandra",
+          "hallway",
+          "allway"
+        ],
+        [
+          "38",
+          "John",
+          "kitchen",
+          "itchen"
         ],
         [
           "49",
@@ -53,9 +65,9 @@
         },
         {
           "Name": "bedroom",
-          "Correct": 7,
+          "Correct": 8,
           "Total": 8,
-          "Rate": 0.875
+          "Rate": 1
         },
         {
           "Name": "garden",
@@ -65,15 +77,15 @@
         },
         {
           "Name": "hallway",
-          "Correct": 10,
+          "Correct": 8,
           "Total": 10,
-          "Rate": 1
+          "Rate": 0.8
         },
         {
           "Name": "kitchen",
-          "Correct": 9,
+          "Correct": 8,
           "Total": 10,
-          "Rate": 0.9
+          "Rate": 0.8
         },
         {
           "Name": "office",
@@ -82,10 +94,10 @@
           "Rate": 1
         }
       ],
-      "NFailureRows": 2,
-      "NFailures": 2,
+      "NFailureRows": 4,
+      "NFailures": 4,
       "NSamples": 50,
-      "PartialRate": 0.962857142857143
+      "PartialRate": 0.9257142857142857
     }
   },
   "file_name": "babi_analysis.tex",
