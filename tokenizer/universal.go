@@ -80,9 +80,15 @@ func (tokenizer *Universal) Generate() chan Token {
 
 		tokenizer.pos = 0
 		var streamPos uint32
+		var hasSample bool
 
 		for rawToken := range tokenizer.dataset.Generate() {
 			if rawToken.SampleID != tokenizer.sampleID {
+				if hasSample {
+					out <- Token{IsBoundary: true}
+				}
+
+				hasSample = true
 				tokenizer.sampleID = rawToken.SampleID
 				tokenizer.tokens.Reset()
 				tokenizer.pos = 0

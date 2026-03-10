@@ -223,7 +223,6 @@ wait_result:
 	if lsm, ok := pipeline.loader.Store().(*store.LSMSpatialIndex); ok && lsm != nil {
 		lsmCount = lsm.Count()
 	}
-	var outBytes []byte
 	var dbgActive []int
 	for _, chord := range chordRes {
 		dbgActive = append(dbgActive, chord.ActiveCount())
@@ -231,27 +230,16 @@ wait_result:
 	if len(dbgActive) > 5 {
 		dbgActive = dbgActive[:5]
 	}
-	console.Info("OBSERVED TEXT DEBUG", "lsmCount", lsmCount, "substrate", len(pipeline.loader.Substrate().Entries), "chords", len(chordRes), "active", dbgActive)
 
-	for _, residue := range chordRes {
-		if residue.ActiveCount() == 0 {
-			continue
-		}
+	readout := pipeline.loader.Substrate().Retrieve(
+		promptFilter(promptChords),
+		geometry.NewPhaseDial().EncodeFromChords(promptChords),
+		50,
+	)
 
-		// Fixed topK candidate size instead of leaking len(heldOut).
-		topK := 50
+	console.Info("OBSERVED TEXT DEBUG", "lsmCount", lsmCount, "substrate", len(pipeline.loader.Substrate().Entries), "cortex", len(chordRes), "active", dbgActive, "readout", len(readout))
 
-		seq := pipeline.loader.Substrate().Retrieve(
-			residue, geometry.NewPhaseDial().EncodeFromChords(promptChords), topK,
-		)
-
-		for _, key := range pipeline.loader.Lookup(seq) {
-			_, symbol := pipeline.coder.Decode(key)
-			outBytes = append(outBytes, symbol)
-		}
-
-		break
-	}
+	outBytes := pipeline.decodeReadout(readout)
 
 	console.Info("OBSERVED TEXT", "text", string(outBytes))
 
@@ -264,6 +252,26 @@ wait_result:
 	})
 
 	pipeline.testIdx++
+}
+
+func promptFilter(chords []data.Chord) data.Chord {
+	var filter data.Chord
+
+	for _, chord := range chords {
+		filter = data.ChordOR(&filter, &chord)
+	}
+
+	return filter
+}
+
+func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
+	var out []byte
+
+	for _, chord := range readout {
+		out = append(out, chord.Byte())
+	}
+
+	return out
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {
