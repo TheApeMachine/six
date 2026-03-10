@@ -96,7 +96,7 @@ func (pipeline *Pipeline) Run() error {
 	for pipeline.prompts != nil {
 		prompt := pipeline.prompts.Next()
 
-		if prompt == nil {
+		if len(prompt) == 0 {
 			break
 		}
 

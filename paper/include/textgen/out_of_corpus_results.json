@@ -15,14 +15,14 @@
       "Name": "Out of Corpus",
       "Prefix": "c2hhcmsgaGF0ZQ==",
       "Holdout": "cw==",
-      "Observed": "ZXMgZmlzaGRvZyBsaWtlcyBib25lc3BhcnJvdCBsaWtlcyBzZWVkc3NoYXJrIGxpa2VzIHBsYW5rdG9uZnJvZyBsaWtlcyBmbGllc2NhdCBoYXRlcyB3YXRlcmRvZyBoYXRlcyB0aHVuZGVycGFycm90IGhhdGVzIG5vaXNl",
+      "Observed": "bGlrZXMgcGxhbmt0b24=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -31,18 +31,18 @@
       "Name": "Out of Corpus",
       "Prefix": "ZnJvZyBoYXRl",
       "Holdout": "cw==",
-      "Observed": "IGxpa2VzIGZpc2hkb2cgbGlrZXMgYm9uZXNwYXJyb3QgbGlrZXMgc2VlZHNzaGFyayBsaWtlcyBwbGFua3RvbmZyb2cgbGlrZXMgZmxpZXNjYXQgaGF0ZXMgd2F0ZXJkb2cgaGF0ZXMgdGh1bmRlcnBhcnJvdCBoYXRlcyBub2lzZQ==",
+      "Observed": "IGxpa2VzIGZpc2g=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 1,
+  "score": 0,
   "section": "textgen"
 }

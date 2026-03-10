@@ -17,6 +17,17 @@ func (n *Node) Arrive(tok Token) {
 
 	if tok.IsSignal {
 		n.Signals = append(n.Signals, tok)
+		// Collision Phase: If signal matches node's memory, react
+		cubeChord := n.CubeChord()
+		if data.ChordSimilarity(&tok.Chord, &cubeChord) > 0 {
+			reaction := data.ChordHole(&cubeChord, &tok.Chord)
+			if reaction.ActiveCount() > 0 {
+				// The bits that are in the node but NOT in the query form the answer.
+				// Emit as a Data token (IsSignal=false) so it flows down the gradient to Sink.
+				n.Send(NewDataToken(reaction, 256, n.ID))
+			}
+		}
+
 		// Computation bypasses the attractor. Thread the needle.
 		if tok.TTL <= 1 {
 			return // signal dies

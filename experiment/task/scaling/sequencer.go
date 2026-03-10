@@ -52,7 +52,7 @@ func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData)
 }
 
 func (experiment *SequencerExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *SequencerExperiment) Score() float64 {

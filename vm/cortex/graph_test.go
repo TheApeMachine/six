@@ -112,3 +112,77 @@ func TestNearestNode(t *testing.T) {
 		})
 	})
 }
+
+func TestBabiReasoning(t *testing.T) {
+	Convey("Given a Graph for the bAbI task", t, func() {
+		graph := NewGraph()
+
+		sandra := data.BaseChord(1)
+		garden := data.BaseChord(2)
+		roy := data.BaseChord(3)
+		kitchen := data.BaseChord(4)
+		where := data.BaseChord(5)
+
+		s1 := data.ChordOR(&sandra, &garden)
+		s2 := data.ChordOR(&roy, &kitchen)
+		q := data.ChordOR(&sandra, &where)
+
+		nodes := graph.Nodes()
+		So(len(nodes), ShouldBeGreaterThanOrEqualTo, 4)
+
+		nodeA := nodes[1]
+		nodeB := nodes[2]
+
+		// Connect nodes so they have overlapping masks
+		source := graph.Source()
+		sink := graph.Sink()
+
+		// Clear edges first if we want absolute control, or just rely on new directed edge
+		// Graph's faceA > faceB is false for identity, falling to edge.B -> edge.A
+		// By doing sink.Connect(nodeA), Edge A is sink, B is nodeA, so NodeA flows to Sink!
+		sink.Connect(nodeA)
+		sink.Connect(nodeB)
+
+		source.Connect(nodeA)
+		source.Connect(nodeB)
+
+		// Inject memory
+		nodeA.Cube.Set(0, 0, 10, s1)
+		nodeA.InvalidateChordCache()
+
+		nodeB.Cube.Set(0, 0, 10, s2)
+		nodeB.InvalidateChordCache()
+
+		// Inject query into source so edges light up with ChannelMask
+		source.Cube.Set(0, 0, 10, q)
+		source.InvalidateChordCache()
+		for _, ed := range graph.Edges() {
+			ed.Refresh()
+		}
+
+		// Inject query signal
+		tok := NewSignalToken(q, q, source.ID)
+		source.Send(tok)
+
+		sink.Wipe()
+
+		found := false
+		for i := 0; i < 50; i++ {
+			graph.Step()
+
+			c := sink.Cube.Get(0, 0, 256) // Check Face 256
+			if data.ChordSimilarity(&c, &garden) >= 4 {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			c2 := sink.Cube.Get(0, 0, 256)
+			t.Logf("garden active count in sink: %d\n", data.ChordSimilarity(&c2, &garden))
+			t.Logf("sandra active count in sink: %d\n", data.ChordSimilarity(&c2, &sandra))
+		}
+
+		So(found, ShouldBeTrue)
+	})
+}

@@ -75,7 +75,10 @@ func (tokenizer *Universal) Generate() chan Token {
 	go func() {
 		defer close(out)
 		defer func() {
-			out <- Token{IsBoundary: true}
+			select {
+			case out <- Token{IsBoundary: true}:
+			default:
+			}
 		}()
 
 		tokenizer.pos = 0
@@ -93,10 +96,20 @@ func (tokenizer *Universal) Generate() chan Token {
 				tokenizer.tokens.Reset()
 				tokenizer.pos = 0
 
+			if rawToken.SampleID != tokenizer.sampleID {
 				console.Trace(
 					"tokenizer-boundary",
 					"sequence", tokenizer.tokens.String(),
 				)
+
+				// Emit a boundary token for the END of the previous sample (if any).
+				if tokenizer.tokens.Len() > 0 {
+					out <- Token{IsBoundary: true}
+				}
+
+				tokenizer.sampleID = rawToken.SampleID
+				tokenizer.tokens.Reset()
+				tokenizer.pos = 0
 
 				if tokenizer.useSequencer {
 					tokenizer.sequencer = NewSequencer(NewCalibrator())
@@ -105,19 +118,21 @@ func (tokenizer *Universal) Generate() chan Token {
 
 			chord := data.BaseChord(rawToken.Symbol)
 
-			var (
-				reset  bool
-				events []int
-			)
+			var events []int
 
 			if tokenizer.useSequencer {
-				reset, events = tokenizer.sequencer.Analyze(
+				seqReset, seqEvents := tokenizer.sequencer.Analyze(
 					int(tokenizer.pos), rawToken.Symbol,
 				)
+				events = seqEvents
+
+				if seqReset {
+					reset = true
+				}
 
 				tokenizer.pos++
 
-				if reset {
+				if seqReset {
 					tokenizer.pos = 0
 				}
 			}
