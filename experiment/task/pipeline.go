@@ -254,6 +254,8 @@ wait_result:
 	pipeline.testIdx++
 }
 
+// promptFilter collapses a visible prompt span into the OR-accumulated
+// substrate filter used by Loader.buildPhaseDial for prefix retrieval.
 func promptFilter(chords []data.Chord) data.Chord {
 	var filter data.Chord
 
@@ -264,8 +266,10 @@ func promptFilter(chords []data.Chord) data.Chord {
 	return filter
 }
 
+// decodeReadout converts a retrieved chord continuation directly back into
+// bytes without using store reverse lookups that collapse repeated symbols.
 func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
-	var out []byte
+	out := make([]byte, 0, len(readout))
 
 	for _, chord := range readout {
 		out = append(out, chord.Byte())
