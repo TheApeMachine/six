@@ -1,15 +1,6 @@
 {
-  "artifacts": [
-    {
-      "caption": "Substrate deduplication efficiency for 2000 synthetic samples.",
-      "file_name": "compression_scores",
-      "label": "fig:compression_ratios",
-      "title": "Compression Ratios",
-      "type": "bar"
-    }
-  ],
-  "name": "Compression",
-  "results": [
+  "caption": "Substrate deduplication efficiency for 2000 synthetic samples.",
+  "data": [
     {
       "Idx": 0,
       "Name": "Compression",
@@ -32027,6 +32018,8 @@
       "PredLabel": null
     }
   ],
-  "score": 0.0002527690708542097,
-  "section": "scaling"
+  "file_name": "compression_scores",
+  "label": "fig:compression_ratios",
+  "title": "Compression Ratios",
+  "type": "bar"
 }

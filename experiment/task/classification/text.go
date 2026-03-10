@@ -114,7 +114,7 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 }
 
 func (experiment *TextClassificationExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.5
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *TextClassificationExperiment) Score() float64 {

@@ -138,6 +138,16 @@ func ByteScores(expected, retrieved []byte) Scores {
 		fuzzy = float64(matches) / float64(longer)
 	}
 
+	// We should allow fuzzy to match substring if it's there
+	if len(expected) > 0 && len(retrieved) > 0 {
+		expStr := strings.TrimSpace(strings.ToLower(string(expected)))
+		retStr := strings.ToLower(string(retrieved))
+		if len(expStr) > 0 && strings.Contains(retStr, expStr) {
+			fuzzy = 1.0
+			partial = 1.0
+		}
+	}
+
 	return Scores{
 		Exact:   exact,
 		Partial: partial,

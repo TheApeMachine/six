@@ -238,16 +238,16 @@ wait_result:
 			continue
 		}
 
+		// Fixed topK candidate size instead of leaking len(heldOut).
+		topK := 50
+
 		seq := pipeline.loader.Substrate().Retrieve(
-			residue, geometry.NewPhaseDial().EncodeFromChords(promptChords), 50,
+			residue, geometry.NewPhaseDial().EncodeFromChords(promptChords), topK,
 		)
 
 		for _, key := range pipeline.loader.Lookup(seq) {
 			_, symbol := pipeline.coder.Decode(key)
 			outBytes = append(outBytes, symbol)
-			if len(heldOut) > 0 && len(outBytes) >= len(heldOut) {
-				break
-			}
 		}
 
 		break

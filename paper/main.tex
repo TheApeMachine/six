@@ -216,6 +216,9 @@
 
 \graphicspath{{include/scaling/}}
 
+\InputIfFileExists{include/scaling/bestfill_scaling_scores.tex}{}{}
+\InputIfFileExists{include/scaling/compression_scores.tex}{}{}
+\InputIfFileExists{include/scaling/pipeline_throughput_scores.tex}{}{}
 \InputIfFileExists{include/scaling/sequencer_scores.tex}{}{}
 \FloatBarrier
 \clearpage

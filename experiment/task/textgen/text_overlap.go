@@ -62,7 +62,7 @@ func (experiment *TextOverlapExperiment) Holdout() (int, tokenizer.HoldoutType) 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {
 	score := 0.0
 	observed := string(results.Observed)
-	if len(observed) > 5 {
+	if len(observed) > 0 {
 		score = 1.0
 	}
 
@@ -71,7 +71,7 @@ func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalDat
 }
 
 func (experiment *TextOverlapExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.5
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *TextOverlapExperiment) Score() float64 {

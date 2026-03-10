@@ -371,6 +371,10 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 		Splits    []splitResult
 	}
 
+	if sub == nil || len(sub.Entries) == 0 {
+		return fmt.Errorf("substrate entries empty, cannot finalize")
+	}
+
 	effectiveDims := normalizeEffectiveDims(experiment.effectiveDims)
 
 	var allSeeds []seedResult

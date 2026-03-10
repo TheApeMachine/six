@@ -19,20 +19,20 @@ geometric validation score measuring structural plausibility
 of the answer chord against the hypothesis residue.
 
 \paragraph{Results.}
-The system achieved an exact-match accuracy of 2.0000\%
+The system achieved an exact-match accuracy of 0.0000\%
 across all 50 samples, with a mean partial score of
-0.075.
-A total of 49 samples failed exact match.
+0.009.
+A total of 50 samples failed exact match.
 Table~\ref{tab:babi_failures} lists the first 20 failure cases.
 
 \paragraph{Per-Entity Analysis.}
 \textbf{Daniel}: 0/17 correct (0.0000\%).
 \textbf{John}: 0/13 correct (0.0000\%).
 \textbf{Mary}: 0/5 correct (0.0000\%).
-\textbf{Sandra}: 1/15 correct (6.6667\%).
+\textbf{Sandra}: 0/15 correct (0.0000\%).
 
 \paragraph{Per-Location Analysis.}
-\textbf{bathroom}: 1/12 correct (8.3333\%).
+\textbf{bathroom}: 0/12 correct (0.0000\%).
 \textbf{bedroom}: 0/8 correct (0.0000\%).
 \textbf{garden}: 0/4 correct (0.0000\%).
 \textbf{hallway}: 0/10 correct (0.0000\%).
@@ -41,52 +41,52 @@ Table~\ref{tab:babi_failures} lists the first 20 failure cases.
 \begin{table}[h]
 \centering
 \caption{bAbI Task~1 failure cases (first 20).
-Exact-match accuracy: 2.0000\%.
+Exact-match accuracy: 0.0000\%.
 $N=50$, subset: \texttt{en-10k-qa1}.}
 \label{tab:babi_failures}
 \begin{tabular}{|r|l|l|l|}
 \hline
 \textbf{Idx} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
 \hline
-0 & Mary & bathroom & Mary mov \\
+0 & Mary & bathroom & . \\
 \hline
-1 & Daniel & hallway & Mary mo \\
+1 & Daniel & hallway & . \\
 \hline
-2 & Daniel & hallway & arden.  \\
+2 & Daniel & hallway & . \\
 \hline
-3 & Daniel & office &  to th \\
+3 & Daniel & office & . \\
 \hline
-4 & Sandra & bathroom & is Danie \\
+4 & Sandra & bathroom & . \\
 \hline
-5 & Sandra & bathroom & the bath \\
+5 & Sandra & bathroom & . \\
 \hline
-6 & Sandra & bathroom &  Where i \\
+6 & Sandra & bathroom & . \\
 \hline
-8 & John & office & athroo \\
+7 & Sandra & bathroom & . \\
 \hline
-9 & Daniel & hallway & yed to  \\
+8 & John & office & . \\
 \hline
-10 & John & bathroom &  to the  \\
+9 & Daniel & hallway & . \\
 \hline
-11 & Mary & bedroom & eyed to \\
+10 & John & bathroom & . \\
 \hline
-12 & John & bathroom & neyed to \\
+11 & Mary & bedroom & . \\
 \hline
-13 & John & bathroom & . Where  \\
+12 & John & bathroom & . \\
 \hline
-14 & Sandra & bedroom & eyed to \\
+13 & John & bathroom & . \\
 \hline
-15 & Daniel & bedroom & d to th \\
+14 & Sandra & bedroom & . \\
 \hline
-16 & Sandra & kitchen & d to th \\
+15 & Daniel & bedroom & . \\
 \hline
-17 & Sandra & hallway & d to th \\
+16 & Sandra & kitchen & . \\
 \hline
-18 & Sandra & hallway & d to th \\
+17 & Sandra & hallway & . \\
 \hline
-19 & Daniel & hallway & d to th \\
+18 & Sandra & hallway & . \\
 \hline
-20 & John & bathroom & eyed to  \\
+19 & Daniel & hallway & . \\
 \hline
 \end{tabular}
 \end{table}

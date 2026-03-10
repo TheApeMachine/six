@@ -1,15 +1,6 @@
 {
-  "artifacts": [
-    {
-      "caption": "Per-sample retrieval scores across 1000 synthetic samples.",
-      "file_name": "pipeline_throughput_scores",
-      "label": "fig:pipeline_throughput",
-      "title": "Pipeline Throughput",
-      "type": "bar"
-    }
-  ],
-  "name": "Pipeline Throughput",
-  "results": [
+  "caption": "Per-sample retrieval scores across 1000 synthetic samples.",
+  "data": [
     {
       "Idx": 0,
       "Name": "Pipeline Throughput",
@@ -16027,6 +16018,8 @@
       "PredLabel": null
     }
   ],
-  "score": 0.00016200716771552266,
-  "section": "scaling"
+  "file_name": "pipeline_throughput_scores",
+  "label": "fig:pipeline_throughput",
+  "title": "Pipeline Throughput",
+  "type": "bar"
 }

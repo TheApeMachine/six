@@ -82,6 +82,18 @@ func (n *Node) Arrive(tok Token) {
 		}
 	}
 	n.InvalidateChordCache()
+
+	_, hole, _, shouldDream := n.Hole()
+	if shouldDream {
+		routedGate := n.Rot.Forward(256)
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
+				c := n.Cube.Get(side, rot, routedGate)
+				n.Cube.Set(side, rot, routedGate, data.ChordOR(&c, &hole))
+			}
+		}
+		n.InvalidateChordCache()
+	}
 }
 
 /*

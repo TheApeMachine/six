@@ -1,15 +1,6 @@
 {
-  "artifacts": [
-    {
-      "caption": "BestFill query latency (µs) vs dictionary size.",
-      "file_name": "bestfill_scaling_scores",
-      "label": "fig:bestfill_scaling",
-      "title": "BestFill Scaling",
-      "type": "bar"
-    }
-  ],
-  "name": "BestFill Scaling",
-  "results": [
+  "caption": "BestFill query latency (µs) vs dictionary size.",
+  "data": [
     {
       "Idx": 0,
       "Name": "BestFill Scaling",
@@ -80091,6 +80082,8 @@
       "PredLabel": null
     }
   ],
-  "score": 0.000999000999000999,
-  "section": "scaling"
+  "file_name": "bestfill_scaling_scores",
+  "label": "fig:bestfill_scaling",
+  "title": "BestFill Scaling",
+  "type": "bar"
 }

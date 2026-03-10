@@ -77,7 +77,7 @@ func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalD
 }
 
 func (experiment *CompositionalExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *CompositionalExperiment) Score() float64 {

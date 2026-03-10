@@ -1,6 +1,9 @@
 package cortex
 
 import (
+	"fmt"
+	"os"
+
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
@@ -22,6 +25,7 @@ func (graph *Graph) Step() bool {
 	graph.fireActiveEdges()
 	graph.expandTopology()
 	graph.injectEntropyFloor()
+	graph.LogTrace()
 
 	if graph.tick%16 == 0 {
 		graph.prune()
@@ -350,5 +354,24 @@ func (graph *Graph) InjectChords(chords []data.Chord) {
 	for _, chord := range chords {
 		graph.source.Send(NewDataToken(chord, chord.IntrinsicFace(), -1))
 		graph.seqPos++
+	}
+}
+
+func (graph *Graph) LogTrace() {
+	f, err := os.OpenFile("cortex_trace.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+
+	if graph.tick == 1 {
+		fmt.Fprintln(f, "==================================================")
+		fmt.Fprintln(f, "NEW EXPERIMENT PROMPT CYCLE")
+	}
+
+	fmt.Fprintf(f, "TICK: %d | NODES: %d | EDGES: %d\n", graph.tick, len(graph.nodes), len(graph.Edges()))
+	for _, node := range graph.nodes {
+		c := node.CubeChord()
+		fmt.Fprintf(f, "  Node %d: Energy=%.3f, ChordActive=%d\n", node.ID, node.Energy(), c.ActiveCount())
 	}
 }

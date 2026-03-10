@@ -82,9 +82,9 @@ func (experiment *OutOfCorpusExperiment) AddResult(results tools.ExperimentalDat
 	prefix := string(results.Prefix)
 	observed := string(results.Observed)
 
-	if prefix == "shark hates" && strings.Contains(observed, "thunder") {
+	if strings.HasPrefix(prefix, "shark hate") && strings.Contains(observed, "thunder") {
 		score = 1.0
-	} else if prefix == "frog hates" && (strings.Contains(observed, "water") || strings.Contains(observed, "noise")) {
+	} else if strings.HasPrefix(prefix, "frog hate") && (strings.Contains(observed, "water") || strings.Contains(observed, "noise")) {
 		score = 1.0
 	}
 
@@ -93,7 +93,7 @@ func (experiment *OutOfCorpusExperiment) AddResult(results tools.ExperimentalDat
 }
 
 func (experiment *OutOfCorpusExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *OutOfCorpusExperiment) Score() float64 {

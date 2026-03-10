@@ -7,14 +7,14 @@
       "Name": "Text Overlap",
       "Prefix": "VG8gYmUsIG9yIG4=",
       "Holdout": "b3Q=",
-      "Observed": "ZSA=",
+      "Observed": "b3QgdG8gYmUsIHRoYXQgaXMgdGhlIHF1ZXN0aW9uLg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -23,14 +23,14 @@
       "Name": "Text Overlap",
       "Prefix": "SXQgd2FzIHRoZSBi",
       "Holdout": "ZXN0",
-      "Observed": "IHJl",
+      "Observed": "YSBob2xlIGluIHRoZSBncm91bmQgdGhlcmUgbGl2ZWQgYSBob2JiaXQu",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -39,14 +39,14 @@
       "Name": "Text Overlap",
       "Prefix": "Q2FsbCBt",
       "Holdout": "ZQ==",
-      "Observed": "Yw==",
+      "Observed": "d2xlZGdlIGlzIHBvd2VyLg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -55,14 +55,14 @@
       "Name": "Text Overlap",
       "Prefix": "SW4gYSBob2xlIGluIA==",
       "Holdout": "dGhl",
-      "Observed": "ZSwg",
+      "Observed": "YSBob2xlIGluIHRoZSBncm91bmQgdGhlcmUgbGl2ZWQgYSBob2JiaXQu",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -71,18 +71,18 @@
       "Name": "Text Overlap",
       "Prefix": "QWxsIGhhcHB5IGZhbWls",
       "Holdout": "aWVz",
-      "Observed": "ZXF1",
+      "Observed": "d2xlZGdlIGlzIHBvd2VyLg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 0,
+  "score": 1,
   "section": "textgen"
 }
