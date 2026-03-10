@@ -82,14 +82,20 @@ func (experiment *OutOfCorpusExperiment) AddResult(results tools.ExperimentalDat
 	prefix := string(results.Prefix)
 	observed := string(results.Observed)
 
-	if strings.HasPrefix(prefix, "shark hate") && strings.Contains(observed, "thunder") {
+	if strings.HasPrefix(
+		prefix, "shark hate",
+	) && strings.Contains(observed, "thunder") {
 		score = 1.0
-	} else if strings.HasPrefix(prefix, "frog hate") && (strings.Contains(observed, "water") || strings.Contains(observed, "noise")) {
+	} else if strings.HasPrefix(
+		prefix, "frog hate",
+	) && (strings.Contains(observed, "water") || strings.Contains(observed, "noise")) {
 		score = 1.0
 	}
 
 	results.WeightedTotal = score
-	experiment.tableData = append(experiment.tableData, results)
+	experiment.tableData = append(
+		experiment.tableData, results,
+	)
 }
 
 func (experiment *OutOfCorpusExperiment) Outcome() (any, gc.Assertion, any) {
@@ -100,10 +106,13 @@ func (experiment *OutOfCorpusExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0
 	}
+
 	total := 0.0
+
 	for _, d := range experiment.tableData {
 		total += d.WeightedTotal
 	}
+
 	return total / float64(len(experiment.tableData))
 }
 
@@ -124,6 +133,8 @@ func (experiment *OutOfCorpusExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
-func (experiment *OutOfCorpusExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+func (experiment *OutOfCorpusExperiment) Finalize(
+	substrate *geometry.HybridSubstrate,
+) error {
 	return nil
 }

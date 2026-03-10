@@ -1,7 +1,7 @@
 {
   "artifacts": [
     {
-      "caption": "Per-sample exact/partial/fuzzy scores. N=50, exact accuracy=100.0%, mean partial=1.000. Subset: en-10k-qa1.",
+      "caption": "Per-sample exact/partial/fuzzy scores. N=50, exact accuracy=96.0%, mean partial=0.963. Subset: en-10k-qa1.",
       "file_name": "babi_results",
       "label": "tab:babi_results",
       "title": "bAbI Task 1 — Per-Sample Results",
@@ -628,14 +628,14 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBraXRjaGVuLiBKb2huIHdlbnQgYmFjayB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBNYXJ5IG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "YmVkcm9vbQ==",
+      "Observed": "ZWRyb29t",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0.14285714285714285,
+        "Fuzzy": 0.14285714285714285
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0.06493506493506493,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -820,18 +820,18 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHdlbnQgdG8gdGhlIGdhcmRlbi4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJhdGhyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUga2l0Y2hlbi4gU2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "a2l0Y2hlbg==",
+      "Observed": "YXRocm9vbQ==",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     }
   ],
-  "score": 1,
+  "score": 0.9612987012987013,
   "section": "logic"
 }

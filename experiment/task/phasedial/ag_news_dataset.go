@@ -46,18 +46,26 @@ func (builder *AGNewsDatasetBuilder) Build() provider.Dataset {
 	)
 }
 
-func NewTorusNavigationAGNewsExperiment(samples uint32, opts ...torusNavigationOpt) *TorusNavigationExperiment {
+func NewTorusNavigationAGNewsExperiment(
+	samples uint32, opts ...torusNavigationOpt,
+) *TorusNavigationExperiment {
 	agNewsDataset := NewAGNewsDatasetBuilder().WithSamples(samples).Build()
 
-	combinedOpts := append([]torusNavigationOpt{TorusNavigationWithDataset(agNewsDataset)}, opts...)
+	combinedOpts := append(
+		[]torusNavigationOpt{TorusNavigationWithDataset(agNewsDataset)}, opts...,
+	)
 
 	return NewTorusNavigationExperiment(combinedOpts...)
 }
 
-func NewTorusGeneralizationAGNewsExperiment(samples uint32, opts ...torusGeneralizationOpt) *TorusGeneralizationExperiment {
+func NewTorusGeneralizationAGNewsExperiment(
+	samples uint32, opts ...torusGeneralizationOpt,
+) *TorusGeneralizationExperiment {
 	agNewsDataset := NewAGNewsDatasetBuilder().WithSamples(samples).Build()
 
-	combinedOpts := append([]torusGeneralizationOpt{TorusGeneralizationWithDataset(agNewsDataset)}, opts...)
+	combinedOpts := append(
+		[]torusGeneralizationOpt{TorusGeneralizationWithDataset(agNewsDataset)}, opts...,
+	)
 
 	return NewTorusGeneralizationExperiment(combinedOpts...)
 }

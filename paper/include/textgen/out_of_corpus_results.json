@@ -31,7 +31,7 @@
       "Name": "Out of Corpus",
       "Prefix": "ZnJvZyBoYXRl",
       "Holdout": "cw==",
-      "Observed": "bGlrZXMgZmxpZXM=",
+      "Observed": "cyBmbGllcw==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,

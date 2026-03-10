@@ -84,7 +84,7 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 	readoutB := hop.ReadoutB
 
 	ceiling := -1.0
-	for s := 0; s < 360; s++ {
+	for s := range 360 {
 		alpha := float64(s) * (math.Pi / 180.0)
 		for _, anchor := range []geometry.PhaseDial{fpA, fpB} {
 			rot := anchor.Rotate(alpha)
@@ -102,24 +102,29 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 		bestGain = -1.0
 		const stepDeg = 15.0 // Faster sweep
 		gridSize := int(360.0 / stepDeg)
-		for i := 0; i < gridSize; i++ {
+
+		for i := range gridSize {
 			a1 := float64(i) * stepDeg * (math.Pi / 180.0)
 			a1f := cmplx.Rect(1.0, a1)
-			for j := 0; j < gridSize; j++ {
+
+			for j := range gridSize {
 				a2 := float64(j) * stepDeg * (math.Pi / 180.0)
 				a2f := cmplx.Rect(1.0, a2)
 				rotated := make(geometry.PhaseDial, D)
-				for k := 0; k < D; k++ {
+
+				for k := range D {
 					if k < boundary {
 						rotated[k] = fpAB[k] * a1f
 					} else {
 						rotated[k] = fpAB[k] * a2f
 					}
 				}
+
 				rnk := sub.PhaseDialRank(sub.Candidates(), rotated)
 				topIdx := sub.TopExcluding(rnk, seedQueryChords, readoutB)
 				efp := sub.Entries[topIdx].Fingerprint
 				gain := math.Min(efp.Similarity(fpA), efp.Similarity(fpB))
+
 				if gain > bestGain {
 					bestGain = gain
 					bestA1 = float64(i) * stepDeg
@@ -128,18 +133,23 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 				}
 			}
 		}
+
 		return
 	}
 
 	residual := make(geometry.PhaseDial, D)
+
 	var rNorm float64
-	for k := 0; k < D; k++ {
+
+	for k := range D {
 		residual[k] = fpA[k] - fpB[k]
 		rNorm += real(residual[k])*real(residual[k]) + imag(residual[k])*imag(residual[k])
 	}
+
 	rNorm = math.Sqrt(rNorm)
+
 	if rNorm > 0 {
-		for k := 0; k < D; k++ {
+		for k := range D {
 			residual[k] /= complex(rNorm, 0)
 		}
 	}
@@ -157,6 +167,7 @@ func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrat
 
 	for b := 16; b <= D-16; b += 8 {
 		var leftMass, rightMass float64
+
 		for k := 0; k < b; k++ {
 			leftMass += cmplx.Abs(residual[k])
 		}

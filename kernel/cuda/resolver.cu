@@ -38,7 +38,16 @@ __global__ void resolve_resonance_kernel(
     atomicMax(best_packed_result, packed_result);
 }
 
+int cuda_device_count() {
+    int count = 0;
+    if (cudaGetDeviceCount(&count) != cudaSuccess) {
+        return 0;
+    }
+    return count;
+}
+
 int resolve_resonance_cuda(
+    int device_id,
     const void* graph_nodes_ptr,
     uint32_t num_nodes,
     const void* active_context_ptr,
@@ -49,10 +58,12 @@ int resolve_resonance_cuda(
         return 0;
     }
 
-    static GFRotation* d_active_context = nullptr;
-    static unsigned long long* d_best_packed_result = nullptr;
+    cudaError_t err = cudaSetDevice(device_id);
+    if (err != cudaSuccess) return -1;
 
-    cudaError_t err;
+    // Use thread-local static caching per-device so buffers aren't re-allocated constantly
+    thread_local GFRotation* d_active_context = nullptr;
+    thread_local unsigned long long* d_best_packed_result = nullptr;
 
     if (d_active_context == nullptr) {
         err = cudaMalloc((void**)&d_active_context, sizeof(GFRotation));
