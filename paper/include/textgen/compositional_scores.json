@@ -6,14 +6,14 @@
       "Name": "Compositional",
       "Prefix": "dGhlIHF1aWNrIHJl",
       "Holdout": "ZA==",
-      "Observed": "cm93biBmb3h0aGUgc2xvdyBicm93biBiZWFydGhlIHF1aWNrIHJlZCBjYXI=",
+      "Observed": "cm93biBmb3g=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
         "Partial": 0,
         "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     }

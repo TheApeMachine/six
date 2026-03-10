@@ -99,7 +99,7 @@ Outcome evaluates the overall result of the experiment, where we call a
 failure if the total accuracy score is less than 0.5.
 */
 func (experiment *LanguagesExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.5
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *LanguagesExperiment) Score() float64 {

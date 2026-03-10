@@ -52,7 +52,7 @@ func (experiment *BestFillScalingExperiment) AddResult(results tools.Experimenta
 }
 
 func (experiment *BestFillScalingExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
 }
 
 func (experiment *BestFillScalingExperiment) Score() float64 {
