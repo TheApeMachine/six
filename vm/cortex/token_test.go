@@ -90,3 +90,5 @@ func BenchmarkNewSignalToken(b *testing.B) {
 		_ = NewSignalToken(chord, mask, -1)
 	}
 }
+
+

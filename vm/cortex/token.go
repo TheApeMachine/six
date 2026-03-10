@@ -86,3 +86,5 @@ func NewSignalToken(chord data.Chord, mask data.Chord, origin int) Token {
 func chordControlPlane(chord data.Chord) data.Chord {
 	return data.ChordAND(&chord, &controlPlaneMask)
 }
+
+

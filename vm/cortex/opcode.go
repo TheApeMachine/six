@@ -64,6 +64,26 @@ func DeriveOpcode(gateA, gateB data.Chord) Opcode {
 		return OpAlign
 	}
 
-	// 5. Total conflict (no shared properties) -> Forces Rotate
-	return OpRotateX // Systematically dodging the conflict
+	// 5. Total conflict -> derive the rotation axis from the conflict residue itself.
+	return deriveConflictRotation(gateA, gateB)
+}
+
+/*
+deriveConflictRotation selects one of the three physical rotation bands from
+the residue left by two incompatible gates. This prevents every conflict from
+collapsing onto RotateX and unlocks genuinely multi-axis cortex dynamics.
+*/
+func deriveConflictRotation(gateA, gateB data.Chord) Opcode {
+	residueA := data.ChordHole(&gateA, &gateB)
+	residueB := data.ChordHole(&gateB, &gateA)
+	conflict := data.ChordOR(&residueA, &residueB)
+
+	switch data.ChordBin(&conflict) % 3 {
+	case 0:
+		return OpRotateX
+	case 1:
+		return OpRotateY
+	default:
+		return OpRotateZ
+	}
 }

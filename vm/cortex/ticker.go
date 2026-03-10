@@ -25,7 +25,6 @@ func (graph *Graph) Step() bool {
 	graph.fireActiveEdges()
 	graph.expandTopology()
 	graph.injectEntropyFloor()
-	graph.LogTrace()
 
 	if graph.tick%16 == 0 {
 		graph.prune()
@@ -33,31 +32,12 @@ func (graph *Graph) Step() bool {
 
 	converged := graph.checkConvergence()
 
-	if converged && graph.broadcast != nil {
-		var res []data.Chord
-
-		// PURE EXTRACTION: The computation is complete.
-		// If the geometric reflection reached the sink, it's sitting in the Signals buffer.
-		for _, sig := range graph.sink.Signals {
-			res = append(res, sig.Chord)
-		}
-
-		// Fallback to background thermodynamic sink gate if no active signals reached
-		if len(res) == 0 {
-			for side := range 6 {
-				for rot := range 4 {
-					chord := graph.sink.Cube.Get(side, rot, graph.sink.Rot.Forward(256))
-					if chord.ActiveCount() > 0 {
-						res = append(res, chord)
-					}
-				}
-			}
-		}
-
+	if converged && graph.broadcast != nil && !graph.outputEmitted {
+		graph.outputEmitted = true
 		graph.broadcast.Send(pool.NewResult(
 			*pool.NewPoolValue(
 				pool.WithKey[[]data.Chord]("results"),
-				pool.WithValue(res),
+				pool.WithValue(graph.extractResults()),
 			),
 		))
 	}
@@ -145,7 +125,7 @@ func (graph *Graph) fireActiveEdges() {
 /*
 expandTopology processes nodes flagged by OpSearch.
 Uses the kernel backend (GPU) for nearest rotational neighbor when available.
-Falls back to SpawnNode otherwise.
+Spawns a fresh residue-seeded node when no resonant neighbor is available.
 */
 func (graph *Graph) expandTopology() {
 	for _, node := range graph.nodes {
@@ -159,14 +139,20 @@ func (graph *Graph) expandTopology() {
 			continue
 		}
 
+		searchChord := node.SearchChord()
 		nearest := graph.NearestNode(node.Rot)
 
 		if nearest != nil && nearest != node {
-			node.Connect(nearest)
-			nearest.Connect(node)
-		} else {
-			graph.SpawnNode(node)
+			nearestSummary := nearest.CubeChord()
+
+			if searchChord.ActiveCount() == 0 || data.ChordSimilarity(&searchChord, &nearestSummary) > 0 {
+				node.Connect(nearest)
+				nearest.Connect(node)
+				continue
+			}
 		}
+
+		graph.SpawnNode(node)
 	}
 }
 
@@ -373,7 +359,7 @@ func (graph *Graph) LogTrace() {
 
 	fmt.Fprintf(f, "TICK: %d | NODES: %d | EDGES: %d\n", graph.tick, len(graph.nodes), len(graph.Edges()))
 	for _, node := range graph.nodes {
-		c := node.CubeChord()
-		fmt.Fprintf(f, "  Node %d: Energy=%.3f, ChordActive=%d\n", node.ID, node.Energy(), c.ActiveCount())
+		chord := node.CubeChord()
+		fmt.Fprintf(f, "  Node %d: Energy=%.3f, ChordActive=%d\n", node.ID, node.Energy(), chord.ActiveCount())
 	}
 }

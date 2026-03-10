@@ -19,14 +19,12 @@ geometric validation score measuring structural plausibility
 of the answer chord against the hypothesis residue.
 
 \paragraph{Results.}
-The system achieved an exact-match accuracy of 98.0000\%
+The system achieved an exact-match accuracy of 100.0000\%
 across all 50 samples, with a mean partial score of
-0.983.
-A total of 1 samples failed exact match.
-Table~\ref{tab:babi_failures} lists all failure cases.
+1.000.
 
 \paragraph{Per-Entity Analysis.}
-\textbf{Daniel}: 16/17 correct (94.1176\%).
+\textbf{Daniel}: 17/17 correct (100.0000\%).
 \textbf{John}: 13/13 correct (100.0000\%).
 \textbf{Mary}: 5/5 correct (100.0000\%).
 \textbf{Sandra}: 15/15 correct (100.0000\%).
@@ -36,19 +34,5 @@ Table~\ref{tab:babi_failures} lists all failure cases.
 \textbf{bedroom}: 8/8 correct (100.0000\%).
 \textbf{garden}: 4/4 correct (100.0000\%).
 \textbf{hallway}: 10/10 correct (100.0000\%).
-\textbf{kitchen}: 9/10 correct (90.0000\%).
+\textbf{kitchen}: 10/10 correct (100.0000\%).
 \textbf{office}: 6/6 correct (100.0000\%).
-\begin{table}[h]
-\centering
-\caption{bAbI Task~1 failure cases (first 1).
-Exact-match accuracy: 98.0000\%.
-$N=50$, subset: \texttt{en-10k-qa1}.}
-\label{tab:babi_failures}
-\begin{tabular}{|r|l|l|l|}
-\hline
-\textbf{Idx} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
-\hline
-49 & Daniel & kitchen & bathroom \\
-\hline
-\end{tabular}
-\end{table}

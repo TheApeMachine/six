@@ -277,7 +277,19 @@ func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 	out := make([]byte, 0, len(readout))
 
 	for _, chord := range readout {
-		out = append(out, chord.Byte())
+		value := chord.Byte()
+		if value == 0 {
+			face := chord.IntrinsicFace()
+			if face >= 0 && face < 256 {
+				value = byte(face)
+			}
+		}
+
+		if value == 0 {
+			continue
+		}
+
+		out = append(out, value)
 	}
 
 	return out

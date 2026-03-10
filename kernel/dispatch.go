@@ -62,6 +62,10 @@ func NewBuilder(opts ...builderOpts) *Builder {
 			builder.backend = NewBuilder(
 				WithBackend(&cuda.CUDABackend{}),
 			)
+		case "distributed":
+			builder.backend = NewBuilder(
+				WithBackend(&DistributedBackend{}),
+			)
 		case "cpu":
 			builder.backend = NewBuilder(
 				WithBackend(&cpu.CPUBackend{}),

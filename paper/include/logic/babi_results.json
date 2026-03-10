@@ -1,5 +1,5 @@
 {
-  "caption": "Per-sample exact/partial/fuzzy scores. N=50, exact accuracy=98.0%, mean partial=0.983. Subset: en-10k-qa1.",
+  "caption": "Per-sample exact/partial/fuzzy scores. N=50, exact accuracy=100.0%, mean partial=1.000. Subset: en-10k-qa1.",
   "data": [
     {
       "Idx": 0,
@@ -790,14 +790,14 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHdlbnQgdG8gdGhlIGdhcmRlbi4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJhdGhyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUga2l0Y2hlbi4gU2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "YmF0aHJvb20=",
+      "Observed": "a2l0Y2hlbg==",
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 0,
-        "Partial": 0.14285714285714285,
-        "Fuzzy": 0.125
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
       },
-      "WeightedTotal": 0.06168831168831168,
+      "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
     }

@@ -62,3 +62,5 @@ Volatile edges fire more often.
 func (edge *Edge) Weight() float64 {
 	return 1.0 / (1.0 + float64(edge.StableFrames)*0.02)
 }
+
+

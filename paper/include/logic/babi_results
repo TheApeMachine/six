@@ -102,7 +102,7 @@ Idx & Name & Exact & Partial & Fuzzy & Total \\
 \hline
 48 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \hline
-49 & babi\_benchmark & 0.0000 & 0.1429 & 0.1250 & 0.0617 \\
+49 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \hline
 \end{tabular}
 \end{table}

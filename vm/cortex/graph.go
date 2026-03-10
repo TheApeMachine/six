@@ -30,6 +30,8 @@ type Graph struct {
 	tick    int
 	nextID  int
 
+	initialNodes int
+
 	sinkStableCount int
 	sinkLastEnergy  float64
 
@@ -42,6 +44,8 @@ type Graph struct {
 	bedrockQueries int
 	mitosisEvents  int
 	pruneEvents    int
+
+	outputEmitted bool
 
 	broadcast *pool.BroadcastGroup
 }
@@ -81,36 +85,15 @@ func NewGraph(opts ...graphOpts) *Graph {
 		}
 	}
 
-	for i := range config.Cortex.InitialNodes {
-		node := NewNode(i, 0)
+	for idx := range config.Cortex.InitialNodes {
+		node := NewNode(idx, 0)
 		graph.nodes = append(graph.nodes, node)
-		graph.nextID = i + 1
+		graph.nextID = idx + 1
 	}
 
-	nodeCount := len(graph.nodes)
-
-	for i := range nodeCount {
-		graph.nodes[i].Connect(graph.nodes[(i+1)%nodeCount])
-		graph.nodes[(i+1)%nodeCount].Connect(graph.nodes[i])
-	}
-
-	for i := range nodeCount {
-		far1 := (i + nodeCount/3) % nodeCount
-		far2 := (i + 2*nodeCount/3) % nodeCount
-
-		if far1 != i {
-			graph.nodes[i].Connect(graph.nodes[far1])
-			graph.nodes[far1].Connect(graph.nodes[i])
-		}
-
-		if far2 != i {
-			graph.nodes[i].Connect(graph.nodes[far2])
-			graph.nodes[far2].Connect(graph.nodes[i])
-		}
-	}
-
-	graph.source = graph.nodes[0]
-	graph.sink = graph.nodes[nodeCount-1]
+	graph.initialNodes = len(graph.nodes)
+	graph.rebuildBaseTopology()
+	graph.lastRotationTick = graph.tick
 
 	return graph
 }
@@ -122,6 +105,7 @@ func (graph *Graph) Tick(result *pool.Result) {
 	if result != nil && result.Value != nil {
 		if pv, ok := result.Value.(pool.PoolValue[[]data.Chord]); ok {
 			if pv.Key == "prompt" {
+				graph.ResetPromptCycle()
 				graph.InjectChords(pv.Value)
 			}
 		}
@@ -152,10 +136,11 @@ func (graph *Graph) TickCount() int { return graph.tick }
 
 /*
 SpawnNode creates a new node, connects it bidirectionally to parent,
-and to the most resonant existing node by cube chord similarity.
+and to the most resonant existing node by unresolved residue similarity.
 */
 func (graph *Graph) SpawnNode(parent *Node) *Node {
 	child := NewNode(graph.nextID, graph.tick)
+	child.Rot = parent.Rot
 	graph.nextID++
 	graph.nodes = append(graph.nodes, child)
 	graph.mitosisEvents++
@@ -163,7 +148,15 @@ func (graph *Graph) SpawnNode(parent *Node) *Node {
 	parent.Connect(child)
 	child.Connect(parent)
 
-	parentSummary := parent.CubeChord()
+	anchor, hole, _, shouldDream := parent.Hole()
+	searchChord := parent.CubeChord()
+
+	if shouldDream && hole.ActiveCount() > 0 {
+		searchChord = hole
+	}
+
+	graph.seedChild(child, anchor, hole)
+
 	var bestNode *Node
 	bestSim := 0
 
@@ -173,7 +166,7 @@ func (graph *Graph) SpawnNode(parent *Node) *Node {
 		}
 
 		candidateSummary := candidate.CubeChord()
-		sim := data.ChordSimilarity(&parentSummary, &candidateSummary)
+		sim := data.ChordSimilarity(&searchChord, &candidateSummary)
 
 		if sim > bestSim {
 			bestSim = sim
@@ -187,6 +180,34 @@ func (graph *Graph) SpawnNode(parent *Node) *Node {
 	}
 
 	return child
+}
+
+func (graph *Graph) seedChild(child *Node, anchor, hole data.Chord) {
+	seed := hole
+	if seed.ActiveCount() == 0 {
+		seed = anchor
+	}
+
+	if seed.ActiveCount() == 0 {
+		return
+	}
+
+	face := seed.IntrinsicFace()
+	if face == 256 {
+		face = data.ChordBin(&seed)
+	}
+
+	routedFace := child.Rot.Forward(face)
+	routedGate := child.Rot.Forward(256)
+
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			child.Cube.Set(side, rot, routedFace, seed)
+			child.Cube.Set(side, rot, routedGate, hole)
+		}
+	}
+
+	child.InvalidateChordCache()
 }
 
 /*
@@ -245,10 +266,10 @@ func (graph *Graph) routeTargets(from *Node, chord data.Chord) []*Node {
 Wipe clears all 257 faces of the node's working memory.
 */
 func (node *Node) Wipe() {
-	for side := range 6 {
-		for rot := range 4 {
-			for i := range 257 {
-				node.Cube.Set(side, rot, i, data.Chord{})
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			for face := 0; face < 257; face++ {
+				node.Cube.Set(side, rot, face, data.Chord{})
 			}
 		}
 	}
@@ -272,6 +293,77 @@ func (graph *Graph) WipeFace(logicalFace int) {
 	for _, node := range graph.nodes {
 		node.WipeFace(logicalFace)
 	}
+}
+
+/*
+ResetPromptCycle clears the cortex's volatile state while keeping the base
+ring topology alive and ready for the next prompt.
+*/
+func (graph *Graph) ResetPromptCycle() {
+	if graph.initialNodes == 0 {
+		return
+	}
+
+	if len(graph.nodes) > graph.initialNodes {
+		graph.nodes = graph.nodes[:graph.initialNodes]
+	}
+
+	for _, node := range graph.nodes {
+		node.Reset(graph.tick)
+	}
+
+	graph.nextID = graph.initialNodes
+	graph.rebuildBaseTopology()
+
+	graph.sinkStableCount = 0
+	graph.sinkLastEnergy = 0
+	graph.seqPos = 0
+	graph.seqZ = 0
+	graph.momentum = 0
+	graph.lastRotationTick = graph.tick
+	graph.bedrockQueries = 0
+	graph.mitosisEvents = 0
+	graph.pruneEvents = 0
+	graph.outputEmitted = false
+}
+
+/*
+rebuildBaseTopology restores the initial small-world ring used by the cortex scratchpad.
+*/
+func (graph *Graph) rebuildBaseTopology() {
+	nodeCount := len(graph.nodes)
+	if nodeCount == 0 {
+		graph.source = nil
+		graph.sink = nil
+		return
+	}
+
+	for idx := 0; idx < nodeCount; idx++ {
+		graph.nodes[idx].edges = nil
+	}
+
+	for idx := 0; idx < nodeCount; idx++ {
+		graph.nodes[idx].Connect(graph.nodes[(idx+1)%nodeCount])
+		graph.nodes[(idx+1)%nodeCount].Connect(graph.nodes[idx])
+	}
+
+	for idx := 0; idx < nodeCount; idx++ {
+		far1 := (idx + nodeCount/3) % nodeCount
+		far2 := (idx + 2*nodeCount/3) % nodeCount
+
+		if far1 != idx {
+			graph.nodes[idx].Connect(graph.nodes[far1])
+			graph.nodes[far1].Connect(graph.nodes[idx])
+		}
+
+		if far2 != idx {
+			graph.nodes[idx].Connect(graph.nodes[far2])
+			graph.nodes[far2].Connect(graph.nodes[idx])
+		}
+	}
+
+	graph.source = graph.nodes[0]
+	graph.sink = graph.nodes[nodeCount-1]
 }
 
 /*

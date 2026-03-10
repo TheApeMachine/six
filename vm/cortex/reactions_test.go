@@ -188,3 +188,5 @@ func BenchmarkNodeHole(b *testing.B) {
 		_, _, _, _ = node.Hole()
 	}
 }
+
+

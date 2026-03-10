@@ -36,6 +36,10 @@ type Node struct {
 	// Cached cube chord — OR-fold of all 257 face chords.
 	cubeChordCache data.Chord
 	cubeChordDirty bool
+
+	signalIndex   map[signalKey]int
+	signalTTL     map[signalKey]int
+	signalSupport map[signalKey]int
 }
 
 /*
@@ -49,6 +53,9 @@ func NewNode(id, birthTick int) *Node {
 		Signals:        make([]Token, 0),
 		birth:          birthTick,
 		cubeChordDirty: true,
+		signalIndex:    make(map[signalKey]int),
+		signalTTL:      make(map[signalKey]int),
+		signalSupport:  make(map[signalKey]int),
 	}
 }
 
@@ -60,8 +67,8 @@ func (n *Node) Connect(other *Node) {
 	if other == nil || other == n {
 		return
 	}
-	for _, e := range n.edges {
-		if e.A == other || e.B == other {
+	for _, edge := range n.edges {
+		if edge.A == other || edge.B == other {
 			return
 		}
 	}
@@ -98,8 +105,8 @@ func (n *Node) Energy() float64 {
 	total := 0
 	for side := 0; side < 6; side++ {
 		for rot := 0; rot < 4; rot++ {
-			for i := 0; i < 256; i++ {
-				chord := n.Cube.Get(side, rot, i)
+			for face := 0; face < 256; face++ {
+				chord := n.Cube.Get(side, rot, face)
 				total += chord.ActiveCount()
 			}
 		}
@@ -159,19 +166,19 @@ func (node *Node) BestFace() int {
 	bestFace := 256 // default to delimiter (stop)
 	bestCount := 0
 
-	for i := range 256 {
+	for face := 0; face < 256; face++ {
 		cnt := 0
 
-		for side := range 6 {
-			for rot := range 4 {
-				chord := node.Cube.Get(side, rot, i)
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
+				chord := node.Cube.Get(side, rot, face)
 				cnt += chord.ActiveCount()
 			}
 		}
 
 		if cnt > bestCount {
 			bestCount = cnt
-			bestFace = i
+			bestFace = face
 		}
 	}
 
@@ -196,11 +203,11 @@ func (node *Node) CubeChord() data.Chord {
 
 	var summary data.Chord
 
-	for side := range 6 {
-		for rot := range 4 {
-			for i := range 256 {
-				c := node.Cube.Get(side, rot, i)
-				summary = data.ChordOR(&summary, &c)
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			for face := 0; face < 256; face++ {
+				chord := node.Cube.Get(side, rot, face)
+				summary = data.ChordOR(&summary, &chord)
 			}
 		}
 	}
@@ -229,11 +236,53 @@ func (node *Node) WipeFace(logicalFace int) {
 
 	physFace := node.Rot.Forward(logicalFace)
 
-	for side := range 6 {
-		for rot := range 4 {
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
 			node.Cube.Set(side, rot, physFace, data.Chord{})
 		}
 	}
 
 	node.InvalidateChordCache()
+}
+
+/*
+Reset clears the node's volatile state for a new prompt cycle while reusing
+the allocated inbox and cube storage.
+*/
+func (node *Node) Reset(birthTick int) {
+	node.Wipe()
+	node.Rot = geometry.IdentityRotation()
+	node.Header = 0
+	node.edges = nil
+	node.Signals = node.Signals[:0]
+	node.traffic = 0
+	node.birth = birthTick
+	node.searchPending = false
+
+	for {
+		select {
+		case <-node.inbox:
+		default:
+			goto cleared
+		}
+	}
+
+cleared:
+	clear(node.signalIndex)
+	clear(node.signalTTL)
+	clear(node.signalSupport)
+}
+
+/*
+SearchChord returns the residue that still needs to be resolved. When no
+explicit hole is present it falls back to the node's full summary chord.
+*/
+func (node *Node) SearchChord() data.Chord {
+	_, hole, _, shouldDream := node.Hole()
+
+	if shouldDream && hole.ActiveCount() > 0 {
+		return hole
+	}
+
+	return node.CubeChord()
 }

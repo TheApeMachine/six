@@ -6,9 +6,9 @@
       "EntitySummary": [
         {
           "Name": "Daniel",
-          "Correct": 16,
+          "Correct": 17,
           "Total": 17,
-          "Rate": 0.9411764705882353
+          "Rate": 1
         },
         {
           "Name": "John",
@@ -29,15 +29,8 @@
           "Rate": 1
         }
       ],
-      "ExactRate": 0.98,
-      "FailureRows": [
-        [
-          "49",
-          "Daniel",
-          "kitchen",
-          "bathroom"
-        ]
-      ],
+      "ExactRate": 1,
+      "FailureRows": [],
       "LocationSummary": [
         {
           "Name": "bathroom",
@@ -65,9 +58,9 @@
         },
         {
           "Name": "kitchen",
-          "Correct": 9,
+          "Correct": 10,
           "Total": 10,
-          "Rate": 0.9
+          "Rate": 1
         },
         {
           "Name": "office",
@@ -76,10 +69,10 @@
           "Rate": 1
         }
       ],
-      "NFailureRows": 1,
-      "NFailures": 1,
+      "NFailureRows": 0,
+      "NFailures": 0,
       "NSamples": 50,
-      "PartialRate": 0.9828571428571429
+      "PartialRate": 1
     }
   },
   "file_name": "babi_analysis.tex",

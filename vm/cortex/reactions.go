@@ -16,7 +16,9 @@ func (n *Node) Arrive(tok Token) {
 	n.traffic++
 
 	if tok.IsSignal {
-		n.Signals = append(n.Signals, tok)
+		if !n.rememberSignal(tok) {
+			return
+		}
 
 		// 1. Memory Resonance (The Deduction Phase)
 		// A signal interacts with the node's crystallized mass.
@@ -34,10 +36,10 @@ func (n *Node) Arrive(tok Token) {
 					reflection := NewSignalToken(reaction, reaction, n.ID)
 					reflection.TTL = tok.TTL // Inherit remaining kinetic energy
 
-					for _, ed := range n.edges {
-						neighbor := ed.A
+					for _, edge := range n.edges {
+						neighbor := edge.A
 						if neighbor == n {
-							neighbor = ed.B
+							neighbor = edge.B
 						}
 						if neighbor.ID != tok.Origin {
 							neighbor.Send(reflection)
@@ -53,23 +55,23 @@ func (n *Node) Arrive(tok Token) {
 
 		// 2. Wave Propagation
 		// Forward the original query signal along open channels.
-		for _, ed := range n.edges {
-			neighbor := ed.A
+		for _, edge := range n.edges {
+			neighbor := edge.A
 			if neighbor == n {
-				neighbor = ed.B
+				neighbor = edge.B
 			}
 			if neighbor.ID == tok.Origin {
 				continue
 			}
 
 			// Diffuse along compatible channels or open unstructured space
-			overlap := data.ChordAND(&tok.SignalMask, &ed.ChannelMask)
+			overlap := data.ChordAND(&tok.SignalMask, &edge.ChannelMask)
 			controlOpen := false
 			if tok.SignalMask.ActiveCount() == 1 && tok.SignalMask.Has(256) {
-				controlOpen = ed.ControlMask.ActiveCount() > 0
+				controlOpen = edge.ControlMask.ActiveCount() > 0
 			}
 
-			if overlap.ActiveCount() > 0 || controlOpen || ed.ChannelMask.ActiveCount() == 0 {
+			if overlap.ActiveCount() > 0 || controlOpen || edge.ChannelMask.ActiveCount() == 0 {
 				forward := tok
 				forward.TTL--
 				forward.Origin = n.ID
@@ -105,22 +107,41 @@ func (n *Node) Arrive(tok Token) {
 	routed := n.Rot.Forward(tok.LogicalFace)
 	for side := 0; side < 6; side++ {
 		for rot := 0; rot < 4; rot++ {
-			c := n.Cube.Get(side, rot, routed)
-			n.Cube.Set(side, rot, routed, data.ChordOR(&c, &tok.Chord))
+			chord := n.Cube.Get(side, rot, routed)
+			n.Cube.Set(side, rot, routed, data.ChordOR(&chord, &tok.Chord))
 		}
 	}
 	n.InvalidateChordCache()
 
-	_, hole, _, shouldDream := n.Hole()
+	anchor, hole, _, shouldDream := n.Hole()
 	if shouldDream {
 		routedGate := n.Rot.Forward(256)
 		for side := 0; side < 6; side++ {
 			for rot := 0; rot < 4; rot++ {
-				c := n.Cube.Get(side, rot, routedGate)
-				n.Cube.Set(side, rot, routedGate, data.ChordOR(&c, &hole))
+				gate := n.Cube.Get(side, rot, routedGate)
+				n.Cube.Set(side, rot, routedGate, data.ChordOR(&gate, &hole))
 			}
 		}
 		n.InvalidateChordCache()
+
+		dreamMask := anchor
+		if dreamMask.ActiveCount() == 0 {
+			dreamMask = hole
+		}
+
+		dream := NewSignalToken(hole, dreamMask, n.ID)
+		dream.TTL = max(tok.TTL, defaultTTL)
+
+		for _, edge := range n.edges {
+			neighbor := edge.A
+			if neighbor == n {
+				neighbor = edge.B
+			}
+
+			if neighbor.ID != tok.Origin {
+				neighbor.Send(dream)
+			}
+		}
 	}
 }
 
@@ -144,10 +165,10 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	var bestResidue data.Chord
 	var bestAnchorSize int
 
-	for _, ed := range n.edges {
-		neighbor := ed.A
+	for _, edge := range n.edges {
+		neighbor := edge.A
 		if neighbor == n {
-			neighbor = ed.B
+			neighbor = edge.B
 		}
 
 		neighborSummary := neighbor.CubeChord()
@@ -163,8 +184,8 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	}
 
 	if bestAnchorSize == 0 {
-		for side := range 6 {
-			for rot := range 4 {
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
 				faceChord := n.Cube.Get(side, rot, bestFaceIdx)
 				bestAnchor = data.ChordOR(&bestAnchor, &faceChord)
 			}
@@ -183,17 +204,17 @@ bestPhysicalFace returns the physical face index (0-257) with highest aggregate 
 func (n *Node) bestPhysicalFace() int {
 	bestFace := 256
 	bestCount := 0
-	for i := range 256 {
-		cnt := 0
-		for side := range 6 {
-			for rot := range 4 {
-				chord := n.Cube.Get(side, rot, i)
-				cnt += chord.ActiveCount()
+	for face := 0; face < 256; face++ {
+		count := 0
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
+				chord := n.Cube.Get(side, rot, face)
+				count += chord.ActiveCount()
 			}
 		}
-		if cnt > bestCount {
-			bestCount = cnt
-			bestFace = i
+		if count > bestCount {
+			bestCount = count
+			bestFace = face
 		}
 	}
 	return bestFace

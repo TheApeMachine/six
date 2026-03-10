@@ -1,13 +1,23 @@
-//go:build cuda
+//go:build cuda && cgo
 
 package cuda
 
+/*
+#cgo LDFLAGS: -L${SRCDIR} -lresolver -lcudart
+#include <stdint.h>
+int resolve_resonance_cuda(
+    const void* graph_nodes_ptr,
+    uint32_t num_nodes,
+    const void* active_context_ptr,
+    uint64_t* out_result
+);
+*/
+import "C"
 import (
 	"unsafe"
-
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/kernel/internal/resolve"
 )
+
+//go:generate nvcc -lib resolver.cu -o libresolver.a
 
 type CUDABackend struct{}
 
@@ -24,8 +34,29 @@ func (backend *CUDABackend) Resolve(
 		return 0, nil
 	}
 
-	nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)
-	ctx := (*geometry.GFRotation)(context)
+	var packed C.uint64_t
 
-	return resolve.PackedNearest(nodes, *ctx), nil
+	status := C.resolve_resonance_cuda(
+		graphNodes,
+		C.uint32_t(numNodes),
+		context,
+		&packed,
+	)
+
+	if status != 0 {
+		return 0, CUDAErrorResolveFailed
+	}
+
+	return uint64(packed), nil
+}
+
+type CUDAError string
+
+const (
+	CUDAErrorUnavailable   CUDAError = "cuda backend unavailable"
+	CUDAErrorResolveFailed CUDAError = "cuda backend resolve failed"
+)
+
+func (err CUDAError) Error() string {
+	return string(err)
 }

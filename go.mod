@@ -15,6 +15,12 @@ require (
 )
 
 require (
+	github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381 // indirect
+	golang.org/x/sync v0.18.0 // indirect
+)
+
+require (
+	capnproto.org/go/capnp/v3 v3.1.0-alpha.2
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
 	github.com/charmbracelet/lipgloss v0.13.0 // indirect
