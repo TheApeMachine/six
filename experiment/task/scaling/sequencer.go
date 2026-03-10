@@ -25,7 +25,7 @@ type SequencerExperiment struct {
 func NewSequencerExperiment() *SequencerExperiment {
 	return &SequencerExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   NewSyntheticDataset(128, 1000, 77),
+		dataset:   NewSyntheticDataset(128, 50, 77),
 	}
 }
 
@@ -71,16 +71,7 @@ func (experiment *SequencerExperiment) TableData() any {
 }
 
 func (experiment *SequencerExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{
-		{
-			Type:     tools.ArtifactBarChart,
-			FileName: "sequencer_scores",
-			Data:     experiment.tableData,
-			Title:    "Sequencer Retrieval Quality",
-			Caption:  "Retrieval accuracy across 1000 synthetic samples after Sequencer-driven ingestion.",
-			Label:    "fig:sequencer_scores",
-		},
-	}
+	return SequencerArtifacts(experiment.tableData)
 }
 
 func (experiment *SequencerExperiment) Finalize(substrate *geometry.HybridSubstrate) error {

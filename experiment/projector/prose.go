@@ -45,6 +45,8 @@ func (p *Prose) SetOutput(out io.Writer) { p.out = out }
 func (p *Prose) Generate() error {
 	funcMap := template.FuncMap{
 		// Format float with N decimal places
+		"f0": func(v float64) string { return formatF(v, 0) },
+		"f1": func(v float64) string { return formatF(v, 1) },
 		"f2": func(v float64) string { return formatF(v, 2) },
 		"f3": func(v float64) string { return formatF(v, 3) },
 		"f4": func(v float64) string { return formatF(v, 4) },
@@ -110,6 +112,10 @@ func ProseWithOutput(outDir, outFile string) proseOpts {
 
 func formatF(v float64, prec int) string {
 	switch prec {
+	case 0:
+		return fmt0(v)
+	case 1:
+		return fmt1(v)
 	case 2:
 		return fmt2(v)
 	case 3:
@@ -119,6 +125,8 @@ func formatF(v float64, prec int) string {
 	}
 }
 
+func fmt0(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) }
+func fmt1(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) }
 func fmt2(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
 func fmt3(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
 func fmt4(v float64) string { return strconv.FormatFloat(v, 'f', 4, 64) }

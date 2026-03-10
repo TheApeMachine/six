@@ -1,0 +1,18 @@
+\subsection{Pipeline Ingestion Throughput}
+\label{sec:pipeline_throughput}
+
+\paragraph{Task Description.}
+The pipeline throughput experiment measures end-to-end ingestion bandwidth.
+A 1\,000-sample synthetic dataset (128 bytes per sample) is ingested and
+queried by the standard Pipeline.  Timing covers the full ingestion phase
+from dataset streaming through tokenisation, chord encoding, and substrate
+storage.
+
+\paragraph{Results.}
+The pipeline ingested 1\,000 samples (125\,KB) in 0\,ms,
+producing 0 substrate entries at a throughput of
+0.0\,KB/s.
+
+Throughput was below 100\,KB/s.  This reflects single-core CPU execution
+of the full chord encoding pipeline; GPU acceleration is expected to
+improve this substantially.

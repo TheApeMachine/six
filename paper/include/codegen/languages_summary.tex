@@ -1,0 +1,49 @@
+\begin{table}[htbp]
+\centering
+\caption{Languages — standardised result summary (N=12).}
+\label{tab:languages_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+5 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+0 & Python & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+1 & Python & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+11 & Rust & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+10 & Rust & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+9 & C++ & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{import java.util.*; import java.lang.*; \ldots}} & \multicolumn{2}{l}{\texttt{>();         StringBuilder current\_stri\ldots}} & \multicolumn{2}{l}{\texttt{>();         StringBuilder current\_stri\ldots}} \\
+\multicolumn{2}{l}{\texttt{from typing import List   def has\_close\ldots}} & \multicolumn{2}{l}{\texttt{.8, 3.0, 4.0, 5.0, 2.0], 0.3)     True  \ldots}} & \multicolumn{2}{l}{\texttt{.8, 3.0, 4.0, 5.0, 2.0], 0.3)     True  \ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}  use std::\{slice::Iter, c\ldots}} & \multicolumn{2}{l}{\texttt{String) -> Vec<String>\{       let mut r\ldots}} & \multicolumn{2}{l}{\texttt{String) -> Vec<String>\{       let mut r\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}  use std::\{slice::Iter, c\ldots}} & \multicolumn{2}{l}{\texttt{rs:Vec<f32>, threshold: f32) -> bool\{  \ldots}} & \multicolumn{2}{l}{\texttt{rs:Vec<f32>, threshold: f32) -> bool\{  \ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 12} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.5000} & \multicolumn{3}{l}{Min: 0.4545 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{2.71 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{8.65 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{720.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{11.36 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

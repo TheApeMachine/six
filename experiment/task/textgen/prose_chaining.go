@@ -5,13 +5,22 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
+	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
-ProseChainingExperiment evaluates the system's ability to chain multiple
-fragments together into a coherent prose sequence. It tests multi-step
-predictive generation based on the long-term context of the corpus.
+ProseChainingExperiment evaluates multi-step predictive generation across a
+real encyclopaedic corpus. Text from wikitext-103 (a large, high-quality
+Wikipedia-derived dataset) is ingested; the substrate is then prompted with
+the first 40% of each test sample. It must chain through the learned attractor
+field to reconstruct the remaining 60%.
+
+wikitext-103 was chosen over wikitext-2 for its substantially larger and more
+diverse vocabulary, creating a denser coverage of the chord attractor field.
+This makes the chaining task harder and more informative: a favourable result
+here implies the substrate generalises across the long tail of English prose,
+not just the most frequent n-grams.
 */
 type ProseChainingExperiment struct {
 	tableData []tools.ExperimentalData
@@ -22,58 +31,39 @@ type ProseChainingExperiment struct {
 func NewProseChainingExperiment() *ProseChainingExperiment {
 	return &ProseChainingExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: huggingface.New(
+			huggingface.DatasetWithRepo("wikitext"),
+			huggingface.DatasetWithSubset("wikitext-103-raw-v1"),
+			huggingface.DatasetWithSamples(10),
+			huggingface.DatasetWithTextColumn("text"),
+		),
 	}
 }
 
-func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{}
-}
-
-func (experiment *ProseChainingExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
-}
-
-func (experiment *ProseChainingExperiment) Name() string {
-	return "Prose Chaining"
-}
-
-func (experiment *ProseChainingExperiment) Section() string {
-	return "textgen"
-}
-
-func (experiment *ProseChainingExperiment) Dataset() provider.Dataset {
-	return experiment.dataset
-}
+func (experiment *ProseChainingExperiment) Name() string              { return "Prose Chaining" }
+func (experiment *ProseChainingExperiment) Section() string           { return "textgen" }
+func (experiment *ProseChainingExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
 func (experiment *ProseChainingExperiment) Prompts() *tokenizer.Prompt {
 	experiment.prompt = tokenizer.NewPrompt(
 		tokenizer.PromptWithDataset(experiment.dataset),
 		tokenizer.PromptWithHoldout(experiment.Holdout()),
-		tokenizer.PromptWithValues([]string{
-			"To be, or not",
-			"It was the best",
-			"Call me",
-			"In a hole in the",
-			"All happy families",
-		}),
 	)
-
 	return experiment.prompt
 }
 
+// 60% right holdout — an aggressive masking that tests deep generative chaining.
 func (experiment *ProseChainingExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 20, tokenizer.RIGHT
+	return 60, tokenizer.RIGHT
 }
 
 func (experiment *ProseChainingExperiment) AddResult(results tools.ExperimentalData) {
-	score := 0.0
-	observed := string(results.Observed)
-	if len(observed) > 0 {
-		score = 1.0
-	}
-
-	results.WeightedTotal = score
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
+	results.WeightedTotal = tools.WeightedTotal(
+		results.Scores.Exact,
+		results.Scores.Partial,
+		results.Scores.Fuzzy,
+	)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -92,6 +82,12 @@ func (experiment *ProseChainingExperiment) Score() float64 {
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *ProseChainingExperiment) TableData() any {
-	return experiment.tableData
+func (experiment *ProseChainingExperiment) TableData() any { return experiment.tableData }
+
+func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
+	return ProseChainingArtifacts(experiment.tableData, experiment.Score())
+}
+
+func (experiment *ProseChainingExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+	return nil
 }

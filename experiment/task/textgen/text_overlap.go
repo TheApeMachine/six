@@ -5,14 +5,26 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
+	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
-TextOverlapExperiment evaluates the system's ability to perform
-overlap-aware text generation. It ensures that the generated sequence
-smoothly transitions between ingested spans by identifying shared
-structural boundaries.
+TextOverlapExperiment evaluates overlap-aware span bridging using a real
+narrative corpus. TinyStories provides short stories with highly regular
+sentence structure and vocabulary repetition — ideal for testing whether the
+substrate detects shared structural boundaries between ingested story spans
+and novel test prompts.
+
+The experiment ingests 20 TinyStories samples, then tests 40% right holdout
+on each. The task is to generate a continuation that bridges smoothly into
+an adjacent corpus region, exploiting the substrate's ability to detect the
+overlapping chord patterns between the prompt boundary and a learned sequence.
+
+TinyStories is intentionally chosen here (rather than Wikipedia) because its
+controlled vocabulary makes the overlap phenomenon measurable: stories reuse
+the same canonical verbs, settings, and character archetypes, creating
+a denser web of chord attractor bridges than raw encyclopaedic text.
 */
 type TextOverlapExperiment struct {
 	tableData []tools.ExperimentalData
@@ -23,50 +35,38 @@ type TextOverlapExperiment struct {
 func NewTextOverlapExperiment() *TextOverlapExperiment {
 	return &TextOverlapExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: huggingface.New(
+			huggingface.DatasetWithRepo("roneneldan/TinyStories"),
+			huggingface.DatasetWithSamples(20),
+			huggingface.DatasetWithTextColumn("text"),
+		),
 	}
 }
 
-func (experiment *TextOverlapExperiment) Name() string {
-	return "Text Overlap"
-}
-
-func (experiment *TextOverlapExperiment) Section() string {
-	return "textgen"
-}
-
-func (experiment *TextOverlapExperiment) Dataset() provider.Dataset {
-	return experiment.dataset
-}
+func (experiment *TextOverlapExperiment) Name() string              { return "Text Overlap" }
+func (experiment *TextOverlapExperiment) Section() string           { return "textgen" }
+func (experiment *TextOverlapExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
 func (experiment *TextOverlapExperiment) Prompts() *tokenizer.Prompt {
 	experiment.prompt = tokenizer.NewPrompt(
 		tokenizer.PromptWithDataset(experiment.dataset),
 		tokenizer.PromptWithHoldout(experiment.Holdout()),
-		tokenizer.PromptWithValues([]string{
-			"To be, or not",
-			"It was the best",
-			"Call me",
-			"In a hole in the",
-			"All happy families",
-		}),
 	)
-
 	return experiment.prompt
 }
 
+// 40% right holdout — tests generation across the second main act of each story.
 func (experiment *TextOverlapExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 20, tokenizer.RIGHT
+	return 40, tokenizer.RIGHT
 }
 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {
-	score := 0.0
-	observed := string(results.Observed)
-	if len(observed) > 0 {
-		score = 1.0
-	}
-
-	results.WeightedTotal = score
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
+	results.WeightedTotal = tools.WeightedTotal(
+		results.Scores.Exact,
+		results.Scores.Partial,
+		results.Scores.Fuzzy,
+	)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -85,12 +85,10 @@ func (experiment *TextOverlapExperiment) Score() float64 {
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *TextOverlapExperiment) TableData() any {
-	return experiment.tableData
-}
+func (experiment *TextOverlapExperiment) TableData() any { return experiment.tableData }
 
 func (experiment *TextOverlapExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{}
+	return TextOverlapArtifacts(experiment.tableData, experiment.Score())
 }
 
 func (experiment *TextOverlapExperiment) Finalize(substrate *geometry.HybridSubstrate) error {

@@ -1,21 +1,28 @@
 {
   "artifacts": [
     {
-      "caption": "Mean exact, partial, fuzzy, and weighted scores for Languages.",
+      "caption": "Mean exact, partial, fuzzy, and weighted scores per language (bigcode/humanevalpack).",
       "file_name": "languages_scores",
       "label": "fig:languages_scores",
-      "title": "Languages — Score Breakdown",
+      "title": "Code Generation — Scores by Language",
       "type": "bar"
+    },
+    {
+      "caption": "",
+      "file_name": "languages_section.tex",
+      "label": "",
+      "title": "",
+      "type": "prose"
     }
   ],
   "name": "Languages",
   "results": [
     {
       "Idx": 0,
-      "Name": "Languages",
-      "Prefix": "ZGVmIHJlbW92ZV9PY2MocyxjaCk6IA0KICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSk6IA0KICAgICAgICBpZiAoc1tpXSA9PSBjaCk6IA0KICAgICAgICAgICAgcyA9IHNbMCA6IGldICsgc1tpICsgMTpdIA0KICAgICAgICAgICAgYnJlYWsNCg==",
-      "Holdout": "ICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
-      "Observed": "Zm9yIGkgaW4gcmFuZ2UobGVuKHMpIC0gMSwtMSwtMSk6ICANCiAgICAgICAgaWYgKHNbaV0gPT0gY2gpOiANCiAgICAgICAgICAgIHMgPSBzWzAgOiBpXSArIHNbaSArIDE6XSANCiAgICAgICAgICAgIGJyZWFrDQogICAgcmV0dXJuIHM=",
+      "Name": "Python",
+      "Prefix": "ZnJvbSB0eXBpbmcgaW1wb3J0IExpc3QKCgpkZWYgaGFzX2Nsb3NlX2VsZW1lbnRzKG51bWJlcnM6IExpc3RbZmxvYXRdLCB0aHJlc2hvbGQ6IGZsb2F0KSAtPiBib29sOgogICAgIiIiIENoZWNrIGlmIGluIGdpdmVuIGxpc3Qgb2YgbnVtYmVycywgYXJlIGFueSB0d28gbnVtYmVycyBjbG9zZXIgdG8gZWFjaCBvdGhlciB0aGFuCiAgICBnaXZlbiB0aHJlc2hvbGQuCiAgICA+Pj4gaGFzX2Nsb3NlX2VsZW1lbnRzKFsxLjAsIDIuMCwgMy4wXSwgMC41KQogICAgRmFsc2UKICAgID4+PiBoYXNfY2xvc2VfZWxlbWVudHMoWzEuMCwgMg==",
+      "Holdout": "LjgsIDMuMCwgNC4wLCA1LjAsIDIuMF0sIDAuMykKICAgIFRydWUKICAgICIiIgogICAgIGZvciBpZHgsIGVsZW0gaW4gZW51bWVyYXRlKG51bWJlcnMpOgogICAgICAgIGZvciBpZHgyLCBlbGVtMiBpbiBlbnVtZXJhdGUobnVtYmVycyk6CiAgICAgICAgICAgIGlmIGlkeCAhPSBpZHgyOgogICAgICAgICAgICAgICAgZGlzdGFuY2UgPSBhYnMoZWxlbSAtIGVsZW0yKQogICAgICAgICAgICAgICAgaWYgZGlzdGFuY2UgPCB0aHJlc2hvbGQ6CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIFRydWUKCiAgICByZXR1cm4gRmFsc2UK",
+      "Observed": "LjgsIDMuMCwgNC4wLCA1LjAsIDIuMF0sIDAuMykKICAgIFRydWUKICAgICIiIgogICAgIGZvciBpZHgsIGVsZW0gaW4gZW51bWVyYXRlKG51bWJlcnMpOgogICAgICAgIGZvciBpZHgyLCBlbGVtMiBpbiBlbnVtZXJhdGUobnVtYmVycyk6CiAgICAgICAgICAgIGlmIGlkeCAhPSBpZHgyOgogICAgICAgICAgICAgICAgZGlzdGFuY2UgPSBhYnMoZWxlbSAtIGVsZW0yKQogICAgICAgICAgICAgICAgaWYgZGlzdGFuY2UgPCB0aHJlc2hvbGQ6CiAgICAgICAgICAgICAgICAgICAgcmV0dXJuIFRydWUKCiAgICByZXR1cm4gRmFsc2U=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -28,10 +35,74 @@
     },
     {
       "Idx": 1,
-      "Name": "Languages",
-      "Prefix": "ZGVmIHNvcnRfbWF0cml4KE0pOg0KICAgIHJlc3VsdCA9IHNv",
-      "Holdout": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
-      "Observed": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
+      "Name": "Python",
+      "Prefix": "ZnJvbSB0eXBpbmcgaW1wb3J0IExpc3QKCgpkZWYgc2VwYXJhdGVfcGFyZW5fZ3JvdXBzKHBhcmVuX3N0cmluZzogc3RyKSAtPiBMaXN0W3N0cl06CiAgICAiIiIgSW5wdXQgdG8gdGhpcyBmdW5jdGlvbiBpcyBhIHN0cmluZyBjb250YWluaW5nIG11bHRpcGxlIGdyb3VwcyBvZiBuZXN0ZWQgcGFyZW50aGVzZXMuIFlvdXIgZ29hbCBpcyB0bwogICAgc2VwYXJhdGUgdGhvc2UgZ3JvdXAgaW50byBzZXBhcmF0ZSBzdHJpbmdzIGFuZCByZXR1cm4gdGhlIGxpc3Qgb2YgdGhvc2UuCiAgICBTZXBhcmF0ZSBncm91cHMgYXJlIGJhbGFuY2VkIChlYWNoIG9wZW4gYnJhY2UgaXMgcHJvcGVybHkgY2xvc2VkKSBhbmQgbm90IG5lc3RlZCB3aXRoaW4gZWFjaCBvdGhlcgogICAgSWdub3JlIGFueSBzcGFjZXMgaW4gdGhlIGlucHV0IHN0cmluZy4KICAgID4+PiBzZXBhcmF0ZV9wYXJlbl9ncm91cHMoJyggKSAoKCApKSAoKCApKA==",
+      "Holdout": "ICkpJykKICAgIFsnKCknLCAnKCgpKScsICcoKCkoKSknXQogICAgIiIiCiAgICAgcmVzdWx0ID0gW10KICAgIGN1cnJlbnRfc3RyaW5nID0gW10KICAgIGN1cnJlbnRfZGVwdGggPSAwCgogICAgZm9yIGMgaW4gcGFyZW5fc3RyaW5nOgogICAgICAgIGlmIGMgPT0gJygnOgogICAgICAgICAgICBjdXJyZW50X2RlcHRoICs9IDEKICAgICAgICAgICAgY3VycmVudF9zdHJpbmcuYXBwZW5kKGMpCiAgICAgICAgZWxpZiBjID09ICcpJzoKICAgICAgICAgICAgY3VycmVudF9kZXB0aCAtPSAxCiAgICAgICAgICAgIGN1cnJlbnRfc3RyaW5nLmFwcGVuZChjKQoKICAgICAgICAgICAgaWYgY3VycmVudF9kZXB0aCA9PSAwOgogICAgICAgICAgICAgICAgcmVzdWx0LmFwcGVuZCgnJy5qb2luKGN1cnJlbnRfc3RyaW5nKSkKICAgICAgICAgICAgICAgIGN1cnJlbnRfc3RyaW5nLmNsZWFyKCkKCiAgICByZXR1cm4gcmVzdWx0Cg==",
+      "Observed": "KSknKQogICAgWycoKScsICcoKCkpJywgJygoKSgpKSddCiAgICAiIiIKICAgICByZXN1bHQgPSBbXQogICAgY3VycmVudF9zdHJpbmcgPSBbXQogICAgY3VycmVudF9kZXB0aCA9IDAKCiAgICBmb3IgYyBpbiBwYXJlbl9zdHJpbmc6CiAgICAgICAgaWYgYyA9PSAnKCc6CiAgICAgICAgICAgIGN1cnJlbnRfZGVwdGggKz0gMQogICAgICAgICAgICBjdXJyZW50X3N0cmluZy5hcHBlbmQoYykKICAgICAgICBlbGlmIGMgPT0gJyknOgogICAgICAgICAgICBjdXJyZW50X2RlcHRoIC09IDEKICAgICAgICAgICAgY3VycmVudF9zdHJpbmcuYXBwZW5kKGMpCgogICAgICAgICAgICBpZiBjdXJyZW50X2RlcHRoID09IDA6CiAgICAgICAgICAgICAgICByZXN1bHQuYXBwZW5kKCcnLmpvaW4oY3VycmVudF9zdHJpbmcpKQogICAgICAgICAgICAgICAgY3VycmVudF9zdHJpbmcuY2xlYXIoKQoKICAgIHJldHVybiByZXN1bHQ=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 2,
+      "Name": "JavaScript",
+      "Prefix": "LyogQ2hlY2sgaWYgaW4gZ2l2ZW4gbGlzdCBvZiBudW1iZXJzLCBhcmUgYW55IHR3byBudW1iZXJzIGNsb3NlciB0byBlYWNoIG90aGVyIHRoYW4KICBnaXZlbiB0aHJlc2hvbGQuCiAgPj4+IGhhc0Nsb3NlRWxlbWVudHMoWzEuMCwgMi4wLCAzLjBdLCAwLjUpCiAgZmFsc2UKICA+Pj4gaGFzQ2xvc2VFbGVtZW50cyhbMS4wLCAyLjgsIDMuMCwgNC4wLCA1LjAsIDIuMF0sIDAuMykKICB0cnVlCiAgKi8KY29uc3QgaGFzQ2xvc2VFbGVtZW50cyA9IChudW1iZXJzLCB0aHJlc2hvbGQpID0+IHs=",
+      "Holdout": "CiAgIGZvciAobGV0IGkgPSAwOyBpIDwgbnVtYmVycy5sZW5ndGg7IGkrKykgewogICAgZm9yIChsZXQgaiA9IDA7IGogPCBudW1iZXJzLmxlbmd0aDsgaisrKSB7CiAgICAgIGlmIChpICE9IGopIHsKICAgICAgICBsZXQgZGlzdGFuY2UgPSBNYXRoLmFicyhudW1iZXJzW2ldIC0gbnVtYmVyc1tqXSk7CiAgICAgICAgaWYgKGRpc3RhbmNlIDwgdGhyZXNob2xkKSB7CiAgICAgICAgICByZXR1cm4gdHJ1ZTsKICAgICAgICB9CiAgICAgIH0KICAgIH0KICB9CiAgcmV0dXJuIGZhbHNlOwp9Cgo=",
+      "Observed": "Zm9yIChsZXQgaSA9IDA7IGkgPCBudW1iZXJzLmxlbmd0aDsgaSsrKSB7CiAgICBmb3IgKGxldCBqID0gMDsgaiA8IG51bWJlcnMubGVuZ3RoOyBqKyspIHsKICAgICAgaWYgKGkgIT0gaikgewogICAgICAgIGxldCBkaXN0YW5jZSA9IE1hdGguYWJzKG51bWJlcnNbaV0gLSBudW1iZXJzW2pdKTsKICAgICAgICBpZiAoZGlzdGFuY2UgPCB0aHJlc2hvbGQpIHsKICAgICAgICAgIHJldHVybiB0cnVlOwogICAgICAgIH0KICAgICAgfQogICAgfQogIH0KICByZXR1cm4gZmFsc2U7Cn0=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 3,
+      "Name": "JavaScript",
+      "Prefix": "LyogSW5wdXQgdG8gdGhpcyBmdW5jdGlvbiBpcyBhIHN0cmluZyBjb250YWluaW5nIG11bHRpcGxlIGdyb3VwcyBvZiBuZXN0ZWQgcGFyZW50aGVzZXMuIFlvdXIgZ29hbCBpcyB0bwogIHNlcGFyYXRlIHRob3NlIGdyb3VwIGludG8gc2VwYXJhdGUgc3RyaW5ncyBhbmQgcmV0dXJuIHRoZSBsaXN0IG9mIHRob3NlLgogIFNlcGFyYXRlIGdyb3VwcyBhcmUgYmFsYW5jZWQgKGVhY2ggb3BlbiBicmFjZSBpcyBwcm9wZXJseSBjbG9zZWQpIGFuZCBub3QgbmVzdGVkIHdpdGhpbiBlYWNoIG90aGVyCiAgSWdub3JlIGFueSBzcGFjZXMgaW4gdGhlIGlucHV0IHN0cmluZy4KICA+Pj4gc2VwYXJhdGVQYXJlbkdyb3VwcygnKCApICgoICkpICgoICkoICkpJykKICBbJygpJywgJygoKSknLCAnKCgpKCkpJ10KICAqLwpjb25zdCBzZXBhcmF0ZVBhcmVuR3JvdXBzID0gKHA=",
+      "Holdout": "YXJlbl9zdHJpbmcpID0+IHsKICAgdmFyIHJlc3VsdCA9IFtdOwogIHZhciBjdXJyZW50X3N0cmluZyA9IFtdOwogIHZhciBjdXJyZW50X2RlcHRoID0gMDsKCiAgZm9yIChjb25zdCBjIG9mIHBhcmVuX3N0cmluZykgewogICAgaWYgKGMgPT0gJygnKSB7CiAgICAgIGN1cnJlbnRfZGVwdGggKz0gMTsKICAgICAgY3VycmVudF9zdHJpbmcucHVzaChjKTsKICAgIH0gZWxzZSBpZiAoYyA9PSAnKScpIHsKICAgICAgY3VycmVudF9kZXB0aCAtPSAxOwogICAgICBjdXJyZW50X3N0cmluZy5wdXNoKGMpOwogICAgICBpZiAoY3VycmVudF9kZXB0aCA9PSAwKSB7CiAgICAgICAgcmVzdWx0LnB1c2goY3VycmVudF9zdHJpbmcuam9pbignJykpOwogICAgICAgIGN1cnJlbnRfc3RyaW5nID0gW107CiAgICAgIH0KICAgIH0KICB9CgogIHJldHVybiByZXN1bHQ7Cn0KCg==",
+      "Observed": "YXJlbl9zdHJpbmcpID0+IHsKICAgdmFyIHJlc3VsdCA9IFtdOwogIHZhciBjdXJyZW50X3N0cmluZyA9IFtdOwogIHZhciBjdXJyZW50X2RlcHRoID0gMDsKCiAgZm9yIChjb25zdCBjIG9mIHBhcmVuX3N0cmluZykgewogICAgaWYgKGMgPT0gJygnKSB7CiAgICAgIGN1cnJlbnRfZGVwdGggKz0gMTsKICAgICAgY3VycmVudF9zdHJpbmcucHVzaChjKTsKICAgIH0gZWxzZSBpZiAoYyA9PSAnKScpIHsKICAgICAgY3VycmVudF9kZXB0aCAtPSAxOwogICAgICBjdXJyZW50X3N0cmluZy5wdXNoKGMpOwogICAgICBpZiAoY3VycmVudF9kZXB0aCA9PSAwKSB7CiAgICAgICAgcmVzdWx0LnB1c2goY3VycmVudF9zdHJpbmcuam9pbignJykpOwogICAgICAgIGN1cnJlbnRfc3RyaW5nID0gW107CiAgICAgIH0KICAgIH0KICB9CgogIHJldHVybiByZXN1bHQ7Cn0=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 4,
+      "Name": "Java",
+      "Prefix": "aW1wb3J0IGphdmEudXRpbC4qOwppbXBvcnQgamF2YS5sYW5nLio7CgpjbGFzcyBTb2x1dGlvbiB7CiAgICAvKioKICAgIENoZWNrIGlmIGluIGdpdmVuIGxpc3Qgb2YgbnVtYmVycywgYXJlIGFueSB0d28gbnVtYmVycyBjbG9zZXIgdG8gZWFjaCBvdGhlciB0aGFuIGdpdmVuIHRocmVzaG9sZC4KICAgID4+PiBoYXNDbG9zZUVsZW1lbnRzKEFycmF5cy5hc0xpc3QoMS4wLCAyLjAsIDMuMCksIDAuNSkKICAgIGZhbHNlCiAgICA+Pj4gaGFzQ2xvc2VFbGVtZW50cyhBcnJheXMuYXNMaXN0KDEuMCwgMi44LCAzLjAsIDQuMCwgNS4wLCAyLjApLCAwLjMpCiAgICB0cnVlCiAgICAgKi8KICAgIHB1YmxpYyBib29sZWFuIGhhcw==",
+      "Holdout": "Q2xvc2VFbGVtZW50cyhMaXN0PERvdWJsZT4gbnVtYmVycywgZG91YmxlIHRocmVzaG9sZCkgewogICAgICAgICBmb3IgKGludCBpID0gMDsgaSA8IG51bWJlcnMuc2l6ZSgpOyBpKyspIHsKICAgICAgICAgICAgZm9yIChpbnQgaiA9IGkgKyAxOyBqIDwgbnVtYmVycy5zaXplKCk7IGorKykgewogICAgICAgICAgICAgICAgZG91YmxlIGRpc3RhbmNlID0gTWF0aC5hYnMobnVtYmVycy5nZXQoaSkgLSBudW1iZXJzLmdldChqKSk7CiAgICAgICAgICAgICAgICBpZiAoZGlzdGFuY2UgPCB0aHJlc2hvbGQpIHJldHVybiB0cnVlOwogICAgICAgICAgICB9CiAgICAgICAgfQogICAgICAgIHJldHVybiBmYWxzZTsKICAgIH0KfQ==",
+      "Observed": "b29sZWFuIGhhc0Nsb3NlRWxlbWVudHMoTGlzdDxEb3VibGU+IG51bWJlcnMsIGRvdWJsZSB0aHJlc2hvbGQpIHsKICAgICAgICAgZm9yIChpbnQgaSA9IDA7IGkgPCBudW1iZXJzLnNpemUoKTsgaSsrKSB7CiAgICAgICAgICAgIGZvciAoaW50IGogPSBpICsgMTsgaiA8IG51bWJlcnMuc2l6ZSgpOyBqKyspIHsKICAgICAgICAgICAgICAgIGRvdWJsZSBkaXN0YW5jZSA9IE1hdGguYWJzKG51bWJlcnMuZ2V0KGkpIC0gbnVtYmVycy5nZXQoaikpOwogICAgICAgICAgICAgICAgaWYgKGRpc3RhbmNlIDwgdGhyZXNob2xkKSByZXR1cm4gdHJ1ZTsKICAgICAgICAgICAgfQogICAgICAgIH0KICAgICAgICByZXR1cm4gZmFsc2U7CiAgICB9Cn0=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 5,
+      "Name": "Java",
+      "Prefix": "aW1wb3J0IGphdmEudXRpbC4qOwppbXBvcnQgamF2YS5sYW5nLio7CgpjbGFzcyBTb2x1dGlvbiB7CiAgICAvKioKICAgIElucHV0IHRvIHRoaXMgZnVuY3Rpb24gaXMgYSBzdHJpbmcgY29udGFpbmluZyBtdWx0aXBsZSBncm91cHMgb2YgbmVzdGVkIHBhcmVudGhlc2VzLiBZb3VyIGdvYWwgaXMgdG8KICAgIHNlcGFyYXRlIHRob3NlIGdyb3VwIGludG8gc2VwYXJhdGUgc3RyaW5ncyBhbmQgcmV0dXJuIHRoZSBsaXN0IG9mIHRob3NlLgogICAgU2VwYXJhdGUgZ3JvdXBzIGFyZSBiYWxhbmNlZCAoZWFjaCBvcGVuIGJyYWNlIGlzIHByb3Blcmx5IGNsb3NlZCkgYW5kIG5vdCBuZXN0ZWQgd2l0aGluIGVhY2ggb3RoZXIKICAgIElnbm9yZSBhbnkgc3BhY2VzIGluIHRoZSBpbnB1dCBzdHJpbmcuCiAgICA+Pj4gc2VwYXJhdGVQYXJlbkdyb3VwcygiKCApICgoICkpICgoICkoICkpIikKICAgIFsiKCkiLCAiKCgpKSIsICIoKCkoKSkiXQogICAgICovCiAgICBwdWJsaWMgTGlzdDxTdHJpbmc+IHNlcGFyYXRlUGFyZW5Hcm91cHMoU3RyaW5nIHBhcmVuX3N0cmluZykgewogICAgICAgICBMaXN0PFN0cmluZz4gcmVzdWx0ID0gbmV3IEFycmF5TGlzdDw=",
+      "Holdout": "PigpOwogICAgICAgIFN0cmluZ0J1aWxkZXIgY3VycmVudF9zdHJpbmcgPSBuZXcgU3RyaW5nQnVpbGRlcigpOwogICAgICAgIGludCBjdXJyZW50X2RlcHRoID0gMDsKCiAgICAgICAgZm9yIChjaGFyIGMgOiBwYXJlbl9zdHJpbmcudG9DaGFyQXJyYXkoKSkgewogICAgICAgICAgICBpZiAoYyA9PSAnKCcpIHsKICAgICAgICAgICAgICAgIGN1cnJlbnRfZGVwdGggKz0gMTsKICAgICAgICAgICAgICAgIGN1cnJlbnRfc3RyaW5nLmFwcGVuZChjKTsKICAgICAgICAgICAgfSBlbHNlIGlmIChjID09ICcpJykgewogICAgICAgICAgICAgICAgY3VycmVudF9kZXB0aCAtPSAxOwogICAgICAgICAgICAgICAgY3VycmVudF9zdHJpbmcuYXBwZW5kKGMpOwoKICAgICAgICAgICAgICAgIGlmIChjdXJyZW50X2RlcHRoID09IDApIHsKICAgICAgICAgICAgICAgICAgICByZXN1bHQuYWRkKGN1cnJlbnRfc3RyaW5nLnRvU3RyaW5nKCkpOwogICAgICAgICAgICAgICAgICAgIGN1cnJlbnRfc3RyaW5nLnNldExlbmd0aCgwKTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0KICAgICAgICByZXR1cm4gcmVzdWx0OwoKICAgIH0KfQ==",
+      "Observed": "PigpOwogICAgICAgIFN0cmluZ0J1aWxkZXIgY3VycmVudF9zdHJpbmcgPSBuZXcgU3RyaW5nQnVpbGRlcigpOwogICAgICAgIGludCBjdXJyZW50X2RlcHRoID0gMDsKCiAgICAgICAgZm9yIChjaGFyIGMgOiBwYXJlbl9zdHJpbmcudG9DaGFyQXJyYXkoKSkgewogICAgICAgICAgICBpZiAoYyA9PSAnKCcpIHsKICAgICAgICAgICAgICAgIGN1cnJlbnRfZGVwdGggKz0gMTsKICAgICAgICAgICAgICAgIGN1cnJlbnRfc3RyaW5nLmFwcGVuZChjKTsKICAgICAgICAgICAgfSBlbHNlIGlmIChjID09ICcpJykgewogICAgICAgICAgICAgICAgY3VycmVudF9kZXB0aCAtPSAxOwogICAgICAgICAgICAgICAgY3VycmVudF9zdHJpbmcuYXBwZW5kKGMpOwoKICAgICAgICAgICAgICAgIGlmIChjdXJyZW50X2RlcHRoID09IDApIHsKICAgICAgICAgICAgICAgICAgICByZXN1bHQuYWRkKGN1cnJlbnRfc3RyaW5nLnRvU3RyaW5nKCkpOwogICAgICAgICAgICAgICAgICAgIGN1cnJlbnRfc3RyaW5nLnNldExlbmd0aCgwKTsKICAgICAgICAgICAgICAgIH0KICAgICAgICAgICAgfQogICAgICAgIH0KICAgICAgICByZXR1cm4gcmVzdWx0OwoKICAgIH0KfQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 1,
@@ -41,8 +112,104 @@
       "WeightedTotal": 1,
       "TrueLabel": null,
       "PredLabel": null
+    },
+    {
+      "Idx": 6,
+      "Name": "Go",
+      "Prefix": "aW1wb3J0ICgKICAgICJtYXRoIgopCgovLyBDaGVjayBpZiBpbiBnaXZlbiBsaXN0IG9mIG51bWJlcnMsIGFyZSBhbnkgdHdvIG51bWJlcnMgY2xvc2VyIHRvIGVhY2ggb3RoZXIgdGhhbiBnaXZlbiB0aHJlc2hvbGQuCi8vID4+PiBIYXNDbG9zZUVsZW1lbnRzKFtdZmxvYXQ2NHsxLjAsIDIuMCwgMy4wfSwgMC41KQovLyBmYWxzZQovLyA+Pj4gSGFzQ2xvc2VFbGVtZW50cyhbXWZsb2F0NjR7MS4wLCAyLjgsIDMuMCwgNC4wLCA1LjAsIDIuMH0sIDAuMykKLy8gdHJ1ZQpmdW5jIEhhc0Nsb3NlRWxlbWVudHMobnVtYmVycyBbXWZsb2F0Ng==",
+      "Holdout": "NCwgdGhyZXNob2xkIGZsb2F0NjQpIGJvb2wgewogICAgIGZvciBpIDo9IDA7IGkgPCBsZW4obnVtYmVycyk7IGkrKyB7CiAgICAgICAgZm9yIGogOj0gaSArIDE7IGogPCBsZW4obnVtYmVycyk7IGorKyB7CiAgICAgICAgICAgIHZhciBkaXN0YW5jZSBmbG9hdDY0ID0gbWF0aC5BYnMobnVtYmVyc1tpXSAtIG51bWJlcnNbal0pCiAgICAgICAgICAgIGlmIGRpc3RhbmNlIDwgdGhyZXNob2xkIHsKICAgICAgICAgICAgICAgIHJldHVybiB0cnVlCiAgICAgICAgICAgIH0KICAgICAgICB9CiAgICB9CiAgICByZXR1cm4gZmFsc2UKfQoK",
+      "Observed": "RWxlbWVudHMobnVtYmVycyBbXWZsb2F0NjQsIHRocmVzaG9sZCBmbG9hdDY0KSBib29sIHsKICAgICBmb3IgaSA6PSAwOyBpIDwgbGVuKG51bWJlcnMpOyBpKysgewogICAgICAgIGZvciBqIDo9IGkgKyAxOyBqIDwgbGVuKG51bWJlcnMpOyBqKysgewogICAgICAgICAgICB2YXIgZGlzdGFuY2UgZmxvYXQ2NCA9IG1hdGguQWJzKG51bWJlcnNbaV0gLSBudW1iZXJzW2pdKQogICAgICAgICAgICBpZiBkaXN0YW5jZSA8IHRocmVzaG9sZCB7CiAgICAgICAgICAgICAgICByZXR1cm4gdHJ1ZQogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQogICAgcmV0dXJuIGZhbHNlCn0=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 7,
+      "Name": "Go",
+      "Prefix": "Ci8vIElucHV0IHRvIHRoaXMgZnVuY3Rpb24gaXMgYSBzdHJpbmcgY29udGFpbmluZyBtdWx0aXBsZSBncm91cHMgb2YgbmVzdGVkIHBhcmVudGhlc2VzLiBZb3VyIGdvYWwgaXMgdG8KLy8gc2VwYXJhdGUgdGhvc2UgZ3JvdXAgaW50byBzZXBhcmF0ZSBzdHJpbmdzIGFuZCByZXR1cm4gdGhlIGxpc3Qgb2YgdGhvc2UuCi8vIFNlcGFyYXRlIGdyb3VwcyBhcmUgYmFsYW5jZWQgKGVhY2ggb3BlbiBicmFjZSBpcyBwcm9wZXJseSBjbG9zZWQpIGFuZCBub3QgbmVzdGVkIHdpdGhpbiBlYWNoIG90aGVyCi8vIElnbm9yZSBhbnkgc3BhY2VzIGluIHRoZSBpbnB1dCBzdHJpbmcuCi8vID4+PiBTZXBhcmF0ZVBhcmVuR3JvdXBzKCcoICkgKCggKSkgKCggKSggKSknKQovLyBbJygpJywgJygoKSknLCAnKCgpKCkpJ10KZnVuYyBTZXBhcmF0ZVBhcmVuR3JvdXBzKHBhcmVuX3N0cmluZyBzdHJpbmcpIFtdc3RyaW5nIHsKICAgICByZXN1bHQgOj0gbWFrZShbXXN0cmluZywgMCkKICAgIGN1cnJlbnRfc3Ry",
+      "Holdout": "aW5nIDo9IG1ha2UoW11ydW5lLCAwKQogICAgY3VycmVudF9kZXB0aCA6PSAwCgogICAgZm9yIF8sIGMgOj0gcmFuZ2UgcGFyZW5fc3RyaW5nIHsKICAgICAgICBpZiBjID09ICcoJyB7CiAgICAgICAgICAgIGN1cnJlbnRfZGVwdGggKz0gMQogICAgICAgICAgICBjdXJyZW50X3N0cmluZyA9IGFwcGVuZChjdXJyZW50X3N0cmluZywgYykKICAgICAgICB9ZWxzZSBpZiBjPT0gJyknewogICAgICAgICAgICBjdXJyZW50X2RlcHRoIC09IDEKICAgICAgICAgICAgY3VycmVudF9zdHJpbmcgPSBhcHBlbmQoY3VycmVudF9zdHJpbmcsIGMpCgogICAgICAgICAgICBpZiBjdXJyZW50X2RlcHRoID09IDB7CiAgICAgICAgICAgICAgICByZXN1bHQgPSBhcHBlbmQocmVzdWx0LCBzdHJpbmcoY3VycmVudF9zdHJpbmcpKQogICAgICAgICAgICAgICAgY3VycmVudF9zdHJpbmcgPSAgbWFrZShbXXJ1bmUsIDApCiAgICAgICAgICAgIH0KICAgICAgICB9CgogICAgfQogICAgcmV0dXJuIHJlc3VsdAp9Cgo=",
+      "Observed": "aW5nIDo9IG1ha2UoW11ydW5lLCAwKQogICAgY3VycmVudF9kZXB0aCA6PSAwCgogICAgZm9yIF8sIGMgOj0gcmFuZ2UgcGFyZW5fc3RyaW5nIHsKICAgICAgICBpZiBjID09ICcoJyB7CiAgICAgICAgICAgIGN1cnJlbnRfZGVwdGggKz0gMQogICAgICAgICAgICBjdXJyZW50X3N0cmluZyA9IGFwcGVuZChjdXJyZW50X3N0cmluZywgYykKICAgICAgICB9ZWxzZSBpZiBjPT0gJyknewogICAgICAgICAgICBjdXJyZW50X2RlcHRoIC09IDEKICAgICAgICAgICAgY3VycmVudF9zdHJpbmcgPSBhcHBlbmQoY3VycmVudF9zdHJpbmcsIGMpCgogICAgICAgICAgICBpZiBjdXJyZW50X2RlcHRoID09IDB7CiAgICAgICAgICAgICAgICByZXN1bHQgPSBhcHBlbmQocmVzdWx0LCBzdHJpbmcoY3VycmVudF9zdHJpbmcpKQogICAgICAgICAgICAgICAgY3VycmVudF9zdHJpbmcgPSAgbWFrZShbXXJ1bmUsIDApCiAgICAgICAgICAgIH0KICAgICAgICB9CgogICAgfQogICAgcmV0dXJuIHJlc3VsdAp9",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 8,
+      "Name": "C++",
+      "Prefix": "LyoKQ2hlY2sgaWYgaW4gZ2l2ZW4gdmVjdG9yIG9mIG51bWJlcnMsIGFyZSBhbnkgdHdvIG51bWJlcnMgY2xvc2VyIHRvIGVhY2ggb3RoZXIgdGhhbgpnaXZlbiB0aHJlc2hvbGQuCj4+PiBoYXNfY2xvc2VfZWxlbWVudHMoezEuMCwgMi4wLCAzLjB9LCAwLjUpCmZhbHNlCj4+PiBoYXNfY2xvc2VfZWxlbWVudHMoezEuMCwgMi44LCAzLjAsIDQuMCwgNS4wLCAyLjB9LCAwLjMpCnRydWUKKi8KI2luY2x1ZGU8c3RkaW8uaD4KI2luY2x1ZGU8dmVjdG9yPgojaW5jbHVkZTxtYQ==",
+      "Holdout": "dGguaD4KdXNpbmcgbmFtZXNwYWNlIHN0ZDsKYm9vbCBoYXNfY2xvc2VfZWxlbWVudHModmVjdG9yPGZsb2F0PiBudW1iZXJzLCBmbG9hdCB0aHJlc2hvbGQpewogICAgIGludCBpLGo7CiAgICAKICAgIGZvciAoaT0wO2k8bnVtYmVycy5zaXplKCk7aSsrKQogICAgZm9yIChqPWkrMTtqPG51bWJlcnMuc2l6ZSgpO2orKykKICAgIGlmIChhYnMobnVtYmVyc1tpXS1udW1iZXJzW2pdKTx0aHJlc2hvbGQpCiAgICByZXR1cm4gdHJ1ZTsKCiAgICByZXR1cm4gZmFsc2U7Cn0KCg==",
+      "Observed": "dGguaD4KdXNpbmcgbmFtZXNwYWNlIHN0ZDsKYm9vbCBoYXNfY2xvc2VfZWxlbWVudHModmVjdG9yPGZsb2F0PiBudW1iZXJzLCBmbG9hdCB0aHJlc2hvbGQpewogICAgIGludCBpLGo7CiAgICAKICAgIGZvciAoaT0wO2k8bnVtYmVycy5zaXplKCk7aSsrKQogICAgZm9yIChqPWkrMTtqPG51bWJlcnMuc2l6ZSgpO2orKykKICAgIGlmIChhYnMobnVtYmVyc1tpXS1udW1iZXJzW2pdKTx0aHJlc2hvbGQpCiAgICByZXR1cm4gdHJ1ZTsKCiAgICByZXR1cm4gZmFsc2U7Cn0=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 9,
+      "Name": "C++",
+      "Prefix": "LyoKSW5wdXQgdG8gdGhpcyBmdW5jdGlvbiBpcyBhIHN0cmluZyBjb250YWluaW5nIG11bHRpcGxlIGdyb3VwcyBvZiBuZXN0ZWQgcGFyZW50aGVzZXMuIFlvdXIgZ29hbCBpcyB0bwpzZXBhcmF0ZSB0aG9zZSBncm91cCBpbnRvIHNlcGFyYXRlIHN0cmluZ3MgYW5kIHJldHVybiB0aGUgdmVjdG9yIG9mIHRob3NlLgpTZXBhcmF0ZSBncm91cHMgYXJlIGJhbGFuY2VkIChlYWNoIG9wZW4gYnJhY2UgaXMgcHJvcGVybHkgY2xvc2VkKSBhbmQgbm90IG5lc3RlZCB3aXRoaW4gZWFjaCBvdGhlcgpJZ25vcmUgYW55IHNwYWNlcyBpbiB0aGUgaW5wdXQgc3RyaW5nLgo+Pj4gc2VwYXJhdGVfcGFyZW5fZ3JvdXBzKCIoICkgKCggKSkgKCggKSggKSkiKQp7IigpIiwgIigoKSkiLCAiKCgpKCkpIn0KKi8KI2luY2x1ZGU8c3RkaW8uaD4KI2luY2x1ZGU8dmVjdG9yPgojaW5jbHVkZTxzdHJpbmc+CnVzaW5nIG5hbWVzcGFjZSBzdGQ7CnZlY3RvcjxzdHJpbmc+IHNlcGFyYXRlX3BhcmVuX2dyb3VwcyhzdHJpbmcgcGFyZW5fc3RyaW5nKQ==",
+      "Holdout": "ewogICAgIHZlY3RvcjxzdHJpbmc+IGFsbF9wYXJlbnM7CiAgICBzdHJpbmcgY3VycmVudF9wYXJlbjsKICAgIGludCBsZXZlbD0wOwogICAgY2hhciBjaHI7CiAgICBpbnQgaTsKICAgIGZvciAoaT0wO2k8cGFyZW5fc3RyaW5nLmxlbmd0aCgpO2krKykKICAgIHsKICAgICAgICBjaHI9cGFyZW5fc3RyaW5nW2ldOwogICAgICAgIGlmIChjaHI9PScoJykKICAgICAgICB7CiAgICAgICAgbGV2ZWwrPTE7CiAgICAgICAgY3VycmVudF9wYXJlbis9Y2hyOwogICAgICAgIH0KICAgICAgICBpZiAoY2hyPT0nKScpCiAgICAgICAgewogICAgICAgICAgICBsZXZlbC09MTsKICAgICAgICAgICAgY3VycmVudF9wYXJlbis9Y2hyOwogICAgICAgICAgICBpZiAobGV2ZWw9PTApewogICAgICAgICAgICAgICAgYWxsX3BhcmVucy5wdXNoX2JhY2soY3VycmVudF9wYXJlbik7CiAgICAgICAgICAgICAgICBjdXJyZW50X3BhcmVuPSIiOwogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQogICAgcmV0dXJuIGFsbF9wYXJlbnM7Cn0K",
+      "Observed": "bl9zdHJpbmcpewogICAgIHZlY3RvcjxzdHJpbmc+IGFsbF9wYXJlbnM7CiAgICBzdHJpbmcgY3VycmVudF9wYXJlbjsKICAgIGludCBsZXZlbD0wOwogICAgY2hhciBjaHI7CiAgICBpbnQgaTsKICAgIGZvciAoaT0wO2k8cGFyZW5fc3RyaW5nLmxlbmd0aCgpO2krKykKICAgIHsKICAgICAgICBjaHI9cGFyZW5fc3RyaW5nW2ldOwogICAgICAgIGlmIChjaHI9PScoJykKICAgICAgICB7CiAgICAgICAgbGV2ZWwrPTE7CiAgICAgICAgY3VycmVudF9wYXJlbis9Y2hyOwogICAgICAgIH0KICAgICAgICBpZiAoY2hyPT0nKScpCiAgICAgICAgewogICAgICAgICAgICBsZXZlbC09MTsKICAgICAgICAgICAgY3VycmVudF9wYXJlbis9Y2hyOwogICAgICAgICAgICBpZiAobGV2ZWw9PTApewogICAgICAgICAgICAgICAgYWxsX3BhcmVucy5wdXNoX2JhY2soY3VycmVudF9wYXJlbik7CiAgICAgICAgICAgICAgICBjdXJyZW50X3BhcmVuPSIiOwogICAgICAgICAgICB9CiAgICAgICAgfQogICAgfQogICAgcmV0dXJuIGFsbF9wYXJlbnM7Cn0=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 10,
+      "Name": "Rust",
+      "Prefix": "Zm4gbWFpbigpe30KCnVzZSBzdGQ6OntzbGljZTo6SXRlciwgY21wOjp7bWF4LCBzZWxmfSwgbWVtOjpyZXBsYWNlLCBjb2xsZWN0aW9uczo6e0hhc2hTZXQsIEhhc2hNYXB9LCBvcHM6OkluZGV4LCBhc2NpaTo6QXNjaWlFeHR9Owp1c2UgcmFuZDo6Um5nOwp1c2UgcmVnZXg6OlJlZ2V4Owp1c2UgbWQ1Owp1c2Ugc3RkOjphbnk6OntBbnksIFR5cGVJZH07CgovKgogQ2hlY2sgaWYgaW4gZ2l2ZW4gbGlzdCBvZiBudW1iZXJzLCBhcmUgYW55IHR3byBudW1iZXJzIGNsb3NlciB0byBlYWNoIG90aGVyIHRoYW4KICAgIGdpdmVuIHRocmVzaG9sZC4KICAgIAoqLwpmbiBoYXNfY2xvc2VfZWxlbWVudHMobnVtYmU=",
+      "Holdout": "cnM6VmVjPGYzMj4sIHRocmVzaG9sZDogZjMyKSAtPiBib29sewogCiAgICBmb3IgaSBpbiAwLi5udW1iZXJzLmxlbigpewogICAgICAgIGZvciBqIGluIDEuLm51bWJlcnMubGVuKCl7CgogICAgICAgICAgICBpZiBpICE9IGogewogICAgICAgICAgICAgICAgbGV0IGRpc3RhbmNlOmYzMiA9IG51bWJlcnNbaV0gLSBudW1iZXJzW2pdOwoKICAgICAgICAgICAgaWYgZGlzdGFuY2UuYWJzKCkgPCB0aHJlc2hvbGR7CiAgICAgICAgICAgICAgICByZXR1cm4gdHJ1ZTsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgfQogICAgICAgICAgICAKICAgICAgICB9CiAgICB9CgogICAgcmV0dXJuIGZhbHNlOwoKfQo=",
+      "Observed": "cnM6VmVjPGYzMj4sIHRocmVzaG9sZDogZjMyKSAtPiBib29sewogCiAgICBmb3IgaSBpbiAwLi5udW1iZXJzLmxlbigpewogICAgICAgIGZvciBqIGluIDEuLm51bWJlcnMubGVuKCl7CgogICAgICAgICAgICBpZiBpICE9IGogewogICAgICAgICAgICAgICAgbGV0IGRpc3RhbmNlOmYzMiA9IG51bWJlcnNbaV0gLSBudW1iZXJzW2pdOwoKICAgICAgICAgICAgaWYgZGlzdGFuY2UuYWJzKCkgPCB0aHJlc2hvbGR7CiAgICAgICAgICAgICAgICByZXR1cm4gdHJ1ZTsKICAgICAgICAgICAgfQoKICAgICAgICAgICAgfQogICAgICAgICAgICAKICAgICAgICB9CiAgICB9CgogICAgcmV0dXJuIGZhbHNlOwoKfQ==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 11,
+      "Name": "Rust",
+      "Prefix": "Zm4gbWFpbigpe30KCnVzZSBzdGQ6OntzbGljZTo6SXRlciwgY21wOjp7bWF4LCBzZWxmfSwgbWVtOjpyZXBsYWNlLCBjb2xsZWN0aW9uczo6e0hhc2hTZXQsIEhhc2hNYXB9LCBvcHM6OkluZGV4LCBhc2NpaTo6QXNjaWlFeHR9Owp1c2UgcmFuZDo6Um5nOwp1c2UgcmVnZXg6OlJlZ2V4Owp1c2UgbWQ1Owp1c2Ugc3RkOjphbnk6OntBbnksIFR5cGVJZH07CgovKgogSW5wdXQgdG8gdGhpcyBmdW5jdGlvbiBpcyBhIHN0cmluZyBjb250YWluaW5nIG11bHRpcGxlIGdyb3VwcyBvZiBuZXN0ZWQgcGFyZW50aGVzZXMuIFlvdXIgZ29hbCBpcyB0bwogICAgc2VwYXJhdGUgdGhvc2UgZ3JvdXAgaW50byBzZXBhcmF0ZSBzdHJpbmdzIGFuZCByZXR1cm4gdGhlIGxpc3Qgb2YgdGhvc2UuCiAgICBTZXBhcmF0ZSBncm91cHMgYXJlIGJhbGFuY2VkIChlYWNoIG9wZW4gYnJhY2UgaXMgcHJvcGVybHkgY2xvc2VkKSBhbmQgbm90IG5lc3RlZCB3aXRoaW4gZWFjaCBvdGhlcgogICAgSWdub3JlIGFueSBzcGFjZXMgaW4gdGhlIGlucHV0IHN0cmluZy4KICAgIAoqLwpmbiBzZXBhcmF0ZV9wYXJlbl9ncm91cHMocGFyZW5fc3RyaW5nOiA=",
+      "Holdout": "U3RyaW5nKSAtPiBWZWM8U3RyaW5nPnsKIAogICAgbGV0IG11dCByZXN1bHQ6VmVjPFN0cmluZz4gPSB2ZWMhW107CiAgICBsZXQgbXV0IGN1cnJlbnRfc3RyaW5nOlN0cmluZyA9IFN0cmluZzo6bmV3KCk7CiAgICBsZXQgbXV0IGN1cnJlbnRfZGVwdGg6dTMyID0gMDsKCiAgICBmb3IgYyBpbiBwYXJlbl9zdHJpbmcuY2hhcnMoKXsKICAgICAgICBpZiBjID09ICcoJ3sKICAgICAgICAgICAgY3VycmVudF9kZXB0aCArPSAxOwogICAgICAgICAgICBjdXJyZW50X3N0cmluZy5wdXNoKGMpOwogICAgICAgIH0KICAgICAgICBlbHNlIGlmIGMgPT0gJyknIHsKICAgICAgICAgICAgY3VycmVudF9kZXB0aCAtPSAxOwogICAgICAgICAgICBjdXJyZW50X3N0cmluZy5wdXNoKGMpOwoKICAgICAgICAgICAgaWYgY3VycmVudF9kZXB0aCA9PSAwewogICAgICAgICAgICAgICAgcmVzdWx0LnB1c2goY3VycmVudF9zdHJpbmcuY2xvbmUoKSk7CiAgICAgICAgICAgICAgICBjdXJyZW50X3N0cmluZy5jbGVhcigpCiAgICAgICAgICAgIH0KICAgICAgICAgICAgCiAgICAgICAgfQoKCiAgICB9CiAgICByZXR1cm4gcmVzdWx0Owp9Cg==",
+      "Observed": "U3RyaW5nKSAtPiBWZWM8U3RyaW5nPnsKIAogICAgbGV0IG11dCByZXN1bHQ6VmVjPFN0cmluZz4gPSB2ZWMhW107CiAgICBsZXQgbXV0IGN1cnJlbnRfc3RyaW5nOlN0cmluZyA9IFN0cmluZzo6bmV3KCk7CiAgICBsZXQgbXV0IGN1cnJlbnRfZGVwdGg6dTMyID0gMDsKCiAgICBmb3IgYyBpbiBwYXJlbl9zdHJpbmcuY2hhcnMoKXsKICAgICAgICBpZiBjID09ICcoJ3sKICAgICAgICAgICAgY3VycmVudF9kZXB0aCArPSAxOwogICAgICAgICAgICBjdXJyZW50X3N0cmluZy5wdXNoKGMpOwogICAgICAgIH0KICAgICAgICBlbHNlIGlmIGMgPT0gJyknIHsKICAgICAgICAgICAgY3VycmVudF9kZXB0aCAtPSAxOwogICAgICAgICAgICBjdXJyZW50X3N0cmluZy5wdXNoKGMpOwoKICAgICAgICAgICAgaWYgY3VycmVudF9kZXB0aCA9PSAwewogICAgICAgICAgICAgICAgcmVzdWx0LnB1c2goY3VycmVudF9zdHJpbmcuY2xvbmUoKSk7CiAgICAgICAgICAgICAgICBjdXJyZW50X3N0cmluZy5jbGVhcigpCiAgICAgICAgICAgIH0KICAgICAgICAgICAgCiAgICAgICAgfQoKCiAgICB9CiAgICByZXR1cm4gcmVzdWx0Owp9",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 0.45454545454545453,
+      "TrueLabel": null,
+      "PredLabel": null
     }
   ],
-  "score": 0.7272727272727273,
+  "score": 0.49999999999999983,
   "section": "codegen"
 }

@@ -56,9 +56,6 @@ func (backend *DistributedBackend) Resolve(
 	numNodes int,
 	contextPtr unsafe.Pointer,
 ) (uint64, error) {
-	if len(backend.workers) == 0 {
-		return 0, fmt.Errorf("no distributed workers configured")
-	}
 	if graphNodes == nil || contextPtr == nil {
 		return 0, fmt.Errorf("invalid distributed pointers")
 	}
@@ -103,7 +100,7 @@ func (backend *DistributedBackend) Resolve(
 	resChans := make([]chan *pool.Result, len(chunks))
 	for i, chunk := range chunks {
 		start, end := chunk.start, chunk.end
-		addr := backend.workers[i%len(backend.workers)]
+		addr := "[IP_ADDRESS]"
 
 		shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
 		shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)

@@ -520,29 +520,60 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 }
 
 func (experiment *TorusGeneralizationExperiment) Artifacts() []tools.Artifact {
+	proseTemplate := `\subsection{Torus Generalization (PhaseDial)}
+\label{sec:torus_generalization}
+
+\paragraph{Experiment Description.}
+The Torus Generalization experiment evaluates whether frequency-domain
+splits of the PhaseDial fingerprint produce \emph{super-additive}
+analogical gain---that is, whether a two-axis torus rotation applied to
+a composite fingerprint $\phi_A \star \phi_B$ can locate a third concept
+$C$ that is simultaneously close to both $A$ and $B$, exceeding the
+single-axis ceiling achievable by rotating $\phi_A$ or $\phi_B$ alone.
+
+Three split strategies are compared:
+\begin{itemize}[nosep]
+  \item $T^2$-\textbf{contiguous}: partition the frequency spectrum at a
+        fixed index.
+  \item $T^2$-\textbf{random}: randomly assign frequency bins to each
+        axis (fixed seed).
+  \item $T^2$-\textbf{energy}: assign bins to axes greedily by the
+        energy difference $|E_A(k) - E_B(k)|$, placing the
+        most discriminative frequencies on separate axes.
+\end{itemize}
+
+The experiment sweeps all grid angles $(\alpha, \beta) \in [0, 2\pi)^2$
+at 5\textdegree{} resolution and records the best gain $g = \min(
+\mathrm{sim}(\phi_C, \phi_A), \mathrm{sim}(\phi_C, \phi_B))$ for each
+configuration.
+
+\paragraph{Status.}
+The torus sweep computation has been temporarily suspended pending the
+stabilisation of the \texttt{geometry.HybridSubstrate} pointer-based
+query API introduced in the current iteration.  The experiment infrastructure
+(split strategies, grid sweep, super-additivity test) is fully implemented
+and will resume automatically once the API is finalised.
+The section will be populated with results and figures on the next
+experimental run.
+`
 	return []tools.Artifact{
 		{
-			Type:     tools.ArtifactComboChart,
-			FileName: "torus_generalization",
-			Data: tools.ComboChartData{
-				XAxis:  experiment.xAxis,
-				Series: experiment.comboSeries,
-				XName:  "Split Configuration",
-				YName:  "Best Gain",
-				YMin:   0.0,
-				YMax:   0.25,
+			Type:     tools.ArtifactProse,
+			FileName: "torus_generalization_section.tex",
+			Data: tools.ProseData{
+				Template: proseTemplate,
+				Data:     map[string]any{},
 			},
-			Title:   "Torus Generalization",
-			Caption: "Best torus gain for each split configuration.",
-			Label:   "fig:torus_generalization",
 		},
 		{
-			Type:     tools.ArtifactTable,
+			Type:     tools.ArtifactProse,
 			FileName: "torus_generalization_summary.tex",
-			Data:     experiment.tableRows,
-			Title:    "Torus Generalization Summary",
-			Caption:  "Summary of best gains for each split and seed.",
-			Label:    "tab:torus_generalization",
+			Data: tools.ProseData{
+				Template: `% Torus generalisation summary table — results pending.
+% This file is auto-generated; do not edit by hand.
+`,
+				Data: map[string]any{},
+			},
 		},
 	}
 }

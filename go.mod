@@ -6,28 +6,42 @@ require (
 	github.com/charmbracelet/log v0.4.0
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
+	github.com/gomlx/gemma v0.0.0-20241101110232-83792b257ba9
+	github.com/gomlx/gomlx v0.15.0
 	github.com/parquet-go/parquet-go v0.28.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	github.com/tphakala/simd v0.0.0-00010101000000-000000000000
 )
 
 require (
-	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
+	github.com/charmbracelet/colorprofile v0.3.0 // indirect
+	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
+	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381 // indirect
-	github.com/theapemachine/errnie v0.0.4 // indirect
-	github.com/theapemachine/qpool v0.0.2 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/eliben/go-sentencepiece v0.6.0 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/gomlx/exceptions v0.0.3 // indirect
+	github.com/gomlx/gopjrt v0.4.4 // indirect
+	github.com/mattn/go-runewidth v0.0.16 // indirect
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/schollz/progressbar/v3 v3.17.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
+	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/sync v0.18.0 // indirect
+	golang.org/x/term v0.37.0 // indirect
+	k8s.io/klog/v2 v2.130.1 // indirect
 )
 
 require (
 	capnproto.org/go/capnp/v3 v3.1.0-alpha.2
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/charmbracelet/lipgloss v0.13.0 // indirect
-	github.com/charmbracelet/x/ansi v0.2.3 // indirect
+	github.com/charmbracelet/lipgloss v1.1.0 // indirect
+	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -44,7 +58,7 @@ require (
 	github.com/klauspost/compress v1.17.10 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
-	github.com/muesli/termenv v0.15.3-0.20240618155329-98d742f6907a // indirect
+	github.com/muesli/termenv v0.16.0 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
@@ -60,10 +74,10 @@ require (
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
-	golang.org/x/exp v0.0.0-20240604190554-fc45aab8b7f8 // indirect
-	golang.org/x/sys v0.38.0 // indirect
+	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect
+	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/text v0.31.0 // indirect
-	google.golang.org/protobuf v1.36.8 // indirect
+	google.golang.org/protobuf v1.36.10 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	k8s.io/client-go v0.35.2

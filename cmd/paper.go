@@ -104,6 +104,12 @@ var paperCmd = &cobra.Command{
 			slices.Sort(texFiles)
 
 			for _, texFile := range texFiles {
+				// Skip the auto-generated experiments index — it re-includes the
+				// same section files already emitted from their home directories,
+				// which causes multiply-defined label errors in pdflatex.
+				if strings.HasSuffix(texFile, "sections/experiments.tex") {
+					continue
+				}
 				// Convert windows path to unix if needed
 				texFile = strings.ReplaceAll(texFile, "\\", "/")
 				fmt.Fprintf(mainFile, "\\InputIfFileExists{%s}{}{}\n", texFile)

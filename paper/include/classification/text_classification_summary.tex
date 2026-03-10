@@ -1,0 +1,38 @@
+\begin{table}[htbp]
+\centering
+\caption{Text Classification — standardised result summary (N=2).}
+\label{tab:text_classification_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 2 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & Text Classification & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+1 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (2 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{Fears for T N pension after talks Unions\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{sci\_tech}} \\
+\multicolumn{2}{l}{\texttt{The Race is On: Second Private Team Sets\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{e first\textbackslash\{\}launch date for its manned rocke\textbackslash\{\}ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 2} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.2273} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.4545} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{206.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4.01 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{2.00 s} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{4.21 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

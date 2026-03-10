@@ -12,6 +12,6 @@ cuda:
 		&& cd ../../
 
 paper:
-	-go test ./experiment/task/...
+	-go test -v ./experiment/task/
 	go run main.go paper
 	cd paper && pdflatex main.tex

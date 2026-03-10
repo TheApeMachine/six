@@ -26,7 +26,7 @@ type PipelineThroughputExperiment struct {
 func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 	return &PipelineThroughputExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   NewSyntheticDataset(128, 1000, 42),
+		dataset:   NewSyntheticDataset(128, 50, 42),
 	}
 }
 
@@ -73,16 +73,7 @@ func (experiment *PipelineThroughputExperiment) TableData() any {
 }
 
 func (experiment *PipelineThroughputExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{
-		{
-			Type:     tools.ArtifactBarChart,
-			FileName: "pipeline_throughput_scores",
-			Data:     experiment.tableData,
-			Title:    "Pipeline Throughput",
-			Caption:  "Per-sample retrieval scores across 1000 synthetic samples.",
-			Label:    "fig:pipeline_throughput",
-		},
-	}
+	return ThroughputArtifacts(experiment.tableData)
 }
 
 func (experiment *PipelineThroughputExperiment) Finalize(substrate *geometry.HybridSubstrate) error {

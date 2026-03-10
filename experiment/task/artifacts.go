@@ -80,6 +80,33 @@ func WriteTable(data any, outFile string, section ...string) error {
 	return projector.WriteTable(data, dir, outFile)
 }
 
+func WriteStandardSummary(
+	name, section string,
+	rows []tools.ExperimentalData,
+	holdoutN int,
+	holdoutType string,
+	timing runTiming,
+) error {
+	dir, err := ensurePaperDir(section)
+	if err != nil {
+		return err
+	}
+
+	outFile := tools.Slugify(name) + "_summary.tex"
+	return projector.WriteSummaryTable(
+		name, section, rows,
+		holdoutN, holdoutType,
+		projector.DefaultSummaryConfig(),
+		projector.RunTiming{
+			LoadDur:     timing.loadDur,
+			PromptDur:   timing.promptDur,
+			FinalizeDur: timing.finalizeDur,
+			N:           timing.n,
+		},
+		dir, outFile,
+	)
+}
+
 func WriteJSONFile(data any, outFile string, section ...string) error {
 	dir, err := ensurePaperDir(section...)
 
@@ -220,6 +247,22 @@ func WriteImageStrip(rows []tools.ImageStripRow, title, caption, label, filename
 	defer f.Close()
 
 	return projector.WriteImageStrip(projectorImageStripRows(rows), title, caption, label, dir, filename, f)
+}
+
+func WritePolarConstraint(data projector.PolarConstraintData, filename string, section ...string) error {
+	dir, err := ensurePaperDir(section...)
+	if err != nil {
+		return err
+	}
+
+	f, err := os.Create(filepath.Join(dir, filename+".tex"))
+	if err != nil {
+		return err
+	}
+
+	defer f.Close()
+
+	return projector.WritePolarConstraint(data, dir, filename, f)
 }
 
 func projectorBarSeries(series []tools.BarSeries) []projector.BarSeries {

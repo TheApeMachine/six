@@ -1,18 +1,18 @@
 {
   "artifacts": [
     {
-      "caption": "Best torus gain for each split configuration.",
-      "file_name": "torus_generalization",
-      "label": "fig:torus_generalization",
-      "title": "Torus Generalization",
-      "type": "combo"
+      "caption": "",
+      "file_name": "torus_generalization_section.tex",
+      "label": "",
+      "title": "",
+      "type": "prose"
     },
     {
-      "caption": "Summary of best gains for each split and seed.",
+      "caption": "",
       "file_name": "torus_generalization_summary.tex",
-      "label": "tab:torus_generalization",
-      "title": "Torus Generalization Summary",
-      "type": "table"
+      "label": "",
+      "title": "",
+      "type": "prose"
     }
   ],
   "name": "Torus Generalization",

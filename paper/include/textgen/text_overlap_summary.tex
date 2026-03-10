@@ -1,0 +1,57 @@
+\begin{table}[htbp]
+\centering
+\caption{Text Overlap — standardised result summary (N=20).}
+\label{tab:text_overlap_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+12 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+1 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+18 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+5 & Text Overlap & 0.0000 & 0.0458 & 0.0243 & 0.0169 \\
+6 & Text Overlap & 0.0000 & 0.1038 & 0.0676 & 0.0406 \\
+17 & Text Overlap & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{One day, a girl named Mia went for a wal\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{ee. Mia wanted to help the bird.
+
+Mia op\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{ee. Mia wanted to help the bird.
+
+Mia op\textbackslash\{\}ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.
+
+Beep playe\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.
+
+Beep playe\textbackslash\{\}ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a big lake, there w\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{t was time for Tim to go home. He said g\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{d. The wind told the cherry tree not to \textbackslash\{\}ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a small town, there\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{Lily pulled it out and saw that it was h\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{in the castle, Lily found a big cobweb. \textbackslash\{\}ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 20} & \multicolumn{3}{l}{Holdout: 40\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.5483} & \multicolumn{3}{l}{Min: 0.0169 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{508.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{13.85 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{692.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{14.36 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

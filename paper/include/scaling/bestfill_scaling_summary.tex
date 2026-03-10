@@ -1,0 +1,38 @@
+\begin{table}[htbp]
+\centering
+\caption{BestFill Scaling — standardised result summary (N=5).}
+\label{tab:bestfill_scaling_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & dict=100 & 0.0000 & 0.0000 & 100.0000 & 1.0000 \\
+1 & dict=500 & 0.0000 & 0.0000 & 500.0000 & 1.0000 \\
+2 & dict=1000 & 0.0000 & 0.0000 & 1000.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 2 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+4 & dict=12438 & 0.0000 & 0.0000 & 12438.0000 & 1.0000 \\
+3 & dict=5000 & 0.0000 & 0.0000 & 5000.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 5} & \multicolumn{3}{l}{Holdout: 32\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 1.0000} & \multicolumn{3}{l}{Min: 1.0000 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{99.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{97µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{100.0 ms}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}
