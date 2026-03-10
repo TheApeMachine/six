@@ -6,14 +6,14 @@
       "Name": "Languages",
       "Prefix": "ZGVmIHJlbW92ZV9PY2MocyxjaCk6IA0KICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSk6IA0KICAgICAgICBpZiAoc1tpXSA9PSBjaCk6IA0KICAgICAgICAgICAgcyA9IHNbMCA6IGldICsgc1tpICsgMTpdIA0KICAgICAgICAgICAgYnJlYWsNCg==",
       "Holdout": "ICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
-      "Observed": "ICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -22,14 +22,14 @@
       "Name": "Languages",
       "Prefix": "ZGVmIHNvcnRfbWF0cml4KE0pOg0KICAgIHJlc3VsdCA9IHNv",
       "Holdout": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
-      "Observed": "ICAgICAgICBicmVhaw0KICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.05714285714285714,
-        "Fuzzy": 0.012987012987012988
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.0179456906729634,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     }

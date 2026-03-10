@@ -85,18 +85,15 @@ func (tokenizer *Universal) Generate() chan Token {
 			if rawToken.SampleID != tokenizer.sampleID {
 				tokenizer.sampleID = rawToken.SampleID
 				tokenizer.tokens.Reset()
+				tokenizer.pos = 0
 
 				console.Trace(
 					"tokenizer-boundary",
 					"sequence", tokenizer.tokens.String(),
 				)
 
-				// Reset sequencer state per sample so the buffer
-				// doesn't grow unbounded across samples.
 				if tokenizer.useSequencer {
 					tokenizer.sequencer = NewSequencer(NewCalibrator())
-				} else {
-					tokenizer.pos = 0
 				}
 			}
 
@@ -130,15 +127,6 @@ func (tokenizer *Universal) Generate() chan Token {
 
 			streamPos++
 			tokenizer.pos++
-		}
-
-		// Emit the trailing data after the last boundary as a final sequence.
-		if tokenizer.tokens.Len() > 0 {
-			console.Trace(
-				"tokenizer-boundary",
-				"sequence", tokenizer.tokens.String(),
-			)
-			tokenizer.tokens.Reset()
 		}
 	}()
 

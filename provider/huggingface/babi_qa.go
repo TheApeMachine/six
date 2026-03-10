@@ -67,14 +67,14 @@ func (dataset *BabiQADataset) Generate() chan provider.RawToken {
 		}
 
 		for sampleID, sample := range samples {
-			var pos uint32
-			for _, b := range []byte(sample.Full) {
-				out <- provider.RawToken{
-					SampleID: uint32(sampleID),
-					Symbol:   b,
-					Pos:      pos,
+			for i, smpl := range strings.Split(sample.Full, ".") {
+				for idx, b := range []byte(smpl) {
+					out <- provider.RawToken{
+						SampleID: uint32(sampleID + i + idx),
+						Symbol:   b,
+						Pos:      uint32(idx),
+					}
 				}
-				pos++
 			}
 		}
 	}()
