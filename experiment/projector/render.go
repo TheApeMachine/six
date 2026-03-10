@@ -31,22 +31,16 @@ func ExportPDFWithSize(htmlPath, pdfPath string, width, height int) error {
 		height = 800
 	}
 
-	allocatorOptions := slices.Clone(chromedp.DefaultExecAllocatorOptions[:])
-
-	for _, arg := range browserAllocatorArgs() {
-		allocatorOptions = append(allocatorOptions, chromedp.Flag(arg, true))
-	}
-
-	allocatorCtx, cancel := chromedp.NewExecAllocator(
-		context.Background(), allocatorOptions...,
+	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(
+		context.Background(), browserAllocatorOptions()...,
 	)
-	defer cancel()
+	defer allocatorCancel()
 
-	ctx, cancel := chromedp.NewContext(allocatorCtx)
-	defer cancel()
+	ctx, ctxCancel := chromedp.NewContext(allocatorCtx)
+	defer ctxCancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer timeoutCancel()
 
 	var buf []byte
 	if err := chromedp.Run(ctx,
@@ -89,9 +83,13 @@ func pxToInches(px int) float64 {
 	return math.Round(float64(px)/96.0*1000) / 1000
 }
 
-func browserAllocatorArgs() []string {
-	return []string{
-		"no-sandbox",
-		"disable-setuid-sandbox",
-	}
+// browserAllocatorOptions configures Chrome for headless CI environments where
+// Linux sandboxing is unavailable. These flags reduce browser isolation, so
+// they should remain scoped to local HTML/PDF rendering only.
+func browserAllocatorOptions() []chromedp.ExecAllocatorOption {
+	return append(
+		slices.Clone(chromedp.DefaultExecAllocatorOptions[:]),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
+	)
 }
