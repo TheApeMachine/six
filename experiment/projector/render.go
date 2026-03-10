@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/chromedp/cdproto/emulation"
@@ -30,7 +31,18 @@ func ExportPDFWithSize(htmlPath, pdfPath string, width, height int) error {
 		height = 800
 	}
 
-	ctx, cancel := chromedp.NewContext(context.Background())
+	allocatorOptions := slices.Clone(chromedp.DefaultExecAllocatorOptions[:])
+
+	for _, arg := range browserAllocatorArgs() {
+		allocatorOptions = append(allocatorOptions, chromedp.Flag(arg, true))
+	}
+
+	allocatorCtx, cancel := chromedp.NewExecAllocator(
+		context.Background(), allocatorOptions...,
+	)
+	defer cancel()
+
+	ctx, cancel := chromedp.NewContext(allocatorCtx)
 	defer cancel()
 
 	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
@@ -75,4 +87,11 @@ func ExportPDFWithSize(htmlPath, pdfPath string, width, height int) error {
 // pxToInches converts CSS pixels (96 DPI) to inches for the PDF paper size.
 func pxToInches(px int) float64 {
 	return math.Round(float64(px)/96.0*1000) / 1000
+}
+
+func browserAllocatorArgs() []string {
+	return []string{
+		"no-sandbox",
+		"disable-setuid-sandbox",
+	}
 }
