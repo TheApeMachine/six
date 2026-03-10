@@ -28,7 +28,7 @@ func TestBuildBabiQASamples(t *testing.T) {
 	)
 	require.Equal(t, "bathroom", samples[0].Answer)
 	require.Equal(t,
-		"Mary moved to the bathroom. John went to the hallway. Where is Mary?",
+		"Mary moved to the bathroom. John went to the hallway. Where is Mary?bathroom",
 		samples[0].Full,
 	)
 
@@ -37,6 +37,10 @@ func TestBuildBabiQASamples(t *testing.T) {
 		samples[1].Visible,
 	)
 	require.Equal(t, "office", samples[1].Answer)
+	require.Equal(t,
+		"Mary moved to the bathroom. John went to the hallway. Daniel went back to the office. Where is Daniel?office",
+		samples[1].Full,
+	)
 }
 
 func TestBuildBabiQASamplesFallsBackToQuestionMarks(t *testing.T) {
@@ -54,4 +58,5 @@ func TestBuildBabiQASamplesFallsBackToQuestionMarks(t *testing.T) {
 	require.Len(t, samples, 1)
 	require.Equal(t, "Mary moved to the bathroom. Where is Mary?", samples[0].Visible)
 	require.Equal(t, "bathroom", samples[0].Answer)
+	require.Equal(t, "Mary moved to the bathroom. Where is Mary?bathroom", samples[0].Full)
 }

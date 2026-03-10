@@ -230,7 +230,7 @@ func buildBabiQASamples(texts, answers []string, types []int) []BabiQASample {
 			samples = append(samples, BabiQASample{
 				Visible: visible,
 				Answer:  answer,
-				Full:    visible,
+				Full:    visible + answer,
 			})
 			continue
 		}

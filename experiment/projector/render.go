@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"os"
+	"slices"
 	"time"
 
 	"github.com/chromedp/cdproto/emulation"
@@ -30,11 +31,16 @@ func ExportPDFWithSize(htmlPath, pdfPath string, width, height int) error {
 		height = 800
 	}
 
-	ctx, cancel := chromedp.NewContext(context.Background())
-	defer cancel()
+	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(
+		context.Background(), browserAllocatorOptions()...,
+	)
+	defer allocatorCancel()
 
-	ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
+	ctx, ctxCancel := chromedp.NewContext(allocatorCtx)
+	defer ctxCancel()
+
+	ctx, timeoutCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer timeoutCancel()
 
 	var buf []byte
 	if err := chromedp.Run(ctx,
@@ -75,4 +81,15 @@ func ExportPDFWithSize(htmlPath, pdfPath string, width, height int) error {
 // pxToInches converts CSS pixels (96 DPI) to inches for the PDF paper size.
 func pxToInches(px int) float64 {
 	return math.Round(float64(px)/96.0*1000) / 1000
+}
+
+// browserAllocatorOptions configures Chrome for headless CI environments where
+// Linux sandboxing is unavailable. These flags reduce browser isolation, so
+// they should remain scoped to local HTML/PDF rendering only.
+func browserAllocatorOptions() []chromedp.ExecAllocatorOption {
+	return append(
+		slices.Clone(chromedp.DefaultExecAllocatorOptions[:]),
+		chromedp.Flag("no-sandbox", true),
+		chromedp.Flag("disable-setuid-sandbox", true),
+	)
 }

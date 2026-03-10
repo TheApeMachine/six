@@ -103,3 +103,26 @@ func TestGenerateWithNilDataset(t *testing.T) {
 		t.Fatalf("expected no tokens from nil dataset, got %d", count)
 	}
 }
+
+func TestGenerateEmitsBoundaryBetweenSamples(t *testing.T) {
+	Convey("Given a Dataset with multiple sample IDs", t, func() {
+		dataset := createMockDataset("abc", "def")
+		tokenizer := NewUniversal(
+			TokenizerWithDataset(dataset),
+		)
+
+		Convey("When Generate is called", func() {
+			boundaries := 0
+
+			for token := range tokenizer.Generate() {
+				if token.IsBoundary {
+					boundaries++
+				}
+			}
+
+			Convey("It should emit a boundary between samples and at stream end", func() {
+				So(boundaries, ShouldEqual, 2)
+			})
+		})
+	})
+}
