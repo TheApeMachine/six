@@ -9,11 +9,11 @@
       "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 4,
-        "Partial": 0.5,
+        "Exact": 1,
+        "Partial": 0.125,
         "Fuzzy": 0
       },
-      "WeightedTotal": 0.5,
+      "WeightedTotal": 0.125,
       "TrueLabel": null,
       "PredLabel": null
     }
