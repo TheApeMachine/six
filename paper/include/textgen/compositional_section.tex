@@ -12,8 +12,8 @@ The held-out target (rightmost 30\% of each sample) must be reconstructed
 purely from chord attractor resonance over the ingested story patterns.
 
 \paragraph{Results.}
-Across $N = 20$ test samples the mean weighted score was 0.651
-(exact: 40.0\%, partial: 0.954).
+Across $N = 20$ test samples the mean weighted score was 0.700
+(exact: 45.0\%, partial: 1.000).
 \paragraph{Assessment.}
 The substrate achieved strong structural recall, demonstrating that the chord
 attractor field captures the compositional regularities of TinyStories prose.
@@ -21,13 +21,3 @@ The high partial score indicates the system falls into the correct semantic
 neighbourhood even when exact byte-level recovery is incomplete.
 
 Figure~\ref{fig:compositional_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{compositional_map.tex}{}{}
-  \caption{Compositional pattern recall trial map ($N = 20$ TinyStories
-    samples, 30\% RIGHT holdout). Viridis heatmap (left): per-sample
-    score breakdown. Bar chart (right): weighted score per sample with
-    mean reference.}
-  \label{fig:compositional_map}
-\end{figure}

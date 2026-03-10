@@ -43,6 +43,7 @@ func init() {
 	viper.SetDefault("architecture.numerics.nbasis", 512)
 	viper.SetDefault("architecture.numerics.chordBlocks", 16)
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
+	viper.SetDefault("architecture.numerics.shannonCapacity", 0.45)
 
 	viper.SetDefault("cortex.initialNodes", 8)
 
@@ -84,6 +85,7 @@ type Architecture struct {
 	WindowWeights   []float64
 	ChordBlocks     int
 	FrequencySpread float64
+	ShannonCapacity float64
 }
 
 type CortexConfig struct {
@@ -141,6 +143,7 @@ func (ctx *Config) Load() error {
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
 	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
+	ctx.Architecture.ShannonCapacity = v.GetFloat64("architecture.numerics.shannonCapacity")
 
 	minWorkers := v.GetInt("system.workers.min")
 	maxWorkersStr := v.GetString("system.workers.max")

@@ -318,17 +318,6 @@ longer samples or larger \textit{N} would widen the attractor gap and make
 the shift detectable.
 {{- end}}
 
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{ruleshift_trajectory.tex}{}{}
-  \caption{Rule-shift adaptation trajectory over ${{.Total}}$ steps.
-    \textbf{Top}: per-step rule alignment $K_A$ (blue) and $K_B$ (red),
-    confidence $\frac{K_A+K_B}{2}$ (dashed blue), and
-    edge sharpness $|K_A-K_B|$ (dashed red).
-    Vertical dashed line marks the rule shift at step {{.ShiftStep}}.
-    \textbf{Bottom}: dominant rule at each step (A\,=\,blue, B\,=\,red).}
-  \label{fig:ruleshift_trajectory}
-\end{figure}
 `
 
 	// Per-phase winner counts.

@@ -142,6 +142,22 @@
 
 \maketitle
 
+\graphicspath{{include/sections/}}
+
+\InputIfFileExists{include/sections/abstract.tex}{}{}
+\InputIfFileExists{include/sections/introduction.tex}{}{}
+\InputIfFileExists{include/sections/bestfill_pipeline.tex}{}{}
+\InputIfFileExists{include/sections/bvp_generation.tex}{}{}
+\InputIfFileExists{include/sections/chord_representation.tex}{}{}
+\InputIfFileExists{include/sections/eigenmode_navigation.tex}{}{}
+\InputIfFileExists{include/sections/hybrid_substrate.tex}{}{}
+\InputIfFileExists{include/sections/manifold_architecture.tex}{}{}
+\InputIfFileExists{include/sections/primefield_storage.tex}{}{}
+\InputIfFileExists{include/sections/tokenizer_sequencer.tex}{}{}
+\InputIfFileExists{include/sections/vm_machine.tex}{}{}
+\FloatBarrier
+\clearpage
+
 \section{Architecture}
 
 \graphicspath{{include/architecture/}}
@@ -219,6 +235,9 @@
 \InputIfFileExists{include/misc/crossdomaincompletion_map.tex}{}{}
 \InputIfFileExists{include/misc/crossdomaincompletion_section.tex}{}{}
 \InputIfFileExists{include/misc/crossdomaincompletion_summary.tex}{}{}
+\InputIfFileExists{include/misc/ruleshift_section.tex}{}{}
+\InputIfFileExists{include/misc/ruleshift_summary.tex}{}{}
+\InputIfFileExists{include/misc/ruleshift_trajectory.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -233,6 +252,9 @@
 \InputIfFileExists{include/phasedial/chunking_baseline_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/chunking_variation_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/composition_trace.tex}{}{}
+\InputIfFileExists{include/phasedial/constraint_resolution_polar.tex}{}{}
+\InputIfFileExists{include/phasedial/constraint_resolution_section.tex}{}{}
+\InputIfFileExists{include/phasedial/constraintresolution_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/correlation_length_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/group_action_equivariance_summary.tex}{}{}
 \InputIfFileExists{include/phasedial/partial_deletion_summary.tex}{}{}
@@ -269,27 +291,6 @@
 \FloatBarrier
 \clearpage
 
-\section{Sections}
-
-\graphicspath{{include/sections/}}
-
-\InputIfFileExists{include/sections/abstract.tex}{}{}
-\InputIfFileExists{include/sections/bestfill_pipeline.tex}{}{}
-\InputIfFileExists{include/sections/bvp_generation.tex}{}{}
-\InputIfFileExists{include/sections/chord_representation.tex}{}{}
-\InputIfFileExists{include/sections/conclusion.tex}{}{}
-\InputIfFileExists{include/sections/discussion.tex}{}{}
-\InputIfFileExists{include/sections/eigenmode_navigation.tex}{}{}
-\InputIfFileExists{include/sections/hybrid_substrate.tex}{}{}
-\InputIfFileExists{include/sections/introduction.tex}{}{}
-\InputIfFileExists{include/sections/manifold_architecture.tex}{}{}
-\InputIfFileExists{include/sections/primefield_storage.tex}{}{}
-\InputIfFileExists{include/sections/related_work.tex}{}{}
-\InputIfFileExists{include/sections/tokenizer_sequencer.tex}{}{}
-\InputIfFileExists{include/sections/vm_machine.tex}{}{}
-\FloatBarrier
-\clearpage
-
 \section{Textgen}
 
 \graphicspath{{include/textgen/}}
@@ -309,4 +310,10 @@
 \FloatBarrier
 \clearpage
 
+\graphicspath{{include/sections/}}
+\InputIfFileExists{include/sections/discussion.tex}{}{}
+\InputIfFileExists{include/sections/conclusion.tex}{}{}
+\InputIfFileExists{include/sections/related_work.tex}{}{}
+\FloatBarrier
+\clearpage
 \end{document}

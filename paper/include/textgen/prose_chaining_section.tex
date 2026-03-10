@@ -15,7 +15,7 @@ structural chord resonance remains viable --- making it a sharper
 discriminator for the architecture's generative capabilities.
 
 \paragraph{Results.}
-Across $N = 10$ test samples the mean weighted score was 0.412.
+Across $N = 10$ test samples the mean weighted score was 0.455.
 
 \paragraph{Assessment.}
 The substrate successfully chained through the wikitext-103 attractor field
@@ -24,11 +24,3 @@ structural bridging well beyond the prompt boundary.  This result is
 particularly significant given the large vocabulary size of wikitext-103.
 
 Figure~\ref{fig:prose_chaining_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{prose_chaining_map.tex}{}{}
-  \caption{Prose chaining trial map ($N = 10$ WikiText-103 samples,
-    60\% RIGHT holdout --- the most demanding textgen configuration).}
-  \label{fig:prose_chaining_map}
-\end{figure}

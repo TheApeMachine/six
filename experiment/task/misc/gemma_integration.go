@@ -287,6 +287,9 @@ func (exp *GemmaIntegrationExperiment) RawOutput() bool { return false }
 func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	hfToken := os.Getenv("HF_TOKEN")
 	if hfToken == "" {
+		hfToken = os.Getenv("HF_API_TOKEN")
+	}
+	if hfToken == "" {
 		return fmt.Errorf("GemmaIntegration: HF_TOKEN not set")
 	}
 
@@ -729,16 +732,6 @@ override Gemma's base prior.  Larger ingestion volumes will sharpen the
 attractor field and increase the projection contrast ratio.
 {{- end}}
 
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{gemmaintegration_composite.tex}{}{}
-  \caption{Gemma\,2B-IT vs.\ Gemma+Manifold.
-    \textbf{Top left}: wall-clock latency by case.
-    \textbf{Top right}: task success (heuristic substring match).
-    \textbf{Bottom}: KV-replacement latency and success by document size.
-    $N_\text{graft}={{.NGraft}}$, $N_\text{KV}={{.NKV}}$.}
-  \label{fig:gemma_integration}
-\end{figure}
 `
 
 	return []tools.Artifact{

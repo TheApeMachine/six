@@ -54,7 +54,7 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 		datasets[i] = huggingface.New(
 			huggingface.DatasetWithRepo("bigcode/humanevalpack"),
 			huggingface.DatasetWithSubset(lang.Subset),
-			huggingface.DatasetWithSamples(2),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumns("prompt", "canonical_solution"),
 		)
 	}
@@ -240,15 +240,6 @@ substrate has not yet built sufficient attractor density to reliably distinguish
 language-specific code patterns.  Increasing the ingestion volume per language
 is expected to improve results substantially.
 {{- end}}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{` + chartFile + `.tex}{}{}
-  \caption{Per-language code-generation scores (exact, partial, fuzzy, weighted)
-    on \texttt{bigcode/humanevalpack}.
-    Each group represents the mean over ${{.SamplesPerLang}}$ samples.}
-  \label{fig:languages_scores}
-\end{figure}
 `
 
 	samplesPerLang := 0

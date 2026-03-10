@@ -24,32 +24,11 @@ representative 50\% holdout level: each row presents the Original, the
 Prompt (bottom half zeroed), the Reconstructed image, and an automatically
 computed Error Heatmap (green = zero error, red = maximum error).
 
-Across all holdout levels the overall weighted score was 0.000.
+Across all holdout levels the overall weighted score was 0.361.
 
 \paragraph{Assessment.}
-Reconstruction quality was low across all holdout levels.  At this ingestion
-scale the chord substrate has not accumulated sufficient pixel-level
-redundancy to anchor reliable attractor retrieval across the diverse
-colour distributions of CIFAR-10 imagery.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{reconstruction_scaling.tex}{}{}
-  \caption{CIFAR-10 reconstruction occlusion scaling curve.
-    Each point is the mean score (Exact, Partial, Fuzzy, Weighted)
-    across $2$ images at the given \% holdout.
-    A slow decay indicates substrate generalisation beyond the
-    prompt boundary.}
-  \label{fig:reconstruction_scaling}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{reconstruction_strip.tex}{}{}
-  \caption{Qualitative reconstruction at 50\% holdout.
-    Each row: Original $\mid$ Prompt (bottom half zeroed)
-    $\mid$ Reconstructed $\mid$ Error Heatmap
-    (green = no error, red = maximum error).
-    Row label shows per-sample weighted score.}
-  \label{fig:reconstruction_strip}
-\end{figure}
+Partial fidelity was observed at low holdout percentages, consistent with
+the attractor recovering coarse spatial statistics (dominant colour regions,
+low-frequency structure) before losing the fine-grained detail that requires
+higher attractor density.  Increasing the ingestion sample count is expected
+to shift the performance cliff toward higher occlusion levels.

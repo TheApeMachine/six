@@ -48,6 +48,11 @@ type Graph struct {
 	outputEmitted bool
 
 	broadcast *pool.BroadcastGroup
+
+	// Reusable buffers to avoid per-tick allocations.
+	edgeCache      []*Edge
+	edgeCacheDirty bool
+	activeEdgeBuf  []*Edge
 }
 
 type graphOpts func(*Graph)
@@ -92,6 +97,7 @@ func NewGraph(opts ...graphOpts) *Graph {
 	}
 
 	graph.initialNodes = len(graph.nodes)
+	graph.edgeCacheDirty = true
 	graph.rebuildBaseTopology()
 	graph.lastRotationTick = graph.tick
 
@@ -179,6 +185,7 @@ func (graph *Graph) SpawnNode(parent *Node) *Node {
 		bestNode.Connect(child)
 	}
 
+	graph.edgeCacheDirty = true
 	return child
 }
 
@@ -364,6 +371,7 @@ func (graph *Graph) rebuildBaseTopology() {
 
 	graph.source = graph.nodes[0]
 	graph.sink = graph.nodes[nodeCount-1]
+	graph.edgeCacheDirty = true
 }
 
 /*

@@ -26,10 +26,10 @@ columns show the Exact, Partial, Fuzzy, and Weighted scores on a
 panel displays the weighted score per sample alongside the
 overall mean (orange dashed line).
 
-The system achieved an exact-match accuracy of 96.0\%
+The system achieved an exact-match accuracy of 98.0\%
 across all 50 samples, with a mean partial score of
-0.960 and an overall weighted score of
-0.960.
+0.983 and an overall weighted score of
+0.981.
 
 \paragraph{Assessment.}
 The substrate resolved the majority of single-supporting-fact queries
@@ -38,27 +38,15 @@ geometric residue accumulation.
 
 \begin{table}[htbp]
   \centering
-  \caption{bAbI Task~1 failure cases (showing first 2 of
-    2). $N = 50$, exact accuracy
-    96.0\%.}
+  \caption{bAbI Task~1 failure cases (showing first 1 of
+    1). $N = 50$, exact accuracy
+    98.0\%.}
   \label{tab:babi_failures}
   \begin{tabular}{rlll}
     \toprule
     \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
     \midrule
-    35 & Mary & \texttt{kitchen} & \texttt{itchen} \\
-    49 & Daniel & \texttt{kitchen} & \texttt{athroom} \\
+    13 & John & \texttt{bathroom} & \texttt{athroom} \\
     \bottomrule
   \end{tabular}
 \end{table}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{babi_trial_map.tex}{}{}
-  \caption{Trial Outcome Map for bAbI Task~1 ($N = 50$ samples).
-    \textbf{Left}: per-sample score fingerprint heatmap (viridis; bright = 1.0).
-    Each row is one question; columns are Exact, Partial, Fuzzy, Weighted.
-    \textbf{Right}: weighted score per sample with mean reference line
-    (0.96, orange).}
-  \label{fig:babi_trial_map}
-\end{figure}

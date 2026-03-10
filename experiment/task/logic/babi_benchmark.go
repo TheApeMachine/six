@@ -29,7 +29,7 @@ func NewBabiExperiment() *BabiExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSamples(10),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 		),
 	}
@@ -324,17 +324,6 @@ may not separate location attractors reliably.
   \end{tabular}
 \end{table}
 {{- end}}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{babi_trial_map.tex}{}{}
-  \caption{Trial Outcome Map for bAbI Task~1 ($N = {{.NSamples}}$ samples).
-    \textbf{Left}: per-sample score fingerprint heatmap (viridis; bright = 1.0).
-    Each row is one question; columns are Exact, Partial, Fuzzy, Weighted.
-    \textbf{Right}: weighted score per sample with mean reference line
-    ({{.Score | f2}}, orange).}
-  \label{fig:babi_trial_map}
-\end{figure}
 `
 
 	return []tools.Artifact{

@@ -3,6 +3,7 @@ package geometry
 import (
 	"math"
 
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 )
 
@@ -145,7 +146,7 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 		phaseDiff = 2*math.Pi - phaseDiff
 	}
 
-	return phaseDiff < 0.45
+	return phaseDiff < config.Numeric.ShannonCapacity
 }
 
 /*

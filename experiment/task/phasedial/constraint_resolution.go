@@ -385,19 +385,6 @@ attractors are not fully separated in phase space.  Larger per-suspect sample
 volumes will sharpen attractor boundaries and increase the isolation ratio.
 {{- end}}
 
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{constraint_resolution_polar.tex}{}{}
-  \caption{Phase-based constraint resolution: four temporal snapshots.
-    Each panel plots carrier phasors (dots; radius\,=\,$A_j$, angle\,=\,$\theta_j$)
-    against four prism-channel axes (radial lines at $0°,\,45°,\,90°,\,135°$\,rad).
-    \textbf{(A)} Shared clue: evidence projects equally onto two hypotheses.
-    \textbf{(B)} Topology-driven bias: retrieval perturbs the orthogonal basis.
-    \textbf{(C)} Destructive interference eliminates a falsified hypothesis.
-    \textbf{(D)} Attractor convergence: target phase-locks with the evidence.
-    $N_\text{clues}={{.TotalClues}}$, $N_\text{suspects}=4$.}
-  \label{fig:constraint_resolution}
-\end{figure}
 `
 
 	// Compute final-stage stats.

@@ -119,17 +119,6 @@ close with deeper graph warm-up.
 Channel isolation was limited at the current graph size. Larger graphs and
 more warm-up steps are expected to improve isolation substantially.
 {{- end}}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{channel_routing_success.tex}{}{}
-  \caption{Cortex channel routing results across all 8 bitwise channels.
-    \textbf{Left}: per-channel success (1 = routed, 0 = dropped), dashed line
-    shows mean ({{.Pct}}\%).
-    \textbf{Right}: signal arrival latency in graph ticks; channels that never
-    arrive are plotted at the ceiling (15 ticks).}
-  \label{fig:channel_routing}
-\end{figure}
 `
 
 	panels := []tools.Panel{

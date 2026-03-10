@@ -34,7 +34,7 @@ func NewProseChainingExperiment() *ProseChainingExperiment {
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("wikitext"),
 			huggingface.DatasetWithSubset("wikitext-103-raw-v1"),
-			huggingface.DatasetWithSamples(10),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumn("text"),
 		),
 	}

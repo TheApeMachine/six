@@ -15,7 +15,7 @@ phrase patterns, syntactic constructions, encyclopaedic sentence rhythms)
 rather than verbatim retrieval.
 
 \paragraph{Results.}
-Across $N = 10$ test samples the mean weighted score was 0.412.
+Across $N = 10$ test samples the mean weighted score was 0.455.
 
 \paragraph{Assessment.}
 The substrate demonstrated meaningful generalisation beyond its exact
@@ -25,13 +25,3 @@ text in the same style.  The result supports the claim that chord resonance
 operates on syntactic and semantic structure rather than pure n-gram lookup.
 
 Figure~\ref{fig:out_of_corpus_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{out_of_corpus_map.tex}{}{}
-  \caption{Out-of-corpus generalisation trial map ($N = 10$ WikiText-2
-    samples, 50\% RIGHT holdout).  Score = 1.0 indicates exact byte-level
-    recovery of the unseen half; partial scores reflect structural
-    attractor leakage into the correct semantic neighbourhood.}
-  \label{fig:out_of_corpus_map}
-\end{figure}

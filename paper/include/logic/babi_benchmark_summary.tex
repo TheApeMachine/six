@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-24 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-42 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+0 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+1 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 2 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-49 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-35 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-47 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+13 & babi\_benchmark & 0.0000 & 0.1250 & 0.1250 & 0.0568 \\
+49 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+48 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Mary moved to the garden. John journeyed\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{office}} & \multicolumn{2}{l}{\texttt{office}} \\
-\multicolumn{2}{l}{\texttt{Daniel moved to the hallway. Daniel trav\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{office}} & \multicolumn{2}{l}{\texttt{office}} \\
-\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{kitchen}} & \multicolumn{2}{l}{\texttt{athroom}} \\
-\multicolumn{2}{l}{\texttt{Mary went to the kitchen. John went back\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{kitchen}} & \multicolumn{2}{l}{\texttt{itchen}} \\
+\multicolumn{2}{l}{\texttt{Mary moved to the bathroom. John went to\ldots}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{bathroom}} \\
+\multicolumn{2}{l}{\texttt{Mary moved to the bathroom. John went to\ldots}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{hallway}} \\
+\multicolumn{2}{l}{\texttt{Mary went to the bedroom. John journeyed\ldots}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{athroom}} \\
+\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{kitchen}} & \multicolumn{2}{l}{\texttt{kitchen}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 50} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.9600} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.9811} & \multicolumn{3}{l}{Min: 0.0568 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{599.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{29.77 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{595.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{95.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{20.37 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{407.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{30.37 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{20.47 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

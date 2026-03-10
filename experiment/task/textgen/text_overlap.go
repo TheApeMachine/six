@@ -37,7 +37,7 @@ func NewTextOverlapExperiment() *TextOverlapExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("roneneldan/TinyStories"),
-			huggingface.DatasetWithSamples(20),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumn("text"),
 		),
 	}

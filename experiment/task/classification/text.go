@@ -50,7 +50,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("sh0416/ag_news"),
-			huggingface.DatasetWithSamples(1000),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithSplit("test"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
@@ -158,9 +158,11 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 	}
 
 	total, correct := 0, 0
+	predicted := 0
 	recallSum := 0.0
 	f1Sum := 0.0
 	validClasses := 0
+
 	for c := range nc {
 		rowSum := 0
 		for j := 0; j < nc; j++ {
@@ -170,6 +172,7 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 				correct += matrix[c][j]
 			}
 		}
+		predicted += rowSum
 		if rowSum > 0 {
 			recallSum += float64(matrix[c][c]) / float64(rowSum)
 		}
@@ -193,9 +196,12 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 			validClasses++
 		}
 	}
+
+	// Accuracy denominator: all N samples, not just predicted ones.
+	// Unpredicted samples count as incorrect.
 	accuracy := 0.0
-	if total > 0 {
-		accuracy = float64(correct) / float64(total)
+	if n > 0 {
+		accuracy = float64(correct) / float64(n)
 	}
 	balancedAcc := 0.0
 	if nc > 0 {
@@ -213,6 +219,7 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 		{"Balanced Accuracy", fmt.Sprintf("%.1f%%", balancedAcc*100)},
 		{"Macro-F1", fmt.Sprintf("%.3f", macroF1)},
 		{"Mean Resonance", fmt.Sprintf("%.4f", score)},
+		{"Predicted", fmt.Sprintf("%d / %d", predicted, n)},
 		{"Sample Size (N)", fmt.Sprintf("%d", n)},
 	}
 
@@ -232,7 +239,7 @@ chord co-occurrence in its generated output.
 \paragraph{Results.}
 Table~\ref{tab:text_classification_metrics} summarises the classification
 metrics across $N = {{.N}}$ test samples.
-The confusion matrix is shown in Figure~\ref{fig:text_classification_scores_confusion}.
+The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 
 {{if gt .Accuracy 0.7 -}}
 \paragraph{Assessment.}
@@ -268,14 +275,6 @@ to improve per-class disambiguation.
     \bottomrule
   \end{tabular}
 \end{table}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{` + matrixFile + `.tex}{}{}
-  \caption{Confusion matrix showing predicted vs.\ true class assignments
-    for Text Classification ($N = {{.N}}$).}
-  \label{fig:text_classification_scores_confusion}
-\end{figure}
 `
 
 	return []tools.Artifact{

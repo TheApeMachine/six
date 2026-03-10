@@ -19,23 +19,29 @@ It owns a 3D Cube (6 sides x 4 rotations x 257 chords) as volatile working memor
 Energy is never stored separately — it IS the total popcount density of the cube.
 */
 type Node struct {
-	ID      int
-	Cube    geometry.Cube
-	Rot     geometry.GFRotation
-	Header  geometry.ManifoldHeader
-	edges   []*Edge
-	inbox   chan Token
-	Signals []Token // observability for routed signals
-	traffic int
-	birth   int // tick at which this node was created
+	ID       int
+	Cube     geometry.Cube
+	Rot      geometry.GFRotation
+	Header   geometry.ManifoldHeader
+	edges    []*Edge
+	inbox    chan Token
+	Signals  []Token // observability for routed signals
+	drainBuf []Token // reused buffer for DrainInbox
+	traffic  int
+	birth    int // tick at which this node was created
 
 	// searchPending is set by OpSearch to signal the graph
 	// to perform topological expansion from this node.
 	searchPending bool
 
-	// Cached cube chord — OR-fold of all 257 face chords.
-	cubeChordCache data.Chord
-	cubeChordDirty bool
+	// Cached cube chord — OR-fold of all 256 face chords.
+	// bestFaceIdxCache and facePopcount are computed in the same fused pass.
+	cubeChordCache     data.Chord
+	bestFaceIdxCache   int
+	bestFaceCountCache int
+	facePopcount       [257]int
+	totalPopcount      int
+	cubeChordDirty     bool
 
 	signalIndex   map[signalKey]int
 	signalTTL     map[signalKey]int
@@ -47,21 +53,23 @@ NewNode allocates a node with IdentityRotation, empty Cube, and buffered inbox.
 */
 func NewNode(id, birthTick int) *Node {
 	return &Node{
-		ID:             id,
-		Rot:            geometry.IdentityRotation(),
-		inbox:          make(chan Token, defaultInboxSize),
-		Signals:        make([]Token, 0),
-		birth:          birthTick,
-		cubeChordDirty: true,
-		signalIndex:    make(map[signalKey]int),
-		signalTTL:      make(map[signalKey]int),
-		signalSupport:  make(map[signalKey]int),
+		ID:               id,
+		Rot:              geometry.IdentityRotation(),
+		inbox:            make(chan Token, defaultInboxSize),
+		Signals:          make([]Token, 0),
+		birth:            birthTick,
+		cubeChordDirty:   true,
+		bestFaceIdxCache: 256,
+		signalIndex:      make(map[signalKey]int),
+		signalTTL:        make(map[signalKey]int),
+		signalSupport:    make(map[signalKey]int),
 	}
 }
 
 /*
-Connect establishes a mutual topological Edge between n and other. Ignores nil, self, and duplicates.
-For bidirectional topology, this maintains a single Edge instance referenced by both.
+Connect establishes a mutual topological Edge between n and other.
+Ignores nil, self, and duplicates. For bidirectional topology,
+this maintains a single Edge instance referenced by both.
 */
 func (n *Node) Connect(other *Node) {
 	if other == nil || other == n {
@@ -99,34 +107,27 @@ EdgeCount returns the number of connections.
 func (n *Node) EdgeCount() int { return len(n.edges) }
 
 /*
-Energy returns total Cube popcount density. Range [0, 1]. No separate counter.
+Energy returns total Cube popcount density.
+Range [0, 1]. No separate counter.
 */
 func (n *Node) Energy() float64 {
-	total := 0
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			for face := 0; face < 256; face++ {
-				chord := n.Cube.Get(side, rot, face)
-				total += chord.ActiveCount()
-			}
-		}
+	if n.cubeChordDirty {
+		n.recomputeCubeStats()
 	}
-	// 24 patches × 256 faces × 257 logical bits
-	return float64(total) / float64(24*256*257)
+
+	return float64(n.totalPopcount) / float64(24*256*257)
 }
 
 /*
-FaceDensity returns sum of ActiveCount(face)/257 across all 24 patches for the given physical face.
+FaceDensity returns sum of ActiveCount(face)/257 across all
+24 patches for the given physical face.
 */
 func (n *Node) FaceDensity(face int) float64 {
-	total := 0
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			chord := n.Cube.Get(side, rot, face)
-			total += chord.ActiveCount()
-		}
+	if n.cubeChordDirty {
+		n.recomputeCubeStats()
 	}
-	return float64(total) / float64(24.0*257.0)
+
+	return float64(n.facePopcount[face]) / float64(24.0*257.0)
 }
 
 /*
@@ -142,48 +143,35 @@ func (n *Node) Send(tok Token) {
 
 /*
 DrainInbox removes and returns all tokens currently in the inbox.
+Reuses a pre-allocated buffer to avoid per-drain allocations.
 */
 func (n *Node) DrainInbox() []Token {
-	var batch []Token
+	n.drainBuf = n.drainBuf[:0]
+
 	for {
 		select {
 		case tok := <-n.inbox:
-			batch = append(batch, tok)
+			n.drainBuf = append(n.drainBuf, tok)
 		default:
-			return batch
+			return n.drainBuf
 		}
 	}
 }
 
 /*
-BestFace scans all 257 faces of the cube and returns the LOGICAL face index
-(the byte value) with the highest popcount. The physical face is mapped back
-through the node's GFRotation inverse to recover the self-addressed byte value.
+BestFace returns the LOGICAL face index (the byte value) with the highest
+aggregate popcount across all 24 patches.  Delegates to recomputeCubeStats
+for the physical face, then maps through the GFRotation inverse.
 
 If no face is active, returns 256 (delimiter = stop signal).
 */
 func (node *Node) BestFace() int {
-	bestFace := 256 // default to delimiter (stop)
-	bestCount := 0
-
-	for face := 0; face < 256; face++ {
-		cnt := 0
-
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
-				chord := node.Cube.Get(side, rot, face)
-				cnt += chord.ActiveCount()
-			}
-		}
-
-		if cnt > bestCount {
-			bestCount = cnt
-			bestFace = face
-		}
+	if node.cubeChordDirty {
+		node.recomputeCubeStats()
 	}
 
-	// Reverse the rotation to recover the logical byte value.
-	// Physical face → Rot.Reverse → logical byte.
+	bestFace := node.bestFaceIdxCache
+
 	if bestFace < 256 {
 		bestFace = node.Rot.Reverse(bestFace)
 	}
@@ -197,25 +185,94 @@ by OR-folding all 257 face chords. This is the node's "signature".
 Result is cached and invalidated on any Cube write.
 */
 func (node *Node) CubeChord() data.Chord {
-	if !node.cubeChordDirty {
-		return node.cubeChordCache
+	if node.cubeChordDirty {
+		node.recomputeCubeStats()
 	}
 
-	var summary data.Chord
+	return node.cubeChordCache
+}
 
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			for face := 0; face < 256; face++ {
+/*
+recomputeCubeStats performs a single fused pass over all 6×4×256 cube slots,
+computing the OR-fold summary chord, per-face popcount, total popcount, and
+the densest physical face index.  Called lazily when cubeChordDirty is true
+(after wipe/reset cold paths).  Hot-path updates go through absorbFace.
+*/
+func (node *Node) recomputeCubeStats() {
+	var summary data.Chord
+	bestFace := 256
+	bestCount := 0
+	totalPop := 0
+
+	for face := range 256 {
+		faceCount := 0
+
+		for side := range 6 {
+			for rot := range 4 {
 				chord := node.Cube.Get(side, rot, face)
-				summary = data.ChordOR(&summary, &chord)
+
+				for i := range summary {
+					summary[i] |= chord[i]
+				}
+
+				faceCount += chord.ActiveCount()
 			}
+		}
+
+		node.facePopcount[face] = faceCount
+		totalPop += faceCount
+
+		if faceCount > bestCount {
+			bestCount = faceCount
+			bestFace = face
 		}
 	}
 
+	summary.Sanitize()
 	node.cubeChordCache = summary
+	node.bestFaceIdxCache = bestFace
+	node.bestFaceCountCache = bestCount
+	node.totalPopcount = totalPop
 	node.cubeChordDirty = false
+}
 
-	return summary
+/*
+absorbFace incrementally updates the cached cube statistics after an OR-only
+write to a single physical face.  Cost is O(24) per call (one side×rot pass
+over the modified face) vs O(6144) for a full recomputeCubeStats.
+
+Safety: only valid when the cube write was an OR (bits added, never cleared).
+For destructive writes (Wipe, WipeFace) use InvalidateChordCache instead.
+*/
+func (node *Node) absorbFace(face int, incoming *data.Chord) {
+	if node.cubeChordDirty {
+		node.recomputeCubeStats()
+	}
+
+	// Summary chord: OR is monotone, so absorbing the incoming bits
+	// into the cached summary is equivalent to a full recompute.
+	for i := range node.cubeChordCache {
+		node.cubeChordCache[i] |= incoming[i]
+	}
+
+	// Recompute only this face's aggregate popcount (24 iterations).
+	newCount := 0
+
+	for side := range 6 {
+		for rot := range 4 {
+			chord := node.Cube.Get(side, rot, face)
+			newCount += chord.ActiveCount()
+		}
+	}
+
+	oldCount := node.facePopcount[face]
+	node.facePopcount[face] = newCount
+	node.totalPopcount += newCount - oldCount
+
+	if newCount > node.bestFaceCountCache {
+		node.bestFaceCountCache = newCount
+		node.bestFaceIdxCache = face
+	}
 }
 
 /*
@@ -236,8 +293,8 @@ func (node *Node) WipeFace(logicalFace int) {
 
 	physFace := node.Rot.Forward(logicalFace)
 
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
+	for side := range 6 {
+		for rot := range 4 {
 			node.Cube.Set(side, rot, physFace, data.Chord{})
 		}
 	}

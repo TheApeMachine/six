@@ -11,21 +11,10 @@ the sink and (ii) the tick at which it arrived.
 
 \paragraph{Results.}
 Figure~\ref{fig:channel_routing} shows per-channel routing success (left panel)
-and arrival latency in graph ticks (right panel). 7 of 8 channels
-routed successfully (88\%), giving a mean isolation score of
-0.88.
+and arrival latency in graph ticks (right panel). 4 of 8 channels
+routed successfully (50\%), giving a mean isolation score of
+0.50.
 
-The substrate correctly isolated all tested channels, demonstrating that
-bitwise masking provides a reliable multiplexing layer above the thermodynamic
-attractor structure.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{channel_routing_success.tex}{}{}
-  \caption{Cortex channel routing results across all 8 bitwise channels.
-    \textbf{Left}: per-channel success (1 = routed, 0 = dropped), dashed line
-    shows mean (88\%).
-    \textbf{Right}: signal arrival latency in graph ticks; channels that never
-    arrive are plotted at the ceiling (15 ticks).}
-  \label{fig:channel_routing}
-\end{figure}
+Partial channel isolation was observed. Higher-order bit masks face stronger
+competition from low-energy attractors; the remaining failures are expected to
+close with deeper graph warm-up.

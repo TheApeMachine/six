@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -99,6 +100,12 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
+	prof, profErr := NewProfiler(pipeline.experiment)
+	if profErr != nil {
+		fmt.Fprintf(os.Stderr, "profiler init skipped: %v\n", profErr)
+	}
+	defer prof.Stop()
+
 	t0 := time.Now()
 
 	loadStart := time.Now()
@@ -203,6 +210,9 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		)),
 	)
 
+	timeout := time.NewTimer(2 * time.Second)
+	defer timeout.Stop()
+
 wait_result:
 	for {
 		select {
@@ -215,8 +225,7 @@ wait_result:
 					}
 				}
 			}
-		case <-time.After(2 * time.Second):
-			// Cortex didn't respond in time or hasn't converged
+		case <-timeout.C:
 			break wait_result
 		}
 	}
@@ -311,15 +320,12 @@ func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 
 	for _, chord := range readout {
 		value := chord.Byte()
+
 		if value == 0 {
 			face := chord.IntrinsicFace()
 			if face >= 0 && face < 256 {
 				value = byte(face)
 			}
-		}
-
-		if value == 0 {
-			continue
 		}
 
 		out = append(out, value)

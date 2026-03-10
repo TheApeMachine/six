@@ -14,20 +14,11 @@ seen any language-specific syntax annotations.
 Figure~\ref{fig:languages_scores} shows per-language scores across
 $N = 12$ total samples ($2$ per language).
 Averaged across all languages, the system achieved an exact-match rate
-of 8.3\%, a partial score of 1.000,
-and an overall weighted score of 0.500.
+of 8.3\%, a partial score of 0.925,
+and an overall weighted score of 0.466.
 
 \paragraph{Assessment.}
 The substrate recovered partial code structure in the majority of languages.
 Languages with more idiomatic or verbose syntax (e.g.\ Java, C\texttt{++})
 showed lower fidelity than those with compact representations (e.g.\ Python, Go),
 consistent with the higher token-level redundancy in the former.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{languages_scores.tex}{}{}
-  \caption{Per-language code-generation scores (exact, partial, fuzzy, weighted)
-    on \texttt{bigcode/humanevalpack}.
-    Each group represents the mean over $2$ samples.}
-  \label{fig:languages_scores}
-\end{figure}

@@ -552,7 +552,6 @@ downloadShard fetches the shard via HTTP, caches to temp, and returns
 a bytes.Reader (implements io.ReaderAt) with the body size.
 */
 func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64, error) {
-
 	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
 	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
 
@@ -595,12 +594,34 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 	return r, r.Size(), nil
 }
 
+
 /*
 discoverShard queries the HuggingFace API tree listing and returns
-the path to the first train-split .parquet, .json, or .jsonl file,
-or any valid fallback.
+the path to the first train-split .parquet, .json, or .jsonl file.
+The result is persisted to a sidecar file next to the cached shard so
+that subsequent calls — even from a fresh Dataset instance — bypass
+the network entirely.
 */
 func (dataset *Dataset) discoverShard() (string, string, error) {
+	// Derive a stable key from repo + split + subset for the sidecar cache.
+	keyParts := []string{dataset.repo}
+	if dataset.split != "" {
+		keyParts = append(keyParts, dataset.split)
+	}
+	if dataset.subset != "" {
+		keyParts = append(keyParts, dataset.subset)
+	}
+	sidecarKey := strings.ReplaceAll(strings.Join(keyParts, "_"), "/", "_")
+	sidecarPath := filepath.Join(os.TempDir(), "six_hf_shard_"+sidecarKey+".txt")
+
+	// Return cached discovery result without any network access.
+	if raw, err := os.ReadFile(sidecarPath); err == nil {
+		parts := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+			return parts[0], parts[1], nil
+		}
+	}
+
 	branches := []string{"main", "refs/convert/parquet"}
 
 	var fallback string
@@ -667,6 +688,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 				targetSplit = "train"
 			}
 			if strings.Contains(e.Path, targetSplit) {
+				_ = os.WriteFile(sidecarPath, []byte(e.Path+"\n"+branch), 0644)
 				return e.Path, branch, nil
 			}
 
@@ -678,6 +700,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 	}
 
 	if fallback != "" {
+		_ = os.WriteFile(sidecarPath, []byte(fallback+"\n"+fallbackBranch), 0644)
 		return fallback, fallbackBranch, nil
 	}
 

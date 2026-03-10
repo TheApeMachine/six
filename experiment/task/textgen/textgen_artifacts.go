@@ -166,16 +166,6 @@ held-out story endings.  A larger ingestion corpus will yield clearer results.
 {{- end}}
 
 Figure~\ref{fig:compositional_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{compositional_map.tex}{}{}
-  \caption{Compositional pattern recall trial map ($N = {{.N}}$ TinyStories
-    samples, 30\% RIGHT holdout). Viridis heatmap (left): per-sample
-    score breakdown. Bar chart (right): weighted score per sample with
-    mean reference.}
-  \label{fig:compositional_map}
-\end{figure}
 `
 
 	return textgenSectionArtifacts(
@@ -241,16 +231,6 @@ is expected to improve performance significantly.
 {{- end}}
 
 Figure~\ref{fig:out_of_corpus_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{out_of_corpus_map.tex}{}{}
-  \caption{Out-of-corpus generalisation trial map ($N = {{.N}}$ WikiText-2
-    samples, 50\% RIGHT holdout).  Score = 1.0 indicates exact byte-level
-    recovery of the unseen half; partial scores reflect structural
-    attractor leakage into the correct semantic neighbourhood.}
-  \label{fig:out_of_corpus_map}
-\end{figure}
 `
 
 	return textgenSectionArtifacts(
@@ -310,14 +290,6 @@ a larger ingestion corpus are expected to produce substantially higher scores.
 {{- end}}
 
 Figure~\ref{fig:prose_chaining_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{prose_chaining_map.tex}{}{}
-  \caption{Prose chaining trial map ($N = {{.N}}$ WikiText-103 samples,
-    60\% RIGHT holdout --- the most demanding textgen configuration).}
-  \label{fig:prose_chaining_map}
-\end{figure}
 `
 
 	return textgenSectionArtifacts(
@@ -376,14 +348,6 @@ levier for improvement.
 {{- end}}
 
 Figure~\ref{fig:text_overlap_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{text_overlap_map.tex}{}{}
-  \caption{Text overlap trial map ($N = {{.N}}$ TinyStories samples,
-    40\% RIGHT holdout).  Chord bridges across story span boundaries.}
-  \label{fig:text_overlap_map}
-\end{figure}
 `
 
 	return textgenSectionArtifacts(

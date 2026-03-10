@@ -8,6 +8,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	tools "github.com/theapemachine/six/experiment"
 )
@@ -242,17 +244,57 @@ func WriteSummaryTable(
 }
 
 // sampleCell prepares a raw byte slice for safe embedding inside \texttt{}:
-// 1. LaTeXEscape the raw text (must happen before any \ldots suffix is added)
-// 2. Collapse newlines/tabs to spaces (a bare newline inside a LaTeX command
-//    argument is interpreted as \par and terminates the argument — fatal)
-// 3. Truncate to maxSampleBytes, appending \ldots if cut
+// 1. Sanitize: strip invalid UTF-8 sequences and non-printable control bytes.
+// 2. Collapse newlines/tabs to spaces, trim.
+// 3. Truncate by RUNE count BEFORE LaTeX escaping so we never cut through
+//    a multi-byte rune or a multi-character escape sequence.
+// 4. LaTeXEscape the truncated text.
+// 5. Append \ldots if truncated.
 func sampleCell(raw []byte) string {
-	s := LaTeXEscape(strings.TrimSpace(string(raw)))
+	s := sanitizeForLaTeX(raw)
 	s = strings.NewReplacer("\n", " ", "\r", "", "\t", " ").Replace(s)
-	if len(s) <= maxSampleBytes {
-		return s
+	s = strings.TrimSpace(s)
+
+	runes := []rune(s)
+	truncated := len(runes) > maxSampleBytes
+
+	if truncated {
+		runes = runes[:maxSampleBytes]
 	}
-	return s[:maxSampleBytes] + "\\ldots"
+
+	s = LaTeXEscape(string(runes))
+
+	if truncated {
+		s += "\\ldots"
+	}
+
+	return s
+}
+
+// sanitizeForLaTeX converts an arbitrary byte slice to a valid UTF-8 string
+// suitable for embedding in LaTeX source.  Invalid UTF-8 sequences and
+// non-printable control runes (except ordinary space) are replaced with '·'
+// so that the caller never writes 0xFF or similar into a .tex file.
+func sanitizeForLaTeX(raw []byte) string {
+	var sb strings.Builder
+	sb.Grow(len(raw))
+
+	for len(raw) > 0 {
+		r, size := utf8.DecodeRune(raw)
+		if r == utf8.RuneError && size == 1 {
+			// Invalid UTF-8 byte — skip entirely.
+			raw = raw[size:]
+			continue
+		}
+		if r != ' ' && (unicode.IsControl(r) || !unicode.IsPrint(r)) {
+			sb.WriteRune('·')
+		} else {
+			sb.WriteRune(r)
+		}
+		raw = raw[size:]
+	}
+
+	return sb.String()
 }
 
 func truncate(s string, n int) string {

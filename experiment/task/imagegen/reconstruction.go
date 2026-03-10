@@ -55,7 +55,7 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("uoft-cs/cifar10"),
-			huggingface.DatasetWithSamples(2),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumn("img"),
 			huggingface.DatasetWithTransform(huggingface.DecodeImageBytes),
 		),
@@ -292,28 +292,6 @@ scale the chord substrate has not accumulated sufficient pixel-level
 redundancy to anchor reliable attractor retrieval across the diverse
 colour distributions of CIFAR-10 imagery.
 {{- end}}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{reconstruction_scaling.tex}{}{}
-  \caption{CIFAR-10 reconstruction occlusion scaling curve.
-    Each point is the mean score (Exact, Partial, Fuzzy, Weighted)
-    across ${{.NImages}}$ images at the given \% holdout.
-    A slow decay indicates substrate generalisation beyond the
-    prompt boundary.}
-  \label{fig:reconstruction_scaling}
-\end{figure}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{reconstruction_strip.tex}{}{}
-  \caption{Qualitative reconstruction at 50\% holdout.
-    Each row: Original $\mid$ Prompt (bottom half zeroed)
-    $\mid$ Reconstructed $\mid$ Error Heatmap
-    (green = no error, red = maximum error).
-    Row label shows per-sample weighted score.}
-  \label{fig:reconstruction_strip}
-\end{figure}
 `
 
 	return []tools.Artifact{

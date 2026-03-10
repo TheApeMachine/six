@@ -13,7 +13,7 @@ with a learned corpus span, and transition into the subsequent span
 naturally.
 
 \paragraph{Results.}
-Across $N = 20$ test samples the mean weighted score was 0.548.
+Across $N = 20$ test samples the mean weighted score was 0.547.
 
 \paragraph{Assessment.}
 The substrate correctly identified and exploited chord-level overlap at
@@ -22,11 +22,3 @@ into the corpus.  The high score validates the hypothesis that TinyStories'
 regular structure creates strong attractor bridges.
 
 Figure~\ref{fig:text_overlap_map} shows the trial outcome map.
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{text_overlap_map.tex}{}{}
-  \caption{Text overlap trial map ($N = 20$ TinyStories samples,
-    40\% RIGHT holdout).  Chord bridges across story span boundaries.}
-  \label{fig:text_overlap_map}
-\end{figure}

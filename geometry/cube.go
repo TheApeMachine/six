@@ -44,6 +44,18 @@ func (c *Cube) Set(side, rot, face int, chord data.Chord) {
 }
 
 /*
+ORInto ORs the given chord directly into the slot at (side, rot, face).
+No intermediate copy, no Sanitize (caller ensures inputs are 257-bit valid).
+*/
+func (c *Cube) ORInto(side, rot, face int, chord *data.Chord) {
+	dst := &c.Sides[side][rot][face]
+
+	for i := range dst {
+		dst[i] |= chord[i]
+	}
+}
+
+/*
 Face256 returns the control chord for a given side and rotation.
 This chord determines edge opcodes when two cubes are connected.
 */

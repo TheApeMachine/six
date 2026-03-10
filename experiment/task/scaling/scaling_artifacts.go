@@ -64,14 +64,6 @@ Latency scaled with dictionary size in the expected linear-scan regime.
 GPU-accelerated BestFill (available when CUDA/Metal backends are active)
 is expected to convert this to a near-constant-time operation.
 {{- end}}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{bestfill_scaling_chart.tex}{}{}
-  \caption{BestFill query latency and efficiency score vs dictionary size.
-    Bars: weighted efficiency score. Dashed line: mean score.}
-  \label{fig:bestfill_scaling}
-\end{figure}
 `
 
 	return []tools.Artifact{
@@ -347,15 +339,6 @@ Retrieval quality was low.  The synthetic dataset's uniform byte
 distribution produces boundaries that do not correlate strongly with
 chord attractor boundaries at this substrate size.
 {{- end}}
-
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{sequencer_map.tex}{}{}
-  \caption{Sequencer retrieval quality trial map ($N = {{.N}}$ samples).
-    Left: score fingerprint heatmap (viridis).
-    Right: weighted score per sample with mean reference (orange).}
-  \label{fig:sequencer_map}
-\end{figure}
 `
 
 	return []tools.Artifact{

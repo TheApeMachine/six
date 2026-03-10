@@ -380,20 +380,6 @@ structural attractor classes from raw amino acid byte patterns at
 this resolution.
 {{- end}}
 
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{proteinstructure_trial_map.tex}{}{}
-  \caption{Protein secondary structure composite figure.
-    \textbf{A}: Score fingerprint heatmap ($N = {{.N}}$ samples;
-    viridis, dark = 0, bright = 1).
-    \textbf{B}: Per-sample weighted score with mean reference
-    ({{.Score | f2}}, orange).
-    \textbf{C}: Per-position alignment strip for the best sample
-    (S{{.BestIdx}}, w = {{.BestScore | f2}}): Truth / Predicted /
-    Match rows; plasma colour scale
-    (H$\to$1.0, E$\to$0.5, C$\to$0.0).}
-  \label{fig:protein_trial_map}
-\end{figure}
 `
 
 	return []tools.Artifact{

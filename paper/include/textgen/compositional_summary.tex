@@ -9,15 +9,15 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-8 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+10 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 17 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-16 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+2 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-19 & Compositional & 0.0000 & 0.0840 & 0.0135 & 0.0254 \\
+19 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 18 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 1 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 \midrule
@@ -25,28 +25,24 @@
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a clever lit\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{y with my friends again."
-
-Max was so ha\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{y with my friends again."
-
-Max was so ha\textbackslash\{\}ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a big octopu\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{picked up the big jug together and poure\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{picked up the big jug together and poure\textbackslash\{\}ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a polite cra\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{all day. They had lots of fun. The new f\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{cause it did not have any friends. All t\textbackslash\{\}ldots}} \\
-\multicolumn{2}{l}{\texttt{One day, a silly cat named Tom found a h\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{play with. He jumped through the hoop an\textbackslash\{\}ldots}} & \multicolumn{2}{l}{\texttt{play with. He jumped through the hoop an\textbackslash\{\}ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a big car na\ldots}} & \multicolumn{2}{l}{\texttt{amily was so happy and proud of their ca\ldots}} & \multicolumn{2}{l}{\texttt{amily was so happy and proud of their ca\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a big octopu\ldots}} & \multicolumn{2}{l}{\texttt{picked up the big jug together and poure\ldots}} & \multicolumn{2}{l}{\texttt{picked up the big jug together and poure\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a polite cra\ldots}} & \multicolumn{2}{l}{\texttt{all day. They had lots of fun. The new f\ldots}} & \multicolumn{2}{l}{\texttt{iend.··The polite crab showed the new fr\ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a silly cat named Tom found a h\ldots}} & \multicolumn{2}{l}{\texttt{play with. He jumped through the hoop an\ldots}} & \multicolumn{2}{l}{\texttt{play with. He jumped through the hoop an\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 20} & \multicolumn{3}{l}{Holdout: 30\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.6513} & \multicolumn{3}{l}{Min: 0.0254 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.7000} & \multicolumn{3}{l}{Min: 0.4545 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{356.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{13.00 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{650.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{184.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{10.40 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{519.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{13.36 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{10.58 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

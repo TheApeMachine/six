@@ -43,16 +43,3 @@ Exact matches remain low due to sample-size constraints; increasing
 ingestion volume per domain is expected to sharpen per-domain
 attractor density.
 
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{crossdomaincompletion_map.tex}{}{}
-  \caption{Cross-domain span completion composite.
-    \textbf{A}: per-sample score fingerprint heatmap (viridis;
-    sample labels = domain prefix + local index).
-    \textbf{B}: mean scores by domain (Exact / Partial / Fuzzy /
-    Weighted), showing substrate performance across natural
-    language, source code, and biology without domain-specific
-    adaptation. $N = 4$ total samples
-    ($2$ per domain).}
-  \label{fig:cross_domain_map}
-\end{figure}

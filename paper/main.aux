@@ -3,113 +3,628 @@
 \providecommand\HyField@AuxAddToFields[1]{}
 \providecommand\HyField@AuxAddToCoFields[2]{}
 \providecommand \oddpage@label [2]{}
-\@writefile{toc}{\contentsline {section}{\numberline {1}Architecture}{1}{section.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}The Dual Architecture: Bedrock and Cortex}{1}{subsection.1.1}\protected@file@percent }
-\newlabel{sec:dual_architecture}{{1.1}{1}{The Dual Architecture: Bedrock and Cortex}{subsection.1.1}{}}
-\newlabel{sec:dual_architecture@cref}{{[subsection][1][1]1.1}{[1][1][]1}{}{}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.1.1}The Bedrock: Persistent Holographic Storage ($Z = 0$)}{1}{subsubsection.1.1.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.1.2}The Cortex: Active Inference Workbench ($Z \ge 1$)}{1}{subsubsection.1.1.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {2}Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}{2}{section.2}\protected@file@percent }
-\newlabel{sec:entropy_routing}{{2}{2}{Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}{section.2}{}}
-\newlabel{sec:entropy_routing@cref}{{[section][2][]2}{[1][2][]2}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}The Shannon Limit and the ``Wall of Ones''}{2}{subsection.2.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Dynamic Manifolds as Entropy Relief Valves}{2}{subsection.2.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Geometric Expansion and Virtual Mitosis}{2}{subsection.2.3}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}State Space Analysis: Topology as a Capacity Multiplier}{3}{subsection.2.4}\protected@file@percent }
-\newlabel{sec:state_space}{{2.4}{3}{State Space Analysis: Topology as a Capacity Multiplier}{subsection.2.4}{}}
-\newlabel{sec:state_space@cref}{{[subsection][4][2]2.4}{[1][3][]3}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Level 1: The 257-Bit Chord.}{3}{section*.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Level 2: The MacroCube (257 faces).}{3}{section*.2}\protected@file@percent }
-\newlabel{eq:state_cube}{{1}{3}{Level 2: The MacroCube (257 faces)}{equation.1}{}}
-\newlabel{eq:state_cube@cref}{{[equation][1][]1}{[1][3][]3}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Level 3: The Icosahedral Manifold (Post-Mitosis).}{3}{section*.3}\protected@file@percent }
-\newlabel{eq:state_ico}{{2}{3}{Level 3: The Icosahedral Manifold (Post-Mitosis)}{equation.2}{}}
-\newlabel{eq:state_ico@cref}{{[equation][2][]2}{[1][3][]3}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Level 4: Rotational State Multiplier.}{3}{section*.4}\protected@file@percent }
-\newlabel{eq:state_total}{{3}{3}{Level 4: Rotational State Multiplier}{equation.3}{}}
-\newlabel{eq:state_total@cref}{{[equation][3][]3}{[1][3][]3}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Comparison with Parameter-Count Scaling.}{3}{section*.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.1}Motivation}{1}{subsection.0.1}\protected@file@percent }
+\newlabel{sec:motivation}{{0.1}{1}{Motivation}{subsection.0.1}{}}
+\newlabel{sec:motivation@cref}{{[subsection][1][0]0.1}{[1][1][]1}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.2}Why Bitwise Math Is Wave Interference}{2}{subsection.0.2}\protected@file@percent }
+\newlabel{sec:bitwise_wave}{{0.2}{2}{Why Bitwise Math Is Wave Interference}{subsection.0.2}{}}
+\newlabel{sec:bitwise_wave@cref}{{[subsection][2][0]0.2}{[1][1][]2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.3}Paper Organization}{2}{subsection.0.3}\protected@file@percent }
+\newlabel{sec:organization}{{0.3}{2}{Paper Organization}{subsection.0.3}{}}
+\newlabel{sec:organization@cref}{{[subsection][3][0]0.3}{[1][2][]2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.4}Problem Statement}{2}{subsection.0.4}\protected@file@percent }
+\newlabel{sec:bestfill_problem}{{0.4}{2}{Problem Statement}{subsection.0.4}{}}
+\newlabel{sec:bestfill_problem@cref}{{[subsection][4][0]0.4}{[1][2][]2}{}{}{}}
+\newlabel{eq:bestfill_argmax}{{1}{2}{Problem Statement}{equation.1}{}}
+\newlabel{eq:bestfill_argmax@cref}{{[equation][1][]1}{[1][2][]2}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.5}The 5-Pass Retrieval Pipeline}{2}{subsection.0.5}\protected@file@percent }
+\newlabel{sec:five_pass}{{0.5}{2}{The 5-Pass Retrieval Pipeline}{subsection.0.5}{}}
+\newlabel{sec:five_pass@cref}{{[subsection][5][0]0.5}{[1][2][]2}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Pass 1: Winding Filter (Integer, $O(1)$ per candidate).}{2}{section*.1}\protected@file@percent }
+\newlabel{eq:winding}{{2}{2}{Pass 1: Winding Filter (Integer, $O(1)$ per candidate)}{equation.2}{}}
+\newlabel{eq:winding@cref}{{[equation][2][]2}{[1][2][]2}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Pass 2: Group State Filter (Integer, $O(1)$).}{2}{section*.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Pass 3: Coarse Popcount (Bitwise SIMD, $O(D/w)$).}{3}{section*.3}\protected@file@percent }
+\newlabel{eq:coarse_score}{{3}{3}{Pass 3: Coarse Popcount (Bitwise SIMD, $O(D/w)$)}{equation.3}{}}
+\newlabel{eq:coarse_score@cref}{{[equation][3][]3}{[1][2][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Pass 4: Dense Popcount (Memory Bandwidth, $O(135 \cdot D/w)$).}{3}{section*.4}\protected@file@percent }
+\newlabel{eq:dense_score}{{4}{3}{Pass 4: Dense Popcount (Memory Bandwidth, $O(135 \cdot D/w)$)}{equation.4}{}}
+\newlabel{eq:dense_score@cref}{{[equation][4][]4}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Pass 5: Geodesic LUT Disambiguation (L1 Cache, $O(1)$).}{3}{section*.5}\protected@file@percent }
+\newlabel{eq:geodesic_lut}{{5}{3}{Pass 5: Geodesic LUT Disambiguation (L1 Cache, $O(1)$)}{equation.5}{}}
+\newlabel{eq:geodesic_lut@cref}{{[equation][5][]5}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.6}Packed Score Representation}{3}{subsection.0.6}\protected@file@percent }
+\newlabel{sec:packed_score}{{0.6}{3}{Packed Score Representation}{subsection.0.6}{}}
+\newlabel{sec:packed_score@cref}{{[subsection][6][0]0.6}{[1][3][]3}{}{}{}}
+\newlabel{eq:packed}{{6}{3}{Packed Score Representation}{equation.6}{}}
+\newlabel{eq:packed@cref}{{[equation][6][]6}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.7}Multi-Backend Dispatch}{3}{subsection.0.7}\protected@file@percent }
+\newlabel{sec:multi_backend}{{0.7}{3}{Multi-Backend Dispatch}{subsection.0.7}{}}
+\newlabel{sec:multi_backend@cref}{{[subsection][7][0]0.7}{[1][3][]3}{}{}{}}
+\newlabel{eq:hetero_shard}{{7}{3}{Multi-Backend Dispatch}{equation.7}{}}
+\newlabel{eq:hetero_shard@cref}{{[equation][7][]7}{[1][3][]3}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.8}Expected Reality Modulation}{4}{subsection.0.8}\protected@file@percent }
+\newlabel{sec:expected_reality}{{0.8}{4}{Expected Reality Modulation}{subsection.0.8}{}}
+\newlabel{sec:expected_reality@cref}{{[subsection][8][0]0.8}{[1][3][]4}{}{}{}}
+\newlabel{eq:expected_reality}{{8}{4}{Expected Reality Modulation}{equation.8}{}}
+\newlabel{eq:expected_reality@cref}{{[equation][8][]8}{[1][3][]4}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.9}The Autoregressive IVP Limitation}{4}{subsection.0.9}\protected@file@percent }
+\newlabel{sec:ivp_limitation}{{0.9}{4}{The Autoregressive IVP Limitation}{subsection.0.9}{}}
+\newlabel{sec:ivp_limitation@cref}{{[subsection][9][0]0.9}{[1][4][]4}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.10}BVP Formulation via Topological Vacuum}{4}{subsection.0.10}\protected@file@percent }
+\newlabel{sec:topological_vacuum}{{0.10}{4}{BVP Formulation via Topological Vacuum}{subsection.0.10}{}}
+\newlabel{sec:topological_vacuum@cref}{{[subsection][10][0]0.10}{[1][4][]4}{}{}{}}
+\newlabel{eq:chord_hole_bvp}{{9}{4}{BVP Formulation via Topological Vacuum}{equation.9}{}}
+\newlabel{eq:chord_hole_bvp@cref}{{[equation][9][]9}{[1][4][]4}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.11}Resonant Fill: The FillScore}{4}{subsection.0.11}\protected@file@percent }
+\newlabel{sec:resonant_fill}{{0.11}{4}{Resonant Fill: The FillScore}{subsection.0.11}{}}
+\newlabel{sec:resonant_fill@cref}{{[subsection][11][0]0.11}{[1][4][]4}{}{}{}}
+\newlabel{eq:fill_score}{{10}{4}{Resonant Fill: The FillScore}{equation.10}{}}
+\newlabel{eq:fill_score@cref}{{[equation][10][]10}{[1][4][]4}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Properties of FillScore.}{5}{section*.6}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.12}Transitive Resonance: Analogical Transfer}{5}{subsection.0.12}\protected@file@percent }
+\newlabel{sec:transitive_resonance}{{0.12}{5}{Transitive Resonance: Analogical Transfer}{subsection.0.12}{}}
+\newlabel{sec:transitive_resonance@cref}{{[subsection][12][0]0.12}{[1][5][]5}{}{}{}}
+\newlabel{eq:tr_b}{{11}{5}{Transitive Resonance: Analogical Transfer}{equation.11}{}}
+\newlabel{eq:tr_b@cref}{{[equation][11][]11}{[1][5][]5}{}{}{}}
+\newlabel{eq:tr_c}{{12}{5}{Transitive Resonance: Analogical Transfer}{equation.12}{}}
+\newlabel{eq:tr_c@cref}{{[equation][12][]12}{[1][5][]5}{}{}{}}
+\newlabel{eq:tr_a}{{13}{5}{Transitive Resonance: Analogical Transfer}{equation.13}{}}
+\newlabel{eq:tr_a@cref}{{[equation][13][]13}{[1][5][]5}{}{}{}}
+\newlabel{eq:tr_d}{{14}{5}{Transitive Resonance: Analogical Transfer}{equation.14}{}}
+\newlabel{eq:tr_d@cref}{{[equation][14][]14}{[1][5][]5}{}{}{}}
+\newlabel{eq:tr_h}{{15}{5}{Transitive Resonance: Analogical Transfer}{equation.15}{}}
+\newlabel{eq:tr_h@cref}{{[equation][15][]15}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.13}The Cantilever Generation Loop}{5}{subsection.0.13}\protected@file@percent }
+\newlabel{sec:cantilever}{{0.13}{5}{The Cantilever Generation Loop}{subsection.0.13}{}}
+\newlabel{sec:cantilever@cref}{{[subsection][13][0]0.13}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.14}Deterministic Prime-Basis Identity}{5}{subsection.0.14}\protected@file@percent }
+\newlabel{sec:base_chord}{{0.14}{5}{Deterministic Prime-Basis Identity}{subsection.0.14}{}}
+\newlabel{sec:base_chord@cref}{{[subsection][14][0]0.14}{[1][5][]5}{}{}{}}
+\newlabel{sec:chord_representation}{{0.14}{5}{Deterministic Prime-Basis Identity}{subsection.0.14}{}}
+\newlabel{sec:chord_representation@cref}{{[subsection][14][0]0.14}{[1][5][]5}{}{}{}}
+\newlabel{eq:base_chord}{{16}{5}{Deterministic Prime-Basis Identity}{equation.16}{}}
+\newlabel{eq:base_chord@cref}{{[equation][16][]16}{[1][5][]5}{}{}{}}
+\newlabel{eq:indicator}{{17}{5}{Deterministic Prime-Basis Identity}{equation.17}{}}
+\newlabel{eq:indicator@cref}{{[equation][17][]17}{[1][5][]5}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Why Coprime Multipliers.}{6}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.15}Algebraic Operations}{6}{subsection.0.15}\protected@file@percent }
+\newlabel{sec:chord_algebra}{{0.15}{6}{Algebraic Operations}{subsection.0.15}{}}
+\newlabel{sec:chord_algebra@cref}{{[subsection][15][0]0.15}{[1][6][]6}{}{}{}}
+\newlabel{eq:chord_or}{{18}{6}{Algebraic Operations}{equation.18}{}}
+\newlabel{eq:chord_or@cref}{{[equation][18][]18}{[1][6][]6}{}{}{}}
+\newlabel{eq:chord_gcd}{{19}{6}{Algebraic Operations}{equation.19}{}}
+\newlabel{eq:chord_gcd@cref}{{[equation][19][]19}{[1][6][]6}{}{}{}}
+\newlabel{eq:chord_hole}{{20}{6}{Algebraic Operations}{equation.20}{}}
+\newlabel{eq:chord_hole@cref}{{[equation][20][]20}{[1][6][]6}{}{}{}}
+\newlabel{eq:chord_sim}{{21}{6}{Algebraic Operations}{equation.21}{}}
+\newlabel{eq:chord_sim@cref}{{[equation][21][]21}{[1][6][]6}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Equivalence to Inner Product.}{6}{section*.8}\protected@file@percent }
+\newlabel{eq:inner_product}{{22}{6}{Equivalence to Inner Product}{equation.22}{}}
+\newlabel{eq:inner_product@cref}{{[equation][22][]22}{[1][6][]6}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.16}Positional Binding via Circular Shift}{6}{subsection.0.16}\protected@file@percent }
+\newlabel{sec:roll_left}{{0.16}{6}{Positional Binding via Circular Shift}{subsection.0.16}{}}
+\newlabel{sec:roll_left@cref}{{[subsection][16][0]0.16}{[1][6][]6}{}{}{}}
+\newlabel{eq:roll_left}{{23}{6}{Positional Binding via Circular Shift}{equation.23}{}}
+\newlabel{eq:roll_left@cref}{{[equation][23][]23}{[1][6][]6}{}{}{}}
+\newlabel{eq:dog_god}{{24}{6}{Positional Binding via Circular Shift}{equation.24}{}}
+\newlabel{eq:dog_god@cref}{{[equation][24][]24}{[1][6][]6}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.17}SimHash Structural Binning}{6}{subsection.0.17}\protected@file@percent }
+\newlabel{sec:chord_bin}{{0.17}{6}{SimHash Structural Binning}{subsection.0.17}{}}
+\newlabel{sec:chord_bin@cref}{{[subsection][17][0]0.17}{[1][6][]6}{}{}{}}
+\newlabel{eq:simhash}{{25}{6}{SimHash Structural Binning}{equation.25}{}}
+\newlabel{eq:simhash@cref}{{[equation][25][]25}{[1][6][]6}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.18}FlatChord: GPU-Optimized Dense Representation}{7}{subsection.0.18}\protected@file@percent }
+\newlabel{sec:flat_chord}{{0.18}{7}{FlatChord: GPU-Optimized Dense Representation}{subsection.0.18}{}}
+\newlabel{sec:flat_chord@cref}{{[subsection][18][0]0.18}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.19}Chord Co-occurrence and Markov Transition Matrix}{7}{subsection.0.19}\protected@file@percent }
+\newlabel{sec:eigenmode_cooccurrence}{{0.19}{7}{Chord Co-occurrence and Markov Transition Matrix}{subsection.0.19}{}}
+\newlabel{sec:eigenmode_cooccurrence@cref}{{[subsection][19][0]0.19}{[1][7][]7}{}{}{}}
+\newlabel{eq:cooccurrence}{{26}{7}{Chord Co-occurrence and Markov Transition Matrix}{equation.26}{}}
+\newlabel{eq:cooccurrence@cref}{{[equation][26][]26}{[1][7][]7}{}{}{}}
+\newlabel{eq:markov}{{27}{7}{Chord Co-occurrence and Markov Transition Matrix}{equation.27}{}}
+\newlabel{eq:markov@cref}{{[equation][27][]27}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.20}Eigenvector Extraction and Phase Assignment}{7}{subsection.0.20}\protected@file@percent }
+\newlabel{sec:eigen_extraction}{{0.20}{7}{Eigenvector Extraction and Phase Assignment}{subsection.0.20}{}}
+\newlabel{sec:eigen_extraction@cref}{{[subsection][20][0]0.20}{[1][7][]7}{}{}{}}
+\newlabel{eq:phase_assignment}{{28}{7}{Eigenvector Extraction and Phase Assignment}{equation.28}{}}
+\newlabel{eq:phase_assignment@cref}{{[equation][28][]28}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Eigenvector Magnitude as Frequency.}{7}{section*.9}\protected@file@percent }
+\newlabel{eq:frequency}{{29}{7}{Eigenvector Magnitude as Frequency}{equation.29}{}}
+\newlabel{eq:frequency@cref}{{[equation][29][]29}{[1][7][]7}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.21}Multi-Scale Circular Averaging}{7}{subsection.0.21}\protected@file@percent }
+\newlabel{sec:multi_scale}{{0.21}{7}{Multi-Scale Circular Averaging}{subsection.0.21}{}}
+\newlabel{sec:multi_scale@cref}{{[subsection][21][0]0.21}{[1][7][]7}{}{}{}}
+\newlabel{eq:fib_weight}{{30}{7}{Multi-Scale Circular Averaging}{equation.30}{}}
+\newlabel{eq:fib_weight@cref}{{[equation][30][]30}{[1][7][]7}{}{}{}}
+\newlabel{eq:circular_mean}{{31}{8}{Multi-Scale Circular Averaging}{equation.31}{}}
+\newlabel{eq:circular_mean@cref}{{[equation][31][]31}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.22}Sequential Phase Tracking and Intent Alignment}{8}{subsection.0.22}\protected@file@percent }
+\newlabel{sec:toroidal_steering}{{0.22}{8}{Sequential Phase Tracking and Intent Alignment}{subsection.0.22}{}}
+\newlabel{sec:toroidal_steering@cref}{{[subsection][22][0]0.22}{[1][8][]8}{}{}{}}
+\newlabel{eq:seq_phase}{{32}{8}{Sequential Phase Tracking and Intent Alignment}{equation.32}{}}
+\newlabel{eq:seq_phase@cref}{{[equation][32][]32}{[1][8][]8}{}{}{}}
+\newlabel{eq:concentration}{{33}{8}{Sequential Phase Tracking and Intent Alignment}{equation.33}{}}
+\newlabel{eq:concentration@cref}{{[equation][33][]33}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.23}Geometric Closure Detection}{8}{subsection.0.23}\protected@file@percent }
+\newlabel{sec:geometric_closure}{{0.23}{8}{Geometric Closure Detection}{subsection.0.23}{}}
+\newlabel{sec:geometric_closure@cref}{{[subsection][23][0]0.23}{[1][8][]8}{}{}{}}
+\newlabel{eq:closure}{{34}{8}{Geometric Closure Detection}{equation.34}{}}
+\newlabel{eq:closure@cref}{{[equation][34][]34}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.24}Two-Phase Retrieval Pipeline}{8}{subsection.0.24}\protected@file@percent }
+\newlabel{sec:hybrid_pipeline}{{0.24}{8}{Two-Phase Retrieval Pipeline}{subsection.0.24}{}}
+\newlabel{sec:hybrid_pipeline@cref}{{[subsection][24][0]0.24}{[1][8][]8}{}{}{}}
+\newlabel{eq:complex_cosine}{{35}{8}{Two-Phase Retrieval Pipeline}{equation.35}{}}
+\newlabel{eq:complex_cosine@cref}{{[equation][35][]35}{[1][8][]8}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.25}Geodesic Phase Scanning}{9}{subsection.0.25}\protected@file@percent }
+\newlabel{sec:geodesic_scan}{{0.25}{9}{Geodesic Phase Scanning}{subsection.0.25}{}}
+\newlabel{sec:geodesic_scan@cref}{{[subsection][25][0]0.25}{[1][8][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.26}Structural Layout}{9}{subsection.0.26}\protected@file@percent }
+\newlabel{sec:manifold_layout}{{0.26}{9}{Structural Layout}{subsection.0.26}{}}
+\newlabel{sec:manifold_layout@cref}{{[subsection][26][0]0.26}{[1][9][]9}{}{}{}}
+\newlabel{eq:rot_x}{{36}{9}{Structural Layout}{equation.36}{}}
+\newlabel{eq:rot_x@cref}{{[equation][36][]36}{[1][9][]9}{}{}{}}
+\newlabel{eq:rot_y}{{37}{9}{Structural Layout}{equation.37}{}}
+\newlabel{eq:rot_y@cref}{{[equation][37][]37}{[1][9][]9}{}{}{}}
+\newlabel{eq:rot_z}{{38}{9}{Structural Layout}{equation.38}{}}
+\newlabel{eq:rot_z@cref}{{[equation][38][]38}{[1][9][]9}{}{}{}}
+\newlabel{eq:non_comm}{{39}{9}{Structural Layout}{equation.39}{}}
+\newlabel{eq:non_comm@cref}{{[equation][39][]39}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.27}The Icosahedral Manifold and $A_5$ Extension}{9}{subsection.0.27}\protected@file@percent }
+\newlabel{sec:icosahedral_manifold}{{0.27}{9}{The Icosahedral Manifold and $A_5$ Extension}{subsection.0.27}{}}
+\newlabel{sec:icosahedral_manifold@cref}{{[subsection][27][0]0.27}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{$A_5$ Macro-Permutations.}{9}{section*.10}\protected@file@percent }
+\newlabel{eq:3cycle}{{40}{9}{$A_5$ Macro-Permutations}{equation.40}{}}
+\newlabel{eq:3cycle@cref}{{[equation][40][]40}{[1][9][]9}{}{}{}}
+\newlabel{eq:double_trans}{{41}{9}{$A_5$ Macro-Permutations}{equation.41}{}}
+\newlabel{eq:double_trans@cref}{{[equation][41][]41}{[1][9][]9}{}{}{}}
+\newlabel{eq:5cycle}{{42}{9}{$A_5$ Macro-Permutations}{equation.42}{}}
+\newlabel{eq:5cycle@cref}{{[equation][42][]42}{[1][9][]9}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.28}The 16-Bit Rotation Header}{10}{subsection.0.28}\protected@file@percent }
+\newlabel{sec:rotation_header}{{0.28}{10}{The 16-Bit Rotation Header}{subsection.0.28}{}}
+\newlabel{sec:rotation_header@cref}{{[subsection][28][0]0.28}{[1][9][]10}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.29}Virtual Mitosis: $O(1)$ Phase Transition}{10}{subsection.0.29}\protected@file@percent }
+\newlabel{sec:mitosis}{{0.29}{10}{Virtual Mitosis: $O(1)$ Phase Transition}{subsection.0.29}{}}
+\newlabel{sec:mitosis@cref}{{[subsection][29][0]0.29}{[1][10][]10}{}{}{}}
+\newlabel{eq:mitosis_thresh}{{43}{10}{Virtual Mitosis: $O(1)$ Phase Transition}{equation.43}{}}
+\newlabel{eq:mitosis_thresh@cref}{{[equation][43][]43}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{De-Mitosis (Reversible Collapse).}{10}{section*.11}\protected@file@percent }
+\newlabel{eq:demitosis_thresh}{{44}{10}{De-Mitosis (Reversible Collapse)}{equation.44}{}}
+\newlabel{eq:demitosis_thresh@cref}{{[equation][44][]44}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Entropy Budget.}{10}{section*.12}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.30}Contiguous GPU-Dispatch Array}{10}{subsection.0.30}\protected@file@percent }
+\newlabel{sec:primefield_layout}{{0.30}{10}{Contiguous GPU-Dispatch Array}{subsection.0.30}{}}
+\newlabel{sec:primefield_layout@cref}{{[subsection][30][0]0.30}{[1][10][]10}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.31}Morton-Coded Spatial Indexing}{11}{subsection.0.31}\protected@file@percent }
+\newlabel{sec:morton_codes}{{0.31}{11}{Morton-Coded Spatial Indexing}{subsection.0.31}{}}
+\newlabel{sec:morton_codes@cref}{{[subsection][31][0]0.31}{[1][10][]11}{}{}{}}
+\newlabel{eq:morton_key}{{45}{11}{Morton-Coded Spatial Indexing}{equation.45}{}}
+\newlabel{eq:morton_key@cref}{{[equation][45][]45}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.32}Zipfian Distributions and Collision-as-Compression}{11}{subsection.0.32}\protected@file@percent }
+\newlabel{sec:collision_is_compression}{{0.32}{11}{Zipfian Distributions and Collision-as-Compression}{subsection.0.32}{}}
+\newlabel{sec:collision_is_compression@cref}{{[subsection][32][0]0.32}{[1][11][]11}{}{}{}}
+\newlabel{eq:compression_ratio}{{46}{11}{Zipfian Distributions and Collision-as-Compression}{equation.46}{}}
+\newlabel{eq:compression_ratio@cref}{{[equation][46][]46}{[1][11][]11}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Collision-compression metrics across datasets. Ratios increase with dataset size, consistent with Zipfian redundancy scaling.}}{11}{table.caption.13}\protected@file@percent }
+\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
+\newlabel{tab:compression_metrics}{{1}{11}{Collision-compression metrics across datasets. Ratios increase with dataset size, consistent with Zipfian redundancy scaling}{table.caption.13}{}}
+\newlabel{tab:compression_metrics@cref}{{[table][1][]1}{[1][11][]11}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.33}Entropy-Driven Sequence Boundaries}{12}{subsection.0.33}\protected@file@percent }
+\newlabel{sec:sequence_boundaries}{{0.33}{12}{Entropy-Driven Sequence Boundaries}{subsection.0.33}{}}
+\newlabel{sec:sequence_boundaries@cref}{{[subsection][33][0]0.33}{[1][11][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.34}Prototype Snapping and Cleanup}{12}{subsection.0.34}\protected@file@percent }
+\newlabel{sec:prototype_snapping}{{0.34}{12}{Prototype Snapping and Cleanup}{subsection.0.34}{}}
+\newlabel{sec:prototype_snapping@cref}{{[subsection][34][0]0.34}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.35}Manifold Masking for Self-Exclusion}{12}{subsection.0.35}\protected@file@percent }
+\newlabel{sec:masking}{{0.35}{12}{Manifold Masking for Self-Exclusion}{subsection.0.35}{}}
+\newlabel{sec:masking@cref}{{[subsection][35][0]0.35}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.36}The Universal Tokenizer}{12}{subsection.0.36}\protected@file@percent }
+\newlabel{sec:universal_tokenizer}{{0.36}{12}{The Universal Tokenizer}{subsection.0.36}{}}
+\newlabel{sec:universal_tokenizer@cref}{{[subsection][36][0]0.36}{[1][12][]12}{}{}{}}
+\newlabel{sec:tokenizer_sequencer}{{0.36}{12}{The Universal Tokenizer}{subsection.0.36}{}}
+\newlabel{sec:tokenizer_sequencer@cref}{{[subsection][36][0]0.36}{[1][12][]12}{}{}{}}
+\newlabel{eq:token_id}{{47}{12}{The Universal Tokenizer}{equation.47}{}}
+\newlabel{eq:token_id@cref}{{[equation][47][]47}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.37}The Topological Sequencer}{12}{subsection.0.37}\protected@file@percent }
+\newlabel{sec:sequencer}{{0.37}{12}{The Topological Sequencer}{subsection.0.37}{}}
+\newlabel{sec:sequencer@cref}{{[subsection][37][0]0.37}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 1: Measurement.}{12}{section*.14}\protected@file@percent }
+\newlabel{eq:pop}{{48}{12}{Step 1: Measurement}{equation.48}{}}
+\newlabel{eq:pop@cref}{{[equation][48][]48}{[1][12][]12}{}{}{}}
+\newlabel{eq:phase_mag}{{49}{12}{Step 1: Measurement}{equation.49}{}}
+\newlabel{eq:phase_mag@cref}{{[equation][49][]49}{[1][12][]12}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 2: Golden Ratio Exponential Smoothing.}{13}{section*.15}\protected@file@percent }
+\newlabel{eq:golden_ratio}{{50}{13}{Step 2: Golden Ratio Exponential Smoothing}{equation.50}{}}
+\newlabel{eq:golden_ratio@cref}{{[equation][50][]50}{[1][12][]13}{}{}{}}
+\newlabel{eq:ema_pop}{{51}{13}{Step 2: Golden Ratio Exponential Smoothing}{equation.51}{}}
+\newlabel{eq:ema_pop@cref}{{[equation][51][]51}{[1][12][]13}{}{}{}}
+\newlabel{eq:ema_phase}{{52}{13}{Step 2: Golden Ratio Exponential Smoothing}{equation.52}{}}
+\newlabel{eq:ema_phase@cref}{{[equation][52][]52}{[1][12][]13}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 3: Welford's Online Variance.}{13}{section*.16}\protected@file@percent }
+\newlabel{eq:welford_delta}{{53}{13}{Step 3: Welford's Online Variance}{equation.53}{}}
+\newlabel{eq:welford_delta@cref}{{[equation][53][]53}{[1][13][]13}{}{}{}}
+\newlabel{eq:welford_mean}{{54}{13}{Step 3: Welford's Online Variance}{equation.54}{}}
+\newlabel{eq:welford_mean@cref}{{[equation][54][]54}{[1][13][]13}{}{}{}}
+\newlabel{eq:welford_m2}{{55}{13}{Step 3: Welford's Online Variance}{equation.55}{}}
+\newlabel{eq:welford_m2@cref}{{[equation][55][]55}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 4: Dynamic Z-Score Thresholding.}{13}{section*.17}\protected@file@percent }
+\newlabel{eq:thresh_pop}{{56}{13}{Step 4: Dynamic Z-Score Thresholding}{equation.56}{}}
+\newlabel{eq:thresh_pop@cref}{{[equation][56][]56}{[1][13][]13}{}{}{}}
+\newlabel{eq:thresh_phase}{{57}{13}{Step 4: Dynamic Z-Score Thresholding}{equation.57}{}}
+\newlabel{eq:thresh_phase@cref}{{[equation][57][]57}{[1][13][]13}{}{}{}}
+\newlabel{eq:topo_bound}{{58}{13}{Step 4: Dynamic Z-Score Thresholding}{equation.58}{}}
+\newlabel{eq:topo_bound@cref}{{[equation][58][]58}{[1][13][]13}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Step 5: Event Classification.}{13}{section*.18}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.38}Closed-Loop Calibration}{14}{subsection.0.38}\protected@file@percent }
+\newlabel{sec:calibration}{{0.38}{14}{Closed-Loop Calibration}{subsection.0.38}{}}
+\newlabel{sec:calibration@cref}{{[subsection][38][0]0.38}{[1][13][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.39}Machine Architecture}{14}{subsection.0.39}\protected@file@percent }
+\newlabel{sec:vm_machine}{{0.39}{14}{Machine Architecture}{subsection.0.39}{}}
+\newlabel{sec:vm_machine@cref}{{[subsection][39][0]0.39}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.40}The Generation Loop}{14}{subsection.0.40}\protected@file@percent }
+\newlabel{sec:generation_loop}{{0.40}{14}{The Generation Loop}{subsection.0.40}{}}
+\newlabel{sec:generation_loop@cref}{{[subsection][40][0]0.40}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {0.41}Multi-Hop Reasoning via Iterative Masking}{14}{subsection.0.41}\protected@file@percent }
+\newlabel{sec:multi_hop}{{0.41}{14}{Multi-Hop Reasoning via Iterative Masking}{subsection.0.41}{}}
+\newlabel{sec:multi_hop@cref}{{[subsection][41][0]0.41}{[1][14][]14}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {1}Architecture}{15}{section.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {1.1}The Dual Architecture: Bedrock and Cortex}{15}{subsection.1.1}\protected@file@percent }
+\newlabel{sec:dual_architecture}{{1.1}{15}{The Dual Architecture: Bedrock and Cortex}{subsection.1.1}{}}
+\newlabel{sec:dual_architecture@cref}{{[subsection][1][1]1.1}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.1.1}The Bedrock: Persistent Holographic Storage ($Z = 0$)}{15}{subsubsection.1.1.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {1.1.2}The Cortex: Active Inference Workbench ($Z \ge 1$)}{15}{subsubsection.1.1.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {2}Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}{15}{section.2}\protected@file@percent }
+\newlabel{sec:entropy_routing}{{2}{15}{Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}{section.2}{}}
+\newlabel{sec:entropy_routing@cref}{{[section][2][]2}{[1][15][]15}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.1}The Shannon Limit and the ``Wall of Ones''}{15}{subsection.2.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.2}Dynamic Manifolds as Entropy Relief Valves}{16}{subsection.2.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.3}Geometric Expansion and Virtual Mitosis}{16}{subsection.2.3}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.4}State Space Analysis: Topology as a Capacity Multiplier}{16}{subsection.2.4}\protected@file@percent }
+\newlabel{sec:state_space}{{2.4}{16}{State Space Analysis: Topology as a Capacity Multiplier}{subsection.2.4}{}}
+\newlabel{sec:state_space@cref}{{[subsection][4][2]2.4}{[1][16][]16}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Level 1: The 257-Bit Chord.}{16}{section*.19}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Level 2: The MacroCube (257 faces).}{17}{section*.20}\protected@file@percent }
+\newlabel{eq:state_cube}{{59}{17}{Level 2: The MacroCube (257 faces)}{equation.59}{}}
+\newlabel{eq:state_cube@cref}{{[equation][59][]59}{[1][16][]17}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Level 3: The Icosahedral Manifold (Post-Mitosis).}{17}{section*.21}\protected@file@percent }
+\newlabel{eq:state_ico}{{60}{17}{Level 3: The Icosahedral Manifold (Post-Mitosis)}{equation.60}{}}
+\newlabel{eq:state_ico@cref}{{[equation][60][]60}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Level 4: Rotational State Multiplier.}{17}{section*.22}\protected@file@percent }
+\newlabel{eq:state_total}{{61}{17}{Level 4: Rotational State Multiplier}{equation.61}{}}
+\newlabel{eq:state_total@cref}{{[equation][61][]61}{[1][17][]17}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Comparison with Parameter-Count Scaling.}{17}{section*.23}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Memory footprint vs.\ representational state space. The Sensorium achieves exponentially larger state spaces per byte by exploiting group-theoretic multipliers rather than increasing parameter counts.}}{17}{table.caption.24}\protected@file@percent }
+\newlabel{tab:capacity_comparison}{{2}{17}{Memory footprint vs.\ representational state space. The Sensorium achieves exponentially larger state spaces per byte by exploiting group-theoretic multipliers rather than increasing parameter counts}{table.caption.24}{}}
+\newlabel{tab:capacity_comparison@cref}{{[table][2][]2}{[1][17][]17}{}{}{}}
 \citation{bronstein2021geometric}
 \citation{cohen2016group}
-\@writefile{lot}{\contentsline {table}{\numberline {1}{\ignorespaces Memory footprint vs.\ representational state space. The Sensorium achieves exponentially larger state spaces per byte by exploiting group-theoretic multipliers rather than increasing parameter counts.}}{4}{table.caption.6}\protected@file@percent }
-\providecommand*\caption@xref[2]{\@setref\relax\@undefined{#1}}
-\newlabel{tab:capacity_comparison}{{1}{4}{Memory footprint vs.\ representational state space. The Sensorium achieves exponentially larger state spaces per byte by exploiting group-theoretic multipliers rather than increasing parameter counts}{table.caption.6}{}}
-\newlabel{tab:capacity_comparison@cref}{{[table][1][]1}{[1][3][]4}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Implications for Scaling}{4}{subsection.2.5}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Algebraic Topology and Group-Equivariant Computation}{4}{subsection.2.6}\protected@file@percent }
-\newlabel{sec:related_algebraic_topology}{{2.6}{4}{Algebraic Topology and Group-Equivariant Computation}{subsection.2.6}{}}
-\newlabel{sec:related_algebraic_topology@cref}{{[subsection][6][2]2.6}{[1][4][]4}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{The Alternating Group $A_5$ and Icosahedral Symmetry.}{4}{section*.7}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.5}Implications for Scaling}{18}{subsection.2.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.6}Algebraic Topology and Group-Equivariant Computation}{18}{subsection.2.6}\protected@file@percent }
+\newlabel{sec:related_algebraic_topology}{{2.6}{18}{Algebraic Topology and Group-Equivariant Computation}{subsection.2.6}{}}
+\newlabel{sec:related_algebraic_topology@cref}{{[subsection][6][2]2.6}{[1][18][]18}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{The Alternating Group $A_5$ and Icosahedral Symmetry.}{18}{section*.25}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Implications for the 729-Field Lattice.}{18}{section*.26}\protected@file@percent }
 \citation{witten1987arithmetic}
-\@writefile{toc}{\contentsline {paragraph}{Implications for the 729-Field Lattice.}{5}{section*.8}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}{5}{subsection.2.7}\protected@file@percent }
-\newlabel{sec:related_godel_arithmetic}{{2.7}{5}{Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}{subsection.2.7}{}}
-\newlabel{sec:related_godel_arithmetic@cref}{{[subsection][7][2]2.7}{[1][5][]5}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{From G\"{o}del Numbers to Prime Bitsets.}{5}{section*.9}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Collision as Compression via Arithmetic Coding.}{5}{section*.10}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.7}Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}{19}{subsection.2.7}\protected@file@percent }
+\newlabel{sec:related_godel_arithmetic}{{2.7}{19}{Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}{subsection.2.7}{}}
+\newlabel{sec:related_godel_arithmetic@cref}{{[subsection][7][2]2.7}{[1][19][]19}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{From G\"{o}del Numbers to Prime Bitsets.}{19}{section*.27}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Collision as Compression via Arithmetic Coding.}{19}{section*.28}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Implications for Capacity and Scaling.}{19}{section*.29}\protected@file@percent }
 \citation{oneil1996lsm}
 \citation{bender2007introduction}
 \citation{morton1966computer,samet2006foundations}
-\@writefile{toc}{\contentsline {paragraph}{Implications for Capacity and Scaling.}{6}{section*.11}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.8}Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}{6}{subsection.2.8}\protected@file@percent }
-\newlabel{sec:related_hardware_accel}{{2.8}{6}{Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}{subsection.2.8}{}}
-\newlabel{sec:related_hardware_accel@cref}{{[subsection][8][2]2.8}{[1][6][]6}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Log-Structured Merge Trees and Write Amplification.}{6}{section*.12}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Morton-Coded Keys and Cache Locality.}{6}{section*.13}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Metal Compute Kernels and SIMD Bitwise Operations.}{6}{section*.14}\protected@file@percent }
 \citation{kanerva2009hyperdimensional}
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.8}Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}{20}{subsection.2.8}\protected@file@percent }
+\newlabel{sec:related_hardware_accel}{{2.8}{20}{Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}{subsection.2.8}{}}
+\newlabel{sec:related_hardware_accel@cref}{{[subsection][8][2]2.8}{[1][19][]20}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Log-Structured Merge Trees and Write Amplification.}{20}{section*.30}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Morton-Coded Keys and Cache Locality.}{20}{section*.31}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Metal Compute Kernels and SIMD Bitwise Operations.}{20}{section*.32}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.9}Hyperdimensional Computing and Vector Symbolic Architectures}{20}{subsection.2.9}\protected@file@percent }
+\newlabel{sec:related_hdc_vsa}{{2.9}{20}{Hyperdimensional Computing and Vector Symbolic Architectures}{subsection.2.9}{}}
+\newlabel{sec:related_hdc_vsa@cref}{{[subsection][9][2]2.9}{[1][20][]20}{}{}{}}
 \citation{gayler2003vector}
 \citation{chung2018classification}
 \citation{cohen2024manifoldcapacity}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.9}Hyperdimensional Computing and Vector Symbolic Architectures}{7}{subsection.2.9}\protected@file@percent }
-\newlabel{sec:related_hdc_vsa}{{2.9}{7}{Hyperdimensional Computing and Vector Symbolic Architectures}{subsection.2.9}{}}
-\newlabel{sec:related_hdc_vsa@cref}{{[subsection][9][2]2.9}{[1][7][]7}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.10}Manifold Capacity and Noncommutative Product Structure}{7}{subsection.2.10}\protected@file@percent }
-\newlabel{sec:related_manifold_capacity}{{2.10}{7}{Manifold Capacity and Noncommutative Product Structure}{subsection.2.10}{}}
-\newlabel{sec:related_manifold_capacity@cref}{{[subsection][10][2]2.10}{[1][7][]7}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Manifold Capacity Theory.}{7}{section*.15}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.10}Manifold Capacity and Noncommutative Product Structure}{21}{subsection.2.10}\protected@file@percent }
+\newlabel{sec:related_manifold_capacity}{{2.10}{21}{Manifold Capacity and Noncommutative Product Structure}{subsection.2.10}{}}
+\newlabel{sec:related_manifold_capacity@cref}{{[subsection][10][2]2.10}{[1][21][]21}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Manifold Capacity Theory.}{21}{section*.33}\protected@file@percent }
 \citation{hataya2023noncommutative}
 \citation{hersche2023nvsa}
-\@writefile{toc}{\contentsline {paragraph}{Noncommutative $C^*$-algebra Structure.}{8}{section*.16}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.11}Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{8}{subsection.2.11}\protected@file@percent }
-\newlabel{sec:related_nvsa}{{2.11}{8}{Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{subsection.2.11}{}}
-\newlabel{sec:related_nvsa@cref}{{[subsection][11][2]2.11}{[1][8][]8}{}{}{}}
 \citation{rahimi2017hd}
+\@writefile{toc}{\contentsline {paragraph}{Noncommutative $C^*$-algebra Structure.}{22}{section*.34}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.11}Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{22}{subsection.2.11}\protected@file@percent }
+\newlabel{sec:related_nvsa}{{2.11}{22}{Neuro-Vector-Symbolic Architectures and HD Computing Hardware}{subsection.2.11}{}}
+\newlabel{sec:related_nvsa@cref}{{[subsection][11][2]2.11}{[1][22][]22}{}{}{}}
 \citation{kleyko2022vsa}
 \citation{belkin2003laplacian}
-\@writefile{toc}{\contentsline {paragraph}{HD Computing as a Hardware Paradigm.}{9}{section*.17}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{VSA on Emerging Hardware.}{9}{section*.18}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.12}Spectral Embedding and Toroidal Manifold Discovery}{9}{subsection.2.12}\protected@file@percent }
-\newlabel{sec:related_spectral_embedding}{{2.12}{9}{Spectral Embedding and Toroidal Manifold Discovery}{subsection.2.12}{}}
-\newlabel{sec:related_spectral_embedding@cref}{{[subsection][12][2]2.12}{[1][9][]9}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Laplacian Eigenmaps and Manifold Learning.}{9}{section*.19}\protected@file@percent }
 \citation{knill2013dirac}
+\@writefile{toc}{\contentsline {paragraph}{HD Computing as a Hardware Paradigm.}{23}{section*.35}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{VSA on Emerging Hardware.}{23}{section*.36}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.12}Spectral Embedding and Toroidal Manifold Discovery}{23}{subsection.2.12}\protected@file@percent }
+\newlabel{sec:related_spectral_embedding}{{2.12}{23}{Spectral Embedding and Toroidal Manifold Discovery}{subsection.2.12}{}}
+\newlabel{sec:related_spectral_embedding@cref}{{[subsection][12][2]2.12}{[1][23][]23}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Laplacian Eigenmaps and Manifold Learning.}{23}{section*.37}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The Dirac Operator and Geodesic Computation.}{23}{section*.38}\protected@file@percent }
 \citation{horn2022togl}
 \citation{papillon2024tdl}
-\@writefile{toc}{\contentsline {paragraph}{The Dirac Operator and Geodesic Computation.}{10}{section*.20}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Why the Torus Emerges.}{10}{section*.21}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.13}Topological Neural Networks and the Symbolic$\leftrightarrow $Neuro Frontier}{10}{subsection.2.13}\protected@file@percent }
-\newlabel{sec:related_topological_nn}{{2.13}{10}{Topological Neural Networks and the Symbolic$\leftrightarrow $Neuro Frontier}{subsection.2.13}{}}
-\newlabel{sec:related_topological_nn@cref}{{[subsection][13][2]2.13}{[1][10][]10}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Topological Graph Neural Networks.}{10}{section*.22}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Topological Deep Learning as the New Frontier.}{10}{section*.23}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{The Symbolic$\leftrightarrow $Neuro$\leftrightarrow $Symbolic Pipeline.}{11}{section*.24}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsection}{\numberline {2.14}Topological Sequencing and Boundary Analysis}{11}{subsection.2.14}\protected@file@percent }
-\newlabel{sec:topological_sequencing}{{2.14}{11}{Topological Sequencing and Boundary Analysis}{subsection.2.14}{}}
-\newlabel{sec:topological_sequencing@cref}{{[subsection][14][2]2.14}{[1][11][]11}{}{}{}}
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.14.1}MDL Boundary Detection and Buffering}{11}{subsubsection.2.14.1}\protected@file@percent }
-\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.14.2}Structural Z-Scores and Affine Transitions}{11}{subsubsection.2.14.2}\protected@file@percent }
-\@writefile{toc}{\contentsline {section}{\numberline {3}Classification}{13}{section.3}\protected@file@percent }
-\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Confusion matrix showing predicted vs. true class assignments for Text Classification.}}{13}{figure.caption.25}\protected@file@percent }
-\newlabel{fig:text_classification_confusion}{{1}{13}{Confusion matrix showing predicted vs. true class assignments for Text Classification}{figure.caption.25}{}}
-\newlabel{fig:text_classification_confusion@cref}{{[figure][1][]1}{[1][13][]13}{}{}{}}
-\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Text Classification}{13}{subsection.3.1}\protected@file@percent }
-\newlabel{sec:text_classification}{{3.1}{13}{Text Classification}{subsection.3.1}{}}
-\newlabel{sec:text_classification@cref}{{[subsection][1][3]3.1}{[1][13][]13}{}{}{}}
-\@writefile{toc}{\contentsline {paragraph}{Task Description.}{13}{section*.26}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Results.}{13}{section*.27}\protected@file@percent }
-\@writefile{toc}{\contentsline {paragraph}{Assessment.}{13}{section*.28}\protected@file@percent }
-\@writefile{lot}{\contentsline {table}{\numberline {2}{\ignorespaces Text Classification --- summary metrics.}}{13}{table.caption.29}\protected@file@percent }
-\newlabel{tab:text_classification_metrics}{{2}{13}{Text Classification --- summary metrics}{table.caption.29}{}}
-\newlabel{tab:text_classification_metrics@cref}{{[table][2][]2}{[1][13][]13}{}{}{}}
-\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Confusion matrix showing p
+\@writefile{toc}{\contentsline {paragraph}{Why the Torus Emerges.}{24}{section*.39}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.13}Topological Neural Networks and the Symbolic$\leftrightarrow $Neuro Frontier}{24}{subsection.2.13}\protected@file@percent }
+\newlabel{sec:related_topological_nn}{{2.13}{24}{Topological Neural Networks and the Symbolic$\leftrightarrow $Neuro Frontier}{subsection.2.13}{}}
+\newlabel{sec:related_topological_nn@cref}{{[subsection][13][2]2.13}{[1][24][]24}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Topological Graph Neural Networks.}{24}{section*.40}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Topological Deep Learning as the New Frontier.}{24}{section*.41}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{The Symbolic$\leftrightarrow $Neuro$\leftrightarrow $Symbolic Pipeline.}{25}{section*.42}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {2.14}Topological Sequencing and Boundary Analysis}{25}{subsection.2.14}\protected@file@percent }
+\newlabel{sec:topological_sequencing}{{2.14}{25}{Topological Sequencing and Boundary Analysis}{subsection.2.14}{}}
+\newlabel{sec:topological_sequencing@cref}{{[subsection][14][2]2.14}{[1][25][]25}{}{}{}}
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.14.1}MDL Boundary Detection and Buffering}{25}{subsubsection.2.14.1}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsubsection}{\numberline {2.14.2}Structural Z-Scores and Affine Transitions}{25}{subsubsection.2.14.2}\protected@file@percent }
+\@writefile{toc}{\contentsline {section}{\numberline {3}Classification}{26}{section.3}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {1}{\ignorespaces Confusion matrix showing predicted vs. true class assignments for Text Classification.}}{26}{figure.caption.43}\protected@file@percent }
+\newlabel{fig:text_classification_confusion}{{1}{26}{Confusion matrix showing predicted vs. true class assignments for Text Classification}{figure.caption.43}{}}
+\newlabel{fig:text_classification_confusion@cref}{{[figure][1][]1}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {3.1}Text Classification}{26}{subsection.3.1}\protected@file@percent }
+\newlabel{sec:text_classification}{{3.1}{26}{Text Classification}{subsection.3.1}{}}
+\newlabel{sec:text_classification@cref}{{[subsection][1][3]3.1}{[1][26][]26}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{26}{section*.44}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{26}{section*.45}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{26}{section*.46}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {3}{\ignorespaces Text Classification --- summary metrics.}}{27}{table.caption.47}\protected@file@percent }
+\newlabel{tab:text_classification_metrics}{{3}{27}{Text Classification --- summary metrics}{table.caption.47}{}}
+\newlabel{tab:text_classification_metrics@cref}{{[table][3][]3}{[1][26][]27}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {4}{\ignorespaces Text Classification — standardised result summary (N=10).}}{27}{table.caption.48}\protected@file@percent }
+\newlabel{tab:text_classification_summary}{{4}{27}{Text Classification — standardised result summary (N=10)}{table.caption.48}{}}
+\newlabel{tab:text_classification_summary@cref}{{[table][4][]4}{[1][26][]27}{}{}{}}
+\citation{muennighoff2023octopack}
+\@writefile{toc}{\contentsline {section}{\numberline {4}Codegen}{28}{section.4}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {2}{\ignorespaces Mean exact, partial, fuzzy, and weighted scores per language (bigcode/humanevalpack).}}{28}{figure.caption.49}\protected@file@percent }
+\newlabel{fig:languages_scores}{{2}{28}{Mean exact, partial, fuzzy, and weighted scores per language (bigcode/humanevalpack)}{figure.caption.49}{}}
+\newlabel{fig:languages_scores@cref}{{[figure][2][]2}{[1][28][]28}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {4.1}Code Generation: Multi-Language Coverage}{28}{subsection.4.1}\protected@file@percent }
+\newlabel{sec:codegen_languages}{{4.1}{28}{Code Generation: Multi-Language Coverage}{subsection.4.1}{}}
+\newlabel{sec:codegen_languages@cref}{{[subsection][1][4]4.1}{[1][28][]28}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{28}{section*.50}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{28}{section*.51}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{28}{section*.52}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {5}{\ignorespaces Languages — standardised result summary (N=12).}}{29}{table.caption.53}\protected@file@percent }
+\newlabel{tab:languages_summary}{{5}{29}{Languages — standardised result summary (N=12)}{table.caption.53}{}}
+\newlabel{tab:languages_summary@cref}{{[table][5][]5}{[1][28][]29}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {5}Cortex}{30}{section.5}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {5.1}Cortex Channel Routing}{30}{subsection.5.1}\protected@file@percent }
+\newlabel{sec:channel_routing}{{5.1}{30}{Cortex Channel Routing}{subsection.5.1}{}}
+\newlabel{sec:channel_routing@cref}{{[subsection][1][5]5.1}{[1][30][]30}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{30}{section*.54}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{30}{section*.55}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {3}{\ignorespaces Left: per-channel routing success (mean 50\%). Right: arrival latency in graph ticks (ceiling = 15 = DNF).}}{30}{figure.caption.56}\protected@file@percent }
+\newlabel{fig:channel_routing}{{3}{30}{Left: per-channel routing success (mean 50\%). Right: arrival latency in graph ticks (ceiling = 15 = DNF)}{figure.caption.56}{}}
+\newlabel{fig:channel_routing@cref}{{[figure][3][]3}{[1][30][]30}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {6}{\ignorespaces Channel Routing — standardised result summary (N=8).}}{31}{table.caption.57}\protected@file@percent }
+\newlabel{tab:channel_routing_summary}{{6}{31}{Channel Routing — standardised result summary (N=8)}{table.caption.57}{}}
+\newlabel{tab:channel_routing_summary@cref}{{[table][6][]6}{[1][30][]31}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {6}Imagegen}{32}{section.6}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {4}{\ignorespaces Mean scores vs holdout \% across 2 images and 9 occlusion levels.}}{32}{figure.caption.58}\protected@file@percent }
+\newlabel{fig:reconstruction_scaling}{{4}{32}{Mean scores vs holdout \% across 2 images and 9 occlusion levels}{figure.caption.58}{}}
+\newlabel{fig:reconstruction_scaling@cref}{{[figure][4][]4}{[1][32][]32}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {6.1}Image Reconstruction (CIFAR-10)}{32}{subsection.6.1}\protected@file@percent }
+\newlabel{sec:reconstruction}{{6.1}{32}{Image Reconstruction (CIFAR-10)}{subsection.6.1}{}}
+\newlabel{sec:reconstruction@cref}{{[subsection][1][6]6.1}{[1][32][]32}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{32}{section*.59}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{32}{section*.60}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{32}{section*.61}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {5}{\ignorespaces Original / Prompt / Reconstructed / Error Heatmap at 50\% holdout. N=2 images.}}{33}{figure.caption.62}\protected@file@percent }
+\newlabel{fig:reconstruction_strip}{{5}{33}{Original / Prompt / Reconstructed / Error Heatmap at 50\% holdout. N=2 images}{figure.caption.62}{}}
+\newlabel{fig:reconstruction_strip@cref}{{[figure][5][]5}{[1][32][]33}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {7}{\ignorespaces reconstruction — standardised result summary (N=18).}}{33}{table.caption.63}\protected@file@percent }
+\newlabel{tab:reconstruction_summary}{{7}{33}{reconstruction — standardised result summary (N=18)}{table.caption.63}{}}
+\newlabel{tab:reconstruction_summary@cref}{{[table][7][]7}{[1][32][]33}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {7}Logic}{34}{section.7}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {8}{\ignorespaces babi\_benchmark — standardised result summary (N=50).}}{34}{table.caption.64}\protected@file@percent }
+\newlabel{tab:babi_benchmark_summary}{{8}{34}{babi\_benchmark — standardised result summary (N=50)}{table.caption.64}{}}
+\newlabel{tab:babi_benchmark_summary@cref}{{[table][8][]8}{[1][34][]34}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {7.1}bAbI QA Task 1: Single Supporting Fact}{34}{subsection.7.1}\protected@file@percent }
+\newlabel{sec:babi_benchmark}{{7.1}{34}{bAbI QA Task 1: Single Supporting Fact}{subsection.7.1}{}}
+\newlabel{sec:babi_benchmark@cref}{{[subsection][1][7]7.1}{[1][34][]34}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{34}{section*.65}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Test Conditions.}{34}{section*.66}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{35}{section*.67}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{35}{section*.68}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {9}{\ignorespaces bAbI Task~1 failure cases (showing first 1 of 1). $N = 50$, exact accuracy 98.0\%.}}{35}{table.caption.69}\protected@file@percent }
+\newlabel{tab:babi_failures}{{9}{35}{bAbI Task~1 failure cases (showing first 1 of 1). $N = 50$, exact accuracy 98.0\%}{table.caption.69}{}}
+\newlabel{tab:babi_failures@cref}{{[table][9][]9}{[1][35][]35}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {6}{\ignorespaces Per-sample score fingerprint (left) and weighted score (right). N=50, exact accuracy=98.0\%.}}{35}{figure.caption.70}\protected@file@percent }
+\newlabel{fig:babi_trial_map}{{6}{35}{Per-sample score fingerprint (left) and weighted score (right). N=50, exact accuracy=98.0\%}{figure.caption.70}{}}
+\newlabel{fig:babi_trial_map@cref}{{[figure][6][]6}{[1][35][]35}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {10}{\ignorespaces Pipeline Prompt — standardised result summary (N=1).}}{36}{table.caption.71}\protected@file@percent }
+\newlabel{tab:pipeline_prompt_summary}{{10}{36}{Pipeline Prompt — standardised result summary (N=1)}{table.caption.71}{}}
+\newlabel{tab:pipeline_prompt_summary@cref}{{[table][10][]10}{[1][35][]36}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {8}Misc}{37}{section.8}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {7}{\ignorespaces Score fingerprint and per-domain summary. N=4 total samples (2 per domain).}}{37}{figure.caption.72}\protected@file@percent }
+\newlabel{fig:cross_domain_map}{{7}{37}{Score fingerprint and per-domain summary. N=4 total samples (2 per domain)}{figure.caption.72}{}}
+\newlabel{fig:cross_domain_map@cref}{{[figure][7][]7}{[1][37][]37}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.1}Cross-Domain Span Completion}{37}{subsection.8.1}\protected@file@percent }
+\newlabel{sec:cross_domain_completion}{{8.1}{37}{Cross-Domain Span Completion}{subsection.8.1}{}}
+\newlabel{sec:cross_domain_completion@cref}{{[subsection][1][8]8.1}{[1][37][]37}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{37}{section*.73}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{37}{section*.74}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{37}{section*.75}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {8.2}Rule-Shift Adaptation}{37}{subsection.8.2}\protected@file@percent }
+\newlabel{sec:rule_shift}{{8.2}{37}{Rule-Shift Adaptation}{subsection.8.2}{}}
+\newlabel{sec:rule_shift@cref}{{[subsection][2][8]8.2}{[1][37][]37}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{37}{section*.77}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {11}{\ignorespaces CrossDomainCompletion — standardised result summary (N=4).}}{38}{table.caption.76}\protected@file@percent }
+\newlabel{tab:crossdomaincompletion_summary}{{11}{38}{CrossDomainCompletion — standardised result summary (N=4)}{table.caption.76}{}}
+\newlabel{tab:crossdomaincompletion_summary@cref}{{[table][11][]11}{[1][37][]38}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Results.}{38}{section*.78}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{38}{section*.79}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {12}{\ignorespaces RuleShift — standardised result summary (N=50).}}{39}{table.caption.80}\protected@file@percent }
+\newlabel{tab:ruleshift_summary}{{12}{39}{RuleShift — standardised result summary (N=50)}{table.caption.80}{}}
+\newlabel{tab:ruleshift_summary@cref}{{[table][12][]12}{[1][38][]39}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {8}{\ignorespaces Rule alignment K over 50 steps. Shift at step 25. Phase A: 25/25 Rule-A wins (100\%). Phase B: 21/25 Rule-B wins (84\%).}}{39}{figure.caption.81}\protected@file@percent }
+\newlabel{fig:ruleshift_trajectory}{{8}{39}{Rule alignment K over 50 steps. Shift at step 25. Phase A: 25/25 Rule-A wins (100\%). Phase B: 21/25 Rule-B wins (84\%)}{figure.caption.81}{}}
+\newlabel{fig:ruleshift_trajectory@cref}{{[figure][8][]8}{[1][38][]39}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {9}Phasedial}{40}{section.9}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {9}{\ignorespaces Best gain for each gap size.}}{40}{figure.caption.83}\protected@file@percent }
+\newlabel{fig:adaptive_split_gap}{{9}{40}{Best gain for each gap size}{figure.caption.83}{}}
+\newlabel{fig:adaptive_split_gap@cref}{{[figure][9][]9}{[1][40][]40}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.1}Phase-Based Constraint Resolution}{40}{subsection.9.1}\protected@file@percent }
+\newlabel{sec:constraint_resolution}{{9.1}{40}{Phase-Based Constraint Resolution}{subsection.9.1}{}}
+\newlabel{sec:constraint_resolution@cref}{{[subsection][1][9]9.1}{[1][40][]40}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{40}{section*.90}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {13}{\ignorespaces Chunking Baseline — standardised result summary (N=11).}}{41}{table.caption.86}\protected@file@percent }
+\newlabel{tab:chunking_baseline_summary}{{13}{41}{Chunking Baseline — standardised result summary (N=11)}{table.caption.86}{}}
+\newlabel{tab:chunking_baseline_summary@cref}{{[table][13][]13}{[1][40][]41}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Results.}{41}{section*.91}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {10}{\ignorespaces Phase displacement sweep: sim(C,A), sim(C,B), and gain for composed midpoint.}}{42}{figure.caption.88}\protected@file@percent }
+\newlabel{fig:composition_trace}{{10}{42}{Phase displacement sweep: sim(C,A), sim(C,B), and gain for composed midpoint}{figure.caption.88}{}}
+\newlabel{fig:composition_trace@cref}{{[figure][10][]10}{[1][40][]42}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{42}{section*.92}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {9.2}Torus Generalization (PhaseDial)}{42}{subsection.9.2}\protected@file@percent }
+\newlabel{sec:torus_generalization}{{9.2}{42}{Torus Generalization (PhaseDial)}{subsection.9.2}{}}
+\newlabel{sec:torus_generalization@cref}{{[subsection][2][9]9.2}{[1][42][]42}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Experiment Description.}{42}{section*.102}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Status.}{42}{section*.103}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {11}{\ignorespaces Four-stage polar constraint resolution. 16 clue steps, 4 suspects.}}{43}{figure.caption.89}\protected@file@percent }
+\newlabel{fig:constraint_resolution}{{11}{43}{Four-stage polar constraint resolution. 16 clue steps, 4 suspects}{figure.caption.89}{}}
+\newlabel{fig:constraint_resolution@cref}{{[figure][11][]11}{[1][40][]43}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {14}{\ignorespaces ConstraintResolution — standardised result summary (N=16).}}{44}{table.caption.93}\protected@file@percent }
+\newlabel{tab:constraintresolution_summary}{{14}{44}{ConstraintResolution — standardised result summary (N=16)}{table.caption.93}{}}
+\newlabel{tab:constraintresolution_summary@cref}{{[table][14][]14}{[1][42][]44}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {12}{\ignorespaces Steerability and gain across different split boundaries.}}{44}{figure.caption.100}\protected@file@percent }
+\newlabel{fig:steerability_scores}{{12}{44}{Steerability and gain across different split boundaries}{figure.caption.100}{}}
+\newlabel{fig:steerability_scores@cref}{{[figure][12][]12}{[1][42][]44}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {15}{\ignorespaces Correlation Length — standardised result summary (N=10).}}{45}{table.caption.94}\protected@file@percent }
+\newlabel{tab:correlation_length_summary}{{15}{45}{Correlation Length — standardised result summary (N=10)}{table.caption.94}{}}
+\newlabel{tab:correlation_length_summary@cref}{{[table][15][]15}{[1][42][]45}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {16}{\ignorespaces Group Action Equivariance — standardised result summary (N=10).}}{46}{table.caption.95}\protected@file@percent }
+\newlabel{tab:group_action_equivariance_summary}{{16}{46}{Group Action Equivariance — standardised result summary (N=10)}{table.caption.95}{}}
+\newlabel{tab:group_action_equivariance_summary@cref}{{[table][16][]16}{[1][42][]46}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {17}{\ignorespaces Permutation Invariance — standardised result summary (N=10).}}{47}{table.caption.97}\protected@file@percent }
+\newlabel{tab:permutation_invariance_summary}{{17}{47}{Permutation Invariance — standardised result summary (N=10)}{table.caption.97}{}}
+\newlabel{tab:permutation_invariance_summary@cref}{{[table][17][]17}{[1][42][]47}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {18}{\ignorespaces Phase Coherence — standardised result summary (N=10).}}{48}{table.caption.98}\protected@file@percent }
+\newlabel{tab:phase_coherence_summary}{{18}{48}{Phase Coherence — standardised result summary (N=10)}{table.caption.98}{}}
+\newlabel{tab:phase_coherence_summary@cref}{{[table][18][]18}{[1][42][]48}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {19}{\ignorespaces Snap to Surface — standardised result summary (N=10).}}{49}{table.caption.99}\protected@file@percent }
+\newlabel{tab:snap_to_surface_summary}{{19}{49}{Snap to Surface — standardised result summary (N=10)}{table.caption.99}{}}
+\newlabel{tab:snap_to_surface_summary@cref}{{[table][19][]19}{[1][42][]49}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {20}{\ignorespaces Steerability — standardised result summary (N=15).}}{50}{table.caption.101}\protected@file@percent }
+\newlabel{tab:steerability_summary}{{20}{50}{Steerability — standardised result summary (N=15)}{table.caption.101}{}}
+\newlabel{tab:steerability_summary@cref}{{[table][20][]20}{[1][42][]50}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {13}{\ignorespaces (Left) Full T²(α₁,α₂) gain grid for first-hop α₁=15°. Dark = destructive, warm = constructive. (Right) T² best gain (bar) vs single-axis baselines (dashed) across all first-hop angles; bars exceeding dashed lines are super-additive.}}{51}{figure.caption.104}\protected@file@percent }
+\newlabel{fig:torus_navigation}{{13}{51}{(Left) Full T²(α₁,α₂) gain grid for first-hop α₁=15°. Dark = destructive, warm = constructive. (Right) T² best gain (bar) vs single-axis baselines (dashed) across all first-hop angles; bars exceeding dashed lines are super-additive}{figure.caption.104}{}}
+\newlabel{fig:torus_navigation@cref}{{[figure][13][]13}{[1][42][]51}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {21}{\ignorespaces Two-Hop Retrieval — standardised result summary (N=15).}}{52}{table.caption.106}\protected@file@percent }
+\newlabel{tab:two-hop_retrieval_summary}{{21}{52}{Two-Hop Retrieval — standardised result summary (N=15)}{table.caption.106}{}}
+\newlabel{tab:two-hop_retrieval_summary@cref}{{[table][21][]21}{[1][42][]52}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {14}{\ignorespaces Baseline vs composed gain across first-hop angles.}}{53}{figure.caption.107}\protected@file@percent }
+\newlabel{fig:two_hop_gain_bar}{{14}{53}{Baseline vs composed gain across first-hop angles}{figure.caption.107}{}}
+\newlabel{fig:two_hop_gain_bar@cref}{{[figure][14][]14}{[1][42][]53}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {10}Scaling}{54}{section.10}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {15}{\ignorespaces BestFill efficiency score vs dictionary size. 5 benchmark points.}}{54}{figure.caption.109}\protected@file@percent }
+\newlabel{fig:bestfill_scaling}{{15}{54}{BestFill efficiency score vs dictionary size. 5 benchmark points}{figure.caption.109}{}}
+\newlabel{fig:bestfill_scaling@cref}{{[figure][15][]15}{[1][54][]54}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.1}BestFill Substrate Scaling}{54}{subsection.10.1}\protected@file@percent }
+\newlabel{sec:bestfill_scaling}{{10.1}{54}{BestFill Substrate Scaling}{subsection.10.1}{}}
+\newlabel{sec:bestfill_scaling@cref}{{[subsection][1][10]10.1}{[1][54][]54}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{54}{section*.110}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{54}{section*.111}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.2}Substrate Compression (Collision De-duplication)}{54}{subsection.10.2}\protected@file@percent }
+\newlabel{sec:compression}{{10.2}{54}{Substrate Compression (Collision De-duplication)}{subsection.10.2}{}}
+\newlabel{sec:compression@cref}{{[subsection][2][10]10.2}{[1][54][]54}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{54}{section*.113}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{54}{section*.114}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.3}Pipeline Ingestion Throughput}{54}{subsection.10.3}\protected@file@percent }
+\newlabel{sec:pipeline_throughput}{{10.3}{54}{Pipeline Ingestion Throughput}{subsection.10.3}{}}
+\newlabel{sec:pipeline_throughput@cref}{{[subsection][3][10]10.3}{[1][54][]54}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{54}{section*.116}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {22}{\ignorespaces BestFill Scaling — standardised result summary (N=5).}}{55}{table.caption.112}\protected@file@percent }
+\newlabel{tab:bestfill_scaling_summary}{{22}{55}{BestFill Scaling — standardised result summary (N=5)}{table.caption.112}{}}
+\newlabel{tab:bestfill_scaling_summary@cref}{{[table][22][]22}{[1][54][]55}{}{}{}}
+\@writefile{lot}{\contentsline {table}{\numberline {23}{\ignorespaces Compression — standardised result summary (N=51).}}{55}{table.caption.115}\protected@file@percent }
+\newlabel{tab:compression_summary}{{23}{55}{Compression — standardised result summary (N=51)}{table.caption.115}{}}
+\newlabel{tab:compression_summary@cref}{{[table][23][]23}{[1][54][]55}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Results.}{56}{section*.117}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {24}{\ignorespaces Pipeline Throughput — standardised result summary (N=51).}}{56}{table.caption.118}\protected@file@percent }
+\newlabel{tab:pipeline_throughput_summary}{{24}{56}{Pipeline Throughput — standardised result summary (N=51)}{table.caption.118}{}}
+\newlabel{tab:pipeline_throughput_summary@cref}{{[table][24][]24}{[1][56][]56}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {16}{\ignorespaces Score fingerprint and per-sample weighted score. N=50 samples.}}{56}{figure.caption.119}\protected@file@percent }
+\newlabel{fig:sequencer_map}{{16}{56}{Score fingerprint and per-sample weighted score. N=50 samples}{figure.caption.119}{}}
+\newlabel{fig:sequencer_map@cref}{{[figure][16][]16}{[1][56][]56}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {10.4}Sequencer Boundary Detection and Retrieval}{56}{subsection.10.4}\protected@file@percent }
+\newlabel{sec:sequencer}{{10.4}{56}{Sequencer Boundary Detection and Retrieval}{subsection.10.4}{}}
+\newlabel{sec:sequencer@cref}{{[subsection][4][10]10.4}{[1][56][]56}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{56}{section*.120}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{57}{section*.121}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {25}{\ignorespaces Sequencer — standardised result summary (N=51).}}{57}{table.caption.122}\protected@file@percent }
+\newlabel{tab:sequencer_summary}{{25}{57}{Sequencer — standardised result summary (N=51)}{table.caption.122}{}}
+\newlabel{tab:sequencer_summary@cref}{{[table][25][]25}{[1][57][]57}{}{}{}}
+\@writefile{toc}{\contentsline {section}{\numberline {11}Textgen}{58}{section.11}\protected@file@percent }
+\@writefile{lof}{\contentsline {figure}{\numberline {17}{\ignorespaces Compositional pattern recall trial map. N=20 TinyStories samples, 30\% holdout.}}{58}{figure.caption.123}\protected@file@percent }
+\newlabel{fig:compositional_map}{{17}{58}{Compositional pattern recall trial map. N=20 TinyStories samples, 30\% holdout}{figure.caption.123}{}}
+\newlabel{fig:compositional_map@cref}{{[figure][17][]17}{[1][58][]58}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.1}Compositional Pattern Recall (TinyStories)}{58}{subsection.11.1}\protected@file@percent }
+\newlabel{sec:compositional}{{11.1}{58}{Compositional Pattern Recall (TinyStories)}{subsection.11.1}{}}
+\newlabel{sec:compositional@cref}{{[subsection][1][11]11.1}{[1][58][]58}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{58}{section*.124}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{58}{section*.125}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{58}{section*.126}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.2}Out-of-Corpus Generalisation (WikiText-2)}{58}{subsection.11.2}\protected@file@percent }
+\newlabel{sec:out_of_corpus}{{11.2}{58}{Out-of-Corpus Generalisation (WikiText-2)}{subsection.11.2}{}}
+\newlabel{sec:out_of_corpus@cref}{{[subsection][2][11]11.2}{[1][58][]58}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{58}{section*.129}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Results.}{58}{section*.130}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {26}{\ignorespaces Compositional — standardised result summary (N=20).}}{59}{table.caption.127}\protected@file@percent }
+\newlabel{tab:compositional_summary}{{26}{59}{Compositional — standardised result summary (N=20)}{table.caption.127}{}}
+\newlabel{tab:compositional_summary@cref}{{[table][26][]26}{[1][58][]59}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {18}{\ignorespaces Out-of-corpus analogy trial map. N=10 queries.}}{59}{figure.caption.128}\protected@file@percent }
+\newlabel{fig:out_of_corpus_map}{{18}{59}{Out-of-corpus analogy trial map. N=10 queries}{figure.caption.128}{}}
+\newlabel{fig:out_of_corpus_map@cref}{{[figure][18][]18}{[1][58][]59}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{59}{section*.131}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.3}Prose Chaining (WikiText-103)}{59}{subsection.11.3}\protected@file@percent }
+\newlabel{sec:prose_chaining}{{11.3}{59}{Prose Chaining (WikiText-103)}{subsection.11.3}{}}
+\newlabel{sec:prose_chaining@cref}{{[subsection][3][11]11.3}{[1][59][]59}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{59}{section*.134}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {27}{\ignorespaces Out of Corpus — standardised result summary (N=10).}}{60}{table.caption.132}\protected@file@percent }
+\newlabel{tab:out_of_corpus_summary}{{27}{60}{Out of Corpus — standardised result summary (N=10)}{table.caption.132}{}}
+\newlabel{tab:out_of_corpus_summary@cref}{{[table][27][]27}{[1][59][]60}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {19}{\ignorespaces Prose chaining trial map. N=10 prompts.}}{60}{figure.caption.133}\protected@file@percent }
+\newlabel{fig:prose_chaining_map}{{19}{60}{Prose chaining trial map. N=10 prompts}{figure.caption.133}{}}
+\newlabel{fig:prose_chaining_map@cref}{{[figure][19][]19}{[1][59][]60}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Results.}{60}{section*.135}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{60}{section*.136}\protected@file@percent }
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.4}Text Overlap Generation (TinyStories)}{60}{subsection.11.4}\protected@file@percent }
+\newlabel{sec:text_overlap}{{11.4}{60}{Text Overlap Generation (TinyStories)}{subsection.11.4}{}}
+\newlabel{sec:text_overlap@cref}{{[subsection][4][11]11.4}{[1][60][]60}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Task Description.}{60}{section*.139}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {28}{\ignorespaces Prose Chaining — standardised result summary (N=10).}}{61}{table.caption.137}\protected@file@percent }
+\newlabel{tab:prose_chaining_summary}{{28}{61}{Prose Chaining — standardised result summary (N=10)}{table.caption.137}{}}
+\newlabel{tab:prose_chaining_summary@cref}{{[table][28][]28}{[1][60][]61}{}{}{}}
+\@writefile{lof}{\contentsline {figure}{\numberline {20}{\ignorespaces Text overlap trial map. N=20 TinyStories prompts, 40\% holdout.}}{61}{figure.caption.138}\protected@file@percent }
+\newlabel{fig:text_overlap_map}{{20}{61}{Text overlap trial map. N=20 TinyStories prompts, 40\% holdout}{figure.caption.138}{}}
+\newlabel{fig:text_overlap_map@cref}{{[figure][20][]20}{[1][60][]61}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Results.}{61}{section*.140}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Assessment.}{61}{section*.141}\protected@file@percent }
+\@writefile{lot}{\contentsline {table}{\numberline {29}{\ignorespaces Text Overlap — standardised result summary (N=20).}}{62}{table.caption.142}\protected@file@percent }
+\newlabel{tab:text_overlap_summary}{{29}{62}{Text Overlap — standardised result summary (N=20)}{table.caption.142}{}}
+\newlabel{tab:text_overlap_summary@cref}{{[table][29][]29}{[1][61][]62}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.5}What Current Evidence Supports}{63}{subsection.11.5}\protected@file@percent }
+\newlabel{sec:evidence_supports}{{11.5}{63}{What Current Evidence Supports}{subsection.11.5}{}}
+\newlabel{sec:evidence_supports@cref}{{[subsection][5][11]11.5}{[1][63][]63}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.6}Known Limitations and Failure Modes}{63}{subsection.11.6}\protected@file@percent }
+\newlabel{sec:limitations}{{11.6}{63}{Known Limitations and Failure Modes}{subsection.11.6}{}}
+\newlabel{sec:limitations@cref}{{[subsection][6][11]11.6}{[1][63][]63}{}{}{}}
+\@writefile{toc}{\contentsline {subsection}{\numberline {11.7}Evaluation Roadmap}{63}{subsection.11.7}\protected@file@percent }
+\newlabel{sec:roadmap}{{11.7}{63}{Evaluation Roadmap}{subsection.11.7}{}}
+\newlabel{sec:roadmap@cref}{{[subsection][7][11]11.7}{[1][63][]63}{}{}{}}
+\@writefile{toc}{\contentsline {paragraph}{Planned Ablation Studies.}{63}{section*.143}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Scaling Experiments.}{63}{section*.144}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Novel Modality: Protein Secondary Structure.}{63}{section*.145}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Hyperdimensional Computing and VSAs.}{64}{section*.146}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Discrete Symmetry Groups in ML.}{64}{section*.147}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Content-Addressable Memory.}{64}{section*.148}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Byte-Level Models.}{64}{section*.149}\protected@file@percent }
+\@writefile{toc}{\contentsline {paragraph}{Non-Autoregressive Generation.}{65}{section*.150}\protected@file@percent }
+\gdef \@abspage@last{65}

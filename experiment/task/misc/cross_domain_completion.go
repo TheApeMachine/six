@@ -39,7 +39,7 @@ var crossDomains = []struct {
 	},
 }
 
-const crossDomainSamplesPerDomain = 2
+const crossDomainSamplesPerDomain = 100
 
 /*
 CrossDomainCompletionExperiment demonstrates that the chord manifold is
@@ -336,19 +336,6 @@ the attractor field requires a minimum density of related samples
 before chord resonance can reliably recover novel suffixes.
 {{- end}}
 
-\begin{figure}[htbp]
-  \centering
-  \InputIfFileExists{crossdomaincompletion_map.tex}{}{}
-  \caption{Cross-domain span completion composite.
-    \textbf{A}: per-sample score fingerprint heatmap (viridis;
-    sample labels = domain prefix + local index).
-    \textbf{B}: mean scores by domain (Exact / Partial / Fuzzy /
-    Weighted), showing substrate performance across natural
-    language, source code, and biology without domain-specific
-    adaptation. $N = {{.N}}$ total samples
-    (${{.SamplesPerDomain}}$ per domain).}
-  \label{fig:cross_domain_map}
-\end{figure}
 `
 	type domainSum struct {
 		Name     string
