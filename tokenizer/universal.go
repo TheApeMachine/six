@@ -83,14 +83,14 @@ func (tokenizer *Universal) Generate() chan Token {
 
 		for rawToken := range tokenizer.dataset.Generate() {
 			if rawToken.SampleID != tokenizer.sampleID {
-				tokenizer.sampleID = rawToken.SampleID
-				tokenizer.tokens.Reset()
-				tokenizer.pos = 0
-
 				console.Trace(
 					"tokenizer-boundary",
 					"sequence", tokenizer.tokens.String(),
 				)
+
+				tokenizer.sampleID = rawToken.SampleID
+				tokenizer.tokens.Reset()
+				tokenizer.pos = 0
 
 				if tokenizer.useSequencer {
 					tokenizer.sequencer = NewSequencer(NewCalibrator())
