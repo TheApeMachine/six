@@ -306,6 +306,8 @@ to improve per-class disambiguation.
 	}
 }
 
+func (experiment *TextClassificationExperiment) RawOutput() bool { return false }
+
 func (experiment *TextClassificationExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

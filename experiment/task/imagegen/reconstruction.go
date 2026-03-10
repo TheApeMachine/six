@@ -362,6 +362,8 @@ colour distributions of CIFAR-10 imagery.
 	}
 }
 
+func (e *ReconstructionExperiment) RawOutput() bool { return true }
+
 func (e *ReconstructionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

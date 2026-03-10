@@ -85,6 +85,8 @@ func (experiment *ChunkingBaselineExperiment) TableData() any {
 	return experiment.tableData
 }
 
+func (experiment *ChunkingBaselineExperiment) RawOutput() bool { return false }
+
 func (experiment *ChunkingBaselineExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	aphorisms := tools.Aphorisms
 

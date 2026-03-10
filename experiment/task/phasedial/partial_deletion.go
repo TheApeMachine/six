@@ -87,6 +87,8 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
+func (experiment *PartialDeletionExperiment) RawOutput() bool { return false }
+
 func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	_ = substrate.GeodesicScan(substrate.Entries[0].Fingerprint, 72, 5.0)
 

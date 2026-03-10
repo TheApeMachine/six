@@ -76,6 +76,8 @@ func (experiment *PipelineThroughputExperiment) Artifacts() []tools.Artifact {
 	return ThroughputArtifacts(experiment.tableData)
 }
 
+func (experiment *PipelineThroughputExperiment) RawOutput() bool { return false }
+
 func (experiment *PipelineThroughputExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	elapsed := time.Since(experiment.ingestTime)
 	totalBytes := 1000 * 128

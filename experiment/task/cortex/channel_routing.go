@@ -198,6 +198,8 @@ more warm-up steps are expected to improve isolation substantially.
 	}
 }
 
+func (exp *ChannelRoutingExperiment) RawOutput() bool { return false }
+
 func (exp *ChannelRoutingExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	g := cortex.NewGraph()
 

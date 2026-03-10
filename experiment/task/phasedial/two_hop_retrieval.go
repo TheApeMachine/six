@@ -76,6 +76,8 @@ func (experiment *TwoHopRetrievalExperiment) TableData() any {
 	return experiment.tableData
 }
 
+func (experiment *TwoHopRetrievalExperiment) RawOutput() bool { return false }
+
 func (experiment *TwoHopRetrievalExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	seedQueryChords := sub.Entries[0].Readout
 	fingerprintA := sub.Entries[0].Fingerprint

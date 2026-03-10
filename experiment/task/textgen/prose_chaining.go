@@ -88,6 +88,8 @@ func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
 	return ProseChainingArtifacts(experiment.tableData, experiment.Score())
 }
 
+func (experiment *ProseChainingExperiment) RawOutput() bool { return false }
+
 func (experiment *ProseChainingExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

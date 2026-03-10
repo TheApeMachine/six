@@ -451,6 +451,8 @@ volumes will sharpen attractor boundaries and increase the isolation ratio.
 	}
 }
 
+func (exp *ConstraintResolutionExperiment) RawOutput() bool { return false }
+
 func (exp *ConstraintResolutionExperiment) Finalize(_ *geometry.HybridSubstrate) error {
 	return nil
 }

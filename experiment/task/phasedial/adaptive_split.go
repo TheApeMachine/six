@@ -74,6 +74,8 @@ func (experiment *AdaptiveSplitExperiment) TableData() any {
 	return experiment.tableData
 }
 
+func (experiment *AdaptiveSplitExperiment) RawOutput() bool { return false }
+
 func (experiment *AdaptiveSplitExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	D := config.Numeric.NBasis
 	seedQueryChords := sub.Entries[0].Readout

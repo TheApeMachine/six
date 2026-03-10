@@ -101,6 +101,8 @@ func (experiment *QueryRobustnessExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
+func (experiment *QueryRobustnessExperiment) RawOutput() bool { return false }
+
 func (experiment *QueryRobustnessExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	rng := rand.New(rand.NewSource(7))
 

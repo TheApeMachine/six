@@ -369,6 +369,8 @@ may not separate location attractors reliably.
 	}
 }
 
+func (experiment *BabiExperiment) RawOutput() bool { return false }
+
 func (experiment *BabiExperiment) Finalize(
 	substrate *geometry.HybridSubstrate,
 ) error {

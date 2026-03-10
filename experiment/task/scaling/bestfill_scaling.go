@@ -78,6 +78,8 @@ func (experiment *BestFillScalingExperiment) Artifacts() []tools.Artifact {
 	return BestFillArtifacts(experiment.tableData)
 }
 
+func (experiment *BestFillScalingExperiment) RawOutput() bool { return false }
+
 func (experiment *BestFillScalingExperiment) Finalize(
 	substrate *geometry.HybridSubstrate,
 ) error {

@@ -393,6 +393,8 @@ before chord resonance can reliably recover novel suffixes.
 	}
 }
 
+func (experiment *CrossDomainCompletionExperiment) RawOutput() bool { return false }
+
 func (experiment *CrossDomainCompletionExperiment) Finalize(
 	substrate *geometry.HybridSubstrate,
 ) error {

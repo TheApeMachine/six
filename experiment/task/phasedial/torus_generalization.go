@@ -294,6 +294,8 @@ func formatSplitName(prefix string, left, right, totalDims int) string {
 	return fmt.Sprintf("%s(D=%d)-%d/%d", prefix, totalDims, left, right)
 }
 
+func (experiment *TorusGeneralizationExperiment) RawOutput() bool { return false }
+
 func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	// stepDeg := experiment.sweepStepDeg
 	// if stepDeg <= 0 || stepDeg > 180 {

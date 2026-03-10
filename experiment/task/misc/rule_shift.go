@@ -454,6 +454,8 @@ the shift detectable.
 	}
 }
 
+func (exp *RuleShiftExperiment) RawOutput() bool { return false }
+
 func (exp *RuleShiftExperiment) Finalize(_ *geometry.HybridSubstrate) error {
 	return nil
 }

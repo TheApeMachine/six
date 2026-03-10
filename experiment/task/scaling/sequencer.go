@@ -74,6 +74,8 @@ func (experiment *SequencerExperiment) Artifacts() []tools.Artifact {
 	return SequencerArtifacts(experiment.tableData)
 }
 
+func (experiment *SequencerExperiment) RawOutput() bool { return false }
+
 func (experiment *SequencerExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	entries := len(substrate.Entries)
 

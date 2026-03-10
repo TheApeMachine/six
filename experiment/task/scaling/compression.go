@@ -78,6 +78,8 @@ func (experiment *CompressionExperiment) Artifacts() []tools.Artifact {
 	return CompressionArtifacts(experiment.tableData)
 }
 
+func (experiment *CompressionExperiment) RawOutput() bool { return false }
+
 func (experiment *CompressionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	rawBytes := 50 * 128
 	entries := len(substrate.Entries)

@@ -292,6 +292,8 @@ is expected to improve results substantially.
 	}
 }
 
+func (experiment *LanguagesExperiment) RawOutput() bool { return false }
+
 func (experiment *LanguagesExperiment) Finalize(
 	substrate *geometry.HybridSubstrate,
 ) error {

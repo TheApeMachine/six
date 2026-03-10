@@ -89,6 +89,8 @@ func (experiment *OutOfCorpusExperiment) Artifacts() []tools.Artifact {
 	return OutOfCorpusArtifacts(experiment.tableData, experiment.Score())
 }
 
+func (experiment *OutOfCorpusExperiment) RawOutput() bool { return false }
+
 func (experiment *OutOfCorpusExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

@@ -91,6 +91,8 @@ func (experiment *TextOverlapExperiment) Artifacts() []tools.Artifact {
 	return TextOverlapArtifacts(experiment.tableData, experiment.Score())
 }
 
+func (experiment *TextOverlapExperiment) RawOutput() bool { return false }
+
 func (experiment *TextOverlapExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

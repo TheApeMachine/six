@@ -282,6 +282,8 @@ func (exp *GemmaIntegrationExperiment) TableData() any { return exp.tableData }
 Finalize loads Gemma 2B via gomlx/gemma and runs both integration benchmarks
 against the substrate that was populated during the pipeline phase.
 */
+func (exp *GemmaIntegrationExperiment) RawOutput() bool { return false }
+
 func (exp *GemmaIntegrationExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	hfToken := os.Getenv("HF_TOKEN")
 	if hfToken == "" {

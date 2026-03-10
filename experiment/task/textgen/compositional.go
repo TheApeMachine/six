@@ -86,6 +86,8 @@ func (experiment *CompositionalExperiment) Artifacts() []tools.Artifact {
 	return CompositionalArtifacts(experiment.tableData, experiment.Score())
 }
 
+func (experiment *CompositionalExperiment) RawOutput() bool { return false }
+
 func (experiment *CompositionalExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

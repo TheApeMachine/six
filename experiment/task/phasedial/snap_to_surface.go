@@ -79,6 +79,8 @@ func (experiment *SnapToSurfaceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
 }
 
+func (experiment *SnapToSurfaceExperiment) RawOutput() bool { return false }
+
 func (experiment *SnapToSurfaceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }
