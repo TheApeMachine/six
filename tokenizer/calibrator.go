@@ -3,6 +3,8 @@ package tokenizer
 import (
 	"math"
 	"sync"
+
+	"github.com/theapemachine/six/geometry"
 )
 
 /*
@@ -15,6 +17,9 @@ type Calibrator struct {
 	targetDensityMax float64
 	sensitivityPop   float64
 	sensitivityPhase float64
+
+	window       *FastWindow
+	entropyFloor float64
 }
 
 /*
@@ -32,6 +37,8 @@ func NewCalibrator() *Calibrator {
 		// byte streams; phi (≈1.618) over-penalizes and suppresses splits.
 		sensitivityPop:   1.0,
 		sensitivityPhase: phi,
+		window:           NewFastWindow(100),
+		entropyFloor:     0.05, // quiet ticks threshold
 	}
 }
 
@@ -72,9 +79,45 @@ func (c *Calibrator) SetSensitivityPhase(v float64) {
 }
 
 /*
-Recalibrate is a placeholder for future dynamic threshold adjustment. No-op.
+Recalibrate adjusts the scale of sensitivity based on recent event frequency.
 */
-func (calibrator *Calibrator) Recalibrate() {
+func (calibrator *Calibrator) Recalibrate(events []int) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()
+
+	// Track whether a boundary event occurred
+	hasBoundary := false
+	for _, e := range events {
+		if e == geometry.EventDensitySpike || e == geometry.EventDensityTrough {
+			hasBoundary = true
+			break
+		}
+	}
+
+	if hasBoundary {
+		calibrator.window.Push(1.0)
+	} else {
+		calibrator.window.Push(0.0)
+	}
+
+	if !calibrator.window.Warmed() {
+		return
+	}
+
+	mean, _ := calibrator.window.Stats()
+
+	// Adjust sensitivity using adaptive feedback loop
+	if mean < calibrator.entropyFloor {
+		// Stuck in a monotonous region, decrease sensitivity
+		calibrator.sensitivityPop *= 0.95
+		if calibrator.sensitivityPop < 0.05 {
+			calibrator.sensitivityPop = 0.05
+		}
+	} else if mean > calibrator.entropyFloor*3 {
+		// Highly volatile data, increase penalty
+		calibrator.sensitivityPop *= 1.05
+		if calibrator.sensitivityPop > 20.0 {
+			calibrator.sensitivityPop = 20.0
+		}
+	}
 }

@@ -7,7 +7,7 @@ import (
 	"sync"
 
 	config "github.com/theapemachine/six/core"
-	"github.com/theapemachine/six/pool"
+	"github.com/theapemachine/qpool"
 )
 
 /*
@@ -312,7 +312,7 @@ If a pool is provided, each chord is scheduled as an independent task and the
 pool's built-in scaler handles concurrency — no manual worker-count tuning.
 Falls back to synchronous execution when no pool is available.
 */
-func FlattenBatched(chords []Chord, p *pool.Pool) []FlatChord {
+func FlattenBatched(chords []Chord, p *qpool.Pool) []FlatChord {
 	n := len(chords)
 	out := make([]FlatChord, n)
 

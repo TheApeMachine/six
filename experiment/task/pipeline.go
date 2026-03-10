@@ -14,7 +14,7 @@ import (
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/pool"
+	"github.com/theapemachine/qpool"
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
@@ -23,8 +23,8 @@ import (
 type Pipeline struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
-	pool       *pool.Pool
-	broadcast  *pool.BroadcastGroup
+	pool       *qpool.Pool
+	broadcast  *qpool.BroadcastGroup
 	loader     *vm.Loader
 	coder      *tokenizer.MortonCoder
 	booter     *vm.Booter
@@ -39,7 +39,7 @@ type pipelineOpts func(*Pipeline)
 
 func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	workerPool := pool.New(
+	workerPool := qpool.New(
 		ctx, 1, runtime.NumCPU(), nil,
 	)
 
@@ -180,9 +180,9 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	defer pipeline.broadcast.Unsubscribe("pipeline-prompt")
 
 	pipeline.broadcast.Send(
-		pool.NewResult(*pool.NewPoolValue(
-			pool.WithKey[[]data.Chord]("prompt"),
-			pool.WithValue(promptChords),
+		qpool.NewResult(*qpool.NewPoolValue(
+			qpool.WithKey[[]data.Chord]("prompt"),
+			qpool.WithValue(promptChords),
 		)),
 	)
 
@@ -191,7 +191,7 @@ wait_result:
 		select {
 		case res := <-resCh:
 			if res != nil && res.Value != nil {
-				if pv, ok := res.Value.(pool.PoolValue[[]data.Chord]); ok {
+				if pv, ok := res.Value.(qpool.PoolValue[[]data.Chord]); ok {
 					if pv.Key == "results" {
 						chordRes = pv.Value
 						break wait_result

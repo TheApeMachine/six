@@ -6,7 +6,7 @@ import (
 
 /*
 Machine is the top-level VM: Loader ingests data; the Cortex reasons.
-Tick receives broadcast messages and dispatches work through the pool.
+Tick receives broadcast messages and dispatches work through the qpool.
 Pool and Broadcast are injected by the Booter; Machine never creates its own.
 */
 type Machine struct {

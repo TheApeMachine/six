@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"net"
-	"os"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,6 +12,7 @@ import (
 	"capnproto.org/go/capnp/v3"
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/numeric"
+	"github.com/theapemachine/six/pool"
 )
 
 const (
@@ -30,39 +29,26 @@ const (
 // GFRotation size in bytes (A=uint16, B=uint16)
 const nodeBytes = 4
 
-func distributedWorkersFromEnv() []string {
-	raw := strings.TrimSpace(os.Getenv("SIX_DISTRIBUTED_WORKERS"))
-	if raw == "" {
-		raw = strings.TrimSpace(os.Getenv("SIX_WORKERS"))
-	}
-	if raw == "" {
-		return nil
-	}
-
-	parts := strings.Split(raw, ",")
-	workers := make([]string, 0, len(parts))
-	seen := map[string]struct{}{}
-	for _, part := range parts {
-		addr := strings.TrimSpace(part)
-		if addr == "" {
-			continue
-		}
-		if _, ok := seen[addr]; ok {
-			continue
-		}
-		seen[addr] = struct{}{}
-		workers = append(workers, addr)
-	}
-	return workers
+type DistributedBackend struct {
+	ctx    context.Context
+	cancel context.CancelFunc
+	pool   *pool.Pool
 }
 
-type DistributedBackend struct {
-	workers []string
+type distributedOpts func(*DistributedBackend)
+
+func NewDistributedBackend(opts ...distributedOpts) *DistributedBackend {
+	backend := &DistributedBackend{}
+
+	for _, opt := range opts {
+		opt(backend)
+	}
+
+	return backend
 }
 
 func (backend *DistributedBackend) Available() bool {
-	backend.workers = distributedWorkersFromEnv()
-	return len(backend.workers) > 0
+	return true
 }
 
 func (backend *DistributedBackend) Resolve(
@@ -87,17 +73,12 @@ func (backend *DistributedBackend) Resolve(
 	timeout := time.Duration(config.System.Timeout) * time.Millisecond
 	remoteOnly := config.System.RemoteOnly
 
-	var next atomic.Int64
 	var best atomic.Uint64
-	var wg sync.WaitGroup
-	errCh := make(chan error, len(backend.workers)+1)
-
 	var localBuilder *Builder
+
 	if !remoteOnly {
 		localBuilder = &Builder{}
 		bak := config.System.Backend
-
-		// Temporarily flip distributed out so localBuilder falls back to something real
 		if bak == "distributed" {
 			config.System.Backend = "cpu"
 		}
@@ -105,76 +86,85 @@ func (backend *DistributedBackend) Resolve(
 		config.System.Backend = bak
 	}
 
-	for _, addr := range backend.workers {
-		addr := addr
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				start := int(next.Add(int64(chunkSize)) - int64(chunkSize))
-				if start >= numNodes {
-					return
-				}
-				end := start + chunkSize
-				if end > numNodes {
-					end = numNodes
-				}
+	type chunkWork struct {
+		start int
+		end   int
+	}
 
-				shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
-				shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)
-				dictCopy := append([]byte(nil), shardBytes...)
+	var chunks []chunkWork
+	for start := 0; start < numNodes; start += chunkSize {
+		end := start + chunkSize
+		if end > numNodes {
+			end = numNodes
+		}
+		chunks = append(chunks, chunkWork{start, end})
+	}
 
-				packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, timeout)
-				if callErr != nil {
-					if localBuilder != nil {
-						// Fallback locally
-						fallbackPacked, fbErr := localBuilder.Resolve(unsafe.Pointer(&dictCopy[0]), end-start, unsafe.Pointer(&ctxCopy[0]))
-						if fbErr != nil {
-							errCh <- callErr
-							return
-						}
-						packed = fallbackPacked
-					} else {
-						errCh <- callErr
-						return
+	resChans := make([]chan *pool.Result, len(chunks))
+	for i, chunk := range chunks {
+		start, end := chunk.start, chunk.end
+		addr := backend.workers[i%len(backend.workers)]
+
+		shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
+		shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)
+		dictCopy := append([]byte(nil), shardBytes...)
+
+		jobFn := func() (any, error) {
+			packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, timeout)
+			if callErr != nil {
+				return nil, callErr
+			}
+			return numeric.RebasePackedID(packed, start), nil
+		}
+
+		resChans[i] = backend.pool.Schedule(
+			fmt.Sprintf("dist-%s-%d", addr, start),
+			jobFn,
+			pool.WithCircuitBreaker(addr, 3, 5*time.Second),
+			pool.WithTTL(5*time.Second),
+		)
+	}
+
+	var fallbackWg sync.WaitGroup
+	errCh := make(chan error, len(chunks))
+
+	for i, chunk := range chunks {
+		res := <-resChans[i]
+		if res.Error != nil {
+			if localBuilder != nil {
+				fallbackWg.Add(1)
+				// Schedule failure fallback locally
+				localFn := func() (any, error) {
+					start, end := chunk.start, chunk.end
+					shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
+					packed, fbErr := localBuilder.Resolve(shardPtr, end-start, contextPtr)
+					if fbErr != nil {
+						return nil, fbErr
 					}
+					return numeric.RebasePackedID(packed, start), nil
 				}
 
-				rebasedPacked := numeric.RebasePackedID(packed, start)
-				atomicMaxPacked(&best, rebasedPacked)
+				fbCh := backend.pool.Schedule(fmt.Sprintf("local-%d", chunk.start), localFn, pool.WithTTL(5*time.Second))
+				go func() {
+					defer fallbackWg.Done()
+					fbRes := <-fbCh
+					if fbRes.Error != nil {
+						errCh <- fbRes.Error
+					} else {
+						atomicMaxPacked(&best, fbRes.Value.(uint64))
+					}
+				}()
+			} else {
+				errCh <- res.Error
 			}
-		}()
+		} else {
+			atomicMaxPacked(&best, res.Value.(uint64))
+		}
 	}
 
-	if !remoteOnly && localBuilder != nil {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				start := int(next.Add(int64(chunkSize)) - int64(chunkSize))
-				if start >= numNodes {
-					return
-				}
-				end := start + chunkSize
-				if end > numNodes {
-					end = numNodes
-				}
-
-				shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
-				packed, runErr := localBuilder.Resolve(shardPtr, end-start, contextPtr)
-				if runErr != nil {
-					errCh <- runErr
-					return
-				}
-
-				rebasedPacked := numeric.RebasePackedID(packed, start)
-				atomicMaxPacked(&best, rebasedPacked)
-			}
-		}()
-	}
-
-	wg.Wait()
+	fallbackWg.Wait()
 	close(errCh)
+
 	if err, ok := <-errCh; ok {
 		return 0, err
 	}
@@ -408,5 +398,20 @@ func atomicMaxPacked(best *atomic.Uint64, packed uint64) {
 		if best.CompareAndSwap(current, packed) {
 			break
 		}
+	}
+}
+
+/*
+DistributedWithContext adds a context to the machine.
+*/
+func DistributedWithContext(ctx context.Context) distributedOpts {
+	return func(distributed *DistributedBackend) {
+		distributed.ctx, distributed.cancel = context.WithCancel(ctx)
+	}
+}
+
+func DistributedWithPool(pool *pool.Pool) distributedOpts {
+	return func(distributed *DistributedBackend) {
+		distributed.pool = pool
 	}
 }
