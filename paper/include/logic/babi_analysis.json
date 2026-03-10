@@ -35,7 +35,7 @@
           "0",
           "Mary",
           "bathroom",
-          "ay"
+          "m"
         ],
         [
           "1",
@@ -47,79 +47,79 @@
           "2",
           "Daniel",
           "hallway",
-          "ay"
+          "m"
         ],
         [
           "3",
           "Daniel",
           "office",
-          "ay"
+          "m"
         ],
         [
           "4",
           "Sandra",
           "bathroom",
-          "ay"
+          "m"
         ],
         [
           "5",
           "Sandra",
           "bathroom",
-          "y"
+          "oom"
         ],
         [
           "6",
           "Sandra",
           "bathroom",
-          "y"
+          "oom"
         ],
         [
           "7",
           "Sandra",
           "bathroom",
-          "y"
+          "oom"
         ],
         [
           "8",
           "John",
           "office",
-          "y"
+          "m"
         ],
         [
           "9",
           "Daniel",
           "hallway",
-          "y"
+          "m"
         ],
         [
           "10",
           "John",
           "bathroom",
-          "n"
+          "m"
         ],
         [
           "11",
           "Mary",
           "bedroom",
-          "n"
+          "m"
         ],
         [
           "12",
           "John",
           "bathroom",
-          "n"
+          "m"
         ],
         [
           "13",
           "John",
           "bathroom",
-          "n"
+          "ay"
         ],
         [
           "14",
           "Sandra",
           "bedroom",
-          "n"
+          "ay"
         ],
         [
           "15",
@@ -193,7 +193,7 @@
       "NFailureRows": 20,
       "NFailures": 50,
       "NSamples": 50,
-      "PartialRate": 0
+      "PartialRate": 0.017619047619047618
     }
   },
   "file_name": "babi_analysis.tex",

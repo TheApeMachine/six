@@ -93,7 +93,10 @@ func (tokenizer *Universal) Generate() chan Token {
 					"sequence", tokenizer.tokens.String(),
 				)
 
-				reset = true
+				// Emit a boundary token for the END of the previous sample (if any).
+				if tokenizer.tokens.Len() > 0 {
+					out <- Token{IsBoundary: true}
+				}
 
 				tokenizer.sampleID = rawToken.SampleID
 				tokenizer.tokens.Reset()
