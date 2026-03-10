@@ -148,6 +148,10 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 		seq.offset -= emitK
 		seq.updateEMA(val, delta, eigenMag)
 
+		if seq.calibrator != nil {
+			seq.calibrator.Recalibrate(events)
+		}
+
 		return true, events
 	}
 
@@ -157,6 +161,9 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 	}
 
 	seq.updateEMA(val, delta, eigenMag)
+	if seq.calibrator != nil {
+		seq.calibrator.Recalibrate(events)
+	}
 	return false, events
 }
 

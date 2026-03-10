@@ -15,7 +15,10 @@ require (
 )
 
 require (
+	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d // indirect
 	github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381 // indirect
+	github.com/theapemachine/errnie v0.0.4 // indirect
+	github.com/theapemachine/qpool v0.0.2 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 )
 

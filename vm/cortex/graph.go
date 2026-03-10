@@ -18,7 +18,7 @@ import (
 
 /*
 Graph is the cortex: source/sink nodes, ring+small-world topology.
-Runs Step() until convergence; all external communication goes through the pool.
+Runs Step() until convergence; all external communication goes through the qpool.
 */
 type Graph struct {
 	ctx     context.Context

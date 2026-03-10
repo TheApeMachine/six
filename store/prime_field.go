@@ -29,6 +29,8 @@ type PrimeField struct {
 	deMitosisHoldInserts     int
 	deMitosisSparseStreak    int
 	insertsSinceDensityCheck int // stride counter for expensive density scans
+
+	sm *MathematicalStateMachine
 }
 
 const maxCleanupPrototypesPerClass = 32
@@ -198,11 +200,46 @@ func shouldOverwriteSupport(current, incoming *data.Chord) bool {
 NewPrimeField creates a new PrimeField.
 */
 func NewPrimeField() *PrimeField {
-	return &PrimeField{
+	pf := &PrimeField{
 		N:         1,
 		manifolds: make([]geometry.IcosahedralManifold, 1),
 		eigen:     geometry.NewEigenMode(),
 		rot:       geometry.IdentityRotation(),
+	}
+	pf.sm = NewMathematicalStateMachine()
+	pf.sm.Subscribe(pf)
+	return pf
+}
+
+func (field *PrimeField) ApplyPermute3Cycle(a, b, c int) {
+	field.manifolds[0].Permute3Cycle(a, b, c)
+}
+
+func (field *PrimeField) ApplyPermuteDoubleTransposition(a, b, c, d int) {
+	field.manifolds[0].PermuteDoubleTransposition(a, b, c, d)
+}
+
+func (field *PrimeField) ApplyPermute5Cycle(a, b, c, d, e int) {
+	field.manifolds[0].Permute5Cycle(a, b, c, d, e)
+}
+
+func (field *PrimeField) ApplySetRotState(next uint8) {
+	field.manifolds[0].Header.SetRotState(next)
+}
+
+func (field *PrimeField) ApplyIncrementWinding() {
+	field.manifolds[0].Header.IncrementWinding()
+}
+
+func (field *PrimeField) ApplyComposeRotation(r geometry.GFRotation) {
+	field.rot = field.rot.Compose(r)
+}
+
+func (field *PrimeField) ApplyState(state uint8) {
+	if state == 1 {
+		field.manifolds[0].Mitosis()
+	} else {
+		field.manifolds[0].DeMitosis()
 	}
 }
 
@@ -422,38 +459,7 @@ func (field *PrimeField) Rotate(events []int) {
 	defer field.mu.Unlock()
 
 	for _, event := range events {
-		field.applyEvent(event)
-	}
-}
-
-func (field *PrimeField) applyEvent(event int) {
-	state := int(field.manifolds[0].Header.RotState())
-	if state >= 0 && state < len(geometry.StateTransitionMatrix) {
-		next := geometry.StateTransitionMatrix[state][event]
-		if next != 255 {
-			field.manifolds[0].Header.SetRotState(next)
-		}
-	}
-
-	if field.manifolds[0].Header.State() == 1 {
-		field.manifolds[0].Header.IncrementWinding()
-	}
-
-	// Compose the GF(257) micro-rotation into the running state.
-	// O(1) arithmetic replaces O(257 × 5 × 64) bytes of data movement.
-	field.rot = field.rot.Compose(geometry.EventRotation(event))
-
-	// A₅ macro-permutations across the 5 cubes — these are cheap
-	// struct swaps, not per-face data copies.
-	switch event {
-	case geometry.EventDensitySpike:
-		field.manifolds[0].Permute3Cycle(0, 1, 2)
-	case geometry.EventPhaseInversion:
-		field.manifolds[0].PermuteDoubleTransposition(0, 3, 1, 4)
-	case geometry.EventDensityTrough:
-		field.manifolds[0].Permute3Cycle(0, 2, 1)
-	case geometry.EventLowVarianceFlux:
-		field.manifolds[0].Permute5Cycle(0, 1, 2, 3, 4)
+		field.sm.ApplyEvent(event)
 	}
 }
 
