@@ -95,61 +95,61 @@
           "10",
           "John",
           "bathroom",
-          "ay"
+          "n"
         ],
         [
           "11",
           "Mary",
           "bedroom",
-          "ay"
+          "n"
         ],
         [
           "12",
           "John",
           "bathroom",
-          "ay"
+          "n"
         ],
         [
           "13",
           "John",
           "bathroom",
-          "ay"
+          "n"
         ],
         [
           "14",
           "Sandra",
           "bedroom",
-          "ay"
+          "n"
         ],
         [
           "15",
           "Daniel",
           "bedroom",
-          "y"
+          "n"
         ],
         [
           "16",
           "Sandra",
           "kitchen",
-          "ay"
+          "n"
         ],
         [
           "17",
           "Sandra",
           "hallway",
-          "throom"
+          "n"
         ],
         [
           "18",
           "Sandra",
           "hallway",
-          "m"
+          "n"
         ],
         [
           "19",
           "Daniel",
           "hallway",
-          "hroom"
+          "n"
         ]
       ],
       "LocationSummary": [
@@ -193,7 +193,7 @@
       "NFailureRows": 20,
       "NFailures": 50,
       "NSamples": 50,
-      "PartialRate": 0.006190476190476191
+      "PartialRate": 0
     }
   },
   "file_name": "babi_analysis.tex",

@@ -1,7 +1,7 @@
 {
   "artifacts": [
     {
-      "caption": "Per-sample exact/partial/fuzzy scores. N=50, exact accuracy=0.0%, mean partial=0.006. Subset: en-10k-qa1.",
+      "caption": "Per-sample exact/partial/fuzzy scores. N=50, exact accuracy=0.0%, mean partial=0.000. Subset: en-10k-qa1.",
       "file_name": "babi_results",
       "label": "tab:babi_results",
       "title": "bAbI Task 1 — Per-Sample Results",
@@ -196,7 +196,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIEpvaG4/",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -212,7 +212,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIFdoZXJlIGlzIE1hcnk/",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -228,7 +228,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgZ2FyZGVuLiBXaGVyZSBpcyBKb2huPw==",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -244,7 +244,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgZ2FyZGVuLiBTYW5kcmEgd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBiYXRocm9vbS4gV2hlcmUgaXMgSm9obj8=",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -260,7 +260,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBiZWRyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIEpvaG4gam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIEpvaG4gam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgZ2FyZGVuLiBTYW5kcmEgd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBiYXRocm9vbS4gSm9obiB3ZW50IHRvIHRoZSBvZmZpY2UuIE1hcnkgbW92ZWQgdG8gdGhlIG9mZmljZS4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -276,7 +276,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "eQ==",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -292,7 +292,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIFdoZXJlIGlzIFNhbmRyYT8=",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -308,7 +308,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "dGhyb29t",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -324,7 +324,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgdG8gdGhlIGJhdGhyb29tLiBXaGVyZSBpcyBTYW5kcmE/",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "bQ==",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -340,14 +340,14 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBnYXJkZW4uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIG9mZmljZS4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgaGFsbHdheS4gRGFuaWVsIGpvdXJuZXllZCB0byB0aGUgaGFsbHdheS4gRGFuaWVsIHdlbnQgdG8gdGhlIGJhdGhyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgbW92ZWQgdG8gdGhlIGhhbGx3YXkuIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "aHJvb20=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.14285714285714285,
-        "Fuzzy": 0.14285714285714285
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.06493506493506493,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -356,7 +356,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIEpvaG4/",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "YXk=",
+      "Observed": "eQ==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -372,7 +372,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBXaGVyZSBpcyBNYXJ5Pw==",
       "Holdout": "Z2FyZGVu",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -388,7 +388,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBTYW5kcmEgd2VudCB0byB0aGUgaGFsbHdheS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIFdoZXJlIGlzIEpvaG4/",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -404,7 +404,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBTYW5kcmEgd2VudCB0byB0aGUgaGFsbHdheS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIG9mZmljZS4gSm9obiBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBXaGVyZSBpcyBTYW5kcmE/",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -420,7 +420,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSBtb3ZlZCB0byB0aGUgb2ZmaWNlLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBTYW5kcmEgd2VudCB0byB0aGUgaGFsbHdheS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIE1hcnkgbW92ZWQgdG8gdGhlIG9mZmljZS4gSm9obiBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBKb2huIGpvdXJuZXllZCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgd2VudCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBKb2huPw==",
       "Holdout": "b2ZmaWNl",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -436,7 +436,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -452,7 +452,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBXaGVyZSBpcyBKb2huPw==",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -468,7 +468,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBKb2huIG1vdmVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "Z2FyZGVu",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -484,7 +484,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBKb2huIG1vdmVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGhhbGx3YXkuIE1hcnkgd2VudCB0byB0aGUgb2ZmaWNlLiBXaGVyZSBpcyBKb2huPw==",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -500,7 +500,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSBtb3ZlZCB0byB0aGUgZ2FyZGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gSm9obiB0cmF2ZWxsZWQgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCBiYWNrIHRvIHRoZSBiZWRyb29tLiBKb2huIG1vdmVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGhhbGx3YXkuIE1hcnkgd2VudCB0byB0aGUgb2ZmaWNlLiBTYW5kcmEgdHJhdmVsbGVkIHRvIHRoZSBiZWRyb29tLiBKb2huIHRyYXZlbGxlZCB0byB0aGUgZ2FyZGVuLiBXaGVyZSBpcyBEYW5pZWw/",
       "Holdout": "Z2FyZGVu",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -516,7 +516,7 @@
       "Name": "babi_benchmark",
       "Prefix": "Sm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gV2hlcmUgaXMgTWFyeT8=",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -532,7 +532,7 @@
       "Name": "babi_benchmark",
       "Prefix": "Sm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiZWRyb29tLiBTYW5kcmEgdHJhdmVsbGVkIHRvIHRoZSBraXRjaGVuLiBXaGVyZSBpcyBTYW5kcmE/",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -548,7 +548,7 @@
       "Name": "babi_benchmark",
       "Prefix": "Sm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiZWRyb29tLiBTYW5kcmEgdHJhdmVsbGVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiYXRocm9vbS4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "YmF0aHJvb20=",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -564,7 +564,7 @@
       "Name": "babi_benchmark",
       "Prefix": "Sm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiZWRyb29tLiBTYW5kcmEgdHJhdmVsbGVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiYXRocm9vbS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgZ2FyZGVuLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBXaGVyZSBpcyBKb2huPw==",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -580,7 +580,7 @@
       "Name": "babi_benchmark",
       "Prefix": "Sm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gTWFyeSBtb3ZlZCB0byB0aGUgaGFsbHdheS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiZWRyb29tLiBTYW5kcmEgdHJhdmVsbGVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBiYXRocm9vbS4gU2FuZHJhIG1vdmVkIHRvIHRoZSBiYXRocm9vbS4gRGFuaWVsIHdlbnQgYmFjayB0byB0aGUgZ2FyZGVuLiBKb2huIG1vdmVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBnYXJkZW4uIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "Z2FyZGVu",
-      "Observed": "YXk=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -596,7 +596,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBraXRjaGVuLiBKb2huIHdlbnQgYmFjayB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgTWFyeT8=",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "eQ==",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -612,7 +612,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBraXRjaGVuLiBKb2huIHdlbnQgYmFjayB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBNYXJ5IG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBXaGVyZSBpcyBKb2huPw==",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "eQ==",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -628,7 +628,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBraXRjaGVuLiBKb2huIHdlbnQgYmFjayB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBNYXJ5IG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "eQ==",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -644,7 +644,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBraXRjaGVuLiBKb2huIHdlbnQgYmFjayB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBNYXJ5IG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIE1hcnkgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgSm9obj8=",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "eQ==",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -660,7 +660,7 @@
       "Name": "babi_benchmark",
       "Prefix": "TWFyeSB3ZW50IHRvIHRoZSBraXRjaGVuLiBKb2huIHdlbnQgYmFjayB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBNYXJ5IG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBKb2huIHdlbnQgdG8gdGhlIGtpdGNoZW4uIERhbmllbCB0cmF2ZWxsZWQgdG8gdGhlIGJlZHJvb20uIE1hcnkgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gSm9obiBtb3ZlZCB0byB0aGUgYmVkcm9vbS4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUga2l0Y2hlbi4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "YXk=",
+      "Observed": "bg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -676,7 +676,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "b2ZmaWNl",
-      "Observed": "bQ==",
+      "Observed": "cmRlbg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -692,14 +692,14 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBvZmZpY2UuIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "b2ZmaWNl",
-      "Observed": "b20=",
+      "Observed": "cmRlbg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.16666666666666666,
-        "Fuzzy": 0.16666666666666666
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.07575757575757575,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -708,7 +708,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBTYW5kcmEgam91cm5leWVkIHRvIHRoZSBraXRjaGVuLiBXaGVyZSBpcyBEYW5pZWw/",
       "Holdout": "b2ZmaWNl",
-      "Observed": "bQ==",
+      "Observed": "cmRlbg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -724,7 +724,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBTYW5kcmEgam91cm5leWVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgbW92ZWQgdG8gdGhlIGJlZHJvb20uIERhbmllbCBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIFdoZXJlIGlzIFNhbmRyYT8=",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "bQ==",
+      "Observed": "cmRlbg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -740,7 +740,7 @@
       "Name": "babi_benchmark",
       "Prefix": "RGFuaWVsIG1vdmVkIHRvIHRoZSBoYWxsd2F5LiBEYW5pZWwgdHJhdmVsbGVkIHRvIHRoZSBvZmZpY2UuIERhbmllbCB3ZW50IHRvIHRoZSBiZWRyb29tLiBEYW5pZWwgam91cm5leWVkIHRvIHRoZSBvZmZpY2UuIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGJhdGhyb29tLiBTYW5kcmEgam91cm5leWVkIHRvIHRoZSBraXRjaGVuLiBEYW5pZWwgbW92ZWQgdG8gdGhlIGJlZHJvb20uIERhbmllbCBqb3VybmV5ZWQgdG8gdGhlIGhhbGx3YXkuIFNhbmRyYSB0cmF2ZWxsZWQgdG8gdGhlIGdhcmRlbi4gU2FuZHJhIHdlbnQgYmFjayB0byB0aGUgYmF0aHJvb20uIFdoZXJlIGlzIERhbmllbD8=",
       "Holdout": "aGFsbHdheQ==",
-      "Observed": "eQ==",
+      "Observed": "cmRlbg==",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -756,7 +756,7 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHdlbnQgdG8gdGhlIGdhcmRlbi4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "cm9vbQ==",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -772,7 +772,7 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHdlbnQgdG8gdGhlIGdhcmRlbi4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJhdGhyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gV2hlcmUgaXMgU2FuZHJhPw==",
       "Holdout": "YmVkcm9vbQ==",
-      "Observed": "cm9vbQ==",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -820,7 +820,7 @@
       "Name": "babi_benchmark",
       "Prefix": "U2FuZHJhIHdlbnQgdG8gdGhlIGdhcmRlbi4gU2FuZHJhIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB0cmF2ZWxsZWQgdG8gdGhlIGJhdGhyb29tLiBKb2huIGpvdXJuZXllZCB0byB0aGUgYmVkcm9vbS4gTWFyeSB3ZW50IGJhY2sgdG8gdGhlIGtpdGNoZW4uIEpvaG4gd2VudCB0byB0aGUga2l0Y2hlbi4gRGFuaWVsIHRyYXZlbGxlZCB0byB0aGUga2l0Y2hlbi4gU2FuZHJhIHRyYXZlbGxlZCB0byB0aGUgYmF0aHJvb20uIFNhbmRyYSB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gSm9obiB3ZW50IGJhY2sgdG8gdGhlIGdhcmRlbi4gV2hlcmUgaXMgRGFuaWVsPw==",
       "Holdout": "a2l0Y2hlbg==",
-      "Observed": "ZHJvb20=",
+      "Observed": "ZW4=",
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
@@ -832,6 +832,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.0028138528138528136,
+  "score": 0,
   "section": "logic"
 }
