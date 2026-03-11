@@ -1,8 +1,6 @@
 package process
 
-import (
-	"github.com/theapemachine/six/data"
-)
+import ()
 
 /*
 MortonCoder encodes multi-dimensional coordinates into a single uint64 key
@@ -106,9 +104,4 @@ func (coder *MortonCoder) SampleSequencePosRange(sampleIdx uint16, sequenceIdx u
 	return base, hi
 }
 
-/*
-ChordToBytes returns chord.Bytes() — ChordBlocks×8 bytes big-endian.
-*/
-func (coder *MortonCoder) ChordToBytes(chord data.Chord) []byte {
-	return chord.Bytes()
-}
+

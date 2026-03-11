@@ -18,6 +18,8 @@ type Sequencer struct {
 	buf  []byte
 	dist *Distribution
 
+	runningChord data.Chord
+
 	prevSegLen  int
 	fluxEmitted bool
 
@@ -34,12 +36,18 @@ type Sequencer struct {
 	// MinSegmentBytes: minimum bytes per segment for statistical
 	// significance. Default 4; increase for noisier streams.
 	MinSegmentBytes int
+
+	// ShannonCeiling: maximum chord density before forcing a split.
+	// Default 0.40 (103/257 bits). Above this the chord loses
+	// discriminative power.
+	ShannonCeiling float64
 }
 
 type candidate struct {
 	k       int
 	gain    float64 // penalized MDL gain; used as confidence for emission
 	entropy float64 // entropy jump at split (optional extra evidence)
+	forced  bool    // Shannon-forced: non-negotiable, balancer must not absorb
 }
 
 /*
@@ -52,6 +60,7 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 		eigen:           geometry.NewEigenMode(),
 		dist:            NewDistribution(),
 		MinSegmentBytes: 4,
+		ShannonCeiling:  0.40,
 	}
 }
 
@@ -98,20 +107,39 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 	seq.buf = append(seq.buf, byteVal)
 	seq.dist.Add(byteVal)
 
+	// Running OR: accumulate the byte's BaseChord into the span chord.
+	// If the chord saturates past the Shannon ceiling, force a split.
+	base := data.BaseChord(byteVal)
+	seq.runningChord = seq.runningChord.OR(base)
+
+	shannonForced := seq.runningChord.ShannonDensity() > seq.ShannonCeiling &&
+		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
+
 	isBoundary, k, gain := seq.detectBoundary(seq.buf[seq.offset:], seq.dist)
+
+	// Shannon ceiling overrides MDL: if the chord is saturating, force a split
+	// at the current position regardless of MDL gain.
+	if shannonForced && !isBoundary {
+		isBoundary = true
+		k = len(seq.buf) - seq.offset
+		gain = 1.0
+	}
+
 	var events []int
 
 	if isBoundary {
 		absK := seq.offset + k
-		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain})
+		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain, forced: shannonForced})
 		seq.offset = absK
 
-		// Reset distribution for the next search window.
-		// Any bytes added to seq.buf AFTER absK should be in the new distribution.
+		// Reset distribution and running chord for the next span.
 		seq.dist = NewDistribution()
+
 		for _, b := range seq.buf[seq.offset:] {
 			seq.dist.Add(b)
 		}
+
+		seq.runningChord = data.Chord{}
 	}
 
 	if len(seq.candidates) >= 2 {
@@ -124,7 +152,7 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 		emitK := seq.candidates[0].k
 
 		events = append(events, seq.classifyDirection(seq.buf, emitK))
-		events = append(events, geometry.EventPhaseInversion)
+		events = append(events, EventPhaseInversion)
 
 		seq.emitSplit(emitK)
 
@@ -146,7 +174,7 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 	}
 
 	if seq.hasFlux() {
-		events = append(events, geometry.EventLowVarianceFlux)
+		events = append(events, EventLowVarianceFlux)
 		seq.fluxEmitted = true
 	}
 
@@ -238,6 +266,11 @@ func (seq *Sequencer) balanceCandidates() {
 		return
 	}
 
+	// Shannon-forced candidates are non-negotiable.
+	if seq.candidates[0].forced || seq.candidates[1].forced {
+		return
+	}
+
 	c1 := &seq.candidates[0]
 	c2 := &seq.candidates[1]
 
@@ -299,7 +332,7 @@ Compares buf[:k] vs buf[k:] mean byte values.
 */
 func (seq *Sequencer) classifyDirection(buf []byte, k int) int {
 	if k <= 0 || k >= len(buf) {
-		return geometry.EventDensityTrough
+		return EventDensityTrough
 	}
 	var leftSum, rightSum int
 	for _, b := range buf[:k] {
@@ -311,9 +344,9 @@ func (seq *Sequencer) classifyDirection(buf []byte, k int) int {
 	leftMean := float64(leftSum) / float64(k)
 	rightMean := float64(rightSum) / float64(len(buf)-k)
 	if rightMean > leftMean {
-		return geometry.EventDensitySpike
+		return EventDensitySpike
 	}
-	return geometry.EventDensityTrough
+	return EventDensityTrough
 }
 
 func (seq *Sequencer) updateEMA(val, delta, eigenMag float64) {
@@ -344,7 +377,7 @@ func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
 
 	// Classify using only the active window, not full buffer history.
 	events := append([]int{}, seq.classifyDirection(window, k))
-	events = append(events, geometry.EventPhaseInversion)
+	events = append(events, EventPhaseInversion)
 	return true, events
 }
 
@@ -403,7 +436,7 @@ func (seq *Sequencer) Flush() (bool, []int) {
 
 	emitK := seq.candidates[0].k
 	events := append([]int{}, seq.classifyDirection(seq.buf, emitK))
-	events = append(events, geometry.EventPhaseInversion)
+	events = append(events, EventPhaseInversion)
 
 	seq.emitSplit(emitK)
 

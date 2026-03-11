@@ -1,14 +1,56 @@
 package data
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math/bits"
 	"sync"
 
+	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/console"
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/pool"
 )
+
+func BuildChord(payload []byte) (Chord, error) {
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+
+	if err != nil {
+		return Chord{}, console.Error(err)
+	}
+
+	chord, err := NewRootChord(seg)
+
+	if err != nil {
+		return Chord{}, console.Error(err)
+	}
+
+	const logicalBits = 257
+
+	for _, b := range payload {
+		_, baseSeg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+		base, err := NewChord(baseSeg)
+
+		if err != nil {
+			return Chord{}, console.Error(err)
+		}
+
+		offsets := [5]int{
+			int(b) * 7,
+			int(b) * 13,
+			int(b) * 31,
+			int(b) * 61,
+			int(b) * 127,
+		}
+
+		for _, off := range offsets {
+			base.Set(off % logicalBits)
+		}
+
+		chord = chord.OR(base)
+	}
+
+	return chord, nil
+}
 
 /*
 Sanitize zeroes bits [257..511] to enforce the 257-bit logical width invariant.
@@ -90,43 +132,6 @@ func (chord *Chord) Clear(p int) {
 }
 
 /*
-Byte finds the byte whose BaseChord matches this chord's logical signature.
-Zeros word[7] before lookup so sequence metadata does not affect the match.
-*/
-func (chord *Chord) Byte() byte {
-	var search Chord = *chord
-	search.SetC7(0) // Strip sequence pointer
-
-	for b := range 256 {
-		test := BaseChord(byte(b))
-
-		if search == test {
-			return byte(b)
-		}
-	}
-
-	return 0
-}
-
-/*
-BestByte decodes the chord to the nearest lexical byte.
-It first attempts exact BaseChord recovery. If that fails, it falls back to the
-intrinsic face with strongest overlap.
-*/
-func (chord *Chord) BestByte() byte {
-	if exact := chord.Byte(); exact != 0 || *chord == BaseChord(0) {
-		return exact
-	}
-
-	face := chord.IntrinsicFace()
-	if face >= 0 && face < 256 {
-		return byte(face)
-	}
-
-	return 0
-}
-
-/*
 RotationSeed derives a structural affine seed from the chord itself.
 Unlike a popcount-only mapping, this uses the actual active prime layout so
 distinct chords with identical density can still drive different rotations.
@@ -174,26 +179,16 @@ func (chord *Chord) RotationSeed() (uint16, uint16) {
 }
 
 /*
-Bytes returns the chord as config.ChordBlocks×8 bytes (big-endian uint64s).
-*/
-func (chord *Chord) Bytes() []byte {
-	b := make([]byte, config.ChordBlocks*8)
-	for i := range config.ChordBlocks {
-		binary.BigEndian.PutUint64(b[i*8:], chord.block(i))
-	}
-	return b
-}
-
-/*
-BaseChord returns a deterministic base chord for a byte value.
-Uses coprime spreading to set 5 bits in the 257-bit logical chord space,
-ensuring each of the 256 byte values gets a unique signature.
+BaseChord returns a deterministic 5-bit chord for a byte value.
+Coprime spreading places exactly 5 bits in the 257-bit logical chord space,
+giving C(257,5) = 8.8 billion unique signatures.
 */
 func BaseChord(b byte) Chord {
-	var chord Chord
-	const logicalBits = 257 // CubeFaces — must match geometry.CubeFaces
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	chord, _ := NewChord(seg)
 
-	// 5 coprime multipliers spread across the logical chord space
+	const logicalBits = 257
+
 	offsets := [5]int{
 		int(b) * 7,
 		int(b) * 13,
@@ -203,11 +198,19 @@ func BaseChord(b byte) Chord {
 	}
 
 	for _, off := range offsets {
-		bit := off % logicalBits
-		chord.Set(bit)
+		chord.Set(off % logicalBits)
 	}
 
 	return chord
+}
+
+/*
+ShannonDensity returns the fraction of the 257 logical bits that are active.
+The Sequencer uses this to force a boundary before the chord saturates.
+Above ~0.40 (103 bits) the chord loses discriminative power.
+*/
+func (chord Chord) ShannonDensity() float64 {
+	return float64(chord.ActiveCount()) / 257.0
 }
 
 /*
@@ -215,25 +218,11 @@ MaskChord returns a control-plane marker used to denote an unresolved gap or
 masked region in a sequence without colliding with any lexical BaseChord.
 */
 func MaskChord() Chord {
-	var chord Chord
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	chord, _ := NewChord(seg)
 	chord.Set(256)
 
 	return chord
-}
-
-/*
-ChordFromBytes parses ChordBlocks×8 bytes (big-endian) back into a Chord.
-*/
-func ChordFromBytes(b []byte) (c Chord) {
-	if len(b) < config.ChordBlocks*8 {
-		return c
-	}
-
-	for i := range config.ChordBlocks {
-		c.setBlock(i, binary.BigEndian.Uint64(b[i*8:]))
-	}
-
-	return c
 }
 
 /*
@@ -303,7 +292,8 @@ AND returns the element-wise AND of two chords (their GCD in
 prime exponent space). Shared factors.
 */
 func (chord *Chord) AND(other Chord) Chord {
-	gcd, _ := NewChord(chord.Segment())
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	gcd, _ := NewChord(seg)
 	gcd.setBlock(0, chord.block(0)&other.block(0))
 	gcd.setBlock(1, chord.block(1)&other.block(1))
 	gcd.setBlock(2, chord.block(2)&other.block(2))
@@ -374,7 +364,9 @@ func ChordSimilarity(a, b *Chord) (sim int) {
 /*
 ChordHole returns target AND NOT existing — bits set in target but not in existing.
 */
-func ChordHole(target, existing *Chord) (hole Chord) {
+func ChordHole(target, existing *Chord) Chord {
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	hole, _ := NewChord(seg)
 	hole.setBlock(0, target.block(0)&^existing.block(0))
 	hole.setBlock(1, target.block(1)&^existing.block(1))
 	hole.setBlock(2, target.block(2)&^existing.block(2))
@@ -390,7 +382,8 @@ func ChordHole(target, existing *Chord) (hole Chord) {
 OR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
 func (chord *Chord) OR(other Chord) Chord {
-	lcm, _ := NewChord(chord.Segment())
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	lcm, _ := NewChord(seg)
 	lcm.setBlock(0, chord.block(0)|other.block(0))
 	lcm.setBlock(1, chord.block(1)|other.block(1))
 	lcm.setBlock(2, chord.block(2)|other.block(2))
@@ -407,7 +400,8 @@ func (chord *Chord) OR(other Chord) Chord {
 XOR returns the element-wise XOR of two chords (for cancellative superposition).
 */
 func (chord Chord) XOR(other Chord) Chord {
-	xor, _ := NewChord(chord.Segment())
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	xor, _ := NewChord(seg)
 	xor.setBlock(0, chord.block(0)^other.block(0))
 	xor.setBlock(1, chord.block(1)^other.block(1))
 	xor.setBlock(2, chord.block(2)^other.block(2))
@@ -481,88 +475,3 @@ func FlattenBatched(chords []Chord, p *pool.Pool) []FlatChord {
 	return out
 }
 
-/*
-IntrinsicFace returns the byte face (0-255) whose BaseChord has maximum overlap
-with this chord. Returns 256 if no face has at least 2 matching primes.
-*/
-func (chord *Chord) IntrinsicFace() int {
-	if chord.ActiveCount() == 0 {
-		return 256
-	}
-
-	bestFace := 256
-	bestSim := 0
-
-	for b := range 256 {
-		bc := BaseChord(byte(b))
-		sim := ChordSimilarity(chord, &bc)
-		if sim > bestSim {
-			bestSim = sim
-			bestFace = b
-		}
-	}
-
-	// Because BaseChords are 5 bits dense, we require at least 2 matching
-	// prime factors to assume deliberate resonance over random noise overlap.
-	if bestSim < 2 {
-		return 256
-	}
-
-	return bestFace
-}
-
-/*
-RollLeft circular-shifts the chord within the 257-bit logical width.
-Binds sequential position to geometry before superposition.
-*/
-func (chord *Chord) RollLeft(shift int) Chord {
-	if shift == 0 {
-		return *chord
-	}
-
-	const logicalBits = 257 // CubeFaces
-	var out Chord
-	shift = shift % logicalBits
-
-	// Fast sparse-array permutation within the 257-bit logical width
-	for i := range config.ChordBlocks {
-		block := chord.block(i)
-		for block != 0 {
-			bitIdx := bits.TrailingZeros64(block)
-			primeIdx := i*64 + bitIdx
-
-			if primeIdx < logicalBits {
-				newPrimeIdx := (primeIdx + shift) % logicalBits
-				out.Set(newPrimeIdx)
-			}
-
-			block &= block - 1
-		}
-	}
-
-	return out
-}
-
-/*
-BindPosition preserves the intrinsic chord identity while adding a positional
-orbit copy.
-*/
-func (chord *Chord) BindPosition(pos int) Chord {
-	shifted := chord.RollLeft(pos)
-
-	return chord.OR(shifted)
-}
-
-/*
-BindGeometry preserves the base chord, adds positional binding, and then
-superposes an optional carrier chord.
-*/
-func (chord *Chord) BindGeometry(pos int, carrier *Chord) Chord {
-	bound := chord.BindPosition(pos)
-
-	if carrier == nil || carrier.ActiveCount() == 0 {
-		return bound
-	}
-
-	return bound.OR(*carrier)
-}

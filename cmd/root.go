@@ -25,6 +25,7 @@ var embedded embed.FS
 var (
 	projectName = "six"
 	cfgFile     string
+	Alice       []byte
 
 	rootCmd = &cobra.Command{
 		Use:   "six",
@@ -59,6 +60,20 @@ func initConfig() {
 			"error", err,
 		)
 	}
+
+	Alice = errnie.FlatMap(
+		errnie.Try(embedded.Open("cfg/alice.txt")),
+		func(fh fs.File) ([]byte, error) {
+			defer fh.Close()
+			var buf bytes.Buffer
+
+			if _, err := io.Copy(&buf, fh); err != nil {
+				return nil, err
+			}
+
+			return buf.Bytes(), nil
+		},
+	).Value()
 }
 
 func writeConfig() error {

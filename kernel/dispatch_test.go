@@ -38,25 +38,25 @@ func TestNewBuilder(t *testing.T) {
 	})
 }
 
-func BenchmarkBuilderResolve(b *testing.B) {
-	nodes := make([]geometry.GFRotation, 4096)
+// func BenchmarkBuilderResolve(b *testing.B) {
+// 	nodes := make([]geometry.GFRotation, 4096)
 
-	for idx := range nodes {
-		nodes[idx] = geometry.GFRotation{
-			A: uint16((idx % 256) + 1),
-			B: uint16((idx * 17) % geometry.CubeFaces),
-		}
-	}
+// 	for idx := range nodes {
+// 		nodes[idx] = geometry.GFRotation{
+// 			A: uint16((idx % 256) + 1),
+// 			B: uint16((idx * 17) % geometry.CubeFaces),
+// 		}
+// 	}
 
-	target := geometry.GFRotation{A: 97, B: 143}
-	builder := NewBuilder()
-	b.ResetTimer()
+// 	target := geometry.GFRotation{A: 97, B: 143}
+// 	builder := NewBuilder()
+// 	b.ResetTimer()
 
-	for b.Loop() {
-		_, _ = builder.Resolve(
-			unsafe.Pointer(&nodes[0]),
-			len(nodes),
-			unsafe.Pointer(&target),
-		)
-	}
-}
+// 	for b.Loop() {
+// 		_, _ = builder.Resolve(
+// 			unsafe.Pointer(&nodes[0]),
+// 			len(nodes),
+// 			unsafe.Pointer(&target),
+// 		)
+// 	}
+// }

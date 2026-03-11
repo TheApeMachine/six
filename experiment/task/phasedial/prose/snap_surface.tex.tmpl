@@ -1,0 +1,25 @@
+\subsection{Rotational Surface Projection}
+To test whether the manifold supports constraint tightening through projection, we reused the
+phase dial itself as a projection operator. After computing the midpoint $F_{AB}$, we swept
+$\alpha$ over $\text{rotate}(F_{AB}, \alpha)$ and found
+$\alpha^* = \arg\max_\alpha \max_k \text{score}(\text{rotate}(F_{AB}, \alpha), F_k)$,
+the rotation that maximises alignment with the nearest corpus item.
+
+Across all five first-hop angles, the snap consistently selected
+$\alpha^* = {{.SnapAlpha | f3}}^{\circ}$ with a corpus peak score of ${{.SnapScore | f4}}$,
+and produced a gain of ${{.SnapGain | f4}}$---identical to both the raw midpoint
+(\,${{.MidptGain | f4}}$\,) and Baseline~2 (\,${{.Baseline2 | f4}}$\,).
+The rotational projection finds the surface maximum, but it is the same maximum that $B$ already
+dominates. This confirms that one-dimensional global phase rotation lacks the degrees of freedom
+to reach a \textit{different} surface ridge that simultaneously satisfies both constraints.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{snap_surface.pdf}
+    \caption{Snap-to-Surface results across first-hop angles $\alpha_1$.
+    Snap gain (${{.SnapGain | f4}}$), raw midpoint gain (${{.MidptGain | f4}}$), and
+    single-anchor baselines (${{.Baseline1 | f4}}$, ${{.Baseline2 | f4}}$) are compared.
+    The snap consistently matches but does not exceed the Baseline~2 ceiling, confirming that
+    1D global rotation is insufficient for super-additive composition.}
+    \label{fig:snap_surface}
+\end{figure}

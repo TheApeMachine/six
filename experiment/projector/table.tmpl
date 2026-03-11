@@ -1,0 +1,22 @@
+{{- if .Headers -}}
+\begin{table}[h]
+\centering
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{ {{ range .Headers }}|c{{ end }}| }
+\hline
+{{ range $i, $h := .Headers -}}
+{{ if $i }} & {{ end }}{{ $h }}
+{{- end }} \\
+\hline
+{{- range .Rows }}
+{{ range $i, $v := . -}}
+{{ if $i }} & {{ end }}{{ $v }}
+{{- end }} \\
+\hline
+{{- end }}
+\end{tabular}
+\end{adjustbox}
+\end{table}
+{{- else -}}
+% Results pending — no data available for this table yet.
+{{- end}}

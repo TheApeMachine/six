@@ -1,6 +1,11 @@
 package local
 
-import "github.com/theapemachine/six/provider"
+import (
+	"bytes"
+
+	"github.com/theapemachine/six/cmd"
+	"github.com/theapemachine/six/provider"
+)
 
 /*
 Dataset streams in-memory corpus bytes as RawTokens. Each sample is a []byte;
@@ -15,6 +20,12 @@ New returns a Dataset over the given corpus. corpus[sampleID] is one sample's by
 */
 func New(corpus [][]byte) *Dataset {
 	return &Dataset{corpus: corpus}
+}
+
+func NewAlice() *Dataset {
+	return &Dataset{
+		corpus: bytes.Split(cmd.Alice, []byte{}),
+	}
 }
 
 /*

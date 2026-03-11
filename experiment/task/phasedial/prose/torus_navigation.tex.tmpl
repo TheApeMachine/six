@@ -1,0 +1,22 @@
+\subsection{U(1)$\times$U(1) Torus Navigation}
+Having established that one-dimensional global phase rotation provides insufficient degrees of
+freedom, we test whether the manifold geometry is fundamentally 1D or richer by decomposing the
+512-dimensional complex embedding into two disjoint subspaces at split point ${{.SplitPoint}}$:
+$$F \mapsto (e^{i\alpha_1}\cdot F_1,\; e^{i\alpha_2}\cdot F_2)$$
+This promotes the symmetry group from $U(1)$ to the 2-dimensional torus $T^2 = U(1)\times U(1)$.
+
+Sweeping a $(\alpha_1,\alpha_2)$ grid with ${{.StepDeg | f3}}^{\circ}$ resolution, the best
+recorded torus gain was ${{.BestTorusGain | f4}}$, exceeding the 1D ceiling of
+${{.Ceiling | f4}}$ by ${{.BestDelta | signed}}$ ($\Delta > 0$ = super-additive).
+{{if .AnySuperAdditive}}Super-additivity was confirmed across at least one first-hop angle.{{else}}No first-hop angle achieved super-additivity.{{end}}
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{torus_navigation.pdf}
+    \caption{(Left) Torus gain landscape heatmap over $(\alpha_1,\alpha_2)$ at first-hop
+    $\alpha_1={{.BestHopAlpha | f3}}^{\circ}$. Color encodes
+    $\text{Gain}=\min(\text{sim}(C,A),\text{sim}(C,B))$; dark regions are destructive,
+    warm regions constructive. (Right) Best T² gain (bar) vs 1D baselines (dashed) across
+    first-hop angles; bars exceeding dashed lines are super-additive.}
+    \label{fig:torus_navigation}
+\end{figure}

@@ -141,13 +141,10 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 		return
 	}
 
-	// Chord(Sequence) = bind(A, pos=0) ⊕ bind(B, pos=1) ⊕ …
-	var sequenceChord data.Chord
-	for i, b := range chunk {
-		base := data.BaseChord(b)
-		bound := base.BindPosition(i)
-		sequenceChord = sequenceChord.XOR(bound)
-	}
+	// Chord(Span) = OR(BaseChord(b₀), BaseChord(b₁), …)
+	// Running OR: the chord grows as bytes are added, capturing content.
+	// Order is encoded in the Morton key, not the chord.
+	sequenceChord, _ := data.BuildChord(chunk)
 
 	for i := 0; i < len(chunk)-1; i++ {
 		left := chunk[i]

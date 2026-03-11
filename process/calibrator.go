@@ -3,8 +3,13 @@ package process
 import (
 	"math"
 	"sync"
+)
 
-	"github.com/theapemachine/six/geometry"
+const (
+	EventLowVarianceFlux = 0 // 5-Cycle
+	EventDensitySpike    = 1 // 3-Cycle
+	EventDensityTrough   = 2 // Inverse 3-Cycle
+	EventPhaseInversion  = 3 // Double Transposition
 )
 
 /*
@@ -63,7 +68,7 @@ func (calibrator *Calibrator) Recalibrate(events []int) {
 
 	hasBoundary := false
 	for _, e := range events {
-		if e == geometry.EventDensitySpike || e == geometry.EventDensityTrough {
+		if e == EventDensitySpike || e == EventDensityTrough {
 			hasBoundary = true
 			break
 		}

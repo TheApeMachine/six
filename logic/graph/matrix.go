@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"math"
 	"net"
 	"sync"
 
@@ -131,6 +132,29 @@ func (matrix *MatrixServer) Done(ctx context.Context, call Matrix_done) error {
 	return nil
 }
 
+/*
+Evaluate sweeps a prompt chord against a contiguous path matrix
+via XOR + POPCNT, returning the best index, its residue energy,
+and the residue chord itself.
+*/
+func (matrix *MatrixServer) Evaluate(prompt data.Chord, paths []data.Chord) (bestIdx int, lowestEnergy int, residue data.Chord) {
+	lowestEnergy = math.MaxInt32
+	bestIdx = -1
+
+	for i, path := range paths {
+		res := prompt.XOR(path)
+		energy := res.ActiveCount()
+
+		if energy < lowestEnergy {
+			lowestEnergy = energy
+			bestIdx = i
+			residue = res
+		}
+	}
+
+	return bestIdx, lowestEnergy, residue
+}
+
 func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, res Matrix_prompt_Results) error {
 	matrix.mu.RLock()
 	spatialConn := matrix.spatialConn
@@ -168,24 +192,21 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 
 	lookupRes, err := future.Struct()
 	if err != nil {
-		return err // error calling spatial_index.lookup
+		return err
 	}
 
-	// The struct is the Results of spatial_index.lookup: paths @0 :List(List(Chord))
 	ptr, err := lookupRes.Ptr(0)
 	if err != nil {
 		return err
 	}
 
-	pathsList := capnp.PointerList(ptr.List()) // List of List(Chord)
+	pathsList := capnp.PointerList(ptr.List())
 	pathsData := make([][]data.Chord, pathsList.Len())
 
-	// Create the aggregate context chord for geometrically solving the equation
-	// Chord(Sequence) = A ⊕ B ⊕ C
+	// Aggregate context chord: Chord(Sequence) = A ⊕ B ⊕ C
 	contextChord, _ := data.NewChord(res.Segment())
 	for i := 0; i < chords.Len(); i++ {
-		c := chords.At(i)
-		contextChord = contextChord.XOR(c)
+		contextChord = contextChord.XOR(chords.At(i))
 	}
 
 	for i := 0; i < pathsList.Len(); i++ {
@@ -193,29 +214,18 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 		if err != nil {
 			return err
 		}
-		innerList := data.Chord_List(pPtr.List())
 
-		// Evaluation: Score each candidate path by geometric residue
-		bestPathIdx := -1
-		minResidue := 1024 // Greater than max possible popcount (257)
+		innerList := data.Chord_List(pPtr.List())
+		candidates := make([]data.Chord, innerList.Len())
 
 		for j := 0; j < innerList.Len(); j++ {
-			candidate := innerList.At(j)
-			
-			// Hardware POPCNT ( Context ⊕ PathMatrix[i] )
-			residue := contextChord.XOR(candidate)
-			score := residue.ActiveCount()
-
-
-			if score < minResidue {
-				minResidue = score
-				bestPathIdx = j
-			}
+			candidates[j] = innerList.At(j)
 		}
 
-		if bestPathIdx != -1 {
-			c := innerList.At(bestPathIdx)
-			// Need to instantiate a fresh Chord to return
+		bestIdx, _, _ := matrix.Evaluate(contextChord, candidates)
+
+		if bestIdx != -1 {
+			c := innerList.At(bestIdx)
 			outChord, _ := data.NewChord(c.Segment())
 			outChord.SetC0(c.C0())
 			outChord.SetC1(c.C1())
@@ -225,7 +235,6 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 			outChord.SetC5(c.C5())
 			outChord.SetC6(c.C6())
 			outChord.SetC7(c.C7())
-			// We just return one specific best choice for each branch in the context!
 			pathsData[i] = []data.Chord{outChord}
 		}
 	}

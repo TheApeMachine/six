@@ -1,0 +1,20 @@
+\subsection{Phase-Guided Multi-Hop Composition}
+We validated spatial constraint composition by chaining logical rotations. Starting from anchor $A$
+(\textit{Seed}), we rotated the query to resolve anchor $B$, then formed the composed fingerprint
+$F_{AB}$ and executed a secondary phase sweep $\alpha_2$ from $F_{AB}$ to find target $C$.
+The success metric $\text{Gain} = \min(\text{sim}(C, A), \text{sim}(C, B))$ measures simultaneous
+constraint satisfaction, compared against baselines from sweeping $A$-only and $B$-only anchors.
+
+Sweeping the first-hop angle
+$\alpha_1 \in \{{{range $i,$a := .Alpha1List}}{{if $i}},\;{{end}}{{$a | f3}}^{\circ}{{end}}\}$
+revealed that the composed gain consistently reached but did not exceed the single-anchor ceiling
+of ${{.Ceiling | f4}}$, establishing a geometric upper bound intrinsic to the manifold structure.
+
+\begin{figure}[htbp]
+    \centering
+    \includegraphics[width=1.0\textwidth]{composition_trace.pdf}
+    \caption{Two-Hop Topological Composition trace over the aggregated field $F_{AB}$.
+    Shows cross-consistency bounds relative to anchors $A$ and $B$ under secondary phase
+    displacement $\alpha_2$. Best composed gain: ${{.BestGain | f4}}$; 1D ceiling: ${{.Ceiling | f4}}$.}
+    \label{fig:twohop_trace}
+\end{figure}

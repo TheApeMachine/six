@@ -21,10 +21,10 @@ Improve `experiment/task/codegen/languages.go` so the `Languages` experiment use
 ### Done
 - [x] Reconfirmed the earlier timeout fix is still in place in `experiment/task/pipeline.go`: `solvePromptReadout(...)` only forwards `logic.Circuits` when `shouldUsePromptLogicCircuits(...)` allows it, and focused prompt tests plus `TestPipeline/Languages` complete without hanging.
 - [x] Traced the `Languages` quality path through `experiment/task/codegen/languages.go`, `experiment/task/pipeline.go`, and `tokenizer/prompt.go`.
-- [x] Found a concrete benchmark-definition mismatch: `LanguagesExperiment.Prompts()` used `tokenizer.PromptWithHoldout(experiment.Holdout())`, and `Holdout()` returns `(50, tokenizer.RIGHT)`, but in `tokenizer/prompt.go` that `50` is interpreted as 50 percent, not 50 bytes.
-- [x] Verified in code that `tokenizer.PromptWithSamples(...)` is the repo’s established way to represent exact prompt splits, using `experiment/task/imagegen/reconstruction.go` and `experiment/task/logic/babi_benchmark.go` as patterns.
-- [x] Patched `experiment/task/codegen/languages.go` so `LanguagesExperiment.Prompts()` now uses `tokenizer.PromptWithSamples(experiment.mds.PromptSamples(holdoutBytes))` with `holdoutBytes = 50` instead of percentage holdout.
-- [x] Added `func (m *multiDataset) PromptSamples(holdoutBytes int) []tokenizer.PromptSample` in `experiment/task/codegen/languages.go` to rebuild exact per-sample byte buffers from `m.Generate()` and split them into `Visible`, `HeldOut`, and `Full`.
+- [x] Found a concrete benchmark-definition mismatch: `LanguagesExperiment.Prompts()` used `process.PromptWithHoldout(experiment.Holdout())`, and `Holdout()` returns `(50, tokenizer.RIGHT)`, but in `tokenizer/prompt.go` that `50` is interpreted as 50 percent, not 50 bytes.
+- [x] Verified in code that `process.PromptWithSamples(...)` is the repo’s established way to represent exact prompt splits, using `experiment/task/imagegen/reconstruction.go` and `experiment/task/logic/babi_benchmark.go` as patterns.
+- [x] Patched `experiment/task/codegen/languages.go` so `LanguagesExperiment.Prompts()` now uses `process.PromptWithSamples(experiment.mds.PromptSamples(holdoutBytes))` with `holdoutBytes = 50` instead of percentage holdout.
+- [x] Added `func (m *multiDataset) PromptSamples(holdoutBytes int) []process.PromptSample` in `experiment/task/codegen/languages.go` to rebuild exact per-sample byte buffers from `m.Generate()` and split them into `Visible`, `HeldOut`, and `Full`.
 - [x] Added regression coverage in `experiment/task/codegen/languages_test.go` to prove `LanguagesExperiment.Prompts()` now holds out exactly 50 bytes on samples of different lengths and preserves the full sample text.
 - [x] Added a benchmark in `experiment/task/codegen/languages_test.go` for `LanguagesExperiment.Prompts()`.
 - [x] Formatted and ran:
@@ -44,7 +44,7 @@ Improve `experiment/task/codegen/languages.go` so the `Languages` experiment use
 - (none)
 
 ## Key Decisions
-- **Switch `LanguagesExperiment.Prompts()` to explicit samples**: `tokenizer.PromptWithHoldout(50, tokenizer.RIGHT)` was provably using 50 percent, not 50 bytes, so the experiment was not matching its own comment/prose or intended benchmark shape.
+- **Switch `LanguagesExperiment.Prompts()` to explicit samples**: `process.PromptWithHoldout(50, tokenizer.RIGHT)` was provably using 50 percent, not 50 bytes, so the experiment was not matching its own comment/prose or intended benchmark shape.
 - **Implement exact splitting in `multiDataset.PromptSamples(...)`**: This reused existing repo patterns from `experiment/task/imagegen/reconstruction.go` and `experiment/task/logic/babi_benchmark.go` rather than inventing a new prompt API.
 - **Keep the earlier prompt-circuit timeout guard unchanged while investigating quality**: The `Languages` hang was already fixed safely in `experiment/task/pipeline.go`, and the current problem is completion quality, not performance.
 - **Do not trust editor diagnostics for validation**: `lsp_diagnostics` returned `warning[go list] at 1:8: No active builds contain ...`, so validation continued through `gofmt` and `go test`.
@@ -62,9 +62,9 @@ Improve `experiment/task/codegen/languages.go` so the `Languages` experiment use
 
 ## Critical Context
 - `experiment/task/codegen/languages.go` originally claimed: “Each sample ingests a function prompt + canonical solution; the right-50-byte holdout is used as the expected completion.”
-- In reality, before the patch, `LanguagesExperiment.Prompts()` called `tokenizer.PromptWithHoldout(experiment.Holdout())`, and `tokenizer/prompt.go` computes holdout width as `int(float64(n)*float64(prompt.percentage)/100.0)`, so `50` meant 50 percent.
+- In reality, before the patch, `LanguagesExperiment.Prompts()` called `process.PromptWithHoldout(experiment.Holdout())`, and `tokenizer/prompt.go` computes holdout width as `int(float64(n)*float64(prompt.percentage)/100.0)`, so `50` meant 50 percent.
 - Current patch in `experiment/task/codegen/languages.go`:
-  - `LanguagesExperiment.Prompts()` now uses `tokenizer.PromptWithSamples(experiment.mds.PromptSamples(holdoutBytes))`
+  - `LanguagesExperiment.Prompts()` now uses `process.PromptWithSamples(experiment.mds.PromptSamples(holdoutBytes))`
   - `holdoutBytes` is `50`
   - `multiDataset.PromptSamples(...)` reconstructs each sample from `m.Generate()` and splits at `max(len(current)-holdoutBytes, 1)`
 - Added test file `experiment/task/codegen/languages_test.go` verifies:
