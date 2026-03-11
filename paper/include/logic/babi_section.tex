@@ -26,10 +26,10 @@ columns show the Exact, Partial, Fuzzy, and Weighted scores on a
 panel displays the weighted score per sample alongside the
 overall mean (orange dashed line).
 
-The system achieved an exact-match accuracy of 98.0\%
+The system achieved an exact-match accuracy of 96.0\%
 across all 50 samples, with a mean partial score of
-0.983 and an overall weighted score of
-0.981.
+0.963 and an overall weighted score of
+0.961.
 
 \paragraph{Assessment.}
 The substrate resolved the majority of single-supporting-fact queries
@@ -38,15 +38,16 @@ geometric residue accumulation.
 
 \begin{table}[htbp]
   \centering
-  \caption{bAbI Task~1 failure cases (showing first 1 of
-    1). $N = 50$, exact accuracy
-    98.0\%.}
+  \caption{bAbI Task~1 failure cases (showing first 2 of
+    2). $N = 50$, exact accuracy
+    96.0\%.}
   \label{tab:babi_failures}
   \begin{tabular}{rlll}
     \toprule
     \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
     \midrule
-    13 & John & \texttt{bathroom} & \texttt{athroom} \\
+    33 & John & \texttt{kitchen} & \texttt{itchen} \\
+    45 & Sandra & \texttt{bedroom} & \texttt{edroom} \\
     \bottomrule
   \end{tabular}
 \end{table}

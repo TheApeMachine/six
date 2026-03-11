@@ -10,39 +10,39 @@
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
 21 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-23 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+29 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 28 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-59 & Rust & 0.0000 & 0.0282 & 0.0282 & 0.0128 \\
-55 & Rust & 0.0000 & 0.0577 & 0.0577 & 0.0262 \\
-38 & Go & 0.0000 & 0.1350 & 0.1350 & 0.0614 \\
+15 & JavaScript & 0.0000 & 0.0531 & 0.0531 & 0.0242 \\
+16 & JavaScript & 0.0000 & 0.1698 & 0.1698 & 0.0772 \\
+57 & Rust & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
 \multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{>();·        StringBuilder current\_strin\ldots}} & \multicolumn{2}{l}{\texttt{>();·        StringBuilder current\_strin\ldots}} \\
-\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{ro(Arrays.asList(1, 2, 3))·    false·   \ldots}} & \multicolumn{2}{l}{\texttt{ro(Arrays.asList(1, 2, 3))·    false·   \ldots}} \\
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{ers:Vec<i32>) -> Vec<i32>\{· ·    let mut\ldots}} & \multicolumn{2}{l}{\texttt{by\_substring(strings: Vec<String>, subst\ldots}} \\
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{tive elements of input list `numbers'·  \ldots}} & \multicolumn{2}{l}{\texttt{ive elements of input list `numbers'·   \ldots}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{>();·        if (numbers.size() == 0) \{·\ldots}} & \multicolumn{2}{l}{\texttt{>();·        if (numbers.size() == 0) \{·\ldots}} \\
+\multicolumn{2}{l}{\texttt{/* Insert a number 'delimeter' between e\ldots}} & \multicolumn{2}{l}{\texttt{, delimeter) => \{·   if (!Array.isArray(\ldots}} & \multicolumn{2}{l}{\texttt{delimeter) => \{·   if (!Array.isArray(nu\ldots}} \\
+\multicolumn{2}{l}{\texttt{/* Input to this function is a string re\ldots}} & \multicolumn{2}{l}{\texttt{> \{·   var parseParenGroup = function (s\ldots}} & \multicolumn{2}{l}{\texttt{\{·   var parseParenGroup = function (s) \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 60} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.4699} & \multicolumn{3}{l}{Min: 0.0128 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.4774} & \multicolumn{3}{l}{Min: 0.0242 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{424.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{28.11 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{468.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{421.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{29.02 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{483.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{28.54 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{29.44 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}
