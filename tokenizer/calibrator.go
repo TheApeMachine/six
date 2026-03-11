@@ -1,70 +1,32 @@
 package tokenizer
 
 import (
-	"math"
-	"sync"
+"math"
+"sync"
 
-	"github.com/theapemachine/six/geometry"
+"github.com/theapemachine/six/geometry"
 )
 
 /*
-Calibrator holds BIC penalty and density thresholds for Sequencer boundary detection.
-sensitivityPop scales the MDL penalty; sensitivityPhase for phase-based signals.
+Calibrator dynamically holds BIC penalty and density thresholds for Sequencer boundary detection.
+It uses dynamic feedback derived from its sliding window to adjust penalties.
 */
 type Calibrator struct {
 	mu               sync.RWMutex
-	targetDensityMin float64
-	targetDensityMax float64
 	sensitivityPop   float64
 	sensitivityPhase float64
-
-	window       *FastWindow
-	entropyFloor float64
+	window           *FastWindow
 }
-
-const (
-	// sensitivityDecayFactor prevents over-sensitivity when data is too quiet.
-	sensitivityDecayFactor = 0.95
-	// sensitivityGrowFactor forces higher penalties on highly volatile streams.
-	sensitivityGrowFactor = 1.05
-	// sensitivityClampMin prevents the penalty from disappearing entirely.
-	sensitivityClampMin = 0.05
-	// sensitivityClampMax prevents the penalty from suppressing all splits.
-	sensitivityClampMax = 20.0
-	// volatilityMultiplier defines the delta from entropyFloor to trigger growth.
-	volatilityMultiplier = 3.0
-)
 
 /*
-NewCalibrator creates a Calibrator with phi-based defaults: targetDensity 1/phi³..1/phi²,
-sensitivityPop=1, sensitivityPhase=phi.
+NewCalibrator creates a dynamic calibrator that learns boundaries strictly through feedback.
 */
 func NewCalibrator() *Calibrator {
-	phi := (1.0 + math.Sqrt(5.0)) / 2.0
-
 	return &Calibrator{
-		targetDensityMin: 1.0 / math.Pow(phi, 3),
-		targetDensityMax: 1.0 / math.Pow(phi, 2),
-
-		// BIC penalty scale: 1.0 yields practical boundary detection on typical
-		// byte streams; phi (≈1.618) over-penalizes and suppresses splits.
 		sensitivityPop:   1.0,
-		sensitivityPhase: phi,
-		window:           NewFastWindow(100),
-		entropyFloor:     0.05, // quiet ticks threshold
+		sensitivityPhase: 1.0,
+		window:           NewFastWindow(128),
 	}
-}
-
-func (c *Calibrator) TargetDensityMin() float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.targetDensityMin
-}
-
-func (c *Calibrator) TargetDensityMax() float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.targetDensityMax
 }
 
 func (c *Calibrator) SensitivityPop() float64 {
@@ -93,12 +55,12 @@ func (c *Calibrator) SetSensitivityPhase(v float64) {
 
 /*
 Recalibrate adjusts the scale of sensitivity based on recent event frequency.
+It uses pure dynamic feedback based on the moving average compared to the standard deviation.
 */
 func (calibrator *Calibrator) Recalibrate(events []int) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()
 
-	// Track whether a boundary event occurred
 	hasBoundary := false
 	for _, e := range events {
 		if e == geometry.EventDensitySpike || e == geometry.EventDensityTrough {
@@ -117,21 +79,18 @@ func (calibrator *Calibrator) Recalibrate(events []int) {
 		return
 	}
 
-	mean, _ := calibrator.window.Stats()
-
-	// Adjust sensitivity using adaptive feedback loop.
-	// We use decay/grow factors to maintain stability vs responsiveness.
-	if mean < calibrator.entropyFloor {
-		// Stuck in a monotonous region, decrease sensitivity.
-		calibrator.sensitivityPop *= sensitivityDecayFactor
-		if calibrator.sensitivityPop < sensitivityClampMin {
-			calibrator.sensitivityPop = sensitivityClampMin
-		}
-	} else if mean > calibrator.entropyFloor*volatilityMultiplier {
-		// Highly volatile data, increase penalty to avoid noise splits.
-		calibrator.sensitivityPop *= sensitivityGrowFactor
-		if calibrator.sensitivityPop > sensitivityClampMax {
-			calibrator.sensitivityPop = sensitivityClampMax
-		}
+	mean, stddev := calibrator.window.Stats()
+	if mean == 0 || stddev == 0 {
+		calibrator.sensitivityPop = math.Max(calibrator.sensitivityPop*0.9, 0.01)
+		return
 	}
+
+	// We use standard deviation as a legitimate dynamic target for the boundary rate.
+	// If the boundary rate (mean) exceeds the signal's volatility (stddev),
+// we are splitting too much (noise), so we increase the penalty.
+errorRate := mean - stddev
+
+// Feedback driven exponential adjustment
+calibrator.sensitivityPop *= math.Exp(errorRate)
+calibrator.sensitivityPop = math.Max(0.01, math.Min(100.0, calibrator.sensitivityPop))
 }

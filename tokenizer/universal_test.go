@@ -84,7 +84,11 @@ func TestGenerate(t *testing.T) {
 				var s1Tokens []Token
 
 				for _, tk := range tokens {
-					if tk.IsBoundary && tk.Chord.ActiveCount() == 0 {
+					if tk.Chord.IsStopChord() {
+						continue
+					}
+
+					if tk.Chord.IsStreamMarker() {
 						continue
 					}
 
@@ -129,16 +133,16 @@ func TestGenerateEmitsBoundaryBetweenSamples(t *testing.T) {
 		)
 
 		Convey("When Generate is called", func() {
-			boundaries := 0
+			stopMarkers := 0
 
 			for token := range tokenizer.Generate() {
-				if token.IsBoundary {
-					boundaries++
+				if token.Chord.IsStopChord() {
+					stopMarkers++
 				}
 			}
 
-			Convey("It should emit a boundary between samples and at stream end", func() {
-				So(boundaries, ShouldEqual, 2)
+			Convey("It should emit an in-band stop marker between samples and one at stream end", func() {
+				So(stopMarkers, ShouldEqual, 2)
 			})
 		})
 	})
@@ -152,16 +156,16 @@ func TestGenerateEmitsBoundaryWhenFirstSampleIDIsZero(t *testing.T) {
 		)
 
 		Convey("When Generate is called", func() {
-			boundaries := 0
+			stopMarkers := 0
 
 			for token := range tokenizer.Generate() {
-				if token.IsBoundary {
-					boundaries++
+				if token.Chord.IsStopChord() {
+					stopMarkers++
 				}
 			}
 
-			Convey("It should still emit a boundary between samples and at stream end", func() {
-				So(boundaries, ShouldEqual, 2)
+			Convey("It should still use an in-band stop marker and flush at stream end", func() {
+				So(stopMarkers, ShouldEqual, 2)
 			})
 		})
 	})
@@ -193,4 +197,72 @@ func TestGenerateEmitsBoundChordState(t *testing.T) {
 			})
 		})
 	})
+}
+
+func TestGeneratePreservesPositionAcrossSampleBoundary(t *testing.T) {
+	Convey("Given a Dataset with multiple sample IDs", t, func() {
+		dataset := createMockDataset("ab", "cd")
+		tokenizer := NewUniversal(
+			TokenizerWithDataset(dataset),
+		)
+
+		Convey("When Generate is called", func() {
+			positions := make([]uint32, 0, 5)
+			sawStop := false
+
+			for token := range tokenizer.Generate() {
+				if token.Chord.IsStopChord() {
+					sawStop = true
+					continue
+				}
+
+				positions = append(positions, token.Pos)
+			}
+
+			Convey("It should keep advancing position through the in-band stop marker", func() {
+				So(sawStop, ShouldBeTrue)
+				So(positions, ShouldResemble, []uint32{0, 1, 3, 4})
+			})
+		})
+	})
+}
+
+func TestGenerateEmitsSplitMarkersWhenSequencerFindsStructure(t *testing.T) {
+	Convey("Given a Dataset with a strong internal distribution shift", t, func() {
+		dataset := createMockDataset("aaaaaaaaaaaaaaaaaaaabbbbbbbbbbcccccccccccccccccccc")
+		tokenizer := NewUniversal(
+			TokenizerWithDataset(dataset),
+			TokenizerWithSequencer(),
+		)
+
+		Convey("When Generate is called", func() {
+			splitMarkers := 0
+
+			for token := range tokenizer.Generate() {
+				if token.Chord.IsSplitChord() {
+					splitMarkers++
+				}
+			}
+
+			Convey("It should emit at least one in-band split marker", func() {
+				So(splitMarkers, ShouldBeGreaterThan, 0)
+			})
+		})
+	})
+}
+
+func BenchmarkGenerateInBandBoundaries(b *testing.B) {
+	dataset := createMockDataset(
+		"aaaaaaaaaaaaaaaaaaaabbbbbbbbbbcccccccccccccccccccc",
+		"defghijklmnopqrstuvwxyz",
+	)
+	tokenizer := NewUniversal(
+		TokenizerWithDataset(dataset),
+		TokenizerWithSequencer(),
+	)
+
+	for b.Loop() {
+		for range tokenizer.Generate() {
+		}
+	}
 }

@@ -27,7 +27,6 @@ type Token struct {
 	Events     []int
 	Pos        uint32
 	Position   uint32
-	IsBoundary bool
 }
 
 /*
@@ -43,9 +42,9 @@ func (token Token) EffectiveChord() data.Chord {
 }
 
 /*
-Universal converts a byte stream from a Dataset into position-bound byte
-tokens. Each byte occurrence becomes one Token, and RollLeft binds the
-sequencer-local position directly into the chord geometry.
+Universal converts a byte stream from a Dataset into position-bound chord
+tokens. Lexical bytes become Tokens, and in-band boundary markers may also be
+emitted to preserve temporal continuity without relying on hard external resets.
 */
 type Universal struct {
 	ctx          context.Context
@@ -80,9 +79,9 @@ func NewUniversal(opts ...universalOpts) *Universal {
 /*
 Generate tokenizes and sequences a byte stream.
 
-For the current memorization path, one byte occurrence becomes one Token,
-and from the moment data is tokenized, we must never look at byte values
-again, until it is time to render the final output.
+For the current memorization path, lexical bytes become Tokens and structural
+markers may be inserted in-band. From the moment data is tokenized, we must
+never look at byte values again until final rendering.
 */
 func (tokenizer *Universal) Generate() chan Token {
 	out := make(chan Token, 4096)
@@ -96,7 +95,7 @@ func (tokenizer *Universal) Generate() chan Token {
 		defer close(out)
 		defer func() {
 			select {
-			case out <- Token{IsBoundary: true}:
+			case out <- Token{Chord: data.StopChord()}:
 			default:
 			}
 		}()
@@ -106,11 +105,9 @@ func (tokenizer *Universal) Generate() chan Token {
 		var streamPos uint32
 		var hasSample bool
 
-		resetSample := func(sampleID uint32) {
+		switchSample := func(sampleID uint32) {
 			tokenizer.sampleID = sampleID
 			tokenizer.tokens.Reset()
-			tokenizer.pos = 0
-			tokenizer.rot = geometry.IdentityRotation()
 
 			if tokenizer.useSequencer {
 				tokenizer.sequencer = NewSequencer(NewCalibrator())
@@ -120,7 +117,7 @@ func (tokenizer *Universal) Generate() chan Token {
 		for rawToken := range tokenizer.dataset.Generate() {
 			if !hasSample {
 				hasSample = true
-				resetSample(rawToken.SampleID)
+				switchSample(rawToken.SampleID)
 			}
 
 			if rawToken.SampleID != tokenizer.sampleID {
@@ -130,10 +127,10 @@ func (tokenizer *Universal) Generate() chan Token {
 				)
 
 				if tokenizer.tokens.Len() > 0 {
-					out <- Token{IsBoundary: true}
+					tokenizer.emitMarker(out, data.StopChord(), &streamPos)
 				}
 
-				resetSample(rawToken.SampleID)
+				switchSample(rawToken.SampleID)
 			}
 
 			currentPos := tokenizer.pos
@@ -143,28 +140,27 @@ func (tokenizer *Universal) Generate() chan Token {
 			bound := rotated.BindGeometry(int(currentPos), &carrier)
 
 			var events []int
-			var reset bool
+			var split bool
 
 			if tokenizer.useSequencer {
 				seqReset, seqEvents := tokenizer.sequencer.Analyze(
 					int(currentPos), rawToken.Symbol,
 				)
 				events = seqEvents
-				reset = seqReset
+				split = seqReset
 			}
 
 			tokenizer.tokens.WriteByte(rawToken.Symbol)
 
 			out <- Token{
-				TokenID:    tokenizer.coder.Encode(streamPos, rawToken.Symbol),
-				Chord:      baseChord,
-				Bound:      bound,
-				Carrier:    carrier,
-				Rotation:   tokenizer.rot,
-				Events:     events,
-				Pos:        currentPos,
-				Position:   currentPos,
-				IsBoundary: reset,
+				TokenID:  tokenizer.coder.Encode(streamPos, rawToken.Symbol),
+				Chord:    baseChord,
+				Bound:    bound,
+				Carrier:  carrier,
+				Rotation: tokenizer.rot,
+				Events:   events,
+				Pos:      currentPos,
+				Position: currentPos,
 			}
 
 			streamPos++
@@ -175,14 +171,11 @@ func (tokenizer *Universal) Generate() chan Token {
 			}
 
 			tokenizer.rot = nextRot
-
-			if reset {
-				tokenizer.pos = 0
-				tokenizer.rot = geometry.IdentityRotation()
-				continue
-			}
-
 			tokenizer.pos = currentPos + 1
+
+			if split {
+				tokenizer.emitMarker(out, data.SplitChord(), &streamPos)
+			}
 		}
 	}()
 
@@ -215,4 +208,36 @@ func TokenizerWithSequencer() universalOpts {
 	return func(tokenizer *Universal) {
 		tokenizer.useSequencer = true
 	}
+}
+
+func (tokenizer *Universal) emitMarker(
+	out chan Token,
+	marker data.Chord,
+	streamPos *uint32,
+) {
+	currentPos := tokenizer.pos
+	carrier := tokenizer.rot.StateChord()
+	bound := marker.BindGeometry(int(currentPos), &carrier)
+
+	out <- Token{
+		TokenID:  tokenizer.coder.Encode(*streamPos, markerTokenByte(marker)),
+		Chord:    marker,
+		Bound:    bound,
+		Carrier:  carrier,
+		Rotation: tokenizer.rot,
+		Pos:      currentPos,
+		Position: currentPos,
+	}
+
+	*streamPos = *streamPos + 1
+	tokenizer.rot = tokenizer.rot.Compose(geometry.RotationForChord(bound))
+	tokenizer.pos = currentPos + 1
+}
+
+func markerTokenByte(marker data.Chord) byte {
+	if marker.IsSplitChord() {
+		return 255
+	}
+
+	return 0
 }

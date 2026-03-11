@@ -8,6 +8,7 @@ require (
 	github.com/chromedp/chromedp v0.14.2
 	github.com/gomlx/gemma v0.0.0-20241101110232-83792b257ba9
 	github.com/gomlx/gomlx v0.15.0
+	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/parquet-go/parquet-go v0.28.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.10.2
@@ -31,6 +32,7 @@ require (
 	github.com/schollz/progressbar/v3 v3.17.0 // indirect
 	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
+	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
 	k8s.io/klog/v2 v2.130.1 // indirect

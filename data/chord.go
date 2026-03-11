@@ -11,14 +11,6 @@ import (
 )
 
 /*
-Chord is the prime signature bitset. Storage is [8]uint64 (512 bits) for GPU
-alignment, but only the lower 257 bits are logically valid — one bit per face
-of the Fermat cube (CubeFaces = 257). Bits [257..511] must always be zero.
-Call Sanitize() after any raw bitwise OR to enforce this invariant.
-*/
-type Chord [config.ChordBlocks]uint64
-
-/*
 Sanitize zeroes bits [257..511] to enforce the 257-bit logical width invariant.
 Bit 256 (the delimiter face) is preserved. Word 4 keeps its lowest bit
 (bit 256); words 5..7 are fully zeroed.
@@ -26,10 +18,10 @@ Bit 256 (the delimiter face) is preserved. Word 4 keeps its lowest bit
 func (chord *Chord) Sanitize() {
 	// Word layout: word[0] = bits 0..63, word[1] = 64..127, ...
 	// word[4] = bits 256..319 → only bit 256 (the LSB) is valid.
-	chord[4] &= 1 // keep only bit 256
-	chord[5] = 0
-	chord[6] = 0
-	chord[7] = 0
+	chord.SetC4(chord.C4() & 1) // keep only bit 256
+	chord.SetC5(0)
+	chord.SetC6(0)
+	chord.SetC7(0)
 }
 
 /*

@@ -46,6 +46,8 @@ type Graph struct {
 	mitosisEvents  int
 	pruneEvents    int
 
+	promptID uint64
+
 	outputEmitted    bool
 	toolCatalog      map[toolKey]*Node
 	toolVotes        map[toolKey]int
@@ -112,9 +114,18 @@ Tick processes a PoolValue and steps the cortex.
 */
 func (graph *Graph) Tick(result *pool.Result) {
 	if result != nil && result.Value != nil {
+		if pv, ok := result.Value.(pool.PoolValue[PromptCycle]); ok {
+			if pv.Key == "prompt" {
+				graph.ResetPromptCycle()
+				graph.promptID = pv.Value.ID
+				graph.InjectChords(pv.Value.Chords)
+			}
+		}
+
 		if pv, ok := result.Value.(pool.PoolValue[[]data.Chord]); ok {
 			if pv.Key == "prompt" {
 				graph.ResetPromptCycle()
+				graph.promptID = 0
 				graph.InjectChords(pv.Value)
 			}
 		}
@@ -224,9 +235,9 @@ func (graph *Graph) routeTargets(from *Node, chord data.Chord) []*Node {
 Wipe clears all 257 faces of the node's working memory.
 */
 func (node *Node) Wipe() {
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			for face := 0; face < 257; face++ {
+	for side := range 6 {
+		for rot := range 4 {
+			for face := range 257 {
 				node.Cube.Set(side, rot, face, data.Chord{})
 			}
 		}

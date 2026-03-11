@@ -56,9 +56,18 @@ func TestLoaderBuildsDirectionalSubstrates(t *testing.T) {
 				So(loader.ReverseSubstrate().Entries[0].Reverse, ShouldBeTrue)
 
 				sequences := loader.Sequences()
-				So(sequences, ShouldHaveLength, 2)
+				So(sequences, ShouldHaveLength, 1)
 				So(sequences[0][0], ShouldEqual, data.BaseChord('a'))
-				So(sequences[1][0], ShouldEqual, data.BaseChord('d'))
+				stopIdx := -1
+				for idx, chord := range sequences[0] {
+					if chord.IsStopChord() {
+						stopIdx = idx
+						break
+					}
+				}
+				So(stopIdx, ShouldBeGreaterThan, 0)
+				So(stopIdx+1, ShouldBeLessThan, len(sequences[0]))
+				So(sequences[0][stopIdx+1], ShouldEqual, data.BaseChord('d'))
 			})
 		})
 	})

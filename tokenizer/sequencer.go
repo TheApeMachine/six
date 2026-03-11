@@ -14,7 +14,6 @@ Minimum Description Length (MDL) principle.
 type Sequencer struct {
 	calibrator *Calibrator
 	eigen      *geometry.EigenMode
-	phi        float64
 
 	buf  []byte
 	dist *Distribution
@@ -51,7 +50,6 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 	return &Sequencer{
 		calibrator:      calibrator,
 		eigen:           geometry.NewEigenMode(),
-		phi:             (1.0 + math.Sqrt(5.0)) / 2.0,
 		dist:            NewDistribution(),
 		MinSegmentBytes: 4,
 	}
@@ -65,7 +63,6 @@ func (seq *Sequencer) CloneEmpty() *Sequencer {
 	return &Sequencer{
 		calibrator:      seq.calibrator,
 		eigen:           seq.eigen,
-		phi:             seq.phi,
 		dist:            NewDistribution(),
 		MinSegmentBytes: seq.MinSegmentBytes,
 	}
@@ -286,10 +283,21 @@ func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
 		return false
 	}
 
-	c1 := d1.Cost() / float64(d1.n)
-	c2 := d2.Cost() / float64(d2.n)
+	costSplit := d1.Cost() + d2.Cost()
 
-	return math.Abs(c1-c2) < 0.2
+	dCombined := d1.Clone()
+	for i := 0; i < 256; i++ {
+		c := d2.counts[i]
+		for j := 0; j < c; j++ {
+			dCombined.Add(byte(i))
+		}
+	}
+
+	costCombined := dCombined.Cost()
+
+	// Pure dynamic check: if treating them as one distribution is 
+	// computationally cheaper (via MDL) than splitting, they are similar.
+	return costCombined <= costSplit
 }
 
 /*
@@ -358,13 +366,19 @@ func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscrimin
 	}
 	seq.calibrator.mu.Lock()
 	defer seq.calibrator.mu.Unlock()
-	adjust := 1.0 / seq.phi
-	if overDiscriminated {
-		seq.calibrator.sensitivityPop *= (1.0 + adjust)
-	} else if underDiscriminated {
-		seq.calibrator.sensitivityPop *= (1.0 - adjust)
+
+	_, stddev := seq.calibrator.window.Stats()
+	adjust := stddev
+	if adjust == 0 {
+		adjust = 0.1
 	}
-	seq.calibrator.sensitivityPop = math.Max(0.05, math.Min(20.0, seq.calibrator.sensitivityPop))
+
+	if overDiscriminated {
+		seq.calibrator.sensitivityPop *= math.Exp(adjust)
+	} else if underDiscriminated {
+		seq.calibrator.sensitivityPop *= math.Exp(-adjust)
+	}
+	seq.calibrator.sensitivityPop = math.Max(0.01, math.Min(100.0, seq.calibrator.sensitivityPop))
 }
 
 /*
@@ -374,10 +388,7 @@ func (seq *Sequencer) Phase() (float64, float64) {
 	return seq.emaPhase, seq.dist.Cost() / float64(max(seq.dist.n, 1))
 }
 
-/*
-Phi returns the golden-ratio tuning constant (≈1.618).
-*/
-func (seq *Sequencer) Phi() float64 { return seq.phi }
+
 
 /*
 SetEigenMode replaces the internal EigenMode. Nil resets to NewEigenMode().

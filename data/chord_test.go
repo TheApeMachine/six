@@ -156,6 +156,30 @@ func TestMaskChord_UsesControlFace(t *testing.T) {
 	require.True(t, mask.Has(256))
 }
 
+func TestStopChord_IsDistinctStreamBoundaryMarker(t *testing.T) {
+	t.Parallel()
+
+	stop := StopChord()
+
+	require.True(t, stop.Has(256))
+	require.True(t, stop.IsStopChord())
+	require.True(t, stop.IsStreamMarker())
+	require.NotEqual(t, MaskChord(), stop)
+	require.NotEqual(t, BaseChord(0), stop)
+}
+
+func TestSplitChord_IsDistinctSoftBoundaryMarker(t *testing.T) {
+	t.Parallel()
+
+	split := SplitChord()
+
+	require.True(t, split.Has(256))
+	require.True(t, split.IsSplitChord())
+	require.True(t, split.IsStreamMarker())
+	require.NotEqual(t, StopChord(), split)
+	require.NotEqual(t, MaskChord(), split)
+}
+
 func TestBindGeometry_SuperposesCarrier(t *testing.T) {
 	t.Parallel()
 

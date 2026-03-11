@@ -91,10 +91,12 @@ func langDisplayNames() []string {
 }
 
 func (experiment *LanguagesExperiment) Prompts() *tokenizer.Prompt {
+	const holdoutBytes = 50
+
 	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.Dataset()),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+		tokenizer.PromptWithSamples(experiment.mds.PromptSamples(holdoutBytes)),
 	)
+
 	return experiment.prompt
 }
 
@@ -337,4 +339,39 @@ func (m *multiDataset) LangForSampleID(id uint32) string {
 		return m.langNames[langIdx]
 	}
 	return fmt.Sprintf("lang%d", langIdx)
+}
+
+func (m *multiDataset) PromptSamples(holdoutBytes int) []tokenizer.PromptSample {
+	samples := make([]tokenizer.PromptSample, 0)
+	currentSampleID := ^uint32(0)
+	current := make([]byte, 0, 512)
+
+	flush := func() {
+		if len(current) == 0 {
+			return
+		}
+
+		splitIdx := max(len(current)-holdoutBytes, 1)
+		full := string(current)
+
+		samples = append(samples, tokenizer.PromptSample{
+			Visible: full[:splitIdx],
+			HeldOut: full[splitIdx:],
+			Full:    full,
+		})
+	}
+
+	for token := range m.Generate() {
+		if token.SampleID != currentSampleID {
+			flush()
+			currentSampleID = token.SampleID
+			current = current[:0]
+		}
+
+		current = append(current, token.Symbol)
+	}
+
+	flush()
+
+	return samples
 }

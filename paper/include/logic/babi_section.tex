@@ -26,10 +26,10 @@ columns show the Exact, Partial, Fuzzy, and Weighted scores on a
 panel displays the weighted score per sample alongside the
 overall mean (orange dashed line).
 
-The system achieved an exact-match accuracy of 16.0\%
+The system achieved an exact-match accuracy of 0.0\%
 across all 50 samples, with a mean partial score of
-0.221 and an overall weighted score of
-0.187.
+0.141 and an overall weighted score of
+0.064.
 
 \paragraph{Assessment.}
 Exact-match accuracy was low.  The Transitive Resonance mechanism
@@ -40,33 +40,33 @@ may not separate location attractors reliably.
 \begin{table}[htbp]
   \centering
   \caption{bAbI Task~1 failure cases (showing first 20 of
-    42). $N = 50$, exact accuracy
-    16.0\%.}
+    50). $N = 50$, exact accuracy
+    0.0\%.}
   \label{tab:babi_failures}
   \begin{tabular}{rlll}
     \toprule
     \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
     \midrule
-    0 & Mary & \texttt{bathroom} & \texttt{hallway} \\
-    1 & Daniel & \texttt{hallway} & \texttt{bedroom} \\
-    2 & Daniel & \texttt{hallway} & \texttt{bedroom} \\
-    3 & Daniel & \texttt{office} & \texttt{bedroom} \\
-    4 & Sandra & \texttt{bathroom} & \texttt{bedroom} \\
-    5 & Sandra & \texttt{bathroom} & \texttt{bedroom} \\
-    6 & Sandra & \texttt{bathroom} & \texttt{bedroom} \\
-    7 & Sandra & \texttt{bathroom} & \texttt{hallway} \\
-    8 & John & \texttt{office} & \texttt{hallway} \\
-    10 & John & \texttt{bathroom} & \texttt{hallway} \\
-    11 & Mary & \texttt{bedroom} & \texttt{hallway} \\
-    12 & John & \texttt{bathroom} & \texttt{hallway} \\
-    13 & John & \texttt{bathroom} & \texttt{bedroom} \\
-    16 & Sandra & \texttt{kitchen} & \texttt{bedroom} \\
-    17 & Sandra & \texttt{hallway} & \texttt{bedroom} \\
-    18 & Sandra & \texttt{hallway} & \texttt{bedroom} \\
-    19 & Daniel & \texttt{hallway} & \texttt{bedroom} \\
-    21 & Mary & \texttt{garden} & \texttt{hallway} \\
-    22 & John & \texttt{kitchen} & \texttt{hallway} \\
-    24 & John & \texttt{office} & \texttt{hallway} \\
+    0 & Mary & \texttt{bathroom} & \texttt{bed the} \\
+    1 & Daniel & \texttt{hallway} & \texttt{bed to} \\
+    2 & Daniel & \texttt{hallway} & \texttt{bed to} \\
+    3 & Daniel & \texttt{office} & \texttt{bathro} \\
+    4 & Sandra & \texttt{bathroom} & \texttt{bed to t} \\
+    5 & Sandra & \texttt{bathroom} & \texttt{bed to t} \\
+    6 & Sandra & \texttt{bathroom} & \texttt{bed to t} \\
+    7 & Sandra & \texttt{bathroom} & \texttt{bed to t} \\
+    8 & John & \texttt{office} & \texttt{bed to} \\
+    9 & Daniel & \texttt{hallway} & \texttt{bed to} \\
+    10 & John & \texttt{bathroom} & \texttt{bed to t} \\
+    11 & Mary & \texttt{bedroom} & \texttt{bed the} \\
+    12 & John & \texttt{bathroom} & \texttt{bed to t} \\
+    13 & John & \texttt{bathroom} & \texttt{bed to t} \\
+    14 & Sandra & \texttt{bedroom} & \texttt{bed to} \\
+    15 & Daniel & \texttt{bedroom} & \texttt{hroom.} \\
+    16 & Sandra & \texttt{kitchen} & \texttt{bed to} \\
+    17 & Sandra & \texttt{hallway} & \texttt{bed to} \\
+    18 & Sandra & \texttt{hallway} & \texttt{bed to} \\
+    19 & Daniel & \texttt{hallway} & \texttt{bed to} \\
     \bottomrule
   \end{tabular}
 \end{table}

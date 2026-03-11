@@ -90,6 +90,7 @@ func GetLoader(dataset provider.Dataset, lsmSpatialIndex float64) *vm.Loader {
 		vm.LoaderWithTokenizer(
 			tokenizer.NewUniversal(
 				tokenizer.TokenizerWithDataset(dataset),
+				tokenizer.TokenizerWithSequencer(),
 			),
 		),
 	)

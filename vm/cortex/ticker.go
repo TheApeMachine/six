@@ -40,14 +40,20 @@ func (graph *Graph) Step() bool {
 		graph.outputEmitted = true
 		graph.broadcast.Send(pool.NewResult(
 			*pool.NewPoolValue(
-				pool.WithKey[LogicSnapshot]("logic"),
-				pool.WithValue(graph.SnapshotLogic()),
+				pool.WithKey[PromptLogic]("logic"),
+				pool.WithValue(PromptLogic{
+					PromptID: graph.promptID,
+					Snapshot: graph.SnapshotLogic(),
+				}),
 			),
 		))
 		graph.broadcast.Send(pool.NewResult(
 			*pool.NewPoolValue(
-				pool.WithKey[[]data.Chord]("results"),
-				pool.WithValue(graph.extractResults()),
+				pool.WithKey[PromptResult]("results"),
+				pool.WithValue(PromptResult{
+					PromptID: graph.promptID,
+					Chords:   graph.extractResults(),
+				}),
 			),
 		))
 	}

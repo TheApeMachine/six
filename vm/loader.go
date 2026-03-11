@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
@@ -21,6 +22,7 @@ type Loader struct {
 	primefield       *store.PrimeField
 	substrate        *geometry.HybridSubstrate
 	reverseSubstrate *geometry.HybridSubstrate
+	rotIndex         *geometry.RotationIndex
 	eigenmode        *geometry.EigenMode
 	tokenizer        *tokenizer.Universal
 	coder            *tokenizer.MortonCoder
@@ -38,6 +40,7 @@ func NewLoader(opts ...loaderOpts) *Loader {
 		coder:            tokenizer.NewMortonCoder(),
 		substrate:        geometry.NewHybridSubstrate(),
 		reverseSubstrate: geometry.NewHybridSubstrate(),
+		rotIndex:         geometry.NewRotationIndex(),
 		sequences:        make([][]data.Chord, 0, 64),
 	}
 
@@ -75,6 +78,13 @@ queries and non-autoregressive infill.
 */
 func (loader *Loader) ReverseSubstrate() *geometry.HybridSubstrate {
 	return loader.reverseSubstrate
+}
+
+/*
+RotationIndex returns the rotation-keyed prefix memory built during loading.
+*/
+func (loader *Loader) RotationIndex() *geometry.RotationIndex {
+	return loader.rotIndex
 }
 
 /*
@@ -118,8 +128,10 @@ and PrimeField. Returns a channel of LoadResults for downstream consumers
 */
 func (loader *Loader) generate() error {
 	var (
-		sequence []data.Chord
-		lexical  []data.Chord
+		sequence     []data.Chord
+		lexical      []data.Chord
+		sampleLex    []data.Chord
+		rotSampleID  int
 	)
 
 	loader.sequences = loader.sequences[:0]
@@ -159,11 +171,22 @@ func (loader *Loader) generate() error {
 		idx++
 	}
 
+	flushRotationSample := func() {
+		if len(sampleLex) == 0 {
+			return
+		}
+
+		loader.buildRotationIndex(append([]data.Chord(nil), sampleLex...), rotSampleID)
+		sampleLex = sampleLex[:0]
+		rotSampleID++
+	}
+
 	for token := range loader.tokenizer.Generate() {
 		effective := token.EffectiveChord()
 
-		if token.IsBoundary {
+		if token.Chord.IsStopChord() {
 			flush()
+			flushRotationSample()
 
 			if loader.primefield != nil {
 				_ = loader.primefield.BuildEigenModes()
@@ -174,13 +197,15 @@ func (loader *Loader) generate() error {
 				seq := loader.Tokenizer().Sequencer()
 				seq.SetEigenMode(loader.eigenmode)
 			}
+		} else if token.Chord.IsSplitChord() {
+			flush()
 		}
 
 		if token.Chord.ActiveCount() == 0 {
 			continue
 		}
 
-		if loader.store != nil {
+		if loader.store != nil && !token.Chord.IsStreamMarker() {
 			loader.store.Insert(token.TokenID, token.Chord)
 		}
 
@@ -189,12 +214,17 @@ func (loader *Loader) generate() error {
 			lexical = append(lexical, token.Chord)
 		}
 
+		if !token.Chord.IsStreamMarker() && token.Chord.ActiveCount() > 0 {
+			sampleLex = append(sampleLex, token.Chord)
+		}
+
 		if loader.primefield != nil && effective.ActiveCount() > 0 {
 			loader.primefield.Insert(effective)
 		}
 	}
 
 	flush()
+	flushRotationSample()
 	wg.Wait()
 	return nil
 }
@@ -276,6 +306,38 @@ func reverseChords(sequence []data.Chord) []data.Chord {
 	}
 
 	return out
+}
+
+/*
+buildRotationIndex populates the rotation-keyed memory from a base chord
+sequence. At every position the accumulated prefix rotation is stored so
+that exact prefix recall is O(1).
+*/
+func (loader *Loader) buildRotationIndex(baseChords []data.Chord, sampleID int) {
+	if loader.rotIndex == nil || len(baseChords) == 0 {
+		return
+	}
+
+	rot := geometry.IdentityRotation()
+
+	for pos, chord := range baseChords {
+		rot = rot.Compose(geometry.RotationForChord(chord))
+
+		continuation := append([]data.Chord(nil), baseChords[pos+1:]...)
+
+		loader.rotIndex.Insert(rot, geometry.RotationEntry{
+			SampleID:     sampleID,
+			Position:     pos,
+			Chord:        chord,
+			Continuation: continuation,
+		})
+	}
+
+	console.Trace("loader.rotation_index_built",
+		"sample", sampleID,
+		"seq_len", len(baseChords),
+		"index_size", loader.rotIndex.Size(),
+	)
 }
 
 func (loader *Loader) Lookup(chords []data.Chord) []uint64 {

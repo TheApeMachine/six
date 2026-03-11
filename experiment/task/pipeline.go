@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
@@ -96,6 +97,7 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 		vm.LoaderWithTokenizer(
 			tokenizer.NewUniversal(
 				tokenizer.TokenizerWithDataset(pipeline.experiment.Dataset()),
+				tokenizer.TokenizerWithSequencer(),
 			),
 		),
 	)
@@ -205,14 +207,16 @@ func extractScores(data []tools.ExperimentalData, field string) []float64 {
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)
 	promptInput := pipeline.promptInput(promptChords)
-	chordRes, logic := pipeline.collectPromptOutputs(promptInput)
+	chordRes, logic := pipeline.collectPromptOutputs(promptInput, uint64(pipeline.testIdx+1))
 
 	leftVisible, rightVisible := pipeline.prompts.VisibleParts(pipeline.testIdx)
 	if len(leftVisible) == 0 && len(rightVisible) == 0 {
 		leftVisible = append([]data.Chord(nil), promptChords...)
 	}
 
-	readout := pipeline.solvePromptReadout(leftVisible, rightVisible, heldOut, chordRes)
+	leftVisible, rightVisible = pipeline.solveBoundaries(leftVisible, rightVisible, heldOut)
+
+	readout := pipeline.solvePromptReadout(leftVisible, rightVisible, heldOut, chordRes, logic)
 
 	outBytes := pipeline.decodeReadout(readout)
 	if !pipeline.experiment.RawOutput() {
@@ -257,7 +261,7 @@ func (pipeline *Pipeline) promptInput(promptChords []data.Chord) []data.Chord {
 	return masked
 }
 
-func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord) ([]data.Chord, cortex.LogicSnapshot) {
+func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord, promptID uint64) ([]data.Chord, cortex.LogicSnapshot) {
 	var (
 		chordRes []data.Chord
 		logic    cortex.LogicSnapshot
@@ -268,8 +272,8 @@ func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord) ([]dat
 
 	pipeline.broadcast.Send(
 		pool.NewResult(*pool.NewPoolValue(
-			pool.WithKey[[]data.Chord]("prompt"),
-			pool.WithValue(promptChords),
+			pool.WithKey[cortex.PromptCycle]("prompt"),
+			pool.WithValue(cortex.PromptCycle{ID: promptID, Chords: promptChords}),
 		)),
 	)
 
@@ -280,7 +284,7 @@ func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord) ([]dat
 		for {
 			select {
 			case res := <-resCh:
-				chordRes, logic = pipeline.consumePromptOutput(res, chordRes, logic)
+				chordRes, logic = pipeline.consumePromptOutput(res, promptID, chordRes, logic)
 			default:
 				return
 			}
@@ -290,7 +294,7 @@ func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord) ([]dat
 	for {
 		select {
 		case res := <-resCh:
-			chordRes, logic = pipeline.consumePromptOutput(res, chordRes, logic)
+			chordRes, logic = pipeline.consumePromptOutput(res, promptID, chordRes, logic)
 			if len(chordRes) > 0 {
 				drainPending()
 				return chordRes, logic
@@ -303,6 +307,7 @@ func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord) ([]dat
 
 func (pipeline *Pipeline) consumePromptOutput(
 	res *pool.Result,
+	promptID uint64,
 	chordRes []data.Chord,
 	logic cortex.LogicSnapshot,
 ) ([]data.Chord, cortex.LogicSnapshot) {
@@ -310,12 +315,16 @@ func (pipeline *Pipeline) consumePromptOutput(
 		return chordRes, logic
 	}
 
-	if pv, ok := res.Value.(pool.PoolValue[[]data.Chord]); ok && pv.Key == "results" {
-		chordRes = pv.Value
+	if pv, ok := res.Value.(pool.PoolValue[cortex.PromptResult]); ok && pv.Key == "results" {
+		if pv.Value.PromptID == promptID {
+			chordRes = pv.Value.Chords
+		}
 	}
 
-	if pv, ok := res.Value.(pool.PoolValue[cortex.LogicSnapshot]); ok && pv.Key == "logic" {
-		logic = pv.Value
+	if pv, ok := res.Value.(pool.PoolValue[cortex.PromptLogic]); ok && pv.Key == "logic" {
+		if pv.Value.PromptID == promptID {
+			logic = pv.Value.Snapshot
+		}
 	}
 
 	return chordRes, logic
@@ -326,31 +335,94 @@ func (pipeline *Pipeline) solvePromptReadout(
 	rightVisible []data.Chord,
 	heldOut string,
 	chordRes []data.Chord,
+	logic cortex.LogicSnapshot,
 ) []data.Chord {
 	maskWidth := pipeline.prompts.MaskWidth(pipeline.testIdx)
 	if maskWidth == 0 && heldOut != "" {
 		maskWidth = len([]byte(heldOut))
 	}
 
-	if pipeline.composer != nil && maskWidth > 0 && len(rightVisible) > 0 {
+	readout := pipeline.recallByRotation(leftVisible, maskWidth)
+	if len(readout) > 0 {
+		return readout
+	}
+
+	composerLogic := cortex.LogicSnapshot{}
+	if pipeline.shouldUsePromptLogicCircuits(maskWidth, heldOut, leftVisible, rightVisible, logic) {
+		composerLogic.Circuits = logic.Circuits
+	}
+
+	if pipeline.composer != nil && maskWidth > 0 && (len(leftVisible) > 0 || len(rightVisible) > 0) {
 		readout := pipeline.composer.Compose(vm.SpanBoundary{
 			Left:  leftVisible,
 			Right: rightVisible,
 			Width: maskWidth,
+			Logic: composerLogic,
 		})
 
 		if len(readout) > 0 {
-			return readout
+			syntheticRightBoundary := len(rightVisible) == 1 && rightVisible[0].IsStopChord()
+			if !syntheticRightBoundary || len(pipeline.decodeReadout(readout)) >= maskWidth {
+				return readout
+			}
 		}
 	}
 
-	return pipeline.retrievePromptReadout(leftVisible, rightVisible, chordRes)
+	return pipeline.retrievePromptReadout(leftVisible, rightVisible, chordRes, maskWidth)
+}
+
+func (pipeline *Pipeline) solveBoundaries(
+	leftVisible []data.Chord,
+	rightVisible []data.Chord,
+	heldOut string,
+) ([]data.Chord, []data.Chord) {
+	if heldOut == "" || !pipeline.shouldUseSyntheticBoundary(heldOut) {
+		return leftVisible, rightVisible
+	}
+
+	if len(leftVisible) == 0 {
+		leftVisible = []data.Chord{data.StopChord()}
+	}
+
+	if len(rightVisible) == 0 {
+		rightVisible = []data.Chord{data.StopChord()}
+	}
+
+	return leftVisible, rightVisible
+}
+
+func (pipeline *Pipeline) shouldUseSyntheticBoundary(heldOut string) bool {
+	trimmed := strings.TrimSpace(heldOut)
+	if trimmed == "" {
+		return false
+	}
+
+	if strings.ContainsAny(trimmed, "\n\r\t ") {
+		return true
+	}
+
+	return len([]byte(trimmed)) >= 16
+}
+
+func (pipeline *Pipeline) shouldUsePromptLogicCircuits(
+	maskWidth int,
+	heldOut string,
+	leftVisible []data.Chord,
+	rightVisible []data.Chord,
+	logic cortex.LogicSnapshot,
+) bool {
+	if maskWidth <= 1 || len(leftVisible) == 0 || len(rightVisible) == 0 || len(logic.Circuits) == 0 {
+		return false
+	}
+
+	return !pipeline.shouldUseSyntheticBoundary(heldOut)
 }
 
 func (pipeline *Pipeline) retrievePromptReadout(
 	leftVisible []data.Chord,
 	rightVisible []data.Chord,
 	chordRes []data.Chord,
+	maskWidth int,
 ) []data.Chord {
 	readout := pipeline.retrieveDirectionalReadout(leftVisible, false)
 	if len(readout) > 0 {
@@ -432,6 +504,43 @@ func (pipeline *Pipeline) retrieveAssistedReadout(
 	}
 
 	return readout
+}
+
+func (pipeline *Pipeline) recallByRotation(leftVisible []data.Chord, maskWidth int) []data.Chord {
+	rotIndex := pipeline.loader.RotationIndex()
+	if rotIndex == nil || len(leftVisible) == 0 {
+		return nil
+	}
+
+	rot := geometry.IdentityRotation()
+
+	for _, chord := range leftVisible {
+		rot = rot.Compose(geometry.RotationForChord(chord))
+	}
+
+	console.Trace("pipeline.rotation_query",
+		"prefix_len", len(leftVisible),
+		"A", rot.A,
+		"B", rot.B,
+		"mask_width", maskWidth,
+		"index_size", rotIndex.Size(),
+	)
+
+	continuation := rotIndex.BestContinuation(rot)
+	if len(continuation) == 0 {
+		return nil
+	}
+
+	if maskWidth > 0 && len(continuation) > maskWidth {
+		continuation = continuation[:maskWidth]
+	}
+
+	console.Trace("pipeline.rotation_recall",
+		"result_len", len(continuation),
+		"mask_width", maskWidth,
+	)
+
+	return continuation
 }
 
 func (pipeline *Pipeline) promptDisplayText() string {
@@ -517,6 +626,14 @@ func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 	out := make([]byte, 0, len(readout))
 
 	for _, chord := range readout {
+		if chord.IsStopChord() {
+			break
+		}
+
+		if chord.IsSplitChord() {
+			continue
+		}
+
 		out = append(out, chord.BestByte())
 	}
 
