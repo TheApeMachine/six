@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
@@ -50,7 +51,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("sh0416/ag_news"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithSplit("test"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),

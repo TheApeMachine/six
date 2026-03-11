@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
@@ -54,7 +55,7 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 		datasets[i] = huggingface.New(
 			huggingface.DatasetWithRepo("bigcode/humanevalpack"),
 			huggingface.DatasetWithSubset(lang.Subset),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumns("prompt", "canonical_solution"),
 		)
 	}
@@ -104,8 +105,7 @@ func (experiment *LanguagesExperiment) Holdout() (int, tokenizer.HoldoutType) {
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
 	// Prompts are ordered: 2 per language in humanEvalLanguages order.
 	// testIdx / samplesPerLang gives the language index.
-	const samplesPerLang = 100
-	langIdx := results.Idx / samplesPerLang
+	langIdx := results.Idx / config.Experiment.Samples
 	if langIdx < len(humanEvalLanguages) {
 		results.Name = humanEvalLanguages[langIdx].DisplayName
 	}

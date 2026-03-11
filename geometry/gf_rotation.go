@@ -53,20 +53,20 @@ func (rot GFRotation) Forward(face int) int {
 	return (int(rot.A)*face + int(rot.B)%CubeFaces + CubeFaces) % CubeFaces
 }
 
+var inverseTable [257]int
+
+func init() {
+	for i := 1; i < 257; i++ {
+		inverseTable[i] = ModInverse(i, CubeFaces)
+	}
+}
+
 /*
 Reverse maps a physical face index back to its logical byte value.
 Computes the inverse affine transform: finds A⁻¹ in GF(257) then (face - B)·A⁻¹ mod 257.
 */
 func (rot GFRotation) Reverse(face int) int {
-	var invA int
-
-	for i := 1; i < CubeFaces; i++ {
-		if (int(rot.A)*i)%CubeFaces == 1 {
-			invA = i
-			break
-		}
-	}
-
+	invA := inverseTable[int(rot.A)]
 	val := (face - int(rot.B)) % CubeFaces
 
 	if val < 0 {

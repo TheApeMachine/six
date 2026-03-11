@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Out of Corpus — standardised result summary (N=10).}
+\caption{Out of Corpus — standardised result summary (N=100).}
 \label{tab:out_of_corpus_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-1 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+53 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+20 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 2 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-8 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-7 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+30 & Out of Corpus & 0.0000 & 0.0261 & 0.0261 & 0.0118 \\
+28 & Out of Corpus & 0.0000 & 0.0552 & 0.0550 & 0.0251 \\
+99 & Out of Corpus & 0.0000 & 0.0583 & 0.0506 & 0.0251 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= Valkyria Chr}} & \multicolumn{2}{l}{\texttt{onicles III = ·}} & \multicolumn{2}{l}{\texttt{onicles III =}} \\
-\multicolumn{2}{l}{\texttt{SenjÅ· no Valkyria 3 : Unrecorded Chroni\ldots}} & \multicolumn{2}{l}{\texttt{the Valkyria series . Employing the same\ldots}} & \multicolumn{2}{l}{\texttt{the Valkyria series . Employing the same\ldots}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e three main characters are No.7 Kurt Ir\ldots}} & \multicolumn{2}{l}{\texttt{" Always Ready . " The three main charac\ldots}} \\
-\multicolumn{2}{l}{\texttt{= = Plo}} & \multicolumn{2}{l}{\texttt{t = = ·}} & \multicolumn{2}{l}{\texttt{t = =}} \\
+\multicolumn{2}{l}{\texttt{M1817 common}} & \multicolumn{2}{l}{\texttt{rifles 125 ·}} & \multicolumn{2}{l}{\texttt{rifles 125}} \\
+\multicolumn{2}{l}{\texttt{= = Recep}} & \multicolumn{2}{l}{\texttt{tion = = ·}} & \multicolumn{2}{l}{\texttt{tion = =}} \\
+\multicolumn{2}{l}{\texttt{Two manga adaptations were produced , fo\ldots}} & \multicolumn{2}{l}{\texttt{volumes after being serialized in Dengek\ldots}} & \multicolumn{2}{l}{\texttt{volumes after being serialized in Dengek\ldots}} \\
+\multicolumn{2}{l}{\texttt{Valkyria Chronicles 3 was adapted into a\ldots}} & \multicolumn{2}{l}{\texttt{f that year . It later released for DVD \ldots}} & \multicolumn{2}{l}{\texttt{summer of that year . It later released \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.4545} & \multicolumn{3}{l}{Min: 0.4545 \quad Max: 0.4545} \\
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.4257} & \multicolumn{3}{l}{Min: 0.0118 \quad Max: 0.4545} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{118.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{6.25 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{624.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{933.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{43.52 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{435.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{6.36 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{44.45 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

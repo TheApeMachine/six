@@ -2,6 +2,7 @@ package textgen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
@@ -35,7 +36,7 @@ func NewOutOfCorpusExperiment() *OutOfCorpusExperiment {
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("wikitext"),
 			huggingface.DatasetWithSubset("wikitext-2-raw-v1"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumn("text"),
 		),
 	}

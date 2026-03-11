@@ -44,14 +44,15 @@ func (c *Cube) Set(side, rot, face int, chord data.Chord) {
 }
 
 func (c *Cube) ORInto(side, rot, face int, chord *data.Chord) {
-	if side < 0 || side >= 6 || rot < 0 || rot >= 4 || face < 0 || face >= 257 {
-		panic("geometry: cube index out of range")
-	}
 	dst := &c.Sides[side][rot][face]
-
-	for i := range dst {
-		dst[i] |= chord[i]
-	}
+	dst[0] |= chord[0]
+	dst[1] |= chord[1]
+	dst[2] |= chord[2]
+	dst[3] |= chord[3]
+	dst[4] |= chord[4]
+	dst[5] |= chord[5]
+	dst[6] |= chord[6]
+	dst[7] |= chord[7]
 }
 
 /*

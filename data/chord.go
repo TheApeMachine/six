@@ -130,9 +130,14 @@ Used for aggregating span chords (words, sentences, n-grams).
 */
 func ChordLCM(chords []Chord) (lcm Chord) {
 	for _, ch := range chords {
-		for i := range lcm {
-			lcm[i] |= ch[i]
-		}
+		lcm[0] |= ch[0]
+		lcm[1] |= ch[1]
+		lcm[2] |= ch[2]
+		lcm[3] |= ch[3]
+		lcm[4] |= ch[4]
+		lcm[5] |= ch[5]
+		lcm[6] |= ch[6]
+		lcm[7] |= ch[7]
 	}
 
 	lcm.Sanitize()
@@ -144,10 +149,8 @@ ActiveCount returns the number of active basis primes in this
 chord using popcount.
 */
 func (chord *Chord) ActiveCount() (n int) {
-	for i := range config.ChordBlocks {
-		n += popcount(chord[i])
-	}
-	return n
+	return popcount(chord[0]) + popcount(chord[1]) + popcount(chord[2]) + popcount(chord[3]) +
+		popcount(chord[4]) + popcount(chord[5]) + popcount(chord[6]) + popcount(chord[7])
 }
 
 /*
@@ -187,10 +190,14 @@ ChordAND returns the element-wise AND of two chords (their GCD in
 prime exponent space). Shared factors.
 */
 func ChordAND(a, b *Chord) (gcd Chord) {
-	for i := range config.ChordBlocks {
-		gcd[i] = a[i] & b[i]
-	}
-
+	gcd[0] = a[0] & b[0]
+	gcd[1] = a[1] & b[1]
+	gcd[2] = a[2] & b[2]
+	gcd[3] = a[3] & b[3]
+	gcd[4] = a[4] & b[4]
+	gcd[5] = a[5] & b[5]
+	gcd[6] = a[6] & b[6]
+	gcd[7] = a[7] & b[7]
 	return gcd
 }
 
@@ -246,21 +253,22 @@ func ChordBin(c *Chord) int {
 ChordSimilarity returns the number of shared prime exponents (popcount of AND).
 */
 func ChordSimilarity(a, b *Chord) (sim int) {
-	for i := range config.ChordBlocks {
-		sim += popcount(a[i] & b[i])
-	}
-
-	return sim
+	return popcount(a[0]&b[0]) + popcount(a[1]&b[1]) + popcount(a[2]&b[2]) + popcount(a[3]&b[3]) +
+		popcount(a[4]&b[4]) + popcount(a[5]&b[5]) + popcount(a[6]&b[6]) + popcount(a[7]&b[7])
 }
 
 /*
 ChordHole returns target AND NOT existing — bits set in target but not in existing.
 */
 func ChordHole(target, existing *Chord) (hole Chord) {
-	for i := range config.ChordBlocks {
-		hole[i] = target[i] &^ existing[i]
-	}
-
+	hole[0] = target[0] &^ existing[0]
+	hole[1] = target[1] &^ existing[1]
+	hole[2] = target[2] &^ existing[2]
+	hole[3] = target[3] &^ existing[3]
+	hole[4] = target[4] &^ existing[4]
+	hole[5] = target[5] &^ existing[5]
+	hole[6] = target[6] &^ existing[6]
+	hole[7] = target[7] &^ existing[7]
 	return hole
 }
 
@@ -268,10 +276,14 @@ func ChordHole(target, existing *Chord) (hole Chord) {
 ChordOR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
 func ChordOR(a, b *Chord) (lcm Chord) {
-	for i := range config.ChordBlocks {
-		lcm[i] = a[i] | b[i]
-	}
-
+	lcm[0] = a[0] | b[0]
+	lcm[1] = a[1] | b[1]
+	lcm[2] = a[2] | b[2]
+	lcm[3] = a[3] | b[3]
+	lcm[4] = a[4] | b[4]
+	lcm[5] = a[5] | b[5]
+	lcm[6] = a[6] | b[6]
+	lcm[7] = a[7] | b[7]
 	lcm.Sanitize()
 	return lcm
 }

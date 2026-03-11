@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Prose Chaining — standardised result summary (N=10).}
+\caption{Prose Chaining — standardised result summary (N=100).}
 \label{tab:prose_chaining_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-1 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+50 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+19 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 2 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-8 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-7 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+81 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+16 & Prose Chaining & 0.0000 & 0.0261 & 0.0261 & 0.0118 \\
+29 & Prose Chaining & 0.0000 & 0.0293 & 0.0293 & 0.0133 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= Valkyria}} & \multicolumn{2}{l}{\texttt{Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{Chronicles III =}} \\
-\multicolumn{2}{l}{\texttt{SenjÅ· no Valkyria 3 : Unrecorded Chroni\ldots}} & \multicolumn{2}{l}{\texttt{on Portable . Released in January 2011 i\ldots}} & \multicolumn{2}{l}{\texttt{ion Portable . Released in January 2011 \ldots}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e nevertheless up to the task , exemplif\ldots}} & \multicolumn{2}{l}{\texttt{e nevertheless up to the task , exemplif\ldots}} \\
-\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{lot = =}} \\
+\multicolumn{2}{l}{\texttt{M1822 .69 cal ( per}} & \multicolumn{2}{l}{\texttt{cussion @-@ converted ) 53 ·}} & \multicolumn{2}{l}{\texttt{cussion @-@ converted ) 53}} \\
+\multicolumn{2}{l}{\texttt{Unlike its two predecessors , Valkyria C\ldots}} & \multicolumn{2}{l}{\texttt{in the west . An unofficial fan translat\ldots}} & \multicolumn{2}{l}{\texttt{in the west . An unofficial fan translat\ldots}} \\
+\multicolumn{2}{l}{\texttt{Repaired}} & \multicolumn{2}{l}{\texttt{and painted : ·}} & \multicolumn{2}{l}{\texttt{:}} \\
+\multicolumn{2}{l}{\texttt{The music was composed by Hitoshi Sakimo\ldots}} & \multicolumn{2}{l}{\texttt{the guitar piece on their own before inc\ldots}} & \multicolumn{2}{l}{\texttt{the guitar piece on their own before inc\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 60\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.4545} & \multicolumn{3}{l}{Min: 0.4545 \quad Max: 0.4545} \\
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 60\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.4175} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.4545} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{153.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{5.17 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{517.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{1.40 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{45.15 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{451.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{5.33 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{46.55 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

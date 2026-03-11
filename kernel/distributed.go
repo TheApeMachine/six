@@ -144,42 +144,43 @@ func (backend *DistributedBackend) Resolve(
 			return 0, rctx.Err()
 		case res := <-resChans[i]:
 			if res.Error != nil {
-			if localBuilder != nil {
-				fallbackWg.Add(1)
-				// Schedule failure fallback locally
-				localFn := func() (any, error) {
-					start, end := chunk.start, chunk.end
-					shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
-					packed, fbErr := localBuilder.Resolve(shardPtr, end-start, contextPtr)
-					if fbErr != nil {
-						return nil, fbErr
-					}
-					return numeric.RebasePackedID(packed, start), nil
-				}
-
-				fbCh := backend.pool.Schedule(fmt.Sprintf("local-%d", chunk.start), localFn, pool.WithTTL(5*time.Second), pool.WithContext(rctx))
-				go func() {
-					defer fallbackWg.Done()
-					select {
-					case <-rctx.Done():
-						return
-					case fbRes := <-fbCh:
-						if fbRes.Error != nil {
-							errCh <- fbRes.Error
-						} else if v, ok := fbRes.Value.(uint64); ok {
-							atomicMaxPacked(&best, v)
-						} else {
-							fmt.Printf("distributed: local Resolve returned non-uint64: %T\n", fbRes.Value)
+				if localBuilder != nil {
+					fallbackWg.Add(1)
+					// Schedule failure fallback locally
+					localFn := func() (any, error) {
+						start, end := chunk.start, chunk.end
+						shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
+						packed, fbErr := localBuilder.Resolve(shardPtr, end-start, contextPtr)
+						if fbErr != nil {
+							return nil, fbErr
 						}
+						return numeric.RebasePackedID(packed, start), nil
 					}
-				}()
+
+					fbCh := backend.pool.Schedule(fmt.Sprintf("local-%d", chunk.start), localFn, pool.WithTTL(5*time.Second), pool.WithContext(rctx))
+					go func() {
+						defer fallbackWg.Done()
+						select {
+						case <-rctx.Done():
+							return
+						case fbRes := <-fbCh:
+							if fbRes.Error != nil {
+								errCh <- fbRes.Error
+							} else if v, ok := fbRes.Value.(uint64); ok {
+								atomicMaxPacked(&best, v)
+							} else {
+								fmt.Printf("distributed: local Resolve returned non-uint64: %T\n", fbRes.Value)
+							}
+						}
+					}()
+				} else {
+					errCh <- res.Error
+				}
+			} else if v, ok := res.Value.(uint64); ok {
+				atomicMaxPacked(&best, v)
 			} else {
-				errCh <- res.Error
+				fmt.Printf("distributed: remote Resolve returned non-uint64: %T\n", res.Value)
 			}
-		} else if v, ok := res.Value.(uint64); ok {
-			atomicMaxPacked(&best, v)
-		} else {
-			fmt.Printf("distributed: remote Resolve returned non-uint64: %T\n", res.Value)
 		}
 	}
 

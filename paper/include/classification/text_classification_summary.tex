@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Text Classification — standardised result summary (N=10).}
+\caption{Text Classification — standardised result summary (N=100).}
 \label{tab:text_classification_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Text Classification & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-1 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+76 & Text Classification & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+31 & Text Classification & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+99 & Text Classification & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-8 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-7 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+3 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+4 & Text Classification & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Fears for T N pension after talks Unions\ldots}} & \multicolumn{2}{l}{\texttt{sci\_tech}} & \multicolumn{2}{l}{\texttt{sci\_tech}} \\
-\multicolumn{2}{l}{\texttt{The Race is On: Second Private Team Sets\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{first\textbackslash\{\}launch date for its manned rocket.}} \\
-\multicolumn{2}{l}{\texttt{Card fraud unit nets 36,000 cards In its\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{.}} \\
-\multicolumn{2}{l}{\texttt{E-mail scam targets police chief Wiltshi\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{.}} \\
+\multicolumn{2}{l}{\texttt{North Korea Talks Still On, China Tells \ldots}} & \multicolumn{2}{l}{\texttt{sports}} & \multicolumn{2}{l}{\texttt{sports}} \\
+\multicolumn{2}{l}{\texttt{Indians Mount Charge The Cleveland India\ldots}} & \multicolumn{2}{l}{\texttt{business}} & \multicolumn{2}{l}{\texttt{business}} \\
+\multicolumn{2}{l}{\texttt{Ky. Company Wins Grant to Study Peptides\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{.}} \\
+\multicolumn{2}{l}{\texttt{Prediction Unit Helps Forecast Wildfires\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{and flames will roar.}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0455} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.4545} \\
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.2818} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.4545} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{53.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{3.30 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{330.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{952.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{49.60 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{496.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{3.36 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{50.56 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

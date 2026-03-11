@@ -20,3 +20,6 @@ architecture:
     shannonCapacity: 0.45
   cortex:
     initialNodes: 8
+
+experiment:
+  samples: 10

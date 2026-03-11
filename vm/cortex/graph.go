@@ -207,8 +207,8 @@ func (graph *Graph) seedChild(child *Node, anchor, hole data.Chord) {
 	routedFace := child.Rot.Forward(face)
 	routedGate := child.Rot.Forward(256)
 
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
+	for side := range 6 {
+		for rot := range 4 {
 			child.Cube.Set(side, rot, routedFace, seed)
 			child.Cube.Set(side, rot, routedGate, hole)
 		}
@@ -273,15 +273,13 @@ func (graph *Graph) routeTargets(from *Node, chord data.Chord) []*Node {
 Wipe clears all 257 faces of the node's working memory.
 */
 func (node *Node) Wipe() {
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			for face := 0; face < 257; face++ {
-				node.Cube.Set(side, rot, face, data.Chord{})
-			}
-		}
-	}
-
-	node.InvalidateChordCache()
+	node.Cube.Wipe()
+	node.cubeChordCache = data.Chord{}
+	node.bestFaceIdxCache = 256
+	node.bestFaceCountCache = 0
+	node.facePopcount = [257]int{}
+	node.totalPopcount = 0
+	node.cubeChordDirty = false
 }
 
 /*
@@ -345,16 +343,16 @@ func (graph *Graph) rebuildBaseTopology() {
 		return
 	}
 
-	for idx := 0; idx < nodeCount; idx++ {
+	for idx := range nodeCount {
 		graph.nodes[idx].edges = nil
 	}
 
-	for idx := 0; idx < nodeCount; idx++ {
+	for idx := range nodeCount {
 		graph.nodes[idx].Connect(graph.nodes[(idx+1)%nodeCount])
 		graph.nodes[(idx+1)%nodeCount].Connect(graph.nodes[idx])
 	}
 
-	for idx := 0; idx < nodeCount; idx++ {
+	for idx := range nodeCount {
 		far1 := (idx + nodeCount/3) % nodeCount
 		far2 := (idx + 2*nodeCount/3) % nodeCount
 

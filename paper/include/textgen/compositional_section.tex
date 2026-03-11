@@ -4,7 +4,7 @@
 \paragraph{Task Description.}
 The compositional experiment evaluates whether the substrate can reconstruct
 the ending of a short story based on structural patterns learned from other
-stories.  The corpus is \texttt{roneneldan/TinyStories} (20 ingested samples):
+stories.  The corpus is \texttt{roneneldan/TinyStories} (100 ingested samples):
 a collection of English short stories for children, characterised by highly
 regular grammar (''Once upon a time there was a [adj] [noun] who liked to
 [verb]\ldots'') and controlled vocabulary with substantial cross-story overlap.
@@ -12,8 +12,8 @@ The held-out target (rightmost 30\% of each sample) must be reconstructed
 purely from chord attractor resonance over the ingested story patterns.
 
 \paragraph{Results.}
-Across $N = 20$ test samples the mean weighted score was 0.700
-(exact: 45.0\%, partial: 1.000).
+Across $N = 100$ test samples the mean weighted score was 0.569
+(exact: 25.0\%, partial: 0.952).
 \paragraph{Assessment.}
 The substrate achieved strong structural recall, demonstrating that the chord
 attractor field captures the compositional regularities of TinyStories prose.

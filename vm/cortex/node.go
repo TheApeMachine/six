@@ -214,11 +214,16 @@ func (node *Node) recomputeCubeStats() {
 
 		for side := range 6 {
 			for rot := range 4 {
-				chord := node.Cube.Get(side, rot, face)
+				chord := &node.Cube.Sides[side][rot][face]
 
-				for i := range summary {
-					summary[i] |= chord[i]
-				}
+				summary[0] |= chord[0]
+				summary[1] |= chord[1]
+				summary[2] |= chord[2]
+				summary[3] |= chord[3]
+				summary[4] |= chord[4]
+				summary[5] |= chord[5]
+				summary[6] |= chord[6]
+				summary[7] |= chord[7]
 
 				faceCount += chord.ActiveCount()
 			}
@@ -256,16 +261,21 @@ func (node *Node) absorbFace(face int, incoming *data.Chord) {
 
 	// Summary chord: OR is monotone, so absorbing the incoming bits
 	// into the cached summary is equivalent to a full recompute.
-	for i := range node.cubeChordCache {
-		node.cubeChordCache[i] |= incoming[i]
-	}
+	node.cubeChordCache[0] |= incoming[0]
+	node.cubeChordCache[1] |= incoming[1]
+	node.cubeChordCache[2] |= incoming[2]
+	node.cubeChordCache[3] |= incoming[3]
+	node.cubeChordCache[4] |= incoming[4]
+	node.cubeChordCache[5] |= incoming[5]
+	node.cubeChordCache[6] |= incoming[6]
+	node.cubeChordCache[7] |= incoming[7]
 
 	// Recompute only this face's aggregate popcount (24 iterations).
 	newCount := 0
 
 	for side := range 6 {
 		for rot := range 4 {
-			chord := node.Cube.Get(side, rot, face)
+			chord := &node.Cube.Sides[side][rot][face]
 			newCount += chord.ActiveCount()
 		}
 	}

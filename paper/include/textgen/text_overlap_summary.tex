@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Text Overlap — standardised result summary (N=20).}
+\caption{Text Overlap — standardised result summary (N=100).}
 \label{tab:text_overlap_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,40 +9,39 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-12 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+28 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 1 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-18 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+98 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-5 & Text Overlap & 0.0000 & 0.0458 & 0.0243 & 0.0169 \\
-19 & Text Overlap & 0.0000 & 0.0692 & 0.0170 & 0.0220 \\
-17 & Text Overlap & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+99 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+58 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+79 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{One day, a girl named Mia went for a wal\ldots}} & \multicolumn{2}{l}{\texttt{ee. Mia wanted to help the bird.··Mia op\ldots}} & \multicolumn{2}{l}{\texttt{ee. Mia wanted to help the bird.··Mia op\ldots}} \\
+\multicolumn{2}{l}{\texttt{One sunny day, a pretty boat was on the \ldots}} & \multicolumn{2}{l}{\texttt{cked up a hose and started to spray wate\ldots}} & \multicolumn{2}{l}{\texttt{cked up a hose and started to spray wate\ldots}} \\
 \multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.··Beep playe\ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.··Beep playe\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, in a big lake, there w\ldots}} & \multicolumn{2}{l}{\texttt{t was time for Tim to go home. He said g\ldots}} & \multicolumn{2}{l}{\texttt{d. The wind told the cherry tree not to \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a polite cra\ldots}} & \multicolumn{2}{l}{\texttt{the new friend how to play. They played \ldots}} & \multicolumn{2}{l}{\texttt{ide. One day, Tim saw a race in the park\ldots}} \\
+\multicolumn{2}{l}{\texttt{John and Sarah were playing together in \ldots}} & \multicolumn{2}{l}{\texttt{e metal outside in the backyard and it w\ldots}} & \multicolumn{2}{l}{\texttt{john}} \\
+\multicolumn{2}{l}{\texttt{Once, there was a small boy named Charli\ldots}} & \multicolumn{2}{l}{\texttt{ived home, Charlie couldn't believe his \ldots}} & \multicolumn{2}{l}{\texttt{his}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 20} & \multicolumn{3}{l}{Holdout: 40\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.5474} & \multicolumn{3}{l}{Min: 0.0169 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 40\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.5534} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{178.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{8.77 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{438.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{8.95 s}} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{943.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{57.94 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{579.0 ms} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{58.88 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

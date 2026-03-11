@@ -7,9 +7,10 @@ import (
 	"image"
 	"image/color"
 	"image/png"
-	"sort"
+	"slices"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
@@ -55,7 +56,7 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("uoft-cs/cifar10"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumn("img"),
 			huggingface.DatasetWithTransform(huggingface.DecodeImageBytes),
 		),
@@ -88,7 +89,7 @@ func (e *ReconstructionExperiment) Prompts() *tokenizer.Prompt {
 		imgMap[tok.SampleID] = append(imgMap[tok.SampleID], tok.Symbol)
 	}
 
-	sort.Slice(imgOrder, func(i, j int) bool { return imgOrder[i] < imgOrder[j] })
+	slices.Sort(imgOrder)
 
 	// Cache full pixel buffers.
 	e.imageBytes = make([][]byte, 0, len(imgOrder))

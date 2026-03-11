@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
@@ -29,7 +30,7 @@ func NewBabiExperiment() *BabiExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSamples(100),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 		),
 	}
