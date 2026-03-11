@@ -61,7 +61,7 @@ extractResults condenses the sink's routed signals into a ranked list of
 candidate reasoning residues.
 */
 func (graph *Graph) extractResults() []data.Chord {
-	if graph.sink == nil || len(graph.sink.Signals) == 0 {
+	if graph.sink == nil {
 		return nil
 	}
 
@@ -81,6 +81,15 @@ func (graph *Graph) extractResults() []data.Chord {
 
 		score := support * max(sig.Chord.ActiveCount(), 1)
 		chordScores[sig.Chord] += score
+	}
+
+	for _, tool := range graph.ToolNodes() {
+		if tool.Payload.ActiveCount() == 0 {
+			continue
+		}
+
+		score := max(tool.Support, 1) * max(tool.Payload.ActiveCount(), 1)
+		chordScores[tool.Payload] += score
 	}
 
 	ranked := make([]signalChordScore, 0, len(chordScores))

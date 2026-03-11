@@ -1,8 +1,10 @@
 package geometry
 
 import (
+	"math/bits"
 	"slices"
 
+	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 )
 
@@ -29,11 +31,11 @@ type GFRotation struct {
 RotationForChord maps a single chord to an injective GF(257) transform.
 */
 func RotationForChord(c data.Chord) GFRotation {
-	val := uint16(c.ActiveCount())
+	a, b := c.RotationSeed()
 
 	return GFRotation{
-		A: val + 1,
-		B: (val * 31) % 257,
+		A: a,
+		B: b,
 	}
 }
 
@@ -86,6 +88,100 @@ func (rot GFRotation) Compose(other GFRotation) GFRotation {
 		A: uint16((int(other.A) * int(rot.A)) % CubeFaces),
 		B: uint16((int(other.A)*int(rot.B) + int(other.B)) % CubeFaces),
 	}
+}
+
+/*
+Inverse returns the affine inverse so rot.Inverse().Compose(rot) is identity.
+*/
+func (rot GFRotation) Inverse() GFRotation {
+	invA := inverseTable[int(rot.A)]
+	b := (-invA * int(rot.B)) % CubeFaces
+
+	if b < 0 {
+		b += CubeFaces
+	}
+
+	return GFRotation{A: uint16(invA), B: uint16(b)}
+}
+
+/*
+ApplyToChord maps every active prime index in the logical 257-face width through
+this affine rotation.
+*/
+func (rot GFRotation) ApplyToChord(chord data.Chord) data.Chord {
+	if chord.ActiveCount() == 0 {
+		return chord
+	}
+
+	var out data.Chord
+
+	for blockIdx := range config.ChordBlocks {
+		block := chord[blockIdx]
+
+		for block != 0 {
+			bitIdx := bits.TrailingZeros64(block)
+			primeIdx := blockIdx*64 + bitIdx
+
+			if primeIdx < CubeFaces {
+				out.Set(rot.Forward(primeIdx))
+			}
+
+			block &= block - 1
+		}
+	}
+
+	return out
+}
+
+/*
+ReverseChord maps every active prime index in the chord through the inverse of
+this affine rotation.
+*/
+func (rot GFRotation) ReverseChord(chord data.Chord) data.Chord {
+	if chord.ActiveCount() == 0 {
+		return chord
+	}
+
+	var out data.Chord
+
+	for blockIdx := range config.ChordBlocks {
+		block := chord[blockIdx]
+
+		for block != 0 {
+			bitIdx := bits.TrailingZeros64(block)
+			primeIdx := blockIdx*64 + bitIdx
+
+			if primeIdx < CubeFaces {
+				out.Set(rot.Reverse(primeIdx))
+			}
+
+			block &= block - 1
+		}
+	}
+
+	return out
+}
+
+/*
+StateChord deterministically projects the affine state (A, B) into the same
+257-face chord space as ordinary data.
+*/
+func (rot GFRotation) StateChord() data.Chord {
+	aByte := byte((int(rot.A) + 255) % 256)
+	bByte := byte(int(rot.B) % 256)
+	mixByte := byte((int(rot.A) + int(rot.B)) % 256)
+
+	aBase := data.BaseChord(aByte)
+	bBase := data.BaseChord(bByte)
+	mixBase := data.BaseChord(mixByte)
+
+	aChord := aBase.RollLeft(int(rot.B) % CubeFaces)
+	bChord := bBase.RollLeft(int(rot.A) % CubeFaces)
+	mixChord := mixBase.RollLeft((int(rot.A) + int(rot.B)*3) % CubeFaces)
+
+	state := data.ChordOR(&aChord, &bChord)
+
+	return data.ChordOR(&state, &mixChord)
 }
 
 /*

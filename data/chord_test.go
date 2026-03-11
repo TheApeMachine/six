@@ -116,3 +116,63 @@ func TestRollLeft_StaysWithinLogicalWidth(t *testing.T) {
 	// Active count should be preserved
 	require.Equal(t, chord.ActiveCount(), rolled.ActiveCount())
 }
+
+func TestBestByte_DecodesBoundChord(t *testing.T) {
+	t.Parallel()
+
+	base := BaseChord('k')
+	bound := base.BindPosition(11)
+
+	require.Equal(t, byte('k'), bound.BestByte())
+}
+
+func TestRotationSeed_UsesStructureNotDensityOnly(t *testing.T) {
+	t.Parallel()
+
+	var left Chord
+	left.Set(3)
+	left.Set(17)
+	left.Set(41)
+
+	var right Chord
+	right.Set(5)
+	right.Set(19)
+	right.Set(43)
+
+	require.Equal(t, left.ActiveCount(), right.ActiveCount())
+
+	aLeft, bLeft := left.RotationSeed()
+	aRight, bRight := right.RotationSeed()
+
+	require.NotEqual(t, [2]uint16{aLeft, bLeft}, [2]uint16{aRight, bRight})
+}
+
+func TestMaskChord_UsesControlFace(t *testing.T) {
+	t.Parallel()
+
+	mask := MaskChord()
+
+	require.Equal(t, 1, mask.ActiveCount())
+	require.True(t, mask.Has(256))
+}
+
+func TestBindGeometry_SuperposesCarrier(t *testing.T) {
+	t.Parallel()
+
+	base := BaseChord('x')
+	carrier := BaseChord('!')
+	bound := base.BindGeometry(7, &carrier)
+
+	require.Greater(t, ChordSimilarity(&bound, &base), 0)
+	require.Greater(t, ChordSimilarity(&bound, &carrier), 0)
+	require.Greater(t, bound.ActiveCount(), base.ActiveCount())
+}
+
+func BenchmarkChordRotationSeed(b *testing.B) {
+	chord := BaseChord('x')
+	chord = chord.BindGeometry(17, nil)
+
+	for b.Loop() {
+		_, _ = chord.RotationSeed()
+	}
+}

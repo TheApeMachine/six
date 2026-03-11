@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/data"
 )
 
 func TestGFRotation_Identity(t *testing.T) {
@@ -115,5 +116,72 @@ func BenchmarkComposeEvents(b *testing.B) {
 	events := []int{EventDensitySpike, EventPhaseInversion, EventDensityTrough, EventLowVarianceFlux}
 	for b.Loop() {
 		_ = ComposeEvents(events)
+	}
+}
+
+func TestGFRotation_ApplyToChordPreservesDensity(t *testing.T) {
+	Convey("Given a structural rotation and a lexical chord", t, func() {
+		chord := data.BaseChord('m')
+		rot := RotationForChord(data.BaseChord('q'))
+
+		Convey("ApplyToChord should preserve active count", func() {
+			rotated := rot.ApplyToChord(chord)
+			So(rotated.ActiveCount(), ShouldEqual, chord.ActiveCount())
+		})
+	})
+}
+
+func TestGFRotation_StateChordVariesByAffineState(t *testing.T) {
+	Convey("Given two distinct affine states", t, func() {
+		left := GFRotation{A: 3, B: 7}
+		right := GFRotation{A: 5, B: 11}
+
+		Convey("StateChord should expose different chord surfaces", func() {
+			So(left.StateChord(), ShouldNotEqual, right.StateChord())
+		})
+	})
+}
+
+func TestRotationForChord_UsesStructuralLayoutNotJustDensity(t *testing.T) {
+	Convey("Given two chords with equal density but different structure", t, func() {
+		var left data.Chord
+		left.Set(2)
+		left.Set(7)
+		left.Set(19)
+
+		var right data.Chord
+		right.Set(3)
+		right.Set(11)
+		right.Set(23)
+
+		Convey("RotationForChord should produce different transforms", func() {
+			So(left.ActiveCount(), ShouldEqual, right.ActiveCount())
+			So(RotationForChord(left), ShouldNotEqual, RotationForChord(right))
+		})
+	})
+}
+
+func TestGFRotation_InverseAndReverseChordRoundTrip(t *testing.T) {
+	Convey("Given a structural rotation and a chord", t, func() {
+		chord := data.BaseChord('z')
+		chord = chord.BindGeometry(9, nil)
+		rot := RotationForChord(data.BaseChord('!'))
+
+		Convey("ApplyToChord followed by ReverseChord should recover the input", func() {
+			rotated := rot.ApplyToChord(chord)
+			restored := rot.ReverseChord(rotated)
+			So(restored, ShouldEqual, chord)
+			So(rot.Inverse().ApplyToChord(rotated), ShouldEqual, chord)
+		})
+	})
+}
+
+func BenchmarkGFRotationApplyToChord(b *testing.B) {
+	rot := RotationForChord(data.BaseChord('q'))
+	chord := data.BaseChord('x')
+	chord = chord.BindGeometry(17, nil)
+
+	for b.Loop() {
+		_ = rot.ApplyToChord(chord)
 	}
 }

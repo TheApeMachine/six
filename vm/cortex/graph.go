@@ -17,8 +17,9 @@ import (
 )
 
 /*
-Graph is the cortex: source/sink nodes, ring+small-world topology.
-Runs Step() until convergence; all external communication goes through the qpool.
+Graph is the cortex compute fabric: a standing core of logic nodes, volatile
+forked registers, and reusable tool nodes compiled out of repeated graph
+behavior. External communication goes through the pool.
 */
 type Graph struct {
 	ctx     context.Context
@@ -45,14 +46,13 @@ type Graph struct {
 	mitosisEvents  int
 	pruneEvents    int
 
-	outputEmitted bool
+	outputEmitted    bool
+	toolCatalog      map[toolKey]*Node
+	toolVotes        map[toolKey]int
+	compositeCatalog map[toolPairKey]*Node
+	circuitCatalog   map[string]LogicCircuit
 
 	broadcast *pool.BroadcastGroup
-
-	// Reusable buffers to avoid per-tick allocations.
-	edgeCache      []*Edge
-	edgeCacheDirty bool
-	activeEdgeBuf  []*Edge
 }
 
 type graphOpts func(*Graph)
@@ -65,8 +65,12 @@ random long-range edges per node. The source is node 0, the sink is node N-1.
 */
 func NewGraph(opts ...graphOpts) *Graph {
 	graph := &Graph{
-		nodes:    make([]*Node, 0, 8),
-		momentum: 0.0,
+		nodes:            make([]*Node, 0, 8),
+		momentum:         0.0,
+		toolCatalog:      make(map[toolKey]*Node),
+		toolVotes:        make(map[toolKey]int),
+		compositeCatalog: make(map[toolPairKey]*Node),
+		circuitCatalog:   make(map[string]LogicCircuit),
 	}
 
 	for _, opt := range opts {
@@ -97,7 +101,6 @@ func NewGraph(opts ...graphOpts) *Graph {
 	}
 
 	graph.initialNodes = len(graph.nodes)
-	graph.edgeCacheDirty = true
 	graph.rebuildBaseTopology()
 	graph.lastRotationTick = graph.tick
 
@@ -141,80 +144,28 @@ TickCount returns the number of Step() calls completed.
 func (graph *Graph) TickCount() int { return graph.tick }
 
 /*
-SpawnNode creates a new node, connects it bidirectionally to parent,
-and to the most resonant existing node by unresolved residue similarity.
+SpawnNode creates a volatile register node focused on the parent's strongest
+unresolved residue. Tool nodes are promoted separately once repeated fork
+patterns stabilize.
 */
 func (graph *Graph) SpawnNode(parent *Node) *Node {
-	child := NewNode(graph.nextID, graph.tick)
-	child.Rot = parent.Rot
-	graph.nextID++
-	graph.nodes = append(graph.nodes, child)
-	graph.mitosisEvents++
-
-	parent.Connect(child)
-	child.Connect(parent)
-
 	anchor, hole, _, shouldDream := parent.Hole()
-	searchChord := parent.CubeChord()
-
-	if shouldDream && hole.ActiveCount() > 0 {
-		searchChord = hole
+	input := hole
+	if !shouldDream || input.ActiveCount() == 0 {
+		input = parent.SearchChord()
 	}
 
-	graph.seedChild(child, anchor, hole)
-
-	var bestNode *Node
-	bestSim := 0
-
-	for _, candidate := range graph.nodes {
-		if candidate == child || candidate == parent {
-			continue
-		}
-
-		candidateSummary := candidate.CubeChord()
-		sim := data.ChordSimilarity(&searchChord, &candidateSummary)
-
-		if sim > bestSim {
-			bestSim = sim
-			bestNode = candidate
-		}
+	program := parent.Program
+	if program.ActiveCount() == 0 {
+		program = anchor
 	}
 
-	if bestNode != nil {
-		child.Connect(bestNode)
-		bestNode.Connect(child)
+	payload := anchor
+	if payload.ActiveCount() == 0 {
+		payload = input
 	}
 
-	graph.edgeCacheDirty = true
-	return child
-}
-
-func (graph *Graph) seedChild(child *Node, anchor, hole data.Chord) {
-	seed := hole
-	if seed.ActiveCount() == 0 {
-		seed = anchor
-	}
-
-	if seed.ActiveCount() == 0 {
-		return
-	}
-
-	face := seed.IntrinsicFace()
-	if face == 256 {
-		face = data.ChordBin(&seed)
-	}
-
-	routedFace := child.Rot.Forward(face)
-	routedGate := child.Rot.Forward(256)
-
-	for side := range 6 {
-		for rot := range 4 {
-			child.Cube.Set(side, rot, routedFace, seed)
-			child.Cube.Set(side, rot, routedGate, hole)
-		}
-	}
-
-	child.InvalidateChordCache()
+	return graph.SpawnRegister(parent, input, payload, program)
 }
 
 /*
@@ -273,13 +224,15 @@ func (graph *Graph) routeTargets(from *Node, chord data.Chord) []*Node {
 Wipe clears all 257 faces of the node's working memory.
 */
 func (node *Node) Wipe() {
-	node.Cube.Wipe()
-	node.cubeChordCache = data.Chord{}
-	node.bestFaceIdxCache = 256
-	node.bestFaceCountCache = 0
-	node.facePopcount = [257]int{}
-	node.totalPopcount = 0
-	node.cubeChordDirty = false
+	for side := 0; side < 6; side++ {
+		for rot := 0; rot < 4; rot++ {
+			for face := 0; face < 257; face++ {
+				node.Cube.Set(side, rot, face, data.Chord{})
+			}
+		}
+	}
+
+	node.InvalidateChordCache()
 }
 
 /*
@@ -301,24 +254,37 @@ func (graph *Graph) WipeFace(logicalFace int) {
 }
 
 /*
-ResetPromptCycle clears the cortex's volatile state while keeping the base
-ring topology alive and ready for the next prompt.
+ResetPromptCycle clears prompt-local graph activity while preserving compiled
+tool nodes. Registers are discarded; tools are reseeded and reattached to the
+base compute fabric.
 */
 func (graph *Graph) ResetPromptCycle() {
 	if graph.initialNodes == 0 {
 		return
 	}
 
-	if len(graph.nodes) > graph.initialNodes {
-		graph.nodes = graph.nodes[:graph.initialNodes]
+	kept := make([]*Node, 0, len(graph.nodes))
+
+	for idx, node := range graph.nodes {
+		keepTool := idx >= graph.initialNodes && node.Role == RoleTool
+		if idx < graph.initialNodes || keepTool {
+			node.ResetForPrompt(graph.tick, keepTool)
+			kept = append(kept, node)
+		}
 	}
 
+	graph.nodes = kept
+	graph.nextID = 0
 	for _, node := range graph.nodes {
-		node.Reset(graph.tick)
+		if node.ID >= graph.nextID {
+			graph.nextID = node.ID + 1
+		}
 	}
 
-	graph.nextID = graph.initialNodes
 	graph.rebuildBaseTopology()
+	graph.toolVotes = make(map[toolKey]int)
+	graph.compositeCatalog = make(map[toolPairKey]*Node)
+	graph.reindexToolCatalog()
 
 	graph.sinkStableCount = 0
 	graph.sinkLastEnergy = 0
@@ -327,13 +293,14 @@ func (graph *Graph) ResetPromptCycle() {
 	graph.momentum = 0
 	graph.lastRotationTick = graph.tick
 	graph.bedrockQueries = 0
-	graph.mitosisEvents = 0
+	graph.mitosisEvents = len(graph.ToolNodes())
 	graph.pruneEvents = 0
 	graph.outputEmitted = false
 }
 
 /*
-rebuildBaseTopology restores the initial small-world ring used by the cortex scratchpad.
+rebuildBaseTopology restores the standing core ring and then reattaches any
+surviving tool nodes as resonant peripherals.
 */
 func (graph *Graph) rebuildBaseTopology() {
 	nodeCount := len(graph.nodes)
@@ -343,18 +310,29 @@ func (graph *Graph) rebuildBaseTopology() {
 		return
 	}
 
-	for idx := range nodeCount {
+	for idx := 0; idx < nodeCount; idx++ {
 		graph.nodes[idx].edges = nil
 	}
 
-	for idx := range nodeCount {
-		graph.nodes[idx].Connect(graph.nodes[(idx+1)%nodeCount])
-		graph.nodes[(idx+1)%nodeCount].Connect(graph.nodes[idx])
+	coreCount := graph.initialNodes
+	if coreCount > nodeCount {
+		coreCount = nodeCount
 	}
 
-	for idx := range nodeCount {
-		far1 := (idx + nodeCount/3) % nodeCount
-		far2 := (idx + 2*nodeCount/3) % nodeCount
+	if coreCount == 0 {
+		graph.source = nil
+		graph.sink = nil
+		return
+	}
+
+	for idx := 0; idx < coreCount; idx++ {
+		graph.nodes[idx].Connect(graph.nodes[(idx+1)%coreCount])
+		graph.nodes[(idx+1)%coreCount].Connect(graph.nodes[idx])
+	}
+
+	for idx := 0; idx < coreCount; idx++ {
+		far1 := (idx + coreCount/3) % coreCount
+		far2 := (idx + 2*coreCount/3) % coreCount
 
 		if far1 != idx {
 			graph.nodes[idx].Connect(graph.nodes[far1])
@@ -368,8 +346,11 @@ func (graph *Graph) rebuildBaseTopology() {
 	}
 
 	graph.source = graph.nodes[0]
-	graph.sink = graph.nodes[nodeCount-1]
-	graph.edgeCacheDirty = true
+	graph.sink = graph.nodes[coreCount-1]
+
+	for idx := coreCount; idx < nodeCount; idx++ {
+		graph.attachSpecialNode(graph.nodes[idx])
+	}
 }
 
 /*

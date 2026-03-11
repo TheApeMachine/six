@@ -3,6 +3,7 @@ package cortex
 import (
 	"fmt"
 	"os"
+	"sort"
 
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/geometry"
@@ -24,6 +25,9 @@ func (graph *Graph) Step() bool {
 	graph.drainInboxes()
 	graph.fireActiveEdges()
 	graph.expandTopology()
+	graph.promoteTools()
+	graph.composeTools()
+	graph.compileCircuits()
 	graph.injectEntropyFloor()
 
 	if graph.tick%16 == 0 {
@@ -34,6 +38,12 @@ func (graph *Graph) Step() bool {
 
 	if converged && graph.broadcast != nil && !graph.outputEmitted {
 		graph.outputEmitted = true
+		graph.broadcast.Send(pool.NewResult(
+			*pool.NewPoolValue(
+				pool.WithKey[LogicSnapshot]("logic"),
+				pool.WithValue(graph.SnapshotLogic()),
+			),
+		))
 		graph.broadcast.Send(pool.NewResult(
 			*pool.NewPoolValue(
 				pool.WithKey[[]data.Chord]("results"),
@@ -57,58 +67,50 @@ func (graph *Graph) drainInboxes() {
 }
 
 /*
-fireActiveEdges refreshes topology, selects edges probabilistically,
-and flows tokens downhill based on face 256 gradients.
+fireActiveEdges refreshes topology, ranks edge programs by activation weight,
+and fires the hottest local logic circuits for this tick.
 */
 func (graph *Graph) fireActiveEdges() {
 	edges := graph.Edges()
-	graph.activeEdgeBuf = graph.activeEdgeBuf[:0]
+	if len(edges) == 0 {
+		return
+	}
+
+	type scoredEdge struct {
+		edge  *Edge
+		score float64
+	}
+
+	scored := make([]scoredEdge, 0, len(edges))
 
 	for _, edge := range edges {
 		edge.Refresh()
-
-		band := edge.Op.Band()
-		weight := 0.005
-
-		switch band {
-		case "rotate":
-			weight = 0.05
-		case "growth":
-			weight = 0.02
-		}
-
-		probability := weight + (1.0 / (1.0 + float64(edge.StableFrames)*0.02))
-
-		if fastRand() < probability {
-			graph.activeEdgeBuf = append(graph.activeEdgeBuf, edge)
+		if edge.Activation > 0 {
+			scored = append(scored, scoredEdge{edge: edge, score: edge.Activation})
 		}
 	}
 
-	randShuffle(graph.activeEdgeBuf)
+	sort.Slice(scored, func(left, right int) bool {
+		return scored[left].score > scored[right].score
+	})
+
+	limit := max(1, len(scored)/3)
+	activeEdges := make([]*Edge, 0, limit)
+	for idx, entry := range scored {
+		if idx < limit || entry.score >= 0.15 {
+			activeEdges = append(activeEdges, entry.edge)
+			continue
+		}
+		break
+	}
 
 	rotated := false
 
-	for _, edge := range graph.activeEdgeBuf {
-		faceA := edge.A.Rot.Reverse(256)
-		faceB := edge.B.Rot.Reverse(256)
-
-		var from, to *Node
-
-		if faceA > faceB {
-			from, to = edge.A, edge.B
-		} else {
-			from, to = edge.B, edge.A
+	for _, edge := range activeEdges {
+		_, to, tok, ok := edge.Pulse()
+		if !ok {
+			continue
 		}
-
-		tok := Token{
-			Chord:       from.CubeChord(),
-			LogicalFace: 256,
-			Origin:      from.ID,
-			TTL:         1,
-			Op:          edge.Op,
-			Carry:       from.Rot,
-		}
-
 		to.Arrive(tok)
 		edge.TokensSent++
 
@@ -123,12 +125,16 @@ func (graph *Graph) fireActiveEdges() {
 }
 
 /*
-expandTopology processes nodes flagged by OpSearch.
-Uses the kernel backend (GPU) for nearest rotational neighbor when available.
-Spawns a fresh residue-seeded node when no resonant neighbor is available.
+expandTopology processes both search expansion and fork materialization.
+Search grows or reconnects the graph. Fork compiles volatile registers that may
+later be promoted into reusable tools.
 */
 func (graph *Graph) expandTopology() {
 	for _, node := range graph.nodes {
+		if node.forkPending {
+			graph.materializeFork(node)
+		}
+
 		if !node.searchPending {
 			continue
 		}
@@ -144,6 +150,9 @@ func (graph *Graph) expandTopology() {
 
 		if nearest != nil && nearest != node {
 			nearestSummary := nearest.CubeChord()
+			if nearest.Role == RoleTool && nearest.Interface.ActiveCount() > 0 {
+				nearestSummary = data.ChordOR(&nearestSummary, &nearest.Interface)
+			}
 
 			if searchChord.ActiveCount() == 0 || data.ChordSimilarity(&searchChord, &nearestSummary) > 0 {
 				node.Connect(nearest)
@@ -152,7 +161,7 @@ func (graph *Graph) expandTopology() {
 			}
 		}
 
-		graph.SpawnNode(node)
+		graph.SpawnRegister(node, searchChord, searchChord, node.Program)
 	}
 }
 
@@ -216,27 +225,21 @@ func randShuffle(edges []*Edge) {
 
 /*
 Edges returns all unique edges currently active in the graph.
-Uses a lazily-rebuilt cache to avoid per-tick map+slice allocations.
 */
 func (graph *Graph) Edges() []*Edge {
-	if !graph.edgeCacheDirty {
-		return graph.edgeCache
-	}
-
-	graph.edgeCache = graph.edgeCache[:0]
-	seen := make(map[*Edge]bool, len(graph.edgeCache)+16)
+	var edgeList []*Edge
+	seen := make(map[*Edge]bool)
 
 	for _, node := range graph.nodes {
 		for _, edge := range node.edges {
 			if !seen[edge] {
 				seen[edge] = true
-				graph.edgeCache = append(graph.edgeCache, edge)
+				edgeList = append(edgeList, edge)
 			}
 		}
 	}
 
-	graph.edgeCacheDirty = false
-	return graph.edgeCache
+	return edgeList
 }
 
 /*
@@ -256,9 +259,20 @@ func (graph *Graph) prune() {
 			continue
 		}
 
-		age := graph.tick - node.birth
+		if node.Role == RoleTool {
+			alive = append(alive, node)
+			continue
+		}
 
-		if age < gracePeriod || node.Energy() >= starvationThreshold {
+		age := graph.tick - node.birth
+		threshold := starvationThreshold
+		grace := gracePeriod
+		if node.Role == RoleRegister {
+			threshold *= 0.5
+			grace /= 2
+		}
+
+		if age < grace || node.Energy() >= threshold || node.Support > 0 {
 			alive = append(alive, node)
 			continue
 		}
@@ -277,10 +291,7 @@ func (graph *Graph) prune() {
 	}
 
 	graph.nodes = alive
-
-	if graph.pruneEvents > 0 {
-		graph.edgeCacheDirty = true
-	}
+	graph.reindexToolCatalog()
 }
 
 func pruneEdge(node, target *Node) {
@@ -340,7 +351,8 @@ func (graph *Graph) Survivors(threshold float64) []*Node {
 }
 
 /*
-InjectChords sends each chord as a data token to the source. No Sequencer events.
+InjectChords sends each chord to the most resonant current binding target.
+Pure control-plane chords still enter through the source as signals.
 */
 func (graph *Graph) InjectChords(chords []data.Chord) {
 	for _, chord := range chords {
@@ -350,7 +362,12 @@ func (graph *Graph) InjectChords(chords []data.Chord) {
 			continue
 		}
 
-		graph.source.Send(NewDataToken(chord, chord.IntrinsicFace(), -1))
+		target := graph.bindTarget(chord)
+		if target == nil {
+			target = graph.source
+		}
+
+		target.Send(NewDataToken(chord, chord.IntrinsicFace(), -1))
 		graph.seqPos++
 	}
 }
@@ -370,6 +387,6 @@ func (graph *Graph) LogTrace() {
 	fmt.Fprintf(f, "TICK: %d | NODES: %d | EDGES: %d\n", graph.tick, len(graph.nodes), len(graph.Edges()))
 	for _, node := range graph.nodes {
 		chord := node.CubeChord()
-		fmt.Fprintf(f, "  Node %d: Energy=%.3f, ChordActive=%d\n", node.ID, node.Energy(), chord.ActiveCount())
+		fmt.Fprintf(f, "  Node %d: Role=%s, Energy=%.3f, ChordActive=%d, Support=%d\n", node.ID, node.Role.String(), node.Energy(), chord.ActiveCount(), node.Support)
 	}
 }

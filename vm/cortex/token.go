@@ -27,6 +27,8 @@ type Token struct {
 
 	Op    Opcode              // computed geometric opcode
 	Carry geometry.GFRotation // the GF(257) lens of the sender
+	// Program carries the edge-local control seed that produced this token.
+	Program data.Chord
 
 	// NEW: Computation vs Physics bifurcation
 	IsSignal   bool       // true = pure computational routing, bypasses physical state update
@@ -86,5 +88,3 @@ func NewSignalToken(chord data.Chord, mask data.Chord, origin int) Token {
 func chordControlPlane(chord data.Chord) data.Chord {
 	return data.ChordAND(&chord, &controlPlaneMask)
 }
-
-

@@ -24,11 +24,10 @@ representative 50\% holdout level: each row presents the Original, the
 Prompt (bottom half zeroed), the Reconstructed image, and an automatically
 computed Error Heatmap (green = zero error, red = maximum error).
 
-Across all holdout levels the overall weighted score was 0.320.
+Across all holdout levels the overall weighted score was 0.034.
 
 \paragraph{Assessment.}
-Partial fidelity was observed at low holdout percentages, consistent with
-the attractor recovering coarse spatial statistics (dominant colour regions,
-low-frequency structure) before losing the fine-grained detail that requires
-higher attractor density.  Increasing the ingestion sample count is expected
-to shift the performance cliff toward higher occlusion levels.
+Reconstruction quality was low across all holdout levels.  At this ingestion
+scale the chord substrate has not accumulated sufficient pixel-level
+redundancy to anchor reliable attractor retrieval across the diverse
+colour distributions of CIFAR-10 imagery.

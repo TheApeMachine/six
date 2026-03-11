@@ -20,6 +20,8 @@ func (n *Node) Arrive(tok Token) {
 			return
 		}
 
+		_ = n.invokeTool(tok)
+
 		// 1. Memory Resonance (The Deduction Phase)
 		// A signal interacts with the node's crystallized mass.
 		cubeChord := n.CubeChord()
@@ -35,6 +37,7 @@ func (n *Node) Arrive(tok Token) {
 				if reaction.ActiveCount() > 0 {
 					reflection := NewSignalToken(reaction, reaction, n.ID)
 					reflection.TTL = tok.TTL // Inherit remaining kinetic energy
+					reflection.Program = n.Program
 
 					for _, edge := range n.edges {
 						neighbor := edge.A
@@ -81,16 +84,25 @@ func (n *Node) Arrive(tok Token) {
 		return
 	}
 
+	_ = n.invokeTool(tok)
+
 	switch tok.Op {
 	case OpRotateX:
 		n.Rot = n.Rot.Compose(geometry.DefaultRotTable.X90)
+		n.Rot = n.Rot.Compose(tok.Carry)
 	case OpRotateY:
 		n.Rot = n.Rot.Compose(geometry.DefaultRotTable.Y90)
+		n.Rot = n.Rot.Compose(tok.Carry)
 	case OpRotateZ:
 		n.Rot = n.Rot.Compose(geometry.DefaultRotTable.Z90)
-
-	case OpAlign, OpCompose, OpFork:
 		n.Rot = n.Rot.Compose(tok.Carry)
+
+	case OpAlign, OpCompose:
+		n.Rot = n.Rot.Compose(tok.Carry)
+
+	case OpFork:
+		n.Rot = n.Rot.Compose(tok.Carry)
+		n.noteFork(tok.Chord, tok.Program)
 
 	case OpSync:
 		a := max((int(n.Rot.A)+int(tok.Carry.A))/2, 1)
@@ -100,35 +112,41 @@ func (n *Node) Arrive(tok Token) {
 	case OpSearch:
 		n.Rot = n.Rot.Compose(tok.Carry)
 		n.searchPending = true
-	}
-
-	// Token data is absorbed directly into the Cube
-	// guided by the node's GF(257) lens.
-	routed := n.Rot.Forward(tok.LogicalFace)
-	for side := range 6 {
-		for rot := range 4 {
-			n.Cube.ORInto(side, rot, routed, &tok.Chord)
+		if tok.Chord.ActiveCount() > 0 && n.Interface.ActiveCount() == 0 {
+			n.Interface = tok.Chord
 		}
 	}
-	n.absorbFace(routed, &tok.Chord)
+
+	carrier := tok.Program
+	stateCarrier := tok.Carry.StateChord()
+
+	if stateCarrier.ActiveCount() > 0 {
+		carrier = data.ChordOR(&carrier, &stateCarrier)
+	}
+
+	if tok.Program.ActiveCount() > 0 {
+		n.Program = data.ChordOR(&n.Program, &tok.Program)
+		n.Cube.InjectControl(tok.Program, carrier, n.Rot)
+	}
+
+	// Token data is absorbed directly into the Cube guided by the node's
+	// GF(257) lens and routed into a sparse subset of side-rotation lanes.
+	n.Cube.Inject(tok.LogicalFace, tok.Chord, carrier, n.Rot)
+	n.InvalidateChordCache()
 
 	anchor, hole, _, shouldDream := n.Hole()
 	if shouldDream {
-		routedGate := n.Rot.Forward(256)
-		for side := range 6 {
-			for rot := range 4 {
-				n.Cube.ORInto(side, rot, routedGate, &hole)
-			}
-		}
-		n.absorbFace(routedGate, &hole)
-
 		dreamMask := anchor
 		if dreamMask.ActiveCount() == 0 {
 			dreamMask = hole
 		}
 
+		n.Cube.InjectControl(hole, dreamMask, n.Rot)
+		n.InvalidateChordCache()
+
 		dream := NewSignalToken(hole, dreamMask, n.ID)
 		dream.TTL = max(tok.TTL, defaultTTL)
+		dream.Program = n.Program
 
 		for _, edge := range n.edges {
 			neighbor := edge.A
@@ -182,8 +200,8 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	}
 
 	if bestAnchorSize == 0 {
-		for side := range 6 {
-			for rot := range 4 {
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
 				faceChord := n.Cube.Get(side, rot, bestFaceIdx)
 				bestAnchor = data.ChordOR(&bestAnchor, &faceChord)
 			}
@@ -197,13 +215,23 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 }
 
 /*
-bestPhysicalFace returns the physical face index (0-257) with highest aggregate
-ActiveCount. Delegates to the fused recomputeCubeStats cache.
+bestPhysicalFace returns the physical face index (0-257) with highest aggregate ActiveCount.
 */
 func (n *Node) bestPhysicalFace() int {
-	if n.cubeChordDirty {
-		n.recomputeCubeStats()
+	bestFace := 256
+	bestCount := 0
+	for face := 0; face < 256; face++ {
+		count := 0
+		for side := 0; side < 6; side++ {
+			for rot := 0; rot < 4; rot++ {
+				chord := n.Cube.Get(side, rot, face)
+				count += chord.ActiveCount()
+			}
+		}
+		if count > bestCount {
+			bestCount = count
+			bestFace = face
+		}
 	}
-
-	return n.bestFaceIdxCache
+	return bestFace
 }

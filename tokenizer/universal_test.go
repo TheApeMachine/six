@@ -166,3 +166,31 @@ func TestGenerateEmitsBoundaryWhenFirstSampleIDIsZero(t *testing.T) {
 		})
 	})
 }
+
+func TestGenerateEmitsBoundChordState(t *testing.T) {
+	Convey("Given a Dataset with a single lexical sample", t, func() {
+		dataset := createMockDataset("ab")
+		tokenizer := NewUniversal(
+			TokenizerWithDataset(dataset),
+		)
+
+		Convey("When Generate is called", func() {
+			var first Token
+			for token := range tokenizer.Generate() {
+				if token.Chord.ActiveCount() == 0 {
+					continue
+				}
+
+				first = token
+				break
+			}
+
+			Convey("It should emit both lexical and bound chord state", func() {
+				So(first.Chord, ShouldEqual, data.BaseChord('a'))
+				So(first.Bound.ActiveCount(), ShouldBeGreaterThan, first.Chord.ActiveCount())
+				So(first.Carrier.ActiveCount(), ShouldBeGreaterThan, 0)
+				So(first.EffectiveChord(), ShouldEqual, first.Bound)
+			})
+		})
+	})
+}

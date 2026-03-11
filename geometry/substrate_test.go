@@ -121,6 +121,35 @@ func TestHybridSubstrateBitwiseFilter(t *testing.T) {
 	})
 }
 
+func TestHybridSubstrateRetrieveRanked(t *testing.T) {
+	Convey("Given a substrate with indexed lexical metadata", t, func() {
+		substrate := NewHybridSubstrate()
+		dial := NewPhaseDial()
+		chords := testChords("hello")
+		fingerprint := dial.EncodeFromChords(chords)
+
+		substrate.AddIndexed(
+			data.ChordLCM(chords),
+			fingerprint,
+			append([]data.Chord(nil), chords...),
+			testChords("HELLO"),
+			7,
+			3,
+			true,
+		)
+
+		Convey("RetrieveRanked should expose lexical and directional metadata", func() {
+			ranked := substrate.RetrieveRanked(data.ChordLCM(chords), fingerprint, 4)
+
+			So(ranked, ShouldHaveLength, 1)
+			So(ranked[0].SampleID, ShouldEqual, 7)
+			So(ranked[0].Offset, ShouldEqual, 3)
+			So(ranked[0].Reverse, ShouldBeTrue)
+			So(ranked[0].Lexical, ShouldResemble, testChords("HELLO"))
+		})
+	})
+}
+
 func BenchmarkHybridSubstrateAdd(b *testing.B) {
 	hs := NewHybridSubstrate()
 	dial := NewPhaseDial()

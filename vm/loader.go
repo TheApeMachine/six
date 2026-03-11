@@ -17,13 +17,15 @@ and PrimeField (dense manifold array). Its only job is ingestion — prompt
 construction and holdout logic live in tokenizer.Prompt.
 */
 type Loader struct {
-	store      store.Store
-	primefield *store.PrimeField
-	substrate  *geometry.HybridSubstrate
-	eigenmode  *geometry.EigenMode
-	tokenizer  *tokenizer.Universal
-	coder      *tokenizer.MortonCoder
-	pool       *pool.Pool
+	store            store.Store
+	primefield       *store.PrimeField
+	substrate        *geometry.HybridSubstrate
+	reverseSubstrate *geometry.HybridSubstrate
+	eigenmode        *geometry.EigenMode
+	tokenizer        *tokenizer.Universal
+	coder            *tokenizer.MortonCoder
+	pool             *pool.Pool
+	sequences        [][]data.Chord
 }
 
 type loaderOpts func(*Loader)
@@ -33,8 +35,10 @@ NewLoader creates a Loader. Use LoaderWithStore, LoaderWithPrimeField, LoaderWit
 */
 func NewLoader(opts ...loaderOpts) *Loader {
 	loader := &Loader{
-		coder:     tokenizer.NewMortonCoder(),
-		substrate: geometry.NewHybridSubstrate(),
+		coder:            tokenizer.NewMortonCoder(),
+		substrate:        geometry.NewHybridSubstrate(),
+		reverseSubstrate: geometry.NewHybridSubstrate(),
+		sequences:        make([][]data.Chord, 0, 64),
 	}
 
 	for _, opt := range opts {
@@ -66,6 +70,28 @@ func (loader *Loader) Substrate() *geometry.HybridSubstrate {
 }
 
 /*
+ReverseSubstrate returns the reverse-direction substrate used for right-boundary
+queries and non-autoregressive infill.
+*/
+func (loader *Loader) ReverseSubstrate() *geometry.HybridSubstrate {
+	return loader.reverseSubstrate
+}
+
+/*
+Sequences returns the lexical base-chord corpus sequences captured during
+loading.
+*/
+func (loader *Loader) Sequences() [][]data.Chord {
+	out := make([][]data.Chord, len(loader.sequences))
+
+	for idx := range loader.sequences {
+		out[idx] = append([]data.Chord(nil), loader.sequences[idx]...)
+	}
+
+	return out
+}
+
+/*
 LoadResult bundles the ingested chord with metadata from the sequencer,
 allowing the Machine to identify structural boundaries during Start().
 */
@@ -91,108 +117,165 @@ and PrimeField. Returns a channel of LoadResults for downstream consumers
 (e.g. Machine.Start drains this to completion).
 */
 func (loader *Loader) generate() error {
-	var sequence []data.Chord
+	var (
+		sequence []data.Chord
+		lexical  []data.Chord
+	)
+
+	loader.sequences = loader.sequences[:0]
+	if loader.substrate != nil {
+		loader.substrate.Entries = loader.substrate.Entries[:0]
+	}
+	if loader.reverseSubstrate != nil {
+		loader.reverseSubstrate.Entries = loader.reverseSubstrate.Entries[:0]
+	}
 
 	idx := 0
 	wg := sync.WaitGroup{}
 
-	for token := range loader.tokenizer.Generate() {
-		if token.IsBoundary {
-			if len(sequence) > 0 {
-				seqCopy := make([]data.Chord, len(sequence))
-				copy(seqCopy, sequence)
-
-				wg.Add(1)
-				loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
-					defer wg.Done()
-					loader.buildPhaseDial(seqCopy)
-					return nil, nil
-				})
-
-				sequence = sequence[:0]
-			}
+	flush := func() {
+		if len(sequence) == 0 {
+			return
 		}
 
-		if token.Chord.ActiveCount() > 0 {
-			if loader.store != nil {
-				loader.store.Insert(token.TokenID, token.Chord)
-			}
+		seqCopy := append([]data.Chord(nil), sequence...)
+		lexCopy := append([]data.Chord(nil), lexical...)
+		loader.sequences = append(loader.sequences, append([]data.Chord(nil), lexCopy...))
 
-			if token.Chord.ActiveCount() > 0 && !token.IsBoundary {
-				sequence = append(sequence, token.Chord)
-			}
+		sampleID := idx
+		if loader.pool != nil {
+			wg.Add(1)
+			loader.pool.Schedule(fmt.Sprintf("loader-%d", idx), func() (any, error) {
+				defer wg.Done()
+				loader.buildDirectionalSubstrates(seqCopy, lexCopy, sampleID)
+				return nil, nil
+			})
+		} else {
+			loader.buildDirectionalSubstrates(seqCopy, lexCopy, sampleID)
+		}
 
-			// Build EigenModes from the ingested manifold topology.
+		sequence = sequence[:0]
+		lexical = lexical[:0]
+		idx++
+	}
+
+	for token := range loader.tokenizer.Generate() {
+		effective := token.EffectiveChord()
+
+		if token.IsBoundary {
+			flush()
+
 			if loader.primefield != nil {
-				loader.primefield.BuildEigenModes()
+				_ = loader.primefield.BuildEigenModes()
 				loader.eigenmode = loader.primefield.EigenMode()
 			}
 
-			// Wire the Sequencer with the trained EigenMode.
-			if loader.Tokenizer() != nil && loader.Tokenizer().Sequencer() != nil {
+			if loader.Tokenizer() != nil && loader.Tokenizer().Sequencer() != nil && loader.eigenmode != nil {
 				seq := loader.Tokenizer().Sequencer()
 				seq.SetEigenMode(loader.eigenmode)
 			}
+		}
 
-			if loader.primefield != nil {
-				loader.primefield.Insert(token.Chord)
-			}
+		if token.Chord.ActiveCount() == 0 {
+			continue
+		}
+
+		if loader.store != nil {
+			loader.store.Insert(token.TokenID, token.Chord)
+		}
+
+		if effective.ActiveCount() > 0 {
+			sequence = append(sequence, effective)
+			lexical = append(lexical, token.Chord)
+		}
+
+		if loader.primefield != nil && effective.ActiveCount() > 0 {
+			loader.primefield.Insert(effective)
 		}
 	}
 
+	flush()
 	wg.Wait()
 	return nil
 }
 
-func (loader *Loader) buildPhaseDial(
-	sequence []data.Chord,
-) {
-	// Write suffix entries for the completed sample.
-	rot := geometry.IdentityRotation()
+func (loader *Loader) buildDirectionalSubstrates(sequence, lexical []data.Chord, sampleID int) {
+	loader.buildPhaseDial(loader.substrate, sequence, lexical, sampleID, false, true)
 
+	reverseSequence := reverseChords(sequence)
+	reverseLexical := reverseChords(lexical)
+	loader.buildPhaseDial(loader.reverseSubstrate, reverseSequence, reverseLexical, sampleID, true, false)
+}
+
+func (loader *Loader) buildPhaseDial(
+	substrate *geometry.HybridSubstrate,
+	sequence []data.Chord,
+	lexical []data.Chord,
+	sampleID int,
+	reverse bool,
+	storePointers bool,
+) {
+	if substrate == nil || len(sequence) == 0 {
+		return
+	}
+
+	if len(lexical) != len(sequence) {
+		lexical = append([]data.Chord(nil), sequence...)
+	}
+
+	rot := geometry.IdentityRotation()
 	var activePrefix data.Chord
 	runningDial := geometry.NewPhaseDial()
 
-	for i := 0; i < len(sequence); i++ {
-		if i > 0 {
-			activePrefix = data.ChordOR(&activePrefix, &sequence[i-1])
+	for idx := 0; idx < len(sequence); idx++ {
+		if idx > 0 {
+			activePrefix = data.ChordOR(&activePrefix, &sequence[idx-1])
 		}
 
-		if loader.primefield != nil {
+		if storePointers && loader.primefield != nil {
 			loader.primefield.StorePointer(rot, activePrefix)
 		}
 
-		suffix := make([]data.Chord, len(sequence)-i)
-		copy(suffix, sequence[i:])
+		suffix := append([]data.Chord(nil), sequence[idx:]...)
+		lexSuffix := append([]data.Chord(nil), lexical[idx:]...)
 
 		var dial geometry.PhaseDial
-		if i > 0 {
+		if idx > 0 {
 			dial = runningDial.CopyAndNormalize()
 		} else {
 			dial = geometry.NewPhaseDial()
 		}
 
-		loader.substrate.Add(
-			activePrefix, dial, suffix,
-		)
+		substrate.AddIndexed(activePrefix, dial, suffix, lexSuffix, sampleID, idx, reverse)
 
-		if i < len(sequence) {
-			rot = rot.Compose(
-				geometry.RotationForChord(sequence[i]),
-			)
-			runningDial.AddChordPhase(sequence[i], i)
-		}
+		rot = rot.Compose(geometry.RotationForChord(sequence[idx]))
+		runningDial.AddChordPhase(sequence[idx], idx)
 	}
 
 	dial := runningDial.CopyAndNormalize()
-
-	loader.substrate.Add(
+	substrate.AddIndexed(
 		data.Chord{},
 		dial,
-		sequence,
+		append([]data.Chord(nil), sequence...),
+		append([]data.Chord(nil), lexical...),
+		sampleID,
+		0,
+		reverse,
 	)
+}
 
-	sequence = sequence[:0]
+func reverseChords(sequence []data.Chord) []data.Chord {
+	if len(sequence) == 0 {
+		return nil
+	}
+
+	out := make([]data.Chord, len(sequence))
+
+	for idx := range sequence {
+		out[len(sequence)-1-idx] = sequence[idx]
+	}
+
+	return out
 }
 
 func (loader *Loader) Lookup(chords []data.Chord) []uint64 {

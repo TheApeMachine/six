@@ -142,14 +142,9 @@ func ByteScores(expected, retrieved []byte) Scores {
 		fuzzy = float64(matches) / float64(longer)
 	}
 
-	// We should allow fuzzy to match substring if it's there
-	if len(expected) > 0 && len(retrieved) > 0 {
-		expStr := strings.TrimSpace(strings.ToLower(string(expected)))
-		retStr := strings.ToLower(string(retrieved))
-		if len(expStr) > 0 && strings.Contains(retStr, expStr) {
-			fuzzy = 1.0
-			partial = 1.0
-		}
+	if contains, coverage := containedSpanCoverage(expected, retrieved); contains {
+		partial = max(partial, 1.0)
+		fuzzy = max(fuzzy, coverage)
 	}
 
 	return Scores{
@@ -241,6 +236,31 @@ func WeightedTotalWithWeights(weights ScoreWeights, scores ...float64) float64 {
 
 func WeightedTotal(scores ...float64) float64 {
 	return WeightedTotalWithWeights(DefaultScoreWeights(), scores...)
+}
+
+func ByteSpanMatch(expected, retrieved []byte) bool {
+	if bytes.Equal(expected, retrieved) {
+		return true
+	}
+
+	contains, _ := containedSpanCoverage(expected, retrieved)
+
+	return contains
+}
+
+func containedSpanCoverage(expected, retrieved []byte) (bool, float64) {
+	if len(expected) == 0 || len(retrieved) == 0 {
+		return false, 0
+	}
+
+	expectedText := strings.TrimSpace(strings.ToLower(string(expected)))
+	retrievedText := strings.TrimSpace(strings.ToLower(string(retrieved)))
+
+	if expectedText == "" || retrievedText == "" || !strings.Contains(retrievedText, expectedText) {
+		return false, 0
+	}
+
+	return true, float64(len(expectedText)) / float64(max(len(retrievedText), len(expectedText)))
 }
 
 func OptionalLabel(label int) *int {

@@ -25,9 +25,9 @@ func (opcode Opcode) Band() string {
 	switch opcode {
 	case OpRotateX, OpRotateY, OpRotateZ:
 		return "rotate"
-	case OpAlign, OpSearch, OpSync:
+	case OpAlign, OpSearch, OpSync, OpCompose:
 		return "stable"
-	case OpFork, OpCompose:
+	case OpFork:
 		return "growth"
 	default:
 		return "stable"
@@ -66,6 +66,64 @@ func DeriveOpcode(gateA, gateB data.Chord) Opcode {
 
 	// 5. Total conflict -> derive the rotation axis from the conflict residue itself.
 	return deriveConflictRotation(gateA, gateB)
+}
+
+/*
+DeriveEdgeOpcode resolves the executable edge operation from both the protected
+face-256 control gates and the currently exposed free chords on either side of
+the edge. This makes the graph itself a logic fabric: rotations can change what
+an edge sees without physically copying cube state.
+*/
+func DeriveEdgeOpcode(gateA, freeA, gateB, freeB data.Chord) Opcode {
+	freeCountA := freeA.ActiveCount()
+	freeCountB := freeB.ActiveCount()
+	gateCountA := gateA.ActiveCount()
+	gateCountB := gateB.ActiveCount()
+
+	if freeCountA == 0 && freeCountB == 0 {
+		switch {
+		case gateCountA == 0 && gateCountB == 0:
+			return OpSearch
+		case gateCountA == 0 || gateCountB == 0:
+			return OpFork
+		default:
+			return DeriveOpcode(gateA, gateB)
+		}
+	}
+
+	if freeCountA == 0 || freeCountB == 0 {
+		return OpFork
+	}
+
+	sharedFree := data.ChordAND(&freeA, &freeB)
+	sharedGate := data.ChordAND(&gateA, &gateB)
+	freeResidueA := data.ChordHole(&freeA, &freeB)
+	freeResidueB := data.ChordHole(&freeB, &freeA)
+	divergence := freeResidueA.ActiveCount() + freeResidueB.ActiveCount()
+
+	gateResidueA := data.ChordHole(&gateA, &gateB)
+	gateResidueB := data.ChordHole(&gateB, &gateA)
+
+	if sharedFree.ActiveCount() > 0 && divergence == 0 && gateResidueA.ActiveCount() == 0 && gateResidueB.ActiveCount() == 0 {
+		return OpSync
+	}
+
+	if sharedFree.ActiveCount() > 0 && sharedGate.ActiveCount() > 0 {
+		return OpCompose
+	}
+
+	if sharedFree.ActiveCount() > 0 {
+		return OpAlign
+	}
+
+	if sharedGate.ActiveCount() > 0 {
+		return OpCompose
+	}
+
+	effectiveA := data.ChordOR(&gateA, &freeA)
+	effectiveB := data.ChordOR(&gateB, &freeB)
+
+	return deriveConflictRotation(effectiveA, effectiveB)
 }
 
 /*

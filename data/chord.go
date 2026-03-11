@@ -73,6 +73,71 @@ func (chord *Chord) Byte() byte {
 }
 
 /*
+BestByte decodes the chord to the nearest lexical byte.
+It first attempts exact BaseChord recovery. If that fails, it falls back to the
+intrinsic face with strongest overlap.
+*/
+func (chord *Chord) BestByte() byte {
+	if exact := chord.Byte(); exact != 0 || *chord == BaseChord(0) {
+		return exact
+	}
+
+	face := chord.IntrinsicFace()
+	if face >= 0 && face < 256 {
+		return byte(face)
+	}
+
+	return 0
+}
+
+/*
+RotationSeed derives a structural affine seed from the chord itself.
+Unlike a popcount-only mapping, this uses the actual active prime layout so
+distinct chords with identical density can still drive different rotations.
+*/
+func (chord *Chord) RotationSeed() (uint16, uint16) {
+	if chord.ActiveCount() == 0 {
+		return 1, 0
+	}
+
+	var accA uint32 = 1
+	var accB uint32
+
+	for blockIdx := range config.ChordBlocks {
+		block := chord[blockIdx]
+		if block == 0 {
+			continue
+		}
+
+		mix := uint32(block^(block>>29)^(block>>43)) & 0x1FFFF
+		accA = (accA*131 + mix + uint32(blockIdx+1)*17) % 257
+		accB = (accB*137 + mix + uint32(popcount(block))*29 + uint32(blockIdx+1)*31) % 257
+
+		for block != 0 {
+			bitIdx := bits.TrailingZeros64(block)
+			primeIdx := blockIdx*64 + bitIdx
+
+			if primeIdx >= 257 {
+				block &= block - 1
+				continue
+			}
+
+			prime := uint32(primeIdx + 1)
+			accA = (accA + prime*prime + prime*23 + uint32(bitIdx+1)*7) % 257
+			accB = (accB + prime*67 + uint32(bitIdx+1)*13) % 257
+
+			block &= block - 1
+		}
+	}
+
+	if accA == 0 {
+		accA = 1
+	}
+
+	return uint16(accA), uint16(accB % 257)
+}
+
+/*
 Bytes returns the chord as config.ChordBlocks×8 bytes (big-endian uint64s).
 */
 func (chord *Chord) Bytes() []byte {
@@ -105,6 +170,17 @@ func BaseChord(b byte) Chord {
 		bit := off % logicalBits
 		chord.Set(bit)
 	}
+
+	return chord
+}
+
+/*
+MaskChord returns a control-plane marker used to denote an unresolved gap or
+masked region in a sequence without colliding with any lexical BaseChord.
+*/
+func MaskChord() Chord {
+	var chord Chord
+	chord.Set(256)
 
 	return chord
 }
@@ -409,4 +485,28 @@ func (chord *Chord) RollLeft(shift int) Chord {
 	}
 
 	return out
+}
+
+/*
+BindPosition preserves the intrinsic chord identity while adding a positional
+orbit copy.
+*/
+func (chord *Chord) BindPosition(pos int) Chord {
+	shifted := chord.RollLeft(pos)
+
+	return ChordOR(chord, &shifted)
+}
+
+/*
+BindGeometry preserves the base chord, adds positional binding, and then
+superposes an optional carrier chord.
+*/
+func (chord *Chord) BindGeometry(pos int, carrier *Chord) Chord {
+	bound := chord.BindPosition(pos)
+
+	if carrier == nil || carrier.ActiveCount() == 0 {
+		return bound
+	}
+
+	return ChordOR(&bound, carrier)
 }

@@ -6,6 +6,7 @@ import (
 
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
 )
 
@@ -20,8 +21,25 @@ reasoning, and recall.
 type Token struct {
 	TokenID    uint64
 	Chord      data.Chord
+	Bound      data.Chord
+	Carrier    data.Chord
+	Rotation   geometry.GFRotation
 	Events     []int
+	Pos        uint32
+	Position   uint32
 	IsBoundary bool
+}
+
+/*
+EffectiveChord returns the geometry-bound chord when present, otherwise the
+atomic base chord.
+*/
+func (token Token) EffectiveChord() data.Chord {
+	if token.Bound.ActiveCount() > 0 {
+		return token.Bound
+	}
+
+	return token.Chord
 }
 
 /*
@@ -36,6 +54,7 @@ type Universal struct {
 	dataset      provider.Dataset
 	sequencer    *Sequencer
 	pos          uint32
+	rot          geometry.GFRotation
 	tokens       strings.Builder
 	sampleID     uint32
 	useSequencer bool
@@ -48,6 +67,7 @@ func NewUniversal(opts ...universalOpts) *Universal {
 		coder:     NewMortonCoder(),
 		sequencer: NewSequencer(NewCalibrator()),
 		pos:       0,
+		rot:       geometry.IdentityRotation(),
 	}
 
 	for _, opt := range opts {
@@ -82,15 +102,25 @@ func (tokenizer *Universal) Generate() chan Token {
 		}()
 
 		tokenizer.pos = 0
+		tokenizer.rot = geometry.IdentityRotation()
 		var streamPos uint32
 		var hasSample bool
+
+		resetSample := func(sampleID uint32) {
+			tokenizer.sampleID = sampleID
+			tokenizer.tokens.Reset()
+			tokenizer.pos = 0
+			tokenizer.rot = geometry.IdentityRotation()
+
+			if tokenizer.useSequencer {
+				tokenizer.sequencer = NewSequencer(NewCalibrator())
+			}
+		}
 
 		for rawToken := range tokenizer.dataset.Generate() {
 			if !hasSample {
 				hasSample = true
-				tokenizer.sampleID = rawToken.SampleID
-				tokenizer.tokens.Reset()
-				tokenizer.pos = 0
+				resetSample(rawToken.SampleID)
 			}
 
 			if rawToken.SampleID != tokenizer.sampleID {
@@ -103,48 +133,56 @@ func (tokenizer *Universal) Generate() chan Token {
 					out <- Token{IsBoundary: true}
 				}
 
-				tokenizer.sampleID = rawToken.SampleID
-				tokenizer.tokens.Reset()
-				tokenizer.pos = 0
-
-				if tokenizer.useSequencer {
-					tokenizer.sequencer = NewSequencer(NewCalibrator())
-				}
+				resetSample(rawToken.SampleID)
 			}
 
-			chord := data.BaseChord(rawToken.Symbol)
+			currentPos := tokenizer.pos
+			baseChord := data.BaseChord(rawToken.Symbol)
+			carrier := tokenizer.rot.StateChord()
+			rotated := tokenizer.rot.ApplyToChord(baseChord)
+			bound := rotated.BindGeometry(int(currentPos), &carrier)
 
 			var events []int
-			var reset = false
+			var reset bool
 
 			if tokenizer.useSequencer {
 				seqReset, seqEvents := tokenizer.sequencer.Analyze(
-					int(tokenizer.pos), rawToken.Symbol,
+					int(currentPos), rawToken.Symbol,
 				)
 				events = seqEvents
-
-				if seqReset {
-					reset = true
-				}
-
-				tokenizer.pos++
-
-				if seqReset {
-					tokenizer.pos = 0
-				}
+				reset = seqReset
 			}
 
 			tokenizer.tokens.WriteByte(rawToken.Symbol)
 
 			out <- Token{
 				TokenID:    tokenizer.coder.Encode(streamPos, rawToken.Symbol),
-				Chord:      chord,
+				Chord:      baseChord,
+				Bound:      bound,
+				Carrier:    carrier,
+				Rotation:   tokenizer.rot,
 				Events:     events,
+				Pos:        currentPos,
+				Position:   currentPos,
 				IsBoundary: reset,
 			}
 
 			streamPos++
-			tokenizer.pos++
+
+			nextRot := tokenizer.rot.Compose(geometry.RotationForChord(bound))
+			if len(events) > 0 {
+				nextRot = nextRot.Compose(geometry.ComposeEvents(events))
+			}
+
+			tokenizer.rot = nextRot
+
+			if reset {
+				tokenizer.pos = 0
+				tokenizer.rot = geometry.IdentityRotation()
+				continue
+			}
+
+			tokenizer.pos = currentPos + 1
 		}
 	}()
 

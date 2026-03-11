@@ -4,6 +4,7 @@ import (
 	"math"
 	"math/bits"
 	"sort"
+	"sync"
 
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
@@ -21,6 +22,10 @@ type SubstrateEntry struct {
 	Filter      data.Chord
 	Fingerprint PhaseDial
 	Readout     []data.Chord
+	Lexical     []data.Chord
+	SampleID    int
+	Offset      int
+	Reverse     bool
 }
 
 /*
@@ -29,6 +34,7 @@ HybridSubstrate stores entries and retrieves via two-phase pipeline:
 (2) PhaseDialScoring → best match.
 */
 type HybridSubstrate struct {
+	mu      sync.RWMutex
 	Entries []SubstrateEntry
 }
 
@@ -51,11 +57,88 @@ func (hs *HybridSubstrate) Add(
 	fingerprint PhaseDial,
 	readout []data.Chord,
 ) {
+	hs.AddIndexed(filter, fingerprint, readout, nil, -1, -1, false)
+}
+
+/*
+AddIndexed appends a substrate entry together with optional lexical readout and
+source metadata.
+*/
+func (hs *HybridSubstrate) AddIndexed(
+	filter data.Chord,
+	fingerprint PhaseDial,
+	readout []data.Chord,
+	lexical []data.Chord,
+	sampleID int,
+	offset int,
+	reverse bool,
+) {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+
 	hs.Entries = append(hs.Entries, SubstrateEntry{
 		Filter:      filter,
 		Fingerprint: fingerprint,
 		Readout:     readout,
+		Lexical:     lexical,
+		SampleID:    sampleID,
+		Offset:      offset,
+		Reverse:     reverse,
 	})
+}
+
+/*
+RankedReadout is a scored retrieval result returned by RetrieveRanked.
+*/
+type RankedReadout struct {
+	Index       int
+	Score       float64
+	Filter      data.Chord
+	Fingerprint PhaseDial
+	Readout     []data.Chord
+	Lexical     []data.Chord
+	SampleID    int
+	Offset      int
+	Reverse     bool
+}
+
+/*
+RetrieveRanked returns the top-K scored substrate matches instead of only the
+single best readout.
+*/
+func (hs *HybridSubstrate) RetrieveRanked(
+	contextFilter data.Chord,
+	contextFingerprint PhaseDial,
+	topK int,
+) []RankedReadout {
+	if len(hs.Entries) == 0 || topK <= 0 {
+		return nil
+	}
+
+	candidates := hs.BitwiseFilter(contextFilter, topK)
+	if len(candidates) == 0 {
+		return nil
+	}
+
+	ranked := hs.PhaseDialRank(candidates, contextFingerprint)
+	out := make([]RankedReadout, 0, len(ranked))
+
+	for _, candidate := range ranked {
+		entry := hs.Entries[candidate.Idx]
+		out = append(out, RankedReadout{
+			Index:       candidate.Idx,
+			Score:       candidate.Score,
+			Filter:      entry.Filter,
+			Fingerprint: entry.Fingerprint,
+			Readout:     entry.Readout,
+			Lexical:     entry.Lexical,
+			SampleID:    entry.SampleID,
+			Offset:      entry.Offset,
+			Reverse:     entry.Reverse,
+		})
+	}
+
+	return out
 }
 
 /*
@@ -100,7 +183,12 @@ func (hs *HybridSubstrate) Retrieve(
 	bestIdx := hs.PhaseDialScoring(candidates, contextFingerprint)
 
 	// Phase 3: Readout
-	return hs.Entries[bestIdx].Readout
+	entry := hs.Entries[bestIdx]
+	if len(entry.Lexical) > 0 {
+		return entry.Lexical
+	}
+
+	return entry.Readout
 }
 
 /*

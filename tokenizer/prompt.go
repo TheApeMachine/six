@@ -1,6 +1,7 @@
 package tokenizer
 
 import (
+	"hash/fnv"
 	"strings"
 
 	"github.com/theapemachine/six/data"
@@ -12,6 +13,8 @@ HoldoutType selects which region of each sample is masked (held out).
 
   - RIGHT:     remove pct% from the END.
   - LEFT:      remove pct% from the START.
+  - CENTER:    remove pct% from the MIDDLE.
+  - RANDOM:    remove pct% from a deterministic interior span.
   - SUBSTRING: remove exact substring matches (e.g. label names).
 */
 type HoldoutType uint
@@ -32,10 +35,17 @@ All slicing is done at materialisation time in flush(), so Next/Value/HeldOut
 are simple lookups.
 */
 type sample struct {
-	visible []data.Chord // what Next() returns
-	visStr  []string     // parallel to visible, joined by Value()
-	heldOut string       // what HeldOut() returns
-	fullStr []string     // the complete original, joined by Full()
+	visible []data.Chord
+	visStr  []string
+	heldOut string
+	fullStr []string
+
+	left     []data.Chord
+	right    []data.Chord
+	leftStr  []string
+	rightStr []string
+	maskLo   int
+	maskHi   int
 }
 
 /*
@@ -58,8 +68,8 @@ type Prompt struct {
 	cursor     int
 	holdout    HoldoutType
 	percentage int
-	substrings []string // for SUBSTRING holdout
-	values     []string // for explicit values
+	substrings []string
+	values     []string
 	explicit   []PromptSample
 }
 
@@ -70,42 +80,48 @@ NewPrompt builds a Prompt from opts. With dataset: materializes samples from Gen
 With values: one sample per string. With explicit: uses PromptSample slices directly.
 */
 func NewPrompt(opts ...promptOpts) *Prompt {
-	p := &Prompt{
+	prompt := &Prompt{
 		substrings: []string{},
 		values:     []string{},
 	}
 
 	for _, opt := range opts {
-		opt(p)
+		opt(prompt)
 	}
 
-	for _, v := range p.values {
+	for _, value := range prompt.values {
 		var chords []data.Chord
 		var values []string
-		for _, b := range []byte(v) {
-			chords = append(chords, data.BaseChord(b))
-			values = append(values, string(b))
+
+		for _, symbol := range []byte(value) {
+			chords = append(chords, data.BaseChord(symbol))
+			values = append(values, string(symbol))
 		}
-		p.samples = append(p.samples, p.buildSample(chords, values))
+
+		prompt.samples = append(prompt.samples, prompt.buildSample(chords, values))
 	}
 
-	for _, explicit := range p.explicit {
+	for _, explicit := range prompt.explicit {
 		full := explicit.Full
 		if full == "" {
 			full = explicit.Visible + explicit.HeldOut
 		}
 
-		p.samples = append(p.samples, sample{
-			visible: stringsToChords(explicit.Visible),
-			visStr:  bytesToStrings([]byte(explicit.Visible)),
+		visibleChords := stringsToChords(explicit.Visible)
+		visibleStrings := bytesToStrings([]byte(explicit.Visible))
+		prompt.samples = append(prompt.samples, sample{
+			visible: copyChords(visibleChords),
+			visStr:  copyStrings(visibleStrings),
 			heldOut: explicit.HeldOut,
 			fullStr: bytesToStrings([]byte(full)),
+			left:    copyChords(visibleChords),
+			leftStr: copyStrings(visibleStrings),
+			maskLo:  len(visibleChords),
+			maskHi:  len(visibleChords) + len([]byte(explicit.HeldOut)),
 		})
 	}
 
-	// Explicit values define the evaluation set; do not silently append
-	// dataset-derived prompts on top of them.
-	if p.dataset != nil && len(p.values) == 0 && len(p.explicit) == 0 {
+	if prompt.dataset != nil && len(prompt.values) == 0 && len(prompt.explicit) == 0 {
 		var (
 			chords []data.Chord
 			values []string
@@ -115,176 +131,372 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 			if len(chords) == 0 {
 				return
 			}
-			p.samples = append(p.samples, p.buildSample(chords, values))
+
+			prompt.samples = append(prompt.samples, prompt.buildSample(chords, values))
 			chords, values = nil, nil
 		}
 
-		for token := range p.dataset.Generate() {
+		for token := range prompt.dataset.Generate() {
 			if token.Pos == 0 && len(chords) > 0 {
 				flush()
 			}
+
 			chords = append(chords, data.BaseChord(token.Symbol))
 			values = append(values, string(token.Symbol))
 		}
+
 		flush()
 	}
 
-	return p
+	return prompt
 }
 
 /*
 buildSample splits chords/values into visible and held-out portions
 based on the configured holdout type.
 */
-func (p *Prompt) buildSample(chords []data.Chord, values []string) sample {
+func (prompt *Prompt) buildSample(chords []data.Chord, values []string) sample {
 	full := make([]string, len(values))
 	copy(full, values)
 
-	switch p.holdout {
+	switch prompt.holdout {
 	case SUBSTRING:
-		return p.buildSubstringSample(chords, values, full)
+		return prompt.buildSubstringSample(chords, values, full)
 	default:
-		return p.buildPositionalSample(chords, values, full)
+		return prompt.buildPositionalSample(chords, values, full)
 	}
 }
 
-func (p *Prompt) buildPositionalSample(chords []data.Chord, values []string, full []string) sample {
+func (prompt *Prompt) buildPositionalSample(chords []data.Chord, values []string, full []string) sample {
 	n := len(chords)
-	if p.percentage <= 0 || n == 0 {
-		// No holdout — everything visible.
-		return sample{visible: chords, visStr: values, fullStr: full}
+	if prompt.percentage <= 0 || n == 0 {
+		return newSample(chords, nil, values, nil, "", full, 0, 0)
 	}
 
-	held := min(max(int(float64(n)*float64(p.percentage)/100.0), 1), n)
+	held := min(max(int(float64(n)*float64(prompt.percentage)/100.0), 1), n)
 
-	switch p.holdout {
+	switch prompt.holdout {
 	case LEFT, TOP:
-		// Hold out the first `held` elements.
-		return sample{
-			visible: chords[held:],
-			visStr:  values[held:],
-			heldOut: strings.Join(values[:held], ""),
-			fullStr: full,
-		}
+		return newSample(
+			nil,
+			chords[held:],
+			nil,
+			values[held:],
+			strings.Join(values[:held], ""),
+			full,
+			0,
+			held,
+		)
+
+	case CENTER:
+		start := max((n-held)/2, 0)
+		end := min(start+held, n)
+
+		return newSample(
+			chords[:start],
+			chords[end:],
+			values[:start],
+			values[end:],
+			strings.Join(values[start:end], ""),
+			full,
+			start,
+			end,
+		)
+
+	case RANDOM:
+		start := prompt.randomSpanStart(values, held)
+		end := min(start+held, n)
+
+		return newSample(
+			chords[:start],
+			chords[end:],
+			values[:start],
+			values[end:],
+			strings.Join(values[start:end], ""),
+			full,
+			start,
+			end,
+		)
+
 	default:
-		// Hold out the last `held` elements.
 		cut := n - held
-		return sample{
-			visible: chords[:cut],
-			visStr:  values[:cut],
-			heldOut: strings.Join(values[cut:], ""),
-			fullStr: full,
-		}
+
+		return newSample(
+			chords[:cut],
+			nil,
+			values[:cut],
+			nil,
+			strings.Join(values[cut:], ""),
+			full,
+			cut,
+			n,
+		)
 	}
 }
 
-func (p *Prompt) buildSubstringSample(chords []data.Chord, values []string, full []string) sample {
+func (prompt *Prompt) buildSubstringSample(chords []data.Chord, values []string, full []string) sample {
 	text := strings.Join(values, "")
 
-	// Find which substring appears and strip it.
-	for _, sub := range p.substrings {
-		idx := strings.LastIndex(text, sub)
+	for _, substring := range prompt.substrings {
+		idx := strings.LastIndex(text, substring)
 		if idx < 0 {
 			continue
 		}
 
-		// Map the byte index back to the values/chords slice index.
-		// Each value is a single byte (one character), so byte index = slice index.
-		end := idx + len(sub)
-		vis := make([]data.Chord, 0, len(chords)-len(sub))
-		visStr := make([]string, 0, len(values)-len(sub))
+		end := idx + len(substring)
 
-		vis = append(vis, chords[:idx]...)
-		vis = append(vis, chords[end:]...)
-		visStr = append(visStr, values[:idx]...)
-		visStr = append(visStr, values[end:]...)
-
-		return sample{
-			visible: vis,
-			visStr:  visStr,
-			heldOut: sub,
-			fullStr: full,
-		}
+		return newSample(
+			chords[:idx],
+			chords[end:],
+			values[:idx],
+			values[end:],
+			substring,
+			full,
+			idx,
+			end,
+		)
 	}
 
-	// No substring found — nothing held out.
-	return sample{visible: chords, visStr: values, fullStr: full}
+	return newSample(chords, nil, values, nil, "", full, 0, 0)
+}
+
+func (prompt *Prompt) randomSpanStart(values []string, held int) int {
+	n := len(values)
+	if held <= 0 || n <= held {
+		return 0
+	}
+
+	seed := strings.Join(values, "")
+	hasher := fnv.New32a()
+	_, _ = hasher.Write([]byte(seed))
+	spanCount := n - held + 1
+	if spanCount <= 1 {
+		return 0
+	}
+
+	return int(hasher.Sum32() % uint32(spanCount))
+}
+
+func newSample(left, right []data.Chord, leftStr, rightStr []string, heldOut string, full []string, lo, hi int) sample {
+	visible := concatChords(left, right)
+	visStr := concatStrings(leftStr, rightStr)
+
+	return sample{
+		visible:  visible,
+		visStr:   visStr,
+		heldOut:  heldOut,
+		fullStr:  copyStrings(full),
+		left:     copyChords(left),
+		right:    copyChords(right),
+		leftStr:  copyStrings(leftStr),
+		rightStr: copyStrings(rightStr),
+		maskLo:   lo,
+		maskHi:   hi,
+	}
 }
 
 /*
 Next pops the next sample, returning only the visible chords.
 Returns nil when the stack is exhausted.
 */
-func (p *Prompt) Next() []data.Chord {
-	if p.cursor >= len(p.samples) {
+func (prompt *Prompt) Next() []data.Chord {
+	if prompt.cursor >= len(prompt.samples) {
 		return nil
 	}
 
-	s := p.samples[p.cursor]
-	p.cursor++
-	return s.visible
+	sample := prompt.samples[prompt.cursor]
+	prompt.cursor++
+
+	return copyChords(sample.visible)
 }
 
 /*
 Value returns the visible portion of the sample at idx as a string.
 Same content as Next() but without advancing the cursor.
 */
-func (p *Prompt) Value(idx int) string {
-	if idx < 0 || idx >= len(p.samples) {
+func (prompt *Prompt) Value(idx int) string {
+	if idx < 0 || idx >= len(prompt.samples) {
 		return ""
 	}
-	return strings.Join(p.samples[idx].visStr, "")
+
+	return strings.Join(prompt.samples[idx].visStr, "")
 }
 
 /*
 HeldOut returns the masked portion of the sample at idx as a string.
 */
-func (p *Prompt) HeldOut(idx int) string {
-	if idx < 0 || idx >= len(p.samples) {
+func (prompt *Prompt) HeldOut(idx int) string {
+	if idx < 0 || idx >= len(prompt.samples) {
 		return ""
 	}
-	return p.samples[idx].heldOut
+
+	return prompt.samples[idx].heldOut
 }
 
 /*
 Full returns the complete, unsplit string for the sample at idx.
 */
-func (p *Prompt) Full(idx int) string {
-	if idx < 0 || idx >= len(p.samples) {
+func (prompt *Prompt) Full(idx int) string {
+	if idx < 0 || idx >= len(prompt.samples) {
 		return ""
 	}
-	return strings.Join(p.samples[idx].fullStr, "")
+
+	return strings.Join(prompt.samples[idx].fullStr, "")
+}
+
+/*
+VisibleParts returns the left and right visible regions around the masked span.
+*/
+func (prompt *Prompt) VisibleParts(idx int) ([]data.Chord, []data.Chord) {
+	if idx < 0 || idx >= len(prompt.samples) {
+		return nil, nil
+	}
+
+	sample := prompt.samples[idx]
+
+	return copyChords(sample.left), copyChords(sample.right)
+}
+
+/*
+VisibleStrings returns the visible text on the left and right side of the mask.
+*/
+func (prompt *Prompt) VisibleStrings(idx int) (string, string) {
+	if idx < 0 || idx >= len(prompt.samples) {
+		return "", ""
+	}
+
+	sample := prompt.samples[idx]
+
+	return strings.Join(sample.leftStr, ""), strings.Join(sample.rightStr, "")
+}
+
+/*
+MaskedVisible returns the visible prompt with a dedicated gap marker inserted
+between the left and right regions when a masked interior span exists.
+*/
+func (prompt *Prompt) MaskedVisible(idx int) []data.Chord {
+	left, right := prompt.VisibleParts(idx)
+	if len(right) == 0 {
+		return left
+	}
+
+	out := make([]data.Chord, 0, len(left)+1+len(right))
+	out = append(out, left...)
+	out = append(out, data.MaskChord())
+	out = append(out, right...)
+
+	return out
+}
+
+/*
+MaskWidth returns the width of the held-out span in chords.
+*/
+func (prompt *Prompt) MaskWidth(idx int) int {
+	if idx < 0 || idx >= len(prompt.samples) {
+		return 0
+	}
+
+	sample := prompt.samples[idx]
+	if sample.maskHi <= sample.maskLo {
+		return 0
+	}
+
+	return sample.maskHi - sample.maskLo
+}
+
+/*
+MaskRange returns the half-open [start, end) coordinates of the masked span
+inside the full sample.
+*/
+func (prompt *Prompt) MaskRange(idx int) (int, int) {
+	if idx < 0 || idx >= len(prompt.samples) {
+		return 0, 0
+	}
+
+	sample := prompt.samples[idx]
+
+	return sample.maskLo, sample.maskHi
 }
 
 /*
 Len returns the number of remaining samples.
 */
-func (p *Prompt) Len() int {
-	return len(p.samples) - p.cursor
+func (prompt *Prompt) Len() int {
+	return len(prompt.samples) - prompt.cursor
 }
 
 func stringsToChords(text string) []data.Chord {
 	chords := make([]data.Chord, 0, len(text))
-	for _, b := range []byte(text) {
-		chords = append(chords, data.BaseChord(b))
+
+	for _, symbol := range []byte(text) {
+		chords = append(chords, data.BaseChord(symbol))
 	}
+
 	return chords
 }
 
-func bytesToStrings(data []byte) []string {
-	values := make([]string, 0, len(data))
-	for _, b := range data {
-		values = append(values, string(b))
+func bytesToStrings(raw []byte) []string {
+	values := make([]string, 0, len(raw))
+
+	for _, symbol := range raw {
+		values = append(values, string(symbol))
 	}
+
 	return values
+}
+
+func copyChords(chords []data.Chord) []data.Chord {
+	if len(chords) == 0 {
+		return nil
+	}
+
+	out := make([]data.Chord, len(chords))
+	copy(out, chords)
+
+	return out
+}
+
+func copyStrings(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+
+	out := make([]string, len(values))
+	copy(out, values)
+
+	return out
+}
+
+func concatChords(left, right []data.Chord) []data.Chord {
+	if len(left) == 0 && len(right) == 0 {
+		return nil
+	}
+
+	out := make([]data.Chord, 0, len(left)+len(right))
+	out = append(out, left...)
+	out = append(out, right...)
+
+	return out
+}
+
+func concatStrings(left, right []string) []string {
+	if len(left) == 0 && len(right) == 0 {
+		return nil
+	}
+
+	out := make([]string, 0, len(left)+len(right))
+	out = append(out, left...)
+	out = append(out, right...)
+
+	return out
 }
 
 /*
 PromptWithDataset sets the dataset; samples are built from dataset.Generate() on NewPrompt.
 */
 func PromptWithDataset(dataset provider.Dataset) promptOpts {
-	return func(p *Prompt) {
-		p.dataset = dataset
+	return func(prompt *Prompt) {
+		prompt.dataset = dataset
 	}
 }
 
@@ -292,9 +504,9 @@ func PromptWithDataset(dataset provider.Dataset) promptOpts {
 PromptWithHoldout sets percentage (0-100) and type (LEFT,RIGHT,CENTER,etc.) for splitting.
 */
 func PromptWithHoldout(percentage int, holdoutType HoldoutType) promptOpts {
-	return func(p *Prompt) {
-		p.holdout = holdoutType
-		p.percentage = percentage
+	return func(prompt *Prompt) {
+		prompt.holdout = holdoutType
+		prompt.percentage = percentage
 	}
 }
 
@@ -303,9 +515,9 @@ PromptWithSubstringHoldout sets SUBSTRING mode; strips first matching substring 
 stores it as HeldOut. Uses LastIndex (rightmost match).
 */
 func PromptWithSubstringHoldout(substrings []string) promptOpts {
-	return func(p *Prompt) {
-		p.holdout = SUBSTRING
-		p.substrings = substrings
+	return func(prompt *Prompt) {
+		prompt.holdout = SUBSTRING
+		prompt.substrings = substrings
 	}
 }
 
@@ -313,8 +525,8 @@ func PromptWithSubstringHoldout(substrings []string) promptOpts {
 PromptWithValues adds one sample per string. Each character becomes a BaseChord.
 */
 func PromptWithValues(values []string) promptOpts {
-	return func(p *Prompt) {
-		p.values = values
+	return func(prompt *Prompt) {
+		prompt.values = values
 	}
 }
 
@@ -322,7 +534,7 @@ func PromptWithValues(values []string) promptOpts {
 PromptWithSamples uses explicit PromptSample slices. Overrides dataset/values if both set.
 */
 func PromptWithSamples(samples []PromptSample) promptOpts {
-	return func(p *Prompt) {
-		p.explicit = samples
+	return func(prompt *Prompt) {
+		prompt.explicit = samples
 	}
 }

@@ -151,3 +151,51 @@ func TestPromptExplicitSamplesOverrideDatasetSamples(t *testing.T) {
 	require.Len(t, first, len("story question?"))
 	require.Equal(t, 0, prompt.Len())
 }
+
+func TestPromptCenterHoldoutExposesBothVisibleSides(t *testing.T) {
+	t.Parallel()
+
+	prompt := NewPrompt(
+		PromptWithValues([]string{"abcdef"}),
+		PromptWithHoldout(50, CENTER),
+	)
+
+	first := prompt.Next()
+	require.Len(t, first, 3)
+	require.Equal(t, "aef", prompt.Value(0))
+	require.Equal(t, "bcd", prompt.HeldOut(0))
+	require.Equal(t, 3, prompt.MaskWidth(0))
+
+	left, right := prompt.VisibleParts(0)
+	require.Len(t, left, 1)
+	require.Len(t, right, 2)
+	require.Equal(t, byte('a'), asByte(left[0], []byte{'a'}))
+	require.Equal(t, byte('e'), asByte(right[0], []byte{'e'}))
+	require.Equal(t, byte('f'), asByte(right[1], []byte{'f'}))
+
+	masked := prompt.MaskedVisible(0)
+	require.Len(t, masked, 4)
+	require.Equal(t, data.MaskChord(), masked[1])
+}
+
+func TestPromptRandomHoldoutIsDeterministic(t *testing.T) {
+	t.Parallel()
+
+	promptLeft := NewPrompt(
+		PromptWithValues([]string{"abcdefghij"}),
+		PromptWithHoldout(30, RANDOM),
+	)
+	promptRight := NewPrompt(
+		PromptWithValues([]string{"abcdefghij"}),
+		PromptWithHoldout(30, RANDOM),
+	)
+
+	require.Equal(t, promptLeft.Value(0), promptRight.Value(0))
+	require.Equal(t, promptLeft.HeldOut(0), promptRight.HeldOut(0))
+	require.Equal(t, promptLeft.MaskWidth(0), promptRight.MaskWidth(0))
+
+	leftLo, leftHi := promptLeft.MaskRange(0)
+	rightLo, rightHi := promptRight.MaskRange(0)
+	require.Equal(t, leftLo, rightLo)
+	require.Equal(t, leftHi, rightHi)
+}

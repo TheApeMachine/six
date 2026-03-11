@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-1 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-2 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+8 & Prose Chaining & 0.0000 & 0.1111 & 0.0417 & 0.0379 \\
+4 & Prose Chaining & 0.0000 & 0.0909 & 0.0417 & 0.0324 \\
+5 & Prose Chaining & 0.0000 & 0.0642 & 0.0642 & 0.0292 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Prose Chaining & 0.0000 & 0.0646 & 0.0646 & 0.0293 \\
-8 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-7 & Prose Chaining & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+9 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+6 & Prose Chaining & 0.0000 & 0.0010 & 0.0010 & 0.0005 \\
+2 & Prose Chaining & 0.0000 & 0.0064 & 0.0064 & 0.0029 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= Valkyria}} & \multicolumn{2}{l}{\texttt{Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{Chronicles III =}} \\
-\multicolumn{2}{l}{\texttt{SenjÅ· no Valkyria 3 : Unrecorded Chroni\ldots}} & \multicolumn{2}{l}{\texttt{on Portable . Released in January 2011 i\ldots}} & \multicolumn{2}{l}{\texttt{on Portable . Released in January 2011 i\ldots}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e nevertheless up to the task , exemplif\ldots}} & \multicolumn{2}{l}{\texttt{began development in 2010 , carrying ove\ldots}} \\
-\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{lot = =}} \\
+\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{alkyria Chronicles III =}} \\
+\multicolumn{2}{l}{\texttt{= = Gam}} & \multicolumn{2}{l}{\texttt{eplay = = ·}} & \multicolumn{2}{l}{\texttt{alkyria Chronicles III =}} \\
+\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e nevertheless up to the task , exemplif\ldots}} & \multicolumn{2}{l}{\texttt{Valkyria Chronicles III =}} \\
+\multicolumn{2}{l}{\texttt{The game 's battle system , the BliTZ sy\ldots}} & \multicolumn{2}{l}{\texttt{to them , such as their health points ( \ldots}} & \multicolumn{2}{l}{\texttt{= Valkyria Chronicles III =}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 60\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.4120} & \multicolumn{3}{l}{Min: 0.0293 \quad Max: 0.4545} \\
+\multicolumn{3}{l}{Mean score: 0.0188} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0379} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{155.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{6.05 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{605.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{453.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{3.45 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{344.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{6.21 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{3.90 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

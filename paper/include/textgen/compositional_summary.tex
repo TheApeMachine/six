@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-6 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-8 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+0 & Compositional & 0.0000 & 1.0000 & 0.3026 & 0.3277 \\
+1 & Compositional & 0.0000 & 0.1090 & 0.0330 & 0.0357 \\
+2 & Compositional & 0.0000 & 0.0976 & 0.0346 & 0.0329 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Compositional & 0.0000 & 0.0506 & 0.0135 & 0.0162 \\
-7 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-5 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+9 & Compositional & 0.0000 & 0.0506 & 0.0129 & 0.0161 \\
+3 & Compositional & 0.0000 & 0.0514 & 0.0190 & 0.0175 \\
+4 & Compositional & 0.0000 & 0.0628 & 0.0173 & 0.0203 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{or them because they were sharing and he\ldots}} & \multicolumn{2}{l}{\texttt{or them because they were sharing and he\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, in a small town, there\ldots}} & \multicolumn{2}{l}{\texttt{hat she found it. From that day on, Lily\ldots}} & \multicolumn{2}{l}{\texttt{hat she found it. From that day on, Lily\ldots}} \\
-\multicolumn{2}{l}{\texttt{One day, a fast driver named Tim went fo\ldots}} & \multicolumn{2}{l}{\texttt{last, they stopped at the park to play. \ldots}} & \multicolumn{2}{l}{\texttt{ong, but the cherry tree was small and w\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, in a peaceful town, th\ldots}} & \multicolumn{2}{l}{\texttt{wind in their hair as they raced to the \ldots}} & \multicolumn{2}{l}{\texttt{Tim and Sarah ran with all their speed, \ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{or them because they were sharing and he\ldots}} & \multicolumn{2}{l}{\texttt{, a little girl named Lily found a needl\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\ldots}} & \multicolumn{2}{l}{\texttt{ay. When it was time to go home, Beep kn\ldots}} & \multicolumn{2}{l}{\texttt{day, a little girl named Lily found a ne\ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a fast driver named Tim went fo\ldots}} & \multicolumn{2}{l}{\texttt{last, they stopped at the park to play. \ldots}} & \multicolumn{2}{l}{\texttt{ne day, a little girl named Lily found a\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a land full of tree\ldots}} & \multicolumn{2}{l}{\texttt{ies. All the animals in the land came to\ldots}} & \multicolumn{2}{l}{\texttt{e girl named Lily found a needle in her \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 30\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.5744} & \multicolumn{3}{l}{Min: 0.0162 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.0553} & \multicolumn{3}{l}{Min: 0.0161 \quad Max: 0.3277} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{177.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4.18 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{417.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{421.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{1.21 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{121.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{4.36 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.63 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

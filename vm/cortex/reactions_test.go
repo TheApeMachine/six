@@ -49,10 +49,25 @@ func TestArrive_DataToken(t *testing.T) {
 			Convey("Energy should increase", func() {
 				So(energyAfter, ShouldBeGreaterThan, energyBefore)
 			})
-			Convey("The chord should land on the routed physical face", func() {
+			Convey("The chord should land on the routed physical face across at least one sparse lane", func() {
 				routed := node.Rot.Forward(42)
-				c := node.Cube.Get(0, 0, routed)
-				So(c.ActiveCount(), ShouldBeGreaterThan, 0)
+				found := false
+
+				for side := 0; side < 6; side++ {
+					for rot := 0; rot < 4; rot++ {
+						chord := node.Cube.Get(side, rot, routed)
+						if chord.ActiveCount() > 0 {
+							found = true
+							break
+						}
+					}
+
+					if found {
+						break
+					}
+				}
+
+				So(found, ShouldBeTrue)
 			})
 		})
 		Convey("When LogicalFace is 256, it should be ignored", func() {
@@ -188,5 +203,3 @@ func BenchmarkNodeHole(b *testing.B) {
 		_, _, _, _ = node.Hole()
 	}
 }
-
-

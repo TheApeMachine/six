@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-1 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-2 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+5 & Out of Corpus & 0.0000 & 0.0787 & 0.0669 & 0.0336 \\
+4 & Out of Corpus & 0.0000 & 0.1111 & 0.0014 & 0.0306 \\
+3 & Out of Corpus & 0.0000 & 0.0801 & 0.0324 & 0.0278 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Out of Corpus & 0.0000 & 0.0643 & 0.0643 & 0.0292 \\
-8 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
-7 & Out of Corpus & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+8 & Out of Corpus & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+0 & Out of Corpus & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+9 & Out of Corpus & 0.0000 & 0.0019 & 0.0019 & 0.0009 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= Valkyria Chr}} & \multicolumn{2}{l}{\texttt{onicles III = ·}} & \multicolumn{2}{l}{\texttt{onicles III =}} \\
-\multicolumn{2}{l}{\texttt{SenjÅ· no Valkyria 3 : Unrecorded Chroni\ldots}} & \multicolumn{2}{l}{\texttt{the Valkyria series . Employing the same\ldots}} & \multicolumn{2}{l}{\texttt{the Valkyria series . Employing the same\ldots}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e three main characters are No.7 Kurt Ir\ldots}} & \multicolumn{2}{l}{\texttt{development in 2010 , carrying over a la\ldots}} \\
-\multicolumn{2}{l}{\texttt{= = Plo}} & \multicolumn{2}{l}{\texttt{t = = ·}} & \multicolumn{2}{l}{\texttt{t = =}} \\
+\multicolumn{2}{l}{\texttt{As with previous Valkyira Chronicles gam\ldots}} & \multicolumn{2}{l}{\texttt{on an individual player 's approach : wh\ldots}} & \multicolumn{2}{l}{\texttt{no Valkyria 3 : Unrecorded Chronicles ( \ldots}} \\
+\multicolumn{2}{l}{\texttt{= = Gamep}} & \multicolumn{2}{l}{\texttt{lay = = ·}} & \multicolumn{2}{l}{\texttt{njō no Valkyria 3 : Unrecorded Chronicle\ldots}} \\
+\multicolumn{2}{l}{\texttt{= = Plo}} & \multicolumn{2}{l}{\texttt{t = = ·}} & \multicolumn{2}{l}{\texttt{alkyria Chronicles III =}} \\
+\multicolumn{2}{l}{\texttt{= Valkyria Chr}} & \multicolumn{2}{l}{\texttt{onicles III = ·}} & \multicolumn{2}{l}{\texttt{t with positive sales in Japan , and was\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.4120} & \multicolumn{3}{l}{Min: 0.0292 \quad Max: 0.4545} \\
+\multicolumn{3}{l}{Mean score: 0.0157} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0336} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{114.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{5.25 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{524.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{519.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{2.05 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{205.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{5.36 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.57 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

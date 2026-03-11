@@ -16,6 +16,7 @@ import (
 	"github.com/theapemachine/six/store"
 	"github.com/theapemachine/six/tokenizer"
 	"github.com/theapemachine/six/vm"
+	"github.com/theapemachine/six/vm/cortex"
 )
 
 const pipelineDrainTimeout = 2 * time.Second
@@ -28,10 +29,10 @@ type promptFailure struct {
 }
 
 type runTiming struct {
-	loadDur    time.Duration
-	promptDur  time.Duration
+	loadDur     time.Duration
+	promptDur   time.Duration
 	finalizeDur time.Duration
-	n          int // number of prompts processed
+	n           int // number of prompts processed
 }
 
 type Pipeline struct {
@@ -40,6 +41,7 @@ type Pipeline struct {
 	pool         *pool.Pool
 	broadcast    *pool.BroadcastGroup
 	loader       *vm.Loader
+	composer     *vm.BoundaryComposer
 	coder        *tokenizer.MortonCoder
 	booter       *vm.Booter
 	experiment   tools.PipelineExperiment
@@ -118,6 +120,7 @@ func (pipeline *Pipeline) Run() error {
 	if err := pipeline.loader.Start(); err != nil {
 		return fmt.Errorf("loader start: %w", err)
 	}
+	pipeline.composer = vm.NewBoundaryComposer(pipeline.loader)
 	pipeline.timing.loadDur = time.Since(loadStart)
 
 	pipeline.booter.Start()
@@ -200,11 +203,65 @@ func extractScores(data []tools.ExperimentalData, field string) []float64 {
 }
 
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
-	var chordRes []data.Chord
-
-	// Use cortex Think() for reasoning tasks (holdout=0), Prompt() for recall.
-	_, _ = pipeline.experiment.Holdout()
 	heldOut := pipeline.prompts.HeldOut(pipeline.testIdx)
+	promptInput := pipeline.promptInput(promptChords)
+	chordRes, logic := pipeline.collectPromptOutputs(promptInput)
+
+	leftVisible, rightVisible := pipeline.prompts.VisibleParts(pipeline.testIdx)
+	if len(leftVisible) == 0 && len(rightVisible) == 0 {
+		leftVisible = append([]data.Chord(nil), promptChords...)
+	}
+
+	readout := pipeline.solvePromptReadout(leftVisible, rightVisible, heldOut, chordRes)
+
+	outBytes := pipeline.decodeReadout(readout)
+	if !pipeline.experiment.RawOutput() {
+		outBytes = pipeline.normalizeObserved(outBytes, heldOut)
+	}
+
+	pipeline.experiment.AddResult(tools.ExperimentalData{
+		Idx:      pipeline.testIdx,
+		Name:     pipeline.experiment.Name(),
+		Prefix:   []byte(pipeline.promptDisplayText()),
+		Holdout:  []byte(heldOut),
+		Observed: outBytes,
+	})
+
+	symbol := pipeline.promptSymbol(heldOut, outBytes, chordRes, logic)
+	if heldOut != "" && symbol == "❌" {
+		pipeline.failures = append(pipeline.failures, promptFailure{
+			idx:      pipeline.testIdx,
+			prompt:   pipeline.promptDisplayText(),
+			expected: heldOut,
+			got:      strings.TrimSpace(string(outBytes)),
+		})
+	}
+
+	pipeline.progressLine += symbol
+	fmt.Printf("\r%s", pipeline.progressLine)
+
+	pipeline.testIdx++
+}
+
+func (pipeline *Pipeline) promptInput(promptChords []data.Chord) []data.Chord {
+	_, rightVisible := pipeline.prompts.VisibleParts(pipeline.testIdx)
+	if len(rightVisible) == 0 {
+		return promptChords
+	}
+
+	masked := pipeline.prompts.MaskedVisible(pipeline.testIdx)
+	if len(masked) == 0 {
+		return promptChords
+	}
+
+	return masked
+}
+
+func (pipeline *Pipeline) collectPromptOutputs(promptChords []data.Chord) ([]data.Chord, cortex.LogicSnapshot) {
+	var (
+		chordRes []data.Chord
+		logic    cortex.LogicSnapshot
+	)
 
 	resCh := pipeline.broadcast.Subscribe("pipeline-prompt", 10)
 	defer pipeline.broadcast.Unsubscribe("pipeline-prompt")
@@ -219,70 +276,192 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	timeout := time.NewTimer(pipelineDrainTimeout)
 	defer timeout.Stop()
 
-wait_result:
+	drainPending := func() {
+		for {
+			select {
+			case res := <-resCh:
+				chordRes, logic = pipeline.consumePromptOutput(res, chordRes, logic)
+			default:
+				return
+			}
+		}
+	}
+
 	for {
 		select {
 		case res := <-resCh:
-			if res != nil && res.Value != nil {
-				if pv, ok := res.Value.(pool.PoolValue[[]data.Chord]); ok {
-					if pv.Key == "results" {
-						chordRes = pv.Value
-						break wait_result
-					}
-				}
+			chordRes, logic = pipeline.consumePromptOutput(res, chordRes, logic)
+			if len(chordRes) > 0 {
+				drainPending()
+				return chordRes, logic
 			}
 		case <-timeout.C:
-			break wait_result
+			return chordRes, logic
+		}
+	}
+}
+
+func (pipeline *Pipeline) consumePromptOutput(
+	res *pool.Result,
+	chordRes []data.Chord,
+	logic cortex.LogicSnapshot,
+) ([]data.Chord, cortex.LogicSnapshot) {
+	if res == nil || res.Value == nil {
+		return chordRes, logic
+	}
+
+	if pv, ok := res.Value.(pool.PoolValue[[]data.Chord]); ok && pv.Key == "results" {
+		chordRes = pv.Value
+	}
+
+	if pv, ok := res.Value.(pool.PoolValue[cortex.LogicSnapshot]); ok && pv.Key == "logic" {
+		logic = pv.Value
+	}
+
+	return chordRes, logic
+}
+
+func (pipeline *Pipeline) solvePromptReadout(
+	leftVisible []data.Chord,
+	rightVisible []data.Chord,
+	heldOut string,
+	chordRes []data.Chord,
+) []data.Chord {
+	maskWidth := pipeline.prompts.MaskWidth(pipeline.testIdx)
+	if maskWidth == 0 && heldOut != "" {
+		maskWidth = len([]byte(heldOut))
+	}
+
+	if pipeline.composer != nil && maskWidth > 0 && len(rightVisible) > 0 {
+		readout := pipeline.composer.Compose(vm.SpanBoundary{
+			Left:  leftVisible,
+			Right: rightVisible,
+			Width: maskWidth,
+		})
+
+		if len(readout) > 0 {
+			return readout
 		}
 	}
 
-	baseFilter := promptFilter(promptChords)
-	baseDial := geometry.NewPhaseDial().EncodeFromChordsParallel(promptChords, pipeline.pool)
+	return pipeline.retrievePromptReadout(leftVisible, rightVisible, chordRes)
+}
 
-	readout := pipeline.loader.Substrate().Retrieve(baseFilter, baseDial, 50)
-
-	if len(readout) == 0 && len(chordRes) > 0 {
-		cortexFilter := promptFilter(chordRes)
-		assistedFilter := data.ChordOR(&baseFilter, &cortexFilter)
-		assistedDial := geometry.NewPhaseDial().EncodeFromChordsParallel(chordRes, pipeline.pool)
-
-		readout = pipeline.loader.Substrate().Retrieve(assistedFilter, assistedDial, 50)
+func (pipeline *Pipeline) retrievePromptReadout(
+	leftVisible []data.Chord,
+	rightVisible []data.Chord,
+	chordRes []data.Chord,
+) []data.Chord {
+	readout := pipeline.retrieveDirectionalReadout(leftVisible, false)
+	if len(readout) > 0 {
+		return readout
 	}
 
-	outBytes := pipeline.decodeReadout(readout)
-	if !pipeline.experiment.RawOutput() {
-		outBytes = pipeline.normalizeObserved(outBytes)
-	}
-
-	pipeline.experiment.AddResult(tools.ExperimentalData{
-		Idx:      pipeline.testIdx,
-		Name:     pipeline.experiment.Name(),
-		Prefix:   []byte(pipeline.prompts.Value(pipeline.testIdx)),
-		Holdout:  []byte(heldOut),
-		Observed: outBytes,
-	})
-
-	// Determine pass/fail symbol for compact progress output.
-	// ✅ only when a holdout exists and the observed output actually matches it.
-	symbol := "❌"
-	if heldOut != "" {
-		scores := tools.ByteScores([]byte(heldOut), outBytes)
-		if scores.Fuzzy > 0 {
-			symbol = "✅"
-		} else {
-			pipeline.failures = append(pipeline.failures, promptFailure{
-				idx:      pipeline.testIdx,
-				prompt:   pipeline.prompts.Value(pipeline.testIdx),
-				expected: heldOut,
-				got:      strings.TrimSpace(string(outBytes)),
-			})
+	if len(rightVisible) > 0 {
+		readout = pipeline.retrieveDirectionalReadout(rightVisible, true)
+		if len(readout) > 0 {
+			return readout
 		}
 	}
 
-	pipeline.progressLine += symbol
-	fmt.Printf("\r%s", pipeline.progressLine)
+	if len(chordRes) == 0 {
+		return nil
+	}
 
-	pipeline.testIdx++
+	readout = pipeline.retrieveAssistedReadout(leftVisible, chordRes, false)
+	if len(readout) > 0 {
+		return readout
+	}
+
+	if len(rightVisible) > 0 {
+		return pipeline.retrieveAssistedReadout(rightVisible, chordRes, true)
+	}
+
+	return nil
+}
+
+func (pipeline *Pipeline) retrieveDirectionalReadout(context []data.Chord, reverse bool) []data.Chord {
+	if len(context) == 0 {
+		return nil
+	}
+
+	contextChords := append([]data.Chord(nil), context...)
+	substrate := pipeline.loader.Substrate()
+
+	if reverse {
+		contextChords = reversePromptChords(contextChords)
+		substrate = pipeline.loader.ReverseSubstrate()
+	}
+
+	filter := promptFilter(contextChords)
+	dial := geometry.NewPhaseDial().EncodeFromChordsParallel(contextChords, pipeline.pool)
+	readout := substrate.Retrieve(filter, dial, 50)
+
+	if reverse {
+		return reversePromptChords(readout)
+	}
+
+	return readout
+}
+
+func (pipeline *Pipeline) retrieveAssistedReadout(
+	context []data.Chord,
+	hints []data.Chord,
+	reverse bool,
+) []data.Chord {
+	if len(context) == 0 || len(hints) == 0 {
+		return nil
+	}
+
+	contextChords := append([]data.Chord(nil), context...)
+	substrate := pipeline.loader.Substrate()
+
+	if reverse {
+		contextChords = reversePromptChords(contextChords)
+		substrate = pipeline.loader.ReverseSubstrate()
+	}
+
+	baseFilter := promptFilter(contextChords)
+	hintFilter := promptFilter(hints)
+	assistedFilter := data.ChordOR(&baseFilter, &hintFilter)
+	dial := geometry.NewPhaseDial().EncodeFromChordsParallel(contextChords, pipeline.pool)
+	readout := substrate.Retrieve(assistedFilter, dial, 50)
+
+	if reverse {
+		return reversePromptChords(readout)
+	}
+
+	return readout
+}
+
+func (pipeline *Pipeline) promptDisplayText() string {
+	leftVisible, rightVisible := pipeline.prompts.VisibleStrings(pipeline.testIdx)
+	if rightVisible == "" {
+		return leftVisible
+	}
+
+	return leftVisible + "<MASK>" + rightVisible
+}
+
+func (pipeline *Pipeline) promptSymbol(
+	heldOut string,
+	observed []byte,
+	chordRes []data.Chord,
+	logic cortex.LogicSnapshot,
+) string {
+	if heldOut == "" {
+		if len(observed) > 0 || len(chordRes) > 0 || !logic.Empty() {
+			return "✅"
+		}
+
+		return "❌"
+	}
+
+	if tools.ByteSpanMatch([]byte(heldOut), observed) {
+		return "✅"
+	}
+
+	return "❌"
 }
 
 // printFailures prints a concise expected-vs-generated overview after the
@@ -319,34 +498,43 @@ func promptFilter(chords []data.Chord) data.Chord {
 	return filter
 }
 
+func reversePromptChords(chords []data.Chord) []data.Chord {
+	if len(chords) == 0 {
+		return nil
+	}
+
+	reversed := make([]data.Chord, len(chords))
+	for idx := range chords {
+		reversed[len(chords)-1-idx] = chords[idx]
+	}
+
+	return reversed
+}
+
 // decodeReadout converts a retrieved chord continuation directly back into
 // bytes without using store reverse lookups that collapse repeated symbols.
 func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 	out := make([]byte, 0, len(readout))
 
 	for _, chord := range readout {
-		value := chord.Byte()
-
-		if value == 0 {
-			face := chord.IntrinsicFace()
-			if face >= 0 && face < 256 {
-				value = byte(face)
-			}
-		}
-
-		out = append(out, value)
+		out = append(out, chord.BestByte())
 	}
 
 	return out
 }
 
-func (pipeline *Pipeline) normalizeObserved(observed []byte) []byte {
+func (pipeline *Pipeline) normalizeObserved(observed []byte, heldOut string) []byte {
 	text := strings.TrimSpace(string(observed))
 	if text == "" {
 		return []byte(text)
 	}
 
-	if idx := strings.LastIndex(text, "?"); idx >= 0 {
+	if pipeline.singleTokenHoldout(heldOut) {
+		idx := strings.LastIndex(text, "?")
+		if idx < 0 {
+			return []byte(text)
+		}
+
 		tail := strings.TrimSpace(text[idx+1:])
 		if tail == "" {
 			return []byte(text)
@@ -361,6 +549,14 @@ func (pipeline *Pipeline) normalizeObserved(observed []byte) []byte {
 	}
 
 	return []byte(text)
+}
+
+func (pipeline *Pipeline) singleTokenHoldout(heldOut string) bool {
+	if strings.TrimSpace(heldOut) == "" {
+		return false
+	}
+
+	return len(alphaTokens(heldOut)) == 1 && !strings.ContainsRune(strings.TrimSpace(heldOut), ' ')
 }
 
 func firstAlphaToken(text string) string {
@@ -426,9 +622,17 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 	}
 
 	holdoutN, holdoutType := pipeline.experiment.Holdout()
+
 	htStr := "RIGHT"
-	if holdoutType == tokenizer.LEFT {
+	switch holdoutType {
+	case tokenizer.LEFT:
 		htStr = "LEFT"
+	case tokenizer.CENTER:
+		htStr = "CENTER"
+	case tokenizer.RANDOM:
+		htStr = "RANDOM"
+	case tokenizer.SUBSTRING:
+		htStr = "SUBSTRING"
 	}
 
 	return WriteStandardSummary(
