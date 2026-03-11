@@ -3,193 +3,179 @@ package data
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	. "github.com/smartystreets/goconvey/convey"
 )
 
-func TestSanitize_ZerosHighBits(t *testing.T) {
-	t.Parallel()
+func TestSanitize(t *testing.T) {
+	Convey("Given a chord with polluted high bits", t, func() {
+		var chord Chord
+		chord.SetC4(0xFFFFFFFFFFFFFFFF)
+		chord.SetC5(0xFFFFFFFFFFFFFFFF)
+		chord.SetC6(0xFFFFFFFFFFFFFFFF)
+		chord.SetC7(0xFFFFFFFFFFFFFFFF)
 
-	var c Chord
-	// Pollute bits above 256
-	c[4] = 0xFFFFFFFFFFFFFFFF
-	c[5] = 0xFFFFFFFFFFFFFFFF
-	c[6] = 0xFFFFFFFFFFFFFFFF
-	c[7] = 0xFFFFFFFFFFFFFFFF
+		Convey("When Sanitize is called", func() {
+			chord.Sanitize()
 
-	c.Sanitize()
+			Convey("It should zero bits above 256 except delimiter face", func() {
+				So(chord.C4(), ShouldEqual, uint64(1))
+				So(chord.C5(), ShouldEqual, uint64(0))
+				So(chord.C6(), ShouldEqual, uint64(0))
+				So(chord.C7(), ShouldEqual, uint64(0))
+			})
+		})
+	})
 
-	// Word 4 should only have bit 0 (bit 256 = delimiter face)
-	require.Equal(t, uint64(1), c[4])
-	require.Equal(t, uint64(0), c[5])
-	require.Equal(t, uint64(0), c[6])
-	require.Equal(t, uint64(0), c[7])
+	Convey("Given a chord with low bits set", t, func() {
+		var chord Chord
+		chord.SetC0(0xDEADBEEF)
+		chord.SetC1(0xCAFEBABE)
+		chord.SetC2(0x12345678)
+		chord.SetC3(0xABCDEF01)
+		chord.SetC4(0x03)
+
+		Convey("When Sanitize is called", func() {
+			chord.Sanitize()
+
+			Convey("It should preserve low bits and only keep bit 256 in C4", func() {
+				So(chord.C0(), ShouldEqual, uint64(0xDEADBEEF))
+				So(chord.C1(), ShouldEqual, uint64(0xCAFEBABE))
+				So(chord.C2(), ShouldEqual, uint64(0x12345678))
+				So(chord.C3(), ShouldEqual, uint64(0xABCDEF01))
+				So(chord.C4(), ShouldEqual, uint64(1))
+			})
+		})
+	})
 }
 
-func TestSanitize_PreservesLowBits(t *testing.T) {
-	t.Parallel()
+func TestChordOR(t *testing.T) {
+	Convey("Given two chords with dirty high bits", t, func() {
+		var a, b Chord
+		a.SetC0(0xFF)
+		a.SetC5(0x01)
+		b.SetC0(0xFF00)
+		b.SetC6(0x01)
 
-	var c Chord
-	c[0] = 0xDEADBEEF
-	c[1] = 0xCAFEBABE
-	c[2] = 0x12345678
-	c[3] = 0xABCDEF01
-	c[4] = 0x03 // bits 256 and 257 — only 256 should survive
+		Convey("When ChordOR is called", func() {
+			result := a.OR(b)
 
-	c.Sanitize()
-
-	require.Equal(t, uint64(0xDEADBEEF), c[0])
-	require.Equal(t, uint64(0xCAFEBABE), c[1])
-	require.Equal(t, uint64(0x12345678), c[2])
-	require.Equal(t, uint64(0xABCDEF01), c[3])
-	require.Equal(t, uint64(1), c[4]) // only bit 256 survives
+			Convey("It should OR low bits and sanitize high bits", func() {
+				So(result.C0(), ShouldEqual, uint64(0xFFFF))
+				So(result.C5(), ShouldEqual, uint64(0))
+				So(result.C6(), ShouldEqual, uint64(0))
+			})
+		})
+	})
 }
 
-func TestChordOR_Sanitized(t *testing.T) {
-	t.Parallel()
-
-	var a, b Chord
-	a[0] = 0xFF
-	a[5] = 0x01 // dirty high bit — should not survive OR
-
-	b[0] = 0xFF00
-	b[6] = 0x01 // dirty high bit
-
-	result := ChordOR(&a, &b)
-
-	require.Equal(t, uint64(0xFFFF), result[0])
-	require.Equal(t, uint64(0), result[5], "high bits should be sanitized after OR")
-	require.Equal(t, uint64(0), result[6], "high bits should be sanitized after OR")
-}
-
-func TestBaseChord_AllBitsWithinLogicalWidth(t *testing.T) {
-	t.Parallel()
-
+func TestBaseChord(t *testing.T) {
 	const logicalBits = 257
 
-	for b := 0; b < 256; b++ {
-		chord := BaseChord(byte(b))
+	Convey("Given BaseChord for each byte 0-255", t, func() {
+		Convey("It should keep all bits within logical width", func() {
+			for byteVal := range 256 {
+				chord := BaseChord(byte(byteVal))
 
-		// No bits should be set above bit 256
-		for i := logicalBits; i < 512; i++ {
-			word := i / 64
-			bit := i % 64
-			if chord[word]&(1<<uint(bit)) != 0 {
-				t.Fatalf("BaseChord(%d) has bit %d set (above logical width %d)", b, i, logicalBits)
+				for idx := logicalBits; idx < 512; idx++ {
+					word := idx / 64
+					bit := idx % 64
+					So(chord.block(word)&(1<<uint(bit)), ShouldEqual, uint64(0))
+				}
+
+				So(chord.ActiveCount(), ShouldBeGreaterThan, 0)
 			}
-		}
+		})
 
-		// Should have some active bits
-		require.Greater(t, chord.ActiveCount(), 0, "BaseChord(%d) should have active bits", b)
-	}
+		Convey("It should produce unique chords per byte", func() {
+			chords := make(map[Chord]byte)
+			for byteVal := 0; byteVal < 256; byteVal++ {
+				chord := BaseChord(byte(byteVal))
+				_, exists := chords[chord]
+				So(exists, ShouldBeFalse)
+				chords[chord] = byte(byteVal)
+			}
+		})
+	})
 }
 
-func TestBaseChord_AllValuesUnique(t *testing.T) {
-	t.Parallel()
-
-	chords := make(map[Chord]byte)
-
-	for b := 0; b < 256; b++ {
-		chord := BaseChord(byte(b))
-		if prev, exists := chords[chord]; exists {
-			t.Fatalf("BaseChord(%d) collides with BaseChord(%d)", b, prev)
-		}
-		chords[chord] = byte(b)
-	}
-}
-
-func TestRollLeft_StaysWithinLogicalWidth(t *testing.T) {
-	t.Parallel()
-
+func TestRollLeft(t *testing.T) {
 	const logicalBits = 257
 
-	chord := BaseChord('A')
-	rolled := chord.RollLeft(42)
+	Convey("Given a base chord and RollLeft(42)", t, func() {
+		chord := BaseChord('A')
+		rolled := chord.RollLeft(42)
 
-	for i := logicalBits; i < 512; i++ {
-		word := i / 64
-		bit := i % 64
-		if rolled[word]&(1<<uint(bit)) != 0 {
-			t.Fatalf("RollLeft produced bit %d (above logical width %d)", i, logicalBits)
-		}
-	}
+		Convey("It should stay within logical width", func() {
+			for idx := logicalBits; idx < 512; idx++ {
+				word := idx / 64
+				bit := idx % 64
+				So(rolled.block(word)&(1<<uint(bit)), ShouldEqual, uint64(0))
+			}
+		})
 
-	// Active count should be preserved
-	require.Equal(t, chord.ActiveCount(), rolled.ActiveCount())
+		Convey("It should preserve active count", func() {
+			So(rolled.ActiveCount(), ShouldEqual, chord.ActiveCount())
+		})
+	})
 }
 
-func TestBestByte_DecodesBoundChord(t *testing.T) {
-	t.Parallel()
+func TestBestByte(t *testing.T) {
+	Convey("Given a bound chord from BaseChord('k') at position 11", t, func() {
+		base := BaseChord('k')
+		bound := base.BindPosition(11)
 
-	base := BaseChord('k')
-	bound := base.BindPosition(11)
-
-	require.Equal(t, byte('k'), bound.BestByte())
+		Convey("BestByte should decode to the original byte", func() {
+			So(bound.BestByte(), ShouldEqual, byte('k'))
+		})
+	})
 }
 
-func TestRotationSeed_UsesStructureNotDensityOnly(t *testing.T) {
-	t.Parallel()
+func TestRotationSeed(t *testing.T) {
+	Convey("Given two chords with same density but different structure", t, func() {
+		var left Chord
+		left.Set(3)
+		left.Set(17)
+		left.Set(41)
 
-	var left Chord
-	left.Set(3)
-	left.Set(17)
-	left.Set(41)
+		var right Chord
+		right.Set(5)
+		right.Set(19)
+		right.Set(43)
 
-	var right Chord
-	right.Set(5)
-	right.Set(19)
-	right.Set(43)
+		Convey("It should use structure not density only for seed", func() {
+			So(left.ActiveCount(), ShouldEqual, right.ActiveCount())
 
-	require.Equal(t, left.ActiveCount(), right.ActiveCount())
+			aLeft, bLeft := left.RotationSeed()
+			aRight, bRight := right.RotationSeed()
 
-	aLeft, bLeft := left.RotationSeed()
-	aRight, bRight := right.RotationSeed()
-
-	require.NotEqual(t, [2]uint16{aLeft, bLeft}, [2]uint16{aRight, bRight})
+			So([2]uint16{aLeft, bLeft}, ShouldNotEqual, [2]uint16{aRight, bRight})
+		})
+	})
 }
 
-func TestMaskChord_UsesControlFace(t *testing.T) {
-	t.Parallel()
+func TestMaskChord(t *testing.T) {
+	Convey("Given MaskChord", t, func() {
+		mask := MaskChord()
 
-	mask := MaskChord()
-
-	require.Equal(t, 1, mask.ActiveCount())
-	require.True(t, mask.Has(256))
+		Convey("It should use the control face", func() {
+			So(mask.ActiveCount(), ShouldEqual, 1)
+			So(mask.Has(256), ShouldBeTrue)
+		})
+	})
 }
 
-func TestStopChord_IsDistinctStreamBoundaryMarker(t *testing.T) {
-	t.Parallel()
+func TestBindGeometry(t *testing.T) {
+	Convey("Given a base chord bound with a carrier", t, func() {
+		base := BaseChord('x')
+		carrier := BaseChord('!')
+		bound := base.BindGeometry(7, &carrier)
 
-	stop := StopChord()
-
-	require.True(t, stop.Has(256))
-	require.True(t, stop.IsStopChord())
-	require.True(t, stop.IsStreamMarker())
-	require.NotEqual(t, MaskChord(), stop)
-	require.NotEqual(t, BaseChord(0), stop)
-}
-
-func TestSplitChord_IsDistinctSoftBoundaryMarker(t *testing.T) {
-	t.Parallel()
-
-	split := SplitChord()
-
-	require.True(t, split.Has(256))
-	require.True(t, split.IsSplitChord())
-	require.True(t, split.IsStreamMarker())
-	require.NotEqual(t, StopChord(), split)
-	require.NotEqual(t, MaskChord(), split)
-}
-
-func TestBindGeometry_SuperposesCarrier(t *testing.T) {
-	t.Parallel()
-
-	base := BaseChord('x')
-	carrier := BaseChord('!')
-	bound := base.BindGeometry(7, &carrier)
-
-	require.Greater(t, ChordSimilarity(&bound, &base), 0)
-	require.Greater(t, ChordSimilarity(&bound, &carrier), 0)
-	require.Greater(t, bound.ActiveCount(), base.ActiveCount())
+		Convey("It should superpose the carrier", func() {
+			So(ChordSimilarity(&bound, &base), ShouldBeGreaterThan, 0)
+			So(ChordSimilarity(&bound, &carrier), ShouldBeGreaterThan, 0)
+			So(bound.ActiveCount(), ShouldBeGreaterThan, base.ActiveCount())
+		})
+	})
 }
 
 func BenchmarkChordRotationSeed(b *testing.B) {

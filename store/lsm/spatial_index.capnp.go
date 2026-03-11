@@ -10,135 +10,8 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
+	data "github.com/theapemachine/six/data"
 )
-
-type Chord capnp.Struct
-
-// Chord_TypeID is the unique identifier for the type Chord.
-const Chord_TypeID = 0x9255624d4320afc8
-
-func NewChord(s *capnp.Segment) (Chord, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 64, PointerCount: 0})
-	return Chord(st), err
-}
-
-func NewRootChord(s *capnp.Segment) (Chord, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 64, PointerCount: 0})
-	return Chord(st), err
-}
-
-func ReadRootChord(msg *capnp.Message) (Chord, error) {
-	root, err := msg.Root()
-	return Chord(root.Struct()), err
-}
-
-func (s Chord) String() string {
-	str, _ := text.Marshal(0x9255624d4320afc8, capnp.Struct(s))
-	return str
-}
-
-func (s Chord) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Chord) DecodeFromPtr(p capnp.Ptr) Chord {
-	return Chord(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Chord) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Chord) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Chord) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Chord) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Chord) C0() uint64 {
-	return capnp.Struct(s).Uint64(0)
-}
-
-func (s Chord) SetC0(v uint64) {
-	capnp.Struct(s).SetUint64(0, v)
-}
-
-func (s Chord) C1() uint64 {
-	return capnp.Struct(s).Uint64(8)
-}
-
-func (s Chord) SetC1(v uint64) {
-	capnp.Struct(s).SetUint64(8, v)
-}
-
-func (s Chord) C2() uint64 {
-	return capnp.Struct(s).Uint64(16)
-}
-
-func (s Chord) SetC2(v uint64) {
-	capnp.Struct(s).SetUint64(16, v)
-}
-
-func (s Chord) C3() uint64 {
-	return capnp.Struct(s).Uint64(24)
-}
-
-func (s Chord) SetC3(v uint64) {
-	capnp.Struct(s).SetUint64(24, v)
-}
-
-func (s Chord) C4() uint64 {
-	return capnp.Struct(s).Uint64(32)
-}
-
-func (s Chord) SetC4(v uint64) {
-	capnp.Struct(s).SetUint64(32, v)
-}
-
-func (s Chord) C5() uint64 {
-	return capnp.Struct(s).Uint64(40)
-}
-
-func (s Chord) SetC5(v uint64) {
-	capnp.Struct(s).SetUint64(40, v)
-}
-
-func (s Chord) C6() uint64 {
-	return capnp.Struct(s).Uint64(48)
-}
-
-func (s Chord) SetC6(v uint64) {
-	capnp.Struct(s).SetUint64(48, v)
-}
-
-func (s Chord) C7() uint64 {
-	return capnp.Struct(s).Uint64(56)
-}
-
-func (s Chord) SetC7(v uint64) {
-	capnp.Struct(s).SetUint64(56, v)
-}
-
-// Chord_List is a list of Chord.
-type Chord_List = capnp.StructList[Chord]
-
-// NewChord creates a new list of Chord.
-func NewChord_List(s *capnp.Segment, sz int32) (Chord_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 64, PointerCount: 0}, sz)
-	return capnp.StructList[Chord](l), err
-}
-
-// Chord_Future is a wrapper for a Chord promised by a client call.
-type Chord_Future struct{ *capnp.Future }
-
-func (f Chord_Future) Struct() (Chord, error) {
-	p, err := f.Future.Ptr()
-	return Chord(p.Struct()), err
-}
 
 type GraphEdge capnp.Struct
 
@@ -211,25 +84,25 @@ func (s GraphEdge) SetPosition(v uint32) {
 	capnp.Struct(s).SetUint32(4, v)
 }
 
-func (s GraphEdge) Chord() (Chord, error) {
+func (s GraphEdge) Chord() (data.Chord, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return Chord(p.Struct()), err
+	return data.Chord(p.Struct()), err
 }
 
 func (s GraphEdge) HasChord() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s GraphEdge) SetChord(v Chord) error {
+func (s GraphEdge) SetChord(v data.Chord) error {
 	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
 }
 
 // NewChord sets the chord field to a newly
-// allocated Chord struct, preferring placement in s's segment.
-func (s GraphEdge) NewChord() (Chord, error) {
-	ss, err := NewChord(capnp.Struct(s).Segment())
+// allocated data.Chord struct, preferring placement in s's segment.
+func (s GraphEdge) NewChord() (data.Chord, error) {
+	ss, err := data.NewChord(capnp.Struct(s).Segment())
 	if err != nil {
-		return Chord{}, err
+		return data.Chord{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
 	return ss, err
@@ -251,8 +124,8 @@ func (f GraphEdge_Future) Struct() (GraphEdge, error) {
 	p, err := f.Future.Ptr()
 	return GraphEdge(p.Struct()), err
 }
-func (p GraphEdge_Future) Chord() Chord_Future {
-	return Chord_Future{Future: p.Future.Field(0, nil)}
+func (p GraphEdge_Future) Chord() data.Chord_Future {
+	return data.Chord_Future{Future: p.Future.Field(0, nil)}
 }
 
 type SpatialIndex capnp.Client
@@ -309,7 +182,7 @@ func (c SpatialIndex) Lookup(ctx context.Context, params func(SpatialIndex_looku
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(SpatialIndex_lookup_Params(s)) }
 	}
 
@@ -794,12 +667,12 @@ type SpatialIndex_lookup_Params capnp.Struct
 const SpatialIndex_lookup_Params_TypeID = 0xb227a13d6bdbead1
 
 func NewSpatialIndex_lookup_Params(s *capnp.Segment) (SpatialIndex_lookup_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return SpatialIndex_lookup_Params(st), err
 }
 
 func NewRootSpatialIndex_lookup_Params(s *capnp.Segment) (SpatialIndex_lookup_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return SpatialIndex_lookup_Params(st), err
 }
 
@@ -835,28 +708,28 @@ func (s SpatialIndex_lookup_Params) Message() *capnp.Message {
 func (s SpatialIndex_lookup_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_lookup_Params) Left() uint8 {
-	return capnp.Struct(s).Uint8(0)
+func (s SpatialIndex_lookup_Params) Chords() (data.Chord_List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return data.Chord_List(p.List()), err
 }
 
-func (s SpatialIndex_lookup_Params) SetLeft(v uint8) {
-	capnp.Struct(s).SetUint8(0, v)
+func (s SpatialIndex_lookup_Params) HasChords() bool {
+	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_lookup_Params) Right() uint8 {
-	return capnp.Struct(s).Uint8(1)
+func (s SpatialIndex_lookup_Params) SetChords(v data.Chord_List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-func (s SpatialIndex_lookup_Params) SetRight(v uint8) {
-	capnp.Struct(s).SetUint8(1, v)
-}
-
-func (s SpatialIndex_lookup_Params) Position() uint32 {
-	return capnp.Struct(s).Uint32(4)
-}
-
-func (s SpatialIndex_lookup_Params) SetPosition(v uint32) {
-	capnp.Struct(s).SetUint32(4, v)
+// NewChords sets the chords field to a newly
+// allocated data.Chord_List, preferring placement in s's segment.
+func (s SpatialIndex_lookup_Params) NewChords(n int32) (data.Chord_List, error) {
+	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return data.Chord_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
 }
 
 // SpatialIndex_lookup_Params_List is a list of SpatialIndex_lookup_Params.
@@ -864,7 +737,7 @@ type SpatialIndex_lookup_Params_List = capnp.StructList[SpatialIndex_lookup_Para
 
 // NewSpatialIndex_lookup_Params creates a new list of SpatialIndex_lookup_Params.
 func NewSpatialIndex_lookup_Params_List(s *capnp.Segment, sz int32) (SpatialIndex_lookup_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
 	return capnp.StructList[SpatialIndex_lookup_Params](l), err
 }
 
@@ -923,28 +796,28 @@ func (s SpatialIndex_lookup_Results) Message() *capnp.Message {
 func (s SpatialIndex_lookup_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_lookup_Results) Chord() (Chord, error) {
+func (s SpatialIndex_lookup_Results) Paths() (capnp.PointerList, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return Chord(p.Struct()), err
+	return capnp.PointerList(p.List()), err
 }
 
-func (s SpatialIndex_lookup_Results) HasChord() bool {
+func (s SpatialIndex_lookup_Results) HasPaths() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_lookup_Results) SetChord(v Chord) error {
-	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+func (s SpatialIndex_lookup_Results) SetPaths(v capnp.PointerList) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewChord sets the chord field to a newly
-// allocated Chord struct, preferring placement in s's segment.
-func (s SpatialIndex_lookup_Results) NewChord() (Chord, error) {
-	ss, err := NewChord(capnp.Struct(s).Segment())
+// NewPaths sets the paths field to a newly
+// allocated capnp.PointerList, preferring placement in s's segment.
+func (s SpatialIndex_lookup_Results) NewPaths(n int32) (capnp.PointerList, error) {
+	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return Chord{}, err
+		return capnp.PointerList{}, err
 	}
-	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
-	return ss, err
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
 }
 
 // SpatialIndex_lookup_Results_List is a list of SpatialIndex_lookup_Results.
@@ -962,9 +835,6 @@ type SpatialIndex_lookup_Results_Future struct{ *capnp.Future }
 func (f SpatialIndex_lookup_Results_Future) Struct() (SpatialIndex_lookup_Results, error) {
 	p, err := f.Future.Ptr()
 	return SpatialIndex_lookup_Results(p.Struct()), err
-}
-func (p SpatialIndex_lookup_Results_Future) Chord() Chord_Future {
-	return Chord_Future{Future: p.Future.Field(0, nil)}
 }
 
 type SpatialIndex_queryTransitions_Params capnp.Struct
@@ -1094,25 +964,25 @@ func (s SpatialIndex_queryTransitions_Results) Message() *capnp.Message {
 func (s SpatialIndex_queryTransitions_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_queryTransitions_Results) Chords() (Chord_List, error) {
+func (s SpatialIndex_queryTransitions_Results) Chords() (data.Chord_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return Chord_List(p.List()), err
+	return data.Chord_List(p.List()), err
 }
 
 func (s SpatialIndex_queryTransitions_Results) HasChords() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_queryTransitions_Results) SetChords(v Chord_List) error {
+func (s SpatialIndex_queryTransitions_Results) SetChords(v data.Chord_List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
 // NewChords sets the chords field to a newly
-// allocated Chord_List, preferring placement in s's segment.
-func (s SpatialIndex_queryTransitions_Results) NewChords(n int32) (Chord_List, error) {
-	l, err := NewChord_List(capnp.Struct(s).Segment(), n)
+// allocated data.Chord_List, preferring placement in s's segment.
+func (s SpatialIndex_queryTransitions_Results) NewChords(n int32) (data.Chord_List, error) {
+	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return Chord_List{}, err
+		return data.Chord_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
@@ -1135,63 +1005,51 @@ func (f SpatialIndex_queryTransitions_Results_Future) Struct() (SpatialIndex_que
 	return SpatialIndex_queryTransitions_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d66 = "x\xda\xa4U\xdfo\x14U\x14>\xdf=\xf3c1\xd4" +
-	"\xf6f\xf7E\x1e\x00\x9b\xf5G[\x81\xb6kE\x9a\x90" +
-	"\xdd\x82\xa85\xad\xd9\x8b\x12\xc5\x98\xe0\xb8;\xecn\xd8" +
-	"\xeeng\xb6i}\xf0A\xd4\x07\x90\x07c\x82\x09\x1a" +
-	"L\xfc\x03\x0c\xe2\xa3\xd1\xc4\xf2\xa0\x84\xf0 F\"F" +
-	"\x8c\x90T\xa9\x06\x13\x13}2\x9a1w\x87\x9d\x19\x89" +
-	"\xa6\xab\xbc\x9d|s\xce=\xe7|\xe7;gF_\x14" +
-	"\x05c\xaco\xbbEB=jZ\xc1+\xebwT\xbf" +
-	"\xfb}\xcb\xcb$G@d\xc2&\xca\x81\x07\x05!}" +
-	"\x07\xe7\x09A\xee\xf0\xc3\x8bg\xb7\xce\xbcJj\x04 " +
-	"2\xb4\xc34o\xd0\x0e\x0e/\x12\x82\xbd\xb3\xe9so" +
-	"\x7f\xf4\xfa\xb1\xf0\x85\xce\xf7e\xfe\x10d\x04gOm" +
-	"\xde=\xfb\xfc\xbe7HmD*8\xb8s\xaau\xf2" +
-	"\x98\xf9^\xe8r\x9a\x07\x91^fm~\xcc\x9f\x81\x10" +
-	"\\\xf8\xe9\x9bC;\xdf\xbd\xe7\x83d\xa2\x97\xccs " +
-	"\xa4\x8f\x9b\xa7\x08\xc1\xd1_\xdf\xfc\xf4\xf1\xdb\xce_L" +
-	"$\x1a\xb3\xce\xe8DG\xae{O-[\x95\xaf\x92M" +
-	"\xdciuB',\xdd\xc4\x1f\x83+#(\x97W\x93" +
-	"\x0e\xfb\xac/\xb4C\xad\xe3\xf0\xda\xf1\xabw\xffp\xf8" +
-	"\xfd?In\xe4\xb8RB\xee\x88\xf5\x0c\xd2'-\x1d" +
-	"p\xc2\xb2\x91\x9e\xb2m\xa2`\xd7\xbdgJ\xd7\xde\x99" +
-	"\x0atg\x88\xfd\xc3\x87\x87\xec]H\xef\xd0~\xe9\x09" +
-	"\xfb\x1a\xed\x0f\xfcv\xd3s\xb7\xd5}{n\x9b\xdfr" +
-	"\xda5\xa7~\xa0\xd6(\xbbK[KN\xab\xd1\x9a|" +
-	"\"\xc4\xa6;\xd0\xfc\x82\xeb\xbd\xf0\xa4\xe74\xfcZ\xbb" +
-	"\xd6l\xf8\xd9\xbd\xae\xbf`\xd7\xdb\xbe2\xd8 2@" +
-	"$\xfb&\x89T\x8a\xa1\xb2\x02\xf9R\xb5\xe9\x95}\xdc" +
-	"N(20\x10\x93N\xd0\xe0\xad%/:\x9e\xc3s" +
-	"\xbeJE\xb9\x87\x86\x89T\x96\xa1F\x05$\x90\xd1\xa3" +
-	"\x92[\x1e#R\xf71\xd4\x83\x02\xfdu\xf7`\x1b\x16" +
-	"\x09X\x84\xa0\xd5\x0c\x9f\"\"\xa4H \x95\xa8\xc8\xec" +
-	"\xa1\xa2r\xb3\xe1f\xf3\xba\x8c9?\x0a\xe4\x7f\x0e\xdc" +
-	"]\xb5\x9b^\xb9\x08\xa8\xcdQ\xb9\x176\x10\xa9\xf3\x0c" +
-	"u)Q\xeeE\x0d~\xceP\x97\x05\xa4\x10\x19\x08\"" +
-	"\xf9\xb5\x06\xbfd\xa8+\x02\x929\x03&\x92\xdfj\xf0" +
-	"\x12C\xad\x08H\xc3\xc8\xc0 \x92W5x\x99\xa1V" +
-	"\x05\xa4if`\x12\xc9\xef5x\x85\xa1\xae\x0bH\xcb" +
-	"\xca\xc0\"\x92?jp\x85\xa1~\x11\x90\xb6\x9d\xd1\xf2" +
-	"\x90?kp\x95\xa1~\x13\xe0\xd2(\xd6\x91\xc0:\x02" +
-	"\x97\xc6bs<6s\xb1y\x7flN\xc4\xe6\x03\xb1" +
-	"\xb9\xbdkFTY=p\\o6\x0f-\xb4\xb2!" +
-	"\xc9Dj}\xc4\xde\x1e=\xec\x02C\xcd$\xd8\x9b\x1e" +
-	"'R\x0f1TQ\xb3\x87\x90\xbdY\xad\x80\x19\x86z" +
-	"\xfa&\x05l\xf2j\x95joz\xe8\xebU\x0fz%" +
-	"\xeam\x9f\xba\x81=\xc4\xd5\x1a\xbe\xeb\xb5\xe3\x1e\x13\xcb" +
-	"4|c\x992\x02\xfdn\xb9\xe2b ^o\x02\x06" +
-	"\xfe\x1f\x9ba\x8d\xf8\xdb\xda\x8e\xc7\x996u\xd6\xf6\xa6" +
-	"uM\xa62\xd6J\xc5\xee\x92\x96\xfa\x00\x9bD\xd1\x01" +
-	"D\xe3\xf4'\x8b\xb9\xb7\x0e\x9c\x90\xf3\x93$\xa4k#" +
-	"\xbe\xcf\xe8\xdeO\xb9\x7f\x98\x84\x9c\xb5!\xa2\x9b\x8b\xee" +
-	"\x81\x94S:n\xc2\x06G\x87\x1f\xdd_\x84\x1c:J" +
-	"B\xdee\xe7C2\x0b\xe8\xd7\xd3( \x1f\xb6\\@" +
-	"\xd0\xbd\x1f\xe8\x1e\x10\xa2\x02\x8aX\xb3\xabG<\xa7U" +
-	"\xddS\xae\xb8\x14\xb6\xd4e\xcc\xd1\xb3y\x96\xa1\xaa\x09" +
-	"\xfd\xb9\x9a\xc6\xe7\x18\xaa\x9e\xd0_M\xeb\xaf\xcaPm" +
-	"\x01\xdcX\xdey\xedXg\xa8\xa5\xff\xac\xc9\x7f\x1b\xcf" +
-	"_\x01\x00\x00\xff\xff\x9c\x00\xdb\xf3"
+const schema_ad058c9d70413d66 = "x\xda\xa4TMh#e\x18~\x9f\xef\x9b\xc9\x04\xb1" +
+	"6\x1f\x89\x17\x0f-\x96Tmk\x7f4\x0a\xb6P\x92" +
+	"\x16\xa2T\xda\x92\xaf\x0aR\x11\xea\xd0L\x93\xa1\xd3\xcc" +
+	"tfB\xeb\xb5\xea\xc1Z\xd1\x8bJ\x15\x05\x8f\x1e\x0a" +
+	"*\x9e\xc4\x83\x16\x11)^\x14\xc4\x83\xc8\xb2\xb0l\x97" +
+	"ewaY\xd8\xc3\xb2\xcb,_\xa6I\xb3e\xd9f" +
+	"\xe9\xf5\x9b\xe7y\xdfg\x9e\xf7}\xde\xb1\x9b(h\xcf" +
+	"u}\x9c &g\xf5D\xf4\xde\xa3\xe3\xd5s\xb7\x86" +
+	"\xdf%1\x04\"\x1d\x06Qn\x98\xf71B\xba\xc8\xf3" +
+	"\x84(\xb7\xf5\xf2\xc6\x1f#\xb3\xef\x93\x1c\x02\x884\x05" +
+	"\xa8\xf3'\x14\xe0#\xbeA\x88\x16\xe6\xd2\x07_\xfe\xfc" +
+	"\xc9N\\\xa1\xf1\xfd*\xff\x09\xa4E\x7f]\xfeou" +
+	"\xf2\x9b\xa7\x7fh\xaf\xfd??\x00!}\xbdQ{\xfb" +
+	"\xc6g\xbf\xcf?\xf2\xe7?m\xd4'\xb5}E\xfd\xe0" +
+	"\x8a\xff\xc6\xaf\x89\xca\xbf\xedT\xa15\xa8\xfd\x9a\xa2\xde" +
+	"\xee\xbb0\x84r\xf9R;\xa0\xa8\xfd\xad\x00\x8b\x0d\xc0" +
+	"\x87\x9f\x9e\x7f\xea\xe2\xd6wwH\xf4\xf0her\xca" +
+	"\xfbjG\xdf#BnW{\x13\xe9\xbdF\xb3o5" +
+	"\x03i\xa9\x1bD\xd1\xf43\xfb\xcb\x87_OE${" +
+	"\x80c|\\x\\\x9fFzF\xe1\xd2E\xfd\x90\xdc" +
+	"(\x08]\xdf\x1au\x02cm4\xf0\xcc\xd06\x9d%" +
+	"\xbbV\xb66G\x96M\xaf\xe6M\xbc\x16\xbf\xcd4\x9e" +
+	"\xd6\xeb\x96\xff\xce\xeb\xbeY\x0b\xec\xd0vkAv\xc1" +
+	"\x0a\xea\x86\x13\x06R\xe3\x1a\x91\x06\"\xd15A$\x93" +
+	"\x1c2\xcb\x90_\xae\xba~9\xc0c\x84\x12\x07R\xd1" +
+	"\xe7\xf6\xe3\xf3\xd7\x82\x1f\x7f#\x82z<[\xf3\x92\xe9" +
+	"\x9b|-\x90\xc9V\xef\x81A\"\x99\xe5\x90c\x0c\x02" +
+	"\xc8\xa8)\x8b\xe1W\x89\xe4\xb3\x1c\xf2%\x86n\xc7Z" +
+	"\x09\x91 \x86\x04!\xf2\xdc\xb8\x14\x11!I\x0c\xc96" +
+	"Ez\x07\x8a\xcan\xcd\xca\xe6\x95\x8c\xb5\xa0ELt" +
+	"@t\\w\xb5\xeeec&\xd1Y\xdd\xeb\xeaT\xab" +
+	"\x1a\x97\x13\x06\xd4$v\xc0\xb3k\x81\xe5\x87\xf7\x95:" +
+	"x$5\xc3\xd0m\x95+\x16R\xc7\xabG@\xaaM" +
+	"\xe1C\x98\x12k\xc4=+\xf5\xfcQ\xa7\x17\x18z=" +
+	"3\xac\xb6<9\xd5\x1a\xed\xb4\xc6\xdc\xda,\x012\xc5" +
+	"u\xa2VTQ\xfb\xfe\x97\x8d\xdc\x17K\xbbb}\x82" +
+	"\x98\xb0\x0c\x1c\xdf\x064\x93.\x16\x07\x89\x899\x03\xac" +
+	"u\x1d\xd0\x8c\xb2\x98R\xbc\x17\x0d\xf0\xd6\xd1A\xf3<" +
+	"\x89\x81mb\xa2\xdf\xc8\xc7\xd6\x16\xd0\xadfS@>" +
+	"6\xa0\x80\xa8\xb9\xe9h\xae:Q\x01%\x9c\xfaW\xaf" +
+	"\xf8\xa6W-\x96+\x16\xc5\xbf\xd4\xf4\xcfT\x93z\x8b" +
+	"CV\xdbba)S\xdf\xe6\x90\x0e\x83`\xc8\x80\x11" +
+	"\x09[e\xa5\xca!C\x06\xf0\x0c8\x91XW@\x87" +
+	"Cn\x9e\xc8O\xafoW\xaa\x0fLSoc\x83O" +
+	"\x8c'E\xb8\x1b\x00\x00\xff\xffU\xfe\x9d\xa3"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -1200,7 +1058,6 @@ func RegisterSchema(reg *schemas.Registry) {
 			0x832dfadf68390c84,
 			0x854c2ec877468233,
 			0x8c90bc9bca134d52,
-			0x9255624d4320afc8,
 			0xb227a13d6bdbead1,
 			0xd5cc0a4ec696f38a,
 			0xd76706c15772ec89,

@@ -8,7 +8,6 @@ import (
 	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
-	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
 	data "github.com/theapemachine/six/data"
 )
@@ -133,21 +132,23 @@ type Matrix capnp.Client
 // Matrix_TypeID is the unique identifier for the type Matrix.
 const Matrix_TypeID = 0xeeb3a6333392ee55
 
-func (c Matrix) Insert(ctx context.Context, params func(Matrix_insert_Params) error) error {
+func (c Matrix) Prompt(ctx context.Context, params func(Matrix_prompt_Params) error) (Matrix_prompt_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xeeb3a6333392ee55,
 			MethodID:      0,
 			InterfaceName: "logic/graph/matrix.capnp:Matrix",
-			MethodName:    "insert",
+			MethodName:    "prompt",
 		},
 	}
 	if params != nil {
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Matrix_insert_Params(s)) }
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Matrix_prompt_Params(s)) }
 	}
 
-	return capnp.Client(c).SendStreamCall(ctx, s)
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Matrix_prompt_Results_Future{Future: ans.Future()}, release
 
 }
 
@@ -244,7 +245,7 @@ func (c Matrix) GetFlowLimiter() fc.FlowLimiter {
 
 // A Matrix_Server is a Matrix with a local implementation.
 type Matrix_Server interface {
-	Insert(context.Context, Matrix_insert) error
+	Prompt(context.Context, Matrix_prompt) error
 
 	Done(context.Context, Matrix_done) error
 }
@@ -273,10 +274,10 @@ func Matrix_Methods(methods []server.Method, s Matrix_Server) []server.Method {
 			InterfaceID:   0xeeb3a6333392ee55,
 			MethodID:      0,
 			InterfaceName: "logic/graph/matrix.capnp:Matrix",
-			MethodName:    "insert",
+			MethodName:    "prompt",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Insert(ctx, Matrix_insert{call})
+			return s.Prompt(ctx, Matrix_prompt{call})
 		},
 	})
 
@@ -295,21 +296,21 @@ func Matrix_Methods(methods []server.Method, s Matrix_Server) []server.Method {
 	return methods
 }
 
-// Matrix_insert holds the state for a server call to Matrix.insert.
+// Matrix_prompt holds the state for a server call to Matrix.prompt.
 // See server.Call for documentation.
-type Matrix_insert struct {
+type Matrix_prompt struct {
 	*server.Call
 }
 
 // Args returns the call's arguments.
-func (c Matrix_insert) Args() Matrix_insert_Params {
-	return Matrix_insert_Params(c.Call.Args())
+func (c Matrix_prompt) Args() Matrix_prompt_Params {
+	return Matrix_prompt_Params(c.Call.Args())
 }
 
 // AllocResults allocates the results struct.
-func (c Matrix_insert) AllocResults() (stream.StreamResult, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return stream.StreamResult(r), err
+func (c Matrix_prompt) AllocResults() (Matrix_prompt_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Matrix_prompt_Results(r), err
 }
 
 // Matrix_done holds the state for a server call to Matrix.done.
@@ -338,95 +339,180 @@ func NewMatrix_List(s *capnp.Segment, sz int32) (Matrix_List, error) {
 	return capnp.CapList[Matrix](l), err
 }
 
-type Matrix_insert_Params capnp.Struct
+type Matrix_prompt_Params capnp.Struct
 
-// Matrix_insert_Params_TypeID is the unique identifier for the type Matrix_insert_Params.
-const Matrix_insert_Params_TypeID = 0xbc78195ae0bb162a
+// Matrix_prompt_Params_TypeID is the unique identifier for the type Matrix_prompt_Params.
+const Matrix_prompt_Params_TypeID = 0xbc78195ae0bb162a
 
-func NewMatrix_insert_Params(s *capnp.Segment) (Matrix_insert_Params, error) {
+func NewMatrix_prompt_Params(s *capnp.Segment) (Matrix_prompt_Params, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Matrix_insert_Params(st), err
+	return Matrix_prompt_Params(st), err
 }
 
-func NewRootMatrix_insert_Params(s *capnp.Segment) (Matrix_insert_Params, error) {
+func NewRootMatrix_prompt_Params(s *capnp.Segment) (Matrix_prompt_Params, error) {
 	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Matrix_insert_Params(st), err
+	return Matrix_prompt_Params(st), err
 }
 
-func ReadRootMatrix_insert_Params(msg *capnp.Message) (Matrix_insert_Params, error) {
+func ReadRootMatrix_prompt_Params(msg *capnp.Message) (Matrix_prompt_Params, error) {
 	root, err := msg.Root()
-	return Matrix_insert_Params(root.Struct()), err
+	return Matrix_prompt_Params(root.Struct()), err
 }
 
-func (s Matrix_insert_Params) String() string {
+func (s Matrix_prompt_Params) String() string {
 	str, _ := text.Marshal(0xbc78195ae0bb162a, capnp.Struct(s))
 	return str
 }
 
-func (s Matrix_insert_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+func (s Matrix_prompt_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
 	return capnp.Struct(s).EncodeAsPtr(seg)
 }
 
-func (Matrix_insert_Params) DecodeFromPtr(p capnp.Ptr) Matrix_insert_Params {
-	return Matrix_insert_Params(capnp.Struct{}.DecodeFromPtr(p))
+func (Matrix_prompt_Params) DecodeFromPtr(p capnp.Ptr) Matrix_prompt_Params {
+	return Matrix_prompt_Params(capnp.Struct{}.DecodeFromPtr(p))
 }
 
-func (s Matrix_insert_Params) ToPtr() capnp.Ptr {
+func (s Matrix_prompt_Params) ToPtr() capnp.Ptr {
 	return capnp.Struct(s).ToPtr()
 }
-func (s Matrix_insert_Params) IsValid() bool {
+func (s Matrix_prompt_Params) IsValid() bool {
 	return capnp.Struct(s).IsValid()
 }
 
-func (s Matrix_insert_Params) Message() *capnp.Message {
+func (s Matrix_prompt_Params) Message() *capnp.Message {
 	return capnp.Struct(s).Message()
 }
 
-func (s Matrix_insert_Params) Segment() *capnp.Segment {
+func (s Matrix_prompt_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Matrix_insert_Params) Edge() (GraphEdge, error) {
+func (s Matrix_prompt_Params) Chords() (data.Chord_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return GraphEdge(p.Struct()), err
+	return data.Chord_List(p.List()), err
 }
 
-func (s Matrix_insert_Params) HasEdge() bool {
+func (s Matrix_prompt_Params) HasChords() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Matrix_insert_Params) SetEdge(v GraphEdge) error {
-	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+func (s Matrix_prompt_Params) SetChords(v data.Chord_List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewEdge sets the edge field to a newly
-// allocated GraphEdge struct, preferring placement in s's segment.
-func (s Matrix_insert_Params) NewEdge() (GraphEdge, error) {
-	ss, err := NewGraphEdge(capnp.Struct(s).Segment())
+// NewChords sets the chords field to a newly
+// allocated data.Chord_List, preferring placement in s's segment.
+func (s Matrix_prompt_Params) NewChords(n int32) (data.Chord_List, error) {
+	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return GraphEdge{}, err
+		return data.Chord_List{}, err
 	}
-	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
-	return ss, err
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
 }
 
-// Matrix_insert_Params_List is a list of Matrix_insert_Params.
-type Matrix_insert_Params_List = capnp.StructList[Matrix_insert_Params]
+// Matrix_prompt_Params_List is a list of Matrix_prompt_Params.
+type Matrix_prompt_Params_List = capnp.StructList[Matrix_prompt_Params]
 
-// NewMatrix_insert_Params creates a new list of Matrix_insert_Params.
-func NewMatrix_insert_Params_List(s *capnp.Segment, sz int32) (Matrix_insert_Params_List, error) {
+// NewMatrix_prompt_Params creates a new list of Matrix_prompt_Params.
+func NewMatrix_prompt_Params_List(s *capnp.Segment, sz int32) (Matrix_prompt_Params_List, error) {
 	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Matrix_insert_Params](l), err
+	return capnp.StructList[Matrix_prompt_Params](l), err
 }
 
-// Matrix_insert_Params_Future is a wrapper for a Matrix_insert_Params promised by a client call.
-type Matrix_insert_Params_Future struct{ *capnp.Future }
+// Matrix_prompt_Params_Future is a wrapper for a Matrix_prompt_Params promised by a client call.
+type Matrix_prompt_Params_Future struct{ *capnp.Future }
 
-func (f Matrix_insert_Params_Future) Struct() (Matrix_insert_Params, error) {
+func (f Matrix_prompt_Params_Future) Struct() (Matrix_prompt_Params, error) {
 	p, err := f.Future.Ptr()
-	return Matrix_insert_Params(p.Struct()), err
+	return Matrix_prompt_Params(p.Struct()), err
 }
-func (p Matrix_insert_Params_Future) Edge() GraphEdge_Future {
-	return GraphEdge_Future{Future: p.Future.Field(0, nil)}
+
+type Matrix_prompt_Results capnp.Struct
+
+// Matrix_prompt_Results_TypeID is the unique identifier for the type Matrix_prompt_Results.
+const Matrix_prompt_Results_TypeID = 0xaa295eea451b698e
+
+func NewMatrix_prompt_Results(s *capnp.Segment) (Matrix_prompt_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Matrix_prompt_Results(st), err
+}
+
+func NewRootMatrix_prompt_Results(s *capnp.Segment) (Matrix_prompt_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Matrix_prompt_Results(st), err
+}
+
+func ReadRootMatrix_prompt_Results(msg *capnp.Message) (Matrix_prompt_Results, error) {
+	root, err := msg.Root()
+	return Matrix_prompt_Results(root.Struct()), err
+}
+
+func (s Matrix_prompt_Results) String() string {
+	str, _ := text.Marshal(0xaa295eea451b698e, capnp.Struct(s))
+	return str
+}
+
+func (s Matrix_prompt_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Matrix_prompt_Results) DecodeFromPtr(p capnp.Ptr) Matrix_prompt_Results {
+	return Matrix_prompt_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Matrix_prompt_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Matrix_prompt_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Matrix_prompt_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Matrix_prompt_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Matrix_prompt_Results) Paths() (capnp.PointerList, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.PointerList(p.List()), err
+}
+
+func (s Matrix_prompt_Results) HasPaths() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Matrix_prompt_Results) SetPaths(v capnp.PointerList) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewPaths sets the paths field to a newly
+// allocated capnp.PointerList, preferring placement in s's segment.
+func (s Matrix_prompt_Results) NewPaths(n int32) (capnp.PointerList, error) {
+	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.PointerList{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+// Matrix_prompt_Results_List is a list of Matrix_prompt_Results.
+type Matrix_prompt_Results_List = capnp.StructList[Matrix_prompt_Results]
+
+// NewMatrix_prompt_Results creates a new list of Matrix_prompt_Results.
+func NewMatrix_prompt_Results_List(s *capnp.Segment, sz int32) (Matrix_prompt_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Matrix_prompt_Results](l), err
+}
+
+// Matrix_prompt_Results_Future is a wrapper for a Matrix_prompt_Results promised by a client call.
+type Matrix_prompt_Results_Future struct{ *capnp.Future }
+
+func (f Matrix_prompt_Results_Future) Struct() (Matrix_prompt_Results, error) {
+	p, err := f.Future.Ptr()
+	return Matrix_prompt_Results(p.Struct()), err
 }
 
 type Matrix_done_Params capnp.Struct
@@ -559,41 +645,45 @@ func (f Matrix_done_Results_Future) Struct() (Matrix_done_Results, error) {
 	return Matrix_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d67 = "x\xda\x8cQ;\x8b\x13Q\x18=\xe7\xbb\x93G\x13\x92" +
-	"k\xa2\x10\x9b\x08\xae\x85A\x8ck\xbaE\xd9\x88\x88(" +
-	"\xac\xe4\x0a\x82\x88\xa0c2\xce\x8c$\x99qf\x96M" +
-	"c\xb1\x95\x08\xda,\x88(\xd8X,XX\x88V>" +
-	"@\xc1\xd6B\x04A\xb0\xd8J\xbb\x80\xfe\x81\x911\x9a" +
-	"\xd8\xf8\xe8\xeew\xbfs8\x8f\xef\xc0>v\xac\xc5R" +
-	"+\x071\x87r\xf9te\xeb\xc1x}\xdb\xfbM\xe8" +
-	"]\x04\xac\x02\xd0\xbe&W\x08+m\xeex\xbeu\xae" +
-	">~1\xdd\xe4\x98\xad|\x89\x08VWe\x19L\x9b" +
-	"{\x8f\xbe|v\xf6\xc4\xe7\xdf\xa8\xb7\xe5RF=3" +
-	"\xd9h\xb77\x9fL\xa0\xeb*u\x0f\x1f\x09\xef\xdf\xcc" +
-	"=\x02\xd8^\x17a\xf5\x96\x14\x80\xea\x0d\xb9^\xfd\x98" +
-	"\xbd\xd2O\x1fv?\xfc\xba\xb1\xf6\x0d\xa6N\xce\xe1S" +
-	"\xc5\xd7\xb2\x93\xd5w?\x18o\xe5\x0b\x82t\x10\xb8~" +
-	"\xaf\xe5F\x96\x1dz\xad\xa1\x9dD\xfex\x7f\xcf\x0eG" +
-	"\xe1\xd2\xcat\xe8\x07#g\xe1\xb4\x13\x97W\x07I\xfc" +
-	"o\xb8?\x8a\x9d(Y\xe86\xec\xc8\x1e\xc6\xc6R\x16" +
-	"`\x11\xd0\xa5&`\x8a\x8a\xa6&,;}\xd7ae" +
-	"n\x15d\x05\xfcO3];*\xd8\xc3\xb9\x17\xf5\x07" +
-	"4\xba\xa4)\xaa\x1c0+\x9f\xa3\xc7\xaf\xd6\xda\xf7." +
-	"\xdc\xd5\x8bK\x10\xbd\xa7\xc0y\xef\xfcu;]oB" +
-	"t\xa9\xb0<\xcd\xd2a9\x93\xed\xb0K\xfeE\xf3x" +
-	"d\x87\xde\xb1\xber\x9dL\xb62\xcbmg\xb9\xcf+" +
-	"\x1aO\xa8\xc9\x1a\xb3O\xe7 `.*\x9a\x81P\x0b" +
-	"k\x14@\xfb'\x01\xe3)\x9aDHU\xa3\x02\xf4\xd5" +
-	"\x0c8P4cay\xe0\\N\x98\x870\x0f6\"" +
-	"\xdf\xf5fS\x1a\x06\xb1\x9f\xf8\xc1\x08\x00\x8b\x10\x16\xc1" +
-	"F\xcf\x0b\xa2>+\xe9\x1d\x7f\xfb\xa9I\xfc\xf4\xcd\xcf" +
-	"\x96\xbf\x07\x00\x00\xff\xff\x11\x8f\xbe\xe8"
+const schema_ad058c9d70413d67 = "x\xda\xa4\x92\xbd\x8b\x13Q\x14\xc5\xcfyo\xb2I\x13" +
+	"\x931Q\x88\x16\x11\x8c\xc8\x06t7\xc6*\xb0$\xb2" +
+	",\xa2\xb0\x92\xb7 \xa8\x88\xf8L\xc6\xccH\x92\x19g" +
+	"F\x0cvV6b\xb1\x8dX\xd8\x08.\xac`!Z" +
+	"\xf9\xd1\xf9\x1f\x08V\x16\xdb\xa8`\x11X;\xab\x91I" +
+	"L\xb2\x0a~\x80\xd5\xcc\xbd\xf7\xdc\xfb\xe3\x9d{\x17\x8f" +
+	"\xb0aT\xd2\x87\x0d\x08\xb5\x98\x98\x8bV\xb7\x1e\x0dn" +
+	"\xef~\xb7\x01\xf3\x00\x01#\x09T\xbf\xf1\x1aaD\xf7" +
+	"\x9c\xfd+_.\xcd?\x19W\x12\x8cK\x1fy\x8b`" +
+	"n\x9bu0*\xef}\xb5u\xa10x\xbdSP\x11" +
+	"~,X\x12#\xc1\xfc\xf2\x9b\x97\xe7N}\xda1\xbb" +
+	"'\xae\xc4\xb3\xcf\x0e\xd7\xab\xd5\x8d\xe7C\x98\x05\x19u" +
+	"\x96Nx\x0f\xef&\x9e\x02\xac\x9e\x17\x829K$\x81" +
+	"\x9c\x16wr\xcf\xe2\xbf\xe8\xc3\xfb\x83\x9b\xdb\xeb7\xbf" +
+	"B\x15\xc8\x99|L| \xf61\xb79\xeax,>" +
+	"c9\xea\xba\x1d\xa7\xb5\xd0\xf1\x0d\xed\xd9\x0b=\x1d\xfa" +
+	"\xce\xe0hK{}\xaf\xb6:\x0e\xdan\xdf*\xadY" +
+	"A\xe6F7\x0c\xfe.\xf7|\xb7\xe7\x85\xa5\xb5\xba\x15" +
+	"\xc4\x0d\xca\x90\x06`\x100\xd3\xc7\x00\x95\x92T\xc7\x05" +
+	"\x8b\x9e\x0e\xed\x80\xbb\xc0\xa6\xe4\xe4\x93\x8d\xee;{\xce" +
+	"\x0c\x83\x17o\x81Q\xf2\x9fi\xcd\xa2\xf6u\xef'X" +
+	"\xed\x07\xac$Xo\xd9\xae\xdf\x0e\xfe\x033\xf2\xa0\xa9" +
+	"\xfd\xa4\xee\xcd,\x90\xbfQ\xa3I\xaa\x94L\x00\xd3\x9d" +
+	"sr\x1df\xa5\x06a\x1eJr\xb6nNn\xca," +
+	"\x94!\xcct\xb2>~T\x83\x99\x18\xdb`\x93\xfc\x03" +
+	"\xf3\xa4\xaf={\xa5-;V\x8c\xcdN\x0d\xd0e@" +
+	"]\x94T\xb6\xa0I\xe6\x19'\xadx\x05\x97%UW" +
+	"\xd0\x14\xccS\x00\xa6s\x1aP\xb6\xa4\x0a\x05)\xf3\x94" +
+	"\x80y=\x16v%\xd5@0\xd3\xb5\xae\x86\x9c\x83\xe0" +
+	"\x1cX\xf4\x9d\x8e=\x8d\"\xcf\x0d\x9c\xd0q\xfb\x00\x98" +
+	"\x82`\x0a,\x8e\xdc\xfe\xc5\xe5,\xf8=\x00\x00\xff\xff" +
+	"\x085\xe2\x04"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d67,
 		Nodes: []uint64{
 			0xa6d3128178a2e04d,
+			0xaa295eea451b698e,
 			0xbc78195ae0bb162a,
 			0xe64958babd43292a,
 			0xeeb3a6333392ee55,

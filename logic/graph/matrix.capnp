@@ -15,6 +15,6 @@ struct GraphEdge {
 
 interface Matrix {
   # Streaming ingestion for 0-copy, zero-blocking insertions
-  insert           @0 (edge :GraphEdge) -> stream;
+  prompt           @0 (chords :List(Chord)) -> (paths :List(List(Chord)));
   done             @1 ();
 }

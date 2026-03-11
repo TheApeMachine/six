@@ -4,16 +4,18 @@ import (
 	"context"
 	"time"
 
+	"github.com/theapemachine/six/logic/graph"
 	"github.com/theapemachine/six/pool"
-	"github.com/theapemachine/six/vm/cortex"
+	"github.com/theapemachine/six/process"
+	"github.com/theapemachine/six/store/lsm"
 )
 
 /*
-System is any component that participates in the tick-based message bus.
+System is any component that participates in the broadcast message bus.
 Only the Booter runs a goroutine; systems receive messages synchronously.
 */
 type System interface {
-	Tick(result *pool.Result)
+	Receive(result *pool.Result)
 }
 
 /*
@@ -52,14 +54,31 @@ func (booter *Booter) Start() {
 
 	subscription := broadcast.Subscribe("booter", 128)
 
-	graph := cortex.NewGraph(
-		cortex.GraphWithContext(booter.ctx),
-		cortex.GraphWithBroadcast(broadcast),
+	index := lsm.NewSpatialIndexServer(
+		lsm.SpatialIndexWithContext(booter.ctx),
+		lsm.SpatialIndexWithBroadcast(broadcast),
+	)
+
+	tokenizer := process.NewTokenizerServer(
+		process.TokenizerWithContext(booter.ctx),
+		process.TokenizerWithPool(booter.pool),
+		process.TokenizerWithBroadcast(broadcast),
+	)
+
+	matrix := graph.NewMatrixServer(
+		graph.MatrixWithContext(booter.ctx),
+		graph.MatrixWithBroadcast(broadcast),
 	)
 
 	systems := []System{
-		graph,
+		index,
+		tokenizer,
+		matrix,
 	}
+
+	index.Announce()
+	tokenizer.Announce()
+	matrix.Announce()
 
 	go func() {
 		defer booter.cancel()
@@ -70,13 +89,13 @@ func (booter *Booter) Start() {
 				return
 			case msg := <-subscription:
 				for _, system := range systems {
-					system.Tick(msg)
+					system.Receive(msg)
 				}
 			default:
 				for _, system := range systems {
-					system.Tick(nil)
+					system.Receive(nil)
 				}
-				time.Sleep(time.Millisecond) // tick continuously but gently
+				time.Sleep(time.Millisecond)
 			}
 		}
 	}()

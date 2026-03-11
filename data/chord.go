@@ -24,25 +24,69 @@ func (chord *Chord) Sanitize() {
 	chord.SetC7(0)
 }
 
+func (chord *Chord) block(i int) uint64 {
+	switch i {
+	case 0:
+		return chord.C0()
+	case 1:
+		return chord.C1()
+	case 2:
+		return chord.C2()
+	case 3:
+		return chord.C3()
+	case 4:
+		return chord.C4()
+	case 5:
+		return chord.C5()
+	case 6:
+		return chord.C6()
+	case 7:
+		return chord.C7()
+	default:
+		return 0
+	}
+}
+
+func (chord *Chord) setBlock(i int, v uint64) {
+	switch i {
+	case 0:
+		chord.SetC0(v)
+	case 1:
+		chord.SetC1(v)
+	case 2:
+		chord.SetC2(v)
+	case 3:
+		chord.SetC3(v)
+	case 4:
+		chord.SetC4(v)
+	case 5:
+		chord.SetC5(v)
+	case 6:
+		chord.SetC6(v)
+	case 7:
+		chord.SetC7(v)
+	}
+}
+
 /*
 Has checks if the prime at index p is active in the chord.
 */
 func (chord *Chord) Has(p int) bool {
-	return (chord[p/64] & (1 << (p % 64))) != 0
+	return (chord.block(p/64) & (1 << (p % 64))) != 0
 }
 
 /*
 Set activates the prime at index p.
 */
 func (chord *Chord) Set(p int) {
-	chord[p/64] |= (1 << (p % 64))
+	chord.setBlock(p/64, chord.block(p/64)|(1<<(p%64)))
 }
 
 /*
 Clear deactivates the prime at index p.
 */
 func (chord *Chord) Clear(p int) {
-	chord[p/64] &^= (1 << (p % 64))
+	chord.setBlock(p/64, chord.block(p/64)&^(1<<(p%64)))
 }
 
 /*
@@ -51,7 +95,7 @@ Zeros word[7] before lookup so sequence metadata does not affect the match.
 */
 func (chord *Chord) Byte() byte {
 	var search Chord = *chord
-	search[7] = 0 // Strip sequence pointer
+	search.SetC7(0) // Strip sequence pointer
 
 	for b := range 256 {
 		test := BaseChord(byte(b))
@@ -96,14 +140,14 @@ func (chord *Chord) RotationSeed() (uint16, uint16) {
 	var accB uint32
 
 	for blockIdx := range config.ChordBlocks {
-		block := chord[blockIdx]
+		block := chord.block(blockIdx)
 		if block == 0 {
 			continue
 		}
 
 		mix := uint32(block^(block>>29)^(block>>43)) & 0x1FFFF
 		accA = (accA*131 + mix + uint32(blockIdx+1)*17) % 257
-		accB = (accB*137 + mix + uint32(popcount(block))*29 + uint32(blockIdx+1)*31) % 257
+		accB = (accB*137 + mix + uint32(Popcount(block))*29 + uint32(blockIdx+1)*31) % 257
 
 		for block != 0 {
 			bitIdx := bits.TrailingZeros64(block)
@@ -135,7 +179,7 @@ Bytes returns the chord as config.ChordBlocks×8 bytes (big-endian uint64s).
 func (chord *Chord) Bytes() []byte {
 	b := make([]byte, config.ChordBlocks*8)
 	for i := range config.ChordBlocks {
-		binary.BigEndian.PutUint64(b[i*8:], chord[i])
+		binary.BigEndian.PutUint64(b[i*8:], chord.block(i))
 	}
 	return b
 }
@@ -186,7 +230,7 @@ func ChordFromBytes(b []byte) (c Chord) {
 	}
 
 	for i := range config.ChordBlocks {
-		c[i] = binary.BigEndian.Uint64(b[i*8:])
+		c.setBlock(i, binary.BigEndian.Uint64(b[i*8:]))
 	}
 
 	return c
@@ -198,14 +242,15 @@ Used for aggregating span chords (words, sentences, n-grams).
 */
 func ChordLCM(chords []Chord) (lcm Chord) {
 	for _, ch := range chords {
-		lcm[0] |= ch[0]
-		lcm[1] |= ch[1]
-		lcm[2] |= ch[2]
-		lcm[3] |= ch[3]
-		lcm[4] |= ch[4]
-		lcm[5] |= ch[5]
-		lcm[6] |= ch[6]
-		lcm[7] |= ch[7]
+		chord := &ch
+		lcm.setBlock(0, lcm.block(0)|chord.block(0))
+		lcm.setBlock(1, lcm.block(1)|chord.block(1))
+		lcm.setBlock(2, lcm.block(2)|chord.block(2))
+		lcm.setBlock(3, lcm.block(3)|chord.block(3))
+		lcm.setBlock(4, lcm.block(4)|chord.block(4))
+		lcm.setBlock(5, lcm.block(5)|chord.block(5))
+		lcm.setBlock(6, lcm.block(6)|chord.block(6))
+		lcm.setBlock(7, lcm.block(7)|chord.block(7))
 	}
 
 	lcm.Sanitize()
@@ -216,15 +261,15 @@ func ChordLCM(chords []Chord) (lcm Chord) {
 ActiveCount returns the number of active basis primes in this
 chord using popcount.
 */
-func (chord *Chord) ActiveCount() (n int) {
-	return popcount(chord[0]) + popcount(chord[1]) + popcount(chord[2]) + popcount(chord[3]) +
-		popcount(chord[4]) + popcount(chord[5]) + popcount(chord[6]) + popcount(chord[7])
+func (chord Chord) ActiveCount() (n int) {
+	return Popcount(chord.C0()) + Popcount(chord.C1()) + Popcount(chord.C2()) + Popcount(chord.C3()) +
+		Popcount(chord.C4()) + Popcount(chord.C5()) + Popcount(chord.C6()) + Popcount(chord.C7())
 }
 
 /*
 popcount counts the number of 1-bits in a uint64
 */
-func popcount(x uint64) (count int) {
+func Popcount(x uint64) (count int) {
 	return bits.OnesCount64(x)
 }
 
@@ -236,7 +281,7 @@ func ChordPrimeIndices(chord *Chord) []int {
 	var out []int
 
 	for i := range config.ChordBlocks {
-		block := chord[i]
+		block := chord.block(i)
 
 		for block != 0 {
 			bitIdx := bits.TrailingZeros64(block)
@@ -254,18 +299,19 @@ func ChordPrimeIndices(chord *Chord) []int {
 }
 
 /*
-ChordAND returns the element-wise AND of two chords (their GCD in
+AND returns the element-wise AND of two chords (their GCD in
 prime exponent space). Shared factors.
 */
-func ChordAND(a, b *Chord) (gcd Chord) {
-	gcd[0] = a[0] & b[0]
-	gcd[1] = a[1] & b[1]
-	gcd[2] = a[2] & b[2]
-	gcd[3] = a[3] & b[3]
-	gcd[4] = a[4] & b[4]
-	gcd[5] = a[5] & b[5]
-	gcd[6] = a[6] & b[6]
-	gcd[7] = a[7] & b[7]
+func (chord *Chord) AND(other Chord) Chord {
+	gcd, _ := NewChord(chord.Segment())
+	gcd.setBlock(0, chord.block(0)&other.block(0))
+	gcd.setBlock(1, chord.block(1)&other.block(1))
+	gcd.setBlock(2, chord.block(2)&other.block(2))
+	gcd.setBlock(3, chord.block(3)&other.block(3))
+	gcd.setBlock(4, chord.block(4)&other.block(4))
+	gcd.setBlock(5, chord.block(5)&other.block(5))
+	gcd.setBlock(6, chord.block(6)&other.block(6))
+	gcd.setBlock(7, chord.block(7)&other.block(7))
 	return gcd
 }
 
@@ -289,7 +335,7 @@ func ChordBin(c *Chord) int {
 	var acc [8]int
 
 	for i := range config.ChordBlocks {
-		block := c[i]
+		block := c.block(i)
 		for block != 0 {
 			bit := bits.TrailingZeros64(block)
 			idx := uint64(i*64 + bit + 1)
@@ -321,39 +367,57 @@ func ChordBin(c *Chord) int {
 ChordSimilarity returns the number of shared prime exponents (popcount of AND).
 */
 func ChordSimilarity(a, b *Chord) (sim int) {
-	return popcount(a[0]&b[0]) + popcount(a[1]&b[1]) + popcount(a[2]&b[2]) + popcount(a[3]&b[3]) +
-		popcount(a[4]&b[4]) + popcount(a[5]&b[5]) + popcount(a[6]&b[6]) + popcount(a[7]&b[7])
+	return Popcount(a.C0()&b.C0()) + Popcount(a.C1()&b.C1()) + Popcount(a.C2()&b.C2()) + Popcount(a.C3()&b.C3()) +
+		Popcount(a.C4()&b.C4()) + Popcount(a.C5()&b.C5()) + Popcount(a.C6()&b.C6()) + Popcount(a.C7()&b.C7())
 }
 
 /*
 ChordHole returns target AND NOT existing — bits set in target but not in existing.
 */
 func ChordHole(target, existing *Chord) (hole Chord) {
-	hole[0] = target[0] &^ existing[0]
-	hole[1] = target[1] &^ existing[1]
-	hole[2] = target[2] &^ existing[2]
-	hole[3] = target[3] &^ existing[3]
-	hole[4] = target[4] &^ existing[4]
-	hole[5] = target[5] &^ existing[5]
-	hole[6] = target[6] &^ existing[6]
-	hole[7] = target[7] &^ existing[7]
+	hole.setBlock(0, target.block(0)&^existing.block(0))
+	hole.setBlock(1, target.block(1)&^existing.block(1))
+	hole.setBlock(2, target.block(2)&^existing.block(2))
+	hole.setBlock(3, target.block(3)&^existing.block(3))
+	hole.setBlock(4, target.block(4)&^existing.block(4))
+	hole.setBlock(5, target.block(5)&^existing.block(5))
+	hole.setBlock(6, target.block(6)&^existing.block(6))
+	hole.setBlock(7, target.block(7)&^existing.block(7))
 	return hole
 }
 
 /*
-ChordOR returns the element-wise OR of two chords (their LCM in prime exponent space).
+OR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
-func ChordOR(a, b *Chord) (lcm Chord) {
-	lcm[0] = a[0] | b[0]
-	lcm[1] = a[1] | b[1]
-	lcm[2] = a[2] | b[2]
-	lcm[3] = a[3] | b[3]
-	lcm[4] = a[4] | b[4]
-	lcm[5] = a[5] | b[5]
-	lcm[6] = a[6] | b[6]
-	lcm[7] = a[7] | b[7]
+func (chord *Chord) OR(other Chord) Chord {
+	lcm, _ := NewChord(chord.Segment())
+	lcm.setBlock(0, chord.block(0)|other.block(0))
+	lcm.setBlock(1, chord.block(1)|other.block(1))
+	lcm.setBlock(2, chord.block(2)|other.block(2))
+	lcm.setBlock(3, chord.block(3)|other.block(3))
+	lcm.setBlock(4, chord.block(4)|other.block(4))
+	lcm.setBlock(5, chord.block(5)|other.block(5))
+	lcm.setBlock(6, chord.block(6)|other.block(6))
+	lcm.setBlock(7, chord.block(7)|other.block(7))
 	lcm.Sanitize()
 	return lcm
+}
+
+/*
+XOR returns the element-wise XOR of two chords (for cancellative superposition).
+*/
+func (chord Chord) XOR(other Chord) Chord {
+	xor, _ := NewChord(chord.Segment())
+	xor.setBlock(0, chord.block(0)^other.block(0))
+	xor.setBlock(1, chord.block(1)^other.block(1))
+	xor.setBlock(2, chord.block(2)^other.block(2))
+	xor.setBlock(3, chord.block(3)^other.block(3))
+	xor.setBlock(4, chord.block(4)^other.block(4))
+	xor.setBlock(5, chord.block(5)^other.block(5))
+	xor.setBlock(6, chord.block(6)^other.block(6))
+	xor.setBlock(7, chord.block(7)^other.block(7))
+	xor.Sanitize()
+	return xor
 }
 
 /*
@@ -373,7 +437,7 @@ func (chord *Chord) Flatten() FlatChord {
 	var flat FlatChord
 
 	for i := range config.ChordBlocks {
-		block := chord[i]
+		block := chord.block(i)
 
 		for block != 0 {
 			bitIdx := uint16(bits.TrailingZeros64(block))
@@ -462,7 +526,7 @@ func (chord *Chord) RollLeft(shift int) Chord {
 
 	// Fast sparse-array permutation within the 257-bit logical width
 	for i := range config.ChordBlocks {
-		block := chord[i]
+		block := chord.block(i)
 		for block != 0 {
 			bitIdx := bits.TrailingZeros64(block)
 			primeIdx := i*64 + bitIdx
@@ -486,7 +550,7 @@ orbit copy.
 func (chord *Chord) BindPosition(pos int) Chord {
 	shifted := chord.RollLeft(pos)
 
-	return ChordOR(chord, &shifted)
+	return chord.OR(shifted)
 }
 
 /*
@@ -500,5 +564,5 @@ func (chord *Chord) BindGeometry(pos int, carrier *Chord) Chord {
 		return bound
 	}
 
-	return ChordOR(&bound, carrier)
+	return bound.OR(*carrier)
 }

@@ -4,6 +4,7 @@ build:
 	capnp compile -I ../../capnproto/go-capnp/std -ogo store/lsm/spatial_index.capnp
 	capnp compile -I ../../capnproto/go-capnp/std -ogo logic/graph/matrix.capnp
 	capnp compile -I ../../capnproto/go-capnp/std -ogo data/chord.capnp
+	capnp compile -I ../../capnproto/go-capnp/std -ogo process/tokenizer.capnp
 
 	cd kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
