@@ -80,6 +80,8 @@ func (experiment *PermutationInvarianceExperiment) Artifacts() []tools.Artifact 
 	return []tools.Artifact{}
 }
 
+func (experiment *PermutationInvarianceExperiment) RawOutput() bool { return false }
+
 func (experiment *PermutationInvarianceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

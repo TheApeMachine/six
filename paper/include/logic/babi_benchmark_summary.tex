@@ -1,0 +1,49 @@
+\begin{table}[htbp]
+\centering
+\caption{babi\_benchmark — standardised result summary (N=50).}
+\label{tab:babi_benchmark_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+1 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+2 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+33 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+45 & babi\_benchmark & 0.0000 & 0.1429 & 0.1429 & 0.0649 \\
+49 & babi\_benchmark & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{Mary moved to the bathroom. John went to\ldots}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{bathroom}} \\
+\multicolumn{2}{l}{\texttt{Mary moved to the bathroom. John went to\ldots}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{hallway}} \\
+\multicolumn{2}{l}{\texttt{John moved to the bedroom. Mary moved to\ldots}} & \multicolumn{2}{l}{\texttt{kitchen}} & \multicolumn{2}{l}{\texttt{itchen}} \\
+\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{bedroom}} & \multicolumn{2}{l}{\texttt{edroom}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 50} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.9613} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{108.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{15.80 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{315.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{15.91 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

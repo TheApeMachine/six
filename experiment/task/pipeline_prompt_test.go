@@ -81,6 +81,8 @@ func (experiment *PipelinePromptExperiment) Finalize(*geometry.HybridSubstrate) 
 	return nil
 }
 
+func (experiment *PipelinePromptExperiment) RawOutput() bool { return false }
+
 func (experiment *PipelinePromptExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
 		return 0

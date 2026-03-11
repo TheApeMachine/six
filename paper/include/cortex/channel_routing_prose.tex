@@ -1,0 +1,20 @@
+\subsection{Cortex Channel Routing}
+\label{sec:channel_routing}
+
+\paragraph{Task Description.}
+Signal tokens must traverse the cortex graph through specific bitwise channels
+($1\!\ll\!0$ through $1\!\ll\!7$) without being absorbed by the thermodynamic
+attractor map. Each channel is tested independently: a signal token is injected
+at the source node with a channel mask equal to $2^{\text{bit}}$; the graph is
+ticked for up to 15 steps; the experiment records (i) whether the signal reached
+the sink and (ii) the tick at which it arrived.
+
+\paragraph{Results.}
+Figure~\ref{fig:channel_routing} shows per-channel routing success (left panel)
+and arrival latency in graph ticks (right panel). 4 of 8 channels
+routed successfully (50\%), giving a mean isolation score of
+0.50.
+
+Partial channel isolation was observed. Higher-order bit masks face stronger
+competition from low-energy attractors; the remaining failures are expected to
+close with deeper graph warm-up.

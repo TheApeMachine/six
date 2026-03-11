@@ -43,7 +43,7 @@ func NewBooter(opts ...booterOpts) *Booter {
 
 /*
 Start creates the broadcast group, wires systems, and runs the event loop.
-Only this method spawns a goroutine; everything else runs inside pool.Schedule.
+Only this method spawns a goroutine; everything else runs inside booter.pool.Schedule.
 */
 func (booter *Booter) Start() {
 	broadcast := booter.pool.CreateBroadcastGroup(

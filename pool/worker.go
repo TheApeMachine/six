@@ -35,7 +35,13 @@ func (w *Worker) run() {
 			}
 
 			w.currentJob = &job
-			result, err := w.processJobWithTimeout(w.pool.ctx, job)
+			
+			runCtx := w.pool.ctx
+			if job.Ctx != nil {
+				runCtx = job.Ctx
+			}
+
+			result, err := w.processJobWithTimeout(runCtx, job)
 			w.currentJob = nil
 
 			if err != nil {

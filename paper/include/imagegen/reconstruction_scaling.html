@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=1200, initial-scale=1.0">
+    <title>CIFAR-10 Reconstruction — Occlusion Scaling Curve</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+         
+        @page {
+            size: 1200px 800px;
+            margin: 0;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 1200px;
+            height: 800px;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: #0f172a;
+        }
+        #chart {
+            width: 1200px;
+            height: 800px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+        const xAxisData = ["10%","20%","30%","40%","50%","60%","70%","80%","90%"];
+        const seriesData = [{"name":"Exact","data":[0,0.1,0.1,0,0,0.1,0.1,0.5,0.9]},{"name":"Partial","data":[0.2775609756097562,0.25292682926829263,0.3262815296989422,0.4514948139109213,0.452099609375,0.42656631407648504,0.4768828451882845,0.6010070186145865,1]},{"name":"Fuzzy","data":[0.2087597637397292,0.2125424270756539,0.30886244371920746,0.4231821327024665,0.43094592889516825,0.4180203928299667,0.4607681703333909,0.6009092624095501,1]},{"name":"Weighted","data":[0.1136547685735206,0.16216957654147146,0.19968813423047652,0.2000771551943361,0.201653698719576,0.24688542980812622,0.268380443293785,0.5458945073329872,0.9454545454545455]}];
+        const yMin = 0;
+        const yMax = 1;
+        const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
+
+        const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];
+
+        const option = {
+            backgroundColor: 'transparent',
+            animation: false,
+            tooltip: { trigger: 'axis' },
+            legend: { top: '5%', textStyle: { color: '#475569', fontSize: 12 } },
+            grid: { left: '10%', right: '10%', top: '20%', bottom: '15%' },
+            xAxis: {
+                type: 'category',
+                data: xAxisData,
+                axisLabel: { color: '#475569' },
+                nameLocation: 'middle',
+                nameGap: 30
+            },
+            yAxis: {
+                type: 'value',
+                min: yMin,
+                max: yMax,
+                axisLabel: { color: '#475569' },
+                splitLine: { show: true, lineStyle: { color: '#e2e8f0', type: 'dashed' } }
+            },
+            series: seriesData.map((s, i) => {
+                const color = palette[i % palette.length];
+                return {
+                    name: s.name,
+                    type: 'line',
+                    data: s.data,
+                    smooth: true,
+                    symbol: 'none',
+                    lineStyle: { color, width: 2 },
+                    itemStyle: { color }
+                };
+            })
+        };
+        chart.setOption(option);
+
+
+    </script>
+</body>
+</html>

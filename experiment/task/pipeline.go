@@ -3,14 +3,12 @@ package task
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
-	"strconv"
 	"strings"
 	"time"
 	"unicode"
-	"unicode/utf8"
 
-	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
@@ -20,19 +18,38 @@ import (
 	"github.com/theapemachine/six/vm"
 )
 
+const pipelineDrainTimeout = 2 * time.Second
+
+type promptFailure struct {
+	idx      int
+	prompt   string
+	expected string
+	got      string
+}
+
+type runTiming struct {
+	loadDur    time.Duration
+	promptDur  time.Duration
+	finalizeDur time.Duration
+	n          int // number of prompts processed
+}
+
 type Pipeline struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	pool       *pool.Pool
-	broadcast  *pool.BroadcastGroup
-	loader     *vm.Loader
-	coder      *tokenizer.MortonCoder
-	booter     *vm.Booter
-	experiment tools.PipelineExperiment
-	prompts    *tokenizer.Prompt
-	testIdx    int
-	scoreWgts  tools.ScoreWeights
-	reporter   Reporter
+	ctx          context.Context
+	cancel       context.CancelFunc
+	pool         *pool.Pool
+	broadcast    *pool.BroadcastGroup
+	loader       *vm.Loader
+	coder        *tokenizer.MortonCoder
+	booter       *vm.Booter
+	experiment   tools.PipelineExperiment
+	prompts      *tokenizer.Prompt
+	testIdx      int
+	scoreWgts    tools.ScoreWeights
+	reporter     Reporter
+	progressLine string
+	failures     []promptFailure
+	timing       runTiming
 }
 
 type pipelineOpts func(*Pipeline)
@@ -85,15 +102,32 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
+	prof, profErr := NewProfiler(pipeline.experiment)
+	if profErr != nil {
+		fmt.Fprintf(os.Stderr, "profiler init skipped: %v\n", profErr)
+	}
+	defer func() {
+		if prof != nil {
+			prof.Stop()
+		}
+	}()
+
+	t0 := time.Now()
+
+	loadStart := time.Now()
 	if err := pipeline.loader.Start(); err != nil {
 		return fmt.Errorf("loader start: %w", err)
 	}
+	pipeline.timing.loadDur = time.Since(loadStart)
 
 	pipeline.booter.Start()
 	defer pipeline.booter.Stop()
 
 	pipeline.prompts = pipeline.experiment.Prompts()
 
+	fmt.Println()
+
+	promptStart := time.Now()
 	for pipeline.prompts != nil {
 		prompt := pipeline.prompts.Next()
 
@@ -102,14 +136,28 @@ func (pipeline *Pipeline) Run() error {
 		}
 
 		pipeline.prompt(prompt)
+		pipeline.timing.n++
 	}
+	pipeline.timing.promptDur = time.Since(promptStart)
 
+	fmt.Println()
+
+	pipeline.printFailures()
+
+	finalizeStart := time.Now()
 	if err := pipeline.experiment.Finalize(pipeline.loader.Substrate()); err != nil {
 		return fmt.Errorf("experiment finalize: %w", err)
 	}
+	pipeline.timing.finalizeDur = time.Since(finalizeStart)
+
+	fmt.Printf("Pipeline %s total execution time: %v\n", pipeline.experiment.Name(), time.Since(t0))
 
 	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
 		return fmt.Errorf("write results snapshot: %w", err)
+	}
+
+	if err := pipeline.writeStandardSummary(); err != nil {
+		return fmt.Errorf("write standard summary: %w", err)
 	}
 
 	for _, artifact := range pipeline.experiment.Artifacts() {
@@ -123,6 +171,10 @@ func (pipeline *Pipeline) Run() error {
 				err,
 			)
 		}
+	}
+
+	if err := WriteExperimentsIndex(); err != nil {
+		return fmt.Errorf("write experiments index: %w", err)
 	}
 
 	return nil
@@ -147,28 +199,6 @@ func extractScores(data []tools.ExperimentalData, field string) []float64 {
 	return scores
 }
 
-func formatLogPayload(payload string) string {
-	if payload == "" {
-		return `""`
-	}
-
-	if !utf8.ValidString(payload) {
-		return strconv.QuoteToASCII(payload)
-	}
-
-	for _, r := range payload {
-		if r == '\n' || r == '\r' || r == '\t' {
-			continue
-		}
-
-		if !unicode.IsPrint(r) {
-			return strconv.QuoteToASCII(payload)
-		}
-	}
-
-	return payload
-}
-
 func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 	var chordRes []data.Chord
 
@@ -186,6 +216,9 @@ func (pipeline *Pipeline) prompt(promptChords []data.Chord) {
 		)),
 	)
 
+	timeout := time.NewTimer(pipelineDrainTimeout)
+	defer timeout.Stop()
+
 wait_result:
 	for {
 		select {
@@ -198,55 +231,28 @@ wait_result:
 					}
 				}
 			}
-		case <-time.After(2 * time.Second):
-			// Cortex didn't respond in time or hasn't converged
+		case <-timeout.C:
 			break wait_result
 		}
 	}
 
-	console.Info("PROMPT")
-	fmt.Println()
-	fmt.Println(formatLogPayload(pipeline.prompts.Value(pipeline.testIdx)))
-	fmt.Println()
-
-	if heldOut != "" {
-		console.Info("HOLDOUT")
-		fmt.Println()
-		fmt.Println(formatLogPayload(heldOut))
-		fmt.Println()
-	}
-
-	console.Info("OBSERVED",
-		"chords", len(chordRes),
-	)
-
-	var dbgActive []int
-
-	for _, chord := range chordRes {
-		dbgActive = append(dbgActive, chord.ActiveCount())
-	}
-
-	if len(dbgActive) > 5 {
-		dbgActive = dbgActive[:5]
-	}
-
 	baseFilter := promptFilter(promptChords)
-	baseDial := geometry.NewPhaseDial().EncodeFromChords(promptChords)
+	baseDial := geometry.NewPhaseDial().EncodeFromChordsParallel(promptChords, pipeline.pool)
 
 	readout := pipeline.loader.Substrate().Retrieve(baseFilter, baseDial, 50)
 
 	if len(readout) == 0 && len(chordRes) > 0 {
 		cortexFilter := promptFilter(chordRes)
 		assistedFilter := data.ChordOR(&baseFilter, &cortexFilter)
-		assistedDial := geometry.NewPhaseDial().EncodeFromChords(chordRes)
+		assistedDial := geometry.NewPhaseDial().EncodeFromChordsParallel(chordRes, pipeline.pool)
 
 		readout = pipeline.loader.Substrate().Retrieve(assistedFilter, assistedDial, 50)
 	}
 
 	outBytes := pipeline.decodeReadout(readout)
-	outBytes = pipeline.normalizeObserved(outBytes)
-
-	console.Info("OBSERVED TEXT", "text", string(outBytes))
+	if !pipeline.experiment.RawOutput() {
+		outBytes = pipeline.normalizeObserved(outBytes)
+	}
 
 	pipeline.experiment.AddResult(tools.ExperimentalData{
 		Idx:      pipeline.testIdx,
@@ -256,7 +262,49 @@ wait_result:
 		Observed: outBytes,
 	})
 
+	// Determine pass/fail symbol for compact progress output.
+	// ✅ only when a holdout exists and the observed output actually matches it.
+	symbol := "❌"
+	if heldOut != "" {
+		scores := tools.ByteScores([]byte(heldOut), outBytes)
+		if scores.Fuzzy > 0 {
+			symbol = "✅"
+		} else {
+			pipeline.failures = append(pipeline.failures, promptFailure{
+				idx:      pipeline.testIdx,
+				prompt:   pipeline.prompts.Value(pipeline.testIdx),
+				expected: heldOut,
+				got:      strings.TrimSpace(string(outBytes)),
+			})
+		}
+	}
+
+	pipeline.progressLine += symbol
+	fmt.Printf("\r%s", pipeline.progressLine)
+
 	pipeline.testIdx++
+}
+
+// printFailures prints a concise expected-vs-generated overview after the
+// progress line, only when there are failures to report.
+func (pipeline *Pipeline) printFailures() {
+	if len(pipeline.failures) == 0 {
+		return
+	}
+
+	fmt.Printf("\n%d failure(s):\n", len(pipeline.failures))
+
+	for _, f := range pipeline.failures {
+		got := f.got
+		if got == "" {
+			got = "(no output)"
+		}
+		fmt.Printf("  [%d] prompt   : %s\n", f.idx, f.prompt)
+		fmt.Printf("       expected : %s\n", f.expected)
+		fmt.Printf("       got      : %s\n", got)
+	}
+
+	fmt.Println()
 }
 
 // promptFilter collapses a visible prompt span into the OR-accumulated
@@ -278,15 +326,12 @@ func (pipeline *Pipeline) decodeReadout(readout []data.Chord) []byte {
 
 	for _, chord := range readout {
 		value := chord.Byte()
+
 		if value == 0 {
 			face := chord.IntrinsicFace()
 			if face >= 0 && face < 256 {
 				value = byte(face)
 			}
-		}
-
-		if value == 0 {
-			continue
 		}
 
 		out = append(out, value)
@@ -372,6 +417,28 @@ func PipelineWithSnapshotReporter() pipelineOpts {
 	return func(pipeline *Pipeline) {
 		pipeline.reporter = NewSnapshotReporter()
 	}
+}
+
+func (pipeline *Pipeline) writeStandardSummary() error {
+	rows, ok := pipeline.experiment.TableData().([]tools.ExperimentalData)
+	if !ok || len(rows) == 0 {
+		return nil
+	}
+
+	holdoutN, holdoutType := pipeline.experiment.Holdout()
+	htStr := "RIGHT"
+	if holdoutType == tokenizer.LEFT {
+		htStr = "LEFT"
+	}
+
+	return WriteStandardSummary(
+		pipeline.experiment.Name(),
+		pipeline.experiment.Section(),
+		rows,
+		holdoutN,
+		htStr,
+		pipeline.timing,
+	)
 }
 
 type PipelineError string

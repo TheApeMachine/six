@@ -35,7 +35,7 @@
         const matrix = [[0,0,0,0],[0,0,0,0],[0,0,0,0],[0,0,0,1]];
         const accuracy = 1.000000;
         const macroF1 = 0.250000;
-        const resonance = 0.227273;
+        const resonance = 0.045455;
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
         // Build row-normalised proportions and heatmap data.
@@ -75,7 +75,7 @@
                         '<br/>Recall: ' + (d[2] * 100).toFixed(1) + '%';
                 }
             },
-            grid: { left: '12%', right: '18%', top: '10%', bottom: '15%' },
+            grid: { left: '12%', right: '10%', top: '10%', bottom: '15%' },
             xAxis: {
                 type: 'category',
                 data: labels,
@@ -112,42 +112,6 @@
                     color: ['#f0f4fa', '#c6d9f1', '#7ba7d7', '#3b82c4', '#1d4f91', '#0c2d57']
                 }
             },
-            graphic: [{
-                type: 'group',
-                right: 60,
-                top: 20,
-                children: [
-                    {
-                        type: 'rect',
-                        z: 100,
-                        shape: { width: 180, height: 95 },
-                        style: {
-                            fill: '#f8fafc',
-                            stroke: '#cbd5e1',
-                            lineWidth: 1,
-                            shadowBlur: 4,
-                            shadowColor: 'rgba(0,0,0,0.05)'
-                        }
-                    },
-                    {
-                        type: 'text',
-                        z: 101,
-                        left: 12,
-                        top: 10,
-                        style: {
-                            text: 'Overall Accuracy: ' + (accuracy * 100).toFixed(1) + '%\n' +
-                                  'Balanced Acc: ' + (balancedAcc * 100).toFixed(1) + '%\n' +
-                                  'Macro-F1: ' + macroF1.toFixed(3) + '\n' +
-                                  'Resonance: ' + parseFloat(resonance).toFixed(6) + '\n' +
-                                  'Sample Size: N=' + totalSamples,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                            fill: '#1e293b',
-                            lineHeight: 16
-                        }
-                    }
-                ]
-            }],
             series: [{
                 name: 'Confusion Matrix',
                 type: 'heatmap',

@@ -50,6 +50,7 @@ const (
 	ArtifactMultiPanel      ArtifactType = "multipanel"
 	ArtifactProse           ArtifactType = "prose"
 	ArtifactImageStrip      ArtifactType = "imagestrip"
+	ArtifactPolarConstraint ArtifactType = "polarconstraint"
 )
 
 type Artifact struct {
@@ -76,6 +77,9 @@ type PipelineExperiment interface {
 	TableData() any
 	Artifacts() []Artifact
 	Finalize(*geometry.HybridSubstrate) error
+	// RawOutput returns true when the observed output is binary (e.g. pixel bytes)
+	// and must not be passed through text normalisation before scoring.
+	RawOutput() bool
 }
 
 func GetLoader(dataset provider.Dataset, lsmSpatialIndex float64) *vm.Loader {

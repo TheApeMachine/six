@@ -1,0 +1,24 @@
+\subsection{Code Generation: Multi-Language Coverage}
+\label{sec:codegen_languages}
+
+\paragraph{Task Description.}
+The languages experiment evaluates zero-shot code completion across six
+programming languages---Python, JavaScript, Java, Go, C\texttt{++}, and
+Rust---using the \texttt{bigcode/humanevalpack} benchmark \cite{muennighoff2023octopack}.
+Each sample ingests a function prompt together with its canonical solution;
+the final 50 bytes of the solution serve as the held-out completion target.
+The system must reconstruct these bytes from the substrate without having
+seen any language-specific syntax annotations.
+
+\paragraph{Results.}
+Figure~\ref{fig:languages_scores} shows per-language scores across
+$N = 60$ total samples ($10$ per language).
+Averaged across all languages, the system achieved an exact-match rate
+of 6.7\%, a partial score of 0.970,
+and an overall weighted score of 0.477.
+
+\paragraph{Assessment.}
+The substrate recovered partial code structure in the majority of languages.
+Languages with more idiomatic or verbose syntax (e.g.\ Java, C\texttt{++})
+showed lower fidelity than those with compact representations (e.g.\ Python, Go),
+consistent with the higher token-level redundancy in the former.

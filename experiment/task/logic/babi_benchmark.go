@@ -2,10 +2,10 @@ package logic
 
 import (
 	"fmt"
-	"math"
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	"github.com/theapemachine/six/geometry"
@@ -30,7 +30,7 @@ func NewBabiExperiment() *BabiExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSamples(10),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 		),
 	}
@@ -126,90 +126,124 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 		return nil
 	}
 
-	// ── Compute summary statistics ──────────────────────────────
+	// ── Summary statistics ─────────────────────────────────────────
 	exactMatches := 0
 	partialSum := 0.0
-
-	// Per-entity tracking
-	entityStats := map[string]*entityStat{}
-	locationStats := map[string]*locationStat{}
-	var failures []failureRecord
-
 	for _, row := range experiment.tableData {
-		expected := string(row.Holdout)
-		observed := string(row.Observed)
-
-		// Entity from the question: parse "Where is X?" from prefix
-		entity := extractEntityFromPrefix(string(row.Prefix))
-		if entity == "" {
-			entity = "unknown"
-		}
-
 		if row.Scores.Exact == 1.0 {
 			exactMatches++
-		} else {
+		}
+		partialSum += row.Scores.Partial
+	}
+	exactRate := float64(exactMatches) / float64(n)
+	partialRate := partialSum / float64(n)
+	score := experiment.Score()
+
+	// ── Build per-sample failure list ─────────────────────────────
+	var failures []failureRecord
+	for _, row := range experiment.tableData {
+		if row.Scores.Exact < 1.0 {
+			entity := extractEntityFromPrefix(string(row.Prefix))
+			if entity == "" {
+				entity = "unknown"
+			}
 			failures = append(failures, failureRecord{
 				Idx:      row.Idx,
 				Entity:   entity,
-				Expected: expected,
-				Observed: observed,
+				Expected: string(row.Holdout),
+				Observed: string(row.Observed),
 			})
 		}
-		partialSum += row.Scores.Partial
+	}
 
-		// Entity stats
-		es, ok := entityStats[entity]
-		if !ok {
-			es = &entityStat{}
-			entityStats[entity] = es
-		}
-		es.Total++
-		if row.Scores.Exact == 1.0 {
-			es.Correct++
-		}
+	// ── Build Trial Outcome Map data ──────────────────────────────
+	// Left panel: heatmap — rows = samples, columns = score dimensions
+	// Each cell is the score value [0,1]; colour = viridis (0=dark, 1=bright).
+	scoreLabels := []string{"Exact", "Partial", "Fuzzy", "Weighted"}
+	sampleLabels := make([]string, n)
+	for i := range sampleLabels {
+		sampleLabels[i] = fmt.Sprintf("Q%d", i+1)
+	}
 
-		// Location stats
-		ls, ok := locationStats[expected]
-		if !ok {
-			ls = &locationStat{}
-			locationStats[expected] = ls
+	// heatData: [[colIdx, rowIdx, value], …]  (col=score dim, row=sample)
+	heatData := make([][]any, 0, n*4)
+	for sIdx, row := range experiment.tableData {
+		vals := []float64{
+			row.Scores.Exact,
+			row.Scores.Partial,
+			row.Scores.Fuzzy,
+			row.WeightedTotal,
 		}
-		ls.Total++
-		if row.Scores.Exact == 1.0 {
-			ls.Correct++
+		for cIdx, v := range vals {
+			heatData = append(heatData, []any{cIdx, sIdx, v})
 		}
 	}
 
-	exactRate := float64(exactMatches) / float64(n)
-	partialRate := partialSum / float64(n)
-
-	// ── Build per-entity accuracy series for the combo chart ─────
-	entityNames := sortedKeys(entityStats)
-	entityAccData := make([]float64, len(entityNames))
-	entityCountData := make([]float64, len(entityNames))
-	for i, name := range entityNames {
-		es := entityStats[name]
-		entityAccData[i] = float64(es.Correct) / float64(es.Total)
-		entityCountData[i] = float64(es.Total)
+	// Right panel: weighted score per sample (bar) + mean (horizontal line).
+	weightedPerSample := make([]float64, n)
+	meanLine := make([]float64, n)
+	for i, row := range experiment.tableData {
+		weightedPerSample[i] = row.WeightedTotal
+		meanLine[i] = score
 	}
 
-	// ── Build per-location accuracy series for the bar chart ─────
-	locNames := sortedKeys(locationStats)
-	locAccData := make([]float64, len(locNames))
-	locCountData := make([]float64, len(locNames))
-	for i, name := range locNames {
-		ls := locationStats[name]
-		locAccData[i] = float64(ls.Correct) / float64(ls.Total)
-		locCountData[i] = float64(ls.Total)
+	panels := []tools.Panel{
+		{
+			Kind:        "heatmap",
+			Title:       "Score Fingerprint",
+			GridLeft:    "5%",
+			GridRight:   "56%",
+			GridTop:     "12%",
+			GridBottom:  "12%",
+			XLabels:     scoreLabels,
+			XAxisName:   "Score Dimension",
+			XShow:       true,
+			YLabels:     sampleLabels,
+			YAxisName:   "Sample",
+			HeatData:    heatData,
+			HeatMin:     0,
+			HeatMax:     1,
+			ColorScheme: "viridis",
+			ShowVM:      true,
+			VMRight:     "44%",
+		},
+		{
+			Kind:       "chart",
+			Title:      "Weighted Score per Sample",
+			GridLeft:   "58%",
+			GridRight:  "4%",
+			GridTop:    "12%",
+			GridBottom: "12%",
+			XLabels:    sampleLabels,
+			XAxisName:  "Sample",
+			XShow:      true,
+			Series: []tools.PanelSeries{
+				{
+					Name:     "Weighted",
+					Kind:     "bar",
+					BarWidth: "55%",
+					Data:     weightedPerSample,
+				},
+				{
+					Name:   fmt.Sprintf("Mean (%.2f)", score),
+					Kind:   "dashed",
+					Symbol: "none",
+					Color:  "#f97316",
+					Data:   meanLine,
+				},
+			},
+			YMin: tools.Float64Ptr(0),
+			YMax: tools.Float64Ptr(1),
+		},
 	}
 
-	// ── Build failure table rows ────────────────────────────────
-	maxFailures := 20
-	if len(failures) < maxFailures {
-		maxFailures = len(failures)
+	// ── Failure table rows (up to 20) ─────────────────────────────
+	maxFail := 20
+	if len(failures) < maxFail {
+		maxFail = len(failures)
 	}
-	failureRows := make([][]string, maxFailures)
-	for i := 0; i < maxFailures; i++ {
+	failureRows := make([][]string, maxFail)
+	for i := 0; i < maxFail; i++ {
 		f := failures[i]
 		failureRows[i] = []string{
 			fmt.Sprintf("%d", f.Idx),
@@ -219,173 +253,113 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 		}
 	}
 
-	// ── Build the prose template and data ────────────────────────
+	// ── Prose template ─────────────────────────────────────────────
 	proseTemplate := `\subsection{bAbI QA Task 1: Single Supporting Fact}
 \label{sec:babi_benchmark}
 
 \paragraph{Task Description.}
 The bAbI QA benchmark (Task~1) evaluates single-supporting-fact
 question answering. Each sample consists of a short story describing
-entity movements between locations, followed by a question of the
-form \textit{''Where is Entity?''}. The correct
-answer is the last location the entity moved to.
+entity movements between named locations, followed by a question of
+the form \textit{''Where is Person?''}. The correct answer is the
+last location the entity moved to---requiring the system to track
+an entity through a chain of movement facts without any explicit
+pointer to the relevant sentence.
 
 \paragraph{Test Conditions.}
-The experiment evaluated {{.NSamples}} samples from the
-\texttt{facebook/babi\_qa} dataset (subset \texttt{en-10k-qa1}).
-Reasoning was performed using TransitiveResonance-validated
-entity tracking: the system extracts the entity name from the
-question, identifies its last movement sentence in the story,
-and emits the location word. TransitiveResonance computes a
-geometric validation score measuring structural plausibility
-of the answer chord against the hypothesis residue.
+Experiments used {{.NSamples}} samples from
+\texttt{facebook/babi\_qa} (subset \texttt{en-10k-qa1}).
+Reasoning is performed via Transitive Resonance: the entity chord is
+extracted from the question, the story is scanned geometrically for
+its last movement relationship, and the residue chord is decoded as
+the location answer.
 
 \paragraph{Results.}
+Figure~\ref{fig:babi_trial_map} shows the per-sample Trial Outcome
+Map. Each row of the left heatmap corresponds to one question;
+columns show the Exact, Partial, Fuzzy, and Weighted scores on a
+0--1 colour scale (viridis, dark = 0, bright = 1). The right
+panel displays the weighted score per sample alongside the
+overall mean (orange dashed line).
+
 The system achieved an exact-match accuracy of {{.ExactRate | pct}}
 across all {{.NSamples}} samples, with a mean partial score of
-{{.PartialRate | f3}}.
+{{.PartialRate | f3}} and an overall weighted score of
+{{.Score | f3}}.
+
+{{if gt .ExactRate 0.7 -}}
+\paragraph{Assessment.}
+The substrate resolved the majority of single-supporting-fact queries
+exactly, demonstrating reliable transitive chain traversal through
+geometric residue accumulation.
+{{- else if gt .ExactRate 0.3 -}}
+\paragraph{Assessment.}
+The substrate correctly resolved a minority of queries by exact match.
+Partial scores indicate that many outputs were geometrically adjacent
+to the correct location chord, suggesting the attractor is in the
+right region but final decoding introduces ambiguity.
+{{- else -}}
+\paragraph{Assessment.}
+Exact-match accuracy was low.  The Transitive Resonance mechanism
+requires the entity's movement facts to produce a sufficiently
+distinct residue chord; at this sample size the substrate geometry
+may not separate location attractors reliably.
+{{- end}}
+
 {{- if gt .NFailures 0}}
-A total of {{.NFailures}} samples failed exact match.
-{{- if le .NFailures 20}}
-Table~\ref{tab:babi_failures} lists all failure cases.
-{{- else}}
-Table~\ref{tab:babi_failures} lists the first 20 failure cases.
-{{- end}}
-{{- end}}
 
-\paragraph{Per-Entity Analysis.}
-{{- range .EntitySummary}}
-\textbf{ {{- .Name -}} }: {{.Correct}}/{{.Total}} correct ({{.Rate | pct}}).
-{{- end}}
-
-\paragraph{Per-Location Analysis.}
-{{- range .LocationSummary}}
-\textbf{ {{- .Name -}} }: {{.Correct}}/{{.Total}} correct ({{.Rate | pct}}).
-{{- end}}
-
-{{- if gt .NFailures 0}}
-\begin{table}[h]
-\centering
-\caption{bAbI Task~1 failure cases (first {{.NFailureRows}}).
-Exact-match accuracy: {{.ExactRate | pct}}.
-$N={{.NSamples}}$, subset: \texttt{en-10k-qa1}.}
-\label{tab:babi_failures}
-\begin{tabular}{|r|l|l|l|}
-\hline
-\textbf{Idx} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
-\hline
+\begin{table}[htbp]
+  \centering
+  \caption{bAbI Task~1 failure cases (showing first {{.NFailureRows}} of
+    {{.NFailures}}). $N = {{.NSamples}}$, exact accuracy
+    {{.ExactRate | pct}}.}
+  \label{tab:babi_failures}
+  \begin{tabular}{rlll}
+    \toprule
+    \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
+    \midrule
 {{- range .FailureRows}}
-{{index . 0}} & {{index . 1}} & {{index . 2}} & {{index . 3}} \\
-\hline
+    {{index . 0}} & {{index . 1}} & \texttt{ {{- index . 2 -}} } & \texttt{ {{- index . 3 -}} } \\
 {{- end}}
-\end{tabular}
+    \bottomrule
+  \end{tabular}
 \end{table}
 {{- end}}
 `
 
-	// Entity summary structs for template
-	type entitySum struct {
-		Name    string
-		Correct int
-		Total   int
-		Rate    float64
-	}
-
-	entitySummary := make([]entitySum, len(entityNames))
-	for i, name := range entityNames {
-		es := entityStats[name]
-		entitySummary[i] = entitySum{
-			Name:    name,
-			Correct: es.Correct,
-			Total:   es.Total,
-			Rate:    float64(es.Correct) / float64(es.Total),
-		}
-	}
-
-	locationSummary := make([]entitySum, len(locNames))
-	for i, name := range locNames {
-		ls := locationStats[name]
-		locationSummary[i] = entitySum{
-			Name:    name,
-			Correct: ls.Correct,
-			Total:   ls.Total,
-			Rate:    float64(ls.Correct) / float64(ls.Total),
-		}
-	}
-
-	proseData := map[string]any{
-		"NSamples":        n,
-		"ExactRate":       exactRate,
-		"PartialRate":     partialRate,
-		"NFailures":       len(failures),
-		"NFailureRows":    maxFailures,
-		"FailureRows":     failureRows,
-		"EntitySummary":   entitySummary,
-		"LocationSummary": locationSummary,
-	}
-
-	artifacts := []tools.Artifact{
-		// 1. Results table: per-sample scores
+	return []tools.Artifact{
 		{
-			Type:     tools.ArtifactTable,
-			FileName: "babi_results",
-			Data:     experiment.tableData,
-			Title:    "bAbI Task 1 — Per-Sample Results",
-			Caption: fmt.Sprintf(
-				"Per-sample exact/partial/fuzzy scores. N=%d, exact accuracy=%.1f%%, mean partial=%.3f. Subset: en-10k-qa1.",
-				n, exactRate*100, partialRate,
-			),
-			Label: "tab:babi_results",
-		},
-		// 2. Combo chart: per-entity accuracy + sample counts
-		{
-			Type:     tools.ArtifactComboChart,
-			FileName: "babi_entity_accuracy",
-			Data: tools.ComboChartData{
-				XAxis: entityNames,
-				Series: []tools.ComboSeries{
-					{Name: "Accuracy", Type: "bar", Data: entityAccData, BarWidth: "40%"},
-					{Name: "Count", Type: "line", Symbol: "circle", Data: entityCountData},
-				},
-				XName: "Entity",
-				YName: "Value",
-				YMin:  0,
-				YMax:  math.Max(1.0, maxFloat(entityCountData)*1.1),
+			Type:     tools.ArtifactMultiPanel,
+			FileName: "babi_trial_map",
+			Data: tools.MultiPanelData{
+				Panels: panels,
+				Width:  1400,
+				Height: 700,
 			},
-			Title:   "bAbI Task 1 — Per-Entity Accuracy",
-			Caption: fmt.Sprintf("Accuracy (bars) and sample count (line) per entity. N=%d samples.", n),
-			Label:   "fig:babi_entity_accuracy",
+			Title:   "bAbI Task 1 — Trial Outcome Map",
+			Caption: fmt.Sprintf("Per-sample score fingerprint (left) and weighted score (right). N=%d, exact accuracy=%.1f%%.", n, exactRate*100),
+			Label:   "fig:babi_trial_map",
 		},
-		// 3. Bar chart: per-location accuracy
-		{
-			Type:     tools.ArtifactBarChart,
-			FileName: "babi_location_accuracy",
-			Data: tools.BarChartData{
-				XAxis: locNames,
-				Series: []tools.BarSeries{
-					{Name: "Accuracy", Data: locAccData},
-					{Name: "Count (÷10)", Data: divSlice(locCountData, 10)},
-				},
-			},
-			Title:   "bAbI Task 1 — Per-Location Accuracy",
-			Caption: fmt.Sprintf("Accuracy per target location. N=%d samples.", n),
-			Label:   "fig:babi_location_accuracy",
-		},
-		// 4. Prose: single .tex section with analysis
 		{
 			Type:     tools.ArtifactProse,
-			FileName: "babi_analysis.tex",
+			FileName: "babi_section.tex",
 			Data: tools.ProseData{
 				Template: proseTemplate,
-				Data:     proseData,
+				Data: map[string]any{
+					"NSamples":     n,
+					"ExactRate":    exactRate,
+					"PartialRate":  partialRate,
+					"Score":        score,
+					"NFailures":    len(failures),
+					"NFailureRows": maxFail,
+					"FailureRows":  failureRows,
+				},
 			},
-			Title: "bAbI Analysis",
-			Label: "sec:babi_analysis",
 		},
 	}
-
-	return artifacts
 }
+
+func (experiment *BabiExperiment) RawOutput() bool { return false }
 
 func (experiment *BabiExperiment) Finalize(
 	substrate *geometry.HybridSubstrate,

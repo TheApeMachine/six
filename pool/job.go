@@ -1,6 +1,9 @@
 package pool
 
-import "time"
+import (
+	"context"
+	"time"
+)
 
 // Job represents a unit of work to be executed by the pool.
 type Job struct {
@@ -15,6 +18,7 @@ type Job struct {
 	LastError             error
 	DependencyRetryPolicy *RetryPolicy
 	StartTime             time.Time
+	Ctx                   context.Context
 }
 
 // JobOption configures a Job before submission.
@@ -48,5 +52,34 @@ func WithDependencies(dependencies []string) JobOption {
 func WithTTL(ttl time.Duration) JobOption {
 	return func(j *Job) {
 		j.TTL = ttl
+	}
+}
+
+// WithContext sets a custom context for the job.
+func WithContext(ctx context.Context) JobOption {
+	return func(j *Job) {
+		j.Ctx = ctx
+	}
+}
+
+// WithCircuitBreaker attaches circuit-breaker configuration to a job.
+func WithCircuitBreaker(id string, maxFailures int, resetTimeout time.Duration) JobOption {
+	return func(j *Job) {
+		j.CircuitID = id
+		j.CircuitConfig = &CircuitBreakerConfig{
+			MaxFailures:  maxFailures,
+			ResetTimeout: resetTimeout,
+			HalfOpenMax:  2,
+		}
+	}
+}
+
+// WithRetry attaches a retry policy to a job.
+func WithRetry(attempts int, strategy RetryStrategy) JobOption {
+	return func(j *Job) {
+		j.RetryPolicy = &RetryPolicy{
+			MaxAttempts: attempts,
+			Strategy:    strategy,
+		}
 	}
 }

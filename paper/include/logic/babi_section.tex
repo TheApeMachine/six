@@ -1,0 +1,53 @@
+\subsection{bAbI QA Task 1: Single Supporting Fact}
+\label{sec:babi_benchmark}
+
+\paragraph{Task Description.}
+The bAbI QA benchmark (Task~1) evaluates single-supporting-fact
+question answering. Each sample consists of a short story describing
+entity movements between named locations, followed by a question of
+the form \textit{''Where is Person?''}. The correct answer is the
+last location the entity moved to---requiring the system to track
+an entity through a chain of movement facts without any explicit
+pointer to the relevant sentence.
+
+\paragraph{Test Conditions.}
+Experiments used 50 samples from
+\texttt{facebook/babi\_qa} (subset \texttt{en-10k-qa1}).
+Reasoning is performed via Transitive Resonance: the entity chord is
+extracted from the question, the story is scanned geometrically for
+its last movement relationship, and the residue chord is decoded as
+the location answer.
+
+\paragraph{Results.}
+Figure~\ref{fig:babi_trial_map} shows the per-sample Trial Outcome
+Map. Each row of the left heatmap corresponds to one question;
+columns show the Exact, Partial, Fuzzy, and Weighted scores on a
+0--1 colour scale (viridis, dark = 0, bright = 1). The right
+panel displays the weighted score per sample alongside the
+overall mean (orange dashed line).
+
+The system achieved an exact-match accuracy of 96.0\%
+across all 50 samples, with a mean partial score of
+0.963 and an overall weighted score of
+0.961.
+
+\paragraph{Assessment.}
+The substrate resolved the majority of single-supporting-fact queries
+exactly, demonstrating reliable transitive chain traversal through
+geometric residue accumulation.
+
+\begin{table}[htbp]
+  \centering
+  \caption{bAbI Task~1 failure cases (showing first 2 of
+    2). $N = 50$, exact accuracy
+    96.0\%.}
+  \label{tab:babi_failures}
+  \begin{tabular}{rlll}
+    \toprule
+    \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
+    \midrule
+    33 & John & \texttt{kitchen} & \texttt{itchen} \\
+    45 & Sandra & \texttt{bedroom} & \texttt{edroom} \\
+    \bottomrule
+  \end{tabular}
+\end{table}

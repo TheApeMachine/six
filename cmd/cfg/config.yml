@@ -17,5 +17,9 @@ architecture:
     nsymbols: 256
     nbasis: 512
     windows: [3, 5, 8, 13, 21]
+    shannonCapacity: 0.45
   cortex:
     initialNodes: 8
+
+experiment:
+  samples: 10

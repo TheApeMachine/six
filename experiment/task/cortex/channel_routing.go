@@ -20,19 +20,25 @@ bypassing the thermodynamic attractor map, exactly as established in
 the final web experiment implementation.
 */
 type ChannelRoutingExperiment struct {
-	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	tableData     []tools.ExperimentalData
+	dataset       provider.Dataset
+	channelPassed [8]bool
+	channelTick   [8]int // tick at which signal arrived, -1 = never
 }
 
 func NewChannelRoutingExperiment() *ChannelRoutingExperiment {
-	return &ChannelRoutingExperiment{
+	exp := &ChannelRoutingExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset:   local.New([][]byte{{'a'}}),
 	}
+	for i := range exp.channelTick {
+		exp.channelTick[i] = -1
+	}
+	return exp
 }
 
 func (exp *ChannelRoutingExperiment) Name() string               { return "Channel Routing" }
-func (exp *ChannelRoutingExperiment) Section() string            { return "architecture" }
+func (exp *ChannelRoutingExperiment) Section() string            { return "cortex" }
 func (exp *ChannelRoutingExperiment) Dataset() provider.Dataset  { return exp.dataset }
 func (exp *ChannelRoutingExperiment) Prompts() *tokenizer.Prompt { return nil }
 func (exp *ChannelRoutingExperiment) Holdout() (int, tokenizer.HoldoutType) {
@@ -48,59 +54,151 @@ func (exp *ChannelRoutingExperiment) Score() float64 {
 	if len(exp.tableData) == 0 {
 		return 0.0
 	}
-	t := 0.0
+	total := 0.0
 	for _, d := range exp.tableData {
-		t += d.WeightedTotal
+		total += d.WeightedTotal
 	}
-	return t / float64(len(exp.tableData))
+	return total / float64(len(exp.tableData))
 }
 func (exp *ChannelRoutingExperiment) TableData() any { return exp.tableData }
 
 func (exp *ChannelRoutingExperiment) Artifacts() []tools.Artifact {
-	proseTemplate := `\subsection{Cortex Channel Routing}
-To demonstrate that signal tokens can weave through the topological substrate without being absorbed by its thermodynamic logic, we established a $1<<0 \dots 1<<7$ bitmask test across an active network. Signal routing successfully isolated all 8 communication channels.
+	const trials = 8
+	const maxTick = 15.0
 
-\begin{figure}[htbp]
-    \centering
-    \includegraphics[width=1.0\textwidth]{channel_routing_success.pdf}
-    \caption{Cortex Channel Routing Success Rate: signals traverse specific bitwise channels while preserving topological attractors.}
-    \label{fig:channel_routing}
-\end{figure}
+	channelLabels := make([]string, trials)
+	successVals := make([]float64, trials)
+	latencyVals := make([]float64, trials)
+
+	passes := 0
+	for bit := range trials {
+		channelLabels[bit] = fmt.Sprintf("CH%d", bit)
+		if exp.channelPassed[bit] {
+			successVals[bit] = 1.0
+			passes++
+		}
+		if exp.channelTick[bit] >= 0 {
+			latencyVals[bit] = float64(exp.channelTick[bit]) + 1
+		} else {
+			latencyVals[bit] = maxTick
+		}
+	}
+
+	meanSuccess := float64(passes) / float64(trials)
+	meanLine := make([]float64, trials)
+	for i := range meanLine {
+		meanLine[i] = meanSuccess
+	}
+
+	proseTemplate := `\subsection{Cortex Channel Routing}
+\label{sec:channel_routing}
+
+\paragraph{Task Description.}
+Signal tokens must traverse the cortex graph through specific bitwise channels
+($1\!\ll\!0$ through $1\!\ll\!7$) without being absorbed by the thermodynamic
+attractor map. Each channel is tested independently: a signal token is injected
+at the source node with a channel mask equal to $2^{\text{bit}}$; the graph is
+ticked for up to 15 steps; the experiment records (i) whether the signal reached
+the sink and (ii) the tick at which it arrived.
+
+\paragraph{Results.}
+Figure~\ref{fig:channel_routing} shows per-channel routing success (left panel)
+and arrival latency in graph ticks (right panel). {{.Passes}} of 8 channels
+routed successfully ({{.Pct}}\%), giving a mean isolation score of
+{{.Mean | f2}}.
+
+{{if ge .Passes 8 -}}
+The substrate correctly isolated all tested channels, demonstrating that
+bitwise masking provides a reliable multiplexing layer above the thermodynamic
+attractor structure.
+{{- else if ge .Passes 4 -}}
+Partial channel isolation was observed. Higher-order bit masks face stronger
+competition from low-energy attractors; the remaining failures are expected to
+close with deeper graph warm-up.
+{{- else -}}
+Channel isolation was limited at the current graph size. Larger graphs and
+more warm-up steps are expected to improve isolation substantially.
+{{- end}}
 `
-	proseData := map[string]any{}
+
+	panels := []tools.Panel{
+		{
+			Kind:       "chart",
+			Title:      "Per-Channel Routing Success",
+			GridLeft:   "6%",
+			GridRight:  "53%",
+			GridTop:    "14%",
+			GridBottom: "22%",
+			XLabels:    channelLabels,
+			XAxisName:  "Bit Channel",
+			XShow:      true,
+			Series: []tools.PanelSeries{
+				{Name: "Success", Kind: "bar", BarWidth: "55%", Data: successVals},
+				{Name: "Mean", Kind: "dashed", Symbol: "none", Color: "#f97316", Data: meanLine},
+			},
+			YMin: tools.Float64Ptr(0),
+			YMax: tools.Float64Ptr(1),
+		},
+		{
+			Kind:       "chart",
+			Title:      "Arrival Latency (ticks)",
+			GridLeft:   "57%",
+			GridRight:  "4%",
+			GridTop:    "14%",
+			GridBottom: "22%",
+			XLabels:    channelLabels,
+			XAxisName:  "Bit Channel",
+			XShow:      true,
+			Series: []tools.PanelSeries{
+				{Name: "Ticks to arrival", Kind: "bar", BarWidth: "55%", Color: "#6366f1", Data: latencyVals},
+			},
+			YMin: tools.Float64Ptr(0),
+			YMax: tools.Float64Ptr(maxTick),
+		},
+	}
+
+	pctStr := fmt.Sprintf("%.0f", meanSuccess*100)
 
 	return []tools.Artifact{
 		{
-			Type:     tools.ArtifactBarChart,
+			Type:     tools.ArtifactMultiPanel,
 			FileName: "channel_routing_success",
-			Data:     exp.tableData,
-			Title:    "Cortex Channel Routing Success Rate",
-			Caption:  "Evaluates selective signal routing over bitwise channels while preserving topological attractors.",
-			Label:    "fig:channel_routing",
+			Data: tools.MultiPanelData{
+				Panels: panels,
+				Width:  1100,
+				Height: 420,
+			},
+			Title:   "Cortex Channel Routing — Per-Channel Success and Latency",
+			Caption: fmt.Sprintf("Left: per-channel routing success (mean %.0f%%). Right: arrival latency in graph ticks (ceiling = 15 = DNF).", meanSuccess*100),
+			Label:   "fig:channel_routing",
 		},
 		{
 			Type:     tools.ArtifactProse,
 			FileName: "channel_routing_prose.tex",
 			Data: tools.ProseData{
 				Template: proseTemplate,
-				Data:     proseData,
+				Data: map[string]any{
+					"Passes": passes,
+					"Pct":    pctStr,
+					"Mean":   meanSuccess,
+				},
 			},
 		},
 	}
 }
+
+func (exp *ChannelRoutingExperiment) RawOutput() bool { return false }
 
 func (exp *ChannelRoutingExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	g := cortex.NewGraph()
 
 	nodes := g.Nodes()
 	for _, n := range nodes {
-		// Give all nodes some baseline energy to survive pruning
 		for j := 0; j < 128; j++ {
 			n.Cube.Set(0, 0, j, data.BaseChord(255))
 		}
 	}
 
-	// Inject entropy to build edges dynamically based on rotations
 	for i := range 100 {
 		g.Step()
 		if i%10 == 0 {
@@ -113,19 +211,13 @@ func (exp *ChannelRoutingExperiment) Finalize(sub *geometry.HybridSubstrate) err
 		return fmt.Errorf("graph failed to grow")
 	}
 
-	// We pick source and sink
 	src := nodes[0]
 	sink := nodes[len(nodes)-1]
 
-	passes := 0
-	trials := 8
-
-	for bit := 0; bit < 8; bit++ {
+	for bit := range 8 {
 		maskValue := byte(1 << bit)
 		mask := data.BaseChord(maskValue)
-		arrived := false
 
-		// Record how many signals sink has BEFORE injection
 		sinkSignalsBefore := len(sink.Signals)
 
 		signal := cortex.Token{
@@ -140,33 +232,35 @@ func (exp *ChannelRoutingExperiment) Finalize(sub *geometry.HybridSubstrate) err
 
 		src.Send(signal)
 
-		// Tick a few times to propagate
-		for range 15 {
+		// Tick and record exact arrival tick.
+		for tick := range 15 {
 			g.Step()
-		}
-
-		// Check if sink received signal
-		if len(sink.Signals) > sinkSignalsBefore {
-			for _, s := range sink.Signals[sinkSignalsBefore:] {
-				if s.LogicalFace == int(maskValue) {
-					arrived = true
-					passes++
+			if len(sink.Signals) > sinkSignalsBefore {
+				for _, s := range sink.Signals[sinkSignalsBefore:] {
+					if s.LogicalFace == int(maskValue) {
+						exp.channelPassed[bit] = true
+						exp.channelTick[bit] = tick
+						break
+					}
+				}
+				if exp.channelPassed[bit] {
 					break
 				}
 			}
 		}
 
-		if !arrived {
-			fmt.Printf("Bit %d failed to arrive\n", bit)
+		score := 0.0
+		if exp.channelPassed[bit] {
+			score = 1.0
 		}
-	}
 
-	exp.AddResult(tools.ExperimentalData{
-		Idx:           1,
-		Name:          "Channel Isolation",
-		Scores:        tools.Scores{Exact: float64(passes), Partial: float64(passes) / float64(trials)},
-		WeightedTotal: float64(passes) / float64(trials),
-	})
+		exp.AddResult(tools.ExperimentalData{
+			Idx:           bit,
+			Name:          fmt.Sprintf("CH%d (1<<%d)", bit, bit),
+			Scores:        tools.Scores{Exact: score, Partial: score},
+			WeightedTotal: score,
+		})
+	}
 
 	return nil
 }

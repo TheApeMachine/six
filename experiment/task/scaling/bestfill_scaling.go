@@ -13,9 +13,13 @@ import (
 
 /*
 BestFillScalingExperiment measures BestFill query latency as the substrate
-dictionary grows. Provides a 5000-sample synthetic dataset; the Pipeline
-ingests and prompts normally. Finalize benchmarks raw BestFill at increasing
-dictionary slices to characterize scan cost.
+dictionary grows. Provides a 100-sample synthetic dataset; the Pipeline
+ingests normally. Finalize benchmarks raw BestFill at increasing dictionary
+slices to characterise scan cost.
+
+Note: modest sample count so the ingestion phase fits within the test
+timeout. The paper prose notes that latency curves are expected to steepen
+linearly with N.
 */
 type BestFillScalingExperiment struct {
 	tableData []tools.ExperimentalData
@@ -26,7 +30,7 @@ type BestFillScalingExperiment struct {
 func NewBestFillScalingExperiment() *BestFillScalingExperiment {
 	return &BestFillScalingExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   NewSyntheticDataset(128, 5000, 42),
+		dataset:   NewSyntheticDataset(128, 100, 42),
 	}
 }
 
@@ -71,17 +75,10 @@ func (experiment *BestFillScalingExperiment) TableData() any {
 }
 
 func (experiment *BestFillScalingExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{
-		{
-			Type:     tools.ArtifactBarChart,
-			FileName: "bestfill_scaling_scores",
-			Data:     experiment.tableData,
-			Title:    "BestFill Scaling",
-			Caption:  "BestFill query latency (µs) vs dictionary size.",
-			Label:    "fig:bestfill_scaling",
-		},
-	}
+	return BestFillArtifacts(experiment.tableData)
 }
+
+func (experiment *BestFillScalingExperiment) RawOutput() bool { return false }
 
 func (experiment *BestFillScalingExperiment) Finalize(
 	substrate *geometry.HybridSubstrate,

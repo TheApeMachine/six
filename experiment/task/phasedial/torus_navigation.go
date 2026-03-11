@@ -127,6 +127,8 @@ func (experiment *TorusNavigationExperiment) TableData() any {
 	return experiment.tableData
 }
 
+func (experiment *TorusNavigationExperiment) RawOutput() bool { return false }
+
 func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	seedQueryChords := sub.Entries[0].Readout
 	fingerprintA := sub.Entries[0].Fingerprint

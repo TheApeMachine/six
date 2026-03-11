@@ -62,7 +62,7 @@ and flows tokens downhill based on face 256 gradients.
 */
 func (graph *Graph) fireActiveEdges() {
 	edges := graph.Edges()
-	var activeEdges []*Edge
+	graph.activeEdgeBuf = graph.activeEdgeBuf[:0]
 
 	for _, edge := range edges {
 		edge.Refresh()
@@ -80,15 +80,15 @@ func (graph *Graph) fireActiveEdges() {
 		probability := weight + (1.0 / (1.0 + float64(edge.StableFrames)*0.02))
 
 		if fastRand() < probability {
-			activeEdges = append(activeEdges, edge)
+			graph.activeEdgeBuf = append(graph.activeEdgeBuf, edge)
 		}
 	}
 
-	randShuffle(activeEdges)
+	randShuffle(graph.activeEdgeBuf)
 
 	rotated := false
 
-	for _, edge := range activeEdges {
+	for _, edge := range graph.activeEdgeBuf {
 		faceA := edge.A.Rot.Reverse(256)
 		faceB := edge.B.Rot.Reverse(256)
 
@@ -216,21 +216,27 @@ func randShuffle(edges []*Edge) {
 
 /*
 Edges returns all unique edges currently active in the graph.
+Uses a lazily-rebuilt cache to avoid per-tick map+slice allocations.
 */
 func (graph *Graph) Edges() []*Edge {
-	var edgeList []*Edge
-	seen := make(map[*Edge]bool)
+	if !graph.edgeCacheDirty {
+		return graph.edgeCache
+	}
+
+	graph.edgeCache = graph.edgeCache[:0]
+	seen := make(map[*Edge]bool, len(graph.edgeCache)+16)
 
 	for _, node := range graph.nodes {
 		for _, edge := range node.edges {
 			if !seen[edge] {
 				seen[edge] = true
-				edgeList = append(edgeList, edge)
+				graph.edgeCache = append(graph.edgeCache, edge)
 			}
 		}
 	}
 
-	return edgeList
+	graph.edgeCacheDirty = false
+	return graph.edgeCache
 }
 
 /*
@@ -271,6 +277,10 @@ func (graph *Graph) prune() {
 	}
 
 	graph.nodes = alive
+
+	if graph.pruneEvents > 0 {
+		graph.edgeCacheDirty = true
+	}
 }
 
 func pruneEdge(node, target *Node) {

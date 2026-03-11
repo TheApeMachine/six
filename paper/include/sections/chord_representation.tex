@@ -26,17 +26,17 @@ by activating exactly five bits at positions given by coprime spreading:
 \end{equation}
 
 \noindent Because the multipliers $\{7, 13, 31, 61, 127\}$ are pairwise
-coprime and $D = 2^9$, distinct byte values receive distinct activation
+coprime and $D = 257$ is prime, distinct byte values receive distinct activation
 patterns (verified by exhaustive enumeration over all $256$ values).  The
 resulting chord is extremely sparse: $\|\mathbf{c}(b)\|_1 = 5$ out of
 $D = 257$ bits, yielding a sparsity ratio of $5/257 \approx 1.95\%$.
 
 \paragraph{Why Coprime Multipliers.}
-The choice of coprime multipliers is not arbitrary.  Multiplying by a prime
-$p$ and reducing modulo a power of two $D = 2^k$ generates a permutation
-of the residues $\{0, \ldots, D-1\}$ if and only if $\gcd(p, D) = 1$.
-Since all five multipliers are odd primes and $D$ is a power of two, each
-multiplier independently generates a distinct full-period permutation,
+The choice of coprime multipliers is not arbitrary.  Multiplying by a value
+$p$ and reducing modulo a prime $D = 257$ generates a permutation of the
+residues $\{0, \ldots, D-1\}$ for any $p \not\equiv 0 \pmod{D}$.
+Since all five multipliers are themselves prime and less than 257, each
+independently generates a distinct full-period permutation,
 maximizing the minimum Hamming distance between any two byte chords.
 
 \subsection{Algebraic Operations}

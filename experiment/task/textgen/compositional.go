@@ -1,20 +1,26 @@
 package textgen
 
 import (
-	"strings"
-
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/provider"
+	"github.com/theapemachine/six/provider/huggingface"
 	"github.com/theapemachine/six/tokenizer"
 )
 
 /*
-CompositionalExperiment evaluates the system's ability to compose novel
-word combinations. It verifies that the structural vacuum (ChordHole)
-of a partial prompt uniquely identifies the missing component even
-if the specific combination was not in the corpus.
+CompositionalExperiment evaluates the substrate's ability to recall and
+recombine structural patterns across a real story corpus. TinyStories provides
+short English stories with highly regular grammar patterns ("Once upon a time
+there was a [adj] [noun] who liked to [verb]..."). After ingesting multiple
+stories, the system is prompted with a 70% prefix of novel samples; it must
+complete the held-out 30% by chord resonance across learned story patterns.
+
+This tests compositional recall: can the attractor field reconstruct the
+ending of a story whose opening shares structural motifs with ingested stories,
+even when the specific nouns and events are novel?
 */
 type CompositionalExperiment struct {
 	tableData []tools.ExperimentalData
@@ -25,54 +31,38 @@ type CompositionalExperiment struct {
 func NewCompositionalExperiment() *CompositionalExperiment {
 	return &CompositionalExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   tools.NewLocalProvider(compositionalCorpus()),
+		dataset: huggingface.New(
+			huggingface.DatasetWithRepo("roneneldan/TinyStories"),
+			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithTextColumn("text"),
+		),
 	}
 }
 
-func compositionalCorpus() []string {
-	return []string{
-		"the quick brown fox",
-		"the slow brown bear",
-		"the quick red car",
-	}
-}
-
-func (experiment *CompositionalExperiment) Name() string {
-	return "Compositional"
-}
-
-func (experiment *CompositionalExperiment) Section() string {
-	return "textgen"
-}
-
-func (experiment *CompositionalExperiment) Dataset() provider.Dataset {
-	return experiment.dataset
-}
+func (experiment *CompositionalExperiment) Name() string              { return "Compositional" }
+func (experiment *CompositionalExperiment) Section() string           { return "textgen" }
+func (experiment *CompositionalExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
 func (experiment *CompositionalExperiment) Prompts() *tokenizer.Prompt {
 	experiment.prompt = tokenizer.NewPrompt(
 		tokenizer.PromptWithDataset(experiment.dataset),
 		tokenizer.PromptWithHoldout(experiment.Holdout()),
-		tokenizer.PromptWithValues([]string{
-			"the quick red",
-		}),
 	)
-
 	return experiment.prompt
 }
 
+// 30% right holdout: system must reconstruct the ending of each story.
 func (experiment *CompositionalExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 5, tokenizer.RIGHT
+	return 30, tokenizer.RIGHT
 }
 
 func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalData) {
-	score := 0.0
-	observed := string(results.Observed)
-	if strings.Contains(observed, "car") {
-		score = 1.0
-	}
-
-	results.WeightedTotal = score
+	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
+	results.WeightedTotal = tools.WeightedTotal(
+		results.Scores.Exact,
+		results.Scores.Partial,
+		results.Scores.Fuzzy,
+	)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -91,22 +81,13 @@ func (experiment *CompositionalExperiment) Score() float64 {
 	return total / float64(len(experiment.tableData))
 }
 
-func (experiment *CompositionalExperiment) TableData() any {
-	return experiment.tableData
-}
+func (experiment *CompositionalExperiment) TableData() any { return experiment.tableData }
 
 func (experiment *CompositionalExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{
-		{
-			Type:     tools.ArtifactBarChart,
-			FileName: tools.Slugify(experiment.Name()) + "_scores",
-			Data:     experiment.tableData,
-			Title:    experiment.Name() + " — Score Breakdown",
-			Caption:  "Mean exact, partial, fuzzy, and weighted scores for " + experiment.Name() + ".",
-			Label:    "fig:" + tools.Slugify(experiment.Name()) + "_scores",
-		},
-	}
+	return CompositionalArtifacts(experiment.tableData, experiment.Score())
 }
+
+func (experiment *CompositionalExperiment) RawOutput() bool { return false }
 
 func (experiment *CompositionalExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil

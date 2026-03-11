@@ -11,10 +11,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/parquet-go/parquet-go"
 	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/provider"
+	"crypto/sha256"
+	"encoding/hex"
 )
 
 const hfBase = "https://huggingface.co"
@@ -552,7 +555,6 @@ downloadShard fetches the shard via HTTP, caches to temp, and returns
 a bytes.Reader (implements io.ReaderAt) with the body size.
 */
 func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64, error) {
-
 	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
 	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
 
@@ -595,12 +597,47 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 	return r, r.Size(), nil
 }
 
+
 /*
 discoverShard queries the HuggingFace API tree listing and returns
-the path to the first train-split .parquet, .json, or .jsonl file,
-or any valid fallback.
+the path to the first train-split .parquet, .json, or .jsonl file.
+The result is persisted to a sidecar file next to the cached shard so
+that subsequent calls — even from a fresh Dataset instance — bypass
+the network entirely.
 */
 func (dataset *Dataset) discoverShard() (string, string, error) {
+	// Compute a stable hash of the concatenated components to eliminate collisions.
+	hash := sha256.New()
+	hash.Write([]byte(dataset.repo))
+	hash.Write([]byte("\x00"))
+	hash.Write([]byte(dataset.split))
+	hash.Write([]byte("\x00"))
+	hash.Write([]byte(dataset.subset))
+	sidecarKey := hex.EncodeToString(hash.Sum(nil))
+	sidecarPath := filepath.Join(os.TempDir(), "six_hf_shard_"+sidecarKey+".txt")
+
+	// Check for sidecar freshness against a configurable TTL.
+	ttlStr := os.Getenv("SIX_HF_SIDECAR_TTL")
+	ttl := 24 * time.Hour // default 1 day
+	if ttlStr != "" {
+		if d, err := time.ParseDuration(ttlStr); err == nil {
+			ttl = d
+		}
+	}
+
+	if info, err := os.Stat(sidecarPath); err == nil {
+		if time.Since(info.ModTime()) < ttl {
+			if raw, err := os.ReadFile(sidecarPath); err == nil {
+				parts := strings.SplitN(strings.TrimSpace(string(raw)), "\n", 2)
+				if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
+					return parts[0], parts[1], nil
+				}
+			}
+		} else {
+			_ = os.Remove(sidecarPath)
+		}
+	}
+
 	branches := []string{"main", "refs/convert/parquet"}
 
 	var fallback string
@@ -667,6 +704,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 				targetSplit = "train"
 			}
 			if strings.Contains(e.Path, targetSplit) {
+				_ = os.WriteFile(sidecarPath, []byte(e.Path+"\n"+branch), 0644)
 				return e.Path, branch, nil
 			}
 
@@ -678,6 +716,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 	}
 
 	if fallback != "" {
+		_ = os.WriteFile(sidecarPath, []byte(fallback+"\n"+fallbackBranch), 0644)
 		return fallback, fallbackBranch, nil
 	}
 

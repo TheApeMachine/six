@@ -1,0 +1,49 @@
+\begin{table}[htbp]
+\centering
+\caption{Text Overlap — standardised result summary (N=10).}
+\label{tab:text_overlap_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+1 & Text Overlap & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+2 & Text Overlap & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+6 & Text Overlap & 0.0000 & 0.1038 & 0.0676 & 0.0406 \\
+9 & Text Overlap & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+8 & Text Overlap & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{he needle and sewed the button on Lily's\ldots}} & \multicolumn{2}{l}{\texttt{he needle and sewed the button on Lily's\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.··Beep playe\ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.··Beep playe\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a small town, there\ldots}} & \multicolumn{2}{l}{\texttt{··Lily pulled it out and saw that it was\ldots}} & \multicolumn{2}{l}{\texttt{in the castle, Lily found a big cobweb. \ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a fast driver named Tim went fo\ldots}} & \multicolumn{2}{l}{\texttt{car was very loud, and everyone could he\ldots}} & \multicolumn{2}{l}{\texttt{rove around the town, going fast and hav\ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 40\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.5222} & \multicolumn{3}{l}{Min: 0.0406 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{136.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4.38 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{438.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{4.52 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

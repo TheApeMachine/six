@@ -1,6 +1,7 @@
 package phasedial
 
 import (
+	_ "embed"
 	"fmt"
 	"math"
 	"math/rand"
@@ -294,6 +295,8 @@ func formatSplitName(prefix string, left, right, totalDims int) string {
 	return fmt.Sprintf("%s(D=%d)-%d/%d", prefix, totalDims, left, right)
 }
 
+func (experiment *TorusGeneralizationExperiment) RawOutput() bool { return false }
+
 func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 	// stepDeg := experiment.sweepStepDeg
 	// if stepDeg <= 0 || stepDeg > 180 {
@@ -519,30 +522,29 @@ func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSu
 	return nil
 }
 
+//go:embed torus_generalization.tex
+var torusProseTemplate string
+
 func (experiment *TorusGeneralizationExperiment) Artifacts() []tools.Artifact {
+
 	return []tools.Artifact{
 		{
-			Type:     tools.ArtifactComboChart,
-			FileName: "torus_generalization",
-			Data: tools.ComboChartData{
-				XAxis:  experiment.xAxis,
-				Series: experiment.comboSeries,
-				XName:  "Split Configuration",
-				YName:  "Best Gain",
-				YMin:   0.0,
-				YMax:   0.25,
+			Type:     tools.ArtifactProse,
+			FileName: "torus_generalization_section.tex",
+			Data: tools.ProseData{
+				Template: torusProseTemplate,
+				Data:     map[string]any{},
 			},
-			Title:   "Torus Generalization",
-			Caption: "Best torus gain for each split configuration.",
-			Label:   "fig:torus_generalization",
 		},
 		{
-			Type:     tools.ArtifactTable,
+			Type:     tools.ArtifactProse,
 			FileName: "torus_generalization_summary.tex",
-			Data:     experiment.tableRows,
-			Title:    "Torus Generalization Summary",
-			Caption:  "Summary of best gains for each split and seed.",
-			Label:    "tab:torus_generalization",
+			Data: tools.ProseData{
+				Template: `% Torus generalisation summary table — results pending.
+% This file is auto-generated; do not edit by hand.
+`,
+				Data: map[string]any{},
+			},
 		},
 	}
 }

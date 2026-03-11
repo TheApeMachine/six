@@ -1,8 +1,9 @@
 package numeric
 
 import (
-	"fmt"
 	"unsafe"
+
+	"github.com/theapemachine/six/console"
 )
 
 /*
@@ -44,6 +45,7 @@ func PackResult(scoreFixed int32, invertedDist uint16, id int) uint64 {
 	if scoreFixed < packedScoreMin {
 		scoreFixed = packedScoreMin
 	}
+
 	if scoreFixed > packedScoreMax {
 		scoreFixed = packedScoreMax
 	}
@@ -73,7 +75,7 @@ func PtrToBytes(ptr unsafe.Pointer, n int) ([]byte, error) {
 	}
 
 	if ptr == nil {
-		return nil, fmt.Errorf("nil pointer for %d bytes", n)
+		return nil, console.Error(NumericNilPointerError, "bytes", n)
 	}
 
 	return unsafe.Slice((*byte)(ptr), n), nil
@@ -99,4 +101,14 @@ func AbsInt(v int) int {
 	}
 
 	return v
+}
+
+type NumericError string
+
+const (
+	NumericNilPointerError NumericError = "nil pointer"
+)
+
+func (err NumericError) Error() string {
+	return string(err)
 }

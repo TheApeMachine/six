@@ -1,12 +1,15 @@
 package geometry
 
 import (
+	"fmt"
 	"math"
 	"math/cmplx"
+	"sync"
 
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 	"github.com/theapemachine/six/numeric"
+	"github.com/theapemachine/six/pool"
 )
 
 /*
@@ -53,6 +56,65 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 		dial[k] = sum
 	}
 
+	return dial.normalize()
+}
+
+/*
+EncodeFromChordsParallel is the pool-accelerated variant of EncodeFromChords.
+The outer loop over NBasis dimensions is embarrassingly parallel — each k writes
+to dial[k] with no cross-dependency — so we fan out to the pool and join before
+the serial normalize pass.
+
+If p is nil the call falls back to the serial EncodeFromChords path.
+*/
+func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface {
+	Schedule(string, func() (any, error), ...pool.JobOption) chan *pool.Result
+}) PhaseDial {
+	if p == nil {
+		return dial.EncodeFromChords(chords)
+	}
+	if len(chords) == 0 {
+		return dial
+	}
+
+	nBasis := config.Numeric.NBasis
+
+	// Pre-compute ChordBin for every chord once; it's the same for all k.
+	bins := make([]int, len(chords))
+	for t := range chords {
+		bins[t] = data.ChordBin(&chords[t])
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(nBasis)
+
+	for k := range nBasis {
+		omega := float64(numeric.Primes[k])
+
+		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", k), func() (any, error) {
+			defer wg.Done()
+			var sum complex128
+			for t := range chords {
+				structuralPrime := float64(numeric.Primes[bins[t]%config.Numeric.NSymbols])
+				phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
+				sum += cmplx.Rect(1.0, phase)
+			}
+			dial[k] = sum // each k owns a distinct index — no race
+			return nil, nil
+		})
+
+		go func(ch chan *pool.Result) {
+			if ch == nil {
+				return
+			}
+			res := <-ch
+			if res != nil && res.Error != nil {
+				fmt.Printf("phasedial-k%d scheduling error: %v\n", k, res.Error)
+			}
+		}(resCh)
+	}
+
+	wg.Wait()
 	return dial.normalize()
 }
 

@@ -27,6 +27,7 @@ var Numeric = &ctx.Architecture
 var System = &ctx.System
 var Workers = &ctx.Workers
 var Cortex = &ctx.CortexConfig
+var Experiment = &ctx.ExperimentConfig
 
 func init() {
 	viper.SetDefault("system.workers.min", 2)
@@ -43,8 +44,11 @@ func init() {
 	viper.SetDefault("architecture.numerics.nbasis", 512)
 	viper.SetDefault("architecture.numerics.chordBlocks", 16)
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
+	viper.SetDefault("architecture.numerics.shannonCapacity", 0.45)
 
 	viper.SetDefault("cortex.initialNodes", 8)
+
+	viper.SetDefault("experiment.samples", 10)
 
 	home := homedir.HomeDir()
 
@@ -69,7 +73,15 @@ type Config struct {
 		Min int
 		Max int
 	}
-	CortexConfig CortexConfig
+	CortexConfig     CortexConfig
+	ExperimentConfig ExperimentConfig
+}
+
+/*
+ExperimentConfig holds parameters for experiments.
+*/
+type ExperimentConfig struct {
+	Samples int
 }
 
 /*
@@ -84,6 +96,7 @@ type Architecture struct {
 	WindowWeights   []float64
 	ChordBlocks     int
 	FrequencySpread float64
+	ShannonCapacity float64
 }
 
 type CortexConfig struct {
@@ -141,6 +154,16 @@ func (ctx *Config) Load() error {
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
 	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
+	ctx.Architecture.ShannonCapacity = v.GetFloat64("architecture.numerics.shannonCapacity")
+	if ctx.Architecture.ShannonCapacity < 0.0 || ctx.Architecture.ShannonCapacity > 1.0 {
+		return console.Error(
+			ConfigError("architecture.numerics.shannonCapacity out of bounds"),
+			"expected",
+			"0.0 <= shannonCapacity <= 1.0",
+			"got",
+			ctx.Architecture.ShannonCapacity,
+		)
+	}
 
 	minWorkers := v.GetInt("system.workers.min")
 	maxWorkersStr := v.GetString("system.workers.max")
@@ -172,6 +195,8 @@ func (ctx *Config) Load() error {
 	ctx.System.LocalShardThreshold = v.GetInt("system.distributed.localShardThreshold")
 
 	ctx.CortexConfig.InitialNodes = v.GetInt("cortex.initialNodes")
+
+	ctx.ExperimentConfig.Samples = v.GetInt("experiment.samples")
 
 	return nil
 }

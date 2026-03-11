@@ -1,11 +1,18 @@
 {
   "artifacts": [
     {
-      "caption": "BestFill query latency (µs) vs dictionary size.",
-      "file_name": "bestfill_scaling_scores",
+      "caption": "BestFill efficiency score vs dictionary size. 5 benchmark points.",
+      "file_name": "bestfill_scaling_chart",
       "label": "fig:bestfill_scaling",
       "title": "BestFill Scaling",
-      "type": "bar"
+      "type": "multipanel"
+    },
+    {
+      "caption": "",
+      "file_name": "bestfill_scaling_section.tex",
+      "label": "",
+      "title": "",
+      "type": "prose"
     }
   ],
   "name": "BestFill Scaling",
@@ -76,7 +83,7 @@
     },
     {
       "Idx": 4,
-      "Name": "dict=627572",
+      "Name": "dict=12266",
       "Prefix": null,
       "Holdout": null,
       "Observed": null,
@@ -84,7 +91,7 @@
       "Scores": {
         "Exact": 0,
         "Partial": 0,
-        "Fuzzy": 627572
+        "Fuzzy": 12266
       },
       "WeightedTotal": 1,
       "TrueLabel": null,

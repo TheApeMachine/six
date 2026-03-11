@@ -87,6 +87,8 @@ func (experiment *GroupActionEquivarianceExperiment) Artifacts() []tools.Artifac
 	return []tools.Artifact{}
 }
 
+func (experiment *GroupActionEquivarianceExperiment) RawOutput() bool { return false }
+
 func (experiment *GroupActionEquivarianceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

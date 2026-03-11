@@ -87,6 +87,8 @@ func (experiment *CorrelationLengthExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
 }
 
+func (experiment *CorrelationLengthExperiment) RawOutput() bool { return false }
+
 func (experiment *CorrelationLengthExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

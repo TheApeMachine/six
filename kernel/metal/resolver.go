@@ -14,6 +14,9 @@ import (
 	"os"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/theapemachine/six/geometry"
+	"github.com/theapemachine/six/kernel/internal/resolve"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air
@@ -41,6 +44,12 @@ func (backend *MetalBackend) Resolve(
 
 	if numNodes == 0 {
 		return 0, nil
+	}
+
+	if numNodes < 1024 {
+		nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)
+		ctx := (*geometry.GFRotation)(context)
+		return resolve.PackedNearest(nodes, *ctx), nil
 	}
 
 	var packed C.uint64_t

@@ -1,22 +1,22 @@
-\subsection{The Dual Architecture: Bedrock and Cortex}
+\subsection{The Dual Architecture: Substrate and Cortex}
 \label{sec:dual_architecture}
 
-The architecture introduces a fundamental bifurcation between persistent memory and volatile reasoning, formalized as two structural layers operating over the same underlying coordinate geometry of the Fermat Cube ($257^3$).
+The architecture introduces a fundamental bifurcation between persistent memory and volatile reasoning, formalized as two structural layers operating over the same underlying coordinate geometry of the Fermat Cube.
 
-\subsubsection{The Bedrock: Persistent Holographic Storage ($Z = 0$)}
-The Bedrock functions as the long-term memory of the system. It eschews traditional continuous embeddings in favor of a \textbf{Thermodynamic Trie}, where incoming tokens are routed deterministically based on their intrinsic geometric identity (\texttt{IntrinsicFace}). Specifically, every byte addresses a unique constituent block of the manifold. This self-addressing mechanism completely eliminates hash collisions and projection matrices. 
+\subsubsection{The Substrate: Persistent Holographic Storage ($Z = 0$)}
+The Substrate functions as the long-term memory of the system. It eschews traditional continuous embeddings in favor of a \textbf{Thermodynamic Trie}, where incoming tokens are routed deterministically based on their intrinsic geometric identity (\texttt{IntrinsicFace}). Specifically, every byte addresses a unique face of the Fermat Cube. This self-addressing mechanism completely eliminates hash collisions and projection matrices.
 
-Chronological generation in the Bedrock is treated deterministically as an affine operation over the $GF(257)$ field. Rotations induced by sequential input accumulate as affine transforms $f(x) = (ax + b) \pmod{257}$, mapping sequential traversal into $O(1)$ zero-copy coordinate leaps across the manifold. 
+Chronological generation in the Substrate is treated deterministically as an affine operation over the Galois field $\operatorname{GF}(257)$. Rotations induced by sequential input accumulate as affine transforms $f(x) = (ax + b) \pmod{257}$, mapping sequential traversal into $O(1)$ zero-copy coordinate leaps across the manifold.
 
 \subsubsection{The Cortex: Active Inference Workbench ($Z \ge 1$)}
-In contrast, the Cortex provides a volatile, high-dimensional scratchpad explicitly designed for associative reasoning and analogical synthesis. When prompted, the system spins up a dynamic graph of reactive non-symbolic nodes. 
+In contrast, the Cortex provides a volatile, high-dimensional scratchpad explicitly designed for associative reasoning and analogical synthesis. When prompted, the system spins up a dynamic graph of reactive non-symbolic nodes, each containing its own Fermat Cube with $6 \times 4 \times 257 = 6{,}168$ chord positions (6 sides $\times$ 4 rotational orientations $\times$ 257 faces per orientation).
 
-Reasoning in the Cortex diverges significantly from auto-regressive next-token prediction, instead framing cognition as a \textbf{Holographic Boundary Value Problem (BVP)}. The Cortex leverages the 257th face of the \texttt{MacroCube}---a structurally protected working register computationally isolated from standard data ingestion. 
+Reasoning in the Cortex diverges significantly from auto-regressive next-token prediction, instead framing cognition as a \textbf{Holographic Boundary Value Problem (BVP)}. Each node's Cube carries a control chord at face index 256 on every side$\times$rotation patch---a structurally protected gate that determines edge opcodes between connected nodes.
 
 This working space undergoes a rigorous \textbf{Vibrational Phase Transition} lifecycle:
 \begin{enumerate}[nosep]
-    \item \textbf{Build World:} Information premises are ingested, inducing topological gravity and constructive interference among concepts.
-    \item \textbf{Settle:} The dynamic graph is allowed to vibrate and converge. Through Transitive Resonance, colliding concepts mathematically annihilate or amplify each other via bitwise logical interactions.
-    \item \textbf{Wipe Register (Dream State):} The Face 256 register is cleared, isolating the accumulated geometric residue. Using "thermodynamic suction", the system identifies structural holes in contexts and pulls required memory fragments from the Bedrock.
+    \item \textbf{Build World:} Information premises are ingested into the graph, inducing topological gravity and constructive interference among concepts.
+    \item \textbf{Settle:} The dynamic graph is allowed to vibrate and converge. Through Transitive Resonance, colliding concepts mathematically annihilate or amplify each other via bitwise logical interactions across connected cube patches.
+    \item \textbf{Wipe Register (Dream State):} Working state is cleared, isolating the accumulated geometric residue. Using ``thermodynamic suction'', the system identifies structural holes in contexts and pulls required memory fragments from the Substrate.
     \item \textbf{Query Response:} When the query is finally ingested, its interference with the clean, pre-established geometric residue produces a zero-shot, deterministic answer.
 \end{enumerate}

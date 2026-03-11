@@ -75,12 +75,64 @@ var paperCmd = &cobra.Command{
 			return nil
 		}
 
+		// Define document ordering: front-matter first, experiments, back-matter last.
+		// "sections" contains abstract/intro/conclusion etc. — split into front and back.
+		frontMatterFiles := []string{
+			"include/sections/abstract.tex",
+			"include/sections/introduction.tex",
+		}
+		backMatterFiles := []string{
+			"include/sections/discussion.tex",
+			"include/sections/conclusion.tex",
+			"include/sections/related_work.tex",
+		}
+
+		// Emit front-matter (no \section wrapper — these files define their own).
+		fmt.Fprintln(mainFile, "\\graphicspath{{include/sections/}}")
+		fmt.Fprintln(mainFile, "")
+		for _, f := range frontMatterFiles {
+			fmt.Fprintf(mainFile, "\\InputIfFileExists{%s}{}{}\n", f)
+		}
+
+		// Emit remaining sections/ files as theory body (architecture, etc.)
+		sectionsDir := filepath.Join(includeDir, "sections")
+		if sectionsEntries, err := os.ReadDir(sectionsDir); err == nil {
+			skipSet := map[string]bool{}
+			for _, f := range frontMatterFiles {
+				skipSet[filepath.Base(f)] = true
+			}
+			for _, f := range backMatterFiles {
+				skipSet[filepath.Base(f)] = true
+			}
+			// experiments.tex is auto-generated index, skip it
+			skipSet["experiments.tex"] = true
+
+			var theoryFiles []string
+			for _, e := range sectionsEntries {
+				if !e.IsDir() && strings.HasSuffix(e.Name(), ".tex") && !skipSet[e.Name()] {
+					theoryFiles = append(theoryFiles, e.Name())
+				}
+			}
+			slices.Sort(theoryFiles)
+			for _, f := range theoryFiles {
+				fmt.Fprintf(mainFile, "\\InputIfFileExists{include/sections/%s}{}{}\n", f)
+			}
+		}
+		fmt.Fprintln(mainFile, "\\FloatBarrier")
+		fmt.Fprintln(mainFile, "\\clearpage")
+		fmt.Fprintln(mainFile, "")
+
+		// Emit experiment sections in alphabetical order (skip "sections").
 		for _, entry := range entries {
 			if !entry.IsDir() {
 				continue
 			}
 
 			moduleName := entry.Name()
+			if moduleName == "sections" {
+				continue // already handled above
+			}
+
 			// Capitalize module name for section
 			sectionName := strings.ToUpper(moduleName[:1]) + moduleName[1:]
 
@@ -113,6 +165,14 @@ var paperCmd = &cobra.Command{
 			fmt.Fprintln(mainFile, "\\clearpage")
 			fmt.Fprintln(mainFile, "")
 		}
+
+		// Emit back-matter.
+		fmt.Fprintln(mainFile, "\\graphicspath{{include/sections/}}")
+		for _, f := range backMatterFiles {
+			fmt.Fprintf(mainFile, "\\InputIfFileExists{%s}{}{}\n", f)
+		}
+		fmt.Fprintln(mainFile, "\\FloatBarrier")
+		fmt.Fprintln(mainFile, "\\clearpage")
 
 		fmt.Fprintln(mainFile, "\\end{document}")
 		fmt.Println("Generated paper/main.tex successfully.")

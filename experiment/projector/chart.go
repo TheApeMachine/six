@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	texttmpl "text/template"
 )
 
@@ -70,7 +71,7 @@ func emitFigure(filename, caption, label string, out io.Writer) error {
 		Filename string
 		Caption  string
 		Label    string
-	}{fmt.Sprintf("%s.pdf", filename), caption, label}); err != nil {
+	}{fmt.Sprintf("%s.pdf", filename), strings.ReplaceAll(caption, "%", `\%`), label}); err != nil {
 		return err
 	}
 	_, err := out.Write(buf.Bytes())

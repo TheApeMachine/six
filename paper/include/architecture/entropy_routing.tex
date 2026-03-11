@@ -9,7 +9,7 @@ In information theoretic terms, the representational capacity of a binary vector
 Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector ($D = 10,000$ to $D = 100,000$). However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
 
 \subsection{Dynamic Manifolds as Entropy Relief Valves}
-Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic chord to a highly compressed 257-bit vector, but geometrically map 257 such chords into a nested manifold (the \textit{MacroCube}), addressed by $GF(257)$ affine transformations.
+Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic chord to a highly compressed 257-bit vector, but geometrically map $6 \times 4 \times 257 = 6{,}168$ such chords into a three-dimensional manifold (the \textit{Fermat Cube}), addressed by $\operatorname{GF}(257)$ affine transformations.
 
 By establishing a rigid, non-commutative rotational lattice, the architecture avoids local saturation through \textbf{Topological Entropy Routing}. Ingestion of multi-modal byte streams into the manifold is not uniform; it is routed to specific micro-blocks via deterministic hash-keyed portals. 
 
@@ -22,7 +22,7 @@ Before the local micro-block crosses the entropy peak and loses discriminative c
     \item \textbf{Entropy Diffusion:} The highly saturated, high-entropy block is mechanically swung out of the active ingestion portal and preserved in the structural background of the manifold. Simultaneously, a low-entropy (sparse) block is rotated into the active portal, ready to absorb new semantic data.
 \end{enumerate}
 
-If the global macro-density of the 27-block structure itself reaches the 0.45 threshold, the system executes an $O(1)$ \textit{Virtual Mitosis}. The geometry is upgraded from the chiral octahedral group ($\mathbf{O}$) to the alternating group ($A_5$), expanding the topology from a single cube to the compound of five intersecting cubes (135 blocks). 
+If the global macro-density of the Fermat Cube itself reaches the 0.45 threshold, the system executes an $O(1)$ \textit{Virtual Mitosis}. The geometry is upgraded from the chiral octahedral group ($\mathbf{O}$) to the alternating group ($A_5$), expanding the topology from a single cube to the compound of five intersecting cubes ($5 \times 6{,}168 = 30{,}840$ chord positions).
 
 \subsection{State Space Analysis: Topology as a Capacity Multiplier}
 \label{sec:state_space}
@@ -37,33 +37,33 @@ A single chord occupies $D = 257$ bits of storage and admits
 $2^{257} \approx 2.31 \times 10^{77}$ possible states.  This is
 the Shannon-limited micro-state.
 
-\paragraph{Level 2: The MacroCube (257 faces).}
-257 chords are arranged in a rigid ring lattice, yielding:
+\paragraph{Level 2: The Fermat Cube ($6 \times 4 \times 257$ positions).}
+$6{,}168$ chords are arranged in a three-dimensional lattice, yielding:
 \begin{equation}
-  |\Omega_{\text{cube}}| = (2^{257})^{257} = 2^{66{,}049}
-  \approx 10^{19{,}882}
+  |\Omega_{\text{cube}}| = (2^{257})^{6168} = 2^{1{,}585{,}176}
+  \approx 10^{477{,}166}
   \label{eq:state_cube}
 \end{equation}
-The memory footprint is $257 \times 64 = 16{,}448$ bytes $\approx 16.4$~KB.
+The memory footprint is $6{,}168 \times 64 = 394{,}752$ bytes $\approx 386$~KB.
 
 \paragraph{Level 3: The Icosahedral Manifold (Post-Mitosis).}
-Five MacroCubes expand the lattice to 1285 chords:
+Five Fermat Cubes expand the lattice to $30{,}840$ chord positions:
 \begin{equation}
-  |\Omega_{\text{ico}}| = 2^{1285 \times 257} = 2^{330{,}245}
-  \approx 10^{99{,}413}
+  |\Omega_{\text{ico}}| = (2^{257})^{30840} = 2^{7{,}925{,}880}
+  \approx 10^{2{,}385{,}832}
   \label{eq:state_ico}
 \end{equation}
-Memory: $1285 \times 64 + 2 = 82{,}242$ bytes $\approx 82$~KB.
+Memory: $5 \times 394{,}752 + 8 = 1{,}973{,}768$ bytes $\approx 1.9$~MB.
 
 \paragraph{Level 4: Rotational State Multiplier.}
-The 16-bit rotation header tracks orientational history.  In Affine mode, each distinct bit configuration can exist in $257 \times 256 = 65{,}792$
+The 16-bit rotation header tracks orientational history.  In $\operatorname{GF}(257)$ Affine mode, each distinct configuration can exist in $257 \times 256 = 65{,}792$
 geometrically distinguishable states.  Post-mitosis with the $A_5$ working primitive, this
 rotational memory space interacts with a 60-state macro-permutation.  Combined with the 4-bit winding counter
 ($2^4 = 16$ winding states):
 
 \begin{equation}
-  |\Omega_{\text{total}}| = 2^{330{,}245} \times 65{,}792 \times 16
-  = 2^{330{,}245} \times 1{,}052{,}672
+  |\Omega_{\text{total}}| = 2^{7{,}925{,}880} \times 65{,}792 \times 16
+  = 2^{7{,}925{,}880} \times 1{,}052{,}672
   \label{eq:state_total}
 \end{equation}
 
@@ -76,13 +76,13 @@ intermediate states.  The effective state space is therefore
 configurations beyond the static count.
 
 \paragraph{Comparison with Parameter-Count Scaling.}
-Table~\ref{tab:capacity_comparison} contrasts the Sensorium's
+Table~\ref{tab:capacity_comparison} contrasts the manifold's
 topology-driven capacity with conventional parameter scaling.
 
 \begin{table}[h]
   \centering
   \caption{Memory footprint vs.\ representational state space.  The
-           Sensorium achieves exponentially larger state spaces per byte
+           The Fermat Cube achieves exponentially larger state spaces per byte
            by exploiting group-theoretic multipliers rather than
            increasing parameter counts.}
   \label{tab:capacity_comparison}
@@ -102,18 +102,18 @@ topology-driven capacity with conventional parameter scaling.
       & $\sim 2^{1.87 \times 10^9}$
       & $\sim 2{,}406$ \\
     \addlinespace
-    Single MacroCube (Affine)
-      & 16.4 KB
-      & $2^{66{,}049} \times 65{,}792 \times 16$
-      & $\sim 1{,}212$ \\
+    Single Fermat Cube (Affine)
+      & 386 KB
+      & $2^{1{,}585{,}176} \times 65{,}792 \times 16$
+      & $\sim 1{,}236$ \\
     Single IcosahedralManifold
-      & 82 KB
-      & $2^{330{,}245} \times 65{,}792 \times 16$
-      & $\sim 1{,}211$ \\
+      & 1.9 MB
+      & $2^{7{,}925{,}880} \times 65{,}792 \times 16$
+      & $\sim 1{,}236$ \\
     1M Manifolds (GPU batch)
-      & 82 GB
-      & $(2^{330{,}245})^{10^6}$
-      & $\sim 1{,}211$ \\
+      & 1.9 TB
+      & $(2^{7{,}925{,}880})^{10^6}$
+      & $\sim 1{,}236$ \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -152,6 +152,6 @@ on consumer GPU hardware.
 The analogy to physical systems is precise: protein folding achieves
 astronomically large conformational spaces ($\gg 10^{100}$) from
 sequences of only thousands of atoms, because \emph{spatial geometry
-multiplies the configuration space exponentially}.  The Sensorium
-exploits the same principle: values $\times$ permutations $\times$
-rotational paths---topology as a capacity multiplier.
+multiplies the configuration space exponentially}.  The Fermat Cube
+exploits the same principle: chord values $\times$ Galois field permutations
+$\times$ rotational paths---topology as a capacity multiplier.

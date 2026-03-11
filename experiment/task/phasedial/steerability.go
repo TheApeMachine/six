@@ -118,6 +118,8 @@ func (experiment *SteerabilityExperiment) TableData() any {
 	return experiment.tableData
 }
 
+func (experiment *SteerabilityExperiment) RawOutput() bool { return false }
+
 func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	D := config.Numeric.NBasis
 	candidates := substrate.Candidates()

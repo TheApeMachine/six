@@ -79,6 +79,8 @@ func (experiment *PhaseCoherenceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
 }
 
+func (experiment *PhaseCoherenceExperiment) RawOutput() bool { return false }
+
 func (experiment *PhaseCoherenceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
 	return nil
 }

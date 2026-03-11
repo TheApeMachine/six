@@ -1,0 +1,49 @@
+\begin{table}[htbp]
+\centering
+\caption{Compositional — standardised result summary (N=10).}
+\label{tab:compositional_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+6 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+8 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+9 & Compositional & 0.0000 & 0.0506 & 0.0135 & 0.0162 \\
+7 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+5 & Compositional & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{or them because they were sharing and he\ldots}} & \multicolumn{2}{l}{\texttt{or them because they were sharing and he\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a small town, there\ldots}} & \multicolumn{2}{l}{\texttt{hat she found it. From that day on, Lily\ldots}} & \multicolumn{2}{l}{\texttt{hat she found it. From that day on, Lily\ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a fast driver named Tim went fo\ldots}} & \multicolumn{2}{l}{\texttt{last, they stopped at the park to play. \ldots}} & \multicolumn{2}{l}{\texttt{ong, but the cherry tree was small and w\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a peaceful town, th\ldots}} & \multicolumn{2}{l}{\texttt{wind in their hair as they raced to the \ldots}} & \multicolumn{2}{l}{\texttt{Tim and Sarah ran with all their speed, \ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 30\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.5744} & \multicolumn{3}{l}{Min: 0.0162 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{177.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4.18 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{417.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{4.36 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

@@ -43,6 +43,18 @@ func (c *Cube) Set(side, rot, face int, chord data.Chord) {
 	c.Sides[side][rot][face] = chord
 }
 
+func (c *Cube) ORInto(side, rot, face int, chord *data.Chord) {
+	dst := &c.Sides[side][rot][face]
+	dst[0] |= chord[0]
+	dst[1] |= chord[1]
+	dst[2] |= chord[2]
+	dst[3] |= chord[3]
+	dst[4] |= chord[4]
+	dst[5] |= chord[5]
+	dst[6] |= chord[6]
+	dst[7] |= chord[7]
+}
+
 /*
 Face256 returns the control chord for a given side and rotation.
 This chord determines edge opcodes when two cubes are connected.

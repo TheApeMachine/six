@@ -1,0 +1,20 @@
+\subsection{Sequencer Boundary Detection and Retrieval}
+\label{sec:sequencer}
+
+\paragraph{Task Description.}
+The sequencer experiment evaluates the boundary detection and retrieval
+quality of the tokeniser's Sequencer module.  A 1\,000-sample synthetic
+dataset (128 bytes per sample) is ingested; each sample is split at an
+MDL-detected boundary, with the suffix serving as the held-out target.
+The retrieval score measures how accurately the substrate recovers the
+held-out bytes given the prefix as a query.
+
+\paragraph{Results.}
+Figure~\ref{fig:sequencer_map} shows the per-sample score fingerprint
+heatmap and weighted score distribution across $N = 50$ test samples.
+The substrate retained 0 unique entries.
+Mean retrieval weighted score: 0.000.
+
+Retrieval quality was low.  The synthetic dataset's uniform byte
+distribution produces boundaries that do not correlate strongly with
+chord attractor boundaries at this substrate size.

@@ -1,8 +1,11 @@
 {
-  "caption": "Summary of best gains for each split and seed.",
-  "data": null,
+  "caption": "",
+  "data": {
+    "template": "% Torus generalisation summary table — results pending.\n% This file is auto-generated; do not edit by hand.\n",
+    "data": {}
+  },
   "file_name": "torus_generalization_summary.tex",
-  "label": "tab:torus_generalization",
-  "title": "Torus Generalization Summary",
-  "type": "table"
+  "label": "",
+  "title": "",
+  "type": "prose"
 }

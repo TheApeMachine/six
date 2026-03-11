@@ -1,0 +1,38 @@
+\subsection{Text Classification}
+\label{sec:text_classification}
+
+\paragraph{Task Description.}
+The text classification experiment evaluates zero-shot topical categorisation
+on the AG News dataset (\texttt{sh0416/ag\_news}).  Articles from four
+categories---World, Sports, Business, and Science/Technology---are ingested
+with their label appended.  At test time the label suffix is stripped via
+substring holdout; the system must surface the correct category word through
+chord co-occurrence in its generated output.
+
+\paragraph{Results.}
+Table~\ref{tab:text_classification_metrics} summarises the classification
+metrics across $N = 10$ test samples.
+The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
+
+\paragraph{Assessment.}
+Classification accuracy was low.  With only $N = 10$ samples the
+substrate may not have built sufficient attractor density to separate all
+four AG News categories reliably.  Scaling the ingestion volume is expected
+to improve per-class disambiguation.
+
+\begin{table}[htbp]
+  \centering
+  \caption{Text Classification --- summary metrics.}
+  \label{tab:text_classification_metrics}
+  \begin{tabular}{ll}
+    \toprule
+    \textbf{Metric} & \textbf{Value} \\
+    \midrule
+    Overall Accuracy  & 10.0\% \\
+    Balanced Accuracy & 25.0\% \\
+    Macro-F1          & 1.000 \\
+    Mean Resonance    & 0.0455 \\
+    Sample Size       & $N = 10$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}

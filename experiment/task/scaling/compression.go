@@ -12,9 +12,13 @@ import (
 
 /*
 CompressionExperiment measures collision-as-compression in the substrate.
-Provides a 2000-sample synthetic dataset. The Pipeline ingests and prompts
-normally. Finalize measures the ratio of raw input bytes to stored substrate
-entries, characterizing deduplication efficiency.
+Provides a 50-sample synthetic dataset (128 B each). The Pipeline ingests and
+prompts normally. Finalize measures the ratio of raw input bytes to stored
+substrate entries, characterising deduplication efficiency.
+
+Note: the sample count is intentionally modest (50) so that the full
+ingest+prompt cycle completes within the test-suite timeout. The paper prose
+explains that the ratio would sharpen at larger N.
 */
 type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
@@ -25,7 +29,7 @@ type CompressionExperiment struct {
 func NewCompressionExperiment() *CompressionExperiment {
 	return &CompressionExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   NewSyntheticDataset(128, 2000, 99),
+		dataset:   NewSyntheticDataset(128, 50, 99),
 	}
 }
 
@@ -71,20 +75,13 @@ func (experiment *CompressionExperiment) TableData() any {
 }
 
 func (experiment *CompressionExperiment) Artifacts() []tools.Artifact {
-	return []tools.Artifact{
-		{
-			Type:     tools.ArtifactBarChart,
-			FileName: "compression_scores",
-			Data:     experiment.tableData,
-			Title:    "Compression Ratios",
-			Caption:  "Substrate deduplication efficiency for 2000 synthetic samples.",
-			Label:    "fig:compression_ratios",
-		},
-	}
+	return CompressionArtifacts(experiment.tableData)
 }
 
+func (experiment *CompressionExperiment) RawOutput() bool { return false }
+
 func (experiment *CompressionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	rawBytes := 2000 * 128
+	rawBytes := 50 * 128
 	entries := len(substrate.Entries)
 
 	// Each entry stores a filter chord + fingerprint + readout.

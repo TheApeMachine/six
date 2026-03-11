@@ -1,5 +1,7 @@
+{{- if .Headers -}}
 \begin{table}[h]
 \centering
+\begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{ {{ range .Headers }}|c{{ end }}| }
 \hline
 {{ range $i, $h := .Headers -}}
@@ -13,4 +15,8 @@
 \hline
 {{- end }}
 \end{tabular}
+\end{adjustbox}
 \end{table}
+{{- else -}}
+% Results pending — no data available for this table yet.
+{{- end}}

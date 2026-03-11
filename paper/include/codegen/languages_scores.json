@@ -1,41 +1,63 @@
 {
-  "caption": "Mean exact, partial, fuzzy, and weighted scores for Languages.",
-  "data": [
-    {
-      "Idx": 0,
-      "Name": "Languages",
-      "Prefix": "ZGVmIHJlbW92ZV9PY2MocyxjaCk6IA0KICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSk6IA0KICAgICAgICBpZiAoc1tpXSA9PSBjaCk6IA0KICAgICAgICAgICAgcyA9IHNbMCA6IGldICsgc1tpICsgMTpdIA0KICAgICAgICAgICAgYnJlYWsNCg==",
-      "Holdout": "ICAgIGZvciBpIGluIHJhbmdlKGxlbihzKSAtIDEsLTEsLTEpOiAgDQogICAgICAgIGlmIChzW2ldID09IGNoKTogDQogICAgICAgICAgICBzID0gc1swIDogaV0gKyBzW2kgKyAxOl0gDQogICAgICAgICAgICBicmVhaw0KICAgIHJldHVybiBzIA==",
-      "Observed": "Zm9yIGkgaW4gcmFuZ2UobGVuKHMpIC0gMSwtMSwtMSk6ICANCiAgICAgICAgaWYgKHNbaV0gPT0gY2gpOiANCiAgICAgICAgICAgIHMgPSBzWzAgOiBpXSArIHNbaSArIDE6XSANCiAgICAgICAgICAgIGJyZWFrDQogICAgcmV0dXJuIHM=",
-      "ErrorRatio": null,
-      "Scores": {
-        "Exact": 0,
-        "Partial": 1,
-        "Fuzzy": 1
+  "caption": "Mean exact, partial, fuzzy, and weighted scores per language (bigcode/humanevalpack).",
+  "data": {
+    "x_axis": [
+      "Python",
+      "JavaScript",
+      "Java",
+      "Go",
+      "C++",
+      "Rust"
+    ],
+    "series": [
+      {
+        "name": "Exact",
+        "data": [
+          0,
+          0,
+          0.4,
+          0,
+          0,
+          0
+        ]
       },
-      "WeightedTotal": 0.45454545454545453,
-      "TrueLabel": null,
-      "PredLabel": null
-    },
-    {
-      "Idx": 1,
-      "Name": "Languages",
-      "Prefix": "ZGVmIHNvcnRfbWF0cml4KE0pOg0KICAgIHJlc3VsdCA9IHNv",
-      "Holdout": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
-      "Observed": "cnRlZChNLCBrZXk9c3VtKQ0KICAgIHJldHVybiByZXN1bHQ=",
-      "ErrorRatio": null,
-      "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+      {
+        "name": "Partial",
+        "data": [
+          1,
+          0.8222901369827907,
+          1,
+          1,
+          1,
+          1
+        ]
       },
-      "WeightedTotal": 1,
-      "TrueLabel": null,
-      "PredLabel": null
-    }
-  ],
+      {
+        "name": "Fuzzy",
+        "data": [
+          1,
+          0.8222901369827907,
+          1,
+          1,
+          1,
+          1
+        ]
+      },
+      {
+        "name": "Weighted",
+        "data": [
+          0.4545454545454545,
+          0.3737682440830866,
+          0.6727272727272726,
+          0.4545454545454545,
+          0.4545454545454545,
+          0.4545454545454545
+        ]
+      }
+    ]
+  },
   "file_name": "languages_scores",
   "label": "fig:languages_scores",
-  "title": "Languages — Score Breakdown",
+  "title": "Code Generation — Scores by Language",
   "type": "bar"
 }

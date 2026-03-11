@@ -105,24 +105,22 @@ func (n *Node) Arrive(tok Token) {
 	// Token data is absorbed directly into the Cube
 	// guided by the node's GF(257) lens.
 	routed := n.Rot.Forward(tok.LogicalFace)
-	for side := 0; side < 6; side++ {
-		for rot := 0; rot < 4; rot++ {
-			chord := n.Cube.Get(side, rot, routed)
-			n.Cube.Set(side, rot, routed, data.ChordOR(&chord, &tok.Chord))
+	for side := range 6 {
+		for rot := range 4 {
+			n.Cube.ORInto(side, rot, routed, &tok.Chord)
 		}
 	}
-	n.InvalidateChordCache()
+	n.absorbFace(routed, &tok.Chord)
 
 	anchor, hole, _, shouldDream := n.Hole()
 	if shouldDream {
 		routedGate := n.Rot.Forward(256)
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
-				gate := n.Cube.Get(side, rot, routedGate)
-				n.Cube.Set(side, rot, routedGate, data.ChordOR(&gate, &hole))
+		for side := range 6 {
+			for rot := range 4 {
+				n.Cube.ORInto(side, rot, routedGate, &hole)
 			}
 		}
-		n.InvalidateChordCache()
+		n.absorbFace(routedGate, &hole)
 
 		dreamMask := anchor
 		if dreamMask.ActiveCount() == 0 {
@@ -184,8 +182,8 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 	}
 
 	if bestAnchorSize == 0 {
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
+		for side := range 6 {
+			for rot := range 4 {
 				faceChord := n.Cube.Get(side, rot, bestFaceIdx)
 				bestAnchor = data.ChordOR(&bestAnchor, &faceChord)
 			}
@@ -199,23 +197,13 @@ func (n *Node) Hole() (data.Chord, data.Chord, int, bool) {
 }
 
 /*
-bestPhysicalFace returns the physical face index (0-257) with highest aggregate ActiveCount.
+bestPhysicalFace returns the physical face index (0-257) with highest aggregate
+ActiveCount. Delegates to the fused recomputeCubeStats cache.
 */
 func (n *Node) bestPhysicalFace() int {
-	bestFace := 256
-	bestCount := 0
-	for face := 0; face < 256; face++ {
-		count := 0
-		for side := 0; side < 6; side++ {
-			for rot := 0; rot < 4; rot++ {
-				chord := n.Cube.Get(side, rot, face)
-				count += chord.ActiveCount()
-			}
-		}
-		if count > bestCount {
-			bestCount = count
-			bestFace = face
-		}
+	if n.cubeChordDirty {
+		n.recomputeCubeStats()
 	}
-	return bestFace
+
+	return n.bestFaceIdxCache
 }
