@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/console"
-	"github.com/theapemachine/six/errnie"
-	"github.com/theapemachine/six/utils"
+	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/utils"
 )
 
 /*
@@ -27,10 +27,10 @@ var (
 	cfgFile     string
 
 	/*
-	Alice holds the default dataset/context used by the visualizer and tests.
-	It is loaded from embedded filesystem and available globally after initConfig.
+		Alice holds the default dataset/context used by the visualizer and tests.
+		It is loaded from embedded filesystem and available globally after initConfig.
 	*/
-	Alice       []byte
+	Alice []byte
 
 	rootCmd = &cobra.Command{
 		Use:   "six",

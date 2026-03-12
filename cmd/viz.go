@@ -5,7 +5,7 @@ import (
 	"os"
 
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/visualizer"
 )
 

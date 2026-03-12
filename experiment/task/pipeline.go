@@ -6,9 +6,9 @@ import (
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pool"
-	"github.com/theapemachine/six/process"
-	"github.com/theapemachine/six/vm"
+	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 const pipelineDrainTimeout = 2 * time.Second

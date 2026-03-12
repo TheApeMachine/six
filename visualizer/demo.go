@@ -5,8 +5,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/theapemachine/six/data"
-	"github.com/theapemachine/six/process"
+	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/process"
 )
 
 /*

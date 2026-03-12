@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/process"
-	"github.com/theapemachine/six/provider"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 type Scores struct {

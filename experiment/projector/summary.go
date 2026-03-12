@@ -244,12 +244,12 @@ func WriteSummaryTable(
 }
 
 // sampleCell prepares a raw byte slice for safe embedding inside \texttt{}:
-// 1. Sanitize: strip invalid UTF-8 sequences and non-printable control bytes.
-// 2. Collapse newlines/tabs to spaces, trim.
-// 3. Truncate by RUNE count BEFORE LaTeX escaping so we never cut through
-//    a multi-byte rune or a multi-character escape sequence.
-// 4. LaTeXEscape the truncated text.
-// 5. Append \ldots if truncated.
+//  1. Sanitize: strip invalid UTF-8 sequences and non-printable control bytes.
+//  2. Collapse newlines/tabs to spaces, trim.
+//  3. Truncate by RUNE count BEFORE LaTeX escaping so we never cut through
+//     a multi-byte rune or a multi-character escape sequence.
+//  4. LaTeXEscape the truncated text.
+//  5. Append \ldots if truncated.
 func sampleCell(raw []byte) string {
 	s := sanitizeForLaTeX(raw)
 	s = strings.NewReplacer("\n", " ", "\r", "", "\t", " ").Replace(s)
@@ -296,8 +296,6 @@ func sanitizeForLaTeX(raw []byte) string {
 
 	return sb.String()
 }
-
-
 
 // fmtDur formats a duration as a compact human-readable string.
 func fmtDur(d time.Duration) string {

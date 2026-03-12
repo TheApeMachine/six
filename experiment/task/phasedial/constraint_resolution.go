@@ -8,9 +8,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/process"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/local"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 // crSamplesPerSuspect is the number of ingestion samples per suspect.

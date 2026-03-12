@@ -98,21 +98,21 @@ Improve `experiment/task/codegen/languages.go` so the `Languages` experiment use
 - `/Users/theapemachine/go/src/github.com/theapemachine/six/experiment/task/pipeline.go`
 - `/Users/theapemachine/go/src/github.com/theapemachine/six/experiment/task/pipeline_prompt_test.go`
 - `/Users/theapemachine/go/src/github.com/theapemachine/six/experiment/task/pipeline_test.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/provider/dataset.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/provider/local/dataset.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/tokenizer/prompt.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/booter.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/composer.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/composer_circuit.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/composer_field.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/composer_test.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/cortex/circuit_compiler.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/cortex/graph.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/cortex/logic_snapshot.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/cortex/ticker.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six/vm/cortex/tooling.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six_updates/six_repo 7/vm/composer_field.go`
-- `/Users/theapemachine/go/src/github.com/theapemachine/six_updates/six_repo 7/vm/cortex/tooling.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/provider/dataset.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/provider/local/dataset.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/tokenizer/prompt.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/booter.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/composer.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/composer_circuit.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/composer_field.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/composer_test.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/cortex/circuit_compiler.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/cortex/graph.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/cortex/logic_snapshot.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/cortex/ticker.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg/vm/cortex/tooling.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg_updates/six_repo 7/vm/composer_field.go`
+- `/Users/theapemachine/go/src/github.com/theapemachine/six/pkg_updates/six_repo 7/vm/cortex/tooling.go`
 
 ### Modified
 - `/Users/theapemachine/go/src/github.com/theapemachine/six/experiment/task/codegen/languages.go`

@@ -3,8 +3,8 @@ package task
 import (
 	"strings"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/local"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 var Aphorisms = []string{

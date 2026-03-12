@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/pkg/data"
 )
 
 /*

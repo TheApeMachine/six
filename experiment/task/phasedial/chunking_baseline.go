@@ -2,11 +2,11 @@ package phasedial
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pkg/data"
 
-	"github.com/theapemachine/six/process"
-	"github.com/theapemachine/six/provider"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*

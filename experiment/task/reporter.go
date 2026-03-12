@@ -144,8 +144,6 @@ func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperi
 		return err
 	}
 
-
-
 	switch artifact.Type {
 	case tools.ArtifactTable:
 		return WriteTable(artifact.Data, artifact.FileName, experiment.Section())

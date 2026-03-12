@@ -2,13 +2,13 @@ package codegen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	config "github.com/theapemachine/six/pkg/core"
 
-	"github.com/theapemachine/six/process"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.

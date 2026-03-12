@@ -10,12 +10,12 @@ import (
 	"slices"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/console"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/process"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
+	"github.com/theapemachine/six/pkg/console"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 // holdoutPercents are the nine occlusion levels tested.

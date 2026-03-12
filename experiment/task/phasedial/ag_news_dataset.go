@@ -1,8 +1,8 @@
 package phasedial
 
 import (
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
