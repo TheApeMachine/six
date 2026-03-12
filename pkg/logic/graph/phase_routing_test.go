@@ -54,7 +54,7 @@ func (dial PhaseDial) Distance(other PhaseDial) float64 {
 }
 
 /*
-TestPhaseEncodedRouting proves the user's insight: continuous relational logic
+TestPhaseEncodedRouting proves the insight: continuous relational logic
 (Phase-Encoded Routing) can organically emerge from the discrete popcount geometry.
 By extracting the structural residue (the relation) and converting it to its EigenMode
 Phase (Theta), we can use that Phase as an exact Rotational Pointer across the Torus.

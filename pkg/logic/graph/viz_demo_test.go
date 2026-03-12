@@ -81,7 +81,7 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 		}
 
 		t.Logf("Anomaly Extractor returned unique bits for intrusion in %d / %d trials (%.2f%%)", successes, trials, float64(successes)/float64(trials)*100.0)
-		t.Logf("User was right: ChordHole operates strictly on BIT occlusion, meaning if the baseline already saturates the exact geometric primes needed for the anomaly, the anomaly becomes structurally invisible to a simple Hole punch.")
+		t.Logf("ChordHole operates strictly on BIT occlusion, meaning if the baseline already saturates the exact geometric primes needed for the anomaly, the anomaly becomes structurally invisible to a simple Hole punch.")
 		So(successes, ShouldEqual, trials)
 	})
 }

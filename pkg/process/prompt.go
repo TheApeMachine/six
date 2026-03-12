@@ -14,9 +14,7 @@ type HoldoutType uint
 
 const (
 	NONE   HoldoutType = iota
-	TOP                // alias for RIGHT in byte terms (leading bytes)
 	RIGHT              // mask trailing bytes
-	BOTTOM             // alias for LEFT in byte terms (trailing bytes)
 	LEFT               // mask leading bytes
 	CENTER             // mask middle bytes
 	RANDOM             // mask randomly selected bytes
@@ -37,6 +35,7 @@ Prompt sequences samples from either a static list or a streaming dataset,
 applying a holdout mask to each before exposing it for consumption.
 */
 type Prompt struct {
+	err       error
 	dataset   provider.Dataset
 	prompts   []string
 	original  string
@@ -49,109 +48,79 @@ type Prompt struct {
 }
 
 /*
-promptOpts is a functional option for Prompt.
+Option is a functional option for Prompt.
 */
-type promptOpts func(*Prompt)
+type Option func(*Prompt)
 
 /*
 NewPrompt instantiates a Prompt with the supplied options.
 */
-func NewPrompt(opts ...promptOpts) *Prompt {
-	prompt := &Prompt{}
+func NewPrompt(opts ...Option) *Prompt {
+	p := &Prompt{}
 
 	for _, opt := range opts {
-		opt(prompt)
+		opt(p)
 	}
 
-	return prompt
-}
-
-/*
-PromptWithDataset configures the Prompt to stream samples from a Dataset.
-*/
-func PromptWithDataset(dataset provider.Dataset) promptOpts {
-	return func(prom *Prompt) {
-		prom.dataset = dataset
-	}
-}
-
-/*
-PromptWithStrings configures the Prompt with a static list of samples.
-*/
-func PromptWithStrings(prompts []string) promptOpts {
-	return func(prom *Prompt) {
-		prom.prompts = prompts
-	}
-}
-
-/*
-PromptWithHoldout configures the masking strategy and percentage.
-*/
-func PromptWithHoldout(prct int, ht HoldoutType) promptOpts {
-	return func(prom *Prompt) {
-		prom.heldout.Percent = prct
-		prom.heldout.Type = ht
-	}
-}
-
-/*
-PromptWithMatch sets the byte pattern used by the MATCH holdout strategy.
-*/
-func PromptWithMatch(match []byte) promptOpts {
-	return func(prom *Prompt) {
-		prom.heldout.Match = match
-	}
+	return p
 }
 
 /*
 Next advances to the next sample. Returns false when the source is exhausted.
 For dataset mode it groups consecutive tokens that share a SampleID.
 */
-func (prompt *Prompt) Next() bool {
-	if prompt.dataset != nil {
-		return prompt.nextFromDataset()
+func (p *Prompt) Next() bool {
+	if p.dataset != nil {
+		return p.nextFromDataset()
 	}
 
-	return prompt.nextFromStrings()
+	return p.nextFromStrings()
+}
+
+/*
+Error returns the error state of the Prompt.
+*/
+func (p *Prompt) Error() error {
+	return p.err
 }
 
 /*
 nextFromDataset reads the next group of tokens sharing a SampleID.
 */
-func (prompt *Prompt) nextFromDataset() bool {
-	if prompt.datasetCh == nil {
-		prompt.datasetCh = prompt.dataset.Generate()
+func (p *Prompt) nextFromDataset() bool {
+	if p.datasetCh == nil {
+		p.datasetCh = p.dataset.Generate()
 
-		tkn, ok := <-prompt.datasetCh
+		tkn, ok := <-p.datasetCh
 		if !ok {
 			return false
 		}
 
-		prompt.nextTkn = tkn
-		prompt.hasNext = true
+		p.nextTkn = tkn
+		p.hasNext = true
 	}
 
-	if !prompt.hasNext {
+	if !p.hasNext {
 		return false
 	}
 
-	currentID := prompt.nextTkn.SampleID
-	buf := []byte{prompt.nextTkn.Symbol}
+	currentID := p.nextTkn.SampleID
+	buf := []byte{p.nextTkn.Symbol}
 
-	prompt.hasNext = false
+	p.hasNext = false
 
-	for tkn := range prompt.datasetCh {
+	for tkn := range p.datasetCh {
 		if tkn.SampleID != currentID {
-			prompt.nextTkn = tkn
-			prompt.hasNext = true
+			p.nextTkn = tkn
+			p.hasNext = true
 			break
 		}
 
 		buf = append(buf, tkn.Symbol)
 	}
 
-	prompt.original = string(buf)
-	prompt.applyHoldout()
+	p.original = string(buf)
+	p.applyHoldout()
 
 	return true
 }
@@ -159,46 +128,46 @@ func (prompt *Prompt) nextFromDataset() bool {
 /*
 nextFromStrings advances through the static prompts slice.
 */
-func (prompt *Prompt) nextFromStrings() bool {
-	if prompt.promptIdx >= len(prompt.prompts) {
+func (p *Prompt) nextFromStrings() bool {
+	if p.promptIdx >= len(p.prompts) {
 		return false
 	}
 
-	prompt.original = prompt.prompts[prompt.promptIdx]
-	prompt.promptIdx++
-	prompt.applyHoldout()
+	p.original = p.prompts[p.promptIdx]
+	p.promptIdx++
+	p.applyHoldout()
 
 	return true
 }
 
 /*
-applyHoldout derives prompt.masked from prompt.original using the holdout config.
+applyHoldout derives p.masked from p.original using the holdout config.
 When no masking is configured masked equals original.
 */
-func (prompt *Prompt) applyHoldout() {
-	if prompt.heldout.Type == NONE || (prompt.heldout.Percent == 0 && prompt.heldout.Type != MATCH) {
-		prompt.masked = prompt.original
+func (p *Prompt) applyHoldout() {
+	if p.heldout.Type == NONE || (p.heldout.Percent == 0 && p.heldout.Type != MATCH) {
+		p.masked = p.original
 		return
 	}
 
-	raw := []byte(prompt.original)
+	raw := []byte(p.original)
 	n := len(raw)
 
 	if n == 0 {
-		prompt.masked = ""
+		p.masked = ""
 		return
 	}
 
-	count := max((n*prompt.heldout.Percent)/100, 1)
+	count := max((n*p.heldout.Percent)/100, 1)
 
-	switch prompt.heldout.Type {
-	case TOP, RIGHT:
-		prompt.masked = string(raw[:n-count])
-	case BOTTOM, LEFT:
-		prompt.masked = string(raw[count:])
+	switch p.heldout.Type {
+	case RIGHT:
+		p.masked = string(raw[:n-count])
+	case LEFT:
+		p.masked = string(raw[count:])
 	case CENTER:
 		start := (n - count) / 2
-		prompt.masked = string(append(raw[:start], raw[start+count:]...))
+		p.masked = string(append(raw[:start], raw[start+count:]...))
 	case RANDOM:
 		res := make([]byte, n)
 		copy(res, raw)
@@ -207,34 +176,71 @@ func (prompt *Prompt) applyHoldout() {
 			res[idx] = 0
 		}
 
-		prompt.masked = string(res)
+		p.masked = string(res)
 	case MATCH:
-		if len(prompt.heldout.Match) > 0 {
-			prompt.masked = string(
+		if len(p.heldout.Match) > 0 {
+			p.masked = string(
 				bytes.ReplaceAll(
 					raw,
-					prompt.heldout.Match,
-					make([]byte, len(prompt.heldout.Match)),
+					p.heldout.Match,
+					make([]byte, len(p.heldout.Match)),
 				),
 			)
 		} else {
-			prompt.masked = string(raw)
+			p.masked = string(raw)
 		}
 	default:
-		prompt.masked = string(raw)
+		p.masked = string(raw)
 	}
 }
 
 /*
 Original returns the unmasked sample text after the last Next() call.
 */
-func (prompt *Prompt) Original() string {
-	return prompt.original
+func (p *Prompt) Original() string {
+	return p.original
 }
 
 /*
 Masked returns the holdout-masked sample text after the last Next() call.
 */
-func (prompt *Prompt) Masked() string {
-	return prompt.masked
+func (p *Prompt) Masked() string {
+	return p.masked
+}
+
+/*
+PromptWithDataset configures the Prompt to stream samples from a Dataset.
+*/
+func PromptWithDataset(dataset provider.Dataset) Option {
+	return func(p *Prompt) {
+		p.dataset = dataset
+	}
+}
+
+/*
+PromptWithStrings configures the Prompt with a static list of samples.
+*/
+func PromptWithStrings(prompts []string) Option {
+	return func(p *Prompt) {
+		p.prompts = prompts
+	}
+}
+
+/*
+PromptWithHoldout configures the masking strategy and percentage.
+*/
+func PromptWithHoldout(prct int, ht HoldoutType) Option {
+	return func(p *Prompt) {
+		p.heldout.Percent = prct
+		p.heldout.Type = ht
+	}
+}
+
+/*
+PromptWithMatch sets the byte pattern used by the MATCH holdout strategy.
+*/
+func PromptWithMatch(match []byte) Option {
+	return func(p *Prompt) {
+		p.heldout.Match = match
+	}
 }

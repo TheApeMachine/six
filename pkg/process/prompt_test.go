@@ -52,6 +52,7 @@ func TestPrompt(t *testing.T) {
 				So(prompt.Next(), ShouldBeTrue)
 				So(prompt.Original(), ShouldEqual, "Hello World")
 				So(prompt.Masked(), ShouldEqual, "Hello World")
+				So(prompt.Error(), ShouldBeNil)
 			})
 		})
 
@@ -79,18 +80,6 @@ func TestPrompt(t *testing.T) {
 			})
 		})
 
-		Convey("When holdout type is TOP (alias for RIGHT)", func() {
-			prompt := NewPrompt(
-				PromptWithStrings([]string{"abcdefghij"}),
-				PromptWithHoldout(20, TOP),
-			)
-
-			Convey("It should produce the same result as RIGHT", func() {
-				So(prompt.Next(), ShouldBeTrue)
-				So(prompt.Masked(), ShouldEqual, "abcdefgh")
-			})
-		})
-
 		Convey("When holdout type is LEFT", func() {
 			prompt := NewPrompt(
 				PromptWithStrings([]string{"abcdefghij"}),
@@ -98,18 +87,6 @@ func TestPrompt(t *testing.T) {
 			)
 
 			Convey("It should mask the leading 20 percent", func() {
-				So(prompt.Next(), ShouldBeTrue)
-				So(prompt.Masked(), ShouldEqual, "cdefghij")
-			})
-		})
-
-		Convey("When holdout type is BOTTOM (alias for LEFT)", func() {
-			prompt := NewPrompt(
-				PromptWithStrings([]string{"abcdefghij"}),
-				PromptWithHoldout(20, BOTTOM),
-			)
-
-			Convey("It should produce the same result as LEFT", func() {
 				So(prompt.Next(), ShouldBeTrue)
 				So(prompt.Masked(), ShouldEqual, "cdefghij")
 			})
@@ -259,14 +236,14 @@ func BenchmarkPromptNextDataset(b *testing.B) {
 }
 
 func BenchmarkApplyHoldoutRandom(b *testing.B) {
-	prompt := NewPrompt(
+	p := NewPrompt(
 		PromptWithHoldout(30, RANDOM),
 	)
-	prompt.original = strings.Repeat("z", 1024)
+	p.original = strings.Repeat("z", 1024)
 
 	b.ResetTimer()
 
 	for range b.N {
-		prompt.applyHoldout()
+		p.applyHoldout()
 	}
 }

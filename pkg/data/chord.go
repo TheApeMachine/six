@@ -264,21 +264,31 @@ ChordLCM returns the element-wise OR of chords — the LCM in prime exponent spa
 Used for aggregating span chords (words, sentences, n-grams).
 */
 func ChordLCM(chords []Chord) (lcm Chord) {
+	lcm = mustNewChord()
+
+	var c0, c1, c2, c3, c4 uint64
+
 	for _, ch := range chords {
-		chord := &ch
-		lcm.setBlock(0, lcm.block(0)|chord.block(0))
-		lcm.setBlock(1, lcm.block(1)|chord.block(1))
-		lcm.setBlock(2, lcm.block(2)|chord.block(2))
-		lcm.setBlock(3, lcm.block(3)|chord.block(3))
-		lcm.setBlock(4, lcm.block(4)|chord.block(4))
-		lcm.setBlock(5, lcm.block(5)|chord.block(5))
-		lcm.setBlock(6, lcm.block(6)|chord.block(6))
-		lcm.setBlock(7, lcm.block(7)|chord.block(7))
+		c0 |= ch.C0()
+		c1 |= ch.C1()
+		c2 |= ch.C2()
+		c3 |= ch.C3()
+		c4 |= ch.C4()
 	}
 
-	lcm.Sanitize()
+	lcm.SetC0(c0)
+	lcm.SetC1(c1)
+	lcm.SetC2(c2)
+	lcm.SetC3(c3)
+	lcm.SetC4(c4 & 1)
+	lcm.SetC5(0)
+	lcm.SetC6(0)
+	lcm.SetC7(0)
+
 	return lcm
 }
+
+
 
 /*
 ActiveCount returns the number of active basis primes in this
@@ -434,19 +444,17 @@ func ChordHole(target, existing *Chord) Chord {
 OR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
 func (chord *Chord) OR(other Chord) Chord {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	lcm, _ := NewChord(seg)
-	lcm.setBlock(0, chord.block(0)|other.block(0))
-	lcm.setBlock(1, chord.block(1)|other.block(1))
-	lcm.setBlock(2, chord.block(2)|other.block(2))
-	lcm.setBlock(3, chord.block(3)|other.block(3))
-	lcm.setBlock(4, chord.block(4)|other.block(4))
-	lcm.setBlock(5, chord.block(5)|other.block(5))
-	lcm.setBlock(6, chord.block(6)|other.block(6))
-	lcm.setBlock(7, chord.block(7)|other.block(7))
-	lcm.Sanitize()
+	lcm := mustNewChord()
+
+	lcm.SetC0(chord.C0() | other.C0())
+	lcm.SetC1(chord.C1() | other.C1())
+	lcm.SetC2(chord.C2() | other.C2())
+	lcm.SetC3(chord.C3() | other.C3())
+	lcm.SetC4((chord.C4() | other.C4()) & 1)
+
 	return lcm
 }
+
 
 func mustNewChord() Chord {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
@@ -465,17 +473,16 @@ XOR returns the element-wise XOR of two chords (for cancellative superposition).
 */
 func (chord Chord) XOR(other Chord) Chord {
 	xor := mustNewChord()
-	xor.setBlock(0, chord.block(0)^other.block(0))
-	xor.setBlock(1, chord.block(1)^other.block(1))
-	xor.setBlock(2, chord.block(2)^other.block(2))
-	xor.setBlock(3, chord.block(3)^other.block(3))
-	xor.setBlock(4, chord.block(4)^other.block(4))
-	xor.setBlock(5, chord.block(5)^other.block(5))
-	xor.setBlock(6, chord.block(6)^other.block(6))
-	xor.setBlock(7, chord.block(7)^other.block(7))
-	xor.Sanitize()
+
+	xor.SetC0(chord.C0() ^ other.C0())
+	xor.SetC1(chord.C1() ^ other.C1())
+	xor.SetC2(chord.C2() ^ other.C2())
+	xor.SetC3(chord.C3() ^ other.C3())
+	xor.SetC4((chord.C4() ^ other.C4()) & 1)
+
 	return xor
 }
+
 
 /*
 FlatChord is a dense array of active prime indices used for optimal GPU iteration.
