@@ -45,7 +45,7 @@ func NewBooter(opts ...booterOpts) *Booter {
 
 /*
 Start creates the broadcast group, wires systems, and runs the event loop.
-Only this method spawns a goroutine; everything else runs inside booter.pool.Schedule.
+This method spawns a single goroutine to manage the event loop.
 */
 func (booter *Booter) Start() {
 	broadcast := booter.pool.CreateBroadcastGroup(
@@ -81,6 +81,9 @@ func (booter *Booter) Start() {
 	tokenizer.Announce()
 	matrix.Announce()
 
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+
 	go func() {
 		defer booter.cancel()
 
@@ -92,11 +95,10 @@ func (booter *Booter) Start() {
 				for _, system := range systems {
 					system.Receive(msg)
 				}
-			default:
+			case <-ticker.C:
 				for _, system := range systems {
 					system.Receive(nil)
 				}
-				time.Sleep(time.Millisecond)
 			}
 		}
 	}()

@@ -25,6 +25,11 @@ var embedded embed.FS
 var (
 	projectName = "six"
 	cfgFile     string
+
+	/*
+	Alice holds the default dataset/context used by the visualizer and tests.
+	It is loaded from embedded filesystem and available globally after initConfig.
+	*/
 	Alice       []byte
 
 	rootCmd = &cobra.Command{
@@ -61,7 +66,7 @@ func initConfig() {
 		)
 	}
 
-	Alice = errnie.FlatMap(
+	result := errnie.FlatMap(
 		errnie.Try(embedded.Open("cfg/alice.txt")),
 		func(fh fs.File) ([]byte, error) {
 			defer fh.Close()
@@ -73,7 +78,13 @@ func initConfig() {
 
 			return buf.Bytes(), nil
 		},
-	).Value()
+	)
+
+	if err := result.Err(); err != nil {
+		console.Error(err, "msg", "Failed to load embedded alice.txt")
+	} else {
+		Alice = result.Value()
+	}
 }
 
 func writeConfig() error {

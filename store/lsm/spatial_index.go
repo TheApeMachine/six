@@ -166,7 +166,7 @@ func (idx *SpatialIndexServer) Count() int {
 	return idx.count
 }
 
-func (idx *SpatialIndexServer) sweepForward(m_key uint64, window int) []data.Chord {
+func (idx *SpatialIndexServer) sweepForward(mKey uint64, window int) []data.Chord {
 	var hits []data.Chord
 
 	for _, level := range idx.levels {
@@ -174,7 +174,7 @@ func (idx *SpatialIndexServer) sweepForward(m_key uint64, window int) []data.Cho
 			continue
 		}
 		i := sort.Search(len(level), func(i int) bool {
-			return level[i].MortonKey >= m_key
+			return level[i].MortonKey >= mKey
 		})
 
 		end := i + window
@@ -182,8 +182,8 @@ func (idx *SpatialIndexServer) sweepForward(m_key uint64, window int) []data.Cho
 			end = len(level)
 		}
 
-		for idx := i; idx < end; idx++ {
-			hits = append(hits, level[idx].Value)
+		for j := i; j < end; j++ {
+			hits = append(hits, level[j].Value)
 		}
 	}
 	return hits
@@ -237,6 +237,8 @@ func (idx *SpatialIndexServer) Lookup(ctx context.Context, call SpatialIndex_loo
 	}
 
 	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
 	paths := make([][]data.Chord, chords.Len())
 	for i := 0; i < chords.Len(); i++ {
 		chord := chords.At(i)
@@ -254,11 +256,10 @@ func (idx *SpatialIndexServer) Lookup(ctx context.Context, call SpatialIndex_loo
 		val.SetC6(chord.C6())
 		val.SetC7(chord.C7())
 
-		m_key := idx.calcMorton(&val)
+		mKey := idx.calcMorton(&val)
 		// We sweep forward linearly for 10 items contiguous in Morton space to get all branches
-		paths[i] = idx.sweepForward(m_key, 10)
+		paths[i] = idx.sweepForward(mKey, 10)
 	}
-	idx.mu.RUnlock()
 
 	res, err := call.AllocResults()
 	if err != nil {

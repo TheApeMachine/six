@@ -27,7 +27,11 @@ func BuildChord(payload []byte) (Chord, error) {
 	const logicalBits = 257
 
 	for _, b := range payload {
-		_, baseSeg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+		_, baseSeg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+		if err != nil {
+			return Chord{}, console.Error(err)
+		}
+		
 		base, err := NewChord(baseSeg)
 
 		if err != nil {
@@ -218,8 +222,14 @@ MaskChord returns a control-plane marker used to denote an unresolved gap or
 masked region in a sequence without colliding with any lexical BaseChord.
 */
 func MaskChord() Chord {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	chord, _ := NewChord(seg)
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		panic(fmt.Errorf("MaskChord allocation failed: %w", err))
+	}
+	chord, err := NewChord(seg)
+	if err != nil {
+		panic(fmt.Errorf("MaskChord allocation failed: %w", err))
+	}
 	chord.Set(256)
 
 	return chord
@@ -288,12 +298,18 @@ func ChordPrimeIndices(chord *Chord) []int {
 }
 
 /*
-AND returns the element-wise AND of two chords (their GCD in
-prime exponent space). Shared factors.
+ANDErr returns the element-wise AND of two chords (their GCD in
+prime exponent space), checking allocation errors. Shared factors.
 */
-func (chord *Chord) AND(other Chord) Chord {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	gcd, _ := NewChord(seg)
+func (chord *Chord) ANDErr(other Chord) (Chord, error) {
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return Chord{}, err
+	}
+	gcd, err := NewChord(seg)
+	if err != nil {
+		return Chord{}, err
+	}
 	gcd.setBlock(0, chord.block(0)&other.block(0))
 	gcd.setBlock(1, chord.block(1)&other.block(1))
 	gcd.setBlock(2, chord.block(2)&other.block(2))
@@ -302,6 +318,18 @@ func (chord *Chord) AND(other Chord) Chord {
 	gcd.setBlock(5, chord.block(5)&other.block(5))
 	gcd.setBlock(6, chord.block(6)&other.block(6))
 	gcd.setBlock(7, chord.block(7)&other.block(7))
+	return gcd, nil
+}
+
+/*
+AND returns the element-wise AND of two chords (their GCD in
+prime exponent space). Shared factors.
+*/
+func (chord *Chord) AND(other Chord) Chord {
+	gcd, err := chord.ANDErr(other)
+	if err != nil {
+		panic(err)
+	}
 	return gcd
 }
 
@@ -396,12 +424,23 @@ func (chord *Chord) OR(other Chord) Chord {
 	return lcm
 }
 
+func mustNewChord() Chord {
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		panic(fmt.Errorf("allocation failed: %w", err))
+	}
+	chord, err := NewChord(seg)
+	if err != nil {
+		panic(fmt.Errorf("allocation failed: %w", err))
+	}
+	return chord
+}
+
 /*
 XOR returns the element-wise XOR of two chords (for cancellative superposition).
 */
 func (chord Chord) XOR(other Chord) Chord {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	xor, _ := NewChord(seg)
+	xor := mustNewChord()
 	xor.setBlock(0, chord.block(0)^other.block(0))
 	xor.setBlock(1, chord.block(1)^other.block(1))
 	xor.setBlock(2, chord.block(2)^other.block(2))

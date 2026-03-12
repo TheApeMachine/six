@@ -79,14 +79,14 @@ func (dist *Distribution) Entropy() float64 {
 	if dist.n <= 0 {
 		return 0
 	}
-	var h float64
-	n := float64(dist.n)
-	for _, c := range dist.counts {
-		if c == 0 {
+	var entropy float64
+	total := float64(dist.n)
+	for _, count := range dist.counts {
+		if count == 0 {
 			continue
 		}
-		p := float64(c) / n
-		h -= p * math.Log(p)
+		probability := float64(count) / total
+		entropy -= probability * math.Log(probability)
 	}
-	return h
+	return entropy
 }

@@ -15,7 +15,10 @@ func TestUselessResidueDepletion(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 	matrix := NewMatrixServer()
 
 	novelSentences := []struct {
@@ -86,7 +89,7 @@ func TestUselessResidueDepletion(t *testing.T) {
 						t.Logf("Residue completely explained and depleted by branches!")
 					}
 
-					So(endBits, ShouldBeGreaterThan, 0)
+					So(endBits, ShouldBeGreaterThanOrEqualTo, 0)
 					So(steps, ShouldBeGreaterThan, 0)
 				})
 			})

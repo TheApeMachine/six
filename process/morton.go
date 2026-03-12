@@ -1,16 +1,11 @@
 package process
 
-import ()
-
 /*
 MortonCoder encodes multi-dimensional coordinates into a single uint64 key
 for sorted storage in the LSM. Supports both the legacy 2D layout and the
 hierarchical 4D layout.
 */
-type MortonCoder struct {
-	cellSize float64
-	offset   float64
-}
+type MortonCoder struct{}
 
 /*
 NewMortonCoder creates a new Morton code encoder and decoder.
@@ -20,19 +15,19 @@ func NewMortonCoder() *MortonCoder {
 }
 
 /*
-Encode packs Symbol identity and absolute Position into a 64-bit Morton key.
+Pack packs Symbol identity and absolute Position into a 64-bit key.
 Layout (MSB→LSB):[24 zero bits | 8 bits Symbol | 32 bits absolute Pos].
 Grouping by Symbol keeps same-byte neighborhoods contiguous in the LSBs while
 the position remains a unique replay address across sequencer resets.
 */
-func (coder *MortonCoder) Encode(pos uint32, symbol byte) uint64 {
+func (coder *MortonCoder) Pack(pos uint32, symbol byte) uint64 {
 	return (uint64(symbol) << 32) | uint64(pos)
 }
 
 /*
-Decode unpacks the 64-bit Morton key back into absolute Position and Symbol identity.
+Unpack unpacks the 64-bit key back into absolute Position and Symbol identity.
 */
-func (coder *MortonCoder) Decode(morton uint64) (uint32, byte) {
+func (coder *MortonCoder) Unpack(morton uint64) (uint32, byte) {
 	symbol := byte((morton >> 32) & 0xFF)
 	pos := uint32(morton & 0xFFFFFFFF)
 
@@ -111,12 +106,12 @@ func (coder *MortonCoder) Encode3D(x, y, z uint32) uint64 {
 	return part1by2(uint64(x)) | (part1by2(uint64(y)) << 1) | (part1by2(uint64(z)) << 2)
 }
 
-func part1by2(n uint64) uint64 {
-	n &= 0x1fffff
-	n = (n | (n << 32)) & 0x1f00000000ffff
-	n = (n | (n << 16)) & 0x1f0000ff0000ff
-	n = (n | (n << 8))  & 0x100f00f00f00f00f
-	n = (n | (n << 4))  & 0x10c30c30c30c30c3
-	n = (n | (n << 2))  & 0x1249249249249249
-	return n
+func part1by2(value uint64) uint64 {
+	value &= 0x1fffff
+	value = (value | (value << 32)) & 0x1f00000000ffff
+	value = (value | (value << 16)) & 0x1f0000ff0000ff
+	value = (value | (value << 8)) & 0x100f00f00f00f00f
+	value = (value | (value << 4)) & 0x10c30c30c30c30c3
+	value = (value | (value << 2)) & 0x1249249249249249
+	return value
 }

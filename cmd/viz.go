@@ -2,8 +2,10 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
+	"github.com/theapemachine/six/console"
 	"github.com/theapemachine/six/visualizer"
 )
 
@@ -16,7 +18,7 @@ var vizCmd = &cobra.Command{
 
 		go func() {
 			if err := visualizer.RunAliceDemo(server, "cmd/cfg/alice.txt"); err != nil {
-				fmt.Println("Demo error:", err)
+				console.Error(err, "msg", "Demo error")
 			}
 		}()
 
@@ -24,7 +26,8 @@ var vizCmd = &cobra.Command{
 		fmt.Println("Open in browser to see the 3D chord space")
 
 		if err := server.ListenAndServe(":8257"); err != nil {
-			fmt.Println("Server error:", err)
+			console.Error(err, "msg", "Server error")
+			os.Exit(1)
 		}
 	},
 }

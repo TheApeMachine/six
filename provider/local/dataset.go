@@ -22,6 +22,9 @@ func New(corpus [][]byte) *Dataset {
 	return &Dataset{corpus: corpus}
 }
 
+/*
+NewAlice returns a Dataset containing the Alice corpus split into per-byte slices for byte-level processing.
+*/
 func NewAlice() *Dataset {
 	return &Dataset{
 		corpus: bytes.Split(cmd.Alice, []byte{}),

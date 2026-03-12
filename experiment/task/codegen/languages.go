@@ -82,10 +82,7 @@ func langDisplayNames() []string {
 }
 
 func (experiment *LanguagesExperiment) Prompts() *process.Prompt {
-	const holdoutBytes = 50
-
 	experiment.prompt = process.NewPrompt()
-
 	return experiment.prompt
 }
 

@@ -2,6 +2,7 @@ package process
 
 import (
 	"context"
+	"errors"
 	"net"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -113,6 +114,10 @@ func (server *TokenizerServer) Done(ctx context.Context, call Tokenizer_done) er
 }
 
 func (server *TokenizerServer) generate(ctx context.Context, raw []byte) error {
+	if server.pool == nil {
+		return errors.New("tokenizer pool is not configured")
+	}
+
 	server.pool.Schedule("tokenizer_generate", func() (any, error) {
 		seq := NewSequencer(nil)
 		var chunk []byte
@@ -139,6 +144,10 @@ func (server *TokenizerServer) generate(ctx context.Context, raw []byte) error {
 
 func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 	if len(chunk) < 2 {
+		return
+	}
+
+	if !server.spatialConn.IsValid() {
 		return
 	}
 

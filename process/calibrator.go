@@ -6,10 +6,10 @@ import (
 )
 
 const (
-	EventLowVarianceFlux = 0 // 5-Cycle
-	EventDensitySpike    = 1 // 3-Cycle
-	EventDensityTrough   = 2 // Inverse 3-Cycle
-	EventPhaseInversion  = 3 // Double Transposition
+	EventLowVarianceFlux = iota // 5-Cycle
+	EventDensitySpike           // 3-Cycle
+	EventDensityTrough          // Inverse 3-Cycle
+	EventPhaseInversion         // Double Transposition
 )
 
 /*
@@ -23,15 +23,27 @@ type Calibrator struct {
 	window           *FastWindow
 }
 
+type CalibratorOption func(*Calibrator)
+
+func WithWindowSize(size int) CalibratorOption {
+	return func(c *Calibrator) {
+		c.window = NewFastWindow(size)
+	}
+}
+
 /*
 NewCalibrator creates a dynamic calibrator that learns boundaries strictly through feedback.
 */
-func NewCalibrator() *Calibrator {
-	return &Calibrator{
+func NewCalibrator(opts ...CalibratorOption) *Calibrator {
+	c := &Calibrator{
 		sensitivityPop:   1.0,
 		sensitivityPhase: 1.0,
 		window:           NewFastWindow(128),
 	}
+	for _, opt := range opts {
+		opt(c)
+	}
+	return c
 }
 
 func (c *Calibrator) SensitivityPop() float64 {
@@ -87,6 +99,7 @@ func (calibrator *Calibrator) Recalibrate(events []int) {
 	mean, stddev := calibrator.window.Stats()
 	if mean == 0 || stddev == 0 {
 		calibrator.sensitivityPop = math.Max(calibrator.sensitivityPop*0.9, 0.01)
+		calibrator.sensitivityPhase = math.Max(calibrator.sensitivityPhase*0.9, 0.01)
 		return
 	}
 
@@ -98,4 +111,7 @@ func (calibrator *Calibrator) Recalibrate(events []int) {
 	// Feedback driven exponential adjustment
 	calibrator.sensitivityPop *= math.Exp(errorRate)
 	calibrator.sensitivityPop = math.Max(0.01, math.Min(100.0, calibrator.sensitivityPop))
+	
+	calibrator.sensitivityPhase *= math.Exp(errorRate)
+	calibrator.sensitivityPhase = math.Max(0.01, math.Min(100.0, calibrator.sensitivityPhase))
 }

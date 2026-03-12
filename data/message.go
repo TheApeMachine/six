@@ -5,6 +5,9 @@ import (
 	"github.com/theapemachine/six/pool"
 )
 
+/*
+Receiver identifies the intended recipient subsystem for a broadcast message.
+*/
 type Receiver uint
 
 const (
@@ -12,6 +15,9 @@ const (
 	TOKENIZER
 )
 
+/*
+MessageType distinguishes between inbound requests and outbound responses.
+*/
 type MessageType uint
 
 const (
@@ -19,6 +25,10 @@ const (
 	RESPONSE
 )
 
+/*
+Message encapsulates a generic broadcast payload with correlation IDs
+and routing metadata for the decentralized event bus.
+*/
 type Message struct {
 	ID       uuid.UUID
 	Parent   uuid.UUID

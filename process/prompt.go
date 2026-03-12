@@ -44,13 +44,13 @@ func (prompt *Prompt) Samples() []string {
 }
 
 func PromptWithDataset(dataset provider.Dataset) promptOpts {
-	return func(p *Prompt) {
-		p.dataset = dataset
+	return func(prom *Prompt) {
+		prom.dataset = dataset
 	}
 }
 
 func PromptWithHoldout(prct int, ht HoldoutType) promptOpts {
-	return func(p *Prompt) {
-		p.heldout = Holdout{prct, ht}
+	return func(prom *Prompt) {
+		prom.heldout = Holdout{prct, ht}
 	}
 }

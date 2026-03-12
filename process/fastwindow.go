@@ -20,6 +20,9 @@ type FastWindow struct {
 NewFastWindow allocates a sliding window of the given size. O(1) push; recalc every size*2 pushes.
 */
 func NewFastWindow(size int) *FastWindow {
+	if size <= 0 {
+		return nil
+	}
 	return &FastWindow{
 		data: make([]float64, size),
 		size: size,

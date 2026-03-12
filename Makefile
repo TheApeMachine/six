@@ -1,30 +1,28 @@
 .PHONY: build metal cuda paper pprof pprof-mem
 
+CAPNP_STD ?= ../../capnproto/go-capnp/std
+
 build:
-	capnp compile -I ../../capnproto/go-capnp/std -ogo store/lsm/spatial_index.capnp
-	capnp compile -I ../../capnproto/go-capnp/std -ogo logic/graph/matrix.capnp
-	capnp compile -I ../../capnproto/go-capnp/std -ogo data/chord.capnp
-	capnp compile -I ../../capnproto/go-capnp/std -ogo process/tokenizer.capnp
+	capnp compile -I $(CAPNP_STD) -ogo store/lsm/spatial_index.capnp
+	capnp compile -I $(CAPNP_STD) -ogo logic/graph/matrix.capnp
+	capnp compile -I $(CAPNP_STD) -ogo data/chord.capnp
+	capnp compile -I $(CAPNP_STD) -ogo process/tokenizer.capnp
 
 	cd kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
-		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib \
-		&& cd ../../
+		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 		
 	cd kernel/cuda \
-		&& go generate \
-		&& cd ../../
+		&& go generate
 
 metal:
 	cd kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
-		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib \
-		&& cd ../../
+		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 
 cuda:
 	cd kernel/cuda \
-		&& go generate \
-		&& cd ../../
+		&& go generate
 
 paper:
 	go test -v ./experiment/task/

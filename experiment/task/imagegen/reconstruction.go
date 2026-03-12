@@ -10,6 +10,7 @@ import (
 	"slices"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/console"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/process"
@@ -94,15 +95,6 @@ func (e *ReconstructionExperiment) Prompts() *process.Prompt {
 	e.imageBytes = make([][]byte, 0, len(imgOrder))
 	for _, id := range imgOrder {
 		e.imageBytes = append(e.imageBytes, imgMap[id])
-	}
-
-	// Build N×9 explicit PromptSamples.
-	var samples []string
-	for _, px := range e.imageBytes {
-		for _, pct := range holdoutPercents {
-			splitIdx := len(px) * (100 - pct) / 100
-			samples = append(samples, string(px[:splitIdx]))
-		}
 	}
 
 	e.prompt = process.NewPrompt(
@@ -359,7 +351,7 @@ func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		fmt.Printf("png.Encode failed: %v\n", err)
+		console.Error(err, "msg", "png.Encode failed")
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes())

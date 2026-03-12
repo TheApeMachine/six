@@ -173,7 +173,11 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 	matrix.mu.RUnlock()
 
 	if !spatialConn.IsValid() {
-		return matrix.writePaths(res, [][]data.Chord{chordsToSlice(chords)})
+		slice, err := chordsToSlice(chords)
+		if err != nil {
+			return err
+		}
+		return matrix.writePaths(res, [][]data.Chord{slice})
 	}
 
 	// Call LSM's lookup method dynamically
@@ -216,7 +220,10 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 	pathsData := make([][]data.Chord, pathsList.Len())
 
 	// Aggregate context chord: Chord(Sequence) = A ⊕ B ⊕ C
-	contextChord, _ := data.NewChord(res.Segment())
+	contextChord, err := data.NewChord(res.Segment())
+	if err != nil {
+		return err
+	}
 	for i := 0; i < chords.Len(); i++ {
 		contextChord = contextChord.XOR(chords.At(i))
 	}
@@ -237,16 +244,19 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 		bestIdx, _, _ := matrix.Evaluate(contextChord, candidates)
 
 		if bestIdx != -1 {
-			c := innerList.At(bestIdx)
-			outChord, _ := data.NewChord(c.Segment())
-			outChord.SetC0(c.C0())
-			outChord.SetC1(c.C1())
-			outChord.SetC2(c.C2())
-			outChord.SetC3(c.C3())
-			outChord.SetC4(c.C4())
-			outChord.SetC5(c.C5())
-			outChord.SetC6(c.C6())
-			outChord.SetC7(c.C7())
+			candidate := innerList.At(bestIdx)
+			outChord, err := data.NewChord(candidate.Segment())
+			if err != nil {
+				return err
+			}
+			outChord.SetC0(candidate.C0())
+			outChord.SetC1(candidate.C1())
+			outChord.SetC2(candidate.C2())
+			outChord.SetC3(candidate.C3())
+			outChord.SetC4(candidate.C4())
+			outChord.SetC5(candidate.C5())
+			outChord.SetC6(candidate.C6())
+			outChord.SetC7(candidate.C7())
 			pathsData[i] = []data.Chord{outChord}
 		}
 	}
@@ -270,15 +280,15 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 		}
 		for j := 0; j < len(pathChords); j++ {
 			el := innerList.At(j)
-			c := pathChords[j]
-			el.SetC0(c.C0())
-			el.SetC1(c.C1())
-			el.SetC2(c.C2())
-			el.SetC3(c.C3())
-			el.SetC4(c.C4())
-			el.SetC5(c.C5())
-			el.SetC6(c.C6())
-			el.SetC7(c.C7())
+			pathChord := pathChords[j]
+			el.SetC0(pathChord.C0())
+			el.SetC1(pathChord.C1())
+			el.SetC2(pathChord.C2())
+			el.SetC3(pathChord.C3())
+			el.SetC4(pathChord.C4())
+			el.SetC5(pathChord.C5())
+			el.SetC6(pathChord.C6())
+			el.SetC7(pathChord.C7())
 		}
 		if err := pathsList.Set(i, innerList.ToPtr()); err != nil {
 			return err
@@ -288,25 +298,25 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 	return nil
 }
 
-func chordsToSlice(chords data.Chord_List) []data.Chord {
+func chordsToSlice(chords data.Chord_List) ([]data.Chord, error) {
 	out := make([]data.Chord, chords.Len())
 	for i := 0; i < chords.Len(); i++ {
-		c := chords.At(i)
-		chord, err := data.NewChord(c.Segment())
+		src := chords.At(i)
+		chord, err := data.NewChord(src.Segment())
 		if err != nil {
-			return nil
+			return nil, err
 		}
-		chord.SetC0(c.C0())
-		chord.SetC1(c.C1())
-		chord.SetC2(c.C2())
-		chord.SetC3(c.C3())
-		chord.SetC4(c.C4())
-		chord.SetC5(c.C5())
-		chord.SetC6(c.C6())
-		chord.SetC7(c.C7())
+		chord.SetC0(src.C0())
+		chord.SetC1(src.C1())
+		chord.SetC2(src.C2())
+		chord.SetC3(src.C3())
+		chord.SetC4(src.C4())
+		chord.SetC5(src.C5())
+		chord.SetC6(src.C6())
+		chord.SetC7(src.C7())
 		out[i] = chord
 	}
-	return out
+	return out, nil
 }
 
 /*

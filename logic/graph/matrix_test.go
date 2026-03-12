@@ -2,6 +2,7 @@ package graph
 
 import (
 	"fmt"
+	"log"
 	"math"
 	"os"
 	"sort"
@@ -41,14 +42,18 @@ func tokenize(raw []byte) [][]byte {
 /*
 buildPaths converts raw chunks into chords using BuildChord.
 */
-func buildPaths(chunks [][]byte) []data.Chord {
+func buildPaths(chunks [][]byte) ([]data.Chord, error) {
 	paths := make([]data.Chord, len(chunks))
 
+	var err error
 	for i, chunk := range chunks {
-		paths[i], _ = data.BuildChord(chunk)
+		paths[i], err = data.BuildChord(chunk)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	return paths
+	return paths, nil
 }
 
 func TestMatrixServer_AliceInWonderland(t *testing.T) {
@@ -59,7 +64,10 @@ func TestMatrixServer_AliceInWonderland(t *testing.T) {
 
 	// Tokenize and build paths ONCE outside the Convey tree.
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 	matrix := NewMatrixServer()
 
 	t.Logf("Tokenized Alice: %d chunks, %d path chords", len(chunks), len(paths))
@@ -176,7 +184,10 @@ func BenchmarkMatrixServer_Alice(b *testing.B) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		log.Fatal(err)
+	}
 	matrix := NewMatrixServer()
 
 	prompt, _ := data.BuildChord([]byte("Alice was beginning"))
@@ -295,7 +306,10 @@ func TestThreeWayDecomposition(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given pairs of Alice chords", t, func() {
 		prompt, _ := data.BuildChord([]byte("Alice was beginning"))
@@ -351,7 +365,10 @@ func TestDistanceMetricRankings(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given four distance metrics applied to the same data", t, func() {
 		prompt, _ := data.BuildChord([]byte("the Rabbit"))
@@ -480,7 +497,10 @@ func TestAnalogyOperator(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given the analogy A:B :: C:D where D = C ⊕ (A ⊕ B)", t, func() {
 
@@ -574,7 +594,10 @@ func TestSuccessiveCancellation(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 	matrix := NewMatrixServer()
 
 	Convey("Given iterative XOR-and-match on a prompt", t, func() {
@@ -635,7 +658,10 @@ func TestTopKSharedCore(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given top-k matches vs k random chords", t, func() {
 		prompt, _ := data.BuildChord([]byte("the Rabbit"))
@@ -716,7 +742,10 @@ func TestContainmentVsDensity(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given prompts of increasing density", t, func() {
 		prompts := []struct {
@@ -1057,7 +1086,10 @@ func TestOrderInvariance(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given Alice chunks", t, func() {
 
@@ -1155,7 +1187,10 @@ func TestDumpAliceLabels(t *testing.T) {
 	}
 
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	Convey("Given Alice tokenized into chunks", t, func() {
 		Convey("Dump label map to log file", func() {
@@ -1205,7 +1240,7 @@ func TestDumpAliceLabels(t *testing.T) {
 				uniqueChords[i] = groups[key].chord
 			}
 
-			f, err := os.Create("alice_labels.log")
+			f, err := os.Create(t.TempDir() + "/alice_labels.log")
 			So(err, ShouldBeNil)
 			defer f.Close()
 
@@ -1334,7 +1369,10 @@ func TestGraphResidueDepletion(t *testing.T) {
 
 	// 1. Let the tokenizer (Sequencer) run and build paths (the LSM contents)
 	chunks := tokenize(raw)
-	paths := buildPaths(chunks)
+	paths, err := buildPaths(chunks)
+	if err != nil {
+		t.Fatal(err)
+	}
 	matrix := NewMatrixServer()
 
 	Convey("Given half a sentence from the text", t, func() {
