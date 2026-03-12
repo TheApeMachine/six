@@ -1,61 +1,31 @@
 package visualizer
 
 import (
-	"fmt"
-	"os"
-	"time"
+	"context"
+	"runtime"
 
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 /*
-RunAliceDemo tokenizes Alice in Wonderland and streams chord events
-to the visualization server for real-time 3D display.
+RunAliceDemo boots the full system with the given dataset and blocks until ctx
+is cancelled. All tokenization, LSM insertion, fold telemetry, and Cortex events
+flow through the real system components automatically. The caller owns dataset
+construction so this package stays free of embed/cmd import cycles.
 */
-func RunAliceDemo(server *Server, alicePath string) error {
-	raw, err := os.ReadFile(alicePath)
-	if err != nil {
-		return fmt.Errorf("reading alice: %w", err)
-	}
+func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
+	console.Info("Starting Alice demo")
+	workerPool := pool.New(ctx, 1, runtime.NumCPU(), nil)
 
-	seq := process.NewSequencer(nil)
-	var chunk []byte
-	var chunkCount, edgeCount int
+	booter := vm.NewBooter(
+		vm.BooterWithContext(ctx),
+		vm.BooterWithPool(workerPool),
+		vm.BooterWithDataset(dataset),
+	)
 
-	for pos, b := range raw {
-		chunk = append(chunk, b)
-		isBoundary, _ := seq.Analyze(pos, b)
-
-		if isBoundary && len(chunk) >= 2 {
-			chord, err := data.BuildChord(chunk)
-			if err != nil {
-				chunk = nil
-				continue
-			}
-
-			chunkCount++
-
-			server.EmitChord(chord, string(chunk), chunkCount)
-			server.EmitBoundary(chunkCount, chord.ShannonDensity())
-
-			// Emit LSM edges for each bigram in the chunk.
-			for j := 0; j < len(chunk)-1; j++ {
-				edgeCount++
-				server.EmitLSMEdge(chunk[j], chunk[j+1], j, edgeCount)
-			}
-
-			time.Sleep(150 * time.Millisecond)
-			chunk = nil
-		}
-	}
-
-	if len(chunk) >= 2 {
-		chord, _ := data.BuildChord(chunk)
-		chunkCount++
-		server.EmitChord(chord, string(chunk), chunkCount)
-		server.EmitBoundary(chunkCount, chord.ShannonDensity())
-	}
-
+	go booter.Start()
 	return nil
 }

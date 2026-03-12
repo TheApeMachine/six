@@ -9,9 +9,11 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/geometry"
 	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -24,9 +26,10 @@ type MatrixServer struct {
 	mu  sync.RWMutex
 	ctx context.Context
 
-	broadcast   *pool.BroadcastGroup
-	workerPool  *pool.Pool
-	rpcConn     *rpc.Conn
+	broadcast     *pool.BroadcastGroup
+	workerPool    *pool.Pool
+	rpcConn       *rpc.Conn
+	sink          *telemetry.Sink
 	spatialLookup func(context.Context, data.Chord_List) ([][]data.Chord, error)
 }
 
@@ -39,7 +42,9 @@ type MatrixServerOpt func(*MatrixServer)
 NewMatrixServer creates the RPC server for the logic graph matrix.
 */
 func NewMatrixServer(opts ...MatrixServerOpt) *MatrixServer {
-	matrix := &MatrixServer{}
+	matrix := &MatrixServer{
+		sink: telemetry.NewSink(),
+	}
 
 	for _, opt := range opts {
 		opt(matrix)
@@ -59,9 +64,7 @@ Announce exports the server as an RPC bootstrap capability over an in-memory
 pipe, then broadcasts the client-side net.Conn so other systems can connect.
 */
 func (matrix *MatrixServer) Announce() {
-	if matrix.broadcast == nil {
-		return
-	}
+	console.Info("Announcing Matrix")
 
 	serverSide, clientSide := net.Pipe()
 	client := Matrix_ServerToClient(matrix)
@@ -101,13 +104,13 @@ func (matrix *MatrixServer) Prompt(ctx context.Context, call Matrix_prompt) erro
 	chords, err := params.Chords()
 
 	if err != nil {
-		return err
+		return console.Error(err)
 	}
 
 	res, err := call.AllocResults()
 
 	if err != nil {
-		return err
+		return console.Error(err)
 	}
 
 	return matrix.prompt(ctx, chords, res)
@@ -153,7 +156,7 @@ func (matrix *MatrixServer) prompt(
 		slice, err := data.ChordListToSlice(chords)
 
 		if err != nil {
-			return err
+			return console.Error(err)
 		}
 
 		return matrix.writePaths(res, [][]data.Chord{slice})
@@ -162,14 +165,14 @@ func (matrix *MatrixServer) prompt(
 	pathsData, err := lookup(ctx, chords)
 
 	if err != nil {
-		return err
+		return console.Error(err)
 	}
 
 	// Aggregate context chord: Chord(Sequence) = A ⊕ B ⊕ C
 	contextChord, err := data.NewChord(res.Segment())
 
 	if err != nil {
-		return err
+		return console.Error(err)
 	}
 
 	for i := 0; i < chords.Len(); i++ {
@@ -187,7 +190,7 @@ func (matrix *MatrixServer) prompt(
 		pathsData[i] = []data.Chord{candidates[bestIdx]}
 	}
 
-	matrix.RecursiveFold(pathsData, 0)
+	matrix.RecursiveFold(pathsData, 0, -1)
 
 	return matrix.writePaths(res, pathsData)
 }
@@ -196,7 +199,7 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 	pathsList, err := res.NewPaths(int32(len(paths)))
 
 	if err != nil {
-		return err
+		return console.Error(err)
 	}
 
 	seg := res.Segment()
@@ -205,7 +208,7 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 		innerList, err := data.NewChord_List(seg, int32(len(pathChords)))
 
 		if err != nil {
-			return err
+			return console.Error(err)
 		}
 
 		for j, pathChord := range pathChords {
@@ -214,7 +217,7 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 		}
 
 		if err := pathsList.Set(i, innerList.ToPtr()); err != nil {
-			return err
+			return console.Error(err)
 		}
 	}
 
@@ -225,7 +228,7 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 RecursiveFold fractures geometric sequences into an isolated hierarchy of labels
 connected by phase rotations (the "arrow of time"), firing pool jobs recursively.
 */
-func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int) {
+func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int, parentBin int) {
 	if len(sequences) == 0 {
 		return
 	}
@@ -241,6 +244,8 @@ func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int) {
 	ei := geometry.NewEigenMode()
 	theta, _ := ei.PhaseForChord(&labelChord) // The edge!
 
+	labelBin := data.ChordBin(&labelChord)
+
 	// 3. Extract the unique residues
 	var uniqueResidues [][]data.Chord
 
@@ -252,12 +257,27 @@ func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int) {
 		}
 	}
 
+	// Emit fold telemetry
+	matrix.sink.Emit(telemetry.Event{
+		Component: "Cortex",
+		Action:    "Fold",
+		Data: telemetry.EventData{
+			Bin:        labelBin,
+			Level:      level,
+			Theta:      theta,
+			ParentBin:  parentBin,
+			ChildCount: len(uniqueResidues),
+			ActiveBits: data.ChordPrimeIndices(&labelChord),
+			Density:    labelChord.ShannonDensity(),
+		},
+	})
+
 	// 4. Recurse via Pool
 	for i, resSeq := range uniqueResidues {
 		jobID := fmt.Sprintf("fold-level-%d-theta-%f-seq-%d", level, theta, i)
 
 		matrix.workerPool.Schedule(jobID, func() (any, error) {
-			matrix.RecursiveFold([][]data.Chord{resSeq}, level+1)
+			matrix.RecursiveFold([][]data.Chord{resSeq}, level+1, labelBin)
 			return nil, nil
 		})
 	}

@@ -19,7 +19,7 @@ func TestCalibrator(t *testing.T) {
 
 		Convey("When testing concurrent access to getters and setters", func() {
 			var wg sync.WaitGroup
-			for i := 0; i < 100; i++ {
+			for i := range 100 {
 				wg.Add(2)
 				go func(val float64) {
 					defer wg.Done()
@@ -40,53 +40,59 @@ func TestCalibrator(t *testing.T) {
 			})
 		})
 
-		Convey("When recalibrating with events", func() {
+		Convey("When recalibrating with chunk density", func() {
 			cal = NewCalibrator(WithWindowSize(5)) // small window for testing
 
 			Convey("It should early return if window is not warmed", func() {
-				cal.Recalibrate([]int{EventDensitySpike})
+				cal.FeedbackChunk(6, 0.35)
 				So(cal.SensitivityPop(), ShouldEqual, 1.0)
 				So(cal.SensitivityPhase(), ShouldEqual, 1.0)
 			})
 
-			Convey("It should decay sensitivity if stats are zero", func() {
-				for i := 0; i < 5; i++ {
-					cal.Recalibrate([]int{EventLowVarianceFlux}) // pushes 0.0
+			Convey("It should early return if mean density is zero", func() {
+				for range 5 {
+					cal.FeedbackChunk(6, 0.0) // pushes 0.0
 				}
-				// 5th push triggers warmed = true, so mean = 0, stddev = 0
-				So(cal.SensitivityPop(), ShouldEqual, 0.9)
-				So(cal.SensitivityPhase(), ShouldEqual, 0.9)
+				// 5th push triggers warmed = true, but mean = 0
+				So(cal.SensitivityPop(), ShouldEqual, 1.0)
+				So(cal.SensitivityPhase(), ShouldEqual, 1.0)
 			})
 
-			Convey("It should adjust sensitivities correctly with mixed events", func() {
-				// Warm it up with a mix of 1.0 and 0.0 so mean != 0 and stddev != 0
-				cal.Recalibrate([]int{EventDensitySpike})
-				cal.Recalibrate([]int{EventDensityTrough})
-				cal.Recalibrate([]int{EventLowVarianceFlux})
-				cal.Recalibrate([]int{EventPhaseInversion})
-				cal.Recalibrate([]int{EventDensitySpike})
-				
+			Convey("It should adjust sensitivities correctly given chunk density", func() {
+				// Target is ~0.45, pushing sparse densities (varying to ensure stddev > 0)
+				cal.FeedbackChunk(6, 0.10)
+				cal.FeedbackChunk(6, 0.15)
+				cal.FeedbackChunk(6, 0.20)
+				cal.FeedbackChunk(6, 0.10)
+				cal.FeedbackChunk(6, 0.20)
+
 				pop := cal.SensitivityPop()
 				phase := cal.SensitivityPhase()
-				
-				So(pop, ShouldNotEqual, 1.0)
-				So(pop, ShouldBeGreaterThanOrEqualTo, 0.01)
-				So(pop, ShouldBeLessThanOrEqualTo, 100.0)
-				
-				So(phase, ShouldNotEqual, 1.0)
-				So(phase, ShouldBeGreaterThanOrEqualTo, 0.01)
-				So(phase, ShouldBeLessThanOrEqualTo, 100.0)
+
+				So(pop, ShouldBeGreaterThan, 1.0)
+				So(phase, ShouldBeGreaterThan, 1.0)
+
+				// Push large densities (varying) -> decrease penalty
+				// We push 10 values to fully flush the window of the small densities
+				for range 2 {
+					cal.FeedbackChunk(6, 0.60)
+					cal.FeedbackChunk(6, 0.65)
+					cal.FeedbackChunk(6, 0.70)
+					cal.FeedbackChunk(6, 0.60)
+					cal.FeedbackChunk(6, 0.70)
+				}
+
+				So(cal.SensitivityPop(), ShouldBeLessThan, pop)
+				So(cal.SensitivityPhase(), ShouldBeLessThan, phase)
 			})
 		})
 	})
 }
 
-func BenchmarkRecalibrate(b *testing.B) {
+func BenchmarkFeedbackChunk(b *testing.B) {
 	cal := NewCalibrator(WithWindowSize(128))
-	events := []int{EventDensitySpike, EventLowVarianceFlux}
-	
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		cal.Recalibrate(events)
+
+	for b.Loop() {
+		cal.FeedbackChunk(6, 0.35)
 	}
 }

@@ -6,48 +6,32 @@ import (
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"github.com/theapemachine/six/pkg/console"
 	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
 func BuildChord(payload []byte) (Chord, error) {
 	const logicalBits = 257
 
-	return errnie.Then(
-		errnie.Try(func() (Chord, error) {
-			_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-			if err != nil {
-				return Chord{}, err
-			}
-			return NewRootChord(seg)
-		}()),
-		func(chord Chord) (Chord, error) {
-			for _, b := range payload {
-				base, err := func() (Chord, error) {
-					_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-					if err != nil {
-						return Chord{}, err
-					}
-					return NewChord(seg)
-				}()
-				if err != nil {
-					return Chord{}, console.Error(err)
-				}
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return Chord{}, err
+	}
 
-				for _, off := range [5]int{
-					int(b) * 7, int(b) * 13, int(b) * 31, int(b) * 61, int(b) * 127,
-				} {
-					base.Set(off % logicalBits)
-				}
+	chord, err := NewRootChord(seg)
+	if err != nil {
+		return Chord{}, err
+	}
 
-				chord = chord.OR(base)
-			}
+	for _, b := range payload {
+		for _, off := range [5]int{
+			int(b) * 7, int(b) * 13, int(b) * 31, int(b) * 61, int(b) * 127,
+		} {
+			chord.Set(off % logicalBits)
+		}
+	}
 
-			return chord, nil
-		},
-	).Unwrap()
+	return chord, nil
 }
 
 /*
@@ -66,18 +50,17 @@ ChordListToSlice copies each entry into a freshly allocated Chord and returns th
 func ChordListToSlice(list Chord_List) ([]Chord, error) {
 	out := make([]Chord, list.Len())
 
-	return out, errnie.ForEach(list.Len(), func(i int) error {
+	for i := 0; i < list.Len(); i++ {
 		src := list.At(i)
+		chord, err := NewChord(src.Segment())
+		if err != nil {
+			return nil, err
+		}
+		chord.CopyFrom(src)
+		out[i] = chord
+	}
 
-		return errnie.Then(
-			errnie.Try(NewChord(src.Segment())),
-			func(chord Chord) (Chord, error) {
-				chord.CopyFrom(src)
-				out[i] = chord
-				return chord, nil
-			},
-		).Err()
-	})
+	return out, nil
 }
 
 /*
@@ -254,7 +237,7 @@ func MaskChord() Chord {
 	if err != nil {
 		panic(fmt.Errorf("MaskChord allocation failed: %w", err))
 	}
-	chord.Set(256)
+	chord.Set(config.Numeric.VocabSize)
 
 	return chord
 }
@@ -287,8 +270,6 @@ func ChordLCM(chords []Chord) (lcm Chord) {
 
 	return lcm
 }
-
-
 
 /*
 ActiveCount returns the number of active basis primes in this
@@ -455,7 +436,6 @@ func (chord *Chord) OR(other Chord) Chord {
 	return lcm
 }
 
-
 func mustNewChord() Chord {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
@@ -482,7 +462,6 @@ func (chord Chord) XOR(other Chord) Chord {
 
 	return xor
 }
-
 
 /*
 FlatChord is a dense array of active prime indices used for optimal GPU iteration.

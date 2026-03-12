@@ -6,6 +6,7 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/pool"
 )
@@ -57,7 +58,7 @@ func TestTokenizerServer(t *testing.T) {
 		})
 
 		Convey("When testing generate directly", func() {
-			err := server.generate(ctx, []byte{})
+			err := server.generate(ctx)
 
 			Convey("It should schedule properly and not error", func() {
 				So(err, ShouldBeNil)
@@ -75,11 +76,11 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 
 	raw := make([]byte, 1024)
 	for i := range raw {
-		raw[i] = byte(i % 256)
+		raw[i] = byte(i % config.Numeric.VocabSize)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_ = server.generate(ctx, raw)
+		_ = server.generate(ctx)
 	}
 }

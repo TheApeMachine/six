@@ -1,9 +1,6 @@
 package local
 
 import (
-	"bytes"
-
-	"github.com/theapemachine/six/cmd"
 	"github.com/theapemachine/six/pkg/provider"
 )
 
@@ -20,15 +17,6 @@ New returns a Dataset over the given corpus. corpus[sampleID] is one sample's by
 */
 func New(corpus [][]byte) *Dataset {
 	return &Dataset{corpus: corpus}
-}
-
-/*
-NewAlice returns a Dataset containing the Alice corpus split into per-byte slices for byte-level processing.
-*/
-func NewAlice() *Dataset {
-	return &Dataset{
-		corpus: bytes.Split(cmd.Alice, []byte{}),
-	}
 }
 
 /*

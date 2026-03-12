@@ -3,14 +3,13 @@
 package process
 
 import (
-	context "context"
-
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
 	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
+	context "context"
 	data "github.com/theapemachine/six/pkg/data"
 )
 
@@ -123,12 +122,12 @@ func (c Tokenizer) Generate(ctx context.Context, params func(Tokenizer_generate_
 		Method: capnp.Method{
 			InterfaceID:   0x8a479c8a23a8e58a,
 			MethodID:      0,
-			InterfaceName: "process/tokenizer.capnp:Tokenizer",
+			InterfaceName: "pkg/process/tokenizer.capnp:Tokenizer",
 			MethodName:    "generate",
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Tokenizer_generate_Params(s)) }
 	}
 
@@ -142,7 +141,7 @@ func (c Tokenizer) Done(ctx context.Context, params func(Tokenizer_done_Params) 
 		Method: capnp.Method{
 			InterfaceID:   0x8a479c8a23a8e58a,
 			MethodID:      1,
-			InterfaceName: "process/tokenizer.capnp:Tokenizer",
+			InterfaceName: "pkg/process/tokenizer.capnp:Tokenizer",
 			MethodName:    "done",
 		},
 	}
@@ -257,7 +256,7 @@ func Tokenizer_Methods(methods []server.Method, s Tokenizer_Server) []server.Met
 		Method: capnp.Method{
 			InterfaceID:   0x8a479c8a23a8e58a,
 			MethodID:      0,
-			InterfaceName: "process/tokenizer.capnp:Tokenizer",
+			InterfaceName: "pkg/process/tokenizer.capnp:Tokenizer",
 			MethodName:    "generate",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -269,7 +268,7 @@ func Tokenizer_Methods(methods []server.Method, s Tokenizer_Server) []server.Met
 		Method: capnp.Method{
 			InterfaceID:   0x8a479c8a23a8e58a,
 			MethodID:      1,
-			InterfaceName: "process/tokenizer.capnp:Tokenizer",
+			InterfaceName: "pkg/process/tokenizer.capnp:Tokenizer",
 			MethodName:    "done",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
@@ -329,12 +328,12 @@ type Tokenizer_generate_Params capnp.Struct
 const Tokenizer_generate_Params_TypeID = 0xddb30da464b249f7
 
 func NewTokenizer_generate_Params(s *capnp.Segment) (Tokenizer_generate_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return Tokenizer_generate_Params(st), err
 }
 
 func NewRootTokenizer_generate_Params(s *capnp.Segment) (Tokenizer_generate_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return Tokenizer_generate_Params(st), err
 }
 
@@ -370,25 +369,13 @@ func (s Tokenizer_generate_Params) Message() *capnp.Message {
 func (s Tokenizer_generate_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Tokenizer_generate_Params) Raw() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return []byte(p.Data()), err
-}
-
-func (s Tokenizer_generate_Params) HasRaw() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Tokenizer_generate_Params) SetRaw(v []byte) error {
-	return capnp.Struct(s).SetData(0, v)
-}
 
 // Tokenizer_generate_Params_List is a list of Tokenizer_generate_Params.
 type Tokenizer_generate_Params_List = capnp.StructList[Tokenizer_generate_Params]
 
 // NewTokenizer_generate_Params creates a new list of Tokenizer_generate_Params.
 func NewTokenizer_generate_Params_List(s *capnp.Segment, sz int32) (Tokenizer_generate_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
 	return capnp.StructList[Tokenizer_generate_Params](l), err
 }
 
@@ -530,32 +517,30 @@ func (f Tokenizer_done_Results_Future) Struct() (Tokenizer_done_Results, error) 
 	return Tokenizer_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d69 = "x\xda\x94\x8f=h\x14A\x1c\xc5\xdf\x9b\xd9u\x93b" +
-	"\xbdL6\x81\x10\x90\x83x\x82'x\xc9y\xb1\x11%" +
-	"g!\xa2\x85\xdc\xf8Q\x8a,w\x83\x1e\xea\xde1{" +
-	"a!`-\x1e\xb1\xb1\x11\xc5t\x166\x16~\xd4b" +
-	"a\xd0\xc6BlM#\xd8\x8aXh9\xb2\x17\xb3'" +
-	"B\x8at\xf3\xf1\xff\xfd\x7f\xef-\x95\xd8\xf4\xea\xe1\xa2" +
-	"\x0f\xa1O\xfa\xfb\xdc\xf0\xdb\xb3\x83\xc3'g\x87Ps" +
-	"\xd2uO\x9d\xeeo\xac\xfb\xcf\x016\xee\x88iF\xf7" +
-	"E\x00D\xf7\xc4\xddh+?\xb9\xab\xef\x97\xeb\xd9\xf4" +
-	"\xfe7\xd0s\xe4x\xdcg>\xb6)~F\x9fF\xc0" +
-	"G\x91\x81\xee\xd2\x97\xd5\xe3\xbf\xe6\xaf|\x80Z \xe0" +
-	"\x05@\xa3*\xd7\x08\xcf\xfd>\xf7\xb2\xf34|\xb5\xb5" +
-	"\xfd3\xa2\x1b\xb3\xf2\x01\xc1\xe8\x90\\\x01\xdd\xfa\x8f\xda" +
-	"\xe6\xe7\x8d\xd2\xd7\x7f\xd03\xd2\x12\xd6\xf5m\xafm\xd2" +
-	"tQ\x0ez7M\xd2]3\xb6\xd6\x8e\xfbI\xff\xc4" +
-	"\xe5\xbfw\xda\x16\xa9'\xa4\x0f\x14\x1e&/\xdef\x8d" +
-	"\xc7\xd7\x1e\xa9\xfay\x08U\x0d8Vp'\xa6:p" +
-	"\x04B\xa9\xc0]7\x89\xb1\xf1\xc0\x00h\xb2\xd4\xe9%" +
-	"\xa6\xc9\x16Y\xa8\xc5\xff\xea\xf2\xc8\xbd\xad\xf5\x00\x8f\x80" +
-	"\xaa\xce\x03\xba\"\xa9\x97\x04\xc9\x19\xe6oG\x8f\x01\xfa" +
-	"\xb0\xa4^\x16\x94\xdd\x0e'!8\x09\x96\xdb7z\xb6" +
-	"\xc3)\xf7\xb0;{\xe1{\xfa\xfa\x1d@Na,\xf4" +
-	"v\xebjky\xba\xca\xc5\x15\x93\xae\xde\x1a\xa4\x05\xe0" +
-	"\xef\x0e\xec\x94\xab\xb4b\x1b\xdff\xaa\xbd\"r\xb8\x00" +
-	"\xe8\x09I=#\x18\xd88c\x08\xc1p\x0f9Z\xe5" +
-	"|g\xfa'\x00\x00\xff\xff\x88\x06\xb0\x96"
+const schema_ad058c9d70413d69 = "x\xda\x94\x8f=\x88\x13A\x1c\xc5\xdf\x9b\xd9u\xbd\"" +
+	"\xde\xcd\xad6\xc7\x1d)\x0c\xe2\x09w\xb9\\\xceF\x14" +
+	"b%Z\xc8\xae\x1f\xa5\xc8\x92\x1d\xce%\xba\xbb\xec\xe6" +
+	"\x08\x08\xd6b8\x1b\x1b\xf10\x9d\x85\x8d\x85\xd1Z," +
+	"\x0c\xda\x8a\xd8\x99F\xb0\x15+-G6!\x1f\x8d\xa8" +
+	"\xdd\xcc\xfb\xe0\xf7\xfe[\x82\x0d\xabV\xaa\xda\x10\xfeY" +
+	"\xfb\x90\xe9~{~\xbc\xfb\xf4B\x17jU\x9a\xe8\xdc" +
+	"\xf9\xb4\xb7o\xbf\x00X\xbf'\xb6\xe9>\x14\x0e\xe0>" +
+	"\x10\xf7\xdda\xf127\xde\xef\xd4:\xcbG\xde\xc0_" +
+	"%gq\x9b\x0eP\x1f\x88e\xba\x9fG\x8d\x8f\xa2\x03" +
+	"\x9a\xab_\xf6N\xff\\\xb9\xfe\x01\xea\x04\x01\xab\xc8l" +
+	"\xc8\x03\xc22\xbf.\xf6\xc3g\xa5W\xc39gM\xf6" +
+	"\x0bg\xff\xc7\xe6\xe0So\xf1\xeb\x9cS\x92\x8f\x88\xcc" +
+	"\xa4\xad\xddj\x9a%M\xa9\xf3\xbc\xdaNZ:\x8e\xee" +
+	"\xeal\xb3\x19\xa4qz\xe6Z\xd2\xd2\xe5\x91\xe0\x91\xfe" +
+	"ai\x03S\x08\xe3\x97o;\xf5\x83\x9bOT\xed\x12" +
+	"\x84Zw\xc8)\x86\x93\x8dj\xed\x14\x84R\x8e\xd9\xd5" +
+	"\xb1\xce\x82\xb6\x06\xd0\xe0b\x98\xc4\xbaA\x8f\xfc;\x9e" +
+	"\xf1\x18m\x01\x16\x01\xb5\xbe\x02\xf8\x15I\x7fK\x90<" +
+	"\xcaB\xdb\xd8\x06\xfc\x93\x92\xfe\x8e\xa0\x8cB.@p" +
+	"\x01,7o%Y\xc8%\xf38:v\xf9{\xfe\xfa" +
+	"\x1d@.a\x06\xb5\xff\x04\x1d\xff\x8b\x95\x95+:\xdf" +
+	"\xbb-\xdb\xf9\xbf\x96&\x87V\xbcr\x90\x05w\xf2\xff" +
+	"\x82yE\x85\xf9\xef\x00\x00\x00\xff\xff8O\xb3\xe6"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{

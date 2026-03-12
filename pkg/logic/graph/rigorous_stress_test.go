@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/geometry"
 )
@@ -424,7 +425,7 @@ func TestMassiveAnomalyIsolation(t *testing.T) {
 				baselineStr := fmt.Sprintf("INFO: Request id=%d time=%d ms status=%d", i, rand.Intn(1000), 200+rand.Intn(3))
 				switch i % 4 {
 				case 1:
-					baselineStr = fmt.Sprintf("WARN: host=10.0.%d.%d retries=%d", rand.Intn(256), rand.Intn(256), rand.Intn(5))
+					baselineStr = fmt.Sprintf("WARN: host=10.0.%d.%d retries=%d", rand.Intn(config.Numeric.VocabSize), rand.Intn(config.Numeric.VocabSize), rand.Intn(5))
 				case 2:
 					baselineStr = fmt.Sprintf("ERROR: parse failed len=%d checksum=0x%x", rand.Intn(4096), rand.Intn(0xFFFF))
 				case 3:

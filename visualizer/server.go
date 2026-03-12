@@ -1,12 +1,16 @@
 package visualizer
 
 import (
+	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -16,6 +20,8 @@ type Server struct {
 	mu      sync.RWMutex
 	clients map[*websocket.Conn]bool
 	upgrade websocket.Upgrader
+	httpSrv *http.Server
+	udpConn *net.UDPConn
 }
 
 /*
@@ -31,53 +37,66 @@ func NewServer() *Server {
 }
 
 /*
-Event is a telemetry event sent to all connected visualization clients.
+listenUDP starts the locked UDP listener, forwarding all telemetry to visualizer clients.
 */
-type Event struct {
-	Component string    `json:"component"`
-	Action    string    `json:"action"`
-	Data      EventData `json:"data"`
-}
+func (server *Server) listenUDP() {
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:8258")
+	if err != nil {
+		console.Error(err, "msg", "failed to resolve visualizer UDP")
+		return
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		console.Error(err, "msg", "failed to listen on visualizer UDP")
+		return
+	}
+	server.udpConn = conn
+	defer conn.Close()
 
-/*
-EventData carries the payload for a visualization event.
-*/
-type EventData struct {
-	// Chord identity
-	ChordID int    `json:"chordId,omitempty"`
-	Bin     int    `json:"bin,omitempty"`
-	State   string `json:"state,omitempty"`
+	buf := make([]byte, 65535)
+	for {
+		n, _, err := conn.ReadFromUDP(buf)
+		if err != nil {
+			return
+		}
 
-	// Chord state
-	ActiveBits []int   `json:"activeBits,omitempty"`
-	Density    float64 `json:"density,omitempty"`
-	ChunkText  string  `json:"chunkText,omitempty"`
-
-	// Evaluation
-	Residue    int   `json:"residue,omitempty"`
-	MatchBits  []int `json:"matchBits,omitempty"`
-	CancelBits []int `json:"cancelBits,omitempty"`
-
-	// LSM edges
-	Left  int `json:"left,omitempty"`
-	Right int `json:"right,omitempty"`
-	Pos   int `json:"pos,omitempty"`
-
-	// Counts
-	Paths  int `json:"paths,omitempty"`
-	Chunks int `json:"chunks,omitempty"`
-	Edges  int `json:"edges,omitempty"`
+		// Forward raw JSON directly to websockets!
+		var event telemetry.Event
+		if err := json.Unmarshal(buf[:n], &event); err == nil {
+			server.Broadcast(event)
+		}
+	}
 }
 
 /*
 ListenAndServe starts the HTTP server on the given address.
 */
 func (server *Server) ListenAndServe(addr string) error {
+	go server.listenUDP()
+
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("visualizer/static")))
 	mux.HandleFunc("/ws", server.handleWS)
 
-	return http.ListenAndServe(addr, mux)
+	server.httpSrv = &http.Server{Addr: addr, Handler: mux}
+
+	return server.httpSrv.ListenAndServe()
+}
+
+/*
+Shutdown gracefully stops the HTTP server and UDP listener.
+*/
+func (server *Server) Shutdown() {
+	if server.udpConn != nil {
+		server.udpConn.Close()
+	}
+
+	if server.httpSrv != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+
+		server.httpSrv.Shutdown(shutdownCtx)
+	}
 }
 
 func (server *Server) handleWS(w http.ResponseWriter, r *http.Request) {
@@ -107,7 +126,7 @@ func (server *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 /*
 Broadcast sends an event to all connected WebSocket clients.
 */
-func (server *Server) Broadcast(event Event) {
+func (server *Server) Broadcast(event telemetry.Event) {
 	msg, err := json.Marshal(event)
 	if err != nil {
 		return
@@ -121,82 +140,3 @@ func (server *Server) Broadcast(event Event) {
 	}
 }
 
-/*
-EmitChord broadcasts a chord creation event with its active bit positions.
-*/
-func (server *Server) EmitChord(chord data.Chord, chunkText string, chordID int) {
-	bits := data.ChordPrimeIndices(&chord)
-	bin := data.ChordBin(&chord)
-
-	server.Broadcast(Event{
-		Component: "Tokenizer",
-		Action:    "Chord",
-		Data: EventData{
-			ChordID:    chordID,
-			Bin:        bin,
-			State:      "stored",
-			ActiveBits: bits,
-			Density:    chord.ShannonDensity(),
-			ChunkText:  chunkText,
-		},
-	})
-}
-
-/*
-EmitEvaluate broadcasts an evaluation event showing the XOR residue.
-*/
-func (server *Server) EmitEvaluate(prompt, match, residue data.Chord, energy int) {
-	promptBits := data.ChordPrimeIndices(&prompt)
-	matchBits := data.ChordPrimeIndices(&match)
-
-	// Cancel bits = bits that were in prompt AND match (cancelled by XOR)
-	intersection := prompt.AND(match)
-	cancelBits := data.ChordPrimeIndices(&intersection)
-
-	// Residue bits = bits that survived XOR
-	residueBits := data.ChordPrimeIndices(&residue)
-
-	server.Broadcast(Event{
-		Component: "Cortex",
-		Action:    "Evaluate",
-		Data: EventData{
-			ActiveBits: promptBits,
-			MatchBits:  matchBits,
-			CancelBits: cancelBits,
-			Residue:    energy,
-			Density:    residue.ShannonDensity(),
-		},
-	})
-
-	_ = residueBits
-}
-
-/*
-EmitBoundary broadcasts a Sequencer boundary detection event.
-*/
-func (server *Server) EmitBoundary(chunkCount int, density float64) {
-	server.Broadcast(Event{
-		Component: "Sequencer",
-		Action:    "Boundary",
-		Data: EventData{
-			Chunks:  chunkCount,
-			Density: density,
-		},
-	})
-}
-
-/*
-EmitLSMEdge broadcasts a byte-to-byte transition for LSM visualization.
-*/
-func (server *Server) EmitLSMEdge(left, right byte, pos int, edgeCount int) {
-	server.Broadcast(Event{
-		Component: "LSM",
-		Action:    "Insert",
-		Data: EventData{
-			Left:  int(left),
-			Right: int(right),
-			Pos:   pos,
-			Edges: edgeCount,
-		},
-	})
-}

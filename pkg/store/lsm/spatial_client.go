@@ -3,9 +3,8 @@ package lsm
 import (
 	"context"
 
-	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -43,45 +42,45 @@ func (c *SpatialIndexClient) Lookup(
 	chords data.Chord_List,
 ) ([][]data.Chord, error) {
 	future, release := c.client.Lookup(ctx, func(params SpatialIndex_lookup_Params) error {
-		return errnie.Then(
-			errnie.Try(params.NewChords(int32(chords.Len()))),
-			func(innerList data.Chord_List) (data.Chord_List, error) {
-				return innerList, errnie.ForEach(chords.Len(), func(i int) error {
-					dst := innerList.At(i)
-					dst.CopyFrom(chords.At(i))
-					return nil
-				})
-			},
-		).Err()
+		innerList, err := params.NewChords(int32(chords.Len()))
+		if err != nil {
+			return console.Error(err)
+		}
+
+		for i := 0; i < chords.Len(); i++ {
+			dst := innerList.At(i)
+			dst.CopyFrom(chords.At(i))
+		}
+		return nil
 	})
 	defer release()
 
-	paths := make([][]data.Chord, 0)
+	res, err := future.Struct()
+	if err != nil {
+		return nil, console.Error(err)
+	}
 
-	return paths, errnie.Then(
-		errnie.Try(future.Struct()),
-		func(res SpatialIndex_lookup_Results) ([][]data.Chord, error) {
-			return errnie.Then(
-				errnie.Try(res.Paths()),
-				func(pathsList capnp.PointerList) ([][]data.Chord, error) {
-					out := make([][]data.Chord, pathsList.Len())
+	pathsList, err := res.Paths()
+	if err != nil {
+		return nil, console.Error(err)
+	}
 
-					return out, errnie.ForEach(pathsList.Len(), func(i int) error {
-						return errnie.Then(
-							errnie.Try(pathsList.At(i)),
-							func(ptr capnp.Ptr) ([]data.Chord, error) {
-								row, err := data.ChordListToSlice(data.Chord_List(ptr.List()))
-								out[i] = row
-								return row, err
-							},
-						).Err()
-					})
-				},
-			).Unwrap()
-		},
-	).Err()
+	out := make([][]data.Chord, pathsList.Len())
+	for i := 0; i < pathsList.Len(); i++ {
+		ptr, err := pathsList.At(i)
+		if err != nil {
+			return nil, console.Error(err)
+		}
+
+		row, err := data.ChordListToSlice(data.Chord_List(ptr.List()))
+		if err != nil {
+			return nil, console.Error(err)
+		}
+		out[i] = row
+	}
+
+	return out, nil
 }
-
 
 /*
 SpatialInsertFunc is the capability signature for inserting into the spatial index.
@@ -95,21 +94,21 @@ All Cap'n Proto plumbing is contained here.
 */
 func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position uint32, chord data.Chord) error {
 	return c.client.Insert(ctx, func(params SpatialIndex_insert_Params) error {
-		return errnie.Then(
-			errnie.Try(params.NewEdge()),
-			func(edge GraphEdge) (GraphEdge, error) {
-				edge.SetLeft(left)
-				edge.SetPosition(position)
+		edge, err := params.NewEdge()
+		if err != nil {
+			return console.Error(err)
+		}
 
-				return edge, errnie.Then(
-					errnie.Try(edge.NewChord()),
-					func(dst data.Chord) (data.Chord, error) {
-						dst.CopyFrom(chord)
-						return dst, edge.SetChord(dst)
-					},
-				).Err()
-			},
-		).Err()
+		edge.SetLeft(left)
+		edge.SetPosition(position)
+
+		dst, err := edge.NewChord()
+		if err != nil {
+			return console.Error(err)
+		}
+
+		dst.CopyFrom(chord)
+		return nil
 	})
 }
 
@@ -118,8 +117,7 @@ AsLookupFunc returns a SpatialLookupFunc closure wrapping this client.
 AsInsertFunc returns a SpatialInsertFunc closure wrapping this client.
 */
 func (c *SpatialIndexClient) AsLookupFunc() SpatialLookupFunc { return c.Lookup }
-func (c *SpatialIndexClient) AsInsertFunc() SpatialInsertFunc  { return c.Insert }
-
+func (c *SpatialIndexClient) AsInsertFunc() SpatialInsertFunc { return c.Insert }
 
 /*
 SpatialLookupKey is the canonical broadcast key for the spatial lookup capability.
@@ -151,4 +149,3 @@ func announceSpatialClient(broadcast *pool.BroadcastGroup, client SpatialIndex) 
 		},
 	})
 }
-

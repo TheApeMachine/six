@@ -6,6 +6,7 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/geometry"
 )
 
@@ -18,9 +19,9 @@ func TestSequencer(t *testing.T) {
 			boundaryDetected := false
 			for i := range 50 {
 				// Generating bytes. Some entropy drops or spikes might trigger boundaries
-				val := byte(rng.Intn(256))
-				ok, _ := seq.Analyze(i, val)
-				if ok {
+				val := byte(rng.Intn(config.Numeric.VocabSize))
+				emittedChunk, _ := seq.Analyze(uint32(i), val)
+				if len(emittedChunk) > 0 {
 					boundaryDetected = true
 				}
 			}
@@ -32,19 +33,7 @@ func TestSequencer(t *testing.T) {
 			})
 		})
 
-		Convey("When forcing a boundary via ShannonCeiling", func() {
-			// ShannonCeiling is 0.40. Push many distinct bytes to force ceiling
-			for i := range 256 {
-				ok, _ := seq.Analyze(i, byte(i)) // Max entropy
-				if ok {
-					break
-				}
-			}
-			Convey("It should eventually force a boundary", func() {
-				// Since all bytes are distinct, density grows fast and hits ceiling.
-				So(len(seq.candidates), ShouldBeGreaterThanOrEqualTo, 0)
-			})
-		})
+
 
 		Convey("When detecting a boundary via MDL", func() {
 			buf := []byte{0, 0, 0, 0, 0, 255, 255, 255, 255, 255}
@@ -61,12 +50,43 @@ func TestSequencer(t *testing.T) {
 			})
 		})
 
+		Convey("When parsing a dense prose sequence natively via MDL on Chords", func() {
+			buf := []byte("Alice was beginning to get very tired of sitting by her sister on the bank, and of having nothing to do: once or twice she had peeped into the book her sister was reading, but it had no pictures or conversations in it, 'and what is the use of a book,' thought Alice 'without pictures or conversation?'")
+			
+			var chunks [][]byte
+			seq := NewSequencer(nil)
+			for pos, b := range buf {
+				emitted, _ := seq.Analyze(uint32(pos), b)
+				if len(emitted) > 0 {
+					chunks = append(chunks, emitted)
+				}
+			}
+			emitted, _ := seq.Flush()
+			for len(emitted) > 0 {
+				chunks = append(chunks, emitted)
+				emitted, _ = seq.Flush()
+			}
+			
+			Convey("It should discover natural boundary splits purely dynamically without Shannon ceilings", func() {
+				So(len(chunks), ShouldBeGreaterThan, 1) // Must have split at least once
+				
+				maxLen := 0
+				for _, chunk := range chunks {
+					if len(chunk) > maxLen {
+						maxLen = len(chunk)
+					}
+				}
+				// Assert chunks never degenerated into a single flat run of the whole text.
+				So(maxLen, ShouldBeLessThan, len(buf))
+			})
+		})
+
 		Convey("When balancing candidates", func() {
 			// Directly inject artificial candidates
 			seq.buf = []byte{0, 0, 0, 255, 255, 255, 0, 0, 0}
 			seq.candidates = []candidate{
-				{k: 3, gain: 1.0, forced: false},
-				{k: 6, gain: 1.5, forced: false},
+				{k: 3, gain: 1.0},
+				{k: 6, gain: 1.5},
 			}
 
 			seq.balanceCandidates()
@@ -94,7 +114,7 @@ func TestSequencer(t *testing.T) {
 
 		Convey("When cloning and flushing", func() {
 			for i := range 10 {
-				seq.Analyze(i, byte(i))
+				seq.Analyze(uint32(i), byte(i))
 			}
 
 			clone := seq.Clone()
@@ -116,7 +136,7 @@ func TestSequencer(t *testing.T) {
 
 			ok, evts := seq.Flush()
 			Convey("Flush should commit the candidate", func() {
-				So(ok, ShouldBeTrue)
+				So(len(ok), ShouldBeGreaterThan, 0)
 				So(len(evts), ShouldBeGreaterThan, 0)
 				So(len(seq.candidates), ShouldEqual, 0)
 			})
@@ -138,7 +158,7 @@ func BenchmarkSequencerDetectBoundary(b *testing.B) {
 		buf[i] = 0 // low entropy
 	}
 	for i := 512; i < 1024; i++ {
-		buf[i] = byte(rng.Intn(256)) // high entropy
+		buf[i] = byte(rng.Intn(config.Numeric.VocabSize)) // high entropy
 	}
 
 	dist := NewDistribution()

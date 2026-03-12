@@ -5,8 +5,9 @@ import (
 	"fmt"
 	"testing"
 
-	. "github.com/smartystreets/goconvey/convey"
 	capnp "capnproto.org/go/capnp/v3"
+	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -90,11 +91,11 @@ func TestChordOR(t *testing.T) {
 }
 
 func TestBaseChord(t *testing.T) {
-	const logicalBits = 257
+	logicalBits := config.Numeric.VocabSize + 1
 
 	Convey("Given BaseChord for each byte 0-255", t, func() {
 		Convey("It should keep all bits within logical width", func() {
-			for byteVal := range 256 {
+			for byteVal := range config.Numeric.VocabSize {
 				chord := BaseChord(byte(byteVal))
 
 				for idx := logicalBits; idx < 512; idx++ {
@@ -109,7 +110,7 @@ func TestBaseChord(t *testing.T) {
 
 		Convey("It should produce unique chords per byte", func() {
 			chords := make(map[Chord]byte)
-			for byteVal := 0; byteVal < 256; byteVal++ {
+			for byteVal := range config.Numeric.VocabSize {
 				chord := BaseChord(byte(byteVal))
 				_, exists := chords[chord]
 				So(exists, ShouldBeFalse)
@@ -120,7 +121,7 @@ func TestBaseChord(t *testing.T) {
 }
 
 func TestRollLeft(t *testing.T) {
-	const logicalBits = 257
+	logicalBits := config.Numeric.VocabSize + 1
 
 	Convey("Given a base chord and RollLeft(42)", t, func() {
 		chord := BaseChord('A')
@@ -169,7 +170,7 @@ func TestMaskChord(t *testing.T) {
 
 		Convey("It should use the control face", func() {
 			So(mask.ActiveCount(), ShouldEqual, 1)
-			So(mask.Has(256), ShouldBeTrue)
+			So(mask.Has(config.Numeric.VocabSize), ShouldBeTrue)
 		})
 	})
 }
@@ -179,7 +180,7 @@ func TestBuildChord(t *testing.T) {
 		[]byte("a"),
 		[]byte("ab"),
 		[]byte("The quick brown fox jumps over the lazy dog."),
-		bytesRepeat(256),
+		bytesRepeat(config.Numeric.VocabSize),
 	}
 
 	Convey("Given byte sequences of varying length", t, func() {
@@ -192,7 +193,7 @@ func TestBuildChord(t *testing.T) {
 			})
 
 			Convey(fmt.Sprintf("Payload len %d stays within 257-bit width", len(payload)), func() {
-				for idx := 257; idx < 512; idx++ {
+				for idx := config.Numeric.VocabSize + 1; idx < 512; idx++ {
 					word := idx / 64
 					bit := idx % 64
 					So(chord.block(word)&(1<<uint(bit)), ShouldEqual, uint64(0))
@@ -357,7 +358,7 @@ func TestChordHole(t *testing.T) {
 	Convey("Given target and existing chords", t, func() {
 		target := BaseChord('x')
 		existing := mustNewChord()
-		existing.Set(int('x')*7 % 257)
+		existing.Set(int('x') * 7 % 257)
 
 		Convey("When ChordHole is called", func() {
 			hole := ChordHole(&target, &existing)
@@ -404,7 +405,7 @@ func TestChordAlgebra(t *testing.T) {
 func TestChordBin(t *testing.T) {
 	Convey("Given BaseChord for bytes 0-255", t, func() {
 		bins := make(map[int]int)
-		for byteVal := range 256 {
+		for byteVal := range config.Numeric.VocabSize {
 			chord := BaseChord(byte(byteVal))
 			bin := ChordBin(&chord)
 			bins[bin]++

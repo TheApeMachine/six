@@ -6,6 +6,7 @@ import (
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/process"
 	"github.com/theapemachine/six/pkg/vm"
@@ -32,7 +33,7 @@ type Pipeline struct {
 	cancel       context.CancelFunc
 	pool         *pool.Pool
 	broadcast    *pool.BroadcastGroup
-	coder        *process.MortonCoder
+	coder        *data.MortonCoder
 	booter       *vm.Booter
 	experiment   tools.PipelineExperiment
 	prompts      *process.Prompt

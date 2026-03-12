@@ -7,7 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/visualizer"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -34,7 +34,7 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 		// Fire up a mock or real viz server specifically for emitting visual
 		// data so the user can literally see the attack being isolated.
-		viz := visualizer.NewServer()
+		sink := telemetry.NewSink()
 
 		for i := 0; i < trials; i++ {
 			// Generate realistic looking varying baseline strings. They deliberately
@@ -61,7 +61,25 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 				// We visualize the evaluation loop on the dashboard
 				// This sends a physical packet telling the viz what bits were cancelled out
-				viz.EmitEvaluate(attackChord, baselineChord, residue, residue.ActiveCount())
+				
+				promptBits := data.ChordPrimeIndices(&attackChord)
+				matchBits := data.ChordPrimeIndices(&baselineChord)
+				
+				// Cancel bits = bits that were in prompt AND match (cancelled by XOR)
+				intersection := attackChord.AND(baselineChord)
+				cancelBits := data.ChordPrimeIndices(&intersection)
+
+				sink.Emit(telemetry.Event{
+					Component: "Cortex",
+					Action:    "Evaluate",
+					Data: telemetry.EventData{
+						ActiveBits: promptBits,
+						MatchBits:  matchBits,
+						CancelBits: cancelBits,
+						Residue:    residue.ActiveCount(),
+						Density:    residue.ShannonDensity(),
+					},
+				})
 
 				missing := anomalyChord.ActiveCount() - sim
 				if missing > 0 {

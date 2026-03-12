@@ -3,6 +3,7 @@ package process
 import (
 	"math"
 
+	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/geometry"
 )
@@ -41,6 +42,10 @@ type Sequencer struct {
 	// Default 0.40 (103/257 bits). Above this the chord loses
 	// discriminative power.
 	ShannonCeiling float64
+
+	// PhaseThreshold: threshold for topological phase shift to force a boundary.
+	// Default 1.5.
+	PhaseThreshold float64
 }
 
 type candidate struct {
@@ -59,8 +64,9 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 		calibrator:      calibrator,
 		eigen:           geometry.NewEigenMode(),
 		dist:            NewDistribution(),
-		MinSegmentBytes: 4,
-		ShannonCeiling:  0.40,
+		MinSegmentBytes: int(math.Log2(float64(config.Numeric.NSymbols)) / 2),
+		ShannonCeiling:  config.Numeric.ShannonCapacity,
+		PhaseThreshold:  math.Pi / 2.0,
 	}
 }
 
@@ -74,6 +80,8 @@ func (seq *Sequencer) CloneEmpty() *Sequencer {
 		eigen:           seq.eigen,
 		dist:            NewDistribution(),
 		MinSegmentBytes: seq.MinSegmentBytes,
+		ShannonCeiling:  seq.ShannonCeiling,
+		PhaseThreshold:  seq.PhaseThreshold,
 	}
 }
 
@@ -101,7 +109,7 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
+func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
@@ -115,11 +123,14 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 	shannonForced := seq.runningChord.ShannonDensity() > seq.ShannonCeiling &&
 		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
 
+	phaseForced := seq.eigen != nil && seq.eigen.Trained && delta > seq.PhaseThreshold &&
+		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
+
 	isBoundary, k, gain := seq.detectBoundary(seq.buf[seq.offset:], seq.dist)
 
-	// Shannon ceiling overrides MDL: if the chord is saturating, force a split
-	// at the current position regardless of MDL gain.
-	if shannonForced && !isBoundary {
+	// Shannon ceiling or phase shift overrides MDL: if the chord is saturating
+	// or phase spikes, force a split at the current position regardless of MDL gain.
+	if (shannonForced || phaseForced) && !isBoundary {
 		isBoundary = true
 		k = len(seq.buf) - seq.offset
 		gain = 1.0
@@ -154,6 +165,13 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 		events = append(events, seq.classifyDirection(seq.buf, emitK))
 		events = append(events, EventPhaseInversion)
 
+		// Calculate density of the chunk being emitted
+		emitChord := data.Chord{}
+		for _, b := range seq.buf[:emitK] {
+			emitChord = emitChord.OR(data.BaseChord(b))
+		}
+		emitDensity := emitChord.ShannonDensity()
+
 		seq.emitSplit(emitK)
 
 		// Shift all remaining candidates and the offset.
@@ -167,7 +185,7 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 		seq.updateEMA(val, delta, eigenMag)
 
 		if seq.calibrator != nil {
-			seq.calibrator.Recalibrate(events)
+			seq.calibrator.FeedbackChunk(emitK, emitDensity)
 		}
 
 		return true, events
@@ -179,9 +197,6 @@ func (seq *Sequencer) Analyze(pos int, byteVal byte) (bool, []int) {
 	}
 
 	seq.updateEMA(val, delta, eigenMag)
-	if seq.calibrator != nil {
-		seq.calibrator.Recalibrate(events)
-	}
 	return false, events
 }
 
@@ -237,17 +252,26 @@ func (seq *Sequencer) detectBoundary(buf []byte, dist *Distribution) (bool, int,
 			continue
 		}
 
-		gain := costFull - (left.Cost() + right.Cost())
-
-		// BIC-like penalty: reflect both submodels.
-		// Multinomial has (numDistinct-1) free parameters per side.
+		// Calculate parameter counts (subtract 1 because probabilities must sum to 1)
+		fullParams := max(dist.numDistinct-1, 1)
 		leftParams := max(left.numDistinct-1, 1)
 		rightParams := max(right.numDistinct-1, 1)
-		smallerN := min(n-i, i)
-		penalty := penaltyScale * 0.5 * float64(leftParams+rightParams) * math.Log(float64(smallerN))
 
-		if gain-penalty > maxGain {
-			maxGain = gain - penalty
+		// Penalty for the parent model
+		penaltyFull := 0.5 * float64(fullParams) * math.Log(float64(n))
+
+		// Penalties for the split sub-models
+		penaltyLeft := 0.5 * float64(leftParams) * math.Log(float64(i))
+		penaltyRight := 0.5 * float64(rightParams) * math.Log(float64(n-i))
+
+		// Total Gain = (Cost_parent + Penalty_parent) - (Cost_L + Pen_L + Cost_R + Pen_R)
+		baseGain := costFull - (left.Cost() + right.Cost())
+		penaltyDiff := (penaltyLeft + penaltyRight) - penaltyFull
+
+		penalizedGain := baseGain - (penaltyScale * penaltyDiff)
+
+		if penalizedGain > maxGain {
+			maxGain = penalizedGain
 			bestK = i
 		}
 	}
@@ -312,9 +336,9 @@ func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
 	costSplit := d1.Cost() + d2.Cost()
 
 	dCombined := d1.Clone()
-	for i := 0; i < 256; i++ {
+	for i := range config.Numeric.VocabSize {
 		c := d2.counts[i]
-		for j := 0; j < c; j++ {
+		for range c {
 			dCombined.Add(byte(i))
 		}
 	}
@@ -395,16 +419,12 @@ func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscrimin
 
 	_, stddev := seq.calibrator.window.Stats()
 	adjust := stddev
-	if adjust == 0 {
-		adjust = 0.1
-	}
 
 	if overDiscriminated {
 		seq.calibrator.sensitivityPop *= math.Exp(adjust)
 	} else if underDiscriminated {
 		seq.calibrator.sensitivityPop *= math.Exp(-adjust)
 	}
-	seq.calibrator.sensitivityPop = math.Max(0.01, math.Min(100.0, seq.calibrator.sensitivityPop))
 }
 
 /*

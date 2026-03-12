@@ -2,15 +2,17 @@ package process
 
 import (
 	"context"
-	"errors"
 	"net"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/provider"
 	"github.com/theapemachine/six/pkg/store/lsm"
+	"github.com/theapemachine/six/pkg/telemetry"
+	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
@@ -25,6 +27,8 @@ type TokenizerServer struct {
 	broadcast     *pool.BroadcastGroup
 	rpcConn       *rpc.Conn
 	spatialInsert lsm.SpatialInsertFunc
+	sink          *telemetry.Sink
+	dataset       provider.Dataset
 }
 
 type tokenizerOpts func(*TokenizerServer)
@@ -33,11 +37,19 @@ type tokenizerOpts func(*TokenizerServer)
 NewTokenizerServer instantiates a TokenizerServer.
 */
 func NewTokenizerServer(opts ...tokenizerOpts) *TokenizerServer {
-	server := &TokenizerServer{}
+	server := &TokenizerServer{
+		sink: telemetry.NewSink(),
+	}
 
 	for _, opt := range opts {
 		opt(server)
 	}
+
+	validate.Require(map[string]any{
+		"pool":      server.pool,
+		"broadcast": server.broadcast,
+		"dataset":   server.dataset,
+	})
 
 	return server
 }
@@ -47,9 +59,7 @@ Announce exports the server as an RPC bootstrap capability over an in-memory
 pipe, then broadcasts the client-side net.Conn so other systems can connect.
 */
 func (server *TokenizerServer) Announce() {
-	if server.broadcast == nil {
-		return
-	}
+	console.Info("Announcing Tokenizer")
 
 	serverSide, clientSide := net.Pipe()
 	client := Tokenizer_ServerToClient(server)
@@ -78,6 +88,7 @@ func (server *TokenizerServer) Receive(result *pool.Result) {
 
 	if pv, ok := result.Value.(pool.PoolValue[lsm.SpatialInsertFunc]); ok {
 		if pv.Key == lsm.SpatialInsertKey {
+			console.Info("tokenizer picked up spatial index")
 			server.spatialInsert = pv.Value
 		}
 	}
@@ -85,14 +96,10 @@ func (server *TokenizerServer) Receive(result *pool.Result) {
 
 /*
 Generate implements the Tokenizer_Server.Generate RPC method.
+The dataset is injected at construction time; the RPC call is the trigger.
 */
 func (server *TokenizerServer) Generate(ctx context.Context, call Tokenizer_generate) error {
-	return errnie.Then(
-		errnie.Try(call.Args().Raw()),
-		func(raw []byte) ([]byte, error) {
-			return raw, server.generate(ctx, raw)
-		},
-	).Err()
+	return server.generate(ctx)
 }
 
 /*
@@ -102,33 +109,60 @@ func (server *TokenizerServer) Done(ctx context.Context, call Tokenizer_done) er
 	return nil
 }
 
-func (server *TokenizerServer) generate(ctx context.Context, raw []byte) error {
-	if server.pool == nil {
-		return errors.New("tokenizer pool is not configured")
+func (server *TokenizerServer) generate(ctx context.Context) error {
+	seq := NewSequencer(NewCalibrator())
+
+	if server.spatialInsert == nil {
+		return console.Error(ErrNoIndex)
 	}
 
-	server.pool.Schedule("tokenizer_generate", func() (any, error) {
-		seq := NewSequencer(nil)
-		var chunk []byte
+	var chunk []byte
 
-		for pos, byteVal := range raw {
-			chunk = append(chunk, byteVal)
-			isBoundary, _ := seq.Analyze(pos, byteVal)
+	console.Info("Tokenizer generating dataset")
 
-			if isBoundary {
-				server.processChunk(ctx, chunk)
-				chunk = nil
-			}
+	for token := range server.dataset.Generate() {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 
-		if len(chunk) > 0 {
-			server.processChunk(ctx, chunk)
-		}
+		chunk = append(chunk, token.Symbol)
+		isBoundary, _ := seq.Analyze(token.Pos, token.Symbol)
 
-		return nil, nil
-	})
+		if isBoundary {
+			server.sink.Emit(telemetry.Event{
+				Component: "Sequencer",
+				Action:    "Boundary",
+			})
+
+			c := append([]byte(nil), chunk...)
+			server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
+				server.processChunk(ctx, c)
+				return nil, nil
+			})
+			chunk = chunk[:0]
+		}
+	}
+
+	if len(chunk) > 0 {
+		c := append([]byte(nil), chunk...)
+		server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
+			server.processChunk(ctx, c)
+			return nil, nil
+		})
+	}
 
 	return nil
+}
+
+func (server *TokenizerServer) handleChunk(ctx context.Context, chunk []byte) {
+	c := append([]byte(nil), chunk...)
+	server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
+		server.processChunk(ctx, c)
+		return nil, nil
+	})
+	chunk = chunk[:0]
 }
 
 func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
@@ -139,6 +173,18 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 	for i, currentByte := range chunk {
 		cumulativeChord, _ := data.BuildChord(chunk[:i+1])
 		_ = server.spatialInsert(ctx, currentByte, uint32(i), cumulativeChord)
+
+		if i < len(chunk)-1 {
+			server.sink.Emit(telemetry.Event{
+				Component: "LSM",
+				Action:    "Insert",
+				Data: telemetry.EventData{
+					Left:  int(chunk[i]),
+					Right: int(chunk[i+1]),
+					Pos:   i,
+				},
+			})
+		}
 	}
 
 	if server.broadcast == nil {
@@ -146,6 +192,18 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 	}
 
 	sequenceChord, _ := data.BuildChord(chunk)
+
+	server.sink.Emit(telemetry.Event{
+		Component: "Tokenizer",
+		Action:    "Chord",
+		Data: telemetry.EventData{
+			Bin:        data.ChordBin(&sequenceChord),
+			State:      "stored",
+			ActiveBits: data.ChordPrimeIndices(&sequenceChord),
+			Density:    sequenceChord.ShannonDensity(),
+			ChunkText:  string(chunk),
+		},
+	})
 
 	server.broadcast.Send(&pool.Result{
 		Value: pool.PoolValue[[]data.Chord]{
@@ -179,6 +237,15 @@ TokenizerWithBroadcast injects the broadcast group.
 func TokenizerWithBroadcast(broadcast *pool.BroadcastGroup) tokenizerOpts {
 	return func(server *TokenizerServer) {
 		server.broadcast = broadcast
+	}
+}
+
+/*
+TokenizerWithDataset injects a dataset.
+*/
+func TokenizerWithDataset(dataset provider.Dataset) tokenizerOpts {
+	return func(server *TokenizerServer) {
+		server.dataset = dataset
 	}
 }
 

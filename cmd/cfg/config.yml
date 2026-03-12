@@ -18,6 +18,7 @@ architecture:
     nbasis: 512
     windows: [3, 5, 8, 13, 21]
     shannonCapacity: 0.45
+    vocabSize: 256
   cortex:
     initialNodes: 8
 

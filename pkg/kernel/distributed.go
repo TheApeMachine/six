@@ -75,10 +75,7 @@ func (backend *DistributedBackend) Resolve(
 	ctxSlice := unsafe.Slice((*byte)(contextPtr), nodeBytes)
 	ctxCopy := append([]byte(nil), ctxSlice...)
 
-	chunkSize := config.System.Chunk
-	if chunkSize < 256 {
-		chunkSize = 256
-	}
+	chunkSize := max(config.System.Chunk, config.Numeric.VocabSize)
 	timeout := time.Duration(config.System.Timeout) * time.Millisecond
 	remoteOnly := config.System.RemoteOnly
 

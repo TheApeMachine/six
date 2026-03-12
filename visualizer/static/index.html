@@ -179,20 +179,78 @@
     .group-label {
       color: #c8f;
       font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 10px;
-      text-transform: uppercase;
-      letter-spacing: 2px;
-      text-shadow: 0 0 8px rgba(200, 128, 255, 0.4);
+      font-size: 11px;
+      font-weight: 600;
+      text-shadow: 0 0 8px rgba(200, 128, 255, 0.5);
       pointer-events: none;
       white-space: nowrap;
+      padding: 2px 6px;
+      background: rgba(20, 10, 40, 0.5);
+      border-radius: 4px;
+      border: 1px solid rgba(200, 128, 255, 0.2);
+    }
+    .chord-node-label {
+      color: #ddb766;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 9px;
+      opacity: 0.85;
+      pointer-events: none;
+      white-space: nowrap;
+      text-shadow: 0 0 6px rgba(221, 183, 102, 0.3);
+      padding: 1px 4px;
+      background: rgba(30, 22, 8, 0.4);
+      border-radius: 3px;
+      border: 1px solid rgba(221, 183, 102, 0.12);
+    }
+    .fold-label {
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-weight: 700;
+      pointer-events: none;
+      white-space: nowrap;
+      padding: 3px 8px;
+      border-radius: 4px;
+    }
+    .fold-label.level-0 {
+      font-size: 12px;
+      color: #ff4488;
+      text-shadow: 0 0 14px rgba(255, 68, 136, 0.7);
+      background: rgba(60, 10, 25, 0.75);
+      border: 1px solid rgba(255, 68, 136, 0.5);
+    }
+    .fold-label.level-1 {
+      font-size: 11px;
+      color: #44ff88;
+      text-shadow: 0 0 12px rgba(68, 255, 136, 0.6);
+      background: rgba(10, 40, 20, 0.7);
+      border: 1px solid rgba(68, 255, 136, 0.4);
+    }
+    .fold-label.level-2 {
+      font-size: 10px;
+      color: #ffaa33;
+      text-shadow: 0 0 10px rgba(255, 170, 51, 0.5);
+      background: rgba(40, 25, 8, 0.65);
+      border: 1px solid rgba(255, 170, 51, 0.35);
+    }
+    .fold-label.level-deep {
+      font-size: 9px;
+      color: #33ddff;
+      text-shadow: 0 0 8px rgba(51, 221, 255, 0.5);
+      background: rgba(8, 25, 40, 0.6);
+      border: 1px solid rgba(51, 221, 255, 0.3);
     }
     .chord-label {
       color: #7df;
       font-family: 'SF Mono', 'Fira Code', monospace;
-      font-size: 9px;
-      opacity: 0.7;
+      font-size: 10px;
+      font-weight: 600;
+      opacity: 0.9;
       pointer-events: none;
       white-space: nowrap;
+      text-shadow: 0 0 4px #000, 0 0 10px rgba(0, 170, 255, 0.8);
+      padding: 2px 6px;
+      background: rgba(10, 10, 20, 0.4);
+      border-radius: 4px;
+      border: 1px solid rgba(0, 170, 255, 0.2);
     }
     .chord-label.state-stored { color: #7df; }
     .chord-label.state-matched { color: #0fa; }
@@ -271,13 +329,7 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.3;
-
-    // ── Raycaster for hover ────────────────────────────────────────
-    const raycaster = new THREE.Raycaster();
-    const mouse = new THREE.Vector2();
-    const tooltip = document.getElementById('tooltip');
+    controls.autoRotate = false;
 
     // ── Constants ──────────────────────────────────────────────────
     const BITS = 257;
@@ -298,28 +350,25 @@
       );
     }
 
-    // ── Torus wireframe ────────────────────────────────────────────
-    const torusGeo = new THREE.TorusGeometry(R_MAJOR, R_MINOR, 32, 64);
-    const torusMat = new THREE.MeshBasicMaterial({
-      color: 0x1a1a3a, wireframe: true, transparent: true, opacity: 0.08,
+    // ── Torus Layout ───────────────────────────────────────────────
+    const torusGeo = new THREE.TorusGeometry(R_MAJOR, R_MINOR, 32, 128);
+    const torusSolidMat = new THREE.MeshPhongMaterial({
+      color: 0x050515, specular: 0x222244, shininess: 50,
+      transparent: false, opacity: 1.0
     });
-    scene.add(new THREE.Mesh(torusGeo, torusMat));
+    const torusWireMat = new THREE.MeshBasicMaterial({
+      color: 0x1a1a3a, wireframe: true, transparent: true, opacity: 0.5, blending: THREE.AdditiveBlending
+    });
+    
+    const torusSolid = new THREE.Mesh(torusGeo, torusSolidMat);
+    torusSolid.rotation.x = -Math.PI / 2;
+    scene.add(torusSolid);
 
-    // ── Bit markers (257 spheres on torus) ─────────────────────────
-    const bitMeshes = [];
-    const bitGeo = new THREE.SphereGeometry(0.12, 8, 8);
-    const bitMatOff = new THREE.MeshBasicMaterial({ color: 0x111133, transparent: true, opacity: 0.15 });
+    const torusWire = new THREE.Mesh(torusGeo, torusWireMat);
+    torusWire.rotation.x = -Math.PI / 2;
+    scene.add(torusWire);
 
-    for (let i = 0; i < BITS; i++) {
-      const mesh = new THREE.Mesh(bitGeo, bitMatOff.clone());
-      mesh.position.copy(bitToPosition(i));
-      scene.add(mesh);
-      bitMeshes.push(mesh);
-    }
 
-    // ── Connection lines ───────────────────────────────────────────
-    const lineGroup = new THREE.Group();
-    scene.add(lineGroup);
 
     // ── LSM Ring (256 byte positions) ──────────────────────────────
     const LSM_RADIUS = 8;
@@ -379,10 +428,10 @@
       lsmByteMeshes[right].material.opacity = 0.8;
     }
 
-    // ── GROUP LABELS (top layer) ───────────────────────────────────
-    // Groups are ChordBin buckets (0-255). Each group gets a label
-    // floating above the torus, with chord nodes hanging below it.
-    const groups = new Map();       // bin -> { label, meshes[], chords[], count }
+    // ── GROUP LABELS (top layer) ─────────────────────────────────
+    // Groups are ChordBin buckets (0-255). Each group gets a text
+    // label floating above the torus, with chord labels below it.
+    const groups = new Map();       // bin -> { label, chords[], count }
     const groupLayer = new THREE.Group();
     scene.add(groupLayer);
 
@@ -402,135 +451,212 @@
     function getOrCreateGroup(bin) {
       if (groups.has(bin)) return groups.get(bin);
 
-      const pos = groupPosition(bin);
+      const basePos = groupPosition(bin);
+      // Stagger Y position using bin hash to reduce label overlap
+      const yOffset = ((bin * 37) % 7 - 3) * 0.6;
+      const pos = new THREE.Vector3(basePos.x, basePos.y + yOffset, basePos.z);
 
-      // Group marker sphere
-      const markerGeo = new THREE.OctahedronGeometry(0.3, 0);
-      const markerMat = new THREE.MeshBasicMaterial({ color: 0xcc88ff, transparent: true, opacity: 0.6 });
-      const marker = new THREE.Mesh(markerGeo, markerMat);
-      marker.position.copy(pos);
-      groupLayer.add(marker);
+      const labelDiv = document.createElement('div');
+      labelDiv.className = 'group-label';
+      labelDiv.textContent = '';
+      const labelObj = new CSS2DObject(labelDiv);
+      labelObj.position.copy(pos);
+      groupLayer.add(labelObj);
 
-      // Only create CSS2D labels for the first 24 groups to limit DOM overhead
-      let labelObj = null;
-      let labelDiv = null;
-
-      if (groups.size < 24) {
-        labelDiv = document.createElement('div');
-        labelDiv.className = 'group-label';
-        labelDiv.textContent = `G${bin}`;
-        labelObj = new CSS2DObject(labelDiv);
-        labelObj.position.copy(pos);
-        labelObj.position.y += 1.2;
-        groupLayer.add(labelObj);
-      }
-
-      const group = { marker, label: labelObj, labelDiv, chords: [], count: 0, pos };
+      const group = { label: labelObj, labelDiv, chords: [], count: 0, pos };
       groups.set(bin, group);
       return group;
     }
 
-    // ── CHORD NODES (individual chords attached to groups) ──────────
-    const chordNodeGeo = new THREE.SphereGeometry(0.15, 8, 8);
-    const chordNodes = [];   // { mesh, chordId, bin, state, text, bits }
+    // ── CHORD NODE LABELS (individual chords attached to groups) ────
+    const chordNodes = [];   // { labelObj, labelDiv, chordId, bin, state, text }
     const chordNodeGroup = new THREE.Group();
     scene.add(chordNodeGroup);
 
-    function addChordNode(chordId, bin, state, text, bits, density) {
+    // ── FOLD TREE (AST hierarchy from RecursiveFold) ────────────────
+    const foldNodes = new Map();  // key -> { labelObj, pos, level, parentKey }
+    const foldLayer = new THREE.Group();
+    scene.add(foldLayer);
+    const FOLD_BASE_Y = GROUP_Y + 3;
+    const FOLD_LEVEL_STEP = 2.5;
+
+    function addFoldNode(bin, level, theta, parentBin, childCount, density, text) {
+      const key = `${parentBin}-L${level}-${bin}`;
+      if (foldNodes.has(key)) return;
+
+      // Find parent fold node (one level up, with bin === parentBin)
+      let parentKey = null;
+      let parentPos = null;
+
+      if (level > 0) {
+        for (const [k, node] of foldNodes) {
+          if (node.bin === parentBin && node.level === level - 1) {
+            parentKey = k;
+            parentPos = node.pos;
+            break;
+          }
+        }
+      }
+
+      // Position
+      let pos;
+      if (parentPos) {
+        // Stack above parent with horizontal spread
+        const spread = (node_childIdx(parentKey) * 2.0) - 1.0;
+        pos = new THREE.Vector3(
+          parentPos.x + spread,
+          parentPos.y + FOLD_LEVEL_STEP,
+          parentPos.z
+        );
+      } else {
+        // Level 0: position by theta along a ring above the group layer
+        const radius = GROUP_RADIUS * 0.9;
+        pos = new THREE.Vector3(
+          radius * Math.cos(theta),
+          FOLD_BASE_Y,
+          radius * Math.sin(theta)
+        );
+      }
+
+      const levelClass = level === 0 ? 'level-0' : level === 1 ? 'level-1' : level === 2 ? 'level-2' : 'level-deep';
+      const div = document.createElement('div');
+      div.className = `fold-label ${levelClass}`;
+      div.textContent = (text || '').trim() || `[${(density * 100).toFixed(0)}%]`;
+
+      const labelObj = new CSS2DObject(div);
+      labelObj.position.copy(pos);
+      foldLayer.add(labelObj);
+
+      foldNodes.set(key, { labelObj, pos, level, parentKey, bin, childIdx: 0 });
+
+      // Draw line to parent fold node
+      if (parentKey && parentPos) {
+        const lineColor = level === 1 ? 0x44ff88 : level === 2 ? 0xffaa33 : 0x33ddff;
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([parentPos, pos]);
+        const lineMat = new THREE.LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.5 });
+        foldLayer.add(new THREE.Line(lineGeo, lineMat));
+      }
+    }
+
+    // Track child index per parent for horizontal spreading
+    const foldChildCounts = new Map();
+    function node_childIdx(parentKey) {
+      const count = (foldChildCounts.get(parentKey) || 0);
+      foldChildCounts.set(parentKey, count + 1);
+      return count;
+    }
+
+    // Line material shared across all chord-to-group lines
+    const chordLineMat = new THREE.LineBasicMaterial({ color: 0x997733, transparent: true, opacity: 0.35 });
+
+    function addChordNode(chordId, bin, state, text) {
       const group = getOrCreateGroup(bin);
       group.count++;
+      group.visibleCount = (group.visibleCount || 0) + 1;
       group.chords.push({ id: chordId, text, state });
 
-      // Update group label with count and representative text
-      if (group.labelDiv) {
-        const shortText = group.chords[0].text.trim().slice(0, 12);
-        group.labelDiv.textContent = `G${bin} (${group.count}) "${shortText}…"`;
-      }
+      // Update group label to show the first chord's full text
+      group.labelDiv.textContent = group.chords[0].text.trim();
 
       // Position: scatter around the group, slightly below
       const angle = (group.count * 2.399) % (Math.PI * 2);
       const r = Math.sqrt(Math.min(group.count, 12)) * 0.4;
-      const offset = new THREE.Vector3(
+      const nodePos = group.pos.clone().add(new THREE.Vector3(
         r * Math.cos(angle),
         -1.5 - Math.min(group.count, 8) * 0.15,
         r * Math.sin(angle)
-      );
+      ));
 
-      const stateColor = state === 'matched' ? 0x00ffaa : state === 'active' ? 0xffff00 : 0x44aaff;
-      const mat = new THREE.MeshBasicMaterial({ color: stateColor, transparent: true, opacity: 0.6 });
-      const mesh = new THREE.Mesh(chordNodeGeo, mat);
-      mesh.position.copy(group.pos).add(offset);
-      chordNodeGroup.add(mesh);
+      // CSS2D label for the chord node
+      const div = document.createElement('div');
+      div.className = 'chord-node-label';
+      div.textContent = text.trim();
+      const labelObj = new CSS2DObject(div);
+      labelObj.position.copy(nodePos);
+      chordNodeGroup.add(labelObj);
 
-      // NO CSS2D per chord — state shown via hover tooltip only
-      const node = { mesh, chordId, bin, state, text, bits, density };
+      const node = { labelObj, labelDiv: div, chordId, bin, state, text };
       chordNodes.push(node);
-      mesh.userData = node;
 
-      // Line to group
-      const lineGeo = new THREE.BufferGeometry().setFromPoints([group.pos, mesh.position]);
-      const lineMat = new THREE.LineBasicMaterial({ color: 0x442266, transparent: true, opacity: 0.2 });
-      chordNodeGroup.add(new THREE.Line(lineGeo, lineMat));
+      // Line from group to chord label
+      const lineGeo = new THREE.BufferGeometry().setFromPoints([group.pos, nodePos]);
+      const line = new THREE.Line(lineGeo, chordLineMat.clone());
+      chordNodeGroup.add(line);
+      node.line = line;
 
       // Evict oldest chord nodes
       if (chordNodes.length > MAX_CHORD_NODES) {
         const old = chordNodes.shift();
-        // Remove mesh and its children from the group
-        chordNodeGroup.remove(old.mesh);
-        old.mesh.geometry.dispose();
-        old.mesh.material.dispose();
-      }
-    }
+        chordNodeGroup.remove(old.labelObj);
+        if (old.line) { chordNodeGroup.remove(old.line); old.line.geometry.dispose(); old.line.material.dispose(); }
 
-    // ── Ambient + point lights ─────────────────────────────────────
-    scene.add(new THREE.AmbientLight(0x334466, 0.3));
-
-    // ── Bit manipulation ───────────────────────────────────────────
-    const COLOR_ACTIVE  = new THREE.Color(0x00aaff);
-    const COLOR_CANCEL  = new THREE.Color(0x00ffaa);
-    const COLOR_OFF     = new THREE.Color(0x111133);
-
-    function resetBits() {
-      for (const mesh of bitMeshes) {
-        mesh.material.color.copy(COLOR_OFF);
-        mesh.material.opacity = 0.15;
-        mesh.scale.setScalar(1);
-      }
-      lineGroup.clear();
-    }
-
-    function activateBits(bits, color, scale = 2.5) {
-      for (const b of bits) {
-        if (b >= 0 && b < BITS) {
-          bitMeshes[b].material.color.copy(color);
-          bitMeshes[b].material.opacity = 0.9;
-          bitMeshes[b].scale.setScalar(scale);
+        // Remove group label if no visible members remain
+        const oldGroup = groups.get(old.bin);
+        if (oldGroup) {
+          oldGroup.visibleCount = (oldGroup.visibleCount || oldGroup.count) - 1;
+          if (oldGroup.visibleCount <= 0) {
+            groupLayer.remove(oldGroup.label);
+            groups.delete(old.bin);
+          }
         }
       }
     }
 
-    function drawConnections(bits, color) {
-      if (bits.length < 2) return;
-      const points = bits.filter(b => b >= 0 && b < BITS).map(b => bitToPosition(b));
-      if (points.length < 2) return;
+    // ── Ambient + point lights ─────────────────────────────────────
+    scene.add(new THREE.AmbientLight(0x334466, 0.4));
+    
+    const pointLight = new THREE.PointLight(0x4488ff, 600, 100);
+    pointLight.position.set(0, 30, 20);
+    scene.add(pointLight);
+    
+    const pointLight2 = new THREE.PointLight(0xff44aa, 400, 100);
+    pointLight2.position.set(0, -20, -20);
+    scene.add(pointLight2);
 
-      const geo = new THREE.BufferGeometry().setFromPoints(points);
-      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.25, blending: THREE.AdditiveBlending });
-      lineGroup.add(new THREE.Line(geo, mat));
+    // ── Surface Labels (Torus Wrapper) ─────────────────────────────
+    const torusLabelsGroup = new THREE.Group();
+    scene.add(torusLabelsGroup);
+    const torusLabels = [];
+
+    function addTorusLabel(text, centerPosition, state) {
+      if (!text || text.trim() === '') return;
+      
+      const div = document.createElement('div');
+      div.className = `chord-label state-${state || 'stored'}`;
+      div.textContent = text.trim();
+      
+      const labelObj = new CSS2DObject(div);
+      
+      // Project centerPosition to the outer surface of the torus, maintaining vertical weaving
+      const p = centerPosition.clone();
+      if (p.x === 0 && p.z === 0) p.x = 0.1;
+      const theta = Math.atan2(p.z, p.x);
+      
+      const pMajor = new THREE.Vector3(R_MAJOR * Math.cos(theta), 0, R_MAJOR * Math.sin(theta));
+      
+      // Calculate the true vertical bias of the centroid to reveal the Torus Knot weaving
+      // Scale slightly to make the waving visibly pronounced on the outer hull
+      const yBias = Math.max(-1.0, Math.min(1.0, p.y / (R_MINOR * 0.35))); 
+      const phi = Math.asin(yBias); // Yields an angle between -PI/2 (bottom) and PI/2 (top)
+      
+      // Face outward along the tube according to the actual centroid variation
+      const dir = new THREE.Vector3(
+        Math.cos(phi) * Math.cos(theta),
+        Math.sin(phi),
+        Math.cos(phi) * Math.sin(theta)
+      ).normalize();
+      
+      labelObj.position.copy(pMajor).add(dir.multiplyScalar(R_MINOR + 1.2));
+      torusLabelsGroup.add(labelObj);
+      
+      torusLabels.push({ obj: labelObj, div, createdAt: performance.now() });
+      if (torusLabels.length > 50) {
+        const old = torusLabels.shift();
+        torusLabelsGroup.remove(old.obj);
+      }
     }
 
-    // ── Pulses ─────────────────────────────────────────────────────
-    const pulses = [];
 
-    function createPulse(position, color) {
-      const geo = new THREE.RingGeometry(0.1, 0.4, 24);
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.8, side: THREE.DoubleSide, blending: THREE.AdditiveBlending });
-      const mesh = new THREE.Mesh(geo, mat);
-      mesh.position.copy(position);
-      mesh.lookAt(camera.position);
-      scene.add(mesh);
-      pulses.push(mesh);
-    }
 
     // ── HUD ────────────────────────────────────────────────────────
     const logBox = document.getElementById('log-container');
@@ -572,31 +698,8 @@
     }
 
     // ── Hover / Raycasting ─────────────────────────────────────────
-    window.addEventListener('mousemove', (e) => {
-      mouse.x = (e.clientX / innerWidth) * 2 - 1;
-      mouse.y = -(e.clientY / innerHeight) * 2 + 1;
-
-      raycaster.setFromCamera(mouse, camera);
-      const intersects = raycaster.intersectObjects(chordNodeGroup.children, false);
-
-      if (intersects.length > 0) {
-        const obj = intersects[0].object;
-        const data = obj.userData;
-
-        if (data && data.text) {
-          tooltip.style.display = 'block';
-          tooltip.style.left = `${e.clientX + 16}px`;
-          tooltip.style.top = `${e.clientY + 16}px`;
-
-          document.getElementById('tt-text').textContent = `"${data.text.trim()}"`;
-          document.getElementById('tt-state').textContent = `State: ${data.state}`;
-          document.getElementById('tt-bits').textContent = `Active: ${data.bits?.length || 0} / 257 (${((data.density || 0) * 100).toFixed(1)}%)`;
-          document.getElementById('tt-group').textContent = `Group: G${data.bin}`;
-        }
-      } else {
-        tooltip.style.display = 'none';
-      }
-    });
+    // No mesh-based raycasting — all group/chord info is CSS2D labels.
+    // Tooltip now unused for this layer (labels are always visible).
 
     // ── WebSocket ──────────────────────────────────────────────────
     function connect() {
@@ -624,11 +727,7 @@
       const d = ev.data || {};
 
       if (ev.component === 'Tokenizer' && ev.action === 'Chord') {
-        // Update torus bits
-        resetBits();
         const bits = d.activeBits || [];
-        activateBits(bits, COLOR_ACTIVE);
-        drawConnections(bits, COLOR_ACTIVE);
 
         statActive.textContent = `${bits.length} / 257`;
         updateDensity(d.density || 0);
@@ -640,24 +739,19 @@
           const center = new THREE.Vector3();
           for (const b of bits) center.add(bitToPosition(b));
           center.divideScalar(bits.length);
-          createPulse(center, COLOR_ACTIVE);
+          
+          addTorusLabel(d.chunkText, center, d.state);
         }
 
         // Add chord node to group layer
-        addChordNode(d.chordId || 0, d.bin || 0, d.state || 'stored', d.chunkText || '', bits, d.density || 0);
+        addChordNode(d.chordId || 0, d.bin || 0, d.state || 'stored', d.chunkText || '');
         statGroups.textContent = groups.size;
 
         log(`Chord [${bits.length}b] G${d.bin} "${(d.chunkText || '').trim().slice(0, 24)}"`, 'chord');
       }
 
       else if (ev.component === 'Cortex' && ev.action === 'Evaluate') {
-        resetBits();
         const cancel = d.cancelBits || [];
-        const prompt = d.activeBits || [];
-
-        activateBits(prompt, COLOR_ACTIVE, 1.5);
-        activateBits(cancel, COLOR_CANCEL, 3.5);
-        drawConnections(cancel, COLOR_CANCEL);
 
         cancelCount.textContent = cancel.length;
         residueCount.textContent = d.residue || 0;
@@ -676,6 +770,11 @@
         drawLSMEdge(d.left || 0, d.right || 0);
         document.querySelector('#stat-edges .val').textContent = d.edges || 0;
       }
+
+      else if (ev.component === 'Cortex' && ev.action === 'Fold') {
+        addFoldNode(d.bin || 0, d.level || 0, d.theta || 0, d.parentBin ?? -1, d.childCount || 0, d.density || 0, d.chunkText || '');
+        log(`Fold L${d.level} "${(d.chunkText || '').trim().slice(0, 40)}"`, 'evaluate');
+      }
     }
 
     // ── Animation loop ─────────────────────────────────────────────
@@ -683,29 +782,6 @@
       requestAnimationFrame(animate);
       controls.update();
 
-      // Pulse fade
-      for (let i = pulses.length - 1; i >= 0; i--) {
-        const p = pulses[i];
-        p.scale.addScalar(0.08);
-        p.material.opacity -= 0.015;
-        if (p.material.opacity <= 0) { scene.remove(p); pulses.splice(i, 1); }
-      }
-
-      // Breathing on active bits
-      const t = performance.now() * 0.003;
-      for (let i = 0; i < BITS; i++) {
-        const m = bitMeshes[i];
-        if (m.material.opacity > 0.5) {
-          const breathe = 1 + Math.sin(t + i * 0.1) * 0.15;
-          m.scale.setScalar(m.scale.x * 0.95 + breathe * 2.5 * 0.05);
-        }
-      }
-
-      // Gentle float on group markers
-      for (const [bin, group] of groups) {
-        group.marker.rotation.y += 0.01;
-        group.marker.position.y = GROUP_Y + Math.sin(t + bin * 0.5) * 0.3;
-      }
 
       renderer.render(scene, camera);
       labelRenderer.render(scene, camera);

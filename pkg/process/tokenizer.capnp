@@ -12,6 +12,6 @@ struct Token {
 }
 
 interface Tokenizer {
-  generate @0 (raw :Data) -> stream;
+  generate @0 () -> stream;
   done     @1 ();
 }

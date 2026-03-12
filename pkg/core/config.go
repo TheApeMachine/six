@@ -45,6 +45,7 @@ func init() {
 	viper.SetDefault("architecture.numerics.chordBlocks", 16)
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
 	viper.SetDefault("architecture.numerics.shannonCapacity", 0.45)
+	viper.SetDefault("architecture.numerics.vocabSize", 256)
 
 	viper.SetDefault("cortex.initialNodes", 8)
 
@@ -97,6 +98,7 @@ type Architecture struct {
 	ChordBlocks     int
 	FrequencySpread float64
 	ShannonCapacity float64
+	VocabSize       int
 }
 
 type CortexConfig struct {
@@ -162,6 +164,15 @@ func (ctx *Config) Load() error {
 			"0.0 <= shannonCapacity <= 1.0",
 			"got",
 			ctx.Architecture.ShannonCapacity,
+		)
+	}
+
+	ctx.Architecture.VocabSize = v.GetInt("architecture.numerics.vocabSize")
+	if ctx.Architecture.VocabSize <= 0 {
+		return console.Error(
+			ConfigError("architecture.numerics.vocabSize must be positive"),
+			"got",
+			ctx.Architecture.VocabSize,
 		)
 	}
 

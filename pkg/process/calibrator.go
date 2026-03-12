@@ -3,6 +3,8 @@ package process
 import (
 	"math"
 	"sync"
+
+	config "github.com/theapemachine/six/pkg/core"
 )
 
 const (
@@ -38,7 +40,7 @@ func NewCalibrator(opts ...CalibratorOption) *Calibrator {
 	c := &Calibrator{
 		sensitivityPop:   1.0,
 		sensitivityPhase: 1.0,
-		window:           NewFastWindow(128),
+		window:           NewFastWindow(config.Numeric.NSymbols),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -71,47 +73,38 @@ func (c *Calibrator) SetSensitivityPhase(v float64) {
 }
 
 /*
-Recalibrate adjusts the scale of sensitivity based on recent event frequency.
-It uses pure dynamic feedback based on the moving average compared to the standard deviation.
+FeedbackChunk adjusts the calibrator based on the average emitted chunk density.
+This approach is modality-agnostic: it aims to maximize informational chunk
+length without hitting the Shannon Ceiling.
 */
-func (calibrator *Calibrator) Recalibrate(events []int) {
+func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()
 
-	hasBoundary := false
-	for _, e := range events {
-		if e == EventDensitySpike || e == EventDensityTrough {
-			hasBoundary = true
-			break
-		}
-	}
-
-	if hasBoundary {
-		calibrator.window.Push(1.0)
-	} else {
-		calibrator.window.Push(0.0)
-	}
+	calibrator.window.Push(density)
 
 	if !calibrator.window.Warmed() {
 		return
 	}
 
-	mean, stddev := calibrator.window.Stats()
-	if mean == 0 || stddev == 0 {
-		calibrator.sensitivityPop = math.Max(calibrator.sensitivityPop*0.9, 0.01)
-		calibrator.sensitivityPhase = math.Max(calibrator.sensitivityPhase*0.9, 0.01)
+	meanDensity, stddev := calibrator.window.Stats()
+	if meanDensity == 0 {
 		return
 	}
 
-	// We use standard deviation as a legitimate dynamic target for the boundary rate.
-	// If the boundary rate (mean) exceeds the signal's volatility (stddev),
-	// we are splitting too much (noise), so we increase the penalty.
-	errorRate := mean - stddev
+	// We optimize for a target density just below the global ShannonCapacity
+	targetDensity := config.Numeric.ShannonCapacity
 
-	// Feedback driven exponential adjustment
-	calibrator.sensitivityPop *= math.Exp(errorRate)
+	// Proportional control loop based on density
+	errorSignal := (targetDensity - meanDensity) / targetDensity
+
+	// Apply a minimum learning rate so the calibrator can't freeze when
+	// variance collapses (e.g. all chunks are tiny and equally sparse).
+	lr := math.Max(stddev, 0.05)
+
+	calibrator.sensitivityPop *= math.Exp(errorSignal * lr)
 	calibrator.sensitivityPop = math.Max(0.01, math.Min(100.0, calibrator.sensitivityPop))
-	
-	calibrator.sensitivityPhase *= math.Exp(errorRate)
+
+	calibrator.sensitivityPhase *= math.Exp(errorSignal * lr)
 	calibrator.sensitivityPhase = math.Max(0.01, math.Min(100.0, calibrator.sensitivityPhase))
 }

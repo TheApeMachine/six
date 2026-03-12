@@ -9,8 +9,8 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/geometry"
 	"github.com/theapemachine/six/pkg/pool"
 )
@@ -36,12 +36,18 @@ type SpatialIndexServer struct {
 	broadcast  *pool.BroadcastGroup
 	conn       *rpc.Conn
 	clientConn *rpc.Conn
+
+	ei    *geometry.EigenMode
+	coder *data.MortonCoder
 }
 
 type spatialIndexOpts func(*SpatialIndexServer)
 
 func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
-	idx := &SpatialIndexServer{}
+	idx := &SpatialIndexServer{
+		ei:    geometry.NewEigenMode(),
+		coder: data.NewMortonCoder(),
+	}
 
 	for _, opt := range opts {
 		opt(idx)
@@ -51,6 +57,8 @@ func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 }
 
 func (idx *SpatialIndexServer) Announce() {
+	console.Info("Announcing SpatialIndexServer")
+
 	if idx.broadcast == nil {
 		return
 	}
@@ -71,8 +79,7 @@ func (idx *SpatialIndexServer) Announce() {
 func (idx *SpatialIndexServer) Receive(_ *pool.Result) {}
 
 func (idx *SpatialIndexServer) calcMorton(chord *data.Chord) uint64 {
-	ei := geometry.NewEigenMode()
-	theta, phi := ei.PhaseForChord(chord)
+	theta, phi := idx.ei.PhaseForChord(chord)
 	r := float64(chord.ActiveCount()) * 10.0
 
 	cellSize := 0.1
@@ -86,8 +93,7 @@ func (idx *SpatialIndexServer) calcMorton(chord *data.Chord) uint64 {
 	iy := uint32(math.Floor(y/cellSize) + offset)
 	iz := uint32(math.Floor(z/cellSize) + offset)
 
-	coder := data.NewMortonCoder()
-	return coder.Encode3D(ix, iy, iz)
+	return idx.coder.Encode3D(ix, iy, iz)
 }
 
 func mergeSpatialEntries(a, b []SpatialEntry) []SpatialEntry {
@@ -196,20 +202,27 @@ func (idx *SpatialIndexServer) sweepForward(mKey uint64, window int) []data.Chor
 }
 
 func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_insert) error {
-	edge := errnie.Try(call.Args().Edge())
-	chord := errnie.Then(edge, func(e GraphEdge) (data.Chord, error) { return e.Chord() })
+	args := call.Args()
+	edge, err := args.Edge()
+	if err != nil {
+		return console.Error(err)
+	}
 
-	return errnie.Then(
-		errnie.Then(chord, func(c data.Chord) (data.Chord, error) {
-			return data.NewChord(c.Segment())
-		}),
-		func(chordVal data.Chord) (data.Chord, error) {
-			chordVal.CopyFrom(chord.Value())
-			tokenID := (uint32(edge.Value().Left()) << 24) | uint32(edge.Value().Position())
-			idx.insertSync(idx.calcMorton(&chordVal), tokenID, chordVal)
-			return chordVal, nil
-		},
-	).Err()
+	chord, err := edge.Chord()
+	if err != nil {
+		return console.Error(err)
+	}
+
+	chordVal, err := data.NewChord(chord.Segment())
+	if err != nil {
+		return console.Error(err)
+	}
+
+	chordVal.CopyFrom(chord)
+	tokenID := (uint32(edge.Left()) << 24) | uint32(edge.Position())
+	idx.insertSync(idx.calcMorton(&chordVal), tokenID, chordVal)
+
+	return nil
 }
 
 func (idx *SpatialIndexServer) Done(ctx context.Context, call SpatialIndex_done) error {
@@ -227,18 +240,19 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 
 	paths := make([][]data.Chord, chordList.Len())
 
-	return paths, errnie.ForEach(chordList.Len(), func(i int) error {
+	for i := 0; i < chordList.Len(); i++ {
 		chord := chordList.At(i)
 
-		return errnie.Then(
-			errnie.Try(data.NewChord(chord.Segment())),
-			func(chordVal data.Chord) (data.Chord, error) {
-				chordVal.CopyFrom(chord)
-				paths[i] = idx.sweepForward(idx.calcMorton(&chordVal), 10)
-				return chordVal, nil
-			},
-		).Err()
-	})
+		chordVal, err := data.NewChord(chord.Segment())
+		if err != nil {
+			return nil, console.Error(err)
+		}
+
+		chordVal.CopyFrom(chord)
+		paths[i] = idx.sweepForward(idx.calcMorton(&chordVal), 10)
+	}
+
+	return paths, nil
 }
 
 /*
@@ -247,59 +261,63 @@ writeLookupResults serialises a slice of path slices into the Cap'n Proto respon
 func (idx *SpatialIndexServer) writeLookupResults(
 	call SpatialIndex_lookup, paths [][]data.Chord,
 ) error {
-	res := errnie.Try(call.AllocResults())
+	res, err := call.AllocResults()
+	if err != nil {
+		return console.Error(err)
+	}
 
-	return errnie.Then(
-		errnie.Then(res, func(r SpatialIndex_lookup_Results) (capnp.PointerList, error) {
-			return r.NewPaths(int32(len(paths)))
-		}),
-		func(pathsList capnp.PointerList) (capnp.PointerList, error) {
-			return pathsList, errnie.ForEach(len(paths), func(i int) error {
-				return errnie.Then(
-					errnie.Try(
-						data.NewChord_List(
-							res.Value().Segment(),
-							int32(len(paths[i])),
-						),
-					),
-					func(list data.Chord_List) (data.Chord_List, error) {
-						for j, c := range paths[i] {
-							el := list.At(j)
-							el.CopyFrom(c)
-						}
-						return list, pathsList.Set(i, list.ToPtr())
-					},
-				).Err()
-			})
-		},
-	).Err()
+	pathsList, err := res.NewPaths(int32(len(paths)))
+	if err != nil {
+		return console.Error(err)
+	}
+
+	for i := 0; i < len(paths); i++ {
+		list, err := data.NewChord_List(res.Segment(), int32(len(paths[i])))
+		if err != nil {
+			return console.Error(err)
+		}
+
+		for j, c := range paths[i] {
+			el := list.At(j)
+			el.CopyFrom(c)
+		}
+
+		if err := pathsList.Set(i, list.ToPtr()); err != nil {
+			return console.Error(err)
+		}
+	}
+
+	return nil
 }
 
 func (idx *SpatialIndexServer) Lookup(ctx context.Context, call SpatialIndex_lookup) error {
-	return errnie.Then(
-		errnie.Then(
-			errnie.Try(call.Args().Chords()),
-			idx.buildPaths,
-		),
-		func(paths [][]data.Chord) ([][]data.Chord, error) {
-			return paths, idx.writeLookupResults(call, paths)
-		},
-	).Err()
+	chords, err := call.Args().Chords()
+	if err != nil {
+		return console.Error(err)
+	}
+
+	paths, err := idx.buildPaths(chords)
+	if err != nil {
+		return console.Error(err)
+	}
+
+	return idx.writeLookupResults(call, paths)
 }
 
 func (idx *SpatialIndexServer) QueryTransitions(
 	ctx context.Context, call SpatialIndex_queryTransitions,
 ) error {
-	res := errnie.Try(call.AllocResults())
+	res, err := call.AllocResults()
+	if err != nil {
+		return console.Error(err)
+	}
 
-	return errnie.Then(
-		errnie.Then(res, func(r SpatialIndex_queryTransitions_Results) (data.Chord_List, error) {
-			return data.NewChord_List(r.Segment(), 0)
-		}),
-		func(list data.Chord_List) (data.Chord_List, error) {
-			return list, res.Value().SetChords(list)
-		},
-	).Err()
+	list, err := data.NewChord_List(res.Segment(), 0)
+	if err != nil {
+		return console.Error(err)
+	}
+
+	return res.SetChords(list)
 }
 
 func WithContext(ctx context.Context) spatialIndexOpts {

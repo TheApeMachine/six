@@ -10,34 +10,9 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/process"
 )
-
-/*
-tokenize runs the real Sequencer over raw bytes and returns the chunks it discovers.
-*/
-func tokenize(raw []byte) [][]byte {
-	seq := process.NewSequencer(nil)
-	var chunks [][]byte
-	var chunk []byte
-
-	for pos, b := range raw {
-		chunk = append(chunk, b)
-		isBoundary, _ := seq.Analyze(pos, b)
-
-		if isBoundary && len(chunk) >= 2 {
-			chunks = append(chunks, chunk)
-			chunk = nil
-		}
-	}
-
-	if len(chunk) >= 2 {
-		chunks = append(chunks, chunk)
-	}
-
-	return chunks
-}
 
 /*
 buildPaths converts raw chunks into chords using BuildChord.
@@ -242,8 +217,8 @@ func TestBaseChordMinimumDistance(t *testing.T) {
 			collisionPairs := 0
 			totalSharedBits := 0
 
-			for a := 0; a < 256; a++ {
-				for b := a + 1; b < 256; b++ {
+			for a := 0; a < config.Numeric.VocabSize; a++ {
+				for b := a + 1; b < config.Numeric.VocabSize; b++ {
 					ca := data.BaseChord(byte(a))
 					cb := data.BaseChord(byte(b))
 
@@ -265,7 +240,7 @@ func TestBaseChordMinimumDistance(t *testing.T) {
 				}
 			}
 
-			totalPairs := 256 * 255 / 2
+			totalPairs := config.Numeric.VocabSize * (config.Numeric.VocabSize - 1) / 2
 			t.Logf("BaseChord code: d_min=%d  d_max=%d", minDist, maxDist)
 			t.Logf("Collision pairs: %d/%d (%.1f%%)",
 				collisionPairs, totalPairs, float64(collisionPairs)/float64(totalPairs)*100)
@@ -282,7 +257,7 @@ func TestBaseChordMinimumDistance(t *testing.T) {
 		Convey("Measure per-byte active bit counts", func() {
 			counts := make(map[int]int)
 
-			for b := 0; b < 256; b++ {
+			for b := 0; b < config.Numeric.VocabSize; b++ {
 				c := data.BaseChord(byte(b))
 				n := c.ActiveCount()
 				counts[n]++
@@ -834,7 +809,7 @@ func TestSaturationCurve(t *testing.T) {
 					stepIdx++
 				}
 
-				if accum.ActiveCount() >= 257 && saturated < 0 {
+				if accum.ActiveCount() >= config.Numeric.VocabSize+1 && saturated < 0 {
 					saturated = pos + 1
 				}
 			}
@@ -855,7 +830,7 @@ func TestSaturationCurve(t *testing.T) {
 			fresh, _ := data.NewChord(seg2)
 			uniqueCount := 0
 
-			for b := 0; b < 256; b++ {
+			for b := 0; b < config.Numeric.VocabSize; b++ {
 				old := fresh.ActiveCount()
 				fresh = fresh.OR(data.BaseChord(byte(b)))
 				gain := fresh.ActiveCount() - old
@@ -891,12 +866,12 @@ But collisions change this. Measure the actual distribution.
 func TestBitUtilization(t *testing.T) {
 	Convey("Given all 256 BaseChords", t, func() {
 		Convey("Measure per-position usage frequency", func() {
-			freq := make([]int, 257)
+			freq := make([]int, config.Numeric.VocabSize+1)
 
-			for b := 0; b < 256; b++ {
+			for b := 0; b < config.Numeric.VocabSize; b++ {
 				c := data.BaseChord(byte(b))
 
-				for pos := 0; pos < 257; pos++ {
+				for pos := 0; pos < config.Numeric.VocabSize+1; pos++ {
 					if c.Has(pos) {
 						freq[pos]++
 					}
