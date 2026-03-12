@@ -56,7 +56,7 @@ func (booter *Booter) Start() {
 
 	index := lsm.NewSpatialIndexServer(
 		lsm.WithContext(booter.ctx),
-		lsm.WithBroadcastGroup(broadcast),
+		lsm.WithBroadcast(broadcast),
 	)
 
 	tokenizer := process.NewTokenizerServer(
@@ -67,8 +67,8 @@ func (booter *Booter) Start() {
 
 	matrix := graph.NewMatrixServer(
 		graph.MatrixWithContext(booter.ctx),
-		graph.MatrixWithBroadcast(broadcast),
 		graph.MatrixWithPool(booter.pool),
+		graph.MatrixWithBroadcast(broadcast),
 	)
 
 	systems := []System{
@@ -84,24 +84,20 @@ func (booter *Booter) Start() {
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
 
-	go func() {
-		defer booter.cancel()
-
-		for {
-			select {
-			case <-booter.ctx.Done():
-				return
-			case msg := <-subscription:
-				for _, system := range systems {
-					system.Receive(msg)
-				}
-			case <-ticker.C:
-				for _, system := range systems {
-					system.Receive(nil)
-				}
+	for {
+		select {
+		case <-booter.ctx.Done():
+			return
+		case msg := <-subscription:
+			for _, system := range systems {
+				system.Receive(msg)
+			}
+		case <-ticker.C:
+			for _, system := range systems {
+				system.Receive(nil)
 			}
 		}
-	}()
+	}
 }
 
 /*

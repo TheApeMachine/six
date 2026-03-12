@@ -14,6 +14,20 @@ Ok returns a Result containing the given value.
 func Ok[T any](v T) Result[T] { return Result[T]{value: v} }
 
 /*
+ForEach runs fn(i) for i in [0, n), short-circuiting on the first error.
+Replaces the per-iteration if-err idiom in counted loops.
+*/
+func ForEach(n int, fn func(int) error) error {
+	for i := range n {
+		if err := fn(i); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+/*
 Fail returns a Result containing the given error.
 */
 func Fail[T any](err error) Result[T] { return Result[T]{err: err} }
@@ -42,15 +56,16 @@ func (result Result[T]) Map(fn func(T) T) Result[T] {
 }
 
 /*
-FlatMap applies a function to the value in a Result, returning a new Result
+Then applies a function to the value in a Result, returning a new Result
 with the result of the function. Monadic chaining for functions that can fail.
 */
-func FlatMap[T, U any](result Result[T], fn func(T) (U, error)) Result[U] {
-	if result.err != nil {
-		return Fail[U](result.err)
+func Then[T, U any](r Result[T], fn func(T) (U, error)) Result[U] {
+	if r.err != nil {
+		return Result[U]{err: r.err}
 	}
 
-	return Try(fn(result.value))
+	v, err := fn(r.value)
+	return Try(v, err)
 }
 
 /*
@@ -72,4 +87,16 @@ Unwrap returns both the value and error, mirroring Go's conventional (T, error).
 */
 func (result Result[T]) Unwrap() (T, error) {
 	return result.value, result.err
+}
+
+/*
+Must returns the value or panics if the Result holds an error.
+Used at the end of a chain where failure is truly unexpected.
+*/
+func (result Result[T]) Must() T {
+	if result.err != nil {
+		panic(result.err)
+	}
+
+	return result.value
 }

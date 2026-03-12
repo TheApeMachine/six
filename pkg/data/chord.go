@@ -8,52 +8,76 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/console"
 	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
 func BuildChord(payload []byte) (Chord, error) {
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-
-	if err != nil {
-		return Chord{}, console.Error(err)
-	}
-
-	chord, err := NewRootChord(seg)
-
-	if err != nil {
-		return Chord{}, console.Error(err)
-	}
-
 	const logicalBits = 257
 
-	for _, b := range payload {
-		_, baseSeg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-		if err != nil {
-			return Chord{}, console.Error(err)
-		}
+	return errnie.Then(
+		errnie.Try(func() (Chord, error) {
+			_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+			if err != nil {
+				return Chord{}, err
+			}
+			return NewRootChord(seg)
+		}()),
+		func(chord Chord) (Chord, error) {
+			for _, b := range payload {
+				base, err := func() (Chord, error) {
+					_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+					if err != nil {
+						return Chord{}, err
+					}
+					return NewChord(seg)
+				}()
+				if err != nil {
+					return Chord{}, console.Error(err)
+				}
 
-		base, err := NewChord(baseSeg)
+				for _, off := range [5]int{
+					int(b) * 7, int(b) * 13, int(b) * 31, int(b) * 61, int(b) * 127,
+				} {
+					base.Set(off % logicalBits)
+				}
 
-		if err != nil {
-			return Chord{}, console.Error(err)
-		}
+				chord = chord.OR(base)
+			}
 
-		offsets := [5]int{
-			int(b) * 7,
-			int(b) * 13,
-			int(b) * 31,
-			int(b) * 61,
-			int(b) * 127,
-		}
+			return chord, nil
+		},
+	).Unwrap()
+}
 
-		for _, off := range offsets {
-			base.Set(off % logicalBits)
-		}
-
-		chord = chord.OR(base)
+/*
+CopyFrom copies all 8 words from src into the receiver.
+Replaces the repeated SetC0..SetC7 call pattern at every call site.
+*/
+func (chord *Chord) CopyFrom(src Chord) {
+	for i := range 8 {
+		chord.setBlock(i, src.block(i))
 	}
+}
 
-	return chord, nil
+/*
+ChordListToSlice copies each entry into a freshly allocated Chord and returns the slice.
+*/
+func ChordListToSlice(list Chord_List) ([]Chord, error) {
+	out := make([]Chord, list.Len())
+
+	return out, errnie.ForEach(list.Len(), func(i int) error {
+		src := list.At(i)
+
+		return errnie.Then(
+			errnie.Try(NewChord(src.Segment())),
+			func(chord Chord) (Chord, error) {
+				chord.CopyFrom(src)
+				out[i] = chord
+				return chord, nil
+			},
+		).Err()
+	})
 }
 
 /*

@@ -66,7 +66,7 @@ func initConfig() {
 		)
 	}
 
-	result := errnie.FlatMap(
+	result := errnie.Then(
 		errnie.Try(embedded.Open("cfg/alice.txt")),
 		func(fh fs.File) ([]byte, error) {
 			defer fh.Close()
@@ -95,7 +95,7 @@ func writeConfig() error {
 		return nil
 	}
 
-	result := errnie.FlatMap(
+	result := errnie.Then(
 		errnie.Try(embedded.Open("cfg/"+cfgFile)),
 		func(fh fs.File) ([]byte, error) {
 			defer fh.Close()
@@ -109,14 +109,14 @@ func writeConfig() error {
 		},
 	)
 
-	result = errnie.FlatMap(result, func(data []byte) ([]byte, error) {
+	result = errnie.Then(result, func(data []byte) ([]byte, error) {
 		if err := os.MkdirAll(home+"/."+projectName, os.ModePerm); err != nil {
 			return nil, err
 		}
 		return data, nil
 	})
 
-	result = errnie.FlatMap(result, func(data []byte) ([]byte, error) {
+	result = errnie.Then(result, func(data []byte) ([]byte, error) {
 		return data, os.WriteFile(fullPath, data, 0644)
 	})
 
