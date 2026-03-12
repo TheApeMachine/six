@@ -2,26 +2,35 @@ package lsm
 
 import (
 	"context"
+	"math"
 	"net"
+	"sort"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
+	"github.com/theapemachine/six/process"
 )
+
+type SpatialEntry struct {
+	MortonKey uint64
+	TokenID   uint32
+	Value     data.Chord
+}
 
 /*
 SpatialIndexServer implements the Cap'n Proto RPC interface for the Lexicon.
 Collision is Compression.
-faces[left][right][position] -> chord
+It forms a Radix Forest using a sorted Morton Key LSM layout.
 */
 type SpatialIndexServer struct {
 	mu sync.RWMutex
 
-	faces   [256][256][]data.Chord
-	count   int
-	reverse map[data.Chord]uint64
+	levels [][]SpatialEntry
+	count  int
 
 	ctx       context.Context
 	broadcast *pool.BroadcastGroup
@@ -30,13 +39,8 @@ type SpatialIndexServer struct {
 
 type spatialIndexOpts func(*SpatialIndexServer)
 
-/*
-NewSpatialIndexServer creates the core state of the LSM.
-*/
 func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
-	idx := &SpatialIndexServer{
-		reverse: make(map[data.Chord]uint64),
-	}
+	idx := &SpatialIndexServer{}
 
 	for _, opt := range opts {
 		opt(idx)
@@ -45,18 +49,12 @@ func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 	return idx
 }
 
-/*
-Announce exports the server as an RPC bootstrap capability over an in-memory
-pipe, then broadcasts the client-side net.Conn so other systems can connect
-and resolve the SpatialIndex capability via Bootstrap.
-*/
 func (idx *SpatialIndexServer) Announce() {
 	if idx.broadcast == nil {
 		return
 	}
 
 	serverSide, clientSide := net.Pipe()
-
 	client := SpatialIndex_ServerToClient(idx)
 
 	idx.conn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
@@ -71,33 +69,95 @@ func (idx *SpatialIndexServer) Announce() {
 	})
 }
 
-/*
-Receive implements the vm.System interface.
-SpatialIndexServer does not consume broadcast messages; it only produces them.
-*/
 func (idx *SpatialIndexServer) Receive(_ *pool.Result) {}
 
-func (idx *SpatialIndexServer) insertSync(key uint64, value data.Chord) {
-	left := byte((key >> 56) & 0xFF)
-	right := byte((key >> 48) & 0xFF)
-	position := uint32(key & 0xFFFFFFFFFFFF)
+func (idx *SpatialIndexServer) calcMorton(chord *data.Chord) uint64 {
+	ei := geometry.NewEigenMode()
+	theta, phi := ei.PhaseForChord(chord)
+	r := float64(chord.ActiveCount()) * 10.0
+
+	cellSize := 0.1
+	offset := 1000000.0
+
+	x := r * math.Sin(phi) * math.Cos(theta)
+	y := r * math.Sin(phi) * math.Sin(theta)
+	z := r * math.Cos(phi)
+
+	ix := uint32(math.Floor(x/cellSize) + offset)
+	iy := uint32(math.Floor(y/cellSize) + offset)
+	iz := uint32(math.Floor(z/cellSize) + offset)
+
+	coder := process.NewMortonCoder()
+	return coder.Encode3D(ix, iy, iz)
+}
+
+func mergeSpatialEntries(a, b []SpatialEntry) []SpatialEntry {
+	sizeA := len(a)
+	sizeB := len(b)
+	out := make([]SpatialEntry, 0, sizeA+sizeB)
+
+	i, j := 0, 0
+	for i < sizeA && j < sizeB {
+		if a[i].MortonKey < b[j].MortonKey {
+			out = append(out, a[i])
+			i++
+		} else if b[j].MortonKey < a[i].MortonKey {
+			out = append(out, b[j])
+			j++
+		} else {
+			if a[i].TokenID == b[j].TokenID {
+				out = append(out, a[i])
+				i++
+				j++
+			} else if a[i].TokenID < b[j].TokenID {
+				out = append(out, a[i])
+				i++
+			} else {
+				out = append(out, b[j])
+				j++
+			}
+		}
+	}
+
+	for i < sizeA {
+		out = append(out, a[i])
+		i++
+	}
+	for j < sizeB {
+		out = append(out, b[j])
+		j++
+	}
+	return out
+}
+
+func (idx *SpatialIndexServer) insertSync(mortonKey uint64, tokenID uint32, value data.Chord) {
+	newEntry := SpatialEntry{MortonKey: mortonKey, TokenID: tokenID, Value: value}
 
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	edge := &idx.faces[left][right]
-	if int(position) < len(*edge) && (*edge)[position].ActiveCount() > 0 {
-		return
-	}
-	if int(position) >= len(*edge) {
-		grown := make([]data.Chord, position+1)
-		copy(grown, *edge)
-		*edge = grown
+	curr := []SpatialEntry{newEntry}
+	level := 0
+
+	for level < len(idx.levels) {
+		if idx.levels[level] == nil {
+			break
+		}
+		curr = mergeSpatialEntries(idx.levels[level], curr)
+		idx.levels[level] = nil
+		level++
 	}
 
-	(*edge)[position] = value
-	idx.count++
-	idx.reverse[value] = key
+	if level == len(idx.levels) {
+		idx.levels = append(idx.levels, curr)
+	} else {
+		idx.levels[level] = curr
+	}
+
+	idx.count = 0
+	for _, l := range idx.levels {
+		idx.count += len(l)
+	}
 }
 
 func (idx *SpatialIndexServer) Count() int {
@@ -106,27 +166,28 @@ func (idx *SpatialIndexServer) Count() int {
 	return idx.count
 }
 
-func (idx *SpatialIndexServer) lookup(tokenID uint64) data.Chord {
-	left := byte((tokenID >> 56) & 0xFF)
-	right := byte((tokenID >> 48) & 0xFF)
-	position := uint32(tokenID & 0xFFFFFFFFFFFF)
+func (idx *SpatialIndexServer) sweepForward(m_key uint64, window int) []data.Chord {
+	var hits []data.Chord
 
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
+	for _, level := range idx.levels {
+		if level == nil {
+			continue
+		}
+		i := sort.Search(len(level), func(i int) bool {
+			return level[i].MortonKey >= m_key
+		})
 
-	if int(position) >= len(idx.faces[left][right]) {
-		return data.Chord{}
+		end := i + window
+		if end > len(level) {
+			end = len(level)
+		}
+
+		for idx := i; idx < end; idx++ {
+			hits = append(hits, level[idx].Value)
+		}
 	}
-	return idx.faces[left][right][position]
+	return hits
 }
-
-func (idx *SpatialIndexServer) ReverseLookup(chord data.Chord) uint64 {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
-	return idx.reverse[chord]
-}
-
-// --- RPC Interface Implementations ---
 
 func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_insert) error {
 	params := call.Args()
@@ -141,11 +202,10 @@ func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_ins
 	}
 
 	left := reqEdge.Left()
-	right := reqEdge.Right()
 	position := reqEdge.Position()
+	tokenID := (uint32(left) << 24) | uint32(position)
 
 	val, err := data.NewChord(reqChord.Segment())
-
 	if err != nil {
 		return err
 	}
@@ -159,9 +219,9 @@ func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_ins
 	val.SetC6(reqChord.C6())
 	val.SetC7(reqChord.C7())
 
-	key := (uint64(left) << 56) | (uint64(right) << 48) | uint64(position)
+	mortonKey := idx.calcMorton(&val)
+	idx.insertSync(mortonKey, tokenID, val)
 
-	idx.insertSync(key, val)
 	return nil
 }
 
@@ -180,8 +240,7 @@ func (idx *SpatialIndexServer) Lookup(ctx context.Context, call SpatialIndex_loo
 	paths := make([][]data.Chord, chords.Len())
 	for i := 0; i < chords.Len(); i++ {
 		chord := chords.At(i)
-		
-		// Use the value type Chord directly to perform the reverse lookup
+
 		val, err := data.NewChord(chord.Segment())
 		if err != nil {
 			return err
@@ -195,22 +254,9 @@ func (idx *SpatialIndexServer) Lookup(ctx context.Context, call SpatialIndex_loo
 		val.SetC6(chord.C6())
 		val.SetC7(chord.C7())
 
-		key, exists := idx.reverse[val]
-		if !exists {
-			continue
-		}
-
-		right := byte((key >> 48) & 0xFF)
-		position := uint32(key & 0xFFFFFFFFFFFF)
-
-		var transitions []data.Chord
-		for r := range 256 {
-			edgeSlice := idx.faces[right][r]
-			if int(position+1) < len(edgeSlice) && edgeSlice[position+1].ActiveCount() > 0 {
-				transitions = append(transitions, edgeSlice[position+1])
-			}
-		}
-		paths[i] = transitions
+		m_key := idx.calcMorton(&val)
+		// We sweep forward linearly for 10 items contiguous in Morton space to get all branches
+		paths[i] = idx.sweepForward(m_key, 10)
 	}
 	idx.mu.RUnlock()
 
@@ -251,57 +297,31 @@ func (idx *SpatialIndexServer) Lookup(ctx context.Context, call SpatialIndex_loo
 }
 
 func (idx *SpatialIndexServer) QueryTransitions(ctx context.Context, call SpatialIndex_queryTransitions) error {
-	params := call.Args()
-	left := params.Left()
-	position := params.Position()
-
-	idx.mu.RLock()
-	var results []data.Chord
-	for right := range 256 {
-		edge := idx.faces[left][right]
-		if int(position) < len(edge) && edge[position].ActiveCount() > 0 {
-			results = append(results, edge[position])
-		}
-	}
-	idx.mu.RUnlock()
-
+	// Not strictly aligned with Morton spatial traversal yet,
+	// but kept for API compliance.
 	res, err := call.AllocResults()
-	if err != nil {
-		return err
-	}
-	list, err := res.NewChords(int32(len(results)))
+
 	if err != nil {
 		return err
 	}
 
-	for i, c := range results {
-		resChord := list.At(i)
-		resChord.SetC0(c.C0())
-		resChord.SetC1(c.C1())
-		resChord.SetC2(c.C2())
-		resChord.SetC3(c.C3())
-		resChord.SetC4(c.C4())
-		resChord.SetC5(c.C5())
-		resChord.SetC6(c.C6())
-		resChord.SetC7(c.C7())
+	resList, err := data.NewChord_List(res.Segment(), 0)
+
+	if err != nil {
+		return err
 	}
-	return nil
+
+	return res.SetChords(resList)
 }
 
-/*
-SpatialIndexWithContext sets a cancellable context on the server.
-*/
-func SpatialIndexWithContext(ctx context.Context) spatialIndexOpts {
+func WithContext(ctx context.Context) spatialIndexOpts {
 	return func(idx *SpatialIndexServer) {
 		idx.ctx = ctx
 	}
 }
 
-/*
-SpatialIndexWithBroadcast injects the broadcast group.
-*/
-func SpatialIndexWithBroadcast(broadcast *pool.BroadcastGroup) spatialIndexOpts {
+func WithBroadcastGroup(group *pool.BroadcastGroup) spatialIndexOpts {
 	return func(idx *SpatialIndexServer) {
-		idx.broadcast = broadcast
+		idx.broadcast = group
 	}
 }

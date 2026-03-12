@@ -3,7 +3,6 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -47,8 +46,8 @@ func (experiment *PartialDeletionExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *PartialDeletionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *PartialDeletionExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *PartialDeletionExperiment) AddResult(results tools.ExperimentalData) {
@@ -87,16 +86,14 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
-func (experiment *PartialDeletionExperiment) RawOutput() bool { return false }
+// func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+// 	_ = substrate.GeodesicScan(substrate.Entries[0].Fingerprint, 72, 5.0)
 
-func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	_ = substrate.GeodesicScan(substrate.Entries[0].Fingerprint, 72, 5.0)
+// 	experiment.AddResult(tools.ExperimentalData{
+// 		Name:          "Partial Deletion",
+// 		WeightedTotal: 1.0,
+// 		Idx:           len(substrate.Entries),
+// 	})
 
-	experiment.AddResult(tools.ExperimentalData{
-		Name:          "Partial Deletion",
-		WeightedTotal: 1.0,
-		Idx:           len(substrate.Entries),
-	})
-
-	return nil
-}
+// 	return nil
+// }

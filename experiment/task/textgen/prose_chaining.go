@@ -4,7 +4,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -54,8 +53,8 @@ func (experiment *ProseChainingExperiment) Prompts() *process.Prompt {
 }
 
 // 60% right holdout — an aggressive masking that tests deep generative chaining.
-func (experiment *ProseChainingExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 60, tokenizer.RIGHT
+func (experiment *ProseChainingExperiment) Holdout() (int, process.HoldoutType) {
+	return 60, process.RIGHT
 }
 
 func (experiment *ProseChainingExperiment) AddResult(results tools.ExperimentalData) {
@@ -87,10 +86,4 @@ func (experiment *ProseChainingExperiment) TableData() any { return experiment.t
 
 func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
 	return ProseChainingArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *ProseChainingExperiment) RawOutput() bool { return false }
-
-func (experiment *ProseChainingExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

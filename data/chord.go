@@ -475,3 +475,42 @@ func FlattenBatched(chords []Chord, p *pool.Pool) []FlatChord {
 	return out
 }
 
+/*
+RollLeft circular-shifts the chord within the 257-bit logical width.
+Binds sequential position to geometry before superposition.
+*/
+func (chord *Chord) RollLeft(shift int) Chord {
+	if shift == 0 {
+		return *chord
+	}
+
+	const logicalBits = 257 // CubeFaces
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	out, _ := NewChord(seg)
+	shift = shift % logicalBits
+
+	// Fast sparse-array permutation within the 257-bit logical width
+	for i := range config.ChordBlocks {
+		block := chord.block(i)
+		for block != 0 {
+			bitIdx := uint16(bits.TrailingZeros64(block))
+			primeIdx := i*64 + int(bitIdx)
+
+			if primeIdx < logicalBits {
+				newPrimeIdx := (primeIdx + shift) % logicalBits
+				out.Set(newPrimeIdx)
+			}
+
+			block &= block - 1
+		}
+	}
+
+	return out
+}
+
+/*
+BindPosition applies RollLeft for positional encoding.
+*/
+func (chord *Chord) BindPosition(pos int) Chord {
+	return chord.RollLeft(pos)
+}

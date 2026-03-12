@@ -4,7 +4,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -52,8 +51,8 @@ func (experiment *CompositionalExperiment) Prompts() *process.Prompt {
 }
 
 // 30% right holdout: system must reconstruct the ending of each story.
-func (experiment *CompositionalExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 30, tokenizer.RIGHT
+func (experiment *CompositionalExperiment) Holdout() (int, process.HoldoutType) {
+	return 30, process.RIGHT
 }
 
 func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalData) {
@@ -85,10 +84,4 @@ func (experiment *CompositionalExperiment) TableData() any { return experiment.t
 
 func (experiment *CompositionalExperiment) Artifacts() []tools.Artifact {
 	return CompositionalArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *CompositionalExperiment) RawOutput() bool { return false }
-
-func (experiment *CompositionalExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

@@ -1,13 +1,8 @@
 package phasedial
 
 import (
-	"fmt"
-	"math/rand"
-
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/data"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -53,8 +48,8 @@ func (experiment *QueryRobustnessExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *QueryRobustnessExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *QueryRobustnessExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *QueryRobustnessExperiment) AddResult(results tools.ExperimentalData) {
@@ -103,47 +98,47 @@ func (experiment *QueryRobustnessExperiment) Artifacts() []tools.Artifact {
 
 func (experiment *QueryRobustnessExperiment) RawOutput() bool { return false }
 
-func (experiment *QueryRobustnessExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	rng := rand.New(rand.NewSource(7))
+// func (experiment *QueryRobustnessExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+// 	rng := rand.New(rand.NewSource(7))
 
-	// Clean query from substrate entry 0
-	cleanChords := substrate.Entries[0].Readout
-	cleanFP := substrate.Entries[0].Fingerprint
+// 	// Clean query from substrate entry 0
+// 	cleanChords := substrate.Entries[0].Readout
+// 	cleanFP := substrate.Entries[0].Fingerprint
 
-	// Corrupt 30% of chords by clearing random bits
-	corruptedChords := make([]data.Chord, len(cleanChords))
-	copy(corruptedChords, cleanChords)
-	for i := range corruptedChords {
-		if rng.Float32() < 0.3 {
-			corruptedChords[i] = data.Chord{} // zero out the chord
-		}
-	}
-	corruptedFP := geometry.NewPhaseDial().EncodeFromChords(corruptedChords)
+// 	// Corrupt 30% of chords by clearing random bits
+// 	corruptedChords := make([]data.Chord, len(cleanChords))
+// 	copy(corruptedChords, cleanChords)
+// 	for i := range corruptedChords {
+// 		if rng.Float32() < 0.3 {
+// 			corruptedChords[i] = data.Chord{} // zero out the chord
+// 		}
+// 	}
+// 	corruptedFP := geometry.NewPhaseDial().EncodeFromChords(corruptedChords)
 
-	corruptedResults := substrate.GeodesicScan(corruptedFP, 72, 5.0)
-	cleanResults := substrate.GeodesicScan(cleanFP, 72, 5.0)
+// 	corruptedResults := substrate.GeodesicScan(corruptedFP, 72, 5.0)
+// 	cleanResults := substrate.GeodesicScan(cleanFP, 72, 5.0)
 
-	sim := corruptedFP.Similarity(cleanFP)
+// 	sim := corruptedFP.Similarity(cleanFP)
 
-	experiment.robustnessResults = []robustnessEntry{
-		{
-			Query:      "Clean",
-			ScanSteps:  len(cleanResults),
-			Step0Match: fmt.Sprintf("entry-%d", cleanResults[0].BestIdx),
-			CorruptSim: "1.0000",
-		},
-		{
-			Query:      fmt.Sprintf("Corrupted (30%% dropout, %d chords)", len(corruptedChords)),
-			ScanSteps:  len(corruptedResults),
-			Step0Match: fmt.Sprintf("entry-%d", corruptedResults[0].BestIdx),
-			CorruptSim: fmt.Sprintf("%.4f", sim),
-		},
-	}
+// 	experiment.robustnessResults = []robustnessEntry{
+// 		{
+// 			Query:      "Clean",
+// 			ScanSteps:  len(cleanResults),
+// 			Step0Match: fmt.Sprintf("entry-%d", cleanResults[0].BestIdx),
+// 			CorruptSim: "1.0000",
+// 		},
+// 		{
+// 			Query:      fmt.Sprintf("Corrupted (30%% dropout, %d chords)", len(corruptedChords)),
+// 			ScanSteps:  len(corruptedResults),
+// 			Step0Match: fmt.Sprintf("entry-%d", corruptedResults[0].BestIdx),
+// 			CorruptSim: fmt.Sprintf("%.4f", sim),
+// 		},
+// 	}
 
-	experiment.AddResult(tools.ExperimentalData{
-		Name:          "Robustness",
-		WeightedTotal: sim,
-	})
+// 	experiment.AddResult(tools.ExperimentalData{
+// 		Name:          "Robustness",
+// 		WeightedTotal: sim,
+// 	})
 
-	return nil
-}
+// 	return nil
+// }

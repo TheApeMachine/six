@@ -58,17 +58,17 @@ func NewTorusNavigationAGNewsExperiment(
 	return NewTorusNavigationExperiment(combinedOpts...)
 }
 
-func NewTorusGeneralizationAGNewsExperiment(
-	samples uint32, opts ...torusGeneralizationOpt,
-) *TorusGeneralizationExperiment {
-	agNewsDataset := NewAGNewsDatasetBuilder().WithSamples(samples).Build()
+// func NewTorusGeneralizationAGNewsExperiment(
+// 	samples uint32, opts ...torusGeneralizationOpt,
+// ) *TorusGeneralizationExperiment {
+// 	agNewsDataset := NewAGNewsDatasetBuilder().WithSamples(samples).Build()
 
-	combinedOpts := append(
-		[]torusGeneralizationOpt{TorusGeneralizationWithDataset(agNewsDataset)}, opts...,
-	)
+// 	combinedOpts := append(
+// 		[]torusGeneralizationOpt{TorusGeneralizationWithDataset(agNewsDataset)}, opts...,
+// 	)
 
-	return NewTorusGeneralizationExperiment(combinedOpts...)
-}
+// 	return NewTorusGeneralizationExperiment(combinedOpts...)
+// }
 
 func NewSteerabilityAGNewsExperiment(samples uint32) *SteerabilityExperiment {
 	agNewsDataset := NewAGNewsDatasetBuilder().WithSamples(samples).Build()

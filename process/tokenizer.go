@@ -97,6 +97,7 @@ Generate implements the Tokenizer_Server.Generate RPC method.
 */
 func (server *TokenizerServer) Generate(ctx context.Context, call Tokenizer_generate) error {
 	raw, err := call.Args().Raw()
+
 	if err != nil {
 		return err
 	}
@@ -144,21 +145,23 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 	// Chord(Span) = OR(BaseChord(b₀), BaseChord(b₁), …)
 	// Running OR: the chord grows as bytes are added, capturing content.
 	// Order is encoded in the Morton key, not the chord.
-	sequenceChord, _ := data.BuildChord(chunk)
-
-	for i := 0; i < len(chunk)-1; i++ {
-		left := chunk[i]
-		right := chunk[i+1]
+	// order is encoded in the morton key.
+	for i := 0; i < len(chunk); i++ {
+		currentByte := chunk[i]
 		pos := uint32(i)
 
-		c0 := sequenceChord.C0()
-		c1 := sequenceChord.C1()
-		c2 := sequenceChord.C2()
-		c3 := sequenceChord.C3()
-		c4 := sequenceChord.C4()
-		c5 := sequenceChord.C5()
-		c6 := sequenceChord.C6()
-		c7 := sequenceChord.C7()
+		// Build the cumulative chord up to this specific sequence position
+		// This replaces traversing edges with discrete state checkpoints
+		cumulativeChord, _ := data.BuildChord(chunk[:i+1])
+
+		c0 := cumulativeChord.C0()
+		c1 := cumulativeChord.C1()
+		c2 := cumulativeChord.C2()
+		c3 := cumulativeChord.C3()
+		c4 := cumulativeChord.C4()
+		c5 := cumulativeChord.C5()
+		c6 := cumulativeChord.C6()
+		c7 := cumulativeChord.C7()
 
 		_ = server.spatialConn.SendStreamCall(ctx, capnp.Send{
 			Method:   spatialInsertMethod,
@@ -170,8 +173,8 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 					return err
 				}
 
-				edge.SetUint8(0, left)
-				edge.SetUint8(1, right)
+				edge.SetUint8(0, currentByte)
+				// Right byte is no longer stored in the graph edge morton format
 				edge.SetUint32(4, pos)
 
 				// Chord: DataSize=64, PointerCount=0 (8×uint64)
@@ -197,6 +200,8 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 			},
 		})
 	}
+
+	sequenceChord, _ := data.BuildChord(chunk)
 
 	if server.broadcast != nil {
 		server.broadcast.Send(&pool.Result{

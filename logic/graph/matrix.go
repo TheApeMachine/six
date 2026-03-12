@@ -2,6 +2,7 @@ package graph
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"net"
 	"sync"
@@ -9,6 +10,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/data"
+	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/pool"
 )
 
@@ -29,6 +31,7 @@ type MatrixServer struct {
 	ctx context.Context
 
 	broadcast   *pool.BroadcastGroup
+	workerPool  *pool.Pool
 	rpcConn     *rpc.Conn
 	spatialConn capnp.Client
 }
@@ -64,6 +67,15 @@ MatrixWithBroadcast injects the broadcast group.
 func MatrixWithBroadcast(broadcast *pool.BroadcastGroup) MatrixServerOpt {
 	return func(matrix *MatrixServer) {
 		matrix.broadcast = broadcast
+	}
+}
+
+/*
+MatrixWithPool injects the shared worker pool.
+*/
+func MatrixWithPool(p *pool.Pool) MatrixServerOpt {
+	return func(matrix *MatrixServer) {
+		matrix.workerPool = p
 	}
 }
 
@@ -239,6 +251,8 @@ func (matrix *MatrixServer) prompt(ctx context.Context, chords data.Chord_List, 
 		}
 	}
 
+	matrix.RecursiveFold(pathsData, 0)
+	
 	return matrix.writePaths(res, pathsData)
 }
 
@@ -293,4 +307,48 @@ func chordsToSlice(chords data.Chord_List) []data.Chord {
 		out[i] = chord
 	}
 	return out
+}
+
+/*
+RecursiveFold fractures geometric sequences into an isolated hierarchy of labels
+connected by phase rotations (the "arrow of time"), firing pool jobs recursively.
+*/
+func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int) {
+	if len(sequences) == 0 {
+		return
+	}
+
+	// 1. Structural GCD
+	labelChord := extractSharedInvariant(sequences)
+	if labelChord.ActiveCount() == 0 {
+		return
+	}
+
+	// 2. Derive Macroscopic Arrow of Time Pointer
+	ei := geometry.NewEigenMode()
+	theta, _ := ei.PhaseForChord(&labelChord) // The edge!
+
+	// 3. Extract the unique residues
+	var uniqueResidues [][]data.Chord
+	for _, seq := range sequences {
+		residue := xorSequence(seq, labelChord)
+		if len(residue) > 0 {
+			uniqueResidues = append(uniqueResidues, residue)
+		}
+	}
+
+	// Store log / AST
+	// The labelChord sits at the tip of the node, radiating `theta` down to uniqueResidues
+
+	// 4. Recurse via Pool
+	if matrix.workerPool != nil {
+		jobID := fmt.Sprintf("fold-level-%d-%f", level, theta)
+		matrix.workerPool.Schedule(jobID, func() (any, error) {
+			matrix.RecursiveFold(uniqueResidues, level+1)
+			return nil, nil
+		})
+	} else {
+		// Fallback synchronously
+		matrix.RecursiveFold(uniqueResidues, level+1)
+	}
 }

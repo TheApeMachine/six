@@ -3,7 +3,6 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -48,8 +47,8 @@ func (experiment *PhaseCoherenceExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *PhaseCoherenceExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *PhaseCoherenceExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *PhaseCoherenceExperiment) AddResult(results tools.ExperimentalData) {
@@ -77,10 +76,4 @@ func (experiment *PhaseCoherenceExperiment) TableData() any {
 
 func (experiment *PhaseCoherenceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
-}
-
-func (experiment *PhaseCoherenceExperiment) RawOutput() bool { return false }
-
-func (experiment *PhaseCoherenceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

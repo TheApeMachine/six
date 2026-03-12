@@ -4,7 +4,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -58,8 +57,8 @@ func (experiment *TextOverlapExperiment) Prompts() *process.Prompt {
 }
 
 // 40% right holdout — tests generation across the second main act of each story.
-func (experiment *TextOverlapExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 40, tokenizer.RIGHT
+func (experiment *TextOverlapExperiment) Holdout() (int, process.HoldoutType) {
+	return 40, process.RIGHT
 }
 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {
@@ -91,10 +90,4 @@ func (experiment *TextOverlapExperiment) TableData() any { return experiment.tab
 
 func (experiment *TextOverlapExperiment) Artifacts() []tools.Artifact {
 	return TextOverlapArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *TextOverlapExperiment) RawOutput() bool { return false }
-
-func (experiment *TextOverlapExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

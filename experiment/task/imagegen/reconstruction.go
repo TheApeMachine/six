@@ -12,7 +12,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -68,8 +67,8 @@ func (e *ReconstructionExperiment) Section() string           { return "imagegen
 func (e *ReconstructionExperiment) Dataset() provider.Dataset { return e.dataset }
 
 // Holdout is unused here; we build explicit samples in Prompts().
-func (e *ReconstructionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (e *ReconstructionExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 /*
@@ -98,20 +97,16 @@ func (e *ReconstructionExperiment) Prompts() *process.Prompt {
 	}
 
 	// Build N×9 explicit PromptSamples.
-	var samples []process.PromptSample
+	var samples []string
 	for _, px := range e.imageBytes {
 		for _, pct := range holdoutPercents {
 			splitIdx := len(px) * (100 - pct) / 100
-			samples = append(samples, process.PromptSample{
-				Visible: string(px[:splitIdx]),
-				HeldOut: string(px[splitIdx:]),
-				Full:    string(px),
-			})
+			samples = append(samples, string(px[:splitIdx]))
 		}
 	}
 
 	e.prompt = process.NewPrompt(
-		process.PromptWithSamples(samples),
+		process.PromptWithDataset(e.dataset),
 	)
 	return e.prompt
 }
@@ -340,14 +335,6 @@ colour distributions of CIFAR-10 imagery.
 		},
 	}
 }
-
-func (e *ReconstructionExperiment) RawOutput() bool { return true }
-
-func (e *ReconstructionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
-}
-
-// ── Image helpers ─────────────────────────────────────────────────────────────
 
 // nrgbaToBase64PNG encodes a raw NRGBA pixel buffer to a base64 PNG string.
 func nrgbaToBase64PNG(pixels []byte, w, h int) string {

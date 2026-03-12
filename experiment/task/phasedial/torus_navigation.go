@@ -1,14 +1,9 @@
 package phasedial
 
 import (
-	"fmt"
-	"math"
-	"math/cmplx"
-
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -100,8 +95,8 @@ func (experiment *TorusNavigationExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *TorusNavigationExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *TorusNavigationExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *TorusNavigationExperiment) AddResult(results tools.ExperimentalData) {
@@ -129,193 +124,193 @@ func (experiment *TorusNavigationExperiment) TableData() any {
 
 func (experiment *TorusNavigationExperiment) RawOutput() bool { return false }
 
-func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
-	seedQueryChords := sub.Entries[0].Readout
-	fingerprintA := sub.Entries[0].Fingerprint
+// func (experiment *TorusNavigationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
+// 	seedQueryChords := sub.Entries[0].Readout
+// 	fingerprintA := sub.Entries[0].Fingerprint
 
-	splitPoint := experiment.splitPoint
+// 	splitPoint := experiment.splitPoint
 
-	torusRotate := func(fp geometry.PhaseDial, alpha1, alpha2 float64) geometry.PhaseDial {
-		f1 := cmplx.Rect(1.0, alpha1)
-		f2 := cmplx.Rect(1.0, alpha2)
-		out := make(geometry.PhaseDial, config.Numeric.NBasis)
-		for k := 0; k < splitPoint; k++ {
-			out[k] = fp[k] * f1
-		}
-		for k := splitPoint; k < config.Numeric.NBasis; k++ {
-			out[k] = fp[k] * f2
-		}
-		return out
-	}
+// 	torusRotate := func(fp geometry.PhaseDial, alpha1, alpha2 float64) geometry.PhaseDial {
+// 		f1 := cmplx.Rect(1.0, alpha1)
+// 		f2 := cmplx.Rect(1.0, alpha2)
+// 		out := make(geometry.PhaseDial, config.Numeric.NBasis)
+// 		for k := 0; k < splitPoint; k++ {
+// 			out[k] = fp[k] * f1
+// 		}
+// 		for k := splitPoint; k < config.Numeric.NBasis; k++ {
+// 			out[k] = fp[k] * f2
+// 		}
+// 		return out
+// 	}
 
-	type torusSlice struct {
-		HopAlpha1     float64
-		Base1Gain     float64
-		Base2Gain     float64
-		SingleCeiling float64
-		BestTorusGain float64
-		BestTorusA1   float64
-		BestTorusA2   float64
-		SuperAdditive bool
-		Delta         float64
-	}
+// 	type torusSlice struct {
+// 		HopAlpha1     float64
+// 		Base1Gain     float64
+// 		Base2Gain     float64
+// 		SingleCeiling float64
+// 		BestTorusGain float64
+// 		BestTorusA1   float64
+// 		BestTorusA2   float64
+// 		SuperAdditive bool
+// 		Delta         float64
+// 	}
 
-	const stepDeg = 5.0
-	gridSize := int(360.0 / stepDeg)
-	var slices []torusSlice
+// 	const stepDeg = 5.0
+// 	gridSize := int(360.0 / stepDeg)
+// 	var slices []torusSlice
 
-	for _, hopAlpha1Deg := range experiment.alpha1List {
-		hop := sub.FirstHop(fingerprintA, hopAlpha1Deg*(math.Pi/180.0), seedQueryChords)
-		fpA, fpB, fpAB := fingerprintA, hop.FingerprintB, hop.FingerprintAB
-		readoutB := hop.ReadoutB
+// 	for _, hopAlpha1Deg := range experiment.alpha1List {
+// 		hop := sub.FirstHop(fingerprintA, hopAlpha1Deg*(math.Pi/180.0), seedQueryChords)
+// 		fpA, fpB, fpAB := fingerprintA, hop.FingerprintB, hop.FingerprintAB
+// 		readoutB := hop.ReadoutB
 
-		base1 := sub.BestGain(fpA, fpA, fpB, seedQueryChords, readoutB)
-		base2 := sub.BestGain(fpB, fpA, fpB, seedQueryChords, readoutB)
-		ceiling := math.Max(base1, base2)
+// 		base1 := sub.BestGain(fpA, fpA, fpB, seedQueryChords, readoutB)
+// 		base2 := sub.BestGain(fpB, fpA, fpB, seedQueryChords, readoutB)
+// 		ceiling := math.Max(base1, base2)
 
-		var bestGain float64 = -1
-		var bestA1, bestA2 float64
-		for i := 0; i < gridSize; i++ {
-			a1 := float64(i) * stepDeg * (math.Pi / 180.0)
-			for j := 0; j < gridSize; j++ {
-				a2 := float64(j) * stepDeg * (math.Pi / 180.0)
-				ranked := sub.PhaseDialRank(sub.Candidates(), torusRotate(fpAB, a1, a2))
-				topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB)
-				fpC := sub.Entries[topIdx].Fingerprint
-				if g := math.Min(fpC.Similarity(fpA), fpC.Similarity(fpB)); g > bestGain {
-					bestGain = g
-					bestA1 = float64(i) * stepDeg
-					bestA2 = float64(j) * stepDeg
-				}
-			}
-		}
+// 		var bestGain float64 = -1
+// 		var bestA1, bestA2 float64
+// 		for i := 0; i < gridSize; i++ {
+// 			a1 := float64(i) * stepDeg * (math.Pi / 180.0)
+// 			for j := 0; j < gridSize; j++ {
+// 				a2 := float64(j) * stepDeg * (math.Pi / 180.0)
+// 				ranked := sub.PhaseDialRank(sub.Candidates(), torusRotate(fpAB, a1, a2))
+// 				topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB)
+// 				fpC := sub.Entries[topIdx].Fingerprint
+// 				if g := math.Min(fpC.Similarity(fpA), fpC.Similarity(fpB)); g > bestGain {
+// 					bestGain = g
+// 					bestA1 = float64(i) * stepDeg
+// 					bestA2 = float64(j) * stepDeg
+// 				}
+// 			}
+// 		}
 
-		sa := bestGain > ceiling
-		if sa {
-			experiment.anySuperAdditive = true
-		}
-		slices = append(slices, torusSlice{
-			HopAlpha1:     hopAlpha1Deg,
-			Base1Gain:     base1,
-			Base2Gain:     base2,
-			SingleCeiling: ceiling,
-			BestTorusGain: bestGain,
-			BestTorusA1:   bestA1,
-			BestTorusA2:   bestA2,
-			SuperAdditive: sa,
-			Delta:         bestGain - ceiling,
-		})
-	}
+// 		sa := bestGain > ceiling
+// 		if sa {
+// 			experiment.anySuperAdditive = true
+// 		}
+// 		slices = append(slices, torusSlice{
+// 			HopAlpha1:     hopAlpha1Deg,
+// 			Base1Gain:     base1,
+// 			Base2Gain:     base2,
+// 			SingleCeiling: ceiling,
+// 			BestTorusGain: bestGain,
+// 			BestTorusA1:   bestA1,
+// 			BestTorusA2:   bestA2,
+// 			SuperAdditive: sa,
+// 			Delta:         bestGain - ceiling,
+// 		})
+// 	}
 
-	// Landscape Logic (First hop only)
-	var landscape []struct {
-		i, j int
-		gain float64
-	}
-	hop1 := sub.FirstHop(fingerprintA, experiment.alpha1List[0]*(math.Pi/180.0), seedQueryChords)
-	fpA1, fpB1, fpAB1 := fingerprintA, hop1.FingerprintB, hop1.FingerprintAB
-	readoutB1 := hop1.ReadoutB
-	for i := 0; i < gridSize; i++ {
-		a1 := float64(i) * stepDeg * (math.Pi / 180.0)
-		for j := 0; j < gridSize; j++ {
-			a2 := float64(j) * stepDeg * (math.Pi / 180.0)
-			ranked := sub.PhaseDialRank(sub.Candidates(), torusRotate(fpAB1, a1, a2))
-			topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB1)
-			fpC := sub.Entries[topIdx].Fingerprint
-			gain := math.Min(fpC.Similarity(fpA1), fpC.Similarity(fpB1))
-			landscape = append(landscape, struct {
-				i, j int
-				gain float64
-			}{i, j, gain})
-		}
-	}
+// 	// Landscape Logic (First hop only)
+// 	var landscape []struct {
+// 		i, j int
+// 		gain float64
+// 	}
+// 	hop1 := sub.FirstHop(fingerprintA, experiment.alpha1List[0]*(math.Pi/180.0), seedQueryChords)
+// 	fpA1, fpB1, fpAB1 := fingerprintA, hop1.FingerprintB, hop1.FingerprintAB
+// 	readoutB1 := hop1.ReadoutB
+// 	for i := 0; i < gridSize; i++ {
+// 		a1 := float64(i) * stepDeg * (math.Pi / 180.0)
+// 		for j := 0; j < gridSize; j++ {
+// 			a2 := float64(j) * stepDeg * (math.Pi / 180.0)
+// 			ranked := sub.PhaseDialRank(sub.Candidates(), torusRotate(fpAB1, a1, a2))
+// 			topIdx := sub.TopExcluding(ranked, seedQueryChords, readoutB1)
+// 			fpC := sub.Entries[topIdx].Fingerprint
+// 			gain := math.Min(fpC.Similarity(fpA1), fpC.Similarity(fpB1))
+// 			landscape = append(landscape, struct {
+// 				i, j int
+// 				gain float64
+// 			}{i, j, gain})
+// 		}
+// 	}
 
-	axLabels := make([]string, gridSize)
-	for i := 0; i < gridSize; i++ {
-		axLabels[i] = fmt.Sprintf("%.0f°", float64(i)*stepDeg)
-	}
-	heatData := make([][]any, len(landscape))
-	for i, c := range landscape {
-		heatData[i] = []any{c.i, c.j, c.gain}
-	}
+// 	axLabels := make([]string, gridSize)
+// 	for i := 0; i < gridSize; i++ {
+// 		axLabels[i] = fmt.Sprintf("%.0f°", float64(i)*stepDeg)
+// 	}
+// 	heatData := make([][]any, len(landscape))
+// 	for i, c := range landscape {
+// 		heatData[i] = []any{c.i, c.j, c.gain}
+// 	}
 
-	experiment.heatPanel = tools.Panel{
-		Kind:        "heatmap",
-		Title:       fmt.Sprintf("Torus Gain Landscape (hop α₁=%.0f°)", experiment.alpha1List[0]),
-		GridLeft:    "8%",
-		GridRight:   "47%",
-		GridTop:     "8%",
-		GridBottom:  "10%",
-		XLabels:     axLabels,
-		XAxisName:   "Torus α₁ (dims 0–255)",
-		XInterval:   9,
-		XShow:       true,
-		YLabels:     axLabels,
-		YAxisName:   "Torus α₂ (dims 256–511)",
-		YInterval:   9,
-		HeatData:    heatData,
-		HeatMin:     -0.15,
-		HeatMax:     0.20,
-		ColorScheme: "viridis",
-		ShowVM:      true,
-		VMRight:     "46%",
-	}
+// 	experiment.heatPanel = tools.Panel{
+// 		Kind:        "heatmap",
+// 		Title:       fmt.Sprintf("Torus Gain Landscape (hop α₁=%.0f°)", experiment.alpha1List[0]),
+// 		GridLeft:    "8%",
+// 		GridRight:   "47%",
+// 		GridTop:     "8%",
+// 		GridBottom:  "10%",
+// 		XLabels:     axLabels,
+// 		XAxisName:   "Torus α₁ (dims 0–255)",
+// 		XInterval:   9,
+// 		XShow:       true,
+// 		YLabels:     axLabels,
+// 		YAxisName:   "Torus α₂ (dims 256–511)",
+// 		YInterval:   9,
+// 		HeatData:    heatData,
+// 		HeatMin:     -0.15,
+// 		HeatMax:     0.20,
+// 		ColorScheme: "viridis",
+// 		ShowVM:      true,
+// 		VMRight:     "46%",
+// 	}
 
-	xAxis := make([]string, len(slices))
-	base1Data := make([]float64, len(slices))
-	base2Data := make([]float64, len(slices))
-	torusData := make([]float64, len(slices))
-	for i, s := range slices {
-		xAxis[i] = fmt.Sprintf("%.0f°", s.HopAlpha1)
-		base1Data[i] = s.Base1Gain
-		base2Data[i] = s.Base2Gain
-		torusData[i] = s.BestTorusGain
-	}
-	experiment.chartPanel = tools.Panel{
-		Kind:       "chart",
-		Title:      "Torus vs 1D Baselines",
-		GridLeft:   "62%",
-		GridRight:  "5%",
-		GridTop:    "8%",
-		GridBottom: "10%",
-		XLabels:    xAxis,
-		XAxisName:  "First-Hop Angle",
-		XShow:      true,
-		YAxisName:  "Gain",
-		Series: []tools.PanelSeries{
-			{Name: "Torus Best", Kind: "bar", BarWidth: "30%", Data: torusData, Color: "#22c55e"},
-			{Name: "Baseline A", Kind: "dashed", Symbol: "diamond", Data: base1Data, Color: "#94a3b8"},
-			{Name: "Baseline B", Kind: "dashed", Symbol: "triangle", Data: base2Data, Color: "#ef4444"},
-		},
-		YMin: tools.Float64Ptr(-0.1),
-		YMax: tools.Float64Ptr(0.45),
-	}
+// 	xAxis := make([]string, len(slices))
+// 	base1Data := make([]float64, len(slices))
+// 	base2Data := make([]float64, len(slices))
+// 	torusData := make([]float64, len(slices))
+// 	for i, s := range slices {
+// 		xAxis[i] = fmt.Sprintf("%.0f°", s.HopAlpha1)
+// 		base1Data[i] = s.Base1Gain
+// 		base2Data[i] = s.Base2Gain
+// 		torusData[i] = s.BestTorusGain
+// 	}
+// 	experiment.chartPanel = tools.Panel{
+// 		Kind:       "chart",
+// 		Title:      "Torus vs 1D Baselines",
+// 		GridLeft:   "62%",
+// 		GridRight:  "5%",
+// 		GridTop:    "8%",
+// 		GridBottom: "10%",
+// 		XLabels:    xAxis,
+// 		XAxisName:  "First-Hop Angle",
+// 		XShow:      true,
+// 		YAxisName:  "Gain",
+// 		Series: []tools.PanelSeries{
+// 			{Name: "Torus Best", Kind: "bar", BarWidth: "30%", Data: torusData, Color: "#22c55e"},
+// 			{Name: "Baseline A", Kind: "dashed", Symbol: "diamond", Data: base1Data, Color: "#94a3b8"},
+// 			{Name: "Baseline B", Kind: "dashed", Symbol: "triangle", Data: base2Data, Color: "#ef4444"},
+// 		},
+// 		YMin: tools.Float64Ptr(-0.1),
+// 		YMax: tools.Float64Ptr(0.45),
+// 	}
 
-	experiment.tableRows = make([]map[string]any, len(slices))
-	for i, s := range slices {
-		experiment.tableRows[i] = map[string]any{
-			"Alpha1":        fmt.Sprintf("%.0f°", s.HopAlpha1),
-			"BestTorusGain": fmt.Sprintf("%.4f", s.BestTorusGain),
-			"Ceiling":       fmt.Sprintf("%.4f", s.SingleCeiling),
-			"Delta":         fmt.Sprintf("%+.4f", s.Delta),
-			"SuperAdditive": s.SuperAdditive,
-			"BestA1":        fmt.Sprintf("%.0f°", s.BestTorusA1),
-			"BestA2":        fmt.Sprintf("%.0f°", s.BestTorusA2),
-		}
+// 	experiment.tableRows = make([]map[string]any, len(slices))
+// 	for i, s := range slices {
+// 		experiment.tableRows[i] = map[string]any{
+// 			"Alpha1":        fmt.Sprintf("%.0f°", s.HopAlpha1),
+// 			"BestTorusGain": fmt.Sprintf("%.4f", s.BestTorusGain),
+// 			"Ceiling":       fmt.Sprintf("%.4f", s.SingleCeiling),
+// 			"Delta":         fmt.Sprintf("%+.4f", s.Delta),
+// 			"SuperAdditive": s.SuperAdditive,
+// 			"BestA1":        fmt.Sprintf("%.0f°", s.BestTorusA1),
+// 			"BestA2":        fmt.Sprintf("%.0f°", s.BestTorusA2),
+// 		}
 
-		experiment.AddResult(tools.ExperimentalData{
-			Name:          fmt.Sprintf("%.0f°", s.HopAlpha1),
-			WeightedTotal: s.BestTorusGain,
-			Scores: tools.Scores{
-				Exact:   s.BestTorusGain,
-				Partial: s.SingleCeiling,
-				Fuzzy:   s.Delta,
-			},
-		})
-	}
+// 		experiment.AddResult(tools.ExperimentalData{
+// 			Name:          fmt.Sprintf("%.0f°", s.HopAlpha1),
+// 			WeightedTotal: s.BestTorusGain,
+// 			Scores: tools.Scores{
+// 				Exact:   s.BestTorusGain,
+// 				Partial: s.SingleCeiling,
+// 				Fuzzy:   s.Delta,
+// 			},
+// 		})
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (experiment *TorusNavigationExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{

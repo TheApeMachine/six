@@ -5,7 +5,6 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -110,8 +109,8 @@ func (experiment *CrossDomainCompletionExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *CrossDomainCompletionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.RIGHT
+func (experiment *CrossDomainCompletionExperiment) Holdout() (int, process.HoldoutType) {
+	return 50, process.RIGHT
 }
 
 func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.ExperimentalData) {
@@ -378,18 +377,6 @@ before chord resonance can reliably recover novel suffixes.
 		},
 	}
 }
-
-func (experiment *CrossDomainCompletionExperiment) RawOutput() bool { return false }
-
-func (experiment *CrossDomainCompletionExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
-}
-
-// ── multiDomainDataset ────────────────────────────────────────────────────────
-// Concatenates token streams from multiple datasets. SampleID contains
-// the original sample identifier.
 
 type multiDomainDataset struct {
 	datasets    []provider.Dataset

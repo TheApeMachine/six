@@ -8,8 +8,8 @@ import (
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
 
+	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
 )
@@ -92,13 +92,13 @@ func (experiment *TextClassificationExperiment) Dataset() provider.Dataset {
 func (experiment *TextClassificationExperiment) Prompts() *process.Prompt {
 	experiment.prompt = process.NewPrompt(
 		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithSubstringHoldout(labelSuffixes),
+		process.PromptWithHoldout(0, process.MATCH),
 	)
 	return experiment.prompt
 }
 
-func (experiment *TextClassificationExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.SUBSTRING
+func (experiment *TextClassificationExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.MATCH
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
@@ -221,7 +221,7 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 		{"Sample Size (N)", fmt.Sprintf("%d", n)},
 	}
 
-	matrixFile := slugify(experiment.Name()) + "_scores"
+	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
 
 	proseTemplate := `\subsection{Text Classification}
 \label{sec:text_classification}
@@ -282,7 +282,7 @@ to improve per-class disambiguation.
 			Data:     experiment.tableData,
 			Title:    experiment.Name() + " — Confusion Matrix",
 			Caption:  "Confusion matrix showing predicted vs. true class assignments for " + experiment.Name() + ".",
-			Label:    "fig:" + slugify(experiment.Name()) + "_confusion",
+			Label:    "fig:" + tools.Slugify(experiment.Name()) + "_confusion",
 		},
 		{
 			Type:     tools.ArtifactProse,
@@ -301,16 +301,6 @@ to improve per-class disambiguation.
 			},
 		},
 	}
-}
-
-func (experiment *TextClassificationExperiment) RawOutput() bool { return false }
-
-func (experiment *TextClassificationExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
-}
-
-func slugify(name string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }
 
 /*

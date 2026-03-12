@@ -8,7 +8,6 @@ import (
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -56,29 +55,15 @@ func (experiment *BabiExperiment) Dataset() provider.Dataset {
 }
 
 func (experiment *BabiExperiment) Prompts() *process.Prompt {
-	samples, err := experiment.dataset.Samples()
-	if err != nil {
-		return process.NewPrompt()
-	}
-
-	promptSamples := make([]process.PromptSample, 0, len(samples))
-	for _, sample := range samples {
-		promptSamples = append(promptSamples, process.PromptSample{
-			Visible: sample.Visible,
-			HeldOut: sample.Answer,
-			Full:    sample.Full,
-		})
-	}
-
 	experiment.prompt = process.NewPrompt(
-		process.PromptWithSamples(promptSamples),
+		process.PromptWithDataset(experiment.dataset),
 	)
 
 	return experiment.prompt
 }
 
-func (experiment *BabiExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *BabiExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *BabiExperiment) Section() string {
@@ -358,16 +343,6 @@ may not separate location attractors reliably.
 		},
 	}
 }
-
-func (experiment *BabiExperiment) RawOutput() bool { return false }
-
-func (experiment *BabiExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
-}
-
-// ── Internal helpers ────────────────────────────────────────────────
 
 type entityStat struct {
 	Correct int

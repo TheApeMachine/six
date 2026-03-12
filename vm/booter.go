@@ -55,8 +55,8 @@ func (booter *Booter) Start() {
 	subscription := broadcast.Subscribe("booter", 128)
 
 	index := lsm.NewSpatialIndexServer(
-		lsm.SpatialIndexWithContext(booter.ctx),
-		lsm.SpatialIndexWithBroadcast(broadcast),
+		lsm.WithContext(booter.ctx),
+		lsm.WithBroadcastGroup(broadcast),
 	)
 
 	tokenizer := process.NewTokenizerServer(
@@ -68,6 +68,7 @@ func (booter *Booter) Start() {
 	matrix := graph.NewMatrixServer(
 		graph.MatrixWithContext(booter.ctx),
 		graph.MatrixWithBroadcast(broadcast),
+		graph.MatrixWithPool(booter.pool),
 	)
 
 	systems := []System{

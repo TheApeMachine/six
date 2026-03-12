@@ -5,7 +5,6 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -50,8 +49,8 @@ func (experiment *GroupActionEquivarianceExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *GroupActionEquivarianceExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *GroupActionEquivarianceExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *GroupActionEquivarianceExperiment) AddResult(results tools.ExperimentalData) {
@@ -77,18 +76,6 @@ func (experiment *GroupActionEquivarianceExperiment) TableData() any {
 	return experiment.tableData
 }
 
-// GenerateArtifacts creates the equivariance summary table.
-func (experiment *GroupActionEquivarianceExperiment) GenerateArtifacts(substrate *geometry.HybridSubstrate) error {
-	// ... (Equivariance validation from original test) ...
-	return nil
-}
-
 func (experiment *GroupActionEquivarianceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
-}
-
-func (experiment *GroupActionEquivarianceExperiment) RawOutput() bool { return false }
-
-func (experiment *GroupActionEquivarianceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

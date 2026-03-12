@@ -5,7 +5,6 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -49,8 +48,8 @@ func (experiment *PermutationInvarianceExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *PermutationInvarianceExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *PermutationInvarianceExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *PermutationInvarianceExperiment) AddResult(results tools.ExperimentalData) {
@@ -78,10 +77,4 @@ func (experiment *PermutationInvarianceExperiment) TableData() any {
 
 func (experiment *PermutationInvarianceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
-}
-
-func (experiment *PermutationInvarianceExperiment) RawOutput() bool { return false }
-
-func (experiment *PermutationInvarianceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

@@ -15,10 +15,16 @@ const (
 	MATCH
 )
 
+type Holdout struct {
+	Percent int
+	Type    HoldoutType
+}
+
 type Prompt struct {
+	dataset  provider.Dataset
 	original string
 	masked   string
-	heldout  string
+	heldout  Holdout
 }
 
 type promptOpts func(*Prompt)
@@ -33,10 +39,18 @@ func NewPrompt(opts ...promptOpts) *Prompt {
 	return prompt
 }
 
-func PromptWithDataset(dataset provider.Dataset) {
-
+func (prompt *Prompt) Samples() []string {
+	return []string{}
 }
 
-func PromptWithHoldout(prct int, ht HoldoutType) {
+func PromptWithDataset(dataset provider.Dataset) promptOpts {
+	return func(p *Prompt) {
+		p.dataset = dataset
+	}
+}
 
+func PromptWithHoldout(prct int, ht HoldoutType) promptOpts {
+	return func(p *Prompt) {
+		p.heldout = Holdout{prct, ht}
+	}
 }

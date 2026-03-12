@@ -930,7 +930,8 @@ TestResidueRecovery tests the fundamental question: given a known prefix
 and a known full sequence, can we recover the continuation from the residue?
 
 Math: full = OR(all bytes), prefix = OR(prefix bytes)
-      residue = full XOR prefix = ChordHole(full, prefix) ∪ ChordHole(prefix, full)
+
+	residue = full XOR prefix = ChordHole(full, prefix) ∪ ChordHole(prefix, full)
 
 Since prefix ⊆ full (by construction): ChordHole(prefix, full) = ∅
 So: residue = ChordHole(full, prefix) = bits in full not in prefix
@@ -1138,6 +1139,274 @@ func TestOrderInvariance(t *testing.T) {
 			}
 
 			So(uniqueChords, ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
+/*
+TestDumpAliceLabels writes a log file showing every unique chord
+produced during the Alice breakdown, the text chunks grouped under
+each chord (= label), and each label's nearest neighbors.
+*/
+func TestDumpAliceLabels(t *testing.T) {
+	raw, err := os.ReadFile("../../cmd/cfg/alice.txt")
+	if err != nil {
+		t.Skip("alice.txt not found")
+	}
+
+	chunks := tokenize(raw)
+	paths := buildPaths(chunks)
+
+	Convey("Given Alice tokenized into chunks", t, func() {
+		Convey("Dump label map to log file", func() {
+			type chordKey struct {
+				c0, c1, c2, c3, c4 uint64
+			}
+
+			type label struct {
+				key     chordKey
+				chord   data.Chord
+				indices []int
+				bits    int
+			}
+
+			groups := make(map[chordKey]*label)
+			keyOrder := []chordKey{}
+
+			for i, path := range paths {
+				key := chordKey{path.C0(), path.C1(), path.C2(), path.C3(), path.C4()}
+
+				if existing, ok := groups[key]; ok {
+					existing.indices = append(existing.indices, i)
+				} else {
+					groups[key] = &label{
+						key:     key,
+						chord:   path,
+						indices: []int{i},
+						bits:    path.ActiveCount(),
+					}
+					keyOrder = append(keyOrder, key)
+				}
+			}
+
+			sort.Slice(keyOrder, func(i, j int) bool {
+				li := groups[keyOrder[i]]
+				lj := groups[keyOrder[j]]
+
+				if len(li.indices) != len(lj.indices) {
+					return len(li.indices) > len(lj.indices)
+				}
+
+				return li.bits < lj.bits
+			})
+
+			uniqueChords := make([]data.Chord, len(keyOrder))
+			for i, key := range keyOrder {
+				uniqueChords[i] = groups[key].chord
+			}
+
+			f, err := os.Create("alice_labels.log")
+			So(err, ShouldBeNil)
+			defer f.Close()
+
+			fmt.Fprintf(f, "ALICE IN WONDERLAND — CHORD LABEL MAP\n")
+			fmt.Fprintf(f, "======================================\n")
+			fmt.Fprintf(f, "Total chunks: %d\n", len(chunks))
+			fmt.Fprintf(f, "Unique labels: %d\n", len(keyOrder))
+			fmt.Fprintf(f, "Collision rate: %.1f%%\n\n",
+				float64(len(chunks)-len(keyOrder))/float64(len(chunks))*100)
+
+			for rank, key := range keyOrder {
+				lbl := groups[key]
+
+				fmt.Fprintf(f, "────────────────────────────────────────\n")
+				fmt.Fprintf(f, "LABEL #%d  |  %d bits  |  %d chunk(s)\n",
+					rank+1, lbl.bits, len(lbl.indices))
+				fmt.Fprintf(f, "────────────────────────────────────────\n")
+
+				fmt.Fprintf(f, "  Chunks:\n")
+				for _, idx := range lbl.indices {
+					text := string(chunks[idx])
+					if len(text) > 60 {
+						text = text[:60] + "…"
+					}
+
+					fmt.Fprintf(f, "    [%4d] %q\n", idx, text)
+				}
+
+				if len(lbl.indices) > 0 {
+					sample := chunks[lbl.indices[0]]
+					uniqueBytes := make(map[byte]bool)
+
+					for _, b := range sample {
+						uniqueBytes[b] = true
+					}
+
+					byteList := make([]byte, 0, len(uniqueBytes))
+					for b := range uniqueBytes {
+						byteList = append(byteList, b)
+					}
+
+					sort.Slice(byteList, func(i, j int) bool { return byteList[i] < byteList[j] })
+
+					readable := ""
+					for _, b := range byteList {
+						if b >= 32 && b < 127 {
+							readable += string(b)
+						} else {
+							readable += fmt.Sprintf("\\x%02x", b)
+						}
+					}
+
+					fmt.Fprintf(f, "  Byte set: {%s}\n", readable)
+				}
+
+				if len(lbl.indices) > 1 {
+					core := paths[lbl.indices[0]]
+
+					for _, idx := range lbl.indices[1:] {
+						core = core.AND(paths[idx])
+					}
+
+					core.Sanitize()
+					fmt.Fprintf(f, "  Shared core: %d bits (all chunks share these)\n", core.ActiveCount())
+				}
+
+				fmt.Fprintf(f, "  Nearest neighbor labels:\n")
+
+				type neighbor struct {
+					rank int
+					dist int
+					text string
+				}
+
+				neighbors := make([]neighbor, 0, len(uniqueChords))
+
+				for j, uc := range uniqueChords {
+					if j == rank {
+						continue
+					}
+
+					dist := lbl.chord.XOR(uc).ActiveCount()
+					other := groups[keyOrder[j]]
+					text := string(chunks[other.indices[0]])
+
+					if len(text) > 40 {
+						text = text[:40]
+					}
+
+					neighbors = append(neighbors, neighbor{j, dist, text})
+				}
+
+				sort.Slice(neighbors, func(i, j int) bool {
+					return neighbors[i].dist < neighbors[j].dist
+				})
+
+				shown := min(3, len(neighbors))
+				for k := 0; k < shown; k++ {
+					nn := neighbors[k]
+					fmt.Fprintf(f, "    dist=%2d → label #%d %q\n", nn.dist, nn.rank+1, nn.text)
+				}
+
+				fmt.Fprintf(f, "\n")
+			}
+
+			t.Logf("Wrote %d labels to alice_labels.log", len(keyOrder))
+			So(len(keyOrder), ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
+/*
+TestGraphResidueDepletion tests the geometric reasoning process by systematically
+depleting a prompt's chordal energy using branches from the LSM.
+1. Fills the simulated LSM with Alice in Wonderland.
+2. Takes half a sentence as a prompt.
+3. Finds matching branches coming off that span.
+4. Uses Matrix to evaluate and ChordHole to strictly remove shared components.
+5. Checks what is left when it can no longer be reduced.
+*/
+func TestGraphResidueDepletion(t *testing.T) {
+	raw, err := os.ReadFile("../../cmd/cfg/alice.txt")
+	if err != nil {
+		t.Skip("alice.txt not found")
+	}
+
+	// 1. Let the tokenizer (Sequencer) run and build paths (the LSM contents)
+	chunks := tokenize(raw)
+	paths := buildPaths(chunks)
+	matrix := NewMatrixServer()
+
+	Convey("Given half a sentence from the text", t, func() {
+		// 2. Take half a sentence
+		text := "Alice was beginning to get very tired of sitting by her sister on the bank"
+		halfSentence := text[:len(text)/2]
+		prompt, _ := data.BuildChord([]byte(halfSentence))
+		startBits := prompt.ActiveCount()
+
+		Convey("Keep removing shared components with LSM branches until depleted", func() {
+			// 3. Find it in the LSM, get all the branches that come off that span.
+			// Emulate finding branches by identifying paths that share similarity
+			var branches []data.Chord
+			for _, path := range paths {
+				if data.ChordSimilarity(&prompt, &path) > 3 { // Threshold to be a valid branch
+					branches = append(branches, path)
+				}
+			}
+
+			// 4. Put it all in the graph Matrix
+			// 5. Use data/chord operations and keep removing shared components
+			residue := prompt
+			steps := 0
+
+			t.Logf("Initial residue: %d bits -> Text: %q", startBits, halfSentence)
+
+			for {
+				// Matrix evaluation finds the lowest XOR energy path
+				bestIdx, matchEnergy, _ := matrix.Evaluate(residue, branches)
+
+				if bestIdx == -1 {
+					break
+				}
+
+				match := branches[bestIdx]
+
+				// Use ChordHole to strictly remove shared components (Target AND NOT Match).
+				// This avoids the XOR issue of adding new bits, doing exactly what
+				// "removing shared components" demands.
+				nextResidue := data.ChordHole(&residue, &match)
+
+				if nextResidue.ActiveCount() == residue.ActiveCount() {
+					// We didn't manage to remove any bits this time
+					break
+				}
+
+				t.Logf("Step %d: removed %d shared bits via branch match (Evaluate energy=%d)",
+					steps+1, residue.ActiveCount()-nextResidue.ActiveCount(), matchEnergy)
+
+				residue = nextResidue
+				steps++
+
+				if residue.ActiveCount() == 0 {
+					break
+				}
+
+				// Remove the branch so we don't find it again continuously
+				branches = append(branches[:bestIdx], branches[bestIdx+1:]...)
+			}
+
+			// 6. Check what is left
+			endBits := residue.ActiveCount()
+			t.Logf("Final run result: depleted from %d to %d bits in %d steps", startBits, endBits, steps)
+
+			if endBits > 0 {
+				t.Logf("Remaining Unexplainable Residue: %d bits", endBits)
+			} else {
+				t.Logf("Residue completely explained and depleted by branches!")
+			}
+
+			// Validate we reduced the complexity
+			So(endBits, ShouldBeLessThan, startBits)
 		})
 	})
 }

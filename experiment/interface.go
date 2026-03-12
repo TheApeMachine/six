@@ -67,7 +67,7 @@ type PipelineExperiment interface {
 	Name() string
 	Section() string
 	Dataset() provider.Dataset
-	Prompts() []string
+	Prompts() *process.Prompt
 	Holdout() (int, process.HoldoutType)
 	AddResult(ExperimentalData)
 	Outcome() (any, gc.Assertion, any)

@@ -5,7 +5,6 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/local"
@@ -145,8 +144,8 @@ func (exp *RuleShiftExperiment) Prompts() *process.Prompt {
 	return exp.prompt
 }
 
-func (exp *RuleShiftExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return ruleShiftHoldoutPct, tokenizer.RIGHT
+func (exp *RuleShiftExperiment) Holdout() (int, process.HoldoutType) {
+	return ruleShiftHoldoutPct, process.RIGHT
 }
 
 /*
@@ -441,10 +440,4 @@ the shift detectable.
 			},
 		},
 	}
-}
-
-func (exp *RuleShiftExperiment) RawOutput() bool { return false }
-
-func (exp *RuleShiftExperiment) Finalize(_ *geometry.HybridSubstrate) error {
-	return nil
 }

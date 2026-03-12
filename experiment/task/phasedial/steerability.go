@@ -1,14 +1,8 @@
 package phasedial
 
 import (
-	"fmt"
-	"math"
-	"math/cmplx"
-
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
@@ -98,8 +92,8 @@ func (experiment *SteerabilityExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *SteerabilityExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *SteerabilityExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *SteerabilityExperiment) AddResult(results tools.ExperimentalData) {
@@ -120,194 +114,194 @@ func (experiment *SteerabilityExperiment) TableData() any {
 
 func (experiment *SteerabilityExperiment) RawOutput() bool { return false }
 
-func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	D := config.Numeric.NBasis
-	candidates := substrate.Candidates()
+// func (experiment *SteerabilityExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+// 	D := config.Numeric.NBasis
+// 	candidates := substrate.Candidates()
 
-	topKSet := func(fp geometry.PhaseDial) map[int]bool {
-		const K = 8
-		ranked := substrate.PhaseDialRank(candidates, fp)
-		set := make(map[int]bool, K)
-		for i := 0; i < K && i < len(ranked); i++ {
-			set[ranked[i].Idx] = true
-		}
-		return set
-	}
+// 	topKSet := func(fp geometry.PhaseDial) map[int]bool {
+// 		const K = 8
+// 		ranked := substrate.PhaseDialRank(candidates, fp)
+// 		set := make(map[int]bool, K)
+// 		for i := 0; i < K && i < len(ranked); i++ {
+// 			set[ranked[i].Idx] = true
+// 		}
+// 		return set
+// 	}
 
-	jaccard := func(a, b map[int]bool) float64 {
-		inter := 0
-		for k := range a {
-			if b[k] {
-				inter++
-			}
-		}
-		union := len(a) + len(b) - inter
-		if union == 0 {
-			return 0
-		}
-		return 1.0 - float64(inter)/float64(union)
-	}
+// 	jaccard := func(a, b map[int]bool) float64 {
+// 		inter := 0
+// 		for k := range a {
+// 			if b[k] {
+// 				inter++
+// 			}
+// 		}
+// 		union := len(a) + len(b) - inter
+// 		if union == 0 {
+// 			return 0
+// 		}
+// 		return 1.0 - float64(inter)/float64(union)
+// 	}
 
-	rotateBlock := func(fp geometry.PhaseDial, alpha float64, start, end int) geometry.PhaseDial {
-		rotated := make(geometry.PhaseDial, D)
-		copy(rotated, fp)
-		f := cmplx.Rect(1.0, alpha)
-		for k := start; k < end; k++ {
-			rotated[k] = fp[k] * f
-		}
-		return rotated
-	}
+// 	rotateBlock := func(fp geometry.PhaseDial, alpha float64, start, end int) geometry.PhaseDial {
+// 		rotated := make(geometry.PhaseDial, D)
+// 		copy(rotated, fp)
+// 		f := cmplx.Rect(1.0, alpha)
+// 		for k := start; k < end; k++ {
+// 			rotated[k] = fp[k] * f
+// 		}
+// 		return rotated
+// 	}
 
-	steerability := func(fp geometry.PhaseDial, start, end int) float64 {
-		const nAngles = 12
-		var topKSets []map[int]bool
-		for i := 0; i < nAngles; i++ {
-			alpha := float64(i) * (2.0 * math.Pi / float64(nAngles))
-			rotated := rotateBlock(fp, alpha, start, end)
-			topKSets = append(topKSets, topKSet(rotated))
-		}
-		sumJ := 0.0
-		for i := 0; i < nAngles; i++ {
-			next := (i + 1) % nAngles
-			sumJ += jaccard(topKSets[i], topKSets[next])
-		}
-		return sumJ / float64(nAngles)
-	}
+// 	steerability := func(fp geometry.PhaseDial, start, end int) float64 {
+// 		const nAngles = 12
+// 		var topKSets []map[int]bool
+// 		for i := 0; i < nAngles; i++ {
+// 			alpha := float64(i) * (2.0 * math.Pi / float64(nAngles))
+// 			rotated := rotateBlock(fp, alpha, start, end)
+// 			topKSets = append(topKSets, topKSet(rotated))
+// 		}
+// 		sumJ := 0.0
+// 		for i := 0; i < nAngles; i++ {
+// 			next := (i + 1) % nAngles
+// 			sumJ += jaccard(topKSets[i], topKSets[next])
+// 		}
+// 		return sumJ / float64(nAngles)
+// 	}
 
-	seedQueryChords := substrate.Entries[0].Readout
-	fpA := substrate.Entries[0].Fingerprint
-	hop := substrate.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQueryChords)
-	fpAB := hop.FingerprintAB
-	readoutB := hop.ReadoutB
+// 	seedQueryChords := substrate.Entries[0].Readout
+// 	fpA := substrate.Entries[0].Fingerprint
+// 	hop := substrate.FirstHop(fpA, 45.0*(math.Pi/180.0), seedQueryChords)
+// 	fpAB := hop.FingerprintAB
+// 	readoutB := hop.ReadoutB
 
-	if len(readoutB) == 0 {
-		return fmt.Errorf("could not find readoutB for steerability")
-	}
+// 	if len(readoutB) == 0 {
+// 		return fmt.Errorf("could not find readoutB for steerability")
+// 	}
 
-	ceiling := -1.0
-	for s := 0; s < 360; s++ {
-		alpha := float64(s) * (math.Pi / 180.0)
-		for _, anchor := range []geometry.PhaseDial{fpA, hop.FingerprintB} {
-			rot := anchor.Rotate(alpha)
-			rnk := substrate.PhaseDialRank(candidates, rot)
-			topIdx := substrate.TopExcluding(rnk, seedQueryChords, readoutB)
-			efp := substrate.Entries[topIdx].Fingerprint
-			g := math.Min(efp.Similarity(fpA), efp.Similarity(hop.FingerprintB))
-			if g > ceiling {
-				ceiling = g
-			}
-		}
-	}
+// 	ceiling := -1.0
+// 	for s := 0; s < 360; s++ {
+// 		alpha := float64(s) * (math.Pi / 180.0)
+// 		for _, anchor := range []geometry.PhaseDial{fpA, hop.FingerprintB} {
+// 			rot := anchor.Rotate(alpha)
+// 			rnk := substrate.PhaseDialRank(candidates, rot)
+// 			topIdx := substrate.TopExcluding(rnk, seedQueryChords, readoutB)
+// 			efp := substrate.Entries[topIdx].Fingerprint
+// 			g := math.Min(efp.Similarity(fpA), efp.Similarity(hop.FingerprintB))
+// 			if g > ceiling {
+// 				ceiling = g
+// 			}
+// 		}
+// 	}
 
-	type valResult struct {
-		name     string
-		steerMin float64
-		gain     float64
-		superAdd bool
-	}
+// 	type valResult struct {
+// 		name     string
+// 		steerMin float64
+// 		gain     float64
+// 		superAdd bool
+// 	}
 
-	validations := []struct {
-		name string
-		b    int
-	}{}
+// 	validations := []struct {
+// 		name string
+// 		b    int
+// 	}{}
 
-	seen := make(map[int]bool, len(experiment.splitCandidates))
-	for _, splitCandidate := range experiment.splitCandidates {
-		if splitCandidate < 1 || splitCandidate >= D {
-			continue
-		}
+// 	seen := make(map[int]bool, len(experiment.splitCandidates))
+// 	for _, splitCandidate := range experiment.splitCandidates {
+// 		if splitCandidate < 1 || splitCandidate >= D {
+// 			continue
+// 		}
 
-		if seen[splitCandidate] {
-			continue
-		}
+// 		if seen[splitCandidate] {
+// 			continue
+// 		}
 
-		seen[splitCandidate] = true
-		validations = append(validations, struct {
-			name string
-			b    int
-		}{
-			name: fmt.Sprintf("%d/%d", splitCandidate, D-splitCandidate),
-			b:    splitCandidate,
-		})
-	}
+// 		seen[splitCandidate] = true
+// 		validations = append(validations, struct {
+// 			name string
+// 			b    int
+// 		}{
+// 			name: fmt.Sprintf("%d/%d", splitCandidate, D-splitCandidate),
+// 			b:    splitCandidate,
+// 		})
+// 	}
 
-	if len(validations) == 0 {
-		half := D / 2
-		validations = append(validations, struct {
-			name string
-			b    int
-		}{
-			name: fmt.Sprintf("%d/%d", half, D-half),
-			b:    half,
-		})
-	}
+// 	if len(validations) == 0 {
+// 		half := D / 2
+// 		validations = append(validations, struct {
+// 			name string
+// 			b    int
+// 		}{
+// 			name: fmt.Sprintf("%d/%d", half, D-half),
+// 			b:    half,
+// 		})
+// 	}
 
-	var results []valResult
-	for _, v := range validations {
-		sL := steerability(fpAB, 0, v.b)
-		sR := steerability(fpAB, v.b, D)
-		sMin := math.Min(sL, sR)
+// 	var results []valResult
+// 	for _, v := range validations {
+// 		sL := steerability(fpAB, 0, v.b)
+// 		sR := steerability(fpAB, v.b, D)
+// 		sMin := math.Min(sL, sR)
 
-		stepDeg := experiment.sweepStepDeg
-		gridSize := int(360.0 / stepDeg)
-		bestGain := -1.0
-		for i := 0; i < gridSize; i++ {
-			a1 := float64(i) * stepDeg * (math.Pi / 180.0)
-			f1 := cmplx.Rect(1.0, a1)
-			for j := 0; j < gridSize; j++ {
-				a2 := float64(j) * stepDeg * (math.Pi / 180.0)
-				f2 := cmplx.Rect(1.0, a2)
-				rotated := make(geometry.PhaseDial, D)
-				for k := 0; k < D; k++ {
-					if k < v.b {
-						rotated[k] = fpAB[k] * f1
-					} else {
-						rotated[k] = fpAB[k] * f2
-					}
-				}
-				rnk := substrate.PhaseDialRank(candidates, rotated)
-				topIdx := substrate.TopExcluding(rnk, seedQueryChords, readoutB)
-				efp := substrate.Entries[topIdx].Fingerprint
-				g := math.Min(efp.Similarity(fpA), efp.Similarity(hop.FingerprintB))
-				if g > bestGain {
-					bestGain = g
-				}
-			}
-		}
-		results = append(results, valResult{v.name, sMin, bestGain, bestGain > ceiling})
-	}
+// 		stepDeg := experiment.sweepStepDeg
+// 		gridSize := int(360.0 / stepDeg)
+// 		bestGain := -1.0
+// 		for i := 0; i < gridSize; i++ {
+// 			a1 := float64(i) * stepDeg * (math.Pi / 180.0)
+// 			f1 := cmplx.Rect(1.0, a1)
+// 			for j := 0; j < gridSize; j++ {
+// 				a2 := float64(j) * stepDeg * (math.Pi / 180.0)
+// 				f2 := cmplx.Rect(1.0, a2)
+// 				rotated := make(geometry.PhaseDial, D)
+// 				for k := 0; k < D; k++ {
+// 					if k < v.b {
+// 						rotated[k] = fpAB[k] * f1
+// 					} else {
+// 						rotated[k] = fpAB[k] * f2
+// 					}
+// 				}
+// 				rnk := substrate.PhaseDialRank(candidates, rotated)
+// 				topIdx := substrate.TopExcluding(rnk, seedQueryChords, readoutB)
+// 				efp := substrate.Entries[topIdx].Fingerprint
+// 				g := math.Min(efp.Similarity(fpA), efp.Similarity(hop.FingerprintB))
+// 				if g > bestGain {
+// 					bestGain = g
+// 				}
+// 			}
+// 		}
+// 		results = append(results, valResult{v.name, sMin, bestGain, bestGain > ceiling})
+// 	}
 
-	// Calculate prediction accuracy: higher min_steer → super-additive
-	maxNonSA := 0.0
-	for _, r := range results {
-		if !r.superAdd && r.steerMin > maxNonSA {
-			maxNonSA = r.steerMin
-		}
-	}
-	correct := 0
-	for _, r := range results {
-		predicted := r.steerMin > maxNonSA
-		if predicted == r.superAdd {
-			correct++
-		}
-	}
+// 	// Calculate prediction accuracy: higher min_steer → super-additive
+// 	maxNonSA := 0.0
+// 	for _, r := range results {
+// 		if !r.superAdd && r.steerMin > maxNonSA {
+// 			maxNonSA = r.steerMin
+// 		}
+// 	}
+// 	correct := 0
+// 	for _, r := range results {
+// 		predicted := r.steerMin > maxNonSA
+// 		if predicted == r.superAdd {
+// 			correct++
+// 		}
+// 	}
 
-	experiment.accuracy = float64(correct) / float64(len(results))
+// 	experiment.accuracy = float64(correct) / float64(len(results))
 
-	for _, r := range results {
-		experiment.AddResult(tools.ExperimentalData{
-			Name:          r.name,
-			WeightedTotal: r.steerMin,
-			Scores: tools.Scores{
-				Exact:   r.gain,
-				Partial: r.gain - ceiling,
-				Fuzzy:   r.steerMin,
-			},
-		})
-	}
+// 	for _, r := range results {
+// 		experiment.AddResult(tools.ExperimentalData{
+// 			Name:          r.name,
+// 			WeightedTotal: r.steerMin,
+// 			Scores: tools.Scores{
+// 				Exact:   r.gain,
+// 				Partial: r.gain - ceiling,
+// 				Fuzzy:   r.steerMin,
+// 			},
+// 		})
+// 	}
 
-	return nil
-}
+// 	return nil
+// }
 
 func (experiment *SteerabilityExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{

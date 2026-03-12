@@ -6,7 +6,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -83,9 +82,9 @@ func (experiment *ProteinStructureExperiment) Prompts() *process.Prompt {
 	return experiment.prompt
 }
 
-func (experiment *ProteinStructureExperiment) Holdout() (int, tokenizer.HoldoutType) {
+func (experiment *ProteinStructureExperiment) Holdout() (int, process.HoldoutType) {
 	// Hold out the last 50 bytes for structure prediction
-	return 50, tokenizer.RIGHT
+	return 50, process.RIGHT
 }
 
 /*
@@ -411,10 +410,4 @@ this resolution.
 			},
 		},
 	}
-}
-
-func (experiment *ProteinStructureExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
 }

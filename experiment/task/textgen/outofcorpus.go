@@ -4,7 +4,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/huggingface"
@@ -55,8 +54,8 @@ func (experiment *OutOfCorpusExperiment) Prompts() *process.Prompt {
 }
 
 // 50% right holdout: system must complete the second half of each sample.
-func (experiment *OutOfCorpusExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.RIGHT
+func (experiment *OutOfCorpusExperiment) Holdout() (int, process.HoldoutType) {
+	return 50, process.RIGHT
 }
 
 func (experiment *OutOfCorpusExperiment) AddResult(results tools.ExperimentalData) {
@@ -88,10 +87,4 @@ func (experiment *OutOfCorpusExperiment) TableData() any { return experiment.tab
 
 func (experiment *OutOfCorpusExperiment) Artifacts() []tools.Artifact {
 	return OutOfCorpusArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *OutOfCorpusExperiment) RawOutput() bool { return false }
-
-func (experiment *OutOfCorpusExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

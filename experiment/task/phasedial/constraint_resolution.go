@@ -8,7 +8,6 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
 	"github.com/theapemachine/six/process"
 	"github.com/theapemachine/six/provider"
 	"github.com/theapemachine/six/provider/local"
@@ -173,8 +172,8 @@ func (exp *ConstraintResolutionExperiment) Prompts() *process.Prompt {
 	return exp.prompt
 }
 
-func (exp *ConstraintResolutionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return crHoldoutPct, tokenizer.RIGHT
+func (exp *ConstraintResolutionExperiment) Holdout() (int, process.HoldoutType) {
+	return crHoldoutPct, process.RIGHT
 }
 
 /*
@@ -442,7 +441,3 @@ volumes will sharpen attractor boundaries and increase the isolation ratio.
 }
 
 func (exp *ConstraintResolutionExperiment) RawOutput() bool { return false }
-
-func (exp *ConstraintResolutionExperiment) Finalize(_ *geometry.HybridSubstrate) error {
-	return nil
-}

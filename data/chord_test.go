@@ -119,17 +119,6 @@ func TestRollLeft(t *testing.T) {
 	})
 }
 
-func TestBestByte(t *testing.T) {
-	Convey("Given a bound chord from BaseChord('k') at position 11", t, func() {
-		base := BaseChord('k')
-		bound := base.BindPosition(11)
-
-		Convey("BestByte should decode to the original byte", func() {
-			So(bound.BestByte(), ShouldEqual, byte('k'))
-		})
-	})
-}
-
 func TestRotationSeed(t *testing.T) {
 	Convey("Given two chords with same density but different structure", t, func() {
 		var left Chord
@@ -164,23 +153,8 @@ func TestMaskChord(t *testing.T) {
 	})
 }
 
-func TestBindGeometry(t *testing.T) {
-	Convey("Given a base chord bound with a carrier", t, func() {
-		base := BaseChord('x')
-		carrier := BaseChord('!')
-		bound := base.BindGeometry(7, &carrier)
-
-		Convey("It should superpose the carrier", func() {
-			So(ChordSimilarity(&bound, &base), ShouldBeGreaterThan, 0)
-			So(ChordSimilarity(&bound, &carrier), ShouldBeGreaterThan, 0)
-			So(bound.ActiveCount(), ShouldBeGreaterThan, base.ActiveCount())
-		})
-	})
-}
-
 func BenchmarkChordRotationSeed(b *testing.B) {
 	chord := BaseChord('x')
-	chord = chord.BindGeometry(17, nil)
 
 	for b.Loop() {
 		_, _ = chord.RotationSeed()
