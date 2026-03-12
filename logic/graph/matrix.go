@@ -351,14 +351,17 @@ func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int) {
 	// The labelChord sits at the tip of the node, radiating `theta` down to uniqueResidues
 
 	// 4. Recurse via Pool
-	if matrix.workerPool != nil {
-		jobID := fmt.Sprintf("fold-level-%d-%f", level, theta)
-		matrix.workerPool.Schedule(jobID, func() (any, error) {
-			matrix.RecursiveFold(uniqueResidues, level+1)
-			return nil, nil
-		})
-	} else {
-		// Fallback synchronously
-		matrix.RecursiveFold(uniqueResidues, level+1)
+	for i, resSeq := range uniqueResidues {
+		resSeq := resSeq
+		if matrix.workerPool != nil {
+			jobID := fmt.Sprintf("fold-level-%d-theta-%f-seq-%d", level, theta, i)
+			matrix.workerPool.Schedule(jobID, func() (any, error) {
+				matrix.RecursiveFold([][]data.Chord{resSeq}, level+1)
+				return nil, nil
+			})
+		} else {
+			// Fallback synchronously
+			matrix.RecursiveFold([][]data.Chord{resSeq}, level+1)
+		}
 	}
 }

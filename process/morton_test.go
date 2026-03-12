@@ -1,6 +1,7 @@
 package process
 
 import (
+	"fmt"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -22,7 +23,7 @@ func TestMortonCoder(t *testing.T) {
 			}
 			
 			for _, tc := range cases {
-				Convey("It should correctly round-trip values", func() {
+				Convey(fmt.Sprintf("It should correctly round-trip values for pos=%d sym=%c", tc.pos, tc.symbol), func() {
 					key := coder.Pack(tc.pos, tc.symbol)
 					pos, symbol := coder.Unpack(key)
 					So(pos, ShouldEqual, tc.pos)
@@ -44,7 +45,7 @@ func TestMortonCoder(t *testing.T) {
 			}
 			
 			for _, tc := range cases {
-				Convey("It should correctly round-trip 4D values", func() {
+				Convey(fmt.Sprintf("It should correctly round-trip 4D values for %d,%d,%d,%c", tc.sampleIdx, tc.sequenceIdx, tc.posIdx, tc.symbol), func() {
 					key := coder.Encode4D(tc.sampleIdx, tc.sequenceIdx, tc.posIdx, tc.symbol)
 					smIdx, sqIdx, pIdx, sym := coder.Decode4D(key)
 					

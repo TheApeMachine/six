@@ -8,7 +8,7 @@ import (
 
 func TestSanitize(t *testing.T) {
 	Convey("Given a chord with polluted high bits", t, func() {
-		var chord Chord
+		chord := mustNewChord()
 		chord.SetC4(0xFFFFFFFFFFFFFFFF)
 		chord.SetC5(0xFFFFFFFFFFFFFFFF)
 		chord.SetC6(0xFFFFFFFFFFFFFFFF)
@@ -27,7 +27,7 @@ func TestSanitize(t *testing.T) {
 	})
 
 	Convey("Given a chord with low bits set", t, func() {
-		var chord Chord
+		chord := mustNewChord()
 		chord.SetC0(0xDEADBEEF)
 		chord.SetC1(0xCAFEBABE)
 		chord.SetC2(0x12345678)
@@ -50,7 +50,8 @@ func TestSanitize(t *testing.T) {
 
 func TestChordOR(t *testing.T) {
 	Convey("Given two chords with dirty high bits", t, func() {
-		var a, b Chord
+		a := mustNewChord()
+		b := mustNewChord()
 		a.SetC0(0xFF)
 		a.SetC5(0x01)
 		b.SetC0(0xFF00)
@@ -121,12 +122,12 @@ func TestRollLeft(t *testing.T) {
 
 func TestRotationSeed(t *testing.T) {
 	Convey("Given two chords with same density but different structure", t, func() {
-		var left Chord
+		left := mustNewChord()
 		left.Set(3)
 		left.Set(17)
 		left.Set(41)
 
-		var right Chord
+		right := mustNewChord()
 		right.Set(5)
 		right.Set(19)
 		right.Set(43)

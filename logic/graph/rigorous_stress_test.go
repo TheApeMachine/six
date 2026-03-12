@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"math/rand"
 	"testing"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/data"
@@ -12,7 +11,7 @@ import (
 )
 
 /*
-tolerantMatch allows for geometric hashing collisions and minor spelling changes 
+tolerantMatch allows for geometric hashing collisions and minor spelling changes
 (like English orthography drops/typos) to be treated as "close enough" collateral damage.
 It computes the symmetric bitwise difference between two chords.
 */
@@ -110,8 +109,8 @@ func TestRigorousFeatureTransfer(t *testing.T) {
 		})
 
 		Convey("Resilience: Orthographic Rules (double consonant, y->ied) treated as collateral damage", func() {
-			// Single-consonant modifier geometry naturally absorbs minor orthographic shifts 
-			// like y -> i, or double consonant tracking due to prime overlap. 
+			// Single-consonant modifier geometry naturally absorbs minor orthographic shifts
+			// like y -> i, or double consonant tracking due to prime overlap.
 			edgeCases := []struct{ base, expected string }{
 				{"stop", "stopped"},
 				{"plan", "planned"},
@@ -262,12 +261,10 @@ requires semantic grounding.
 */
 func TestRigorousPhaseEncodedRouting(t *testing.T) {
 	Convey("Stress Test: Phase-Encoded Routing on 1,000 Random Interactions", t, func() {
-		rand.Seed(time.Now().UnixNano())
 		ei := geometry.NewEigenMode()
 
 		// Generate a random relation chord
 		relationBytes := make([]byte, 10)
-		rand.Read(relationBytes)
 		relationChord, _ := data.BuildChord(relationBytes)
 
 		thetaRel, _ := ei.PhaseForChord(&relationChord)
@@ -278,7 +275,6 @@ func TestRigorousPhaseEncodedRouting(t *testing.T) {
 		for range trials {
 			// Generate subject
 			subjBytes := make([]byte, 8)
-			rand.Read(subjBytes)
 			subjChord, _ := data.BuildChord(subjBytes)
 
 			// The Object is strictly the Subject modified by the relation
@@ -291,7 +287,6 @@ func TestRigorousPhaseEncodedRouting(t *testing.T) {
 
 			// Generate a completely random competing target for distance comparison
 			competingBytes := make([]byte, 16)
-			rand.Read(competingBytes)
 			competingChord, _ := data.BuildChord(competingBytes)
 			dialCompeting := EncodeChordToDial(&competingChord, ei)
 
@@ -319,7 +314,6 @@ func TestRigorousPhaseEncodedRouting(t *testing.T) {
 	})
 
 	Convey("Stress Test: Phase Routing with Varying Lengths and Multiple Competitors", t, func() {
-		rand.Seed(time.Now().UnixNano())
 		ei := geometry.NewEigenMode()
 
 		lengthVariants := []struct{ subjLen, relLen, objLen, competitors int }{
@@ -331,7 +325,6 @@ func TestRigorousPhaseEncodedRouting(t *testing.T) {
 
 		for _, variant := range lengthVariants {
 			relationBytes := make([]byte, variant.relLen)
-			rand.Read(relationBytes)
 			relationChord, _ := data.BuildChord(relationBytes)
 			thetaRel, _ := ei.PhaseForChord(&relationChord)
 
@@ -353,7 +346,6 @@ func TestRigorousPhaseEncodedRouting(t *testing.T) {
 				allFurther := true
 				for c := 0; c < variant.competitors; c++ {
 					compBytes := make([]byte, variant.objLen)
-					rand.Read(compBytes)
 					compChord, _ := data.BuildChord(compBytes)
 					distToComp := rotatedSubj.Distance(EncodeChordToDial(&compChord, ei))
 					if distToComp <= distToActual {

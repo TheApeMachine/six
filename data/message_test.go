@@ -34,7 +34,7 @@ func TestMessage(t *testing.T) {
 			var zeroMsg Message
 			So(zeroMsg.Receiver, ShouldEqual, SPATIALINDEX) // Since SPATIALINDEX is 0
 			So(zeroMsg.Type, ShouldEqual, REQUEST)          // Since REQUEST is 0
-			So(zeroMsg.Value, ShouldBeNil)
+			So(zeroMsg.Value, ShouldResemble, pool.PoolValue[any]{})
 		})
 	})
 }

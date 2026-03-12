@@ -4,13 +4,15 @@ import (
 	"math"
 	"testing"
 
+	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/core"
 	"github.com/theapemachine/six/data"
 )
 
 func mockBaseChord(b byte) data.Chord {
-	var chord data.Chord
+	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
+	chord, _ := data.NewChord(seg)
 	totalBits := config.Numeric.ChordBlocks * 64
 
 	offsets := [5]int{

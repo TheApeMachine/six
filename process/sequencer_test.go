@@ -16,7 +16,7 @@ func TestSequencer(t *testing.T) {
 		Convey("When analyzing a random byte stream", func() {
 			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
 			boundaryDetected := false
-			for i := 0; i < 50; i++ {
+			for i := range 50 {
 				// Generating bytes. Some entropy drops or spikes might trigger boundaries
 				val := byte(rng.Intn(256))
 				ok, _ := seq.Analyze(i, val)
@@ -34,7 +34,7 @@ func TestSequencer(t *testing.T) {
 
 		Convey("When forcing a boundary via ShannonCeiling", func() {
 			// ShannonCeiling is 0.40. Push many distinct bytes to force ceiling
-			for i := 0; i < 256; i++ {
+			for i := range 256 {
 				ok, _ := seq.Analyze(i, byte(i)) // Max entropy
 				if ok {
 					break
@@ -93,7 +93,7 @@ func TestSequencer(t *testing.T) {
 		})
 
 		Convey("When cloning and flushing", func() {
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				seq.Analyze(i, byte(i))
 			}
 
@@ -111,7 +111,7 @@ func TestSequencer(t *testing.T) {
 
 			// Add artificial candidate to test Flush
 			seq.buf = []byte{0, 1, 2, 3}
-			seq.offset = 0
+			seq.offset = 2
 			seq.candidates = []candidate{{k: 2, gain: 1.0}}
 
 			ok, evts := seq.Flush()
@@ -120,7 +120,7 @@ func TestSequencer(t *testing.T) {
 				So(len(evts), ShouldBeGreaterThan, 0)
 				So(len(seq.candidates), ShouldEqual, 0)
 			})
-			
+
 			ok2, _ := seq.Forecast(0, 4)
 			Convey("Forecast should return detection status without mutating", func() {
 				So(ok2 == true || ok2 == false, ShouldBeTrue)
@@ -132,9 +132,9 @@ func TestSequencer(t *testing.T) {
 func BenchmarkSequencerDetectBoundary(b *testing.B) {
 	seq := NewSequencer(nil)
 	buf := make([]byte, 1024)
-	
+
 	rng := rand.New(rand.NewSource(42))
-	for i := 0; i < 512; i++ {
+	for i := range 512 {
 		buf[i] = 0 // low entropy
 	}
 	for i := 512; i < 1024; i++ {
@@ -146,8 +146,7 @@ func BenchmarkSequencerDetectBoundary(b *testing.B) {
 		dist.Add(byteVal)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		seq.detectBoundary(buf, dist)
 	}
 }
