@@ -206,37 +206,6 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 	}
 
 	var chunkStart uint32
-	var sampleBase uint32
-	var sampleSpan uint32
-
-	// flushSample drains any pending sequencer boundaries for the current sample
-	// and emits the remaining buffered data as the terminal chunk.
-	flushSample := func() error {
-		for {
-			isBoundary, emitK, _ := seq.Flush()
-			if !isBoundary {
-				break
-			}
-
-			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
-
-			if err := flushSync(server.currentSample, chunkStart, chunk[:emitK]); err != nil {
-				return err
-			}
-
-			copy(chunk, chunk[emitK:])
-			chunk = chunk[:len(chunk)-emitK]
-			chunkStart += uint32(emitK)
-		}
-
-		if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
-			return err
-		}
-
-		chunk = chunk[:0]
-
-		return nil
-	}
 
 	for token := range server.dataset.Generate() {
 		select {
@@ -249,32 +218,22 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		default:
 		}
 
-		if server.currentSample != token.SampleID {
+		if server.useSampleID && server.currentSample != token.SampleID {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			if err := flushSample(); err != nil {
+			if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
 				return err
 			}
 
-			if !server.useSampleID {
-				sampleBase += sampleSpan
-			}
-
+			chunk = chunk[:0]
 			server.currentSample = token.SampleID
 			seq = seq.CloneEmpty()
-			sampleSpan = 0
 		}
 
 		if len(chunk) == 0 {
 			chunkStart = token.Pos
-
-			if !server.useSampleID {
-				chunkStart += sampleBase
-			}
 		}
 
-		// token.Pos is zero-based, so the sample span is the furthest position plus one byte.
-		sampleSpan = max(sampleSpan, token.Pos+1)
 		chunk = append(chunk, token.Symbol)
 		isBoundary, emitK, _ := seq.Analyze(token.Pos, token.Symbol)
 
@@ -291,7 +250,24 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		}
 	}
 
-	if err := flushSample(); err != nil {
+	for {
+		isBoundary, emitK, _ := seq.Flush()
+		if !isBoundary {
+			break
+		}
+
+		server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
+
+		if err := flushSync(server.currentSample, chunkStart, chunk[:emitK]); err != nil {
+			return err
+		}
+
+		copy(chunk, chunk[emitK:])
+		chunk = chunk[:len(chunk)-emitK]
+		chunkStart += uint32(emitK)
+	}
+
+	if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
 		return err
 	}
 
