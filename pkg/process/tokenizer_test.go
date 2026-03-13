@@ -15,6 +15,7 @@ import (
 	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/provider/local"
 	"github.com/theapemachine/six/pkg/store/lsm"
 )
 
@@ -126,6 +127,47 @@ func generateCorpus(paragraphs int, rng *rand.Rand) string {
 	}
 
 	return builder.String()
+}
+
+func sampleChunks(sample string) []string {
+	sequencer := NewSequencer(NewCalibrator())
+	raw := []byte(sample)
+	chunk := make([]byte, 0, len(raw))
+	chunks := make([]string, 0, len(raw))
+
+	flush := func(width int) {
+		if width == 0 {
+			return
+		}
+
+		chunks = append(chunks, string(append([]byte(nil), chunk[:width]...)))
+		copy(chunk, chunk[width:])
+		chunk = chunk[:len(chunk)-width]
+	}
+
+	for idx, symbol := range raw {
+		chunk = append(chunk, symbol)
+
+		isBoundary, emitWidth, _ := sequencer.Analyze(uint32(idx), symbol)
+		if isBoundary {
+			flush(emitWidth)
+		}
+	}
+
+	for {
+		isBoundary, emitWidth, _ := sequencer.Flush()
+		if !isBoundary {
+			break
+		}
+
+		flush(emitWidth)
+	}
+
+	if len(chunk) > 0 {
+		chunks = append(chunks, string(chunk))
+	}
+
+	return chunks
 }
 
 /*
@@ -255,6 +297,43 @@ func TestTokenizerServer(t *testing.T) {
 
 			Convey("It should return nil", func() {
 				So(err, ShouldBeNil)
+			})
+		})
+
+		Convey("When generating multiple samples without sample-id keyed insertion", func() {
+			samples := []string{
+				"Sandra is in the Garden",
+				"Roy is in the Kitchen",
+			}
+
+			server := NewTokenizerServer(
+				TokenizerWithContext(ctx),
+				TokenizerWithDataset(local.New(local.WithStrings(samples)), false),
+				TokenizerWithCollector(make([][]data.Chord, len(samples))),
+			)
+
+			err := server.generate(ctx)
+
+			Convey("It should keep each sample in its own collector lane", func() {
+				So(err, ShouldBeNil)
+				So(server.currentSample, ShouldEqual, uint32(len(samples)-1))
+
+				for sampleIdx, sample := range samples {
+					expectedChunks := sampleChunks(sample)
+
+					So(server.collector[sampleIdx], ShouldHaveLength, len(expectedChunks))
+
+					for chunkIdx, expectedChunk := range expectedChunks {
+						expectedChord, buildErr := data.BuildChord([]byte(expectedChunk))
+
+						So(buildErr, ShouldBeNil)
+						So(
+							newChordSignature(server.collector[sampleIdx][chunkIdx]),
+							ShouldResemble,
+							newChordSignature(expectedChord),
+						)
+					}
+				}
 			})
 		})
 
