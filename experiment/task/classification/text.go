@@ -5,14 +5,13 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
+	config "github.com/theapemachine/six/pkg/core"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -28,7 +27,7 @@ type TextClassificationExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 // ag_news label indices → human readable names
@@ -90,16 +89,16 @@ func (experiment *TextClassificationExperiment) Dataset() provider.Dataset {
 
 // Prompts creates test prompts from the same dataset, stripping label
 // suffixes via SUBSTRING holdout so the machine sees pure article text.
-func (experiment *TextClassificationExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithSubstringHoldout(labelSuffixes),
+func (experiment *TextClassificationExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(0, process.MATCH),
 	)
 	return experiment.prompt
 }
 
-func (experiment *TextClassificationExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.SUBSTRING
+func (experiment *TextClassificationExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.MATCH
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
@@ -222,7 +221,7 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 		{"Sample Size (N)", fmt.Sprintf("%d", n)},
 	}
 
-	matrixFile := slugify(experiment.Name()) + "_scores"
+	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
 
 	proseTemplate := `\subsection{Text Classification}
 \label{sec:text_classification}
@@ -283,7 +282,7 @@ to improve per-class disambiguation.
 			Data:     experiment.tableData,
 			Title:    experiment.Name() + " — Confusion Matrix",
 			Caption:  "Confusion matrix showing predicted vs. true class assignments for " + experiment.Name() + ".",
-			Label:    "fig:" + slugify(experiment.Name()) + "_confusion",
+			Label:    "fig:" + tools.Slugify(experiment.Name()) + "_confusion",
 		},
 		{
 			Type:     tools.ArtifactProse,
@@ -302,16 +301,6 @@ to improve per-class disambiguation.
 			},
 		},
 	}
-}
-
-func (experiment *TextClassificationExperiment) RawOutput() bool { return false }
-
-func (experiment *TextClassificationExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
-}
-
-func slugify(name string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }
 
 /*

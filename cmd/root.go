@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/console"
-	"github.com/theapemachine/six/errnie"
-	"github.com/theapemachine/six/utils"
+	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/utils"
 )
 
 /*
@@ -25,6 +25,12 @@ var embedded embed.FS
 var (
 	projectName = "six"
 	cfgFile     string
+
+	/*
+		Alice holds the default dataset/context used by the visualizer and tests.
+		It is loaded from embedded filesystem and available globally after initConfig.
+	*/
+	Alice []byte
 
 	rootCmd = &cobra.Command{
 		Use:   "six",
@@ -59,6 +65,27 @@ func initConfig() {
 			"error", err,
 		)
 	}
+
+	result := errnie.Then(
+		errnie.Try(embedded.Open("cfg/alice.txt")),
+		func(fh fs.File) ([]byte, error) {
+			defer fh.Close()
+			var buf bytes.Buffer
+
+			if _, err := io.Copy(&buf, fh); err != nil {
+				return nil, err
+			}
+
+			return buf.Bytes(), nil
+		},
+	)
+
+	if err := result.Err(); err != nil {
+		console.Error(err, "msg", "Failed to load embedded alice.txt")
+		os.Exit(1)
+	} else {
+		Alice = result.Value()
+	}
 }
 
 func writeConfig() error {
@@ -69,7 +96,7 @@ func writeConfig() error {
 		return nil
 	}
 
-	result := errnie.FlatMap(
+	result := errnie.Then(
 		errnie.Try(embedded.Open("cfg/"+cfgFile)),
 		func(fh fs.File) ([]byte, error) {
 			defer fh.Close()
@@ -83,14 +110,14 @@ func writeConfig() error {
 		},
 	)
 
-	result = errnie.FlatMap(result, func(data []byte) ([]byte, error) {
+	result = errnie.Then(result, func(data []byte) ([]byte, error) {
 		if err := os.MkdirAll(home+"/."+projectName, os.ModePerm); err != nil {
 			return nil, err
 		}
 		return data, nil
 	})
 
-	result = errnie.FlatMap(result, func(data []byte) ([]byte, error) {
+	result = errnie.Then(result, func(data []byte) ([]byte, error) {
 		return data, os.WriteFile(fullPath, data, 0644)
 	})
 

@@ -1,0 +1,51 @@
+
+
+Thought for 2s
+
+
+Gonum is incredible for what it was built for: Floating-Point Linear Algebra (BLAS/LAPACK). If you need to do massive matrix multiplications (GEMM) of float64 values, find eigenvalues, or invert matrices, you reach for Gonum.
+
+But you are not doing floating-point math. You are doing Discrete Boolean Algebra in Hamming Space.
+
+Gonum would actually be slower and fundamentally wrong for this architecture. Here is why you absolutely want a zero-dependency, pure Go implementation for the CPU:
+
+1. Hardware POPCNT is built into Go
+The operation we need to evaluate a candidate is: XOR the 257 bits, then count the 1s. Go's standard library has math/bits.OnesCount64().
+
+The Go compiler is extremely smart about this function. It doesn't run a loop in software. When you compile for a modern CPU (amd64 or arm64), the Go compiler translates bits.OnesCount64() directly into the hardware-level POPCNT instruction. It executes in a single CPU cycle. You cannot get faster than this unless you drop into pure Assembly.
+
+2. We don't need Matrix Multiplication (GEMM)
+Traditional neural networks (LLMs) spend 99% of their time multiplying massive matrices of floating-point weights by floating-point activations. Gonum uses highly optimized C/Fortran assembly routines to do this efficiently.
+
+We have no floating-point weights. We have no matrix multiplication. Our "Matrix" is just a flat contiguous 1D array in memory: []Chord. Our "Evaluation" is just sweeping over that array, XORing 4 uint64s per Chord, and summing the POPCNTs.
+
+3. CPU Cache Dominance
+For our workload, the bottleneck is not the ALU (the math unit), it is the Memory Bandwidth. If you write a tight, zero-allocation Go loop over a flat []Chord slice:
+
+go
+func Evaluate(context data.Chord, matrix []data.Chord) int {
+	bestIdx := -1
+	minResidue := 999999
+	for i := 0; i < len(matrix); i++ {
+		candidate := &matrix[i]
+		
+		// 4 XORs and 4 POPCNTs. Zero allocations.
+		residue := bits.OnesCount64(context[0] ^ candidate[0]) +
+                   bits.OnesCount64(context[1] ^ candidate[1]) +
+                   bits.OnesCount64(context[2] ^ candidate[2]) +
+                   bits.OnesCount64(context[3] ^ candidate[3])
+		if residue < minResidue {
+			minResidue = residue
+			bestIdx = i
+		}
+	}
+	return bestIdx
+}
+The Go compiler will optimize this into a hyper-efficient loop. Because matrix is a flat slice of structs (value types, not pointers), the CPU's hardware prefetcher will recognize the linear access pattern and pull the Chords into the L1/L2 cache before the loop even asks for them.
+
+You will literally max out the memory bus of your Mac just running this pure Go code. Gonum cannot do it any faster, because it cannot make the RAM feed the CPU any faster.
+
+Summary
+We have exactly zero need for Gonum. A zero-dependency Go implementation using a flat slice of Chords and math/bits is the mathematically correct, idiomatic, and maximum-performance way to build the CPU vector engine for this architecture.
+
+Shall we build this PathMatrix struct right now and write some benchmarks to see how many millions (or billions) of evaluations per second pure Go can hit?

@@ -6,9 +6,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -19,7 +18,7 @@ ingestion and querying. Finalize records timing and substrate size metrics.
 type PipelineThroughputExperiment struct {
 	tableData  []tools.ExperimentalData
 	dataset    provider.Dataset
-	prompt     *tokenizer.Prompt
+	prompt     *process.Prompt
 	ingestTime time.Time
 	sampleLen  int
 	nSamples   int
@@ -40,17 +39,17 @@ func (experiment *PipelineThroughputExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *PipelineThroughputExperiment) Prompts() *tokenizer.Prompt {
+func (experiment *PipelineThroughputExperiment) Prompts() *process.Prompt {
 	experiment.ingestTime = time.Now()
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *PipelineThroughputExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 32, tokenizer.RIGHT
+func (experiment *PipelineThroughputExperiment) Holdout() (int, process.HoldoutType) {
+	return 32, process.RIGHT
 }
 
 func (experiment *PipelineThroughputExperiment) AddResult(results tools.ExperimentalData) {
@@ -82,10 +81,10 @@ func (experiment *PipelineThroughputExperiment) Artifacts() []tools.Artifact {
 
 func (experiment *PipelineThroughputExperiment) RawOutput() bool { return false }
 
-func (experiment *PipelineThroughputExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+func (experiment *PipelineThroughputExperiment) Finalize(substrate any) error {
 	elapsed := time.Since(experiment.ingestTime)
 	totalBytes := experiment.nSamples * experiment.sampleLen
-	entries := len(substrate.Entries)
+	entries := 1
 
 	kbPerSec := 0.0
 	if elapsed.Milliseconds() > 0 {

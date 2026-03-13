@@ -2,12 +2,11 @@ package textgen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -25,7 +24,7 @@ even when the specific nouns and events are novel?
 type CompositionalExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewCompositionalExperiment() *CompositionalExperiment {
@@ -43,17 +42,17 @@ func (experiment *CompositionalExperiment) Name() string              { return "
 func (experiment *CompositionalExperiment) Section() string           { return "textgen" }
 func (experiment *CompositionalExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *CompositionalExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *CompositionalExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
 // 30% right holdout: system must reconstruct the ending of each story.
-func (experiment *CompositionalExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 30, tokenizer.RIGHT
+func (experiment *CompositionalExperiment) Holdout() (int, process.HoldoutType) {
+	return 30, process.RIGHT
 }
 
 func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalData) {
@@ -85,10 +84,4 @@ func (experiment *CompositionalExperiment) TableData() any { return experiment.t
 
 func (experiment *CompositionalExperiment) Artifacts() []tools.Artifact {
 	return CompositionalArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *CompositionalExperiment) RawOutput() bool { return false }
-
-func (experiment *CompositionalExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

@@ -5,10 +5,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -20,7 +19,7 @@ inference paths.
 type GroupActionEquivarianceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewGroupActionEquivarianceExperiment() *GroupActionEquivarianceExperiment {
@@ -42,16 +41,16 @@ func (experiment *GroupActionEquivarianceExperiment) Dataset() provider.Dataset 
 	return experiment.dataset
 }
 
-func (experiment *GroupActionEquivarianceExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *GroupActionEquivarianceExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *GroupActionEquivarianceExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *GroupActionEquivarianceExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *GroupActionEquivarianceExperiment) AddResult(results tools.ExperimentalData) {
@@ -77,18 +76,6 @@ func (experiment *GroupActionEquivarianceExperiment) TableData() any {
 	return experiment.tableData
 }
 
-// GenerateArtifacts creates the equivariance summary table.
-func (experiment *GroupActionEquivarianceExperiment) GenerateArtifacts(substrate *geometry.HybridSubstrate) error {
-	// ... (Equivariance validation from original test) ...
-	return nil
-}
-
 func (experiment *GroupActionEquivarianceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
-}
-
-func (experiment *GroupActionEquivarianceExperiment) RawOutput() bool { return false }
-
-func (experiment *GroupActionEquivarianceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

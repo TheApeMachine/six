@@ -1,15 +1,43 @@
-.PHONY: metal cuda paper pprof pprof-mem
+.PHONY: build metal cuda paper pprof pprof-mem dump
+
+DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.capnp'
+DUMP_FILE := repo.txt
+
+dump:
+	@echo "<<<TREE>>>" > $(DUMP_FILE)
+	@find . -type f \( $(DUMP_EXTS) \) | grep -v '/vendor/' | sort >> $(DUMP_FILE)
+	@echo "<<<END>>>" >> $(DUMP_FILE)
+	@find . -type f \( $(DUMP_EXTS) \) | grep -v '/vendor/' | sort | while read f; do \
+		echo "<<<FILE $$f>>>" >> $(DUMP_FILE); \
+		cat "$$f" >> $(DUMP_FILE); \
+		echo "" >> $(DUMP_FILE); \
+		echo "<<<END>>>" >> $(DUMP_FILE); \
+	done
+	@echo "Dumped $$(grep -c '<<<FILE' $(DUMP_FILE)) files to $(DUMP_FILE)"
+
+CAPNP_STD ?= ../../capnproto/go-capnp/std
+
+build:
+	capnp compile -I $(CAPNP_STD) -ogo pkg/store/lsm/spatial_index.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/graph/matrix.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/data/chord.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/process/tokenizer.capnp
+
+	cd pkg/kernel/metal \
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
+		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
+		
+	cd pkg/kernel/cuda \
+		&& go generate
 
 metal:
-	cd kernel/metal \
+	cd pkg/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
-		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib \
-		&& cd ../../
+		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 
 cuda:
-	cd kernel/cuda \
-		&& go generate \
-		&& cd ../../
+	cd pkg/kernel/cuda \
+		&& go generate
 
 paper:
 	go test -v ./experiment/task/

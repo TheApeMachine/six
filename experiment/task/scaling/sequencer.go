@@ -5,9 +5,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -19,7 +18,7 @@ over all prompts.
 type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewSequencerExperiment() *SequencerExperiment {
@@ -35,16 +34,16 @@ func (experiment *SequencerExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *SequencerExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *SequencerExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *SequencerExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 32, tokenizer.RIGHT
+func (experiment *SequencerExperiment) Holdout() (int, process.HoldoutType) {
+	return 32, process.RIGHT
 }
 
 func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData) {
@@ -76,8 +75,8 @@ func (experiment *SequencerExperiment) Artifacts() []tools.Artifact {
 
 func (experiment *SequencerExperiment) RawOutput() bool { return false }
 
-func (experiment *SequencerExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	entries := len(substrate.Entries)
+func (experiment *SequencerExperiment) Finalize(substrate any) error {
+	entries := 1
 
 	experiment.AddResult(tools.ExperimentalData{
 		Idx:  len(experiment.tableData),

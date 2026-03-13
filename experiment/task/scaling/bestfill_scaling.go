@@ -1,14 +1,10 @@
 package scaling
 
 import (
-	"fmt"
-	"time"
-
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -24,7 +20,7 @@ linearly with N.
 type BestFillScalingExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewBestFillScalingExperiment() *BestFillScalingExperiment {
@@ -40,15 +36,15 @@ func (experiment *BestFillScalingExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *BestFillScalingExperiment) Prompts() *tokenizer.Prompt {
+func (experiment *BestFillScalingExperiment) Prompts() *process.Prompt {
 	// The substrate is populated during Loader.Start()
 	// We don't need to run 5000 prompts through the active inference Cortex
 	// just to benchmark the latency of raw BestFill.
 	return nil
 }
 
-func (experiment *BestFillScalingExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 32, tokenizer.RIGHT
+func (experiment *BestFillScalingExperiment) Holdout() (int, process.HoldoutType) {
+	return 32, process.RIGHT
 }
 
 func (experiment *BestFillScalingExperiment) AddResult(results tools.ExperimentalData) {
@@ -80,74 +76,72 @@ func (experiment *BestFillScalingExperiment) Artifacts() []tools.Artifact {
 
 func (experiment *BestFillScalingExperiment) RawOutput() bool { return false }
 
-func (experiment *BestFillScalingExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	if substrate == nil {
-		return fmt.Errorf("no substrate provided")
-	}
+// func (experiment *BestFillScalingExperiment) Finalize(substrate any) error {
+// 	if substrate == nil {
+// 		return fmt.Errorf("no substrate provided")
+// 	}
 
-	filters := substrate.Filters()
+// 	filters := substrate.Filters()
 
-	if len(filters) == 0 {
-		return fmt.Errorf("no filters in substrate")
-	}
+// 	if len(filters) == 0 {
+// 		return fmt.Errorf("no filters in substrate")
+// 	}
 
-	// TODO: Replace with new pointer-based API
-	/*
-		builder := kernel.NewBuilder(kernel.WithBackend(&metal.MetalBackend{}))
-		if err != nil {
-			return fmt.Errorf("failed to create backend: %w", err)
-		}
-	*/
+// 	// TODO: Replace with new pointer-based API
+// 	/*
+// 		builder := kernel.NewBuilder(kernel.WithBackend(&metal.MetalBackend{}))
+// 		if err != nil {
+// 			return fmt.Errorf("failed to create backend: %w", err)
+// 		}
+// 	*/
 
-	// Use the first filter as the query chord.
-	// queryChord := filters[0]
+// 	// Use the first filter as the query chord.
+// 	// queryChord := filters[0]
 
-	sizes := []int{100, 500, 1000, 5000, len(filters)}
+// 	sizes := []int{100, 500, 1000, 5000, len(filters)}
 
-	for _, dictSize := range sizes {
-		if dictSize > len(filters) {
-			dictSize = len(filters)
-		}
+// 	for _, dictSize := range sizes {
+// 		if dictSize > len(filters) {
+// 			dictSize = len(filters)
+// 		}
 
-		if dictSize == 0 {
-			continue
-		}
+// 		if dictSize == 0 {
+// 			continue
+// 		}
 
-		// Set dictionary to the subset
-		/*
-			if cpuBackend, ok := backend.(*kernel.CPUBackend); ok {
-				cpuBackend.SetDictionary(filters[:dictSize])
-			}
-		*/
+// 		// Set dictionary to the subset
+// 		/*
+// 			if cpuBackend, ok := backend.(*kernel.CPUBackend); ok {
+// 				cpuBackend.SetDictionary(filters[:dictSize])
+// 			}
+// 		*/
 
-		const trials = 10
-		var totalDur time.Duration
+// 		const trials = 10
+// 		var totalDur time.Duration
 
-		/*
-			for range trials {
-				t0 := time.Now()
-				_, _ = backend.Resolve([]data.Chord{queryChord})
-				totalDur += time.Since(t0)
-			}
-		*/
+// 		/*
+// 			for range trials {
+// 				t0 := time.Now()
+// 				_, _ = backend.Resolve([]data.Chord{queryChord})
+// 				totalDur += time.Since(t0)
+// 			}
+// 		*/
 
-		avgUs := float64(totalDur.Microseconds()) / float64(trials)
-		usPerEntry := avgUs / float64(dictSize)
-		score := 1.0 / (1.0 + avgUs/1000.0)
+// 		avgUs := float64(totalDur.Microseconds()) / float64(trials)
+// 		usPerEntry := avgUs / float64(dictSize)
+// 		score := 1.0 / (1.0 + avgUs/1000.0)
 
-		experiment.AddResult(tools.ExperimentalData{
-			Idx:  len(experiment.tableData),
-			Name: fmt.Sprintf("dict=%d", dictSize),
-			Scores: tools.Scores{
-				Exact:   avgUs,
-				Partial: usPerEntry,
-				Fuzzy:   float64(dictSize),
-			},
-			WeightedTotal: score,
-		})
-	}
+// 		experiment.AddResult(tools.ExperimentalData{
+// 			Idx:  len(experiment.tableData),
+// 			Name: fmt.Sprintf("dict=%d", dictSize),
+// 			Scores: tools.Scores{
+// 				Exact:   avgUs,
+// 				Partial: usPerEntry,
+// 				Fuzzy:   float64(dictSize),
+// 			},
+// 			WeightedTotal: score,
+// 		})
+// 	}
 
-	return nil
-}
+// 	return nil
+// }

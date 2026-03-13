@@ -40,3 +40,16 @@ func TestWeightedTotalWithWeightsSanitizesNaN(t *testing.T) {
 	require.False(t, math.IsNaN(result))
 	require.InDelta(t, 0.3, result, 1e-12)
 }
+
+func TestByteScoresPenalizeGarbageAroundContainedSpan(t *testing.T) {
+	scores := ByteScores([]byte("bathroom"), []byte("Mary is in the bathroom now"))
+
+	require.Equal(t, 0.0, scores.Exact)
+	require.Equal(t, 1.0, scores.Partial)
+	require.Less(t, scores.Fuzzy, 1.0)
+	require.True(t, ByteSpanMatch([]byte("bathroom"), []byte("Mary is in the bathroom now")))
+}
+
+func TestByteSpanMatchRejectsIncidentalPrefixResidue(t *testing.T) {
+	require.False(t, ByteSpanMatch([]byte("bathroom"), []byte("ba")))
+}

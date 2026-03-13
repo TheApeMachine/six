@@ -5,10 +5,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/local"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 // ruleShiftSamplesPerPhase is the number of samples per phase.
@@ -75,7 +74,7 @@ interference once Phase B is established.
 type RuleShiftExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 
 	// Per-step alignment signals, filled in AddResult.
 	kA     []float64
@@ -126,7 +125,7 @@ func NewRuleShiftExperiment() *RuleShiftExperiment {
 
 	return &RuleShiftExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   local.New(corpus),
+		dataset:   local.New(local.WithBytesOfBytes(corpus)),
 		expectedA: expectedA,
 		expectedB: expectedB,
 	}
@@ -137,16 +136,16 @@ func (exp *RuleShiftExperiment) Section() string { return "misc" }
 
 func (exp *RuleShiftExperiment) Dataset() provider.Dataset { return exp.dataset }
 
-func (exp *RuleShiftExperiment) Prompts() *tokenizer.Prompt {
-	exp.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(exp.dataset),
-		tokenizer.PromptWithHoldout(exp.Holdout()),
+func (exp *RuleShiftExperiment) Prompts() *process.Prompt {
+	exp.prompt = process.NewPrompt(
+		process.PromptWithDataset(exp.dataset),
+		process.PromptWithHoldout(exp.Holdout()),
 	)
 	return exp.prompt
 }
 
-func (exp *RuleShiftExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return ruleShiftHoldoutPct, tokenizer.RIGHT
+func (exp *RuleShiftExperiment) Holdout() (int, process.HoldoutType) {
+	return ruleShiftHoldoutPct, process.RIGHT
 }
 
 /*
@@ -441,10 +440,4 @@ the shift detectable.
 			},
 		},
 	}
-}
-
-func (exp *RuleShiftExperiment) RawOutput() bool { return false }
-
-func (exp *RuleShiftExperiment) Finalize(_ *geometry.HybridSubstrate) error {
-	return nil
 }

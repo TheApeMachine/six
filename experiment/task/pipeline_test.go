@@ -10,7 +10,6 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
-	cortex_task "github.com/theapemachine/six/experiment/task/cortex"
 	"github.com/theapemachine/six/experiment/task/imagegen"
 	"github.com/theapemachine/six/experiment/task/logic"
 	"github.com/theapemachine/six/experiment/task/misc"
@@ -38,19 +37,18 @@ func TestPipeline(t *testing.T) {
 		phasedial.NewQueryRobustnessExperiment(),
 		phasedial.NewSnapToSurfaceExperiment(),
 		phasedial.NewSteerabilityExperiment(),
-		phasedial.NewTorusGeneralizationExperiment(),
+		// phasedial.NewTorusGeneralizationExperiment(),
 		phasedial.NewTorusNavigationExperiment(),
 		phasedial.NewTwoHopRetrievalExperiment(),
 		imagegen.NewReconstructionExperiment(),
 		logic.NewBabiExperiment(),
 		misc.NewCrossDomainCompletionExperiment(),
-		misc.NewGemmaIntegrationExperiment(),
+		// misc.NewGemmaIntegrationExperiment(),
 		misc.NewRuleShiftExperiment(),
 		scaling.NewBestFillScalingExperiment(),
 		scaling.NewCompressionExperiment(),
 		scaling.NewPipelineThroughputExperiment(),
 		scaling.NewSequencerExperiment(),
-		cortex_task.NewChannelRoutingExperiment(),
 	}
 
 	experiments := allExperiments

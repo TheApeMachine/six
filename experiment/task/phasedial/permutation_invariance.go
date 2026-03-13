@@ -5,10 +5,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -19,7 +18,7 @@ scan and generates a multi-panel chart showing the semantic geodesic matrix.
 type PermutationInvarianceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewPermutationInvarianceExperiment() *PermutationInvarianceExperiment {
@@ -41,16 +40,16 @@ func (experiment *PermutationInvarianceExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *PermutationInvarianceExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *PermutationInvarianceExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *PermutationInvarianceExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *PermutationInvarianceExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *PermutationInvarianceExperiment) AddResult(results tools.ExperimentalData) {
@@ -78,10 +77,4 @@ func (experiment *PermutationInvarianceExperiment) TableData() any {
 
 func (experiment *PermutationInvarianceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
-}
-
-func (experiment *PermutationInvarianceExperiment) RawOutput() bool { return false }
-
-func (experiment *PermutationInvarianceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

@@ -5,10 +5,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 // crossDomains defines the three domains tested in this experiment.
@@ -55,7 +54,7 @@ the suffix by chord resonance.
 type CrossDomainCompletionExperiment struct {
 	tableData []tools.ExperimentalData
 	mds       *multiDomainDataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewCrossDomainCompletionExperiment() *CrossDomainCompletionExperiment {
@@ -102,16 +101,16 @@ func (experiment *CrossDomainCompletionExperiment) Dataset() provider.Dataset {
 	return experiment.mds
 }
 
-func (experiment *CrossDomainCompletionExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.mds),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *CrossDomainCompletionExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.mds),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *CrossDomainCompletionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.RIGHT
+func (experiment *CrossDomainCompletionExperiment) Holdout() (int, process.HoldoutType) {
+	return 50, process.RIGHT
 }
 
 func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.ExperimentalData) {
@@ -378,18 +377,6 @@ before chord resonance can reliably recover novel suffixes.
 		},
 	}
 }
-
-func (experiment *CrossDomainCompletionExperiment) RawOutput() bool { return false }
-
-func (experiment *CrossDomainCompletionExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
-}
-
-// ── multiDomainDataset ────────────────────────────────────────────────────────
-// Concatenates token streams from multiple datasets. SampleID contains
-// the original sample identifier.
 
 type multiDomainDataset struct {
 	datasets    []provider.Dataset

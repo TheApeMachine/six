@@ -2,12 +2,11 @@ package textgen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -27,7 +26,7 @@ has no overlap with the training split at the sample level.
 type OutOfCorpusExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewOutOfCorpusExperiment() *OutOfCorpusExperiment {
@@ -46,17 +45,17 @@ func (experiment *OutOfCorpusExperiment) Name() string              { return "Ou
 func (experiment *OutOfCorpusExperiment) Section() string           { return "textgen" }
 func (experiment *OutOfCorpusExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *OutOfCorpusExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *OutOfCorpusExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
 // 50% right holdout: system must complete the second half of each sample.
-func (experiment *OutOfCorpusExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.RIGHT
+func (experiment *OutOfCorpusExperiment) Holdout() (int, process.HoldoutType) {
+	return 50, process.RIGHT
 }
 
 func (experiment *OutOfCorpusExperiment) AddResult(results tools.ExperimentalData) {
@@ -88,10 +87,4 @@ func (experiment *OutOfCorpusExperiment) TableData() any { return experiment.tab
 
 func (experiment *OutOfCorpusExperiment) Artifacts() []tools.Artifact {
 	return OutOfCorpusArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *OutOfCorpusExperiment) RawOutput() bool { return false }
-
-func (experiment *OutOfCorpusExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

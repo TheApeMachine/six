@@ -8,10 +8,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/local"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 // crSamplesPerSuspect is the number of ingestion samples per suspect.
@@ -101,11 +100,11 @@ This is a pure dataset→AddResult experiment: the full architecture
 type ConstraintResolutionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 
 	// Per-step: which suspect won the retrieval at that step.
 	// stepSuspect[step] = suspectIdx whose expected bytes best match observed.
-	stepSuspect   []int
+	stepSuspect    []int
 	stepAlignments [][]float64 // stepAlignments[step][suspectIdx] = fuzzy score
 	totalSteps     int
 
@@ -153,10 +152,10 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 	}
 
 	return &ConstraintResolutionExperiment{
-		tableData:      []tools.ExperimentalData{},
-		dataset:        local.New(corpus),
-		expected:       expected,
-		totalSteps:     totalClues,
+		tableData:  []tools.ExperimentalData{},
+		dataset:    local.New(local.WithBytesOfBytes(corpus)),
+		expected:   expected,
+		totalSteps: totalClues,
 	}
 }
 
@@ -165,16 +164,16 @@ func (exp *ConstraintResolutionExperiment) Section() string { return "phasedial"
 
 func (exp *ConstraintResolutionExperiment) Dataset() provider.Dataset { return exp.dataset }
 
-func (exp *ConstraintResolutionExperiment) Prompts() *tokenizer.Prompt {
-	exp.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(exp.dataset),
-		tokenizer.PromptWithHoldout(exp.Holdout()),
+func (exp *ConstraintResolutionExperiment) Prompts() *process.Prompt {
+	exp.prompt = process.NewPrompt(
+		process.PromptWithDataset(exp.dataset),
+		process.PromptWithHoldout(exp.Holdout()),
 	)
 	return exp.prompt
 }
 
-func (exp *ConstraintResolutionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return crHoldoutPct, tokenizer.RIGHT
+func (exp *ConstraintResolutionExperiment) Holdout() (int, process.HoldoutType) {
+	return crHoldoutPct, process.RIGHT
 }
 
 /*
@@ -442,7 +441,3 @@ volumes will sharpen attractor boundaries and increase the isolation ratio.
 }
 
 func (exp *ConstraintResolutionExperiment) RawOutput() bool { return false }
-
-func (exp *ConstraintResolutionExperiment) Finalize(_ *geometry.HybridSubstrate) error {
-	return nil
-}

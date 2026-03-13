@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-21 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+22 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 29 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-28 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+25 & Java & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-15 & JavaScript & 0.0000 & 0.0531 & 0.0531 & 0.0242 \\
-16 & JavaScript & 0.0000 & 0.1698 & 0.1698 & 0.0772 \\
-57 & Rust & 0.0000 & 1.0000 & 1.0000 & 0.4545 \\
+17 & JavaScript & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & Python & 0.0000 & 0.0200 & 0.0200 & 0.0091 \\
+9 & Python & 0.0000 & 0.0200 & 0.0200 & 0.0091 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{>();·        StringBuilder current\_strin\ldots}} & \multicolumn{2}{l}{\texttt{>();·        StringBuilder current\_strin\ldots}} \\
-\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{>();·        if (numbers.size() == 0) \{·\ldots}} & \multicolumn{2}{l}{\texttt{>();·        if (numbers.size() == 0) \{·\ldots}} \\
-\multicolumn{2}{l}{\texttt{/* Insert a number 'delimeter' between e\ldots}} & \multicolumn{2}{l}{\texttt{, delimeter) => \{·   if (!Array.isArray(\ldots}} & \multicolumn{2}{l}{\texttt{delimeter) => \{·   if (!Array.isArray(nu\ldots}} \\
-\multicolumn{2}{l}{\texttt{/* Input to this function is a string re\ldots}} & \multicolumn{2}{l}{\texttt{> \{·   var parseParenGroup = function (s\ldots}} & \multicolumn{2}{l}{\texttt{\{·   var parseParenGroup = function (s) \ldots}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{le number) \{·         return number \% 1.\ldots}} & \multicolumn{2}{l}{\texttt{le number) \{·         return number \% 1.\ldots}} \\
+\multicolumn{2}{l}{\texttt{import java.util.*;·import java.lang.*;·\ldots}} & \multicolumn{2}{l}{\texttt{ingMax);·        \}··        return resul\ldots}} & \multicolumn{2}{l}{\texttt{ingMax);·        \}··        return resul\ldots}} \\
+\multicolumn{2}{l}{\texttt{/* Filter an input list of strings only \ldots}} & \multicolumn{2}{l}{\texttt{rings.filter(x => x.indexOf(substring) !\ldots}} & \multicolumn{2}{l}{\texttt{out.push\_back(delimeter);·        out.pu\ldots}} \\
+\multicolumn{2}{l}{\texttt{··def truncate\_number(number: float) -> \ldots}} & \multicolumn{2}{l}{\texttt{ber(3.5)·    0.5·    """·     return num\ldots}} & \multicolumn{2}{l}{\texttt{lude<vector>·\#include<math.h>·using name\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 60} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.4774} & \multicolumn{3}{l}{Min: 0.0242 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.3530} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{421.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{29.02 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{483.0 ms} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{2.05 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{8.91 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{148.0 ms} \\
 \multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{29.44 s}} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{10.95 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

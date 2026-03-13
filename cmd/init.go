@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/console"
+	"github.com/theapemachine/six/pkg/console"
 )
 
 var initCmd = &cobra.Command{

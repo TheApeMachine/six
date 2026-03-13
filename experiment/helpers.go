@@ -1,8 +1,10 @@
 package experiment
 
 import (
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/local"
+	"slices"
+
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 var Aphorisms = []string{
@@ -19,18 +21,9 @@ var Aphorisms = []string{
 }
 
 func NewLocalProvider(corpus []string) provider.Dataset {
-	data := make([][]byte, len(corpus))
-	for i, s := range corpus {
-		data[i] = []byte(s)
-	}
-	return local.New(data)
+	return local.New(local.WithStrings(corpus))
 }
 
 func Contains(slice []string, val string) bool {
-	for _, s := range slice {
-		if s == val {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(slice, val)
 }

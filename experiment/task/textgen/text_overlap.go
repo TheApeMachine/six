@@ -2,12 +2,11 @@ package textgen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -31,7 +30,7 @@ a denser web of chord attractor bridges than raw encyclopaedic text.
 type TextOverlapExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewTextOverlapExperiment() *TextOverlapExperiment {
@@ -49,17 +48,17 @@ func (experiment *TextOverlapExperiment) Name() string              { return "Te
 func (experiment *TextOverlapExperiment) Section() string           { return "textgen" }
 func (experiment *TextOverlapExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *TextOverlapExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *TextOverlapExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
 // 40% right holdout — tests generation across the second main act of each story.
-func (experiment *TextOverlapExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 40, tokenizer.RIGHT
+func (experiment *TextOverlapExperiment) Holdout() (int, process.HoldoutType) {
+	return 40, process.RIGHT
 }
 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {
@@ -91,10 +90,4 @@ func (experiment *TextOverlapExperiment) TableData() any { return experiment.tab
 
 func (experiment *TextOverlapExperiment) Artifacts() []tools.Artifact {
 	return TextOverlapArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *TextOverlapExperiment) RawOutput() bool { return false }
-
-func (experiment *TextOverlapExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

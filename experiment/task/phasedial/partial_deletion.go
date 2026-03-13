@@ -3,10 +3,9 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -17,7 +16,7 @@ even if a significant portion of the corpus is removed.
 type PartialDeletionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewPartialDeletionExperiment() *PartialDeletionExperiment {
@@ -39,16 +38,16 @@ func (experiment *PartialDeletionExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *PartialDeletionExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *PartialDeletionExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *PartialDeletionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *PartialDeletionExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *PartialDeletionExperiment) AddResult(results tools.ExperimentalData) {
@@ -87,16 +86,14 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 	}
 }
 
-func (experiment *PartialDeletionExperiment) RawOutput() bool { return false }
+// func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+// 	_ = substrate.GeodesicScan(substrate.Entries[0].Fingerprint, 72, 5.0)
 
-func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	_ = substrate.GeodesicScan(substrate.Entries[0].Fingerprint, 72, 5.0)
+// 	experiment.AddResult(tools.ExperimentalData{
+// 		Name:          "Partial Deletion",
+// 		WeightedTotal: 1.0,
+// 		Idx:           len(substrate.Entries),
+// 	})
 
-	experiment.AddResult(tools.ExperimentalData{
-		Name:          "Partial Deletion",
-		WeightedTotal: 1.0,
-		Idx:           len(substrate.Entries),
-	})
-
-	return nil
-}
+// 	return nil
+// }

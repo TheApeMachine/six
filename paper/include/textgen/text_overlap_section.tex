@@ -13,12 +13,12 @@ with a learned corpus span, and transition into the subsequent span
 naturally.
 
 \paragraph{Results.}
-Across $N = 10$ test samples the mean weighted score was 0.522.
+Across $N = 10$ test samples the mean weighted score was 0.034.
 
 \paragraph{Assessment.}
-The substrate correctly identified and exploited chord-level overlap at
-story span boundaries, producing continuations that bridge naturally
-into the corpus.  The high score validates the hypothesis that TinyStories'
-regular structure creates strong attractor bridges.
+Overlap detection was weak.  At this ingestion scale the attractor bridges
+between story spans are not dense enough to reliably guide generation
+into an adjacent region.  Scaling the ingestion corpus is the primary
+lever for improvement.
 
 Figure~\ref{fig:text_overlap_map} shows the trial outcome map.

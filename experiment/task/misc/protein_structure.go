@@ -6,10 +6,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -33,7 +32,7 @@ type ProteinStructureExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 	manifold  [][]byte
 	seen      map[string]struct{}
 }
@@ -74,18 +73,18 @@ func (experiment *ProteinStructureExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *ProteinStructureExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *ProteinStructureExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 
 	return experiment.prompt
 }
 
-func (experiment *ProteinStructureExperiment) Holdout() (int, tokenizer.HoldoutType) {
+func (experiment *ProteinStructureExperiment) Holdout() (int, process.HoldoutType) {
 	// Hold out the last 50 bytes for structure prediction
-	return 50, tokenizer.RIGHT
+	return 50, process.RIGHT
 }
 
 /*
@@ -411,10 +410,4 @@ this resolution.
 			},
 		},
 	}
-}
-
-func (experiment *ProteinStructureExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
 }

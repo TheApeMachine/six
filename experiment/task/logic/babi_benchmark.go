@@ -5,13 +5,12 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -22,7 +21,7 @@ type BabiExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   *huggingface.BabiQADataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewBabiExperiment() *BabiExperiment {
@@ -55,30 +54,16 @@ func (experiment *BabiExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *BabiExperiment) Prompts() *tokenizer.Prompt {
-	samples, err := experiment.dataset.Samples()
-	if err != nil {
-		return tokenizer.NewPrompt()
-	}
-
-	promptSamples := make([]tokenizer.PromptSample, 0, len(samples))
-	for _, sample := range samples {
-		promptSamples = append(promptSamples, tokenizer.PromptSample{
-			Visible: sample.Visible,
-			HeldOut: sample.Answer,
-			Full:    sample.Full,
-		})
-	}
-
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithSamples(promptSamples),
+func (experiment *BabiExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
 	)
 
 	return experiment.prompt
 }
 
-func (experiment *BabiExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *BabiExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *BabiExperiment) Section() string {
@@ -358,16 +343,6 @@ may not separate location attractors reliably.
 		},
 	}
 }
-
-func (experiment *BabiExperiment) RawOutput() bool { return false }
-
-func (experiment *BabiExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
-}
-
-// ── Internal helpers ────────────────────────────────────────────────
 
 type entityStat struct {
 	Correct int

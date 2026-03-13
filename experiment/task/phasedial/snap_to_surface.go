@@ -3,10 +3,9 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -18,7 +17,7 @@ structural nodes.
 type SnapToSurfaceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewSnapToSurfaceExperiment() *SnapToSurfaceExperiment {
@@ -40,16 +39,16 @@ func (experiment *SnapToSurfaceExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *SnapToSurfaceExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *SnapToSurfaceExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *SnapToSurfaceExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (experiment *SnapToSurfaceExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 func (experiment *SnapToSurfaceExperiment) AddResult(results tools.ExperimentalData) {
@@ -77,10 +76,4 @@ func (experiment *SnapToSurfaceExperiment) TableData() any {
 
 func (experiment *SnapToSurfaceExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{}
-}
-
-func (experiment *SnapToSurfaceExperiment) RawOutput() bool { return false }
-
-func (experiment *SnapToSurfaceExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

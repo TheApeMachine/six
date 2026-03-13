@@ -2,12 +2,11 @@ package textgen
 
 import (
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 /*
@@ -26,7 +25,7 @@ not just the most frequent n-grams.
 type ProseChainingExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewProseChainingExperiment() *ProseChainingExperiment {
@@ -45,17 +44,17 @@ func (experiment *ProseChainingExperiment) Name() string              { return "
 func (experiment *ProseChainingExperiment) Section() string           { return "textgen" }
 func (experiment *ProseChainingExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *ProseChainingExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *ProseChainingExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
 // 60% right holdout — an aggressive masking that tests deep generative chaining.
-func (experiment *ProseChainingExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 60, tokenizer.RIGHT
+func (experiment *ProseChainingExperiment) Holdout() (int, process.HoldoutType) {
+	return 60, process.RIGHT
 }
 
 func (experiment *ProseChainingExperiment) AddResult(results tools.ExperimentalData) {
@@ -87,10 +86,4 @@ func (experiment *ProseChainingExperiment) TableData() any { return experiment.t
 
 func (experiment *ProseChainingExperiment) Artifacts() []tools.Artifact {
 	return ProseChainingArtifacts(experiment.tableData, experiment.Score())
-}
-
-func (experiment *ProseChainingExperiment) RawOutput() bool { return false }
-
-func (experiment *ProseChainingExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
 }

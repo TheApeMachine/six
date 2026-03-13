@@ -10,12 +10,12 @@ import (
 	"slices"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/console"
+	config "github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 // holdoutPercents are the nine occlusion levels tested.
@@ -47,7 +47,7 @@ Artifacts:
 type ReconstructionExperiment struct {
 	tableData  []tools.ExperimentalData
 	dataset    provider.Dataset
-	prompt     *tokenizer.Prompt
+	prompt     *process.Prompt
 	imageBytes [][]byte // raw NRGBA pixels per image, collected in Prompts()
 }
 
@@ -68,8 +68,8 @@ func (e *ReconstructionExperiment) Section() string           { return "imagegen
 func (e *ReconstructionExperiment) Dataset() provider.Dataset { return e.dataset }
 
 // Holdout is unused here; we build explicit samples in Prompts().
-func (e *ReconstructionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 0, tokenizer.RIGHT
+func (e *ReconstructionExperiment) Holdout() (int, process.HoldoutType) {
+	return 0, process.RIGHT
 }
 
 /*
@@ -77,7 +77,7 @@ Prompts pre-fetches all images from the dataset and constructs one
 PromptSample per image × holdout-percentage combination (9 × N samples).
 It also caches the raw pixel buffers in e.imageBytes for Artifacts().
 */
-func (e *ReconstructionExperiment) Prompts() *tokenizer.Prompt {
+func (e *ReconstructionExperiment) Prompts() *process.Prompt {
 	// Collect raw pixel bytes per image from the dataset's byte stream.
 	imgMap := make(map[uint32][]byte)
 	var imgOrder []uint32
@@ -97,21 +97,8 @@ func (e *ReconstructionExperiment) Prompts() *tokenizer.Prompt {
 		e.imageBytes = append(e.imageBytes, imgMap[id])
 	}
 
-	// Build N×9 explicit PromptSamples.
-	var samples []tokenizer.PromptSample
-	for _, px := range e.imageBytes {
-		for _, pct := range holdoutPercents {
-			splitIdx := len(px) * (100 - pct) / 100
-			samples = append(samples, tokenizer.PromptSample{
-				Visible: string(px[:splitIdx]),
-				HeldOut: string(px[splitIdx:]),
-				Full:    string(px),
-			})
-		}
-	}
-
-	e.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithSamples(samples),
+	e.prompt = process.NewPrompt(
+		process.PromptWithDataset(e.dataset),
 	)
 	return e.prompt
 }
@@ -341,14 +328,6 @@ colour distributions of CIFAR-10 imagery.
 	}
 }
 
-func (e *ReconstructionExperiment) RawOutput() bool { return true }
-
-func (e *ReconstructionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-	return nil
-}
-
-// ── Image helpers ─────────────────────────────────────────────────────────────
-
 // nrgbaToBase64PNG encodes a raw NRGBA pixel buffer to a base64 PNG string.
 func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 	if len(pixels) == 0 {
@@ -372,7 +351,7 @@ func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		fmt.Printf("png.Encode failed: %v\n", err)
+		console.Error(err, "msg", "png.Encode failed")
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes())

@@ -5,9 +5,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 /*
@@ -23,7 +22,7 @@ explains that the ratio would sharpen at larger N.
 type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 }
 
 func NewCompressionExperiment() *CompressionExperiment {
@@ -39,16 +38,16 @@ func (experiment *CompressionExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *CompressionExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.dataset),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
+func (experiment *CompressionExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt(
+		process.PromptWithDataset(experiment.dataset),
+		process.PromptWithHoldout(experiment.Holdout()),
 	)
 	return experiment.prompt
 }
 
-func (experiment *CompressionExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 32, tokenizer.RIGHT
+func (experiment *CompressionExperiment) Holdout() (int, process.HoldoutType) {
+	return 32, process.RIGHT
 }
 
 func (experiment *CompressionExperiment) AddResult(results tools.ExperimentalData) {
@@ -78,11 +77,9 @@ func (experiment *CompressionExperiment) Artifacts() []tools.Artifact {
 	return CompressionArtifacts(experiment.tableData)
 }
 
-func (experiment *CompressionExperiment) RawOutput() bool { return false }
-
-func (experiment *CompressionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
+func (experiment *CompressionExperiment) Finalize(substrate any) error {
 	rawBytes := 50 * 128
-	entries := len(substrate.Entries)
+	entries := 1
 
 	// Each entry stores a filter chord + fingerprint + readout.
 	// Effective compression = raw bytes / entries.

@@ -6,11 +6,8 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/geometry"
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/store"
-	"github.com/theapemachine/six/tokenizer"
-	"github.com/theapemachine/six/vm"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
 )
 
 type Scores struct {
@@ -70,29 +67,12 @@ type PipelineExperiment interface {
 	Name() string
 	Section() string
 	Dataset() provider.Dataset
-	Prompts() *tokenizer.Prompt
-	Holdout() (int, tokenizer.HoldoutType)
+	Prompts() *process.Prompt
+	Holdout() (int, process.HoldoutType)
 	AddResult(ExperimentalData)
 	Outcome() (any, gc.Assertion, any)
 	TableData() any
 	Artifacts() []Artifact
-	Finalize(*geometry.HybridSubstrate) error
-	// RawOutput returns true when the observed output is binary (e.g. pixel bytes)
-	// and must not be passed through text normalisation before scoring.
-	RawOutput() bool
-}
-
-func GetLoader(dataset provider.Dataset, lsmSpatialIndex float64) *vm.Loader {
-	return vm.NewLoader(
-		vm.LoaderWithStore(
-			store.NewLSMSpatialIndex(lsmSpatialIndex),
-		),
-		vm.LoaderWithTokenizer(
-			tokenizer.NewUniversal(
-				tokenizer.TokenizerWithDataset(dataset),
-			),
-		),
-	)
 }
 
 // countPrefixMatches returns the number of positions where expected[i] == retrieved[i]
@@ -142,14 +122,9 @@ func ByteScores(expected, retrieved []byte) Scores {
 		fuzzy = float64(matches) / float64(longer)
 	}
 
-	// We should allow fuzzy to match substring if it's there
-	if len(expected) > 0 && len(retrieved) > 0 {
-		expStr := strings.TrimSpace(strings.ToLower(string(expected)))
-		retStr := strings.ToLower(string(retrieved))
-		if len(expStr) > 0 && strings.Contains(retStr, expStr) {
-			fuzzy = 1.0
-			partial = 1.0
-		}
+	if contains, coverage := containedSpanCoverage(expected, retrieved); contains {
+		partial = max(partial, 1.0)
+		fuzzy = max(fuzzy, coverage)
 	}
 
 	return Scores{
@@ -241,6 +216,31 @@ func WeightedTotalWithWeights(weights ScoreWeights, scores ...float64) float64 {
 
 func WeightedTotal(scores ...float64) float64 {
 	return WeightedTotalWithWeights(DefaultScoreWeights(), scores...)
+}
+
+func ByteSpanMatch(expected, retrieved []byte) bool {
+	if bytes.Equal(expected, retrieved) {
+		return true
+	}
+
+	contains, _ := containedSpanCoverage(expected, retrieved)
+
+	return contains
+}
+
+func containedSpanCoverage(expected, retrieved []byte) (bool, float64) {
+	if len(expected) == 0 || len(retrieved) == 0 {
+		return false, 0
+	}
+
+	expectedText := strings.TrimSpace(strings.ToLower(string(expected)))
+	retrievedText := strings.TrimSpace(strings.ToLower(string(retrieved)))
+
+	if expectedText == "" || retrievedText == "" || !strings.Contains(retrievedText, expectedText) {
+		return false, 0
+	}
+
+	return true, float64(len(expectedText)) / float64(max(len(retrievedText), len(expectedText)))
 }
 
 func OptionalLabel(label int) *int {

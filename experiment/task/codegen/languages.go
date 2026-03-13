@@ -1,18 +1,14 @@
 package codegen
 
 import (
-	"fmt"
-	"strings"
-
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/geometry"
+	config "github.com/theapemachine/six/pkg/core"
 
-	"github.com/theapemachine/six/provider"
-	"github.com/theapemachine/six/provider/huggingface"
-	"github.com/theapemachine/six/tokenizer"
+	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/huggingface"
 )
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
@@ -36,10 +32,10 @@ Each sample ingests a function prompt + canonical solution; the right-50-byte
 holdout is used as the expected completion.
 */
 type LanguagesExperiment struct {
+	dataset   provider.Dataset
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	mds       *multiDataset // kept for language lookup in AddResult
-	prompt    *tokenizer.Prompt
+	prompt    *process.Prompt
 	seen      map[string]struct{}
 }
 
@@ -60,11 +56,6 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 		)
 	}
 
-	experiment.mds = &multiDataset{
-		datasets:  datasets,
-		langNames: langDisplayNames(),
-	}
-
 	experiment.prose = []projector.ProseEntry{
 		{
 			Condition:   func() bool { return experiment.Score() > 0.5 },
@@ -79,7 +70,7 @@ func (experiment *LanguagesExperiment) Name() string    { return "Languages" }
 func (experiment *LanguagesExperiment) Section() string { return "codegen" }
 
 func (experiment *LanguagesExperiment) Dataset() provider.Dataset {
-	return experiment.mds
+	return experiment.dataset
 }
 
 func langDisplayNames() []string {
@@ -90,16 +81,14 @@ func langDisplayNames() []string {
 	return names
 }
 
-func (experiment *LanguagesExperiment) Prompts() *tokenizer.Prompt {
-	experiment.prompt = tokenizer.NewPrompt(
-		tokenizer.PromptWithDataset(experiment.Dataset()),
-		tokenizer.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *LanguagesExperiment) Prompts() *process.Prompt {
+	experiment.prompt = process.NewPrompt()
 	return experiment.prompt
 }
 
-func (experiment *LanguagesExperiment) Holdout() (int, tokenizer.HoldoutType) {
-	return 50, tokenizer.RIGHT
+func (experiment *LanguagesExperiment) Holdout() (int, process.HoldoutType) {
+	// 50% holdout, from center to right side.
+	return 50, process.RIGHT
 }
 
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
@@ -201,7 +190,7 @@ func (experiment *LanguagesExperiment) Artifacts() []tools.Artifact {
 		partialAvg /= float64(nLangs)
 	}
 
-	chartFile := slugify(experiment.Name()) + "_scores"
+	chartFile := tools.Slugify(experiment.Name()) + "_scores"
 
 	proseTemplate := `\subsection{Code Generation: Multi-Language Coverage}
 \label{sec:codegen_languages}
@@ -281,60 +270,4 @@ is expected to improve results substantially.
 			},
 		},
 	}
-}
-
-func (experiment *LanguagesExperiment) RawOutput() bool { return false }
-
-func (experiment *LanguagesExperiment) Finalize(
-	substrate *geometry.HybridSubstrate,
-) error {
-	return nil
-}
-
-func slugify(name string) string {
-	return strings.ReplaceAll(
-		strings.ToLower(strings.TrimSpace(name)), " ", "_",
-	)
-}
-
-// ── multiDataset ─────────────────────────────────────────────────────────────
-// multiDataset concatenates token streams from multiple underlying datasets,
-// tagging each sample with its language DisplayName via the SampleID high bits.
-// The language name is communicated back to AddResult via ExperimentalData.Name,
-// which the pipeline sets when it reads from the prompt.
-// We use the SampleID to encode the language index: id = langIdx*1e6 + sampleIdx.
-//
-// Note: The pipeline currently does not set Name on ExperimentalData from the
-// dataset stream. We work around this by embedding the langIdx in the upper
-// bits of SampleID and decoding it in AddResult. For simplicity we instead
-// use a separate per-language pass tracked by currentLang.
-
-type multiDataset struct {
-	datasets  []provider.Dataset
-	langNames []string
-	current   int // which dataset we are streaming
-}
-
-func (m *multiDataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-	go func() {
-		defer close(out)
-		for i, ds := range m.datasets {
-			// Encode language index into the upper 24 bits of SampleID so
-			// AddResult can recover the language name.
-			for tok := range ds.Generate() {
-				tok.SampleID = uint32(i)<<24 | (tok.SampleID & 0x00FFFFFF)
-				out <- tok
-			}
-		}
-	}()
-	return out
-}
-
-func (m *multiDataset) LangForSampleID(id uint32) string {
-	langIdx := int(id >> 24)
-	if langIdx < len(m.langNames) {
-		return m.langNames[langIdx]
-	}
-	return fmt.Sprintf("lang%d", langIdx)
 }

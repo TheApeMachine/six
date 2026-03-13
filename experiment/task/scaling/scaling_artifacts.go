@@ -368,5 +368,3 @@ chord attractor boundaries at this substrate size.
 		},
 	}
 }
-
-
