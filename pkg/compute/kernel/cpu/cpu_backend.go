@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
 	"github.com/theapemachine/six/pkg/geometry"
-	"github.com/theapemachine/six/pkg/kernel/internal/resolve"
 )
 
 /*
@@ -19,8 +19,6 @@ Available always returns true for the CPU backend.
 func (backend *CPUBackend) Available() bool {
 	return true
 }
-
-
 
 /*
 Resolve finds the graph node with the smallest GF(257) geometric distance

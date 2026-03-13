@@ -167,28 +167,28 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 
 	console.Info("Tokenizer generating dataset")
 
-	flush := func(sampleID, startPos uint32, buf []byte) {
+	flush := func(sampleID, startPos uint32, buf []byte, metaChord data.Chord) {
 		if len(buf) == 0 {
 			return
 		}
 
 		chunkCopy := append([]byte(nil), buf...)
 		ch := server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
-			return nil, server.processChunk(activeCtx, sampleID, startPos, chunkCopy)
+			return nil, server.processChunk(activeCtx, sampleID, startPos, chunkCopy, metaChord)
 		})
 		pending = append(pending, ch)
 	}
 
-	flushSync := func(sampleID, startPos uint32, buf []byte) error {
+	flushSync := func(sampleID, startPos uint32, buf []byte, metaChord data.Chord) error {
 		if len(buf) == 0 {
 			return nil
 		}
 
 		if server.pool == nil {
-			return server.processChunk(activeCtx, sampleID, startPos, append([]byte(nil), buf...))
+			return server.processChunk(activeCtx, sampleID, startPos, append([]byte(nil), buf...), metaChord)
 		}
 
-		flush(sampleID, startPos, buf)
+		flush(sampleID, startPos, buf, metaChord)
 
 		return nil
 	}
@@ -221,7 +221,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		if server.useSampleID && server.currentSample != token.SampleID {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
+			if err := flushSync(server.currentSample, chunkStart, chunk, data.Chord{}); err != nil {
 				return err
 			}
 
@@ -235,12 +235,12 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		}
 
 		chunk = append(chunk, token.Symbol)
-		isBoundary, emitK, _ := seq.Analyze(token.Pos, token.Symbol)
+		isBoundary, emitK, _, emitMeta := seq.Analyze(token.Pos, token.Symbol)
 
 		if isBoundary {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			if err := flushSync(server.currentSample, chunkStart, chunk[:emitK]); err != nil {
+			if err := flushSync(server.currentSample, chunkStart, chunk[:emitK], emitMeta); err != nil {
 				return err
 			}
 
@@ -251,14 +251,14 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 	}
 
 	for {
-		isBoundary, emitK, _ := seq.Flush()
+		isBoundary, emitK, _, emitMeta := seq.Flush()
 		if !isBoundary {
 			break
 		}
 
 		server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-		if err := flushSync(server.currentSample, chunkStart, chunk[:emitK]); err != nil {
+		if err := flushSync(server.currentSample, chunkStart, chunk[:emitK], emitMeta); err != nil {
 			return err
 		}
 
@@ -267,7 +267,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		chunkStart += uint32(emitK)
 	}
 
-	if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
+	if err := flushSync(server.currentSample, chunkStart, chunk, data.Chord{}); err != nil {
 		return err
 	}
 
@@ -280,7 +280,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 	return nil
 }
 
-func (server *TokenizerServer) processChunk(ctx context.Context, sampleID, startPos uint32, chunk []byte) error {
+func (server *TokenizerServer) processChunk(ctx context.Context, sampleID, startPos uint32, chunk []byte, metaChord data.Chord) error {
 	if len(chunk) == 0 {
 		return nil
 	}
@@ -304,7 +304,7 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID, start
 
 	for i, currentByte := range chunk {
 		if !server.useSampleID && server.spatialInsert != nil {
-			if err := server.spatialInsert(ctx, currentByte, startPos+uint32(i), chunkChord); err != nil {
+			if err := server.spatialInsert(ctx, currentByte, startPos+uint32(i), chunkChord, metaChord); err != nil {
 				return console.Error(err)
 			}
 		}

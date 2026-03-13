@@ -47,14 +47,14 @@ func TestCalibrator(t *testing.T) {
 			cal = NewCalibrator(WithWindowSize(5)) // small window for testing
 
 			Convey("It should early return if window is not warmed", func() {
-				cal.FeedbackChunk(6, 0.35)
+				cal.FeedbackChunk(6, 0.35, 1.0, 1.0)
 				So(cal.SensitivityPop(), ShouldEqual, 1.0)
 				So(cal.SensitivityPhase(), ShouldEqual, 1.0)
 			})
 
 			Convey("It should early return if mean density is zero", func() {
 				for range 5 {
-					cal.FeedbackChunk(6, 0.0) // pushes 0.0
+					cal.FeedbackChunk(6, 0.0, 1.0, 1.0) // pushes 0.0
 				}
 				// 5th push triggers warmed = true, but mean = 0
 				So(cal.SensitivityPop(), ShouldEqual, 1.0)
@@ -63,11 +63,11 @@ func TestCalibrator(t *testing.T) {
 
 			Convey("It should adjust sensitivities correctly given chunk density", func() {
 				// Target is ~0.45, pushing sparse densities (varying to ensure stddev > 0)
-				cal.FeedbackChunk(6, 0.10)
-				cal.FeedbackChunk(6, 0.15)
-				cal.FeedbackChunk(6, 0.20)
-				cal.FeedbackChunk(6, 0.10)
-				cal.FeedbackChunk(6, 0.20)
+				cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.15, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.20, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.20, 1.0, 1.0)
 
 				pop := cal.SensitivityPop()
 				phase := cal.SensitivityPhase()
@@ -78,11 +78,11 @@ func TestCalibrator(t *testing.T) {
 				// Push large densities (varying) -> decrease penalty
 				// We push 10 values to fully flush the window of the small densities
 				for range 2 {
-					cal.FeedbackChunk(6, 0.60)
-					cal.FeedbackChunk(6, 0.65)
-					cal.FeedbackChunk(6, 0.70)
-					cal.FeedbackChunk(6, 0.60)
-					cal.FeedbackChunk(6, 0.70)
+					cal.FeedbackChunk(6, 0.60, 1.0, 1.0)
+					cal.FeedbackChunk(6, 0.65, 1.0, 1.0)
+					cal.FeedbackChunk(6, 0.70, 1.0, 1.0)
+					cal.FeedbackChunk(6, 0.60, 1.0, 1.0)
+					cal.FeedbackChunk(6, 0.70, 1.0, 1.0)
 				}
 
 				So(cal.SensitivityPop(), ShouldBeLessThan, pop)
@@ -90,11 +90,11 @@ func TestCalibrator(t *testing.T) {
 			})
 
 			Convey("It should derive dynamic ceilings from warmed density and phase history", func() {
-				cal.FeedbackChunk(6, 0.10)
-				cal.FeedbackChunk(6, 0.15)
-				cal.FeedbackChunk(6, 0.20)
-				cal.FeedbackChunk(6, 0.10)
-				cal.FeedbackChunk(6, 0.20)
+				cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.15, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.20, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
+				cal.FeedbackChunk(6, 0.20, 1.0, 1.0)
 
 				cal.ObservePhase(0.20)
 				cal.ObservePhase(0.25)
@@ -113,6 +113,6 @@ func BenchmarkFeedbackChunk(b *testing.B) {
 	cal := NewCalibrator(WithWindowSize(128))
 
 	for b.Loop() {
-		cal.FeedbackChunk(6, 0.35)
+		cal.FeedbackChunk(6, 0.35, 1.0, 1.0)
 	}
 }

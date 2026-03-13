@@ -1,5 +1,12 @@
 # six
 
+IMPORTANT LOCATIONS:
+
+./pkg/process
+./pkg/store/lsm
+./pkg/logic/graph
+./pkg/geometric
+
 > !NOTE
 > This is a research project under active development.
 > Certain code architectural decisions are built for speed, not for comfort.
@@ -68,6 +75,9 @@ This architecture doesn't abandon the oscillator model; it compiles it down to b
 ---
 
 # The Nested SO(3) Fractal Manifold (The "Rubik's Cube" Architecture)
+
+> !NOTE
+> This is no longer used, we are now focused on getting a foundation based on pure bitwise logic.
 
 ## Concept Overview
 The current `six` cognitive architecture utilizes highly dense 512-bit geometric chords to represent semantic state, mathematically blending data inside a linear topological space. While powerful, flat vectors eventually suffer from "saturation" (the wall of ones) and order-agnosticism (the "bag of words" problem) over massive contexts.
@@ -399,6 +409,4 @@ You never throw data away in the Cortex's memory. The chords remain full sequenc
 
 The math natively translates syntax into semantics.
 
-Copy
 Okay, new thought. What if the "thrown away" part becomes a "bucket" or "label"? Now the system, abstractly, know that Charles, Sandra, and Roy can be "in something". That sounds like automatic categorization?
-

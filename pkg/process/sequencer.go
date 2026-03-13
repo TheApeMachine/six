@@ -30,6 +30,8 @@ type Sequencer struct {
 	emaPhase float64
 	emaPop   float64
 
+	runningMeta data.Chord
+
 	tokens     []Token
 	candidates []candidate
 	offset     int
@@ -95,6 +97,7 @@ func (seq *Sequencer) Clone() *Sequencer {
 	c.lastEigenMag = seq.lastEigenMag
 	c.emaPhase = seq.emaPhase
 	c.emaPop = seq.emaPop
+	c.runningMeta = seq.runningMeta
 	c.tokens = append([]Token(nil), seq.tokens...)
 	c.candidates = append([]candidate(nil), seq.candidates...)
 	c.offset = seq.offset
@@ -106,14 +109,25 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int) {
+func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
 	seq.dist.Add(byteVal)
 
+	seq.runningMeta = seq.runningMeta.RollLeft(1)
+
 	base := data.BaseChord(byteVal)
-	seq.runningChord = seq.runningChord.OR(base)
+	relativeOffset := len(seq.buf) - seq.offset - 1
+	positioned := base.RollLeft(relativeOffset)
+
+	newBits := 0
+	if relativeOffset > 0 {
+		hole := data.ChordHole(&positioned, &seq.runningChord)
+		newBits = hole.ActiveCount()
+	}
+
+	seq.runningChord = seq.runningChord.OR(positioned)
 
 	densityCeiling := seq.ShannonCeiling
 	phaseThreshold := seq.PhaseThreshold
@@ -122,18 +136,28 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int) {
 		phaseThreshold = seq.calibrator.PhaseLimit(seq.PhaseThreshold)
 	}
 
-	shannonForced := seq.runningChord.ShannonDensity() > densityCeiling &&
-		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
+	canSplit := (len(seq.buf) - seq.offset) >= seq.MinSegmentBytes
 
-	phaseForced := seq.eigen != nil && seq.eigen.Trained && delta > phaseThreshold &&
-		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
+	shannonForced := seq.runningChord.ShannonDensity() > densityCeiling && canSplit
+	phaseForced := seq.eigen != nil && seq.eigen.Trained && delta > phaseThreshold && canSplit
+	primeForced := newBits >= 3 && canSplit // Significant prime spectrum shift
 
-	isBoundary, k, gain := seq.detectBoundary(seq.buf[seq.offset:], seq.dist)
+	isBoundary := false
+	k := 0
+	gain := 0.0
 
-	if (shannonForced || phaseForced) && !isBoundary {
+	if shannonForced || phaseForced || primeForced {
 		isBoundary = true
 		k = len(seq.buf) - seq.offset
 		gain = 1.0
+	} else if canSplit {
+		// MDL acts as a fallback sanity check
+		mdlBoundary, mdlK, mdlGain := seq.detectBoundary(seq.buf[seq.offset:], seq.dist)
+		if mdlBoundary {
+			isBoundary = true
+			k = mdlK
+			gain = mdlGain
+		}
 	}
 
 	var events []int
@@ -168,11 +192,35 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int) {
 		events = append(events, seq.classifyDirection(seq.buf, emitK))
 		events = append(events, EventPhaseInversion)
 
+		for _, ev := range events {
+			switch ev {
+			case EventLowVarianceFlux:
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
+			case EventDensitySpike:
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(1))
+			case EventDensityTrough:
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(2))
+			case EventPhaseInversion:
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(3))
+			}
+		}
+
+		emitMeta := seq.runningMeta
+		
 		emitChord := data.Chord{}
-		for _, b := range seq.buf[:emitK] {
-			emitChord = emitChord.OR(data.BaseChord(b))
+		for i, b := range seq.buf[:emitK] {
+			bc := data.BaseChord(b)
+			emitChord = emitChord.OR(bc.RollLeft(i))
 		}
 		emitDensity := emitChord.ShannonDensity()
+		
+		maxBits := float64(emitK * 5)
+		actualBits := float64(emitChord.ActiveCount())
+		primeCoherence := 0.0
+		if maxBits > 0 {
+			primeCoherence = math.Max(0, 1.0-(actualBits/maxBits))
+		}
+		phaseCoherence := math.Exp(-seq.emaPhase)
 
 		seq.emitSplit(emitK)
 
@@ -186,19 +234,20 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int) {
 		seq.updateEMA(val, delta, eigenMag)
 
 		if seq.calibrator != nil {
-			seq.calibrator.FeedbackChunk(emitK, emitDensity)
+			seq.calibrator.FeedbackChunk(emitK, emitDensity, primeCoherence, phaseCoherence)
 		}
 
-		return true, emitK, events
+		return true, emitK, events, emitMeta
 	}
 
 	if seq.hasFlux() {
 		events = append(events, EventLowVarianceFlux)
 		seq.fluxEmitted = true
+		seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
 	}
 
 	seq.updateEMA(val, delta, eigenMag)
-	return false, emitK, events
+	return false, emitK, events, seq.runningMeta
 }
 
 func (seq *Sequencer) hasFlux() bool {
@@ -389,7 +438,7 @@ func (seq *Sequencer) updateEMA(val, delta, eigenMag float64) {
 Forecast runs boundary detection on buf+byteVal without committing.
 Returns (true, events) if a boundary would be at k; (false, nil) otherwise.
 */
-func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
+func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
 	buf := append(seq.buf, byteVal)
 	dist := *seq.dist
 	dist.Add(byteVal)
@@ -397,12 +446,27 @@ func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
 	window := buf[seq.offset:]
 	isBoundary, k, _ := seq.detectBoundary(window, &dist)
 	if !isBoundary {
-		return false, nil
+		return false, nil, seq.runningMeta
 	}
 
 	events := append([]int{}, seq.classifyDirection(window, k))
 	events = append(events, EventPhaseInversion)
-	return true, events
+	
+	tempMeta := seq.runningMeta.RollLeft(1)
+	for _, ev := range events {
+		switch ev {
+		case EventLowVarianceFlux:
+			tempMeta = tempMeta.XOR(data.BaseChord(0))
+		case EventDensitySpike:
+			tempMeta = tempMeta.XOR(data.BaseChord(1))
+		case EventDensityTrough:
+			tempMeta = tempMeta.XOR(data.BaseChord(2))
+		case EventPhaseInversion:
+			tempMeta = tempMeta.XOR(data.BaseChord(3))
+		}
+	}
+	
+	return true, events, tempMeta
 }
 
 /*
@@ -449,14 +513,29 @@ func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
 Flush commits the first candidate as a boundary and returns (true, events).
 Returns (false, nil) if no candidates. Same event format as Analyze.
 */
-func (seq *Sequencer) Flush() (bool, int, []int) {
+func (seq *Sequencer) Flush() (bool, int, []int, data.Chord) {
 	if len(seq.candidates) == 0 {
-		return false, 0, nil
+		return false, 0, nil, seq.runningMeta
 	}
 
 	emitK := seq.candidates[0].k
 	events := append([]int{}, seq.classifyDirection(seq.buf, emitK))
 	events = append(events, EventPhaseInversion)
+
+	for _, ev := range events {
+		switch ev {
+		case EventLowVarianceFlux:
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
+		case EventDensitySpike:
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(1))
+		case EventDensityTrough:
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(2))
+		case EventPhaseInversion:
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(3))
+		}
+	}
+
+	emitMeta := seq.runningMeta
 
 	seq.emitSplit(emitK)
 
@@ -467,5 +546,5 @@ func (seq *Sequencer) Flush() (bool, int, []int) {
 	}
 	seq.offset -= emitK
 
-	return true, emitK, events
+	return true, emitK, events, emitMeta
 }

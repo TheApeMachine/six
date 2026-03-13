@@ -24,7 +24,7 @@ func tokenize(raw []byte) [][]byte {
 
 	for pos, b := range raw {
 		chunk = append(chunk, b)
-		isBoundary, emitK, _ := seq.Analyze(uint32(pos), b)
+		isBoundary, emitK, _, _ := seq.Analyze(uint32(pos), b)
 		if !isBoundary {
 			continue
 		}
@@ -38,7 +38,7 @@ func tokenize(raw []byte) [][]byte {
 	}
 
 	for {
-		isBoundary, emitK, _ := seq.Flush()
+		isBoundary, emitK, _, _ := seq.Flush()
 		if !isBoundary {
 			break
 		}

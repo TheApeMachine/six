@@ -23,20 +23,20 @@ build:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/data/chord.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/process/tokenizer.capnp
 
-	cd pkg/kernel/metal \
+	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
 		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 		
-	cd pkg/kernel/cuda \
+	cd pkg/compute/kernel/cuda \
 		&& go generate
 
 metal:
-	cd pkg/kernel/metal \
+	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
 		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 
 cuda:
-	cd pkg/kernel/cuda \
+	cd pkg/compute/kernel/cuda \
 		&& go generate
 
 paper:

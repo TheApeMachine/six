@@ -11,6 +11,7 @@ struct GraphEdge {
   right    @1 :UInt8;
   position @2 :UInt32;
   chord    @3 :Chord;
+  meta     @4 :Chord;
 }
 
 interface SpatialIndex {
@@ -19,6 +20,6 @@ interface SpatialIndex {
   done             @1 ();
 
   # Fast-path lookups
-  lookup           @2 (chords :List(Chord)) -> (paths :List(List(Chord)));
-  queryTransitions @3 (left :UInt8, position :UInt32) -> (chords :List(Chord));
+  lookup           @2 (chords :List(Chord)) -> (paths :List(List(Chord)), metaPaths :List(List(Chord)));
+  queryTransitions @3 (left :UInt8, position :UInt32) -> (chords :List(Chord), metas :List(Chord));
 }

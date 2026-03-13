@@ -68,7 +68,7 @@ func (calibrator *Calibrator) SetSensitivityPhase(v float64) {
 	calibrator.sensitivityPhase = v
 }
 
-func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
+func (calibrator *Calibrator) FeedbackChunk(length int, density float64, primeCoherence float64, phaseCoherence float64) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()
 
@@ -85,7 +85,15 @@ func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
 
 	targetDensity := config.Numeric.ShannonCapacity
 
-	errorSignal := (targetDensity - meanDensity) / targetDensity
+	// Base error signal from density
+	densityError := (targetDensity - meanDensity) / targetDensity
+
+	// Invert coherence measurements (1.0 = highly coherent, 0.0 = totally incoherent)
+	// We want to force splits when incoherence is high, and allow spans when coherence is high.
+	incoherencePenalty := ((1.0 - primeCoherence) + (1.0 - phaseCoherence)) / 2.0
+	
+	// Shift the overall error signal towards earlier boundaries (more splits) when chunks are incoherent
+	errorSignal := densityError - (incoherencePenalty * 0.5)
 
 	lr := math.Max(stddev, 0.05)
 

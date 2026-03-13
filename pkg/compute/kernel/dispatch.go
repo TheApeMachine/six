@@ -3,10 +3,10 @@ package kernel
 import (
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
+	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/kernel/cpu"
-	"github.com/theapemachine/six/pkg/kernel/cuda"
-	"github.com/theapemachine/six/pkg/kernel/metal"
 )
 
 /*

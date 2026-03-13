@@ -14,7 +14,7 @@ It is the only type that crosses the lsm→graph boundary, and it is
 defined entirely in terms of packages that graph already imports.
 No consumer ever needs to import lsm.
 */
-type SpatialLookupFunc func(ctx context.Context, chords data.Chord_List) ([][]data.Chord, error)
+type SpatialLookupFunc func(ctx context.Context, chords data.Chord_List) ([][]data.Chord, [][]data.Chord, error)
 
 /*
 SpatialIndexClient owns the live Cap'n Proto client capability and exposes
@@ -40,7 +40,7 @@ so callers need no knowledge of the RPC types.
 func (c *SpatialIndexClient) Lookup(
 	ctx context.Context,
 	chords data.Chord_List,
-) ([][]data.Chord, error) {
+) ([][]data.Chord, [][]data.Chord, error) {
 	future, release := c.client.Lookup(ctx, func(params SpatialIndex_lookup_Params) error {
 		innerList, err := params.NewChords(int32(chords.Len()))
 		if err != nil {
@@ -57,42 +57,61 @@ func (c *SpatialIndexClient) Lookup(
 
 	res, err := future.Struct()
 	if err != nil {
-		return nil, console.Error(err)
+		return nil, nil, console.Error(err)
 	}
 
 	pathsList, err := res.Paths()
 	if err != nil {
-		return nil, console.Error(err)
+		return nil, nil, console.Error(err)
+	}
+	
+	metaPathsList, err := res.MetaPaths()
+	if err != nil {
+		return nil, nil, console.Error(err)
 	}
 
 	out := make([][]data.Chord, pathsList.Len())
 	for i := 0; i < pathsList.Len(); i++ {
 		ptr, err := pathsList.At(i)
 		if err != nil {
-			return nil, console.Error(err)
+			return nil, nil, console.Error(err)
 		}
 
 		row, err := data.ChordListToSlice(data.Chord_List(ptr.List()))
 		if err != nil {
-			return nil, console.Error(err)
+			return nil, nil, console.Error(err)
 		}
 		out[i] = row
 	}
+	
+	metaOut := make([][]data.Chord, metaPathsList.Len())
+	for i := 0; i < metaPathsList.Len(); i++ {
+		ptr, err := metaPathsList.At(i)
+		if err != nil {
+			return nil, nil, console.Error(err)
+		}
 
-	return out, nil
+		row, err := data.ChordListToSlice(data.Chord_List(ptr.List()))
+		if err != nil {
+			return nil, nil, console.Error(err)
+		}
+		metaOut[i] = row
+	}
+
+	return out, metaOut, nil
 }
 
 /*
 SpatialInsertFunc is the capability signature for inserting into the spatial index.
 Defined in terms of plain types only — no lsm types cross the package boundary.
 */
-type SpatialInsertFunc func(ctx context.Context, left uint8, position uint32, chord data.Chord) error
+type SpatialInsertFunc func(ctx context.Context, left uint8, position uint32, chord, meta data.Chord) error
 
 /*
 Insert streams a single GraphEdge+Chord into the spatial index.
 All Cap'n Proto plumbing is contained here.
 */
-func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position uint32, chord data.Chord) error {
+func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position uint32, chord, meta data.Chord) error {
 	return console.Error(c.client.Insert(ctx, func(params SpatialIndex_insert_Params) error {
 		edge, err := params.NewEdge()
 		if err != nil {
@@ -108,6 +127,13 @@ func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position ui
 		}
 
 		dst.CopyFrom(chord)
+		
+		metaDst, err := edge.NewMeta()
+		if err != nil {
+			return console.Error(err)
+		}
+		
+		metaDst.CopyFrom(meta)
 		return nil
 	}))
 }

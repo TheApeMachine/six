@@ -24,6 +24,7 @@ On collision the existing entry wins — data is discarded, not merged.
 type SpatialEntry struct {
 	Key   uint64
 	Value data.Chord
+	Meta  data.Chord
 }
 
 /*
@@ -35,6 +36,7 @@ type SpatialIndexServer struct {
 	mu sync.RWMutex
 
 	entries       map[uint64]data.Chord
+	metaEntries   map[uint64]data.Chord
 	positionIndex map[uint32][]uint64
 	count         int
 
@@ -49,6 +51,7 @@ type spatialIndexOpts func(*SpatialIndexServer)
 func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 	idx := &SpatialIndexServer{
 		entries:       make(map[uint64]data.Chord),
+		metaEntries:   make(map[uint64]data.Chord),
 		positionIndex: make(map[uint32][]uint64),
 	}
 
@@ -103,7 +106,7 @@ func (idx *SpatialIndexServer) Close() {
 /*
 insertSync stores a token. On collision the existing entry wins.
 */
-func (idx *SpatialIndexServer) insertSync(key uint64, value data.Chord) {
+func (idx *SpatialIndexServer) insertSync(key uint64, value, meta data.Chord) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
@@ -112,6 +115,7 @@ func (idx *SpatialIndexServer) insertSync(key uint64, value data.Chord) {
 	}
 
 	idx.entries[key] = value
+	idx.metaEntries[key] = meta
 	pos, _ := morton.Unpack(key)
 	idx.positionIndex[pos] = append(idx.positionIndex[pos], key)
 	idx.count++
@@ -139,7 +143,8 @@ func (idx *SpatialIndexServer) entriesAtPosition(position uint32) []SpatialEntry
 
 	for _, key := range idx.positionIndex[position] {
 		value := idx.entries[key]
-		hits = append(hits, SpatialEntry{Key: key, Value: value})
+		meta := idx.metaEntries[key]
+		hits = append(hits, SpatialEntry{Key: key, Value: value, Meta: meta})
 	}
 
 	return hits
@@ -148,7 +153,7 @@ func (idx *SpatialIndexServer) entriesAtPosition(position uint32) []SpatialEntry
 /*
 branchesFrom returns all entries at positions greater than the given one.
 */
-func (idx *SpatialIndexServer) branchesFrom(position uint32) []data.Chord {
+func (idx *SpatialIndexServer) branchesFrom(position uint32) ([]data.Chord, []data.Chord) {
 	positions := make([]uint32, 0, len(idx.positionIndex))
 
 	for pos := range idx.positionIndex {
@@ -162,20 +167,23 @@ func (idx *SpatialIndexServer) branchesFrom(position uint32) []data.Chord {
 	})
 
 	hits := make([]data.Chord, 0, len(positions))
+	metaHits := make([]data.Chord, 0, len(positions))
 
 	for _, pos := range positions {
 		for _, key := range idx.positionIndex[pos] {
 			value := idx.entries[key]
+			meta := idx.metaEntries[key]
 
 			if len(hits) > 0 && sameChord(hits[len(hits)-1], value) {
 				continue
 			}
 
 			hits = append(hits, value)
+			metaHits = append(metaHits, meta)
 		}
 	}
 
-	return hits
+	return hits, metaHits
 }
 
 func sameChord(left, right data.Chord) bool {
@@ -212,8 +220,25 @@ func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_ins
 	}
 
 	chordVal.CopyFrom(chord)
+
+	meta, err := edge.Meta()
+	if err != nil {
+		return console.Error(err)
+	}
+
+	_, metaSeg, err := capnp.NewMessage(capnp.MultiSegment(nil))
+	if err != nil {
+		return console.Error(err)
+	}
+
+	metaVal, err := data.NewChord(metaSeg)
+	if err != nil {
+		return console.Error(err)
+	}
+	metaVal.CopyFrom(meta)
+
 	key := morton.Pack(edge.Position(), edge.Left())
-	idx.insertSync(key, chordVal)
+	idx.insertSync(key, chordVal, metaVal)
 
 	return nil
 }
@@ -225,11 +250,12 @@ func (idx *SpatialIndexServer) Done(ctx context.Context, call SpatialIndex_done)
 /*
 buildPaths walks each prompt chord through the radix trie.
 */
-func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.Chord, error) {
+func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.Chord, [][]data.Chord, error) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
 	paths := make([][]data.Chord, chordList.Len())
+	metaPaths := make([][]data.Chord, chordList.Len())
 
 	for i := 0; i < chordList.Len(); i++ {
 		promptChord := chordList.At(i)
@@ -263,18 +289,18 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 		}
 
 		if matched {
-			paths[i] = idx.branchesFrom(deepest)
+			paths[i], metaPaths[i] = idx.branchesFrom(deepest)
 		}
 	}
 
-	return paths, nil
+	return paths, metaPaths, nil
 }
 
 /*
 writeLookupResults serialises path slices into the Cap'n Proto response.
 */
 func (idx *SpatialIndexServer) writeLookupResults(
-	call SpatialIndex_lookup, paths [][]data.Chord,
+	call SpatialIndex_lookup, paths [][]data.Chord, metaPaths [][]data.Chord,
 ) error {
 	res, err := call.AllocResults()
 
@@ -283,14 +309,17 @@ func (idx *SpatialIndexServer) writeLookupResults(
 	}
 
 	pathsList, err := res.NewPaths(int32(len(paths)))
-
+	if err != nil {
+		return console.Error(err)
+	}
+	
+	metaPathsList, err := res.NewMetaPaths(int32(len(metaPaths)))
 	if err != nil {
 		return console.Error(err)
 	}
 
 	for i := range paths {
 		list, err := data.NewChord_List(res.Segment(), int32(len(paths[i])))
-
 		if err != nil {
 			return console.Error(err)
 		}
@@ -301,6 +330,20 @@ func (idx *SpatialIndexServer) writeLookupResults(
 		}
 
 		if err := pathsList.Set(i, list.ToPtr()); err != nil {
+			return console.Error(err)
+		}
+		
+		metaList, err := data.NewChord_List(res.Segment(), int32(len(metaPaths[i])))
+		if err != nil {
+			return console.Error(err)
+		}
+
+		for j, c := range metaPaths[i] {
+			el := metaList.At(j)
+			el.CopyFrom(c)
+		}
+
+		if err := metaPathsList.Set(i, metaList.ToPtr()); err != nil {
 			return console.Error(err)
 		}
 	}
@@ -318,13 +361,13 @@ func (idx *SpatialIndexServer) Lookup(
 		return console.Error(err)
 	}
 
-	paths, err := idx.buildPaths(chords)
+	paths, metaPaths, err := idx.buildPaths(chords)
 
 	if err != nil {
 		return console.Error(err)
 	}
 
-	return idx.writeLookupResults(call, paths)
+	return idx.writeLookupResults(call, paths, metaPaths)
 }
 
 /*
@@ -343,9 +386,11 @@ func (idx *SpatialIndexServer) QueryTransitions(
 	idx.mu.RLock()
 
 	var hits []data.Chord
+	var metaHits []data.Chord
 
 	if value, exists := idx.entries[key]; exists {
 		hits = append(hits, value)
+		metaHits = append(metaHits, idx.metaEntries[key])
 	}
 
 	idx.mu.RUnlock()
@@ -357,7 +402,6 @@ func (idx *SpatialIndexServer) QueryTransitions(
 	}
 
 	list, err := data.NewChord_List(res.Segment(), int32(len(hits)))
-
 	if err != nil {
 		return console.Error(err)
 	}
@@ -366,8 +410,18 @@ func (idx *SpatialIndexServer) QueryTransitions(
 		el := list.At(i)
 		el.CopyFrom(chord)
 	}
-
-	return res.SetChords(list)
+	res.SetChords(list)
+	
+	metaList, err := data.NewChord_List(res.Segment(), int32(len(metaHits)))
+	if err != nil {
+		return console.Error(err)
+	}
+	for i, m := range metaHits {
+		el := metaList.At(i)
+		el.CopyFrom(m)
+	}
+	
+	return res.SetMetas(metaList)
 }
 
 func WithContext(ctx context.Context) spatialIndexOpts {
@@ -417,13 +471,21 @@ func (idx *SpatialIndexServer) Decode(chords []data.Chord) [][]byte {
 			return matched[i].pos < matched[j].pos
 		})
 
-		buf := make([]byte, 0, len(matched))
-
-		for _, m := range matched {
-			buf = append(buf, m.symbol)
+		var current []byte
+		for k, m := range matched {
+			if k > 0 && m.pos != matched[k-1].pos+1 {
+				// Disconnected chunk in the spatial index
+				if len(current) > 0 {
+					results = append(results, append([]byte(nil), current...))
+					current = current[:0]
+				}
+			}
+			current = append(current, m.symbol)
 		}
 
-		results = append(results, buf)
+		if len(current) > 0 {
+			results = append(results, append([]byte(nil), current...))
+		}
 	}
 
 	return results

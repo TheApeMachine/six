@@ -152,14 +152,14 @@ func ChunkStrings(sample string) []string {
 	for idx, symbol := range raw {
 		chunk = append(chunk, symbol)
 
-		isBoundary, emitWidth, _ := sequencer.Analyze(uint32(idx), symbol)
+		isBoundary, emitWidth, _, _ := sequencer.Analyze(uint32(idx), symbol)
 		if isBoundary {
 			flush(emitWidth)
 		}
 	}
 
 	for {
-		isBoundary, emitWidth, _ := sequencer.Flush()
+		isBoundary, emitWidth, _, _ := sequencer.Flush()
 		if !isBoundary {
 			break
 		}

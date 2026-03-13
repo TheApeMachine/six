@@ -31,7 +31,7 @@ type MatrixServer struct {
 	workerPool    *pool.Pool
 	rpcConn       *rpc.Conn
 	sink          *telemetry.Sink
-	spatialLookup func(context.Context, data.Chord_List) ([][]data.Chord, error)
+	spatialLookup func(context.Context, data.Chord_List) ([][]data.Chord, [][]data.Chord, error)
 }
 
 /*
@@ -173,7 +173,7 @@ func (matrix *MatrixServer) prompt(
 		return matrix.writePaths(res, [][]data.Chord{slice})
 	}
 
-	pathsData, err := lookup(ctx, chords)
+	pathsData, _, err := lookup(ctx, chords)
 
 	if err != nil {
 		return console.Error(err)
@@ -316,7 +316,7 @@ func (matrix *MatrixServer) PromptChords(
 		return [][]data.Chord{slice}, nil
 	}
 
-	pathsData, err := lookup(ctx, chords)
+	pathsData, _, err := lookup(ctx, chords)
 
 	if err != nil {
 		return nil, console.Error(err)

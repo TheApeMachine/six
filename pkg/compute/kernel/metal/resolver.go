@@ -15,8 +15,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
 	"github.com/theapemachine/six/pkg/geometry"
-	"github.com/theapemachine/six/pkg/kernel/internal/resolve"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air
@@ -90,8 +90,6 @@ func init() {
 	if err != nil {
 		return
 	}
-
-
 
 	if _, err := tmpFile.Write(resolverMetallib); err != nil {
 		tmpFile.Close()

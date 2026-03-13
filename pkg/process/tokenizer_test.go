@@ -50,7 +50,7 @@ func newChordSignature(chord data.Chord) chordSignature {
 }
 
 func (ins *instrumentedInsert) fn() lsm.SpatialInsertFunc {
-	return func(_ context.Context, left uint8, position uint32, chord data.Chord) error {
+	return func(_ context.Context, left uint8, position uint32, chord, meta data.Chord) error {
 		ins.counter.Add(1)
 
 		ins.mu.Lock()
@@ -232,7 +232,7 @@ func TestTokenizerServer(t *testing.T) {
 				expectedChord, err := data.BuildChord(chunk)
 
 				So(err, ShouldBeNil)
-				So(directServer.processChunk(ctx, 0, 0, chunk), ShouldBeNil)
+				So(directServer.processChunk(ctx, 0, 0, chunk, data.Chord{}), ShouldBeNil)
 
 				records := directIns.snapshot()
 				So(len(records), ShouldEqual, len(chunk))
@@ -556,7 +556,7 @@ func BenchmarkProcessChunk(b *testing.B) {
 			b.ResetTimer()
 
 			for range b.N {
-				if err := server.processChunk(ctx, 0, 0, chunk); err != nil {
+				if err := server.processChunk(ctx, 0, 0, chunk, data.Chord{}); err != nil {
 					b.Fatal(err)
 				}
 			}

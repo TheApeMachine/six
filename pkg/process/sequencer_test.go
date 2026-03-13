@@ -31,7 +31,7 @@ func TestSequencer(t *testing.T) {
 		Convey("When forcing a boundary via ShannonCeiling", func() {
 			// ShannonCeiling is 0.40. Push many distinct bytes to force ceiling
 			for i := range config.Numeric.VocabSize {
-				ok, _, _ := seq.Analyze(uint32(i), byte(i)) // Max entropy
+				ok, _, _, _ := seq.Analyze(uint32(i), byte(i)) // Max entropy
 				if ok {
 					break
 				}
@@ -48,13 +48,13 @@ func TestSequencer(t *testing.T) {
 			seq.ShannonCeiling = 1.0
 			seq.MinSegmentBytes = 2
 
-			cal.FeedbackChunk(6, 0.10)
-			cal.FeedbackChunk(6, 0.15)
-			cal.FeedbackChunk(6, 0.20)
-			cal.FeedbackChunk(6, 0.10)
+			cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
+			cal.FeedbackChunk(6, 0.15, 1.0, 1.0)
+			cal.FeedbackChunk(6, 0.20, 1.0, 1.0)
+			cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
 
 			for i := range config.Numeric.VocabSize {
-				_, _, _ = seq.Analyze(uint32(i), byte(i))
+				_, _, _, _ = seq.Analyze(uint32(i), byte(i))
 				if len(seq.candidates) > 0 {
 					break
 				}
@@ -113,7 +113,7 @@ func TestSequencer(t *testing.T) {
 
 		Convey("When cloning and flushing", func() {
 			for i := range 10 {
-				_, _, _ = seq.Analyze(uint32(i), byte(i))
+				_, _, _, _ = seq.Analyze(uint32(i), byte(i))
 			}
 
 			clone := seq.Clone()
@@ -133,14 +133,14 @@ func TestSequencer(t *testing.T) {
 			seq.offset = 2
 			seq.candidates = []candidate{{k: 2, gain: 1.0}}
 
-			ok, _, evts := seq.Flush()
+			ok, _, evts, _ := seq.Flush()
 			Convey("Flush should commit the candidate", func() {
 				So(ok, ShouldBeTrue)
 				So(len(evts), ShouldBeGreaterThan, 0)
 				So(len(seq.candidates), ShouldEqual, 0)
 			})
 
-			ok2, _ := seq.Forecast(0, 4)
+			ok2, _, _ := seq.Forecast(0, 4)
 			Convey("Forecast should return detection status without mutating", func() {
 				So(ok2 == true || ok2 == false, ShouldBeTrue)
 			})

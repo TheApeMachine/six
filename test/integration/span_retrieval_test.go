@@ -44,6 +44,9 @@ func TestBoundarySpanRecall(t *testing.T) {
 
 					So(err, ShouldBeNil)
 					So(len(results), ShouldBeGreaterThan, 0)
+					if !helper.ResultsBelongToChunks(results, chunks) {
+						t.Logf("PROBE: %q\nUNEXPECTED RESULTS: %q\nCHUNKS: %q", probe.Query, ResultStrings(results), chunks)
+					}
 					So(helper.ResultsBelongToChunks(results, chunks), ShouldBeTrue)
 
 					total++
