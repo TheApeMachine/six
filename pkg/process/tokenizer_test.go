@@ -129,6 +129,8 @@ func generateCorpus(paragraphs int, rng *rand.Rand) string {
 	return builder.String()
 }
 
+// sampleChunks mirrors the production sequencer for one sample so tests can
+// compare collected chords against the exact chunk boundaries the tokenizer derives.
 func sampleChunks(sample string) []string {
 	sequencer := NewSequencer(NewCalibrator())
 	raw := []byte(sample)

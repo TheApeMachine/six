@@ -208,6 +208,9 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 	var chunkStart uint32
 	var sampleBase uint32
 	var sampleSpan uint32
+
+	// flushSample drains any pending sequencer boundaries for the current sample
+	// and emits the remaining buffered data as the terminal chunk.
 	flushSample := func() error {
 		for {
 			isBoundary, emitK, _ := seq.Flush()
@@ -270,6 +273,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 			}
 		}
 
+		// token.Pos is zero-based, so the sample span is the furthest position plus one byte.
 		sampleSpan = max(sampleSpan, token.Pos+1)
 		chunk = append(chunk, token.Symbol)
 		isBoundary, emitK, _ := seq.Analyze(token.Pos, token.Symbol)
