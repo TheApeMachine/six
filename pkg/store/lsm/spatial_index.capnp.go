@@ -10,7 +10,7 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	data "github.com/theapemachine/six/pkg/data"
+	data "github.com/theapemachine/six/pkg/store/data"
 )
 
 type GraphEdge capnp.Struct

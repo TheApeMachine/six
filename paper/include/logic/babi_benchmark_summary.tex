@@ -1,48 +1,27 @@
 \begin{table}[htbp]
 \centering
-\caption{babi\_benchmark — standardised result summary (N=50).}
+\caption{babi\_benchmark — standardised result summary (N=1).}
 \label{tab:babi_benchmark_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-46 & babi\_benchmark & 0.0000 & 0.5714 & 0.5714 & 0.2597 \\
-45 & babi\_benchmark & 0.0000 & 0.5714 & 0.5714 & 0.2597 \\
-37 & babi\_benchmark & 0.0000 & 0.5714 & 0.5714 & 0.2597 \\
+0 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
-\midrule
-\# & Name & Exact & Partial & Fuzzy & Weighted \\
-\midrule
-49 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-9 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-47 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-\midrule
-\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{bedroom}} & \multicolumn{2}{l}{\texttt{bed to}} \\
-\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{bedroom}} & \multicolumn{2}{l}{\texttt{bed to}} \\
-\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{kitchen}} & \multicolumn{2}{l}{\texttt{bed to}} \\
-\multicolumn{2}{l}{\texttt{Sandra travelled to the office. Sandra w\ldots}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{bed to}} \\
+\multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{Sandra went to the garden. Sandra journe\ldots}} & \multicolumn{2}{l}{\texttt{r}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 50} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0642} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.2597} \\
+\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{12.61 s} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{2.70 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{53.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{15.30 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

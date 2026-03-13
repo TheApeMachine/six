@@ -16,7 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air

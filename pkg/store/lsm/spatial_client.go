@@ -3,9 +3,9 @@ package lsm
 import (
 	"context"
 
-	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -64,7 +64,7 @@ func (c *SpatialIndexClient) Lookup(
 	if err != nil {
 		return nil, nil, console.Error(err)
 	}
-	
+
 	metaPathsList, err := res.MetaPaths()
 	if err != nil {
 		return nil, nil, console.Error(err)
@@ -83,7 +83,7 @@ func (c *SpatialIndexClient) Lookup(
 		}
 		out[i] = row
 	}
-	
+
 	metaOut := make([][]data.Chord, metaPathsList.Len())
 	for i := 0; i < metaPathsList.Len(); i++ {
 		ptr, err := metaPathsList.At(i)
@@ -127,12 +127,12 @@ func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position ui
 		}
 
 		dst.CopyFrom(chord)
-		
+
 		metaDst, err := edge.NewMeta()
 		if err != nil {
 			return console.Error(err)
 		}
-		
+
 		metaDst.CopyFrom(meta)
 		return nil
 	}))

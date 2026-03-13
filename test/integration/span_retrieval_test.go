@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
 
 func TestBoundarySpanRecall(t *testing.T) {

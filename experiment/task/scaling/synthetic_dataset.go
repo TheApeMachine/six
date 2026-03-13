@@ -3,7 +3,7 @@ package scaling
 import (
 	"math/rand"
 
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*

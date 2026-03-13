@@ -19,9 +19,9 @@ CAPNP_STD ?= ../../capnproto/go-capnp/std
 
 build:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/lsm/spatial_index.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/graph/matrix.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/data/chord.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/process/tokenizer.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/substrate/graph.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/store/data/chord.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer.capnp
 
 	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \

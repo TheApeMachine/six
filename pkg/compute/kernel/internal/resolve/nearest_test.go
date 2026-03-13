@@ -4,7 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 func TestPackedNearest(t *testing.T) {
@@ -22,7 +22,7 @@ func TestPackedNearest(t *testing.T) {
 			}
 			target := geometry.GFRotation{CoordU: 21, CoordV: 20}
 			packed := PackedNearest(nodes, target)
-			
+
 			// Extract lowest 32 bits for idx
 			idx := uint32(packed & 0xFFFFFFFF)
 			So(idx, ShouldEqual, 1)
@@ -34,7 +34,7 @@ func TestPackedNearest(t *testing.T) {
 			}
 			target := geometry.GFRotation{CoordU: 500, CoordV: 500}
 			packed := PackedNearest(nodes, target)
-			
+
 			inverted := uint32(packed >> 32)
 			So(inverted, ShouldEqual, 0)
 			So(uint32(packed&0xFFFFFFFF), ShouldEqual, 0)

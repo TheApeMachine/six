@@ -6,9 +6,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/process"
 )
 
 /*

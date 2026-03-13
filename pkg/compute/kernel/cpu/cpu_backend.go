@@ -5,7 +5,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 /*

@@ -3,8 +3,8 @@ package experiment
 import (
 	"slices"
 
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
 
 var Aphorisms = []string{

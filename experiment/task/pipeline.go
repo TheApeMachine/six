@@ -3,13 +3,16 @@ package task
 import (
 	"context"
 	"runtime"
+	"strings"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/pool"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/vm"
+	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/store/lsm"
+	"github.com/theapemachine/six/pkg/system/pool"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm"
 )
 
 const pipelineDrainTimeout = 2 * time.Second
@@ -29,20 +32,22 @@ type runTiming struct {
 }
 
 type Pipeline struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	pool         *pool.Pool
-	broadcast    *pool.BroadcastGroup
-	coder        *data.MortonCoder
-	booter       *vm.Booter
-	experiment   tools.PipelineExperiment
-	prompts      *process.Prompt
-	testIdx      int
-	scoreWgts    tools.ScoreWeights
-	reporter     Reporter
-	progressLine string
-	failures     []promptFailure
-	timing       runTiming
+	ctx             context.Context
+	cancel          context.CancelFunc
+	pool            *pool.Pool
+	broadcast       *pool.BroadcastGroup
+	coder           *data.MortonCoder
+	booter          *vm.Booter
+	machine         *vm.Machine
+	promptTokenizer *process.TokenizerServer
+	experiment      tools.PipelineExperiment
+	prompts         *process.Prompt
+	testIdx         int
+	scoreWgts       tools.ScoreWeights
+	reporter        Reporter
+	progressLine    string
+	failures        []promptFailure
+	timing          runTiming
 }
 
 type pipelineOpts func(*Pipeline)
@@ -83,7 +88,77 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
-	return nil
+	dataset := pipeline.experiment.Dataset()
+
+	pipeline.machine = vm.NewMachine(
+		vm.MachineWithContext(pipeline.ctx),
+		vm.MachineWithSystems(
+			lsm.NewSpatialIndexServer(
+				lsm.WithContext(pipeline.ctx),
+			),
+			process.NewTokenizerServer(
+				process.TokenizerWithContext(pipeline.ctx),
+				process.TokenizerWithDataset(dataset, false),
+			),
+			substrate.NewGraphServer(
+				substrate.GraphWithContext(pipeline.ctx),
+			),
+		),
+	)
+
+	pipeline.machine.Start()
+	defer pipeline.machine.Stop()
+
+	pipeline.promptTokenizer = process.NewTokenizerServer(
+		process.TokenizerWithContext(pipeline.ctx),
+		process.TokenizerWithDataset(dataset, true),
+		process.TokenizerWithCollector(make([][]data.Chord, 1)),
+	)
+	pipeline.promptTokenizer.Start(pipeline.machine.Pool(), nil)
+
+	pipeline.prompts = pipeline.experiment.Prompts()
+	if pipeline.prompts != nil {
+		process.PromptWithTokenizer(pipeline.promptTokenizer)(pipeline.prompts)
+		holdoutPrct, holdoutType := pipeline.experiment.Holdout()
+		process.PromptWithHoldout(holdoutPrct, holdoutType)(pipeline.prompts)
+	}
+
+	testIdx := 0
+	for pipeline.prompts.Next() {
+		if pipeline.prompts.Error() != nil {
+			return pipeline.prompts.Error()
+		}
+
+		results, err := pipeline.machine.Prompt(pipeline.prompts)
+		if err != nil {
+			return err
+		}
+
+		var observed []byte
+		if len(results) > 0 {
+			observed = results[0]
+		}
+
+		orig := pipeline.prompts.Original()
+		masked := pipeline.prompts.Masked()
+
+		holdoutStr := orig
+		if len(orig) > len(masked) {
+			holdoutStr = strings.Replace(orig, masked, "", 1)
+		}
+
+		pipeline.experiment.AddResult(tools.ExperimentalData{
+			Idx:      testIdx,
+			Name:     pipeline.experiment.Name(),
+			Prefix:   []byte(masked),
+			Holdout:  []byte(holdoutStr),
+			Observed: observed,
+		})
+
+		testIdx++
+	}
+
+	return pipeline.writeStandardSummary()
 }
 
 func extractScores(data []tools.ExperimentalData, field string) []float64 {

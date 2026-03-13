@@ -3,6 +3,8 @@ package telemetry
 import (
 	"encoding/json"
 	"net"
+
+	"github.com/theapemachine/six/pkg/system/console"
 )
 
 /*
@@ -12,7 +14,7 @@ performance degradation on the core processes.
 */
 type Sink struct {
 	address string
-	conn *net.UDPConn
+	conn    *net.UDPConn
 }
 
 /*
@@ -50,8 +52,6 @@ func WithAddress(address string) opts {
 	}
 }
 
-
-
 /*
 Emit sends the telemetry event as JSON via UDP.
 */
@@ -61,6 +61,9 @@ func (sink *Sink) Emit(event Event) {
 	}
 
 	raw, err := json.Marshal(event)
+
+	console.Trace("Emit", "data", string(raw))
+
 	if err == nil {
 		sink.conn.Write(raw)
 	}

@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 $Go.package("lsm");
 $Go.import("github.com/theapemachine/six/pkg/store/lsm");
 
-using import "../../data/chord.capnp".Chord;
+using import "../data/chord.capnp".Chord;
 
 struct GraphEdge {
   left     @0 :UInt8;

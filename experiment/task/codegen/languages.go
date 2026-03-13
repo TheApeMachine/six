@@ -4,11 +4,11 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/process"
 )
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
@@ -54,6 +54,16 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumns("prompt", "canonical_solution"),
 		)
+	}
+
+	names := make([]string, len(humanEvalLanguages))
+	for i, lang := range humanEvalLanguages {
+		names[i] = lang.DisplayName
+	}
+
+	experiment.dataset = &multiDataset{
+		datasets:  datasets,
+		langNames: names,
 	}
 
 	experiment.prose = []projector.ProseEntry{
@@ -270,4 +280,33 @@ is expected to improve results substantially.
 			},
 		},
 	}
+}
+
+// ── multiDataset ─────────────────────────────────────────────────────────────
+type multiDataset struct {
+	datasets  []provider.Dataset
+	langNames []string
+	current   int
+}
+
+func (m *multiDataset) Generate() chan provider.RawToken {
+	out := make(chan provider.RawToken, 4096)
+	go func() {
+		defer close(out)
+		for i, ds := range m.datasets {
+			for tok := range ds.Generate() {
+				tok.SampleID = uint32(i)<<24 | (tok.SampleID & 0x00FFFFFF)
+				out <- tok
+			}
+		}
+	}()
+	return out
+}
+
+func (m *multiDataset) LangForSampleID(id uint32) string {
+	langIdx := int(id >> 24)
+	if langIdx < len(m.langNames) {
+		return m.langNames[langIdx]
+	}
+	return "unknown"
 }

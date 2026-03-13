@@ -1,6 +1,6 @@
 package resolve
 
-import "github.com/theapemachine/six/pkg/geometry"
+import "github.com/theapemachine/six/pkg/numeric/geometry"
 
 const maxPackedDistance = 131072
 

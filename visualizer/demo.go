@@ -3,8 +3,8 @@ package visualizer
 import (
 	"context"
 
-	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/test/integration"
 )
 

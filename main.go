@@ -4,7 +4,7 @@ import (
 	"os"
 
 	"github.com/theapemachine/six/cmd"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 )
 
 func main() {

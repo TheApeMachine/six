@@ -8,12 +8,12 @@ package phasedial
 // 	"sort"
 
 // 	gc "github.com/smartystreets/goconvey/convey"
-// 	config "github.com/theapemachine/six/pkg/core"
+// 	config "github.com/theapemachine/six/pkg/system/core"
 // 	tools "github.com/theapemachine/six/experiment"
-// 	"github.com/theapemachine/six/pkg/geometry"
+// 	"github.com/theapemachine/six/pkg/numeric/geometry"
 
-// 	"github.com/theapemachine/six/pkg/process"
-// 	"github.com/theapemachine/six/pkg/provider"
+// 	"github.com/theapemachine/six/pkg/system/process"
+// 	"github.com/theapemachine/six/pkg/store/data/provider"
 // )
 
 // /*

@@ -9,7 +9,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 func TestCUDABackendResolve(t *testing.T) {

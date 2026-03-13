@@ -239,7 +239,7 @@ package cmd
 
 import (
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 )
 
 var initCmd = &cobra.Command{
@@ -462,7 +462,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/utils"
 )
@@ -592,7 +592,7 @@ import (
 	"syscall"
 
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/visualizer"
 )
 
@@ -817,8 +817,8 @@ func (controller *Controller) Run() error {
 package experiment
 
 import (
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
 
 var Aphorisms = []string{
@@ -919,8 +919,8 @@ import (
 	"strings"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 type Scores struct {
@@ -3891,11 +3891,11 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -4236,11 +4236,11 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
@@ -4519,11 +4519,11 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/console"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/console"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 // holdoutPercents are the nine occlusion levels tested.
@@ -4884,10 +4884,10 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -5295,9 +5295,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 // crossDomains defines the three domains tested in this experiment.
@@ -5698,9 +5698,9 @@ package misc
 
 // 	gc "github.com/smartystreets/goconvey/convey"
 // 	tools "github.com/theapemachine/six/experiment"
-// 	"github.com/theapemachine/six/pkg/process"
-// 	"github.com/theapemachine/six/pkg/provider"
-// 	"github.com/theapemachine/six/pkg/provider/local"
+// 	"github.com/theapemachine/six/pkg/system/process"
+// 	"github.com/theapemachine/six/pkg/store/data/provider"
+// 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 
 // 	hfd "github.com/gomlx/gemma/download/huggingface"
 // 	"github.com/gomlx/gemma/samplers"
@@ -6466,9 +6466,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -6881,9 +6881,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
 
 // ruleShiftSamplesPerPhase is the number of samples per phase.
@@ -7326,8 +7326,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 type AdaptiveSplitExperiment struct {
@@ -7666,8 +7666,8 @@ func (experiment *AdaptiveSplitExperiment) Artifacts() []tools.Artifact {
 package phasedial
 
 import (
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
@@ -7750,10 +7750,10 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -7991,9 +7991,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
 
 // crSamplesPerSuspect is the number of ingestion samples per suspect.
@@ -8435,8 +8435,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -8519,8 +8519,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -8601,8 +8601,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -8705,8 +8705,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -8786,8 +8786,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -8868,8 +8868,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -9015,8 +9015,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -9097,8 +9097,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -9421,12 +9421,12 @@ package phasedial
 // 	"sort"
 
 // 	gc "github.com/smartystreets/goconvey/convey"
-// 	config "github.com/theapemachine/six/pkg/core"
+// 	config "github.com/theapemachine/six/pkg/system/core"
 // 	tools "github.com/theapemachine/six/experiment"
-// 	"github.com/theapemachine/six/pkg/geometry"
+// 	"github.com/theapemachine/six/pkg/numeric/geometry"
 
-// 	"github.com/theapemachine/six/pkg/process"
-// 	"github.com/theapemachine/six/pkg/provider"
+// 	"github.com/theapemachine/six/pkg/system/process"
+// 	"github.com/theapemachine/six/pkg/store/data/provider"
 // )
 
 // /*
@@ -9969,10 +9969,10 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -10311,8 +10311,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 type TwoHopRetrievalExperiment struct {
@@ -10700,10 +10700,10 @@ import (
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/pool"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/vm"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm"
 )
 
 const pipelineDrainTimeout = 2 * time.Second
@@ -11410,8 +11410,8 @@ package scaling
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -11562,8 +11562,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -11669,8 +11669,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -12150,8 +12150,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -12243,7 +12243,7 @@ package scaling
 import (
 	"math/rand"
 
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -12299,8 +12299,8 @@ package task
 import (
 	"strings"
 
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
 
 var Aphorisms = []string{
@@ -12344,10 +12344,10 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -12434,10 +12434,10 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -12527,10 +12527,10 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -12619,10 +12619,10 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 /*
@@ -13083,7 +13083,7 @@ import (
 	"os"
 
 	"github.com/theapemachine/six/cmd"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 )
 
 func main() {
@@ -13251,7 +13251,7 @@ import (
 	"sync"
 
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 	"k8s.io/client-go/util/homedir"
 )
 
@@ -13483,7 +13483,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -14013,7 +14013,7 @@ func BenchmarkChordRotationSeed(b *testing.B) {
 
 using Go = import "/go.capnp";
 $Go.package("data");
-$Go.import("github.com/theapemachine/six/pkg/data");
+$Go.import("github.com/theapemachine/six/pkg/store/data");
 
 struct Chord {
   c0 @0 :UInt64;
@@ -14204,7 +14204,7 @@ import (
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -15337,8 +15337,8 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/data"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func mockBaseChord(b byte) data.Chord {
@@ -15524,8 +15524,8 @@ package geometry
 import (
 	"math"
 
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/data"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -15707,7 +15707,7 @@ package cpu
 import (
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/kernel/internal/resolve"
 )
 
@@ -15774,7 +15774,7 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/kernel"
 	"github.com/theapemachine/six/pkg/kernel/cuda"
 )
@@ -16078,7 +16078,7 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 func TestNewBuilder(t *testing.T) {
@@ -16141,7 +16141,7 @@ package kernel
 import (
 	"unsafe"
 
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/kernel/cpu"
 	"github.com/theapemachine/six/pkg/kernel/cuda"
 	"github.com/theapemachine/six/pkg/kernel/metal"
@@ -16260,7 +16260,7 @@ import (
 	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/pool"
 )
@@ -16689,7 +16689,7 @@ func DistributedWithPool(pool *pool.Pool) distributedOpts {
 <<<FILE ./pkg/kernel/internal/resolve/nearest.go>>>
 package resolve
 
-import "github.com/theapemachine/six/pkg/geometry"
+import "github.com/theapemachine/six/pkg/numeric/geometry"
 
 const maxPackedDistance = 131072
 
@@ -16805,7 +16805,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/kernel/internal/resolve"
 )
 
@@ -17096,7 +17096,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestASTNode_Print(t *testing.T) {
@@ -17196,7 +17196,7 @@ package graph
 import (
 	"fmt"
 
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 type ASTNode struct {
@@ -17265,7 +17265,7 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -17417,9 +17417,9 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/process"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/system/process"
 )
 
 /*
@@ -17464,7 +17464,7 @@ func buildPaths(chunks [][]byte) ([]data.Chord, error) {
 	return paths, nil
 }
 
-func TestMatrixServer_AliceInWonderland(t *testing.T) {
+func TestGraph_AliceInWonderland(t *testing.T) {
 	raw, err := os.ReadFile("../../cmd/cfg/alice.txt")
 	if err != nil {
 		t.Skip("alice.txt not found")
@@ -17476,7 +17476,7 @@ func TestMatrixServer_AliceInWonderland(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	matrix := NewMatrixServer()
+	matrix := NewGraph()
 
 	t.Logf("Tokenized Alice: %d chunks, %d path chords", len(chunks), len(paths))
 
@@ -17585,7 +17585,7 @@ func TestMatrixServer_AliceInWonderland(t *testing.T) {
 	})
 }
 
-func BenchmarkMatrixServer_Alice(b *testing.B) {
+func BenchmarkGraph_Alice(b *testing.B) {
 	raw, err := os.ReadFile("../../cmd/cfg/alice.txt")
 	if err != nil {
 		b.Skip("alice.txt not found")
@@ -17596,7 +17596,7 @@ func BenchmarkMatrixServer_Alice(b *testing.B) {
 	if err != nil {
 		log.Fatal(err)
 	}
-	matrix := NewMatrixServer()
+	matrix := NewGraph()
 
 	prompt, _ := data.BuildChord([]byte("Alice was beginning"))
 
@@ -17607,10 +17607,10 @@ func BenchmarkMatrixServer_Alice(b *testing.B) {
 	}
 }
 
-func BenchmarkMatrixServer_Evaluate_Scaling(b *testing.B) {
+func BenchmarkGraph_Evaluate_Scaling(b *testing.B) {
 	_, seg, _ := capnp.NewMessage(capnp.MultiSegment(nil))
 
-	matrix := NewMatrixServer()
+	matrix := NewGraph()
 
 	paths := make([]data.Chord, 100_000)
 	for i := range paths {
@@ -18006,7 +18006,7 @@ func TestSuccessiveCancellation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	matrix := NewMatrixServer()
+	matrix := NewGraph()
 
 	Convey("Given iterative XOR-and-match on a prompt", t, func() {
 		prompt, _ := data.BuildChord([]byte("Alice found the rabbit in the garden"))
@@ -18781,7 +18781,7 @@ func TestGraphResidueDepletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	matrix := NewMatrixServer()
+	matrix := NewGraph()
 
 	Convey("Given half a sentence from the text", t, func() {
 		// 2. Take half a sentence
@@ -18863,7 +18863,7 @@ func TestGraphResidueDepletion(t *testing.T) {
 
 using Go = import "/go.capnp";
 $Go.package("graph");
-$Go.import("github.com/theapemachine/six/pkg/logic/graph");
+$Go.import("github.com/theapemachine/six/pkg/logic/substrate");
 
 using import "../../data/chord.capnp".Chord;
 
@@ -18894,7 +18894,7 @@ import (
 	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
-	data "github.com/theapemachine/six/pkg/data"
+	data "github.com/theapemachine/six/pkg/store/data"
 )
 
 type GraphEdge capnp.Struct
@@ -19591,19 +19591,19 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-MatrixServer implements the Cap'n Proto RPC interface for the logic graph.
+Graph implements the Cap'n Proto RPC interface for the logic graph.
 It acts as the continuous reasoning engine (Cortex) evaluating geometric
 vector states via hardware POPCNT (XOR cancellation).
 */
-type MatrixServer struct {
+type Graph struct {
 	mu  sync.RWMutex
 	ctx context.Context
 
@@ -19615,15 +19615,15 @@ type MatrixServer struct {
 }
 
 /*
-MatrixServerOpt configures MatrixServer.
+GraphOpt configures Graph.
 */
-type MatrixServerOpt func(*MatrixServer)
+type GraphOpt func(*Graph)
 
 /*
-NewMatrixServer creates the RPC server for the logic graph matrix.
+NewGraph creates the RPC server for the logic graph matrix.
 */
-func NewMatrixServer(opts ...MatrixServerOpt) *MatrixServer {
-	matrix := &MatrixServer{
+func NewGraph(opts ...GraphOpt) *Graph {
+	matrix := &Graph{
 		sink: telemetry.NewSink(),
 	}
 
@@ -19644,7 +19644,7 @@ func NewMatrixServer(opts ...MatrixServerOpt) *MatrixServer {
 Announce exports the server as an RPC bootstrap capability over an in-memory
 pipe, then broadcasts the client-side net.Conn so other systems can connect.
 */
-func (matrix *MatrixServer) Announce() {
+func (matrix *Graph) Announce() {
 	if matrix.broadcast == nil {
 		return
 	}
@@ -19668,7 +19668,7 @@ func (matrix *MatrixServer) Announce() {
 Receive implements the vm.System interface.
 Picks up the client-side net.Conn from the broadcast bus for the LSM.
 */
-func (matrix *MatrixServer) Receive(result *pool.Result) {
+func (matrix *Graph) Receive(result *pool.Result) {
 	if result == nil || result.Value == nil {
 		return
 	}
@@ -19682,7 +19682,7 @@ func (matrix *MatrixServer) Receive(result *pool.Result) {
 	}
 }
 
-func (matrix *MatrixServer) Prompt(ctx context.Context, call Matrix_prompt) error {
+func (matrix *Graph) Prompt(ctx context.Context, call Matrix_prompt) error {
 	params := call.Args()
 	chords, err := params.Chords()
 
@@ -19699,7 +19699,7 @@ func (matrix *MatrixServer) Prompt(ctx context.Context, call Matrix_prompt) erro
 	return matrix.prompt(ctx, chords, res)
 }
 
-func (matrix *MatrixServer) Done(ctx context.Context, call Matrix_done) error {
+func (matrix *Graph) Done(ctx context.Context, call Matrix_done) error {
 	return nil
 }
 
@@ -19708,7 +19708,7 @@ Evaluate sweeps a prompt chord against a contiguous path matrix
 via XOR + POPCNT, returning the best index, its residue energy,
 and the residue chord itself.
 */
-func (matrix *MatrixServer) Evaluate(prompt data.Chord, paths []data.Chord) (bestIdx int, lowestEnergy int, residue data.Chord) {
+func (matrix *Graph) Evaluate(prompt data.Chord, paths []data.Chord) (bestIdx int, lowestEnergy int, residue data.Chord) {
 	lowestEnergy = math.MaxInt32
 	bestIdx = -1
 
@@ -19726,7 +19726,7 @@ func (matrix *MatrixServer) Evaluate(prompt data.Chord, paths []data.Chord) (bes
 	return bestIdx, lowestEnergy, residue
 }
 
-func (matrix *MatrixServer) prompt(
+func (matrix *Graph) prompt(
 	ctx context.Context,
 	chords data.Chord_List,
 	res Matrix_prompt_Results,
@@ -19778,7 +19778,7 @@ func (matrix *MatrixServer) prompt(
 	return matrix.writePaths(res, pathsData)
 }
 
-func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data.Chord) error {
+func (matrix *Graph) writePaths(res Matrix_prompt_Results, paths [][]data.Chord) error {
 	pathsList, err := res.NewPaths(int32(len(paths)))
 
 	if err != nil {
@@ -19811,7 +19811,7 @@ func (matrix *MatrixServer) writePaths(res Matrix_prompt_Results, paths [][]data
 RecursiveFold fractures geometric sequences into an isolated hierarchy of labels
 connected by phase rotations (the "arrow of time"), firing pool jobs recursively.
 */
-func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int, parentBin int) {
+func (matrix *Graph) RecursiveFold(sequences [][]data.Chord, level int, parentBin int) {
 	if len(sequences) == 0 {
 		return
 	}
@@ -19869,8 +19869,8 @@ func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int, p
 /*
 MatrixWithContext injects a context.
 */
-func MatrixWithContext(ctx context.Context) MatrixServerOpt {
-	return func(matrix *MatrixServer) {
+func MatrixWithContext(ctx context.Context) GraphOpt {
+	return func(matrix *Graph) {
 		matrix.ctx = ctx
 	}
 }
@@ -19878,8 +19878,8 @@ func MatrixWithContext(ctx context.Context) MatrixServerOpt {
 /*
 MatrixWithBroadcast injects the broadcast group.
 */
-func MatrixWithBroadcast(broadcast *pool.BroadcastGroup) MatrixServerOpt {
-	return func(matrix *MatrixServer) {
+func MatrixWithBroadcast(broadcast *pool.BroadcastGroup) GraphOpt {
+	return func(matrix *Graph) {
 		matrix.broadcast = broadcast
 	}
 }
@@ -19887,8 +19887,8 @@ func MatrixWithBroadcast(broadcast *pool.BroadcastGroup) MatrixServerOpt {
 /*
 MatrixWithPool injects the shared worker pool.
 */
-func MatrixWithPool(p *pool.Pool) MatrixServerOpt {
-	return func(matrix *MatrixServer) {
+func MatrixWithPool(p *pool.Pool) GraphOpt {
+	return func(matrix *Graph) {
 		matrix.workerPool = p
 	}
 }
@@ -19904,8 +19904,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 /*
@@ -20090,7 +20090,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -20217,7 +20217,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -20296,7 +20296,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestUselessResidueDepletion(t *testing.T) {
@@ -20310,7 +20310,7 @@ func TestUselessResidueDepletion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	matrix := NewMatrixServer()
+	matrix := NewGraph()
 
 	novelSentences := []struct {
 		text        string
@@ -20436,9 +20436,9 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/geometry"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 /*
@@ -20889,7 +20889,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -20994,7 +20994,7 @@ package numeric
 import (
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 )
 
 /*
@@ -21111,7 +21111,7 @@ package numeric
 import (
 	"math"
 
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -23577,7 +23577,7 @@ import (
 	"math"
 	"sync"
 
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 const (
@@ -24046,7 +24046,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 // mockDataset emits a fixed sequence of RawTokens across two sample IDs.
@@ -24297,7 +24297,7 @@ import (
 	"bytes"
 	"math/rand"
 
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -24548,8 +24548,8 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/geometry"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 func TestSequencer(t *testing.T) {
@@ -24701,9 +24701,9 @@ package process
 import (
 	"math"
 
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/geometry"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 /*
@@ -25178,8 +25178,8 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/data"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -25263,7 +25263,7 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 
 using Go = import "/go.capnp";
 $Go.package("process");
-$Go.import("github.com/theapemachine/six/pkg/process");
+$Go.import("github.com/theapemachine/six/pkg/system/process");
 
 using import "../data/chord.capnp".Chord;
 
@@ -25292,7 +25292,7 @@ import (
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
-	data "github.com/theapemachine/six/pkg/data"
+	data "github.com/theapemachine/six/pkg/store/data"
 )
 
 type Token capnp.Struct
@@ -25863,7 +25863,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/store/lsm"
@@ -26095,7 +26095,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -26186,7 +26186,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 func TestBuildBabiQASamples(t *testing.T) {
@@ -26292,8 +26292,8 @@ import (
 	"sync"
 
 	"github.com/parquet-go/parquet-go"
-	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -26649,8 +26649,8 @@ import (
 	"encoding/hex"
 
 	"github.com/parquet-go/parquet-go"
-	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 const hfBase = "https://huggingface.co"
@@ -27542,7 +27542,7 @@ import (
 	"bytes"
 
 	"github.com/theapemachine/six/cmd"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -27603,7 +27603,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
 /*
@@ -27681,7 +27681,7 @@ package lsm
 import (
 	"context"
 
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -27872,7 +27872,7 @@ import (
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
-	data "github.com/theapemachine/six/pkg/data"
+	data "github.com/theapemachine/six/pkg/store/data"
 )
 
 type GraphEdge capnp.Struct
@@ -28944,8 +28944,8 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
@@ -29577,9 +29577,9 @@ import (
 	"context"
 	"time"
 
-	"github.com/theapemachine/six/pkg/logic/graph"
+	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/pool"
-	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/system/process"
 	"github.com/theapemachine/six/pkg/store/lsm"
 )
 
@@ -29638,7 +29638,7 @@ func (booter *Booter) Start() {
 		process.TokenizerWithBroadcast(broadcast),
 	)
 
-	matrix := graph.NewMatrixServer(
+	matrix := graph.NewGraph(
 		graph.MatrixWithContext(booter.ctx),
 		graph.MatrixWithPool(booter.pool),
 		graph.MatrixWithBroadcast(broadcast),
@@ -29705,7 +29705,7 @@ package vm
 import (
 	"unicode"
 
-	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 // --- Corpus and machine builders ---
@@ -29983,9 +29983,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/geometry"
-	"github.com/theapemachine/six/pkg/process"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
+	"github.com/theapemachine/six/pkg/system/process"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -30225,7 +30225,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 

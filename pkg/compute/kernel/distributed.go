@@ -10,9 +10,9 @@ import (
 	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
-	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/pool"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 const (
@@ -89,7 +89,7 @@ func (backend *DistributedBackend) Resolve(
 		}
 		var localBak Backend
 		// Stub reference preventing unused err until factory instantiation logic applies
-		_ = localBak 
+		_ = localBak
 		// Dispatcher resolution
 		localBuilder = NewBuilder() // Defaults to fallback configuration without mutations
 	}

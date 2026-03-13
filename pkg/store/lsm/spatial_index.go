@@ -8,9 +8,9 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
-	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 var morton = data.NewMortonCoder()
@@ -18,25 +18,28 @@ var morton = data.NewMortonCoder()
 /*
 SpatialEntry stores a single edge in the radix forest.
 Key is a MortonCoder-packed uint64: Pack(position, symbol).
-The value is the full chunk chord for the token stored at that key.
-On collision the existing entry wins — data is discarded, not merged.
+The data chord is deterministic (5 bits per byte value).
+Meta chords accumulate from different topological contexts.
 */
 type SpatialEntry struct {
 	Key   uint64
 	Value data.Chord
-	Meta  data.Chord
+	Metas []data.Chord
 }
 
 /*
 SpatialIndexServer implements the Cap'n Proto RPC interface for the Lexicon.
 Keys are packed via MortonCoder.Pack(position, symbol).
-Collision is Discard.
+Data chords are deterministic (one per byte value). Meta chords
+accumulate as a list per key from different topological contexts.
 */
 type SpatialIndexServer struct {
 	mu sync.RWMutex
 
 	entries       map[uint64]data.Chord
-	metaEntries   map[uint64]data.Chord
+	chainEntries  map[ChordKey]data.Chord
+	metaEntries   map[uint64][]data.Chord
+	arrowSets     map[uint64][]data.Chord
 	positionIndex map[uint32][]uint64
 	count         int
 
@@ -51,7 +54,9 @@ type spatialIndexOpts func(*SpatialIndexServer)
 func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 	idx := &SpatialIndexServer{
 		entries:       make(map[uint64]data.Chord),
-		metaEntries:   make(map[uint64]data.Chord),
+		chainEntries:  make(map[ChordKey]data.Chord),
+		metaEntries:   make(map[uint64][]data.Chord),
+		arrowSets:     make(map[uint64][]data.Chord),
 		positionIndex: make(map[uint32][]uint64),
 	}
 
@@ -104,27 +109,134 @@ func (idx *SpatialIndexServer) Close() {
 }
 
 /*
-insertSync stores a token. On collision the existing entry wins.
+ChordKey is the lossless representation of a chord as a map key.
+The rotated chord IS the address — no hash.
+*/
+type ChordKey [5]uint64
+
+/*
+ToKey converts a chord to a ChordKey for map lookups.
+*/
+func ToKey(chord data.Chord) ChordKey {
+	return ChordKey{chord.C0(), chord.C1(), chord.C2(), chord.C3(), chord.C4() & 1}
+}
+
+/*
+insertSync stores an arrow chord. Each slot holds exactly one pure
+chord — no superposition. On collision the EXISTING value is rotated
+to generate the address for the next chain link.
 */
 func (idx *SpatialIndexServer) insertSync(key uint64, value, meta data.Chord) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	if _, exists := idx.entries[key]; exists {
+	idx.insertChain(key, value)
+	idx.metaEntries[key] = append(idx.metaEntries[key], meta)
+}
+
+/*
+insertChain walks the collision chain. First slot uses the Morton key.
+Subsequent slots use the rotated chord itself as the address.
+*/
+func (idx *SpatialIndexServer) insertChain(key uint64, value data.Chord) {
+	if _, exists := idx.entries[key]; !exists {
+		idx.entries[key] = value
+		pos, _ := morton.Unpack(key)
+		idx.positionIndex[pos] = append(idx.positionIndex[pos], key)
+		idx.count++
 		return
 	}
 
-	idx.entries[key] = value
-	idx.metaEntries[key] = meta
-	pos, _ := morton.Unpack(key)
-	idx.positionIndex[pos] = append(idx.positionIndex[pos], key)
-	idx.count++
+	existing := idx.entries[key]
+
+	if sameChord(existing, value) {
+		return
+	}
+
+	chainKey := ToKey(existing.Rotate3D())
+	idx.insertChainByChord(chainKey, value)
+}
+
+/*
+insertChainByChord continues the chain in chord-keyed space.
+*/
+func (idx *SpatialIndexServer) insertChainByChord(key ChordKey, value data.Chord) {
+	visited := make(map[ChordKey]bool)
+
+	for {
+		if visited[key] {
+			return
+		}
+
+		visited[key] = true
+
+		existing, exists := idx.chainEntries[key]
+
+		if !exists {
+			idx.chainEntries[key] = value
+			idx.count++
+			return
+		}
+
+		if sameChord(existing, value) {
+			return
+		}
+
+		key = ToKey(existing.Rotate3D())
+	}
 }
 
 func (idx *SpatialIndexServer) Count() int {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 	return idx.count
+}
+
+/*
+GetEntry returns the arrow chord stored at the given Morton key.
+Returns a zero chord if the key does not exist.
+*/
+func (idx *SpatialIndexServer) GetEntry(key uint64) data.Chord {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if chord, exists := idx.entries[key]; exists {
+		return chord
+	}
+
+	return data.MustNewChord()
+}
+
+/*
+HasKey returns true if the given Morton key exists in the index.
+*/
+func (idx *SpatialIndexServer) HasKey(key uint64) bool {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	_, exists := idx.entries[key]
+	return exists
+}
+
+/*
+GetChainEntry returns the chord at a chain address.
+*/
+func (idx *SpatialIndexServer) GetChainEntry(key ChordKey) (data.Chord, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	chord, exists := idx.chainEntries[key]
+	return chord, exists
+}
+
+/*
+BranchCount returns the number of unique branches at the given key.
+*/
+func (idx *SpatialIndexServer) BranchCount(key uint64) int {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	return len(idx.arrowSets[key])
 }
 
 /*
@@ -143,8 +255,8 @@ func (idx *SpatialIndexServer) entriesAtPosition(position uint32) []SpatialEntry
 
 	for _, key := range idx.positionIndex[position] {
 		value := idx.entries[key]
-		meta := idx.metaEntries[key]
-		hits = append(hits, SpatialEntry{Key: key, Value: value, Meta: meta})
+		metas := idx.metaEntries[key]
+		hits = append(hits, SpatialEntry{Key: key, Value: value, Metas: metas})
 	}
 
 	return hits
@@ -172,14 +284,17 @@ func (idx *SpatialIndexServer) branchesFrom(position uint32) ([]data.Chord, []da
 	for _, pos := range positions {
 		for _, key := range idx.positionIndex[pos] {
 			value := idx.entries[key]
-			meta := idx.metaEntries[key]
 
 			if len(hits) > 0 && sameChord(hits[len(hits)-1], value) {
 				continue
 			}
 
 			hits = append(hits, value)
-			metaHits = append(metaHits, meta)
+
+			// Pick the first meta chord for this key as a representative
+			if metas := idx.metaEntries[key]; len(metas) > 0 {
+				metaHits = append(metaHits, metas[0])
+			}
 		}
 	}
 
@@ -312,7 +427,7 @@ func (idx *SpatialIndexServer) writeLookupResults(
 	if err != nil {
 		return console.Error(err)
 	}
-	
+
 	metaPathsList, err := res.NewMetaPaths(int32(len(metaPaths)))
 	if err != nil {
 		return console.Error(err)
@@ -332,7 +447,7 @@ func (idx *SpatialIndexServer) writeLookupResults(
 		if err := pathsList.Set(i, list.ToPtr()); err != nil {
 			return console.Error(err)
 		}
-		
+
 		metaList, err := data.NewChord_List(res.Segment(), int32(len(metaPaths[i])))
 		if err != nil {
 			return console.Error(err)
@@ -390,7 +505,7 @@ func (idx *SpatialIndexServer) QueryTransitions(
 
 	if value, exists := idx.entries[key]; exists {
 		hits = append(hits, value)
-		metaHits = append(metaHits, idx.metaEntries[key])
+		metaHits = append(metaHits, idx.metaEntries[key]...)
 	}
 
 	idx.mu.RUnlock()
@@ -411,7 +526,7 @@ func (idx *SpatialIndexServer) QueryTransitions(
 		el.CopyFrom(chord)
 	}
 	res.SetChords(list)
-	
+
 	metaList, err := data.NewChord_List(res.Segment(), int32(len(metaHits)))
 	if err != nil {
 		return console.Error(err)
@@ -420,7 +535,7 @@ func (idx *SpatialIndexServer) QueryTransitions(
 		el := metaList.At(i)
 		el.CopyFrom(m)
 	}
-	
+
 	return res.SetMetas(metaList)
 }
 

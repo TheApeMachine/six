@@ -6,7 +6,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*

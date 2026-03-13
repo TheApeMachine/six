@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/console"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -142,4 +142,3 @@ func (server *Server) Broadcast(event telemetry.Event) {
 		conn.WriteMessage(websocket.TextMessage, msg)
 	}
 }
-

@@ -2,14 +2,18 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
+	"net"
 	"strings"
+	"time"
 
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/logic/graph"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/lsm"
-	"github.com/theapemachine/six/pkg/vm"
+	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -21,6 +25,8 @@ type IntegrationHelper struct {
 	cancel          context.CancelFunc
 	Machine         *vm.Machine
 	promptTokenizer *process.TokenizerServer
+	Events          chan telemetry.Event
+	telemetryConn   *net.UDPConn
 }
 
 type BoundaryProbe struct {
@@ -39,6 +45,36 @@ func NewIntegrationHelper(
 ) *IntegrationHelper {
 	ctx, cancel := context.WithCancel(ctx)
 
+	// Boot random UDP telemetry listener so tests can introspect Fold pipeline
+	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	conn, _ := net.ListenUDP("udp", addr)
+
+	events := make(chan telemetry.Event, 5000)
+
+	go func() {
+		buf := make([]byte, 8192)
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+				n, _, err := conn.ReadFromUDP(buf)
+				if err != nil {
+					continue
+				}
+
+				var event telemetry.Event
+				if err := json.Unmarshal(buf[:n], &event); err == nil {
+					if event.Action == "Fold" {
+						events <- event
+					}
+				}
+			}
+		}
+	}()
+
 	machine := vm.NewMachine(
 		vm.MachineWithContext(ctx),
 		vm.MachineWithSystems(
@@ -49,8 +85,11 @@ func NewIntegrationHelper(
 				process.TokenizerWithContext(ctx),
 				process.TokenizerWithDataset(dataset, false),
 			),
-			graph.NewMatrixServer(
-				graph.MatrixWithContext(ctx),
+			substrate.NewGraphServer(
+				substrate.GraphWithContext(ctx),
+				substrate.GraphWithSink(
+					telemetry.NewSink(telemetry.WithAddress(conn.LocalAddr().String())),
+				),
 			),
 		),
 	)
@@ -70,6 +109,8 @@ func NewIntegrationHelper(
 		cancel:          cancel,
 		Machine:         machine,
 		promptTokenizer: promptTokenizer,
+		Events:          events,
+		telemetryConn:   conn,
 	}
 }
 
@@ -199,6 +240,9 @@ func (helper *IntegrationHelper) Teardown() {
 	if helper.cancel != nil {
 		helper.cancel()
 		helper.cancel = nil
+	}
+	if helper.telemetryConn != nil {
+		helper.telemetryConn.Close()
 	}
 	helper.Machine.Stop()
 }

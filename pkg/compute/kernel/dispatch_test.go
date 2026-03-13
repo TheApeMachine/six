@@ -5,7 +5,7 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/geometry"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 func generateGFRotations(count int) []geometry.GFRotation {
