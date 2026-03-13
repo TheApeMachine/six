@@ -51,6 +51,10 @@ func NewMatrixServer(opts ...MatrixServerOpt) *MatrixServer {
 		opt(matrix)
 	}
 
+	if matrix.ctx == nil {
+		matrix.ctx = context.Background()
+	}
+
 	validate.Require(map[string]any{
 		"ctx": matrix.ctx,
 	})
@@ -280,8 +284,8 @@ func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int, p
 	})
 
 	// 4. Recurse via Pool
-	for i, resSeq := range uniqueResidues {
-		jobID := fmt.Sprintf("fold-level-%d-theta-%f-seq-%d", level, theta, i)
+	for index, resSeq := range uniqueResidues {
+		jobID := fmt.Sprintf("fold-level-%d-theta-%f-seq-%d", level, theta, index)
 
 		matrix.workerPool.Schedule(jobID, func() (any, error) {
 			matrix.RecursiveFold([][]data.Chord{resSeq}, level+1, labelBin)

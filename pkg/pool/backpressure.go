@@ -18,9 +18,13 @@ type BackPressureRegulator struct {
 	lastCheck         time.Time
 }
 
-// NewBackPressureRegulator creates a regulator that starts limiting
-// at 80% pressure.
 func NewBackPressureRegulator(maxQueueSize int, targetProcessTime, pressureWindow time.Duration) *BackPressureRegulator {
+	if maxQueueSize <= 0 {
+		maxQueueSize = 1
+	}
+	if targetProcessTime <= 0 {
+		targetProcessTime = time.Millisecond
+	}
 	return &BackPressureRegulator{
 		maxQueueSize:      maxQueueSize,
 		targetProcessTime: targetProcessTime,

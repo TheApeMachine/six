@@ -7,8 +7,8 @@ $Go.import("github.com/theapemachine/six/pkg/logic/graph");
 using import "../../data/chord.capnp".Chord;
 
 struct GraphEdge {
-  left     @0 :UInt8;
-  right    @1 :UInt8;
+  left     @0 :UInt32;
+  right    @1 :UInt32;
   position @2 :UInt32;
   chord    @3 :Chord;
 }

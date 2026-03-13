@@ -2,7 +2,6 @@ package graph
 
 import (
 	"fmt"
-	"log"
 	"math"
 	"os"
 	"sort"
@@ -206,7 +205,7 @@ func BenchmarkMatrixServer_Alice(b *testing.B) {
 	chunks := tokenize(raw)
 	paths, err := buildPaths(chunks)
 	if err != nil {
-		log.Fatal(err)
+		b.Fatalf("buildPaths failed: %v", err)
 	}
 	matrix := NewMatrixServer()
 

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/pkg/provider"
 )
 
@@ -24,9 +25,12 @@ NewDataset walks dir recursively, collects file paths (non-dirs), and returns a 
 */
 func NewDataset(dir string) *Dataset {
 	var paths []string
-	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		if err == nil && !info.IsDir() {
-			paths = append(paths, path)
+	filepath.Walk(dir, func(filePath string, fileInfo os.FileInfo, entryErr error) error {
+		if entryErr == nil && !fileInfo.IsDir() {
+			paths = append(paths, filePath)
+		}
+		if entryErr != nil {
+			console.Error(entryErr, "path", filePath)
 		}
 		return nil
 	})
@@ -43,15 +47,17 @@ func (d *Dataset) Generate() chan provider.RawToken {
 	go func() {
 		defer close(out)
 
-		for i, path := range d.paths {
+		for idx, path := range d.paths {
 			file, err := os.Open(path)
 			if err != nil {
+				console.Error(err, "path", path, "idx", idx)
 				continue
 			}
 
 			img, _, err := image.Decode(file)
 			file.Close()
 			if err != nil {
+				console.Error(err, "path", path, "idx", idx)
 				continue
 			}
 
@@ -59,14 +65,14 @@ func (d *Dataset) Generate() chan provider.RawToken {
 			var pos uint32 = 0
 
 			// Stream raw RGB bytes natively into the 1D sensory timeline
-			for y := bounds.Min.Y; y < bounds.Max.Y; y++ {
-				for x := bounds.Min.X; x < bounds.Max.X; x++ {
+			for py := bounds.Min.Y; py < bounds.Max.Y; py++ {
+				for px := bounds.Min.X; px < bounds.Max.X; px++ {
 					// RGBA() returns 16-bit premultiplied colors, shift to 8-bit
-					r, g, b, _ := img.At(x, y).RGBA()
+					red, green, blue, _ := img.At(px, py).RGBA()
 
-					out <- provider.RawToken{SampleID: uint32(i), Symbol: byte(r >> 8), Pos: pos}
-					out <- provider.RawToken{SampleID: uint32(i), Symbol: byte(g >> 8), Pos: pos + 1}
-					out <- provider.RawToken{SampleID: uint32(i), Symbol: byte(b >> 8), Pos: pos + 2}
+					out <- provider.RawToken{SampleID: uint32(idx), Symbol: byte(red >> 8), Pos: pos}
+					out <- provider.RawToken{SampleID: uint32(idx), Symbol: byte(green >> 8), Pos: pos + 1}
+					out <- provider.RawToken{SampleID: uint32(idx), Symbol: byte(blue >> 8), Pos: pos + 2}
 
 					// We skip Alpha channel for simplicity directly returning RGB bytes
 					pos += 3

@@ -55,21 +55,15 @@ func NewBuilder(opts ...builderOpts) *Builder {
 	if builder.backend == nil {
 		switch config.System.Backend {
 		case "metal":
-			builder.backend = NewBuilder(
-				WithBackend(&metal.MetalBackend{}),
-			)
+			builder.backend = &metal.MetalBackend{}
 		case "cuda":
-			builder.backend = NewBuilder(
-				WithBackend(&cuda.CUDABackend{}),
-			)
+			builder.backend = &cuda.CUDABackend{}
 		case "distributed":
-			builder.backend = NewBuilder(
-				WithBackend(&DistributedBackend{}),
-			)
+			builder.backend = &DistributedBackend{}
 		case "cpu":
-			builder.backend = NewBuilder(
-				WithBackend(&cpu.CPUBackend{}),
-			)
+			builder.backend = &cpu.CPUBackend{}
+		default:
+			builder.backend = &cpu.CPUBackend{}
 		}
 	}
 

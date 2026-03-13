@@ -18,11 +18,11 @@ func TestCUDABackendResolve(t *testing.T) {
 
 		Convey("It should match the kernel packing contract", func() {
 			nodes := []geometry.GFRotation{
-				{A: 1, B: 0},
-				{A: 21, B: 34},
-				{A: 55, B: 89},
+				{CoordU: 1, CoordV: 0},
+				{CoordU: 21, CoordV: 34},
+				{CoordU: 55, CoordV: 89},
 			}
-			target := geometry.GFRotation{A: 20, B: 34}
+			target := geometry.GFRotation{CoordU: 20, CoordV: 34}
 
 			packed, err := backend.Resolve(
 				unsafe.Pointer(&nodes[0]),

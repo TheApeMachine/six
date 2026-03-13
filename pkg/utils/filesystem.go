@@ -10,7 +10,10 @@ ProjectRoot walks upward from the current directory until it finds go.mod.
 Returns that directory, or "." if not found.
 */
 func ProjectRoot() string {
-	wd, _ := os.Getwd()
+	wd, err := os.Getwd()
+	if err != nil {
+		return "."
+	}
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir
@@ -27,5 +30,5 @@ CheckFileExists returns true if path exists and is accessible; false if not foun
 */
 func CheckFileExists(path string) bool {
 	_, err := os.Stat(path)
-	return !os.IsNotExist(err)
+	return err == nil
 }

@@ -17,12 +17,12 @@ func PackedNearest(
 
 	bestIdx := 0
 	bestDistSq := uint32(maxPackedDistance)
-	ctxA := int32(context.A)
-	ctxB := int32(context.B)
+	ctxA := int32(context.CoordU)
+	ctxB := int32(context.CoordV)
 
 	for idx, node := range nodes {
-		da := int32(node.A) - ctxA
-		db := int32(node.B) - ctxB
+		da := int32(node.CoordU) - ctxA
+		db := int32(node.CoordV) - ctxB
 		distSq := uint32(da*da + db*db)
 
 		if distSq < bestDistSq {

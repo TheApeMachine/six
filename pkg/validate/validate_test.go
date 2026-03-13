@@ -14,7 +14,7 @@ func TestRequire(t *testing.T) {
 				"ctx":  "valid",
 			}
 
-			Convey("Require should return nil", func() {
+			Convey("It should return nil", func() {
 				err := Require(objs)
 				So(err, ShouldBeNil)
 			})
@@ -26,20 +26,20 @@ func TestRequire(t *testing.T) {
 				"ctx":  nil,
 			}
 
-			Convey("Require should return error naming the missing field", func() {
+			Convey("It should return error naming the missing field", func() {
 				err := Require(objs)
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldEqual, "ctx is required")
 			})
 		})
 
-		Convey("When the first field in iteration is nil", func() {
+		Convey("When any required field is nil", func() {
 			objs := map[string]any{
 				"pool": nil,
 				"ctx":  "valid",
 			}
 
-			Convey("Require should return error for the nil field", func() {
+			Convey("It should return error for the nil field", func() {
 				err := Require(objs)
 				So(err, ShouldNotBeNil)
 				So(err.Error(), ShouldContainSubstring, " is required")
@@ -49,7 +49,7 @@ func TestRequire(t *testing.T) {
 		Convey("When the map is empty", func() {
 			objs := map[string]any{}
 
-			Convey("Require should return nil", func() {
+			Convey("It should return nil", func() {
 				err := Require(objs)
 				So(err, ShouldBeNil)
 			})
@@ -60,7 +60,7 @@ func TestRequire(t *testing.T) {
 				"items": []int{},
 			}
 
-			Convey("Require should return nil (empty slice is non-nil)", func() {
+			Convey("It should return nil (empty slice is non-nil)", func() {
 				err := Require(objs)
 				So(err, ShouldBeNil)
 			})

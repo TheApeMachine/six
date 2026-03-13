@@ -31,12 +31,12 @@ build:
 		&& go generate
 
 metal:
-	cd kernel/metal \
+	cd pkg/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
 		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
 
 cuda:
-	cd kernel/cuda \
+	cd pkg/kernel/cuda \
 		&& go generate
 
 paper:

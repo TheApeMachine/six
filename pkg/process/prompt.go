@@ -6,7 +6,6 @@ import (
 
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 /*
@@ -52,6 +51,7 @@ type Prompt struct {
 	datasetCh chan provider.RawToken
 	hasNext   bool
 	nextTkn   provider.RawToken
+	rng       *rand.Rand
 }
 
 /*
@@ -63,7 +63,9 @@ type Option func(*Prompt)
 NewPrompt instantiates a Prompt with the supplied options.
 */
 func NewPrompt(opts ...Option) *Prompt {
-	p := &Prompt{}
+	p := &Prompt{
+		rng: rand.New(rand.NewSource(1)),
+	}
 
 	for _, opt := range opts {
 		opt(p)
@@ -162,7 +164,7 @@ func (prompt *Prompt) nextFromDataset() bool {
 	}
 
 	prompt.original = string(buf)
-	prompt.applyHoldout()
+	prompt.ApplyHoldout()
 	prompt.tokenizeMasked()
 
 	return true
@@ -178,7 +180,7 @@ func (prompt *Prompt) nextFromStrings() bool {
 
 	prompt.original = prompt.prompts[prompt.promptIdx]
 	prompt.promptIdx++
-	prompt.applyHoldout()
+	prompt.ApplyHoldout()
 	prompt.tokenizeMasked()
 
 	return true
@@ -194,17 +196,7 @@ func (prompt *Prompt) tokenizeMasked() {
 		return
 	}
 
-	// Reset the collector for this sample.
-	prompt.tokenizer.collector = [][]data.Chord{{}}
-	prompt.tokenizer.currentSample = 0
-
-	// Feed the masked text as a single-sample dataset.
-	// useSampleID must be false so chunking matches the ingestion path.
-	ds := local.New(local.WithStrings([]string{prompt.masked}))
-	prompt.tokenizer.dataset = ds
-	prompt.tokenizer.useSampleID = false
-
-	if err := prompt.tokenizer.generate(prompt.tokenizer.ctx); err != nil {
+	if err := prompt.tokenizer.TokenizeSingleSample(prompt.tokenizer.ctx, prompt.masked); err != nil {
 		prompt.err = err
 	}
 }
@@ -213,7 +205,7 @@ func (prompt *Prompt) tokenizeMasked() {
 applyHoldout derives p.masked from p.original using the holdout config.
 When no masking is configured masked equals original.
 */
-func (prompt *Prompt) applyHoldout() {
+func (prompt *Prompt) ApplyHoldout() {
 	if prompt.heldout.Type == NONE || (prompt.heldout.Percent == 0 && prompt.heldout.Type != MATCH) {
 		prompt.masked = prompt.original
 		return
@@ -227,7 +219,7 @@ func (prompt *Prompt) applyHoldout() {
 		return
 	}
 
-	count := max((n*prompt.heldout.Percent)/100, 1)
+	count := (n * prompt.heldout.Percent) / 100
 
 	switch prompt.heldout.Type {
 	case RIGHT:
@@ -241,7 +233,7 @@ func (prompt *Prompt) applyHoldout() {
 		res := make([]byte, n)
 		copy(res, raw)
 
-		for _, idx := range rand.Perm(n)[:count] {
+		for _, idx := range prompt.rng.Perm(n)[:count] {
 			res[idx] = 0
 		}
 
@@ -278,6 +270,15 @@ PromptWithStrings configures the Prompt with a static list of samples.
 func PromptWithStrings(prompts []string) Option {
 	return func(p *Prompt) {
 		p.prompts = prompts
+	}
+}
+
+/*
+PromptWithOriginal sets the original text for the prompt directly, bypassing generators.
+*/
+func PromptWithOriginal(original string) Option {
+	return func(p *Prompt) {
+		p.original = original
 	}
 }
 

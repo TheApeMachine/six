@@ -1,6 +1,7 @@
 package audio
 
 import (
+	"log"
 	"os"
 	"path/filepath"
 
@@ -45,18 +46,33 @@ func (d *Dataset) Generate() chan provider.RawToken {
 		for i, path := range d.paths {
 			fileBytes, err := os.ReadFile(path)
 			if err != nil {
+				log.Printf("error reading %s: %v", path, err)
 				continue
 			}
 
-			// In a robust implementation, we'd parse the WAV header (typically 44 bytes)
-			// and solely stream the data payload samples. For brevity and ultimate purity,
-			// we will just skip the first 44 bytes, which covers 99% of uncompressed
-			// RIFF WAV headers, streaming the pure PCM data bytes.
-			if len(fileBytes) < 45 {
+			payloadOffset := 44 // default skip
+			if len(fileBytes) >= 12 && string(fileBytes[0:4]) == "RIFF" && string(fileBytes[8:12]) == "WAVE" {
+				offset := 12
+				for offset+8 <= len(fileBytes) {
+					chunkID := string(fileBytes[offset : offset+4])
+					chunkSize := int(uint32(fileBytes[offset+4]) | uint32(fileBytes[offset+5])<<8 | uint32(fileBytes[offset+6])<<16 | uint32(fileBytes[offset+7])<<24)
+					if chunkID == "data" {
+						payloadOffset = offset + 8
+						if payloadOffset+chunkSize > len(fileBytes) {
+							chunkSize = len(fileBytes) - payloadOffset
+						}
+						fileBytes = fileBytes[:payloadOffset+chunkSize]
+						break
+					}
+					offset += 8 + chunkSize
+				}
+			}
+
+			if len(fileBytes) <= payloadOffset {
 				continue
 			}
 
-			payload := fileBytes[44:]
+			payload := fileBytes[payloadOffset:]
 
 			var pos uint32 = 0
 			for _, b := range payload {

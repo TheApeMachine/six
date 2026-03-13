@@ -51,8 +51,14 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 		})
 
 		Convey("When encoding different chord orderings", func() {
-			chordsA, _ := data.BuildChord([]byte("hello world"))
-			chordsB, _ := data.BuildChord([]byte("world hello"))
+			sequenceA := []byte{}
+			sequenceB := []byte{}
+			for i := 0; i < 500; i++ {
+				sequenceA = append(sequenceA, byte(10))
+				sequenceB = append(sequenceB, byte(200))
+			}
+			chordsA, _ := data.BuildChord(sequenceA)
+			chordsB, _ := data.BuildChord(sequenceB)
 			encodedA := NewPhaseDial().EncodeFromChords([]data.Chord{chordsA})
 			encodedB := NewPhaseDial().EncodeFromChords([]data.Chord{chordsB})
 
@@ -93,7 +99,9 @@ func BenchmarkNewPhaseDial(b *testing.B) {
 func BenchmarkPhaseDialEncodeFromChords(b *testing.B) {
 	dial := NewPhaseDial()
 	chords, _ := data.BuildChord([]byte("benchmark chord sequence for phase encoding"))
-	for b.Loop() {
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
 		_ = dial.EncodeFromChords([]data.Chord{chords})
 	}
 }

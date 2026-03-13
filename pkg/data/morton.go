@@ -84,3 +84,18 @@ func part1by2(value uint64) uint64 {
 	value = (value | (value << 2)) & 0x1249249249249249
 	return value
 }
+
+// Decode3D unpacks a 64-bit Z-order Morton curve into 3D spatial coordinates.
+func (coder *MortonCoder) Decode3D(morton uint64) (x, y, z uint32) {
+	return uint32(compact1by2(morton)), uint32(compact1by2(morton >> 1)), uint32(compact1by2(morton >> 2))
+}
+
+func compact1by2(value uint64) uint64 {
+	value &= 0x1249249249249249
+	value = (value ^ (value >> 2)) & 0x10c30c30c30c30c3
+	value = (value ^ (value >> 4)) & 0x100f00f00f00f00f
+	value = (value ^ (value >> 8)) & 0x1f0000ff0000ff
+	value = (value ^ (value >> 16)) & 0x1f00000000ffff
+	value = (value ^ (value >> 32)) & 0x1fffff
+	return value
+}

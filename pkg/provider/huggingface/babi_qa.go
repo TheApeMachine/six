@@ -182,6 +182,9 @@ func (dataset *BabiQADataset) loadJSON(reader io.ReaderAt, size int64) error {
 
 		var row map[string]interface{}
 		if err := dec.Decode(&row); err != nil {
+			if err != io.EOF {
+				console.Error(err, "msg", "bAbI JSON decode failure", "row", rowCount)
+			}
 			if err == io.EOF {
 				break
 			}

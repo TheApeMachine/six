@@ -86,12 +86,13 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 	}
 
 	var wg sync.WaitGroup
-	wg.Add(nBasis)
 
 	for k := range nBasis {
-		omega := float64(numeric.Primes[k])
+		kk := k
+		omega := float64(numeric.Primes[kk])
+		wg.Add(1)
 
-		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", k), func() (any, error) {
+		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", kk), func() (any, error) {
 			defer wg.Done()
 			var sum complex128
 			for t := range chords {
@@ -99,19 +100,21 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 				phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
 				sum += cmplx.Rect(1.0, phase)
 			}
-			dial[k] = sum // each k owns a distinct index — no race
+			dial[kk] = sum // each k owns a distinct index — no race
 			return nil, nil
 		})
 
-		go func(ch chan *pool.Result) {
-			if ch == nil {
-				return
-			}
+		if resCh == nil {
+			wg.Done()
+			continue
+		}
+
+		go func(ch chan *pool.Result, dimension int) {
 			res := <-ch
 			if res != nil && res.Error != nil {
-				fmt.Printf("phasedial-k%d scheduling error: %v\n", k, res.Error)
+				fmt.Printf("phasedial-k%d scheduling error: %v\n", dimension, res.Error)
 			}
-		}(resCh)
+		}(resCh, kk)
 	}
 
 	wg.Wait()

@@ -243,8 +243,7 @@ Coprime spreading places exactly 5 bits in the 257-bit logical chord space,
 giving C(257,5) = 8.8 billion unique signatures.
 */
 func BaseChord(b byte) Chord {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	chord, _ := NewChord(seg)
+	chord := MustNewChord()
 
 	const logicalBits = 257
 
@@ -456,8 +455,7 @@ func ChordSimilarity(a, b *Chord) (sim int) {
 ChordHole returns target AND NOT existing — bits set in target but not in existing.
 */
 func ChordHole(target, existing *Chord) Chord {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	hole, _ := NewChord(seg)
+	hole := MustNewChord()
 	hole.setBlock(0, target.block(0)&^existing.block(0))
 	hole.setBlock(1, target.block(1)&^existing.block(1))
 	hole.setBlock(2, target.block(2)&^existing.block(2))
@@ -558,6 +556,13 @@ func FlattenBatched(chords []Chord, p *pool.Pool) []FlatChord {
 		return out
 	}
 
+	if p == nil {
+		for i := range chords {
+			out[i] = chords[i].Flatten()
+		}
+		return out
+	}
+
 	wg := sync.WaitGroup{}
 
 	for i := range chords {
@@ -585,8 +590,7 @@ func (chord *Chord) RollLeft(shift int) Chord {
 	}
 
 	const logicalBits = 257 // CubeFaces
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	out, _ := NewChord(seg)
+	out := MustNewChord()
 	shift = shift % logicalBits
 
 	// Fast sparse-array permutation within the 257-bit logical width

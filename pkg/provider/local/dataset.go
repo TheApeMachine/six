@@ -37,10 +37,10 @@ func (ds *Dataset) Generate() chan provider.RawToken {
 		defer close(out)
 		for sampleID, data := range ds.corpus {
 			var pos uint32
-			for _, b := range data {
+			for _, symbol := range data {
 				out <- provider.RawToken{
 					SampleID: uint32(sampleID),
-					Symbol:   b,
+					Symbol:   symbol,
 					Pos:      pos,
 				}
 				pos++
@@ -52,10 +52,10 @@ func (ds *Dataset) Generate() chan provider.RawToken {
 
 func WithStrings(corpus []string) datasetOpts {
 	return func(dataset *Dataset) {
-		var data [][]byte
+		data := make([][]byte, len(corpus))
 
-		for _, s := range corpus {
-			data = append(data, []byte(s))
+		for i, s := range corpus {
+			data[i] = []byte(s)
 		}
 
 		dataset.corpus = data

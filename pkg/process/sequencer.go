@@ -53,11 +53,15 @@ NewSequencer creates a Sequencer with optional calibrator for BIC penalty tuning
 Default MinSegmentBytes=4.
 */
 func NewSequencer(calibrator *Calibrator) *Sequencer {
+	minSeg := int(math.Log2(float64(config.Numeric.NSymbols)) / 2)
+	if minSeg < 2 {
+		minSeg = 2
+	}
 	return &Sequencer{
 		calibrator:      calibrator,
 		eigen:           geometry.NewEigenMode(),
 		dist:            NewDistribution(),
-		MinSegmentBytes: int(math.Log2(float64(config.Numeric.NSymbols)) / 2),
+		MinSegmentBytes: minSeg,
 		ShannonCeiling:  config.Numeric.ShannonCapacity,
 		PhaseThreshold:  math.Pi / 2.0,
 	}

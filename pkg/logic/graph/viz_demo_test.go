@@ -30,7 +30,10 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 		anomalyStr := "?query=' OR 1=1--"
 		anomalyBytes := []byte(anomalyStr)
-		anomalyChord, _ := data.BuildChord(anomalyBytes)
+		anomalyChord, err := data.BuildChord(anomalyBytes)
+		if err != nil {
+			t.Fatalf("BuildChord failed for anomaly: %v", err)
+		}
 
 		// Fire up a mock or real viz server specifically for emitting visual
 		// data so the user can literally see the attack being isolated.
@@ -40,11 +43,17 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 			// Generate realistic looking varying baseline strings. They deliberately
 			// contain characters like 'e', 'r', '1', '=', '?', ' ', '-', etc.
 			baselineStr := fmt.Sprintf("GET /api/v1/users?user=%d HTTP/1.1 User-Agent: Mozilla/5.0 status=200", rand.Intn(1000))
-			baselineChord, _ := data.BuildChord([]byte(baselineStr))
+			baselineChord, err := data.BuildChord([]byte(baselineStr))
+			if err != nil {
+				t.Fatalf("BuildChord failed for baseline: %v", err)
+			}
 
 			// The attack is the baseline + anomaly
 			attackStr := baselineStr + anomalyStr
-			attackChord, _ := data.BuildChord([]byte(attackStr))
+			attackChord, err := data.BuildChord([]byte(attackStr))
+			if err != nil {
+				t.Fatalf("BuildChord failed for attack: %v", err)
+			}
 
 			// Geometric Extraction
 			// What exists in the Attack that does NOT exist in the Baseline?
@@ -102,4 +111,22 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 		t.Logf("ChordHole operates strictly on BIT occlusion, meaning if the baseline already saturates the exact geometric primes needed for the anomaly, the anomaly becomes structurally invisible to a simple Hole punch.")
 		So(successes, ShouldEqual, trials)
 	})
+}
+
+func BenchmarkAnomalyIsolation(b *testing.B) {
+	anomalyStr := "?query=' OR 1=1--"
+	anomalyBytes := []byte(anomalyStr)
+	anomalyChord, _ := data.BuildChord(anomalyBytes)
+
+	baselineStr := "GET /api/v1/users?user=500 HTTP/1.1 User-Agent: Mozilla/5.0 status=200"
+	baselineChord, _ := data.BuildChord([]byte(baselineStr))
+
+	attackStr := baselineStr + anomalyStr
+	attackChord, _ := data.BuildChord([]byte(attackStr))
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		residue := data.ChordHole(&attackChord, &baselineChord)
+		data.ChordSimilarity(&residue, &anomalyChord)
+	}
 }

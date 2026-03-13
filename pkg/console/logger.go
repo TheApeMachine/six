@@ -51,6 +51,17 @@ It exists so the application can separate actionable messages from debug noise.
 type Logger struct {
 	handle      log.Logger
 	traceHandle log.Logger
+	file        *os.File
+}
+
+/*
+Close closes the underlying log file.
+*/
+func (l *Logger) Close() error {
+	if l.file != nil {
+		return l.file.Close()
+	}
+	return nil
 }
 
 /*
@@ -84,6 +95,7 @@ func New() (*Logger, error) {
 				Level:           log.DebugLevel,
 			},
 		),
+		file: file,
 	}
 
 	return l, nil
@@ -121,7 +133,7 @@ func Error(err error, keyvals ...any) error {
 Warn logs a message at warn level to the main handle.
 */
 func Warn(msg string, keyvals ...any) {
-	logger.handle.Warn(msg)
+	logger.handle.Warn(msg, keyvals...)
 }
 
 /*

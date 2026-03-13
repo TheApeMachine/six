@@ -18,10 +18,12 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	console.Info("Starting Alice demo")
 
 	helper := integration.NewIntegrationHelper(
-		context.Background(),
+		ctx,
 		dataset,
 	)
 	defer helper.Teardown()
+
+	<-ctx.Done()
 
 	return nil
 }

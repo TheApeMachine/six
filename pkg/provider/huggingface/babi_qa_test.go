@@ -3,7 +3,7 @@ package huggingface
 import (
 	"testing"
 
-	"github.com/stretchr/testify/require"
+	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/provider"
 )
 
@@ -22,26 +22,18 @@ func TestBuildBabiQASamples(t *testing.T) {
 		[]int{0, 0, 1, 0, 1},
 	)
 
-	require.Len(t, samples, 2)
-	require.Equal(t,
-		"Mary moved to the bathroom. John went to the hallway. Where is Mary?",
-		samples[0].Visible,
-	)
-	require.Equal(t, "bathroom", samples[0].Answer)
-	require.Equal(t,
-		"Mary moved to the bathroom. John went to the hallway. Where is Mary?bathroom",
-		samples[0].Full,
-	)
+	Convey("Building bAbI QA samples should return valid BabiQASample slices", t, func() {
+		requireLen := len(samples)
+		So(requireLen, ShouldEqual, 2)
 
-	require.Equal(t,
-		"Mary moved to the bathroom. John went to the hallway. Daniel went back to the office. Where is Daniel?",
-		samples[1].Visible,
-	)
-	require.Equal(t, "office", samples[1].Answer)
-	require.Equal(t,
-		"Mary moved to the bathroom. John went to the hallway. Daniel went back to the office. Where is Daniel?office",
-		samples[1].Full,
-	)
+		So(samples[0].Visible, ShouldEqual, "Mary moved to the bathroom. John went to the hallway. Where is Mary?")
+		So(samples[0].Answer, ShouldEqual, "bathroom")
+		So(samples[0].Full, ShouldEqual, "Mary moved to the bathroom. John went to the hallway. Where is Mary?bathroom")
+
+		So(samples[1].Visible, ShouldEqual, "Mary moved to the bathroom. John went to the hallway. Daniel went back to the office. Where is Daniel?")
+		So(samples[1].Answer, ShouldEqual, "office")
+		So(samples[1].Full, ShouldEqual, "Mary moved to the bathroom. John went to the hallway. Daniel went back to the office. Where is Daniel?office")
+	})
 }
 
 func TestBuildBabiQASamplesFallsBackToQuestionMarks(t *testing.T) {
@@ -56,10 +48,12 @@ func TestBuildBabiQASamplesFallsBackToQuestionMarks(t *testing.T) {
 		nil,
 	)
 
-	require.Len(t, samples, 1)
-	require.Equal(t, "Mary moved to the bathroom. Where is Mary?", samples[0].Visible)
-	require.Equal(t, "bathroom", samples[0].Answer)
-	require.Equal(t, "Mary moved to the bathroom. Where is Mary?bathroom", samples[0].Full)
+	Convey("Building without type arrays should fallback to question marks", t, func() {
+		So(len(samples), ShouldEqual, 1)
+		So(samples[0].Visible, ShouldEqual, "Mary moved to the bathroom. Where is Mary?")
+		So(samples[0].Answer, ShouldEqual, "bathroom")
+		So(samples[0].Full, ShouldEqual, "Mary moved to the bathroom. Where is Mary?bathroom")
+	})
 }
 
 func TestBabiQAGeneratePreservesSampleContinuity(t *testing.T) {
@@ -82,18 +76,21 @@ func TestBabiQAGeneratePreservesSampleContinuity(t *testing.T) {
 	full0 := []byte(dataset.samples[0].Full)
 	full1 := []byte(dataset.samples[1].Full)
 
-	require.Len(t, tokens, len(full0)+len(full1))
+	Convey("Generating bAbI tokens should preserve sample continuity", t, func() {
+		requireLen := len(tokens)
+		So(requireLen, ShouldEqual, len(full0)+len(full1))
 
-	for idx, b := range full0 {
-		require.Equal(t, uint32(0), tokens[idx].SampleID)
-		require.Equal(t, uint32(idx), tokens[idx].Pos)
-		require.Equal(t, b, tokens[idx].Symbol)
-	}
+		for idx, b := range full0 {
+			So(tokens[idx].SampleID, ShouldEqual, uint32(0))
+			So(tokens[idx].Pos, ShouldEqual, uint32(idx))
+			So(tokens[idx].Symbol, ShouldEqual, b)
+		}
 
-	offset := len(full0)
-	for idx, b := range full1 {
-		require.Equal(t, uint32(1), tokens[offset+idx].SampleID)
-		require.Equal(t, uint32(idx), tokens[offset+idx].Pos)
-		require.Equal(t, b, tokens[offset+idx].Symbol)
-	}
+		offset := len(full0)
+		for idx, b := range full1 {
+			So(tokens[offset+idx].SampleID, ShouldEqual, uint32(1))
+			So(tokens[offset+idx].Pos, ShouldEqual, uint32(idx))
+			So(tokens[offset+idx].Symbol, ShouldEqual, b)
+		}
+	})
 }

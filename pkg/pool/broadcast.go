@@ -20,7 +20,6 @@ type BroadcastGroup struct {
 	mu sync.RWMutex
 
 	ID           string
-	channels     []chan *Result
 	subscribers  map[string]chan *Result
 	filters      []FilterFunc
 	routingRules map[string][]RoutingRule
@@ -29,13 +28,16 @@ type BroadcastGroup struct {
 	TTL          time.Duration
 	LastUsed     time.Time
 	maxQueueSize int
+	done         chan struct{}
+	closed       bool
 }
 
-// BroadcastMetrics tracks broadcast-group throughput.
 type BroadcastMetrics struct {
 	MessagesSent      int64
 	MessagesDropped   int64
 	AverageLatency    time.Duration
+	TotalLatency      time.Duration
+	BroadcastCount    int64
 	ActiveSubscribers int
 	LastBroadcastTime time.Time
 }
@@ -52,6 +54,7 @@ func NewBroadcastGroup(
 		LastUsed:     time.Now(),
 		maxQueueSize: maxQueue,
 		metrics:      &BroadcastMetrics{},
+		done:         make(chan struct{}),
 	}
 }
 
@@ -86,20 +89,26 @@ func (bg *BroadcastGroup) Unsubscribe(subscriberID string) {
 	}
 }
 
-// Send fans out a result to all matching subscribers.
 func (bg *BroadcastGroup) Send(r *Result) {
-	bg.mu.Lock()
-	defer bg.mu.Unlock()
-
+	bg.mu.RLock()
+	if bg.closed {
+		bg.mu.RUnlock()
+		return
+	}
 	startTime := time.Now()
-	bg.LastUsed = startTime
 
 	for _, filter := range bg.filters {
 		if !filter(r) {
+			bg.mu.RUnlock()
+			bg.mu.Lock()
 			bg.metrics.MessagesDropped++
+			bg.LastUsed = startTime
+			bg.mu.Unlock()
 			return
 		}
 	}
+
+	targets := make([]chan *Result, 0, len(bg.subscribers))
 
 	for subID, ch := range bg.subscribers {
 		if rules, hasRules := bg.routingRules[subID]; hasRules {
@@ -114,17 +123,32 @@ func (bg *BroadcastGroup) Send(r *Result) {
 				continue
 			}
 		}
+		targets = append(targets, ch)
+	}
+	bg.mu.RUnlock()
 
+	var sent, dropped int64
+	for _, ch := range targets {
 		select {
 		case ch <- r:
-			bg.metrics.MessagesSent++
+			sent++
 		default:
-			bg.metrics.MessagesDropped++
+			dropped++
 		}
 	}
 
+	latency := time.Since(startTime)
+
+	bg.mu.Lock()
+	defer bg.mu.Unlock()
+	bg.LastUsed = startTime
+	bg.metrics.MessagesSent += sent
+	bg.metrics.MessagesDropped += dropped
 	bg.metrics.LastBroadcastTime = startTime
-	bg.metrics.AverageLatency = time.Since(startTime)
+
+	bg.metrics.BroadcastCount++
+	bg.metrics.TotalLatency += latency
+	bg.metrics.AverageLatency = bg.metrics.TotalLatency / time.Duration(bg.metrics.BroadcastCount)
 }
 
 // AddFilter registers a global filter applied before broadcasting.
@@ -148,11 +172,16 @@ func (bg *BroadcastGroup) GetMetrics() BroadcastMetrics {
 	return *bg.metrics
 }
 
-// Close shuts down the group and closes all subscriber channels.
+// Close shuts down the group and closes all subscriber channels safely.
 func (bg *BroadcastGroup) Close() {
 	bg.mu.Lock()
-	defer bg.mu.Unlock()
-
+	if bg.closed {
+		bg.mu.Unlock()
+		return
+	}
+	bg.closed = true
+	close(bg.done)
+	
 	for _, ch := range bg.subscribers {
 		close(ch)
 	}
@@ -160,4 +189,5 @@ func (bg *BroadcastGroup) Close() {
 	bg.subscribers = nil
 	bg.routingRules = nil
 	bg.filters = nil
+	bg.mu.Unlock()
 }

@@ -11,6 +11,7 @@ It broadcasts structural state events non-blockingly, guaranteeing no
 performance degradation on the core processes.
 */
 type Sink struct {
+	address string
 	conn *net.UDPConn
 }
 
@@ -24,13 +25,15 @@ NewSink instantiates a new Sink and dials the UDP socket.
 If the visualization server is offline, packets are silently dropped.
 */
 func NewSink(opts ...opts) *Sink {
-	sink := &Sink{}
+	sink := &Sink{
+		address: "127.0.0.1:8258",
+	}
 
 	for _, opt := range opts {
 		opt(sink)
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:8258")
+	addr, err := net.ResolveUDPAddr("udp", sink.address)
 	if err == nil {
 		sink.conn, _ = net.DialUDP("udp", nil, addr)
 	}
@@ -39,43 +42,15 @@ func NewSink(opts ...opts) *Sink {
 }
 
 /*
-Event is a telemetry event sent to all connected visualization clients.
+WithAddress configures the UDP endpoint for the sink.
 */
-type Event struct {
-	Component string    `json:"component"`
-	Action    string    `json:"action"`
-	Data      EventData `json:"data"`
+func WithAddress(address string) opts {
+	return func(s *Sink) {
+		s.address = address
+	}
 }
 
-/*
-EventData carries the payload for a visualization event.
-*/
-type EventData struct {
-	ChordID int    `json:"chordId,omitempty"`
-	Bin     int    `json:"bin,omitempty"`
-	State   string `json:"state,omitempty"`
 
-	ActiveBits []int   `json:"activeBits,omitempty"`
-	Density    float64 `json:"density,omitempty"`
-	ChunkText  string  `json:"chunkText,omitempty"`
-
-	Residue    int   `json:"residue,omitempty"`
-	MatchBits  []int `json:"matchBits,omitempty"`
-	CancelBits []int `json:"cancelBits,omitempty"`
-
-	Left  int `json:"left,omitempty"`
-	Right int `json:"right,omitempty"`
-	Pos   int `json:"pos,omitempty"`
-
-	Paths  int `json:"paths,omitempty"`
-	Chunks int `json:"chunks,omitempty"`
-	Edges  int `json:"edges,omitempty"`
-
-	Level      int     `json:"level,omitempty"`
-	Theta      float64 `json:"theta,omitempty"`
-	ParentBin  int     `json:"parentBin,omitempty"`
-	ChildCount int     `json:"childCount,omitempty"`
-}
 
 /*
 Emit sends the telemetry event as JSON via UDP.

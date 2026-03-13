@@ -11,21 +11,10 @@ type Result[T any] struct {
 /*
 Ok returns a Result containing the given value.
 */
-func Ok[T any](v T) Result[T] { return Result[T]{value: v} }
+func Ok[T any](value T) Result[T] { return Result[T]{value: value} }
 
-/*
-ForEach runs fn(i) for i in [0, n), short-circuiting on the first error.
-Replaces the per-iteration if-err idiom in counted loops.
-*/
-func ForEach(n int, fn func(int) error) error {
-	for i := range n {
-		if err := fn(i); err != nil {
-			return err
-		}
-	}
 
-	return nil
-}
+
 
 /*
 Fail returns a Result containing the given error.
@@ -35,12 +24,12 @@ func Fail[T any](err error) Result[T] { return Result[T]{err: err} }
 /*
 Try returns a Result containing the given value and error.
 */
-func Try[T any](v T, err error) Result[T] {
+func Try[T any](value T, err error) Result[T] {
 	if err != nil {
 		return Fail[T](err)
 	}
 
-	return Ok(v)
+	return Ok(value)
 }
 
 /*
@@ -59,13 +48,13 @@ func (result Result[T]) Map(fn func(T) T) Result[T] {
 Then applies a function to the value in a Result, returning a new Result
 with the result of the function. Monadic chaining for functions that can fail.
 */
-func Then[T, U any](r Result[T], fn func(T) (U, error)) Result[U] {
-	if r.err != nil {
-		return Result[U]{err: r.err}
+func Then[T, U any](res Result[T], fn func(T) (U, error)) Result[U] {
+	if res.err != nil {
+		return Result[U]{err: res.err}
 	}
 
-	v, err := fn(r.value)
-	return Try(v, err)
+	value, err := fn(res.value)
+	return Try(value, err)
 }
 
 /*

@@ -29,7 +29,10 @@ __global__ void resolve_resonance_kernel(
 
     // Pack inverted distance to use atomicMax
     uint32_t dist_u32 = (uint32_t)dist_sq;
-    uint32_t inverted_dist = 131072 - dist_u32; 
+    if (dist_u32 > 131072u) {
+        dist_u32 = 131072u;
+    }
+    uint32_t inverted_dist = 131072u - dist_u32;
 
     uint32_t global_id = id + base_offset;
 
@@ -61,15 +64,23 @@ int resolve_resonance_cuda(
     cudaError_t err = cudaSetDevice(device_id);
     if (err != cudaSuccess) return -1;
 
-    // Use thread-local static caching per-device so buffers aren't re-allocated constantly
-    thread_local GFRotation* d_active_context = nullptr;
-    thread_local unsigned long long* d_best_packed_result = nullptr;
+    struct ThreadLocalDeviceBuffers {
+        GFRotation* d_active_context = nullptr;
+        unsigned long long* d_best_packed_result = nullptr;
+        
+        ~ThreadLocalDeviceBuffers() {
+            if (d_active_context) cudaFree(d_active_context);
+            if (d_best_packed_result) cudaFree(d_best_packed_result);
+        }
+    };
+    
+    thread_local ThreadLocalDeviceBuffers tl_buffers;
 
-    if (d_active_context == nullptr) {
-        err = cudaMalloc((void**)&d_active_context, sizeof(GFRotation));
+    if (tl_buffers.d_active_context == nullptr) {
+        err = cudaMalloc((void**)&tl_buffers.d_active_context, sizeof(GFRotation));
         if (err != cudaSuccess) return -1;
         
-        err = cudaMalloc((void**)&d_best_packed_result, sizeof(unsigned long long));
+        err = cudaMalloc((void**)&tl_buffers.d_best_packed_result, sizeof(unsigned long long));
         if (err != cudaSuccess) return -1;
     }
 
@@ -79,17 +90,22 @@ int resolve_resonance_cuda(
 
     unsigned long long initial_val = 0;
     
-    cudaMemcpy(d_graph_nodes, graph_nodes_ptr, num_nodes * sizeof(GFRotation), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_active_context, active_context_ptr, sizeof(GFRotation), cudaMemcpyHostToDevice);
-    cudaMemcpy(d_best_packed_result, &initial_val, sizeof(unsigned long long), cudaMemcpyHostToDevice);
+    err = cudaMemcpy(d_graph_nodes, graph_nodes_ptr, num_nodes * sizeof(GFRotation), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) { cudaFree(d_graph_nodes); return -1; }
+    
+    err = cudaMemcpy(tl_buffers.d_active_context, active_context_ptr, sizeof(GFRotation), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) { cudaFree(d_graph_nodes); return -1; }
+    
+    err = cudaMemcpy(tl_buffers.d_best_packed_result, &initial_val, sizeof(unsigned long long), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) { cudaFree(d_graph_nodes); return -1; }
 
     uint32_t threadsPerBlock = 256;
     uint32_t blocksPerGrid = (num_nodes + threadsPerBlock - 1) / threadsPerBlock;
 
     resolve_resonance_kernel<<<blocksPerGrid, threadsPerBlock>>>(
         d_graph_nodes,
-        d_active_context,
-        d_best_packed_result,
+        tl_buffers.d_active_context,
+        tl_buffers.d_best_packed_result,
         num_nodes,
         0
     );
@@ -100,7 +116,7 @@ int resolve_resonance_cuda(
         return -2;
     }
 
-    cudaMemcpy(out_result, d_best_packed_result, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(out_result, tl_buffers.d_best_packed_result, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
 
     cudaFree(d_graph_nodes);
 

@@ -39,16 +39,14 @@ func NewServer() *Server {
 /*
 listenUDP starts the locked UDP listener, forwarding all telemetry to visualizer clients.
 */
-func (server *Server) listenUDP() {
+func (server *Server) listenUDP() error {
 	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:8258")
 	if err != nil {
-		console.Error(err, "msg", "failed to resolve visualizer UDP")
-		return
+		return console.Error(err, "msg", "failed to resolve visualizer UDP")
 	}
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
-		console.Error(err, "msg", "failed to listen on visualizer UDP")
-		return
+		return console.Error(err, "msg", "failed to listen on visualizer UDP")
 	}
 	server.udpConn = conn
 	defer conn.Close()
@@ -57,7 +55,7 @@ func (server *Server) listenUDP() {
 	for {
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
-			return
+			return err
 		}
 
 		// Forward raw JSON directly to websockets!
@@ -66,13 +64,18 @@ func (server *Server) listenUDP() {
 			server.Broadcast(event)
 		}
 	}
+	return nil
 }
 
 /*
 ListenAndServe starts the HTTP server on the given address.
 */
 func (server *Server) ListenAndServe(addr string) error {
-	go server.listenUDP()
+	go func() {
+		if err := server.listenUDP(); err != nil {
+			console.Error(err, "msg", "UDP listen failed loop")
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("visualizer/static")))

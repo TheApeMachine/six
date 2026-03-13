@@ -1,9 +1,8 @@
 package numeric
 
 import (
+	"math"
 	"unsafe"
-
-	"github.com/theapemachine/six/pkg/console"
 )
 
 /*
@@ -22,8 +21,8 @@ const (
 )
 
 /*
-DecodePacked extracts bestIdx (low 24b) and bestScore (next 24b, bias-shifted) from a packed uint64.
-Score is decoded as (raw - packedScoreBias) / ScoreScale.
+DecodePacked extracts id (bits 0–23), invertedDist (bits 24–39), and score (bits 40–63, bias-shifted)
+from a packed uint64. Score is decoded as (raw - packedScoreBias) / ScoreScale.
 */
 func DecodePacked(packed uint64) (int, float64) {
 	scoreFixed := int32((packed>>40)&0xFFFFFF) - int32(packedScoreBias)
@@ -62,45 +61,52 @@ RebasePackedID adds base to the packed id field (low 24b), preserving score and 
 */
 func RebasePackedID(packed uint64, base int) uint64 {
 	id := max(int(packed&0xFFFFFF)+base, 0)
-	return (packed &^ uint64(0xFFFFFF)) | uint64(id&0xFFFFFF)
+	const max24 = 0xFFFFFF
+	if id > max24 {
+		id = max24
+	}
+	return (packed &^ uint64(max24)) | uint64(id&max24)
 }
 
 /*
-PtrToBytes returns a byte slice over the memory at ptr of length n.
-Returns nil for n==0 or ptr==nil.
+PtrToBytes returns a byte slice over the memory at ptr of length `length`.
+Returns nil, nil for length==0, and an error for ptr==nil when length>0.
 */
-func PtrToBytes(ptr unsafe.Pointer, n int) ([]byte, error) {
-	if n == 0 {
+func PtrToBytes(ptr unsafe.Pointer, length int) ([]byte, error) {
+	if length == 0 {
 		return nil, nil
 	}
 
 	if ptr == nil {
-		return nil, console.Error(NumericNilPointerError, "bytes", n)
+		return nil, NumericNilPointerError
 	}
 
-	return unsafe.Slice((*byte)(ptr), n), nil
+	return unsafe.Slice((*byte)(ptr), length), nil
 }
 
 /*
-FirstPtr returns a pointer to the first byte of b, or nil if b is empty.
+FirstPtr returns a pointer to the first byte of buf, or nil if buf is empty.
 */
-func FirstPtr(b []byte) unsafe.Pointer {
-	if len(b) == 0 {
+func FirstPtr(buf []byte) unsafe.Pointer {
+	if len(buf) == 0 {
 		return nil
 	}
 
-	return unsafe.Pointer(&b[0])
+	return unsafe.Pointer(&buf[0])
 }
 
 /*
-AbsInt returns the absolute value of v.
+AbsInt returns the absolute value of value.
 */
-func AbsInt(v int) int {
-	if v < 0 {
-		return -v
+func AbsInt(value int) int {
+	if value == math.MinInt {
+		return math.MaxInt
+	}
+	if value < 0 {
+		return -value
 	}
 
-	return v
+	return value
 }
 
 type NumericError string

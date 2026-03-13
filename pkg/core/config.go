@@ -2,7 +2,6 @@ package config
 
 import (
 	"math"
-	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -60,7 +59,7 @@ func init() {
 	_, err := New()
 
 	if err != nil {
-		os.Exit(1)
+		log.Error(err)
 	}
 }
 
@@ -202,6 +201,7 @@ func (ctx *Config) Load() error {
 			"min workers",
 			minWorkers,
 		)
+		return ErrBadMaxWorkerConfig
 	}
 
 	ctx.System.Workers = v.GetStringSlice("system.distributed.workers")

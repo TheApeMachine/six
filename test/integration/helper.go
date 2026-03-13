@@ -78,8 +78,25 @@ func (helper *IntegrationHelper) NewPrompt(queries []string) *process.Prompt {
 }
 
 /*
+ContainsExpected iterates over results and returns true if any result
+matches the expected string.
+*/
+func (helper *IntegrationHelper) ContainsExpected(results [][]byte, expected string) bool {
+	for _, result := range results {
+		if string(result) == expected {
+			return true
+		}
+	}
+	return false
+}
+
+/*
 Teardown cancels the context and stops the machine.
 */
 func (helper *IntegrationHelper) Teardown() {
+	if helper.cancel != nil {
+		helper.cancel()
+		helper.cancel = nil
+	}
 	helper.Machine.Stop()
 }

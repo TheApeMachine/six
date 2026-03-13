@@ -22,16 +22,6 @@ which receives real telemetry from the running system via UDP.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		server := visualizer.NewServer()
 
-		if !vizListen {
-			dataset := local.New(local.WithBytes(Alice))
-			if err := visualizer.RunAliceDemo(
-				cmd.Context(),
-				dataset,
-			); err != nil && cmd.Context().Err() == nil {
-				console.Error(err, "msg", "Demo error")
-			}
-		}
-
 		mode := "demo"
 		if vizListen {
 			mode = "listener (waiting for real system telemetry on UDP :8258)"
@@ -40,9 +30,23 @@ which receives real telemetry from the running system via UDP.`,
 		fmt.Printf("Visualizer running at http://localhost:8257 [%s]\n", mode)
 		fmt.Println("Open in browser to see the 3D chord space")
 
-		if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
-			console.Error(err, "msg", "Server error")
-			os.Exit(1)
+		go func() {
+			if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
+				console.Error(err, "msg", "Server error")
+				os.Exit(1)
+			}
+		}()
+
+		if !vizListen {
+			dataset := local.New(local.WithBytes(Alice))
+			if err := visualizer.RunAliceDemo(
+				cmd.Context(),
+				dataset,
+			); err != nil && cmd.Context().Err() == nil {
+				console.Error(err, "msg", "Demo error")
+			}
+		} else {
+			<-cmd.Context().Done()
 		}
 	},
 }

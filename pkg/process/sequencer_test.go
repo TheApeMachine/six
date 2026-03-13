@@ -16,20 +16,15 @@ func TestSequencer(t *testing.T) {
 
 		Convey("When analyzing a random byte stream", func() {
 			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
-			boundaryDetected := false
 			for i := range 50 {
 				// Generating bytes. Some entropy drops or spikes might trigger boundaries
 				val := byte(rng.Intn(config.Numeric.VocabSize))
-				ok, _, _ := seq.Analyze(uint32(i), val)
-				if ok {
-					boundaryDetected = true
-				}
+				seq.Analyze(uint32(i), val)
 			}
 
 			// We don't guarantee a boundary, but the method runs without panicking.
 			Convey("It analyzes successfully", func() {
 				So(len(seq.buf), ShouldBeGreaterThan, 0)
-				So(boundaryDetected, ShouldBeIn, []interface{}{true, false})
 			})
 		})
 
@@ -155,22 +150,21 @@ func TestSequencer(t *testing.T) {
 
 func BenchmarkSequencerDetectBoundary(b *testing.B) {
 	seq := NewSequencer(nil)
-	buf := make([]byte, 1024)
-
-	rng := rand.New(rand.NewSource(42))
-	for i := range 512 {
-		buf[i] = 0 // low entropy
-	}
-	for i := 512; i < 1024; i++ {
-		buf[i] = byte(rng.Intn(config.Numeric.VocabSize)) // high entropy
+	
+	// Create multiple realistic entropy profiles.
+	profiles := [][]byte{
+		[]byte(generateCorpus(10, rand.New(rand.NewSource(42)))),
+		[]byte(generateBinaryNoise(2048, rand.New(rand.NewSource(99)))),
+		generateRepetitive(10, 200),
 	}
 
-	dist := NewDistribution()
-	for _, byteVal := range buf {
-		dist.Add(byteVal)
-	}
-
-	for b.Loop() {
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		buf := profiles[i%len(profiles)]
+		dist := NewDistribution()
+		for _, byteVal := range buf {
+			dist.Add(byteVal)
+		}
 		seq.detectBoundary(buf, dist)
 	}
 }

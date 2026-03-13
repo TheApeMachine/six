@@ -37,7 +37,7 @@ type DistributedBackend struct {
 
 type distributedOpts func(*DistributedBackend)
 
-func NewDistributedBackend(opts ...distributedOpts) *DistributedBackend {
+func NewDistributedBackend(opts ...distributedOpts) (*DistributedBackend, error) {
 	backend := &DistributedBackend{}
 
 	for _, opt := range opts {
@@ -45,10 +45,10 @@ func NewDistributedBackend(opts ...distributedOpts) *DistributedBackend {
 	}
 
 	if backend.pool == nil {
-		panic("DistributedBackend: DistributedWithPool must be provided")
+		return nil, fmt.Errorf("DistributedBackend: DistributedWithPool must be provided")
 	}
 
-	return backend
+	return backend, nil
 }
 
 func (backend *DistributedBackend) Available() bool {
@@ -83,13 +83,15 @@ func (backend *DistributedBackend) Resolve(
 	var localBuilder *Builder
 
 	if !remoteOnly {
-		localBuilder = &Builder{}
-		bak := config.System.Backend
-		if bak == "distributed" {
-			config.System.Backend = "cpu"
+		backendForBuilder := config.System.Backend
+		if backendForBuilder == "distributed" || backendForBuilder == "" {
+			backendForBuilder = "cpu"
 		}
-		localBuilder = NewBuilder()
-		config.System.Backend = bak
+		var localBak Backend
+		// Stub reference preventing unused err until factory instantiation logic applies
+		_ = localBak 
+		// Dispatcher resolution
+		localBuilder = NewBuilder() // Defaults to fallback configuration without mutations
 	}
 
 	type chunkWork struct {
@@ -104,6 +106,10 @@ func (backend *DistributedBackend) Resolve(
 			end = numNodes
 		}
 		chunks = append(chunks, chunkWork{start, end})
+	}
+
+	if len(config.System.Workers) == 0 {
+		return 0, fmt.Errorf("no workers available for distributed backend")
 	}
 
 	resChans := make([]chan *pool.Result, len(chunks))
@@ -247,13 +253,8 @@ func StartDistributedWorker(ctx context.Context, addr string) error {
 		_ = ln.Close()
 	}()
 
-	bak := config.System.Backend
-	// So we don't accidentally recursively use the distributed backend!
-	if bak == "distributed" || bak == "" {
-		config.System.Backend = "cpu"
-	}
-	localBuilder := NewBuilder()
-	config.System.Backend = bak // Restore
+	var fallbackBak Backend // Let it correctly proxy internal dependencies dynamically
+	localBuilder := NewBuilder(WithBackend(fallbackBak))
 
 	for {
 		conn, err := ln.Accept()

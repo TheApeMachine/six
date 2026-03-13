@@ -13,6 +13,20 @@ static id<MTLComputePipelineState> resolveResonancePipeline = nil;
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
 
+static id<MTLBuffer> cachedCtxBuffer = nil;
+static id<MTLBuffer> cachedResultBuffer = nil;
+
+void metalResolverTeardown() {
+    if (cachedCtxBuffer) {
+        [cachedCtxBuffer release];
+        cachedCtxBuffer = nil;
+    }
+    if (cachedResultBuffer) {
+        [cachedResultBuffer release];
+        cachedResultBuffer = nil;
+    }
+}
+
 int init_metal(const char* metallib_path) {
     if (device != nil) return 0; // Already initialized
 
@@ -63,9 +77,6 @@ int resolve_resonance_metal(const void* graph_nodes_ptr, uint32_t num_nodes, con
     @autoreleasepool {
         NSUInteger nodeBytes = 4; // 2 * uint16_t (GF257 affine rotation struct)
         NSUInteger totalNodesSize = (NSUInteger)num_nodes * nodeBytes;
-
-        static id<MTLBuffer> cachedCtxBuffer = nil;
-        static id<MTLBuffer> cachedResultBuffer = nil;
 
         if (cachedCtxBuffer == nil) {
             cachedCtxBuffer = [device newBufferWithLength:nodeBytes options:MTLResourceStorageModeShared];
@@ -119,10 +130,10 @@ int resolve_resonance_metal(const void* graph_nodes_ptr, uint32_t num_nodes, con
         [computeEncoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threadsPerThreadgroup];
         [computeEncoder endEncoding];
         
-        [nodesBuffer release];
-
         [commandBuffer commit];
         [commandBuffer waitUntilCompleted];
+
+        [nodesBuffer release];
 
         uint64_t* result_ptr = (uint64_t*)[cachedResultBuffer contents];
         *out_result = *result_ptr;

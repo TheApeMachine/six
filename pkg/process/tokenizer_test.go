@@ -199,13 +199,23 @@ func TestTokenizerServer(t *testing.T) {
 
 			Convey("It should have performed spatial inserts for every byte", func() {
 				// Pool tasks are async; give workers time to drain.
-				time.Sleep(200 * time.Millisecond)
+				for i := 0; i < 50; i++ {
+					if ins.count() > 0 {
+						break
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
 
 				So(ins.count(), ShouldBeGreaterThan, 0)
 			})
 
 			Convey("Every insert should carry a non-zero chord", func() {
-				time.Sleep(200 * time.Millisecond)
+				for i := 0; i < 50; i++ {
+					if ins.count() > 0 {
+						break
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
 
 				records := ins.snapshot()
 				for _, rec := range records {

@@ -151,7 +151,7 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 			// sample's byte stream so the manifold stores article+label as a
 			// single continuous sequence (classification-as-generation).
 			if hasLabel && len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
-				suffix := " " + dataset.labelAppend[label]
+				suffix := " → " + dataset.labelAppend[label]
 				for _, b := range []byte(suffix) {
 					token := provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
 					tokens = append(tokens, token)
@@ -315,14 +315,14 @@ func (dataset *Dataset) streamParquet(reader io.ReaderAt, size int64, fn rowVisi
 			valReader := page.Values()
 
 			for {
-				n, readErr := valReader.ReadValues(valueBuf)
+				readCount, readErr := valReader.ReadValues(valueBuf)
 
-				for i := range n {
-					if valueBuf[i].IsNull() {
+				for valueIdx := 0; valueIdx < readCount; valueIdx++ {
+					if valueBuf[valueIdx].IsNull() {
 						continue
 					}
 
-					rawBytes := valueBuf[i].ByteArray()
+					rawBytes := valueBuf[valueIdx].ByteArray()
 
 					if dataset.transform != nil {
 						var err error
@@ -498,6 +498,9 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor
 
 		var r map[string]interface{}
 		if err := dec.Decode(&r); err != nil {
+			if err != io.EOF {
+				console.Error(err, "msg", "huggingface json decode error", "total", total)
+			}
 			if err == io.EOF {
 				break
 			}
@@ -575,7 +578,7 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
-	httpClient := &http.Client{}
+	httpClient := &http.Client{Timeout: 30 * time.Second}
 	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, 0, fmt.Errorf("huggingface: %w", err)
@@ -654,6 +657,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
+			console.Error(err, "branch", encodedBranch, "url", url)
 			continue
 		}
 
@@ -661,13 +665,16 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 			req.Header.Set("Authorization", "Bearer "+token)
 		}
 
-		httpClient := &http.Client{}
+		httpClient := &http.Client{Timeout: 30 * time.Second}
 		resp, err := httpClient.Do(req)
 		if err != nil {
+			console.Error(err, "branch", encodedBranch, "url", url)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			console.Error(fmt.Errorf("HTTP %d", resp.StatusCode), "branch", encodedBranch, "url", url, "body", string(body))
 			resp.Body.Close()
 			continue
 		}
@@ -675,11 +682,13 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
+			console.Error(err, "branch", encodedBranch, "url", url)
 			continue
 		}
 
 		var entries []Entry
 		if err := json.Unmarshal(body, &entries); err != nil {
+			console.Error(err, "branch", encodedBranch, "url", url)
 			continue
 		}
 

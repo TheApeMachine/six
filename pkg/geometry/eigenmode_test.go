@@ -35,8 +35,10 @@ func TestNewEigenMode(t *testing.T) {
 	Convey("Given NewEigenMode constructor", t, func() {
 		Convey("When creating with no options", func() {
 			ei := NewEigenMode()
-			So(ei, ShouldNotBeNil)
-			So(ei.Trained, ShouldBeTrue) // Analytical mode is always trained
+			Convey("It should correctly initialize as trained", func() {
+				So(ei, ShouldNotBeNil)
+				So(ei.Trained, ShouldBeTrue) // Analytical mode is always trained
+			})
 		})
 
 		Convey("When creating with options", func() {
@@ -44,7 +46,9 @@ func TestNewEigenMode(t *testing.T) {
 				ei.Trained = false // dummy test
 			}
 			ei := NewEigenMode(opt)
-			So(ei.Trained, ShouldBeFalse)
+			Convey("It should apply the provided options", func() {
+				So(ei.Trained, ShouldBeFalse)
+			})
 		})
 	})
 }

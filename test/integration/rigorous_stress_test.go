@@ -82,20 +82,32 @@ func TestRigorousFeatureTransfer(t *testing.T) {
 				)
 				So(err, ShouldBeNil)
 				So(len(results), ShouldBeGreaterThan, 0)
-
-				found := false
-
-				for _, result := range results {
-					if string(result) == tc["expected"] {
-						found = true
-					}
-				}
-
-				So(found, ShouldBeTrue)
+				So(helper.ContainsExpected(results, tc["expected"]), ShouldBeTrue)
 				t.Logf("%s: query=%q → expected=%q", name, tc["query"], tc["expected"])
 			})
 		}
 	})
+}
+
+/*
+BenchmarkRigorousFeatureTransfer benchmarks grammatical pattern transfer.
+*/
+func BenchmarkRigorousFeatureTransfer(b *testing.B) {
+	data := "She walked slowly down the winding path through the garden"
+	query := "Where did she walk?"
+
+	helper := NewIntegrationHelper(
+		context.Background(),
+		local.New(local.WithStrings([]string{data})),
+	)
+	defer helper.Teardown()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = helper.Machine.Prompt(
+			helper.NewPrompt([]string{query}),
+		)
+	}
 }
 
 /*
@@ -142,16 +154,7 @@ func TestMassiveAnomalyIsolation(t *testing.T) {
 				)
 				So(err, ShouldBeNil)
 				So(len(results), ShouldBeGreaterThan, 0)
-
-				found := false
-
-				for _, result := range results {
-					if string(result) == tc["expected"] {
-						found = true
-					}
-				}
-
-				So(found, ShouldBeTrue)
+				So(helper.ContainsExpected(results, tc["expected"]), ShouldBeTrue)
 				t.Logf("%s: anomaly detected=%q", name, tc["expected"])
 			})
 		}

@@ -177,9 +177,7 @@ func (rs *ResultStore) Close() {
 	}
 
 	for _, group := range rs.groups {
-		for _, ch := range group.channels {
-			close(ch)
-		}
+		group.Close()
 	}
 
 	rs.waiting = nil
@@ -214,38 +212,33 @@ func (rs *ResultStore) cleanup() {
 		}
 		return true
 	})
-	if len(expired) == 0 {
-		goto groups
+	if len(expired) > 0 {
+		rs.mu.Lock()
+		for _, id := range expired {
+			v, ok := rs.values.Load(id)
+			if !ok {
+				continue
+			}
+			r := v.(*Result)
+			if r.TTL <= 0 || now.Sub(r.CreatedAt) <= r.TTL {
+				continue
+			}
+			rs.values.Delete(id)
+			delete(rs.children, id)
+			for _, parentID := range rs.parents[id] {
+				rs.children[parentID] = removeString(rs.children[parentID], id)
+			}
+			delete(rs.parents, id)
+		}
+		rs.mu.Unlock()
 	}
 
-	rs.mu.Lock()
-	for _, id := range expired {
-		v, ok := rs.values.Load(id)
-		if !ok {
-			continue
-		}
-		r := v.(*Result)
-		if r.TTL <= 0 || now.Sub(r.CreatedAt) <= r.TTL {
-			continue
-		}
-		rs.values.Delete(id)
-		delete(rs.children, id)
-		for _, parentID := range rs.parents[id] {
-			rs.children[parentID] = removeString(rs.children[parentID], id)
-		}
-		delete(rs.parents, id)
-	}
-	rs.mu.Unlock()
-
-groups:
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
 	for id, group := range rs.groups {
 		if group.TTL > 0 && now.Sub(group.LastUsed) > group.TTL {
-			for _, ch := range group.channels {
-				close(ch)
-			}
+			group.Close()
 			delete(rs.groups, id)
 		}
 	}

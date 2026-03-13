@@ -34,8 +34,9 @@ Collision is Discard.
 type SpatialIndexServer struct {
 	mu sync.RWMutex
 
-	entries map[uint64]data.Chord
-	count   int
+	entries       map[uint64]data.Chord
+	positionIndex map[uint32][]uint64
+	count         int
 
 	ctx        context.Context
 	broadcast  *pool.BroadcastGroup
@@ -47,7 +48,8 @@ type spatialIndexOpts func(*SpatialIndexServer)
 
 func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 	idx := &SpatialIndexServer{
-		entries: make(map[uint64]data.Chord),
+		entries:       make(map[uint64]data.Chord),
+		positionIndex: make(map[uint32][]uint64),
 	}
 
 	for _, opt := range opts {
@@ -87,6 +89,18 @@ func (idx *SpatialIndexServer) Announce() {
 func (idx *SpatialIndexServer) Receive(_ *pool.Result) {}
 
 /*
+Close gracefully terminates all rpc connections and contexts.
+*/
+func (idx *SpatialIndexServer) Close() {
+	if idx.conn != nil {
+		idx.conn.Close()
+	}
+	if idx.clientConn != nil {
+		idx.clientConn.Close()
+	}
+}
+
+/*
 insertSync stores a token. On collision the existing entry wins.
 */
 func (idx *SpatialIndexServer) insertSync(key uint64, value data.Chord) {
@@ -98,6 +112,8 @@ func (idx *SpatialIndexServer) insertSync(key uint64, value data.Chord) {
 	}
 
 	idx.entries[key] = value
+	pos, _ := morton.Unpack(key)
+	idx.positionIndex[pos] = append(idx.positionIndex[pos], key)
 	idx.count++
 }
 
@@ -121,12 +137,9 @@ entriesAtPosition returns all entries at the given position
 func (idx *SpatialIndexServer) entriesAtPosition(position uint32) []SpatialEntry {
 	var hits []SpatialEntry
 
-	for key, value := range idx.entries {
-		pos, _ := morton.Unpack(key)
-
-		if pos == position {
-			hits = append(hits, SpatialEntry{Key: key, Value: value})
-		}
+	for _, key := range idx.positionIndex[position] {
+		value := idx.entries[key]
+		hits = append(hits, SpatialEntry{Key: key, Value: value})
 	}
 
 	return hits
@@ -203,18 +216,18 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 		matched := false
 
 		for pos := uint32(0); ; pos++ {
-			entries := idx.entriesAtPosition(pos)
-
-			if len(entries) == 0 {
+			entriesKeys, hasEntries := idx.positionIndex[pos]
+			if !hasEntries || len(entriesKeys) == 0 {
 				break
 			}
 
 			foundAtPos := false
 
-			for _, entry := range entries {
-				sim := data.ChordSimilarity(&entry.Value, &promptChord)
+			for _, key := range entriesKeys {
+				value := idx.entries[key]
+				sim := data.ChordSimilarity(&value, &promptChord)
 
-				if sim == entry.Value.ActiveCount() && sim > 0 && sim <= promptActive {
+				if sim == value.ActiveCount() && sim > 0 && sim <= promptActive {
 					foundAtPos = true
 					deepest = pos
 					matched = true

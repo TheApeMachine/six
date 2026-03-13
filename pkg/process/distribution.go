@@ -31,8 +31,8 @@ func NewDistribution() *Distribution {
 Clone returns a shallow copy of the Distribution.
 */
 func (dist *Distribution) Clone() *Distribution {
-	c := *dist
-	return &c
+	cloned := *dist
+	return &cloned
 }
 
 /*

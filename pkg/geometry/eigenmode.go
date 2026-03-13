@@ -131,7 +131,7 @@ func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, c
 
 /*
 IsGeometricallyClosed returns true when the sequence's weighted circular mean phase
-is within 0.45 radians of anchorPhase (shortest path around the torus).
+is within config.Numeric.ShannonCapacity of anchorPhase (shortest path around the torus).
 */
 func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase float64) bool {
 	if len(chords) == 0 {
@@ -142,7 +142,7 @@ func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase floa
 	phaseDiff := math.Abs(cPhase - anchorPhase)
 
 	// Shortest path around torus boundary
-	for phaseDiff > math.Pi {
+	if phaseDiff > math.Pi {
 		phaseDiff = 2*math.Pi - phaseDiff
 	}
 

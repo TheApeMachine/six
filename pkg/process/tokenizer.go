@@ -3,6 +3,7 @@ package process
 import (
 	"context"
 	"net"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
@@ -10,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
@@ -32,6 +34,8 @@ type TokenizerServer struct {
 	useSampleID   bool
 	currentSample uint32
 	collector     [][]data.Chord
+	collectorMu   sync.Mutex
+	clientConn    net.Conn
 }
 
 type tokenizerOpts func(*TokenizerServer)
@@ -77,12 +81,32 @@ func (server *TokenizerServer) Announce() {
 		BootstrapClient: capnp.Client(client),
 	})
 
+	server.clientConn = clientSide
+
 	server.broadcast.Send(&pool.Result{
 		Value: pool.PoolValue[net.Conn]{
 			Key:   "tokenizer",
 			Value: clientSide,
 		},
 	})
+}
+
+/*
+Close cleans up resources like RPC and cancel functions.
+*/
+func (server *TokenizerServer) Close() error {
+	if server.cancel != nil {
+		server.cancel()
+	}
+	if server.rpcConn != nil {
+		server.rpcConn.Close()
+		server.rpcConn = nil
+	}
+	if server.clientConn != nil {
+		server.clientConn.Close()
+		server.clientConn = nil
+	}
+	return nil
 }
 
 /*
@@ -136,9 +160,9 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 			return
 		}
 
-		c := append([]byte(nil), buf...)
+		chunkCopy := append([]byte(nil), buf...)
 		ch := server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
-			return nil, server.processChunk(ctx, sampleID, c)
+			return nil, server.processChunk(ctx, sampleID, chunkCopy)
 		})
 		pending = append(pending, ch)
 	}
@@ -242,11 +266,14 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 	}
 
 	if server.collector != nil {
+		server.collectorMu.Lock()
 		if int(sampleID) >= len(server.collector) {
+			server.collectorMu.Unlock()
 			return console.Error(ErrCollectorSample)
 		}
 
 		server.collector[sampleID] = append(server.collector[sampleID], chunkChord)
+		server.collectorMu.Unlock()
 	}
 
 	for i, currentByte := range chunk {
@@ -270,6 +297,20 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 	}
 
 	return nil
+}
+
+/*
+TokenizeSingleSample is an API to tokenize a standalone sample, returning an error.
+*/
+func (server *TokenizerServer) TokenizeSingleSample(ctx context.Context, sample string) error {
+	server.collector = [][]data.Chord{{}}
+	server.currentSample = 0
+	
+	ds := local.New(local.WithStrings([]string{sample}))
+	server.dataset = ds
+	server.useSampleID = false
+
+	return server.generate(ctx)
 }
 
 /*

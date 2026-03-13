@@ -238,12 +238,12 @@ func BenchmarkPromptNextDataset(b *testing.B) {
 func BenchmarkApplyHoldoutRandom(b *testing.B) {
 	p := NewPrompt(
 		PromptWithHoldout(30, RANDOM),
+		PromptWithOriginal(strings.Repeat("z", 1024)),
 	)
-	p.original = strings.Repeat("z", 1024)
 
 	b.ResetTimer()
 
 	for range b.N {
-		p.applyHoldout()
+		p.ApplyHoldout()
 	}
 }

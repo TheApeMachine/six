@@ -82,6 +82,7 @@ func initConfig() {
 
 	if err := result.Err(); err != nil {
 		console.Error(err, "msg", "Failed to load embedded alice.txt")
+		os.Exit(1)
 	} else {
 		Alice = result.Value()
 	}

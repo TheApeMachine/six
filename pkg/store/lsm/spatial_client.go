@@ -93,7 +93,7 @@ Insert streams a single GraphEdge+Chord into the spatial index.
 All Cap'n Proto plumbing is contained here.
 */
 func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position uint32, chord data.Chord) error {
-	return c.client.Insert(ctx, func(params SpatialIndex_insert_Params) error {
+	return console.Error(c.client.Insert(ctx, func(params SpatialIndex_insert_Params) error {
 		edge, err := params.NewEdge()
 		if err != nil {
 			return console.Error(err)
@@ -109,7 +109,7 @@ func (c *SpatialIndexClient) Insert(ctx context.Context, left uint8, position ui
 
 		dst.CopyFrom(chord)
 		return nil
-	})
+	}))
 }
 
 /*

@@ -12,8 +12,8 @@ import (
 func corpusByteSet(corpus [][]byte) map[byte]bool {
 	seen := make(map[byte]bool)
 	for _, doc := range corpus {
-		for _, b := range doc {
-			seen[b] = true
+		for _, byteVal := range doc {
+			seen[byteVal] = true
 		}
 	}
 
@@ -47,8 +47,8 @@ func buildCorpus() [][]byte {
 
 	corpus := make([][]byte, 0, len(snippets)*10)
 	for range 10 {
-		for _, s := range snippets {
-			corpus = append(corpus, []byte(s))
+		for _, snippet := range snippets {
+			corpus = append(corpus, []byte(snippet))
 		}
 	}
 	return corpus
@@ -61,9 +61,9 @@ func buildRetrievalCorpus() [][]byte {
 	return [][]byte{[]byte("def add(a, b):\n    return a + b\n")}
 }
 
-// isPrintableASCII returns true if b is printable ASCII or common whitespace.
-func isPrintableASCII(b byte) bool {
-	return b < 128 && (unicode.IsPrint(rune(b)) || b == '\n' || b == '\r' || b == '\t')
+// isPrintableASCII returns true if charByte is printable ASCII or common whitespace.
+func isPrintableASCII(charByte byte) bool {
+	return charByte < 128 && (unicode.IsPrint(rune(charByte)) || charByte == '\n' || charByte == '\r' || charByte == '\t')
 }
 
 // buildTestMachine creates a Machine from a corpus using the standard API.
@@ -74,16 +74,16 @@ func buildTestMachine(corpus [][]byte) *Machine {
 
 func promptToChords(prompt string) []data.Chord {
 	chords := make([]data.Chord, 0, len(prompt))
-	for i := range len(prompt) {
-		chords = append(chords, data.BaseChord(prompt[i]))
+	for idx := range len(prompt) {
+		chords = append(chords, data.BaseChord(prompt[idx]))
 	}
 	return chords
 }
 
 func collectBytes(out <-chan byte) []byte {
 	res := make([]byte, 0, 64)
-	for b := range out {
-		res = append(res, b)
+	for byteVal := range out {
+		res = append(res, byteVal)
 	}
 	return res
 }

@@ -15,16 +15,16 @@ import (
 genChordsFromBytes produces chords from byte sequences for realistic test data.
 Varied lengths and byte patterns exercise BuildChord, ChordLCM, and similarity.
 */
-func genChordsFromBytes(sequences [][]byte) []Chord {
+func genChordsFromBytes(sequences [][]byte) ([]Chord, error) {
 	out := make([]Chord, len(sequences))
 	for idx, payload := range sequences {
 		chord, err := BuildChord(payload)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		out[idx] = chord
 	}
-	return out
+	return out, nil
 }
 
 func TestSanitize(t *testing.T) {
@@ -262,9 +262,10 @@ func TestChordListToSlice(t *testing.T) {
 }
 
 func TestChordLCM(t *testing.T) {
-	chords := genChordsFromBytes([][]byte{[]byte("a"), []byte("ab"), []byte("abc")})
+	chords, err := genChordsFromBytes([][]byte{[]byte("a"), []byte("ab"), []byte("abc")})
 
 	Convey("Given a slice of chords", t, func() {
+		So(err, ShouldBeNil)
 		Convey("When ChordLCM is called", func() {
 			lcm := ChordLCM(chords)
 
@@ -499,7 +500,7 @@ func TestRollLeftPositional(t *testing.T) {
 }
 
 func TestFlattenBatched(t *testing.T) {
-	chords := genChordsFromBytes([][]byte{
+	chords, err := genChordsFromBytes([][]byte{
 		[]byte("first"),
 		[]byte("second"),
 		[]byte("third"),
@@ -507,6 +508,7 @@ func TestFlattenBatched(t *testing.T) {
 	})
 
 	Convey("Given chords and a pool", t, func() {
+		So(err, ShouldBeNil)
 		workerPool := pool.New(context.Background(), 2, 4, pool.NewConfig())
 		defer workerPool.Close()
 
@@ -525,8 +527,36 @@ func TestFlattenBatched(t *testing.T) {
 
 func BenchmarkChordRotationSeed(b *testing.B) {
 	chord := BaseChord('x')
-
-	for b.Loop() {
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
 		_, _ = chord.RotationSeed()
+	}
+}
+
+func BenchmarkBuildChord(b *testing.B) {
+	payload := []byte("The quick brown fox jumps over the lazy dog.")
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_, _ = BuildChord(payload)
+	}
+}
+
+func BenchmarkChordLCM(b *testing.B) {
+	chords, _ := genChordsFromBytes([][]byte{[]byte("a"), []byte("ab"), []byte("abc"), []byte("abcd"), []byte("abcde")})
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = ChordLCM(chords)
+	}
+}
+
+func BenchmarkFlattenBatched(b *testing.B) {
+	chords, _ := genChordsFromBytes([][]byte{[]byte("first"), []byte("second"), []byte("third"), []byte("A longer sequence to stress the chord builder")})
+	b.ResetTimer()
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		_ = FlattenBatched(chords, nil)
 	}
 }

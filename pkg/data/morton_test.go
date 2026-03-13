@@ -64,14 +64,20 @@ func TestMortonCoder(t *testing.T) {
 			})
 
 			Convey("It should round-trip for small coordinates", func() {
-				for x := range uint32(20) {
-					for y := range uint32(20) {
-						for z := range uint32(20) {
+				for x := uint32(0); x < 20; x++ {
+					for y := uint32(0); y < 20; y++ {
+						for z := uint32(0); z < 20; z++ {
 							encoded := coder.Encode3D(x, y, z)
-							So(encoded, ShouldBeGreaterThanOrEqualTo, uint64(0))
+							decodedX, decodedY, decodedZ := coder.Decode3D(encoded)
+							So(decodedX, ShouldEqual, x)
+							So(decodedY, ShouldEqual, y)
+							So(decodedZ, ShouldEqual, z)
 						}
 					}
 				}
+				
+				encoded := coder.Encode3D(1, 2, 3)
+				So(encoded, ShouldEqual, 53)
 			})
 		})
 	})

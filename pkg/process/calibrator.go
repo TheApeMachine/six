@@ -25,47 +25,47 @@ type Calibrator struct {
 type CalibratorOption func(*Calibrator)
 
 func WithWindowSize(size int) CalibratorOption {
-	return func(c *Calibrator) {
-		c.window = NewFastWindow(size)
-		c.phaseWindow = NewFastWindow(size)
+	return func(calibrator *Calibrator) {
+		calibrator.window = NewFastWindow(size)
+		calibrator.phaseWindow = NewFastWindow(size)
 	}
 }
 
 func NewCalibrator(opts ...CalibratorOption) *Calibrator {
-	c := &Calibrator{
+	calibrator := &Calibrator{
 		sensitivityPop:   1.0,
 		sensitivityPhase: 1.0,
 		window:           NewFastWindow(config.Numeric.NSymbols),
 		phaseWindow:      NewFastWindow(config.Numeric.NSymbols),
 	}
 	for _, opt := range opts {
-		opt(c)
+		opt(calibrator)
 	}
-	return c
+	return calibrator
 }
 
-func (c *Calibrator) SensitivityPop() float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.sensitivityPop
+func (calibrator *Calibrator) SensitivityPop() float64 {
+	calibrator.mu.RLock()
+	defer calibrator.mu.RUnlock()
+	return calibrator.sensitivityPop
 }
 
-func (c *Calibrator) SensitivityPhase() float64 {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-	return c.sensitivityPhase
+func (calibrator *Calibrator) SensitivityPhase() float64 {
+	calibrator.mu.RLock()
+	defer calibrator.mu.RUnlock()
+	return calibrator.sensitivityPhase
 }
 
-func (c *Calibrator) SetSensitivityPop(v float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.sensitivityPop = v
+func (calibrator *Calibrator) SetSensitivityPop(v float64) {
+	calibrator.mu.Lock()
+	defer calibrator.mu.Unlock()
+	calibrator.sensitivityPop = v
 }
 
-func (c *Calibrator) SetSensitivityPhase(v float64) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	c.sensitivityPhase = v
+func (calibrator *Calibrator) SetSensitivityPhase(v float64) {
+	calibrator.mu.Lock()
+	defer calibrator.mu.Unlock()
+	calibrator.sensitivityPhase = v
 }
 
 func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
@@ -131,10 +131,7 @@ func (calibrator *Calibrator) dynamicLimit(window *FastWindow, sensitivity, fall
 		return fallback
 	}
 
-	limit := mean * sensitivity
-	if stddev > 0 {
-		limit = mean + sensitivity*stddev
-	}
+	limit := mean + sensitivity*math.Max(stddev, 1e-9)
 
 	if limit <= 0 {
 		return fallback

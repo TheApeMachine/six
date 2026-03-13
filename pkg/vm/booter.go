@@ -15,17 +15,6 @@ import (
 )
 
 /*
-System is any component that participates in the broadcast message bus.
-Systems announce themselves, then receive messages synchronously from
-the Booter's event loop.
-*/
-type System interface {
-	Start(pool *pool.Pool, broadcast *pool.BroadcastGroup)
-	Announce()
-	Receive(result *pool.Result)
-}
-
-/*
 Booter is the single goroutine that owns the broadcast loop.
 It routes messages to all registered systems and drives the tick clock.
 */
@@ -48,6 +37,10 @@ func NewBooter(opts ...booterOpts) *Booter {
 	for _, opt := range opts {
 		opt(booter)
 	}
+	
+	if booter.ctx == nil || booter.cancel == nil {
+		booter.ctx, booter.cancel = context.WithCancel(context.Background())
+	}
 
 	return booter
 }
@@ -59,13 +52,16 @@ runs the event loop.
 func (booter *Booter) Start() {
 	console.Info("Starting Booter")
 
-	subscription := booter.broadcast.Subscribe("broadcast", 128)
+	var subscription <-chan *pool.Result
+	if booter.broadcast != nil {
+		subscription = booter.broadcast.Subscribe("broadcast", 128)
+	}
 
 	for _, system := range booter.systems {
 		system.Announce()
 	}
 
-	ticker := time.NewTicker(time.Millisecond)
+	ticker := time.NewTicker(time.Millisecond * 10)
 	defer ticker.Stop()
 
 	sig := make(chan os.Signal, 1)
@@ -78,7 +74,7 @@ func (booter *Booter) Start() {
 		case <-sig:
 			console.Info("Signal received by Booter. Shutting down...")
 			booter.Stop()
-			os.Exit(0)
+			return
 		case msg := <-subscription:
 			for _, system := range booter.systems {
 				system.Receive(msg)
@@ -115,7 +111,9 @@ func (booter *Booter) callGenerate(conn net.Conn) {
 Stop terminates the Booter and signals all systems to finish.
 */
 func (booter *Booter) Stop() {
-	booter.cancel()
+	if booter.cancel != nil {
+		booter.cancel()
+	}
 }
 
 /*

@@ -88,6 +88,13 @@ func WriteExperimentsIndex() error {
 	return nil
 }
 
+// ResetSectionRegistry clears the global section registry.
+func ResetSectionRegistry() {
+	sectionMu.Lock()
+	sectionRegistry = nil
+	sectionMu.Unlock()
+}
+
 type Reporter interface {
 	WriteResults(tools.PipelineExperiment) error
 	WriteArtifact(tools.PipelineExperiment, tools.Artifact) error
@@ -100,9 +107,6 @@ type SnapshotReporter struct {
 }
 
 func NewProjectorReporter() *ProjectorReporter {
-	sectionMu.Lock()
-	sectionRegistry = nil
-	sectionMu.Unlock()
 	return &ProjectorReporter{}
 }
 

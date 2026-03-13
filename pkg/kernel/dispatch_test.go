@@ -8,6 +8,17 @@ import (
 	"github.com/theapemachine/six/pkg/geometry"
 )
 
+func generateGFRotations(count int) []geometry.GFRotation {
+	nodes := make([]geometry.GFRotation, count)
+	for i := 0; i < count; i++ {
+		nodes[i] = geometry.GFRotation{
+			CoordU: uint16((i * 17) % 257),
+			CoordV: uint16((i * 31) % 257),
+		}
+	}
+	return nodes
+}
+
 func TestNewBuilder(t *testing.T) {
 	Convey("Given the default kernel builder", t, func() {
 		t.Setenv("SIX_BACKEND", "cpu")
@@ -15,12 +26,8 @@ func TestNewBuilder(t *testing.T) {
 		builder := NewBuilder()
 
 		Convey("It should resolve through an available backend", func() {
-			nodes := []geometry.GFRotation{
-				{A: 1, B: 0},
-				{A: 5, B: 8},
-				{A: 9, B: 13},
-			}
-			target := geometry.GFRotation{A: 6, B: 8}
+			nodes := generateGFRotations(100)
+			target := nodes[42]
 
 			packed, err := builder.Resolve(
 				unsafe.Pointer(&nodes[0]),
@@ -32,8 +39,8 @@ func TestNewBuilder(t *testing.T) {
 
 			So(err, ShouldBeNil)
 			So(builder.Available(), ShouldBeTrue)
-			So(bestIdx, ShouldEqual, 1)
-			So(distSq, ShouldEqual, 1)
+			So(bestIdx, ShouldEqual, 42)
+			So(distSq, ShouldEqual, 0)
 		})
 	})
 }

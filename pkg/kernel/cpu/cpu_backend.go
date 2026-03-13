@@ -1,6 +1,7 @@
 package cpu
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/geometry"
@@ -19,6 +20,8 @@ func (backend *CPUBackend) Available() bool {
 	return true
 }
 
+
+
 /*
 Resolve finds the graph node with the smallest GF(257) geometric distance
 to the context rotation using direct integer arithmetic.
@@ -29,7 +32,7 @@ func (backend *CPUBackend) Resolve(
 	context unsafe.Pointer,
 ) (uint64, error) {
 	if numNodes <= 0 || graphNodes == nil || context == nil {
-		return 0, nil
+		return 0, fmt.Errorf("invalid inputs to CPUBackend.Resolve")
 	}
 
 	nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)

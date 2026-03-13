@@ -52,6 +52,10 @@ func (backend *MetalBackend) Resolve(
 		return resolve.PackedNearest(nodes, *ctx), nil
 	}
 
+	if numNodes < 0 || numNodes > 4294967295 {
+		return 0, MetalErrorResolveFailed
+	}
+
 	var packed C.uint64_t
 
 	status := C.resolve_resonance_metal(
@@ -87,7 +91,7 @@ func init() {
 		return
 	}
 
-	defer os.Remove(tmpFile.Name())
+
 
 	if _, err := tmpFile.Write(resolverMetallib); err != nil {
 		tmpFile.Close()

@@ -26,17 +26,19 @@ import (
 //go:generate nvcc -lib resolver.cu -o libresolver.a -std=c++11
 
 type CUDABackend struct {
-	deviceCount int
+	initOnce    sync.Once
 }
 
 func (backend *CUDABackend) init() {
-	if backend.deviceCount == 0 {
-		count := int(C.cuda_device_count())
-		if count < 1 {
-			count = 1 // Default to 1 to attempt, though Available will probably be false if truly 0
+	backend.initOnce.Do(func() {
+		if backend.deviceCount == 0 {
+			count := int(C.cuda_device_count())
+			if count < 1 {
+				count = 1 // Default to 1 to attempt, though Available will probably be false if truly 0
+			}
+			backend.deviceCount = count
 		}
-		backend.deviceCount = count
-	}
+	})
 }
 
 func (backend *CUDABackend) Available() bool {
@@ -50,6 +52,10 @@ func (backend *CUDABackend) Resolve(
 ) (uint64, error) {
 	if numNodes <= 0 || graphNodes == nil || context == nil {
 		return 0, nil
+	}
+
+	if !backend.Available() {
+		return 0, CUDAErrorUnavailable
 	}
 
 	backend.init()
