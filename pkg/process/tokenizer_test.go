@@ -232,7 +232,7 @@ func TestTokenizerServer(t *testing.T) {
 				expectedChord, err := data.BuildChord(chunk)
 
 				So(err, ShouldBeNil)
-				So(directServer.processChunk(ctx, 0, chunk), ShouldBeNil)
+				So(directServer.processChunk(ctx, 0, 0, chunk), ShouldBeNil)
 
 				records := directIns.snapshot()
 				So(len(records), ShouldEqual, len(chunk))
@@ -335,7 +335,7 @@ func TestTokenizerServer(t *testing.T) {
 		Convey("When generating over the sample", func() {
 			err := server.generate(ctx)
 
-			Convey("It should reset positions at the committed boundary", func() {
+			Convey("It should preserve absolute positions across the committed boundary", func() {
 				So(err, ShouldBeNil)
 
 				records := ins.snapshot()
@@ -354,7 +354,7 @@ func TestTokenizerServer(t *testing.T) {
 				}
 
 				So(seen, ShouldBeTrue)
-				So(minPos, ShouldEqual, 0)
+				So(minPos, ShouldEqual, uint32(bytes.IndexByte([]byte(sample), 255)))
 			})
 		})
 	})
@@ -556,7 +556,7 @@ func BenchmarkProcessChunk(b *testing.B) {
 			b.ResetTimer()
 
 			for range b.N {
-				if err := server.processChunk(ctx, 0, chunk); err != nil {
+				if err := server.processChunk(ctx, 0, 0, chunk); err != nil {
 					b.Fatal(err)
 				}
 			}

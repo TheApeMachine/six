@@ -8,6 +8,7 @@ import (
 // Job represents a unit of work to be executed by the pool.
 type Job struct {
 	ID                    string
+	ResultID              string
 	Fn                    func() (any, error)
 	RetryPolicy           *RetryPolicy
 	CircuitID             string

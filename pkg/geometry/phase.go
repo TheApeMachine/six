@@ -43,13 +43,16 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 		omega := float64(numeric.Primes[k])
 
 		for t := range chords {
-			// Structural phase from chord: sum of primes at active bits in
-			// dimension k's neighborhood. Use ChordBin as a structural identity
-			// proxy for phase contribution.
-			bin := data.ChordBin(&chords[t])
-			structuralPrime := float64(numeric.Primes[bin%config.Numeric.NSymbols])
+			// Fold all 8 raw chord words into a structural float.
+			// This preserves discrimination even when ChordBin collapses
+			// (e.g. when highly repetitive data saturates the 257-bit space).
+			var mix uint64
+			for blk := range config.ChordBlocks {
+				mix ^= chords[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+			}
+			structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
 
-			phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
+			phase := (omega * float64(t+1) * 0.1) + (structuralPhase * math.Pi * 2)
 			sum += cmplx.Rect(1.0, phase)
 		}
 
@@ -77,13 +80,17 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 		return dial
 	}
 
-	nBasis := config.Numeric.NBasis
-
-	// Pre-compute ChordBin for every chord once; it's the same for all k.
-	bins := make([]int, len(chords))
+	// Pre-compute the structural phase per chord once; it's the same for all k.
+	structuralPhases := make([]float64, len(chords))
 	for t := range chords {
-		bins[t] = data.ChordBin(&chords[t])
+		var mix uint64
+		for blk := range config.ChordBlocks {
+			mix ^= chords[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+		}
+		structuralPhases[t] = float64(mix>>32) * (1.0 / float64(1<<32))
 	}
+
+	nBasis := config.Numeric.NBasis
 
 	var wg sync.WaitGroup
 
@@ -96,8 +103,7 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 			defer wg.Done()
 			var sum complex128
 			for t := range chords {
-				structuralPrime := float64(numeric.Primes[bins[t]%config.Numeric.NSymbols])
-				phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
+				phase := (omega * float64(t+1) * 0.1) + (structuralPhases[t] * math.Pi * 2)
 				sum += cmplx.Rect(1.0, phase)
 			}
 			dial[kk] = sum // each k owns a distinct index — no race
@@ -126,12 +132,15 @@ AddChordPhase incrementally adds a single chord's phase to an unnormalized Phase
 This allows O(N) instead of O(N^2) sequential dial construction.
 */
 func (dial PhaseDial) AddChordPhase(chord data.Chord, t int) {
+	var mix uint64
+	for blk := range config.ChordBlocks {
+		mix ^= chord.Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+	}
+	structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
+
 	for k := 0; k < config.Numeric.NBasis; k++ {
 		omega := float64(numeric.Primes[k])
-		bin := data.ChordBin(&chord)
-		structuralPrime := float64(numeric.Primes[bin%config.Numeric.NSymbols])
-
-		phase := (omega * float64(t+1) * 0.1) + (structuralPrime * 0.1)
+		phase := (omega * float64(t+1) * 0.1) + (structuralPhase * math.Pi * 2)
 		dial[k] += cmplx.Rect(1.0, phase)
 	}
 }

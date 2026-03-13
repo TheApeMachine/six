@@ -125,6 +125,10 @@ func (chord *Chord) Sanitize() {
 	chord.SetC7(0)
 }
 
+func (chord *Chord) Block(i int) uint64 {
+	return chord.block(i)
+}
+
 func (chord *Chord) block(i int) uint64 {
 	switch i {
 	case 0:

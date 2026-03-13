@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -25,6 +26,7 @@ type Pool struct {
 	workerMu   sync.Mutex
 	workerList []*Worker
 	breakersMu sync.RWMutex
+	jobSeq     atomic.Uint64
 	config     *Config
 }
 
@@ -159,10 +161,15 @@ func (p *Pool) Schedule(id string, fn func() (any, error), opts ...JobOption) ch
 		}
 	}
 
+	job.ResultID = fmt.Sprintf("%s/%d", job.ID, p.jobSeq.Add(1))
+	resultCh := p.store.prepare(job.ResultID)
+
 	select {
 	case p.jobs <- job:
-		return p.store.Await(id)
+		return resultCh
 	case <-ctx.Done():
+		p.store.cancelAwait(job.ResultID, resultCh)
+
 		ch := make(chan *Result, 1)
 		ch <- &Result{
 			Error:     fmt.Errorf("job scheduling timeout: %w", ctx.Err()),

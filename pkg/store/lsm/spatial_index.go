@@ -149,17 +149,40 @@ func (idx *SpatialIndexServer) entriesAtPosition(position uint32) []SpatialEntry
 branchesFrom returns all entries at positions greater than the given one.
 */
 func (idx *SpatialIndexServer) branchesFrom(position uint32) []data.Chord {
-	var hits []data.Chord
+	positions := make([]uint32, 0, len(idx.positionIndex))
 
-	for key, value := range idx.entries {
-		pos, _ := morton.Unpack(key)
-
+	for pos := range idx.positionIndex {
 		if pos > position {
+			positions = append(positions, pos)
+		}
+	}
+
+	sort.Slice(positions, func(i, j int) bool {
+		return positions[i] < positions[j]
+	})
+
+	hits := make([]data.Chord, 0, len(positions))
+
+	for _, pos := range positions {
+		for _, key := range idx.positionIndex[pos] {
+			value := idx.entries[key]
+
+			if len(hits) > 0 && sameChord(hits[len(hits)-1], value) {
+				continue
+			}
+
 			hits = append(hits, value)
 		}
 	}
 
 	return hits
+}
+
+func sameChord(left, right data.Chord) bool {
+	leftActive := left.ActiveCount()
+	rightActive := right.ActiveCount()
+
+	return leftActive == rightActive && data.ChordSimilarity(&left, &right) == leftActive
 }
 
 func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_insert) error {
@@ -380,7 +403,7 @@ func (idx *SpatialIndexServer) Decode(chords []data.Chord) [][]byte {
 		for key, value := range idx.entries {
 			sim := data.ChordSimilarity(&value, &chord)
 
-			if sim == value.ActiveCount() && sim > 0 && sim <= active {
+			if sim == value.ActiveCount() && sim == active && sim > 0 {
 				pos, symbol := morton.Unpack(key)
 				matched = append(matched, hit{pos, symbol})
 			}

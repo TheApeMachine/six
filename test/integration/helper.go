@@ -2,6 +2,7 @@ package integration
 
 import (
 	"context"
+	"strings"
 
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/logic/graph"
@@ -20,6 +21,12 @@ type IntegrationHelper struct {
 	cancel          context.CancelFunc
 	Machine         *vm.Machine
 	promptTokenizer *process.TokenizerServer
+}
+
+type BoundaryProbe struct {
+	Query    string
+	Terminal string
+	Next     string
 }
 
 /*
@@ -88,6 +95,101 @@ func (helper *IntegrationHelper) ContainsExpected(results [][]byte, expected str
 		}
 	}
 	return false
+}
+
+func (helper *IntegrationHelper) ContainsAny(results [][]byte, expected ...string) bool {
+	for _, candidate := range expected {
+		if helper.ContainsExpected(results, candidate) {
+			return true
+		}
+	}
+
+	return false
+}
+
+func (helper *IntegrationHelper) ResultsBelongToChunks(results [][]byte, chunks []string) bool {
+	allowed := make(map[string]struct{}, len(chunks))
+
+	for _, chunk := range chunks {
+		allowed[chunk] = struct{}{}
+	}
+
+	for _, result := range results {
+		if _, ok := allowed[string(result)]; !ok {
+			return false
+		}
+	}
+
+	return true
+}
+
+func ResultStrings(results [][]byte) []string {
+	out := make([]string, 0, len(results))
+
+	for _, result := range results {
+		out = append(out, string(result))
+	}
+
+	return out
+}
+
+func ChunkStrings(sample string) []string {
+	sequencer := process.NewSequencer(process.NewCalibrator())
+	raw := []byte(sample)
+	chunk := make([]byte, 0, len(raw))
+	chunks := make([]string, 0, len(raw))
+
+	flush := func(width int) {
+		if width == 0 {
+			return
+		}
+
+		chunks = append(chunks, string(append([]byte(nil), chunk[:width]...)))
+		copy(chunk, chunk[width:])
+		chunk = chunk[:len(chunk)-width]
+	}
+
+	for idx, symbol := range raw {
+		chunk = append(chunk, symbol)
+
+		isBoundary, emitWidth, _ := sequencer.Analyze(uint32(idx), symbol)
+		if isBoundary {
+			flush(emitWidth)
+		}
+	}
+
+	for {
+		isBoundary, emitWidth, _ := sequencer.Flush()
+		if !isBoundary {
+			break
+		}
+
+		flush(emitWidth)
+	}
+
+	if len(chunk) > 0 {
+		chunks = append(chunks, string(chunk))
+	}
+
+	return chunks
+}
+
+func BoundaryProbes(sample string) []BoundaryProbe {
+	chunks := ChunkStrings(sample)
+	probes := make([]BoundaryProbe, 0, max(len(chunks)-1, 0))
+	var prefix strings.Builder
+
+	for idx := 0; idx < len(chunks)-1; idx++ {
+		prefix.WriteString(chunks[idx])
+
+		probes = append(probes, BoundaryProbe{
+			Query:    prefix.String(),
+			Terminal: chunks[idx],
+			Next:     chunks[idx+1],
+		})
+	}
+
+	return probes
 }
 
 /*

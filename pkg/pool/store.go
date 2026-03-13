@@ -57,6 +57,7 @@ func (rs *ResultStore) Store(id string, value any, ttl time.Duration) {
 		for _, ch := range channels {
 			select {
 			case ch <- r:
+				close(ch)
 			default:
 				rs.removeWaitingChannel(id, ch)
 			}
@@ -79,6 +80,7 @@ func (rs *ResultStore) StoreError(id string, err error, ttl time.Duration) {
 		for _, ch := range channels {
 			select {
 			case ch <- r:
+				close(ch)
 			default:
 				rs.removeWaitingChannel(id, ch)
 			}
@@ -107,6 +109,49 @@ func (rs *ResultStore) Await(id string) chan *Result {
 	}
 	rs.waiting[id] = append(rs.waiting[id], ch)
 	return ch
+}
+
+func (rs *ResultStore) prepare(id string) chan *Result {
+	ch := make(chan *Result, 1)
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	rs.waiting[id] = append(rs.waiting[id], ch)
+
+	return ch
+}
+
+func (rs *ResultStore) deliver(id string, result *Result) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	channels, ok := rs.waiting[id]
+	if !ok {
+		return
+	}
+
+	for _, ch := range channels {
+		select {
+		case ch <- result:
+			close(ch)
+		default:
+			close(ch)
+		}
+	}
+
+	delete(rs.waiting, id)
+}
+
+func (rs *ResultStore) cancelAwait(id string, ch chan *Result) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
+	rs.removeWaitingChannel(id, ch)
+
+	if len(rs.waiting[id]) == 0 {
+		delete(rs.waiting, id)
+	}
 }
 
 // Exists checks whether a result for the given ID has been stored.

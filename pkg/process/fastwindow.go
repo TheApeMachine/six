@@ -21,7 +21,7 @@ NewFastWindow allocates a sliding window of the given size. O(1) push; recalc ev
 */
 func NewFastWindow(size int) *FastWindow {
 	if size <= 0 {
-		panic("invalid window size: must be > 0")
+		return nil
 	}
 	return &FastWindow{
 		data: make([]float64, size),

@@ -35,7 +35,7 @@ func (w *Worker) run() {
 			}
 
 			w.currentJob = &job
-			
+
 			runCtx := w.pool.ctx
 			if job.Ctx != nil {
 				runCtx = job.Ctx
@@ -46,9 +46,19 @@ func (w *Worker) run() {
 
 			if err != nil {
 				w.pool.metrics.RecordJobFailure()
+				w.pool.store.deliver(job.ResultID, &Result{
+					Error:     err,
+					TTL:       job.TTL,
+					CreatedAt: time.Now(),
+				})
 				w.pool.store.StoreError(job.ID, err, job.TTL)
 			} else {
 				w.pool.metrics.RecordJobSuccess(time.Since(job.StartTime))
+				w.pool.store.deliver(job.ResultID, &Result{
+					Value:     result,
+					TTL:       job.TTL,
+					CreatedAt: time.Now(),
+				})
 				w.pool.store.Store(job.ID, result, job.TTL)
 			}
 		}

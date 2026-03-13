@@ -27,7 +27,9 @@ func TestFilesystemFunctions(t *testing.T) {
 				os.Chdir(nestedDir)
 
 				root := ProjectRoot()
-				So(root, ShouldEqual, tempDir)
+				canonical, err := filepath.EvalSymlinks(tempDir)
+				So(err, ShouldBeNil)
+				So(root, ShouldEqual, canonical)
 			})
 		})
 

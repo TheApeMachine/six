@@ -4,6 +4,7 @@ import (
 	"context"
 	"net"
 	"sync"
+	"sync/atomic"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
@@ -35,6 +36,7 @@ type TokenizerServer struct {
 	currentSample uint32
 	collector     [][]data.Chord
 	collectorMu   sync.Mutex
+	ready         atomic.Bool
 	clientConn    net.Conn
 }
 
@@ -65,6 +67,10 @@ Start implements the vm.System interface.
 func (server *TokenizerServer) Start(workerPool *pool.Pool, broadcast *pool.BroadcastGroup) {
 	server.pool = workerPool
 	server.broadcast = broadcast
+}
+
+func (server *TokenizerServer) Ready() bool {
+	return server.ready.Load()
 }
 
 /*
@@ -145,6 +151,12 @@ func (server *TokenizerServer) Done(ctx context.Context, call Tokenizer_done) er
 func (server *TokenizerServer) generate(ctx context.Context) error {
 	calibrator := NewCalibrator()
 	seq := NewSequencer(calibrator)
+	activeCtx := ctx
+	server.ready.Store(false)
+
+	if server.ctx != nil {
+		activeCtx = server.ctx
+	}
 
 	if server.spatialInsert == nil && server.collector == nil {
 		return console.Error(ErrNoIndex)
@@ -155,28 +167,28 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 
 	console.Info("Tokenizer generating dataset")
 
-	flush := func(sampleID uint32, buf []byte) {
+	flush := func(sampleID, startPos uint32, buf []byte) {
 		if len(buf) == 0 {
 			return
 		}
 
 		chunkCopy := append([]byte(nil), buf...)
 		ch := server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
-			return nil, server.processChunk(ctx, sampleID, chunkCopy)
+			return nil, server.processChunk(activeCtx, sampleID, startPos, chunkCopy)
 		})
 		pending = append(pending, ch)
 	}
 
-	flushSync := func(sampleID uint32, buf []byte) error {
+	flushSync := func(sampleID, startPos uint32, buf []byte) error {
 		if len(buf) == 0 {
 			return nil
 		}
 
 		if server.pool == nil {
-			return server.processChunk(ctx, sampleID, append([]byte(nil), buf...))
+			return server.processChunk(activeCtx, sampleID, startPos, append([]byte(nil), buf...))
 		}
 
-		flush(sampleID, buf)
+		flush(sampleID, startPos, buf)
 
 		return nil
 	}
@@ -193,21 +205,23 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		return nil
 	}
 
+	var chunkStart uint32
+
 	for token := range server.dataset.Generate() {
 		select {
-		case <-ctx.Done():
+		case <-activeCtx.Done():
 			if err := waitPending(); err != nil {
 				return err
 			}
 
-			return ctx.Err()
+			return activeCtx.Err()
 		default:
 		}
 
 		if server.useSampleID && server.currentSample != token.SampleID {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			if err := flushSync(server.currentSample, chunk); err != nil {
+			if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
 				return err
 			}
 
@@ -216,18 +230,23 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 			seq = seq.CloneEmpty()
 		}
 
+		if len(chunk) == 0 {
+			chunkStart = token.Pos
+		}
+
 		chunk = append(chunk, token.Symbol)
 		isBoundary, emitK, _ := seq.Analyze(token.Pos, token.Symbol)
 
 		if isBoundary {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			if err := flushSync(server.currentSample, chunk[:emitK]); err != nil {
+			if err := flushSync(server.currentSample, chunkStart, chunk[:emitK]); err != nil {
 				return err
 			}
 
 			copy(chunk, chunk[emitK:])
 			chunk = chunk[:len(chunk)-emitK]
+			chunkStart += uint32(emitK)
 		}
 	}
 
@@ -239,22 +258,29 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 
 		server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-		if err := flushSync(server.currentSample, chunk[:emitK]); err != nil {
+		if err := flushSync(server.currentSample, chunkStart, chunk[:emitK]); err != nil {
 			return err
 		}
 
 		copy(chunk, chunk[emitK:])
 		chunk = chunk[:len(chunk)-emitK]
+		chunkStart += uint32(emitK)
 	}
 
-	if err := flushSync(server.currentSample, chunk); err != nil {
+	if err := flushSync(server.currentSample, chunkStart, chunk); err != nil {
 		return err
 	}
 
-	return waitPending()
+	if err := waitPending(); err != nil {
+		return err
+	}
+
+	server.ready.Store(true)
+
+	return nil
 }
 
-func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32, chunk []byte) error {
+func (server *TokenizerServer) processChunk(ctx context.Context, sampleID, startPos uint32, chunk []byte) error {
 	if len(chunk) == 0 {
 		return nil
 	}
@@ -278,7 +304,7 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 
 	for i, currentByte := range chunk {
 		if !server.useSampleID && server.spatialInsert != nil {
-			if err := server.spatialInsert(ctx, currentByte, uint32(i), chunkChord); err != nil {
+			if err := server.spatialInsert(ctx, currentByte, startPos+uint32(i), chunkChord); err != nil {
 				return console.Error(err)
 			}
 		}
@@ -305,7 +331,7 @@ TokenizeSingleSample is an API to tokenize a standalone sample, returning an err
 func (server *TokenizerServer) TokenizeSingleSample(ctx context.Context, sample string) error {
 	server.collector = [][]data.Chord{{}}
 	server.currentSample = 0
-	
+
 	ds := local.New(local.WithStrings([]string{sample}))
 	server.dataset = ds
 	server.useSampleID = false

@@ -89,6 +89,41 @@ func TestConcurrentSchedule(t *testing.T) {
 	})
 }
 
+func TestScheduleWithRepeatedID(t *testing.T) {
+	Convey("Given a Pool", t, func() {
+		p := New(context.Background(), 2, 4, NewConfig())
+		defer p.Close()
+
+		Convey("When the same job ID is scheduled more than once", func() {
+			first := p.Schedule("repeat", func() (any, error) {
+				return "first", nil
+			})
+
+			second := p.Schedule("repeat", func() (any, error) {
+				return "second", nil
+			})
+
+			Convey("Each schedule should receive its own result", func() {
+				select {
+				case result := <-first:
+					So(result.Error, ShouldBeNil)
+					So(result.Value, ShouldEqual, "first")
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for first repeated result")
+				}
+
+				select {
+				case result := <-second:
+					So(result.Error, ShouldBeNil)
+					So(result.Value, ShouldEqual, "second")
+				case <-time.After(5 * time.Second):
+					t.Fatal("timed out waiting for second repeated result")
+				}
+			})
+		})
+	})
+}
+
 func TestBroadcastGroup(t *testing.T) {
 	Convey("Given a Pool and a BroadcastGroup", t, func() {
 		p := New(context.Background(), 2, 4, NewConfig())

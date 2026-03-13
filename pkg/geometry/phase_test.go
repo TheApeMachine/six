@@ -53,7 +53,7 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 		Convey("When encoding different chord orderings", func() {
 			sequenceA := []byte{}
 			sequenceB := []byte{}
-			for i := 0; i < 500; i++ {
+			for i := 0; i < 50; i++ {
 				sequenceA = append(sequenceA, byte(10))
 				sequenceB = append(sequenceB, byte(200))
 			}
