@@ -10,18 +10,18 @@ import (
 
 	capnprpc "capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/logic/graph"
 	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/store/lsm"
 )
 
 /*
 System is any component that participates in the broadcast message bus.
-Only the Booter runs a goroutine; systems receive messages synchronously.
+Systems announce themselves, then receive messages synchronously from
+the Booter's event loop.
 */
 type System interface {
+	Start(pool *pool.Pool, broadcast *pool.BroadcastGroup)
+	Announce()
 	Receive(result *pool.Result)
 }
 
@@ -30,10 +30,11 @@ Booter is the single goroutine that owns the broadcast loop.
 It routes messages to all registered systems and drives the tick clock.
 */
 type Booter struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	pool    *pool.Pool
-	dataset provider.Dataset
+	ctx       context.Context
+	cancel    context.CancelFunc
+	pool      *pool.Pool
+	broadcast *pool.BroadcastGroup
+	systems   []System
 }
 
 type booterOpts func(*Booter)
@@ -52,45 +53,17 @@ func NewBooter(opts ...booterOpts) *Booter {
 }
 
 /*
-Start creates the broadcast group, wires systems, and runs the event loop.
-This method spawns a single goroutine to manage the event loop.
+Start subscribes to the broadcast group, announces all systems, and
+runs the event loop.
 */
 func (booter *Booter) Start() {
 	console.Info("Starting Booter")
 
-	broadcast := booter.pool.CreateBroadcastGroup(
-		"broadcast", 10*time.Second,
-	)
+	subscription := booter.broadcast.Subscribe("broadcast", 128)
 
-	subscription := broadcast.Subscribe("broadcast", 128)
-
-	index := lsm.NewSpatialIndexServer(
-		lsm.WithContext(booter.ctx),
-		lsm.WithBroadcast(broadcast),
-	)
-
-	tokenizer := process.NewTokenizerServer(
-		process.TokenizerWithContext(booter.ctx),
-		process.TokenizerWithPool(booter.pool),
-		process.TokenizerWithBroadcast(broadcast),
-		process.TokenizerWithDataset(booter.dataset),
-	)
-
-	matrix := graph.NewMatrixServer(
-		graph.MatrixWithContext(booter.ctx),
-		graph.MatrixWithPool(booter.pool),
-		graph.MatrixWithBroadcast(broadcast),
-	)
-
-	systems := []System{
-		index,
-		tokenizer,
-		matrix,
+	for _, system := range booter.systems {
+		system.Announce()
 	}
-
-	index.Announce()
-	tokenizer.Announce()
-	matrix.Announce()
 
 	ticker := time.NewTicker(time.Millisecond)
 	defer ticker.Stop()
@@ -107,19 +80,16 @@ func (booter *Booter) Start() {
 			booter.Stop()
 			os.Exit(0)
 		case msg := <-subscription:
-			for _, system := range systems {
+			for _, system := range booter.systems {
 				system.Receive(msg)
 			}
 
-			// When the tokenizer announces itself, trigger dataset generation via RPC.
-			if booter.dataset != nil {
-				if pv, ok := msg.Value.(pool.PoolValue[net.Conn]); ok && pv.Key == "tokenizer" {
-					console.Info("Tokenizer announced itself. Triggering dataset generation.")
-					booter.callGenerate(pv.Value)
-				}
+			if pv, ok := msg.Value.(pool.PoolValue[net.Conn]); ok && pv.Key == "tokenizer" {
+				console.Info("Tokenizer announced itself. Triggering dataset generation.")
+				booter.callGenerate(pv.Value)
 			}
 		case <-ticker.C:
-			for _, system := range systems {
+			for _, system := range booter.systems {
 				system.Receive(nil)
 			}
 		}
@@ -128,8 +98,7 @@ func (booter *Booter) Start() {
 
 /*
 callGenerate wraps the tokenizer's client-side net.Conn in a capnp RPC client
-and calls Generate. The dataset is already injected into the server, so no raw
-bytes are needed — the call is just the trigger.
+and calls Generate.
 */
 func (booter *Booter) callGenerate(conn net.Conn) {
 	rpcConn := capnprpc.NewConn(capnprpc.NewStreamTransport(conn), nil)
@@ -168,11 +137,19 @@ func BooterWithPool(workerPool *pool.Pool) booterOpts {
 }
 
 /*
-BooterWithDataset injects a dataset. The Booter will begin loading it
-automatically after the tokenizer announces itself on the broadcast bus.
+BooterWithBroadcast injects a pre-created broadcast group.
 */
-func BooterWithDataset(dataset provider.Dataset) booterOpts {
+func BooterWithBroadcast(broadcast *pool.BroadcastGroup) booterOpts {
 	return func(booter *Booter) {
-		booter.dataset = dataset
+		booter.broadcast = broadcast
+	}
+}
+
+/*
+BooterWithSystems injects the systems to wire into the broadcast loop.
+*/
+func BooterWithSystems(systems ...System) booterOpts {
+	return func(booter *Booter) {
+		booter.systems = systems
 	}
 }

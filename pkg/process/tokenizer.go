@@ -29,6 +29,9 @@ type TokenizerServer struct {
 	spatialInsert lsm.SpatialInsertFunc
 	sink          *telemetry.Sink
 	dataset       provider.Dataset
+	useSampleID   bool
+	currentSample uint32
+	collector     [][]data.Chord
 }
 
 type tokenizerOpts func(*TokenizerServer)
@@ -46,12 +49,18 @@ func NewTokenizerServer(opts ...tokenizerOpts) *TokenizerServer {
 	}
 
 	validate.Require(map[string]any{
-		"pool":      server.pool,
-		"broadcast": server.broadcast,
-		"dataset":   server.dataset,
+		"dataset": server.dataset,
 	})
 
 	return server
+}
+
+/*
+Start implements the vm.System interface.
+*/
+func (server *TokenizerServer) Start(workerPool *pool.Pool, broadcast *pool.BroadcastGroup) {
+	server.pool = workerPool
+	server.broadcast = broadcast
 }
 
 /*
@@ -110,69 +119,142 @@ func (server *TokenizerServer) Done(ctx context.Context, call Tokenizer_done) er
 }
 
 func (server *TokenizerServer) generate(ctx context.Context) error {
-	seq := NewSequencer(NewCalibrator())
+	calibrator := NewCalibrator()
+	seq := NewSequencer(calibrator)
 
-	if server.spatialInsert == nil {
+	if server.spatialInsert == nil && server.collector == nil {
 		return console.Error(ErrNoIndex)
 	}
 
 	var chunk []byte
+	var pending []chan *pool.Result
 
 	console.Info("Tokenizer generating dataset")
+
+	flush := func(sampleID uint32, buf []byte) {
+		if len(buf) == 0 {
+			return
+		}
+
+		c := append([]byte(nil), buf...)
+		ch := server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
+			return nil, server.processChunk(ctx, sampleID, c)
+		})
+		pending = append(pending, ch)
+	}
+
+	flushSync := func(sampleID uint32, buf []byte) error {
+		if len(buf) == 0 {
+			return nil
+		}
+
+		if server.pool == nil {
+			return server.processChunk(ctx, sampleID, append([]byte(nil), buf...))
+		}
+
+		flush(sampleID, buf)
+
+		return nil
+	}
+
+	waitPending := func() error {
+		for _, ch := range pending {
+			result := <-ch
+
+			if result != nil && result.Error != nil {
+				return result.Error
+			}
+		}
+
+		return nil
+	}
 
 	for token := range server.dataset.Generate() {
 		select {
 		case <-ctx.Done():
+			if err := waitPending(); err != nil {
+				return err
+			}
+
 			return ctx.Err()
 		default:
 		}
 
+		if server.useSampleID && server.currentSample != token.SampleID {
+			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
+
+			if err := flushSync(server.currentSample, chunk); err != nil {
+				return err
+			}
+
+			chunk = chunk[:0]
+			server.currentSample = token.SampleID
+			seq = seq.CloneEmpty()
+		}
+
 		chunk = append(chunk, token.Symbol)
-		isBoundary, _ := seq.Analyze(token.Pos, token.Symbol)
+		isBoundary, emitK, _ := seq.Analyze(token.Pos, token.Symbol)
 
 		if isBoundary {
-			server.sink.Emit(telemetry.Event{
-				Component: "Sequencer",
-				Action:    "Boundary",
-			})
+			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			c := append([]byte(nil), chunk...)
-			server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
-				server.processChunk(ctx, c)
-				return nil, nil
-			})
-			chunk = chunk[:0]
+			if err := flushSync(server.currentSample, chunk[:emitK]); err != nil {
+				return err
+			}
+
+			copy(chunk, chunk[emitK:])
+			chunk = chunk[:len(chunk)-emitK]
 		}
 	}
 
-	if len(chunk) > 0 {
-		c := append([]byte(nil), chunk...)
-		server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
-			server.processChunk(ctx, c)
-			return nil, nil
-		})
+	for {
+		isBoundary, emitK, _ := seq.Flush()
+		if !isBoundary {
+			break
+		}
+
+		server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
+
+		if err := flushSync(server.currentSample, chunk[:emitK]); err != nil {
+			return err
+		}
+
+		copy(chunk, chunk[emitK:])
+		chunk = chunk[:len(chunk)-emitK]
 	}
 
-	return nil
+	if err := flushSync(server.currentSample, chunk); err != nil {
+		return err
+	}
+
+	return waitPending()
 }
 
-func (server *TokenizerServer) handleChunk(ctx context.Context, chunk []byte) {
-	c := append([]byte(nil), chunk...)
-	server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
-		server.processChunk(ctx, c)
-		return nil, nil
-	})
-	chunk = chunk[:0]
-}
+func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32, chunk []byte) error {
+	if len(chunk) == 0 {
+		return nil
+	}
 
-func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
-	if len(chunk) < 2 || server.spatialInsert == nil {
-		return
+	chunkChord, err := data.BuildChord(chunk)
+
+	if err != nil {
+		return console.Error(err)
+	}
+
+	if server.collector != nil {
+		if int(sampleID) >= len(server.collector) {
+			return console.Error(ErrCollectorSample)
+		}
+
+		server.collector[sampleID] = append(server.collector[sampleID], chunkChord)
 	}
 
 	for i, currentByte := range chunk {
-		cumulativeChord, _ := data.BuildChord(chunk[:i+1])
-		_ = server.spatialInsert(ctx, currentByte, uint32(i), cumulativeChord)
+		if !server.useSampleID && server.spatialInsert != nil {
+			if err := server.spatialInsert(ctx, currentByte, uint32(i), chunkChord); err != nil {
+				return console.Error(err)
+			}
+		}
 
 		if i < len(chunk)-1 {
 			server.sink.Emit(telemetry.Event{
@@ -187,30 +269,7 @@ func (server *TokenizerServer) processChunk(ctx context.Context, chunk []byte) {
 		}
 	}
 
-	if server.broadcast == nil {
-		return
-	}
-
-	sequenceChord, _ := data.BuildChord(chunk)
-
-	server.sink.Emit(telemetry.Event{
-		Component: "Tokenizer",
-		Action:    "Chord",
-		Data: telemetry.EventData{
-			Bin:        data.ChordBin(&sequenceChord),
-			State:      "stored",
-			ActiveBits: data.ChordPrimeIndices(&sequenceChord),
-			Density:    sequenceChord.ShannonDensity(),
-			ChunkText:  string(chunk),
-		},
-	})
-
-	server.broadcast.Send(&pool.Result{
-		Value: pool.PoolValue[[]data.Chord]{
-			Key:   "prompt",
-			Value: []data.Chord{sequenceChord},
-		},
-	})
+	return nil
 }
 
 /*
@@ -223,29 +282,21 @@ func TokenizerWithContext(ctx context.Context) tokenizerOpts {
 }
 
 /*
-TokenizerWithPool injects the shared worker pool.
-*/
-func TokenizerWithPool(p *pool.Pool) tokenizerOpts {
-	return func(server *TokenizerServer) {
-		server.pool = p
-	}
-}
-
-/*
-TokenizerWithBroadcast injects the broadcast group.
-*/
-func TokenizerWithBroadcast(broadcast *pool.BroadcastGroup) tokenizerOpts {
-	return func(server *TokenizerServer) {
-		server.broadcast = broadcast
-	}
-}
-
-/*
 TokenizerWithDataset injects a dataset.
 */
-func TokenizerWithDataset(dataset provider.Dataset) tokenizerOpts {
+func TokenizerWithDataset(dataset provider.Dataset, useSampleID bool) tokenizerOpts {
 	return func(server *TokenizerServer) {
 		server.dataset = dataset
+		server.useSampleID = useSampleID
+	}
+}
+
+/*
+TokenizerWithCollector injects a collector, used to collect prompts.
+*/
+func TokenizerWithCollector(collector [][]data.Chord) tokenizerOpts {
+	return func(server *TokenizerServer) {
+		server.collector = collector
 	}
 }
 
@@ -255,7 +306,8 @@ TokenizerError is a typed error for TokenizerServer failures.
 type TokenizerError string
 
 const (
-	ErrNoIndex TokenizerError = "spatial index capability not yet received"
+	ErrNoIndex         TokenizerError = "spatial index capability not yet received"
+	ErrCollectorSample TokenizerError = "collector sample index out of range"
 )
 
 /*

@@ -7,41 +7,6 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 )
 
-/*
-gen4DCoordinates produces a sweep of 4D coordinates for meaningful Morton tests.
-Covers boundaries, midpoints, and a dense grid to exercise encoding/decoding.
-*/
-func gen4DCoordinates() []struct {
-	sampleIdx   uint16
-	sequenceIdx uint8
-	posIdx      uint16
-	symbol      byte
-} {
-	var out []struct {
-		sampleIdx   uint16
-		sequenceIdx uint8
-		posIdx      uint16
-		symbol      byte
-	}
-
-	for sampleIdx := range uint16(10) {
-		for sequenceIdx := range uint8(5) {
-			for posIdx := uint16(0); posIdx < 100; posIdx += 7 {
-				for symbol := range byte(10) {
-					out = append(out, struct {
-						sampleIdx   uint16
-						sequenceIdx uint8
-						posIdx      uint16
-						symbol      byte
-					}{sampleIdx, sequenceIdx, posIdx, symbol})
-				}
-			}
-		}
-	}
-
-	return out
-}
-
 func TestMortonCoder(t *testing.T) {
 	Convey("Given a new MortonCoder", t, func() {
 		coder := NewMortonCoder()
@@ -64,48 +29,6 @@ func TestMortonCoder(t *testing.T) {
 					So(pos, ShouldEqual, tc.pos)
 					So(symbol, ShouldEqual, tc.symbol)
 				})
-			}
-		})
-
-		Convey("When testing Encode4D and Decode4D", func() {
-			cases := []struct {
-				sampleIdx   uint16
-				sequenceIdx uint8
-				posIdx      uint16
-				symbol      byte
-			}{
-				{0, 0, 0, 0},
-				{1, 2, 3, 'B'},
-				{0xFFFF, 0xFF, 0xFFFF, 0xFF},
-			}
-
-			for _, tc := range cases {
-				Convey(fmt.Sprintf("It should round-trip 4D %d,%d,%d,%c", tc.sampleIdx, tc.sequenceIdx, tc.posIdx, tc.symbol), func() {
-					key := coder.Encode4D(tc.sampleIdx, tc.sequenceIdx, tc.posIdx, tc.symbol)
-					smIdx, sqIdx, pIdx, sym := coder.Decode4D(key)
-
-					So(smIdx, ShouldEqual, tc.sampleIdx)
-					So(sqIdx, ShouldEqual, tc.sequenceIdx)
-					So(pIdx, ShouldEqual, tc.posIdx)
-					So(sym, ShouldEqual, tc.symbol)
-				})
-			}
-		})
-
-		Convey("When testing generated 4D coordinates", func() {
-			coords := gen4DCoordinates()
-			So(len(coords), ShouldBeGreaterThan, 5000)
-
-			for idx, tc := range coords {
-				if idx >= 100 {
-					break
-				}
-				key := coder.Encode4D(tc.sampleIdx, tc.sequenceIdx, tc.posIdx, tc.symbol)
-				smIdx, sqIdx, pIdx, sym := coder.Decode4D(key)
-				So(smIdx, ShouldEqual, tc.sampleIdx)
-				So(sqIdx, ShouldEqual, tc.sequenceIdx)
-				So(pIdx, ShouldEqual, tc.posIdx)
-				So(sym, ShouldEqual, tc.symbol)
 			}
 		})
 
@@ -154,32 +77,6 @@ func TestMortonCoder(t *testing.T) {
 	})
 }
 
-func TestMortonRangeContainment(t *testing.T) {
-	Convey("Given SampleRange and encoded keys", t, func() {
-		coder := NewMortonCoder()
-		sampleIdx := uint16(42)
-
-		lo, hi := coder.SampleRange(sampleIdx)
-
-		Convey("Keys for sample 42 should fall within [lo, hi]", func() {
-			for seqIdx := range uint8(5) {
-				for posIdx := range uint16(10) {
-					for symbol := range byte(5) {
-						key := coder.Encode4D(sampleIdx, seqIdx, posIdx, symbol)
-						So(key, ShouldBeGreaterThanOrEqualTo, lo)
-						So(key, ShouldBeLessThanOrEqualTo, hi)
-					}
-				}
-			}
-		})
-
-		Convey("Keys for sample 43 should be above hi", func() {
-			key := coder.Encode4D(43, 0, 0, 0)
-			So(key, ShouldBeGreaterThan, hi)
-		})
-	})
-}
-
 func BenchmarkMortonPack(b *testing.B) {
 	coder := NewMortonCoder()
 	b.ResetTimer()
@@ -194,23 +91,6 @@ func BenchmarkMortonUnpack(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		coder.Unpack(morton)
-	}
-}
-
-func BenchmarkMortonEncode4D(b *testing.B) {
-	coder := NewMortonCoder()
-	b.ResetTimer()
-	for b.Loop() {
-		coder.Encode4D(uint16(b.N), uint8(b.N), uint16(b.N), byte(b.N))
-	}
-}
-
-func BenchmarkMortonDecode4D(b *testing.B) {
-	coder := NewMortonCoder()
-	key := coder.Encode4D(0x1234, 0x56, 0x789A, 0xBC)
-	b.ResetTimer()
-	for b.Loop() {
-		coder.Decode4D(key)
 	}
 }
 

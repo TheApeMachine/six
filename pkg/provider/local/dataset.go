@@ -12,11 +12,19 @@ type Dataset struct {
 	corpus [][]byte
 }
 
+type datasetOpts func(*Dataset)
+
 /*
 New returns a Dataset over the given corpus. corpus[sampleID] is one sample's bytes.
 */
-func New(corpus [][]byte) *Dataset {
-	return &Dataset{corpus: corpus}
+func New(opts ...datasetOpts) *Dataset {
+	dataset := &Dataset{}
+
+	for _, opt := range opts {
+		opt(dataset)
+	}
+
+	return dataset
 }
 
 /*
@@ -40,4 +48,28 @@ func (ds *Dataset) Generate() chan provider.RawToken {
 		}
 	}()
 	return out
+}
+
+func WithStrings(corpus []string) datasetOpts {
+	return func(dataset *Dataset) {
+		var data [][]byte
+
+		for _, s := range corpus {
+			data = append(data, []byte(s))
+		}
+
+		dataset.corpus = data
+	}
+}
+
+func WithBytes(corpus []byte) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.corpus = [][]byte{corpus}
+	}
+}
+
+func WithBytesOfBytes(corpus [][]byte) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.corpus = corpus
+	}
 }

@@ -125,7 +125,7 @@ func NewRuleShiftExperiment() *RuleShiftExperiment {
 
 	return &RuleShiftExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   local.New(corpus),
+		dataset:   local.New(local.WithBytesOfBytes(corpus)),
 		expectedA: expectedA,
 		expectedB: expectedB,
 	}

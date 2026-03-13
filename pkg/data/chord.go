@@ -6,12 +6,14 @@ import (
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/console"
 	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/pool"
 )
 
 func BuildChord(payload []byte) (Chord, error) {
-	const logicalBits = 257
+	console.Trace("Building chord", "payload", string(payload))
+	logicalBits := config.Numeric.VocabSize + 1
 
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
@@ -23,12 +25,25 @@ func BuildChord(payload []byte) (Chord, error) {
 		return Chord{}, err
 	}
 
-	for _, b := range payload {
+	for pos, b := range payload {
+		_, bSeg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+		if err != nil {
+			return Chord{}, err
+		}
+
+		byteChord, err := NewRootChord(bSeg)
+		if err != nil {
+			return Chord{}, err
+		}
+
 		for _, off := range [5]int{
 			int(b) * 7, int(b) * 13, int(b) * 31, int(b) * 61, int(b) * 127,
 		} {
-			chord.Set(off % logicalBits)
+			byteChord.Set(off % logicalBits)
 		}
+
+		positioned := byteChord.RollLeft(pos)
+		chord = chord.OR(positioned)
 	}
 
 	return chord, nil
@@ -45,6 +60,30 @@ func (chord *Chord) CopyFrom(src Chord) {
 }
 
 /*
+ChordSliceToList packs a Go slice of Chords into a Cap'n Proto Chord_List.
+*/
+func ChordSliceToList(chords []Chord) (Chord_List, error) {
+	_, seg, err := capnp.NewMessage(capnp.MultiSegment(nil))
+
+	if err != nil {
+		return Chord_List{}, err
+	}
+
+	list, err := NewChord_List(seg, int32(len(chords)))
+
+	if err != nil {
+		return Chord_List{}, err
+	}
+
+	for i, cc := range chords {
+		dst := list.At(i)
+		dst.CopyFrom(cc)
+	}
+
+	return list, nil
+}
+
+/*
 ChordListToSlice copies each entry into a freshly allocated Chord and returns the slice.
 */
 func ChordListToSlice(list Chord_List) ([]Chord, error) {
@@ -52,10 +91,19 @@ func ChordListToSlice(list Chord_List) ([]Chord, error) {
 
 	for i := 0; i < list.Len(); i++ {
 		src := list.At(i)
-		chord, err := NewChord(src.Segment())
+
+		_, seg, err := capnp.NewMessage(capnp.MultiSegment(nil))
+
 		if err != nil {
 			return nil, err
 		}
+
+		chord, err := NewChord(seg)
+
+		if err != nil {
+			return nil, err
+		}
+
 		chord.CopyFrom(src)
 		out[i] = chord
 	}
@@ -247,7 +295,7 @@ ChordLCM returns the element-wise OR of chords — the LCM in prime exponent spa
 Used for aggregating span chords (words, sentences, n-grams).
 */
 func ChordLCM(chords []Chord) (lcm Chord) {
-	lcm = mustNewChord()
+	lcm = MustNewChord()
 
 	var c0, c1, c2, c3, c4 uint64
 
@@ -425,7 +473,7 @@ func ChordHole(target, existing *Chord) Chord {
 OR returns the element-wise OR of two chords (their LCM in prime exponent space).
 */
 func (chord *Chord) OR(other Chord) Chord {
-	lcm := mustNewChord()
+	lcm := MustNewChord()
 
 	lcm.SetC0(chord.C0() | other.C0())
 	lcm.SetC1(chord.C1() | other.C1())
@@ -436,7 +484,10 @@ func (chord *Chord) OR(other Chord) Chord {
 	return lcm
 }
 
-func mustNewChord() Chord {
+/*
+MustNewChord allocates a fresh zero-valued Chord, panicking on allocation failure.
+*/
+func MustNewChord() Chord {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		panic(fmt.Errorf("allocation failed: %w", err))
@@ -452,7 +503,7 @@ func mustNewChord() Chord {
 XOR returns the element-wise XOR of two chords (for cancellative superposition).
 */
 func (chord Chord) XOR(other Chord) Chord {
-	xor := mustNewChord()
+	xor := MustNewChord()
 
 	xor.SetC0(chord.C0() ^ other.C0())
 	xor.SetC1(chord.C1() ^ other.C1())
@@ -555,11 +606,4 @@ func (chord *Chord) RollLeft(shift int) Chord {
 	}
 
 	return out
-}
-
-/*
-BindPosition applies RollLeft for positional encoding.
-*/
-func (chord *Chord) BindPosition(pos int) Chord {
-	return chord.RollLeft(pos)
 }

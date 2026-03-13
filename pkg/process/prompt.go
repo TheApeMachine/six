@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"math/rand"
 
+	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/provider/local"
 )
 
 /*
@@ -33,9 +35,14 @@ type Holdout struct {
 /*
 Prompt sequences samples from either a static list or a streaming dataset,
 applying a holdout mask to each before exposing it for consumption.
+
+After each Next() call, Chords() returns the chunk chords produced by
+the real Tokenizer — same chunking and encoding as training data, but
+without inserting into the LSM.
 */
 type Prompt struct {
 	err       error
+	tokenizer *TokenizerServer
 	dataset   provider.Dataset
 	prompts   []string
 	original  string
@@ -67,60 +74,96 @@ func NewPrompt(opts ...Option) *Prompt {
 
 /*
 Next advances to the next sample. Returns false when the source is exhausted.
-For dataset mode it groups consecutive tokens that share a SampleID.
+After returning true, Chords() contains the chunk chords for the sample.
 */
-func (p *Prompt) Next() bool {
-	if p.dataset != nil {
-		return p.nextFromDataset()
+func (prompt *Prompt) Next() bool {
+	var ok bool
+
+	if prompt.dataset != nil {
+		ok = prompt.nextFromDataset()
+	} else {
+		ok = prompt.nextFromStrings()
 	}
 
-	return p.nextFromStrings()
+	return ok
 }
 
 /*
 Error returns the error state of the Prompt.
 */
-func (p *Prompt) Error() error {
-	return p.err
+func (prompt *Prompt) Error() error {
+	return prompt.err
+}
+
+/*
+Chords returns the chunk chords for the current sample, produced by
+the real Tokenizer with useSampleID mode.
+*/
+func (prompt *Prompt) Chords() []data.Chord {
+	if prompt.tokenizer == nil || len(prompt.tokenizer.collector) == 0 {
+		return nil
+	}
+
+	// The prompt tokenizer uses a single sample (index 0) per Next() call.
+	if len(prompt.tokenizer.collector[0]) == 0 {
+		return nil
+	}
+
+	return prompt.tokenizer.collector[0]
+}
+
+/*
+Original returns the unmasked sample text after the last Next() call.
+*/
+func (prompt *Prompt) Original() string {
+	return prompt.original
+}
+
+/*
+Masked returns the holdout-masked sample text after the last Next() call.
+*/
+func (prompt *Prompt) Masked() string {
+	return prompt.masked
 }
 
 /*
 nextFromDataset reads the next group of tokens sharing a SampleID.
 */
-func (p *Prompt) nextFromDataset() bool {
-	if p.datasetCh == nil {
-		p.datasetCh = p.dataset.Generate()
+func (prompt *Prompt) nextFromDataset() bool {
+	if prompt.datasetCh == nil {
+		prompt.datasetCh = prompt.dataset.Generate()
 
-		tkn, ok := <-p.datasetCh
+		tkn, ok := <-prompt.datasetCh
 		if !ok {
 			return false
 		}
 
-		p.nextTkn = tkn
-		p.hasNext = true
+		prompt.nextTkn = tkn
+		prompt.hasNext = true
 	}
 
-	if !p.hasNext {
+	if !prompt.hasNext {
 		return false
 	}
 
-	currentID := p.nextTkn.SampleID
-	buf := []byte{p.nextTkn.Symbol}
+	currentID := prompt.nextTkn.SampleID
+	buf := []byte{prompt.nextTkn.Symbol}
 
-	p.hasNext = false
+	prompt.hasNext = false
 
-	for tkn := range p.datasetCh {
+	for tkn := range prompt.datasetCh {
 		if tkn.SampleID != currentID {
-			p.nextTkn = tkn
-			p.hasNext = true
+			prompt.nextTkn = tkn
+			prompt.hasNext = true
 			break
 		}
 
 		buf = append(buf, tkn.Symbol)
 	}
 
-	p.original = string(buf)
-	p.applyHoldout()
+	prompt.original = string(buf)
+	prompt.applyHoldout()
+	prompt.tokenizeMasked()
 
 	return true
 }
@@ -128,46 +171,72 @@ func (p *Prompt) nextFromDataset() bool {
 /*
 nextFromStrings advances through the static prompts slice.
 */
-func (p *Prompt) nextFromStrings() bool {
-	if p.promptIdx >= len(p.prompts) {
+func (prompt *Prompt) nextFromStrings() bool {
+	if prompt.promptIdx >= len(prompt.prompts) {
 		return false
 	}
 
-	p.original = p.prompts[p.promptIdx]
-	p.promptIdx++
-	p.applyHoldout()
+	prompt.original = prompt.prompts[prompt.promptIdx]
+	prompt.promptIdx++
+	prompt.applyHoldout()
+	prompt.tokenizeMasked()
 
 	return true
+}
+
+/*
+tokenizeMasked feeds the masked text through the real Tokenizer with
+useSampleID=true and a collector. Same chunking path as training, no
+LSM insertion.
+*/
+func (prompt *Prompt) tokenizeMasked() {
+	if prompt.tokenizer == nil {
+		return
+	}
+
+	// Reset the collector for this sample.
+	prompt.tokenizer.collector = [][]data.Chord{{}}
+	prompt.tokenizer.currentSample = 0
+
+	// Feed the masked text as a single-sample dataset.
+	// useSampleID must be false so chunking matches the ingestion path.
+	ds := local.New(local.WithStrings([]string{prompt.masked}))
+	prompt.tokenizer.dataset = ds
+	prompt.tokenizer.useSampleID = false
+
+	if err := prompt.tokenizer.generate(prompt.tokenizer.ctx); err != nil {
+		prompt.err = err
+	}
 }
 
 /*
 applyHoldout derives p.masked from p.original using the holdout config.
 When no masking is configured masked equals original.
 */
-func (p *Prompt) applyHoldout() {
-	if p.heldout.Type == NONE || (p.heldout.Percent == 0 && p.heldout.Type != MATCH) {
-		p.masked = p.original
+func (prompt *Prompt) applyHoldout() {
+	if prompt.heldout.Type == NONE || (prompt.heldout.Percent == 0 && prompt.heldout.Type != MATCH) {
+		prompt.masked = prompt.original
 		return
 	}
 
-	raw := []byte(p.original)
+	raw := []byte(prompt.original)
 	n := len(raw)
 
 	if n == 0 {
-		p.masked = ""
+		prompt.masked = ""
 		return
 	}
 
-	count := max((n*p.heldout.Percent)/100, 1)
+	count := max((n*prompt.heldout.Percent)/100, 1)
 
-	switch p.heldout.Type {
+	switch prompt.heldout.Type {
 	case RIGHT:
-		p.masked = string(raw[:n-count])
+		prompt.masked = string(raw[:n-count])
 	case LEFT:
-		p.masked = string(raw[count:])
+		prompt.masked = string(raw[count:])
 	case CENTER:
 		start := (n - count) / 2
-		p.masked = string(append(raw[:start], raw[start+count:]...))
+		prompt.masked = string(append(raw[:start], raw[start+count:]...))
 	case RANDOM:
 		res := make([]byte, n)
 		copy(res, raw)
@@ -176,36 +245,22 @@ func (p *Prompt) applyHoldout() {
 			res[idx] = 0
 		}
 
-		p.masked = string(res)
+		prompt.masked = string(res)
 	case MATCH:
-		if len(p.heldout.Match) > 0 {
-			p.masked = string(
+		if len(prompt.heldout.Match) > 0 {
+			prompt.masked = string(
 				bytes.ReplaceAll(
 					raw,
-					p.heldout.Match,
-					make([]byte, len(p.heldout.Match)),
+					prompt.heldout.Match,
+					make([]byte, len(prompt.heldout.Match)),
 				),
 			)
 		} else {
-			p.masked = string(raw)
+			prompt.masked = string(raw)
 		}
 	default:
-		p.masked = string(raw)
+		prompt.masked = string(raw)
 	}
-}
-
-/*
-Original returns the unmasked sample text after the last Next() call.
-*/
-func (p *Prompt) Original() string {
-	return p.original
-}
-
-/*
-Masked returns the holdout-masked sample text after the last Next() call.
-*/
-func (p *Prompt) Masked() string {
-	return p.masked
 }
 
 /*
@@ -223,6 +278,17 @@ PromptWithStrings configures the Prompt with a static list of samples.
 func PromptWithStrings(prompts []string) Option {
 	return func(p *Prompt) {
 		p.prompts = prompts
+	}
+}
+
+/*
+PromptWithTokenizer injects the Tokenizer used to produce chunk chords.
+The tokenizer should be constructed with a pool and broadcast but does
+NOT need a dataset or spatial insert — the Prompt feeds it per-sample.
+*/
+func PromptWithTokenizer(tokenizer *TokenizerServer) Option {
+	return func(p *Prompt) {
+		p.tokenizer = tokenizer
 	}
 }
 

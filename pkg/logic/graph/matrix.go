@@ -13,6 +13,7 @@ import (
 	"github.com/theapemachine/six/pkg/data"
 	"github.com/theapemachine/six/pkg/geometry"
 	"github.com/theapemachine/six/pkg/pool"
+	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
 )
@@ -51,12 +52,18 @@ func NewMatrixServer(opts ...MatrixServerOpt) *MatrixServer {
 	}
 
 	validate.Require(map[string]any{
-		"workerPool": matrix.workerPool,
-		"broadcast":  matrix.broadcast,
-		"ctx":        matrix.ctx,
+		"ctx": matrix.ctx,
 	})
 
 	return matrix
+}
+
+/*
+Start implements the vm.System interface.
+*/
+func (matrix *MatrixServer) Start(workerPool *pool.Pool, broadcast *pool.BroadcastGroup) {
+	matrix.workerPool = workerPool
+	matrix.broadcast = broadcast
 }
 
 /*
@@ -90,8 +97,8 @@ func (matrix *MatrixServer) Receive(result *pool.Result) {
 		return
 	}
 
-	if pv, ok := result.Value.(pool.PoolValue[func(context.Context, data.Chord_List) ([][]data.Chord, error)]); ok {
-		if pv.Key == "spatial_lookup" {
+	if pv, ok := result.Value.(pool.PoolValue[lsm.SpatialLookupFunc]); ok {
+		if pv.Key == lsm.SpatialLookupKey {
 			matrix.mu.Lock()
 			matrix.spatialLookup = pv.Value
 			matrix.mu.Unlock()
@@ -284,28 +291,60 @@ func (matrix *MatrixServer) RecursiveFold(sequences [][]data.Chord, level int, p
 }
 
 /*
+PromptChords performs the full Prompt→SpatialLookup→Evaluate→RecursiveFold
+pipeline and returns the resulting paths as Go slices. Called by Machine.Prompt
+to exercise the real system without capnp result allocation.
+*/
+func (matrix *MatrixServer) PromptChords(
+	ctx context.Context, chords data.Chord_List,
+) ([][]data.Chord, error) {
+	matrix.mu.RLock()
+	lookup := matrix.spatialLookup
+	matrix.mu.RUnlock()
+
+	if lookup == nil {
+		slice, err := data.ChordListToSlice(chords)
+
+		if err != nil {
+			return nil, console.Error(err)
+		}
+
+		return [][]data.Chord{slice}, nil
+	}
+
+	pathsData, err := lookup(ctx, chords)
+
+	if err != nil {
+		return nil, console.Error(err)
+	}
+
+	contextChord := data.MustNewChord()
+
+	for i := 0; i < chords.Len(); i++ {
+		contextChord = contextChord.XOR(chords.At(i))
+	}
+
+	for i, candidates := range pathsData {
+		bestIdx, _, _ := matrix.Evaluate(contextChord, candidates)
+
+		if bestIdx == -1 {
+			pathsData[i] = nil
+			continue
+		}
+
+		pathsData[i] = []data.Chord{candidates[bestIdx]}
+	}
+
+	matrix.RecursiveFold(pathsData, 0, -1)
+
+	return pathsData, nil
+}
+
+/*
 MatrixWithContext injects a context.
 */
 func MatrixWithContext(ctx context.Context) MatrixServerOpt {
 	return func(matrix *MatrixServer) {
 		matrix.ctx = ctx
-	}
-}
-
-/*
-MatrixWithBroadcast injects the broadcast group.
-*/
-func MatrixWithBroadcast(broadcast *pool.BroadcastGroup) MatrixServerOpt {
-	return func(matrix *MatrixServer) {
-		matrix.broadcast = broadcast
-	}
-}
-
-/*
-MatrixWithPool injects the shared worker pool.
-*/
-func MatrixWithPool(p *pool.Pool) MatrixServerOpt {
-	return func(matrix *MatrixServer) {
-		matrix.workerPool = p
 	}
 }

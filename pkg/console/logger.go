@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/charmbracelet/log"
+	config "github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -54,18 +55,12 @@ type Logger struct {
 
 /*
 New instantiates a Logger with stderr for main output and six.log for trace output.
-Returns an error if the working directory cannot be determined or the log file cannot be opened.
+Returns an error if the log file cannot be opened.
 */
 func New() (*Logger, error) {
-	wd, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-
-	// Open the log file for appending using an absolute path
 	file, err := os.OpenFile(
-		filepath.Join(wd, "six.log"),
-		os.O_CREATE|os.O_WRONLY|os.O_TRUNC,
+		filepath.Join(config.System.ProjectRoot, "six.log"),
+		os.O_APPEND|os.O_WRONLY|os.O_CREATE,
 		0666,
 	)
 	if err != nil {

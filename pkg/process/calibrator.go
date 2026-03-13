@@ -14,15 +14,12 @@ const (
 	EventPhaseInversion         // Double Transposition
 )
 
-/*
-Calibrator dynamically holds BIC penalty and density thresholds for Sequencer boundary detection.
-It uses dynamic feedback derived from its sliding window to adjust penalties.
-*/
 type Calibrator struct {
 	mu               sync.RWMutex
 	sensitivityPop   float64
 	sensitivityPhase float64
 	window           *FastWindow
+	phaseWindow      *FastWindow
 }
 
 type CalibratorOption func(*Calibrator)
@@ -30,17 +27,16 @@ type CalibratorOption func(*Calibrator)
 func WithWindowSize(size int) CalibratorOption {
 	return func(c *Calibrator) {
 		c.window = NewFastWindow(size)
+		c.phaseWindow = NewFastWindow(size)
 	}
 }
 
-/*
-NewCalibrator creates a dynamic calibrator that learns boundaries strictly through feedback.
-*/
 func NewCalibrator(opts ...CalibratorOption) *Calibrator {
 	c := &Calibrator{
 		sensitivityPop:   1.0,
 		sensitivityPhase: 1.0,
 		window:           NewFastWindow(config.Numeric.NSymbols),
+		phaseWindow:      NewFastWindow(config.Numeric.NSymbols),
 	}
 	for _, opt := range opts {
 		opt(c)
@@ -72,11 +68,6 @@ func (c *Calibrator) SetSensitivityPhase(v float64) {
 	c.sensitivityPhase = v
 }
 
-/*
-FeedbackChunk adjusts the calibrator based on the average emitted chunk density.
-This approach is modality-agnostic: it aims to maximize informational chunk
-length without hitting the Shannon Ceiling.
-*/
 func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()
@@ -92,14 +83,10 @@ func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
 		return
 	}
 
-	// We optimize for a target density just below the global ShannonCapacity
 	targetDensity := config.Numeric.ShannonCapacity
 
-	// Proportional control loop based on density
 	errorSignal := (targetDensity - meanDensity) / targetDensity
 
-	// Apply a minimum learning rate so the calibrator can't freeze when
-	// variance collapses (e.g. all chunks are tiny and equally sparse).
 	lr := math.Max(stddev, 0.05)
 
 	calibrator.sensitivityPop *= math.Exp(errorSignal * lr)
@@ -107,4 +94,51 @@ func (calibrator *Calibrator) FeedbackChunk(length int, density float64) {
 
 	calibrator.sensitivityPhase *= math.Exp(errorSignal * lr)
 	calibrator.sensitivityPhase = math.Max(0.01, math.Min(100.0, calibrator.sensitivityPhase))
+}
+
+func (calibrator *Calibrator) ObservePhase(delta float64) {
+	calibrator.mu.Lock()
+	defer calibrator.mu.Unlock()
+
+	if calibrator.phaseWindow == nil {
+		return
+	}
+
+	calibrator.phaseWindow.Push(delta)
+}
+
+func (calibrator *Calibrator) DensityCeiling(fallback float64) float64 {
+	calibrator.mu.RLock()
+	defer calibrator.mu.RUnlock()
+
+	return calibrator.dynamicLimit(calibrator.window, calibrator.sensitivityPop, fallback)
+}
+
+func (calibrator *Calibrator) PhaseLimit(fallback float64) float64 {
+	calibrator.mu.RLock()
+	defer calibrator.mu.RUnlock()
+
+	return calibrator.dynamicLimit(calibrator.phaseWindow, calibrator.sensitivityPhase, fallback)
+}
+
+func (calibrator *Calibrator) dynamicLimit(window *FastWindow, sensitivity, fallback float64) float64 {
+	if window == nil || !window.Warmed() {
+		return fallback
+	}
+
+	mean, stddev := window.Stats()
+	if mean <= 0 {
+		return fallback
+	}
+
+	limit := mean * sensitivity
+	if stddev > 0 {
+		limit = mean + sensitivity*stddev
+	}
+
+	if limit <= 0 {
+		return fallback
+	}
+
+	return math.Min(fallback, limit)
 }

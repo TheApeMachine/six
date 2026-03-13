@@ -2,12 +2,10 @@ package visualizer
 
 import (
 	"context"
-	"runtime"
 
 	"github.com/theapemachine/six/pkg/console"
-	"github.com/theapemachine/six/pkg/pool"
 	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/vm"
+	"github.com/theapemachine/six/test/integration"
 )
 
 /*
@@ -18,14 +16,12 @@ construction so this package stays free of embed/cmd import cycles.
 */
 func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	console.Info("Starting Alice demo")
-	workerPool := pool.New(ctx, 1, runtime.NumCPU(), nil)
 
-	booter := vm.NewBooter(
-		vm.BooterWithContext(ctx),
-		vm.BooterWithPool(workerPool),
-		vm.BooterWithDataset(dataset),
+	helper := integration.NewIntegrationHelper(
+		context.Background(),
+		dataset,
 	)
+	defer helper.Teardown()
 
-	go booter.Start()
 	return nil
 }

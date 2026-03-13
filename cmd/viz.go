@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 
@@ -24,7 +23,7 @@ which receives real telemetry from the running system via UDP.`,
 		server := visualizer.NewServer()
 
 		if !vizListen {
-			dataset := local.New(bytes.Split(Alice, []byte{}))
+			dataset := local.New(local.WithBytes(Alice))
 			if err := visualizer.RunAliceDemo(
 				cmd.Context(),
 				dataset,

@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"sync"
 
+	"github.com/charmbracelet/log"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/console"
 	"k8s.io/client-go/util/homedir"
 )
 
@@ -30,6 +30,7 @@ var Cortex = &ctx.CortexConfig
 var Experiment = &ctx.ExperimentConfig
 
 func init() {
+	viper.SetDefault("system.projectRoot", "/Users/theapemachine/go/src/github.com/theapemachine/six")
 	viper.SetDefault("system.workers.min", 2)
 	viper.SetDefault("system.workers.max", "CPU")
 	viper.SetDefault("system.distributed.workers", []string{"localhost:8080", "localhost:8081"})
@@ -110,6 +111,7 @@ Distributed holds worker endpoints, chunk size, and sharding behavior.
 Controls whether work runs local, remote, or hybrid.
 */
 type Distributed struct {
+	ProjectRoot         string
 	Backend             string
 	Workers             []string
 	Chunk               int
@@ -145,35 +147,38 @@ func (ctx *Config) Load() error {
 	ctx.Architecture.NBasis = v.GetInt("architecture.numerics.nbasis")
 
 	if ctx.Architecture.NBasis != NBasis {
-		return console.Error(
-			ConfigError("architecture.numerics.nbasis mismatch"),
+		log.Error(
+			ConfigError("architecture.numerics.nbasis mismatch").Error(),
 			"expected",
 			NBasis,
 			"got",
 			ctx.Architecture.NBasis,
 		)
+		return ConfigError("architecture.numerics.nbasis mismatch")
 	}
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
 	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
 	ctx.Architecture.ShannonCapacity = v.GetFloat64("architecture.numerics.shannonCapacity")
 	if ctx.Architecture.ShannonCapacity < 0.0 || ctx.Architecture.ShannonCapacity > 1.0 {
-		return console.Error(
-			ConfigError("architecture.numerics.shannonCapacity out of bounds"),
+		log.Error(
+			ConfigError("architecture.numerics.shannonCapacity out of bounds").Error(),
 			"expected",
 			"0.0 <= shannonCapacity <= 1.0",
 			"got",
 			ctx.Architecture.ShannonCapacity,
 		)
+		return ConfigError("architecture.numerics.shannonCapacity out of bounds")
 	}
 
 	ctx.Architecture.VocabSize = v.GetInt("architecture.numerics.vocabSize")
 	if ctx.Architecture.VocabSize <= 0 {
-		return console.Error(
-			ConfigError("architecture.numerics.vocabSize must be positive"),
+		log.Error(
+			ConfigError("architecture.numerics.vocabSize must be positive").Error(),
 			"got",
 			ctx.Architecture.VocabSize,
 		)
+		return ConfigError("architecture.numerics.vocabSize must be positive")
 	}
 
 	minWorkers := v.GetInt("system.workers.min")
@@ -184,13 +189,14 @@ func (ctx *Config) Load() error {
 		maxWorkers = runtime.NumCPU()
 	}
 
+	ctx.System.ProjectRoot = v.GetString("system.projectRoot")
 	ctx.System.Backend = "metal"
 	ctx.Workers.Min = minWorkers
 	ctx.Workers.Max = maxWorkers
 
 	if maxWorkers == 0 || maxWorkers < minWorkers {
-		return console.Error(
-			ErrBadMaxWorkerConfig,
+		log.Error(
+			ErrBadMaxWorkerConfig.Error(),
 			"max workers",
 			maxWorkersStr,
 			"min workers",

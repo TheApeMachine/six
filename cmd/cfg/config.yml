@@ -1,6 +1,7 @@
 loglevel: debug
 
 system:
+  projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
   backend: metal
   workers:
     min: 2

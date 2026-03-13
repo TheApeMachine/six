@@ -1,10 +1,12 @@
 package process
 
 import (
+	"math"
 	"sync"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/core"
 )
 
 func TestCalibrator(t *testing.T) {
@@ -15,6 +17,7 @@ func TestCalibrator(t *testing.T) {
 			So(cal.SensitivityPop(), ShouldEqual, 1.0)
 			So(cal.SensitivityPhase(), ShouldEqual, 1.0)
 			So(cal.window, ShouldNotBeNil)
+			So(cal.phaseWindow, ShouldNotBeNil)
 		})
 
 		Convey("When testing concurrent access to getters and setters", func() {
@@ -84,6 +87,23 @@ func TestCalibrator(t *testing.T) {
 
 				So(cal.SensitivityPop(), ShouldBeLessThan, pop)
 				So(cal.SensitivityPhase(), ShouldBeLessThan, phase)
+			})
+
+			Convey("It should derive dynamic ceilings from warmed density and phase history", func() {
+				cal.FeedbackChunk(6, 0.10)
+				cal.FeedbackChunk(6, 0.15)
+				cal.FeedbackChunk(6, 0.20)
+				cal.FeedbackChunk(6, 0.10)
+				cal.FeedbackChunk(6, 0.20)
+
+				cal.ObservePhase(0.20)
+				cal.ObservePhase(0.25)
+				cal.ObservePhase(0.30)
+				cal.ObservePhase(0.35)
+				cal.ObservePhase(0.40)
+
+				So(cal.DensityCeiling(config.Numeric.ShannonCapacity), ShouldBeLessThan, config.Numeric.ShannonCapacity)
+				So(cal.PhaseLimit(math.Pi/2.0), ShouldBeLessThan, math.Pi/2.0)
 			})
 		})
 	})

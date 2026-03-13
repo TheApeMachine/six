@@ -34,17 +34,10 @@ type Sequencer struct {
 	candidates []candidate
 	offset     int
 
-	// MinSegmentBytes: minimum bytes per segment for statistical
-	// significance. Default 4; increase for noisier streams.
 	MinSegmentBytes int
 
-	// ShannonCeiling: maximum chord density before forcing a split.
-	// Default 0.40 (103/257 bits). Above this the chord loses
-	// discriminative power.
 	ShannonCeiling float64
 
-	// PhaseThreshold: threshold for topological phase shift to force a boundary.
-	// Default 1.5.
 	PhaseThreshold float64
 }
 
@@ -52,7 +45,7 @@ type candidate struct {
 	k       int
 	gain    float64 // penalized MDL gain; used as confidence for emission
 	entropy float64 // entropy jump at split (optional extra evidence)
-	forced  bool    // Shannon-forced: non-negotiable, balancer must not absorb
+	forced  bool    // Forced boundary: non-negotiable, balancer must not absorb
 }
 
 /*
@@ -109,27 +102,30 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
+func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
 	seq.dist.Add(byteVal)
 
-	// Running OR: accumulate the byte's BaseChord into the span chord.
-	// If the chord saturates past the Shannon ceiling, force a split.
 	base := data.BaseChord(byteVal)
 	seq.runningChord = seq.runningChord.OR(base)
 
-	shannonForced := seq.runningChord.ShannonDensity() > seq.ShannonCeiling &&
+	densityCeiling := seq.ShannonCeiling
+	phaseThreshold := seq.PhaseThreshold
+	if seq.calibrator != nil {
+		densityCeiling = seq.calibrator.DensityCeiling(seq.ShannonCeiling)
+		phaseThreshold = seq.calibrator.PhaseLimit(seq.PhaseThreshold)
+	}
+
+	shannonForced := seq.runningChord.ShannonDensity() > densityCeiling &&
 		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
 
-	phaseForced := seq.eigen != nil && seq.eigen.Trained && delta > seq.PhaseThreshold &&
+	phaseForced := seq.eigen != nil && seq.eigen.Trained && delta > phaseThreshold &&
 		len(seq.buf)-seq.offset >= seq.MinSegmentBytes
 
 	isBoundary, k, gain := seq.detectBoundary(seq.buf[seq.offset:], seq.dist)
 
-	// Shannon ceiling or phase shift overrides MDL: if the chord is saturating
-	// or phase spikes, force a split at the current position regardless of MDL gain.
 	if (shannonForced || phaseForced) && !isBoundary {
 		isBoundary = true
 		k = len(seq.buf) - seq.offset
@@ -138,12 +134,13 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
 
 	var events []int
 
+	emitK := 0
+
 	if isBoundary {
 		absK := seq.offset + k
-		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain, forced: shannonForced})
+		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain, forced: shannonForced || phaseForced})
 		seq.offset = absK
 
-		// Reset distribution and running chord for the next span.
 		seq.dist = NewDistribution()
 
 		for _, b := range seq.buf[seq.offset:] {
@@ -153,19 +150,20 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
 		seq.runningChord = data.Chord{}
 	}
 
+	if seq.calibrator != nil && seq.eigen != nil && seq.eigen.Trained {
+		seq.calibrator.ObservePhase(delta)
+	}
+
 	if len(seq.candidates) >= 2 {
 		seq.balanceCandidates()
 	}
 
-	// Emit when we have a stable sequence of candidates.
-	// We wait for 2 candidates to ensure the first one is well-balanced.
 	if len(seq.candidates) >= 2 {
-		emitK := seq.candidates[0].k
+		emitK = seq.candidates[0].k
 
 		events = append(events, seq.classifyDirection(seq.buf, emitK))
 		events = append(events, EventPhaseInversion)
 
-		// Calculate density of the chunk being emitted
 		emitChord := data.Chord{}
 		for _, b := range seq.buf[:emitK] {
 			emitChord = emitChord.OR(data.BaseChord(b))
@@ -174,7 +172,6 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
 
 		seq.emitSplit(emitK)
 
-		// Shift all remaining candidates and the offset.
 		seq.candidates = seq.candidates[1:]
 
 		for i := range seq.candidates {
@@ -188,7 +185,7 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
 			seq.calibrator.FeedbackChunk(emitK, emitDensity)
 		}
 
-		return true, events
+		return true, emitK, events
 	}
 
 	if seq.hasFlux() {
@@ -197,7 +194,7 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, []int) {
 	}
 
 	seq.updateEMA(val, delta, eigenMag)
-	return false, events
+	return false, emitK, events
 }
 
 func (seq *Sequencer) hasFlux() bool {
@@ -399,7 +396,6 @@ func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int) {
 		return false, nil
 	}
 
-	// Classify using only the active window, not full buffer history.
 	events := append([]int{}, seq.classifyDirection(window, k))
 	events = append(events, EventPhaseInversion)
 	return true, events
@@ -449,9 +445,9 @@ func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
 Flush commits the first candidate as a boundary and returns (true, events).
 Returns (false, nil) if no candidates. Same event format as Analyze.
 */
-func (seq *Sequencer) Flush() (bool, []int) {
+func (seq *Sequencer) Flush() (bool, int, []int) {
 	if len(seq.candidates) == 0 {
-		return false, nil
+		return false, 0, nil
 	}
 
 	emitK := seq.candidates[0].k
@@ -467,5 +463,5 @@ func (seq *Sequencer) Flush() (bool, []int) {
 	}
 	seq.offset -= emitK
 
-	return true, events
+	return true, emitK, events
 }

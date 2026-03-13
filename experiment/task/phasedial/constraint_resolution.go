@@ -153,7 +153,7 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 
 	return &ConstraintResolutionExperiment{
 		tableData:  []tools.ExperimentalData{},
-		dataset:    local.New(corpus),
+		dataset:    local.New(local.WithBytesOfBytes(corpus)),
 		expected:   expected,
 		totalSteps: totalClues,
 	}

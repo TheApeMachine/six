@@ -35,36 +35,6 @@ func (coder *MortonCoder) Unpack(morton uint64) (uint32, byte) {
 }
 
 /*
-Encode4D packs four hierarchical dimensions into a 48-bit key within uint64.
-
-Layout (MSB→LSB):
-
-	[16 unused | SampleIdx(16) | SequenceIdx(8) | PosIdx(16) | Symbol(8)]
-
-SampleIdx resets per dataset. SequenceIdx resets per sample. PosIdx resets
-per sequence. This ordering puts all entries for a given sample in a
-contiguous range, enabling trie traversal within a sample.
-*/
-func (coder *MortonCoder) Encode4D(sampleIdx uint16, sequenceIdx uint8, posIdx uint16, symbol byte) uint64 {
-	return (uint64(sampleIdx) << 32) |
-		(uint64(sequenceIdx) << 24) |
-		(uint64(posIdx) << 8) |
-		uint64(symbol)
-}
-
-/*
-Decode4D unpacks the 48-bit key back into its four dimensions.
-*/
-func (coder *MortonCoder) Decode4D(key uint64) (sampleIdx uint16, sequenceIdx uint8, posIdx uint16, symbol byte) {
-	sampleIdx = uint16((key >> 32) & 0xFFFF)
-	sequenceIdx = uint8((key >> 24) & 0xFF)
-	posIdx = uint16((key >> 8) & 0xFFFF)
-	symbol = byte(key & 0xFF)
-
-	return
-}
-
-/*
 SampleRange returns the [lo, hi] key range that covers all entries for a
 given sample, regardless of sequence, position, or symbol.
 */

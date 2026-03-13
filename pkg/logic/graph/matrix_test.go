@@ -12,7 +12,52 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	config "github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/data"
+	"github.com/theapemachine/six/pkg/process"
 )
+
+/*
+tokenize runs the real Sequencer over raw bytes and returns the chunks it discovers.
+*/
+func tokenize(raw []byte) [][]byte {
+	seq := process.NewSequencer(nil)
+	var chunks [][]byte
+	var chunk []byte
+
+	for pos, b := range raw {
+		chunk = append(chunk, b)
+		isBoundary, emitK, _ := seq.Analyze(uint32(pos), b)
+		if !isBoundary {
+			continue
+		}
+
+		if emitK >= 2 {
+			chunks = append(chunks, append([]byte(nil), chunk[:emitK]...))
+		}
+
+		copy(chunk, chunk[emitK:])
+		chunk = chunk[:len(chunk)-emitK]
+	}
+
+	for {
+		isBoundary, emitK, _ := seq.Flush()
+		if !isBoundary {
+			break
+		}
+
+		if emitK >= 2 {
+			chunks = append(chunks, append([]byte(nil), chunk[:emitK]...))
+		}
+
+		copy(chunk, chunk[emitK:])
+		chunk = chunk[:len(chunk)-emitK]
+	}
+
+	if len(chunk) >= 2 {
+		chunks = append(chunks, append([]byte(nil), chunk...))
+	}
+
+	return chunks
+}
 
 /*
 buildPaths converts raw chunks into chords using BuildChord.

@@ -29,7 +29,7 @@ func genChordsFromBytes(sequences [][]byte) []Chord {
 
 func TestSanitize(t *testing.T) {
 	Convey("Given a chord with polluted high bits", t, func() {
-		chord := mustNewChord()
+		chord := MustNewChord()
 		chord.SetC4(0xFFFFFFFFFFFFFFFF)
 		chord.SetC5(0xFFFFFFFFFFFFFFFF)
 		chord.SetC6(0xFFFFFFFFFFFFFFFF)
@@ -48,7 +48,7 @@ func TestSanitize(t *testing.T) {
 	})
 
 	Convey("Given a chord with low bits set", t, func() {
-		chord := mustNewChord()
+		chord := MustNewChord()
 		chord.SetC0(0xDEADBEEF)
 		chord.SetC1(0xCAFEBABE)
 		chord.SetC2(0x12345678)
@@ -71,8 +71,8 @@ func TestSanitize(t *testing.T) {
 
 func TestChordOR(t *testing.T) {
 	Convey("Given two chords with dirty high bits", t, func() {
-		a := mustNewChord()
-		b := mustNewChord()
+		a := MustNewChord()
+		b := MustNewChord()
 		a.SetC0(0xFF)
 		a.SetC5(0x01)
 		b.SetC0(0xFF00)
@@ -143,12 +143,12 @@ func TestRollLeft(t *testing.T) {
 
 func TestRotationSeed(t *testing.T) {
 	Convey("Given two chords with same density but different structure", t, func() {
-		left := mustNewChord()
+		left := MustNewChord()
 		left.Set(3)
 		left.Set(17)
 		left.Set(41)
 
-		right := mustNewChord()
+		right := MustNewChord()
 		right.Set(5)
 		right.Set(19)
 		right.Set(43)
@@ -215,7 +215,7 @@ func bytesRepeat(n int) []byte {
 func TestCopyFrom(t *testing.T) {
 	Convey("Given a source chord and an empty destination", t, func() {
 		src := BaseChord(0xAB)
-		dst := mustNewChord()
+		dst := MustNewChord()
 
 		Convey("When CopyFrom is called", func() {
 			dst.CopyFrom(src)
@@ -295,7 +295,7 @@ func TestChordLCM(t *testing.T) {
 
 func TestHasSetClear(t *testing.T) {
 	Convey("Given an empty chord", t, func() {
-		chord := mustNewChord()
+		chord := MustNewChord()
 
 		Convey("When Set is called for prime indices", func() {
 			for _, primeIdx := range []int{0, 1, 64, 128, 200, 256} {
@@ -322,7 +322,7 @@ func TestHasSetClear(t *testing.T) {
 
 func TestShannonDensity(t *testing.T) {
 	Convey("Given chords with known active counts", t, func() {
-		empty := mustNewChord()
+		empty := MustNewChord()
 		base := BaseChord('A')
 
 		Convey("ShannonDensity should reflect fraction of 257 bits", func() {
@@ -343,9 +343,9 @@ func TestChordSimilarity(t *testing.T) {
 		})
 
 		Convey("Disjoint chords should have zero similarity", func() {
-			disjoint := mustNewChord()
+			disjoint := MustNewChord()
 			disjoint.Set(0)
-			other := mustNewChord()
+			other := MustNewChord()
 			other.Set(255)
 
 			sim := ChordSimilarity(&disjoint, &other)
@@ -357,7 +357,7 @@ func TestChordSimilarity(t *testing.T) {
 func TestChordHole(t *testing.T) {
 	Convey("Given target and existing chords", t, func() {
 		target := BaseChord('x')
-		existing := mustNewChord()
+		existing := MustNewChord()
 		existing.Set(int('x') * 7 % 257)
 
 		Convey("When ChordHole is called", func() {
@@ -476,12 +476,12 @@ func TestPopcount(t *testing.T) {
 	})
 }
 
-func TestBindPosition(t *testing.T) {
+func TestRollLeftPositional(t *testing.T) {
 	Convey("Given a chord and position", t, func() {
 		chord := BaseChord('M')
 
-		Convey("When BindPosition is called", func() {
-			bound := chord.BindPosition(17)
+		Convey("When RollLeft is called for positional encoding", func() {
+			bound := chord.RollLeft(17)
 
 			Convey("It should preserve active count", func() {
 				So(bound.ActiveCount(), ShouldEqual, chord.ActiveCount())
