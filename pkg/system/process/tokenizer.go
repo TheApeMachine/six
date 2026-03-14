@@ -175,7 +175,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		}
 
 		chunkCopy := append([]byte(nil), buf...)
-		ch := server.pool.Schedule("tokenizer_process_chunk", func() (any, error) {
+		ch := server.pool.Schedule("tokenizer_process_chunk", func(ctx context.Context) (any, error) {
 			return nil, server.processChunk(activeCtx, sampleID, chunkCopy, metaChord)
 		})
 		pending = append(pending, ch)
@@ -187,9 +187,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		}
 
 		if server.pool == nil {
-			return server.processChunk(
-				activeCtx, sampleID, append([]byte(nil), buf...,
-				), metaChord)
+			return server.processChunk(activeCtx, sampleID, append([]byte(nil), buf...), metaChord)
 		}
 
 		flush(sampleID, buf, metaChord)
@@ -238,12 +236,21 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		if isBoundary {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-			if err := flushSync(server.currentSample, chunk[:emitK], emitMeta); err != nil {
-				return err
+			toEmit := emitK
+			if toEmit > len(chunk) {
+				toEmit = len(chunk)
 			}
-
-			copy(chunk, chunk[emitK:])
-			chunk = chunk[:len(chunk)-emitK]
+			if toEmit > 0 {
+				if err := flushSync(server.currentSample, chunk[:toEmit], emitMeta); err != nil {
+					return err
+				}
+			}
+			if toEmit > 0 && toEmit < len(chunk) {
+				copy(chunk, chunk[toEmit:])
+				chunk = chunk[:len(chunk)-toEmit]
+			} else if toEmit >= len(chunk) {
+				chunk = chunk[:0]
+			}
 		}
 	}
 
@@ -255,12 +262,21 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 
 		server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
 
-		if err := flushSync(server.currentSample, chunk[:emitK], emitMeta); err != nil {
-			return err
+		toEmit := emitK
+		if toEmit > len(chunk) {
+			toEmit = len(chunk)
 		}
-
-		copy(chunk, chunk[emitK:])
-		chunk = chunk[:len(chunk)-emitK]
+		if toEmit > 0 {
+			if err := flushSync(server.currentSample, chunk[:toEmit], emitMeta); err != nil {
+				return err
+			}
+		}
+		if toEmit > 0 && toEmit < len(chunk) {
+			copy(chunk, chunk[toEmit:])
+			chunk = chunk[:len(chunk)-toEmit]
+		} else if toEmit >= len(chunk) {
+			chunk = chunk[:0]
+		}
 	}
 
 	if len(chunk) > 0 {

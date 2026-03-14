@@ -10,8 +10,12 @@ import (
 	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
+	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/numeric"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
 
@@ -87,11 +91,19 @@ func (backend *DistributedBackend) Resolve(
 		if backendForBuilder == "distributed" || backendForBuilder == "" {
 			backendForBuilder = "cpu"
 		}
+
 		var localBak Backend
-		// Stub reference preventing unused err until factory instantiation logic applies
-		_ = localBak
-		// Dispatcher resolution
-		localBuilder = NewBuilder() // Defaults to fallback configuration without mutations
+		switch backendForBuilder {
+		case "metal":
+			localBak = &metal.MetalBackend{}
+		case "cuda":
+			localBak = &cuda.CUDABackend{}
+		case "cpu", "":
+			localBak = &cpu.CPUBackend{}
+		default:
+			localBak = &cpu.CPUBackend{}
+		}
+		localBuilder = NewBuilder(WithBackend(localBak))
 	}
 
 	type chunkWork struct {
@@ -121,7 +133,7 @@ func (backend *DistributedBackend) Resolve(
 		shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)
 		dictCopy := append([]byte(nil), shardBytes...)
 
-		jobFn := func() (any, error) {
+		jobFn := func(ctx context.Context) (any, error) {
 			packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, timeout)
 			if callErr != nil {
 				return nil, callErr
@@ -132,7 +144,7 @@ func (backend *DistributedBackend) Resolve(
 		resChans[i] = backend.pool.Schedule(
 			fmt.Sprintf("dist-%s-%d", addr, start),
 			jobFn,
-			pool.WithCircuitBreaker(addr, 3, 5*time.Second),
+			pool.WithCircuitBreaker(addr, 3, 5*time.Second, 2),
 			pool.WithTTL(5*time.Second),
 			pool.WithContext(rctx),
 		)
@@ -150,7 +162,7 @@ func (backend *DistributedBackend) Resolve(
 				if localBuilder != nil {
 					fallbackWg.Add(1)
 					// Schedule failure fallback locally
-					localFn := func() (any, error) {
+					localFn := func(ctx context.Context) (any, error) {
 						start, end := chunk.start, chunk.end
 						shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
 						packed, fbErr := localBuilder.Resolve(shardPtr, end-start, contextPtr)
@@ -172,7 +184,7 @@ func (backend *DistributedBackend) Resolve(
 							} else if v, ok := fbRes.Value.(uint64); ok {
 								atomicMaxPacked(&best, v)
 							} else {
-								fmt.Printf("distributed: local Resolve returned non-uint64: %T\n", fbRes.Value)
+								console.Debug("distributed: local Resolve returned non-uint64", "type", fmt.Sprintf("%T", fbRes.Value), "value", fbRes.Value)
 							}
 						}
 					}()
@@ -182,7 +194,7 @@ func (backend *DistributedBackend) Resolve(
 			} else if v, ok := res.Value.(uint64); ok {
 				atomicMaxPacked(&best, v)
 			} else {
-				fmt.Printf("distributed: remote Resolve returned non-uint64: %T\n", res.Value)
+				console.Debug("distributed: remote Resolve returned non-uint64", "type", fmt.Sprintf("%T", res.Value), "value", res.Value)
 			}
 		}
 	}
@@ -253,8 +265,7 @@ func StartDistributedWorker(ctx context.Context, addr string) error {
 		_ = ln.Close()
 	}()
 
-	var fallbackBak Backend // Let it correctly proxy internal dependencies dynamically
-	localBuilder := NewBuilder(WithBackend(fallbackBak))
+	localBuilder := NewBuilder()
 
 	for {
 		conn, err := ln.Accept()
@@ -283,6 +294,12 @@ func handleDistributedConn(conn net.Conn, localBuilder *Builder) {
 
 		dict, numNodes, ctxBytes, parseErr := parseWorkRequestMessage(msg)
 		if parseErr != nil {
+			resp, _ := newWorkResponseMessage(0, messageErrInvalid)
+			_ = enc.Encode(resp)
+			continue
+		}
+
+		if len(dict) == 0 || len(ctxBytes) == 0 {
 			resp, _ := newWorkResponseMessage(0, messageErrInvalid)
 			_ = enc.Encode(resp)
 			continue

@@ -31,51 +31,37 @@ func TestASTNode_Print(t *testing.T) {
 	})
 }
 
+func mustBuildChord(t *testing.T, input []byte) data.Chord {
+	t.Helper()
+	chord, err := data.BuildChord(input)
+	if err != nil {
+		t.Fatalf("BuildChord failed: %v", err)
+	}
+	return chord
+}
+
 func TestExtractSharedInvariant(t *testing.T) {
+	seqA := []data.Chord{
+		mustBuildChord(t, []byte("Apple")),
+		mustBuildChord(t, []byte("Banana")),
+	}
+	seqB := []data.Chord{
+		mustBuildChord(t, []byte("Apple")),
+		mustBuildChord(t, []byte("Carrot")),
+	}
+	seqC := []data.Chord{
+		mustBuildChord(t, []byte("Peach")),
+		mustBuildChord(t, []byte("Apple")),
+	}
+
 	Convey("Given sequences of chords", t, func() {
-		seqA := func() []data.Chord {
-			c1, err := data.BuildChord([]byte("Apple"))
-			if err != nil {
-				t.Fatalf("BuildChord failed: %v", err)
-			}
-			c2, err := data.BuildChord([]byte("Banana"))
-			if err != nil {
-				t.Fatalf("BuildChord failed: %v", err)
-			}
-			return []data.Chord{c1, c2}
-		}()
-
-		seqB := func() []data.Chord {
-			c1, err := data.BuildChord([]byte("Apple"))
-			if err != nil {
-				t.Fatalf("BuildChord failed: %v", err)
-			}
-			c2, err := data.BuildChord([]byte("Carrot"))
-			if err != nil {
-				t.Fatalf("BuildChord failed: %v", err)
-			}
-			return []data.Chord{c1, c2}
-		}()
-
-		seqC := func() []data.Chord {
-			c1, err := data.BuildChord([]byte("Peach"))
-			if err != nil {
-				t.Fatalf("BuildChord failed: %v", err)
-			}
-			c2, err := data.BuildChord([]byte("Apple"))
-			if err != nil {
-				t.Fatalf("BuildChord failed: %v", err)
-			}
-			return []data.Chord{c1, c2}
-		}()
-
 		Convey("When passed a list of sequences, it extracts the GCD (AND intersection)", func() {
 			invariant := extractSharedInvariant([][]data.Chord{seqA, seqB, seqC})
 
 			// The shared invariant among all should be the representation of "Apple"
 			// But note that "Banana", "Carrot", and "Peach" may share incidental bytes,
 			// so the invariant will be slightly larger than exactly "Apple".
-			expectedApple, _ := data.BuildChord([]byte("Apple"))
+			expectedApple := mustBuildChord(t, []byte("Apple"))
 
 			// It must completely contain Apple.
 			sim := data.ChordSimilarity(&invariant, &expectedApple)

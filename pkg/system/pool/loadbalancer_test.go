@@ -8,38 +8,42 @@ import (
 )
 
 func TestNewLoadBalancer(t *testing.T) {
-	Convey("NewLoadBalancer creates balancer", t, func() {
+	Convey("Given a LoadBalancer with 4 workers", t, func() {
 		lb := NewLoadBalancer(4, 10)
-		So(lb, ShouldNotBeNil)
-		w, err := lb.SelectWorker()
-		So(err, ShouldBeNil)
-		So(w, ShouldBeIn, 0, 1, 2, 3)
+		Convey("It should select a valid worker", func() {
+			So(lb, ShouldNotBeNil)
+			w, err := lb.SelectWorker()
+			So(err, ShouldBeNil)
+			So(w, ShouldBeIn, 0, 1, 2, 3)
+		})
 	})
 }
 
 func TestLoadBalancerSelectWorker(t *testing.T) {
-	Convey("SelectWorker returns lowest-load worker", t, func() {
-		lb := NewLoadBalancer(3, 5)
-		lb.RecordJobStart(0)
-		lb.RecordJobStart(0)
-		w, err := lb.SelectWorker()
-		So(err, ShouldBeNil)
-		So(w, ShouldNotEqual, 0)
-	})
-	Convey("SelectWorker returns ErrNoAvailableWorkers when all at capacity", t, func() {
-		lb := NewLoadBalancer(2, 1)
-		lb.RecordJobStart(0)
-		lb.RecordJobStart(1)
-		_, err := lb.SelectWorker()
-		So(err, ShouldEqual, ErrNoAvailableWorkers)
-	})
-	Convey("SelectWorker prefers lower latency when loads equal", t, func() {
-		lb := NewLoadBalancer(2, 5)
-		lb.RecordJobComplete(0, 100*time.Millisecond)
-		lb.RecordJobComplete(1, 10*time.Millisecond)
-		w, err := lb.SelectWorker()
-		So(err, ShouldBeNil)
-		So(w, ShouldEqual, 1)
+	Convey("SelectWorker behavior", t, func() {
+		Convey("It returns lowest-load worker", func() {
+			lb := NewLoadBalancer(3, 5)
+			lb.RecordJobStart(0)
+			lb.RecordJobStart(0)
+			w, err := lb.SelectWorker()
+			So(err, ShouldBeNil)
+			So(w, ShouldNotEqual, 0)
+		})
+		Convey("It returns ErrNoAvailableWorkers when all at capacity", func() {
+			lb := NewLoadBalancer(2, 1)
+			lb.RecordJobStart(0)
+			lb.RecordJobStart(1)
+			_, err := lb.SelectWorker()
+			So(err, ShouldEqual, ErrNoAvailableWorkers)
+		})
+		Convey("It prefers lower latency when loads equal", func() {
+			lb := NewLoadBalancer(2, 5)
+			lb.RecordJobComplete(0, 100*time.Millisecond)
+			lb.RecordJobComplete(1, 10*time.Millisecond)
+			w, err := lb.SelectWorker()
+			So(err, ShouldBeNil)
+			So(w, ShouldEqual, 1)
+		})
 	})
 }
 
@@ -86,4 +90,28 @@ func TestLoadBalancerRenormalize(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(w, ShouldBeIn, 0, 1)
 	})
+}
+
+func BenchmarkLoadBalancerSelectWorker(b *testing.B) {
+	lb := NewLoadBalancer(16, 100)
+	for i := 0; i < 8; i++ {
+		lb.RecordJobStart(i)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		lb.SelectWorker()
+	}
+}
+
+func BenchmarkLoadBalancerRecordJobComplete(b *testing.B) {
+	lb := NewLoadBalancer(16, 100)
+	for i := 0; i < 8; i++ {
+		lb.RecordJobStart(i)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		workerID := i % 16
+		lb.RecordJobComplete(workerID, 10*time.Millisecond)
+		lb.RecordJobStart(workerID)
+	}
 }

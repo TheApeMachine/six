@@ -67,6 +67,47 @@ func stateMatch(branches []data.Chord, expectedState int) bool {
 	return false
 }
 
+// bytesPerEntry is the estimated serialized size per spatial index entry.
+// Derived from key (8) + metadata + chord value length.
+const bytesPerEntry = 35
+
+/*
+reconstructChunk rebuilds a chunk from the spatial index by following the
+state machine (state*3+byte)%257 and matching chord branches.
+*/
+func reconstructChunk(spatial *lsm.SpatialIndexServer, morton *data.MortonCoder, chunk string) []byte {
+	state := 1
+	reconstructed := make([]byte, 0, len(chunk))
+
+	for seqIdx := 0; seqIdx < len(chunk); seqIdx++ {
+		found := false
+
+		for b := 0; b < 256; b++ {
+			candidateState := (state*3 + b) % 257
+			key := morton.Pack(uint32(seqIdx), byte(b))
+
+			if !spatial.HasKey(key) {
+				continue
+			}
+
+			branches := followChain(spatial, key)
+
+			if stateMatch(branches, candidateState) {
+				reconstructed = append(reconstructed, byte(b))
+				state = candidateState
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			break
+		}
+	}
+
+	return reconstructed
+}
+
 func TestRotationCompression(t *testing.T) {
 	Convey("Given Alice in Wonderland ingested by the real system", t, func() {
 		text, err := os.ReadFile("../../cmd/assets/alice_in_wonderland.txt")
@@ -98,12 +139,11 @@ func TestRotationCompression(t *testing.T) {
 		machine.Start()
 		defer machine.Stop()
 
-		time.Sleep(5 * time.Second)
-
-		So(spatial.Ready(), ShouldBeTrue)
+		ok := pollUntil(10*time.Second, 100*time.Millisecond, func() bool { return spatial.Ready() })
+		So(ok, ShouldBeTrue)
 
 		keyCount := spatial.Count()
-		storeBytes := keyCount * 35
+		storeBytes := keyCount * bytesPerEntry
 
 		t.Logf("Total entries (base + chain): %d", keyCount)
 		t.Logf("Store size: %d bytes", storeBytes)
@@ -131,34 +171,7 @@ func TestRotationCompression(t *testing.T) {
 					continue
 				}
 
-				state := 1
-				reconstructed := make([]byte, 0, len(chunk))
-
-				for seqIdx := 0; seqIdx < len(chunk); seqIdx++ {
-					found := false
-
-					for b := 0; b < 256; b++ {
-						candidateState := (state*3 + b) % 257
-						key := morton.Pack(uint32(seqIdx), byte(b))
-
-						if !spatial.HasKey(key) {
-							continue
-						}
-
-						branches := followChain(spatial, key)
-
-						if stateMatch(branches, candidateState) {
-							reconstructed = append(reconstructed, byte(b))
-							state = candidateState
-							found = true
-							break
-						}
-					}
-
-					if !found {
-						break
-					}
-				}
+				reconstructed := reconstructChunk(spatial, morton, chunk)
 
 				chunkCorrect := true
 
@@ -191,32 +204,58 @@ func TestRotationCompression(t *testing.T) {
 
 			for i := 0; i < first10; i++ {
 				chunk := chunks[i]
-				state := 1
-				reconstructed := make([]byte, 0, len(chunk))
-
-				for seqIdx := 0; seqIdx < len(chunk); seqIdx++ {
-					for b := 0; b < 256; b++ {
-						candidateState := (state*3 + b) % 257
-						key := morton.Pack(uint32(seqIdx), byte(b))
-
-						if !spatial.HasKey(key) {
-							continue
-						}
-
-						branches := followChain(spatial, key)
-
-						if stateMatch(branches, candidateState) {
-							reconstructed = append(reconstructed, byte(b))
-							state = candidateState
-							break
-						}
-					}
-				}
-
+				reconstructed := reconstructChunk(spatial, morton, chunk)
 				t.Logf("  chunk[%d] orig=%q recon=%q", i, chunk, string(reconstructed))
 			}
 
 			So(accuracy, ShouldBeGreaterThan, 50.0)
 		})
 	})
+}
+
+func BenchmarkRotationReconstruction(b *testing.B) {
+	text, err := os.ReadFile("../../cmd/assets/alice_in_wonderland.txt")
+	if err != nil {
+		b.Skip("alice_in_wonderland.txt not found")
+	}
+
+	corpus := string(text)
+	chunks := ChunkStrings(corpus)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	spatial := lsm.NewSpatialIndexServer(lsm.WithContext(ctx))
+	machine := vm.NewMachine(
+		vm.MachineWithContext(ctx),
+		vm.MachineWithSystems(
+			spatial,
+			process.NewTokenizerServer(
+				process.TokenizerWithContext(ctx),
+				process.TokenizerWithDataset(
+					local.New(local.WithStrings([]string{corpus})),
+					false,
+				),
+			),
+		),
+	)
+	machine.Start()
+	defer machine.Stop()
+
+	ok := pollUntil(10*time.Second, 100*time.Millisecond, func() bool { return spatial.Ready() })
+	if !ok {
+		b.Fatal("spatial not ready within deadline")
+	}
+
+	morton := data.NewMortonCoder()
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		chunk := chunks[i%len(chunks)]
+		if len(chunk) < 2 {
+			continue
+		}
+		_ = reconstructChunk(spatial, morton, chunk)
+	}
 }

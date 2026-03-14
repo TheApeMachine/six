@@ -90,14 +90,28 @@ func (builder *Builder) Available() bool {
 }
 
 /*
+maxEncodedDistSq is the encoding bias/upper bound (2^17) used by the kernel backend.
+Higher inverted values represent closer matches for atomicMax semantics.
+CUDA uses scale 1024 for fractional precision; scaledMax is the CUDA upper bound.
+*/
+const maxEncodedDistSq = 1 << 17
+
+const scaledMaxEncoded = maxEncodedDistSq * 1024
+
+/*
 DecodePacked unwraps the 64-bit result from the kernel backend.
-The backend returns (131072 - distance_squared) in the upper 32 bits,
+The backend returns (maxEncodedDistSq - distance_squared) in the upper 32 bits,
 and the node index in the lower 32 bits. High values = lower distance.
+CUDA uses scale 1024 for fractional distance; CPU uses integer distSq.
 */
 func DecodePacked(packed uint64) (idx int, distSq float64) {
 	invertedDist := uint32(packed >> 32)
 	idxU32 := uint32(packed & 0xFFFFFFFF)
 
-	distSq = float64(131072 - invertedDist)
+	if invertedDist > maxEncodedDistSq {
+		distSq = float64(scaledMaxEncoded-invertedDist) / 1024
+	} else {
+		distSq = float64(maxEncodedDistSq - invertedDist)
+	}
 	return int(idxU32), distSq
 }

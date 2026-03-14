@@ -7,10 +7,10 @@ struct Chord {
     uint64_t bits[8];
 };
 
-constant int CUBE_FACES = 257; // Fermat prime 2^8+1
+#define CUBE_FACES 257 // Fermat prime 2^8+1
 
 struct MacroCube {
-    Chord blocks[257];
+    Chord blocks[CUBE_FACES];
 };
 
 struct ManifoldHeader {

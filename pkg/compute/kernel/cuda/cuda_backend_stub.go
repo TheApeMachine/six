@@ -4,6 +4,10 @@ package cuda
 
 import "unsafe"
 
+/*
+CUDABackend is a stub implementation used for non-CUDA builds.
+It provides no-op Available/Resolve so the package compiles without CUDA tooling.
+*/
 type CUDABackend struct{}
 
 func (backend *CUDABackend) Available() bool {

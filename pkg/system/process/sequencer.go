@@ -166,7 +166,7 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.
 
 	if isBoundary {
 		absK := seq.offset + k
-		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain, forced: shannonForced || phaseForced})
+		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain, forced: shannonForced || phaseForced || primeForced})
 		seq.offset = absK
 
 		seq.dist = NewDistribution()
@@ -234,7 +234,7 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.
 		seq.updateEMA(val, delta, eigenMag)
 
 		if seq.calibrator != nil {
-			seq.calibrator.FeedbackChunk(emitK, emitDensity, primeCoherence, phaseCoherence)
+			seq.calibrator.FeedbackChunk(emitDensity, primeCoherence, phaseCoherence)
 		}
 
 		return true, emitK, events, emitMeta
@@ -384,15 +384,8 @@ func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
 	}
 
 	costSplit := d1.Cost() + d2.Cost()
-
 	dCombined := d1.Clone()
-	for i := range config.Numeric.VocabSize {
-		c := d2.counts[i]
-		for range c {
-			dCombined.Add(byte(i))
-		}
-	}
-
+	dCombined.AddFrom(d2)
 	costCombined := dCombined.Cost()
 
 	// Pure dynamic check: if treating them as one distribution is

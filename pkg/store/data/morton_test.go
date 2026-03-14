@@ -85,9 +85,11 @@ func TestMortonCoder(t *testing.T) {
 
 func BenchmarkMortonPack(b *testing.B) {
 	coder := NewMortonCoder()
+	pos := uint32(0x12345678)
+	sym := byte(0x42)
 	b.ResetTimer()
-	for b.Loop() {
-		coder.Pack(uint32(b.N), byte(b.N))
+	for i := 0; i < b.N; i++ {
+		_ = coder.Pack(pos, sym)
 	}
 }
 
@@ -95,15 +97,16 @@ func BenchmarkMortonUnpack(b *testing.B) {
 	coder := NewMortonCoder()
 	morton := uint64(0x123456789ABCDEF0)
 	b.ResetTimer()
-	for b.Loop() {
-		coder.Unpack(morton)
+	for i := 0; i < b.N; i++ {
+		_, _ = coder.Unpack(morton)
 	}
 }
 
 func BenchmarkMortonEncode3D(b *testing.B) {
 	coder := NewMortonCoder()
+	x, y, z := uint32(100), uint32(200), uint32(150)
 	b.ResetTimer()
-	for b.Loop() {
-		coder.Encode3D(uint32(b.N), uint32(b.N), uint32(b.N))
+	for i := 0; i < b.N; i++ {
+		_ = coder.Encode3D(x, y, z)
 	}
 }

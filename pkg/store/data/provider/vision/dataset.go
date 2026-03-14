@@ -14,7 +14,8 @@ import (
 /*
 Dataset walks a directory, decodes images (JPEG/PNG), and streams RGB bytes
 in row-major order. Unfolds 2D to 1D; no patches, convolutions, or transforms.
-Skips alpha; emits three RawTokens per pixel (r,g,b at same Pos).
+Skips alpha; each pixel unfolds into three RawTokens at sequential positions
+(Pos, Pos+1, Pos+2) for r, g, b.
 */
 type Dataset struct {
 	paths []string
@@ -41,13 +42,13 @@ func NewDataset(dir string) *Dataset {
 Generate returns a channel that emits RawTokens (SampleID, Symbol, Pos) for each RGB byte.
 Closes when all images are streamed. Skips files that fail to decode.
 */
-func (d *Dataset) Generate() chan provider.RawToken {
+func (dataset *Dataset) Generate() chan provider.RawToken {
 	out := make(chan provider.RawToken, 4096)
 
 	go func() {
 		defer close(out)
 
-		for idx, path := range d.paths {
+		for idx, path := range dataset.paths {
 			file, err := os.Open(path)
 			if err != nil {
 				console.Error(err, "path", path, "idx", idx)

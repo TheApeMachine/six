@@ -22,7 +22,10 @@ func TestRotationalDataDensity(t *testing.T) {
 			byteChords := make(map[byte]data.Chord)
 
 			for b := 0; b < 256; b++ {
-				bc, _ := data.BuildChord([]byte{byte(b)})
+				bc, err := data.BuildChord([]byte{byte(b)})
+				if err != nil {
+					t.Fatalf("BuildChord failed for byte %d: %v", b, err)
+				}
 				byteChords[byte(b)] = bc
 			}
 
@@ -65,7 +68,10 @@ func TestRotationalDataDensity(t *testing.T) {
 			byteChords := make(map[byte]data.Chord)
 
 			for b := 0; b < 256; b++ {
-				bc, _ := data.BuildChord([]byte{byte(b)})
+				bc, err := data.BuildChord([]byte{byte(b)})
+				if err != nil {
+					t.Fatalf("BuildChord failed for byte %d: %v", b, err)
+				}
 				byteChords[byte(b)] = bc
 			}
 
@@ -109,7 +115,10 @@ func TestRotationalDataDensity(t *testing.T) {
 
 			byteChords := make(map[byte]data.Chord)
 			for b := 0; b < 256; b++ {
-				bc, _ := data.BuildChord([]byte{byte(b)})
+				bc, err := data.BuildChord([]byte{byte(b)})
+				if err != nil {
+					t.Fatalf("BuildChord failed for byte %d: %v", b, err)
+				}
 				byteChords[byte(b)] = bc
 			}
 
@@ -148,11 +157,17 @@ func TestRotationalDataDensity(t *testing.T) {
 
 func BenchmarkRotationalRecovery(b *testing.B) {
 	text := []byte("The quick brown fox jumps over the lazy dog")
-	chord, _ := data.BuildChord(text)
+	chord, err := data.BuildChord(text)
+	if err != nil {
+		b.Fatalf("BuildChord failed for text: %v", err)
+	}
 
 	byteChords := make(map[byte]data.Chord)
 	for bv := 0; bv < 256; bv++ {
-		bc, _ := data.BuildChord([]byte{byte(bv)})
+		bc, err := data.BuildChord([]byte{byte(bv)})
+		if err != nil {
+			b.Fatalf("BuildChord failed for byte %d: %v", bv, err)
+		}
 		byteChords[byte(bv)] = bc
 	}
 

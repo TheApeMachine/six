@@ -39,3 +39,29 @@ func TestCUDABackendResolve(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkCUDABackendResolve(b *testing.B) {
+	backend := &cuda.CUDABackend{}
+	if !backend.Available() {
+		b.Skip("CUDA backend unavailable")
+	}
+
+	nodeCount := 10000
+	nodes := make([]geometry.GFRotation, nodeCount)
+	for i := 0; i < nodeCount; i++ {
+		nodes[i] = geometry.GFRotation{
+			CoordU: uint16((i * 17) % 257),
+			CoordV: uint16((i * 31) % 257),
+		}
+	}
+	target := nodes[42]
+
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = backend.Resolve(
+			unsafe.Pointer(&nodes[0]),
+			len(nodes),
+			unsafe.Pointer(&target),
+		)
+	}
+}

@@ -61,10 +61,10 @@ func (sink *Sink) Emit(event Event) {
 	}
 
 	raw, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
 
 	console.Trace("Emit", "data", string(raw))
-
-	if err == nil {
-		sink.conn.Write(raw)
-	}
+	sink.conn.Write(raw)
 }

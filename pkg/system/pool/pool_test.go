@@ -12,19 +12,19 @@ import (
 
 func TestScheduleAndRetrieve(t *testing.T) {
 	Convey("Given a Pool with 2 min and 4 max workers", t, func() {
-		p := New(context.Background(), 2, 4, NewConfig())
-		defer p.Close()
+		workerPool := New(context.Background(), 2, 4, NewConfig())
+		defer workerPool.Close()
 
 		Convey("When Schedule is called with a job that returns 42", func() {
-			ch := p.Schedule("job-1", func() (any, error) {
+			resultCh := workerPool.Schedule("job-1", func(ctx context.Context) (any, error) {
 				return 42, nil
 			})
 
 			Convey("The result channel should receive value 42 with no error", func() {
 				select {
-				case r := <-ch:
-					So(r.Error, ShouldBeNil)
-					So(r.Value, ShouldEqual, 42)
+				case result := <-resultCh:
+					So(result.Error, ShouldBeNil)
+					So(result.Value, ShouldEqual, 42)
 				case <-time.After(5 * time.Second):
 					t.Fatal("timed out waiting for result")
 				}
@@ -39,7 +39,7 @@ func TestScheduleError(t *testing.T) {
 		defer p.Close()
 
 		Convey("When Schedule is called with a job that returns an error", func() {
-			ch := p.Schedule("job-err", func() (any, error) {
+			ch := p.Schedule("job-err", func(ctx context.Context) (any, error) {
 				return nil, fmt.Errorf("intentional failure")
 			})
 
@@ -67,7 +67,7 @@ func TestConcurrentSchedule(t *testing.T) {
 			channels := make([]chan *Result, n)
 			for i := 0; i < n; i++ {
 				id := fmt.Sprintf("concurrent-%d", i)
-				channels[i] = p.Schedule(id, func() (any, error) {
+				channels[i] = p.Schedule(id, func(ctx context.Context) (any, error) {
 					atomic.AddInt64(&completed, 1)
 					return "done", nil
 				})
@@ -95,11 +95,11 @@ func TestScheduleWithRepeatedID(t *testing.T) {
 		defer p.Close()
 
 		Convey("When the same job ID is scheduled more than once", func() {
-			first := p.Schedule("repeat", func() (any, error) {
+			first := p.Schedule("repeat", func(ctx context.Context) (any, error) {
 				return "first", nil
 			})
 
-			second := p.Schedule("repeat", func() (any, error) {
+			second := p.Schedule("repeat", func(ctx context.Context) (any, error) {
 				return "second", nil
 			})
 
@@ -186,7 +186,7 @@ func BenchmarkSchedule(b *testing.B) {
 	defer p.Close()
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ch := p.Schedule(fmt.Sprintf("bench-%d", i), func() (any, error) {
+		ch := p.Schedule(fmt.Sprintf("bench-%d", i), func(ctx context.Context) (any, error) {
 			return i, nil
 		})
 		<-ch
@@ -197,9 +197,19 @@ func BenchmarkBroadcastSend(b *testing.B) {
 	p := New(context.Background(), 2, 4, NewConfig())
 	defer p.Close()
 	bg := p.CreateBroadcastGroup("bench-group", time.Minute)
-	ch := bg.Subscribe("sub", 1000)
+	resultCh := bg.Subscribe("sub", 1000)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	go func() {
-		for range ch {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case _, ok := <-resultCh:
+				if !ok {
+					return
+				}
+			}
 		}
 	}()
 	r := NewResult("payload")

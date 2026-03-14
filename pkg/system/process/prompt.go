@@ -63,15 +63,15 @@ type Option func(*Prompt)
 NewPrompt instantiates a Prompt with the supplied options.
 */
 func NewPrompt(opts ...Option) *Prompt {
-	p := &Prompt{
+	prompt := &Prompt{
 		rng: rand.New(rand.NewSource(1)),
 	}
 
 	for _, opt := range opts {
-		opt(p)
+		opt(prompt)
 	}
 
-	return p
+	return prompt
 }
 
 /*
@@ -212,28 +212,38 @@ func (prompt *Prompt) ApplyHoldout() {
 	}
 
 	raw := []byte(prompt.original)
-	n := len(raw)
+	rawLen := len(raw)
 
-	if n == 0 {
+	if rawLen == 0 {
 		prompt.masked = ""
 		return
 	}
 
-	count := (n * prompt.heldout.Percent) / 100
+	percent := prompt.heldout.Percent
+	if percent < 0 {
+		percent = 0
+	}
+	if percent > 100 {
+		percent = 100
+	}
+	count := (rawLen * percent) / 100
+	if count > rawLen {
+		count = rawLen
+	}
 
 	switch prompt.heldout.Type {
 	case RIGHT:
-		prompt.masked = string(raw[:n-count])
+		prompt.masked = string(raw[:rawLen-count])
 	case LEFT:
 		prompt.masked = string(raw[count:])
 	case CENTER:
-		start := (n - count) / 2
+		start := (rawLen - count) / 2
 		prompt.masked = string(append(raw[:start], raw[start+count:]...))
 	case RANDOM:
-		res := make([]byte, n)
+		res := make([]byte, rawLen)
 		copy(res, raw)
 
-		for _, idx := range prompt.rng.Perm(n)[:count] {
+		for _, idx := range prompt.rng.Perm(rawLen)[:count] {
 			res[idx] = 0
 		}
 
@@ -259,8 +269,8 @@ func (prompt *Prompt) ApplyHoldout() {
 PromptWithDataset configures the Prompt to stream samples from a Dataset.
 */
 func PromptWithDataset(dataset provider.Dataset) Option {
-	return func(p *Prompt) {
-		p.dataset = dataset
+	return func(prompt *Prompt) {
+		prompt.dataset = dataset
 	}
 }
 
@@ -268,8 +278,8 @@ func PromptWithDataset(dataset provider.Dataset) Option {
 PromptWithStrings configures the Prompt with a static list of samples.
 */
 func PromptWithStrings(prompts []string) Option {
-	return func(p *Prompt) {
-		p.prompts = prompts
+	return func(prompt *Prompt) {
+		prompt.prompts = prompts
 	}
 }
 
@@ -277,8 +287,8 @@ func PromptWithStrings(prompts []string) Option {
 PromptWithOriginal sets the original text for the prompt directly, bypassing generators.
 */
 func PromptWithOriginal(original string) Option {
-	return func(p *Prompt) {
-		p.original = original
+	return func(prompt *Prompt) {
+		prompt.original = original
 	}
 }
 
@@ -288,8 +298,8 @@ The tokenizer should be constructed with a pool and broadcast but does
 NOT need a dataset or spatial insert — the Prompt feeds it per-sample.
 */
 func PromptWithTokenizer(tokenizer *TokenizerServer) Option {
-	return func(p *Prompt) {
-		p.tokenizer = tokenizer
+	return func(prompt *Prompt) {
+		prompt.tokenizer = tokenizer
 	}
 }
 
@@ -297,9 +307,9 @@ func PromptWithTokenizer(tokenizer *TokenizerServer) Option {
 PromptWithHoldout configures the masking strategy and percentage.
 */
 func PromptWithHoldout(prct int, ht HoldoutType) Option {
-	return func(p *Prompt) {
-		p.heldout.Percent = prct
-		p.heldout.Type = ht
+	return func(prompt *Prompt) {
+		prompt.heldout.Percent = prct
+		prompt.heldout.Type = ht
 	}
 }
 
@@ -307,7 +317,7 @@ func PromptWithHoldout(prct int, ht HoldoutType) Option {
 PromptWithMatch sets the byte pattern used by the MATCH holdout strategy.
 */
 func PromptWithMatch(match []byte) Option {
-	return func(p *Prompt) {
-		p.heldout.Match = match
+	return func(prompt *Prompt) {
+		prompt.heldout.Match = match
 	}
 }

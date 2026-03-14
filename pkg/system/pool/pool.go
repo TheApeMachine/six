@@ -10,8 +10,10 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-// Pool is a dynamically-scaling worker pool with circuit breakers,
-// backpressure, metrics, and broadcast groups.
+/*
+Pool is a dynamically-scaling worker pool with circuit breakers,
+backpressure, metrics, and broadcast groups.
+*/
 type Pool struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -30,8 +32,10 @@ type Pool struct {
 	config     *Config
 }
 
-// New creates a Pool that starts with minWorkers goroutines and scales
-// up to maxWorkers based on queue depth.
+/*
+New creates a Pool that starts with minWorkers goroutines and scales
+up to maxWorkers based on queue depth.
+*/
 func New(ctx context.Context, minWorkers, maxWorkers int, config *Config) *Pool {
 	ctx, cancel := context.WithCancel(ctx)
 	p := &Pool{
@@ -74,6 +78,9 @@ func New(ctx context.Context, minWorkers, maxWorkers int, config *Config) *Pool 
 	return p
 }
 
+/*
+manage dispatches jobs from the queue to available workers.
+*/
 func (p *Pool) manage() {
 	for {
 		select {
@@ -112,6 +119,9 @@ func (p *Pool) manage() {
 	}
 }
 
+/*
+collectMetrics periodically updates queue size and idle worker count.
+*/
 func (p *Pool) collectMetrics() {
 	ticker := time.NewTicker(500 * time.Millisecond)
 	defer ticker.Stop()
@@ -123,14 +133,16 @@ func (p *Pool) collectMetrics() {
 		case <-ticker.C:
 			p.metrics.mu.Lock()
 			p.metrics.JobQueueSize = len(p.jobs)
-			p.metrics.ActiveWorkers = len(p.workers)
+			p.metrics.IdleWorkers = len(p.workers)
 			p.metrics.mu.Unlock()
 		}
 	}
 }
 
-// Schedule submits a job and returns a channel that will receive the result.
-func (p *Pool) Schedule(id string, fn func() (any, error), opts ...JobOption) chan *Result {
+/*
+Schedule submits a job and returns a channel that will receive the result.
+*/
+func (p *Pool) Schedule(id string, fn func(ctx context.Context) (any, error), opts ...JobOption) chan *Result {
 	ctx, cancel := context.WithTimeout(p.ctx, p.getSchedulingTimeout())
 	defer cancel()
 
@@ -185,21 +197,30 @@ func (p *Pool) Schedule(id string, fn func() (any, error), opts ...JobOption) ch
 	}
 }
 
-// CreateBroadcastGroup creates a named broadcast group for fan-out.
+/*
+CreateBroadcastGroup creates a named broadcast group for fan-out.
+*/
 func (p *Pool) CreateBroadcastGroup(id string, ttl time.Duration) *BroadcastGroup {
 	return p.store.CreateBroadcastGroup(id, ttl)
 }
 
-// Subscribe returns a channel receiving results from a broadcast group.
+/*
+Subscribe returns a channel receiving results from a broadcast group.
+*/
 func (p *Pool) Subscribe(groupID string) chan *Result {
 	return p.store.Subscribe(groupID)
 }
 
-// Metrics returns the pool's metrics instance.
+/*
+Metrics returns the pool's metrics instance.
+*/
 func (p *Pool) Metrics() *Metrics {
 	return p.metrics
 }
 
+/*
+startWorker spawns a new worker goroutine and registers it.
+*/
 func (p *Pool) startWorker() {
 	worker := &Worker{
 		pool:   p,
@@ -221,6 +242,9 @@ func (p *Pool) startWorker() {
 	}()
 }
 
+/*
+getCircuitBreaker returns or creates the circuit breaker for the job's circuit ID.
+*/
 func (p *Pool) getCircuitBreaker(job Job) *CircuitBreaker {
 	if job.CircuitID == "" || job.CircuitConfig == nil {
 		return nil
@@ -243,6 +267,9 @@ func (p *Pool) getCircuitBreaker(job Job) *CircuitBreaker {
 	return breaker
 }
 
+/*
+getSchedulingTimeout returns the configured or default scheduling timeout.
+*/
 func (p *Pool) getSchedulingTimeout() time.Duration {
 	if p.config != nil && p.config.SchedulingTimeout > 0 {
 		return p.config.SchedulingTimeout
@@ -250,7 +277,9 @@ func (p *Pool) getSchedulingTimeout() time.Duration {
 	return 5 * time.Second
 }
 
-// Close gracefully shuts down the pool, draining in-flight jobs.
+/*
+Close gracefully shuts down the pool, draining in-flight jobs.
+*/
 func (p *Pool) Close() {
 	if p == nil {
 		return

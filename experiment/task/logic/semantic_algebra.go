@@ -3,7 +3,6 @@ package logic
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/logic/semantic"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/system/process"
@@ -13,7 +12,6 @@ type SemanticAlgebraExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    *process.Prompt
-	engine    *semantic.Engine
 }
 
 func NewSemanticAlgebraExperiment() *SemanticAlgebraExperiment {
@@ -28,7 +26,6 @@ func NewSemanticAlgebraExperiment() *SemanticAlgebraExperiment {
 	return &SemanticAlgebraExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset:   local.New(local.WithStrings(facts)),
-		engine:    semantic.NewEngine(),
 	}
 }
 
@@ -90,5 +87,5 @@ func (experiment *SemanticAlgebraExperiment) TableData() any {
 }
 
 func (experiment *SemanticAlgebraExperiment) Artifacts() []tools.Artifact {
-	return nil
+	return []tools.Artifact{}
 }

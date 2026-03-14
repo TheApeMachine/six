@@ -23,25 +23,28 @@ func TestHolographicSemanticEngine(t *testing.T) {
 
 			Convey("It manages to extract correct spatial paths from temporal overrides", func() {
 				// We test Semantic Time Shift ("Where WAS Roy?")
-				loc, phase := eng.QueryObject(braidRoy, "Roy", "was_in")
+				loc, phase, err := eng.QueryObject(braidRoy, "Roy", "was_in")
+				So(err, ShouldBeNil)
 				So(loc, ShouldEqual, "Living_Room")
 				So(phase, ShouldEqual, calc.Sum("Living_Room"))
 
 				// We test regular state ("Where IS Roy?")
 				// Since we injected the fact previously (it was facts[1])
-				loc2, _ := eng.QueryObject(eng.Inject("Roy", "is_in", "Kitchen"), "Roy", "is_in")
+				loc2, _, err := eng.QueryObject(eng.Inject("Roy", "is_in", "Kitchen"), "Roy", "is_in")
+				So(err, ShouldBeNil)
 				So(loc2, ShouldEqual, "Kitchen")
 			})
 
 			Convey("Cross-Modal queries should resolve via shared Label Phases", func() {
 				// Query "What is the Image_of_Cat?" -> expecting "The_Cat"
-				tgt, _ := eng.QueryObject(braidCat, "Image_of_Cat", "is_a")
+				tgt, _, err := eng.QueryObject(braidCat, "Image_of_Cat", "is_a")
+				So(err, ShouldBeNil)
 				So(tgt, ShouldEqual, "The_Cat")
 			})
 
 			Convey("It rejects Noise constraints cleanly (Destructive Interference)", func() {
 				path := calc.Sum("Kitchen")
-				antiPath := calc.Subtract(numeric.Phase(numeric.FermatPrime), path)
+				antiPath := calc.Subtract(numeric.Phase(0), path)
 				res := calc.Add(path, antiPath)
 				So(res, ShouldEqual, 0)
 			})

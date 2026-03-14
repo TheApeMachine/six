@@ -29,8 +29,14 @@ func (backend *CPUBackend) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (uint64, error) {
-	if numNodes <= 0 || graphNodes == nil || context == nil {
-		return 0, fmt.Errorf("invalid inputs to CPUBackend.Resolve")
+	if numNodes <= 0 {
+		return 0, fmt.Errorf("invalid numNodes: must be > 0")
+	}
+	if graphNodes == nil {
+		return 0, fmt.Errorf("nil graphNodes pointer")
+	}
+	if context == nil {
+		return 0, fmt.Errorf("nil context pointer")
 	}
 
 	nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)

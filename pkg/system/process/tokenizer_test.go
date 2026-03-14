@@ -13,10 +13,15 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/store/lsm"
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
+
+func newMockDataset(samples []string) *local.Dataset {
+	return local.New(local.WithStrings(samples))
+}
 
 /*
 instrumentedInsert records every spatial insert call for post-hoc validation.
@@ -161,6 +166,21 @@ func generateRepetitive(runs int, runLen int) []byte {
 	return out
 }
 
+/*
+waitForCondition polls check until it returns true or timeout elapses.
+Returns true if check succeeded, false on timeout.
+*/
+func waitForCondition(timeout time.Duration, check func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return true
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	return false
+}
+
 func makeServer(
 	ctx context.Context,
 	p *pool.Pool,
@@ -198,24 +218,13 @@ func TestTokenizerServer(t *testing.T) {
 			})
 
 			Convey("It should have performed spatial inserts for every byte", func() {
-				// Pool tasks are async; give workers time to drain.
-				for i := 0; i < 50; i++ {
-					if ins.count() > 0 {
-						break
-					}
-					time.Sleep(10 * time.Millisecond)
-				}
-
-				So(ins.count(), ShouldBeGreaterThan, 0)
+				ok := waitForCondition(500*time.Millisecond, func() bool { return ins.count() > 0 })
+				So(ok, ShouldBeTrue)
 			})
 
 			Convey("Every insert should carry a non-zero chord", func() {
-				for i := 0; i < 50; i++ {
-					if ins.count() > 0 {
-						break
-					}
-					time.Sleep(10 * time.Millisecond)
-				}
+				ok := waitForCondition(500*time.Millisecond, func() bool { return ins.count() > 0 })
+				So(ok, ShouldBeTrue)
 
 				records := ins.snapshot()
 				for _, rec := range records {
@@ -291,8 +300,8 @@ func TestTokenizerServer(t *testing.T) {
 			})
 
 			Convey("It should produce inserts for the noise stream", func() {
-				time.Sleep(200 * time.Millisecond)
-				So(ins.count(), ShouldBeGreaterThan, 0)
+				ok := waitForCondition(500*time.Millisecond, func() bool { return ins.count() > 0 })
+				So(ok, ShouldBeTrue)
 			})
 		})
 	})
@@ -317,8 +326,8 @@ func TestTokenizerServer(t *testing.T) {
 			})
 
 			Convey("It should still produce spatial inserts", func() {
-				time.Sleep(200 * time.Millisecond)
-				So(ins.count(), ShouldBeGreaterThan, 0)
+				ok := waitForCondition(500*time.Millisecond, func() bool { return ins.count() > 0 })
+				So(ok, ShouldBeTrue)
 			})
 		})
 	})
@@ -404,8 +413,8 @@ func TestTokenizerServer(t *testing.T) {
 			})
 
 			Convey("It should produce inserts from all modalities", func() {
-				time.Sleep(200 * time.Millisecond)
-				So(ins.count(), ShouldBeGreaterThan, 100)
+				ok := waitForCondition(500*time.Millisecond, func() bool { return ins.count() > 100 })
+				So(ok, ShouldBeTrue)
 			})
 		})
 	})

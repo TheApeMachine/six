@@ -544,7 +544,10 @@ func BenchmarkBuildChord(b *testing.B) {
 }
 
 func BenchmarkChordLCM(b *testing.B) {
-	chords, _ := genChordsFromBytes([][]byte{[]byte("a"), []byte("ab"), []byte("abc"), []byte("abcd"), []byte("abcde")})
+	chords, err := genChordsFromBytes([][]byte{[]byte("a"), []byte("ab"), []byte("abc"), []byte("abcd"), []byte("abcde")})
+	if err != nil {
+		b.Fatalf("genChordsFromBytes: %v", err)
+	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
@@ -553,7 +556,10 @@ func BenchmarkChordLCM(b *testing.B) {
 }
 
 func BenchmarkFlattenBatched(b *testing.B) {
-	chords, _ := genChordsFromBytes([][]byte{[]byte("first"), []byte("second"), []byte("third"), []byte("A longer sequence to stress the chord builder")})
+	chords, err := genChordsFromBytes([][]byte{[]byte("first"), []byte("second"), []byte("third"), []byte("A longer sequence to stress the chord builder")})
+	if err != nil {
+		b.Fatalf("genChordsFromBytes: %v", err)
+	}
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {

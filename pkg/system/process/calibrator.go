@@ -68,11 +68,13 @@ func (calibrator *Calibrator) SetSensitivityPhase(v float64) {
 	calibrator.sensitivityPhase = v
 }
 
-func (calibrator *Calibrator) FeedbackChunk(length int, density float64, primeCoherence float64, phaseCoherence float64) {
+func (calibrator *Calibrator) FeedbackChunk(density float64, primeCoherence float64, phaseCoherence float64) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()
 
-	calibrator.window.Push(density)
+	if calibrator.window != nil {
+		calibrator.window.Push(density)
+	}
 
 	if !calibrator.window.Warmed() {
 		return

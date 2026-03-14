@@ -6,7 +6,9 @@ import (
 	"time"
 )
 
-// Worker processes jobs received from the pool.
+/*
+Worker processes jobs received from the pool.
+*/
 type Worker struct {
 	pool       *Pool
 	jobs       chan Job
@@ -14,6 +16,9 @@ type Worker struct {
 	currentJob *Job
 }
 
+/*
+run loops receiving jobs and executing them.
+*/
 func (w *Worker) run() {
 	jobChan := w.jobs
 
@@ -63,6 +68,9 @@ func (w *Worker) run() {
 	}
 }
 
+/*
+processJobWithTimeout runs the job Fn with context cancellation and timeout handling.
+*/
 func (w *Worker) processJobWithTimeout(ctx context.Context, job Job) (any, error) {
 	startTime := time.Now()
 
@@ -82,7 +90,7 @@ func (w *Worker) processJobWithTimeout(ctx context.Context, job Job) (any, error
 
 	go func() {
 		defer close(done)
-		result, err = job.Fn()
+		result, err = job.Fn(ctx)
 	}()
 
 	select {
@@ -95,6 +103,9 @@ func (w *Worker) processJobWithTimeout(ctx context.Context, job Job) (any, error
 	}
 }
 
+/*
+checkSingleDependency waits for depID to be available, retrying according to policy.
+*/
 func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) error {
 	maxAttempts := 1
 	var strategy RetryStrategy = &ExponentialBackoff{Initial: time.Second}
@@ -118,13 +129,20 @@ func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) e
 			break
 		}
 
+		timeout := time.Second
+		if retryPolicy != nil && retryPolicy.DependencyAwaitTimeout > 0 {
+			timeout = retryPolicy.DependencyAwaitTimeout
+		} else if w.pool.config != nil && w.pool.config.DependencyAwaitTimeout > 0 {
+			timeout = w.pool.config.DependencyAwaitTimeout
+		}
+
 		ch := w.pool.store.Await(depID)
 		select {
 		case result := <-ch:
 			if result.Error == nil {
 				return nil
 			}
-		case <-time.After(time.Second):
+		case <-time.After(timeout):
 		}
 
 		if attempt < maxAttempts-1 {
@@ -141,18 +159,16 @@ func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) e
 		breaker.RecordFailure()
 	}
 
-	w.pool.store.mu.Lock()
-	if w.pool.store.children == nil {
-		w.pool.store.children = make(map[string][]string)
-	}
 	if w.currentJob != nil {
-		w.pool.store.children[depID] = append(w.pool.store.children[depID], w.currentJob.ID)
+		w.pool.store.AddChildDependency(depID, w.currentJob.ID)
 	}
-	w.pool.store.mu.Unlock()
 
 	return fmt.Errorf("dependency %s failed after %d attempts", depID, maxAttempts)
 }
 
+/*
+recordFailure notifies the circuit breaker for the given circuit ID.
+*/
 func (w *Worker) recordFailure(circuitID string) {
 	if circuitID == "" {
 		return

@@ -13,14 +13,15 @@ import (
 func TestNewPhaseDial(t *testing.T) {
 	Convey("Given the NewPhaseDial constructor", t, func() {
 		Convey("When creating a new PhaseDial", func() {
-			dial := NewPhaseDial()
-			So(dial, ShouldNotBeNil)
-			// Ensure it scales correctly via the shared underlying NBasis primitives
-			So(len(dial), ShouldEqual, config.Numeric.NBasis)
-			for _, val := range dial {
-				So(real(val), ShouldEqual, 0)
-				So(imag(val), ShouldEqual, 0)
-			}
+			Convey("It should return a zeroed PhaseDial of length config.Numeric.NBasis", func() {
+				dial := NewPhaseDial()
+				So(dial, ShouldNotBeNil)
+				So(len(dial), ShouldEqual, config.Numeric.NBasis)
+				for _, val := range dial {
+					So(real(val), ShouldEqual, 0)
+					So(imag(val), ShouldEqual, 0)
+				}
+			})
 		})
 	})
 }
@@ -91,7 +92,7 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 }
 
 func BenchmarkNewPhaseDial(b *testing.B) {
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		_ = NewPhaseDial()
 	}
 }

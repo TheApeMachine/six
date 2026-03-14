@@ -27,15 +27,24 @@ void metalResolverTeardown() {
     }
 }
 
+#define GFROTATION_SIZE 4
+
 int init_metal(const char* metallib_path) {
-    if (device != nil) return 0; // Already initialized
+    if (device != nil && initResult == 0) return 0;
 
     dispatch_once(&initOnceToken, ^{
         device = MTLCreateSystemDefaultDevice();
-        if (!device) { initResult = -1; return; }
+        if (!device) {
+            initResult = -1;
+            return;
+        }
 
         commandQueue = [device newCommandQueue];
-        if (!commandQueue) { initResult = -2; return; }
+        if (!commandQueue) {
+            device = nil;
+            initResult = -2;
+            return;
+        }
 
         NSString *path = [NSString stringWithUTF8String:metallib_path];
         NSError *error = nil;
@@ -43,6 +52,8 @@ int init_metal(const char* metallib_path) {
         id<MTLLibrary> library = [device newLibraryWithURL:url error:&error];
         if (!library) {
             NSLog(@"Failed to load metallib: %@", error);
+            commandQueue = nil;
+            device = nil;
             initResult = -3;
             return;
         }
@@ -50,6 +61,8 @@ int init_metal(const char* metallib_path) {
         id<MTLFunction> function = [library newFunctionWithName:@"resolve_resonance"];
         if (!function) {
             NSLog(@"Failed to find resolve_resonance function in metallib");
+            commandQueue = nil;
+            device = nil;
             initResult = -4;
             return;
         }
@@ -57,11 +70,14 @@ int init_metal(const char* metallib_path) {
         resolveResonancePipeline = [device newComputePipelineStateWithFunction:function error:&error];
         if (!resolveResonancePipeline) {
             NSLog(@"Failed to create compute pipeline state: %@", error);
+            resolveResonancePipeline = nil;
+            commandQueue = nil;
+            device = nil;
             initResult = -5;
             return;
         }
 
-        initResult = 0; // Success
+        initResult = 0;
     });
 
     return initResult;
@@ -75,7 +91,7 @@ int resolve_resonance_metal(const void* graph_nodes_ptr, uint32_t num_nodes, con
     }
 
     @autoreleasepool {
-        NSUInteger nodeBytes = 4; // 2 * uint16_t (GF257 affine rotation struct)
+        NSUInteger nodeBytes = GFROTATION_SIZE;
         NSUInteger totalNodesSize = (NSUInteger)num_nodes * nodeBytes;
 
         if (cachedCtxBuffer == nil) {

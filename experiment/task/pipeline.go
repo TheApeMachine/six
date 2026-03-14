@@ -117,9 +117,11 @@ func (pipeline *Pipeline) Run() error {
 	pipeline.promptTokenizer.Start(pipeline.machine.Pool(), nil)
 
 	pipeline.prompts = pipeline.experiment.Prompts()
+	var holdoutPrct int
+	var holdoutType process.HoldoutType
 	if pipeline.prompts != nil {
+		holdoutPrct, holdoutType = pipeline.experiment.Holdout()
 		process.PromptWithTokenizer(pipeline.promptTokenizer)(pipeline.prompts)
-		holdoutPrct, holdoutType := pipeline.experiment.Holdout()
 		process.PromptWithHoldout(holdoutPrct, holdoutType)(pipeline.prompts)
 	}
 
@@ -143,8 +145,20 @@ func (pipeline *Pipeline) Run() error {
 		masked := pipeline.prompts.Masked()
 
 		holdoutStr := orig
-		if len(orig) > len(masked) {
-			holdoutStr = strings.Replace(orig, masked, "", 1)
+		if strings.Contains(orig, masked) {
+			idx := strings.Index(orig, masked)
+			switch holdoutType {
+			case process.LEFT:
+				holdoutStr = orig[:idx]
+			case process.RIGHT:
+				holdoutStr = orig[idx+len(masked):]
+			case process.CENTER:
+				holdoutLen := len(orig) - len(masked)
+				prefixLen := (len(orig) - holdoutLen) / 2
+				holdoutStr = orig[prefixLen : prefixLen+holdoutLen]
+			default:
+				holdoutStr = strings.Replace(orig, masked, "", 1)
+			}
 		}
 
 		pipeline.experiment.AddResult(tools.ExperimentalData{

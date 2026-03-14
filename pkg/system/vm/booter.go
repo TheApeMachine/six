@@ -52,10 +52,12 @@ runs the event loop.
 func (booter *Booter) Start() {
 	console.Info("Starting Booter")
 
-	var subscription <-chan *pool.Result
-	if booter.broadcast != nil {
-		subscription = booter.broadcast.Subscribe("broadcast", 128)
+	if booter.broadcast == nil {
+		console.Error(ErrBooterNoBroadcast)
+		return
 	}
+
+	subscription := booter.broadcast.Subscribe("broadcast", 128)
 
 	for _, system := range booter.systems {
 		system.Announce()
@@ -82,7 +84,9 @@ func (booter *Booter) Start() {
 
 			if pv, ok := msg.Value.(pool.PoolValue[net.Conn]); ok && pv.Key == "tokenizer" {
 				console.Info("Tokenizer announced itself. Triggering dataset generation.")
-				booter.callGenerate(pv.Value)
+				if err := booter.callGenerate(pv.Value); err != nil {
+					console.Error(err)
+				}
 			}
 		case <-ticker.C:
 			for _, system := range booter.systems {
@@ -96,15 +100,20 @@ func (booter *Booter) Start() {
 callGenerate wraps the tokenizer's client-side net.Conn in a capnp RPC client
 and calls Generate.
 */
-func (booter *Booter) callGenerate(conn net.Conn) {
+func (booter *Booter) callGenerate(conn net.Conn) error {
 	rpcConn := capnprpc.NewConn(capnprpc.NewStreamTransport(conn), nil)
 	defer rpcConn.Close()
 
 	client := process.Tokenizer(rpcConn.Bootstrap(booter.ctx))
 	defer client.Release()
 
-	_ = client.Generate(booter.ctx, nil)
-	_ = client.WaitStreaming()
+	if err := client.Generate(booter.ctx, nil); err != nil {
+		return console.Error(err, "callGenerate", "client.Generate")
+	}
+	if err := client.WaitStreaming(); err != nil {
+		return console.Error(err, "callGenerate", "client.WaitStreaming")
+	}
+	return nil
 }
 
 /*
@@ -150,4 +159,17 @@ func BooterWithSystems(systems ...System) booterOpts {
 	return func(booter *Booter) {
 		booter.systems = systems
 	}
+}
+
+/*
+BooterError is a typed error for Booter failures.
+*/
+type BooterError string
+
+const (
+	ErrBooterNoBroadcast BooterError = "booter: broadcast is nil, cannot subscribe"
+)
+
+func (err BooterError) Error() string {
+	return string(err)
 }

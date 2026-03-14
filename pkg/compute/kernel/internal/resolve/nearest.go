@@ -21,9 +21,13 @@ func PackedNearest(
 	ctxB := int32(context.CoordV)
 
 	for idx, node := range nodes {
-		da := int32(node.CoordU) - ctxA
-		db := int32(node.CoordV) - ctxB
-		distSq := uint32(da*da + db*db)
+		da := int64(node.CoordU) - int64(ctxA)
+		db := int64(node.CoordV) - int64(ctxB)
+		distSq64 := da*da + db*db
+		if distSq64 > int64(maxPackedDistance) {
+			distSq64 = int64(maxPackedDistance)
+		}
+		distSq := uint32(distSq64)
 
 		if distSq < bestDistSq {
 			bestIdx = idx

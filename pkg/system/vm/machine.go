@@ -52,8 +52,13 @@ runs the Booter event loop in a background goroutine, and blocks until
 all Readiness-implementing systems report ready (or timeout).
 */
 func (machine *Machine) Start() {
+	ctx := machine.ctx
+	if ctx == nil {
+		ctx = context.Background()
+		machine.ctx, machine.cancel = context.WithCancel(ctx)
+	}
 	machine.workerPool = pool.New(
-		machine.ctx,
+		ctx,
 		1,
 		runtime.NumCPU(),
 		&pool.Config{},
@@ -139,6 +144,11 @@ func (machine *Machine) Prompt(source ChordSource) ([][]byte, error) {
 		return nil, ErrNoDecoder
 	}
 
+	ctx := machine.ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	var allResults [][]byte
 
 	for source.Next() {
@@ -158,7 +168,7 @@ func (machine *Machine) Prompt(source ChordSource) ([][]byte, error) {
 			return nil, err
 		}
 
-		paths, err := machine.cortex.PromptChords(machine.ctx, list)
+		paths, err := machine.cortex.PromptChords(ctx, list)
 
 		console.Trace("machine", "paths", paths)
 

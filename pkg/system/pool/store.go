@@ -7,11 +7,12 @@ import (
 	"time"
 )
 
-// ResultStore manages job results and subscriber notifications.
-//
-// It stores results keyed by job ID, notifies awaiting callers when
-// results arrive, and cleans up expired entries periodically.
-// Uses sync.Map for values to reduce lock contention on Exists (hot path).
+/*
+ResultStore manages job results and subscriber notifications.
+Stores results keyed by job ID, notifies awaiting callers when results arrive,
+and cleans up expired entries periodically.
+Uses sync.Map for values to reduce lock contention on Exists (hot path).
+*/
 type ResultStore struct {
 	mu sync.RWMutex
 
@@ -27,7 +28,9 @@ type ResultStore struct {
 	done            chan struct{}
 }
 
-// NewResultStore creates a store with periodic cleanup.
+/*
+NewResultStore creates a store with periodic cleanup.
+*/
 func NewResultStore() *ResultStore {
 	rs := &ResultStore{
 		waiting:         make(map[string][]chan *Result),
@@ -44,21 +47,18 @@ func NewResultStore() *ResultStore {
 	return rs
 }
 
-// Store saves a result and notifies any waiters.
-func (rs *ResultStore) Store(id string, value any, ttl time.Duration) {
-	r := NewResult(value)
-	r.TTL = ttl
-	rs.values.Store(id, r)
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
+/*
+notifyWaitingChannels sends result to all channels waiting for id and cleans up.
+Must be called with rs.mu held.
+*/
+func (rs *ResultStore) notifyWaitingChannels(id string, result *Result) {
 	if channels, ok := rs.waiting[id]; ok {
 		for _, ch := range channels {
 			select {
-			case ch <- r:
+			case ch <- result:
 				close(ch)
 			default:
+				close(ch)
 				rs.removeWaitingChannel(id, ch)
 			}
 		}
@@ -66,7 +66,22 @@ func (rs *ResultStore) Store(id string, value any, ttl time.Duration) {
 	}
 }
 
-// StoreError saves an error result and notifies waiters.
+/*
+Store saves a result and notifies any waiters.
+*/
+func (rs *ResultStore) Store(id string, value any, ttl time.Duration) {
+	r := NewResult(value)
+	r.TTL = ttl
+	rs.values.Store(id, r)
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	rs.notifyWaitingChannels(id, r)
+}
+
+/*
+StoreError saves an error result and notifies waiters.
+*/
 func (rs *ResultStore) StoreError(id string, err error, ttl time.Duration) {
 	r := NewResult(nil)
 	r.Error = err
@@ -75,21 +90,12 @@ func (rs *ResultStore) StoreError(id string, err error, ttl time.Duration) {
 
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-
-	if channels, ok := rs.waiting[id]; ok {
-		for _, ch := range channels {
-			select {
-			case ch <- r:
-				close(ch)
-			default:
-				rs.removeWaitingChannel(id, ch)
-			}
-		}
-		delete(rs.waiting, id)
-	}
+	rs.notifyWaitingChannels(id, r)
 }
 
-// Await returns a channel that receives the result when available.
+/*
+Await returns a channel that receives the result when available.
+*/
 func (rs *ResultStore) Await(id string) chan *Result {
 	ch := make(chan *Result, 1)
 
@@ -111,6 +117,9 @@ func (rs *ResultStore) Await(id string) chan *Result {
 	return ch
 }
 
+/*
+prepare registers a channel to receive the result when it arrives.
+*/
 func (rs *ResultStore) prepare(id string) chan *Result {
 	ch := make(chan *Result, 1)
 
@@ -122,6 +131,9 @@ func (rs *ResultStore) prepare(id string) chan *Result {
 	return ch
 }
 
+/*
+deliver sends result to all channels waiting for id.
+*/
 func (rs *ResultStore) deliver(id string, result *Result) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -143,6 +155,9 @@ func (rs *ResultStore) deliver(id string, result *Result) {
 	delete(rs.waiting, id)
 }
 
+/*
+cancelAwait removes the channel from waiters for id.
+*/
 func (rs *ResultStore) cancelAwait(id string, ch chan *Result) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -154,15 +169,19 @@ func (rs *ResultStore) cancelAwait(id string, ch chan *Result) {
 	}
 }
 
-// Exists checks whether a result for the given ID has been stored.
-// Lock-free via sync.Map — hot path for dependency checks.
+/*
+Exists checks whether a result for the given ID has been stored.
+Lock-free via sync.Map — hot path for dependency checks.
+*/
 func (rs *ResultStore) Exists(id string) bool {
 	_, exists := rs.values.Load(id)
 	return exists
 }
 
-// AddRelationship establishes a parent-child link between job IDs,
-// rejecting cycles.
+/*
+AddRelationship establishes a parent-child link between job IDs,
+rejecting cycles.
+*/
 func (rs *ResultStore) AddRelationship(parentID, childID string) error {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -176,7 +195,9 @@ func (rs *ResultStore) AddRelationship(parentID, childID string) error {
 	return nil
 }
 
-// CreateBroadcastGroup creates and registers a broadcast group.
+/*
+CreateBroadcastGroup creates and registers a broadcast group.
+*/
 func (rs *ResultStore) CreateBroadcastGroup(id string, ttl time.Duration) *BroadcastGroup {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
@@ -190,12 +211,16 @@ func (rs *ResultStore) CreateBroadcastGroup(id string, ttl time.Duration) *Broad
 	return group
 }
 
-// subscribeCounter generates unique subscriber IDs so each Subscribe gets its own channel.
+/*
+subscribeCounter generates unique subscriber IDs so each Subscribe gets its own channel.
+*/
 var subscribeCounter atomic.Uint64
 
-// Subscribe returns a channel for receiving values from a broadcast group.
-// Each call gets a unique subscriber ID; previously Subscribe used "" which overwrote
-// the prior subscriber, leaving only the last one receiving messages.
+/*
+Subscribe returns a channel for receiving values from a broadcast group.
+Each call gets a unique subscriber ID; previously Subscribe used "" which overwrote
+the prior subscriber, leaving only the last one receiving messages.
+*/
 func (rs *ResultStore) Subscribe(groupID string) chan *Result {
 	rs.mu.RLock()
 	defer rs.mu.RUnlock()
@@ -207,7 +232,9 @@ func (rs *ResultStore) Subscribe(groupID string) chan *Result {
 	return nil
 }
 
-// Close shuts down the store and releases resources.
+/*
+Close shuts down the store and releases resources.
+*/
 func (rs *ResultStore) Close() {
 	close(rs.done)
 	rs.wg.Wait()
@@ -231,6 +258,9 @@ func (rs *ResultStore) Close() {
 	rs.parents = nil
 }
 
+/*
+runCleanup runs the periodic cleanup loop.
+*/
 func (rs *ResultStore) runCleanup() {
 	defer rs.wg.Done()
 	ticker := time.NewTicker(rs.cleanupInterval)
@@ -246,8 +276,15 @@ func (rs *ResultStore) runCleanup() {
 	}
 }
 
+/*
+cleanup removes expired results and TTL-exceeded broadcast groups.
+*/
 func (rs *ResultStore) cleanup() {
 	now := time.Now()
+
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+
 	var expired []string
 	rs.values.Range(func(key, value any) bool {
 		id := key.(string)
@@ -257,29 +294,26 @@ func (rs *ResultStore) cleanup() {
 		}
 		return true
 	})
-	if len(expired) > 0 {
-		rs.mu.Lock()
-		for _, id := range expired {
-			v, ok := rs.values.Load(id)
-			if !ok {
-				continue
-			}
-			r := v.(*Result)
-			if r.TTL <= 0 || now.Sub(r.CreatedAt) <= r.TTL {
-				continue
-			}
-			rs.values.Delete(id)
-			delete(rs.children, id)
-			for _, parentID := range rs.parents[id] {
+
+	for _, id := range expired {
+		v, ok := rs.values.Load(id)
+		if !ok {
+			continue
+		}
+		r := v.(*Result)
+		if r.TTL <= 0 || now.Sub(r.CreatedAt) <= r.TTL {
+			continue
+		}
+		rs.values.Delete(id)
+		delete(rs.children, id)
+		parentIDs, hasParents := rs.parents[id]
+		if hasParents {
+			for _, parentID := range parentIDs {
 				rs.children[parentID] = removeString(rs.children[parentID], id)
 			}
-			delete(rs.parents, id)
 		}
-		rs.mu.Unlock()
+		delete(rs.parents, id)
 	}
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
 
 	for id, group := range rs.groups {
 		if group.TTL > 0 && now.Sub(group.LastUsed) > group.TTL {
@@ -289,6 +323,21 @@ func (rs *ResultStore) cleanup() {
 	}
 }
 
+/*
+AddChildDependency records that jobID depends on depID for await tracking.
+*/
+func (rs *ResultStore) AddChildDependency(depID, jobID string) {
+	rs.mu.Lock()
+	defer rs.mu.Unlock()
+	if rs.children == nil {
+		rs.children = make(map[string][]string)
+	}
+	rs.children[depID] = append(rs.children[depID], jobID)
+}
+
+/*
+removeWaitingChannel removes ch from the waiters for id.
+*/
 func (rs *ResultStore) removeWaitingChannel(id string, ch chan *Result) {
 	channels := rs.waiting[id]
 	for i, waitingCh := range channels {
@@ -299,6 +348,9 @@ func (rs *ResultStore) removeWaitingChannel(id string, ch chan *Result) {
 	}
 }
 
+/*
+wouldCreateCircle returns true if adding parentID->childID would create a cycle.
+*/
 func (rs *ResultStore) wouldCreateCircle(parentID, childID string) bool {
 	visited := make(map[string]bool)
 	var check func(string) bool

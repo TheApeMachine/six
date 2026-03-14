@@ -13,11 +13,11 @@ type Distribution struct {
 	numDistinct int
 }
 
-func slog(c int) float64 {
-	if c <= 0 {
+func slog(count int) float64 {
+	if count <= 0 {
 		return 0
 	}
-	return float64(c) * math.Log(float64(c))
+	return float64(count) * math.Log(float64(count))
 }
 
 /*
@@ -28,7 +28,8 @@ func NewDistribution() *Distribution {
 }
 
 /*
-Clone returns a shallow copy of the Distribution.
+Clone returns a copy of the Distribution. Struct assignment copies all fields
+including the fixed-size histogram, producing a full value-copy.
 */
 func (dist *Distribution) Clone() *Distribution {
 	cloned := *dist
@@ -36,12 +37,12 @@ func (dist *Distribution) Clone() *Distribution {
 }
 
 /*
-Add increments the count for b and updates sumSLogC for MDL Cost.
+Add increments the count for byteVal and updates sumSLogC for MDL Cost.
 */
-func (dist *Distribution) Add(b byte) {
-	old := dist.counts[b]
+func (dist *Distribution) Add(byteVal byte) {
+	old := dist.counts[byteVal]
 	dist.sumSLogC += slog(old+1) - slog(old)
-	dist.counts[b]++
+	dist.counts[byteVal]++
 	if old == 0 {
 		dist.numDistinct++
 	}
@@ -49,16 +50,32 @@ func (dist *Distribution) Add(b byte) {
 }
 
 /*
-Remove decrements the count for b. Caller must ensure b was previously Add-ed.
+Remove decrements the count for byteVal. Caller must ensure byteVal was previously Add-ed.
 */
-func (dist *Distribution) Remove(b byte) {
-	old := dist.counts[b]
+func (dist *Distribution) Remove(byteVal byte) {
+	old := dist.counts[byteVal]
 	dist.sumSLogC += slog(old-1) - slog(old)
-	dist.counts[b]--
+	dist.counts[byteVal]--
 	if old == 1 {
 		dist.numDistinct--
 	}
 	dist.n--
+}
+
+/*
+AddFrom merges other's histogram into dist. Updates n, numDistinct, and sumSLogC for Cost().
+*/
+func (dist *Distribution) AddFrom(other *Distribution) {
+	for idx := range other.counts {
+		old := dist.counts[idx]
+		newCount := old + other.counts[idx]
+		dist.sumSLogC += slog(newCount) - slog(old)
+		if old == 0 && other.counts[idx] > 0 {
+			dist.numDistinct++
+		}
+		dist.counts[idx] = newCount
+	}
+	dist.n += other.n
 }
 
 /*

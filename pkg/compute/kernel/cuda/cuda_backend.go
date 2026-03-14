@@ -26,7 +26,8 @@ import (
 //go:generate nvcc -lib resolver.cu -o libresolver.a -std=c++11
 
 type CUDABackend struct {
-	initOnce    sync.Once
+	initOnce     sync.Once
+	deviceCount  int
 }
 
 func (backend *CUDABackend) init() {
@@ -42,7 +43,8 @@ func (backend *CUDABackend) init() {
 }
 
 func (backend *CUDABackend) Available() bool {
-	return int(C.cuda_device_count()) > 0
+	backend.init()
+	return backend.deviceCount > 0
 }
 
 func (backend *CUDABackend) Resolve(

@@ -5,17 +5,23 @@ import (
 	"time"
 )
 
-// FilterFunc decides whether a result should be forwarded to a subscriber.
+/*
+FilterFunc decides whether a result should be forwarded to a subscriber.
+*/
 type FilterFunc func(*Result) bool
 
-// RoutingRule combines a subscriber filter with a priority for message routing.
+/*
+RoutingRule combines a subscriber filter with a priority for message routing.
+*/
 type RoutingRule struct {
 	SubscriberID string
 	Filter       FilterFunc
 	Priority     int
 }
 
-// BroadcastGroup is a pub/sub fan-out for pool results.
+/*
+BroadcastGroup is a pub/sub fan-out for pool results.
+*/
 type BroadcastGroup struct {
 	mu sync.RWMutex
 
@@ -42,7 +48,9 @@ type BroadcastMetrics struct {
 	LastBroadcastTime time.Time
 }
 
-// NewBroadcastGroup creates a group with the given TTL and max queue depth.
+/*
+NewBroadcastGroup creates a group with the given TTL and max queue depth.
+*/
 func NewBroadcastGroup(
 	id string, ttl time.Duration, maxQueue int,
 ) *BroadcastGroup {
@@ -58,7 +66,9 @@ func NewBroadcastGroup(
 	}
 }
 
-// Subscribe registers a new subscriber and returns its receive channel.
+/*
+Subscribe registers a new subscriber and returns its receive channel.
+*/
 func (bg *BroadcastGroup) Subscribe(
 	subscriberID string, bufferSize int, rules ...RoutingRule,
 ) chan *Result {
@@ -76,7 +86,9 @@ func (bg *BroadcastGroup) Subscribe(
 	return ch
 }
 
-// Unsubscribe removes a subscriber and closes its channel.
+/*
+Unsubscribe removes a subscriber and closes its channel.
+*/
 func (bg *BroadcastGroup) Unsubscribe(subscriberID string) {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
@@ -89,18 +101,19 @@ func (bg *BroadcastGroup) Unsubscribe(subscriberID string) {
 	}
 }
 
+/*
+Send broadcasts a result to all matching subscribers.
+*/
 func (bg *BroadcastGroup) Send(r *Result) {
-	bg.mu.RLock()
+	bg.mu.Lock()
 	if bg.closed {
-		bg.mu.RUnlock()
+		bg.mu.Unlock()
 		return
 	}
 	startTime := time.Now()
 
 	for _, filter := range bg.filters {
 		if !filter(r) {
-			bg.mu.RUnlock()
-			bg.mu.Lock()
 			bg.metrics.MessagesDropped++
 			bg.LastUsed = startTime
 			bg.mu.Unlock()
@@ -109,7 +122,6 @@ func (bg *BroadcastGroup) Send(r *Result) {
 	}
 
 	targets := make([]chan *Result, 0, len(bg.subscribers))
-
 	for subID, ch := range bg.subscribers {
 		if rules, hasRules := bg.routingRules[subID]; hasRules {
 			shouldSend := false
@@ -125,7 +137,7 @@ func (bg *BroadcastGroup) Send(r *Result) {
 		}
 		targets = append(targets, ch)
 	}
-	bg.mu.RUnlock()
+	bg.mu.Unlock()
 
 	var sent, dropped int64
 	for _, ch := range targets {
@@ -145,34 +157,44 @@ func (bg *BroadcastGroup) Send(r *Result) {
 	bg.metrics.MessagesSent += sent
 	bg.metrics.MessagesDropped += dropped
 	bg.metrics.LastBroadcastTime = startTime
-
 	bg.metrics.BroadcastCount++
 	bg.metrics.TotalLatency += latency
-	bg.metrics.AverageLatency = bg.metrics.TotalLatency / time.Duration(bg.metrics.BroadcastCount)
+	if bg.metrics.BroadcastCount > 0 {
+		avgNs := float64(bg.metrics.TotalLatency.Nanoseconds()) / float64(bg.metrics.BroadcastCount)
+		bg.metrics.AverageLatency = time.Duration(avgNs)
+	}
 }
 
-// AddFilter registers a global filter applied before broadcasting.
+/*
+AddFilter registers a global filter applied before broadcasting.
+*/
 func (bg *BroadcastGroup) AddFilter(filter FilterFunc) {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	bg.filters = append(bg.filters, filter)
 }
 
-// AddRoutingRule adds a per-subscriber routing rule.
+/*
+AddRoutingRule adds a per-subscriber routing rule.
+*/
 func (bg *BroadcastGroup) AddRoutingRule(subscriberID string, rule RoutingRule) {
 	bg.mu.Lock()
 	defer bg.mu.Unlock()
 	bg.routingRules[subscriberID] = append(bg.routingRules[subscriberID], rule)
 }
 
-// GetMetrics returns a copy of the current broadcast metrics.
+/*
+GetMetrics returns a copy of the current broadcast metrics.
+*/
 func (bg *BroadcastGroup) GetMetrics() BroadcastMetrics {
 	bg.mu.RLock()
 	defer bg.mu.RUnlock()
 	return *bg.metrics
 }
 
-// Close shuts down the group and closes all subscriber channels safely.
+/*
+Close shuts down the group and closes all subscriber channels safely.
+*/
 func (bg *BroadcastGroup) Close() {
 	bg.mu.Lock()
 	if bg.closed {

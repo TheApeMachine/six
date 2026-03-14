@@ -48,10 +48,10 @@ func TestSequencer(t *testing.T) {
 			seq.ShannonCeiling = 1.0
 			seq.MinSegmentBytes = 2
 
-			cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
-			cal.FeedbackChunk(6, 0.15, 1.0, 1.0)
-			cal.FeedbackChunk(6, 0.20, 1.0, 1.0)
-			cal.FeedbackChunk(6, 0.10, 1.0, 1.0)
+			cal.FeedbackChunk(0.10, 1.0, 1.0)
+			cal.FeedbackChunk(0.15, 1.0, 1.0)
+			cal.FeedbackChunk(0.20, 1.0, 1.0)
+			cal.FeedbackChunk(0.10, 1.0, 1.0)
 
 			for i := range config.Numeric.VocabSize {
 				_, _, _, _ = seq.Analyze(uint32(i), byte(i))
@@ -142,7 +142,8 @@ func TestSequencer(t *testing.T) {
 
 			ok2, _, _ := seq.Forecast(0, 4)
 			Convey("Forecast should return detection status without mutating", func() {
-				So(ok2 == true || ok2 == false, ShouldBeTrue)
+				So(seq.buf[len(seq.buf)-1], ShouldEqual, 3)
+				So(ok2, ShouldBeFalse)
 			})
 		})
 	})

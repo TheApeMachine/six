@@ -2,6 +2,7 @@ package config
 
 import (
 	"math"
+	"os"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -29,7 +30,14 @@ var Cortex = &ctx.CortexConfig
 var Experiment = &ctx.ExperimentConfig
 
 func init() {
-	viper.SetDefault("system.projectRoot", "/Users/theapemachine/go/src/github.com/theapemachine/six")
+	defaultRoot := "."
+	if wd, err := os.Getwd(); err == nil {
+		defaultRoot = wd
+	}
+	if envRoot := os.Getenv("SIX_PROJECT_ROOT"); envRoot != "" {
+		defaultRoot = envRoot
+	}
+	viper.SetDefault("system.projectRoot", defaultRoot)
 	viper.SetDefault("system.workers.min", 2)
 	viper.SetDefault("system.workers.max", "CPU")
 	viper.SetDefault("system.distributed.workers", []string{"localhost:8080", "localhost:8081"})
@@ -54,12 +62,14 @@ func init() {
 	home := homedir.HomeDir()
 
 	viper.SetConfigFile(filepath.Join(home, ".six", "config.yml"))
-	_ = viper.ReadInConfig()
+	if err := viper.ReadInConfig(); err != nil {
+		if _, ok := err.(viper.ConfigFileNotFoundError); !ok {
+			log.Fatalf("config: %v", err)
+		}
+	}
 
-	_, err := New()
-
-	if err != nil {
-		log.Error(err)
+	if _, err := New(); err != nil {
+		log.Fatalf("config New: %v", err)
 	}
 }
 

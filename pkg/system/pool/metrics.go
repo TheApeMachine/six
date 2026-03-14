@@ -12,13 +12,15 @@ type tDigestCentroid struct {
 	count int64
 }
 
-// Metrics collects pool-level performance statistics including
-// t-digest percentile tracking for latency.
+/*
+Metrics collects pool-level performance statistics including
+t-digest percentile tracking for latency.
+*/
 type Metrics struct {
 	mu                   sync.RWMutex
 	WorkerCount          int
 	JobQueueSize         int
-	ActiveWorkers        int
+	IdleWorkers          int
 	LastScale            time.Time
 	ErrorRates           map[string]float64
 	TotalJobTime         time.Duration
@@ -43,7 +45,9 @@ type Metrics struct {
 	maxCentroids int
 }
 
-// NewMetrics initialises a Metrics instance with sensible defaults.
+/*
+NewMetrics initialises a Metrics instance with sensible defaults.
+*/
 func NewMetrics() *Metrics {
 	return &Metrics{
 		ErrorRates:           make(map[string]float64),
@@ -55,7 +59,9 @@ func NewMetrics() *Metrics {
 	}
 }
 
-// RecordJobExecution records execution time and outcome.
+/*
+RecordJobExecution records execution time and outcome.
+*/
 func (m *Metrics) RecordJobExecution(startTime time.Time, success bool) {
 	duration := time.Since(startTime)
 
@@ -65,12 +71,13 @@ func (m *Metrics) RecordJobExecution(startTime time.Time, success bool) {
 	if success {
 		m.JobSuccessRate = float64(m.JobCount-m.FailureCount) / float64(m.JobCount)
 	}
+	m.updateLatencyPercentilesLocked(duration)
 	m.mu.Unlock()
-
-	m.updateLatencyPercentiles(duration)
 }
 
-// RecordJobSuccess records a successful job with its latency.
+/*
+RecordJobSuccess records a successful job with its latency.
+*/
 func (m *Metrics) RecordJobSuccess(latency time.Duration) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -82,10 +89,12 @@ func (m *Metrics) RecordJobSuccess(latency time.Duration) {
 		m.JobSuccessRate = float64(m.JobCount-m.FailureCount) / float64(m.JobCount)
 	}
 
-	m.updateLatencyMetrics(latency)
+	m.updateLatencyPercentilesLocked(latency)
 }
 
-// RecordJobFailure increments the failure counter.
+/*
+RecordJobFailure increments the failure counter.
+*/
 func (m *Metrics) RecordJobFailure() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -98,13 +107,16 @@ func (m *Metrics) RecordJobFailure() {
 	}
 }
 
-// ExportMetrics returns a snapshot for external consumption.
+/*
+ExportMetrics returns a snapshot for external consumption.
+*/
 func (m *Metrics) ExportMetrics() map[string]any {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	return map[string]any{
 		"worker_count":         m.WorkerCount,
+		"idle_workers":         m.IdleWorkers,
 		"queue_size":           m.JobQueueSize,
 		"success_rate":         m.JobSuccessRate,
 		"avg_latency":          m.AverageJobLatency.Milliseconds(),
@@ -114,16 +126,21 @@ func (m *Metrics) ExportMetrics() map[string]any {
 	}
 }
 
-func (m *Metrics) updateLatencyPercentiles(duration time.Duration) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.AverageJobLatency = (m.AverageJobLatency*time.Duration(m.JobCount-1) + duration) / time.Duration(m.JobCount)
+/*
+updateLatencyPercentilesLocked adds a latency sample to the t-digest and updates percentiles.
+Must be called with m.mu held.
+*/
+func (m *Metrics) updateLatencyPercentilesLocked(duration time.Duration) {
+	if m.JobCount > 0 {
+		m.AverageJobLatency = time.Duration(int64(m.TotalJobTime) / m.JobCount)
+	}
 	value := float64(duration.Milliseconds())
 	m.totalWeight++
 
 	if len(m.centroids) == 0 {
 		m.centroids = append(m.centroids, tDigestCentroid{mean: value, count: 1})
+		m.P95JobLatency = duration
+		m.P99JobLatency = duration
 		return
 	}
 
@@ -162,6 +179,9 @@ func (m *Metrics) updateLatencyPercentiles(duration time.Duration) {
 	m.P99JobLatency = time.Duration(m.estimatePercentile(0.99)) * time.Millisecond
 }
 
+/*
+calculateQuantile returns the approximate rank of value in the t-digest.
+*/
 func (m *Metrics) calculateQuantile(value float64) float64 {
 	if m.totalWeight == 0 {
 		return 0.0
@@ -175,6 +195,9 @@ func (m *Metrics) calculateQuantile(value float64) float64 {
 	return rank / float64(m.totalWeight)
 }
 
+/*
+estimatePercentile interpolates the latency at the given quantile.
+*/
 func (m *Metrics) estimatePercentile(p float64) float64 {
 	if len(m.centroids) == 0 {
 		return 0
@@ -201,6 +224,9 @@ func (m *Metrics) estimatePercentile(p float64) float64 {
 	return m.centroids[len(m.centroids)-1].mean
 }
 
+/*
+compress merges centroids to stay within maxCentroids.
+*/
 func (m *Metrics) compress() {
 	if len(m.centroids) <= 1 {
 		return
@@ -229,10 +255,3 @@ func (m *Metrics) compress() {
 	m.centroids = newCentroids
 }
 
-func (m *Metrics) updateLatencyMetrics(latency time.Duration) {
-	if latency > m.P99JobLatency {
-		m.P99JobLatency = latency
-	} else if latency > m.P95JobLatency {
-		m.P95JobLatency = latency
-	}
-}

@@ -41,8 +41,10 @@ func TestCalculus(t *testing.T) {
 			combined := calc.Multiply(calc.Multiply(s, l), o)
 
 			// Get the inverse of Roy and is_in
-			invS := calc.Inverse(s)
-			invL := calc.Inverse(l)
+			invS, err := calc.Inverse(s)
+			So(err, ShouldBeNil)
+			invL, err := calc.Inverse(l)
+			So(err, ShouldBeNil)
 
 			// (s * l * o) * invS * invL = o
 			resolved := calc.Multiply(calc.Multiply(combined, invS), invL)
@@ -52,11 +54,48 @@ func TestCalculus(t *testing.T) {
 
 		Convey("It should correctly cancel negative constraints", func() {
 			path := Phase(50)
-			antiPath := calc.Subtract(Phase(FermatPrime), path) // This is also FermatPrime - Path
+			antiPath := calc.Subtract(Phase(0), path) // Additive inverse in GF(257)
 
 			// Combine them should yield 0 (Destructive interference)
 			res := calc.Add(path, antiPath)
 			So(res, ShouldEqual, 0)
 		})
 	})
+}
+
+func BenchmarkSum(b *testing.B) {
+	calc := NewCalculus()
+	s := "The quick brown fox jumps over the lazy dog"
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = calc.Sum(s)
+	}
+}
+
+func BenchmarkMultiply(b *testing.B) {
+	calc := NewCalculus()
+	a, b2 := Phase(123), Phase(45)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = calc.Multiply(a, b2)
+	}
+}
+
+func BenchmarkInverse(b *testing.B) {
+	calc := NewCalculus()
+	a := Phase(7) // non-zero
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _ = calc.Inverse(a)
+	}
+}
+
+func BenchmarkPower(b *testing.B) {
+	calc := NewCalculus()
+	base := Phase(3)
+	exp := uint32(255)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = calc.Power(base, exp)
+	}
 }

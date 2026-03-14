@@ -15,9 +15,7 @@ const (
 Calculus provides algebraic operations for GF(257) holographic inference.
 It allows calculation of modular exponents, inverses, and string phases.
 */
-type Calculus struct {
-	err error
-}
+type Calculus struct{}
 
 type calcOpts func(*Calculus)
 
@@ -38,11 +36,7 @@ func NewCalculus(opts ...calcOpts) *Calculus {
 Sum strings into a Phase.
 */
 func (calc *Calculus) Sum(s string) Phase {
-	var sum uint32
-	for i := 0; i < len(s); i++ {
-		sum += uint32(s[i])
-	}
-	return Phase(sum % FermatPrime)
+	return calc.SumBytes([]byte(s))
 }
 
 /*
@@ -50,7 +44,7 @@ SumBytes hashes bytes into a Phase.
 */
 func (calc *Calculus) SumBytes(b []byte) Phase {
 	var sum uint32
-	for i := 0; i < len(b); i++ {
+	for i := range b {
 		sum += uint32(b[i])
 	}
 	return Phase(sum % FermatPrime)
@@ -97,9 +91,13 @@ func (calc *Calculus) Power(base Phase, exp uint32) Phase {
 
 /*
 Inverse calculates the Fermat's Little Theorem modular inverse of a GF(257) Phase.
+Returns ErrZeroInverse when a is zero (zero has no multiplicative inverse).
 */
-func (calc *Calculus) Inverse(a Phase) Phase {
-	return calc.Power(a, InverseFermatBase)
+func (calc *Calculus) Inverse(a Phase) (Phase, error) {
+	if a == Phase(0) {
+		return 0, ErrZeroInverse
+	}
+	return calc.Power(a, InverseFermatBase), nil
 }
 
 /*

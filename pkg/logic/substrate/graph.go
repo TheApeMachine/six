@@ -309,7 +309,7 @@ func (graph *GraphServer) RecursiveFold(
 		metaResSeq := uniqueMetaResidues[index]
 		jobID := fmt.Sprintf("fold-level-%d-theta-%f-seq-%d", level, theta, index)
 
-		graph.workerPool.Schedule(jobID, func() (any, error) {
+		graph.workerPool.Schedule(jobID, func(ctx context.Context) (any, error) {
 			graph.RecursiveFold(
 				[][]data.Chord{resSeq},
 				[][]data.Chord{metaResSeq},

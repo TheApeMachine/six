@@ -5,20 +5,24 @@ import (
 	"time"
 )
 
-// BackPressureRegulator limits job intake when the system is under
-// pressure (queue deep, latency high).
+/*
+BackPressureRegulator limits job intake when the system is under
+pressure (queue deep, latency high).
+*/
 type BackPressureRegulator struct {
 	mu sync.RWMutex
 
 	maxQueueSize      int
 	targetProcessTime time.Duration
-	pressureWindow    time.Duration
 	currentPressure   float64
 	metrics           *Metrics
-	lastCheck         time.Time
 }
 
-func NewBackPressureRegulator(maxQueueSize int, targetProcessTime, pressureWindow time.Duration) *BackPressureRegulator {
+func NewBackPressureRegulator(
+	maxQueueSize int,
+	targetProcessTime,
+	pressureWindow time.Duration,
+) *BackPressureRegulator {
 	if maxQueueSize <= 0 {
 		maxQueueSize = 1
 	}
@@ -28,12 +32,13 @@ func NewBackPressureRegulator(maxQueueSize int, targetProcessTime, pressureWindo
 	return &BackPressureRegulator{
 		maxQueueSize:      maxQueueSize,
 		targetProcessTime: targetProcessTime,
-		pressureWindow:    pressureWindow,
 		currentPressure:   0.0,
-		lastCheck:         time.Now(),
 	}
 }
 
+/*
+Observe updates the regulator with current metrics and recomputes pressure.
+*/
 func (bp *BackPressureRegulator) Observe(metrics *Metrics) {
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
@@ -41,12 +46,18 @@ func (bp *BackPressureRegulator) Observe(metrics *Metrics) {
 	bp.updatePressure()
 }
 
+/*
+Limit returns true when pressure exceeds the threshold and intake should be limited.
+*/
 func (bp *BackPressureRegulator) Limit() bool {
 	bp.mu.RLock()
 	defer bp.mu.RUnlock()
 	return bp.currentPressure >= 0.8
 }
 
+/*
+Renormalize decreases pressure when queue and latency are below targets.
+*/
 func (bp *BackPressureRegulator) Renormalize() {
 	bp.mu.Lock()
 	defer bp.mu.Unlock()
@@ -58,6 +69,9 @@ func (bp *BackPressureRegulator) Renormalize() {
 	}
 }
 
+/*
+updatePressure computes current pressure from queue size and latency.
+*/
 func (bp *BackPressureRegulator) updatePressure() {
 	if bp.metrics == nil {
 		return
@@ -73,7 +87,9 @@ func (bp *BackPressureRegulator) updatePressure() {
 	bp.currentPressure = min(1.0, max(0.0, queuePressure*0.6+timingPressure*0.4))
 }
 
-// GetPressure returns the current pressure level (0.0–1.0).
+/*
+GetPressure returns the current pressure level (0.0–1.0).
+*/
 func (bp *BackPressureRegulator) GetPressure() float64 {
 	bp.mu.RLock()
 	defer bp.mu.RUnlock()

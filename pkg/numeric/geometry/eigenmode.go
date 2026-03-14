@@ -92,11 +92,11 @@ func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float
 	var sinPSum, cosPSum float64
 
 	for i := range chords {
-		t, p := ei.PhaseForChord(&chords[i])
-		sinTSum += math.Sin(t)
-		cosTSum += math.Cos(t)
-		sinPSum += math.Sin(p)
-		cosPSum += math.Cos(p)
+		theta, phi := ei.PhaseForChord(&chords[i])
+		sinTSum += math.Sin(theta)
+		cosTSum += math.Cos(theta)
+		sinPSum += math.Sin(phi)
+		cosPSum += math.Cos(phi)
 	}
 
 	return math.Atan2(sinTSum, cosTSum), math.Atan2(sinPSum, cosPSum)
@@ -112,14 +112,14 @@ func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, c
 	}
 	var sinSum, cosSum, wSum float64
 	for i := range chords {
-		t, _ := ei.PhaseForChord(&chords[i])
-		w := float64(chords[i].ActiveCount())
-		if w <= 0 {
-			w = 1.0 // safeguard zero-density
+		theta, _ := ei.PhaseForChord(&chords[i])
+		weight := float64(chords[i].ActiveCount())
+		if weight <= 0 {
+			weight = 1.0 // safeguard zero-density
 		}
-		sinSum += w * math.Sin(t)
-		cosSum += w * math.Cos(t)
-		wSum += w
+		sinSum += weight * math.Sin(theta)
+		cosSum += weight * math.Cos(theta)
+		wSum += weight
 	}
 	if wSum == 0 {
 		return 0, 0

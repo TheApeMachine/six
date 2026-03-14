@@ -8,19 +8,21 @@ import (
 )
 
 func TestExponentialBackoffNextDelay(t *testing.T) {
-	Convey("NextDelay doubles each attempt", t, func() {
+	Convey("Given an ExponentialBackoff with Initial 10ms", t, func() {
 		eb := &ExponentialBackoff{Initial: 10 * time.Millisecond}
-		So(eb.NextDelay(1), ShouldEqual, 10*time.Millisecond)
-		So(eb.NextDelay(2), ShouldEqual, 20*time.Millisecond)
-		So(eb.NextDelay(3), ShouldEqual, 40*time.Millisecond)
-		So(eb.NextDelay(4), ShouldEqual, 80*time.Millisecond)
+		Convey("It should double the delay each attempt", func() {
+			So(eb.NextDelay(1), ShouldEqual, 10*time.Millisecond)
+			So(eb.NextDelay(2), ShouldEqual, 20*time.Millisecond)
+			So(eb.NextDelay(3), ShouldEqual, 40*time.Millisecond)
+			So(eb.NextDelay(4), ShouldEqual, 80*time.Millisecond)
+		})
 	})
 }
 
 func TestWithCircuitBreaker(t *testing.T) {
 	Convey("WithCircuitBreaker sets job options", t, func() {
 		j := &Job{}
-		opt := WithCircuitBreaker("cb1", 3, 100*time.Millisecond)
+		opt := WithCircuitBreaker("cb1", 3, 100*time.Millisecond, 2)
 		opt(j)
 		So(j.CircuitID, ShouldEqual, "cb1")
 		So(j.CircuitConfig, ShouldNotBeNil)
@@ -39,4 +41,29 @@ func TestWithRetry(t *testing.T) {
 		So(j.RetryPolicy.MaxAttempts, ShouldEqual, 5)
 		So(j.RetryPolicy.Strategy, ShouldEqual, eb)
 	})
+}
+
+func BenchmarkExponentialBackoffNextDelay(b *testing.B) {
+	eb := &ExponentialBackoff{Initial: 10 * time.Millisecond}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		eb.NextDelay(i % 10)
+	}
+}
+
+func BenchmarkWithCircuitBreaker(b *testing.B) {
+	for i := 0; i < b.N; i++ {
+		job := &Job{}
+		opt := WithCircuitBreaker("cb1", 3, 100*time.Millisecond, 2)
+		opt(job)
+	}
+}
+
+func BenchmarkWithRetry(b *testing.B) {
+	eb := &ExponentialBackoff{Initial: time.Second}
+	for i := 0; i < b.N; i++ {
+		job := &Job{}
+		opt := WithRetry(5, eb)
+		opt(job)
+	}
 }

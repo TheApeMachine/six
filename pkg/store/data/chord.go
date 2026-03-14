@@ -1,6 +1,7 @@
 package data
 
 import (
+	"context"
 	"fmt"
 	"math/bits"
 	"sync"
@@ -36,6 +37,7 @@ func BuildChord(payload []byte) (Chord, error) {
 			return Chord{}, err
 		}
 
+		// Pairwise coprime spreading factors (7,13,31,61,127) distribute byte influence across logicalBits.
 		for _, off := range [5]int{
 			int(b) * 7, int(b) * 13, int(b) * 31, int(b) * 61, int(b) * 127,
 		} {
@@ -249,8 +251,9 @@ giving C(257,5) = 8.8 billion unique signatures.
 func BaseChord(b byte) Chord {
 	chord := MustNewChord()
 
-	const logicalBits = 257
+	logicalBits := config.Numeric.VocabSize + 1
 
+	// Pairwise coprime spreading factors (7,13,31,61,127) distribute byte influence across logicalBits.
 	offsets := [5]int{
 		int(b) * 7,
 		int(b) * 13,
@@ -570,14 +573,20 @@ func FlattenBatched(chords []Chord, p *pool.Pool) []FlatChord {
 	wg := sync.WaitGroup{}
 
 	for i := range chords {
-		wg.Add(1)
 		idx := i
-
-		p.Schedule(fmt.Sprintf("flatten-%d", idx), func() (any, error) {
-			defer wg.Done()
+		resCh := p.Schedule(fmt.Sprintf("flatten-%d", idx), func(ctx context.Context) (any, error) {
 			out[idx] = chords[idx].Flatten()
 			return nil, nil
 		})
+		if resCh == nil {
+			out[idx] = chords[idx].Flatten()
+			continue
+		}
+		wg.Add(1)
+		go func(ch chan *pool.Result) {
+			defer wg.Done()
+			<-ch
+		}(resCh)
 	}
 
 	wg.Wait()

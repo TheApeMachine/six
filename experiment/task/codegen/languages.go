@@ -289,13 +289,15 @@ type multiDataset struct {
 	current   int
 }
 
-func (m *multiDataset) Generate() chan provider.RawToken {
+func (md *multiDataset) Generate() chan provider.RawToken {
 	out := make(chan provider.RawToken, 4096)
 	go func() {
 		defer close(out)
-		for i, ds := range m.datasets {
+		for idx, ds := range md.datasets {
 			for tok := range ds.Generate() {
-				tok.SampleID = uint32(i)<<24 | (tok.SampleID & 0x00FFFFFF)
+				// Upper 8 bits: language index (0–255). Lower 24 bits: per-language SampleID (0–16,777,215).
+				// Max 256 languages and ~16.7M samples per language; use different encoding if either limit is exceeded.
+				tok.SampleID = uint32(idx)<<24 | (tok.SampleID & 0x00FFFFFF)
 				out <- tok
 			}
 		}
@@ -303,10 +305,10 @@ func (m *multiDataset) Generate() chan provider.RawToken {
 	return out
 }
 
-func (m *multiDataset) LangForSampleID(id uint32) string {
+func (md *multiDataset) LangForSampleID(id uint32) string {
 	langIdx := int(id >> 24)
-	if langIdx < len(m.langNames) {
-		return m.langNames[langIdx]
+	if langIdx < len(md.langNames) {
+		return md.langNames[langIdx]
 	}
 	return "unknown"
 }

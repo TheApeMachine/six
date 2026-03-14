@@ -46,8 +46,14 @@ func NewIntegrationHelper(
 	ctx, cancel := context.WithCancel(ctx)
 
 	// Boot random UDP telemetry listener so tests can introspect Fold pipeline
-	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	conn, _ := net.ListenUDP("udp", addr)
+	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
+	if err != nil {
+		panic("ResolveUDPAddr: " + err.Error())
+	}
+	conn, err := net.ListenUDP("udp", addr)
+	if err != nil {
+		panic("ListenUDP: " + err.Error())
+	}
 
 	events := make(chan telemetry.Event, 5000)
 

@@ -7,7 +7,9 @@ import (
 	"github.com/charmbracelet/log"
 )
 
-// Scaler dynamically adjusts the pool's worker count based on queue load.
+/*
+Scaler dynamically adjusts the pool's worker count based on queue load.
+*/
 type Scaler struct {
 	pool               *Pool
 	minWorkers         int
@@ -19,7 +21,9 @@ type Scaler struct {
 	lastScale          time.Time
 }
 
-// ScalerConfig defines thresholds and timing for auto-scaling.
+/*
+ScalerConfig defines thresholds and timing for auto-scaling.
+*/
 type ScalerConfig struct {
 	TargetLoad         float64
 	ScaleUpThreshold   float64
@@ -27,6 +31,9 @@ type ScalerConfig struct {
 	Cooldown           time.Duration
 }
 
+/*
+evaluate decides whether to scale up or down based on queue load.
+*/
 func (s *Scaler) evaluate() {
 	s.pool.metrics.mu.Lock()
 
@@ -71,6 +78,9 @@ func (s *Scaler) evaluate() {
 	}
 }
 
+/*
+scaleUp adds the given number of workers.
+*/
 func (s *Scaler) scaleUp(count int) {
 	s.pool.metrics.mu.Lock()
 	workerCount := s.pool.metrics.WorkerCount
@@ -85,8 +95,10 @@ func (s *Scaler) scaleUp(count int) {
 	log.Info("scaled up", "added", toAdd, "total", workerCount+toAdd)
 }
 
-// ScaleUpIfNeeded adds workers when under capacity. Called from manage() when
-// a job arrives (wc==0) or when waiting times out (all workers busy).
+/*
+ScaleUpIfNeeded adds workers when under capacity.
+Called from manage() when a job arrives (wc==0) or when waiting times out (all workers busy).
+*/
 func (s *Scaler) ScaleUpIfNeeded(count int) {
 	s.pool.metrics.mu.Lock()
 	wc := s.pool.metrics.WorkerCount
@@ -99,34 +111,38 @@ func (s *Scaler) ScaleUpIfNeeded(count int) {
 	}
 }
 
+/*
+scaleDown removes the given number of workers.
+*/
 func (s *Scaler) scaleDown(count int) {
-	s.pool.workerMu.Lock()
-	defer s.pool.workerMu.Unlock()
+	var toCancel []func()
 
+	s.pool.workerMu.Lock()
 	for range count {
 		if len(s.pool.workerList) == 0 {
 			break
 		}
-
-		w := s.pool.workerList[len(s.pool.workerList)-1]
-		s.pool.workerList = s.pool.workerList[:len(s.pool.workerList)-1]
-		cancelFunc := w.cancel
-
+		lastIdx := len(s.pool.workerList) - 1
+		w := s.pool.workerList[lastIdx]
+		s.pool.workerList = s.pool.workerList[:lastIdx]
 		s.pool.metrics.mu.Lock()
 		s.pool.metrics.WorkerCount--
 		s.pool.metrics.mu.Unlock()
-
-		s.pool.workerMu.Unlock()
-
-		if cancelFunc != nil {
-			cancelFunc()
+		if w.cancel != nil {
+			toCancel = append(toCancel, w.cancel)
 		}
-		time.Sleep(50 * time.Millisecond)
+	}
+	s.pool.workerMu.Unlock()
 
-		s.pool.workerMu.Lock()
+	for _, cancelFunc := range toCancel {
+		cancelFunc()
+		time.Sleep(50 * time.Millisecond)
 	}
 }
 
+/*
+run periodically evaluates and adjusts the worker count.
+*/
 func (s *Scaler) run() {
 	ticker := time.NewTicker(time.Second)
 	defer ticker.Stop()
@@ -141,7 +157,9 @@ func (s *Scaler) run() {
 	}
 }
 
-// NewScaler creates and starts a scaler for the given pool.
+/*
+NewScaler creates and starts a scaler for the given pool.
+*/
 func NewScaler(p *Pool, minWorkers, maxWorkers int, config *ScalerConfig) *Scaler {
 	scaler := &Scaler{
 		pool:               p,
@@ -154,9 +172,11 @@ func NewScaler(p *Pool, minWorkers, maxWorkers int, config *ScalerConfig) *Scale
 		lastScale:          time.Now(),
 	}
 
-	p.wg.Go(func() {
+	p.wg.Add(1)
+	go func() {
+		defer p.wg.Done()
 		scaler.run()
-	})
+	}()
 
 	return scaler
 }

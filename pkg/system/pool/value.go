@@ -46,3 +46,12 @@ func WithValue[T any](value T) opts[T] {
 		poolValue.Value = value
 	}
 }
+
+/*
+WithPoolValueTTL sets the TTL for the PoolValue.
+*/
+func WithPoolValueTTL[T any](ttl time.Duration) opts[T] {
+	return func(poolValue *PoolValue[T]) {
+		poolValue.TTL = ttl
+	}
+}

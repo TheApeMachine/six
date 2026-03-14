@@ -2,6 +2,7 @@ package audio
 
 import (
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -23,9 +24,11 @@ NewDataset walks dir recursively, collects file paths (non-dirs), and returns a 
 func NewDataset(dir string) *Dataset {
 	var paths []string
 	filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
-		// Basic filter to ignore directories. In production, we should ensure
-		// we only load .wav or applicable raw PCM files.
-		if err == nil && !info.IsDir() {
+		if err != nil {
+			log.Printf("walk %s: %v", path, err)
+			return nil
+		}
+		if !info.IsDir() {
 			paths = append(paths, path)
 		}
 		return nil
@@ -43,7 +46,7 @@ func (d *Dataset) Generate() chan provider.RawToken {
 	go func() {
 		defer close(out)
 
-		for i, path := range d.paths {
+		for fileIdx, path := range d.paths {
 			fileBytes, err := os.ReadFile(path)
 			if err != nil {
 				log.Printf("error reading %s: %v", path, err)
@@ -56,6 +59,9 @@ func (d *Dataset) Generate() chan provider.RawToken {
 				for offset+8 <= len(fileBytes) {
 					chunkID := string(fileBytes[offset : offset+4])
 					chunkSize := int(uint32(fileBytes[offset+4]) | uint32(fileBytes[offset+5])<<8 | uint32(fileBytes[offset+6])<<16 | uint32(fileBytes[offset+7])<<24)
+					if chunkSize < 0 || offset+8+chunkSize > len(fileBytes) {
+						break
+					}
 					if chunkID == "data" {
 						payloadOffset = offset + 8
 						if payloadOffset+chunkSize > len(fileBytes) {
@@ -75,10 +81,13 @@ func (d *Dataset) Generate() chan provider.RawToken {
 			payload := fileBytes[payloadOffset:]
 
 			var pos uint32 = 0
-			for _, b := range payload {
+			for _, pcmByte := range payload {
+				if pos == math.MaxUint32 {
+					break
+				}
 				out <- provider.RawToken{
-					SampleID: uint32(i),
-					Symbol:   b,
+					SampleID: uint32(fileIdx),
+					Symbol:   pcmByte,
 					Pos:      pos,
 				}
 				pos++

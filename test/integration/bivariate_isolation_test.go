@@ -84,7 +84,10 @@ func TestBivariateIsolation(t *testing.T) {
 		)
 		defer helper.Teardown()
 
-		time.Sleep(3 * time.Second)
+		ok := pollUntil(10*time.Second, 100*time.Millisecond, func() bool { return len(helper.Events) > 0 })
+		if !ok {
+			t.Fatal("timeout waiting for readiness")
+		}
 		drainEvents(helper.Events)
 
 		Convey("It should differentiate identical chunks via meta when queried from different topological contexts", func() {
@@ -127,7 +130,7 @@ func TestBivariateIsolation(t *testing.T) {
 					}
 
 					results, promptErr := helper.Machine.Prompt(helper.NewPrompt([]string{leftCtx}))
-					time.Sleep(150 * time.Millisecond)
+					pollUntil(500*time.Millisecond, 50*time.Millisecond, func() bool { return len(helper.Events) > 0 })
 					events := collectFoldEvents(helper.Events)
 
 					probes = append(probes, probeResult{
@@ -213,7 +216,7 @@ func TestBivariateIsolation(t *testing.T) {
 			So(differentiated+collapsed, ShouldEqual, tested)
 
 			if differentiated == 0 && tested > 0 {
-				t.Log("FALSIFIED: Meta chords failed to differentiate ANY ambiguous chunks")
+				t.Fatalf("FALSIFIED: Meta chords failed to differentiate ANY ambiguous chunks (tested=%d)", tested)
 			}
 
 			differentiationRate := float64(differentiated) / float64(max(tested, 1))
@@ -254,7 +257,7 @@ func TestBivariateIsolation(t *testing.T) {
 				controlTested++
 
 				results, promptErr := helper.Machine.Prompt(helper.NewPrompt([]string{leftCtx}))
-				time.Sleep(100 * time.Millisecond)
+				pollUntil(500*time.Millisecond, 50*time.Millisecond, func() bool { return len(helper.Events) > 0 })
 				events := collectFoldEvents(helper.Events)
 
 				if promptErr == nil && len(results) > 0 {
@@ -326,7 +329,7 @@ func TestBivariateIsolation(t *testing.T) {
 					}
 
 					_, promptErr := helper.Machine.Prompt(helper.NewPrompt([]string{leftCtx}))
-					time.Sleep(100 * time.Millisecond)
+					pollUntil(500*time.Millisecond, 50*time.Millisecond, func() bool { return len(helper.Events) > 0 })
 					events := collectFoldEvents(helper.Events)
 
 					if promptErr == nil {
@@ -368,7 +371,10 @@ func BenchmarkBivariatePrompt(b *testing.B) {
 	)
 	defer helper.Teardown()
 
-	time.Sleep(3 * time.Second)
+	ok := pollUntil(10*time.Second, 100*time.Millisecond, func() bool { return len(helper.Events) > 0 })
+	if !ok {
+		b.Fatal("no events within deadline")
+	}
 	drainEvents(helper.Events)
 
 	// Pick a chunk from the middle of the novel as a stable probe
@@ -387,6 +393,17 @@ func BenchmarkBivariatePrompt(b *testing.B) {
 		helper.Machine.Prompt(helper.NewPrompt([]string{leftCtx}))
 		drainEvents(helper.Events)
 	}
+}
+
+func pollUntil(timeout, interval time.Duration, check func() bool) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if check() {
+			return true
+		}
+		time.Sleep(interval)
+	}
+	return false
 }
 
 func drainEvents(ch chan telemetry.Event) {

@@ -87,7 +87,7 @@ func New() (*Logger, error) {
 				ReportCaller:    true,
 			},
 		),
-		// Always initialize traceHandle to a safe fallback (stderr)
+		// traceHandle writes verbose trace output to the provided file
 		traceHandle: *log.NewWithOptions(
 			file,
 			log.Options{
@@ -149,4 +149,12 @@ SetLevel changes the main handle's minimum log level.
 */
 func SetLevel(level log.Level) {
 	logger.handle.SetLevel(level)
+}
+
+/*
+IsTraceEnabled reports whether trace logging is enabled (e.g. via SIX_TRACE=1).
+Call before expensive Trace calls to avoid cost when tracing is off.
+*/
+func IsTraceEnabled() bool {
+	return os.Getenv("SIX_TRACE") == "1"
 }

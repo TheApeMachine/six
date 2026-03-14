@@ -73,11 +73,15 @@ func xorSequence(seq []data.Chord, label data.Chord) []data.Chord {
 	for _, chord := range seq {
 		residue := chord.XOR(label)
 		if residue.ActiveCount() > 0 {
-			console.Trace("xorSequence", "residue", residue)
+			if console.IsTraceEnabled() {
+				console.Trace("xorSequence", "residue", residue)
+			}
 			out = append(out, residue)
 		}
 	}
 
-	console.Trace("xorSequence", "out", out)
+	if console.IsTraceEnabled() {
+		console.Trace("xorSequence", "out", out)
+	}
 	return out
 }

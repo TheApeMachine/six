@@ -1,6 +1,7 @@
 package geometry
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"math/cmplx"
@@ -9,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
 
@@ -71,7 +73,7 @@ the serial normalize pass.
 If p is nil the call falls back to the serial EncodeFromChords path.
 */
 func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface {
-	Schedule(string, func() (any, error), ...pool.JobOption) chan *pool.Result
+	Schedule(string, func(context.Context) (any, error), ...pool.JobOption) chan *pool.Result
 }) PhaseDial {
 	if p == nil {
 		return dial.EncodeFromChords(chords)
@@ -97,10 +99,8 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 	for k := range nBasis {
 		kk := k
 		omega := float64(numeric.Primes[kk])
-		wg.Add(1)
 
-		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", kk), func() (any, error) {
-			defer wg.Done()
+		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", kk), func(ctx context.Context) (any, error) {
 			var sum complex128
 			for t := range chords {
 				phase := (omega * float64(t+1) * 0.1) + (structuralPhases[t] * math.Pi * 2)
@@ -111,14 +111,15 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 		})
 
 		if resCh == nil {
-			wg.Done()
 			continue
 		}
 
+		wg.Add(1)
 		go func(ch chan *pool.Result, dimension int) {
+			defer wg.Done()
 			res := <-ch
 			if res != nil && res.Error != nil {
-				fmt.Printf("phasedial-k%d scheduling error: %v\n", dimension, res.Error)
+				_ = console.Error(res.Error, "dimension", dimension)
 			}
 		}(resCh, kk)
 	}

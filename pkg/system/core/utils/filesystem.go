@@ -14,6 +14,7 @@ func ProjectRoot() string {
 	if err != nil {
 		return "."
 	}
+
 	for dir := wd; dir != ""; dir = filepath.Dir(dir) {
 		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
 			return dir

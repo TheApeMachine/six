@@ -18,10 +18,13 @@ func TestNewBackPressureRegulator(t *testing.T) {
 }
 
 func TestBackPressureRegulatorObserve(t *testing.T) {
-	Convey("Observe updates metrics", t, func() {
+	Convey("Given a BackPressureRegulator", t, func() {
 		bp := NewBackPressureRegulator(100, 50*time.Millisecond, time.Second)
-		bp.Observe(&Metrics{JobQueueSize: 80, AverageJobLatency: 100 * time.Millisecond})
-		So(bp.GetPressure(), ShouldBeGreaterThan, 0.5)
+
+		Convey("It should update metrics", func() {
+			bp.Observe(&Metrics{JobQueueSize: 80, AverageJobLatency: 100 * time.Millisecond})
+			So(bp.GetPressure(), ShouldBeGreaterThan, 0.5)
+		})
 	})
 }
 
@@ -48,7 +51,7 @@ func TestBackPressureRegulatorRenormalize(t *testing.T) {
 		So(bp.Limit(), ShouldBeTrue)
 		bp.Observe(&Metrics{JobQueueSize: 30, AverageJobLatency: 10 * time.Millisecond})
 		bp.Renormalize()
-		So(bp.GetPressure(), ShouldBeLessThan, 1.0)
+		So(bp.GetPressure(), ShouldBeLessThan, 0.8)
 	})
 }
 

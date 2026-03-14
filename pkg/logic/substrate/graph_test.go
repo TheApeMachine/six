@@ -219,13 +219,10 @@ func BenchmarkGraph_Alice(b *testing.B) {
 }
 
 func BenchmarkGraph_Evaluate_Scaling(b *testing.B) {
-	_, seg, _ := capnp.NewMessage(capnp.MultiSegment(nil))
-
 	graph := NewGraphServer()
 
 	paths := make([]data.Chord, 100_000)
 	for i := range paths {
-		paths[i], _ = data.NewChord(seg)
 		c, _ := data.BuildChord([]byte(fmt.Sprintf("chunk_%d", i%1000)))
 		paths[i] = c
 	}

@@ -84,28 +84,44 @@ func (err MetalError) Error() string {
 	return string(err)
 }
 
+var initErr error
+
+func InitError() error {
+	return initErr
+}
+
 func init() {
 	tmpFile, err := os.CreateTemp("", "sensorium-shader-*.metallib")
-
 	if err != nil {
+		initErr = err
 		return
 	}
+
+	name := tmpFile.Name()
+	defer func() {
+		_ = os.Remove(name)
+	}()
 
 	if _, err := tmpFile.Write(resolverMetallib); err != nil {
 		tmpFile.Close()
+		initErr = err
 		return
 	}
 
-	tmpFile.Close()
+	if err := tmpFile.Close(); err != nil {
+		initErr = err
+		return
+	}
 
-	cPath := C.CString(tmpFile.Name())
+	cPath := C.CString(name)
 	defer C.free(unsafe.Pointer(cPath))
 
 	res := C.init_metal(cPath)
-
 	if res != 0 {
+		initErr = MetalErrorInitFailed
 		return
 	}
 
 	metalReady.Store(true)
+	initErr = nil
 }
