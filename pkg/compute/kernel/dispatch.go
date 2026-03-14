@@ -1,0 +1,126 @@
+package kernel
+
+import (
+	"fmt"
+	"unsafe"
+
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
+	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/errnie"
+)
+
+/*
+Backend is the sole interface for resolving topological queries against the network.
+
+Each query node's GF(257) state is compared against all nodes in the thermodynamic field.
+The backend calculates geometric distance mapping. It returns one packed uint64
+per query containing the best-matching entry index and its distance score.
+
+Implementations exist for Metal (GPU), CUDA (GPU), and CPU.
+The caller selects one backend at startup via SIX_BACKEND env var.
+*/
+type Backend interface {
+	Available() bool
+	Resolve(
+		graphNodes unsafe.Pointer,
+		numNodes int,
+		context unsafe.Pointer,
+	) (uint64, error)
+}
+
+type Builder struct {
+	backend Backend
+}
+
+type builderOpts func(*Builder)
+
+func WithBackend(backend Backend) builderOpts {
+	return func(builder *Builder) {
+		builder.backend = backend
+	}
+}
+
+/*
+NewBuilder creates the backend specified by the SIX_BACKEND environment variable.
+Valid values: "metal", "cuda", "cpu". Defaults to "cpu" if unset.
+Returns an error if the requested backend is unavailable.
+*/
+func NewBuilder(opts ...builderOpts) *Builder {
+	builder := &Builder{}
+
+	for _, opt := range opts {
+		opt(builder)
+	}
+
+	if builder.backend == nil {
+		switch config.System.Backend {
+		case "metal":
+			builder.backend = &metal.MetalBackend{}
+		case "cuda":
+			builder.backend = &cuda.CUDABackend{}
+		case "distributed":
+			builder.backend = &DistributedBackend{}
+		case "cpu":
+			builder.backend = &cpu.CPUBackend{}
+		default:
+			builder.backend = &cpu.CPUBackend{}
+		}
+	}
+
+	return builder
+}
+
+func (builder *Builder) Resolve(
+	graphNodes unsafe.Pointer,
+	numNodes int,
+	context unsafe.Pointer,
+) (uint64, error) {
+	// Wrap hardware execution in errnie monad to prevent silent failure zeroes from Metal/CUDA
+	resolved := errnie.Try(builder.backend.Resolve(graphNodes, numNodes, context))
+	res := errnie.Then(resolved, func(val uint64) (uint64, error) {
+		// Hardware often returns 0 on panic/nil pointer without raising an error boundary.
+		// A zero here corrupts the GF(257) algebraic geometry downstream.
+		if val == 0 {
+			return 0, fmt.Errorf("backend hardware silent failure: returned 0 topology coordinate")
+		}
+		return val, nil
+	})
+
+	return res.Unwrap()
+}
+
+func (builder *Builder) Available() bool {
+	if builder.backend == nil {
+		return false
+	}
+	return builder.backend.Available()
+}
+
+/*
+maxEncodedDistSq is the encoding bias/upper bound (2^17) used by the kernel backend.
+Higher inverted values represent closer matches for atomicMax semantics.
+CUDA uses scale 1024 for fractional precision; scaledMax is the CUDA upper bound.
+*/
+const maxEncodedDistSq = 1 << 17
+
+const scaledMaxEncoded = maxEncodedDistSq * 1024
+
+/*
+DecodePacked unwraps the 64-bit result from the kernel backend.
+The backend returns (maxEncodedDistSq - distance_squared) in the upper 32 bits,
+and the node index in the lower 32 bits. High values = lower distance.
+CUDA uses scale 1024 for fractional distance; CPU uses integer distSq.
+*/
+func DecodePacked(packed uint64) (idx int, distSq float64) {
+	invertedDist := uint32(packed >> 32)
+	idxU32 := uint32(packed & 0xFFFFFFFF)
+
+	if invertedDist > maxEncodedDistSq {
+		distSq = float64(scaledMaxEncoded-invertedDist) / 1024
+	} else {
+		distSq = float64(maxEncodedDistSq - invertedDist)
+	}
+	return int(idxU32), distSq
+}

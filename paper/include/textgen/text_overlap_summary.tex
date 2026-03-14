@@ -1,48 +1,27 @@
 \begin{table}[htbp]
 \centering
-\caption{Text Overlap — standardised result summary (N=10).}
+\caption{Text Overlap — standardised result summary (N=1).}
 \label{tab:text_overlap_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-4 & Text Overlap & 0.0000 & 0.1137 & 0.1137 & 0.0517 \\
-8 & Text Overlap & 0.0000 & 0.0874 & 0.0874 & 0.0397 \\
-0 & Text Overlap & 0.0000 & 0.0857 & 0.0857 & 0.0390 \\
+0 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
-\midrule
-\# & Name & Exact & Partial & Fuzzy & Weighted \\
-\midrule
-7 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Text Overlap & 0.0000 & 0.0638 & 0.0638 & 0.0290 \\
-6 & Text Overlap & 0.0000 & 0.0692 & 0.0692 & 0.0315 \\
-\midrule
-\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a little gir\ldots}} & \multicolumn{2}{l}{\texttt{he cat and the dog, to help her. They al\ldots}} & \multicolumn{2}{l}{\texttt{find the ithe ithe ithe ithe ithe ithe t\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a clever lit\ldots}} & \multicolumn{2}{l}{\texttt{soon Max felt better. He said, "Thank yo\ldots}} & \multicolumn{2}{l}{\texttt{tree. The cherry tree was very the ithe \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, in a peaceful town, th\ldots}} & \multicolumn{2}{l}{\texttt{arah ran with all their speed, laughing \ldots}} & \multicolumn{2}{l}{\texttt{ny}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\ldots}} & \multicolumn{2}{l}{\texttt{laughed and beeped his horn.··Beep playe\ldots}} & \multicolumn{2}{l}{\texttt{the ithat the ithe ithe ithe ithe ithe i\ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a fast driver named Tim went fo\ldots}} & \multicolumn{2}{l}{\texttt{car was very loud, and everyone could he\ldots}} & \multicolumn{2}{l}{\texttt{er}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 40\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0342} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0517} \\
+\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: 40\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{332.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{1.82 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{181.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.15 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

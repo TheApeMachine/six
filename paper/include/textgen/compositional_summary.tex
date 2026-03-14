@@ -1,48 +1,27 @@
 \begin{table}[htbp]
 \centering
-\caption{Compositional — standardised result summary (N=10).}
+\caption{Compositional — standardised result summary (N=1).}
 \label{tab:compositional_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Compositional & 0.0000 & 0.1095 & 0.1095 & 0.0498 \\
-2 & Compositional & 0.0000 & 0.1016 & 0.1016 & 0.0462 \\
-9 & Compositional & 0.0000 & 0.0955 & 0.0955 & 0.0434 \\
+0 & Compositional & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
-\midrule
-\# & Name & Exact & Partial & Fuzzy & Weighted \\
-\midrule
-5 & Compositional & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-4 & Compositional & 0.0000 & 0.0628 & 0.0628 & 0.0286 \\
-3 & Compositional & 0.0000 & 0.0711 & 0.0711 & 0.0323 \\
-\midrule
-\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{or them because they were sharing and he\ldots}} & \multicolumn{2}{l}{\texttt{fin upon a the ithe ithe ithe ithe ithe \ldots}} \\
-\multicolumn{2}{l}{\texttt{One day, a little fish named Fin was swi\ldots}} & \multicolumn{2}{l}{\texttt{the shore. The crab started to feel bett\ldots}} & \multicolumn{2}{l}{\texttt{afind the ithe ithe ithe ithe ithe ithe \ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, in a big lake, there w\ldots}} & \multicolumn{2}{l}{\texttt{and gave it a big hug. The brown kayak w\ldots}} & \multicolumn{2}{l}{\texttt{s a}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a little gir\ldots}} & \multicolumn{2}{l}{\texttt{an the cobweb. The spider was sad, but i\ldots}} & \multicolumn{2}{l}{\texttt{find an and and and and and and and and \ldots}} \\
+\multicolumn{2}{l}{\texttt{One day, a fast driver named Tim went fo\ldots}} & \multicolumn{2}{l}{\texttt{last, they stopped at the park to play. \ldots}} & \multicolumn{2}{l}{\texttt{AAAA}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 30\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0356} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0498} \\
+\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: 30\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{365.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{2.01 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{200.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.38 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

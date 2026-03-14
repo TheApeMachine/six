@@ -5,8 +5,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -18,7 +18,7 @@ over all prompts.
 type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewSequencerExperiment() *SequencerExperiment {
@@ -34,16 +34,13 @@ func (experiment *SequencerExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *SequencerExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *SequencerExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *SequencerExperiment) Holdout() (int, process.HoldoutType) {
-	return 32, process.RIGHT
+func (experiment *SequencerExperiment) Holdout() (int, input.HoldoutType) {
+	return 32, input.RIGHT
 }
 
 func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData) {

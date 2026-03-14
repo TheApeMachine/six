@@ -11,11 +11,11 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/console"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/console"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 // holdoutPercents are the nine occlusion levels tested.
@@ -47,7 +47,7 @@ Artifacts:
 type ReconstructionExperiment struct {
 	tableData  []tools.ExperimentalData
 	dataset    provider.Dataset
-	prompt     *process.Prompt
+	prompt     []string
 	imageBytes [][]byte // raw NRGBA pixels per image, collected in Prompts()
 }
 
@@ -68,8 +68,8 @@ func (e *ReconstructionExperiment) Section() string           { return "imagegen
 func (e *ReconstructionExperiment) Dataset() provider.Dataset { return e.dataset }
 
 // Holdout is unused here; we build explicit samples in Prompts().
-func (e *ReconstructionExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (e *ReconstructionExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 /*
@@ -77,7 +77,7 @@ Prompts pre-fetches all images from the dataset and constructs one
 PromptSample per image × holdout-percentage combination (9 × N samples).
 It also caches the raw pixel buffers in e.imageBytes for Artifacts().
 */
-func (e *ReconstructionExperiment) Prompts() *process.Prompt {
+func (e *ReconstructionExperiment) Prompts() []string {
 	// Collect raw pixel bytes per image from the dataset's byte stream.
 	imgMap := make(map[uint32][]byte)
 	var imgOrder []uint32
@@ -97,9 +97,7 @@ func (e *ReconstructionExperiment) Prompts() *process.Prompt {
 		e.imageBytes = append(e.imageBytes, imgMap[id])
 	}
 
-	e.prompt = process.NewPrompt(
-		process.PromptWithDataset(e.dataset),
-	)
+	e.prompt = []string{}
 	return e.prompt
 }
 

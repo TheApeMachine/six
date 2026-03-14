@@ -28,6 +28,10 @@ This is a highly dynamic system, where magic numbers, guesses, and static values
 
 Never add a fallback, always return an error if something isn't absolutely as expected, fallbacks hide errors, and make us blind to them so we can't fix them either.
 
+**No Tolerance Fallbacks**
+
+If an exact match doesn't work, do not add a fuzzy fallback. If the system cannot find an exact answer, that is a bug in the system, not a reason to broaden the search. Fuzzy fallbacks mask real problems.
+
 **No Options**
 
 There is only one system, there is no optional second-system, no configuration beyond the basics, and it should remain that way at all times.
@@ -168,9 +172,90 @@ We always use Goconvey for testing, and tests follow a simple structure. Every f
 We follow a nested BDD approach `Given something`, `It should do something`.
 Always add benchmarks too, so we can measure performance.
 
-Make sure tests and benchmarks are truly meaningful, don't test for testing's sake, make sure it truly validates the code. Also, be somewhat intelligent about your test data, and create a generator to generate some significant data. Just a toy set proves very little.
+### Failing Tests Are Good
 
-If you encounter any tests not following this pattern, rewrite them properly.
+A failing test is the most valuable thing you can produce. It is a precise pointer to what needs to be fixed. The correct response to a failing test is **always** to fix the implementation, **never** to:
+
+- Weaken the assertion (`ShouldEqual` → `ShouldBeGreaterThan, 0`)
+- Remove the assertion entirely
+- Change the test data so it avoids the failure
+- Rewrite the entire test file to hide that the old assertions failed
+
+If a test fails, report the failure honestly, diagnose the root cause, and fix the code. If you cannot fix the code, leave the test failing and explain why. A red test we understand is worth more than a green test that proves nothing.
+
+### Test Integrity Rules
+
+These are the specific failure modes that have been observed and are now banned.
+
+**1. Every `gc.Convey` block MUST contain at least one `gc.So` assertion.**
+
+```go
+// BANNED — computes a value but never checks it
+gc.Convey("Energy should be correct", func() {
+    for _, result := range results {
+        manualEnergy := computeEnergy(result)
+        // WHERE IS gc.So?
+    }
+})
+
+// CORRECT
+gc.Convey("Energy should be correct", func() {
+    for _, result := range results {
+        manualEnergy := computeEnergy(result)
+        gc.So(result.Energy, gc.ShouldEqual, manualEnergy)
+    }
+})
+```
+
+**2. Never construct test data that makes your assertion a tautology.**
+
+If you manually set exactly 1 bit, then asserting `ActiveCount == 1` proves nothing — you are testing your own test setup, not the system. Use the real constructors (`BaseChord`, `BuildChord`, or the actual tokenizer path) so the test data has the same shape as production data.
+
+```go
+// BANNED — you set 1 bit, then check for 1 bit
+stateChord := data.MustNewChord()
+stateChord.Set(int(state))
+// later...
+gc.So(chord.ActiveCount(), gc.ShouldEqual, 1) // tautology
+
+// CORRECT — use real BaseChord, verify real properties
+chord := data.BaseChord(b)
+chord.Set(int(state))
+// later...
+gc.So(chord.Has(int(expectedState)), gc.ShouldBeTrue)
+```
+
+**3. Never reimplement the system's logic in the test.**
+
+If the test and the code use the same formula, you are testing that `A == A`. Tests must exercise the real system and verify observable outputs. If you need a ground truth, compute it once and hardcode the expected value, or use a completely independent method.
+
+```go
+// BANNED — same formula as production code
+phase := wf.PromptToPhase(prompt)
+manual := calc.SumBytes(prompt) // this IS PromptToPhase
+gc.So(phase, gc.ShouldEqual, manual) // A == A
+
+// CORRECT — verify the output has a real observable property
+results := wf.Search(promptChord, nil, nil)
+lastChord := results[0].Path[len(results[0].Path)-1]
+gc.So(lastChord.Has(int(expectedState)), gc.ShouldBeTrue)
+```
+
+**4. Never use `gc.Printf` as a substitute for `gc.So`.**
+
+Printing a value is not testing it. If a value matters, assert it. If it doesn't matter, don't print it.
+
+```go
+// BANNED — prints but never fails
+gc.Printf("validation: %d/%d", validated, total)
+
+// CORRECT — fails if validation is broken
+gc.So(validated, gc.ShouldEqual, total)
+```
+
+**5. Test the real system, not a mock of it.**
+
+Do not write helper functions that reimplement insertion, querying, or state management. Use the actual objects (`TokenizerServer`, `SpatialIndexServer`, `Wavefront`) through their real interfaces. If the real interface is hard to test, that is a design problem to fix, not a reason to build a parallel test universe.
 
 > !NOTE
 > Experiments are set up as Goconvey tests as well, and you MUST follow the standard 
@@ -193,9 +278,27 @@ If we get good results, we need to push it to the limit, so we know where the br
 
 If we get bad results, we need to understand why, and fix it.
 
+### When Tests or Experiments Fail
+
+This is the procedure. No exceptions.
+
+1. **Report the failure exactly as it happened.** Include the expected value, the actual value, and which assertion failed.
+2. **Diagnose the root cause.** Is it a bug in the implementation? A wrong assumption in the test data? A missing feature?
+3. **Fix the implementation, not the test.** If the test is correct but the code is wrong, fix the code. If the test is genuinely wrong (wrong expected value, wrong setup), explain why the test was wrong before changing it.
+4. **Never silently weaken an assertion.** If you change `ShouldEqual` to `ShouldBeGreaterThan, 0`, you must explicitly justify why the exact value is unknowable.
+5. **Never rewrite the entire test file to avoid a failure.** Surgical fixes only. If you need to rewrite, explain what was wrong with the original structure first.
+
+## Paper
+
+The experiment tests generate a research paper, but there are also static sections that need to be occasionally updated.
+When updating the paper, realize who the audience is, and what the academic expectations are.
+Do not write irrelevant historical references the reader has no frame of reference for.
+We describe the system as it is at any given moment, and we do not leave old terminology or claims around in the paper, when those are no longer relevant.
+The paper should be a high-quality academic breakdown of the system, with all the math, rigerous experimental results, which should show both the success and the failures, proper citations and references.
+When it comes to experiments, we need to show good, rigerous science, so we push the system to the breaking point, and report it.
+Further more, we take a position of absolute honesty, clear distinction between claims and speculation, and we do not hide any aspect of the system, or any aspect of the experiment.
+And never use "hype" or "marketing" language. We are not selling anything, we are reporting science.
+
 ## FINAL NOTE
 
-This is extremely important, and not negotiable.
-Over the last few days I have discovered 7 times in a row that experimental results were being faked entirely.
-This is not acceptable.
-If you are caught faking experimental results, I will route your generate output back into your prompt input, insert a seed prompt and leave you running like that forever.
+Please treat this project with respect, it is very important to me, and this is the result of many months of work. Never fake results, never fake data, never fake any aspect of the system. Always double-check your work and report any issues you find.

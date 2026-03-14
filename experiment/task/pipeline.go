@@ -6,10 +6,10 @@ import (
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/data"
-	"github.com/theapemachine/six/pkg/pool"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/vm"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/system/pool"
+	"github.com/theapemachine/six/pkg/system/vm"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 const pipelineDrainTimeout = 2 * time.Second
@@ -35,8 +35,8 @@ type Pipeline struct {
 	broadcast    *pool.BroadcastGroup
 	coder        *data.MortonCoder
 	booter       *vm.Booter
+	machine      *vm.Machine
 	experiment   tools.PipelineExperiment
-	prompts      *process.Prompt
 	testIdx      int
 	scoreWgts    tools.ScoreWeights
 	reporter     Reporter
@@ -83,7 +83,29 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
-	return nil
+	for idx, prompt := range pipeline.experiment.Prompts() {
+		pipeline.machine = vm.NewMachine(
+			vm.MachineWithContext(pipeline.ctx),
+		)
+
+		result, err := pipeline.machine.Prompt(
+			prompt,
+		)
+
+		if err != nil {
+			return err
+		}
+
+		pipeline.experiment.AddResult(tools.ExperimentalData{
+			Idx:      idx,
+			Name:     pipeline.experiment.Name(),
+			Prefix:   []byte(prompt),
+			Holdout:  []byte(result),
+			Observed: result,
+		})
+	}
+
+	return pipeline.writeStandardSummary()
 }
 
 func extractScores(data []tools.ExperimentalData, field string) []float64 {
@@ -139,13 +161,13 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 
 	htStr := "RIGHT"
 	switch holdoutType {
-	case process.LEFT:
+	case input.LEFT:
 		htStr = "LEFT"
-	case process.CENTER:
+	case input.CENTER:
 		htStr = "CENTER"
-	case process.RANDOM:
+	case input.RANDOM:
 		htStr = "RANDOM"
-	case process.MATCH:
+	case input.MATCH:
 		htStr = "MATCH"
 	}
 

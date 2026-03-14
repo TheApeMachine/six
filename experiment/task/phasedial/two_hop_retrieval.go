@@ -4,14 +4,14 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 type TwoHopRetrievalExperiment struct {
 	tableData       []tools.ExperimentalData
 	dataset         provider.Dataset
-	prompt          *process.Prompt
+	prompt          []string
 	phases          []string
 	simCA           []float64
 	simCB           []float64
@@ -43,17 +43,14 @@ func (experiment *TwoHopRetrievalExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *TwoHopRetrievalExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-
-	return experiment.prompt
+func (experiment *TwoHopRetrievalExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *TwoHopRetrievalExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *TwoHopRetrievalExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *TwoHopRetrievalExperiment) AddResult(results tools.ExperimentalData) {

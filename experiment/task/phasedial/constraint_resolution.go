@@ -8,9 +8,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/local"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 // crSamplesPerSuspect is the number of ingestion samples per suspect.
@@ -100,7 +100,7 @@ This is a pure dataset→AddResult experiment: the full architecture
 type ConstraintResolutionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 
 	// Per-step: which suspect won the retrieval at that step.
 	// stepSuspect[step] = suspectIdx whose expected bytes best match observed.
@@ -164,16 +164,13 @@ func (exp *ConstraintResolutionExperiment) Section() string { return "phasedial"
 
 func (exp *ConstraintResolutionExperiment) Dataset() provider.Dataset { return exp.dataset }
 
-func (exp *ConstraintResolutionExperiment) Prompts() *process.Prompt {
-	exp.prompt = process.NewPrompt(
-		process.PromptWithDataset(exp.dataset),
-		process.PromptWithHoldout(exp.Holdout()),
-	)
+func (exp *ConstraintResolutionExperiment) Prompts() []string {
+	exp.prompt = []string{}
 	return exp.prompt
 }
 
-func (exp *ConstraintResolutionExperiment) Holdout() (int, process.HoldoutType) {
-	return crHoldoutPct, process.RIGHT
+func (exp *ConstraintResolutionExperiment) Holdout() (int, input.HoldoutType) {
+	return crHoldoutPct, input.RIGHT
 }
 
 /*

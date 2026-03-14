@@ -8,9 +8,9 @@ package misc
 
 // 	gc "github.com/smartystreets/goconvey/convey"
 // 	tools "github.com/theapemachine/six/experiment"
-// 	"github.com/theapemachine/six/pkg/process"
-// 	"github.com/theapemachine/six/pkg/provider"
-// 	"github.com/theapemachine/six/pkg/provider/local"
+// 		"github.com/theapemachine/six/pkg/system/vm/input"
+// 	"github.com/theapemachine/six/pkg/store/data/provider"
+// 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 
 // 	hfd "github.com/gomlx/gemma/download/huggingface"
 // 	"github.com/gomlx/gemma/samplers"
@@ -200,7 +200,7 @@ package misc
 // type GemmaIntegrationExperiment struct {
 // 	tableData []tools.ExperimentalData
 // 	dataset   provider.Dataset
-// 	prompt    *process.Prompt
+// 	prompt    []string
 
 // 	graftResults []giResult
 // 	kvResults    []giResult
@@ -233,7 +233,7 @@ package misc
 // func (exp *GemmaIntegrationExperiment) Section() string           { return "misc" }
 // func (exp *GemmaIntegrationExperiment) Dataset() provider.Dataset { return exp.dataset }
 
-// func (exp *GemmaIntegrationExperiment) Prompts() *process.Prompt {
+// func (exp *GemmaIntegrationExperiment) Prompts() []string {
 // 	exp.prompt = process.NewPrompt(
 // 		process.PromptWithDataset(exp.dataset),
 // 		process.PromptWithHoldout(exp.Holdout()),
@@ -241,8 +241,8 @@ package misc
 // 	return exp.prompt
 // }
 
-// func (exp *GemmaIntegrationExperiment) Holdout() (int, process.HoldoutType) {
-// 	return 25, process.RIGHT
+// func (exp *GemmaIntegrationExperiment) Holdout() (int, input.HoldoutType) {
+// 	return 25, input.RIGHT
 // }
 
 // func (exp *GemmaIntegrationExperiment) AddResult(result tools.ExperimentalData) {

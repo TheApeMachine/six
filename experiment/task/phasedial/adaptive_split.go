@@ -4,14 +4,14 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 type AdaptiveSplitExperiment struct {
 	tableData    []tools.ExperimentalData
 	dataset      provider.Dataset
-	prompt       *process.Prompt
+	prompt       []string
 	adaptGain    float64
 	boundaryRows []map[string]any
 	summaryRows  []map[string]any
@@ -38,17 +38,14 @@ func (experiment *AdaptiveSplitExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *AdaptiveSplitExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *AdaptiveSplitExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 
 	return experiment.prompt
 }
 
-func (experiment *AdaptiveSplitExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *AdaptiveSplitExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *AdaptiveSplitExperiment) AddResult(results tools.ExperimentalData) {

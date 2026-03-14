@@ -42,6 +42,7 @@ func TestPipeline(t *testing.T) {
 		phasedial.NewTwoHopRetrievalExperiment(),
 		imagegen.NewReconstructionExperiment(),
 		logic.NewBabiExperiment(),
+		logic.NewSemanticAlgebraExperiment(),
 		misc.NewCrossDomainCompletionExperiment(),
 		// misc.NewGemmaIntegrationExperiment(),
 		misc.NewRuleShiftExperiment(),

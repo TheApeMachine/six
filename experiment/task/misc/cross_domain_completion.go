@@ -5,9 +5,9 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 // crossDomains defines the three domains tested in this experiment.
@@ -54,7 +54,7 @@ the suffix by chord resonance.
 type CrossDomainCompletionExperiment struct {
 	tableData []tools.ExperimentalData
 	mds       *multiDomainDataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewCrossDomainCompletionExperiment() *CrossDomainCompletionExperiment {
@@ -101,16 +101,14 @@ func (experiment *CrossDomainCompletionExperiment) Dataset() provider.Dataset {
 	return experiment.mds
 }
 
-func (experiment *CrossDomainCompletionExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.mds),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-	return experiment.prompt
+func (experiment *CrossDomainCompletionExperiment) Prompts() []string {
+	return []string{
+		"Complete the suffix of the given prefix.",
+	}
 }
 
-func (experiment *CrossDomainCompletionExperiment) Holdout() (int, process.HoldoutType) {
-	return 50, process.RIGHT
+func (experiment *CrossDomainCompletionExperiment) Holdout() (int, input.HoldoutType) {
+	return 50, input.RIGHT
 }
 
 func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.ExperimentalData) {

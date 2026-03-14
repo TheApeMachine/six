@@ -6,9 +6,9 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -32,7 +32,7 @@ type ProteinStructureExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 	manifold  [][]byte
 	seen      map[string]struct{}
 }
@@ -73,18 +73,15 @@ func (experiment *ProteinStructureExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *ProteinStructureExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-
-	return experiment.prompt
+func (experiment *ProteinStructureExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *ProteinStructureExperiment) Holdout() (int, process.HoldoutType) {
+func (experiment *ProteinStructureExperiment) Holdout() (int, input.HoldoutType) {
 	// Hold out the last 50 bytes for structure prediction
-	return 50, process.RIGHT
+	return 50, input.RIGHT
 }
 
 /*

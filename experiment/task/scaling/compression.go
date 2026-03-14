@@ -5,8 +5,8 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -22,7 +22,7 @@ explains that the ratio would sharpen at larger N.
 type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewCompressionExperiment() *CompressionExperiment {
@@ -38,16 +38,13 @@ func (experiment *CompressionExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *CompressionExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *CompressionExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *CompressionExperiment) Holdout() (int, process.HoldoutType) {
-	return 32, process.RIGHT
+func (experiment *CompressionExperiment) Holdout() (int, input.HoldoutType) {
+	return 32, input.RIGHT
 }
 
 func (experiment *CompressionExperiment) AddResult(results tools.ExperimentalData) {
