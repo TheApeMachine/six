@@ -76,10 +76,12 @@ const bytesPerEntry = 35
 reconstructChunk rebuilds a chunk from the spatial index by following the
 state machine (state*3+byte)%257 and matching chord branches.
 */
-func reconstructChunk(spatial *lsm.SpatialIndexServer, morton *data.MortonCoder, chunk string, initialState int) []byte {
+func reconstructChunk(
+	spatial *lsm.SpatialIndexServer, morton *data.MortonCoder,
+	chunk string, initialState int, calc *numeric.Calculus,
+) []byte {
 	state := initialState
 	reconstructed := make([]byte, 0, len(chunk))
-	calc := numeric.NewCalculus()
 
 	for seqIdx := 0; seqIdx < len(chunk); seqIdx++ {
 		found := false
@@ -178,7 +180,7 @@ func TestRotationCompression(t *testing.T) {
 					continue
 				}
 
-				reconstructed := reconstructChunk(spatial, morton, chunk, currentState)
+				reconstructed := reconstructChunk(spatial, morton, chunk, currentState, calc)
 				
 				// Advance the state for the next chunk
 				for i := 0; i < len(chunk); i++ {
@@ -217,7 +219,7 @@ func TestRotationCompression(t *testing.T) {
 
 			for i := 0; i < first10; i++ {
 				chunk := chunks[i]
-				reconstructed := reconstructChunk(spatial, morton, chunk, logState)
+				reconstructed := reconstructChunk(spatial, morton, chunk, logState, calc)
 				
 				for j := 0; j < len(chunk); j++ {
 					logState = int(calc.Multiply(numeric.Phase(logState), calc.Power(3, uint32(chunk[j]))))
@@ -269,21 +271,15 @@ func BenchmarkRotationReconstruction(b *testing.B) {
 	calc := numeric.NewCalculus()
 
 	b.ResetTimer()
-	
-	benchmarkState := 1
 
 	for i := 0; i < b.N; i++ {
+		benchmarkState := 1
 		chunk := chunks[i%len(chunks)]
+
 		if len(chunk) < 2 {
-			for j := 0; j < len(chunk); j++ {
-				benchmarkState = int(calc.Multiply(numeric.Phase(benchmarkState), calc.Power(3, uint32(chunk[j]))))
-			}
 			continue
 		}
-		_ = reconstructChunk(spatial, morton, chunk, benchmarkState)
-		
-		for j := 0; j < len(chunk); j++ {
-			benchmarkState = int(calc.Multiply(numeric.Phase(benchmarkState), calc.Power(3, uint32(chunk[j]))))
-		}
+
+		_ = reconstructChunk(spatial, morton, chunk, benchmarkState, calc)
 	}
 }

@@ -31,7 +31,7 @@ type CircuitBreaker struct {
 	state            CircuitState
 	openTime         time.Time
 	halfOpenAttempts int
-	metrics          *Metrics
+	metrics *Metrics // TODO: use cb.metrics to drive dynamic failure thresholds / state transitions based on system load
 }
 
 /*

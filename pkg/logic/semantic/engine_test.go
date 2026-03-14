@@ -31,7 +31,7 @@ func TestSemanticEngineRigorous(t *testing.T) {
 				Object  string
 			}
 
-				var injectedFacts []testFact
+			var injectedFacts []testFact
 			for range numFacts {
 				f := testFact{
 					Subject: generateString(r, r.Intn(10)+5),

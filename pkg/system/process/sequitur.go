@@ -78,7 +78,6 @@ func (sequitur *Sequitur) Analyze(
 	pos uint32, byteVal byte,
 ) (bool, int, []int, data.Chord) {
 	sequitur.mu.Lock()
-	defer sequitur.mu.Unlock()
 
 	sequitur.pending = append(sequitur.pending, byteVal)
 
@@ -88,18 +87,26 @@ func (sequitur *Sequitur) Analyze(
 
 	ruleCreated := sequitur.check(newNode.Prev)
 
-	if ruleCreated {
-		console.Trace("sequence", "bytes", sequitur.pending)
-		emitK := len(sequitur.pending)
-		sequitur.pending = nil
-		sequitur.pendingPos = pos + 1
-
-		meta := ruleMetaChord(sequitur.lastRuleID, sequitur.calc)
-
-		return true, emitK, []int{EventPhaseInversion}, meta
+	if !ruleCreated {
+		sequitur.mu.Unlock()
+		return false, 0, nil, data.Chord{}
 	}
 
-	return false, 0, nil, data.Chord{}
+	pendingCopy := append([]byte(nil), sequitur.pending...)
+	emitK := len(pendingCopy)
+	lastRuleID := sequitur.lastRuleID
+	calc := sequitur.calc
+
+	sequitur.pending = nil
+	sequitur.pendingPos = pos + 1
+
+	sequitur.mu.Unlock()
+
+	console.Trace("sequence", "bytes", string(pendingCopy))
+
+	meta := ruleMetaChord(lastRuleID, calc)
+
+	return true, emitK, []int{EventPhaseInversion}, meta
 }
 
 /*
@@ -204,6 +211,10 @@ substitute replaces a two-node digram starting at n with a single
 non-terminal node, then re-checks the new adjacencies for fresh digrams.
 */
 func (sequitur *Sequitur) substitute(n *Node, id int) {
+	if n == nil || n.Next == nil {
+		return
+	}
+
 	victim := n.Next
 
 	n.Val = Symbol(id)

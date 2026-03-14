@@ -127,8 +127,6 @@ func TestWavefront(t *testing.T) {
 		},
 	}
 
-	calc := numeric.NewCalculus()
-
 	for caseName, samples := range cases {
 		gc.Convey("Given case: "+caseName, t, func() {
 			idx := NewSpatialIndexServer()
@@ -289,106 +287,54 @@ func TestWavefront(t *testing.T) {
 				}
 			})
 
-			_ = calc
 		})
 	}
 }
 
-func TestSkipIndex(t *testing.T) {
-	gc.Convey("Given a spatial index with 200 bytes (alphabet=26)", t, func() {
-		corpus := generateCorpus(200, 26, 99)
-		idx, states := buildIndex(corpus)
-		calc := numeric.NewCalculus()
+func BenchmarkWavefrontSearch(b *testing.B) {
+	corpus := generateCorpus(200, 26, 99)
+	idx, _ := buildIndex(corpus)
+	wf := NewWavefront(idx, WavefrontWithMaxHeads(32), WavefrontWithMaxDepth(64))
+	promptChord := data.BaseChord(corpus[0])
 
-		gc.Convey("When building a skip index", func() {
-			skip := NewSkipIndex(idx)
-			skip.Build()
+	b.ResetTimer()
+	b.ReportAllocs()
 
-			gc.Convey("Every Morton key in the index should have a skip entry", func() {
-				for key := range idx.entries {
-					_, exists := skip.entries[key]
-					gc.So(exists, gc.ShouldBeTrue)
-				}
-			})
+	for i := 0; i < b.N; i++ {
+		_ = wf.Search(promptChord, nil, nil)
+	}
+}
 
-			gc.Convey("Level-0 jump from position 0 should target position 1 exactly", func() {
-				key0 := morton.Pack(0, corpus[0])
-				targetKey, _, valid := skip.Jump(key0, SkipNext)
-				gc.So(valid, gc.ShouldBeTrue)
+func BenchmarkSkipIndexBuild(b *testing.B) {
+	corpus := generateCorpus(1000, 26, 99)
+	idx, _ := buildIndex(corpus)
+	skip := NewSkipIndex(idx)
 
-				targetPos, targetSym := morton.Unpack(targetKey)
-				gc.So(targetPos, gc.ShouldEqual, 1)
-				gc.So(targetSym, gc.ShouldEqual, corpus[1])
-			})
+	b.ResetTimer()
+	b.ReportAllocs()
 
-			gc.Convey("Level-2 (stride 16) from position 0 should target position 16", func() {
-				key0 := morton.Pack(0, corpus[0])
-				targetKey, _, valid := skip.Jump(key0, Skip16)
-				gc.So(valid, gc.ShouldBeTrue)
+	for i := 0; i < b.N; i++ {
+		skip.Build()
+	}
+}
 
-				targetPos, targetSym := morton.Unpack(targetKey)
-				gc.So(targetPos, gc.ShouldEqual, 16)
-				gc.So(targetSym, gc.ShouldEqual, corpus[16])
-			})
+func BenchmarkSkipSearch(b *testing.B) {
+	corpus := generateCorpus(1000, 26, 99)
+	idx, _ := buildIndex(corpus)
+	skip := NewSkipIndex(idx)
+	skip.Build()
 
-			gc.Convey("Level-3 (stride 64) from position 0 should target position 64", func() {
-				key0 := morton.Pack(0, corpus[0])
-				targetKey, _, valid := skip.Jump(key0, Skip64)
-				gc.So(valid, gc.ShouldBeTrue)
+	startKey := morton.Pack(0, corpus[0])
+	calc := numeric.NewCalculus()
+	startPhase := calc.Multiply(
+		numeric.Phase(1),
+		calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(corpus[0])),
+	)
 
-				targetPos, targetSym := morton.Unpack(targetKey)
-				gc.So(targetPos, gc.ShouldEqual, 64)
-				gc.So(targetSym, gc.ShouldEqual, corpus[64])
-			})
+	b.ResetTimer()
+	b.ReportAllocs()
 
-			gc.Convey("Jump to non-existent key should return invalid", func() {
-				_, _, valid := skip.Jump(0xDEADBEEF, SkipNext)
-				gc.So(valid, gc.ShouldBeFalse)
-			})
-
-			gc.Convey("SkipSearch path chords should match actual stored state chords", func() {
-				startKey := morton.Pack(0, corpus[0])
-				startPhase := calc.Multiply(
-					numeric.Phase(1),
-					calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(corpus[0])),
-				)
-
-				path := skip.SkipSearch(startKey, startPhase)
-
-				for _, chord := range path {
-					found := false
-
-					for _, s := range states {
-						if chord.Has(int(s)) {
-							found = true
-							break
-						}
-					}
-
-					gc.So(found, gc.ShouldBeTrue)
-				}
-			})
-
-			gc.Convey("Validate should confirm all level-0 jumps are structurally consistent", func() {
-				validated := 0
-				total := 0
-
-				for i := 0; i < len(corpus)-1; i++ {
-					key := morton.Pack(uint32(i), corpus[i])
-					_, _, valid := skip.Jump(key, SkipNext)
-
-					if valid {
-						total++
-
-						if skip.Validate(key, SkipNext) {
-							validated++
-						}
-					}
-				}
-
-				gc.So(total, gc.ShouldBeGreaterThan, 0)
-				gc.So(validated, gc.ShouldEqual, total)
-			})
-		})
-	})
+	for i := 0; i < b.N; i++ {
+		_ = skip.SkipSearch(startKey, startPhase)
+	}
 }

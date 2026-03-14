@@ -38,6 +38,7 @@ type TokenizerServer struct {
 	currentSample uint32
 	collector     [][]data.Chord
 	collectorMu   sync.Mutex
+	stateMu       sync.Mutex
 	ready         atomic.Bool
 	clientConn    net.Conn
 	currentState  int
@@ -238,7 +239,9 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 
 			chunk = chunk[:0]
 			server.currentSample = token.SampleID
+			server.stateMu.Lock()
 			server.currentState = 1 // Reset baseline momentum on new sample
+			server.stateMu.Unlock()
 		}
 
 		chunk = append(chunk, token.Symbol)
@@ -328,6 +331,8 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 		server.collectorMu.Unlock()
 	}
 
+	server.stateMu.Lock()
+
 	if server.currentState == 0 {
 		server.currentState = 1 // Ensure we start with momentum
 	}
@@ -340,12 +345,12 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 		)
 
 		if !server.useSampleID && server.spatialInsert != nil {
-			stateChord := data.MustNewChord()
-			stateChord.Set(server.currentState)
+			byteChord := data.BaseChord(currentByte)
 
 			if err := server.spatialInsert(
-				ctx, currentByte, uint32(i), stateChord, metaChord,
+				ctx, currentByte, uint32(i), byteChord, metaChord,
 			); err != nil {
+				server.stateMu.Unlock()
 				return console.Error(err)
 			}
 		}
@@ -363,6 +368,8 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 		}
 	}
 
+	server.stateMu.Unlock()
+
 	return nil
 }
 
@@ -375,7 +382,9 @@ func (server *TokenizerServer) TokenizeSingleSample(
 ) error {
 	server.collector = [][]data.Chord{{}}
 	server.currentSample = 0
+	server.stateMu.Lock()
 	server.currentState = 1 // Reset baseline momentum
+	server.stateMu.Unlock()
 
 	ds := local.New(local.WithStrings([]string{sample}))
 	server.dataset = ds

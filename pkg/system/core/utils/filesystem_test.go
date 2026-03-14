@@ -50,6 +50,17 @@ func TestFilesystemFunctions(t *testing.T) {
 }
 
 func BenchmarkProjectRoot(b *testing.B) {
+	tempDir := b.TempDir()
+	_ = os.WriteFile(filepath.Join(tempDir, "go.mod"), []byte("module bench"), 0644)
+	nested := filepath.Join(tempDir, "a", "b", "c")
+	_ = os.MkdirAll(nested, 0755)
+	orig, _ := os.Getwd()
+	_ = os.Chdir(nested)
+	b.Cleanup(func() { _ = os.Chdir(orig) })
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
 	for i := 0; i < b.N; i++ {
 		_ = ProjectRoot()
 	}

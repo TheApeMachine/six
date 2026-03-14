@@ -51,14 +51,16 @@ func TestDecoderEmptyInput(t *testing.T) {
 func TestDecoderNormalInput(t *testing.T) {
 	dec := &testDecoder{}
 	Convey("Given single-byte chords", t, func() {
-		chords := []data.Chord{
-			data.BaseChord('h'),
-			data.BaseChord('i'),
-		}
-		result := dec.Decode(chords)
-		So(len(result), ShouldEqual, 2)
-		So(string(result[0]), ShouldEqual, "h")
-		So(string(result[1]), ShouldEqual, "i")
+		Convey("It should decode each chord to a single byte", func() {
+			chords := []data.Chord{
+				data.BaseChord('h'),
+				data.BaseChord('i'),
+			}
+			result := dec.Decode(chords)
+			So(len(result), ShouldEqual, 2)
+			So(string(result[0]), ShouldEqual, "h")
+			So(string(result[1]), ShouldEqual, "i")
+		})
 	})
 }
 
@@ -72,4 +74,43 @@ func TestDecoderMultiByteChord(t *testing.T) {
 		result := dec.Decode([]data.Chord{chord})
 		So(len(result), ShouldBeLessThanOrEqualTo, 1)
 	})
+}
+
+func BenchmarkDecodeEmpty(b *testing.B) {
+	dec := &testDecoder{}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = dec.Decode(nil)
+	}
+}
+
+func BenchmarkDecodeSingleByte(b *testing.B) {
+	dec := &testDecoder{}
+	chords := []data.Chord{data.BaseChord('x')}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = dec.Decode(chords)
+	}
+}
+
+func BenchmarkDecodeMultiByte(b *testing.B) {
+	dec := &testDecoder{}
+	chord, err := data.BuildChord([]byte("ab"))
+	if err != nil {
+		b.Fatal(err)
+	}
+	chords := []data.Chord{chord}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = dec.Decode(chords)
+	}
 }

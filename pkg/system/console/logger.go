@@ -15,11 +15,14 @@ It is bootstrapped in init so all console output uses a single shared instance.
 */
 var logger *Logger
 
+var traceEnabled bool
+
 /*
-init bootstraps the package-level logger.
+init bootstraps the package-level logger and caches SIX_TRACE.
 On failure, falls back to stderr-only logging so the application can still run.
 */
 func init() {
+	traceEnabled = os.Getenv("SIX_TRACE") == "1"
 	l, err := New()
 	if err != nil {
 		// Fallback: stderr-only logger, no file tracing
@@ -156,5 +159,5 @@ IsTraceEnabled reports whether trace logging is enabled (e.g. via SIX_TRACE=1).
 Call before expensive Trace calls to avoid cost when tracing is off.
 */
 func IsTraceEnabled() bool {
-	return os.Getenv("SIX_TRACE") == "1"
+	return traceEnabled
 }

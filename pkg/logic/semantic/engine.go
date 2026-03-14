@@ -105,12 +105,16 @@ Uses phaseIndex for O(1) exact matches, falls back to scan for nearby phases.
 */
 func (eng *Engine) Resonate(target numeric.Phase) (string, numeric.Phase) {
 	if bucket := eng.phaseIndex[target]; len(bucket) > 0 {
-		fact := bucket[0]
-		po := eng.calc.Sum(fact.Object)
-		if target == po {
-			return fact.Object, po
+		for _, fact := range bucket {
+			po := eng.calc.Sum(fact.Object)
+			if target == po {
+				return fact.Object, po
+			}
+			ps := eng.calc.Sum(fact.Subject)
+			if target == ps {
+				return fact.Subject, ps
+			}
 		}
-		return fact.Subject, eng.calc.Sum(fact.Subject)
 	}
 
 	var bestMatch string
@@ -251,6 +255,7 @@ func (eng *Engine) InjectTemporal(subject, link, object string, temporal numeric
 	eng.facts = append(eng.facts, fact)
 	eng.phaseIndex[po] = append(eng.phaseIndex[po], fact)
 	eng.phaseIndex[ps] = append(eng.phaseIndex[ps], fact)
+	eng.phaseIndex[pl] = append(eng.phaseIndex[pl], fact)
 
 	return timeBraid
 }

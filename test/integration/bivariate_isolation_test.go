@@ -395,17 +395,6 @@ func BenchmarkBivariatePrompt(b *testing.B) {
 	}
 }
 
-func pollUntil(timeout, interval time.Duration, check func() bool) bool {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		if check() {
-			return true
-		}
-		time.Sleep(interval)
-	}
-	return false
-}
-
 func drainEvents(ch chan telemetry.Event) {
 	for {
 		select {

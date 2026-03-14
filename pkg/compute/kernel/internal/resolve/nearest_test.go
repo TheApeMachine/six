@@ -42,6 +42,8 @@ func TestPackedNearest(t *testing.T) {
 	})
 }
 
+var benchResult uint64
+
 func BenchmarkPackedNearest(b *testing.B) {
 	b.Run("small", func(b *testing.B) {
 		nodes := []geometry.GFRotation{
@@ -53,7 +55,7 @@ func BenchmarkPackedNearest(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			PackedNearest(nodes, target)
+			benchResult = PackedNearest(nodes, target)
 		}
 	})
 	b.Run("large", func(b *testing.B) {
@@ -68,7 +70,7 @@ func BenchmarkPackedNearest(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			PackedNearest(nodes, target)
+			benchResult = PackedNearest(nodes, target)
 		}
 	})
 	b.Run("distant", func(b *testing.B) {
@@ -80,7 +82,7 @@ func BenchmarkPackedNearest(b *testing.B) {
 		b.ResetTimer()
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			PackedNearest(nodes, target)
+			benchResult = PackedNearest(nodes, target)
 		}
 	})
 }

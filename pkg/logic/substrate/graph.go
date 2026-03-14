@@ -204,8 +204,8 @@ func (graph *GraphServer) prompt(
 	}
 
 	for i := 0; i < chords.Len(); i++ {
-		c := chords.At(i)
-		contextChord = contextChord.XOR(c)
+		chord := chords.At(i)
+		contextChord = contextChord.XOR(chord)
 	}
 
 	for i, candidates := range pathsData {
@@ -366,8 +366,8 @@ func (graph *GraphServer) PromptChords(
 	contextChord := data.MustNewChord()
 
 	for i := 0; i < chords.Len(); i++ {
-		c := chords.At(i)
-		contextChord = contextChord.XOR(c)
+		chord := chords.At(i)
+		contextChord = contextChord.XOR(chord)
 	}
 
 	for i, candidates := range pathsData {

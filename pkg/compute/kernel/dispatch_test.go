@@ -44,6 +44,22 @@ func TestNewBuilder(t *testing.T) {
 	})
 }
 
+func TestDecodePackedCUDAScaledBranch(t *testing.T) {
+	Convey("Given a packed value with invertedDist > maxEncodedDistSq", t, func() {
+		invertedDist := uint32(maxEncodedDistSq + 1000)
+		idxExpected := 42
+		packed := (uint64(invertedDist) << 32) | uint64(idxExpected)
+
+		Convey("DecodePacked applies CUDA scaled decode and returns correct idx and distSq", func() {
+			idx, distSq := DecodePacked(packed)
+			expectedDistSq := float64(scaledMaxEncoded-invertedDist) / 1024
+
+			So(idx, ShouldEqual, idxExpected)
+			So(distSq, ShouldEqual, expectedDistSq)
+		})
+	})
+}
+
 func BenchmarkBuilderResolve(b *testing.B) {
 	nodes := generateGFRotations(4096)
 	target := nodes[42]

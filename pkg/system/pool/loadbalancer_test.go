@@ -8,9 +8,9 @@ import (
 )
 
 func TestNewLoadBalancer(t *testing.T) {
-	Convey("Given a LoadBalancer with 4 workers", t, func() {
-		lb := NewLoadBalancer(4, 10)
-		Convey("It should select a valid worker", func() {
+	Convey("Given a LoadBalancer", t, func() {
+		Convey("With 4 workers it should select a valid worker", func() {
+			lb := NewLoadBalancer(4, 10)
 			So(lb, ShouldNotBeNil)
 			w, err := lb.SelectWorker()
 			So(err, ShouldBeNil)
@@ -20,8 +20,8 @@ func TestNewLoadBalancer(t *testing.T) {
 }
 
 func TestLoadBalancerSelectWorker(t *testing.T) {
-	Convey("SelectWorker behavior", t, func() {
-		Convey("It returns lowest-load worker", func() {
+	Convey("Given a LoadBalancer", t, func() {
+		Convey("It should return the lowest-load worker", func() {
 			lb := NewLoadBalancer(3, 5)
 			lb.RecordJobStart(0)
 			lb.RecordJobStart(0)
@@ -29,14 +29,14 @@ func TestLoadBalancerSelectWorker(t *testing.T) {
 			So(err, ShouldBeNil)
 			So(w, ShouldNotEqual, 0)
 		})
-		Convey("It returns ErrNoAvailableWorkers when all at capacity", func() {
+		Convey("It should return ErrNoAvailableWorkers when all at capacity", func() {
 			lb := NewLoadBalancer(2, 1)
 			lb.RecordJobStart(0)
 			lb.RecordJobStart(1)
 			_, err := lb.SelectWorker()
 			So(err, ShouldEqual, ErrNoAvailableWorkers)
 		})
-		Convey("It prefers lower latency when loads equal", func() {
+		Convey("It should prefer lower latency when loads equal", func() {
 			lb := NewLoadBalancer(2, 5)
 			lb.RecordJobComplete(0, 100*time.Millisecond)
 			lb.RecordJobComplete(1, 10*time.Millisecond)

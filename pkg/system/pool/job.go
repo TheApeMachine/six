@@ -104,9 +104,11 @@ WithHalfOpenMax overrides HalfOpenMax when CircuitConfig is already set.
 */
 func WithHalfOpenMax(max int) JobOption {
 	return func(j *Job) {
-		if j.CircuitConfig != nil {
-			j.CircuitConfig.HalfOpenMax = max
+		if j.CircuitConfig == nil {
+			j.CircuitConfig = &CircuitBreakerConfig{HalfOpenMax: max}
+			return
 		}
+		j.CircuitConfig.HalfOpenMax = max
 	}
 }
 

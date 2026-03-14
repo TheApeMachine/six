@@ -180,6 +180,22 @@ func ResultStrings(results [][]byte) []string {
 	return out
 }
 
+/*
+pollUntil runs check every interval until it returns true or timeout elapses.
+*/
+func pollUntil(timeout, interval time.Duration, check func() bool) bool {
+	deadline := time.Now().Add(timeout)
+
+	for time.Now().Before(deadline) {
+		if check() {
+			return true
+		}
+		time.Sleep(interval)
+	}
+
+	return false
+}
+
 func ChunkStrings(sample string) []string {
 	sequencer := process.NewSeq(process.NewCalibrator())
 	raw := []byte(sample)

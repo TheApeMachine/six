@@ -144,19 +144,30 @@ func (pipeline *Pipeline) Run() error {
 		orig := pipeline.prompts.Original()
 		masked := pipeline.prompts.Masked()
 
-		holdoutStr := orig
-		if strings.Contains(orig, masked) {
-			idx := strings.Index(orig, masked)
-			switch holdoutType {
-			case process.LEFT:
-				holdoutStr = orig[:idx]
-			case process.RIGHT:
-				holdoutStr = orig[idx+len(masked):]
-			case process.CENTER:
-				holdoutLen := len(orig) - len(masked)
+		var holdoutStr string
+		switch holdoutType {
+		case process.CENTER:
+			holdoutLen := len(orig) - len(masked)
+			if holdoutLen <= 0 {
+				holdoutStr = orig
+			} else {
 				prefixLen := (len(orig) - holdoutLen) / 2
 				holdoutStr = orig[prefixLen : prefixLen+holdoutLen]
-			default:
+			}
+		case process.LEFT, process.RIGHT:
+			idx := strings.Index(orig, masked)
+			if idx < 0 {
+				holdoutStr = orig
+			} else if holdoutType == process.LEFT {
+				holdoutStr = orig[:idx]
+			} else {
+				holdoutStr = orig[idx+len(masked):]
+			}
+		default:
+			idx := strings.Index(orig, masked)
+			if idx < 0 {
+				holdoutStr = orig
+			} else {
 				holdoutStr = strings.Replace(orig, masked, "", 1)
 			}
 		}

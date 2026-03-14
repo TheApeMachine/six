@@ -57,7 +57,7 @@ func BenchmarkNewPoolValue_WithOptions(b *testing.B) {
 }
 
 func TestPoolValueTTL(t *testing.T) {
-	Convey("PoolValue TTL can be set", t, func() {
+	Convey("Given PoolValue TTL configuration", t, func() {
 		Convey("When set via direct field", func() {
 			pv := &PoolValue[any]{TTL: time.Second}
 			So(pv.TTL, ShouldEqual, time.Second)
@@ -67,4 +67,11 @@ func TestPoolValueTTL(t *testing.T) {
 			So(pv.TTL, ShouldEqual, 5*time.Minute)
 		})
 	})
+}
+
+func BenchmarkWithPoolValueTTL(b *testing.B) {
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		sinkPoolValue = NewPoolValue(WithPoolValueTTL[any](5 * time.Minute))
+	}
 }

@@ -297,6 +297,9 @@ func (md *multiDataset) Generate() chan provider.RawToken {
 			for tok := range ds.Generate() {
 				// Upper 8 bits: language index (0–255). Lower 24 bits: per-language SampleID (0–16,777,215).
 				// Max 256 languages and ~16.7M samples per language; use different encoding if either limit is exceeded.
+				if tok.SampleID >= 0x01000000 {
+					panic("SampleID exceeds 24-bit limit; use different encoding")
+				}
 				tok.SampleID = uint32(idx)<<24 | (tok.SampleID & 0x00FFFFFF)
 				out <- tok
 			}

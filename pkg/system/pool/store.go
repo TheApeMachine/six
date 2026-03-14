@@ -70,13 +70,13 @@ func (rs *ResultStore) notifyWaitingChannels(id string, result *Result) {
 Store saves a result and notifies any waiters.
 */
 func (rs *ResultStore) Store(id string, value any, ttl time.Duration) {
-	r := NewResult(value)
-	r.TTL = ttl
-	rs.values.Store(id, r)
+	result := NewResult(value)
+	result.TTL = ttl
+	rs.values.Store(id, result)
 
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	rs.notifyWaitingChannels(id, r)
+	rs.notifyWaitingChannels(id, result)
 }
 
 /*
@@ -329,8 +329,8 @@ AddChildDependency records that jobID depends on depID for await tracking.
 func (rs *ResultStore) AddChildDependency(depID, jobID string) {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
-	if rs.children == nil {
-		rs.children = make(map[string][]string)
+	if rs.children == nil || rs.parents == nil {
+		return
 	}
 	rs.children[depID] = append(rs.children[depID], jobID)
 }

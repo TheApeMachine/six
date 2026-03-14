@@ -27,14 +27,13 @@ __global__ void resolve_resonance_kernel(
     float db = fabsf((float)candidate.b - (float)ctx.b);
     float dist_sq = da*da + db*db;
 
-    // Scale before cast to preserve fractional distance; clamp against scaled max
+    // Scale before cast to preserve fractional distance; clamp before cast to avoid overflow
     const float SCALE = 1024.0f;
-    const uint32_t SCALED_MAX = 131072u * (uint32_t)SCALE;
+    const float SCALED_MAX_F = 131072.0f * SCALE;
+    const uint32_t SCALED_MAX = (uint32_t)SCALED_MAX_F;
     float dist_scaled = dist_sq * SCALE;
+    dist_scaled = fminf(dist_scaled, SCALED_MAX_F);
     uint32_t dist_u32 = (uint32_t)dist_scaled;
-    if (dist_u32 > SCALED_MAX) {
-        dist_u32 = SCALED_MAX;
-    }
     uint32_t inverted_dist = SCALED_MAX - dist_u32;
 
     uint32_t global_id = id + base_offset;

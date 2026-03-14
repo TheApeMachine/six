@@ -16,7 +16,7 @@ type ASTNode struct {
 	Leaves   [][]data.Chord
 }
 
-// ASTNode.Print prints the node's Level, Label active bit count, and recursively prints children with the provided indent string.
+// ASTNode.Print prints the node's Level, Label active bit count, and Theta value; recursively prints children with the provided indent string.
 func (node *ASTNode) Print(indent string) {
 	fmt.Printf("%sLevel %d: Label %d bits, Theta: %f\n", indent, node.Level, node.Label.ActiveCount(), node.Theta)
 	for _, child := range node.Children {

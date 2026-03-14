@@ -103,6 +103,9 @@ func (backend *DistributedBackend) Resolve(
 		default:
 			localBak = &cpu.CPUBackend{}
 		}
+		if !localBak.Available() {
+			localBak = &cpu.CPUBackend{}
+		}
 		localBuilder = NewBuilder(WithBackend(localBak))
 	}
 

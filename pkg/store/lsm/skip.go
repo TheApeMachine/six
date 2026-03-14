@@ -1,6 +1,8 @@
 package lsm
 
 import (
+	"math/bits"
+
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -145,9 +147,20 @@ func (skip *SkipIndex) extractPhase(key uint64) numeric.Phase {
 	base := data.BaseChord(symbol)
 	stateOnly := chord.XOR(base)
 
-	for phase := 1; phase < int(numeric.FermatPrime); phase++ {
-		if stateOnly.Has(phase) {
-			return numeric.Phase(phase)
+	if stateOnly.ActiveCount() == 0 {
+		return 0
+	}
+
+	for blockIdx := 0; blockIdx < 8; blockIdx++ {
+		block := stateOnly.Block(blockIdx)
+		if block == 0 {
+			continue
+		}
+		bitIdx := bits.TrailingZeros64(block)
+		primeIdx := blockIdx*64 + bitIdx
+		phase := numeric.Phase(primeIdx)
+		if phase >= 1 && uint32(phase) < numeric.FermatPrime {
+			return phase
 		}
 	}
 
@@ -182,6 +195,12 @@ actual state chord at the target position. Returns true for structural
 consistency.
 */
 func (skip *SkipIndex) Validate(key uint64, level SkipLevel) bool {
+	skip.idx.mu.RLock()
+	defer skip.idx.mu.RUnlock()
+	return skip.validateUnsafe(key, level)
+}
+
+func (skip *SkipIndex) validateUnsafe(key uint64, level SkipLevel) bool {
 	entry, exists := skip.entries[key]
 	if !exists {
 		return false
@@ -211,6 +230,9 @@ when jumps fail validation, achieving O(log n) traversal.
 func (skip *SkipIndex) SkipSearch(
 	startKey uint64, startPhase numeric.Phase,
 ) []data.Chord {
+	skip.idx.mu.RLock()
+	defer skip.idx.mu.RUnlock()
+
 	var path []data.Chord
 
 	currentKey := startKey
@@ -234,7 +256,7 @@ func (skip *SkipIndex) SkipSearch(
 				continue
 			}
 
-			if skip.Validate(currentKey, level) {
+			if skip.validateUnsafe(currentKey, level) {
 				currentKey = targetKey
 				currentPhase = targetPhase
 				jumped = true
@@ -283,8 +305,6 @@ func (skip *SkipIndex) SkipSearch(
 			}
 		}
 	}
-
-	_ = currentPhase
 
 	return path
 }

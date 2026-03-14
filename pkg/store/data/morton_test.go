@@ -110,3 +110,12 @@ func BenchmarkMortonEncode3D(b *testing.B) {
 		_ = coder.Encode3D(x, y, z)
 	}
 }
+
+func BenchmarkMortonDecode3D(b *testing.B) {
+	coder := NewMortonCoder()
+	encoded := coder.Encode3D(100, 200, 150)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_, _, _ = coder.Decode3D(encoded)
+	}
+}

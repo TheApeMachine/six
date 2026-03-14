@@ -49,12 +49,11 @@ func NewBooter(opts ...booterOpts) *Booter {
 Start subscribes to the broadcast group, announces all systems, and
 runs the event loop.
 */
-func (booter *Booter) Start() {
+func (booter *Booter) Start() error {
 	console.Info("Starting Booter")
 
 	if booter.broadcast == nil {
-		console.Error(ErrBooterNoBroadcast)
-		return
+		return ErrBooterNoBroadcast
 	}
 
 	subscription := booter.broadcast.Subscribe("broadcast", 128)
@@ -72,11 +71,11 @@ func (booter *Booter) Start() {
 	for {
 		select {
 		case <-booter.ctx.Done():
-			return
+			return nil
 		case <-sig:
 			console.Info("Signal received by Booter. Shutting down...")
 			booter.Stop()
-			return
+			return nil
 		case msg := <-subscription:
 			for _, system := range booter.systems {
 				system.Receive(msg)

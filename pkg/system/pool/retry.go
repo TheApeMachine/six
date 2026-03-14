@@ -10,10 +10,10 @@ import (
 RetryPolicy defines how a job should be retried on failure.
 */
 type RetryPolicy struct {
-	MaxAttempts           int
-	Strategy              RetryStrategy
-	Filter                func(error) bool
-	DependencyAwaitTimeout time.Duration
+	MaxAttempts            int
+	Strategy               RetryStrategy
+	Filter                 func(error) bool
+	DependencyAwaitTimeout  time.Duration
 }
 
 /*
@@ -36,7 +36,17 @@ type ExponentialBackoff struct {
 NextDelay returns the delay before the next retry attempt.
 */
 func (eb *ExponentialBackoff) NextDelay(attempt int) time.Duration {
-	base := eb.Initial * time.Duration(math.Pow(2, float64(attempt-1)))
+	exp := attempt - 1
+	if exp < 0 {
+		exp = 0
+	}
+	if exp >= 63 {
+		if eb.MaxDelay > 0 {
+			return eb.MaxDelay
+		}
+		return time.Duration(math.MaxInt64)
+	}
+	base := eb.Initial * time.Duration(1<<exp)
 	if eb.MaxDelay > 0 && base > eb.MaxDelay {
 		base = eb.MaxDelay
 	}

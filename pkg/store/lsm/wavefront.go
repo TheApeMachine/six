@@ -1,6 +1,9 @@
 package lsm
 
 import (
+	"sort"
+
+	"github.com/theapemachine/six/pkg/logic/synthesis"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -34,6 +37,8 @@ type Wavefront struct {
 	calc     *numeric.Calculus
 	maxHeads int
 	maxDepth uint32
+	fe       *synthesis.FrustrationEngine
+	target   numeric.Phase
 }
 
 type wavefrontOpts func(*Wavefront)
@@ -163,65 +168,97 @@ func (wf *Wavefront) advance(
 		nextPos := head.pos + 1
 		nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 
-		if !hasNext || len(nextKeys) == 0 {
-			next = append(next, head)
-			continue
-		}
+		didAdvance := false
 
-		for _, key := range nextKeys {
-			if head.visited[key] {
-				continue
-			}
-
-			value, exists := wf.idx.entries[key]
-			if !exists {
-				continue
-			}
-
-			_, nextSymbol := morton.Unpack(key)
-
-			expectedPhase := wf.calc.Multiply(
-				head.phase,
-				wf.calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(nextSymbol)),
-			)
-
-			chain := wf.idx.followChainUnsafe(key)
-
-			for _, stateChord := range chain {
-				if !stateChord.Has(int(expectedPhase)) {
+		if hasNext && len(nextKeys) > 0 {
+			for _, key := range nextKeys {
+				if head.visited[key] {
 					continue
 				}
 
-				symbolChord := data.BaseChord(nextSymbol)
-				residue := prompt.XOR(symbolChord)
-				stepEnergy := residue.ActiveCount()
-
-				if interest != nil {
-					resonance := value.AND(*interest)
-					stepEnergy -= resonance.ActiveCount()
+				value, exists := wf.idx.entries[key]
+				if !exists {
+					continue
 				}
 
-				if danger != nil {
-					punish := value.AND(*danger)
-					stepEnergy += punish.ActiveCount()
-				}
+				_, nextSymbol := morton.Unpack(key)
 
-				visited := make(map[uint64]bool, len(head.visited)+1)
-				for k, v := range head.visited {
-					visited[k] = v
-				}
-				visited[key] = true
+				expectedPhase := wf.calc.Multiply(
+					head.phase,
+					wf.calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(nextSymbol)),
+				)
 
-				fork := &WavefrontHead{
-					phase:   expectedPhase,
-					pos:     nextPos,
-					energy:  head.energy + stepEnergy,
-					path:    append(append([]data.Chord{}, head.path...), stateChord),
-					visited: visited,
-				}
+				chain := wf.idx.followChainUnsafe(key)
 
-				next = append(next, fork)
+				for _, stateChord := range chain {
+					if !stateChord.Has(int(expectedPhase)) {
+						continue
+					}
+
+					symbolChord := data.BaseChord(nextSymbol)
+					residue := prompt.XOR(symbolChord)
+					stepEnergy := residue.ActiveCount()
+
+					if interest != nil {
+						resonance := value.AND(*interest)
+						stepEnergy -= resonance.ActiveCount()
+					}
+
+					if danger != nil {
+						punish := value.AND(*danger)
+						stepEnergy += punish.ActiveCount()
+					}
+
+					visited := make(map[uint64]bool, len(head.visited)+1)
+					for k, v := range head.visited {
+						visited[k] = v
+					}
+					visited[key] = true
+
+					fork := &WavefrontHead{
+						phase:   expectedPhase,
+						pos:     nextPos,
+						energy:  head.energy + stepEnergy,
+						path:    append(append([]data.Chord{}, head.path...), stateChord),
+						visited: visited,
+					}
+
+					next = append(next, fork)
+					didAdvance = true
+				}
 			}
+		}
+
+		if !didAdvance {
+			// Phase 4 Higher Logic: If the raw data span fails, the Cantilever
+			// vibrates the Frustration Engine to discover a MacroOpcode bridge.
+			if wf.fe != nil && wf.target != 0 {
+				opcodes, err := wf.fe.Resolve(head.phase, wf.target, 50)
+				if err == nil && len(opcodes) > 0 {
+					newPhase := head.phase
+					for _, op := range opcodes {
+						newPhase = wf.calc.Multiply(newPhase, op.Rotation)
+					}
+
+					// Package the logic circuit into a pure state representation
+					synChord := data.MustNewChord()
+					synChord.Set(int(newPhase))
+
+					fork := &WavefrontHead{
+						phase:   newPhase,
+						pos:     head.pos + uint32(len(opcodes)),
+						energy:  head.energy, // Zero penalty bridging!
+						path:    append(append([]data.Chord{}, head.path...), synChord),
+						visited: head.visited,
+					}
+
+					next = append(next, fork)
+					continue
+				}
+			}
+
+			// Normal dead end, preserve the head
+			next = append(next, head)
 		}
 	}
 
@@ -232,17 +269,9 @@ func (wf *Wavefront) advance(
 prune keeps only the top maxHeads by energy (lowest first).
 */
 func (wf *Wavefront) prune(heads []*WavefrontHead) []*WavefrontHead {
-	for i := 0; i < len(heads)-1; i++ {
-		minIdx := i
-
-		for j := i + 1; j < len(heads); j++ {
-			if heads[j].energy < heads[minIdx].energy {
-				minIdx = j
-			}
-		}
-
-		heads[i], heads[minIdx] = heads[minIdx], heads[i]
-	}
+	sort.Slice(heads, func(i, j int) bool {
+		return heads[i].energy < heads[j].energy
+	})
 
 	if len(heads) > wf.maxHeads {
 		return heads[:wf.maxHeads]
@@ -310,5 +339,15 @@ WavefrontWithMaxDepth limits the maximum traversal depth.
 func WavefrontWithMaxDepth(maxDepth uint32) wavefrontOpts {
 	return func(wf *Wavefront) {
 		wf.maxDepth = maxDepth
+	}
+}
+
+/*
+WavefrontWithFrustrationEngine attaches the Phase 4 logic solver to the search.
+*/
+func WavefrontWithFrustrationEngine(fe *synthesis.FrustrationEngine, target numeric.Phase) wavefrontOpts {
+	return func(wf *Wavefront) {
+		wf.fe = fe
+		wf.target = target
 	}
 }

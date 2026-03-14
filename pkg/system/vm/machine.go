@@ -92,7 +92,9 @@ func (machine *Machine) Start() {
 	)
 
 	go func() {
-		booter.Start()
+		if err := booter.Start(); err != nil {
+			console.Error(err)
+		}
 		close(machine.booterDone)
 	}()
 
@@ -147,6 +149,7 @@ func (machine *Machine) Prompt(source ChordSource) ([][]byte, error) {
 	ctx := machine.ctx
 	if ctx == nil {
 		ctx = context.Background()
+		machine.ctx, machine.cancel = context.WithCancel(ctx)
 	}
 
 	var allResults [][]byte

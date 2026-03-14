@@ -87,6 +87,33 @@ func TestLoggerHelpers(t *testing.T) {
 	})
 }
 
+func TestIsTraceEnabled(t *testing.T) {
+	t.Run("enabled when SIX_TRACE=1", func(t *testing.T) {
+		orig := os.Getenv("SIX_TRACE")
+		defer func() { _ = os.Setenv("SIX_TRACE", orig) }()
+
+		_ = os.Setenv("SIX_TRACE", "1")
+		traceEnabled = true
+		if !IsTraceEnabled() {
+			t.Error("IsTraceEnabled should be true when SIX_TRACE=1")
+		}
+	})
+
+	t.Run("disabled when SIX_TRACE empty or unset", func(t *testing.T) {
+		orig := os.Getenv("SIX_TRACE")
+		defer func() {
+			_ = os.Setenv("SIX_TRACE", orig)
+			traceEnabled = orig == "1"
+		}()
+
+		_ = os.Setenv("SIX_TRACE", "")
+		traceEnabled = false
+		if IsTraceEnabled() {
+			t.Error("IsTraceEnabled should be false when SIX_TRACE is empty")
+		}
+	})
+}
+
 type stringer string
 
 func (s stringer) String() string { return string(s) }

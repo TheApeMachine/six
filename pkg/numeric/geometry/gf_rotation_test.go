@@ -19,3 +19,14 @@ func TestGFRotation(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkGFRotation(b *testing.B) {
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = GFRotation{CoordU: 0, CoordV: 0}
+		rot := GFRotation{CoordU: 256, CoordV: 128}
+		_ = rot.CoordU
+		_ = rot.CoordV
+	}
+}

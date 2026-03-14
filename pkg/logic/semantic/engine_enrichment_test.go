@@ -260,8 +260,7 @@ func TestPhaseCollisions(t *testing.T) {
 
 		gc.Convey("QueryObject with a colliding subject should still work via scan", func() {
 			if len(colliders) == 0 {
-				gc.So(true, gc.ShouldBeTrue)
-				return
+				t.Skipf("no colliders found (GF(257) phase collision space may be empty for this alphabet)")
 			}
 
 			collider := colliders[0]
