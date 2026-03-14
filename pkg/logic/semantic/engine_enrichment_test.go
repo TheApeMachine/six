@@ -10,7 +10,7 @@ import (
 
 func TestNegativeConstraints(t *testing.T) {
 	gc.Convey("Given an engine with positive and negative facts", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 
 		posPhase := eng.Inject("Cat", "is_on", "Mat")
 		negPhase := eng.InjectNegation("Cat", "is_on", "Mat")
@@ -35,7 +35,7 @@ func TestNegativeConstraints(t *testing.T) {
 		})
 
 		gc.Convey("Negation should not corrupt existing positive queries", func() {
-			eng2 := NewEngine()
+			eng2 := NewEngineServer()
 			eng2.Inject("Cat", "is_on", "Mat")
 			eng2.Inject("Dog", "is_in", "Yard")
 			eng2.InjectNegation("Cat", "is_on", "Mat")
@@ -53,7 +53,7 @@ func TestNegativeConstraints(t *testing.T) {
 
 func TestNegativeConstraintsAtScale(t *testing.T) {
 	gc.Convey("Given 50 facts with 10 negations", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 
 		var phases []numeric.Phase
 
@@ -96,7 +96,7 @@ func TestNegativeConstraintsAtScale(t *testing.T) {
 
 func TestTemporalLogic(t *testing.T) {
 	gc.Convey("Given temporal facts across three time steps", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 
 		past := eng.InjectTemporal("Sandra", "is_in", "Garden", 1)
 		present := eng.InjectTemporal("Sandra", "is_in", "Kitchen", 2)
@@ -130,7 +130,7 @@ func TestTemporalLogic(t *testing.T) {
 
 func TestDeBraid(t *testing.T) {
 	gc.Convey("Given three merged facts", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 
 		phaseA := eng.Inject("Cat", "is_on", "Mat")
 		phaseB := eng.Inject("Dog", "is_in", "Yard")
@@ -180,7 +180,7 @@ func TestDeBraid(t *testing.T) {
 	})
 
 	gc.Convey("Given 20 merged facts, DeBraid should isolate any single one", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 
 		var phases []numeric.Phase
 
@@ -213,7 +213,7 @@ func TestDeBraid(t *testing.T) {
 
 func TestQueryLink(t *testing.T) {
 	gc.Convey("Given an engine with multiple facts", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 
 		braids := make(map[string]numeric.Phase)
 
@@ -241,7 +241,7 @@ func TestQueryLink(t *testing.T) {
 
 func TestPhaseCollisions(t *testing.T) {
 	gc.Convey("Given strings that hash to the same GF(257) phase", t, func() {
-		eng := NewEngine()
+		eng := NewEngineServer()
 		calc := numeric.NewCalculus()
 
 		var colliders []string
@@ -280,7 +280,7 @@ func TestPhaseCollisions(t *testing.T) {
 }
 
 func BenchmarkInjectNegation(b *testing.B) {
-	eng := NewEngine()
+	eng := NewEngineServer()
 
 	for i := 0; i < 100; i++ {
 		eng.Inject(fmt.Sprintf("E%d", i), "rel", fmt.Sprintf("T%d", i))
@@ -294,7 +294,7 @@ func BenchmarkInjectNegation(b *testing.B) {
 }
 
 func BenchmarkDeBraid(b *testing.B) {
-	eng := NewEngine()
+	eng := NewEngineServer()
 
 	var phases []numeric.Phase
 
@@ -313,7 +313,7 @@ func BenchmarkDeBraid(b *testing.B) {
 }
 
 func BenchmarkInjectTemporal(b *testing.B) {
-	eng := NewEngine()
+	eng := NewEngineServer()
 
 	b.ResetTimer()
 
@@ -328,7 +328,7 @@ func BenchmarkInjectTemporal(b *testing.B) {
 }
 
 func BenchmarkQueryLinkAtScale(b *testing.B) {
-	eng := NewEngine()
+	eng := NewEngineServer()
 
 	var braids []numeric.Phase
 	var subjects []string

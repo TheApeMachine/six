@@ -6,7 +6,7 @@ import (
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -25,7 +25,7 @@ not just the most frequent n-grams.
 type ProseChainingExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewProseChainingExperiment() *ProseChainingExperiment {
@@ -44,17 +44,14 @@ func (experiment *ProseChainingExperiment) Name() string              { return "
 func (experiment *ProseChainingExperiment) Section() string           { return "textgen" }
 func (experiment *ProseChainingExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *ProseChainingExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *ProseChainingExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
 // 60% right holdout — an aggressive masking that tests deep generative chaining.
-func (experiment *ProseChainingExperiment) Holdout() (int, process.HoldoutType) {
-	return 60, process.RIGHT
+func (experiment *ProseChainingExperiment) Holdout() (int, input.HoldoutType) {
+	return 60, input.RIGHT
 }
 
 func (experiment *ProseChainingExperiment) AddResult(results tools.ExperimentalData) {

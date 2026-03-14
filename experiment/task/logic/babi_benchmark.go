@@ -10,7 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -21,7 +21,7 @@ type BabiExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   *huggingface.BabiQADataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewBabiExperiment() *BabiExperiment {
@@ -54,16 +54,13 @@ func (experiment *BabiExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *BabiExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-	)
-
+func (experiment *BabiExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *BabiExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *BabiExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *BabiExperiment) Section() string {

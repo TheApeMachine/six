@@ -37,6 +37,20 @@ func (dist *Distribution) Clone() *Distribution {
 }
 
 /*
+N returns the total sample count.
+*/
+func (dist *Distribution) N() int {
+	return dist.n
+}
+
+/*
+NumDistinct returns the number of distinct byte values with non-zero count.
+*/
+func (dist *Distribution) NumDistinct() int {
+	return dist.numDistinct
+}
+
+/*
 Add increments the count for byteVal and updates sumSLogC for MDL Cost.
 */
 func (dist *Distribution) Add(byteVal byte) {

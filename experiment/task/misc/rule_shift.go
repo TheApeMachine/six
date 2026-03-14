@@ -7,7 +7,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 // ruleShiftSamplesPerPhase is the number of samples per phase.
@@ -74,7 +74,7 @@ interference once Phase B is established.
 type RuleShiftExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 
 	// Per-step alignment signals, filled in AddResult.
 	kA     []float64
@@ -136,16 +136,14 @@ func (exp *RuleShiftExperiment) Section() string { return "misc" }
 
 func (exp *RuleShiftExperiment) Dataset() provider.Dataset { return exp.dataset }
 
-func (exp *RuleShiftExperiment) Prompts() *process.Prompt {
-	exp.prompt = process.NewPrompt(
-		process.PromptWithDataset(exp.dataset),
-		process.PromptWithHoldout(exp.Holdout()),
-	)
-	return exp.prompt
+func (exp *RuleShiftExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (exp *RuleShiftExperiment) Holdout() (int, process.HoldoutType) {
-	return ruleShiftHoldoutPct, process.RIGHT
+func (exp *RuleShiftExperiment) Holdout() (int, input.HoldoutType) {
+	return ruleShiftHoldoutPct, input.RIGHT
 }
 
 /*

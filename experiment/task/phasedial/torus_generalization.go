@@ -12,7 +12,7 @@ package phasedial
 // 	tools "github.com/theapemachine/six/experiment"
 // 	"github.com/theapemachine/six/pkg/numeric/geometry"
 
-// 	"github.com/theapemachine/six/pkg/system/process"
+// 		"github.com/theapemachine/six/pkg/system/vm/input"
 // 	"github.com/theapemachine/six/pkg/store/data/provider"
 // )
 
@@ -25,7 +25,7 @@ package phasedial
 // type TorusGeneralizationExperiment struct {
 // 	tableData     []tools.ExperimentalData
 // 	dataset       provider.Dataset
-// 	prompt        *process.Prompt
+// 	prompt        []string
 // 	comboSeries   []tools.ComboSeries
 // 	tableRows     []map[string]any
 // 	xAxis         []string
@@ -120,12 +120,12 @@ package phasedial
 // 	return experiment.dataset
 // }
 
-// func (experiment *TorusGeneralizationExperiment) Prompts() *process.Prompt {
+// func (experiment *TorusGeneralizationExperiment) Prompts() []string {
 // 	return nil
 // }
 
-// func (experiment *TorusGeneralizationExperiment) Holdout() (int, process.HoldoutType) {
-// 	return 0, process.RIGHT
+// func (experiment *TorusGeneralizationExperiment) Holdout() (int, input.HoldoutType) {
+// 	return 0, input.RIGHT
 // }
 
 // func (experiment *TorusGeneralizationExperiment) AddResult(results tools.ExperimentalData) {

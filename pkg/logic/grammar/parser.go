@@ -1,47 +1,101 @@
 package grammar
 
 import (
+	"context"
 	"fmt"
+	"net"
 	"strings"
 
+	capnp "capnproto.org/go/capnp/v3"
+	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-Parser maps NLP entities to mathematical geometry (GF(257)).
+ParserServer maps NLP entities to mathematical geometry (GF(257)).
 It treats Nouns as Points (States/Phases), Verbs as Vectors (Rotations),
 and Adjectives as Nested Modifiers inside rotation functions.
 */
-type Parser struct {
-	calc *numeric.Calculus
-
-	// Basic dictionaries for our "zero-shot" semantic grammar routing
-	nounSet map[string]bool
-	verbSet map[string]bool
-	adjSet  map[string]bool
+type ParserServer struct {
+	ctx         context.Context
+	cancel      context.CancelFunc
+	serverSide  net.Conn
+	clientSide  net.Conn
+	client      Parser
+	serverConn  *rpc.Conn
+	clientConns map[string]*rpc.Conn
+	calc        *numeric.Calculus
+	nounSet     map[string]bool
+	verbSet     map[string]bool
+	adjSet      map[string]bool
 }
 
-type parserOpts func(*Parser)
+type parserOpts func(*ParserServer)
 
-func NewParser(opts ...parserOpts) *Parser {
-	p := &Parser{
-		calc:    numeric.NewCalculus(),
-		nounSet: make(map[string]bool),
-		verbSet: make(map[string]bool),
-		adjSet:  make(map[string]bool),
+func NewParserServer(opts ...parserOpts) *ParserServer {
+	p := &ParserServer{
+		clientConns: map[string]*rpc.Conn{},
+		calc:        numeric.NewCalculus(),
+		nounSet:     make(map[string]bool),
+		verbSet:     make(map[string]bool),
+		adjSet:      make(map[string]bool),
 	}
 
 	for _, opt := range opts {
 		opt(p)
 	}
 
+	validate.Require(map[string]any{
+		"ctx":    p.ctx,
+		"cancel": p.cancel,
+	})
+
+	p.serverSide, p.clientSide = net.Pipe()
+	p.client = Parser_ServerToClient(p)
+
+	p.serverConn = rpc.NewConn(rpc.NewStreamTransport(
+		p.serverSide,
+	), &rpc.Options{
+		BootstrapClient: capnp.Client(p.client),
+	})
+
 	return p
+}
+
+/*
+Client returns a Cap'n Proto client connected to this ParserServer.
+*/
+func (server *ParserServer) Client(clientID string) Parser {
+	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
+		server.clientSide,
+	), &rpc.Options{
+		BootstrapClient: capnp.Client(server.client),
+	})
+
+	return server.client
+}
+
+/*
+Prompt implements Parser_Server.
+*/
+func (server *ParserServer) Prompt(ctx context.Context, call Parser_prompt) error {
+	return nil
+}
+
+/*
+ParserWithContext sets the context.
+*/
+func ParserWithContext(ctx context.Context) parserOpts {
+	return func(p *ParserServer) {
+		p.ctx, p.cancel = context.WithCancel(ctx)
+	}
 }
 
 /*
 RegisterNoun declares a word as a geometric Point (Target State).
 */
-func (p *Parser) RegisterNoun(words ...string) {
+func (p *ParserServer) RegisterNoun(words ...string) {
 	for _, w := range words {
 		p.nounSet[strings.ToLower(w)] = true
 	}
@@ -50,7 +104,7 @@ func (p *Parser) RegisterNoun(words ...string) {
 /*
 RegisterVerb declares a word as a geometric Vector (Phase Shift).
 */
-func (p *Parser) RegisterVerb(words ...string) {
+func (p *ParserServer) RegisterVerb(words ...string) {
 	for _, w := range words {
 		p.verbSet[strings.ToLower(w)] = true
 	}
@@ -59,7 +113,7 @@ func (p *Parser) RegisterVerb(words ...string) {
 /*
 RegisterAdjective declares a word as a geometric Nested Rotation (Modifier).
 */
-func (p *Parser) RegisterAdjective(words ...string) {
+func (p *ParserServer) RegisterAdjective(words ...string) {
 	for _, w := range words {
 		p.adjSet[strings.ToLower(w)] = true
 	}
@@ -88,7 +142,7 @@ ParseSentence builds an Abstract Syntax Tree (AST) from a basic S-V-O sentence
 and transforms it into a GF(257) structural phase using non-commutative power rotations.
 Requires: "[Adj] Noun [Adj] Verb [Adj] Noun".
 */
-func (p *Parser) ParseSentence(sentence string) (*AST, numeric.Phase, error) {
+func (p *ParserServer) ParseSentence(sentence string) (*AST, numeric.Phase, error) {
 	words := strings.Fields(strings.ToLower(sentence))
 	if len(words) < 3 {
 		return nil, 0, fmt.Errorf("sentence requires at least S-V-O structure (3 words)")
@@ -96,9 +150,9 @@ func (p *Parser) ParseSentence(sentence string) (*AST, numeric.Phase, error) {
 
 	ast := &AST{}
 	var currentMods []string
-	
+
 	// State machine: 0 = Subject, 1 = Verb, 2 = Object, 3 = Done
-	state := 0 
+	state := 0
 
 	for _, w := range words {
 		if p.adjSet[w] {
@@ -147,7 +201,7 @@ func (p *Parser) ParseSentence(sentence string) (*AST, numeric.Phase, error) {
 	// Calculate Phase non-commutatively: State = State * G^(NodePhase)
 	// This ensures "dog bites man" != "man bites dog"
 	phase := numeric.Phase(1)
-	
+
 	phase = p.rotateNode(phase, ast.Subject)
 	phase = p.rotateNode(phase, ast.Verb)
 	phase = p.rotateNode(phase, ast.Object)
@@ -159,10 +213,10 @@ func (p *Parser) ParseSentence(sentence string) (*AST, numeric.Phase, error) {
 rotateNode cascades modifiers into the entity, then applies the block as a positional rotation
 onto the base phase using a non-commutative polynomial sequence (State = State * 3 + Phase).
 */
-func (p *Parser) rotateNode(base numeric.Phase, node ASTNode) numeric.Phase {
+func (p *ParserServer) rotateNode(base numeric.Phase, node ASTNode) numeric.Phase {
 	// 1. Accumulate Modifiers non-commutatively inside the node
 	nodePhase := p.calc.Sum(node.Entity)
-	
+
 	for _, mod := range node.Modifiers {
 		// NodePhase = (NodePhase * 3) + ModPhase
 		modPhase := p.calc.Sum(mod)
@@ -181,7 +235,7 @@ It bridges a raw text prompt into a resolved S-V-O mathematical structure,
 laying the groundwork to extract inversion keys used to steer the search space
 across the generated Wavefront context.
 */
-func (p *Parser) PromptToGrammar(prompt string) (*AST, numeric.Phase, error) {
+func (p *ParserServer) PromptToGrammar(prompt string) (*AST, numeric.Phase, error) {
 	// Central access point for the integration with the Wavefront pipeline.
 	return p.ParseSentence(prompt)
 }

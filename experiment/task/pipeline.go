@@ -3,16 +3,13 @@ package task
 import (
 	"context"
 	"runtime"
-	"strings"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/pool"
-	"github.com/theapemachine/six/pkg/system/process"
 	"github.com/theapemachine/six/pkg/system/vm"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 const pipelineDrainTimeout = 2 * time.Second
@@ -32,22 +29,20 @@ type runTiming struct {
 }
 
 type Pipeline struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	pool            *pool.Pool
-	broadcast       *pool.BroadcastGroup
-	coder           *data.MortonCoder
-	booter          *vm.Booter
-	machine         *vm.Machine
-	promptTokenizer *process.TokenizerServer
-	experiment      tools.PipelineExperiment
-	prompts         *process.Prompt
-	testIdx         int
-	scoreWgts       tools.ScoreWeights
-	reporter        Reporter
-	progressLine    string
-	failures        []promptFailure
-	timing          runTiming
+	ctx          context.Context
+	cancel       context.CancelFunc
+	pool         *pool.Pool
+	broadcast    *pool.BroadcastGroup
+	coder        *data.MortonCoder
+	booter       *vm.Booter
+	machine      *vm.Machine
+	experiment   tools.PipelineExperiment
+	testIdx      int
+	scoreWgts    tools.ScoreWeights
+	reporter     Reporter
+	progressLine string
+	failures     []promptFailure
+	timing       runTiming
 }
 
 type pipelineOpts func(*Pipeline)
@@ -88,99 +83,26 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
-	dataset := pipeline.experiment.Dataset()
+	for idx, prompt := range pipeline.experiment.Prompts() {
+		pipeline.machine = vm.NewMachine(
+			vm.MachineWithContext(pipeline.ctx),
+		)
 
-	pipeline.machine = vm.NewMachine(
-		vm.MachineWithContext(pipeline.ctx),
-		vm.MachineWithSystems(
-			lsm.NewSpatialIndexServer(
-				lsm.WithContext(pipeline.ctx),
-			),
-			process.NewTokenizerServer(
-				process.TokenizerWithContext(pipeline.ctx),
-				process.TokenizerWithDataset(dataset, false),
-			),
-			substrate.NewGraphServer(
-				substrate.GraphWithContext(pipeline.ctx),
-			),
-		),
-	)
+		result, err := pipeline.machine.Prompt(
+			prompt,
+		)
 
-	pipeline.machine.Start()
-	defer pipeline.machine.Stop()
-
-	pipeline.promptTokenizer = process.NewTokenizerServer(
-		process.TokenizerWithContext(pipeline.ctx),
-		process.TokenizerWithDataset(dataset, true),
-		process.TokenizerWithCollector(make([][]data.Chord, 1)),
-	)
-	pipeline.promptTokenizer.Start(pipeline.machine.Pool(), nil)
-
-	pipeline.prompts = pipeline.experiment.Prompts()
-	var holdoutPrct int
-	var holdoutType process.HoldoutType
-	if pipeline.prompts != nil {
-		holdoutPrct, holdoutType = pipeline.experiment.Holdout()
-		process.PromptWithTokenizer(pipeline.promptTokenizer)(pipeline.prompts)
-		process.PromptWithHoldout(holdoutPrct, holdoutType)(pipeline.prompts)
-	}
-
-	testIdx := 0
-	for pipeline.prompts.Next() {
-		if pipeline.prompts.Error() != nil {
-			return pipeline.prompts.Error()
-		}
-
-		results, err := pipeline.machine.Prompt(pipeline.prompts)
 		if err != nil {
 			return err
 		}
 
-		var observed []byte
-		if len(results) > 0 {
-			observed = results[0]
-		}
-
-		orig := pipeline.prompts.Original()
-		masked := pipeline.prompts.Masked()
-
-		var holdoutStr string
-		switch holdoutType {
-		case process.CENTER:
-			holdoutLen := len(orig) - len(masked)
-			if holdoutLen <= 0 {
-				holdoutStr = orig
-			} else {
-				prefixLen := (len(orig) - holdoutLen) / 2
-				holdoutStr = orig[prefixLen : prefixLen+holdoutLen]
-			}
-		case process.LEFT, process.RIGHT:
-			idx := strings.Index(orig, masked)
-			if idx < 0 {
-				holdoutStr = orig
-			} else if holdoutType == process.LEFT {
-				holdoutStr = orig[:idx]
-			} else {
-				holdoutStr = orig[idx+len(masked):]
-			}
-		default:
-			idx := strings.Index(orig, masked)
-			if idx < 0 {
-				holdoutStr = orig
-			} else {
-				holdoutStr = strings.Replace(orig, masked, "", 1)
-			}
-		}
-
 		pipeline.experiment.AddResult(tools.ExperimentalData{
-			Idx:      testIdx,
+			Idx:      idx,
 			Name:     pipeline.experiment.Name(),
-			Prefix:   []byte(masked),
-			Holdout:  []byte(holdoutStr),
-			Observed: observed,
+			Prefix:   []byte(prompt),
+			Holdout:  []byte(result),
+			Observed: result,
 		})
-
-		testIdx++
 	}
 
 	return pipeline.writeStandardSummary()
@@ -239,13 +161,13 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 
 	htStr := "RIGHT"
 	switch holdoutType {
-	case process.LEFT:
+	case input.LEFT:
 		htStr = "LEFT"
-	case process.CENTER:
+	case input.CENTER:
 		htStr = "CENTER"
-	case process.RANDOM:
+	case input.RANDOM:
 		htStr = "RANDOM"
-	case process.MATCH:
+	case input.MATCH:
 		htStr = "MATCH"
 	}
 

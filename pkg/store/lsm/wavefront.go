@@ -3,7 +3,7 @@ package lsm
 import (
 	"sort"
 
-	"github.com/theapemachine/six/pkg/logic/synthesis"
+	"github.com/theapemachine/six/pkg/logic/synthesis/goal"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -40,7 +40,7 @@ type Wavefront struct {
 	maxHeads int
 	maxDepth uint32
 	maxFuzzy int
-	fe       *synthesis.FrustrationEngine
+	fe       *goal.FrustrationEngineServer
 	target   numeric.Phase
 }
 
@@ -75,12 +75,12 @@ func (wf *Wavefront) ContextSteering(contextData, dangerData string) (*data.Chor
 	if focus := wf.calc.Sum(contextData); focus > 0 {
 		interest.Set(int(focus))
 	}
-	
+
 	danger := data.MustNewChord()
 	if avoid := wf.calc.Sum(dangerData); avoid > 0 {
 		danger.Set(int(avoid))
 	}
-	
+
 	return &interest, &danger
 }
 
@@ -224,7 +224,7 @@ func (wf *Wavefront) advance(
 							continue // Exceeded fuzzy mismatch budget
 						}
 						// Damped branching: High energy penalty for typological mismatch
-						stepEnergy += 100 
+						stepEnergy += 100
 					}
 
 					symbolChord := data.BaseChord(nextSymbol)
@@ -317,10 +317,10 @@ func (wf *Wavefront) prune(heads []*WavefrontHead) []*WavefrontHead {
 WavefrontResult is a ranked path from a wavefront search.
 */
 type WavefrontResult struct {
-	Path    []data.Chord
-	Energy  int
-	Phase   numeric.Phase
-	Depth   uint32
+	Path   []data.Chord
+	Energy int
+	Phase  numeric.Phase
+	Depth  uint32
 }
 
 /*
@@ -378,7 +378,7 @@ func WavefrontWithMaxDepth(maxDepth uint32) wavefrontOpts {
 /*
 WavefrontWithFrustrationEngine attaches the Phase 4 logic solver to the search.
 */
-func WavefrontWithFrustrationEngine(fe *synthesis.FrustrationEngine, target numeric.Phase) wavefrontOpts {
+func WavefrontWithFrustrationEngine(fe *goal.FrustrationEngineServer, target numeric.Phase) wavefrontOpts {
 	return func(wf *Wavefront) {
 		wf.fe = fe
 		wf.target = target

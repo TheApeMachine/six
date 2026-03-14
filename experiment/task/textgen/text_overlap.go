@@ -6,7 +6,7 @@ import (
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -30,7 +30,7 @@ a denser web of chord attractor bridges than raw encyclopaedic text.
 type TextOverlapExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewTextOverlapExperiment() *TextOverlapExperiment {
@@ -48,17 +48,14 @@ func (experiment *TextOverlapExperiment) Name() string              { return "Te
 func (experiment *TextOverlapExperiment) Section() string           { return "textgen" }
 func (experiment *TextOverlapExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *TextOverlapExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *TextOverlapExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
 // 40% right holdout — tests generation across the second main act of each story.
-func (experiment *TextOverlapExperiment) Holdout() (int, process.HoldoutType) {
-	return 40, process.RIGHT
+func (experiment *TextOverlapExperiment) Holdout() (int, input.HoldoutType) {
+	return 40, input.RIGHT
 }
 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {

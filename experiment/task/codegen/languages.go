@@ -5,10 +5,10 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	"github.com/theapemachine/six/pkg/system/process"
 )
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
@@ -35,7 +35,7 @@ type LanguagesExperiment struct {
 	dataset   provider.Dataset
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	prompt    *process.Prompt
+	prompt    []string
 	seen      map[string]struct{}
 }
 
@@ -91,14 +91,14 @@ func langDisplayNames() []string {
 	return names
 }
 
-func (experiment *LanguagesExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt()
+func (experiment *LanguagesExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *LanguagesExperiment) Holdout() (int, process.HoldoutType) {
+func (experiment *LanguagesExperiment) Holdout() (int, input.HoldoutType) {
 	// 50% holdout, from center to right side.
-	return 50, process.RIGHT
+	return 50, input.RIGHT
 }
 
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {

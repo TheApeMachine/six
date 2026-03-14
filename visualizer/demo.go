@@ -5,7 +5,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/console"
-	"github.com/theapemachine/six/test/integration"
+	"github.com/theapemachine/six/test"
 )
 
 /*
@@ -17,10 +17,7 @@ construction so this package stays free of embed/cmd import cycles.
 func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	console.Info("Starting Alice demo")
 
-	helper := integration.NewIntegrationHelper(
-		ctx,
-		dataset,
-	)
+	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
 	<-ctx.Done()

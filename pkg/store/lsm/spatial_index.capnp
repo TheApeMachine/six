@@ -22,4 +22,7 @@ interface SpatialIndex {
   # Fast-path lookups
   lookup           @2 (chords :List(Chord)) -> (paths :List(List(Chord)), metaPaths :List(List(Chord)));
   queryTransitions @3 (left :UInt8, position :UInt32) -> (chords :List(Chord), metas :List(Chord));
+
+  # Stateful path decode: result chords back into byte sequences
+  decode           @4 (chords :List(List(Chord))) -> (sequences :List(Data));
 }

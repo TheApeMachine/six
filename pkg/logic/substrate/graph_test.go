@@ -11,14 +11,14 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data"
 	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/process/sequencer"
 )
 
 /*
 tokenize runs the real Sequitur over raw bytes and returns the chunks it discovers.
 */
 func tokenize(raw []byte) [][]byte {
-	seq := process.NewSequitur()
+	seq := sequencer.NewSequitur()
 	var chunks [][]byte
 	var chunk []byte
 
@@ -330,7 +330,7 @@ func TestThreeWayDecomposition(t *testing.T) {
 	Convey("Given pairs of Alice chords", t, func() {
 		prompt, _ := data.BuildChord([]byte("Alice was beginning"))
 
-		for trial := 0; trial < 5; trial++ {
+		for trial := range 5 {
 			idx := trial * len(paths) / 5
 			stored := paths[idx]
 

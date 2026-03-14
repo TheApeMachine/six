@@ -38,11 +38,11 @@ func TestSanitize(t *testing.T) {
 		Convey("When Sanitize is called", func() {
 			chord.Sanitize()
 
-			Convey("It should zero bits above 256 except delimiter face", func() {
+			Convey("It should zero bits above 256 except delimiter face and Guard Band", func() {
 				So(chord.C4(), ShouldEqual, uint64(1))
-				So(chord.C5(), ShouldEqual, uint64(0))
-				So(chord.C6(), ShouldEqual, uint64(0))
-				So(chord.C7(), ShouldEqual, uint64(0))
+				So(chord.C5(), ShouldEqual, uint64(0xFFFFFFFFFFFFFFFF))
+				So(chord.C6(), ShouldEqual, uint64(0xFFFFFFFFFFFFFFFF))
+				So(chord.C7(), ShouldEqual, uint64(0xFFFFFFFFFFFFFFFF))
 			})
 		})
 	})

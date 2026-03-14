@@ -1,4 +1,4 @@
-package process
+package sequencer
 
 import (
 	"sync"
@@ -6,6 +6,7 @@ import (
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/system/process"
 )
 
 /*
@@ -106,7 +107,7 @@ func (sequitur *Sequitur) Analyze(
 
 	meta := ruleMetaChord(lastRuleID, calc)
 
-	return true, emitK, []int{EventPhaseInversion}, meta
+	return true, emitK, []int{process.EventPhaseInversion}, meta
 }
 
 /*
@@ -125,7 +126,12 @@ func (sequitur *Sequitur) Flush() (bool, int, []int, data.Chord) {
 
 	meta := ruleMetaChord(sequitur.lastRuleID, sequitur.calc)
 
-	return true, emitK, []int{EventPhaseInversion}, meta
+	return true, emitK, []int{
+		process.EventPhaseInversion,
+		process.EventLowVarianceFlux,
+		process.EventDensitySpike,
+		process.EventDensityTrough,
+	}, meta
 }
 
 /*

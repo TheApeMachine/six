@@ -126,6 +126,15 @@ func (rs *ResultStore) prepare(id string) chan *Result {
 	rs.mu.Lock()
 	defer rs.mu.Unlock()
 
+	if rs.waiting == nil {
+		ch <- &Result{
+			Error:     fmt.Errorf("result store closed"),
+			CreatedAt: time.Now(),
+		}
+		close(ch)
+		return ch
+	}
+
 	rs.waiting[id] = append(rs.waiting[id], ch)
 
 	return ch

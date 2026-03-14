@@ -7,7 +7,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -18,7 +18,7 @@ scan and generates a multi-panel chart showing the semantic geodesic matrix.
 type PermutationInvarianceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewPermutationInvarianceExperiment() *PermutationInvarianceExperiment {
@@ -40,16 +40,14 @@ func (experiment *PermutationInvarianceExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *PermutationInvarianceExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-	return experiment.prompt
+func (experiment *PermutationInvarianceExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *PermutationInvarianceExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *PermutationInvarianceExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *PermutationInvarianceExperiment) AddResult(results tools.ExperimentalData) {

@@ -1,6 +1,11 @@
 package vm
 
-import "github.com/theapemachine/six/pkg/system/pool"
+import (
+	"context"
+	"net"
+
+	"github.com/theapemachine/six/pkg/store/data"
+)
 
 /*
 System is any component that participates in the broadcast message bus.
@@ -12,7 +17,14 @@ Receive(nil) is a heartbeat/tick event; implementations must treat nil
 as a tick rather than dereferencing.
 */
 type System interface {
-	Start(pool *pool.Pool, broadcast *pool.BroadcastGroup)
-	Announce()
-	Receive(result *pool.Result)
+	Client(string) net.Conn
+}
+
+/*
+Promptable is any system that can be prompted.
+*/
+type Promptable interface {
+	Prompt(
+		ctx context.Context, msg []data.Chord,
+	) (buf []data.Chord, err error)
 }

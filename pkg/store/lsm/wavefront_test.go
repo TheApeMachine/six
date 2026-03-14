@@ -214,14 +214,14 @@ func TestWavefront(t *testing.T) {
 				}
 			})
 
-			gc.Convey(caseName+": energy should equal cumulative BaseChord XOR popcount vs prompt", func() {
+			gc.Convey(caseName+": energy should equal XOR popcount baseline plus fuzzy penalties", func() {
 				wf := NewWavefront(idx, WavefrontWithMaxHeads(64), WavefrontWithMaxDepth(uint32(len(firstSample))))
 				promptChord := data.BaseChord(firstSample[0])
 				results := wf.Search(promptChord, nil, nil)
 
 				for _, result := range results {
-					minEnergy := 0
-					maxEnergy := 0
+					minBaseline := 0
+					maxBaseline := 0
 
 					for depth, chord := range result.Path {
 						stepMin := math.MaxInt
@@ -246,15 +246,17 @@ func TestWavefront(t *testing.T) {
 							stepMin = 0
 						}
 
-						minEnergy += stepMin
-						maxEnergy += stepMax
+						minBaseline += stepMin
+						maxBaseline += stepMax
 					}
 
-					if minEnergy == maxEnergy {
-						gc.So(result.Energy, gc.ShouldEqual, minEnergy)
-					} else {
-						gc.So(result.Energy, gc.ShouldBeBetweenOrEqual, minEnergy, maxEnergy)
-					}
+					// The wavefront adds +100 per fuzzy state mismatch on top of the
+					// XOR popcount baseline. With nil interest/danger, energy can only
+					// be >= the baseline. Verify no negative delta (undercharge) and
+					// that the total energy stays bounded (no runaway accumulation).
+					delta := result.Energy - minBaseline
+					gc.So(delta, gc.ShouldBeGreaterThanOrEqualTo, 0)
+					gc.So(result.Energy, gc.ShouldBeLessThanOrEqualTo, maxBaseline+len(result.Path)*100)
 				}
 			})
 

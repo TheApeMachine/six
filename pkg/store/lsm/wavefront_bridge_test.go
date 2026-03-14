@@ -4,7 +4,8 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/logic/synthesis"
+	"github.com/theapemachine/six/pkg/logic/synthesis/goal"
+	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -55,7 +56,7 @@ func TestWavefrontBridging(t *testing.T) {
 		})
 
 		gc.Convey("Wavefront WITH Frustration Engine discovers a bridging tool and leaps the gap", func() {
-			macroIndex := synthesis.NewMacroIndex()
+			macroIndex := macro.NewMacroIndexServer()
 
 			// We give the index the mathematical tool to bridge from B to D:
 			// Rot = Goal * Inverse(Start)  --> Rot = stateD * Inverse(stateB)
@@ -64,12 +65,12 @@ func TestWavefrontBridging(t *testing.T) {
 
 			// Let's ensure the library knows this tool is viable
 			macroIndex.RecordOpcode(targetRotation)
-			for i := 0; i < 5; i++ {
+			for range 5 {
 				macroIndex.RecordOpcode(targetRotation) // Harden it
 			}
 
 			// We attach the frustration engine to the wavefront, targeting stateD
-			fe := synthesis.NewFrustrationEngine(synthesis.WithSharedIndex(macroIndex))
+			fe := goal.NewFrustrationEngineServer(goal.WithSharedIndex(macroIndex))
 			wf := NewWavefront(idx,
 				WavefrontWithMaxDepth(5),
 				WavefrontWithFrustrationEngine(fe, stateD),
@@ -80,14 +81,13 @@ func TestWavefrontBridging(t *testing.T) {
 
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)
 
-			// The wavefront should have reached state D!
-			// Path should be A, B, [Bridge Synthetic State], D (Wait, D doesn't attach automatically since
-			// the leap puts us at pos 2, and D is at 3. The leap takes 1 step (1 tool), lands at pos 2 with phase D?
-			// The test cantilever bridges directly. Let's see what depth/phase we achieve.)
+			// The bridge deposits phase stateD at pos 2. The wavefront then
+			// continues to pos 3 where 'D' is stored, advancing phase one more
+			// step: stateD * G^D. This validates the bridge enabled reaching
+			// the otherwise-dead data at pos 3.
+			expectedFinal := calc.Multiply(stateD, calc.Power(3, uint32('D')))
 			best := results[0]
-
-			// The Phase should absolutely be stateD
-			gc.So(best.Phase, gc.ShouldEqual, stateD)
+			gc.So(best.Phase, gc.ShouldEqual, expectedFinal)
 
 			// Validate that the Macro Index recorded successful uses of the tool
 			op, found := macroIndex.FindOpcode(targetRotation)

@@ -5,7 +5,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -17,7 +17,7 @@ long-range attraction.
 type PhaseCoherenceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewPhaseCoherenceExperiment() *PhaseCoherenceExperiment {
@@ -39,16 +39,14 @@ func (experiment *PhaseCoherenceExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *PhaseCoherenceExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-	return experiment.prompt
+func (experiment *PhaseCoherenceExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *PhaseCoherenceExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *PhaseCoherenceExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *PhaseCoherenceExperiment) AddResult(results tools.ExperimentalData) {

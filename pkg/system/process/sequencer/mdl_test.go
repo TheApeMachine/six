@@ -1,18 +1,66 @@
-package process
+package sequencer
 
 import (
 	"math/rand"
+	"strings"
 	"testing"
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
 )
 
-func TestSequencer(t *testing.T) {
+func generateCorpus(paragraphs int, rng *rand.Rand) string {
+	sentences := []string{
+		"The quick brown fox jumps over the lazy dog.",
+		"Alice was beginning to get very tired of sitting by her sister on the bank.",
+		"In a hole in the ground there lived a hobbit.",
+	}
+	var builder strings.Builder
+	for paragraph := range paragraphs {
+		count := 3 + rng.Intn(5)
+		for sentence := range count {
+			builder.WriteString(sentences[rng.Intn(len(sentences))])
+			if sentence < count-1 {
+				builder.WriteByte(' ')
+			}
+		}
+		if paragraph < paragraphs-1 {
+			builder.WriteString("\n\n")
+			numLen := 10 + rng.Intn(30)
+			for range numLen {
+				builder.WriteByte(byte('0' + rng.Intn(10)))
+			}
+			builder.WriteString("\n\n")
+		}
+	}
+	return builder.String()
+}
+
+func generateBinaryNoise(size int, rng *rand.Rand) []byte {
+	out := make([]byte, size)
+	for i := range out {
+		out[i] = byte(rng.Intn(256))
+	}
+	return out
+}
+
+func generateRepetitive(runs int, runLen int) []byte {
+	out := make([]byte, 0, runs*runLen)
+	for run := range runs {
+		val := byte((run * 37) % 256)
+		for range runLen {
+			out = append(out, val)
+		}
+	}
+	return out
+}
+
+func TestMDL(t *testing.T) {
 	Convey("Given a Sequencer", t, func() {
-		seq := NewSeq(NewCalibrator())
+		seq := NewMDL(process.NewCalibrator())
 
 		Convey("When analyzing a random byte stream", func() {
 			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -43,8 +91,8 @@ func TestSequencer(t *testing.T) {
 		})
 
 		Convey("When calibrator history lowers the active density ceiling", func() {
-			cal := NewCalibrator(WithWindowSize(4))
-			seq = NewSeq(cal)
+			cal := process.NewCalibrator(process.WithWindowSize(4))
+			seq = NewMDL(cal)
 			seq.ShannonCeiling = 1.0
 			seq.MinSegmentBytes = 2
 
@@ -67,11 +115,11 @@ func TestSequencer(t *testing.T) {
 
 		Convey("When detecting a boundary via MDL", func() {
 			buf := []byte{0, 0, 0, 0, 0, 255, 255, 255, 255, 255}
-			dist := NewDistribution()
+			dist := process.NewDistribution()
 			for _, b := range buf {
 				dist.Add(b)
 			}
-			ok, k, gain := seq.detectBoundary(buf, dist)
+			ok, k, gain := seq.detectBoundary(buf, dist.Clone())
 
 			Convey("It should identify the boundary and gain", func() {
 				So(ok, ShouldBeTrue)
@@ -149,20 +197,20 @@ func TestSequencer(t *testing.T) {
 	})
 }
 
-func BenchmarkSequencerDetectBoundary(b *testing.B) {
-	seq := NewSeq(nil)
+func BenchmarkMDLDetectBoundary(b *testing.B) {
+	seq := NewMDL(nil)
 
 	// Create multiple realistic entropy profiles.
 	profiles := [][]byte{
 		[]byte(generateCorpus(10, rand.New(rand.NewSource(42)))),
-		[]byte(generateBinaryNoise(2048, rand.New(rand.NewSource(99)))),
+		generateBinaryNoise(2048, rand.New(rand.NewSource(99))),
 		generateRepetitive(10, 200),
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		buf := profiles[i%len(profiles)]
-		dist := NewDistribution()
+		dist := process.NewDistribution()
 		for _, byteVal := range buf {
 			dist.Add(byteVal)
 		}

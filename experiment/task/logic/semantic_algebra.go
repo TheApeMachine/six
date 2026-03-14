@@ -5,13 +5,13 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 type SemanticAlgebraExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewSemanticAlgebraExperiment() *SemanticAlgebraExperiment {
@@ -37,15 +37,13 @@ func (experiment *SemanticAlgebraExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *SemanticAlgebraExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-	)
+func (experiment *SemanticAlgebraExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *SemanticAlgebraExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *SemanticAlgebraExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *SemanticAlgebraExperiment) Section() string {

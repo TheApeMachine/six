@@ -14,7 +14,7 @@ struct GraphEdge {
 }
 
 interface Graph {
-  # Streaming ingestion for 0-copy, zero-blocking insertions
-  prompt           @0 (chords :List(Chord)) -> (paths :List(List(Chord)));
-  done             @1 ();
+  # Machine delivers pre-fetched paths; Graph reasons over them.
+  prompt @0 (paths :List(List(Chord)), metaPaths :List(List(Chord))) -> (result :List(List(Chord)));
+  done   @1 ();
 }

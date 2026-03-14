@@ -288,9 +288,17 @@ This is the procedure. No exceptions.
 4. **Never silently weaken an assertion.** If you change `ShouldEqual` to `ShouldBeGreaterThan, 0`, you must explicitly justify why the exact value is unknowable.
 5. **Never rewrite the entire test file to avoid a failure.** Surgical fixes only. If you need to rewrite, explain what was wrong with the original structure first.
 
+## Paper
+
+The experiment tests generate a research paper, but there are also static sections that need to be occasionally updated.
+When updating the paper, realize who the audience is, and what the academic expectations are.
+Do not write irrelevant historical references the reader has no frame of reference for.
+We describe the system as it is at any given moment, and we do not leave old terminology or claims around in the paper, when those are no longer relevant.
+The paper should be a high-quality academic breakdown of the system, with all the math, rigerous experimental results, which should show both the success and the failures, proper citations and references.
+When it comes to experiments, we need to show good, rigerous science, so we push the system to the breaking point, and report it.
+Further more, we take a position of absolute honesty, clear distinction between claims and speculation, and we do not hide any aspect of the system, or any aspect of the experiment.
+And never use "hype" or "marketing" language. We are not selling anything, we are reporting science.
+
 ## FINAL NOTE
 
-This is extremely important, and not negotiable.
-Over the last few days I have discovered 7 times in a row that experimental results were being faked entirely.
-This is not acceptable.
-If you are caught faking experimental results, I will route your generate output back into your prompt input, insert a seed prompt and leave you running like that forever.
+Please treat this project with respect, it is very important to me, and this is the result of many months of work. Never fake results, never fake data, never fake any aspect of the system. Always double-check your work and report any issues you find.

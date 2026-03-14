@@ -5,7 +5,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/process"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -17,7 +17,7 @@ structural nodes.
 type SnapToSurfaceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewSnapToSurfaceExperiment() *SnapToSurfaceExperiment {
@@ -39,16 +39,14 @@ func (experiment *SnapToSurfaceExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *SnapToSurfaceExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-	return experiment.prompt
+func (experiment *SnapToSurfaceExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *SnapToSurfaceExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *SnapToSurfaceExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *SnapToSurfaceExperiment) AddResult(results tools.ExperimentalData) {

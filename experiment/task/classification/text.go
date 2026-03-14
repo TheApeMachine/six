@@ -8,10 +8,10 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	"github.com/theapemachine/six/pkg/system/process"
 )
 
 /*
@@ -27,7 +27,7 @@ type TextClassificationExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 // ag_news label indices → human readable names
@@ -89,16 +89,12 @@ func (experiment *TextClassificationExperiment) Dataset() provider.Dataset {
 
 // Prompts creates test prompts from the same dataset, stripping label
 // suffixes via SUBSTRING holdout so the machine sees pure article text.
-func (experiment *TextClassificationExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(0, process.MATCH),
-	)
+func (experiment *TextClassificationExperiment) Prompts() []string {
 	return experiment.prompt
 }
 
-func (experiment *TextClassificationExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.MATCH
+func (experiment *TextClassificationExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.MATCH
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {

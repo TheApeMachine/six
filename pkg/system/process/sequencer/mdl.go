@@ -1,4 +1,4 @@
-package process
+package sequencer
 
 import (
 	"math"
@@ -6,6 +6,7 @@ import (
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/process"
 )
 
 type Sequencer interface {
@@ -16,12 +17,12 @@ type Sequencer interface {
 Seq discovers natural boundaries in a raw byte stream using the
 Minimum Description Length (MDL) principle.
 */
-type Seq struct {
-	calibrator *Calibrator
+type MDL struct {
+	calibrator *process.Calibrator
 	eigen      *geometry.EigenMode
 
 	buf  []byte
-	dist *Distribution
+	dist *process.Distribution
 
 	runningChord data.Chord
 
@@ -36,7 +37,7 @@ type Seq struct {
 
 	runningMeta data.Chord
 
-	tokens     []Token
+	tokens     []data.Chord
 	candidates []candidate
 	offset     int
 
@@ -55,18 +56,18 @@ type candidate struct {
 }
 
 /*
-NewSeq creates a Seq with optional calibrator for BIC penalty tuning.
+NewMDL creates a MDL with optional calibrator for BIC penalty tuning.
 Default MinSegmentBytes=4.
 */
-func NewSeq(calibrator *Calibrator) *Seq {
+func NewMDL(calibrator *process.Calibrator) *MDL {
 	minSeg := int(math.Log2(float64(config.Numeric.NSymbols)) / 2)
 	if minSeg < 2 {
 		minSeg = 2
 	}
-	return &Seq{
+	return &MDL{
 		calibrator:      calibrator,
 		eigen:           geometry.NewEigenMode(),
-		dist:            NewDistribution(),
+		dist:            process.NewDistribution(),
 		MinSegmentBytes: minSeg,
 		ShannonCeiling:  config.Numeric.ShannonCapacity,
 		PhaseThreshold:  math.Pi / 2.0,
@@ -77,11 +78,11 @@ func NewSeq(calibrator *Calibrator) *Seq {
 CloneEmpty returns a new Sequencer with the same config (calibrator, eigen, phi)
 but empty buffer, distribution, and candidates.
 */
-func (seq *Seq) CloneEmpty() *Seq {
-	return &Seq{
+func (seq *MDL) CloneEmpty() *MDL {
+	return &MDL{
 		calibrator:      seq.calibrator,
 		eigen:           seq.eigen,
-		dist:            NewDistribution(),
+		dist:            process.NewDistribution(),
 		MinSegmentBytes: seq.MinSegmentBytes,
 		ShannonCeiling:  seq.ShannonCeiling,
 		PhaseThreshold:  seq.PhaseThreshold,
@@ -91,7 +92,7 @@ func (seq *Seq) CloneEmpty() *Seq {
 /*
 Clone returns a deep copy of the Sequencer including buffer, dist, candidates, and offset.
 */
-func (seq *Seq) Clone() *Seq {
+func (seq *MDL) Clone() *MDL {
 	c := seq.CloneEmpty()
 	c.buf = append([]byte(nil), seq.buf...)
 	c.dist = seq.dist.Clone()
@@ -102,7 +103,7 @@ func (seq *Seq) Clone() *Seq {
 	c.emaPhase = seq.emaPhase
 	c.emaPop = seq.emaPop
 	c.runningMeta = seq.runningMeta
-	c.tokens = append([]Token(nil), seq.tokens...)
+	c.tokens = append([]data.Chord(nil), seq.tokens...)
 	c.candidates = append([]candidate(nil), seq.candidates...)
 	c.offset = seq.offset
 	return c
@@ -113,7 +114,7 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *Seq) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord) {
+func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
@@ -173,7 +174,7 @@ func (seq *Seq) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 		seq.candidates = append(seq.candidates, candidate{k: absK, gain: gain, forced: shannonForced || phaseForced || primeForced})
 		seq.offset = absK
 
-		seq.dist = NewDistribution()
+		seq.dist = process.NewDistribution()
 
 		for _, b := range seq.buf[seq.offset:] {
 			seq.dist.Add(b)
@@ -194,17 +195,17 @@ func (seq *Seq) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 		emitK = seq.candidates[0].k
 
 		events = append(events, seq.classifyDirection(seq.buf, emitK))
-		events = append(events, EventPhaseInversion)
+		events = append(events, process.EventPhaseInversion)
 
 		for _, ev := range events {
 			switch ev {
-			case EventLowVarianceFlux:
+			case process.EventLowVarianceFlux:
 				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
-			case EventDensitySpike:
+			case process.EventDensitySpike:
 				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(1))
-			case EventDensityTrough:
+			case process.EventDensityTrough:
 				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(2))
-			case EventPhaseInversion:
+			case process.EventPhaseInversion:
 				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(3))
 			}
 		}
@@ -245,7 +246,7 @@ func (seq *Seq) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 	}
 
 	if seq.hasFlux() {
-		events = append(events, EventLowVarianceFlux)
+		events = append(events, process.EventLowVarianceFlux)
 		seq.fluxEmitted = true
 		seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
 	}
@@ -254,11 +255,11 @@ func (seq *Seq) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 	return false, emitK, events, seq.runningMeta
 }
 
-func (seq *Seq) hasFlux() bool {
+func (seq *MDL) hasFlux() bool {
 	return seq.prevSegLen > 0 && (len(seq.buf)-seq.offset) >= seq.prevSegLen && !seq.fluxEmitted
 }
 
-func (seq *Seq) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
+func (seq *MDL) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
 	val = float64(byteVal)
 
 	if seq.eigen != nil && seq.eigen.Trained {
@@ -273,7 +274,7 @@ func (seq *Seq) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
 	return
 }
 
-func (seq *Seq) detectBoundary(buf []byte, dist *Distribution) (bool, int, float64) {
+func (seq *MDL) detectBoundary(buf []byte, dist *process.Distribution) (bool, int, float64) {
 	n := len(buf)
 	minSeg := max(seq.MinSegmentBytes, 2)
 
@@ -283,16 +284,16 @@ func (seq *Seq) detectBoundary(buf []byte, dist *Distribution) (bool, int, float
 
 	penaltyScale := 1.0
 
-	if seq.calibrator != nil && seq.calibrator.sensitivityPop > 0 {
-		penaltyScale = seq.calibrator.sensitivityPop
+	if seq.calibrator != nil && seq.calibrator.SensitivityPop() > 0 {
+		penaltyScale = seq.calibrator.SensitivityPop()
 	}
 
 	bestK := 0
 	maxGain := 0.0
 
 	costFull := dist.Cost()
-	left := NewDistribution()
-	right := NewDistribution()
+	left := process.NewDistribution()
+	right := process.NewDistribution()
 	*right = *dist // fast copy of histogram state
 
 	for i := 1; i < n; i++ {
@@ -307,9 +308,9 @@ func (seq *Seq) detectBoundary(buf []byte, dist *Distribution) (bool, int, float
 		}
 
 		// Calculate parameter counts (subtract 1 because probabilities must sum to 1)
-		fullParams := max(dist.numDistinct-1, 1)
-		leftParams := max(left.numDistinct-1, 1)
-		rightParams := max(right.numDistinct-1, 1)
+		fullParams := max(dist.NumDistinct()-1, 1)
+		leftParams := max(left.NumDistinct()-1, 1)
+		rightParams := max(right.NumDistinct()-1, 1)
 
 		// Penalty for the parent model
 		penaltyFull := 0.5 * float64(fullParams) * math.Log(float64(n))
@@ -333,13 +334,13 @@ func (seq *Seq) detectBoundary(buf []byte, dist *Distribution) (bool, int, float
 	return maxGain > 0, bestK, maxGain
 }
 
-func (seq *Seq) emitSplit(k int) {
+func (seq *MDL) emitSplit(k int) {
 	seq.prevSegLen = k
 	seq.buf = append([]byte(nil), seq.buf[k:]...) // force copy to avoid leaks
 	seq.fluxEmitted = false
 }
 
-func (seq *Seq) balanceCandidates() {
+func (seq *MDL) balanceCandidates() {
 	if len(seq.candidates) < 2 {
 		return
 	}
@@ -374,16 +375,16 @@ func (seq *Seq) balanceCandidates() {
 	c1.gain = gain
 }
 
-func (seq *Seq) getDistribution(start, end int) *Distribution {
-	dist := NewDistribution()
+func (seq *MDL) getDistribution(start, end int) *process.Distribution {
+	dist := process.NewDistribution()
 	for _, b := range seq.buf[start:end] {
 		dist.Add(b)
 	}
 	return dist
 }
 
-func (seq *Seq) isSimilar(d1, d2 *Distribution) bool {
-	if d1.n == 0 || d2.n == 0 {
+func (seq *MDL) isSimilar(d1, d2 *process.Distribution) bool {
+	if d1.N() == 0 || d2.N() == 0 {
 		return false
 	}
 
@@ -401,9 +402,9 @@ func (seq *Seq) isSimilar(d1, d2 *Distribution) bool {
 classifyDirection returns EventDensitySpike if right-mean > left-mean, else EventDensityTrough.
 Compares buf[:k] vs buf[k:] mean byte values.
 */
-func (seq *Seq) classifyDirection(buf []byte, k int) int {
+func (seq *MDL) classifyDirection(buf []byte, k int) int {
 	if k <= 0 || k >= len(buf) {
-		return EventDensityTrough
+		return process.EventDensityTrough
 	}
 	var leftSum, rightSum int
 	for _, b := range buf[:k] {
@@ -415,12 +416,12 @@ func (seq *Seq) classifyDirection(buf []byte, k int) int {
 	leftMean := float64(leftSum) / float64(k)
 	rightMean := float64(rightSum) / float64(len(buf)-k)
 	if rightMean > leftMean {
-		return EventDensitySpike
+		return process.EventDensitySpike
 	}
-	return EventDensityTrough
+	return process.EventDensityTrough
 }
 
-func (seq *Seq) updateEMA(val, delta, eigenMag float64) {
+func (seq *MDL) updateEMA(val, delta, eigenMag float64) {
 	seq.lastByteVal = val
 	if seq.eigen != nil && seq.eigen.Trained {
 		seq.lastEigenMag = eigenMag
@@ -435,7 +436,7 @@ func (seq *Seq) updateEMA(val, delta, eigenMag float64) {
 Forecast runs boundary detection on buf+byteVal without committing.
 Returns (true, events) if a boundary would be at k; (false, nil) otherwise.
 */
-func (seq *Seq) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
+func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
 	buf := append(seq.buf, byteVal)
 	dist := *seq.dist
 	dist.Add(byteVal)
@@ -447,18 +448,18 @@ func (seq *Seq) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
 	}
 
 	events := append([]int{}, seq.classifyDirection(window, k))
-	events = append(events, EventPhaseInversion)
+	events = append(events, process.EventPhaseInversion)
 
 	tempMeta := seq.runningMeta.RollLeft(1)
 	for _, ev := range events {
 		switch ev {
-		case EventLowVarianceFlux:
+		case process.EventLowVarianceFlux:
 			tempMeta = tempMeta.XOR(data.BaseChord(0))
-		case EventDensitySpike:
+		case process.EventDensitySpike:
 			tempMeta = tempMeta.XOR(data.BaseChord(1))
-		case EventDensityTrough:
+		case process.EventDensityTrough:
 			tempMeta = tempMeta.XOR(data.BaseChord(2))
-		case EventPhaseInversion:
+		case process.EventPhaseInversion:
 			tempMeta = tempMeta.XOR(data.BaseChord(3))
 		}
 	}
@@ -471,34 +472,32 @@ FeedbackRetrievalQuality adjusts calibrator.sensitivityPop by 1/phi.
 overDiscriminated: increase penalty (fewer splits). underDiscriminated: decrease.
 Clamps sensitivityPop to [0.05, 20].
 */
-func (seq *Seq) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
+func (seq *MDL) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
 	if seq.calibrator == nil {
 		return
 	}
-	seq.calibrator.mu.Lock()
-	defer seq.calibrator.mu.Unlock()
 
-	_, stddev := seq.calibrator.window.Stats()
+	_, stddev := seq.calibrator.WindowStats()
 	adjust := stddev
 
 	if overDiscriminated {
-		seq.calibrator.sensitivityPop *= math.Exp(adjust)
+		seq.calibrator.SetSensitivityPop(seq.calibrator.SensitivityPop() * math.Exp(adjust))
 	} else if underDiscriminated {
-		seq.calibrator.sensitivityPop *= math.Exp(-adjust)
+		seq.calibrator.SetSensitivityPop(seq.calibrator.SensitivityPop() * math.Exp(-adjust))
 	}
 }
 
 /*
 Phase returns (emaPhase, costPerByte). costPerByte = dist.Cost()/n.
 */
-func (seq *Seq) Phase() (float64, float64) {
-	return seq.emaPhase, seq.dist.Cost() / float64(max(seq.dist.n, 1))
+func (seq *MDL) Phase() (float64, float64) {
+	return seq.emaPhase, seq.dist.Cost() / float64(max(seq.dist.N(), 1))
 }
 
 /*
 SetEigenMode replaces the internal EigenMode. Nil resets to NewEigenMode().
 */
-func (seq *Seq) SetEigenMode(eigen *geometry.EigenMode) {
+func (seq *MDL) SetEigenMode(eigen *geometry.EigenMode) {
 	if eigen == nil {
 		seq.eigen = geometry.NewEigenMode()
 		return
@@ -510,24 +509,24 @@ func (seq *Seq) SetEigenMode(eigen *geometry.EigenMode) {
 Flush commits the first candidate as a boundary and returns (true, events).
 Returns (false, nil) if no candidates. Same event format as Analyze.
 */
-func (seq *Seq) Flush() (bool, int, []int, data.Chord) {
+func (seq *MDL) Flush() (bool, int, []int, data.Chord) {
 	if len(seq.candidates) == 0 {
 		return false, 0, nil, seq.runningMeta
 	}
 
 	emitK := seq.candidates[0].k
 	events := append([]int{}, seq.classifyDirection(seq.buf, emitK))
-	events = append(events, EventPhaseInversion)
+	events = append(events, process.EventPhaseInversion)
 
 	for _, ev := range events {
 		switch ev {
-		case EventLowVarianceFlux:
+		case process.EventLowVarianceFlux:
 			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
-		case EventDensitySpike:
+		case process.EventDensitySpike:
 			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(1))
-		case EventDensityTrough:
+		case process.EventDensityTrough:
 			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(2))
-		case EventPhaseInversion:
+		case process.EventPhaseInversion:
 			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(3))
 		}
 	}

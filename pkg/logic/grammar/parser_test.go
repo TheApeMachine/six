@@ -1,6 +1,7 @@
 package grammar
 
 import (
+	"context"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -14,7 +15,7 @@ func TestLinguisticGrammar(t *testing.T) {
 		Sentence          string
 		ExpectedError     bool
 		ErrorContains     string
-		SetupFunc         func(p *Parser)
+		SetupFunc         func(p *ParserServer)
 		ExpectedSubject   string
 		ExpectedVerb      string
 		ExpectedObject    string
@@ -26,7 +27,7 @@ func TestLinguisticGrammar(t *testing.T) {
 		"basic_svo": {
 			Sentence:      "fox jumped dog",
 			ExpectedError: false,
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("fox", "dog")
 				p.RegisterVerb("jumped")
 			},
@@ -45,7 +46,7 @@ func TestLinguisticGrammar(t *testing.T) {
 		"svo_with_modifiers": {
 			Sentence:      "quick brown fox jumped lazy dog",
 			ExpectedError: false,
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("fox", "dog")
 				p.RegisterVerb("jumped")
 				p.RegisterAdjective("quick", "brown", "lazy")
@@ -74,7 +75,7 @@ func TestLinguisticGrammar(t *testing.T) {
 		"non_commutative_validation": {
 			Sentence:      "dog jumped fox",
 			ExpectedError: false,
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("fox", "dog")
 				p.RegisterVerb("jumped")
 			},
@@ -93,7 +94,7 @@ func TestLinguisticGrammar(t *testing.T) {
 			Sentence:      "quick alien jumped dog",
 			ExpectedError: true,
 			ErrorContains: "unrecognized grammar entity",
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("dog")
 				p.RegisterVerb("jumped")
 				p.RegisterAdjective("quick")
@@ -104,7 +105,7 @@ func TestLinguisticGrammar(t *testing.T) {
 			Sentence:      "dog jumped",
 			ExpectedError: true,
 			ErrorContains: "requires at least S-V-O structure", // Fails initial length check
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("dog")
 				p.RegisterVerb("jumped")
 			},
@@ -114,7 +115,7 @@ func TestLinguisticGrammar(t *testing.T) {
 			Sentence:      "quick brown lazy",
 			ExpectedError: true,
 			ErrorContains: "incomplete sentence structure", // State check catches this now!
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterAdjective("quick", "brown", "lazy")
 			},
 			CalculateExpected: func() numeric.Phase { return 0 },
@@ -123,7 +124,7 @@ func TestLinguisticGrammar(t *testing.T) {
 			Sentence:      "dog jumped fox quick",
 			ExpectedError: true,
 			ErrorContains: "trailing modifiers",
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("fox", "dog")
 				p.RegisterVerb("jumped")
 				p.RegisterAdjective("quick")
@@ -134,7 +135,7 @@ func TestLinguisticGrammar(t *testing.T) {
 			Sentence:      "dog jumped ran fox",
 			ExpectedError: true,
 			ErrorContains: "unexpected verb",
-			SetupFunc: func(p *Parser) {
+			SetupFunc: func(p *ParserServer) {
 				p.RegisterNoun("fox", "dog")
 				p.RegisterVerb("jumped", "ran")
 			},
@@ -144,7 +145,7 @@ func TestLinguisticGrammar(t *testing.T) {
 
 	for name, tc := range cases {
 		Convey("Given case: "+name, t, func() {
-			parser := NewParser()
+			parser := NewParserServer(ParserWithContext(context.Background()))
 			tc.SetupFunc(parser)
 
 			ast, phase, err := parser.ParseSentence(tc.Sentence)
@@ -191,7 +192,7 @@ func TestLinguisticGrammar(t *testing.T) {
 
 	Convey("Validation of Commutativity Breach", t, func() {
 		// This explicitly ensures that our structural math solved the flaw.
-		parser := NewParser()
+		parser := NewParserServer(ParserWithContext(context.Background()))
 		parser.RegisterNoun("fox", "dog")
 		parser.RegisterVerb("jumped")
 		

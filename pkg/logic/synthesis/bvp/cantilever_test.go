@@ -1,10 +1,11 @@
-package synthesis
+package bvp
 
 import (
 	"fmt"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
 )
 
@@ -63,14 +64,14 @@ func TestCantilever(t *testing.T) {
 
 	for name, tc := range cases {
 		Convey(fmt.Sprintf("Given case: %s", name), t, func() {
-			macroIndex := NewMacroIndex()
+			macroIndex := macro.NewMacroIndexServer()
 
 			start := numeric.Phase(tc.StartPhase)
 			goal := numeric.Phase(tc.GoalPhase)
 
-			cl := NewCantilever(start, goal, WithMacroIndex(macroIndex))
+			cl := NewCantileverServer(start, goal, WithMacroIndex(macroIndex))
 
-			var lastOp *MacroOpcode
+			var lastOp *macro.MacroOpcode
 			var lastRot numeric.Phase
 			var lastErr error
 
@@ -112,7 +113,7 @@ func TestCantilever(t *testing.T) {
 	}
 
 	Convey("Given a Macro Index with mixed tool usages", t, func() {
-		macroIndex := NewMacroIndex()
+		macroIndex := macro.NewMacroIndexServer()
 
 		// A fluke gap (happens once)
 		macroIndex.RecordOpcode(25)

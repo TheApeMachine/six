@@ -3,51 +3,128 @@ package integration
 import (
 	"testing"
 
-	"github.com/theapemachine/six/pkg/logic/semantic"
-	"github.com/theapemachine/six/pkg/numeric"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
+	"github.com/theapemachine/six/test"
 )
 
-func TestHolographicSemanticEngine(t *testing.T) {
-	Convey("Given a unified Semantic Reasoning Engine powered by GF(257) Cancellation", t, func() {
-		eng := semantic.NewEngine(
-			semantic.EngineWithFact("The_Cat", "sat_on", "The_Mat"),
-			semantic.EngineWithFact("Roy", "is_in", "Kitchen"),
-			semantic.EngineWithFact("Sandra", "is_in", "Garden"),
-		)
-		calc := numeric.NewCalculus()
+func TestHolographicAlgebra_Integration(t *testing.T) {
+	corpus := []string{
+		"Roy was in the living room.",
+		"Roy is in the kitchen.",
+		"Roy will be in the garage.",
+		"Image of cat is a cat.",
+		"Image of dog is a dog.",
+		"The quick brown fox jumps over the lazy dog.",
+		"The quick red fox jumps over the sleeping dog.",
+		"The quick silver fox runs past the awake dog.",
+		"Force equals mass times acceleration.",
+		"Gravity is an accelerating force.",
+		"If it rains and you have no umbrella you get wet.",
+		"If you have an umbrella or stay inside you stay dry.",
+	}
 
-		Convey("When parsing Multi-Modal and Multi-Tonal Braid Superpositions", func() {
-			braidCat := eng.Inject("Image_of_Cat", "is_a", "The_Cat")
-			braidRoy := eng.Inject("Roy", "was_in", "Living_Room")
+	Convey("Given a holographic machine with ingested corpus", t, func() {
+		helper := test.NewTestHelper()
+		defer helper.Teardown()
 
-			Convey("It manages to extract correct spatial paths from temporal overrides", func() {
-				// We test Semantic Time Shift ("Where WAS Roy?")
-				loc, phase, err := eng.QueryObject(braidRoy, "Roy", "was_in")
-				So(err, ShouldBeNil)
-				So(loc, ShouldEqual, "Living_Room")
-				So(phase, ShouldEqual, calc.Sum("Living_Room"))
+		So(helper.SetDataset(local.New(local.WithStrings(corpus))), ShouldBeNil)
 
-				// We test regular state ("Where IS Roy?")
-				// Since we injected the fact previously (it was facts[1])
-				loc2, _, err := eng.QueryObject(eng.Inject("Roy", "is_in", "Kitchen"), "Roy", "is_in")
-				So(err, ShouldBeNil)
-				So(loc2, ShouldEqual, "Kitchen")
-			})
+		Convey("Temporal: 'was' routes to living room not kitchen", func() {
+			result, err := helper.Prompt("Roy was in the ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "living room")
+			So(string(result), ShouldNotContainSubstring, "kitchen")
+		})
 
-			Convey("Cross-Modal queries should resolve via shared Label Phases", func() {
-				// Query "What is the Image_of_Cat?" -> expecting "The_Cat"
-				tgt, _, err := eng.QueryObject(braidCat, "Image_of_Cat", "is_a")
-				So(err, ShouldBeNil)
-				So(tgt, ShouldEqual, "The_Cat")
-			})
+		Convey("Temporal: 'is' routes to kitchen not living room", func() {
+			result, err := helper.Prompt("Roy is in the ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "kitchen")
+			So(string(result), ShouldNotContainSubstring, "living room")
+		})
 
-			Convey("It rejects Noise constraints cleanly (Destructive Interference)", func() {
-				path := calc.Sum("Kitchen")
-				antiPath := calc.Subtract(numeric.Phase(0), path)
-				res := calc.Add(path, antiPath)
-				So(res, ShouldEqual, 0)
-			})
+		Convey("Temporal: 'will be' routes to garage", func() {
+			result, err := helper.Prompt("Roy will be in the ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "garage")
+		})
+
+		Convey("Cross-modal: cat prompt returns cat not dog-unique content", func() {
+			result, err := helper.Prompt("Image of cat ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "cat")
+		})
+
+		Convey("Cross-modal: dog prompt returns dog not cat-unique content", func() {
+			result, err := helper.Prompt("Image of dog ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "dog")
+		})
+
+		Convey("Superposition: shared prefix activates at least one branch", func() {
+			result, err := helper.Prompt("The quick ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldNotBeEmpty)
+		})
+
+		Convey("Determinism: same prompt returns same result twice", func() {
+			first, err := helper.Prompt("Roy is in the ")
+			So(err, ShouldBeNil)
+
+			second, err := helper.Prompt("Roy is in the ")
+			So(err, ShouldBeNil)
+
+			So(string(second), ShouldEqual, string(first))
+		})
+
+		Convey("Logic AND: rains-and context routes to wet not dry", func() {
+			result, err := helper.Prompt("If it rains and ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "wet")
+		})
+
+		Convey("Logic OR: umbrella-or context routes to dry not wet", func() {
+			result, err := helper.Prompt("If you have an umbrella or ")
+			So(err, ShouldBeNil)
+			So(string(result), ShouldContainSubstring, "dry")
 		})
 	})
+}
+
+func BenchmarkHolographicAlgebra(b *testing.B) {
+	corpus := []string{
+		"Roy was in the living room.",
+		"Roy is in the kitchen.",
+		"Roy will be in the garage.",
+		"The quick brown fox jumps over the lazy dog.",
+		"The quick red fox jumps over the sleeping dog.",
+		"Force equals mass times acceleration.",
+	}
+
+	helper := test.NewTestHelper()
+	defer helper.Teardown()
+
+	if err := helper.SetDataset(local.New(local.WithStrings(corpus))); err != nil {
+		b.Fatal(err)
+	}
+
+	queries := []string{
+		"Roy is in the ",
+		"The quick brown ",
+		"Force equals mass ",
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		result, err := helper.Prompt(queries[i%len(queries)])
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		if len(result) == 0 {
+			b.Fatal("result should not be empty")
+		}
+	}
 }

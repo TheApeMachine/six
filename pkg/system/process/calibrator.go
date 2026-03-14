@@ -68,6 +68,20 @@ func (calibrator *Calibrator) SetSensitivityPhase(v float64) {
 	calibrator.sensitivityPhase = v
 }
 
+/*
+WindowStats returns (mean, stddev) for the density window. Zero if window is nil or not warmed.
+*/
+func (calibrator *Calibrator) WindowStats() (mean, stddev float64) {
+	calibrator.mu.RLock()
+	defer calibrator.mu.RUnlock()
+
+	if calibrator.window == nil || !calibrator.window.Warmed() {
+		return 0, 0
+	}
+
+	return calibrator.window.Stats()
+}
+
 func (calibrator *Calibrator) FeedbackChunk(density float64, primeCoherence float64, phaseCoherence float64) {
 	calibrator.mu.Lock()
 	defer calibrator.mu.Unlock()

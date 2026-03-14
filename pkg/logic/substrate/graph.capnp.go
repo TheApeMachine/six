@@ -143,7 +143,7 @@ func (c Graph) Prompt(ctx context.Context, params func(Graph_prompt_Params) erro
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
 		s.PlaceArgs = func(s capnp.Struct) error { return params(Graph_prompt_Params(s)) }
 	}
 
@@ -345,12 +345,12 @@ type Graph_prompt_Params capnp.Struct
 const Graph_prompt_Params_TypeID = 0xaefe7ca74f304a81
 
 func NewGraph_prompt_Params(s *capnp.Segment) (Graph_prompt_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
 	return Graph_prompt_Params(st), err
 }
 
 func NewRootGraph_prompt_Params(s *capnp.Segment) (Graph_prompt_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
 	return Graph_prompt_Params(st), err
 }
 
@@ -386,27 +386,50 @@ func (s Graph_prompt_Params) Message() *capnp.Message {
 func (s Graph_prompt_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Graph_prompt_Params) Chords() (data.Chord_List, error) {
+func (s Graph_prompt_Params) Paths() (capnp.PointerList, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Chord_List(p.List()), err
+	return capnp.PointerList(p.List()), err
 }
 
-func (s Graph_prompt_Params) HasChords() bool {
+func (s Graph_prompt_Params) HasPaths() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Graph_prompt_Params) SetChords(v data.Chord_List) error {
+func (s Graph_prompt_Params) SetPaths(v capnp.PointerList) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewChords sets the chords field to a newly
-// allocated data.Chord_List, preferring placement in s's segment.
-func (s Graph_prompt_Params) NewChords(n int32) (data.Chord_List, error) {
-	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
+// NewPaths sets the paths field to a newly
+// allocated capnp.PointerList, preferring placement in s's segment.
+func (s Graph_prompt_Params) NewPaths(n int32) (capnp.PointerList, error) {
+	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Chord_List{}, err
+		return capnp.PointerList{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+func (s Graph_prompt_Params) MetaPaths() (capnp.PointerList, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return capnp.PointerList(p.List()), err
+}
+
+func (s Graph_prompt_Params) HasMetaPaths() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Graph_prompt_Params) SetMetaPaths(v capnp.PointerList) error {
+	return capnp.Struct(s).SetPtr(1, v.ToPtr())
+}
+
+// NewMetaPaths sets the metaPaths field to a newly
+// allocated capnp.PointerList, preferring placement in s's segment.
+func (s Graph_prompt_Params) NewMetaPaths(n int32) (capnp.PointerList, error) {
+	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.PointerList{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
 	return l, err
 }
 
@@ -415,7 +438,7 @@ type Graph_prompt_Params_List = capnp.StructList[Graph_prompt_Params]
 
 // NewGraph_prompt_Params creates a new list of Graph_prompt_Params.
 func NewGraph_prompt_Params_List(s *capnp.Segment, sz int32) (Graph_prompt_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
 	return capnp.StructList[Graph_prompt_Params](l), err
 }
 
@@ -474,22 +497,22 @@ func (s Graph_prompt_Results) Message() *capnp.Message {
 func (s Graph_prompt_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Graph_prompt_Results) Paths() (capnp.PointerList, error) {
+func (s Graph_prompt_Results) Result() (capnp.PointerList, error) {
 	p, err := capnp.Struct(s).Ptr(0)
 	return capnp.PointerList(p.List()), err
 }
 
-func (s Graph_prompt_Results) HasPaths() bool {
+func (s Graph_prompt_Results) HasResult() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Graph_prompt_Results) SetPaths(v capnp.PointerList) error {
+func (s Graph_prompt_Results) SetResult(v capnp.PointerList) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewPaths sets the paths field to a newly
+// NewResult sets the result field to a newly
 // allocated capnp.PointerList, preferring placement in s's segment.
-func (s Graph_prompt_Results) NewPaths(n int32) (capnp.PointerList, error) {
+func (s Graph_prompt_Results) NewResult(n int32) (capnp.PointerList, error) {
 	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
 	if err != nil {
 		return capnp.PointerList{}, err
@@ -645,38 +668,40 @@ func (f Graph_done_Results_Future) Struct() (Graph_done_Results, error) {
 	return Graph_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d67 = "x\xda\x94R?h\x13q\x14~\xdf\xfb]L\x1c\xd2" +
-	"\xf6\xb8:8H\x0a\xa6\x0a\x1dL\xda\xb8\x18\x90\xc4\xc1" +
-	"J:h~\x99\x1d<\x93\xf3\xee\xf0\x92;\xefwA" +
-	"\x05\x17\x07Q\xc1\xa9\x0e\xa2\xe0\"\x88(\xeab7q" +
-	"s\x13\xd1\x0e\x8a\x83\xba\x0a\x0e\x05\x8bK\x97\x9e\xdc\xc5" +
-	"$U\xf0O\xa7{\xf7\xee\xfb\xee\xfb\xde\xfb^\xb9\x82" +
-	"\xba6\x9f\xdf\xaf\x11\xcbrfG\xfcyOkB<" +
-	"\xfbp\x9b\xf4} \xca KT\xd9\xc0#\x10\x8c\x9d" +
-	"\\#\xc4\xb3\xae\xf1u\xb5\xb2\xf1x\x00\xd0\x92\xef\x0d" +
-	"^\x06i\xf1\xe5\xa5\xf2\x89\x07\x976\x9fn\xa5\x1e\xe2" +
-	"{\x09\xb5\x91R_-\xbeY\x7f\xbe\x92\x7fK\xfa\x8c" +
-	"\x88\xed\xc3G\x82\xbb72O\x88P\xb9\xc8\x0b0\xae" +
-	"s\x96\xc8\xb8\xc2W\x8dwI\x15\x7f|\xbf\xf7\xe1\xb7" +
-	"\xe5\xf3\xeb$g\xc0c\xf8\xe0\xbf/\xb8\x05c5e" +
-	"\xbc\xe6/\x84\xf8f\xa3\xf3\xe9\xfb\xda\xb5\xcd-\xb6\xee" +
-	"\x8b;\xa0\xc588k\x97<\xdfv3\xed\x92\xea\x9f" +
-	"VQhFV\xc9\x0e\xcd\xc09\xd06\x83^P=" +
-	"\x96\xd6A\xe8w\x83\xa8\xd8\xb2\xd4d\xdf\x8b\x94\xd4\x84" +
-	"F\xa4\x81H\xcf/\x10\xc9\x9c\x80<\xc8(\x04f\xe4" +
-	"(L\x10\x9a\x02\xc3\xc7T|\xcb\xddu|M\xad\xbc" +
-	"$J\x9b\xff\xab\xd9\xf1{V\xb1i\x86f\x17j\x9b" +
-	">\x9bf\x985\xbb\xbf\xd8\xac\xfe\xb4Yd\xd4\xda\x8e" +
-	"\x1fv\xd4\xbf\x0d\x8a?\x89\x15R\xb5& s\"C" +
-	"4\x0a\x17\xc3\x03\xd1\xe7\xab\xc4\xfal\x16\xe3\x93\xc00" +
-	"\x04}\xf7\x1c\xb1\x9e\xcf\xd6\x06f\xeb\x98L&\xad\xa3" +
-	"\x89\xb1\xb2\xf6\xd71\x8fvlX\x89\xfa\xd4h>s" +
-	"\x8eH\x9e\x14\x90\x0eC\x07\xa6\x914\xad$\x9bS\x02" +
-	"\xd2c\xe8\xcc\xd3`\"\xdd]\"\x92\x8e\x80\x8c\x18\x10" +
-	"\xd3\x10D\xfa\xb9\x04\xe8\x09\xc8\x0b\x8cI\xcf:\x13!" +
-	"G\x8c\x1c\xa1\x10\xba\xb63z\x8b\x03_\xb9\x91\xeb\xf7" +
-	"\x88h\x84H\x97\xf9\xdb\x12\xa7\xb6\x99r\xcbR}O" +
-	"D\xeaG\x00\x00\x00\xff\xff#K\xf6J"
+const schema_ad058c9d70413d67 = "x\xda\x94\x92?L\xd4`\x18\xc6\x9f\xe7\xfbz\xde9" +
+	"\x1c\xd0\x14\x06\x07\x03\x89\xa0\x91D\xf9\xe7\"\x09\x01\x06" +
+	"0\x10\x95~7;X\xb9\xda6\xf6h\xed\xf7\x11\x1c" +
+	"\\\x9ctp\xc2\xc1h\xe2\xe2b4\xea\"\x9b\xab\x9b" +
+	"\x83\xba\x18\x07u5:\x90Ht`\xa1\xa6\x9c\xdc\x11" +
+	"\x13\x15\xa6\xb6\xef\xfb\xbcy\x9f\xf7\xd7gx\x81S\xd6" +
+	"H\xf5\x98\x05\xa1\x86K\x07\xf2\xcf\x87k\x1d\xf2\xc5\x87" +
+	"{\xb0\x8f\x12(\xb1\x0c\x8cm\xf2\x09A\xe7\xa0\x98\x04" +
+	"\xf3\x81\xc8\xf9\xf6nl\xf3iS`\x15\xfd9\xb1J" +
+	"X\xf9\x8d\xf9\xe1\x85G\xd7\xb7\x9e\xff\x1e\x15E\xeb\xb4" +
+	"xX\x8c\xce\x89\x150\x7f=\xfbf\xe3\xe5Z\xf5-" +
+	"\xec>\x99\x07\x13\xd3\xe9\x83\xdb\xa5g\x00\xc7\xbe\x8aQ" +
+	":\x9b\xc5\x80\xf3S\xdctfd\x19\xc8?\xbe?\xf2" +
+	"\xf8\xfb\xea\xca\x06T\x1fE[\xde\xb4tB\xd6\xe8L" +
+	"\x17:gB~\x01\xf3;s\xf5O?\xd6om\xed" +
+	"\xb2\xd5c\xdd'f\xf3\xf4J0\x14'ATZ\x1c" +
+	"\xd2\xcb\x97\xb4\xc9<\xe3\x0f\x05\x99\x97\x86'\x17\xbdt" +
+	")\x1d?\xb3\xfd\x9efI#5\xfd5_w.\xc7" +
+	"F+KZ\x80E\xc0\xae\x8e\x03\xaa\"\xa9N\x09N" +
+	"f\xbe^\x8e\x0d;@Wr\xe7\xd1\x95\xdf\x8dz\xce" +
+	"\xaf\xeb\xb5W\xc0vq\xafK\xeb\xc9\x92\xdf\xefz\x99" +
+	"\xd7\xa0\xde\xa7Q\xd7\xcb\xca^C\xabJ\xcb\xe7\xf1Q" +
+	"@\xf5K*W\xd0&\xbbY\x14\xcf\xd5\x00uVR" +
+	"]\x13\xecM=\x13\xea\xffzo\xf8\xc6s=\x13\x82" +
+	"z\xcfw\xca\xbfy\xee\xdd6\xed\x92\xaa\"K@+" +
+	"$\xdc\x09\x9a=2\x0ea\x0f\x94\xd9\x8e\x16w~\xa6" +
+	"}h\x10\xc2\xae\x96'\x9b7O\xb1\xb3\x006E\x97" +
+	"\xed\xcd\xd6?i\xcd\xd4\x03\xfa\xc5\xf6\xae\x16&o\x10" +
+	"P\x17$U\xb8\x0b\x93_\xb0\xbb(\xa9bA[\x88" +
+	"n\x0a\xc0\x8e\xe6\x01\x15J*#H\xd9M\x09\xd8W" +
+	"\x0ba\xdc\xe4\xd9\x19\xfb\x97\x0d+\x10\xac\x80\xbdY\x14" +
+	"\x84\xad\xaf<Mtd\xa2d\x09@K\xb1\x18&Y" +
+	"\xfd\x0f\x88]\xfb\x0cK\xad\xc8\x9f4\xfaW\x00\x00\x00" +
+	"\xff\xff\x18\xc2\x03-"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{

@@ -1,4 +1,4 @@
-.PHONY: build metal cuda paper pprof pprof-mem dump
+.PHONY: build metal cuda paper pprof pprof-mem dump capnp
 
 DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.capnp'
 DUMP_FILE := repo.txt
@@ -17,12 +17,19 @@ dump:
 
 CAPNP_STD ?= ../../capnproto/go-capnp/std
 
-build:
+capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/lsm/spatial_index.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/substrate/graph.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/data/chord.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer/universal.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/input/prompt.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/semantic/engine.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/grammar/parser.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/bvp/cantilever.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/goal/frustration.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/macro/macro_index.capnp
 
+build: capnp
 	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
 		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib

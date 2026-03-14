@@ -1,32 +1,40 @@
 package vm
 
 import (
-	"bytes"
 	"context"
 	"runtime"
 	"time"
 
-	"github.com/theapemachine/six/pkg/store/data"
+	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/substrate"
+
+	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
+	"github.com/theapemachine/six/pkg/system/process/tokenizer"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-Machine is the top-level VM: Loader ingests data; the Cortex reasons.
-Tick receives broadcast messages and dispatches work through the qpool.
-Pool and Broadcast are injected by the Booter; Machine never creates its own.
+Machine is the top-level orchestrator. It chains RPC calls in sequence:
+  1. Prompter  — apply holdout masking, return processed bytes
+  2. Tokenizer — tokenize bytes into chords
+  3. SpatialIndex.Lookup — fetch paths for those chords
+  4. Graph.Prompt — reason over the paths
+  5. SpatialIndex.Decode — reconstruct bytes from result chords
+
+Each step passes its capnp result directly to the next call. No conversion,
+no helpers — the types already match across the pipeline.
 */
 type Machine struct {
 	ctx            context.Context
 	cancel         context.CancelFunc
-	systems        []System
-	cortex         Cortex
-	decoder        Decoder
 	workerPool     *pool.Pool
 	broadcastGroup *pool.BroadcastGroup
-	booterCtx      context.Context
-	booterCancel   context.CancelFunc
-	booterDone     chan struct{}
+	booter         *Booter
 }
 
 type machineOpts func(*Machine)
@@ -35,207 +43,232 @@ type machineOpts func(*Machine)
 NewMachine creates a Machine.
 */
 func NewMachine(opts ...machineOpts) *Machine {
-	machine := &Machine{
-		booterDone: make(chan struct{}),
-	}
+	machine := &Machine{}
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	return machine
-}
-
-/*
-Start boots the full system: creates pool and broadcast, starts all systems,
-runs the Booter event loop in a background goroutine, and blocks until
-all Readiness-implementing systems report ready (or timeout).
-*/
-func (machine *Machine) Start() {
-	ctx := machine.ctx
-	if ctx == nil {
-		ctx = context.Background()
-		machine.ctx, machine.cancel = context.WithCancel(ctx)
-	}
 	machine.workerPool = pool.New(
-		ctx,
+		machine.ctx,
 		1,
 		runtime.NumCPU(),
 		&pool.Config{},
 	)
 
 	machine.broadcastGroup = pool.NewBroadcastGroup(
-		"broadcast", 10*time.Second, 128,
+		"machine",
+		5*time.Second,
+		128,
 	)
 
-	for _, system := range machine.systems {
-		system.Start(machine.workerPool, machine.broadcastGroup)
+	if errnie.Try(
+		"machine booting", validate.Require(map[string]any{
+			"ctx":            machine.ctx,
+			"cancel":         machine.cancel,
+			"workerPool":     machine.workerPool,
+			"broadcastGroup": machine.broadcastGroup,
+		}),
+	).Err() != nil {
+		console.Error(ErrMachineMissingRequirements)
+		return nil
 	}
 
-	for _, system := range machine.systems {
-		if cortexSys, ok := system.(Cortex); ok {
-			machine.cortex = cortexSys
-		}
-
-		if decoderSys, ok := system.(Decoder); ok {
-			machine.decoder = decoderSys
-		}
-	}
-
-	machine.booterCtx, machine.booterCancel = context.WithCancel(machine.ctx)
-
-	booter := NewBooter(
-		BooterWithContext(machine.booterCtx),
+	machine.booter = NewBooter(
+		BooterWithContext(machine.ctx),
 		BooterWithPool(machine.workerPool),
 		BooterWithBroadcast(machine.broadcastGroup),
-		BooterWithSystems(machine.systems...),
 	)
 
-	go func() {
-		if err := booter.Start(); err != nil {
-			console.Error(err)
-		}
-		close(machine.booterDone)
-	}()
-
-	machine.waitReady()
+	return machine
 }
 
 /*
-waitReady polls all systems that implement Readiness until they report
-true. Gives up after 30 seconds to avoid hanging in broken setups.
+Prompt is the main entry point. Results flow directly from one RPC call
+to the next — no intermediate materialisation.
 */
-func (machine *Machine) waitReady() {
-	deadline := time.After(30 * time.Second)
+func (machine *Machine) Prompt(msg string) ([]byte, error) {
+	ctx := machine.ctx
 
-	for {
-		allReady := true
+	// Step 1: Prompter — apply holdout masking.
+	promptFuture, promptRelease := machine.booter.prompter.Generate(
+		ctx, func(params input.Prompter_generate_Params) error {
+			return params.SetMsg(msg)
+		},
+	)
+	defer promptRelease()
 
-		for _, system := range machine.systems {
-			if sysReady, ok := system.(Readiness); ok && !sysReady.Ready() {
-				allReady = false
-				break
+	promptRes, err := promptFuture.Struct()
+	if err != nil {
+		return nil, err
+	}
+
+	promptBytes, err := promptRes.Data()
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 2: Tokenizer — bytes → chords.
+	tokFuture, tokRelease := machine.booter.tok.Generate(
+		ctx, func(params tokenizer.Universal_generate_Params) error {
+			return params.SetData(promptBytes)
+		},
+	)
+	defer tokRelease()
+
+	tokRes, err := tokFuture.Struct()
+	if err != nil {
+		return nil, err
+	}
+
+	chords, err := tokRes.Chords()
+	if err != nil {
+		return nil, err
+	}
+
+	if chords.Len() == 0 {
+		return promptBytes, nil
+	}
+
+	// Step 3: SpatialIndex.Lookup — chords → paths.
+	// chords is already a data.Chord_List; SetChords takes data.Chord_List. Pass directly.
+	lookupFuture, lookupRelease := machine.booter.spatialIndex.Lookup(
+		ctx, func(params lsm.SpatialIndex_lookup_Params) error {
+			return params.SetChords(chords)
+		},
+	)
+	defer lookupRelease()
+
+	lookupRes, err := lookupFuture.Struct()
+	if err != nil {
+		return nil, err
+	}
+
+	paths, err := lookupRes.Paths()
+	if err != nil {
+		return nil, err
+	}
+
+	metaPaths, err := lookupRes.MetaPaths()
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 4: Graph.Prompt — paths → result paths.
+	// paths and metaPaths are capnp.PointerList; SetPaths/SetMetaPaths take capnp.PointerList. Pass directly.
+	graphFuture, graphRelease := machine.booter.graph.Prompt(
+		ctx, func(params substrate.Graph_prompt_Params) error {
+			if err := params.SetPaths(paths); err != nil {
+				return err
 			}
-		}
+			return params.SetMetaPaths(metaPaths)
+		},
+	)
+	defer graphRelease()
 
-		if allReady {
-			return
-		}
-
-		select {
-		case <-deadline:
-			return
-		case <-machine.ctx.Done():
-			return
-		case <-time.After(10 * time.Millisecond):
-		}
+	graphRes, err := graphFuture.Struct()
+	if err != nil {
+		return nil, err
 	}
+
+	resultPaths, err := graphRes.Result()
+	if err != nil {
+		return nil, err
+	}
+
+	// Step 5: SpatialIndex.Decode — result paths → bytes.
+	// resultPaths is List(List(Chord)); Decode takes List(List(Chord)).
+	decodeFuture, decodeRelease := machine.booter.spatialIndex.Decode(
+		ctx, func(params lsm.SpatialIndex_decode_Params) error {
+			return params.SetChords(resultPaths)
+		},
+	)
+	defer decodeRelease()
+
+	decodeRes, err := decodeFuture.Struct()
+	if err != nil {
+		return nil, err
+	}
+
+	seqList, err := decodeRes.Sequences()
+	if err != nil {
+		return nil, err
+	}
+
+	var out []byte
+	for i := 0; i < seqList.Len(); i++ {
+		seq, err := seqList.At(i)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, seq...)
+	}
+
+	return out, nil
 }
 
 /*
-Prompt sends a ChordSource through the full end-to-end pipeline:
-chords → cortex (matrix) → result chords → decoder (LSM) → bytes.
-Returns the reconstructed byte sequences.
+SetDataset loads a corpus into the machine. It reads all strings from the
+dataset, ships the corpus to the Tokenizer via RPC (so the tokenizer has full
+dataset context), then drives each string through Prompt to populate the
+spatial index before any queries are served.
 */
-func (machine *Machine) Prompt(source ChordSource) ([][]byte, error) {
-	if machine.cortex == nil {
-		return nil, ErrNoCortex
+func (machine *Machine) SetDataset(dataset provider.Dataset) error {
+	// Reconstruct corpus strings by grouping RawTokens by SampleID.
+	byID := map[uint32][]byte{}
+
+	for tok := range dataset.Generate() {
+		byID[tok.SampleID] = append(byID[tok.SampleID], tok.Symbol)
 	}
 
-	if machine.decoder == nil {
-		return nil, ErrNoDecoder
+	corpus := make([]string, 0, len(byID))
+
+	for _, bytes := range byID {
+		corpus = append(corpus, string(bytes))
 	}
 
 	ctx := machine.ctx
-	if ctx == nil {
-		ctx = context.Background()
-		machine.ctx, machine.cancel = context.WithCancel(ctx)
+
+	// Send corpus to the Tokenizer via the setDataset RPC.
+	setFuture, setRelease := machine.booter.tok.SetDataset(
+		ctx, func(params tokenizer.Universal_setDataset_Params) error {
+			seg := params.Segment()
+			list, err := capnp.NewTextList(seg, int32(len(corpus)))
+			if err != nil {
+				return err
+			}
+
+			for i, s := range corpus {
+				if err := list.Set(i, s); err != nil {
+					return err
+				}
+			}
+
+			return params.SetCorpus(list)
+		},
+	)
+	defer setRelease()
+
+	if _, err := setFuture.Struct(); err != nil {
+		return err
 	}
 
-	var allResults [][]byte
-
-	for source.Next() {
-		if source.Error() != nil {
-			return nil, source.Error()
-		}
-
-		chords := source.Chords()
-
-		if len(chords) == 0 {
-			continue
-		}
-
-		list, err := data.ChordSliceToList(chords)
-
-		if err != nil {
-			return nil, err
-		}
-
-		paths, err := machine.cortex.PromptChords(ctx, list)
-
-		console.Trace("machine", "paths", paths)
-
-		if err != nil {
-			return nil, err
-		}
-
-		for _, path := range paths {
-			decoded := machine.decoder.Decode(path)
-			allResults = append(allResults, decoded...)
+	// Ingest each corpus string to build the spatial index.
+	for _, item := range corpus {
+		if _, err := machine.Prompt(item); err != nil {
+			return err
 		}
 	}
 
-	console.Trace("machine", "output", string(bytes.Join(allResults, []byte{})))
-
-	return allResults, source.Error()
+	return nil
 }
 
 /*
-Pool returns the Machine's worker pool, so external components
-(like a Prompt's tokenizer) can be started on the same pool.
-*/
-func (machine *Machine) Pool() *pool.Pool {
-	return machine.workerPool
-}
-
-/*
-Stop cancels the Machine context and closes the worker pool.
-*/
-func (machine *Machine) Stop() {
-	if machine.cancel != nil {
-		machine.cancel()
-	}
-
-	if machine.booterCancel != nil {
-		machine.booterCancel()
-		<-machine.booterDone
-	}
-
-	if machine.broadcastGroup != nil {
-		machine.broadcastGroup.Close()
-	}
-
-	if machine.workerPool != nil {
-		machine.workerPool.Close()
-	}
-}
-
-/*
-MachineWithContext adds a context to the machine.
+MachineWithContext adds a context to the Machine.
 */
 func MachineWithContext(ctx context.Context) machineOpts {
 	return func(machine *Machine) {
 		machine.ctx, machine.cancel = context.WithCancel(ctx)
-	}
-}
-
-/*
-MachineWithSystems assigns an arbitrary set of system interfaces
-which are wired into the underlying Event Loop and worker Pool on start.
-*/
-func MachineWithSystems(systems ...System) machineOpts {
-	return func(machine *Machine) {
-		machine.systems = systems
 	}
 }
 
@@ -245,15 +278,9 @@ MachineError is a typed error for Machine failures.
 type MachineError string
 
 const (
-	ErrNoChordFound                MachineError = "no chord found"
-	ErrMultiScaleCooccurrenceBuild MachineError = "failed to build multiscale cooccurrence"
-	ErrNoCortex                    MachineError = "no cortex system registered"
-	ErrNoDecoder                   MachineError = "no decoder system registered"
+	ErrMachineMissingRequirements MachineError = "machine: missing requirements"
 )
 
-/*
-Error implements the error interface for MachineError.
-*/
 func (machineError MachineError) Error() string {
 	return string(machineError)
 }
