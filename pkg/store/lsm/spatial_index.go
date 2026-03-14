@@ -39,6 +39,11 @@ type SpatialIndexServer struct {
 
 	entries       map[uint64]data.Chord
 	chainEntries  map[ChordKey]data.Chord
+	
+	// Skip-Chords for O(log n) multi-level traversal bridging
+	skip4         map[ChordKey]data.Chord
+	skip16        map[ChordKey]data.Chord
+
 	metaEntries   map[uint64][]data.Chord
 	arrowSets     map[uint64][]data.Chord
 	positionIndex map[uint32][]uint64
@@ -56,6 +61,8 @@ func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 	idx := &SpatialIndexServer{
 		entries:       make(map[uint64]data.Chord),
 		chainEntries:  make(map[ChordKey]data.Chord),
+		skip4:         make(map[ChordKey]data.Chord),
+		skip16:        make(map[ChordKey]data.Chord),
 		metaEntries:   make(map[uint64][]data.Chord),
 		arrowSets:     make(map[uint64][]data.Chord),
 		positionIndex: make(map[uint32][]uint64),

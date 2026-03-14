@@ -61,6 +61,41 @@ func (eng *Engine) Inject(subject, link, object string) numeric.Phase {
 }
 
 /*
+InjectLabel introduces a Cross-Modal Alignment marker to a fact.
+By tagging a fact with a specific 'Label Phase', the context can be modulated
+simultaneously across dual modalities (e.g., text and corresponding image embeddings)
+without changing the core Subject-Link-Object text structure.
+*/
+func (eng *Engine) InjectLabel(subject, link, object string, labelPhase numeric.Phase) numeric.Phase {
+	ps := eng.calc.Sum(subject)
+	pl := eng.calc.Sum(link)
+	po := eng.calc.Sum(object)
+
+	if ps == 0 || pl == 0 || po == 0 || labelPhase == 0 {
+		return numeric.Phase(0)
+	}
+
+	// The semantic text braid
+	braid := eng.calc.Multiply(eng.calc.Multiply(ps, pl), po)
+	
+	// Cross-Modal constraint applied via multiplication
+	modulatedBraid := eng.calc.Multiply(braid, labelPhase)
+
+	fact := Fact{
+		Subject: subject,
+		Link:    link,
+		Object:  object,
+		Phase:   modulatedBraid, // Store the modulated braid
+		Label:   labelPhase,
+	}
+	eng.facts = append(eng.facts, fact)
+	eng.phaseIndex[po] = append(eng.phaseIndex[po], fact)
+	eng.phaseIndex[ps] = append(eng.phaseIndex[ps], fact)
+
+	return modulatedBraid
+}
+
+/*
 QueryObject performs modular inversion to cancel the Subject and Link,
 leaving the Resonant Object Phase.
 */

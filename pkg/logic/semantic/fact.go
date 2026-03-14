@@ -13,5 +13,6 @@ type Fact struct {
 	Object   string
 	Phase    numeric.Phase
 	Temporal numeric.Phase
+	Label    numeric.Phase
 	Negated  bool
 }

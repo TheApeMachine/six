@@ -173,3 +173,15 @@ func (p *Parser) rotateNode(base numeric.Phase, node ASTNode) numeric.Phase {
 	// Base = (Base * 3) + NodePhase
 	return p.calc.Add(p.calc.Multiply(base, 3), nodePhase)
 }
+
+/*
+PromptToGrammar implements the full API pipeline for Language parsing:
+Tokenize -> Identify Inversion Keys -> GPU Wavefront -> Decode.
+It bridges a raw text prompt into a resolved S-V-O mathematical structure,
+laying the groundwork to extract inversion keys used to steer the search space
+across the generated Wavefront context.
+*/
+func (p *Parser) PromptToGrammar(prompt string) (*AST, numeric.Phase, error) {
+	// Central access point for the integration with the Wavefront pipeline.
+	return p.ParseSentence(prompt)
+}

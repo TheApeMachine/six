@@ -12,13 +12,15 @@ import (
 WavefrontHead is a single competing search state propagating through
 the spatial index. Each head carries a GF(257) phase accumulator and
 an energy score (lower is better). At collisions, heads fork.
+fuzzyErrs tracks typological branch mismatches for Damped Branching.
 */
 type WavefrontHead struct {
-	phase   numeric.Phase
-	pos     uint32
-	energy  int
-	path    []data.Chord
-	visited map[uint64]bool
+	phase     numeric.Phase
+	pos       uint32
+	energy    int
+	path      []data.Chord
+	visited   map[uint64]bool
+	fuzzyErrs int
 }
 
 /*
@@ -37,6 +39,7 @@ type Wavefront struct {
 	calc     *numeric.Calculus
 	maxHeads int
 	maxDepth uint32
+	maxFuzzy int
 	fe       *synthesis.FrustrationEngine
 	target   numeric.Phase
 }
@@ -52,6 +55,7 @@ func NewWavefront(idx *SpatialIndexServer, opts ...wavefrontOpts) *Wavefront {
 		calc:     numeric.NewCalculus(),
 		maxHeads: 64,
 		maxDepth: 4096,
+		maxFuzzy: 2, // Allow up to 2 character mismatches/typos per branch
 	}
 
 	for _, opt := range opts {
@@ -59,6 +63,25 @@ func NewWavefront(idx *SpatialIndexServer, opts ...wavefrontOpts) *Wavefront {
 	}
 
 	return wf
+}
+
+/*
+ContextSteering sets up pre-loaded steering vectors from a semantic context string.
+This explicitly populates interest and danger gradients from the prompt context,
+fulfilling the INSIGHT.md mandate for biased wavefront collision selection.
+*/
+func (wf *Wavefront) ContextSteering(contextData, dangerData string) (*data.Chord, *data.Chord) {
+	interest := data.MustNewChord()
+	if focus := wf.calc.Sum(contextData); focus > 0 {
+		interest.Set(int(focus))
+	}
+	
+	danger := data.MustNewChord()
+	if avoid := wf.calc.Sum(dangerData); avoid > 0 {
+		danger.Set(int(avoid))
+	}
+	
+	return &interest, &danger
 }
 
 /*
@@ -140,11 +163,12 @@ func (wf *Wavefront) seed(prompt data.Chord) []*WavefrontHead {
 
 		for _, stateChord := range chain {
 			heads = append(heads, &WavefrontHead{
-				phase:   startPhase,
-				pos:     0,
-				energy:  symbolChord.XOR(prompt).ActiveCount(),
-				path:    []data.Chord{stateChord},
-				visited: map[uint64]bool{key: true},
+				phase:     startPhase,
+				pos:       0,
+				energy:    symbolChord.XOR(prompt).ActiveCount(),
+				path:      []data.Chord{stateChord},
+				visited:   map[uint64]bool{key: true},
+				fuzzyErrs: 0,
 			})
 		}
 	}
@@ -191,13 +215,21 @@ func (wf *Wavefront) advance(
 				chain := wf.idx.followChainUnsafe(key)
 
 				for _, stateChord := range chain {
+					fuzzyErrs := head.fuzzyErrs
+					stepEnergy := 0
+
 					if !stateChord.Has(int(expectedPhase)) {
-						continue
+						fuzzyErrs++
+						if fuzzyErrs > wf.maxFuzzy {
+							continue // Exceeded fuzzy mismatch budget
+						}
+						// Damped branching: High energy penalty for typological mismatch
+						stepEnergy += 100 
 					}
 
 					symbolChord := data.BaseChord(nextSymbol)
 					residue := prompt.XOR(symbolChord)
-					stepEnergy := residue.ActiveCount()
+					stepEnergy += residue.ActiveCount()
 
 					if interest != nil {
 						resonance := value.AND(*interest)
@@ -216,11 +248,12 @@ func (wf *Wavefront) advance(
 					visited[key] = true
 
 					fork := &WavefrontHead{
-						phase:   expectedPhase,
-						pos:     nextPos,
-						energy:  head.energy + stepEnergy,
-						path:    append(append([]data.Chord{}, head.path...), stateChord),
-						visited: visited,
+						phase:     expectedPhase,
+						pos:       nextPos,
+						energy:    head.energy + stepEnergy,
+						path:      append(append([]data.Chord{}, head.path...), stateChord),
+						visited:   visited,
+						fuzzyErrs: fuzzyErrs,
 					}
 
 					next = append(next, fork)

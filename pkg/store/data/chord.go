@@ -114,17 +114,42 @@ func ChordListToSlice(list Chord_List) ([]Chord, error) {
 }
 
 /*
-Sanitize zeroes bits [257..511] to enforce the 257-bit logical width invariant.
-Bit 256 (the delimiter face) is preserved. Word 4 keeps its lowest bit
-(bit 256); words 5..7 are fully zeroed.
+Sanitize enforces the lower 257-bit field width for fundamental field comparisons,
+but preserves the upper 255 bits (Guard Band) which is now utilized for 
+Cross-Modal Alignment, Rotational Opcodes, and Residual Phase Carry.
 */
 func (chord *Chord) Sanitize() {
-	// Word layout: word[0] = bits 0..63, word[1] = 64..127, ...
-	// word[4] = bits 256..319 → only bit 256 (the LSB) is valid.
-	chord.SetC4(chord.C4() & 1) // keep only bit 256
-	chord.SetC5(0)
-	chord.SetC6(0)
-	chord.SetC7(0)
+	chord.SetC4(chord.C4() & 1) // Bit 256 is the delimiter
+	// Words 5, 6, and 7 are deliberately kept alive as the Guard Band for Opcodes
+	// See SetOpcode and SetResidualCarry.
+}
+
+/*
+SetOpcode stores a navigational or grammatical opcode in the Guard Band (bits 320-383, Word 5).
+*/
+func (chord *Chord) SetOpcode(opcode uint64) {
+	chord.SetC5(opcode)
+}
+
+/*
+Opcode retrieves the opcode embedded in the Guard Band.
+*/
+func (chord *Chord) Opcode() uint64 {
+	return chord.C5()
+}
+
+/*
+SetResidualCarry stores fractional phase state across distributed wavefront computations (Word 6).
+*/
+func (chord *Chord) SetResidualCarry(carry uint64) {
+	chord.SetC6(carry)
+}
+
+/*
+ResidualCarry retrieves fractional phase context stored in the Guard Band.
+*/
+func (chord *Chord) ResidualCarry() uint64 {
+	return chord.C6()
 }
 
 func (chord *Chord) Block(i int) uint64 {

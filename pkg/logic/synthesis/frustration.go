@@ -118,3 +118,67 @@ func (fe *FrustrationEngine) Resolve(
 	// Tension remains.
 	return nil, fmt.Errorf("frustration engine failed to achieve phase-lock after %d attempts", maxAttempts)
 }
+
+/*
+ResolveDual implements Multi-Headed Frustration (Dual-Goal Torsion).
+When pulled by two conflicting logical targets, the GF(257) field enters Vector Torsion.
+This method searches for a Cross-Domain Bridge—a composite rotation that satisfies a
+hybrid of both targets, minimizing the combined shear stress.
+*/
+func (fe *FrustrationEngine) ResolveDual(
+	currentPhase numeric.Phase,
+	targetA numeric.Phase,
+	targetB numeric.Phase,
+	maxAttempts int,
+) ([]*MacroOpcode, error) {
+
+	if currentPhase == targetA || currentPhase == targetB {
+		return nil, nil // Already intersecting a goal
+	}
+
+	// 1. Calculate the Torsion (the conflicting mathematical pull)
+	// We find a "Mean Rotation" or hybrid relaxation point in the field.
+	// In GF(257), (A + B) / 2 is calculated as (A + B) * Inverse(2).
+	sum := fe.calc.Add(targetA, targetB)
+	inv2, _ := fe.calc.Inverse(2)
+	hybridTarget := fe.calc.Multiply(sum, inv2)
+
+	// In the event of a perfect 180-degree destructive cancellation modulo 257 yielding 0,
+	// we fall back to a multiplicative geometric hybrid instead of an additive mean.
+	if hybridTarget == 0 {
+		hybridTarget = fe.calc.Add(fe.calc.Multiply(targetA, targetB), 1)
+	}
+
+	tools := fe.index.AvailableHardened()
+	if len(tools) == 0 {
+		return nil, fmt.Errorf("no hardened tools available for dual-goal torsion resolution")
+	}
+
+	delta := fe.calc.Subtract(hybridTarget, currentPhase)
+	prng := rand.New(rand.NewSource(int64(delta))) // Deterministic seed based on Torsion
+
+	// 2. Warp-Partitioned Search (Vibration towards the Hybrid)
+	for range maxAttempts {
+		state := currentPhase
+		var path []*MacroOpcode
+
+		numTools := prng.Intn(4) + 1 // Allow slightly deeper composition for hybrids
+		for range numTools {
+			idx := prng.Intn(len(tools))
+			tool := tools[idx]
+
+			state = fe.calc.Multiply(state, tool.Rotation)
+			path = append(path, tool)
+
+			if state == hybridTarget {
+				// We found a Cross-Domain Bridge!
+				// We package the entire shift from current -> hybridTarget as a new MacroOpcode.
+				// This effectively compresses the dual-goal tension into a single native logic gate.
+				fe.index.RecordOpcode(hybridTarget)
+				return path, nil
+			}
+		}
+	}
+
+	return nil, fmt.Errorf("dual-goal frustration failed to converge on a hybrid state after %d attempts", maxAttempts)
+}
