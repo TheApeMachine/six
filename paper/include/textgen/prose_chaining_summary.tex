@@ -1,48 +1,27 @@
 \begin{table}[htbp]
 \centering
-\caption{Prose Chaining — standardised result summary (N=10).}
+\caption{Prose Chaining — standardised result summary (N=1).}
 \label{tab:prose_chaining_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-6 & Prose Chaining & 0.0000 & 0.0987 & 0.0987 & 0.0448 \\
-2 & Prose Chaining & 0.0000 & 0.0955 & 0.0955 & 0.0434 \\
 0 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
-\midrule
-\# & Name & Exact & Partial & Fuzzy & Weighted \\
-\midrule
-9 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-8 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-7 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-\midrule
-\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{The game 's battle system , the BliTZ sy\ldots}} & \multicolumn{2}{l}{\texttt{to them , such as their health points ( \ldots}} & \multicolumn{2}{l}{\texttt{ing as as as as as as as as as as as as \ldots}} \\
-\multicolumn{2}{l}{\texttt{The game began development in 2010 , car\ldots}} & \multicolumn{2}{l}{\texttt{such as making the game more forgiving f\ldots}} & \multicolumn{2}{l}{\texttt{and met with poses as as as as as as as \ldots}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e nevertheless up to the task , exemplif\ldots}} & \multicolumn{2}{l}{\texttt{ch a}} \\
-\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{Valkyria Chr}} \\
+\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{e nevertheless up to the task , exemplif\ldots}} & \multicolumn{2}{l}{\texttt{aaaaaaaa}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 60\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0088} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0448} \\
+\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: 60\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{189.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4.69 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{468.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{4.88 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

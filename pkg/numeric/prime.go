@@ -3,7 +3,7 @@ package numeric
 import (
 	"math"
 
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*

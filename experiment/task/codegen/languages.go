@@ -4,11 +4,11 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/core"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
@@ -35,7 +35,7 @@ type LanguagesExperiment struct {
 	dataset   provider.Dataset
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	prompt    *process.Prompt
+	prompt    []string
 	seen      map[string]struct{}
 }
 
@@ -54,6 +54,16 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumns("prompt", "canonical_solution"),
 		)
+	}
+
+	names := make([]string, len(humanEvalLanguages))
+	for i, lang := range humanEvalLanguages {
+		names[i] = lang.DisplayName
+	}
+
+	experiment.dataset = &multiDataset{
+		datasets:  datasets,
+		langNames: names,
 	}
 
 	experiment.prose = []projector.ProseEntry{
@@ -81,14 +91,14 @@ func langDisplayNames() []string {
 	return names
 }
 
-func (experiment *LanguagesExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt()
+func (experiment *LanguagesExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *LanguagesExperiment) Holdout() (int, process.HoldoutType) {
+func (experiment *LanguagesExperiment) Holdout() (int, input.HoldoutType) {
 	// 50% holdout, from center to right side.
-	return 50, process.RIGHT
+	return 50, input.RIGHT
 }
 
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
@@ -270,4 +280,38 @@ is expected to improve results substantially.
 			},
 		},
 	}
+}
+
+// ── multiDataset ─────────────────────────────────────────────────────────────
+type multiDataset struct {
+	datasets  []provider.Dataset
+	langNames []string
+	current   int
+}
+
+func (md *multiDataset) Generate() chan provider.RawToken {
+	out := make(chan provider.RawToken, 4096)
+	go func() {
+		defer close(out)
+		for idx, ds := range md.datasets {
+			for tok := range ds.Generate() {
+				// Upper 8 bits: language index (0–255). Lower 24 bits: per-language SampleID (0–16,777,215).
+				// Max 256 languages and ~16.7M samples per language; use different encoding if either limit is exceeded.
+				if tok.SampleID >= 0x01000000 {
+					panic("SampleID exceeds 24-bit limit; use different encoding")
+				}
+				tok.SampleID = uint32(idx)<<24 | (tok.SampleID & 0x00FFFFFF)
+				out <- tok
+			}
+		}
+	}()
+	return out
+}
+
+func (md *multiDataset) LangForSampleID(id uint32) string {
+	langIdx := int(id >> 24)
+	if langIdx < len(md.langNames) {
+		return md.langNames[langIdx]
+	}
+	return "unknown"
 }

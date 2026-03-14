@@ -4,8 +4,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -17,7 +17,7 @@ type QueryRobustnessExperiment struct {
 	tableData         []tools.ExperimentalData
 	robustnessResults []robustnessEntry
 	dataset           provider.Dataset
-	prompt            *process.Prompt
+	prompt            []string
 }
 
 func NewQueryRobustnessExperiment() *QueryRobustnessExperiment {
@@ -40,16 +40,14 @@ func (experiment *QueryRobustnessExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *QueryRobustnessExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-	return experiment.prompt
+func (experiment *QueryRobustnessExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *QueryRobustnessExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *QueryRobustnessExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *QueryRobustnessExperiment) AddResult(results tools.ExperimentalData) {

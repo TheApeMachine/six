@@ -1,46 +1,21 @@
 \begin{table}[htbp]
 \centering
-\caption{CrossDomainCompletion — standardised result summary (N=4).}
+\caption{CrossDomainCompletion — standardised result summary (N=1).}
 \label{tab:crossdomaincompletion_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-2 & Source Code & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-3 & Source Code & 0.0000 & 0.3251 & 0.3251 & 0.1478 \\
-1 & Natural Language & 0.0000 & 0.0656 & 0.0654 & 0.0298 \\
-\midrule
-\multicolumn{6}{l}{\textbf{Bottom 1 results (lowest weighted score)}} \\
-\midrule
-\# & Name & Exact & Partial & Fuzzy & Weighted \\
-\midrule
-0 & Natural Language & 0.0000 & 0.0666 & 0.0559 & 0.0283 \\
-\midrule
-\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
-\midrule
-\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
-\midrule
-\multicolumn{2}{l}{\texttt{MKTAYIAKQRQISFVKSHFSRQLEERLGLIEVQAPILSRV\ldots}} & \multicolumn{2}{l}{\texttt{CCCCHHHHHHHHHHHHHHHHHHHHHHHCEEECCCCCEEEC\ldots}} & \multicolumn{2}{l}{\texttt{CCCCHHHHHHHHHHHHHHHHHHHHHHHCEEECCCCCEEEC\ldots}} \\
-\multicolumn{2}{l}{\texttt{SRMPSPPMPVPPAALFNRLLDDLGFSAGPALCTMLDTWNE\ldots}} & \multicolumn{2}{l}{\texttt{CCCCCCCCCCCHHHHHHHHHHHHCCCCHHHHHHHHHHCCC\ldots}} & \multicolumn{2}{l}{\texttt{EECCCCCEEECCCCCCCCCCCCCCCCEECCCCCCCCCEEE\ldots}} \\
-\multicolumn{2}{l}{\texttt{Anarchism is a political philosophy and \ldots}} & \multicolumn{2}{l}{\texttt{itions. This entails that liberty and eq\ldots}} & \multicolumn{2}{l}{\texttt{a "third form of society, the synthesis \ldots}} \\
-\multicolumn{2}{l}{\texttt{Albedo (; ) is the fraction of sunlight \ldots}} & \multicolumn{2}{l}{\texttt{er surface tilts. Spectral albedo strong\ldots}} & \multicolumn{2}{l}{\texttt{ially lower for systems with lower surfa\ldots}} \\
+0 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 4} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.3015} & \multicolumn{3}{l}{Min: 0.0283 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{8.36 s} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{1.90 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{475.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{10.27 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

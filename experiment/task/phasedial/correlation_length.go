@@ -6,8 +6,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -19,7 +19,7 @@ hard boundaries are necessary for structural independence.
 type CorrelationLengthExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewCorrelationLengthExperiment() *CorrelationLengthExperiment {
@@ -41,16 +41,13 @@ func (experiment *CorrelationLengthExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *CorrelationLengthExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *CorrelationLengthExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
-func (experiment *CorrelationLengthExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *CorrelationLengthExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *CorrelationLengthExperiment) AddResult(results tools.ExperimentalData) {

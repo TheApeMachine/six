@@ -3,10 +3,10 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	config "github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
-	"github.com/theapemachine/six/pkg/provider/huggingface"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -24,7 +24,7 @@ even when the specific nouns and events are novel?
 type CompositionalExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
-	prompt    *process.Prompt
+	prompt    []string
 }
 
 func NewCompositionalExperiment() *CompositionalExperiment {
@@ -42,17 +42,14 @@ func (experiment *CompositionalExperiment) Name() string              { return "
 func (experiment *CompositionalExperiment) Section() string           { return "textgen" }
 func (experiment *CompositionalExperiment) Dataset() provider.Dataset { return experiment.dataset }
 
-func (experiment *CompositionalExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
+func (experiment *CompositionalExperiment) Prompts() []string {
+	experiment.prompt = []string{}
 	return experiment.prompt
 }
 
 // 30% right holdout: system must reconstruct the ending of each story.
-func (experiment *CompositionalExperiment) Holdout() (int, process.HoldoutType) {
-	return 30, process.RIGHT
+func (experiment *CompositionalExperiment) Holdout() (int, input.HoldoutType) {
+	return 30, input.RIGHT
 }
 
 func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalData) {

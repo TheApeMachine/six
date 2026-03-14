@@ -9,9 +9,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/console"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/utils"
+	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/system/core/utils"
 )
 
 /*
@@ -49,7 +49,10 @@ func init() {
 	cobra.OnInitialize(initConfig)
 
 	rootCmd.PersistentFlags().StringVar(
-		&cfgFile, "config", "config.yml", "config file (default is $HOME/."+projectName+"/config.yml)",
+		&cfgFile,
+		"config",
+		"config.yml",
+		"config file (default is $HOME/."+projectName+"/config.yml)",
 	)
 }
 
@@ -59,11 +62,7 @@ func initConfig() {
 	viper.AddConfigPath("$HOME/." + projectName)
 
 	if err := viper.ReadInConfig(); err != nil {
-		// Just log loosely since we now optionally rely on embedded config/defaults
-		console.Warn(
-			"Note: No local config file found, using defaults.",
-			"error", err,
-		)
+		console.Warn(ErrConfigNotFound, "error", err)
 	}
 
 	result := errnie.Then(
@@ -123,6 +122,20 @@ func writeConfig() error {
 
 	return result.Err()
 }
+
+type RootError string
+
+func (err RootError) Error() string {
+	return string(err)
+}
+
+func (err RootError) String() string {
+	return string(err)
+}
+
+const (
+	ErrConfigNotFound RootError = "no local config file found, using defaults"
+)
 
 const roottxt = `
 six v0.0.1

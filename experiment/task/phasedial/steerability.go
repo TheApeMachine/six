@@ -4,8 +4,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/process"
-	"github.com/theapemachine/six/pkg/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -16,7 +16,7 @@ boundary for independent perspective shifts.
 type SteerabilityExperiment struct {
 	tableData       []tools.ExperimentalData
 	dataset         provider.Dataset
-	prompt          *process.Prompt
+	prompt          []string
 	accuracy        float64
 	splitCandidates []int
 	sweepStepDeg    float64
@@ -83,17 +83,14 @@ func (experiment *SteerabilityExperiment) Dataset() provider.Dataset {
 	return experiment.dataset
 }
 
-func (experiment *SteerabilityExperiment) Prompts() *process.Prompt {
-	experiment.prompt = process.NewPrompt(
-		process.PromptWithDataset(experiment.dataset),
-		process.PromptWithHoldout(experiment.Holdout()),
-	)
-
-	return experiment.prompt
+func (experiment *SteerabilityExperiment) Prompts() []string {
+	return []string{
+		"Predict the secondary structure of the given amino acid sequence.",
+	}
 }
 
-func (experiment *SteerabilityExperiment) Holdout() (int, process.HoldoutType) {
-	return 0, process.RIGHT
+func (experiment *SteerabilityExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
 }
 
 func (experiment *SteerabilityExperiment) AddResult(results tools.ExperimentalData) {
