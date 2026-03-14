@@ -35,10 +35,11 @@ NewEngine instantiates a new Engine for Semantic Algebra.
 */
 func NewEngineServer(opts ...engineOpts) *EngineServer {
 	eng := &EngineServer{
-		calc:       numeric.NewCalculus(),
-		facts:      []Fact{},
-		phaseIndex: map[numeric.Phase][]Fact{},
-		braidIndex: map[numeric.Phase][]int{},
+		clientConns: map[string]*rpc.Conn{},
+		calc:        numeric.NewCalculus(),
+		facts:       []Fact{},
+		phaseIndex:  map[numeric.Phase][]Fact{},
+		braidIndex:  map[numeric.Phase][]int{},
 	}
 
 	for _, opt := range opts {
@@ -336,6 +337,15 @@ func (eng *EngineServer) diff(a, b numeric.Phase) uint32 {
 	}
 
 	return uint32(diff)
+}
+
+/*
+EngineWithContext adds a context to the Engine.
+*/
+func EngineWithContext(ctx context.Context) engineOpts {
+	return func(eng *EngineServer) {
+		eng.ctx, eng.cancel = context.WithCancel(ctx)
+	}
 }
 
 /*

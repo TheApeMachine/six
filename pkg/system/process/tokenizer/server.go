@@ -15,6 +15,14 @@ import (
 	"github.com/theapemachine/six/pkg/validate"
 )
 
+type TokenEdge struct {
+	Left     uint8
+	Right    uint8
+	Position uint32
+	Chord    data.Chord
+	Meta     data.Chord
+}
+
 /*
 UniversalServer implements the Universal_Server interface.
 It tokenizes raw bytes into chords using Sequitur boundary analysis.
@@ -93,7 +101,7 @@ func (server *UniversalServer) Generate(ctx context.Context, call Universal_gene
 		return err
 	}
 
-	chords, err := server.tokenize(ctx, rawData)
+	edges, err := server.tokenize(ctx, rawData)
 	if err != nil {
 		return err
 	}
@@ -103,17 +111,26 @@ func (server *UniversalServer) Generate(ctx context.Context, call Universal_gene
 		return err
 	}
 
-	chordList, err := data.NewChord_List(res.Segment(), int32(len(chords)))
+	edgeList, err := res.NewEdges(int32(len(edges)))
 	if err != nil {
 		return err
 	}
 
-	for i, chord := range chords {
-		el := chordList.At(i)
-		el.CopyFrom(chord)
+	for i, edge := range edges {
+		el := edgeList.At(i)
+		el.SetLeft(edge.Left)
+		el.SetRight(edge.Right)
+		el.SetPosition(edge.Position)
+
+		if err := el.SetChord(edge.Chord); err != nil {
+			return err
+		}
+		if err := el.SetMeta(edge.Meta); err != nil {
+			return err
+		}
 	}
 
-	return res.SetChords(chordList)
+	return nil
 }
 
 /*
@@ -155,25 +172,45 @@ func (server *UniversalServer) SetDataset(ctx context.Context, call Universal_se
 tokenize runs the Sequitur boundary analysis over raw bytes and returns
 the resulting chord slice.
 */
-func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]data.Chord, error) {
+func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]TokenEdge, error) {
 	sequitur := sequencer.NewSequitur()
 
-	var chords []data.Chord
+	var edges []TokenEdge
 	var chunk []byte
 	var pending []chan *pool.Result
 
-	flush := func(buf []byte, meta data.Chord) {
+	var pos uint32 = 0
+	var left uint8 = 0
+
+	flush := func(buf []byte, meta data.Chord, right uint8) {
 		if len(buf) == 0 {
 			return
 		}
 
 		chunkCopy := append([]byte(nil), buf...)
+		chunkPos := pos
+		chunkLeft := left
 
 		ch := server.pool.Schedule("tokenizer_chunk", func(ctx context.Context) (any, error) {
-			return server.processChunk(chunkCopy, meta)
+			chord, err := server.processChunk(chunkCopy, meta)
+			if err != nil {
+				return nil, err
+			}
+			return TokenEdge{
+				Left:     chunkLeft,
+				Right:    right,
+				Position: chunkPos,
+				Chord:    chord,
+				Meta:     meta,
+			}, nil
 		})
 
 		pending = append(pending, ch)
+
+		if len(buf) > 0 {
+			pos += uint32(len(buf))
+			left = buf[len(buf)-1]
+		}
 	}
 
 	for i, b := range raw {
@@ -185,8 +222,15 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]data
 				emitK = len(chunk)
 			}
 
+			var right uint8 = 0
+			if emitK < len(chunk) {
+				right = chunk[emitK]
+			} else if i+1 < len(raw) {
+				right = raw[i+1]
+			}
+
 			if emitK > 0 {
-				flush(chunk[:emitK], emitMeta)
+				flush(chunk[:emitK], emitMeta, right)
 			}
 
 			if emitK >= len(chunk) {
@@ -208,8 +252,13 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]data
 			emitK = len(chunk)
 		}
 
+		var right uint8 = 0
+		if emitK < len(chunk) {
+			right = chunk[emitK]
+		}
+
 		if emitK > 0 {
-			flush(chunk[:emitK], emitMeta)
+			flush(chunk[:emitK], emitMeta, right)
 		}
 
 		if emitK >= len(chunk) {
@@ -221,7 +270,7 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]data
 	}
 
 	if len(chunk) > 0 {
-		flush(chunk, data.Chord{})
+		flush(chunk, data.Chord{}, 0)
 	}
 
 	for _, ch := range pending {
@@ -232,13 +281,13 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]data
 		}
 
 		if result != nil {
-			if chord, ok := result.Value.(data.Chord); ok {
-				chords = append(chords, chord)
+			if edge, ok := result.Value.(TokenEdge); ok {
+				edges = append(edges, edge)
 			}
 		}
 	}
 
-	return chords, nil
+	return edges, nil
 }
 
 /*

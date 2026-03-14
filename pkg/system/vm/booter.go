@@ -4,7 +4,10 @@ import (
 	"context"
 
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/grammar"
+	"github.com/theapemachine/six/pkg/logic/semantic"
 	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -27,6 +30,9 @@ type Booter struct {
 	tok          tokenizer.Universal
 	spatialIndex lsm.SpatialIndex
 	graph        substrate.Graph
+	engine       semantic.Engine
+	parser       grammar.Parser
+	cantilever   bvp.Cantilever
 }
 
 type booterOpts func(*Booter)
@@ -69,6 +75,19 @@ func NewBooter(opts ...booterOpts) *Booter {
 	booter.graph = substrate.NewGraphServer(
 		substrate.GraphWithContext(booter.ctx),
 		substrate.GraphWithWorkerPool(booter.pool),
+	).Client("booter")
+
+	booter.engine = semantic.NewEngineServer(
+		semantic.EngineWithContext(booter.ctx),
+	).Client("booter")
+
+	booter.parser = grammar.NewParserServer(
+		grammar.ParserWithContext(booter.ctx),
+	).Client("booter")
+
+	// Pass arbitrary or default boundaries. Normally context manages this.
+	booter.cantilever = bvp.NewCantileverServer(
+		1, 1, bvp.CantileverWithContext(booter.ctx),
 	).Client("booter")
 
 	return booter

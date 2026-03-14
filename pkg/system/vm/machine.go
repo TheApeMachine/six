@@ -8,12 +8,12 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
-
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
-	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/vm/input"
 	"github.com/theapemachine/six/pkg/validate"
 )
@@ -121,20 +121,32 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return nil, err
 	}
 
-	chords, err := tokRes.Chords()
+	edges, err := tokRes.Edges()
 	if err != nil {
 		return nil, err
 	}
 
-	if chords.Len() == 0 {
+	if edges.Len() == 0 {
 		return promptBytes, nil
 	}
 
 	// Step 3: SpatialIndex.Lookup — chords → paths.
-	// chords is already a data.Chord_List; SetChords takes data.Chord_List. Pass directly.
 	lookupFuture, lookupRelease := machine.booter.spatialIndex.Lookup(
 		ctx, func(params lsm.SpatialIndex_lookup_Params) error {
-			return params.SetChords(chords)
+			chordList, err := data.NewChord_List(params.Segment(), int32(edges.Len()))
+			if err != nil {
+				return err
+			}
+			for i := 0; i < edges.Len(); i++ {
+				edge := edges.At(i)
+				chord, err := edge.Chord()
+				if err != nil {
+					return err
+				}
+				el := chordList.At(i)
+				el.CopyFrom(chord)
+			}
+			return params.SetChords(chordList)
 		},
 	)
 	defer lookupRelease()
@@ -255,7 +267,47 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 
 	// Ingest each corpus string to build the spatial index.
 	for _, item := range corpus {
-		if _, err := machine.Prompt(item); err != nil {
+		if err := machine.Ingest(item); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+/*
+Ingest generates edges from the string and populates the spatial index.
+*/
+func (machine *Machine) Ingest(msg string) error {
+	ctx := machine.ctx
+
+	tokFuture, tokRelease := machine.booter.tok.Generate(
+		ctx, func(params tokenizer.Universal_generate_Params) error {
+			return params.SetData([]byte(msg))
+		},
+	)
+	defer tokRelease()
+
+	tokRes, err := tokFuture.Struct()
+	if err != nil {
+		return err
+	}
+
+	edges, err := tokRes.Edges()
+	if err != nil {
+		return err
+	}
+
+	for i := 0; i < edges.Len(); i++ {
+		edge := edges.At(i)
+
+		err := machine.booter.spatialIndex.Insert(
+			ctx, func(params lsm.SpatialIndex_insert_Params) error {
+				return params.SetEdge(edge)
+			},
+		)
+
+		if err != nil {
 			return err
 		}
 	}

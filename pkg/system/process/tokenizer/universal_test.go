@@ -85,7 +85,7 @@ func TestTokenizerServer(t *testing.T) {
 				So(err, ShouldBeNil)
 
 				for _, chord := range chords {
-					So(chord.ActiveCount(), ShouldBeGreaterThan, 0)
+					So(chord.Chord.ActiveCount(), ShouldBeGreaterThan, 0)
 				}
 			})
 		})
@@ -106,7 +106,7 @@ func TestTokenizerServer(t *testing.T) {
 			Convey("It should produce exactly one chord", func() {
 				So(err, ShouldBeNil)
 				So(len(chords), ShouldEqual, 1)
-				So(chords[0].ActiveCount(), ShouldBeGreaterThan, 0)
+				So(chords[0].Chord.ActiveCount(), ShouldBeGreaterThan, 0)
 			})
 		})
 

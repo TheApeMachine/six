@@ -2,6 +2,7 @@ package lsm
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sort"
 	"sync"
@@ -740,24 +741,37 @@ func (idx *SpatialIndexServer) Decode(
 		return console.Error(err)
 	}
 
-	chords, err := data.ChordListToSlice(chordList)
-	if err != nil {
-		return console.Error(err)
-	}
+	var allSequences [][]byte
+	for i := 0; i < chordList.Len(); i++ {
+		ptr, err := chordList.At(i)
+		if err != nil {
+			return console.Error(err)
+		}
+		inner := data.Chord_List(ptr.List())
+		slice, err := data.ChordListToSlice(inner)
+		if err != nil {
+			return console.Error(err)
+		}
 
-	sequences := idx.decodeChords(chords)
+		seqs := idx.decodeChords(slice)
+		fmt.Printf("Decode slice len=%d, seqs=%d\n", len(slice), len(seqs))
+		for _, sq := range seqs {
+			fmt.Printf("decoded seq: %q\n", string(sq))
+		}
+		allSequences = append(allSequences, seqs...)
+	}
 
 	res, err := call.AllocResults()
 	if err != nil {
 		return console.Error(err)
 	}
 
-	seqList, err := res.NewSequences(int32(len(sequences)))
+	seqList, err := res.NewSequences(int32(len(allSequences)))
 	if err != nil {
 		return console.Error(err)
 	}
 
-	for i, seq := range sequences {
+	for i, seq := range allSequences {
 		if err := seqList.Set(i, seq); err != nil {
 			return console.Error(err)
 		}
@@ -765,8 +779,6 @@ func (idx *SpatialIndexServer) Decode(
 
 	return nil
 }
-
-
 
 /*
 Decode reconstructs byte sequences from result chords.
