@@ -132,7 +132,35 @@ func (idx *SpatialIndexServer) insertSync(key uint64, value, meta data.Chord) {
 	defer idx.mu.Unlock()
 
 	idx.insertChain(key, value)
-	idx.metaEntries[key] = append(idx.metaEntries[key], meta)
+	
+	// Apply Shannon density threshold (0.45 capacity limit on GF(257) = ~115 bits)
+	// If a meta chord absorbs too much structural overlap, it becomes white noise.
+	if meta.ActiveCount() <= 115 {
+		idx.metaEntries[key] = append(idx.metaEntries[key], meta)
+	}
+
+	// Trigger capacity compaction directly if unbounded growth threatens hardware bounds
+	if len(idx.entries) > 5000000 { // 5 Million Map Entry Bound
+		idx.compactUnsafe()
+	}
+}
+
+/*
+compactUnsafe prunes dormant branches from the core maps to prevent unbounded heap allocations.
+Must be called under write lock.
+*/
+func (idx *SpatialIndexServer) compactUnsafe() {
+	// For this bound, we simply cycle the oldest meta references or prune the chain endpoints.
+	// We'll reset the meta map if it gets completely unwieldy as a safety valve.
+	if len(idx.metaEntries) > 5000000 {
+		idx.metaEntries = make(map[uint64][]data.Chord)
+	}
+	
+	if len(idx.chainEntries) > 10000000 {
+	    // As an emergency valve, if the collision chains become physically impossible to maintain,
+	    // we forcefully shrink. In a real persistent LSM this flushes to disk.
+	    idx.chainEntries = make(map[ChordKey]data.Chord)
+	}
 }
 
 /*

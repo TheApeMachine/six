@@ -19,7 +19,7 @@ func TestFrustrationEngine(t *testing.T) {
 			macroIndex.RecordOpcode(101)
 		}
 
-		fe := NewFrustrationEngine(WithSharedIndex(macroIndex), WithSeed(42))
+		fe := NewFrustrationEngine(WithSharedIndex(macroIndex))
 		calc := numeric.NewCalculus()
 
 		Convey("It should return nil if phase tension is already zero", func() {

@@ -1,12 +1,14 @@
 package kernel
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	config "github.com/theapemachine/six/pkg/system/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -75,11 +77,18 @@ func (builder *Builder) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (uint64, error) {
-	return builder.backend.Resolve(
-		graphNodes,
-		numNodes,
-		context,
-	)
+	// Wrap hardware execution in errnie monad to prevent silent failure zeroes from Metal/CUDA
+	resolved := errnie.Try(builder.backend.Resolve(graphNodes, numNodes, context))
+	res := errnie.Then(resolved, func(val uint64) (uint64, error) {
+		// Hardware often returns 0 on panic/nil pointer without raising an error boundary.
+		// A zero here corrupts the GF(257) algebraic geometry downstream.
+		if val == 0 {
+			return 0, fmt.Errorf("backend hardware silent failure: returned 0 topology coordinate")
+		}
+		return val, nil
+	})
+
+	return res.Unwrap()
 }
 
 func (builder *Builder) Available() bool {

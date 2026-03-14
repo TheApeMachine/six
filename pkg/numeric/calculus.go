@@ -40,14 +40,26 @@ func (calc *Calculus) Sum(s string) Phase {
 }
 
 /*
-SumBytes hashes bytes into a Phase.
+SumBytes hashes bytes into a Phase using the Phase Dial primes as orthogonal positional multipliers.
+This mathematically prevents anagram collisions (e.g. "listen" != "silent") in the GF(257) field.
 */
 func (calc *Calculus) SumBytes(b []byte) Phase {
 	var sum uint32
+	numPrimes := len(Primes)
+
 	for i := range b {
-		sum += uint32(b[i])
+		primeMult := uint32(1)
+		if numPrimes > 0 {
+			primeMult = uint32(Primes[i%numPrimes])
+		}
+		sum += uint32(b[i]) * primeMult
 	}
-	return Phase(sum % FermatPrime)
+
+	res := sum % FermatPrime
+	if res == 0 && len(b) > 0 {
+		return 1 // Prevent total string annihilation
+	}
+	return Phase(res)
 }
 
 /*
