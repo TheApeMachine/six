@@ -14,6 +14,9 @@ Used for unit testing the Decoder interface.
 type testDecoder struct{}
 
 func (d *testDecoder) Decode(chords []data.Chord) [][]byte {
+	if len(chords) == 0 {
+		return nil
+	}
 	out := make([][]byte, 0, len(chords))
 
 	for _, chord := range chords {

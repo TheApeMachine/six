@@ -181,7 +181,7 @@ func ResultStrings(results [][]byte) []string {
 }
 
 func ChunkStrings(sample string) []string {
-	sequencer := process.NewSequencer(process.NewCalibrator())
+	sequencer := process.NewSeq(process.NewCalibrator())
 	raw := []byte(sample)
 	chunk := make([]byte, 0, len(raw))
 	chunks := make([]string, 0, len(raw))

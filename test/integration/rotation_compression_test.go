@@ -7,6 +7,7 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/store/lsm"
@@ -75,15 +76,16 @@ const bytesPerEntry = 35
 reconstructChunk rebuilds a chunk from the spatial index by following the
 state machine (state*3+byte)%257 and matching chord branches.
 */
-func reconstructChunk(spatial *lsm.SpatialIndexServer, morton *data.MortonCoder, chunk string) []byte {
-	state := 1
+func reconstructChunk(spatial *lsm.SpatialIndexServer, morton *data.MortonCoder, chunk string, initialState int) []byte {
+	state := initialState
 	reconstructed := make([]byte, 0, len(chunk))
+	calc := numeric.NewCalculus()
 
 	for seqIdx := 0; seqIdx < len(chunk); seqIdx++ {
 		found := false
 
 		for b := 0; b < 256; b++ {
-			candidateState := (state*3 + b) % 257
+			candidateState := int(calc.Multiply(numeric.Phase(state), calc.Power(3, uint32(b))))
 			key := morton.Pack(uint32(seqIdx), byte(b))
 
 			if !spatial.HasKey(key) {
@@ -156,6 +158,7 @@ func TestRotationCompression(t *testing.T) {
 		}
 
 		morton := data.NewMortonCoder()
+		calc := numeric.NewCalculus()
 
 		Convey("It should reconstruct chunks by computing path state", func() {
 			correctTotal := 0
@@ -163,15 +166,24 @@ func TestRotationCompression(t *testing.T) {
 			chunksCorrect := 0
 
 			testCount := min(500, len(chunks))
+			currentState := 1 // Must track the forward momentum exactly like the tokenizer does
 
 			for chunkIdx := 0; chunkIdx < testCount; chunkIdx++ {
 				chunk := chunks[chunkIdx]
 
 				if len(chunk) < 2 {
+					for i := 0; i < len(chunk); i++ {
+						currentState = int(calc.Multiply(numeric.Phase(currentState), calc.Power(3, uint32(chunk[i]))))
+					}
 					continue
 				}
 
-				reconstructed := reconstructChunk(spatial, morton, chunk)
+				reconstructed := reconstructChunk(spatial, morton, chunk, currentState)
+				
+				// Advance the state for the next chunk
+				for i := 0; i < len(chunk); i++ {
+					currentState = int(calc.Multiply(numeric.Phase(currentState), calc.Power(3, uint32(chunk[i]))))
+				}
 
 				chunkCorrect := true
 
@@ -201,10 +213,16 @@ func TestRotationCompression(t *testing.T) {
 			t.Logf("Byte accuracy: %d/%d (%.1f%%)", correctTotal, testedTotal, accuracy)
 
 			first10 := min(10, len(chunks))
+			logState := 1
 
 			for i := 0; i < first10; i++ {
 				chunk := chunks[i]
-				reconstructed := reconstructChunk(spatial, morton, chunk)
+				reconstructed := reconstructChunk(spatial, morton, chunk, logState)
+				
+				for j := 0; j < len(chunk); j++ {
+					logState = int(calc.Multiply(numeric.Phase(logState), calc.Power(3, uint32(chunk[j]))))
+				}
+				
 				t.Logf("  chunk[%d] orig=%q recon=%q", i, chunk, string(reconstructed))
 			}
 
@@ -248,14 +266,24 @@ func BenchmarkRotationReconstruction(b *testing.B) {
 	}
 
 	morton := data.NewMortonCoder()
+	calc := numeric.NewCalculus()
 
 	b.ResetTimer()
+	
+	benchmarkState := 1
 
 	for i := 0; i < b.N; i++ {
 		chunk := chunks[i%len(chunks)]
 		if len(chunk) < 2 {
+			for j := 0; j < len(chunk); j++ {
+				benchmarkState = int(calc.Multiply(numeric.Phase(benchmarkState), calc.Power(3, uint32(chunk[j]))))
+			}
 			continue
 		}
-		_ = reconstructChunk(spatial, morton, chunk)
+		_ = reconstructChunk(spatial, morton, chunk, benchmarkState)
+		
+		for j := 0; j < len(chunk); j++ {
+			benchmarkState = int(calc.Multiply(numeric.Phase(benchmarkState), calc.Power(3, uint32(chunk[j]))))
+		}
 	}
 }

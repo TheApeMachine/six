@@ -140,6 +140,7 @@ and the residue chord itself.
 */
 func (graph *GraphServer) Evaluate(
 	prompt data.Chord, paths []data.Chord,
+	interest *data.Chord, danger *data.Chord,
 ) (bestIdx int, lowestEnergy int, residue data.Chord) {
 	lowestEnergy = math.MaxInt32
 	bestIdx = -1
@@ -147,6 +148,18 @@ func (graph *GraphServer) Evaluate(
 	for i, path := range paths {
 		res := prompt.XOR(path)
 		energy := res.ActiveCount()
+
+		// Resonance Bias (The Gravity Field)
+		if interest != nil {
+			resonance := path.AND(*interest)
+			energy -= resonance.ActiveCount() // Lower effective entropy (better)
+		}
+
+		// Damping Danger Zones
+		if danger != nil {
+			punish := path.AND(*danger)
+			energy += punish.ActiveCount() // Higher effective entropy (worse)
+		}
 
 		if energy < lowestEnergy {
 			lowestEnergy = energy
@@ -191,11 +204,12 @@ func (graph *GraphServer) prompt(
 	}
 
 	for i := 0; i < chords.Len(); i++ {
-		contextChord = contextChord.XOR(chords.At(i))
+		c := chords.At(i)
+		contextChord = contextChord.XOR(c)
 	}
 
 	for i, candidates := range pathsData {
-		bestIdx, _, _ := graph.Evaluate(contextChord, candidates)
+		bestIdx, _, _ := graph.Evaluate(contextChord, candidates, nil, nil)
 
 		if bestIdx == -1 {
 			pathsData[i] = nil
@@ -268,11 +282,11 @@ func (graph *GraphServer) RecursiveFold(
 		return
 	}
 
-	// 2. Derive Macroscopic Arrow of Time Pointer natively from Meta cord
+	labelBin := data.ChordBin(&labelDataChord)
+
+	// 2. EigenMode Phase Analysis
 	ei := geometry.NewEigenMode()
 	theta, _ := ei.PhaseForChord(&labelMetaChord)
-
-	labelBin := data.ChordBin(&labelDataChord)
 
 	// 3. Extract the unique residues
 	var uniqueResidues [][]data.Chord
@@ -296,18 +310,18 @@ func (graph *GraphServer) RecursiveFold(
 		Data: telemetry.EventData{
 			Bin:        labelBin,
 			Level:      level,
-			Theta:      theta,
 			ParentBin:  parentBin,
 			ChildCount: len(uniqueResidues),
 			ActiveBits: data.ChordPrimeIndices(&labelMetaChord),
 			Density:    labelMetaChord.ShannonDensity(),
+			Theta:      theta,
 		},
 	})
 
 	// 4. Recurse via Pool
 	for index, resSeq := range uniqueResidues {
 		metaResSeq := uniqueMetaResidues[index]
-		jobID := fmt.Sprintf("fold-level-%d-theta-%f-seq-%d", level, theta, index)
+		jobID := fmt.Sprintf("fold-level-%d-seq-%d", level, index)
 
 		graph.workerPool.Schedule(jobID, func(ctx context.Context) (any, error) {
 			graph.RecursiveFold(
@@ -352,11 +366,12 @@ func (graph *GraphServer) PromptChords(
 	contextChord := data.MustNewChord()
 
 	for i := 0; i < chords.Len(); i++ {
-		contextChord = contextChord.XOR(chords.At(i))
+		c := chords.At(i)
+		contextChord = contextChord.XOR(c)
 	}
 
 	for i, candidates := range pathsData {
-		bestIdx, _, _ := graph.Evaluate(contextChord, candidates)
+		bestIdx, _, _ := graph.Evaluate(contextChord, candidates, nil, nil)
 
 		if bestIdx == -1 {
 			pathsData[i] = nil

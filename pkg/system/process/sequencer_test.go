@@ -12,7 +12,7 @@ import (
 
 func TestSequencer(t *testing.T) {
 	Convey("Given a Sequencer", t, func() {
-		seq := NewSequencer(NewCalibrator())
+		seq := NewSeq(NewCalibrator())
 
 		Convey("When analyzing a random byte stream", func() {
 			rng := rand.New(rand.NewSource(time.Now().UnixNano()))
@@ -44,7 +44,7 @@ func TestSequencer(t *testing.T) {
 
 		Convey("When calibrator history lowers the active density ceiling", func() {
 			cal := NewCalibrator(WithWindowSize(4))
-			seq = NewSequencer(cal)
+			seq = NewSeq(cal)
 			seq.ShannonCeiling = 1.0
 			seq.MinSegmentBytes = 2
 
@@ -150,7 +150,7 @@ func TestSequencer(t *testing.T) {
 }
 
 func BenchmarkSequencerDetectBoundary(b *testing.B) {
-	seq := NewSequencer(nil)
+	seq := NewSeq(nil)
 
 	// Create multiple realistic entropy profiles.
 	profiles := [][]byte{

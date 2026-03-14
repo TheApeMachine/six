@@ -15,10 +15,10 @@ import (
 )
 
 /*
-tokenize runs the real Sequencer over raw bytes and returns the chunks it discovers.
+tokenize runs the real Sequitur over raw bytes and returns the chunks it discovers.
 */
 func tokenize(raw []byte) [][]byte {
-	seq := process.NewSequencer(nil)
+	seq := process.NewSequitur()
 	var chunks [][]byte
 	var chunk []byte
 
@@ -96,7 +96,7 @@ func TestGraph_AliceInWonderland(t *testing.T) {
 
 		Convey("The system finds matching passages via real chord geometry", func() {
 			promptChord, _ := data.BuildChord([]byte("Alice was beginning"))
-			bestIdx, lowestEnergy, _ := graph.Evaluate(promptChord, paths)
+			bestIdx, lowestEnergy, _ := graph.Evaluate(promptChord, paths, nil, nil)
 
 			So(bestIdx, ShouldBeGreaterThanOrEqualTo, 0)
 			So(lowestEnergy, ShouldBeLessThan, promptChord.ActiveCount())
@@ -109,7 +109,7 @@ func TestGraph_AliceInWonderland(t *testing.T) {
 		Convey("A stored chunk XORed with itself gives zero residue", func() {
 			idx := len(chunks) / 2
 			prompt, _ := data.BuildChord(chunks[idx])
-			_, lowestEnergy, _ := graph.Evaluate(prompt, paths)
+			_, lowestEnergy, _ := graph.Evaluate(prompt, paths, nil, nil)
 
 			So(lowestEnergy, ShouldEqual, 0)
 		})
@@ -138,7 +138,7 @@ func TestGraph_AliceInWonderland(t *testing.T) {
 
 		Convey("Empty paths edge case returns -1", func() {
 			prompt, _ := data.BuildChord([]byte("test"))
-			bestIdx, _, _ := graph.Evaluate(prompt, nil)
+			bestIdx, _, _ := graph.Evaluate(prompt, nil, nil, nil)
 			So(bestIdx, ShouldEqual, -1)
 		})
 
@@ -214,7 +214,7 @@ func BenchmarkGraph_Alice(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		graph.Evaluate(prompt, paths)
+		graph.Evaluate(prompt, paths, nil, nil)
 	}
 }
 
@@ -235,7 +235,7 @@ func BenchmarkGraph_Evaluate_Scaling(b *testing.B) {
 			b.ResetTimer()
 
 			for i := 0; i < b.N; i++ {
-				graph.Evaluate(prompt, subset)
+				graph.Evaluate(prompt, subset, nil, nil)
 			}
 		})
 	}
@@ -629,7 +629,7 @@ func TestSuccessiveCancellation(t *testing.T) {
 			energies := []int{startEnergy}
 
 			for step := 0; step < 5; step++ {
-				bestIdx, matchEnergy, newResidue := graph.Evaluate(residue, paths)
+				bestIdx, matchEnergy, newResidue := graph.Evaluate(residue, paths, nil, nil)
 
 				if bestIdx < 0 || usedIndices[bestIdx] {
 					t.Logf("Step %d: no new match", step)
@@ -1417,7 +1417,7 @@ func TestGraphResidueDepletion(t *testing.T) {
 
 			for {
 				// Matrix evaluation finds the lowest XOR energy path
-				bestIdx, matchEnergy, _ := graph.Evaluate(residue, branches)
+				bestIdx, matchEnergy, _ := graph.Evaluate(residue, branches, nil, nil)
 
 				if bestIdx == -1 {
 					break

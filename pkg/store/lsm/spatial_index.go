@@ -9,6 +9,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
@@ -244,6 +245,153 @@ Ready reports whether the spatial index has been populated.
 */
 func (idx *SpatialIndexServer) Ready() bool {
 	return idx.Count() > 0
+}
+
+/*
+followChainUnsafe returns the collision chain at a given Morton key.
+Requires idx.mu to be held.
+*/
+func (idx *SpatialIndexServer) followChainUnsafe(key uint64) []data.Chord {
+	var chain []data.Chord
+	existing, exists := idx.entries[key]
+	if !exists {
+		return chain
+	}
+	chain = append(chain, existing)
+
+	chainKey := ToKey(existing.Rotate3D())
+	visited := make(map[ChordKey]bool)
+
+	for {
+		if visited[chainKey] {
+			break
+		}
+		visited[chainKey] = true
+
+		next, hasNext := idx.chainEntries[chainKey]
+		if !hasNext {
+			break
+		}
+
+		chain = append(chain, next)
+		chainKey = ToKey(next.Rotate3D())
+	}
+	return chain
+}
+
+/*
+deleteChainUnsafe completely removes a key's collision chain from the LSM.
+Requires idx.mu to be held.
+*/
+func (idx *SpatialIndexServer) deleteChainUnsafe(key uint64) {
+	existing, exists := idx.entries[key]
+	if !exists {
+		return
+	}
+	delete(idx.entries, key)
+	idx.count--
+
+	chainKey := ToKey(existing.Rotate3D())
+	visited := make(map[ChordKey]bool)
+
+	for {
+		if visited[chainKey] {
+			break
+		}
+		visited[chainKey] = true
+
+		next, hasNext := idx.chainEntries[chainKey]
+		if !hasNext {
+			break
+		}
+		delete(idx.chainEntries, chainKey)
+		idx.count--
+		chainKey = ToKey(next.Rotate3D())
+	}
+}
+
+/*
+Compact performs Resonant Pruning on the spatial index.
+It iterates through all entries and "looks ahead" into the next 
+sequence position mapping. If a Phase momentum path ends abruptly 
+without an expected continuation inside the dataset (i.e. destructive 
+interference), the path is pruned. Valid paths are compacted and preserved.
+*/
+func (idx *SpatialIndexServer) Compact() int {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	var pruned int
+	calc := numeric.NewCalculus()
+
+	for pos, keys := range idx.positionIndex {
+		nextKeys, hasNext := idx.positionIndex[pos+1]
+		if !hasNext || len(nextKeys) == 0 {
+			continue // Valid terminal point, no chunks continued
+		}
+
+		for _, key := range keys {
+			chain := idx.followChainUnsafe(key)
+			if len(chain) <= 1 {
+				continue // No branching entropy
+			}
+
+			var validStates []data.Chord
+			var invalidStates []data.Chord
+
+			for _, stateChord := range chain {
+				hasContinuation := false
+				
+				// Identify if AT LEAST ONE phase branch leads to a valid jump
+				for state := 0; state < 256; state++ {
+					if !stateChord.Has(state) {
+						continue
+					}
+					
+					if state == 0 {
+						continue // Unlikely state, default empty
+					}
+					
+					for _, nextKey := range nextKeys {
+						_, nextSymbol := morton.Unpack(nextKey)
+						expectedNextState := int(calc.Multiply(numeric.Phase(state), calc.Power(3, uint32(nextSymbol))))
+
+						nextChain := idx.followChainUnsafe(nextKey)
+						for _, nextChord := range nextChain {
+							if nextChord.Has(expectedNextState) {
+								hasContinuation = true
+								break
+							}
+						}
+						if hasContinuation {
+							break
+						}
+					}
+					
+					if hasContinuation {
+						break
+					}
+				}
+				
+				if stateChord.ActiveCount() == 0 || hasContinuation {
+					validStates = append(validStates, stateChord)
+				} else {
+					invalidStates = append(invalidStates, stateChord)
+				}
+			}
+
+			if len(validStates) > 0 && len(invalidStates) > 0 {
+				idx.deleteChainUnsafe(key)
+				pruned += len(invalidStates)
+
+				for _, valid := range validStates {
+					idx.insertChain(key, valid)
+				}
+			}
+		}
+	}
+
+	return pruned
 }
 
 /*

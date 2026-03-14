@@ -8,11 +8,15 @@ import (
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
+type Sequencer interface {
+	Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
+}
+
 /*
-Sequencer discovers natural boundaries in a raw byte stream using the
+Seq discovers natural boundaries in a raw byte stream using the
 Minimum Description Length (MDL) principle.
 */
-type Sequencer struct {
+type Seq struct {
 	calibrator *Calibrator
 	eigen      *geometry.EigenMode
 
@@ -51,15 +55,15 @@ type candidate struct {
 }
 
 /*
-NewSequencer creates a Sequencer with optional calibrator for BIC penalty tuning.
+NewSeq creates a Seq with optional calibrator for BIC penalty tuning.
 Default MinSegmentBytes=4.
 */
-func NewSequencer(calibrator *Calibrator) *Sequencer {
+func NewSeq(calibrator *Calibrator) *Seq {
 	minSeg := int(math.Log2(float64(config.Numeric.NSymbols)) / 2)
 	if minSeg < 2 {
 		minSeg = 2
 	}
-	return &Sequencer{
+	return &Seq{
 		calibrator:      calibrator,
 		eigen:           geometry.NewEigenMode(),
 		dist:            NewDistribution(),
@@ -73,8 +77,8 @@ func NewSequencer(calibrator *Calibrator) *Sequencer {
 CloneEmpty returns a new Sequencer with the same config (calibrator, eigen, phi)
 but empty buffer, distribution, and candidates.
 */
-func (seq *Sequencer) CloneEmpty() *Sequencer {
-	return &Sequencer{
+func (seq *Seq) CloneEmpty() *Seq {
+	return &Seq{
 		calibrator:      seq.calibrator,
 		eigen:           seq.eigen,
 		dist:            NewDistribution(),
@@ -87,7 +91,7 @@ func (seq *Sequencer) CloneEmpty() *Sequencer {
 /*
 Clone returns a deep copy of the Sequencer including buffer, dist, candidates, and offset.
 */
-func (seq *Sequencer) Clone() *Sequencer {
+func (seq *Seq) Clone() *Seq {
 	c := seq.CloneEmpty()
 	c.buf = append([]byte(nil), seq.buf...)
 	c.dist = seq.dist.Clone()
@@ -109,7 +113,7 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord) {
+func (seq *Seq) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
@@ -250,11 +254,11 @@ func (seq *Sequencer) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.
 	return false, emitK, events, seq.runningMeta
 }
 
-func (seq *Sequencer) hasFlux() bool {
+func (seq *Seq) hasFlux() bool {
 	return seq.prevSegLen > 0 && (len(seq.buf)-seq.offset) >= seq.prevSegLen && !seq.fluxEmitted
 }
 
-func (seq *Sequencer) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
+func (seq *Seq) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
 	val = float64(byteVal)
 
 	if seq.eigen != nil && seq.eigen.Trained {
@@ -269,7 +273,7 @@ func (seq *Sequencer) computeSignal(byteVal byte) (val, delta, eigenMag float64)
 	return
 }
 
-func (seq *Sequencer) detectBoundary(buf []byte, dist *Distribution) (bool, int, float64) {
+func (seq *Seq) detectBoundary(buf []byte, dist *Distribution) (bool, int, float64) {
 	n := len(buf)
 	minSeg := max(seq.MinSegmentBytes, 2)
 
@@ -329,13 +333,13 @@ func (seq *Sequencer) detectBoundary(buf []byte, dist *Distribution) (bool, int,
 	return maxGain > 0, bestK, maxGain
 }
 
-func (seq *Sequencer) emitSplit(k int) {
+func (seq *Seq) emitSplit(k int) {
 	seq.prevSegLen = k
 	seq.buf = append([]byte(nil), seq.buf[k:]...) // force copy to avoid leaks
 	seq.fluxEmitted = false
 }
 
-func (seq *Sequencer) balanceCandidates() {
+func (seq *Seq) balanceCandidates() {
 	if len(seq.candidates) < 2 {
 		return
 	}
@@ -370,7 +374,7 @@ func (seq *Sequencer) balanceCandidates() {
 	c1.gain = gain
 }
 
-func (seq *Sequencer) getDistribution(start, end int) *Distribution {
+func (seq *Seq) getDistribution(start, end int) *Distribution {
 	dist := NewDistribution()
 	for _, b := range seq.buf[start:end] {
 		dist.Add(b)
@@ -378,7 +382,7 @@ func (seq *Sequencer) getDistribution(start, end int) *Distribution {
 	return dist
 }
 
-func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
+func (seq *Seq) isSimilar(d1, d2 *Distribution) bool {
 	if d1.n == 0 || d2.n == 0 {
 		return false
 	}
@@ -397,7 +401,7 @@ func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
 classifyDirection returns EventDensitySpike if right-mean > left-mean, else EventDensityTrough.
 Compares buf[:k] vs buf[k:] mean byte values.
 */
-func (seq *Sequencer) classifyDirection(buf []byte, k int) int {
+func (seq *Seq) classifyDirection(buf []byte, k int) int {
 	if k <= 0 || k >= len(buf) {
 		return EventDensityTrough
 	}
@@ -416,7 +420,7 @@ func (seq *Sequencer) classifyDirection(buf []byte, k int) int {
 	return EventDensityTrough
 }
 
-func (seq *Sequencer) updateEMA(val, delta, eigenMag float64) {
+func (seq *Seq) updateEMA(val, delta, eigenMag float64) {
 	seq.lastByteVal = val
 	if seq.eigen != nil && seq.eigen.Trained {
 		seq.lastEigenMag = eigenMag
@@ -431,7 +435,7 @@ func (seq *Sequencer) updateEMA(val, delta, eigenMag float64) {
 Forecast runs boundary detection on buf+byteVal without committing.
 Returns (true, events) if a boundary would be at k; (false, nil) otherwise.
 */
-func (seq *Sequencer) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
+func (seq *Seq) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
 	buf := append(seq.buf, byteVal)
 	dist := *seq.dist
 	dist.Add(byteVal)
@@ -467,7 +471,7 @@ FeedbackRetrievalQuality adjusts calibrator.sensitivityPop by 1/phi.
 overDiscriminated: increase penalty (fewer splits). underDiscriminated: decrease.
 Clamps sensitivityPop to [0.05, 20].
 */
-func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
+func (seq *Seq) FeedbackRetrievalQuality(overDiscriminated, underDiscriminated bool) {
 	if seq.calibrator == nil {
 		return
 	}
@@ -487,14 +491,14 @@ func (seq *Sequencer) FeedbackRetrievalQuality(overDiscriminated, underDiscrimin
 /*
 Phase returns (emaPhase, costPerByte). costPerByte = dist.Cost()/n.
 */
-func (seq *Sequencer) Phase() (float64, float64) {
+func (seq *Seq) Phase() (float64, float64) {
 	return seq.emaPhase, seq.dist.Cost() / float64(max(seq.dist.n, 1))
 }
 
 /*
 SetEigenMode replaces the internal EigenMode. Nil resets to NewEigenMode().
 */
-func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
+func (seq *Seq) SetEigenMode(eigen *geometry.EigenMode) {
 	if eigen == nil {
 		seq.eigen = geometry.NewEigenMode()
 		return
@@ -506,7 +510,7 @@ func (seq *Sequencer) SetEigenMode(eigen *geometry.EigenMode) {
 Flush commits the first candidate as a boundary and returns (true, events).
 Returns (false, nil) if no candidates. Same event format as Analyze.
 */
-func (seq *Sequencer) Flush() (bool, int, []int, data.Chord) {
+func (seq *Seq) Flush() (bool, int, []int, data.Chord) {
 	if len(seq.candidates) == 0 {
 		return false, 0, nil, seq.runningMeta
 	}

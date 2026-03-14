@@ -8,6 +8,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
@@ -18,12 +19,11 @@ import (
 	"github.com/theapemachine/six/pkg/validate"
 )
 
-var tokMorton = data.NewMortonCoder()
-
 /*
 TokenizerServer implements the Tokenizer_Server interface.
-The SpatialIndex insert capability is received as a typed function via the
-broadcast bus — no raw capnp.Client, no method descriptors, no lsm internals.
+The SpatialIndex insert capability is received as a typed
+function via the broadcast bus — no raw capnp.Client, no
+method descriptors, no lsm internals.
 */
 type TokenizerServer struct {
 	ctx           context.Context
@@ -40,6 +40,8 @@ type TokenizerServer struct {
 	collectorMu   sync.Mutex
 	ready         atomic.Bool
 	clientConn    net.Conn
+	currentState  int
+	calc          *numeric.Calculus
 }
 
 type tokenizerOpts func(*TokenizerServer)
@@ -50,6 +52,7 @@ NewTokenizerServer instantiates a TokenizerServer.
 func NewTokenizerServer(opts ...tokenizerOpts) *TokenizerServer {
 	server := &TokenizerServer{
 		sink: telemetry.NewSink(),
+		calc: numeric.NewCalculus(),
 	}
 
 	for _, opt := range opts {
@@ -57,7 +60,9 @@ func NewTokenizerServer(opts ...tokenizerOpts) *TokenizerServer {
 	}
 
 	validate.Require(map[string]any{
-		"dataset": server.dataset,
+		"dataset":   server.dataset,
+		"pool":      server.pool,
+		"broadcast": server.broadcast,
 	})
 
 	return server
@@ -151,8 +156,9 @@ func (server *TokenizerServer) Done(ctx context.Context, call Tokenizer_done) er
 }
 
 func (server *TokenizerServer) generate(ctx context.Context) error {
-	calibrator := NewCalibrator()
-	seq := NewSequencer(calibrator)
+	// calibrator := NewCalibrator()
+	// seq := NewSequencer(calibrator)
+	sequitur := NewSequitur()
 	activeCtx := ctx
 	server.ready.Store(false)
 
@@ -187,7 +193,12 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 		}
 
 		if server.pool == nil {
-			return server.processChunk(activeCtx, sampleID, append([]byte(nil), buf...), metaChord)
+			return server.processChunk(
+				activeCtx,
+				sampleID,
+				append([]byte(nil), buf...),
+				metaChord,
+			)
 		}
 
 		flush(sampleID, buf, metaChord)
@@ -227,11 +238,11 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 
 			chunk = chunk[:0]
 			server.currentSample = token.SampleID
-			seq = seq.CloneEmpty()
+			server.currentState = 1 // Reset baseline momentum on new sample
 		}
 
 		chunk = append(chunk, token.Symbol)
-		isBoundary, emitK, _, emitMeta := seq.Analyze(token.Pos, token.Symbol)
+		isBoundary, emitK, _, emitMeta := sequitur.Analyze(token.Pos, token.Symbol)
 
 		if isBoundary {
 			server.sink.Emit(telemetry.Event{Component: "Sequencer", Action: "Boundary"})
@@ -255,7 +266,7 @@ func (server *TokenizerServer) generate(ctx context.Context) error {
 	}
 
 	for {
-		isBoundary, emitK, _, emitMeta := seq.Flush()
+		isBoundary, emitK, _, emitMeta := sequitur.Flush()
 		if !isBoundary {
 			break
 		}
@@ -317,14 +328,20 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 		server.collectorMu.Unlock()
 	}
 
-	state := 1
+	if server.currentState == 0 {
+		server.currentState = 1 // Ensure we start with momentum
+	}
 
 	for i, currentByte := range chunk {
-		state = (state*3 + int(currentByte)) % 257
+		server.currentState = int(
+			server.calc.Multiply(numeric.Phase(server.currentState),
+				server.calc.Power(3, uint32(currentByte)),
+			),
+		)
 
 		if !server.useSampleID && server.spatialInsert != nil {
 			stateChord := data.MustNewChord()
-			stateChord.Set(state)
+			stateChord.Set(server.currentState)
 
 			if err := server.spatialInsert(
 				ctx, currentByte, uint32(i), stateChord, metaChord,
@@ -350,13 +367,15 @@ func (server *TokenizerServer) processChunk(ctx context.Context, sampleID uint32
 }
 
 /*
-TokenizeSingleSample is an API to tokenize a standalone sample, returning an error.
+TokenizeSingleSample is an API to tokenize a standalone
+sample, returning an error.
 */
 func (server *TokenizerServer) TokenizeSingleSample(
 	ctx context.Context, sample string,
 ) error {
 	server.collector = [][]data.Chord{{}}
 	server.currentSample = 0
+	server.currentState = 1 // Reset baseline momentum
 
 	ds := local.New(local.WithStrings([]string{sample}))
 	server.dataset = ds

@@ -12,7 +12,6 @@ func TestASTNode_Print(t *testing.T) {
 		node := &ASTNode{
 			Level: 1,
 			Label: data.Chord{}, // ActiveCount() == 0 naturally
-			Theta: 1.57,
 		}
 
 		Convey("It prints without panicking", func() {
@@ -23,7 +22,6 @@ func TestASTNode_Print(t *testing.T) {
 			parent := &ASTNode{
 				Level:    0,
 				Label:    data.Chord{},
-				Theta:    0.0,
 				Children: []*ASTNode{node},
 			}
 			So(func() { parent.Print(">>") }, ShouldNotPanic)
@@ -148,9 +146,8 @@ func BenchmarkASTNode_Print(b *testing.B) {
 	node := &ASTNode{
 		Level: 1,
 		Label: data.Chord{},
-		Theta: 1.0,
 		Children: []*ASTNode{
-			{Level: 2, Theta: 2.0},
+			{Level: 2},
 		},
 	}
 	b.ResetTimer()

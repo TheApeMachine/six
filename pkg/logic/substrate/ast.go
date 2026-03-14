@@ -7,7 +7,7 @@ import (
 	"github.com/theapemachine/six/pkg/system/console"
 )
 
-// ASTNode represents a node in the graph's abstract syntax tree. It holds the node's topological Level, its chord Label, orientational drift Theta, and references to its Children and Leaves for tree organization.
+// ASTNode represents a node in the graph's abstract syntax tree. It holds the node's topological Level, its chord Label, and references to its Children and Leaves for tree organization.
 type ASTNode struct {
 	Level    int
 	Label    data.Chord
@@ -16,9 +16,9 @@ type ASTNode struct {
 	Leaves   [][]data.Chord
 }
 
-// ASTNode.Print prints the node's Level, Label active bit count, Theta in radians, and recursively prints children with the provided indent string.
+// ASTNode.Print prints the node's Level, Label active bit count, and recursively prints children with the provided indent string.
 func (node *ASTNode) Print(indent string) {
-	fmt.Printf("%sLevel %d: Label %d bits, Theta: %.2f radians\n", indent, node.Level, node.Label.ActiveCount(), node.Theta)
+	fmt.Printf("%sLevel %d: Label %d bits, Theta: %f\n", indent, node.Level, node.Label.ActiveCount(), node.Theta)
 	for _, child := range node.Children {
 		child.Print(indent + "  ")
 	}

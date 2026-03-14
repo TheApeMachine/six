@@ -146,6 +146,7 @@ func TestOutOfCorpusPromptProvenance(t *testing.T) {
 				results, err := helper.Machine.Prompt(helper.NewPrompt([]string{query}))
 
 				So(err, ShouldBeNil)
+				t.Logf("RESULTS: %v", ResultStrings(results))
 				So(helper.ResultsBelongToChunks(results, allowedChunks), ShouldBeTrue)
 				t.Logf("%s: %v", name, ResultStrings(results))
 			})
