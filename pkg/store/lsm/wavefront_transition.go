@@ -2,7 +2,6 @@ package lsm
 
 import (
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 type visitMark struct {
@@ -19,19 +18,7 @@ func (wf *Wavefront) advanceTarget(head *WavefrontHead) (uint32, uint32, bool) {
 	}
 
 	last := head.path[len(head.path)-1]
-	if last.Terminal() || last.Opcode() == uint64(data.OpcodeHalt) {
-		return 0, head.segment, false
-	}
-
-	if data.Opcode(last.Opcode()) == data.OpcodeReset {
-		return 0, head.segment + 1, true
-	}
-
-	if jump := last.Jump(); jump > 0 {
-		return head.pos + jump, head.segment, true
-	}
-
-	return head.pos + 1, head.segment, true
+	return advanceProgramCursor(head.pos, head.segment, last)
 }
 
 func (wf *Wavefront) predictNextPhase(head *WavefrontHead, nextSymbol byte) numeric.Phase {
@@ -39,12 +26,7 @@ func (wf *Wavefront) predictNextPhase(head *WavefrontHead, nextSymbol byte) nume
 		return wf.advancePromptPhase(1, nextSymbol)
 	}
 	if len(head.path) > 0 {
-		last := head.path[len(head.path)-1]
-		if last.HasAffine() {
-			if next := last.ApplyAffinePhase(head.phase); next != 0 {
-				return next
-			}
-		}
+		return predictNextPhaseFromValue(wf.calc, head.path[len(head.path)-1], head.phase, nextSymbol)
 	}
 
 	return wf.advancePromptPhase(head.phase, nextSymbol)

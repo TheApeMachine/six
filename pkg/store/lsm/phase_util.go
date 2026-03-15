@@ -50,6 +50,71 @@ func statePhaseMatches(chord data.Chord, symbol byte, expected numeric.Phase) bo
 	return ok && phase == expected
 }
 
+/*
+advanceProgramPosition returns the next boundary-local depth implied by a stored
+native value. The value's program shell is authoritative: reset returns to local
+depth 0, jump advances by the encoded distance, halt/terminal stop traversal,
+and ordinary values fall through to the next local depth.
+*/
+func advanceProgramPosition(pos uint32, value data.Chord) (uint32, bool) {
+	if value.Terminal() || value.Opcode() == uint64(data.OpcodeHalt) {
+		return 0, false
+	}
+
+	if data.Opcode(value.Opcode()) == data.OpcodeReset {
+		return 0, true
+	}
+
+	if jump := value.Jump(); jump > 0 {
+		return pos + jump, true
+	}
+
+	return pos + 1, true
+}
+
+/*
+advanceProgramCursor applies the stored native transition while also tracking
+boundary-reset segment changes. Resets return to local depth 0 and increment the
+segment; jumps and ordinary next-steps preserve the current segment; halt stops
+traversal entirely.
+*/
+func advanceProgramCursor(pos, segment uint32, value data.Chord) (uint32, uint32, bool) {
+	nextPos, ok := advanceProgramPosition(pos, value)
+	if !ok {
+		return 0, segment, false
+	}
+
+	if data.Opcode(value.Opcode()) == data.OpcodeReset {
+		return 0, segment + 1, true
+	}
+
+	return nextPos, segment, true
+}
+
+/*
+predictNextPhaseFromValue advances a GF(257) state through the stored value's
+native operator. Values that explicitly carry an affine shell use that operator
+directly; older lexicalized values fall back to the byte-induced primitive-root
+update so the two eras of the codebase remain interoperable.
+*/
+func predictNextPhaseFromValue(
+	calc *numeric.Calculus,
+	value data.Chord,
+	current numeric.Phase,
+	nextSymbol byte,
+) numeric.Phase {
+	if value.HasAffine() {
+		if next := value.ApplyAffinePhase(current); next != 0 {
+			return next
+		}
+	}
+
+	return calc.Multiply(
+		current,
+		calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(nextSymbol)),
+	)
+}
+
 func firstMetaForKeyUnsafe(idx *SpatialIndexServer, key uint64) data.Chord {
 	meta := data.MustNewChord()
 	if metas := idx.metaEntries[key]; len(metas) > 0 {

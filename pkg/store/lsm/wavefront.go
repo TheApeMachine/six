@@ -1141,6 +1141,19 @@ func WavefrontWithMaxDepth(maxDepth uint32) wavefrontOpts {
 }
 
 /*
+WavefrontWithMaxFuzzy sets the edit budget used during prompt alignment.
+Zero turns SearchPrompt into an exact, edit-free matcher while still using the
+same reset/jump/operator-aware traversal engine.
+*/
+func WavefrontWithMaxFuzzy(maxFuzzy int) wavefrontOpts {
+	return func(wf *Wavefront) {
+		if maxFuzzy >= 0 {
+			wf.maxFuzzy = maxFuzzy
+		}
+	}
+}
+
+/*
 WavefrontWithFrustrationEngine attaches the Phase 4 logic solver to the search.
 */
 func WavefrontWithFrustrationEngine(fe *goal.FrustrationEngineServer, target numeric.Phase) wavefrontOpts {

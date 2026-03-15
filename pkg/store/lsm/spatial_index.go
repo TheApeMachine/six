@@ -92,17 +92,6 @@ func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 }
 
 /*
-Close shuts down the RPC connections and underlying net.Pipe,
-unblocking goroutines stuck on pipe reads.
-*/
-func (idx *SpatialIndexServer) Close() error {
-	idx.serverSide.Close()
-	idx.clientSide.Close()
-
-	return nil
-}
-
-/*
 Client returns a Cap'n Proto client connected to this SpatialIndexServer.
 */
 func (idx *SpatialIndexServer) Client(clientID string) SpatialIndex {
@@ -113,6 +102,38 @@ func (idx *SpatialIndexServer) Client(clientID string) SpatialIndex {
 	})
 
 	return idx.client
+}
+
+/*
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
+*/
+func (idx *SpatialIndexServer) Close() error {
+	if idx.serverConn != nil {
+		_ = idx.serverConn.Close()
+		idx.serverConn = nil
+	}
+
+	for clientID, conn := range idx.clientConns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(idx.clientConns, clientID)
+	}
+
+	if idx.serverSide != nil {
+		_ = idx.serverSide.Close()
+		idx.serverSide = nil
+	}
+	if idx.clientSide != nil {
+		_ = idx.clientSide.Close()
+		idx.clientSide = nil
+	}
+	if idx.cancel != nil {
+		idx.cancel()
+	}
+
+	return nil
 }
 
 func (idx *SpatialIndexServer) Done(ctx context.Context, call SpatialIndex_done) error {
@@ -344,6 +365,11 @@ func (idx *SpatialIndexServer) deleteChainUnsafe(key uint64) {
 	if !exists {
 		return
 	}
+	pos, _ := morton.Unpack(key)
+	idx.positionIndex[pos] = removeUint64Key(idx.positionIndex[pos], key)
+	if len(idx.positionIndex[pos]) == 0 {
+		delete(idx.positionIndex, pos)
+	}
 	delete(idx.entries, key)
 	delete(idx.arrowSets, key)
 	idx.count--
@@ -367,12 +393,31 @@ func (idx *SpatialIndexServer) deleteChainUnsafe(key uint64) {
 	}
 }
 
+func removeUint64Key(keys []uint64, target uint64) []uint64 {
+	if len(keys) == 0 {
+		return keys
+	}
+
+	out := keys[:0]
+	removed := false
+	for _, key := range keys {
+		if !removed && key == target {
+			removed = true
+			continue
+		}
+		out = append(out, key)
+	}
+
+	return out
+}
+
 /*
 Compact performs Resonant Pruning on the spatial index.
-It iterates through all entries and "looks ahead" into the next
-sequence position mapping. If a Phase momentum path ends abruptly
-without an expected continuation inside the dataset (i.e. destructive
-interference), the path is pruned. Valid paths are compacted and preserved.
+It now follows the stored native program instead of assuming a dumb pos+1 tape:
+reset returns to local depth 0, jumps advance by their encoded span, halt stays
+valid, and phase prediction prefers the value's affine shell operator.
+Branches that cannot find a matching continuation under that exact program are
+treated as destructive interference and pruned.
 */
 func (idx *SpatialIndexServer) Compact() int {
 	idx.mu.Lock()
@@ -380,13 +425,16 @@ func (idx *SpatialIndexServer) Compact() int {
 
 	var pruned int
 	calc := numeric.NewCalculus()
+	positions := make([]uint32, 0, len(idx.positionIndex))
+	for pos := range idx.positionIndex {
+		positions = append(positions, pos)
+	}
+	sort.Slice(positions, func(i, j int) bool {
+		return positions[i] < positions[j]
+	})
 
-	for pos, keys := range idx.positionIndex {
-		nextKeys, hasNext := idx.positionIndex[pos+1]
-		if !hasNext || len(nextKeys) == 0 {
-			continue // Valid terminal point, no chunks continued
-		}
-
+	for _, pos := range positions {
+		keys := append([]uint64(nil), idx.positionIndex[pos]...)
 		for _, key := range keys {
 			chain := idx.followChainUnsafe(key)
 			if len(chain) <= 1 {
@@ -399,11 +447,18 @@ func (idx *SpatialIndexServer) Compact() int {
 
 			for _, stateChord := range chain {
 				hasContinuation := false
+				if stateChord.Terminal() || stateChord.Opcode() == uint64(data.OpcodeHalt) {
+					validStates = append(validStates, stateChord)
+					continue
+				}
+
 				state, ok := extractStatePhase(stateChord, symbol)
-				if ok {
+				nextPos, advances := advanceProgramPosition(pos, stateChord)
+				nextKeys, hasNext := idx.positionIndex[nextPos]
+				if ok && advances && hasNext {
 					for _, nextKey := range nextKeys {
 						_, nextSymbol := morton.Unpack(nextKey)
-						expectedNextState := calc.Multiply(state, calc.Power(3, uint32(nextSymbol)))
+						expectedNextState := predictNextPhaseFromValue(calc, stateChord, state, nextSymbol)
 
 						nextChain := idx.followChainUnsafe(nextKey)
 						for _, nextChord := range nextChain {
@@ -449,8 +504,9 @@ func (idx *SpatialIndexServer) entriesAtPosition(position uint32) []SpatialEntry
 
 	for _, key := range idx.positionIndex[position] {
 		value := idx.entries[key]
+		_, symbol := morton.Unpack(key)
 		metas := idx.metaEntries[key]
-		hits = append(hits, SpatialEntry{Key: key, Value: value, Metas: metas})
+		hits = append(hits, SpatialEntry{Key: key, Value: data.ObservableValue(symbol, value), Metas: metas})
 	}
 
 	return hits
@@ -478,12 +534,14 @@ func (idx *SpatialIndexServer) branchesFrom(position uint32) ([]data.Chord, []da
 	for _, pos := range positions {
 		for _, key := range idx.positionIndex[pos] {
 			value := idx.entries[key]
+			_, symbol := morton.Unpack(key)
+			observable := data.ObservableValue(symbol, value)
 
-			if len(hits) > 0 && sameChord(hits[len(hits)-1], value) {
+			if len(hits) > 0 && sameChord(hits[len(hits)-1], observable) {
 				continue
 			}
 
-			hits = append(hits, value)
+			hits = append(hits, observable)
 
 			// Pick the first meta chord for this key as a representative
 			if metas := idx.metaEntries[key]; len(metas) > 0 {
@@ -591,6 +649,7 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 
 	paths := make([][]data.Chord, 0, limit)
 	metaPaths := make([][]data.Chord, 0, limit)
+	
 	for i := 0; i < limit; i++ {
 		paths = append(paths, results[i].Path)
 		metaPaths = append(metaPaths, results[i].MetaPath)
@@ -629,7 +688,7 @@ func inferByteFromChord(chord data.Chord) (byte, bool) {
 	bestScore := -1
 	unique := false
 
-	for candidate := 0; candidate < 256; candidate++ {
+	for candidate := range 256 {
 		base := data.BaseChord(byte(candidate))
 		sim := data.ChordSimilarity(&base, &chord)
 		if sim != base.ActiveCount() {
@@ -744,7 +803,7 @@ func (idx *SpatialIndexServer) QueryTransitions(
 	var metaHits []data.Chord
 
 	if value, exists := idx.entries[key]; exists {
-		hits = append(hits, value)
+		hits = append(hits, data.ObservableValue(byte(left), value))
 		metaHits = append(metaHits, idx.metaEntries[key]...)
 	}
 
@@ -871,10 +930,11 @@ func (idx *SpatialIndexServer) decodeChords(chords []data.Chord) [][]byte {
 		for pos, keys := range idx.positionIndex {
 			for _, key := range keys {
 				value := idx.entries[key]
-				sim := data.ChordSimilarity(&value, &chord)
+				_, symbol := morton.Unpack(key)
+				observable := data.ObservableValue(symbol, value)
+				sim := data.ChordSimilarity(&observable, &chord)
 
-				if sim == value.ActiveCount() && sim == active && sim > 0 {
-					_, symbol := morton.Unpack(key)
+				if sim == observable.ActiveCount() && sim == active && sim > 0 {
 					hits = append(hits, hit{pos, symbol})
 				}
 			}
@@ -1030,10 +1090,11 @@ func (idx *SpatialIndexServer) decodeFallback(chords []data.Chord) [][]byte {
 		for pos, keys := range idx.positionIndex {
 			for _, key := range keys {
 				value := idx.entries[key]
-				sim := data.ChordSimilarity(&value, &chord)
+				_, symbol := morton.Unpack(key)
+				observable := data.ObservableValue(symbol, value)
+				sim := data.ChordSimilarity(&observable, &chord)
 
-				if sim == value.ActiveCount() && sim == active && sim > 0 {
-					_, symbol := morton.Unpack(key)
+				if sim == observable.ActiveCount() && sim == active && sim > 0 {
 					matched = append(matched, hit{pos, symbol})
 				}
 			}
@@ -1069,202 +1130,69 @@ func (idx *SpatialIndexServer) decodeFallback(chords []data.Chord) [][]byte {
 }
 
 /*
-LookupByPhase implements Prompt-to-Phase from INSIGHT.md.
-Given raw prompt bytes, it computes the GF(257) state chain
-S = (S * 3^byte) mod 257, then scans the spatial index for
-entries whose state bits match the prompt's accumulated state.
-It returns reconstructed byte sequences together with the resonant chord path
-and the per-step meta path carried in the Guard Band program.
+LookupByPhase implements the exact, edit-free prompt-to-phase lookup.
+It now delegates to the same reset/jump/operator-aware traversal semantics as
+the wavefront, but with fuzzy edits forced to zero. Returned byte slices and
+path slices are the continuation beyond the matched prompt prefix.
 */
 func (idx *SpatialIndexServer) LookupByPhase(promptBytes []byte) ([][]byte, [][]data.Chord, [][]data.Chord) {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
+	if len(promptBytes) == 0 {
+		return nil, nil, nil
+	}
 
-	calc := numeric.NewCalculus()
+	wf := NewWavefront(
+		idx,
+		WavefrontWithMaxHeads(64),
+		WavefrontWithMaxDepth(uint32(len(promptBytes)+256)),
+		WavefrontWithMaxFuzzy(0),
+		WavefrontWithAnchors(256, 12),
+	)
 
-	// Walk all possible starting positions to find where the prompt
-	// prefix matches the spatial index with state-chain verification.
+	raw := wf.SearchPrompt(promptBytes, nil, nil)
+	if len(raw) == 0 {
+		return nil, nil, nil
+	}
+
+	limit := len(raw)
+	if limit > 8 {
+		limit = 8
+	}
+
 	var results [][]byte
 	var resultChords [][]data.Chord
 	var resultMetas [][]data.Chord
+	seen := make(map[string]struct{}, limit)
 
-	maxStartPos := uint32(0)
-
-	for pos := range idx.positionIndex {
-		if pos > maxStartPos {
-			maxStartPos = pos
-		}
-	}
-
-	for startPos := uint32(0); startPos <= maxStartPos; startPos++ {
-		matchLen, endState := idx.matchPromptAtPosition(startPos, promptBytes, calc)
-
-		if matchLen < len(promptBytes) {
+	for _, candidate := range raw[:limit] {
+		if len(candidate.Path) <= len(promptBytes) {
 			continue
 		}
 
-		// Full prompt matched at this starting position.
-		// Collect continuation bytes using state-chain verification.
-		contBytes, contChords, contMetas := idx.collectStateContinuation(
-			startPos+uint32(matchLen), endState, calc,
-		)
-
-		if len(contBytes) > 0 {
-			results = append(results, contBytes)
-			resultChords = append(resultChords, contChords)
-			resultMetas = append(resultMetas, contMetas)
+		contPath := append([]data.Chord(nil), candidate.Path[len(promptBytes):]...)
+		contMeta := append([]data.Chord(nil), candidate.MetaPath[len(promptBytes):]...)
+		if len(contPath) == 0 {
+			continue
 		}
+
+		decoded, ok := idx.decodeProgrammedPath(contPath)
+		if !ok || len(decoded) == 0 {
+			fallback := idx.decodeChords(contPath)
+			if len(fallback) == 0 {
+				continue
+			}
+			decoded = fallback[0]
+		}
+
+		key := string(decoded)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+
+		results = append(results, decoded)
+		resultChords = append(resultChords, contPath)
+		resultMetas = append(resultMetas, contMeta)
 	}
 
 	return results, resultChords, resultMetas
-}
-
-/*
-matchPromptAtPosition walks prompt bytes starting at the given position,
-verifying each byte exists at its Morton key AND the state bit matches the
-accumulated GF(257) state chain. Returns how many prompt bytes matched and
-the ending state.
-*/
-func (idx *SpatialIndexServer) matchPromptAtPosition(
-	startPos uint32, prompt []byte, calc *numeric.Calculus,
-) (int, numeric.Phase) {
-	state := numeric.Phase(1)
-
-	for i, b := range prompt {
-		pos := startPos + uint32(i)
-		key := morton.Pack(pos, b)
-
-		nextState := calc.Multiply(state, calc.Power(3, uint32(b)))
-		chord, exists := idx.entries[key]
-
-		if !exists {
-			// Check collision chains for this byte at this position.
-			if !idx.hasInChain(key, b, state, calc) {
-				return i, state
-			}
-		} else if !statePhaseMatches(chord, b, nextState) {
-			// Chord exists but state doesn't match — wrong context.
-			return i, state
-		}
-
-		state = nextState
-	}
-
-	return len(prompt), state
-}
-
-/*
-hasInChain checks collision chains for a matching entry with the correct state.
-*/
-func (idx *SpatialIndexServer) hasInChain(
-	key uint64, b byte, prevState numeric.Phase, calc *numeric.Calculus,
-) bool {
-	existing, exists := idx.entries[key]
-
-	if !exists {
-		return false
-	}
-
-	nextState := calc.Multiply(prevState, calc.Power(3, uint32(b)))
-
-	if statePhaseMatches(existing, b, nextState) {
-		return true
-	}
-
-	chainKey := ToKey(existing.Rotate3D())
-	visited := make(map[ChordKey]bool)
-
-	for {
-		if visited[chainKey] {
-			return false
-		}
-
-		visited[chainKey] = true
-
-		next, hasNext := idx.chainEntries[chainKey]
-
-		if !hasNext {
-			return false
-		}
-
-		if statePhaseMatches(next, b, nextState) {
-			return true
-		}
-
-		chainKey = ToKey(next.Rotate3D())
-	}
-}
-
-/*
-collectStateContinuation walks positions from startPos onwards, trying
-all 256 byte values at each position. Only bytes whose expected state bit
-is present in the spatial index chord are accepted. This ensures the
-continuation belongs to the same context (chunk) as the matched prompt.
-*/
-func (idx *SpatialIndexServer) collectStateContinuation(
-	startPos uint32, state numeric.Phase, calc *numeric.Calculus,
-) ([]byte, []data.Chord, []data.Chord) {
-	var resultBytes []byte
-	var resultChords []data.Chord
-	var resultMetas []data.Chord
-
-	for pos := startPos; ; {
-		keys, exists := idx.positionIndex[pos]
-
-		if !exists || len(keys) == 0 {
-			break
-		}
-
-		foundByte := false
-		advance := uint32(1)
-
-		for _, key := range keys {
-			_, symbol := morton.Unpack(key)
-			candidateState := calc.Multiply(state, calc.Power(3, uint32(symbol)))
-
-			// Check primary entry and collision chains
-			chain := idx.followChainUnsafe(key)
-
-			for _, chord := range chain {
-				if !statePhaseMatches(chord, symbol, candidateState) {
-					continue
-				}
-
-				resultBytes = append(resultBytes, symbol)
-				resultChords = append(resultChords, data.ObservableValue(symbol, chord))
-
-				meta := data.MustNewChord()
-				if metas := idx.metaEntries[key]; len(metas) > 0 {
-					meta.CopyFrom(metas[0])
-				}
-				resultMetas = append(resultMetas, meta)
-
-				state = candidateState
-				foundByte = true
-
-				jump := chord.Jump()
-				if jump > 0 {
-					advance = jump
-				}
-
-				if chord.Terminal() || chord.Opcode() == uint64(data.OpcodeHalt) {
-					return resultBytes, resultChords, resultMetas
-				}
-
-				break
-			}
-
-			if foundByte {
-				break
-			}
-		}
-
-		if !foundByte {
-			break
-		}
-
-		pos += advance
-	}
-
-	return resultBytes, resultChords, resultMetas
 }

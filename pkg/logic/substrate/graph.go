@@ -85,11 +85,33 @@ func (graph *GraphServer) Client(clientID string) Graph {
 }
 
 /*
-Close shuts down the pipe-based RPC connections.
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
 */
 func (graph *GraphServer) Close() error {
-	graph.serverSide.Close()
-	graph.clientSide.Close()
+	if graph.serverConn != nil {
+		_ = graph.serverConn.Close()
+		graph.serverConn = nil
+	}
+
+	for clientID, conn := range graph.clientConns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(graph.clientConns, clientID)
+	}
+
+	if graph.serverSide != nil {
+		_ = graph.serverSide.Close()
+		graph.serverSide = nil
+	}
+	if graph.clientSide != nil {
+		_ = graph.clientSide.Close()
+		graph.clientSide = nil
+	}
+	if graph.cancel != nil {
+		graph.cancel()
+	}
 
 	return nil
 }

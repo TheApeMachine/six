@@ -84,17 +84,6 @@ func NewPrompterServer(opts ...prompterOpts) *PrompterServer {
 }
 
 /*
-Close shuts down the RPC connections and underlying net.Pipe,
-unblocking goroutines stuck on pipe reads.
-*/
-func (server *PrompterServer) Close() error {
-	server.serverSide.Close()
-	server.clientSide.Close()
-
-	return nil
-}
-
-/*
 Client returns a Cap'n Proto client connected to this PrompterServer.
 */
 func (server *PrompterServer) Client(clientID string) Prompter {
@@ -105,6 +94,38 @@ func (server *PrompterServer) Client(clientID string) Prompter {
 	})
 
 	return server.client
+}
+
+/*
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
+*/
+func (server *PrompterServer) Close() error {
+	if server.serverConn != nil {
+		_ = server.serverConn.Close()
+		server.serverConn = nil
+	}
+
+	for clientID, conn := range server.clientConns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(server.clientConns, clientID)
+	}
+
+	if server.serverSide != nil {
+		_ = server.serverSide.Close()
+		server.serverSide = nil
+	}
+	if server.clientSide != nil {
+		_ = server.clientSide.Close()
+		server.clientSide = nil
+	}
+	if server.cancel != nil {
+		server.cancel()
+	}
+
+	return nil
 }
 
 /*

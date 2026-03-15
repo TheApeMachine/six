@@ -78,11 +78,33 @@ func (server *ParserServer) Client(clientID string) Parser {
 }
 
 /*
-Close shuts down the pipe-based RPC connections.
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
 */
 func (server *ParserServer) Close() error {
-	server.serverSide.Close()
-	server.clientSide.Close()
+	if server.serverConn != nil {
+		_ = server.serverConn.Close()
+		server.serverConn = nil
+	}
+
+	for clientID, conn := range server.clientConns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(server.clientConns, clientID)
+	}
+
+	if server.serverSide != nil {
+		_ = server.serverSide.Close()
+		server.serverSide = nil
+	}
+	if server.clientSide != nil {
+		_ = server.clientSide.Close()
+		server.clientSide = nil
+	}
+	if server.cancel != nil {
+		server.cancel()
+	}
 
 	return nil
 }

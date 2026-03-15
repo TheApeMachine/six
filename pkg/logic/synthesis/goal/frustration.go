@@ -86,6 +86,38 @@ func (server *FrustrationEngineServer) Client(clientID string) Frustration {
 }
 
 /*
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
+*/
+func (server *FrustrationEngineServer) Close() error {
+	if server.serverConn != nil {
+		_ = server.serverConn.Close()
+		server.serverConn = nil
+	}
+
+	for clientID, conn := range server.clientConns {
+		if conn != nil {
+			_ = conn.Close()
+		}
+		delete(server.clientConns, clientID)
+	}
+
+	if server.serverSide != nil {
+		_ = server.serverSide.Close()
+		server.serverSide = nil
+	}
+	if server.clientSide != nil {
+		_ = server.clientSide.Close()
+		server.clientSide = nil
+	}
+	if server.cancel != nil {
+		server.cancel()
+	}
+
+	return nil
+}
+
+/*
 Prompt implements Frustration_Server.
 */
 func (server *FrustrationEngineServer) Prompt(ctx context.Context, call Frustration_prompt) error {

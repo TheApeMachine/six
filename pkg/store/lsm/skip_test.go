@@ -5,6 +5,7 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestSkipIndex(t *testing.T) {
@@ -17,7 +18,7 @@ func TestSkipIndex(t *testing.T) {
 			skip := NewSkipIndex(idx)
 			skip.Build()
 
-			gc.Convey("Every Morton key in the index should have a skip entry", func() {
+			gc.Convey("Every Morton key in the index should have a root skip entry", func() {
 				for key := range idx.entries {
 					_, exists := skip.entries[key]
 					gc.So(exists, gc.ShouldBeTrue)
@@ -106,3 +107,42 @@ func TestSkipIndex(t *testing.T) {
 	})
 }
 
+func TestSkipIndexFollowsResetAwareCompressedTraversal(t *testing.T) {
+	gc.Convey("Given a compressed reset path that reuses the same radix cell", t, func() {
+		idx := NewSpatialIndexServer()
+		calc := numeric.NewCalculus()
+
+		aPhase := calc.Multiply(1, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('a')))
+		abPhase := calc.Multiply(aPhase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('b')))
+		abaPhase := calc.Multiply(abPhase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('a')))
+
+		keyA := morton.Pack(0, 'a')
+		keyB := morton.Pack(1, 'b')
+
+		idx.insertSync(keyA, observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewChord())
+		idx.insertSync(keyB, observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewChord())
+		idx.insertSync(keyA, observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewChord())
+
+		skip := NewSkipIndex(idx)
+		skip.Build()
+
+		gc.Convey("A level-0 jump from the reset node should land back on local depth 0", func() {
+			targetKey, targetPhase, valid := skip.Jump(keyB, SkipNext)
+			gc.So(valid, gc.ShouldBeTrue)
+			gc.So(targetKey, gc.ShouldEqual, keyA)
+			gc.So(targetPhase, gc.ShouldEqual, abaPhase)
+
+			entry := skip.entries[keyB]
+			gc.So(entry.Levels[SkipNext].SegmentDelta, gc.ShouldEqual, 1)
+		})
+
+		gc.Convey("SkipSearch should traverse through reset and decode the repeated cell", func() {
+			path := skip.SkipSearch(keyA, aPhase)
+			gc.So(len(path), gc.ShouldEqual, 3)
+
+			decoded := idx.decodeChords(path)
+			gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
+			gc.So(string(decoded[0]), gc.ShouldEqual, "aba")
+		})
+	})
+}
