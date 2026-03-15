@@ -132,11 +132,11 @@ XOR ($\oplus$) is used **only** for measurement — comparing a projected rotati
 
 Given stored facts as multiplicative braids in $\text{GF}(257)$:
 
-$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is\textunderscore{}in} \cdot \text{Kitchen}) \bmod{257}$$
+$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is}\_\text{in} \cdot \text{Kitchen}) \bmod{257}$$
 
 A prompt asking "Where is Roy?" computes the modular inverse cancellation:
 
-$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is\textunderscore{}in}^{-1} \bmod{257}$$
+$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is}\_\text{in}^{-1} \bmod{257}$$
 
 The shared structure cancels algebraically:
 
