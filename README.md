@@ -232,7 +232,7 @@ The value at each cell is the system's **native monotype**: a 512-bit chord ([`c
  Bits 257–319  │ Guard band: opcode register, control flags
  Bits 320–383  │ Residual phase carry (cross-wavefront state)
  Bits 384–511  │ Operator shell: affine constants, trajectory snapshots,
-                 │ route hints, guard radii, and future mutable-program flags
+               │ route hints, guard radii, and future mutable-program flags
 ```
 
 The 257-bit core lives inside a 512-bit hardware jacket for GPU alignment. The `Sanitize()` mask (`C4 & 1`) separates core-plane operations from shell-plane operations — core ops only touch the core, shell features use the upper 255 bits deliberately.
