@@ -33,6 +33,7 @@ type Machine struct {
 	cancel         context.CancelFunc
 	workerPool     *pool.Pool
 	broadcastGroup *pool.BroadcastGroup
+	projection     ProjectionMode
 	booter         *Booter
 }
 
@@ -74,6 +75,7 @@ func NewMachine(opts ...machineOpts) *Machine {
 		BooterWithContext(machine.ctx),
 		BooterWithPool(machine.workerPool),
 		BooterWithBroadcast(machine.broadcastGroup),
+		BooterWithProjection(machine.projection),
 	)
 
 	return machine
@@ -162,7 +164,7 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return lookupResult.MetaPaths()
 	})
 
-	// 4. Grammar + Semantic + BVP enrichment (best-effort, errors swallowed)
+	// 4. Optional projection overlay (best-effort, errors swallowed)
 	machine.enrich(ctx, msg, paths)
 
 	// 5. Graph.Prompt — recursive fold
@@ -223,6 +225,10 @@ func (machine *Machine) enrich(
 	msg string,
 	paths capnp.PointerList,
 ) {
+	if !machine.projection.Enabled(ProjectionPrompt) {
+		return
+	}
+
 	parseFuture, parseRelease := machine.booter.parser.Parse(
 		ctx, func(p grammar.Parser_parse_Params) error {
 			return p.SetMsg(msg)
@@ -393,6 +399,10 @@ and, if successful, injects the resulting S-V-O fact into the Semantic Engine
 via Inject RPC.
 */
 func (machine *Machine) ingestSemantic(ctx context.Context, msg string) {
+	if !machine.projection.Enabled(ProjectionIngest) {
+		return
+	}
+
 	parseFuture, parseRelease := machine.booter.parser.Parse(
 		ctx, func(p grammar.Parser_parse_Params) error {
 			return p.SetMsg(msg)
@@ -429,6 +439,17 @@ func (machine *Machine) ingestSemantic(ctx context.Context, msg string) {
 	defer injectRelease()
 
 	injectFuture.Struct()
+}
+
+/*
+MachineWithProjection enables the human-facing projection overlay. Projection is
+disabled by default so the core Machine boots only the native storage and
+wavefront substrate unless experiments explicitly ask for grammar/semantic help.
+*/
+func MachineWithProjection(mode ProjectionMode) machineOpts {
+	return func(machine *Machine) {
+		machine.projection = mode
+	}
 }
 
 /*

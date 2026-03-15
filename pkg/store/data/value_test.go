@@ -15,6 +15,7 @@ func TestNeutralValueProjectionAndAffineOperator(t *testing.T) {
 
 		value := NeutralValue()
 		value.SetStatePhase(phase)
+		value.SetGuardRadius(3)
 		value.SetLexicalTransition(next)
 		value.SetProgram(OpcodeNext, 1, 0, false)
 
@@ -33,6 +34,13 @@ func TestNeutralValueProjectionAndAffineOperator(t *testing.T) {
 			calc := numeric.NewCalculus()
 			expected := calc.Multiply(phase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(next)))
 			gc.So(value.ApplyAffinePhase(phase), gc.ShouldEqual, expected)
+
+			from, to, ok := value.Trajectory()
+			gc.So(ok, gc.ShouldBeTrue)
+			gc.So(from, gc.ShouldEqual, phase)
+			gc.So(to, gc.ShouldEqual, expected)
+			gc.So(value.RouteHint(), gc.ShouldEqual, RouteHintForSymbol(next))
+			gc.So(value.GuardRadius(), gc.ShouldEqual, uint8(3))
 		})
 	})
 }
@@ -44,6 +52,22 @@ func TestAffineTranslationAppliesInGF257(t *testing.T) {
 
 		gc.Convey("it should apply translation as well as scale", func() {
 			gc.So(value.ApplyAffinePhase(11), gc.ShouldEqual, numeric.Phase((7*11+5)%int(numeric.FermatPrime)))
+		})
+	})
+}
+
+func TestShellRegistersDoNotImplyAffineOperator(t *testing.T) {
+	gc.Convey("Given a value with route, guard, and trajectory but no affine bits", t, func() {
+		value := MustNewChord()
+		value.SetRouteHint(23)
+		value.SetGuardRadius(4)
+		value.SetTrajectory(7, 21)
+
+		gc.Convey("HasAffine should only reflect the affine sub-field", func() {
+			gc.So(value.HasAffine(), gc.ShouldBeFalse)
+			gc.So(value.HasRouteHint(), gc.ShouldBeTrue)
+			gc.So(value.HasGuard(), gc.ShouldBeTrue)
+			gc.So(value.HasTrajectory(), gc.ShouldBeTrue)
 		})
 	})
 }

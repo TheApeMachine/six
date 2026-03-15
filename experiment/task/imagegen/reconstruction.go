@@ -49,6 +49,7 @@ type ReconstructionExperiment struct {
 	dataset    provider.Dataset
 	prompt     []string
 	imageBytes [][]byte // raw NRGBA pixels per image, collected in Prompts()
+	evaluator  *tools.Evaluator
 }
 
 func NewReconstructionExperiment() *ReconstructionExperiment {
@@ -59,6 +60,13 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumn("img"),
 			huggingface.DatasetWithTransform(huggingface.DecodeImageBytes),
+		),
+		// Baseline 0.05: raw pixel recovery from chord resonance alone
+		// is extremely hard. Any non-zero partial reconstruction across
+		// nine occlusion levels is evidence of spatial structure encoding.
+		// Target 0.40: strong pixel-level attractor recall.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.40),
 		),
 	}
 }
@@ -102,32 +110,19 @@ func (e *ReconstructionExperiment) Prompts() []string {
 }
 
 func (e *ReconstructionExperiment) AddResult(results tools.ExperimentalData) {
-	// Tag which holdout percentage this result corresponds to.
 	pctIdx := results.Idx % len(holdoutPercents)
 	results.Name = fmt.Sprintf("%d%%", holdoutPercents[pctIdx])
 
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
+	e.evaluator.Enrich(&results)
 	e.tableData = append(e.tableData, results)
 }
 
 func (e *ReconstructionExperiment) Outcome() (any, gc.Assertion, any) {
-	return e.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return e.evaluator.Outcome(e.Score())
 }
 
 func (e *ReconstructionExperiment) Score() float64 {
-	if len(e.tableData) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, d := range e.tableData {
-		total += d.WeightedTotal
-	}
-	return total / float64(len(e.tableData))
+	return e.evaluator.MeanScore(e.tableData)
 }
 
 func (e *ReconstructionExperiment) TableData() any { return e.tableData }

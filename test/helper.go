@@ -18,9 +18,31 @@ type TestHelper struct {
 }
 
 /*
-NewTestHelper instantiates a TestHelper with a live Machine.
+NewTestHelper instantiates a projected TestHelper with a live Machine.
+This preserves the existing integration-test behavior while the default
+Machine runtime stays native-only.
 */
 func NewTestHelper() *TestHelper {
+	return NewProjectedTestHelper()
+}
+
+/*
+NewProjectedTestHelper boots the human-facing projection overlay.
+Useful for semantic or experiment-style integration tests.
+*/
+func NewProjectedTestHelper() *TestHelper {
+	return newTestHelper(vm.ProjectionAll)
+}
+
+/*
+NewNativeTestHelper boots only the native storage and wavefront substrate.
+Useful when tests should exercise the core architecture without projection aid.
+*/
+func NewNativeTestHelper() *TestHelper {
+	return newTestHelper(vm.ProjectionDisabled)
+}
+
+func newTestHelper(mode vm.ProjectionMode) *TestHelper {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	return &TestHelper{
@@ -28,6 +50,7 @@ func NewTestHelper() *TestHelper {
 		cancel: cancel,
 		machine: vm.NewMachine(
 			vm.MachineWithContext(ctx),
+			vm.MachineWithProjection(mode),
 		),
 	}
 }

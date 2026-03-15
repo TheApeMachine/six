@@ -10,15 +10,6 @@ import (
 	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
-const pipelineDrainTimeout = 2 * time.Second
-
-type promptFailure struct {
-	idx      int
-	prompt   string
-	expected string
-	got      string
-}
-
 type runTiming struct {
 	loadDur     time.Duration
 	promptDur   time.Duration
@@ -27,13 +18,13 @@ type runTiming struct {
 }
 
 type Pipeline struct {
-	ctx       context.Context
-	cancel    context.CancelFunc
-	machine   *vm.Machine
+	ctx        context.Context
+	cancel     context.CancelFunc
+	machine    *vm.Machine
 	experiment tools.PipelineExperiment
-	scoreWgts tools.ScoreWeights
-	reporter  Reporter
-	timing    runTiming
+	scoreWgts  tools.ScoreWeights
+	reporter   Reporter
+	timing     runTiming
 }
 
 type pipelineOpts func(*Pipeline)
@@ -89,10 +80,18 @@ func (pipeline *Pipeline) Run() error {
 		prompts = promptsFromDataset(dataset)
 	}
 
+	if len(prompts) == 0 {
+		return PipelineError("dataset produced zero prompts")
+	}
+
+	holdoutN, holdoutType := pipeline.experiment.Holdout()
+
 	promptStart := time.Now()
 
 	for idx, prompt := range prompts {
-		result, err := pipeline.machine.Prompt(prompt)
+		prefix, expected := splitHoldout(prompt, holdoutN, holdoutType)
+
+		result, err := pipeline.machine.Prompt(prefix)
 		if err != nil {
 			return err
 		}
@@ -100,8 +99,8 @@ func (pipeline *Pipeline) Run() error {
 		pipeline.experiment.AddResult(tools.ExperimentalData{
 			Idx:      idx,
 			Name:     pipeline.experiment.Name(),
-			Prefix:   []byte(prompt),
-			Holdout:  []byte(result),
+			Prefix:   []byte(prefix),
+			Holdout:  expected,
 			Observed: result,
 		})
 	}
@@ -124,6 +123,48 @@ func (pipeline *Pipeline) Run() error {
 	pipeline.timing.finalizeDur = time.Since(finalizeStart)
 
 	return pipeline.writeStandardSummary()
+}
+
+/*
+splitHoldout separates a prompt into the prefix the machine sees and
+the expected bytes it must reconstruct. The holdoutN parameter is
+interpreted as a byte count for RIGHT/LEFT/CENTER, or ignored for
+MATCH (which strips label substrings). Returns the truncated prefix
+and the held-out ground truth.
+*/
+func splitHoldout(prompt string, holdoutN int, holdoutType input.HoldoutType) (string, []byte) {
+	raw := []byte(prompt)
+
+	if holdoutType == input.NONE || holdoutN <= 0 || len(raw) == 0 {
+		return prompt, nil
+	}
+
+	n := min(holdoutN, len(raw))
+
+	switch holdoutType {
+	case input.RIGHT:
+		cut := len(raw) - n
+		return string(raw[:cut]), raw[cut:]
+
+	case input.LEFT:
+		return string(raw[n:]), raw[:n]
+
+	case input.CENTER:
+		start := (len(raw) - n) / 2
+		expected := make([]byte, n)
+		copy(expected, raw[start:start+n])
+
+		prefix := make([]byte, 0, len(raw)-n)
+		prefix = append(prefix, raw[:start]...)
+		prefix = append(prefix, raw[start+n:]...)
+
+		return string(prefix), expected
+
+	case input.MATCH:
+		return prompt, nil
+	}
+
+	return prompt, nil
 }
 
 /*

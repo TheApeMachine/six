@@ -373,12 +373,14 @@ func BaseChord(b byte) Chord {
 }
 
 /*
-ShannonDensity returns the fraction of the 257 logical bits that are active.
+ShannonDensity returns the fraction of the 257 logical core bits that are active.
 The Sequencer uses this to force a boundary before the chord saturates.
-Above ~0.40 (103 bits) the chord loses discriminative power.
+Above ~0.40 (103 bits) the core field loses discriminative power. Shell bits do
+not count toward this threshold because they live in the hardware jacket, not in
+the Fermat execution field itself.
 */
 func (chord Chord) ShannonDensity() float64 {
-	return float64(chord.ActiveCount()) / 257.0
+	return float64(chord.CoreActiveCount()) / 257.0
 }
 
 /*
@@ -429,12 +431,30 @@ func ChordLCM(chords []Chord) (lcm Chord) {
 }
 
 /*
-ActiveCount returns the number of active basis primes in this
-chord using popcount.
+CoreActiveCount returns the number of active bits in the lower 257-bit Fermat
+core only. This deliberately ignores the shell/jacket bits so density and core
+energy calculations are not distorted by operator metadata.
+*/
+func (chord Chord) CoreActiveCount() (n int) {
+	return Popcount(chord.C0()) + Popcount(chord.C1()) + Popcount(chord.C2()) + Popcount(chord.C3()) +
+		Popcount(chord.C4()&1)
+}
+
+/*
+ShellActiveCount returns the number of active bits in the 255-bit hardware
+jacket used for control metadata, carries, and higher-dimensional operators.
+*/
+func (chord Chord) ShellActiveCount() int {
+	return Popcount(chord.C4()&^uint64(1)) + Popcount(chord.C5()) + Popcount(chord.C6()) + Popcount(chord.C7())
+}
+
+/*
+ActiveCount returns the number of active bits across the full 512-bit value.
+This is useful for total energy/accounting, while CoreActiveCount should be
+used whenever the caller explicitly means the GF(257) execution field.
 */
 func (chord Chord) ActiveCount() (n int) {
-	return Popcount(chord.C0()) + Popcount(chord.C1()) + Popcount(chord.C2()) + Popcount(chord.C3()) +
-		Popcount(chord.C4()) + Popcount(chord.C5()) + Popcount(chord.C6()) + Popcount(chord.C7())
+	return chord.CoreActiveCount() + chord.ShellActiveCount()
 }
 
 /*

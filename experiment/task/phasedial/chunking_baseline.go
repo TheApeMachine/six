@@ -19,6 +19,7 @@ type ChunkingBaselineExperiment struct {
 	tableData         []tools.ExperimentalData
 	dataset           provider.Dataset
 	prompt            []string
+	evaluator *tools.Evaluator
 	chunkingRows      []map[string]any
 	falsificationRows []map[string]any
 }
@@ -26,6 +27,12 @@ type ChunkingBaselineExperiment struct {
 func NewChunkingBaselineExperiment() *ChunkingBaselineExperiment {
 	return &ChunkingBaselineExperiment{
 		tableData: []tools.ExperimentalData{},
+		// Baseline 0.05: Chunking baseline boundary detection.
+		// Any non-zero result demonstrates the property holds.
+		// Target 0.50: strong geometric invariant.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 		dataset:   tools.NewLocalProvider(tools.Aphorisms),
 	}
 }
@@ -57,7 +64,7 @@ func (experiment *ChunkingBaselineExperiment) AddResult(results tools.Experiment
 }
 
 func (experiment *ChunkingBaselineExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *ChunkingBaselineExperiment) Score() float64 {
@@ -77,128 +84,21 @@ func (experiment *ChunkingBaselineExperiment) TableData() any {
 
 func (experiment *ChunkingBaselineExperiment) RawOutput() bool { return false }
 
-// func (experiment *ChunkingBaselineExperiment) Finalize(sub *geometry.HybridSubstrate) error {
-// 	aphorisms := tools.Aphorisms
 
-// 	// 1. Chunking Variation
-// 	var chunks []string
-// 	for i := 0; i < len(aphorisms); i += 2 {
-// 		if i+1 < len(aphorisms) {
-// 			chunks = append(chunks, aphorisms[i]+" "+aphorisms[i+1])
-// 		} else {
-// 			chunks = append(chunks, aphorisms[i])
-// 		}
-// 	}
 
-// 	substrate := geometry.NewHybridSubstrate()
-// 	var seedFingerprint geometry.PhaseDial
 
-// 	for idx, text := range chunks {
-// 		textBytes := []byte(text)
-// 		chords := make([]data.Chord, len(textBytes))
-// 		for i, b := range textBytes {
-// 			chords[i] = data.BaseChord(b)
-// 		}
-// 		fp := geometry.NewPhaseDial().EncodeFromChords(chords)
-// 		substrate.Add(data.ChordLCM(chords), fp, chords)
-// 		if idx == 0 {
-// 			seedFingerprint = fp
-// 		}
-// 	}
 
-// 	results := substrate.GeodesicScan(seedFingerprint, 72, 5.0)
 
-// 	// Report chord-level metrics: how many active bits in the best readout
-// 	step0Active := totalActive(results[0].BestReadout)
-// 	step36Active := totalActive(results[36].BestReadout)
-// 	step72Active := totalActive(results[72].BestReadout)
 
-// 	experiment.chunkingRows = []map[string]any{
-// 		{
-// 			"OriginalCount": len(aphorisms),
-// 			"ChunkCount":    len(chunks),
-// 			"ChunkingRatio": fmt.Sprintf("%.1f:1", float64(len(aphorisms))/float64(len(chunks))),
-// 			"ScanSteps":     len(results),
-// 			"Step0Active":   step0Active,
-// 			"Step36Active":  step36Active,
-// 			"Step72Active":  step72Active,
-// 		},
-// 	}
 
-// 	// 2. Baseline Falsification
-// 	basisPrimes := numeric.New().Basis
-// 	scrambledPrimes := make([]int32, config.Numeric.NBasis)
-// 	for i := 0; i < config.Numeric.NBasis; i++ {
-// 		scrambledPrimes[i] = basisPrimes[i]
-// 	}
-// 	rng := rand.New(rand.NewSource(99))
-// 	rng.Shuffle(len(scrambledPrimes), func(i, j int) {
-// 		scrambledPrimes[i], scrambledPrimes[j] = scrambledPrimes[j], scrambledPrimes[i]
-// 	})
 
-// 	scrambledSubstrate := geometry.NewHybridSubstrate()
-// 	var scrambledSeedFP geometry.PhaseDial
-// 	normalSubstrate := geometry.NewHybridSubstrate()
-// 	var normalSeedFP geometry.PhaseDial
 
-// 	for idx, text := range aphorisms {
-// 		textBytes := []byte(text)
-// 		chords := make([]data.Chord, len(textBytes))
-// 		for i, b := range textBytes {
-// 			chords[i] = data.BaseChord(b)
-// 		}
 
-// 		brokenDial := make(geometry.PhaseDial, config.Numeric.NBasis)
-// 		for k := 0; k < config.Numeric.NBasis; k++ {
-// 			var sum complex128
-// 			omega := float64(scrambledPrimes[k])
-// 			for t, c := range chords {
-// 				symbolPrime := float64(scrambledPrimes[c.IntrinsicFace()%config.Numeric.NSymbols])
-// 				phase := (omega * float64(t+1) * 0.1) + (symbolPrime * 0.1)
-// 				sum += cmplx.Rect(1.0, phase)
-// 			}
-// 			brokenDial[k] = sum
-// 		}
-// 		readoutChords := chords
-// 		scrambledSubstrate.Add(data.ChordLCM(chords), brokenDial, readoutChords)
-// 		if idx == 0 {
-// 			scrambledSeedFP = append(geometry.PhaseDial{}, brokenDial...)
-// 		}
 
-// 		normalFP := geometry.NewPhaseDial().EncodeFromChords(chords)
-// 		normalSubstrate.Add(data.ChordLCM(chords), normalFP, chords)
-// 		if idx == 0 {
-// 			normalSeedFP = append(geometry.PhaseDial{}, normalFP...)
-// 		}
-// 	}
 
-// 	scrambledResults := scrambledSubstrate.GeodesicScan(scrambledSeedFP, 72, 5.0)
-// 	normalResults := normalSubstrate.GeodesicScan(normalSeedFP, 72, 5.0)
 
-// 	experiment.falsificationRows = []map[string]any{
-// 		{
-// 			"Substrate":    "Normal",
-// 			"ScanSteps":    len(normalResults),
-// 			"Step0Active":  totalActive(normalResults[0].BestReadout),
-// 			"Step36Active": totalActive(normalResults[36].BestReadout),
-// 			"Step72Active": totalActive(normalResults[72].BestReadout),
-// 		},
-// 		{
-// 			"Substrate":    "Scrambled Basis",
-// 			"ScanSteps":    len(scrambledResults),
-// 			"Step0Active":  totalActive(scrambledResults[0].BestReadout),
-// 			"Step36Active": totalActive(scrambledResults[36].BestReadout),
-// 			"Step72Active": totalActive(scrambledResults[72].BestReadout),
-// 		},
-// 	}
 
-// 	experiment.AddResult(tools.ExperimentalData{
-// 		Name:          "Chunking",
-// 		WeightedTotal: 1.0, // Baseline pass
-// 	})
 
-// 	return nil
-// }
 
 func totalActive(chords []data.Chord) int {
 	n := 0
@@ -226,5 +126,47 @@ func (experiment *ChunkingBaselineExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Verification of frequency basis necessity via scrambled permutations.",
 			Label:    "tab:baseline_falsification",
 		},
+	
+{
+Type:     tools.ArtifactProse,
+FileName: "chunking_baseline_section.tex",
+Data: tools.ProseData{
+Template: `\subsection{Chunking Baseline}
+\label{sec:chunking_baseline}
+
+\paragraph{Task Description.}
+The chunking baseline experiment compares retrieval quality between chunk-level and sentence-level
+ingestion strategies.  Aphorisms are ingested both as full sentences
+and as overlapping two-sentence chunks.  The chunking baseline
+determines whether the substrate benefits from denser, shorter-span
+entries or whether full-sentence ingestion provides better attractor
+coverage.
+
+\paragraph{Results.}
+Figure~\ref{fig:chunking_baseline_map} shows the trial outcome map.
+The mean weighted score was {{.Score | f3}} across $N = {{.N}}$ samples.
+
+{{if gt .Score 0.5 -}}
+\paragraph{Assessment.}
+The substrate demonstrated strong performance on this geometric property,
+confirming that the invariant holds reliably at this ingestion scale.
+{{- else if gt .Score 0.1 -}}
+\paragraph{Assessment.}
+Partial invariance was observed.  The property holds for a subset of
+samples but becomes unreliable under more challenging conditions.
+{{- else -}}
+\paragraph{Assessment.}
+The property was not reliably detected at this stage.  The phasedial
+experiments require a functional Finalize path to populate the substrate
+with compositional data; this infrastructure is being rebuilt during
+the current refactoring phase.
+{{- end}}
+`,
+Data: map[string]any{
+"N":     len(experiment.tableData),
+"Score": experiment.Score(),
+},
+},
+},
 	}
 }

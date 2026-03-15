@@ -50,6 +50,45 @@ func statePhaseMatches(chord data.Chord, symbol byte, expected numeric.Phase) bo
 	return ok && phase == expected
 }
 
+func phaseDistanceMod257(left, right numeric.Phase) uint32 {
+	delta := int32(left) - int32(right)
+	if delta < 0 {
+		delta = -delta
+	}
+	if delta > int32(numeric.FermatPrime)/2 {
+		delta = int32(numeric.FermatPrime) - delta
+	}
+	return uint32(delta)
+}
+
+func operatorRoutePenalty(value data.Chord, nextSymbol byte) int {
+	if !value.HasRouteHint() {
+		return 0
+	}
+	return bits.OnesCount8(value.RouteHint()^data.RouteHintForSymbol(nextSymbol)) * 2
+}
+
+func operatorPhaseAcceptance(
+	value data.Chord,
+	expected numeric.Phase,
+	observed numeric.Phase,
+) (numeric.Phase, int, bool) {
+	if observed == expected {
+		return observed, 0, true
+	}
+
+	if !value.HasGuard() {
+		return 0, 0, false
+	}
+
+	drift := phaseDistanceMod257(expected, observed)
+	if drift > uint32(value.GuardRadius()) {
+		return 0, 0, false
+	}
+
+	return observed, int(drift), true
+}
+
 /*
 advanceProgramPosition returns the next boundary-local depth implied by a stored
 native value. The value's program shell is authoritative: reset returns to local
@@ -93,9 +132,10 @@ func advanceProgramCursor(pos, segment uint32, value data.Chord) (uint32, uint32
 
 /*
 predictNextPhaseFromValue advances a GF(257) state through the stored value's
-native operator. Values that explicitly carry an affine shell use that operator
-directly; older lexicalized values fall back to the byte-induced primitive-root
-update so the two eras of the codebase remain interoperable.
+native operator. Values that carry an explicit trajectory snapshot use that
+continuation first when the current phase is still close to the stored source.
+Otherwise traversal falls back to the affine shell operator and finally to the
+legacy lexical primitive-root rule.
 */
 func predictNextPhaseFromValue(
 	calc *numeric.Calculus,
@@ -103,6 +143,16 @@ func predictNextPhaseFromValue(
 	current numeric.Phase,
 	nextSymbol byte,
 ) numeric.Phase {
+	if from, to, ok := value.Trajectory(); ok {
+		if from == current && to != 0 {
+			return to
+		}
+
+		if value.HasGuard() && to != 0 && phaseDistanceMod257(from, current) <= uint32(value.GuardRadius()) {
+			return to
+		}
+	}
+
 	if value.HasAffine() {
 		if next := value.ApplyAffinePhase(current); next != 0 {
 			return next

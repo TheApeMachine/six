@@ -22,6 +22,7 @@ type PipelineThroughputExperiment struct {
 	ingestTime time.Time
 	sampleLen  int
 	nSamples   int
+	evaluator  *tools.Evaluator
 }
 
 func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
@@ -30,6 +31,12 @@ func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 		dataset:   NewSyntheticDataset(128, 50, 42),
 		sampleLen: 128,
 		nSamples:  50,
+		// Baseline 0.05: any successful ingest+query cycle that produces
+		// throughput metrics passes. Zero means the pipeline didn't run.
+		// Target 0.50: efficient end-to-end processing.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 	}
 }
 
@@ -50,22 +57,16 @@ func (experiment *PipelineThroughputExperiment) Holdout() (int, input.HoldoutTyp
 }
 
 func (experiment *PipelineThroughputExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *PipelineThroughputExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *PipelineThroughputExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0.0
-	}
-	total := 0.0
-	for _, data := range experiment.tableData {
-		total += data.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *PipelineThroughputExperiment) TableData() any {

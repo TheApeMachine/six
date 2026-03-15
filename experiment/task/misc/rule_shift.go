@@ -75,15 +75,12 @@ type RuleShiftExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 
-	// Per-step alignment signals, filled in AddResult.
 	kA     []float64
 	kB     []float64
 	winner []string
 
-	// Pre-computed expected continuations under each rule for every step.
-	// Index = global step (0..2N-1).  The holdout is the last
-	// ruleShiftHoldoutPct% of the sample.
 	expectedA [][]byte
 	expectedB [][]byte
 }
@@ -128,6 +125,13 @@ func NewRuleShiftExperiment() *RuleShiftExperiment {
 		dataset:   local.New(local.WithBytesOfBytes(corpus)),
 		expectedA: expectedA,
 		expectedB: expectedB,
+		// Baseline 0.05: mid-stream rule shift adaptation without any
+		// explicit signal is extremely hard. Any K_B > K_A after the
+		// shift point is evidence of spontaneous reorganization.
+		// Target 0.50: stable adaptation within the observation window.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 	}
 }
 
@@ -183,18 +187,11 @@ func (exp *RuleShiftExperiment) AddResult(result tools.ExperimentalData) {
 }
 
 func (exp *RuleShiftExperiment) Outcome() (any, gc.Assertion, any) {
-	return exp.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return exp.evaluator.Outcome(exp.Score())
 }
 
 func (exp *RuleShiftExperiment) Score() float64 {
-	if len(exp.tableData) == 0 {
-		return 0.0
-	}
-	total := 0.0
-	for _, d := range exp.tableData {
-		total += d.WeightedTotal
-	}
-	return total / float64(len(exp.tableData))
+	return exp.evaluator.MeanScore(exp.tableData)
 }
 
 func (exp *RuleShiftExperiment) TableData() any { return exp.tableData }

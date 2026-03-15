@@ -17,11 +17,18 @@ type PartialDeletionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewPartialDeletionExperiment() *PartialDeletionExperiment {
 	return &PartialDeletionExperiment{
 		tableData: []tools.ExperimentalData{},
+		// Baseline 0.05: Partial deletion robustness.
+		// Any non-zero result demonstrates the property holds.
+		// Target 0.50: strong geometric invariant.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 		dataset:   tools.NewLocalProvider(tools.Aphorisms),
 	}
 }
@@ -53,7 +60,7 @@ func (experiment *PartialDeletionExperiment) AddResult(results tools.Experimenta
 }
 
 func (experiment *PartialDeletionExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *PartialDeletionExperiment) Score() float64 {
@@ -81,17 +88,48 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Evaluation of PhaseDial resilience to corpus deletion.",
 			Label:    "tab:partial_deletion",
 		},
+	
+{
+Type:     tools.ArtifactProse,
+FileName: "partial_deletion_section.tex",
+Data: tools.ProseData{
+Template: `\subsection{Partial Deletion}
+\label{sec:partial_deletion}
+
+\paragraph{Task Description.}
+The partial deletion experiment evaluates the topological resilience of the PhaseDial to sparse
+manifolds.  After ingesting a full corpus, a fraction of substrate
+entries is deleted, and retrieval quality is re-evaluated.  The score
+reflects how gracefully the chord manifold degrades under erasure.
+
+\paragraph{Results.}
+Figure~\ref{fig:partial_deletion_map} shows the trial outcome map.
+The mean weighted score was {{.Score | f3}} across $N = {{.N}}$ samples.
+
+{{if gt .Score 0.5 -}}
+\paragraph{Assessment.}
+The substrate demonstrated strong performance on this geometric property,
+confirming that the invariant holds reliably at this ingestion scale.
+{{- else if gt .Score 0.1 -}}
+\paragraph{Assessment.}
+Partial invariance was observed.  The property holds for a subset of
+samples but becomes unreliable under more challenging conditions.
+{{- else -}}
+\paragraph{Assessment.}
+The property was not reliably detected at this stage.  The phasedial
+experiments require a functional Finalize path to populate the substrate
+with compositional data; this infrastructure is being rebuilt during
+the current refactoring phase.
+{{- end}}
+`,
+Data: map[string]any{
+"N":     len(experiment.tableData),
+"Score": experiment.Score(),
+},
+},
+},
 	}
 }
 
-// func (experiment *PartialDeletionExperiment) Finalize(substrate *geometry.HybridSubstrate) error {
-// 	_ = substrate.GeodesicScan(substrate.Entries[0].Fingerprint, 72, 5.0)
 
-// 	experiment.AddResult(tools.ExperimentalData{
-// 		Name:          "Partial Deletion",
-// 		WeightedTotal: 1.0,
-// 		Idx:           len(substrate.Entries),
-// 	})
 
-// 	return nil
-// }

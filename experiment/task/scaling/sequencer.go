@@ -19,12 +19,20 @@ type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewSequencerExperiment() *SequencerExperiment {
 	return &SequencerExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset:   NewSyntheticDataset(128, 50, 77),
+		// Baseline 0.05: synthetic 128-byte samples with 32-byte holdout.
+		// The sequencer must detect boundaries and route retrieval correctly.
+		// Any partial byte recovery demonstrates boundary-aware indexing.
+		// Target 0.50: strong structural retrieval on synthetic data.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 	}
 }
 
@@ -44,22 +52,16 @@ func (experiment *SequencerExperiment) Holdout() (int, input.HoldoutType) {
 }
 
 func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *SequencerExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *SequencerExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0.0
-	}
-	total := 0.0
-	for _, data := range experiment.tableData {
-		total += data.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *SequencerExperiment) TableData() any {

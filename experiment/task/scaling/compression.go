@@ -23,12 +23,19 @@ type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewCompressionExperiment() *CompressionExperiment {
 	return &CompressionExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset:   NewSyntheticDataset(128, 50, 99),
+		// Baseline 0.05: the normalized compression ratio (r/(r+1))
+		// should be positive for any non-trivial deduplication.
+		// Target 0.80: strong collision-as-compression at this sample size.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.80),
+		),
 	}
 }
 
@@ -48,22 +55,16 @@ func (experiment *CompressionExperiment) Holdout() (int, input.HoldoutType) {
 }
 
 func (experiment *CompressionExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *CompressionExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThan, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *CompressionExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0.0
-	}
-	total := 0.0
-	for _, data := range experiment.tableData {
-		total += data.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *CompressionExperiment) TableData() any {

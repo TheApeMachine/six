@@ -44,7 +44,7 @@ func TestPipeline(t *testing.T) {
 		logic.NewBabiExperiment(),
 		logic.NewSemanticAlgebraExperiment(),
 		misc.NewCrossDomainCompletionExperiment(),
-		// misc.NewGemmaIntegrationExperiment(),
+		misc.NewGemmaIntegrationExperiment(),
 		misc.NewRuleShiftExperiment(),
 		scaling.NewBestFillScalingExperiment(),
 		scaling.NewCompressionExperiment(),

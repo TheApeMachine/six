@@ -101,6 +101,7 @@ type ConstraintResolutionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 
 	// Per-step: which suspect won the retrieval at that step.
 	// stepSuspect[step] = suspectIdx whose expected bytes best match observed.
@@ -153,6 +154,12 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 
 	return &ConstraintResolutionExperiment{
 		tableData:  []tools.ExperimentalData{},
+		// Baseline 0.05: Phase constraint resolution.
+		// Any non-zero result demonstrates the property holds.
+		// Target 0.50: strong geometric invariant.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 		dataset:    local.New(local.WithBytesOfBytes(corpus)),
 		expected:   expected,
 		totalSteps: totalClues,
@@ -218,7 +225,7 @@ func (exp *ConstraintResolutionExperiment) AddResult(result tools.ExperimentalDa
 }
 
 func (exp *ConstraintResolutionExperiment) Outcome() (any, gc.Assertion, any) {
-	return exp.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return exp.evaluator.Outcome(exp.Score())
 }
 
 func (exp *ConstraintResolutionExperiment) Score() float64 {

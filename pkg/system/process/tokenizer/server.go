@@ -224,19 +224,25 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]Toke
 		isBoundary, _, _, emitMeta := sequitur.Analyze(uint32(idx), currentByte)
 
 		value := data.NeutralValue()
+		value.SetMutable(true)
 		value.SetStatePhase(state)
 
+		guardRadius := uint8(0)
 		if idx+1 < len(raw) {
 			value.SetLexicalTransition(raw[idx+1])
+			guardRadius = 1
 		}
 
 		value.SetProgram(data.OpcodeNext, 1, 0, false)
 		if isBoundary {
 			value.SetProgram(data.OpcodeReset, 0, 1, false)
+			guardRadius = 4
 		}
 		if idx == len(raw)-1 {
 			value.SetProgram(data.OpcodeHalt, 0, value.Branches(), true)
+			guardRadius = 0
 		}
+		value.SetGuardRadius(guardRadius)
 
 		chord := data.SeedObservable(currentByte, value)
 

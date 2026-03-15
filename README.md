@@ -226,7 +226,8 @@ The value at each cell is the system's **native monotype**: a 512-bit chord ([`c
  Bit  256      │ Delimiter / halt flag
  Bits 257–319  │ Guard band: opcode register, control flags
  Bits 320–383  │ Residual phase carry (cross-wavefront state)
- Bits 384–511  │ Reserved (routing, affine constants, trajectory)
+ Bits 384–511  │ Operator shell: affine constants, trajectory snapshots,
+                 │ route hints, guard radii, and future mutable-program flags
 ```
 
 The 257-bit core lives inside a 512-bit hardware jacket for GPU alignment. The `Sanitize()` mask (`C4 & 1`) separates core-plane operations from shell-plane operations — core ops only touch the core, shell features use the upper 255 bits deliberately.
@@ -238,7 +239,10 @@ Key operations:
 | `Rotate3D()` | $x \to (3(3(x+1) \bmod 257)+1) \bmod 257$ | **Generative transform.** Rotation produces momentum and trajectory. This is execution, not measurement. |
 | `RollLeft(n)` | Circular shift mod 257 | Positional binding within the core field. |
 | `RotationSeed()` | Affine hash → `(a, b)` | Structural fingerprint for routing decisions. |
-| `ActiveCount()` | `popcount(all words)` | Energy / density. Used as a halt and saturation signal. |
+| `SetTrajectory()` / `Trajectory()` | phaseₙ → phaseₙ₊₁ snapshot | Local orbit memory. Lets a value steer the next hop directly. |
+| `SetRouteHint()` / `RouteHint()` | 8-bit continuation class | Route bias without storing lexical bytes in the value plane. |
+| `SetGuardRadius()` / `GuardRadius()` | modular drift budget | Small local tolerance for re-alignment and backtracking. |
+| `ActiveCount()` | `popcount(all words)` | Total value energy. `CoreActiveCount()` isolates the GF(257) field. |
 | `XOR(other)` | Bitwise XOR | **Measurement only.** Used to compare a projected rotation against a stored anchor. Never used for composition or storage. |
 | `OR(other)` | Bitwise OR | Superposition — accumulate context. |
 | `AND(other)` | Bitwise AND | Intersection — find shared structure. |
@@ -418,7 +422,7 @@ The sequencer decides where chunks begin and end via MDL / Sequitur. The local d
 The prompt does not "search" the index. It injects a phase, rotates, measures, and follows the path of least residue. The system converges on an answer the way a standing wave converges on a resonant frequency.
 
 > [!NOTE]
-> **Implementation status of the doctrine.** Boundary-local indexing and value-identity separation are implemented: the tokenizer emits boundary-local positions, `StorageValue()` strips lexical seeds on insert, `ObservableValue()` re-projects when byte decode is needed, and the wavefront tracks `(key, segment)` for correct compressed-cell revisitation. The semantic enrichment stage (S-V-O parse, fact query) is still wired into the default prompt pipeline — demotion to an explicitly optional projection overlay is in progress.
+> **Implementation status of the doctrine.** Boundary-local indexing and value-identity separation are implemented: the tokenizer emits boundary-local positions, `StorageValue()` strips lexical seeds on insert, `ObservableValue()` re-projects when byte decode is needed, and the wavefront tracks `(key, segment)` for correct compressed-cell revisitation. Projection/enrichment is now an optional overlay, not the default prompt path. The operator shell also carries affine state, trajectory snapshots, route hints, and guard radii so stored values behave more like local transition rules than decorated byte shadows.
 
 ---
 
@@ -536,9 +540,9 @@ Current experiment categories:
 
 ### 🔧 In Development
 
-- [ ] **Projection demotion.** Make semantic enrichment (S-V-O parse, fact engine) explicitly optional in the prompt pipeline rather than a default stage.
-- [ ] **Skip-index alignment.** Bring the skip-chord layer in line with the reset/operator-aware traversal model (currently assumes simpler tape-replay semantics).
-- [ ] **Full upper-band utilization.** Expand the 255-bit shell (bits 257–511) from opcode + carry + basic affine to a complete control surface: routing constants, trajectory snapshots, branch guards. (`SetAffine` exists; the rest of the shell is underused.)
+- [x] **Projection demotion.** Semantic enrichment is now an explicitly configurable overlay rather than the default prompt path.
+- [x] **Skip-index alignment.** The skip layer now walks concrete stored program states, tracks segment drift, and revalidates reset-aware continuations.
+- [x] **Operator shell registers.** The upper band now carries route hints, trajectory snapshots, guard radii, and mutable-program flags on top of opcode + carry + affine control.
 - [ ] **Multi-headed frustration.** Parallel wavefront heads that independently explore alternative rotational trajectories when the primary path stalls.
 - [ ] **Logic garbage collection.** Automatic pruning of expired cantilever spans and dead wavefront heads to bound working memory.
 - [ ] **Rotation opcodes.** Extending the guard-band instruction set from basic control flow to a full rotational VM bytecode.
@@ -603,3 +607,4 @@ This project is documented in a companion research paper generated automatically
 ## License
 
 See [LICENSE](LICENSE) for details.
+

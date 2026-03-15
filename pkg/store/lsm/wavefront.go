@@ -422,24 +422,13 @@ func (wf *Wavefront) advancePromptMatch(
 		chain := wf.idx.followChainUnsafe(key)
 		for _, stateChord := range chain {
 			observable := data.ObservableValue(nextSymbol, stateChord)
-			storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
+
+			resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedState)
 			if !ok {
 				continue
 			}
 
-			resolvedPhase := expectedState
-			stepEnergy := 0
-			if snapped, penalty, ok := wf.anchorCorrect(nextPos, expectedState, stateChord); ok {
-				resolvedPhase = snapped
-				stepEnergy += penalty
-			} else if wf.anchorViolates(nextPos, expectedState, stateChord) {
-				continue
-			}
-
-			if storedPhase != resolvedPhase {
-				continue
-			}
-
+			stepEnergy := transitionPenalty
 			fuzzyErrs := head.fuzzyErrs
 			if nextSymbol != expectedByte {
 				fuzzyErrs++
@@ -524,24 +513,13 @@ func (wf *Wavefront) advancePromptInsertion(
 		chain := wf.idx.followChainUnsafe(key)
 		for _, stateChord := range chain {
 			observable := data.ObservableValue(nextSymbol, stateChord)
-			storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
+
+			resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedState)
 			if !ok {
 				continue
 			}
 
-			resolvedPhase := expectedState
-			stepEnergy := wf.promptEditPenalty(expectedByte)
-			if snapped, penalty, ok := wf.anchorCorrect(nextPos, expectedState, stateChord); ok {
-				resolvedPhase = snapped
-				stepEnergy += penalty
-			} else if wf.anchorViolates(nextPos, expectedState, stateChord) {
-				continue
-			}
-
-			if storedPhase != resolvedPhase {
-				continue
-			}
-
+			stepEnergy := wf.promptEditPenalty(expectedByte) + transitionPenalty
 			stepEnergy += lexicalDistance(nextSymbol, expectedByte) * 4
 			stepEnergy += int(stateChord.Branches()) * 2
 			stepEnergy += wf.persistencePenalty(resolvedPhase)
@@ -720,31 +698,27 @@ func (wf *Wavefront) advance(
 				for _, stateChord := range chain {
 					observable := data.ObservableValue(nextSymbol, stateChord)
 					fuzzyErrs := head.fuzzyErrs
-					stepEnergy := 0
-					resolvedPhase := expectedPhase
 
-					storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
+					resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedPhase)
 					if !ok {
-						continue
-					}
+						storedPhase, phaseOK := extractStatePhase(stateChord, nextSymbol)
+						if !phaseOK || wf.anchorViolates(nextPos, expectedPhase, stateChord) {
+							continue
+						}
 
-					phaseMatches := storedPhase == expectedPhase
-					if snapped, penalty, ok := wf.anchorCorrect(nextPos, expectedPhase, stateChord); ok {
-						resolvedPhase = snapped
-						phaseMatches = storedPhase == snapped
-						stepEnergy += penalty
-					} else if wf.anchorViolates(nextPos, expectedPhase, stateChord) {
-						continue
-					}
-
-					if !phaseMatches {
 						fuzzyErrs++
 						if fuzzyErrs > wf.maxFuzzy {
 							continue
 						}
-						stepEnergy += 100
+
+						transitionPenalty = 100
+						if len(head.path) > 0 {
+							transitionPenalty += operatorRoutePenalty(head.path[len(head.path)-1], nextSymbol)
+						}
+						resolvedPhase = storedPhase
 					}
 
+					stepEnergy := transitionPenalty
 					symbolChord := data.BaseChord(nextSymbol)
 					residue := prompt.XOR(symbolChord)
 					stepEnergy += residue.ActiveCount()
@@ -818,24 +792,13 @@ func (wf *Wavefront) continueHead(
 			chain := wf.idx.followChainUnsafe(key)
 			for _, stateChord := range chain {
 				observable := data.ObservableValue(symbol, stateChord)
-				storedPhase, ok := extractStatePhase(stateChord, symbol)
+
+				resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, symbol, stateChord, expectedState)
 				if !ok {
 					continue
 				}
 
-				resolvedPhase := expectedState
-				stepEnergy := int(stateChord.Branches()) * 2
-				if snapped, penalty, ok := wf.anchorCorrect(nextPos, expectedState, stateChord); ok {
-					resolvedPhase = snapped
-					stepEnergy += penalty
-				} else if wf.anchorViolates(nextPos, expectedState, stateChord) {
-					continue
-				}
-
-				if storedPhase != resolvedPhase {
-					continue
-				}
-
+				stepEnergy := int(stateChord.Branches())*2 + transitionPenalty
 				stepEnergy += wf.persistencePenalty(resolvedPhase)
 
 				if interest != nil {
@@ -1041,14 +1004,7 @@ phaseDistance returns the shortest modular distance between two GF(257) phases.
 Used by the anchor PLL to decide whether drift can be corrected or must be killed.
 */
 func (wf *Wavefront) phaseDistance(left, right numeric.Phase) uint32 {
-	delta := int32(left) - int32(right)
-	if delta < 0 {
-		delta = -delta
-	}
-	if delta > int32(numeric.FermatPrime)/2 {
-		delta = int32(numeric.FermatPrime) - delta
-	}
-	return uint32(delta)
+	return phaseDistanceMod257(left, right)
 }
 
 /*

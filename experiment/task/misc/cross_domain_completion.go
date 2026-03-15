@@ -55,11 +55,19 @@ type CrossDomainCompletionExperiment struct {
 	tableData []tools.ExperimentalData
 	mds       *multiDomainDataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewCrossDomainCompletionExperiment() *CrossDomainCompletionExperiment {
 	experiment := &CrossDomainCompletionExperiment{
 		tableData: []tools.ExperimentalData{},
+		// Baseline 0.03: cross-domain 50-byte suffix recovery across
+		// Wikipedia, Python, and protein sequences is extremely hard.
+		// Any shared byte-pattern resonance is non-trivial evidence.
+		// Target 0.30: strong domain-agnostic attractor recall.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.03, 0.30),
+		),
 	}
 
 	domainNames := make([]string, len(crossDomains))
@@ -112,33 +120,21 @@ func (experiment *CrossDomainCompletionExperiment) Holdout() (int, input.Holdout
 }
 
 func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.ExperimentalData) {
-	// Decode domain name from testIdx (samplesPerDomain samples per domain).
 	domainIdx := results.Idx / crossDomainSamplesPerDomain
 	if domainIdx < len(crossDomains) {
 		results.Name = crossDomains[domainIdx].Name
 	}
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
+
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *CrossDomainCompletionExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *CrossDomainCompletionExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, d := range experiment.tableData {
-		total += d.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *CrossDomainCompletionExperiment) TableData() any {

@@ -25,6 +25,7 @@ type CompositionalExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewCompositionalExperiment() *CompositionalExperiment {
@@ -34,6 +35,13 @@ func NewCompositionalExperiment() *CompositionalExperiment {
 			huggingface.DatasetWithRepo("roneneldan/TinyStories"),
 			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumn("text"),
+		),
+		// Baseline 0.05: TinyStories has high structural regularity,
+		// so even minimal attractor density should produce partial matches.
+		// Target 0.60: the controlled vocabulary makes high scores
+		// realistic once the substrate has enough story density.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.60),
 		),
 	}
 }
@@ -53,28 +61,16 @@ func (experiment *CompositionalExperiment) Holdout() (int, input.HoldoutType) {
 }
 
 func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *CompositionalExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *CompositionalExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, d := range experiment.tableData {
-		total += d.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *CompositionalExperiment) TableData() any { return experiment.tableData }

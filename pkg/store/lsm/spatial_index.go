@@ -462,7 +462,11 @@ func (idx *SpatialIndexServer) Compact() int {
 
 						nextChain := idx.followChainUnsafe(nextKey)
 						for _, nextChord := range nextChain {
-							if statePhaseMatches(nextChord, nextSymbol, expectedNextState) {
+							nextState, ok := extractStatePhase(nextChord, nextSymbol)
+							if !ok {
+								continue
+							}
+							if _, _, ok := operatorPhaseAcceptance(stateChord, expectedNextState, nextState); ok {
 								hasContinuation = true
 								break
 							}
@@ -649,7 +653,7 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 
 	paths := make([][]data.Chord, 0, limit)
 	metaPaths := make([][]data.Chord, 0, limit)
-	
+
 	for i := 0; i < limit; i++ {
 		paths = append(paths, results[i].Path)
 		metaPaths = append(metaPaths, results[i].MetaPath)

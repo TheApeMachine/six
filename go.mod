@@ -6,6 +6,8 @@ require (
 	github.com/charmbracelet/log v0.4.0
 	github.com/chromedp/cdproto v0.0.0-20250724212937-08a3db8b4327
 	github.com/chromedp/chromedp v0.14.2
+	github.com/gomlx/gemma v0.0.0-20241101110232-83792b257ba9
+	github.com/gomlx/gomlx v0.15.0
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
 	github.com/parquet-go/parquet-go v0.28.0
 	github.com/smartystreets/goconvey v1.8.1
@@ -15,18 +17,25 @@ require (
 )
 
 require (
-	github.com/atomicgo/cursor v0.0.1 // indirect
 	github.com/charmbracelet/colorprofile v0.3.0 // indirect
 	github.com/charmbracelet/x/cellbuf v0.0.13 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/colega/zeropool v0.0.0-20230505084239-6fb4a4f75381 // indirect
-	github.com/gookit/color v1.4.2 // indirect
+	github.com/dustin/go-humanize v1.0.1 // indirect
+	github.com/eliben/go-sentencepiece v0.6.0 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/gomlx/exceptions v0.0.3 // indirect
+	github.com/gomlx/gopjrt v0.4.4 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
-	github.com/pterm/pterm v0.12.29 // indirect
+	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
+	github.com/pkg/errors v0.9.1 // indirect
+	github.com/schollz/progressbar/v3 v3.17.0 // indirect
+	github.com/x448/float16 v0.8.4 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/net v0.47.0 // indirect
 	golang.org/x/sync v0.18.0 // indirect
 	golang.org/x/term v0.37.0 // indirect
+	k8s.io/klog/v2 v2.130.1 // indirect
 )
 
 require (
@@ -34,10 +43,10 @@ require (
 	github.com/acarl005/stripansi v0.0.0-20180116102854-5a71ef0e047d
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/aymanbagabas/go-osc52/v2 v2.0.1 // indirect
-	github.com/charmbracelet/lipgloss v1.1.0 // indirect
+	github.com/charmbracelet/lipgloss v1.1.0
 	github.com/charmbracelet/x/ansi v0.10.1 // indirect
 	github.com/chromedp/sysutil v1.1.0 // indirect
-	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
 	github.com/go-json-experiment/json v0.0.0-20250725192818-e39067aee2d2 // indirect
 	github.com/go-logfmt/logfmt v0.6.0 // indirect
@@ -66,7 +75,6 @@ require (
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
-	github.com/theapemachine/errnie v1.1.7
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	go.yaml.in/yaml/v3 v3.0.4 // indirect
 	golang.org/x/exp v0.0.0-20250819193227-8b4c13bb791b // indirect

@@ -26,6 +26,7 @@ type ProseChainingExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewProseChainingExperiment() *ProseChainingExperiment {
@@ -36,6 +37,12 @@ func NewProseChainingExperiment() *ProseChainingExperiment {
 			huggingface.DatasetWithSubset("wikitext-103-raw-v1"),
 			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithTextColumn("text"),
+		),
+		// Baseline 0.03: with 60% holdout on diverse encyclopedia text,
+		// even partial n-gram recovery is evidence of structural recall.
+		// Target 0.35: aggressive holdout makes high scores hard.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.03, 0.35),
 		),
 	}
 }
@@ -55,28 +62,16 @@ func (experiment *ProseChainingExperiment) Holdout() (int, input.HoldoutType) {
 }
 
 func (experiment *ProseChainingExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *ProseChainingExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *ProseChainingExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, d := range experiment.tableData {
-		total += d.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *ProseChainingExperiment) TableData() any { return experiment.tableData }

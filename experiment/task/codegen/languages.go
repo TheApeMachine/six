@@ -11,6 +11,9 @@ import (
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
 
+// Ensure LanguagesExperiment implements the full interface at compile time.
+var _ tools.PipelineExperiment = (*LanguagesExperiment)(nil)
+
 // humanEvalLanguages are the six language subsets in bigcode/humanevalpack.
 // The subset name is the path component used to select the right parquet shard.
 var humanEvalLanguages = []struct {
@@ -37,15 +40,18 @@ type LanguagesExperiment struct {
 	prose     []projector.ProseEntry
 	prompt    []string
 	seen      map[string]struct{}
+	evaluator *tools.Evaluator
 }
 
 func NewLanguagesExperiment() *LanguagesExperiment {
 	experiment := &LanguagesExperiment{
 		tableData: []tools.ExperimentalData{},
 		seen:      make(map[string]struct{}),
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.50),
+		),
 	}
 
-	// Build one dataset per language.
 	datasets := make([]provider.Dataset, len(humanEvalLanguages))
 	for i, lang := range humanEvalLanguages {
 		datasets[i] = huggingface.New(
@@ -102,34 +108,21 @@ func (experiment *LanguagesExperiment) Holdout() (int, input.HoldoutType) {
 }
 
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
-	// Prompts are ordered: 2 per language in humanEvalLanguages order.
-	// testIdx / samplesPerLang gives the language index.
 	langIdx := results.Idx / config.Experiment.Samples
 	if langIdx < len(humanEvalLanguages) {
 		results.Name = humanEvalLanguages[langIdx].DisplayName
 	}
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
+
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *LanguagesExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *LanguagesExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-	total := 0.0
-	for _, d := range experiment.tableData {
-		total += d.WeightedTotal
-	}
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *LanguagesExperiment) TableData() any {

@@ -35,6 +35,7 @@ type ProteinStructureExperiment struct {
 	prompt    []string
 	manifold  [][]byte
 	seen      map[string]struct{}
+	evaluator *tools.Evaluator
 }
 
 func NewProteinStructureExperiment() *ProteinStructureExperiment {
@@ -46,6 +47,14 @@ func NewProteinStructureExperiment() *ProteinStructureExperiment {
 			huggingface.DatasetWithRepo("proteinea/secondary_structure_prediction"),
 			huggingface.DatasetWithSamples(2),
 			huggingface.DatasetWithTextColumns("input", "dssp3"),
+		),
+		// Baseline 0.05: predicting H/E/C structure labels from raw
+		// amino acid bytes is extremely hard. Random 3-class is ~33%
+		// character accuracy, but byte-level holdout recovery is much
+		// harder than per-position classification.
+		// Target 0.40: evidence of periodic pattern detection.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.05, 0.40),
 		),
 	}
 
@@ -88,43 +97,16 @@ func (experiment *ProteinStructureExperiment) Holdout() (int, input.HoldoutType)
 AddResult records an experimental observation.
 */
 func (experiment *ProteinStructureExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(
-		results.Holdout,
-		results.Observed,
-	)
-
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
-
-	experiment.tableData = append(
-		experiment.tableData, results,
-	)
+	experiment.evaluator.Enrich(&results)
+	experiment.tableData = append(experiment.tableData, results)
 }
 
-/*
-Outcome evaluates the overall result. Secondary structure prediction
-from raw bytes with zero training is extremely challenging — a score
-above 0.3 is already interesting (random baseline is ~0.33 for 3-class).
-*/
 func (experiment *ProteinStructureExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *ProteinStructureExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-
-	total := 0.0
-
-	for _, data := range experiment.tableData {
-		total += data.WeightedTotal
-	}
-
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *ProteinStructureExperiment) TableData() any {

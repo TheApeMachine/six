@@ -22,6 +22,7 @@ type BabiExperiment struct {
 	prose     []projector.ProseEntry
 	dataset   *huggingface.BabiQADataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
 
 func NewBabiExperiment() *BabiExperiment {
@@ -31,6 +32,13 @@ func NewBabiExperiment() *BabiExperiment {
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
 			huggingface.DatasetWithSamples(config.Experiment.Samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
+		),
+		// Baseline 0.10: bAbI Task 1 answers are named locations (bathroom,
+		// garden, kitchen, etc.). Random byte output has near-zero chance of
+		// containing a valid location word. Any match is structural evidence.
+		// Target 0.70: strong single-supporting-fact reasoning.
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithExpectation(0.10, 0.70),
 		),
 	}
 
@@ -68,32 +76,16 @@ func (experiment *BabiExperiment) Section() string {
 }
 
 func (experiment *BabiExperiment) AddResult(results tools.ExperimentalData) {
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-
-	results.WeightedTotal = tools.WeightedTotal(
-		results.Scores.Exact,
-		results.Scores.Partial,
-		results.Scores.Fuzzy,
-	)
-
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 func (experiment *BabiExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *BabiExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-
-	total := 0.0
-	for _, data := range experiment.tableData {
-		total += data.WeightedTotal
-	}
-
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *BabiExperiment) TableData() any {
@@ -369,39 +361,4 @@ func extractEntityFromPrefix(prefix string) string {
 		rest = rest[:qIdx]
 	}
 	return strings.TrimSpace(rest)
-}
-
-func sortedKeys[V any](m map[string]*V) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// Simple insertion sort for small key sets
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j] < keys[j-1]; j-- {
-			keys[j], keys[j-1] = keys[j-1], keys[j]
-		}
-	}
-	return keys
-}
-
-func maxFloat(s []float64) float64 {
-	if len(s) == 0 {
-		return 0
-	}
-	m := s[0]
-	for _, v := range s[1:] {
-		if v > m {
-			m = v
-		}
-	}
-	return m
-}
-
-func divSlice(s []float64, d float64) []float64 {
-	out := make([]float64, len(s))
-	for i, v := range s {
-		out[i] = v / d
-	}
-	return out
 }

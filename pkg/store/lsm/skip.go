@@ -227,7 +227,12 @@ func (skip *SkipIndex) stepCursorUnsafe(current skipCursor) (skipCursor, bool) {
 
 		nextChain := skip.idx.followChainUnsafe(nextKey)
 		for _, nextValue := range nextChain {
-			if !statePhaseMatches(nextValue, nextSymbol, expectedPhase) {
+			nextPhase, ok := extractStatePhase(nextValue, nextSymbol)
+			if !ok {
+				continue
+			}
+			acceptedPhase, _, ok := operatorPhaseAcceptance(current.value, expectedPhase, nextPhase)
+			if !ok {
 				continue
 			}
 
@@ -238,7 +243,7 @@ func (skip *SkipIndex) stepCursorUnsafe(current skipCursor) (skipCursor, bool) {
 				valueKey: ToKey(nextValue),
 				pos:      pos,
 				segment:  nextSegment,
-				phase:    expectedPhase,
+				phase:    acceptedPhase,
 			}, true
 		}
 	}
