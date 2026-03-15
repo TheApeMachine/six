@@ -102,13 +102,15 @@ Each byte value $v \in [0, 255]$ maps to a **5-sparse** bitset on the 257-bit fi
 
 $$\text{BaseChord}(v) = \{b_0(v),\; b_1(v),\; b_2(v),\; b_3(v),\; b_4(v)\} \subset [0, 256]$$
 
-This is a deterministic geometric address — no hashing, no learned embedding, no collision indirection.
+This is a deterministic geometric address — no hashing, no learned embedding, no collision indirection. Each chord is **5-sparse on a 257-bit field** — five bits set out of 257 possible positions, not a 5-bit value.
 
 ### Morton Addressing & Radix Compression
 
-A cell address is a Morton-interleaved key:
+A cell address packs byte identity and boundary-local depth into a single 64-bit key:
 
-$$\text{CellKey} = \text{Morton}(\underbrace{v}_{\text{byte value (X)}},\; \underbrace{d}_{\text{local depth (Y)}})$$
+$$\text{CellKey} = \text{Pack}(\underbrace{v}_{\text{byte value (X)}},\; \underbrace{d}_{\text{local depth (Y)}})$$
+
+The primary layout is `(symbol << 32) | localDepth` — a direct concatenation for O(1) pack/unpack that preserves byte-ordered scan locality. A separate `Encode3D()` utility provides true Z-order interleaved Morton curves for higher-dimensional spatial queries.
 
 The local depth $d$ **resets to 0** at each sequencer boundary. This means distinct byte sequences that share $(v, d)$ collapse onto the same cell:
 
@@ -141,6 +143,9 @@ The shared structure cancels algebraically:
 $$\text{result} = \text{Kitchen} \bmod{257}$$
 
 This is not search. It is calculation.
+
+> [!NOTE]
+> **Dual algebra.** Algebraic cancellation operates on **scalar phases** — single elements of GF(257) (`numeric.Phase`, a `uint32`). This is distinct from 257-bit **chord** operations (OR, AND, XOR) which act on the full bitset for resonance measurement and superposition. The system has two parallel algebras: scalar GF(257) arithmetic for fact braids and modular reasoning, and 257-bit Hamming-space operations for structural resonance.
 
 ### Frustration (The Drive Signal)
 
@@ -231,6 +236,9 @@ The value at each cell is the system's **native monotype**: a 512-bit chord ([`c
 ```
 
 The 257-bit core lives inside a 512-bit hardware jacket for GPU alignment. The `Sanitize()` mask (`C4 & 1`) separates core-plane operations from shell-plane operations — core ops only touch the core, shell features use the upper 255 bits deliberately.
+
+> [!IMPORTANT]
+> **The upper 255 bits are not a zero buffer.** They are an active operator shell that carries runtime state (opcodes, carries, affine constants, route hints, guard radii). `CoreActiveCount()` measures the 257-bit Fermat field; `ShellActiveCount()` measures the operator shell; `ActiveCount()` spans both. The shell is free hardware real estate courtesy of GPU alignment — it costs nothing to carry and is deliberately utilized.
 
 Key operations:
 
