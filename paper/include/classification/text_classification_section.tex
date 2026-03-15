@@ -11,11 +11,11 @@ chord co-occurrence in its generated output.
 
 \paragraph{Results.}
 Table~\ref{tab:text_classification_metrics} summarises the classification
-metrics across $N = 0$ test samples.
+metrics across $N = 10$ test samples.
 The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 
 \paragraph{Assessment.}
-Classification accuracy was low.  With only $N = 0$ samples the
+Classification accuracy was low.  With only $N = 10$ samples the
 substrate may not have built sufficient attractor density to separate all
 four AG News categories reliably.  Scaling the ingestion volume is expected
 to improve per-class disambiguation.
@@ -31,8 +31,8 @@ to improve per-class disambiguation.
     Overall Accuracy  & 0.0\% \\
     Balanced Accuracy & 0.0\% \\
     Macro-F1          & 0.000 \\
-    Mean Resonance    & 0.0000 \\
-    Sample Size       & $N = 0$ \\
+    Mean Resonance    & 0.4000 \\
+    Sample Size       & $N = 10$ \\
     \bottomrule
   \end{tabular}
 \end{table}

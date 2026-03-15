@@ -1,6 +1,167 @@
 {
   "caption": "Confusion matrix showing predicted vs. true class assignments for Text Classification.",
-  "data": [],
+  "data": [
+    {
+      "Idx": 0,
+      "Name": "Text Classification",
+      "Prefix": "RmVhcnMgZm9yIFQgTiBwZW5zaW9uIGFmdGVyIHRhbGtzIFVuaW9ucyByZXByZXNlbnRpbmcgd29ya2VycyBhdCBUdXJuZXIgICBOZXdhbGwgc2F5IHRoZXkgYXJlICdkaXNhcHBvaW50ZWQnIGFmdGVyIHRhbGtzIHdpdGggc3RyaWNrZW4gcGFyZW50IGZpcm0gRmVkZXJhbCBNb2d1bC4g4oaSIHNjaV90ZWNo",
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": 3,
+      "PredLabel": null
+    },
+    {
+      "Idx": 1,
+      "Name": "Text Classification",
+      "Prefix": "VGhlIFJhY2UgaXMgT246IFNlY29uZCBQcml2YXRlIFRlYW0gU2V0cyBMYXVuY2ggRGF0ZSBmb3IgSHVtYW4gU3BhY2VmbGlnaHQgKFNQQUNFLmNvbSkgU1BBQ0UuY29tIC0gVE9ST05UTywgQ2FuYWRhIC0tIEEgc2Vjb25kXHRlYW0gb2Ygcm9ja2V0ZWVycyBjb21wZXRpbmcgZm9yIHRoZSAgIzM2OzEwIG1pbGxpb24gQW5zYXJpIFggUHJpemUsIGEgY29udGVzdCBmb3JccHJpdmF0ZWx5IGZ1bmRlZCBzdWJvcmJpdGFsIHNwYWNlIGZsaWdodCwgaGFzIG9mZmljaWFsbHkgYW5ub3VuY2VkIHRoZSBmaXJzdFxsYXVuY2ggZGF0ZSBmb3IgaXRzIG1hbm5lZCByb2NrZXQu",
+      "Holdout": "ZSBSYWNlIGlzIE9uOiBTZWNvbmQgUHJpdmF0ZSBUZWFtIFNldHMgTGF1bmNoIERhdGUgZm9yIEh1bWFuIFNwYWNlZmxpZ2h0IChTUEFDRS5jb20pIFNQQUNFLmNvbSAtIFRPUk9OVE8sIENhbmFkYSAtLSBBIHNlY29uZFx0ZWFtIG9mIHJvY2tldGVlcnMgY29tcGV0aW5nIGZvciB0aGUgICMzNjsxMCBtaWxsaW9uIEFuc2FyaSBYIFByaXplLCBhIGNvbnRlc3QgZm9yXHByaXZhdGVseSBmdW5kZWQgc3Vib3JiaXRhbCBzcGFjZSBmbGlnaHQsIGhhcyBvZmZpY2lhbGx5IGFubm91bmNlZCB0aGUgZmlyc3RcbGF1bmNoIGRhdGUgZm9yIGl0cyBtYW5uZWQgcm9ja2V0Lg==",
+      "Observed": "ZSBSYWNlIGlzIE9uOiBTZWNvbmQgUHJpdmF0ZSBUZWFtIFNldHMgTGF1bmNoIERhdGUgZm9yIEh1bWFuIFNwYWNlZmxpZ2h0IChTUEFDRS5jb20pIFNQQUNFLmNvbSAtIFRPUk9OVE8sIENhbmFkYSAtLSBBIHNlY29uZFx0ZWFtIG9mIHJvY2tldGVlcnMgY29tcGV0aW5nIGZvciB0aGUgICMzNjsxMCBtaWxsaW9uIEFuc2FyaSBYIFByaXplLCBhIGNvbnRlc3QgZm9yXHByaXZhdGVseSBmdW5kZWQgc3Vib3JiaXRhbCBzcGFjZSBmbGlnaHQsIGhhcyBvZmZpY2lhbGx5IGFubm91bmNlZCB0aGUgZmlyc3RcbGF1bmNoIGRhdGUgZm9yIGl0cyBtYW5uZWQgcm9ja2V0Lg==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 2,
+      "Name": "Text Classification",
+      "Prefix": "S3kuIENvbXBhbnkgV2lucyBHcmFudCB0byBTdHVkeSBQZXB0aWRlcyAoQVApIEFQIC0gQSBjb21wYW55IGZvdW5kZWQgYnkgYSBjaGVtaXN0cnkgcmVzZWFyY2hlciBhdCB0aGUgVW5pdmVyc2l0eSBvZiBMb3Vpc3ZpbGxlIHdvbiBhIGdyYW50IHRvIGRldmVsb3AgYSBtZXRob2Qgb2YgcHJvZHVjaW5nIGJldHRlciBwZXB0aWRlcywgd2hpY2ggYXJlIHNob3J0IGNoYWlucyBvZiBhbWlubyBhY2lkcywgdGhlIGJ1aWxkaW5nIGJsb2NrcyBvZiBwcm90ZWlucy4=",
+      "Holdout": "eS4gQ29tcGFueSBXaW5zIEdyYW50IHRvIFN0dWR5IFBlcHRpZGVzIChBUCkgQVAgLSBBIGNvbXBhbnkgZm91bmRlZCBieSBhIGNoZW1pc3RyeSByZXNlYXJjaGVyIGF0IHRoZSBVbml2ZXJzaXR5IG9mIExvdWlzdmlsbGUgd29uIGEgZ3JhbnQgdG8gZGV2ZWxvcCBhIG1ldGhvZCBvZiBwcm9kdWNpbmcgYmV0dGVyIHBlcHRpZGVzLCB3aGljaCBhcmUgc2hvcnQgY2hhaW5zIG9mIGFtaW5vIGFjaWRzLCB0aGUgYnVpbGRpbmcgYmxvY2tzIG9mIHByb3RlaW5zLg==",
+      "Observed": "eS4gQ29tcGFueSBXaW5zIEdyYW50IHRvIFN0dWR5IFBlcHRpZGVzIChBUCkgQVAgLSBBIGNvbXBhbnkgZm91bmRlZCBieSBhIGNoZW1pc3RyeSByZXNlYXJjaGVyIGF0IHRoZSBVbml2ZXJzaXR5IG9mIExvdWlzdmlsbGUgd29uIGEgZ3JhbnQgdG8gZGV2ZWxvcCBhIG1ldGhvZCBvZiBwcm9kdWNpbmcgYmV0dGVyIHBlcHRpZGVzLCB3aGljaCBhcmUgc2hvcnQgY2hhaW5zIG9mIGFtaW5vIGFjaWRzLCB0aGUgYnVpbGRpbmcgYmxvY2tzIG9mIHByb3RlaW5zLg==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 3,
+      "Name": "Text Classification",
+      "Prefix": "UHJlZGljdGlvbiBVbml0IEhlbHBzIEZvcmVjYXN0IFdpbGRmaXJlcyAoQVApIEFQIC0gSXQncyBiYXJlbHkgZGF3biB3aGVuIE1pa2UgRml0enBhdHJpY2sgc3RhcnRzIGhpcyBzaGlmdCB3aXRoIGEgYmx1ciBvZiBjb2xvcmZ1bCBtYXBzLCBmaWd1cmVzIGFuZCBlbmRsZXNzIGNoYXJ0cywgYnV0IGFscmVhZHkgaGUga25vd3Mgd2hhdCB0aGUgZGF5IHdpbGwgYnJpbmcuIExpZ2h0bmluZyB3aWxsIHN0cmlrZSBpbiBwbGFjZXMgaGUgZXhwZWN0cy4gV2luZHMgd2lsbCBwaWNrIHVwLCBtb2lzdCBwbGFjZXMgd2lsbCBkcnkgYW5kIGZsYW1lcyB3aWxsIHJvYXIu",
+      "Holdout": "ZWRpY3Rpb24gVW5pdCBIZWxwcyBGb3JlY2FzdCBXaWxkZmlyZXMgKEFQKSBBUCAtIEl0J3MgYmFyZWx5IGRhd24gd2hlbiBNaWtlIEZpdHpwYXRyaWNrIHN0YXJ0cyBoaXMgc2hpZnQgd2l0aCBhIGJsdXIgb2YgY29sb3JmdWwgbWFwcywgZmlndXJlcyBhbmQgZW5kbGVzcyBjaGFydHMsIGJ1dCBhbHJlYWR5IGhlIGtub3dzIHdoYXQgdGhlIGRheSB3aWxsIGJyaW5nLiBMaWdodG5pbmcgd2lsbCBzdHJpa2UgaW4gcGxhY2VzIGhlIGV4cGVjdHMuIFdpbmRzIHdpbGwgcGljayB1cCwgbW9pc3QgcGxhY2VzIHdpbGwgZHJ5IGFuZCBmbGFtZXMgd2lsbCByb2FyLg==",
+      "Observed": "ZWRpY3Rpb24gVW5pdCBIZWxwcyBGb3JlY2FzdCBXaWxkZmlyZXMgKEFQKSBBUCAtIEl0J3MgYmFyZWx5IGRhd24gd2hlbiBNaWtlIEZpdHpwYXRyaWNrIHN0YXJ0cyBoaXMgc2hpZnQgd2l0aCBhIGJsdXIgb2YgY29sb3JmdWwgbWFwcywgZmlndXJlcyBhbmQgZW5kbGVzcyBjaGFydHMsIGJ1dCBhbHJlYWR5IGhlIGtub3dzIHdoYXQgdGhlIGRheSB3aWxsIGJyaW5nLiBMaWdodG5pbmcgd2lsbCBzdHJpa2UgaW4gcGxhY2VzIGhlIGV4cGVjdHMuIFdpbmRzIHdpbGwgcGljayB1cCwgbW9pc3QgcGxhY2VzIHdpbGwgZHJ5IGFuZCBmbGFtZXMgd2lsbCByb2FyLg==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 4,
+      "Name": "Text Classification",
+      "Prefix": "Q2FsaWYuIEFpbXMgdG8gTGltaXQgRmFybS1SZWxhdGVkIFNtb2cgKEFQKSBBUCAtIFNvdXRoZXJuIENhbGlmb3JuaWEncyBzbW9nLWZpZ2h0aW5nIGFnZW5jeSB3ZW50IGFmdGVyIGVtaXNzaW9ucyBvZiB0aGUgYm92aW5lIHZhcmlldHkgRnJpZGF5LCBhZG9wdGluZyB0aGUgbmF0aW9uJ3MgZmlyc3QgcnVsZXMgdG8gcmVkdWNlIGFpciBwb2xsdXRpb24gZnJvbSBkYWlyeSBjb3cgbWFudXJlLg==",
+      "Holdout": "bGlmLiBBaW1zIHRvIExpbWl0IEZhcm0tUmVsYXRlZCBTbW9nIChBUCkgQVAgLSBTb3V0aGVybiBDYWxpZm9ybmlhJ3Mgc21vZy1maWdodGluZyBhZ2VuY3kgd2VudCBhZnRlciBlbWlzc2lvbnMgb2YgdGhlIGJvdmluZSB2YXJpZXR5IEZyaWRheSwgYWRvcHRpbmcgdGhlIG5hdGlvbidzIGZpcnN0IHJ1bGVzIHRvIHJlZHVjZSBhaXIgcG9sbHV0aW9uIGZyb20gZGFpcnkgY293IG1hbnVyZS4=",
+      "Observed": "bGlmLiBBaW1zIHRvIExpbWl0IEZhcm0tUmVsYXRlZCBTbW9nIChBUCkgQVAgLSBTb3V0aGVybiBDYWxpZm9ybmlhJ3Mgc21vZy1maWdodGluZyBhZ2VuY3kgd2VudCBhZnRlciBlbWlzc2lvbnMgb2YgdGhlIGJvdmluZSB2YXJpZXR5IEZyaWRheSwgYWRvcHRpbmcgdGhlIG5hdGlvbidzIGZpcnN0IHJ1bGVzIHRvIHJlZHVjZSBhaXIgcG9sbHV0aW9uIGZyb20gZGFpcnkgY293IG1hbnVyZS4=",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 1,
+        "Partial": 1,
+        "Fuzzy": 1
+      },
+      "WeightedTotal": 1,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 5,
+      "Name": "Text Classification",
+      "Prefix": "T3BlbiBMZXR0ZXIgQWdhaW5zdCBCcml0aXNoIENvcHlyaWdodCBJbmRvY3RyaW5hdGlvbiBpbiBTY2hvb2xzIFRoZSBCcml0aXNoIERlcGFydG1lbnQgZm9yIEVkdWNhdGlvbiBhbmQgU2tpbGxzIChEZkVTKSByZWNlbnRseSBsYXVuY2hlZCBhICJNdXNpYyBNYW5pZmVzdG8iIGNhbXBhaWduLCB3aXRoIHRoZSBvc3RlbnNpYmxlIGludGVudGlvbiBvZiBlZHVjYXRpbmcgdGhlIG5leHQgZ2VuZXJhdGlvbiBvZiBCcml0aXNoIG11c2ljaWFucy4gVW5mb3J0dW5hdGVseSwgdGhleSBhbHNvIHRlYW1lZCB1cCB3aXRoIHRoZSBtdXNpYyBpbmR1c3RyeSAoRU1JLCBhbmQgdmFyaW91cyBhcnRpc3RzKSB0byBtYWtlIHRoaXMgcG9wdWxhci4gRU1JIGhhcyBhcHBhcmVudGx5IG5lZ290aWF0ZWQgdGhlaXIgZW5kIHdlbGwsIHNvIHRoYXQgY2hpbGRyZW4gaW4gb3VyIHNjaG9vbHMgd2lsbCBub3cgYmUgaW5kb2N0cmluYXRlZCBhYm91dCB0aGUgaWxsZWdhbGl0eSBvZiBkb3dubG9hZGluZyBtdXNpYy5UaGUgaWdub3JhbmNlIGFuZCBhdWRhY2l0eSBvZiB0aGlzIGdvdCB0byBtZSBhIGxpdHRsZSwgc28gSSB3cm90ZSBhbiBvcGVuIGxldHRlciB0byB0aGUgRGZFUyBhYm91dCBpdC4gVW5mb3J0dW5hdGVseSwgaXQncyBwZWRhbnRpYywgYXMgSSBzdXBwb3NlIHlvdSBoYXZlIHRvIGJlIHdoZW4gd3JpdGluZyB0byBnb3Zlcm1lbnQgcmVwcmVzZW50YXRpdmVzLiBCdXQgSSBob3BlIHlvdSBmaW5kIGl0IHVzZWZ1bCwgYW5kIHBlcmhhcHMgZmVlbCBpbnNwaXJlZCB0byBkbyBzb21ldGhpbmcgc2ltaWxhciwgaWYgb3Igd2hlbiB0aGUgc2FtZSB0aGluZyBoYXMgaGFwcGVuZWQgaW4geW91ciBhcmVhLg==",
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 6,
+      "Name": "Text Classification",
+      "Prefix": "TG9vc2luZyB0aGUgV2FyIG9uIFRlcnJvcmlzbSBcXCJTdmVuIEphc2NoYW4sIHNlbGYtY29uZmVzc2VkIGF1dGhvciBvZiB0aGUgTmV0c2t5IGFuZCBTYXNzZXIgdmlydXNlcywgaXNccmVzcG9uc2libGUgZm9yIDcwIHBlcmNlbnQgb2YgdmlydXMgaW5mZWN0aW9ucyBpbiAyMDA0LCBhY2NvcmRpbmcgdG8gYSBzaXgtbW9udGhcdmlydXMgcm91bmR1cCBwdWJsaXNoZWQgV2VkbmVzZGF5IGJ5IGFudGl2aXJ1cyBjb21wYW55IFNvcGhvcy4iXFwiVGhlIDE4LXllYXItb2xkIEphc2NoYW4gd2FzIHRha2VuIGludG8gY3VzdG9keSBpbiBHZXJtYW55IGluIE1heSBieSBwb2xpY2Ugd2hvXHNhaWQgaGUgaGFkIGFkbWl0dGVkIHByb2dyYW1taW5nIGJvdGggdGhlIE5ldHNreSBhbmQgU2Fzc2VyIHdvcm1zLCBzb21ldGhpbmdcZXhwZXJ0cyBhdCBNaWNyb3NvZnQgY29uZmlybWVkLiAoQSBNaWNyb3NvZnQgYW50aXZpcnVzIHJld2FyZCBwcm9ncmFtIGxlZCB0byB0aGVcdGVlbmFnZXIncyBhcnJlc3QuKSBEdXJpbmcgdGhlIGZpdmUgbW9udGhzIHByZWNlZGluZyBKYXNjaGFuJ3MgY2FwdHVyZSwgdGhlcmVcd2VyZSBhdCBsZWFzdCAyNSB2YXJpYW50cyBvZiBOZXRza3kgYW5kIG9uZSBvZiB0aGUgcG9ydC1zY2FubmluZyBuZXR3b3JrIHdvcm1cU2Fzc2VyLiJcXCJHcmFoYW0gQ2x1bGV5LCBzZW5pb3IgdGVjaG5vbG9neSBjb25zdWx0YW50IGF0IFNvcGhvcywgc2FpZCBpdCB3YXMgc3RhZ2dlcmkgLi4uXFw=",
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 7,
+      "Name": "Text Classification",
+      "Prefix": "Rk9BRktleTogRk9BRiwgUEdQLCBLZXkgRGlzdHJpYnV0aW9uLCBhbmQgQmxvb20gRmlsdGVycyBcXEZPQUYvTE9BRiAgYW5kIGJsb29tIGZpbHRlcnMgaGF2ZSBhIGxvdCBvZiBpbnRlcmVzdGluZyBwcm9wZXJ0aWVzIGZvciBzb2NpYWxcbmV0d29yayBhbmQgd2hpdGVsaXN0IGRpc3RyaWJ1dGlvbi5cXEkgdGhpbmsgd2UgY2FuIGdvIG9uZSBsZXZlbCBoaWdoZXIgdGhvdWdoIGFuZCBpbmNsdWRlIEdQRy9PcGVuUEdQIGtleVxmaW5nZXJwcmluZyBkaXN0cmlidXRpb24gaW4gdGhlIEZPQUYgZmlsZSBmb3Igc2ltcGxlIHdlYi1vZi10cnVzdCBiYXNlZCBrZXlcZGlzdHJpYnV0aW9uLlxcV2hhdCBpZiB3ZSB1c2VkIEZPQUYgYW5kIGluY2x1ZGVkIHRoZSBQR1Aga2V5IGZpbmdlcnByaW50KHMpIGZvciBpZGVudGl0aWVzP1xUaGlzIGNvdWxkIG1lYW4gYSBsb3QuICBZb3UgaW5jbHVkZSB0aGUgUEdQIGtleSBmaW5nZXJwcmludHMgd2l0aGluIHRoZSBGT0FGXGZpbGUgb2YgeW91ciBkaXJlY3QgZnJpZW5kcyBhbmQgdGhlbiBpbmNsdWRlIGEgYmxvb20gZmlsdGVyIG9mIHRoZSBQR1Aga2V5XGZpbmdlcnByaW50cyBvZiB5b3VyIGVudGlyZSB3aGl0ZWxpc3QgKHRoZSBzb3VyY2UgRk9BRiBmaWxlIHdvdWxkIG9mIGNvdXJzZSBuZWVkXHRvIGJlIGVuY3J5cHRlZCApLlxcWW91ciB3aGl0ZWxpc3Qgd291bGQgYmUgcG9wdWxhdGVkIGZyb20gdGhlIHNvY2lhbCBuZXR3b3JrIGFzIHlvdXIgY2xpZW50XGRpc2NvdmVyZWQgbmV3IGlkZW50aXQgLi4uXFw=",
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 8,
+      "Name": "Text Classification",
+      "Prefix": "RS1tYWlsIHNjYW0gdGFyZ2V0cyBwb2xpY2UgY2hpZWYgV2lsdHNoaXJlIFBvbGljZSB3YXJucyBhYm91dCAicGhpc2hpbmciIGFmdGVyIGl0cyBmcmF1ZCBzcXVhZCBjaGllZiB3YXMgdGFyZ2V0ZWQu",
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": 4,
+      "PredLabel": null
+    },
+    {
+      "Idx": 9,
+      "Name": "Text Classification",
+      "Prefix": "Q2FyZCBmcmF1ZCB1bml0IG5ldHMgMzYsMDAwIGNhcmRzIEluIGl0cyBmaXJzdCB0d28geWVhcnMsIHRoZSBVSydzIGRlZGljYXRlZCBjYXJkIGZyYXVkIHVuaXQsIGhhcyByZWNvdmVyZWQgMzYsMDAwIHN0b2xlbiBjYXJkcyBhbmQgMTcxIGFycmVzdHMgLSBhbmQgZXN0aW1hdGVzIGl0IHNhdmVkIDY1bS4=",
+      "Holdout": null,
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": 4,
+      "PredLabel": null
+    }
+  ],
   "file_name": "text_classification_scores",
   "label": "fig:text_classification_confusion",
   "title": "Text Classification — Confusion Matrix",
