@@ -74,7 +74,7 @@ GitHub renders LaTeX natively. The math below is the complete algebraic substrat
 
 $257$ is the 4th Fermat prime: $2^{2^3} + 1 = 2^8 + 1 = 257$. This gives the field two critical hardware properties:
 
-$$a \bmod 257 = (a \mathbin{\&} \text{0xFF}) - (a \gg 8) \quad \text{(branchless reduction)}$$
+$$a \bmod 257 = (a \land \text{0xFF}) - (a \gg 8) \quad \text{(branchless reduction)}$$
 
 $$\forall\, a \in [1, 256]: \quad a^{-1} \equiv a^{255} \pmod{257} \quad \text{(Fermat's Little Theorem)}$$
 
@@ -122,7 +122,7 @@ Observed: **52.8× compression** on CIFAR-10.
 
 Retrieval is a Hamming-space similarity measurement:
 
-$$\text{similarity}(A, B) = \text{popcount}(A \mathbin{\&} B)$$
+$$\text{similarity}(A, B) = \text{popcount}(A \land B)$$
 
 $$\text{distance}(A, B) = \text{popcount}(A \oplus B)$$
 
@@ -132,11 +132,11 @@ XOR ($\oplus$) is used **only** for measurement — comparing a projected rotati
 
 Given stored facts as multiplicative braids in $\text{GF}(257)$:
 
-$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is\_in} \cdot \text{Kitchen}) \bmod{257}$$
+$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is\textunderscore{}in} \cdot \text{Kitchen}) \bmod{257}$$
 
 A prompt asking "Where is Roy?" computes the modular inverse cancellation:
 
-$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is\_in}^{-1} \bmod{257}$$
+$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is\textunderscore{}in}^{-1} \bmod{257}$$
 
 The shared structure cancels algebraically:
 
