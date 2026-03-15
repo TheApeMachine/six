@@ -21,6 +21,7 @@ type promptCarryFrame struct {
 type carrySeedKey struct {
 	phase     numeric.Phase
 	pos       uint32
+	segment   uint32
 	promptIdx int
 }
 
@@ -45,7 +46,7 @@ func (wf *Wavefront) seedCarryForward(prompt []byte) []*WavefrontHead {
 				continue
 			}
 
-			key := carrySeedKey{phase: seed.phase, pos: seed.pos, promptIdx: seed.promptIdx}
+			key := carrySeedKey{phase: seed.phase, pos: seed.pos, segment: seed.segment, promptIdx: seed.promptIdx}
 			if seen[key] {
 				continue
 			}
@@ -74,6 +75,7 @@ func (wf *Wavefront) carrySeedFromHead(head *WavefrontHead, overlap int, prompt 
 		alignedPhase: queryPhase,
 		queryPhase:   queryPhase,
 		pos:          head.pos,
+		segment:      head.segment,
 		promptIdx:    overlap,
 		energy:       energy,
 		path:         cloneChordTail(head.path, overlap),
@@ -179,6 +181,7 @@ func cloneWavefrontHead(head *WavefrontHead) *WavefrontHead {
 		alignedPhase: head.alignedPhase,
 		queryPhase:   head.queryPhase,
 		pos:          head.pos,
+		segment:      head.segment,
 		promptIdx:    head.promptIdx,
 		energy:       head.energy,
 		path:         cloneChordSlice(head.path),
@@ -205,12 +208,12 @@ func cloneChordTail(in []data.Chord, tail int) []data.Chord {
 	return append([]data.Chord(nil), in[len(in)-tail:]...)
 }
 
-func cloneVisitedMap(in map[uint64]bool) map[uint64]bool {
+func cloneVisitedMap(in map[visitMark]bool) map[visitMark]bool {
 	if len(in) == 0 {
-		return map[uint64]bool{}
+		return map[visitMark]bool{}
 	}
 
-	out := make(map[uint64]bool, len(in))
+	out := make(map[visitMark]bool, len(in))
 	for key, value := range in {
 		out[key] = value
 	}

@@ -2,9 +2,7 @@ package classification
 
 import (
 	"fmt"
-	"strings"
 
-	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
 	config "github.com/theapemachine/six/pkg/system/core"
@@ -12,7 +10,12 @@ import (
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+
+	gc "github.com/smartystreets/goconvey/convey"
 )
+
+// ag_news label indices → human readable names
+var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
 
 /*
 TextClassificationExperiment tests the ability of the system to classify
@@ -32,22 +35,8 @@ type TextClassificationExperiment struct {
 	prose     []projector.ProseEntry
 	dataset   provider.Dataset
 	prompt    []string
+	evaluator *tools.Evaluator
 }
-
-// ag_news label indices → human readable names
-var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
-
-// labelSuffixes are the exact strings appended by DatasetWithLabelAppend,
-// used by SUBSTRING holdout to strip them from prompts.
-var labelSuffixes = func() []string {
-	out := make([]string, len(agNewsLabels))
-
-	for i, l := range agNewsLabels {
-		out[i] = " " + l
-	}
-
-	return out
-}()
 
 func NewTextClassificationExperiment() *TextClassificationExperiment {
 	experiment := &TextClassificationExperiment{
@@ -59,6 +48,10 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
 			huggingface.DatasetWithLabelAppend(agNewsLabels),
+		),
+		evaluator: tools.NewEvaluator(
+			tools.EvalWithLabels(agNewsLabels),
+			tools.EvalWithExpectation(0.30, 0.85),
 		),
 	}
 
@@ -98,34 +91,29 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 		}
 	}
 
-	results.Scores = tools.ByteScores(results.Holdout, results.Observed)
-	results.WeightedTotal = tools.WeightedTotal(results.Scores.Exact, results.Scores.Partial, results.Scores.Fuzzy)
-
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
 /*
-Outcome determines what we consider to be a minimal acceptable result.
-Text classification should be an achievable task for the system, so
-an accuracy of 85% should be within reach.
+ComputePredictions delegates to the Evaluator for label string matching.
+*/
+func (experiment *TextClassificationExperiment) ComputePredictions() {
+	experiment.evaluator.ComputePredictions(experiment.tableData)
+}
+
+/*
+Outcome delegates to the Evaluator which holds the real expectation
+thresholds. Baseline = 0.30 (above random for 4 classes), Target = 0.85.
 */
 func (experiment *TextClassificationExperiment) Outcome() (
 	any, gc.Assertion, any,
 ) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.85
+	return experiment.evaluator.Outcome(experiment.Score())
 }
 
 func (experiment *TextClassificationExperiment) Score() float64 {
-	if len(experiment.tableData) == 0 {
-		return 0
-	}
-
-	total := 0.0
-	for _, data := range experiment.tableData {
-		total += data.WeightedTotal
-	}
-
-	return total / float64(len(experiment.tableData))
+	return experiment.evaluator.MeanScore(experiment.tableData)
 }
 
 func (experiment *TextClassificationExperiment) TableData() any {
@@ -133,90 +121,11 @@ func (experiment *TextClassificationExperiment) TableData() any {
 }
 
 func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
-	n := len(experiment.tableData)
+	numSamples := len(experiment.tableData)
 	score := experiment.Score()
 
-	// Compute accuracy, balanced accuracy, macro-F1 from the confusion matrix.
-	labels := agNewsLabels
-	nc := len(labels)
-	matrix := make([][]int, nc)
-	for i := range matrix {
-		matrix[i] = make([]int, nc)
-	}
 	experiment.ComputePredictions()
-	for _, row := range experiment.tableData {
-		if row.TrueLabel == nil || row.PredLabel == nil {
-			continue
-		}
-		t, p := *row.TrueLabel, *row.PredLabel
-		if t >= 0 && t < nc && p >= 0 && p < nc {
-			matrix[t][p]++
-		}
-	}
-
-	total, correct := 0, 0
-	recallSum := 0.0
-	f1Sum := 0.0
-	validClasses := 0
-
-	for c := range nc {
-		rowSum := 0
-		for j := 0; j < nc; j++ {
-			rowSum += matrix[c][j]
-			total += matrix[c][j]
-			if c == j {
-				correct += matrix[c][j]
-			}
-		}
-		if rowSum > 0 {
-			recallSum += float64(matrix[c][c]) / float64(rowSum)
-		}
-		tp := matrix[c][c]
-		fp, fn := 0, 0
-		for i := range nc {
-			if i != c {
-				fp += matrix[i][c]
-				fn += matrix[c][i]
-			}
-		}
-		prec, rec := 0.0, 0.0
-		if tp+fp > 0 {
-			prec = float64(tp) / float64(tp+fp)
-		}
-		if tp+fn > 0 {
-			rec = float64(tp) / float64(tp+fn)
-		}
-		if prec+rec > 0 {
-			f1Sum += 2 * prec * rec / (prec + rec)
-			validClasses++
-		}
-	}
-
-	// Accuracy denominator: all N samples, not just predicted ones.
-	// Unpredicted samples count as incorrect.
-	accuracy := 0.0
-	if n > 0 {
-		accuracy = float64(correct) / float64(n)
-	}
-	balancedAcc := 0.0
-	if nc > 0 {
-		balancedAcc = recallSum / float64(nc)
-	}
-	macroF1 := 0.0
-	if validClasses > 0 {
-		macroF1 = f1Sum / float64(validClasses)
-	}
-
-	// Summary metrics table data.
-	tableRows := [][]string{
-		{"Metric", "Value"},
-		{"Overall Accuracy", fmt.Sprintf("%.1f%%", accuracy*100)},
-		{"Balanced Accuracy", fmt.Sprintf("%.1f%%", balancedAcc*100)},
-		{"Macro-F1", fmt.Sprintf("%.3f", macroF1)},
-		{"Mean Resonance", fmt.Sprintf("%.4f", score)},
-		{"Predicted", fmt.Sprintf("%d / %d", total, n)},
-		{"Sample Size (N)", fmt.Sprintf("%d", n)},
-	}
+	metrics := experiment.evaluator.Metrics(experiment.tableData, numSamples)
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
 
@@ -287,56 +196,14 @@ to improve per-class disambiguation.
 			Data: tools.ProseData{
 				Template: proseTemplate,
 				Data: map[string]any{
-					"N":              n,
+					"N":              numSamples,
 					"Score":          score,
-					"Accuracy":       accuracy,
-					"AccuracyPct":    fmt.Sprintf("%.1f\\%%", accuracy*100),
-					"BalancedAccPct": fmt.Sprintf("%.1f\\%%", balancedAcc*100),
-					"MacroF1":        macroF1,
-					"TableRows":      tableRows,
+					"Accuracy":       metrics.Accuracy,
+					"AccuracyPct":    fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
+					"BalancedAccPct": fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
+					"MacroF1":        metrics.MacroF1,
 				},
 			},
 		},
-	}
-}
-
-/*
-ComputePredictions assigns PredLabel by checking which label string
-co-occurs in the machine's generated output.
-
-Scoring:
-  - Exactly one label found → confident prediction.
-  - Multiple labels found  → ambiguous, discard (PredLabel = nil).
-  - No labels found        → no prediction (PredLabel = nil).
-*/
-func (experiment *TextClassificationExperiment) ComputePredictions() {
-	n := len(experiment.tableData)
-
-	if n == 0 {
-		return
-	}
-
-	numClasses := len(agNewsLabels)
-
-	for i := range experiment.tableData {
-		experiment.tableData[i].PredLabel = nil
-
-		generated := string(experiment.tableData[i].Observed)
-
-		if len(generated) == 0 {
-			continue
-		}
-
-		var found []int
-
-		for c := range numClasses {
-			if strings.Contains(generated, agNewsLabels[c]) {
-				found = append(found, c)
-			}
-		}
-
-		if len(found) == 1 {
-			experiment.tableData[i].PredLabel = tools.OptionalLabel(found[0])
-		}
 	}
 }

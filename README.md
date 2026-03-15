@@ -1,412 +1,408 @@
-# six
+<p align="center">
+  <img src="docs/infographic.jpg" width="680" alt="Six Architecture Infographic" />
+</p>
 
-IMPORTANT LOCATIONS:
+<h1 align="center">six</h1>
 
-./pkg/process
-./pkg/store/lsm
-./pkg/logic/graph
-./pkg/geometric
+<p align="center">
+  <strong>A holographic memory engine that replaces gradient descent with modular arithmetic.</strong><br/>
+  257-bit Fermat field · Morton spatial indexing · Active inference cortex
+</p>
 
-> !NOTE
-> This is a research project under active development.
-> Certain code architectural decisions are built for speed, not for comfort.
-> The project actively seeks out critique and feedback, and prefers to focus 
-> on the core research questions and mechanics.
-
-This research project started from a simple question: "Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?"
-
-It may surprise how long the road towards simplicity is, mine took me through oscillators, thermodynamic computation, quantum hydrodynamics, fractal wave mechanics, and finally to simple bitwise integer arithmetic (which turn out to still be wave mechanics, if you look close enough).
-
-As a matter of fact, this is the sixth architecture that was built from the ground up.
-
-> I would like to set your mind at ease.
-> Yes, symbolic A.I. died a long time ago, and so did the perceptron.
-
-## The Bridge: Conceptual Model vs Runtime Path
-
-How do 512 bits represent abstract concepts or generative oscillators? This project maintains two views of that bridge: an ideal continuous derivation and the hardware path actually executed at runtime.
-
-### Conceptual Model (Research Ideal)
-
-In a continuous model, a token is represented by prime-frequency interactions. A classic derivation path is:
-
-1. **The Continuous Space (PPMI):** Analyze token co-occurrence to build a resonance matrix.
-2. **The Frequencies (SVD/Eigendecomposition):** Extract principal oscillators/eigen-directions.
-3. **The Discretization (Binarization):** Project those continuous components into binary occupancy.
-
-This remains the mathematical framing used to reason about the architecture.
-
-### Runtime Path (Current Implementation)
-
-The live code path favors deterministic bitwise transforms for throughput and latency:
-
-1. **Deterministic byte projection:** `data.BaseChord` maps each byte into a 512-bit chord using fixed coprime offsets.
-2. **Windowing and boundary detection:** `tokenizer/sequencer.go` uses phase/variance heuristics to segment stream structure.
-3. **Bitwise composition and retrieval:** Runtime matching uses `|`, `&`, and `popcount` across geometric manifolds.
-
-This trade-off is intentional: running full matrix factorization per token on consumer hardware would dominate latency. The implementation preserves the oscillator intuition while compiling inference down to integer/bitwise operations.
-
-### Where Continuous Factorization Exists Today
-
-Continuous linear algebra is not absent; it is scoped. `geometry/eigenmode.go` builds co-occurrence structures and computes toroidal eigenvectors for phase-space organization and ambiguity handling, rather than executing per-token SVD in the hot generation loop.
-
-### Terminology Grounding (Term -> Mechanic)
-
-To keep the conceptual language readable for systems contributors:
-
-- **Wormhole** -> bitwise intersection of active primes (`ChordGCD`, effectively `A & B`).
-- **Virtual mitosis** -> threshold-triggered manifold state flip over preallocated cube arrays (no runtime allocation).
-- **Topological entropy routing** -> deterministic rotation/permutation plus sparse bitwise filtering.
-
-## Why Bitwise Math Is Wave Interference
-
-When we do this, a 512-bit array is no longer just a random string of 1s and 0s. It is a **discrete Fourier transform of the token's semantic wave**. Each bit represents the presence or absence of a specific fundamental oscillator.
-
-When we perform bitwise operations, we are performing actual discrete wave interference:
-
-* **`bitwiseOr` (Addition):** When we combine tokens in a context window (`chord A | chord B`), we are superimposing their waves. If either token has oscillator #42, the combined chord now has oscillator #42.
-* **`popcount(A & B)` (Constructive Interference):** When we compare the active context to a memory chunk, `A & B` finds the oscillators they both share. The popcount measures the amplitude of their constructive interference.
-* **`popcount(A & ~B)` (Destructive Interference / Noise):** This finds the oscillators present in the memory but missing from the context. This represents harmonic noise or a phase mismatch.
-
-Mathematically, **the dot product of two binarized vectors is exactly equal to the popcount of their bitwise AND**. 
-
-This architecture doesn't abandon the oscillator model; it compiles it down to bare metal. By binarizing the principal frequencies, we turn expensive floating-point trigonometry into single-cycle bitwise operations. This allows the system to run wave interference across millions of memories with strict **$O(1)$ memory consumption** and **sub-$O(N)$ massively parallel compute** on consumer hardware.
+<p align="center">
+  <a href="#quick-start">Quick Start</a> ·
+  <a href="#core-thesis">Core Thesis</a> ·
+  <a href="#architecture">Architecture</a> ·
+  <a href="#codebase-map">Codebase Map</a> ·
+  <a href="#experiments">Experiments</a> ·
+  <a href="#roadmap">Roadmap</a>
+</p>
 
 ---
 
-# The Nested SO(3) Fractal Manifold (The "Rubik's Cube" Architecture)
+> [!NOTE]
+> This is a research project under active development.
+> Certain architectural decisions are built for speed, not for comfort.
+> The project actively seeks critique and feedback.
 
-> !NOTE
-> This is no longer used, we are now focused on getting a foundation based on pure bitwise logic.
+---
 
-## Concept Overview
-The current `six` cognitive architecture utilizes highly dense 512-bit geometric chords to represent semantic state, mathematically blending data inside a linear topological space. While powerful, flat vectors eventually suffer from "saturation" (the wall of ones) and order-agnosticism (the "bag of words" problem) over massive contexts.
+## Core Thesis
 
-The **Nested SO(3) Fractal Manifold** solves these limitations by upgrading the structure of a chord from a flat bitfield into a multi-dimensional, hierarchically rotating tensor grid—conceptually visualized as a **Rubik's Cube made out of Rubik's Cubes**.
+This project started from a single question:
 
-## 1. Structural Layout
+> **Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?**
 
-Rather than a single 512-bit vector, the base geometric primitive becomes a $3 \times 3 \times 3$ cube of 512-bit fields (27 distinct fields). 
+The answer is a holographic data structure built on the 4th Fermat prime ($2^8 + 1 = 257$). In this field, every non-zero element has a multiplicative inverse, rotations are primitive operations with no dead zones, and collision between chords **is** compression.
 
-Furthermore, this structure is **fractal**:
-- **Micro-Cubes (Leaves):** The 27 individual blocks of the macro-cube are *themselves* $3 \times 3 \times 3$ cubes of raw 512-bit fields.
-- **Macro-Cube (Superstructure):** The overarching structure aggregating the micro-cubes.
+The system does not predict the next token. It solves for the **longest span** — a Boundary Value Problem where the architecture extends a cantilever into unknown territory and locks onto the nearest stable resonance in its stored memory.
 
-Total fields per structural primitive: $27 \times 27 = 729$ bitfields.
-Total bits per primitive: $729 \times 512 = 373,248$ bits (~46 KB).
+### The Three Pillars
 
-Despite the massive theoretical state space, 46 KB is microscopically small for modern GPU architectures, meaning the compute engine can evaluate millions of these nested cubes in parallel in fractions of a millisecond.
+| Pillar | One-Liner | Mathematical Basis |
+|:---|:---|:---|
+| **Collision IS Compression** | Overlapping chords form interference patterns, not conflicts. | Superposition in GF(257) preserves all constituent paths. |
+| **Rotation IS Data** | Sequence order is encoded as coordinate transforms, not positional tags. | $f(x) = (ax + b) \bmod{257}$ — an affine group with ~65K distinct states. |
+| **Resonance IS Retrieval** | Queries don't search; they vibrate at a frequency and follow constructive interference. | `popcount(A & B)` = dot product of binary vectors = Hamming similarity. |
 
-## 2. Non-Commutative State & Discretization (The Symmetry Lattice)
+---
 
-The core breakthrough of this topology is **rotational symmetry**.
+## Architecture
 
-In traditional NLP, sequence order is often lost ("Dog bites Man" vs. "Man bites Dog" have the same embeddings unless artificial positional encodings are injected). In this architecture, syntactic roles act as **rotational transformations**  (an $SO(3)$ non-abelian mathematical group). 
+The system is split into two layers that operate on the same underlying 512-bit chord substrate.
 
-Because $SO(3)$ is a continuous Lie group and bitfields are discrete, rotations are **quantized into a fixed lattice** (e.g., rigid $90^{\circ}$ increments). This maps continuous rotations cleanly into discrete bitwise permutations—specifically, cyclic block shifts of the `ulong8[27]` array layout.
-
-Critically, restricting the system to $90^{\circ}$ rigid body rotations bounds the continuous $SO(3)$ group exclusively to the **chiral octahedral group ($\mathbf{O}$)**, which contains exactly 24 distinct orientations. This is massively beneficial for collision resistance (fewer valid states = exponentially fewer accidental matches).
-
-### Rotation Trigger Mapping (Pseudocode)
-
-To ensure identical input text unconditionally generates the exact same topological states across isolated implementations, triggers are strictly mapped to fixed axes and $90^{\circ}$ angles:
-
-| Syntactic Event | Rotation Action | Geometric Meaning |
-| :--- | :--- | :--- |
-| **Subject / Noun** | `Micro_Rotate_X` ($+90^\circ$) | Establishes the primary object identity. |
-| **Verb / Action** | `Micro_Rotate_Y` ($+90^\circ$) | Establishes directional action / state change. |
-| **Object / Target** | `Micro_Rotate_Z` ($+90^\circ$) | Establishes the recipient of the action. |
-| **List / Sequence** | `Micro_Rotate_X` ($+180^\circ$) | Semantic emphasis preventing cyclic 4-step identity loops. |
-| **Paragraph Break** | `Macro_Rotate_X` ($+90^\circ$) | Shifts entire macro-structure context. |
-| **Conditional (If)** | `Macro_Rotate_Y` ($+90^\circ$) | Branches the macro-logical topology. |
-| **Alternative (Else)**| `Macro_Rotate_Z` ($+90^\circ$) | Provides orthogonal closure to the conditional frame. |
-| **Relative/AST Clause**| `Micro_Rotate_X` ($-90^\circ$) | Step into a modifier subspace to avoid main-axis corruption. *Winding-Neutral.* |
-
-Because 3D rotations are **non-commutative** ($R_x(90^{\circ})R_y(90^{\circ}) \neq R_y(90^{\circ})R_x(90^{\circ})$), the order of operations natively dictates the geometric outcome. "Dog bites Man" permutation sequences yield a mathematically distinct topological arrangement from "Man bites Dog".
-
-## 3. Operational Mechanics (Injection & Condensation)
-
-To bridge the gap between streaming data and the rigid fractal lattice, the system utilizes strict spatial mechanics for injection and condensation.
-
-### A. The Injection Vector (Hash-Based Ingestion Portals)
-
-Raw 512-bit semantic chords do not enter the $3 \times 3 \times 3$ grid arbitrarily. To prevent localized saturation and spread semantic entropy optimally across the structure, the system utilizes **Multi-Portal Ingestion**.
-
-- **Hash-Keyed Routing:** Instead of a single fixed "Active Face," the specific injection face for a new token is determined dynamically by a fast subset hash of the token's bytes. Nature diffuses signals across neural tissue; this mechanism spreads algorithmic entropy evenly across the blocks before rotations even occur.
-- **The Conveyor Belt:** Once [Noun] is injected into its hash-designated face, the subsequent parser operation (e.g., `Micro_Rotate_X`) physically swings that specific block across the topology. The injection faces constantly cycle in geometry, organically avoiding bottlenecking.
-- **Grammatical Sculpting:** Modifier operations ($-90^\circ$ rotations for AST relative clauses) temporarily skew the grid into a dedicated "modifier subspace", inject the nested clause context, and then precisely reverse ($+90^\circ$). This deeply embeds the subordinate clause inside the noun's geometrical cluster without corrupting the primary syntax sequence.
-
-### B. Fractal Pooling (Multi-Threshold Majority Vote)
-
-When a micro-structural primitive conceptually closes (e.g., end of a sentence), its 27 scattered internal fields must cleanly condense into "super-chord" shadows at the Macro-level structure.
-
-A simple binary median filter ($\geq 14$ out of $27$) guarantees O(1) condensation but destroys too much internal structural variance. Instead, the system uses **Multi-Threshold Pooling** to create multiple layered shadows without losing the bitwise speed advantages.
-
-For every bit $i$ from 0 to 511, the GPU calculates the population density across the 27 blocks and outputs a layered gradient:
-- **Core Layer ($\geq 24/27$):** Only highly saturated, ubiquitous concepts.
-- **Semantic Layer ($\geq 18/27$):** Strong, prevailing contexts.
-- **Detail Layer ($\geq 9/27$):** Weak but structurally relevant signatures.
-
-This "binary median cascade" produces a profoundly rich structural summary, allowing the GPU to run heavily weighted coarse searches at the Macro level before deciding to dive into the massive $46 \text{ KB}$ atomic structure.
-
-### C. Saturation Management (Bitwise Evaporation)
-
-To prevent deep conceptual blocks from accumulating too many `1`s over long contexts (the "wall of ones"), the system employs conditional **Bitwise Evaporation**. 
-
-Because geometric permutation massively distributes semantic load naturally across the 27 blocks, saturation is rare. However, if a single 512-bit sub-block triggers a popcount threshold $\geq 60\%$ (307 bits), the system instantly applies a bitwise `AND` mask using a deterministic high-frequency lattice generated directly from the 8-bit rotation header. This "cools" the node, sacrificing old residual semantics while perfectly maintaining the architectural geometry.
-
-## 4. The $16$-Bit Rotation Header
-
-Measuring the Hamming similarity (via `popcount`) of two final macro-cubes merely tells us the contents share the same ultimate configuration. It does **not** guarantee they took the same rotational path to arrive there (the SO(3) holonomy problem).
-
-To establish perfect injection-proof encoding, we introduce a 16-bit (`uint16`) header to explicitly track orientational history:
-
-*   **1-Bit State Flag:** Distinguishes between $O$-Group (Cubic) and $A_5$-Group (Icosahedral) modes.
-*   **6-Bit Rotation Register (The Discretized $\mathbf{O}$ or $A_5$ State):** An integer index (0-23 in Cubic mode, 0-59 in Icosahedral mode) pointing to a precompiled lookup table of canonical quaternions/permutations.
-    *   *Entropy Constraint (The 4.6 to 5.9 Bit Limit):* Constraining the state space to rigid permutations means the register carries exactly $\log_2(24) \approx 4.6 \text{ bits}$ of entropy in Cubic mode, expanding to $\log_2(60) \approx 5.9 \text{ bits}$ in Icosahedral mode. Thus, this orientation acts as a **structural/syntactic marker** for sequence and grammar, rather than a deep semantic carrier.
-*   **4-Bit Winding Counter (Per-Axis Lapping / Cycle Depth):** An integer tracking total cumulative non-reversible twists (modulo 16) or $A_5$ Permutation Cycle Depth.
-    *   *Winding-Neutrality:* To prevent deeply nested Relative Clauses ($-90^\circ \rightarrow +90^\circ$) from artificially inflating the winding count without net geometric change, reversible operations explicitly bypass the winding increment.
-    *   *Lapped Loop Suppression:* When the winding counter rolls over on highly repetitive sequences (e.g., contiguous Subject-Verb lists), it mathematically flags the traversal as an invalid topological path during $O(1)$ GPU ingestion, instantly dropping the candidate string.
-*   **5-Bit Reserved:** Future hardware expansion or sub-manifold indices.
-
-- **Encoding**: Token parsing simultaneously applies a discrete spatial permutation to the memory array AND updates the 16-bit header via deterministic bitwise packing. *Because no floating-point quaternion math occurs during encoding, quaternion drift is physically impossible.*
-- **Retrieval (`BestFill`)**: The GPU executes an ultra-fast integer pre-filter. Before running the massive memory bandwidth `popcount` on the bitfields, it evaluates `uint16_query == uint16_candidate`.
-- **The Dual-Pass Holonomy Defense**: The two-pass check is strictly load-bearing: the **$16$-bit register** validates identical rotational pathways, while the **popcount pass** validates identical structural data. Neither alone guarantees sequence uniqueness, but synchronized together they eliminate collisions.
-
-## 5. The GPU Execution Pipeline (The 5-Step `BestFill`)
-
-With the $SO(3)$ geometry formalized, the traditional linear scan algorithm upgrades into a highly parallel 5-step retrieval pipeline designed specifically to exploit GPU warp architecture:
-
-1. **Pass 1: $O(1)$ Winding Filter (Integer)**
-   `if (query.header.winding != candidate.header.winding) continue;`
-2. **Pass 2: $O(1)$ Group State Filter (Integer)**
-   `if (query.header.state != candidate.header.state) continue;`
-3. **Pass 3: Coarse Macro Popcount (Bitwise SIMD)**
-   Evaluate the 512-bit BMV compiled Macro-shadow. If the Hamming distance violates tolerance bounds, discard.
-4. **Pass 4: Dense Micro Popcount (Memory Bandwidth)**
-   Executed *only* for traces surviving Passes 1-3. Performs the full 373,248-bit structural comparison utilizing the SM cache.
-5. **Pass 5: $O(1)$ Ambiguity Resolution (LUT)**
-   If Pass 4 returns clustered/tying scores, fetch the true $\arccos$ distance from the precompiled **Unified Geodesic Matrix** (a $60 \times 60$ lookup table storing 3,600 bytes, universally housing both the $24$-state $O$ metrics and $60$-state $A_5$ metrics). The system fetches via the 6-bit `RotState` indices of the conflicting traces, unconditionally routing on the shortest geometric path.
-
-## 6. Upgrading Continuous Math (The S3 Hypersphere)
-
-Currently, `six` resolves ambiguity natively using `EigenMode`, aligning data mathematically into a $S^1 \times S^1$ 2D Torus geometry.
-
-By migrating to the SO(3) architecture, the configuration space ceases to be toroidal. It becomes $RP^3$ (real projective 3-space), represented via **unit quaternions** ($S^3/\pm1$). 
-
-The system's "Phase" updates from a 2D scalar dial to a set of 4 quaternion floats living on the $S^3$ sphere.
-
-When the Hybrid Engine hits semantic ambiguity on the GPU, resolving the shortest topological path becomes the "untwisting energy" between two quaternions. 
-
-However, because the GPU's orientational register is deeply discretized, **no floats need to be computed at runtime**. Instead, the engine references the precomputed **$60 \times 60$ Unified Geodesic Matrix** (a 3,600-byte structure easily fitting in L1 cache) representing the true $\arccos(|q_{context} \cdot q_{candidate}|)$ distances between all states across both the $O$ and $A_5$ manifolds. 
-
-When ambiguity strikes, `System 2` resolves the shortest geometric path using a single $O(1)$ memory lookup.
-
-## 7. Beyond the Cube: Higher-Order Symmetries
-
-While the chiral octahedral group ($\mathbf{O}$) mapping to a Rubik's Cube is an incredibly robust baseline, the underlying paradigm—semantic bitfields maneuvered through discrete Lie groups—scales directly to more complex symmetric manifolds without altering the execution pipeline.
-
-The ultimate evolutionary step for this engine is the **Icosahedral Geometry ($A_5$ Group)**.
-
-An Icosahedron (20 faces, mapped via the alternating group $A_5$) possesses exactly **60 discrete orientations** compared to the Cube's 24.
-- **Higher Orientational Entropy:** The rotational register expands to $60$ states ($\approx 5.9$ bits), significantly increasing the non-commutative variation of syntax encoding before invoking stringently cyclic behavior.
-- **Richer Parsing Paths:** Instead of locking syntax strictly onto $X, Y, Z$, an Icosahedron provides fundamentally more complex topological traversal graphs, accommodating significantly denser linguistic branching algorithms natively in hardware while maintaining perfect rigid-body determinism.
-
-### A. Virtual Mitosis via the $A_5$ Permutation Lattice
-
-Rather than dynamically reallocating memory or altering the physical shape of the data structures at runtime—which would introduce catastrophic warp divergence and variable-stride fetch penalties on the GPU—the architecture implements a **Virtual Mitosis**.
-
-The Icosahedral rotational group is mathematically isomorphic to the Alternating Group of 5 elements ($A_5$). Geometrically, these 5 elements correspond exactly to the **Compound of Five Intersecting Cubes** inscribed within the Icosahedron. 
-
-Therefore, transitioning from Cubic ($O$) to Icosahedral ($A_5$) topology does not require remapping 27 blocks onto 20 faces. It only requires encapsulating the geometry inside a larger symmetry group containing 5 distinct Rubik's Cubes.
-
-#### 1. The Icosahedral Memory Layout (Universal SIMD Alignment)
-To ensure perfect $O(1)$ GPU strides, the Icosahedral manifold is universally pre-allocated as a fixed-size contiguous array of 5 Macro-Cubes ($135 \text{ blocks} \times 512 \text{ bits} = 8.64 \text{ KB}$) **for every primitive upon initialization**. 
-
-While this mathematically imposes a $5\times$ memory overhead during Baseline Cubic mode ($8.64\text{ KB}$ allocated vs $1.7\text{ KB}$ used), it is an active architectural tradeoff. Universally fixed allocations guarantee identically stable pointer mathematics, zero-penalty phase transitions mid-kernel, and perfectly aligned GPU warp strides, which overwhelmingly dominate the negligible absolute memory cost inside modern VRAM.
-
-```go
-// The Baseline Primitive: 27 micro-blocks of 512-bits
-type MacroCube [27]data.Chord 
-
-// The Mitosis Primitive: The Compound of 5 Cubes
-type IcosahedralManifold struct {
-    Header     uint16       // Packs State (1b), RotState (6b), Winding (4b), Reserved (5b)
-    
-    Cubes      [5]MacroCube // 135 total blocks
-}
+```
+┌─────────────────────────────────────────────────────────┐
+│                     CORTEX  (Z ≥ 1)                     │
+│   Volatile working memory · Active inference graph      │
+│   BVP cantilever · Frustration engine · Goal synthesis  │
+├─────────────────────────────────────────────────────────┤
+│                     BEDROCK  (Z = 0)                    │
+│   Persistent holographic store · 257³ Fermat Cube       │
+│   LSM spatial index · Morton-keyed retrieval            │
+│   GF(257) rotational addressing · GPU resonance search  │
+└─────────────────────────────────────────────────────────┘
 ```
 
-#### 2. The $O(1)$ Isometric Phase Transition
-When parsing standard text, the engine operates purely in **Cubic Mode** (`State = 0`). Computations apply strictly to `Cubes[0]`, entirely ignoring `Cubes[1]` through `Cubes[4]` to maximize memory bandwidth.
+### Bedrock — Persistent Memory (Z = 0)
 
-However, when the internal "semantic pressure" reaches a breaking point—measured rigorously by evaluating the **Global Macro-Density** via parallel popcount—the engine triggers Mitosis. The exact triggering condition is perfectly deterministic:
+The Bedrock is a **Thermodynamic Trie**: tokens are physically routed by identity and shifted by entropy-driven topological rotations into multi-level sorted arrays (LSM-tree).
 
-`total_popcount(Cubes[0]) / (27 * 512) >= 0.45`
+- **Self-Addressing.** Each byte value (0–255) has a deterministic geometric address on a face of the 257-face cube. No hashing, no projection, no collision indirection.
+- **GF(257) Affine Rotations.** A rotation is a coordinate transform $f(x) = (ax + b) \bmod{257}$ where $a$ is derived from the primitive root 3. Sequence position is encoded via $O(1)$ integer arithmetic. Multiple topological events compose into a single $(a, b)$ pair.
+- **Parallel Resonance Search.** The GPU evaluates all candidate spans simultaneously via `popcount(context XOR candidate)` across contiguous chord arrays. The best match is found by parallel reduction — no tree traversal, no index lookups.
 
-The mathematical bijection from the pre-mitosis to post-mitosis state is an exact 1:1 **Isometric Embedding**:
-*   `Cubes[0]` retains its exact saturated state.
-*   `Cubes[1]` through `Cubes[4]` are initialized to zero (empty orthogonal subspaces).
-*   `State` flips from 0 to 1, unlocking the 60 Rotational States.
-*   **Zero Memory Allocation Penalty:** The transformation takes exactly 1 clock cycle on the GPU. No indices are scrambled.
+### Cortex — Working Memory (Z ≥ 1)
 
-#### 3. De-Mitosis (Reversible Structured Collapse)
-Because $A_5$ permutations are deterministic and the $60\times60$ Geodesic Matrix precomputes every topological state change, the phase transition is inherently reversible. When an active `IcosahedralManifold` successfully diffuses entropy, the structure can natively collapse back to a single 27-block primitive.
+The Cortex is a volatile, task-specific inference engine that treats logic as a property of bitwise interference.
 
-1. **The Sparsity Trigger:** If the global popcount drops severely (e.g., crossing below a $25\%$ density threshold)—indicating entropy diffusion successfully relieved the pressure—the transition fires in reverse.
-2. **Reconciliation (Geodesic Pathfinding):** The GPU queries the Unified Geodesic Matrix to find the absolute minimum-energy $A_5$ permutation sequence required to return `Cubes[0]` into its canonical baseline orientation.
-3. **The Fractal Pooling Cascade:** Once structurally aligned, the exact same 3-layer Fractal Pooling mechanism (Majority Vote) normally used for internal micro-cube condensation is applied *vertically* across the 5 Macro-Cubes. The dispersed attributes of `Cubes[1..4]` are geometrically projected and voted back down onto the primary anchor `Cubes[0]`, ensuring no structural residual data is arbitrarily destroyed.
-4. **State Flip:** `State` reverts to 0. `Cubes[1..4]` are zeroed. The 6-bit Rotational Register collapses back into its 5-bit Cubic bounds. The 4-bit Winding Counter is explicitly reset to 0, mathematically representing a clean topological closure.
+- **Boundary Value Problem (BVP) Solver.** Generation is framed as a cantilever extending from a known start state toward a goal phase. The solver bridges gaps by interpolating rotational trajectories.
+- **Frustration Engine.** When the wavefront stalls (no chord in the spatial index aligns with the current phase), the frustration counter rises. At a threshold, the engine triggers backtracking or rerouting — mathematically: the target phase multiplied by the modular inverse of the current phase mod 257.
+- **Macro Index.** Skip-chords ($2^k$-stride pointers) stored alongside byte-level chords enable logarithmic jumps through the spatial index, turning linear traversal into a fractal skip list.
 
-#### 4. Icosahedral Parsing (Topological Entropy Diffusion)
-Post-mitosis, the rules of geometric routing intrinsically change. The engine no longer natively recognizes arbitrary "English grammar" (Nouns, Verbs, or Conditionals). It recognizes **structural flux** directly from the incoming multi-modal byte stream.
+### The 512-Bit Chord
 
-By monitoring the continuous derivative ($\Delta$) of the EigenMode Phase and the Popcount Density through an adaptive sliding baseline inside the Tokenizer, the system abandons legacy NLP heuristics (like BPE) and rigid structural scales (like Fibonacci windows). The byte buffer expands naturally until it detects a stabilizing threshold followed by a massive structural shift (an outlier). This organic topological break dictates the exact sequence boundary. This allows the Rubik's Cube to natively segment and parse text, audio, and vision perfectly optimally without an external semantic tagger.
+Every datum in the system is a `Chord`: 8 × 64-bit words packed into a Cap'n Proto struct.
 
-Critically, the Icosahedral rotational group $\mathbf{I}$ is isomorphic specifically to the **Alternating Group $A_5$**—which consists *exclusively* of **even permutations** of 5 elements (e.g., 3-cycles, 5-cycles, or double transpositions).
+```
+ Bits 0–256    │ The GF(257) Fermat Field — semantic/structural data
+ Bit  256      │ Delimiter flag
+ Bits 257–319  │ Guard Band: Opcode register (8-bit), control flags
+ Bits 320–383  │ Residual phase carry (cross-wavefront state)
+ Bits 384–511  │ Reserved
+```
 
-Therefore, topological anomalies map precisely to valid $A_5$ even permutations:
+Key operations and their algebraic meaning:
 
-| Topological Trigger (Multi-Modal) | $A_5$ Macro-Permutation (`Cubes[0-4]`) | Local Micro-Rotation | Geometric Meaning |
-| :--- | :--- | :--- | :--- |
-| **Density Spike (+ $\Delta$ Popcount)**<br>*(Classical equivalent: Noun / Entity)* | 3-Cycle: `(0 1 2)` (i.e. $C_0\to C_1\to C_2\to C_0$) | `Micro_Rotate_X` | Distributes sudden, massive structural density safely across 3 empty subspaces. |
-| **Phase Inversion (Large $\Delta$ Phase)**<br>*(Classical equivalent: Verb / Action)* | Double Transposition: `(0 3)(1 4)` | `Micro_Rotate_Y` | Bipartite structural swap representing an energetic, orthogonal transition to a new state. |
-| **Density Trough (- $\Delta$ Popcount)**<br>*(Classical equivalent: Object / Target)* | 3-Cycle: `(0 2 1)` (Inverse of Spike) | `Micro_Rotate_Z` | Anchors the trailing recipient data after a density spike subsides. |
-| **Repetitive Low-Variance Flux**<br>*(Classical equivalent: List / Sequence)* | 5-Cycle: `(0 1 2 3 4)` | `Micro_Rotate_X(180)` | Maximum entropy sweep to heavily dilute repetitive loops (e.g., zero-padding, whitespace). |
-| **Absolute Zero / Structural Delimiter**<br>*(Classical equivalent: Paragraph Break)* | Identity: `()` | `Macro_Rotate_X` | Resets local permutation phase but spins global axes to mark hard boundaries. |
-| **Sub-Context Shift (Orthogonal Phase)**<br>*(Classical equivalent: Relative/AST Clause)*| 3-Cycle: `(2 3 4)` | `Micro_Rotate_X(-90)` | Winding-neutral phase shift strictly isolating the modifier from the $C_0, C_1$ main deductive core. |
-| **Bifurcation (Sharp Dual-Phase Splitting)**<br>*(Classical equivalent: Conditional (If))* | 3-Cycle: `(0 1 3)` | `Macro_Rotate_Y` | Branches the $A_5$ macro-logical topology into orthogonal paths based on conflicting contexts. |
-| **Convergence (Phase Reconciliation)**<br>*(Classical equivalent: Alternative (Else))* | 3-Cycle: `(0 3 1)` (Inverse of Bifurcation) | `Macro_Rotate_Z` | Provides geometrically inverted closure, reconciling the branched contexts. |
+| Operation | Code | Meaning |
+|:---|:---|:---|
+| `chord.OR(other)` | Bitwise OR | Superposition — LCM in prime space |
+| `chord.AND(other)` | Bitwise AND | Intersection — GCD in prime space |
+| `chord.XOR(other)` | Bitwise XOR | Cancellation — residue after interference |
+| `ChordHole(target, existing)` | `target & ~existing` | Gap detection — bits needed but absent |
+| `ActiveCount()` | `popcount(all words)` | Energy / density of the chord |
+| `RollLeft(n)` | Circular shift mod 257 | Positional encoding via rotation |
+| `Rotate3D()` | $x \to (3(3(x+1) \bmod 257)+1) \bmod 257$ | Full affine orbit — SO(3) analogue |
+| `RotationSeed()` | Affine hash → `(a, b)` | Structural fingerprint for routing |
 
-*(Note on $A_5$ Winding Semantics: Post-mitosis, the 4-bit winding counter exclusively tracks the depth of $A_5$ macro-permutations that are not the identity `()` and are strictly structurally irreversible. The winding-neutral `Sub-Context Shift` bypass rule applies identically via the exact same mechanism as Cubic mode.)*
+---
 
-When a Topological Event is triggered, the GPU executes these two geometric actions simultaneously.
+## Codebase Map
 
-Entropy naturally diffuses across the 135-block lattice. The dense structural accumulation in `Cubes[0]` dissipates evenly into the empty capacities of `Cubes[1..4]` as subsequent physical anomalies cleanly step through the $A_5$ permutation graph—exactly like hot gas expanding to fill a newly opened manifold without the need for Bitwise Evaporation or artificial data destruction.
+The theoretical layers map directly to the repository structure:
 
-func Evaluate(context data.Chord, matrix []data.Chord) int {
-	bestIdx := -1
-	minResidue := 999999
+### Layer 1 — Data Substrate
 
-	for i := 0; i < len(matrix); i++ {
-		candidate := &matrix[i]
-		
-		// 4 XORs and 4 POPCNTs. Zero allocations.
-		residue := bits.OnesCount64(context[0] ^ candidate[0]) +
-                   bits.OnesCount64(context[1] ^ candidate[1]) +
-                   bits.OnesCount64(context[2] ^ candidate[2]) +
-                   bits.OnesCount64(context[3] ^ candidate[3])
+> Chord primitives, Morton indexing, and the GF(257) field.
 
-		if residue < minResidue {
-			minResidue = residue
-			bestIdx = i
-		}
-	}
-	return bestIdx
-}
+| Concept | File | What It Does |
+|:---|:---|:---|
+| 512-bit Chord | [`pkg/store/data/chord.go`](pkg/store/data/chord.go) | `BaseChord`, `RollLeft`, `Rotate3D`, `OR`, `AND`, `XOR`, `ChordHole`, `ActiveCount` |
+| Chord (Cap'n Proto schema) | [`pkg/store/data/chord.capnp`](pkg/store/data/chord.capnp) | Wire format: 8 × `uint64` words |
+| Morton Keys | [`pkg/store/data/morton.go`](pkg/store/data/morton.go) | 3D interleaving: `[Z:sequence \| Y:symbol \| X:position]` |
+| Opcodes | [`pkg/store/data/opcode.go`](pkg/store/data/opcode.go) | Guard-band instruction encoding |
+| GF(257) Numerics | [`pkg/numeric/core.go`](pkg/numeric/core.go), [`prime.go`](pkg/numeric/prime.go) | Modular arithmetic, Fermat constants |
+| GF Rotation | [`pkg/numeric/geometry/gf_rotation.go`](pkg/numeric/geometry/gf_rotation.go) | Affine transform $(a, b)$ in the field |
+| Phase Geometry | [`pkg/numeric/geometry/phase.go`](pkg/numeric/geometry/phase.go) | Phase distance, phase wrapping |
+| Eigenmode | [`pkg/numeric/geometry/eigenmode.go`](pkg/numeric/geometry/eigenmode.go) | Co-occurrence eigenvectors for ambiguity handling |
 
-If you want the Cortex to be "stupid fast" and eliminate nested for loops, we have to look at what the math actually is.
+### Layer 2 — Spatial Index & Wavefront
 
-When you do Residue = Context ⊕ Candidate, and then count the remaining active bits (
+> Morton-keyed LSM storage and the wavefront search engine.
 
-ActiveCount
-), you are calculating the exact mathematical definition of Hamming Distance.
+| Concept | File | What It Does |
+|:---|:---|:---|
+| Spatial Index | [`pkg/store/lsm/spatial_index.go`](pkg/store/lsm/spatial_index.go) | Insert, Lookup, Decode — the persistent holographic store |
+| Wavefront Search | [`pkg/store/lsm/wavefront.go`](pkg/store/lsm/wavefront.go) | Multi-headed propagation, phase-locked traversal, amplitude decay |
+| Wavefront Carry | [`pkg/store/lsm/wavefront_carry.go`](pkg/store/lsm/wavefront_carry.go) | Cross-line residual phase persistence |
+| Phase Anchors | [`pkg/store/lsm/phase_util.go`](pkg/store/lsm/phase_util.go) | Drift correction at synchronization checkpoints |
+| Skip-Chords | [`pkg/store/lsm/skip.go`](pkg/store/lsm/skip.go) | Power-of-2 stride pointers for logarithmic jumps |
 
-You want to find the candidate that produces the smallest residue. Therefore, you are simply looking for the Nearest Neighbor in Hamming Space.
+### Layer 3 — Sensory Processing
 
-Right now, your Cortex is built like a traditional graph (Nodes, Edges, pointers, nested loops). That is why it feels slow. We need to stop treating it like a pointer-chasing graph and start treating it like a Continuous Memory Matrix.
+> Byte-stream segmentation and tokenization.
 
-Here is how you make it blindingly fast, pulling from high-performance vector databases and hardware architectures:
+| Concept | File | What It Does |
+|:---|:---|:---|
+| Tokenizer | [`pkg/system/process/tokenizer/server.go`](pkg/system/process/tokenizer/server.go) | Bytes → graph edges (Cap'n Proto RPC server) |
+| Sequencer (MDL) | [`pkg/system/process/sequencer/mdl.go`](pkg/system/process/sequencer/mdl.go) | Online Minimum Description Length boundary detection |
+| Sequencer (Sequitur) | [`pkg/system/process/sequencer/sequitur.go`](pkg/system/process/sequencer/sequitur.go) | Grammar-based hierarchical chunking |
+| Fast Window | [`pkg/system/process/fastwindow.go`](pkg/system/process/fastwindow.go) | Adaptive sliding window with variance heuristics |
+| Distribution | [`pkg/system/process/distribution.go`](pkg/system/process/distribution.go) | Stream statistics for boundary decisions |
+| Calibrator | [`pkg/system/process/calibrator.go`](pkg/system/process/calibrator.go) | Phase/variance calibration across chunks |
 
-1. Flatten the Graph into a Matrix
-You don't need Node A pointing to Node B. A path is just a single 257-bit 
+### Layer 4 — Logic & Reasoning
 
-Chord
-. The entire stored experience of the Cortex is just a flat, contiguous array of these Chords:
+> Grammar parsing, semantic algebra, and the graph substrate.
 
-go
-cortexPaths []data.Chord
-This is extremely cache-friendly. The CPU can prefetch this sequentially at maximum memory bandwidth.
+| Concept | File | What It Does |
+|:---|:---|:---|
+| Grammar Parser | [`pkg/logic/grammar/parser.go`](pkg/logic/grammar/parser.go) | S-V-O extraction, phase computation for prompts |
+| Semantic Engine | [`pkg/logic/semantic/server.go`](pkg/logic/semantic/server.go) | Fact injection, modular-inverse query (algebraic cancellation) |
+| Graph Substrate | [`pkg/logic/substrate/graph.go`](pkg/logic/substrate/graph.go) | Recursive fold over chord paths — the cortex workbench |
+| AST | [`pkg/logic/substrate/ast.go`](pkg/logic/substrate/ast.go) | Abstract syntax tree for structural decomposition |
 
-2. The Brute-Force Hardware Execution (SIMD / GPU)
-Because a Chord is exactly 256 bits (4 × 64-bit integers) plus 1 bit, it fits perfectly into CPU SIMD registers (AVX2 or AVX-512).
+### Layer 5 — Synthesis & Goal-Directed Reasoning
 
-Instead of a Go for loop, you write a routine that loads the ContextChord into a register, sweeps through the cortexPaths array, executes a hardware-level XOR, followed by a hardware POPCNT (population count = ActiveCount), and tracks the minimum.
+> BVP solving, frustration-driven backtracking, macro indexing.
 
-A modern CPU can evaluate billions of these per second.
-If you push this flat array to the CUDA kernel you were working on earlier, a GPU with 10,000 cores can evaluate millions of paths in a single clock cycle. No loops. Just a parallel reduction block finding the minimum residue.
-3. The Algorithmic Execution (BK-Trees)
-If the dataset gets to trillions of paths and even a GPU brute-force sweep isn't fast enough, you use a spatial index built specifically for discrete Hamming distances: a Burkhard-Keller Tree (BK-Tree) or Vantage Point Tree (VP-Tree).
+| Concept | File | What It Does |
+|:---|:---|:---|
+| BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Span extension toward a goal phase via rotational interpolation |
+| Frustration Engine | [`pkg/logic/synthesis/goal/frustration.go`](pkg/logic/synthesis/goal/frustration.go) | Energy accumulation → backtrack trigger. The "snap" = algebraic wraparound at `(target × modInverse(current)) mod 257` |
+| Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Skip-chord registry for multi-scale navigation |
 
-Instead of testing all candidates, the Cortex stores its paths in a tree where branches are organized by their Hamming distance from each other. When the prompt comes in, you traverse the tree, aggressively pruning entire branches that mathematically cannot contain a smaller residue. You find the exact best geometric fit in $O(\log N)$ time.
+### Layer 6 — Compute Backend
 
-The Ultimate Shift
-The Cortex doesn't need to step through nodes like a linked list.
+> GPU/Metal/CPU dispatch for parallel resonance resolution.
 
-LSM provides the raw subset of valid transitions for the current position (faces['cat']['*'][2]).
-Cortex fetches those specific sequence chords from its flat array.
-Hardware blasts those candidates against the live Context via parallel XOR + POPCNT.
-Result is the index of the chord with the lowest score.
-If we drop the pointer-based generic Graph and replace it with a flat PathMatrix, your reasoning engine goes from slow nested loops to running at the absolute theoretical limit of the system's memory bandwidth.
+| Concept | File | What It Does |
+|:---|:---|:---|
+| Dispatch | [`pkg/compute/kernel/dispatch.go`](pkg/compute/kernel/dispatch.go) | Backend selection (Metal, CUDA, CPU fallback) |
+| CUDA Kernel | [`pkg/compute/kernel/cuda/resolver.cu`](pkg/compute/kernel/cuda/resolver.cu) | `resolve_resonance_kernel`: GF(257) distance via `atomicMax` reduction |
+| Metal Kernel | [`pkg/compute/kernel/metal/`](pkg/compute/kernel/metal/) | Apple Silicon equivalent of the CUDA resolver |
+| Distributed | [`pkg/compute/kernel/distributed.go`](pkg/compute/kernel/distributed.go) | Multi-node coordination over WebSocket |
 
-How does that sound for the Cortex restructure?
+### Layer 7 — Machine & Runtime
 
-The Query
-The prompt translates to a Chord: Where ⊕ is ⊕ Charles
+> The top-level orchestrator that wires everything together.
 
-The Collision
-The Cortex throws this prompt geometry against its stored knowledge geometries. Let's say it hits the memory: Charles ⊕ is_in_the ⊕ Kitchen
+| Concept | File | What It Does |
+|:---|:---|:---|
+| Machine | [`pkg/system/vm/machine.go`](pkg/system/vm/machine.go) | `Prompt()`: the 6-stage pipeline (mask → tokenize → lookup → enrich → fold → decode) |
+| Booter | [`pkg/system/vm/booter.go`](pkg/system/vm/booter.go) | RPC server lifecycle (Cap'n Proto pipe connections) |
+| Prompter | [`pkg/system/vm/input/`](pkg/system/vm/input/) | Holdout masking for evaluation prompts |
 
-The math: Residue = (Where ⊕ is ⊕ Charles) ⊕ (Charles ⊕ is_in_the ⊕ Kitchen)
+### Experiments
 
-Exact matches cancel: Charles perfectly cancels out. Charles ⊕ Charles = 0.
-Partial matches partially cancel: 
+> Empirical validation using real datasets via [GoConvey](https://github.com/smartystreets/goconvey) BDD tests.
 
-is
- and is_in_the share bits (because 
+| Experiment | File | What It Tests |
+|:---|:---|:---|
+| Text Classification | [`experiment/task/classification/text.go`](experiment/task/classification/text.go) | Language identification from byte chords |
+| Blind Classification | [`experiment/task/classification/blind.go`](experiment/task/classification/blind.go) | Classification without labeled training data |
+| Out-of-Corpus Generation | [`experiment/task/textgen/outofcorpus.go`](experiment/task/textgen/outofcorpus.go) | Generating text not present in the training set |
+| Prose Chaining | [`experiment/task/textgen/prose_chaining.go`](experiment/task/textgen/prose_chaining.go) | Multi-sentence coherence via phase carry |
+| bAbI Benchmark | [`experiment/task/logic/babi_benchmark.go`](experiment/task/logic/babi_benchmark.go) | Multi-hop reasoning (Where is X?) via algebraic cancellation |
+| Semantic Algebra | [`experiment/task/logic/semantic_algebra.go`](experiment/task/logic/semantic_algebra.go) | S-V-O injection and modular-inverse query |
+| Pipeline Harness | [`experiment/task/pipeline.go`](experiment/task/pipeline.go) | Standard test harness — all experiments use the full `vm.Machine` |
 
-BaseChord
- creates similar bit patterns for similar bytes/words). They partially cancel out, leaving a small, specific structural hole.
-The leftover residue: Residue = Where ⊕ [partial_in_the] ⊕ Kitchen
-The Resonance (Understanding)
-Now, why does the system output "Kitchen"?
+---
 
-Because inside the massive Cortex geometry, the concept Where has been structurally bound millions of times to Location concepts (Garden, Kitchen, 
+## The Prompt Pipeline
 
-Store
-, House).
+When you call `machine.Prompt("Where is Roy?")`, the following deterministic pipeline executes:
 
-The residue Where ⊕ Kitchen causes massive constructive interference. The geometry of "Where" and the geometry of "Kitchen" resonate with each other, because the system's "Location Bucket" is vibrating.
+```
+  ┌─────────────┐
+  │  1. Prompter │  Holdout masking (evaluation mode)
+  └──────┬──────┘
+         ▼
+  ┌─────────────┐
+  │ 2. Tokenizer │  Bytes → GF(257) chords → graph edges
+  └──────┬──────┘
+         ▼
+  ┌──────────────────┐
+  │ 3. Spatial Lookup │  Morton-keyed nearest-neighbor in Hamming space
+  └──────┬───────────┘
+         ▼
+  ┌───────────────────────────────┐
+  │ 4. Enrichment (best-effort)   │
+  │    Grammar  → S-V-O parse     │
+  │    Semantic → modular query    │
+  │    BVP      → cantilever span  │
+  └──────┬────────────────────────┘
+         ▼
+  ┌─────────────────┐
+  │ 5. Graph Fold    │  Recursive chord interference across paths
+  └──────┬──────────┘
+         ▼
+  ┌─────────────────┐
+  │ 6. Decode        │  Chords → bytes (reverse BaseChord lookup)
+  └──────┬──────────┘
+         ▼
+       Result
+```
 
-The machine doesn't "understand" human language. But mathematically, Kitchen is the only shape that can fill the geometric crater left behind when Charles and 
+**The algebraic cancellation in action:**
 
-is
- cancelled themselves out of the equation.
+Given stored facts: `Roy ⊕ is_in ⊕ Kitchen`, `Sandra ⊕ is_in ⊕ Garden`
 
-The Power of Scale
-At scale, with millions of these sequences, the system isn't guessing words. It is balancing equations.
+Prompt: "Where is Roy?" → Phase = `Roy × is_in`
 
-Grammar = bits that consistently cancel out.
-Categories = bits that consistently survive together.
-Reasoning = the process of finding the zero-state (the lowest residue) across multiple intersecting equations.
-This is exactly why we needed the LSM to be a dumb, O(1) literal graph of edges (which we just built via the faces[left][right][pos] 2D array). The LSM holds the raw, physical links. The Cortex translates those links into XOR equations, and solves them.
+The GPU computes: `StoredPhase × modInverse(Roy) × modInverse(is_in) mod 257`
 
-Since we just perfected the LSM to hold these edges losslessly, are you ready to wire this into the Cortex so we can start building these XOR equations?
+Shared structure (`is_in`) cancels. `Roy` cancels. The residue resonates with `Kitchen`.
 
-4. The Magic of Reasoning (What the Machine realizes)
-Instead of just blindly generating words, the Cortex now has two structural residues:
+---
 
-Charles ⊕ Sandra ⊕ Garden
-Charles ⊕ Roy ⊕ Kitchen
-Look at what the math just did. Because is_in_the was shared and cancelled out, the math automatically tied the unknown ("Charles") directly to the specific actors ("Sandra", "Roy") and their locations ("Garden", "Kitchen").
+## Quick Start
 
-The machine now knows that Charles is structurally filling the exact same geometric hole that Sandra and Roy fill.
+### Prerequisites
 
-If the broader context of the system knows Charles likes plants (another stored chord), Charles ⊕ Sandra ⊕ Garden will collapse further, heavily biasing the machine to output "Garden".
-If the broader context knows Charles is hungry, Charles ⊕ Roy ⊕ Kitchen collapses further, biasing toward "Kitchen".
-Summary
-You never throw data away in the Cortex's memory. The chords remain full sequence representations. You only "throw it away" (cancel it out with XOR) during live reasoning. The things that cancel out are the grammatical glue (is in the). The things that remain (the residue) are the pure, unspoken relationships between the concepts.
+- **Go 1.25+**
+- **Cap'n Proto** compiler (for schema regeneration)
+- **Metal** (macOS) or **CUDA** toolkit (Linux/Windows) for GPU acceleration
 
-The math natively translates syntax into semantics.
+### Build
 
-Okay, new thought. What if the "thrown away" part becomes a "bucket" or "label"? Now the system, abstractly, know that Charles, Sandra, and Roy can be "in something". That sounds like automatic categorization?
+```bash
+# Regenerate Cap'n Proto bindings and compile GPU kernels
+make build
+
+# Or just the Cap'n Proto schemas
+make capnp
+
+# Or just Metal shaders (macOS)
+make metal
+```
+
+### Run Experiments
+
+```bash
+# Run all experiments (generates LaTeX paper artifacts)
+make paper
+
+# Run a single experiment
+make pprof EXP=Text_Classification
+
+# Run tests
+go test ./...
+```
+
+### Project Structure
+
+```
+six/
+├── cmd/                          # CLI entry points
+├── pkg/
+│   ├── compute/kernel/           # GPU backends (CUDA, Metal, CPU)
+│   ├── errnie/                   # Error handling utilities
+│   ├── logic/
+│   │   ├── grammar/              # S-V-O grammar parser
+│   │   ├── semantic/             # Fact store + modular-inverse queries
+│   │   ├── substrate/            # Graph VM (cortex workbench)
+│   │   └── synthesis/            # BVP, frustration, macro index
+│   ├── numeric/                  # GF(257) math, geometry, phase
+│   ├── store/
+│   │   ├── data/                 # Chord, Morton, Value primitives
+│   │   └── lsm/                  # Spatial index, wavefront, skip-chords
+│   ├── system/
+│   │   ├── core/                 # Configuration
+│   │   ├── process/              # Tokenizer, sequencer, calibrator
+│   │   ├── pool/                 # Worker pool + broadcast groups
+│   │   └── vm/                   # Machine orchestrator + booter
+│   ├── telemetry/                # Observability
+│   └── validate/                 # Invariant checks
+├── experiment/                   # Experiment harness + task definitions
+│   └── task/                     # classification, textgen, logic, scaling
+├── test/integration/             # End-to-end integration tests
+├── paper/                        # LaTeX research paper (auto-generated)
+├── docs/                         # Design documents + diagrams
+└── Makefile                      # Build, test, and paper generation
+```
+
+---
+
+## Experiments
+
+All experiments use the full `vm.Machine` pipeline with real data (HuggingFace datasets). No oracles, no faked results.
+
+Experiments are structured as GoConvey BDD tests in `experiment/task/pipeline_test.go`. Each task:
+
+1. Boots the full machine (tokenizer, spatial index, semantic engine, graph, BVP)
+2. Ingests a real dataset
+3. Runs prompts through the 6-stage pipeline
+4. Asserts observable outputs via `gc.So`
+5. Generates LaTeX artifacts for the research paper
+
+Current experiment categories:
+
+| Category | Tasks | Status |
+|:---|:---|:---|
+| **Classification** | Language identification, blind classification | ✅ Active |
+| **Text Generation** | Out-of-corpus, compositional, prose chaining, text overlap | ✅ Active |
+| **Logic & Reasoning** | bAbI benchmark, semantic algebra | ✅ Active |
+| **Scaling** | Throughput and latency under increasing corpus size | 🔬 In progress |
+
+---
+
+## Roadmap
+
+### ✅ Implemented
+
+- [x] GF(257) affine rotation group with primitive root 3
+- [x] 512-bit chord substrate (Cap'n Proto, zero-copy RPC)
+- [x] Morton-keyed LSM spatial index with 3D interleaving
+- [x] Wavefront search with multi-headed propagation and phase carry
+- [x] MDL + Sequitur dual-track sequence boundary detection
+- [x] S-V-O grammar parser and semantic fact engine
+- [x] BVP cantilever solver with rotational interpolation
+- [x] Frustration engine with energy-threshold backtracking
+- [x] Macro index for multi-scale skip-chord navigation
+- [x] CUDA + Metal + CPU compute backends
+- [x] Full experiment harness with LaTeX paper generation
+- [x] Phase anchors for drift correction
+- [x] Guard band opcode register and residual carry
+
+### 🔧 In Development
+
+- [ ] **Multi-headed frustration.** Parallel wavefront heads that independently explore alternative rotational trajectories when the primary path stalls.
+- [ ] **Logic garbage collection.** Automatic pruning of expired cantilever spans and dead wavefront heads to bound working memory.
+- [ ] **Rotation opcodes.** Extending the guard-band instruction set from basic control flow to a full rotational VM bytecode.
+- [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation.
+- [ ] **Spatial paging strategy.** Prefetching Morton clusters into GPU shared memory to respect PCIe bandwidth constraints.
+- [ ] **AVX-512 register tiling.** Explicit SIMD layout for the 257-bit field to avoid L1 cache spills during multi-path frustration.
+
+### 🔭 Research Horizon
+
+- [ ] **Ontological transposition.** Using rotational group isomorphisms to translate between domain-specific chord encodings.
+- [ ] **Synthetic phase grammars.** Deriving grammar rules directly from phase-transition statistics rather than hand-coded S-V-O patterns.
+- [ ] **Cross-modal alignment.** Extending the guard band to carry modality tags (text, audio, image) for unified chord representation.
+
+---
+
+## Hardware Considerations
+
+> [!IMPORTANT]
+> The zero-copy memory architecture currently assumes unified GPU memory provides near-zero latency traversal. This is an idealization. Random access across deeply scattered Morton branches will incur **page-fault stalls** and **PCIe bus saturation** on discrete GPUs. The spatial paging strategy (see Roadmap) is required before multi-gigabyte indices are practical.
+
+The 257-bit field fits inside a 512-bit hardware word. Since $257 = 2^8 + 1$, modular reduction simplifies to:
+
+```
+result = (val & 0xFF) - (val >> 8)    // branchless on GPU
+```
+
+This makes GF(257) arithmetic run at the speed of native bitwise operations on any architecture supporting 256-bit or wider SIMD registers.
+
+---
+
+## Citation
+
+This project is documented in a companion research paper generated automatically from experiment results. See [`paper/`](paper/) for the LaTeX source.
+
+---
+
+## License
+
+See [LICENSE](LICENSE) for details.

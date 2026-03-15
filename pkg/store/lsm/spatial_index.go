@@ -19,7 +19,7 @@ var morton = data.NewMortonCoder()
 
 /*
 SpatialEntry stores a single edge in the radix forest.
-Key is a MortonCoder-packed uint64: Pack(position, symbol).
+Key is a MortonCoder-packed uint64: Pack(localDepth, symbol).
 The data chord is deterministic (5 bits per byte value).
 Meta chords accumulate from different topological contexts.
 */
@@ -31,7 +31,7 @@ type SpatialEntry struct {
 
 /*
 SpatialIndexServer implements the Cap'n Proto RPC interface for the Lexicon.
-Keys are packed via MortonCoder.Pack(position, symbol).
+Keys are packed via MortonCoder.Pack(localDepth, symbol).
 Data chords are deterministic (one per byte value). Meta chords
 accumulate as a list per key from different topological contexts.
 */
@@ -92,6 +92,17 @@ func NewSpatialIndexServer(opts ...spatialIndexOpts) *SpatialIndexServer {
 }
 
 /*
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
+*/
+func (idx *SpatialIndexServer) Close() error {
+	idx.serverSide.Close()
+	idx.clientSide.Close()
+
+	return nil
+}
+
+/*
 Client returns a Cap'n Proto client connected to this SpatialIndexServer.
 */
 func (idx *SpatialIndexServer) Client(clientID string) SpatialIndex {
@@ -104,23 +115,13 @@ func (idx *SpatialIndexServer) Client(clientID string) SpatialIndex {
 	return idx.client
 }
 
-/*
-Close shuts down the pipe-based RPC connections.
-*/
-func (idx *SpatialIndexServer) Close() error {
-	idx.serverSide.Close()
-	idx.clientSide.Close()
-
-	return nil
-}
-
 func (idx *SpatialIndexServer) Done(ctx context.Context, call SpatialIndex_done) error {
 	return nil
 }
 
 /*
 ChordKey is the lossless representation of a chord as a map key.
-The rotated chord IS the address — no hash.
+The rotated native value IS the collision-chain address — no hash.
 */
 type ChordKey [5]uint64
 
@@ -154,8 +155,11 @@ func (idx *SpatialIndexServer) insertSync(key uint64, value, meta data.Chord) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	idx.insertChain(key, value)
-	idx.registerArrowUnsafe(key, value)
+	_, symbol := morton.Unpack(key)
+	storedValue := data.StorageValue(symbol, value)
+
+	idx.insertChain(key, storedValue)
+	idx.registerArrowUnsafe(key, storedValue)
 
 	// Apply Shannon density threshold (0.45 capacity limit on GF(257) = ~115 bits)
 	// If a meta chord absorbs too much structural overlap, it becomes white noise.
@@ -549,9 +553,10 @@ func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_ins
 }
 
 /*
-buildPaths reconstructs the prompt bytes from the incoming chord list and then
-runs the phase-driven traversal described in INSIGHT.md. This keeps lookup tied
-to the byte-addressed Morton program rather than to a lossy chord containment scan.
+buildPaths reconstructs prompt bytes from the incoming observable chord list and
+then runs the phase-driven traversal described in INSIGHT.md. Storage stays native
+and lexical-free, while prompts and returned paths remain projected observables so
+humans and higher layers can still decode them.
 */
 func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.Chord, [][]data.Chord, error) {
 	promptBytes, err := idx.inferPromptBytes(chordList)
@@ -563,11 +568,6 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 		return nil, nil, nil
 	}
 
-	_, paths, metaPaths := idx.LookupByPhase(promptBytes)
-	if len(paths) > 0 {
-		return paths, metaPaths, nil
-	}
-
 	wf := NewWavefront(
 		idx,
 		WavefrontWithMaxHeads(64),
@@ -577,6 +577,10 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 	interest, danger := wf.ContextSteering(string(promptBytes), "")
 	results := wf.SearchPrompt(promptBytes, interest, danger)
 	if len(results) == 0 {
+		_, paths, metaPaths := idx.LookupByPhase(promptBytes)
+		if len(paths) > 0 {
+			return paths, metaPaths, nil
+		}
 		return nil, nil, nil
 	}
 
@@ -585,8 +589,8 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 		limit = 4
 	}
 
-	paths = make([][]data.Chord, 0, limit)
-	metaPaths = make([][]data.Chord, 0, limit)
+	paths := make([][]data.Chord, 0, limit)
+	metaPaths := make([][]data.Chord, 0, limit)
 	for i := 0; i < limit; i++ {
 		paths = append(paths, results[i].Path)
 		metaPaths = append(metaPaths, results[i].MetaPath)
@@ -596,8 +600,8 @@ func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.C
 }
 
 /*
-inferPromptBytes extracts the raw prompt bytes from the per-byte state chords
-produced by the tokenizer.
+inferPromptBytes extracts the raw prompt bytes from the transient query
+observables produced by the tokenizer.
 */
 func (idx *SpatialIndexServer) inferPromptBytes(chordList data.Chord_List) ([]byte, error) {
 	prompt := make([]byte, 0, chordList.Len())
@@ -616,9 +620,9 @@ func (idx *SpatialIndexServer) inferPromptBytes(chordList data.Chord_List) ([]by
 }
 
 /*
-inferByteFromChord finds the unique BaseChord fully contained in the supplied
-state chord. The tokenizer always embeds the byte's five-bit signature plus a
-state bit, so the lexical signature is recoverable without ambiguity.
+inferByteFromChord finds the unique lexical seed fully contained in the supplied
+observable chord. It is intentionally for query/result observables, not for the
+native values persisted in the spatial index.
 */
 func inferByteFromChord(chord data.Chord) (byte, bool) {
 	var best byte
@@ -1227,7 +1231,7 @@ func (idx *SpatialIndexServer) collectStateContinuation(
 				}
 
 				resultBytes = append(resultBytes, symbol)
-				resultChords = append(resultChords, chord)
+				resultChords = append(resultChords, data.ObservableValue(symbol, chord))
 
 				meta := data.MustNewChord()
 				if metas := idx.metaEntries[key]; len(metas) > 0 {

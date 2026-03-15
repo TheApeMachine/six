@@ -126,3 +126,28 @@ func TestSpatialIndexBuildPathsUsesPhaseTraversal(t *testing.T) {
 		})
 	})
 }
+
+func TestSpatialIndexStoresNativeValuesButReturnsObservables(t *testing.T) {
+	Convey("Given an observable tokenizer chord inserted into the spatial index", t, func() {
+		idx := NewSpatialIndexServer()
+		symbol := byte('A')
+		phase := numeric.Phase(17)
+
+		observable := data.BaseChord(symbol)
+		observable.Set(int(phase))
+		observable.SetResidualCarry(uint64(phase))
+		observable.SetProgram(data.OpcodeHalt, 0, 0, true)
+
+		key := morton.Pack(0, symbol)
+		idx.insertSync(key, observable, data.MustNewChord())
+
+		stored := idx.GetEntry(key)
+		So(data.HasLexicalSeed(stored, symbol), ShouldBeFalse)
+		So(stored.ResidualCarry(), ShouldEqual, uint64(phase))
+
+		projected := data.ObservableValue(symbol, stored)
+		decoded, ok := inferByteFromChord(projected)
+		So(ok, ShouldBeTrue)
+		So(decoded, ShouldEqual, symbol)
+	})
+}

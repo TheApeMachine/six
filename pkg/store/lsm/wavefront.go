@@ -19,11 +19,12 @@ type WavefrontHead struct {
 	alignedPhase numeric.Phase
 	queryPhase   numeric.Phase
 	pos          uint32
+	segment      uint32
 	promptIdx    int
 	energy       int
 	path         []data.Chord
 	metaPath     []data.Chord
-	visited      map[uint64]bool
+	visited      map[visitMark]bool
 	fuzzyErrs    int
 }
 
@@ -309,13 +310,13 @@ func (wf *Wavefront) seedPromptByte(
 			_, symbol := morton.Unpack(key)
 			chain := wf.idx.followChainUnsafe(key)
 			meta := firstMetaForKeyUnsafe(wf.idx, key)
-			alignedPhase := wf.advancePromptPhase(1, symbol)
-
 			for _, stateChord := range chain {
 				phase, ok := extractStatePhase(stateChord, symbol)
 				if !ok {
 					continue
 				}
+
+				observable := data.ObservableValue(symbol, stateChord)
 
 				fuzzyErrs := skipped
 				if symbol != matchByte {
@@ -327,25 +328,26 @@ func (wf *Wavefront) seedPromptByte(
 
 				stepEnergy := skipped * wf.promptEditPenalty(matchByte)
 				stepEnergy += lexicalDistance(symbol, matchByte) * 8
-				stepEnergy += int(wf.phaseDistance(alignedPhase, queryPhase))
+				stepEnergy += int(wf.phaseDistance(phase, queryPhase))
 				stepEnergy += wf.persistencePenalty(phase)
 				if interest != nil {
-					stepEnergy -= stateChord.AND(*interest).ActiveCount()
+					stepEnergy -= observable.AND(*interest).ActiveCount()
 				}
 				if danger != nil {
-					stepEnergy += stateChord.AND(*danger).ActiveCount()
+					stepEnergy += observable.AND(*danger).ActiveCount()
 				}
 
 				heads = append(heads, &WavefrontHead{
 					phase:        phase,
-					alignedPhase: alignedPhase,
+					alignedPhase: phase,
 					queryPhase:   queryPhase,
 					pos:          pos,
+					segment:      0,
 					promptIdx:    skipped + 1,
 					energy:       stepEnergy,
-					path:         []data.Chord{stateChord},
+					path:         []data.Chord{observable},
 					metaPath:     []data.Chord{meta},
-					visited:      map[uint64]bool{key: true},
+					visited:      map[visitMark]bool{visitFor(key, 0): true},
 					fuzzyErrs:    fuzzyErrs,
 				})
 			}
@@ -391,12 +393,10 @@ func (wf *Wavefront) advancePromptMatch(
 		return nil
 	}
 
-	step := wf.advanceDistance(head)
-	if step == 0 {
+	nextPos, nextSegment, ok := wf.advanceTarget(head)
+	if !ok {
 		return nil
 	}
-
-	nextPos := head.pos + step
 	nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 	if !hasNext || len(nextKeys) == 0 {
 		return nil
@@ -406,7 +406,7 @@ func (wf *Wavefront) advancePromptMatch(
 	newQueryPhase := wf.advancePromptPhase(head.queryPhase, expectedByte)
 
 	for _, key := range wf.sortedKeys(nextKeys) {
-		if head.visited[key] {
+		if head.visited[visitFor(key, nextSegment)] {
 			continue
 		}
 
@@ -416,11 +416,12 @@ func (wf *Wavefront) advancePromptMatch(
 		}
 
 		_, nextSymbol := morton.Unpack(key)
-		expectedState := wf.advancePromptPhase(head.phase, nextSymbol)
+		expectedState := wf.predictNextPhase(head, nextSymbol)
 
 		meta := firstMetaForKeyUnsafe(wf.idx, key)
 		chain := wf.idx.followChainUnsafe(key)
 		for _, stateChord := range chain {
+			observable := data.ObservableValue(nextSymbol, stateChord)
 			storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
 			if !ok {
 				continue
@@ -447,18 +448,18 @@ func (wf *Wavefront) advancePromptMatch(
 				continue
 			}
 
-			alignedPhase := wf.advancePromptPhase(head.alignedPhase, nextSymbol)
+			alignedPhase := resolvedPhase
 			stepEnergy += lexicalDistance(nextSymbol, expectedByte) * 8
 			stepEnergy += int(wf.phaseDistance(alignedPhase, newQueryPhase))
 			stepEnergy += wf.persistencePenalty(resolvedPhase)
 			if interest != nil {
-				stepEnergy -= stateChord.AND(*interest).ActiveCount()
+				stepEnergy -= observable.AND(*interest).ActiveCount()
 			}
 			if danger != nil {
-				stepEnergy += stateChord.AND(*danger).ActiveCount()
+				stepEnergy += observable.AND(*danger).ActiveCount()
 			}
 
-			fork := wf.forkHead(head, key, nextPos, resolvedPhase, stateChord, meta, head.energy+stepEnergy, fuzzyErrs)
+			fork := wf.forkHead(head, key, nextPos, nextSegment, resolvedPhase, observable, meta, head.energy+stepEnergy, fuzzyErrs)
 			fork.alignedPhase = alignedPhase
 			fork.queryPhase = newQueryPhase
 			fork.promptIdx = head.promptIdx + 1
@@ -484,12 +485,10 @@ func (wf *Wavefront) advancePromptInsertion(
 		return nil
 	}
 
-	step := wf.advanceDistance(head)
-	if step == 0 {
+	nextPos, nextSegment, ok := wf.advanceTarget(head)
+	if !ok {
 		return nil
 	}
-
-	nextPos := head.pos + step
 	nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 	if !hasNext || len(nextKeys) == 0 {
 		bridged := wf.bridgeHead(head)
@@ -509,7 +508,7 @@ func (wf *Wavefront) advancePromptInsertion(
 	var next []*WavefrontHead
 
 	for _, key := range wf.sortedKeys(nextKeys) {
-		if head.visited[key] {
+		if head.visited[visitFor(key, nextSegment)] {
 			continue
 		}
 
@@ -519,11 +518,12 @@ func (wf *Wavefront) advancePromptInsertion(
 		}
 
 		_, nextSymbol := morton.Unpack(key)
-		expectedState := wf.advancePromptPhase(head.phase, nextSymbol)
+		expectedState := wf.predictNextPhase(head, nextSymbol)
 
 		meta := firstMetaForKeyUnsafe(wf.idx, key)
 		chain := wf.idx.followChainUnsafe(key)
 		for _, stateChord := range chain {
+			observable := data.ObservableValue(nextSymbol, stateChord)
 			storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
 			if !ok {
 				continue
@@ -546,13 +546,13 @@ func (wf *Wavefront) advancePromptInsertion(
 			stepEnergy += int(stateChord.Branches()) * 2
 			stepEnergy += wf.persistencePenalty(resolvedPhase)
 			if interest != nil {
-				stepEnergy -= stateChord.AND(*interest).ActiveCount()
+				stepEnergy -= observable.AND(*interest).ActiveCount()
 			}
 			if danger != nil {
-				stepEnergy += stateChord.AND(*danger).ActiveCount()
+				stepEnergy += observable.AND(*danger).ActiveCount()
 			}
 
-			fork := wf.forkHead(head, key, nextPos, resolvedPhase, stateChord, meta, head.energy+stepEnergy, fuzzyErrs)
+			fork := wf.forkHead(head, key, nextPos, nextSegment, resolvedPhase, observable, meta, head.energy+stepEnergy, fuzzyErrs)
 			fork.alignedPhase = head.alignedPhase
 			fork.queryPhase = head.queryPhase
 			fork.promptIdx = head.promptIdx
@@ -568,7 +568,7 @@ func (wf *Wavefront) skipPromptByte(head *WavefrontHead, expectedByte byte) *Wav
 		return nil
 	}
 
-	visited := make(map[uint64]bool, len(head.visited))
+	visited := make(map[visitMark]bool, len(head.visited))
 	for key, seen := range head.visited {
 		visited[key] = seen
 	}
@@ -578,6 +578,7 @@ func (wf *Wavefront) skipPromptByte(head *WavefrontHead, expectedByte byte) *Wav
 		alignedPhase: head.alignedPhase,
 		queryPhase:   head.queryPhase,
 		pos:          head.pos,
+		segment:      head.segment,
 		promptIdx:    head.promptIdx + 1,
 		energy:       head.energy + wf.promptEditPenalty(expectedByte),
 		path:         append([]data.Chord(nil), head.path...),
@@ -627,9 +628,9 @@ func (wf *Wavefront) promptEditPenalty(symbol byte) int {
 }
 
 /*
-seed creates initial wavefront heads at position 0 by scanning all
-entries whose byte identity (BaseChord of the Morton symbol) resonates
-with the prompt chord. The stored state chord is kept for path tracking.
+seed creates initial wavefront heads at local depth 0 by scanning all
+entries whose key-derived lexical identity resonates with the prompt chord.
+The path keeps projected observables, while the index itself stores native values.
 */
 func (wf *Wavefront) seed(prompt data.Chord) []*WavefrontHead {
 	var heads []*WavefrontHead
@@ -652,22 +653,26 @@ func (wf *Wavefront) seed(prompt data.Chord) []*WavefrontHead {
 			continue
 		}
 
-		startPhase := wf.calc.Multiply(
-			numeric.Phase(1),
-			wf.calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(symbol)),
-		)
+		startPhase := wf.advancePromptPhase(1, symbol)
 
 		meta := firstMetaForKeyUnsafe(wf.idx, key)
 		chain := wf.idx.followChainUnsafe(key)
 		for _, stateChord := range chain {
+			phase, ok := extractStatePhase(stateChord, symbol)
+			if !ok {
+				phase = startPhase
+			}
+			observable := data.ObservableValue(symbol, stateChord)
 			heads = append(heads, &WavefrontHead{
-				phase:     startPhase,
-				pos:       0,
-				energy:    symbolChord.XOR(prompt).ActiveCount(),
-				path:      []data.Chord{stateChord},
-				metaPath:  []data.Chord{meta},
-				visited:   map[uint64]bool{key: true},
-				fuzzyErrs: 0,
+				phase:        phase,
+				alignedPhase: phase,
+				pos:          0,
+				segment:      0,
+				energy:       symbolChord.XOR(prompt).ActiveCount(),
+				path:         []data.Chord{observable},
+				metaPath:     []data.Chord{meta},
+				visited:      map[visitMark]bool{visitFor(key, 0): true},
+				fuzzyErrs:    0,
 			})
 		}
 	}
@@ -688,19 +693,17 @@ func (wf *Wavefront) advance(
 	var next []*WavefrontHead
 
 	for _, head := range heads {
-		step := wf.advanceDistance(head)
-		if step == 0 {
+		nextPos, nextSegment, ok := wf.advanceTarget(head)
+		if !ok {
 			next = append(next, head)
 			continue
 		}
-
-		nextPos := head.pos + step
 		nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 		didAdvance := false
 
 		if hasNext && len(nextKeys) > 0 {
 			for _, key := range wf.sortedKeys(nextKeys) {
-				if head.visited[key] {
+				if head.visited[visitFor(key, nextSegment)] {
 					continue
 				}
 
@@ -710,14 +713,12 @@ func (wf *Wavefront) advance(
 				}
 
 				_, nextSymbol := morton.Unpack(key)
-				expectedPhase := wf.calc.Multiply(
-					head.phase,
-					wf.calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(nextSymbol)),
-				)
+				expectedPhase := wf.predictNextPhase(head, nextSymbol)
 
 				meta := firstMetaForKeyUnsafe(wf.idx, key)
 				chain := wf.idx.followChainUnsafe(key)
 				for _, stateChord := range chain {
+					observable := data.ObservableValue(nextSymbol, stateChord)
 					fuzzyErrs := head.fuzzyErrs
 					stepEnergy := 0
 					resolvedPhase := expectedPhase
@@ -750,13 +751,13 @@ func (wf *Wavefront) advance(
 					stepEnergy += wf.persistencePenalty(resolvedPhase)
 
 					if interest != nil {
-						stepEnergy -= stateChord.AND(*interest).ActiveCount()
+						stepEnergy -= observable.AND(*interest).ActiveCount()
 					}
 					if danger != nil {
-						stepEnergy += stateChord.AND(*danger).ActiveCount()
+						stepEnergy += observable.AND(*danger).ActiveCount()
 					}
 
-					fork := wf.forkHead(head, key, nextPos, resolvedPhase, stateChord, meta, head.energy+stepEnergy, fuzzyErrs)
+					fork := wf.forkHead(head, key, nextPos, nextSegment, resolvedPhase, observable, meta, head.energy+stepEnergy, fuzzyErrs)
 					next = append(next, fork)
 					didAdvance = true
 				}
@@ -789,12 +790,10 @@ func (wf *Wavefront) continueHead(
 	}
 
 	for stepCount := uint32(0); stepCount < budget; stepCount++ {
-		step := wf.advanceDistance(head)
-		if step == 0 {
+		nextPos, nextSegment, ok := wf.advanceTarget(head)
+		if !ok {
 			break
 		}
-
-		nextPos := head.pos + step
 		nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 		if !hasNext || len(nextKeys) == 0 {
 			break
@@ -803,7 +802,7 @@ func (wf *Wavefront) continueHead(
 		var best *WavefrontHead
 		bestKey := uint64(0)
 		for _, key := range wf.sortedKeys(nextKeys) {
-			if head.visited[key] {
+			if head.visited[visitFor(key, nextSegment)] {
 				continue
 			}
 
@@ -813,14 +812,12 @@ func (wf *Wavefront) continueHead(
 			}
 
 			_, symbol := morton.Unpack(key)
-			expectedState := wf.calc.Multiply(
-				head.phase,
-				wf.calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32(symbol)),
-			)
+			expectedState := wf.predictNextPhase(head, symbol)
 
 			meta := firstMetaForKeyUnsafe(wf.idx, key)
 			chain := wf.idx.followChainUnsafe(key)
 			for _, stateChord := range chain {
+				observable := data.ObservableValue(symbol, stateChord)
 				storedPhase, ok := extractStatePhase(stateChord, symbol)
 				if !ok {
 					continue
@@ -842,13 +839,13 @@ func (wf *Wavefront) continueHead(
 				stepEnergy += wf.persistencePenalty(resolvedPhase)
 
 				if interest != nil {
-					stepEnergy -= stateChord.AND(*interest).ActiveCount()
+					stepEnergy -= observable.AND(*interest).ActiveCount()
 				}
 				if danger != nil {
-					stepEnergy += stateChord.AND(*danger).ActiveCount()
+					stepEnergy += observable.AND(*danger).ActiveCount()
 				}
 
-				candidate := wf.forkHead(head, key, nextPos, resolvedPhase, stateChord, meta, head.energy+stepEnergy, head.fuzzyErrs)
+				candidate := wf.forkHead(head, key, nextPos, nextSegment, resolvedPhase, observable, meta, head.energy+stepEnergy, head.fuzzyErrs)
 				if best == nil || candidate.energy < best.energy || (candidate.energy == best.energy && key < bestKey) {
 					best = candidate
 					bestKey = key
@@ -864,23 +861,6 @@ func (wf *Wavefront) continueHead(
 	}
 
 	return head
-}
-
-func (wf *Wavefront) advanceDistance(head *WavefrontHead) uint32 {
-	if head == nil || len(head.path) == 0 {
-		return 0
-	}
-
-	last := head.path[len(head.path)-1]
-	if last.Terminal() || last.Opcode() == uint64(data.OpcodeHalt) {
-		return 0
-	}
-
-	if jump := last.Jump(); jump > 0 {
-		return jump
-	}
-
-	return 1
 }
 
 func (wf *Wavefront) bridgeHead(head *WavefrontHead) *WavefrontHead {
@@ -907,11 +887,12 @@ func (wf *Wavefront) bridgeHead(head *WavefrontHead) *WavefrontHead {
 		alignedPhase: head.alignedPhase,
 		queryPhase:   head.queryPhase,
 		pos:          head.pos + uint32(len(opcodes)),
+		segment:      head.segment,
 		promptIdx:    head.promptIdx,
 		energy:       head.energy,
 		path:         append(append([]data.Chord{}, head.path...), synChord),
 		metaPath:     append(append([]data.Chord{}, head.metaPath...), meta),
-		visited:      head.visited,
+		visited:      cloneVisitedMap(head.visited),
 		fuzzyErrs:    head.fuzzyErrs,
 	}
 }
@@ -920,23 +901,25 @@ func (wf *Wavefront) forkHead(
 	head *WavefrontHead,
 	key uint64,
 	pos uint32,
+	segment uint32,
 	phase numeric.Phase,
 	chord data.Chord,
 	meta data.Chord,
 	energy int,
 	fuzzyErrs int,
 ) *WavefrontHead {
-	visited := make(map[uint64]bool, len(head.visited)+1)
+	visited := make(map[visitMark]bool, len(head.visited)+1)
 	for k, v := range head.visited {
 		visited[k] = v
 	}
-	visited[key] = true
+	visited[visitFor(key, segment)] = true
 
 	return &WavefrontHead{
 		phase:        phase,
 		alignedPhase: head.alignedPhase,
 		queryPhase:   head.queryPhase,
 		pos:          pos,
+		segment:      segment,
 		promptIdx:    head.promptIdx,
 		energy:       energy,
 		path:         append(append([]data.Chord{}, head.path...), chord),
@@ -989,6 +972,7 @@ func (wf *Wavefront) prunePrompt(heads []*WavefrontHead) []*WavefrontHead {
 		alignedPhase numeric.Phase
 		queryPhase   numeric.Phase
 		pos          uint32
+		segment      uint32
 		promptIdx    int
 	}
 
@@ -1003,6 +987,7 @@ func (wf *Wavefront) prunePrompt(heads []*WavefrontHead) []*WavefrontHead {
 			alignedPhase: head.alignedPhase,
 			queryPhase:   head.queryPhase,
 			pos:          head.pos,
+			segment:      head.segment,
 			promptIdx:    head.promptIdx,
 		}
 
@@ -1026,6 +1011,9 @@ func (wf *Wavefront) prunePrompt(heads []*WavefrontHead) []*WavefrontHead {
 		}
 		if compacted[i].energy != compacted[j].energy {
 			return compacted[i].energy < compacted[j].energy
+		}
+		if compacted[i].segment != compacted[j].segment {
+			return compacted[i].segment < compacted[j].segment
 		}
 		return compacted[i].pos < compacted[j].pos
 	})

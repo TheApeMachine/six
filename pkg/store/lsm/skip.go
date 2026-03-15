@@ -132,8 +132,8 @@ func (skip *SkipIndex) Build() {
 
 /*
 extractPhase reads the GF(257) state from the chord stored at a key.
-The stored chord is BaseChord(symbol) with one extra bit set at the
-state position. XOR out the BaseChord to isolate the state bit.
+ResidualCarry is authoritative when present. Older lexicalized observables still
+decode via the fallback that ignores the byte seed.
 */
 func (skip *SkipIndex) extractPhase(key uint64) numeric.Phase {
 	chord, exists := skip.idx.entries[key]
@@ -228,7 +228,8 @@ func (skip *SkipIndex) SkipSearch(
 			break
 		}
 
-		path = append(path, value)
+		_, symbol := morton.Unpack(currentKey)
+		path = append(path, data.ObservableValue(symbol, value))
 
 		jumped := false
 

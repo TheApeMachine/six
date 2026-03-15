@@ -10,9 +10,9 @@ import (
 /*
 extractStatePhase recovers the GF(257) state encoded in a stored state chord.
 ResidualCarry is treated as the authoritative snapshot when present because the
-state bit can geometrically overlap the lexical 5-bit signature. When that
-snapshot is absent, we fall back to removing the lexical BaseChord and reading
-whatever state bit remains.
+stored value is now allowed to be lexical-free while query observables still
+carry the transient five-bit seed. When that snapshot is absent, we fall back to
+ignoring the lexical seed bits and reading whatever native state bit remains.
 */
 func extractStatePhase(chord data.Chord, symbol byte) (numeric.Phase, bool) {
 	if carry := chord.ResidualCarry(); carry > 0 {
@@ -23,10 +23,13 @@ func extractStatePhase(chord data.Chord, symbol byte) (numeric.Phase, bool) {
 	}
 
 	base := data.BaseChord(symbol)
-	stateOnly := chord.XOR(base)
 
-	for blockIdx := 0; blockIdx < 8; blockIdx++ {
-		block := stateOnly.Block(blockIdx)
+	for blockIdx := 0; blockIdx < 5; blockIdx++ {
+		block := chord.Block(blockIdx)
+		if blockIdx == 4 {
+			block &= 1
+		}
+		block &^= base.Block(blockIdx)
 		if block == 0 {
 			continue
 		}

@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/system/console"
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -58,6 +59,58 @@ func baseChordOffsets(b byte) [5]int {
 		offsets[i] = (base*mul + add) % 257
 	}
 	return offsets
+}
+
+/*
+HasLexicalSeed reports whether the chord visibly contains the five-bit
+lexical seed for the supplied byte. Query observables should usually return
+true; canonical stored values should usually return false.
+*/
+func HasLexicalSeed(chord Chord, b byte) bool {
+	base := BaseChord(b)
+	return ChordSimilarity(&base, &chord) == base.ActiveCount()
+}
+
+/*
+ObservableValue projects a stored native value back into the lexical plane for
+measurement and human-facing decode. The key already names the byte; this helper
+simply re-injects the byte's transient five-bit seed without disturbing the
+stored phase or control shell.
+*/
+func ObservableValue(symbol byte, value Chord) Chord {
+	out := MustNewChord()
+	out.CopyFrom(value)
+
+	for _, off := range baseChordOffsets(symbol) {
+		out.Set(off)
+	}
+
+	return out
+}
+
+/*
+StorageValue removes the transient lexical seed from an observable chord so the
+persistent LSM value can stay native. Byte identity lives in the Morton key;
+the stored value keeps phase, control metadata, and any higher-dimensional shell.
+*/
+func StorageValue(symbol byte, observable Chord) Chord {
+	out := MustNewChord()
+	out.CopyFrom(observable)
+
+	if HasLexicalSeed(observable, symbol) {
+		for _, off := range baseChordOffsets(symbol) {
+			out.Clear(off)
+		}
+	}
+
+	if carry := observable.ResidualCarry(); carry > 0 {
+		phase := numeric.Phase(carry % uint64(numeric.FermatPrime))
+		if phase > 0 {
+			out.Set(int(phase))
+		}
+	}
+
+	return out
 }
 
 func BuildChord(payload []byte) (Chord, error) {

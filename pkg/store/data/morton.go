@@ -15,17 +15,17 @@ func NewMortonCoder() *MortonCoder {
 }
 
 /*
-Pack packs Symbol identity and absolute Position into a 64-bit key.
-Layout (MSB→LSB):[24 zero bits | 8 bits Symbol | 32 bits absolute Pos].
-Grouping by Symbol keeps same-byte neighborhoods contiguous in the LSBs while
-the position remains a unique replay address across sequencer resets.
+Pack packs Symbol identity and boundary-local depth into a 64-bit key.
+Layout (MSB→LSB):[24 zero bits | 8 bits Symbol | 32 bits local Depth].
+The depth is reset by the tokenizer whenever the sequencer commits a boundary,
+so collisions at the same (byte, localDepth) cell are intentional compression.
 */
 func (coder *MortonCoder) Pack(pos uint32, symbol byte) uint64 {
 	return (uint64(symbol) << 32) | uint64(pos)
 }
 
 /*
-Unpack unpacks the 64-bit key back into absolute Position and Symbol identity.
+Unpack unpacks the 64-bit key back into boundary-local depth and Symbol identity.
 */
 func (coder *MortonCoder) Unpack(morton uint64) (uint32, byte) {
 	symbol := byte((morton >> 32) & 0xFF)

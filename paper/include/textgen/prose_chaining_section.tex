@@ -15,12 +15,12 @@ structural chord resonance remains viable --- making it a sharper
 discriminator for the architecture's generative capabilities.
 
 \paragraph{Results.}
-Across $N = 10$ test samples the mean weighted score was 0.500.
+Across $N = 10$ test samples the mean weighted score was 0.000.
 
 \paragraph{Assessment.}
-The substrate successfully chained through the wikitext-103 attractor field
-at the 60\% holdout level, a challenging target that requires multi-step
-structural bridging well beyond the prompt boundary.  This result is
-particularly significant given the large vocabulary size of wikitext-103.
+Chaining quality was minimal.  The 60\% holdout and high lexical diversity
+of wikitext-103 together constitute the hardest textgen configuration.
+The result establishes a lower bound; easier holdout configurations and
+a larger ingestion corpus are expected to produce substantially higher scores.
 
 Figure~\ref{fig:prose_chaining_map} shows the trial outcome map.

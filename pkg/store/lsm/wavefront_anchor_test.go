@@ -39,7 +39,7 @@ func TestWavefrontAnchorSnap(t *testing.T) {
 			phase:   phaseBefore(symbol, driftedExpected, calc),
 			pos:     0,
 			path:    []data.Chord{jump},
-			visited: map[uint64]bool{},
+			visited: map[visitMark]bool{},
 		}
 
 		wf := NewWavefront(idx, WavefrontWithAnchors(pos, 10))
@@ -77,7 +77,7 @@ func TestWavefrontAnchorRejectsWideDrift(t *testing.T) {
 			phase:   phaseBefore(symbol, driftedExpected, calc),
 			pos:     0,
 			path:    []data.Chord{jump},
-			visited: map[uint64]bool{},
+			visited: map[visitMark]bool{},
 		}
 
 		wf := NewWavefront(idx, WavefrontWithAnchors(pos, 5))

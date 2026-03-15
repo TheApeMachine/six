@@ -21,17 +21,17 @@
       "Idx": 0,
       "Name": "Text Classification",
       "Prefix": "RmVhcnMgZm9yIFQgTiBwZW5zaW9uIGFmdGVyIHRhbGtzIFVuaW9ucyByZXByZXNlbnRpbmcgd29ya2VycyBhdCBUdXJuZXIgICBOZXdhbGwgc2F5IHRoZXkgYXJlICdkaXNhcHBvaW50ZWQnIGFmdGVyIHRhbGtzIHdpdGggc3RyaWNrZW4gcGFyZW50IGZpcm0gRmVkZXJhbCBNb2d1bC4g4oaSIHNjaV90ZWNo",
-      "Holdout": "YXJzIGZvciBUIE4gcGVuc2lvbiBhZnRlciB0YWxrcyBVbmlvbnMgcmVwcmVzZW50aW5nIHdvcmtlcnMgYXQgVHVybmVyICAgTmV3YWxsIHNheSB0aGV5IGFyZSAnZGlzYXBwb2ludGVkJyBhZnRlciB0YWxrcyB3aXRoIHN0cmlja2VuIHBhcmVudCBmaXJtIEZlZGVyYWwgTW9ndWwuIOKGkiBzY2lfdGVjaA==",
-      "Observed": "YXJzIGZvciBUIE4gcGVuc2lvbiBhZnRlciB0YWxrcyBVbmlvbnMgcmVwcmVzZW50aW5nIHdvcmtlcnMgYXQgVHVybmVyICAgTmV3YWxsIHNheSB0aGV5IGFyZSAnZGlzYXBwb2ludGVkJyBhZnRlciB0YWxrcyB3aXRoIHN0cmlja2VuIHBhcmVudCBmaXJtIEZlZGVyYWwgTW9ndWwuIOKGkiBzY2lfdGVjaA==",
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": 3,
-      "PredLabel": 3
+      "PredLabel": null
     },
     {
       "Idx": 1,
@@ -53,15 +53,15 @@
       "Idx": 2,
       "Name": "Text Classification",
       "Prefix": "S3kuIENvbXBhbnkgV2lucyBHcmFudCB0byBTdHVkeSBQZXB0aWRlcyAoQVApIEFQIC0gQSBjb21wYW55IGZvdW5kZWQgYnkgYSBjaGVtaXN0cnkgcmVzZWFyY2hlciBhdCB0aGUgVW5pdmVyc2l0eSBvZiBMb3Vpc3ZpbGxlIHdvbiBhIGdyYW50IHRvIGRldmVsb3AgYSBtZXRob2Qgb2YgcHJvZHVjaW5nIGJldHRlciBwZXB0aWRlcywgd2hpY2ggYXJlIHNob3J0IGNoYWlucyBvZiBhbWlubyBhY2lkcywgdGhlIGJ1aWxkaW5nIGJsb2NrcyBvZiBwcm90ZWlucy4=",
-      "Holdout": "eS4gQ29tcGFueSBXaW5zIEdyYW50IHRvIFN0dWR5IFBlcHRpZGVzIChBUCkgQVAgLSBBIGNvbXBhbnkgZm91bmRlZCBieSBhIGNoZW1pc3RyeSByZXNlYXJjaGVyIGF0IHRoZSBVbml2ZXJzaXR5IG9mIExvdWlzdmlsbGUgd29uIGEgZ3JhbnQgdG8gZGV2ZWxvcCBhIG1ldGhvZCBvZiBwcm9kdWNpbmcgYmV0dGVyIHBlcHRpZGVzLCB3aGljaCBhcmUgc2hvcnQgY2hhaW5zIG9mIGFtaW5vIGFjaWRzLCB0aGUgYnVpbGRpbmcgYmxvY2tzIG9mIHByb3RlaW5zLg==",
-      "Observed": "eS4gQ29tcGFueSBXaW5zIEdyYW50IHRvIFN0dWR5IFBlcHRpZGVzIChBUCkgQVAgLSBBIGNvbXBhbnkgZm91bmRlZCBieSBhIGNoZW1pc3RyeSByZXNlYXJjaGVyIGF0IHRoZSBVbml2ZXJzaXR5IG9mIExvdWlzdmlsbGUgd29uIGEgZ3JhbnQgdG8gZGV2ZWxvcCBhIG1ldGhvZCBvZiBwcm9kdWNpbmcgYmV0dGVyIHBlcHRpZGVzLCB3aGljaCBhcmUgc2hvcnQgY2hhaW5zIG9mIGFtaW5vIGFjaWRzLCB0aGUgYnVpbGRpbmcgYmxvY2tzIG9mIHByb3RlaW5zLg==",
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": 4,
       "PredLabel": null
     },
@@ -69,15 +69,15 @@
       "Idx": 3,
       "Name": "Text Classification",
       "Prefix": "UHJlZGljdGlvbiBVbml0IEhlbHBzIEZvcmVjYXN0IFdpbGRmaXJlcyAoQVApIEFQIC0gSXQncyBiYXJlbHkgZGF3biB3aGVuIE1pa2UgRml0enBhdHJpY2sgc3RhcnRzIGhpcyBzaGlmdCB3aXRoIGEgYmx1ciBvZiBjb2xvcmZ1bCBtYXBzLCBmaWd1cmVzIGFuZCBlbmRsZXNzIGNoYXJ0cywgYnV0IGFscmVhZHkgaGUga25vd3Mgd2hhdCB0aGUgZGF5IHdpbGwgYnJpbmcuIExpZ2h0bmluZyB3aWxsIHN0cmlrZSBpbiBwbGFjZXMgaGUgZXhwZWN0cy4gV2luZHMgd2lsbCBwaWNrIHVwLCBtb2lzdCBwbGFjZXMgd2lsbCBkcnkgYW5kIGZsYW1lcyB3aWxsIHJvYXIu",
-      "Holdout": "ZWRpY3Rpb24gVW5pdCBIZWxwcyBGb3JlY2FzdCBXaWxkZmlyZXMgKEFQKSBBUCAtIEl0J3MgYmFyZWx5IGRhd24gd2hlbiBNaWtlIEZpdHpwYXRyaWNrIHN0YXJ0cyBoaXMgc2hpZnQgd2l0aCBhIGJsdXIgb2YgY29sb3JmdWwgbWFwcywgZmlndXJlcyBhbmQgZW5kbGVzcyBjaGFydHMsIGJ1dCBhbHJlYWR5IGhlIGtub3dzIHdoYXQgdGhlIGRheSB3aWxsIGJyaW5nLiBMaWdodG5pbmcgd2lsbCBzdHJpa2UgaW4gcGxhY2VzIGhlIGV4cGVjdHMuIFdpbmRzIHdpbGwgcGljayB1cCwgbW9pc3QgcGxhY2VzIHdpbGwgZHJ5IGFuZCBmbGFtZXMgd2lsbCByb2FyLg==",
-      "Observed": "ZWRpY3Rpb24gVW5pdCBIZWxwcyBGb3JlY2FzdCBXaWxkZmlyZXMgKEFQKSBBUCAtIEl0J3MgYmFyZWx5IGRhd24gd2hlbiBNaWtlIEZpdHpwYXRyaWNrIHN0YXJ0cyBoaXMgc2hpZnQgd2l0aCBhIGJsdXIgb2YgY29sb3JmdWwgbWFwcywgZmlndXJlcyBhbmQgZW5kbGVzcyBjaGFydHMsIGJ1dCBhbHJlYWR5IGhlIGtub3dzIHdoYXQgdGhlIGRheSB3aWxsIGJyaW5nLiBMaWdodG5pbmcgd2lsbCBzdHJpa2UgaW4gcGxhY2VzIGhlIGV4cGVjdHMuIFdpbmRzIHdpbGwgcGljayB1cCwgbW9pc3QgcGxhY2VzIHdpbGwgZHJ5IGFuZCBmbGFtZXMgd2lsbCByb2FyLg==",
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": 4,
       "PredLabel": null
     },
@@ -85,15 +85,15 @@
       "Idx": 4,
       "Name": "Text Classification",
       "Prefix": "Q2FsaWYuIEFpbXMgdG8gTGltaXQgRmFybS1SZWxhdGVkIFNtb2cgKEFQKSBBUCAtIFNvdXRoZXJuIENhbGlmb3JuaWEncyBzbW9nLWZpZ2h0aW5nIGFnZW5jeSB3ZW50IGFmdGVyIGVtaXNzaW9ucyBvZiB0aGUgYm92aW5lIHZhcmlldHkgRnJpZGF5LCBhZG9wdGluZyB0aGUgbmF0aW9uJ3MgZmlyc3QgcnVsZXMgdG8gcmVkdWNlIGFpciBwb2xsdXRpb24gZnJvbSBkYWlyeSBjb3cgbWFudXJlLg==",
-      "Holdout": "bGlmLiBBaW1zIHRvIExpbWl0IEZhcm0tUmVsYXRlZCBTbW9nIChBUCkgQVAgLSBTb3V0aGVybiBDYWxpZm9ybmlhJ3Mgc21vZy1maWdodGluZyBhZ2VuY3kgd2VudCBhZnRlciBlbWlzc2lvbnMgb2YgdGhlIGJvdmluZSB2YXJpZXR5IEZyaWRheSwgYWRvcHRpbmcgdGhlIG5hdGlvbidzIGZpcnN0IHJ1bGVzIHRvIHJlZHVjZSBhaXIgcG9sbHV0aW9uIGZyb20gZGFpcnkgY293IG1hbnVyZS4=",
-      "Observed": "bGlmLiBBaW1zIHRvIExpbWl0IEZhcm0tUmVsYXRlZCBTbW9nIChBUCkgQVAgLSBTb3V0aGVybiBDYWxpZm9ybmlhJ3Mgc21vZy1maWdodGluZyBhZ2VuY3kgd2VudCBhZnRlciBlbWlzc2lvbnMgb2YgdGhlIGJvdmluZSB2YXJpZXR5IEZyaWRheSwgYWRvcHRpbmcgdGhlIG5hdGlvbidzIGZpcnN0IHJ1bGVzIHRvIHJlZHVjZSBhaXIgcG9sbHV0aW9uIGZyb20gZGFpcnkgY293IG1hbnVyZS4=",
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": 4,
       "PredLabel": null
     },
@@ -133,15 +133,15 @@
       "Idx": 7,
       "Name": "Text Classification",
       "Prefix": "Rk9BRktleTogRk9BRiwgUEdQLCBLZXkgRGlzdHJpYnV0aW9uLCBhbmQgQmxvb20gRmlsdGVycyBcXEZPQUYvTE9BRiAgYW5kIGJsb29tIGZpbHRlcnMgaGF2ZSBhIGxvdCBvZiBpbnRlcmVzdGluZyBwcm9wZXJ0aWVzIGZvciBzb2NpYWxcbmV0d29yayBhbmQgd2hpdGVsaXN0IGRpc3RyaWJ1dGlvbi5cXEkgdGhpbmsgd2UgY2FuIGdvIG9uZSBsZXZlbCBoaWdoZXIgdGhvdWdoIGFuZCBpbmNsdWRlIEdQRy9PcGVuUEdQIGtleVxmaW5nZXJwcmluZyBkaXN0cmlidXRpb24gaW4gdGhlIEZPQUYgZmlsZSBmb3Igc2ltcGxlIHdlYi1vZi10cnVzdCBiYXNlZCBrZXlcZGlzdHJpYnV0aW9uLlxcV2hhdCBpZiB3ZSB1c2VkIEZPQUYgYW5kIGluY2x1ZGVkIHRoZSBQR1Aga2V5IGZpbmdlcnByaW50KHMpIGZvciBpZGVudGl0aWVzP1xUaGlzIGNvdWxkIG1lYW4gYSBsb3QuICBZb3UgaW5jbHVkZSB0aGUgUEdQIGtleSBmaW5nZXJwcmludHMgd2l0aGluIHRoZSBGT0FGXGZpbGUgb2YgeW91ciBkaXJlY3QgZnJpZW5kcyBhbmQgdGhlbiBpbmNsdWRlIGEgYmxvb20gZmlsdGVyIG9mIHRoZSBQR1Aga2V5XGZpbmdlcnByaW50cyBvZiB5b3VyIGVudGlyZSB3aGl0ZWxpc3QgKHRoZSBzb3VyY2UgRk9BRiBmaWxlIHdvdWxkIG9mIGNvdXJzZSBuZWVkXHRvIGJlIGVuY3J5cHRlZCApLlxcWW91ciB3aGl0ZWxpc3Qgd291bGQgYmUgcG9wdWxhdGVkIGZyb20gdGhlIHNvY2lhbCBuZXR3b3JrIGFzIHlvdXIgY2xpZW50XGRpc2NvdmVyZWQgbmV3IGlkZW50aXQgLi4uXFw=",
-      "Holdout": "T0FGS2V5OiBGT0FGLCBQR1AsIEtleSBEaXN0cmlidXRpb24sIGFuZCBCbG9vbSBGaWx0ZXJzIFxcRk9BRi9MT0FGICBhbmQgYmxvb20gZmlsdGVycyBoYXZlIGEgbG90IG9mIGludGVyZXN0aW5nIHByb3BlcnRpZXMgZm9yIHNvY2lhbFxuZXR3b3JrIGFuZCB3aGl0ZWxpc3QgZGlzdHJpYnV0aW9uLlxcSSB0aGluayB3ZSBjYW4gZ28gb25lIGxldmVsIGhpZ2hlciB0aG91Z2ggYW5kIGluY2x1ZGUgR1BHL09wZW5QR1Aga2V5XGZpbmdlcnByaW5nIGRpc3RyaWJ1dGlvbiBpbiB0aGUgRk9BRiBmaWxlIGZvciBzaW1wbGUgd2ViLW9mLXRydXN0IGJhc2VkIGtleVxkaXN0cmlidXRpb24uXFxXaGF0IGlmIHdlIHVzZWQgRk9BRiBhbmQgaW5jbHVkZWQgdGhlIFBHUCBrZXkgZmluZ2VycHJpbnQocykgZm9yIGlkZW50aXRpZXM/XFRoaXMgY291bGQgbWVhbiBhIGxvdC4gIFlvdSBpbmNsdWRlIHRoZSBQR1Aga2V5IGZpbmdlcnByaW50cyB3aXRoaW4gdGhlIEZPQUZcZmlsZSBvZiB5b3VyIGRpcmVjdCBmcmllbmRzIGFuZCB0aGVuIGluY2x1ZGUgYSBibG9vbSBmaWx0ZXIgb2YgdGhlIFBHUCBrZXlcZmluZ2VycHJpbnRzIG9mIHlvdXIgZW50aXJlIHdoaXRlbGlzdCAodGhlIHNvdXJjZSBGT0FGIGZpbGUgd291bGQgb2YgY291cnNlIG5lZWRcdG8gYmUgZW5jcnlwdGVkICkuXFxZb3VyIHdoaXRlbGlzdCB3b3VsZCBiZSBwb3B1bGF0ZWQgZnJvbSB0aGUgc29jaWFsIG5ldHdvcmsgYXMgeW91ciBjbGllbnRcZGlzY292ZXJlZCBuZXcgaWRlbnRpdCAuLi5cXA==",
-      "Observed": "T0FGS2V5OiBGT0FGLCBQR1AsIEtleSBEaXN0cmlidXRpb24sIGFuZCBCbG9vbSBGaWx0ZXJzIFxcRk9BRi9MT0FGICBhbmQgYmxvb20gZmlsdGVycyBoYXZlIGEgbG90IG9mIGludGVyZXN0aW5nIHByb3BlcnRpZXMgZm9yIHNvY2lhbFxuZXR3b3JrIGFuZCB3aGl0ZWxpc3QgZGlzdHJpYnV0aW9uLlxcSSB0aGluayB3ZSBjYW4gZ28gb25lIGxldmVsIGhpZ2hlciB0aG91Z2ggYW5kIGluY2x1ZGUgR1BHL09wZW5QR1Aga2V5XGZpbmdlcnByaW5nIGRpc3RyaWJ1dGlvbiBpbiB0aGUgRk9BRiBmaWxlIGZvciBzaW1wbGUgd2ViLW9mLXRydXN0IGJhc2VkIGtleVxkaXN0cmlidXRpb24uXFxXaGF0IGlmIHdlIHVzZWQgRk9BRiBhbmQgaW5jbHVkZWQgdGhlIFBHUCBrZXkgZmluZ2VycHJpbnQocykgZm9yIGlkZW50aXRpZXM/XFRoaXMgY291bGQgbWVhbiBhIGxvdC4gIFlvdSBpbmNsdWRlIHRoZSBQR1Aga2V5IGZpbmdlcnByaW50cyB3aXRoaW4gdGhlIEZPQUZcZmlsZSBvZiB5b3VyIGRpcmVjdCBmcmllbmRzIGFuZCB0aGVuIGluY2x1ZGUgYSBibG9vbSBmaWx0ZXIgb2YgdGhlIFBHUCBrZXlcZmluZ2VycHJpbnRzIG9mIHlvdXIgZW50aXJlIHdoaXRlbGlzdCAodGhlIHNvdXJjZSBGT0FGIGZpbGUgd291bGQgb2YgY291cnNlIG5lZWRcdG8gYmUgZW5jcnlwdGVkICkuXFxZb3VyIHdoaXRlbGlzdCB3b3VsZCBiZSBwb3B1bGF0ZWQgZnJvbSB0aGUgc29jaWFsIG5ldHdvcmsgYXMgeW91ciBjbGllbnRcZGlzY292ZXJlZCBuZXcgaWRlbnRpdCAuLi5cXA==",
+      "Holdout": null,
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
-        "Exact": 1,
-        "Partial": 1,
-        "Fuzzy": 1
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 1,
+      "WeightedTotal": 0,
       "TrueLabel": 4,
       "PredLabel": null
     },
@@ -178,6 +178,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.5,
+  "score": 0,
   "section": "classification"
 }

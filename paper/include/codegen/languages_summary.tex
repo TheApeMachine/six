@@ -9,9 +9,9 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-13 & JavaScript & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-19 & JavaScript & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
-53 & Rust & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+0 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
@@ -21,27 +21,19 @@
 58 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 57 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Generation examples (3 curated)}} \\
-\midrule
-\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
-\midrule
-\multicolumn{2}{l}{\texttt{/* You're given a list of deposit and wi\ldots}} & \multicolumn{2}{l}{\texttt{You're given a list of deposit and withd\ldots}} & \multicolumn{2}{l}{\texttt{You're given a list of deposit and withd\ldots}} \\
-\multicolumn{2}{l}{\texttt{/* From a given list of integers, genera\ldots}} & \multicolumn{2}{l}{\texttt{From a given list of integers, generate \ldots}} & \multicolumn{2}{l}{\texttt{From a given list of integers, generate \ldots}} \\
-\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{main()\{\}··use std::\{slice::Iter, cmp::\{m\ldots}} & \multicolumn{2}{l}{\texttt{main()\{\}··use std::\{slice::Iter, cmp::\{m\ldots}} \\
-\midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 60} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0500} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{684.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{1.4 min} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{1.44 s} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.84 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.5 min}} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{2.00 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{14.40 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{239.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{3.18 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{19.58 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

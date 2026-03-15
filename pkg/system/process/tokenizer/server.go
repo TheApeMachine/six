@@ -180,10 +180,11 @@ func (server *UniversalServer) SetDataset(ctx context.Context, call Universal_se
 }
 
 /*
-tokenize runs the Sequencer over the byte stream but keeps storage byte-addressable:
-every Morton key remains (byte, absolute position), and the discovered boundaries are
-encoded into the Guard Band as opcodes rather than by collapsing multiple bytes into
-one opaque chunk.
+tokenize runs the Sequencer over the byte stream while keeping storage byte-addressable.
+Every emitted edge still names a concrete byte, but the position is now boundary-local:
+the local depth resets whenever the Sequencer commits a cut. The chord itself remains
+a transient observable carrying lexical seed + phase so prompts can still be injected
+directly, while the spatial index strips that lexical seed before persistence.
 */
 func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]TokenEdge, error) {
 	_ = ctx
@@ -191,6 +192,7 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]Toke
 	sequitur := sequencer.NewSequitur()
 	edges := make([]TokenEdge, 0, len(raw))
 	state := numeric.Phase(1)
+	localPos := uint32(0)
 
 	for idx, currentByte := range raw {
 		state = server.calc.Multiply(
@@ -200,18 +202,22 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]Toke
 
 		isBoundary, _, _, emitMeta := sequitur.Analyze(uint32(idx), currentByte)
 
-		chord := data.BaseChord(currentByte)
-		chord.Set(int(state))
-		chord.SetResidualCarry(uint64(state))
-		chord.SetProgram(data.OpcodeNext, 1, 0, false)
+		value := data.NeutralValue()
+		value.SetStatePhase(state)
 
+		if idx+1 < len(raw) {
+			value.SetLexicalTransition(raw[idx+1])
+		}
+
+		value.SetProgram(data.OpcodeNext, 1, 0, false)
 		if isBoundary {
-			chord.SetProgram(data.OpcodeBranch, 1, 1, false)
+			value.SetProgram(data.OpcodeReset, 0, 1, false)
+		}
+		if idx == len(raw)-1 {
+			value.SetProgram(data.OpcodeHalt, 0, value.Branches(), true)
 		}
 
-		if idx == len(raw)-1 {
-			chord.SetProgram(data.OpcodeHalt, 0, chord.Branches(), true)
-		}
+		chord := data.SeedObservable(currentByte, value)
 
 		meta := data.MustNewChord()
 		if isBoundary {
@@ -226,10 +232,16 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]Toke
 		edges = append(edges, TokenEdge{
 			Left:     currentByte,
 			Right:    right,
-			Position: uint32(idx),
+			Position: localPos,
 			Chord:    chord,
 			Meta:     meta,
 		})
+
+		if isBoundary {
+			localPos = 0
+		} else {
+			localPos++
+		}
 	}
 
 	if flushed, _, _, flushMeta := sequitur.Flush(); flushed && len(edges) > 0 {
@@ -265,8 +277,8 @@ func (server *UniversalServer) processChunk(chunk []byte, metaChord data.Chord) 
 		)
 	}
 
-	out.Set(int(state))
-	out.SetResidualCarry(uint64(state))
+	out.SetStatePhase(state)
+	out.SetAffine(1, 0)
 	out.SetProgram(data.OpcodeJump, uint32(len(chunk)), 0, false)
 
 	if metaChord.ActiveCount() > 0 {

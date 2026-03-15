@@ -180,7 +180,7 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 	}
 }
 
-func TestTokenizerPreservesByteAddressability(t *testing.T) {
+func TestTokenizerUsesBoundaryLocalCellIndex(t *testing.T) {
 	Convey("Given a short byte stream", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -188,21 +188,28 @@ func TestTokenizerPreservesByteAddressability(t *testing.T) {
 		workerPool := pool.New(ctx, 1, 4, nil)
 		server := newServer(ctx, workerPool)
 
-		edges, err := server.tokenize(ctx, []byte("ab"))
+		edges, err := server.tokenize(ctx, []byte("ababc"))
 
-		Convey("It should emit one edge per byte at the exact Morton position", func() {
+		Convey("It should emit one edge per byte while resetting the local depth at boundaries", func() {
 			So(err, ShouldBeNil)
-			So(len(edges), ShouldEqual, 2)
+			So(len(edges), ShouldEqual, 5)
 			So(edges[0].Left, ShouldEqual, 'a')
 			So(edges[0].Position, ShouldEqual, uint32(0))
 			So(edges[1].Left, ShouldEqual, 'b')
 			So(edges[1].Position, ShouldEqual, uint32(1))
+			So(edges[2].Left, ShouldEqual, 'a')
+			So(edges[2].Position, ShouldEqual, uint32(2))
+			So(edges[3].Left, ShouldEqual, 'b')
+			So(edges[3].Position, ShouldEqual, uint32(3))
+			So(edges[4].Left, ShouldEqual, 'c')
+			So(edges[4].Position, ShouldEqual, uint32(0))
 		})
 
-		Convey("The final byte should carry a terminal opcode", func() {
+		Convey("Boundary bytes should reset the local traversal program and the final byte should halt", func() {
 			So(err, ShouldBeNil)
-			So(edges[1].Chord.Terminal(), ShouldBeTrue)
-			So(edges[1].Chord.Opcode(), ShouldEqual, uint64(data.OpcodeHalt))
+			So(edges[3].Chord.Opcode(), ShouldEqual, uint64(data.OpcodeReset))
+			So(edges[4].Chord.Terminal(), ShouldBeTrue)
+			So(edges[4].Chord.Opcode(), ShouldEqual, uint64(data.OpcodeHalt))
 		})
 	})
 }
