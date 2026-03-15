@@ -104,6 +104,16 @@ func (server *MacroIndexServer) Client(clientID string) MacroIndex {
 }
 
 /*
+Close shuts down the pipe-based RPC connections.
+*/
+func (server *MacroIndexServer) Close() error {
+	server.serverSide.Close()
+	server.clientSide.Close()
+
+	return nil
+}
+
+/*
 Prompt implements MacroIndex_Server.
 */
 func (server *MacroIndexServer) Prompt(ctx context.Context, call MacroIndex_prompt) error {

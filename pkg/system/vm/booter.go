@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"io"
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/grammar"
@@ -33,6 +34,7 @@ type Booter struct {
 	engine       semantic.Engine
 	parser       grammar.Parser
 	cantilever   bvp.Cantilever
+	closers      []io.Closer
 }
 
 type booterOpts func(*Booter)
@@ -56,29 +58,34 @@ func NewBooter(opts ...booterOpts) *Booter {
 		})
 	})
 
-	booter.prompter = input.NewPrompterServer(
+	promptServer := input.NewPrompterServer(
 		input.PrompterWithContext(booter.ctx),
-	).Client("booter")
+	)
+	booter.prompter = promptServer.Client("booter")
 
-	booter.tok = tokenizer.NewUniversalServer(
+	tokServer := tokenizer.NewUniversalServer(
 		tokenizer.UniversalWithContext(booter.ctx),
 		tokenizer.UniversalWithPool(booter.pool),
-	).Client("booter")
+	)
+	booter.tok = tokServer.Client("booter")
 
-	booter.spatialIndex = lsm.NewSpatialIndexServer(
+	spatialServer := lsm.NewSpatialIndexServer(
 		lsm.WithContext(booter.ctx),
-	).Client("booter")
+	)
+	booter.spatialIndex = spatialServer.Client("booter")
 
-	booter.graph = substrate.NewGraphServer(
+	graphServer := substrate.NewGraphServer(
 		substrate.GraphWithContext(booter.ctx),
 		substrate.GraphWithWorkerPool(booter.pool),
-	).Client("booter")
+	)
+	booter.graph = graphServer.Client("booter")
 
-	booter.engine = semantic.NewEngineServer(
+	engineServer := semantic.NewEngineServer(
 		semantic.EngineWithContext(booter.ctx),
-	).Client("booter")
+	)
+	booter.engine = engineServer.Client("booter")
 
-	booter.parser = grammar.NewParserServer(
+	parserServer := grammar.NewParserServer(
 		grammar.ParserWithContext(booter.ctx),
 		grammar.ParserWithNouns(
 			"mary", "john", "daniel", "sandra",
@@ -95,18 +102,42 @@ func NewBooter(opts ...booterOpts) *Booter {
 			"to", "the", "a", "an", "is", "in", "on",
 			"where", "what", "who", "how",
 		),
-	).Client("booter")
+	)
+	booter.parser = parserServer.Client("booter")
 
 	sharedIndex := macro.NewMacroIndexServer(
 		macro.MacroIndexWithContext(booter.ctx),
 	)
 
-	booter.cantilever = bvp.NewCantileverServer(
+	cantileverServer := bvp.NewCantileverServer(
 		bvp.CantileverWithContext(booter.ctx),
 		bvp.WithMacroIndex(sharedIndex),
-	).Client("booter")
+	)
+	booter.cantilever = cantileverServer.Client("booter")
+
+	booter.closers = []io.Closer{
+		promptServer,
+		tokServer,
+		spatialServer,
+		graphServer,
+		engineServer,
+		parserServer,
+		sharedIndex,
+		cantileverServer,
+	}
 
 	return booter
+}
+
+/*
+Close cancels the context and closes pipe-based RPC servers.
+*/
+func (booter *Booter) Close() {
+	booter.cancel()
+
+	for _, closer := range booter.closers {
+		closer.Close()
+	}
 }
 
 /*

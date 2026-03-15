@@ -2,13 +2,10 @@ package task
 
 import (
 	"context"
-	"runtime"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/vm"
 	"github.com/theapemachine/six/pkg/system/vm/input"
 )
@@ -30,40 +27,24 @@ type runTiming struct {
 }
 
 type Pipeline struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	pool         *pool.Pool
-	broadcast    *pool.BroadcastGroup
-	coder        *data.MortonCoder
-	booter       *vm.Booter
-	machine      *vm.Machine
-	experiment   tools.PipelineExperiment
-	testIdx      int
-	scoreWgts    tools.ScoreWeights
-	reporter     Reporter
-	progressLine string
-	failures     []promptFailure
-	timing       runTiming
+	ctx       context.Context
+	cancel    context.CancelFunc
+	machine   *vm.Machine
+	experiment tools.PipelineExperiment
+	scoreWgts tools.ScoreWeights
+	reporter  Reporter
+	timing    runTiming
 }
 
 type pipelineOpts func(*Pipeline)
 
 func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 	ctx, cancel := context.WithCancel(context.Background())
-	workerPool := pool.New(
-		ctx, 1, runtime.NumCPU(), nil,
-	)
 
 	pipeline := &Pipeline{
 		ctx:       ctx,
 		cancel:    cancel,
-		pool:      workerPool,
-		broadcast: workerPool.CreateBroadcastGroup("broadcast", time.Second*10),
 		scoreWgts: tools.DefaultScoreWeights(),
-		booter: vm.NewBooter(
-			vm.BooterWithContext(ctx),
-			vm.BooterWithPool(workerPool),
-		),
 	}
 
 	for _, opt := range opts {
@@ -84,11 +65,14 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
+	defer pipeline.cancel()
+
 	loadStart := time.Now()
 
 	pipeline.machine = vm.NewMachine(
 		vm.MachineWithContext(pipeline.ctx),
 	)
+	defer pipeline.machine.Close()
 
 	dataset := pipeline.experiment.Dataset()
 	if dataset != nil {

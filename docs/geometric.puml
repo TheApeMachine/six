@@ -1,0 +1,34 @@
+@startuml geometric
+skinparam linetype ortho
+
+title Geometric Routing & The Wavefront Search
+
+state "Current State: Chord(C)" as C
+state "Projected Rotation (Targeting 'A')" as ProjA
+state "Next State: Chord(A)" as ChordA
+state "Projected Rotation (Targeting 'T')" as ProjT
+state "LSM Stored Paths (Neighborhood of C)" as LSM {
+  state "Path: C -> A" as PathA
+  state "Path: C -> O" as PathO
+  state "Path: C -> U" as PathU
+  
+  note right of PathA
+    <b>Constructive Interference</b>
+    XOR reveals high resonance/saturation.
+    Math aligns perfectly with projection.
+  end note
+  
+  note right of PathO
+    <b>Destructive Interference</b>
+    XOR reveals noise/high entropy.
+    Path is pruned.
+  end note
+}
+
+C -> ProjA : Apply Momentum/Rotation
+ProjA --> LSM : XOR against physical memory
+
+PathA --> ChordA : Move &amp; Update Phase
+ChordA -> ProjT : Continue Braid...
+
+@enduml

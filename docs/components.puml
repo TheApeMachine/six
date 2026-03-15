@@ -1,0 +1,41 @@
+@startuml components
+skinparam linetype ortho
+
+title Architecture: The Two-Tiered Universe
+
+package "Layer 2: Higher-Dimensional Logic (Phase Space)" {
+    component "The Chord (Mono-Type)" as Chord
+    component "Affine Rotations (Galois Exponentiation)" as Rotations
+    
+    note right of Chord 
+      <b>Native System Language</b>
+      Lives in GF(257). Knows nothing 
+      of English or Pixels.
+    end note
+    
+    note right of Rotations
+      <b>Rotation IS Logic</b>
+      Generative phase shifts (no XOR here).
+      Builds momentum & trajectory.
+    end note
+    
+    Chord <-> Rotations : Evolves via f(x) = ax + b (mod 257)
+}
+
+package "Layer 1: Static Ground (LSM Storage)" {
+    [Morton Key Address Space] as Morton
+    component "O(1) Data Retrieval" as Retrieval
+    
+    note bottom of Morton
+      <b>Position IS Data</b>
+      X = Byte Value (0-255)
+      Y = Sequence Index
+      Sequence Index is reset when sequencer makes a new chunk.
+      <i>Collision IS Compression</i>
+    end note
+}
+
+Chord --> Morton : Projects Down\n(Coordinate Alignment)
+Morton -> Retrieval : Unpack Morton Key\nYields raw Byte to "Puny Humans"
+
+@enduml

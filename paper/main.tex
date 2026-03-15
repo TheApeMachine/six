@@ -192,6 +192,7 @@
 
 \InputIfFileExists{include/codegen/languages_scores.tex}{}{}
 \InputIfFileExists{include/codegen/languages_section.tex}{}{}
+\InputIfFileExists{include/codegen/languages_summary.tex}{}{}
 \FloatBarrier
 \clearpage
 
@@ -259,9 +260,13 @@
 
 \graphicspath{{include/textgen/}}
 
+\InputIfFileExists{include/textgen/compositional_map.tex}{}{}
 \InputIfFileExists{include/textgen/compositional_section.tex}{}{}
+\InputIfFileExists{include/textgen/compositional_summary.tex}{}{}
 \InputIfFileExists{include/textgen/out_of_corpus_section.tex}{}{}
+\InputIfFileExists{include/textgen/prose_chaining_map.tex}{}{}
 \InputIfFileExists{include/textgen/prose_chaining_section.tex}{}{}
+\InputIfFileExists{include/textgen/prose_chaining_summary.tex}{}{}
 \InputIfFileExists{include/textgen/text_overlap_section.tex}{}{}
 \FloatBarrier
 \clearpage

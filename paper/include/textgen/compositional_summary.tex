@@ -1,0 +1,48 @@
+\begin{table}[htbp]
+\centering
+\caption{Compositional — standardised result summary (N=10).}
+\label{tab:compositional_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+2 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+3 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+5 & Compositional & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+9 & Compositional & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+8 & Compositional & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+7 & Compositional & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (3 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{One day, a little fish named Fin was swi\ldots}} & \multicolumn{2}{l}{\texttt{e day, a little fish named Fin was swimm\ldots}} & \multicolumn{2}{l}{\texttt{e day, a little fish named Fin was swimm\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a land full of tree\ldots}} & \multicolumn{2}{l}{\texttt{ce upon a time, in a land full of trees,\ldots}} & \multicolumn{2}{l}{\texttt{ce upon a time, in a land full of trees,\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, in a big lake, there w\ldots}} & \multicolumn{2}{l}{\texttt{ce upon a time, in a big lake, there was\ldots}} & \multicolumn{2}{l}{\texttt{ce upon a time, in a big lake, there was\ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 30\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.3000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{667.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{2.87 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{287.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.86 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{5.40 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

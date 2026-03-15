@@ -1,0 +1,60 @@
+@startuml
+skinparam backgroundColor #F9F9F9
+skinparam linetype polyline
+skinparam monochrome true
+
+title The Braid Engine: 3D Affine Logic in GF(257)
+
+
+|Hardware Layer (AVX-512)|
+start
+:<b>Initialization</b>\nInject 512-bit Seed (Data + Constants);
+
+partition "The Morton Fold" {
+    :Interleave X, Y, Z (8-bit coords)\ninto 24-bit Morton Code;
+    :Map to 257-Prime Bitfield;
+    note right: This is the "Grounding"\nfrom Bytes to Geometry
+}
+
+
+|Mathematical Logic (GF(257))|
+repeat
+    :<b>The Braid Tick</b>\nApply 3D Affine Rotation;
+    :V' = [A]V + B (mod 257);
+    
+    note left
+        <b>Rotation is Execution</b>
+        [A] is the Opcode Matrix.
+        V is the Data State.
+    end note
+
+
+    |Hardware Layer (AVX-512)|
+    partition "The XOR Measurement (Branching)" {
+        :XOR Current Phase against LSM Anchor;
+        if (Residue < Entropy Threshold?) then (Constructive / Match)
+            :<b>Phase-Lock</b>\nMaintain Momentum;
+            :Increment Bit 257 (Saturation);
+        else (Destructive / Noise)
+            :<b>Pivot Orbit</b>\nSwap Matrix [A] for [A_alt];
+            note right: This IS the "If/Then"\nConditional Branch
+        endif
+    }
+
+
+    |Control Flow (The Fermat Sentinel)|
+|Mathematical Logic (GF(257))|
+repeat while (Bit 257 == 0 AND Orbit != Fixed Point) is (Spinning)
+
+
+|Hardware Layer (AVX-512)|
+partition "The Projection" {
+    :<b>Collapse the Braid</b>;
+    :Extract X, Y, Z from Morton;
+    :De-Prime to Byte Values;
+}
+
+stop
+
+footer 257 Primes | 512 Bits | 3D Affine Loops
+@enduml

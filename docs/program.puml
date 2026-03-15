@@ -1,0 +1,94 @@
+@startuml
+skinparam linetype ortho
+
+title Programming by Geometry: The Life of a Braid
+
+[*] --> Initialization : Human Prompt
+
+state "Phase 1: Grounding (Data -> Coordinate)" as Initialization {
+  state "Morton Encoding" as Morton
+  state "Extract GF(257) Phase" as Phase
+  
+  Morton : X = Byte Value
+  Morton : Y = Sequence Index
+  Phase : Map to Mono-Type (The Chord)
+  
+  Morton -> Phase
+}
+
+note right of Initialization
+  <b>The Programmer's Input</b>
+  We don't give the system "code". 
+  We give it a Boundary Value (a start 
+  coordinate and a target Anchor Phase).
+end note
+
+state "Phase 2: The Logic Engine (Layer 2)" as Engine {
+  
+  state "Apply Momentum (The Opcode)" as Rotate {
+    state "Affine Rotation" as Affine
+    Affine : State = a(State) + b (mod 257)
+    Affine : Generative / Non-Destructive
+  }
+  
+  state "Wavefront Measurement" as Measurement <<choice>>
+  
+  state "Constructive Interference" as Resonance {
+    state "Phase-Lock" as Lock
+    Lock : High Saturation / Low Residue
+    Lock : The Rotation becomes the Pointer
+  }
+  
+  state "Destructive Interference" as Noise {
+    state "Entropy Sink" as Prune
+    Prune : Path mathematically dies
+  }
+  
+  Rotate --> Measurement : XOR Projected Phase\nAgainst Stored LSM Paths
+  Measurement --> Resonance : [Match]
+  Measurement --> Noise :[Mismatch / High Entropy]
+}
+
+note top of Rotate
+  <b>Rotation IS Logic</b>
+  This is the "Execution". The engine 
+  spins the Fermat cube to point toward 
+  the next logical concept.
+end note
+
+note bottom of Measurement
+  <b>XOR IS Measurement</b>
+  We do NOT store the XOR. We only use 
+  XOR to check if our rotated Chord hit 
+  a valid physical coordinate in the LSM.
+end note
+
+state "Phase 3: The Halt Evaluator" as HaltCheck <<choice>>
+
+state "Phase 4: Projection (Coordinate -> Data)" as Output {
+  state "O(1) Spatial Lookup" as Lookup
+  state "Un-Morton" as Decode
+  
+  Lookup : Retrieve X from LSM
+  Decode : Convert X back to Byte
+  Lookup -> Decode
+}
+
+note bottom of Output
+  <b>Translation for Puny Humans</b>
+  The system drops out of Layer 2 (Math)
+  back into Layer 1 (Bytes/Pixels) to 
+  return the answer.
+end note
+
+Initialization --> Rotate : Inject Initial Phase
+
+Resonance --> HaltCheck
+Noise --> [*] : Branch Pruned
+
+HaltCheck --> Rotate : [Bit 257 == 0]\nAND\n[Not Saturated]\n(Loop / Advance)
+HaltCheck --> Output :[Bit 257 == 1]\nOR\n[Maximum Saturation]\n(Fixed Point Reached)
+
+Output --> [*] : Return Final Bytes
+
+@enduml

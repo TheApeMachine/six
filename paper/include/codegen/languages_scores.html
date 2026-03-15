@@ -31,8 +31,8 @@
 <body>
     <div id="chart"></div>
     <script>
-        const xAxisData = [];
-        const seriesData = [{"name":"Exact","data":[]},{"name":"Partial","data":[]},{"name":"Fuzzy","data":[]},{"name":"Weighted","data":[]}];
+        const xAxisData = ["Python","JavaScript","Java","Go","C++","Rust"];
+        const seriesData = [{"name":"Exact","data":[0,0.2,0,0,0,0.1]},{"name":"Partial","data":[0,0.2,0,0,0,0.1]},{"name":"Fuzzy","data":[0,0.2,0,0,0,0.1]},{"name":"Weighted","data":[0,0.2,0,0,0,0.1]}];
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
         const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];

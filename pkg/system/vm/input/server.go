@@ -84,6 +84,17 @@ func NewPrompterServer(opts ...prompterOpts) *PrompterServer {
 }
 
 /*
+Close shuts down the RPC connections and underlying net.Pipe,
+unblocking goroutines stuck on pipe reads.
+*/
+func (server *PrompterServer) Close() error {
+	server.serverSide.Close()
+	server.clientSide.Close()
+
+	return nil
+}
+
+/*
 Client returns a Cap'n Proto client connected to this PrompterServer.
 */
 func (server *PrompterServer) Client(clientID string) Prompter {

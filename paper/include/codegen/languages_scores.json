@@ -1,23 +1,58 @@
 {
   "caption": "Mean exact, partial, fuzzy, and weighted scores per language (bigcode/humanevalpack).",
   "data": {
-    "x_axis": [],
+    "x_axis": [
+      "Python",
+      "JavaScript",
+      "Java",
+      "Go",
+      "C++",
+      "Rust"
+    ],
     "series": [
       {
         "name": "Exact",
-        "data": []
+        "data": [
+          0,
+          0.2,
+          0,
+          0,
+          0,
+          0.1
+        ]
       },
       {
         "name": "Partial",
-        "data": []
+        "data": [
+          0,
+          0.2,
+          0,
+          0,
+          0,
+          0.1
+        ]
       },
       {
         "name": "Fuzzy",
-        "data": []
+        "data": [
+          0,
+          0.2,
+          0,
+          0,
+          0,
+          0.1
+        ]
       },
       {
         "name": "Weighted",
-        "data": []
+        "data": [
+          0,
+          0.2,
+          0,
+          0,
+          0,
+          0.1
+        ]
       }
     ]
   },

@@ -80,6 +80,15 @@ func NewMachine(opts ...machineOpts) *Machine {
 }
 
 /*
+Close shuts down the machine's booter, cancelling the context and
+closing pipe-based RPC connections to prevent goroutine leaks.
+*/
+func (machine *Machine) Close() {
+	machine.cancel()
+	machine.booter.Close()
+}
+
+/*
 Prompt is the main entry point. Every RPC result is deferred at this scope
 so downstream PlaceArgs callbacks can safely read from upstream messages.
 The final byte slice is copied into owned memory before returning because

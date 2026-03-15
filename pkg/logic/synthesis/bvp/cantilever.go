@@ -84,6 +84,16 @@ func (server *CantileverServer) Client(clientID string) Cantilever {
 }
 
 /*
+Close shuts down the pipe-based RPC connections.
+*/
+func (server *CantileverServer) Close() error {
+	server.serverSide.Close()
+	server.clientSide.Close()
+
+	return nil
+}
+
+/*
 Prompt implements Cantilever_Server.
 */
 func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prompt) error {

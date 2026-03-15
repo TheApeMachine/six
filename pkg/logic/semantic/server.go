@@ -77,6 +77,16 @@ func (server *EngineServer) Client(clientID string) Engine {
 }
 
 /*
+Close shuts down the pipe-based RPC connections.
+*/
+func (server *EngineServer) Close() error {
+	server.serverSide.Close()
+	server.clientSide.Close()
+
+	return nil
+}
+
+/*
 Prompt is a remote method that can be called by a client.
 */
 func (server *EngineServer) Prompt(ctx context.Context, params Engine_prompt) error {

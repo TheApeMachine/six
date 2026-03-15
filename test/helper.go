@@ -50,5 +50,5 @@ func (h *TestHelper) Prompt(msg string) ([]byte, error) {
 Teardown cancels the test context.
 */
 func (h *TestHelper) Teardown() {
-	h.cancel()
+	h.machine.Close()
 }

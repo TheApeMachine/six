@@ -104,6 +104,16 @@ func (idx *SpatialIndexServer) Client(clientID string) SpatialIndex {
 	return idx.client
 }
 
+/*
+Close shuts down the pipe-based RPC connections.
+*/
+func (idx *SpatialIndexServer) Close() error {
+	idx.serverSide.Close()
+	idx.clientSide.Close()
+
+	return nil
+}
+
 func (idx *SpatialIndexServer) Done(ctx context.Context, call SpatialIndex_done) error {
 	return nil
 }

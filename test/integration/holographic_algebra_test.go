@@ -33,33 +33,33 @@ func TestHolographicAlgebra_Integration(t *testing.T) {
 		Convey("Temporal: 'was' routes to living room not kitchen", func() {
 			result, err := helper.Prompt("Roy was in the ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "living room")
+			So(string(result), ShouldEqual, "living room")
 			So(string(result), ShouldNotContainSubstring, "kitchen")
 		})
 
 		Convey("Temporal: 'is' routes to kitchen not living room", func() {
 			result, err := helper.Prompt("Roy is in the ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "kitchen")
+			So(string(result), ShouldEqual, "kitchen")
 			So(string(result), ShouldNotContainSubstring, "living room")
 		})
 
 		Convey("Temporal: 'will be' routes to garage", func() {
 			result, err := helper.Prompt("Roy will be in the ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "garage")
+			So(string(result), ShouldEqual, "garage")
 		})
 
 		Convey("Cross-modal: cat prompt returns cat not dog-unique content", func() {
 			result, err := helper.Prompt("Image of cat ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "cat")
+			So(string(result), ShouldEqual, "cat")
 		})
 
 		Convey("Cross-modal: dog prompt returns dog not cat-unique content", func() {
 			result, err := helper.Prompt("Image of dog ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "dog")
+			So(string(result), ShouldEqual, "dog")
 		})
 
 		Convey("Superposition: shared prefix activates at least one branch", func() {
@@ -81,13 +81,13 @@ func TestHolographicAlgebra_Integration(t *testing.T) {
 		Convey("Logic AND: rains-and context routes to wet not dry", func() {
 			result, err := helper.Prompt("If it rains and ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "wet")
+			So(string(result), ShouldEqual, "wet")
 		})
 
 		Convey("Logic OR: umbrella-or context routes to dry not wet", func() {
 			result, err := helper.Prompt("If you have an umbrella or ")
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, "dry")
+			So(string(result), ShouldEqual, "dry")
 		})
 	})
 }

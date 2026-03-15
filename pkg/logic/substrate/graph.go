@@ -85,6 +85,16 @@ func (graph *GraphServer) Client(clientID string) Graph {
 }
 
 /*
+Close shuts down the pipe-based RPC connections.
+*/
+func (graph *GraphServer) Close() error {
+	graph.serverSide.Close()
+	graph.clientSide.Close()
+
+	return nil
+}
+
+/*
 Prompt implements Graph_Server. It receives pre-fetched paths from the
 Machine, applies RecursiveFold reasoning, and returns the result paths.
 */

@@ -78,6 +78,16 @@ func (server *ParserServer) Client(clientID string) Parser {
 }
 
 /*
+Close shuts down the pipe-based RPC connections.
+*/
+func (server *ParserServer) Close() error {
+	server.serverSide.Close()
+	server.clientSide.Close()
+
+	return nil
+}
+
+/*
 Prompt implements Parser_Server.
 */
 func (server *ParserServer) Prompt(ctx context.Context, call Parser_prompt) error {
