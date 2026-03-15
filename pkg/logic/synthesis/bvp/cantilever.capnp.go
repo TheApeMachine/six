@@ -36,6 +36,26 @@ func (c Cantilever) Prompt(ctx context.Context, params func(Cantilever_prompt_Pa
 
 }
 
+func (c Cantilever) Bridge(ctx context.Context, params func(Cantilever_bridge_Params) error) (Cantilever_bridge_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xcc7a3ddf056ca685,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/synthesis/bvp/cantilever.capnp:Cantilever",
+			MethodName:    "bridge",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Cantilever_bridge_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Cantilever_bridge_Results_Future{Future: ans.Future()}, release
+
+}
+
 func (c Cantilever) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -110,6 +130,8 @@ func (c Cantilever) GetFlowLimiter() fc.FlowLimiter {
 // A Cantilever_Server is a Cantilever with a local implementation.
 type Cantilever_Server interface {
 	Prompt(context.Context, Cantilever_prompt) error
+
+	Bridge(context.Context, Cantilever_bridge) error
 }
 
 // Cantilever_NewServer creates a new Server from an implementation of Cantilever_Server.
@@ -128,7 +150,7 @@ func Cantilever_ServerToClient(s Cantilever_Server) Cantilever {
 // This can be used to create a more complicated Server.
 func Cantilever_Methods(methods []server.Method, s Cantilever_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 1)
+		methods = make([]server.Method, 0, 2)
 	}
 
 	methods = append(methods, server.Method{
@@ -140,6 +162,18 @@ func Cantilever_Methods(methods []server.Method, s Cantilever_Server) []server.M
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Prompt(ctx, Cantilever_prompt{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xcc7a3ddf056ca685,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/synthesis/bvp/cantilever.capnp:Cantilever",
+			MethodName:    "bridge",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Bridge(ctx, Cantilever_bridge{call})
 		},
 	})
 
@@ -161,6 +195,23 @@ func (c Cantilever_prompt) Args() Cantilever_prompt_Params {
 func (c Cantilever_prompt) AllocResults() (Cantilever_prompt_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Cantilever_prompt_Results(r), err
+}
+
+// Cantilever_bridge holds the state for a server call to Cantilever.bridge.
+// See server.Call for documentation.
+type Cantilever_bridge struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Cantilever_bridge) Args() Cantilever_bridge_Params {
+	return Cantilever_bridge_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Cantilever_bridge) AllocResults() (Cantilever_bridge_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Cantilever_bridge_Results(r), err
 }
 
 // Cantilever_List is a list of Cantilever.
@@ -336,32 +387,205 @@ func (f Cantilever_prompt_Results_Future) Struct() (Cantilever_prompt_Results, e
 	return Cantilever_prompt_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d6a = "x\xda\x12\x98\xe9\xc0b\xc8\x9b\xcf\xc4\xc0\x14(\xc3\xca" +
-	"\xf6\xbf1\xfd}\xf7\x8d\x8c\x80\x95\x0c\x82&\x8c\x0c\x0c" +
-	"\xac\x8c\xec\x0c\x0c\xc6\xb2\x8cBL\x0c\x8c\xc2\xa6\x8c\xf6" +
-	"\x0c\x8c\xff\x1b\x8e'4\x15z\xef;\x8e\xac \x94Q" +
-	"\x0a\xa4 \x17\xac\xa0uY\x0e\xeb}\xdb\xaa3\x0c\x82" +
-	"\x9a\xcc\xff\xb3l\x1d\x0b\xe6\xf6\xb0\xaee``4\xee" +
-	"e\\\xc4(\xbc\x14\xa4Ax!\xa3\xbb\xf0IFv" +
-	"\x06\x9d\xff\x05\xd9\xe9\xfa9\xf9\xe9\x99\xec\xc9\xfa\xc5\x95" +
-	"y%\x19\xa9\xc5\x99\xc5\xfaIe\x05\xfa\xc9\x89y%" +
-	"\x999\xa9e\xa9Ez\xc9\x89\x05y\x05V\xce\x08\x81" +
-	"\x82\xa2\xfc\xdc\x82\x12\x95\x80\xc4\xa2\xc4\\\xc6\xe2@\x16" +
-	"f\x16\x06\x06\x16F\x06\x06A^%\x06\x86@\x0ef" +
-	"\xc6@\x11&F\xf6\xdc\xe2tF\x1e\x06&F\x1e\x06" +
-	"F\x8a\xac\x09J-.\xcda.A\xb1\xc7\x0aa\x8f" +
-	"}\x11H\xbe\x04\xc3*Vb\xadb/K-\x0a`" +
-	"d\x0cdafe`\x80G\x00#,\xa0\x05\x05\xad" +
-	"\x18\x98\x04Y\xd9\xed!\xceq`\x0c`d\x04\x04\x00" +
-	"\x00\xff\xff~h}\xcf"
+type Cantilever_bridge_Params capnp.Struct
+
+// Cantilever_bridge_Params_TypeID is the unique identifier for the type Cantilever_bridge_Params.
+const Cantilever_bridge_Params_TypeID = 0xace7dfc906a3bb5c
+
+func NewCantilever_bridge_Params(s *capnp.Segment) (Cantilever_bridge_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Cantilever_bridge_Params(st), err
+}
+
+func NewRootCantilever_bridge_Params(s *capnp.Segment) (Cantilever_bridge_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Cantilever_bridge_Params(st), err
+}
+
+func ReadRootCantilever_bridge_Params(msg *capnp.Message) (Cantilever_bridge_Params, error) {
+	root, err := msg.Root()
+	return Cantilever_bridge_Params(root.Struct()), err
+}
+
+func (s Cantilever_bridge_Params) String() string {
+	str, _ := text.Marshal(0xace7dfc906a3bb5c, capnp.Struct(s))
+	return str
+}
+
+func (s Cantilever_bridge_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Cantilever_bridge_Params) DecodeFromPtr(p capnp.Ptr) Cantilever_bridge_Params {
+	return Cantilever_bridge_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Cantilever_bridge_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Cantilever_bridge_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Cantilever_bridge_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Cantilever_bridge_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Cantilever_bridge_Params) Start() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s Cantilever_bridge_Params) SetStart(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+func (s Cantilever_bridge_Params) Goal() uint32 {
+	return capnp.Struct(s).Uint32(4)
+}
+
+func (s Cantilever_bridge_Params) SetGoal(v uint32) {
+	capnp.Struct(s).SetUint32(4, v)
+}
+
+// Cantilever_bridge_Params_List is a list of Cantilever_bridge_Params.
+type Cantilever_bridge_Params_List = capnp.StructList[Cantilever_bridge_Params]
+
+// NewCantilever_bridge_Params creates a new list of Cantilever_bridge_Params.
+func NewCantilever_bridge_Params_List(s *capnp.Segment, sz int32) (Cantilever_bridge_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	return capnp.StructList[Cantilever_bridge_Params](l), err
+}
+
+// Cantilever_bridge_Params_Future is a wrapper for a Cantilever_bridge_Params promised by a client call.
+type Cantilever_bridge_Params_Future struct{ *capnp.Future }
+
+func (f Cantilever_bridge_Params_Future) Struct() (Cantilever_bridge_Params, error) {
+	p, err := f.Future.Ptr()
+	return Cantilever_bridge_Params(p.Struct()), err
+}
+
+type Cantilever_bridge_Results capnp.Struct
+
+// Cantilever_bridge_Results_TypeID is the unique identifier for the type Cantilever_bridge_Results.
+const Cantilever_bridge_Results_TypeID = 0xf93e88918f01dfb1
+
+func NewCantilever_bridge_Results(s *capnp.Segment) (Cantilever_bridge_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Cantilever_bridge_Results(st), err
+}
+
+func NewRootCantilever_bridge_Results(s *capnp.Segment) (Cantilever_bridge_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Cantilever_bridge_Results(st), err
+}
+
+func ReadRootCantilever_bridge_Results(msg *capnp.Message) (Cantilever_bridge_Results, error) {
+	root, err := msg.Root()
+	return Cantilever_bridge_Results(root.Struct()), err
+}
+
+func (s Cantilever_bridge_Results) String() string {
+	str, _ := text.Marshal(0xf93e88918f01dfb1, capnp.Struct(s))
+	return str
+}
+
+func (s Cantilever_bridge_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Cantilever_bridge_Results) DecodeFromPtr(p capnp.Ptr) Cantilever_bridge_Results {
+	return Cantilever_bridge_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Cantilever_bridge_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Cantilever_bridge_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Cantilever_bridge_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Cantilever_bridge_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Cantilever_bridge_Results) Rotation() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s Cantilever_bridge_Results) SetRotation(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+func (s Cantilever_bridge_Results) Hardened() bool {
+	return capnp.Struct(s).Bit(32)
+}
+
+func (s Cantilever_bridge_Results) SetHardened(v bool) {
+	capnp.Struct(s).SetBit(32, v)
+}
+
+// Cantilever_bridge_Results_List is a list of Cantilever_bridge_Results.
+type Cantilever_bridge_Results_List = capnp.StructList[Cantilever_bridge_Results]
+
+// NewCantilever_bridge_Results creates a new list of Cantilever_bridge_Results.
+func NewCantilever_bridge_Results_List(s *capnp.Segment, sz int32) (Cantilever_bridge_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	return capnp.StructList[Cantilever_bridge_Results](l), err
+}
+
+// Cantilever_bridge_Results_Future is a wrapper for a Cantilever_bridge_Results promised by a client call.
+type Cantilever_bridge_Results_Future struct{ *capnp.Future }
+
+func (f Cantilever_bridge_Results_Future) Struct() (Cantilever_bridge_Results, error) {
+	p, err := f.Future.Ptr()
+	return Cantilever_bridge_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d6a = "x\xda\xa4\x92\xb1\x8b\xd3`\x18\xc6\x9f\xe7Kr\x09x" +
+	"Ebo\xd1\xe5T*x\xc2\xd9\xd6\xebb\xf1l\xc5" +
+	"M\x97~n\x82\x83\xb96\xa4\xd14\xc9%\xb9\x1e:" +
+	"\xa9 \x0a*\xe2\x1f\xe0\xa2(\x08\xde\xe0,\xe7&\x87" +
+	"\xe0\x1f\xe0\xd6\xd1\xd1\xd9)\xf2\x11\x9aV\\\xe4\xba%" +
+	"\xef\xfb\xf2>\xdf\xefy\x9f\xc6\x11v\xf5feU\x83" +
+	"\x905c)\x7f\xe8\xfdz\xf6c\xd8\xfb\x00\xbbE\xc0" +
+	"\xa0\x09l\xec\xf0\x98\x00\xab/\xd8\x01\xf3[\x9f\xdf." +
+	"}\x9b\xfc\xfc\x08\xd9\"\x01]\x0d\xec\x15\x03_\xb9\x0b" +
+	"\xe6\x0f\x0en?\xda\xbe\xfe\xe5`~\xc3)qB\x0d" +
+	"\\\x14j\xc3\xe3\xf7\x811\xd9\xbc\xff\x1d\xf6\x9a\x96\xdf" +
+	"\xd9\xbc\x12\xbf~n\xec\x01\xdc\xb8)\xde\xb0\xba-L" +
+	"\xa0:\x12O\xaa\xfb\xea+\xff4\xe1\xcbWO/\xff" +
+	"\x9e\xd7{W\xac\xdb\x17\xbbX\xcf\xe3\xbb^=\x88<" +
+	"\xdf\xec\xd7\xd3{a6tS?\xado\x8d\xe3z\xdf" +
+	"\x093?p\xc7nr\xbe\xef\xc4a\xdc\xbe:+\xc4" +
+	"I4\x8a\xb3Z\xcfI\x9c\x11S\xa9k:\xa0\x13\xb0" +
+	"+\xa7\x01ii\x94+\x82\xe6(\xf5\xb8\x0c\xc1e\xf0" +
+	"p2[\x89?\xf0\xdcR\xc6*e\xd6.\x00\xb2\xa6" +
+	"Q6\x04mrE\xa1\xd9\xeb\xe7\x00yV\xa3l\x09" +
+	"\xae\xa6\x99\x93d\xb4 h\x81G\xbd\xc8\x09\xa6?\x0b" +
+	"\x11\xdfp\xd3\x9d@\xcb\xfeBn\xcf\x90;\x89\xeag" +
+	"\xffP\x1b\xff+e\x8e\xdd\xa4GJK3\x802M" +
+	"\x9c\x86\xc2n\xb6!\xec3&gA\xe2\xf4\xc2\xf6q" +
+	"\xd5\xab\x98\x9d\xe2\xa9]v\x0a\xfb\xba\xecq1\xffK" +
+	"\xe8\xb9\x03\\\x9bym\xf3dq\x80\xa6*64\xca" +
+	"K\x82y\x12eN\xe6G!\x80\xd2\xf9\xa1\x93\x0c\xdc" +
+	"\xd0\x1d\xa8\x1a!H\xf0O\x00\x00\x00\xff\xff\xe6 \xe5" +
+	"0"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d6a,
 		Nodes: []uint64{
 			0xa95068d88bef6781,
+			0xace7dfc906a3bb5c,
 			0xc7be4b718260c780,
 			0xcc7a3ddf056ca685,
+			0xf93e88918f01dfb1,
 		},
 		Compressed: true,
 	})

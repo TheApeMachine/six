@@ -31,8 +31,8 @@
 <body>
     <div id="chart"></div>
     <script>
-        const xAxisData = ["Steerability","Steerability","Steerability","Steerability","Steerability","Steerability","Steerability","Steerability","Steerability","Steerability","192/320","224/288","256/256","288/224","320/192"];
-        const seriesData = [{"name":"Exact","data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"name":"Partial","data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"name":"Fuzzy","data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]},{"name":"Weighted","data":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}];
+        const xAxisData = ["Steerability"];
+        const seriesData = [{"name":"Exact","data":[0]},{"name":"Partial","data":[0]},{"name":"Fuzzy","data":[0]},{"name":"Weighted","data":[0]}];
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
         const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];

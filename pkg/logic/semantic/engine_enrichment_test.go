@@ -12,7 +12,7 @@ func TestNegativeConstraints(t *testing.T) {
 	gc.Convey("Given an engine with positive and negative facts", t, func() {
 		eng := NewEngineServer()
 
-		posPhase := eng.Inject("Cat", "is_on", "Mat")
+		posPhase := eng.InjectFact("Cat", "is_on", "Mat")
 		negPhase := eng.InjectNegation("Cat", "is_on", "Mat")
 
 		gc.Convey("The anti-braid should be the additive inverse", func() {
@@ -30,14 +30,14 @@ func TestNegativeConstraints(t *testing.T) {
 		})
 
 		gc.Convey("Interference should reject non-cancelling pairs", func() {
-			other := eng.Inject("Dog", "is_in", "Yard")
+			other := eng.InjectFact("Dog", "is_in", "Yard")
 			gc.So(eng.Interference(posPhase, other), gc.ShouldBeFalse)
 		})
 
 		gc.Convey("Negation should not corrupt existing positive queries", func() {
 			eng2 := NewEngineServer()
-			eng2.Inject("Cat", "is_on", "Mat")
-			eng2.Inject("Dog", "is_in", "Yard")
+			eng2.InjectFact("Cat", "is_on", "Mat")
+			eng2.InjectFact("Dog", "is_in", "Yard")
 			eng2.InjectNegation("Cat", "is_on", "Mat")
 
 			braid := eng2.calc.Multiply(
@@ -58,7 +58,7 @@ func TestNegativeConstraintsAtScale(t *testing.T) {
 		var phases []numeric.Phase
 
 		for i := 0; i < 50; i++ {
-			p := eng.Inject(
+			p := eng.InjectFact(
 				fmt.Sprintf("Person%d", i),
 				"is_in",
 				fmt.Sprintf("Room%d", i%10),
@@ -132,9 +132,9 @@ func TestDeBraid(t *testing.T) {
 	gc.Convey("Given three merged facts", t, func() {
 		eng := NewEngineServer()
 
-		phaseA := eng.Inject("Cat", "is_on", "Mat")
-		phaseB := eng.Inject("Dog", "is_in", "Yard")
-		phaseC := eng.Inject("Bird", "flew_over", "Wall")
+		phaseA := eng.InjectFact("Cat", "is_on", "Mat")
+		phaseB := eng.InjectFact("Dog", "is_in", "Yard")
+		phaseC := eng.InjectFact("Bird", "flew_over", "Wall")
 
 		merged := eng.Merge([]numeric.Phase{phaseA, phaseB, phaseC})
 
@@ -185,7 +185,7 @@ func TestDeBraid(t *testing.T) {
 		var phases []numeric.Phase
 
 		for i := 0; i < 20; i++ {
-			p := eng.Inject(
+			p := eng.InjectFact(
 				fmt.Sprintf("Entity%d", i),
 				fmt.Sprintf("action%d", i%5),
 				fmt.Sprintf("Target%d", i%7),
@@ -226,7 +226,7 @@ func TestQueryLink(t *testing.T) {
 		}
 
 		for _, fact := range facts {
-			braids[fact[1]] = eng.Inject(fact[0], fact[1], fact[2])
+			braids[fact[1]] = eng.InjectFact(fact[0], fact[1], fact[2])
 		}
 
 		gc.Convey("QueryLink should recover the correct verb for each fact", func() {
@@ -264,8 +264,8 @@ func TestPhaseCollisions(t *testing.T) {
 			}
 
 			collider := colliders[0]
-			eng.Inject("Cat", "is_on", "Mat")
-			eng.Inject(collider, "likes", "Fish")
+			eng.InjectFact("Cat", "is_on", "Mat")
+			eng.InjectFact(collider, "likes", "Fish")
 
 			catBraid := eng.calc.Multiply(
 				eng.calc.Multiply(eng.calc.Sum("Cat"), eng.calc.Sum("is_on")),
@@ -283,7 +283,7 @@ func BenchmarkInjectNegation(b *testing.B) {
 	eng := NewEngineServer()
 
 	for i := 0; i < 100; i++ {
-		eng.Inject(fmt.Sprintf("E%d", i), "rel", fmt.Sprintf("T%d", i))
+		eng.InjectFact(fmt.Sprintf("E%d", i), "rel", fmt.Sprintf("T%d", i))
 	}
 
 	b.ResetTimer()
@@ -299,7 +299,7 @@ func BenchmarkDeBraid(b *testing.B) {
 	var phases []numeric.Phase
 
 	for i := 0; i < 50; i++ {
-		p := eng.Inject(fmt.Sprintf("E%d", i), "rel", fmt.Sprintf("T%d", i))
+		p := eng.InjectFact(fmt.Sprintf("E%d", i), "rel", fmt.Sprintf("T%d", i))
 		phases = append(phases, p)
 	}
 
@@ -340,7 +340,7 @@ func BenchmarkQueryLinkAtScale(b *testing.B) {
 		subjects = append(subjects, s)
 		objects = append(objects, o)
 
-		braids = append(braids, eng.Inject(s, fmt.Sprintf("V%d", i%20), o))
+		braids = append(braids, eng.InjectFact(s, fmt.Sprintf("V%d", i%20), o))
 	}
 
 	b.ResetTimer()

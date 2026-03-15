@@ -18,6 +18,7 @@ func TestLSMCompaction(t *testing.T) {
 		makeState := func(state int) data.Chord {
 			c := data.MustNewChord()
 			c.Set(state)
+			c.SetResidualCarry(uint64(state))
 			return c
 		}
 

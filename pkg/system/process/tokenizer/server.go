@@ -30,19 +30,19 @@ It has no knowledge of any other server — the Machine orchestrates
 where the chords go after tokenization.
 */
 type UniversalServer struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	serverSide   net.Conn
-	clientSide   net.Conn
-	client       Universal
-	serverConn   *rpc.Conn
-	clientConns  map[string]*rpc.Conn
-	pool         *pool.Pool
-	dataset      provider.Dataset
+	ctx           context.Context
+	cancel        context.CancelFunc
+	serverSide    net.Conn
+	clientSide    net.Conn
+	client        Universal
+	serverConn    *rpc.Conn
+	clientConns   map[string]*rpc.Conn
+	pool          *pool.Pool
+	dataset       provider.Dataset
 	corpusStrings []string
-	stateMu      sync.Mutex
+	stateMu       sync.Mutex
 	currentState  int
-	calc         *numeric.Calculus
+	calc          *numeric.Calculus
 }
 
 type universalOpts func(*UniversalServer)
@@ -91,9 +91,9 @@ func (server *UniversalServer) Client(clientID string) Universal {
 }
 
 /*
-Generate implements Universal_Server. It tokenizes raw bytes into chords
-and returns them. The Sequitur boundary detector segments the byte stream;
-each segment becomes a chord encoding its GF(257) path state.
+Generate implements Universal_Server. It tokenizes raw bytes into a
+byte-addressable stream of chords. Every byte keeps its own Morton address,
+while the Sequencer annotates boundary bytes with control-plane metadata.
 */
 func (server *UniversalServer) Generate(ctx context.Context, call Universal_generate) error {
 	rawData, err := call.Args().Data()
@@ -169,121 +169,62 @@ func (server *UniversalServer) SetDataset(ctx context.Context, call Universal_se
 }
 
 /*
-tokenize runs the Sequitur boundary analysis over raw bytes and returns
-the resulting chord slice.
+tokenize runs the Sequencer over the byte stream but keeps storage byte-addressable:
+every Morton key remains (byte, absolute position), and the discovered boundaries are
+encoded into the Guard Band as opcodes rather than by collapsing multiple bytes into
+one opaque chunk.
 */
 func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]TokenEdge, error) {
+	_ = ctx
+
 	sequitur := sequencer.NewSequitur()
+	edges := make([]TokenEdge, 0, len(raw))
+	state := numeric.Phase(1)
 
-	var edges []TokenEdge
-	var chunk []byte
-	var pending []chan *pool.Result
+	for idx, currentByte := range raw {
+		state = server.calc.Multiply(
+			state,
+			server.calc.Power(3, uint32(currentByte)),
+		)
 
-	var pos uint32 = 0
-	var left uint8 = 0
+		isBoundary, _, _, emitMeta := sequitur.Analyze(uint32(idx), currentByte)
 
-	flush := func(buf []byte, meta data.Chord, right uint8) {
-		if len(buf) == 0 {
-			return
-		}
-
-		chunkCopy := append([]byte(nil), buf...)
-		chunkPos := pos
-		chunkLeft := left
-
-		ch := server.pool.Schedule("tokenizer_chunk", func(ctx context.Context) (any, error) {
-			chord, err := server.processChunk(chunkCopy, meta)
-			if err != nil {
-				return nil, err
-			}
-			return TokenEdge{
-				Left:     chunkLeft,
-				Right:    right,
-				Position: chunkPos,
-				Chord:    chord,
-				Meta:     meta,
-			}, nil
-		})
-
-		pending = append(pending, ch)
-
-		if len(buf) > 0 {
-			pos += uint32(len(buf))
-			left = buf[len(buf)-1]
-		}
-	}
-
-	for i, b := range raw {
-		chunk = append(chunk, b)
-		isBoundary, emitK, _, emitMeta := sequitur.Analyze(uint32(i), b)
+		chord := data.BaseChord(currentByte)
+		chord.Set(int(state))
+		chord.SetResidualCarry(uint64(state))
+		chord.SetProgram(data.OpcodeNext, 1, 0, false)
 
 		if isBoundary {
-			if emitK > len(chunk) {
-				emitK = len(chunk)
-			}
-
-			var right uint8 = 0
-			if emitK < len(chunk) {
-				right = chunk[emitK]
-			} else if i+1 < len(raw) {
-				right = raw[i+1]
-			}
-
-			if emitK > 0 {
-				flush(chunk[:emitK], emitMeta, right)
-			}
-
-			if emitK >= len(chunk) {
-				chunk = chunk[:0]
-			} else if emitK > 0 {
-				copy(chunk, chunk[emitK:])
-				chunk = chunk[:len(chunk)-emitK]
-			}
+			chord.SetProgram(data.OpcodeBranch, 1, 1, false)
 		}
+
+		if idx == len(raw)-1 {
+			chord.SetProgram(data.OpcodeHalt, 0, chord.Branches(), true)
+		}
+
+		meta := data.MustNewChord()
+		if isBoundary {
+			meta.CopyFrom(emitMeta)
+		}
+
+		var right uint8
+		if idx+1 < len(raw) {
+			right = raw[idx+1]
+		}
+
+		edges = append(edges, TokenEdge{
+			Left:     currentByte,
+			Right:    right,
+			Position: uint32(idx),
+			Chord:    chord,
+			Meta:     meta,
+		})
 	}
 
-	for {
-		isBoundary, emitK, _, emitMeta := sequitur.Flush()
-		if !isBoundary {
-			break
-		}
-
-		if emitK > len(chunk) {
-			emitK = len(chunk)
-		}
-
-		var right uint8 = 0
-		if emitK < len(chunk) {
-			right = chunk[emitK]
-		}
-
-		if emitK > 0 {
-			flush(chunk[:emitK], emitMeta, right)
-		}
-
-		if emitK >= len(chunk) {
-			chunk = chunk[:0]
-		} else if emitK > 0 {
-			copy(chunk, chunk[emitK:])
-			chunk = chunk[:len(chunk)-emitK]
-		}
-	}
-
-	if len(chunk) > 0 {
-		flush(chunk, data.Chord{}, 0)
-	}
-
-	for _, ch := range pending {
-		result := <-ch
-
-		if result != nil && result.Error != nil {
-			return nil, result.Error
-		}
-
-		if result != nil {
-			if edge, ok := result.Value.(TokenEdge); ok {
-				edges = append(edges, edge)
-			}
+	if flushed, _, _, flushMeta := sequitur.Flush(); flushed && len(edges) > 0 {
+		edges[len(edges)-1].Meta.CopyFrom(flushMeta)
+		if edges[len(edges)-1].Chord.Branches() == 0 {
+			edges[len(edges)-1].Chord.SetBranches(1)
 		}
 	}
 
@@ -291,33 +232,35 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]Toke
 }
 
 /*
-processChunk encodes a chunk's GF(257) path state into a chord.
+processChunk encodes a full chunk into a resonant program chord. It is kept for
+benchmarks and offline callers that still want a span-level representation, but the
+live tokenizer now emits byte-addressable edges so reconstruction remains exact.
 */
 func (server *UniversalServer) processChunk(chunk []byte, metaChord data.Chord) (data.Chord, error) {
 	if len(chunk) == 0 {
-		return data.Chord{}, nil
+		return data.MustNewChord(), nil
 	}
 
-	server.stateMu.Lock()
-
-	if server.currentState == 0 {
-		server.currentState = 1
+	out, err := data.BuildChord(chunk)
+	if err != nil {
+		return data.Chord{}, err
 	}
 
-	var out data.Chord
-
+	state := numeric.Phase(1)
 	for _, currentByte := range chunk {
-		server.currentState = int(
-			server.calc.Multiply(numeric.Phase(server.currentState),
-				server.calc.Power(3, uint32(currentByte)),
-			),
+		state = server.calc.Multiply(
+			state,
+			server.calc.Power(3, uint32(currentByte)),
 		)
-
-		out = data.BaseChord(currentByte)
-		out.Set(server.currentState)
 	}
 
-	server.stateMu.Unlock()
+	out.Set(int(state))
+	out.SetResidualCarry(uint64(state))
+	out.SetProgram(data.OpcodeJump, uint32(len(chunk)), 0, false)
+
+	if metaChord.ActiveCount() > 0 {
+		out.SetProgram(data.OpcodeBranch, uint32(len(chunk)), 1, false)
+	}
 
 	return out, nil
 }

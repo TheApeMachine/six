@@ -8,8 +8,8 @@ import (
 	"github.com/theapemachine/six/pkg/logic/semantic"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
+	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/lsm"
-	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/system/vm/input"
@@ -47,17 +47,14 @@ func NewBooter(opts ...booterOpts) *Booter {
 		opt(booter)
 	}
 
-	if errnie.Try(
-		"system booting", validate.Require(map[string]any{
+	errnie.SafeMustVoid(func() error {
+		return validate.Require(map[string]any{
 			"ctx":       booter.ctx,
 			"cancel":    booter.cancel,
 			"pool":      booter.pool,
 			"broadcast": booter.broadcast,
-		}),
-	).Err() != nil {
-		console.Error(ErrMissingRequirements)
-		return nil
-	}
+		})
+	})
 
 	booter.prompter = input.NewPrompterServer(
 		input.PrompterWithContext(booter.ctx),
@@ -83,11 +80,30 @@ func NewBooter(opts ...booterOpts) *Booter {
 
 	booter.parser = grammar.NewParserServer(
 		grammar.ParserWithContext(booter.ctx),
+		grammar.ParserWithNouns(
+			"mary", "john", "daniel", "sandra",
+			"bathroom", "bedroom", "kitchen", "hallway",
+			"garden", "office", "cat", "dog", "bird",
+			"mat", "yard", "wall", "sky", "fish",
+		),
+		grammar.ParserWithVerbs(
+			"moved", "went", "journeyed", "travelled",
+			"is_on", "is_in", "flew", "flew_over",
+			"likes", "rel",
+		),
+		grammar.ParserWithStopwords(
+			"to", "the", "a", "an", "is", "in", "on",
+			"where", "what", "who", "how",
+		),
 	).Client("booter")
 
-	// Pass arbitrary or default boundaries. Normally context manages this.
+	sharedIndex := macro.NewMacroIndexServer(
+		macro.MacroIndexWithContext(booter.ctx),
+	)
+
 	booter.cantilever = bvp.NewCantileverServer(
-		1, 1, bvp.CantileverWithContext(booter.ctx),
+		bvp.CantileverWithContext(booter.ctx),
+		bvp.WithMacroIndex(sharedIndex),
 	).Client("booter")
 
 	return booter

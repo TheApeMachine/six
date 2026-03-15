@@ -1,10 +1,7 @@
 package vm
 
 import (
-	"context"
 	"net"
-
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -18,13 +15,4 @@ as a tick rather than dereferencing.
 */
 type System interface {
 	Client(string) net.Conn
-}
-
-/*
-Promptable is any system that can be prompted.
-*/
-type Promptable interface {
-	Prompt(
-		ctx context.Context, msg []data.Chord,
-	) (buf []data.Chord, err error)
 }

@@ -26,26 +26,21 @@ type CantileverServer struct {
 	serverConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	calc        *numeric.Calculus
-	StartPhase  numeric.Phase
-	GoalPhase   numeric.Phase
 	Index       *macro.MacroIndexServer
 }
 
 /*
-opts ...
+cantileverOpts configures a CantileverServer at construction.
 */
 type cantileverOpts func(*CantileverServer)
 
 /*
-NewCantilever provides a new logic solver acting between fixed start and end boundary supports.
+NewCantileverServer provides a new logic solver acting between fixed start and end boundary supports.
 */
-func NewCantileverServer(start, goal numeric.Phase, options ...cantileverOpts) *CantileverServer {
+func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 	cl := &CantileverServer{
 		clientConns: map[string]*rpc.Conn{},
 		calc:        numeric.NewCalculus(),
-		StartPhase:  start,
-		GoalPhase:   goal,
-		Index:       macro.NewMacroIndexServer(),
 	}
 
 	for _, opt := range options {
@@ -56,6 +51,12 @@ func NewCantileverServer(start, goal numeric.Phase, options ...cantileverOpts) *
 		"ctx":    cl.ctx,
 		"cancel": cl.cancel,
 	})
+
+	if cl.Index == nil {
+		cl.Index = macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(cl.ctx),
+		)
+	}
 
 	cl.serverSide, cl.clientSide = net.Pipe()
 	cl.client = Cantilever_ServerToClient(cl)
@@ -90,6 +91,68 @@ func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prom
 }
 
 /*
+Bridge implements Cantilever_Server. Accepts start and goal GF(257) phases via
+RPC and computes the rotation needed to span the gap.
+*/
+func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_bridge) error {
+	args := call.Args()
+
+	startPhase := numeric.Phase(args.Start())
+	goalPhase := numeric.Phase(args.Goal())
+
+	rotation, opcode, err := server.BridgePhases(startPhase, goalPhase)
+	if err != nil {
+		return err
+	}
+
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	res.SetRotation(uint32(rotation))
+
+	if opcode != nil {
+		res.SetHardened(opcode.Hardened)
+	}
+
+	return nil
+}
+
+/*
+BridgePhases synthesizes a path between two GF(257) boundary phases.
+It computes the Delta Rotation (G^X) necessary to transit the gap directly.
+If standard raw navigation fails, it pulls a MacroOpcode or creates one.
+*/
+func (server *CantileverServer) BridgePhases(startPhase, goalPhase numeric.Phase) (numeric.Phase, *macro.MacroOpcode, error) {
+	if startPhase == 0 || goalPhase == 0 {
+		return 0, nil, fmt.Errorf("cantilever boundaries cannot be absolute zero")
+	}
+
+	if startPhase == goalPhase {
+		return 0, nil, fmt.Errorf("start and goal phases identical, bridge span length is 0")
+	}
+
+	inverseStart, err := server.calc.Inverse(startPhase)
+	if err != nil {
+		return 0, nil, fmt.Errorf("could not compute inverse for cantilever start boundary: %w", err)
+	}
+
+	targetRotation := server.calc.Multiply(goalPhase, inverseStart)
+
+	op, found := server.Index.FindOpcode(targetRotation)
+	if found {
+		server.Index.RecordOpcode(targetRotation)
+		return targetRotation, op, nil
+	}
+
+	server.Index.RecordOpcode(targetRotation)
+	opNew, _ := server.Index.FindOpcode(targetRotation)
+
+	return targetRotation, opNew, nil
+}
+
+/*
 CantileverWithContext sets the context.
 */
 func CantileverWithContext(ctx context.Context) cantileverOpts {
@@ -109,39 +172,18 @@ func WithMacroIndex(index *macro.MacroIndexServer) cantileverOpts {
 }
 
 /*
-Bridge synthesizes a path between the Start and Goal boundaries.
-It computes the Delta Rotation (G^X) necessary to transit the gap directly.
-If standard raw navigation fails, it pulls a MacroOpcode or creates one.
+CantileverError is a typed error for Cantilever failures.
 */
-func (cl *CantileverServer) Bridge() (numeric.Phase, *macro.MacroOpcode, error) {
-	if cl.StartPhase == 0 || cl.GoalPhase == 0 {
-		return 0, nil, fmt.Errorf("cantilever boundaries cannot be absolute zero")
-	}
+type CantileverError string
 
-	if cl.StartPhase == cl.GoalPhase {
-		return 0, nil, fmt.Errorf("start and goal phases identical, bridge span length is 0")
-	}
+const (
+	ErrCantileverZeroBoundary CantileverError = "cantilever boundaries cannot be absolute zero"
+	ErrCantileverIdentical    CantileverError = "start and goal phases identical"
+)
 
-	// Calculate the necessary Phase Shift (Tool Rotation) to bridge the gap:
-	// Rot = (Goal Phase * Inverse(Start Phase)) % 257
-	inverseStart, err := cl.calc.Inverse(cl.StartPhase)
-	if err != nil {
-		return 0, nil, fmt.Errorf("could not compute inverse for cantilever start boundary: %w", err)
-	}
-	targetRotation := cl.calc.Multiply(cl.GoalPhase, inverseStart)
-
-	// Step 1: Scan library for a known tool capable of bridging this span
-	op, found := cl.Index.FindOpcode(targetRotation)
-	if found {
-		// Tool found. We successfully span the gap using pre-synthesized logic constraints.
-		cl.Index.RecordOpcode(targetRotation) // Increment usage
-		return targetRotation, op, nil
-	}
-
-	// Step 2: The Cantilever fails via Frustration (no known tool can bridge).
-	// We synthesize a generalized patch for this Delta and "Harden" it.
-	cl.Index.RecordOpcode(targetRotation) // Synthesize new!
-	opNew, _ := cl.Index.FindOpcode(targetRotation)
-
-	return targetRotation, opNew, nil
+/*
+Error implements the error interface for CantileverError.
+*/
+func (cantileverError CantileverError) Error() string {
+	return string(cantileverError)
 }

@@ -36,6 +36,46 @@ func (c Engine) Prompt(ctx context.Context, params func(Engine_prompt_Params) er
 
 }
 
+func (c Engine) Inject(ctx context.Context, params func(Engine_inject_Params) error) (Engine_inject_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xbb766ebbf71b27d2,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/semantic/engine.capnp:Engine",
+			MethodName:    "inject",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 3}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Engine_inject_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Engine_inject_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Engine) Query(ctx context.Context, params func(Engine_query_Params) error) (Engine_query_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xbb766ebbf71b27d2,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/semantic/engine.capnp:Engine",
+			MethodName:    "query",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 2}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Engine_query_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Engine_query_Results_Future{Future: ans.Future()}, release
+
+}
+
 func (c Engine) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -110,6 +150,10 @@ func (c Engine) GetFlowLimiter() fc.FlowLimiter {
 // A Engine_Server is a Engine with a local implementation.
 type Engine_Server interface {
 	Prompt(context.Context, Engine_prompt) error
+
+	Inject(context.Context, Engine_inject) error
+
+	Query(context.Context, Engine_query) error
 }
 
 // Engine_NewServer creates a new Server from an implementation of Engine_Server.
@@ -128,7 +172,7 @@ func Engine_ServerToClient(s Engine_Server) Engine {
 // This can be used to create a more complicated Server.
 func Engine_Methods(methods []server.Method, s Engine_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 1)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
@@ -140,6 +184,30 @@ func Engine_Methods(methods []server.Method, s Engine_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Prompt(ctx, Engine_prompt{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xbb766ebbf71b27d2,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/semantic/engine.capnp:Engine",
+			MethodName:    "inject",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Inject(ctx, Engine_inject{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xbb766ebbf71b27d2,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/semantic/engine.capnp:Engine",
+			MethodName:    "query",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Query(ctx, Engine_query{call})
 		},
 	})
 
@@ -161,6 +229,40 @@ func (c Engine_prompt) Args() Engine_prompt_Params {
 func (c Engine_prompt) AllocResults() (Engine_prompt_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Engine_prompt_Results(r), err
+}
+
+// Engine_inject holds the state for a server call to Engine.inject.
+// See server.Call for documentation.
+type Engine_inject struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Engine_inject) Args() Engine_inject_Params {
+	return Engine_inject_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Engine_inject) AllocResults() (Engine_inject_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Engine_inject_Results(r), err
+}
+
+// Engine_query holds the state for a server call to Engine.query.
+// See server.Call for documentation.
+type Engine_query struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Engine_query) Args() Engine_query_Params {
+	return Engine_query_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Engine_query) AllocResults() (Engine_query_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return Engine_query_Results(r), err
 }
 
 // Engine_List is a list of Engine.
@@ -336,31 +438,453 @@ func (f Engine_prompt_Results_Future) Struct() (Engine_prompt_Results, error) {
 	return Engine_prompt_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d69 = "x\xda\x12\x98\xec\xc0b\xc8\x9b\xcf\xc4\xc0\x14(\xc3\xca" +
-	"\xf6\x7f\x92\xdf\xaa\xba\x83\x13,\xe73\x08\xaa320" +
-	"\xb02\xb230\x18\xcb2nbd`\x14\xd6e\xb4" +
-	"g`\xfc\xffz\xb9z\x98\xc4\xdf\x89\x1b\x91\x15\xf82" +
-	"\xae\x02)\x88\x05+\xb8\xa4.\xfd}w^\xd9n\x06" +
-	"A\x05\xe6\xff\x99\xb6\x8e\x05s{X\xd7200\x1a" +
-	"\xd72Z1\x0a\xf7\x824\x08w2\xba\x0bodd" +
-	"g\xd0\xf9_\x90\x9d\xae\x9f\x93\x9f\x9e\xc9\x9a\xac_\x9c" +
-	"\x9a\x9b\x98W\x92\x99\xac\x9f\x9a\x97\x9e\x99\x97\xaa\x97\x9c" +
-	"X\x90W`\xe5\x0a\xe1\x14\x14\xe5\xe7\x16\x94\xa8\x04\xa5" +
-	"\xca\x17\x97\xe6\x94\x14\x07\xb20\xb300\xb0020" +
-	"\x08\xf2Z10\x04r03\x06\x8a01\xda\x17\xa5" +
-	"\x82\xa4\x19y\x18\x98\x18y\x18\x18I5= \x91\xbf" +
-	"(1\x17\xc5p%\x84\xe1\xec\xb9\xc5\xe9\x18&3\xe3" +
-	"2\xd9\x1ebt\x00#c \x0b3+\x03\x03<\xe0" +
-	"\x18aA,(h\xc5\xc0$\xc8\xcan\x0f\xb1\xdd\x81" +
-	"1\x80\x91\x11\x10\x00\x00\xff\xff6\x8emi"
+type Engine_inject_Params capnp.Struct
+
+// Engine_inject_Params_TypeID is the unique identifier for the type Engine_inject_Params.
+const Engine_inject_Params_TypeID = 0x947744f4243e574d
+
+func NewEngine_inject_Params(s *capnp.Segment) (Engine_inject_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3})
+	return Engine_inject_Params(st), err
+}
+
+func NewRootEngine_inject_Params(s *capnp.Segment) (Engine_inject_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3})
+	return Engine_inject_Params(st), err
+}
+
+func ReadRootEngine_inject_Params(msg *capnp.Message) (Engine_inject_Params, error) {
+	root, err := msg.Root()
+	return Engine_inject_Params(root.Struct()), err
+}
+
+func (s Engine_inject_Params) String() string {
+	str, _ := text.Marshal(0x947744f4243e574d, capnp.Struct(s))
+	return str
+}
+
+func (s Engine_inject_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Engine_inject_Params) DecodeFromPtr(p capnp.Ptr) Engine_inject_Params {
+	return Engine_inject_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Engine_inject_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Engine_inject_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Engine_inject_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Engine_inject_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Engine_inject_Params) Subject() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Engine_inject_Params) HasSubject() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Engine_inject_Params) SubjectBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Engine_inject_Params) SetSubject(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s Engine_inject_Params) Link() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s Engine_inject_Params) HasLink() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Engine_inject_Params) LinkBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Engine_inject_Params) SetLink(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
+func (s Engine_inject_Params) Object() (string, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return p.Text(), err
+}
+
+func (s Engine_inject_Params) HasObject() bool {
+	return capnp.Struct(s).HasPtr(2)
+}
+
+func (s Engine_inject_Params) ObjectBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return p.TextBytes(), err
+}
+
+func (s Engine_inject_Params) SetObject(v string) error {
+	return capnp.Struct(s).SetText(2, v)
+}
+
+// Engine_inject_Params_List is a list of Engine_inject_Params.
+type Engine_inject_Params_List = capnp.StructList[Engine_inject_Params]
+
+// NewEngine_inject_Params creates a new list of Engine_inject_Params.
+func NewEngine_inject_Params_List(s *capnp.Segment, sz int32) (Engine_inject_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 3}, sz)
+	return capnp.StructList[Engine_inject_Params](l), err
+}
+
+// Engine_inject_Params_Future is a wrapper for a Engine_inject_Params promised by a client call.
+type Engine_inject_Params_Future struct{ *capnp.Future }
+
+func (f Engine_inject_Params_Future) Struct() (Engine_inject_Params, error) {
+	p, err := f.Future.Ptr()
+	return Engine_inject_Params(p.Struct()), err
+}
+
+type Engine_inject_Results capnp.Struct
+
+// Engine_inject_Results_TypeID is the unique identifier for the type Engine_inject_Results.
+const Engine_inject_Results_TypeID = 0x82729cb605e0e2c2
+
+func NewEngine_inject_Results(s *capnp.Segment) (Engine_inject_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Engine_inject_Results(st), err
+}
+
+func NewRootEngine_inject_Results(s *capnp.Segment) (Engine_inject_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Engine_inject_Results(st), err
+}
+
+func ReadRootEngine_inject_Results(msg *capnp.Message) (Engine_inject_Results, error) {
+	root, err := msg.Root()
+	return Engine_inject_Results(root.Struct()), err
+}
+
+func (s Engine_inject_Results) String() string {
+	str, _ := text.Marshal(0x82729cb605e0e2c2, capnp.Struct(s))
+	return str
+}
+
+func (s Engine_inject_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Engine_inject_Results) DecodeFromPtr(p capnp.Ptr) Engine_inject_Results {
+	return Engine_inject_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Engine_inject_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Engine_inject_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Engine_inject_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Engine_inject_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Engine_inject_Results) Braid() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s Engine_inject_Results) SetBraid(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+// Engine_inject_Results_List is a list of Engine_inject_Results.
+type Engine_inject_Results_List = capnp.StructList[Engine_inject_Results]
+
+// NewEngine_inject_Results creates a new list of Engine_inject_Results.
+func NewEngine_inject_Results_List(s *capnp.Segment, sz int32) (Engine_inject_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	return capnp.StructList[Engine_inject_Results](l), err
+}
+
+// Engine_inject_Results_Future is a wrapper for a Engine_inject_Results promised by a client call.
+type Engine_inject_Results_Future struct{ *capnp.Future }
+
+func (f Engine_inject_Results_Future) Struct() (Engine_inject_Results, error) {
+	p, err := f.Future.Ptr()
+	return Engine_inject_Results(p.Struct()), err
+}
+
+type Engine_query_Params capnp.Struct
+
+// Engine_query_Params_TypeID is the unique identifier for the type Engine_query_Params.
+const Engine_query_Params_TypeID = 0xed09edfc1da9df45
+
+func NewEngine_query_Params(s *capnp.Segment) (Engine_query_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return Engine_query_Params(st), err
+}
+
+func NewRootEngine_query_Params(s *capnp.Segment) (Engine_query_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return Engine_query_Params(st), err
+}
+
+func ReadRootEngine_query_Params(msg *capnp.Message) (Engine_query_Params, error) {
+	root, err := msg.Root()
+	return Engine_query_Params(root.Struct()), err
+}
+
+func (s Engine_query_Params) String() string {
+	str, _ := text.Marshal(0xed09edfc1da9df45, capnp.Struct(s))
+	return str
+}
+
+func (s Engine_query_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Engine_query_Params) DecodeFromPtr(p capnp.Ptr) Engine_query_Params {
+	return Engine_query_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Engine_query_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Engine_query_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Engine_query_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Engine_query_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Engine_query_Params) Braid() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s Engine_query_Params) SetBraid(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+func (s Engine_query_Params) KnownA() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Engine_query_Params) HasKnownA() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Engine_query_Params) KnownABytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Engine_query_Params) SetKnownA(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s Engine_query_Params) KnownB() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s Engine_query_Params) HasKnownB() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Engine_query_Params) KnownBBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Engine_query_Params) SetKnownB(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
+func (s Engine_query_Params) Axis() uint8 {
+	return capnp.Struct(s).Uint8(4)
+}
+
+func (s Engine_query_Params) SetAxis(v uint8) {
+	capnp.Struct(s).SetUint8(4, v)
+}
+
+// Engine_query_Params_List is a list of Engine_query_Params.
+type Engine_query_Params_List = capnp.StructList[Engine_query_Params]
+
+// NewEngine_query_Params creates a new list of Engine_query_Params.
+func NewEngine_query_Params_List(s *capnp.Segment, sz int32) (Engine_query_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
+	return capnp.StructList[Engine_query_Params](l), err
+}
+
+// Engine_query_Params_Future is a wrapper for a Engine_query_Params promised by a client call.
+type Engine_query_Params_Future struct{ *capnp.Future }
+
+func (f Engine_query_Params_Future) Struct() (Engine_query_Params, error) {
+	p, err := f.Future.Ptr()
+	return Engine_query_Params(p.Struct()), err
+}
+
+type Engine_query_Results capnp.Struct
+
+// Engine_query_Results_TypeID is the unique identifier for the type Engine_query_Results.
+const Engine_query_Results_TypeID = 0xa1583142da0bab0b
+
+func NewEngine_query_Results(s *capnp.Segment) (Engine_query_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return Engine_query_Results(st), err
+}
+
+func NewRootEngine_query_Results(s *capnp.Segment) (Engine_query_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1})
+	return Engine_query_Results(st), err
+}
+
+func ReadRootEngine_query_Results(msg *capnp.Message) (Engine_query_Results, error) {
+	root, err := msg.Root()
+	return Engine_query_Results(root.Struct()), err
+}
+
+func (s Engine_query_Results) String() string {
+	str, _ := text.Marshal(0xa1583142da0bab0b, capnp.Struct(s))
+	return str
+}
+
+func (s Engine_query_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Engine_query_Results) DecodeFromPtr(p capnp.Ptr) Engine_query_Results {
+	return Engine_query_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Engine_query_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Engine_query_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Engine_query_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Engine_query_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Engine_query_Results) Name() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Engine_query_Results) HasName() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Engine_query_Results) NameBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Engine_query_Results) SetName(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s Engine_query_Results) Phase() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s Engine_query_Results) SetPhase(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+// Engine_query_Results_List is a list of Engine_query_Results.
+type Engine_query_Results_List = capnp.StructList[Engine_query_Results]
+
+// NewEngine_query_Results creates a new list of Engine_query_Results.
+func NewEngine_query_Results_List(s *capnp.Segment, sz int32) (Engine_query_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 1}, sz)
+	return capnp.StructList[Engine_query_Results](l), err
+}
+
+// Engine_query_Results_Future is a wrapper for a Engine_query_Results promised by a client call.
+type Engine_query_Results_Future struct{ *capnp.Future }
+
+func (f Engine_query_Results_Future) Struct() (Engine_query_Results, error) {
+	p, err := f.Future.Ptr()
+	return Engine_query_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d69 = "x\xda\x94\x93Mh\x13A\x1c\xc5\xffo&i\"M" +
+	"\x89C\"\x08\"Q\x09D\xc5\xda//\x0d\xe8\xa6\xa5" +
+	"\x01\x05+\x99\"\xea\xc1\x83\xdbtI\xd7&\x9b\xedn" +
+	"j\xf5\xa0\xa27\xc1\x83\x8aGE\x14D\xac\x88(\xe8" +
+	"\xa5'\xbdx\x12A\xf0\"\x14E\x10\x0f\xd2\x9b\xe2\xc5" +
+	"\xb22\xbb\xddM\xfd\x02s\xdb\xd9y\xfcf\xde\x9b\xf7" +
+	"\xef\xbf\x84Rl\xa0\xe75'&w\xc5\xbb\xbc\x17\x1f" +
+	"?\xc4\x9f\xddp.\x92,\x00D\xb1\x04\xd1\xd0+<" +
+	"\x01!\xb3\x04\x8d\xe0\x8d\x1f\xdd\x97\xff:6\x7f\x9dD" +
+	"\x01Dq\xae\x04+XP\x82\x1e\xf6\x88\xe0];\xb4" +
+	"p\xee\xf9\x95\xe1[\xab\x02(\xc1]\xe6\x13\x9e2E" +
+	"\xe8~\xd0\xfdnt\xe0\xd8\xed\xd5#\x02\xc5[\xe6#" +
+	">\xb1y\x82\xf7\xe5^\xe1\xc8\xc6\x95\xab\x8f\xd7\"F" +
+	"\xb8/\x90\\!\xde\x146}_\xb4N-\x92\xd8\xc2" +
+	"=s\xef\x88}\xf3r\xfc!\x11\x86fy\x11\x99\x0b" +
+	"\xeaR\x99\xb3\xfce\xe6\x9b\xfa\xf2\xca\xef\xefo\xfe\xb1" +
+	"\xbcn9<\x90)\xde\x12\xbf\xa3x\xcb\xfc3\xf5z" +
+	"\xf6L\xad\xaf\xde\xac\x99\xf1j\x9fk4t\xabeV" +
+	"\xfb\x0c\xabfZ\xc6\xee\xaan[v\xb1\x1c,L\xeb" +
+	"\xa4Qm\xe5'\x8c\x9c;Wo\xb92\xc6cD1" +
+	"\x10\x89\x9eA\"\x99\xe4\x90Y\x86\xdc\xa4\xa3\x9bSH" +
+	"\x12C\x92\xd0)\xbc\xa2\xa7\x1d\xbd\xe1\xcaT\xc4.\x8f" +
+	"\x12\xc9\x12\x87<\xc8 \x80\xac2!\x0e\xec$\x92c" +
+	"\x1c\xb2\xc2 \x18\xcb\x82\x11\x89\xf1\"\x91\xdc\xcf!\x0f" +
+	"3\x9cw\xe7&\x15\x10)bH\x11\xd2u\xd3\x9a\x09" +
+	"\x17Z\xf3\x97\xbd\xff\xbe\xa3\xed4\x1b\xf6\xdf\x03(\xb6" +
+	"\x03\xd0\x1cCmwL\x9f\x9d3\x9c3\xf9\x09\xc3M" +
+	"\xfb\xf0d\x04\xdf\xa1\xcc\xe69d?C\x18@\xafJ" +
+	"|;\x87\xdc\xc3\x90\xb6\xf4\x86\x11\x1e\x97\xb3\xa7u\xd7" +
+	"\xe88\xfeUka\xfck\x9cmk;K4\xdc\xda" +
+	"\x1f\xb6\xf8\xbf\xc8Z\x80\xae\x002\xc5\xe3DQ\xb1\x11" +
+	"\x0e\x89\x90Eb\xa2\x9c@{\xb0\x10\x8e\xa0\x18V{" +
+	"\xbd\x09\xb0\xa8\xc1\x08gGl\x1d$&6$\xb4\xe0" +
+	"\xd6%hA{J\xc8\xf9!\x96PA\xa7\xb9Wt" +
+	"'\xa1\x9c\xaf\x8f\x9c\xeb*\xe2\xe3\x1cr\xba\x1d\xbb\xa1" +
+	"\xde\xf9\x04\x87\xac\xab\xde!\xe8\x9d\xa9~NqH\x9b" +
+	"A\xf0X\x16\x9cH4\xd4\xa3Ms\xc8\xd6\xef#\xa1" +
+	"\xcdX\xcdyk$*\xa3\xbf\x1c\x8d\x8a\xaa\x9f6]" +
+	"t\x11C\x17\xe1g\x00\x00\x00\xff\xff\"\x85+<"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d69,
 		Nodes: []uint64{
+			0x82729cb605e0e2c2,
+			0x947744f4243e574d,
 			0x9f3990c17eaa4e92,
+			0xa1583142da0bab0b,
 			0xb191fd185627a7eb,
 			0xbb766ebbf71b27d2,
+			0xed09edfc1da9df45,
 		},
 		Compressed: true,
 	})

@@ -5,6 +5,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/test"
 )
 
@@ -47,7 +48,6 @@ func TestBoundarySpanRecall(t *testing.T) {
 	}
 
 	for name, tc := range cases {
-		tc := tc
 		Convey("Given "+name, t, func() {
 			helper := test.NewTestHelper()
 			defer helper.Teardown()
@@ -55,8 +55,9 @@ func TestBoundarySpanRecall(t *testing.T) {
 			So(helper.SetDataset(local.New(local.WithStrings(tc.corpus))), ShouldBeNil)
 
 			result, err := helper.Prompt(tc.query)
+			console.Trace("query=%q result=%q", tc.query, string(result))
 			So(err, ShouldBeNil)
-			So(string(result), ShouldContainSubstring, tc.expect)
+			So(string(result), ShouldEqual, tc.expect)
 		})
 	}
 }

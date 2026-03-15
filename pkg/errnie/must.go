@@ -1,91 +1,128 @@
 package errnie
 
-/*
-Result is a generic type that can hold either a value of type T or an error.
-*/
-type Result[T any] struct {
-	value T
-	err   error
-}
+import (
+	"errors"
+	"io"
+)
 
 /*
-Ok returns a Result containing the given value.
+Must panics if an error is not nil. Otherwise, it returns the value.
+
+This function is useful for simplifying error handling in scenarios where errors are not expected
+and should terminate the program if they occur. By panicking, it avoids the need for repetitive
+error checks after every call.
+
+Example usage:
+
+	value := Must(someFuncThatReturnsValueAndError())
+	fmt.Println(value) // This will only execute if no error occurs.
 */
-func Ok[T any](value T) Result[T] { return Result[T]{value: value} }
-
-
-
-
-/*
-Fail returns a Result containing the given error.
-*/
-func Fail[T any](err error) Result[T] { return Result[T]{err: err} }
-
-/*
-Try returns a Result containing the given value and error.
-*/
-func Try[T any](value T, err error) Result[T] {
-	if err != nil {
-		return Fail[T](err)
+func Must[T any](value T, err error) T {
+	if err != nil && err != io.EOF {
+		Error(err)
+		panic(err)
 	}
 
-	return Ok(value)
+	return value
 }
 
 /*
-Map applies a function to the value in a Result, returning a new Result
-with the result of the function. Monadic chaining.
+MustVoid is used when a function returns only an error, and we need to panic if it fails.
+
+This is helpful for simplifying functions that do not return a value but may return an error.
+Instead of handling the error explicitly, MustVoid will panic if the error is non-nil.
+
+Example usage:
+
+	MustVoid(someFuncThatReturnsOnlyError())
 */
-func (result Result[T]) Map(fn func(T) T) Result[T] {
-	if result.err != nil {
-		return result
+func MustVoid(err error) {
+	if err != nil && err != io.EOF {
+		Error(err)
+		panic(err)
+	}
+}
+
+/*
+SafeMust wraps a function call, and if there is a panic, it automatically recovers.
+
+This function is used to safely execute a function that may return an error. If an error occurs,
+or if the function panics, SafeMust will recover and log the panic instead of crashing the program.
+This can be useful for non-critical operations where you want the program to continue running.
+
+The optional fallbacks parameter allows you to provide custom recovery functions that will be
+executed in order if a panic occurs. Each fallback function receives the panic value as its argument,
+allowing for custom error handling or cleanup operations before the default warning is logged.
+
+Example usage:
+
+	result := SafeMust(func() (int, error) {
+		return someComputation()
+	})
+	fmt.Println(result)
+
+	// With custom fallback handlers
+	result := SafeMust(
+		func() (int, error) {
+			return someComputation()
+		},
+		func(p interface{}) {
+			cleanup()
+		},
+		func(p interface{}) {
+			metrics.RecordPanic(p)
+		},
+	)
+*/
+func SafeMust[T any](fn func() (T, error), fallbacks ...func(interface{})) T {
+	var (
+		value T
+		err   error
+	)
+
+	defer func() {
+		if r := recover(); r != nil {
+			if len(fallbacks) != 0 {
+				for _, rec := range fallbacks {
+					rec(r)
+				}
+			}
+			Warn("Recovered: %v", r)
+		}
+	}()
+
+	if value, err = fn(); err != nil && err != io.EOF {
+		ErrorSafe(err, false)
+		panic(err)
 	}
 
-	return Ok(fn(result.value))
+	return value
 }
 
 /*
-Then applies a function to the value in a Result, returning a new Result
-with the result of the function. Monadic chaining for functions that can fail.
+SafeMustVoid wraps a function call that returns an error and recovers from panics.
+
+If the function provided to SafeMustVoid returns an error or panics, this function will
+recover gracefully and log the error. This is particularly useful for functions that
+are expected to continue even if an error occurs, and should not crash the program.
+
+Example usage:
+
+	SafeMustVoid(func() error {
+		return someNonCriticalOperation()
+	})
 */
-func Then[T, U any](res Result[T], fn func(T) (U, error)) Result[U] {
-	if res.err != nil {
-		return Result[U]{err: res.err}
+func SafeMustVoid(fn func() error) {
+	if fn == nil {
+		Error(errors.New("SafeMustVoid called with nil function"))
+		panic("SafeMustVoid called with nil function")
 	}
 
-	value, err := fn(res.value)
-	return Try(value, err)
-}
+	defer func() {
+		if r := recover(); r != nil {
+			Log("Recovered from panic in SafeMustVoid: %v", r)
+		}
+	}()
 
-/*
-Err returns the error held by this Result, or nil if it succeeded.
-*/
-func (result Result[T]) Err() error {
-	return result.err
-}
-
-/*
-Value returns the success value held by this Result.
-*/
-func (result Result[T]) Value() T {
-	return result.value
-}
-
-/*
-Unwrap returns both the value and error, mirroring Go's conventional (T, error).
-*/
-func (result Result[T]) Unwrap() (T, error) {
-	return result.value, result.err
-}
-
-/*
-Must returns the value or panics if the Result holds an error.
-Used at the end of a chain where failure is truly unexpected.
-*/
-func (result Result[T]) Must() T {
-	if result.err != nil {
-		panic(result.err)
-	}
-
-	return result.value
+	MustVoid(fn())
 }

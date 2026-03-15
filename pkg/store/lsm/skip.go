@@ -1,8 +1,6 @@
 package lsm
 
 import (
-	"math/bits"
-
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -144,27 +142,11 @@ func (skip *SkipIndex) extractPhase(key uint64) numeric.Phase {
 	}
 
 	_, symbol := morton.Unpack(key)
-	base := data.BaseChord(symbol)
-	stateOnly := chord.XOR(base)
-
-	if stateOnly.ActiveCount() == 0 {
+	phase, ok := extractStatePhase(chord, symbol)
+	if !ok {
 		return 0
 	}
-
-	for blockIdx := 0; blockIdx < 8; blockIdx++ {
-		block := stateOnly.Block(blockIdx)
-		if block == 0 {
-			continue
-		}
-		bitIdx := bits.TrailingZeros64(block)
-		primeIdx := blockIdx*64 + bitIdx
-		phase := numeric.Phase(primeIdx)
-		if phase >= 1 && uint32(phase) < numeric.FermatPrime {
-			return phase
-		}
-	}
-
-	return 0
+	return phase
 }
 
 /*
@@ -213,8 +195,9 @@ func (skip *SkipIndex) validateUnsafe(key uint64, level SkipLevel) bool {
 
 	targetChain := skip.idx.followChainUnsafe(sp.Target)
 
+	_, targetSymbol := morton.Unpack(sp.Target)
 	for _, chord := range targetChain {
-		if chord.Has(int(sp.Phase)) {
+		if statePhaseMatches(chord, targetSymbol, sp.Phase) {
 			return true
 		}
 	}
@@ -287,7 +270,7 @@ func (skip *SkipIndex) SkipSearch(
 				chain := skip.idx.followChainUnsafe(nk)
 
 				for _, stateChord := range chain {
-					if stateChord.Has(int(expectedPhase)) {
+					if statePhaseMatches(stateChord, nextSym, expectedPhase) {
 						currentKey = nk
 						currentPhase = expectedPhase
 						foundNext = true

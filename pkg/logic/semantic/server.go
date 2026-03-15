@@ -64,7 +64,7 @@ func NewEngineServer(opts ...engineOpts) *EngineServer {
 }
 
 /*
-Client returns a Cap'n Proto client connected to this PrompterServer.
+Client returns a Cap'n Proto client connected to this EngineServer.
 */
 func (server *EngineServer) Client(clientID string) Engine {
 	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
@@ -84,11 +84,93 @@ func (server *EngineServer) Prompt(ctx context.Context, params Engine_prompt) er
 }
 
 /*
-Inject stores a new Semantic Fact as a Fermat Braid.
-The S-V-O components are hashed to Phases and multiplied.
-Returns Phase(0) and does not append if any component sums to zero (unqueryable).
+Inject implements Engine_Server. Stores an S-V-O fact as a Fermat Braid and
+returns the braid phase.
 */
-func (eng *EngineServer) Inject(subject, link, object string) numeric.Phase {
+func (server *EngineServer) Inject(ctx context.Context, call Engine_inject) error {
+	args := call.Args()
+
+	subject, err := args.Subject()
+	if err != nil {
+		return err
+	}
+
+	link, err := args.Link()
+	if err != nil {
+		return err
+	}
+
+	object, err := args.Object()
+	if err != nil {
+		return err
+	}
+
+	braid := server.InjectFact(subject, link, object)
+
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	res.SetBraid(uint32(braid))
+
+	return nil
+}
+
+/*
+Query implements Engine_Server. Performs algebraic cancellation to resolve
+an unknown S-V-O component. Axis: 0=Object, 1=Subject, 2=Link.
+*/
+func (server *EngineServer) Query(ctx context.Context, call Engine_query) error {
+	args := call.Args()
+
+	braid := numeric.Phase(args.Braid())
+
+	knownA, err := args.KnownA()
+	if err != nil {
+		return err
+	}
+
+	knownB, err := args.KnownB()
+	if err != nil {
+		return err
+	}
+
+	axis := args.Axis()
+
+	var name string
+	var phase numeric.Phase
+	var queryErr error
+
+	switch componentAxis(axis) {
+	case componentObject:
+		name, phase, queryErr = server.QueryObject(braid, knownA, knownB)
+	case componentSubject:
+		name, phase, queryErr = server.QuerySubject(braid, knownA, knownB)
+	case componentLink:
+		name, phase, queryErr = server.QueryLink(braid, knownA, knownB)
+	}
+
+	if queryErr != nil {
+		return queryErr
+	}
+
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	res.SetPhase(uint32(phase))
+
+	return res.SetName(name)
+}
+
+/*
+InjectFact stores a new Semantic Fact as a Fermat Braid.
+The S-V-O components are hashed to Phases and multiplied.
+Returns Phase(0) and does not append if any component sums to zero.
+*/
+func (eng *EngineServer) InjectFact(subject, link, object string) numeric.Phase {
 	ps := eng.calc.Sum(subject)
 	pl := eng.calc.Sum(link)
 	po := eng.calc.Sum(object)
@@ -116,47 +198,8 @@ func (eng *EngineServer) Inject(subject, link, object string) numeric.Phase {
 }
 
 /*
-InjectLabel introduces a Cross-Modal Alignment marker to a fact.
-By tagging a fact with a specific 'Label Phase', the context can be modulated
-simultaneously across dual modalities (e.g., text and corresponding image embeddings)
-without changing the core Subject-Link-Object text structure.
-*/
-func (eng *EngineServer) InjectLabel(subject, link, object string, labelPhase numeric.Phase) numeric.Phase {
-	ps := eng.calc.Sum(subject)
-	pl := eng.calc.Sum(link)
-	po := eng.calc.Sum(object)
-
-	if ps == 0 || pl == 0 || po == 0 || labelPhase == 0 {
-		return numeric.Phase(0)
-	}
-
-	// The semantic text braid
-	braid := eng.calc.Multiply(eng.calc.Multiply(ps, pl), po)
-
-	// Cross-Modal constraint applied via multiplication
-	modulatedBraid := eng.calc.Multiply(braid, labelPhase)
-
-	fact := Fact{
-		Subject: subject,
-		Link:    link,
-		Object:  object,
-		Phase:   modulatedBraid,
-		Label:   labelPhase,
-	}
-
-	idx := len(eng.facts)
-	eng.facts = append(eng.facts, fact)
-	eng.phaseIndex[po] = append(eng.phaseIndex[po], fact)
-	eng.phaseIndex[ps] = append(eng.phaseIndex[ps], fact)
-	eng.braidIndex[modulatedBraid] = append(eng.braidIndex[modulatedBraid], idx)
-
-	return modulatedBraid
-}
-
-/*
 QueryObject performs modular inversion to cancel the Subject and Link,
 leaving the Resonant Object Phase.
-Uses braidIndex for exact fact resolution; Resonate handles merged braids.
 */
 func (eng *EngineServer) QueryObject(braid numeric.Phase, subject, link string) (string, numeric.Phase, error) {
 	invS, err := eng.calc.Inverse(eng.calc.Sum(subject))
@@ -176,13 +219,13 @@ func (eng *EngineServer) QueryObject(braid numeric.Phase, subject, link string) 
 	}
 
 	name, phase := eng.Resonate(target)
+
 	return name, phase, nil
 }
 
 /*
 QuerySubject performs modular inversion to cancel the Link and Object,
 leaving the Resonant Subject Phase.
-Uses braidIndex for exact fact resolution; Resonate handles merged braids.
 */
 func (eng *EngineServer) QuerySubject(braid numeric.Phase, link, object string) (string, numeric.Phase, error) {
 	invL, err := eng.calc.Inverse(eng.calc.Sum(link))
@@ -202,7 +245,38 @@ func (eng *EngineServer) QuerySubject(braid numeric.Phase, link, object string) 
 	}
 
 	name, phase := eng.Resonate(target)
+
 	return name, phase, nil
+}
+
+/*
+QueryLink performs modular inversion to cancel Subject and Object,
+leaving the Resonant Link Phase.
+*/
+func (eng *EngineServer) QueryLink(braid numeric.Phase, subject, object string) (string, numeric.Phase, error) {
+	invS, err := eng.calc.Inverse(eng.calc.Sum(subject))
+	if err != nil {
+		return "", 0, err
+	}
+
+	invO, err := eng.calc.Inverse(eng.calc.Sum(object))
+	if err != nil {
+		return "", 0, err
+	}
+
+	target := eng.calc.Multiply(eng.calc.Multiply(braid, invS), invO)
+
+	if name, ok := eng.resolve(braid, target, subject, object, componentLink); ok {
+		return name, target, nil
+	}
+
+	for _, fact := range eng.facts {
+		if eng.calc.Sum(fact.Link) == target {
+			return fact.Link, target, nil
+		}
+	}
+
+	return "", target, nil
 }
 
 /*
@@ -218,9 +292,6 @@ const (
 
 /*
 resolve performs braid-verified, string-verified fact lookup.
-Scans the braidIndex bucket for facts matching the braid, verifies the cancel
-target equals the desired component's phase, and confirms string identity on
-the two known components. Zero-collision by construction.
 */
 func (eng *EngineServer) resolve(braid, target numeric.Phase, knownA, knownB string, axis componentAxis) (string, bool) {
 	indices := eng.braidIndex[braid]
@@ -263,17 +334,19 @@ func (eng *EngineServer) resolve(braid, target numeric.Phase, knownA, knownB str
 
 /*
 Resonate scans the semantic space to find the string phase that matches
-the target phase within a small integer distance (tolerance < 2).
-Uses phaseIndex for O(1) exact matches, falls back to scan for nearby phases.
+the target phase. Uses phaseIndex for O(1) exact matches.
 */
 func (eng *EngineServer) Resonate(target numeric.Phase) (string, numeric.Phase) {
 	if bucket := eng.phaseIndex[target]; len(bucket) > 0 {
 		for _, fact := range bucket {
 			po := eng.calc.Sum(fact.Object)
+
 			if target == po {
 				return fact.Object, po
 			}
+
 			ps := eng.calc.Sum(fact.Subject)
+
 			if target == ps {
 				return fact.Subject, ps
 			}
@@ -310,7 +383,6 @@ func (eng *EngineServer) Resonate(target numeric.Phase) (string, numeric.Phase) 
 
 /*
 Merge creates a Multi-Tonal semantic context by summing multiple Fermat paths.
-Addition preserves independent states in GF(257).
 */
 func (eng *EngineServer) Merge(contexts []numeric.Phase) numeric.Phase {
 	var sum numeric.Phase
@@ -353,23 +425,44 @@ EngineWithFact loads a semantic premise at instantiation time.
 */
 func EngineWithFact(subject, link, object string) engineOpts {
 	return func(eng *EngineServer) {
-		eng.Inject(subject, link, object)
+		eng.InjectFact(subject, link, object)
 	}
 }
 
 /*
-EngineWithTemporalFact loads a temporally-positioned premise.
+InjectLabel introduces a Cross-Modal Alignment marker to a fact.
 */
-func EngineWithTemporalFact(subject, link, object string, temporal numeric.Phase) engineOpts {
-	return func(eng *EngineServer) {
-		eng.InjectTemporal(subject, link, object, temporal)
+func (eng *EngineServer) InjectLabel(subject, link, object string, labelPhase numeric.Phase) numeric.Phase {
+	ps := eng.calc.Sum(subject)
+	pl := eng.calc.Sum(link)
+	po := eng.calc.Sum(object)
+
+	if ps == 0 || pl == 0 || po == 0 || labelPhase == 0 {
+		return numeric.Phase(0)
 	}
+
+	braid := eng.calc.Multiply(eng.calc.Multiply(ps, pl), po)
+	modulatedBraid := eng.calc.Multiply(braid, labelPhase)
+
+	fact := Fact{
+		Subject: subject,
+		Link:    link,
+		Object:  object,
+		Phase:   modulatedBraid,
+		Label:   labelPhase,
+	}
+
+	idx := len(eng.facts)
+	eng.facts = append(eng.facts, fact)
+	eng.phaseIndex[po] = append(eng.phaseIndex[po], fact)
+	eng.phaseIndex[ps] = append(eng.phaseIndex[ps], fact)
+	eng.braidIndex[modulatedBraid] = append(eng.braidIndex[modulatedBraid], idx)
+
+	return modulatedBraid
 }
 
 /*
 InjectNegation stores a negative constraint via additive inverse.
-The braid phase is (257 - normalPhase), causing destructive interference
-when merged with the positive version. Returns the anti-phase.
 */
 func (eng *EngineServer) InjectNegation(subject, link, object string) numeric.Phase {
 	ps := eng.calc.Sum(subject)
@@ -400,8 +493,6 @@ func (eng *EngineServer) InjectNegation(subject, link, object string) numeric.Ph
 
 /*
 InjectTemporal stores a fact with a temporal phase multiplier.
-The temporal dimension modulates the braid: Phase * G^temporal,
-allowing "was in" vs "is in" vs "will be in" disambiguation.
 */
 func (eng *EngineServer) InjectTemporal(subject, link, object string, temporal numeric.Phase) numeric.Phase {
 	ps := eng.calc.Sum(subject)
@@ -437,41 +528,16 @@ func (eng *EngineServer) InjectTemporal(subject, link, object string, temporal n
 }
 
 /*
-QueryLink performs modular inversion to cancel Subject and Object,
-leaving the Resonant Link Phase. Completes the S-V-O query triad.
-Uses braidIndex for exact fact resolution; linear scan handles merged braids.
+EngineWithTemporalFact loads a temporally-positioned premise.
 */
-func (eng *EngineServer) QueryLink(braid numeric.Phase, subject, object string) (string, numeric.Phase, error) {
-	invS, err := eng.calc.Inverse(eng.calc.Sum(subject))
-	if err != nil {
-		return "", 0, err
+func EngineWithTemporalFact(subject, link, object string, temporal numeric.Phase) engineOpts {
+	return func(eng *EngineServer) {
+		eng.InjectTemporal(subject, link, object, temporal)
 	}
-
-	invO, err := eng.calc.Inverse(eng.calc.Sum(object))
-	if err != nil {
-		return "", 0, err
-	}
-
-	target := eng.calc.Multiply(eng.calc.Multiply(braid, invS), invO)
-
-	if name, ok := eng.resolve(braid, target, subject, object, componentLink); ok {
-		return name, target, nil
-	}
-
-	for _, fact := range eng.facts {
-		if eng.calc.Sum(fact.Link) == target {
-			return fact.Link, target, nil
-		}
-	}
-
-	return "", target, nil
 }
 
 /*
 DeBraid extracts individual fact phases from a merged multi-context state.
-Given a merged phase M = A + B + C and a known fact phase K, it returns
-the residual R = M - K (the remaining merged context without K).
-This enables selective cancellation of known components from a superposition.
 */
 func (eng *EngineServer) DeBraid(merged, known numeric.Phase) numeric.Phase {
 	return eng.calc.Subtract(merged, known)
@@ -479,8 +545,7 @@ func (eng *EngineServer) DeBraid(merged, known numeric.Phase) numeric.Phase {
 
 /*
 DeBraidFact extracts a specific fact from a merged state by cancelling
-its S-V-O braid. Returns the residual merged state containing all
-other facts. Returns ErrZeroInverse if the fact components hash to zero.
+its S-V-O braid.
 */
 func (eng *EngineServer) DeBraidFact(merged numeric.Phase, subject, link, object string) (numeric.Phase, error) {
 	ps := eng.calc.Sum(subject)
@@ -497,9 +562,7 @@ func (eng *EngineServer) DeBraidFact(merged numeric.Phase, subject, link, object
 }
 
 /*
-Interference returns true when two phases destructively cancel within
-tolerance. Used to detect when a negated fact has successfully
-nullified its positive counterpart in a merged context.
+Interference returns true when two phases destructively cancel within tolerance.
 */
 func (eng *EngineServer) Interference(a, b numeric.Phase) bool {
 	sum := eng.calc.Add(a, b)

@@ -122,6 +122,20 @@ func ToKey(chord data.Chord) ChordKey {
 }
 
 /*
+registerArrowUnsafe records a top-level branch choice for a Morton key.
+Requires idx.mu to already be held.
+*/
+func (idx *SpatialIndexServer) registerArrowUnsafe(key uint64, value data.Chord) {
+	for _, existing := range idx.arrowSets[key] {
+		if sameChord(existing, value) {
+			return
+		}
+	}
+
+	idx.arrowSets[key] = append(idx.arrowSets[key], value)
+}
+
+/*
 insertSync stores an arrow chord. Each slot holds exactly one pure
 chord — no superposition. On collision the EXISTING value is rotated
 to generate the address for the next chain link.
@@ -131,6 +145,7 @@ func (idx *SpatialIndexServer) insertSync(key uint64, value, meta data.Chord) {
 	defer idx.mu.Unlock()
 
 	idx.insertChain(key, value)
+	idx.registerArrowUnsafe(key, value)
 
 	// Apply Shannon density threshold (0.45 capacity limit on GF(257) = ~115 bits)
 	// If a meta chord absorbs too much structural overlap, it becomes white noise.
@@ -316,6 +331,7 @@ func (idx *SpatialIndexServer) deleteChainUnsafe(key uint64) {
 		return
 	}
 	delete(idx.entries, key)
+	delete(idx.arrowSets, key)
 	idx.count--
 
 	chainKey := ToKey(existing.Rotate3D())
@@ -363,29 +379,21 @@ func (idx *SpatialIndexServer) Compact() int {
 				continue // No branching entropy
 			}
 
+			_, symbol := morton.Unpack(key)
 			var validStates []data.Chord
 			var invalidStates []data.Chord
 
 			for _, stateChord := range chain {
 				hasContinuation := false
-
-				// Identify if AT LEAST ONE phase branch leads to a valid jump
-				for state := 0; state < 256; state++ {
-					if !stateChord.Has(state) {
-						continue
-					}
-
-					if state == 0 {
-						continue // Unlikely state, default empty
-					}
-
+				state, ok := extractStatePhase(stateChord, symbol)
+				if ok {
 					for _, nextKey := range nextKeys {
 						_, nextSymbol := morton.Unpack(nextKey)
-						expectedNextState := int(calc.Multiply(numeric.Phase(state), calc.Power(3, uint32(nextSymbol))))
+						expectedNextState := calc.Multiply(state, calc.Power(3, uint32(nextSymbol)))
 
 						nextChain := idx.followChainUnsafe(nextKey)
 						for _, nextChord := range nextChain {
-							if nextChord.Has(expectedNextState) {
+							if statePhaseMatches(nextChord, nextSymbol, expectedNextState) {
 								hasContinuation = true
 								break
 							}
@@ -393,10 +401,6 @@ func (idx *SpatialIndexServer) Compact() int {
 						if hasContinuation {
 							break
 						}
-					}
-
-					if hasContinuation {
-						break
 					}
 				}
 
@@ -413,6 +417,7 @@ func (idx *SpatialIndexServer) Compact() int {
 
 				for _, valid := range validStates {
 					idx.insertChain(key, valid)
+					idx.registerArrowUnsafe(key, valid)
 				}
 			}
 		}
@@ -534,64 +539,102 @@ func (idx *SpatialIndexServer) Insert(ctx context.Context, call SpatialIndex_ins
 }
 
 /*
-buildPaths walks each prompt chord through the radix trie.
-Entries store BaseChord(symbol) (unrolled), while prompt chords are
-BuildChord superpositions with RollLeft(pos). To match correctly
-we must RollLeft each entry's base chord by its position and check
-containment in the prompt chord.
+buildPaths reconstructs the prompt bytes from the incoming chord list and then
+runs the phase-driven traversal described in INSIGHT.md. This keeps lookup tied
+to the byte-addressed Morton program rather than to a lossy chord containment scan.
 */
 func (idx *SpatialIndexServer) buildPaths(chordList data.Chord_List) ([][]data.Chord, [][]data.Chord, error) {
-	idx.mu.RLock()
-	defer idx.mu.RUnlock()
+	promptBytes, err := idx.inferPromptBytes(chordList)
+	if err != nil {
+		return nil, nil, err
+	}
 
-	paths := make([][]data.Chord, chordList.Len())
-	metaPaths := make([][]data.Chord, chordList.Len())
+	if len(promptBytes) == 0 {
+		return nil, nil, nil
+	}
 
-	for i := 0; i < chordList.Len(); i++ {
-		promptChord := chordList.At(i)
+	_, paths, metaPaths := idx.LookupByPhase(promptBytes)
+	if len(paths) > 0 {
+		return paths, metaPaths, nil
+	}
 
-		if promptChord.ActiveCount() == 0 {
-			continue
-		}
+	wf := NewWavefront(
+		idx,
+		WavefrontWithMaxHeads(64),
+		WavefrontWithMaxDepth(uint32(len(promptBytes)+256)),
+		WavefrontWithAnchors(256, 12),
+	)
+	interest, danger := wf.ContextSteering(string(promptBytes), "")
+	results := wf.SearchPrompt(promptBytes, interest, danger)
+	if len(results) == 0 {
+		return nil, nil, nil
+	}
 
-		deepest := uint32(0)
-		matched := false
+	limit := len(results)
+	if limit > 4 {
+		limit = 4
+	}
 
-		for pos := uint32(0); ; pos++ {
-			entriesKeys, hasEntries := idx.positionIndex[pos]
-			if !hasEntries || len(entriesKeys) == 0 {
-				break
-			}
-
-			foundAtPos := false
-
-			for _, key := range entriesKeys {
-				_, symbol := morton.Unpack(key)
-
-				// Apply the same positional encoding that BuildChord uses:
-				// BaseChord(symbol).RollLeft(pos)
-				bc := data.BaseChord(symbol)
-				rolled := bc.RollLeft(int(pos))
-				sim := data.ChordSimilarity(&rolled, &promptChord)
-
-				if sim == rolled.ActiveCount() && sim > 0 {
-					foundAtPos = true
-					deepest = pos
-					matched = true
-				}
-			}
-
-			if !foundAtPos {
-				break
-			}
-		}
-
-		if matched {
-			paths[i], metaPaths[i] = idx.branchesFrom(deepest)
-		}
+	paths = make([][]data.Chord, 0, limit)
+	metaPaths = make([][]data.Chord, 0, limit)
+	for i := 0; i < limit; i++ {
+		paths = append(paths, results[i].Path)
+		metaPaths = append(metaPaths, results[i].MetaPath)
 	}
 
 	return paths, metaPaths, nil
+}
+
+/*
+inferPromptBytes extracts the raw prompt bytes from the per-byte state chords
+produced by the tokenizer.
+*/
+func (idx *SpatialIndexServer) inferPromptBytes(chordList data.Chord_List) ([]byte, error) {
+	prompt := make([]byte, 0, chordList.Len())
+
+	for i := 0; i < chordList.Len(); i++ {
+		chord := chordList.At(i)
+		candidate, ok := inferByteFromChord(chord)
+		if !ok {
+			return nil, fmt.Errorf("prompt byte inference failed at index %d", i)
+		}
+
+		prompt = append(prompt, candidate)
+	}
+
+	return prompt, nil
+}
+
+/*
+inferByteFromChord finds the unique BaseChord fully contained in the supplied
+state chord. The tokenizer always embeds the byte's five-bit signature plus a
+state bit, so the lexical signature is recoverable without ambiguity.
+*/
+func inferByteFromChord(chord data.Chord) (byte, bool) {
+	var best byte
+	bestScore := -1
+	unique := false
+
+	for candidate := 0; candidate < 256; candidate++ {
+		base := data.BaseChord(byte(candidate))
+		sim := data.ChordSimilarity(&base, &chord)
+		if sim != base.ActiveCount() {
+			continue
+		}
+
+		if sim > bestScore {
+			best = byte(candidate)
+			bestScore = sim
+			unique = true
+			continue
+		}
+
+		if sim == bestScore {
+			unique = false
+		}
+	}
+
+	return best, unique && bestScore > 0
 }
 
 /*
@@ -754,10 +797,6 @@ func (idx *SpatialIndexServer) Decode(
 		}
 
 		seqs := idx.decodeChords(slice)
-		fmt.Printf("Decode slice len=%d, seqs=%d\n", len(slice), len(seqs))
-		for _, sq := range seqs {
-			fmt.Printf("decoded seq: %q\n", string(sq))
-		}
 		allSequences = append(allSequences, seqs...)
 	}
 
@@ -787,6 +826,10 @@ identifies candidate (position, symbol) matches via the position
 index, then each subsequent chord narrows to contiguous positions.
 */
 func (idx *SpatialIndexServer) decodeChords(chords []data.Chord) [][]byte {
+	if decoded, ok := idx.decodeProgrammedPath(chords); ok {
+		return [][]byte{decoded}
+	}
+
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -912,6 +955,44 @@ func (idx *SpatialIndexServer) decodeChords(chords []data.Chord) [][]byte {
 }
 
 /*
+decodeProgrammedPath replays a path directly from the state chords themselves.
+When traversal already returned the concrete program nodes, the lexical byte can
+be inferred straight from each chord without scanning the entire spatial index.
+Pure synthetic bridge chords are skipped; everything else must decode cleanly.
+*/
+func (idx *SpatialIndexServer) decodeProgrammedPath(chords []data.Chord) ([]byte, bool) {
+	if len(chords) == 0 {
+		return nil, false
+	}
+
+	out := make([]byte, 0, len(chords))
+	inferred := 0
+
+	for _, chord := range chords {
+		if chord.ActiveCount() == 0 {
+			continue
+		}
+
+		b, ok := inferByteFromChord(chord)
+		if !ok {
+			if chord.ActiveCount() <= 1 {
+				continue
+			}
+			return nil, false
+		}
+
+		out = append(out, b)
+		inferred++
+
+		if chord.Terminal() || chord.Opcode() == uint64(data.OpcodeHalt) {
+			break
+		}
+	}
+
+	return out, inferred > 0
+}
+
+/*
 decodeFallback handles single-chord results where positional chaining
 cannot apply. Finds the shortest contiguous match per chord.
 */
@@ -978,10 +1059,10 @@ LookupByPhase implements Prompt-to-Phase from INSIGHT.md.
 Given raw prompt bytes, it computes the GF(257) state chain
 S = (S * 3^byte) mod 257, then scans the spatial index for
 entries whose state bits match the prompt's accumulated state.
-It returns reconstructed byte sequences without requiring chord
-comparison.
+It returns reconstructed byte sequences together with the resonant chord path
+and the per-step meta path carried in the Guard Band program.
 */
-func (idx *SpatialIndexServer) LookupByPhase(promptBytes []byte) ([][]byte, [][]data.Chord) {
+func (idx *SpatialIndexServer) LookupByPhase(promptBytes []byte) ([][]byte, [][]data.Chord, [][]data.Chord) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
@@ -991,6 +1072,7 @@ func (idx *SpatialIndexServer) LookupByPhase(promptBytes []byte) ([][]byte, [][]
 	// prefix matches the spatial index with state-chain verification.
 	var results [][]byte
 	var resultChords [][]data.Chord
+	var resultMetas [][]data.Chord
 
 	maxStartPos := uint32(0)
 
@@ -1009,17 +1091,18 @@ func (idx *SpatialIndexServer) LookupByPhase(promptBytes []byte) ([][]byte, [][]
 
 		// Full prompt matched at this starting position.
 		// Collect continuation bytes using state-chain verification.
-		contBytes, contChords := idx.collectStateContinuation(
+		contBytes, contChords, contMetas := idx.collectStateContinuation(
 			startPos+uint32(matchLen), endState, calc,
 		)
 
 		if len(contBytes) > 0 {
 			results = append(results, contBytes)
 			resultChords = append(resultChords, contChords)
+			resultMetas = append(resultMetas, contMetas)
 		}
 	}
 
-	return results, resultChords
+	return results, resultChords, resultMetas
 }
 
 /*
@@ -1045,7 +1128,7 @@ func (idx *SpatialIndexServer) matchPromptAtPosition(
 			if !idx.hasInChain(key, b, state, calc) {
 				return i, state
 			}
-		} else if !chord.Has(int(nextState)) {
+		} else if !statePhaseMatches(chord, b, nextState) {
 			// Chord exists but state doesn't match — wrong context.
 			return i, state
 		}
@@ -1070,7 +1153,7 @@ func (idx *SpatialIndexServer) hasInChain(
 
 	nextState := calc.Multiply(prevState, calc.Power(3, uint32(b)))
 
-	if existing.Has(int(nextState)) {
+	if statePhaseMatches(existing, b, nextState) {
 		return true
 	}
 
@@ -1090,7 +1173,7 @@ func (idx *SpatialIndexServer) hasInChain(
 			return false
 		}
 
-		if next.Has(int(nextState)) {
+		if statePhaseMatches(next, b, nextState) {
 			return true
 		}
 
@@ -1106,11 +1189,12 @@ continuation belongs to the same context (chunk) as the matched prompt.
 */
 func (idx *SpatialIndexServer) collectStateContinuation(
 	startPos uint32, state numeric.Phase, calc *numeric.Calculus,
-) ([]byte, []data.Chord) {
+) ([]byte, []data.Chord, []data.Chord) {
 	var resultBytes []byte
 	var resultChords []data.Chord
+	var resultMetas []data.Chord
 
-	for pos := startPos; ; pos++ {
+	for pos := startPos; ; {
 		keys, exists := idx.positionIndex[pos]
 
 		if !exists || len(keys) == 0 {
@@ -1118,6 +1202,7 @@ func (idx *SpatialIndexServer) collectStateContinuation(
 		}
 
 		foundByte := false
+		advance := uint32(1)
 
 		for _, key := range keys {
 			_, symbol := morton.Unpack(key)
@@ -1127,14 +1212,32 @@ func (idx *SpatialIndexServer) collectStateContinuation(
 			chain := idx.followChainUnsafe(key)
 
 			for _, chord := range chain {
-				if chord.Has(int(candidateState)) {
-					resultBytes = append(resultBytes, symbol)
-					resultChords = append(resultChords, chord)
-					state = candidateState
-					foundByte = true
-
-					break
+				if !statePhaseMatches(chord, symbol, candidateState) {
+					continue
 				}
+
+				resultBytes = append(resultBytes, symbol)
+				resultChords = append(resultChords, chord)
+
+				meta := data.MustNewChord()
+				if metas := idx.metaEntries[key]; len(metas) > 0 {
+					meta.CopyFrom(metas[0])
+				}
+				resultMetas = append(resultMetas, meta)
+
+				state = candidateState
+				foundByte = true
+
+				jump := chord.Jump()
+				if jump > 0 {
+					advance = jump
+				}
+
+				if chord.Terminal() || chord.Opcode() == uint64(data.OpcodeHalt) {
+					return resultBytes, resultChords, resultMetas
+				}
+
+				break
 			}
 
 			if foundByte {
@@ -1145,7 +1248,9 @@ func (idx *SpatialIndexServer) collectStateContinuation(
 		if !foundByte {
 			break
 		}
+
+		pos += advance
 	}
 
-	return resultBytes, resultChords
+	return resultBytes, resultChords, resultMetas
 }

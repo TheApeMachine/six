@@ -4,12 +4,12 @@
 \paragraph{Task Description.}
 This experiment injects a mid-stream rule change into the substrate without
 any explicit signal or re-training.  Two generative rules partition the
-$2N$ = 50-sample stream:
+$2N$ = 1-sample stream:
 
 \begin{itemize}[nosep]
-  \item \textbf{Rule A} (steps 0--25, $N=25$ samples):
+  \item \textbf{Rule A} (steps 0--0, $N=25$ samples):
         linear modular sequences, $b_k = (s_i + 3k) \bmod 251$.
-  \item \textbf{Rule B} (steps 25--50, $N=25$ samples):
+  \item \textbf{Rule B} (steps 0--1, $N=25$ samples):
         XOR-nonlinear sequences, $b_k = s_i \oplus (11k \bmod 256)$.
 \end{itemize}
 
@@ -20,18 +20,15 @@ is $\arg\max(K_A, K_B)$.
 
 \paragraph{Results.}
 Figure~\ref{fig:ruleshift_trajectory} shows the full adaptation
-trajectory.  The shift boundary is at step 25.  Rule B
-stabilised at step 25 (0 steps after the shift).  Phase A had $25$ of
-$25$ steps won by Rule A
-(100\,\%); Phase B had $21$ of
-$25$ steps won by Rule B (84\,\%).
+trajectory.  The shift boundary is at step 0.  Rule B
+did not stabilise within the observation window.  Phase A had $0$ of
+$1$ steps won by Rule A
+(0\,\%); Phase B had $0$ of
+$0$ steps won by Rule B (0\,\%).
 
 \paragraph{Assessment.}
-The substrate successfully adapted to the rule shift: after an initial
-transient the retrieval field re-aligned with Rule B's attractor basin
-without any parameter update or explicit domain signal.  This demonstrates
-that the chord manifold reorganises spontaneously in response to
-distributional change, consistent with the Holographic BVP framing in
-which the field settles to the lowest-energy configuration compatible
-with the current input boundary conditions.
+The substrate did not complete the transition within the available window.
+At this scale, Rules A and B produce similar chord cosine similarities;
+longer samples or larger \textit{N} would widen the attractor gap and make
+the shift detectable.
 

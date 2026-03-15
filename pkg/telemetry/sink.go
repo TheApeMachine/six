@@ -3,8 +3,6 @@ package telemetry
 import (
 	"encoding/json"
 	"net"
-
-	"github.com/theapemachine/six/pkg/system/console"
 )
 
 /*
@@ -65,6 +63,5 @@ func (sink *Sink) Emit(event Event) {
 		return
 	}
 
-	console.Trace("Emit", "data", string(raw))
 	sink.conn.Write(raw)
 }

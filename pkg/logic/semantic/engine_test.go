@@ -138,7 +138,7 @@ func TestEngine(t *testing.T) {
 					obj:  fact.obj,
 				}
 
-				tt.braid = eng.Inject(tt.subj, tt.link, tt.obj)
+				tt.braid = eng.InjectFact(tt.subj, tt.link, tt.obj)
 				injected = append(injected, tt)
 			}
 
@@ -269,9 +269,9 @@ func TestZeroComponentRejection(t *testing.T) {
 		eng := NewEngineServer()
 
 		gc.Convey("Inject should reject empty subject, link, or object", func() {
-			gc.So(eng.Inject("", "is_on", "Mat"), gc.ShouldEqual, numeric.Phase(0))
-			gc.So(eng.Inject("Cat", "", "Mat"), gc.ShouldEqual, numeric.Phase(0))
-			gc.So(eng.Inject("Cat", "is_on", ""), gc.ShouldEqual, numeric.Phase(0))
+			gc.So(eng.InjectFact("", "is_on", "Mat"), gc.ShouldEqual, numeric.Phase(0))
+			gc.So(eng.InjectFact("Cat", "", "Mat"), gc.ShouldEqual, numeric.Phase(0))
+			gc.So(eng.InjectFact("Cat", "is_on", ""), gc.ShouldEqual, numeric.Phase(0))
 			gc.So(len(eng.facts), gc.ShouldEqual, 0)
 		})
 
@@ -284,7 +284,7 @@ func TestZeroComponentRejection(t *testing.T) {
 		})
 
 		gc.Convey("QueryObject should return error on zero-phase subject or link", func() {
-			braid := eng.Inject("Cat", "is_on", "Mat")
+			braid := eng.InjectFact("Cat", "is_on", "Mat")
 			_, _, err := eng.QueryObject(braid, "", "is_on")
 			gc.So(err, gc.ShouldNotBeNil)
 
@@ -293,7 +293,7 @@ func TestZeroComponentRejection(t *testing.T) {
 		})
 
 		gc.Convey("QuerySubject should return error on zero-phase link or object", func() {
-			braid := eng.Inject("Cat", "is_on", "Mat")
+			braid := eng.InjectFact("Cat", "is_on", "Mat")
 			_, _, err := eng.QuerySubject(braid, "", "Mat")
 			gc.So(err, gc.ShouldNotBeNil)
 
@@ -302,7 +302,7 @@ func TestZeroComponentRejection(t *testing.T) {
 		})
 
 		gc.Convey("DeBraidFact should return ErrZeroInverse on empty components", func() {
-			braid := eng.Inject("Cat", "is_on", "Mat")
+			braid := eng.InjectFact("Cat", "is_on", "Mat")
 			_, err := eng.DeBraidFact(braid, "", "is_on", "Mat")
 			gc.So(err, gc.ShouldEqual, numeric.ErrZeroInverse)
 
@@ -416,9 +416,9 @@ func TestMergeAlgebra(t *testing.T) {
 		eng := NewEngineServer()
 		calc := eng.calc
 
-		phaseA := eng.Inject("Cat", "is_on", "Mat")
-		phaseB := eng.Inject("Dog", "is_in", "Yard")
-		phaseC := eng.Inject("Bird", "flew", "Sky")
+		phaseA := eng.InjectFact("Cat", "is_on", "Mat")
+		phaseB := eng.InjectFact("Dog", "is_in", "Yard")
+		phaseC := eng.InjectFact("Bird", "flew", "Sky")
 
 		gc.Convey("Merge of empty should be zero (additive identity)", func() {
 			gc.So(eng.Merge([]numeric.Phase{}), gc.ShouldEqual, numeric.Phase(0))
@@ -451,7 +451,7 @@ func TestMergeAlgebra(t *testing.T) {
 			var phases []numeric.Phase
 
 			for idx := range 50 {
-				phases = append(phases, eng.Inject(
+				phases = append(phases, eng.InjectFact(
 					fmt.Sprintf("S%d", idx),
 					fmt.Sprintf("V%d", idx),
 					fmt.Sprintf("O%d", idx),
@@ -472,7 +472,7 @@ func TestMultiTonalNoise(t *testing.T) {
 		var phases []numeric.Phase
 
 		for idx := range 6 {
-			eng.Inject(
+			eng.InjectFact(
 				fmt.Sprintf("Subj_%d", idx),
 				fmt.Sprintf("Link_%d", idx),
 				fmt.Sprintf("Obj_%d", idx),
@@ -521,7 +521,7 @@ func TestMassInjectionAndQuery(t *testing.T) {
 				obj:  generateString(rng, rng.Intn(10)+5),
 			}
 
-			tt.braid = eng.Inject(tt.subj, tt.link, tt.obj)
+			tt.braid = eng.InjectFact(tt.subj, tt.link, tt.obj)
 
 			if tt.braid != 0 {
 				injected = append(injected, tt)
@@ -631,19 +631,19 @@ func TestInterference(t *testing.T) {
 		eng := NewEngineServer()
 
 		gc.Convey("Exact additive inverses should interfere", func() {
-			pos := eng.Inject("Cat", "is_on", "Mat")
+			pos := eng.InjectFact("Cat", "is_on", "Mat")
 			neg := eng.InjectNegation("Cat", "is_on", "Mat")
 			gc.So(eng.Interference(pos, neg), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("Unrelated phases should not interfere", func() {
-			phaseA := eng.Inject("Cat", "is_on", "Mat")
-			phaseB := eng.Inject("Dog", "is_in", "Yard")
+			phaseA := eng.InjectFact("Cat", "is_on", "Mat")
+			phaseB := eng.InjectFact("Dog", "is_in", "Yard")
 			gc.So(eng.Interference(phaseA, phaseB), gc.ShouldBeFalse)
 		})
 
 		gc.Convey("Additive inverse sum should be exactly zero", func() {
-			pos := eng.Inject("Cat", "is_on", "Mat")
+			pos := eng.InjectFact("Cat", "is_on", "Mat")
 			neg := eng.InjectNegation("Cat", "is_on", "Mat")
 			gc.So(eng.calc.Add(pos, neg), gc.ShouldEqual, numeric.Phase(0))
 		})
@@ -681,8 +681,8 @@ func TestDiff(t *testing.T) {
 func TestResonate(t *testing.T) {
 	gc.Convey("Given an engine with indexed facts", t, func() {
 		eng := NewEngineServer()
-		eng.Inject("Cat", "is_on", "Mat")
-		eng.Inject("Dog", "is_in", "Yard")
+		eng.InjectFact("Cat", "is_on", "Mat")
+		eng.InjectFact("Dog", "is_in", "Yard")
 
 		gc.Convey("Exact object phase should return the object string", func() {
 			target := eng.calc.Sum("Mat")
@@ -721,7 +721,7 @@ func BenchmarkInject(b *testing.B) {
 	b.ResetTimer()
 
 	for iter := 0; iter < b.N; iter++ {
-		eng.Inject(
+		eng.InjectFact(
 			fmt.Sprintf("S%d", iter),
 			fmt.Sprintf("V%d", iter%20),
 			fmt.Sprintf("O%d", iter),
@@ -741,7 +741,7 @@ func BenchmarkQueryObject(b *testing.B) {
 		link := fmt.Sprintf("V%d", idx%20)
 		subjects = append(subjects, subj)
 		links = append(links, link)
-		braids = append(braids, eng.Inject(subj, link, fmt.Sprintf("O%d", idx)))
+		braids = append(braids, eng.InjectFact(subj, link, fmt.Sprintf("O%d", idx)))
 	}
 
 	b.ResetTimer()
@@ -764,7 +764,7 @@ func BenchmarkQuerySubject(b *testing.B) {
 		obj := fmt.Sprintf("O%d", idx)
 		links = append(links, link)
 		objects = append(objects, obj)
-		braids = append(braids, eng.Inject(fmt.Sprintf("S%d", idx), link, obj))
+		braids = append(braids, eng.InjectFact(fmt.Sprintf("S%d", idx), link, obj))
 	}
 
 	b.ResetTimer()
@@ -787,7 +787,7 @@ func BenchmarkQueryLink(b *testing.B) {
 		obj := fmt.Sprintf("O%d", idx)
 		subjects = append(subjects, subj)
 		objects = append(objects, obj)
-		braids = append(braids, eng.Inject(subj, fmt.Sprintf("V%d", idx%20), obj))
+		braids = append(braids, eng.InjectFact(subj, fmt.Sprintf("V%d", idx%20), obj))
 	}
 
 	b.ResetTimer()
@@ -804,7 +804,7 @@ func BenchmarkMerge(b *testing.B) {
 	var phases []numeric.Phase
 
 	for idx := 0; idx < 100; idx++ {
-		phases = append(phases, eng.Inject(
+		phases = append(phases, eng.InjectFact(
 			fmt.Sprintf("S%d", idx),
 			fmt.Sprintf("V%d", idx),
 			fmt.Sprintf("O%d", idx),
@@ -822,7 +822,7 @@ func BenchmarkResonate(b *testing.B) {
 	eng := NewEngineServer()
 
 	for idx := 0; idx < 1000; idx++ {
-		eng.Inject(
+		eng.InjectFact(
 			fmt.Sprintf("S%d", idx),
 			fmt.Sprintf("V%d", idx%30),
 			fmt.Sprintf("O%d", idx),
@@ -858,7 +858,7 @@ func BenchmarkInterference(b *testing.B) {
 	var negPhases []numeric.Phase
 
 	for idx := 0; idx < 100; idx++ {
-		posPhases = append(posPhases, eng.Inject(
+		posPhases = append(posPhases, eng.InjectFact(
 			fmt.Sprintf("S%d", idx), "rel", fmt.Sprintf("O%d", idx),
 		))
 		negPhases = append(negPhases, eng.InjectNegation(

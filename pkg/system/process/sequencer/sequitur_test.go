@@ -134,3 +134,36 @@ func BenchmarkRuleCount(b *testing.B) {
 		_ = seq.RuleCount()
 	}
 }
+
+func TestAnalyzeApproximateDigram(t *testing.T) {
+	Convey("Given a Sequitur with near-repeated digrams", t, func() {
+		seq := NewSequitur()
+
+		Convey("When two digrams differ by only one bit", func() {
+			seq.Analyze(0, 'a')
+			seq.Analyze(1, 'b')
+			seq.Analyze(2, 'a')
+			boundary, emitK, _, meta := seq.Analyze(3, 'c') // b=0x62, c=0x63 differ by one bit
+
+			Convey("It should still form an approximate structural rule", func() {
+				So(boundary, ShouldBeTrue)
+				So(emitK, ShouldBeGreaterThan, 0)
+				So(meta.ActiveCount(), ShouldBeGreaterThan, 0)
+				So(seq.RuleCount(), ShouldBeGreaterThan, 0)
+			})
+		})
+
+		Convey("When two digrams are too far apart", func() {
+			seq = NewSequitur()
+			seq.Analyze(0, 'a')
+			seq.Analyze(1, 'b')
+			seq.Analyze(2, 'x')
+			boundary, _, _, _ := seq.Analyze(3, 'y')
+
+			Convey("It should reject the lossy rule", func() {
+				So(boundary, ShouldBeFalse)
+				So(seq.RuleCount(), ShouldEqual, 0)
+			})
+		})
+	})
+}

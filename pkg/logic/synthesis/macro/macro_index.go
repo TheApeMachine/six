@@ -22,6 +22,19 @@ type MacroOpcode struct {
 }
 
 /*
+AnchorRecord stores a cross-modal prime invariant. Multiple modalities can point
+at the same GF(257) anchor so the system can phase-lock text, images, or other
+streams onto one resonant address.
+*/
+type AnchorRecord struct {
+	Name       string
+	Phase      numeric.Phase
+	Modalities map[string]bool
+	UseCount   uint64
+	Hardened   bool
+}
+
+/*
 MacroIndexServer stores the library of discovered Macro-Opcodes.
 It allows the Cantilever logic engine to look up pre-computed Resonant Sub-Routines
 instead of falling back to raw data generation or exhaustive searching.
@@ -36,6 +49,8 @@ type MacroIndexServer struct {
 	clientConns map[string]*rpc.Conn
 	mu          sync.RWMutex
 	opcodes     map[numeric.Phase]*MacroOpcode
+	anchors     map[numeric.Phase]*AnchorRecord
+	anchorNames map[string]numeric.Phase
 }
 
 /*
@@ -50,6 +65,8 @@ func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 	idx := &MacroIndexServer{
 		clientConns: map[string]*rpc.Conn{},
 		opcodes:     make(map[numeric.Phase]*MacroOpcode),
+		anchors:     make(map[numeric.Phase]*AnchorRecord),
+		anchorNames: make(map[string]numeric.Phase),
 	}
 
 	for _, opt := range opts {
@@ -192,4 +209,87 @@ func (idx *MacroIndexServer) AvailableHardened() []*MacroOpcode {
 		}
 	}
 	return tools
+}
+
+/*
+RecordAnchor stores or refreshes a cross-modal prime invariant. Repeated use
+hardens the anchor so it can serve as a stable rendezvous point for phase-locking.
+*/
+func (idx *MacroIndexServer) RecordAnchor(name string, phase numeric.Phase, modalities ...string) *AnchorRecord {
+	if name == "" || phase == 0 {
+		return nil
+	}
+
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	record, exists := idx.anchors[phase]
+	if !exists {
+		record = &AnchorRecord{
+			Name:       name,
+			Phase:      phase,
+			Modalities: make(map[string]bool),
+			UseCount:   1,
+		}
+		idx.anchors[phase] = record
+	} else {
+		record.UseCount++
+		if record.Name == "" {
+			record.Name = name
+		}
+	}
+
+	for _, modality := range modalities {
+		if modality != "" {
+			record.Modalities[modality] = true
+		}
+	}
+
+	if record.UseCount > 3 {
+		record.Hardened = true
+	}
+
+	idx.anchorNames[name] = phase
+	return record
+}
+
+/*
+FindAnchorByName resolves an anchor through its human-facing label.
+*/
+func (idx *MacroIndexServer) FindAnchorByName(name string) (*AnchorRecord, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	phase, exists := idx.anchorNames[name]
+	if !exists {
+		return nil, false
+	}
+
+	record, ok := idx.anchors[phase]
+	return record, ok
+}
+
+/*
+FindAnchorByPhase returns the anchor stored at a GF(257) phase.
+*/
+func (idx *MacroIndexServer) FindAnchorByPhase(phase numeric.Phase) (*AnchorRecord, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	record, exists := idx.anchors[phase]
+	return record, exists
+}
+
+/*
+AvailableAnchors returns every known anchor currently in the registry.
+*/
+func (idx *MacroIndexServer) AvailableAnchors() []*AnchorRecord {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	out := make([]*AnchorRecord, 0, len(idx.anchors))
+	for _, record := range idx.anchors {
+		out = append(out, record)
+	}
+	return out
 }

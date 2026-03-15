@@ -43,7 +43,6 @@ func NewFrustrationEngineServer(opts ...feOpts) *FrustrationEngineServer {
 	fe := &FrustrationEngineServer{
 		clientConns: map[string]*rpc.Conn{},
 		calc:        numeric.NewCalculus(),
-		index:       macro.NewMacroIndexServer(),
 	}
 
 	for _, opt := range opts {
@@ -54,6 +53,12 @@ func NewFrustrationEngineServer(opts ...feOpts) *FrustrationEngineServer {
 		"ctx":    fe.ctx,
 		"cancel": fe.cancel,
 	})
+
+	if fe.index == nil {
+		fe.index = macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(fe.ctx),
+		)
+	}
 
 	fe.serverSide, fe.clientSide = net.Pipe()
 	fe.client = Frustration_ServerToClient(fe)
@@ -126,11 +131,13 @@ func (fe *FrustrationEngineServer) Resolve(
 
 	// 1. Direct Resolution check (Cantilever)
 	// If a single tool can bridge this gap exactly, use it.
-	cl := bvp.NewCantileverServer(currentPhase, targetPhase, bvp.WithMacroIndex(fe.index))
-	rot, singleTool, err := cl.Bridge()
+	cl := bvp.NewCantileverServer(
+		bvp.CantileverWithContext(fe.ctx),
+		bvp.WithMacroIndex(fe.index),
+	)
+	rot, singleTool, err := cl.BridgePhases(currentPhase, targetPhase)
 
-	if err == nil && singleTool.Hardened {
-		// A known hardened tool directly solves it.
+	if err == nil && singleTool != nil && singleTool.Hardened {
 		return []*macro.MacroOpcode{singleTool}, nil
 	}
 

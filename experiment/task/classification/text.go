@@ -16,12 +16,16 @@ import (
 
 /*
 TextClassificationExperiment tests the ability of the system to classify
-news articles into topical categories via topological resonance.
-
-Training data includes labels appended to article text so the manifold
-stores the article→label association. Prompts use SUBSTRING holdout to
-strip labels, so the machine sees pure article text and must surface the
-label through co-occurrence in its generated output.
+news articles into topical categories, using a dataset of news articles.
+The minimal honest version uses the included labels, which span 4 categories,
+however it could be an additional test to see if the system can classify
+articles into more granular categories, without having ever seen the
+explicit labels.
+The intuition is that if we give the system enough news articles, and
+ask it to assign each article to one of N categories, there is a chance
+that it would be able to pick up on the "domain knowledge" of each
+category, and be able to classify articles into categories it has never
+seen before.
 */
 type TextClassificationExperiment struct {
 	tableData []tools.ExperimentalData
@@ -56,16 +60,6 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 			huggingface.DatasetWithLabelColumn("label"),
 			huggingface.DatasetWithLabelAppend(agNewsLabels),
 		),
-	}
-
-	experiment.prose = []projector.ProseEntry{
-		{
-			Condition: func() bool {
-				return experiment.Score() > 0.5
-			},
-
-			Description: "The system is able to classify text into correct categories.",
-		},
 	}
 
 	return experiment
@@ -110,8 +104,15 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *TextClassificationExperiment) Outcome() (any, gc.Assertion, any) {
-	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+/*
+Outcome determines what we consider to be a minimal acceptable result.
+Text classification should be an achievable task for the system, so
+an accuracy of 85% should be within reach.
+*/
+func (experiment *TextClassificationExperiment) Outcome() (
+	any, gc.Assertion, any,
+) {
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.85
 }
 
 func (experiment *TextClassificationExperiment) Score() float64 {

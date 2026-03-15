@@ -17,7 +17,7 @@ domains:
         (\texttt{proteinea/secondary\_structure\_prediction})
 \end{itemize}
 
-Each domain contributes $2$ training samples,
+Each domain contributes $100$ training samples,
 ingested sequentially into a single unified substrate.
 Test prompts hold out the last 50 bytes; the system reconstructs
 them from the chord resonance field without any domain indicator.
@@ -30,16 +30,13 @@ Panel~B shows mean Exact / Partial / Fuzzy / Weighted scores grouped
 by domain, directly comparing substrate performance across the
 three data modalities.
 
-Across all $N = 4$ samples the overall weighted score was
-0.301. Per-domain weighted means:
-\textbf{Natural Language}: 0.029 (exact: 0.0\%).
-\textbf{Source Code}: 0.574 (exact: 50.0\%).
+Across all $N = 1$ samples the overall weighted score was
+0.000. Per-domain weighted means:
+\textbf{Natural Language}: 0.000 (exact: 0.0\%).
 
 \paragraph{Assessment.}
-Partial matches across domains indicate that the substrate is
-detecting shared structural regularities (n-gram byte patterns,
-token-boundary alignment) even across very different data modalities.
-Exact matches remain low due to sample-size constraints; increasing
-ingestion volume per domain is expected to sharpen per-domain
-attractor density.
+Completion accuracy was low across all domains at this ingestion
+scale.  The result is consistent with the theoretical expectation:
+the attractor field requires a minimum density of related samples
+before chord resonance can reliably recover novel suffixes.
 

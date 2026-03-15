@@ -1,6 +1,7 @@
 package sequencer
 
 import (
+	"math/bits"
 	"sync"
 
 	"github.com/theapemachine/six/pkg/numeric"
@@ -34,21 +35,23 @@ type Rule struct {
 
 /*
 Sequitur discovers hierarchical structure in a symbol stream via
-online digram replacement. Each repeated digram is promoted to a
-grammar rule, building a lossless context-free grammar over the
-input. Rule IDs start at 256 so they never collide with raw bytes.
+online digram replacement. Exact repeated digrams are promoted
+immediately; near-repeated raw-byte digrams may also promote when
+the residual bit flips are still cheaper than a second raw encoding.
+Rule IDs start at 256 so they never collide with raw bytes.
 */
 type Sequitur struct {
-	mu         sync.Mutex
-	calc       *numeric.Calculus
-	nextID     int
-	lastRuleID int
-	rules      map[int]*Rule
-	digrams    map[[2]Symbol]*Node
-	sentinel   *Node
-	length     int
-	pending    []byte
-	pendingPos uint32
+	mu              sync.Mutex
+	calc            *numeric.Calculus
+	nextID          int
+	lastRuleID      int
+	rules           map[int]*Rule
+	digrams         map[[2]Symbol]*Node
+	sentinel        *Node
+	length          int
+	pending         []byte
+	pendingPos      uint32
+	approxTolerance int
 }
 
 /*
@@ -60,11 +63,12 @@ func NewSequitur() *Sequitur {
 	sentinel.Prev = sentinel
 
 	return &Sequitur{
-		calc:     numeric.NewCalculus(),
-		nextID:   256,
-		rules:    make(map[int]*Rule),
-		digrams:  make(map[[2]Symbol]*Node),
-		sentinel: sentinel,
+		calc:            numeric.NewCalculus(),
+		nextID:          256,
+		rules:           make(map[int]*Rule),
+		digrams:         make(map[[2]Symbol]*Node),
+		sentinel:        sentinel,
+		approxTolerance: 2,
 	}
 }
 
@@ -162,14 +166,24 @@ If a match is found (non-overlapping), reduce fires. Returns true
 when a new rule was created.
 */
 func (sequitur *Sequitur) check(n *Node) bool {
-	if n.Val == -1 || n.Next.Val == -1 {
+	if n == nil || n.Next == nil || n.Val == -1 || n.Next.Val == -1 {
 		return false
 	}
 
 	digram := [2]Symbol{n.Val, n.Next.Val}
 
 	if match, exists := sequitur.digrams[digram]; exists {
-		if match != n && match.Next != n {
+		if match != n && match.Next != n && match.Next != n.Next &&
+			match.Next != nil && match.Val == digram[0] && match.Next.Val == digram[1] {
+			sequitur.reduce(n, match, digram)
+			return true
+		}
+
+		return false
+	}
+
+	if match, ok := sequitur.findApproximateMatch(digram, n); ok {
+		if match.Next != n.Next {
 			sequitur.reduce(n, match, digram)
 			return true
 		}
@@ -183,8 +197,70 @@ func (sequitur *Sequitur) check(n *Node) bool {
 }
 
 /*
+findApproximateMatch scans previously seen digrams for a near-match whose
+residual description is still cheaper than treating the new digram as raw data.
+This is the lossy MDL track described in SEQUENCING.md.
+*/
+func (sequitur *Sequitur) findApproximateMatch(digram [2]Symbol, current *Node) (*Node, bool) {
+	bestDistance := sequitur.approxTolerance + 1
+	var best *Node
+
+	for candidateDigram, candidateNode := range sequitur.digrams {
+		if candidateNode == current || candidateNode.Next == current || candidateNode.Next == current.Next {
+			continue
+		}
+
+		distance, comparable := digramDistance(digram, candidateDigram)
+		if !comparable || !sequitur.acceptApproximateDigram(distance) {
+			continue
+		}
+
+		if distance < bestDistance {
+			bestDistance = distance
+			best = candidateNode
+		}
+	}
+
+	return best, best != nil
+}
+
+/*
+acceptApproximateDigram applies a small MDL gate: a two-symbol rule only wins
+when the residual bit flips are cheaper than encoding a second raw digram.
+*/
+func (sequitur *Sequitur) acceptApproximateDigram(distance int) bool {
+	if distance < 0 || distance > sequitur.approxTolerance {
+		return false
+	}
+
+	const rawDigramBits = 16
+	const rulePointerBits = 8
+
+	return rawDigramBits > rulePointerBits+distance
+}
+
+/*
+digramDistance returns the total bit-flip distance between two raw-byte digrams.
+Rule digrams are compared exactly only; approximate matching is reserved for raw
+stream symbols so the grammar does not drift into nonsense.
+*/
+func digramDistance(left, right [2]Symbol) (int, bool) {
+	if left[0] < 0 || left[0] > 255 || left[1] < 0 || left[1] > 255 {
+		return 0, false
+	}
+
+	if right[0] < 0 || right[0] > 255 || right[1] < 0 || right[1] > 255 {
+		return 0, false
+	}
+
+	return bits.OnesCount8(uint8(left[0]^right[0])) + bits.OnesCount8(uint8(left[1]^right[1])), true
+}
+
+/*
 reduce creates a new grammar rule for the repeated digram and replaces
 both occurrences with the rule's non-terminal symbol.
+Both substitutions complete before any recursive check; otherwise a nested
+reduce can invalidate the second substitution.
 */
 func (sequitur *Sequitur) reduce(
 	newOccur, firstOccur *Node, d [2]Symbol,
@@ -210,14 +286,16 @@ func (sequitur *Sequitur) reduce(
 	sequitur.substitute(newOccur, ruleID)
 
 	delete(sequitur.digrams, d)
+
+	sequitur.checkAdjacencies(firstOccur, newOccur)
 }
 
 /*
 substitute replaces a two-node digram starting at n with a single
-non-terminal node, then re-checks the new adjacencies for fresh digrams.
+non-terminal node. Does not recurse; caller must check adjacencies.
 */
 func (sequitur *Sequitur) substitute(n *Node, id int) {
-	if n == nil || n.Next == nil {
+	if n == nil || n.Next == nil || n.Next.Next == nil {
 		return
 	}
 
@@ -229,13 +307,25 @@ func (sequitur *Sequitur) substitute(n *Node, id int) {
 
 	victim.Prev = nil
 	victim.Next = nil
+}
 
-	if n.Prev.Val != -1 {
-		sequitur.check(n.Prev)
+/*
+checkAdjacencies re-checks the nodes around both substituted positions
+for fresh digrams. Called after both substitutions in reduce to avoid
+nested reduce invalidating the second substitution.
+*/
+func (sequitur *Sequitur) checkAdjacencies(a, b *Node) {
+	if a != nil && a.Prev != nil && a.Prev.Val != -1 {
+		sequitur.check(a.Prev)
 	}
-
-	if n.Next.Val != -1 {
-		sequitur.check(n)
+	if a != nil && a.Val != -1 {
+		sequitur.check(a)
+	}
+	if b != nil && b != a && b.Prev != nil && b.Prev.Val != -1 {
+		sequitur.check(b.Prev)
+	}
+	if b != nil && b != a && b.Val != -1 {
+		sequitur.check(b)
 	}
 }
 

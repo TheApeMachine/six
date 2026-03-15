@@ -28,6 +28,7 @@ func buildIndex(input []byte) (*SpatialIndexServer, []numeric.Phase) {
 
 		baseChord := data.BaseChord(b)
 		baseChord.Set(int(state))
+		baseChord.SetResidualCarry(uint64(state))
 
 		key := morton.Pack(uint32(i), b)
 		idx.insertSync(key, baseChord, data.MustNewChord())
@@ -140,6 +141,7 @@ func TestWavefront(t *testing.T) {
 				for i, b := range input {
 					baseChord := data.BaseChord(b)
 					baseChord.Set(int(states[i]))
+					baseChord.SetResidualCarry(uint64(states[i]))
 
 					idx.insertSync(morton.Pack(uint32(i), b), baseChord, data.MustNewChord())
 				}
@@ -152,7 +154,9 @@ func TestWavefront(t *testing.T) {
 				key0 := morton.Pack(0, firstSample[0])
 				chord := idx.GetEntry(key0)
 
-				gc.So(chord.Has(int(firstStates[0])), gc.ShouldBeTrue)
+				phase, ok := extractStatePhase(chord, firstSample[0])
+				gc.So(ok, gc.ShouldBeTrue)
+				gc.So(phase, gc.ShouldEqual, firstStates[0])
 			})
 
 			gc.Convey(caseName+": search with first byte should find paths with valid states", func() {
@@ -168,10 +172,18 @@ func TestWavefront(t *testing.T) {
 
 				for _, result := range results {
 					for _, chord := range result.Path {
-						matchedState := false
+						decoded, ok := inferByteFromChord(chord)
+						if !ok {
+							// Synthetic bridge chords do not carry a lexical byte.
+							continue
+						}
 
+						phase, ok := extractStatePhase(chord, decoded)
+						gc.So(ok, gc.ShouldBeTrue)
+
+						matchedState := false
 						for _, s := range flatStates {
-							if chord.Has(int(s)) {
+							if phase == s {
 								matchedState = true
 								break
 							}
@@ -203,8 +215,13 @@ func TestWavefront(t *testing.T) {
 					lastChord := result.Path[len(result.Path)-1]
 					matched := false
 
+					decoded, ok := inferByteFromChord(lastChord)
+					gc.So(ok, gc.ShouldBeTrue)
+					phase, ok := extractStatePhase(lastChord, decoded)
+					gc.So(ok, gc.ShouldBeTrue)
+
 					for _, states := range allStates {
-						if depth < len(states) && lastChord.Has(int(states[depth])) {
+						if depth < len(states) && phase == states[depth] {
 							matched = true
 							break
 						}
@@ -227,8 +244,15 @@ func TestWavefront(t *testing.T) {
 						stepMin := math.MaxInt
 						stepMax := 0
 
+						decoded, ok := inferByteFromChord(chord)
+						if !ok {
+							continue
+						}
+						phase, ok := extractStatePhase(chord, decoded)
+						gc.So(ok, gc.ShouldBeTrue)
+
 						for name, states := range allStates {
-							if depth < len(states) && chord.Has(int(states[depth])) {
+							if depth < len(states) && phase == states[depth] {
 								sym := samples[name][depth]
 								e := data.BaseChord(sym).XOR(promptChord).ActiveCount()
 
@@ -262,10 +286,14 @@ func TestWavefront(t *testing.T) {
 
 			gc.Convey(caseName+": searching with a byte not in any sample should return nil", func() {
 				present := [256]bool{}
+				pos0Bytes := make(map[byte]bool)
 
 				for _, input := range samples {
-					for _, b := range input {
+					for i, b := range input {
 						present[b] = true
+						if i == 0 {
+							pos0Bytes[b] = true
+						}
 					}
 				}
 
@@ -273,7 +301,19 @@ func TestWavefront(t *testing.T) {
 				found := false
 
 				for b := 0; b < 256; b++ {
-					if !present[b] {
+					if present[b] {
+						continue
+					}
+					promptChord := data.BaseChord(byte(b))
+					isolated := true
+					for pos0 := range pos0Bytes {
+						symChord := data.BaseChord(pos0)
+						if data.ChordSimilarity(&promptChord, &symChord) > 0 {
+							isolated = false
+							break
+						}
+					}
+					if isolated {
 						absentByte = byte(b)
 						found = true
 						break

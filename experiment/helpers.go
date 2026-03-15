@@ -3,8 +3,15 @@ package experiment
 import (
 	"slices"
 
+	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
+)
+
+type BenchmarkType uint
+
+const (
+	ABOVERANDOM BenchmarkType = iota
 )
 
 var Aphorisms = []string{
@@ -26,4 +33,13 @@ func NewLocalProvider(corpus []string) provider.Dataset {
 
 func Contains(slice []string, val string) bool {
 	return slices.Contains(slice, val)
+}
+
+func Outcome(score float64, n int, benchmarkType BenchmarkType) (any, gc.Assertion, any) {
+	switch benchmarkType {
+	case ABOVERANDOM:
+		return score, gc.ShouldBeGreaterThanOrEqualTo, 100.0/float64(n) + 0.05
+	default:
+		panic("unknown benchmark type")
+	}
 }

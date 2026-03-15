@@ -179,3 +179,55 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 		})
 	}
 }
+
+func TestTokenizerPreservesByteAddressability(t *testing.T) {
+	Convey("Given a short byte stream", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		workerPool := pool.New(ctx, 1, 4, nil)
+		server := newServer(ctx, workerPool)
+
+		edges, err := server.tokenize(ctx, []byte("ab"))
+
+		Convey("It should emit one edge per byte at the exact Morton position", func() {
+			So(err, ShouldBeNil)
+			So(len(edges), ShouldEqual, 2)
+			So(edges[0].Left, ShouldEqual, 'a')
+			So(edges[0].Position, ShouldEqual, uint32(0))
+			So(edges[1].Left, ShouldEqual, 'b')
+			So(edges[1].Position, ShouldEqual, uint32(1))
+		})
+
+		Convey("The final byte should carry a terminal opcode", func() {
+			So(err, ShouldBeNil)
+			So(edges[1].Chord.Terminal(), ShouldBeTrue)
+			So(edges[1].Chord.Opcode(), ShouldEqual, uint64(data.OpcodeHalt))
+		})
+	})
+}
+
+func TestTokenizerResetsPhasePerGenerateCall(t *testing.T) {
+	Convey("Given repeated tokenization calls for the same byte", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		workerPool := pool.New(ctx, 1, 4, nil)
+		server := newServer(ctx, workerPool)
+
+		first, errFirst := server.tokenize(ctx, []byte("a"))
+		second, errSecond := server.tokenize(ctx, []byte("a"))
+
+		Convey("They should start from the same identity phase each time", func() {
+			So(errFirst, ShouldBeNil)
+			So(errSecond, ShouldBeNil)
+			So(len(first), ShouldEqual, 1)
+			So(len(second), ShouldEqual, 1)
+
+			calc := server.calc
+			expected := calc.Multiply(1, calc.Power(3, uint32('a')))
+			So(first[0].Chord.ResidualCarry(), ShouldEqual, uint64(expected))
+			So(second[0].Chord.ResidualCarry(), ShouldEqual, uint64(expected))
+		})
+	})
+}

@@ -7,11 +7,14 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/grammar"
+	"github.com/theapemachine/six/pkg/logic/semantic"
 	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/lsm"
-	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/system/vm/input"
@@ -19,15 +22,11 @@ import (
 )
 
 /*
-Machine is the top-level orchestrator. It chains RPC calls in sequence:
-  1. Prompter  — apply holdout masking, return processed bytes
-  2. Tokenizer — tokenize bytes into chords
-  3. SpatialIndex.Lookup — fetch paths for those chords
-  4. Graph.Prompt — reason over the paths
-  5. SpatialIndex.Decode — reconstruct bytes from result chords
-
-Each step passes its capnp result directly to the next call. No conversion,
-no helpers — the types already match across the pipeline.
+Machine is the top-level orchestrator. All RPC result messages are kept alive
+at Prompt scope so downstream calls can reference upstream data without copies.
+Cap'n Proto's SetPtr does an internal deep-copy between messages as long as the
+source segment is still alive — so the only contract is: don't release a result
+until every consumer has fired its PlaceArgs callback.
 */
 type Machine struct {
 	ctx            context.Context
@@ -62,17 +61,14 @@ func NewMachine(opts ...machineOpts) *Machine {
 		128,
 	)
 
-	if errnie.Try(
-		"machine booting", validate.Require(map[string]any{
+	errnie.SafeMustVoid(func() error {
+		return validate.Require(map[string]any{
 			"ctx":            machine.ctx,
 			"cancel":         machine.cancel,
 			"workerPool":     machine.workerPool,
 			"broadcastGroup": machine.broadcastGroup,
-		}),
-	).Err() != nil {
-		console.Error(ErrMachineMissingRequirements)
-		return nil
-	}
+		})
+	})
 
 	machine.booter = NewBooter(
 		BooterWithContext(machine.ctx),
@@ -84,149 +80,211 @@ func NewMachine(opts ...machineOpts) *Machine {
 }
 
 /*
-Prompt is the main entry point. Results flow directly from one RPC call
-to the next — no intermediate materialisation.
+Prompt is the main entry point. Every RPC result is deferred at this scope
+so downstream PlaceArgs callbacks can safely read from upstream messages.
+The final byte slice is copied into owned memory before returning because
+capnp Data accessors return views into the segment — which gets freed by
+the deferred releases.
 */
 func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	ctx := machine.ctx
 
-	// Step 1: Prompter — apply holdout masking.
+	// 1. Prompter — holdout masking
 	promptFuture, promptRelease := machine.booter.prompter.Generate(
-		ctx, func(params input.Prompter_generate_Params) error {
-			return params.SetMsg(msg)
-		},
+		ctx, func(p input.Prompter_generate_Params) error { return p.SetMsg(msg) },
 	)
 	defer promptRelease()
 
-	promptRes, err := promptFuture.Struct()
-	if err != nil {
-		return nil, err
-	}
+	promptResult := errnie.SafeMust(func() (input.Prompter_generate_Results, error) {
+		return promptFuture.Struct()
+	})
 
-	promptBytes, err := promptRes.Data()
-	if err != nil {
-		return nil, err
-	}
+	promptBytes := errnie.SafeMust(func() ([]byte, error) {
+		return promptResult.Data()
+	})
 
-	// Step 2: Tokenizer — bytes → chords.
+	// 2. Tokenizer — bytes to edges
 	tokFuture, tokRelease := machine.booter.tok.Generate(
-		ctx, func(params tokenizer.Universal_generate_Params) error {
-			return params.SetData(promptBytes)
+		ctx, func(p tokenizer.Universal_generate_Params) error {
+			return p.SetData(promptBytes)
 		},
 	)
 	defer tokRelease()
 
-	tokRes, err := tokFuture.Struct()
-	if err != nil {
-		return nil, err
-	}
+	tokResult := errnie.SafeMust(func() (tokenizer.Universal_generate_Results, error) {
+		return tokFuture.Struct()
+	})
 
-	edges, err := tokRes.Edges()
-	if err != nil {
-		return nil, err
-	}
+	edges := errnie.SafeMust(func() (lsm.GraphEdge_List, error) {
+		return tokResult.Edges()
+	})
 
 	if edges.Len() == 0 {
-		return promptBytes, nil
+		return nil, nil
 	}
 
-	// Step 3: SpatialIndex.Lookup — chords → paths.
-	lookupFuture, lookupRelease := machine.booter.spatialIndex.Lookup(
-		ctx, func(params lsm.SpatialIndex_lookup_Params) error {
-			chordList, err := data.NewChord_List(params.Segment(), int32(edges.Len()))
-			if err != nil {
-				return err
-			}
-			for i := 0; i < edges.Len(); i++ {
-				edge := edges.At(i)
-				chord, err := edge.Chord()
-				if err != nil {
-					return err
-				}
-				el := chordList.At(i)
-				el.CopyFrom(chord)
-			}
-			return params.SetChords(chordList)
-		},
-	)
+	// 3. SpatialIndex.Lookup — chord paths
+	lookupFuture, lookupRelease := machine.booter.spatialIndex.Lookup(ctx, func(
+		p lsm.SpatialIndex_lookup_Params,
+	) error {
+		chordList := errnie.Must(data.NewChord_List(p.Segment(), int32(edges.Len())))
+
+		for i := range edges.Len() {
+			dst := chordList.At(i)
+			chord := errnie.Must(edges.At(i).Chord())
+			dst.CopyFrom(chord)
+		}
+
+		errnie.MustVoid(p.SetChords(chordList))
+
+		return nil
+	})
 	defer lookupRelease()
 
-	lookupRes, err := lookupFuture.Struct()
-	if err != nil {
-		return nil, err
-	}
+	lookupResult := errnie.SafeMust(func() (lsm.SpatialIndex_lookup_Results, error) {
+		return lookupFuture.Struct()
+	})
 
-	paths, err := lookupRes.Paths()
-	if err != nil {
-		return nil, err
-	}
+	paths := errnie.SafeMust(func() (capnp.PointerList, error) {
+		return lookupResult.Paths()
+	})
 
-	metaPaths, err := lookupRes.MetaPaths()
-	if err != nil {
-		return nil, err
-	}
+	metaPaths := errnie.SafeMust(func() (capnp.PointerList, error) {
+		return lookupResult.MetaPaths()
+	})
 
-	// Step 4: Graph.Prompt — paths → result paths.
-	// paths and metaPaths are capnp.PointerList; SetPaths/SetMetaPaths take capnp.PointerList. Pass directly.
-	graphFuture, graphRelease := machine.booter.graph.Prompt(
-		ctx, func(params substrate.Graph_prompt_Params) error {
-			if err := params.SetPaths(paths); err != nil {
-				return err
-			}
-			return params.SetMetaPaths(metaPaths)
-		},
-	)
+	// 4. Grammar + Semantic + BVP enrichment (best-effort, errors swallowed)
+	machine.enrich(ctx, msg, paths)
+
+	// 5. Graph.Prompt — recursive fold
+	graphFuture, graphRelease := machine.booter.graph.Prompt(ctx, func(
+		p substrate.Graph_prompt_Params,
+	) error {
+		errnie.MustVoid(p.SetPaths(paths))
+		return p.SetMetaPaths(metaPaths)
+	})
 	defer graphRelease()
 
-	graphRes, err := graphFuture.Struct()
-	if err != nil {
-		return nil, err
-	}
+	graphResult := errnie.SafeMust(func() (substrate.Graph_prompt_Results, error) {
+		return graphFuture.Struct()
+	})
 
-	resultPaths, err := graphRes.Result()
-	if err != nil {
-		return nil, err
-	}
+	resultPaths := errnie.SafeMust(func() (capnp.PointerList, error) {
+		return graphResult.Result()
+	})
 
-	// Step 5: SpatialIndex.Decode — result paths → bytes.
-	// resultPaths is List(List(Chord)); Decode takes List(List(Chord)).
-	decodeFuture, decodeRelease := machine.booter.spatialIndex.Decode(
-		ctx, func(params lsm.SpatialIndex_decode_Params) error {
-			return params.SetChords(resultPaths)
-		},
-	)
+	// 6. SpatialIndex.Decode — chords back to bytes
+	decodeFuture, decodeRelease := machine.booter.spatialIndex.Decode(ctx, func(
+		p lsm.SpatialIndex_decode_Params,
+	) error {
+		return p.SetChords(resultPaths)
+	})
 	defer decodeRelease()
 
-	decodeRes, err := decodeFuture.Struct()
-	if err != nil {
-		return nil, err
+	decodeResult := errnie.SafeMust(func() (lsm.SpatialIndex_decode_Results, error) {
+		return decodeFuture.Struct()
+	})
+
+	seqList := errnie.SafeMust(func() (capnp.DataList, error) {
+		return decodeResult.Sequences()
+	})
+
+	if seqList.Len() == 0 {
+		return nil, nil
 	}
 
-	seqList, err := decodeRes.Sequences()
-	if err != nil {
-		return nil, err
-	}
+	result := errnie.SafeMust(func() ([]byte, error) {
+		return seqList.At(0)
+	})
 
-	var out []byte
-	for i := 0; i < seqList.Len(); i++ {
-		seq, err := seqList.At(i)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, seq...)
-	}
+	// seqList.At returns a view into the capnp segment. The deferred releases
+	// will free that segment when Prompt returns, so we must own the bytes.
+	out := make([]byte, len(result))
+	copy(out, result)
 
 	return out, nil
 }
 
 /*
+enrich runs the grammar/semantic/bvp pipeline. Failures are non-fatal —
+the spatial path alone is always sufficient for recall.
+*/
+func (machine *Machine) enrich(
+	ctx context.Context,
+	msg string,
+	paths capnp.PointerList,
+) {
+	parseFuture, parseRelease := machine.booter.parser.Parse(
+		ctx, func(p grammar.Parser_parse_Params) error {
+			return p.SetMsg(msg)
+		},
+	)
+	defer parseRelease()
+
+	parseResult, err := parseFuture.Struct()
+	if err != nil {
+		return
+	}
+
+	promptPhase := numeric.Phase(parseResult.Phase())
+	if promptPhase == 0 {
+		return
+	}
+
+	subject, _ := parseResult.Subject()
+	verb, _ := parseResult.Verb()
+	object, _ := parseResult.Object()
+
+	if subject == "" || verb == "" || object == "" {
+		return
+	}
+
+	// Semantic query
+	queryFuture, queryRelease := machine.booter.engine.Query(
+		ctx, func(p semantic.Engine_query_Params) error {
+			p.SetBraid(uint32(promptPhase))
+
+			if err := p.SetKnownA(subject); err != nil {
+				return err
+			}
+
+			if err := p.SetKnownB(verb); err != nil {
+				return err
+			}
+
+			p.SetAxis(2)
+
+			return nil
+		},
+	)
+	defer queryRelease()
+
+	queryFuture.Struct()
+
+	// BVP bridge
+	if paths.Len() == 0 || promptPhase == 0 {
+		return
+	}
+
+	bridgeFuture, bridgeRelease := machine.booter.cantilever.Bridge(
+		ctx, func(p bvp.Cantilever_bridge_Params) error {
+			p.SetStart(1)
+			p.SetGoal(uint32(promptPhase))
+			return nil
+		},
+	)
+	defer bridgeRelease()
+
+	bridgeFuture.Struct()
+}
+
+/*
 SetDataset loads a corpus into the machine. It reads all strings from the
 dataset, ships the corpus to the Tokenizer via RPC (so the tokenizer has full
-dataset context), then drives each string through Prompt to populate the
-spatial index before any queries are served.
+dataset context), then drives each string through Ingest to populate the
+spatial index and semantic engine before any queries are served.
 */
 func (machine *Machine) SetDataset(dataset provider.Dataset) error {
-	// Reconstruct corpus strings by grouping RawTokens by SampleID.
 	byID := map[uint32][]byte{}
 
 	for tok := range dataset.Generate() {
@@ -241,31 +299,32 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 
 	ctx := machine.ctx
 
-	// Send corpus to the Tokenizer via the setDataset RPC.
-	setFuture, setRelease := machine.booter.tok.SetDataset(
-		ctx, func(params tokenizer.Universal_setDataset_Params) error {
-			seg := params.Segment()
-			list, err := capnp.NewTextList(seg, int32(len(corpus)))
-			if err != nil {
-				return err
-			}
+	setFuture, setRelease := machine.booter.tok.SetDataset(ctx, func(
+		p tokenizer.Universal_setDataset_Params,
+	) error {
+		list := errnie.SafeMust(func() (capnp.TextList, error) {
+			return capnp.NewTextList(p.Segment(), int32(len(corpus)))
+		})
 
-			for i, s := range corpus {
-				if err := list.Set(i, s); err != nil {
-					return err
-				}
-			}
+		errnie.SafeMustVoid(func() error {
+			return errnie.ForEach(len(corpus), func(i int) error {
+				return list.Set(i, corpus[i])
+			})
+		})
 
-			return params.SetCorpus(list)
-		},
-	)
-	defer setRelease()
+		errnie.MustVoid(p.SetCorpus(list))
 
-	if _, err := setFuture.Struct(); err != nil {
-		return err
-	}
+		return nil
+	})
 
-	// Ingest each corpus string to build the spatial index.
+	errnie.SafeMust(func() (tokenizer.Universal_setDataset_Results, error) {
+		return Call(setFuture, setRelease, func(
+			s tokenizer.Universal_setDataset_Results,
+		) (tokenizer.Universal_setDataset_Results, error) {
+			return s, nil
+		})
+	})
+
 	for _, item := range corpus {
 		if err := machine.Ingest(item); err != nil {
 			return err
@@ -276,43 +335,91 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 }
 
 /*
-Ingest generates edges from the string and populates the spatial index.
+Ingest generates edges from the string, populates the spatial index,
+and injects S-V-O facts into the semantic engine via RPC.
+All RPC results live at this scope so Insert can read from the tokenizer message.
 */
 func (machine *Machine) Ingest(msg string) error {
 	ctx := machine.ctx
 
-	tokFuture, tokRelease := machine.booter.tok.Generate(
-		ctx, func(params tokenizer.Universal_generate_Params) error {
-			return params.SetData([]byte(msg))
-		},
-	)
+	tokFuture, tokRelease := machine.booter.tok.Generate(ctx, func(
+		p tokenizer.Universal_generate_Params,
+	) error {
+		return p.SetData([]byte(msg))
+	})
 	defer tokRelease()
 
-	tokRes, err := tokFuture.Struct()
-	if err != nil {
-		return err
-	}
+	tokResult := errnie.SafeMust(func() (tokenizer.Universal_generate_Results, error) {
+		return tokFuture.Struct()
+	})
 
-	edges, err := tokRes.Edges()
-	if err != nil {
-		return err
-	}
+	edges := errnie.SafeMust(func() (lsm.GraphEdge_List, error) {
+		return tokResult.Edges()
+	})
 
-	for i := 0; i < edges.Len(); i++ {
+	for i := range edges.Len() {
 		edge := edges.At(i)
 
-		err := machine.booter.spatialIndex.Insert(
-			ctx, func(params lsm.SpatialIndex_insert_Params) error {
-				return params.SetEdge(edge)
-			},
-		)
-
-		if err != nil {
-			return err
-		}
+		errnie.SafeMustVoid(func() error {
+			return machine.booter.spatialIndex.Insert(
+				ctx, func(params lsm.SpatialIndex_insert_Params) error {
+					return params.SetEdge(edge)
+				},
+			)
+		})
 	}
 
+	errnie.SafeMustVoid(func() error {
+		return machine.booter.spatialIndex.WaitStreaming()
+	})
+
+	machine.ingestSemantic(ctx, msg)
+
 	return nil
+}
+
+/*
+ingestSemantic attempts to parse the ingested string via Grammar Parser RPC
+and, if successful, injects the resulting S-V-O fact into the Semantic Engine
+via Inject RPC.
+*/
+func (machine *Machine) ingestSemantic(ctx context.Context, msg string) {
+	parseFuture, parseRelease := machine.booter.parser.Parse(
+		ctx, func(p grammar.Parser_parse_Params) error {
+			return p.SetMsg(msg)
+		},
+	)
+	defer parseRelease()
+
+	parseResult, err := parseFuture.Struct()
+	if err != nil || parseResult.Phase() == 0 {
+		return
+	}
+
+	subject, _ := parseResult.Subject()
+	verb, _ := parseResult.Verb()
+	object, _ := parseResult.Object()
+
+	if subject == "" || verb == "" || object == "" {
+		return
+	}
+
+	injectFuture, injectRelease := machine.booter.engine.Inject(
+		ctx, func(p semantic.Engine_inject_Params) error {
+			if err := p.SetSubject(subject); err != nil {
+				return err
+			}
+
+			if err := p.SetLink(verb); err != nil {
+				return err
+			}
+
+			return p.SetObject(object)
+		},
+	)
+	defer injectRelease()
+
+	injectFuture.Struct()
 }
 
 /*

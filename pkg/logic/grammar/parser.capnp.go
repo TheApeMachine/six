@@ -36,6 +36,26 @@ func (c Parser) Prompt(ctx context.Context, params func(Parser_prompt_Params) er
 
 }
 
+func (c Parser) Parse(ctx context.Context, params func(Parser_parse_Params) error) (Parser_parse_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xff827663f94ae914,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/grammar/parser.capnp:Parser",
+			MethodName:    "parse",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Parser_parse_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Parser_parse_Results_Future{Future: ans.Future()}, release
+
+}
+
 func (c Parser) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -110,6 +130,8 @@ func (c Parser) GetFlowLimiter() fc.FlowLimiter {
 // A Parser_Server is a Parser with a local implementation.
 type Parser_Server interface {
 	Prompt(context.Context, Parser_prompt) error
+
+	Parse(context.Context, Parser_parse) error
 }
 
 // Parser_NewServer creates a new Server from an implementation of Parser_Server.
@@ -128,7 +150,7 @@ func Parser_ServerToClient(s Parser_Server) Parser {
 // This can be used to create a more complicated Server.
 func Parser_Methods(methods []server.Method, s Parser_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 1)
+		methods = make([]server.Method, 0, 2)
 	}
 
 	methods = append(methods, server.Method{
@@ -140,6 +162,18 @@ func Parser_Methods(methods []server.Method, s Parser_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Prompt(ctx, Parser_prompt{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xff827663f94ae914,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/grammar/parser.capnp:Parser",
+			MethodName:    "parse",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Parse(ctx, Parser_parse{call})
 		},
 	})
 
@@ -161,6 +195,23 @@ func (c Parser_prompt) Args() Parser_prompt_Params {
 func (c Parser_prompt) AllocResults() (Parser_prompt_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Parser_prompt_Results(r), err
+}
+
+// Parser_parse holds the state for a server call to Parser.parse.
+// See server.Call for documentation.
+type Parser_parse struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Parser_parse) Args() Parser_parse_Params {
+	return Parser_parse_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Parser_parse) AllocResults() (Parser_parse_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 8, PointerCount: 3})
+	return Parser_parse_Results(r), err
 }
 
 // Parser_List is a list of Parser.
@@ -336,30 +387,251 @@ func (f Parser_prompt_Results_Future) Struct() (Parser_prompt_Results, error) {
 	return Parser_prompt_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d68 = "x\xda\x12\x98\xec\xc0b\xc8\x9b\xcf\xc4\xc0\x14(\xc3\xca" +
-	"\xf6\xdf\xf4\xc1\xda\xc6%N\x1e\xd3\x18\x04\xd5\x18\x19\x18" +
-	"X\x19\xd9\x19\x18\x8ce\x19\x17120\x0a\xeb2\xda" +
-	"30\xfeW{t\xb7_\xbdo\xfbid\x05\xbe\x8c" +
-	"\xab@\x0ab\xc1\x0aD^z\xfdL.k\xfa\xcf " +
-	"(\xcf\xfc?\xc3\xd6\xb1`n\x0f\xebZ\x06\x06F\xe3" +
-	"ZF#F\xe1^\x90\x06\xe1NFw\xe1\x8d\x8c\xec" +
-	"\x0c:\xff\x0b\xb2\xd3\xf5s\xf2\xd33Y\x93\xf5\xd3\x8b" +
-	"\x12ss\x13\x8b\xf4\x0b\x12\x8b\x8aS\x8b\xf4\x92\x13\x0b" +
-	"\xf2\x0a\xac\x02 \x9c\x82\xa2\xfc\xdc\x82\x12\x95\x80\xc4\"" +
-	"\xf6\xc4\xdc\xe2@\x16f\x16\x06\x06\x16F\x06\x06A^" +
-	"%\x06\x86@\x0ef\xc6@\x11&F\xf6\xdc\xe2tF" +
-	"\x1e\x06&F\x1e\x06F\x12\x0d\x0eJ-\xe6/\xcd)" +
-	"A1\xd9\x0aa\xb2}QjqiN\x09\x86\xe1\xcc" +
-	"\xb8\x0c\x97\x07\xf3\x02\x18\x19\x03Y\x98Y\x19\x18\xe0\xc1" +
-	"\xca\x08\x0b>AA+\x06&AVv{\x88\x03\x1c" +
-	"\x18\x03\x18\x19\x01\x01\x00\x00\xff\xff\xb4\x86l\xc3"
+type Parser_parse_Params capnp.Struct
+
+// Parser_parse_Params_TypeID is the unique identifier for the type Parser_parse_Params.
+const Parser_parse_Params_TypeID = 0xdf7eb6d4f7253aaf
+
+func NewParser_parse_Params(s *capnp.Segment) (Parser_parse_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Parser_parse_Params(st), err
+}
+
+func NewRootParser_parse_Params(s *capnp.Segment) (Parser_parse_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Parser_parse_Params(st), err
+}
+
+func ReadRootParser_parse_Params(msg *capnp.Message) (Parser_parse_Params, error) {
+	root, err := msg.Root()
+	return Parser_parse_Params(root.Struct()), err
+}
+
+func (s Parser_parse_Params) String() string {
+	str, _ := text.Marshal(0xdf7eb6d4f7253aaf, capnp.Struct(s))
+	return str
+}
+
+func (s Parser_parse_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Parser_parse_Params) DecodeFromPtr(p capnp.Ptr) Parser_parse_Params {
+	return Parser_parse_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Parser_parse_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Parser_parse_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Parser_parse_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Parser_parse_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Parser_parse_Params) Msg() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Parser_parse_Params) HasMsg() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Parser_parse_Params) MsgBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Parser_parse_Params) SetMsg(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+// Parser_parse_Params_List is a list of Parser_parse_Params.
+type Parser_parse_Params_List = capnp.StructList[Parser_parse_Params]
+
+// NewParser_parse_Params creates a new list of Parser_parse_Params.
+func NewParser_parse_Params_List(s *capnp.Segment, sz int32) (Parser_parse_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Parser_parse_Params](l), err
+}
+
+// Parser_parse_Params_Future is a wrapper for a Parser_parse_Params promised by a client call.
+type Parser_parse_Params_Future struct{ *capnp.Future }
+
+func (f Parser_parse_Params_Future) Struct() (Parser_parse_Params, error) {
+	p, err := f.Future.Ptr()
+	return Parser_parse_Params(p.Struct()), err
+}
+
+type Parser_parse_Results capnp.Struct
+
+// Parser_parse_Results_TypeID is the unique identifier for the type Parser_parse_Results.
+const Parser_parse_Results_TypeID = 0xa53721e994924901
+
+func NewParser_parse_Results(s *capnp.Segment) (Parser_parse_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
+	return Parser_parse_Results(st), err
+}
+
+func NewRootParser_parse_Results(s *capnp.Segment) (Parser_parse_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3})
+	return Parser_parse_Results(st), err
+}
+
+func ReadRootParser_parse_Results(msg *capnp.Message) (Parser_parse_Results, error) {
+	root, err := msg.Root()
+	return Parser_parse_Results(root.Struct()), err
+}
+
+func (s Parser_parse_Results) String() string {
+	str, _ := text.Marshal(0xa53721e994924901, capnp.Struct(s))
+	return str
+}
+
+func (s Parser_parse_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Parser_parse_Results) DecodeFromPtr(p capnp.Ptr) Parser_parse_Results {
+	return Parser_parse_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Parser_parse_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Parser_parse_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Parser_parse_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Parser_parse_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Parser_parse_Results) Phase() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s Parser_parse_Results) SetPhase(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+func (s Parser_parse_Results) Subject() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s Parser_parse_Results) HasSubject() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Parser_parse_Results) SubjectBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s Parser_parse_Results) SetSubject(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s Parser_parse_Results) Verb() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s Parser_parse_Results) HasVerb() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Parser_parse_Results) VerbBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s Parser_parse_Results) SetVerb(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
+func (s Parser_parse_Results) Object() (string, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return p.Text(), err
+}
+
+func (s Parser_parse_Results) HasObject() bool {
+	return capnp.Struct(s).HasPtr(2)
+}
+
+func (s Parser_parse_Results) ObjectBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(2)
+	return p.TextBytes(), err
+}
+
+func (s Parser_parse_Results) SetObject(v string) error {
+	return capnp.Struct(s).SetText(2, v)
+}
+
+// Parser_parse_Results_List is a list of Parser_parse_Results.
+type Parser_parse_Results_List = capnp.StructList[Parser_parse_Results]
+
+// NewParser_parse_Results creates a new list of Parser_parse_Results.
+func NewParser_parse_Results_List(s *capnp.Segment, sz int32) (Parser_parse_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 3}, sz)
+	return capnp.StructList[Parser_parse_Results](l), err
+}
+
+// Parser_parse_Results_Future is a wrapper for a Parser_parse_Results promised by a client call.
+type Parser_parse_Results_Future struct{ *capnp.Future }
+
+func (f Parser_parse_Results_Future) Struct() (Parser_parse_Results, error) {
+	p, err := f.Future.Ptr()
+	return Parser_parse_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d68 = "x\xda\x9c\x92=\x8b\x13Q\x18\x85\xcfyo\xe2\xa4\xd8" +
+	"\xb8^\x92\xc6jP\xb2\x11D\x8c\x9bE\x84\x01I\\" +
+	"\x10\xd4j\xee\xd6\x16\xde\x8dC\xb2\x9a1\xc3|l\xa9" +
+	"(\x88\x08\xa2 \"(\xd8\x88\xdb\x08\x8b\x95\x8a?A" +
+	"lmE\xb1\x91\xfc\x00\x91\xadF&!\xbb\xb1\x10\\" +
+	"\xab\xe10\x0f\x87\xfb>\x9cS\x07\xd9--W]\x05" +
+	"1\x8d\xf2\x81\xfc\xf4\xb7\xed\xdb\xafV/<\x85n\x12" +
+	"(\xd3\x01V2\xbe$X\xbb\xcb\x0e\x98\xf3\xe2\xe3'" +
+	"\xe3#g\xb6`\x9a,\x08U\x10[S\xe2-\x7f\x80" +
+	"y\xf3\xfb\x97G\xc7\x1e\xbe\xff4_q_^\x17\xc0" +
+	"3)*\xdexK\xbf>\xbf\xbb\xf9u\x1e\xf8 \xcf" +
+	"\x0b\xe0\xe3\x04\xa8\x8f/\xed\xf46\xef\xe4\xd0\xae\xca\x07" +
+	"g\xcfE/\x1e\x94\xb7\x01\xae\x8c\xa5\xcd\xda\x8e8@" +
+	"\xed\xa7\xdc\xab\x9dW\x0eN\xe4\xd1\xf5~k8\xeao" +
+	"\x94{\xad~l\xc3\xd0\xc6\xad\xc8\xc6I\x10\x9f\xec\xd9" +
+	"\xe8F\xe4\xf9\xd3\x10\xc5\xa30J\x1b\xbe\x8d\x1d\x1b&" +
+	"\xa6\xa4J@\x89\x80\xae\x1e\x05LE\xd1\xd4\x85N\x98" +
+	"\xf4\xb9\x00\xe1\x02\xf8\xcf\xc5\xc5\xa7\xb1\x16$\x993L" +
+	"\x13sh\xb7\xd8\xb6\x01sY\xd1\x0c\x84d\xbd\xd0\xa5" +
+	"\x83U\xc0\\Q4C\xa1\x16\xd6)\x80\xde8\x0e\x98" +
+	"\xab\x8a&\x12j%u*@\x87\x1e`\x06\x8a&\x15" +
+	"\xba\xd1\xc0&\x01+\x10V\xc0[I\xb6~-\xe8\xa5" +
+	"\xb3\x87.n\x06\xf1\xfa,tF\x7f\xfc\xdb\xa7\x9d\xb5" +
+	" Y\xcc\x8a+\xe6\xf4x{z:q\x90d\xc3\xf4" +
+	"\xff\x0c\xf96\xb6j\x7f\xe6\xd5\xdfz\xddI\xf2IS" +
+	"Qe`w\xb6\x9c\x8dO/{\x10\xbd\xe4pon" +
+	"\x9cMW\x1fnCt\xd5\xe9L\x8f\xee\xd2\x9d\x94w" +
+	"\xe9\x93\xbf\x03\x00\x00\xff\xffI\xf1\xcbD"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d68,
 		Nodes: []uint64{
 			0x964842a481ade035,
+			0xa53721e994924901,
 			0xcbb78e278fdde226,
+			0xdf7eb6d4f7253aaf,
 			0xff827663f94ae914,
 		},
 		Compressed: true,

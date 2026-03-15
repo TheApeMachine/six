@@ -1,6 +1,7 @@
 package lsm
 
 import (
+	"context"
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
@@ -13,7 +14,8 @@ import (
 func TestWavefrontBridging(t *testing.T) {
 	gc.Convey("Given a Spatial Index with a missing data span", t, func() {
 		// Create index with "A B _ D" (we skip inserting 'C')
-		idx := NewSpatialIndexServer()
+		idx := NewSpatialIndexServer(WithContext(context.Background()))
+		ctx := context.Background()
 		calc := numeric.NewCalculus()
 		mortonObj := data.NewMortonCoder()
 
@@ -56,7 +58,9 @@ func TestWavefrontBridging(t *testing.T) {
 		})
 
 		gc.Convey("Wavefront WITH Frustration Engine discovers a bridging tool and leaps the gap", func() {
-			macroIndex := macro.NewMacroIndexServer()
+			macroIndex := macro.NewMacroIndexServer(
+				macro.MacroIndexWithContext(ctx),
+			)
 
 			// We give the index the mathematical tool to bridge from B to D:
 			// Rot = Goal * Inverse(Start)  --> Rot = stateD * Inverse(stateB)
@@ -70,7 +74,10 @@ func TestWavefrontBridging(t *testing.T) {
 			}
 
 			// We attach the frustration engine to the wavefront, targeting stateD
-			fe := goal.NewFrustrationEngineServer(goal.WithSharedIndex(macroIndex))
+			fe := goal.NewFrustrationEngineServer(
+				goal.FrustrationWithContext(ctx),
+				goal.WithSharedIndex(macroIndex),
+			)
 			wf := NewWavefront(idx,
 				WavefrontWithMaxDepth(5),
 				WavefrontWithFrustrationEngine(fe, stateD),

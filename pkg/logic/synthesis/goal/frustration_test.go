@@ -1,6 +1,7 @@
 package goal
 
 import (
+	"context"
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
@@ -12,8 +13,10 @@ import (
 hardenTools populates a MacroIndex with opcodes, each recorded enough times
 to cross the hardening threshold. Returns the index ready for frustration tests.
 */
-func hardenTools(shifts []numeric.Phase) *macro.MacroIndexServer {
-	idx := macro.NewMacroIndexServer()
+func hardenTools(ctx context.Context, shifts []numeric.Phase) *macro.MacroIndexServer {
+	idx := macro.NewMacroIndexServer(
+		macro.MacroIndexWithContext(ctx),
+	)
 
 	for _, shift := range shifts {
 		for range 10 {
@@ -26,6 +29,7 @@ func hardenTools(shifts []numeric.Phase) *macro.MacroIndexServer {
 
 func TestFrustrationEngine(t *testing.T) {
 	calc := numeric.NewCalculus()
+	ctx := context.Background()
 
 	// Pre-compute tool rotations as G^X for realistic tools
 	toolRotations := []numeric.Phase{
@@ -36,8 +40,11 @@ func TestFrustrationEngine(t *testing.T) {
 	}
 
 	gc.Convey("Given a FrustrationEngine with hardened tools", t, func() {
-		macroIndex := hardenTools(toolRotations)
-		fe := NewFrustrationEngineServer(WithSharedIndex(macroIndex))
+		macroIndex := hardenTools(ctx, toolRotations)
+		fe := NewFrustrationEngineServer(
+			FrustrationWithContext(ctx),
+			WithSharedIndex(macroIndex),
+		)
 
 		gc.Convey("Zero frustration: should return nil path and nil error", func() {
 			path, err := fe.Resolve(100, 100, 10)
@@ -112,7 +119,12 @@ func TestFrustrationEngine(t *testing.T) {
 		})
 
 		gc.Convey("Empty tool library should return an error", func() {
-			emptyFE := NewFrustrationEngineServer(WithSharedIndex(macro.NewMacroIndexServer()))
+			emptyFE := NewFrustrationEngineServer(
+				FrustrationWithContext(ctx),
+				WithSharedIndex(macro.NewMacroIndexServer(
+					macro.MacroIndexWithContext(ctx),
+				)),
+			)
 			_, err := emptyFE.Resolve(10, 50, 100)
 			gc.So(err, gc.ShouldNotBeNil)
 		})
@@ -121,6 +133,7 @@ func TestFrustrationEngine(t *testing.T) {
 
 func TestResolveDual(t *testing.T) {
 	calc := numeric.NewCalculus()
+	ctx := context.Background()
 
 	toolRotations := []numeric.Phase{
 		calc.Power(3, 5),
@@ -132,8 +145,11 @@ func TestResolveDual(t *testing.T) {
 	}
 
 	gc.Convey("Given a FrustrationEngine solving dual-goal torsion", t, func() {
-		macroIndex := hardenTools(toolRotations)
-		fe := NewFrustrationEngineServer(WithSharedIndex(macroIndex))
+		macroIndex := hardenTools(ctx, toolRotations)
+		fe := NewFrustrationEngineServer(
+			FrustrationWithContext(ctx),
+			WithSharedIndex(macroIndex),
+		)
 
 		gc.Convey("Already at targetA should return nil (intersection)", func() {
 			path, err := fe.ResolveDual(100, 100, 200, 10)
@@ -188,7 +204,12 @@ func TestResolveDual(t *testing.T) {
 		})
 
 		gc.Convey("Empty tool library should return an error for dual resolve", func() {
-			emptyFE := NewFrustrationEngineServer(WithSharedIndex(macro.NewMacroIndexServer()))
+			emptyFE := NewFrustrationEngineServer(
+				FrustrationWithContext(ctx),
+				WithSharedIndex(macro.NewMacroIndexServer(
+					macro.MacroIndexWithContext(ctx),
+				)),
+			)
 			_, err := emptyFE.ResolveDual(10, 50, 100, 100)
 			gc.So(err, gc.ShouldNotBeNil)
 		})
@@ -197,14 +218,19 @@ func TestResolveDual(t *testing.T) {
 
 func BenchmarkResolve(b *testing.B) {
 	calc := numeric.NewCalculus()
-	idx := hardenTools([]numeric.Phase{
+	ctx := context.Background()
+
+	idx := hardenTools(ctx, []numeric.Phase{
 		calc.Power(3, 5),
 		calc.Power(3, 33),
 		calc.Power(3, 80),
 		calc.Power(3, 101),
 	})
 
-	fe := NewFrustrationEngineServer(WithSharedIndex(idx))
+	fe := NewFrustrationEngineServer(
+		FrustrationWithContext(ctx),
+		WithSharedIndex(idx),
+	)
 
 	start := numeric.Phase(10)
 	intermediate := calc.Multiply(start, calc.Power(3, 33))
@@ -219,7 +245,9 @@ func BenchmarkResolve(b *testing.B) {
 
 func BenchmarkResolveDual(b *testing.B) {
 	calc := numeric.NewCalculus()
-	idx := hardenTools([]numeric.Phase{
+	ctx := context.Background()
+
+	idx := hardenTools(ctx, []numeric.Phase{
 		calc.Power(3, 5),
 		calc.Power(3, 33),
 		calc.Power(3, 80),
@@ -228,7 +256,10 @@ func BenchmarkResolveDual(b *testing.B) {
 		calc.Power(3, 200),
 	})
 
-	fe := NewFrustrationEngineServer(WithSharedIndex(idx))
+	fe := NewFrustrationEngineServer(
+		FrustrationWithContext(ctx),
+		WithSharedIndex(idx),
+	)
 
 	b.ResetTimer()
 

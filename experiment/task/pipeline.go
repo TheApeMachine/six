@@ -83,15 +83,31 @@ func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() error {
-	for idx, prompt := range pipeline.experiment.Prompts() {
-		pipeline.machine = vm.NewMachine(
-			vm.MachineWithContext(pipeline.ctx),
-		)
+	loadStart := time.Now()
 
-		result, err := pipeline.machine.Prompt(
-			prompt,
-		)
+	pipeline.machine = vm.NewMachine(
+		vm.MachineWithContext(pipeline.ctx),
+	)
 
+	dataset := pipeline.experiment.Dataset()
+	if dataset != nil {
+		if err := pipeline.machine.SetDataset(dataset); err != nil {
+			return err
+		}
+	}
+
+	pipeline.timing.loadDur = time.Since(loadStart)
+
+	prompts := pipeline.experiment.Prompts()
+
+	if len(prompts) == 0 && dataset != nil {
+		prompts = promptsFromDataset(dataset)
+	}
+
+	promptStart := time.Now()
+
+	for idx, prompt := range prompts {
+		result, err := pipeline.machine.Prompt(prompt)
 		if err != nil {
 			return err
 		}
@@ -105,7 +121,50 @@ func (pipeline *Pipeline) Run() error {
 		})
 	}
 
+	pipeline.timing.promptDur = time.Since(promptStart)
+	pipeline.timing.n = len(prompts)
+
+	finalizeStart := time.Now()
+
+	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
+		return err
+	}
+
+	for _, artifact := range pipeline.experiment.Artifacts() {
+		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
+			return err
+		}
+	}
+
+	pipeline.timing.finalizeDur = time.Since(finalizeStart)
+
 	return pipeline.writeStandardSummary()
+}
+
+/*
+promptsFromDataset reconstructs full text samples from a dataset's RawToken
+stream, ordered by SampleID, for use as prompts when the experiment does not
+provide explicit prompts.
+*/
+func promptsFromDataset(dataset provider.Dataset) []string {
+	byID := map[uint32][]byte{}
+	order := []uint32{}
+
+	for tok := range dataset.Generate() {
+		if _, exists := byID[tok.SampleID]; !exists {
+			order = append(order, tok.SampleID)
+		}
+
+		byID[tok.SampleID] = append(byID[tok.SampleID], tok.Symbol)
+	}
+
+	prompts := make([]string, 0, len(order))
+
+	for _, id := range order {
+		prompts = append(prompts, string(byID[id]))
+	}
+
+	return prompts
 }
 
 func extractScores(data []tools.ExperimentalData, field string) []float64 {

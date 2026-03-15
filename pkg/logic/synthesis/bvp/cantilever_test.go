@@ -1,6 +1,7 @@
 package bvp
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -11,6 +12,7 @@ import (
 
 func TestCantilever(t *testing.T) {
 	calc := numeric.NewCalculus()
+	ctx := context.Background()
 
 	cases := map[string]struct {
 		StartPhase  int
@@ -39,12 +41,12 @@ func TestCantilever(t *testing.T) {
 		"span_requires_hardening": {
 			StartPhase:  15,
 			GoalPhase:   88,
-			Repeats:     10, // Bridging this gap multiple times means it should harden
+			Repeats:     10,
 			ExpectError: false,
 		},
 		"zero_span_length": {
 			StartPhase:  100,
-			GoalPhase:   100, // Identical start and goal
+			GoalPhase:   100,
 			Repeats:     1,
 			ExpectError: true,
 		},
@@ -64,32 +66,35 @@ func TestCantilever(t *testing.T) {
 
 	for name, tc := range cases {
 		Convey(fmt.Sprintf("Given case: %s", name), t, func() {
-			macroIndex := macro.NewMacroIndexServer()
+			macroIndex := macro.NewMacroIndexServer(
+				macro.MacroIndexWithContext(ctx),
+			)
 
 			start := numeric.Phase(tc.StartPhase)
 			goal := numeric.Phase(tc.GoalPhase)
 
-			cl := NewCantileverServer(start, goal, WithMacroIndex(macroIndex))
+			cl := NewCantileverServer(
+				CantileverWithContext(ctx),
+				WithMacroIndex(macroIndex),
+			)
 
 			var lastOp *macro.MacroOpcode
 			var lastRot numeric.Phase
 			var lastErr error
 
 			for i := 0; i < tc.Repeats; i++ {
-				lastRot, lastOp, lastErr = cl.Bridge()
+				lastRot, lastOp, lastErr = cl.BridgePhases(start, goal)
 			}
 
 			if tc.ExpectError {
 				Convey(fmt.Sprintf("%s: bridging should return an error", name), func() {
 					So(lastErr, ShouldNotBeNil)
-					// Opcode shouldn't exist
 					So(lastOp, ShouldBeNil)
 				})
 			} else {
 				Convey(fmt.Sprintf("%s: bridging should synthesize the exact rotation delta", name), func() {
 					So(lastErr, ShouldBeNil)
 
-					// Expected Rotation math: Goal = Start * Rot (mod 257) --> Rot = Goal * Inverse(Start)
 					invStart, err := calc.Inverse(start)
 					So(err, ShouldBeNil)
 					expectedRot := calc.Multiply(goal, invStart)
@@ -113,12 +118,12 @@ func TestCantilever(t *testing.T) {
 	}
 
 	Convey("Given a Macro Index with mixed tool usages", t, func() {
-		macroIndex := macro.NewMacroIndexServer()
+		macroIndex := macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(ctx),
+		)
 
-		// A fluke gap (happens once)
 		macroIndex.RecordOpcode(25)
 
-		// A recurring logical boundary (happens 10 times)
 		for range 10 {
 			macroIndex.RecordOpcode(40)
 		}

@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"bytes"
 	"embed"
 	"io"
 	"io/fs"
@@ -65,26 +64,11 @@ func initConfig() {
 		console.Warn(ErrConfigNotFound, "error", err)
 	}
 
-	result := errnie.Then(
-		errnie.Try(embedded.Open("cfg/alice.txt")),
-		func(fh fs.File) ([]byte, error) {
-			defer fh.Close()
-			var buf bytes.Buffer
-
-			if _, err := io.Copy(&buf, fh); err != nil {
-				return nil, err
-			}
-
-			return buf.Bytes(), nil
-		},
-	)
-
-	if err := result.Err(); err != nil {
-		console.Error(err, "msg", "Failed to load embedded alice.txt")
-		os.Exit(1)
-	} else {
-		Alice = result.Value()
-	}
+	Alice = errnie.SafeMust(func() ([]byte, error) {
+		return io.ReadAll(errnie.SafeMust(func() (fs.File, error) {
+			return embedded.Open("cfg/alice.txt")
+		}))
+	})
 }
 
 func writeConfig() error {
@@ -95,32 +79,15 @@ func writeConfig() error {
 		return nil
 	}
 
-	result := errnie.Then(
-		errnie.Try(embedded.Open("cfg/"+cfgFile)),
-		func(fh fs.File) ([]byte, error) {
-			defer fh.Close()
-			var buf bytes.Buffer
-
-			if _, err := io.Copy(&buf, fh); err != nil {
-				return nil, err
-			}
-
-			return buf.Bytes(), nil
-		},
-	)
-
-	result = errnie.Then(result, func(data []byte) ([]byte, error) {
-		if err := os.MkdirAll(home+"/."+projectName, os.ModePerm); err != nil {
-			return nil, err
-		}
-		return data, nil
+	errnie.SafeMustVoid(func() error {
+		return os.WriteFile(fullPath, errnie.SafeMust(func() ([]byte, error) {
+			return io.ReadAll(errnie.SafeMust(func() (fs.File, error) {
+				return embedded.Open("cfg/" + cfgFile)
+			}))
+		}), 0644)
 	})
 
-	result = errnie.Then(result, func(data []byte) ([]byte, error) {
-		return data, os.WriteFile(fullPath, data, 0644)
-	})
-
-	return result.Err()
+	return nil
 }
 
 type RootError string
