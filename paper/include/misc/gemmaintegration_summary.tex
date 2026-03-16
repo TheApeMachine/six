@@ -1,0 +1,40 @@
+\begin{table}[htbp]
+\centering
+\caption{GemmaIntegration — standardised result summary (N=3).}
+\label{tab:gemmaintegration_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+1 & GemmaIntegration & 0.0000 & 0.0400 & 0.0025 & 0.0114 \\
+0 & GemmaIntegration & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & GemmaIntegration & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (3 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{Paris is the capital of France, confirme\ldots}} & \multicolumn{2}{l}{\texttt{l since the 10th century.}} & \multicolumn{2}{l}{\texttt{ris is the capital of France, confirmed \ldots}} \\
+\multicolumn{2}{l}{\texttt{Alice performs better than Bob on all lo\ldots}} & \multicolumn{2}{l}{\texttt{Bob second, Carol third.}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{The weather is usually warm in summer. T\ldots}} & \multicolumn{2}{l}{\texttt{in the bedroom wardrobe.}} & \multicolumn{2}{l}{\texttt{}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 3} & \multicolumn{3}{l}{Holdout: 25\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0038} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0114} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{1.2 min} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{46.83 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{15.61 s} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.90 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.0 min}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

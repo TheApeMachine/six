@@ -1,0 +1,40 @@
+\begin{table}[htbp]
+\centering
+\caption{reconstruction — standardised result summary (N=10).}
+\label{tab:reconstruction_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & 10\% & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & 20\% & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & 30\% & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+9 & 10\% & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+8 & 90\% & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+7 & 80\% & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{8.43 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{18.72 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{1.87 s} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{3.71 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{30.86 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

@@ -1,0 +1,22 @@
+\subsection{Semantic Algebra --- GF(257) Fact Cancellation}
+\label{sec:semantic_algebra}
+
+\paragraph{Task Description.}
+The semantic algebra experiment evaluates whether the substrate can perform
+logical fact cancellation using arithmetic in GF(257).  A set of relational
+facts (e.g., \texttt{Roy is\_in Kitchen}) is ingested. At test time the
+query presents a partial fact (e.g., \texttt{Roy is\_in}) and the held-out
+target is the missing entity (\texttt{Kitchen}).  The chord representation
+encodes each token as a GF(257) element; fact cancellation reduces to
+modular subtraction, and the residue should uniquely identify the answer.
+
+\paragraph{Results.}
+Across $N = 4$ test samples the mean weighted score was 0.000.
+Exact cancellation rate: 0.0\%.
+
+\paragraph{Assessment.}
+Cancellation accuracy was low.  The GF(257) arithmetic path is not
+producing correct residues at this stage, likely due to incomplete
+integration of the phase encoding with the substrate retrieval path.
+
+Figure~\ref{fig:semantic_algebra_map} shows the trial outcome map.

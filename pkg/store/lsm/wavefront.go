@@ -26,6 +26,8 @@ type WavefrontHead struct {
 	metaPath     []data.Chord
 	visited      map[visitMark]bool
 	fuzzyErrs    int
+	age          uint16
+	stalls       uint8
 	frustration  uint8
 	registers    *executionRegisters
 }
@@ -60,6 +62,10 @@ type Wavefront struct {
 	frustrationAttempts         int
 	frustrationCheckpointFanout int
 	frustrationRounds           int
+	headGraceStalls             int
+	headFrontierFanout          int
+	checkpointTrailLimit        int
+	checkpointWindow            int
 	persistencePhase            numeric.Phase
 	carryFrames                 []promptCarryFrame
 }
@@ -87,6 +93,10 @@ func NewWavefront(idx *SpatialIndexServer, opts ...wavefrontOpts) *Wavefront {
 		frustrationAttempts:         512,
 		frustrationCheckpointFanout: 2,
 		frustrationRounds:           2,
+		headGraceStalls:             2,
+		headFrontierFanout:          4,
+		checkpointTrailLimit:        execRegisterTrailLimit,
+		checkpointWindow:            32,
 	}
 
 	for _, opt := range opts {
@@ -149,16 +159,11 @@ func (wf *Wavefront) Search(
 		return nil
 	}
 
-	if len(heads) > wf.maxHeads {
-		heads = wf.prune(heads)
-	}
+	heads = wf.prune(heads)
 
 	for depth := uint32(0); depth < wf.maxDepth && len(heads) > 0; depth++ {
 		heads = wf.advance(heads, prompt, interest, danger)
-
-		if len(heads) > wf.maxHeads {
-			heads = wf.prune(heads)
-		}
+		heads = wf.prune(heads)
 	}
 
 	return wf.collect(heads)
@@ -255,9 +260,7 @@ func (wf *Wavefront) SearchPrompt(
 		heads[i] = wf.continueHead(head, remaining, interest, danger)
 	}
 
-	if len(heads) > wf.maxHeads {
-		heads = wf.prune(heads)
-	}
+	heads = wf.prune(heads)
 
 	results := wf.collect(heads)
 	wf.updatePersistenceFromResults(results)
@@ -359,6 +362,8 @@ func (wf *Wavefront) seedPromptByte(
 					metaPath:     []data.Chord{meta},
 					visited:      map[visitMark]bool{visitFor(key, 0): true},
 					fuzzyErrs:    fuzzyErrs,
+					age:          0,
+					stalls:       0,
 					frustration:  0,
 				}
 				wf.initializeHeadRegisters(seed, checkpointReasonSeed)
@@ -596,11 +601,13 @@ func (wf *Wavefront) skipPromptByte(head *WavefrontHead, expectedByte byte) *Wav
 		metaPath:     append([]data.Chord(nil), head.metaPath...),
 		visited:      visited,
 		fuzzyErrs:    head.fuzzyErrs + 1,
+		age:          head.age + 1,
+		stalls:       0,
 		frustration:  head.frustration,
 		registers:    cloneExecutionRegisters(head.registers),
 	}
 	if skipped.registers == nil {
-		skipped.registers = newExecutionRegisters()
+		skipped.registers = wf.newHeadRegisters()
 	}
 	skipped.registers.RecordCheckpoint(skipped, checkpointReasonSkip)
 	return skipped
@@ -692,6 +699,8 @@ func (wf *Wavefront) seed(prompt data.Chord) []*WavefrontHead {
 				metaPath:     []data.Chord{meta},
 				visited:      map[visitMark]bool{visitFor(key, 0): true},
 				fuzzyErrs:    0,
+				age:          0,
+				stalls:       0,
 			}
 			wf.initializeHeadRegisters(seed, checkpointReasonSeed)
 			heads = append(heads, seed)
@@ -795,6 +804,11 @@ func (wf *Wavefront) advance(
 			continue
 		}
 
+		if stalled := wf.stallHead(head); stalled != nil {
+			next = append(next, stalled)
+			continue
+		}
+
 		next = append(next, head)
 	}
 
@@ -820,6 +834,10 @@ func (wf *Wavefront) continueHead(
 		if !hasNext || len(nextKeys) == 0 {
 			challengers := wf.frustrateHead(head)
 			if len(challengers) == 0 {
+				if stalled := wf.stallHead(head); stalled != nil {
+					head = stalled
+					continue
+				}
 				break
 			}
 			if stalled := wf.stallHead(head); stalled != nil {
@@ -877,6 +895,10 @@ func (wf *Wavefront) continueHead(
 		if best == nil {
 			challengers := wf.frustrateHead(head)
 			if len(challengers) == 0 {
+				if stalled := wf.stallHead(head); stalled != nil {
+					head = stalled
+					continue
+				}
 				break
 			}
 			if stalled := wf.stallHead(head); stalled != nil {
@@ -930,6 +952,8 @@ func (wf *Wavefront) forkHead(
 		metaPath:     append(append([]data.Chord{}, head.metaPath...), meta),
 		visited:      visited,
 		fuzzyErrs:    fuzzyErrs,
+		age:          head.age + 1,
+		stalls:       0,
 		frustration:  0,
 		registers:    cloneExecutionRegisters(head.registers),
 	}
@@ -958,11 +982,9 @@ func (wf *Wavefront) sortedKeys(keys []uint64) []uint64 {
 prune keeps only the top maxHeads by energy (lowest first).
 */
 func (wf *Wavefront) prune(heads []*WavefrontHead) []*WavefrontHead {
+	heads = wf.compactHeads(heads, false)
 	sort.Slice(heads, func(i, j int) bool {
-		if heads[i].energy == heads[j].energy {
-			return heads[i].pos < heads[j].pos
-		}
-		return heads[i].energy < heads[j].energy
+		return wf.betterHead(heads[i], heads[j], false)
 	})
 
 	if len(heads) > wf.maxHeads {
@@ -973,55 +995,9 @@ func (wf *Wavefront) prune(heads []*WavefrontHead) []*WavefrontHead {
 }
 
 func (wf *Wavefront) prunePrompt(heads []*WavefrontHead) []*WavefrontHead {
-	type promptKey struct {
-		phase        numeric.Phase
-		alignedPhase numeric.Phase
-		queryPhase   numeric.Phase
-		pos          uint32
-		segment      uint32
-		promptIdx    int
-	}
-
-	bestByKey := make(map[promptKey]*WavefrontHead, len(heads))
-	for _, head := range heads {
-		if head == nil {
-			continue
-		}
-
-		key := promptKey{
-			phase:        head.phase,
-			alignedPhase: head.alignedPhase,
-			queryPhase:   head.queryPhase,
-			pos:          head.pos,
-			segment:      head.segment,
-			promptIdx:    head.promptIdx,
-		}
-
-		existing, exists := bestByKey[key]
-		if !exists || head.energy < existing.energy || (head.energy == existing.energy && head.fuzzyErrs < existing.fuzzyErrs) {
-			bestByKey[key] = head
-		}
-	}
-
-	compacted := make([]*WavefrontHead, 0, len(bestByKey))
-	for _, head := range bestByKey {
-		compacted = append(compacted, head)
-	}
-
+	compacted := wf.compactHeads(heads, true)
 	sort.Slice(compacted, func(i, j int) bool {
-		if compacted[i].promptIdx != compacted[j].promptIdx {
-			return compacted[i].promptIdx > compacted[j].promptIdx
-		}
-		if compacted[i].fuzzyErrs != compacted[j].fuzzyErrs {
-			return compacted[i].fuzzyErrs < compacted[j].fuzzyErrs
-		}
-		if compacted[i].energy != compacted[j].energy {
-			return compacted[i].energy < compacted[j].energy
-		}
-		if compacted[i].segment != compacted[j].segment {
-			return compacted[i].segment < compacted[j].segment
-		}
-		return compacted[i].pos < compacted[j].pos
+		return wf.betterHead(compacted[i], compacted[j], true)
 	})
 
 	if len(compacted) > wf.maxHeads {
@@ -1181,6 +1157,30 @@ func WavefrontWithFrustrationForks(maxForks, checkpointFanout, attempts, rounds 
 		}
 		if rounds >= 0 {
 			wf.frustrationRounds = rounds
+		}
+	}
+}
+
+/*
+WavefrontWithBranchHygiene tunes challenger pruning and checkpoint garbage collection.
+graceStalls bounds how many stalled rounds a branch may accumulate before it is treated
+as expired during pruning, frontierFanout caps the number of survivors per frontier,
+checkpointTrailLimit caps transient checkpoint snapshots, and checkpointWindow controls
+how far behind the current head low-priority checkpoints may survive.
+*/
+func WavefrontWithBranchHygiene(graceStalls, frontierFanout, checkpointTrailLimit, checkpointWindow int) wavefrontOpts {
+	return func(wf *Wavefront) {
+		if graceStalls >= 0 {
+			wf.headGraceStalls = graceStalls
+		}
+		if frontierFanout > 0 {
+			wf.headFrontierFanout = frontierFanout
+		}
+		if checkpointTrailLimit > 0 {
+			wf.checkpointTrailLimit = checkpointTrailLimit
+		}
+		if checkpointWindow >= 0 {
+			wf.checkpointWindow = checkpointWindow
 		}
 	}
 }

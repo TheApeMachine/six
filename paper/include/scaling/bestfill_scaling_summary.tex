@@ -1,0 +1,49 @@
+\begin{table}[htbp]
+\centering
+\caption{BestFill Scaling — standardised result summary (N=100).}
+\label{tab:bestfill_scaling_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+48 & BestFill Scaling & 0.0000 & 1.0000 & 0.2540 & 0.3189 \\
+69 & BestFill Scaling & 0.0000 & 0.5312 & 0.0664 & 0.1570 \\
+0 & BestFill Scaling & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+99 & BestFill Scaling & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+98 & BestFill Scaling & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+97 & BestFill Scaling & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{;oO\textasciitilde{}xidHm\{.oM*|\^{}Z\%>T A93'R\&Ff-\textbackslash\{\}]Okeu`*Va\ldots}} & \multicolumn{2}{l}{\texttt{"\_hdhOQN:mK26cHPIs\_E\$QwZ8o9Eclw\textbackslash\{\}}} & \multicolumn{2}{l}{\texttt{O\textasciitilde{}xidHm\{.oM*|\^{}Z\%>T A93'R\&Ff-\textbackslash\{\}]Okeu`*VajN\ldots}} \\
+\multicolumn{2}{l}{\texttt{*29r,,)=EGNO\^{}w25Lp9,80 jXdWv(u'Him>3*\#/N\ldots}} & \multicolumn{2}{l}{\texttt{I8=\textbackslash\{\}'ykl;VxFt5?ZC\}i(b\%@]\_An .tMk}} & \multicolumn{2}{l}{\texttt{I8=\textbackslash\{\}'ykl;VxFt5?Z1*=(J3 a;iF]=Q,KI9!5;Z`'\ldots}} \\
+\multicolumn{2}{l}{\texttt{ooSo8,I?KpQ-"se[xKQ]I)2'7[3)rr3 0\textasciitilde{}-@;b\^{}u\ldots}} & \multicolumn{2}{l}{\texttt{\&pGu4XkaswjXf8)?.ZoQviPJsCI<8b[(}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{T5POh\&bcAW:|gRQp4)pF;BN=>)d\textasciitilde{}`b|am\}l(@\_Ax\ldots}} & \multicolumn{2}{l}{\texttt{]\&FQw\{:[`<"encT:+XAj-8 0A\%N0;Z'!}} & \multicolumn{2}{l}{\texttt{}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 100} & \multicolumn{3}{l}{Holdout: 32\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0048} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.3189} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{521.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{2.1 min} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{1.26 s} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{2.31 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.1 min}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

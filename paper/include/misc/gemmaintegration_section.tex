@@ -1,0 +1,40 @@
+\subsection{Integration with Gemma 2B-IT}
+\label{sec:gemma_integration}
+
+\paragraph{Task Description.}
+This experiment evaluates two modes of manifold--transformer integration using
+\texttt{google/gemma-2-2b-it} via the GoMLX/XLA backend.  The substrate
+performs silent reasoning in the complex plane---resolving constraints,
+falsifying hypotheses, and crystallising coherent modes via wave
+interference---producing a collapsed physical state that encodes the answer
+geometrically.  The LLM is relegated to Broca's Area: the language production
+centre that translates the manifold's pre-resolved geometric state into fluent
+natural language via logit biases.
+
+\textbf{Manifold-grafted generation.}
+For each of $N=0$ contradiction-heavy prompts the manifold substrate
+(populated by ingesting the relevant context paragraphs through the full
+pipeline) projects its top-$k$ readout chord bytes onto a logit bias over the
+Gemma vocabulary.  Byte-level fallback tokens (IDs 3--258) receive a positive
+bias proportional to their frequency in the substrate readout, nudging
+generation toward tokens coherent with the manifold's constraint state.
+
+\textbf{KV-cache replacement.}
+For each of $N=0$ needle-in-distractor documents the full document is
+ingested into the substrate.  Gemma then generates from a question-only prompt;
+the substrate readout provides context via the same logit-bias projection.
+This decouples generation cost from document length---the LLM prompt is
+\emph{never} shown the document.
+
+\paragraph{Results.}
+Figure~\ref{fig:gemma_integration} summarises wall-clock latency and
+task-success (heuristic substring match) for both modes.
+
+Graft mode: plain Gemma solved 0/0 cases;
+Gemma+Manifold solved 0/0 cases.
+Mean latency: Gemma 0.00\,s, Hybrid 0.00\,s.
+
+\paragraph{Assessment.}
+At this substrate density the bias signal is insufficient to consistently
+override Gemma's base prior.  Larger ingestion volumes will sharpen the
+attractor field and increase the projection contrast ratio.

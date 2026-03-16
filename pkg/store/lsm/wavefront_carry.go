@@ -85,7 +85,7 @@ func (wf *Wavefront) carrySeedFromHead(head *WavefrontHead, overlap int, prompt 
 		registers:    cloneExecutionRegisters(head.registers),
 	}
 	if seed.registers == nil {
-		seed.registers = newExecutionRegisters()
+		seed.registers = wf.newHeadRegisters()
 	}
 	seed.registers.RecordCheckpoint(seed, checkpointReasonCarry)
 	return seed
@@ -194,6 +194,8 @@ func cloneWavefrontHead(head *WavefrontHead) *WavefrontHead {
 		metaPath:     cloneChordSlice(head.metaPath),
 		visited:      cloneVisitedMap(head.visited),
 		fuzzyErrs:    head.fuzzyErrs,
+		age:          head.age,
+		stalls:       head.stalls,
 		frustration:  head.frustration,
 		registers:    cloneExecutionRegisters(head.registers),
 	}

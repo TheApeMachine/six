@@ -551,7 +551,7 @@ Current experiment categories:
 - [x] **Skip-index alignment.** The skip layer now walks concrete stored program states, tracks segment drift, and revalidates reset-aware continuations.
 - [x] **Operator shell registers.** The upper band now carries route hints, trajectory snapshots, guard radii, and mutable-program flags on top of opcode + carry + affine control.
 - [x] **Multi-headed frustration.** Parallel wavefront heads that independently explore alternative rotational trajectories when the primary path stalls.
-- [ ] **Logic garbage collection.** Automatic pruning of expired cantilever spans and dead wavefront heads to bound working memory.
+- [x] **Logic garbage collection.** Automatic pruning of expired cantilever spans and dead wavefront heads to bound working memory.
 - [ ] **Rotation opcodes.** Extending the guard-band instruction set from basic control flow to a full rotational VM bytecode.
 - [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation.
 - [ ] **Spatial paging strategy.** Prefetching Morton clusters into GPU shared memory to respect PCIe bandwidth constraints.
@@ -561,7 +561,7 @@ Current experiment categories:
 #### Native Substrate Evolution
 
 - [ ] **Mutable operator substrate.** Making each stored value a first-class program object — logically mutable, physically append-only (LSM versioning). Scale from "state-with-control-fields" to "local transition operator."
-- [x] **Ephemeral execution registers.** A transient 257×257-bit workspace per active beam state for residues, candidate alignments, and checkpoint tags — carried during traversal, never persisted.
+- [x] **Ephemeral execution registers.** Active wavefront heads now carry transient residue/alignment/checkpoint planes plus checkpoint trails for rewind and re-anchor experiments — traversal scratch only, never persisted.
 - [ ] **Synthetic phase-grammar.** The system develops its own optimal phase-language for internal reasoning, using MDL-discovered rotation constants as "letters." Human language is only used at the input/output boundary.
 
 #### Tool Discovery & Composition
@@ -580,7 +580,7 @@ Current experiment categories:
 
 - [ ] **Autonomous curiosity.** The system scans its own Morton index for low-resonance gaps — places with data but no tools. During idle cycles ("dream state"), it fires ghost spans into these gaps, synthesizing and validating new macro-opcodes without human prompting.
 - [ ] **Self-optimization.** The system treats its own latency and memory fragmentation as internal frustration. It discovers spatial transforms that remap high-density Morton neighborhoods to empty ones, rewriting its own address layout to make the next traversal faster.
-- [ ] **Logic garbage collection.** Automatic pruning of expired cantilever spans, dead wavefront heads, and inefficient tools (MDL comparison determines which tool survives when two solve the same gap).
+- [ ] **Logic garbage collection.** Extend branch hygiene into full MDL-driven tool retirement so inefficient macro-opcodes and expired cantilever spans are pruned with the same discipline as dead wavefront heads.
 
 #### Distributed & Multi-System
 

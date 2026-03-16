@@ -1,0 +1,20 @@
+\subsection{Chunking Baseline}
+\label{sec:chunking_baseline}
+
+\paragraph{Task Description.}
+The chunking baseline experiment compares retrieval quality between chunk-level and sentence-level
+ingestion strategies.  Aphorisms are ingested both as full sentences
+and as overlapping two-sentence chunks.  The chunking baseline
+determines whether the substrate benefits from denser, shorter-span
+entries or whether full-sentence ingestion provides better attractor
+coverage.
+
+\paragraph{Results.}
+Figure~\ref{fig:chunking_baseline_map} shows the trial outcome map.
+The mean weighted score was 0.000 across $N = 10$ samples.
+
+\paragraph{Assessment.}
+The property was not reliably detected at this stage.  The phasedial
+experiments require a functional Finalize path to populate the substrate
+with compositional data; this infrastructure is being rebuilt during
+the current refactoring phase.

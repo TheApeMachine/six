@@ -1,0 +1,33 @@
+\subsection{Phase-Based Constraint Resolution}
+\label{sec:constraint_resolution}
+
+\paragraph{Task Description.}
+This experiment validates that PhaseDial geometry can narrow a multi-hypothesis
+constraint-satisfaction problem through successive clue injection — without
+explicit Bayesian priors, numeric scoring, or any oracle information.
+
+Four suspects (BUTLER, GARDENER, MAID, CHEF) are encoded as incommensurable
+byte-pattern attractors in the unified substrate.  Each suspect's samples
+follow a distinct linear modular stride (3, 7, 11, 13 respectively), producing
+maximally separated regions of the chord/PhaseDial attractor landscape.
+
+After ingestion, four stages of $4$ clue prompts are presented.
+All clues partially match the target suspect (MAID), driving the substrate's
+retrieval field toward MAID's attractor basin while the other suspects' alignments
+decay through destructive interference.
+
+\paragraph{Results.}
+Figure~\ref{fig:constraint_resolution} shows four temporal snapshots of the
+constraint-resolution process on the PhaseDial polar grid.  Each panel plots
+suspects and the evidence centroid as dots at $(\theta_j, A_j)$, where
+$\theta_j$ is phase angle (suspect assignment) and $A_j$ is retrieval alignment.
+
+Mean final alignment with target (MAID): 0.000.
+Mean final alignment averaged across all suspects: 0.000.
+Target isolation ratio: 0.000.
+
+\paragraph{Assessment.}
+Partial isolation was achieved.  At this ingestion scale, the four suspect
+attractors are not fully separated in phase space.  Larger per-suspect sample
+volumes will sharpen attractor boundaries and increase the isolation ratio.
+

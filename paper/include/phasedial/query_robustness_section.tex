@@ -1,0 +1,19 @@
+\subsection{Query Robustness}
+\label{sec:query_robustness}
+
+\paragraph{Task Description.}
+The query robustness experiment evaluates the topological resilience of the PhaseDial to corrupted
+inputs.  A clean query is compared against a version with 30\% chord
+dropout; both are submitted to geodesic scan.  The score reflects
+how accurately the substrate recovers the same retrieval target
+despite input corruption.
+
+\paragraph{Results.}
+Figure~\ref{fig:query_robustness_map} shows the trial outcome map.
+The mean weighted score was 0.000 across $N = 1$ samples.
+
+\paragraph{Assessment.}
+The property was not reliably detected at this stage.  The phasedial
+experiments require a functional Finalize path to populate the substrate
+with compositional data; this infrastructure is being rebuilt during
+the current refactoring phase.

@@ -1,0 +1,19 @@
+\subsection{Two-Hop Retrieval}
+\label{sec:two_hop_retrieval}
+
+\paragraph{Task Description.}
+The two hop retrieval experiment evaluates compositional retrieval via two sequential phase-space hops.
+Starting from seed entry A, the system composes A with a best-matching
+entry B to form a composed fingerprint AB, then searches for a third
+entry C that is simultaneously related to both A and B.  The gain
+measures whether composition discovers entries unreachable by single-hop.
+
+\paragraph{Results.}
+Figure~\ref{fig:two_hop_retrieval_map} shows the trial outcome map.
+The mean weighted score was 0.000 across $N = 1$ samples.
+
+\paragraph{Assessment.}
+The property was not reliably detected at this stage.  The phasedial
+experiments require a functional Finalize path to populate the substrate
+with compositional data; this infrastructure is being rebuilt during
+the current refactoring phase.

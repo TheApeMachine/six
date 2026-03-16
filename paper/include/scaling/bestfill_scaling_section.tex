@@ -1,0 +1,16 @@
+\subsection{BestFill Substrate Scaling}
+\label{sec:bestfill_scaling}
+
+\paragraph{Task Description.}
+The BestFill scaling experiment characterises raw query latency as a function
+of substrate dictionary size. A 5\,000-sample synthetic dataset (128 bytes
+per sample, random seed 42) is ingested; BestFill queries are then benchmarked
+at five dictionary slice sizes: 100, 500, 1\,000, 5\,000, and the full
+ingested size. Each benchmark point is the mean of 10 trials.
+
+\paragraph{Results.}
+Figure~\ref{fig:bestfill_scaling} shows query latency ($\mu$s) and the
+normalised efficiency score across dictionary sizes.
+Latency scaled with dictionary size in the expected linear-scan regime.
+GPU-accelerated BestFill (available when CUDA/Metal backends are active)
+is expected to convert this to a near-constant-time operation.
