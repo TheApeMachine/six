@@ -43,3 +43,5 @@ func (backend *CPUBackend) Resolve(
 	ctx := (*geometry.GFRotation)(context)
 	return resolve.PackedNearest(nodes, *ctx), nil
 }
+
+

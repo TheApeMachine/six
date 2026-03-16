@@ -12,8 +12,8 @@ strides.
 
 \begin{itemize}[nosep]
   \item \textbf{Insertion:}  Tokens are merged into the active manifold
-        via \texttt{ChordOR} at a block index determined by the token's
-        topological events and chord dynamics.
+        via \texttt{ValueOR} at a block index determined by the token's
+        topological events and value dynamics.
   \item \textbf{Rotation:}  Structural events physically permute the
         active manifold's block array.  Because $A_5$ permutations are
         applied as array index remappings, they execute in $O(1)$ without
@@ -144,7 +144,7 @@ and the entropy bound measures the efficiency of the Morton key design.
 \label{sec:sequence_boundaries}
 
 When the Sequencer detects a topological boundary and the active manifold
-carries signal (non-empty chords), the PrimeField freezes the current
+carries signal (non-empty values), the PrimeField freezes the current
 manifold and advances to a new one.  The Z-coordinate of the Morton key
 tracks scale depth: each sequence reset increments $z$, stratifying memory
 into episodic layers.
@@ -153,9 +153,9 @@ into episodic layers.
 \label{sec:prototype_snapping}
 
 To stabilize the memory substrate against noise, the PrimeField maintains
-per-block prototype attractors.  Incoming chords are compared against stored
-prototypes; if similarity exceeds a threshold, the chord is ``snapped'' to
-the prototype---reinforcing established patterns.  Novel chords that diverge
+per-block prototype attractors.  Incoming values are compared against stored
+prototypes; if similarity exceeds a threshold, the value is ``snapped'' to
+the prototype---reinforcing established patterns.  Novel values that diverge
 sufficiently seed new prototypes, enabling the substrate to discover and
 crystallize recurring structural motifs.
 

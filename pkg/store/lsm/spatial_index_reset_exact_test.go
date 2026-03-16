@@ -17,9 +17,9 @@ func TestLookupByPhaseFollowsResetAwareContinuation(t *testing.T) {
 		abPhase := calc.Multiply(aPhase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('b')))
 		abaPhase := calc.Multiply(abPhase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('a')))
 
-		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewChord())
-		idx.insertSync(morton.Pack(1, 'b'), observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewChord())
-		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewChord())
+		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewValue())
+		idx.insertSync(morton.Pack(1, 'b'), observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewValue())
+		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewValue())
 
 		gc.Convey("LookupByPhase should return the continuation beyond the exact prompt", func() {
 			results, paths, metaPaths := idx.LookupByPhase([]byte("ab"))
@@ -29,7 +29,7 @@ func TestLookupByPhaseFollowsResetAwareContinuation(t *testing.T) {
 			gc.So(string(results[0]), gc.ShouldEqual, "a")
 			gc.So(len(paths[0]), gc.ShouldEqual, 1)
 
-			decoded := idx.decodeChords(paths[0])
+			decoded := idx.decodeValues(paths[0])
 			gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
 			gc.So(string(decoded[0]), gc.ShouldEqual, "a")
 		})
@@ -48,10 +48,10 @@ func TestCompactRespectsResetContinuationProgram(t *testing.T) {
 		keyA := morton.Pack(0, 'a')
 		keyB := morton.Pack(1, 'b')
 
-		idx.insertSync(keyA, observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewChord())
-		idx.insertSync(keyB, observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewChord())
-		idx.insertSync(keyA, observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewChord())
-		idx.insertSync(keyB, observableValue('b', numeric.Phase(99), data.OpcodeReset, 'a'), data.MustNewChord())
+		idx.insertSync(keyA, observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewValue())
+		idx.insertSync(keyB, observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewValue())
+		idx.insertSync(keyA, observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewValue())
+		idx.insertSync(keyB, observableValue('b', numeric.Phase(99), data.OpcodeReset, 'a'), data.MustNewValue())
 
 		gc.Convey("Compaction should preserve only the branch whose reset continuation really exists", func() {
 			idx.mu.Lock()

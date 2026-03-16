@@ -29,73 +29,73 @@ const (
 SetJump stores the relative program jump in word 5 while preserving the opcode
 and other control-plane flags.
 */
-func (chord *Chord) SetJump(jump uint32) {
-	word := chord.C5()
+func (value *Value) SetJump(jump uint32) {
+	word := value.C5()
 	word &^= opcodeWordMaskJump
 	word |= uint64(jump) << opcodeWordShiftJump
-	chord.SetC5(word)
+	value.SetC5(word)
 }
 
 /*
 Jump retrieves the relative program jump stored in word 5.
 */
-func (chord *Chord) Jump() uint32 {
-	return uint32((chord.C5() & opcodeWordMaskJump) >> opcodeWordShiftJump)
+func (value *Value) Jump() uint32 {
+	return uint32((value.C5() & opcodeWordMaskJump) >> opcodeWordShiftJump)
 }
 
 /*
 SetBranches stores the branch fan-out count in word 5.
 */
-func (chord *Chord) SetBranches(branches uint8) {
-	word := chord.C5()
+func (value *Value) SetBranches(branches uint8) {
+	word := value.C5()
 	word &^= opcodeWordMaskBranches
 	word |= uint64(branches) << opcodeWordShiftBranches
-	chord.SetC5(word)
+	value.SetC5(word)
 }
 
 /*
 Branches retrieves the branch fan-out count from word 5.
 */
-func (chord *Chord) Branches() uint8 {
-	return uint8((chord.C5() & opcodeWordMaskBranches) >> opcodeWordShiftBranches)
+func (value *Value) Branches() uint8 {
+	return uint8((value.C5() & opcodeWordMaskBranches) >> opcodeWordShiftBranches)
 }
 
 /*
 SetTerminal marks or clears the terminal flag in word 5.
 */
-func (chord *Chord) SetTerminal(terminal bool) {
-	word := chord.C5()
+func (value *Value) SetTerminal(terminal bool) {
+	word := value.C5()
 	word &^= opcodeWordMaskTerminal
 	if terminal {
 		word |= opcodeWordMaskTerminal
 	}
-	chord.SetC5(word)
+	value.SetC5(word)
 }
 
 /*
-Terminal reports whether the chord marks a terminal program state.
+Terminal reports whether the value marks a terminal program state.
 */
-func (chord *Chord) Terminal() bool {
-	return chord.C5()&opcodeWordMaskTerminal != 0
+func (value *Value) Terminal() bool {
+	return value.C5()&opcodeWordMaskTerminal != 0
 }
 
 /*
 SetProgram writes the traversal instruction, relative jump, branch count,
 and terminal flag in a single operation.
 */
-func (chord *Chord) SetProgram(opcode Opcode, jump uint32, branches uint8, terminal bool) {
+func (value *Value) SetProgram(opcode Opcode, jump uint32, branches uint8, terminal bool) {
 	word := uint64(opcode) & opcodeWordMaskOpcode
 	word |= uint64(jump) << opcodeWordShiftJump
 	word |= uint64(branches) << opcodeWordShiftBranches
 	if terminal {
 		word |= opcodeWordMaskTerminal
 	}
-	chord.SetC5(word)
+	value.SetC5(word)
 }
 
 /*
 Program returns the threaded-code instruction stored in word 5.
 */
-func (chord *Chord) Program() (Opcode, uint32, uint8, bool) {
-	return Opcode(chord.Opcode()), chord.Jump(), chord.Branches(), chord.Terminal()
+func (value *Value) Program() (Opcode, uint32, uint8, bool) {
+	return Opcode(value.Opcode()), value.Jump(), value.Branches(), value.Terminal()
 }

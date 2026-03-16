@@ -1,9 +1,9 @@
 @startuml
 skinparam linetype ortho
 
-title The Chord (The 512-bit Mono-Type)
+title The Value (The 512-bit Mono-Type)
 
-class "AVX-512 Register" as ChordType << (C) Mono-Type >> {
+class "AVX-512 Register" as ValueType << (C) Mono-Type >> {
     .. Geometric Structure (The Physics) ..
     + Bits 0-255 : GF(257) Prime Field
     .. Control Plane (The Engine) ..
@@ -12,23 +12,24 @@ class "AVX-512 Register" as ChordType << (C) Mono-Type >> {
     + Bits 257-511 : Affine Constants & Guard Band
 }
 
-note left of ChordType::"Bits 0-255"
+note left of ValueType::"Bits 0-255"
   <b>HALT Condition 2: Saturation</b>
   When ActiveCount hits the Shannon Ceiling.
   Applying rotation returns the exact same state.
   (Maximum Entropy Horizon).
 end note
 
-note right of ChordType::"Bit 256"
+note right of ValueType::"Bit 256"
   <b>HALT Condition 1: The Trap</b>
   Hardware-level JNZ (Jump if Not Zero).
   Flipped explicitly when a boundary resolves.
 end note
 
-note right of ChordType::"Bits 257-511"
+note right of ValueType::"Bits 257-511"
   <b>The Trajectory</b>
   Stores (a, b) for f(x) = ax + b.
   Defines where the particle is going next.
 end note
 
 @enduml
+

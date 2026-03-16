@@ -26,12 +26,12 @@ func buildIndex(input []byte) (*SpatialIndexServer, []numeric.Phase) {
 		state = calc.Multiply(state, calc.Power(3, uint32(b)))
 		states[i] = state
 
-		baseChord := data.BaseChord(b)
-		baseChord.Set(int(state))
-		baseChord.SetResidualCarry(uint64(state))
+		baseValue := data.BaseValue(b)
+		baseValue.Set(int(state))
+		baseValue.SetResidualCarry(uint64(state))
 
 		key := morton.Pack(uint32(i), b)
-		idx.insertSync(key, baseChord, data.MustNewChord())
+		idx.insertSync(key, baseValue, data.MustNewValue())
 	}
 
 	return idx, states
@@ -139,11 +139,11 @@ func TestWavefront(t *testing.T) {
 				allStates[sampleName] = states
 
 				for i, b := range input {
-					baseChord := data.BaseChord(b)
-					baseChord.Set(int(states[i]))
-					baseChord.SetResidualCarry(uint64(states[i]))
+					baseValue := data.BaseValue(b)
+					baseValue.Set(int(states[i]))
+					baseValue.SetResidualCarry(uint64(states[i]))
 
-					idx.insertSync(morton.Pack(uint32(i), b), baseChord, data.MustNewChord())
+					idx.insertSync(morton.Pack(uint32(i), b), baseValue, data.MustNewValue())
 				}
 			}
 
@@ -152,17 +152,17 @@ func TestWavefront(t *testing.T) {
 
 			gc.Convey(caseName+": state at position 0 should match computed phase", func() {
 				key0 := morton.Pack(0, firstSample[0])
-				chord := idx.GetEntry(key0)
+				value := idx.GetEntry(key0)
 
-				phase, ok := extractStatePhase(chord, firstSample[0])
+				phase, ok := extractStatePhase(value, firstSample[0])
 				gc.So(ok, gc.ShouldBeTrue)
 				gc.So(phase, gc.ShouldEqual, firstStates[0])
 			})
 
 			gc.Convey(caseName+": search with first byte should find paths with valid states", func() {
 				wf := NewWavefront(idx, WavefrontWithMaxHeads(64), WavefrontWithMaxDepth(uint32(len(firstSample))))
-				promptChord := data.BaseChord(firstSample[0])
-				results := wf.Search(promptChord, nil, nil)
+				promptValue := data.BaseValue(firstSample[0])
+				results := wf.Search(promptValue, nil, nil)
 
 				var flatStates []numeric.Phase
 
@@ -171,14 +171,14 @@ func TestWavefront(t *testing.T) {
 				}
 
 				for _, result := range results {
-					for _, chord := range result.Path {
-						decoded, ok := inferByteFromChord(chord)
+					for _, value := range result.Path {
+						decoded, ok := inferByteFromValue(value)
 						if !ok {
-							// Synthetic bridge chords do not carry a lexical byte.
+							// Synthetic bridge values do not carry a lexical byte.
 							continue
 						}
 
-						phase, ok := extractStatePhase(chord, decoded)
+						phase, ok := extractStatePhase(value, decoded)
 						gc.So(ok, gc.ShouldBeTrue)
 
 						matchedState := false
@@ -196,8 +196,8 @@ func TestWavefront(t *testing.T) {
 
 			gc.Convey(caseName+": every result phase should be valid GF(257)", func() {
 				wf := NewWavefront(idx, WavefrontWithMaxHeads(64), WavefrontWithMaxDepth(uint32(len(firstSample))))
-				promptChord := data.BaseChord(firstSample[0])
-				results := wf.Search(promptChord, nil, nil)
+				promptValue := data.BaseValue(firstSample[0])
+				results := wf.Search(promptValue, nil, nil)
 
 				for _, result := range results {
 					gc.So(uint32(result.Phase), gc.ShouldBeGreaterThan, 0)
@@ -205,19 +205,19 @@ func TestWavefront(t *testing.T) {
 				}
 			})
 
-			gc.Convey(caseName+": result depth chord should match a ground-truth state at that depth", func() {
+			gc.Convey(caseName+": result depth value should match a ground-truth state at that depth", func() {
 				wf := NewWavefront(idx, WavefrontWithMaxHeads(64), WavefrontWithMaxDepth(uint32(len(firstSample))))
-				promptChord := data.BaseChord(firstSample[0])
-				results := wf.Search(promptChord, nil, nil)
+				promptValue := data.BaseValue(firstSample[0])
+				results := wf.Search(promptValue, nil, nil)
 
 				for _, result := range results {
 					depth := int(result.Depth)
-					lastChord := result.Path[len(result.Path)-1]
+					lastValue := result.Path[len(result.Path)-1]
 					matched := false
 
-					decoded, ok := inferByteFromChord(lastChord)
+					decoded, ok := inferByteFromValue(lastValue)
 					gc.So(ok, gc.ShouldBeTrue)
-					phase, ok := extractStatePhase(lastChord, decoded)
+					phase, ok := extractStatePhase(lastValue, decoded)
 					gc.So(ok, gc.ShouldBeTrue)
 
 					for _, states := range allStates {
@@ -233,28 +233,28 @@ func TestWavefront(t *testing.T) {
 
 			gc.Convey(caseName+": energy should equal XOR popcount baseline plus fuzzy penalties", func() {
 				wf := NewWavefront(idx, WavefrontWithMaxHeads(64), WavefrontWithMaxDepth(uint32(len(firstSample))))
-				promptChord := data.BaseChord(firstSample[0])
-				results := wf.Search(promptChord, nil, nil)
+				promptValue := data.BaseValue(firstSample[0])
+				results := wf.Search(promptValue, nil, nil)
 
 				for _, result := range results {
 					minBaseline := 0
 					maxBaseline := 0
 
-					for depth, chord := range result.Path {
+					for depth, value := range result.Path {
 						stepMin := math.MaxInt
 						stepMax := 0
 
-						decoded, ok := inferByteFromChord(chord)
+						decoded, ok := inferByteFromValue(value)
 						if !ok {
 							continue
 						}
-						phase, ok := extractStatePhase(chord, decoded)
+						phase, ok := extractStatePhase(value, decoded)
 						gc.So(ok, gc.ShouldBeTrue)
 
 						for name, states := range allStates {
 							if depth < len(states) && phase == states[depth] {
 								sym := samples[name][depth]
-								e := data.BaseChord(sym).XOR(promptChord).ActiveCount()
+								e := data.BaseValue(sym).XOR(promptValue).ActiveCount()
 
 								if e < stepMin {
 									stepMin = e
@@ -304,11 +304,11 @@ func TestWavefront(t *testing.T) {
 					if present[b] {
 						continue
 					}
-					promptChord := data.BaseChord(byte(b))
+					promptValue := data.BaseValue(byte(b))
 					isolated := true
 					for pos0 := range pos0Bytes {
-						symChord := data.BaseChord(pos0)
-						if data.ChordSimilarity(&promptChord, &symChord) > 0 {
+						symValue := data.BaseValue(pos0)
+						if data.ValueSimilarity(&promptValue, &symValue) > 0 {
 							isolated = false
 							break
 						}
@@ -322,8 +322,8 @@ func TestWavefront(t *testing.T) {
 
 				if found {
 					wf := NewWavefront(idx, WavefrontWithMaxHeads(32), WavefrontWithMaxDepth(64))
-					promptChord := data.BaseChord(absentByte)
-					results := wf.Search(promptChord, nil, nil)
+					promptValue := data.BaseValue(absentByte)
+					results := wf.Search(promptValue, nil, nil)
 
 					gc.So(results, gc.ShouldBeNil)
 				}
@@ -337,13 +337,13 @@ func BenchmarkWavefrontSearch(b *testing.B) {
 	corpus := generateCorpus(200, 26, 99)
 	idx, _ := buildIndex(corpus)
 	wf := NewWavefront(idx, WavefrontWithMaxHeads(32), WavefrontWithMaxDepth(64))
-	promptChord := data.BaseChord(corpus[0])
+	promptValue := data.BaseValue(corpus[0])
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
-		_ = wf.Search(promptChord, nil, nil)
+		_ = wf.Search(promptValue, nil, nil)
 	}
 }
 

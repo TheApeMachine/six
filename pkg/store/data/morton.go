@@ -99,3 +99,5 @@ func compact1by2(value uint64) uint64 {
 	value = (value ^ (value >> 32)) & 0x1fffff
 	return value
 }
+
+

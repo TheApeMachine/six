@@ -156,7 +156,7 @@ The semantic algebra experiment evaluates whether the substrate can perform
 logical fact cancellation using arithmetic in GF(257).  A set of relational
 facts (e.g., \texttt{Roy is\_in Kitchen}) is ingested. At test time the
 query presents a partial fact (e.g., \texttt{Roy is\_in}) and the held-out
-target is the missing entity (\texttt{Kitchen}).  The chord representation
+target is the missing entity (\texttt{Kitchen}).  The value representation
 encodes each token as a GF(257) element; fact cancellation reduces to
 modular subtraction, and the residue should uniquely identify the answer.
 
@@ -173,7 +173,7 @@ expected result: the operation is exact by construction.
 \paragraph{Assessment.}
 Partial cancellation was observed.  Some facts resolve correctly while
 others produce residues that do not uniquely map to the expected entity.
-This suggests chord collision or boundary detection issues that need
+This suggests value collision or boundary detection issues that need
 investigation.
 {{- else -}}
 \paragraph{Assessment.}

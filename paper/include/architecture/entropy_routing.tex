@@ -9,7 +9,7 @@ In information theoretic terms, the representational capacity of a binary vector
 Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector ($D = 10,000$ to $D = 100,000$). However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
 
 \subsection{Dynamic Manifolds as Entropy Relief Valves}
-Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic chord to a highly compressed 257-bit vector, but geometrically map $6 \times 4 \times 257 = 6{,}168$ such chords into a three-dimensional manifold (the \textit{Fermat Cube}), addressed by $\operatorname{GF}(257)$ affine transformations.
+Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic value to a highly compressed 257-bit vector, but geometrically map $6 \times 4 \times 257 = 6{,}168$ such values into a three-dimensional manifold (the \textit{Fermat Cube}), addressed by $\operatorname{GF}(257)$ affine transformations.
 
 By establishing a rigid, non-commutative rotational lattice, the architecture avoids local saturation through \textbf{Topological Entropy Routing}. Ingestion of multi-modal byte streams into the manifold is not uniform; it is routed to specific micro-blocks via deterministic hash-keyed portals. 
 
@@ -22,7 +22,7 @@ Before the local micro-block crosses the entropy peak and loses discriminative c
     \item \textbf{Entropy Diffusion:} The highly saturated, high-entropy block is mechanically swung out of the active ingestion portal and preserved in the structural background of the manifold. Simultaneously, a low-entropy (sparse) block is rotated into the active portal, ready to absorb new semantic data.
 \end{enumerate}
 
-If the global macro-density of the Fermat Cube itself reaches the 0.45 threshold, the system executes an $O(1)$ \textit{Virtual Mitosis}. The geometry is upgraded from the chiral octahedral group ($\mathbf{O}$) to the alternating group ($A_5$), expanding the topology from a single cube to the compound of five intersecting cubes ($5 \times 6{,}168 = 30{,}840$ chord positions).
+If the global macro-density of the Fermat Cube itself reaches the 0.45 threshold, the system executes an $O(1)$ \textit{Virtual Mitosis}. The geometry is upgraded from the chiral octahedral group ($\mathbf{O}$) to the alternating group ($A_5$), expanding the topology from a single cube to the compound of five intersecting cubes ($5 \times 6{,}168 = 30{,}840$ value positions).
 
 \subsection{State Space Analysis: Topology as a Capacity Multiplier}
 \label{sec:state_space}
@@ -32,13 +32,13 @@ capacity can be increased by adding topology rather than parameters}.
 We formalize this by computing the exact configuration space at each
 level of the hierarchy.
 
-\paragraph{Level 1: The 257-Bit Chord.}
-A single chord occupies $D = 257$ bits of storage and admits
+\paragraph{Level 1: The 257-Bit Value.}
+A single value occupies $D = 257$ bits of storage and admits
 $2^{257} \approx 2.31 \times 10^{77}$ possible states.  This is
 the Shannon-limited micro-state.
 
 \paragraph{Level 2: The Fermat Cube ($6 \times 4 \times 257$ positions).}
-$6{,}168$ chords are arranged in a three-dimensional lattice, yielding:
+$6{,}168$ values are arranged in a three-dimensional lattice, yielding:
 \begin{equation}
   |\Omega_{\text{cube}}| = (2^{257})^{6168} = 2^{1{,}585{,}176}
   \approx 10^{477{,}166}
@@ -47,7 +47,7 @@ $6{,}168$ chords are arranged in a three-dimensional lattice, yielding:
 The memory footprint is $6{,}168 \times 64 = 394{,}752$ bytes $\approx 386$~KB.
 
 \paragraph{Level 3: The Icosahedral Manifold (Post-Mitosis).}
-Five Fermat Cubes expand the lattice to $30{,}840$ chord positions:
+Five Fermat Cubes expand the lattice to $30{,}840$ value positions:
 \begin{equation}
   |\Omega_{\text{ico}}| = (2^{257})^{30840} = 2^{7{,}925{,}880}
   \approx 10^{2{,}385{,}832}
@@ -143,7 +143,7 @@ scanned in milliseconds.
 
 \subsection{Implications for Scaling}
 Through this mechanism, the architecture explicitly respects the Shannon
-limit at the micro-state (the 257-bit chord) but circumvents it at the
+limit at the micro-state (the 257-bit value) but circumvents it at the
 macro-state by converting scalar density pressure into geometric expansion.
 The system naturally diffuses semantic heat across the manifold topology,
 enabling $O(1)$ ambiguity resolution over millions of manifolds natively
@@ -153,5 +153,5 @@ The analogy to physical systems is precise: protein folding achieves
 astronomically large conformational spaces ($\gg 10^{100}$) from
 sequences of only thousands of atoms, because \emph{spatial geometry
 multiplies the configuration space exponentially}.  The Fermat Cube
-exploits the same principle: chord values $\times$ Galois field permutations
+exploits the same principle: value values $\times$ Galois field permutations
 $\times$ rotational paths---topology as a capacity multiplier.

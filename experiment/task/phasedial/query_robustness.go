@@ -18,12 +18,12 @@ type QueryRobustnessExperiment struct {
 	robustnessResults []robustnessEntry
 	dataset           provider.Dataset
 	prompt            []string
-	evaluator *tools.Evaluator
+	evaluator         *tools.Evaluator
 }
 
 func NewQueryRobustnessExperiment() *QueryRobustnessExperiment {
 	return &QueryRobustnessExperiment{
-		tableData:         []tools.ExperimentalData{},
+		tableData: []tools.ExperimentalData{},
 		// Baseline 0.20: Query robustness under perturbation.
 		// Any non-zero result demonstrates the property holds.
 		// Target 0.60: strong geometric invariant.
@@ -98,17 +98,17 @@ func (experiment *QueryRobustnessExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Resilience of PhaseDial retrieval to character dropout.",
 			Label:    "tab:query_robustness",
 		},
-	
-{
-Type:     tools.ArtifactProse,
-FileName: "query_robustness_section.tex",
-Data: tools.ProseData{
-Template: `\subsection{Query Robustness}
+
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "query_robustness_section.tex",
+			Data: tools.ProseData{
+				Template: `\subsection{Query Robustness}
 \label{sec:query_robustness}
 
 \paragraph{Task Description.}
 The query robustness experiment evaluates the topological resilience of the PhaseDial to corrupted
-inputs.  A clean query is compared against a version with 30\% chord
+inputs.  A clean query is compared against a version with 30\% value
 dropout; both are submitted to geodesic scan.  The score reflects
 how accurately the substrate recovers the same retrieval target
 despite input corruption.
@@ -133,21 +133,13 @@ with compositional data; this infrastructure is being rebuilt during
 the current refactoring phase.
 {{- end}}
 `,
-Data: map[string]any{
-"N":     len(experiment.tableData),
-"Score": experiment.Score(),
-},
-},
-},
+				Data: map[string]any{
+					"N":     len(experiment.tableData),
+					"Score": experiment.Score(),
+				},
+			},
+		},
 	}
 }
 
 func (experiment *QueryRobustnessExperiment) RawOutput() bool { return false }
-
-
-
-
-
-
-
-

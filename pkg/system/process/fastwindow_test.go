@@ -134,3 +134,5 @@ func BenchmarkFastWindowSimulatePush(b *testing.B) {
 		window.SimulatePush(float64(i))
 	}
 }
+
+

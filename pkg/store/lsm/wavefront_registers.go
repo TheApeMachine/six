@@ -180,6 +180,9 @@ func (registers *executionRegisters) ObserveTransition(
 	}
 
 	registers.lastResidue = uint8(residue)
+	if penalty < 0 {
+		penalty = 0
+	}
 	return penalty
 }
 
@@ -465,12 +468,13 @@ func rewindHeadFromCheckpoint(head *WavefrontHead, checkpoint executionCheckpoin
 		segment:      checkpoint.segment,
 		promptIdx:    checkpoint.promptIdx,
 		energy:       checkpoint.energy,
-		path:         cloneChordSlice(head.path[:checkpoint.pathLen]),
-		metaPath:     cloneChordSlice(head.metaPath[:checkpoint.metaLen]),
+		path:         cloneValueSlice(head.path[:checkpoint.pathLen]),
+		metaPath:     cloneValueSlice(head.metaPath[:checkpoint.metaLen]),
 		visited:      cloneVisitedMap(checkpoint.visited),
 		age:          checkpoint.age,
 		stalls:       0,
 		fuzzyErrs:    head.fuzzyErrs,
+		strictNext:   head.strictNext,
 	}
 }
 
@@ -498,7 +502,7 @@ func (wf *Wavefront) initializeHeadRegisters(head *WavefrontHead, reason executi
 func (wf *Wavefront) applyTransitionRegisters(
 	parent *WavefrontHead,
 	child *WavefrontHead,
-	value data.Chord,
+	value data.Value,
 	queryPhase numeric.Phase,
 	anchored bool,
 ) int {

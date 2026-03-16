@@ -126,7 +126,7 @@ func CompressionArtifacts(tableData []tools.ExperimentalData) []tools.Artifact {
 
 \paragraph{Task Description.}
 The compression experiment measures the ratio of raw input bytes to stored
-substrate entries, quantifying the de-duplication efficiency of the chord
+substrate entries, quantifying the de-duplication efficiency of the value
 collision mechanism. A 2\,000-sample synthetic dataset (128 bytes per
 sample) is ingested; the number of resulting PrimeField entries is measured
 and compared to the total raw byte volume.
@@ -141,7 +141,7 @@ After ingesting {{.RawKB}}\,KB of raw data, the substrate retained
 The substrate achieved substantial de-duplication: more than 50 raw bytes
 collapsed into a single substrate entry on average.  This indicates
 high structural redundancy across samples, consistent with the theoretical
-prediction that repeated byte patterns converge to shared chord attractors.
+prediction that repeated byte patterns converge to shared value attractors.
 {{- else if gt .Ratio 10.0 -}}
 Moderate de-duplication was observed.  The synthetic dataset contains
 sufficient structural variation that most samples occupy distinct attractor
@@ -188,7 +188,7 @@ func ThroughputArtifacts(tableData []tools.ExperimentalData) []tools.Artifact {
 The pipeline throughput experiment measures end-to-end ingestion bandwidth.
 A 1\,000-sample synthetic dataset (128 bytes per sample) is ingested and
 queried by the standard Pipeline.  Timing covers the full ingestion phase
-from dataset streaming through tokenisation, chord encoding, and substrate
+from dataset streaming through tokenisation, value encoding, and substrate
 storage.
 
 \paragraph{Results.}
@@ -206,7 +206,7 @@ workloads.  Enabling the CUDA or Metal BestFill backend is expected to
 raise throughput by $\times$10 or more.
 {{- else -}}
 Throughput was below 100\,KB/s.  This reflects single-core CPU execution
-of the full chord encoding pipeline; GPU acceleration is expected to
+of the full value encoding pipeline; GPU acceleration is expected to
 improve this substantially.
 {{- end}}
 `
@@ -329,7 +329,7 @@ Mean retrieval weighted score: {{.Score | f3}}.
 {{if gt .Score 0.5 -}}
 The substrate accurately recovered the majority of held-out byte sequences,
 demonstrating that MDL boundary detection produces structurally meaningful
-splits that align with chord attractor boundaries.
+splits that align with value attractor boundaries.
 {{- else if gt .Score 0.2 -}}
 Partial recovery was observed.  Sequencer-detected boundaries coincide
 with attractor structure in many but not all samples, consistent with the
@@ -337,7 +337,7 @@ expected hit rate when boundary entropy is near the MDL threshold.
 {{- else -}}
 Retrieval quality was low.  The synthetic dataset's uniform byte
 distribution produces boundaries that do not correlate strongly with
-chord attractor boundaries at this substrate size.
+value attractor boundaries at this substrate size.
 {{- end}}
 `
 

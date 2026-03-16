@@ -60,7 +60,7 @@ func TestSkipIndex(t *testing.T) {
 				gc.So(valid, gc.ShouldBeFalse)
 			})
 
-			gc.Convey("SkipSearch path chords should match actual stored state chords", func() {
+			gc.Convey("SkipSearch path values should match actual stored state values", func() {
 				startKey := morton.Pack(0, corpus[0])
 				startPhase := calc.Multiply(
 					numeric.Phase(1),
@@ -69,11 +69,11 @@ func TestSkipIndex(t *testing.T) {
 
 				path := skip.SkipSearch(startKey, startPhase)
 
-				for _, chord := range path {
+				for _, value := range path {
 					found := false
 
 					for _, s := range states {
-						if chord.Has(int(s)) {
+						if value.Has(int(s)) {
 							found = true
 							break
 						}
@@ -119,9 +119,9 @@ func TestSkipIndexFollowsResetAwareCompressedTraversal(t *testing.T) {
 		keyA := morton.Pack(0, 'a')
 		keyB := morton.Pack(1, 'b')
 
-		idx.insertSync(keyA, observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewChord())
-		idx.insertSync(keyB, observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewChord())
-		idx.insertSync(keyA, observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewChord())
+		idx.insertSync(keyA, observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewValue())
+		idx.insertSync(keyB, observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewValue())
+		idx.insertSync(keyA, observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewValue())
 
 		skip := NewSkipIndex(idx)
 		skip.Build()
@@ -140,7 +140,7 @@ func TestSkipIndexFollowsResetAwareCompressedTraversal(t *testing.T) {
 			path := skip.SkipSearch(keyA, aPhase)
 			gc.So(len(path), gc.ShouldEqual, 3)
 
-			decoded := idx.decodeChords(path)
+			decoded := idx.decodeValues(path)
 			gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
 			gc.So(string(decoded[0]), gc.ShouldEqual, "aba")
 		})

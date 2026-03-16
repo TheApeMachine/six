@@ -6,14 +6,14 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 )
 
-func TestChordProgramMetadata(t *testing.T) {
-	Convey("Given a chord with threaded-code metadata", t, func() {
-		chord := MustNewChord()
+func TestValueProgramMetadata(t *testing.T) {
+	Convey("Given a value with threaded-code metadata", t, func() {
+		value := MustNewValue()
 
 		Convey("SetProgram should persist opcode, jump, branches, and terminal state", func() {
-			chord.SetProgram(OpcodeBranch, 17, 3, true)
+			value.SetProgram(OpcodeBranch, 17, 3, true)
 
-			opcode, jump, branches, terminal := chord.Program()
+			opcode, jump, branches, terminal := value.Program()
 
 			So(opcode, ShouldEqual, OpcodeBranch)
 			So(jump, ShouldEqual, 17)
@@ -22,31 +22,31 @@ func TestChordProgramMetadata(t *testing.T) {
 		})
 
 		Convey("SetOpcode should preserve existing jump metadata", func() {
-			chord.SetProgram(OpcodeJump, 64, 1, false)
-			chord.SetOpcode(uint64(OpcodeHalt))
+			value.SetProgram(OpcodeJump, 64, 1, false)
+			value.SetOpcode(uint64(OpcodeHalt))
 
-			So(chord.Opcode(), ShouldEqual, uint64(OpcodeHalt))
-			So(chord.Jump(), ShouldEqual, 64)
-			So(chord.Branches(), ShouldEqual, 1)
-			So(chord.Terminal(), ShouldBeFalse)
+			So(value.Opcode(), ShouldEqual, uint64(OpcodeHalt))
+			So(value.Jump(), ShouldEqual, 64)
+			So(value.Branches(), ShouldEqual, 1)
+			So(value.Terminal(), ShouldBeFalse)
 		})
 
 		Convey("Residual carry should survive alongside program metadata", func() {
-			chord.SetProgram(OpcodeNext, 1, 0, false)
-			chord.SetResidualCarry(99)
+			value.SetProgram(OpcodeNext, 1, 0, false)
+			value.SetResidualCarry(99)
 
-			So(chord.ResidualCarry(), ShouldEqual, 99)
-			So(chord.Opcode(), ShouldEqual, uint64(OpcodeNext))
-			So(chord.Jump(), ShouldEqual, 1)
+			So(value.ResidualCarry(), ShouldEqual, 99)
+			So(value.Opcode(), ShouldEqual, uint64(OpcodeNext))
+			So(value.Jump(), ShouldEqual, 1)
 		})
 	})
 }
 
-func BenchmarkChordSetProgram(b *testing.B) {
-	chord := MustNewChord()
+func BenchmarkValueSetProgram(b *testing.B) {
+	value := MustNewValue()
 
 	b.ResetTimer()
 	for b.Loop() {
-		chord.SetProgram(OpcodeJump, 256, 2, false)
+		value.SetProgram(OpcodeJump, 256, 2, false)
 	}
 }

@@ -367,3 +367,4 @@ func getFileSnippet(path string) string {
 
 	return snippet.String()
 }
+

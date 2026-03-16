@@ -14,7 +14,7 @@ import (
 )
 
 /*
-Server serves the 3D visualization and streams chord events via WebSocket.
+Server serves the 3D visualization and streams value events via WebSocket.
 */
 type Server struct {
 	mu      sync.RWMutex

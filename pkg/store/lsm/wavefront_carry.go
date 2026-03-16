@@ -68,7 +68,7 @@ func (wf *Wavefront) carrySeedFromHead(head *WavefrontHead, overlap int, prompt 
 	}
 
 	queryPhase := wf.PromptToPhase(prompt[:overlap])
-	energy := -overlap * 2
+	energy := 0
 
 	seed := &WavefrontHead{
 		phase:        head.phase,
@@ -78,10 +78,11 @@ func (wf *Wavefront) carrySeedFromHead(head *WavefrontHead, overlap int, prompt 
 		segment:      head.segment,
 		promptIdx:    overlap,
 		energy:       energy,
-		path:         cloneChordTail(head.path, overlap),
-		metaPath:     cloneChordTail(head.metaPath, overlap),
+		path:         cloneValueTail(head.path, overlap),
+		metaPath:     cloneValueTail(head.metaPath, overlap),
 		visited:      cloneVisitedMap(head.visited),
 		fuzzyErrs:    0,
+		strictNext:   head.strictNext,
 		registers:    cloneExecutionRegisters(head.registers),
 	}
 	if seed.registers == nil {
@@ -190,32 +191,33 @@ func cloneWavefrontHead(head *WavefrontHead) *WavefrontHead {
 		segment:      head.segment,
 		promptIdx:    head.promptIdx,
 		energy:       head.energy,
-		path:         cloneChordSlice(head.path),
-		metaPath:     cloneChordSlice(head.metaPath),
+		path:         cloneValueSlice(head.path),
+		metaPath:     cloneValueSlice(head.metaPath),
 		visited:      cloneVisitedMap(head.visited),
 		fuzzyErrs:    head.fuzzyErrs,
 		age:          head.age,
 		stalls:       head.stalls,
 		frustration:  head.frustration,
+		strictNext:   head.strictNext,
 		registers:    cloneExecutionRegisters(head.registers),
 	}
 }
 
-func cloneChordSlice(in []data.Chord) []data.Chord {
+func cloneValueSlice(in []data.Value) []data.Value {
 	if len(in) == 0 {
 		return nil
 	}
-	return append([]data.Chord(nil), in...)
+	return append([]data.Value(nil), in...)
 }
 
-func cloneChordTail(in []data.Chord, tail int) []data.Chord {
+func cloneValueTail(in []data.Value, tail int) []data.Value {
 	if len(in) == 0 {
 		return nil
 	}
 	if tail <= 0 || tail >= len(in) {
-		return cloneChordSlice(in)
+		return cloneValueSlice(in)
 	}
-	return append([]data.Chord(nil), in[len(in)-tail:]...)
+	return append([]data.Value(nil), in[len(in)-tail:]...)
 }
 
 func cloneVisitedMap(in map[visitMark]bool) map[visitMark]bool {

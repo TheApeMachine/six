@@ -65,3 +65,5 @@ func (sink *Sink) Emit(event Event) {
 
 	sink.conn.Write(raw)
 }
+
+

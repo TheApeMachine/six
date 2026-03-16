@@ -29,7 +29,7 @@ func NewPartialDeletionExperiment() *PartialDeletionExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: tools.NewLocalProvider(tools.Aphorisms),
 	}
 }
 
@@ -88,19 +88,19 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Evaluation of PhaseDial resilience to corpus deletion.",
 			Label:    "tab:partial_deletion",
 		},
-	
-{
-Type:     tools.ArtifactProse,
-FileName: "partial_deletion_section.tex",
-Data: tools.ProseData{
-Template: `\subsection{Partial Deletion}
+
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "partial_deletion_section.tex",
+			Data: tools.ProseData{
+				Template: `\subsection{Partial Deletion}
 \label{sec:partial_deletion}
 
 \paragraph{Task Description.}
 The partial deletion experiment evaluates the topological resilience of the PhaseDial to sparse
 manifolds.  After ingesting a full corpus, a fraction of substrate
 entries is deleted, and retrieval quality is re-evaluated.  The score
-reflects how gracefully the chord manifold degrades under erasure.
+reflects how gracefully the value manifold degrades under erasure.
 
 \paragraph{Results.}
 Figure~\ref{fig:partial_deletion_map} shows the trial outcome map.
@@ -122,14 +122,11 @@ with compositional data; this infrastructure is being rebuilt during
 the current refactoring phase.
 {{- end}}
 `,
-Data: map[string]any{
-"N":     len(experiment.tableData),
-"Score": experiment.Score(),
-},
-},
-},
+				Data: map[string]any{
+					"N":     len(experiment.tableData),
+					"Score": experiment.Score(),
+				},
+			},
+		},
 	}
 }
-
-
-

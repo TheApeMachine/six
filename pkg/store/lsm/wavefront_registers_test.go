@@ -32,8 +32,8 @@ func TestExecutionRegistersTrackResiduesAlignmentsAndCheckpointTags(t *testing.T
 				segment:      1,
 				promptIdx:    2,
 				energy:       7,
-				path:         []data.Chord{data.MustNewChord()},
-				metaPath:     []data.Chord{data.MustNewChord()},
+				path:         []data.Value{data.MustNewValue()},
+				metaPath:     []data.Value{data.MustNewValue()},
 				visited:      map[visitMark]bool{visitFor(1, 1): true},
 			}
 
@@ -46,10 +46,10 @@ func TestExecutionRegistersTrackResiduesAlignmentsAndCheckpointTags(t *testing.T
 func TestBacktrackPromptHeadRewindsToLatestCheckpoint(t *testing.T) {
 	gc.Convey("Given a head that has drifted beyond a stable checkpoint", t, func() {
 		wf := NewWavefront(NewSpatialIndexServer(), WavefrontWithMaxFuzzy(2))
-		meta := data.MustNewChord()
-		base := data.MustNewChord()
-		mid := data.MustNewChord()
-		cur := data.MustNewChord()
+		meta := data.MustNewValue()
+		base := data.MustNewValue()
+		mid := data.MustNewValue()
+		cur := data.MustNewValue()
 
 		start := &WavefrontHead{
 			phase:        11,
@@ -59,8 +59,8 @@ func TestBacktrackPromptHeadRewindsToLatestCheckpoint(t *testing.T) {
 			segment:      0,
 			promptIdx:    1,
 			energy:       5,
-			path:         []data.Chord{base},
-			metaPath:     []data.Chord{meta},
+			path:         []data.Value{base},
+			metaPath:     []data.Value{meta},
 			visited:      map[visitMark]bool{visitFor(1, 0): true},
 		}
 		wf.initializeHeadRegisters(start, checkpointReasonSeed)
@@ -73,8 +73,8 @@ func TestBacktrackPromptHeadRewindsToLatestCheckpoint(t *testing.T) {
 			segment:      0,
 			promptIdx:    3,
 			energy:       17,
-			path:         []data.Chord{base, mid, cur},
-			metaPath:     []data.Chord{meta, meta, meta},
+			path:         []data.Value{base, mid, cur},
+			metaPath:     []data.Value{meta, meta, meta},
 			visited: map[visitMark]bool{
 				visitFor(1, 0): true,
 				visitFor(2, 0): true,
@@ -92,8 +92,8 @@ func TestBacktrackPromptHeadRewindsToLatestCheckpoint(t *testing.T) {
 			segment:      0,
 			promptIdx:    2,
 			energy:       9,
-			path:         []data.Chord{base, mid},
-			metaPath:     []data.Chord{meta, meta},
+			path:         []data.Value{base, mid},
+			metaPath:     []data.Value{meta, meta},
 			visited: map[visitMark]bool{
 				visitFor(1, 0): true,
 				visitFor(2, 0): true,
@@ -114,7 +114,7 @@ func TestBacktrackPromptHeadRewindsToLatestCheckpoint(t *testing.T) {
 func TestExpandPromptHeadAddsBacktrackCandidateWhenTraversalStalls(t *testing.T) {
 	gc.Convey("Given a prompt head with a stable checkpoint but no forward candidates", t, func() {
 		wf := NewWavefront(NewSpatialIndexServer(), WavefrontWithMaxFuzzy(2))
-		meta := data.MustNewChord()
+		meta := data.MustNewValue()
 		value := data.NeutralValue()
 		value.SetStatePhase(numeric.Phase(7))
 		observable := data.SeedObservable('a', value)
@@ -127,8 +127,8 @@ func TestExpandPromptHeadAddsBacktrackCandidateWhenTraversalStalls(t *testing.T)
 			segment:      0,
 			promptIdx:    2,
 			energy:       11,
-			path:         []data.Chord{observable, observable, observable},
-			metaPath:     []data.Chord{meta, meta, meta},
+			path:         []data.Value{observable, observable, observable},
+			metaPath:     []data.Value{meta, meta, meta},
 			visited: map[visitMark]bool{
 				visitFor(1, 0): true,
 				visitFor(2, 0): true,
@@ -146,8 +146,8 @@ func TestExpandPromptHeadAddsBacktrackCandidateWhenTraversalStalls(t *testing.T)
 			segment:      0,
 			promptIdx:    1,
 			energy:       4,
-			path:         []data.Chord{observable, observable},
-			metaPath:     []data.Chord{meta, meta},
+			path:         []data.Value{observable, observable},
+			metaPath:     []data.Value{meta, meta},
 			visited: map[visitMark]bool{
 				visitFor(1, 0): true,
 				visitFor(2, 0): true,

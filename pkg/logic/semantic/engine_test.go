@@ -873,3 +873,5 @@ func BenchmarkInterference(b *testing.B) {
 		eng.Interference(posPhases[pick], negPhases[pick])
 	}
 }
+
+

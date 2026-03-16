@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	. "github.com/smartystreets/goconvey/convey"
+	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
@@ -61,70 +61,55 @@ func newServer(ctx context.Context, workerPool *pool.Pool) *UniversalServer {
 }
 
 func TestTokenizerServer(t *testing.T) {
-	Convey("Given a UniversalServer", t, func() {
+	gc.Convey("Given a UniversalServer", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		workerPool := pool.New(ctx, 2, 16, nil)
 		server := newServer(ctx, workerPool)
+		morton := data.NewMortonCoder()
 
-		Convey("When tokenizing natural language", func() {
+		gc.Convey("When tokenizing natural language", func() {
 			corpus := generateCorpus(3, rand.New(rand.NewSource(42)))
-			chords, err := server.tokenize(ctx, []byte(corpus))
+			keys := server.tokenize([]byte(corpus))
 
-			Convey("It should complete without error", func() {
-				So(err, ShouldBeNil)
+			gc.Convey("It should produce one key per byte", func() {
+				gc.So(len(keys), gc.ShouldEqual, len(corpus))
 			})
 
-			Convey("It should produce at least one chord", func() {
-				So(err, ShouldBeNil)
-				So(len(chords), ShouldBeGreaterThan, 0)
-			})
-
-			Convey("Every chord should be non-zero", func() {
-				So(err, ShouldBeNil)
-
-				for _, chord := range chords {
-					So(chord.Chord.ActiveCount(), ShouldBeGreaterThan, 0)
+			gc.Convey("Every key should unpack to a valid byte", func() {
+				for i, key := range keys {
+					_, symbol := morton.Unpack(key)
+					gc.So(symbol, gc.ShouldEqual, corpus[i])
 				}
 			})
 		})
 
-		Convey("When tokenizing binary noise", func() {
+		gc.Convey("When tokenizing binary noise", func() {
 			noise := generateBinaryNoise(512, rand.New(rand.NewSource(99)))
-			chords, err := server.tokenize(ctx, noise)
+			keys := server.tokenize(noise)
 
-			Convey("It should handle the full byte range without error", func() {
-				So(err, ShouldBeNil)
-				So(len(chords), ShouldBeGreaterThan, 0)
+			gc.Convey("It should handle the full byte range", func() {
+				gc.So(len(keys), gc.ShouldEqual, len(noise))
 			})
 		})
 
-		Convey("When tokenizing a single byte", func() {
-			chords, err := server.tokenize(ctx, []byte("x"))
+		gc.Convey("When tokenizing a single byte", func() {
+			keys := server.tokenize([]byte("x"))
 
-			Convey("It should produce exactly one chord", func() {
-				So(err, ShouldBeNil)
-				So(len(chords), ShouldEqual, 1)
-				So(chords[0].Chord.ActiveCount(), ShouldBeGreaterThan, 0)
+			gc.Convey("It should produce exactly one key", func() {
+				gc.So(len(keys), gc.ShouldEqual, 1)
+
+				_, symbol := morton.Unpack(keys[0])
+				gc.So(symbol, gc.ShouldEqual, byte('x'))
 			})
 		})
 
-		Convey("When processChunk encodes a known byte sequence", func() {
-			chunk := []byte("hello")
-			chord, err := server.processChunk(chunk, data.Chord{})
-
-			Convey("It should return a non-zero chord without error", func() {
-				So(err, ShouldBeNil)
-				So(chord.ActiveCount(), ShouldBeGreaterThan, 0)
-			})
-		})
-
-		Convey("When Done is called", func() {
+		gc.Convey("When Done is called", func() {
 			err := server.Done(ctx, Universal_done{})
 
-			Convey("It should return nil", func() {
-				So(err, ShouldBeNil)
+			gc.Convey("It should return nil", func() {
+				gc.So(err, gc.ShouldBeNil)
 			})
 		})
 	})
@@ -138,7 +123,7 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 			ctx, cancel := context.WithCancel(context.Background())
 			p := pool.New(ctx, 2, 16, nil)
 			server := newServer(ctx, p)
-			_, _ = server.tokenize(ctx, []byte(corpus))
+			_ = server.tokenize([]byte(corpus))
 			cancel()
 		}
 	})
@@ -150,12 +135,13 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 			ctx, cancel := context.WithCancel(context.Background())
 			p := pool.New(ctx, 2, 16, nil)
 			server := newServer(ctx, p)
-			_, _ = server.tokenize(ctx, noise)
+			_ = server.tokenize(noise)
 			cancel()
 		}
 	})
 
 	rng := rand.New(rand.NewSource(42))
+
 	for _, size := range []int{64, 256, 1024, 4096} {
 		size := size
 		chunk := make([]byte, size)
@@ -164,77 +150,72 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 			chunk[i] = byte(rng.Intn(256))
 		}
 
-		b.Run(fmt.Sprintf("processChunk_%d", size), func(b *testing.B) {
+		b.Run(fmt.Sprintf("tokenize_%d", size), func(b *testing.B) {
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
+
 			p := pool.New(ctx, 1, 4, nil)
 			server := newServer(ctx, p)
 			b.ResetTimer()
 
 			for range b.N {
-				if _, err := server.processChunk(chunk, data.Chord{}); err != nil {
-					b.Fatal(err)
-				}
+				_ = server.tokenize(chunk)
 			}
 		})
 	}
 }
 
 func TestTokenizerUsesBoundaryLocalCellIndex(t *testing.T) {
-	Convey("Given a short byte stream", t, func() {
+	gc.Convey("Given a short byte stream", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		workerPool := pool.New(ctx, 1, 4, nil)
 		server := newServer(ctx, workerPool)
+		morton := data.NewMortonCoder()
 
-		edges, err := server.tokenize(ctx, []byte("ababc"))
+		keys := server.tokenize([]byte("ababc"))
 
-		Convey("It should emit one edge per byte while resetting the local depth at boundaries", func() {
-			So(err, ShouldBeNil)
-			So(len(edges), ShouldEqual, 5)
-			So(edges[0].Left, ShouldEqual, 'a')
-			So(edges[0].Position, ShouldEqual, uint32(0))
-			So(edges[1].Left, ShouldEqual, 'b')
-			So(edges[1].Position, ShouldEqual, uint32(1))
-			So(edges[2].Left, ShouldEqual, 'a')
-			So(edges[2].Position, ShouldEqual, uint32(2))
-			So(edges[3].Left, ShouldEqual, 'b')
-			So(edges[3].Position, ShouldEqual, uint32(3))
-			So(edges[4].Left, ShouldEqual, 'c')
-			So(edges[4].Position, ShouldEqual, uint32(0))
+		gc.Convey("It should emit one key per byte", func() {
+			gc.So(len(keys), gc.ShouldEqual, 5)
 		})
 
-		Convey("Boundary bytes should reset the local traversal program and the final byte should halt", func() {
-			So(err, ShouldBeNil)
-			So(edges[3].Chord.Opcode(), ShouldEqual, uint64(data.OpcodeReset))
-			So(edges[4].Chord.Terminal(), ShouldBeTrue)
-			So(edges[4].Chord.Opcode(), ShouldEqual, uint64(data.OpcodeHalt))
+		gc.Convey("Keys should encode the correct byte values", func() {
+			_, sym0 := morton.Unpack(keys[0])
+			_, sym1 := morton.Unpack(keys[1])
+			_, sym2 := morton.Unpack(keys[2])
+			_, sym3 := morton.Unpack(keys[3])
+			_, sym4 := morton.Unpack(keys[4])
+
+			gc.So(sym0, gc.ShouldEqual, byte('a'))
+			gc.So(sym1, gc.ShouldEqual, byte('b'))
+			gc.So(sym2, gc.ShouldEqual, byte('a'))
+			gc.So(sym3, gc.ShouldEqual, byte('b'))
+			gc.So(sym4, gc.ShouldEqual, byte('c'))
+		})
+
+		gc.Convey("Position encoding should start at 0", func() {
+			pos0, _ := morton.Unpack(keys[0])
+			gc.So(pos0, gc.ShouldEqual, uint32(0))
 		})
 	})
 }
 
-func TestTokenizerResetsPhasePerGenerateCall(t *testing.T) {
-	Convey("Given repeated tokenization calls for the same byte", t, func() {
+func TestTokenizerDeterministic(t *testing.T) {
+	gc.Convey("Given repeated tokenization calls for the same input", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		workerPool := pool.New(ctx, 1, 4, nil)
 		server := newServer(ctx, workerPool)
 
-		first, errFirst := server.tokenize(ctx, []byte("a"))
-		second, errSecond := server.tokenize(ctx, []byte("a"))
+		first := server.tokenize([]byte("a"))
+		second := server.tokenize([]byte("a"))
 
-		Convey("They should start from the same identity phase each time", func() {
-			So(errFirst, ShouldBeNil)
-			So(errSecond, ShouldBeNil)
-			So(len(first), ShouldEqual, 1)
-			So(len(second), ShouldEqual, 1)
-
-			calc := server.calc
-			expected := calc.Multiply(1, calc.Power(3, uint32('a')))
-			So(first[0].Chord.ResidualCarry(), ShouldEqual, uint64(expected))
-			So(second[0].Chord.ResidualCarry(), ShouldEqual, uint64(expected))
+		gc.Convey("They should produce identical keys", func() {
+			gc.So(len(first), gc.ShouldEqual, 1)
+			gc.So(len(second), gc.ShouldEqual, 1)
+			gc.So(first[0], gc.ShouldEqual, second[0])
 		})
 	})
 }

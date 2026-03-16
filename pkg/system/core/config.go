@@ -19,14 +19,14 @@ These must match config defaults.
 */
 const (
 	NBasis      = 512
-	ChordBlocks = NBasis / 64
+	ValueBlocks = NBasis / 64
 )
 
 var ctx = &Config{}
 var Numeric = &ctx.Architecture
 var System = &ctx.System
 var Workers = &ctx.Workers
-var Cortex = &ctx.CortexConfig
+var Graph = &ctx.GraphConfig
 var Experiment = &ctx.ExperimentConfig
 
 func init() {
@@ -38,6 +38,7 @@ func init() {
 		defaultRoot = envRoot
 	}
 	viper.SetDefault("system.projectRoot", defaultRoot)
+	viper.SetDefault("system.backend", "cpu")
 	viper.SetDefault("system.workers.min", 2)
 	viper.SetDefault("system.workers.max", "CPU")
 	viper.SetDefault("system.distributed.workers", []string{"localhost:8080", "localhost:8081"})
@@ -50,12 +51,12 @@ func init() {
 	viper.SetDefault("architecture.numerics.epsilon", 1e-9)
 	viper.SetDefault("architecture.numerics.nsymbols", 256)
 	viper.SetDefault("architecture.numerics.nbasis", 512)
-	viper.SetDefault("architecture.numerics.chordBlocks", 16)
+	viper.SetDefault("architecture.numerics.valueBlocks", 16)
 	viper.SetDefault("architecture.numerics.frequencySpread", 8)
 	viper.SetDefault("architecture.numerics.shannonCapacity", 0.45)
 	viper.SetDefault("architecture.numerics.vocabSize", 256)
 
-	viper.SetDefault("cortex.initialNodes", 8)
+	viper.SetDefault("graph.initialNodes", 8)
 
 	viper.SetDefault("experiment.samples", 10)
 
@@ -84,7 +85,7 @@ type Config struct {
 		Min int
 		Max int
 	}
-	CortexConfig     CortexConfig
+	GraphConfig      GraphConfig
 	ExperimentConfig ExperimentConfig
 }
 
@@ -96,7 +97,7 @@ type ExperimentConfig struct {
 }
 
 /*
-Architecture holds numerics for chord dimension, basis size, and frequency spread.
+Architecture holds numerics for value dimension, basis size, and frequency spread.
 Drives compile-time array allocation and runtime computations.
 */
 type Architecture struct {
@@ -105,13 +106,13 @@ type Architecture struct {
 	NBasis          int
 	Windows         []int
 	WindowWeights   []float64
-	ChordBlocks     int
+	ValueBlocks     int
 	FrequencySpread float64
 	ShannonCapacity float64
 	VocabSize       int
 }
 
-type CortexConfig struct {
+type GraphConfig struct {
 	InitialNodes int
 }
 
@@ -166,7 +167,7 @@ func (ctx *Config) Load() error {
 		return ConfigError("architecture.numerics.nbasis mismatch")
 	}
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
-	ctx.Architecture.ChordBlocks = ctx.Architecture.NBasis / 64
+	ctx.Architecture.ValueBlocks = ctx.Architecture.NBasis / 64
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
 	ctx.Architecture.ShannonCapacity = v.GetFloat64("architecture.numerics.shannonCapacity")
 	if ctx.Architecture.ShannonCapacity < 0.0 || ctx.Architecture.ShannonCapacity > 1.0 {
@@ -199,7 +200,7 @@ func (ctx *Config) Load() error {
 	}
 
 	ctx.System.ProjectRoot = v.GetString("system.projectRoot")
-	ctx.System.Backend = "metal"
+	ctx.System.Backend = v.GetString("system.backend")
 	ctx.Workers.Min = minWorkers
 	ctx.Workers.Max = maxWorkers
 
@@ -221,7 +222,7 @@ func (ctx *Config) Load() error {
 	ctx.System.HeteroLocal = v.GetBool("system.distributed.heteroLocal")
 	ctx.System.LocalShardThreshold = v.GetInt("system.distributed.localShardThreshold")
 
-	ctx.CortexConfig.InitialNodes = v.GetInt("cortex.initialNodes")
+	ctx.GraphConfig.InitialNodes = v.GetInt("graph.initialNodes")
 
 	ctx.ExperimentConfig.Samples = v.GetInt("experiment.samples")
 

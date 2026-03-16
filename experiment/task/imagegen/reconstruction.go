@@ -35,7 +35,7 @@ occlusion levels (10 %–90 % RIGHT holdout) using CIFAR-10 images.
 
 For each image the substrate is ingested with full pixel bytes and then
 tested at each holdout level; the task is to reconstruct the held-out
-bottom fraction purely from chord attractor resonance.
+bottom fraction purely from value attractor resonance.
 
 Artifacts:
   - Line chart: reconstruction score vs holdout percentage
@@ -61,7 +61,7 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 			huggingface.DatasetWithTextColumn("img"),
 			huggingface.DatasetWithTransform(huggingface.DecodeImageBytes),
 		),
-		// Baseline 0.05: raw pixel recovery from chord resonance alone
+		// Baseline 0.05: raw pixel recovery from value resonance alone
 		// is extremely hard. Any non-zero partial reconstruction across
 		// nine occlusion levels is evidence of spatial structure encoding.
 		// Target 0.40: strong pixel-level attractor recall.
@@ -229,19 +229,19 @@ func (e *ReconstructionExperiment) Artifacts() []tools.Artifact {
 \label{sec:reconstruction}
 
 \paragraph{Task Description.}
-The reconstruction experiment evaluates how gracefully the chord substrate
+The reconstruction experiment evaluates how gracefully the value substrate
 degrades as the occlusion level increases.
 Each CIFAR-10 image ($32 \times 32$, decoded to raw NRGBA pixel bytes,
 4\,096 bytes total) is ingested once into the unified substrate.
 The same image is then queried at nine holdout levels (10\%--90\% RIGHT),
 where the last $k$\% of pixel bytes are withheld and must be recovered
-purely from chord attractor resonance, with no explicit image model,
+purely from value attractor resonance, with no explicit image model,
 convolution, or colour-space interpolation.
 
 \paragraph{Results.}
 Figure~\ref{fig:reconstruction_scaling} shows the \emph{occlusion scaling
 curve}: mean scores plotted against holdout percentage.
-A graceful decay (slow slope) would indicate that the chord substrate
+A graceful decay (slow slope) would indicate that the value substrate
 encodes global spatial structure, whereas a cliff at high holdout
 percentages is expected once the missing region exceeds the attractor's
 effective support radius.
@@ -256,7 +256,7 @@ Across all holdout levels the overall weighted score was {{.Score | f3}}.
 {{if gt .Score 0.4 -}}
 \paragraph{Assessment.}
 The substrate maintained non-trivial reconstruction quality across
-multiple occlusion levels, suggesting that the chord attractor encodes
+multiple occlusion levels, suggesting that the value attractor encodes
 spatial structure that is not restricted to the pixel-level neighbourhood
 of the prompt boundary.
 {{- else if gt .Score 0.1 -}}
@@ -269,7 +269,7 @@ to shift the performance cliff toward higher occlusion levels.
 {{- else -}}
 \paragraph{Assessment.}
 Reconstruction quality was low across all holdout levels.  At this ingestion
-scale the chord substrate has not accumulated sufficient pixel-level
+scale the value substrate has not accumulated sufficient pixel-level
 redundancy to anchor reliable attractor retrieval across the diverse
 colour distributions of CIFAR-10 imagery.
 {{- end}}

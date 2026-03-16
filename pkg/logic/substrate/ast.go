@@ -7,13 +7,13 @@ import (
 	"github.com/theapemachine/six/pkg/system/console"
 )
 
-// ASTNode represents a node in the graph's abstract syntax tree. It holds the node's topological Level, its chord Label, and references to its Children and Leaves for tree organization.
+// ASTNode represents a node in the graph's abstract syntax tree. It holds the node's topological Level, its value Label, and references to its Children and Leaves for tree organization.
 type ASTNode struct {
 	Level    int
-	Label    data.Chord
+	Label    data.Value
 	Theta    float64
 	Children []*ASTNode
-	Leaves   [][]data.Chord
+	Leaves   [][]data.Value
 }
 
 // ASTNode.Print prints the node's Level, Label active bit count, and Theta value; recursively prints children with the provided indent string.
@@ -24,28 +24,28 @@ func (node *ASTNode) Print(indent string) {
 	}
 }
 
-func extractSharedInvariant(sequences [][]data.Chord) data.Chord {
+func extractSharedInvariant(sequences [][]data.Value) data.Value {
 	if len(sequences) == 0 {
-		return data.Chord{}
+		return data.Value{}
 	}
 
 	initialized := false
-	var invariant data.Chord
+	var invariant data.Value
 
 	for _, seq := range sequences {
-		var seqUnion data.Chord
+		var seqUnion data.Value
 		seqInit := false
 
-		for _, chord := range seq {
-			if chord.ActiveCount() == 0 {
+		for _, value := range seq {
+			if value.ActiveCount() == 0 {
 				continue
 			}
 
 			if !seqInit {
-				seqUnion = chord
+				seqUnion = value
 				seqInit = true
 			} else {
-				seqUnion = seqUnion.OR(chord)
+				seqUnion = seqUnion.OR(value)
 			}
 		}
 
@@ -62,16 +62,16 @@ func extractSharedInvariant(sequences [][]data.Chord) data.Chord {
 	}
 
 	if !initialized {
-		return data.Chord{}
+		return data.Value{}
 	}
 
 	return invariant
 }
 
-func xorSequence(seq []data.Chord, label data.Chord) []data.Chord {
-	var out []data.Chord
-	for _, chord := range seq {
-		residue := chord.XOR(label)
+func xorSequence(seq []data.Value, label data.Value) []data.Value {
+	var out []data.Value
+	for _, value := range seq {
+		residue := value.XOR(label)
 		if residue.ActiveCount() > 0 {
 			if console.IsTraceEnabled() {
 				console.Trace("xorSequence", "residue", residue)

@@ -79,7 +79,7 @@ func (experiment *CompressionExperiment) Finalize(substrate any) error {
 	rawBytes := 50 * 128
 	entries := 1
 
-	// Each entry stores a filter chord + fingerprint + readout.
+	// Each entry stores a filter value + fingerprint + readout.
 	// Effective compression = raw bytes / entries.
 	ratio := 0.0
 	if entries > 0 {

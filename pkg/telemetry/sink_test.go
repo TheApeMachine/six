@@ -99,3 +99,5 @@ func BenchmarkSinkEmitLargePayload(b *testing.B) {
 		sink.Emit(event)
 	}
 }
+
+

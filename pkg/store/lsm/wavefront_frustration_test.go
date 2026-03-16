@@ -54,7 +54,7 @@ func TestFrustrateHeadReturnsMultipleControlledChallengers(t *testing.T) {
 
 	value := data.NeutralValue()
 	value.SetStatePhase(start)
-	meta := data.MustNewChord()
+	meta := data.MustNewValue()
 	head := &WavefrontHead{
 		phase:        start,
 		alignedPhase: start,
@@ -63,8 +63,8 @@ func TestFrustrateHeadReturnsMultipleControlledChallengers(t *testing.T) {
 		segment:      0,
 		promptIdx:    1,
 		energy:       3,
-		path:         []data.Chord{value},
-		metaPath:     []data.Chord{meta},
+		path:         []data.Value{value},
+		metaPath:     []data.Value{meta},
 		visited:      map[visitMark]bool{visitFor(1, 0): true},
 		registers:    newExecutionRegisters(),
 	}
@@ -118,7 +118,7 @@ func TestFrustrateHeadCanForkFromEarlierCheckpoint(t *testing.T) {
 		WavefrontWithFrustrationForks(4, 2, 256, 2),
 	)
 
-	meta := data.MustNewChord()
+	meta := data.MustNewValue()
 	value := data.NeutralValue()
 	value.SetStatePhase(currentPhase)
 
@@ -130,8 +130,8 @@ func TestFrustrateHeadCanForkFromEarlierCheckpoint(t *testing.T) {
 		segment:      0,
 		promptIdx:    3,
 		energy:       12,
-		path:         []data.Chord{value, value, value},
-		metaPath:     []data.Chord{meta, meta, meta},
+		path:         []data.Value{value, value, value},
+		metaPath:     []data.Value{meta, meta, meta},
 		visited: map[visitMark]bool{
 			visitFor(1, 0): true,
 			visitFor(2, 0): true,
@@ -148,8 +148,8 @@ func TestFrustrateHeadCanForkFromEarlierCheckpoint(t *testing.T) {
 		segment:      0,
 		promptIdx:    1,
 		energy:       4,
-		path:         []data.Chord{value},
-		metaPath:     []data.Chord{meta},
+		path:         []data.Value{value},
+		metaPath:     []data.Value{meta},
 		visited:      map[visitMark]bool{visitFor(1, 0): true},
 	}
 	head.registers.RecordCheckpoint(checkpointHead, checkpointReasonStable)

@@ -28,7 +28,7 @@ summaries \emph{post hoc} from a graph filtration, our architecture
         terminates when the phase trajectory closes a loop
         (\Cref{sec:geometric_closure}).
   \item \textbf{Filtration:}  The Virtual Mitosis threshold ($\rho \geq 0.45$)
-        defines a natural filtration over the manifold space: as chord
+        defines a natural filtration over the manifold space: as value
         density increases, topological complexity grows from a single
         MacroCube (Cubic mode) to the full $A_5$ icosahedral manifold.
 \end{itemize}
@@ -48,8 +48,8 @@ cell complexes, hypergraphs).  Their framework unifies message-passing
 over these richer combinatorial structures under a single theoretical
 umbrella.
 
-The Sensorium's Chord superposition naturally encodes higher-order
-relationships: when $n$ bytes are superposed via \texttt{ChordOR}, the
+The Sensorium's Value superposition naturally encodes higher-order
+relationships: when $n$ bytes are superposed via \texttt{ValueOR}, the
 resulting 257-bit pattern captures all $\binom{n}{k}$ subset overlaps
 simultaneously through the popcount inner product.  This is not pairwise
 attention---it is a holographic encoding where every subset of the input
@@ -66,7 +66,7 @@ symbols.  The Sensorium implements a maximally compressed version of this
 pipeline:
 \begin{enumerate}[nosep]
   \item \textbf{Symbolic $\to$ Geometric:}  Raw bytes are deterministically
-        mapped to 257-bit Chords and inserted into the $GF(257)$ rotational
+        mapped to 257-bit Values and inserted into the $GF(257)$ rotational
         manifold.  No learning.
   \item \textbf{Geometric Processing:}  BestFill executes massively parallel
         popcount resonance search across the memory substrate, modulated

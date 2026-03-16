@@ -13,14 +13,14 @@ We instantiate this paradigm in a physics-native substrate built on three
 layers:
 \begin{enumerate}[nosep]
   \item A \textbf{Fermat Cube} geometry where each byte value self-addresses
-        a unique face of a $6 \times 4 \times 257$ three-dimensional chord
+        a unique face of a $6 \times 4 \times 257$ three-dimensional value
         lattice, with sequential structure encoded as composable affine
         transformations over the Galois field $\operatorname{GF}(257)$.
-  \item A \textbf{257-bit Chord} representation where each byte value maps to
+  \item A \textbf{257-bit Value} representation where each byte value maps to
         a deterministic prime-basis bitset, and bitwise operations (\texttt{OR},
         \texttt{AND}, \texttt{popcount}) execute discrete wave interference at
         single-cycle throughput.
-  \item An \textbf{Analytical Phase} navigation layer that maps chords onto a
+  \item An \textbf{Analytical Phase} navigation layer that maps values onto a
         $S^1 \times S^1$ phase torus via their intrinsic prime-index geometry,
         enabling deterministic closure detection and intent steering without
         trained co-occurrence models.

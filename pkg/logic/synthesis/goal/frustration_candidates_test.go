@@ -51,3 +51,5 @@ func TestResolveCandidatesReturnsMultipleDeterministicBridges(t *testing.T) {
 		}
 	})
 }
+
+

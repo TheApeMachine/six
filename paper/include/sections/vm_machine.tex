@@ -12,10 +12,10 @@ data loading, PrimeField construction, and the prompt-to-generation loop:
         Tokenizer, sequenced by the topological Sequencer, and inserted into
         the PrimeField with their structural events driving manifold rotations.
   \item \textbf{EigenMode Calibration:}  After ingestion, a multi-scale
-        co-occurrence matrix is built from the stored chords and factored
+        co-occurrence matrix is built from the stored values and factored
         into toroidal eigenvectors---establishing the navigation phase map.
   \item \textbf{Prompt Processing:}  Input prompt bytes are converted to
-        chords, accumulated into a query manifold via topological event
+        values, accumulated into a query manifold via topological event
         application, and used to seed the generation context.
 \end{enumerate}
 
@@ -31,7 +31,7 @@ Generation proceeds as follows (up to \texttt{maxGenerationSteps = 256}):
   \item Execute BestFill across the PrimeField with multi-hop reasoning:
         up to \texttt{maxReasoningHops = 3} iterative searches, each time
         masking the previously matched manifold to encourage exploration.
-  \item Integrate the matched span's chords into the context manifold via
+  \item Integrate the matched span's values into the context manifold via
         the slotMask, only filling blocks that were identified as missing.
   \item Decode the best-matching manifold's readout bytes and emit them.
   \item Check for geometric closure via EigenMode phase convergence, or

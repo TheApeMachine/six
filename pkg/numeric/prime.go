@@ -8,7 +8,7 @@ import (
 
 /*
 Prime holds the first NBasis primes, indexed 0..NBasis-1.
-Used as omega frequencies for PhaseDial and structural indices for chord encoding.
+Used as omega frequencies for PhaseDial and structural indices for value encoding.
 */
 type Prime struct {
 	Basis []int32

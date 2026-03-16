@@ -12,7 +12,7 @@ import (
 
 /*
 RunAliceDemo boots the full system with the given dataset and blocks until ctx
-is cancelled. All tokenization, LSM insertion, fold telemetry, and Cortex events
+is cancelled. All tokenization, LSM insertion, fold telemetry, and Graph events
 flow through the real system components automatically. The caller owns dataset
 construction so this package stays free of embed/cmd import cycles.
 */

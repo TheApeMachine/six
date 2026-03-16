@@ -21,7 +21,6 @@ import (
 	gomlxctx "github.com/gomlx/gomlx/ml/context"
 )
 
-
 /*
 giModelID is the HuggingFace repository for Gemma 2B instruction-tuned.
 Requires HF_TOKEN in the environment (read-only token is sufficient).
@@ -480,7 +479,6 @@ func flattenSubstrateBytes(sequences [][]byte, maxBytes int) string {
 	return sb.String()
 }
 
-
 /*
 Artifacts generates the multi-panel figure and LaTeX prose section for
 the paper. Produces output regardless of whether Finalize succeeded so
@@ -614,7 +612,7 @@ natural language via logit biases.
 \textbf{Manifold-grafted generation.}
 For each of $N={{.NGraft}}$ contradiction-heavy prompts the manifold substrate
 (populated by ingesting the relevant context paragraphs through the full
-pipeline) projects its top-$k$ readout chord bytes onto a logit bias over the
+pipeline) projects its top-$k$ readout value bytes onto a logit bias over the
 Gemma vocabulary.  Byte-level fallback tokens (IDs 3--258) receive a positive
 bias proportional to their frequency in the substrate readout, nudging
 generation toward tokens coherent with the manifold's constraint state.

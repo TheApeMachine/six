@@ -3,13 +3,14 @@
 package lsm
 
 import (
+	context "context"
+
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
 	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
-	context "context"
 	data "github.com/theapemachine/six/pkg/store/data"
 )
 
@@ -84,49 +85,49 @@ func (s GraphEdge) SetPosition(v uint32) {
 	capnp.Struct(s).SetUint32(4, v)
 }
 
-func (s GraphEdge) Chord() (data.Chord, error) {
+func (s GraphEdge) Value() (data.Value, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Chord(p.Struct()), err
+	return data.Value(p.Struct()), err
 }
 
-func (s GraphEdge) HasChord() bool {
+func (s GraphEdge) HasValue() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s GraphEdge) SetChord(v data.Chord) error {
+func (s GraphEdge) SetValue(v data.Value) error {
 	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
 }
 
-// NewChord sets the chord field to a newly
-// allocated data.Chord struct, preferring placement in s's segment.
-func (s GraphEdge) NewChord() (data.Chord, error) {
-	ss, err := data.NewChord(capnp.Struct(s).Segment())
+// NewValue sets the value field to a newly
+// allocated data.Value struct, preferring placement in s's segment.
+func (s GraphEdge) NewValue() (data.Value, error) {
+	ss, err := data.NewValue(capnp.Struct(s).Segment())
 	if err != nil {
-		return data.Chord{}, err
+		return data.Value{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
 	return ss, err
 }
 
-func (s GraphEdge) Meta() (data.Chord, error) {
+func (s GraphEdge) Meta() (data.Value, error) {
 	p, err := capnp.Struct(s).Ptr(1)
-	return data.Chord(p.Struct()), err
+	return data.Value(p.Struct()), err
 }
 
 func (s GraphEdge) HasMeta() bool {
 	return capnp.Struct(s).HasPtr(1)
 }
 
-func (s GraphEdge) SetMeta(v data.Chord) error {
+func (s GraphEdge) SetMeta(v data.Value) error {
 	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
 }
 
 // NewMeta sets the meta field to a newly
-// allocated data.Chord struct, preferring placement in s's segment.
-func (s GraphEdge) NewMeta() (data.Chord, error) {
-	ss, err := data.NewChord(capnp.Struct(s).Segment())
+// allocated data.Value struct, preferring placement in s's segment.
+func (s GraphEdge) NewMeta() (data.Value, error) {
+	ss, err := data.NewValue(capnp.Struct(s).Segment())
 	if err != nil {
-		return data.Chord{}, err
+		return data.Value{}, err
 	}
 	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
 	return ss, err
@@ -148,11 +149,11 @@ func (f GraphEdge_Future) Struct() (GraphEdge, error) {
 	p, err := f.Future.Ptr()
 	return GraphEdge(p.Struct()), err
 }
-func (p GraphEdge_Future) Chord() data.Chord_Future {
-	return data.Chord_Future{Future: p.Future.Field(0, nil)}
+func (p GraphEdge_Future) Value() data.Value_Future {
+	return data.Value_Future{Future: p.Future.Field(0, nil)}
 }
-func (p GraphEdge_Future) Meta() data.Chord_Future {
-	return data.Chord_Future{Future: p.Future.Field(1, nil)}
+func (p GraphEdge_Future) Meta() data.Value_Future {
+	return data.Value_Future{Future: p.Future.Field(1, nil)}
 }
 
 type SpatialIndex capnp.Client
@@ -786,25 +787,25 @@ func (s SpatialIndex_lookup_Params) Message() *capnp.Message {
 func (s SpatialIndex_lookup_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_lookup_Params) Chords() (data.Chord_List, error) {
+func (s SpatialIndex_lookup_Params) Values() (data.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Chord_List(p.List()), err
+	return data.Value_List(p.List()), err
 }
 
-func (s SpatialIndex_lookup_Params) HasChords() bool {
+func (s SpatialIndex_lookup_Params) HasValues() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_lookup_Params) SetChords(v data.Chord_List) error {
+func (s SpatialIndex_lookup_Params) SetValues(v data.Value_List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewChords sets the chords field to a newly
-// allocated data.Chord_List, preferring placement in s's segment.
-func (s SpatialIndex_lookup_Params) NewChords(n int32) (data.Chord_List, error) {
-	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
+// NewValues sets the values field to a newly
+// allocated data.Value_List, preferring placement in s's segment.
+func (s SpatialIndex_lookup_Params) NewValues(n int32) (data.Value_List, error) {
+	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Chord_List{}, err
+		return data.Value_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
@@ -1065,48 +1066,48 @@ func (s SpatialIndex_queryTransitions_Results) Message() *capnp.Message {
 func (s SpatialIndex_queryTransitions_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_queryTransitions_Results) Chords() (data.Chord_List, error) {
+func (s SpatialIndex_queryTransitions_Results) Values() (data.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Chord_List(p.List()), err
+	return data.Value_List(p.List()), err
 }
 
-func (s SpatialIndex_queryTransitions_Results) HasChords() bool {
+func (s SpatialIndex_queryTransitions_Results) HasValues() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_queryTransitions_Results) SetChords(v data.Chord_List) error {
+func (s SpatialIndex_queryTransitions_Results) SetValues(v data.Value_List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewChords sets the chords field to a newly
-// allocated data.Chord_List, preferring placement in s's segment.
-func (s SpatialIndex_queryTransitions_Results) NewChords(n int32) (data.Chord_List, error) {
-	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
+// NewValues sets the values field to a newly
+// allocated data.Value_List, preferring placement in s's segment.
+func (s SpatialIndex_queryTransitions_Results) NewValues(n int32) (data.Value_List, error) {
+	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Chord_List{}, err
+		return data.Value_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
 }
-func (s SpatialIndex_queryTransitions_Results) Metas() (data.Chord_List, error) {
+func (s SpatialIndex_queryTransitions_Results) Metas() (data.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(1)
-	return data.Chord_List(p.List()), err
+	return data.Value_List(p.List()), err
 }
 
 func (s SpatialIndex_queryTransitions_Results) HasMetas() bool {
 	return capnp.Struct(s).HasPtr(1)
 }
 
-func (s SpatialIndex_queryTransitions_Results) SetMetas(v data.Chord_List) error {
+func (s SpatialIndex_queryTransitions_Results) SetMetas(v data.Value_List) error {
 	return capnp.Struct(s).SetPtr(1, v.ToPtr())
 }
 
 // NewMetas sets the metas field to a newly
-// allocated data.Chord_List, preferring placement in s's segment.
-func (s SpatialIndex_queryTransitions_Results) NewMetas(n int32) (data.Chord_List, error) {
-	l, err := data.NewChord_List(capnp.Struct(s).Segment(), n)
+// allocated data.Value_List, preferring placement in s's segment.
+func (s SpatialIndex_queryTransitions_Results) NewMetas(n int32) (data.Value_List, error) {
+	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Chord_List{}, err
+		return data.Value_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
 	return l, err
@@ -1176,22 +1177,22 @@ func (s SpatialIndex_decode_Params) Message() *capnp.Message {
 func (s SpatialIndex_decode_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_decode_Params) Chords() (capnp.PointerList, error) {
+func (s SpatialIndex_decode_Params) Values() (capnp.PointerList, error) {
 	p, err := capnp.Struct(s).Ptr(0)
 	return capnp.PointerList(p.List()), err
 }
 
-func (s SpatialIndex_decode_Params) HasChords() bool {
+func (s SpatialIndex_decode_Params) HasValues() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_decode_Params) SetChords(v capnp.PointerList) error {
+func (s SpatialIndex_decode_Params) SetValues(v capnp.PointerList) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewChords sets the chords field to a newly
+// NewValues sets the values field to a newly
 // allocated capnp.PointerList, preferring placement in s's segment.
-func (s SpatialIndex_decode_Params) NewChords(n int32) (capnp.PointerList, error) {
+func (s SpatialIndex_decode_Params) NewValues(n int32) (capnp.PointerList, error) {
 	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
 	if err != nil {
 		return capnp.PointerList{}, err

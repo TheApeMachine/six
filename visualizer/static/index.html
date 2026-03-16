@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SIX — Chord Geometry Visualizer</title>
-  <meta name="description" content="Real-time 3D visualization of the 257-bit chord space and geometric inference engine">
+  <title>SIX — Value Geometry Visualizer</title>
+  <meta name="description" content="Real-time 3D visualization of the 257-bit value space and geometric inference engine">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap" rel="stylesheet">
   <style>
@@ -260,7 +260,7 @@
       border-radius: 4px;
       border: 1px solid rgba(200, 128, 255, 0.15);
     }
-    .chord-label {
+    .value-label {
       color: #7df;
       font-family: 'JetBrains Mono', monospace;
       font-size: 9px;
@@ -274,9 +274,9 @@
       border-radius: 4px;
       border: 1px solid rgba(0, 170, 255, 0.12);
     }
-    .chord-label.state-stored { color: #7df; }
-    .chord-label.state-matched { color: #0fa; }
-    .chord-label.state-active { color: #ff0; }
+    .value-label.state-stored { color: #7df; }
+    .value-label.state-matched { color: #0fa; }
+    .value-label.state-active { color: #ff0; }
     .fold-label {
       font-family: 'JetBrains Mono', monospace;
       font-weight: 700;
@@ -313,7 +313,7 @@
       background: rgba(8, 25, 40, 0.5);
       border: 1px solid rgba(51, 221, 255, 0.2);
     }
-    .chord-node-label {
+    .value-node-label {
       color: #ddb766;
       font-family: 'JetBrains Mono', monospace;
       font-size: 9px;
@@ -332,7 +332,7 @@
 
   <!-- HUD -->
   <div id="hud" class="glass">
-    <div class="hud-title">SIX · Chord Space</div>
+    <div class="hud-title">SIX · Value Space</div>
     <div class="hud-stat"><span>Ingested</span> <span class="val" id="stat-ingested">0</span></div>
     <div class="hud-stat"><span>Edges</span> <span class="val" id="stat-edges">0</span></div>
     <div class="hud-stat"><span>Groups</span> <span class="val" id="stat-groups">0</span></div>
@@ -392,7 +392,7 @@
 
   <!-- Tooltip -->
   <div id="tooltip" class="glass">
-    <div class="tt-label">Chord</div>
+    <div class="tt-label">Value</div>
     <div class="tt-text" id="tt-text"></div>
     <div class="tt-state" id="tt-state"></div>
     <div class="tt-bits" id="tt-bits"></div>
@@ -568,25 +568,25 @@
       labelObj.position.copy(pos);
       groupLayer.add(labelObj);
 
-      const group = { label: labelObj, labelDiv, chords: [], count: 0, pos, visibleCount: 0 };
+      const group = { label: labelObj, labelDiv, values: [], count: 0, pos, visibleCount: 0 };
       groups.set(bin, group);
       return group;
     }
 
-    // ── Chord Nodes ──────────────────────────────────────────────
-    const chordNodes = [];
-    const chordNodeGroup = new THREE.Group();
-    scene.add(chordNodeGroup);
+    // ── Value Nodes ──────────────────────────────────────────────
+    const valueNodes = [];
+    const valueNodeGroup = new THREE.Group();
+    scene.add(valueNodeGroup);
 
-    const chordLineMat = new THREE.LineBasicMaterial({ color: 0x997733, transparent: true, opacity: 0.25 });
+    const valueLineMat = new THREE.LineBasicMaterial({ color: 0x997733, transparent: true, opacity: 0.25 });
 
-    function addChordNode(chordId, bin, state, text) {
+    function addValueNode(valueId, bin, state, text) {
       const group = getOrCreateGroup(bin);
       group.count++;
       group.visibleCount++;
-      group.chords.push({ id: chordId, text, state });
+      group.values.push({ id: valueId, text, state });
 
-      group.labelDiv.textContent = group.chords[0].text.trim();
+      group.labelDiv.textContent = group.values[0].text.trim();
 
       const angle = (group.count * 2.399) % (Math.PI * 2);
       const r = Math.sqrt(Math.min(group.count, 12)) * 0.4;
@@ -597,24 +597,24 @@
       ));
 
       const div = document.createElement('div');
-      div.className = 'chord-node-label';
+      div.className = 'value-node-label';
       div.textContent = text.trim();
       const labelObj = new CSS2DObject(div);
       labelObj.position.copy(nodePos);
-      chordNodeGroup.add(labelObj);
+      valueNodeGroup.add(labelObj);
 
-      const node = { labelObj, labelDiv: div, chordId, bin, state, text };
-      chordNodes.push(node);
+      const node = { labelObj, labelDiv: div, valueId, bin, state, text };
+      valueNodes.push(node);
 
       const lineGeo = new THREE.BufferGeometry().setFromPoints([group.pos, nodePos]);
-      const line = new THREE.Line(lineGeo, chordLineMat.clone());
-      chordNodeGroup.add(line);
+      const line = new THREE.Line(lineGeo, valueLineMat.clone());
+      valueNodeGroup.add(line);
       node.line = line;
 
-      if (chordNodes.length > MAX_CHORD_NODES) {
-        const old = chordNodes.shift();
-        chordNodeGroup.remove(old.labelObj);
-        if (old.line) { chordNodeGroup.remove(old.line); old.line.geometry.dispose(); old.line.material.dispose(); }
+      if (valueNodes.length > MAX_CHORD_NODES) {
+        const old = valueNodes.shift();
+        valueNodeGroup.remove(old.labelObj);
+        if (old.line) { valueNodeGroup.remove(old.line); old.line.geometry.dispose(); old.line.material.dispose(); }
 
         const oldGroup = groups.get(old.bin);
         if (oldGroup) {
@@ -695,7 +695,7 @@
       if (!text || text.trim() === '') return;
 
       const div = document.createElement('div');
-      div.className = `chord-label state-${state || 'stored'}`;
+      div.className = `value-label state-${state || 'stored'}`;
       div.textContent = text.trim();
 
       const labelObj = new CSS2DObject(div);
@@ -849,8 +849,8 @@
     function handleEvent(ev) {
       const d = ev.data || {};
 
-      // ── Tokenizer.Chord ─────────────────────────────────
-      if (ev.component === 'Tokenizer' && ev.action === 'Chord') {
+      // ── Tokenizer.Value ─────────────────────────────────
+      if (ev.component === 'Tokenizer' && ev.action === 'Value') {
         const stage = d.stage || '';
         const edgeCount = d.edgeCount || 0;
         const text = d.chunkText || '';
@@ -877,7 +877,7 @@
           log(`Query: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'tokenize');
         }
 
-        // Add chord node to the torus visualization
+        // Add value node to the torus visualization
         const bits = d.activeBits || [];
         if (bits.length > 0) {
           const center = new THREE.Vector3();
@@ -887,7 +887,7 @@
         }
 
         if (d.bin !== undefined) {
-          addChordNode(d.chordId || 0, d.bin || 0, d.state || 'stored', text);
+          addValueNode(d.valueId || 0, d.bin || 0, d.state || 'stored', text);
           statGroups.textContent = groups.size;
         }
       }
@@ -916,15 +916,15 @@
         log(`Lookup: ${pathCount} paths for "${(d.msg || '').slice(0, 40)}"`, 'lookup');
       }
 
-      // ── Cortex.Evaluate ─────────────────────────────────
-      else if (ev.component === 'Cortex' && ev.action === 'Evaluate') {
+      // ── Graph.Evaluate ─────────────────────────────────
+      else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
         const pathCount = d.pathCount || 0;
         activateStage('fold', `${pathCount} results`);
         log(`Fold complete: ${pathCount} result paths`, 'fold');
       }
 
-      // ── Cortex.Fold ─────────────────────────────────────
-      else if (ev.component === 'Cortex' && ev.action === 'Fold') {
+      // ── Graph.Fold ─────────────────────────────────────
+      else if (ev.component === 'Graph' && ev.action === 'Fold') {
         totalFolds++;
         statFolds.textContent = totalFolds;
         addFoldNode(d.bin || 0, d.level || 0, d.theta || 0, d.parentBin ?? -1, d.childCount || 0, d.density || 0, d.chunkText || '');

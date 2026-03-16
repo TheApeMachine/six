@@ -13,7 +13,7 @@ type Event struct {
 EventData carries the payload for a visualization event.
 */
 type EventData struct {
-	ChordID int    `json:"chordId,omitempty"`
+	ValueID int    `json:"valueId,omitempty"`
 	Bin     int    `json:"bin,omitempty"`
 	State   string `json:"state,omitempty"`
 
@@ -38,11 +38,11 @@ type EventData struct {
 	ParentBin  int     `json:"parentBin,omitempty"`
 	ChildCount int     `json:"childCount,omitempty"`
 
-	Stage          string `json:"stage,omitempty"`
-	Msg            string `json:"msg,omitempty"`
-	EdgeCount      int    `json:"edgeCount,omitempty"`
-	PathCount      int    `json:"pathCount,omitempty"`
-	ResultText     string `json:"resultText,omitempty"`
-	WavefrontEnergy int   `json:"wavefrontEnergy,omitempty"`
-	EntryCount     int    `json:"entryCount,omitempty"`
+	Stage           string `json:"stage,omitempty"`
+	Msg             string `json:"msg,omitempty"`
+	EdgeCount       int    `json:"edgeCount,omitempty"`
+	PathCount       int    `json:"pathCount,omitempty"`
+	ResultText      string `json:"resultText,omitempty"`
+	WavefrontEnergy int    `json:"wavefrontEnergy,omitempty"`
+	EntryCount      int    `json:"entryCount,omitempty"`
 }

@@ -41,7 +41,7 @@ var crossDomains = []struct {
 const crossDomainSamplesPerDomain = 100
 
 /*
-CrossDomainCompletionExperiment demonstrates that the chord manifold is
+CrossDomainCompletionExperiment demonstrates that the value manifold is
 domain-agnostic: the same substrate, without any domain-specific tuning,
 performs associative span completion across natural language (Wikipedia),
 source code (Python from the-stack-smol), and biology (amino acid +
@@ -49,7 +49,7 @@ DSSP3 sequences from proteinea/secondary_structure_prediction).
 
 The held-out target is the last 50 bytes of each sample, so the task
 is identical in all three domains: given the visible prefix, complete
-the suffix by chord resonance.
+the suffix by value resonance.
 */
 type CrossDomainCompletionExperiment struct {
 	tableData []tools.ExperimentalData
@@ -272,7 +272,7 @@ func (experiment *CrossDomainCompletionExperiment) Artifacts() []tools.Artifact 
 \paragraph{Task Description.}
 The cross-domain completion experiment evaluates the substrate's
 domain-agnosticism: without any domain-specific ingestion, indexing,
-or parameter adjustment, the same chord manifold is asked to complete
+or parameter adjustment, the same value manifold is asked to complete
 the final 50 bytes of samples drawn from three structurally distinct
 domains:
 
@@ -288,7 +288,7 @@ domains:
 Each domain contributes ${{.SamplesPerDomain}}$ training samples,
 ingested sequentially into a single unified substrate.
 Test prompts hold out the last 50 bytes; the system reconstructs
-them from the chord resonance field without any domain indicator.
+them from the value resonance field without any domain indicator.
 
 \paragraph{Results.}
 Figure~\ref{fig:cross_domain_map} shows the composite.
@@ -307,10 +307,10 @@ Across all $N = {{.N}}$ samples the overall weighted score was
 {{if gt .Score 0.4 -}}
 \paragraph{Assessment.}
 The substrate achieved non-trivial completion accuracy across domains,
-demonstrating that a single unchained chord manifold can operate as a
+demonstrating that a single unchained value manifold can operate as a
 unified memory across qualitatively different data modalities.
 The absence of domain-specific tuning or retrieval routing supports
-the claim that bitwise chord resonance is a domain-agnostic indexing
+the claim that bitwise value resonance is a domain-agnostic indexing
 primitive.
 {{- else if gt .Score 0.1 -}}
 \paragraph{Assessment.}
@@ -325,7 +325,7 @@ attractor density.
 Completion accuracy was low across all domains at this ingestion
 scale.  The result is consistent with the theoretical expectation:
 the attractor field requires a minimum density of related samples
-before chord resonance can reliably recover novel suffixes.
+before value resonance can reliably recover novel suffixes.
 {{- end}}
 
 `

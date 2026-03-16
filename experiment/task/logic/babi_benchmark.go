@@ -243,9 +243,9 @@ pointer to the relevant sentence.
 \paragraph{Test Conditions.}
 Experiments used {{.NSamples}} samples from
 \texttt{facebook/babi\_qa} (subset \texttt{en-10k-qa1}).
-Reasoning is performed via Transitive Resonance: the entity chord is
+Reasoning is performed via Transitive Resonance: the entity value is
 extracted from the question, the story is scanned geometrically for
-its last movement relationship, and the residue chord is decoded as
+its last movement relationship, and the residue value is decoded as
 the location answer.
 
 \paragraph{Results.}
@@ -270,13 +270,13 @@ geometric residue accumulation.
 \paragraph{Assessment.}
 The substrate correctly resolved a minority of queries by exact match.
 Partial scores indicate that many outputs were geometrically adjacent
-to the correct location chord, suggesting the attractor is in the
+to the correct location value, suggesting the attractor is in the
 right region but final decoding introduces ambiguity.
 {{- else -}}
 \paragraph{Assessment.}
 Exact-match accuracy was low.  The Transitive Resonance mechanism
 requires the entity's movement facts to produce a sufficiently
-distinct residue chord; at this sample size the substrate geometry
+distinct residue value; at this sample size the substrate geometry
 may not separate location attractors reliably.
 {{- end}}
 

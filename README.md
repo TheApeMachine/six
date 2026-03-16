@@ -222,7 +222,7 @@ The LSM is a passive spatial lattice ([`spatial_index.go`](pkg/store/lsm/spatial
 
 ### Value Plane — `pkg/store/data/`
 
-The value at each cell is the system's **native monotype**: a 512-bit Value ([`chord.go`](pkg/store/data/chord.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator.
+The value at each cell is the system's **native monotype**: a 512-bit Value ([`value.go`](pkg/store/data/value.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator.
 
 ```
  Bits 0–256    │ GF(257) Fermat core — the native execution state
@@ -288,8 +288,8 @@ The four planes map directly to the repository structure:
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| 512-bit Native Value | [`pkg/store/data/chord.go`](pkg/store/data/chord.go) | `Rotate3D`, `RollLeft`, `OR`, `AND`, `XOR`, `ValueHole`, `ActiveCount`, `RotationSeed` |
-| Value (Cap'n Proto schema) | [`pkg/store/data/chord.capnp`](pkg/store/data/chord.capnp) | Wire format: 8 × `uint64` words |
+| 512-bit Native Value | [`pkg/store/data/value.go`](pkg/store/data/value.go) | `SetAffine`, `SetLexicalTransition`, `SetProgram`, `GuardRadius`, `ValueHole`, `ActiveCount` |
+| Value (Cap'n Proto schema) | [`pkg/store/data/value.capnp`](pkg/store/data/value.capnp) | Wire format: 8 × `uint64` words (compatibility schema name retained) |
 | Morton Keys | [`pkg/store/data/morton.go`](pkg/store/data/morton.go) | Address encoding: `X = byte`, `Y = localDepth` |
 | Opcodes | [`pkg/store/data/opcode.go`](pkg/store/data/opcode.go) | Guard-band instruction encoding |
 | GF(257) Numerics | [`pkg/numeric/core.go`](pkg/numeric/core.go), [`prime.go`](pkg/numeric/prime.go) | Modular arithmetic, Fermat constants |
@@ -635,4 +635,5 @@ This project is documented in a companion research paper generated automatically
 ## License
 
 See [LICENSE](LICENSE) for details.
+
 

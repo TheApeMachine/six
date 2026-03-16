@@ -13,9 +13,9 @@ pointer to the relevant sentence.
 \paragraph{Test Conditions.}
 Experiments used 50 samples from
 \texttt{facebook/babi\_qa} (subset \texttt{en-10k-qa1}).
-Reasoning is performed via Transitive Resonance: the entity chord is
+Reasoning is performed via Transitive Resonance: the entity value is
 extracted from the question, the story is scanned geometrically for
-its last movement relationship, and the residue chord is decoded as
+its last movement relationship, and the residue value is decoded as
 the location answer.
 
 \paragraph{Results.}
@@ -34,7 +34,7 @@ across all 50 samples, with a mean partial score of
 \paragraph{Assessment.}
 Exact-match accuracy was low.  The Transitive Resonance mechanism
 requires the entity's movement facts to produce a sufficiently
-distinct residue chord; at this sample size the substrate geometry
+distinct residue value; at this sample size the substrate geometry
 may not separate location attractors reliably.
 
 \begin{table}[htbp]

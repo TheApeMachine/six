@@ -7,3 +7,5 @@ $Go.import("github.com/theapemachine/six/pkg/logic/synthesis/macro");
 interface MacroIndex {
   prompt @0 (msg :Text) -> (result :Text);
 }
+
+

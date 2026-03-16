@@ -17,7 +17,7 @@ func phaseBefore(symbol byte, next numeric.Phase, calc *numeric.Calculus) numeri
 }
 
 func TestWavefrontAnchorSnap(t *testing.T) {
-	gc.Convey("Given an anchor chord at a periodic stride", t, func() {
+	gc.Convey("Given an anchor value at a periodic stride", t, func() {
 		idx := NewSpatialIndexServer()
 		calc := numeric.NewCalculus()
 
@@ -25,25 +25,25 @@ func TestWavefrontAnchorSnap(t *testing.T) {
 		const symbol byte = 'B'
 		anchorPhase := numeric.Phase(200)
 
-		anchorChord := data.BaseChord(symbol)
-		anchorChord.Set(int(anchorPhase))
-		anchorChord.SetResidualCarry(uint64(anchorPhase))
-		anchorChord.SetProgram(data.OpcodeHalt, 0, 0, true)
-		idx.insertSync(morton.Pack(pos, symbol), anchorChord, data.MustNewChord())
+		anchorValue := data.BaseValue(symbol)
+		anchorValue.Set(int(anchorPhase))
+		anchorValue.SetResidualCarry(uint64(anchorPhase))
+		anchorValue.SetProgram(data.OpcodeHalt, 0, 0, true)
+		idx.insertSync(morton.Pack(pos, symbol), anchorValue, data.MustNewValue())
 
-		jump := data.MustNewChord()
+		jump := data.MustNewValue()
 		jump.SetProgram(data.OpcodeJump, pos, 0, false)
 
 		driftedExpected := numeric.Phase(206)
 		head := &WavefrontHead{
 			phase:   phaseBefore(symbol, driftedExpected, calc),
 			pos:     0,
-			path:    []data.Chord{jump},
+			path:    []data.Value{jump},
 			visited: map[visitMark]bool{},
 		}
 
 		wf := NewWavefront(idx, WavefrontWithAnchors(pos, 10))
-		next := wf.advance([]*WavefrontHead{head}, data.BaseChord(symbol), nil, nil)
+		next := wf.advance([]*WavefrontHead{head}, data.BaseValue(symbol), nil, nil)
 
 		gc.Convey("The branch should snap onto the stored anchor phase", func() {
 			gc.So(len(next), gc.ShouldEqual, 1)
@@ -63,25 +63,25 @@ func TestWavefrontAnchorRejectsWideDrift(t *testing.T) {
 		const symbol byte = 'B'
 		anchorPhase := numeric.Phase(200)
 
-		anchorChord := data.BaseChord(symbol)
-		anchorChord.Set(int(anchorPhase))
-		anchorChord.SetResidualCarry(uint64(anchorPhase))
-		anchorChord.SetProgram(data.OpcodeHalt, 0, 0, true)
-		idx.insertSync(morton.Pack(pos, symbol), anchorChord, data.MustNewChord())
+		anchorValue := data.BaseValue(symbol)
+		anchorValue.Set(int(anchorPhase))
+		anchorValue.SetResidualCarry(uint64(anchorPhase))
+		anchorValue.SetProgram(data.OpcodeHalt, 0, 0, true)
+		idx.insertSync(morton.Pack(pos, symbol), anchorValue, data.MustNewValue())
 
-		jump := data.MustNewChord()
+		jump := data.MustNewValue()
 		jump.SetProgram(data.OpcodeJump, pos, 0, false)
 
 		driftedExpected := numeric.Phase(230)
 		head := &WavefrontHead{
 			phase:   phaseBefore(symbol, driftedExpected, calc),
 			pos:     0,
-			path:    []data.Chord{jump},
+			path:    []data.Value{jump},
 			visited: map[visitMark]bool{},
 		}
 
 		wf := NewWavefront(idx, WavefrontWithAnchors(pos, 5))
-		next := wf.advance([]*WavefrontHead{head}, data.BaseChord(symbol), nil, nil)
+		next := wf.advance([]*WavefrontHead{head}, data.BaseValue(symbol), nil, nil)
 
 		gc.Convey("The branch should be kept at the old state instead of advancing through the bad anchor", func() {
 			gc.So(len(next), gc.ShouldEqual, 1)

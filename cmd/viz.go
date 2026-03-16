@@ -14,8 +14,8 @@ var vizListen bool
 
 var vizCmd = &cobra.Command{
 	Use:   "viz",
-	Short: "Launch the 3D chord geometry visualizer",
-	Long: `Starts a WebSocket server and opens a Three.js visualization of chord operations in real-time.
+	Short: "Launch the 3D value geometry visualizer",
+	Long: `Starts a WebSocket server and opens a Three.js visualization of value operations in real-time.
 
 By default runs the Alice demo. Use --listen to start in listener mode,
 which receives real telemetry from the running system via UDP.`,
@@ -28,7 +28,7 @@ which receives real telemetry from the running system via UDP.`,
 		}
 
 		fmt.Printf("Visualizer running at http://localhost:8257 [%s]\n", mode)
-		fmt.Println("Open in browser to see the 3D chord space")
+		fmt.Println("Open in browser to see the 3D value space")
 
 		go func() {
 			if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {

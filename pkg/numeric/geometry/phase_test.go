@@ -26,12 +26,12 @@ func TestNewPhaseDial(t *testing.T) {
 	})
 }
 
-func TestPhaseDialEncodeFromChords(t *testing.T) {
-	Convey("Given a PhaseDial and chord sequences", t, func() {
+func TestPhaseDialEncodeFromValues(t *testing.T) {
+	Convey("Given a PhaseDial and value sequences", t, func() {
 		dial := NewPhaseDial()
 
-		Convey("When encoding an empty chord sequence", func() {
-			encoded := dial.EncodeFromChords(nil)
+		Convey("When encoding an empty value sequence", func() {
+			encoded := dial.EncodeFromValues(nil)
 			So(encoded, ShouldNotBeNil)
 			for idx := range encoded {
 				So(real(encoded[idx]), ShouldEqual, 0)
@@ -39,9 +39,9 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 			}
 		})
 
-		Convey("When encoding a single chord", func() {
-			chords := []data.Chord{data.BaseChord('a')}
-			encoded := dial.EncodeFromChords(chords)
+		Convey("When encoding a single value", func() {
+			values := []data.Value{data.BaseValue('a')}
+			encoded := dial.EncodeFromValues(values)
 			var mag float64
 			for _, val := range encoded {
 				re, im := real(val), imag(val)
@@ -51,17 +51,17 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 			So(encoded[0], ShouldNotEqual, complex(0, 0))
 		})
 
-		Convey("When encoding different chord orderings", func() {
+		Convey("When encoding different value orderings", func() {
 			sequenceA := []byte{}
 			sequenceB := []byte{}
 			for i := 0; i < 50; i++ {
 				sequenceA = append(sequenceA, byte(10))
 				sequenceB = append(sequenceB, byte(200))
 			}
-			chordsA, _ := data.BuildChord(sequenceA)
-			chordsB, _ := data.BuildChord(sequenceB)
-			encodedA := NewPhaseDial().EncodeFromChords([]data.Chord{chordsA})
-			encodedB := NewPhaseDial().EncodeFromChords([]data.Chord{chordsB})
+			valuesA, _ := data.BuildValue(sequenceA)
+			valuesB, _ := data.BuildValue(sequenceB)
+			encodedA := NewPhaseDial().EncodeFromValues([]data.Value{valuesA})
+			encodedB := NewPhaseDial().EncodeFromValues([]data.Value{valuesB})
 
 			// Normalization: both should be unit magnitude
 			var magA, magB float64
@@ -74,7 +74,7 @@ func TestPhaseDialEncodeFromChords(t *testing.T) {
 			So(math.Sqrt(magA), ShouldAlmostEqual, 1.0, 0.0001)
 			So(math.Sqrt(magB), ShouldAlmostEqual, 1.0, 0.0001)
 
-			// Structural divergence: different chords create different holograms
+			// Structural divergence: different values create different holograms
 			differences := 0
 			for i := 0; i < len(encodedA); i++ {
 				if cmplx.Abs(encodedA[i]-encodedB[i]) > 0.001 {
@@ -97,12 +97,12 @@ func BenchmarkNewPhaseDial(b *testing.B) {
 	}
 }
 
-func BenchmarkPhaseDialEncodeFromChords(b *testing.B) {
+func BenchmarkPhaseDialEncodeFromValues(b *testing.B) {
 	dial := NewPhaseDial()
-	chords, _ := data.BuildChord([]byte("benchmark chord sequence for phase encoding"))
+	values, _ := data.BuildValue([]byte("benchmark value sequence for phase encoding"))
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = dial.EncodeFromChords([]data.Chord{chords})
+		_ = dial.EncodeFromValues([]data.Value{values})
 	}
 }

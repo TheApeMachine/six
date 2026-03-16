@@ -10,7 +10,7 @@ import (
 
 /*
 PhaseDialScanner provides PhaseDial-ranked retrieval over a SpatialIndexServer.
-It builds PhaseDial fingerprints from stored chord sequences and supports
+It builds PhaseDial fingerprints from stored value sequences and supports
 geodesic scan, two-hop composition, and ranked similarity queries.
 
 This is the bridge between the pure PhaseDial math (geometry/phase.go) and
@@ -23,12 +23,12 @@ type PhaseDialScanner struct {
 }
 
 /*
-cachedEntry stores a pre-computed PhaseDial alongside the chord sequence
+cachedEntry stores a pre-computed PhaseDial alongside the value sequence
 that produced it. Computing PhaseDials is expensive (O(N * NBasis) per entry),
 so we cache aggressively.
 */
 type cachedEntry struct {
-	Chords []data.Chord
+	Values []data.Value
 	Dial   geometry.PhaseDial
 }
 
@@ -40,7 +40,7 @@ type ScanResult struct {
 	Position   uint32
 	Symbol     byte
 	Similarity float64
-	Chords     []data.Chord
+	Values     []data.Value
 	Dial       geometry.PhaseDial
 }
 
@@ -52,7 +52,7 @@ type GeodesicStep struct {
 	AngleDeg   float64
 	BestKey    uint64
 	Similarity float64
-	Chords     []data.Chord
+	Values     []data.Value
 	Dial       geometry.PhaseDial
 }
 
@@ -64,7 +64,7 @@ type HopResult struct {
 	KeyB       uint64
 	DialB      geometry.PhaseDial
 	DialAB     geometry.PhaseDial
-	ChordsB    []data.Chord
+	ValuesB    []data.Value
 	Similarity float64
 }
 
@@ -81,7 +81,7 @@ func NewPhaseDialScanner(index *SpatialIndexServer) *PhaseDialScanner {
 
 /*
 buildCache materialises PhaseDials for all entries in the substrate.
-Each position in the positionIndex maps to a set of Morton keys; the chord
+Each position in the positionIndex maps to a set of Morton keys; the value
 sequence at each key is the collision chain rooted there.
 */
 func (scanner *PhaseDialScanner) buildCache() {
@@ -93,13 +93,13 @@ func (scanner *PhaseDialScanner) buildCache() {
 			continue
 		}
 
-		chords := scanner.index.followChainUnsafe(key)
-		if len(chords) == 0 {
+		values := scanner.index.followChainUnsafe(key)
+		if len(values) == 0 {
 			continue
 		}
 
-		dial := geometry.NewPhaseDial().EncodeFromChords(chords)
-		scanner.cache[key] = cachedEntry{Chords: chords, Dial: dial}
+		dial := geometry.NewPhaseDial().EncodeFromValues(values)
+		scanner.cache[key] = cachedEntry{Values: values, Dial: dial}
 	}
 }
 
@@ -135,9 +135,9 @@ func (scanner *PhaseDialScanner) EntryDial(key uint64) geometry.PhaseDial {
 }
 
 /*
-EntryChords returns the chord sequence for a specific Morton key.
+EntryValues returns the value sequence for a specific Morton key.
 */
-func (scanner *PhaseDialScanner) EntryChords(key uint64) []data.Chord {
+func (scanner *PhaseDialScanner) EntryValues(key uint64) []data.Value {
 	scanner.buildCache()
 
 	entry, exists := scanner.cache[key]
@@ -145,7 +145,7 @@ func (scanner *PhaseDialScanner) EntryChords(key uint64) []data.Chord {
 		return nil
 	}
 
-	return entry.Chords
+	return entry.Values
 }
 
 /*
@@ -166,7 +166,7 @@ func (scanner *PhaseDialScanner) Scan(queryDial geometry.PhaseDial, topK int) []
 			Position:   pos,
 			Symbol:     sym,
 			Similarity: sim,
-			Chords:     entry.Chords,
+			Values:     entry.Values,
 			Dial:       entry.Dial,
 		})
 	}
@@ -212,7 +212,7 @@ func (scanner *PhaseDialScanner) ScanExcluding(
 			Position:   pos,
 			Symbol:     sym,
 			Similarity: sim,
-			Chords:     entry.Chords,
+			Values:     entry.Values,
 			Dial:       entry.Dial,
 		})
 	}
@@ -258,7 +258,7 @@ func (scanner *PhaseDialScanner) GeodesicScan(
 		if len(top) > 0 {
 			step.BestKey = top[0].Key
 			step.Similarity = top[0].Similarity
-			step.Chords = top[0].Chords
+			step.Values = top[0].Values
 			step.Dial = top[0].Dial
 		}
 
@@ -333,7 +333,7 @@ func (scanner *PhaseDialScanner) FirstHop(
 		KeyB:       best.Key,
 		DialB:      best.Dial,
 		DialAB:     midpoint,
-		ChordsB:    best.Chords,
+		ValuesB:    best.Values,
 		Similarity: best.Similarity,
 	}
 }

@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 $Go.package("data");
 $Go.import("github.com/theapemachine/six/pkg/store/data");
 
-struct Chord {
+struct Value {
   c0 @0 :UInt64;
   c1 @1 :UInt64;
   c2 @2 :UInt64;
@@ -14,3 +14,5 @@ struct Chord {
   c6 @6 :UInt64;
   c7 @7 :UInt64;
 }
+
+

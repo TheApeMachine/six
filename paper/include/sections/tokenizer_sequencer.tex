@@ -16,13 +16,13 @@ value $s$ produces one Token:
 \end{equation}
 
 \noindent where $\mathcal{M}$ is the Morton code (\Cref{eq:morton_key}).
-The corresponding Chord is the deterministic $\mathbf{c}(s)$ from
-\Cref{eq:base_chord}, bound to its sequential position via RollLeft
+The corresponding Value is the deterministic $\mathbf{c}(s)$ from
+\Cref{eq:base_value}, bound to its sequential position via RollLeft
 (\Cref{eq:roll_left}).
 
 From the moment data is tokenized, the system never examines raw byte
 values again until final output rendering.  All downstream computation
-operates exclusively on Chords and TokenIDs.
+operates exclusively on Values and TokenIDs.
 
 \subsection{The Topological Sequencer}
 \label{sec:sequencer}
@@ -32,7 +32,7 @@ The Sequencer segments incoming data streams into sequences based on
 statistics (BPE) or fixed window sizes.
 
 \paragraph{Step 1: Measurement.}
-For each token at position $t$ with chord $\mathbf{c}_t$, the Sequencer
+For each token at position $t$ with value $\mathbf{c}_t$, the Sequencer
 extracts two geometric signals:
 
 \begin{align}
@@ -44,7 +44,7 @@ extracts two geometric signals:
   \label{eq:phase_mag}
 \end{align}
 
-where $b_t = \operatorname{ChordBin}(\mathbf{c}_t)$ and $\Theta, \Phi$ are
+where $b_t = \operatorname{ValueBin}(\mathbf{c}_t)$ and $\Theta, \Phi$ are
 the EigenMode phase tables (\Cref{sec:multi_scale}).
 
 \paragraph{Step 2: Golden Ratio Exponential Smoothing.}
@@ -148,7 +148,7 @@ The Sequencer incorporates bidirectional feedback at two timescales:
 
 \begin{itemize}[nosep]
   \item \textbf{High-frequency (local):}  When a boundary fires, the local
-        chord density $\rho = \|\mathbf{c}\|_1 / D$ is compared against
+        value density $\rho = \|\mathbf{c}\|_1 / D$ is compared against
         target density bounds $[\rho_{\min}, \rho_{\max}]$.  If $\rho >
         \rho_{\max}$, the sensitivity $\gamma$ is decreased by
         $\varphi^{-9} \approx 0.013$; if $\rho < \rho_{\min}$, it is

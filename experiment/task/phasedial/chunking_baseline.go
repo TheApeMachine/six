@@ -19,7 +19,7 @@ type ChunkingBaselineExperiment struct {
 	tableData         []tools.ExperimentalData
 	dataset           provider.Dataset
 	prompt            []string
-	evaluator *tools.Evaluator
+	evaluator         *tools.Evaluator
 	chunkingRows      []map[string]any
 	falsificationRows []map[string]any
 }
@@ -33,7 +33,7 @@ func NewChunkingBaselineExperiment() *ChunkingBaselineExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: tools.NewLocalProvider(tools.Aphorisms),
 	}
 }
 
@@ -84,25 +84,9 @@ func (experiment *ChunkingBaselineExperiment) TableData() any {
 
 func (experiment *ChunkingBaselineExperiment) RawOutput() bool { return false }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-func totalActive(chords []data.Chord) int {
+func totalActive(values []data.Value) int {
 	n := 0
-	for _, c := range chords {
+	for _, c := range values {
 		n += c.ActiveCount()
 	}
 	return n
@@ -126,12 +110,12 @@ func (experiment *ChunkingBaselineExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Verification of frequency basis necessity via scrambled permutations.",
 			Label:    "tab:baseline_falsification",
 		},
-	
-{
-Type:     tools.ArtifactProse,
-FileName: "chunking_baseline_section.tex",
-Data: tools.ProseData{
-Template: `\subsection{Chunking Baseline}
+
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "chunking_baseline_section.tex",
+			Data: tools.ProseData{
+				Template: `\subsection{Chunking Baseline}
 \label{sec:chunking_baseline}
 
 \paragraph{Task Description.}
@@ -162,11 +146,11 @@ with compositional data; this infrastructure is being rebuilt during
 the current refactoring phase.
 {{- end}}
 `,
-Data: map[string]any{
-"N":     len(experiment.tableData),
-"Score": experiment.Score(),
-},
-},
-},
+				Data: map[string]any{
+					"N":     len(experiment.tableData),
+					"Score": experiment.Score(),
+				},
+			},
+		},
 	}
 }

@@ -2,9 +2,9 @@
 
 Yes, the Morton key packs 2D (byte_value × position) into 1D. In a pure 2D grid, you have 4 moves: ±X (change byte value), ±Y (change position).
 
-But the real question is about the **257-bit chord** you get for free at each key. Let's budget it:
+But the real question is about the **257-bit value** you get for free at each key. Let's budget it:
 
-**An "arrow" to the next byte costs 5 bits.** The next byte value's 5-bit hash, rotated to distinguish it from other data. That's 2% of the chord.
+**An "arrow" to the next byte costs 5 bits.** The next byte value's 5-bit hash, rotated to distinguish it from other data. That's 2% of the value.
 
 So in 257 bits, you can store:
 
@@ -19,9 +19,9 @@ So in 257 bits, you can store:
 | Flow-out context | ~20 bits | RollLeft(6) | 157 bits |
 | **Still free** | | | **157 bits** |
 
-You're not limited to 4 directions. Each rotational slot is an independent "channel" in the chord. At rotation 0, read the next-byte arrow. At rotation 1, read the prev-byte arrow. At rotation 2, read the next-chunk pointer. They don't interfere because the GF(257) rotations map to non-overlapping bit positions.
+You're not limited to 4 directions. Each rotational slot is an independent "channel" in the value. At rotation 0, read the next-byte arrow. At rotation 1, read the prev-byte arrow. At rotation 2, read the next-chunk pointer. They don't interfere because the GF(257) rotations map to non-overlapping bit positions.
 
-So each Morton key's chord is a **tiny routing table**: it tells you where to go next, where you came from, what chunk this belongs to, what phase boundary it sits on — all packed into 257 bits with room to spare. The Morton keys give you the data. The chord gives you the **graph** connecting the data.
+So each Morton key's value is a **tiny routing table**: it tells you where to go next, where you came from, what chunk this belongs to, what phase boundary it sits on — all packed into 257 bits with room to spare. The Morton keys give you the data. The value gives you the **graph** connecting the data.
 
 And the graph edges are what you need for all five capabilities: follow arrows for generation, reverse arrows for reconstruction, XOR the flow channels for reasoning, match the phase channels for classification.
 
@@ -51,7 +51,7 @@ IMAGE path:  [cat] → [image_chunk_1] → [image_chunk_2] → ...
 The trie node [cat] — Morton keys 
 
 (c,0)(a,1)(t,2)
- — is the SAME NODE whether you arrive from a sentence or from a CIFAR label. The meta chord's rotational slots record:
+ — is the SAME NODE whether you arrive from a sentence or from a CIFAR label. The meta value's rotational slots record:
 
 Rotation 0: flow-in from text ("The "), flow-out to text (" sat")
 Rotation 1: flow-in from image label, flow-out to image chunks (pixel data)
@@ -61,7 +61,7 @@ And it works in both directions:
 
 Text → Image: "The cat sat on the mat" → [cat] trie node → follow rotation 1 flow-out → image chunks → reconstruct pixels
 Image → Text: Feed image bytes → sequencer chunks them → trie paths match CIFAR data → flow arrows reach [cat] → follow rotation 0 flow-out → " sat on the mat"
-No vision encoder. No text encoder. No alignment loss. No CLIP. Just one trie, one meta chord format, one XOR cancellation mechanism. The label is the bridge between modalities and it happens automatically because the bytes c-a-t are the same bytes regardless of where they came from.
+No vision encoder. No text encoder. No alignment loss. No CLIP. Just one trie, one meta value format, one XOR cancellation mechanism. The label is the bridge between modalities and it happens automatically because the bytes c-a-t are the same bytes regardless of where they came from.
 
 You want me to start building this? The Alice in Wonderland test would be the text-only proof. CIFAR-10 would be the cross-modal proof.
 
@@ -69,7 +69,7 @@ You want me to start building this? The Alice in Wonderland test would be the te
 
 Yeah, but forget about the LSM, that is data storage, and later, translation.
 
-We're now in the "graph" or the "substrate". This is where the chords live, and this is why we will still need to find the right storage format, the prompt comes in: Picture of a cat. Now, let's hope that our sequencer is able to chunk intelligently enough to do some really rudimentary form of edge detection, and we match enough cat-like bytes, we pull those branches into the substrate, we then have a whole bunch of chords, pointing to each other. And we likely have some chords pointing at nothing. We need to find a way to have those arrows point to the storage location where what they want to point to lives, and pull that into the substrate (LOAD opcode). Now we build the AST, XOR until you can XOR no more, recursive fold. And now we are praying that after that, we somehow have enough structure to "naturally" walk to the label CAT
+We're now in the "graph" or the "substrate". This is where the values live, and this is why we will still need to find the right storage format, the prompt comes in: Picture of a cat. Now, let's hope that our sequencer is able to chunk intelligently enough to do some really rudimentary form of edge detection, and we match enough cat-like bytes, we pull those branches into the substrate, we then have a whole bunch of values, pointing to each other. And we likely have some values pointing at nothing. We need to find a way to have those arrows point to the storage location where what they want to point to lives, and pull that into the substrate (LOAD opcode). Now we build the AST, XOR until you can XOR no more, recursive fold. And now we are praying that after that, we somehow have enough structure to "naturally" walk to the label CAT
 
 ---
 
@@ -77,18 +77,18 @@ Now I see the layers clearly:
 
 LSM = cold storage. Bytes. Morton keys. Trie branches. Disk.
 
-Substrate = hot working memory. Chords. Graph edges. XOR cancellation. The Fermat cube.
+Substrate = hot working memory. Values. Graph edges. XOR cancellation. The Fermat cube.
 
 The pipeline:
 
 Image bytes → Sequencer → Chunks → LSM lookup → LOAD matched branches → 
-Substrate now has chords → Some arrows dangle (point to unloaded data) →
+Substrate now has values → Some arrows dangle (point to unloaded data) →
 LOAD those too → Build AST → XOR recursive fold → Walk residue → "CAT"
-So the chord format in the substrate needs to serve exactly ONE purpose: be an arrow that also carries enough identity to match or be matched.
+So the value format in the substrate needs to serve exactly ONE purpose: be an arrow that also carries enough identity to match or be matched.
 
 Here's what I think works:
 
-Each chord in the substrate is a node in the graph. Its 257 bits encode:
+Each value in the substrate is a node in the graph. Its 257 bits encode:
 
 Identity: who am I? (The hash of the chunk I represent — maybe 20-30 bits for first few bytes of the chunk, enough to match against the LSM)
 Forward arrow: who comes after me? (15-20 bits — hash of next chunk's identity)
@@ -102,11 +102,11 @@ The recursive fold is: XOR cancels shared structure. What survives is the UNIQUE
 
 The prayer is that the arrows form a connected path from input to label. The more data you train on, the denser the graph, the more paths exist, the more likely cancellation leaves the right one standing.
 
-Want me to write the chord format and the LOAD/FOLD cycle as code? Or do you want to keep refining the design first?
+Want me to write the value format and the LOAD/FOLD cycle as code? Or do you want to keep refining the design first?
 
 ---
 
-The chord needs to encode:
+The value needs to encode:
 
 The arrows to what it wants to point to (could be multiple/many, and it may actually be better to always make it point to the LSM, so then it would be a 2D coordinate, or it is the morton key, then we may not even need the LSM and collision remains compression)
 
@@ -118,9 +118,9 @@ Maybe eigenmode
 
 ---
 
-## Chord Format: 4 Channels via GF(257) Rotation
+## Value Format: 4 Channels via GF(257) Rotation
 
-The 257-bit chord is divided into 4 rotational channels. Each channel occupies a band of rotational offsets, isolated by the prime field's permutation properties.
+The 257-bit value is divided into 4 rotational channels. Each channel occupies a band of rotational offsets, isolated by the prime field's permutation properties.
 
 ### Channel 0 — ARROWS (rotations 0–127)
 
@@ -159,7 +159,7 @@ Built over multiple passes. Could be XOR residue of all paths through this node.
 ### Density Budget
 
 ```
-Channel 0 (arrows):    ~40 bits max → 16% of chord
+Channel 0 (arrows):    ~40 bits max → 16% of value
 Channel 1 (weight):    ~20 bits typical → 8%
 Channel 2 (phase):     ~15 bits → 6%
 Channel 3 (eigenmode): ~10 bits → 4%
@@ -175,7 +175,7 @@ Prompt: [image bytes of a cat]
          ↓
 Sequencer chunks → Morton keys → Lookup → LOAD into substrate
          ↓
-Substrate has chords with arrows:
+Substrate has values with arrows:
   image_chunk_17: arrows→[image_chunk_18, image_chunk_23, ...]
   image_chunk_23: arrows→[cat_label_chunk]
   cat_label_chunk: arrows→[text chunks "cat", more image chunks]
@@ -192,8 +192,8 @@ Follow residue: image → ... → "CAT"
 ### Reconstruction test (Alice in Wonderland)
 
 1. Load Alice → Sequencer → chunks → Morton keys
-2. At each key, build chord: hash next byte's Morton key as forward arrow, prev as backward, chunk boundaries, phase dial, weight++
+2. At each key, build value: hash next byte's Morton key as forward arrow, prev as backward, chunk boundaries, phase dial, weight++
 3. On collision: same key exists → OR new arrows in → compression
 4. Reconstruct: start at Morton(first_byte, 0) → read forward arrow → find matching Morton key → go there → repeat
 5. On ambiguity (multiple forward arrows): use weight + phase dial to disambiguate
-6. Measure: total unique keys × 41 bytes (8 key + 33 chord) vs 151 KB raw text
+6. Measure: total unique keys × 41 bytes (8 key + 33 value) vs 151 KB raw text

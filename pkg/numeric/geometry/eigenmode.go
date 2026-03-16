@@ -8,8 +8,8 @@ import (
 )
 
 /*
-EigenMode maps chords to toroidal phase (Theta, Phi) from their bit distribution.
-Chord-native and analytical: no transition matrices; derives phase from
+EigenMode maps values to toroidal phase (Theta, Phi) from their bit distribution.
+Value-native and analytical: no transition matrices; derives phase from
 prime activations over GF(257).
 
 Theta: Circular mean of active prime angles (2π·idx/257). Matches RotateX translation.
@@ -25,7 +25,7 @@ eigenModeOpts configures EigenMode at construction. Used for interface compatibi
 type eigenModeOpts func(*EigenMode)
 
 /*
-NewEigenMode creates a new stateless, chord-native phase evaluator.
+NewEigenMode creates a new stateless, value-native phase evaluator.
 No training is required; the analytical model is instantly ready.
 */
 func NewEigenMode(opts ...eigenModeOpts) *EigenMode {
@@ -45,21 +45,21 @@ BuildMultiScaleCooccurrence is a no-op for the analytical EigenMode.
 Legacy implementations required building massive 256x256 transition matrices
 and running eigendecomposition. The analytical model is instantly ready.
 */
-func (ei *EigenMode) BuildMultiScaleCooccurrence(chords []data.Chord) error {
+func (ei *EigenMode) BuildMultiScaleCooccurrence(values []data.Value) error {
 	ei.Trained = true
 	return nil
 }
 
 /*
-PhaseForChord maps a single chord to (theta, phi) purely through its
+PhaseForValue maps a single value to (theta, phi) purely through its
 intrinsic geometric bit distribution over GF(257).
 */
-func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
-	indices := data.ChordPrimeIndices(c)
+func (ei *EigenMode) PhaseForValue(c *data.Value) (theta, phi float64) {
+	indices := data.ValuePrimeIndices(c)
 	var sinSum, cosSum float64
 
 	// Theta: circular mean of angles 2π·idx/257 for active prime indices.
-	// RotateX on the chord translates Theta around the torus.
+	// RotateX on the value translates Theta around the torus.
 	for _, idx := range indices {
 		angle := 2 * math.Pi * float64(idx) / 257.0
 		sinSum += math.Sin(angle)
@@ -80,10 +80,10 @@ func (ei *EigenMode) PhaseForChord(c *data.Chord) (theta, phi float64) {
 
 /*
 SeqToroidalMeanPhase returns the circular means of the intrinsic phases
-for a sequence of chords.
+for a sequence of values.
 */
-func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float64) {
-	n := len(chords)
+func (ei *EigenMode) SeqToroidalMeanPhase(values []data.Value) (theta, phi float64) {
+	n := len(values)
 	if n == 0 {
 		return 0, 0
 	}
@@ -91,8 +91,8 @@ func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float
 	var sinTSum, cosTSum float64
 	var sinPSum, cosPSum float64
 
-	for i := range chords {
-		theta, phi := ei.PhaseForChord(&chords[i])
+	for i := range values {
+		theta, phi := ei.PhaseForValue(&values[i])
 		sinTSum += math.Sin(theta)
 		cosTSum += math.Cos(theta)
 		sinPSum += math.Sin(phi)
@@ -103,17 +103,17 @@ func (ei *EigenMode) SeqToroidalMeanPhase(chords []data.Chord) (theta, phi float
 }
 
 /*
-WeightedCircularMean computes the circular mean of Theta phases, weighted by ActiveCount per chord.
+WeightedCircularMean computes the circular mean of Theta phases, weighted by ActiveCount per value.
 Returns (phase, concentration) where concentration = |R|/wSum and R is the resultant vector.
 */
-func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, concentration float64) {
-	if len(chords) == 0 {
+func (ei *EigenMode) WeightedCircularMean(values []data.Value) (phase float64, concentration float64) {
+	if len(values) == 0 {
 		return 0, 0
 	}
 	var sinSum, cosSum, wSum float64
-	for i := range chords {
-		theta, _ := ei.PhaseForChord(&chords[i])
-		weight := float64(chords[i].ActiveCount())
+	for i := range values {
+		theta, _ := ei.PhaseForValue(&values[i])
+		weight := float64(values[i].ActiveCount())
 		if weight <= 0 {
 			weight = 1.0 // safeguard zero-density
 		}
@@ -133,12 +133,12 @@ func (ei *EigenMode) WeightedCircularMean(chords []data.Chord) (phase float64, c
 IsGeometricallyClosed returns true when the sequence's weighted circular mean phase
 is within config.Numeric.ShannonCapacity of anchorPhase (shortest path around the torus).
 */
-func (ei *EigenMode) IsGeometricallyClosed(chords []data.Chord, anchorPhase float64) bool {
-	if len(chords) == 0 {
+func (ei *EigenMode) IsGeometricallyClosed(values []data.Value, anchorPhase float64) bool {
+	if len(values) == 0 {
 		return false
 	}
 
-	cPhase, _ := ei.WeightedCircularMean(chords)
+	cPhase, _ := ei.WeightedCircularMean(values)
 	phaseDiff := math.Abs(cPhase - anchorPhase)
 
 	// Shortest path around torus boundary

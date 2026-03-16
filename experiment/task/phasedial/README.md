@@ -35,7 +35,7 @@ The architecture ingests raw strings and encodes them into non-linear high-dimen
 
 ### Key Finding: Surface-Dominant Attractor Structure
 
-The consistent ceiling at the single-anchor baseline reveals the embedding space is **boundary-structured**: encoded concepts occupy surface extrema (ridges) on the complex hypersphere. The midpoint `F_AB` lies *interior* to the chord between A and B, reducing extremal alignment with surface-resident targets. The space is surface-dominant rather than convex-blending. This explains:
+The consistent ceiling at the single-anchor baseline reveals the embedding space is **boundary-structured**: encoded concepts occupy surface extrema (ridges) on the complex hypersphere. The midpoint `F_AB` lies *interior* to the value between A and B, reducing extremal alignment with surface-resident targets. The space is surface-dominant rather than convex-blending. This explains:
 
 - The gain ceiling at ≈0.133
 - B already being closest to the ridge containing C
@@ -82,7 +82,7 @@ This means:
 
 ### Prior Finding: Surface-Dominant Attractor Structure
 
-The consistent ceiling at the single-anchor baseline (before torus extension) revealed the embedding space is **boundary-structured**: encoded concepts occupy surface extrema (ridges) on the complex hypersphere. The midpoint `F_AB` lies *interior* to the chord between A and B, reducing extremal alignment with surface-resident targets. This explains:
+The consistent ceiling at the single-anchor baseline (before torus extension) revealed the embedding space is **boundary-structured**: encoded concepts occupy surface extrema (ridges) on the complex hypersphere. The midpoint `F_AB` lies *interior* to the value between A and B, reducing extremal alignment with surface-resident targets. This explains:
 
 - The 1D gain ceiling at ≈0.133
 - B already being closest to the ridge containing C

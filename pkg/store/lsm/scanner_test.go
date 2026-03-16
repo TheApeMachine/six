@@ -17,13 +17,13 @@ func TestPhaseDialScanner(t *testing.T) {
 
 		idx := NewSpatialIndexServer(WithContext(ctx))
 
-		// Insert distinct chord sequences at different positions.
-		// Each position gets a unique chord so the PhaseDials differ.
+		// Insert distinct value sequences at different positions.
+		// Each position gets a unique value so the PhaseDials differ.
 		for pos := uint32(0); pos < 5; pos++ {
 			sym := byte(65 + pos)
 			key := morton.Pack(pos, sym)
-			chord := data.BaseChord(byte(sym))
-			idx.insertSync(key, chord, data.MustNewChord())
+			value := data.BaseValue(byte(sym))
+			idx.insertSync(key, value, data.MustNewValue())
 		}
 
 		scanner := NewPhaseDialScanner(idx)
@@ -141,8 +141,8 @@ func TestPhaseDialScannerSteerability(t *testing.T) {
 		for pos := uint32(0); pos < 10; pos++ {
 			sym := byte(40 + pos*20)
 			key := morton.Pack(pos, sym)
-			chord := data.BaseChord(byte(sym))
-			idx.insertSync(key, chord, data.MustNewChord())
+			value := data.BaseValue(byte(sym))
+			idx.insertSync(key, value, data.MustNewValue())
 		}
 
 		scanner := NewPhaseDialScanner(idx)
@@ -165,12 +165,12 @@ func BenchmarkPhaseDialScan(b *testing.B) {
 	for pos := uint32(0); pos < 100; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
-		chord := data.BaseChord(byte(sym))
-		idx.insertSync(key, chord, data.MustNewChord())
+		value := data.BaseValue(byte(sym))
+		idx.insertSync(key, value, data.MustNewValue())
 	}
 
 	scanner := NewPhaseDialScanner(idx)
-	queryDial := geometry.NewPhaseDial().EncodeFromChords([]data.Chord{data.BaseChord('A')})
+	queryDial := geometry.NewPhaseDial().EncodeFromValues([]data.Value{data.BaseValue('A')})
 
 	b.ResetTimer()
 
@@ -188,12 +188,12 @@ func BenchmarkGeodesicScan(b *testing.B) {
 	for pos := uint32(0); pos < 50; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
-		chord := data.BaseChord(byte(sym))
-		idx.insertSync(key, chord, data.MustNewChord())
+		value := data.BaseValue(byte(sym))
+		idx.insertSync(key, value, data.MustNewValue())
 	}
 
 	scanner := NewPhaseDialScanner(idx)
-	queryDial := geometry.NewPhaseDial().EncodeFromChords([]data.Chord{data.BaseChord('A')})
+	queryDial := geometry.NewPhaseDial().EncodeFromValues([]data.Value{data.BaseValue('A')})
 
 	b.ResetTimer()
 

@@ -42,3 +42,5 @@ If the configuration file already exists, it will be overwritten.
 Examples:
 	six init
 `
+
+

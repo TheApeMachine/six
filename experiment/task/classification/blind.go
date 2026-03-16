@@ -130,7 +130,7 @@ The blind classification experiment evaluates zero-shot topical categorisation
 on the AG News dataset (\texttt{sh0416/ag\_news}) \emph{without} label
 supervision.  Unlike the standard text classification variant, category
 labels are never appended during ingestion---the system must discover
-topical structure purely from chord co-occurrence patterns in the article
+topical structure purely from value co-occurrence patterns in the article
 text.  At test time the system must surface the correct category word
 through associative recall alone.
 

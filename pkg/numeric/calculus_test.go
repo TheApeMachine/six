@@ -99,3 +99,5 @@ func BenchmarkPower(b *testing.B) {
 		_ = calc.Power(base, exp)
 	}
 }
+
+

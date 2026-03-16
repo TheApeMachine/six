@@ -8,3 +8,5 @@ type GFRotation struct {
 	CoordU uint16
 	CoordV uint16
 }
+
+

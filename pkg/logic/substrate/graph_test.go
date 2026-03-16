@@ -59,14 +59,14 @@ func tokenize(raw []byte) [][]byte {
 }
 
 /*
-buildPaths converts raw chunks into chords using BuildChord.
+buildPaths converts raw chunks into values using BuildValue.
 */
-func buildPaths(chunks [][]byte) ([]data.Chord, error) {
-	paths := make([]data.Chord, len(chunks))
+func buildPaths(chunks [][]byte) ([]data.Value, error) {
+	paths := make([]data.Value, len(chunks))
 
 	var err error
 	for i, chunk := range chunks {
-		paths[i], err = data.BuildChord(chunk)
+		paths[i], err = data.BuildValue(chunk)
 		if err != nil {
 			return nil, err
 		}
@@ -89,34 +89,34 @@ func TestGraph_AliceInWonderland(t *testing.T) {
 	}
 	graph := NewGraphServer()
 
-	t.Logf("Tokenized Alice: %d chunks, %d path chords", len(chunks), len(paths))
+	t.Logf("Tokenized Alice: %d chunks, %d path values", len(chunks), len(paths))
 
 	Convey("Given Alice in Wonderland tokenized by the real Sequencer", t, func() {
 		So(len(chunks), ShouldBeGreaterThan, 100)
 
-		Convey("The system finds matching passages via real chord geometry", func() {
-			promptChord, _ := data.BuildChord([]byte("Alice was beginning"))
-			bestIdx, lowestEnergy, _ := graph.Evaluate(promptChord, paths, nil, nil)
+		Convey("The system finds matching passages via real value geometry", func() {
+			promptValue, _ := data.BuildValue([]byte("Alice was beginning"))
+			bestIdx, lowestEnergy, _ := graph.Evaluate(promptValue, paths, nil, nil)
 
 			So(bestIdx, ShouldBeGreaterThanOrEqualTo, 0)
-			So(lowestEnergy, ShouldBeLessThan, promptChord.ActiveCount())
+			So(lowestEnergy, ShouldBeLessThan, promptValue.ActiveCount())
 
 			t.Logf("Prompt: %q → matched chunk[%d]=%q energy=%d (prompt=%d bits)",
 				"Alice was beginning", bestIdx, string(chunks[bestIdx]),
-				lowestEnergy, promptChord.ActiveCount())
+				lowestEnergy, promptValue.ActiveCount())
 		})
 
 		Convey("A stored chunk XORed with itself gives zero residue", func() {
 			idx := len(chunks) / 2
-			prompt, _ := data.BuildChord(chunks[idx])
+			prompt, _ := data.BuildValue(chunks[idx])
 			_, lowestEnergy, _ := graph.Evaluate(prompt, paths, nil, nil)
 
 			So(lowestEnergy, ShouldEqual, 0)
 		})
 
 		Convey("Similar phrases match better than unrelated noise", func() {
-			phraseA, _ := data.BuildChord([]byte("the Rabbit"))
-			phraseUnrelated, _ := data.BuildChord([]byte("ZZZZZZZZZ"))
+			phraseA, _ := data.BuildValue([]byte("the Rabbit"))
+			phraseUnrelated, _ := data.BuildValue([]byte("ZZZZZZZZZ"))
 
 			var bestIdx int
 			bestEnergy := 999
@@ -137,12 +137,12 @@ func TestGraph_AliceInWonderland(t *testing.T) {
 		})
 
 		Convey("Empty paths edge case returns -1", func() {
-			prompt, _ := data.BuildChord([]byte("test"))
+			prompt, _ := data.BuildValue([]byte("test"))
 			bestIdx, _, _ := graph.Evaluate(prompt, nil, nil, nil)
 			So(bestIdx, ShouldEqual, -1)
 		})
 
-		Convey("Chord density profile is reported", func() {
+		Convey("Value density profile is reported", func() {
 			var maxDensity float64
 			var maxIdx int
 			var underCeiling int
@@ -190,7 +190,7 @@ func TestGraph_AliceInWonderland(t *testing.T) {
 			So(avgBits, ShouldBeGreaterThan, 5)
 			So(maxBits, ShouldBeGreaterThan, avgBits)
 			So(minBits, ShouldBeLessThan, avgBits)
-			t.Logf("Chord density: min=%d avg=%d max=%d across %d chunks",
+			t.Logf("Value density: min=%d avg=%d max=%d across %d chunks",
 				minBits, avgBits, maxBits, len(paths))
 		})
 	})
@@ -209,7 +209,7 @@ func BenchmarkGraph_Alice(b *testing.B) {
 	}
 	graph := NewGraphServer()
 
-	prompt, _ := data.BuildChord([]byte("Alice was beginning"))
+	prompt, _ := data.BuildValue([]byte("Alice was beginning"))
 
 	b.ResetTimer()
 
@@ -221,13 +221,13 @@ func BenchmarkGraph_Alice(b *testing.B) {
 func BenchmarkGraph_Evaluate_Scaling(b *testing.B) {
 	graph := NewGraphServer()
 
-	paths := make([]data.Chord, 100_000)
+	paths := make([]data.Value, 100_000)
 	for i := range paths {
-		c, _ := data.BuildChord([]byte(fmt.Sprintf("chunk_%d", i%1000)))
+		c, _ := data.BuildValue([]byte(fmt.Sprintf("chunk_%d", i%1000)))
 		paths[i] = c
 	}
 
-	prompt, _ := data.BuildChord([]byte("test query"))
+	prompt, _ := data.BuildValue([]byte("test query"))
 
 	for _, size := range []int{100, 1_000, 10_000, 100_000} {
 		b.Run(fmt.Sprintf("%d_paths", size), func(b *testing.B) {
@@ -243,15 +243,15 @@ func BenchmarkGraph_Evaluate_Scaling(b *testing.B) {
 
 // ── Mathematical Explorations ─────────────────────────────────────────
 //
-// These tests explore properties of the chord algebra.
+// These tests explore properties of the value algebra.
 // Each test includes a null hypothesis to guard against tautologies.
 
 /*
-TestBaseChordMinimumDistance measures the actual minimum Hamming distance
-between all 256²/2 BaseChord pairs. No oracle — exhaustive enumeration.
+TestBaseValueMinimumDistance measures the actual minimum Hamming distance
+between all 256²/2 BaseValue pairs. No oracle — exhaustive enumeration.
 */
-func TestBaseChordMinimumDistance(t *testing.T) {
-	Convey("Given all 256 BaseChords", t, func() {
+func TestBaseValueMinimumDistance(t *testing.T) {
+	Convey("Given all 256 BaseValues", t, func() {
 		Convey("Measure pairwise Hamming distances exhaustively", func() {
 			minDist := 999
 			maxDist := 0
@@ -260,10 +260,10 @@ func TestBaseChordMinimumDistance(t *testing.T) {
 
 			for a := 0; a < config.Numeric.VocabSize; a++ {
 				for b := a + 1; b < config.Numeric.VocabSize; b++ {
-					ca := data.BaseChord(byte(a))
-					cb := data.BaseChord(byte(b))
+					ca := data.BaseValue(byte(a))
+					cb := data.BaseValue(byte(b))
 
-					shared := data.ChordSimilarity(&ca, &cb)
+					shared := data.ValueSimilarity(&ca, &cb)
 					dist := ca.XOR(cb).ActiveCount()
 
 					if shared > 0 {
@@ -282,7 +282,7 @@ func TestBaseChordMinimumDistance(t *testing.T) {
 			}
 
 			totalPairs := config.Numeric.VocabSize * (config.Numeric.VocabSize - 1) / 2
-			t.Logf("BaseChord code: d_min=%d  d_max=%d", minDist, maxDist)
+			t.Logf("BaseValue code: d_min=%d  d_max=%d", minDist, maxDist)
 			t.Logf("Collision pairs: %d/%d (%.1f%%)",
 				collisionPairs, totalPairs, float64(collisionPairs)/float64(totalPairs)*100)
 
@@ -299,7 +299,7 @@ func TestBaseChordMinimumDistance(t *testing.T) {
 			counts := make(map[int]int)
 
 			for b := 0; b < config.Numeric.VocabSize; b++ {
-				c := data.BaseChord(byte(b))
+				c := data.BaseValue(byte(b))
 				n := c.ActiveCount()
 				counts[n]++
 				So(n, ShouldBeGreaterThan, 0)
@@ -327,16 +327,16 @@ func TestThreeWayDecomposition(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	Convey("Given pairs of Alice chords", t, func() {
-		prompt, _ := data.BuildChord([]byte("Alice was beginning"))
+	Convey("Given pairs of Alice values", t, func() {
+		prompt, _ := data.BuildValue([]byte("Alice was beginning"))
 
 		for trial := range 5 {
 			idx := trial * len(paths) / 5
 			stored := paths[idx]
 
 			shared := prompt.AND(stored)
-			promptOnly := data.ChordHole(&prompt, &stored)
-			storedOnly := data.ChordHole(&stored, &prompt)
+			promptOnly := data.ValueHole(&prompt, &stored)
+			storedOnly := data.ValueHole(&stored, &prompt)
 			residue := prompt.XOR(stored)
 
 			Convey(fmt.Sprintf("Trial %d: chunk[%d]", trial, idx), func() {
@@ -369,7 +369,7 @@ func TestThreeWayDecomposition(t *testing.T) {
 
 /*
 TestDistanceMetricRankings compares how Hamming, Jaccard, Containment,
-and Cosine rank the same set of stored chords against a prompt.
+and Cosine rank the same set of stored values against a prompt.
 
 Reports: do the metrics produce the same or different top-k rankings?
 No assertions on quality — just factual rank comparison.
@@ -387,7 +387,7 @@ func TestDistanceMetricRankings(t *testing.T) {
 	}
 
 	Convey("Given four distance metrics applied to the same data", t, func() {
-		prompt, _ := data.BuildChord([]byte("the Rabbit"))
+		prompt, _ := data.BuildValue([]byte("the Rabbit"))
 		pActive := prompt.ActiveCount()
 
 		type scored struct {
@@ -401,7 +401,7 @@ func TestDistanceMetricRankings(t *testing.T) {
 		results := make([]scored, len(paths))
 
 		for i, path := range paths {
-			shared := data.ChordSimilarity(&prompt, &path)
+			shared := data.ValueSimilarity(&prompt, &path)
 			sActive := path.ActiveCount()
 			hammingDist := prompt.XOR(path).ActiveCount()
 			union := pActive + sActive - shared
@@ -499,7 +499,7 @@ func TestDistanceMetricRankings(t *testing.T) {
 /*
 TestAnalogyOperator tests D = A ⊕ B ⊕ C against a proper null hypothesis.
 
-Null: D is compared against ALL stored chords. We measure where the
+Null: D is compared against ALL stored values. We measure where the
 expected target ranks. Then we repeat with a RANDOM relationship vector
 (same Hamming weight as the real one). If the real analogy ranks the
 target significantly higher than the random relationship does, the
@@ -521,37 +521,37 @@ func TestAnalogyOperator(t *testing.T) {
 	Convey("Given the analogy A:B :: C:D where D = C ⊕ (A ⊕ B)", t, func() {
 
 		Convey("Measure whether analogy outperforms a null (random relationship)", func() {
-			chordA, _ := data.BuildChord([]byte("Alice said"))
-			chordB, _ := data.BuildChord([]byte("Queen said"))
-			chordC, _ := data.BuildChord([]byte("Alice looked"))
-			expected, _ := data.BuildChord([]byte("Queen looked"))
+			valueA, _ := data.BuildValue([]byte("Alice said"))
+			valueB, _ := data.BuildValue([]byte("Queen said"))
+			valueC, _ := data.BuildValue([]byte("Alice looked"))
+			expected, _ := data.BuildValue([]byte("Queen looked"))
 
 			// Real analogy.
-			relationship := chordA.XOR(chordB)
-			chordD := chordC.XOR(relationship)
+			relationship := valueA.XOR(valueB)
+			valueD := valueC.XOR(relationship)
 
-			distToExpected := chordD.XOR(expected).ActiveCount()
+			distToExpected := valueD.XOR(expected).ActiveCount()
 
-			// Measure D's distance to expected vs D's distance to ALL stored chords.
+			// Measure D's distance to expected vs D's distance to ALL stored values.
 			betterThanExpected := 0
 			totalPaths := len(paths)
 
 			for _, path := range paths {
-				if chordD.XOR(path).ActiveCount() <= distToExpected {
+				if valueD.XOR(path).ActiveCount() <= distToExpected {
 					betterThanExpected++
 				}
 			}
 
 			rankPercentile := float64(betterThanExpected) / float64(totalPaths) * 100
 
-			// Null hypothesis: use chordC directly (no relationship applied).
-			// If the analogy does nothing useful, chordC itself should rank
-			// "Queen looked" just as well as chordD does.
-			nullDistToExpected := chordC.XOR(expected).ActiveCount()
+			// Null hypothesis: use valueC directly (no relationship applied).
+			// If the analogy does nothing useful, valueC itself should rank
+			// "Queen looked" just as well as valueD does.
+			nullDistToExpected := valueC.XOR(expected).ActiveCount()
 			nullBetter := 0
 
 			for _, path := range paths {
-				if chordC.XOR(path).ActiveCount() <= nullDistToExpected {
+				if valueC.XOR(path).ActiveCount() <= nullDistToExpected {
 					nullBetter++
 				}
 			}
@@ -559,8 +559,8 @@ func TestAnalogyOperator(t *testing.T) {
 			nullPercentile := float64(nullBetter) / float64(totalPaths) * 100
 
 			t.Logf("Analogy: |A|=%d |B|=%d |relationship|=%d |shared(A,B)|=%d",
-				chordA.ActiveCount(), chordB.ActiveCount(),
-				relationship.ActiveCount(), data.ChordSimilarity(&chordA, &chordB))
+				valueA.ActiveCount(), valueB.ActiveCount(),
+				relationship.ActiveCount(), data.ValueSimilarity(&valueA, &valueB))
 			t.Logf("D = C ⊕ (A ⊕ B): |D⊕expected|=%d", distToExpected)
 			t.Logf("Analogy rank: %d/%d paths closer (top %.1f%%)",
 				betterThanExpected, totalPaths, rankPercentile)
@@ -580,20 +580,20 @@ func TestAnalogyOperator(t *testing.T) {
 		Convey("Report byte-level confound: how much of the analogy is just shared substrings", func() {
 			// "Alice said" and "Queen said" share bytes: {' ', 's', 'a', 'i', 'd'}
 			// "Alice looked" and "Queen looked" share bytes: {' ', 'l', 'o', 'k', 'e', 'd'}
-			// How many BaseChord bits do the shared bytes contribute?
+			// How many BaseValue bits do the shared bytes contribute?
 			sharedBytes := []byte{' ', 's', 'a', 'i', 'd'}
-			sharedChord, _ := data.BuildChord(sharedBytes)
+			sharedValue, _ := data.BuildValue(sharedBytes)
 
-			chordA, _ := data.BuildChord([]byte("Alice said"))
-			chordB, _ := data.BuildChord([]byte("Queen said"))
+			valueA, _ := data.BuildValue([]byte("Alice said"))
+			valueB, _ := data.BuildValue([]byte("Queen said"))
 
 			t.Logf("Shared substring ' said' contributes %d bits out of |A|=%d, |B|=%d",
-				sharedChord.ActiveCount(), chordA.ActiveCount(), chordB.ActiveCount())
+				sharedValue.ActiveCount(), valueA.ActiveCount(), valueB.ActiveCount())
 			t.Logf("Shared fraction of A: %.0f%%  of B: %.0f%%",
-				float64(data.ChordSimilarity(&sharedChord, &chordA))/float64(chordA.ActiveCount())*100,
-				float64(data.ChordSimilarity(&sharedChord, &chordB))/float64(chordB.ActiveCount())*100)
+				float64(data.ValueSimilarity(&sharedValue, &valueA))/float64(valueA.ActiveCount())*100,
+				float64(data.ValueSimilarity(&sharedValue, &valueB))/float64(valueB.ActiveCount())*100)
 
-			So(sharedChord.ActiveCount(), ShouldBeGreaterThan, 0)
+			So(sharedValue.ActiveCount(), ShouldBeGreaterThan, 0)
 		})
 	})
 }
@@ -617,7 +617,7 @@ func TestSuccessiveCancellation(t *testing.T) {
 	graph := NewGraphServer()
 
 	Convey("Given iterative XOR-and-match on a prompt", t, func() {
-		prompt, _ := data.BuildChord([]byte("Alice found the rabbit in the garden"))
+		prompt, _ := data.BuildValue([]byte("Alice found the rabbit in the garden"))
 		startEnergy := prompt.ActiveCount()
 
 		Convey("Track residue energy across steps", func() {
@@ -661,10 +661,10 @@ func TestSuccessiveCancellation(t *testing.T) {
 
 /*
 TestTopKSharedCore measures whether the AND of top-k matches
-retains more bits than the AND of k RANDOM chords.
+retains more bits than the AND of k RANDOM values.
 
 If the shared core of top-k is no larger than the shared core
-of random chords, then the top-k overlap is just a statistical
+of random values, then the top-k overlap is just a statistical
 artifact of any dense enough binary vectors.
 */
 func TestTopKSharedCore(t *testing.T) {
@@ -679,8 +679,8 @@ func TestTopKSharedCore(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	Convey("Given top-k matches vs k random chords", t, func() {
-		prompt, _ := data.BuildChord([]byte("the Rabbit"))
+	Convey("Given top-k matches vs k random values", t, func() {
+		prompt, _ := data.BuildValue([]byte("the Rabbit"))
 		k := 10
 
 		// Sort all paths by distance to prompt.
@@ -706,7 +706,7 @@ func TestTopKSharedCore(t *testing.T) {
 			topCore.Sanitize()
 			topCoreSize := topCore.ActiveCount()
 
-			// Random-k core: pick k chords from the middle of the ranking.
+			// Random-k core: pick k values from the middle of the ranking.
 			midStart := len(paths) / 2
 			randCore := paths[midStart]
 
@@ -718,7 +718,7 @@ func TestTopKSharedCore(t *testing.T) {
 			randCoreSize := randCore.ActiveCount()
 
 			// How much of top-k core overlaps with the prompt?
-			topOverlap := data.ChordSimilarity(&topCore, &prompt)
+			topOverlap := data.ValueSimilarity(&topCore, &prompt)
 
 			t.Logf("Top-%d shared core: %d bits (%d overlap with prompt of %d)",
 				k, topCoreSize, topOverlap, prompt.ActiveCount())
@@ -748,8 +748,8 @@ func TestTopKSharedCore(t *testing.T) {
 /*
 TestContainmentVsDensity measures containment scores across prompts
 of varying density, exposing the trivial-containment problem:
-short prompts achieve containment=1.0 against many stored chords
-simply because dense chords cover most bit positions.
+short prompts achieve containment=1.0 against many stored values
+simply because dense values cover most bit positions.
 */
 func TestContainmentVsDensity(t *testing.T) {
 	raw, err := os.ReadFile("../../cmd/cfg/alice.txt")
@@ -775,13 +775,13 @@ func TestContainmentVsDensity(t *testing.T) {
 		}
 
 		for _, p := range prompts {
-			prompt, _ := data.BuildChord([]byte(p.text))
+			prompt, _ := data.BuildValue([]byte(p.text))
 			pActive := prompt.ActiveCount()
 
 			perfectContainment := 0
 
 			for _, path := range paths {
-				shared := data.ChordSimilarity(&prompt, &path)
+				shared := data.ValueSimilarity(&prompt, &path)
 				containment := float64(shared) / float64(max(pActive, 1))
 
 				if containment >= 1.0 {
@@ -807,11 +807,11 @@ func TestContainmentVsDensity(t *testing.T) {
 // ── Foundational Properties ───────────────────────────────────────────
 
 /*
-TestSaturationCurve measures how chord density grows as more bytes
+TestSaturationCurve measures how value density grows as more bytes
 are OR'd in. Since OR is monotonic (can only set bits, never clear),
-chords must eventually saturate. The question is: how fast?
+values must eventually saturate. The question is: how fast?
 
-At saturation, all 257 bits are set and ALL chords become identical.
+At saturation, all 257 bits are set and ALL values become identical.
 This is the fundamental information-theoretic limit of OR aggregation.
 */
 func TestSaturationCurve(t *testing.T) {
@@ -823,7 +823,7 @@ func TestSaturationCurve(t *testing.T) {
 	Convey("Given progressively longer slices of Alice", t, func() {
 		Convey("Measure density vs byte count", func() {
 			_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-			accum, _ := data.NewChord(seg)
+			accum, _ := data.NewValue(seg)
 			prevBits := 0
 			saturated := -1
 
@@ -834,7 +834,7 @@ func TestSaturationCurve(t *testing.T) {
 			stepIdx := 0
 
 			for pos, b := range raw {
-				base := data.BaseChord(b)
+				base := data.BaseValue(b)
 				accum = accum.OR(base)
 				seen[b] = true
 
@@ -868,12 +868,12 @@ func TestSaturationCurve(t *testing.T) {
 			// Also measure: at what unique-byte count do we see
 			// diminishing returns?
 			_, seg2, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-			fresh, _ := data.NewChord(seg2)
+			fresh, _ := data.NewValue(seg2)
 			uniqueCount := 0
 
 			for b := 0; b < config.Numeric.VocabSize; b++ {
 				old := fresh.ActiveCount()
-				fresh = fresh.OR(data.BaseChord(byte(b)))
+				fresh = fresh.OR(data.BaseValue(byte(b)))
 				gain := fresh.ActiveCount() - old
 				uniqueCount++
 
@@ -895,22 +895,22 @@ func TestSaturationCurve(t *testing.T) {
 
 /*
 TestBitUtilization measures whether the 257 bit positions are used
-uniformly across all 256 BaseChords.
+uniformly across all 256 BaseValues.
 
 If some positions are "hot" (set by many bytes), they carry less
 information. Ideal: each position set by ~5 bytes (since each
-BaseChord sets 5 bits, total set-events = 256*5 = 1280, across
+BaseValue sets 5 bits, total set-events = 256*5 = 1280, across
 257 positions → ~4.98 per position).
 
 But collisions change this. Measure the actual distribution.
 */
 func TestBitUtilization(t *testing.T) {
-	Convey("Given all 256 BaseChords", t, func() {
+	Convey("Given all 256 BaseValues", t, func() {
 		Convey("Measure per-position usage frequency", func() {
 			freq := make([]int, config.Numeric.VocabSize+1)
 
 			for b := 0; b < config.Numeric.VocabSize; b++ {
-				c := data.BaseChord(byte(b))
+				c := data.BaseValue(byte(b))
 
 				for pos := 0; pos < config.Numeric.VocabSize+1; pos++ {
 					if c.Has(pos) {
@@ -976,12 +976,12 @@ and a known full sequence, can we recover the continuation from the residue?
 
 Math: full = OR(all bytes), prefix = OR(prefix bytes)
 
-	residue = full XOR prefix = ChordHole(full, prefix) ∪ ChordHole(prefix, full)
+	residue = full XOR prefix = ValueHole(full, prefix) ∪ ValueHole(prefix, full)
 
-Since prefix ⊆ full (by construction): ChordHole(prefix, full) = ∅
-So: residue = ChordHole(full, prefix) = bits in full not in prefix
+Since prefix ⊆ full (by construction): ValueHole(prefix, full) = ∅
+So: residue = ValueHole(full, prefix) = bits in full not in prefix
 
-But the actual continuation chord = OR(continuation bytes), which includes
+But the actual continuation value = OR(continuation bytes), which includes
 bits from bytes shared with the prefix. Those shared bits are invisible
 in the residue. This test measures exactly how many bits are lost.
 */
@@ -1000,25 +1000,25 @@ func TestResidueRecovery(t *testing.T) {
 
 		for _, tc := range cases {
 			Convey(fmt.Sprintf("Full=%q prefix=%q cont=%q", tc.full, tc.prefix, tc.cont), func() {
-				fullChord, _ := data.BuildChord([]byte(tc.full))
-				prefixChord, _ := data.BuildChord([]byte(tc.prefix))
-				contChord, _ := data.BuildChord([]byte(tc.cont))
+				fullValue, _ := data.BuildValue([]byte(tc.full))
+				prefixValue, _ := data.BuildValue([]byte(tc.prefix))
+				contValue, _ := data.BuildValue([]byte(tc.cont))
 
 				// Verify prefix ⊆ full.
-				prefixInFull := data.ChordSimilarity(&prefixChord, &fullChord)
-				prefixIsSubset := prefixInFull == prefixChord.ActiveCount()
+				prefixInFull := data.ValueSimilarity(&prefixValue, &fullValue)
+				prefixIsSubset := prefixInFull == prefixValue.ActiveCount()
 
 				// Compute residue.
-				residue := fullChord.XOR(prefixChord)
+				residue := fullValue.XOR(prefixValue)
 
-				// When prefix ⊆ full, XOR = ChordHole(full, prefix).
-				hole := data.ChordHole(&fullChord, &prefixChord)
+				// When prefix ⊆ full, XOR = ValueHole(full, prefix).
+				hole := data.ValueHole(&fullValue, &prefixValue)
 				holeEqualsResidue := hole.XOR(residue).ActiveCount() == 0
 
-				// Compare residue to actual continuation chord.
+				// Compare residue to actual continuation value.
 				residueBits := residue.ActiveCount()
-				contBits := contChord.ActiveCount()
-				overlapResidCont := data.ChordSimilarity(&residue, &contChord)
+				contBits := contValue.ActiveCount()
+				overlapResidCont := data.ValueSimilarity(&residue, &contValue)
 
 				// How many continuation bits are missing from the residue?
 				// These are bits set by bytes shared between prefix and continuation.
@@ -1063,7 +1063,7 @@ func TestResidueRecovery(t *testing.T) {
 					overlapResidCont, contBits,
 					float64(overlapResidCont)/float64(max(contBits, 1))*100)
 
-				Convey("When prefix ⊆ full, residue should equal ChordHole", func() {
+				Convey("When prefix ⊆ full, residue should equal ValueHole", func() {
 					if prefixIsSubset {
 						So(holeEqualsResidue, ShouldBeTrue)
 					}
@@ -1073,9 +1073,9 @@ func TestResidueRecovery(t *testing.T) {
 					if sharedValues == 0 && missingBits == 0 {
 						t.Log("  → No shared bytes and no missing bits: perfect recovery")
 					} else if sharedValues == 0 && missingBits > 0 {
-						// BaseChord collisions: distinct bytes share bit positions
+						// BaseValue collisions: distinct bytes share bit positions
 						// because d_min = 6 (coprime spreading has overlaps).
-						t.Logf("  → No shared bytes but %d missing bits: BaseChord bit collisions", missingBits)
+						t.Logf("  → No shared bytes but %d missing bits: BaseValue bit collisions", missingBits)
 					} else {
 						t.Logf("  → %d shared byte values cause %d missing bits", sharedValues, missingBits)
 					}
@@ -1089,10 +1089,10 @@ func TestResidueRecovery(t *testing.T) {
 
 /*
 TestOrderInvariance confirms that OR aggregation is order-insensitive,
-then measures how many distinct Alice chunks collapse to the same chord.
+then measures how many distinct Alice chunks collapse to the same value.
 
 The collision rate reveals how much information OR-aggregation destroys:
-if many distinct chunks produce the same chord, the chord space is too
+if many distinct chunks produce the same value, the value space is too
 coarse for disambiguation.
 */
 func TestOrderInvariance(t *testing.T) {
@@ -1109,17 +1109,17 @@ func TestOrderInvariance(t *testing.T) {
 
 	Convey("Given Alice chunks", t, func() {
 
-		Convey("Permutations of the same bytes must produce the same chord", func() {
+		Convey("Permutations of the same bytes must produce the same value", func() {
 			original := []byte("Alice")
 			reversed := []byte("ecilA")
 			sorted := []byte("Aceil")
 
-			chordOrig, _ := data.BuildChord(original)
-			chordRev, _ := data.BuildChord(reversed)
-			chordSort, _ := data.BuildChord(sorted)
+			valueOrig, _ := data.BuildValue(original)
+			valueRev, _ := data.BuildValue(reversed)
+			valueSort, _ := data.BuildValue(sorted)
 
-			distOrigRev := chordOrig.XOR(chordRev).ActiveCount()
-			distOrigSort := chordOrig.XOR(chordSort).ActiveCount()
+			distOrigRev := valueOrig.XOR(valueRev).ActiveCount()
+			distOrigSort := valueOrig.XOR(valueSort).ActiveCount()
 
 			t.Logf("  'Alice' vs 'ecilA': distance=%d", distOrigRev)
 			t.Logf("  'Alice' vs 'Aceil': distance=%d", distOrigSort)
@@ -1128,44 +1128,44 @@ func TestOrderInvariance(t *testing.T) {
 			So(distOrigSort, ShouldEqual, 0)
 		})
 
-		Convey("Different byte SETS must produce different chords", func() {
-			a, _ := data.BuildChord([]byte("abc"))
-			b, _ := data.BuildChord([]byte("abd"))
+		Convey("Different byte SETS must produce different values", func() {
+			a, _ := data.BuildValue([]byte("abc"))
+			b, _ := data.BuildValue([]byte("abd"))
 
 			dist := a.XOR(b).ActiveCount()
 			t.Logf("  'abc' vs 'abd': distance=%d", dist)
 			So(dist, ShouldBeGreaterThan, 0)
 		})
 
-		Convey("Same byte set, different lengths must produce the same chord", func() {
+		Convey("Same byte set, different lengths must produce the same value", func() {
 			// "aab" has unique bytes {a, b}, same as "ab"
-			short, _ := data.BuildChord([]byte("ab"))
-			long, _ := data.BuildChord([]byte("aab"))
+			short, _ := data.BuildValue([]byte("ab"))
+			long, _ := data.BuildValue([]byte("aab"))
 
 			dist := short.XOR(long).ActiveCount()
 			t.Logf("  'ab' vs 'aab': distance=%d", dist)
 			So(dist, ShouldEqual, 0)
 		})
 
-		Convey("Measure chunk-to-chord collision rate in Alice", func() {
-			// Key = chord fingerprint (C0..C4 concatenated), value = chunk indices.
-			type chordKey struct {
+		Convey("Measure chunk-to-value collision rate in Alice", func() {
+			// Key = value fingerprint (C0..C4 concatenated), value = chunk indices.
+			type valueKey struct {
 				c0, c1, c2, c3, c4 uint64
 			}
 
-			groups := make(map[chordKey][]int)
+			groups := make(map[valueKey][]int)
 
 			for i, path := range paths {
-				key := chordKey{path.C0(), path.C1(), path.C2(), path.C3(), path.C4()}
+				key := valueKey{path.C0(), path.C1(), path.C2(), path.C3(), path.C4()}
 				groups[key] = append(groups[key], i)
 			}
 
-			uniqueChords := len(groups)
+			uniqueValues := len(groups)
 			totalChunks := len(chunks)
-			collisions := totalChunks - uniqueChords
+			collisions := totalChunks - uniqueValues
 
-			t.Logf("  %d chunks → %d unique chords (%d collisions, %.1f%%)",
-				totalChunks, uniqueChords, collisions,
+			t.Logf("  %d chunks → %d unique values (%d collisions, %.1f%%)",
+				totalChunks, uniqueValues, collisions,
 				float64(collisions)/float64(totalChunks)*100)
 
 			// Report some collision groups.
@@ -1186,15 +1186,15 @@ func TestOrderInvariance(t *testing.T) {
 				}
 			}
 
-			So(uniqueChords, ShouldBeGreaterThan, 0)
+			So(uniqueValues, ShouldBeGreaterThan, 0)
 		})
 	})
 }
 
 /*
-TestDumpAliceLabels writes a log file showing every unique chord
+TestDumpAliceLabels writes a log file showing every unique value
 produced during the Alice breakdown, the text chunks grouped under
-each chord (= label), and each label's nearest neighbors.
+each value (= label), and each label's nearest neighbors.
 */
 func TestDumpAliceLabels(t *testing.T) {
 	raw, err := os.ReadFile("../../cmd/cfg/alice.txt")
@@ -1210,29 +1210,29 @@ func TestDumpAliceLabels(t *testing.T) {
 
 	Convey("Given Alice tokenized into chunks", t, func() {
 		Convey("Dump label map to log file", func() {
-			type chordKey struct {
+			type valueKey struct {
 				c0, c1, c2, c3, c4 uint64
 			}
 
 			type label struct {
-				key     chordKey
-				chord   data.Chord
+				key     valueKey
+				value   data.Value
 				indices []int
 				bits    int
 			}
 
-			groups := make(map[chordKey]*label)
-			keyOrder := []chordKey{}
+			groups := make(map[valueKey]*label)
+			keyOrder := []valueKey{}
 
 			for i, path := range paths {
-				key := chordKey{path.C0(), path.C1(), path.C2(), path.C3(), path.C4()}
+				key := valueKey{path.C0(), path.C1(), path.C2(), path.C3(), path.C4()}
 
 				if existing, ok := groups[key]; ok {
 					existing.indices = append(existing.indices, i)
 				} else {
 					groups[key] = &label{
 						key:     key,
-						chord:   path,
+						value:   path,
 						indices: []int{i},
 						bits:    path.ActiveCount(),
 					}
@@ -1251,9 +1251,9 @@ func TestDumpAliceLabels(t *testing.T) {
 				return li.bits < lj.bits
 			})
 
-			uniqueChords := make([]data.Chord, len(keyOrder))
+			uniqueValues := make([]data.Value, len(keyOrder))
 			for i, key := range keyOrder {
-				uniqueChords[i] = groups[key].chord
+				uniqueValues[i] = groups[key].value
 			}
 
 			f, err := os.Create(t.TempDir() + "/alice_labels.log")
@@ -1331,14 +1331,14 @@ func TestDumpAliceLabels(t *testing.T) {
 					text string
 				}
 
-				neighbors := make([]neighbor, 0, len(uniqueChords))
+				neighbors := make([]neighbor, 0, len(uniqueValues))
 
-				for j, uc := range uniqueChords {
+				for j, uc := range uniqueValues {
 					if j == rank {
 						continue
 					}
 
-					dist := lbl.chord.XOR(uc).ActiveCount()
+					dist := lbl.value.XOR(uc).ActiveCount()
 					other := groups[keyOrder[j]]
 					text := string(chunks[other.indices[0]])
 
@@ -1370,11 +1370,11 @@ func TestDumpAliceLabels(t *testing.T) {
 
 /*
 TestGraphResidueDepletion tests the geometric reasoning process by systematically
-depleting a prompt's chordal energy using branches from the LSM.
+depleting a prompt's valueal energy using branches from the LSM.
 1. Fills the simulated LSM with Alice in Wonderland.
 2. Takes half a sentence as a prompt.
 3. Finds matching branches coming off that span.
-4. Uses Matrix to evaluate and ChordHole to strictly remove shared components.
+4. Uses Matrix to evaluate and ValueHole to strictly remove shared components.
 5. Checks what is left when it can no longer be reduced.
 */
 func TestGraphResidueDepletion(t *testing.T) {
@@ -1395,21 +1395,21 @@ func TestGraphResidueDepletion(t *testing.T) {
 		// 2. Take half a sentence
 		text := "Alice was beginning to get very tired of sitting by her sister on the bank"
 		halfSentence := text[:len(text)/2]
-		prompt, _ := data.BuildChord([]byte(halfSentence))
+		prompt, _ := data.BuildValue([]byte(halfSentence))
 		startBits := prompt.ActiveCount()
 
 		Convey("Keep removing shared components with LSM branches until depleted", func() {
 			// 3. Find it in the LSM, get all the branches that come off that span.
 			// Emulate finding branches by identifying paths that share similarity
-			var branches []data.Chord
+			var branches []data.Value
 			for _, path := range paths {
-				if data.ChordSimilarity(&prompt, &path) > 3 { // Threshold to be a valid branch
+				if data.ValueSimilarity(&prompt, &path) > 3 { // Threshold to be a valid branch
 					branches = append(branches, path)
 				}
 			}
 
 			// 4. Put it all in the graph Matrix
-			// 5. Use data/chord operations and keep removing shared components
+			// 5. Use data/value operations and keep removing shared components
 			residue := prompt
 			steps := 0
 
@@ -1425,10 +1425,10 @@ func TestGraphResidueDepletion(t *testing.T) {
 
 				match := branches[bestIdx]
 
-				// Use ChordHole to strictly remove shared components (Target AND NOT Match).
+				// Use ValueHole to strictly remove shared components (Target AND NOT Match).
 				// This avoids the XOR issue of adding new bits, doing exactly what
 				// "removing shared components" demands.
-				nextResidue := data.ChordHole(&residue, &match)
+				nextResidue := data.ValueHole(&residue, &match)
 
 				if nextResidue.ActiveCount() == residue.ActiveCount() {
 					// We didn't manage to remove any bits this time

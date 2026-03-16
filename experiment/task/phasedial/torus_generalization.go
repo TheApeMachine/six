@@ -327,7 +327,7 @@ package phasedial
 // 	// 	return rotated
 // 	// }
 
-// 	// compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB []data.Chord, effectiveDims int) float64 {
+// 	// compute1DCeiling := func(fpA, fpB geometry.PhaseDial, excludeA, excludeB []data.Value, effectiveDims int) float64 {
 // 	// 	ceiling := -1.0
 // 	// 	for s := 0; s < 360; s++ {
 // 	// 		alpha := float64(s) * (math.Pi / 180.0)
@@ -391,9 +391,9 @@ package phasedial
 
 // 	// var allSeeds []seedResult
 // 	// for _, seedQuery := range experiment.seedQueries {
-// 	// 	seedQueryChords := sub.Entries[0].Readout
+// 	// 	seedQueryValues := sub.Entries[0].Readout
 // 	// 	fingerprintA := sub.Entries[0].Fingerprint
-// 	// 	hop := sub.FirstHop(fingerprintA, 45.0*(math.Pi/180.0), seedQueryChords)
+// 	// 	hop := sub.FirstHop(fingerprintA, 45.0*(math.Pi/180.0), seedQueryValues)
 // 	// 	fpB, fpAB := hop.FingerprintB, hop.FingerprintAB
 // 	// 	readoutB := hop.ReadoutB
 
@@ -403,7 +403,7 @@ package phasedial
 // 	// 		splits := splitCandidates(effectiveDim, experiment.splitRatios)
 
 // 	// 		for splitIdx, split := range splits {
-// 	// 			ceiling := compute1DCeiling(fingerprintA, fpB, seedQueryChords, readoutB, effectiveDim)
+// 	// 			ceiling := compute1DCeiling(fingerprintA, fpB, seedQueryValues, readoutB, effectiveDim)
 
 // 	// 			rightDims := effectiveDim - split
 // 	// 			dimsPerAxis := split
@@ -442,7 +442,7 @@ package phasedial
 // 	// 						angles := []float64{float64(i) * stepRad, float64(j) * stepRad}
 // 	// 						rotatedAB := generalRotate(fpAB, 2, cfg.dimMap, angles)
 // 	// 						rnk := sub.PhaseDialRank(sub.Candidates(), rotatedAB)
-// 	// 						topIdx := sub.TopExcluding(rnk, seedQueryChords, readoutB)
+// 	// 						topIdx := sub.TopExcluding(rnk, seedQueryValues, readoutB)
 // 	// 						fpC := sub.Entries[topIdx].Fingerprint
 // 	// 						gain := math.Min(fpC.Similarity(fingerprintA), fpC.Similarity(fpB))
 // 	// 						if gain > bestGain {

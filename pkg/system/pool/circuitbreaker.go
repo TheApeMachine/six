@@ -160,3 +160,5 @@ func (cb *CircuitBreaker) Allow() bool {
 		return false
 	}
 }
+
+

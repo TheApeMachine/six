@@ -5,7 +5,6 @@
 #import <Metal/Metal.h>
 #include "metal.h"
 
-// Globals
 static id<MTLDevice> device = nil;
 static id<MTLCommandQueue> commandQueue = nil;
 static id<MTLComputePipelineState> resolveResonancePipeline = nil;
@@ -13,24 +12,12 @@ static id<MTLComputePipelineState> resolveResonancePipeline = nil;
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
 
-static id<MTLBuffer> cachedCtxBuffer = nil;
-static id<MTLBuffer> cachedResultBuffer = nil;
-
-void metalResolverTeardown() {
-    if (cachedCtxBuffer) {
-        [cachedCtxBuffer release];
-        cachedCtxBuffer = nil;
-    }
-    if (cachedResultBuffer) {
-        [cachedResultBuffer release];
-        cachedResultBuffer = nil;
-    }
-}
-
 #define GFROTATION_SIZE 4
 
 int init_metal(const char* metallib_path) {
-    if (device != nil && initResult == 0) return 0;
+    if (device != nil && initResult == 0) {
+        return 0;
+    }
 
     dispatch_once(&initOnceToken, ^{
         device = MTLCreateSystemDefaultDevice();
@@ -84,7 +71,9 @@ int init_metal(const char* metallib_path) {
 }
 
 int resolve_resonance_metal(const void* graph_nodes_ptr, uint32_t num_nodes, const void* active_context_ptr, uint64_t* out_result) {
-    if (!resolveResonancePipeline || out_result == NULL) return -1;
+    if (!resolveResonancePipeline || out_result == NULL || graph_nodes_ptr == NULL || active_context_ptr == NULL) {
+        return -1;
+    }
     if (num_nodes == 0) {
         *out_result = 0;
         return 0;
@@ -94,65 +83,96 @@ int resolve_resonance_metal(const void* graph_nodes_ptr, uint32_t num_nodes, con
         NSUInteger nodeBytes = GFROTATION_SIZE;
         NSUInteger totalNodesSize = (NSUInteger)num_nodes * nodeBytes;
 
-        if (cachedCtxBuffer == nil) {
-            cachedCtxBuffer = [device newBufferWithLength:nodeBytes options:MTLResourceStorageModeShared];
-            cachedResultBuffer = [device newBufferWithLength:8 options:MTLResourceStorageModeShared];
-        }
-
-        // Copy context
-        memcpy([cachedCtxBuffer contents], active_context_ptr, nodeBytes);
-
-        // Reset output buffer
-        uint64_t initial_val = 0;
-        memcpy([cachedResultBuffer contents], &initial_val, 8);
-
-        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
-        if (!commandBuffer) {
-            NSLog(@"Failed to create commandBuffer");
+        id<MTLBuffer> ctxBuffer = [device newBufferWithLength:nodeBytes options:MTLResourceStorageModeShared];
+        if (!ctxBuffer) {
             return -2;
         }
 
-        id<MTLBuffer> nodesBuffer = [device newBufferWithBytesNoCopy:(void*)graph_nodes_ptr length:totalNodesSize options:MTLResourceStorageModeShared deallocator:nil];
+        id<MTLBuffer> resultBuffer = [device newBufferWithLength:sizeof(uint64_t) options:MTLResourceStorageModeShared];
+        if (!resultBuffer) {
+            [ctxBuffer release];
+            return -2;
+        }
+
+        memcpy([ctxBuffer contents], active_context_ptr, nodeBytes);
+        uint64_t initialValue = 0;
+        memcpy([resultBuffer contents], &initialValue, sizeof(uint64_t));
+
+        id<MTLBuffer> nodesBuffer = [device newBufferWithBytesNoCopy:(void*)graph_nodes_ptr
+                                                               length:totalNodesSize
+                                                              options:MTLResourceStorageModeShared
+                                                          deallocator:nil];
         if (!nodesBuffer) {
-            nodesBuffer = [device newBufferWithBytes:graph_nodes_ptr length:totalNodesSize options:MTLResourceStorageModeShared];
+            nodesBuffer = [device newBufferWithBytes:graph_nodes_ptr
+                                              length:totalNodesSize
+                                             options:MTLResourceStorageModeShared];
         }
         if (!nodesBuffer) {
-            NSLog(@"Failed to create nodesBuffer (size=%lu)", (unsigned long)totalNodesSize);
+            [ctxBuffer release];
+            [resultBuffer release];
             return -3;
+        }
+
+        id<MTLCommandBuffer> commandBuffer = [commandQueue commandBuffer];
+        if (!commandBuffer) {
+            [nodesBuffer release];
+            [ctxBuffer release];
+            [resultBuffer release];
+            return -4;
         }
 
         id<MTLComputeCommandEncoder> computeEncoder = [commandBuffer computeCommandEncoder];
         if (!computeEncoder) {
             [nodesBuffer release];
+            [ctxBuffer release];
+            [resultBuffer release];
             return -4;
         }
 
         [computeEncoder setComputePipelineState:resolveResonancePipeline];
-
         [computeEncoder setBuffer:nodesBuffer offset:0 atIndex:0];
-        [computeEncoder setBuffer:cachedCtxBuffer offset:0 atIndex:1];
-        [computeEncoder setBuffer:cachedResultBuffer offset:0 atIndex:2]; 
+        [computeEncoder setBuffer:ctxBuffer offset:0 atIndex:1];
+        [computeEncoder setBuffer:resultBuffer offset:0 atIndex:2];
         [computeEncoder setBytes:&num_nodes length:sizeof(uint32_t) atIndex:3];
-        uint32_t base_offset = 0;
-        [computeEncoder setBytes:&base_offset length:sizeof(uint32_t) atIndex:4];
+        uint32_t baseOffset = 0;
+        [computeEncoder setBytes:&baseOffset length:sizeof(uint32_t) atIndex:4];
 
-        NSUInteger threadGroupSize = resolveResonancePipeline.maxTotalThreadsPerThreadgroup;
-        if (threadGroupSize > num_nodes) threadGroupSize = num_nodes;
-        if (threadGroupSize == 0) threadGroupSize = 1;
+        NSUInteger threadWidth = resolveResonancePipeline.threadExecutionWidth;
+        if (threadWidth == 0) {
+            threadWidth = 1;
+        }
+        NSUInteger threadsPerGroup = threadWidth;
+        if (threadsPerGroup > resolveResonancePipeline.maxTotalThreadsPerThreadgroup) {
+            threadsPerGroup = resolveResonancePipeline.maxTotalThreadsPerThreadgroup;
+        }
+        if (threadsPerGroup > num_nodes) {
+            threadsPerGroup = num_nodes;
+        }
+        if (threadsPerGroup == 0) {
+            threadsPerGroup = 1;
+        }
 
-        MTLSize threadgroups = MTLSizeMake((num_nodes + threadGroupSize - 1) / threadGroupSize, 1, 1);
-        MTLSize threadsPerThreadgroup = MTLSizeMake(threadGroupSize, 1, 1);
-
-        [computeEncoder dispatchThreadgroups:threadgroups threadsPerThreadgroup:threadsPerThreadgroup];
+        MTLSize gridSize = MTLSizeMake(num_nodes, 1, 1);
+        MTLSize threadgroupSize = MTLSizeMake(threadsPerGroup, 1, 1);
+        [computeEncoder dispatchThreads:gridSize threadsPerThreadgroup:threadgroupSize];
         [computeEncoder endEncoding];
-        
+
         [commandBuffer commit];
         [commandBuffer waitUntilCompleted];
 
-        [nodesBuffer release];
+        if (commandBuffer.status != MTLCommandBufferStatusCompleted) {
+            [nodesBuffer release];
+            [ctxBuffer release];
+            [resultBuffer release];
+            return -5;
+        }
 
-        uint64_t* result_ptr = (uint64_t*)[cachedResultBuffer contents];
-        *out_result = *result_ptr;
+        uint64_t* resultPtr = (uint64_t*)[resultBuffer contents];
+        *out_result = *resultPtr;
+
+        [nodesBuffer release];
+        [ctxBuffer release];
+        [resultBuffer release];
         return 0;
     }
 }

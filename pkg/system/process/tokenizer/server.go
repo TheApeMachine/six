@@ -7,7 +7,6 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
-	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -15,19 +14,11 @@ import (
 	"github.com/theapemachine/six/pkg/validate"
 )
 
-type TokenEdge struct {
-	Left     uint8
-	Right    uint8
-	Position uint32
-	Chord    data.Chord
-	Meta     data.Chord
-}
-
 /*
 UniversalServer implements the Universal_Server interface.
-It tokenizes raw bytes into chords using Sequitur boundary analysis.
-It has no knowledge of any other server — the Machine orchestrates
-where the chords go after tokenization.
+It tokenizes raw bytes into Morton keys using Sequitur boundary analysis.
+The key IS the observable: (byte_value << 32 | localDepth).
+No values are produced — the LSM stores empty native values under each key.
 */
 type UniversalServer struct {
 	ctx           context.Context
@@ -41,8 +32,7 @@ type UniversalServer struct {
 	dataset       provider.Dataset
 	corpusStrings []string
 	stateMu       sync.Mutex
-	currentState  int
-	calc          *numeric.Calculus
+	morton        *data.MortonCoder
 }
 
 type universalOpts func(*UniversalServer)
@@ -53,7 +43,7 @@ NewUniversalServer instantiates a UniversalServer.
 func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 	server := &UniversalServer{
 		clientConns: map[string]*rpc.Conn{},
-		calc:        numeric.NewCalculus(),
+		morton:      data.NewMortonCoder(),
 	}
 
 	for _, opt := range opts {
@@ -123,9 +113,9 @@ func (server *UniversalServer) Close() error {
 }
 
 /*
-Generate implements Universal_Server. It tokenizes raw bytes into a
-byte-addressable stream of chords. Every byte keeps its own Morton address,
-while the Sequencer annotates boundary bytes with control-plane metadata.
+Generate implements Universal_Server. It tokenizes raw bytes into Morton keys.
+Each byte becomes a key: (byte_value << 32 | localDepth). The Sequencer
+determines where localDepth resets to 0 (boundary detection).
 */
 func (server *UniversalServer) Generate(ctx context.Context, call Universal_generate) error {
 	rawData, err := call.Args().Data()
@@ -133,33 +123,20 @@ func (server *UniversalServer) Generate(ctx context.Context, call Universal_gene
 		return err
 	}
 
-	edges, err := server.tokenize(ctx, rawData)
-	if err != nil {
-		return err
-	}
+	keys := server.tokenize(rawData)
 
 	res, err := call.AllocResults()
 	if err != nil {
 		return err
 	}
 
-	edgeList, err := res.NewEdges(int32(len(edges)))
+	keyList, err := res.NewKeys(int32(len(keys)))
 	if err != nil {
 		return err
 	}
 
-	for i, edge := range edges {
-		el := edgeList.At(i)
-		el.SetLeft(edge.Left)
-		el.SetRight(edge.Right)
-		el.SetPosition(edge.Position)
-
-		if err := el.SetChord(edge.Chord); err != nil {
-			return err
-		}
-		if err := el.SetMeta(edge.Meta); err != nil {
-			return err
-		}
+	for i, key := range keys {
+		keyList.Set(i, key)
 	}
 
 	return nil
@@ -201,68 +178,19 @@ func (server *UniversalServer) SetDataset(ctx context.Context, call Universal_se
 }
 
 /*
-tokenize runs the Sequencer over the byte stream while keeping storage byte-addressable.
-Every emitted edge still names a concrete byte, but the position is now boundary-local:
-the local depth resets whenever the Sequencer commits a cut. The chord itself remains
-a transient observable carrying lexical seed + phase so prompts can still be injected
-directly, while the spatial index strips that lexical seed before persistence.
+tokenize runs the Sequencer over the byte stream and emits Morton keys.
+Each byte produces one key: Pack(localDepth, byte). The Sequencer
+resets localDepth to 0 at each structural boundary.
 */
-func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]TokenEdge, error) {
-	_ = ctx
-
-	sequitur := sequencer.NewSequitur()
-	edges := make([]TokenEdge, 0, len(raw))
-	state := numeric.Phase(1)
+func (server *UniversalServer) tokenize(raw []byte) []uint64 {
+	seq := sequencer.NewSequitur()
+	keys := make([]uint64, 0, len(raw))
 	localPos := uint32(0)
 
 	for idx, currentByte := range raw {
-		state = server.calc.Multiply(
-			state,
-			server.calc.Power(3, uint32(currentByte)),
-		)
+		isBoundary, _, _, _ := seq.Analyze(uint32(idx), currentByte)
 
-		isBoundary, _, _, emitMeta := sequitur.Analyze(uint32(idx), currentByte)
-
-		value := data.NeutralValue()
-		value.SetMutable(true)
-		value.SetStatePhase(state)
-
-		guardRadius := uint8(0)
-		if idx+1 < len(raw) {
-			value.SetLexicalTransition(raw[idx+1])
-			guardRadius = 1
-		}
-
-		value.SetProgram(data.OpcodeNext, 1, 0, false)
-		if isBoundary {
-			value.SetProgram(data.OpcodeReset, 0, 1, false)
-			guardRadius = 4
-		}
-		if idx == len(raw)-1 {
-			value.SetProgram(data.OpcodeHalt, 0, value.Branches(), true)
-			guardRadius = 0
-		}
-		value.SetGuardRadius(guardRadius)
-
-		chord := data.SeedObservable(currentByte, value)
-
-		meta := data.MustNewChord()
-		if isBoundary {
-			meta.CopyFrom(emitMeta)
-		}
-
-		var right uint8
-		if idx+1 < len(raw) {
-			right = raw[idx+1]
-		}
-
-		edges = append(edges, TokenEdge{
-			Left:     currentByte,
-			Right:    right,
-			Position: localPos,
-			Chord:    chord,
-			Meta:     meta,
-		})
+		keys = append(keys, server.morton.Pack(localPos, currentByte))
 
 		if isBoundary {
 			localPos = 0
@@ -271,48 +199,15 @@ func (server *UniversalServer) tokenize(ctx context.Context, raw []byte) ([]Toke
 		}
 	}
 
-	if flushed, _, _, flushMeta := sequitur.Flush(); flushed && len(edges) > 0 {
-		edges[len(edges)-1].Meta.CopyFrom(flushMeta)
-		if edges[len(edges)-1].Chord.Branches() == 0 {
-			edges[len(edges)-1].Chord.SetBranches(1)
-		}
-	}
-
-	return edges, nil
+	return keys
 }
 
 /*
-processChunk encodes a full chunk into a resonant program chord. It is kept for
-benchmarks and offline callers that still want a span-level representation, but the
-live tokenizer now emits byte-addressable edges so reconstruction remains exact.
+Tokenize is the direct non-RPC entry point for tokenization.
+Returns Morton keys for the given raw byte stream.
 */
-func (server *UniversalServer) processChunk(chunk []byte, metaChord data.Chord) (data.Chord, error) {
-	if len(chunk) == 0 {
-		return data.MustNewChord(), nil
-	}
-
-	out, err := data.BuildChord(chunk)
-	if err != nil {
-		return data.Chord{}, err
-	}
-
-	state := numeric.Phase(1)
-	for _, currentByte := range chunk {
-		state = server.calc.Multiply(
-			state,
-			server.calc.Power(3, uint32(currentByte)),
-		)
-	}
-
-	out.SetStatePhase(state)
-	out.SetAffine(1, 0)
-	out.SetProgram(data.OpcodeJump, uint32(len(chunk)), 0, false)
-
-	if metaChord.ActiveCount() > 0 {
-		out.SetProgram(data.OpcodeBranch, uint32(len(chunk)), 1, false)
-	}
-
-	return out, nil
+func (server *UniversalServer) Tokenize(raw []byte) []uint64 {
+	return server.tokenize(raw)
 }
 
 /*

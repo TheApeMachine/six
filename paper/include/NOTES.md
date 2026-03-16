@@ -8,7 +8,7 @@ Here is the ideal overarching structure for your paper, along with a few specifi
 ### Recommended Paper Outline
 
 1.  **Abstract & Introduction:** The limits of gradient-descent/autoregression, introducing the discrete wave-mechanics and $SO(3)$ topology.
-2.  **Continuous-to-Discrete Wave Mechanics:** How PPMI/SVD oscillators map to binarized prime frequencies (the 512-bit `Chord`).
+2.  **Continuous-to-Discrete Wave Mechanics:** How PPMI/SVD oscillators map to binarized prime frequencies (the 512-bit `Value`).
 3.  **Topological Entropy Routing (The Rubik's Cube):** *(This is the section we just wrote).*
 4.  **Hardware-Native Sub-$O(N)$ Retrieval:** The 5-pass GPU `BestFill` pipeline, the 16-bit rotation header, and the 3,600-byte Geodesic LUT. *(Systems reviewers will obsess over this).*
 5.  **Generation as a Boundary Value Problem (BVP):** How the system generates text/code/images not by guessing the next token, but by structurally filling a topological vacuum. *(Theory reviewers will love this).*

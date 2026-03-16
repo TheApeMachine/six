@@ -2,15 +2,15 @@
 #include <metal_atomic>
 using namespace metal;
 
-// 512-bit Chord represented as 8x uint64
-struct Chord {
+// 512-bit Value represented as 8x uint64
+struct Value {
     uint64_t bits[8];
 };
 
 #define CUBE_FACES 257 // Fermat prime 2^8+1
 
 struct MacroCube {
-    Chord blocks[CUBE_FACES];
+    Value blocks[CUBE_FACES];
 };
 
 struct ManifoldHeader {
@@ -28,14 +28,14 @@ kernel void bitwise_best_fill(
     device const IcosahedralManifold* dictionary [[buffer(0)]],
     constant IcosahedralManifold* active_context [[buffer(1)]],
     device atomic_ulong* best_packed_result [[buffer(2)]],
-    constant uint& num_chords [[buffer(3)]],
+    constant uint& num_values [[buffer(3)]],
     constant uint& base_offset [[buffer(4)]],
     constant IcosahedralManifold* expected_reality [[buffer(5)]],
     constant ushort* expected_precision [[buffer(6)]],
     constant uint8_t* geodesic_lut [[buffer(7)]],
     uint id [[thread_position_in_grid]]
 ) {
-    if (id >= num_chords) return;
+    if (id >= num_values) return;
 
     IcosahedralManifold candidate = dictionary[id];
     IcosahedralManifold ctx = active_context[0];

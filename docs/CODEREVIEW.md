@@ -10,7 +10,7 @@ In @docs/branching.puml around lines 45 - 47, The swimlane declaration "Control 
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @docs/chord around lines 1 - 34, The file docs/chord is missing the .puml extension which breaks consistency with other PlantUML files; rename the file to docs/chord.puml and update any references to it (look for usages of "docs/chord" and the PlantUML block starting with @startuml and the class "AVX-512 Register" / ChordType) so IDE tooling, syntax highlighting, and PlantUML integrations recognize it.
+In @docs/value around lines 1 - 34, The file docs/value is missing the .puml extension which breaks consistency with other PlantUML files; rename the file to docs/value.puml and update any references to it (look for usages of "docs/value" and the PlantUML block starting with @startuml and the class "AVX-512 Register" / ValueType) so IDE tooling, syntax highlighting, and PlantUML integrations recognize it.
 
 - Verify each finding against the current code and only fix it if needed.
 
@@ -170,7 +170,7 @@ In @pkg/store/lsm/close_test.go around lines 1 - 19, Add a benchmark that measur
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @pkg/store/lsm/operator_shell_test.go around lines 1 - 75, Add benchmark functions to this test file that measure the hot paths used by the tests: create BenchmarkPredictNextPhaseFromValue that constructs numeric.NewCalculus(), a data.NeutralValue() with SetAffine/SetTrajectory/SetGuardRadius and repeatedly calls predictNextPhaseFromValue(calc, value, 19, 'x'); create BenchmarkOperatorPhaseAcceptance that builds a data.NeutralValue() with SetGuardRadius and repeatedly calls operatorPhaseAcceptance(value, 10, 12); and add a BenchmarkWavefrontSearchPrompt that builds the same SpatialIndexServer, inserts observableValue entries (using idx.insertSync and data.MustNewChord), constructs NewWavefront(...) and repeatedly calls wf.SearchPrompt([]byte("ab"), nil, nil). In each benchmark use b.ResetTimer() before the loop and iterate for i := 0; i < b.N; i++ to exercise only the measured calls.
+In @pkg/store/lsm/operator_shell_test.go around lines 1 - 75, Add benchmark functions to this test file that measure the hot paths used by the tests: create BenchmarkPredictNextPhaseFromValue that constructs numeric.NewCalculus(), a data.NeutralValue() with SetAffine/SetTrajectory/SetGuardRadius and repeatedly calls predictNextPhaseFromValue(calc, value, 19, 'x'); create BenchmarkOperatorPhaseAcceptance that builds a data.NeutralValue() with SetGuardRadius and repeatedly calls operatorPhaseAcceptance(value, 10, 12); and add a BenchmarkWavefrontSearchPrompt that builds the same SpatialIndexServer, inserts observableValue entries (using idx.insertSync and data.MustNewValue), constructs NewWavefront(...) and repeatedly calls wf.SearchPrompt([]byte("ab"), nil, nil). In each benchmark use b.ResetTimer() before the loop and iterate for i := 0; i < b.N; i++ to exercise only the measured calls.
 
 - Verify each finding against the current code and only fix it if needed.
 
@@ -198,7 +198,7 @@ In @pkg/store/lsm/skip.go around lines 266 - 290, Add a Go doc comment for start
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @pkg/store/lsm/skip.go around lines 136 - 174, The function buildEntryUnsafe lacks a documentation comment; add a Go doc comment above func (skip *SkipIndex) buildEntryUnsafe(key uint64, value data.Chord) (SkipEntry, bool) that briefly describes its purpose (building a SkipEntry from a raw key/value pair), explains parameters (key, value) and return values (SkipEntry and success bool), and notes that it is unsafe (e.g., does not perform bounds checks) and any side effects or invariants (uses morton.Unpack, extractStatePhase, walkStrideUnsafe and relies on skipStrides); reference the receiver SkipIndex and related types SkipEntry/SkipPhase to clarify context.
+In @pkg/store/lsm/skip.go around lines 136 - 174, The function buildEntryUnsafe lacks a documentation comment; add a Go doc comment above func (skip *SkipIndex) buildEntryUnsafe(key uint64, value data.Value) (SkipEntry, bool) that briefly describes its purpose (building a SkipEntry from a raw key/value pair), explains parameters (key, value) and return values (SkipEntry and success bool), and notes that it is unsafe (e.g., does not perform bounds checks) and any side effects or invariants (uses morton.Unpack, extractStatePhase, walkStrideUnsafe and relies on skipStrides); reference the receiver SkipIndex and related types SkipEntry/SkipPhase to clarify context.
 
 - Verify each finding against the current code and only fix it if needed.
 
@@ -206,7 +206,7 @@ In @pkg/store/lsm/skip.go around lines 330 - 354, Add a concise Go doc comment a
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @pkg/store/lsm/skip.go around lines 176 - 211, Add Go doc comments for each helper: resolveRootEntry, resolveNodeEntry, cursorForEntryUnsafe, and findValueUnsafe. For each comment start with the function name, briefly describe its purpose (e.g., resolving entries from skip.entries or skip.nodeEntries, constructing a skipCursor without locks, or scanning the chain for a Chord value), note important behavior (unsafe suffix implies no synchronization/locking), and document the return values (what the returned SkipEntry/skipCursor/data.Chord and bool indicate). Keep comments concise and place them immediately above each function declaration.
+In @pkg/store/lsm/skip.go around lines 176 - 211, Add Go doc comments for each helper: resolveRootEntry, resolveNodeEntry, cursorForEntryUnsafe, and findValueUnsafe. For each comment start with the function name, briefly describe its purpose (e.g., resolving entries from skip.entries or skip.nodeEntries, constructing a skipCursor without locks, or scanning the chain for a Value value), note important behavior (unsafe suffix implies no synchronization/locking), and document the return values (what the returned SkipEntry/skipCursor/data.Value and bool indicate). Keep comments concise and place them immediately above each function declaration.
 
 - Verify each finding against the current code and only fix it if needed.
 
@@ -214,7 +214,7 @@ In @pkg/store/lsm/skip.go around lines 213 - 252, Add a Go doc comment for the m
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @pkg/store/lsm/skip_test.go around lines 110 - 148, Add a benchmark that measures performance of the reset-aware traversal path by creating the same test setup (use NewSpatialIndexServer(), numeric.NewCalculus(), observableValue, insertSync and data.MustNewChord()) to build a SkipIndex via NewSkipIndex(idx).Build(), then run b.ResetTimer() and repeatedly call SkipIndex.SkipSearch(keyA, aPhase) (and optionally SkipIndex.Jump(keyB, SkipNext)) inside the benchmark loop; ensure the benchmark uses testing.B naming (e.g., BenchmarkSkipIndexResetTraversal) and avoids measuring setup time by performing setup before b.ResetTimer(), and validate results minimally if needed to prevent compiler optimizations (e.g., store length or a returned value to a package-level sink).
+In @pkg/store/lsm/skip_test.go around lines 110 - 148, Add a benchmark that measures performance of the reset-aware traversal path by creating the same test setup (use NewSpatialIndexServer(), numeric.NewCalculus(), observableValue, insertSync and data.MustNewValue()) to build a SkipIndex via NewSkipIndex(idx).Build(), then run b.ResetTimer() and repeatedly call SkipIndex.SkipSearch(keyA, aPhase) (and optionally SkipIndex.Jump(keyB, SkipNext)) inside the benchmark loop; ensure the benchmark uses testing.B naming (e.g., BenchmarkSkipIndexResetTraversal) and avoids measuring setup time by performing setup before b.ResetTimer(), and validate results minimally if needed to prevent compiler optimizations (e.g., store length or a returned value to a package-level sink).
 
 - Verify each finding against the current code and only fix it if needed.
 
@@ -222,7 +222,7 @@ In @pkg/store/lsm/spatial_index.go around lines 396 - 412, Add a Go doc comment 
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @pkg/store/lsm/spatial_index_phase_test.go around lines 130 - 153, Add a benchmark that measures insertion and retrieval of observable values alongside the existing TestSpatialIndexStoresNativeValuesButReturnsObservables; create a BenchmarkSpatialIndexObservableInsertRetrieve function that initializes the index via NewSpatialIndexServer, prepares the same observable (using data.BaseChord, Set, SetResidualCarry, SetProgram) and key (morton.Pack), calls b.ResetTimer(), then in the loop runs idx.insertSync(key, observable, data.MustNewChord()) and idx.GetEntry(key) to measure performance; keep setup outside the timed loop, use b.N for iterations, and name the benchmark exactly BenchmarkSpatialIndexObservableInsertRetrieve so it is picked up by go test -bench.
+In @pkg/store/lsm/spatial_index_phase_test.go around lines 130 - 153, Add a benchmark that measures insertion and retrieval of observable values alongside the existing TestSpatialIndexStoresNativeValuesButReturnsObservables; create a BenchmarkSpatialIndexObservableInsertRetrieve function that initializes the index via NewSpatialIndexServer, prepares the same observable (using data.BaseValue, Set, SetResidualCarry, SetProgram) and key (morton.Pack), calls b.ResetTimer(), then in the loop runs idx.insertSync(key, observable, data.MustNewValue()) and idx.GetEntry(key) to measure performance; keep setup outside the timed loop, use b.N for iterations, and name the benchmark exactly BenchmarkSpatialIndexObservableInsertRetrieve so it is picked up by go test -bench.
 
 - Verify each finding against the current code and only fix it if needed.
 
@@ -246,7 +246,7 @@ In @pkg/store/lsm/wavefront_transition.go around lines 25 - 34, Add a Go doc com
 
 - Verify each finding against the current code and only fix it if needed.
 
-In @pkg/store/lsm/wavefront_transition.go around lines 36 - 77, Add a Go doc comment block above the resolveTransition method on type Wavefront that succinctly describes the function's purpose (resolving the next numeric.Phase for a transition), its parameters (head *WavefrontHead, nextPos uint32, nextSymbol byte, stateChord data.Chord, expected numeric.Phase), the return values (resolved phase, accumulated penalty, ok flag), and the important control flow/exit conditions (failure when extractStatePhase fails, when anchorCorrect/anchorViolates rejects, when operatorPhaseAcceptance returns not ok, and the storedPhase check when head is nil), and note how penalties are accumulated (anchor penalty via anchorCorrect and guard/route penalties via operatorPhaseAcceptance/operatorRoutePenalty); mention the related helper functions used (extractStatePhase, anchorCorrect, anchorViolates, operatorRoutePenalty, operatorPhaseAcceptance) so readers can follow the logic.
+In @pkg/store/lsm/wavefront_transition.go around lines 36 - 77, Add a Go doc comment block above the resolveTransition method on type Wavefront that succinctly describes the function's purpose (resolving the next numeric.Phase for a transition), its parameters (head *WavefrontHead, nextPos uint32, nextSymbol byte, stateValue data.Value, expected numeric.Phase), the return values (resolved phase, accumulated penalty, ok flag), and the important control flow/exit conditions (failure when extractStatePhase fails, when anchorCorrect/anchorViolates rejects, when operatorPhaseAcceptance returns not ok, and the storedPhase check when head is nil), and note how penalties are accumulated (anchor penalty via anchorCorrect and guard/route penalties via operatorPhaseAcceptance/operatorRoutePenalty); mention the related helper functions used (extractStatePhase, anchorCorrect, anchorViolates, operatorRoutePenalty, operatorPhaseAcceptance) so readers can follow the logic.
 
 - Verify each finding against the current code and only fix it if needed.
 

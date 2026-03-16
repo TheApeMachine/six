@@ -20,7 +20,7 @@ CAPNP_STD ?= ../../capnproto/go-capnp/std
 capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/lsm/spatial_index.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/substrate/graph.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/store/data/chord.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/store/data/value.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer/universal.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/input/prompt.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/semantic/engine.capnp
@@ -63,3 +63,4 @@ pprof:
 pprof-mem:
 	go test -v -run 'TestPipeline/$(EXP)' -timeout 30m ./experiment/task/
 	go tool pprof -http=:6060 paper/profiles/$(shell echo $(EXP) | tr '[:upper:]' '[:lower:]' | tr ' ' '_')_mem.pprof
+

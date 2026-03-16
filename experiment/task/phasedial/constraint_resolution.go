@@ -28,7 +28,7 @@ const crCluesPerStage = 4
 
 /*
 suspect is one named hypothesis with a deterministic byte-pattern generator.
-Each suspect occupies a distinct region of the chord/PhaseDial attractor landscape
+Each suspect occupies a distinct region of the value/PhaseDial attractor landscape
 because their byte patterns are incommensurable (different prime multiplicative strides).
 */
 type suspect struct {
@@ -153,7 +153,7 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 	}
 
 	return &ConstraintResolutionExperiment{
-		tableData:  []tools.ExperimentalData{},
+		tableData: []tools.ExperimentalData{},
 		// Baseline 0.05: Phase constraint resolution.
 		// Any non-zero result demonstrates the property holds.
 		// Target 0.50: strong geometric invariant.
@@ -360,7 +360,7 @@ explicit Bayesian priors, numeric scoring, or any oracle information.
 Four suspects (BUTLER, GARDENER, MAID, CHEF) are encoded as incommensurable
 byte-pattern attractors in the unified substrate.  Each suspect's samples
 follow a distinct linear modular stride (3, 7, 11, 13 respectively), producing
-maximally separated regions of the chord/PhaseDial attractor landscape.
+maximally separated regions of the value/PhaseDial attractor landscape.
 
 After ingestion, four stages of ${{.CluesPerStage}}$ clue prompts are presented.
 All clues partially match the target suspect (MAID), driving the substrate's
@@ -383,7 +383,7 @@ The substrate successfully isolated the target suspect through phase-based
 constraint propagation.  Successive clue injections drove constructive
 interference with MAID's attractor and destructive interference with the
 others, consistent with the theoretical prediction of topological
-re-equilibration in the chord manifold.
+re-equilibration in the value manifold.
 {{- else -}}
 \paragraph{Assessment.}
 Partial isolation was achieved.  At this ingestion scale, the four suspect

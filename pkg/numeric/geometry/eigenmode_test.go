@@ -10,10 +10,10 @@ import (
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
-func mockBaseChord(b byte) data.Chord {
+func mockBaseValue(b byte) data.Value {
 	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	chord, _ := data.NewChord(seg)
-	totalBits := config.Numeric.ChordBlocks * 64
+	value, _ := data.NewValue(seg)
+	totalBits := config.Numeric.ValueBlocks * 64
 
 	offsets := [5]int{
 		int(b) * 7,
@@ -25,10 +25,10 @@ func mockBaseChord(b byte) data.Chord {
 
 	for _, off := range offsets {
 		bit := off % totalBits
-		chord.Set(bit)
+		value.Set(bit)
 	}
 
-	return chord
+	return value
 }
 
 func TestNewEigenMode(t *testing.T) {
@@ -54,21 +54,21 @@ func TestNewEigenMode(t *testing.T) {
 }
 
 func TestAnalyticalPhaseGeneration(t *testing.T) {
-	Convey("Given a chord-native EigenMode", t, func() {
+	Convey("Given a value-native EigenMode", t, func() {
 		ei := NewEigenMode()
 
-		Convey("When computing phase for an empty chord", func() {
-			var empty data.Chord
-			theta, phi := ei.PhaseForChord(&empty)
+		Convey("When computing phase for an empty value", func() {
+			var empty data.Value
+			theta, phi := ei.PhaseForValue(&empty)
 			So(theta, ShouldEqual, 0)
 			So(phi, ShouldEqual, 0)
 		})
 
-		Convey("When computing phase for a mock base chord", func() {
-			chord := mockBaseChord('A')
-			theta, phi := ei.PhaseForChord(&chord)
+		Convey("When computing phase for a mock base value", func() {
+			value := mockBaseValue('A')
+			theta, phi := ei.PhaseForValue(&value)
 
-			// The mock chord sets 5 bits, so density is 5.
+			// The mock value sets 5 bits, so density is 5.
 			// Phi = 2 * π * 5 / 257 ≈ 0.122
 			expectedPhi := 2.0 * math.Pi * 5.0 / 257.0
 
@@ -78,29 +78,29 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 			So(theta, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
 		})
 
-		Convey("When computing mean sequence phase for empty chords", func() {
+		Convey("When computing mean sequence phase for empty values", func() {
 			theta, phi := ei.SeqToroidalMeanPhase(nil)
 			So(theta, ShouldEqual, 0)
 			So(phi, ShouldEqual, 0)
 		})
 
 		Convey("When computing mean sequence phase", func() {
-			chords := []data.Chord{
-				mockBaseChord('A'),
-				mockBaseChord('A'),
+			values := []data.Value{
+				mockBaseValue('A'),
+				mockBaseValue('A'),
 			}
 
-			// Sequence of identical chords should yield same phase as a single chord
-			singleTheta, singlePhi := ei.PhaseForChord(&chords[0])
-			seqTheta, seqPhi := ei.SeqToroidalMeanPhase(chords)
+			// Sequence of identical values should yield same phase as a single value
+			singleTheta, singlePhi := ei.PhaseForValue(&values[0])
+			seqTheta, seqPhi := ei.SeqToroidalMeanPhase(values)
 
 			So(seqTheta, ShouldAlmostEqual, singleTheta, 0.001)
 			So(seqPhi, ShouldAlmostEqual, singlePhi, 0.001)
 		})
 
 		Convey("When calling BuildMultiScaleCooccurrence", func() {
-			chords := []data.Chord{mockBaseChord('a'), mockBaseChord('b')}
-			err := ei.BuildMultiScaleCooccurrence(chords)
+			values := []data.Value{mockBaseValue('a'), mockBaseValue('b')}
+			err := ei.BuildMultiScaleCooccurrence(values)
 			So(err, ShouldBeNil)
 			So(ei.Trained, ShouldBeTrue)
 		})
@@ -111,15 +111,15 @@ func TestEigenModeWeightedCircularMean(t *testing.T) {
 	Convey("Given WeightedCircularMean", t, func() {
 		ei := NewEigenMode()
 
-		Convey("When chords slice is empty", func() {
+		Convey("When values slice is empty", func() {
 			phase, conc := ei.WeightedCircularMean(nil)
 			So(phase, ShouldEqual, 0)
 			So(conc, ShouldEqual, 0)
 		})
 
-		Convey("When computing for single chord", func() {
-			chords := []data.Chord{mockBaseChord('X')}
-			phase, conc := ei.WeightedCircularMean(chords)
+		Convey("When computing for single value", func() {
+			values := []data.Value{mockBaseValue('X')}
+			phase, conc := ei.WeightedCircularMean(values)
 			So(phase, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
 			So(conc, ShouldBeBetweenOrEqual, 0, 1)
 		})
@@ -135,16 +135,16 @@ func TestGeometricalClosure(t *testing.T) {
 		})
 
 		Convey("When sequence returns exactly to anchor phase", func() {
-			chords := []data.Chord{mockBaseChord('X')}
-			anchor, _ := ei.WeightedCircularMean(chords)
+			values := []data.Value{mockBaseValue('X')}
+			anchor, _ := ei.WeightedCircularMean(values)
 
 			// Same sequence should have distance 0 from its own anchor
-			So(ei.IsGeometricallyClosed(chords, anchor), ShouldBeTrue)
+			So(ei.IsGeometricallyClosed(values, anchor), ShouldBeTrue)
 		})
 
 		Convey("When sequence drifts to opposite side of Torus", func() {
-			chordsA := []data.Chord{mockBaseChord('X')}
-			anchor, _ := ei.WeightedCircularMean(chordsA)
+			valuesA := []data.Value{mockBaseValue('X')}
+			anchor, _ := ei.WeightedCircularMean(valuesA)
 
 			// We manually specify an anchor that is π radians away
 			oppositeAnchor := anchor + math.Pi
@@ -152,40 +152,40 @@ func TestGeometricalClosure(t *testing.T) {
 				oppositeAnchor -= 2 * math.Pi
 			}
 
-			So(ei.IsGeometricallyClosed(chordsA, oppositeAnchor), ShouldBeFalse)
+			So(ei.IsGeometricallyClosed(valuesA, oppositeAnchor), ShouldBeFalse)
 		})
 	})
 }
 
-func BenchmarkEigenModePhaseForChord(b *testing.B) {
+func BenchmarkEigenModePhaseForValue(b *testing.B) {
 	ei := NewEigenMode()
-	chord := mockBaseChord('A')
+	value := mockBaseValue('A')
 	b.ResetTimer()
 	for b.Loop() {
-		ei.PhaseForChord(&chord)
+		ei.PhaseForValue(&value)
 	}
 }
 
 func BenchmarkEigenModeSeqToroidalMeanPhase(b *testing.B) {
 	ei := NewEigenMode()
-	chords := make([]data.Chord, 64)
-	for idx := range chords {
-		chords[idx] = mockBaseChord(byte(idx % 256))
+	values := make([]data.Value, 64)
+	for idx := range values {
+		values[idx] = mockBaseValue(byte(idx % 256))
 	}
 	b.ResetTimer()
 	for b.Loop() {
-		ei.SeqToroidalMeanPhase(chords)
+		ei.SeqToroidalMeanPhase(values)
 	}
 }
 
 func BenchmarkEigenModeWeightedCircularMean(b *testing.B) {
 	ei := NewEigenMode()
-	chords := make([]data.Chord, 64)
-	for idx := range chords {
-		chords[idx] = mockBaseChord(byte(idx % 256))
+	values := make([]data.Value, 64)
+	for idx := range values {
+		values[idx] = mockBaseValue(byte(idx % 256))
 	}
 	b.ResetTimer()
 	for b.Loop() {
-		ei.WeightedCircularMean(chords)
+		ei.WeightedCircularMean(values)
 	}
 }

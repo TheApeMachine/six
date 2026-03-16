@@ -10,13 +10,13 @@
         surface.  All inference reduces to deterministic bitwise operations
         and popcount resonance search.
   \item \textbf{Modality-agnostic processing:}  The same byte-level tokenizer
-        and Chord representation processes text, images, and structured data
+        and Value representation processes text, images, and structured data
         through identical pipelines---no modality-specific encoders.
   \item \textbf{Non-commutative sequence encoding:}  The $A_5$ rotational
         manifold natively encodes syntactic order through geometric
         permutations, eliminating the need for learned positional
         embeddings.
-  \item \textbf{Lossless collision-compression:}  The PrimeField's Chord-OR
+  \item \textbf{Lossless collision-compression:}  The PrimeField's Value-OR
         insertion achieves significant memory reduction while preserving
         all structural information needed for retrieval.
   \item \textbf{Hardware-native parallelism:}  The entire BestFill pipeline
@@ -39,8 +39,8 @@
         against large autoregressive models on standard leaderboards.
   \item \textbf{Convergence guarantees:}  The cantilever generation loop
         converges empirically but lacks formal convergence proofs.
-  \item \textbf{Sparse chord coverage:}  With only 5 bits set per byte,
-        the 257-bit chord is very sparse.  The capacity limits of this
+  \item \textbf{Sparse value coverage:}  With only 5 bits set per byte,
+        the 257-bit value is very sparse.  The capacity limits of this
         representation under heavy superposition need formal characterization.
 \end{enumerate}
 
@@ -51,7 +51,7 @@
 \begin{itemize}[nosep]
   \item Disable EigenMode steering (flat popcount only) to isolate the
         contribution of toroidal phase alignment.
-  \item Vary chord width ($D \in \{128, 257, 512, 1024\}$) to characterize
+  \item Vary value width ($D \in \{128, 257, 512, 1024\}$) to characterize
         the sparsity--capacity trade-off.
   \item Vary manifold depth (Cubic-only vs.\ Icosahedral) to measure the
         entropy routing contribution.
@@ -62,7 +62,7 @@
 \begin{itemize}[nosep]
   \item Dictionary size vs.\ BestFill latency: characterize the empirical
         scaling constant for 1K to 10M manifolds.
-  \item Chord width vs.\ retrieval accuracy: determine the minimum $D$ for
+  \item Value width vs.\ retrieval accuracy: determine the minimum $D$ for
         each modality.
   \item Compression ratio vs.\ corpus size: validate the predicted
         increasing-compression-with-scale behavior from Zipfian theory

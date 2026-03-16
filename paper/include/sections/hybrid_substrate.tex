@@ -1,43 +1,37 @@
 % ============================================================================
-% HYBRID SUBSTRATE: BITWISE FILTER + PHASE DIAL SCORING
+% DUAL ALGEBRA: STRUCTURAL RESONANCE AND MODULAR CANCELLATION
 % ============================================================================
 \subsection{Two-Phase Retrieval Pipeline}
 \label{sec:hybrid_pipeline}
 
-The HybridSubstrate provides an alternative retrieval pathway that combines
-the speed of bitwise filtering with the precision of continuous complex
-scoring:
+The system resolves queries through a unified pipeline that hybridizes bitwise structural measurement with scalar algebraic cancellation over $\operatorname{GF}(257)$:
 
 \begin{enumerate}[nosep]
-  \item \textbf{Phase 1 --- Bitwise Filter:}
-        All memory entries are scored against the context Chord using
-        popcount-based resonance (identical to BestFill Pass 4).  The top-$K$
-        candidates are retained.
-  \item \textbf{Phase 2 --- PhaseDial Scoring:}
-        The surviving candidates are evaluated against a complex-valued
-        \emph{PhaseDial} fingerprint using full complex cosine similarity:
+  \item \textbf{Phase 1 --- Resonance Measurement (XOR):}
+        Incoming queries project a rotational trajectory into the Address Plane. The projected state is evaluated against stored anchors using bitwise XOR as a pure scalar measurement of Hamming-space distance:
         \begin{equation}
-          \text{sim}(\mathbf{a}, \mathbf{b}) =
-          \frac{\operatorname{Re}\!\left(\sum_i \bar{a}_i \, b_i\right)}
-               {\|\mathbf{a}\| \cdot \|\mathbf{b}\|}
-          \label{eq:complex_cosine}
+          \text{distance}(A, B) = \texttt{popcount}(A \oplus B)
+          \label{eq:xor_distance}
         \end{equation}
-  \item \textbf{Phase 3 --- Readout:}
-        The payload of the highest-scoring entry is returned.
+        This measurement filters for paths experiencing constructive interference (low residue). Crucially, XOR is strictly an observable measurement gauge; it is never used to permanently compose or store state, as that would inject uncontrolled Shannon entropy.
+
+  \item \textbf{Phase 2 --- Algebraic Cancellation:}
+        Once a resonant geometric cluster is localized, logical reasoning over the localized multi-context merges resolves via scalar modular arithmetic. Because multiple facts coexist in a single cell via additive superposition $\phi_{\text{merged}} = (\phi_A + \phi_B) \pmod{257}$, querying isolated entities involves inverse cancellation:
+        \begin{equation}
+          \text{result} = \phi_{\text{merged}} \cdot \phi_A^{-1} \pmod{257} \approx \phi_B
+          \label{eq:modular_inverse}
+        \end{equation}
+  \item \textbf{Phase 3 --- Frustration or Readout:}
+        If $\text{result}$ matches a valid anchor phase ($\Delta = 1$), the wavefront locks and proceeds. Otherwise, the gap triggers \emph{frustration}, signaling the need for an extrapolated tool or a backtrack pivot.
 \end{enumerate}
 
-\subsection{Geodesic Phase Scanning}
-\label{sec:geodesic_scan}
+\subsection{Destructive Interference (Negative Constraints)}
+\label{sec:negative_constraints}
 
-The GeodesicScan sweeps a seed PhaseDial fingerprint through $360^\circ$ of
-phase rotation in discrete steps, ranking all candidates at each angle.
-This produces a full rotational landscape revealing:
-\begin{itemize}[nosep]
-  \item The phase angle at which margin (score gap between 1st and 2nd
-        candidates) is maximized---indicating maximum discriminability.
-  \item Entropy variations across the rotation, revealing structural
-        symmetries in the memory substrate.
-\end{itemize}
+Beyond positive phase-locking, the dual algebra naturally enforces negative constraints without heuristic branching rules. A negated fact (e.g., "Roy is NOT in the kitchen") is encoded as the absolute additive inverse in the field:
+\begin{equation}
+  \phi_{\text{neg}} = (257 - \phi_{\text{pos}}) \pmod{257}
+  \label{eq:additive_inverse}
+\end{equation}
 
-% TODO: Add geodesic scan heatmap visualization.
-% TODO: Report phase scanning overhead vs accuracy improvement.
+When the exploring wavefront encounters $\phi_{\text{neg}}$, the positive baseline momentum meets the stored anti-phase. The sum algebraically collapses to zero ($\phi_{\text{pos}} + \phi_{\text{neg}} \equiv 0 \pmod{257}$), immediately eliminating path energy and pruning the search space via pure destructive interference.

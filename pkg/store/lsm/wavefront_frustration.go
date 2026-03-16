@@ -128,6 +128,7 @@ func (wf *Wavefront) stallHead(head *WavefrontHead) *WavefrontHead {
 	if stalled.frustration < 0xFF {
 		stalled.frustration++
 	}
+	stalled.strictNext = head.strictNext
 	stalled.age++
 	if stalled.stalls < 0xFF {
 		stalled.stalls++
@@ -152,8 +153,8 @@ func (wf *Wavefront) synthesizeFrustrationHead(
 
 	phase := source.phase
 	pos := source.pos
-	path := cloneChordSlice(source.path)
-	metaPath := cloneChordSlice(source.metaPath)
+	path := cloneValueSlice(source.path)
+	metaPath := cloneValueSlice(source.metaPath)
 
 	for idx, opcode := range opcodes {
 		if opcode == nil || opcode.Rotation == 0 {
@@ -179,7 +180,7 @@ func (wf *Wavefront) synthesizeFrustrationHead(
 		value.SetProgram(program, 1, uint8(remaining), false)
 		path = append(path, value)
 
-		meta := data.MustNewChord()
+		meta := data.MustNewValue()
 		meta.SetProgram(data.OpcodeBranch, 1, uint8(remaining), false)
 		metaPath = append(metaPath, meta)
 	}
@@ -199,6 +200,7 @@ func (wf *Wavefront) synthesizeFrustrationHead(
 		age:          source.age + 1,
 		stalls:       0,
 		frustration:  0,
+		strictNext:   true,
 		registers:    cloneExecutionRegisters(source.registers),
 	}
 	if candidate.registers == nil {

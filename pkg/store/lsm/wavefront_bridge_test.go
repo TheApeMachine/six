@@ -23,15 +23,15 @@ func TestWavefrontBridging(t *testing.T) {
 
 		// Insert 'A' at pos 0
 		stateA := calc.Multiply(state, calc.Power(3, uint32('A')))
-		chordA := data.BaseChord('A')
-		chordA.Set(int(stateA))
-		idx.insertSync(mortonObj.Pack(0, 'A'), chordA, data.MustNewChord())
+		valueA := data.BaseValue('A')
+		valueA.Set(int(stateA))
+		idx.insertSync(mortonObj.Pack(0, 'A'), valueA, data.MustNewValue())
 
 		// Insert 'B' at pos 1
 		stateB := calc.Multiply(stateA, calc.Power(3, uint32('B')))
-		chordB := data.BaseChord('B')
-		chordB.Set(int(stateB))
-		idx.insertSync(mortonObj.Pack(1, 'B'), chordB, data.MustNewChord())
+		valueB := data.BaseValue('B')
+		valueB.Set(int(stateB))
+		idx.insertSync(mortonObj.Pack(1, 'B'), valueB, data.MustNewValue())
 
 		// We intentionally DO NOT insert 'C' at pos 2
 		// The mathematical "Goal" phase for D would be: stateA -> B -> C -> D
@@ -39,15 +39,15 @@ func TestWavefrontBridging(t *testing.T) {
 		stateD := calc.Multiply(stateC, calc.Power(3, uint32('D')))
 
 		// Insert 'D' at pos 3 (gap at pos 2)
-		chordD := data.BaseChord('D')
-		chordD.Set(int(stateD))
-		idx.insertSync(mortonObj.Pack(3, 'D'), chordD, data.MustNewChord())
+		valueD := data.BaseValue('D')
+		valueD.Set(int(stateD))
+		idx.insertSync(mortonObj.Pack(3, 'D'), valueD, data.MustNewValue())
 
 		gc.Convey("Wavefront without Frustration Engine dies at the gap", func() {
-			promptChord := data.BaseChord('A')
+			promptValue := data.BaseValue('A')
 
 			wf := NewWavefront(idx, WavefrontWithMaxDepth(5))
-			results := wf.Search(promptChord, nil, nil)
+			results := wf.Search(promptValue, nil, nil)
 
 			// It should only manage to go A -> B (2 steps, length 2)
 			// because position 2 is empty
@@ -83,8 +83,8 @@ func TestWavefrontBridging(t *testing.T) {
 				WavefrontWithFrustrationEngine(fe, stateD),
 			)
 
-			promptChord := data.BaseChord('A')
-			results := wf.Search(promptChord, nil, nil)
+			promptValue := data.BaseValue('A')
+			results := wf.Search(promptValue, nil, nil)
 
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)
 

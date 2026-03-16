@@ -248,3 +248,5 @@ func BenchmarkGarbageCollect(b *testing.B) {
 		idx.GarbageCollect()
 	}
 }
+
+

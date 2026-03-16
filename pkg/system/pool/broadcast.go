@@ -213,3 +213,5 @@ func (bg *BroadcastGroup) Close() {
 	bg.filters = nil
 	bg.mu.Unlock()
 }
+
+

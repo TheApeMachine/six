@@ -29,12 +29,12 @@ func TestWavefrontCarryForwardCache(t *testing.T) {
 			seeds := wf.seedCarryForward([]byte("Kitchen sink"))
 			gc.So(len(seeds), gc.ShouldBeGreaterThan, 0)
 			gc.So(seeds[0].promptIdx, gc.ShouldEqual, len("Kit"))
-			gc.So(seeds[0].energy, gc.ShouldBeLessThan, 0)
+			gc.So(seeds[0].energy, gc.ShouldEqual, 0)
 
 			results := wf.SearchPrompt([]byte("Kitchen sink"), nil, nil)
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)
 
-			decoded := idx.decodeChords(results[0].Path)
+			decoded := idx.decodeValues(results[0].Path)
 			gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
 			gc.So(string(decoded[0]), gc.ShouldContainSubstring, "Kitchen sink")
 		})

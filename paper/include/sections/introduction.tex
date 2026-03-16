@@ -33,7 +33,7 @@ $\operatorname{GF}(257)$.
 
 The key insight underlying this architecture is that binarized prime-frequency
 vectors are not merely compressed representations---they are discrete Fourier
-transforms of semantic waves.  Each bit in a 257-bit Chord represents the
+transforms of semantic waves.  Each bit in a 257-bit Value represents the
 presence of a specific fundamental oscillator.  Bitwise operations then
 execute actual discrete wave interference:
 
@@ -56,7 +56,7 @@ compiles them down to single-cycle integer operations.
 \label{sec:organization}
 
 The remainder of this paper is organized as follows.
-\Cref{sec:chord_representation} defines the 257-bit Chord primitive and its
+\Cref{sec:value_representation} defines the 257-bit Value primitive and its
 algebraic operations.
 \Cref{sec:manifold_architecture} introduces the Fermat Cube geometry and the
 Icosahedral $A_5$ extension.
@@ -69,8 +69,8 @@ pipeline.
 \Cref{sec:bvp_generation} formalizes generation as a boundary value problem.
 \Cref{sec:entropy_routing} describes topological entropy routing and virtual
 mitosis.
-\Cref{sec:dual_architecture} introduces the dual Substrate/Cortex
+\Cref{sec:dual_architecture} introduces the dual Substrate/Graph
 architecture.
 Experimental results span text classification, code generation, logical
 reasoning (bAbI), phase-dial robustness, image reconstruction, cross-domain
-completion, scaling analysis, and Cortex channel routing.
+completion, scaling analysis, and Graph channel routing.

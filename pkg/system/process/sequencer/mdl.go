@@ -10,7 +10,7 @@ import (
 )
 
 type Sequencer interface {
-	Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
+	Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
 }
 
 /*
@@ -24,7 +24,7 @@ type MDL struct {
 	buf  []byte
 	dist *process.Distribution
 
-	runningChord data.Chord
+	runningValue data.Value
 
 	prevSegLen  int
 	fluxEmitted bool
@@ -35,9 +35,9 @@ type MDL struct {
 	emaPhase float64
 	emaPop   float64
 
-	runningMeta data.Chord
+	runningMeta data.Value
 
-	tokens     []data.Chord
+	tokens     []data.Value
 	candidates []candidate
 	offset     int
 
@@ -103,7 +103,7 @@ func (seq *MDL) Clone() *MDL {
 	c.emaPhase = seq.emaPhase
 	c.emaPop = seq.emaPop
 	c.runningMeta = seq.runningMeta
-	c.tokens = append([]data.Chord(nil), seq.tokens...)
+	c.tokens = append([]data.Value(nil), seq.tokens...)
 	c.candidates = append([]candidate(nil), seq.candidates...)
 	c.offset = seq.offset
 	return c
@@ -114,7 +114,7 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord) {
+func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
@@ -122,17 +122,17 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 
 	seq.runningMeta = seq.runningMeta.RollLeft(1)
 
-	base := data.BaseChord(byteVal)
+	base := data.BaseValue(byteVal)
 	relativeOffset := len(seq.buf) - seq.offset - 1
 	positioned := base.RollLeft(relativeOffset)
 
 	newBits := 0
 	if relativeOffset > 0 {
-		hole := data.ChordHole(&positioned, &seq.runningChord)
+		hole := data.ValueHole(&positioned, &seq.runningValue)
 		newBits = hole.ActiveCount()
 	}
 
-	seq.runningChord = seq.runningChord.OR(positioned)
+	seq.runningValue = seq.runningValue.OR(positioned)
 
 	densityCeiling := seq.ShannonCeiling
 	phaseThreshold := seq.PhaseThreshold
@@ -143,7 +143,7 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 
 	canSplit := (len(seq.buf) - seq.offset) >= seq.MinSegmentBytes
 
-	shannonForced := seq.runningChord.ShannonDensity() > densityCeiling && canSplit
+	shannonForced := seq.runningValue.ShannonDensity() > densityCeiling && canSplit
 	phaseForced := seq.eigen != nil && seq.eigen.Trained && delta > phaseThreshold && canSplit
 	primeForced := newBits >= 3 && canSplit // Significant prime spectrum shift
 
@@ -180,7 +180,7 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 			seq.dist.Add(b)
 		}
 
-		seq.runningChord = data.Chord{}
+		seq.runningValue = data.Value{}
 	}
 
 	if seq.calibrator != nil && seq.eigen != nil && seq.eigen.Trained {
@@ -200,27 +200,27 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 		for _, ev := range events {
 			switch ev {
 			case process.EventLowVarianceFlux:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(0))
 			case process.EventDensitySpike:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(1))
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(1))
 			case process.EventDensityTrough:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(2))
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(2))
 			case process.EventPhaseInversion:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(3))
+				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(3))
 			}
 		}
 
 		emitMeta := seq.runningMeta
 
-		emitChord := data.Chord{}
+		emitValue := data.Value{}
 		for i, b := range seq.buf[:emitK] {
-			bc := data.BaseChord(b)
-			emitChord = emitChord.OR(bc.RollLeft(i))
+			bc := data.BaseValue(b)
+			emitValue = emitValue.OR(bc.RollLeft(i))
 		}
-		emitDensity := emitChord.ShannonDensity()
+		emitDensity := emitValue.ShannonDensity()
 
 		maxBits := float64(emitK * 5)
-		actualBits := float64(emitChord.ActiveCount())
+		actualBits := float64(emitValue.ActiveCount())
 		primeCoherence := 0.0
 		if maxBits > 0 {
 			primeCoherence = math.Max(0, 1.0-(actualBits/maxBits))
@@ -248,7 +248,7 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Chord)
 	if seq.hasFlux() {
 		events = append(events, process.EventLowVarianceFlux)
 		seq.fluxEmitted = true
-		seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
+		seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(0))
 	}
 
 	seq.updateEMA(val, delta, eigenMag)
@@ -263,8 +263,8 @@ func (seq *MDL) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
 	val = float64(byteVal)
 
 	if seq.eigen != nil && seq.eigen.Trained {
-		c := data.BaseChord(byteVal)
-		theta, phi := seq.eigen.PhaseForChord(&c)
+		c := data.BaseValue(byteVal)
+		theta, phi := seq.eigen.PhaseForValue(&c)
 		eigenMag = math.Hypot(theta, phi)
 		delta = math.Abs(eigenMag - seq.lastEigenMag)
 		return
@@ -436,7 +436,7 @@ func (seq *MDL) updateEMA(val, delta, eigenMag float64) {
 Forecast runs boundary detection on buf+byteVal without committing.
 Returns (true, events) if a boundary would be at k; (false, nil) otherwise.
 */
-func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
+func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, data.Value) {
 	buf := append(seq.buf, byteVal)
 	dist := *seq.dist
 	dist.Add(byteVal)
@@ -454,13 +454,13 @@ func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, data.Chord) {
 	for _, ev := range events {
 		switch ev {
 		case process.EventLowVarianceFlux:
-			tempMeta = tempMeta.XOR(data.BaseChord(0))
+			tempMeta = tempMeta.XOR(data.BaseValue(0))
 		case process.EventDensitySpike:
-			tempMeta = tempMeta.XOR(data.BaseChord(1))
+			tempMeta = tempMeta.XOR(data.BaseValue(1))
 		case process.EventDensityTrough:
-			tempMeta = tempMeta.XOR(data.BaseChord(2))
+			tempMeta = tempMeta.XOR(data.BaseValue(2))
 		case process.EventPhaseInversion:
-			tempMeta = tempMeta.XOR(data.BaseChord(3))
+			tempMeta = tempMeta.XOR(data.BaseValue(3))
 		}
 	}
 
@@ -509,7 +509,7 @@ func (seq *MDL) SetEigenMode(eigen *geometry.EigenMode) {
 Flush commits the first candidate as a boundary and returns (true, events).
 Returns (false, nil) if no candidates. Same event format as Analyze.
 */
-func (seq *MDL) Flush() (bool, int, []int, data.Chord) {
+func (seq *MDL) Flush() (bool, int, []int, data.Value) {
 	if len(seq.candidates) == 0 {
 		return false, 0, nil, seq.runningMeta
 	}
@@ -521,13 +521,13 @@ func (seq *MDL) Flush() (bool, int, []int, data.Chord) {
 	for _, ev := range events {
 		switch ev {
 		case process.EventLowVarianceFlux:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(0))
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(0))
 		case process.EventDensitySpike:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(1))
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(1))
 		case process.EventDensityTrough:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(2))
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(2))
 		case process.EventPhaseInversion:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseChord(3))
+			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(3))
 		}
 	}
 

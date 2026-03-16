@@ -1,0 +1,45 @@
+% ============================================================================
+% GENERATION AS A BOUNDARY VALUE PROBLEM
+% ============================================================================
+\subsection{The Autoregressive IVP Limitation}
+\label{sec:ivp_limitation}
+
+Contemporary language models formulate generation as an autoregressive Initial Value Problem (IVP): given a starting context, continuously predict the next token. Formally, given prefix $\mathbf{x}_{0:t}$, the IVP computes $p(x_{t+1} \mid \mathbf{x}_{0:t})$ and samples, yielding a Markov chain with strictly left-to-right information flow. This creates three structural limitations:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Serial depth bottleneck:} Each step depends on the materialization of all preceding outputs, forcing an $O(N)$ critical-path depth that hardware parallelism cannot bypass.
+  \item \textbf{Irrevocable commitment:} Tokens cannot be retracted once emitted; local errors propagate as distributional drift---a single decoding error permanently alters the generation trajectory.
+  \item \textbf{Static memory:} Knowledge is compressed into continuous weight matrices $\mathbf{W}$ requiring gradient descent to update, causing catastrophic forgetting.
+\end{enumerate}
+
+\subsection{The Cantilever BVP Formulation}
+\label{sec:cantilever_bvp}
+
+We reject the IVP formulation entirely, framing generation instead as a \emph{Boundary Value Problem (BVP) solved through coordinate geometry}. Given a boundary constraint (a starting anchor coordinate) and a distant logic goal (a target phase $\phi_t$), the generation engine extends a computational cantilever into unknown territory to bridge the gap.
+
+Generation relies purely on interpolation of rotational trajectories through $\operatorname{GF}(257)$ rather than predicting the next localized step. The wavefront carries ephemeral execution registers to synthesize temporary affine momentum and phase states without committing to the LSM, mathematically ensuring that paths can diverge, extrapolate, and backtrack gracefully.
+
+\subsection{The Frustration Engine}
+\label{sec:frustration_engine}
+
+When the cantilever wavefront stalls---meaning no locally available sequence matches the momentum dictated by the execution register---it enters a state of \emph{frustration}. Rather than halting or hallucinating, the system evaluates the unresolved rotation gap between the target phase $\phi_t$ and the current locked phase $\phi_c$:
+
+\begin{equation}
+  \Delta = \phi_t \cdot \phi_c^{-1} \pmod{257}
+  \label{eq:frustration_gap}
+\end{equation}
+
+When $\Delta = 1$, the span has successfully bridged to the target (phase-lock). When $\Delta \neq 1$, the wavefront elevates frustration levels and searches the \emph{Macro Index}---a fractal skip-list built from $2^k$-stride values. If a macro-opcode resolves the missing affine rotation $Z$, the wavefront seamlessly jumps logarithmic distances to satisfy the boundary constraint.
+
+\subsection{The Cantilever Generation Loop}
+\label{sec:cantilever_loop}
+
+Generation extends the originating seed like a physical cantilever:
+
+\begin{enumerate}[nosep]
+  \item Inject prompt bytes to seed initial $\operatorname{GF}(257)$ phase states.
+  \item Apply affine momentum (execution) inside the Ephemeral Registers: $f(x) = ax + b \pmod{257}$.
+  \item Measure the projected rotation against the LSM spatial index using XOR popcount.
+  \item If phase-locked, advance the cantilever base; otherwise, accumulate frustration and pivot via the Macro Index or backtrack using the checkpoint trail.
+  \item Continue iteratively extending the cantilever until the resulting coordinate state strikes the delimiter bit (Bit 256), yielding geometric closure or a fully satisfied target boundary phase.
+\end{enumerate}

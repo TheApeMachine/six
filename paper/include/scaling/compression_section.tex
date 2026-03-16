@@ -1,0 +1,20 @@
+\subsection{Substrate Compression (Collision De-duplication)}
+\label{sec:compression}
+
+\paragraph{Task Description.}
+The compression experiment measures the ratio of raw input bytes to stored
+substrate entries, quantifying the de-duplication efficiency of the value
+collision mechanism. A 2\,000-sample synthetic dataset (128 bytes per
+sample) is ingested; the number of resulting PrimeField entries is measured
+and compared to the total raw byte volume.
+
+\paragraph{Results.}
+After ingesting 0\,KB of raw data, the substrate retained
+0 unique entries, yielding a compression ratio of
+0.0 bytes per entry (0$\,$KB $\to$
+0 entries).
+
+De-duplication was minimal at this corpus size, suggesting the 2\,000
+samples are highly diverse and each occupies a distinct attractor region.
+For natural-language or image corpora with greater regularity, higher
+compression ratios are expected.

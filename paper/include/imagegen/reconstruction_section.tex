@@ -2,19 +2,19 @@
 \label{sec:reconstruction}
 
 \paragraph{Task Description.}
-The reconstruction experiment evaluates how gracefully the chord substrate
+The reconstruction experiment evaluates how gracefully the value substrate
 degrades as the occlusion level increases.
 Each CIFAR-10 image ($32 \times 32$, decoded to raw NRGBA pixel bytes,
 4\,096 bytes total) is ingested once into the unified substrate.
 The same image is then queried at nine holdout levels (10\%--90\% RIGHT),
 where the last $k$\% of pixel bytes are withheld and must be recovered
-purely from chord attractor resonance, with no explicit image model,
+purely from value attractor resonance, with no explicit image model,
 convolution, or colour-space interpolation.
 
 \paragraph{Results.}
 Figure~\ref{fig:reconstruction_scaling} shows the \emph{occlusion scaling
 curve}: mean scores plotted against holdout percentage.
-A graceful decay (slow slope) would indicate that the chord substrate
+A graceful decay (slow slope) would indicate that the value substrate
 encodes global spatial structure, whereas a cliff at high holdout
 percentages is expected once the missing region exceeds the attractor's
 effective support radius.
@@ -28,6 +28,6 @@ Across all holdout levels the overall weighted score was 0.000.
 
 \paragraph{Assessment.}
 Reconstruction quality was low across all holdout levels.  At this ingestion
-scale the chord substrate has not accumulated sufficient pixel-level
+scale the value substrate has not accumulated sufficient pixel-level
 redundancy to anchor reliable attractor retrieval across the diverse
 colour distributions of CIFAR-10 imagery.

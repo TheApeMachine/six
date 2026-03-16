@@ -47,3 +47,5 @@ func BenchmarkCUDABackend_Resolve(b *testing.B) {
 		backend.Resolve(unsafe.Pointer(rotation), 0, unsafe.Pointer(rotation))
 	}
 }
+
+

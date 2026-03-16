@@ -9,8 +9,8 @@ import (
 
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
-	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/console"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
 
@@ -18,25 +18,25 @@ import (
 PhaseDial is a 512-dimensional complex vector representing rotational phase gradients.
 Each dimension uses a prime frequency (omega) to accumulate phase from position and
 structural identity; encoding produces unit-normalized vectors suitable for cosine
-similarity and vector addition. Use EncodeFromChords for chord sequences.
+similarity and vector addition. Use EncodeFromValues for value sequences.
 */
 type PhaseDial []complex128
 
 /*
 NewPhaseDial allocates a zero-initialized PhaseDial of NBasis dimensions.
-Used before EncodeFromChords to produce a unit-normalized phase vector.
+Used before EncodeFromValues to produce a unit-normalized phase vector.
 */
 func NewPhaseDial() PhaseDial {
 	return make(PhaseDial, config.Numeric.NBasis)
 }
 
 /*
-EncodeFromChords generates a 512-dim PhaseDial from a chord sequence.
-Chord-native: uses chord structure (active primes) and position for phase;
-no raw bytes. The chord's prime signature maps to rotational phase gradients.
+EncodeFromValues generates a 512-dim PhaseDial from a value sequence.
+Value-native: uses value structure (active primes) and position for phase;
+no raw bytes. The value's prime signature maps to rotational phase gradients.
 */
-func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
-	if len(chords) == 0 {
+func (dial PhaseDial) EncodeFromValues(values []data.Value) PhaseDial {
+	if len(values) == 0 {
 		return dial
 	}
 
@@ -44,13 +44,13 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 		var sum complex128
 		omega := float64(numeric.Primes[k])
 
-		for t := range chords {
-			// Fold all 8 raw chord words into a structural float.
-			// This preserves discrimination even when ChordBin collapses
+		for t := range values {
+			// Fold all 8 raw value words into a structural float.
+			// This preserves discrimination even when ValueBin collapses
 			// (e.g. when highly repetitive data saturates the 257-bit space).
 			var mix uint64
-			for blk := range config.ChordBlocks {
-				mix ^= chords[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+			for blk := range config.ValueBlocks {
+				mix ^= values[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
 			}
 			structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
 
@@ -65,29 +65,29 @@ func (dial PhaseDial) EncodeFromChords(chords []data.Chord) PhaseDial {
 }
 
 /*
-EncodeFromChordsParallel is the pool-accelerated variant of EncodeFromChords.
+EncodeFromValuesParallel is the pool-accelerated variant of EncodeFromValues.
 The outer loop over NBasis dimensions is embarrassingly parallel — each k writes
 to dial[k] with no cross-dependency — so we fan out to the pool and join before
 the serial normalize pass.
 
-If p is nil the call falls back to the serial EncodeFromChords path.
+If p is nil the call falls back to the serial EncodeFromValues path.
 */
-func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface {
+func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface {
 	Schedule(string, func(context.Context) (any, error), ...pool.JobOption) chan *pool.Result
 }) PhaseDial {
 	if p == nil {
-		return dial.EncodeFromChords(chords)
+		return dial.EncodeFromValues(values)
 	}
-	if len(chords) == 0 {
+	if len(values) == 0 {
 		return dial
 	}
 
-	// Pre-compute the structural phase per chord once; it's the same for all k.
-	structuralPhases := make([]float64, len(chords))
-	for t := range chords {
+	// Pre-compute the structural phase per value once; it's the same for all k.
+	structuralPhases := make([]float64, len(values))
+	for t := range values {
 		var mix uint64
-		for blk := range config.ChordBlocks {
-			mix ^= chords[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+		for blk := range config.ValueBlocks {
+			mix ^= values[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
 		}
 		structuralPhases[t] = float64(mix>>32) * (1.0 / float64(1<<32))
 	}
@@ -102,7 +102,7 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 
 		resCh := p.Schedule(fmt.Sprintf("phasedial-k%d", kk), func(ctx context.Context) (any, error) {
 			var sum complex128
-			for t := range chords {
+			for t := range values {
 				phase := (omega * float64(t+1) * 0.1) + (structuralPhases[t] * math.Pi * 2)
 				sum += cmplx.Rect(1.0, phase)
 			}
@@ -129,13 +129,13 @@ func (dial PhaseDial) EncodeFromChordsParallel(chords []data.Chord, p interface 
 }
 
 /*
-AddChordPhase incrementally adds a single chord's phase to an unnormalized PhaseDial.
+AddValuePhase incrementally adds a single value's phase to an unnormalized PhaseDial.
 This allows O(N) instead of O(N^2) sequential dial construction.
 */
-func (dial PhaseDial) AddChordPhase(chord data.Chord, t int) {
+func (dial PhaseDial) AddValuePhase(value data.Value, t int) {
 	var mix uint64
-	for blk := range config.ChordBlocks {
-		mix ^= chord.Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+	for blk := range config.ValueBlocks {
+		mix ^= value.Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
 	}
 	structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
 
@@ -241,7 +241,7 @@ func (dial PhaseDial) norm() float64 {
 
 /*
 normalize divides each component by the L2 norm so the dial has unit magnitude.
-EncodeFromChords calls this before returning; preserves receiver in-place.
+EncodeFromValues calls this before returning; preserves receiver in-place.
 */
 func (dial PhaseDial) normalize() PhaseDial {
 	var norm float64

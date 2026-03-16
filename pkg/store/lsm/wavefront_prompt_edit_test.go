@@ -32,7 +32,7 @@ func TestWavefrontSearchPromptEditAlignment(t *testing.T) {
 				results := wf.SearchPrompt(tc.prompt, nil, nil)
 				gc.So(len(results), gc.ShouldBeGreaterThan, 0)
 
-				decoded := idx.decodeChords(results[0].Path)
+				decoded := idx.decodeValues(results[0].Path)
 				gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
 				gc.So(string(decoded[0]), gc.ShouldContainSubstring, "Kitchen")
 			})

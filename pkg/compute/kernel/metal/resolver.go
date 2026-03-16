@@ -38,12 +38,14 @@ func (backend *MetalBackend) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (uint64, error) {
+	if numNodes <= 0 {
+		return 0, MetalErrorResolveFailed
+	}
+	if graphNodes == nil || context == nil {
+		return 0, MetalErrorResolveFailed
+	}
 	if !backend.Available() {
 		return 0, MetalErrorUnavailable
-	}
-
-	if numNodes == 0 {
-		return 0, nil
 	}
 
 	if numNodes < 1024 {
@@ -51,20 +53,17 @@ func (backend *MetalBackend) Resolve(
 		ctx := (*geometry.GFRotation)(context)
 		return resolve.PackedNearest(nodes, *ctx), nil
 	}
-
-	if numNodes < 0 || numNodes > 4294967295 {
+	if uint64(numNodes) > uint64(^uint32(0)) {
 		return 0, MetalErrorResolveFailed
 	}
 
 	var packed C.uint64_t
-
 	status := C.resolve_resonance_metal(
 		graphNodes,
 		C.uint32_t(numNodes),
 		context,
 		&packed,
 	)
-
 	if status != 0 {
 		return 0, MetalErrorResolveFailed
 	}
@@ -107,7 +106,6 @@ func init() {
 		initErr = err
 		return
 	}
-
 	if err := tmpFile.Close(); err != nil {
 		initErr = err
 		return
@@ -116,8 +114,7 @@ func init() {
 	cPath := C.CString(name)
 	defer C.free(unsafe.Pointer(cPath))
 
-	res := C.init_metal(cPath)
-	if res != 0 {
+	if res := C.init_metal(cPath); res != 0 {
 		initErr = MetalErrorInitFailed
 		return
 	}

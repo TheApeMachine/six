@@ -12,7 +12,7 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 	gc.Convey("Given a checkpoint trail with stale frustration crumbs and recent stable anchors", t, func() {
 		registers := newExecutionRegisters()
 		registers.trailLimit = 8
-		meta := data.MustNewChord()
+		meta := data.MustNewValue()
 		value := data.NeutralValue()
 		value.SetStatePhase(7)
 
@@ -23,8 +23,8 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 			pos:          0,
 			segment:      0,
 			energy:       2,
-			path:         []data.Chord{value},
-			metaPath:     []data.Chord{meta},
+			path:         []data.Value{value},
+			metaPath:     []data.Value{meta},
 			visited:      map[visitMark]bool{visitFor(1, 0): true},
 		}
 		carry := &WavefrontHead{
@@ -34,8 +34,8 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 			pos:          2,
 			segment:      0,
 			energy:       6,
-			path:         []data.Chord{value, value},
-			metaPath:     []data.Chord{meta, meta},
+			path:         []data.Value{value, value},
+			metaPath:     []data.Value{meta, meta},
 			visited:      map[visitMark]bool{visitFor(1, 0): true, visitFor(2, 0): true},
 		}
 		backtrack := &WavefrontHead{
@@ -45,8 +45,8 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 			pos:          1,
 			segment:      1,
 			energy:       9,
-			path:         []data.Chord{value, value},
-			metaPath:     []data.Chord{meta, meta},
+			path:         []data.Value{value, value},
+			metaPath:     []data.Value{meta, meta},
 			visited:      map[visitMark]bool{visitFor(1, 1): true},
 			stalls:       1,
 		}
@@ -57,8 +57,8 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 			pos:          3,
 			segment:      1,
 			energy:       11,
-			path:         []data.Chord{value, value, value, value},
-			metaPath:     []data.Chord{meta, meta, meta, meta},
+			path:         []data.Value{value, value, value, value},
+			metaPath:     []data.Value{meta, meta, meta, meta},
 			visited:      map[visitMark]bool{visitFor(3, 1): true},
 		}
 		stable := &WavefrontHead{
@@ -68,8 +68,8 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 			pos:          4,
 			segment:      1,
 			energy:       12,
-			path:         []data.Chord{value, value, value, value, value},
-			metaPath:     []data.Chord{meta, meta, meta, meta, meta},
+			path:         []data.Value{value, value, value, value, value},
+			metaPath:     []data.Value{meta, meta, meta, meta, meta},
 			visited:      map[visitMark]bool{visitFor(4, 1): true},
 		}
 		current := &WavefrontHead{
@@ -79,8 +79,8 @@ func TestExecutionRegistersGarbageCollectKeepsHighValueCheckpoints(t *testing.T)
 			pos:          5,
 			segment:      1,
 			energy:       20,
-			path:         []data.Chord{value, value, value, value, value, value},
-			metaPath:     []data.Chord{meta, meta, meta, meta, meta, meta},
+			path:         []data.Value{value, value, value, value, value, value},
+			metaPath:     []data.Value{meta, meta, meta, meta, meta, meta},
 			visited:      map[visitMark]bool{visitFor(5, 1): true},
 		}
 
@@ -113,7 +113,7 @@ func TestWavefrontPruneDropsExpiredAndDominatedHeads(t *testing.T) {
 			WavefrontWithMaxHeads(8),
 			WavefrontWithBranchHygiene(2, 2, 4, 8),
 		)
-		meta := data.MustNewChord()
+		meta := data.MustNewValue()
 		value := data.NeutralValue()
 		value.SetStatePhase(numeric.Phase(7))
 
@@ -130,8 +130,8 @@ func TestWavefrontPruneDropsExpiredAndDominatedHeads(t *testing.T) {
 				segment:      0,
 				promptIdx:    2,
 				energy:       energy,
-				path:         []data.Chord{value, value, value},
-				metaPath:     []data.Chord{meta, meta, meta},
+				path:         []data.Value{value, value, value},
+				metaPath:     []data.Value{meta, meta, meta},
 				visited:      map[visitMark]bool{visitFor(uint64(phase), 0): true},
 				stalls:       stalls,
 				frustration:  frustration,

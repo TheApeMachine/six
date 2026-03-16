@@ -31,3 +31,5 @@ func BenchmarkNewResult(b *testing.B) {
 		_ = NewResult("test-value")
 	}
 }
+
+

@@ -13,7 +13,7 @@ func TestExportPDFWithSize(t *testing.T) {
 		tempDir := t.TempDir()
 		htmlPath := filepath.Join(tempDir, "chart.html")
 		pdfPath := filepath.Join(tempDir, "chart.pdf")
-		html := "<html><body><div>cortex render</div></body></html>"
+		html := "<html><body><div>graph render</div></body></html>"
 
 		err := os.WriteFile(htmlPath, []byte(html), 0644)
 		So(err, ShouldBeNil)

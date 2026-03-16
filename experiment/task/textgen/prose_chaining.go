@@ -17,7 +17,7 @@ the first 40% of each test sample. It must chain through the learned attractor
 field to reconstruct the remaining 60%.
 
 wikitext-103 was chosen over wikitext-2 for its substantially larger and more
-diverse vocabulary, creating a denser coverage of the chord attractor field.
+diverse vocabulary, creating a denser coverage of the value attractor field.
 This makes the chaining task harder and more informative: a favourable result
 here implies the substrate generalises across the long tail of English prose,
 not just the most frequent n-grams.

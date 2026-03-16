@@ -15,7 +15,7 @@ recombine structural patterns across a real story corpus. TinyStories provides
 short English stories with highly regular grammar patterns ("Once upon a time
 there was a [adj] [noun] who liked to [verb]..."). After ingesting multiple
 stories, the system is prompted with a 70% prefix of novel samples; it must
-complete the held-out 30% by chord resonance across learned story patterns.
+complete the held-out 30% by value resonance across learned story patterns.
 
 This tests compositional recall: can the attractor field reconstruct the
 ending of a story whose opening shares structural motifs with ingested stories,

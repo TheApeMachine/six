@@ -81,7 +81,7 @@ of an MDL boundary.
 */
 func (sequitur *Sequitur) Analyze(
 	pos uint32, byteVal byte,
-) (bool, int, []int, data.Chord) {
+) (bool, int, []int, data.Value) {
 	sequitur.mu.Lock()
 
 	sequitur.pending = append(sequitur.pending, byteVal)
@@ -94,7 +94,7 @@ func (sequitur *Sequitur) Analyze(
 
 	if !ruleCreated {
 		sequitur.mu.Unlock()
-		return false, 0, nil, data.Chord{}
+		return false, 0, nil, data.Value{}
 	}
 
 	pendingCopy := append([]byte(nil), sequitur.pending...)
@@ -109,7 +109,7 @@ func (sequitur *Sequitur) Analyze(
 
 	console.Trace("sequence", "bytes", string(pendingCopy))
 
-	meta := ruleMetaChord(lastRuleID, calc)
+	meta := ruleMetaValue(lastRuleID, calc)
 
 	return true, emitK, []int{process.EventPhaseInversion}, meta
 }
@@ -117,18 +117,18 @@ func (sequitur *Sequitur) Analyze(
 /*
 Flush drains any remaining pending bytes as a final boundary.
 */
-func (sequitur *Sequitur) Flush() (bool, int, []int, data.Chord) {
+func (sequitur *Sequitur) Flush() (bool, int, []int, data.Value) {
 	sequitur.mu.Lock()
 	defer sequitur.mu.Unlock()
 
 	if len(sequitur.pending) == 0 {
-		return false, 0, nil, data.Chord{}
+		return false, 0, nil, data.Value{}
 	}
 
 	emitK := len(sequitur.pending)
 	sequitur.pending = nil
 
-	meta := ruleMetaChord(sequitur.lastRuleID, sequitur.calc)
+	meta := ruleMetaValue(sequitur.lastRuleID, sequitur.calc)
 
 	return true, emitK, []int{
 		process.EventPhaseInversion,
@@ -330,18 +330,18 @@ func (sequitur *Sequitur) checkAdjacencies(a, b *Node) {
 }
 
 /*
-ruleMetaChord encodes a grammar rule's structural identity as a chord.
+ruleMetaValue encodes a grammar rule's structural identity as a value.
 The rule ID is projected into GF(257) via the primitive root (3^ruleID mod 257),
 and the resulting phase is set as a single active bit. This gives each
 discovered rule a unique rotational signature without touching raw bytes.
 */
-func ruleMetaChord(ruleID int, calc *numeric.Calculus) data.Chord {
+func ruleMetaValue(ruleID int, calc *numeric.Calculus) data.Value {
 	phase := calc.Power(
 		numeric.Phase(numeric.FermatPrimitive), uint32(ruleID),
 	)
 
-	chord := data.MustNewChord()
-	chord.Set(int(phase))
+	value := data.MustNewValue()
+	value.Set(int(phase))
 
-	return chord
+	return value
 }

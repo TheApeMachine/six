@@ -58,3 +58,5 @@ func TestFactZeroValues(t *testing.T) {
 		t.Fatalf("zero Negated: want false, got true")
 	}
 }
+
+

@@ -139,7 +139,7 @@ a collection of English short stories for children, characterised by highly
 regular grammar (''Once upon a time there was a [adj] [noun] who liked to
 [verb]\ldots'') and controlled vocabulary with substantial cross-story overlap.
 The held-out target (rightmost 30\% of each sample) must be reconstructed
-purely from chord attractor resonance over the ingested story patterns.
+purely from value attractor resonance over the ingested story patterns.
 
 \paragraph{Results.}
 Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}
@@ -147,7 +147,7 @@ Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}
 
 {{- if gt .Score 0.5}}
 \paragraph{Assessment.}
-The substrate achieved strong structural recall, demonstrating that the chord
+The substrate achieved strong structural recall, demonstrating that the value
 attractor field captures the compositional regularities of TinyStories prose.
 The high partial score indicates the system falls into the correct semantic
 neighbourhood even when exact byte-level recovery is incomplete.
@@ -213,9 +213,9 @@ Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
 {{if gt .Score 0.4 -}}
 \paragraph{Assessment.}
 The substrate demonstrated meaningful generalisation beyond its exact
-training material.  The chord attractor field captured structural regularities
+training material.  The value attractor field captured structural regularities
 of Wikipedia prose at a level sufficient to partially reconstruct unseen
-text in the same style.  The result supports the claim that chord resonance
+text in the same style.  The result supports the claim that value resonance
 operates on syntactic and semantic structure rather than pure n-gram lookup.
 {{- else if gt .Score 0.1 -}}
 \paragraph{Assessment.}
@@ -258,13 +258,13 @@ func ProseChainingArtifacts(tableData []tools.ExperimentalData, score float64) [
 The prose chaining experiment evaluates deep multi-step generation on
 \texttt{wikitext-103-raw-v1}, a large Wikipedia-derived corpus with markedly
 broader and more diverse vocabulary than wikitext-2.  The increased lexical
-distribution creates a denser but flatter chord attractor field, making
+distribution creates a denser but flatter value attractor field, making
 chaining harder: the system must bridge further in attractor space to
 reconstruct the held-out 60\% suffix of each sample.
 
 wikitext-103 was chosen specifically because its long-tail vocabulary
 represents the regime where shallow n-gram statistics break down but
-structural chord resonance remains viable --- making it a sharper
+structural value resonance remains viable --- making it a sharper
 discriminator for the architecture's generative capabilities.
 
 \paragraph{Results.}
@@ -317,10 +317,10 @@ func TextOverlapArtifacts(tableData []tools.ExperimentalData, score float64) []t
 The text overlap experiment evaluates overlap-aware span bridging using
 \texttt{roneneldan/TinyStories} ({{.NSamples}} ingested samples, 40\% RIGHT holdout).
 TinyStories was chosen for its vocabulary regularity: stories share canonical
-verbs, settings, and character archetypes, creating a dense web of chord
+verbs, settings, and character archetypes, creating a dense web of value
 attractor bridges across samples.  This controlled overlap is precisely
 what makes the boundary detection hypothesis testable: the system should
-identify structural boundaries where the prompt's chord fingerprint overlaps
+identify structural boundaries where the prompt's value fingerprint overlaps
 with a learned corpus span, and transition into the subsequent span
 naturally.
 
@@ -329,7 +329,7 @@ Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
 
 {{if gt .Score 0.5 -}}
 \paragraph{Assessment.}
-The substrate correctly identified and exploited chord-level overlap at
+The substrate correctly identified and exploited value-level overlap at
 story span boundaries, producing continuations that bridge naturally
 into the corpus.  The high score validates the hypothesis that TinyStories'
 regular structure creates strong attractor bridges.

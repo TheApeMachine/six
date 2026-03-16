@@ -5,7 +5,7 @@
 \label{sec:related_nvsa}
 
 The most direct bridge between classical neural architectures and the
-prime-basis Chord substrate is the emerging family of
+prime-basis Value substrate is the emerging family of
 \emph{Neuro-Vector-Symbolic Architectures} (NVSA).  Hersche et al.\
 \citep{hersche2023nvsa} demonstrated that combining neural front-ends with
 VSA back-ends solves Raven's Progressive Matrices---a benchmark for
@@ -42,13 +42,13 @@ concentration of measure in high-dimensional spaces: randomly sampled
 HD vectors are approximately orthogonal, enabling robust distributed
 representations despite random bit-overlaps.
 
-Our 257-bit Chord operates in a far lower dimensionality ($D = 257$ vs.\
+Our 257-bit Value operates in a far lower dimensionality ($D = 257$ vs.\
 $D \geq 4{,}000$ in classical HD), trading the probabilistic near-orthogonality
 guarantee for exact prime-factor uniqueness.  The compensation mechanism is
 the non-commutative manifold: where classical HD relies on dimensionality
 for collision resistance, we rely on the $60$-state $A_5$ rotational
 register plus the 4-bit winding counter to separate sequences that share
-identical Chord content.  This is a fundamentally different point in the
+identical Value content.  This is a fundamentally different point in the
 design space---deterministic algebraic separation vs.\ probabilistic
 geometric separation.
 

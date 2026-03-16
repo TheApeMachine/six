@@ -218,7 +218,7 @@ and an overall weighted score of {{.Score | f3}}.
 \paragraph{Assessment.}
 The substrate captured structural regularity across multiple language families,
 suggesting that low-level byte patterns in code are sufficiently regular for
-the chord attractor to generalise across syntax dialects.
+the value attractor to generalise across syntax dialects.
 {{- else if gt .Score 0.15 -}}
 \paragraph{Assessment.}
 The substrate recovered partial code structure in the majority of languages.
@@ -229,7 +229,7 @@ consistent with the higher token-level redundancy in the former.
 \paragraph{Assessment.}
 Completion accuracy was low across languages.  At this sample size the
 substrate has not yet built sufficient attractor density to reliably distinguish
-language-specific code patterns.  Increasing the ingestion volume per language
+language-specific code patterns. Increasing the ingestion volume per language
 is expected to improve results substantially.
 {{- end}}
 `

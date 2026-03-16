@@ -4,14 +4,14 @@ using Go = import "/go.capnp";
 $Go.package("lsm");
 $Go.import("github.com/theapemachine/six/pkg/store/lsm");
 
-using import "../data/chord.capnp".Chord;
+using import "../data/value.capnp".Value;
 
 struct GraphEdge {
   left     @0 :UInt8;
   right    @1 :UInt8;
   position @2 :UInt32;
-  chord    @3 :Chord;
-  meta     @4 :Chord;
+  value    @3 :Value;
+  meta     @4 :Value;
 }
 
 interface SpatialIndex {
@@ -20,9 +20,11 @@ interface SpatialIndex {
   done             @1 ();
 
   # Fast-path lookups
-  lookup           @2 (chords :List(Chord)) -> (paths :List(List(Chord)), metaPaths :List(List(Chord)));
-  queryTransitions @3 (left :UInt8, position :UInt32) -> (chords :List(Chord), metas :List(Chord));
+  lookup           @2 (values :List(Value)) -> (paths :List(List(Value)), metaPaths :List(List(Value)));
+  queryTransitions @3 (left :UInt8, position :UInt32) -> (values :List(Value), metas :List(Value));
 
-  # Stateful path decode: result chords back into byte sequences
-  decode           @4 (chords :List(List(Chord))) -> (sequences :List(Data));
+  # Stateful path decode: result values back into byte sequences
+  decode           @4 (values :List(List(Value))) -> (sequences :List(Data));
 }
+
+

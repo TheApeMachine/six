@@ -17,3 +17,5 @@ func TestSpatialIndexServerCloseIsIdempotent(t *testing.T) {
 		})
 	})
 }
+
+

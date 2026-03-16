@@ -45,7 +45,7 @@ func (experiment *BestFillScalingExperiment) Dataset() provider.Dataset {
 
 func (experiment *BestFillScalingExperiment) Prompts() []string {
 	// The substrate is populated during Loader.Start()
-	// We don't need to run 5000 prompts through the active inference Cortex
+	// We don't need to run 5000 prompts through the active inference Graph
 	// just to benchmark the latency of raw BestFill.
 	return []string{}
 }
@@ -76,17 +76,3 @@ func (experiment *BestFillScalingExperiment) Artifacts() []tools.Artifact {
 }
 
 func (experiment *BestFillScalingExperiment) RawOutput() bool { return false }
-
-
-
-
-
-
-
-
-
-
-
-
-
-

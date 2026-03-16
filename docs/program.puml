@@ -11,7 +11,7 @@ state "Phase 1: Grounding (Data -> Coordinate)" as Initialization {
   
   Morton : X = Byte Value
   Morton : Y = Sequence Index
-  Phase : Map to Mono-Type (The Chord)
+  Phase : Map to Mono-Type (The Value)
   
   Morton -> Phase
 }
@@ -59,7 +59,7 @@ end note
 note bottom of Measurement
   <b>XOR IS Measurement</b>
   We do NOT store the XOR. We only use 
-  XOR to check if our rotated Chord hit 
+  XOR to check if our rotated Value hit 
   a valid physical coordinate in the LSM.
 end note
 
@@ -92,3 +92,4 @@ HaltCheck --> Output :[Bit 257 == 1]\nOR\n[Maximum Saturation]\n(Fixed Point Rea
 Output --> [*] : Return Final Bytes
 
 @enduml
+

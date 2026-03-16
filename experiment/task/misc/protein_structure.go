@@ -304,7 +304,7 @@ The protein secondary structure experiment evaluates whether the
 geometric substrate can predict per-residue secondary structure
 labels---Helix (\texttt{H}), Sheet (\texttt{E}), Coil
 (\texttt{C})---from raw amino acid sequences, using solely the
-bitwise chord resonance of the input characters.
+bitwise value resonance of the input characters.
 The dataset is \texttt{proteinea/secondary\_structure\_prediction}
 (HuggingFace); text columns \texttt{input} (amino acid one-letter
 codes) and \texttt{dssp3} (ground truth DSSP3 labels) are joined,

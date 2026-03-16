@@ -10,8 +10,8 @@ It is extremely important that you reason about the architecture on its own term
 Also, very important to keep in mind that we are reframing the A.I. tasks (experiments) as Boundary Value Problems, and Initial Value Problems. So we are not predicting the next byte, we are predicting the longest span. In that case we would call it a cantilever solve.
 
 > !NOTE
-> A common mistake is to think of data as "bytes" or "words" or "sentences". Do not do this. There are only Chords.
-> This is a system that should reason about Chords, and nothing else.
+> A common mistake is to think of data as "bytes" or "words" or "sentences". Do not do this. There are only Values.
+> This is a system that should reason about Values, and nothing else.
 > Also, do not try to make the tokenizer split things by sample id, the real world doesn't give you sample ids.
 
 ## Core Philosophy
@@ -209,20 +209,20 @@ gc.Convey("Energy should be correct", func() {
 
 **2. Never construct test data that makes your assertion a tautology.**
 
-If you manually set exactly 1 bit, then asserting `ActiveCount == 1` proves nothing — you are testing your own test setup, not the system. Use the real constructors (`BaseChord`, `BuildChord`, or the actual tokenizer path) so the test data has the same shape as production data.
+If you manually set exactly 1 bit, then asserting `ActiveCount == 1` proves nothing — you are testing your own test setup, not the system. Use the real constructors (`BaseValue`, `BuildValue`, or the actual tokenizer path) so the test data has the same shape as production data.
 
 ```go
 // BANNED — you set 1 bit, then check for 1 bit
-stateChord := data.MustNewChord()
-stateChord.Set(int(state))
+stateValue := data.MustNewValue()
+stateValue.Set(int(state))
 // later...
-gc.So(chord.ActiveCount(), gc.ShouldEqual, 1) // tautology
+gc.So(value.ActiveCount(), gc.ShouldEqual, 1) // tautology
 
-// CORRECT — use real BaseChord, verify real properties
-chord := data.BaseChord(b)
-chord.Set(int(state))
+// CORRECT — use real BaseValue, verify real properties
+value := data.BaseValue(b)
+value.Set(int(state))
 // later...
-gc.So(chord.Has(int(expectedState)), gc.ShouldBeTrue)
+gc.So(value.Has(int(expectedState)), gc.ShouldBeTrue)
 ```
 
 **3. Never reimplement the system's logic in the test.**
@@ -236,9 +236,9 @@ manual := calc.SumBytes(prompt) // this IS PromptToPhase
 gc.So(phase, gc.ShouldEqual, manual) // A == A
 
 // CORRECT — verify the output has a real observable property
-results := wf.Search(promptChord, nil, nil)
-lastChord := results[0].Path[len(results[0].Path)-1]
-gc.So(lastChord.Has(int(expectedState)), gc.ShouldBeTrue)
+results := wf.Search(promptValue, nil, nil)
+lastValue := results[0].Path[len(results[0].Path)-1]
+gc.So(lastValue.Has(int(expectedState)), gc.ShouldBeTrue)
 ```
 
 **4. Never use `gc.Printf` as a substitute for `gc.So`.**

@@ -20,8 +20,9 @@ architecture:
     windows: [3, 5, 8, 13, 21]
     shannonCapacity: 0.45
     vocabSize: 256
-  cortex:
+  graph:
     initialNodes: 8
 
 experiment:
   samples: 10
+

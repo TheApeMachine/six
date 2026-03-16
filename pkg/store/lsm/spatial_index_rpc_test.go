@@ -14,13 +14,13 @@ func TestSpatialIndexGetters(t *testing.T) {
 		spatial := NewSpatialIndexServer()
 		morton := data.NewMortonCoder()
 
-		makeState := func(state int) data.Chord {
-			c := data.MustNewChord()
+		makeState := func(state int) data.Value {
+			c := data.MustNewValue()
 			c.Set(state)
 			return c
 		}
 
-		mockMeta := data.MustNewChord()
+		mockMeta := data.MustNewValue()
 
 		// Add an entry
 		keyA := morton.Pack(0, 'A')
@@ -40,7 +40,7 @@ func TestSpatialIndexGetters(t *testing.T) {
 			// arrowSets isn't actually populated by insertSync, it's populated elsewhere.
 			// Let's manually populate it for the test
 			spatial.mu.Lock()
-			spatial.arrowSets[keyA] = []data.Chord{stateA, stateA2}
+			spatial.arrowSets[keyA] = []data.Value{stateA, stateA2}
 			spatial.mu.Unlock()
 
 			So(spatial.BranchCount(keyA), ShouldEqual, 2)
@@ -49,11 +49,11 @@ func TestSpatialIndexGetters(t *testing.T) {
 
 		Convey("GetChainEntry should return entries from the collision chain", func() {
 			k := ToKey(stateA.Rotate3D())
-			chord, exists := spatial.GetChainEntry(k)
+			value, exists := spatial.GetChainEntry(k)
 			So(exists, ShouldBeTrue)
-			So(chord.Has(20), ShouldBeTrue) // The second state is chained off the first
+			So(value.Has(20), ShouldBeTrue) // The second state is chained off the first
 
-			_, exists = spatial.GetChainEntry(ToKey(data.MustNewChord()))
+			_, exists = spatial.GetChainEntry(ToKey(data.MustNewValue()))
 			So(exists, ShouldBeFalse)
 		})
 	})
@@ -65,19 +65,19 @@ func TestSpatialIndexDecode(t *testing.T) {
 		text := []byte("hello")
 
 		morton := data.NewMortonCoder()
-		mockMeta := data.MustNewChord()
-		var queryChords []data.Chord
+		mockMeta := data.MustNewValue()
+		var queryValues []data.Value
 
 		for pos, b := range text {
-			bc, _ := data.BuildChord([]byte{b})
+			bc, _ := data.BuildValue([]byte{b})
 			candidate := bc.RollLeft(pos)
 			key := morton.Pack(uint32(pos), b)
 			spatial.insertSync(key, candidate, mockMeta)
-			queryChords = append(queryChords, candidate)
+			queryValues = append(queryValues, candidate)
 		}
 
 		Convey("Decode should reconstruct the byte sequence", func() {
-			res := spatial.decodeChords(queryChords)
+			res := spatial.decodeValues(queryValues)
 			So(len(res), ShouldBeGreaterThan, 0)
 
 			var joined string
@@ -87,8 +87,8 @@ func TestSpatialIndexDecode(t *testing.T) {
 			So(joined, ShouldEqual, "hello")
 		})
 
-		Convey("Decode should handle empty chords", func() {
-			res := spatial.decodeChords([]data.Chord{data.MustNewChord()})
+		Convey("Decode should handle empty values", func() {
+			res := spatial.decodeValues([]data.Value{data.MustNewValue()})
 			So(len(res), ShouldEqual, 0)
 		})
 	})

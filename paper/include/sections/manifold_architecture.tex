@@ -1,29 +1,37 @@
 % ============================================================================
-% THE FERMAT CUBE AND ICOSAHEDRAL MANIFOLD
+% THE 512-BIT VALUE AND MORTON KEY ADDRESS SPACE
 % ============================================================================
-\subsection{Structural Layout}
+\subsection{Structural Layout: The Address Plane}
 \label{sec:manifold_layout}
 \label{sec:manifold_architecture}
 
-The base geometric primitive is a \emph{Fermat Cube}---a three-dimensional
-array of $6 \times 4 \times 257 = 6{,}168$ Chord positions.  Each of the 6
-physical sides carries 4 rotational orientations ($0^\circ$, $90^\circ$,
-$180^\circ$, $270^\circ$), and each orientation holds 257 chords: 256 data
-faces (one per byte value) plus a control chord at face index 256.
+The architecture utilizes a unified address plane in the form of a Morton-keyed Log-Structured Merge (LSM) index. A cell address packs the byte identity ($X$) and the boundary-local depth ($Y$) into a single 64-bit key:
 
-\begin{verbatim}
-type Side [4][CubeFaces]data.Chord   // 4 rotations × 257 chords
-type Cube struct {
-    Sides [6]Side                     // 6 physical faces
-}
-\end{verbatim}
+\begin{equation}
+  \text{CellKey} = \text{Pack}(\underbrace{v}_{\text{byte value (X)}},\; \underbrace{d}_{\text{local depth (Y)}})
+  \label{eq:morton_pack}
+\end{equation}
 
-\noindent The control chord at face 256 is structurally protected: data
-ingestion never writes to it.  In the Cortex (§\ref{sec:dual_architecture}),
-the control chord determines edge opcodes between connected cubes.
+The primary layout is computationally efficient ($\texttt{symbol} \ll 32 \mid \texttt{localDepth}$), ensuring that data scan locality intrinsically follows the underlying sequential stream. Because the depth $d$ resets to 0 at each structural boundary discovered by the sequencer, distinct sequences that share identically situated local depths collapse geometrically onto the exact same cell coordinate. 
 
-All rotational addressing is performed via composable affine transformations
-over the Galois field $\operatorname{GF}(257)$:
+\subsection{The 512-Bit Native Monotype}
+\label{sec:native_monotype}
+
+At each defined Morton coordinate, the system instantiates its fundamental computational primitive: a 512-bit \emph{Value}. Unlike traditional symbol embeddings, the Value does not redundantly encode the byte (which is already encoded by the spatial $X$ coordinate), but rather serves as a self-contained operational state.
+
+The 512 bits are structurally partitioned to separate the generative logic from routing metadata:
+\begin{itemize}[nosep]
+  \item \textbf{Bits 0--255:} The $\operatorname{GF}(257)$ Fermat core. This acts as the mathematical reasoning state, participating in core affine evolutions.
+  \item \textbf{Bit 256:} The delimiter and algorithmic halt flag, terminating generative loops.
+  \item \textbf{Bits 257--511:} The Operator Shell. These upper bits operate beyond the $\operatorname{GF}(257)$ plane and carry affine constants, route hints, trajectory snapshots, and mutation limits (guard radii).
+\end{itemize}
+
+This layout is strictly aligned for 512-bit hardware constraints, ensuring zero-cost metadata propagation alongside the core mathematical updates.
+
+\subsection{Generative Coordinate Transforms}
+\label{sec:affine_transform}
+
+With the static sequence completely decoupled into the LSM coordinates, reasoning progresses strictly through generative transform logic within the Fermat core array. The core performs affine phase rotation over the cyclic $\operatorname{GF}(257)$ group:
 
 \begin{equation}
   f(x) = (a \cdot x + b) \pmod{257}, \qquad
@@ -31,109 +39,4 @@ over the Galois field $\operatorname{GF}(257)$:
   \label{eq:gf_affine}
 \end{equation}
 
-Because $257 = 2^8 + 1$ is a Fermat prime, $\operatorname{GF}(257)^*$ is
-cyclic of order 256---every non-zero element generates the full
-multiplicative group.  This ensures that \emph{every} byte value maps
-bijectively to a unique face, and composition of rotations is closed under
-the group operation (§\ref{sec:composition}).
-
-\subsection{The Icosahedral Manifold and $A_5$ Extension}
-\label{sec:icosahedral_manifold}
-
-Each memory primitive is pre-allocated as an \texttt{IcosahedralManifold}:
-5 Fermat Cubes stored contiguously with a compact orientational header:
-
-\begin{verbatim}
-type IcosahedralManifold struct {
-    Header  ManifoldHeader   // 16-bit orientational state
-    Cubes   [5]FermatCube    // 5 × 257 = 1,285 chord faces per cube
-}
-\end{verbatim}
-
-\noindent In flat addressing mode (one cube), total state per Fermat Cube is
-$6 \times 4 \times 257 \times 257 = 1{,}585{,}176$ bits.
-
-In baseline Cubic mode (\texttt{State=0}), only \texttt{Cubes[0]} is active.
-
-\paragraph{$A_5$ Macro-Permutations.}
-Post-mitosis, macro-topology is governed by the alternating group
-$A_5 \cong \text{Sym}(\text{Icosahedron})$, which consists exclusively
-of \emph{even permutations} of 5 elements.  Three generator types suffice:
-
-\begin{align}
-  \textbf{3-Cycle:}\quad
-    \pi_{(a\,b\,c)} &: \text{Cubes}[a] \to \text{Cubes}[b] \to
-                       \text{Cubes}[c] \to \text{Cubes}[a]
-  \label{eq:3cycle} \\[3pt]
-  \textbf{Double Transposition:}\quad
-    \pi_{(a\,b)(c\,d)} &: \text{Cubes}[a] \leftrightarrow \text{Cubes}[b],\;\;
-                          \text{Cubes}[c] \leftrightarrow \text{Cubes}[d]
-  \label{eq:double_trans} \\[3pt]
-  \textbf{5-Cycle:}\quad
-    \pi_{(a\,b\,c\,d\,e)} &: \text{Cubes}[a] \to \text{Cubes}[b] \to
-                              \cdots \to \text{Cubes}[e] \to \text{Cubes}[a]
-  \label{eq:5cycle}
-\end{align}
-
-Each permutation executes as an array index swap in $O(1)$ without data
-copying.
-
-\subsection{The 16-Bit Rotation Header}
-\label{sec:rotation_header}
-
-A compact \texttt{uint16} header tracks the full orientational history:
-
-\begin{center}
-\begin{tabular}{cccc}
-  \toprule
-  \textbf{Bit 15} & \textbf{Bits 14--9} & \textbf{Bits 8--5} & \textbf{Bits 4--0} \\
-  \midrule
-  State & RotState & Winding & Reserved \\
-  $\{$Cubic, Ico$\}$ &
-  $\in [0, 59]$ & $\bmod\; 16$ & --- \\
-  \bottomrule
-\end{tabular}
-\end{center}
-
-The \textbf{RotState} indexes the precomputed Unified Geodesic Matrix---a
-symmetric $60 \times 60$ lookup table storing pairwise angular distances
-$d(r_i, r_j) = \arccos\bigl(|q_i \cdot q_j|\bigr)$ between all $A_5$
-orientations, requiring only $60 \times 60 = 3{,}600$ bytes (fits in L1
-cache).  Because no floating-point quaternion math occurs during encoding,
-quaternion drift is physically impossible.
-
-\subsection{Virtual Mitosis: $O(1)$ Phase Transition}
-\label{sec:mitosis}
-
-Mitosis triggers when the global macro-density of \texttt{Cubes[0]}
-reaches a precise threshold:
-
-\begin{equation}
-  \rho_0 = \frac{\text{total active bits in Cubes[0]}}
-                {\text{total chord positions} \times 257} \geq 0.45
-  \label{eq:mitosis_thresh}
-\end{equation}
-
-The transition is a single-cycle state flip:
-
-\begin{enumerate}[nosep]
-  \item \texttt{Cubes[0]} retains its exact saturated state.
-  \item \texttt{Cubes[1..4]} remain zeroed (empty orthogonal subspaces
-        ready to receive entropy).
-  \item \texttt{State} flips from 0 to 1, unlocking 60 rotational states.
-\end{enumerate}
-
-\paragraph{De-Mitosis (Reversible Collapse).}
-When global density across all 5 cubes drops below a sparsity threshold,
-the Geodesic LUT identifies the minimum-energy $A_5$ permutation to
-return \texttt{Cubes[0]} to canonical orientation, the dispersed attributes
-of \texttt{Cubes[1..4]} are pooled back via majority-vote fractal
-condensation, and the State reverts to 0.
-
-\paragraph{Entropy Budget.}
-In Cubic mode ($|\mathbf{O}| = 24$), the rotational register carries
-$\log_2 24 \approx 4.58$ bits of structural entropy.  After mitosis
-($|A_5| = 60$), this expands to $\log_2 60 \approx 5.91$ bits.  Combined
-with the 4-bit winding counter ($\log_2 16 = 4$ bits), the total
-orientational entropy budget is $\approx 9.91$ bits per manifold---sufficient
-to distinguish $2^{9.91} \approx 961$ unique structural configurations.
+By composing sequences of these rotations, the wavefront maps logical deductions strictly into deterministic spatial leaps across the Morton-keyed address plane.

@@ -20,12 +20,12 @@ The experiment ingests 100 TinyStories samples, then tests 40% right holdout
 on novel samples to see if the boundary detection logic latches onto
 the task of generating a continuation that bridges smoothly into
 an adjacent corpus region, exploiting the substrate's ability to detect the
-overlapping chord patterns between the prompt boundary and a learned sequence.
+overlapping value patterns between the prompt boundary and a learned sequence.
 
 TinyStories is intentionally chosen here (rather than Wikipedia) because its
 controlled vocabulary makes the overlap phenomenon measurable: stories reuse
 the same canonical verbs, settings, and character archetypes, creating
-a denser web of chord attractor bridges than raw encyclopaedic text.
+a denser web of value attractor bridges than raw encyclopaedic text.
 */
 type TextOverlapExperiment struct {
 	tableData []tools.ExperimentalData
@@ -43,7 +43,7 @@ func NewTextOverlapExperiment() *TextOverlapExperiment {
 			huggingface.DatasetWithTextColumn("text"),
 		),
 		// Baseline 0.05: TinyStories overlap patterns are dense enough
-		// that random chord hits should produce some partial bridging.
+		// that random value hits should produce some partial bridging.
 		// Target 0.55: heavy vocabulary reuse should allow strong
 		// bridging once sufficient attractor density accumulates.
 		evaluator: tools.NewEvaluator(

@@ -119,3 +119,5 @@ func BenchmarkMortonDecode3D(b *testing.B) {
 		_, _, _ = coder.Decode3D(encoded)
 	}
 }
+
+

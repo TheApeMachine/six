@@ -6,7 +6,7 @@ import (
 )
 
 /*
-SkipLevel defines the power-of-2 stride for a skip-chord level.
+SkipLevel defines the power-of-2 stride for a skip-value level.
 Level 0 = 1 program step, Level 1 = 4 steps, Level 2 = 16 steps,
 Level 3 = 64 steps.
 */
@@ -23,13 +23,13 @@ var skipStrides = [4]uint32{1, 4, 16, 64}
 
 type skipNodeKey struct {
 	key      uint64
-	valueKey ChordKey
+	valueKey ValueKey
 }
 
 type skipCursor struct {
 	key      uint64
-	value    data.Chord
-	valueKey ChordKey
+	value    data.Value
+	valueKey ValueKey
 	pos      uint32
 	segment  uint32
 	phase    numeric.Phase
@@ -37,7 +37,7 @@ type skipCursor struct {
 
 type skipVisit struct {
 	key      uint64
-	valueKey ChordKey
+	valueKey ValueKey
 	segment  uint32
 }
 
@@ -49,7 +49,7 @@ while accelerated traversal follows these concrete state entries directly.
 */
 type SkipEntry struct {
 	Key      uint64
-	ValueKey ChordKey
+	ValueKey ValueKey
 	Phase    numeric.Phase
 	Levels   [4]SkipPhase
 }
@@ -62,7 +62,7 @@ crossed while taking the jump.
 */
 type SkipPhase struct {
 	Target       uint64
-	TargetValue  ChordKey
+	TargetValue  ValueKey
 	Phase        numeric.Phase
 	SegmentDelta uint32
 	Valid        bool
@@ -83,7 +83,7 @@ type SkipIndex struct {
 type skipOpts func(*SkipIndex)
 
 /*
-NewSkipIndex creates or rebuilds the skip-chord acceleration layer.
+NewSkipIndex creates or rebuilds the skip-value acceleration layer.
 */
 func NewSkipIndex(idx *SpatialIndexServer, opts ...skipOpts) *SkipIndex {
 	skip := &SkipIndex{
@@ -115,7 +115,7 @@ func (skip *SkipIndex) Build() {
 	for key, root := range skip.idx.entries {
 		chain := skip.idx.followChainUnsafe(key)
 		if len(chain) == 0 {
-			chain = []data.Chord{root}
+			chain = []data.Value{root}
 		}
 
 		for i, value := range chain {
@@ -133,7 +133,7 @@ func (skip *SkipIndex) Build() {
 	}
 }
 
-func (skip *SkipIndex) buildEntryUnsafe(key uint64, value data.Chord) (SkipEntry, bool) {
+func (skip *SkipIndex) buildEntryUnsafe(key uint64, value data.Value) (SkipEntry, bool) {
 	pos, symbol := morton.Unpack(key)
 	phase, ok := extractStatePhase(value, symbol)
 	if !ok {
@@ -200,14 +200,14 @@ func (skip *SkipIndex) cursorForEntryUnsafe(entry SkipEntry, segment uint32) (sk
 	}, true
 }
 
-func (skip *SkipIndex) findValueUnsafe(key uint64, target ChordKey) (data.Chord, bool) {
+func (skip *SkipIndex) findValueUnsafe(key uint64, target ValueKey) (data.Value, bool) {
 	chain := skip.idx.followChainUnsafe(key)
 	for _, value := range chain {
 		if ToKey(value) == target {
 			return value, true
 		}
 	}
-	return data.Chord{}, false
+	return data.Value{}, false
 }
 
 func (skip *SkipIndex) stepCursorUnsafe(current skipCursor) (skipCursor, bool) {
@@ -360,7 +360,7 @@ validated higher-level jumps while keeping boundary-reset segment tracking. The
 returned path is emitted as projected observables so callers can still decode or
 measure the result in the lexical plane.
 */
-func (skip *SkipIndex) SkipSearch(startKey uint64, startPhase numeric.Phase) []data.Chord {
+func (skip *SkipIndex) SkipSearch(startKey uint64, startPhase numeric.Phase) []data.Value {
 	skip.idx.mu.RLock()
 	defer skip.idx.mu.RUnlock()
 
@@ -370,7 +370,7 @@ func (skip *SkipIndex) SkipSearch(startKey uint64, startPhase numeric.Phase) []d
 	}
 
 	visited := map[skipVisit]bool{}
-	path := make([]data.Chord, 0, skip.idx.count)
+	path := make([]data.Value, 0, skip.idx.count)
 
 	for i := 0; i < int(skip.idx.count)+1; i++ {
 		visit := skipVisit{key: cursor.key, valueKey: cursor.valueKey, segment: cursor.segment}

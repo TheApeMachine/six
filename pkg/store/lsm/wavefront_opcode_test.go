@@ -9,24 +9,24 @@ import (
 )
 
 func TestWavefrontRespectsJumpOpcodes(t *testing.T) {
-	gc.Convey("Given a sparse index with an explicit jump chord", t, func() {
+	gc.Convey("Given a sparse index with an explicit jump value", t, func() {
 		idx := NewSpatialIndexServer()
 		calc := numeric.NewCalculus()
 
 		stateA := calc.Multiply(1, calc.Power(3, uint32('A')))
-		chordA := data.BaseChord('A')
-		chordA.Set(int(stateA))
-		chordA.SetProgram(data.OpcodeJump, 2, 0, false)
-		idx.insertSync(morton.Pack(0, 'A'), chordA, data.MustNewChord())
+		valueA := data.BaseValue('A')
+		valueA.Set(int(stateA))
+		valueA.SetProgram(data.OpcodeJump, 2, 0, false)
+		idx.insertSync(morton.Pack(0, 'A'), valueA, data.MustNewValue())
 
 		stateC := calc.Multiply(stateA, calc.Power(3, uint32('C')))
-		chordC := data.BaseChord('C')
-		chordC.Set(int(stateC))
-		chordC.SetProgram(data.OpcodeHalt, 0, 0, true)
-		idx.insertSync(morton.Pack(2, 'C'), chordC, data.MustNewChord())
+		valueC := data.BaseValue('C')
+		valueC.Set(int(stateC))
+		valueC.SetProgram(data.OpcodeHalt, 0, 0, true)
+		idx.insertSync(morton.Pack(2, 'C'), valueC, data.MustNewValue())
 
 		wf := NewWavefront(idx, WavefrontWithMaxDepth(4))
-		results := wf.Search(data.BaseChord('A'), nil, nil)
+		results := wf.Search(data.BaseValue('A'), nil, nil)
 
 		gc.Convey("The head should advance directly to the jumped position", func() {
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)

@@ -8,24 +8,24 @@ import (
 )
 
 /*
-extractStatePhase recovers the GF(257) state encoded in a stored state chord.
+extractStatePhase recovers the GF(257) state encoded in a stored state value.
 ResidualCarry is treated as the authoritative snapshot when present because the
 stored value is now allowed to be lexical-free while query observables still
 carry the transient five-bit seed. When that snapshot is absent, we fall back to
 ignoring the lexical seed bits and reading whatever native state bit remains.
 */
-func extractStatePhase(chord data.Chord, symbol byte) (numeric.Phase, bool) {
-	if carry := chord.ResidualCarry(); carry > 0 {
+func extractStatePhase(value data.Value, symbol byte) (numeric.Phase, bool) {
+	if carry := value.ResidualCarry(); carry > 0 {
 		phase := numeric.Phase(carry % uint64(numeric.FermatPrime))
 		if phase > 0 {
 			return phase, true
 		}
 	}
 
-	base := data.BaseChord(symbol)
+	base := data.BaseValue(symbol)
 
 	for blockIdx := 0; blockIdx < 5; blockIdx++ {
-		block := chord.Block(blockIdx)
+		block := value.Block(blockIdx)
 		if blockIdx == 4 {
 			block &= 1
 		}
@@ -45,8 +45,8 @@ func extractStatePhase(chord data.Chord, symbol byte) (numeric.Phase, bool) {
 	return 0, false
 }
 
-func statePhaseMatches(chord data.Chord, symbol byte, expected numeric.Phase) bool {
-	phase, ok := extractStatePhase(chord, symbol)
+func statePhaseMatches(value data.Value, symbol byte, expected numeric.Phase) bool {
+	phase, ok := extractStatePhase(value, symbol)
 	return ok && phase == expected
 }
 
@@ -61,7 +61,7 @@ func phaseDistanceMod257(left, right numeric.Phase) uint32 {
 	return uint32(delta)
 }
 
-func operatorRoutePenalty(value data.Chord, nextSymbol byte) int {
+func operatorRoutePenalty(value data.Value, nextSymbol byte) int {
 	if !value.HasRouteHint() {
 		return 0
 	}
@@ -69,7 +69,7 @@ func operatorRoutePenalty(value data.Chord, nextSymbol byte) int {
 }
 
 func operatorPhaseAcceptance(
-	value data.Chord,
+	value data.Value,
 	expected numeric.Phase,
 	observed numeric.Phase,
 ) (numeric.Phase, int, bool) {
@@ -95,7 +95,7 @@ native value. The value's program shell is authoritative: reset returns to local
 depth 0, jump advances by the encoded distance, halt/terminal stop traversal,
 and ordinary values fall through to the next local depth.
 */
-func advanceProgramPosition(pos uint32, value data.Chord) (uint32, bool) {
+func advanceProgramPosition(pos uint32, value data.Value) (uint32, bool) {
 	if value.Terminal() || value.Opcode() == uint64(data.OpcodeHalt) {
 		return 0, false
 	}
@@ -117,7 +117,7 @@ boundary-reset segment changes. Resets return to local depth 0 and increment the
 segment; jumps and ordinary next-steps preserve the current segment; halt stops
 traversal entirely.
 */
-func advanceProgramCursor(pos, segment uint32, value data.Chord) (uint32, uint32, bool) {
+func advanceProgramCursor(pos, segment uint32, value data.Value) (uint32, uint32, bool) {
 	nextPos, ok := advanceProgramPosition(pos, value)
 	if !ok {
 		return 0, segment, false
@@ -139,7 +139,7 @@ legacy lexical primitive-root rule.
 */
 func predictNextPhaseFromValue(
 	calc *numeric.Calculus,
-	value data.Chord,
+	value data.Value,
 	current numeric.Phase,
 	nextSymbol byte,
 ) numeric.Phase {
@@ -165,8 +165,8 @@ func predictNextPhaseFromValue(
 	)
 }
 
-func firstMetaForKeyUnsafe(idx *SpatialIndexServer, key uint64) data.Chord {
-	meta := data.MustNewChord()
+func firstMetaForKeyUnsafe(idx *SpatialIndexServer, key uint64) data.Value {
+	meta := data.MustNewValue()
 	if metas := idx.metaEntries[key]; len(metas) > 0 {
 		meta.CopyFrom(metas[0])
 	}

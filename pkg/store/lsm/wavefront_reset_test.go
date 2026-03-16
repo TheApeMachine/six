@@ -8,7 +8,7 @@ import (
 	"github.com/theapemachine/six/pkg/store/data"
 )
 
-func observableValue(symbol byte, phase numeric.Phase, opcode data.Opcode, next byte) data.Chord {
+func observableValue(symbol byte, phase numeric.Phase, opcode data.Opcode, next byte) data.Value {
 	value := data.NeutralValue()
 	value.SetStatePhase(phase)
 	if opcode != data.OpcodeHalt {
@@ -36,9 +36,9 @@ func TestWavefrontSearchPromptCanRevisitCompressedResetCell(t *testing.T) {
 		abPhase := calc.Multiply(aPhase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('b')))
 		abaPhase := calc.Multiply(abPhase, calc.Power(numeric.Phase(numeric.FermatPrimitive), uint32('a')))
 
-		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewChord())
-		idx.insertSync(morton.Pack(1, 'b'), observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewChord())
-		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewChord())
+		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', aPhase, data.OpcodeNext, 'b'), data.MustNewValue())
+		idx.insertSync(morton.Pack(1, 'b'), observableValue('b', abPhase, data.OpcodeReset, 'a'), data.MustNewValue())
+		idx.insertSync(morton.Pack(0, 'a'), observableValue('a', abaPhase, data.OpcodeHalt, 0), data.MustNewValue())
 
 		wf := NewWavefront(idx, WavefrontWithMaxHeads(32), WavefrontWithMaxDepth(8))
 
@@ -46,7 +46,7 @@ func TestWavefrontSearchPromptCanRevisitCompressedResetCell(t *testing.T) {
 			results := wf.SearchPrompt([]byte("aba"), nil, nil)
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)
 
-			decoded := idx.decodeChords(results[0].Path)
+			decoded := idx.decodeValues(results[0].Path)
 			gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
 			gc.So(string(decoded[0]), gc.ShouldEqual, "aba")
 		})

@@ -4,10 +4,10 @@ skinparam linetype ortho
 title Architecture: The Two-Tiered Universe
 
 package "Layer 2: Higher-Dimensional Logic (Phase Space)" {
-    component "The Chord (Mono-Type)" as Chord
+    component "The Value (Mono-Type)" as Value
     component "Affine Rotations (Galois Exponentiation)" as Rotations
     
-    note right of Chord 
+    note right of Value 
       <b>Native System Language</b>
       Lives in GF(257). Knows nothing 
       of English or Pixels.
@@ -19,7 +19,7 @@ package "Layer 2: Higher-Dimensional Logic (Phase Space)" {
       Builds momentum & trajectory.
     end note
     
-    Chord <-> Rotations : Evolves via f(x) = ax + b (mod 257)
+    Value <-> Rotations : Evolves via f(x) = ax + b (mod 257)
 }
 
 package "Layer 1: Static Ground (LSM Storage)" {
@@ -35,7 +35,8 @@ package "Layer 1: Static Ground (LSM Storage)" {
     end note
 }
 
-Chord --> Morton : Projects Down\n(Coordinate Alignment)
+Value --> Morton : Projects Down\n(Coordinate Alignment)
 Morton -> Retrieval : Unpack Morton Key\nYields raw Byte to "Puny Humans"
 
 @enduml
+

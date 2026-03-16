@@ -1,7 +1,816 @@
 {
-  "artifacts": [],
+  "artifacts": [
+    {
+      "caption": "",
+      "file_name": "compression_section.tex",
+      "label": "",
+      "title": "",
+      "type": "prose"
+    }
+  ],
   "name": "Compression",
-  "results": [],
+  "results": [
+    {
+      "Idx": 0,
+      "Name": "Compression",
+      "Prefix": "fCN1fGhzIVZCLFwuJWBDa3pfPXhlXSwqfidaLWhjbl5oMkRTNTB4dTpsfXF8KXN9WFlCRys0WX16NEpDfmZOSCNhOXFJJ3A9PUFOTnddbF9VcmQvKlxZKyhUXnojZC5J",
+      "Holdout": "b2lOQk4xT082O3FsampNLn5qLydUZmJqTl16fDdMOUI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 1,
+      "Name": "Compression",
+      "Prefix": "VHF8VDFIQyJHSChZUlUtV0BwSXI8Xz9JKihbJGlYQUhtMiRwVGJbMWdKfWxzLHRSSSJ7bjghZS9xLURmIWRiNVYjTENwc1hFL1chOGFsJV53W15DfihDQFZIOThCXkAu",
+      "Holdout": "PnFMS21JMVRZXDE/Q3o/dUtCYjlPOEgha103VigwaU0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 2,
+      "Name": "Compression",
+      "Prefix": "P2wmenxxYEsuIHBiTlZ4aFJCM1pRcStsKTB0PHE8PS1gWUJxeU9pLyFgPSFpbXxxYEFYSD95aHBQSFgqXzApWUNfMS1CTmMnJiMpJEhqd3V7PilUby1zSisyeHpjTCBx",
+      "Holdout": "b2o3VUo4ZThXO24pSlRTZTc5IlhZei5naHtJal9kKTQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 3,
+      "Name": "Compression",
+      "Prefix": "ViQoLTJTXU52ZWJsSWhiUmZxUDtjfldVflledmRpI2dpWVV7V35TIF11bVM4Xjx6ajgnKGo8Mj1gczlKR3FQbCRJI2RQKExtLjZKJiAwQjIhaDQ2eE9HeSh4SUhzLlNX",
+      "Holdout": "fW9xcXoxL2sxdUtMY0p7PVNuLXBKLTJAOVh9IyFJfHI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 4,
+      "Name": "Compression",
+      "Prefix": "Z0A3IFt9UCRhVWJJOUJbaC0tPD0nUCZgL10pR1JAcm1aS0wmRT9zbz9wLmIsQHtzUnZNYXdFZ0sodTIxOkI7USw9MnRZc3tXXzsoZWgwPV0xbDE+NFxuI1xTeD5cLG50",
+      "Holdout": "eG85bkVxZDdXZ0B7WCc5eE4rZHwwU0NlPzNFVGw3MTo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 5,
+      "Name": "Compression",
+      "Prefix": "dFhqOGhPcUlUY2pEcVFiXm52STNBbE9VYkEmYlB1MWMyfGB5QlQ6cXNNJlRSTkdVW09mYFkuKlhUPG1uOEcmLGI6V1Y2N2xFWE9gJDV0fExUNE1XSDBwe0kqNGFPN093",
+      "Holdout": "JXo9Ql45Tm5ALlJ8eiJjcEVIYyxON1g6cGx3MyYmc2Y=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 6,
+      "Name": "Compression",
+      "Prefix": "T1VdXlAnO3lrNUNvMHN4RnVhLEx9Py0/LiQ5YSx7WDJpVlEtL2B2NTUwdmg0VHtnSTprSy9pXUc5VipOPkxMOGN8QjgsKXlBKDY1UylaNWZwa1NeKiN0ZDNzbzB2T11a",
+      "Holdout": "RzhnLjFyJn0gTTdHdFN0PzUtS2dhTV5rRUklLzhyMnY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 7,
+      "Name": "Compression",
+      "Prefix": "T258Xkp3YEJDWTEtQmYpclxOIisvTz1CcStuR1R4KyM/fCFoXyNxVVlpQkxKSWwrIDtOUCg3fkYibUZmIU8+NEFyIjF2PUdicUFCNkRpKjpDYXMxUUV+Uj8gOD5lPCZR",
+      "Holdout": "TV0+XSknX2dhLHNbSzBmN2lSN31CNG9LRiAjOGN9ak4=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 8,
+      "Name": "Compression",
+      "Prefix": "S3tCOCsgODctX0EtbkN+XnxXXUh6YER4biNdamFdYH1teUZdVUorOVZZKDZxTixZen1tSFpXVyArXlZrdmQselg8KWRaO1JsO2Eka3k6Z30ncGpsRT5KMXonOTR5J019",
+      "Holdout": "JCZrLV1bJ1Q6dT0nUFI5Z2VkU29fNFA1XCd0ZmRkPlA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 9,
+      "Name": "Compression",
+      "Prefix": "Z2EwbShSPnpdUy0xUDJnZW18UHQhMkRoOFNrTE9bNTIta0BceygofFt2cVRVb1M8b048M0JMI04mUil8WDo/Yns5K3RDakxXLz9mfm47SG0/Jm0zYjogY3I1dS1KVSQg",
+      "Holdout": "cCt2WV5AblQ3K0Qqb0Z7cUh2blxIWFw/JmhsRU5ZcXk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 10,
+      "Name": "Compression",
+      "Prefix": "NEpMWVJaJGN5SVRVZChRQ30yXHlHNlhpUHhLV1J0TGF5VS5zXWcmeUlNJHJdXys2LzhObm5DRFRAZzxYTUJEMlU2QUphKUd3Ll1ZUWpYVk9APEhYezBWRFozdCdybSI3",
+      "Holdout": "U2FPOXFeNjNDPnZGKG9KQV8xU2dMaHs2VVFYSiMpYiQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 11,
+      "Name": "Compression",
+      "Prefix": "PzRuYk1XRmVCUW8mPF5NaGhUK0BXY3lUUmcgS1t5SktfMDZZe3tUSn5LJ3UkZT8nfl5KS2BtbThwSCVoJTFKe1FVXE0jSEskeDp3e01LVlJtRCFtP35WcSIxTnxyfjJ4",
+      "Holdout": "XDpiOCxDXUQ+IkI2dFFGYEtzMycqe2NeXyZPdSB3Sjk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 12,
+      "Name": "Compression",
+      "Prefix": "b0ddT183LjcqRjY4bjtlcTZje1JuTyEjTz0xUyYjPXIzIUFQN2t2SClzL2w+XSxtQ2pkXTZcO0Z2XmhqLWQxVXBNclh2SyskYTVAZ2Y1VitkbDVgW09VanUvcz1NUicg",
+      "Holdout": "S2NVUVUxR2MheEFkSG5NfmwxJ0h5M1ciNCEmViVmbjY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 13,
+      "Name": "Compression",
+      "Prefix": "OyZsJjJYIlJwXmhIdjBiXiAtXUk7JlRRQnk6ZGhGViQjcTZiWChNNjdWVHljQ3hOOUp6WHVDKk9RNl19eU9kRC1naykkZD8lLyxPVTk8eDBdI0I6YVRaJShqIlpgbHs/",
+      "Holdout": "NX4zJz1beTRDLD97L1dlIXUtLWRKTSxydydOb24nYVA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 14,
+      "Name": "Compression",
+      "Prefix": "TGhNLywvdjxSTlgmZVQyOGctVyB8YGUyZjFAa08se2EsPlU8OjglLUIzPH1uS3BZeSEyJGs4T2ddfiJXQ0NafXg7QkN9Ii9TTjhmVTInV1dNYCg4MVBoLmlLWm9CWTBo",
+      "Holdout": "Vi9EZTlcMUw1R2RYQ35yIzAlWnloK3h4XExNc1Z1TUQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 15,
+      "Name": "Compression",
+      "Prefix": "UXciZC0hLX5MOHRkNi15ek5qclhJVC1DOys1NGo7PzZxQVQ9U19+YC17TCU9QHV2PklHM3IvTCZJLV5EaGJYSTFoZGk1LVROa0ZdZW5FcURTYFA5cSB4dVRkU1BefD05",
+      "Holdout": "Qk1lcG8mN31WeG47NixVYXFAPGtnODBNeUNVe3ZXJEI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 16,
+      "Name": "Compression",
+      "Prefix": "LylnKV18dyk8fHlQVSwvXS90MSt6dkdlYlg4WjctTWRqQldbSUViXE1cLW04J15nJispcjxtJyg7cTEtfX5ESnNcOjxIRlpqaSAzcylmIiZuLT9MPF5dbld+L2ZOWUFE",
+      "Holdout": "figtaFA8ZXBSfGNHKSVMQ0lQYTA1OmBgaUR6aFxhcic=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 17,
+      "Name": "Compression",
+      "Prefix": "IU5WcWVcUyNpaTlsTmBgbiw2VTZCSUQlXTYhIEZFY2tGP0NmJFJYa1hZcntKP0ciICQgMGwmS3Fvfjd2VEQ9Pldwe3xCOHBNfmduJzMzX0VYOS9bfGwwaFByfWJMXVsq",
+      "Holdout": "SEBkX3FzUGZSPS1LXj9YPUMgdH13RFdadW1aWF5sMFU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 18,
+      "Name": "Compression",
+      "Prefix": "USgjdXA2TkUhSzs5PG0kPW0nX1tMaE1HP3l3dCE3TjxGen02cDt5V3IvLk92LjsoZC5aNzAlR2tITzRqVzFGc2M5L0dLMyBKMVtrQWVgfDhVIT5iZlE3T3I5cCJ6azRM",
+      "Holdout": "bz06SVs0eDE+LSVxOGBuJlFUKSdHNE9JInJpNFMlZ1U=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 19,
+      "Name": "Compression",
+      "Prefix": "XnxqeUk7RSNxJENnNEo4bSk0Uz8oM0QyI2xBWS4pX1krTlZROFF5cztEazAnenwvTE5YUThqXkI4MEkzUlcoezJEaTptelNdOVJXW3ZIRE1EMmpkJjwuTXZKW0N5Xlcy",
+      "Holdout": "Plh+PFwrbFx+Q1cybURVJ3Q5eC40ezRocmRRdWN7VUo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 20,
+      "Name": "Compression",
+      "Prefix": "XHg6RV5zI2VUP3J3dVJgSyB2PHUjPTx0UlxvJHl1NTIkT3FxaCI1Nmt8XWY3clkienM1bTNmL089RGBtTDREXVVLfEo+RyF+YTVnSncuczkxICJ2XFxhemtnWF91ZiMt",
+      "Holdout": "PzsrfF9cW1NJampDLytKREF+RTVBIXpbalRnOnxmQlk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 21,
+      "Name": "Compression",
+      "Prefix": "RiowU0oqcHwjL14iOzJsa11obyRoUEBdciMxPmZZdS1HQE14ZWJ+LzAzXUs9MDBLZEd4czF2Pk5ySiw3ZkZAeThWNSZufVsxQHhXUjl+d09JcVJ8UUtbOiMyODE6ak9G",
+      "Holdout": "fHciTj9aP3g1LjgrIVpNZEV0bj5jfi1HcHxAeldSMHw=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 22,
+      "Name": "Compression",
+      "Prefix": "RzUhel1tZWpCY114NSh9U0xdJyRMJ2JyYWs3RTo0bTY9e3NbL3NoOVo/YSE0WTttSTArb1x1Z2IpZl0oQnJ9Iz9fVCRfY05ebEdsPCslT2daS0ZxbHYgdm09bUQ0JmFD",
+      "Holdout": "PjRycyspIl9HJH1xTnoicTV8dlRmKiV6S0JcaFtdRW4=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 23,
+      "Name": "Compression",
+      "Prefix": "QD01NE08WWpreCRbRThrJ2V9Qj1WcXU2STh3NjRfI00jbC47OGh4UjpeQXMgZG9JL2YjNUh5M25FfTZZNVJcfGZ+blIpJylaWHU6RXhWTHFOQltcOj5IXSErKixVflJX",
+      "Holdout": "TDVrezZzT0s/RnlNWVNVVVtNNyteY2k/YlZnQzJdMlY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 24,
+      "Name": "Compression",
+      "Prefix": "MXxDKHBackhsXC5IdlJhWUh8ZDpiPC59emt2MU07JC11N3RxfnxlfEM6RS9qX14wRiZdeng9P2BjNl9bXGxoWkdFTWV6R1BmJl14S0x3d289OWtmfXRKQkQ8PlA5Xk0t",
+      "Holdout": "XXRtJmVvWVQ3XjZkdnVPYTpYKHIvRH5RPTQod2hgKyM=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 25,
+      "Name": "Compression",
+      "Prefix": "PidvYFZ4QG11KSp0WTZdPWJSLEh7XWtzL0pkTnBpckJQYkZdYlRxV0syX2xBJnU1TiZha3V2YWE3bz84WCRxL2U3Y2BxJEtdVzBBQmFfdn57LDQwUyFgcy9BLTcpODFw",
+      "Holdout": "eV5yJmYoOExqXytGO0BqMD08OVFNV1I/Tk5iYSVNXno=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 26,
+      "Name": "Compression",
+      "Prefix": "dSlEempbc3lTQCAmU0Iqdn0qblF8LypicHhxdW43THcwXSNTNj5NT3RQPC4uQmpOIEgyRz5YOGUwXEldeTsnWShJUXxSNjRUbng/YTQrTi9MNmQyZCZuQWRHWU5+XHI/",
+      "Holdout": "IzsxSVRjXGwmIDJRWTQyemhkdjsqRmA8Pk4hTXVlKmw=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 27,
+      "Name": "Compression",
+      "Prefix": "XS80NGZ4XVluIDI6TyRPVDRKdE1TP1tKVFMxTGRXNnx6NVZoKks6VTl8Z2xUPk9LandUM1RiSVx0N1Z0cCRJNUY+dm10dFcmZjNiajBXciQtXWxHa3N7diA1dnp9J0s0",
+      "Holdout": "Oi9BYkkqbEpqMXxSTXVAdm85eEZ4WTxhYmJzPCQ/bmo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 28,
+      "Name": "Compression",
+      "Prefix": "ekxVTztDJ216cEBiRnR3a2F2P2x0e0g5dWZ3MlUuPXB1alx1WSZqY1grO2pMOSd6Omk7Pm5ceU9XIFxxKmB6N2BoRUg8aiRXKisoIC5NbWAnPVExYT1VdylUPFFAR2Fc",
+      "Holdout": "Km87UmlVTFt7b2xRIV03Oz1nVnRjY19XVnkxYGxbQig=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 29,
+      "Name": "Compression",
+      "Prefix": "L15UdjhsRCJTYFpsK1V1UG84Jy5PJ1Y/bU5cbyc5W3N5YjBvdCUjYihLIF5FXUVQNGN8VFpUbV5uV0t9S35ILj5ZejchLDRgOCh7SmdAZWRtTzEkMnFEdDtsLEtLO1sy",
+      "Holdout": "KXk7QUEqYm8gJypRLltCL2ZDWD09Mn18dExcazw9Nm0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 30,
+      "Name": "Compression",
+      "Prefix": "WjZ3W3tnMmhzQk02QHlROm1cOElGfCY8WzcmeGM2Il4kQ1UvbT5WIEc0KlluTSo6fSh3Lnc7d3YiZkBBIVoqflYrb35DJSdkLV9DdTJxbThRdztvIGwrUyNsaS1ObUhh",
+      "Holdout": "Zks4OWxVNSk2KVhtcUo7XGd5PzhidDk9Um1iWWVLVUQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 31,
+      "Name": "Compression",
+      "Prefix": "eT04aTEyMFQmciZAJFUoQFBBJnNPUVNRXnk7UiUwL3p5QjZXQWRYQjkqLW16U0UmKl9xdXNjQ2UoX3Z7OzV6RWxGLk82OEJwXiIqIjNeejJwNXElXl5FTyw6U28wcS1A",
+      "Holdout": "cCNgdXxtSDN1SydZTXdtcFl9RW9efFQ0QzJUbidFWT0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 32,
+      "Name": "Compression",
+      "Prefix": "RDosYmlYZTV2WTouKmtpfmUsR0k8QkIkIUg0PjdqMHhYZEcrPn4gbFA+IzRNUzgtOW5nPiRqNVQ1PzAoXTteREdAZ0I5YWVfJSA5ajVCUnc5UFJoWGBnaUUifEcyIlxp",
+      "Holdout": "YiVHUzQlWidBRE8uIEZZK1YkNis1MmwobS45LnstOS8=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 33,
+      "Name": "Compression",
+      "Prefix": "SEFseTxKVm5GbVYscmpDbS4zWCVHLF9nUmJlLX17bWYpc2pAX1QmWllmekogc200OUlTdXF3WWJ0UllNM1kxTXNDL1xIQD0/UnExdVpPUTgqQThyM3VtdWttY3ReU2Yo",
+      "Holdout": "cEUsKG8gYHkxZCRfQiRDfVl1LzF5UC4zX084LG8nbGg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 34,
+      "Name": "Compression",
+      "Prefix": "UGprOnFfXVpcQW12SkxzbSI/bGc1VDRVbD9XZi5SdyhVYURIU1AgWip5c3xeekx6SGdlV3xjdDxWWWdMTSpiQShVMClJZlo2XDxwP2AhSkNoIFomUjVfVyphaFMpSy4r",
+      "Holdout": "KzEqS05oSVgpcjU9P2Q8S0N4TmtOOkE0P0U6MEQjIlo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 35,
+      "Name": "Compression",
+      "Prefix": "SywzJUlsMzU9d2QpWSZFODdAT2QyMT9VVmYtWGd6aXp4ezJ8KkttaUh1VnV+bDI9XkFjZy1qJipHQXFGNUlVVVxOYz1JJ35saU1BSHVON3VHM1lyT2Febys1THRBMXFJ",
+      "Holdout": "Vj8sSiJAS3NpbitlSmNzNUp0OVlZQE89cUw3Km9Sfjs=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 36,
+      "Name": "Compression",
+      "Prefix": "PW1NUHJTc0Q7bD0wYDUqdEVAXV97NUViOlQ9JyxFbl0xLm4gfFRDcFhzQmdCJmJoPUhjICV4IS1yXmohbGk4O3snXWNGRXRnZF4zNkU7dz1ASkJsJH13e0UxKXhhNz9s",
+      "Holdout": "W3VfQls4SlQyRHByPXJHdDdTWEZucGlIIjsyTCVMXXE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 37,
+      "Name": "Compression",
+      "Prefix": "LmskbWpOJHFTP1loZFwtPEk0SzdvXz5IUU18Q0Q1S2xVIF9pR3VtQVZsUkJ3OHIgSEtha15uMzRoQjtodFlTdUIkdXRsZW5ETnRPcmprUS1Zc1p2UDcsbHojWT1WLFtf",
+      "Holdout": "NzErcjsjUSNbYUI/XGR8fVwtRVBTXiV6U017KWI2Snk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 38,
+      "Name": "Compression",
+      "Prefix": "JjIydS9deyclbHQ3fV1jOGRtZDxFTTZod3Q3TWpxYn44VXknITlVd1VJSnVUXVt5IEd9IHVqSyxeOmV9PCcuUCtKUVEhZXAvbnY7LiUxZHIxKDlVMVVZVDd8aiM7LyRG",
+      "Holdout": "KCxkNUxiVVU9NCVUQlUjPilFWnVzcGs3cGYpe0Myen0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 39,
+      "Name": "Compression",
+      "Prefix": "U1l5LHNvSXRAcjZtRU5FJFd0RCJOXGhbTDtrKG9IezJuVztxekhyemVDaV5EbFk0bDEkMn4kSnghPT1YaydDey9TdDFRJkg5JH5cWE4uInducXBBLSx6LGpmJnRybUd5",
+      "Holdout": "Nml4ImBgSUlhXS0wQHtBcyFkdjolV1klZmg4KzhHXXU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 40,
+      "Name": "Compression",
+      "Prefix": "emsrTHxCSUtuK0F4c3JTKTlneT1hMmVBSHMxKF5RMUFnRiwuREQ7ITM2Oyt5ImQoL3JFSWZdJ10rfjtoJUclMDopbnxAP1wye2d8MWItPFVFRSUpclAkYlkmIihdJUki",
+      "Holdout": "XltVLSoleXQ+UStJNkYkR2NjaV5LbkNwJ1g8MnYvNDQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 41,
+      "Name": "Compression",
+      "Prefix": "THhGWEo3XkEpNExLIid6NkQ1Wn4mdXk8UCh0I1hdaUIrM1VrRURETTdcTy5AZWI5XDJBQHBwRTkpbDpMc2BWNSdKUGBIRlVdOnEwV0wzeFhQZ3ZhIjxLR1U0SWImKiEt",
+      "Holdout": "YHJcWHAxfUtLQk9nT30nbS9ffmZeICd7dF8hUUZsaHc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 42,
+      "Name": "Compression",
+      "Prefix": "cF5OPDFweS1vNikxQChFJD9cVWY8LVMzbSpwN1BEaHMrL11kJE5XMjZ4ZHt0LV5nNUA9WkJOLjMhbVNxN1ZffDo6Yl1KOV1iPU48eE4iRmE9XFZCXEY6MVx0bV9ELSVA",
+      "Holdout": "Z1U8MWRrVSZNSzt8Yz87L3BAeHtXQWtuZ1MgdTh2RT0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 43,
+      "Name": "Compression",
+      "Prefix": "fF5oZ3V+ZHY6Uk9wbFAqMVhHeD1BckQ7W28wZVMuVCdecmZbZXYiaTRoM3oxOk54SkRoZj57dVxIIl1qPUUtaEM/SGshR0ZgSi9BWX52IGBbX0BFTjRbR0FEbVFpRC5N",
+      "Holdout": "L0pxa1FLLms6ayJuMksuVSAmcik2VmxHZDVHPS1IMHY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 44,
+      "Name": "Compression",
+      "Prefix": "Q0pRdjBRemk9XDtDOyB9UiZ0cEs+XGl6Si5vdDVhJVRUNW4naWFHWC9LYz1FUzlUYntNanB7WkJ4OWpUZzkoclIrQn07bHhwcS99dGpZR11iL1JoNiE8RElVVlU+LHg+",
+      "Holdout": "SkYnUWQkcSk5fm5fT3Q0Pihfc3pBSi1+el5TeU50YSE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 45,
+      "Name": "Compression",
+      "Prefix": "VXpMOj5yPyAmIFt3dX17Ui1DJk9CeVxwdVY8UTVxYEE3SEU2XHomPSNZfW9zbGN3SWB7VipmV1tsM3FufFs9LlR9TnNpNW40K1BMczJCbHFNLXpzW0Q1SzZjQTlmMSlK",
+      "Holdout": "WSI2Z10uVmVZbm1tVWVYU2JpSXdeSGVcczBvV0p7azc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 46,
+      "Name": "Compression",
+      "Prefix": "aFJuOE1bISQlNEBoI3BiaiZkaEBnUmclVlQpLyVyMyJ8V1U3bnA3IWpYZTwmLzpVPEtzbUE1Kn1pWStmR0RgekU8Ujt8bEcjYkYiO1JuKDRSTnJ+fj9lbU1vXUJeU044",
+      "Holdout": "PC9IY1YtLyxbU2N3XWMwOHggLUBeNjRdMSgzPyQ5aD8=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 47,
+      "Name": "Compression",
+      "Prefix": "S2VFdUd4XUR3X1tFJS5ddEJzU25oSiRBaldxc05SezRqcCJRZiBddzwzT2dTWFF7e25nI1pzKmAzcTdDfHgtSU5jbmFCX2wlJCkxVS82aixLSncnMlIlVmgpR2RoVFxn",
+      "Holdout": "TTNycG89O1B6Y1IsZm1CYnJPPFdYfkkwUmZVQXgraTc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 48,
+      "Name": "Compression",
+      "Prefix": "RklDLWxgL3dGJSghb3hyM1lPOSs1QDVJJGIgWywuWiYrT1BpZCwwMDV4LCUnI1NrYjt5JUlLOVVGVihQXjJcR3wuOEI3T35CaWlFOjBSd11+OEZpcWYxLTkqYy9kYGJL",
+      "Holdout": "XCVGI053KiNHZTR5P1okUi4rV2Y9PSZWN0tFdllgOGU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 49,
+      "Name": "Compression",
+      "Prefix": "S2Qod34mbkQpcUVWbz5qTDl5UDNxfjlXXWM0QF8qfS4hYm5sWF87ck1mSVlLdTFbQD1WNU8jRSVKc2VqcUl2fEIgQEokTHxAX35RZzkuNzYqQlwwKlBfZ2FYIWBIcDg+",
+      "Holdout": "KHdiNndOUilWRSI6YGEnZihUYzVrSi8vJDQ1Z35IMFo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    }
+  ],
   "score": 0,
   "section": "scaling"
 }

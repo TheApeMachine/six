@@ -16,28 +16,28 @@ int resolve_resonance_cuda(
 */
 import "C"
 import (
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
 //go:generate nvcc -lib resolver.cu -o libresolver.a -std=c++11
 
 type CUDABackend struct {
-	initOnce     sync.Once
-	deviceCount  int
+	initOnce    sync.Once
+	deviceCount int
 }
 
 func (backend *CUDABackend) init() {
 	backend.initOnce.Do(func() {
-		if backend.deviceCount == 0 {
-			count := int(C.cuda_device_count())
-			if count < 1 {
-				count = 1 // Default to 1 to attempt, though Available will probably be false if truly 0
-			}
-			backend.deviceCount = count
+		backend.deviceCount = int(C.cuda_device_count())
+		if backend.deviceCount < 0 {
+			backend.deviceCount = 0
 		}
 	})
 }
@@ -52,15 +52,28 @@ func (backend *CUDABackend) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (uint64, error) {
-	if numNodes <= 0 || graphNodes == nil || context == nil {
-		return 0, nil
+	if numNodes <= 0 {
+		return 0, fmt.Errorf("invalid numNodes: must be > 0")
+	}
+	if graphNodes == nil {
+		return 0, fmt.Errorf("nil graphNodes pointer")
+	}
+	if context == nil {
+		return 0, fmt.Errorf("nil context pointer")
 	}
 
 	if !backend.Available() {
 		return 0, CUDAErrorUnavailable
 	}
 
-	backend.init()
+	if numNodes < 1024 {
+		nodes := unsafe.Slice((*geometry.GFRotation)(graphNodes), numNodes)
+		ctx := (*geometry.GFRotation)(context)
+		return resolve.PackedNearest(nodes, *ctx), nil
+	}
+	if uint64(numNodes) > uint64(^uint32(0)) {
+		return 0, CUDAErrorResolveFailed
+	}
 
 	if backend.deviceCount == 1 {
 		var packed C.uint64_t
@@ -71,20 +84,19 @@ func (backend *CUDABackend) Resolve(
 			context,
 			&packed,
 		)
-
 		if status != 0 {
 			return 0, CUDAErrorResolveFailed
 		}
 		return uint64(packed), nil
 	}
 
-	// Multi-GPU Orchestration
 	var best atomic.Uint64
 	var wg sync.WaitGroup
 	var errOnce sync.Once
 	var aggregateErr error
 
 	chunkSize := (numNodes + backend.deviceCount - 1) / backend.deviceCount
+	stride := unsafe.Sizeof(geometry.GFRotation{})
 
 	for dev := 0; dev < backend.deviceCount; dev++ {
 		start := dev * chunkSize
@@ -100,7 +112,7 @@ func (backend *CUDABackend) Resolve(
 		go func(deviceID, offset, length int) {
 			defer wg.Done()
 
-			shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(offset*4)) // GFRotation is 4 bytes
+			shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(offset)*stride)
 
 			var packed C.uint64_t
 			status := C.resolve_resonance_cuda(
@@ -110,7 +122,6 @@ func (backend *CUDABackend) Resolve(
 				context,
 				&packed,
 			)
-
 			if status != 0 {
 				errOnce.Do(func() {
 					aggregateErr = CUDAErrorResolveFailed
@@ -119,8 +130,6 @@ func (backend *CUDABackend) Resolve(
 			}
 
 			rebased := numeric.RebasePackedID(uint64(packed), offset)
-
-			// atomicMax implementation
 			for {
 				current := best.Load()
 				if rebased <= current {
@@ -134,7 +143,6 @@ func (backend *CUDABackend) Resolve(
 	}
 
 	wg.Wait()
-
 	if aggregateErr != nil {
 		return 0, aggregateErr
 	}

@@ -19,7 +19,7 @@ import (
 
 /*
 GraphServer implements the Cap'n Proto RPC interface for the logic graph.
-It acts as the reasoning engine (Cortex), evaluating geometric vector states.
+It acts as the reasoning engine (Graph), evaluating geometric vector states.
 The Machine is the sole orchestrator: it fetches data from SpatialIndex and
 hands it to GraphServer via Prompt. GraphServer never calls any other server.
 */
@@ -133,12 +133,12 @@ func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
 		return console.Error(err)
 	}
 
-	pathsData, err := pointerListToChordSlices(paths)
+	pathsData, err := pointerListToValueSlices(paths)
 	if err != nil {
 		return console.Error(err)
 	}
 
-	metaPathsData, err := pointerListToChordSlices(metaPaths)
+	metaPathsData, err := pointerListToValueSlices(metaPaths)
 	if err != nil {
 		return console.Error(err)
 	}
@@ -161,12 +161,12 @@ func (graph *GraphServer) Done(ctx context.Context, call Graph_done) error {
 }
 
 /*
-Evaluate sweeps a prompt chord against a contiguous path matrix via XOR + POPCNT.
+Evaluate sweeps a prompt value against a contiguous path matrix via XOR + POPCNT.
 */
 func (graph *GraphServer) Evaluate(
-	prompt data.Chord, paths []data.Chord,
-	interest *data.Chord, danger *data.Chord,
-) (bestIdx int, lowestEnergy int, residue data.Chord) {
+	prompt data.Value, paths []data.Value,
+	interest *data.Value, danger *data.Value,
+) (bestIdx int, lowestEnergy int, residue data.Value) {
 	lowestEnergy = math.MaxInt32
 	bestIdx = -1
 
@@ -194,7 +194,7 @@ func (graph *GraphServer) Evaluate(
 	return bestIdx, lowestEnergy, residue
 }
 
-func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.Chord) error {
+func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.Value) error {
 	resultList, err := res.NewResult(int32(len(paths)))
 	if err != nil {
 		return console.Error(err)
@@ -202,15 +202,15 @@ func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.C
 
 	seg := res.Segment()
 
-	for i, pathChords := range paths {
-		innerList, err := data.NewChord_List(seg, int32(len(pathChords)))
+	for i, pathValues := range paths {
+		innerList, err := data.NewValue_List(seg, int32(len(pathValues)))
 		if err != nil {
 			return console.Error(err)
 		}
 
-		for j, pathChord := range pathChords {
+		for j, pathValue := range pathValues {
 			el := innerList.At(j)
-			el.CopyFrom(pathChord)
+			el.CopyFrom(pathValue)
 		}
 
 		if err := resultList.Set(i, innerList.ToPtr()); err != nil {
@@ -226,8 +226,8 @@ RecursiveFold fractures geometric sequences into an isolated hierarchy of
 labels connected by phase rotations, firing pool jobs recursively.
 */
 func (graph *GraphServer) RecursiveFold(
-	sequences [][]data.Chord,
-	metaSequences [][]data.Chord,
+	sequences [][]data.Value,
+	metaSequences [][]data.Value,
 	level int,
 	parentBin int,
 ) {
@@ -239,25 +239,25 @@ func (graph *GraphServer) RecursiveFold(
 		return
 	}
 
-	labelDataChord := extractSharedInvariant(sequences)
-	labelMetaChord := extractSharedInvariant(metaSequences)
+	labelDataValue := extractSharedInvariant(sequences)
+	labelMetaValue := extractSharedInvariant(metaSequences)
 
-	if labelDataChord.ActiveCount() == 0 {
+	if labelDataValue.ActiveCount() == 0 {
 		return
 	}
 
-	labelBin := data.ChordBin(&labelDataChord)
+	labelBin := data.ValueBin(&labelDataValue)
 
 	ei := geometry.NewEigenMode()
-	theta, _ := ei.PhaseForChord(&labelMetaChord)
+	theta, _ := ei.PhaseForValue(&labelMetaValue)
 
-	var uniqueResidues [][]data.Chord
-	var uniqueMetaResidues [][]data.Chord
+	var uniqueResidues [][]data.Value
+	var uniqueMetaResidues [][]data.Value
 
 	for i, seq := range sequences {
 		metaSeq := metaSequences[i]
-		residue := xorSequence(seq, labelDataChord)
-		metaResidue := xorSequence(metaSeq, labelMetaChord)
+		residue := xorSequence(seq, labelDataValue)
+		metaResidue := xorSequence(metaSeq, labelMetaValue)
 
 		if len(residue) > 0 {
 			uniqueResidues = append(uniqueResidues, residue)
@@ -266,15 +266,15 @@ func (graph *GraphServer) RecursiveFold(
 	}
 
 	graph.sink.Emit(telemetry.Event{
-		Component: "Cortex",
+		Component: "Graph",
 		Action:    "Fold",
 		Data: telemetry.EventData{
 			Bin:        labelBin,
 			Level:      level,
 			ParentBin:  parentBin,
 			ChildCount: len(uniqueResidues),
-			ActiveBits: data.ChordPrimeIndices(&labelMetaChord),
-			Density:    labelMetaChord.ShannonDensity(),
+			ActiveBits: data.ValuePrimeIndices(&labelMetaValue),
+			Density:    labelMetaValue.ShannonDensity(),
 			Theta:      theta,
 		},
 	})
@@ -289,8 +289,8 @@ func (graph *GraphServer) RecursiveFold(
 
 		graph.workerPool.Schedule(jobID, func(ctx context.Context) (any, error) {
 			graph.RecursiveFold(
-				[][]data.Chord{resSeq},
-				[][]data.Chord{metaResSeq},
+				[][]data.Value{resSeq},
+				[][]data.Value{metaResSeq},
 				level+1,
 				labelBin,
 			)
@@ -300,10 +300,10 @@ func (graph *GraphServer) RecursiveFold(
 }
 
 /*
-pointerListToChordSlices converts a capnp.PointerList (List(List(Chord))) to [][]data.Chord.
+pointerListToValueSlices converts a capnp.PointerList (List(List(Value))) to [][]data.Value.
 */
-func pointerListToChordSlices(outer capnp.PointerList) ([][]data.Chord, error) {
-	result := make([][]data.Chord, outer.Len())
+func pointerListToValueSlices(outer capnp.PointerList) ([][]data.Value, error) {
+	result := make([][]data.Value, outer.Len())
 
 	for i := 0; i < outer.Len(); i++ {
 		ptr, err := outer.At(i)
@@ -311,8 +311,8 @@ func pointerListToChordSlices(outer capnp.PointerList) ([][]data.Chord, error) {
 			return nil, err
 		}
 
-		inner := data.Chord_List(ptr.List())
-		row, err := data.ChordListToSlice(inner)
+		inner := data.Value_List(ptr.List())
+		row, err := data.ValueListToSlice(inner)
 		if err != nil {
 			return nil, err
 		}

@@ -175,3 +175,5 @@ func (wf *Wavefront) compactHeads(heads []*WavefrontHead, promptMode bool) []*Wa
 
 	return compacted
 }
+
+

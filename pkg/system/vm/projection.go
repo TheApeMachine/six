@@ -26,3 +26,5 @@ func (mode ProjectionMode) Enabled(stage ProjectionMode) bool {
 
 	return mode&stage == stage
 }
+
+

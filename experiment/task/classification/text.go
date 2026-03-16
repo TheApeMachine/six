@@ -138,7 +138,7 @@ on the AG News dataset (\texttt{sh0416/ag\_news}).  Articles from four
 categories---World, Sports, Business, and Science/Technology---are ingested
 with their label appended.  At test time the label suffix is stripped via
 substring holdout; the system must surface the correct category word through
-chord co-occurrence in its generated output.
+value co-occurrence in its generated output.
 
 \paragraph{Results.}
 Table~\ref{tab:text_classification_metrics} summarises the classification
@@ -148,11 +148,11 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 {{if gt .Accuracy 0.7 -}}
 \paragraph{Assessment.}
 The substrate achieved strong topical separation, correctly routing the
-majority of article chord patterns to their ground-truth category attractors.
+majority of article value patterns to their ground-truth category attractors.
 {{- else if gt .Accuracy 0.4 -}}
 \paragraph{Assessment.}
 The substrate demonstrated moderate classification capability.
-Some categories are reliably separated while others exhibit chord overlap,
+Some categories are reliably separated while others exhibit value overlap,
 suggesting attractor boundaries between topically adjacent classes could
 benefit from a larger ingestion corpus.
 {{- else -}}

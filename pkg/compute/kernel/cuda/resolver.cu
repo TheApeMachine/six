@@ -1,6 +1,5 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
-#include <math.h>
 
 extern "C" {
 
@@ -8,6 +7,10 @@ struct GFRotation {
     uint16_t a;
     uint16_t b;
 };
+
+static const uint32_t DISTANCE_MAX = 131072u;
+static const uint32_t DISTANCE_SCALE_SHIFT = 10u;
+static const uint32_t SCALED_DISTANCE_MAX = DISTANCE_MAX << DISTANCE_SCALE_SHIFT;
 
 __global__ void resolve_resonance_kernel(
     const GFRotation* graph_nodes,
@@ -17,28 +20,26 @@ __global__ void resolve_resonance_kernel(
     uint32_t base_offset
 ) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= num_nodes) return;
+    if (id >= num_nodes) {
+        return;
+    }
 
     GFRotation candidate = graph_nodes[id];
     GFRotation ctx = active_context[0];
 
-    // Node distance logic matching thermodynamic model:
-    float da = fabsf((float)candidate.a - (float)ctx.a);
-    float db = fabsf((float)candidate.b - (float)ctx.b);
-    float dist_sq = da*da + db*db;
+    int da = (int)candidate.a - (int)ctx.a;
+    int db = (int)candidate.b - (int)ctx.b;
+    uint32_t dist_sq = (uint32_t)(da * da + db * db);
+    if (dist_sq > DISTANCE_MAX) {
+        dist_sq = DISTANCE_MAX;
+    }
 
-    // Scale before cast to preserve fractional distance; clamp before cast to avoid overflow
-    const float SCALE = 1024.0f;
-    const float SCALED_MAX_F = 131072.0f * SCALE;
-    const uint32_t SCALED_MAX = (uint32_t)SCALED_MAX_F;
-    float dist_scaled = dist_sq * SCALE;
-    dist_scaled = fminf(dist_scaled, SCALED_MAX_F);
-    uint32_t dist_u32 = (uint32_t)dist_scaled;
-    uint32_t inverted_dist = SCALED_MAX - dist_u32;
-
+    uint32_t dist_scaled = dist_sq << DISTANCE_SCALE_SHIFT;
+    uint32_t inverted_dist = SCALED_DISTANCE_MAX - dist_scaled;
     uint32_t global_id = id + base_offset;
 
-    unsigned long long packed_result = ((unsigned long long)inverted_dist << 32) | (unsigned long long)global_id;
+    unsigned long long packed_result =
+        ((unsigned long long)inverted_dist << 32) | (unsigned long long)global_id;
 
     atomicMax(best_packed_result, packed_result);
 }
@@ -58,83 +59,102 @@ int resolve_resonance_cuda(
     const void* active_context_ptr,
     uint64_t* out_result
 ) {
+    if (out_result == nullptr) {
+        return -1;
+    }
     if (num_nodes == 0) {
         *out_result = 0;
         return 0;
     }
 
+    int status_code = 0;
     cudaError_t err = cudaSetDevice(device_id);
-    if (err != cudaSuccess) return -1;
-
-    GFRotation* d_active_context = nullptr;
-    unsigned long long* d_best_packed_result = nullptr;
-    err = cudaMalloc((void**)&d_active_context, sizeof(GFRotation));
-    if (err != cudaSuccess) return -1;
-
-    err = cudaMalloc((void**)&d_best_packed_result, sizeof(unsigned long long));
     if (err != cudaSuccess) {
-        cudaFree(d_active_context);
         return -1;
     }
 
     GFRotation* d_graph_nodes = nullptr;
-    err = cudaMalloc((void**)&d_graph_nodes, num_nodes * sizeof(GFRotation));
-    if (err != cudaSuccess) return -1;
+    GFRotation* d_active_context = nullptr;
+    unsigned long long* d_best_packed_result = nullptr;
+    unsigned long long initial_val = 0ULL;
 
-    unsigned long long initial_val = 0;
-    
+    err = cudaMalloc((void**)&d_graph_nodes, num_nodes * sizeof(GFRotation));
+    if (err != cudaSuccess) {
+        status_code = -1;
+        goto cleanup;
+    }
+
+    err = cudaMalloc((void**)&d_active_context, sizeof(GFRotation));
+    if (err != cudaSuccess) {
+        status_code = -1;
+        goto cleanup;
+    }
+
+    err = cudaMalloc((void**)&d_best_packed_result, sizeof(unsigned long long));
+    if (err != cudaSuccess) {
+        status_code = -1;
+        goto cleanup;
+    }
+
     err = cudaMemcpy(d_graph_nodes, graph_nodes_ptr, num_nodes * sizeof(GFRotation), cudaMemcpyHostToDevice);
     if (err != cudaSuccess) {
-        cudaFree(d_graph_nodes);
-        cudaFree(d_active_context);
-        cudaFree(d_best_packed_result);
-        return -1;
+        status_code = -1;
+        goto cleanup;
     }
 
     err = cudaMemcpy(d_active_context, active_context_ptr, sizeof(GFRotation), cudaMemcpyHostToDevice);
     if (err != cudaSuccess) {
-        cudaFree(d_graph_nodes);
-        cudaFree(d_active_context);
-        cudaFree(d_best_packed_result);
-        return -1;
+        status_code = -1;
+        goto cleanup;
     }
 
     err = cudaMemcpy(d_best_packed_result, &initial_val, sizeof(unsigned long long), cudaMemcpyHostToDevice);
     if (err != cudaSuccess) {
-        cudaFree(d_graph_nodes);
-        cudaFree(d_active_context);
-        cudaFree(d_best_packed_result);
-        return -1;
+        status_code = -1;
+        goto cleanup;
     }
 
-    uint32_t threadsPerBlock = 256;
-    uint32_t blocksPerGrid = (num_nodes + threadsPerBlock - 1) / threadsPerBlock;
+    uint32_t threads_per_block = 256u;
+    uint32_t blocks_per_grid = (num_nodes + threads_per_block - 1u) / threads_per_block;
 
-    resolve_resonance_kernel<<<blocksPerGrid, threadsPerBlock>>>(
+    resolve_resonance_kernel<<<blocks_per_grid, threads_per_block>>>(
         d_graph_nodes,
         d_active_context,
         d_best_packed_result,
         num_nodes,
-        0
+        0u
     );
+
+    err = cudaGetLastError();
+    if (err != cudaSuccess) {
+        status_code = -2;
+        goto cleanup;
+    }
 
     err = cudaDeviceSynchronize();
     if (err != cudaSuccess) {
-        cudaFree(d_graph_nodes);
-        return -2;
+        status_code = -2;
+        goto cleanup;
     }
 
     err = cudaMemcpy(out_result, d_best_packed_result, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
-
-    cudaFree(d_graph_nodes);
-    cudaFree(d_active_context);
-    cudaFree(d_best_packed_result);
-
     if (err != cudaSuccess) {
-        return -3;
+        status_code = -3;
+        goto cleanup;
     }
 
-    return 0;
+cleanup:
+    if (d_graph_nodes != nullptr) {
+        cudaFree(d_graph_nodes);
+    }
+    if (d_active_context != nullptr) {
+        cudaFree(d_active_context);
+    }
+    if (d_best_packed_result != nullptr) {
+        cudaFree(d_best_packed_result);
+    }
+
+    return status_code;
 }
 
 } // extern "C"

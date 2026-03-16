@@ -58,8 +58,8 @@ func TestWavefrontGuardAllowsNearPhaseContinuation(t *testing.T) {
 		aValue.SetGuardRadius(2)
 		bValue := observableValue('b', driftedBPhase, data.OpcodeHalt, 0)
 
-		idx.insertSync(morton.Pack(0, 'a'), aValue, data.MustNewChord())
-		idx.insertSync(morton.Pack(1, 'b'), bValue, data.MustNewChord())
+		idx.insertSync(morton.Pack(0, 'a'), aValue, data.MustNewValue())
+		idx.insertSync(morton.Pack(1, 'b'), bValue, data.MustNewValue())
 
 		wf := NewWavefront(idx, WavefrontWithMaxHeads(16), WavefrontWithMaxDepth(4), WavefrontWithMaxFuzzy(0))
 
@@ -67,7 +67,7 @@ func TestWavefrontGuardAllowsNearPhaseContinuation(t *testing.T) {
 			results := wf.SearchPrompt([]byte("ab"), nil, nil)
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)
 
-			decoded := idx.decodeChords(results[0].Path)
+			decoded := idx.decodeValues(results[0].Path)
 			gc.So(len(decoded), gc.ShouldBeGreaterThan, 0)
 			gc.So(string(decoded[0]), gc.ShouldEqual, "ab")
 		})

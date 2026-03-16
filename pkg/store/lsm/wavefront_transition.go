@@ -37,10 +37,10 @@ func (wf *Wavefront) resolveTransition(
 	head *WavefrontHead,
 	nextPos uint32,
 	nextSymbol byte,
-	stateChord data.Chord,
+	stateValue data.Value,
 	expected numeric.Phase,
 ) (numeric.Phase, int, bool, bool) {
-	storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
+	storedPhase, ok := extractStatePhase(stateValue, nextSymbol)
 	if !ok {
 		return 0, 0, false, false
 	}
@@ -49,11 +49,11 @@ func (wf *Wavefront) resolveTransition(
 	penalty := 0
 	anchored := false
 
-	if snapped, anchorPenalty, ok := wf.anchorCorrect(nextPos, expected, stateChord); ok {
+	if snapped, anchorPenalty, ok := wf.anchorCorrect(nextPos, expected, stateValue); ok {
 		resolved = snapped
 		penalty += anchorPenalty
 		anchored = true
-	} else if wf.anchorViolates(nextPos, expected, stateChord) {
+	} else if wf.anchorViolates(nextPos, expected, stateValue) {
 		return 0, 0, false, false
 	}
 

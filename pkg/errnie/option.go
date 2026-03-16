@@ -45,3 +45,4 @@ func OpPtr[T any, U any](method func(*T, U) error, value U) OpFn[*T] {
 		return method(receiver, value)
 	}
 }
+

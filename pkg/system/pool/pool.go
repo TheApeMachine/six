@@ -301,3 +301,5 @@ func (p *Pool) Close() {
 
 	p.store.Close()
 }
+
+

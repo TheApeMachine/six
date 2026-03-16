@@ -790,14 +790,14 @@
       "Name": "BestFill Scaling",
       "Prefix": "O29PfnhpZEhtey5vTSp8XlolPlQgQTkzJ1ImRmYtXF1Pa2V1YCpWYWpOdWZNTGZ3UkVSbi9MKTpcejxPK19aLHQzRVd1LiZSaShUbT5yOVRBUiorQTVDUD1xL1VWdjhV",
       "Holdout": "Il9oZGhPUU46bUsyNmNIUElzX0UkUXdaOG85RWNsd1w=",
-      "Observed": "T354aWRIbXsub00qfF5aJT5UIEE5MydSJkZmLVxdT2tldWAqVmFqTnVmTUxmd1JFUm4vTCk6XHo8TytfWix0M0VXdS4mUmkoVG0+cjlUQVIqK0E1Q1A9cS9VVnY4VSJfaGRoT1FOOm1LMjZjSFBJc19FJFF3WjhvOUVjbHdc",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 1,
-        "Fuzzy": 0.25396825396825395
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.3189033189033189,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -1126,14 +1126,14 @@
       "Name": "BestFill Scaling",
       "Prefix": "KjI5ciwsKT1FR05PXncyNUxwOSw4MCBqWGRXdih1J0hpbT4zKiMvTlQ3JUE1az9Zb2VnZWpmRi1wSkRLI0steEFjamJkKkNMVn0+JC5vPFRiQ28ueCYkfmIjRnlybWcy",
       "Holdout": "STg9XCd5a2w7VnhGdDU/WkN9aShiJUBdX0FuIC50TWs=",
-      "Observed": "STg9XCd5a2w7VnhGdDU/WjEqPShKMyBhO2lGXT1RLEtJOSE1O1pgJ0I4byp5TV0kM1QoNkYjenhhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vj4pLlxhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vj4pLlxhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vj4pLlxhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vg==",
+      "Observed": null,
       "ErrorRatio": null,
       "Scores": {
         "Exact": 0,
-        "Partial": 0.53125,
-        "Fuzzy": 0.06640625
+        "Partial": 0,
+        "Fuzzy": 0
       },
-      "WeightedTotal": 0.1569602272727273,
+      "WeightedTotal": 0,
       "TrueLabel": null,
       "PredLabel": null
     },
@@ -1618,6 +1618,6 @@
       "PredLabel": null
     }
   ],
-  "score": 0.004758635461760462,
+  "score": 0,
   "section": "scaling"
 }

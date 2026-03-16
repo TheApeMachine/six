@@ -21,3 +21,5 @@ func NewResult(value any) *Result {
 		CreatedAt: time.Now(),
 	}
 }
+
+

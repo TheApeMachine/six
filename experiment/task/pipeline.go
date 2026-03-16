@@ -269,7 +269,7 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 type PipelineError string
 
 const (
-	PipelineErrNoPrompt PipelineError = "no prompt chords generated"
+	PipelineErrNoPrompt PipelineError = "no prompt values generated"
 )
 
 func (e PipelineError) Error() string {

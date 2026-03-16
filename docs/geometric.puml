@@ -3,9 +3,9 @@ skinparam linetype ortho
 
 title Geometric Routing & The Wavefront Search
 
-state "Current State: Chord(C)" as C
+state "Current State: Value(C)" as C
 state "Projected Rotation (Targeting 'A')" as ProjA
-state "Next State: Chord(A)" as ChordA
+state "Next State: Value(A)" as ValueA
 state "Projected Rotation (Targeting 'T')" as ProjT
 state "LSM Stored Paths (Neighborhood of C)" as LSM {
   state "Path: C -> A" as PathA
@@ -28,7 +28,8 @@ state "LSM Stored Paths (Neighborhood of C)" as LSM {
 C -> ProjA : Apply Momentum/Rotation
 ProjA --> LSM : XOR against physical memory
 
-PathA --> ChordA : Move &amp; Update Phase
-ChordA -> ProjT : Continue Braid...
+PathA --> ValueA : Move &amp; Update Phase
+ValueA -> ProjT : Continue Braid...
 
 @enduml
+

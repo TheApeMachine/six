@@ -15,14 +15,14 @@ func TestLSMCompaction(t *testing.T) {
 
 		morton := data.NewMortonCoder()
 
-		makeState := func(state int) data.Chord {
-			c := data.MustNewChord()
+		makeState := func(state int) data.Value {
+			c := data.MustNewValue()
 			c.Set(state)
 			c.SetResidualCarry(uint64(state))
 			return c
 		}
 
-		mockMeta := data.MustNewChord()
+		mockMeta := data.MustNewValue()
 
 		S1 := numeric.Phase(10)
 		S2 := calc.Multiply(S1, calc.Power(3, uint32('B')))
@@ -128,4 +128,3 @@ func TestLSMCompaction(t *testing.T) {
 		})
 	})
 }
-

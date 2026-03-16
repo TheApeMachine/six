@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
-	"strings"
 	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
@@ -57,7 +57,7 @@ func NewDistributedBackend(opts ...distributedOpts) (*DistributedBackend, error)
 }
 
 func (backend *DistributedBackend) Available() bool {
-	return true
+	return backend != nil && backend.pool != nil && len(config.System.Workers) > 0
 }
 
 func (backend *DistributedBackend) Resolve(
@@ -65,6 +65,12 @@ func (backend *DistributedBackend) Resolve(
 	numNodes int,
 	contextPtr unsafe.Pointer,
 ) (uint64, error) {
+	if backend == nil || backend.pool == nil {
+		return 0, fmt.Errorf("distributed backend unavailable")
+	}
+	if numNodes <= 0 {
+		return 0, fmt.Errorf("invalid numNodes: must be > 0")
+	}
 	if graphNodes == nil || contextPtr == nil {
 		return 0, fmt.Errorf("invalid distributed pointers")
 	}
@@ -258,11 +264,15 @@ func remoteBestFillPacked(
 }
 
 func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return "", err
 	}
-	
+
 	boundAddr := fmt.Sprintf(":%d", ln.Addr().(*net.TCPAddr).Port)
 
 	go func() {
@@ -285,7 +295,7 @@ func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
 			go handleDistributedConn(conn, localBuilder)
 		}
 	}()
-	
+
 	return boundAddr, nil
 }
 
@@ -452,6 +462,9 @@ DistributedWithContext adds a context to the machine.
 */
 func DistributedWithContext(ctx context.Context) distributedOpts {
 	return func(distributed *DistributedBackend) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		distributed.ctx, distributed.cancel = context.WithCancel(ctx)
 	}
 }
@@ -462,14 +475,40 @@ func DistributedWithPool(pool *pool.Pool) distributedOpts {
 	}
 }
 
+type discoveryRuntime struct {
+	ctx context.Context
+}
+
 var (
-	discoveryOnce sync.Once
-	workersMutex  sync.Mutex
-	instanceID    string
+	discoveryMu         sync.Mutex
+	discoveryState      *discoveryRuntime
+	configuredWorkersMu sync.Mutex
+	configuredWorkers   []string
+	workersMutex        sync.Mutex
+	instanceID          string
 )
 
 func init() {
 	instanceID = fmt.Sprintf("%x", time.Now().UnixNano())
+}
+
+func configuredWorkerSnapshot() []string {
+	configuredWorkersMu.Lock()
+	defer configuredWorkersMu.Unlock()
+
+	if len(configuredWorkers) == 0 && len(config.System.Workers) > 0 {
+		configuredWorkers = append([]string(nil), config.System.Workers...)
+	}
+
+	return append([]string(nil), configuredWorkers...)
+}
+
+func resetWorkersToConfigured() {
+	workers := configuredWorkerSnapshot()
+
+	workersMutex.Lock()
+	defer workersMutex.Unlock()
+	config.System.Workers = append([]string(nil), workers...)
 }
 
 /*
@@ -478,79 +517,104 @@ and broadcasts our own presence on the local network.
 It also starts the local worker process so this node is part of the mesh.
 */
 func StartDiscovery(ctx context.Context, port string) {
-	discoveryOnce.Do(func() {
-		config.System.Workers = []string{}
-		boundPort, err := StartDistributedWorker(ctx, port)
-		if err != nil {
-			return
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	discoveryMu.Lock()
+	if discoveryState != nil && discoveryState.ctx != nil && discoveryState.ctx.Err() == nil {
+		discoveryMu.Unlock()
+		return
+	}
+	discoveryState = &discoveryRuntime{ctx: ctx}
+	discoveryMu.Unlock()
+
+	go func(active context.Context) {
+		<-active.Done()
+		discoveryMu.Lock()
+		if discoveryState != nil && discoveryState.ctx == active {
+			discoveryState = nil
 		}
+		discoveryMu.Unlock()
+	}(ctx)
 
-		addr := fmt.Sprintf("127.0.0.1%s", boundPort)
-		addWorker(addr)
+	resetWorkersToConfigured()
 
-		listenAddr, err := net.ResolveUDPAddr("udp4", ":7778")
-		if err != nil {
-			return
+	boundPort, err := StartDistributedWorker(ctx, port)
+	if err != nil {
+		discoveryMu.Lock()
+		if discoveryState != nil && discoveryState.ctx == ctx {
+			discoveryState = nil
 		}
+		discoveryMu.Unlock()
+		return
+	}
 
-		conn, err := net.ListenUDP("udp4", listenAddr)
-		if err != nil {
-			return
-		}
+	addr := fmt.Sprintf("127.0.0.1%s", boundPort)
+	addWorker(addr)
 
-		go func() {
-			defer conn.Close()
-			buf := make([]byte, 1024)
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-				conn.SetReadDeadline(time.Now().Add(time.Second))
-				n, raddr, err := conn.ReadFromUDP(buf)
-				if err != nil {
-					continue
-				}
+	listenAddr, err := net.ResolveUDPAddr("udp4", ":7778")
+	if err != nil {
+		return
+	}
 
-				msg := string(buf[:n])
-				parts := strings.SplitN(msg, ":", 3)
-				if len(parts) == 3 && parts[0] == "SIX_WORKER" {
-					peerID := parts[1]
-					peerPort := parts[2]
-					if peerID != instanceID {
-						peerIP := raddr.IP.String()
-						if strings.HasPrefix(peerPort, ":") {
-							addWorker(fmt.Sprintf("%s%s", peerIP, peerPort))
-						} else {
-							addWorker(fmt.Sprintf("%s:%s", peerIP, peerPort))
-						}
+	conn, err := net.ListenUDP("udp4", listenAddr)
+	if err != nil {
+		return
+	}
+
+	go func() {
+		defer conn.Close()
+		buf := make([]byte, 1024)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+			n, raddr, err := conn.ReadFromUDP(buf)
+			if err != nil {
+				continue
+			}
+
+			msg := string(buf[:n])
+			parts := strings.SplitN(msg, ":", 3)
+			if len(parts) == 3 && parts[0] == "SIX_WORKER" {
+				peerID := parts[1]
+				peerPort := parts[2]
+				if peerID != instanceID {
+					peerIP := raddr.IP.String()
+					if strings.HasPrefix(peerPort, ":") {
+						addWorker(fmt.Sprintf("%s%s", peerIP, peerPort))
+					} else {
+						addWorker(fmt.Sprintf("%s:%s", peerIP, peerPort))
 					}
 				}
 			}
-		}()
+		}
+	}()
 
-		go func() {
-			addr, err := net.ResolveUDPAddr("udp4", "255.255.255.255:7778")
-			if err != nil {
+	go func() {
+		addr, err := net.ResolveUDPAddr("udp4", "255.255.255.255:7778")
+		if err != nil {
+			return
+		}
+		for {
+			select {
+			case <-ctx.Done():
 				return
+			default:
 			}
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-				}
-				bconn, err := net.DialUDP("udp4", nil, addr)
-				if err == nil {
-					msg := fmt.Sprintf("SIX_WORKER:%s:%s", instanceID, boundPort)
-					bconn.Write([]byte(msg))
-					bconn.Close()
-				}
-				time.Sleep(5 * time.Second)
+			bconn, err := net.DialUDP("udp4", nil, addr)
+			if err == nil {
+				msg := fmt.Sprintf("SIX_WORKER:%s:%s", instanceID, boundPort)
+				_, _ = bconn.Write([]byte(msg))
+				_ = bconn.Close()
 			}
-		}()
-	})
+			time.Sleep(5 * time.Second)
+		}
+	}()
 }
 
 func addWorker(addr string) {
@@ -564,4 +628,3 @@ func addWorker(addr string) {
 	config.System.Workers = append(config.System.Workers, addr)
 	console.Debug("Discovered peer", "addr", addr)
 }
-

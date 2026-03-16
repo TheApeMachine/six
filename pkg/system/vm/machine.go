@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"runtime"
+	"sort"
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -54,6 +55,10 @@ func NewMachine(opts ...machineOpts) *Machine {
 		opt(machine)
 	}
 
+	if machine.ctx == nil || machine.cancel == nil {
+		machine.ctx, machine.cancel = context.WithCancel(context.Background())
+	}
+
 	machine.workerPool = pool.New(
 		machine.ctx,
 		1,
@@ -94,8 +99,18 @@ Close shuts down the machine's booter, cancelling the context and
 closing pipe-based RPC connections to prevent goroutine leaks.
 */
 func (machine *Machine) Close() {
-	machine.cancel()
-	machine.booter.Close()
+	if machine.booter != nil {
+		machine.booter.Close()
+	}
+	if machine.broadcastGroup != nil {
+		machine.broadcastGroup.Close()
+	}
+	if machine.workerPool != nil {
+		machine.workerPool.Close()
+	}
+	if machine.cancel != nil {
+		machine.cancel()
+	}
 }
 
 /*
@@ -146,7 +161,7 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Tokenizer",
-		Action:    "Chord",
+		Action:    "Value",
 		Data: telemetry.EventData{
 			Stage:     "tokenize",
 			EdgeCount: edges.Len(),
@@ -158,19 +173,19 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return nil, nil
 	}
 
-	// 3. SpatialIndex.Lookup — chord paths
+	// 3. SpatialIndex.Lookup — value paths
 	lookupFuture, lookupRelease := machine.booter.spatialIndex.Lookup(ctx, func(
 		p lsm.SpatialIndex_lookup_Params,
 	) error {
-		chordList := errnie.Must(data.NewChord_List(p.Segment(), int32(edges.Len())))
+		valueList := errnie.Must(data.NewValue_List(p.Segment(), int32(edges.Len())))
 
 		for i := range edges.Len() {
-			dst := chordList.At(i)
-			chord := errnie.Must(edges.At(i).Chord())
-			dst.CopyFrom(chord)
+			dst := valueList.At(i)
+			value := errnie.Must(edges.At(i).Value())
+			dst.CopyFrom(value)
 		}
 
-		errnie.MustVoid(p.SetChords(chordList))
+		errnie.MustVoid(p.SetValues(valueList))
 
 		return nil
 	})
@@ -219,7 +234,7 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	})
 
 	machine.sink.Emit(telemetry.Event{
-		Component: "Cortex",
+		Component: "Graph",
 		Action:    "Evaluate",
 		Data: telemetry.EventData{
 			Stage:     "fold",
@@ -227,11 +242,11 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		},
 	})
 
-	// 6. SpatialIndex.Decode — chords back to bytes
+	// 6. SpatialIndex.Decode — values back to bytes
 	decodeFuture, decodeRelease := machine.booter.spatialIndex.Decode(ctx, func(
 		p lsm.SpatialIndex_decode_Params,
 	) error {
-		return p.SetChords(resultPaths)
+		return p.SetValues(resultPaths)
 	})
 	defer decodeRelease()
 
@@ -359,15 +374,43 @@ dataset context), then drives each string through Ingest to populate the
 spatial index and semantic engine before any queries are served.
 */
 func (machine *Machine) SetDataset(dataset provider.Dataset) error {
-	byID := map[uint32][]byte{}
-
-	for tok := range dataset.Generate() {
-		byID[tok.SampleID] = append(byID[tok.SampleID], tok.Symbol)
+	type sampleSymbol struct {
+		pos    uint32
+		symbol byte
 	}
 
-	corpus := make([]string, 0, len(byID))
+	byID := map[uint32][]sampleSymbol{}
 
-	for _, bytes := range byID {
+	for tok := range dataset.Generate() {
+		byID[tok.SampleID] = append(byID[tok.SampleID], sampleSymbol{
+			pos:    tok.Pos,
+			symbol: tok.Symbol,
+		})
+	}
+
+	ids := make([]uint32, 0, len(byID))
+	for sampleID := range byID {
+		ids = append(ids, sampleID)
+	}
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+
+	corpus := make([]string, 0, len(byID))
+	for _, sampleID := range ids {
+		symbols := append([]sampleSymbol(nil), byID[sampleID]...)
+		sort.Slice(symbols, func(i, j int) bool {
+			if symbols[i].pos != symbols[j].pos {
+				return symbols[i].pos < symbols[j].pos
+			}
+			return symbols[i].symbol < symbols[j].symbol
+		})
+
+		bytes := make([]byte, len(symbols))
+		for i, symbol := range symbols {
+			bytes[i] = symbol.symbol
+		}
+
 		corpus = append(corpus, string(bytes))
 	}
 
@@ -433,7 +476,7 @@ func (machine *Machine) Ingest(msg string) error {
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Tokenizer",
-		Action:    "Chord",
+		Action:    "Value",
 		Data: telemetry.EventData{
 			Stage:     "ingest-tokenize",
 			EdgeCount: edges.Len(),
@@ -536,6 +579,9 @@ MachineWithContext adds a context to the Machine.
 */
 func MachineWithContext(ctx context.Context) machineOpts {
 	return func(machine *Machine) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
 		machine.ctx, machine.cancel = context.WithCancel(ctx)
 	}
 }

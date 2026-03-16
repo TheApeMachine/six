@@ -15,7 +15,7 @@ TestMassiveAnomalyIsolationWithViz tests the anomaly isolation across distinct
 synthetic baseline logs and sends actual telemetry to the visualizer as well
 as readable text logs.
 
-This specifically proves that ChordHole does NOT just detect "novel letters", but
+This specifically proves that ValueHole does NOT just detect "novel letters", but
 differentiates entire structural geometry.
 */
 func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
@@ -30,9 +30,9 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 		anomalyStr := "?query=' OR 1=1--"
 		anomalyBytes := []byte(anomalyStr)
-		anomalyChord, err := data.BuildChord(anomalyBytes)
+		anomalyValue, err := data.BuildValue(anomalyBytes)
 		if err != nil {
-			t.Fatalf("BuildChord failed for anomaly: %v", err)
+			t.Fatalf("BuildValue failed for anomaly: %v", err)
 		}
 
 		// Fire up a mock or real viz server specifically for emitting visual
@@ -44,43 +44,43 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 			// Generate realistic looking varying baseline strings. They deliberately
 			// contain characters like 'e', 'r', '1', '=', '?', ' ', '-', etc.
 			baselineStr := fmt.Sprintf("GET /api/v1/users?user=%d HTTP/1.1 User-Agent: Mozilla/5.0 status=200", rng.Intn(1000))
-			baselineChord, err := data.BuildChord([]byte(baselineStr))
+			baselineValue, err := data.BuildValue([]byte(baselineStr))
 			if err != nil {
-				t.Fatalf("BuildChord failed for baseline: %v", err)
+				t.Fatalf("BuildValue failed for baseline: %v", err)
 			}
 
 			// The attack is the baseline + anomaly
 			attackStr := baselineStr + anomalyStr
-			attackChord, err := data.BuildChord([]byte(attackStr))
+			attackValue, err := data.BuildValue([]byte(attackStr))
 			if err != nil {
-				t.Fatalf("BuildChord failed for attack: %v", err)
+				t.Fatalf("BuildValue failed for attack: %v", err)
 			}
 
 			// Geometric Extraction
 			// What exists in the Attack that does NOT exist in the Baseline?
-			residue := data.ChordHole(&attackChord, &baselineChord)
+			residue := data.ValueHole(&attackValue, &baselineValue)
 
 			// How many bits of the FULL signature were recovered cleanly?
-			sim := data.ChordSimilarity(&residue, &anomalyChord)
+			sim := data.ValueSimilarity(&residue, &anomalyValue)
 
 			if i < 3 { // Just log the first few extensively so the user can read it
 				t.Logf("--- Trial %d ---", i+1)
-				t.Logf("Baseline String (%d bits): %q", baselineChord.ActiveCount(), baselineStr)
-				t.Logf("Full Attack String (%d bits): %q", attackChord.ActiveCount(), attackStr)
+				t.Logf("Baseline String (%d bits): %q", baselineValue.ActiveCount(), baselineStr)
+				t.Logf("Full Attack String (%d bits): %q", attackValue.ActiveCount(), attackStr)
 				t.Logf("Isolated Residue: %d bits", residue.ActiveCount())
 
 				// We visualize the evaluation loop on the dashboard
 				// This sends a physical packet telling the viz what bits were cancelled out
 
-				promptBits := data.ChordPrimeIndices(&attackChord)
-				matchBits := data.ChordPrimeIndices(&baselineChord)
+				promptBits := data.ValuePrimeIndices(&attackValue)
+				matchBits := data.ValuePrimeIndices(&baselineValue)
 
 				// Cancel bits = bits that were in prompt AND match (cancelled by XOR)
-				intersection := attackChord.AND(baselineChord)
-				cancelBits := data.ChordPrimeIndices(&intersection)
+				intersection := attackValue.AND(baselineValue)
+				cancelBits := data.ValuePrimeIndices(&intersection)
 
 				sink.Emit(telemetry.Event{
-					Component: "Cortex",
+					Component: "Graph",
 					Action:    "Evaluate",
 					Data: telemetry.EventData{
 						ActiveBits: promptBits,
@@ -91,7 +91,7 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 					},
 				})
 
-				missing := anomalyChord.ActiveCount() - sim
+				missing := anomalyValue.ActiveCount() - sim
 				if missing > 0 {
 					t.Logf("WARNING: %d bits. The baseline perfectly occluded %d bits of the anomaly.",
 						sim, missing)
@@ -109,33 +109,33 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 		}
 
 		t.Logf("Anomaly Extractor returned unique bits for intrusion in %d / %d trials (%.2f%%)", successes, trials, float64(successes)/float64(trials)*100.0)
-		t.Logf("ChordHole operates strictly on BIT occlusion, meaning if the baseline already saturates the exact geometric primes needed for the anomaly, the anomaly becomes structurally invisible to a simple Hole punch.")
+		t.Logf("ValueHole operates strictly on BIT occlusion, meaning if the baseline already saturates the exact geometric primes needed for the anomaly, the anomaly becomes structurally invisible to a simple Hole punch.")
 		So(successes, ShouldBeGreaterThanOrEqualTo, trials*95/100)
 	})
 }
 
 func BenchmarkAnomalyIsolation(b *testing.B) {
 	anomalyStr := "?query=' OR 1=1--"
-	anomalyChord, err := data.BuildChord([]byte(anomalyStr))
+	anomalyValue, err := data.BuildValue([]byte(anomalyStr))
 	if err != nil {
-		b.Fatalf("BuildChord anomaly: %v", err)
+		b.Fatalf("BuildValue anomaly: %v", err)
 	}
 
 	baselineStr := "GET /api/v1/users?user=500 HTTP/1.1 User-Agent: Mozilla/5.0 status=200"
-	baselineChord, err := data.BuildChord([]byte(baselineStr))
+	baselineValue, err := data.BuildValue([]byte(baselineStr))
 	if err != nil {
-		b.Fatalf("BuildChord baseline: %v", err)
+		b.Fatalf("BuildValue baseline: %v", err)
 	}
 
 	attackStr := baselineStr + anomalyStr
-	attackChord, err := data.BuildChord([]byte(attackStr))
+	attackValue, err := data.BuildValue([]byte(attackStr))
 	if err != nil {
-		b.Fatalf("BuildChord attack: %v", err)
+		b.Fatalf("BuildValue attack: %v", err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		residue := data.ChordHole(&attackChord, &baselineChord)
-		data.ChordSimilarity(&residue, &anomalyChord)
+		residue := data.ValueHole(&attackValue, &baselineValue)
+		data.ValueSimilarity(&residue, &anomalyValue)
 	}
 }

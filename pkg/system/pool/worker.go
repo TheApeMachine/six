@@ -182,3 +182,5 @@ func (w *Worker) recordFailure(circuitID string) {
 		breaker.RecordFailure()
 	}
 }
+
+

@@ -35,7 +35,7 @@ func ruleA(sampleIdx, byteIdx int) byte {
 /*
 ruleB generates sample i under Rule B: XOR-nonlinear sequence.
 Byte k of sample i is  seed_B(i) XOR (k * 11 % 256).
-The nonlinear XOR structure creates a fundamentally different chord
+The nonlinear XOR structure creates a fundamentally different value
 attractor landscape from Rule A.
 */
 func ruleB(sampleIdx, byteIdx int) byte {
@@ -293,7 +293,7 @@ ${{.PhaseBSteps}}$ steps won by Rule B ({{.PhaseBPct | f0}}\,\%).
 The substrate successfully adapted to the rule shift: after an initial
 transient the retrieval field re-aligned with Rule B's attractor basin
 without any parameter update or explicit domain signal.  This demonstrates
-that the chord manifold reorganises spontaneously in response to
+that the value manifold reorganises spontaneously in response to
 distributional change, consistent with the Holographic BVP framing in
 which the field settles to the lowest-energy configuration compatible
 with the current input boundary conditions.
@@ -307,7 +307,7 @@ accelerating re-equilibration.
 {{- else -}}
 \paragraph{Assessment.}
 The substrate did not complete the transition within the available window.
-At this scale, Rules A and B produce similar chord cosine similarities;
+At this scale, Rules A and B produce similar value cosine similarities;
 longer samples or larger \textit{N} would widen the attractor gap and make
 the shift detectable.
 {{- end}}

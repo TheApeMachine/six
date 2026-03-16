@@ -14,7 +14,7 @@ natural language via logit biases.
 \textbf{Manifold-grafted generation.}
 For each of $N=0$ contradiction-heavy prompts the manifold substrate
 (populated by ingesting the relevant context paragraphs through the full
-pipeline) projects its top-$k$ readout chord bytes onto a logit bias over the
+pipeline) projects its top-$k$ readout value bytes onto a logit bias over the
 Gemma vocabulary.  Byte-level fallback tokens (IDs 3--258) receive a positive
 bias proportional to their frequency in the substrate readout, nudging
 generation toward tokens coherent with the manifold's constraint state.
