@@ -92,5 +92,3 @@ func BenchmarkRequireWithNil(b *testing.B) {
 		_ = Require(objs)
 	}
 }
-
-

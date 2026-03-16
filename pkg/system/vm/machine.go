@@ -113,6 +113,28 @@ func (machine *Machine) Close() {
 	}
 }
 
+func keyListToSlice(list capnp.UInt64List) []uint64 {
+	keys := make([]uint64, list.Len())
+	for i := 0; i < list.Len(); i++ {
+		keys[i] = list.At(i)
+	}
+	return keys
+}
+
+func valueListFromSlice(seg *capnp.Segment, values []data.Value) (data.Value_List, error) {
+	valueList, err := data.NewValue_List(seg, int32(len(values)))
+	if err != nil {
+		return data.Value_List{}, err
+	}
+
+	for i, value := range values {
+		dst := valueList.At(i)
+		dst.CopyFrom(value)
+	}
+
+	return valueList, nil
+}
+
 /*
 Prompt is the main entry point. Every RPC result is deferred at this scope
 so downstream PlaceArgs callbacks can safely read from upstream messages.
@@ -143,7 +165,7 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return promptResult.Data()
 	})
 
-	// 2. Tokenizer — bytes to edges
+	// 2. Tokenizer — bytes to radix keys, then projection into observable prompt values
 	tokFuture, tokRelease := machine.booter.tok.Generate(
 		ctx, func(p tokenizer.Universal_generate_Params) error {
 			return p.SetData(promptBytes)
@@ -155,34 +177,33 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return tokFuture.Struct()
 	})
 
-	edges := errnie.SafeMust(func() (lsm.GraphEdge_List, error) {
-		return tokResult.Edges()
+	keyList := errnie.SafeMust(func() (capnp.UInt64List, error) {
+		return tokResult.Keys()
 	})
+	keys := keyListToSlice(keyList)
+	promptValues := data.CompileObservableSequenceValues(keys)
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Tokenizer",
 		Action:    "Value",
 		Data: telemetry.EventData{
 			Stage:     "tokenize",
-			EdgeCount: edges.Len(),
+			EdgeCount: len(promptValues),
 			ChunkText: msg,
 		},
 	})
 
-	if edges.Len() == 0 {
+	if len(promptValues) == 0 {
 		return nil, nil
 	}
 
-	// 3. SpatialIndex.Lookup — value paths
+	// 3. SpatialIndex.Lookup — projected prompt values in, native paths out
 	lookupFuture, lookupRelease := machine.booter.spatialIndex.Lookup(ctx, func(
 		p lsm.SpatialIndex_lookup_Params,
 	) error {
-		valueList := errnie.Must(data.NewValue_List(p.Segment(), int32(edges.Len())))
-
-		for i := range edges.Len() {
-			dst := valueList.At(i)
-			value := errnie.Must(edges.At(i).Value())
-			dst.CopyFrom(value)
+		valueList, err := valueListFromSlice(p.Segment(), promptValues)
+		if err != nil {
+			return err
 		}
 
 		errnie.MustVoid(p.SetValues(valueList))
@@ -452,8 +473,9 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 }
 
 /*
-Ingest generates edges from the string, populates the spatial index,
-and injects S-V-O facts into the semantic engine via RPC.
+Ingest tokenizes the string into radix keys, compiles those observations into
+native value-plane program cells, populates the spatial index, and injects S-V-O
+facts into the semantic engine via RPC.
 All RPC results live at this scope so Insert can read from the tokenizer message.
 */
 func (machine *Machine) Ingest(msg string) error {
@@ -470,27 +492,50 @@ func (machine *Machine) Ingest(msg string) error {
 		return tokFuture.Struct()
 	})
 
-	edges := errnie.SafeMust(func() (lsm.GraphEdge_List, error) {
-		return tokResult.Edges()
+	keyList := errnie.SafeMust(func() (capnp.UInt64List, error) {
+		return tokResult.Keys()
 	})
+	keys := keyListToSlice(keyList)
+	cells := data.CompileSequenceCells(keys)
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Tokenizer",
 		Action:    "Value",
 		Data: telemetry.EventData{
 			Stage:     "ingest-tokenize",
-			EdgeCount: edges.Len(),
+			EdgeCount: len(cells),
 			ChunkText: msg,
 		},
 	})
 
-	for i := range edges.Len() {
-		edge := edges.At(i)
+	for _, cell := range cells {
+		compiledCell := cell
 
 		errnie.SafeMustVoid(func() error {
 			return machine.booter.spatialIndex.Insert(
 				ctx, func(params lsm.SpatialIndex_insert_Params) error {
-					return params.SetEdge(edge)
+					edge, err := params.NewEdge()
+					if err != nil {
+						return err
+					}
+
+					edge.SetLeft(compiledCell.Symbol)
+					edge.SetRight(compiledCell.NextSymbol)
+					edge.SetPosition(compiledCell.Position)
+
+					value, err := edge.NewValue()
+					if err != nil {
+						return err
+					}
+					value.CopyFrom(compiledCell.Value)
+
+					meta, err := edge.NewMeta()
+					if err != nil {
+						return err
+					}
+					meta.CopyFrom(compiledCell.Meta)
+
+					return nil
 				},
 			)
 		})
@@ -505,7 +550,7 @@ func (machine *Machine) Ingest(msg string) error {
 		Action:    "Insert",
 		Data: telemetry.EventData{
 			Stage:     "ingest-insert",
-			Edges:     edges.Len(),
+			Edges:     len(cells),
 			ChunkText: msg,
 		},
 	})

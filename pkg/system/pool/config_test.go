@@ -28,5 +28,3 @@ func BenchmarkNewConfig(b *testing.B) {
 		_ = NewConfig()
 	}
 }
-
-

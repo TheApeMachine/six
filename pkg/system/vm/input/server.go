@@ -214,5 +214,3 @@ func PrompterWithMatch(match []byte) prompterOpts {
 		server.heldout.Match = match
 	}
 }
-
-

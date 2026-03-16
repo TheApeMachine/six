@@ -38,5 +38,3 @@ func TestAnchorRegistry(t *testing.T) {
 		})
 	})
 }
-
-

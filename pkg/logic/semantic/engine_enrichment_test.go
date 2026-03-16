@@ -350,5 +350,3 @@ func BenchmarkQueryLinkAtScale(b *testing.B) {
 		eng.QueryLink(braids[idx], subjects[idx], objects[idx])
 	}
 }
-
-

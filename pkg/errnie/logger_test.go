@@ -346,4 +346,3 @@ func TestLogger(t *testing.T) {
 		})
 	})
 }
-

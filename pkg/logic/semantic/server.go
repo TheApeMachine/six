@@ -601,5 +601,3 @@ func (eng *EngineServer) Interference(a, b numeric.Phase) bool {
 
 	return uint32(sum) <= 2 || uint32(sum) >= numeric.FermatPrime-2
 }
-
-

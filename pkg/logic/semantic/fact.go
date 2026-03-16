@@ -16,5 +16,3 @@ type Fact struct {
 	Label    numeric.Phase
 	Negated  bool
 }
-
-

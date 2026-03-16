@@ -77,5 +77,3 @@ func BenchmarkCheckFileExists(b *testing.B) {
 		_ = CheckFileExists(file)
 	}
 }
-
-

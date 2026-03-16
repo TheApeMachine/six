@@ -7,5 +7,3 @@ $Go.import("github.com/theapemachine/six/pkg/logic/synthesis/goal");
 interface Frustration {
   prompt @0 (msg :Text) -> (result :Text);
 }
-
-

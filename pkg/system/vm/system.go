@@ -16,5 +16,3 @@ as a tick rather than dereferencing.
 type System interface {
 	Client(string) net.Conn
 }
-
-

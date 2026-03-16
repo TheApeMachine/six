@@ -65,5 +65,3 @@ func TestMachineProjectionStagesBootExpectedOverlay(t *testing.T) {
 		t.Fatalf("cantilever client should be valid when prompt projection is enabled")
 	}
 }
-
-

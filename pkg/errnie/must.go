@@ -126,4 +126,3 @@ func SafeMustVoid(fn func() error) {
 
 	MustVoid(fn())
 }
-

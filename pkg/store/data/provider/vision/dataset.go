@@ -84,5 +84,3 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 
 	return out
 }
-
-

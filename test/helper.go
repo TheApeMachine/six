@@ -75,5 +75,3 @@ Teardown cancels the test context.
 func (h *TestHelper) Teardown() {
 	h.machine.Close()
 }
-
-

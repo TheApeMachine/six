@@ -142,5 +142,3 @@ func DecodePacked(packed uint64) (idx int, distSq float64) {
 	}
 	return int(idxU32), distSq
 }
-
-

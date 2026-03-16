@@ -17,5 +17,3 @@ func Require(objs map[string]any) error {
 	}
 	return nil
 }
-
-

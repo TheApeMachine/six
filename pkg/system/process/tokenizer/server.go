@@ -18,7 +18,8 @@ import (
 UniversalServer implements the Universal_Server interface.
 It tokenizes raw bytes into Morton keys using Sequitur boundary analysis.
 The key IS the observable: (byte_value << 32 | localDepth).
-No values are produced — the LSM stores empty native values under each key.
+No values are produced here — downstream stages compile the key stream into
+native value-plane operators before insertion into the spatial index.
 */
 type UniversalServer struct {
 	ctx           context.Context
@@ -115,7 +116,8 @@ func (server *UniversalServer) Close() error {
 /*
 Generate implements Universal_Server. It tokenizes raw bytes into Morton keys.
 Each byte becomes a key: (byte_value << 32 | localDepth). The Sequencer
-determines where localDepth resets to 0 (boundary detection).
+determines where localDepth resets to 0 (boundary detection). Native values are
+compiled later so the tokenizer remains purely address-plane logic.
 */
 func (server *UniversalServer) Generate(ctx context.Context, call Universal_generate) error {
 	rawData, err := call.Args().Data()

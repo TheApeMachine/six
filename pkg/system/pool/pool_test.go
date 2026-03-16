@@ -218,5 +218,3 @@ func BenchmarkBroadcastSend(b *testing.B) {
 		bg.Send(r)
 	}
 }
-
-

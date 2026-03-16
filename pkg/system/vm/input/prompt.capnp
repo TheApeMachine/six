@@ -10,4 +10,3 @@ interface Prompter {
   generate @0 (msg :Text) -> (data :Data);
   done     @1 ();
 }
-

@@ -29,5 +29,3 @@ int resolve_resonance_metal(const void* graph_nodes_ptr, uint32_t num_nodes, con
 #endif
 
 #endif // METAL_H
-
-

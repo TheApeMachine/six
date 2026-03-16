@@ -121,5 +121,3 @@ func (dist *Distribution) Entropy() float64 {
 	}
 	return entropy
 }
-
-

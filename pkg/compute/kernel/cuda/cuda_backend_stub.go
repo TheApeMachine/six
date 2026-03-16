@@ -21,5 +21,3 @@ func (backend *CUDABackend) Resolve(
 ) (uint64, error) {
 	return 0, nil
 }
-
-

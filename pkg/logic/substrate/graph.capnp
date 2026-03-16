@@ -18,5 +18,3 @@ interface Graph {
   prompt @0 (paths :List(List(Value)), metaPaths :List(List(Value))) -> (result :List(List(Value)));
   done   @1 ();
 }
-
-

@@ -71,5 +71,3 @@ func BenchmarkMessage_Access(b *testing.B) {
 		_ = msg.Value
 	}
 }
-
-

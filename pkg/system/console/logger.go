@@ -161,5 +161,3 @@ Call before expensive Trace calls to avoid cost when tracing is off.
 func IsTraceEnabled() bool {
 	return traceEnabled
 }
-
-

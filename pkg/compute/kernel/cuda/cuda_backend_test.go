@@ -65,5 +65,3 @@ func BenchmarkCUDABackendResolve(b *testing.B) {
 		)
 	}
 }
-
-

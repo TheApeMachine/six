@@ -26,5 +26,3 @@ interface SpatialIndex {
   # Stateful path decode: result values back into byte sequences
   decode           @4 (values :List(List(Value))) -> (sequences :List(Data));
 }
-
-

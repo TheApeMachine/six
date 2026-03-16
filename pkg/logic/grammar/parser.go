@@ -358,5 +358,3 @@ Error implements the error interface for ParserError.
 func (parserError ParserError) Error() string {
 	return string(parserError)
 }
-
-

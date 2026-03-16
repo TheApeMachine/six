@@ -46,5 +46,3 @@ func pack(idx int, distSq uint32) uint64 {
 	invertedDist := uint32(maxPackedDistance) - distSq
 	return (uint64(invertedDist) << 32) | uint64(uint32(idx))
 }
-
-

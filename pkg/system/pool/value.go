@@ -55,5 +55,3 @@ func WithPoolValueTTL[T any](ttl time.Duration) opts[T] {
 		poolValue.TTL = ttl
 	}
 }
-
-

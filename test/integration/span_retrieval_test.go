@@ -150,5 +150,3 @@ func BenchmarkBoundarySpanRecall(b *testing.B) {
 		}
 	}
 }
-
-

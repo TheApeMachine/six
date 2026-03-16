@@ -59,6 +59,3 @@ func (eb *ExponentialBackoff) NextDelay(attempt int) time.Duration {
 	}
 	return time.Duration(float64(base) * jitterFactor)
 }
-
-
-

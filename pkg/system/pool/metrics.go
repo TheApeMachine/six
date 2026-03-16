@@ -254,6 +254,3 @@ func (m *Metrics) compress() {
 	newCentroids = append(newCentroids, current)
 	m.centroids = newCentroids
 }
-
-
-

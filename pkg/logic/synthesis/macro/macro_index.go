@@ -325,5 +325,3 @@ func (idx *MacroIndexServer) AvailableAnchors() []*AnchorRecord {
 	}
 	return out
 }
-
-

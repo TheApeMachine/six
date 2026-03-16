@@ -163,5 +163,3 @@ func (calibrator *Calibrator) dynamicLimit(window *FastWindow, sensitivity, fall
 
 	return math.Min(fallback, limit)
 }
-
-

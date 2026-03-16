@@ -14,5 +14,3 @@ struct Value {
   c6 @6 :UInt64;
   c7 @7 :UInt64;
 }
-
-

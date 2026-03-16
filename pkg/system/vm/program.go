@@ -45,5 +45,3 @@ func Call[R, S any](future futureWithStruct[S], release capnp.ReleaseFunc, extra
 	}
 	return extract(s)
 }
-
-

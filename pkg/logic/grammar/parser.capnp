@@ -8,5 +8,3 @@ interface Parser {
   prompt @0 (msg :Text) -> (result :Text);
   parse  @1 (msg :Text) -> (phase :UInt32, subject :Text, verb :Text, object :Text);
 }
-
-

@@ -217,5 +217,3 @@ func BenchmarkMDLDetectBoundary(b *testing.B) {
 		seq.detectBoundary(buf, dist)
 	}
 }
-
-

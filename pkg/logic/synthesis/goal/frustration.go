@@ -385,5 +385,3 @@ func (fe *FrustrationEngineServer) ResolveDual(
 
 	return candidates[0], nil
 }
-
-

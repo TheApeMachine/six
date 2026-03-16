@@ -122,5 +122,3 @@ func (window *FastWindow) Stats() (mean, stddev float64) {
 	}
 	return
 }
-
-

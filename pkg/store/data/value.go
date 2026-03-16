@@ -426,6 +426,16 @@ func StorageValue(symbol byte, observable Value) Value {
 	return out
 }
 
+/*
+BuildValue is a projection-plane helper that builds an observable lexical value
+from raw bytes. It deliberately preserves byte shadowing for tests, decode
+paths, and human-facing evaluation.
+
+Do not use BuildValue for persistent storage. Production ingest should tokenize
+into radix keys and then compile native operator cells via CompileSequenceCells,
+letting the key carry lexical identity and the Value carry only local program
+state.
+*/
 func BuildValue(payload []byte) (Value, error) {
 	console.Trace("Building value", "payload", string(payload))
 

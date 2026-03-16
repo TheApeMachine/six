@@ -67,5 +67,3 @@ func BenchmarkWithRetry(b *testing.B) {
 		opt(job)
 	}
 }
-
-

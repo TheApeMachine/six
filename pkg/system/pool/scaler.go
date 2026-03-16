@@ -180,5 +180,3 @@ func NewScaler(p *Pool, minWorkers, maxWorkers int, config *ScalerConfig) *Scale
 
 	return scaler
 }
-
-

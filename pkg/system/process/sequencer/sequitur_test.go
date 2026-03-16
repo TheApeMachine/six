@@ -167,5 +167,3 @@ func TestAnalyzeApproximateDigram(t *testing.T) {
 		})
 	})
 }
-
-

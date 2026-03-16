@@ -191,5 +191,3 @@ func (lb *LoadBalancer) updateWorkerStats() {
 		lb.activeWorkers = newCount
 	}
 }
-
-

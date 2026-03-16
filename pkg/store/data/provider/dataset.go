@@ -20,5 +20,3 @@ and the channel is closed by the Dataset when all tokens have been produced.
 type Dataset interface {
 	Generate() chan RawToken
 }
-
-

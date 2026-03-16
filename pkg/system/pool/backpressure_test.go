@@ -73,5 +73,3 @@ func BenchmarkBackPressureRegulatorLimit(b *testing.B) {
 		bp.Limit()
 	}
 }
-
-
