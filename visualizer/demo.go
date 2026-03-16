@@ -2,6 +2,8 @@ package visualizer
 
 import (
 	"context"
+	"strings"
+	"time"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/console"
@@ -20,7 +22,75 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	<-ctx.Done()
+	if err := helper.SetDataset(dataset); err != nil {
+		return console.Error(err, "msg", "failed to set dataset")
+	}
 
-	return nil
+	console.Info("Dataset ingested, starting prompt cycle")
+
+	prompts := extractPrompts(dataset)
+	if len(prompts) == 0 {
+		prompts = []string{
+			"Alice was beginning to get very tired",
+			"Down the rabbit hole",
+			"What is the use of a book without pictures",
+		}
+	}
+
+	for {
+		for _, prompt := range prompts {
+			if ctx.Err() != nil {
+				return nil
+			}
+
+			result, err := helper.Prompt(prompt)
+			if err != nil {
+				console.Error(err, "msg", "prompt failed")
+			} else if len(result) > 0 {
+				console.Info("prompt result", "query", prompt, "result", string(result))
+			}
+
+			select {
+			case <-ctx.Done():
+				return nil
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+	}
+}
+
+/*
+extractPrompts derives sample prompts from the dataset by reconstructing
+sample strings from the byte-level RawToken stream and taking their first
+few words as partial-match queries.
+*/
+func extractPrompts(dataset provider.Dataset) []string {
+	byID := map[uint32][]byte{}
+
+	for tok := range dataset.Generate() {
+		byID[tok.SampleID] = append(byID[tok.SampleID], tok.Symbol)
+	}
+
+	seen := map[string]bool{}
+	var prompts []string
+
+	for _, raw := range byID {
+		line := strings.TrimSpace(string(raw))
+		words := strings.Fields(line)
+
+		if len(words) >= 4 {
+			prefix := strings.Join(words[:4], " ")
+
+			if !seen[prefix] {
+				seen[prefix] = true
+				prompts = append(prompts, prefix)
+			}
+		}
+
+		if len(prompts) >= 20 {
+			break
+		}
+	}
+
+	return prompts
 }

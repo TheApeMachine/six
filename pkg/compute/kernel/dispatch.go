@@ -1,13 +1,13 @@
 package kernel
 
 import (
+	"fmt"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/errnie"
-	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -30,21 +30,21 @@ type Backend interface {
 }
 
 type Builder struct {
-	backend Backend
+	backends []Backend
 }
 
 type builderOpts func(*Builder)
 
 func WithBackend(backend Backend) builderOpts {
 	return func(builder *Builder) {
-		builder.backend = backend
+		builder.backends = append(builder.backends, backend)
 	}
 }
 
 /*
-NewBuilder creates the backend specified by the SIX_BACKEND environment variable.
-Valid values: "metal", "cuda", "cpu". Defaults to "cpu" if unset.
-Returns an error if the requested backend is unavailable.
+NewBuilder creates the backends prioritized array.
+Automatically detects and appends CUDA, Metal, and Distributed backends if available.
+CPU is always the ultimate fallback.
 */
 func NewBuilder(opts ...builderOpts) *Builder {
 	builder := &Builder{}
@@ -53,19 +53,23 @@ func NewBuilder(opts ...builderOpts) *Builder {
 		opt(builder)
 	}
 
-	if builder.backend == nil {
-		switch config.System.Backend {
-		case "metal":
-			builder.backend = &metal.MetalBackend{}
-		case "cuda":
-			builder.backend = &cuda.CUDABackend{}
-		case "distributed":
-			builder.backend = &DistributedBackend{}
-		case "cpu":
-			builder.backend = &cpu.CPUBackend{}
-		default:
-			builder.backend = &cpu.CPUBackend{}
+	if len(builder.backends) == 0 {
+		cnd := &cuda.CUDABackend{}
+		if cnd.Available() {
+			builder.backends = append(builder.backends, cnd)
 		}
+
+		mtl := &metal.MetalBackend{}
+		if mtl.Available() {
+			builder.backends = append(builder.backends, mtl)
+		}
+
+		dist := &DistributedBackend{}
+		if dist.Available() {
+			builder.backends = append(builder.backends, dist)
+		}
+
+		builder.backends = append(builder.backends, &cpu.CPUBackend{})
 	}
 
 	return builder
@@ -76,16 +80,40 @@ func (builder *Builder) Resolve(
 	numNodes int,
 	context unsafe.Pointer,
 ) (val uint64, err error) {
-	return errnie.SafeMust(func() (uint64, error) {
-		return builder.backend.Resolve(graphNodes, numNodes, context)
-	}), nil
+	var lastErr error
+	for _, backend := range builder.backends {
+		if !backend.Available() {
+			continue
+		}
+
+		result, resolveErr := func() (uint64, error) {
+			var v uint64
+			var e error
+			defer func() {
+				if r := recover(); r != nil {
+					e = fmt.Errorf("backend panic: %v", r)
+					errnie.ErrorSafe(e, false)
+				}
+			}()
+			v, e = backend.Resolve(graphNodes, numNodes, context)
+			return v, e
+		}()
+
+		if resolveErr == nil {
+			return result, nil
+		}
+		lastErr = resolveErr
+	}
+	return 0, lastErr
 }
 
 func (builder *Builder) Available() bool {
-	if builder.backend == nil {
-		return false
+	for _, backend := range builder.backends {
+		if backend.Available() {
+			return true
+		}
 	}
-	return builder.backend.Available()
+	return false
 }
 
 /*

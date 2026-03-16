@@ -96,13 +96,11 @@ $$a' = a_2 \cdot a_1 \bmod{257}, \quad b' = (a_2 \cdot b_1 + b_2) \bmod{257}$$
 
 The affine group has $257 \times 256 = 65{,}792$ distinct transforms — enough to encode rich sequential and structural relationships without ever leaving integer arithmetic.
 
-### BaseChord Geometry
+### Higher-Dimensional Value Geometry
 
-Each byte value $v \in [0, 255]$ maps to a **5-sparse** bitset on the 257-bit field. The five bit positions are derived from a pre-computed offset table that distributes values across the faces of a 257-face polytope:
+The intelligence of the system resides purely within the 512-bit Value stored at each Morton cell coordinate. Because the cell's X-coordinate explicitly encodes the byte identity via the Morton key, the Value itself does **not** store the byte. This frees up the entire 257-bit GF(257) core to act purely as a native computational language.
 
-$$\text{BaseChord}(v) = \{b_0(v),\; b_1(v),\; b_2(v),\; b_3(v),\; b_4(v)\} \subset [0, 256]$$
-
-This is a deterministic geometric address — no hashing, no learned embedding, no collision indirection. Each chord is **5-sparse on a 257-bit field** — five bits set out of 257 possible positions, not a 5-bit value.
+The Value is programmed into higher-dimensional space (tori, phase-dials, arrows of time). A 5-sparse geometric state on the 257-face Fermat cube is manipulated via affine rotations, acting as continuous generative logic. The Value holds algebraic momentum, continuation rules, and geometric residue, keeping it mathematically anchored to the lower-dimensional static coordinate.
 
 ### Morton Addressing & Radix Compression
 
@@ -145,7 +143,7 @@ $$\text{result} = \text{Kitchen} \bmod{257}$$
 This is not search. It is calculation.
 
 > [!NOTE]
-> **Dual algebra.** Algebraic cancellation operates on **scalar phases** — single elements of GF(257) (`numeric.Phase`, a `uint32`). This is distinct from 257-bit **chord** operations (OR, AND, XOR) which act on the full bitset for resonance measurement and superposition. The system has two parallel algebras: scalar GF(257) arithmetic for fact braids and modular reasoning, and 257-bit Hamming-space operations for structural resonance.
+> **Dual algebra.** Algebraic cancellation operates on **scalar phases** — single elements of GF(257) (`numeric.Phase`, a `uint32`). This is distinct from 257-bit **Value** operations (OR, AND, XOR) which act on the full bitset for resonance measurement and superposition. The system has two parallel algebras: scalar GF(257) arithmetic for fact braids and modular reasoning, and 257-bit Hamming-space operations for structural resonance.
 
 ### Frustration (The Drive Signal)
 
@@ -175,7 +173,7 @@ $$\phi_{\text{merged}} \cdot \phi_A^{-1} \bmod{257} \approx \phi_B$$
 
 ### Negative Constraints (Destructive Interference)
 
-"Roy is NOT in the kitchen" is an **anti-chord** — the additive inverse:
+"Roy is NOT in the kitchen" is an **anti-value** — the additive inverse:
 
 $$\phi_{\text{neg}} = (257 - \phi_{\text{pos}}) \bmod{257}$$
 
@@ -224,7 +222,7 @@ The LSM is a passive spatial lattice ([`spatial_index.go`](pkg/store/lsm/spatial
 
 ### Value Plane — `pkg/store/data/`
 
-The value at each cell is the system's **native monotype**: a 512-bit chord ([`chord.go`](pkg/store/data/chord.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator.
+The value at each cell is the system's **native monotype**: a 512-bit Value ([`chord.go`](pkg/store/data/chord.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator.
 
 ```
  Bits 0–256    │ GF(257) Fermat core — the native execution state
@@ -254,7 +252,7 @@ Key operations:
 | `XOR(other)` | Bitwise XOR | **Measurement only.** Used to compare a projected rotation against a stored anchor. Never used for composition or storage. |
 | `OR(other)` | Bitwise OR | Superposition — accumulate context. |
 | `AND(other)` | Bitwise AND | Intersection — find shared structure. |
-| `ChordHole(a, b)` | `a & ~b` | Gap detection — what is needed but absent. |
+| `ValueHole(a, b)` | `a & ~b` | Gap detection — what is needed but absent. |
 
 > [!WARNING]
 > **XOR is measurement, not storage.** If XOR is used to compose or persist data, Shannon entropy enters the system and destroys the generative properties of the rotational algebra. XOR is the thermometer, not the engine. See [`program.puml`](docs/program.puml).
@@ -265,7 +263,7 @@ The logic layer is a volatile, task-specific reasoning substrate ([`substrate/gr
 
 - **Boundary Value Problem (BVP) Solver.** Generation is framed as a cantilever extending from a known start state toward a goal phase. The solver in [`bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) bridges gaps by interpolating rotational trajectories through GF(257).
 - **Frustration Engine.** When the wavefront stalls (no value in the spatial index aligns with the current phase), the frustration counter in [`goal/frustration.go`](pkg/logic/synthesis/goal/frustration.go) rises. At a threshold, it triggers backtracking — mathematically: `(target_phase × modInverse(current_phase)) mod 257`. This is the algebraic equivalent of "the cantilever snapped."
-- **Macro Index.** Skip-chords ($2^k$-stride pointers) in [`macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) enable logarithmic jumps through the spatial index, turning linear traversal into a fractal skip list.
+- **Macro Index.** Skip-pointers ($2^k$-stride values) in [`macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) enable logarithmic jumps through the spatial index, turning linear traversal into a fractal skip list.
 
 ### Projection Plane — Human Interface
 
@@ -290,7 +288,7 @@ The four planes map directly to the repository structure:
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| 512-bit Value (Chord) | [`pkg/store/data/chord.go`](pkg/store/data/chord.go) | `Rotate3D`, `RollLeft`, `OR`, `AND`, `XOR`, `ChordHole`, `ActiveCount`, `RotationSeed` |
+| 512-bit Native Value | [`pkg/store/data/chord.go`](pkg/store/data/chord.go) | `Rotate3D`, `RollLeft`, `OR`, `AND`, `XOR`, `ValueHole`, `ActiveCount`, `RotationSeed` |
 | Value (Cap'n Proto schema) | [`pkg/store/data/chord.capnp`](pkg/store/data/chord.capnp) | Wire format: 8 × `uint64` words |
 | Morton Keys | [`pkg/store/data/morton.go`](pkg/store/data/morton.go) | Address encoding: `X = byte`, `Y = localDepth` |
 | Opcodes | [`pkg/store/data/opcode.go`](pkg/store/data/opcode.go) | Guard-band instruction encoding |
@@ -309,7 +307,7 @@ The four planes map directly to the repository structure:
 | Wavefront Search | [`pkg/store/lsm/wavefront.go`](pkg/store/lsm/wavefront.go) | Multi-headed propagation, phase-locked traversal, amplitude decay |
 | Wavefront Carry | [`pkg/store/lsm/wavefront_carry.go`](pkg/store/lsm/wavefront_carry.go) | Cross-boundary residual phase persistence |
 | Phase Anchors | [`pkg/store/lsm/phase_util.go`](pkg/store/lsm/phase_util.go) | Drift correction at synchronization checkpoints |
-| Skip-Chords | [`pkg/store/lsm/skip.go`](pkg/store/lsm/skip.go) | Power-of-2 stride pointers for logarithmic jumps |
+| Skip-Pointers | [`pkg/store/lsm/skip.go`](pkg/store/lsm/skip.go) | Power-of-2 stride pointers for logarithmic jumps |
 
 ### Layer 3 — Sensory Processing
 
@@ -334,7 +332,7 @@ The four planes map directly to the repository structure:
 | AST | [`pkg/logic/substrate/ast.go`](pkg/logic/substrate/ast.go) | Abstract syntax tree for structural decomposition |
 | BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Span extension toward a goal phase via rotational interpolation |
 | Frustration Engine | [`pkg/logic/synthesis/goal/frustration.go`](pkg/logic/synthesis/goal/frustration.go) | Energy accumulation → backtrack trigger: `(target × modInverse(current)) mod 257` |
-| Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Skip-chord registry for multi-scale navigation |
+| Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Skip-pointer registry for multi-scale navigation |
 
 ### Layer 5 — Projection (Human Interface)
 
@@ -431,6 +429,7 @@ The prompt does not "search" the index. It injects a phase, rotates, measures, a
 
 > [!NOTE]
 > **Implementation status of the doctrine.** Boundary-local indexing and value-identity separation are implemented: the tokenizer emits boundary-local positions, `StorageValue()` strips lexical seeds on insert, `ObservableValue()` re-projects when byte decode is needed, and the wavefront tracks `(key, segment)` for correct compressed-cell revisitation. Projection/enrichment is now an optional overlay, not the default prompt path. The operator shell also carries affine state, trajectory snapshots, route hints, and guard radii so stored values behave more like local transition rules than decorated byte shadows.
+Wavefront heads now carry ephemeral execution registers too: a transient residue/alignment/checkpoint workspace that seeds checkpointed backtracking without persisting any of that scratch state into the LSM.
 
 ---
 
@@ -483,8 +482,8 @@ six/
 │   │   └── synthesis/            # BVP, frustration, macro index
 │   ├── numeric/                  # GF(257) math, geometry, phase
 │   ├── store/
-│   │   ├── data/                 # Value (chord), Morton, opcode
-│   │   └── lsm/                  # Spatial index, wavefront, skip-chords
+│   │   ├── data/                 # Value, Morton, opcode
+│   │   └── lsm/                  # Spatial index, wavefront, skip-pointers
 │   ├── system/
 │   │   ├── core/                 # Configuration
 │   │   ├── process/              # Tokenizer, sequencer, calibrator
@@ -536,7 +535,7 @@ Current experiment categories:
 - [x] MDL + Sequitur dual-track sequence boundary detection
 - [x] BVP cantilever solver with rotational interpolation
 - [x] Frustration engine with energy-threshold backtracking
-- [x] Macro index for multi-scale skip-chord navigation
+- [x] Macro index for multi-scale skip-pointer navigation
 - [x] CUDA + Metal + CPU compute backends
 - [x] Full experiment harness with LaTeX paper generation
 - [x] Phase anchors for drift correction
@@ -551,7 +550,7 @@ Current experiment categories:
 - [x] **Projection demotion.** Semantic enrichment is now an explicitly configurable overlay rather than the default prompt path.
 - [x] **Skip-index alignment.** The skip layer now walks concrete stored program states, tracks segment drift, and revalidates reset-aware continuations.
 - [x] **Operator shell registers.** The upper band now carries route hints, trajectory snapshots, guard radii, and mutable-program flags on top of opcode + carry + affine control.
-- [ ] **Multi-headed frustration.** Parallel wavefront heads that independently explore alternative rotational trajectories when the primary path stalls.
+- [x] **Multi-headed frustration.** Parallel wavefront heads that independently explore alternative rotational trajectories when the primary path stalls.
 - [ ] **Logic garbage collection.** Automatic pruning of expired cantilever spans and dead wavefront heads to bound working memory.
 - [ ] **Rotation opcodes.** Extending the guard-band instruction set from basic control flow to a full rotational VM bytecode.
 - [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation.
@@ -562,7 +561,7 @@ Current experiment categories:
 #### Native Substrate Evolution
 
 - [ ] **Mutable operator substrate.** Making each stored value a first-class program object — logically mutable, physically append-only (LSM versioning). Scale from "state-with-control-fields" to "local transition operator."
-- [ ] **Ephemeral execution registers.** A transient 257×257-bit workspace per active beam state for residues, candidate alignments, and checkpoint tags — carried during traversal, never persisted.
+- [x] **Ephemeral execution registers.** A transient 257×257-bit workspace per active beam state for residues, candidate alignments, and checkpoint tags — carried during traversal, never persisted.
 - [ ] **Synthetic phase-grammar.** The system develops its own optimal phase-language for internal reasoning, using MDL-discovered rotation constants as "letters." Human language is only used at the input/output boundary.
 
 #### Tool Discovery & Composition
@@ -588,6 +587,27 @@ Current experiment categories:
 - [ ] **Multi-system braids.** Two engines achieve phase-lock by exchanging a reference wave and computing a rotational offset $Z$ such that $\phi_A \times G^Z \equiv \phi_B \pmod{257}$. Once aligned, system A can invoke system B's macro-opcodes as if they were local.
 - [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation. Network delay is treated as a negative constraint — if local synthesis is faster than the handshake, the system builds locally.
 - [ ] **Collaborative cantilevers.** When a node hits a shear point, it broadcasts its frustration phase. Any peer with a matching macro-opcode responds with the rotation, completing the bridge across the network.
+
+---
+
+## Distributed Orchestration
+
+The system does not rely on heavy RPC frameworks for distributed computation. Instead, it utilizes **chunk-based sharding** and **raw TCP serialization** to maintain sub-millisecond latency across the local mesh.
+
+### Zero-Copy Cap'n Proto Wiring
+
+Rather than negotiating complex RPC connection envelopes, the `DistributedBackend` bypasses interface abstractions in favor of raw socket manipulation:
+- **Direct TCP Encoders:** `capnp.NewEncoder(conn)` is pinned directly to raw TCP sockets.
+- **Zero-Copy Manual Schemas:** The orchestrator creates a root Cap'n Proto struct over data buffers, manually injecting offset bytes to serialize memory. Dictionary bits from spatial indices are blasted over the wire via `.SetData()` without any struct recreation or JSON unpacking penalty.
+- The worker node (`handleDistributedConn`) sits on a raw `net.Listen` TCP loop. When traffic hits, the byte stream funnels into a decoder and immediately hits the local CPU/GPU cascade via `localBuilder.Resolve()`.
+
+### Sharded Work Distribution
+
+When a topological query is issued against the distributed backend:
+1. **Dynamic Chunking:** The massive array of tensor nodes is sliced into chunks configured by `config.System.Chunk`.
+2. **Round-Robin Mesh Assignment:** Each chunk is assigned to an available mesh peer discovered via the UDP heartbeat broadcast listener (`:7778`).
+3. **Resilient Circuit Breaking:** Requests are scheduled concurrently via a worker pool. If a remote worker drops or times out, the circuit breaker flips and the host node initiates a local fallback closure, executing the shard natively on its own hardware without failing the broader query.
+4. **Atomic Aggregation:** Results stream back asynchronously and are aggregated using a continuous `CompareAndSwap` loop (`atomicMaxPacked`) to find the mathematically optimal spatial distance across the entire cluster.
 
 ---
 

@@ -70,7 +70,7 @@ func (wf *Wavefront) carrySeedFromHead(head *WavefrontHead, overlap int, prompt 
 	queryPhase := wf.PromptToPhase(prompt[:overlap])
 	energy := -overlap * 2
 
-	return &WavefrontHead{
+	seed := &WavefrontHead{
 		phase:        head.phase,
 		alignedPhase: queryPhase,
 		queryPhase:   queryPhase,
@@ -82,7 +82,13 @@ func (wf *Wavefront) carrySeedFromHead(head *WavefrontHead, overlap int, prompt 
 		metaPath:     cloneChordTail(head.metaPath, overlap),
 		visited:      cloneVisitedMap(head.visited),
 		fuzzyErrs:    0,
+		registers:    cloneExecutionRegisters(head.registers),
 	}
+	if seed.registers == nil {
+		seed.registers = newExecutionRegisters()
+	}
+	seed.registers.RecordCheckpoint(seed, checkpointReasonCarry)
+	return seed
 }
 
 func (wf *Wavefront) mergePromptSeeds(warm, cold []*WavefrontHead) []*WavefrontHead {
@@ -188,6 +194,8 @@ func cloneWavefrontHead(head *WavefrontHead) *WavefrontHead {
 		metaPath:     cloneChordSlice(head.metaPath),
 		visited:      cloneVisitedMap(head.visited),
 		fuzzyErrs:    head.fuzzyErrs,
+		frustration:  head.frustration,
+		registers:    cloneExecutionRegisters(head.registers),
 	}
 }
 

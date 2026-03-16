@@ -21,6 +21,15 @@
 58 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 57 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{from typing import List···def has\_close\_\ldots}} & \multicolumn{2}{l}{\texttt{return True··    return False·}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{from typing import List···def separate\_p\ldots}} & \multicolumn{2}{l}{\texttt{current\_string.clear()··    return resul\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{unning\_max.unwrap());·    \}·    return r\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{;·    return (sum(\&numbers),product(\&num\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 60} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
@@ -29,11 +38,11 @@
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{1.85 s} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{18.54 s} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{308.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{2.11 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{22.50 s}} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{2.54 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{30.38 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{506.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.83 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{34.76 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

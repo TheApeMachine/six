@@ -26,6 +26,8 @@ type WavefrontHead struct {
 	metaPath     []data.Chord
 	visited      map[visitMark]bool
 	fuzzyErrs    int
+	frustration  uint8
+	registers    *executionRegisters
 }
 
 /*
@@ -40,22 +42,26 @@ resonance). At collision chains, heads fork. Dead ends (phase
 mismatch or exhausted branches) are pruned.
 */
 type Wavefront struct {
-	idx              *SpatialIndexServer
-	calc             *numeric.Calculus
-	maxHeads         int
-	maxDepth         uint32
-	maxFuzzy         int
-	fe               *goal.FrustrationEngineServer
-	target           numeric.Phase
-	anchorStride     uint32
-	anchorTolerance  uint32
-	carryEnabled     bool
-	carryMinOverlap  int
-	carryMaxEntries  int
-	carrySeedLimit   int
-	carryBiasDivisor int
-	persistencePhase numeric.Phase
-	carryFrames      []promptCarryFrame
+	idx                         *SpatialIndexServer
+	calc                        *numeric.Calculus
+	maxHeads                    int
+	maxDepth                    uint32
+	maxFuzzy                    int
+	fe                          *goal.FrustrationEngineServer
+	target                      numeric.Phase
+	anchorStride                uint32
+	anchorTolerance             uint32
+	carryEnabled                bool
+	carryMinOverlap             int
+	carryMaxEntries             int
+	carrySeedLimit              int
+	carryBiasDivisor            int
+	frustrationForks            int
+	frustrationAttempts         int
+	frustrationCheckpointFanout int
+	frustrationRounds           int
+	persistencePhase            numeric.Phase
+	carryFrames                 []promptCarryFrame
 }
 
 type wavefrontOpts func(*Wavefront)
@@ -65,18 +71,22 @@ NewWavefront creates a wavefront search engine bound to a spatial index.
 */
 func NewWavefront(idx *SpatialIndexServer, opts ...wavefrontOpts) *Wavefront {
 	wf := &Wavefront{
-		idx:              idx,
-		calc:             numeric.NewCalculus(),
-		maxHeads:         64,
-		maxDepth:         4096,
-		maxFuzzy:         2,   // Allow up to 2 edit operations per branch
-		anchorStride:     256, // Periodic master phases for phase-drift correction
-		anchorTolerance:  10,
-		carryEnabled:     true,
-		carryMinOverlap:  3,
-		carryMaxEntries:  4,
-		carrySeedLimit:   4,
-		carryBiasDivisor: 16,
+		idx:                         idx,
+		calc:                        numeric.NewCalculus(),
+		maxHeads:                    64,
+		maxDepth:                    4096,
+		maxFuzzy:                    2,   // Allow up to 2 edit operations per branch
+		anchorStride:                256, // Periodic master phases for phase-drift correction
+		anchorTolerance:             10,
+		carryEnabled:                true,
+		carryMinOverlap:             3,
+		carryMaxEntries:             4,
+		carrySeedLimit:              4,
+		carryBiasDivisor:            16,
+		frustrationForks:            4,
+		frustrationAttempts:         512,
+		frustrationCheckpointFanout: 2,
+		frustrationRounds:           2,
 	}
 
 	for _, opt := range opts {
@@ -337,7 +347,7 @@ func (wf *Wavefront) seedPromptByte(
 					stepEnergy += observable.AND(*danger).ActiveCount()
 				}
 
-				heads = append(heads, &WavefrontHead{
+				seed := &WavefrontHead{
 					phase:        phase,
 					alignedPhase: phase,
 					queryPhase:   queryPhase,
@@ -349,7 +359,10 @@ func (wf *Wavefront) seedPromptByte(
 					metaPath:     []data.Chord{meta},
 					visited:      map[visitMark]bool{visitFor(key, 0): true},
 					fuzzyErrs:    fuzzyErrs,
-				})
+					frustration:  0,
+				}
+				wf.initializeHeadRegisters(seed, checkpointReasonSeed)
+				heads = append(heads, seed)
 			}
 		}
 	}
@@ -368,17 +381,33 @@ func (wf *Wavefront) expandPromptHead(
 	}
 
 	expectedByte := prompt[head.promptIdx]
-	next := wf.advancePromptMatch(head, expectedByte, interest, danger)
+	matched := wf.advancePromptMatch(head, expectedByte, interest, danger)
+	next := append([]*WavefrontHead(nil), matched...)
 
 	if head.fuzzyErrs >= wf.maxFuzzy {
 		return next
+	}
+
+	inserted := wf.advancePromptInsertion(head, expectedByte, interest, danger)
+	if len(matched) == 0 && len(inserted) == 0 {
+		if rewound := wf.backtrackPromptHead(head, expectedByte); rewound != nil {
+			next = append(next, rewound)
+		}
+		for _, candidate := range wf.frustrateHead(head) {
+			candidate.energy += wf.promptEditPenalty(expectedByte)
+			candidate.fuzzyErrs = head.fuzzyErrs + 1
+			candidate.promptIdx = head.promptIdx
+			candidate.alignedPhase = head.alignedPhase
+			candidate.queryPhase = head.queryPhase
+			next = append(next, candidate)
+		}
 	}
 
 	if skipped := wf.skipPromptByte(head, expectedByte); skipped != nil {
 		next = append(next, skipped)
 	}
 
-	next = append(next, wf.advancePromptInsertion(head, expectedByte, interest, danger)...)
+	next = append(next, inserted...)
 
 	return next
 }
@@ -423,7 +452,7 @@ func (wf *Wavefront) advancePromptMatch(
 		for _, stateChord := range chain {
 			observable := data.ObservableValue(nextSymbol, stateChord)
 
-			resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedState)
+			resolvedPhase, transitionPenalty, anchored, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedState)
 			if !ok {
 				continue
 			}
@@ -452,6 +481,7 @@ func (wf *Wavefront) advancePromptMatch(
 			fork.alignedPhase = alignedPhase
 			fork.queryPhase = newQueryPhase
 			fork.promptIdx = head.promptIdx + 1
+			fork.energy += wf.applyTransitionRegisters(head, fork, stateChord, newQueryPhase, anchored)
 			next = append(next, fork)
 		}
 	}
@@ -480,18 +510,20 @@ func (wf *Wavefront) advancePromptInsertion(
 	}
 	nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 	if !hasNext || len(nextKeys) == 0 {
-		bridged := wf.bridgeHead(head)
-		if bridged == nil {
+		challengers := wf.frustrateHead(head)
+		if len(challengers) == 0 {
 			return nil
 		}
 
-		bridged.energy += wf.promptEditPenalty(expectedByte)
-		bridged.fuzzyErrs = fuzzyErrs
-		bridged.promptIdx = head.promptIdx
-		bridged.alignedPhase = head.alignedPhase
-		bridged.queryPhase = head.queryPhase
+		for _, challenger := range challengers {
+			challenger.energy += wf.promptEditPenalty(expectedByte)
+			challenger.fuzzyErrs = fuzzyErrs
+			challenger.promptIdx = head.promptIdx
+			challenger.alignedPhase = head.alignedPhase
+			challenger.queryPhase = head.queryPhase
+		}
 
-		return []*WavefrontHead{bridged}
+		return challengers
 	}
 
 	var next []*WavefrontHead
@@ -514,7 +546,7 @@ func (wf *Wavefront) advancePromptInsertion(
 		for _, stateChord := range chain {
 			observable := data.ObservableValue(nextSymbol, stateChord)
 
-			resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedState)
+			resolvedPhase, transitionPenalty, anchored, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedState)
 			if !ok {
 				continue
 			}
@@ -534,6 +566,7 @@ func (wf *Wavefront) advancePromptInsertion(
 			fork.alignedPhase = head.alignedPhase
 			fork.queryPhase = head.queryPhase
 			fork.promptIdx = head.promptIdx
+			fork.energy += wf.applyTransitionRegisters(head, fork, stateChord, head.queryPhase, anchored)
 			next = append(next, fork)
 		}
 	}
@@ -551,7 +584,7 @@ func (wf *Wavefront) skipPromptByte(head *WavefrontHead, expectedByte byte) *Wav
 		visited[key] = seen
 	}
 
-	return &WavefrontHead{
+	skipped := &WavefrontHead{
 		phase:        head.phase,
 		alignedPhase: head.alignedPhase,
 		queryPhase:   head.queryPhase,
@@ -563,7 +596,14 @@ func (wf *Wavefront) skipPromptByte(head *WavefrontHead, expectedByte byte) *Wav
 		metaPath:     append([]data.Chord(nil), head.metaPath...),
 		visited:      visited,
 		fuzzyErrs:    head.fuzzyErrs + 1,
+		frustration:  head.frustration,
+		registers:    cloneExecutionRegisters(head.registers),
 	}
+	if skipped.registers == nil {
+		skipped.registers = newExecutionRegisters()
+	}
+	skipped.registers.RecordCheckpoint(skipped, checkpointReasonSkip)
+	return skipped
 }
 
 func (wf *Wavefront) promptHeadsAtProgress(heads []*WavefrontHead) ([]*WavefrontHead, int) {
@@ -641,9 +681,10 @@ func (wf *Wavefront) seed(prompt data.Chord) []*WavefrontHead {
 				phase = startPhase
 			}
 			observable := data.ObservableValue(symbol, stateChord)
-			heads = append(heads, &WavefrontHead{
+			seed := &WavefrontHead{
 				phase:        phase,
 				alignedPhase: phase,
+				queryPhase:   phase,
 				pos:          0,
 				segment:      0,
 				energy:       symbolChord.XOR(prompt).ActiveCount(),
@@ -651,7 +692,9 @@ func (wf *Wavefront) seed(prompt data.Chord) []*WavefrontHead {
 				metaPath:     []data.Chord{meta},
 				visited:      map[visitMark]bool{visitFor(key, 0): true},
 				fuzzyErrs:    0,
-			})
+			}
+			wf.initializeHeadRegisters(seed, checkpointReasonSeed)
+			heads = append(heads, seed)
 		}
 	}
 
@@ -699,7 +742,7 @@ func (wf *Wavefront) advance(
 					observable := data.ObservableValue(nextSymbol, stateChord)
 					fuzzyErrs := head.fuzzyErrs
 
-					resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedPhase)
+					resolvedPhase, transitionPenalty, anchored, ok := wf.resolveTransition(head, nextPos, nextSymbol, stateChord, expectedPhase)
 					if !ok {
 						storedPhase, phaseOK := extractStatePhase(stateChord, nextSymbol)
 						if !phaseOK || wf.anchorViolates(nextPos, expectedPhase, stateChord) {
@@ -732,6 +775,7 @@ func (wf *Wavefront) advance(
 					}
 
 					fork := wf.forkHead(head, key, nextPos, nextSegment, resolvedPhase, observable, meta, head.energy+stepEnergy, fuzzyErrs)
+					fork.energy += wf.applyTransitionRegisters(head, fork, stateChord, expectedPhase, anchored)
 					next = append(next, fork)
 					didAdvance = true
 				}
@@ -742,8 +786,12 @@ func (wf *Wavefront) advance(
 			continue
 		}
 
-		if bridged := wf.bridgeHead(head); bridged != nil {
-			next = append(next, bridged)
+		challengers := wf.frustrateHead(head)
+		if len(challengers) > 0 {
+			next = append(next, challengers...)
+			if stalled := wf.stallHead(head); stalled != nil {
+				next = append(next, stalled)
+			}
 			continue
 		}
 
@@ -770,7 +818,16 @@ func (wf *Wavefront) continueHead(
 		}
 		nextKeys, hasNext := wf.idx.positionIndex[nextPos]
 		if !hasNext || len(nextKeys) == 0 {
-			break
+			challengers := wf.frustrateHead(head)
+			if len(challengers) == 0 {
+				break
+			}
+			if stalled := wf.stallHead(head); stalled != nil {
+				challengers = append(challengers, stalled)
+			}
+			challengers = wf.prune(challengers)
+			head = challengers[0]
+			continue
 		}
 
 		var best *WavefrontHead
@@ -793,7 +850,7 @@ func (wf *Wavefront) continueHead(
 			for _, stateChord := range chain {
 				observable := data.ObservableValue(symbol, stateChord)
 
-				resolvedPhase, transitionPenalty, ok := wf.resolveTransition(head, nextPos, symbol, stateChord, expectedState)
+				resolvedPhase, transitionPenalty, anchored, ok := wf.resolveTransition(head, nextPos, symbol, stateChord, expectedState)
 				if !ok {
 					continue
 				}
@@ -809,6 +866,7 @@ func (wf *Wavefront) continueHead(
 				}
 
 				candidate := wf.forkHead(head, key, nextPos, nextSegment, resolvedPhase, observable, meta, head.energy+stepEnergy, head.fuzzyErrs)
+				candidate.energy += wf.applyTransitionRegisters(head, candidate, stateChord, expectedState, anchored)
 				if best == nil || candidate.energy < best.energy || (candidate.energy == best.energy && key < bestKey) {
 					best = candidate
 					bestKey = key
@@ -817,7 +875,16 @@ func (wf *Wavefront) continueHead(
 		}
 
 		if best == nil {
-			break
+			challengers := wf.frustrateHead(head)
+			if len(challengers) == 0 {
+				break
+			}
+			if stalled := wf.stallHead(head); stalled != nil {
+				challengers = append(challengers, stalled)
+			}
+			challengers = wf.prune(challengers)
+			head = challengers[0]
+			continue
 		}
 
 		head = best
@@ -827,37 +894,11 @@ func (wf *Wavefront) continueHead(
 }
 
 func (wf *Wavefront) bridgeHead(head *WavefrontHead) *WavefrontHead {
-	if head == nil || wf.fe == nil || wf.target == 0 {
+	challengers := wf.frustrateHead(head)
+	if len(challengers) == 0 {
 		return nil
 	}
-
-	opcodes, err := wf.fe.Resolve(head.phase, wf.target, 50)
-	if err != nil || len(opcodes) == 0 {
-		return nil
-	}
-
-	newPhase := head.phase
-	for _, op := range opcodes {
-		newPhase = wf.calc.Multiply(newPhase, op.Rotation)
-	}
-
-	synChord := data.MustNewChord()
-	synChord.Set(int(newPhase))
-
-	meta := data.MustNewChord()
-	return &WavefrontHead{
-		phase:        newPhase,
-		alignedPhase: head.alignedPhase,
-		queryPhase:   head.queryPhase,
-		pos:          head.pos + uint32(len(opcodes)),
-		segment:      head.segment,
-		promptIdx:    head.promptIdx,
-		energy:       head.energy,
-		path:         append(append([]data.Chord{}, head.path...), synChord),
-		metaPath:     append(append([]data.Chord{}, head.metaPath...), meta),
-		visited:      cloneVisitedMap(head.visited),
-		fuzzyErrs:    head.fuzzyErrs,
-	}
+	return challengers[0]
 }
 
 func (wf *Wavefront) forkHead(
@@ -889,6 +930,8 @@ func (wf *Wavefront) forkHead(
 		metaPath:     append(append([]data.Chord{}, head.metaPath...), meta),
 		visited:      visited,
 		fuzzyErrs:    fuzzyErrs,
+		frustration:  0,
+		registers:    cloneExecutionRegisters(head.registers),
 	}
 }
 
@@ -1116,6 +1159,29 @@ func WavefrontWithFrustrationEngine(fe *goal.FrustrationEngineServer, target num
 	return func(wf *Wavefront) {
 		wf.fe = fe
 		wf.target = target
+	}
+}
+
+/*
+WavefrontWithFrustrationForks tunes controlled branch forking when frustration spikes.
+maxForks bounds the number of challenger heads emitted per stall, checkpointFanout
+limits how many rewind points are tested, attempts controls macro-path exploration,
+and rounds limits how many repeated stalls an incumbent may survive before being pruned.
+*/
+func WavefrontWithFrustrationForks(maxForks, checkpointFanout, attempts, rounds int) wavefrontOpts {
+	return func(wf *Wavefront) {
+		if maxForks > 0 {
+			wf.frustrationForks = maxForks
+		}
+		if checkpointFanout >= 0 {
+			wf.frustrationCheckpointFanout = checkpointFanout
+		}
+		if attempts > 0 {
+			wf.frustrationAttempts = attempts
+		}
+		if rounds >= 0 {
+			wf.frustrationRounds = rounds
+		}
 	}
 }
 

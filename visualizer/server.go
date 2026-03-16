@@ -64,7 +64,6 @@ func (server *Server) listenUDP() error {
 			server.Broadcast(event)
 		}
 	}
-	return nil
 }
 
 /*

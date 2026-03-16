@@ -1,1 +1,46 @@
-% Results pending — no data available for this table yet.
+\begin{table}[htbp]
+\centering
+\caption{Adaptive Split — standardised result summary (N=10).}
+\label{tab:adaptive_split_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+0 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+9 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+8 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+7 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{The only way to have a friend is to be o\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{e only way to have a friend is to be one\ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 0\% (RIGHT)} \\
+\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Timing}} \\
+\midrule
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{15.0 ms} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{2.28 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{228.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{2.90 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{5.19 s}} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

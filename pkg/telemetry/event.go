@@ -37,4 +37,12 @@ type EventData struct {
 	Theta      float64 `json:"theta,omitempty"`
 	ParentBin  int     `json:"parentBin,omitempty"`
 	ChildCount int     `json:"childCount,omitempty"`
+
+	Stage          string `json:"stage,omitempty"`
+	Msg            string `json:"msg,omitempty"`
+	EdgeCount      int    `json:"edgeCount,omitempty"`
+	PathCount      int    `json:"pathCount,omitempty"`
+	ResultText     string `json:"resultText,omitempty"`
+	WavefrontEnergy int   `json:"wavefrontEnergy,omitempty"`
+	EntryCount     int    `json:"entryCount,omitempty"`
 }

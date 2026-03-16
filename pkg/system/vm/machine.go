@@ -6,6 +6,7 @@ import (
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/grammar"
 	"github.com/theapemachine/six/pkg/logic/semantic"
@@ -18,6 +19,7 @@ import (
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -35,6 +37,7 @@ type Machine struct {
 	broadcastGroup *pool.BroadcastGroup
 	projection     ProjectionMode
 	booter         *Booter
+	sink           *telemetry.Sink
 }
 
 type machineOpts func(*Machine)
@@ -43,7 +46,9 @@ type machineOpts func(*Machine)
 NewMachine creates a Machine.
 */
 func NewMachine(opts ...machineOpts) *Machine {
-	machine := &Machine{}
+	machine := &Machine{
+		sink: telemetry.NewSink(),
+	}
 
 	for _, opt := range opts {
 		opt(machine)
@@ -78,6 +83,9 @@ func NewMachine(opts ...machineOpts) *Machine {
 		BooterWithProjection(machine.projection),
 	)
 
+	// Start distributed worker and discovery
+	kernel.StartDiscovery(machine.ctx, ":7777")
+
 	return machine
 }
 
@@ -99,6 +107,12 @@ the deferred releases.
 */
 func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	ctx := machine.ctx
+
+	machine.sink.Emit(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data:      telemetry.EventData{Stage: "prompt-start", Msg: msg},
+	})
 
 	// 1. Prompter — holdout masking
 	promptFuture, promptRelease := machine.booter.prompter.Generate(
@@ -128,6 +142,16 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 
 	edges := errnie.SafeMust(func() (lsm.GraphEdge_List, error) {
 		return tokResult.Edges()
+	})
+
+	machine.sink.Emit(telemetry.Event{
+		Component: "Tokenizer",
+		Action:    "Chord",
+		Data: telemetry.EventData{
+			Stage:     "tokenize",
+			EdgeCount: edges.Len(),
+			ChunkText: msg,
+		},
 	})
 
 	if edges.Len() == 0 {
@@ -164,6 +188,16 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return lookupResult.MetaPaths()
 	})
 
+	machine.sink.Emit(telemetry.Event{
+		Component: "SpatialIndex",
+		Action:    "Lookup",
+		Data: telemetry.EventData{
+			Stage:     "lookup",
+			PathCount: paths.Len(),
+			Msg:       msg,
+		},
+	})
+
 	// 4. Optional projection overlay (best-effort, errors swallowed)
 	machine.enrich(ctx, msg, paths)
 
@@ -184,6 +218,15 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return graphResult.Result()
 	})
 
+	machine.sink.Emit(telemetry.Event{
+		Component: "Cortex",
+		Action:    "Evaluate",
+		Data: telemetry.EventData{
+			Stage:     "fold",
+			PathCount: resultPaths.Len(),
+		},
+	})
+
 	// 6. SpatialIndex.Decode — chords back to bytes
 	decodeFuture, decodeRelease := machine.booter.spatialIndex.Decode(ctx, func(
 		p lsm.SpatialIndex_decode_Params,
@@ -201,6 +244,12 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	})
 
 	if seqList.Len() == 0 {
+		machine.sink.Emit(telemetry.Event{
+			Component: "Machine",
+			Action:    "Pipeline",
+			Data:      telemetry.EventData{Stage: "prompt-empty", Msg: msg},
+		})
+
 		return nil, nil
 	}
 
@@ -212,6 +261,16 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	// will free that segment when Prompt returns, so we must own the bytes.
 	out := make([]byte, len(result))
 	copy(out, result)
+
+	machine.sink.Emit(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:      "prompt-complete",
+			Msg:        msg,
+			ResultText: string(out),
+		},
+	})
 
 	return out, nil
 }
@@ -372,6 +431,16 @@ func (machine *Machine) Ingest(msg string) error {
 		return tokResult.Edges()
 	})
 
+	machine.sink.Emit(telemetry.Event{
+		Component: "Tokenizer",
+		Action:    "Chord",
+		Data: telemetry.EventData{
+			Stage:     "ingest-tokenize",
+			EdgeCount: edges.Len(),
+			ChunkText: msg,
+		},
+	})
+
 	for i := range edges.Len() {
 		edge := edges.At(i)
 
@@ -386,6 +455,16 @@ func (machine *Machine) Ingest(msg string) error {
 
 	errnie.SafeMustVoid(func() error {
 		return machine.booter.spatialIndex.WaitStreaming()
+	})
+
+	machine.sink.Emit(telemetry.Event{
+		Component: "LSM",
+		Action:    "Insert",
+		Data: telemetry.EventData{
+			Stage:     "ingest-insert",
+			Edges:     edges.Len(),
+			ChunkText: msg,
+		},
 	})
 
 	machine.ingestSemantic(ctx, msg)

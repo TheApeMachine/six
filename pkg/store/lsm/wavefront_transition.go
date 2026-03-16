@@ -39,20 +39,22 @@ func (wf *Wavefront) resolveTransition(
 	nextSymbol byte,
 	stateChord data.Chord,
 	expected numeric.Phase,
-) (numeric.Phase, int, bool) {
+) (numeric.Phase, int, bool, bool) {
 	storedPhase, ok := extractStatePhase(stateChord, nextSymbol)
 	if !ok {
-		return 0, 0, false
+		return 0, 0, false, false
 	}
 
 	resolved := expected
 	penalty := 0
+	anchored := false
 
 	if snapped, anchorPenalty, ok := wf.anchorCorrect(nextPos, expected, stateChord); ok {
 		resolved = snapped
 		penalty += anchorPenalty
+		anchored = true
 	} else if wf.anchorViolates(nextPos, expected, stateChord) {
-		return 0, 0, false
+		return 0, 0, false, false
 	}
 
 	if head != nil && len(head.path) > 0 {
@@ -61,19 +63,19 @@ func (wf *Wavefront) resolveTransition(
 
 		accepted, guardPenalty, ok := operatorPhaseAcceptance(prev, resolved, storedPhase)
 		if !ok {
-			return 0, 0, false
+			return 0, 0, anchored, false
 		}
 
 		resolved = accepted
 		penalty += guardPenalty
-		return resolved, penalty, true
+		return resolved, penalty, anchored, true
 	}
 
 	if storedPhase != resolved {
-		return 0, 0, false
+		return 0, 0, anchored, false
 	}
 
-	return resolved, penalty, true
+	return resolved, penalty, anchored, true
 }
 
 func visitFor(key uint64, segment uint32) visitMark {

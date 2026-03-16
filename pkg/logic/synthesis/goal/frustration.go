@@ -3,8 +3,9 @@ package goal
 import (
 	context "context"
 	"fmt"
-	"math/rand"
 	"net"
+	"sort"
+	"strings"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
@@ -143,6 +144,180 @@ func WithSharedIndex(index *macro.MacroIndexServer) feOpts {
 }
 
 /*
+ResolveCandidates deterministically enumerates up to maxResults hardened tool paths
+that bridge currentPhase to targetPhase. Results are ordered by path length first,
+then by accumulated support in the macro library.
+*/
+func (fe *FrustrationEngineServer) ResolveCandidates(
+	currentPhase numeric.Phase,
+	targetPhase numeric.Phase,
+	maxAttempts int,
+	maxResults int,
+) ([][]*macro.MacroOpcode, error) {
+	return fe.resolveCandidatesToTarget(
+		currentPhase,
+		targetPhase,
+		maxAttempts,
+		maxResults,
+		fe.candidateDepth(maxAttempts),
+	)
+}
+
+func (fe *FrustrationEngineServer) candidateDepth(maxAttempts int) int {
+	switch {
+	case maxAttempts >= 10000:
+		return 5
+	case maxAttempts >= 1000:
+		return 4
+	case maxAttempts >= 64:
+		return 3
+	default:
+		return 2
+	}
+}
+
+func (fe *FrustrationEngineServer) availableHardenedSorted() []*macro.MacroOpcode {
+	tools := fe.index.AvailableHardened()
+	sort.Slice(tools, func(i, j int) bool {
+		if tools[i].UseCount != tools[j].UseCount {
+			return tools[i].UseCount > tools[j].UseCount
+		}
+		return tools[i].Rotation < tools[j].Rotation
+	})
+	return tools
+}
+
+func cloneMacroPath(path []*macro.MacroOpcode) []*macro.MacroOpcode {
+	if len(path) == 0 {
+		return nil
+	}
+	return append([]*macro.MacroOpcode(nil), path...)
+}
+
+func macroPathSignature(path []*macro.MacroOpcode) string {
+	var builder strings.Builder
+	for i, opcode := range path {
+		if i > 0 {
+			builder.WriteByte('-')
+		}
+		builder.WriteString(fmt.Sprintf("%d", opcode.Rotation))
+	}
+	return builder.String()
+}
+
+func macroPathSupport(path []*macro.MacroOpcode) uint64 {
+	var support uint64
+	for _, opcode := range path {
+		support += opcode.UseCount
+	}
+	return support
+}
+
+func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
+	currentPhase numeric.Phase,
+	targetPhase numeric.Phase,
+	maxAttempts int,
+	maxResults int,
+	maxDepth int,
+) ([][]*macro.MacroOpcode, error) {
+	if currentPhase == targetPhase {
+		return nil, nil
+	}
+	if currentPhase == 0 || targetPhase == 0 {
+		return nil, fmt.Errorf("phase cannot be zero")
+	}
+	if maxResults <= 0 {
+		maxResults = 1
+	}
+	if maxDepth <= 0 {
+		maxDepth = 1
+	}
+	if maxAttempts <= 0 {
+		maxAttempts = 64
+	}
+
+	results := make([][]*macro.MacroOpcode, 0, maxResults)
+	seen := make(map[string]bool, maxResults)
+	addCandidate := func(path []*macro.MacroOpcode) {
+		if len(path) == 0 {
+			return
+		}
+		signature := macroPathSignature(path)
+		if seen[signature] {
+			return
+		}
+		seen[signature] = true
+		results = append(results, cloneMacroPath(path))
+	}
+
+	cl := bvp.NewCantileverServer(
+		bvp.CantileverWithContext(fe.ctx),
+		bvp.WithMacroIndex(fe.index),
+	)
+	if _, singleTool, err := cl.BridgePhases(currentPhase, targetPhase); err == nil && singleTool != nil && singleTool.Hardened {
+		addCandidate([]*macro.MacroOpcode{singleTool})
+	}
+
+	tools := fe.availableHardenedSorted()
+	if len(tools) == 0 {
+		if len(results) == 0 {
+			return nil, fmt.Errorf("no hardened tools available in library to relieve frustration gap")
+		}
+		return results, nil
+	}
+
+	budget := maxAttempts
+	var walk func(state numeric.Phase, depth int, path []*macro.MacroOpcode)
+	walk = func(state numeric.Phase, depth int, path []*macro.MacroOpcode) {
+		if budget <= 0 || len(results) >= maxResults || depth >= maxDepth {
+			return
+		}
+
+		for _, tool := range tools {
+			if budget <= 0 || len(results) >= maxResults {
+				return
+			}
+			budget--
+
+			nextState := fe.calc.Multiply(state, tool.Rotation)
+			nextPath := append(cloneMacroPath(path), tool)
+			if nextState == targetPhase {
+				addCandidate(nextPath)
+				continue
+			}
+			if depth+1 < maxDepth {
+				walk(nextState, depth+1, nextPath)
+			}
+		}
+	}
+	walk(currentPhase, 0, nil)
+
+	sort.Slice(results, func(i, j int) bool {
+		if len(results[i]) != len(results[j]) {
+			return len(results[i]) < len(results[j])
+		}
+
+		supportI := macroPathSupport(results[i])
+		supportJ := macroPathSupport(results[j])
+		if supportI != supportJ {
+			return supportI > supportJ
+		}
+
+		return macroPathSignature(results[i]) < macroPathSignature(results[j])
+	})
+
+	if len(results) == 0 {
+		return nil, fmt.Errorf("frustration engine failed to achieve phase-lock after %d attempts", maxAttempts)
+	}
+
+	if len(results) > maxResults {
+		results = results[:maxResults]
+	}
+
+	return results, nil
+}
+
+/*
 Resolve evaluates the frustration (Phase Delta) between reality and belief.
 If they don't match, it searches the MacroIndex for a sequential combination of tools
 that zeroes the frustration. Returns the tool sequence to jump the span.
@@ -152,68 +327,19 @@ func (fe *FrustrationEngineServer) Resolve(
 	targetPhase numeric.Phase,
 	maxAttempts int,
 ) ([]*macro.MacroOpcode, error) {
-	if currentPhase == targetPhase {
-		// Zero frustration. Already locked.
+	candidates, err := fe.ResolveCandidates(currentPhase, targetPhase, maxAttempts, 1)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
 		return nil, nil
 	}
 
-	if currentPhase == 0 || targetPhase == 0 {
-		return nil, fmt.Errorf("phase cannot be zero")
+	if shift, err := macro.ComputeExpectedRotation(currentPhase, targetPhase); err == nil {
+		fe.index.RecordOpcode(shift)
 	}
 
-	// 1. Direct Resolution check (Cantilever)
-	// If a single tool can bridge this gap exactly, use it.
-	cl := bvp.NewCantileverServer(
-		bvp.CantileverWithContext(fe.ctx),
-		bvp.WithMacroIndex(fe.index),
-	)
-	rot, singleTool, err := cl.BridgePhases(currentPhase, targetPhase)
-
-	if err == nil && singleTool != nil && singleTool.Hardened {
-		return []*macro.MacroOpcode{singleTool}, nil
-	}
-
-	// Calculate the delta (frustration scalar for sorting/heuristics if we wanted)
-	// Here, we just care if tension != 0 (i.e., state != target)
-
-	// Fast path: get all hardened tools available to build a bridge
-	tools := fe.index.AvailableHardened()
-	if len(tools) == 0 {
-		return nil, fmt.Errorf("no hardened tools available in library to relieve frustration gap")
-	}
-
-	delta := fe.calc.Subtract(targetPhase, currentPhase)
-	// Deterministic PRNG seeded directly from the structural boundary problem
-	prng := rand.New(rand.NewSource(int64(delta)))
-
-	// 2. Sequential "Vibration" (Random Walk Composition)
-	// Try random combination paths of tools until we hit target resonance
-	for range maxAttempts {
-		state := currentPhase
-		var path []*macro.MacroOpcode
-
-		// Try to bridge using a sequence of 1 to 3 tools
-		numTools := prng.Intn(3) + 1
-		for range numTools {
-			// Pick a tool
-			idx := prng.Intn(len(tools))
-			tool := tools[idx]
-
-			// Apply tool -- applying the logic circuit rotation (the scalar phase shift)
-			state = fe.calc.Multiply(state, tool.Rotation)
-			path = append(path, tool)
-
-			if state == targetPhase {
-				// Tension Zeroed! We discovered a composed logic circuit.
-				// Package this sequence into the single needed rotation and record it.
-				fe.index.RecordOpcode(rot)
-				return path, nil
-			}
-		}
-	}
-
-	// Tension remains.
-	return nil, fmt.Errorf("frustration engine failed to achieve phase-lock after %d attempts", maxAttempts)
+	return candidates[0], nil
 }
 
 /*
@@ -228,7 +354,6 @@ func (fe *FrustrationEngineServer) ResolveDual(
 	targetB numeric.Phase,
 	maxAttempts int,
 ) ([]*macro.MacroOpcode, error) {
-
 	if currentPhase == targetA || currentPhase == targetB {
 		return nil, nil // Already intersecting a goal
 	}
@@ -246,36 +371,17 @@ func (fe *FrustrationEngineServer) ResolveDual(
 		hybridTarget = fe.calc.Add(fe.calc.Multiply(targetA, targetB), 1)
 	}
 
-	tools := fe.index.AvailableHardened()
-	if len(tools) == 0 {
-		return nil, fmt.Errorf("no hardened tools available for dual-goal torsion resolution")
+	candidates, err := fe.resolveCandidatesToTarget(currentPhase, hybridTarget, maxAttempts, 1, 4)
+	if err != nil {
+		return nil, fmt.Errorf("dual-goal frustration failed to converge on a hybrid state after %d attempts", maxAttempts)
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("dual-goal frustration failed to converge on a hybrid state after %d attempts", maxAttempts)
 	}
 
-	delta := fe.calc.Subtract(hybridTarget, currentPhase)
-	prng := rand.New(rand.NewSource(int64(delta))) // Deterministic seed based on Torsion
-
-	// 2. Warp-Partitioned Search (Vibration towards the Hybrid)
-	for range maxAttempts {
-		state := currentPhase
-		var path []*macro.MacroOpcode
-
-		numTools := prng.Intn(4) + 1 // Allow slightly deeper composition for hybrids
-		for range numTools {
-			idx := prng.Intn(len(tools))
-			tool := tools[idx]
-
-			state = fe.calc.Multiply(state, tool.Rotation)
-			path = append(path, tool)
-
-			if state == hybridTarget {
-				// We found a Cross-Domain Bridge!
-				// We package the entire shift from current -> hybridTarget as a new MacroOpcode.
-				// This effectively compresses the dual-goal tension into a single native logic gate.
-				fe.index.RecordOpcode(hybridTarget)
-				return path, nil
-			}
-		}
+	if shift, err := macro.ComputeExpectedRotation(currentPhase, hybridTarget); err == nil {
+		fe.index.RecordOpcode(shift)
 	}
 
-	return nil, fmt.Errorf("dual-goal frustration failed to converge on a hybrid state after %d attempts", maxAttempts)
+	return candidates[0], nil
 }

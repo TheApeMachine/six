@@ -1,7 +1,1623 @@
 {
-  "artifacts": [],
+  "artifacts": [
+    {
+      "caption": "BestFill efficiency score vs dictionary size. 100 benchmark points.",
+      "file_name": "bestfill_scaling_chart",
+      "label": "fig:bestfill_scaling",
+      "title": "BestFill Scaling",
+      "type": "multipanel"
+    },
+    {
+      "caption": "",
+      "file_name": "bestfill_scaling_section.tex",
+      "label": "",
+      "title": "",
+      "type": "prose"
+    }
+  ],
   "name": "BestFill Scaling",
-  "results": [],
-  "score": 0,
+  "results": [
+    {
+      "Idx": 0,
+      "Name": "BestFill Scaling",
+      "Prefix": "JTZQazdIXkk3N2AsZjJ3PDsrUjgsVilhaj9yLndvT09IazMtTHc2WTRyLmZ7Xi5KOCR4XlYrRTAySWcsTDwrMHBSZzxYSCtKcHxSVnFWN2xWS30uKy4vU0t4LDx7VCNY",
+      "Holdout": "PldiRXNCaWtQRlltPjtBe1suJFAiMl0tI0pNblBdels=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 1,
+      "Name": "BestFill Scaling",
+      "Prefix": "UHlBViROKUB0XkFRV2tlc1hLflo2Ii5YX0pTU0A0bmlaOix1dlM8YH5XIygtR3dSZTd2ZlZuNS8oeyQtbFc2LEM7bWNme3tYQSomP3hNbHokKixLWWc6OyFFa1Y7W21z",
+      "Holdout": "Q3VfY2ZvUC8nTixvLDxcKDRALnd0OXhkM1AhWVxBRnQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 2,
+      "Name": "BestFill Scaling",
+      "Prefix": "UCBrW3MiNDtcfnJUSWVqZHNISC8+IVBObW1TaCtJImV9d3EzLyFtLjp8KTBeY2BeTVgpIGpqTXhYa2pCLUZOVVJ6YVBheGooPzcpTyIgIEE+JSU9Ozs+SWJzWWwzRnhS",
+      "Holdout": "eWU9WCdzO0JBJW9lbyd5SD5hSTNLJURSOyhBbG1qcTU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 3,
+      "Name": "BestFill Scaling",
+      "Prefix": "NXtjZHFuY2YzfmV8OkF+IysjYF4mdCY3O35KK1FSJi98bUVYYDd6MGw/IDlSS0s3TD0ld01oWiY0ZSJcYkhfPWklNWdycHk6OCZ6dSEvRVJoPT0gZXpRWVJGdyNScjNC",
+      "Holdout": "U14kJ2VFS24kLCJ1WiMuLidoWWJkLjQ3LktkMlpwU0o=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 4,
+      "Name": "BestFill Scaling",
+      "Prefix": "c0NCT0NrN3o8byFFYi17TTM4RHJvV1I/NmhIWXsrbzo9VGE1SDdRYnNrYHY5I0JiV3Rza2kqeUJTP0lyUGBSLyEnLkNRYTxmTytHKyhzfmdjU08wJTg/UmpcLmIhIzoi",
+      "Holdout": "WGtwPGJ6ZFVeRCA+IChiNF1JekosMVIjYTEzaFY8U0A=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 5,
+      "Name": "BestFill Scaling",
+      "Prefix": "MlFscyleW1VGSW89SHkyKzksWzhvNCByMXspLzZGTnBVcjw2JTE/djRrUz1haT1aV3p4TWRtaEcmeVl4bVUkZmswX3k4N1QoSWtTQXQiRTtIalM4ek57fGRickhQe2t2",
+      "Holdout": "SitwQk9rO0Y5cHRMbDVna2pPNzsqcHssOlhcQypGbWk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 6,
+      "Name": "BestFill Scaling",
+      "Prefix": "RjNbTTQhbDNsMVNxVk9ANmFnKHk+Vng9c0F8bnx5OT1pIXgpbmgtdEc9Jj8kaSdzQkkhOXljU08lYEB7UCV0Y1g0VVpcNzZ+bl8wVi0raGdNL3sgWUhETTVRYiFKTGhQ",
+      "Holdout": "ZE8tQDI6VHtOXS9XRWxoLkcheiw6NEZTQTAqK2h+bWE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 7,
+      "Name": "BestFill Scaling",
+      "Prefix": "Kk1dKkt5P20gaEJvTDd6Ing7T1heVlgyPy5seWF3UGUjeFw6L1c6PCs7SCwwM2hsclguWFJDWCJna1hjY1o8OEByUSE/IDAqTHZdRiFoe0BJM0MofFlnbzFqVj8pZzdY",
+      "Holdout": "NSpPRSRfNS14S18ualAgc3YraXc3VSFXQ2N7R3tzQWQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 8,
+      "Name": "BestFill Scaling",
+      "Prefix": "Vi0pd1AmfWlIOm8vblJaOiVMKSo2biV9dm5qMzszaic8dFB3ZzhwMUNsNX16Q0wjWiUiXCU+Q184PD5YMDUtWlBETmNbRlNYWChTenteM3xNMnQ7ZXBPREpTcWdEYFVZ",
+      "Holdout": "KXBfPWxuQF09M3NFL0d6eGUqP3l1YlZqYXM0K2M1JCY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 9,
+      "Name": "BestFill Scaling",
+      "Prefix": "YCozQ0Rpdjs9IidBLChhQ1N9OUQ0QjlyK0ZccFAgRHkmJVsiO3g6Jj1nOXJtYF80NlApX1NOJyV1OXpKLEc2PlhgcW5RNXk4Q2gqWGxEbHdiOD1dL3IgbzxgXDRjVCcu",
+      "Holdout": "cTQlSWdZLS46fSZ+OTlvTWVtQj1XIk9HJiJbc1E5PlU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 10,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZDRCbypUSjVDc35eLjpLdl1NW21jOUolYCAxW2JwOkdHZEM+P2t3S2ZKLV0zXkw0b3ArS0ZkM1NzNDZjd2M3dCtMSE9FPmJZUS1oK2p3IXQrZ19YUlhPai42SV5CakZX",
+      "Holdout": "LSZdKjlTIjxTe0NGOGF0NUIxZ310Yik1ezcicTxGZGQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 11,
+      "Name": "BestFill Scaling",
+      "Prefix": "d18xL2MgV30maDQ5cmcnRE1hQC4ldzZ5eF16VEZ+bDtUJ1h1XEtCKFA4eml7OmRxKSMlM0dfRkxXfGVkP1QvQWFEbjl5JUdWYyJuPTRxVl49UG0tI3dpO0hLcW9YWCN2",
+      "Holdout": "RT1DZVRPYCFYW00pSVtUIEZCbGMgPmtNOSV4ZHZnfnI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 12,
+      "Name": "BestFill Scaling",
+      "Prefix": "Q0AoTnFxPlpfTytpJzcjMS9yanIwY1MyfnxYYDpIT2hpL0x6anFEdng/QzJCXzFhWGdtPXUnWSY0PWk2RUo0Yj48MzAoXHIpflFCfTF3WCwhckRdJkZ2JDtOVGV8LFlV",
+      "Holdout": "IzFdLVtRP3UjfkU2L3wiSyQ0MXR5PE54KDstW1kjaTE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 13,
+      "Name": "BestFill Scaling",
+      "Prefix": "KnAmUDRmdEp+MTN9MmZGPWp2PDNKJGBwOEQ+RE98QlRoe0N8UVhNbyNKVnc0Wns3S0pCP2QpbGpZQyE/SE90bl9lPm8gaD5kYEtDcik6SnVLIj5he05tKkp4K09POXg0",
+      "Holdout": "ZVB0L3N2MCQ7TGx7eDt4VHVcYlUpbkBpSDNMfSdqVlc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 14,
+      "Name": "BestFill Scaling",
+      "Prefix": "JiBBJV07RCcyUHdnQ1N5NkRKIFh9dnQxcVh2NS4+VlxyfWE8KCd4dHgnU0MiJ0EvIihpW2prYl1VVVAoZElqIXVdMlN2JDNzJTg9IU8ydHdQXlZqL1gieClYRXA3T0s9",
+      "Holdout": "QUBfSy9NWTh3OitgfEkkNCRce0JEJ1N9cjVaJihGQko=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 15,
+      "Name": "BestFill Scaling",
+      "Prefix": "LkRSTV5uaDZBNXlAOyc3Vn42OU01RDppXjNxLGJKW1FmMEdiUS5dMHohUCk5TXJKPUVSdVIhRFwmSSZ4YlovJz4qVVlvZ0U+Z3xmOiI9ZTV8R2EzUip6O3lgO185anxD",
+      "Holdout": "UlkufmJRTXNvXDB9OFddQ3MmXnooK3AnYjciNHtjU04=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 16,
+      "Name": "BestFill Scaling",
+      "Prefix": "W0xTP31Jc3AiQ3lGOWlcXForNGhiIWh4JXg1NzlScltXMGN3XkNKWDNhdSsnYnxzLl4sYjVuQ0FAZ3cteyZ7ZE1DbT8pTGk5OiNcdmA2SjJDY0IycV9OTXV+fDJpSyY5",
+      "Holdout": "NVUuSVlKMV5FMT9NKTteVy4sM28wY11YMk54QipNM20=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 17,
+      "Name": "BestFill Scaling",
+      "Prefix": "RFBUZzFme006N0h8ZTcpejN8YkZVOHV5VChJPWdNaVZzM0M/KCVONzh+MSQkOFZcRSlrSilFL3lbTWRNNnAgc1l4UyxFbnNIW0lgNXNlJDE7T3tMdTxhTll0WUE+aEtt",
+      "Holdout": "JiR0dnZIVXdJLV5NRl8mZTtvbVkjREJiNS59XHtYLUY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 18,
+      "Name": "BestFill Scaling",
+      "Prefix": "PTchMVBWenBRNi8za3V7fHZ7aTlJazVNMiRfQnMrWDpAdXcyTn1iRkJFaDxPY0Y/WnNyXUdJSnJPPi5GQXx2YEQhbn1ZRnNbaytjbUVyWHFBMHh0K0kzMExjImRiNW5N",
+      "Holdout": "M2JmfEs2ZGF+bmNBY2NfSGM2Lyk+TlskODlGTmhcdFE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 19,
+      "Name": "BestFill Scaling",
+      "Prefix": "Vm1GPHcpWFZcY3J6R0tdNXIsLT9Qc0VOIWc8K0dONSBYQk1WR2YpeDNvKnlNXUI4NUp7Ungne1RsXm9JUFBWdHolVXp3Y14lMWYvYXM3JiJQVTl1MHhsZl00UGVcMy4z",
+      "Holdout": "Vmt5VztbUyBhUTJxSVI9SyFATyg4Ly8xKzw5PnUgL20=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 20,
+      "Name": "BestFill Scaling",
+      "Prefix": "dl9PP2RhUTtkYjU1KGwgSGlsKlAvcjB+O1gwb257fDonTFVZfWsneUt4O19dVkBTYiMqSzlHNlwoXSMiJUwneHVpc1Uwcj07TFw9RHt7QWpmIXhzKUhNU3JtPFxSdkE0",
+      "Holdout": "PnJNdD4gODVQRig4TjxxR1VFSEl7MTBmVzIjfHRWPzc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 21,
+      "Name": "BestFill Scaling",
+      "Prefix": "WEUvbUxoJW9iL0FOMWZNIC1fUFgsOEh2O1Rua35DLShVYUszbDstX05dX31CbmBWYHdVQDR2NHx3MX5zQ1R3WG1AcVN8J2ZBZSkteWEvKGF+L3JiW1U6blQqKjksJyZH",
+      "Holdout": "UiY7SlwpRCh7JC8zfGUuPzA2M1BsLlMlKStrej8xJzE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 22,
+      "Name": "BestFill Scaling",
+      "Prefix": "W0FgVy5mRkgxPT07V0ldUXZfKllldFguaEYxSyYoYVpBPXlQQCQ4aUl7bSFTcy05ZyF1SHNcOGFrIjtWRSlBRlVXdiJxbj1gamQsRl8rMz9lZEF2d09WT0dLOjd8KT9b",
+      "Holdout": "ImUvSkciN3xqI34mU05zNS0oKXNgUUtHNzFme0MkVzM=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 23,
+      "Name": "BestFill Scaling",
+      "Prefix": "Pk5UdEdfWE8sQEtSXjhzeitMI1Y4dFxRLG5TY0wpRG8he14oe310NH58QzRcVzVMNkxXVl0gTFlBUUBCMzE5cTpIcn1TdVUxa1hPYFcgeVlvfUowIlYoe1stV3JUV15e",
+      "Holdout": "UEJJamgyKXdSRCZRYmc6eFNdRms/flhFcDgvU2EzY2Q=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 24,
+      "Name": "BestFill Scaling",
+      "Prefix": "YltqWjRzJ2ZyMyI6WWJJPFhXcVZfKzgwJCFjbmgrP1hXTVggOkF5anV4JiNjKisvLVo0J0YuaHV+dmFHNGEkYCZhVTEiRFx5MX50YSpiUkJkJWAvMSEhSHohISJHbHgn",
+      "Holdout": "IDMhJ1ZKazgzXGFCIXpOKkgqNj86WCJTVXdybn5QZXg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 25,
+      "Name": "BestFill Scaling",
+      "Prefix": "YmBfKGBlSHM9Um1BU2RUNzNIem48XTxdLi1AUCBmL2pifCAzSlIwJy9JM09fanAscXpwZU5JUWcgOVpyLH1sUUBkQXJTcjJ6fUlna18iVW80Ym5uLWFdKkNvVUI1dDhQ",
+      "Holdout": "fntpc3YlR2sofVllVyJUaz8helIkMiZFTUEtJnRwb3A=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 26,
+      "Name": "BestFill Scaling",
+      "Prefix": "WHxwMCVNXCgkUDNOQ0BqRVo1e3xOSXF7dG4lRWtOPDVdRytsXkNKfjoueEJ9cG08ZEcwNFJVMEt1fDIwK2ZPWjVJJm0xajZkdi8nXCs/IjJ0NjBDPVVHZiJ9eTJyMXAv",
+      "Holdout": "YUVabHNURy9iOD1YTCI/bWYnaWd4LVhVX0EmZUdfVXA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 27,
+      "Name": "BestFill Scaling",
+      "Prefix": "RD9XV0BSQkhNQHhHXypnTXlVKlFldUg0dVYmMUtxKSpsKkdsWlk8KEI3U31YMCR1TCRzd2N9IFVTSV0tVXxGcHEiQjVoZkQ8aCA/LkJ8NHpWR1ggQn46RixiRiltNTNz",
+      "Holdout": "P2hYNk5lMmdLa0MxWilwQXkgUH5oUFdTWlteI2t7clY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 28,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZXsnd1B2QyZCbVNpXSg6Jz0tUEstTiR9VkFwRlxZLyJqTTRQcyVXW1VFUF1GZSYpMyhYK0NnPyMqbiJNdlxNO14sM3lEWU1gb3hOdXdCXSA1WDJDbWkxJHwkYGlsbyJk",
+      "Holdout": "bV9tRDVCOjp2JThRdDxLSmZTeDd0LGJMMUMoJmFoWHM=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 29,
+      "Name": "BestFill Scaling",
+      "Prefix": "Oz8nJSdwd0xOYkVpbFNvYElWR35lJkY+PS1oKidjZ20tTGQpdUBsVjNnOC50ejJtLUs2VWtcIDQqRDl4alI3JClOLEhCTDYzMzJoXygkJ2x7JT5cbWc6eTJZaz9cJnVz",
+      "Holdout": "WDRQN2Zqclh2dyV2akNMRjo3V3Jxa0FAdGk8QHdqcFQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 30,
+      "Name": "BestFill Scaling",
+      "Prefix": "Pnkwd095V2Z5ais8al0oZE5TYVY+IF9EP3peXGVHVlhoXyElPD1JIEU+LVFGM0pDZVk5QTJRMHdLKGhlUls2JSV6eUwxZ1BEfWBSWU1MRmo6Wl41KUp+dyN6IEFjaDE2",
+      "Holdout": "eidoNW1IcTJSMVIkJ1UyXHZpWj1qKDwtJ3tLISAuTyc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 31,
+      "Name": "BestFill Scaling",
+      "Prefix": "cm89VVo8KXlbKGYkdEwiPjtJUVdXODxqSWFyTU05KyMnTERYanhqPkpFaXRHJnNdITpwIls+JG9VLnksQGMqdDFnOCsoM2hjTUR5Y3snPXspbzMiVXgidVI5dzFAWnFM",
+      "Holdout": "LFRcXy0uLmQ6KH1IRkRQbUdfZTMrLH5mL30qTWlzSzo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 32,
+      "Name": "BestFill Scaling",
+      "Prefix": "UGIiM0orcGRXRmRyUXhdOlYwcnF1TEwrLVV3YDouTHdkbmlHPWI6SERcJn5adz8rID9cQyRWY1Nja0R7Y1olZi07bWglRDZZZGs6QGtBeTAiVndjfGg4KCFdYzxWQSEp",
+      "Holdout": "Y0FPLSxNTj9jU2VaR35sTkNLUHJkb0ZGU0RVLV42V3o=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 33,
+      "Name": "BestFill Scaling",
+      "Prefix": "Jyw4TkBDY3FSV1duZiY4Yy1Ie2E6dkAzaV1VW14/Z2FKT0F1MiJ1KmR4VGpvKDpBWzdtMEB4emU/KyxXYUlqYTtsXydEclV6dGpcbEZoLnFGKH4rNWtceiVSSlhKVHpZ",
+      "Holdout": "OS10O3JORU1ZdyBhYS47OyNRVEBlVExMcSEwJSovMF4=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 34,
+      "Name": "BestFill Scaling",
+      "Prefix": "OyxoXFN4YzNPRSx7SXlfWGJkNWpsSjx7Jm4/UEZmemNlYlUyPi1gXztyMyFlQnpIfCNJVy1VXUx+LXhiJU5peEBNU0QudCxbTGVfMD8xIUB+ZCtcUkdiLEB+Ki8oWnI1",
+      "Holdout": "KDNPRVpSTDNzKXpPeV8jUF1Gd24uaG5qN0ItTCB6VFU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 35,
+      "Name": "BestFill Scaling",
+      "Prefix": "LEJQbDAvcGthXnN7QCZaOlE+S0t9TTwtdjg6KEd6KTtbJ3ErSmc8P3Q6OCQoIisjOidhSD4vdnklYjg1UCE/MklCTFtYLylOc3EtNC1wJF5MdStILGAgXHQ+aVp7dW99",
+      "Holdout": "X2RdV0c+Zjgja1M8Jk1vNyFqZU1QMDpuLElFS3ptMUI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 36,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZUUrPDpOcnduXHJXK31sMnksLkJ3V2U3P0pPSV9Ubm1Bemw+fVYsZj19TztXZGIkU3lhLChBITF2MCRRW1VrJX1aX1ZiPDt1VXxWQChVPDFYI2FfUStbOVlTNEciakhP",
+      "Holdout": "IH11VWRDKTpPJnJZKWN0SUV3JUNxKFtXZmhqMlpHVGg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 37,
+      "Name": "BestFill Scaling",
+      "Prefix": "PEdrM1JJLjBIPkFoRD0nUnFoYlJBdF9RVSdaV1ZDbGRTPydNbTUkIXUuWSRGPyksblFqbnBjcDp8VVZvQiosa0RqNW11aUxaSms6XzE7TWBddzYxSHxWWm9Je2tIYWko",
+      "Holdout": "a2RFSGxtT1AySipQXjJWfERcRnRLZ09OdlZEM1xuLzo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 38,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZENeeExHN3xlYTUzVDIvbVZTVkgzMzUyJHsxVH5zYCUgVzFQNk5QWH58N3Uza0Q1dj4jIypaTjE6aFZ5cFA8fDJGMlVXTW9XKXdxYl90cW9WT3hDLDBmLnZlI2BPNjVX",
+      "Holdout": "PT9dNVU2PCteY09eQWFBKzU1aGIhIj0tKm5TNkAkR1c=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 39,
+      "Name": "BestFill Scaling",
+      "Prefix": "KXgrRFFQaHZKemlOVFZtUmhme3llLnUuPj8iRjcuM0QgRituRE5RKTgzOHdpVWNoR155VnFQPkJ8fTtfXjpVLjw8dkY/PnRhRHQiTkxGV2kzOlpDVGJVZHpYNTtbZW1W",
+      "Holdout": "ICxlRD42Zjg6Y0M6biB8O0Q0LkBzJnpEaUlST0loSjA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 40,
+      "Name": "BestFill Scaling",
+      "Prefix": "JTZlbl1lJERoLFdNNWRxRz9DaHwlRD49X312YzVxRVYtJC0tWD1hJiIuLjxDIFMteykgOi83KUZ2aVgxaSBnJXZRdUs+bnBRemomXUhdaDpkeHBjYm46fCJMQ21OcDRV",
+      "Holdout": "NV9pM3J7JlVqaTosXzpFLGFJYVVqO0pcUy8tLTEuTWI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 41,
+      "Name": "BestFill Scaling",
+      "Prefix": "JCBUZDYqaFsoWispdyEmeFJrJTNiUmFfJ09MQyRBWWgrST1fNCIkSStxXyh5UEBsSGImXHohZCtdSVc6Yi8lY2M9NV96eGttSXBYQkNQYHcnQl9pTnpyW0ssKF1yfSx0",
+      "Holdout": "LntLK2xic3sjOj5XWF84YEBgWyQ5emg5QHU5d15cZU0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 42,
+      "Name": "BestFill Scaling",
+      "Prefix": "WEtfe1V4JG5QQU54b09xOmFsI1ZPTCF+dzx4d1Q/UTQyVC9eZ1F8aSd5WyUgY08kTEAzVicvdE9Ne3ZWfSolPG8+TmkpXGg7bX43N0M+eixeO0c/MW09ZCVAfV9JVHhK",
+      "Holdout": "XURuPih6bCBbOF91fV1baydpKH1DJSwnT3k8OiA9QEM=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 43,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZG95dSI8c0pWayM9eFVBQSEoI1w8ZDwgQV9SeVk0ejhAYT5aXlAralV5MCw4cy4xNiRtSm13MHosLFMtOzAoWikkdFhvOCpEbiopdXgiOzh2TXwzYTYjclp8J3VEaClq",
+      "Holdout": "cTJnMTo1cT5WM1tZNWFQclgrdjE5YHAvOyNeU2NsJTY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 44,
+      "Name": "BestFill Scaling",
+      "Prefix": "KExQIVBrJX1JVW0gTkJDLS1PIFFMcDsibWshKjBFXSxWVjNCckQuQnR6a0Y8KiphT2l0Yz87Nnc/OTM0a207UC0vZE5sbUUvNHE3Zld4Q0pQfV9DbyF9T2U9TmF8bU8h",
+      "Holdout": "P0QqIyU2MCNxWmoxRTt8OW1HP3NiRjVJe095cmdDMmk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 45,
+      "Name": "BestFill Scaling",
+      "Prefix": "bzR2XjgmLC81XTZgOlNIPElhKyYqK2BoNC15aT5gVzhzdFE+Sy40NGtFOnpYQ09gLi9FIkp5TS41dWReek1JRG0gNV1DcE14ZUc4MEdhOmokaFpdcTpxXVB5ODciR2RA",
+      "Holdout": "OEsvND1IcStLYycgd0phWVRzQ0hhe3V2ayFWXHpuSlk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 46,
+      "Name": "BestFill Scaling",
+      "Prefix": "OnZoKDQ9J3kieCtYJCFWS3gsJkggNXRiSCJvTjBRIyhHPzB4SDVfYXJGK0JYcT1lTjY9Xz5mfVZPeVhfREl7OV56dF9GMzQ6M1txbHQiT1gxaTR+SlMlYyJOZnVAPkZ8",
+      "Holdout": "cy16Mzl0b05wMjQ+LmsmLmpDe1pPIzIoQGhSPVFzUCw=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 47,
+      "Name": "BestFill Scaling",
+      "Prefix": "an0kJEVfLjlEV1V5VjdEWyghZ3puLlVZKCw1Mmg9bDhYeEw0X3BETmdJQT4pOmk3VDgxXypocjlUZyZjTU9qKyN8TU55NHYmQ3VsXzpXOk0ucntWY1B0fW8jXjhLZyV7",
+      "Holdout": "WnteWXpjZUZGUDgxakNoY0Y4KUx5V0kzan1dYDVzYiA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 48,
+      "Name": "BestFill Scaling",
+      "Prefix": "O29PfnhpZEhtey5vTSp8XlolPlQgQTkzJ1ImRmYtXF1Pa2V1YCpWYWpOdWZNTGZ3UkVSbi9MKTpcejxPK19aLHQzRVd1LiZSaShUbT5yOVRBUiorQTVDUD1xL1VWdjhV",
+      "Holdout": "Il9oZGhPUU46bUsyNmNIUElzX0UkUXdaOG85RWNsd1w=",
+      "Observed": "T354aWRIbXsub00qfF5aJT5UIEE5MydSJkZmLVxdT2tldWAqVmFqTnVmTUxmd1JFUm4vTCk6XHo8TytfWix0M0VXdS4mUmkoVG0+cjlUQVIqK0E1Q1A9cS9VVnY4VSJfaGRoT1FOOm1LMjZjSFBJc19FJFF3WjhvOUVjbHdc",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 1,
+        "Fuzzy": 0.25396825396825395
+      },
+      "WeightedTotal": 0.3189033189033189,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 49,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZX5jbCBaRigjKSxvR1hWfHNgYUA9XFVNUFdrQWVuZE9rbE9SZjE7Z0hAb20sLWc7Nzg5OjVeQChpMys8KlU4KllcOTdyO2lhcT12SCBKZVlPP3Aucixac1Y6ZVQhSj4o",
+      "Holdout": "YSNSNVxsXCpbJ2F4aXMlTl1jfmZlWEx2U0E7VG9DWVo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 50,
+      "Name": "BestFill Scaling",
+      "Prefix": "VXRUVFouazZVIngzImFVcS9eb3Z4Q3R5P1BbJj5zS2pfbWNfRUs3flg9Y00mIXRdRidHVzFPZSVYI2Z3LjJpe0RiV204fldUfWB6MnptNiwhNlwnUGglcVM+ZUxaZklU",
+      "Holdout": "SCtaPklFMEJJRUsxUytDL2EpKGh6WjB6TSg5XGQ3aG0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 51,
+      "Name": "BestFill Scaling",
+      "Prefix": "cFltKVphMWshQzNyNX5SRHAjX35TfS9yflxoTjZDcTJ0ZUAmUVJzaCc/QV1BMkVzOiBsdiZrdTszMDQxKU8nW0kwSE8wIy0vOn5SNiYwYSRLVjdoOCZAKkpEW0Y9TVNN",
+      "Holdout": "VFBBNG4hQyBMKTU9aUYmRilHez5BMEZlNG45SjRXLV0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 52,
+      "Name": "BestFill Scaling",
+      "Prefix": "RSh3X1gnKDFAclxEa1laLnNnVV87TUU+flxmR19palVrXStpKXBKOWwsMXJeWEJXW1tERDA7RicjN1UsNit5TVkjYUI7dnYqVnExUTt0cy0ySi9RQmEvQE9ZPy0mWmtP",
+      "Holdout": "fFA2VW0yMnBqXy8zVFRFIllkX1tcYlk1dUxpLzswaG8=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 53,
+      "Name": "BestFill Scaling",
+      "Prefix": "eEcgZnBPOXpGQ25mJkgvPDRARn1VYHxuYztwPFBsLEVYNldVLVZReXpTSCg/UHg0ZX5xXjxxIy5XM3V1VVpoSFMjYVJEVTgtKV9DR3FSIVFQJlJNfiVdQnxURDQjfmlH",
+      "Holdout": "IC9BNEBbK0EzVjIjfnBKSC4zcV5tQUt0VDZIdylPdXI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 54,
+      "Name": "BestFill Scaling",
+      "Prefix": "MVZ6YlBZdGwmJVxCWHxyQnNeQis+djByRUgvY3clYTJoLXtIdyUsN1x1ImNuQkE3dFprfXNkYn1UUF4yPXldIlcvbn4xbUIgL2QuPSE4V1QxWWpEemVqSkhxQyF0dFBJ",
+      "Holdout": "I2Z8Zl0vdGVDRmlBbFhKei9sSCx2YylOQUZlSih8PSU=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 55,
+      "Name": "BestFill Scaling",
+      "Prefix": "bD1EIyR0XjNSVnpsMC5uLHdAfC43VlRxei48enZsRVB7aSxeeSozd09cTWsrZnYtWzI6Jj4wSSM1YX0gbmklQjxBOzwlSjRJUCFFR315aUdOWWhaLVFNZTU/OSVbWz1v",
+      "Holdout": "KDwvKzAxbVxmLURXM1NBWkdfL3UwUE8renklSEduJD0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 56,
+      "Name": "BestFill Scaling",
+      "Prefix": "L0w5QzFeK1M0c3RpK09BLm9+Sn5MQ3QmfDczY29fWDlPPSxPLkkjSm51XjNwWSYuZiByNU81LFdZODw8LkBwdWg2b1d7OGQtJ2ZtRlZEPmdKU00tLFRTVG9FMENxL3N9",
+      "Holdout": "XSc3QEwhcyw6JTMwWE0hQS9YRjUyIE50PyhtRyhXLzQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 57,
+      "Name": "BestFill Scaling",
+      "Prefix": "VTdUUn1BenNYUjdBIUtVeV0vYVU7S3liRyZjLnUqW0YtVmA1Iy5dK2AtXVRtanpXeCs4Tz4qS2JPbmpRRHM3cFtxZSk4Tn01YkRxUlQxaFsneXl0flxcKnI6MGBXY2lj",
+      "Holdout": "bEtAWSpHSXQnIic/TWp0TzBPN2FpKiBSeFdKdUI/eHk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 58,
+      "Name": "BestFill Scaling",
+      "Prefix": "cXwzOU1eR0tbQ35Edj4gZzp9LFM1MW1gZydnS0RwdHUuUk9vUWRQemI9XyUzbjEnQCBoLFVsaCF7NCpfMFt9JzooMjRtWlc9Lms8OS5WZXsnV3JbeUgqN0NQXnRyTTRP",
+      "Holdout": "O0I0emZ+QVdWSWVlQGFOZVl9MlM0WXA3UUdmKzY7YGk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 59,
+      "Name": "BestFill Scaling",
+      "Prefix": "TCh9Ozc/NChnQmtaaUpuIW8/Mkg0XjxPRDhlVTleSi0pTCtwQ1tLJkRWQGRHTlxqfXd3XHtuViZ5JSxQRj4yfTx1cnJbNHBsKjouVCtsbENeJX5cbT98QFhGb3dQcjZT",
+      "Holdout": "eUx8empbbC9hbig9b0RwXyJpWlcuWzlFIEB6ei1wOXA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 60,
+      "Name": "BestFill Scaling",
+      "Prefix": "OT0rMWl5I00wQ0FSXDlKVSopIE9Hc2FdKlpEait7XT0mVToyekdYPl4qTmVCLDlET3ctWUF7SGM7e0I7YVFeN0NNK3g9REdNLD5oPTNRM0NnSX1CZD5iUzQxNWAoMHNx",
+      "Holdout": "SUF3JDsjeD4pNThmQTVYJUtmPmA/XCU/bGktVkN2e34=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 61,
+      "Name": "BestFill Scaling",
+      "Prefix": "I2ZNPnk4IV8tLltXZTlJSGc8OktRRHZtQCJfendYQFU3XHQvXXVrQTMwWzx2V0R0XlNaNEV0MDtMUnkycDxJOnE1NkFabXdxKS41ZH5FXT9TYCsjcyomLnR1YTcqNyFD",
+      "Holdout": "WzBUenpoM1ZycGhtQCNscWJZfjhGZD41NUJ8fUVJa30=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 62,
+      "Name": "BestFill Scaling",
+      "Prefix": "M2J8XmVsZ3dPXnVoYyZFMnlSaUc8NlpSOndyY0ZxKydHcDA4fUUmQiN8KnZ8cVViN3xLN2xXUUxWbmgnSiptI3BsUjQhaG5PYj88bSRWIWxmWyxxIzt3QCNWNCtaLUki",
+      "Holdout": "QHdgSH4taT9zNFMseyh0L3BVcSozJmBdRnBdWlU3KGM=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 63,
+      "Name": "BestFill Scaling",
+      "Prefix": "VHpTbEVsWGdcSW9BRlF9OX5pbyQoYzZ9cTRuazBjQWROeVEpJCdeI1dcPGtRXVRIKig5bFRoLixxbyVPZiwlXzRyTD40Z0lkZTA2OnFAfiA4IWVKekglRzlvOkghXCwq",
+      "Holdout": "SE98Q0IpM25QXk1JXnk5bV9tVmZZODVYa1VEIk1rLnI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 64,
+      "Name": "BestFill Scaling",
+      "Prefix": "PGpKQHRyamBrUydCSSI0aXMpPHVKOm9hfVsvOiV2JGIpaUZGWyohYWlFTX5NMzZmKkRNflh4Zl9ob3VYaTBGTS0xdzNyWWMxOFsqWEk5Zm9qSEVdcDgub3BeO0dfPkU7",
+      "Holdout": "K3JqdmsjZSVhQSZuQiNiVCxARyU9YWdzdjZ8XyZaQns=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 65,
+      "Name": "BestFill Scaling",
+      "Prefix": "YSxlaVFoREBlclN9ZmtYVFxiVXFpbVFwYXxiTm8jaD9mJ18uSFAxQz1XTyI+RCQmLEw6NEhnV3MyaTtEeENPfmYiLFFsSyQ0PydTR2Q8LlFGU1RrezYnNE9wZlkvajwg",
+      "Holdout": "ZGM/YF98JjBVdUV9YkojcEdiekxkN3RQcC1aQiJ+TE0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 66,
+      "Name": "BestFill Scaling",
+      "Prefix": "S1R6Ml1DWUZoSG84V3FhakdzIHA1Iis0MGJmeFxvOiN8J0t0Y0MpeXAwQStcYzNVQzFtOk5eOHZVSFxXNE5TcXRcP0lkbE9WTVFeN1xXIyYnLEo/dS9sdlM2Vk9+NTR6",
+      "Holdout": "T2ckKUpVMVtLZEggTiVOP2pyOiQrRlIgfFElTWFNKyg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 67,
+      "Name": "BestFill Scaling",
+      "Prefix": "RT1VQktDJGpuIi15Ulk+V3guQ1I+ITV4LU52eyhSbkdCLHRUWlg+NTF+a2cmcXBQenN4Y0Y9bTR2T2MrL2dHRH5pcjo+MidMJWZ2OEpuUj1SVSo9V04nSyV9YSlbbCFj",
+      "Holdout": "SnY+dlZRe2FePy8rKy0lOGpUaEVEc3h0RERfU14iLVE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 68,
+      "Name": "BestFill Scaling",
+      "Prefix": "aHVsIFNEOEwrKngqIVREVlVhPk96a1BJNmt3VEVcUXNedDMxVVxnbkVGelg2XHBQJGNORD5pakJnKVZCZWlrWyZAUjBAXkpmVSNxO05NPTRdTEN2XndCOSpuUSkjZ0s9",
+      "Holdout": "bk9NPC9db1lLWFghTzB8KSRsXU9AODgsN1d7TnNQZVc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 69,
+      "Name": "BestFill Scaling",
+      "Prefix": "KjI5ciwsKT1FR05PXncyNUxwOSw4MCBqWGRXdih1J0hpbT4zKiMvTlQ3JUE1az9Zb2VnZWpmRi1wSkRLI0steEFjamJkKkNMVn0+JC5vPFRiQ28ueCYkfmIjRnlybWcy",
+      "Holdout": "STg9XCd5a2w7VnhGdDU/WkN9aShiJUBdX0FuIC50TWs=",
+      "Observed": "STg9XCd5a2w7VnhGdDU/WjEqPShKMyBhO2lGXT1RLEtJOSE1O1pgJ0I4byp5TV0kM1QoNkYjenhhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vj4pLlxhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vj4pLlxhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vj4pLlxhfko3OiklfSFSdTxWPikuXGF+Sjc6KSV9IVJ1PFY+KS5cYX5KNzopJX0hUnU8Vg==",
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0.53125,
+        "Fuzzy": 0.06640625
+      },
+      "WeightedTotal": 0.1569602272727273,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 70,
+      "Name": "BestFill Scaling",
+      "Prefix": "QEtfLnZTNTNNdEd9eGMoNnsjJzJkKzVKN0ZPb01NUClWXzMseiAgb1BnMFlwUSx1RDBdLEVacDdgKSEqQVNdVTVBRC9BQXZBNisnOmplWDM8fm03SDIwOXMuRnE4entl",
+      "Holdout": "ZlheITs5PilheigpemFTbzFvPV8/O3IhOjJONm5qNHo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 71,
+      "Name": "BestFill Scaling",
+      "Prefix": "MExhQnJJMyY9WGNZLyUmKmZ3SWhPRCNeZSAgYnszZyhuaTd+dWhjSzk0eDJLK3ksVTItNEJ2emBhKWQkV0pjb0J0bjM7fEJxbjlHck5Ra3VrWGdyKjgqQH5ZSSFPNnRf",
+      "Holdout": "bzVjOU56bnJ+bHl2VC5CYD1qZ1taOXJ4OzNSfXVkWWI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 72,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZjhQRV5+OE9aTCZxcXtDRl83LCRMZGcsYi98VGZAJiUgbDpFRWxUOzErW3ZffWsjXGB9a1ogSCNrMHBsRHI1U21iJTFbPj1QU3AxLThGbEgoemdmITc2O2N1XmM5dDVB",
+      "Holdout": "Jyd7PlhdXztEbThEQ1pPT0gmJldpa19RdFpPS2NKVS8=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 73,
+      "Name": "BestFill Scaling",
+      "Prefix": "YUV9czklKjVINWdlb187NlxccHwpWml3LXR4R0B6YSlIOSlnRHkoVl9VOEstOURGUjNhdnM5Im47aj15enNFaFsgTzlvME1GOTgnNTVVUGhdIEQwSVAnV0prZDlDNSdz",
+      "Holdout": "KSZJcyAwVU1oTSoldWJJP00qQXxJTmVEVVdgImlbVC0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 74,
+      "Name": "BestFill Scaling",
+      "Prefix": "T1t6blxqaEUxQFVlajY/SkhPezssIi0peXt1Jzt8dGEqSHlwLmwxPCgiMyhBIXJlRm16NElHaDQ7VSNMYkcwMzl5OiVlR2xhVmVXYyBkSlZOV2hoN3t5em9AcDx+YjMq",
+      "Holdout": "c2QpWzo2S2EuK3BVR0IrLkUvOmBKbilzX3BbY3J0YCY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 75,
+      "Name": "BestFill Scaling",
+      "Prefix": "L1syflRnXDE6JjFAfGxBejw9TkRMKDlnPEZAJzlNM01VfmkzPyB5ICAxLGEteC97JjNNT3pVM3xkI0VNQyZ8K3suNHwtMEJhaUNxOVhOYVdYdVxrUmAuZ1VlS3UgRk1d",
+      "Holdout": "Mjw/NFZZVEQtLEV0Pkc/bWxQa3g2IW85SmUxJjheZzk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 76,
+      "Name": "BestFill Scaling",
+      "Prefix": "KWUmNWMudyBYTmktK2NoJzxabT5mV0tHT3ZFKjBPI148NF80NkxxfEA+b0VYJHNeOm48IiY2KzFyTyBfPzddX3snKEYvODplIjZJVVgmJk59IVJ1PFY+KXQqZEtJWkQv",
+      "Holdout": "b355RWVPS1RFci9gOT8ncEJ8aFNBIEAubStdVHNORCk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 77,
+      "Name": "BestFill Scaling",
+      "Prefix": "el1SYEt+Jzh8PGg7Xlx4OmQtRWp+emdGPihwVjEzQCxaQk8rYmlVallOUFVNJHU4SD1lakhTOV1zX3RGVkA6NCMiUSctWG1XaHpHaCVyVUUuImN7Zm1iNTk5b1JhL1pE",
+      "Holdout": "eVRnc25cdVN9O0w7VjldKDskOkZrQVJeNydTYm19Tmc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 78,
+      "Name": "BestFill Scaling",
+      "Prefix": "JHI4MXM/V0xsYzI+PFoiOkxoWXdOY3wzaHZFYSJRTUEnaHFdSzJ6YlxXKlhcYDVdXF1CJmI9JD1lJlcxWlx3eWFhYDowW2NxXHxUdkNoUyhpOyVRdXJccD1jOTQuLTBS",
+      "Holdout": "KHlwMF4ifFBKSm9MYWUjbFtpOCRIb1lDTjt6R10rIS4=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 79,
+      "Name": "BestFill Scaling",
+      "Prefix": "Njpudj5QPEktfTQgU2YyandycXsoMjRDaiFoSF9sby8xIDArL2tcPyxzbHA7WGpvYUQoYydcYkUrR2hNNl4vZ3xPeSEiczVHZmU1PWViTlxDPmN4cjNKTUZEWzhbZXZl",
+      "Holdout": "fUEiOGNAe3k7S1dsPyAnd15JdjR7KEUweTtCY2hmZDA=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 80,
+      "Name": "BestFill Scaling",
+      "Prefix": "JyU0WkNjQlNvQ2heW3l5VHpSQjFjKDk6UDIuVUE5Y31GXWNnKG1FZFdaLn4wYCokNWBSRD5aek5IKE0rICs/SHp8b3lfNF8yRix3c1V2SGRKTVt2O3xyL1hqIGpVLH5a",
+      "Holdout": "am1QZV1tcjM8JHBEd3Y0TCt1NlVkK0lMRG1SfXtiRDw=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 81,
+      "Name": "BestFill Scaling",
+      "Prefix": "fjh9T1A6bXdhP11RS05pOX1QOXUuSV4wdSteUDcxRC5yIDp9MUB3M1kyVj5PYztrLmRyTGJNck9HbT8zSV9oWGtcaW00Uy8oOTcofmw9T1FkZiE4IUN+IVBEOylpK2lK",
+      "Holdout": "N3V7LHV3SUdmMFw6cVF9W3BDKX0xTGY7ICwjZX1fLWI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 82,
+      "Name": "BestFill Scaling",
+      "Prefix": "Oi5RVntScntbS3FtZ1wgK0tqbV0uXD4zMWVmPX5zLn1TSVZNZlJdIjV1eDRGd1tyfSpZSlNnJF9+RCtsLGglJFl8VEEiMit1ZnJBIkJaMFhMM0NZOzBydjZ2a2VxJFtJ",
+      "Holdout": "VWBcTTNwSl9vZyY6Q1RESENFZXtJWH1ZJ2Jmb3ZFNjg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 83,
+      "Name": "BestFill Scaling",
+      "Prefix": "M31UX2ddaiYkTEMvXDJBIXpBP2BpUlVQejdNNS9ESUx7XmpJTm48OypLIn43azcsSnRPLXFrLjV2ckZlTFw3QGMgcVJOX3o6dzU7fnlMSkRCJV0zXmt2W0QyX2Mra0xj",
+      "Holdout": "aVFbP2g7aSogZEVrbXtyYTsqbiE+KDw0SU1YOihiYS8=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 84,
+      "Name": "BestFill Scaling",
+      "Prefix": "WH1POWlqaXAsaXo7P2ZMayVDclkxXnV7Q0R4KU1zRHpbRWtvTkEiJXZGIUp9Sk5RPThDR14xfSRDcStRdj5aWjF8QDtrTF89KFQvSm0zYWBLUDFOSURCJjInUyppJ2c3",
+      "Holdout": "Wl5uZj1bYGM3fFJIX2lVU3t4cT5STSx3bns7SFQnU2c=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 85,
+      "Name": "BestFill Scaling",
+      "Prefix": "JyUrbmpsPVMxMmF0UX1JS3llQnA3YiwxLE9UQDd4Vzp6Zzh+dEZhe11yKSMsVCdwd1RTJ0c+e3EmKzNUKDZGI3p4Wy14YX5KN2U1O1pgJ0I3dlJXWnUqPShKMzVhO2lG",
+      "Holdout": "XT1RLEtJY1Z3ImMsM3EiRzUjRGZmSEtgNV4zWXkyKGY=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 86,
+      "Name": "BestFill Scaling",
+      "Prefix": "XlUpIUE2PHNHfWwmfUFLb3FMRzBnXTsxXkt9RHgoPDlFby4kKz5nMDNJQ2JEeUMnXllbaTFOQlJHL01rUmdyZkU2RDZAKFliMSEqfCNydkx+O3pOaFBnX0ooOy0oe3N7",
+      "Holdout": "bn0nLSI6PnpOJXU4ZGYzNCJJPHpBW25xR3s6TzprZyo=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 87,
+      "Name": "BestFill Scaling",
+      "Prefix": "fVBDVnAwTT5qZy1iQC52TnJeT1tUbEk6dzwgbV1TICRJTCdEJENWcCRNUXd4R1IhTj9CUy1lOndzSlV6JGR9XFJRImd0bn5oVilGVilMX2dGXXQjYnc7Jy19Uyxhbnk6",
+      "Holdout": "QGhXOzVFeStqSVpsRCE9YWR5fjxeIXpeakU4b01ZO3s=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 88,
+      "Name": "BestFill Scaling",
+      "Prefix": "JHxKc1MhYFMpN15KQjI/UlkvYHptUEkwZGphOWI1YTBsY3t2bGB3M0Z3R3duQE1ePCQgbW1+eSpCcy1LTG1dLVg7dkIjd1U/NWl6O2RGRi5tNThiPlw6IS1nOzJcYSNN",
+      "Holdout": "R0xSYjpPQXFJQkRacVVkeT1eVDlseDZfQEQrQy0mYWs=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 89,
+      "Name": "BestFill Scaling",
+      "Prefix": "V2o3azxEXmU2SUM4emU+Ij8+dyBoazJtLnU5JX17ZilMMXc5KDQqUW4nZ21+PzVLUVh7TmZDRmh3VFU5e2FfKmA6I1wsbkZPckRvM2VaOXdTQm9VMyFnbWVyUnhbXDVk",
+      "Holdout": "bFFKXWwhS002bG8lKik6cCBjV296P1MmWkBqcmZ7ODk=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 90,
+      "Name": "BestFill Scaling",
+      "Prefix": "Sn12cV9AeVVOc0ZCRFJLMFBVIm8zT29jXzppZ2FmNTdINjlZXWl6YHZ5Jz13aVV5KEA5Vml2fn1eVi0nM1VnKHxtMEs0UVVyLCR8QT5PNm8ufSBbZ0tWa35IQXVLbSom",
+      "Holdout": "YHY3WnZXUF58em03UylPdHpvXDc9UmB9OkdnPWAuays=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 91,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZktgX1dSJ0cpYCVQOlAtQUMzUkg3XHMjdWQydX1tTGA5Y1I4KEBLQWw4cDp0ckZlQkVfYGltc1FaJzJvZ3M5IkdYY3pmJTxxbW1tOnwsdV9TfTVCOHthbksucyggS2I0",
+      "Holdout": "SHN5XWNdPVNSclJwJ1IpJkA6Kn5KNzlAajZYTlYnKmE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 92,
+      "Name": "BestFill Scaling",
+      "Prefix": "OiUlWzBRMFVRKjhgOzZ9ZFVqTyRUejZqfCJvSyRDLHpiUDt2Xi82R20kcHIyPk9bdT42fE51biZcSiRmLG4icmBcWEt5YyNpRzZBUiZOOEwjeShvSS8uPjlCc0h3Wks3",
+      "Holdout": "bVVuU1xJIFwhW3JkKGo+YzJCbiIoQGg1R14xTkwzNj0=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 93,
+      "Name": "BestFill Scaling",
+      "Prefix": "VnZkSnc2ZiVzYj1XWy9qKS9mNk5fUlxHODctUT54W2NZOlZVPm17KW1tfHQ8RXg7dlJEcXJAQVkqJUdOfHdBbjBxKXoxKF87dHtiIUNMalNefG9NdH1kXDR2Lng9X3hN",
+      "Holdout": "R2tmT2Z0X3c1bERubTtLI08+dF9Hc0xLRml1UGpqXFI=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 94,
+      "Name": "BestFill Scaling",
+      "Prefix": "NzhTMzRSZihFUyJXamxTWzczU2l8VDgmKydBMUJ3QV5+VkdbcntKJi9qNlMkPTxcO08jTnhEfHw3PXxNTUUkOis9fCF7d0QlcE1NK29DXyJUOEpQa05nWyovKihMPmVg",
+      "Holdout": "SnloZy5EZVozX2E5ekRreGpvRX4hSS5fdmpAUks7IGc=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 95,
+      "Name": "BestFill Scaling",
+      "Prefix": "d0x4SWwhfl0tT3smNn4rO1pvS04/djFCWH5nTi1DNWV0PTBLfTNFZks2VUghUmZmXlp2PyJ0VnhSL2NJY0RMWjArKjtHQH4+VHU8e1VMajlebClHTW4kemBdN0QtLVRS",
+      "Holdout": "fEBaRyF5Qms7OUdJRkt9OV56MX0pWHhSWUhiQlw4fGQ=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 96,
+      "Name": "BestFill Scaling",
+      "Prefix": "ZCJTeiBzMjlgOCRqQTFRe3d0eToiJiQ+MFhAZkkla3cyei86bDlHI3B2Pz4+OVdyWTJ5XVVVa3M1I3Ize2ZPYVE1K2QpNndNbGovISFWSERUNj1FODU2LzlJfCQzeiN2",
+      "Holdout": "KFlwWyB5JDpjP29CPEckOEh2fj5jQi9fXSEpZlooQEs=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 97,
+      "Name": "BestFill Scaling",
+      "Prefix": "SiZnJS84cXhgZV5QcXh3ciQrR0VAWChcJjE2JXU4cmt4MDxFMD9dVlZ5Tm15QnA1XHwqWVgtUlwmQF5OJElmUjxOK1BlIlFXUUNwbDJ+KVt5fCszWS5TR31jRWkwbGdB",
+      "Holdout": "MUA1Iloxc3dbfTJzUHczZDc0bDd2WkFbJEZqYz8iLFg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 98,
+      "Name": "BestFill Scaling",
+      "Prefix": "VDVQT2gmYmNBVzp8Z1JRcDQpcEY7Qk49PilkfmBifGFtfWwoQF9BeDhvV2E0NVhLdH5GITVOc1t6fG9cfjRkIF49YV5PNkp9YFZyXktHaX4gRHFQVVVfPzdfOXZsWipd",
+      "Holdout": "XSZGUXd7OltgPCJlbmNUOitYQWotOCAwQSVOMDtaJyE=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    },
+    {
+      "Idx": 99,
+      "Name": "BestFill Scaling",
+      "Prefix": "b29TbzgsST9LcFEtInNlW3hLUV1JKTInN1szKXJyMyAwfi1AO2JedStTPSRGUjhHIUNeJXF4d2hiYCB6Kl8hOS1DYjl+PmRiOmVWV29sQ1JDYk0tenBfSEBvdT0mMmQh",
+      "Holdout": "JnBHdTRYa2Fzd2pYZjgpPy5ab1F2aVBKc0NJPDhiWyg=",
+      "Observed": null,
+      "ErrorRatio": null,
+      "Scores": {
+        "Exact": 0,
+        "Partial": 0,
+        "Fuzzy": 0
+      },
+      "WeightedTotal": 0,
+      "TrueLabel": null,
+      "PredLabel": null
+    }
+  ],
+  "score": 0.004758635461760462,
   "section": "scaling"
 }
