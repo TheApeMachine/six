@@ -1,11 +1,34 @@
 package dmt
 
 import (
+	"context"
 	"testing"
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 )
+
+func newTestElectionNode(nodeID string) (*NetworkNode, func()) {
+	ctx, cancel := context.WithCancel(context.Background())
+	forest, err := NewForest(ForestConfig{})
+	if err != nil {
+		panic(err)
+	}
+
+	node := &NetworkNode{
+		config:  NetworkConfig{NodeID: nodeID},
+		metrics: NewMetrics(),
+		ctx:     ctx,
+		cancel:  cancel,
+		forest:  forest,
+		peers:   make(map[string]*peer),
+	}
+
+	return node, func() {
+		cancel()
+		forest.Close()
+	}
+}
 
 func TestNewElection(t *testing.T) {
 	Convey("Given election configuration", t, func() {
@@ -15,10 +38,8 @@ func TestNewElection(t *testing.T) {
 			QuorumSize:        2,
 		}
 
-		node := &NetworkNode{
-			config:  NetworkConfig{NodeID: "test-node"},
-			metrics: NewMetrics(),
-		}
+		node, cleanup := newTestElectionNode("test-node")
+		defer cleanup()
 
 		Convey("When creating a new election manager", func() {
 			election := NewElection(config, node)
@@ -44,10 +65,8 @@ func TestElectionStateTransitions(t *testing.T) {
 			QuorumSize:        2,
 		}
 
-		node := &NetworkNode{
-			config:  NetworkConfig{NodeID: "test-node"},
-			metrics: NewMetrics(),
-		}
+		node, cleanup := newTestElectionNode("test-node")
+		defer cleanup()
 
 		election := NewElection(config, node)
 		defer election.Close()
@@ -81,10 +100,8 @@ func TestVoteHandling(t *testing.T) {
 			QuorumSize:        2,
 		}
 
-		node := &NetworkNode{
-			config:  NetworkConfig{NodeID: "test-node"},
-			metrics: NewMetrics(),
-		}
+		node, cleanup := newTestElectionNode("test-node")
+		defer cleanup()
 
 		election := NewElection(config, node)
 		defer election.Close()
@@ -131,10 +148,8 @@ func TestHeartbeatHandling(t *testing.T) {
 			QuorumSize:        2,
 		}
 
-		node := &NetworkNode{
-			config:  NetworkConfig{NodeID: "test-node"},
-			metrics: NewMetrics(),
-		}
+		node, cleanup := newTestElectionNode("test-node")
+		defer cleanup()
 
 		election := NewElection(config, node)
 		defer election.Close()
@@ -170,10 +185,8 @@ func TestLogStateManagement(t *testing.T) {
 			QuorumSize:        2,
 		}
 
-		node := &NetworkNode{
-			config:  NetworkConfig{NodeID: "test-node"},
-			metrics: NewMetrics(),
-		}
+		node, cleanup := newTestElectionNode("test-node")
+		defer cleanup()
 
 		election := NewElection(config, node)
 		defer election.Close()
@@ -212,10 +225,8 @@ func TestElectionTimeout(t *testing.T) {
 			QuorumSize:        2,
 		}
 
-		node := &NetworkNode{
-			config:  NetworkConfig{NodeID: "test-node"},
-			metrics: NewMetrics(),
-		}
+		node, cleanup := newTestElectionNode("test-node")
+		defer cleanup()
 
 		election := NewElection(config, node)
 		defer election.Close()

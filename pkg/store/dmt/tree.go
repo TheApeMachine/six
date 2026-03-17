@@ -94,6 +94,8 @@ func (tree *Tree) Insert(key []byte, value []byte) (*Tree, bool) {
 	defer tree.mu.Unlock()
 
 	t := time.Now()
+	key = append([]byte(nil), key...)
+	value = append([]byte(nil), value...)
 	oldRoot := tree.root
 	tree.root, _, _ = tree.root.Insert(key, value)
 	tree.updated = tree.root != oldRoot

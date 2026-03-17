@@ -6,11 +6,13 @@ network and handle leader failures gracefully.
 package dmt
 
 import (
+	"context"
 	"math/rand"
 	"sync"
 	"time"
 
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -47,13 +49,13 @@ leader across the distributed system, handling state transitions,
 vote counting, and heartbeat mechanisms.
 */
 type Election struct {
-	state          *errnie.State
-	config         ElectionConfig
-	node           *NetworkNode
-	role           NodeState
-	term           uint64
-	votedFor       string
-	stateLock      sync.RWMutex
+	state     *errnie.State
+	config    ElectionConfig
+	node      *NetworkNode
+	role      NodeState
+	term      uint64
+	votedFor  string
+	stateLock sync.RWMutex
 
 	// Log tracking
 	lastLogTerm  uint64
@@ -65,8 +67,9 @@ type Election struct {
 	heartbeatTimer *time.Timer
 
 	// Control channels
-	votes    chan string
-	shutdown chan struct{}
+	votes     chan string
+	shutdown  chan struct{}
+	closeOnce sync.Once
 }
 
 /*
@@ -87,7 +90,6 @@ func NewElection(config ElectionConfig, node *NetworkNode) *Election {
 
 	e.heartbeatTimer.Stop()
 
-	// Start election management
 	go e.run()
 
 	return e
@@ -151,7 +153,9 @@ func (e *Election) startElection() {
 
 	// Request votes from all peers
 	for _, p := range peers {
-		go func(peer *peer) {
+		peer := p
+		e.schedule("request-vote-"+peer.addr, func(ctx context.Context) (any, error) {
+			state := errnie.NewState("dmt/election/request-vote")
 			future, release := peer.client.RequestVote(e.node.ctx, func(p RadixRPC_requestVote_Params) error {
 				p.SetTerm(currentTerm)
 				p.SetCandidateId(e.node.config.NodeID)
@@ -160,12 +164,13 @@ func (e *Election) startElection() {
 			})
 			defer release()
 
-			result := errnie.Guard(e.state, future.Struct)
+			result := errnie.Guard(state, future.Struct)
 
 			if result.VoteGranted() {
 				e.votes <- peer.addr
 			}
-		}(p)
+			return nil, state.Err()
+		})
 	}
 
 	// Wait for votes or timeout
@@ -218,7 +223,9 @@ func (e *Election) sendHeartbeats() {
 	e.node.peersMutex.RUnlock()
 
 	for _, p := range peers {
-		go func(peer *peer) {
+		peer := p
+		e.schedule("heartbeat-"+peer.addr, func(ctx context.Context) (any, error) {
+			state := errnie.NewState("dmt/election/heartbeat")
 			future, release := peer.client.Heartbeat(e.node.ctx, func(p RadixRPC_heartbeat_Params) error {
 				p.SetTerm(e.term)
 				p.SetLeaderId(e.node.config.NodeID)
@@ -226,13 +233,14 @@ func (e *Election) sendHeartbeats() {
 			})
 			defer release()
 
-			result := errnie.Guard(e.state, future.Struct)
+			result := errnie.Guard(state, future.Struct)
 
 			// Step down if peer has higher term
 			if result.Term() > e.term {
 				e.stepDown(result.Term())
 			}
-		}(p)
+			return nil, state.Err()
+		})
 	}
 
 	// Reset heartbeat timer
@@ -384,7 +392,9 @@ Close shuts down the election manager.
 It signals the run loop to stop and cleans up resources.
 */
 func (e *Election) Close() {
-	close(e.shutdown)
+	e.closeOnce.Do(func() {
+		close(e.shutdown)
+	})
 }
 
 /*
@@ -412,4 +422,18 @@ func (e *Election) getLastLogIndex() uint64 {
 	e.logLock.RLock()
 	defer e.logLock.RUnlock()
 	return e.lastLogIndex
+}
+
+/*
+schedule runs an Election background task on the NetworkNode worker pool.
+*/
+func (e *Election) schedule(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	e.node.forest.pool.Schedule(
+		"dmt/election/"+id,
+		fn,
+		pool.WithContext(e.node.ctx),
+	)
 }
