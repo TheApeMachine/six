@@ -2,10 +2,12 @@ package dmt
 
 import (
 	"context"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -23,6 +25,8 @@ type Forest struct {
 	// Context for controlling background sync
 	ctx    context.Context
 	cancel context.CancelFunc
+	pool   *pool.Pool
+	owned  bool
 	// Network node for distributed operation
 	network *NetworkNode
 }
@@ -31,6 +35,8 @@ type Forest struct {
 type ForestConfig struct {
 	// Directory for persistence
 	PersistDir string
+	// Worker pool for background tasks
+	Pool *pool.Pool
 	// Network configuration
 	Network *NetworkConfig
 }
@@ -48,6 +54,12 @@ func NewForest(config ForestConfig) (*Forest, error) {
 		updates: make(chan struct{}, 1), // Buffered channel to prevent blocking
 		ctx:     ctx,
 		cancel:  cancel,
+		pool:    config.Pool,
+	}
+
+	if forest.pool == nil {
+		forest.pool = pool.New(forest.ctx, 1, runtime.NumCPU(), &pool.Config{})
+		forest.owned = true
 	}
 
 	// Create initial tree (with persistence if directory is provided)
@@ -65,6 +77,7 @@ func NewForest(config ForestConfig) (*Forest, error) {
 	}
 
 	go forest.syncLoop()
+
 	return forest, forest.state.Err()
 }
 
@@ -87,7 +100,25 @@ func (forest *Forest) Close() error {
 		errnie.GuardVoid(forest.state, tree.Close)
 	}
 
+	if forest.owned {
+		forest.pool.Close()
+	}
+
 	return forest.state.Err()
+}
+
+/*
+schedule runs a Forest background task on the managed worker pool.
+*/
+func (forest *Forest) schedule(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	forest.pool.Schedule(
+		"dmt/forest/"+id,
+		fn,
+		pool.WithContext(forest.ctx),
+	)
 }
 
 /*

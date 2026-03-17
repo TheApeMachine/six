@@ -16,6 +16,7 @@ import (
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -98,13 +99,10 @@ func NewNetworkNode(config NetworkConfig, forest *Forest) (*NetworkNode, error) 
 		QuorumSize:        1,
 	}, node)
 
-	// Start accept loop
 	go node.acceptLoop()
 
-	// Start peer connection loop
 	go node.connectLoop()
 
-	// Start sync loop
 	go node.syncLoop()
 
 	return node, node.state.Err()
@@ -127,7 +125,12 @@ func (n *NetworkNode) acceptLoop() {
 				continue
 			}
 		}
-		go n.handleConnection(conn)
+
+		remoteAddr := conn.RemoteAddr().String()
+		n.schedule("handle-"+remoteAddr, func(ctx context.Context) (any, error) {
+			n.handleConnection(conn)
+			return nil, nil
+		})
 	}
 }
 
@@ -170,7 +173,11 @@ func (n *NetworkNode) connectLoop() {
 
 			if !exists {
 				allConnected = false
-				go n.connectToPeer(addr)
+				peerAddr := addr
+				n.schedule("connect-"+peerAddr, func(ctx context.Context) (any, error) {
+					n.connectToPeer(peerAddr)
+					return nil, nil
+				})
 			}
 		}
 
@@ -224,7 +231,10 @@ func (n *NetworkNode) connectToPeer(addr string) {
 	n.peersMutex.Unlock()
 
 	// Sync immediately now that the peer is registered.
-	go n.syncWithPeers()
+	n.schedule("sync-on-connect-"+addr, func(ctx context.Context) (any, error) {
+		n.syncWithPeers()
+		return nil, nil
+	})
 
 	<-rpcConn.Done()
 
@@ -265,16 +275,23 @@ differences that need to be synchronized.
 */
 func (n *NetworkNode) syncWithPeers() {
 	start := time.Now()
-	n.peersMutex.RLock()
-	defer n.peersMutex.RUnlock()
 
 	// Update merkle root and get current log state
 	n.updateMerkleRoot()
 	currentTerm := n.election.getCurrentTerm()
 	lastLogIndex := n.election.getLastLogIndex()
 
+	n.peersMutex.RLock()
+	peers := make([]*peer, 0, len(n.peers))
 	for _, p := range n.peers {
-		go func(peer *peer) {
+		peers = append(peers, p)
+	}
+	n.peersMutex.RUnlock()
+
+	for _, p := range peers {
+		peer := p
+		n.schedule("sync-peer-"+peer.addr, func(ctx context.Context) (any, error) {
+			state := errnie.NewState("dmt/network/sync-peer")
 			future, release := peer.client.Sync(n.ctx, func(p RadixRPC_sync_Params) error {
 				var rootHash []byte
 				if n.merkleTree.Root != nil {
@@ -289,27 +306,27 @@ func (n *NetworkNode) syncWithPeers() {
 			})
 			defer release()
 
-			result := errnie.Guard(n.state, future.Struct)
-			diff := errnie.Guard(n.state, result.Diff)
-			entries := errnie.Guard(n.state, diff.Entries)
+			result := errnie.Guard(state, future.Struct)
+			diff := errnie.Guard(state, result.Diff)
+			entries := errnie.Guard(state, diff.Entries)
 
-			if n.state.Failed() {
-				return
+			if state.Failed() {
+				return nil, state.Err()
 			}
 
-			fmt.Printf("Node %s received %d entries\n", n.config.NodeID, entries.Len())
 			totalBytes := 0
 			for i := 0; i < entries.Len(); i++ {
 				entry := entries.At(i)
-				key := errnie.Guard(n.state, entry.Key)
-				value := errnie.Guard(n.state, entry.Value)
+				key := errnie.Guard(state, entry.Key)
+				value := errnie.Guard(state, entry.Value)
 
-				if n.state.Failed() {
+				if state.Failed() {
 					continue
 				}
 
+				key = append([]byte(nil), key...)
+				value = append([]byte(nil), value...)
 				totalBytes += len(key) + len(value)
-				fmt.Printf("Inserted key: %q, value: %q\n", key, value)
 				n.forest.Insert(key, value)
 				n.merkleTree.Insert(key, value)
 			}
@@ -319,7 +336,8 @@ func (n *NetworkNode) syncWithPeers() {
 			}
 
 			n.metrics.RecordSync(time.Since(start), totalBytes)
-		}(p)
+			return nil, state.Err()
+		})
 	}
 }
 
@@ -329,9 +347,12 @@ It handles insertion of new data into the local tree and merkle tree,
 ensuring consistency across the distributed system.
 */
 func (n *NetworkNode) Insert(ctx context.Context, call RadixRPC_insert) error {
+	state := errnie.NewState("dmt/network/insert")
 	args := call.Args()
-	key := errnie.Guard(n.state, args.Key)
-	value := errnie.Guard(n.state, args.Value)
+	key := errnie.Guard(state, args.Key)
+	value := errnie.Guard(state, args.Value)
+	key = append([]byte(nil), key...)
+	value = append([]byte(nil), value...)
 
 	term := args.Term()
 	index := args.LogIndex()
@@ -348,12 +369,12 @@ func (n *NetworkNode) Insert(ctx context.Context, call RadixRPC_insert) error {
 	n.election.updateLogState(index, term)
 	n.updateMerkleRoot()
 
-	result := errnie.Guard(n.state, call.AllocResults)
+	result := errnie.Guard(state, call.AllocResults)
 
 	result.SetSuccess(true)
 	result.SetTerm(term)
 	result.SetLogIndex(index)
-	return nil
+	return state.Err()
 }
 
 /*
@@ -465,14 +486,20 @@ in the network.
 */
 func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 	start := time.Now()
-	n.peersMutex.RLock()
-	defer n.peersMutex.RUnlock()
 
 	currentTerm := n.election.getCurrentTerm()
 	newLogIndex := n.election.getLastLogIndex() + 1
 
+	n.peersMutex.RLock()
+	peers := make([]*peer, 0, len(n.peers))
 	for _, p := range n.peers {
-		go func(peer *peer) {
+		peers = append(peers, p)
+	}
+	n.peersMutex.RUnlock()
+
+	for _, p := range peers {
+		peer := p
+		n.schedule("broadcast-"+peer.addr, func(ctx context.Context) (any, error) {
 			_, release := peer.client.Insert(n.ctx, func(p RadixRPC_insert_Params) error {
 				if err := p.SetKey(key); err != nil {
 					return err
@@ -485,7 +512,8 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 				return nil
 			})
 			defer release()
-		}(p)
+			return nil, nil
+		})
 	}
 
 	n.metrics.RecordInsert(time.Since(start), len(key)+len(value))
@@ -497,6 +525,7 @@ It properly closes all peer connections and releases resources.
 */
 func (n *NetworkNode) Close() error {
 	n.cancel()
+	n.election.Close()
 
 	if n.listener != nil {
 		errnie.GuardVoid(n.state, n.listener.Close)
@@ -531,23 +560,24 @@ It handles vote requests during leader election, delegating the
 decision to the election manager.
 */
 func (n *NetworkNode) RequestVote(ctx context.Context, call RadixRPC_requestVote) error {
+	state := errnie.NewState("dmt/network/request-vote")
 	args := call.Args()
 	term := args.Term()
-	candidateId := errnie.Guard(n.state, args.CandidateId)
+	candidateId := errnie.Guard(state, args.CandidateId)
 	lastLogIndex := args.LastLogIndex()
 
-	if n.state.Failed() {
-		return n.state.Err()
+	if state.Failed() {
+		return state.Err()
 	}
 
 	// Let election manager handle the vote request
 	voteGranted := n.election.handleVoteRequest(term, candidateId, lastLogIndex, term)
 
-	result := errnie.Guard(n.state, call.AllocResults)
+	result := errnie.Guard(state, call.AllocResults)
 
 	result.SetTerm(term)
 	result.SetVoteGranted(voteGranted)
-	return nil
+	return state.Err()
 }
 
 /*
@@ -556,20 +586,35 @@ It processes heartbeat messages from the leader to maintain
 the distributed system's consensus state.
 */
 func (n *NetworkNode) Heartbeat(ctx context.Context, call RadixRPC_heartbeat) error {
+	state := errnie.NewState("dmt/network/heartbeat")
 	args := call.Args()
 	term := args.Term()
-	leaderId := errnie.Guard(n.state, args.LeaderId)
+	leaderId := errnie.Guard(state, args.LeaderId)
 
-	if n.state.Failed() {
-		return n.state.Err()
+	if state.Failed() {
+		return state.Err()
 	}
 
 	// Let election manager handle the heartbeat
 	success := n.election.handleHeartbeat(term, leaderId)
 
-	result := errnie.Guard(n.state, call.AllocResults)
+	result := errnie.Guard(state, call.AllocResults)
 
 	result.SetTerm(term)
 	result.SetSuccess(success)
-	return nil
+	return state.Err()
+}
+
+/*
+schedule runs a NetworkNode background task on the Forest worker pool.
+*/
+func (n *NetworkNode) schedule(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	n.forest.pool.Schedule(
+		"dmt/network/"+id,
+		fn,
+		pool.WithContext(n.ctx),
+	)
 }

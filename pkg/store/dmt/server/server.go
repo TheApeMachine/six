@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
+	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -33,6 +34,7 @@ type ForestServer struct {
 	serverConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	forest      *dmt.Forest
+	workerPool  *pool.Pool
 }
 
 type serverOpts func(*ForestServer)
@@ -56,7 +58,9 @@ func NewForestServer(opts ...serverOpts) *ForestServer {
 
 	if idx.forest == nil {
 		forest := errnie.Guard(idx.state, func() (*dmt.Forest, error) {
-			return dmt.NewForest(dmt.ForestConfig{})
+			return dmt.NewForest(dmt.ForestConfig{
+				Pool: idx.workerPool,
+			})
 		})
 
 		idx.forest = forest
@@ -211,6 +215,15 @@ WithForest injects a pre-created dmt.Forest.
 func WithForest(forest *dmt.Forest) serverOpts {
 	return func(idx *ForestServer) {
 		idx.forest = forest
+	}
+}
+
+/*
+WithWorkerPool injects the shared worker pool for the backing forest.
+*/
+func WithWorkerPool(workerPool *pool.Pool) serverOpts {
+	return func(idx *ForestServer) {
+		idx.workerPool = workerPool
 	}
 }
 

@@ -70,6 +70,7 @@ func NewBooter(opts ...booterOpts) *Booter {
 	*/
 	forestServer := server.NewForestServer(
 		server.WithContext(booter.ctx),
+		server.WithWorkerPool(booter.pool),
 	)
 	booter.forestClient = forestServer.Client("booter")
 
