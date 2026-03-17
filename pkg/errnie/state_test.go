@@ -1,6 +1,7 @@
 package errnie
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -169,5 +170,89 @@ func BenchmarkGuardFailed(b *testing.B) {
 
 	for b.Loop() {
 		Guard(state, fn)
+	}
+}
+
+func TestStateWithContext(t *testing.T) {
+	Convey("Given a State with StateWithContext", t, func() {
+		parent := context.Background()
+		state := NewState("test/ctx", StateWithContext(parent))
+
+		Convey("Ctx should return a non-nil context", func() {
+			So(state.Ctx(), ShouldNotBeNil)
+			So(state.Ctx().Err(), ShouldBeNil)
+		})
+
+		Convey("When Handle is called", func() {
+			state.Handle(errors.New("node failure"))
+
+			Convey("Ctx should be cancelled", func() {
+				So(state.Ctx().Err(), ShouldNotBeNil)
+				So(state.Ctx().Err(), ShouldEqual, context.Canceled)
+			})
+		})
+
+		Convey("When Heal is called after Handle", func() {
+			state.Handle(errors.New("prior failure"))
+			state.Heal()
+
+			Convey("Ctx should be renewed and not cancelled", func() {
+				So(state.Ctx(), ShouldNotBeNil)
+				So(state.Ctx().Err(), ShouldBeNil)
+			})
+		})
+	})
+}
+
+func TestGuardCtx(t *testing.T) {
+	Convey("Given a State with StateWithContext", t, func() {
+		parent := context.Background()
+		state := NewState("test/guardctx", StateWithContext(parent))
+
+		Convey("GuardCtx should pass ctx to fn and return result", func() {
+			result := GuardCtx(state, func(ctx context.Context) (int, error) {
+				So(ctx, ShouldNotBeNil)
+				return 42, nil
+			})
+			So(result, ShouldEqual, 42)
+		})
+
+		Convey("GuardCtx should short-circuit when ctx is cancelled", func() {
+			state.Handle(errors.New("failure"))
+			called := false
+
+			result := GuardCtx(state, func(ctx context.Context) (int, error) {
+				called = true
+				return 99, nil
+			})
+
+			So(called, ShouldBeFalse)
+			So(result, ShouldEqual, 0)
+		})
+
+		Convey("GuardCtx should short-circuit when parent ctx is already cancelled", func() {
+			cancelled, cancel := context.WithCancel(parent)
+			cancel()
+			state := NewState("test/guardctx-cancelled", StateWithContext(cancelled))
+			called := false
+
+			result := GuardCtx(state, func(ctx context.Context) (int, error) {
+				called = true
+				return 99, nil
+			})
+
+			So(called, ShouldBeFalse)
+			So(result, ShouldEqual, 0)
+		})
+	})
+}
+
+func BenchmarkGuardCtxClean(b *testing.B) {
+	state := NewState("bench", StateWithContext(context.Background()))
+	fn := func(ctx context.Context) (int, error) { return 42, nil }
+
+	for b.Loop() {
+		state.Reset()
+		GuardCtx(state, fn)
 	}
 }

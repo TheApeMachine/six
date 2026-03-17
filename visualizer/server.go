@@ -64,9 +64,11 @@ func (server *Server) listenUDP() error {
 		// Forward raw JSON directly to websockets!
 		var event telemetry.Event
 
-		if err := json.Unmarshal(buf[:n], &event); err == nil {
-			server.Broadcast(event)
-		}
+		errnie.GuardVoid(server.state, func() error {
+			return json.Unmarshal(buf[:n], &event)
+		})
+
+		server.Broadcast(event)
 	}
 }
 

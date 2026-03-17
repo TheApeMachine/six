@@ -141,6 +141,85 @@ func SafeMustVoid(fn func() error, handlers ...func(error)) {
 }
 
 /*
+SafeMust2 wraps a function call returning two values and an error.
+*/
+func SafeMust2[T any, U any](fn func() (T, U, error), handlers ...func(error)) (T, U) {
+	var (
+		v1  T
+		v2  U
+		err error
+	)
+
+	defer func() {
+		if r := recover(); r != nil {
+			recovered := recoverToError(r)
+
+			for _, handler := range handlers {
+				handler(recovered)
+			}
+
+			if len(handlers) == 0 {
+				Warn("Recovered: %v", r)
+			}
+		}
+	}()
+
+	if v1, v2, err = fn(); err != nil && err != io.EOF {
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		if len(handlers) == 0 {
+			ErrorSafe(err, false)
+		}
+
+		panic(err)
+	}
+
+	return v1, v2
+}
+
+/*
+SafeMust3 wraps a function call returning three values and an error.
+*/
+func SafeMust3[T any, U any, V any](fn func() (T, U, V, error), handlers ...func(error)) (T, U, V) {
+	var (
+		v1  T
+		v2  U
+		v3  V
+		err error
+	)
+
+	defer func() {
+		if r := recover(); r != nil {
+			recovered := recoverToError(r)
+
+			for _, handler := range handlers {
+				handler(recovered)
+			}
+
+			if len(handlers) == 0 {
+				Warn("Recovered: %v", r)
+			}
+		}
+	}()
+
+	if v1, v2, v3, err = fn(); err != nil && err != io.EOF {
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		if len(handlers) == 0 {
+			ErrorSafe(err, false)
+		}
+
+		panic(err)
+	}
+
+	return v1, v2, v3
+}
+
+/*
 recoverToError converts a recover() value into a proper error.
 */
 func recoverToError(r any) error {

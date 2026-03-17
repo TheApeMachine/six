@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/test"
 )
@@ -115,11 +116,11 @@ func BenchmarkHolographicAlgebra(b *testing.B) {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	if err := helper.Machine.SetDataset(
-		local.New(local.WithStrings(corpus)),
-	); err != nil {
-		b.Fatal(err)
-	}
+	errnie.GuardVoid(errnie.NewState("visualizer/benchmark"), func() error {
+		return helper.Machine.SetDataset(
+			local.New(local.WithStrings(corpus)),
+		)
+	})
 
 	queries := []string{
 		"Roy is in the ",

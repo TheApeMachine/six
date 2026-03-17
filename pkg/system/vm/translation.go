@@ -81,14 +81,14 @@ func (tl *TranslationLayer) IngestContext(text string) error {
 	ctx := tl.machine.ctx
 
 	for _, chByte := range []byte(text) {
-		if err := tl.machine.booter.tok.Write(
-			ctx, func(p tokenizer.Universal_write_Params) error {
-				p.SetData(chByte)
-				return nil
-			},
-		); err != nil {
-			return err
-		}
+		errnie.GuardVoid(tl.state, func() error {
+			return tl.machine.booter.tok.Write(
+				ctx, func(p tokenizer.Universal_write_Params) error {
+					p.SetData(chByte)
+					return nil
+				},
+			)
+		})
 	}
 
 	errnie.Guard(tl.state, func() ([]uint64, error) {
@@ -133,11 +133,15 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 	graphFuture, graphRelease := tl.machine.booter.graph.Prompt(ctx, func(
 		p substrate.Graph_prompt_Params,
 	) error {
-		if err := p.SetPaths(paths); err != nil {
-			return err
-		}
+		errnie.GuardVoid(tl.state, func() error {
+			return p.SetPaths(paths)
+		})
 
-		return p.SetMetaPaths(metaPaths)
+		errnie.GuardVoid(tl.state, func() error {
+			return p.SetMetaPaths(metaPaths)
+		})
+
+		return nil
 	})
 
 	defer graphRelease()

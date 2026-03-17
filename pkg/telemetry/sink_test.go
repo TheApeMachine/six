@@ -7,13 +7,14 @@ import (
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 func TestSink(t *testing.T) {
 	Convey("Given a new telemetry Sink", t, func() {
 		addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:0")
 		So(err, ShouldBeNil)
-		
+
 		listener, err := net.ListenUDP("udp", addr)
 		So(err, ShouldBeNil)
 		defer listener.Close()
@@ -55,10 +56,10 @@ func TestSink(t *testing.T) {
 
 func BenchmarkSinkEmit(b *testing.B) {
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	listener, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		b.Fatal(err)
-	}
+
+	listener := errnie.Guard(errnie.NewState("visualizer/benchmark"), func() (*net.UDPConn, error) {
+		return net.ListenUDP("udp", addr)
+	})
 	defer listener.Close()
 
 	sink := NewSink(WithAddress(listener.LocalAddr().String()))
@@ -76,10 +77,11 @@ func BenchmarkSinkEmit(b *testing.B) {
 
 func BenchmarkSinkEmitLargePayload(b *testing.B) {
 	addr, _ := net.ResolveUDPAddr("udp", "127.0.0.1:0")
-	listener, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		b.Fatal(err)
-	}
+
+	listener := errnie.Guard(errnie.NewState("visualizer/benchmark"), func() (*net.UDPConn, error) {
+		return net.ListenUDP("udp", addr)
+	})
+
 	defer listener.Close()
 
 	sink := NewSink(WithAddress(listener.LocalAddr().String()))

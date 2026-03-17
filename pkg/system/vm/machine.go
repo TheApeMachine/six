@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"time"
 
@@ -187,6 +188,9 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return nil, machine.state.Err()
 	}
 
+	fmt.Printf("DEBUG: msg=%q, promptBytes=%q, keys=%d, promptValues=%d, resultPathsLen=%d, result=%q\n",
+		msg, string(promptBytes), len(keys), len(promptValues), resultPaths.Len(), string(result))
+
 	stage := "prompt-empty"
 
 	if len(result) > 0 {
@@ -231,11 +235,24 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 		return machine.tokenizerDone()
 	})
 
+	drained := errnie.Guard(machine.state, func() ([]uint64, error) {
+		return machine.tokenizerDone()
+	})
+
+	keys = append(keys, drained...)
+
 	if machine.state.Failed() {
 		return machine.state.Err()
 	}
 
 	machine.writeKeys(ctx, keys)
+
+	errnie.GuardVoid(machine.state, func() error {
+		future, release := machine.booter.graph.Done(ctx, nil)
+		defer release()
+		_, err := future.Struct()
+		return err
+	})
 
 	return machine.state.Err()
 }
@@ -385,6 +402,8 @@ func decodeResultPaths(resultPaths capnp.PointerList, skip int) ([]byte, error) 
 	if state.Failed() {
 		return nil, state.Err()
 	}
+
+	fmt.Printf("DEBUG: decodeResultPaths values=%d, skip=%d\n", len(values), skip)
 
 	if skip >= len(values) {
 		return []byte{}, nil

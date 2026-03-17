@@ -59,6 +59,7 @@ func WithAddress(address string) opts {
 
 /*
 Emit sends the telemetry event as JSON via UDP.
+When the visualization server is offline, write failures are dropped silently.
 */
 func (sink *Sink) Emit(event Event) {
 	if sink.conn == nil {
@@ -69,7 +70,5 @@ func (sink *Sink) Emit(event Event) {
 		return json.Marshal(event)
 	})
 
-	_ = errnie.Guard(sink.state, func() (int, error) {
-		return sink.conn.Write(raw)
-	})
+	_, _ = sink.conn.Write(raw)
 }

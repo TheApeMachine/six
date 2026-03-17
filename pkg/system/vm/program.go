@@ -44,10 +44,9 @@ Call awaits a capnp RPC, releases resources, and extracts the result.
 */
 func Call[R, S any](future futureWithStruct[S], release capnp.ReleaseFunc, extract func(S) (R, error)) (R, error) {
 	defer release()
-	s, err := future.Struct()
-	if err != nil {
-		var z R
-		return z, err
-	}
+	s := errnie.Guard(errnie.NewState("vm/program"), func() (S, error) {
+		return future.Struct()
+	})
+
 	return extract(s)
 }

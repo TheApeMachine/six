@@ -26,9 +26,10 @@ func TestSeek(t *testing.T) {
 		So(err, ShouldBeNil)
 
 		Convey("When a seek is performed", func() {
+			tree.Insert([]byte("test"), []byte("test"))
 			value, ok := tree.Seek([]byte("test"))
 			So(ok, ShouldBeTrue)
-			So(value, ShouldEqual, []byte("test"))
+			So(value, ShouldResemble, []byte("test"))
 		})
 	})
 }
@@ -57,9 +58,10 @@ func TestGet(t *testing.T) {
 		So(err, ShouldBeNil)
 
 		Convey("When a get is performed", func() {
+			tree.Insert([]byte("test"), []byte("test"))
 			value, ok := tree.Get([]byte("test"))
 			So(ok, ShouldBeTrue)
-			So(value, ShouldEqual, []byte("test"))
+			So(value, ShouldResemble, []byte("test"))
 		})
 	})
 }
@@ -70,6 +72,8 @@ func TestAVG(t *testing.T) {
 		So(err, ShouldBeNil)
 
 		Convey("When a avg is performed", func() {
+			tree.Insert([]byte("test"), []byte("test"))
+			tree.Get([]byte("test"))
 			avg := tree.AVG()
 			So(avg, ShouldBeGreaterThan, 0)
 		})

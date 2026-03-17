@@ -36,6 +36,62 @@ func TestMachinePromptExactContinuation(t *testing.T) {
 			gc.So(string(result), gc.ShouldEqual, "Kitchen")
 		})
 	})
+
+	cases := []struct {
+		name     string
+		prompt   string
+		expected string
+	}{
+		{
+			name:     "Roy is in the Kitchen",
+			prompt:   "Roy is in the ",
+			expected: "Kitchen",
+		},
+		{
+			name:     "Sandra is in the Garden",
+			prompt:   "Sandra is in the ",
+			expected: "Garden",
+		},
+		{
+			name:     "Guinevere is in the Library",
+			prompt:   "Guinevere is in the ",
+			expected: "Library",
+		},
+		{
+			name:     "Christobal is in the Mental Institution",
+			prompt:   "Christobal is in the ",
+			expected: "Mental Institution",
+		},
+		{
+			name:     "Yo mama so fat she needs a GPS to find her way to the kitchen",
+			prompt:   "Yo mama so fat",
+			expected: "she needs a GPS to find her way to the kitchen",
+		},
+	}
+
+	for _, c := range cases {
+		gc.Convey("Given "+c.name, t, func() {
+			machine := NewMachine(
+				MachineWithContext(t.Context()),
+			)
+
+			defer machine.Close()
+
+			err := machine.SetDataset(
+				local.New(local.WithStrings([]string{
+					c.prompt + c.expected,
+				})),
+			)
+
+			gc.Convey(c.name+" should return the exact continuation through the graph", func() {
+				gc.So(err, gc.ShouldBeNil)
+
+				result, err := machine.Prompt(c.prompt)
+				gc.So(err, gc.ShouldBeNil)
+				gc.So(string(result), gc.ShouldEqual, c.expected)
+			})
+		})
+	}
 }
 
 /*
@@ -58,9 +114,7 @@ func BenchmarkMachinePromptExactContinuation(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		result, err := machine.Prompt("Roy is in the ")
 		if err != nil {
 			b.Fatal(err)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	iradix "github.com/hashicorp/go-immutable-radix/v2"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -21,6 +22,7 @@ It stores byte slices as both keys and values, providing efficient prefix-based 
 The immutable nature ensures thread-safety and enables persistent data structures.
 */
 type Tree struct {
+	state    *errnie.State
 	root     *iradix.Tree[[]byte]
 	updated  bool
 	perfs    *ring.Ring
@@ -35,37 +37,27 @@ NewTree creates and returns a new empty Tree instance.
 The underlying radix tree is initialized with no entries.
 */
 func NewTree(persistDir string) (*Tree, error) {
-	var persist *PersistentStore
-	var err error
-	var term, index uint64
-
-	root := iradix.New[[]byte]()
-
-	if persistDir != "" {
-		persist, err = NewPersistentStore(persistDir)
-		if err != nil {
-			return nil, err
-		}
-
-		entries, replayErr := persist.Replay()
-		if replayErr != nil {
-			return nil, replayErr
-		}
-
-		for _, entry := range entries {
-			root, _, _ = root.Insert(entry.Key, entry.Value)
-		}
-
-		term, index = persist.GetLastState()
+	tree := &Tree{
+		state: errnie.NewState("dmt/tree"),
+		root:  iradix.New[[]byte](),
+		perfs: ring.New(10),
 	}
 
-	return &Tree{
-		root:     root,
-		perfs:    ring.New(10),
-		persist:  persist,
-		term:     term,
-		logIndex: index,
-	}, nil
+	if persistDir != "" {
+		tree.persist = errnie.Guard(tree.state, func() (*PersistentStore, error) {
+			return NewPersistentStore(persistDir)
+		})
+
+		entries := errnie.Guard(tree.state, tree.persist.Replay)
+
+		for _, entry := range entries {
+			tree.root, _, _ = tree.root.Insert(entry.Key, entry.Value)
+		}
+
+		tree.term, tree.logIndex = tree.persist.GetLastState()
+	}
+
+	return tree, tree.state.Err()
 }
 
 /*
@@ -110,9 +102,9 @@ func (tree *Tree) Insert(key []byte, value []byte) (*Tree, bool) {
 		tree.logIndex++
 
 		if tree.persist != nil {
-			if err := tree.persist.LogInsert(key, value, tree.term, tree.logIndex); err != nil {
-				_ = err
-			}
+			errnie.GuardVoid(tree.state, func() error {
+				return tree.persist.LogInsert(key, value, tree.term, tree.logIndex)
+			})
 		}
 	}
 
@@ -138,12 +130,22 @@ AVG returns the average performance of the tree in nanoseconds.
 */
 func (tree *Tree) AVG() int64 {
 	var sum int64
+	var count int64
 
 	tree.perfs.Do(func(v any) {
+		if v == nil {
+			return
+		}
+
 		sum += v.(int64)
+		count++
 	})
 
-	return sum / int64(tree.perfs.Len())
+	if count == 0 {
+		return 0
+	}
+
+	return sum / count
 }
 
 /*
@@ -151,9 +153,9 @@ Close closes the tree and persists any remaining data.
 */
 func (tree *Tree) Close() error {
 	if tree.persist != nil {
-		return tree.persist.Close()
+		errnie.GuardVoid(tree.state, tree.persist.Close)
 	}
-	return nil
+	return tree.state.Err()
 }
 
 func (tree *Tree) UpdateTerm(term uint64) {
@@ -163,7 +165,9 @@ func (tree *Tree) UpdateTerm(term uint64) {
 	tree.term = term
 
 	if tree.persist != nil {
-		tree.persist.LogTerm(term)
+		errnie.GuardVoid(tree.state, func() error {
+			return tree.persist.LogTerm(term)
+		})
 	}
 }
 

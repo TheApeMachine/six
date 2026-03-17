@@ -3,11 +3,6 @@ package sequencer
 import (
 	"math/bits"
 	"sync"
-
-	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/system/console"
-	"github.com/theapemachine/six/pkg/system/process"
 )
 
 /*
@@ -42,15 +37,12 @@ Rule IDs start at 256 so they never collide with raw bytes.
 */
 type Sequitur struct {
 	mu              sync.Mutex
-	calc            *numeric.Calculus
 	nextID          int
-	lastRuleID      int
 	rules           map[int]*Rule
 	digrams         map[[2]Symbol]*Node
 	sentinel        *Node
 	length          int
-	pending         []byte
-	pendingPos      uint32
+	pendingLen      int
 	approxTolerance int
 }
 
@@ -63,7 +55,6 @@ func NewSequitur() *Sequitur {
 	sentinel.Prev = sentinel
 
 	return &Sequitur{
-		calc:            numeric.NewCalculus(),
 		nextID:          256,
 		rules:           make(map[int]*Rule),
 		digrams:         make(map[[2]Symbol]*Node),
@@ -74,68 +65,39 @@ func NewSequitur() *Sequitur {
 
 /*
 Analyze appends a byte to the grammar, runs digram replacement,
-and returns boundary information compatible with the Sequencer interface.
-A boundary fires whenever a new Rule is created (the digram was seen
-before), signalling a structural repetition — the Sequitur equivalent
-of an MDL boundary.
+and returns the byte unchanged plus whether a boundary fired.
+A boundary fires when a new Rule is created (the digram was seen before).
 */
-func (sequitur *Sequitur) Analyze(
-	pos uint32, byteVal byte,
-) (bool, int, []int, data.Value) {
+func (sequitur *Sequitur) Analyze(pos uint32, byteVal byte) (byte, bool) {
 	sequitur.mu.Lock()
-
-	sequitur.pending = append(sequitur.pending, byteVal)
 
 	newNode := &Node{Val: Symbol(byteVal)}
 	sequitur.appendNode(newNode)
 	sequitur.length++
+	sequitur.pendingLen++
 
 	ruleCreated := sequitur.check(newNode.Prev)
-
-	if !ruleCreated {
-		sequitur.mu.Unlock()
-		return false, 0, nil, data.Value{}
+	if ruleCreated {
+		sequitur.pendingLen = 0
 	}
-
-	pendingCopy := append([]byte(nil), sequitur.pending...)
-	emitK := len(pendingCopy)
-	lastRuleID := sequitur.lastRuleID
-	calc := sequitur.calc
-
-	sequitur.pending = nil
-	sequitur.pendingPos = pos + 1
 
 	sequitur.mu.Unlock()
 
-	console.Trace("sequence", "bytes", string(pendingCopy))
-
-	meta := ruleMetaValue(lastRuleID, calc)
-
-	return true, emitK, []int{process.EventPhaseInversion}, meta
+	return byteVal, ruleCreated
 }
 
 /*
-Flush drains any remaining pending bytes as a final boundary.
+Flush reports whether there are bytes since the last boundary.
+The caller should treat true as a flush boundary and emit their buffer.
 */
-func (sequitur *Sequitur) Flush() (bool, int, []int, data.Value) {
+func (sequitur *Sequitur) Flush() bool {
 	sequitur.mu.Lock()
 	defer sequitur.mu.Unlock()
 
-	if len(sequitur.pending) == 0 {
-		return false, 0, nil, data.Value{}
-	}
+	hasPending := sequitur.pendingLen > 0
+	sequitur.pendingLen = 0
 
-	emitK := len(sequitur.pending)
-	sequitur.pending = nil
-
-	meta := ruleMetaValue(sequitur.lastRuleID, sequitur.calc)
-
-	return true, emitK, []int{
-		process.EventPhaseInversion,
-		process.EventLowVarianceFlux,
-		process.EventDensitySpike,
-		process.EventDensityTrough,
-	}, meta
+	return hasPending
 }
 
 /*
@@ -267,7 +229,6 @@ func (sequitur *Sequitur) reduce(
 ) {
 	ruleID := sequitur.nextID
 	sequitur.nextID++
-	sequitur.lastRuleID = ruleID
 
 	head := &Node{Val: -1}
 	n1 := &Node{Val: d[0], Prev: head}
@@ -329,19 +290,3 @@ func (sequitur *Sequitur) checkAdjacencies(a, b *Node) {
 	}
 }
 
-/*
-ruleMetaValue encodes a grammar rule's structural identity as a value.
-The rule ID is projected into GF(257) via the primitive root (3^ruleID mod 257),
-and the resulting phase is set as a single active bit. This gives each
-discovered rule a unique rotational signature without touching raw bytes.
-*/
-func ruleMetaValue(ruleID int, calc *numeric.Calculus) data.Value {
-	phase := calc.Power(
-		numeric.Phase(numeric.FermatPrimitive), uint32(ruleID),
-	)
-
-	value := data.MustNewValue()
-	value.Set(int(phase))
-
-	return value
-}

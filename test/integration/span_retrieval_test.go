@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/test"
@@ -87,11 +88,13 @@ func TestPromptDeterminism(t *testing.T) {
 		), ShouldBeNil)
 
 		for _, query := range queries {
-			first, err := helper.Machine.Prompt(query)
-			So(err, ShouldBeNil)
+			first := errnie.Guard(errnie.NewState("visualizer/determinism"), func() ([]byte, error) {
+				return helper.Machine.Prompt(query)
+			})
 
-			second, err := helper.Machine.Prompt(query)
-			So(err, ShouldBeNil)
+			second := errnie.Guard(errnie.NewState("visualizer/determinism"), func() ([]byte, error) {
+				return helper.Machine.Prompt(query)
+			})
 
 			So(string(second), ShouldEqual, string(first))
 		}
@@ -137,19 +140,16 @@ func BenchmarkBoundarySpanRecall(b *testing.B) {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	if err := helper.Machine.SetDataset(
-		local.New(local.WithStrings(corpus)),
-	); err != nil {
-		b.Fatal(err)
-	}
+	errnie.GuardVoid(errnie.NewState("visualizer/benchmark"), func() error {
+		return helper.Machine.SetDataset(
+			local.New(local.WithStrings(corpus)),
+		)
+	})
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
-		result, err := helper.Machine.Prompt("Interest rates rose ")
-		if err != nil {
-			b.Fatal(err)
-		}
+	for b.Loop() {
+		result := errnie.Guard(errnie.NewState("visualizer/benchmark"), func() ([]byte, error) {
+			return helper.Machine.Prompt("Interest rates rose ")
+		})
 
 		if len(result) == 0 {
 			b.Fatal("result should not be empty")

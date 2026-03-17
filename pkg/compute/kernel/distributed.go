@@ -14,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/system/console"
 	config "github.com/theapemachine/six/pkg/system/core"
@@ -43,17 +44,21 @@ type DistributedBackend struct {
 type distributedOpts func(*DistributedBackend)
 
 func NewDistributedBackend(opts ...distributedOpts) (*DistributedBackend, error) {
+	state := errnie.NewState("kernel/distributed/new")
 	backend := &DistributedBackend{}
 
 	for _, opt := range opts {
 		opt(backend)
 	}
 
-	if backend.pool == nil {
-		return nil, fmt.Errorf("DistributedBackend: DistributedWithPool must be provided")
-	}
+	errnie.GuardVoid(state, func() error {
+		if backend.pool == nil {
+			return fmt.Errorf("DistributedWithPool must be provided")
+		}
+		return nil
+	})
 
-	return backend, nil
+	return backend, state.Err()
 }
 
 func (backend *DistributedBackend) Available() bool {
@@ -65,14 +70,23 @@ func (backend *DistributedBackend) Resolve(
 	numNodes int,
 	contextPtr unsafe.Pointer,
 ) (uint64, error) {
-	if backend == nil || backend.pool == nil {
-		return 0, fmt.Errorf("distributed backend unavailable")
-	}
-	if numNodes <= 0 {
-		return 0, fmt.Errorf("invalid numNodes: must be > 0")
-	}
-	if graphNodes == nil || contextPtr == nil {
-		return 0, fmt.Errorf("invalid distributed pointers")
+	state := errnie.NewState("kernel/distributed/resolve")
+
+	errnie.GuardVoid(state, func() error {
+		if backend == nil || backend.pool == nil {
+			return fmt.Errorf("distributed backend unavailable")
+		}
+		if numNodes <= 0 {
+			return fmt.Errorf("invalid numNodes: must be > 0")
+		}
+		if graphNodes == nil || contextPtr == nil {
+			return fmt.Errorf("invalid distributed pointers")
+		}
+		return nil
+	})
+
+	if state.Failed() {
+		return 0, state.Err()
 	}
 
 	resolveCtx := backend.ctx
@@ -130,8 +144,15 @@ func (backend *DistributedBackend) Resolve(
 		chunks = append(chunks, chunkWork{start, end})
 	}
 
-	if len(config.System.Workers) == 0 {
-		return 0, fmt.Errorf("no workers available for distributed backend")
+	errnie.GuardVoid(state, func() error {
+		if len(config.System.Workers) == 0 {
+			return fmt.Errorf("no workers available for distributed backend")
+		}
+		return nil
+	})
+
+	if state.Failed() {
+		return 0, state.Err()
 	}
 
 	resChans := make([]chan *pool.Result, len(chunks))
@@ -164,9 +185,13 @@ func (backend *DistributedBackend) Resolve(
 	errCh := make(chan error, len(chunks))
 
 	for i, chunk := range chunks {
+		if state.Failed() {
+			break
+		}
+
 		select {
 		case <-rctx.Done():
-			return 0, rctx.Err()
+			errnie.GuardVoid(state, func() error { return rctx.Err() })
 		case res := <-resChans[i]:
 			if res.Error != nil {
 				if localBuilder != nil {
@@ -199,7 +224,7 @@ func (backend *DistributedBackend) Resolve(
 						}
 					}()
 				} else {
-					errCh <- res.Error
+					errnie.GuardVoid(state, func() error { return res.Error })
 				}
 			} else if v, ok := res.Value.(uint64); ok {
 				atomicMaxPacked(&best, v)
@@ -212,11 +237,14 @@ func (backend *DistributedBackend) Resolve(
 	fallbackWg.Wait()
 	close(errCh)
 
-	if err, ok := <-errCh; ok {
-		return 0, err
-	}
+	errnie.GuardVoid(state, func() error {
+		if err, ok := <-errCh; ok {
+			return err
+		}
+		return nil
+	})
 
-	return best.Load(), nil
+	return best.Load(), state.Err()
 }
 
 func remoteBestFillPacked(
@@ -226,51 +254,69 @@ func remoteBestFillPacked(
 	context []byte,
 	timeout time.Duration,
 ) (uint64, error) {
-	conn, err := net.DialTimeout("tcp", addr, timeout)
-	if err != nil {
-		return 0, err
+	state := errnie.NewState("kernel/distributed/remote-best-fill")
+
+	conn := errnie.Guard(state, func() (net.Conn, error) {
+		return net.DialTimeout("tcp", addr, timeout)
+	})
+
+	if state.Failed() {
+		return 0, state.Err()
 	}
 	defer conn.Close()
 
-	if deadlineErr := conn.SetDeadline(time.Now().Add(timeout)); deadlineErr != nil {
-		return 0, deadlineErr
-	}
+	errnie.GuardVoid(state, func() error {
+		return conn.SetDeadline(time.Now().Add(timeout))
+	})
 
 	enc := capnp.NewEncoder(conn)
 	dec := capnp.NewDecoder(conn)
 
-	msg, err := newWorkRequestMessage(dictionary, numNodes, context)
-	if err != nil {
-		return 0, err
-	}
-	if err = enc.Encode(msg); err != nil {
-		return 0, err
-	}
+	msg := errnie.Guard(state, func() (*capnp.Message, error) {
+		return newWorkRequestMessage(dictionary, numNodes, context)
+	})
 
-	respMsg, err := dec.Decode()
-	if err != nil {
-		return 0, err
-	}
+	errnie.GuardVoid(state, func() error {
+		return enc.Encode(msg)
+	})
 
-	packed, code, parseErr := parseWorkResponseMessage(respMsg)
-	if parseErr != nil {
-		return 0, parseErr
-	}
-	if code != messageErrNone {
-		return 0, fmt.Errorf("remote worker error code=%d", code)
-	}
+	respMsg := errnie.Guard(state, func() (*capnp.Message, error) {
+		return dec.Decode()
+	})
 
-	return packed, nil
+	var (
+		packed uint64
+		code   uint32
+	)
+
+	errnie.GuardVoid(state, func() (err error) {
+		packed, code, err = parseWorkResponseMessage(respMsg)
+		return
+	})
+
+	errnie.GuardVoid(state, func() error {
+		if code != messageErrNone {
+			return fmt.Errorf("remote worker error code=%d", code)
+		}
+		return nil
+	})
+
+	return packed, state.Err()
 }
 
 func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
+	state := errnie.NewState("kernel/distributed/worker-start")
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	ln, err := net.Listen("tcp", addr)
-	if err != nil {
-		return "", err
+	ln := errnie.Guard(state, func() (net.Listener, error) {
+		return net.Listen("tcp", addr)
+	})
+
+	if state.Failed() {
+		return "", state.Err()
 	}
 
 	boundAddr := fmt.Sprintf(":%d", ln.Addr().(*net.TCPAddr).Port)
@@ -283,12 +329,15 @@ func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
 	localBuilder := NewBuilder()
 
 	go func() {
+		acceptState := errnie.NewState("kernel/distributed/accept")
 		for {
-			conn, err := ln.Accept()
-			if err != nil {
+			conn, acceptErr := ln.Accept()
+			if acceptErr != nil {
 				if ctx.Err() != nil {
 					return
 				}
+				acceptState.Handle(acceptErr)
+				acceptState.Reset()
 				continue
 			}
 
@@ -300,14 +349,20 @@ func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
 }
 
 func handleDistributedConn(conn net.Conn, localBuilder *Builder) {
+	state := errnie.NewState("kernel/distributed/handler")
 	defer conn.Close()
 
 	dec := capnp.NewDecoder(conn)
 	enc := capnp.NewEncoder(conn)
 
 	for {
-		msg, err := dec.Decode()
-		if err != nil {
+		state.Reset()
+
+		msg := errnie.Guard(state, func() (*capnp.Message, error) {
+			return dec.Decode()
+		})
+
+		if state.Failed() {
 			return
 		}
 
@@ -336,7 +391,11 @@ func handleDistributedConn(conn net.Conn, localBuilder *Builder) {
 		}
 
 		resp, _ := newWorkResponseMessage(packed, messageErrNone)
-		if err = enc.Encode(resp); err != nil {
+		errnie.GuardVoid(state, func() error {
+			return enc.Encode(resp)
+		})
+
+		if state.Failed() {
 			return
 		}
 	}
@@ -347,101 +406,142 @@ func newWorkRequestMessage(
 	numNodes int,
 	context []byte,
 ) (*capnp.Message, error) {
-	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-	root, err := capnp.NewRootStruct(seg, capnp.ObjectSize{DataSize: messageDataSize, PointerCount: messagePointerCount})
-	if err != nil {
-		return nil, err
-	}
+	state := errnie.NewState("kernel/distributed/request")
+	var (
+		msg *capnp.Message
+		seg *capnp.Segment
+	)
+
+	errnie.GuardVoid(state, func() (err error) {
+		msg, seg, err = capnp.NewMessage(capnp.SingleSegment(nil))
+		return
+	})
+
+	root := errnie.Guard(state, func() (capnp.Struct, error) {
+		return capnp.NewRootStruct(seg, capnp.ObjectSize{
+			DataSize:     messageDataSize,
+			PointerCount: messagePointerCount,
+		})
+	})
 
 	st := capnp.Struct(root)
 	st.SetUint16(0, messageTypeWorkRequest)
 	st.SetUint32(4, uint32(numNodes))
-	if err = st.SetData(0, dictionary); err != nil {
-		return nil, err
-	}
-	if err = st.SetData(1, context); err != nil {
-		return nil, err
-	}
 
-	return msg, nil
+	errnie.GuardVoid(state, func() error {
+		return st.SetData(0, dictionary)
+	})
+
+	errnie.GuardVoid(state, func() error {
+		return st.SetData(1, context)
+	})
+
+	return msg, state.Err()
 }
 
 func newWorkResponseMessage(packed uint64, code uint32) (*capnp.Message, error) {
-	msg, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-	root, err := capnp.NewRootStruct(seg, capnp.ObjectSize{DataSize: messageDataSize, PointerCount: messagePointerCount})
-	if err != nil {
-		return nil, err
-	}
+	state := errnie.NewState("kernel/distributed/response")
+	var (
+		msg *capnp.Message
+		seg *capnp.Segment
+	)
+
+	errnie.GuardVoid(state, func() (err error) {
+		msg, seg, err = capnp.NewMessage(capnp.SingleSegment(nil))
+		return
+	})
+
+	root := errnie.Guard(state, func() (capnp.Struct, error) {
+		return capnp.NewRootStruct(seg, capnp.ObjectSize{
+			DataSize:     messageDataSize,
+			PointerCount: messagePointerCount,
+		})
+	})
 
 	st := capnp.Struct(root)
 	st.SetUint16(0, messageTypeWorkResponse)
 	st.SetUint32(4, code)
 	st.SetUint64(8, packed)
 
-	return msg, nil
+	return msg, state.Err()
 }
 
 func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, []byte, error) {
-	root, err := msg.Root()
-	if err != nil {
-		return nil, 0, nil, err
-	}
+	state := errnie.NewState("kernel/distributed/parse-request")
+
+	root := errnie.Guard(state, func() (capnp.Ptr, error) {
+		return msg.Root()
+	})
+
 	st := root.Struct()
-	if st.Uint16(0) != messageTypeWorkRequest {
-		return nil, 0, nil, fmt.Errorf("unexpected message type: %d", st.Uint16(0))
-	}
+	errnie.GuardVoid(state, func() error {
+		if st.Uint16(0) != messageTypeWorkRequest {
+			return fmt.Errorf("unexpected message type: %d", st.Uint16(0))
+		}
+		return nil
+	})
 
 	numNodes := int(st.Uint32(4))
 
-	dict, err := readStructData(st, 0)
-	if err != nil {
-		return nil, 0, nil, err
-	}
-	context, err := readStructData(st, 1)
-	if err != nil {
-		return nil, 0, nil, err
-	}
+	dict := errnie.Guard(state, func() ([]byte, error) {
+		return readStructData(st, 0)
+	})
 
-	if len(dict) < numNodes*nodeBytes {
-		return nil, 0, nil, fmt.Errorf("invalid dictionary payload")
-	}
-	if len(context) < nodeBytes {
-		return nil, 0, nil, fmt.Errorf("invalid context payload")
-	}
+	context := errnie.Guard(state, func() ([]byte, error) {
+		return readStructData(st, 1)
+	})
 
-	return dict, numNodes, context, nil
+	errnie.GuardVoid(state, func() error {
+		if len(dict) < numNodes*nodeBytes {
+			return fmt.Errorf("invalid dictionary payload")
+		}
+		if len(context) < nodeBytes {
+			return fmt.Errorf("invalid context payload")
+		}
+		return nil
+	})
+
+	return dict, numNodes, context, state.Err()
 }
 
 func parseWorkResponseMessage(msg *capnp.Message) (uint64, uint32, error) {
-	root, err := msg.Root()
-	if err != nil {
-		return 0, 0, err
-	}
+	state := errnie.NewState("kernel/distributed/parse-response")
+
+	root := errnie.Guard(state, func() (capnp.Ptr, error) {
+		return msg.Root()
+	})
+
 	st := root.Struct()
-	if st.Uint16(0) != messageTypeWorkResponse {
-		return 0, 0, fmt.Errorf("unexpected message type: %d", st.Uint16(0))
-	}
-	return st.Uint64(8), st.Uint32(4), nil
+	errnie.GuardVoid(state, func() error {
+		if st.Uint16(0) != messageTypeWorkResponse {
+			return fmt.Errorf("unexpected message type: %d", st.Uint16(0))
+		}
+		return nil
+	})
+
+	return st.Uint64(8), st.Uint32(4), state.Err()
 }
 
 func readStructData(st capnp.Struct, idx uint16) ([]byte, error) {
+	state := errnie.NewState("kernel/distributed/read-struct")
+
 	if !st.HasPtr(idx) {
 		return nil, nil
 	}
-	p, err := st.Ptr(idx)
-	if err != nil {
-		return nil, err
+
+	p := errnie.Guard(state, func() (capnp.Ptr, error) {
+		return st.Ptr(idx)
+	})
+
+	if state.Failed() {
+		return nil, state.Err()
 	}
+
 	data := p.Data()
 	if len(data) == 0 {
 		return nil, nil
 	}
+
 	return append([]byte(nil), data...), nil
 }
 
@@ -517,6 +617,8 @@ and broadcasts our own presence on the local network.
 It also starts the local worker process so this node is part of the mesh.
 */
 func StartDiscovery(ctx context.Context, port string) error {
+	state := errnie.NewState("kernel/distributed/discovery")
+
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -540,27 +642,32 @@ func StartDiscovery(ctx context.Context, port string) error {
 
 	resetWorkersToConfigured()
 
-	boundPort, err := StartDistributedWorker(ctx, port)
-	if err != nil {
+	boundPort := errnie.Guard(state, func() (string, error) {
+		return StartDistributedWorker(ctx, port)
+	})
+
+	if state.Failed() {
 		discoveryMu.Lock()
 		if discoveryState != nil && discoveryState.ctx == ctx {
 			discoveryState = nil
 		}
 		discoveryMu.Unlock()
-		return err
+		return state.Err()
 	}
 
 	addr := fmt.Sprintf("127.0.0.1%s", boundPort)
 	addWorker(addr)
 
-	listenAddr, err := net.ResolveUDPAddr("udp4", ":7778")
-	if err != nil {
-		return err
-	}
+	listenAddr := errnie.Guard(state, func() (*net.UDPAddr, error) {
+		return net.ResolveUDPAddr("udp4", ":7778")
+	})
 
-	conn, err := net.ListenUDP("udp4", listenAddr)
-	if err != nil {
-		return err
+	conn := errnie.Guard(state, func() (*net.UDPConn, error) {
+		return net.ListenUDP("udp4", listenAddr)
+	})
+
+	if state.Failed() {
+		return state.Err()
 	}
 
 	go func() {
@@ -596,10 +703,15 @@ func StartDiscovery(ctx context.Context, port string) error {
 	}()
 
 	go func() {
-		addr, err := net.ResolveUDPAddr("udp4", "255.255.255.255:7778")
-		if err != nil {
+		broadcastState := errnie.NewState("kernel/distributed/broadcast")
+		addr := errnie.Guard(broadcastState, func() (*net.UDPAddr, error) {
+			return net.ResolveUDPAddr("udp4", "255.255.255.255:7778")
+		})
+
+		if broadcastState.Failed() {
 			return
 		}
+
 		for {
 			select {
 			case <-ctx.Done():

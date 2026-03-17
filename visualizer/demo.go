@@ -24,9 +24,9 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	if err := helper.Machine.SetDataset(dataset); err != nil {
-		return console.Error(err, "msg", "failed to set dataset")
-	}
+	errnie.GuardVoid(errnie.NewState("visualizer/demo"), func() error {
+		return helper.Machine.SetDataset(dataset)
+	})
 
 	console.Info("Dataset ingested, starting prompt cycle")
 

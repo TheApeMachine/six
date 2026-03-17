@@ -9,10 +9,10 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/path"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
@@ -28,6 +28,7 @@ type GraphServer struct {
 	mu            sync.RWMutex
 	ctx           context.Context
 	cancel        context.CancelFunc
+	state         *errnie.State
 	serverSide    net.Conn
 	clientSide    net.Conn
 	client        Graph
@@ -37,6 +38,7 @@ type GraphServer struct {
 	sink          *telemetry.Sink
 	pathWavefront *path.Wavefront
 	ast           *ASTNode
+	flatKeys      []uint64
 	sequences     [][]data.Value
 	metaSequences [][]data.Value
 	sequenceKeys  [][]uint64
@@ -52,6 +54,7 @@ NewGraphServer creates the Cap'n Proto RPC server for the logic graph.
 */
 func NewGraphServer(opts ...GraphOpt) *GraphServer {
 	graph := &GraphServer{
+		state:       errnie.NewState("logic/substrate/graph"),
 		clientConns: map[string]*rpc.Conn{},
 		sink:        telemetry.NewSink(),
 	}
@@ -64,10 +67,12 @@ func NewGraphServer(opts ...GraphOpt) *GraphServer {
 		graph.pathWavefront = path.NewWavefront()
 	}
 
-	validate.Require(map[string]any{
-		"ctx":           graph.ctx,
-		"workerPool":    graph.workerPool,
-		"pathWavefront": graph.pathWavefront,
+	errnie.GuardVoid(graph.state, func() error {
+		return validate.Require(map[string]any{
+			"ctx":           graph.ctx,
+			"workerPool":    graph.workerPool,
+			"pathWavefront": graph.pathWavefront,
+		})
 	})
 
 	graph.serverSide, graph.clientSide = net.Pipe()
@@ -100,31 +105,43 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (graph *GraphServer) Close() error {
+	graph.state.Reset()
+
 	if graph.serverConn != nil {
-		_ = graph.serverConn.Close()
+		errnie.GuardVoid(graph.state, func() error {
+			return graph.serverConn.Close()
+		})
 		graph.serverConn = nil
 	}
 
 	for clientID, conn := range graph.clientConns {
 		if conn != nil {
-			_ = conn.Close()
+			errnie.GuardVoid(graph.state, func() error {
+				return conn.Close()
+			})
 		}
 		delete(graph.clientConns, clientID)
 	}
 
 	if graph.serverSide != nil {
-		_ = graph.serverSide.Close()
+		errnie.GuardVoid(graph.state, func() error {
+			return graph.serverSide.Close()
+		})
 		graph.serverSide = nil
 	}
+
 	if graph.clientSide != nil {
-		_ = graph.clientSide.Close()
+		errnie.GuardVoid(graph.state, func() error {
+			return graph.clientSide.Close()
+		})
 		graph.clientSide = nil
 	}
+
 	if graph.cancel != nil {
 		graph.cancel()
 	}
 
-	return nil
+	return graph.state.Err()
 }
 
 /*
@@ -136,7 +153,14 @@ Another way to think about this is that we are now operating on pure, raw struct
 alone, and any semantic meaning happens to just follow that structure.
 */
 func (graph *GraphServer) Write(ctx context.Context, call Graph_write) error {
-	_ = call.Args()
+	graph.state.Reset()
+
+	key := call.Args().Key()
+
+	graph.mu.Lock()
+	graph.flatKeys = append(graph.flatKeys, key)
+	graph.mu.Unlock()
+
 	return nil
 }
 
@@ -147,6 +171,34 @@ resulting AST on the GraphServer for subsequent Prompt queries.
 func (graph *GraphServer) BuildAST() {
 	graph.mu.Lock()
 	defer graph.mu.Unlock()
+
+	fmt.Printf("DEBUG: BuildAST called with flatKeys=%d\n", len(graph.flatKeys))
+
+	if len(graph.flatKeys) > 0 {
+		cells := data.CompileSequenceCells(graph.flatKeys)
+
+		var currentSeq []data.Value
+		var currentMeta []data.Value
+		var currentKeys []uint64
+
+		for i, cell := range cells {
+			currentSeq = append(currentSeq, data.SeedObservable(cell.Symbol, cell.Value))
+
+			meta := data.MustNewValue()
+			meta.CopyFrom(cell.Meta)
+			currentMeta = append(currentMeta, meta)
+
+			currentKeys = append(currentKeys, graph.flatKeys[i])
+		}
+
+		if len(currentSeq) > 0 {
+			graph.sequences = append(graph.sequences, currentSeq)
+			graph.metaSequences = append(graph.metaSequences, currentMeta)
+			graph.sequenceKeys = append(graph.sequenceKeys, currentKeys)
+		}
+
+		graph.flatKeys = nil
+	}
 
 	if len(graph.sequences) == 0 {
 		return
@@ -166,29 +218,33 @@ walks the stored AST to find the best matching branch, and returns the matched
 path as result including Morton key back-pointers for byte recovery.
 */
 func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
+	graph.state.Reset()
 	args := call.Args()
 
-	paths, err := args.Paths()
-	if err != nil {
-		return console.Error(err)
-	}
+	paths := errnie.Guard(graph.state, func() (capnp.PointerList, error) {
+		return args.Paths()
+	})
 
-	pathsData, err := pointerListToValueSlices(paths)
-	if err != nil {
-		return console.Error(err)
-	}
+	pathsData := errnie.Guard(graph.state, func() ([][]data.Value, error) {
+		return pointerListToValueSlices(paths, graph.state)
+	})
 
 	graph.mu.RLock()
 	ast := graph.ast
 	graph.mu.RUnlock()
 
-	if ast == nil || len(pathsData) == 0 || len(pathsData[0]) == 0 {
-		res, err := call.AllocResults()
-		if err != nil {
-			return console.Error(err)
-		}
+	fmt.Printf("DEBUG: Prompt: ast == nil? %v, len(pathsData)=%d\n", ast == nil, len(pathsData))
 
-		return graph.writeResult(res, pathsData)
+	if graph.state.Failed() || ast == nil || len(pathsData) == 0 || len(pathsData[0]) == 0 {
+		res := errnie.Guard(graph.state, func() (Graph_prompt_Results, error) {
+			return call.AllocResults()
+		})
+
+		errnie.GuardVoid(graph.state, func() error {
+			return graph.writeResult(res, pathsData)
+		})
+
+		return graph.state.Err()
 	}
 
 	promptUnion := data.ValueLCM(pathsData[0])
@@ -196,18 +252,22 @@ func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
 
 	resultValues := graph.projectKeysToValues(matchedKeys, leaf, pathsData[0])
 
-	res, err := call.AllocResults()
-	if err != nil {
-		return console.Error(err)
-	}
+	res := errnie.Guard(graph.state, func() (Graph_prompt_Results, error) {
+		return call.AllocResults()
+	})
 
-	return graph.writeResult(res, [][]data.Value{resultValues})
+	errnie.GuardVoid(graph.state, func() error {
+		return graph.writeResult(res, [][]data.Value{resultValues})
+	})
+
+	return graph.state.Err()
 }
 
 /*
 Done implements Graph_Server.
 */
 func (graph *GraphServer) Done(ctx context.Context, call Graph_done) error {
+	graph.BuildAST()
 	return nil
 }
 
@@ -249,25 +309,47 @@ func (graph *GraphServer) stabilizePaths(
 	pathsData [][]data.Value,
 	metaPathsData [][]data.Value,
 ) ([][]data.Value, [][]data.Value, error) {
+	graph.state.Reset()
+
 	if graph.pathWavefront == nil || !graph.pathWavefront.CanStabilize(pathsData) {
 		return pathsData, metaPathsData, nil
 	}
 
-	return graph.pathWavefront.Stabilize(pathsData, metaPathsData)
+	var (
+		stablePaths     [][]data.Value
+		stableMetaPaths [][]data.Value
+	)
+
+	errnie.GuardVoid(graph.state, func() (err error) {
+		stablePaths, stableMetaPaths, err = graph.pathWavefront.Stabilize(
+			pathsData, metaPathsData,
+		)
+		return
+	})
+
+	return stablePaths, stableMetaPaths, graph.state.Err()
 }
 
 func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.Value) error {
-	resultList, err := res.NewResult(int32(len(paths)))
-	if err != nil {
-		return console.Error(err)
-	}
+	graph.state.Reset()
+
+	resultList := errnie.Guard(graph.state, func() (capnp.PointerList, error) {
+		return res.NewResult(int32(len(paths)))
+	})
 
 	seg := res.Segment()
 
 	for i, pathValues := range paths {
-		innerList, err := data.NewValue_List(seg, int32(len(pathValues)))
-		if err != nil {
-			return console.Error(err)
+		if graph.state.Failed() {
+			break
+		}
+
+		innerList := errnie.Guard(graph.state, func() (data.Value_List, error) {
+			return data.NewValue_List(seg, int32(len(pathValues)))
+		})
+
+		if graph.state.Failed() {
+			break
 		}
 
 		for j, pathValue := range pathValues {
@@ -275,12 +357,12 @@ func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.V
 			el.CopyFrom(pathValue)
 		}
 
-		if err := resultList.Set(i, innerList.ToPtr()); err != nil {
-			return console.Error(err)
-		}
+		errnie.GuardVoid(graph.state, func() error {
+			return resultList.Set(i, innerList.ToPtr())
+		})
 	}
 
-	return nil
+	return graph.state.Err()
 }
 
 /*
@@ -300,12 +382,18 @@ func (graph *GraphServer) RecursiveFold(
 		return nil
 	}
 
-	if graph.ctx.Err() != nil {
+	errnie.GuardVoid(graph.state, func() error {
+		return graph.ctx.Err()
+	})
+
+	if graph.state.Failed() {
 		return nil
 	}
 
 	labelDataValue := extractSharedInvariant(sequences)
 	labelMetaValue := extractSharedInvariant(metaSequences)
+
+	fmt.Printf("DEBUG: RecursiveFold level=%d len(sequences)=%d labelDataValue.ActiveCount()=%d labelMetaValue.ActiveCount()=%d\n", level, len(sequences), labelDataValue.ActiveCount(), labelMetaValue.ActiveCount())
 
 	if labelDataValue.ActiveCount() == 0 {
 		return nil
@@ -368,7 +456,11 @@ func (graph *GraphServer) RecursiveFold(
 	})
 
 	for index, resSeq := range uniqueResidues {
-		if graph.ctx.Err() != nil {
+		errnie.GuardVoid(graph.state, func() error {
+			return graph.ctx.Err()
+		})
+
+		if graph.state.Failed() {
 			break
 		}
 
@@ -435,6 +527,8 @@ func (graph *GraphServer) projectKeysToValues(
 		keys = nil
 	}
 
+	fmt.Printf("DEBUG: projectKeysToValues: promptLen=%d keysLenInput=%d overlap=%d resultingKeysLen=%d\n", len(promptBytes), len(keys)+overlap, overlap, len(keys))
+
 	result := make([]data.Value, 0, len(promptValues)+len(keys))
 
 	for _, value := range promptValues {
@@ -462,25 +556,31 @@ func flattenKeys(keys [][]uint64) []uint64 {
 /*
 pointerListToValueSlices converts a capnp.PointerList (List(List(Value))) to [][]data.Value.
 */
-func pointerListToValueSlices(outer capnp.PointerList) ([][]data.Value, error) {
+func pointerListToValueSlices(outer capnp.PointerList, state *errnie.State) ([][]data.Value, error) {
 	result := make([][]data.Value, outer.Len())
 
 	for i := 0; i < outer.Len(); i++ {
-		ptr, err := outer.At(i)
-		if err != nil {
-			return nil, err
+		if state.Failed() {
+			break
+		}
+
+		ptr := errnie.Guard(state, func() (capnp.Ptr, error) {
+			return outer.At(i)
+		})
+
+		if state.Failed() {
+			break
 		}
 
 		inner := data.Value_List(ptr.List())
-		row, err := data.ValueListToSlice(inner)
-		if err != nil {
-			return nil, err
-		}
+		row := errnie.Guard(state, func() ([]data.Value, error) {
+			return data.ValueListToSlice(inner)
+		})
 
 		result[i] = row
 	}
 
-	return result, nil
+	return result, state.Err()
 }
 
 /*
@@ -520,19 +620,23 @@ func GraphWithPathWavefront(pathWavefront *path.Wavefront) GraphOpt {
 }
 
 func inferPromptBytes(values []data.Value) ([]byte, error) {
+	state := errnie.NewState("kernel/substrate/graph/infer-prompt")
 	prompt := make([]byte, 0, len(values))
 
 	for index, value := range values {
-		symbol, ok := data.InferLexicalSeed(value)
-		if !ok {
-			return nil, fmt.Errorf(
-				"graph: prompt byte inference failed at %d",
-				index,
-			)
-		}
+		errnie.GuardVoid(state, func() error {
+			symbol, ok := data.InferLexicalSeed(value)
+			if !ok {
+				return fmt.Errorf("graph: prompt byte inference failed at %d", index)
+			}
+			prompt = append(prompt, symbol)
+			return nil
+		})
 
-		prompt = append(prompt, symbol)
+		if state.Failed() {
+			break
+		}
 	}
 
-	return prompt, nil
+	return prompt, state.Err()
 }

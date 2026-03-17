@@ -3,6 +3,7 @@ package path
 import (
 	"fmt"
 
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/synthesis/goal"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
@@ -23,6 +24,7 @@ type Wavefront struct {
 	frustrationAttempts   int
 	frustrationCandidates int
 	fe                    *goal.FrustrationEngineServer
+	state                 *errnie.State
 }
 
 type WavefrontOpts func(*Wavefront)
@@ -38,6 +40,7 @@ func NewWavefront(opts ...WavefrontOpts) *Wavefront {
 		checkpointWindow:      4,
 		frustrationAttempts:   int(numeric.FermatPrime),
 		frustrationCandidates: int(numeric.FermatPrimitive),
+		state:                 errnie.NewState("logic/path/wavefront"),
 	}
 
 	for _, opt := range opts {
@@ -69,13 +72,22 @@ func (wavefront *Wavefront) Stabilize(
 	sequences [][]data.Value,
 	metaSequences [][]data.Value,
 ) ([][]data.Value, [][]data.Value, error) {
-	if len(sequences) != len(metaSequences) {
-		return nil, nil, fmt.Errorf(
-			"%w: %d sequences != %d meta sequences",
-			ErrWavefrontMismatchedCount,
-			len(sequences),
-			len(metaSequences),
-		)
+	wavefront.state.Reset()
+
+	errnie.GuardVoid(wavefront.state, func() error {
+		if len(sequences) != len(metaSequences) {
+			return fmt.Errorf(
+				"%w: %d sequences != %d meta sequences",
+				ErrWavefrontMismatchedCount,
+				len(sequences),
+				len(metaSequences),
+			)
+		}
+		return nil
+	})
+
+	if wavefront.state.Failed() {
+		return nil, nil, wavefront.state.Err()
 	}
 
 	results := make([]WavefrontResult, 0, len(sequences))
@@ -84,14 +96,21 @@ func (wavefront *Wavefront) Stabilize(
 		sequence := sequences[index]
 		metaSequence := metaSequences[index]
 
-		if len(sequence) != len(metaSequence) {
-			return nil, nil, fmt.Errorf(
-				"%w:  %d has %d values != %d meta values",
-				ErrWavefrontMismatchedSequenceLength,
-				index,
-				len(sequence),
-				len(metaSequence),
-			)
+		errnie.GuardVoid(wavefront.state, func() error {
+			if len(sequence) != len(metaSequence) {
+				return fmt.Errorf(
+					"%w:  %d has %d values != %d meta values",
+					ErrWavefrontMismatchedSequenceLength,
+					index,
+					len(sequence),
+					len(metaSequence),
+				)
+			}
+			return nil
+		})
+
+		if wavefront.state.Failed() {
+			break
 		}
 
 		if !wavefront.canStabilizeSequence(sequence) {
@@ -99,12 +118,19 @@ func (wavefront *Wavefront) Stabilize(
 			continue
 		}
 
-		result, err := wavefront.stabilizeSequence(index, sequence, metaSequence)
-		if err != nil {
-			return nil, nil, err
+		result := errnie.Guard(wavefront.state, func() (WavefrontResult, error) {
+			return wavefront.stabilizeSequence(index, sequence, metaSequence)
+		})
+
+		if wavefront.state.Failed() {
+			break
 		}
 
 		results = append(results, result)
+	}
+
+	if wavefront.state.Failed() {
+		return nil, nil, wavefront.state.Err()
 	}
 
 	stables := make([][]data.Value, len(results))
@@ -165,9 +191,12 @@ func (wavefront *Wavefront) stabilizeSequence(
 	sequence []data.Value,
 	metaSequence []data.Value,
 ) (WavefrontResult, error) {
-	head, err := wavefront.seedHead(sequenceIndex, sequence, metaSequence)
-	if err != nil {
-		return WavefrontResult{}, err
+	head := errnie.Guard(wavefront.state, func() (*WavefrontHead, error) {
+		return wavefront.seedHead(sequenceIndex, sequence, metaSequence)
+	})
+
+	if wavefront.state.Failed() {
+		return WavefrontResult{}, wavefront.state.Err()
 	}
 
 	for valueIndex := 1; valueIndex < len(sequence); valueIndex++ {
@@ -176,13 +205,20 @@ func (wavefront *Wavefront) stabilizeSequence(
 		nextMeta := metaSequence[valueIndex]
 
 		nextPos, nextSegment, ok := wavefront.advanceCursor(head.pos, head.segment, currentValue)
-		if !ok {
-			return WavefrontResult{}, fmt.Errorf(
-				"%w:  %d halted before value %d",
-				ErrWavefrontUnexpectedTerminal,
-				sequenceIndex,
-				valueIndex,
-			)
+		errnie.GuardVoid(wavefront.state, func() error {
+			if !ok {
+				return fmt.Errorf(
+					"%w:  %d halted before value %d",
+					ErrWavefrontUnexpectedTerminal,
+					sequenceIndex,
+					valueIndex,
+				)
+			}
+			return nil
+		})
+
+		if wavefront.state.Failed() {
+			break
 		}
 
 		if !wavefront.valueCarriesOperator(currentValue) {
@@ -219,32 +255,40 @@ func (wavefront *Wavefront) stabilizeSequence(
 		)
 
 		if !ok {
-			bridgedHead, bridgeOK, bridgeErr := wavefront.bridgeDiscontinuity(
-				sequenceIndex,
-				valueIndex,
-				head,
-				nextPos,
-				nextSegment,
-				nextValue,
-				nextMeta,
-				observedPhase,
-			)
-			if bridgeErr != nil {
-				return WavefrontResult{}, bridgeErr
+			var bridgeOK bool
+			head, bridgeOK = errnie.Guard2(wavefront.state, func() (*WavefrontHead, bool, error) {
+				return wavefront.bridgeDiscontinuity(
+					sequenceIndex,
+					valueIndex,
+					head,
+					nextPos,
+					nextSegment,
+					nextValue,
+					nextMeta,
+					observedPhase,
+				)
+			})
+
+			if wavefront.state.Failed() {
+				break
 			}
+
 			if bridgeOK {
-				head = bridgedHead
 				continue
 			}
 
-			return WavefrontResult{}, fmt.Errorf(
-				"%w:  %d value %d rejected expected phase %d observed phase %d",
-				ErrWavefrontTransitionRejected,
-				sequenceIndex,
-				valueIndex,
-				expectedPhase,
-				observedPhase,
-			)
+			errnie.GuardVoid(wavefront.state, func() error {
+				return fmt.Errorf(
+					"%w:  %d value %d rejected expected phase %d observed phase %d",
+					ErrWavefrontTransitionRejected,
+					sequenceIndex,
+					valueIndex,
+					expectedPhase,
+					observedPhase,
+				)
+			})
+
+			break
 		}
 
 		stableValue := nextValue
@@ -266,6 +310,10 @@ func (wavefront *Wavefront) stabilizeSequence(
 		}
 
 		head.recordOpcodeCheckpoint(stableValue)
+	}
+
+	if wavefront.state.Failed() {
+		return WavefrontResult{}, wavefront.state.Err()
 	}
 
 	head.registers.GarbageCollect(head, wavefront.checkpointTrailLimit, wavefront.checkpointWindow)
@@ -293,12 +341,19 @@ func (wavefront *Wavefront) seedHead(
 	}
 
 	phase := wavefront.phaseForValue(sequence[0])
-	if phase == 0 {
-		return nil, fmt.Errorf(
-			"%w:  %d first value carries no phase",
-			ErrWavefrontMissingPhase,
-			sequenceIndex,
-		)
+	errnie.GuardVoid(wavefront.state, func() error {
+		if phase == 0 {
+			return fmt.Errorf(
+				"%w:  %d first value carries no phase",
+				ErrWavefrontMissingPhase,
+				sequenceIndex,
+			)
+		}
+		return nil
+	})
+
+	if wavefront.state.Failed() {
+		return nil, wavefront.state.Err()
 	}
 
 	head := &WavefrontHead{
@@ -409,20 +464,29 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 		return nil, false, nil
 	}
 
-	s, err := wavefront.fe.ResolveCandidates(
-		sourceValue,
-		targetValue,
-		wavefront.frustrationAttempts,
-		wavefront.frustrationCandidates,
-	)
-	if err != nil {
-		return nil, false, fmt.Errorf(
-			"%w:  %d value %d bridge resolve failed: %v",
-			ErrWavefrontBridgeRejected,
-			sequenceIndex,
-			valueIndex,
-			err,
+	s := errnie.Guard(wavefront.state, func() ([][]*macro.MacroOpcode, error) {
+		candidates, err := wavefront.fe.ResolveCandidates(
+			sourceValue,
+			targetValue,
+			wavefront.frustrationAttempts,
+			wavefront.frustrationCandidates,
 		)
+
+		if err != nil {
+			return nil, fmt.Errorf(
+				"%w:  %d value %d bridge resolve failed: %v",
+				ErrWavefrontBridgeRejected,
+				sequenceIndex,
+				valueIndex,
+				err,
+			)
+		}
+
+		return candidates, nil
+	})
+
+	if wavefront.state.Failed() {
+		return nil, false, wavefront.state.Err()
 	}
 
 	if len(s) == 0 {
@@ -464,13 +528,20 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 		}
 	}
 
-	if bestHead == nil {
-		return nil, false, fmt.Errorf(
-			"%w:  %d value %d produced no viable bridge",
-			ErrWavefrontBridgeRejected,
-			sequenceIndex,
-			valueIndex,
-		)
+	errnie.GuardVoid(wavefront.state, func() error {
+		if bestHead == nil {
+			return fmt.Errorf(
+				"%w:  %d value %d produced no viable bridge",
+				ErrWavefrontBridgeRejected,
+				sequenceIndex,
+				valueIndex,
+			)
+		}
+		return nil
+	})
+
+	if wavefront.state.Failed() {
+		return nil, false, wavefront.state.Err()
 	}
 
 	return bestHead, true, nil

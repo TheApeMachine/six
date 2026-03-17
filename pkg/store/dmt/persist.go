@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -45,6 +47,7 @@ It manages write-ahead logging and provides mechanisms for durable storage
 and recovery of tree data.
 */
 type PersistentStore struct {
+	state      *errnie.State
 	walFile    *os.File
 	walWriter  *bufio.Writer
 	walPath    string
@@ -67,36 +70,31 @@ data durability. The store will create necessary directories if they
 don't exist.
 */
 func NewPersistentStore(dir string) (*PersistentStore, error) {
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return nil, err
-	}
-
-	walPath := filepath.Join(dir, "wal.log")
-	snapPath := filepath.Join(dir, "snapshot")
-
-	walFile, err := os.OpenFile(walPath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
-	if err != nil {
-		return nil, err
-	}
-
 	ps := &PersistentStore{
-		walFile:   walFile,
-		walWriter: bufio.NewWriter(walFile),
-		walPath:   walPath,
-		snapPath:  snapPath,
+		state:     errnie.NewState("dmt/persist"),
+		walPath:   filepath.Join(dir, "wal.log"),
+		snapPath:  filepath.Join(dir, "snapshot"),
 		syncChan:  make(chan struct{}, 100),
-		snapCount: 1000, // Create snapshot every 1000 entries
+		snapCount: 1000,
 	}
+
+	errnie.GuardVoid(ps.state, func() error {
+		return os.MkdirAll(dir, 0755)
+	})
+
+	ps.walFile = errnie.Guard(ps.state, func() (*os.File, error) {
+		return os.OpenFile(ps.walPath, os.O_CREATE|os.O_APPEND|os.O_RDWR, 0644)
+	})
+
+	ps.walWriter = bufio.NewWriter(ps.walFile)
 
 	// Start background syncing
 	go ps.backgroundSync()
 
 	// Load last term/index from WAL
-	if err := ps.loadLastState(); err != nil {
-		return nil, err
-	}
+	errnie.GuardVoid(ps.state, ps.loadLastState)
 
-	return ps, nil
+	return ps, ps.state.Err()
 }
 
 /*
@@ -108,34 +106,37 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 
-	// Write entry header
-	if err := ps.walWriter.WriteByte(opInsert); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		if err := ps.walWriter.WriteByte(opInsert); err != nil {
+			return err
+		}
 
-	// Write term and index
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, term); err != nil {
-		return err
-	}
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, index); err != nil {
-		return err
-	}
+		if err := binary.Write(ps.walWriter, binary.LittleEndian, term); err != nil {
+			return err
+		}
 
-	// Write key length and key
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, uint32(len(key))); err != nil {
-		return err
-	}
-	if _, err := ps.walWriter.Write(key); err != nil {
-		return err
-	}
+		if err := binary.Write(ps.walWriter, binary.LittleEndian, index); err != nil {
+			return err
+		}
 
-	// Write value length and value
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, uint32(len(value))); err != nil {
-		return err
-	}
-	if _, err := ps.walWriter.Write(value); err != nil {
-		return err
-	}
+		if err := binary.Write(ps.walWriter, binary.LittleEndian, uint32(len(key))); err != nil {
+			return err
+		}
+
+		if _, err := ps.walWriter.Write(key); err != nil {
+			return err
+		}
+
+		if err := binary.Write(ps.walWriter, binary.LittleEndian, uint32(len(value))); err != nil {
+			return err
+		}
+
+		if _, err := ps.walWriter.Write(value); err != nil {
+			return err
+		}
+
+		return nil
+	})
 
 	// Update last term/index
 	ps.lastTerm = term
@@ -152,7 +153,7 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 		go ps.createSnapshot()
 	}
 
-	return nil
+	return ps.state.Err()
 }
 
 /*
@@ -184,11 +185,10 @@ func (ps *PersistentStore) Close() error {
 	ps.closed = true
 	close(ps.syncChan)
 
-	if err := ps.walWriter.Flush(); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
+	errnie.GuardVoid(ps.state, ps.walFile.Close)
 
-	return ps.walFile.Close()
+	return ps.state.Err()
 }
 
 /*
@@ -198,13 +198,13 @@ func (ps *PersistentStore) LogTerm(term uint64) error {
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 
-	if err := ps.walWriter.WriteByte(opTermUpdate); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		if err := ps.walWriter.WriteByte(opTermUpdate); err != nil {
+			return err
+		}
 
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, term); err != nil {
-		return err
-	}
+		return binary.Write(ps.walWriter, binary.LittleEndian, term)
+	})
 
 	ps.lastTerm = term
 
@@ -213,7 +213,7 @@ func (ps *PersistentStore) LogTerm(term uint64) error {
 	default:
 	}
 
-	return nil
+	return ps.state.Err()
 }
 
 /*
@@ -221,13 +221,16 @@ Replay reads all entries from the WAL and returns them for reinsertion
 into the tree. Also restores lastTerm and lastIndex.
 */
 func (ps *PersistentStore) Replay() ([]WALEntry, error) {
-	file, err := os.Open(ps.walPath)
-	if err != nil {
+	file := errnie.Guard(ps.state, func() (*os.File, error) {
+		f, err := os.Open(ps.walPath)
 		if os.IsNotExist(err) {
 			return nil, nil
 		}
+		return f, err
+	})
 
-		return nil, err
+	if ps.state.Failed() || file == nil {
+		return nil, ps.state.Err()
 	}
 	defer file.Close()
 
@@ -243,33 +246,35 @@ func (ps *PersistentStore) Replay() ([]WALEntry, error) {
 		switch op {
 		case opInsert:
 			var term, index uint64
-			if err := binary.Read(reader, binary.LittleEndian, &term); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &term)
+			})
 
-			if err := binary.Read(reader, binary.LittleEndian, &index); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &index)
+			})
 
 			var keyLen uint32
-			if err := binary.Read(reader, binary.LittleEndian, &keyLen); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &keyLen)
+			})
 
 			key := make([]byte, keyLen)
-			if _, err := reader.Read(key); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				_, err := reader.Read(key)
+				return err
+			})
 
 			var valLen uint32
-			if err := binary.Read(reader, binary.LittleEndian, &valLen); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &valLen)
+			})
 
 			value := make([]byte, valLen)
-			if _, err := reader.Read(value); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				_, err := reader.Read(value)
+				return err
+			})
 
 			entries = append(entries, WALEntry{
 				Op:    opInsert,
@@ -284,24 +289,28 @@ func (ps *PersistentStore) Replay() ([]WALEntry, error) {
 
 		case opTermUpdate:
 			var term uint64
-			if err := binary.Read(reader, binary.LittleEndian, &term); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &term)
+			})
 
 			ps.lastTerm = term
 
 		case opSnapshot:
 			var term, index uint64
-			if err := binary.Read(reader, binary.LittleEndian, &term); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &term)
+			})
 
-			if err := binary.Read(reader, binary.LittleEndian, &index); err != nil {
-				return entries, nil
-			}
+			errnie.GuardVoid(ps.state, func() error {
+				return binary.Read(reader, binary.LittleEndian, &index)
+			})
 
 			ps.lastTerm = term
 			ps.lastIndex = index
+
+			if ps.state.Failed() {
+				return entries, ps.state.Err()
+			}
 		}
 	}
 
@@ -326,99 +335,110 @@ func (ps *PersistentStore) createSnapshot() error {
 		return nil
 	}
 
+	ps.state.Reset()
+
 	// Create snapshot directory if not exists
-	if err := os.MkdirAll(ps.snapPath, 0755); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		return os.MkdirAll(ps.snapPath, 0755)
+	})
 
 	// Create new snapshot file
 	snapFile := filepath.Join(ps.snapPath, fmt.Sprintf("snapshot-%d-%d", ps.lastTerm, ps.lastIndex))
-	file, err := os.Create(snapFile)
-	if err != nil {
-		return err
+
+	file := errnie.Guard(ps.state, func() (*os.File, error) {
+		return os.Create(snapFile)
+	})
+
+	if ps.state.Failed() {
+		return ps.state.Err()
 	}
 	defer file.Close()
 
 	// Write snapshot metadata
-	if err := binary.Write(file, binary.LittleEndian, ps.lastTerm); err != nil {
-		return err
-	}
-	if err := binary.Write(file, binary.LittleEndian, ps.lastIndex); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		return binary.Write(file, binary.LittleEndian, ps.lastTerm)
+	})
+
+	errnie.GuardVoid(ps.state, func() error {
+		return binary.Write(file, binary.LittleEndian, ps.lastIndex)
+	})
 
 	// Log snapshot creation in WAL
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 
-	if err := ps.walWriter.WriteByte(opSnapshot); err != nil {
-		return err
-	}
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, ps.lastTerm); err != nil {
-		return err
-	}
-	if err := binary.Write(ps.walWriter, binary.LittleEndian, ps.lastIndex); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		return ps.walWriter.WriteByte(opSnapshot)
+	})
+
+	errnie.GuardVoid(ps.state, func() error {
+		return binary.Write(ps.walWriter, binary.LittleEndian, ps.lastTerm)
+	})
+
+	errnie.GuardVoid(ps.state, func() error {
+		return binary.Write(ps.walWriter, binary.LittleEndian, ps.lastIndex)
+	})
 
 	// Truncate WAL
-	if err := ps.truncateWAL(); err != nil {
-		return err
+	errnie.GuardVoid(ps.state, ps.truncateWAL)
+
+	if !ps.state.Failed() {
+		ps.lastSnap = time.Now()
 	}
 
-	ps.lastSnap = time.Now()
-	return nil
+	return ps.state.Err()
 }
 
 // truncateWAL creates a new WAL file with just the snapshot entry
 func (ps *PersistentStore) truncateWAL() error {
 	// Create new WAL file
 	newPath := ps.walPath + ".new"
-	newFile, err := os.Create(newPath)
-	if err != nil {
-		return err
+
+	newFile := errnie.Guard(ps.state, func() (*os.File, error) {
+		return os.Create(newPath)
+	})
+
+	if ps.state.Failed() {
+		return ps.state.Err()
 	}
+
 	writer := bufio.NewWriter(newFile)
 
 	// Write snapshot entry
-	if err := writer.WriteByte(opSnapshot); err != nil {
-		newFile.Close()
-		return err
-	}
-	if err := binary.Write(writer, binary.LittleEndian, ps.lastTerm); err != nil {
-		newFile.Close()
-		return err
-	}
-	if err := binary.Write(writer, binary.LittleEndian, ps.lastIndex); err != nil {
-		newFile.Close()
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		return writer.WriteByte(opSnapshot)
+	})
+
+	errnie.GuardVoid(ps.state, func() error {
+		return binary.Write(writer, binary.LittleEndian, ps.lastTerm)
+	})
+
+	errnie.GuardVoid(ps.state, func() error {
+		return binary.Write(writer, binary.LittleEndian, ps.lastIndex)
+	})
 
 	// Ensure all data is written
-	if err := writer.Flush(); err != nil {
-		newFile.Close()
-		return err
-	}
-	if err := newFile.Sync(); err != nil {
-		newFile.Close()
-		return err
-	}
-	newFile.Close()
+	errnie.GuardVoid(ps.state, writer.Flush)
+	errnie.GuardVoid(ps.state, newFile.Sync)
+	errnie.GuardVoid(ps.state, newFile.Close)
 
 	// Replace old WAL with new one
-	if err := os.Rename(newPath, ps.walPath); err != nil {
-		return err
-	}
+	errnie.GuardVoid(ps.state, func() error {
+		return os.Rename(newPath, ps.walPath)
+	})
 
 	// Update file handles
-	ps.walFile.Close()
-	ps.walFile, err = os.OpenFile(ps.walPath, os.O_APPEND|os.O_RDWR, 0644)
-	if err != nil {
-		return err
-	}
-	ps.walWriter = bufio.NewWriter(ps.walFile)
+	errnie.GuardVoid(ps.state, ps.walFile.Close)
 
-	return nil
+	ps.walFile = errnie.Guard(ps.state, func() (*os.File, error) {
+		return os.OpenFile(ps.walPath, os.O_APPEND|os.O_RDWR, 0644)
+	})
+
+	if !ps.state.Failed() {
+		ps.walWriter = bufio.NewWriter(ps.walFile)
+	}
+
+	return ps.state.Err()
 }
 
 // GetLastState returns the last recorded term and index

@@ -11,7 +11,7 @@ import (
 func TestNewNetworkNode(t *testing.T) {
 	Convey("Given network configuration", t, func() {
 		config := NetworkConfig{
-			ListenAddr:   ":0", // Random port
+			ListenAddr:   "127.0.0.1:0", // Random port
 			NodeID:       "test-node",
 			SyncInterval: time.Second,
 		}
@@ -51,7 +51,7 @@ func TestPeerConnections(t *testing.T) {
 		defer forest1.Close()
 
 		node1, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "node1",
 			SyncInterval: time.Second,
 		}, forest1)
@@ -66,7 +66,7 @@ func TestPeerConnections(t *testing.T) {
 		defer forest2.Close()
 
 		node2, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "node2",
 			PeerAddrs:    []string{addr1},
 			SyncInterval: time.Second,
@@ -100,7 +100,7 @@ func TestNetworkSync(t *testing.T) {
 		defer forest1.Close()
 
 		node1, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "node1",
 			SyncInterval: 100 * time.Millisecond,
 		}, forest1)
@@ -115,7 +115,7 @@ func TestNetworkSync(t *testing.T) {
 		defer forest2.Close()
 
 		node2, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "node2",
 			PeerAddrs:    []string{addr1},
 			SyncInterval: 100 * time.Millisecond,
@@ -124,6 +124,7 @@ func TestNetworkSync(t *testing.T) {
 		defer node2.Close()
 
 		Convey("When inserting data on first node", func() {
+			node1.forest.Insert([]byte("key1"), []byte("value1"))
 			node1.merkleTree.Insert([]byte("key1"), []byte("value1"))
 			node1.merkleTree.Rebuild()
 
@@ -145,7 +146,7 @@ func TestNetworkInsert(t *testing.T) {
 		defer forest.Close()
 
 		node, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "test-node",
 			SyncInterval: time.Second,
 		}, forest)
@@ -171,7 +172,7 @@ func TestNetworkMetrics(t *testing.T) {
 		defer forest.Close()
 
 		node, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "test-node",
 			SyncInterval: time.Second,
 		}, forest)
@@ -198,7 +199,7 @@ func TestNetworkClose(t *testing.T) {
 		defer forest.Close()
 
 		node, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "test-node",
 			SyncInterval: time.Second,
 		}, forest)
@@ -233,7 +234,7 @@ func TestNetworkBroadcast(t *testing.T) {
 		defer forest.Close()
 
 		node, err := NewNetworkNode(NetworkConfig{
-			ListenAddr:   ":0",
+			ListenAddr:   "127.0.0.1:0",
 			NodeID:       "test-node",
 			SyncInterval: time.Second,
 		}, forest)

@@ -2,9 +2,10 @@ package dmt
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"time"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -14,6 +15,7 @@ consistency across all trees while optimizing read operations by selecting the f
 responding tree.
 */
 type Forest struct {
+	state *errnie.State
 	trees []*Tree
 	mu    sync.RWMutex
 	// Channel to signal new updates that need synchronization
@@ -42,33 +44,28 @@ tree synchronization.
 func NewForest(config ForestConfig) (*Forest, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	forest := &Forest{
+		state:   errnie.NewState("dmt/forest"),
 		updates: make(chan struct{}, 1), // Buffered channel to prevent blocking
 		ctx:     ctx,
 		cancel:  cancel,
 	}
 
-	// Create initial tree with persistence if directory provided
-	if config.PersistDir != "" {
-		tree, err := NewTree(config.PersistDir)
-		if err != nil {
-			cancel()
-			return nil, err
-		}
-		forest.AddTree(tree)
-	}
+	// Create initial tree (with persistence if directory is provided)
+	tree := errnie.Guard(forest.state, func() (*Tree, error) {
+		return NewTree(config.PersistDir)
+	})
+
+	forest.AddTree(tree)
 
 	// Initialize network node if network config provided
 	if config.Network != nil {
-		network, err := NewNetworkNode(*config.Network, forest)
-		if err != nil {
-			cancel()
-			return nil, fmt.Errorf("failed to create network node: %w", err)
-		}
-		forest.network = network
+		forest.network = errnie.Guard(forest.state, func() (*NetworkNode, error) {
+			return NewNetworkNode(*config.Network, forest)
+		})
 	}
 
 	go forest.syncLoop()
-	return forest, nil
+	return forest, forest.state.Err()
 }
 
 /*
@@ -82,21 +79,15 @@ func (forest *Forest) Close() error {
 	forest.mu.Lock()
 	defer forest.mu.Unlock()
 
-	var closeErr error
-
 	if forest.network != nil {
-		if err := forest.network.Close(); err != nil {
-			closeErr = fmt.Errorf("forest: network close: %w", err)
-		}
+		errnie.GuardVoid(forest.state, forest.network.Close)
 	}
 
 	for _, tree := range forest.trees {
-		if err := tree.Close(); err != nil {
-			closeErr = fmt.Errorf("forest: tree close: %w", err)
-		}
+		errnie.GuardVoid(forest.state, tree.Close)
 	}
 
-	return closeErr
+	return forest.state.Err()
 }
 
 /*

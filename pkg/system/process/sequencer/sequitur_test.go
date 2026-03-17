@@ -14,21 +14,23 @@ func TestAnalyze(t *testing.T) {
 			seq.Analyze(0, 'a')
 			seq.Analyze(1, 'b')
 			seq.Analyze(2, 'a')
-			boundary, emitK, _, meta := seq.Analyze(3, 'b')
+			b, isBoundary := seq.Analyze(3, 'b')
 
-			Convey("It should detect a boundary and emit a rule", func() {
-				So(boundary, ShouldBeTrue)
-				So(emitK, ShouldBeGreaterThan, 0)
-				So(meta.ActiveCount(), ShouldBeGreaterThan, 0)
+			Convey("It should detect a boundary and pass through the byte", func() {
+				So(b, ShouldEqual, 'b')
+				So(isBoundary, ShouldBeTrue)
+				So(seq.RuleCount(), ShouldBeGreaterThan, 0)
 			})
 		})
 
 		Convey("When analyzing bytes without repetition", func() {
-			boundary, _, _, _ := seq.Analyze(0, 'x')
-			So(boundary, ShouldBeFalse)
+			b, isBoundary := seq.Analyze(0, 'x')
+			So(b, ShouldEqual, 'x')
+			So(isBoundary, ShouldBeFalse)
 
-			boundary, _, _, _ = seq.Analyze(1, 'y')
-			So(boundary, ShouldBeFalse)
+			b, isBoundary = seq.Analyze(1, 'y')
+			So(b, ShouldEqual, 'y')
+			So(isBoundary, ShouldBeFalse)
 		})
 	})
 }
@@ -40,12 +42,10 @@ func TestFlush(t *testing.T) {
 		seq.Analyze(1, 'b')
 
 		Convey("When flushing", func() {
-			boundary, emitK, _, meta := seq.Flush()
+			hasPending := seq.Flush()
 
-			Convey("It should emit the pending bytes", func() {
-				So(boundary, ShouldBeTrue)
-				So(emitK, ShouldEqual, 2)
-				So(meta.ActiveCount(), ShouldBeGreaterThanOrEqualTo, 0)
+			Convey("It should report pending bytes", func() {
+				So(hasPending, ShouldBeTrue)
 			})
 		})
 	})
@@ -58,10 +58,10 @@ func TestFlush(t *testing.T) {
 		seq.Analyze(3, 'b') // Boundary drains pending
 
 		Convey("When flushing", func() {
-			boundary, _, _, _ := seq.Flush()
+			hasPending := seq.Flush()
 
-			Convey("It should return no boundary", func() {
-				So(boundary, ShouldBeFalse)
+			Convey("It should return no pending", func() {
+				So(hasPending, ShouldBeFalse)
 			})
 		})
 	})
@@ -143,12 +143,11 @@ func TestAnalyzeApproximateDigram(t *testing.T) {
 			seq.Analyze(0, 'a')
 			seq.Analyze(1, 'b')
 			seq.Analyze(2, 'a')
-			boundary, emitK, _, meta := seq.Analyze(3, 'c') // b=0x62, c=0x63 differ by one bit
+			b, isBoundary := seq.Analyze(3, 'c') // b=0x62, c=0x63 differ by one bit
 
 			Convey("It should still form an approximate structural rule", func() {
-				So(boundary, ShouldBeTrue)
-				So(emitK, ShouldBeGreaterThan, 0)
-				So(meta.ActiveCount(), ShouldBeGreaterThan, 0)
+				So(b, ShouldEqual, 'c')
+				So(isBoundary, ShouldBeTrue)
 				So(seq.RuleCount(), ShouldBeGreaterThan, 0)
 			})
 		})
@@ -158,10 +157,10 @@ func TestAnalyzeApproximateDigram(t *testing.T) {
 			seq.Analyze(0, 'a')
 			seq.Analyze(1, 'b')
 			seq.Analyze(2, 'x')
-			boundary, _, _, _ := seq.Analyze(3, 'y')
+			_, isBoundary := seq.Analyze(3, 'y')
 
 			Convey("It should reject the lossy rule", func() {
-				So(boundary, ShouldBeFalse)
+				So(isBoundary, ShouldBeFalse)
 				So(seq.RuleCount(), ShouldEqual, 0)
 			})
 		})

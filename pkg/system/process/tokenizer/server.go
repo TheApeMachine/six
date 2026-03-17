@@ -19,26 +19,21 @@ UniversalServer tokenizes raw bytes into Morton keys.
 Bytes in → keys out via Done.
 */
 type UniversalServer struct {
-	state        *errnie.State
-	ctx          context.Context
-	cancel       context.CancelFunc
-	serverSide   net.Conn
-	clientSide   net.Conn
-	client       Universal
-	serverConn   *rpc.Conn
-	clientConns  map[string]*rpc.Conn
-	pool         *pool.Pool
-	seq          *sequencer.Sequitur
-	pos          uint32
-	stateMu      sync.Mutex
-	morton       *data.MortonCoder
-	healer       *sequencer.BitwiseHealer
-	fragment     []byte
-	sequence     [][]byte
-	sequences    [][][]byte
-	sequenceIDs  []int
-	emitted      map[int]bool
-	nextSequence int
+	state       *errnie.State
+	ctx         context.Context
+	cancel      context.CancelFunc
+	serverSide  net.Conn
+	clientSide  net.Conn
+	client      Universal
+	serverConn  *rpc.Conn
+	clientConns map[string]*rpc.Conn
+	pool        *pool.Pool
+	seq         *sequencer.Sequitur
+	pos         uint32
+	stateMu     sync.Mutex
+	morton      *data.MortonCoder
+	healer      *sequencer.BitwiseHealer
+	sequences   [][]byte
 }
 
 type universalOpts func(*UniversalServer)
@@ -53,17 +48,18 @@ func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 		morton:      data.NewMortonCoder(),
 		seq:         sequencer.NewSequitur(),
 		healer:      sequencer.NewBitwiseHealer(),
-		emitted:     map[int]bool{},
 	}
 
 	for _, opt := range opts {
 		opt(server)
 	}
 
-	validate.Require(map[string]any{
-		"ctx":  server.ctx,
-		"pool": server.pool,
-		"seq":  server.seq,
+	errnie.GuardVoid(server.state, func() error {
+		return validate.Require(map[string]any{
+			"ctx":  server.ctx,
+			"pool": server.pool,
+			"seq":  server.seq,
+		})
 	})
 
 	server.serverSide, server.clientSide = net.Pipe()
@@ -146,7 +142,8 @@ func (server *UniversalServer) Write(ctx context.Context, call Universal_write) 
 	server.stateMu.Lock()
 	defer server.stateMu.Unlock()
 
-	return server.acceptByte(call.Args().Data())
+	server.tokenize(call.Args().Data())
+	return server.state.Err()
 }
 
 /*
@@ -165,41 +162,16 @@ Done implements Universal_Server.
 func (server *UniversalServer) Done(
 	ctx context.Context, call Universal_done,
 ) error {
-
 	server.stateMu.Lock()
 	defer server.stateMu.Unlock()
 
-	hasPending := len(server.fragment) > 0 || len(server.sequence) > 0
-	var keys []uint64
-	var err error
+	server.state.Reset()
 
-	if hasPending {
-		keys, err = server.finalizeSequence(false)
-	} else {
-		keys, err = server.drainSequences(true)
+	if server.state.Failed() {
+		return server.state.Err()
 	}
 
-	// server.stateMu.Unlock() removed as it's now deferred
-
-	if err != nil {
-		return err
-	}
-
-	results, err := call.AllocResults()
-	if err != nil {
-		return err
-	}
-
-	keyList, err := results.NewKeys(int32(len(keys)))
-	if err != nil {
-		return err
-	}
-
-	for i, key := range keys {
-		keyList.Set(i, key)
-	}
-
-	return nil
+	return server.state.Err()
 }
 
 /*
@@ -228,240 +200,14 @@ func (server *UniversalServer) SetDataset(
 /*
 tokenize runs the Sequencer over one byte and returns a Morton key.
 */
-func (server *UniversalServer) tokenize(raw uint8) uint64 {
-	isBoundary, _, _, _ := server.seq.Analyze(server.pos, raw)
-	server.pos++
+func (server *UniversalServer) tokenize(raw byte) {
+	server.healer.Write(server.seq.Analyze(server.pos, raw))
 
-	if isBoundary {
-		server.pos = 0
-	}
-
-	return server.morton.Pack(server.pos, raw)
-}
-
-func (server *UniversalServer) acceptByte(raw byte) error {
-	isBoundary, emitK, _, _ := server.seq.Analyze(server.pos, raw)
-	server.pos++
-	server.fragment = append(server.fragment, raw)
-
-	if !isBoundary {
-		return nil
-	}
-
-	if emitK != len(server.fragment) {
-		return UniversalError(ErrFragmentDrift)
-	}
-
-	server.sequence = append(server.sequence, append([]byte(nil), server.fragment...))
-	server.fragment = nil
-	server.pos = 0
-
-	return nil
-}
-
-func (server *UniversalServer) finalizeSequence(force bool) ([]uint64, error) {
-	if len(server.fragment) > 0 {
-		isBoundary, emitK, _, _ := server.seq.Flush()
-		if !isBoundary || emitK != len(server.fragment) {
-			return nil, UniversalError(ErrFragmentDrift)
-		}
-
-		server.sequence = append(server.sequence, append([]byte(nil), server.fragment...))
-		server.fragment = nil
-		server.pos = 0
-	}
-
-	if len(server.sequence) > 0 {
-		keys, err := server.compactSequenceBuffer()
-		if err != nil {
-			return nil, err
-		}
-
-		server.healer.Write(server.sequenceValues(server.sequence))
-		server.sequences = append(server.sequences, server.cloneByteSequence(server.sequence))
-		server.sequenceIDs = append(server.sequenceIDs, server.nextSequence)
-		server.nextSequence++
-		server.sequence = nil
-
-		drained, err := server.drainSequences(force)
-		if err != nil {
-			return nil, err
-		}
-
-		return append(keys, drained...), nil
-	}
-
-	return server.drainSequences(force)
-}
-
-func (server *UniversalServer) compactSequenceBuffer() ([]uint64, error) {
-	if len(server.sequences) < server.healer.Capacity() {
-		return nil, nil
-	}
-
-	healed := server.healer.Heal()
-	if len(healed) != len(server.sequences) {
-		return nil, UniversalError(ErrHealerDrift)
-	}
-
-	keys, err := server.emitSequence(0, healed[0])
-	if err != nil {
-		return nil, err
-	}
-
-	server.sequences = server.sequences[1:]
-	server.sequenceIDs = server.sequenceIDs[1:]
-
-	return keys, nil
-}
-
-func (server *UniversalServer) drainSequences(force bool) ([]uint64, error) {
-	if len(server.sequences) == 0 {
-		return nil, nil
-	}
-
-	healed := server.healer.Heal()
-	if len(healed) != len(server.sequences) {
-		return nil, UniversalError(ErrHealerDrift)
-	}
-
-	ready := map[int]bool{}
-
-	if force {
-		for i := range healed {
-			ready[i] = true
-		}
-	} else {
-		for _, component := range server.healer.Components() {
-			if len(component) < 2 {
-				continue
-			}
-
-			newest := component[0]
-			for _, idx := range component[1:] {
-				if idx > newest {
-					newest = idx
-				}
-			}
-
-			for _, idx := range component {
-				if idx == newest {
-					continue
-				}
-
-				ready[idx] = true
-			}
+	if buf := server.healer.Heal(); buf != nil {
+		for _, seq := range buf {
+			server.sequences = append(server.sequences, seq)
 		}
 	}
-
-	keys := []uint64{}
-
-	for localIndex := range healed {
-		if !ready[localIndex] {
-			continue
-		}
-
-		emitted, err := server.emitSequence(localIndex, healed[localIndex])
-		if err != nil {
-			return nil, err
-		}
-
-		keys = append(keys, emitted...)
-	}
-
-	return keys, nil
-}
-
-func (server *UniversalServer) emitSequence(
-	localIndex int,
-	healed [][]data.Value,
-) ([]uint64, error) {
-	sequenceID := server.sequenceIDs[localIndex]
-	if server.emitted[sequenceID] {
-		return nil, nil
-	}
-
-	rawSequence, err := server.rechunkSequence(server.sequences[localIndex], healed)
-	if err != nil {
-		return nil, err
-	}
-
-	keys := server.packSequence(rawSequence)
-
-	server.emitted[sequenceID] = true
-
-	return keys, nil
-}
-
-func (server *UniversalServer) rechunkSequence(
-	rawSequence [][]byte,
-	healed [][]data.Value,
-) ([][]byte, error) {
-	totalRaw := 0
-	totalHealed := 0
-	joined := make([]byte, 0)
-
-	for _, fragment := range rawSequence {
-		totalRaw += len(fragment)
-		joined = append(joined, fragment...)
-	}
-
-	for _, fragment := range healed {
-		totalHealed += len(fragment)
-	}
-
-	if totalRaw != totalHealed {
-		return nil, UniversalError(ErrHealedLength)
-	}
-
-	rechunked := make([][]byte, 0, len(healed))
-	offset := 0
-
-	for _, fragment := range healed {
-		length := len(fragment)
-		rechunked = append(rechunked, append([]byte(nil), joined[offset:offset+length]...))
-		offset += length
-	}
-
-	return rechunked, nil
-}
-
-func (server *UniversalServer) packSequence(sequence [][]byte) []uint64 {
-	keys := make([]uint64, 0)
-
-	for _, fragment := range sequence {
-		for idx, symbol := range fragment {
-			keys = append(keys, server.morton.Pack(uint32(idx+1), symbol))
-		}
-	}
-
-	return keys
-}
-
-func (server *UniversalServer) sequenceValues(sequence [][]byte) [][]data.Value {
-	values := make([][]data.Value, len(sequence))
-
-	for i, fragment := range sequence {
-		row := make([]data.Value, 0, len(fragment))
-
-		for _, symbol := range fragment {
-			row = append(row, data.BaseValue(symbol))
-		}
-
-		values[i] = row
-	}
-
-	return values
-}
-
-func (server *UniversalServer) cloneByteSequence(sequence [][]byte) [][]byte {
-	cloned := make([][]byte, len(sequence))
-
-	for i, fragment := range sequence {
-		cloned[i] = append([]byte(nil), fragment...)
-	}
-
-	return cloned
 }
 
 /*

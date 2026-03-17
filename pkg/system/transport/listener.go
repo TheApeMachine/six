@@ -42,10 +42,9 @@ client is provided to every incoming connection.
 Use ":0" for an OS-assigned port.
 */
 func NewListener(ctx context.Context, addr string, bootstrap capnp.Client) (*Listener, error) {
-	tcpListener, err := net.Listen("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
+	tcpListener := errnie.Guard(errnie.NewState("transport/listener"), func() (net.Listener, error) {
+		return net.Listen("tcp", addr)
+	})
 
 	ctx, cancel := context.WithCancel(ctx)
 
@@ -76,15 +75,12 @@ its own rpc.Conn with the bootstrap client.
 */
 func (listener *Listener) accept() {
 	for {
-		conn, err := listener.listener.Accept()
-		if err != nil {
-			select {
-			case <-listener.ctx.Done():
-				return
-			default:
-				listener.state.Handle(err)
-				continue
-			}
+		conn := errnie.Guard(listener.state, func() (net.Conn, error) {
+			return listener.listener.Accept()
+		})
+
+		if listener.state.Failed() {
+			return
 		}
 
 		rpcConn := rpc.NewConn(rpc.NewStreamTransport(conn), &rpc.Options{

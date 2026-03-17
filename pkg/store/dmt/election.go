@@ -9,6 +9,8 @@ import (
 	"math/rand"
 	"sync"
 	"time"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -45,14 +47,13 @@ leader across the distributed system, handling state transitions,
 vote counting, and heartbeat mechanisms.
 */
 type Election struct {
-	config ElectionConfig
-	node   *NetworkNode
-
-	// Election state
-	state     NodeState
-	term      uint64
-	votedFor  string
-	stateLock sync.RWMutex
+	state          *errnie.State
+	config         ElectionConfig
+	node           *NetworkNode
+	role           NodeState
+	term           uint64
+	votedFor       string
+	stateLock      sync.RWMutex
 
 	// Log tracking
 	lastLogTerm  uint64
@@ -75,9 +76,10 @@ and network node, starting in the Follower state.
 */
 func NewElection(config ElectionConfig, node *NetworkNode) *Election {
 	e := &Election{
+		state:          errnie.NewState("dmt/election"),
 		config:         config,
 		node:           node,
-		state:          Follower,
+		role:           Follower,
 		votes:          make(chan string, 100),
 		shutdown:       make(chan struct{}),
 		heartbeatTimer: time.NewTimer(0),
@@ -126,7 +128,7 @@ the node becomes the leader.
 */
 func (e *Election) startElection() {
 	e.stateLock.Lock()
-	e.state = Candidate
+	e.role = Candidate
 	e.term++
 	e.votedFor = e.node.config.NodeID
 	currentTerm := e.term
@@ -145,7 +147,7 @@ func (e *Election) startElection() {
 
 	// Track votes received (including self-vote)
 	votesReceived := 1
-	votesNeeded := (len(peers) / 2) + 1
+	votesNeeded := max(e.config.QuorumSize, (len(peers)/2)+1)
 
 	// Request votes from all peers
 	for _, p := range peers {
@@ -153,15 +155,12 @@ func (e *Election) startElection() {
 			future, release := peer.client.RequestVote(e.node.ctx, func(p RadixRPC_requestVote_Params) error {
 				p.SetTerm(currentTerm)
 				p.SetCandidateId(e.node.config.NodeID)
-				p.SetLastLogIndex(uint64(len(e.node.merkleTree.Root.Hash)))
+				p.SetLastLogIndex(e.getLastLogIndex())
 				return nil
 			})
 			defer release()
 
-			result, err := future.Struct()
-			if err != nil {
-				return
-			}
+			result := errnie.Guard(e.state, future.Struct)
 
 			if result.VoteGranted() {
 				e.votes <- peer.addr
@@ -195,7 +194,7 @@ and updates relevant metrics.
 */
 func (e *Election) becomeLeader() {
 	e.stateLock.Lock()
-	e.state = Leader
+	e.role = Leader
 	e.stateLock.Unlock()
 
 	// Update metrics
@@ -227,10 +226,7 @@ func (e *Election) sendHeartbeats() {
 			})
 			defer release()
 
-			result, err := future.Struct()
-			if err != nil {
-				return
-			}
+			result := errnie.Guard(e.state, future.Struct)
 
 			// Step down if peer has higher term
 			if result.Term() > e.term {
@@ -259,7 +255,7 @@ stepDownLocked performs the state transition without acquiring stateLock.
 Caller must hold stateLock.
 */
 func (e *Election) stepDownLocked(newTerm uint64) {
-	e.state = Follower
+	e.role = Follower
 	e.term = newTerm
 	e.votedFor = ""
 
@@ -295,7 +291,7 @@ election process.
 func (e *Election) getState() NodeState {
 	e.stateLock.RLock()
 	defer e.stateLock.RUnlock()
-	return e.state
+	return e.role
 }
 
 /*
@@ -308,7 +304,7 @@ func (e *Election) handleVote(voter string) {
 	defer e.stateLock.Unlock()
 
 	// Only count votes if still a candidate
-	if e.state != Candidate {
+	if e.role != Candidate {
 		return
 	}
 
@@ -372,7 +368,7 @@ func (e *Election) handleHeartbeat(term uint64, leaderId string) bool {
 	}
 
 	// Accept heartbeat if term matches and from valid leader
-	if e.state != Leader && leaderId != "" {
+	if e.role != Leader && leaderId != "" {
 		e.resetElectionTimer()
 		// Update metrics
 		e.node.metrics.termNumber.Store(term)

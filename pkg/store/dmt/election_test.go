@@ -28,7 +28,7 @@ func TestNewElection(t *testing.T) {
 				So(election, ShouldNotBeNil)
 				So(election.config, ShouldResemble, config)
 				So(election.node, ShouldEqual, node)
-				So(election.state, ShouldEqual, Follower)
+				So(election.role, ShouldEqual, Follower)
 				So(election.term, ShouldEqual, 0)
 				So(election.votedFor, ShouldEqual, "")
 			})

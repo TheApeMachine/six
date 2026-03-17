@@ -5,6 +5,7 @@ import (
 	"net"
 
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -19,10 +20,9 @@ Usage:
 	typedClient := MyRPC(client)
 */
 func Dial(ctx context.Context, addr string) (*rpc.Conn, error) {
-	tcpConn, err := net.Dial("tcp", addr)
-	if err != nil {
-		return nil, err
-	}
+	tcpConn := errnie.Guard(errnie.NewState("transport/dialer"), func() (net.Conn, error) {
+		return net.Dial("tcp", addr)
+	})
 
 	rpcConn := rpc.NewConn(rpc.NewStreamTransport(tcpConn), nil)
 

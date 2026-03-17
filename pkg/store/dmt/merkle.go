@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 // MerkleNode represents a node in the Merkle tree
@@ -19,6 +21,7 @@ type MerkleNode struct {
 
 // MerkleTree manages a Merkle tree for efficient diff detection
 type MerkleTree struct {
+	state    *errnie.State
 	Root     *MerkleNode
 	leafMap  map[string]*MerkleNode // maps key hex to leaf node
 	nodeMap  map[string]*MerkleNode // maps hash hex to internal nodes
@@ -28,6 +31,7 @@ type MerkleTree struct {
 // NewMerkleTree creates a new Merkle tree
 func NewMerkleTree() *MerkleTree {
 	return &MerkleTree{
+		state:   errnie.NewState("dmt/merkle"),
 		leafMap: make(map[string]*MerkleNode),
 		nodeMap: make(map[string]*MerkleNode),
 	}
@@ -194,44 +198,62 @@ func (mt *MerkleTree) Verify(key, value []byte) bool {
 	return false
 }
 
-// GetProof generates a Merkle proof for a key
+// GetProof generates a Merkle proof for a key.
+// Each proof element is prefixed with a position byte:
+// 0x00 = sibling is on the right, 0x01 = sibling is on the left.
 func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
 	keyHex := hex.EncodeToString(key)
 	leaf, exists := mt.leafMap[keyHex]
+
 	if !exists {
-		return nil, fmt.Errorf("key not found")
+		errnie.GuardVoid(mt.state, func() error {
+			return fmt.Errorf("key not found")
+		})
+		return nil, mt.state.Err()
 	}
 
 	proof := make([][]byte, 0)
 	current := leaf
+
 	for current != mt.Root {
 		parent := mt.findParent(current)
+
 		if parent == nil {
-			return nil, fmt.Errorf("invalid tree structure")
+			errnie.GuardVoid(mt.state, func() error {
+				return fmt.Errorf("invalid tree structure")
+			})
+			return nil, mt.state.Err()
 		}
 
 		if parent.Left == current {
 			if parent.Right != nil {
-				proof = append(proof, parent.Right.Hash)
+				entry := append([]byte{0x00}, parent.Right.Hash...)
+				proof = append(proof, entry)
 			}
 		} else {
-			proof = append(proof, parent.Left.Hash)
+			entry := append([]byte{0x01}, parent.Left.Hash...)
+			proof = append(proof, entry)
 		}
+
 		current = parent
 	}
 
 	return proof, nil
 }
 
-// VerifyProof verifies a Merkle proof
+// VerifyProof verifies a Merkle proof.
+// Each proof element carries a position prefix byte that determines hash ordering.
 func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 	hash := mt.hashKV(key, value)
 
-	for _, sibling := range proof {
-		if bytes.Compare(hash, sibling) < 0 {
-			hash = mt.hashChildren(&MerkleNode{Hash: hash}, &MerkleNode{Hash: sibling})
+	for _, entry := range proof {
+		position := entry[0]
+		siblingHash := entry[1:]
+
+		if position == 0x00 {
+			hash = mt.hashChildren(&MerkleNode{Hash: hash}, &MerkleNode{Hash: siblingHash})
 		} else {
-			hash = mt.hashChildren(&MerkleNode{Hash: sibling}, &MerkleNode{Hash: hash})
+			hash = mt.hashChildren(&MerkleNode{Hash: siblingHash}, &MerkleNode{Hash: hash})
 		}
 	}
 
