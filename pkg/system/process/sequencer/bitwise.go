@@ -50,6 +50,27 @@ func (bitwise *BitwiseHealer) Write(b byte, isBoundary bool) {
 }
 
 /*
+Flush emits any remaining bytes in the buffer as a final chunk.
+Call after feeding all input when the stream ends.
+*/
+func (bitwise *BitwiseHealer) Flush() [][]byte {
+	if bitwise.buffer.Len() == 0 {
+		return nil
+	}
+
+	chunk := make([]data.Value, 0, bitwise.buffer.Len())
+
+	for _, b := range bitwise.buffer.Bytes() {
+		chunk = append(chunk, data.BaseValue(b))
+	}
+
+	bitwise.values = append(bitwise.values, chunk)
+	bitwise.buffer.Reset()
+
+	return bitwise.Heal()
+}
+
+/*
 Heal splits the current fragments in half, ANDs the two halves' LCMs to get
 the shared signal, sorts each chunk into left/overlap/right, and clears the
 buffer for the next call.
@@ -62,10 +83,13 @@ func (bitwise *BitwiseHealer) Heal() [][]byte {
 	if len(bitwise.values) == 1 {
 		result := [][]byte{bitwise.decode(bitwise.values[0])}
 		bitwise.values = bitwise.values[:0]
-
 		return result
 	}
 
+	fmt.Println("--- starting iterative heal ---")
+
+	// Phase 1: Determine the "shared" anchor signal across the sequences
+	// by checking what the two halves of the buffer have in common.
 	mid := len(bitwise.values) / 2
 	halfA := bitwise.values[:mid]
 	halfB := bitwise.values[mid:]
@@ -74,63 +98,55 @@ func (bitwise *BitwiseHealer) Heal() [][]byte {
 	lcmB := data.ValueLCM(bitwise.flatten(halfB))
 	shared := lcmA.AND(lcmB)
 
-	var left [][]data.Value
-	var overlap [][]data.Value
-	var right [][]data.Value
+	// Phase 2: Iteratively merge adjacent chunks that belong to the SAME category
+	// Category is defined as: chunk is entirely composed of bits present in the shared anchor.
+	changed := true
+	for changed {
+		changed = false
+		var next [][]data.Value
 
-	for _, chunk := range halfA {
-		chunkLCM := data.ValueLCM(chunk)
-		hit := chunkLCM.AND(shared)
+		for i := 0; i < len(bitwise.values); i++ {
+			if i == len(bitwise.values)-1 {
+				next = append(next, bitwise.values[i])
+				break
+			}
 
-		if hit.ActiveCount() == chunkLCM.ActiveCount() {
-			overlap = append(overlap, chunk)
-		} else {
-			left = append(left, chunk)
+			curr := bitwise.values[i]
+			nxt := bitwise.values[i+1]
+
+			currLCM := data.ValueLCM(curr)
+			nxtLCM := data.ValueLCM(nxt)
+
+			currHit := currLCM.AND(shared)
+			nxtHit := nxtLCM.AND(shared)
+
+			currIsShared := currHit.ActiveCount() == currLCM.ActiveCount()
+			nxtIsShared := nxtHit.ActiveCount() == nxtLCM.ActiveCount()
+
+			if currIsShared == nxtIsShared {
+				fmt.Printf("  Merging %q and %q (Category match: %v)\n", string(bitwise.decode(curr)), string(bitwise.decode(nxt)), currIsShared)
+				
+				merged := append([]data.Value{}, curr...)
+				merged = append(merged, nxt...)
+				next = append(next, merged)
+				
+				// skip next
+				next = append(next, bitwise.values[i+2:]...)
+				changed = true
+				break
+			} else {
+				next = append(next, curr)
+			}
 		}
+		bitwise.values = next
 	}
 
-	for _, chunk := range halfB {
-		chunkLCM := data.ValueLCM(chunk)
-		hit := chunkLCM.AND(shared)
-
-		if hit.ActiveCount() == chunkLCM.ActiveCount() {
-			overlap = append(overlap, chunk)
-		} else {
-			right = append(right, chunk)
-		}
-	}
-
-	fmt.Println("--- left ---")
-	for _, chunk := range left {
-		fmt.Printf("  %q\n", string(bitwise.decode(chunk)))
-	}
-
-	fmt.Println("--- overlap ---")
-	for _, chunk := range overlap {
-		fmt.Printf("  %q\n", string(bitwise.decode(chunk)))
-	}
-
-	fmt.Println("--- right ---")
-	for _, chunk := range right {
-		fmt.Printf("  %q\n", string(bitwise.decode(chunk)))
+	var result [][]byte
+	for _, chunk := range bitwise.values {
+		result = append(result, bitwise.decode(chunk))
 	}
 
 	bitwise.values = bitwise.values[:0]
-
-	var result [][]byte
-
-	for _, chunk := range left {
-		result = append(result, bitwise.decode(chunk))
-	}
-
-	for _, chunk := range overlap {
-		result = append(result, bitwise.decode(chunk))
-	}
-
-	for _, chunk := range right {
-		result = append(result, bitwise.decode(chunk))
-	}
-
 	return result
 }
 

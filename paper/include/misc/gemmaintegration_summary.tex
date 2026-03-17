@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & GemmaIntegration & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & GemmaIntegration & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & GemmaIntegration & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & GemmaIntegration & 0.0000 & 1.0000 & 0.0002 & 0.2728 \\
+1 & GemmaIntegration & 0.0000 & 1.0000 & 0.0002 & 0.2728 \\
+0 & GemmaIntegration & 0.0000 & 1.0000 & 0.0002 & 0.2728 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (3 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Alice performs better than Bob on all lo\ldots}} & \multicolumn{2}{l}{\texttt{Bob second, Carol third.}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{Paris is the capital of France, confirme\ldots}} & \multicolumn{2}{l}{\texttt{l since the 10th century.}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{The weather is usually warm in summer. T\ldots}} & \multicolumn{2}{l}{\texttt{in the bedroom wardrobe.}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{The weather is usually warm in summer. T\ldots}} & \multicolumn{2}{l}{\texttt{in the bedroom wardrobe.}} & \multicolumn{2}{l}{\texttt{in the bedroom wardrobe.The weather in t\ldots}} \\
+\multicolumn{2}{l}{\texttt{Paris is the capital of France, confirme\ldots}} & \multicolumn{2}{l}{\texttt{l since the 10th century.}} & \multicolumn{2}{l}{\texttt{l since the 10th century.The weather is \ldots}} \\
+\multicolumn{2}{l}{\texttt{Alice performs better than Bob on all lo\ldots}} & \multicolumn{2}{l}{\texttt{Bob second, Carol third.}} & \multicolumn{2}{l}{\texttt{Bob second, Carol third.Paris is the cap\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 3} & \multicolumn{3}{l}{Holdout: 25\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Mean score: 0.2728} & \multicolumn{3}{l}{Min: 0.2728 \quad Max: 0.2728} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{1.1 min} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{589.0 ms} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{196.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{2.04 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.2 min}} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{2.0 min} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{46.54 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{15.51 s} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{2.31 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.8 min}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

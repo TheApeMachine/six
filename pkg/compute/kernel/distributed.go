@@ -304,7 +304,7 @@ func remoteBestFillPacked(
 	return packed, state.Err()
 }
 
-func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
+func StartDistributedWorker(ctx context.Context) (string, error) {
 	state := errnie.NewState("kernel/distributed/worker-start")
 
 	if ctx == nil {
@@ -312,7 +312,7 @@ func StartDistributedWorker(ctx context.Context, addr string) (string, error) {
 	}
 
 	ln := errnie.Guard(state, func() (net.Listener, error) {
-		return net.Listen("tcp", addr)
+		return net.Listen("tcp", ":0")
 	})
 
 	if state.Failed() {
@@ -616,7 +616,7 @@ StartDiscovery begins listening for broadcast UDP packets to discover peers,
 and broadcasts our own presence on the local network.
 It also starts the local worker process so this node is part of the mesh.
 */
-func StartDiscovery(ctx context.Context, port string) error {
+func StartDiscovery(ctx context.Context) error {
 	state := errnie.NewState("kernel/distributed/discovery")
 
 	if ctx == nil {
@@ -643,7 +643,7 @@ func StartDiscovery(ctx context.Context, port string) error {
 	resetWorkersToConfigured()
 
 	boundPort := errnie.Guard(state, func() (string, error) {
-		return StartDistributedWorker(ctx, port)
+		return StartDistributedWorker(ctx)
 	})
 
 	if state.Failed() {

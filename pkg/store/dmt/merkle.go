@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"sort"
+	"sync"
 
 	"github.com/theapemachine/six/pkg/errnie"
 )
@@ -22,9 +23,10 @@ type MerkleNode struct {
 // MerkleTree manages a Merkle tree for efficient diff detection
 type MerkleTree struct {
 	state    *errnie.State
+	mu       sync.RWMutex
 	Root     *MerkleNode
-	leafMap  map[string]*MerkleNode // maps key hex to leaf node
-	nodeMap  map[string]*MerkleNode // maps hash hex to internal nodes
+	leafMap  map[string]*MerkleNode
+	nodeMap  map[string]*MerkleNode
 	modified bool
 }
 
@@ -39,14 +41,15 @@ func NewMerkleTree() *MerkleTree {
 
 // Insert adds or updates a key-value pair in the Merkle tree
 func (mt *MerkleTree) Insert(key, value []byte) {
-	// Create leaf node
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
 	leaf := &MerkleNode{
 		Key:   key,
 		Value: value,
 		Hash:  mt.hashKV(key, value),
 	}
 
-	// Store in leaf map
 	keyHex := hex.EncodeToString(key)
 	mt.leafMap[keyHex] = leaf
 	mt.modified = true
@@ -54,11 +57,13 @@ func (mt *MerkleTree) Insert(key, value []byte) {
 
 // Rebuild reconstructs the Merkle tree from leaves
 func (mt *MerkleTree) Rebuild() {
+	mt.mu.Lock()
+	defer mt.mu.Unlock()
+
 	if !mt.modified {
 		return
 	}
 
-	// Convert leaves to slice and sort by key for deterministic ordering
 	leaves := make([]*MerkleNode, 0, len(mt.leafMap))
 	keys := make([]string, 0, len(mt.leafMap))
 	for k := range mt.leafMap {
@@ -70,7 +75,6 @@ func (mt *MerkleTree) Rebuild() {
 		leaves = append(leaves, mt.leafMap[k])
 	}
 
-	// Build tree bottom-up
 	mt.Root = mt.buildLevel(leaves)
 	mt.modified = false
 }
@@ -113,6 +117,9 @@ func (mt *MerkleTree) buildLevel(nodes []*MerkleNode) *MerkleNode {
 
 // GetDiff returns the differences between this tree and another
 func (mt *MerkleTree) GetDiff(other *MerkleTree) []DiffEntry {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
 	if mt.Root == nil || other.Root == nil {
 		return mt.fullDiff(other)
 	}
@@ -191,6 +198,9 @@ func (mt *MerkleTree) fullDiff(other *MerkleTree) []DiffEntry {
 
 // Verify checks if a key-value pair exists in the tree
 func (mt *MerkleTree) Verify(key, value []byte) bool {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
 	keyHex := hex.EncodeToString(key)
 	if leaf, exists := mt.leafMap[keyHex]; exists {
 		return bytes.Equal(leaf.Value, value)

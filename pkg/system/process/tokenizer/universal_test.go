@@ -49,18 +49,157 @@ func generateBinaryNoise(size int, rng *rand.Rand) []byte {
 	return out
 }
 
-func TestWrite(t *testing.T) {
+func newServer(t *testing.T) *UniversalServer {
+	return NewUniversalServer(
+		UniversalWithContext(t.Context()),
+	)
+}
+
+func TestTokenizeSingleByte(t *testing.T) {
 	Convey("Given a UniversalServer", t, func() {
-		tokenizer := NewUniversalServer(
-			UniversalWithContext(t.Context()),
-		)
+		server := newServer(t)
 
-		Convey("When writing a byte", func() {
-			err := tokenizer.Write(t.Context(), Universal_write{})
+		Convey("When tokenizing a single byte", func() {
+			server.tokenize('A')
 
-			Convey("Then there should be no error", func() {
-				So(err, ShouldBeNil)
+			Convey("It should not panic and sequences remain empty until a boundary fires", func() {
+				So(server.sequences, ShouldBeEmpty)
 			})
 		})
 	})
+}
+
+func TestTokenizeRepeatedPattern(t *testing.T) {
+	Convey("Given a UniversalServer", t, func() {
+		server := newServer(t)
+
+		Convey("When feeding a repeated digram so a boundary fires", func() {
+			// Sequitur fires a boundary on the second occurrence of 'ab'.
+			server.tokenize('a')
+			server.tokenize('b')
+			server.tokenize('a')
+			server.tokenize('b')
+
+			Convey("It should accumulate at least one sequence", func() {
+				So(len(server.sequences), ShouldBeGreaterThan, 0)
+			})
+		})
+	})
+}
+
+func TestTokenizeCorpusPreservesBytes(t *testing.T) {
+	Convey("Given a UniversalServer", t, func() {
+		server := newServer(t)
+		rng := rand.New(rand.NewSource(42))
+		input := []byte(generateCorpus(10, rng))
+
+		Convey("When tokenizing a realistic multi-paragraph corpus", func() {
+			for _, b := range input {
+				server.tokenize(b)
+			}
+
+			remaining := server.healer.Flush()
+
+			Convey("It should reconstruct every byte without loss", func() {
+				var got []byte
+
+				for _, seq := range server.sequences {
+					got = append(got, seq...)
+				}
+
+				for _, seq := range remaining {
+					got = append(got, seq...)
+				}
+
+				So(len(got), ShouldEqual, len(input))
+
+				for idx, b := range got {
+					So(b, ShouldEqual, input[idx])
+				}
+			})
+		})
+	})
+}
+
+func TestTokenizeBinaryNoisePreservesBytes(t *testing.T) {
+	Convey("Given a UniversalServer", t, func() {
+		server := newServer(t)
+		rng := rand.New(rand.NewSource(99))
+		input := generateBinaryNoise(512, rng)
+
+		Convey("When tokenizing 512 bytes of random binary noise", func() {
+			for _, b := range input {
+				server.tokenize(b)
+			}
+
+			remaining := server.healer.Flush()
+
+			Convey("It should reconstruct every byte without loss", func() {
+				var got []byte
+
+				for _, seq := range server.sequences {
+					got = append(got, seq...)
+				}
+
+				for _, seq := range remaining {
+					got = append(got, seq...)
+				}
+
+				So(len(got), ShouldEqual, len(input))
+
+				for idx, b := range got {
+					So(b, ShouldEqual, input[idx])
+				}
+			})
+		})
+	})
+}
+
+func BenchmarkTokenizeByte(b *testing.B) {
+	server := NewUniversalServer(
+		UniversalWithContext(b.Context()),
+	)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		server.tokenize('x')
+	}
+}
+
+func BenchmarkTokenizeCorpus(b *testing.B) {
+	rng := rand.New(rand.NewSource(42))
+	corpus := []byte(generateCorpus(10, rng))
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		server := NewUniversalServer(
+			UniversalWithContext(b.Context()),
+		)
+
+		for _, byteVal := range corpus {
+			server.tokenize(byteVal)
+		}
+	}
+}
+
+func BenchmarkTokenizeBinaryNoise(b *testing.B) {
+	rng := rand.New(rand.NewSource(99))
+	noise := generateBinaryNoise(512, rng)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		server := NewUniversalServer(
+			UniversalWithContext(b.Context()),
+		)
+
+		for _, byteVal := range noise {
+			server.tokenize(byteVal)
+		}
+	}
 }

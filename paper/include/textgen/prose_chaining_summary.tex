@@ -9,40 +9,40 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+9 & Prose Chaining & 1.0000 & 1.0000 & 1.0000 & 1.0000 \\
+7 & Prose Chaining & 0.0000 & 1.0000 & 0.0529 & 0.2823 \\
+6 & Prose Chaining & 0.0000 & 1.0000 & 0.0368 & 0.2794 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 8 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-7 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+4 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+0 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{= Valkyria Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{Senjō no Valkyria 3 : Unrecorded Chronic\ldots}} & \multicolumn{2}{l}{\texttt{are pitted against the Imperial unit " C\ldots}} & \multicolumn{2}{l}{\texttt{}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{s Calamity Raven , consisting of mostly \ldots}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{s Calamity Raven , consisting of mostly \ldots}} & \multicolumn{2}{l}{\texttt{s Calamity Raven , consisting of mostly \ldots}} \\
+\multicolumn{2}{l}{\texttt{Troops are divided into five classes : S\ldots}} & \multicolumn{2}{l}{\texttt{y games ' method of distributing to diff\ldots}} & \multicolumn{2}{l}{\texttt{y games ' method of distributing to diff\ldots}} \\
 \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{= = Plot = = ·}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{= = Gameplay = = ·}} & \multicolumn{2}{l}{\texttt{}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 10} & \multicolumn{3}{l}{Holdout: 60\% (RIGHT)} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Mean score: 0.2663} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 1.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{142.0 ms} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{980.0 ms} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{98.0 ms} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.74 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{2.86 s}} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{1.30 s} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{5.70 s} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{570.0 ms} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.54 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{8.55 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

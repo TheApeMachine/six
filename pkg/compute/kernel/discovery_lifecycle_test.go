@@ -24,7 +24,7 @@ func TestStartDiscoveryCanRestartAfterContextCancellation(t *testing.T) {
 
 		Convey("When starting discovery and terminating first context", func() {
 			ctx1, cancel1 := context.WithCancel(context.Background())
-			StartDiscovery(ctx1, ":0")
+			StartDiscovery(ctx1)
 			
 			So(len(config.System.Workers), ShouldBeGreaterThan, 0)
 			if len(config.System.Workers) == 0 {
@@ -61,7 +61,7 @@ func TestStartDiscoveryCanRestartAfterContextCancellation(t *testing.T) {
 						}
 					}
 				}()
-				StartDiscovery(ctx2, ":0")
+				StartDiscovery(ctx2)
 				
 				if len(config.System.Workers) == 0 {
 					t.Fatalf("expected local worker after discovery restart")
@@ -98,7 +98,7 @@ func BenchmarkStartDiscoveryCanRestartAfterContextCancellation(b *testing.B) {
 		discoveryMu.Unlock()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		StartDiscovery(ctx, ":0")
+		StartDiscovery(ctx)
 		cancel()
 		for j := 0; j < 20; j++ {
 			time.Sleep(10 * time.Millisecond)

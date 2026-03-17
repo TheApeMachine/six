@@ -15,12 +15,12 @@ structural value resonance remains viable --- making it a sharper
 discriminator for the architecture's generative capabilities.
 
 \paragraph{Results.}
-Across $N = 10$ test samples the mean weighted score was 0.000.
+Across $N = 10$ test samples the mean weighted score was 0.266.
 
 \paragraph{Assessment.}
-Chaining quality was minimal.  The 60\% holdout and high lexical diversity
-of wikitext-103 together constitute the hardest textgen configuration.
-The result establishes a lower bound; easier holdout configurations and
-a larger ingestion corpus are expected to produce substantially higher scores.
+Partial chaining was observed.  Common Wikipedia structural patterns
+(section openers, reference sentence rhythms, passive constructions) are
+recoverable, but long-range semantic coherence is limited by the attractor
+density achievable with 10 ingested samples from a 103-million-token corpus.
 
 Figure~\ref{fig:prose_chaining_map} shows the trial outcome map.

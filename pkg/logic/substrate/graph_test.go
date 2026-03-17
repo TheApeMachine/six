@@ -15,44 +15,23 @@ import (
 )
 
 /*
-tokenize runs the real Sequitur over raw bytes and returns the chunks it discovers.
+tokenize uses the same Sequitur + BitwiseHealer pipeline as the tokenizer.
 */
 func tokenize(raw []byte) [][]byte {
 	seq := sequencer.NewSequitur()
+	healer := sequencer.NewBitwiseHealer()
 	var chunks [][]byte
-	var chunk []byte
 
 	for pos, b := range raw {
-		chunk = append(chunk, b)
-		isBoundary, emitK, _, _ := seq.Analyze(uint32(pos), b)
-		if !isBoundary {
-			continue
+		byteVal, isBoundary := seq.Analyze(uint32(pos), b)
+		healer.Write(byteVal, isBoundary)
+		if buf := healer.Heal(); buf != nil {
+			chunks = append(chunks, buf...)
 		}
-
-		if emitK >= 2 {
-			chunks = append(chunks, append([]byte(nil), chunk[:emitK]...))
-		}
-
-		copy(chunk, chunk[emitK:])
-		chunk = chunk[:len(chunk)-emitK]
 	}
 
-	for {
-		isBoundary, emitK, _, _ := seq.Flush()
-		if !isBoundary {
-			break
-		}
-
-		if emitK >= 2 {
-			chunks = append(chunks, append([]byte(nil), chunk[:emitK]...))
-		}
-
-		copy(chunk, chunk[emitK:])
-		chunk = chunk[:len(chunk)-emitK]
-	}
-
-	if len(chunk) >= 2 {
-		chunks = append(chunks, append([]byte(nil), chunk...))
+	if buf := healer.Flush(); buf != nil {
+		chunks = append(chunks, buf...)
 	}
 
 	return chunks

@@ -153,23 +153,28 @@ func (n *NetworkNode) handleConnection(conn net.Conn) {
 
 /*
 connectLoop maintains connections to peers.
-It periodically attempts to establish connections with configured peers
-that are not currently connected.
+It uses a short 100ms tick until every configured peer has connected,
+then falls back to a 10s heartbeat tick.
 */
 func (n *NetworkNode) connectLoop() {
-	ticker := time.NewTicker(10 * time.Second)
+	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 
-	connectFunc := func() {
+	connectFunc := func() (allConnected bool) {
+		allConnected = true
+
 		for _, addr := range n.config.PeerAddrs {
 			n.peersMutex.RLock()
 			_, exists := n.peers[addr]
 			n.peersMutex.RUnlock()
 
 			if !exists {
+				allConnected = false
 				go n.connectToPeer(addr)
 			}
 		}
+
+		return
 	}
 
 	connectFunc()
@@ -179,7 +184,10 @@ func (n *NetworkNode) connectLoop() {
 		case <-n.ctx.Done():
 			return
 		case <-ticker.C:
-			connectFunc()
+			if connectFunc() {
+				// All peers connected — slow down to 10s heartbeat.
+				ticker.Reset(10 * time.Second)
+			}
 		}
 	}
 }
@@ -190,19 +198,18 @@ It handles the connection setup, RPC client creation, and maintains
 the connection until it is closed.
 */
 func (n *NetworkNode) connectToPeer(addr string) {
-	conn := errnie.Guard(n.state, func() (net.Conn, error) {
+	state := errnie.NewState("dmt/network/connect")
+
+	conn := errnie.Guard(state, func() (net.Conn, error) {
 		return net.Dial("tcp", addr)
 	})
 
-	if n.state.Failed() {
+	if state.Failed() {
 		return
 	}
 
-	// Create transport and RPC connection
 	transport := rpc.NewStreamTransport(conn)
 	rpcConn := rpc.NewConn(transport, nil)
-
-	// Get the bootstrap interface which should be a RadixRPC
 	client := RadixRPC(rpcConn.Bootstrap(n.ctx))
 
 	p := &peer{
@@ -216,7 +223,9 @@ func (n *NetworkNode) connectToPeer(addr string) {
 	n.peers[addr] = p
 	n.peersMutex.Unlock()
 
-	// Wait for connection to close
+	// Sync immediately now that the peer is registered.
+	go n.syncWithPeers()
+
 	<-rpcConn.Done()
 
 	// Clean up peer
@@ -353,75 +362,71 @@ It handles synchronization requests from peers, comparing merkle roots
 and sending any necessary updates to maintain consistency.
 */
 func (n *NetworkNode) Sync(ctx context.Context, call RadixRPC_sync) error {
-	args := call.Args()
-	peerRoot := errnie.Guard(n.state, args.MerkleRoot)
-	peerTerm := args.Term()
-	peerLogIndex := args.LogIndex()
+	state := errnie.NewState("dmt/network/sync-handler")
 
-	// Step down if peer term is higher
+	args := call.Args()
+	peerRoot := errnie.Guard(state, args.MerkleRoot)
+	peerTerm := args.Term()
+
 	if peerTerm > n.election.getCurrentTerm() {
 		n.election.stepDown(peerTerm)
 		return fmt.Errorf("outdated term")
 	}
 
-	result := errnie.Guard(n.state, call.AllocResults)
+	result := errnie.Guard(state, call.AllocResults)
+	diff := errnie.Guard(state, result.NewDiff)
 
-	var rootHash []byte
-	if n.merkleTree.Root != nil {
-		rootHash = n.merkleTree.Root.Hash
+	if state.Failed() {
+		return state.Err()
 	}
 
-	// If merkle roots match and log indices align, no sync needed
-	if bytes.Equal(peerRoot, rootHash) &&
-		peerLogIndex <= n.election.getLastLogIndex() {
-		diff := errnie.Guard(n.state, result.NewDiff)
-		entries := errnie.Guard(n.state, func() (SyncEntry_List, error) {
+	var ourRoot []byte
+	if n.merkleTree.Root != nil {
+		ourRoot = n.merkleTree.Root.Hash
+	}
+
+	if bytes.Equal(peerRoot, ourRoot) {
+		entries := errnie.Guard(state, func() (SyncEntry_List, error) {
 			return diff.NewEntries(0)
 		})
 		diff.SetEntries(entries)
-		return n.state.Err()
+		return state.Err()
 	}
 
-	// Get differences using Merkle tree
-	otherTree := NewMerkleTree()
-	diffs := n.merkleTree.GetDiff(otherTree)
+	diffs := n.merkleTree.fullDiff(NewMerkleTree())
 
-	// Create sync payload with log metadata
-	diff := errnie.Guard(n.state, result.NewDiff)
-	entries := errnie.Guard(n.state, func() (SyncEntry_List, error) {
+	entries := errnie.Guard(state, func() (SyncEntry_List, error) {
 		return diff.NewEntries(int32(len(diffs)))
 	})
 
-	// Fill entries from diffs with term/index tracking
+	if state.Failed() {
+		return state.Err()
+	}
+
+	fastest := n.forest.getFastestTree()
+
 	for i, d := range diffs {
 		entry := entries.At(i)
 		entry.SetKey(d.Key)
 		entry.SetTerm(n.election.getCurrentTerm())
 		entry.SetIndex(n.election.getLastLogIndex() + uint64(i) + 1)
 
-		fastest := n.forest.getFastestTree()
-		if fastest == nil {
-			continue
-		}
-
-		value, ok := fastest.Get(d.Key)
-		if !ok {
-			continue
+		value := d.Value
+		if fastest != nil {
+			if forestVal, ok := fastest.Get(d.Key); ok {
+				value = forestVal
+			}
 		}
 
 		entry.SetValue(value)
 	}
 
 	diff.SetEntries(entries)
-	var endRootHash []byte
-	if n.merkleTree.Root != nil {
-		endRootHash = n.merkleTree.Root.Hash
-	}
-	diff.SetMerkleRoot(endRootHash)
+	diff.SetMerkleRoot(ourRoot)
 	diff.SetTerm(n.election.getCurrentTerm())
 	diff.SetLogIndex(n.election.getLastLogIndex())
 
-	return nil
+	return state.Err()
 }
 
 /*

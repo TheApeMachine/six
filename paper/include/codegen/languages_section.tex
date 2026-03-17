@@ -14,11 +14,11 @@ seen any language-specific syntax annotations.
 Figure~\ref{fig:languages_scores} shows per-language scores across
 $N = 60$ total samples ($10$ per language).
 Averaged across all languages, the system achieved an exact-match rate
-of 0.0\%, a partial score of 0.000,
-and an overall weighted score of 0.000.
+of 1.7\%, a partial score of 1.000,
+and an overall weighted score of 0.286.
 
 \paragraph{Assessment.}
-Completion accuracy was low across languages.  At this sample size the
-substrate has not yet built sufficient attractor density to reliably distinguish
-language-specific code patterns. Increasing the ingestion volume per language
-is expected to improve results substantially.
+The substrate recovered partial code structure in the majority of languages.
+Languages with more idiomatic or verbose syntax (e.g.\ Java, C\texttt{++})
+showed lower fidelity than those with compact representations (e.g.\ Python, Go),
+consistent with the higher token-level redundancy in the former.

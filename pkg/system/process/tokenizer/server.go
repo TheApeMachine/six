@@ -56,9 +56,8 @@ func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 
 	errnie.GuardVoid(server.state, func() error {
 		return validate.Require(map[string]any{
-			"ctx":  server.ctx,
-			"pool": server.pool,
-			"seq":  server.seq,
+			"ctx": server.ctx,
+			"seq": server.seq,
 		})
 	})
 
@@ -157,7 +156,9 @@ func (server *UniversalServer) Feedback(
 }
 
 /*
-Done implements Universal_Server.
+Done implements Universal_Server. It flushes any residual bytes from the
+healer, encodes every healed sequence as a Morton key stream, and packs
+them into the response for the machine to consume.
 */
 func (server *UniversalServer) Done(
 	ctx context.Context, call Universal_done,
@@ -167,8 +168,30 @@ func (server *UniversalServer) Done(
 
 	server.state.Reset()
 
-	if server.state.Failed() {
-		return server.state.Err()
+	for _, seq := range server.healer.Flush() {
+		server.sequences = append(server.sequences, seq)
+	}
+
+	var keys []uint64
+
+	for _, seq := range server.sequences {
+		for pos, symbol := range seq {
+			keys = append(keys, server.morton.Pack(uint32(pos), symbol))
+		}
+	}
+
+	server.sequences = server.sequences[:0]
+
+	res := errnie.Guard(server.state, func() (Universal_done_Results, error) {
+		return call.AllocResults()
+	})
+
+	keyList := errnie.Guard(server.state, func() (capnp.UInt64List, error) {
+		return res.NewKeys(int32(len(keys)))
+	})
+
+	for index, key := range keys {
+		keyList.Set(index, key)
 	}
 
 	return server.state.Err()

@@ -32,7 +32,7 @@
     <div id="chart"></div>
     <script>
         const xAxisData = ["Python","JavaScript","Java","Go","C++","Rust"];
-        const seriesData = [{"name":"Exact","data":[0,0,0,0,0,0]},{"name":"Partial","data":[0,0,0,0,0,0]},{"name":"Fuzzy","data":[0,0,0,0,0,0]},{"name":"Weighted","data":[0,0,0,0,0,0]}];
+        const seriesData = [{"name":"Exact","data":[0,0,0,0,0,0.1]},{"name":"Partial","data":[1,1,1,1,1,1]},{"name":"Fuzzy","data":[0.0014167278139402314,0.0016760808345976596,0.0021544122952547764,0.003086558963023768,0.005132754497013674,0.11921432778981952]},{"name":"Weighted","data":[0.2729848596025346,0.2730320146971996,0.2731189840536827,0.2732884652660043,0.2736605008176389,0.348948059598149]}];
         const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
         const palette = ['#2563eb','#059669','#64748b','#dc2626','#7c3aed','#d97706'];

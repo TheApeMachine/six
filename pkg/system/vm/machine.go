@@ -84,7 +84,7 @@ func NewMachine(opts ...machineOpts) *Machine {
 		BooterWithBroadcast(machine.broadcastGroup),
 	)
 
-	kernel.StartDiscovery(machine.ctx, ":7777")
+	kernel.StartDiscovery(machine.ctx)
 
 	return machine
 }
