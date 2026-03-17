@@ -13,6 +13,10 @@ import (
 	"github.com/theapemachine/six/pkg/validate"
 )
 
+const (
+	hardeningThreshold = 5
+)
+
 /*
 AffineKey indexes macro-opcodes by their geometric
 affine signature. The pair (Scale, Translate) lives
@@ -223,7 +227,7 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 
 	if opcode, exists := idx.opcodes[key]; exists {
 		opcode.UseCount++
-		if opcode.UseCount > 5 {
+		if opcode.UseCount > hardeningThreshold {
 			opcode.Hardened = true
 		}
 		return

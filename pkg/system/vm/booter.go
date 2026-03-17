@@ -59,6 +59,11 @@ func NewBooter(opts ...booterOpts) *Booter {
 	)
 	booter.prompter = promptServer.Client("booter")
 
+	/*
+	SpatialIndexServer acts as the primary topological memory substrate.
+	It is initialized early so that higher-level services like the
+	Tokenizer can use it for sequence persistence.
+	*/
 	spatialServer := lsm.NewSpatialIndexServer(
 		lsm.WithContext(booter.ctx),
 	)
@@ -88,12 +93,12 @@ func NewBooter(opts ...booterOpts) *Booter {
 	booter.cantilever = cantileverServer.Client("booter")
 
 	booter.closers = []io.Closer{
-		promptServer,
+		cantileverServer,
+		sharedIndex,
+		graphServer,
 		tokServer,
 		spatialServer,
-		graphServer,
-		sharedIndex,
-		cantileverServer,
+		promptServer,
 	}
 
 	return booter

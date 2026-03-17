@@ -39,7 +39,7 @@ type EventData struct {
 	ChildCount int     `json:"childCount,omitempty"`
 
 	Stage           string `json:"stage,omitempty"`
-	Msg             string `json:"msg,omitempty"`
+	Message         string `json:"message,omitempty"`
 	EdgeCount       int    `json:"edgeCount,omitempty"`
 	PathCount       int    `json:"pathCount,omitempty"`
 	ResultText      string `json:"resultText,omitempty"`

@@ -112,8 +112,12 @@ type Architecture struct {
 	VocabSize       int
 }
 
+/*
+GraphConfig holds parameters for the underlying graph substrate, such as
+initial node density and connectivity rules.
+*/
 type GraphConfig struct {
-	InitialNodes int
+	InitialNodes int // Number of nodes to spawn during graph initialization.
 }
 
 /*
@@ -167,7 +171,11 @@ func (ctx *Config) Load() error {
 		return ConfigError("architecture.numerics.nbasis mismatch")
 	}
 	ctx.Architecture.Windows = v.GetIntSlice("architecture.numerics.windows")
-	ctx.Architecture.ValueBlocks = ctx.Architecture.NBasis / 64
+
+	ctx.Architecture.ValueBlocks = v.GetInt("architecture.numerics.valueBlocks")
+	if ctx.Architecture.ValueBlocks == 0 {
+		ctx.Architecture.ValueBlocks = ctx.Architecture.NBasis / 64
+	}
 	ctx.Architecture.FrequencySpread = math.Log2(float64(ctx.Architecture.NBasis))
 	ctx.Architecture.ShannonCapacity = v.GetFloat64("architecture.numerics.shannonCapacity")
 	if ctx.Architecture.ShannonCapacity < 0.0 || ctx.Architecture.ShannonCapacity > 1.0 {

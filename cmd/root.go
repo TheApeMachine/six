@@ -40,10 +40,16 @@ var (
 	}
 )
 
+/*
+Execute executes the root command.
+*/
 func Execute() error {
 	return rootCmd.Execute()
 }
 
+/*
+init configures cobra and registers the config flag.
+*/
 func init() {
 	cobra.OnInitialize(initConfig)
 
@@ -55,6 +61,9 @@ func init() {
 	)
 }
 
+/*
+initConfig reads in config file and ENV variables if set, and sets up Alice globally.
+*/
 func initConfig() {
 	viper.SetConfigName("config")
 	viper.SetConfigType("yml")
@@ -71,6 +80,9 @@ func initConfig() {
 	})
 }
 
+/*
+writeConfig writes the default config file to the home directory if one does not exist.
+*/
 func writeConfig() error {
 	home, _ := os.UserHomeDir()
 	fullPath := home + "/." + projectName + "/" + cfgFile
@@ -90,12 +102,21 @@ func writeConfig() error {
 	return nil
 }
 
+/*
+RootError represents errors related to the root command setup and configuration.
+*/
 type RootError string
 
+/*
+Error returns the string representation of the root error.
+*/
 func (err RootError) Error() string {
 	return string(err)
 }
 
+/*
+String returns the string representation of the root error.
+*/
 func (err RootError) String() string {
 	return string(err)
 }
@@ -107,5 +128,3 @@ const (
 const roottxt = `
 six v0.0.1
 `
-
-

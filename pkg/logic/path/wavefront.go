@@ -11,7 +11,7 @@ import (
 )
 
 /*
-Wavefront stabilizes prefetched value s inside the graph substrate.
+Wavefront stabilizes prefetched values inside the graph substrate.
 It keeps the address plane passive by operating only on materialized s,
 applying phase checks, anchor correction, and optional bridge synthesis.
 */
@@ -49,7 +49,7 @@ func NewWavefront(opts ...WavefrontOpts) *Wavefront {
 }
 
 /*
-CanStabilize reports whether at least one supplied  carries the operator
+CanStabilize reports whether at least one supplied sequence carries the operator
 state required for wavefront-style stabilization.
 */
 func (wavefront *Wavefront) CanStabilize(sequences [][]data.Value) bool {
@@ -63,7 +63,7 @@ func (wavefront *Wavefront) CanStabilize(sequences [][]data.Value) bool {
 }
 
 /*
-Stabilize validates and repairs prefetched s before they are folded by the
+Stabilize validates and repairs prefetched sequences before they are folded by the
 graph substrate.
 */
 func (wavefront *Wavefront) Stabilize(
@@ -72,7 +72,7 @@ func (wavefront *Wavefront) Stabilize(
 ) ([][]data.Value, [][]data.Value, error) {
 	if len(sequences) != len(metaSequences) {
 		return nil, nil, fmt.Errorf(
-			"%w: %d s != %d meta s",
+			"%w: %d sequences != %d meta sequences",
 			ErrWavefrontMismatchedCount,
 			len(sequences),
 			len(metaSequences),
@@ -131,8 +131,8 @@ func (wavefront *Wavefront) Stabilize(
 	return stables, stableMetas, nil
 }
 
-func (Wavefront *Wavefront) canStabilizeSequence(sequence []data.Value) bool {
-	if len(sequence) < 2 || Wavefront.phaseForValue(sequence[0]) == 0 {
+func (wavefront *Wavefront) canStabilizeSequence(sequence []data.Value) bool {
+	if len(sequence) < 2 || wavefront.phaseForValue(sequence[0]) == 0 {
 		return false
 	}
 
@@ -140,11 +140,11 @@ func (Wavefront *Wavefront) canStabilizeSequence(sequence []data.Value) bool {
 	hasOperator := false
 
 	for _, value := range sequence {
-		if Wavefront.phaseForValue(value) != 0 {
+		if wavefront.phaseForValue(value) != 0 {
 			hasPhase = true
 		}
 
-		if Wavefront.valueCarriesOperator(value) {
+		if wavefront.valueCarriesOperator(value) {
 			hasOperator = true
 		}
 
@@ -156,13 +156,13 @@ func (Wavefront *Wavefront) canStabilizeSequence(sequence []data.Value) bool {
 	return false
 }
 
-func (Wavefront *Wavefront) cloneResult(
+func (wavefront *Wavefront) cloneResult(
 	sequence []data.Value,
 	metaSequence []data.Value,
 ) WavefrontResult {
 	phase := numeric.Phase(0)
 	if len(sequence) > 0 {
-		phase = Wavefront.phaseForValue(sequence[len(sequence)-1])
+		phase = wavefront.phaseForValue(sequence[len(sequence)-1])
 	}
 
 	return WavefrontResult{
@@ -173,12 +173,12 @@ func (Wavefront *Wavefront) cloneResult(
 	}
 }
 
-func (Wavefront *Wavefront) stabilizeSequence(
+func (wavefront *Wavefront) stabilizeSequence(
 	sequenceIndex int,
 	sequence []data.Value,
 	metaSequence []data.Value,
 ) (WavefrontResult, error) {
-	head, err := Wavefront.seedHead(sequenceIndex, sequence, metaSequence)
+	head, err := wavefront.seedHead(sequenceIndex, sequence, metaSequence)
 	if err != nil {
 		return WavefrontResult{}, err
 	}
@@ -188,7 +188,7 @@ func (Wavefront *Wavefront) stabilizeSequence(
 		nextValue := sequence[valueIndex]
 		nextMeta := metaSequence[valueIndex]
 
-		nextPos, nextSegment, ok := Wavefront.advanceCursor(head.pos, head.segment, currentValue)
+		nextPos, nextSegment, ok := wavefront.advanceCursor(head.pos, head.segment, currentValue)
 		if !ok {
 			return WavefrontResult{}, fmt.Errorf(
 				"%w:  %d halted before value %d",
@@ -198,13 +198,13 @@ func (Wavefront *Wavefront) stabilizeSequence(
 			)
 		}
 
-		if !Wavefront.valueCarriesOperator(currentValue) {
+		if !wavefront.valueCarriesOperator(currentValue) {
 			head.pos = nextPos
 			head.segment = nextSegment
 			head.path = append(head.path, nextValue)
 			head.meta = append(head.meta, nextMeta)
 
-			if observedPhase := Wavefront.phaseForValue(nextValue); observedPhase != 0 {
+			if observedPhase := wavefront.phaseForValue(nextValue); observedPhase != 0 {
 				head.phase = observedPhase
 			}
 
@@ -212,7 +212,7 @@ func (Wavefront *Wavefront) stabilizeSequence(
 			continue
 		}
 
-		observedPhase := Wavefront.phaseForValue(nextValue)
+		observedPhase := wavefront.phaseForValue(nextValue)
 		if observedPhase == 0 {
 			head.pos = nextPos
 			head.segment = nextSegment
@@ -222,8 +222,8 @@ func (Wavefront *Wavefront) stabilizeSequence(
 			continue
 		}
 
-		expectedPhase := Wavefront.predictNextPhase(currentValue, head.phase)
-		resolvedPhase, transitionPenalty, anchored, ok := Wavefront.resolveTransition(
+		expectedPhase := wavefront.predictNextPhase(currentValue, head.phase)
+		resolvedPhase, transitionPenalty, anchored, ok := wavefront.resolveTransition(
 			nextPos,
 			expectedPhase,
 			currentValue,
@@ -232,7 +232,7 @@ func (Wavefront *Wavefront) stabilizeSequence(
 		)
 
 		if !ok {
-			bridgedHead, bridgeOK, bridgeErr := Wavefront.bridgeDiscontinuity(
+			bridgedHead, bridgeOK, bridgeErr := wavefront.bridgeDiscontinuity(
 				sequenceIndex,
 				valueIndex,
 				head,
@@ -281,7 +281,7 @@ func (Wavefront *Wavefront) stabilizeSequence(
 		head.recordOpcodeCheckpoint(stableValue)
 	}
 
-	head.registers.GarbageCollect(head, Wavefront.checkpointTrailLimit, Wavefront.checkpointWindow)
+	head.registers.GarbageCollect(head, wavefront.checkpointTrailLimit, wavefront.checkpointWindow)
 
 	return WavefrontResult{
 		path:   head.path,
@@ -292,7 +292,7 @@ func (Wavefront *Wavefront) stabilizeSequence(
 	}, nil
 }
 
-func (Wavefront *Wavefront) seedHead(
+func (wavefront *Wavefront) seedHead(
 	sequenceIndex int,
 	sequence []data.Value,
 	metaSequence []data.Value,
@@ -305,7 +305,7 @@ func (Wavefront *Wavefront) seedHead(
 		}, nil
 	}
 
-	phase := Wavefront.phaseForValue(sequence[0])
+	phase := wavefront.phaseForValue(sequence[0])
 	if phase == 0 {
 		return nil, fmt.Errorf(
 			"%w:  %d first value carries no phase",
@@ -321,7 +321,7 @@ func (Wavefront *Wavefront) seedHead(
 		registers: newExecutionRegisters(),
 	}
 
-	head.registers.trailLimit = Wavefront.checkpointTrailLimit
+	head.registers.trailLimit = wavefront.checkpointTrailLimit
 	head.energy += head.registers.ObserveTransition(phase, phase, phase)
 	head.registers.RecordCheckpoint(head, CheckpointSeed)
 	head.recordOpcodeCheckpoint(sequence[0])
@@ -329,7 +329,7 @@ func (Wavefront *Wavefront) seedHead(
 	return head, nil
 }
 
-func (Wavefront *Wavefront) advanceCursor(
+func (wavefront *Wavefront) advanceCursor(
 	pos uint32,
 	segment uint32,
 	value data.Value,
@@ -353,7 +353,7 @@ func (Wavefront *Wavefront) advanceCursor(
 	}
 }
 
-func (Wavefront *Wavefront) predictNextPhase(
+func (wavefront *Wavefront) predictNextPhase(
 	value data.Value,
 	currentPhase numeric.Phase,
 ) numeric.Phase {
@@ -368,7 +368,7 @@ func (Wavefront *Wavefront) predictNextPhase(
 	return currentPhase
 }
 
-func (Wavefront *Wavefront) resolveTransition(
+func (wavefront *Wavefront) resolveTransition(
 	pos uint32,
 	expectedPhase numeric.Phase,
 	currentValue data.Value,
@@ -376,16 +376,16 @@ func (Wavefront *Wavefront) resolveTransition(
 	observedPhase numeric.Phase,
 ) (numeric.Phase, int, bool, bool) {
 	resolvedPhase := expectedPhase
-	penalty := Wavefront.routePenalty(currentValue, nextValue)
+	penalty := wavefront.routePenalty(currentValue, nextValue)
 	anchored := false
 
-	if snappedPhase, anchorPenalty, ok := Wavefront.anchorCorrect(pos, expectedPhase, nextValue); ok {
+	if snappedPhase, anchorPenalty, ok := wavefront.anchorCorrect(pos, expectedPhase, nextValue); ok {
 		resolvedPhase = snappedPhase
 		penalty += anchorPenalty
 		anchored = true
 	}
 
-	drift := Wavefront.phaseDistance(resolvedPhase, observedPhase)
+	drift := wavefront.phaseDistance(resolvedPhase, observedPhase)
 
 	if currentValue.HasGuard() {
 		if drift > uint32(currentValue.GuardRadius()) {
@@ -403,7 +403,7 @@ func (Wavefront *Wavefront) resolveTransition(
 	return resolvedPhase, penalty, anchored, true
 }
 
-func (Wavefront *Wavefront) bridgeDiscontinuity(
+func (wavefront *Wavefront) bridgeDiscontinuity(
 	sequenceIndex int,
 	valueIndex int,
 	head *WavefrontHead,
@@ -413,7 +413,7 @@ func (Wavefront *Wavefront) bridgeDiscontinuity(
 	targetMeta data.Value,
 	targetPhase numeric.Phase,
 ) (*WavefrontHead, bool, error) {
-	if head == nil || Wavefront.fe == nil {
+	if head == nil || wavefront.fe == nil {
 		return nil, false, nil
 	}
 
@@ -422,11 +422,11 @@ func (Wavefront *Wavefront) bridgeDiscontinuity(
 		return nil, false, nil
 	}
 
-	s, err := Wavefront.fe.ResolveCandidates(
+	s, err := wavefront.fe.ResolveCandidates(
 		sourceValue,
 		targetValue,
-		Wavefront.frustrationAttempts,
-		Wavefront.frustrationCandidates,
+		wavefront.frustrationAttempts,
+		wavefront.frustrationCandidates,
 	)
 	if err != nil {
 		return nil, false, fmt.Errorf(
@@ -447,7 +447,7 @@ func (Wavefront *Wavefront) bridgeDiscontinuity(
 
 	for _, opcode := range s {
 		candidate := head.clone()
-		bridgeValues, bridgeMeta, _, bridgePenalty := Wavefront.synthesizeBridge(candidate.phase, opcode)
+		bridgeValues, bridgeMeta, _, bridgePenalty := wavefront.synthesizeBridge(candidate.phase, opcode)
 		if len(bridgeValues) == 0 {
 			continue
 		}
@@ -456,7 +456,7 @@ func (Wavefront *Wavefront) bridgeDiscontinuity(
 			candidate.path = append(candidate.path, bridgeValues[bridgeIndex])
 			candidate.meta = append(candidate.meta, bridgeMeta[bridgeIndex])
 			candidate.energy += bridgePenalty
-			candidate.phase = Wavefront.phaseForValue(bridgeValues[bridgeIndex])
+			candidate.phase = wavefront.phaseForValue(bridgeValues[bridgeIndex])
 			candidate.registers.RecordCheckpoint(candidate, CheckpointBridge)
 		}
 
@@ -489,7 +489,7 @@ func (Wavefront *Wavefront) bridgeDiscontinuity(
 	return bestHead, true, nil
 }
 
-func (Wavefront *Wavefront) synthesizeBridge(
+func (wavefront *Wavefront) synthesizeBridge(
 	startPhase numeric.Phase,
 	opcodes []*macro.MacroOpcode,
 ) ([]data.Value, []data.Value, numeric.Phase, int) {
@@ -534,7 +534,7 @@ func (Wavefront *Wavefront) synthesizeBridge(
 	return values, metaValues, phase, penalty
 }
 
-func (Wavefront *Wavefront) valueCarriesOperator(value data.Value) bool {
+func (wavefront *Wavefront) valueCarriesOperator(value data.Value) bool {
 	if value.HasTrajectory() || value.HasGuard() || data.Opcode(value.Opcode()) != 0 {
 		return true
 	}
@@ -547,7 +547,7 @@ func (Wavefront *Wavefront) valueCarriesOperator(value data.Value) bool {
 	return scale != 1 || translate != 0
 }
 
-func (Wavefront *Wavefront) phaseForValue(value data.Value) numeric.Phase {
+func (wavefront *Wavefront) phaseForValue(value data.Value) numeric.Phase {
 	carry := value.ResidualCarry()
 	if carry == 0 {
 		return 0
@@ -556,7 +556,7 @@ func (Wavefront *Wavefront) phaseForValue(value data.Value) numeric.Phase {
 	return numeric.Phase(carry % uint64(numeric.FermatPrime))
 }
 
-func (Wavefront *Wavefront) phaseDistance(
+func (wavefront *Wavefront) phaseDistance(
 	left numeric.Phase,
 	right numeric.Phase,
 ) uint32 {
@@ -577,29 +577,29 @@ func (Wavefront *Wavefront) phaseDistance(
 	return backward
 }
 
-func (Wavefront *Wavefront) anchorCorrect(
+func (wavefront *Wavefront) anchorCorrect(
 	pos uint32,
 	expectedPhase numeric.Phase,
 	value data.Value,
 ) (numeric.Phase, int, bool) {
-	if Wavefront.anchorStride == 0 || pos == 0 || pos%Wavefront.anchorStride != 0 {
+	if wavefront.anchorStride == 0 || pos == 0 || pos%wavefront.anchorStride != 0 {
 		return 0, 0, false
 	}
 
-	anchorPhase := Wavefront.phaseForValue(value)
+	anchorPhase := wavefront.phaseForValue(value)
 	if anchorPhase == 0 {
 		return 0, 0, false
 	}
 
-	drift := Wavefront.phaseDistance(expectedPhase, anchorPhase)
-	if drift == 0 || drift > Wavefront.anchorTolerance {
+	drift := wavefront.phaseDistance(expectedPhase, anchorPhase)
+	if drift == 0 || drift > wavefront.anchorTolerance {
 		return 0, 0, false
 	}
 
 	return anchorPhase, int(drift), true
 }
 
-func (Wavefront *Wavefront) routePenalty(
+func (wavefront *Wavefront) routePenalty(
 	currentValue data.Value,
 	nextValue data.Value,
 ) int {
@@ -616,46 +616,46 @@ func (Wavefront *Wavefront) routePenalty(
 
 /*
 WavefrontWithAnchors configures periodic phase correction for prefetched
-graph s.
+graph sequences.
 */
 func WavefrontWithAnchors(stride, tolerance uint32) WavefrontOpts {
-	return func(Wavefront *Wavefront) {
-		Wavefront.anchorStride = stride
-		Wavefront.anchorTolerance = tolerance
+	return func(wavefront *Wavefront) {
+		wavefront.anchorStride = stride
+		wavefront.anchorTolerance = tolerance
 	}
 }
 
 /*
 WavefrontWithFrustrationEngine installs the bridge synthesizer used when a
-prefetched  contains a discontinuity.
+prefetched sequence contains a discontinuity.
 */
 func WavefrontWithFrustrationEngine(
 	fe *goal.FrustrationEngineServer,
 	attempts int,
 	candidates int,
 ) WavefrontOpts {
-	return func(Wavefront *Wavefront) {
-		Wavefront.fe = fe
+	return func(wavefront *Wavefront) {
+		wavefront.fe = fe
 		if attempts > 0 {
-			Wavefront.frustrationAttempts = attempts
+			wavefront.frustrationAttempts = attempts
 		}
 		if candidates > 0 {
-			Wavefront.frustrationCandidates = candidates
+			wavefront.frustrationCandidates = candidates
 		}
 	}
 }
 
 /*
 WavefrontWithCheckpointWindow tunes checkpoint retention for long graph
-s.
+sequences.
 */
 func WavefrontWithCheckpointWindow(limit, window int) WavefrontOpts {
-	return func(Wavefront *Wavefront) {
+	return func(wavefront *Wavefront) {
 		if limit > 0 {
-			Wavefront.checkpointTrailLimit = limit
+			wavefront.checkpointTrailLimit = limit
 		}
 		if window >= 0 {
-			Wavefront.checkpointWindow = window
+			wavefront.checkpointWindow = window
 		}
 	}
 }
@@ -678,8 +678,8 @@ const (
 /*
 Error implements the error interface for WavefrontError.
 */
-func (WavefrontError WavefrontError) Error() string {
-	return string(WavefrontError)
+func (err WavefrontError) Error() string {
+	return string(err)
 }
 
 type WavefrontHead struct {
@@ -714,6 +714,7 @@ func (head *WavefrontHead) recordOpcodeCheckpoint(value data.Value) {
 	}
 
 	opcode, _, _, terminal := value.Program()
+
 	if terminal || opcode == data.OpcodeHalt {
 		head.registers.RecordCheckpoint(head, CheckpointTerminal)
 	}

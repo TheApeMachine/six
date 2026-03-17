@@ -4,32 +4,11 @@ import (
 	"math"
 	"testing"
 
-	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data"
-	config "github.com/theapemachine/six/pkg/system/core"
 )
 
-func mockBaseValue(b byte) data.Value {
-	_, seg, _ := capnp.NewMessage(capnp.SingleSegment(nil))
-	value, _ := data.NewValue(seg)
-	totalBits := config.Numeric.ValueBlocks * 64
 
-	offsets := [5]int{
-		int(b) * 7,
-		int(b) * 13,
-		int(b) * 31,
-		int(b) * 61,
-		int(b) * 127,
-	}
-
-	for _, off := range offsets {
-		bit := off % totalBits
-		value.Set(bit)
-	}
-
-	return value
-}
 
 func TestNewEigenMode(t *testing.T) {
 	Convey("Given NewEigenMode constructor", t, func() {
@@ -65,12 +44,10 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 		})
 
 		Convey("When computing phase for a mock base value", func() {
-			value := mockBaseValue('A')
+			value := data.BaseValue('A')
 			theta, phi := ei.PhaseForValue(&value)
 
-			// The mock value sets 5 bits, so density is 5.
-			// Phi = 2 * π * 5 / 257 ≈ 0.122
-			expectedPhi := 2.0 * math.Pi * 5.0 / 257.0
+			expectedPhi := 2.0 * math.Pi * float64(value.ActiveCount()) / 257.0
 
 			So(phi, ShouldAlmostEqual, expectedPhi, 0.001)
 
@@ -86,8 +63,8 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 
 		Convey("When computing mean sequence phase", func() {
 			values := []data.Value{
-				mockBaseValue('A'),
-				mockBaseValue('A'),
+				data.BaseValue('A'),
+				data.BaseValue('A'),
 			}
 
 			// Sequence of identical values should yield same phase as a single value
@@ -99,7 +76,7 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 		})
 
 		Convey("When calling BuildMultiScaleCooccurrence", func() {
-			values := []data.Value{mockBaseValue('a'), mockBaseValue('b')}
+			values := []data.Value{data.BaseValue('a'), data.BaseValue('b')}
 			err := ei.BuildMultiScaleCooccurrence(values)
 			So(err, ShouldBeNil)
 			So(ei.Trained, ShouldBeTrue)
@@ -118,7 +95,7 @@ func TestEigenModeWeightedCircularMean(t *testing.T) {
 		})
 
 		Convey("When computing for single value", func() {
-			values := []data.Value{mockBaseValue('X')}
+			values := []data.Value{data.BaseValue('X')}
 			phase, conc := ei.WeightedCircularMean(values)
 			So(phase, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
 			So(conc, ShouldBeBetweenOrEqual, 0, 1)
@@ -135,7 +112,7 @@ func TestGeometricalClosure(t *testing.T) {
 		})
 
 		Convey("When sequence returns exactly to anchor phase", func() {
-			values := []data.Value{mockBaseValue('X')}
+			values := []data.Value{data.BaseValue('X')}
 			anchor, _ := ei.WeightedCircularMean(values)
 
 			// Same sequence should have distance 0 from its own anchor
@@ -143,7 +120,7 @@ func TestGeometricalClosure(t *testing.T) {
 		})
 
 		Convey("When sequence drifts to opposite side of Torus", func() {
-			valuesA := []data.Value{mockBaseValue('X')}
+			valuesA := []data.Value{data.BaseValue('X')}
 			anchor, _ := ei.WeightedCircularMean(valuesA)
 
 			// We manually specify an anchor that is π radians away
@@ -159,7 +136,7 @@ func TestGeometricalClosure(t *testing.T) {
 
 func BenchmarkEigenModePhaseForValue(b *testing.B) {
 	ei := NewEigenMode()
-	value := mockBaseValue('A')
+	value := data.BaseValue('A')
 	b.ResetTimer()
 	for b.Loop() {
 		ei.PhaseForValue(&value)
@@ -170,7 +147,7 @@ func BenchmarkEigenModeSeqToroidalMeanPhase(b *testing.B) {
 	ei := NewEigenMode()
 	values := make([]data.Value, 64)
 	for idx := range values {
-		values[idx] = mockBaseValue(byte(idx % 256))
+		values[idx] = data.BaseValue(byte(idx % 256))
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -182,7 +159,7 @@ func BenchmarkEigenModeWeightedCircularMean(b *testing.B) {
 	ei := NewEigenMode()
 	values := make([]data.Value, 64)
 	for idx := range values {
-		values[idx] = mockBaseValue(byte(idx % 256))
+		values[idx] = data.BaseValue(byte(idx % 256))
 	}
 	b.ResetTimer()
 	for b.Loop() {

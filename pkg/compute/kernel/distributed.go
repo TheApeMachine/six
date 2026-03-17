@@ -516,7 +516,7 @@ StartDiscovery begins listening for broadcast UDP packets to discover peers,
 and broadcasts our own presence on the local network.
 It also starts the local worker process so this node is part of the mesh.
 */
-func StartDiscovery(ctx context.Context, port string) {
+func StartDiscovery(ctx context.Context, port string) error {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -524,7 +524,7 @@ func StartDiscovery(ctx context.Context, port string) {
 	discoveryMu.Lock()
 	if discoveryState != nil && discoveryState.ctx != nil && discoveryState.ctx.Err() == nil {
 		discoveryMu.Unlock()
-		return
+		return nil
 	}
 	discoveryState = &discoveryRuntime{ctx: ctx}
 	discoveryMu.Unlock()
@@ -547,7 +547,7 @@ func StartDiscovery(ctx context.Context, port string) {
 			discoveryState = nil
 		}
 		discoveryMu.Unlock()
-		return
+		return err
 	}
 
 	addr := fmt.Sprintf("127.0.0.1%s", boundPort)
@@ -555,12 +555,12 @@ func StartDiscovery(ctx context.Context, port string) {
 
 	listenAddr, err := net.ResolveUDPAddr("udp4", ":7778")
 	if err != nil {
-		return
+		return err
 	}
 
 	conn, err := net.ListenUDP("udp4", listenAddr)
 	if err != nil {
-		return
+		return err
 	}
 
 	go func() {
@@ -615,6 +615,8 @@ func StartDiscovery(ctx context.Context, port string) {
 			time.Sleep(5 * time.Second)
 		}
 	}()
+
+	return nil
 }
 
 func addWorker(addr string) {

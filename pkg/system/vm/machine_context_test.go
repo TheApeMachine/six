@@ -1,28 +1,37 @@
 package vm
 
-import "testing"
+import (
+	"testing"
 
+	gc "github.com/smartystreets/goconvey/convey"
+)
+
+/*
+TestNewMachineWithoutContextDoesNotPanic verifies that NewMachine initializes
+its own context and cancel function if they are not provided via options,
+preventing nil pointer dereferences.
+*/
 func TestNewMachineWithoutContextDoesNotPanic(t *testing.T) {
-	var machine *Machine
+	gc.Convey("Given no MachineWithContext", t, func() {
+		var machine *Machine
 
-	func() {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Fatalf("NewMachine panicked without MachineWithContext: %v", r)
+		gc.Convey("When creating a new Machine", func() {
+			gc.So(func() {
+				machine = NewMachine()
+			}, gc.ShouldNotPanic)
+
+			gc.Convey("Then it should not be nil", func() {
+				gc.So(machine, gc.ShouldNotBeNil)
+			})
+
+			gc.Convey("And it should have an initialized context and cancel", func() {
+				gc.So(machine.ctx, gc.ShouldNotBeNil)
+				gc.So(machine.cancel, gc.ShouldNotBeNil)
+			})
+
+			if machine != nil {
+				machine.Close()
 			}
-		}()
-		machine = NewMachine()
-	}()
-
-	if machine == nil {
-		t.Fatalf("machine: got nil")
-	}
-	defer machine.Close()
-
-	if machine.ctx == nil {
-		t.Fatalf("machine context should be initialized")
-	}
-	if machine.cancel == nil {
-		t.Fatalf("machine cancel should be initialized")
-	}
+		})
+	})
 }

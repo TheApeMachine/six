@@ -34,6 +34,31 @@ func (bitwise *BitwiseHealer) Capacity() int {
 }
 
 /*
+Len returns the current number of buffered sequences.
+*/
+func (bitwise *BitwiseHealer) Len() int {
+	return len(bitwise.buffer)
+}
+
+/*
+EntryAt returns the buffered sequence at the given index.
+*/
+func (bitwise *BitwiseHealer) EntryAt(index int) [][]data.Value {
+	if index < 0 || index >= len(bitwise.buffer) {
+		return nil
+	}
+
+	return bitwise.cloneSequence(bitwise.buffer[index])
+}
+
+/*
+Entries returns all buffered sequences.
+*/
+func (bitwise *BitwiseHealer) Entries() [][][]data.Value {
+	return bitwise.cloneBuffer()
+}
+
+/*
 Write appends one fragmented sequence to the sliding buffer.
 */
 func (bitwise *BitwiseHealer) Write(sequence [][]data.Value) {
@@ -115,6 +140,8 @@ func (bitwise *BitwiseHealer) Components() [][]int {
 	return bitwise.connectedComponents(flattened, boundaries)
 }
 
+// cloneBuffer returns a deep copy of the healer's sequence buffer, preserving
+// the structure of each fragmented sequence.
 func (bitwise *BitwiseHealer) cloneBuffer() [][][]data.Value {
 	buffer := make([][][]data.Value, len(bitwise.buffer))
 
@@ -125,6 +152,8 @@ func (bitwise *BitwiseHealer) cloneBuffer() [][][]data.Value {
 	return buffer
 }
 
+// cloneSequence returns a deep copy of a single fragmented sequence (a slice
+// of value fragments).
 func (bitwise *BitwiseHealer) cloneSequence(sequence [][]data.Value) [][]data.Value {
 	cloned := make([][]data.Value, len(sequence))
 
@@ -135,6 +164,8 @@ func (bitwise *BitwiseHealer) cloneSequence(sequence [][]data.Value) [][]data.Va
 	return cloned
 }
 
+// flatten serializes a fragmented sequence into a single linear value slice
+// and records the original fragment boundary positions.
 func (bitwise *BitwiseHealer) flatten(sequence [][]data.Value) ([]data.Value, []int) {
 	total := 0
 	boundaries := []int{0}
@@ -153,6 +184,8 @@ func (bitwise *BitwiseHealer) flatten(sequence [][]data.Value) ([]data.Value, []
 	return flattened, boundaries
 }
 
+// connectedComponents partitions sequences into disjoint sets based on
+// whether they share a cluster anchor (structural overlap).
 func (bitwise *BitwiseHealer) connectedComponents(
 	sequences [][]data.Value,
 	boundaries [][]int,
@@ -268,6 +301,9 @@ func (bitwise *BitwiseHealer) findSharedAnchors(
 	return anchors
 }
 
+// bestSharedSpan finds the longest and most "boundary-aligned" value span
+// that occurs in every provided sequence. It returns the [start, end)
+// position in each sequence.
 func (bitwise *BitwiseHealer) bestSharedSpan(
 	sequences [][]data.Value,
 	boundaries [][]int,

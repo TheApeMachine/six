@@ -98,7 +98,7 @@ func TestPromptDeterminism(t *testing.T) {
 	})
 }
 
-func TestOutOfCorpusPromptProvenance(t *testing.T) {
+func TestOutOfCorpusPromptReturnsExactMiss(t *testing.T) {
 	corpus := []string{
 		"INFO Request processed id=42 time=15ms status=200 endpoint=/api/v1/data",
 		"DEBUG Cache hit key=session_7 bucket=3 ttl=97s",
@@ -111,7 +111,7 @@ func TestOutOfCorpusPromptProvenance(t *testing.T) {
 		"path traversal": "DEBUG Cache hit key=session_7/../../../etc/passwd bucket=3 ttl=97s",
 	}
 
-	Convey("Given adversarial prompts against a known baseline", t, func() {
+	Convey("Given adversarial prompts that overrun the ingested corpus", t, func() {
 		helper := test.NewTestHelper()
 		defer helper.Teardown()
 
@@ -125,10 +125,7 @@ func TestOutOfCorpusPromptProvenance(t *testing.T) {
 				result, err := helper.Machine.Prompt(query)
 
 				So(err, ShouldBeNil)
-				So(len(result), ShouldBeGreaterThan, 0)
-				So(string(result), ShouldNotContainSubstring, "DROP TABLE")
-				So(string(result), ShouldNotContainSubstring, "<script>")
-				So(string(result), ShouldNotContainSubstring, "etc/passwd")
+				So(string(result), ShouldEqual, "")
 			})
 		}
 	})

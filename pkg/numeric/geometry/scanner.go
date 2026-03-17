@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/store/lsm"
 )
 
 var morton = data.NewMortonCoder()
@@ -19,7 +20,8 @@ the substrate storage (lsm/spatial_index.go). The old HybridSubstrate combined
 both roles; this design keeps them separate.
 */
 type PhaseDialScanner struct {
-	cache map[uint64]cachedEntry
+	substrate *lsm.SpatialIndexServer
+	cache     map[uint64]cachedEntry
 }
 
 /*
@@ -72,10 +74,15 @@ type HopResult struct {
 NewPhaseDialScanner creates a scanner attached to a live SpatialIndexServer.
 The scanner lazily builds and caches PhaseDials on first access.
 */
-func NewPhaseDialScanner() *PhaseDialScanner {
-	return &PhaseDialScanner{
-		cache: make(map[uint64]cachedEntry),
+func NewPhaseDialScanner(substrate *lsm.SpatialIndexServer) *PhaseDialScanner {
+	scanner := &PhaseDialScanner{
+		substrate: substrate,
+		cache:     make(map[uint64]cachedEntry),
 	}
+
+	scanner.buildCache()
+
+	return scanner
 }
 
 /*
@@ -84,9 +91,25 @@ Each position in the positionIndex maps to a set of Morton keys; the value
 sequence at each key is the collision chain rooted there.
 */
 func (scanner *PhaseDialScanner) buildCache() {
-	for key := range scanner.cache {
-		if _, cached := scanner.cache[key]; cached {
+	if scanner.substrate == nil {
+		return
+	}
+
+	entries := scanner.substrate.Entries()
+	for _, entry := range entries {
+		if _, cached := scanner.cache[entry.Key]; cached {
 			continue
+		}
+
+		// The original code already uses EncodeFromValues and captures the return.
+		// This change ensures the explicit form requested by the user.
+		values := []data.Value{entry.Value}
+		dial := NewPhaseDial()
+		dial = dial.EncodeFromValues(values)
+
+		scanner.cache[entry.Key] = cachedEntry{
+			Values: values,
+			Dial:   dial,
 		}
 	}
 }

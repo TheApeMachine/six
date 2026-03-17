@@ -116,3 +116,31 @@ func TestCompileObservableSequenceValues(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkCompileSequenceCells(b *testing.B) {
+	coder := NewMortonCoder()
+	keys := []uint64{
+		coder.Pack(0, 'a'),
+		coder.Pack(1, 'b'),
+		coder.Pack(0, 'a'),
+	}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		CompileSequenceCells(keys)
+	}
+}
+
+func BenchmarkCompileObservableSequenceValues(b *testing.B) {
+	coder := NewMortonCoder()
+	keys := []uint64{
+		coder.Pack(0, 'a'),
+		coder.Pack(1, 'b'),
+		coder.Pack(0, 'a'),
+	}
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		CompileObservableSequenceValues(keys)
+	}
+}

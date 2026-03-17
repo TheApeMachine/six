@@ -6,7 +6,7 @@ $Go.import("github.com/theapemachine/six/pkg/system/process/tokenizer");
 
 interface Universal {
   write       @0 (data :UInt8) -> stream;
-  done        @1 ();
+  done        @1 () -> (keys :List(UInt64));
   setDataset  @2 (corpus :List(Text)) -> ();
   feedback    @3 (overDiscriminated :Bool, underDiscriminated :Bool) -> ();
 }

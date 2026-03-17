@@ -146,14 +146,9 @@ func (server *UniversalServer) Write(ctx context.Context, call Universal_write) 
 	}
 
 	server.stateMu.Lock()
-	err := server.acceptByte(call.Args().Data())
-	server.stateMu.Unlock()
+	defer server.stateMu.Unlock()
 
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return server.acceptByte(call.Args().Data())
 }
 
 /*
@@ -177,6 +172,7 @@ func (server *UniversalServer) Done(
 	}
 
 	server.stateMu.Lock()
+	defer server.stateMu.Unlock()
 
 	hasPending := len(server.fragment) > 0 || len(server.sequence) > 0
 	var keys []uint64
@@ -188,10 +184,25 @@ func (server *UniversalServer) Done(
 		keys, err = server.drainSequences(true)
 	}
 
-	server.stateMu.Unlock()
+	// server.stateMu.Unlock() removed as it's now deferred
+
 
 	if err != nil {
 		return err
+	}
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	keyList, err := results.NewKeys(int32(len(keys)))
+	if err != nil {
+		return err
+	}
+
+	for i, key := range keys {
+		keyList.Set(i, key)
 	}
 
 	return server.writeKeys(ctx, keys)

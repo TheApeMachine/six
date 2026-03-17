@@ -53,13 +53,13 @@ func (backend *CUDABackend) Resolve(
 	context unsafe.Pointer,
 ) (uint64, error) {
 	if numNodes <= 0 {
-		return 0, fmt.Errorf("invalid numNodes: must be > 0")
+		return 0, CUDAErrorResolveFailed
 	}
 	if graphNodes == nil {
-		return 0, fmt.Errorf("nil graphNodes pointer")
+		return 0, CUDAErrorResolveFailed
 	}
 	if context == nil {
-		return 0, fmt.Errorf("nil context pointer")
+		return 0, CUDAErrorResolveFailed
 	}
 
 	if !backend.Available() {

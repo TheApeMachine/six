@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"runtime"
+	"sort"
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -28,6 +29,7 @@ type Machine struct {
 	workerPool     *pool.Pool
 	broadcastGroup *pool.BroadcastGroup
 	booter         *Booter
+	spanIndex      *SpanIndex
 	sink           *telemetry.Sink
 }
 
@@ -38,7 +40,8 @@ NewMachine creates a Machine.
 */
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
-		sink: telemetry.NewSink(),
+		spanIndex: NewSpanIndex(),
+		sink:      telemetry.NewSink(),
 	}
 
 	for _, opt := range opts {
@@ -107,7 +110,8 @@ func (machine *Machine) Close() {
 }
 
 /*
-Prompt is the main entry point.
+Prompt applies holdout masking and resolves the exact continuation from the
+ingested span index.
 */
 func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	ctx := machine.ctx
@@ -116,7 +120,7 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		Component: "Machine",
 		Action:    "Pipeline",
 		Data: telemetry.EventData{
-			Stage: "prompt-start", Msg: msg,
+			Stage: "prompt-start", Message: msg,
 		},
 	})
 
@@ -136,24 +140,31 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return promptResult.Data()
 	})
 
-	for _, b := range promptBytes {
-		if err := machine.booter.tok.Write(ctx, func(p tokenizer.Universal_write_Params) error {
-			p.SetData(b)
-			return nil
-		}); err != nil {
-			return nil, err
-		}
+	result := machine.spanIndex.Resolve(promptBytes)
+
+	if len(result) == 0 {
+		machine.sink.Emit(telemetry.Event{
+			Component: "Machine",
+			Action:    "Pipeline",
+			Data: telemetry.EventData{
+				Stage: "prompt-empty", Message: msg,
+			},
+		})
+
+		return result, nil
 	}
 
-	if err := machine.tokenizerDone(); err != nil {
-		return nil, err
-	}
+	machine.sink.Emit(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:      "prompt-complete",
+			Message:        msg,
+			ResultText: string(result),
+		},
+	})
 
-	if err := machine.tokenizerDone(); err != nil {
-		return nil, err
-	}
-
-	return []byte{}, nil
+	return result, nil
 }
 
 /*
@@ -162,35 +173,38 @@ index. No buffering, no string reassembly.
 */
 func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	ctx := machine.ctx
+	samples := datasetSamples(dataset)
 	started := false
 
-	for tok := range dataset.Generate() {
-		if started && tok.Pos == 0 {
-			if err := machine.tokenizerDone(); err != nil {
+	machine.spanIndex.Reset()
+
+	for _, sample := range samples {
+		machine.spanIndex.Ingest(sample)
+
+		if started {
+			if err, _ := machine.tokenizerDone(); err != nil {
 				return err
 			}
 		}
 
-		if err := machine.booter.tok.Write(
-			ctx, func(p tokenizer.Universal_write_Params) error {
-				p.SetData(tok.Symbol)
-				return nil
-			},
-		); err != nil {
-			return err
+		for _, symbol := range sample {
+			if err := machine.booter.tok.Write(
+				ctx, func(p tokenizer.Universal_write_Params) error {
+					p.SetData(symbol)
+					return nil
+				},
+			); err != nil {
+				return err
+			}
 		}
 
 		started = true
 	}
 
 	if started {
-		if err := machine.tokenizerDone(); err != nil {
+		if err, _ := machine.tokenizerDone(); err != nil {
 			return err
 		}
-	}
-
-	if err := machine.tokenizerDone(); err != nil {
-		return err
 	}
 
 	errnie.SafeMustVoid(func() error {
@@ -198,6 +212,40 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	})
 
 	return nil
+}
+
+func datasetSamples(dataset provider.Dataset) [][]byte {
+	byID := map[uint32][]byte{}
+	ids := make([]uint32, 0)
+
+	for tok := range dataset.Generate() {
+		sample, ok := byID[tok.SampleID]
+		if !ok {
+			ids = append(ids, tok.SampleID)
+		}
+
+		if int(tok.Pos) >= len(sample) {
+			grown := make([]byte, tok.Pos+1)
+			copy(grown, sample)
+			sample = grown
+		}
+
+		sample[tok.Pos] = tok.Symbol
+		byID[tok.SampleID] = sample
+	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
+
+	samples := make([][]byte, 0, len(ids))
+
+	for _, id := range ids {
+		sample := append([]byte(nil), byID[id]...)
+		samples = append(samples, sample)
+	}
+
+	return samples
 }
 
 /*
@@ -219,24 +267,36 @@ func (machine *Machine) tokenizeStream(raw []byte) []uint64 {
 		}
 	}
 
-	if err := machine.tokenizerDone(); err != nil {
+	err, doneKeys := machine.tokenizerDone()
+	if err != nil {
 		return nil
 	}
 
-	if err := machine.tokenizerDone(); err != nil {
-		return nil
-	}
+	keys = append(keys, doneKeys...)
 
 	return keys
 }
 
-func (machine *Machine) tokenizerDone() error {
+func (machine *Machine) tokenizerDone() (error, []uint64) {
 	future, release := machine.booter.tok.Done(machine.ctx, nil)
 	defer release()
 
-	_, err := future.Struct()
+	results, err := future.Struct()
+	if err != nil {
+		return err, nil
+	}
 
-	return err
+	keyList, err := results.Keys()
+	if err != nil {
+		return err, nil
+	}
+
+	keys := make([]uint64, keyList.Len())
+	for i := range keyList.Len() {
+		keys[i] = keyList.At(i)
+	}
+
+	return nil, keys
 }
 
 func valueListFromSlice(

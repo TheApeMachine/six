@@ -8,6 +8,9 @@ import (
 	"github.com/theapemachine/six/pkg/store/data"
 )
 
+/*
+bitwiseSequence converts string chunks into a sequence of value fragments.
+*/
 func bitwiseSequence(chunks []string) [][]data.Value {
 	sequence := make([][]data.Value, len(chunks))
 
@@ -15,7 +18,7 @@ func bitwiseSequence(chunks []string) [][]data.Value {
 		fragment := make([]data.Value, 0, len(chunk))
 
 		for _, symbol := range []byte(chunk) {
-			fragment = append(fragment, data.BaseValue(symbol))
+			fragment = append(fragment, data.BaseValue(byte(symbol)))
 		}
 
 		sequence[i] = fragment
@@ -24,6 +27,9 @@ func bitwiseSequence(chunks []string) [][]data.Value {
 	return sequence
 }
 
+/*
+assertBitwiseSequence verifies that a sequence of fragments matches expected strings.
+*/
 func assertBitwiseSequence(expected []string, actual [][]data.Value) {
 	gc.So(len(actual), gc.ShouldEqual, len(expected))
 
@@ -32,6 +38,9 @@ func assertBitwiseSequence(expected []string, actual [][]data.Value) {
 	}
 }
 
+/*
+bitwiseFragmentString decodes a value fragment back into its original string.
+*/
 func bitwiseFragmentString(fragment []data.Value) string {
 	decoded := make([]byte, len(fragment))
 
@@ -66,8 +75,8 @@ func TestBitwiseHealerWrite(t *testing.T) {
 		gc.Convey("When writing one fragmented sequence", func() {
 			bitwise.Write(bitwiseSequence([]string{"Roy was ", "in t"}))
 
-			gc.So(len(bitwise.buffer), gc.ShouldEqual, 1)
-			assertBitwiseSequence([]string{"Roy was ", "in t"}, bitwise.buffer[0])
+			gc.So(bitwise.Len(), gc.ShouldEqual, 1)
+			assertBitwiseSequence([]string{"Roy was ", "in t"}, bitwise.EntryAt(0))
 		})
 
 		gc.Convey("When writing beyond buffer capacity", func() {
@@ -75,9 +84,9 @@ func TestBitwiseHealerWrite(t *testing.T) {
 				bitwise.Write(bitwiseSequence([]string{fmt.Sprintf("%05d", i)}))
 			}
 
-			gc.So(len(bitwise.buffer), gc.ShouldEqual, 1024)
-			assertBitwiseSequence([]string{"00001"}, bitwise.buffer[0])
-			assertBitwiseSequence([]string{"01024"}, bitwise.buffer[1023])
+			gc.So(bitwise.Len(), gc.ShouldEqual, 1024)
+			assertBitwiseSequence([]string{"00001"}, bitwise.EntryAt(0))
+			assertBitwiseSequence([]string{"01024"}, bitwise.EntryAt(1023))
 		})
 	})
 }

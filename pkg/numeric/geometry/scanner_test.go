@@ -6,11 +6,12 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/store/lsm"
 )
 
 func TestPhaseDialScanner(t *testing.T) {
 	gc.Convey("Given a PhaseDialScanner attached to a populated SpatialIndexServer", t, func() {
-		scanner := NewPhaseDialScanner()
+		scanner := NewPhaseDialScanner(lsm.NewSpatialIndexServer())
 
 		// Insert distinct value sequences at different positions.
 		// Each position gets a unique value so the PhaseDials differ.
@@ -18,9 +19,10 @@ func TestPhaseDialScanner(t *testing.T) {
 			sym := byte(65 + pos)
 			key := morton.Pack(pos, sym)
 			value := data.BaseValue(byte(sym))
+			values := []data.Value{value}
 			scanner.cache[key] = cachedEntry{
-				Values: []data.Value{value},
-				Dial:   NewPhaseDial(),
+				Values: values,
+				Dial:   NewPhaseDial().EncodeFromValues(values),
 			}
 		}
 
@@ -127,15 +129,16 @@ func TestPhaseDialScanner(t *testing.T) {
 }
 
 func BenchmarkPhaseDialScan(b *testing.B) {
-	scanner := NewPhaseDialScanner()
+	scanner := NewPhaseDialScanner(lsm.NewSpatialIndexServer())
 
 	for pos := uint32(0); pos < 100; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
 		value := data.BaseValue(byte(sym))
+		values := []data.Value{value}
 		scanner.cache[key] = cachedEntry{
-			Values: []data.Value{value},
-			Dial:   NewPhaseDial(),
+			Values: values,
+			Dial:   NewPhaseDial().EncodeFromValues(values),
 		}
 	}
 
@@ -149,15 +152,16 @@ func BenchmarkPhaseDialScan(b *testing.B) {
 }
 
 func BenchmarkGeodesicScan(b *testing.B) {
-	scanner := NewPhaseDialScanner()
+	scanner := NewPhaseDialScanner(lsm.NewSpatialIndexServer())
 
 	for pos := uint32(0); pos < 50; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
 		value := data.BaseValue(byte(sym))
+		values := []data.Value{value}
 		scanner.cache[key] = cachedEntry{
-			Values: []data.Value{value},
-			Dial:   NewPhaseDial(),
+			Values: values,
+			Dial:   NewPhaseDial().EncodeFromValues(values),
 		}
 	}
 

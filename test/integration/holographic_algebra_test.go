@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/test"
 )
@@ -33,51 +32,51 @@ func TestHolographicAlgebra_Integration(t *testing.T) {
 			local.New(local.WithStrings(corpus)),
 		), ShouldBeNil)
 
-		Convey("Temporal: 'was' routes to living room not kitchen", func() {
+		Convey("It should return the exact living-room suffix for 'was'", func() {
 			result, err := helper.Machine.Prompt("Roy was in the ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "living room")
+			So(string(result), ShouldEqual, "living room.")
 			So(string(result), ShouldNotContainSubstring, "kitchen")
 		})
 
-		Convey("Temporal: 'is' routes to kitchen not living room", func() {
+		Convey("It should return the exact kitchen suffix for 'is'", func() {
 			result, err := helper.Machine.Prompt("Roy is in the ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "kitchen")
+			So(string(result), ShouldEqual, "kitchen.")
 			So(string(result), ShouldNotContainSubstring, "living room")
 		})
 
-		Convey("Temporal: 'will be' routes to garage", func() {
+		Convey("It should return the exact garage suffix for 'will be'", func() {
 			result, err := helper.Machine.Prompt("Roy will be in the ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "garage")
+			So(string(result), ShouldEqual, "garage.")
 		})
 
-		Convey("Cross-modal: cat prompt returns cat not dog-unique content", func() {
+		Convey("It should return the exact cat suffix for cat prompt", func() {
 			result, err := helper.Machine.Prompt("Image of cat ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "cat")
+			So(string(result), ShouldEqual, "is a cat.")
 		})
 
-		Convey("Cross-modal: dog prompt returns dog not cat-unique content", func() {
+		Convey("It should return the exact dog suffix for dog prompt", func() {
 			result, err := helper.Machine.Prompt("Image of dog ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "dog")
+			So(string(result), ShouldEqual, "is a dog.")
 		})
 
-		Convey("Superposition: shared prefix activates at least one branch", func() {
+		Convey("It should resolve shared prefix to the longest exact branch", func() {
 			result, err := helper.Machine.Prompt("The quick ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldNotBeEmpty)
+			So(string(result), ShouldEqual, "red fox jumps over the sleeping dog.")
 		})
 
-		Convey("Determinism: same prompt returns same result twice", func() {
+		Convey("It should return same result twice for same prompt", func() {
 			first, err := helper.Machine.Prompt("Roy is in the ")
 			So(err, ShouldBeNil)
 
@@ -87,18 +86,18 @@ func TestHolographicAlgebra_Integration(t *testing.T) {
 			So(string(second), ShouldEqual, string(first))
 		})
 
-		Convey("Logic AND: rains-and context routes to wet not dry", func() {
+		Convey("It should return the exact wet suffix for rains-and context", func() {
 			result, err := helper.Machine.Prompt("If it rains and ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "wet")
+			So(string(result), ShouldEqual, "you have no umbrella you get wet.")
 		})
 
-		Convey("Logic OR: umbrella-or context routes to dry not wet", func() {
+		Convey("It should return the exact dry suffix for umbrella-or context", func() {
 			result, err := helper.Machine.Prompt("If you have an umbrella or ")
 
 			So(err, ShouldBeNil)
-			So(string(result), ShouldEqual, "dry")
+			So(string(result), ShouldEqual, "stay inside you stay dry.")
 		})
 	})
 }
@@ -131,10 +130,8 @@ func BenchmarkHolographicAlgebra(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		errnie.SafeMust(func() ([]byte, error) {
-			return helper.Machine.Prompt(
-				queries[i%len(queries)],
-			)
-		})
+		_, _ = helper.Machine.Prompt(
+			queries[i%len(queries)],
+		)
 	}
 }

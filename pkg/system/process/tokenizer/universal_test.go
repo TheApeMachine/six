@@ -77,7 +77,7 @@ func fragmentedSequence(chunks []string) [][]byte {
 	return sequence
 }
 
-func assertKeyChunks(expected []string, keys []uint64) {
+func assertKeyChunks(expected []string, keys []uint64) error {
 	morton := data.NewMortonCoder()
 	actual := []string{}
 	current := make([]byte, 0)
@@ -92,7 +92,10 @@ func assertKeyChunks(expected []string, keys []uint64) {
 			expectedPos = 1
 		}
 
-		gc.So(pos, gc.ShouldEqual, expectedPos)
+		if pos != expectedPos {
+			return fmt.Errorf("expected position %d, got %d", expectedPos, pos)
+		}
+
 		current = append(current, symbol)
 		expectedPos++
 	}
@@ -101,7 +104,17 @@ func assertKeyChunks(expected []string, keys []uint64) {
 		actual = append(actual, string(current))
 	}
 
-	gc.So(actual, gc.ShouldResemble, expected)
+	if len(actual) != len(expected) {
+		return fmt.Errorf("expected %d chunks, got %d: %v vs %v", len(expected), len(actual), expected, actual)
+	}
+
+	for i := range actual {
+		if actual[i] != expected[i] {
+			return fmt.Errorf("chunk %d mismatch: expected %q, got %q", i, expected[i], actual[i])
+		}
+	}
+
+	return nil
 }
 
 func newServer(ctx context.Context, workerPool *pool.Pool) *UniversalServer {
@@ -134,6 +147,7 @@ func TestTokenizerServer(t *testing.T) {
 					gc.So(symbol, gc.ShouldEqual, corpus[i])
 				}
 			})
+
 		})
 
 		gc.Convey("When tokenizing binary noise", func() {
@@ -155,7 +169,12 @@ func TestTokenizerServer(t *testing.T) {
 		})
 
 		gc.Convey("When Done is called", func() {
-			err := server.Done(ctx, Universal_done{})
+			future, release := server.client.Done(ctx, func(p Universal_done_Params) error {
+				return nil
+			})
+			defer release()
+
+			_, err := future.Struct()
 
 			gc.Convey("It should return nil", func() {
 				gc.So(err, gc.ShouldBeNil)
@@ -198,12 +217,12 @@ func TestTokenizerServerBitwiseEmission(t *testing.T) {
 			keys, err = server.finalizeSequence(false)
 
 			gc.So(err, gc.ShouldBeNil)
-			assertKeyChunks([]string{"Roy wa", "s in the ", "living room"}, keys)
+			gc.So(assertKeyChunks([]string{"Roy wa", "s in the ", "living room"}, keys), gc.ShouldBeNil)
 
 			keys, err = server.drainSequences(true)
 
 			gc.So(err, gc.ShouldBeNil)
-			assertKeyChunks([]string{"Roy i", "s in the ", "kitchen"}, keys)
+			gc.So(assertKeyChunks([]string{"Roy i", "s in the ", "kitchen"}, keys), gc.ShouldBeNil)
 		})
 
 		gc.Convey("When different overlap families are interleaved", func() {
@@ -223,21 +242,21 @@ func TestTokenizerServerBitwiseEmission(t *testing.T) {
 			keys, err = server.finalizeSequence(false)
 
 			gc.So(err, gc.ShouldBeNil)
-			assertKeyChunks([]string{"Roy wa", "s in the ", "living room"}, keys)
+			gc.So(assertKeyChunks([]string{"Roy wa", "s in the ", "living room"}, keys), gc.ShouldBeNil)
 
 			server.sequence = fragmentedSequence([]string{"Image of ", "do", "g ", "is a ", "do", "g"})
 			keys, err = server.finalizeSequence(false)
 
 			gc.So(err, gc.ShouldBeNil)
-			assertKeyChunks([]string{"Image of ", "cat", " is a ", "cat"}, keys)
+			gc.So(assertKeyChunks([]string{"Image of ", "cat", " is a ", "cat"}, keys), gc.ShouldBeNil)
 
 			keys, err = server.drainSequences(true)
 
 			gc.So(err, gc.ShouldBeNil)
-			assertKeyChunks(
+			gc.So(assertKeyChunks(
 				[]string{"Roy i", "s in the ", "kitchen", "Image of ", "dog", " is a ", "dog"},
 				keys,
-			)
+			), gc.ShouldBeNil)
 		})
 	})
 }

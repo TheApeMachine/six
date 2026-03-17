@@ -37,5 +37,9 @@ func NewTestHelper() *TestHelper {
 Teardown cancels the test context.
 */
 func (helper *TestHelper) Teardown() {
+	if helper.cancel != nil {
+		helper.cancel()
+	}
+
 	helper.Machine.Close()
 }

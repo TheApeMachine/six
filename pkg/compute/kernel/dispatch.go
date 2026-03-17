@@ -29,12 +29,20 @@ type Backend interface {
 	) (uint64, error)
 }
 
+/*
+Builder aggregates available Backend implementations such as GPU or CPU cores
+and constructs or dispatches kernels to the most suitable available backing store.
+*/
 type Builder struct {
 	backends []Backend
 }
 
 type builderOpts func(*Builder)
 
+/*
+WithBackend returns a builderOpts closure appending the given backend
+implementation to the builder's local slice of available computing backends.
+*/
 func WithBackend(backend Backend) builderOpts {
 	return func(builder *Builder) {
 		builder.backends = append(builder.backends, backend)
@@ -54,19 +62,19 @@ func NewBuilder(opts ...builderOpts) *Builder {
 	}
 
 	if len(builder.backends) == 0 {
-		cnd := &cuda.CUDABackend{}
-		if cnd.Available() {
-			builder.backends = append(builder.backends, cnd)
+		cudaBackend := &cuda.CUDABackend{}
+		if cudaBackend.Available() {
+			builder.backends = append(builder.backends, cudaBackend)
 		}
 
-		mtl := &metal.MetalBackend{}
-		if mtl.Available() {
-			builder.backends = append(builder.backends, mtl)
+		metalBackend := &metal.MetalBackend{}
+		if metalBackend.Available() {
+			builder.backends = append(builder.backends, metalBackend)
 		}
 
-		dist := &DistributedBackend{}
-		if dist.Available() {
-			builder.backends = append(builder.backends, dist)
+		distributedBackend := &DistributedBackend{}
+		if distributedBackend.Available() {
+			builder.backends = append(builder.backends, distributedBackend)
 		}
 
 		builder.backends = append(builder.backends, &cpu.CPUBackend{})
@@ -81,22 +89,24 @@ func (builder *Builder) Resolve(
 	context unsafe.Pointer,
 ) (val uint64, err error) {
 	var lastErr error
+	var attempted bool
 	for _, backend := range builder.backends {
 		if !backend.Available() {
 			continue
 		}
+		attempted = true
 
 		result, resolveErr := func() (uint64, error) {
-			var v uint64
-			var e error
+			var resolvedID uint64
+			var resolveErrInside error
 			defer func() {
-				if r := recover(); r != nil {
-					e = fmt.Errorf("backend panic: %v", r)
-					errnie.ErrorSafe(e, false)
+				if recoverVal := recover(); recoverVal != nil {
+					resolveErrInside = fmt.Errorf("backend panic: %v", recoverVal)
+					errnie.ErrorSafe(resolveErrInside, false)
 				}
 			}()
-			v, e = backend.Resolve(graphNodes, numNodes, context)
-			return v, e
+			resolvedID, resolveErrInside = backend.Resolve(graphNodes, numNodes, context)
+			return resolvedID, resolveErrInside
 		}()
 
 		if resolveErr == nil {
@@ -104,9 +114,16 @@ func (builder *Builder) Resolve(
 		}
 		lastErr = resolveErr
 	}
+	if !attempted || lastErr == nil {
+		return 0, fmt.Errorf("no available backends")
+	}
 	return 0, lastErr
 }
 
+/*
+Available returns true if any backend within the Builder's backends list 
+reports it is actively available, short-circuiting on the first success.
+*/
 func (builder *Builder) Available() bool {
 	for _, backend := range builder.backends {
 		if backend.Available() {

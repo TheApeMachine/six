@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"math/bits"
-	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/numeric"
@@ -48,11 +47,6 @@ var (
 	*/
 	canonicalValueBasis = [5]int{0, 1, 4, 9, 11}
 
-	/*
-		byteValueMultipliers stores 3^(byte+1) mod 257 for every byte.
-		Affine scaling by a primitive-root orbit preserves the sparse shape
-		while rotating it through the Fermat field.
-	*/
 	byteValueMultipliers = initByteValueMultipliers()
 
 	bytePhaseScales = initBytePhaseScales()
@@ -144,16 +138,16 @@ payload. Scale zero is normalized to the identity because traversal wants an
 invertible default, not a black hole.
 */
 func (value *Value) SetAffine(scale, translate numeric.Phase) {
-	s := normalizePhaseWord(scale)
-	if s == 0 {
-		s = 1
+	scaleWord := normalizePhaseWord(scale)
+	if scaleWord == 0 {
+		scaleWord = 1
 	}
-	t := normalizePhaseWord(translate)
+	translateWord := normalizePhaseWord(translate)
 
 	word := value.C7()
 	word &^= affineWordMaskScale | affineWordMaskTranslate
-	word |= s << affineWordShiftScale
-	word |= t << affineWordShiftTranslate
+	word |= scaleWord << affineWordShiftScale
+	word |= translateWord << affineWordShiftTranslate
 	value.SetC7(word)
 }
 
@@ -194,6 +188,8 @@ func (value *Value) OperatorFlags() uint16 {
 	return uint16((value.C7() & shellWordMaskFlags) >> shellWordShiftFlags)
 }
 
+// setOperatorFlags masks and writes the lower 12 operator flag bits into C7
+// using shellWordMaskFlags and shellWordShiftFlags.
 func (value *Value) setOperatorFlags(flags uint16) {
 	word := value.C7()
 	word &^= shellWordMaskFlags
@@ -201,6 +197,7 @@ func (value *Value) setOperatorFlags(flags uint16) {
 	value.SetC7(word)
 }
 
+// setOperatorFlag toggles a single flag by reading OperatorFlags then calling setOperatorFlags.
 func (value *Value) setOperatorFlag(flag uint16, enabled bool) {
 	flags := value.OperatorFlags()
 	if enabled {
@@ -342,6 +339,10 @@ func (value *Value) SetLexicalTransition(next byte) {
 	}
 }
 
+/*
+initByteValueMultipliers builds a 256-entry multiplier table using
+modPow257(3, b+1) and returns [256]int.
+*/
 func initByteValueMultipliers() [256]int {
 	var multipliers [256]int
 	for b := range len(multipliers) {
@@ -350,6 +351,10 @@ func initByteValueMultipliers() [256]int {
 	return multipliers
 }
 
+/*
+modPow257 computes modular exponentiation modulo 257 using exponentiation
+by squaring and returns int. Parameters are base and exp.
+*/
 func modPow257(base, exp int) int {
 	result := 1
 	base %= 257
@@ -363,6 +368,10 @@ func modPow257(base, exp int) int {
 	return result
 }
 
+/*
+baseValueOffsets computes five offsets using byteValueMultipliers[int(b)],
+the additive (int(b)*17+1)%257, and canonicalValueBasis, and returns [5]int.
+*/
 func baseValueOffsets(b byte) [5]int {
 	mul := byteValueMultipliers[int(b)]
 	add := (int(b)*17 + 1) % 257
@@ -498,17 +507,15 @@ ValueListToSlice copies each entry into a freshly allocated Value and returns th
 func ValueListToSlice(list Value_List) ([]Value, error) {
 	out := make([]Value, list.Len())
 
+	_, seg, err := capnp.NewMessage(capnp.MultiSegment(nil))
+	if err != nil {
+		return nil, err
+	}
+
 	for i := 0; i < list.Len(); i++ {
 		src := list.At(i)
 
-		_, seg, err := capnp.NewMessage(capnp.MultiSegment(nil))
-
-		if err != nil {
-			return nil, err
-		}
-
 		value, err := NewValue(seg)
-
 		if err != nil {
 			return nil, err
 		}
@@ -563,6 +570,10 @@ func (value *Value) ResidualCarry() uint64 {
 	return value.C6()
 }
 
+/*
+Block returns the raw uint64 word at index i (0-7).
+It delegates to the unexported value.block method.
+*/
 func (value *Value) Block(i int) uint64 {
 	return value.block(i)
 }
@@ -1057,7 +1068,7 @@ func FlattenBatched(values []Value, p *pool.Pool) []FlatValue {
 		return out
 	}
 
-	wg := sync.WaitGroup{}
+	resChs := make([]chan *pool.Result, 0, n)
 
 	for i := range values {
 		idx := i
@@ -1065,18 +1076,19 @@ func FlattenBatched(values []Value, p *pool.Pool) []FlatValue {
 			out[idx] = values[idx].Flatten()
 			return nil, nil
 		})
+
 		if resCh == nil {
 			out[idx] = values[idx].Flatten()
 			continue
 		}
-		wg.Add(1)
-		go func(ch chan *pool.Result) {
-			defer wg.Done()
-			<-ch
-		}(resCh)
+
+		resChs = append(resChs, resCh)
 	}
 
-	wg.Wait()
+	for _, ch := range resChs {
+		<-ch
+	}
+
 	return out
 }
 

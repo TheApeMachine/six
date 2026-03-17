@@ -46,15 +46,15 @@ type ExecutionRegisters struct {
 	checkpoints     [WavefrontRegisterRows]ExecutionRegisterRow
 	trail           []ExecutionCheckpoint
 	trailLimit      int
-	lastResidue     uint8
-	bestResidue     uint8
-	worseningStreak uint8
+	lastResidue     uint16
+	bestResidue     uint16
+	worseningStreak uint16
 }
 
 func newExecutionRegisters() *ExecutionRegisters {
 	return &ExecutionRegisters{
 		trailLimit:  WavefrontTrailLimit,
-		bestResidue: 0xFF,
+		bestResidue: 0xFFFF,
 	}
 }
 
@@ -158,12 +158,12 @@ func (registers *ExecutionRegisters) ObserveTransition(
 	}
 	RegisterSetBit(&registers.alignments[expectedIndex], observedIndex)
 
-	if registers.bestResidue == 0xFF || residue < int(registers.bestResidue) {
-		registers.bestResidue = uint8(residue)
+	if registers.bestResidue == 0xFFFF || residue < int(registers.bestResidue) {
+		registers.bestResidue = uint16(residue)
 		registers.worseningStreak = 0
 		penalty -= 2
 	} else if residue > int(registers.lastResidue) {
-		if registers.worseningStreak < 0xFF {
+		if registers.worseningStreak < 0xFFFF {
 			registers.worseningStreak++
 		}
 		penalty += int(registers.worseningStreak)
@@ -172,7 +172,7 @@ func (registers *ExecutionRegisters) ObserveTransition(
 		penalty--
 	}
 
-	registers.lastResidue = uint8(residue)
+	registers.lastResidue = uint16(residue)
 	if penalty < 0 {
 		penalty = 0
 	}
@@ -183,9 +183,9 @@ func (registers *ExecutionRegisters) ObserveTransition(
 /*
 BestResidue returns the lowest phase residue seen by the register set.
 */
-func (registers *ExecutionRegisters) BestResidue() uint8 {
+func (registers *ExecutionRegisters) BestResidue() uint16 {
 	if registers == nil {
-		return 0xFF
+		return 0xFFFF
 	}
 
 	return registers.bestResidue
@@ -195,7 +195,7 @@ func (registers *ExecutionRegisters) BestResidue() uint8 {
 WorseningStreak returns the count of consecutive transitions that increased
 residue drift.
 */
-func (registers *ExecutionRegisters) WorseningStreak() uint8 {
+func (registers *ExecutionRegisters) WorseningStreak() uint16 {
 	if registers == nil {
 		return 0
 	}

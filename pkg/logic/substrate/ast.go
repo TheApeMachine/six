@@ -62,6 +62,10 @@ func extractSharedInvariant(sequences [][]data.Value) data.Value {
 	return invariant
 }
 
+/*
+xorSequence extracts residue boundaries by applying a logical XOR between
+an active context label and a sequence. It returns only the non-zero residues.
+*/
 func xorSequence(seq []data.Value, label data.Value) []data.Value {
 	var out []data.Value
 

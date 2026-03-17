@@ -21,5 +21,3 @@ func init() {
 	workerCmd.Flags().StringVar(&workerAddr, "addr", ":7777", "worker listen address")
 	rootCmd.AddCommand(workerCmd)
 }
-
-

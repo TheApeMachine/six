@@ -101,6 +101,12 @@ func CompileObservableSequenceValues(keys []uint64) []Value {
 	return values
 }
 
+/*
+programForStep chooses the next Opcode and parameters for advancing the
+program based on the current and next positions. It centralizes the logic for
+determining whether the execution should halt, reset, continue to the next
+cell, or jump with a specific stride.
+*/
 func programForStep(
 	currentPos, nextPos uint32, hasNext bool,
 ) (Opcode, uint32, uint8, bool) {
@@ -113,7 +119,8 @@ func programForStep(
 	}
 
 	if nextPos <= currentPos {
-		return OpcodeJump, 1, 0, false
+		jump := currentPos - nextPos
+		return OpcodeJump, jump, 0, false
 	}
 
 	jump := nextPos - currentPos

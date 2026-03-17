@@ -180,8 +180,10 @@ var paperCmd = &cobra.Command{
 	},
 }
 
+/*
+init registers the paper command with the root command by calling rootCmd.AddCommand(paperCmd).
+It executes at package initialization time.
+*/
 func init() {
 	rootCmd.AddCommand(paperCmd)
 }
-
-

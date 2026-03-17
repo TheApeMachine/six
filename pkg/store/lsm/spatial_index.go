@@ -15,18 +15,6 @@ import (
 var morton = data.NewMortonCoder()
 
 /*
-SpatialEntry stores a single edge in the radix forest.
-Key is a MortonCoder-packed uint64: Pack(localDepth, symbol).
-The data value is deterministic (5 bits per byte value).
-Meta values accumulate from different topological contexts.
-*/
-type SpatialEntry struct {
-	Key   uint64
-	Value data.Value
-	Metas []data.Value
-}
-
-/*
 SpatialIndexServer implements the Cap'n Proto RPC interface for the Lexicon.
 Keys are packed via MortonCoder.Pack(localDepth, symbol).
 Data values are deterministic (one per byte value). Meta values
@@ -176,6 +164,26 @@ func (idx *SpatialIndexServer) Lookup(
 	}
 
 	return nil
+}
+
+/*
+Entries returns all stored spatial entries.
+*/
+func (idx *SpatialIndexServer) Entries() []SpatialEntry {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	var entries []SpatialEntry
+	for symbol, grid := range idx.grid {
+		for pos, val := range grid {
+			entries = append(entries, SpatialEntry{
+				Key:   morton.Pack(pos, byte(symbol)),
+				Value: val,
+			})
+		}
+	}
+
+	return entries
 }
 
 func WithContext(ctx context.Context) spatialIndexOpts {

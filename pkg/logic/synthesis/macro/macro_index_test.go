@@ -8,6 +8,12 @@ import (
 	"github.com/theapemachine/six/pkg/store/data"
 )
 
+/*
+keyFromByte generates an AffineKey between b and b+1.
+Note that for b=255, b+1 intentionally wraps to 0 in the 8-bit space,
+producing a key that bridges the boundary from the end of the byte range
+back to its start. This exercises the system's modular continuity.
+*/
 func keyFromByte(b byte) AffineKey {
 	return AffineKeyFromValues(data.BaseValue(b), data.BaseValue(b+1))
 }

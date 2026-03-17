@@ -2,6 +2,7 @@ package visualizer
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
@@ -44,9 +45,11 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 				return nil
 			}
 
-			errnie.SafeMust(func() ([]byte, error) {
+			responseData := errnie.SafeMust(func() ([]byte, error) {
 				return helper.Machine.Prompt(prompt)
 			})
+
+			_ = responseData
 
 			select {
 			case <-ctx.Done():
@@ -65,14 +68,26 @@ few words as partial-match queries.
 func extractPrompts(dataset provider.Dataset) []string {
 	byID := map[uint32][]byte{}
 
+	ids := make([]uint32, 0)
+
 	for tok := range dataset.Generate() {
-		byID[tok.SampleID] = append(byID[tok.SampleID], tok.Symbol)
+		sample, ok := byID[tok.SampleID]
+		if !ok {
+			ids = append(ids, tok.SampleID)
+		}
+
+		byID[tok.SampleID] = append(sample, tok.Symbol)
 	}
+
+	sort.Slice(ids, func(i, j int) bool {
+		return ids[i] < ids[j]
+	})
 
 	seen := map[string]bool{}
 	var prompts []string
 
-	for _, raw := range byID {
+	for _, id := range ids {
+		raw := byID[id]
 		line := strings.TrimSpace(string(raw))
 		words := strings.Fields(line)
 

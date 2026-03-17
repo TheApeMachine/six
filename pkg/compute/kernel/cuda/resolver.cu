@@ -9,8 +9,7 @@ struct GFRotation {
 };
 
 static const uint32_t DISTANCE_MAX = 131072u;
-static const uint32_t DISTANCE_SCALE_SHIFT = 10u;
-static const uint32_t SCALED_DISTANCE_MAX = DISTANCE_MAX << DISTANCE_SCALE_SHIFT;
+static const uint32_t SCALED_DISTANCE_MAX = DISTANCE_MAX;
 
 __global__ void resolve_resonance_kernel(
     const GFRotation* graph_nodes,
@@ -27,15 +26,15 @@ __global__ void resolve_resonance_kernel(
     GFRotation candidate = graph_nodes[id];
     GFRotation ctx = active_context[0];
 
-    int da = (int)candidate.a - (int)ctx.a;
-    int db = (int)candidate.b - (int)ctx.b;
-    uint32_t dist_sq = (uint32_t)(da * da + db * db);
-    if (dist_sq > DISTANCE_MAX) {
-        dist_sq = DISTANCE_MAX;
+    uint32_t da = (uint32_t)candidate.a - (uint32_t)ctx.a;
+    uint32_t db = (uint32_t)candidate.b - (uint32_t)ctx.b;
+    uint64_t dist_sq64 = (uint64_t)da * da + (uint64_t)db * db;
+    if (dist_sq64 > DISTANCE_MAX) {
+        dist_sq64 = DISTANCE_MAX;
     }
 
-    uint32_t dist_scaled = dist_sq << DISTANCE_SCALE_SHIFT;
-    uint32_t inverted_dist = SCALED_DISTANCE_MAX - dist_scaled;
+    uint32_t dist_sq = (uint32_t)dist_sq64;
+    uint32_t inverted_dist = SCALED_DISTANCE_MAX - dist_sq;
     uint32_t global_id = id + base_offset;
 
     unsigned long long packed_result =

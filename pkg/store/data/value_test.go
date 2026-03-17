@@ -2,7 +2,6 @@ package data
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -93,8 +92,9 @@ func TestValueOR(t *testing.T) {
 func TestBaseValue(t *testing.T) {
 	logicalBits := config.Numeric.VocabSize + 1
 
-	Convey("Given BaseValue for each byte 0-255", t, func() {
-		Convey("It should keep all bits within logical width", func() {
+	Convey("Given BaseValue for each byte", t, func() {
+		Convey("It should keep all bits within logical width and be unique", func() {
+			values := make(map[Value]byte)
 			for byteVal := range config.Numeric.VocabSize {
 				value := BaseValue(byte(byteVal))
 
@@ -105,13 +105,6 @@ func TestBaseValue(t *testing.T) {
 				}
 
 				So(value.ActiveCount(), ShouldBeGreaterThan, 0)
-			}
-		})
-
-		Convey("It should produce unique values per byte", func() {
-			values := make(map[Value]byte)
-			for byteVal := range config.Numeric.VocabSize {
-				value := BaseValue(byte(byteVal))
 				_, exists := values[value]
 				So(exists, ShouldBeFalse)
 				values[value] = byte(byteVal)
@@ -188,17 +181,13 @@ func TestBuildValue(t *testing.T) {
 			value, err := BuildValue(payload)
 			So(err, ShouldBeNil)
 
-			Convey(fmt.Sprintf("Payload len %d has non-zero active count", len(payload)), func() {
-				So(value.ActiveCount(), ShouldBeGreaterThan, 0)
-			})
+			So(value.ActiveCount(), ShouldBeGreaterThan, 0)
 
-			Convey(fmt.Sprintf("Payload len %d stays within 257-bit width", len(payload)), func() {
-				for idx := config.Numeric.VocabSize + 1; idx < 512; idx++ {
-					word := idx / 64
-					bit := idx % 64
-					So(value.block(word)&(1<<uint(bit)), ShouldEqual, uint64(0))
-				}
-			})
+			for idx := config.Numeric.VocabSize + 1; idx < 512; idx++ {
+				word := idx / 64
+				bit := idx % 64
+				So(value.block(word)&(1<<uint(bit)), ShouldEqual, uint64(0))
+			}
 		}
 	})
 }
@@ -560,9 +549,13 @@ func BenchmarkFlattenBatched(b *testing.B) {
 	if err != nil {
 		b.Fatalf("genValuesFromBytes: %v", err)
 	}
+
+	workerPool := pool.New(context.Background(), 2, 4, pool.NewConfig())
+	defer workerPool.Close()
+
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = FlattenBatched(values, nil)
+		_ = FlattenBatched(values, workerPool)
 	}
 }

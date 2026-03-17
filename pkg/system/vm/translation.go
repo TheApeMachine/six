@@ -7,7 +7,7 @@ import (
 	"github.com/gomlx/gemma/transformers"
 	"github.com/gomlx/gemma/trees"
 	"github.com/gomlx/gomlx/backends"
-	. "github.com/gomlx/gomlx/graph"
+	graph "github.com/gomlx/gomlx/graph"
 	gomlxctx "github.com/gomlx/gomlx/ml/context"
 	"github.com/gomlx/gomlx/types/shapes"
 	"github.com/gomlx/gomlx/types/tensors"
@@ -79,10 +79,10 @@ byte through the tokenizer.
 func (tl *TranslationLayer) IngestContext(text string) error {
 	ctx := tl.machine.ctx
 
-	for _, b := range []byte(text) {
+	for _, chByte := range []byte(text) {
 		if err := tl.machine.booter.tok.Write(
 			ctx, func(p tokenizer.Universal_write_Params) error {
-				p.SetData(b)
+				p.SetData(chByte)
 				return nil
 			},
 		); err != nil {
@@ -90,11 +90,7 @@ func (tl *TranslationLayer) IngestContext(text string) error {
 		}
 	}
 
-	if err := tl.machine.tokenizerDone(); err != nil {
-		return err
-	}
-
-	if err := tl.machine.tokenizerDone(); err != nil {
+	if err, _ := tl.machine.tokenizerDone(); err != nil {
 		return err
 	}
 
@@ -141,9 +137,12 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 	graphFuture, graphRelease := tl.machine.booter.graph.Prompt(ctx, func(
 		p substrate.Graph_prompt_Params,
 	) error {
-		return p.SetPaths(capnp.PointerList(
-			lookupResult.ToPtr().Interface().ToPtr().List(),
-		))
+		ptrList, err := ptrListFromLookup(lookupResult)
+		if err != nil {
+			return err
+		}
+
+		return p.SetPaths(ptrList)
 	})
 	defer graphRelease()
 
@@ -228,7 +227,7 @@ func (tl *TranslationLayer) PopulateCache(
 	prefillExec := gomlxctx.NewExec(
 		backend,
 		ctx.Reuse(),
-		func(mlCtx *gomlxctx.Context, inputs []*Node) []*Node {
+		func(mlCtx *gomlxctx.Context, inputs []*graph.Node) []*graph.Node {
 			tokens := inputs[0]
 			pos := inputs[1]
 			attnMask := inputs[2]
@@ -285,9 +284,9 @@ The injection works by:
 func (tl *TranslationLayer) SubstrateBlock(
 	ctx *gomlxctx.Context,
 	config *transformers.Config,
-	x *Node,
-	substrateTokens *Node,
-) *Node {
+	x *graph.Node,
+	substrateTokens *graph.Node,
+) *graph.Node {
 	g := x.Graph()
 	dtype := x.DType()
 	embedDim := config.EmbedDim
@@ -300,13 +299,13 @@ func (tl *TranslationLayer) SubstrateBlock(
 		VariableWithShape("q_proj", shapes.Make(dtype, numHeads, embedDim, headDim)).
 		ValueGraph(g)
 
-	query := Einsum("BTD,NHD->BTNH", normalized, queryWeights)
+	query := graph.Einsum("BTD,NHD->BTNH", normalized, queryWeights)
 
 	embedTable := ctx.Reuse().In("model").In("embedder").
 		VariableWithShape("input_embedding", shapes.Make(dtypes.BFloat16, config.VocabularySize, config.EmbedDim)).
 		ValueGraph(g)
 
-	substrateEmbed := Gather(embedTable, ExpandAxes(substrateTokens, -1))
+	substrateEmbed := graph.Gather(embedTable, graph.ExpandAxes(substrateTokens, -1))
 
 	keyWeights := ctx.In("substrate_cross_attn").
 		VariableWithShape("k_proj", shapes.Make(dtype, numHeads, embedDim, headDim)).
@@ -316,23 +315,49 @@ func (tl *TranslationLayer) SubstrateBlock(
 		VariableWithShape("v_proj", shapes.Make(dtype, numHeads, embedDim, headDim)).
 		ValueGraph(g)
 
-	keys := Einsum("BSD,NHD->BSNH", substrateEmbed, keyWeights)
-	values := Einsum("BSD,NHD->BSNH", substrateEmbed, valueWeights)
+	keys := graph.Einsum("BSD,NHD->BSNH", substrateEmbed, keyWeights)
+	values := graph.Einsum("BSD,NHD->BSNH", substrateEmbed, valueWeights)
 
-	logits := Einsum("BTNH,BSNH->BTNS", query, keys)
+	logits := graph.Einsum("BTNH,BSNH->BTNS", query, keys)
 	scale := 1.0 / float64(headDim)
-	logits = MulScalar(logits, scale)
-	weights := Softmax(logits, -1)
+	logits = graph.MulScalar(logits, scale)
+	weights := graph.Softmax(logits, -1)
 
-	attended := Einsum("BTNS,BSNH->BTNH", weights, values)
+	attended := graph.Einsum("BTNS,BSNH->BTNH", weights, values)
 
 	outWeights := ctx.In("substrate_cross_attn").
 		VariableWithShape("o_proj", shapes.Make(dtype, numHeads, headDim, embedDim)).
 		ValueGraph(g)
 
-	output := Einsum("BTNH,NHD->BTD", attended, outWeights)
+	output := graph.Einsum("BTNH,NHD->BTD", attended, outWeights)
 
-	return Add(x, output)
+	return graph.Add(x, output)
+}
+
+func ptrListFromLookup(
+	res lsm.SpatialIndex_lookup_Results,
+) (capnp.PointerList, error) {
+	if !res.IsValid() {
+		return capnp.PointerList{}, fmt.Errorf("lookup results are invalid")
+	}
+
+	ptr := res.ToPtr()
+	if !ptr.IsValid() {
+		return capnp.PointerList{}, fmt.Errorf("lookup results pointer is invalid")
+	}
+
+	inter := ptr.Interface()
+	if !inter.IsValid() {
+		return capnp.PointerList{}, fmt.Errorf("lookup results interface is invalid")
+	}
+
+	ptr2 := inter.ToPtr()
+	if !ptr2.IsValid() {
+		return capnp.PointerList{}, fmt.Errorf("lookup results interface pointer is invalid")
+	}
+
+	list := ptr2.List()
+	return capnp.PointerList(list), nil
 }
 
 /*
@@ -343,11 +368,11 @@ cache but adds substrate cross-attention at the specified injection points.
 func (tl *TranslationLayer) GemmaWithSubstrate(
 	ctx *gomlxctx.Context,
 	config *transformers.Config,
-	currentTokens, currentPositions *Node,
-	cache *trees.Tree[*Node],
-	cacheAttentionMask *Node,
-	substrateTokens *Node,
-) *Node {
+	currentTokens, currentPositions *graph.Node,
+	cache *trees.Tree[*graph.Node],
+	cacheAttentionMask *graph.Node,
+	substrateTokens *graph.Node,
+) *graph.Node {
 	batchSize := currentTokens.Shape().Dim(0)
 	seqLength := currentTokens.Shape().Dim(1)
 
@@ -374,7 +399,7 @@ func (tl *TranslationLayer) GemmaWithSubstrate(
 			x = tl.SubstrateBlock(injectionCtx, config, x, substrateTokens)
 		}
 
-		x = Identity(x)
+		x = graph.Identity(x)
 	}
 
 	x = transformers.RMSNorm(ctx.In("final_norm"), x)

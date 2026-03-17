@@ -59,36 +59,36 @@ func find5Primes(
 		n = len(Primes)
 	}
 
-	for a := 0; a < n; a++ {
-		if !pValid[a] {
+	for primeIdxA := 0; primeIdxA < n; primeIdxA++ {
+		if !pValid[primeIdxA] {
 			continue
 		}
 
-		for b := a + 1; b < n; b++ {
-			if !pValid[b] {
+		for primeIdxB := primeIdxA + 1; primeIdxB < n; primeIdxB++ {
+			if !pValid[primeIdxB] {
 				continue
 			}
 
-			for c := b + 1; c < n; c++ {
-				if !pValid[c] {
+			for primeIdxC := primeIdxB + 1; primeIdxC < n; primeIdxC++ {
+				if !pValid[primeIdxC] {
 					continue
 				}
 
-				for d := c + 1; d < n; d++ {
-					if !pValid[d] {
+				for primeIdxD := primeIdxC + 1; primeIdxD < n; primeIdxD++ {
+					if !pValid[primeIdxD] {
 						continue
 					}
 
-					sum4 := (pDlogs[a] + pDlogs[b] + pDlogs[c] + pDlogs[d]) % 256
+					sum4 := (pDlogs[primeIdxA] + pDlogs[primeIdxB] + pDlogs[primeIdxC] + pDlogs[primeIdxD]) % 256
 					need := (target - sum4 + 256) % 256
 
-					for e := d + 1; e < n; e++ {
-						if !pValid[e] {
+					for primeIdxE := primeIdxD + 1; primeIdxE < n; primeIdxE++ {
+						if !pValid[primeIdxE] {
 							continue
 						}
 
-						if pDlogs[e] == need {
-							return [5]int{a, b, c, d, e}, true
+						if pDlogs[primeIdxE] == need {
+							return [5]int{primeIdxA, primeIdxB, primeIdxC, primeIdxD, primeIdxE}, true
 						}
 					}
 				}
