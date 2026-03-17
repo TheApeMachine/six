@@ -54,6 +54,7 @@ func CompileSequenceCells(keys []uint64) []SequenceCell {
 		nextSymbol := byte(0)
 		nextPos := uint32(0)
 		hasNext := index+1 < len(keys)
+
 		if hasNext {
 			nextPos, nextSymbol = coder.Unpack(keys[index+1])
 			value.SetLexicalTransition(nextSymbol)

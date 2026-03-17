@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -17,6 +17,7 @@ import (
 Server serves the 3D visualization and streams value events via WebSocket.
 */
 type Server struct {
+	state   *errnie.State
 	mu      sync.RWMutex
 	clients map[*websocket.Conn]bool
 	upgrade websocket.Upgrader
@@ -29,6 +30,7 @@ NewServer instantiates a visualization server.
 */
 func NewServer() *Server {
 	return &Server{
+		state:   errnie.NewState("visualizer/server"),
 		clients: make(map[*websocket.Conn]bool),
 		upgrade: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
@@ -40,18 +42,19 @@ func NewServer() *Server {
 listenUDP starts the locked UDP listener, forwarding all telemetry to visualizer clients.
 */
 func (server *Server) listenUDP() error {
-	addr, err := net.ResolveUDPAddr("udp", "127.0.0.1:8258")
-	if err != nil {
-		return console.Error(err, "msg", "failed to resolve visualizer UDP")
-	}
-	conn, err := net.ListenUDP("udp", addr)
-	if err != nil {
-		return console.Error(err, "msg", "failed to listen on visualizer UDP")
-	}
+	addr := errnie.Guard(server.state, func() (*net.UDPAddr, error) {
+		return net.ResolveUDPAddr("udp", "127.0.0.1:8258")
+	})
+
+	conn := errnie.Guard(server.state, func() (*net.UDPConn, error) {
+		return net.ListenUDP("udp", addr)
+	})
+
 	server.udpConn = conn
 	defer conn.Close()
 
 	buf := make([]byte, 65535)
+
 	for {
 		n, _, err := conn.ReadFromUDP(buf)
 		if err != nil {
@@ -60,6 +63,7 @@ func (server *Server) listenUDP() error {
 
 		// Forward raw JSON directly to websockets!
 		var event telemetry.Event
+
 		if err := json.Unmarshal(buf[:n], &event); err == nil {
 			server.Broadcast(event)
 		}
@@ -71,9 +75,7 @@ ListenAndServe starts the HTTP server on the given address.
 */
 func (server *Server) ListenAndServe(addr string) error {
 	go func() {
-		if err := server.listenUDP(); err != nil {
-			console.Error(err, "msg", "UDP listen failed loop")
-		}
+		errnie.GuardVoid(server.state, server.listenUDP)
 	}()
 
 	mux := http.NewServeMux()
@@ -102,10 +104,9 @@ func (server *Server) Shutdown() {
 }
 
 func (server *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	conn, err := server.upgrade.Upgrade(w, r, nil)
-	if err != nil {
-		return
-	}
+	conn := errnie.Guard(server.state, func() (*websocket.Conn, error) {
+		return server.upgrade.Upgrade(w, r, nil)
+	})
 
 	server.mu.Lock()
 	server.clients[conn] = true
@@ -129,10 +130,9 @@ func (server *Server) handleWS(w http.ResponseWriter, r *http.Request) {
 Broadcast sends an event to all connected WebSocket clients.
 */
 func (server *Server) Broadcast(event telemetry.Event) {
-	msg, err := json.Marshal(event)
-	if err != nil {
-		return
-	}
+	msg := errnie.Guard(server.state, func() ([]byte, error) {
+		return json.Marshal(event)
+	})
 
 	server.mu.RLock()
 	defer server.mu.RUnlock()

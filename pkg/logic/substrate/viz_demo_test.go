@@ -58,10 +58,10 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 			// Geometric Extraction
 			// What exists in the Attack that does NOT exist in the Baseline?
-			residue := data.ValueHole(&attackValue, &baselineValue)
+			residue := attackValue.Hole(baselineValue)
 
 			// How many bits of the FULL signature were recovered cleanly?
-			sim := data.ValueSimilarity(&residue, &anomalyValue)
+			sim := residue.Similarity(anomalyValue)
 
 			if i < 3 { // Just log the first few extensively so the user can read it
 				t.Logf("--- Trial %d ---", i+1)
@@ -133,9 +133,8 @@ func BenchmarkAnomalyIsolation(b *testing.B) {
 		b.Fatalf("BuildValue attack: %v", err)
 	}
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		residue := data.ValueHole(&attackValue, &baselineValue)
-		data.ValueSimilarity(&residue, &anomalyValue)
+	for b.Loop() {
+		residue := attackValue.Hole(baselineValue)
+		residue.Similarity(anomalyValue)
 	}
 }

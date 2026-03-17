@@ -6,6 +6,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -41,6 +42,7 @@ the Tokenizer — PrompterServer has no knowledge of any other server.
 type PrompterServer struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
+	state       *errnie.State
 	serverSide  net.Conn
 	clientSide  net.Conn
 	client      Prompter
@@ -60,6 +62,7 @@ NewPrompterServer instantiates a PrompterServer.
 func NewPrompterServer(opts ...prompterOpts) *PrompterServer {
 	server := &PrompterServer{
 		clientConns: map[string]*rpc.Conn{},
+		state:       errnie.NewState("vm/input/prompterServer"),
 	}
 
 	for _, opt := range opts {
@@ -101,31 +104,48 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (server *PrompterServer) Close() error {
-	if server.serverConn != nil {
-		_ = server.serverConn.Close()
+	errnie.GuardVoid(server.state, func() error {
+		if server.serverConn != nil {
+			return server.serverConn.Close()
+		}
 		server.serverConn = nil
-	}
+		return nil
+	})
 
 	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			_ = conn.Close()
-		}
+		errnie.GuardVoid(server.state, func() error {
+			if conn != nil {
+				return conn.Close()
+			}
+			return nil
+		})
 		delete(server.clientConns, clientID)
 	}
 
-	if server.serverSide != nil {
-		_ = server.serverSide.Close()
+	errnie.GuardVoid(server.state, func() error {
+		if server.serverSide != nil {
+			return server.serverSide.Close()
+		}
 		server.serverSide = nil
-	}
-	if server.clientSide != nil {
-		_ = server.clientSide.Close()
-		server.clientSide = nil
-	}
-	if server.cancel != nil {
-		server.cancel()
-	}
+		return nil
+	})
 
-	return nil
+	errnie.GuardVoid(server.state, func() error {
+		if server.clientSide != nil {
+			return server.clientSide.Close()
+		}
+		server.clientSide = nil
+		return nil
+	})
+
+	errnie.GuardVoid(server.state, func() error {
+		if server.cancel != nil {
+			server.cancel()
+		}
+		return nil
+	})
+
+	return server.state.Err()
 }
 
 /*
@@ -135,17 +155,15 @@ incoming message and returns the processed bytes.
 func (server *PrompterServer) Generate(
 	ctx context.Context, call Prompter_generate,
 ) error {
-	msg, err := call.Args().Msg()
-	if err != nil {
-		return err
-	}
+	msg := errnie.Guard(server.state, func() (string, error) {
+		return call.Args().Msg()
+	})
 
 	processed := server.applyHoldout([]byte(msg))
 
-	res, err := call.AllocResults()
-	if err != nil {
-		return err
-	}
+	res := errnie.Guard(server.state, func() (Prompter_generate_Results, error) {
+		return call.AllocResults()
+	})
 
 	return res.SetData(processed)
 }
@@ -174,7 +192,7 @@ func (server *PrompterServer) applyHoldout(src []byte) []byte {
 			out[i] = 0
 		}
 	case LEFT:
-		for i := 0; i < maskLen; i++ {
+		for i := range maskLen {
 			out[i] = 0
 		}
 	case CENTER:

@@ -238,3 +238,51 @@ func TestConcurrentSafeMustVoid(t *testing.T) {
 		})
 	})
 }
+
+func TestSafeMustWithHandler(t *testing.T) {
+	Convey("Given a function that returns an error and a handler", t, func() {
+		expectedErr := errors.New("test error")
+		fn := func() (int, error) {
+			return 0, expectedErr
+		}
+
+		var captured error
+
+		handler := func(err error) {
+			captured = err
+		}
+
+		Convey("When SafeMust is called with the handler", func() {
+			SafeMust(fn, handler)
+
+			Convey("It should pass the typed error to the handler", func() {
+				So(captured, ShouldNotBeNil)
+				So(captured.Error(), ShouldEqual, expectedErr.Error())
+			})
+		})
+	})
+}
+
+func TestSafeMustVoidWithHandler(t *testing.T) {
+	Convey("Given a function that returns an error and a handler", t, func() {
+		expectedErr := errors.New("void error")
+		fn := func() error {
+			return expectedErr
+		}
+
+		var captured error
+
+		handler := func(err error) {
+			captured = err
+		}
+
+		Convey("When SafeMustVoid is called with the handler", func() {
+			SafeMustVoid(fn, handler)
+
+			Convey("It should pass the typed error to the handler", func() {
+				So(captured, ShouldNotBeNil)
+				So(captured.Error(), ShouldEqual, expectedErr.Error())
+			})
+		})
+	})
+}

@@ -2,7 +2,7 @@ package visualizer
 
 import (
 	"context"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -39,15 +39,23 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 		}
 	}
 
+	state := errnie.NewState("visualizer/demo")
+
 	for {
 		for _, prompt := range prompts {
 			if ctx.Err() != nil {
 				return nil
 			}
 
-			responseData := errnie.SafeMust(func() ([]byte, error) {
+			state.Reset()
+
+			responseData := errnie.Guard(state, func() ([]byte, error) {
 				return helper.Machine.Prompt(prompt)
 			})
+
+			if state.Failed() {
+				return state.Err()
+			}
 
 			_ = responseData
 
@@ -79,9 +87,7 @@ func extractPrompts(dataset provider.Dataset) []string {
 		byID[tok.SampleID] = append(sample, tok.Symbol)
 	}
 
-	sort.Slice(ids, func(i, j int) bool {
-		return ids[i] < ids[j]
-	})
+	slices.Sort(ids)
 
 	seen := map[string]bool{}
 	var prompts []string

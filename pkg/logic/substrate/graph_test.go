@@ -263,7 +263,7 @@ func TestBaseValueMinimumDistance(t *testing.T) {
 					ca := data.BaseValue(byte(a))
 					cb := data.BaseValue(byte(b))
 
-					shared := data.ValueSimilarity(&ca, &cb)
+					shared := ca.Similarity(cb)
 					dist := ca.XOR(cb).ActiveCount()
 
 					if shared > 0 {
@@ -335,8 +335,8 @@ func TestThreeWayDecomposition(t *testing.T) {
 			stored := paths[idx]
 
 			shared := prompt.AND(stored)
-			promptOnly := data.ValueHole(&prompt, &stored)
-			storedOnly := data.ValueHole(&stored, &prompt)
+			promptOnly := prompt.Hole(stored)
+			storedOnly := stored.Hole(prompt)
 			residue := prompt.XOR(stored)
 
 			Convey(fmt.Sprintf("Trial %d: chunk[%d]", trial, idx), func() {
@@ -401,7 +401,7 @@ func TestDistanceMetricRankings(t *testing.T) {
 		results := make([]scored, len(paths))
 
 		for i, path := range paths {
-			shared := data.ValueSimilarity(&prompt, &path)
+			shared := prompt.Similarity(path)
 			sActive := path.ActiveCount()
 			hammingDist := prompt.XOR(path).ActiveCount()
 			union := pActive + sActive - shared
@@ -560,7 +560,7 @@ func TestAnalogyOperator(t *testing.T) {
 
 			t.Logf("Analogy: |A|=%d |B|=%d |relationship|=%d |shared(A,B)|=%d",
 				valueA.ActiveCount(), valueB.ActiveCount(),
-				relationship.ActiveCount(), data.ValueSimilarity(&valueA, &valueB))
+				relationship.ActiveCount(), valueA.Similarity(valueB))
 			t.Logf("D = C ⊕ (A ⊕ B): |D⊕expected|=%d", distToExpected)
 			t.Logf("Analogy rank: %d/%d paths closer (top %.1f%%)",
 				betterThanExpected, totalPaths, rankPercentile)
@@ -590,8 +590,8 @@ func TestAnalogyOperator(t *testing.T) {
 			t.Logf("Shared substring ' said' contributes %d bits out of |A|=%d, |B|=%d",
 				sharedValue.ActiveCount(), valueA.ActiveCount(), valueB.ActiveCount())
 			t.Logf("Shared fraction of A: %.0f%%  of B: %.0f%%",
-				float64(data.ValueSimilarity(&sharedValue, &valueA))/float64(valueA.ActiveCount())*100,
-				float64(data.ValueSimilarity(&sharedValue, &valueB))/float64(valueB.ActiveCount())*100)
+				float64(sharedValue.Similarity(valueA))/float64(valueA.ActiveCount())*100,
+				float64(sharedValue.Similarity(valueB))/float64(valueB.ActiveCount())*100)
 
 			So(sharedValue.ActiveCount(), ShouldBeGreaterThan, 0)
 		})
@@ -718,7 +718,7 @@ func TestTopKSharedCore(t *testing.T) {
 			randCoreSize := randCore.ActiveCount()
 
 			// How much of top-k core overlaps with the prompt?
-			topOverlap := data.ValueSimilarity(&topCore, &prompt)
+			topOverlap := topCore.Similarity(prompt)
 
 			t.Logf("Top-%d shared core: %d bits (%d overlap with prompt of %d)",
 				k, topCoreSize, topOverlap, prompt.ActiveCount())
@@ -781,7 +781,7 @@ func TestContainmentVsDensity(t *testing.T) {
 			perfectContainment := 0
 
 			for _, path := range paths {
-				shared := data.ValueSimilarity(&prompt, &path)
+				shared := prompt.Similarity(path)
 				containment := float64(shared) / float64(max(pActive, 1))
 
 				if containment >= 1.0 {
@@ -1005,20 +1005,20 @@ func TestResidueRecovery(t *testing.T) {
 				contValue, _ := data.BuildValue([]byte(tc.cont))
 
 				// Verify prefix ⊆ full.
-				prefixInFull := data.ValueSimilarity(&prefixValue, &fullValue)
+				prefixInFull := prefixValue.Similarity(fullValue)
 				prefixIsSubset := prefixInFull == prefixValue.ActiveCount()
 
 				// Compute residue.
 				residue := fullValue.XOR(prefixValue)
 
 				// When prefix ⊆ full, XOR = ValueHole(full, prefix).
-				hole := data.ValueHole(&fullValue, &prefixValue)
+				hole := fullValue.Hole(prefixValue)
 				holeEqualsResidue := hole.XOR(residue).ActiveCount() == 0
 
 				// Compare residue to actual continuation value.
 				residueBits := residue.ActiveCount()
 				contBits := contValue.ActiveCount()
-				overlapResidCont := data.ValueSimilarity(&residue, &contValue)
+				overlapResidCont := residue.Similarity(contValue)
 
 				// How many continuation bits are missing from the residue?
 				// These are bits set by bytes shared between prefix and continuation.
@@ -1403,7 +1403,7 @@ func TestGraphResidueDepletion(t *testing.T) {
 			// Emulate finding branches by identifying paths that share similarity
 			var branches []data.Value
 			for _, path := range paths {
-				if data.ValueSimilarity(&prompt, &path) > 3 { // Threshold to be a valid branch
+				if prompt.Similarity(path) > 3 { // Threshold to be a valid branch
 					branches = append(branches, path)
 				}
 			}
@@ -1428,7 +1428,7 @@ func TestGraphResidueDepletion(t *testing.T) {
 				// Use ValueHole to strictly remove shared components (Target AND NOT Match).
 				// This avoids the XOR issue of adding new bits, doing exactly what
 				// "removing shared components" demands.
-				nextResidue := data.ValueHole(&residue, &match)
+				nextResidue := residue.Hole(match)
 
 				if nextResidue.ActiveCount() == residue.ActiveCount() {
 					// We didn't manage to remove any bits this time

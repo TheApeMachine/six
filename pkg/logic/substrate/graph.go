@@ -36,6 +36,10 @@ type GraphServer struct {
 	workerPool    *pool.Pool
 	sink          *telemetry.Sink
 	pathWavefront *path.Wavefront
+	ast           *ASTNode
+	sequences     [][]data.Value
+	metaSequences [][]data.Value
+	sequenceKeys  [][]uint64
 }
 
 /*
@@ -124,8 +128,42 @@ func (graph *GraphServer) Close() error {
 }
 
 /*
-Prompt implements Graph_Server. It receives pre-fetched paths from the
-Machine, applies RecursiveFold reasoning, and returns the result paths.
+Write data to the Graph, so we can start the recursive folding process, which uses
+XOR and POPCNT to cancel out shared components and identify unique residues, building
+up a labeled graph. Anything resembling semantic structure is to be considered
+coincidental from here on, and no longer relevant to the system itself.
+Another way to think about this is that we are now operating on pure, raw structure
+alone, and any semantic meaning happens to just follow that structure.
+*/
+func (graph *GraphServer) Write(ctx context.Context, call Graph_write) error {
+	_ = call.Args()
+	return nil
+}
+
+/*
+BuildAST runs RecursiveFold over all ingested sequences and stores the
+resulting AST on the GraphServer for subsequent Prompt queries.
+*/
+func (graph *GraphServer) BuildAST() {
+	graph.mu.Lock()
+	defer graph.mu.Unlock()
+
+	if len(graph.sequences) == 0 {
+		return
+	}
+
+	graph.ast = graph.RecursiveFold(
+		graph.sequences,
+		graph.metaSequences,
+		graph.sequenceKeys,
+		0, -1,
+	)
+}
+
+/*
+Prompt implements Graph_Server. It receives the prompt as pre-compiled paths,
+walks the stored AST to find the best matching branch, and returns the matched
+path as result including Morton key back-pointers for byte recovery.
 */
 func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
 	args := call.Args()
@@ -135,34 +173,35 @@ func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
 		return console.Error(err)
 	}
 
-	metaPaths, err := args.MetaPaths()
-	if err != nil {
-		return console.Error(err)
-	}
-
 	pathsData, err := pointerListToValueSlices(paths)
 	if err != nil {
 		return console.Error(err)
 	}
 
-	metaPathsData, err := pointerListToValueSlices(metaPaths)
-	if err != nil {
-		return console.Error(err)
+	graph.mu.RLock()
+	ast := graph.ast
+	graph.mu.RUnlock()
+
+	if ast == nil || len(pathsData) == 0 || len(pathsData[0]) == 0 {
+		res, err := call.AllocResults()
+		if err != nil {
+			return console.Error(err)
+		}
+
+		return graph.writeResult(res, pathsData)
 	}
 
-	pathsData, metaPathsData, err = graph.stabilizePaths(pathsData, metaPathsData)
-	if err != nil {
-		return console.Error(err)
-	}
+	promptUnion := data.ValueLCM(pathsData[0])
+	leaf, matchedKeys := ast.Walk(promptUnion)
 
-	graph.RecursiveFold(pathsData, metaPathsData, 0, -1)
+	resultValues := graph.projectKeysToValues(matchedKeys, leaf, pathsData[0])
 
 	res, err := call.AllocResults()
 	if err != nil {
 		return console.Error(err)
 	}
 
-	return graph.writeResult(res, pathsData)
+	return graph.writeResult(res, [][]data.Value{resultValues})
 }
 
 /*
@@ -246,55 +285,51 @@ func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.V
 
 /*
 RecursiveFold fractures data encoded in data.Value types
-(bit fields that have 5 bits active, mapping to one of the first 512 prime numbers)
 by using simple bitwise operations (AND, XOR) to identify and isolate shared components.
-
-Example:
-
-	Data:
-		[Sandra]<is in the>[Garden]
-		[Roy]<is in the>[Kitchen]
-		[Harold]<is in the>[Kitchen]
-			<is in the>   the shared component that cancels out, becomes a "label".
-			<is in the>   -points to-> [Sandra, Roy, Harold]
-			[Sandra]      -points to-> [Garden]
-			[Roy, Harold] -points to-> [Kitchen]
-			[Garden]      -points to-> [Sandra]
-			[Kitchen]     -points to-> [Roy, Harold]
-	Prompt: Where is Roy?
-		<Where> has no match in the graph, and is ignored
-		<is>    cancels out with <is> (in the) which -points to-> [Sandra, Roy, Harold]
-		[Roy]   cancels out with [Roy] which -points to-> [Kitchen]
-	Answer (what is left over): In the Kitchen
+Returns an ASTNode tree where each node carries the shared invariant (Label)
+and Morton key back-pointers for byte recovery via the Tree.
 */
 func (graph *GraphServer) RecursiveFold(
 	sequences [][]data.Value,
 	metaSequences [][]data.Value,
+	keys [][]uint64,
 	level int,
 	parentBin int,
-) {
+) *ASTNode {
 	if len(sequences) == 0 || len(metaSequences) == 0 {
-		return
+		return nil
 	}
 
 	if graph.ctx.Err() != nil {
-		return
+		return nil
 	}
 
 	labelDataValue := extractSharedInvariant(sequences)
 	labelMetaValue := extractSharedInvariant(metaSequences)
 
 	if labelDataValue.ActiveCount() == 0 {
-		return
+		return nil
 	}
 
-	labelBin := data.ValueBin(&labelDataValue)
+	labelBin := labelDataValue.Bin()
 
 	ei := geometry.NewEigenMode()
 	theta, _ := ei.PhaseForValue(&labelMetaValue)
 
+	allKeys := flattenKeys(keys)
+
+	node := &ASTNode{
+		Level:     level,
+		Bin:       labelBin,
+		Label:     labelDataValue,
+		LabelMeta: labelMetaValue,
+		Theta:     theta,
+		Keys:      allKeys,
+	}
+
 	var uniqueResidues [][]data.Value
 	var uniqueMetaResidues [][]data.Value
+	var residueKeys [][]uint64
 
 	for i, seq := range sequences {
 		metaSeq := metaSequences[i]
@@ -304,7 +339,18 @@ func (graph *GraphServer) RecursiveFold(
 		if len(residue) > 0 {
 			uniqueResidues = append(uniqueResidues, residue)
 			uniqueMetaResidues = append(uniqueMetaResidues, metaResidue)
+
+			if i < len(keys) {
+				residueKeys = append(residueKeys, keys[i])
+			}
+		} else if len(seq) > 0 {
+			node.Leaves = append(node.Leaves, seq)
 		}
+	}
+
+	if len(uniqueResidues) == 0 || (len(sequences) == 1 && len(uniqueResidues) == 1) {
+		node.Leaves = append(node.Leaves, uniqueResidues...)
+		return node
 	}
 
 	graph.sink.Emit(telemetry.Event{
@@ -323,22 +369,94 @@ func (graph *GraphServer) RecursiveFold(
 
 	for index, resSeq := range uniqueResidues {
 		if graph.ctx.Err() != nil {
-			return
+			break
 		}
 
 		metaResSeq := uniqueMetaResidues[index]
-		jobID := fmt.Sprintf("fold-level-%d-seq-%d", level, index)
 
-		graph.workerPool.Schedule(jobID, func(ctx context.Context) (any, error) {
-			graph.RecursiveFold(
-				[][]data.Value{resSeq},
-				[][]data.Value{metaResSeq},
-				level+1,
-				labelBin,
-			)
-			return nil, nil
-		})
+		var childKeys [][]uint64
+		if index < len(residueKeys) {
+			childKeys = [][]uint64{residueKeys[index]}
+		}
+
+		child := graph.RecursiveFold(
+			[][]data.Value{resSeq},
+			[][]data.Value{metaResSeq},
+			childKeys,
+			level+1,
+			labelBin,
+		)
+
+		if child != nil {
+			node.Children = append(node.Children, child)
+		}
 	}
+
+	return node
+}
+
+/*
+projectKeysToValues takes the Morton keys from the AST leaf and builds
+the result as [promptValues... | answer values...]. The leaf keys represent
+the full matched sentence; we skip the prefix that overlaps with the prompt
+so only the continuation (the answer) follows the prompt in the result.
+*/
+func (graph *GraphServer) projectKeysToValues(
+	keys []uint64,
+	leaf *ASTNode,
+	promptValues []data.Value,
+) []data.Value {
+	coder := data.NewMortonCoder()
+
+	promptBytes := make([]byte, 0, len(promptValues))
+	for _, value := range promptValues {
+		symbol, ok := data.InferLexicalSeed(value)
+		if ok {
+			promptBytes = append(promptBytes, symbol)
+		}
+	}
+
+	overlap := 0
+	for i, key := range keys {
+		if overlap >= len(promptBytes) {
+			overlap = i
+			break
+		}
+
+		_, symbol := coder.Unpack(key)
+		if overlap < len(promptBytes) && symbol == promptBytes[overlap] {
+			overlap++
+		}
+	}
+
+	if overlap >= len(promptBytes) && overlap < len(keys) {
+		keys = keys[overlap:]
+	} else if overlap >= len(keys) {
+		keys = nil
+	}
+
+	result := make([]data.Value, 0, len(promptValues)+len(keys))
+
+	for _, value := range promptValues {
+		result = append(result, value)
+	}
+
+	for _, key := range keys {
+		_, symbol := coder.Unpack(key)
+		result = append(result, data.BaseValue(symbol))
+	}
+
+	return result
+}
+
+func flattenKeys(keys [][]uint64) []uint64 {
+	var flat []uint64
+
+	for _, batch := range keys {
+		flat = append(flat, batch...)
+	}
+
+	return flat
 }
 
 /*
@@ -399,4 +517,22 @@ func GraphWithPathWavefront(pathWavefront *path.Wavefront) GraphOpt {
 	return func(graph *GraphServer) {
 		graph.pathWavefront = pathWavefront
 	}
+}
+
+func inferPromptBytes(values []data.Value) ([]byte, error) {
+	prompt := make([]byte, 0, len(values))
+
+	for index, value := range values {
+		symbol, ok := data.InferLexicalSeed(value)
+		if !ok {
+			return nil, fmt.Errorf(
+				"graph: prompt byte inference failed at %d",
+				index,
+			)
+		}
+
+		prompt = append(prompt, symbol)
+	}
+
+	return prompt, nil
 }

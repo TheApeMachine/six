@@ -2,7 +2,6 @@ package path
 
 import (
 	"fmt"
-	"sort"
 
 	"github.com/theapemachine/six/pkg/logic/synthesis/goal"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
@@ -107,18 +106,6 @@ func (wavefront *Wavefront) Stabilize(
 
 		results = append(results, result)
 	}
-
-	sort.Slice(results, func(i, j int) bool {
-		if results[i].energy != results[j].energy {
-			return results[i].energy < results[j].energy
-		}
-
-		if results[i].depth != results[j].depth {
-			return results[i].depth < results[j].depth
-		}
-
-		return len(results[i].path) <= len(results[j].path)
-	})
 
 	stables := make([][]data.Value, len(results))
 	stableMetas := make([][]data.Value, len(results))

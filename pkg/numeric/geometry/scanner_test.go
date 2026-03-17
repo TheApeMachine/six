@@ -6,12 +6,12 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/lsm"
+	"github.com/theapemachine/six/pkg/store/dmt/server"
 )
 
 func TestPhaseDialScanner(t *testing.T) {
-	gc.Convey("Given a PhaseDialScanner attached to a populated SpatialIndexServer", t, func() {
-		scanner := NewPhaseDialScanner(lsm.NewSpatialIndexServer())
+	gc.Convey("Given a PhaseDialScanner attached to a populated	ForestServer", t, func() {
+		scanner := NewPhaseDialScanner(server.NewForestServer())
 
 		// Insert distinct value sequences at different positions.
 		// Each position gets a unique value so the PhaseDials differ.
@@ -129,7 +129,7 @@ func TestPhaseDialScanner(t *testing.T) {
 }
 
 func BenchmarkPhaseDialScan(b *testing.B) {
-	scanner := NewPhaseDialScanner(lsm.NewSpatialIndexServer())
+	scanner := NewPhaseDialScanner(server.NewForestServer())
 
 	for pos := uint32(0); pos < 100; pos++ {
 		sym := byte(pos % 256)
@@ -152,7 +152,7 @@ func BenchmarkPhaseDialScan(b *testing.B) {
 }
 
 func BenchmarkGeodesicScan(b *testing.B) {
-	scanner := NewPhaseDialScanner(lsm.NewSpatialIndexServer())
+	scanner := NewPhaseDialScanner(server.NewForestServer())
 
 	for pos := uint32(0); pos < 50; pos++ {
 		sym := byte(pos % 256)

@@ -15,7 +15,6 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 )
 
@@ -39,6 +38,7 @@ forward pass.
 type TranslationLayer struct {
 	machine *Machine
 	config  *TranslationConfig
+	state   *errnie.State
 }
 
 /*
@@ -63,6 +63,7 @@ func NewTranslationLayer(machine *Machine, opts ...translationOpts) *Translation
 			InjectionLayers: []int{6, 12, 18},
 			TopK:            8,
 		},
+		state: errnie.NewState("vm/translationLayer"),
 	}
 
 	for _, opt := range opts {
@@ -90,88 +91,98 @@ func (tl *TranslationLayer) IngestContext(text string) error {
 		}
 	}
 
-	if err, _ := tl.machine.tokenizerDone(); err != nil {
-		return err
-	}
+	errnie.Guard(tl.state, func() ([]uint64, error) {
+		return tl.machine.tokenizerDone()
+	})
 
-	return nil
+	return tl.state.Err()
 }
 
 /*
-QuerySubstrate runs the substrate pipeline (Tokenizer → SpatialIndex.Lookup →
-Graph.Prompt → SpatialIndex.Decode) and returns the raw readout byte sequences.
+QuerySubstrate runs the substrate pipeline (Tokenizer → Graph.Prompt) and
+returns the decoded continuation byte sequences.
 This is the same pipeline as Machine.Prompt but returns the intermediate results.
 */
 func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 	ctx := tl.machine.ctx
 
-	keys := tl.machine.tokenizeStream(query)
-	promptValues := data.CompileObservableSequenceValues(keys)
+	keys := errnie.Guard(tl.state, func() ([]uint64, error) {
+		return tl.machine.tokenizeStream(query)
+	})
+
+	promptValues, promptMetaValues := compilePromptSequence(keys)
 
 	if len(promptValues) == 0 {
 		return nil, nil
 	}
 
-	lookupFuture, lookupRelease := tl.machine.booter.spatialIndex.Lookup(ctx, func(
-		p lsm.SpatialIndex_lookup_Params,
-	) error {
-		valueList := errnie.SafeMust(func() (data.Value_List, error) {
-			return valueListFromSlice(p.Segment(), promptValues)
-		})
-
-		errnie.SafeMustVoid(func() error {
-			return p.SetKeys(capnp.UInt64List(valueList.ToPtr().List()))
-		})
-
-		return nil
+	paths := errnie.Guard(tl.state, func() (capnp.PointerList, error) {
+		return valueMatrixToPointerList(
+			capnp.SingleSegment(nil),
+			[][]data.Value{promptValues},
+		)
 	})
 
-	defer lookupRelease()
-
-	lookupResult := errnie.SafeMust(func() (
-		lsm.SpatialIndex_lookup_Results, error,
-	) {
-		return lookupFuture.Struct()
+	metaPaths := errnie.Guard(tl.state, func() (capnp.PointerList, error) {
+		return valueMatrixToPointerList(
+			capnp.SingleSegment(nil),
+			[][]data.Value{promptMetaValues},
+		)
 	})
 
 	graphFuture, graphRelease := tl.machine.booter.graph.Prompt(ctx, func(
 		p substrate.Graph_prompt_Params,
 	) error {
-		ptrList, err := ptrListFromLookup(lookupResult)
-		if err != nil {
+		if err := p.SetPaths(paths); err != nil {
 			return err
 		}
 
-		return p.SetPaths(ptrList)
+		return p.SetMetaPaths(metaPaths)
 	})
+
 	defer graphRelease()
 
-	graphResult := errnie.SafeMust(func() (
+	state := errnie.NewState("vm/querySubstrate")
+
+	graphResult := errnie.Guard(state, func() (
 		substrate.Graph_prompt_Results, error,
 	) {
 		return graphFuture.Struct()
 	})
 
-	resultPaths := errnie.SafeMust(func() (capnp.PointerList, error) {
+	resultPaths := errnie.Guard(state, func() (capnp.PointerList, error) {
 		return graphResult.Result()
 	})
 
-	seqList := capnp.DataList(
-		resultPaths.ToPtr().Interface().ToPtr().List(),
-	)
-
-	results := make([][]byte, seqList.Len())
-
-	for i := range seqList.Len() {
-		raw := errnie.SafeMust(func() ([]byte, error) {
-			return seqList.At(i)
-		})
-
-		results[i] = make([]byte, len(raw))
-		copy(results[i], raw)
+	if state.Failed() {
+		return nil, state.Err()
 	}
 
-	return results, nil
+	results := make([][]byte, 0, resultPaths.Len())
+
+	for index := 0; index < resultPaths.Len(); index++ {
+		ptr := errnie.Guard(state, func() (capnp.Ptr, error) {
+			return resultPaths.At(index)
+		})
+
+		values := errnie.Guard(state, func() ([]data.Value, error) {
+			return data.ValueListToSlice(data.Value_List(ptr.List()))
+		})
+
+		if state.Failed() {
+			return nil, state.Err()
+		}
+
+		values = values[len(promptValues):]
+
+		if len(promptValues) >= len(values) {
+			values = nil
+		}
+
+		results = append(results, decodeObservableValues(values))
+	}
+
+	return results, tl.state.Err()
 }
 
 /*
@@ -332,32 +343,6 @@ func (tl *TranslationLayer) SubstrateBlock(
 	output := graph.Einsum("BTNH,NHD->BTD", attended, outWeights)
 
 	return graph.Add(x, output)
-}
-
-func ptrListFromLookup(
-	res lsm.SpatialIndex_lookup_Results,
-) (capnp.PointerList, error) {
-	if !res.IsValid() {
-		return capnp.PointerList{}, fmt.Errorf("lookup results are invalid")
-	}
-
-	ptr := res.ToPtr()
-	if !ptr.IsValid() {
-		return capnp.PointerList{}, fmt.Errorf("lookup results pointer is invalid")
-	}
-
-	inter := ptr.Interface()
-	if !inter.IsValid() {
-		return capnp.PointerList{}, fmt.Errorf("lookup results interface is invalid")
-	}
-
-	ptr2 := inter.ToPtr()
-	if !ptr2.IsValid() {
-		return capnp.PointerList{}, fmt.Errorf("lookup results interface pointer is invalid")
-	}
-
-	list := ptr2.List()
-	return capnp.PointerList(list), nil
 }
 
 /*

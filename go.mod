@@ -26,6 +26,8 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/gomlx/exceptions v0.0.3 // indirect
 	github.com/gomlx/gopjrt v0.4.4 // indirect
+	github.com/hashicorp/go-immutable-radix/v2 v2.1.0 // indirect
+	github.com/hashicorp/golang-lru/v2 v2.0.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
 	github.com/pkg/errors v0.9.1 // indirect

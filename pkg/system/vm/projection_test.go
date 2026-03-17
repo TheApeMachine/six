@@ -27,7 +27,7 @@ func TestMachineBootsAllSystems(t *testing.T) {
 		})
 
 		gc.Convey("It should boot the spatial index", func() {
-			gc.So(machine.booter.spatialIndex.IsValid(), gc.ShouldBeTrue)
+			gc.So(machine.booter.forestClient.IsValid(), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should boot the graph substrate", func() {

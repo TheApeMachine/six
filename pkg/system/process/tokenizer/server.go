@@ -9,17 +9,17 @@ import (
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/sequencer"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-UniversalServer tokenizes raw bytes into Morton keys and streams them
-directly into the spatial index. Byte in → key out → insert.
+UniversalServer tokenizes raw bytes into Morton keys.
+Bytes in → keys out via Done.
 */
 type UniversalServer struct {
+	state        *errnie.State
 	ctx          context.Context
 	cancel       context.CancelFunc
 	serverSide   net.Conn
@@ -39,7 +39,6 @@ type UniversalServer struct {
 	sequenceIDs  []int
 	emitted      map[int]bool
 	nextSequence int
-	spatialIndex lsm.SpatialIndex
 }
 
 type universalOpts func(*UniversalServer)
@@ -49,6 +48,7 @@ NewUniversalServer instantiates a UniversalServer.
 */
 func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 	server := &UniversalServer{
+		state:       errnie.NewState("tokenizer/server"),
 		clientConns: map[string]*rpc.Conn{},
 		morton:      data.NewMortonCoder(),
 		seq:         sequencer.NewSequitur(),
@@ -95,8 +95,10 @@ func (server *UniversalServer) Client(clientID string) Universal {
 Close shuts down the RPC connections and underlying net.Pipe.
 */
 func (server *UniversalServer) Close() error {
+	server.state.Reset()
+
 	if server.serverConn != nil {
-		errnie.SafeMustVoid(func() error {
+		errnie.GuardVoid(server.state, func() error {
 			return server.serverConn.Close()
 		})
 
@@ -105,7 +107,7 @@ func (server *UniversalServer) Close() error {
 
 	for clientID, conn := range server.clientConns {
 		if conn != nil {
-			errnie.SafeMustVoid(func() error {
+			errnie.GuardVoid(server.state, func() error {
 				return conn.Close()
 			})
 		}
@@ -114,7 +116,7 @@ func (server *UniversalServer) Close() error {
 	}
 
 	if server.serverSide != nil {
-		errnie.SafeMustVoid(func() error {
+		errnie.GuardVoid(server.state, func() error {
 			return server.serverSide.Close()
 		})
 
@@ -122,7 +124,7 @@ func (server *UniversalServer) Close() error {
 	}
 
 	if server.clientSide != nil {
-		errnie.SafeMustVoid(func() error {
+		errnie.GuardVoid(server.state, func() error {
 			return server.clientSide.Close()
 		})
 
@@ -133,7 +135,7 @@ func (server *UniversalServer) Close() error {
 		server.cancel()
 	}
 
-	return nil
+	return server.state.Err()
 }
 
 /*
@@ -141,10 +143,6 @@ Write implements Universal_Server. Bytes are buffered into sequencer fragments;
 healed Morton keys are emitted only when the surrounding sequence is finalized.
 */
 func (server *UniversalServer) Write(ctx context.Context, call Universal_write) error {
-	if !server.spatialIndex.IsValid() {
-		return UniversalError(ErrNoIndex)
-	}
-
 	server.stateMu.Lock()
 	defer server.stateMu.Unlock()
 
@@ -153,6 +151,7 @@ func (server *UniversalServer) Write(ctx context.Context, call Universal_write) 
 
 /*
 Feedback receives an error correction signal from the GraphServer.
+This is reserved for a future implementation.
 */
 func (server *UniversalServer) Feedback(
 	ctx context.Context, call Universal_feedback,
@@ -166,10 +165,6 @@ Done implements Universal_Server.
 func (server *UniversalServer) Done(
 	ctx context.Context, call Universal_done,
 ) error {
-	if !server.spatialIndex.IsValid() &&
-		(len(server.fragment) > 0 || len(server.sequence) > 0 || len(server.sequences) > 0) {
-		return UniversalError(ErrNoIndex)
-	}
 
 	server.stateMu.Lock()
 	defer server.stateMu.Unlock()
@@ -185,7 +180,6 @@ func (server *UniversalServer) Done(
 	}
 
 	// server.stateMu.Unlock() removed as it's now deferred
-
 
 	if err != nil {
 		return err
@@ -205,7 +199,7 @@ func (server *UniversalServer) Done(
 		keyList.Set(i, key)
 	}
 
-	return server.writeKeys(ctx, keys)
+	return nil
 }
 
 /*
@@ -214,19 +208,21 @@ SetDataset implements Universal_Server.
 func (server *UniversalServer) SetDataset(
 	ctx context.Context, call Universal_setDataset,
 ) error {
-	corpus := errnie.SafeMust(func() (capnp.TextList, error) {
+	server.state.Reset()
+
+	corpus := errnie.Guard(server.state, func() (capnp.TextList, error) {
 		return call.Args().Corpus()
 	})
 
 	strings := make([]string, corpus.Len())
 
 	for i := 0; i < corpus.Len(); i++ {
-		strings[i] = errnie.SafeMust(func() (string, error) {
+		strings[i] = errnie.Guard(server.state, func() (string, error) {
 			return corpus.At(i)
 		})
 	}
 
-	return nil
+	return server.state.Err()
 }
 
 /*
@@ -391,6 +387,7 @@ func (server *UniversalServer) emitSequence(
 	}
 
 	keys := server.packSequence(rawSequence)
+
 	server.emitted[sequenceID] = true
 
 	return keys, nil
@@ -467,23 +464,6 @@ func (server *UniversalServer) cloneByteSequence(sequence [][]byte) [][]byte {
 	return cloned
 }
 
-func (server *UniversalServer) writeKeys(ctx context.Context, keys []uint64) error {
-	for _, key := range keys {
-		err := server.spatialIndex.Write(
-			ctx, func(p lsm.SpatialIndex_write_Params) error {
-				p.SetKey(key)
-
-				return nil
-			},
-		)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
 /*
 UniversalWithContext sets a cancellable context on the server.
 */
@@ -503,22 +483,11 @@ func UniversalWithPool(workerPool *pool.Pool) universalOpts {
 }
 
 /*
-UniversalWithSpatialIndex connects the tokenizer to a spatial index
-so it can stream keys directly on Write.
-*/
-func UniversalWithSpatialIndex(spatialIndex lsm.SpatialIndex) universalOpts {
-	return func(server *UniversalServer) {
-		server.spatialIndex = spatialIndex
-	}
-}
-
-/*
 UniversalError is a typed error for UniversalServer failures.
 */
 type UniversalError string
 
 const (
-	ErrNoIndex       UniversalError = "spatial index capability not yet received"
 	ErrFragmentDrift UniversalError = "sequencer fragment length drift"
 	ErrHealerDrift   UniversalError = "bitwise healer buffer drift"
 	ErrHealedLength  UniversalError = "bitwise healer changed sequence length"

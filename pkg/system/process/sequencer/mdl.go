@@ -128,7 +128,7 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
 
 	newBits := 0
 	if relativeOffset > 0 {
-		hole := data.ValueHole(&positioned, &seq.runningValue)
+		hole := positioned.Hole(seq.runningValue)
 		newBits = hole.ActiveCount()
 	}
 

@@ -5,17 +5,65 @@ import (
 )
 
 /*
-ASTNode represents a node in the graph's abstract
-syntax tree. It holds the node's topological Level,
-its value Label, and references to its Children and
-Leaves for tree organization.
+ASTNode represents a node in the graph's abstract syntax tree built by
+RecursiveFold. Each node stores the shared invariant (Label) extracted
+via AND across its input sequences, and the Morton keys that produced
+those sequences so the projection plane can recover the original bytes.
 */
 type ASTNode struct {
 	Level    int
+	Bin      int
 	Label    data.Value
+	LabelMeta data.Value
 	Theta    float64
+	Keys     []uint64
 	Children []*ASTNode
 	Leaves   [][]data.Value
+}
+
+/*
+Walk descends the AST by cancelling the prompt against each node's Label.
+At each level, the prompt is XORed with the node's invariant. The child
+whose label has the highest similarity to the residue is followed. Returns
+the leaf node and the leaf's Morton keys (the answer bytes).
+*/
+func (node *ASTNode) Walk(prompt data.Value) (matched *ASTNode, leafKeys []uint64) {
+	if len(node.Children) == 0 {
+		return node, node.Keys
+	}
+
+	residue := prompt.XOR(node.Label)
+
+	bestChild := (*ASTNode)(nil)
+	bestSimilarity := -1
+
+	for _, child := range node.Children {
+		similarity := residue.Similarity(child.Label)
+
+		if similarity > bestSimilarity {
+			bestSimilarity = similarity
+			bestChild = child
+		}
+	}
+
+	if bestChild == nil || bestSimilarity == 0 {
+		return node, node.Keys
+	}
+
+	return bestChild.Walk(residue)
+}
+
+/*
+Collect gathers all Morton keys reachable from this node downward.
+*/
+func (node *ASTNode) Collect() []uint64 {
+	keys := append([]uint64(nil), node.Keys...)
+
+	for _, child := range node.Children {
+		keys = append(keys, child.Collect()...)
+	}
+
+	return keys
 }
 
 func extractSharedInvariant(sequences [][]data.Value) data.Value {

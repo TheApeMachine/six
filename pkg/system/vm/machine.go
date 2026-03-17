@@ -3,14 +3,15 @@ package vm
 import (
 	"context"
 	"runtime"
-	"sort"
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/dmt/server"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/system/vm/input"
@@ -24,12 +25,12 @@ messages are kept alive at Prompt scope so downstream
 calls can reference upstream data without copies.
 */
 type Machine struct {
+	state          *errnie.State
 	ctx            context.Context
 	cancel         context.CancelFunc
 	workerPool     *pool.Pool
 	broadcastGroup *pool.BroadcastGroup
 	booter         *Booter
-	spanIndex      *SpanIndex
 	sink           *telemetry.Sink
 }
 
@@ -40,8 +41,8 @@ NewMachine creates a Machine.
 */
 func NewMachine(opts ...machineOpts) *Machine {
 	machine := &Machine{
-		spanIndex: NewSpanIndex(),
-		sink:      telemetry.NewSink(),
+		state: errnie.NewState("vm/machine"),
+		sink:  telemetry.NewSink(),
 	}
 
 	for _, opt := range opts {
@@ -67,7 +68,7 @@ func NewMachine(opts ...machineOpts) *Machine {
 		128,
 	)
 
-	errnie.SafeMustVoid(func() error {
+	errnie.GuardVoid(machine.state, func() error {
 		return validate.Require(map[string]any{
 			"ctx":            machine.ctx,
 			"cancel":         machine.cancel,
@@ -110,17 +111,19 @@ func (machine *Machine) Close() {
 }
 
 /*
-Prompt applies holdout masking and resolves the exact continuation from the
-ingested span index.
+Prompt tokenizes the prompt, runs the graph-local prompt wavefront, and decodes
+the exact continuation returned by the graph.
 */
 func (machine *Machine) Prompt(msg string) ([]byte, error) {
+	machine.state.Reset()
 	ctx := machine.ctx
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Machine",
 		Action:    "Pipeline",
 		Data: telemetry.EventData{
-			Stage: "prompt-start", Message: msg,
+			Stage:   "prompt-start",
+			Message: msg,
 		},
 	})
 
@@ -129,37 +132,73 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 			return p.SetMsg(msg)
 		},
 	)
-
 	defer promptRelease()
 
-	promptResult := errnie.SafeMust(func() (input.Prompter_generate_Results, error) {
+	promptResult := errnie.Guard(machine.state, func() (input.Prompter_generate_Results, error) {
 		return promptFuture.Struct()
 	})
 
-	promptBytes := errnie.SafeMust(func() ([]byte, error) {
+	promptBytes := errnie.Guard(machine.state, func() ([]byte, error) {
 		return promptResult.Data()
 	})
 
-	result := machine.spanIndex.Resolve(promptBytes)
+	keys := errnie.Guard(machine.state, func() ([]uint64, error) {
+		return machine.tokenizeStream(promptBytes)
+	})
 
-	if len(result) == 0 {
-		machine.sink.Emit(telemetry.Event{
-			Component: "Machine",
-			Action:    "Pipeline",
-			Data: telemetry.EventData{
-				Stage: "prompt-empty", Message: msg,
-			},
-		})
+	if machine.state.Failed() {
+		return nil, machine.state.Err()
+	}
 
-		return result, nil
+	promptValues, _ := compilePromptSequence(keys)
+
+	if len(promptValues) == 0 {
+		return nil, nil
+	}
+
+	paths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
+		return valueMatrixToPointerList(
+			capnp.SingleSegment(nil),
+			[][]data.Value{promptValues},
+		)
+	})
+
+	graphFuture, graphRelease := machine.booter.graph.Prompt(ctx, func(
+		p substrate.Graph_prompt_Params,
+	) error {
+		return p.SetPaths(paths)
+	})
+
+	defer graphRelease()
+
+	graphResult := errnie.Guard(machine.state, func() (substrate.Graph_prompt_Results, error) {
+		return graphFuture.Struct()
+	})
+
+	resultPaths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
+		return graphResult.Result()
+	})
+
+	result := errnie.Guard(machine.state, func() ([]byte, error) {
+		return decodeResultPaths(resultPaths, len(promptValues))
+	})
+
+	if machine.state.Failed() {
+		return nil, machine.state.Err()
+	}
+
+	stage := "prompt-empty"
+
+	if len(result) > 0 {
+		stage = "prompt-complete"
 	}
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Machine",
 		Action:    "Pipeline",
 		Data: telemetry.EventData{
-			Stage:      "prompt-complete",
-			Message:        msg,
+			Stage:      stage,
+			Message:    msg,
 			ResultText: string(result),
 		},
 	})
@@ -168,147 +207,224 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 }
 
 /*
-SetDataset streams the dataset directly through the tokenizer into the spatial
-index. No buffering, no string reassembly.
+SetDataset streams the raw dataset bytes through the tokenizer RPC as a
+continuous flow. The sequencer discovers boundaries internally; the resulting
+Morton keys encode boundary-local depth which resets at each sequencer cut.
+We split the key stream at depth resets to produce per-sequence Values for
+the Graph AST.
 */
 func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	ctx := machine.ctx
-	samples := datasetSamples(dataset)
-	started := false
 
-	machine.spanIndex.Reset()
+	for tok := range dataset.Generate() {
+		errnie.GuardVoid(machine.state, func() error {
+			return machine.booter.tok.Write(
+				ctx, func(p tokenizer.Universal_write_Params) error {
+					p.SetData(tok.Symbol)
+					return nil
+				},
+			)
+		})
+	}
 
-	for _, sample := range samples {
-		machine.spanIndex.Ingest(sample)
+	keys := errnie.Guard(machine.state, func() ([]uint64, error) {
+		return machine.tokenizerDone()
+	})
 
-		if started {
-			if err, _ := machine.tokenizerDone(); err != nil {
-				return err
-			}
-		}
+	if machine.state.Failed() {
+		return machine.state.Err()
+	}
 
-		for _, symbol := range sample {
-			if err := machine.booter.tok.Write(
+	machine.writeKeys(ctx, keys)
+
+	return machine.state.Err()
+}
+
+/*
+tokenizeStream feeds bytes through the tokenizer and returns the exact keys.
+*/
+func (machine *Machine) tokenizeStream(raw []byte) ([]uint64, error) {
+	ctx := machine.ctx
+	keys := make([]uint64, 0, len(raw))
+
+	for _, symbol := range raw {
+		errnie.GuardVoid(machine.state, func() error {
+			return machine.booter.tok.Write(
 				ctx, func(p tokenizer.Universal_write_Params) error {
 					p.SetData(symbol)
 					return nil
 				},
-			); err != nil {
-				return err
-			}
-		}
-
-		started = true
+			)
+		})
 	}
 
-	if started {
-		if err, _ := machine.tokenizerDone(); err != nil {
-			return err
-		}
-	}
-
-	errnie.SafeMustVoid(func() error {
-		return machine.booter.spatialIndex.WaitStreaming()
+	drained := errnie.Guard(machine.state, func() ([]uint64, error) {
+		return machine.tokenizerDone()
 	})
 
-	return nil
-}
+	keys = append(keys, drained...)
 
-func datasetSamples(dataset provider.Dataset) [][]byte {
-	byID := map[uint32][]byte{}
-	ids := make([]uint32, 0)
-
-	for tok := range dataset.Generate() {
-		sample, ok := byID[tok.SampleID]
-		if !ok {
-			ids = append(ids, tok.SampleID)
-		}
-
-		if int(tok.Pos) >= len(sample) {
-			grown := make([]byte, tok.Pos+1)
-			copy(grown, sample)
-			sample = grown
-		}
-
-		sample[tok.Pos] = tok.Symbol
-		byID[tok.SampleID] = sample
-	}
-
-	sort.Slice(ids, func(i, j int) bool {
-		return ids[i] < ids[j]
+	drained = errnie.Guard(machine.state, func() ([]uint64, error) {
+		return machine.tokenizerDone()
 	})
 
-	samples := make([][]byte, 0, len(ids))
+	keys = append(keys, drained...)
 
-	for _, id := range ids {
-		sample := append([]byte(nil), byID[id]...)
-		samples = append(samples, sample)
-	}
-
-	return samples
+	return keys, nil
 }
 
-/*
-tokenizeStream feeds each byte through the tokenizer's streaming Write
-interface and collects the resulting Morton keys.
-*/
-func (machine *Machine) tokenizeStream(raw []byte) []uint64 {
-	ctx := machine.ctx
-	keys := make([]uint64, 0, len(raw))
-
-	for _, b := range raw {
-		if err := machine.booter.tok.Write(
-			ctx, func(p tokenizer.Universal_write_Params) error {
-				p.SetData(b)
-				return nil
-			},
-		); err != nil {
-			return nil
-		}
-	}
-
-	err, doneKeys := machine.tokenizerDone()
-	if err != nil {
-		return nil
-	}
-
-	keys = append(keys, doneKeys...)
-
-	return keys
-}
-
-func (machine *Machine) tokenizerDone() (error, []uint64) {
+func (machine *Machine) tokenizerDone() ([]uint64, error) {
 	future, release := machine.booter.tok.Done(machine.ctx, nil)
 	defer release()
 
-	results, err := future.Struct()
-	if err != nil {
-		return err, nil
-	}
+	results := errnie.Guard(machine.state, func() (tokenizer.Universal_done_Results, error) {
+		return future.Struct()
+	})
 
-	keyList, err := results.Keys()
-	if err != nil {
-		return err, nil
-	}
+	keyList := errnie.Guard(machine.state, func() (capnp.UInt64List, error) {
+		return results.Keys()
+	})
 
 	keys := make([]uint64, keyList.Len())
-	for i := range keyList.Len() {
-		keys[i] = keyList.At(i)
+
+	for index := 0; index < keyList.Len(); index++ {
+		keys[index] = keyList.At(index)
 	}
 
-	return nil, keys
+	return keys, nil
+}
+
+/*
+writeKeys passes the tokenizer key stream into both spatialIndex and graph.
+*/
+func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
+	for _, key := range keys {
+		errnie.GuardVoid(machine.state, func() error {
+			return machine.booter.forestClient.Write(
+				ctx, func(p server.Server_write_Params) error {
+					p.SetKey(key)
+					return nil
+				},
+			)
+		})
+
+		errnie.GuardVoid(machine.state, func() error {
+			return machine.booter.graph.Write(
+				ctx, func(p substrate.Graph_write_Params) error {
+					p.SetKey(key)
+					return nil
+				},
+			)
+		})
+	}
+}
+
+func compilePromptSequence(keys []uint64) ([]data.Value, []data.Value) {
+	cells := data.CompileSequenceCells(keys)
+	values := make([]data.Value, 0, len(cells))
+	metaValues := make([]data.Value, 0, len(cells))
+
+	for _, cell := range cells {
+		values = append(values, data.SeedObservable(cell.Symbol, cell.Value))
+
+		meta := data.MustNewValue()
+		meta.CopyFrom(cell.Meta)
+		metaValues = append(metaValues, meta)
+	}
+
+	return values, metaValues
+}
+
+func valueMatrixToPointerList(
+	messageOption capnp.Arena,
+	values [][]data.Value,
+) (capnp.PointerList, error) {
+	_, seg, err := capnp.NewMessage(messageOption)
+	if err != nil {
+		return capnp.PointerList{}, err
+	}
+
+	state := errnie.NewState("vm/valueMatrix")
+
+	list := errnie.Guard(state, func() (capnp.PointerList, error) {
+		return capnp.NewPointerList(seg, int32(len(values)))
+	})
+
+	for index, row := range values {
+		valueList := errnie.Guard(state, func() (data.Value_List, error) {
+			return valueListFromSlice(seg, row)
+		})
+
+		errnie.GuardVoid(state, func() error {
+			return list.Set(index, valueList.ToPtr())
+		})
+	}
+
+	if state.Failed() {
+		return capnp.PointerList{}, state.Err()
+	}
+
+	return list, nil
+}
+
+func decodeResultPaths(resultPaths capnp.PointerList, skip int) ([]byte, error) {
+	if resultPaths.Len() == 0 {
+		return nil, nil
+	}
+
+	state := errnie.NewState("vm/decodeResultPaths")
+
+	ptr := errnie.Guard(state, func() (capnp.Ptr, error) {
+		return resultPaths.At(0)
+	})
+
+	values := errnie.Guard(state, func() ([]data.Value, error) {
+		return data.ValueListToSlice(data.Value_List(ptr.List()))
+	})
+
+	if state.Failed() {
+		return nil, state.Err()
+	}
+
+	if skip >= len(values) {
+		return []byte{}, nil
+	}
+
+	return decodeObservableValues(values[skip:]), nil
+}
+
+func decodeObservableValues(values []data.Value) []byte {
+	result := make([]byte, 0, len(values))
+
+	for _, value := range values {
+		symbol, ok := data.InferLexicalSeed(value)
+		if !ok {
+			continue
+		}
+
+		result = append(result, symbol)
+	}
+
+	return result
 }
 
 func valueListFromSlice(
-	seg *capnp.Segment, values []data.Value,
+	seg *capnp.Segment,
+	values []data.Value,
 ) (data.Value_List, error) {
-	valueList := errnie.SafeMust(func() (data.Value_List, error) {
+	state := errnie.NewState("vm/valueListFromSlice")
+
+	valueList := errnie.Guard(state, func() (data.Value_List, error) {
 		return data.NewValue_List(seg, int32(len(values)))
 	})
 
-	for i, value := range values {
-		dst := valueList.At(i)
+	for index, value := range values {
+		dst := valueList.At(index)
 		dst.CopyFrom(value)
+	}
+
+	if state.Failed() {
+		return data.Value_List{}, state.Err()
 	}
 
 	return valueList, nil
@@ -333,7 +449,7 @@ MachineError is a typed error for Machine failures.
 type MachineError string
 
 const (
-	ErrMachineMissingRequirements MachineError = "machine: missing requirements"
+	ErrMachineMissingRequirements MachineError = "missing requirements"
 )
 
 func (machineError MachineError) Error() string {

@@ -40,7 +40,7 @@ func TestExtractSharedInvariant(t *testing.T) {
 			expectedApple := mustBuildValue(t, []byte("Apple"))
 
 			// It must completely contain Apple.
-			sim := data.ValueSimilarity(&invariant, &expectedApple)
+			sim := invariant.Similarity(expectedApple)
 			So(sim, ShouldEqual, expectedApple.ActiveCount())
 
 			// And it should have bits intersecting all three target texts

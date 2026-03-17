@@ -3,6 +3,8 @@ package telemetry
 import (
 	"encoding/json"
 	"net"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -13,6 +15,7 @@ performance degradation on the core processes.
 type Sink struct {
 	address string
 	conn    *net.UDPConn
+	state   *errnie.State
 }
 
 /*
@@ -27,16 +30,20 @@ If the visualization server is offline, packets are silently dropped.
 func NewSink(opts ...opts) *Sink {
 	sink := &Sink{
 		address: "127.0.0.1:8258",
+		state:   errnie.NewState("telemetry/sink"),
 	}
 
 	for _, opt := range opts {
 		opt(sink)
 	}
 
-	addr, err := net.ResolveUDPAddr("udp", sink.address)
-	if err == nil {
-		sink.conn, _ = net.DialUDP("udp", nil, addr)
-	}
+	addr := errnie.Guard(sink.state, func() (*net.UDPAddr, error) {
+		return net.ResolveUDPAddr("udp", sink.address)
+	})
+
+	sink.conn = errnie.Guard(sink.state, func() (*net.UDPConn, error) {
+		return net.DialUDP("udp", nil, addr)
+	})
 
 	return sink
 }
@@ -58,10 +65,11 @@ func (sink *Sink) Emit(event Event) {
 		return
 	}
 
-	raw, err := json.Marshal(event)
-	if err != nil {
-		return
-	}
+	raw := errnie.Guard(sink.state, func() ([]byte, error) {
+		return json.Marshal(event)
+	})
 
-	sink.conn.Write(raw)
+	_ = errnie.Guard(sink.state, func() (int, error) {
+		return sink.conn.Write(raw)
+	})
 }

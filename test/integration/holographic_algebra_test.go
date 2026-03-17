@@ -127,9 +127,7 @@ func BenchmarkHolographicAlgebra(b *testing.B) {
 		"Force equals mass ",
 	}
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for i := 0; b.Loop(); i++ {
 		_, _ = helper.Machine.Prompt(
 			queries[i%len(queries)],
 		)

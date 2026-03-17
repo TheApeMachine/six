@@ -1,11 +1,12 @@
 package geometry
 
 import (
+	"encoding/binary"
 	"math"
 	"sort"
 
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/lsm"
+	"github.com/theapemachine/six/pkg/store/dmt/server"
 )
 
 var morton = data.NewMortonCoder()
@@ -20,7 +21,7 @@ the substrate storage (lsm/spatial_index.go). The old HybridSubstrate combined
 both roles; this design keeps them separate.
 */
 type PhaseDialScanner struct {
-	substrate *lsm.SpatialIndexServer
+	substrate *server.ForestServer
 	cache     map[uint64]cachedEntry
 }
 
@@ -74,7 +75,7 @@ type HopResult struct {
 NewPhaseDialScanner creates a scanner attached to a live SpatialIndexServer.
 The scanner lazily builds and caches PhaseDials on first access.
 */
-func NewPhaseDialScanner(substrate *lsm.SpatialIndexServer) *PhaseDialScanner {
+func NewPhaseDialScanner(substrate *server.ForestServer) *PhaseDialScanner {
 	scanner := &PhaseDialScanner{
 		substrate: substrate,
 		cache:     make(map[uint64]cachedEntry),
@@ -95,23 +96,35 @@ func (scanner *PhaseDialScanner) buildCache() {
 		return
 	}
 
-	entries := scanner.substrate.Entries()
-	for _, entry := range entries {
-		if _, cached := scanner.cache[entry.Key]; cached {
-			continue
+	forest := scanner.substrate.Forest()
+	if forest == nil {
+		return
+	}
+
+	forest.Iterate(func(keyBytes []byte, _ []byte) bool {
+		if len(keyBytes) < 8 {
+			return true
 		}
 
-		// The original code already uses EncodeFromValues and captures the return.
-		// This change ensures the explicit form requested by the user.
-		values := []data.Value{entry.Value}
+		mortonKey := binary.BigEndian.Uint64(keyBytes)
+
+		if _, cached := scanner.cache[mortonKey]; cached {
+			return true
+		}
+
+		_, sym := morton.Unpack(mortonKey)
+		value := data.BaseValue(sym)
+		values := []data.Value{value}
 		dial := NewPhaseDial()
 		dial = dial.EncodeFromValues(values)
 
-		scanner.cache[entry.Key] = cachedEntry{
+		scanner.cache[mortonKey] = cachedEntry{
 			Values: values,
 			Dial:   dial,
 		}
-	}
+
+		return true
+	})
 }
 
 /*

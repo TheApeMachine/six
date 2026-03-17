@@ -2,6 +2,7 @@ package errnie
 
 import (
 	"errors"
+	"fmt"
 	"io"
 )
 
@@ -48,11 +49,11 @@ SafeMust wraps a function call, and if there is a panic, it automatically recove
 
 This function is used to safely execute a function that may return an error. If an error occurs,
 or if the function panics, SafeMust will recover and log the panic instead of crashing the program.
-This can be useful for non-critical operations where you want the program to continue running.
 
-The optional fallbacks parameter allows you to provide custom recovery functions that will be
-executed in order if a panic occurs. Each fallback function receives the panic value as its argument,
-allowing for custom error handling or cleanup operations before the default warning is logged.
+The optional handlers parameter accepts error handler functions that receive the actual typed
+error when a panic or error occurs. Each handler is called in order, allowing for contextual
+error logging, metrics, or structured cleanup. Define a per-file handler alongside your typed
+errors to give every SafeMust call site proper error context.
 
 Example usage:
 
@@ -61,20 +62,15 @@ Example usage:
 	})
 	fmt.Println(result)
 
-	// With custom fallback handlers
+	// With per-file error handler
 	result := SafeMust(
 		func() (int, error) {
 			return someComputation()
 		},
-		func(p interface{}) {
-			cleanup()
-		},
-		func(p interface{}) {
-			metrics.RecordPanic(p)
-		},
+		handleMyPackageError,
 	)
 */
-func SafeMust[T any](fn func() (T, error), fallbacks ...func(interface{})) T {
+func SafeMust[T any](fn func() (T, error), handlers ...func(error)) T {
 	var (
 		value T
 		err   error
@@ -82,17 +78,27 @@ func SafeMust[T any](fn func() (T, error), fallbacks ...func(interface{})) T {
 
 	defer func() {
 		if r := recover(); r != nil {
-			if len(fallbacks) != 0 {
-				for _, rec := range fallbacks {
-					rec(r)
-				}
+			recovered := recoverToError(r)
+
+			for _, handler := range handlers {
+				handler(recovered)
 			}
-			Warn("Recovered: %v", r)
+
+			if len(handlers) == 0 {
+				Warn("Recovered: %v", r)
+			}
 		}
 	}()
 
 	if value, err = fn(); err != nil && err != io.EOF {
-		ErrorSafe(err, false)
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		if len(handlers) == 0 {
+			ErrorSafe(err, false)
+		}
+
 		panic(err)
 	}
 
@@ -103,16 +109,15 @@ func SafeMust[T any](fn func() (T, error), fallbacks ...func(interface{})) T {
 SafeMustVoid wraps a function call that returns an error and recovers from panics.
 
 If the function provided to SafeMustVoid returns an error or panics, this function will
-recover gracefully and log the error. This is particularly useful for functions that
-are expected to continue even if an error occurs, and should not crash the program.
+recover gracefully and log the error. Accepts optional error handlers identical to SafeMust.
 
 Example usage:
 
 	SafeMustVoid(func() error {
 		return someNonCriticalOperation()
-	})
+	}, handleMyPackageError)
 */
-func SafeMustVoid(fn func() error) {
+func SafeMustVoid(fn func() error, handlers ...func(error)) {
 	if fn == nil {
 		Error(errors.New("SafeMustVoid called with nil function"))
 		panic("SafeMustVoid called with nil function")
@@ -120,9 +125,28 @@ func SafeMustVoid(fn func() error) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			Log("Recovered from panic in SafeMustVoid: %v", r)
+			recovered := recoverToError(r)
+
+			for _, handler := range handlers {
+				handler(recovered)
+			}
+
+			if len(handlers) == 0 {
+				Log("Recovered from panic in SafeMustVoid: %v", r)
+			}
 		}
 	}()
 
 	MustVoid(fn())
+}
+
+/*
+recoverToError converts a recover() value into a proper error.
+*/
+func recoverToError(r any) error {
+	if err, ok := r.(error); ok {
+		return err
+	}
+
+	return fmt.Errorf("%v", r)
 }

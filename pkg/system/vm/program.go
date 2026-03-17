@@ -2,6 +2,7 @@ package vm
 
 import (
 	"capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -10,13 +11,18 @@ Program is a sequence of operations to be executed by the Machine.
 type Program[T any] struct {
 	future  capnp.Future
 	release capnp.ReleaseFunc
+	state   *errnie.State
 }
 
 /*
 NewProgram creates a new Program.
 */
 func NewProgram[T any](future capnp.Future, release capnp.ReleaseFunc) *Program[T] {
-	return &Program[T]{future: future, release: release}
+	return &Program[T]{
+		future:  future,
+		release: release,
+		state:   errnie.NewState("vm/program"),
+	}
 }
 
 /*

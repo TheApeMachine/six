@@ -2,6 +2,7 @@ package data
 
 import (
 	"context"
+	"math/bits"
 	"testing"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -260,7 +261,7 @@ func TestValueLCM(t *testing.T) {
 
 			Convey("It should contain all bits from each value", func() {
 				for _, ch := range values {
-					sim := ValueSimilarity(&lcm, &ch)
+					sim := ch.Similarity(lcm)
 					So(sim, ShouldEqual, ch.ActiveCount())
 				}
 			})
@@ -328,7 +329,7 @@ func TestValueSimilarity(t *testing.T) {
 		right := BaseValue('a')
 
 		Convey("Identical values should have similarity equal to active count", func() {
-			sim := ValueSimilarity(&left, &right)
+			sim := left.Similarity(right)
 			So(sim, ShouldEqual, left.ActiveCount())
 		})
 
@@ -338,7 +339,7 @@ func TestValueSimilarity(t *testing.T) {
 			other := MustNewValue()
 			other.Set(255)
 
-			sim := ValueSimilarity(&disjoint, &other)
+			sim := disjoint.Similarity(other)
 			So(sim, ShouldEqual, 0)
 		})
 	})
@@ -351,11 +352,11 @@ func TestValueHole(t *testing.T) {
 		existing.Set(int('x') * 7 % 257)
 
 		Convey("When ValueHole is called", func() {
-			hole := ValueHole(&target, &existing)
+			hole := target.Hole(existing)
 
 			Convey("It should contain bits in target but not in existing", func() {
-				simWithTarget := ValueSimilarity(&hole, &target)
-				simWithExisting := ValueSimilarity(&hole, &existing)
+				simWithTarget := hole.Similarity(target)
+				simWithExisting := hole.Similarity(existing)
 				So(simWithTarget, ShouldBeGreaterThan, 0)
 				So(simWithExisting, ShouldEqual, 0)
 			})
@@ -370,7 +371,7 @@ func TestValueAlgebra(t *testing.T) {
 	Convey("Given value AND/OR/XOR algebra", t, func() {
 		Convey("OR of value with itself should equal itself", func() {
 			lcm := baseA.OR(baseA)
-			So(ValueSimilarity(&baseA, &lcm), ShouldEqual, baseA.ActiveCount())
+			So(lcm.Similarity(baseA), ShouldEqual, baseA.ActiveCount())
 		})
 
 		Convey("AND of value with itself should equal itself", func() {
@@ -387,7 +388,7 @@ func TestValueAlgebra(t *testing.T) {
 		Convey("OR then AND with same value should recover intersection", func() {
 			combined := baseA.OR(baseB)
 			recovered := combined.AND(baseA)
-			So(ValueSimilarity(&recovered, &baseA), ShouldEqual, baseA.ActiveCount())
+			So(recovered.Similarity(baseA), ShouldEqual, baseA.ActiveCount())
 		})
 	})
 }
@@ -397,7 +398,7 @@ func TestValueBin(t *testing.T) {
 		bins := make(map[int]int)
 		for byteVal := range config.Numeric.VocabSize {
 			value := BaseValue(byte(byteVal))
-			bin := ValueBin(&value)
+			bin := value.Bin()
 			bins[bin]++
 		}
 
@@ -407,8 +408,8 @@ func TestValueBin(t *testing.T) {
 
 		Convey("ValueBin for same value should be deterministic", func() {
 			value := BaseValue(42)
-			b1 := ValueBin(&value)
-			b2 := ValueBin(&value)
+			b1 := value.Bin()
+			b2 := value.Bin()
 			So(b1, ShouldEqual, b2)
 		})
 	})
@@ -458,10 +459,10 @@ func TestValuePrimeIndices(t *testing.T) {
 func TestPopcount(t *testing.T) {
 	Convey("Given Popcount", t, func() {
 		Convey("It should match known values", func() {
-			So(Popcount(0), ShouldEqual, 0)
-			So(Popcount(1), ShouldEqual, 1)
-			So(Popcount(0xFF), ShouldEqual, 8)
-			So(Popcount(0xFFFFFFFFFFFFFFFF), ShouldEqual, 64)
+			So(bits.OnesCount64(0), ShouldEqual, 0)
+			So(bits.OnesCount64(1), ShouldEqual, 1)
+			So(bits.OnesCount64(0xFF), ShouldEqual, 8)
+			So(bits.OnesCount64(0xFFFFFFFFFFFFFFFF), ShouldEqual, 64)
 		})
 	})
 }
