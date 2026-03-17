@@ -44,6 +44,9 @@ func (mt *MerkleTree) Insert(key, value []byte) {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
 
+	key = append([]byte(nil), key...)
+	value = append([]byte(nil), value...)
+
 	leaf := &MerkleNode{
 		Key:   key,
 		Value: value,

@@ -128,8 +128,10 @@ func TestNetworkSync(t *testing.T) {
 			node1.merkleTree.Insert([]byte("key1"), []byte("value1"))
 			node1.merkleTree.Rebuild()
 
-			// Wait for sync
-			time.Sleep(300 * time.Millisecond)
+			deadline := time.Now().Add(2 * time.Second)
+			for !node2.merkleTree.Verify([]byte("key1"), []byte("value1")) && time.Now().Before(deadline) {
+				time.Sleep(25 * time.Millisecond)
+			}
 
 			Convey("Then data should be synced to second node", func() {
 				exists := node2.merkleTree.Verify([]byte("key1"), []byte("value1"))

@@ -1,12 +1,14 @@
 package dmt
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 func TestNewForest(t *testing.T) {
@@ -35,6 +37,24 @@ func TestNewForest(t *testing.T) {
 				So(len(forest.trees), ShouldEqual, 1)
 				So(forest.trees[0], ShouldNotBeNil)
 			})
+		})
+	})
+}
+
+func TestForestUsesProvidedPool(t *testing.T) {
+	Convey("Given a forest configuration with a worker pool", t, func() {
+		workerPool := pool.New(context.Background(), 1, 8, &pool.Config{})
+		defer workerPool.Close()
+
+		forest, err := NewForest(ForestConfig{
+			Pool: workerPool,
+		})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		Convey("Then the forest should reuse the provided pool", func() {
+			So(forest.pool, ShouldEqual, workerPool)
+			So(forest.owned, ShouldBeFalse)
 		})
 	})
 }
