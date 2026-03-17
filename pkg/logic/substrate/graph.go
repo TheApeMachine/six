@@ -9,6 +9,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/logic/path"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/console"
@@ -24,16 +25,17 @@ The Machine is the sole orchestrator: it fetches data from SpatialIndex and
 hands it to GraphServer via Prompt. GraphServer never calls any other server.
 */
 type GraphServer struct {
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Graph
-	serverConn  *rpc.Conn
-	clientConns map[string]*rpc.Conn
-	workerPool  *pool.Pool
-	sink        *telemetry.Sink
+	mu            sync.RWMutex
+	ctx           context.Context
+	cancel        context.CancelFunc
+	serverSide    net.Conn
+	clientSide    net.Conn
+	client        Graph
+	serverConn    *rpc.Conn
+	clientConns   map[string]*rpc.Conn
+	workerPool    *pool.Pool
+	sink          *telemetry.Sink
+	pathWavefront *path.Wavefront
 }
 
 /*
@@ -54,9 +56,14 @@ func NewGraphServer(opts ...GraphOpt) *GraphServer {
 		opt(graph)
 	}
 
+	if graph.pathWavefront == nil {
+		graph.pathWavefront = path.NewWavefront()
+	}
+
 	validate.Require(map[string]any{
-		"ctx":        graph.ctx,
-		"workerPool": graph.workerPool,
+		"ctx":           graph.ctx,
+		"workerPool":    graph.workerPool,
+		"pathWavefront": graph.pathWavefront,
 	})
 
 	graph.serverSide, graph.clientSide = net.Pipe()
@@ -143,6 +150,11 @@ func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
 		return console.Error(err)
 	}
 
+	pathsData, metaPathsData, err = graph.stabilizePaths(pathsData, metaPathsData)
+	if err != nil {
+		return console.Error(err)
+	}
+
 	graph.RecursiveFold(pathsData, metaPathsData, 0, -1)
 
 	res, err := call.AllocResults()
@@ -194,6 +206,17 @@ func (graph *GraphServer) Evaluate(
 	return bestIdx, lowestEnergy, residue
 }
 
+func (graph *GraphServer) stabilizePaths(
+	pathsData [][]data.Value,
+	metaPathsData [][]data.Value,
+) ([][]data.Value, [][]data.Value, error) {
+	if graph.pathWavefront == nil || !graph.pathWavefront.CanStabilize(pathsData) {
+		return pathsData, metaPathsData, nil
+	}
+
+	return graph.pathWavefront.Stabilize(pathsData, metaPathsData)
+}
+
 func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.Value) error {
 	resultList, err := res.NewResult(int32(len(paths)))
 	if err != nil {
@@ -222,8 +245,27 @@ func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.V
 }
 
 /*
-RecursiveFold fractures geometric sequences into an isolated hierarchy of
-labels connected by phase rotations, firing pool jobs recursively.
+RecursiveFold fractures data encoded in data.Value types
+(bit fields that have 5 bits active, mapping to one of the first 512 prime numbers)
+by using simple bitwise operations (AND, XOR) to identify and isolate shared components.
+
+Example:
+
+	Data:
+		[Sandra]<is in the>[Garden]
+		[Roy]<is in the>[Kitchen]
+		[Harold]<is in the>[Kitchen]
+			<is in the>   the shared component that cancels out, becomes a "label".
+			<is in the>   -points to-> [Sandra, Roy, Harold]
+			[Sandra]      -points to-> [Garden]
+			[Roy, Harold] -points to-> [Kitchen]
+			[Garden]      -points to-> [Sandra]
+			[Kitchen]     -points to-> [Roy, Harold]
+	Prompt: Where is Roy?
+		<Where> has no match in the graph, and is ignored
+		<is>    cancels out with <is> (in the) which -points to-> [Sandra, Roy, Harold]
+		[Roy]   cancels out with [Roy] which -points to-> [Kitchen]
+	Answer (what is left over): In the Kitchen
 */
 func (graph *GraphServer) RecursiveFold(
 	sequences [][]data.Value,
@@ -347,5 +389,14 @@ GraphWithSink injects a custom telemetry sink for testing.
 func GraphWithSink(sink *telemetry.Sink) GraphOpt {
 	return func(graph *GraphServer) {
 		graph.sink = sink
+	}
+}
+
+/*
+GraphWithPathWavefront injects a graph-local path stabilizer.
+*/
+func GraphWithPathWavefront(pathWavefront *path.Wavefront) GraphOpt {
+	return func(graph *GraphServer) {
+		graph.pathWavefront = pathWavefront
 	}
 }

@@ -7,60 +7,41 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestCantilever(t *testing.T) {
-	calc := numeric.NewCalculus()
 	ctx := context.Background()
 
 	cases := map[string]struct {
-		StartPhase  int
-		GoalPhase   int
+		StartByte   byte
+		GoalByte    byte
 		Repeats     int
 		ExpectError bool
 	}{
 		"normal_forward_span": {
-			StartPhase:  50,
-			GoalPhase:   210,
+			StartByte:   50,
+			GoalByte:    210,
 			Repeats:     1,
 			ExpectError: false,
 		},
 		"normal_backward_span": {
-			StartPhase:  210,
-			GoalPhase:   50,
+			StartByte:   210,
+			GoalByte:    50,
 			Repeats:     1,
 			ExpectError: false,
 		},
 		"edge_of_field_to_edge": {
-			StartPhase:  1,
-			GoalPhase:   256,
+			StartByte:   1,
+			GoalByte:    254,
 			Repeats:     1,
 			ExpectError: false,
 		},
 		"span_requires_hardening": {
-			StartPhase:  15,
-			GoalPhase:   88,
+			StartByte:   15,
+			GoalByte:    88,
 			Repeats:     10,
 			ExpectError: false,
-		},
-		"zero_span_length": {
-			StartPhase:  100,
-			GoalPhase:   100,
-			Repeats:     1,
-			ExpectError: true,
-		},
-		"zero_start_boundary": {
-			StartPhase:  0,
-			GoalPhase:   100,
-			Repeats:     1,
-			ExpectError: true,
-		},
-		"zero_goal_boundary": {
-			StartPhase:  100,
-			GoalPhase:   0,
-			Repeats:     1,
-			ExpectError: true,
 		},
 	}
 
@@ -70,8 +51,8 @@ func TestCantilever(t *testing.T) {
 				macro.MacroIndexWithContext(ctx),
 			)
 
-			start := numeric.Phase(tc.StartPhase)
-			goal := numeric.Phase(tc.GoalPhase)
+			startValue := data.BaseValue(tc.StartByte)
+			goalValue := data.BaseValue(tc.GoalByte)
 
 			cl := NewCantileverServer(
 				CantileverWithContext(ctx),
@@ -79,11 +60,11 @@ func TestCantilever(t *testing.T) {
 			)
 
 			var lastOp *macro.MacroOpcode
-			var lastRot numeric.Phase
+			var lastKey macro.AffineKey
 			var lastErr error
 
-			for i := 0; i < tc.Repeats; i++ {
-				lastRot, lastOp, lastErr = cl.BridgePhases(start, goal)
+			for range tc.Repeats {
+				lastKey, lastOp, lastErr = cl.BridgeValues(startValue, goalValue)
 			}
 
 			if tc.ExpectError {
@@ -92,16 +73,14 @@ func TestCantilever(t *testing.T) {
 					So(lastOp, ShouldBeNil)
 				})
 			} else {
-				Convey(fmt.Sprintf("%s: bridging should synthesize the exact rotation delta", name), func() {
+				Convey(fmt.Sprintf("%s: bridging should synthesize the correct affine key", name), func() {
 					So(lastErr, ShouldBeNil)
 
-					invStart, err := calc.Inverse(start)
-					So(err, ShouldBeNil)
-					expectedRot := calc.Multiply(goal, invStart)
-
-					So(lastRot, ShouldEqual, expectedRot)
+					expectedKey := macro.AffineKeyFromValues(startValue, goalValue)
+					t.Logf("lastOp.Key: %v, Expected key: %v", lastOp.Key, expectedKey)
+					So(lastKey, ShouldResemble, expectedKey)
 					So(lastOp, ShouldNotBeNil)
-					So(lastOp.Rotation, ShouldEqual, expectedRot)
+					So(lastOp.Key, ShouldResemble, expectedKey)
 				})
 
 				Convey(fmt.Sprintf("%s: the generated opcode should track usage accurately", name), func() {
@@ -117,25 +96,47 @@ func TestCantilever(t *testing.T) {
 		})
 	}
 
+	Convey("Given BridgeValues with empty values should error", t, func() {
+		macroIndex := macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(ctx),
+		)
+
+		cl := NewCantileverServer(
+			CantileverWithContext(ctx),
+			WithMacroIndex(macroIndex),
+		)
+
+		emptyValue := data.MustNewValue()
+		realValue := data.BaseValue(42)
+
+		_, _, err := cl.BridgeValues(emptyValue, realValue)
+		So(err, ShouldNotBeNil)
+
+		_, _, err = cl.BridgeValues(realValue, emptyValue)
+		So(err, ShouldNotBeNil)
+	})
+
 	Convey("Given a Macro Index with mixed tool usages", t, func() {
 		macroIndex := macro.NewMacroIndexServer(
 			macro.MacroIndexWithContext(ctx),
 		)
 
-		macroIndex.RecordOpcode(25)
+		key25 := macro.AffineKeyFromValues(data.BaseValue(25), data.BaseValue(26))
+		macroIndex.RecordOpcode(key25)
 
+		key40 := macro.AffineKeyFromValues(data.BaseValue(40), data.BaseValue(41))
 		for range 10 {
-			macroIndex.RecordOpcode(40)
+			macroIndex.RecordOpcode(key40)
 		}
 
 		Convey("GarbageCollect should prune inefficient logic circuits", func() {
 			pruned := macroIndex.GarbageCollect()
 			So(pruned, ShouldEqual, 1)
 
-			_, found := macroIndex.FindOpcode(25)
+			_, found := macroIndex.FindOpcode(key25)
 			So(found, ShouldBeFalse)
 
-			op, found := macroIndex.FindOpcode(40)
+			op, found := macroIndex.FindOpcode(key40)
 			So(found, ShouldBeTrue)
 			So(op.Hardened, ShouldBeTrue)
 			So(op.UseCount, ShouldEqual, 10)

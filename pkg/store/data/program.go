@@ -82,22 +82,28 @@ func CompileSequenceCells(keys []uint64) []SequenceCell {
 }
 
 /*
-CompileObservableSequenceValues projects compiled native cells back into the
-lexical plane for query-time transport. This keeps prompt handling human-facing
-and decodable while storage stays native and lexical-free.
+CompileObservableSequenceValues projects compiled native cells
+back into the lexical plane for query-time transport. This keeps
+prompt handling human-facing and decodable while storage stays
+native and lexical-free.
 */
 func CompileObservableSequenceValues(keys []uint64) []Value {
 	cells := CompileSequenceCells(keys)
 	values := make([]Value, 0, len(cells))
 
 	for _, cell := range cells {
-		values = append(values, SeedObservable(cell.Symbol, cell.Value))
+		values = append(
+			values,
+			SeedObservable(cell.Symbol, cell.Value),
+		)
 	}
 
 	return values
 }
 
-func programForStep(currentPos, nextPos uint32, hasNext bool) (Opcode, uint32, uint8, bool) {
+func programForStep(
+	currentPos, nextPos uint32, hasNext bool,
+) (Opcode, uint32, uint8, bool) {
 	if !hasNext {
 		return OpcodeHalt, 0, 0, true
 	}
@@ -111,6 +117,7 @@ func programForStep(currentPos, nextPos uint32, hasNext bool) (Opcode, uint32, u
 	}
 
 	jump := nextPos - currentPos
+
 	if jump == 1 {
 		return OpcodeNext, 1, 0, false
 	}

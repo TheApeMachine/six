@@ -7,28 +7,6 @@ import (
 	"github.com/theapemachine/six/pkg/store/data"
 )
 
-func TestASTNode_Print(t *testing.T) {
-	Convey("Given an ASTNode", t, func() {
-		node := &ASTNode{
-			Level: 1,
-			Label: data.Value{}, // ActiveCount() == 0 naturally
-		}
-
-		Convey("It prints without panicking", func() {
-			So(func() { node.Print(">>") }, ShouldNotPanic)
-		})
-
-		Convey("It prints with children without panicking", func() {
-			parent := &ASTNode{
-				Level:    0,
-				Label:    data.Value{},
-				Children: []*ASTNode{node},
-			}
-			So(func() { parent.Print(">>") }, ShouldNotPanic)
-		})
-	})
-}
-
 func mustBuildValue(t *testing.T, input []byte) data.Value {
 	t.Helper()
 	value, err := data.BuildValue(input)
@@ -139,19 +117,5 @@ func BenchmarkXorSequence(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		xorSequence(seq, label)
-	}
-}
-
-func BenchmarkASTNode_Print(b *testing.B) {
-	node := &ASTNode{
-		Level: 1,
-		Label: data.Value{},
-		Children: []*ASTNode{
-			{Level: 2},
-		},
-	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		node.Print("")
 	}
 }

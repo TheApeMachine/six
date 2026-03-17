@@ -8,6 +8,7 @@ import (
 	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
+	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
 )
 
@@ -16,23 +17,21 @@ type Universal capnp.Client
 // Universal_TypeID is the unique identifier for the type Universal.
 const Universal_TypeID = 0xcefd5464be8479d9
 
-func (c Universal) Generate(ctx context.Context, params func(Universal_generate_Params) error) (Universal_generate_Results_Future, capnp.ReleaseFunc) {
-
+func (c Universal) Write(ctx context.Context, params func(Universal_write_Params) error) error {
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xcefd5464be8479d9,
 			MethodID:      0,
 			InterfaceName: "pkg/system/process/tokenizer/universal.capnp:Universal",
-			MethodName:    "generate",
+			MethodName:    "write",
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Universal_generate_Params(s)) }
+		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Universal_write_Params(s)) }
 	}
 
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return Universal_generate_Results_Future{Future: ans.Future()}, release
+	return capnp.Client(c).SendStreamCall(ctx, s)
 
 }
 
@@ -73,6 +72,26 @@ func (c Universal) SetDataset(ctx context.Context, params func(Universal_setData
 
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Universal_setDataset_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Universal) Feedback(ctx context.Context, params func(Universal_feedback_Params) error) (Universal_feedback_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xcefd5464be8479d9,
+			MethodID:      3,
+			InterfaceName: "pkg/system/process/tokenizer/universal.capnp:Universal",
+			MethodName:    "feedback",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Universal_feedback_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Universal_feedback_Results_Future{Future: ans.Future()}, release
 
 }
 
@@ -149,11 +168,13 @@ func (c Universal) GetFlowLimiter() fc.FlowLimiter {
 
 // A Universal_Server is a Universal with a local implementation.
 type Universal_Server interface {
-	Generate(context.Context, Universal_generate) error
+	Write(context.Context, Universal_write) error
 
 	Done(context.Context, Universal_done) error
 
 	SetDataset(context.Context, Universal_setDataset) error
+
+	Feedback(context.Context, Universal_feedback) error
 }
 
 // Universal_NewServer creates a new Server from an implementation of Universal_Server.
@@ -172,7 +193,7 @@ func Universal_ServerToClient(s Universal_Server) Universal {
 // This can be used to create a more complicated Server.
 func Universal_Methods(methods []server.Method, s Universal_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 3)
+		methods = make([]server.Method, 0, 4)
 	}
 
 	methods = append(methods, server.Method{
@@ -180,10 +201,10 @@ func Universal_Methods(methods []server.Method, s Universal_Server) []server.Met
 			InterfaceID:   0xcefd5464be8479d9,
 			MethodID:      0,
 			InterfaceName: "pkg/system/process/tokenizer/universal.capnp:Universal",
-			MethodName:    "generate",
+			MethodName:    "write",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Generate(ctx, Universal_generate{call})
+			return s.Write(ctx, Universal_write{call})
 		},
 	})
 
@@ -211,24 +232,36 @@ func Universal_Methods(methods []server.Method, s Universal_Server) []server.Met
 		},
 	})
 
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xcefd5464be8479d9,
+			MethodID:      3,
+			InterfaceName: "pkg/system/process/tokenizer/universal.capnp:Universal",
+			MethodName:    "feedback",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Feedback(ctx, Universal_feedback{call})
+		},
+	})
+
 	return methods
 }
 
-// Universal_generate holds the state for a server call to Universal.generate.
+// Universal_write holds the state for a server call to Universal.write.
 // See server.Call for documentation.
-type Universal_generate struct {
+type Universal_write struct {
 	*server.Call
 }
 
 // Args returns the call's arguments.
-func (c Universal_generate) Args() Universal_generate_Params {
-	return Universal_generate_Params(c.Call.Args())
+func (c Universal_write) Args() Universal_write_Params {
+	return Universal_write_Params(c.Call.Args())
 }
 
 // AllocResults allocates the results struct.
-func (c Universal_generate) AllocResults() (Universal_generate_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Universal_generate_Results(r), err
+func (c Universal_write) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
 }
 
 // Universal_done holds the state for a server call to Universal.done.
@@ -265,6 +298,23 @@ func (c Universal_setDataset) AllocResults() (Universal_setDataset_Results, erro
 	return Universal_setDataset_Results(r), err
 }
 
+// Universal_feedback holds the state for a server call to Universal.feedback.
+// See server.Call for documentation.
+type Universal_feedback struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Universal_feedback) Args() Universal_feedback_Params {
+	return Universal_feedback_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Universal_feedback) AllocResults() (Universal_feedback_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Universal_feedback_Results(r), err
+}
+
 // Universal_List is a list of Universal.
 type Universal_List = capnp.CapList[Universal]
 
@@ -274,169 +324,76 @@ func NewUniversal_List(s *capnp.Segment, sz int32) (Universal_List, error) {
 	return capnp.CapList[Universal](l), err
 }
 
-type Universal_generate_Params capnp.Struct
+type Universal_write_Params capnp.Struct
 
-// Universal_generate_Params_TypeID is the unique identifier for the type Universal_generate_Params.
-const Universal_generate_Params_TypeID = 0x8c4a4af4b633a924
+// Universal_write_Params_TypeID is the unique identifier for the type Universal_write_Params.
+const Universal_write_Params_TypeID = 0x8c4a4af4b633a924
 
-func NewUniversal_generate_Params(s *capnp.Segment) (Universal_generate_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Universal_generate_Params(st), err
+func NewUniversal_write_Params(s *capnp.Segment) (Universal_write_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Universal_write_Params(st), err
 }
 
-func NewRootUniversal_generate_Params(s *capnp.Segment) (Universal_generate_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Universal_generate_Params(st), err
+func NewRootUniversal_write_Params(s *capnp.Segment) (Universal_write_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Universal_write_Params(st), err
 }
 
-func ReadRootUniversal_generate_Params(msg *capnp.Message) (Universal_generate_Params, error) {
+func ReadRootUniversal_write_Params(msg *capnp.Message) (Universal_write_Params, error) {
 	root, err := msg.Root()
-	return Universal_generate_Params(root.Struct()), err
+	return Universal_write_Params(root.Struct()), err
 }
 
-func (s Universal_generate_Params) String() string {
+func (s Universal_write_Params) String() string {
 	str, _ := text.Marshal(0x8c4a4af4b633a924, capnp.Struct(s))
 	return str
 }
 
-func (s Universal_generate_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+func (s Universal_write_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
 	return capnp.Struct(s).EncodeAsPtr(seg)
 }
 
-func (Universal_generate_Params) DecodeFromPtr(p capnp.Ptr) Universal_generate_Params {
-	return Universal_generate_Params(capnp.Struct{}.DecodeFromPtr(p))
+func (Universal_write_Params) DecodeFromPtr(p capnp.Ptr) Universal_write_Params {
+	return Universal_write_Params(capnp.Struct{}.DecodeFromPtr(p))
 }
 
-func (s Universal_generate_Params) ToPtr() capnp.Ptr {
+func (s Universal_write_Params) ToPtr() capnp.Ptr {
 	return capnp.Struct(s).ToPtr()
 }
-func (s Universal_generate_Params) IsValid() bool {
+func (s Universal_write_Params) IsValid() bool {
 	return capnp.Struct(s).IsValid()
 }
 
-func (s Universal_generate_Params) Message() *capnp.Message {
+func (s Universal_write_Params) Message() *capnp.Message {
 	return capnp.Struct(s).Message()
 }
 
-func (s Universal_generate_Params) Segment() *capnp.Segment {
+func (s Universal_write_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Universal_generate_Params) Data() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return []byte(p.Data()), err
+func (s Universal_write_Params) Data() uint8 {
+	return capnp.Struct(s).Uint8(0)
 }
 
-func (s Universal_generate_Params) HasData() bool {
-	return capnp.Struct(s).HasPtr(0)
+func (s Universal_write_Params) SetData(v uint8) {
+	capnp.Struct(s).SetUint8(0, v)
 }
 
-func (s Universal_generate_Params) SetData(v []byte) error {
-	return capnp.Struct(s).SetData(0, v)
+// Universal_write_Params_List is a list of Universal_write_Params.
+type Universal_write_Params_List = capnp.StructList[Universal_write_Params]
+
+// NewUniversal_write_Params creates a new list of Universal_write_Params.
+func NewUniversal_write_Params_List(s *capnp.Segment, sz int32) (Universal_write_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	return capnp.StructList[Universal_write_Params](l), err
 }
 
-// Universal_generate_Params_List is a list of Universal_generate_Params.
-type Universal_generate_Params_List = capnp.StructList[Universal_generate_Params]
+// Universal_write_Params_Future is a wrapper for a Universal_write_Params promised by a client call.
+type Universal_write_Params_Future struct{ *capnp.Future }
 
-// NewUniversal_generate_Params creates a new list of Universal_generate_Params.
-func NewUniversal_generate_Params_List(s *capnp.Segment, sz int32) (Universal_generate_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Universal_generate_Params](l), err
-}
-
-// Universal_generate_Params_Future is a wrapper for a Universal_generate_Params promised by a client call.
-type Universal_generate_Params_Future struct{ *capnp.Future }
-
-func (f Universal_generate_Params_Future) Struct() (Universal_generate_Params, error) {
+func (f Universal_write_Params_Future) Struct() (Universal_write_Params, error) {
 	p, err := f.Future.Ptr()
-	return Universal_generate_Params(p.Struct()), err
-}
-
-type Universal_generate_Results capnp.Struct
-
-// Universal_generate_Results_TypeID is the unique identifier for the type Universal_generate_Results.
-const Universal_generate_Results_TypeID = 0xa25ed5d258e1e06c
-
-func NewUniversal_generate_Results(s *capnp.Segment) (Universal_generate_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Universal_generate_Results(st), err
-}
-
-func NewRootUniversal_generate_Results(s *capnp.Segment) (Universal_generate_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Universal_generate_Results(st), err
-}
-
-func ReadRootUniversal_generate_Results(msg *capnp.Message) (Universal_generate_Results, error) {
-	root, err := msg.Root()
-	return Universal_generate_Results(root.Struct()), err
-}
-
-func (s Universal_generate_Results) String() string {
-	str, _ := text.Marshal(0xa25ed5d258e1e06c, capnp.Struct(s))
-	return str
-}
-
-func (s Universal_generate_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Universal_generate_Results) DecodeFromPtr(p capnp.Ptr) Universal_generate_Results {
-	return Universal_generate_Results(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Universal_generate_Results) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Universal_generate_Results) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Universal_generate_Results) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Universal_generate_Results) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Universal_generate_Results) Keys() (capnp.UInt64List, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.UInt64List(p.List()), err
-}
-
-func (s Universal_generate_Results) HasKeys() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Universal_generate_Results) SetKeys(v capnp.UInt64List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewKeys sets the keys field to a newly
-// allocated capnp.UInt64List, preferring placement in s's segment.
-func (s Universal_generate_Results) NewKeys(n int32) (capnp.UInt64List, error) {
-	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.UInt64List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// Universal_generate_Results_List is a list of Universal_generate_Results.
-type Universal_generate_Results_List = capnp.StructList[Universal_generate_Results]
-
-// NewUniversal_generate_Results creates a new list of Universal_generate_Results.
-func NewUniversal_generate_Results_List(s *capnp.Segment, sz int32) (Universal_generate_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Universal_generate_Results](l), err
-}
-
-// Universal_generate_Results_Future is a wrapper for a Universal_generate_Results promised by a client call.
-type Universal_generate_Results_Future struct{ *capnp.Future }
-
-func (f Universal_generate_Results_Future) Struct() (Universal_generate_Results, error) {
-	p, err := f.Future.Ptr()
-	return Universal_generate_Results(p.Struct()), err
+	return Universal_write_Params(p.Struct()), err
 }
 
 type Universal_done_Params capnp.Struct
@@ -722,36 +679,188 @@ func (f Universal_setDataset_Results_Future) Struct() (Universal_setDataset_Resu
 	return Universal_setDataset_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d69 = "x\xda\xacR1\x88\x13Q\x14\x9c\xf7v\xd7\xbd\xc3\x8b" +
-	"\xe1\x13-N\xd0Bb\x13<\xe3\x91B\x0c\x1c\x9b\x13" +
-	"E\x0c\x08\xd9CE\x14\x84%\xf9\x1c!\xc9f\xdd\xff" +
-	"#\xc4\xda\xf2\x1a\x1b\xc1B\x04+OQ\x10Q\xe1\x0a" +
-	";\xb1:E\xc1\xc2N\x0b\xc1\xd2B\xb01\xac|\xe2" +
-	"n\"XH\xb4{\xbb\xef\xcf\x9baf\x8e,R\xcd" +
-	"^\xce\xbd\xb1\xc0\xfe!gGR\xdc\xac<\xfbV\xaf" +
-	"o@\x1c%\xc0!\x17\xa8lS\x95A\x85\xcf\xe4\x81" +
-	"\x92\x1f\xf7\xbf\xcc_y\xf9\xfd\xc6\xf8\x81m\xf6\x0e\xef" +
-	"e\xd8I\xf7\xe3\xa7\x0b\xef\xde_\xbe;\x0d\x1d\xd1q" +
-	"\x03\xdd\xc3\x06z\x8a\xf7\xdf\x1c&\x0f6\xa7\xa0'y" +
-	"\xcd@Kw\xee]\xda\xf9h\xf1\xf9\xd4f\x95\x0f\x98" +
-	"\xcd\x87\xe1\xf5\x17\xad\xb3\xa3\xd7\x10KV\xd2^Y\x8d" +
-	"no8\x0f\x01\xaa\x1c\xe3-*\xf8\xec\x02\x853\xfc" +
-	"\xaa\xb0m\xa6\xe4\x89\xbdu\xfe\xf1-\xf1uZ\xc2S" +
-	"\xae\x1b\x09o\xd9\xc3R\x12u\xd6\xcbj\xa8\xb4+{" +
-	"\xe5(\xee7\xa5Re\xdd\xef\xc8\xb0}M\xc6\xe5A" +
-	"\xd8\xbe*c\x15t\x0f7\x83(\x8c\xaa\xe7\xb2\xefu" +
-	"\x19\xca8\xd0\xb2\xe85\x828\xe8)\xdf\xb6l\xc0&" +
-	"@\xe4J\x80?g\x91\xbf\x9b)\xdf\x0at@90" +
-	"\xe5@3\x93\xb5\xfa\xa1,\x1a\x1e\xab\xa7\xb2#s\xb3" +
-	"*^\x93j\xd0\xd5\x0a\x7f\x92\\d\xcaw\xe4P\xd1" +
-	".P\xc3\"\x9a\x07\x9bqfR%\xf5\x89@\x07J" +
-	"\xea_\xb4\xa4\xfe\xcd\x05s\xc5\xed\xea\xc9\x15\xe7o\xaf" +
-	"x\xe3\x1f\x0d\"\x7f\xc1r\x80\xac\xd9\x94\xf6T\xf8u" +
-	"\xb08\xed\xd2\xa4\xd4\x94\x16Q\xac\x94\xc0b\xd9%\xce" +
-	":Ei}\xc5\xc1\x8b`\xb1\xcfMR\x8b\x01\xd4(" +
-	"o\xf4\xd6(I-\x80%u\x8d\x1a\xf4_\xcc\x1c\x97" +
-	"\x0e\xbfeX\x9dd\xe85\xfbq4\xc8R\\\x18\xa7" +
-	"\xf83\x00\x00\xff\xff\x93\xe94\xd0"
+type Universal_feedback_Params capnp.Struct
+
+// Universal_feedback_Params_TypeID is the unique identifier for the type Universal_feedback_Params.
+const Universal_feedback_Params_TypeID = 0xe2d9e5be51d96b4b
+
+func NewUniversal_feedback_Params(s *capnp.Segment) (Universal_feedback_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Universal_feedback_Params(st), err
+}
+
+func NewRootUniversal_feedback_Params(s *capnp.Segment) (Universal_feedback_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return Universal_feedback_Params(st), err
+}
+
+func ReadRootUniversal_feedback_Params(msg *capnp.Message) (Universal_feedback_Params, error) {
+	root, err := msg.Root()
+	return Universal_feedback_Params(root.Struct()), err
+}
+
+func (s Universal_feedback_Params) String() string {
+	str, _ := text.Marshal(0xe2d9e5be51d96b4b, capnp.Struct(s))
+	return str
+}
+
+func (s Universal_feedback_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Universal_feedback_Params) DecodeFromPtr(p capnp.Ptr) Universal_feedback_Params {
+	return Universal_feedback_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Universal_feedback_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Universal_feedback_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Universal_feedback_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Universal_feedback_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Universal_feedback_Params) OverDiscriminated() bool {
+	return capnp.Struct(s).Bit(0)
+}
+
+func (s Universal_feedback_Params) SetOverDiscriminated(v bool) {
+	capnp.Struct(s).SetBit(0, v)
+}
+
+func (s Universal_feedback_Params) UnderDiscriminated() bool {
+	return capnp.Struct(s).Bit(1)
+}
+
+func (s Universal_feedback_Params) SetUnderDiscriminated(v bool) {
+	capnp.Struct(s).SetBit(1, v)
+}
+
+// Universal_feedback_Params_List is a list of Universal_feedback_Params.
+type Universal_feedback_Params_List = capnp.StructList[Universal_feedback_Params]
+
+// NewUniversal_feedback_Params creates a new list of Universal_feedback_Params.
+func NewUniversal_feedback_Params_List(s *capnp.Segment, sz int32) (Universal_feedback_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	return capnp.StructList[Universal_feedback_Params](l), err
+}
+
+// Universal_feedback_Params_Future is a wrapper for a Universal_feedback_Params promised by a client call.
+type Universal_feedback_Params_Future struct{ *capnp.Future }
+
+func (f Universal_feedback_Params_Future) Struct() (Universal_feedback_Params, error) {
+	p, err := f.Future.Ptr()
+	return Universal_feedback_Params(p.Struct()), err
+}
+
+type Universal_feedback_Results capnp.Struct
+
+// Universal_feedback_Results_TypeID is the unique identifier for the type Universal_feedback_Results.
+const Universal_feedback_Results_TypeID = 0xa57eed7089b5aef1
+
+func NewUniversal_feedback_Results(s *capnp.Segment) (Universal_feedback_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Universal_feedback_Results(st), err
+}
+
+func NewRootUniversal_feedback_Results(s *capnp.Segment) (Universal_feedback_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Universal_feedback_Results(st), err
+}
+
+func ReadRootUniversal_feedback_Results(msg *capnp.Message) (Universal_feedback_Results, error) {
+	root, err := msg.Root()
+	return Universal_feedback_Results(root.Struct()), err
+}
+
+func (s Universal_feedback_Results) String() string {
+	str, _ := text.Marshal(0xa57eed7089b5aef1, capnp.Struct(s))
+	return str
+}
+
+func (s Universal_feedback_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Universal_feedback_Results) DecodeFromPtr(p capnp.Ptr) Universal_feedback_Results {
+	return Universal_feedback_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Universal_feedback_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Universal_feedback_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Universal_feedback_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Universal_feedback_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Universal_feedback_Results_List is a list of Universal_feedback_Results.
+type Universal_feedback_Results_List = capnp.StructList[Universal_feedback_Results]
+
+// NewUniversal_feedback_Results creates a new list of Universal_feedback_Results.
+func NewUniversal_feedback_Results_List(s *capnp.Segment, sz int32) (Universal_feedback_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Universal_feedback_Results](l), err
+}
+
+// Universal_feedback_Results_Future is a wrapper for a Universal_feedback_Results promised by a client call.
+type Universal_feedback_Results_Future struct{ *capnp.Future }
+
+func (f Universal_feedback_Results_Future) Struct() (Universal_feedback_Results, error) {
+	p, err := f.Future.Ptr()
+	return Universal_feedback_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d69 = "x\xda\xa4\x931h\x14A\x14\x86\xdf?\xb3\x97M\xd0" +
+	"\x18\x87\xa4\xd1BA\xce\xc2`<\xf5\x90\xc4\x80\xdcE" +
+	"\x02\xc2\x89p\x13T\x88\x16\xb2\xde\x8e\xb2\\no\xb3" +
+	"\xb3\x97\x10\x0b! \x88\x90F\x0b!\x01\xb1\x12\x8cb" +
+	" \x88\x0a)\x82\x16)\x15,\xaf\xb0P\x10l\x02\x0a" +
+	"\x82\x8d2\xb2\xb9\xec\xe6J\x13\xbb\xdd\xf9\x87\xef\xbd\x99" +
+	"\xf9\xde\xf1\x10E\xebD\xf7\xdd\x0c1Y\xcct\x98\xec" +
+	"b\xfe\xf5\xcfRi\x8e\xe4 @d\xd9D\xf9Ev" +
+	"\x88\x11z\xdf\xb1\x02\xc1\xfc~\xf6\xadkr\xed\xd7}" +
+	"\x12\x83I\xfe\x99\xedgd\x99\x1fK\xaf\xee\x05\xeb\xb7" +
+	"\x9f\xb4%Mv6N\xce\xb1\x03\x0fg\xcc\xf3\xc5\xb6" +
+	"\xe4#\x1b\x8b\x93\xfe\xc7O\xaf\xeeZ\xda\xf7\xa6-y" +
+	"\x1fW\xb3Ls\xe6\xce\xaa{\xf1\xcf\x07\x12\x03\xdcx" +
+	"gF\x82Gs\x99\x17D\xc8\xaf\xb1\x15\xf4~b-" +
+	"\xbc\x8d\xdeYn\x13\x99\xf3\xd5\xa6\\\xfd\xda\xfc\xd2\xde" +
+	"\xb7\xc7\x87\xe3\xbeg\xf94\xc1\xbc\xb4V./\xcf\x8b" +
+	"\xef\xadJ\x19\xc4\x1b\xd6y)\xde\xd0e\x15h\xdc\x04" +
+	"\xd5\x9b9=\xa3#[\xd5rAX\xaf(\xadsQ" +
+	"\xbd\xaa|\xef\x96\x0as\x0d\xdf\x9bR\xa1v&\x8eU" +
+	"\x9c\xc0\x0f\x86/\xa5\xff\xd3\xa1\x17\xa9l\xd9\x09m\xa7" +
+	"\xa6\xa5\xc5-\"\x0bD\xa2\xbb\x9fHvr\xc8>\x86" +
+	"\x1e\xd7\x89\x1ct\x10C\x07a\xc7\x95\xdc\xba\xbfQ\xc8" +
+	"\xe15\x9dB\xc46!7\x94r\xaf;\x95jvL" +
+	"\xe9\xc6D\xa4)\x01m\x93\xa3U4\xeaD\x8eV\xd1" +
+	"&\x09\xfa\xff\x0e\x16S\xec\x89h\x8b\x92\xf9WJ\xa1" +
+	"\xb5P\x06\xe4^\x9e!J%\x86\xbf\xfcv:\xbfp" +
+	"m^L\x9e$&\x94\x8d-\x7f\x91\xa8'\xc6\xfb\x89" +
+	"\x89\x0b6X\xea\x08\x12a\xc5\xc8\x15b\xe2\xb4\x0d\x9e" +
+	"\x0a\x86Ds1P\"&\x0e\xdb\x077\x04(\xa2'" +
+	">E\x11&\xb9\x18\xe2**\xc2$\xf7MDE\x94" +
+	"\xb1\xf3\xd7O\x1f\xae\x10+P\xd3\xb23U\xed\xc8\x03" +
+	"\"y\x94C\x0e1\x08\xa0/\x9e\x00qj\x81H\x0e" +
+	"q\xc8Q\x06S\x9fR\xe1\xa8\xa7+\x08\xbd\x9a\xe7;" +
+	"\x91\x82\x0b\x10\x03\x08\xa6\xe1\xbb\x1b!*\x9b!W[" +
+	"a\xd2m\xe7\xce\xf5h\xb5K\xd4>\x1b\xc3\x9b\xb3\x91" +
+	"e(T\xeaa\xd0\xd0\xd8C(s`7\xb1\xf8\xf3" +
+	"o\x00\x00\x00\xff\xff4\x83y\x07"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -759,10 +868,11 @@ func RegisterSchema(reg *schemas.Registry) {
 		Nodes: []uint64{
 			0x8c4a4af4b633a924,
 			0x91f7c57109e8aafc,
-			0xa25ed5d258e1e06c,
+			0xa57eed7089b5aef1,
 			0xa9abff79961e0247,
 			0xb719ae0b5ba89f2a,
 			0xcefd5464be8479d9,
+			0xe2d9e5be51d96b4b,
 			0xf01199b156ba04b3,
 		},
 		Compressed: true,

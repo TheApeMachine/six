@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/test"
 )
@@ -28,64 +29,74 @@ func TestHolographicAlgebra_Integration(t *testing.T) {
 		helper := test.NewTestHelper()
 		defer helper.Teardown()
 
-		So(helper.SetDataset(local.New(local.WithStrings(corpus))), ShouldBeNil)
+		So(helper.Machine.SetDataset(
+			local.New(local.WithStrings(corpus)),
+		), ShouldBeNil)
 
 		Convey("Temporal: 'was' routes to living room not kitchen", func() {
-			result, err := helper.Prompt("Roy was in the ")
+			result, err := helper.Machine.Prompt("Roy was in the ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "living room")
 			So(string(result), ShouldNotContainSubstring, "kitchen")
 		})
 
 		Convey("Temporal: 'is' routes to kitchen not living room", func() {
-			result, err := helper.Prompt("Roy is in the ")
+			result, err := helper.Machine.Prompt("Roy is in the ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "kitchen")
 			So(string(result), ShouldNotContainSubstring, "living room")
 		})
 
 		Convey("Temporal: 'will be' routes to garage", func() {
-			result, err := helper.Prompt("Roy will be in the ")
+			result, err := helper.Machine.Prompt("Roy will be in the ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "garage")
 		})
 
 		Convey("Cross-modal: cat prompt returns cat not dog-unique content", func() {
-			result, err := helper.Prompt("Image of cat ")
+			result, err := helper.Machine.Prompt("Image of cat ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "cat")
 		})
 
 		Convey("Cross-modal: dog prompt returns dog not cat-unique content", func() {
-			result, err := helper.Prompt("Image of dog ")
+			result, err := helper.Machine.Prompt("Image of dog ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "dog")
 		})
 
 		Convey("Superposition: shared prefix activates at least one branch", func() {
-			result, err := helper.Prompt("The quick ")
+			result, err := helper.Machine.Prompt("The quick ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldNotBeEmpty)
 		})
 
 		Convey("Determinism: same prompt returns same result twice", func() {
-			first, err := helper.Prompt("Roy is in the ")
+			first, err := helper.Machine.Prompt("Roy is in the ")
 			So(err, ShouldBeNil)
 
-			second, err := helper.Prompt("Roy is in the ")
+			second, err := helper.Machine.Prompt("Roy is in the ")
 			So(err, ShouldBeNil)
 
 			So(string(second), ShouldEqual, string(first))
 		})
 
 		Convey("Logic AND: rains-and context routes to wet not dry", func() {
-			result, err := helper.Prompt("If it rains and ")
+			result, err := helper.Machine.Prompt("If it rains and ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "wet")
 		})
 
 		Convey("Logic OR: umbrella-or context routes to dry not wet", func() {
-			result, err := helper.Prompt("If you have an umbrella or ")
+			result, err := helper.Machine.Prompt("If you have an umbrella or ")
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, "dry")
 		})
@@ -105,7 +116,9 @@ func BenchmarkHolographicAlgebra(b *testing.B) {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	if err := helper.SetDataset(local.New(local.WithStrings(corpus))); err != nil {
+	if err := helper.Machine.SetDataset(
+		local.New(local.WithStrings(corpus)),
+	); err != nil {
 		b.Fatal(err)
 	}
 
@@ -118,13 +131,10 @@ func BenchmarkHolographicAlgebra(b *testing.B) {
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		result, err := helper.Prompt(queries[i%len(queries)])
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		if len(result) == 0 {
-			b.Fatal("result should not be empty")
-		}
+		errnie.SafeMust(func() ([]byte, error) {
+			return helper.Machine.Prompt(
+				queries[i%len(queries)],
+			)
+		})
 	}
 }

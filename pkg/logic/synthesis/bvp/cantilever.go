@@ -9,13 +9,16 @@ import (
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-CantileverServer is a Boundary Value Problem (BVP) synthesis engine.
-It uses phase mismatch between Start and Goal points to drive a "Frustration Engine"
-that synthesizes or discovers logical rotation tools that map across the span.
+CantileverServer is a Boundary Value Problem (BVP)
+synthesis engine. It uses phase mismatch between Start
+and Goal points to drive a "Frustration Engine" that
+synthesizes or discovers logical rotation tools that
+map across the span.
 */
 type CantileverServer struct {
 	ctx         context.Context
@@ -30,7 +33,8 @@ type CantileverServer struct {
 }
 
 /*
-cantileverOpts configures a CantileverServer at construction.
+cantileverOpts configures a CantileverServer
+at construction.
 */
 type cantileverOpts func(*CantileverServer)
 
@@ -129,10 +133,13 @@ RPC and computes the rotation needed to span the gap.
 func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_bridge) error {
 	args := call.Args()
 
-	startPhase := numeric.Phase(args.Start())
-	goalPhase := numeric.Phase(args.Goal())
+	startValue := data.BaseValue(byte(args.Start() % 256))
+	startValue.SetStatePhase(numeric.Phase(args.Start()))
 
-	rotation, opcode, err := server.BridgePhases(startPhase, goalPhase)
+	goalValue := data.BaseValue(byte(args.Goal() % 256))
+	goalValue.SetStatePhase(numeric.Phase(args.Goal()))
+
+	key, opcode, err := server.BridgeValues(startValue, goalValue)
 	if err != nil {
 		return err
 	}
@@ -142,7 +149,7 @@ func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_brid
 		return err
 	}
 
-	res.SetRotation(uint32(rotation))
+	res.SetRotation(uint32(key.Scale))
 
 	if opcode != nil {
 		res.SetHardened(opcode.Hardened)
@@ -152,36 +159,35 @@ func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_brid
 }
 
 /*
-BridgePhases synthesizes a path between two GF(257) boundary phases.
-It computes the Delta Rotation (G^X) necessary to transit the gap directly.
-If standard raw navigation fails, it pulls a MacroOpcode or creates one.
+BridgeValues synthesizes a path between two 5-sparse Value states.
+Computes the geometric AffineKey delta and looks up or records the
+corresponding opcode in the MacroIndex. This is the sole solver
+operating on the full 8.8 billion state space.
 */
-func (server *CantileverServer) BridgePhases(startPhase, goalPhase numeric.Phase) (numeric.Phase, *macro.MacroOpcode, error) {
-	if startPhase == 0 || goalPhase == 0 {
-		return 0, nil, fmt.Errorf("cantilever boundaries cannot be absolute zero")
+func (server *CantileverServer) BridgeValues(startValue, goalValue data.Value) (macro.AffineKey, *macro.MacroOpcode, error) {
+	if startValue.ActiveCount() == 0 || goalValue.ActiveCount() == 0 {
+		return macro.AffineKey{}, nil, fmt.Errorf("cantilever boundaries cannot have empty values")
 	}
 
-	if startPhase == goalPhase {
-		return 0, nil, fmt.Errorf("start and goal phases identical, bridge span length is 0")
+	if startValue.CoreActiveCount() == goalValue.CoreActiveCount() {
+		delta := startValue.XOR(goalValue)
+		if delta.CoreActiveCount() == 0 {
+			return macro.AffineKey{}, nil, fmt.Errorf("start and goal values identical, bridge span length is 0")
+		}
 	}
 
-	inverseStart, err := server.calc.Inverse(startPhase)
-	if err != nil {
-		return 0, nil, fmt.Errorf("could not compute inverse for cantilever start boundary: %w", err)
-	}
+	key := macro.AffineKeyFromValues(startValue, goalValue)
 
-	targetRotation := server.calc.Multiply(goalPhase, inverseStart)
-
-	op, found := server.Index.FindOpcode(targetRotation)
+	op, found := server.Index.FindOpcode(key)
 	if found {
-		server.Index.RecordOpcode(targetRotation)
-		return targetRotation, op, nil
+		server.Index.RecordOpcode(key)
+		return key, op, nil
 	}
 
-	server.Index.RecordOpcode(targetRotation)
-	opNew, _ := server.Index.FindOpcode(targetRotation)
+	server.Index.RecordOpcode(key)
+	opNew, _ := server.Index.FindOpcode(key)
 
-	return targetRotation, opNew, nil
+	return key, opNew, nil
 }
 
 /*

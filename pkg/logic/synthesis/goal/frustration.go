@@ -12,12 +12,13 @@ import (
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-FrustrationEngineServer represents the "Phase-Locked Loop" logic solver.
-It acts when a raw sequence fails to span a gap, causing Phase Tension (Frustration).
+FrustrationEngineServer represents the geometric logic solver.
+It acts when a raw sequence fails to span a gap, causing geometric tension.
 The Engine vibrates the MacroIndex, applying discovered logic tools until the tension zeros out.
 */
 type FrustrationEngineServer struct {
@@ -145,18 +146,18 @@ func WithSharedIndex(index *macro.MacroIndexServer) feOpts {
 
 /*
 ResolveCandidates deterministically enumerates up to maxResults hardened tool paths
-that bridge currentPhase to targetPhase. Results are ordered by path length first,
+that bridge currentValue to targetValue. Results are ordered by path length first,
 then by accumulated support in the macro library.
 */
 func (fe *FrustrationEngineServer) ResolveCandidates(
-	currentPhase numeric.Phase,
-	targetPhase numeric.Phase,
+	currentValue data.Value,
+	targetValue data.Value,
 	maxAttempts int,
 	maxResults int,
 ) ([][]*macro.MacroOpcode, error) {
 	return fe.resolveCandidatesToTarget(
-		currentPhase,
-		targetPhase,
+		currentValue,
+		targetValue,
 		maxAttempts,
 		maxResults,
 		fe.candidateDepth(maxAttempts),
@@ -182,7 +183,7 @@ func (fe *FrustrationEngineServer) availableHardenedSorted() []*macro.MacroOpcod
 		if tools[i].UseCount != tools[j].UseCount {
 			return tools[i].UseCount > tools[j].UseCount
 		}
-		return tools[i].Rotation < tools[j].Rotation
+		return tools[i].Key.Scale < tools[j].Key.Scale
 	})
 	return tools
 }
@@ -200,7 +201,7 @@ func macroPathSignature(path []*macro.MacroOpcode) string {
 		if i > 0 {
 			builder.WriteByte('-')
 		}
-		builder.WriteString(fmt.Sprintf("%d", opcode.Rotation))
+		builder.WriteString(opcode.Key.String())
 	}
 	return builder.String()
 }
@@ -214,18 +215,21 @@ func macroPathSupport(path []*macro.MacroOpcode) uint64 {
 }
 
 func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
-	currentPhase numeric.Phase,
-	targetPhase numeric.Phase,
+	currentValue data.Value,
+	targetValue data.Value,
 	maxAttempts int,
 	maxResults int,
 	maxDepth int,
 ) ([][]*macro.MacroOpcode, error) {
-	if currentPhase == targetPhase {
+	if currentValue.ActiveCount() == 0 || targetValue.ActiveCount() == 0 {
+		return nil, fmt.Errorf("values cannot be empty")
+	}
+
+	delta := currentValue.XOR(targetValue)
+	if delta.CoreActiveCount() == 0 {
 		return nil, nil
 	}
-	if currentPhase == 0 || targetPhase == 0 {
-		return nil, fmt.Errorf("phase cannot be zero")
-	}
+
 	if maxResults <= 0 {
 		maxResults = 1
 	}
@@ -254,7 +258,7 @@ func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
 		bvp.CantileverWithContext(fe.ctx),
 		bvp.WithMacroIndex(fe.index),
 	)
-	if _, singleTool, err := cl.BridgePhases(currentPhase, targetPhase); err == nil && singleTool != nil && singleTool.Hardened {
+	if _, singleTool, err := cl.BridgeValues(currentValue, targetValue); err == nil && singleTool != nil && singleTool.Hardened {
 		addCandidate([]*macro.MacroOpcode{singleTool})
 	}
 
@@ -266,9 +270,11 @@ func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
 		return results, nil
 	}
 
+	targetKey := macro.AffineKeyFromValues(currentValue, targetValue)
+
 	budget := maxAttempts
-	var walk func(state numeric.Phase, depth int, path []*macro.MacroOpcode)
-	walk = func(state numeric.Phase, depth int, path []*macro.MacroOpcode) {
+	var walk func(state data.Value, depth int, path []*macro.MacroOpcode)
+	walk = func(state data.Value, depth int, path []*macro.MacroOpcode) {
 		if budget <= 0 || len(results) >= maxResults || depth >= maxDepth {
 			return
 		}
@@ -279,18 +285,21 @@ func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
 			}
 			budget--
 
-			nextState := fe.calc.Multiply(state, tool.Rotation)
+			nextState := state.ApplyAffineValue(tool.Scale, tool.Translate)
 			nextPath := append(cloneMacroPath(path), tool)
-			if nextState == targetPhase {
+
+			nextKey := macro.AffineKeyFromValues(currentValue, nextState)
+			if nextKey == targetKey {
 				addCandidate(nextPath)
 				continue
 			}
+
 			if depth+1 < maxDepth {
 				walk(nextState, depth+1, nextPath)
 			}
 		}
 	}
-	walk(currentPhase, 0, nil)
+	walk(currentValue, 0, nil)
 
 	sort.Slice(results, func(i, j int) bool {
 		if len(results[i]) != len(results[j]) {
@@ -318,16 +327,16 @@ func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
 }
 
 /*
-Resolve evaluates the frustration (Phase Delta) between reality and belief.
+Resolve evaluates the frustration (geometric delta) between reality and belief.
 If they don't match, it searches the MacroIndex for a sequential combination of tools
 that zeroes the frustration. Returns the tool sequence to jump the span.
 */
 func (fe *FrustrationEngineServer) Resolve(
-	currentPhase numeric.Phase,
-	targetPhase numeric.Phase,
+	currentValue data.Value,
+	targetValue data.Value,
 	maxAttempts int,
 ) ([]*macro.MacroOpcode, error) {
-	candidates, err := fe.ResolveCandidates(currentPhase, targetPhase, maxAttempts, 1)
+	candidates, err := fe.ResolveCandidates(currentValue, targetValue, maxAttempts, 1)
 	if err != nil {
 		return nil, err
 	}
@@ -335,43 +344,41 @@ func (fe *FrustrationEngineServer) Resolve(
 		return nil, nil
 	}
 
-	if shift, err := macro.ComputeExpectedRotation(currentPhase, targetPhase); err == nil {
-		fe.index.RecordOpcode(shift)
-	}
+	key := macro.AffineKeyFromValues(currentValue, targetValue)
+	fe.index.RecordOpcode(key)
 
 	return candidates[0], nil
 }
 
 /*
 ResolveDual implements Multi-Headed Frustration (Dual-Goal Torsion).
-When pulled by two conflicting logical targets, the GF(257) field enters Vector Torsion.
-This method searches for a Cross-Domain Bridge—a composite rotation that satisfies a
-hybrid of both targets, minimizing the combined shear stress.
+When pulled by two conflicting logical targets, the system enters geometric torsion.
+This method searches for a cross-domain bridge that satisfies a hybrid of both targets.
 */
 func (fe *FrustrationEngineServer) ResolveDual(
-	currentPhase numeric.Phase,
-	targetA numeric.Phase,
-	targetB numeric.Phase,
+	currentValue data.Value,
+	targetA data.Value,
+	targetB data.Value,
 	maxAttempts int,
 ) ([]*macro.MacroOpcode, error) {
-	if currentPhase == targetA || currentPhase == targetB {
-		return nil, nil // Already intersecting a goal
+	deltaA := currentValue.XOR(targetA)
+	deltaB := currentValue.XOR(targetB)
+
+	if deltaA.CoreActiveCount() == 0 {
+		return nil, nil
+	}
+	if deltaB.CoreActiveCount() == 0 {
+		return nil, nil
 	}
 
-	// 1. Calculate the Torsion (the conflicting mathematical pull)
-	// We find a "Mean Rotation" or hybrid relaxation point in the field.
-	// In GF(257), (A + B) / 2 is calculated as (A + B) * Inverse(2).
-	sum := fe.calc.Add(targetA, targetB)
-	inv2, _ := fe.calc.Inverse(2)
-	hybridTarget := fe.calc.Multiply(sum, inv2)
+	hybridTarget := targetA.XOR(targetB)
+	hybridTarget = currentValue.XOR(hybridTarget)
 
-	// In the event of a perfect 180-degree destructive cancellation modulo 257 yielding 0,
-	// we fall back to a multiplicative geometric hybrid instead of an additive mean.
-	if hybridTarget == 0 {
-		hybridTarget = fe.calc.Add(fe.calc.Multiply(targetA, targetB), 1)
+	if hybridTarget.ActiveCount() == 0 {
+		hybridTarget = targetA
 	}
 
-	candidates, err := fe.resolveCandidatesToTarget(currentPhase, hybridTarget, maxAttempts, 1, 4)
+	candidates, err := fe.resolveCandidatesToTarget(currentValue, hybridTarget, maxAttempts, 1, 4)
 	if err != nil {
 		return nil, fmt.Errorf("dual-goal frustration failed to converge on a hybrid state after %d attempts", maxAttempts)
 	}
@@ -379,9 +386,8 @@ func (fe *FrustrationEngineServer) ResolveDual(
 		return nil, fmt.Errorf("dual-goal frustration failed to converge on a hybrid state after %d attempts", maxAttempts)
 	}
 
-	if shift, err := macro.ComputeExpectedRotation(currentPhase, hybridTarget); err == nil {
-		fe.index.RecordOpcode(shift)
-	}
+	key := macro.AffineKeyFromValues(currentValue, hybridTarget)
+	fe.index.RecordOpcode(key)
 
 	return candidates[0], nil
 }

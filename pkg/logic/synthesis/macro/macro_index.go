@@ -2,23 +2,66 @@ package macro
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-MacroOpcode represents a discovered Logic Circuit (Phase Rotation)
-that reliably bridges a specific Phase-Shift boundary gap.
+AffineKey indexes macro-opcodes by their geometric
+affine signature. The pair (Scale, Translate) lives
+in GF(257) × GF(257), yielding ~66K distinct keys.
+*/
+type AffineKey struct {
+	Scale     uint16
+	Translate uint16
+}
+
+/*
+AffineKeyFromValues computes the geometric affine
+signature of the delta between two values. The XOR
+captures the structural difference; RotationSeed
+projects it into the (Scale, Translate) plane.
+*/
+func AffineKeyFromValues(start, goal data.Value) AffineKey {
+	delta := start.XOR(goal)
+	scale, translate := delta.RotationSeed()
+
+	return AffineKey{Scale: scale, Translate: translate}
+}
+
+/*
+String formats the key for path signatures and diagnostics.
+*/
+func (key AffineKey) String() string {
+	return fmt.Sprintf("%d:%d", key.Scale, key.Translate)
+}
+
+/*
+MacroOpcode represents a discovered affine logic circuit that reliably
+bridges a specific boundary gap in the 5-sparse geometric state space.
+The transformation f(x) = Scale·x + Translate (mod 257) maps one
+sparse state to another.
 */
 type MacroOpcode struct {
-	Rotation numeric.Phase // The G^X necessary to complete the rotation
-	UseCount uint64        // Number of times this opcode successfully bridged a gap
-	Hardened bool          // Promoted to permanent status after verification
+	Key       AffineKey     // The affine signature indexing this opcode
+	Scale     numeric.Phase // The multiplicative rotation component a
+	Translate numeric.Phase // The additive translation component b
+	UseCount  uint64        // Number of times this opcode successfully bridged a gap
+	Hardened  bool          // Promoted to permanent status after verification
+}
+
+/*
+ApplyPhase advances a scalar phase through this opcode's affine operator.
+*/
+func (opcode *MacroOpcode) ApplyPhase(phase numeric.Phase) numeric.Phase {
+	return numeric.Phase((uint32(opcode.Scale)*uint32(phase) + uint32(opcode.Translate)) % numeric.FermatPrime)
 }
 
 /*
@@ -48,7 +91,7 @@ type MacroIndexServer struct {
 	serverConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	mu          sync.RWMutex
-	opcodes     map[numeric.Phase]*MacroOpcode
+	opcodes     map[AffineKey]*MacroOpcode
 	anchors     map[numeric.Phase]*AnchorRecord
 	anchorNames map[string]numeric.Phase
 }
@@ -64,7 +107,7 @@ NewMacroIndexServer instantiates a thread-safe registry for Logic Circuits.
 func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 	idx := &MacroIndexServer{
 		clientConns: map[string]*rpc.Conn{},
-		opcodes:     make(map[numeric.Phase]*MacroOpcode),
+		opcodes:     make(map[AffineKey]*MacroOpcode),
 		anchors:     make(map[numeric.Phase]*AnchorRecord),
 		anchorNames: make(map[string]numeric.Phase),
 	}
@@ -152,60 +195,46 @@ func MacroIndexWithContext(ctx context.Context) IndexOpts {
 }
 
 /*
-ComputeExpectedRotation independently calculates the phase rotation needed to
-bridge from start to goal in GF(257). Ground truth for all bridge assertions.
+ComputeExpectedAffineKey computes the geometric affine key for bridging two Values.
 */
-func ComputeExpectedRotation(start, goal numeric.Phase) (numeric.Phase, error) {
-	calc := numeric.NewCalculus()
-
-	invStart, err := calc.Inverse(start)
-	if err != nil {
-		return 0, err
-	}
-
-	return calc.Multiply(goal, invStart), nil
+func ComputeExpectedAffineKey(startValue, goalValue data.Value) AffineKey {
+	return AffineKeyFromValues(startValue, goalValue)
 }
 
 /*
-FindOpcode looks up a mathematically required Phase Shift.
+FindOpcode looks up a geometrically required affine transformation.
 Returns the MacroOpcode if one exists that satisfies the BVP boundary constraint.
 */
-func (idx *MacroIndexServer) FindOpcode(shift numeric.Phase) (*MacroOpcode, bool) {
+func (idx *MacroIndexServer) FindOpcode(key AffineKey) (*MacroOpcode, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	opcode, exists := idx.opcodes[shift]
-	if !exists {
-		return nil, false
-	}
-
-	// Increment usage count atomically (for GC or pruning priorities)
-	// Mutating through RLock here requires a minor hack or full lock, but since we use
-	// atomic operations on the pointer fields, it's generally safe (though Go race detector might complain).
-	// For purity without atomic package, we will just upgrade the lock.
-	return opcode, true
+	opcode, exists := idx.opcodes[key]
+	return opcode, exists
 }
 
 /*
-RecordOpcode stores or increments a synthesized tool.
+RecordOpcode stores or increments a synthesized affine tool.
 If the tool bridges a gap multiple times, it becomes Hardened.
 */
-func (idx *MacroIndexServer) RecordOpcode(shift numeric.Phase) {
+func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	if opcode, exists := idx.opcodes[shift]; exists {
+	if opcode, exists := idx.opcodes[key]; exists {
 		opcode.UseCount++
-		if opcode.UseCount > 5 { // Threshold for hardening
+		if opcode.UseCount > 5 {
 			opcode.Hardened = true
 		}
 		return
 	}
 
-	idx.opcodes[shift] = &MacroOpcode{
-		Rotation: shift,
-		UseCount: 1,
-		Hardened: false,
+	idx.opcodes[key] = &MacroOpcode{
+		Key:       key,
+		Scale:     numeric.Phase(key.Scale),
+		Translate: numeric.Phase(key.Translate),
+		UseCount:  1,
+		Hardened:  false,
 	}
 }
 
@@ -217,9 +246,9 @@ func (idx *MacroIndexServer) GarbageCollect() int {
 	defer idx.mu.Unlock()
 
 	pruned := 0
-	for shift, opcode := range idx.opcodes {
+	for key, opcode := range idx.opcodes {
 		if !opcode.Hardened && opcode.UseCount == 1 {
-			delete(idx.opcodes, shift)
+			delete(idx.opcodes, key)
 			pruned++
 		}
 	}

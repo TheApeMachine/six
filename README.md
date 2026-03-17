@@ -54,6 +54,8 @@ The reasoning is simple arithmetic. A human vocabulary is roughly $10^5$ words. 
 > [!IMPORTANT]
 > Semantics puts a **human ceiling** on the system. If the machine reasons in words, it can at best match human-level intelligence. If it reasons in its native monotype — a 257-bit value in GF(257), evolved by affine rotation, measured by Hamming distance — there is no ceiling. The representational capacity is not comparable.
 
+> Six is a finite-field associative machine where computation is affine rotation, memory is a collision-compressed spatial lattice, and language is merely a projection layer for human interaction.
+
 The system does not parse meaning. It does not build ontologies. It does not model synonyms or grammar rules internally. When the code *does* parse S-V-O structure or inject semantic facts, that is a **projection layer** — a translator between the machine's native geometry and the much smaller space of human language. The projection exists so humans can read the output and evaluate experiments. It is the GUI, not the CPU.
 
 The doctrine in three lines:
@@ -218,7 +220,7 @@ The LSM is a passive spatial lattice ([`spatial_index.go`](pkg/store/lsm/spatial
 
 - **Self-Addressing.** Each byte value (0–255) determines the X coordinate. The Y coordinate is the local depth within the current chunk. The byte is recovered from the key, not from the stored value. See [`morton.go`](pkg/store/data/morton.go).
 - **Append-Only.** The LSM does not merge data. It is deterministic storage. Intelligence lives in the values, not in the index structure.
-- **O(1) Retrieval.** Given a coordinate, the lookup is a direct Morton key dereference. The wavefront ([`wavefront.go`](pkg/store/lsm/wavefront.go)) propagates across the lattice, measuring projected observables against stored anchors.
+- **O(1) Retrieval.** Given a coordinate, the lookup is a direct Morton key dereference. Traversal control belongs in the logic plane after paths have been materialized out of the lattice.
 
 ### Value Plane — `pkg/store/data/`
 
@@ -297,17 +299,13 @@ The four planes map directly to the repository structure:
 | Phase Geometry | [`pkg/numeric/geometry/phase.go`](pkg/numeric/geometry/phase.go) | Phase distance, phase wrapping |
 | Eigenmode | [`pkg/numeric/geometry/eigenmode.go`](pkg/numeric/geometry/eigenmode.go) | Co-occurrence eigenvectors for ambiguity handling |
 
-### Layer 2 — Spatial Index & Wavefront
+### Layer 2 — Spatial Index
 
-> Morton-keyed LSM storage and the wavefront search engine.
+> Morton-keyed LSM storage only.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| Spatial Index | [`pkg/store/lsm/spatial_index.go`](pkg/store/lsm/spatial_index.go) | Insert, Lookup, Decode — the persistent address lattice |
-| Wavefront Search | [`pkg/store/lsm/wavefront.go`](pkg/store/lsm/wavefront.go) | Multi-headed propagation, phase-locked traversal, amplitude decay |
-| Wavefront Carry | [`pkg/store/lsm/wavefront_carry.go`](pkg/store/lsm/wavefront_carry.go) | Cross-boundary residual phase persistence |
-| Phase Anchors | [`pkg/store/lsm/phase_util.go`](pkg/store/lsm/phase_util.go) | Drift correction at synchronization checkpoints |
-| Skip-Pointers | [`pkg/store/lsm/skip.go`](pkg/store/lsm/skip.go) | Power-of-2 stride pointers for logarithmic jumps |
+| Spatial Index | [`pkg/store/lsm/spatial_index.go`](pkg/store/lsm/spatial_index.go) | Insert and lookup only — the persistent address lattice |
 
 ### Layer 3 — Sensory Processing
 
@@ -330,6 +328,7 @@ The four planes map directly to the repository structure:
 |:---|:---|:---|
 | Graph Substrate | [`pkg/logic/substrate/graph.go`](pkg/logic/substrate/graph.go) | Recursive fold over value paths — the volatile reasoning workbench |
 | AST | [`pkg/logic/substrate/ast.go`](pkg/logic/substrate/ast.go) | Abstract syntax tree for structural decomposition |
+| Path Wavefront | [`pkg/logic/substrate/path_wavefront.go`](pkg/logic/substrate/path_wavefront.go) | Phase-stable path repair, anchors, and bridge synthesis over prefetched graph paths |
 | BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Span extension toward a goal phase via rotational interpolation |
 | Frustration Engine | [`pkg/logic/synthesis/goal/frustration.go`](pkg/logic/synthesis/goal/frustration.go) | Energy accumulation → backtrack trigger: `(target × modInverse(current)) mod 257` |
 | Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Skip-pointer registry for multi-scale navigation |
@@ -635,5 +634,4 @@ This project is documented in a companion research paper generated automatically
 ## License
 
 See [LICENSE](LICENSE) for details.
-
 

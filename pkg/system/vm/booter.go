@@ -5,8 +5,6 @@ import (
 	"io"
 
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/logic/grammar"
-	"github.com/theapemachine/six/pkg/logic/semantic"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
@@ -27,13 +25,10 @@ type Booter struct {
 	cancel       context.CancelFunc
 	pool         *pool.Pool
 	broadcast    *pool.BroadcastGroup
-	projection   ProjectionMode
 	prompter     input.Prompter
 	tok          tokenizer.Universal
 	spatialIndex lsm.SpatialIndex
 	graph        substrate.Graph
-	engine       semantic.Engine
-	parser       grammar.Parser
 	cantilever   bvp.Cantilever
 	closers      []io.Closer
 }
@@ -64,16 +59,17 @@ func NewBooter(opts ...booterOpts) *Booter {
 	)
 	booter.prompter = promptServer.Client("booter")
 
-	tokServer := tokenizer.NewUniversalServer(
-		tokenizer.UniversalWithContext(booter.ctx),
-		tokenizer.UniversalWithPool(booter.pool),
-	)
-	booter.tok = tokServer.Client("booter")
-
 	spatialServer := lsm.NewSpatialIndexServer(
 		lsm.WithContext(booter.ctx),
 	)
 	booter.spatialIndex = spatialServer.Client("booter")
+
+	tokServer := tokenizer.NewUniversalServer(
+		tokenizer.UniversalWithContext(booter.ctx),
+		tokenizer.UniversalWithPool(booter.pool),
+		tokenizer.UniversalWithSpatialIndex(booter.spatialIndex),
+	)
+	booter.tok = tokServer.Client("booter")
 
 	graphServer := substrate.NewGraphServer(
 		substrate.GraphWithContext(booter.ctx),
@@ -81,54 +77,23 @@ func NewBooter(opts ...booterOpts) *Booter {
 	)
 	booter.graph = graphServer.Client("booter")
 
+	sharedIndex := macro.NewMacroIndexServer(
+		macro.MacroIndexWithContext(booter.ctx),
+	)
+
+	cantileverServer := bvp.NewCantileverServer(
+		bvp.CantileverWithContext(booter.ctx),
+		bvp.WithMacroIndex(sharedIndex),
+	)
+	booter.cantilever = cantileverServer.Client("booter")
+
 	booter.closers = []io.Closer{
 		promptServer,
 		tokServer,
 		spatialServer,
 		graphServer,
-	}
-
-	if booter.projection.Enabled(ProjectionIngest) || booter.projection.Enabled(ProjectionPrompt) {
-		engineServer := semantic.NewEngineServer(
-			semantic.EngineWithContext(booter.ctx),
-		)
-		booter.engine = engineServer.Client("booter")
-
-		parserServer := grammar.NewParserServer(
-			grammar.ParserWithContext(booter.ctx),
-			grammar.ParserWithNouns(
-				"mary", "john", "daniel", "sandra",
-				"bathroom", "bedroom", "kitchen", "hallway",
-				"garden", "office", "cat", "dog", "bird",
-				"mat", "yard", "wall", "sky", "fish",
-			),
-			grammar.ParserWithVerbs(
-				"moved", "went", "journeyed", "travelled",
-				"is_on", "is_in", "flew", "flew_over",
-				"likes", "rel",
-			),
-			grammar.ParserWithStopwords(
-				"to", "the", "a", "an", "is", "in", "on",
-				"where", "what", "who", "how",
-			),
-		)
-		booter.parser = parserServer.Client("booter")
-
-		booter.closers = append(booter.closers, engineServer, parserServer)
-
-		if booter.projection.Enabled(ProjectionPrompt) {
-			sharedIndex := macro.NewMacroIndexServer(
-				macro.MacroIndexWithContext(booter.ctx),
-			)
-
-			cantileverServer := bvp.NewCantileverServer(
-				bvp.CantileverWithContext(booter.ctx),
-				bvp.WithMacroIndex(sharedIndex),
-			)
-			booter.cantilever = cantileverServer.Client("booter")
-
-			booter.closers = append(booter.closers, sharedIndex, cantileverServer)
-		}
+		sharedIndex,
+		cantileverServer,
 	}
 
 	return booter
@@ -169,16 +134,6 @@ BooterWithBroadcast injects a pre-created broadcast group.
 func BooterWithBroadcast(broadcast *pool.BroadcastGroup) booterOpts {
 	return func(booter *Booter) {
 		booter.broadcast = broadcast
-	}
-}
-
-/*
-BooterWithProjection decides whether the human-facing projection servers are
-booted alongside the native prompt path.
-*/
-func BooterWithProjection(mode ProjectionMode) booterOpts {
-	return func(booter *Booter) {
-		booter.projection = mode
 	}
 }
 

@@ -619,6 +619,26 @@ func (value *Value) Has(p int) bool {
 }
 
 /*
+ActivePrimeIndices returns a list of all active prime indices in the value's
+core bit-field. This represents the geometric affine signature points.
+*/
+func (value *Value) ActivePrimeIndices() []int {
+	var indices []int
+	for blockIdx := range config.ValueBlocks {
+		block := value.block(blockIdx)
+		for block != 0 {
+			bitIdx := bits.TrailingZeros64(block)
+			primeIdx := blockIdx*64 + bitIdx
+			if primeIdx < 257 {
+				indices = append(indices, primeIdx)
+			}
+			block &^= 1 << bitIdx
+		}
+	}
+	return indices
+}
+
+/*
 Set activates the prime at index p.
 */
 func (value *Value) Set(p int) {
@@ -966,6 +986,24 @@ func (value Value) XOR(other Value) Value {
 }
 
 /*
+ApplyAffineValue applies an affine operator (scale, translate) in GF(257) to the
+Value's RotationSeed space, producing a new Value with the transformed state imprinted.
+*/
+func (value Value) ApplyAffineValue(scale, translate numeric.Phase) Value {
+	seedScale, seedTranslate := value.RotationSeed()
+
+	combinedScale := (uint32(seedScale)*uint32(scale) + uint32(seedTranslate)*uint32(translate)) % numeric.FermatPrime
+	if combinedScale == 0 {
+		combinedScale = 1
+	}
+
+	result := value
+	result.SetStatePhase(numeric.Phase(combinedScale))
+
+	return result
+}
+
+/*
 FlatValue is a dense array of active prime indices used for optimal GPU iteration.
 It eliminates bit-twiddling thread divergence in SIMT architectures.
 */
@@ -980,18 +1018,21 @@ Flatten converts the sparse bitset into a densely packed array of active prime i
 */
 func (value *Value) Flatten() FlatValue {
 	var flat FlatValue
+	primes := &flat.ActivePrimes
+	count := uint16(0)
 
 	for i := range config.ValueBlocks {
 		block := value.block(i)
 
 		for block != 0 {
-			bitIdx := uint16(bits.TrailingZeros64(block))
-			flat.ActivePrimes[flat.Count] = uint16(i*64) + bitIdx
-			flat.Count++
+			bit := uint16(bits.TrailingZeros64(block))
+			primes[count] = uint16(i<<6) + bit
+			count++
 			block &= block - 1
 		}
 	}
 
+	flat.Count = count
 	return flat
 }
 

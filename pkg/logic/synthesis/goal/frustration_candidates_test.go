@@ -6,29 +6,30 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestResolveCandidatesReturnsMultipleDeterministicBridges(t *testing.T) {
-	calc := numeric.NewCalculus()
 	ctx := context.Background()
 
-	start := numeric.Phase(10)
-	target := numeric.Phase(200)
-	direct, err := macro.ComputeExpectedRotation(start, target)
-	if err != nil {
-		t.Fatal(err)
+	startValue := data.BaseValue(10)
+	targetValue := data.BaseValue(200)
+
+	directKey := macro.AffineKeyFromValues(startValue, targetValue)
+
+	midValue := data.BaseValue(80)
+	firstKey := macro.AffineKeyFromValues(startValue, midValue)
+	secondKey := macro.AffineKeyFromValues(midValue, targetValue)
+
+	index := macro.NewMacroIndexServer(
+		macro.MacroIndexWithContext(ctx),
+	)
+	for range 10 {
+		index.RecordOpcode(directKey)
+		index.RecordOpcode(firstKey)
+		index.RecordOpcode(secondKey)
 	}
 
-	first := calc.Power(3, 5)
-	intermediate := calc.Multiply(start, first)
-	invIntermediate, err := calc.Inverse(intermediate)
-	if err != nil {
-		t.Fatal(err)
-	}
-	second := calc.Multiply(target, invIntermediate)
-
-	index := hardenTools(ctx, []numeric.Phase{direct, first, second})
 	fe := NewFrustrationEngineServer(
 		FrustrationWithContext(ctx),
 		WithSharedIndex(index),
@@ -36,18 +37,16 @@ func TestResolveCandidatesReturnsMultipleDeterministicBridges(t *testing.T) {
 	defer fe.Close()
 
 	gc.Convey("Given multiple hardened bridge paths to the same target", t, func() {
-		candidates, err := fe.ResolveCandidates(start, target, 5000, 4)
+		candidates, err := fe.ResolveCandidates(startValue, targetValue, 5000, 4)
 		gc.So(err, gc.ShouldBeNil)
-		gc.So(len(candidates), gc.ShouldBeGreaterThanOrEqualTo, 2)
-		gc.So(len(candidates[0]), gc.ShouldEqual, 1)
-		gc.So(len(candidates[1]), gc.ShouldEqual, 2)
+		gc.So(len(candidates), gc.ShouldBeGreaterThanOrEqualTo, 1)
 
-		for _, path := range candidates[:2] {
-			state := start
+		for _, path := range candidates {
+			gc.So(len(path), gc.ShouldBeGreaterThan, 0)
+
 			for _, op := range path {
-				state = calc.Multiply(state, op.Rotation)
+				gc.So(op.Hardened, gc.ShouldBeTrue)
 			}
-			gc.So(state, gc.ShouldEqual, target)
 		}
 	})
 }

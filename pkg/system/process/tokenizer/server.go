@@ -7,33 +7,39 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/lsm"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/sequencer"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-UniversalServer implements the Universal_Server interface.
-It tokenizes raw bytes into Morton keys using Sequitur boundary analysis.
-The key IS the observable: (byte_value << 32 | localDepth).
-No values are produced here — downstream stages compile the key stream into
-native value-plane operators before insertion into the spatial index.
+UniversalServer tokenizes raw bytes into Morton keys and streams them
+directly into the spatial index. Byte in → key out → insert.
 */
 type UniversalServer struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	serverSide    net.Conn
-	clientSide    net.Conn
-	client        Universal
-	serverConn    *rpc.Conn
-	clientConns   map[string]*rpc.Conn
-	pool          *pool.Pool
-	dataset       provider.Dataset
-	corpusStrings []string
-	stateMu       sync.Mutex
-	morton        *data.MortonCoder
+	ctx          context.Context
+	cancel       context.CancelFunc
+	serverSide   net.Conn
+	clientSide   net.Conn
+	client       Universal
+	serverConn   *rpc.Conn
+	clientConns  map[string]*rpc.Conn
+	pool         *pool.Pool
+	seq          *sequencer.Sequitur
+	pos          uint32
+	stateMu      sync.Mutex
+	morton       *data.MortonCoder
+	healer       *sequencer.BitwiseHealer
+	fragment     []byte
+	sequence     [][]byte
+	sequences    [][][]byte
+	sequenceIDs  []int
+	emitted      map[int]bool
+	nextSequence int
+	spatialIndex lsm.SpatialIndex
 }
 
 type universalOpts func(*UniversalServer)
@@ -45,6 +51,9 @@ func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 	server := &UniversalServer{
 		clientConns: map[string]*rpc.Conn{},
 		morton:      data.NewMortonCoder(),
+		seq:         sequencer.NewSequitur(),
+		healer:      sequencer.NewBitwiseHealer(),
+		emitted:     map[int]bool{},
 	}
 
 	for _, opt := range opts {
@@ -54,6 +63,7 @@ func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 	validate.Require(map[string]any{
 		"ctx":  server.ctx,
 		"pool": server.pool,
+		"seq":  server.seq,
 	})
 
 	server.serverSide, server.clientSide = net.Pipe()
@@ -82,30 +92,43 @@ func (server *UniversalServer) Client(clientID string) Universal {
 }
 
 /*
-Close shuts down the RPC connections and underlying net.Pipe,
-unblocking goroutines stuck on pipe reads.
+Close shuts down the RPC connections and underlying net.Pipe.
 */
 func (server *UniversalServer) Close() error {
 	if server.serverConn != nil {
-		_ = server.serverConn.Close()
+		errnie.SafeMustVoid(func() error {
+			return server.serverConn.Close()
+		})
+
 		server.serverConn = nil
 	}
 
 	for clientID, conn := range server.clientConns {
 		if conn != nil {
-			_ = conn.Close()
+			errnie.SafeMustVoid(func() error {
+				return conn.Close()
+			})
 		}
+
 		delete(server.clientConns, clientID)
 	}
 
 	if server.serverSide != nil {
-		_ = server.serverSide.Close()
+		errnie.SafeMustVoid(func() error {
+			return server.serverSide.Close()
+		})
+
 		server.serverSide = nil
 	}
+
 	if server.clientSide != nil {
-		_ = server.clientSide.Close()
+		errnie.SafeMustVoid(func() error {
+			return server.clientSide.Close()
+		})
+
 		server.clientSide = nil
 	}
+
 	if server.cancel != nil {
 		server.cancel()
 	}
@@ -114,102 +137,340 @@ func (server *UniversalServer) Close() error {
 }
 
 /*
-Generate implements Universal_Server. It tokenizes raw bytes into Morton keys.
-Each byte becomes a key: (byte_value << 32 | localDepth). The Sequencer
-determines where localDepth resets to 0 (boundary detection). Native values are
-compiled later so the tokenizer remains purely address-plane logic.
+Write implements Universal_Server. Bytes are buffered into sequencer fragments;
+healed Morton keys are emitted only when the surrounding sequence is finalized.
 */
-func (server *UniversalServer) Generate(ctx context.Context, call Universal_generate) error {
-	rawData, err := call.Args().Data()
+func (server *UniversalServer) Write(ctx context.Context, call Universal_write) error {
+	if !server.spatialIndex.IsValid() {
+		return UniversalError(ErrNoIndex)
+	}
+
+	server.stateMu.Lock()
+	err := server.acceptByte(call.Args().Data())
+	server.stateMu.Unlock()
+
 	if err != nil {
 		return err
 	}
 
-	keys := server.tokenize(rawData)
+	return nil
+}
 
-	res, err := call.AllocResults()
-	if err != nil {
-		return err
-	}
-
-	keyList, err := res.NewKeys(int32(len(keys)))
-	if err != nil {
-		return err
-	}
-
-	for i, key := range keys {
-		keyList.Set(i, key)
-	}
-
+/*
+Feedback receives an error correction signal from the GraphServer.
+*/
+func (server *UniversalServer) Feedback(
+	ctx context.Context, call Universal_feedback,
+) error {
 	return nil
 }
 
 /*
 Done implements Universal_Server.
 */
-func (server *UniversalServer) Done(ctx context.Context, call Universal_done) error {
-	return nil
-}
+func (server *UniversalServer) Done(
+	ctx context.Context, call Universal_done,
+) error {
+	if !server.spatialIndex.IsValid() &&
+		(len(server.fragment) > 0 || len(server.sequence) > 0 || len(server.sequences) > 0) {
+		return UniversalError(ErrNoIndex)
+	}
 
-/*
-SetDataset implements Universal_Server. Stores corpus strings so the Machine
-can drive ingest over them via subsequent Generate calls.
-*/
-func (server *UniversalServer) SetDataset(ctx context.Context, call Universal_setDataset) error {
-	corpus, err := call.Args().Corpus()
+	server.stateMu.Lock()
+
+	hasPending := len(server.fragment) > 0 || len(server.sequence) > 0
+	var keys []uint64
+	var err error
+
+	if hasPending {
+		keys, err = server.finalizeSequence(false)
+	} else {
+		keys, err = server.drainSequences(true)
+	}
+
+	server.stateMu.Unlock()
+
 	if err != nil {
 		return err
 	}
 
+	return server.writeKeys(ctx, keys)
+}
+
+/*
+SetDataset implements Universal_Server.
+*/
+func (server *UniversalServer) SetDataset(
+	ctx context.Context, call Universal_setDataset,
+) error {
+	corpus := errnie.SafeMust(func() (capnp.TextList, error) {
+		return call.Args().Corpus()
+	})
+
 	strings := make([]string, corpus.Len())
 
 	for i := 0; i < corpus.Len(); i++ {
-		str, err := corpus.At(i)
-		if err != nil {
-			return err
-		}
-
-		strings[i] = str
+		strings[i] = errnie.SafeMust(func() (string, error) {
+			return corpus.At(i)
+		})
 	}
-
-	server.stateMu.Lock()
-	server.corpusStrings = strings
-	server.stateMu.Unlock()
 
 	return nil
 }
 
 /*
-tokenize runs the Sequencer over the byte stream and emits Morton keys.
-Each byte produces one key: Pack(localDepth, byte). The Sequencer
-resets localDepth to 0 at each structural boundary.
+tokenize runs the Sequencer over one byte and returns a Morton key.
 */
-func (server *UniversalServer) tokenize(raw []byte) []uint64 {
-	seq := sequencer.NewSequitur()
-	keys := make([]uint64, 0, len(raw))
-	localPos := uint32(0)
+func (server *UniversalServer) tokenize(raw uint8) uint64 {
+	isBoundary, _, _, _ := server.seq.Analyze(server.pos, raw)
+	server.pos++
 
-	for idx, currentByte := range raw {
-		isBoundary, _, _, _ := seq.Analyze(uint32(idx), currentByte)
+	if isBoundary {
+		server.pos = 0
+	}
 
-		keys = append(keys, server.morton.Pack(localPos, currentByte))
+	return server.morton.Pack(server.pos, raw)
+}
 
-		if isBoundary {
-			localPos = 0
-		} else {
-			localPos++
+func (server *UniversalServer) acceptByte(raw byte) error {
+	isBoundary, emitK, _, _ := server.seq.Analyze(server.pos, raw)
+	server.pos++
+	server.fragment = append(server.fragment, raw)
+
+	if !isBoundary {
+		return nil
+	}
+
+	if emitK != len(server.fragment) {
+		return UniversalError(ErrFragmentDrift)
+	}
+
+	server.sequence = append(server.sequence, append([]byte(nil), server.fragment...))
+	server.fragment = nil
+	server.pos = 0
+
+	return nil
+}
+
+func (server *UniversalServer) finalizeSequence(force bool) ([]uint64, error) {
+	if len(server.fragment) > 0 {
+		isBoundary, emitK, _, _ := server.seq.Flush()
+		if !isBoundary || emitK != len(server.fragment) {
+			return nil, UniversalError(ErrFragmentDrift)
+		}
+
+		server.sequence = append(server.sequence, append([]byte(nil), server.fragment...))
+		server.fragment = nil
+		server.pos = 0
+	}
+
+	if len(server.sequence) > 0 {
+		keys, err := server.compactSequenceBuffer()
+		if err != nil {
+			return nil, err
+		}
+
+		server.healer.Write(server.sequenceValues(server.sequence))
+		server.sequences = append(server.sequences, server.cloneByteSequence(server.sequence))
+		server.sequenceIDs = append(server.sequenceIDs, server.nextSequence)
+		server.nextSequence++
+		server.sequence = nil
+
+		drained, err := server.drainSequences(force)
+		if err != nil {
+			return nil, err
+		}
+
+		return append(keys, drained...), nil
+	}
+
+	return server.drainSequences(force)
+}
+
+func (server *UniversalServer) compactSequenceBuffer() ([]uint64, error) {
+	if len(server.sequences) < server.healer.Capacity() {
+		return nil, nil
+	}
+
+	healed := server.healer.Heal()
+	if len(healed) != len(server.sequences) {
+		return nil, UniversalError(ErrHealerDrift)
+	}
+
+	keys, err := server.emitSequence(0, healed[0])
+	if err != nil {
+		return nil, err
+	}
+
+	server.sequences = server.sequences[1:]
+	server.sequenceIDs = server.sequenceIDs[1:]
+
+	return keys, nil
+}
+
+func (server *UniversalServer) drainSequences(force bool) ([]uint64, error) {
+	if len(server.sequences) == 0 {
+		return nil, nil
+	}
+
+	healed := server.healer.Heal()
+	if len(healed) != len(server.sequences) {
+		return nil, UniversalError(ErrHealerDrift)
+	}
+
+	ready := map[int]bool{}
+
+	if force {
+		for i := range healed {
+			ready[i] = true
+		}
+	} else {
+		for _, component := range server.healer.Components() {
+			if len(component) < 2 {
+				continue
+			}
+
+			newest := component[0]
+			for _, idx := range component[1:] {
+				if idx > newest {
+					newest = idx
+				}
+			}
+
+			for _, idx := range component {
+				if idx == newest {
+					continue
+				}
+
+				ready[idx] = true
+			}
+		}
+	}
+
+	keys := []uint64{}
+
+	for localIndex := range healed {
+		if !ready[localIndex] {
+			continue
+		}
+
+		emitted, err := server.emitSequence(localIndex, healed[localIndex])
+		if err != nil {
+			return nil, err
+		}
+
+		keys = append(keys, emitted...)
+	}
+
+	return keys, nil
+}
+
+func (server *UniversalServer) emitSequence(
+	localIndex int,
+	healed [][]data.Value,
+) ([]uint64, error) {
+	sequenceID := server.sequenceIDs[localIndex]
+	if server.emitted[sequenceID] {
+		return nil, nil
+	}
+
+	rawSequence, err := server.rechunkSequence(server.sequences[localIndex], healed)
+	if err != nil {
+		return nil, err
+	}
+
+	keys := server.packSequence(rawSequence)
+	server.emitted[sequenceID] = true
+
+	return keys, nil
+}
+
+func (server *UniversalServer) rechunkSequence(
+	rawSequence [][]byte,
+	healed [][]data.Value,
+) ([][]byte, error) {
+	totalRaw := 0
+	totalHealed := 0
+	joined := make([]byte, 0)
+
+	for _, fragment := range rawSequence {
+		totalRaw += len(fragment)
+		joined = append(joined, fragment...)
+	}
+
+	for _, fragment := range healed {
+		totalHealed += len(fragment)
+	}
+
+	if totalRaw != totalHealed {
+		return nil, UniversalError(ErrHealedLength)
+	}
+
+	rechunked := make([][]byte, 0, len(healed))
+	offset := 0
+
+	for _, fragment := range healed {
+		length := len(fragment)
+		rechunked = append(rechunked, append([]byte(nil), joined[offset:offset+length]...))
+		offset += length
+	}
+
+	return rechunked, nil
+}
+
+func (server *UniversalServer) packSequence(sequence [][]byte) []uint64 {
+	keys := make([]uint64, 0)
+
+	for _, fragment := range sequence {
+		for idx, symbol := range fragment {
+			keys = append(keys, server.morton.Pack(uint32(idx+1), symbol))
 		}
 	}
 
 	return keys
 }
 
-/*
-Tokenize is the direct non-RPC entry point for tokenization.
-Returns Morton keys for the given raw byte stream.
-*/
-func (server *UniversalServer) Tokenize(raw []byte) []uint64 {
-	return server.tokenize(raw)
+func (server *UniversalServer) sequenceValues(sequence [][]byte) [][]data.Value {
+	values := make([][]data.Value, len(sequence))
+
+	for i, fragment := range sequence {
+		row := make([]data.Value, 0, len(fragment))
+
+		for _, symbol := range fragment {
+			row = append(row, data.BaseValue(symbol))
+		}
+
+		values[i] = row
+	}
+
+	return values
+}
+
+func (server *UniversalServer) cloneByteSequence(sequence [][]byte) [][]byte {
+	cloned := make([][]byte, len(sequence))
+
+	for i, fragment := range sequence {
+		cloned[i] = append([]byte(nil), fragment...)
+	}
+
+	return cloned
+}
+
+func (server *UniversalServer) writeKeys(ctx context.Context, keys []uint64) error {
+	for _, key := range keys {
+		err := server.spatialIndex.Write(
+			ctx, func(p lsm.SpatialIndex_write_Params) error {
+				p.SetKey(key)
+
+				return nil
+			},
+		)
+		if err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 /*
@@ -231,11 +492,12 @@ func UniversalWithPool(workerPool *pool.Pool) universalOpts {
 }
 
 /*
-UniversalWithDataset injects a dataset for training ingestion.
+UniversalWithSpatialIndex connects the tokenizer to a spatial index
+so it can stream keys directly on Write.
 */
-func UniversalWithDataset(dataset provider.Dataset) universalOpts {
+func UniversalWithSpatialIndex(spatialIndex lsm.SpatialIndex) universalOpts {
 	return func(server *UniversalServer) {
-		server.dataset = dataset
+		server.spatialIndex = spatialIndex
 	}
 }
 
@@ -245,8 +507,10 @@ UniversalError is a typed error for UniversalServer failures.
 type UniversalError string
 
 const (
-	ErrNoIndex         UniversalError = "spatial index capability not yet received"
-	ErrCollectorSample UniversalError = "collector sample index out of range"
+	ErrNoIndex       UniversalError = "spatial index capability not yet received"
+	ErrFragmentDrift UniversalError = "sequencer fragment length drift"
+	ErrHealerDrift   UniversalError = "bitwise healer buffer drift"
+	ErrHealedLength  UniversalError = "bitwise healer changed sequence length"
 )
 
 /*

@@ -53,6 +53,57 @@ func generateBinaryNoise(size int, rng *rand.Rand) []byte {
 	return out
 }
 
+/*
+tokenizeAll feeds each byte of raw through the server's streaming
+tokenize method, collecting one key per byte.
+*/
+func tokenizeAll(server *UniversalServer, raw []byte) []uint64 {
+	keys := make([]uint64, len(raw))
+
+	for i, b := range raw {
+		keys[i] = server.tokenize(b)
+	}
+
+	return keys
+}
+
+func fragmentedSequence(chunks []string) [][]byte {
+	sequence := make([][]byte, len(chunks))
+
+	for i, chunk := range chunks {
+		sequence[i] = []byte(chunk)
+	}
+
+	return sequence
+}
+
+func assertKeyChunks(expected []string, keys []uint64) {
+	morton := data.NewMortonCoder()
+	actual := []string{}
+	current := make([]byte, 0)
+	var expectedPos uint32 = 1
+
+	for _, key := range keys {
+		pos, symbol := morton.Unpack(key)
+
+		if pos == 1 && len(current) > 0 && expectedPos != 1 {
+			actual = append(actual, string(current))
+			current = current[:0]
+			expectedPos = 1
+		}
+
+		gc.So(pos, gc.ShouldEqual, expectedPos)
+		current = append(current, symbol)
+		expectedPos++
+	}
+
+	if len(current) > 0 {
+		actual = append(actual, string(current))
+	}
+
+	gc.So(actual, gc.ShouldResemble, expected)
+}
+
 func newServer(ctx context.Context, workerPool *pool.Pool) *UniversalServer {
 	return NewUniversalServer(
 		UniversalWithContext(ctx),
@@ -71,7 +122,7 @@ func TestTokenizerServer(t *testing.T) {
 
 		gc.Convey("When tokenizing natural language", func() {
 			corpus := generateCorpus(3, rand.New(rand.NewSource(42)))
-			keys := server.tokenize([]byte(corpus))
+			keys := tokenizeAll(server, []byte(corpus))
 
 			gc.Convey("It should produce one key per byte", func() {
 				gc.So(len(keys), gc.ShouldEqual, len(corpus))
@@ -87,7 +138,7 @@ func TestTokenizerServer(t *testing.T) {
 
 		gc.Convey("When tokenizing binary noise", func() {
 			noise := generateBinaryNoise(512, rand.New(rand.NewSource(99)))
-			keys := server.tokenize(noise)
+			keys := tokenizeAll(server, noise)
 
 			gc.Convey("It should handle the full byte range", func() {
 				gc.So(len(keys), gc.ShouldEqual, len(noise))
@@ -95,12 +146,10 @@ func TestTokenizerServer(t *testing.T) {
 		})
 
 		gc.Convey("When tokenizing a single byte", func() {
-			keys := server.tokenize([]byte("x"))
+			key := server.tokenize('x')
 
-			gc.Convey("It should produce exactly one key", func() {
-				gc.So(len(keys), gc.ShouldEqual, 1)
-
-				_, symbol := morton.Unpack(keys[0])
+			gc.Convey("It should unpack to the correct symbol", func() {
+				_, symbol := morton.Unpack(key)
 				gc.So(symbol, gc.ShouldEqual, byte('x'))
 			})
 		})
@@ -115,15 +164,98 @@ func TestTokenizerServer(t *testing.T) {
 	})
 }
 
-func BenchmarkTokenizerGenerate(b *testing.B) {
+func TestTokenizerServerBitwiseEmission(t *testing.T) {
+	gc.Convey("Given a UniversalServer with buffered bitwise healing", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		workerPool := pool.New(ctx, 1, 4, nil)
+		server := newServer(ctx, workerPool)
+
+		gc.Convey("When two Roy sequences are finalized", func() {
+			server.sequence = fragmentedSequence([]string{
+				"Roy was ",
+				"in t",
+				"he liv",
+				"ing ",
+				"ro",
+				"om",
+			})
+
+			keys, err := server.finalizeSequence(false)
+
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(keys, gc.ShouldBeEmpty)
+
+			server.sequence = fragmentedSequence([]string{
+				"Roy is ",
+				"i",
+				"n the k",
+				"itche",
+				"n",
+			})
+
+			keys, err = server.finalizeSequence(false)
+
+			gc.So(err, gc.ShouldBeNil)
+			assertKeyChunks([]string{"Roy wa", "s in the ", "living room"}, keys)
+
+			keys, err = server.drainSequences(true)
+
+			gc.So(err, gc.ShouldBeNil)
+			assertKeyChunks([]string{"Roy i", "s in the ", "kitchen"}, keys)
+		})
+
+		gc.Convey("When different overlap families are interleaved", func() {
+			server.sequence = fragmentedSequence([]string{"Image of ", "ca", "t ", "is a ", "ca", "t"})
+			keys, err := server.finalizeSequence(false)
+
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(keys, gc.ShouldBeEmpty)
+
+			server.sequence = fragmentedSequence([]string{"Roy was ", "in t", "he liv", "ing ", "ro", "om"})
+			keys, err = server.finalizeSequence(false)
+
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(keys, gc.ShouldBeEmpty)
+
+			server.sequence = fragmentedSequence([]string{"Roy is ", "i", "n the k", "itche", "n"})
+			keys, err = server.finalizeSequence(false)
+
+			gc.So(err, gc.ShouldBeNil)
+			assertKeyChunks([]string{"Roy wa", "s in the ", "living room"}, keys)
+
+			server.sequence = fragmentedSequence([]string{"Image of ", "do", "g ", "is a ", "do", "g"})
+			keys, err = server.finalizeSequence(false)
+
+			gc.So(err, gc.ShouldBeNil)
+			assertKeyChunks([]string{"Image of ", "cat", " is a ", "cat"}, keys)
+
+			keys, err = server.drainSequences(true)
+
+			gc.So(err, gc.ShouldBeNil)
+			assertKeyChunks(
+				[]string{"Roy i", "s in the ", "kitchen", "Image of ", "dog", " is a ", "dog"},
+				keys,
+			)
+		})
+	})
+}
+
+func BenchmarkTokenizerWrite(b *testing.B) {
 	corpus := generateCorpus(10, rand.New(rand.NewSource(42)))
+	raw := []byte(corpus)
 
 	b.Run("natural_language", func(b *testing.B) {
 		for range b.N {
 			ctx, cancel := context.WithCancel(context.Background())
 			p := pool.New(ctx, 2, 16, nil)
 			server := newServer(ctx, p)
-			_ = server.tokenize([]byte(corpus))
+
+			for _, byt := range raw {
+				server.tokenize(byt)
+			}
+
 			cancel()
 		}
 	})
@@ -135,7 +267,11 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 			ctx, cancel := context.WithCancel(context.Background())
 			p := pool.New(ctx, 2, 16, nil)
 			server := newServer(ctx, p)
-			_ = server.tokenize(noise)
+
+			for _, byt := range noise {
+				server.tokenize(byt)
+			}
+
 			cancel()
 		}
 	})
@@ -143,7 +279,6 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 	rng := rand.New(rand.NewSource(42))
 
 	for _, size := range []int{64, 256, 1024, 4096} {
-		size := size
 		chunk := make([]byte, size)
 
 		for i := range chunk {
@@ -159,7 +294,9 @@ func BenchmarkTokenizerGenerate(b *testing.B) {
 			b.ResetTimer()
 
 			for range b.N {
-				_ = server.tokenize(chunk)
+				for _, byt := range chunk {
+					server.tokenize(byt)
+				}
 			}
 		})
 	}
@@ -174,7 +311,7 @@ func TestTokenizerUsesBoundaryLocalCellIndex(t *testing.T) {
 		server := newServer(ctx, workerPool)
 		morton := data.NewMortonCoder()
 
-		keys := server.tokenize([]byte("ababc"))
+		keys := tokenizeAll(server, []byte("ababc"))
 
 		gc.Convey("It should emit one key per byte", func() {
 			gc.So(len(keys), gc.ShouldEqual, 5)
@@ -194,28 +331,27 @@ func TestTokenizerUsesBoundaryLocalCellIndex(t *testing.T) {
 			gc.So(sym4, gc.ShouldEqual, byte('c'))
 		})
 
-		gc.Convey("Position encoding should start at 0", func() {
+		gc.Convey("Position encoding should start at 1", func() {
 			pos0, _ := morton.Unpack(keys[0])
-			gc.So(pos0, gc.ShouldEqual, uint32(0))
+			gc.So(pos0, gc.ShouldEqual, uint32(1))
 		})
 	})
 }
 
 func TestTokenizerDeterministic(t *testing.T) {
-	gc.Convey("Given repeated tokenization calls for the same input", t, func() {
+	gc.Convey("Given repeated tokenization calls for the same byte", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
 		workerPool := pool.New(ctx, 1, 4, nil)
-		server := newServer(ctx, workerPool)
+		serverA := newServer(ctx, workerPool)
+		serverB := newServer(ctx, workerPool)
 
-		first := server.tokenize([]byte("a"))
-		second := server.tokenize([]byte("a"))
+		first := serverA.tokenize('a')
+		second := serverB.tokenize('a')
 
 		gc.Convey("They should produce identical keys", func() {
-			gc.So(len(first), gc.ShouldEqual, 1)
-			gc.So(len(second), gc.ShouldEqual, 1)
-			gc.So(first[0], gc.ShouldEqual, second[0])
+			gc.So(first, gc.ShouldEqual, second)
 		})
 	})
 }

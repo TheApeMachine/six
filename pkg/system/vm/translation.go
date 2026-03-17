@@ -73,12 +73,32 @@ func NewTranslationLayer(machine *Machine, opts ...translationOpts) *Translation
 }
 
 /*
-IngestContext populates the substrate with context text via the Machine's
-standard ingest pipeline (Tokenizer → SpatialIndex → Semantic). Call this
-before generation to load the "memory" the transformer will draw from.
+IngestContext populates the substrate with context text by streaming each
+byte through the tokenizer.
 */
 func (tl *TranslationLayer) IngestContext(text string) error {
-	return tl.machine.Ingest(text)
+	ctx := tl.machine.ctx
+
+	for _, b := range []byte(text) {
+		if err := tl.machine.booter.tok.Write(
+			ctx, func(p tokenizer.Universal_write_Params) error {
+				p.SetData(b)
+				return nil
+			},
+		); err != nil {
+			return err
+		}
+	}
+
+	if err := tl.machine.tokenizerDone(); err != nil {
+		return err
+	}
+
+	if err := tl.machine.tokenizerDone(); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 /*
@@ -89,22 +109,7 @@ This is the same pipeline as Machine.Prompt but returns the intermediate results
 func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 	ctx := tl.machine.ctx
 
-	tokFuture, tokRelease := tl.machine.booter.tok.Generate(
-		ctx, func(p tokenizer.Universal_generate_Params) error {
-			return p.SetData(query)
-		},
-	)
-	defer tokRelease()
-
-	tokResult := errnie.SafeMust(func() (tokenizer.Universal_generate_Results, error) {
-		return tokFuture.Struct()
-	})
-
-	keyList := errnie.SafeMust(func() (capnp.UInt64List, error) {
-		return tokResult.Keys()
-	})
-
-	keys := keyListToSlice(keyList)
+	keys := tl.machine.tokenizeStream(query)
 	promptValues := data.CompileObservableSequenceValues(keys)
 
 	if len(promptValues) == 0 {
@@ -114,40 +119,37 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 	lookupFuture, lookupRelease := tl.machine.booter.spatialIndex.Lookup(ctx, func(
 		p lsm.SpatialIndex_lookup_Params,
 	) error {
-		valueList, err := valueListFromSlice(p.Segment(), promptValues)
-		if err != nil {
-			return err
-		}
+		valueList := errnie.SafeMust(func() (data.Value_List, error) {
+			return valueListFromSlice(p.Segment(), promptValues)
+		})
 
-		errnie.MustVoid(p.SetValues(valueList))
+		errnie.SafeMustVoid(func() error {
+			return p.SetKeys(capnp.UInt64List(valueList.ToPtr().List()))
+		})
 
 		return nil
 	})
+
 	defer lookupRelease()
 
-	lookupResult := errnie.SafeMust(func() (lsm.SpatialIndex_lookup_Results, error) {
+	lookupResult := errnie.SafeMust(func() (
+		lsm.SpatialIndex_lookup_Results, error,
+	) {
 		return lookupFuture.Struct()
 	})
-
-	paths := errnie.SafeMust(func() (capnp.PointerList, error) {
-		return lookupResult.Paths()
-	})
-
-	metaPaths := errnie.SafeMust(func() (capnp.PointerList, error) {
-		return lookupResult.MetaPaths()
-	})
-
-	tl.machine.enrich(ctx, string(query), paths)
 
 	graphFuture, graphRelease := tl.machine.booter.graph.Prompt(ctx, func(
 		p substrate.Graph_prompt_Params,
 	) error {
-		errnie.MustVoid(p.SetPaths(paths))
-		return p.SetMetaPaths(metaPaths)
+		return p.SetPaths(capnp.PointerList(
+			lookupResult.ToPtr().Interface().ToPtr().List(),
+		))
 	})
 	defer graphRelease()
 
-	graphResult := errnie.SafeMust(func() (substrate.Graph_prompt_Results, error) {
+	graphResult := errnie.SafeMust(func() (
+		substrate.Graph_prompt_Results, error,
+	) {
 		return graphFuture.Struct()
 	})
 
@@ -155,20 +157,9 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 		return graphResult.Result()
 	})
 
-	decodeFuture, decodeRelease := tl.machine.booter.spatialIndex.Decode(ctx, func(
-		p lsm.SpatialIndex_decode_Params,
-	) error {
-		return p.SetValues(resultPaths)
-	})
-	defer decodeRelease()
-
-	decodeResult := errnie.SafeMust(func() (lsm.SpatialIndex_decode_Results, error) {
-		return decodeFuture.Struct()
-	})
-
-	seqList := errnie.SafeMust(func() (capnp.DataList, error) {
-		return decodeResult.Sequences()
-	})
+	seqList := capnp.DataList(
+		resultPaths.ToPtr().Interface().ToPtr().List(),
+	)
 
 	results := make([][]byte, seqList.Len())
 
@@ -230,7 +221,9 @@ func (tl *TranslationLayer) PopulateCache(
 		}
 	}
 
-	maskTensor := tensors.FromFlatDataAndDimensions(mask, 1, nTokens, config.MaxCacheLength)
+	maskTensor := tensors.FromFlatDataAndDimensions(
+		mask, 1, nTokens, config.MaxCacheLength,
+	)
 
 	prefillExec := gomlxctx.NewExec(
 		backend,
@@ -242,7 +235,12 @@ func (tl *TranslationLayer) PopulateCache(
 
 			cacheTree := trees.FromValuesAndTree(
 				inputs[3:3+cache.Data.NumLeaves()],
-				trees.Map(cache.Data, func(_ trees.Path, _ *tensors.Tensor) struct{} { return struct{}{} }),
+				trees.Map(
+					cache.Data,
+					func(_ trees.Path, _ *tensors.Tensor) struct{} {
+						return struct{}{}
+					},
+				),
 			)
 
 			_ = transformers.GemmaWithCache(

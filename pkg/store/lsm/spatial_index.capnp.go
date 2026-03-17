@@ -13,165 +13,23 @@ import (
 	data "github.com/theapemachine/six/pkg/store/data"
 )
 
-type GraphEdge capnp.Struct
-
-// GraphEdge_TypeID is the unique identifier for the type GraphEdge.
-const GraphEdge_TypeID = 0xff419ee763c22842
-
-func NewGraphEdge(s *capnp.Segment) (GraphEdge, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return GraphEdge(st), err
-}
-
-func NewRootGraphEdge(s *capnp.Segment) (GraphEdge, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return GraphEdge(st), err
-}
-
-func ReadRootGraphEdge(msg *capnp.Message) (GraphEdge, error) {
-	root, err := msg.Root()
-	return GraphEdge(root.Struct()), err
-}
-
-func (s GraphEdge) String() string {
-	str, _ := text.Marshal(0xff419ee763c22842, capnp.Struct(s))
-	return str
-}
-
-func (s GraphEdge) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (GraphEdge) DecodeFromPtr(p capnp.Ptr) GraphEdge {
-	return GraphEdge(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s GraphEdge) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s GraphEdge) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s GraphEdge) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s GraphEdge) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s GraphEdge) Left() uint8 {
-	return capnp.Struct(s).Uint8(0)
-}
-
-func (s GraphEdge) SetLeft(v uint8) {
-	capnp.Struct(s).SetUint8(0, v)
-}
-
-func (s GraphEdge) Right() uint8 {
-	return capnp.Struct(s).Uint8(1)
-}
-
-func (s GraphEdge) SetRight(v uint8) {
-	capnp.Struct(s).SetUint8(1, v)
-}
-
-func (s GraphEdge) Position() uint32 {
-	return capnp.Struct(s).Uint32(4)
-}
-
-func (s GraphEdge) SetPosition(v uint32) {
-	capnp.Struct(s).SetUint32(4, v)
-}
-
-func (s GraphEdge) Value() (data.Value, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return data.Value(p.Struct()), err
-}
-
-func (s GraphEdge) HasValue() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s GraphEdge) SetValue(v data.Value) error {
-	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
-}
-
-// NewValue sets the value field to a newly
-// allocated data.Value struct, preferring placement in s's segment.
-func (s GraphEdge) NewValue() (data.Value, error) {
-	ss, err := data.NewValue(capnp.Struct(s).Segment())
-	if err != nil {
-		return data.Value{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
-	return ss, err
-}
-
-func (s GraphEdge) Meta() (data.Value, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return data.Value(p.Struct()), err
-}
-
-func (s GraphEdge) HasMeta() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s GraphEdge) SetMeta(v data.Value) error {
-	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
-}
-
-// NewMeta sets the meta field to a newly
-// allocated data.Value struct, preferring placement in s's segment.
-func (s GraphEdge) NewMeta() (data.Value, error) {
-	ss, err := data.NewValue(capnp.Struct(s).Segment())
-	if err != nil {
-		return data.Value{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
-	return ss, err
-}
-
-// GraphEdge_List is a list of GraphEdge.
-type GraphEdge_List = capnp.StructList[GraphEdge]
-
-// NewGraphEdge creates a new list of GraphEdge.
-func NewGraphEdge_List(s *capnp.Segment, sz int32) (GraphEdge_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
-	return capnp.StructList[GraphEdge](l), err
-}
-
-// GraphEdge_Future is a wrapper for a GraphEdge promised by a client call.
-type GraphEdge_Future struct{ *capnp.Future }
-
-func (f GraphEdge_Future) Struct() (GraphEdge, error) {
-	p, err := f.Future.Ptr()
-	return GraphEdge(p.Struct()), err
-}
-func (p GraphEdge_Future) Value() data.Value_Future {
-	return data.Value_Future{Future: p.Future.Field(0, nil)}
-}
-func (p GraphEdge_Future) Meta() data.Value_Future {
-	return data.Value_Future{Future: p.Future.Field(1, nil)}
-}
-
 type SpatialIndex capnp.Client
 
 // SpatialIndex_TypeID is the unique identifier for the type SpatialIndex.
 const SpatialIndex_TypeID = 0xfdb082e626e1958b
 
-func (c SpatialIndex) Insert(ctx context.Context, params func(SpatialIndex_insert_Params) error) error {
+func (c SpatialIndex) Write(ctx context.Context, params func(SpatialIndex_write_Params) error) error {
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xfdb082e626e1958b,
 			MethodID:      0,
 			InterfaceName: "pkg/store/lsm/spatial_index.capnp:SpatialIndex",
-			MethodName:    "insert",
+			MethodName:    "write",
 		},
 	}
 	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(SpatialIndex_insert_Params(s)) }
+		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(SpatialIndex_write_Params(s)) }
 	}
 
 	return capnp.Client(c).SendStreamCall(ctx, s)
@@ -215,46 +73,6 @@ func (c SpatialIndex) Lookup(ctx context.Context, params func(SpatialIndex_looku
 
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return SpatialIndex_lookup_Results_Future{Future: ans.Future()}, release
-
-}
-
-func (c SpatialIndex) QueryTransitions(ctx context.Context, params func(SpatialIndex_queryTransitions_Params) error) (SpatialIndex_queryTransitions_Results_Future, capnp.ReleaseFunc) {
-
-	s := capnp.Send{
-		Method: capnp.Method{
-			InterfaceID:   0xfdb082e626e1958b,
-			MethodID:      3,
-			InterfaceName: "pkg/store/lsm/spatial_index.capnp:SpatialIndex",
-			MethodName:    "queryTransitions",
-		},
-	}
-	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 8, PointerCount: 0}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(SpatialIndex_queryTransitions_Params(s)) }
-	}
-
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return SpatialIndex_queryTransitions_Results_Future{Future: ans.Future()}, release
-
-}
-
-func (c SpatialIndex) Decode(ctx context.Context, params func(SpatialIndex_decode_Params) error) (SpatialIndex_decode_Results_Future, capnp.ReleaseFunc) {
-
-	s := capnp.Send{
-		Method: capnp.Method{
-			InterfaceID:   0xfdb082e626e1958b,
-			MethodID:      4,
-			InterfaceName: "pkg/store/lsm/spatial_index.capnp:SpatialIndex",
-			MethodName:    "decode",
-		},
-	}
-	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(SpatialIndex_decode_Params(s)) }
-	}
-
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return SpatialIndex_decode_Results_Future{Future: ans.Future()}, release
 
 }
 
@@ -331,15 +149,11 @@ func (c SpatialIndex) GetFlowLimiter() fc.FlowLimiter {
 
 // A SpatialIndex_Server is a SpatialIndex with a local implementation.
 type SpatialIndex_Server interface {
-	Insert(context.Context, SpatialIndex_insert) error
+	Write(context.Context, SpatialIndex_write) error
 
 	Done(context.Context, SpatialIndex_done) error
 
 	Lookup(context.Context, SpatialIndex_lookup) error
-
-	QueryTransitions(context.Context, SpatialIndex_queryTransitions) error
-
-	Decode(context.Context, SpatialIndex_decode) error
 }
 
 // SpatialIndex_NewServer creates a new Server from an implementation of SpatialIndex_Server.
@@ -358,7 +172,7 @@ func SpatialIndex_ServerToClient(s SpatialIndex_Server) SpatialIndex {
 // This can be used to create a more complicated Server.
 func SpatialIndex_Methods(methods []server.Method, s SpatialIndex_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 5)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
@@ -366,10 +180,10 @@ func SpatialIndex_Methods(methods []server.Method, s SpatialIndex_Server) []serv
 			InterfaceID:   0xfdb082e626e1958b,
 			MethodID:      0,
 			InterfaceName: "pkg/store/lsm/spatial_index.capnp:SpatialIndex",
-			MethodName:    "insert",
+			MethodName:    "write",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Insert(ctx, SpatialIndex_insert{call})
+			return s.Write(ctx, SpatialIndex_write{call})
 		},
 	})
 
@@ -397,46 +211,22 @@ func SpatialIndex_Methods(methods []server.Method, s SpatialIndex_Server) []serv
 		},
 	})
 
-	methods = append(methods, server.Method{
-		Method: capnp.Method{
-			InterfaceID:   0xfdb082e626e1958b,
-			MethodID:      3,
-			InterfaceName: "pkg/store/lsm/spatial_index.capnp:SpatialIndex",
-			MethodName:    "queryTransitions",
-		},
-		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.QueryTransitions(ctx, SpatialIndex_queryTransitions{call})
-		},
-	})
-
-	methods = append(methods, server.Method{
-		Method: capnp.Method{
-			InterfaceID:   0xfdb082e626e1958b,
-			MethodID:      4,
-			InterfaceName: "pkg/store/lsm/spatial_index.capnp:SpatialIndex",
-			MethodName:    "decode",
-		},
-		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Decode(ctx, SpatialIndex_decode{call})
-		},
-	})
-
 	return methods
 }
 
-// SpatialIndex_insert holds the state for a server call to SpatialIndex.insert.
+// SpatialIndex_write holds the state for a server call to SpatialIndex.write.
 // See server.Call for documentation.
-type SpatialIndex_insert struct {
+type SpatialIndex_write struct {
 	*server.Call
 }
 
 // Args returns the call's arguments.
-func (c SpatialIndex_insert) Args() SpatialIndex_insert_Params {
-	return SpatialIndex_insert_Params(c.Call.Args())
+func (c SpatialIndex_write) Args() SpatialIndex_write_Params {
+	return SpatialIndex_write_Params(c.Call.Args())
 }
 
 // AllocResults allocates the results struct.
-func (c SpatialIndex_insert) AllocResults() (stream.StreamResult, error) {
+func (c SpatialIndex_write) AllocResults() (stream.StreamResult, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return stream.StreamResult(r), err
 }
@@ -471,42 +261,8 @@ func (c SpatialIndex_lookup) Args() SpatialIndex_lookup_Params {
 
 // AllocResults allocates the results struct.
 func (c SpatialIndex_lookup) AllocResults() (SpatialIndex_lookup_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return SpatialIndex_lookup_Results(r), err
-}
-
-// SpatialIndex_queryTransitions holds the state for a server call to SpatialIndex.queryTransitions.
-// See server.Call for documentation.
-type SpatialIndex_queryTransitions struct {
-	*server.Call
-}
-
-// Args returns the call's arguments.
-func (c SpatialIndex_queryTransitions) Args() SpatialIndex_queryTransitions_Params {
-	return SpatialIndex_queryTransitions_Params(c.Call.Args())
-}
-
-// AllocResults allocates the results struct.
-func (c SpatialIndex_queryTransitions) AllocResults() (SpatialIndex_queryTransitions_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return SpatialIndex_queryTransitions_Results(r), err
-}
-
-// SpatialIndex_decode holds the state for a server call to SpatialIndex.decode.
-// See server.Call for documentation.
-type SpatialIndex_decode struct {
-	*server.Call
-}
-
-// Args returns the call's arguments.
-func (c SpatialIndex_decode) Args() SpatialIndex_decode_Params {
-	return SpatialIndex_decode_Params(c.Call.Args())
-}
-
-// AllocResults allocates the results struct.
-func (c SpatialIndex_decode) AllocResults() (SpatialIndex_decode_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_decode_Results(r), err
+	return SpatialIndex_lookup_Results(r), err
 }
 
 // SpatialIndex_List is a list of SpatialIndex.
@@ -518,95 +274,76 @@ func NewSpatialIndex_List(s *capnp.Segment, sz int32) (SpatialIndex_List, error)
 	return capnp.CapList[SpatialIndex](l), err
 }
 
-type SpatialIndex_insert_Params capnp.Struct
+type SpatialIndex_write_Params capnp.Struct
 
-// SpatialIndex_insert_Params_TypeID is the unique identifier for the type SpatialIndex_insert_Params.
-const SpatialIndex_insert_Params_TypeID = 0xd76706c15772ec89
+// SpatialIndex_write_Params_TypeID is the unique identifier for the type SpatialIndex_write_Params.
+const SpatialIndex_write_Params_TypeID = 0xd76706c15772ec89
 
-func NewSpatialIndex_insert_Params(s *capnp.Segment) (SpatialIndex_insert_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_insert_Params(st), err
+func NewSpatialIndex_write_Params(s *capnp.Segment) (SpatialIndex_write_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return SpatialIndex_write_Params(st), err
 }
 
-func NewRootSpatialIndex_insert_Params(s *capnp.Segment) (SpatialIndex_insert_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_insert_Params(st), err
+func NewRootSpatialIndex_write_Params(s *capnp.Segment) (SpatialIndex_write_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
+	return SpatialIndex_write_Params(st), err
 }
 
-func ReadRootSpatialIndex_insert_Params(msg *capnp.Message) (SpatialIndex_insert_Params, error) {
+func ReadRootSpatialIndex_write_Params(msg *capnp.Message) (SpatialIndex_write_Params, error) {
 	root, err := msg.Root()
-	return SpatialIndex_insert_Params(root.Struct()), err
+	return SpatialIndex_write_Params(root.Struct()), err
 }
 
-func (s SpatialIndex_insert_Params) String() string {
+func (s SpatialIndex_write_Params) String() string {
 	str, _ := text.Marshal(0xd76706c15772ec89, capnp.Struct(s))
 	return str
 }
 
-func (s SpatialIndex_insert_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+func (s SpatialIndex_write_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
 	return capnp.Struct(s).EncodeAsPtr(seg)
 }
 
-func (SpatialIndex_insert_Params) DecodeFromPtr(p capnp.Ptr) SpatialIndex_insert_Params {
-	return SpatialIndex_insert_Params(capnp.Struct{}.DecodeFromPtr(p))
+func (SpatialIndex_write_Params) DecodeFromPtr(p capnp.Ptr) SpatialIndex_write_Params {
+	return SpatialIndex_write_Params(capnp.Struct{}.DecodeFromPtr(p))
 }
 
-func (s SpatialIndex_insert_Params) ToPtr() capnp.Ptr {
+func (s SpatialIndex_write_Params) ToPtr() capnp.Ptr {
 	return capnp.Struct(s).ToPtr()
 }
-func (s SpatialIndex_insert_Params) IsValid() bool {
+func (s SpatialIndex_write_Params) IsValid() bool {
 	return capnp.Struct(s).IsValid()
 }
 
-func (s SpatialIndex_insert_Params) Message() *capnp.Message {
+func (s SpatialIndex_write_Params) Message() *capnp.Message {
 	return capnp.Struct(s).Message()
 }
 
-func (s SpatialIndex_insert_Params) Segment() *capnp.Segment {
+func (s SpatialIndex_write_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_insert_Params) Edge() (GraphEdge, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return GraphEdge(p.Struct()), err
+func (s SpatialIndex_write_Params) Key() uint64 {
+	return capnp.Struct(s).Uint64(0)
 }
 
-func (s SpatialIndex_insert_Params) HasEdge() bool {
-	return capnp.Struct(s).HasPtr(0)
+func (s SpatialIndex_write_Params) SetKey(v uint64) {
+	capnp.Struct(s).SetUint64(0, v)
 }
 
-func (s SpatialIndex_insert_Params) SetEdge(v GraphEdge) error {
-	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+// SpatialIndex_write_Params_List is a list of SpatialIndex_write_Params.
+type SpatialIndex_write_Params_List = capnp.StructList[SpatialIndex_write_Params]
+
+// NewSpatialIndex_write_Params creates a new list of SpatialIndex_write_Params.
+func NewSpatialIndex_write_Params_List(s *capnp.Segment, sz int32) (SpatialIndex_write_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
+	return capnp.StructList[SpatialIndex_write_Params](l), err
 }
 
-// NewEdge sets the edge field to a newly
-// allocated GraphEdge struct, preferring placement in s's segment.
-func (s SpatialIndex_insert_Params) NewEdge() (GraphEdge, error) {
-	ss, err := NewGraphEdge(capnp.Struct(s).Segment())
-	if err != nil {
-		return GraphEdge{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
-	return ss, err
-}
+// SpatialIndex_write_Params_Future is a wrapper for a SpatialIndex_write_Params promised by a client call.
+type SpatialIndex_write_Params_Future struct{ *capnp.Future }
 
-// SpatialIndex_insert_Params_List is a list of SpatialIndex_insert_Params.
-type SpatialIndex_insert_Params_List = capnp.StructList[SpatialIndex_insert_Params]
-
-// NewSpatialIndex_insert_Params creates a new list of SpatialIndex_insert_Params.
-func NewSpatialIndex_insert_Params_List(s *capnp.Segment, sz int32) (SpatialIndex_insert_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[SpatialIndex_insert_Params](l), err
-}
-
-// SpatialIndex_insert_Params_Future is a wrapper for a SpatialIndex_insert_Params promised by a client call.
-type SpatialIndex_insert_Params_Future struct{ *capnp.Future }
-
-func (f SpatialIndex_insert_Params_Future) Struct() (SpatialIndex_insert_Params, error) {
+func (f SpatialIndex_write_Params_Future) Struct() (SpatialIndex_write_Params, error) {
 	p, err := f.Future.Ptr()
-	return SpatialIndex_insert_Params(p.Struct()), err
-}
-func (p SpatialIndex_insert_Params_Future) Edge() GraphEdge_Future {
-	return GraphEdge_Future{Future: p.Future.Field(0, nil)}
+	return SpatialIndex_write_Params(p.Struct()), err
 }
 
 type SpatialIndex_done_Params capnp.Struct
@@ -786,25 +523,25 @@ func (s SpatialIndex_lookup_Params) Message() *capnp.Message {
 func (s SpatialIndex_lookup_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_lookup_Params) Values() (data.Value_List, error) {
+func (s SpatialIndex_lookup_Params) Keys() (capnp.UInt64List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Value_List(p.List()), err
+	return capnp.UInt64List(p.List()), err
 }
 
-func (s SpatialIndex_lookup_Params) HasValues() bool {
+func (s SpatialIndex_lookup_Params) HasKeys() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_lookup_Params) SetValues(v data.Value_List) error {
+func (s SpatialIndex_lookup_Params) SetKeys(v capnp.UInt64List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewValues sets the values field to a newly
-// allocated data.Value_List, preferring placement in s's segment.
-func (s SpatialIndex_lookup_Params) NewValues(n int32) (data.Value_List, error) {
-	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
+// NewKeys sets the keys field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s SpatialIndex_lookup_Params) NewKeys(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Value_List{}, err
+		return capnp.UInt64List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
@@ -833,12 +570,12 @@ type SpatialIndex_lookup_Results capnp.Struct
 const SpatialIndex_lookup_Results_TypeID = 0xe86464012be422fc
 
 func NewSpatialIndex_lookup_Results(s *capnp.Segment) (SpatialIndex_lookup_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return SpatialIndex_lookup_Results(st), err
 }
 
 func NewRootSpatialIndex_lookup_Results(s *capnp.Segment) (SpatialIndex_lookup_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return SpatialIndex_lookup_Results(st), err
 }
 
@@ -874,50 +611,27 @@ func (s SpatialIndex_lookup_Results) Message() *capnp.Message {
 func (s SpatialIndex_lookup_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s SpatialIndex_lookup_Results) Paths() (capnp.PointerList, error) {
+func (s SpatialIndex_lookup_Results) Values() (data.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.PointerList(p.List()), err
+	return data.Value_List(p.List()), err
 }
 
-func (s SpatialIndex_lookup_Results) HasPaths() bool {
+func (s SpatialIndex_lookup_Results) HasValues() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s SpatialIndex_lookup_Results) SetPaths(v capnp.PointerList) error {
+func (s SpatialIndex_lookup_Results) SetValues(v data.Value_List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
-// NewPaths sets the paths field to a newly
-// allocated capnp.PointerList, preferring placement in s's segment.
-func (s SpatialIndex_lookup_Results) NewPaths(n int32) (capnp.PointerList, error) {
-	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
+// NewValues sets the values field to a newly
+// allocated data.Value_List, preferring placement in s's segment.
+func (s SpatialIndex_lookup_Results) NewValues(n int32) (data.Value_List, error) {
+	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return capnp.PointerList{}, err
+		return data.Value_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-func (s SpatialIndex_lookup_Results) MetaPaths() (capnp.PointerList, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return capnp.PointerList(p.List()), err
-}
-
-func (s SpatialIndex_lookup_Results) HasMetaPaths() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s SpatialIndex_lookup_Results) SetMetaPaths(v capnp.PointerList) error {
-	return capnp.Struct(s).SetPtr(1, v.ToPtr())
-}
-
-// NewMetaPaths sets the metaPaths field to a newly
-// allocated capnp.PointerList, preferring placement in s's segment.
-func (s SpatialIndex_lookup_Results) NewMetaPaths(n int32) (capnp.PointerList, error) {
-	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.PointerList{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
 	return l, err
 }
 
@@ -926,7 +640,7 @@ type SpatialIndex_lookup_Results_List = capnp.StructList[SpatialIndex_lookup_Res
 
 // NewSpatialIndex_lookup_Results creates a new list of SpatialIndex_lookup_Results.
 func NewSpatialIndex_lookup_Results_List(s *capnp.Segment, sz int32) (SpatialIndex_lookup_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
 	return capnp.StructList[SpatialIndex_lookup_Results](l), err
 }
 
@@ -938,444 +652,46 @@ func (f SpatialIndex_lookup_Results_Future) Struct() (SpatialIndex_lookup_Result
 	return SpatialIndex_lookup_Results(p.Struct()), err
 }
 
-type SpatialIndex_queryTransitions_Params capnp.Struct
-
-// SpatialIndex_queryTransitions_Params_TypeID is the unique identifier for the type SpatialIndex_queryTransitions_Params.
-const SpatialIndex_queryTransitions_Params_TypeID = 0x854c2ec877468233
-
-func NewSpatialIndex_queryTransitions_Params(s *capnp.Segment) (SpatialIndex_queryTransitions_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
-	return SpatialIndex_queryTransitions_Params(st), err
-}
-
-func NewRootSpatialIndex_queryTransitions_Params(s *capnp.Segment) (SpatialIndex_queryTransitions_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0})
-	return SpatialIndex_queryTransitions_Params(st), err
-}
-
-func ReadRootSpatialIndex_queryTransitions_Params(msg *capnp.Message) (SpatialIndex_queryTransitions_Params, error) {
-	root, err := msg.Root()
-	return SpatialIndex_queryTransitions_Params(root.Struct()), err
-}
-
-func (s SpatialIndex_queryTransitions_Params) String() string {
-	str, _ := text.Marshal(0x854c2ec877468233, capnp.Struct(s))
-	return str
-}
-
-func (s SpatialIndex_queryTransitions_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (SpatialIndex_queryTransitions_Params) DecodeFromPtr(p capnp.Ptr) SpatialIndex_queryTransitions_Params {
-	return SpatialIndex_queryTransitions_Params(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s SpatialIndex_queryTransitions_Params) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s SpatialIndex_queryTransitions_Params) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s SpatialIndex_queryTransitions_Params) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s SpatialIndex_queryTransitions_Params) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s SpatialIndex_queryTransitions_Params) Left() uint8 {
-	return capnp.Struct(s).Uint8(0)
-}
-
-func (s SpatialIndex_queryTransitions_Params) SetLeft(v uint8) {
-	capnp.Struct(s).SetUint8(0, v)
-}
-
-func (s SpatialIndex_queryTransitions_Params) Position() uint32 {
-	return capnp.Struct(s).Uint32(4)
-}
-
-func (s SpatialIndex_queryTransitions_Params) SetPosition(v uint32) {
-	capnp.Struct(s).SetUint32(4, v)
-}
-
-// SpatialIndex_queryTransitions_Params_List is a list of SpatialIndex_queryTransitions_Params.
-type SpatialIndex_queryTransitions_Params_List = capnp.StructList[SpatialIndex_queryTransitions_Params]
-
-// NewSpatialIndex_queryTransitions_Params creates a new list of SpatialIndex_queryTransitions_Params.
-func NewSpatialIndex_queryTransitions_Params_List(s *capnp.Segment, sz int32) (SpatialIndex_queryTransitions_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 0}, sz)
-	return capnp.StructList[SpatialIndex_queryTransitions_Params](l), err
-}
-
-// SpatialIndex_queryTransitions_Params_Future is a wrapper for a SpatialIndex_queryTransitions_Params promised by a client call.
-type SpatialIndex_queryTransitions_Params_Future struct{ *capnp.Future }
-
-func (f SpatialIndex_queryTransitions_Params_Future) Struct() (SpatialIndex_queryTransitions_Params, error) {
-	p, err := f.Future.Ptr()
-	return SpatialIndex_queryTransitions_Params(p.Struct()), err
-}
-
-type SpatialIndex_queryTransitions_Results capnp.Struct
-
-// SpatialIndex_queryTransitions_Results_TypeID is the unique identifier for the type SpatialIndex_queryTransitions_Results.
-const SpatialIndex_queryTransitions_Results_TypeID = 0x832dfadf68390c84
-
-func NewSpatialIndex_queryTransitions_Results(s *capnp.Segment) (SpatialIndex_queryTransitions_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return SpatialIndex_queryTransitions_Results(st), err
-}
-
-func NewRootSpatialIndex_queryTransitions_Results(s *capnp.Segment) (SpatialIndex_queryTransitions_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return SpatialIndex_queryTransitions_Results(st), err
-}
-
-func ReadRootSpatialIndex_queryTransitions_Results(msg *capnp.Message) (SpatialIndex_queryTransitions_Results, error) {
-	root, err := msg.Root()
-	return SpatialIndex_queryTransitions_Results(root.Struct()), err
-}
-
-func (s SpatialIndex_queryTransitions_Results) String() string {
-	str, _ := text.Marshal(0x832dfadf68390c84, capnp.Struct(s))
-	return str
-}
-
-func (s SpatialIndex_queryTransitions_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (SpatialIndex_queryTransitions_Results) DecodeFromPtr(p capnp.Ptr) SpatialIndex_queryTransitions_Results {
-	return SpatialIndex_queryTransitions_Results(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s SpatialIndex_queryTransitions_Results) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s SpatialIndex_queryTransitions_Results) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s SpatialIndex_queryTransitions_Results) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s SpatialIndex_queryTransitions_Results) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s SpatialIndex_queryTransitions_Results) Values() (data.Value_List, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return data.Value_List(p.List()), err
-}
-
-func (s SpatialIndex_queryTransitions_Results) HasValues() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s SpatialIndex_queryTransitions_Results) SetValues(v data.Value_List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewValues sets the values field to a newly
-// allocated data.Value_List, preferring placement in s's segment.
-func (s SpatialIndex_queryTransitions_Results) NewValues(n int32) (data.Value_List, error) {
-	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return data.Value_List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-func (s SpatialIndex_queryTransitions_Results) Metas() (data.Value_List, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return data.Value_List(p.List()), err
-}
-
-func (s SpatialIndex_queryTransitions_Results) HasMetas() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s SpatialIndex_queryTransitions_Results) SetMetas(v data.Value_List) error {
-	return capnp.Struct(s).SetPtr(1, v.ToPtr())
-}
-
-// NewMetas sets the metas field to a newly
-// allocated data.Value_List, preferring placement in s's segment.
-func (s SpatialIndex_queryTransitions_Results) NewMetas(n int32) (data.Value_List, error) {
-	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return data.Value_List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
-	return l, err
-}
-
-// SpatialIndex_queryTransitions_Results_List is a list of SpatialIndex_queryTransitions_Results.
-type SpatialIndex_queryTransitions_Results_List = capnp.StructList[SpatialIndex_queryTransitions_Results]
-
-// NewSpatialIndex_queryTransitions_Results creates a new list of SpatialIndex_queryTransitions_Results.
-func NewSpatialIndex_queryTransitions_Results_List(s *capnp.Segment, sz int32) (SpatialIndex_queryTransitions_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
-	return capnp.StructList[SpatialIndex_queryTransitions_Results](l), err
-}
-
-// SpatialIndex_queryTransitions_Results_Future is a wrapper for a SpatialIndex_queryTransitions_Results promised by a client call.
-type SpatialIndex_queryTransitions_Results_Future struct{ *capnp.Future }
-
-func (f SpatialIndex_queryTransitions_Results_Future) Struct() (SpatialIndex_queryTransitions_Results, error) {
-	p, err := f.Future.Ptr()
-	return SpatialIndex_queryTransitions_Results(p.Struct()), err
-}
-
-type SpatialIndex_decode_Params capnp.Struct
-
-// SpatialIndex_decode_Params_TypeID is the unique identifier for the type SpatialIndex_decode_Params.
-const SpatialIndex_decode_Params_TypeID = 0xbe819863b007c339
-
-func NewSpatialIndex_decode_Params(s *capnp.Segment) (SpatialIndex_decode_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_decode_Params(st), err
-}
-
-func NewRootSpatialIndex_decode_Params(s *capnp.Segment) (SpatialIndex_decode_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_decode_Params(st), err
-}
-
-func ReadRootSpatialIndex_decode_Params(msg *capnp.Message) (SpatialIndex_decode_Params, error) {
-	root, err := msg.Root()
-	return SpatialIndex_decode_Params(root.Struct()), err
-}
-
-func (s SpatialIndex_decode_Params) String() string {
-	str, _ := text.Marshal(0xbe819863b007c339, capnp.Struct(s))
-	return str
-}
-
-func (s SpatialIndex_decode_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (SpatialIndex_decode_Params) DecodeFromPtr(p capnp.Ptr) SpatialIndex_decode_Params {
-	return SpatialIndex_decode_Params(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s SpatialIndex_decode_Params) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s SpatialIndex_decode_Params) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s SpatialIndex_decode_Params) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s SpatialIndex_decode_Params) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s SpatialIndex_decode_Params) Values() (capnp.PointerList, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.PointerList(p.List()), err
-}
-
-func (s SpatialIndex_decode_Params) HasValues() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s SpatialIndex_decode_Params) SetValues(v capnp.PointerList) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewValues sets the values field to a newly
-// allocated capnp.PointerList, preferring placement in s's segment.
-func (s SpatialIndex_decode_Params) NewValues(n int32) (capnp.PointerList, error) {
-	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.PointerList{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// SpatialIndex_decode_Params_List is a list of SpatialIndex_decode_Params.
-type SpatialIndex_decode_Params_List = capnp.StructList[SpatialIndex_decode_Params]
-
-// NewSpatialIndex_decode_Params creates a new list of SpatialIndex_decode_Params.
-func NewSpatialIndex_decode_Params_List(s *capnp.Segment, sz int32) (SpatialIndex_decode_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[SpatialIndex_decode_Params](l), err
-}
-
-// SpatialIndex_decode_Params_Future is a wrapper for a SpatialIndex_decode_Params promised by a client call.
-type SpatialIndex_decode_Params_Future struct{ *capnp.Future }
-
-func (f SpatialIndex_decode_Params_Future) Struct() (SpatialIndex_decode_Params, error) {
-	p, err := f.Future.Ptr()
-	return SpatialIndex_decode_Params(p.Struct()), err
-}
-
-type SpatialIndex_decode_Results capnp.Struct
-
-// SpatialIndex_decode_Results_TypeID is the unique identifier for the type SpatialIndex_decode_Results.
-const SpatialIndex_decode_Results_TypeID = 0xbb59ace5149853b2
-
-func NewSpatialIndex_decode_Results(s *capnp.Segment) (SpatialIndex_decode_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_decode_Results(st), err
-}
-
-func NewRootSpatialIndex_decode_Results(s *capnp.Segment) (SpatialIndex_decode_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return SpatialIndex_decode_Results(st), err
-}
-
-func ReadRootSpatialIndex_decode_Results(msg *capnp.Message) (SpatialIndex_decode_Results, error) {
-	root, err := msg.Root()
-	return SpatialIndex_decode_Results(root.Struct()), err
-}
-
-func (s SpatialIndex_decode_Results) String() string {
-	str, _ := text.Marshal(0xbb59ace5149853b2, capnp.Struct(s))
-	return str
-}
-
-func (s SpatialIndex_decode_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (SpatialIndex_decode_Results) DecodeFromPtr(p capnp.Ptr) SpatialIndex_decode_Results {
-	return SpatialIndex_decode_Results(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s SpatialIndex_decode_Results) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s SpatialIndex_decode_Results) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s SpatialIndex_decode_Results) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s SpatialIndex_decode_Results) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s SpatialIndex_decode_Results) Sequences() (capnp.DataList, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.DataList(p.List()), err
-}
-
-func (s SpatialIndex_decode_Results) HasSequences() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s SpatialIndex_decode_Results) SetSequences(v capnp.DataList) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewSequences sets the sequences field to a newly
-// allocated capnp.DataList, preferring placement in s's segment.
-func (s SpatialIndex_decode_Results) NewSequences(n int32) (capnp.DataList, error) {
-	l, err := capnp.NewDataList(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.DataList{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// SpatialIndex_decode_Results_List is a list of SpatialIndex_decode_Results.
-type SpatialIndex_decode_Results_List = capnp.StructList[SpatialIndex_decode_Results]
-
-// NewSpatialIndex_decode_Results creates a new list of SpatialIndex_decode_Results.
-func NewSpatialIndex_decode_Results_List(s *capnp.Segment, sz int32) (SpatialIndex_decode_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[SpatialIndex_decode_Results](l), err
-}
-
-// SpatialIndex_decode_Results_Future is a wrapper for a SpatialIndex_decode_Results promised by a client call.
-type SpatialIndex_decode_Results_Future struct{ *capnp.Future }
-
-func (f SpatialIndex_decode_Results_Future) Struct() (SpatialIndex_decode_Results, error) {
-	p, err := f.Future.Ptr()
-	return SpatialIndex_decode_Results(p.Struct()), err
-}
-
-const schema_ad058c9d70413d66 = "x\xda\xacUMh\\U\x14>\xdf\xbd\xef\xcd\x1d\xa5" +
-	"qr\x99q\xe1B\x06\xc3\xa85\x9aN\x9b\xb8h\x02" +
-	"a&\x85Z*\xad\xccMR\xa4\xab\xf2\x9c\xb9\x9d\x19" +
-	"2\x7f\x9d\xf7\xc6\xa4\xa2\x8b\xd6\x04jM!\x01\x95T" +
-	"\xa9\xd0\xbdB\xadKE\xfc\x01Qq\xe3\xa2\x08\x8a\x88" +
-	"bU\x8a\xab\xba\x13\xe5\xc9}o\xe6\xe5\xd1j\xd3T" +
-	"\xb7\xf7~\xe7\x9c\xef\x9c\xef\xdc\xef\xee^cEk\xcf" +
-	"PA\x10S\xf3v\xc2_\xde1Y\xfb\xfe\x8f\xb1\x17" +
-	"I\xe6Ad3A4\xb1\xc2\xf71B\xfa\x02_$" +
-	"\xf8\x13\xa7\x9fX\xfcl\xd7\xa1\x15Ry\x80\xc82\x80" +
-	"\xfb\xac)\x03\xd8c\x19\xc0\xec\xe1\xf4\x17o\xbc\xbf\xb6" +
-	"\x1af\x08\xee\xd7\xado@\x96\xff\xd5\xb5o\x17\xa6/" +
-	">|\xb9\x9f\x1bAn\xeb\x1a\x08\xe9\xf3V\x81\xe0_" +
-	"\x9e\xdb\xc8\\}\xeb\xe8{q\xc0\xe7\xd6u\x03\xf8." +
-	"\x00L~\".\x957N}\x10\x07H;\xc8\xf0\xa0" +
-	"m\x00g\x7f\x7f\xed\xd3\xa7\xee\xfe\xf2J\xac\xb8\xb6\x7f" +
-	"4\xc5_\xfa\xad\xfb\xf4G\x89\xea\xd7\xf1\xd0\xa3ah" +
-	"3\x08\xfds\xe4\xa7GQ\xa9\xfc\x1a\xef\xfc\x9c\x1d\x14" +
-	"\xbfh\x9b\xc6^~\xf5\x87\x87~>}\xe9/\x92#" +
-	"\xdc?>=\xd3\xb9\xb0j\xbfM\x84\x89\x99\xc4sH" +
-	"\x1fI\x98\x00\x958\x80\xf4\x03B\x10\xf9\xfbv~\\" +
-	"\xfe\xe5\xcd\x19\x9f\xd4\x08\xb0\x89\x0f\x13\xdf%\x9eA\xfa" +
-	"~\x11\x0cOdAm\xbf\xb3P\xcd\xbb^\xbb\x9b\xd4" +
-	"\xf9\x86\xdb\xcc\xbb\x1d\xc7\xab;\x8dc\xf5VE/\xed" +
-	"*;\x9dVgj.<;\x18\x1c\x9d\xe8\xe9\xee\xc9" +
-	"\xf9\xae\xd3r\xeb^\xbd\xddrs\xb3\xda\xed5<\x97" +
-	"T\x92[D\x16\x88\xe4#SD*\xc7\xa1\x8a\x0c\x12" +
-	"\xc8\x18\xc1\xe4\xf48\x91\xda\xcb\xa1\xe6\x19\x0a\xcf:\x8d" +
-	"\x9evq\x0f\xa1\xc4\x81a\xff\xea\x95\xeb\xef\xde;>" +
-	"\xb7N\x04s\x98mj\xcf\xf9\xf7\xeb\x88\xb4\xb8S\xd2" +
-	"\x85\x92\xd3u\x9an\x9c\xf3h\x9f\xf3\xee\x18\xe7\xb1'" +
-	"\x89\xd4c\x1cj/C\xaa\xa1\x8f{H\x10C\xc20" +
-	"h\x87\xa9\x88\x08IbH\xc6X%n\x93U\xa5\xdd" +
-	"\xd29C\x847\xddm\x077\xda\xed\x85^'Wr" +
-	"RA#V\xd4\xc8\x90\x19~\x92C\xe5\xb6\x9e\xf3\xf6" +
-	")\xebr\xbb\xa2s\xb3:\x1b\x88\x1e/;K\xa4v" +
-	"p\xa8\x9d\x0c\xbe\xabO\xf4t\xab\xac\x09Q\xed!b" +
-	"\xff\xa5\xe2-\xfa|\xfc\xa6>\xff\xbfv\x8dBf\xc1" +
-	"E\xc3\xdb\xbeD\xf5\x96\xab\xbb\xde?Q\x1f\xedS\xcf" +
-	"0\xa4t\xa5\xaa1\xbc\xf9l\x09\x18\xbe\x03\xaa\xfd}" +
-	"\x88\x94\x89m\xf6x\x7f\xb3K\xb1\xcd>l\xe4:\xc4" +
-	"\xa1\x96\x18\xb2\x1d\xc7\xabm=<\xf3&K\x8eW\x8b" +
-	"\x89\xba\xe5\xa0\xad\xad\xd8\x17B\xfa%@e\xb8M\x14" +
-	"\xf9%Z\xef|\xb88\xf1\xfa\xb1\xf3r}\x8a\x98\\" +
-	"\x11\xd8\xb4x\x0c\xecV\x9e\x1c%&\x9b\x02,2y" +
-	"\x0c\xfcT:&\xee\x88\x00\x8f\xfe\x0e\x0c~\x19y\xf0" +
-	",1\xb9_\xc0\x8a\xac\x1d\x83O@N\x9a\xb81Q" +
-	"\x08\xe5+\"e\xb6\xa0\x88B8\xe1\"\xfc\x81\x9b`" +
-	"`'DE\x14\xc2E-\xa2\x84\xdbj\xff@\xd7\xe9" +
-	"\xd4\xf6\x8bJU\x87\xbd\x0f\xd4z\xc1\xec\xc6\x12\x87Z" +
-	"\x8e\xa9u\xcaH\xf8<\x87:\xc3 \x192`Dr" +
-	"\xc5\x98\xd32\x87Zc\x00\xcf\x80\x13\xc9s\x06x\x86" +
-	"C\xbd\xc2 -d`\x11\xc9u\x93r\x95Cm\xdc" +
-	"\xe0b\xd9n\xbdZ\xbb\xa5\xa7e\x83\x87u\x83\xc0\xc3" +
-	"\x84\x94Y\x86\x9b\x8f\xff\x0e\x00\x00\xff\xff\xe1a0\xee"
+const schema_ad058c9d70413d66 = "x\xda\x9cR1h\x13Q\x18\xfe\xbf\xf7\xee\xf2\x8cX" +
+	"\xe3\xe3\xec(\xc5\x10\x14*z\xdaL\x06B\xce\xc1\xc1" +
+	"\xa1r\x97\x0eNR\x1e\xe6,\xe1.\x97\xe3\xeeb\xad" +
+	"\xa3\x8b\xa8\x1dtPP\xe9\xe0\xe8 X]\x1dtQ" +
+	"\x10\x17\x87 \xe8TQ\xd1\xe2TW\xe5\xe4.Ml" +
+	"]\xa4\xd9\x1e\xff\xf7\x7f\xef\xfb\xfe\x8f\xefx\x1d\x96v" +
+	"b\xe2\x9aN\xcc\xb1\xf4B\xda\x9c5\xde<x~k" +
+	"\x99\xa4\x09\"M\x10U\x1f\xb1\x0f -}\xb7\xfe\xd1" +
+	"\xab?<\xfct\x80\xe8\xc8\xa0\x15\xb6\x0e\x82\xb1\xca\x1a" +
+	"\x84\xf4\xc6\xcf\xbb\xaf\xce\xee~\xdb\xdfB]c\x9f2" +
+	"\xea\xf5\x1f\xd1\xb9\x97\x85\x85\xf7\xe4\x98\x18B\xfd\x0c\x82" +
+	"\xf1=\xa7\xfe*\x7f>\x82V\xeb\xdb\xd6\xbf\x8b|#" +
+	"[8\xc0\xb3\x85\x9bw\xd6\x0e}\xbd\xfa\xe47\xc92" +
+	"O/\xd6O\x85+\xcb\xfac\"Tg\xf9\x15\x18\x8a" +
+	"\x0b\"\xe3<\x7fm\xf4\xb9\xa0 \x0d\xbd\x053N\xba" +
+	"Q\xc15\xfd\xb8c\xc6\xa1J\xda\xca\x9fo\x07-\xf7" +
+	"\xf2\xb1\x0b*\x0c\xc2\xda\xdc`v&\x1f\xb5\xba\x81[" +
+	"\xb1U\xa4x'\xde1\xd9\xefv\xbd^X\xb1U)" +
+	"R\x9d\xd8\xd1\xb8F\xa4\x81HNL\x139\xbb8\x9c" +
+	"\x0aC\xc9s\x97b\xec%\xd8\x1c(\x12\xcb\x9e\xe3\xd9" +
+	"l\xbaqO\xf8\xc9\xce}.F\xed$\xbfR\xfcc" +
+	"\xb3\xbcis?\x83\xf0\xdc\xa5\xdc^q\x0c{\x9bA" +
+	"4\xdd\xa9\xb8\xe7'\xdb$j\x7f\x93h\\R~\xcf" +
+	"\x1de\xb1/\xfd\xd2\xdfx693w\x9b\x08\xdbR" +
+	"\xd1\xfe'\xdb\x18\xe8\xda\x80\xb3\x87\xebD\xa3\x9a!X" +
+	"}\xb1X\xbd?\x7fO:3\xc4\xe4i\x01\x8cz\x8d" +
+	"aK\xe5\xc9ib\xf2\xa8\x00\x1b5\x1b\xc3\x1a\xca\x83" +
+	"5brRL\xe5\x99Y(e\xc9[h\x0c.\xb4" +
+	"`\x03\x7f\x02\x00\x00\xff\xff\xed\xf9\xfc\x9d"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d66,
 		Nodes: []uint64{
-			0x832dfadf68390c84,
-			0x854c2ec877468233,
 			0x8c90bc9bca134d52,
 			0xb227a13d6bdbead1,
-			0xbb59ace5149853b2,
-			0xbe819863b007c339,
 			0xd5cc0a4ec696f38a,
 			0xd76706c15772ec89,
 			0xe86464012be422fc,
 			0xfdb082e626e1958b,
-			0xff419ee763c22842,
 		},
 		Compressed: true,
 	})

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/test"
@@ -22,7 +23,7 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	if err := helper.SetDataset(dataset); err != nil {
+	if err := helper.Machine.SetDataset(dataset); err != nil {
 		return console.Error(err, "msg", "failed to set dataset")
 	}
 
@@ -43,12 +44,9 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 				return nil
 			}
 
-			result, err := helper.Prompt(prompt)
-			if err != nil {
-				console.Error(err, "msg", "prompt failed")
-			} else if len(result) > 0 {
-				console.Info("prompt result", "query", prompt, "result", string(result))
-			}
+			errnie.SafeMust(func() ([]byte, error) {
+				return helper.Machine.Prompt(prompt)
+			})
 
 			select {
 			case <-ctx.Done():

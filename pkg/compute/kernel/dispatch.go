@@ -43,8 +43,8 @@ func WithBackend(backend Backend) builderOpts {
 
 /*
 NewBuilder creates the backends prioritized array.
-Automatically detects and appends CUDA, Metal, and Distributed backends if available.
-CPU is always the ultimate fallback.
+Automatically detects and appends CUDA, Metal, and Distributed
+backends if available. CPU is always the ultimate fallback.
 */
 func NewBuilder(opts ...builderOpts) *Builder {
 	builder := &Builder{}

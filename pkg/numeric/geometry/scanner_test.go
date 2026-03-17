@@ -1,21 +1,16 @@
-package lsm
+package geometry
 
 import (
-	"context"
 	"math"
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestPhaseDialScanner(t *testing.T) {
 	gc.Convey("Given a PhaseDialScanner attached to a populated SpatialIndexServer", t, func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		idx := NewSpatialIndexServer(WithContext(ctx))
+		scanner := NewPhaseDialScanner()
 
 		// Insert distinct value sequences at different positions.
 		// Each position gets a unique value so the PhaseDials differ.
@@ -23,10 +18,11 @@ func TestPhaseDialScanner(t *testing.T) {
 			sym := byte(65 + pos)
 			key := morton.Pack(pos, sym)
 			value := data.BaseValue(byte(sym))
-			idx.insertSync(key, value, data.MustNewValue())
+			scanner.cache[key] = cachedEntry{
+				Values: []data.Value{value},
+				Dial:   NewPhaseDial(),
+			}
 		}
-
-		scanner := NewPhaseDialScanner(idx)
 
 		gc.Convey("It should cache all entries", func() {
 			gc.So(scanner.EntryCount(), gc.ShouldEqual, 5)
@@ -130,47 +126,20 @@ func TestPhaseDialScanner(t *testing.T) {
 	})
 }
 
-func TestPhaseDialScannerSteerability(t *testing.T) {
-	gc.Convey("Given a scanner with enough entries for steerability measurement", t, func() {
-		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
-
-		idx := NewSpatialIndexServer(WithContext(ctx))
-
-		// Insert 10 entries with varied byte values for richer PhaseDial diversity
-		for pos := uint32(0); pos < 10; pos++ {
-			sym := byte(40 + pos*20)
-			key := morton.Pack(pos, sym)
-			value := data.BaseValue(byte(sym))
-			idx.insertSync(key, value, data.MustNewValue())
-		}
-
-		scanner := NewPhaseDialScanner(idx)
-		seedKey := morton.Pack(0, 40)
-		seedDial := scanner.EntryDial(seedKey)
-
-		gc.Convey("Steerability should return a value in [0, 1]", func() {
-			steer := scanner.Steerability(seedDial, 0, 256, 12, 4)
-			gc.So(steer, gc.ShouldBeBetweenOrEqual, 0.0, 1.0)
-		})
-	})
-}
-
 func BenchmarkPhaseDialScan(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	idx := NewSpatialIndexServer(WithContext(ctx))
+	scanner := NewPhaseDialScanner()
 
 	for pos := uint32(0); pos < 100; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
 		value := data.BaseValue(byte(sym))
-		idx.insertSync(key, value, data.MustNewValue())
+		scanner.cache[key] = cachedEntry{
+			Values: []data.Value{value},
+			Dial:   NewPhaseDial(),
+		}
 	}
 
-	scanner := NewPhaseDialScanner(idx)
-	queryDial := geometry.NewPhaseDial().EncodeFromValues([]data.Value{data.BaseValue('A')})
+	queryDial := NewPhaseDial()
 
 	b.ResetTimer()
 
@@ -180,20 +149,19 @@ func BenchmarkPhaseDialScan(b *testing.B) {
 }
 
 func BenchmarkGeodesicScan(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	idx := NewSpatialIndexServer(WithContext(ctx))
+	scanner := NewPhaseDialScanner()
 
 	for pos := uint32(0); pos < 50; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
 		value := data.BaseValue(byte(sym))
-		idx.insertSync(key, value, data.MustNewValue())
+		scanner.cache[key] = cachedEntry{
+			Values: []data.Value{value},
+			Dial:   NewPhaseDial(),
+		}
 	}
 
-	scanner := NewPhaseDialScanner(idx)
-	queryDial := geometry.NewPhaseDial().EncodeFromValues([]data.Value{data.BaseValue('A')})
+	queryDial := NewPhaseDial()
 
 	b.ResetTimer()
 

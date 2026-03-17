@@ -52,10 +52,13 @@ func TestBoundarySpanRecall(t *testing.T) {
 			helper := test.NewTestHelper()
 			defer helper.Teardown()
 
-			So(helper.SetDataset(local.New(local.WithStrings(tc.corpus))), ShouldBeNil)
+			So(helper.Machine.SetDataset(
+				local.New(local.WithStrings(tc.corpus)),
+			), ShouldBeNil)
 
-			result, err := helper.Prompt(tc.query)
+			result, err := helper.Machine.Prompt(tc.query)
 			console.Trace("query=%q result=%q", tc.query, string(result))
+
 			So(err, ShouldBeNil)
 			So(string(result), ShouldEqual, tc.expect)
 		})
@@ -79,13 +82,15 @@ func TestPromptDeterminism(t *testing.T) {
 		helper := test.NewTestHelper()
 		defer helper.Teardown()
 
-		So(helper.SetDataset(local.New(local.WithStrings(corpus))), ShouldBeNil)
+		So(helper.Machine.SetDataset(
+			local.New(local.WithStrings(corpus)),
+		), ShouldBeNil)
 
 		for _, query := range queries {
-			first, err := helper.Prompt(query)
+			first, err := helper.Machine.Prompt(query)
 			So(err, ShouldBeNil)
 
-			second, err := helper.Prompt(query)
+			second, err := helper.Machine.Prompt(query)
 			So(err, ShouldBeNil)
 
 			So(string(second), ShouldEqual, string(first))
@@ -110,14 +115,16 @@ func TestOutOfCorpusPromptProvenance(t *testing.T) {
 		helper := test.NewTestHelper()
 		defer helper.Teardown()
 
-		So(helper.SetDataset(local.New(local.WithStrings(corpus))), ShouldBeNil)
+		So(helper.Machine.SetDataset(
+			local.New(local.WithStrings(corpus)),
+		), ShouldBeNil)
 
 		for name, query := range adversarial {
 			name, query := name, query
 			Convey(name, func() {
-				result, err := helper.Prompt(query)
+				result, err := helper.Machine.Prompt(query)
+
 				So(err, ShouldBeNil)
-				// Result must be non-empty and come from the corpus.
 				So(len(result), ShouldBeGreaterThan, 0)
 				So(string(result), ShouldNotContainSubstring, "DROP TABLE")
 				So(string(result), ShouldNotContainSubstring, "<script>")
@@ -133,14 +140,16 @@ func BenchmarkBoundarySpanRecall(b *testing.B) {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	if err := helper.SetDataset(local.New(local.WithStrings(corpus))); err != nil {
+	if err := helper.Machine.SetDataset(
+		local.New(local.WithStrings(corpus)),
+	); err != nil {
 		b.Fatal(err)
 	}
 
 	b.ResetTimer()
 
 	for i := 0; i < b.N; i++ {
-		result, err := helper.Prompt("Interest rates rose ")
+		result, err := helper.Machine.Prompt("Interest rates rose ")
 		if err != nil {
 			b.Fatal(err)
 		}

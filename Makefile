@@ -23,8 +23,6 @@ capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/data/value.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer/universal.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/input/prompt.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/semantic/engine.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/grammar/parser.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/bvp/cantilever.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/goal/frustration.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/macro/macro_index.capnp

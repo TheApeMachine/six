@@ -1,12 +1,13 @@
-package lsm
+package geometry
 
 import (
 	"math"
 	"sort"
 
-	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 )
+
+var morton = data.NewMortonCoder()
 
 /*
 PhaseDialScanner provides PhaseDial-ranked retrieval over a SpatialIndexServer.
@@ -18,7 +19,6 @@ the substrate storage (lsm/spatial_index.go). The old HybridSubstrate combined
 both roles; this design keeps them separate.
 */
 type PhaseDialScanner struct {
-	index *SpatialIndexServer
 	cache map[uint64]cachedEntry
 }
 
@@ -29,7 +29,7 @@ so we cache aggressively.
 */
 type cachedEntry struct {
 	Values []data.Value
-	Dial   geometry.PhaseDial
+	Dial   PhaseDial
 }
 
 /*
@@ -41,7 +41,7 @@ type ScanResult struct {
 	Symbol     byte
 	Similarity float64
 	Values     []data.Value
-	Dial       geometry.PhaseDial
+	Dial       PhaseDial
 }
 
 /*
@@ -53,7 +53,7 @@ type GeodesicStep struct {
 	BestKey    uint64
 	Similarity float64
 	Values     []data.Value
-	Dial       geometry.PhaseDial
+	Dial       PhaseDial
 }
 
 /*
@@ -62,8 +62,8 @@ the matched entry B, the composed midpoint AB, and the similarity score.
 */
 type HopResult struct {
 	KeyB       uint64
-	DialB      geometry.PhaseDial
-	DialAB     geometry.PhaseDial
+	DialB      PhaseDial
+	DialAB     PhaseDial
 	ValuesB    []data.Value
 	Similarity float64
 }
@@ -72,9 +72,8 @@ type HopResult struct {
 NewPhaseDialScanner creates a scanner attached to a live SpatialIndexServer.
 The scanner lazily builds and caches PhaseDials on first access.
 */
-func NewPhaseDialScanner(index *SpatialIndexServer) *PhaseDialScanner {
+func NewPhaseDialScanner() *PhaseDialScanner {
 	return &PhaseDialScanner{
-		index: index,
 		cache: make(map[uint64]cachedEntry),
 	}
 }
@@ -85,21 +84,10 @@ Each position in the positionIndex maps to a set of Morton keys; the value
 sequence at each key is the collision chain rooted there.
 */
 func (scanner *PhaseDialScanner) buildCache() {
-	scanner.index.mu.RLock()
-	defer scanner.index.mu.RUnlock()
-
-	for key := range scanner.index.entries {
+	for key := range scanner.cache {
 		if _, cached := scanner.cache[key]; cached {
 			continue
 		}
-
-		values := scanner.index.followChainUnsafe(key)
-		if len(values) == 0 {
-			continue
-		}
-
-		dial := geometry.NewPhaseDial().EncodeFromValues(values)
-		scanner.cache[key] = cachedEntry{Values: values, Dial: dial}
 	}
 }
 
@@ -123,7 +111,7 @@ func (scanner *PhaseDialScanner) EntryCount() int {
 EntryDial returns the PhaseDial for a specific Morton key.
 Returns nil if the key does not exist.
 */
-func (scanner *PhaseDialScanner) EntryDial(key uint64) geometry.PhaseDial {
+func (scanner *PhaseDialScanner) EntryDial(key uint64) PhaseDial {
 	scanner.buildCache()
 
 	entry, exists := scanner.cache[key]
@@ -152,7 +140,7 @@ func (scanner *PhaseDialScanner) EntryValues(key uint64) []data.Value {
 Scan ranks all substrate entries by cosine similarity to queryDial.
 Returns the top-K results sorted by descending similarity.
 */
-func (scanner *PhaseDialScanner) Scan(queryDial geometry.PhaseDial, topK int) []ScanResult {
+func (scanner *PhaseDialScanner) Scan(queryDial PhaseDial, topK int) []ScanResult {
 	scanner.buildCache()
 
 	results := make([]ScanResult, 0, len(scanner.cache))
@@ -188,7 +176,7 @@ Used for two-hop composition where the seed and first-hop entries
 must be excluded from the second-hop search.
 */
 func (scanner *PhaseDialScanner) ScanExcluding(
-	queryDial geometry.PhaseDial, topK int, excludeKeys ...uint64,
+	queryDial PhaseDial, topK int, excludeKeys ...uint64,
 ) []ScanResult {
 	scanner.buildCache()
 
@@ -235,7 +223,7 @@ substrate entry. The result is the resonance landscape of the manifold:
 which entries are "visible" from each angular perspective.
 */
 func (scanner *PhaseDialScanner) GeodesicScan(
-	seedDial geometry.PhaseDial, nSteps int,
+	seedDial PhaseDial, nSteps int,
 ) []GeodesicStep {
 	scanner.buildCache()
 
@@ -274,7 +262,7 @@ the similarity to every substrate entry. Rows are entries, columns are angles.
 This produces the heatmap from Figure 3 of the paper.
 */
 func (scanner *PhaseDialScanner) GeodesicScanFull(
-	seedDial geometry.PhaseDial, nSteps int,
+	seedDial PhaseDial, nSteps int,
 ) (entryKeys []uint64, matrix [][]float64) {
 	scanner.buildCache()
 
@@ -317,7 +305,7 @@ best-matching entry B (excluding the seed key), and composes the
 midpoint AB = ComposeMidpoint(seedDial, B.Dial).
 */
 func (scanner *PhaseDialScanner) FirstHop(
-	seedDial geometry.PhaseDial, angleRad float64, seedKey uint64,
+	seedDial PhaseDial, angleRad float64, seedKey uint64,
 ) *HopResult {
 	rotated := seedDial.Rotate(angleRad)
 	candidates := scanner.ScanExcluding(rotated, 1, seedKey)
@@ -345,7 +333,7 @@ is neither A nor B. Returns the hop result for each stage and the
 final C candidates.
 */
 func (scanner *PhaseDialScanner) TwoHop(
-	seedDial geometry.PhaseDial, hopAngleRad float64, seedKey uint64, topK int,
+	seedDial PhaseDial, hopAngleRad float64, seedKey uint64, topK int,
 ) (*HopResult, []ScanResult) {
 	hop := scanner.FirstHop(seedDial, hopAngleRad, seedKey)
 	if hop == nil {
@@ -364,7 +352,7 @@ means the sub-block controls an independent degree of freedom.
 Uses Jaccard distance between consecutive angle steps.
 */
 func (scanner *PhaseDialScanner) Steerability(
-	dial geometry.PhaseDial, blockStart, blockEnd, nAngles, topK int,
+	dial PhaseDial, blockStart, blockEnd, nAngles, topK int,
 ) float64 {
 	if nAngles <= 1 || topK <= 0 {
 		return 0
@@ -397,8 +385,8 @@ func (scanner *PhaseDialScanner) Steerability(
 rotateBlock applies a phase rotation only to dimensions [start, end).
 The rest of the dial is unchanged.
 */
-func rotateBlock(dial geometry.PhaseDial, alpha float64, start, end int) geometry.PhaseDial {
-	out := make(geometry.PhaseDial, len(dial))
+func rotateBlock(dial PhaseDial, alpha float64, start, end int) PhaseDial {
+	out := make(PhaseDial, len(dial))
 	copy(out, dial)
 
 	f := complex(math.Cos(alpha), math.Sin(alpha))
