@@ -84,22 +84,36 @@ func (w *Worker) processJobWithTimeout(ctx context.Context, job Job) (any, error
 		}
 	}
 
-	done := make(chan struct{})
-	var result any
-	var err error
-
-	go func() {
-		defer close(done)
-		result, err = job.Fn(ctx)
-	}()
-
 	select {
 	case <-ctx.Done():
 		w.pool.metrics.RecordJobFailure()
 		return nil, fmt.Errorf("job %s timed out", job.ID)
-	case <-done:
-		w.pool.metrics.RecordJobExecution(startTime, err == nil)
-		return result, err
+	default:
+	}
+
+	resultChan := make(chan *Result, 1)
+	go func() {
+		result, err := job.Fn(ctx)
+		resultChan <- &Result{
+			Value: result,
+			Error: err,
+		}
+	}()
+
+	select {
+	case <-ctx.Done():
+		result := <-resultChan
+		w.pool.metrics.RecordJobFailure()
+
+		if result != nil && result.Error != nil {
+			return nil, result.Error
+		}
+
+		return nil, fmt.Errorf("job %s timed out", job.ID)
+
+	case result := <-resultChan:
+		w.pool.metrics.RecordJobExecution(startTime, result.Error == nil)
+		return result.Value, result.Error
 	}
 }
 

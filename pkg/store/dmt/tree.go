@@ -66,6 +66,9 @@ is greater than or equal to the provided key in lexicographical order.
 Returns the value and true if found, or nil and false if no such key exists.
 */
 func (tree *Tree) Seek(key []byte) ([]byte, bool) {
+	tree.mu.RLock()
+	defer tree.mu.RUnlock()
+
 	t := time.Now()
 
 	it := tree.root.Root().Iterator()
@@ -120,6 +123,9 @@ Get retrieves the value associated with the given key.
 Returns the value and true if the key exists, or nil and false if it doesn't.
 */
 func (tree *Tree) Get(key []byte) ([]byte, bool) {
+	tree.mu.RLock()
+	defer tree.mu.RUnlock()
+
 	t := time.Now()
 	v, ok := tree.root.Get(key)
 	tree.perfs.Value = time.Since(t).Nanoseconds()

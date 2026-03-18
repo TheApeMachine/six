@@ -27,6 +27,7 @@ type MerkleTree struct {
 	Root     *MerkleNode
 	leafMap  map[string]*MerkleNode
 	nodeMap  map[string]*MerkleNode
+	parent   map[*MerkleNode]*MerkleNode
 	modified bool
 }
 
@@ -36,6 +37,7 @@ func NewMerkleTree() *MerkleTree {
 		state:   errnie.NewState("dmt/merkle"),
 		leafMap: make(map[string]*MerkleNode),
 		nodeMap: make(map[string]*MerkleNode),
+		parent:  make(map[*MerkleNode]*MerkleNode),
 	}
 }
 
@@ -69,6 +71,10 @@ func (mt *MerkleTree) Rebuild() {
 
 	leaves := make([]*MerkleNode, 0, len(mt.leafMap))
 	keys := make([]string, 0, len(mt.leafMap))
+
+	mt.nodeMap = make(map[string]*MerkleNode, len(mt.leafMap))
+	mt.parent = make(map[*MerkleNode]*MerkleNode, len(mt.leafMap)*2)
+
 	for k := range mt.leafMap {
 		keys = append(keys, k)
 	}
@@ -111,6 +117,10 @@ func (mt *MerkleTree) buildLevel(nodes []*MerkleNode) *MerkleNode {
 		// Store in node map
 		hashHex := hex.EncodeToString(parent.Hash)
 		mt.nodeMap[hashHex] = parent
+		mt.parent[left] = parent
+		if right != nil {
+			mt.parent[right] = parent
+		}
 		parents = append(parents, parent)
 	}
 
@@ -120,6 +130,9 @@ func (mt *MerkleTree) buildLevel(nodes []*MerkleNode) *MerkleNode {
 
 // GetDiff returns the differences between this tree and another
 func (mt *MerkleTree) GetDiff(other *MerkleTree) []DiffEntry {
+	other.mu.RLock()
+	defer other.mu.RUnlock()
+
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
 
@@ -215,6 +228,9 @@ func (mt *MerkleTree) Verify(key, value []byte) bool {
 // Each proof element is prefixed with a position byte:
 // 0x00 = sibling is on the right, 0x01 = sibling is on the left.
 func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
 	keyHex := hex.EncodeToString(key)
 	leaf, exists := mt.leafMap[keyHex]
 
@@ -257,9 +273,20 @@ func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
 // VerifyProof verifies a Merkle proof.
 // Each proof element carries a position prefix byte that determines hash ordering.
 func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	if mt.Root == nil {
+		return false
+	}
+
 	hash := mt.hashKV(key, value)
 
 	for _, entry := range proof {
+		if len(entry) <= 1 {
+			return false
+		}
+
 		position := entry[0]
 		siblingHash := entry[1:]
 
@@ -275,12 +302,7 @@ func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 
 // findParent finds the parent node of a given node
 func (mt *MerkleTree) findParent(node *MerkleNode) *MerkleNode {
-	for _, parent := range mt.nodeMap {
-		if parent.Left == node || parent.Right == node {
-			return parent
-		}
-	}
-	return nil
+	return mt.parent[node]
 }
 
 // hashKV creates a hash of a key-value pair
