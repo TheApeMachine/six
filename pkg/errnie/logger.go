@@ -2,6 +2,7 @@ package errnie
 
 import (
 	"bufio"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -53,11 +54,19 @@ func InitLogger() {
 
 	if os.Getenv("LOGGOROUTINES") == "true" {
 		// Periodic routine to print the number of active goroutines
-		go func() {
-			for range time.Tick(time.Second * 5) {
-				logger.Debug("active goroutines", "count", runtime.NumGoroutine())
+		scheduleBackground("logger/goroutines", func(ctx context.Context) (any, error) {
+			ticker := time.NewTicker(time.Second * 5)
+			defer ticker.Stop()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return nil, nil
+				case <-ticker.C:
+					logger.Debug("active goroutines", "count", runtime.NumGoroutine())
+				}
 			}
-		}()
+		})
 	}
 }
 

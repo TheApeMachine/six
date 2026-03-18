@@ -32,9 +32,7 @@ Generate returns a channel that emits RawTokens for each byte in the corpus.
 Pos resets per sample. Closes when done.
 */
 func (ds *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-	go func() {
-		defer close(out)
+	return provider.AsyncTokens("local-dataset", func(out chan<- provider.RawToken) {
 		for sampleID, data := range ds.corpus {
 			var pos uint32
 			for _, symbol := range data {
@@ -46,8 +44,7 @@ func (ds *Dataset) Generate() chan provider.RawToken {
 				pos++
 			}
 		}
-	}()
-	return out
+	})
 }
 
 func WithStrings(corpus []string) datasetOpts {

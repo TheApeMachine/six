@@ -16,14 +16,15 @@ int resolve_resonance_cuda(
 */
 import "C"
 import (
+	"context"
 	"fmt"
 	"sync"
-	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 //go:generate nvcc -lib resolver.cu -o libresolver.a -std=c++11
@@ -90,10 +91,10 @@ func (backend *CUDABackend) Resolve(
 		return uint64(packed), nil
 	}
 
-	var best atomic.Uint64
-	var wg sync.WaitGroup
-	var errOnce sync.Once
-	var aggregateErr error
+	workerPool := pool.New(context.Background(), 1, backend.deviceCount, &pool.Config{})
+	defer workerPool.Close()
+
+	resultChans := make([]chan *pool.Result, 0, backend.deviceCount)
 
 	chunkSize := (numNodes + backend.deviceCount - 1) / backend.deviceCount
 	stride := unsafe.Sizeof(geometry.GFRotation{})
@@ -108,46 +109,50 @@ func (backend *CUDABackend) Resolve(
 			end = numNodes
 		}
 
-		wg.Add(1)
-		go func(deviceID, offset, length int) {
-			defer wg.Done()
+		deviceID := dev
+		offset := start
+		length := end - start
+		resultChans = append(resultChans, workerPool.Schedule(
+			fmt.Sprintf("cuda-resolve-%d-%d", deviceID, offset),
+			func(ctx context.Context) (any, error) {
+				shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(offset)*stride)
 
-			shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(offset)*stride)
-
-			var packed C.uint64_t
-			status := C.resolve_resonance_cuda(
-				C.int(deviceID),
-				shardPtr,
-				C.uint32_t(length),
-				context,
-				&packed,
-			)
-			if status != 0 {
-				errOnce.Do(func() {
-					aggregateErr = CUDAErrorResolveFailed
-				})
-				return
-			}
-
-			rebased := numeric.RebasePackedID(uint64(packed), offset)
-			for {
-				current := best.Load()
-				if rebased <= current {
-					break
+				var packed C.uint64_t
+				status := C.resolve_resonance_cuda(
+					C.int(deviceID),
+					shardPtr,
+					C.uint32_t(length),
+					context,
+					&packed,
+				)
+				if status != 0 {
+					return uint64(0), CUDAErrorResolveFailed
 				}
-				if best.CompareAndSwap(current, rebased) {
-					break
-				}
-			}
-		}(dev, start, end-start)
+
+				return numeric.RebasePackedID(uint64(packed), offset), nil
+			},
+		))
 	}
 
-	wg.Wait()
-	if aggregateErr != nil {
-		return 0, aggregateErr
+	var best uint64
+
+	for _, resultCh := range resultChans {
+		result := <-resultCh
+		if result.Error != nil {
+			return 0, result.Error
+		}
+
+		rebased, ok := result.Value.(uint64)
+		if !ok {
+			return 0, CUDAErrorResolveFailed
+		}
+
+		if rebased > best {
+			best = rebased
+		}
 	}
 
-	return best.Load(), nil
+	return best, nil
 }
 
 type CUDAError string

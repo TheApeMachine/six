@@ -31,12 +31,9 @@ func NewSyntheticDataset(sampleSize, maxSamples int, seed int64) *SyntheticDatas
 Generate emits RawTokens for all samples. Printable ASCII (0x20-0x7E).
 */
 func (ds *SyntheticDataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
 	rng := rand.New(rand.NewSource(ds.seed))
 
-	go func() {
-		defer close(out)
-
+	return provider.AsyncTokens("synthetic-dataset", func(out chan<- provider.RawToken) {
 		for sampleID := 0; sampleID < ds.maxSamples; sampleID++ {
 			for pos := 0; pos < ds.sampleSize; pos++ {
 				b := byte(0x20 + rng.Intn(95))
@@ -47,7 +44,5 @@ func (ds *SyntheticDataset) Generate() chan provider.RawToken {
 				}
 			}
 		}
-	}()
-
-	return out
+	})
 }
