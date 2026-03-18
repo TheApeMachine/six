@@ -206,6 +206,8 @@ func StorageValue(symbol byte, observable Value) Value {
 		}
 	}
 
+	// Project carry % FermatPrime back into the value as a compact phase marker so
+	// downstream consumers can recover phase/state while preserving cleared seed bits.
 	if carry := observable.ResidualCarry(); carry > 0 {
 		phase := numeric.Phase(carry % uint64(numeric.FermatPrime))
 		if phase > 0 {

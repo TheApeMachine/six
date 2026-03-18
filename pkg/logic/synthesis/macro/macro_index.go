@@ -18,33 +18,30 @@ const (
 )
 
 /*
-AffineKey indexes macro-opcodes by their geometric
-affine signature. The pair (Scale, Translate) lives
-in GF(257) × GF(257), yielding ~66K distinct keys.
+AffineKey indexes macro-opcodes by their full 5-sparse geometric
+affine signature. It encapsulates the complete 8.8-billion-state
+space of the GF(257) values rather than downcasting to scalars.
 */
-type AffineKey struct {
-	Scale     uint16
-	Translate uint16
-}
+type AffineKey [8]uint64
 
 /*
-AffineKeyFromValues computes the geometric affine
-signature of the delta between two values. The XOR
-captures the structural difference; RotationSeed
-projects it into the (Scale, Translate) plane.
+AffineKeyFromValues computes the exact geometric signature of
+the delta between two values. By capturing all 512 bits (8 blocks),
+we eliminate catastrophic phase aliasing in the MacroIndex.
 */
 func AffineKeyFromValues(start, goal data.Value) AffineKey {
 	delta := start.XOR(goal)
-	scale, translate := delta.RotationSeed()
-
-	return AffineKey{Scale: scale, Translate: translate}
+	return AffineKey{
+		delta.Block(0), delta.Block(1), delta.Block(2), delta.Block(3),
+		delta.Block(4), delta.Block(5), delta.Block(6), delta.Block(7),
+	}
 }
 
 /*
 String formats the key for path signatures and diagnostics.
 */
 func (key AffineKey) String() string {
-	return fmt.Sprintf("%d:%d", key.Scale, key.Translate)
+	return fmt.Sprintf("%016x:%016x...%016x", key[0], key[1], key[7])
 }
 
 /*
@@ -233,10 +230,26 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 		return
 	}
 
+	delta := data.MustNewValue()
+	for i, block := range key {
+		// Replace C0..C7 calls with setBlock loop if we had it exported, but Since setBlock is unexported, we must use the exported methods.
+		switch i {
+		case 0: delta.SetC0(block)
+		case 1: delta.SetC1(block)
+		case 2: delta.SetC2(block)
+		case 3: delta.SetC3(block)
+		case 4: delta.SetC4(block)
+		case 5: delta.SetC5(block)
+		case 6: delta.SetC6(block)
+		case 7: delta.SetC7(block)
+		}
+	}
+	scale, translate := delta.RotationSeed()
+
 	idx.opcodes[key] = &MacroOpcode{
 		Key:       key,
-		Scale:     numeric.Phase(key.Scale),
-		Translate: numeric.Phase(key.Translate),
+		Scale:     numeric.Phase(scale),
+		Translate: numeric.Phase(translate),
 		UseCount:  1,
 		Hardened:  false,
 	}

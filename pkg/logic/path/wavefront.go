@@ -464,7 +464,7 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 		return nil, false, nil
 	}
 
-	s := errnie.Guard(wavefront.state, func() ([][]*macro.MacroOpcode, error) {
+	bridgeCandidates := errnie.Guard(wavefront.state, func() ([][]*macro.MacroOpcode, error) {
 		candidates, err := wavefront.fe.ResolveCandidates(
 			sourceValue,
 			targetValue,
@@ -489,14 +489,14 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 		return nil, false, wavefront.state.Err()
 	}
 
-	if len(s) == 0 {
+	if len(bridgeCandidates) == 0 {
 		return nil, false, nil
 	}
 
 	bestHead := (*WavefrontHead)(nil)
 	bestDepth := 0
 
-	for _, opcode := range s {
+	for _, opcode := range bridgeCandidates {
 		candidate := head.clone()
 		bridgeValues, bridgeMeta, _, bridgePenalty := wavefront.synthesizeBridge(candidate.phase, opcode)
 		if len(bridgeValues) == 0 {

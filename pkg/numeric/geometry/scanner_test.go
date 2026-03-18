@@ -10,7 +10,7 @@ import (
 )
 
 func TestPhaseDialScanner(t *testing.T) {
-	gc.Convey("Given a PhaseDialScanner attached to a populated	ForestServer", t, func() {
+	gc.Convey("Given a PhaseDialScanner attached to a populated ForestServer", t, func() {
 		scanner := NewPhaseDialScanner(server.NewForestServer())
 
 		// Insert distinct value sequences at different positions.

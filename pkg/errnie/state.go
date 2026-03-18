@@ -38,7 +38,7 @@ work reschedules to another node, recovery restores this node.
 	)
 */
 type State struct {
-	err       error
+	err       atomic.Pointer[error]
 	context   string
 	recovery  func(*State)
 	healing   atomic.Bool
@@ -75,9 +75,10 @@ func (state *State) Handle(err error) {
 	wrapped := fmt.Errorf("%s: %w", state.context, err)
 	Error(wrapped)
 
-	if state.err == nil {
-		state.err = wrapped
+	errPtr := new(error)
+	*errPtr = wrapped
 
+	if state.err.CompareAndSwap(nil, errPtr) {
 		if state.cancel != nil {
 			state.cancel()
 		}
@@ -95,14 +96,19 @@ func (state *State) Handle(err error) {
 Failed reports whether the state has recorded an error.
 */
 func (state *State) Failed() bool {
-	return state.err != nil
+	return state.err.Load() != nil
 }
 
 /*
 Err returns the first recorded error, or nil if the state is clean.
 */
 func (state *State) Err() error {
-	return state.err
+	p := state.err.Load()
+	if p == nil {
+		return nil
+	}
+
+	return *p
 }
 
 /*
@@ -110,7 +116,7 @@ Reset clears the error state for a new call scope. Does not affect
 the recovery goroutine — use Heal for that.
 */
 func (state *State) Reset() {
-	state.err = nil
+	state.err.Store(nil)
 }
 
 /*
@@ -119,7 +125,7 @@ the recovery function to be triggered again on a future error. Called
 by the recovery function when the object has been successfully restored.
 */
 func (state *State) Heal() {
-	state.err = nil
+	state.err.Store(nil)
 	state.healing.Store(false)
 
 	if state.parentCtx != nil {

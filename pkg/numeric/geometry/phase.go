@@ -93,6 +93,11 @@ func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface 
 
 	nBasis := config.Numeric.NBasis
 
+	/*
+		scheduledDimension pairs a dimension index with a result channel for
+		asynchronous pool tasks. ch receives *pool.Result values; dimension is the
+		associated dimension index for logging and scheduling.
+	*/
 	type scheduledDimension struct {
 		ch        chan *pool.Result
 		dimension int
@@ -125,9 +130,9 @@ func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface 
 	}
 
 	for _, scheduled := range waiting {
-		res := <-scheduled.ch
-		if res != nil && res.Error != nil {
-			_ = console.Error(res.Error, "dimension", scheduled.dimension)
+		result := <-scheduled.ch
+		if result != nil && result.Error != nil {
+			_ = console.Error(result.Error, "dimension", scheduled.dimension)
 		}
 	}
 

@@ -256,8 +256,8 @@ func TestValueLCM(t *testing.T) {
 
 	Convey("Given a slice of values", t, func() {
 		So(err, ShouldBeNil)
-		Convey("When ValueLCM is called", func() {
-			lcm := ValueLCM(values)
+		Convey("When LCM is called", func() {
+			lcm := Value{}.LCM(values)
 
 			Convey("It should contain all bits from each value", func() {
 				for _, ch := range values {
@@ -274,8 +274,8 @@ func TestValueLCM(t *testing.T) {
 			})
 		})
 
-		Convey("When ValueLCM is called on empty slice", func() {
-			lcm := ValueLCM(nil)
+		Convey("When LCM is called on empty slice", func() {
+			lcm := Value{}.LCM(nil)
 
 			Convey("It should return zero value", func() {
 				So(lcm.ActiveCount(), ShouldEqual, 0)
@@ -541,7 +541,7 @@ func BenchmarkValueLCM(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = ValueLCM(values)
+		_ = Value{}.LCM(values)
 	}
 }
 

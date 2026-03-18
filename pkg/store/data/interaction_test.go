@@ -60,6 +60,7 @@ func TestValueSuperpositionAndQuery(t *testing.T) {
 					gc.So(isMember, gc.ShouldBeTrue)
 					correctMember++
 				} else {
+					gc.So(isMember, gc.ShouldBeFalse)
 					correctNonMember++
 				}
 			}
@@ -179,15 +180,16 @@ func TestValueOrbitResonance(t *testing.T) {
 			gc.So(maxSim, gc.ShouldBeGreaterThan, 0)
 		})
 
-		gc.Convey("Self-orbit similarity is always perfect (same seed, same step)", func() {
-			valA1 := seedA
-			valA2 := seedA
+		gc.Convey("It should show nontrivial orbit progression (each step differs, no repeats in 50 steps)", func() {
+			orbit := []Value{seedA}
 
 			for range 50 {
-				valA1 = valA1.Rotate3D()
-				valA2 = valA2.Rotate3D()
-
-				gc.So(valA1.XOR(valA2).ActiveCount(), gc.ShouldEqual, 0)
+				next := orbit[len(orbit)-1].Rotate3D()
+				gc.So(orbit[len(orbit)-1].XOR(next).ActiveCount(), gc.ShouldBeGreaterThan, 0)
+				for _, prev := range orbit {
+					gc.So(prev.XOR(next).ActiveCount(), gc.ShouldBeGreaterThan, 0)
+				}
+				orbit = append(orbit, next)
 			}
 		})
 	})

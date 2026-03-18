@@ -139,7 +139,7 @@ func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_brid
 	goalValue := data.BaseValue(byte(args.Goal() % 256))
 	goalValue.SetStatePhase(numeric.Phase(args.Goal()))
 
-	key, opcode, err := server.BridgeValues(startValue, goalValue)
+	_, opcode, err := server.BridgeValues(startValue, goalValue)
 	if err != nil {
 		return err
 	}
@@ -149,9 +149,8 @@ func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_brid
 		return err
 	}
 
-	res.SetRotation(uint32(key.Scale))
-
 	if opcode != nil {
+		res.SetRotation(uint32(opcode.Scale))
 		res.SetHardened(opcode.Hardened)
 	}
 
@@ -164,15 +163,23 @@ Computes the geometric AffineKey delta and looks up or records the
 corresponding opcode in the MacroIndex. This is the sole solver
 operating on the full 8.8 billion state space.
 */
-func (server *CantileverServer) BridgeValues(startValue, goalValue data.Value) (macro.AffineKey, *macro.MacroOpcode, error) {
+func (server *CantileverServer) BridgeValues(
+	startValue, goalValue data.Value,
+) (macro.AffineKey, *macro.MacroOpcode, error) {
+
 	if startValue.ActiveCount() == 0 || goalValue.ActiveCount() == 0 {
-		return macro.AffineKey{}, nil, fmt.Errorf("cantilever boundaries cannot have empty values")
+		return macro.AffineKey{}, nil, fmt.Errorf(
+			"cantilever boundaries cannot have empty values",
+		)
 	}
 
 	if startValue.CoreActiveCount() == goalValue.CoreActiveCount() {
 		delta := startValue.XOR(goalValue)
+
 		if delta.CoreActiveCount() == 0 {
-			return macro.AffineKey{}, nil, fmt.Errorf("start and goal values identical, bridge span length is 0")
+			return macro.AffineKey{}, nil, fmt.Errorf(
+				"start and goal values identical, bridge span length is 0",
+			)
 		}
 	}
 

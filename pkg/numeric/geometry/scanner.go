@@ -72,8 +72,8 @@ type HopResult struct {
 }
 
 /*
-NewPhaseDialScanner creates a scanner attached to a live SpatialIndexServer.
-The scanner lazily builds and caches PhaseDials on first access.
+NewPhaseDialScanner creates a scanner attached to a *server.ForestServer.
+It eagerly builds and caches PhaseDials by calling buildCache during construction.
 */
 func NewPhaseDialScanner(substrate *server.ForestServer) *PhaseDialScanner {
 	scanner := &PhaseDialScanner{
@@ -102,7 +102,7 @@ func (scanner *PhaseDialScanner) buildCache() {
 	}
 
 	forest.Iterate(func(keyBytes []byte, _ []byte) bool {
-		if len(keyBytes) < 8 {
+		if len(keyBytes) != 8 {
 			return true
 		}
 

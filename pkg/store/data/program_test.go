@@ -117,6 +117,16 @@ func TestCompileObservableSequenceValues(t *testing.T) {
 	})
 }
 
+func genBenchKeys(n int) []uint64 {
+	coder := NewMortonCoder()
+	keys := make([]uint64, n)
+	for i := range n {
+		keys[i] = coder.Pack(uint32(i%16), byte('a'+i%26))
+	}
+
+	return keys
+}
+
 func BenchmarkCompileSequenceCells(b *testing.B) {
 	coder := NewMortonCoder()
 	keys := []uint64{
@@ -125,6 +135,27 @@ func BenchmarkCompileSequenceCells(b *testing.B) {
 		coder.Pack(0, 'a'),
 	}
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		CompileSequenceCells(keys)
+	}
+}
+
+func BenchmarkCompileSequenceCells_1k(b *testing.B) {
+	keys := genBenchKeys(1000)
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		CompileSequenceCells(keys)
+	}
+}
+
+func BenchmarkCompileSequenceCells_10k(b *testing.B) {
+	keys := genBenchKeys(10_000)
+	b.ResetTimer()
+	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
 		CompileSequenceCells(keys)
@@ -139,6 +170,27 @@ func BenchmarkCompileObservableSequenceValues(b *testing.B) {
 		coder.Pack(0, 'a'),
 	}
 	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		CompileObservableSequenceValues(keys)
+	}
+}
+
+func BenchmarkCompileObservableSequenceValues_1k(b *testing.B) {
+	keys := genBenchKeys(1000)
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		CompileObservableSequenceValues(keys)
+	}
+}
+
+func BenchmarkCompileObservableSequenceValues_10k(b *testing.B) {
+	keys := genBenchKeys(10_000)
+	b.ResetTimer()
+	b.ReportAllocs()
 
 	for i := 0; i < b.N; i++ {
 		CompileObservableSequenceValues(keys)

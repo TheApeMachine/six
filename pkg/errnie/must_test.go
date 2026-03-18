@@ -286,3 +286,25 @@ func TestSafeMustVoidWithHandler(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkSafeMustWithHandler(b *testing.B) {
+	err := errors.New("error")
+	fn := func() (int, error) { return 0, err }
+	handler := func(error) {}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		SafeMust(fn, handler)
+	}
+}
+
+func BenchmarkSafeMustVoidWithHandler(b *testing.B) {
+	err := errors.New("error")
+	fn := func() error { return err }
+	handler := func(error) {}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		SafeMustVoid(fn, handler)
+	}
+}

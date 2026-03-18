@@ -57,13 +57,23 @@ func (node *ASTNode) Walk(prompt data.Value) (matched *ASTNode, leafKeys []uint6
 Collect gathers all Morton keys reachable from this node downward.
 */
 func (node *ASTNode) Collect() []uint64 {
-	keys := append([]uint64(nil), node.Keys...)
+	childResults := make([][]uint64, 0, len(node.Children))
+	totalLen := len(node.Keys)
 
 	for _, child := range node.Children {
-		keys = append(keys, child.Collect()...)
+		chunk := child.Collect()
+		childResults = append(childResults, chunk)
+		totalLen += len(chunk)
 	}
 
-	return keys
+	result := make([]uint64, 0, totalLen)
+	result = append(result, node.Keys...)
+
+	for _, chunk := range childResults {
+		result = append(result, chunk...)
+	}
+
+	return result
 }
 
 func extractSharedInvariant(sequences [][]data.Value) data.Value {

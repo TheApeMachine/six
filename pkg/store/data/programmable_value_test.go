@@ -42,9 +42,8 @@ func TestValueGeneratorDeterminism(t *testing.T) {
 			val := seed
 			originalBits := seed.ActiveCount()
 
-			for step := range 50 {
+			for range 50 {
 				gc.So(val.ActiveCount(), gc.ShouldEqual, originalBits)
-				_ = step
 				val = val.Rotate3D()
 			}
 		})

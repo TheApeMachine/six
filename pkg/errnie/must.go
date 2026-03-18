@@ -78,7 +78,7 @@ func SafeMust[T any](fn func() (T, error), handlers ...func(error)) T {
 
 	defer func() {
 		if r := recover(); r != nil {
-			recovered := recoverToError(r)
+			recovered := defaultSafeGuard.recoverToError(r)
 
 			for _, handler := range handlers {
 				handler(recovered)
@@ -91,14 +91,6 @@ func SafeMust[T any](fn func() (T, error), handlers ...func(error)) T {
 	}()
 
 	if value, err = fn(); err != nil && err != io.EOF {
-		for _, handler := range handlers {
-			handler(err)
-		}
-
-		if len(handlers) == 0 {
-			ErrorSafe(err, false)
-		}
-
 		panic(err)
 	}
 
@@ -125,7 +117,7 @@ func SafeMustVoid(fn func() error, handlers ...func(error)) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			recovered := recoverToError(r)
+			recovered := defaultSafeGuard.recoverToError(r)
 
 			for _, handler := range handlers {
 				handler(recovered)
@@ -140,6 +132,23 @@ func SafeMustVoid(fn func() error, handlers ...func(error)) {
 	MustVoid(fn())
 }
 
+var defaultSafeGuard SafeGuard
+
+/*
+SafeGuard encapsulates recover-and-dispatch behavior. recoverToError is the
+unexported receiver method; SafeMust2 and SafeMust3 remain package-level
+functions because Go does not support type parameters on methods.
+*/
+type SafeGuard struct{}
+
+func (guard *SafeGuard) recoverToError(r any) error {
+	if err, ok := r.(error); ok {
+		return err
+	}
+
+	return fmt.Errorf("%v", r)
+}
+
 /*
 SafeMust2 wraps a function call returning two values and an error.
 */
@@ -152,7 +161,7 @@ func SafeMust2[T any, U any](fn func() (T, U, error), handlers ...func(error)) (
 
 	defer func() {
 		if r := recover(); r != nil {
-			recovered := recoverToError(r)
+			recovered := defaultSafeGuard.recoverToError(r)
 
 			for _, handler := range handlers {
 				handler(recovered)
@@ -165,14 +174,6 @@ func SafeMust2[T any, U any](fn func() (T, U, error), handlers ...func(error)) (
 	}()
 
 	if v1, v2, err = fn(); err != nil && err != io.EOF {
-		for _, handler := range handlers {
-			handler(err)
-		}
-
-		if len(handlers) == 0 {
-			ErrorSafe(err, false)
-		}
-
 		panic(err)
 	}
 
@@ -192,7 +193,7 @@ func SafeMust3[T any, U any, V any](fn func() (T, U, V, error), handlers ...func
 
 	defer func() {
 		if r := recover(); r != nil {
-			recovered := recoverToError(r)
+			recovered := defaultSafeGuard.recoverToError(r)
 
 			for _, handler := range handlers {
 				handler(recovered)
@@ -205,27 +206,8 @@ func SafeMust3[T any, U any, V any](fn func() (T, U, V, error), handlers ...func
 	}()
 
 	if v1, v2, v3, err = fn(); err != nil && err != io.EOF {
-		for _, handler := range handlers {
-			handler(err)
-		}
-
-		if len(handlers) == 0 {
-			ErrorSafe(err, false)
-		}
-
 		panic(err)
 	}
 
 	return v1, v2, v3
-}
-
-/*
-recoverToError converts a recover() value into a proper error.
-*/
-func recoverToError(r any) error {
-	if err, ok := r.(error); ok {
-		return err
-	}
-
-	return fmt.Errorf("%v", r)
 }

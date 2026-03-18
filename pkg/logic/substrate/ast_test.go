@@ -19,8 +19,8 @@ func mustBuildValue(t *testing.T, input []byte) data.Value {
 /*
 valueEqual returns true when two Values are bitwise identical (XOR == 0).
 */
-func valueEqual(a, b data.Value) bool {
-	return a.XOR(b).ActiveCount() == 0
+func valueEqual(left, right data.Value) bool {
+	return left.XOR(right).ActiveCount() == 0
 }
 
 func TestExtractSharedInvariant(t *testing.T) {

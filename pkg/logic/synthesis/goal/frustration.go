@@ -77,14 +77,14 @@ func NewFrustrationEngineServer(opts ...feOpts) *FrustrationEngineServer {
 /*
 Client returns a Cap'n Proto client connected to this FrustrationEngineServer.
 */
-func (server *FrustrationEngineServer) Client(clientID string) Frustration {
+func (server *FrustrationEngineServer) Client(clientID string) *Frustration {
 	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
 		server.clientSide,
 	), &rpc.Options{
 		BootstrapClient: capnp.Client(server.client),
 	})
 
-	return server.client
+	return &server.client
 }
 
 /*
@@ -183,7 +183,7 @@ func (fe *FrustrationEngineServer) availableHardenedSorted() []*macro.MacroOpcod
 		if tools[i].UseCount != tools[j].UseCount {
 			return tools[i].UseCount > tools[j].UseCount
 		}
-		return tools[i].Key.Scale < tools[j].Key.Scale
+		return tools[i].Scale < tools[j].Scale
 	})
 	return tools
 }

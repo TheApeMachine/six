@@ -58,14 +58,15 @@ func (value *Value) ANDErr(other Value) (Value, error) {
 		return Value{}, state.Err()
 	}
 
+	coreMask4 := uint64(1)
 	gcd.setBlock(0, value.block(0)&other.block(0))
 	gcd.setBlock(1, value.block(1)&other.block(1))
 	gcd.setBlock(2, value.block(2)&other.block(2))
 	gcd.setBlock(3, value.block(3)&other.block(3))
-	gcd.setBlock(4, value.block(4)&other.block(4))
-	gcd.setBlock(5, value.block(5)&other.block(5))
-	gcd.setBlock(6, value.block(6)&other.block(6))
-	gcd.setBlock(7, value.block(7)&other.block(7))
+	gcd.setBlock(4, (value.block(4)&other.block(4))&coreMask4)
+	gcd.setBlock(5, 0)
+	gcd.setBlock(6, 0)
+	gcd.setBlock(7, 0)
 
 	return gcd, nil
 }
@@ -140,9 +141,11 @@ func (value *Value) Bin() int {
 }
 
 /*
-Similarity returns the number of shared prime exponents (popcount of AND).
+Similarity returns the number of shared prime exponents in the 257-bit core only.
+Shell bits (upper 63 bits of block 4 and blocks 5–7) are excluded.
 */
 func (value *Value) Similarity(other Value) int {
+	coreMask4 := uint64(1)
 	return bits.OnesCount64(
 		value.C0()&other.C0(),
 	) + bits.OnesCount64(
@@ -152,13 +155,7 @@ func (value *Value) Similarity(other Value) int {
 	) + bits.OnesCount64(
 		value.C3()&other.C3(),
 	) + bits.OnesCount64(
-		value.C4()&other.C4(),
-	) + bits.OnesCount64(
-		value.C5()&other.C5(),
-	) + bits.OnesCount64(
-		value.C6()&other.C6(),
-	) + bits.OnesCount64(
-		value.C7()&other.C7(),
+		(value.C4()&other.C4())&coreMask4,
 	)
 }
 
@@ -180,11 +177,11 @@ func (value *Value) Hole(other Value) Value {
 }
 
 /*
-ValueLCM returns the element-wise OR of values — the LCM in prime exponent space.
+LCM returns the element-wise OR of values — the LCM in prime exponent space.
 Used for aggregating span values (words, sentences, n-grams).
 */
-func ValueLCM(values []Value) (lcm Value) {
-	lcm = MustNewValue()
+func (value Value) LCM(values []Value) Value {
+	lcm := MustNewValue()
 
 	var c0, c1, c2, c3, c4 uint64
 

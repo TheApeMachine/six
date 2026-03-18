@@ -7,3 +7,7 @@ thoughts/ledgers/CONTINUITY_ses_33cd.md
 thoughts/ledgers/CONTINUITY_ses_33d3.md
 *.json
 *.pprofrepo.txt
+.kiro/specs/programmable-value-language/.config.kiro
+.kiro/specs/programmable-value-language/design.md
+.kiro/specs/programmable-value-language/requirements.md
+.kiro/specs/programmable-value-language/tasks.md

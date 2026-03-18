@@ -30,6 +30,14 @@ func errnieBackgroundPool() *pool.Pool {
 	return backgroundPool
 }
 
+/*
+scheduleBackground enqueues a background job on errnieBackgroundPool with a unique
+name using backgroundJobSeq. It passes a non-cancellable context via
+pool.WithContext(context.Background()) and sets a 1s result TTL via pool.WithTTL.
+The TTL controls job/result lifecycle in the pool, not goroutine preemption.
+Any execution timeout must be handled cooperatively inside fn using its own
+cancellable context if needed.
+*/
 func scheduleBackground(
 	id string,
 	fn func(context.Context) (any, error),

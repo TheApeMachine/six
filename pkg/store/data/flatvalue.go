@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/bits"
+	"time"
 
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -67,7 +68,7 @@ func FlattenBatched(values []Value, p *pool.Pool) []FlatValue {
 
 	for i := range values {
 		idx := i
-		resCh := p.Schedule(fmt.Sprintf("flatten-%d", idx), func(ctx context.Context) (any, error) {
+		resCh := p.Schedule(fmt.Sprintf("flatten-%d", idx), func(_ context.Context) (any, error) {
 			out[idx] = values[idx].Flatten()
 			return nil, nil
 		})
@@ -80,8 +81,15 @@ func FlattenBatched(values []Value, p *pool.Pool) []FlatValue {
 		resChs = append(resChs, resCh)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	for _, ch := range resChs {
-		<-ch
+		select {
+		case <-ch:
+		case <-ctx.Done():
+			return out
+		}
 	}
 
 	return out
