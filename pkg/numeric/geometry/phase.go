@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"math/cmplx"
-	"sync"
 
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
@@ -94,7 +93,12 @@ func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface 
 
 	nBasis := config.Numeric.NBasis
 
-	var wg sync.WaitGroup
+	type scheduledDimension struct {
+		ch        chan *pool.Result
+		dimension int
+	}
+
+	waiting := make([]scheduledDimension, 0, nBasis)
 
 	for k := range nBasis {
 		kk := k
@@ -114,17 +118,19 @@ func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface 
 			continue
 		}
 
-		wg.Add(1)
-		go func(ch chan *pool.Result, dimension int) {
-			defer wg.Done()
-			res := <-ch
-			if res != nil && res.Error != nil {
-				_ = console.Error(res.Error, "dimension", dimension)
-			}
-		}(resCh, kk)
+		waiting = append(waiting, scheduledDimension{
+			ch:        resCh,
+			dimension: kk,
+		})
 	}
 
-	wg.Wait()
+	for _, scheduled := range waiting {
+		res := <-scheduled.ch
+		if res != nil && res.Error != nil {
+			_ = console.Error(res.Error, "dimension", scheduled.dimension)
+		}
+	}
+
 	return dial.normalize()
 }
 

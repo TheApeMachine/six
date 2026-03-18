@@ -83,7 +83,10 @@ func (state *State) Handle(err error) {
 		}
 
 		if state.recovery != nil && state.healing.CompareAndSwap(false, true) {
-			go state.recovery(state)
+			scheduleBackground("state/recovery", func(ctx context.Context) (any, error) {
+				state.recovery(state)
+				return nil, nil
+			})
 		}
 	}
 }

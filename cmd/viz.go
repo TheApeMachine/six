@@ -1,12 +1,15 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"runtime"
 
 	"github.com/spf13/cobra"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/visualizer"
 )
 
@@ -21,6 +24,13 @@ By default runs the Alice demo. Use --listen to start in listener mode,
 which receives real telemetry from the running system via UDP.`,
 	Run: func(cmd *cobra.Command, args []string) {
 		server := visualizer.NewServer()
+		workerPool := pool.New(
+			cmd.Context(),
+			1,
+			runtime.NumCPU(),
+			&pool.Config{},
+		)
+		defer workerPool.Close()
 
 		mode := "demo"
 		if vizListen {
@@ -30,12 +40,16 @@ which receives real telemetry from the running system via UDP.`,
 		fmt.Printf("Visualizer running at http://localhost:8257 [%s]\n", mode)
 		fmt.Println("Open in browser to see the 3D value space")
 
-		go func() {
-			if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
-				console.Error(err, "msg", "Server error")
-				os.Exit(1)
-			}
-		}()
+		workerPool.Schedule(
+			"cmd/viz/listen-and-serve",
+			func(ctx context.Context) (any, error) {
+				if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
+					console.Error(err, "msg", "Server error")
+					os.Exit(1)
+				}
+				return nil, nil
+			},
+		)
 
 		if !vizListen {
 			dataset := local.New(local.WithBytes(Alice))
@@ -44,6 +58,7 @@ which receives real telemetry from the running system via UDP.`,
 				dataset,
 			); err != nil && cmd.Context().Err() == nil {
 				console.Error(err, "msg", "Demo error")
+				return
 			}
 		} else {
 			<-cmd.Context().Done()

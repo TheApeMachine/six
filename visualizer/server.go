@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -23,6 +25,7 @@ type Server struct {
 	upgrade websocket.Upgrader
 	httpSrv *http.Server
 	udpConn *net.UDPConn
+	pool    *pool.Pool
 }
 
 /*
@@ -35,6 +38,12 @@ func NewServer() *Server {
 		upgrade: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
+		pool: pool.New(
+			context.Background(),
+			1,
+			runtime.NumCPU(),
+			&pool.Config{},
+		),
 	}
 }
 
@@ -76,9 +85,14 @@ func (server *Server) listenUDP() error {
 ListenAndServe starts the HTTP server on the given address.
 */
 func (server *Server) ListenAndServe(addr string) error {
-	go func() {
-		errnie.GuardVoid(server.state, server.listenUDP)
-	}()
+	server.pool.Schedule(
+		"visualizer/server/listen-udp",
+		func(ctx context.Context) (any, error) {
+			errnie.GuardVoid(server.state, server.listenUDP)
+			return nil, server.state.Err()
+		},
+		pool.WithTTL(time.Second),
+	)
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("visualizer/static")))
@@ -102,6 +116,10 @@ func (server *Server) Shutdown() {
 		defer cancel()
 
 		server.httpSrv.Shutdown(shutdownCtx)
+	}
+
+	if server.pool != nil {
+		server.pool.Close()
 	}
 }
 

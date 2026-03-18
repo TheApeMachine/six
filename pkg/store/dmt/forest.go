@@ -26,6 +26,7 @@ type Forest struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	pool   *pool.Pool
+	loops  *pool.Pool
 	owned  bool
 	// Network node for distributed operation
 	network *NetworkNode
@@ -55,6 +56,12 @@ func NewForest(config ForestConfig) (*Forest, error) {
 		ctx:     ctx,
 		cancel:  cancel,
 		pool:    config.Pool,
+		loops: pool.New(
+			ctx,
+			4,
+			max(4, runtime.NumCPU()),
+			&pool.Config{},
+		),
 	}
 
 	if forest.pool == nil {
@@ -76,7 +83,10 @@ func NewForest(config ForestConfig) (*Forest, error) {
 		})
 	}
 
-	go forest.syncLoop()
+	forest.schedule("sync-loop", func(ctx context.Context) (any, error) {
+		forest.syncLoop()
+		return nil, nil
+	})
 
 	return forest, forest.state.Err()
 }
@@ -104,6 +114,10 @@ func (forest *Forest) Close() error {
 		forest.pool.Close()
 	}
 
+	if forest.loops != nil {
+		forest.loops.Close()
+	}
+
 	return forest.state.Err()
 }
 
@@ -118,6 +132,18 @@ func (forest *Forest) schedule(
 		"dmt/forest/"+id,
 		fn,
 		pool.WithContext(forest.ctx),
+	)
+}
+
+func (forest *Forest) scheduleLoop(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	forest.loops.Schedule(
+		"dmt/forest/"+id,
+		fn,
+		pool.WithContext(forest.ctx),
+		pool.WithTTL(time.Second),
 	)
 }
 

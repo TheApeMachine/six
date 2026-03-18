@@ -55,11 +55,7 @@ Generate returns a channel that emits RawTokens for each byte of Full across all
 Closes when done. Loads and parses the bAbI shard on first use.
 */
 func (dataset *BabiQADataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-
-	go func() {
-		defer close(out)
-
+	return provider.AsyncTokens("huggingface-babi", func(out chan<- provider.RawToken) {
 		samples, err := dataset.Samples()
 		if err != nil {
 			console.Error(err, "repo", dataset.base.repo, "subset", dataset.base.subset)
@@ -75,9 +71,7 @@ func (dataset *BabiQADataset) Generate() chan provider.RawToken {
 				}
 			}
 		}
-	}()
-
-	return out
+	})
 }
 
 /*

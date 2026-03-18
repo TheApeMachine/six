@@ -283,9 +283,7 @@ type multiDataset struct {
 }
 
 func (md *multiDataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-	go func() {
-		defer close(out)
+	return provider.AsyncTokens("codegen-multi-dataset", func(out chan<- provider.RawToken) {
 		for idx, ds := range md.datasets {
 			for tok := range ds.Generate() {
 				// Upper 8 bits: language index (0–255). Lower 24 bits: per-language SampleID (0–16,777,215).
@@ -297,8 +295,7 @@ func (md *multiDataset) Generate() chan provider.RawToken {
 				out <- tok
 			}
 		}
-	}()
-	return out
+	})
 }
 
 func (md *multiDataset) LangForSampleID(id uint32) string {
