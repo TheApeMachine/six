@@ -27,6 +27,7 @@ capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/bvp/cantilever.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/goal/frustration.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/macro/macro_index.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/program.capnp
 
 build: capnp
 	cd pkg/compute/kernel/metal \

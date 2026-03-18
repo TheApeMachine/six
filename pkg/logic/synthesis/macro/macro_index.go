@@ -256,6 +256,20 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 }
 
 /*
+StoreOpcode inserts a pre-built MacroOpcode directly into the index.
+The opcode's Key, Scale, Translate, UseCount, and Hardened fields are
+stored as-is. This is used when the caller has already computed the
+correct affine operator and wants to register it without going through
+the RotationSeed derivation path.
+*/
+func (idx *MacroIndexServer) StoreOpcode(opcode *MacroOpcode) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	idx.opcodes[opcode.Key] = opcode
+}
+
+/*
 GarbageCollect prunes inefficient tools (not Hardened and low use) from the Index.
 */
 func (idx *MacroIndexServer) GarbageCollect() int {

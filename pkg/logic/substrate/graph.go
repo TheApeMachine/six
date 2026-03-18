@@ -58,6 +58,17 @@ func NewGraphServer(opts ...GraphOpt) *GraphServer {
 		opt(graph)
 	}
 
+	errnie.GuardVoid(graph.state, func() error {
+		return validate.Require(map[string]any{
+			"ctx":        graph.ctx,
+			"workerPool": graph.workerPool,
+		})
+	})
+
+	if graph.state.Err() != nil {
+		return graph
+	}
+
 	if graph.pathWavefront == nil {
 		graph.pathWavefront = path.NewWavefront()
 	}
@@ -67,14 +78,6 @@ func NewGraphServer(opts ...GraphOpt) *GraphServer {
 			goal.FrustrationWithContext(graph.ctx),
 		).Client("logic/substrate/graph")
 	}
-
-	errnie.GuardVoid(graph.state, func() error {
-		return validate.Require(map[string]any{
-			"ctx":           graph.ctx,
-			"workerPool":    graph.workerPool,
-			"pathWavefront": graph.pathWavefront,
-		})
-	})
 
 	graph.serverSide, graph.clientSide = net.Pipe()
 	graph.client = Graph_ServerToClient(graph)

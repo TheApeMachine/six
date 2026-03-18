@@ -258,8 +258,14 @@ func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
 		bvp.CantileverWithContext(fe.ctx),
 		bvp.WithMacroIndex(fe.index),
 	)
+
+	targetKey := macro.AffineKeyFromValues(currentValue, targetValue)
+
 	if _, singleTool, err := cl.BridgeValues(currentValue, targetValue); err == nil && singleTool != nil && singleTool.Hardened {
-		addCandidate([]*macro.MacroOpcode{singleTool})
+		nextState := currentValue.ApplyAffineValue(singleTool.Scale, singleTool.Translate)
+		if macro.AffineKeyFromValues(currentValue, nextState) == targetKey {
+			addCandidate([]*macro.MacroOpcode{singleTool})
+		}
 	}
 
 	tools := fe.availableHardenedSorted()
@@ -269,8 +275,6 @@ func (fe *FrustrationEngineServer) resolveCandidatesToTarget(
 		}
 		return results, nil
 	}
-
-	targetKey := macro.AffineKeyFromValues(currentValue, targetValue)
 
 	budget := maxAttempts
 	var walk func(state data.Value, depth int, path []*macro.MacroOpcode)
