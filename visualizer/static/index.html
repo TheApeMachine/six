@@ -14,13 +14,13 @@
       font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
       color: #aab;
     }
-    canvas { display: block; }
+    canvas#three-canvas { display: block; position: absolute; top: 0; left: 0; z-index: 0; }
 
     /* ── Glass Panel Base ─────────────────────────────────── */
     .glass {
-      background: rgba(8, 8, 24, 0.75);
-      backdrop-filter: blur(16px);
-      -webkit-backdrop-filter: blur(16px);
+      background: rgba(8, 8, 24, 0.82);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
       border: 1px solid rgba(100, 120, 255, 0.12);
       border-radius: 10px;
     }
@@ -33,7 +33,7 @@
       z-index: 100;
       pointer-events: none;
       padding: 16px 20px;
-      min-width: 220px;
+      min-width: 240px;
     }
     .hud-title {
       font-size: 11px;
@@ -54,8 +54,6 @@
       justify-content: space-between;
     }
     .hud-stat .val { color: #7df; font-weight: 600; }
-    .hud-stat .warn { color: #fa4; }
-    .hud-stat .hot { color: #f44; }
     .hud-divider {
       height: 1px;
       background: linear-gradient(90deg, transparent, rgba(100, 120, 255, 0.2), transparent);
@@ -89,16 +87,10 @@
       opacity: 0.35;
       transition: all 0.3s ease;
     }
-    .pipeline-stage.active {
-      opacity: 1;
-    }
+    .pipeline-stage.active { opacity: 1; }
     .pipeline-stage .dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-      background: #334;
-      transition: all 0.3s ease;
-      flex-shrink: 0;
+      width: 8px; height: 8px; border-radius: 50%;
+      background: #334; transition: all 0.3s ease; flex-shrink: 0;
     }
     .pipeline-stage.active .dot {
       background: #0fa;
@@ -113,15 +105,12 @@
     .pipeline-stage.active .stage-label { color: #ddf; }
     .pipeline-stage.done .stage-label { color: #8ab; }
     .pipeline-stage .stage-info {
-      margin-left: auto;
-      font-size: 10px;
-      color: #556;
+      margin-left: auto; font-size: 10px; color: #556;
     }
     .pipeline-stage.active .stage-info { color: #0fa; }
     .pipeline-stage.done .stage-info { color: #7df; }
     .pipeline-connector {
-      width: 1px;
-      height: 10px;
+      width: 1px; height: 10px;
       background: rgba(100, 120, 255, 0.1);
       margin-left: 3.5px;
     }
@@ -135,126 +124,160 @@
       position: absolute;
       bottom: 200px;
       right: 20px;
-      width: 320px;
+      width: 340px;
       z-index: 100;
       pointer-events: none;
       padding: 14px 16px;
     }
     .chunk-label {
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      color: #556;
-      margin-bottom: 6px;
+      font-size: 9px; text-transform: uppercase;
+      letter-spacing: 1.5px; color: #556; margin-bottom: 6px;
     }
     .chunk-text {
-      font-size: 11px;
-      color: #dde;
-      line-height: 1.6;
-      max-height: 80px;
-      overflow: hidden;
-      word-break: break-all;
+      font-size: 11px; color: #dde; line-height: 1.6;
+      max-height: 80px; overflow: hidden; word-break: break-all;
     }
     .result-text {
-      font-size: 11px;
-      color: #0fa;
-      line-height: 1.6;
-      max-height: 80px;
-      overflow: hidden;
-      word-break: break-all;
-      margin-top: 8px;
-      padding-top: 8px;
+      font-size: 11px; color: #0fa; line-height: 1.6;
+      max-height: 80px; overflow: hidden; word-break: break-all;
+      margin-top: 8px; padding-top: 8px;
       border-top: 1px solid rgba(0, 255, 170, 0.15);
     }
 
     /* ── Log ──────────────────────────────────────────────── */
     #log-container {
       position: absolute;
-      bottom: 20px;
-      left: 20px;
-      width: 500px;
-      max-height: 160px;
+      bottom: 20px; left: 20px;
+      width: 520px; max-height: 160px;
       overflow: hidden;
-      display: flex;
-      flex-direction: column-reverse;
-      font-size: 10px;
-      opacity: 0.55;
-      pointer-events: none;
-      z-index: 100;
+      display: flex; flex-direction: column-reverse;
+      font-size: 10px; opacity: 0.55;
+      pointer-events: none; z-index: 100;
     }
     .log-line {
-      white-space: pre-wrap;
-      margin-top: 2px;
+      white-space: pre-wrap; margin-top: 2px;
       animation: slide-in 0.15s ease-out;
     }
     @keyframes slide-in {
       from { opacity: 0; transform: translateY(4px); }
       to   { opacity: 1; transform: translateY(0); }
     }
-    .log-ingest    { color: #c8f; }
-    .log-tokenize  { color: #7df; }
-    .log-lookup    { color: #0fa; }
-    .log-fold      { color: #f4f; }
-    .log-result    { color: #0fa; }
-    .log-pipeline  { color: #fa4; }
-    .log-state     { color: #556; }
+    .log-ingest   { color: #c8f; }
+    .log-tokenize { color: #7df; }
+    .log-lookup   { color: #0fa; }
+    .log-fold     { color: #f4f; }
+    .log-result   { color: #0fa; }
+    .log-pipeline { color: #fa4; }
+    .log-state    { color: #556; }
+
+    /* ── Sparkline ────────────────────────────────────────── */
+    #sparkline-panel {
+      position: absolute;
+      bottom: 185px;
+      left: 20px;
+      z-index: 100;
+      pointer-events: none;
+      padding: 10px 14px;
+      width: 520px;
+    }
+    #sparkline-panel .spark-title {
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: #556;
+      margin-bottom: 4px;
+    }
+    #sparkline-canvas {
+      width: 490px;
+      height: 60px;
+      display: block;
+    }
 
     /* ── Density Bar ──────────────────────────────────────── */
     #density-bar {
       position: absolute;
-      bottom: 20px;
-      right: 20px;
-      width: 10px;
-      height: 160px;
-      border-radius: 5px;
-      overflow: hidden;
-      z-index: 100;
+      bottom: 20px; right: 20px;
+      width: 10px; height: 160px;
+      border-radius: 5px; overflow: hidden; z-index: 100;
     }
     #density-fill {
-      position: absolute;
-      bottom: 0;
-      width: 100%;
+      position: absolute; bottom: 0; width: 100%;
       background: linear-gradient(to top, #0af, #0fa);
       border-radius: 0 0 5px 5px;
       transition: height 0.3s ease, background 0.3s;
     }
     #density-label {
       position: absolute;
-      bottom: 185px;
-      right: 20px;
-      font-size: 9px;
-      color: #445;
-      text-transform: uppercase;
-      letter-spacing: 1px;
-      z-index: 100;
+      bottom: 185px; right: 20px;
+      font-size: 9px; color: #445;
+      text-transform: uppercase; letter-spacing: 1px; z-index: 100;
     }
 
-    /* ── Tooltip ──────────────────────────────────────────── */
-    #tooltip {
+    /* ── Replay Controls ──────────────────────────────────── */
+    #replay-bar {
       position: absolute;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
       z-index: 200;
-      pointer-events: none;
-      display: none;
-      padding: 10px 14px;
-      font-size: 11px;
-      line-height: 1.5;
-      max-width: 300px;
-      word-break: break-all;
+      padding: 10px 18px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      pointer-events: auto;
+      min-width: 420px;
     }
-    #tooltip .tt-label { color: #556; font-size: 9px; text-transform: uppercase; letter-spacing: 1px; }
-    #tooltip .tt-text { color: #ddf; margin-top: 4px; }
-    #tooltip .tt-state { color: #0fa; margin-top: 4px; font-weight: bold; }
-    #tooltip .tt-bits { color: #7df; margin-top: 4px; font-size: 10px; }
+    #replay-bar button {
+      background: rgba(100, 120, 255, 0.15);
+      border: 1px solid rgba(100, 120, 255, 0.25);
+      color: #aac;
+      font-family: inherit;
+      font-size: 11px;
+      padding: 5px 12px;
+      border-radius: 5px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    #replay-bar button:hover {
+      background: rgba(100, 120, 255, 0.3);
+      color: #ddf;
+    }
+    #replay-bar button.active {
+      background: rgba(0, 255, 170, 0.2);
+      border-color: rgba(0, 255, 170, 0.4);
+      color: #0fa;
+    }
+    #replay-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      flex: 1;
+      height: 4px;
+      background: rgba(100, 120, 255, 0.15);
+      border-radius: 2px;
+      outline: none;
+    }
+    #replay-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      background: #7df;
+      cursor: pointer;
+      box-shadow: 0 0 8px rgba(120, 220, 255, 0.5);
+    }
+    #replay-info {
+      font-size: 10px;
+      color: #668;
+      min-width: 90px;
+      text-align: right;
+    }
 
     /* ── CSS2D Labels ─────────────────────────────────────── */
     .group-label {
       color: #c8f;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 10px;
-      font-weight: 600;
+      font-size: 10px; font-weight: 600;
       text-shadow: 0 0 8px rgba(200, 128, 255, 0.5);
-      pointer-events: none;
-      white-space: nowrap;
+      pointer-events: none; white-space: nowrap;
       padding: 2px 6px;
       background: rgba(20, 10, 40, 0.5);
       border-radius: 4px;
@@ -263,11 +286,8 @@
     .value-label {
       color: #7df;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 9px;
-      font-weight: 600;
-      opacity: 0.9;
-      pointer-events: none;
-      white-space: nowrap;
+      font-size: 9px; font-weight: 600;
+      opacity: 0.9; pointer-events: none; white-space: nowrap;
       text-shadow: 0 0 4px #000, 0 0 10px rgba(0, 170, 255, 0.6);
       padding: 2px 6px;
       background: rgba(10, 10, 20, 0.4);
@@ -279,36 +299,29 @@
     .value-label.state-active { color: #ff0; }
     .fold-label {
       font-family: 'JetBrains Mono', monospace;
-      font-weight: 700;
-      pointer-events: none;
-      white-space: nowrap;
-      padding: 3px 8px;
-      border-radius: 4px;
+      font-weight: 700; pointer-events: none;
+      white-space: nowrap; padding: 3px 8px; border-radius: 4px;
     }
     .fold-label.level-0 {
-      font-size: 11px;
-      color: #ff4488;
+      font-size: 11px; color: #ff4488;
       text-shadow: 0 0 12px rgba(255, 68, 136, 0.6);
       background: rgba(60, 10, 25, 0.7);
       border: 1px solid rgba(255, 68, 136, 0.4);
     }
     .fold-label.level-1 {
-      font-size: 10px;
-      color: #44ff88;
+      font-size: 10px; color: #44ff88;
       text-shadow: 0 0 10px rgba(68, 255, 136, 0.5);
       background: rgba(10, 40, 20, 0.6);
       border: 1px solid rgba(68, 255, 136, 0.3);
     }
     .fold-label.level-2 {
-      font-size: 10px;
-      color: #ffaa33;
+      font-size: 10px; color: #ffaa33;
       text-shadow: 0 0 8px rgba(255, 170, 51, 0.4);
       background: rgba(40, 25, 8, 0.6);
       border: 1px solid rgba(255, 170, 51, 0.3);
     }
     .fold-label.level-deep {
-      font-size: 9px;
-      color: #33ddff;
+      font-size: 9px; color: #33ddff;
       text-shadow: 0 0 6px rgba(51, 221, 255, 0.4);
       background: rgba(8, 25, 40, 0.5);
       border: 1px solid rgba(51, 221, 255, 0.2);
@@ -316,10 +329,8 @@
     .value-node-label {
       color: #ddb766;
       font-family: 'JetBrains Mono', monospace;
-      font-size: 9px;
-      opacity: 0.85;
-      pointer-events: none;
-      white-space: nowrap;
+      font-size: 9px; opacity: 0.85;
+      pointer-events: none; white-space: nowrap;
       text-shadow: 0 0 6px rgba(221, 183, 102, 0.3);
       padding: 1px 4px;
       background: rgba(30, 22, 8, 0.4);
@@ -333,6 +344,7 @@
   <!-- HUD -->
   <div id="hud" class="glass">
     <div class="hud-title">SIX · Value Space</div>
+    <div class="hud-stat"><span>Events</span> <span class="val" id="stat-events">0</span></div>
     <div class="hud-stat"><span>Ingested</span> <span class="val" id="stat-ingested">0</span></div>
     <div class="hud-stat"><span>Edges</span> <span class="val" id="stat-edges">0</span></div>
     <div class="hud-stat"><span>Groups</span> <span class="val" id="stat-groups">0</span></div>
@@ -342,6 +354,7 @@
     <div class="hud-stat"><span>Folds</span> <span class="val" id="stat-folds">0</span></div>
     <div class="hud-divider"></div>
     <div class="hud-stat"><span>Status</span> <span class="val" id="stat-conn">offline</span></div>
+    <div class="hud-stat"><span>Replay</span> <span class="val" id="stat-replay">live</span></div>
   </div>
 
   <!-- Pipeline Flow -->
@@ -385,17 +398,15 @@
 
   <!-- Current Chunk -->
   <div id="chunk-panel" class="glass">
-    <div class="chunk-label">Current Ingestion</div>
+    <div class="chunk-label">Current Activity</div>
     <div class="chunk-text" id="chunk-text">—</div>
     <div class="result-text" id="result-text" style="display:none"></div>
   </div>
 
-  <!-- Tooltip -->
-  <div id="tooltip" class="glass">
-    <div class="tt-label">Value</div>
-    <div class="tt-text" id="tt-text"></div>
-    <div class="tt-state" id="tt-state"></div>
-    <div class="tt-bits" id="tt-bits"></div>
+  <!-- Sparkline -->
+  <div id="sparkline-panel" class="glass">
+    <div class="spark-title">Bit Density Over Time</div>
+    <canvas id="sparkline-canvas" width="490" height="60"></canvas>
   </div>
 
   <!-- Log -->
@@ -404,6 +415,19 @@
   <!-- Density Bar -->
   <div id="density-label">Store</div>
   <div id="density-bar" class="glass"><div id="density-fill" style="height: 0%"></div></div>
+
+  <!-- Replay Controls -->
+  <div id="replay-bar" class="glass">
+    <button id="btn-rec" class="active" title="Record live events">⏺ REC</button>
+    <button id="btn-play" title="Play recorded events">▶</button>
+    <button id="btn-pause" title="Pause playback">⏸</button>
+    <button id="btn-step" title="Step one event forward">⏭</button>
+    <input type="range" id="replay-slider" min="0" max="0" value="0" step="1">
+    <span id="replay-info">0 / 0</span>
+    <button id="btn-export" title="Export recording as JSON">⬇ Save</button>
+    <button id="btn-import" title="Import recording from JSON">⬆ Load</button>
+    <input type="file" id="import-file" accept=".json" style="display:none">
+  </div>
 
   <script type="importmap">
     { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.163.0/build/three.module.js", "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.163.0/examples/jsm/" } }
@@ -414,25 +438,136 @@
     import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
     import { CSS2DRenderer, CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 
-    // ── Scene ──────────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    // RECORDING / REPLAY ENGINE
+    // ═══════════════════════════════════════════════════════════
+    const recording = [];
+    let replayMode = false;   // true when replaying, false when live
+    let replayIdx = 0;
+    let replayTimer = null;
+    const startTime = Date.now();
+
+    function recordEvent(ev) {
+      ev._ts = Date.now() - startTime;
+      recording.push(ev);
+      slider.max = recording.length - 1;
+      replayInfo.textContent = `${recording.length} events`;
+      statEvents.textContent = recording.length;
+    }
+
+    function enterReplayMode() {
+      replayMode = true;
+      statReplay.textContent = 'replay';
+      statReplay.style.color = '#fa4';
+      btnRec.classList.remove('active');
+      resetVisualization();
+    }
+
+    function enterLiveMode() {
+      replayMode = false;
+      if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+      statReplay.textContent = 'live';
+      statReplay.style.color = '#0fa';
+      btnRec.classList.add('active');
+    }
+
+    function replayTo(idx) {
+      resetVisualization();
+      const target = Math.min(idx, recording.length - 1);
+      for (let i = 0; i <= target; i++) {
+        handleEvent(recording[i]);
+      }
+      replayIdx = target;
+      slider.value = replayIdx;
+      replayInfo.textContent = `${replayIdx + 1} / ${recording.length}`;
+    }
+
+    function startPlayback() {
+      enterReplayMode();
+      if (replayTimer) clearInterval(replayTimer);
+      replayTimer = setInterval(() => {
+        if (replayIdx < recording.length - 1) {
+          replayIdx++;
+          handleEvent(recording[replayIdx]);
+          slider.value = replayIdx;
+          replayInfo.textContent = `${replayIdx + 1} / ${recording.length}`;
+        } else {
+          clearInterval(replayTimer);
+          replayTimer = null;
+        }
+      }, 16); // ~60fps
+    }
+
+    function pausePlayback() {
+      if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+    }
+
+    function stepForward() {
+      if (!replayMode) enterReplayMode();
+      if (replayIdx < recording.length - 1) {
+        replayIdx++;
+        handleEvent(recording[replayIdx]);
+        slider.value = replayIdx;
+        replayInfo.textContent = `${replayIdx + 1} / ${recording.length}`;
+      }
+    }
+
+    function exportRecording() {
+      const blob = new Blob([JSON.stringify(recording, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `six-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importRecording(file) {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        try {
+          const data = JSON.parse(e.target.result);
+          if (Array.isArray(data)) {
+            recording.length = 0;
+            recording.push(...data);
+            slider.max = recording.length - 1;
+            replayInfo.textContent = `${recording.length} events`;
+            statEvents.textContent = recording.length;
+            log(`Loaded ${recording.length} events`, 'state');
+            replayTo(0);
+          }
+        } catch (err) {
+          console.error('Import error:', err);
+        }
+      };
+      reader.readAsText(file);
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // THREE.JS SCENE
+    // ═══════════════════════════════════════════════════════════
     const scene = new THREE.Scene();
     scene.fog = new THREE.FogExp2(0x030308, 0.005);
 
     const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
     camera.position.set(0, 22, 42);
 
-    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: document.getElementById('three-canvas') || undefined });
     renderer.setSize(innerWidth, innerHeight);
     renderer.setPixelRatio(devicePixelRatio);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.toneMappingExposure = 1.1;
-    document.body.appendChild(renderer.domElement);
+    if (!document.getElementById('three-canvas')) {
+      renderer.domElement.id = 'three-canvas';
+      document.body.insertBefore(renderer.domElement, document.body.firstChild);
+    }
 
     const labelRenderer = new CSS2DRenderer();
     labelRenderer.setSize(innerWidth, innerHeight);
     labelRenderer.domElement.style.position = 'absolute';
     labelRenderer.domElement.style.top = '0';
     labelRenderer.domElement.style.pointerEvents = 'none';
+    labelRenderer.domElement.style.zIndex = '1';
     document.body.appendChild(labelRenderer.domElement);
 
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -441,15 +576,15 @@
     controls.autoRotate = true;
     controls.autoRotateSpeed = 0.3;
 
-    // ── Constants ──────────────────────────────────────────────────
+    // ── Constants ──────────────────────────────────────────────
     const BITS = 257;
     const R_MAJOR = 14;
     const R_MINOR = 5;
     const GROUP_Y = 14;
     const GROUP_RADIUS = 12;
-    const MAX_CHORD_NODES = 50;
+    const MAX_CHORD_NODES = 60;
 
-    // ── 257-Bit Torus Layout ───────────────────────────────────────
+    // ── 257-Bit Torus Layout ─────────────────────────────────
     function bitToPosition(bitIdx) {
       const u = (bitIdx / BITS) * Math.PI * 2;
       const v = ((bitIdx * 7) % BITS) / BITS * Math.PI * 2;
@@ -460,7 +595,7 @@
       );
     }
 
-    // ── Torus ──────────────────────────────────────────────────────
+    // ── Torus ─────────────────────────────────────────────────
     const torusGeo = new THREE.TorusGeometry(R_MAJOR, R_MINOR, 48, 160);
     const torusSolidMat = new THREE.MeshPhongMaterial({
       color: 0x050515, specular: 0x222244, shininess: 60,
@@ -479,7 +614,33 @@
     torusWire.rotation.x = -Math.PI / 2;
     scene.add(torusWire);
 
-    // ── LSM Ring (256 byte positions) ──────────────────────────────
+    // ── Active Bit Markers on Torus ──────────────────────────
+    const bitMarkerGroup = new THREE.Group();
+    scene.add(bitMarkerGroup);
+    const bitMarkers = [];
+    const bitMarkerGeo = new THREE.SphereGeometry(0.12, 8, 8);
+
+    function showActiveBits(bits, color = 0x00ffaa) {
+      // Clear old bit markers.
+      for (const m of bitMarkers) {
+        bitMarkerGroup.remove(m);
+        m.material.dispose();
+      }
+      bitMarkers.length = 0;
+
+      for (const idx of bits) {
+        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
+        const mesh = new THREE.Mesh(bitMarkerGeo, mat);
+        const pos = bitToPosition(idx);
+        // Offset outwards slightly.
+        const dir = pos.clone().normalize();
+        mesh.position.copy(pos).addScaledVector(dir, 0.3);
+        bitMarkerGroup.add(mesh);
+        bitMarkers.push(mesh);
+      }
+    }
+
+    // ── LSM Ring (256 byte positions) ────────────────────────
     const LSM_RADIUS = 8;
     const LSM_Y = -8;
     const lsmGroup = new THREE.Group();
@@ -537,7 +698,7 @@
       lsmByteMeshes[right % 256].material.opacity = 0.7;
     }
 
-    // ── Group Labels ─────────────────────────────────────────────
+    // ── Group Labels ─────────────────────────────────────────
     const groups = new Map();
     const groupLayer = new THREE.Group();
     scene.add(groupLayer);
@@ -573,7 +734,7 @@
       return group;
     }
 
-    // ── Value Nodes ──────────────────────────────────────────────
+    // ── Value Nodes ──────────────────────────────────────────
     const valueNodes = [];
     const valueNodeGroup = new THREE.Group();
     scene.add(valueNodeGroup);
@@ -585,7 +746,6 @@
       group.count++;
       group.visibleCount++;
       group.values.push({ id: valueId, text, state });
-
       group.labelDiv.textContent = group.values[0].text.trim();
 
       const angle = (group.count * 2.399) % (Math.PI * 2);
@@ -615,7 +775,6 @@
         const old = valueNodes.shift();
         valueNodeGroup.remove(old.labelObj);
         if (old.line) { valueNodeGroup.remove(old.line); old.line.geometry.dispose(); old.line.material.dispose(); }
-
         const oldGroup = groups.get(old.bin);
         if (oldGroup) {
           oldGroup.visibleCount--;
@@ -627,7 +786,7 @@
       }
     }
 
-    // ── Fold Tree ────────────────────────────────────────────────
+    // ── Fold Tree ────────────────────────────────────────────
     const foldNodes = new Map();
     const foldLayer = new THREE.Group();
     scene.add(foldLayer);
@@ -635,7 +794,7 @@
     const FOLD_LEVEL_STEP = 2.5;
     const foldChildCounts = new Map();
 
-    function node_childIdx(parentKey) {
+    function nodeChildIdx(parentKey) {
       const count = (foldChildCounts.get(parentKey) || 0);
       foldChildCounts.set(parentKey, count + 1);
       return count;
@@ -660,7 +819,7 @@
 
       let pos;
       if (parentPos) {
-        const spread = (node_childIdx(parentKey) * 2.0) - 1.0;
+        const spread = (nodeChildIdx(parentKey) * 2.0) - 1.0;
         pos = new THREE.Vector3(parentPos.x + spread, parentPos.y + FOLD_LEVEL_STEP, parentPos.z);
       } else {
         const radius = GROUP_RADIUS * 0.9;
@@ -686,7 +845,7 @@
       }
     }
 
-    // ── Torus Surface Labels ─────────────────────────────────────
+    // ── Torus Surface Labels ─────────────────────────────────
     const torusLabelsGroup = new THREE.Group();
     scene.add(torusLabelsGroup);
     const torusLabels = [];
@@ -721,7 +880,7 @@
       }
     }
 
-    // ── Lighting ─────────────────────────────────────────────────
+    // ── Lighting ─────────────────────────────────────────────
     scene.add(new THREE.AmbientLight(0x334466, 0.4));
 
     const light1 = new THREE.PointLight(0x4488ff, 500, 100);
@@ -736,8 +895,80 @@
     light3.position.set(20, 5, -10);
     scene.add(light3);
 
-    // ── HUD References ───────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    // VISUALIZATION RESET (for replay)
+    // ═══════════════════════════════════════════════════════════
+    function resetVisualization() {
+      // Clear value nodes.
+      for (const n of valueNodes) {
+        valueNodeGroup.remove(n.labelObj);
+        if (n.line) { valueNodeGroup.remove(n.line); n.line.geometry.dispose(); n.line.material.dispose(); }
+      }
+      valueNodes.length = 0;
+
+      // Clear groups.
+      for (const [, g] of groups) groupLayer.remove(g.label);
+      groups.clear();
+
+      // Clear fold nodes.
+      while (foldLayer.children.length > 0) {
+        const child = foldLayer.children[0];
+        foldLayer.remove(child);
+        if (child.geometry) child.geometry.dispose();
+        if (child.material) child.material.dispose();
+      }
+      foldNodes.clear();
+      foldChildCounts.clear();
+
+      // Clear torus labels.
+      for (const tl of torusLabels) torusLabelsGroup.remove(tl.obj);
+      torusLabels.length = 0;
+
+      // Clear LSM edges.
+      while (lsmEdgeGroup.children.length > 0) {
+        const child = lsmEdgeGroup.children[0];
+        lsmEdgeGroup.remove(child);
+        child.geometry.dispose();
+        child.material.dispose();
+      }
+
+      // Clear bit markers.
+      for (const m of bitMarkers) { bitMarkerGroup.remove(m); m.material.dispose(); }
+      bitMarkers.length = 0;
+
+      // Clear transition markers.
+      for (const m of transitionMarkers) { transitionGroup.remove(m); m.material.dispose(); }
+      transitionMarkers.length = 0;
+      previousBits = new Set();
+
+      // Clear orbit trails.
+      for (const layer of trailLayers) {
+        for (const m of layer.meshes) { trailGroup.remove(m); m.material.dispose(); }
+      }
+      trailLayers.length = 0;
+
+      // Clear sparkline.
+      sparkData.length = 0;
+      drawSparkline();
+
+      // Reset counters.
+      totalIngested = 0; totalEdges = 0; totalQueries = 0; totalPaths = 0; totalFolds = 0;
+      statIngested.textContent = '0';
+      statEdges.textContent = '0';
+      statGroups.textContent = '0';
+      statQueries.textContent = '0';
+      statPaths.textContent = '0';
+      statFolds.textContent = '0';
+      chunkText.textContent = '—';
+      resultText.style.display = 'none';
+      logBox.innerHTML = '';
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // HUD REFERENCES
+    // ═══════════════════════════════════════════════════════════
     const logBox = document.getElementById('log-container');
+    const statEvents = document.getElementById('stat-events');
     const statIngested = document.getElementById('stat-ingested');
     const statEdges = document.getElementById('stat-edges');
     const statGroups = document.getElementById('stat-groups');
@@ -745,9 +976,20 @@
     const statPaths = document.getElementById('stat-paths');
     const statFolds = document.getElementById('stat-folds');
     const statConn = document.getElementById('stat-conn');
+    const statReplay = document.getElementById('stat-replay');
     const chunkText = document.getElementById('chunk-text');
     const resultText = document.getElementById('result-text');
     const densityFill = document.getElementById('density-fill');
+
+    const slider = document.getElementById('replay-slider');
+    const replayInfo = document.getElementById('replay-info');
+    const btnRec = document.getElementById('btn-rec');
+    const btnPlay = document.getElementById('btn-play');
+    const btnPause = document.getElementById('btn-pause');
+    const btnStep = document.getElementById('btn-step');
+    const btnExport = document.getElementById('btn-export');
+    const btnImport = document.getElementById('btn-import');
+    const importFile = document.getElementById('import-file');
 
     let totalIngested = 0;
     let totalEdges = 0;
@@ -764,7 +1006,7 @@
       if (logBox.children.length > 40) logBox.removeChild(logBox.lastChild);
     }
 
-    // ── Pipeline Stage Management ────────────────────────────────
+    // ── Pipeline Stage Management ────────────────────────────
     const stageElements = {
       'tokenize': document.getElementById('stage-tokenize'),
       'insert': document.getElementById('stage-insert'),
@@ -783,31 +1025,21 @@
     let clearPipelineTimer = null;
 
     function activateStage(name, info) {
-      Object.values(stageElements).forEach(el => {
+      for (const el of Object.values(stageElements)) {
         if (el.classList.contains('active')) {
           el.classList.remove('active');
           el.classList.add('done');
         }
-      });
+      }
 
       const el = stageElements[name];
-      if (el) {
-        el.classList.remove('done');
-        el.classList.add('active');
-      }
-
-      if (info && stageInfoElements[name]) {
-        stageInfoElements[name].textContent = info;
-      }
+      if (el) { el.classList.remove('done'); el.classList.add('active'); }
+      if (info && stageInfoElements[name]) stageInfoElements[name].textContent = info;
 
       if (clearPipelineTimer) clearTimeout(clearPipelineTimer);
       clearPipelineTimer = setTimeout(() => {
-        Object.values(stageElements).forEach(el => {
-          el.classList.remove('active', 'done');
-        });
-        Object.values(stageInfoElements).forEach(el => {
-          el.textContent = '';
-        });
+        Object.values(stageElements).forEach(el => { el.classList.remove('active', 'done'); });
+        Object.values(stageInfoElements).forEach(el => { el.textContent = ''; });
       }, 3000);
     }
 
@@ -815,16 +1047,199 @@
       const pct = Math.min((edgeCount / 5000) * 100, 100);
       densityFill.style.height = `${pct * 1.6}px`;
 
-      if (pct > 60) {
-        densityFill.style.background = 'linear-gradient(to top, #f44, #fa4)';
-      } else if (pct > 30) {
-        densityFill.style.background = 'linear-gradient(to top, #fa4, #ff0)';
-      } else {
-        densityFill.style.background = 'linear-gradient(to top, #0af, #0fa)';
+      if (pct > 60) densityFill.style.background = 'linear-gradient(to top, #f44, #fa4)';
+      else if (pct > 30) densityFill.style.background = 'linear-gradient(to top, #fa4, #ff0)';
+      else densityFill.style.background = 'linear-gradient(to top, #0af, #0fa)';
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // EVENT HANDLER
+    // ═══════════════════════════════════════════════════════════
+    function handleEvent(ev) {
+      const d = ev.data || {};
+
+      // ── Tokenizer.Value ─────────────────────────────
+      if (ev.component === 'Tokenizer' && ev.action === 'Value') {
+        const stage = d.stage || '';
+        const edgeCount = d.edgeCount || 0;
+        const text = d.chunkText || '';
+
+        if (stage === 'ingest-tokenize') {
+          totalIngested++;
+          statIngested.textContent = totalIngested;
+          chunkText.textContent = text.slice(0, 120);
+          activateStage('tokenize', `${edgeCount} edges`);
+          log(`Ingest: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'ingest');
+
+          if (text.length >= 2) {
+            for (let i = 0; i < Math.min(text.length - 1, 10); i++) {
+              drawLSMEdge(text.charCodeAt(i), text.charCodeAt(i + 1));
+            }
+          }
+        }
+
+        if (stage === 'tokenize') {
+          totalQueries++;
+          statQueries.textContent = totalQueries;
+          activateStage('tokenize', `${edgeCount} edges`);
+          log(`Query: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'tokenize');
+        }
+
+        const bits = d.activeBits || [];
+        if (bits.length > 0) {
+          const center = new THREE.Vector3();
+          for (const b of bits) center.add(bitToPosition(b));
+          center.divideScalar(bits.length);
+          addTorusLabel(text, center, d.state);
+          showActiveBits(bits, d.state === 'matched' ? 0x00ffaa : 0x7788ff);
+        }
+
+        if (d.bin !== undefined) {
+          addValueNode(d.valueId || 0, d.bin || 0, d.state || 'stored', text);
+          statGroups.textContent = groups.size;
+        }
+      }
+
+      // ── LSM.Insert ──────────────────────────────────
+      else if (ev.component === 'LSM' && ev.action === 'Insert') {
+        const edges = d.edges || d.edgeCount || 0;
+        totalEdges += edges;
+        statEdges.textContent = totalEdges;
+        activateStage('insert', `${edges} stored`);
+        updateDensityBar(totalEdges);
+
+        if (d.left !== undefined && d.right !== undefined) {
+          drawLSMEdge(d.left, d.right);
+        }
+
+        log(`LSM insert: ${edges} edges`, 'ingest');
+      }
+
+      // ── SpatialIndex.Lookup ─────────────────────────
+      else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
+        const pathCount = d.pathCount || d.paths || 0;
+        totalPaths += pathCount;
+        statPaths.textContent = totalPaths;
+        activateStage('lookup', `${pathCount} paths`);
+        log(`Lookup: ${pathCount} paths for "${(d.msg || '').slice(0, 40)}"`, 'lookup');
+      }
+
+      // ── Graph.Evaluate ──────────────────────────────
+      else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
+        const pathCount = d.pathCount || 0;
+        activateStage('fold', `${pathCount} results`);
+        log(`Fold complete: ${pathCount} result paths`, 'fold');
+      }
+
+      // ── Graph.Fold ──────────────────────────────────
+      else if (ev.component === 'Graph' && ev.action === 'Fold') {
+        totalFolds++;
+        statFolds.textContent = totalFolds;
+        addFoldNode(d.bin || 0, d.level || 0, d.theta || 0, d.parentBin ?? -1, d.childCount || 0, d.density || 0, d.chunkText || '');
+        log(`Fold L${d.level} bin=${d.bin} children=${d.childCount}`, 'fold');
+      }
+
+      // ── Machine.Pipeline ────────────────────────────
+      else if (ev.component === 'Machine' && ev.action === 'Pipeline') {
+        const stage = d.stage || '';
+
+        if (stage === 'prompt-start') {
+          chunkText.textContent = `Query: ${d.message || d.msg || ''}`;
+          resultText.style.display = 'none';
+          for (const el of Object.values(stageElements)) el.classList.remove('active', 'done');
+          log(`Prompt: "${(d.message || d.msg || '').slice(0, 50)}"`, 'pipeline');
+        }
+
+        if (stage === 'prompt-complete') {
+          activateStage('decode', '✓');
+          resultText.textContent = `Result: ${(d.resultText || '').slice(0, 200)}`;
+          resultText.style.display = 'block';
+          log(`Result: "${(d.resultText || '').slice(0, 60)}"`, 'result');
+        }
+
+        if (stage === 'prompt-empty') {
+          activateStage('decode', '∅');
+          resultText.textContent = 'No result';
+          resultText.style.display = 'block';
+          log(`Empty result for "${(d.message || d.msg || '').slice(0, 40)}"`, 'state');
+        }
+      }
+
+      // ── Sequencer.Boundary ──────────────────────────
+      else if (ev.component === 'Sequencer' && ev.action === 'Boundary') {
+        log(`Boundary #${d.chunks} density=${((d.density || 0) * 100).toFixed(1)}%`, 'tokenize');
+      }
+
+      // ── Chaos.* (Value interaction experiments) ─────
+      else if (ev.component === 'Chaos') {
+        const action = ev.action || '';
+        const bits = d.activeBits || [];
+        const matchBits = d.matchBits || [];
+        const text = d.chunkText || action;
+        const density = d.density || 0;
+
+        const colorMap = {
+          'OR': 0x00ddff, 'AND': 0xff44cc, 'XOR': 0xffdd00,
+          'Hole': 0xff4444, 'Rotate3D': 0x44ff88,
+          'BaseValue': 0x7788ff, 'Similarity': 0xffaa44,
+          'Composite': 0x00ffaa, 'Result': 0xffffff,
+        };
+        const color = colorMap[action] || 0xaaaaff;
+
+        // Show primary bits (result of the operation).
+        if (bits.length > 0) {
+          showActiveBits(bits, color);
+
+          const center = new THREE.Vector3();
+          for (const b of bits) center.add(bitToPosition(b));
+          center.divideScalar(bits.length);
+          addTorusLabel(text, center, 'active');
+        }
+
+        // Show secondary bits (the other operand) in dim.
+        if (matchBits.length > 0) {
+          for (const idx of matchBits) {
+            const mat = new THREE.MeshBasicMaterial({
+              color: 0x553388, transparent: true, opacity: 0.5
+            });
+            const mesh = new THREE.Mesh(bitMarkerGeo, mat);
+            const pos = bitToPosition(idx);
+            const dir = pos.clone().normalize();
+            mesh.position.copy(pos).addScaledVector(dir, 0.15);
+            bitMarkerGroup.add(mesh);
+            bitMarkers.push(mesh);
+          }
+        }
+
+        // Log the interaction.
+        const densityPct = (density * 100).toFixed(1);
+        log(`${action}: ${text} [${bits.length} bits, ${densityPct}%]`, 'fold');
+
+        // Sparkline: push density.
+        pushSparkDensity(density, action);
+
+        // Bit transitions: show what changed.
+        if (bits.length > 0) {
+          showBitTransitions(bits);
+        }
+
+        // Orbit trails for Rotate3D events.
+        if (action === 'Rotate3D' && bits.length > 0) {
+          addTrailLayer(bits);
+        }
+
+        // Update density bar.
+        if (density > 0) {
+          const pct = Math.min(density * 100, 100);
+          densityFill.style.height = `${pct * 1.6}px`;
+          densityFill.style.background = `linear-gradient(to top, hsl(${(1 - density) * 180}, 100%, 50%), hsl(${(1 - density) * 120}, 100%, 60%))`;
+        }
       }
     }
 
-    // ── WebSocket ────────────────────────────────────────────────
+    // ═══════════════════════════════════════════════════════════
+    // WEBSOCKET
+    // ═══════════════════════════════════════════════════════════
     function connect() {
       const ws = new WebSocket(`ws://${location.host}/ws`);
 
@@ -842,132 +1257,207 @@
       };
 
       ws.onmessage = (event) => {
-        try { handleEvent(JSON.parse(event.data)); } catch (e) { console.error('Parse:', e); }
+        try {
+          const ev = JSON.parse(event.data);
+          recordEvent(ev);
+          if (!replayMode) handleEvent(ev);
+        } catch (e) {
+          console.error('Parse:', e);
+        }
       };
     }
 
-    function handleEvent(ev) {
-      const d = ev.data || {};
+    // ═══════════════════════════════════════════════════════════
+    // REPLAY CONTROLS WIRING
+    // ═══════════════════════════════════════════════════════════
+    btnRec.addEventListener('click', enterLiveMode);
+    btnPlay.addEventListener('click', startPlayback);
+    btnPause.addEventListener('click', pausePlayback);
+    btnStep.addEventListener('click', stepForward);
+    btnExport.addEventListener('click', exportRecording);
+    btnImport.addEventListener('click', () => importFile.click());
+    importFile.addEventListener('change', (e) => {
+      if (e.target.files.length) importRecording(e.target.files[0]);
+    });
 
-      // ── Tokenizer.Value ─────────────────────────────────
-      if (ev.component === 'Tokenizer' && ev.action === 'Value') {
-        const stage = d.stage || '';
-        const edgeCount = d.edgeCount || 0;
-        const text = d.chunkText || '';
+    slider.addEventListener('input', () => {
+      if (!replayMode) enterReplayMode();
+      pausePlayback();
+      replayTo(parseInt(slider.value));
+    });
 
-        if (stage === 'ingest-tokenize') {
-          totalIngested++;
-          statIngested.textContent = totalIngested;
-          chunkText.textContent = text.slice(0, 120);
-          activateStage('tokenize', `${edgeCount} edges`);
-          log(`Ingest: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'ingest');
+    // ═══════════════════════════════════════════════════════════
+    // SPARKLINE — bit density over time
+    // ═══════════════════════════════════════════════════════════
+    const sparkCanvas = document.getElementById('sparkline-canvas');
+    const sparkCtx = sparkCanvas.getContext('2d');
+    const sparkData = [];    // array of { density, action }
+    const SPARK_MAX = 200;   // visible window
 
-          // Also visualize edges on the LSM ring
-          if (text.length >= 2) {
-            for (let i = 0; i < Math.min(text.length - 1, 10); i++) {
-              drawLSMEdge(text.charCodeAt(i), text.charCodeAt(i + 1));
-            }
-          }
-        }
+    function pushSparkDensity(density, action) {
+      sparkData.push({ density, action });
+      if (sparkData.length > SPARK_MAX) sparkData.shift();
+      drawSparkline();
+    }
 
-        if (stage === 'tokenize') {
-          totalQueries++;
-          statQueries.textContent = totalQueries;
-          activateStage('tokenize', `${edgeCount} edges`);
-          log(`Query: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'tokenize');
-        }
+    function drawSparkline() {
+      const w = sparkCanvas.width;
+      const h = sparkCanvas.height;
+      sparkCtx.clearRect(0, 0, w, h);
 
-        // Add value node to the torus visualization
-        const bits = d.activeBits || [];
-        if (bits.length > 0) {
-          const center = new THREE.Vector3();
-          for (const b of bits) center.add(bitToPosition(b));
-          center.divideScalar(bits.length);
-          addTorusLabel(text, center, d.state);
-        }
+      if (sparkData.length < 2) return;
 
-        if (d.bin !== undefined) {
-          addValueNode(d.valueId || 0, d.bin || 0, d.state || 'stored', text);
-          statGroups.textContent = groups.size;
+      // Grid lines at 25%, 50%, 75%.
+      sparkCtx.strokeStyle = 'rgba(100, 120, 255, 0.08)';
+      sparkCtx.lineWidth = 1;
+      for (const pct of [0.25, 0.5, 0.75]) {
+        const gy = h - pct * h;
+        sparkCtx.beginPath();
+        sparkCtx.moveTo(0, gy);
+        sparkCtx.lineTo(w, gy);
+        sparkCtx.stroke();
+      }
+
+      // Draw line.
+      const step = w / (SPARK_MAX - 1);
+      sparkCtx.lineWidth = 1.5;
+      sparkCtx.beginPath();
+
+      for (let i = 0; i < sparkData.length; i++) {
+        const x = i * step;
+        const y = h - sparkData[i].density * h;
+
+        // Color gradient: blue→cyan→yellow→red based on density.
+        const d = sparkData[i].density;
+        const r = Math.floor(d > 0.5 ? 255 : d * 2 * 255);
+        const g = Math.floor(d < 0.5 ? d * 2 * 255 : (1 - d) * 2 * 255);
+        const b = Math.floor(d < 0.5 ? 255 : 0);
+        sparkCtx.strokeStyle = `rgb(${r},${g},${b})`;
+
+        if (i === 0) sparkCtx.moveTo(x, y);
+        else {
+          sparkCtx.lineTo(x, y);
+          sparkCtx.stroke();
+          sparkCtx.beginPath();
+          sparkCtx.moveTo(x, y);
         }
       }
 
-      // ── LSM.Insert ──────────────────────────────────────
-      else if (ev.component === 'LSM' && ev.action === 'Insert') {
-        const edges = d.edges || d.edgeCount || 0;
-        totalEdges += edges;
-        statEdges.textContent = totalEdges;
-        activateStage('insert', `${edges} stored`);
-        updateDensityBar(totalEdges);
+      // Current value label.
+      const last = sparkData[sparkData.length - 1];
+      sparkCtx.fillStyle = '#7df';
+      sparkCtx.font = '9px JetBrains Mono';
+      sparkCtx.fillText(`${(last.density * 257).toFixed(0)}/257`, w - 50, 10);
+    }
 
-        if (d.left !== undefined && d.right !== undefined) {
-          drawLSMEdge(d.left, d.right);
-        }
+    // ═══════════════════════════════════════════════════════════
+    // BIT TRANSITIONS — show added/removed bits between events
+    // ═══════════════════════════════════════════════════════════
+    let previousBits = new Set();
+    const transitionMarkers = [];
+    const transitionGroup = new THREE.Group();
+    scene.add(transitionGroup);
+    const transMarkerGeo = new THREE.SphereGeometry(0.18, 6, 6);
 
-        log(`LSM insert: ${edges} edges`, 'ingest');
+    function showBitTransitions(currentBitsArray) {
+      // Clear old transition markers.
+      for (const m of transitionMarkers) {
+        transitionGroup.remove(m);
+        m.material.dispose();
       }
+      transitionMarkers.length = 0;
 
-      // ── SpatialIndex.Lookup ─────────────────────────────
-      else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
-        const pathCount = d.pathCount || d.paths || 0;
-        totalPaths += pathCount;
-        statPaths.textContent = totalPaths;
-        activateStage('lookup', `${pathCount} paths`);
-        log(`Lookup: ${pathCount} paths for "${(d.msg || '').slice(0, 40)}"`, 'lookup');
-      }
+      const currentSet = new Set(currentBitsArray);
 
-      // ── Graph.Evaluate ─────────────────────────────────
-      else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
-        const pathCount = d.pathCount || 0;
-        activateStage('fold', `${pathCount} results`);
-        log(`Fold complete: ${pathCount} result paths`, 'fold');
-      }
-
-      // ── Graph.Fold ─────────────────────────────────────
-      else if (ev.component === 'Graph' && ev.action === 'Fold') {
-        totalFolds++;
-        statFolds.textContent = totalFolds;
-        addFoldNode(d.bin || 0, d.level || 0, d.theta || 0, d.parentBin ?? -1, d.childCount || 0, d.density || 0, d.chunkText || '');
-        log(`Fold L${d.level} bin=${d.bin} children=${d.childCount}`, 'fold');
-      }
-
-      // ── Machine.Pipeline ────────────────────────────────
-      else if (ev.component === 'Machine' && ev.action === 'Pipeline') {
-        const stage = d.stage || '';
-
-        if (stage === 'prompt-start') {
-          chunkText.textContent = `Query: ${d.msg || ''}`;
-          resultText.style.display = 'none';
-          // Reset pipeline
-          for (const el of Object.values(stageElements)) el.classList.remove('active', 'done');
-          log(`Prompt: "${(d.msg || '').slice(0, 50)}"`, 'pipeline');
-        }
-
-        if (stage === 'prompt-complete') {
-          activateStage('decode', '✓');
-          resultText.textContent = `Result: ${(d.resultText || '').slice(0, 200)}`;
-          resultText.style.display = 'block';
-          log(`Result: "${(d.resultText || '').slice(0, 60)}"`, 'result');
-        }
-
-        if (stage === 'prompt-empty') {
-          activateStage('decode', '∅');
-          resultText.textContent = 'No result';
-          resultText.style.display = 'block';
-          log(`Empty result for "${(d.msg || '').slice(0, 40)}"`, 'state');
+      // Added bits (in current but not in previous) → green.
+      for (const idx of currentSet) {
+        if (!previousBits.has(idx)) {
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0x00ff88, transparent: true, opacity: 0.9
+          });
+          const mesh = new THREE.Mesh(transMarkerGeo, mat);
+          const pos = bitToPosition(idx);
+          const dir = pos.clone().normalize();
+          mesh.position.copy(pos).addScaledVector(dir, 0.6);
+          transitionGroup.add(mesh);
+          transitionMarkers.push(mesh);
         }
       }
 
-      // ── Sequencer.Boundary (legacy compatibility) ───────
-      else if (ev.component === 'Sequencer' && ev.action === 'Boundary') {
-        log(`Boundary #${d.chunks} density=${((d.density || 0) * 100).toFixed(1)}%`, 'tokenize');
+      // Removed bits (in previous but not in current) → red.
+      for (const idx of previousBits) {
+        if (!currentSet.has(idx)) {
+          const mat = new THREE.MeshBasicMaterial({
+            color: 0xff2244, transparent: true, opacity: 0.7
+          });
+          const mesh = new THREE.Mesh(transMarkerGeo, mat);
+          const pos = bitToPosition(idx);
+          const dir = pos.clone().normalize();
+          mesh.position.copy(pos).addScaledVector(dir, 0.6);
+          transitionGroup.add(mesh);
+          transitionMarkers.push(mesh);
+        }
+      }
+
+      previousBits = currentSet;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ORBIT TRAILS — fading ghost particles for Rotate3D
+    // ═══════════════════════════════════════════════════════════
+    const trailGroup = new THREE.Group();
+    scene.add(trailGroup);
+    const trailGeo = new THREE.SphereGeometry(0.06, 4, 4);
+    const MAX_TRAIL_LAYERS = 8;
+    const trailLayers = [];  // each layer = { meshes: [], age: number }
+
+    function addTrailLayer(bitsArray) {
+      const meshes = [];
+
+      for (const idx of bitsArray) {
+        const mat = new THREE.MeshBasicMaterial({
+          color: 0x44ff88, transparent: true, opacity: 0.5
+        });
+        const mesh = new THREE.Mesh(trailGeo, mat);
+        const pos = bitToPosition(idx);
+        const dir = pos.clone().normalize();
+        mesh.position.copy(pos).addScaledVector(dir, 0.15);
+        trailGroup.add(mesh);
+        meshes.push(mesh);
+      }
+
+      trailLayers.push({ meshes, age: 0 });
+
+      // Remove oldest layer if over limit.
+      if (trailLayers.length > MAX_TRAIL_LAYERS) {
+        const old = trailLayers.shift();
+        for (const m of old.meshes) {
+          trailGroup.remove(m);
+          m.material.dispose();
+        }
       }
     }
 
-    // ── Animation loop ─────────────────────────────────────────
+    function fadeTrails() {
+      for (const layer of trailLayers) {
+        layer.age++;
+        const opacity = Math.max(0, 0.5 - layer.age * 0.06);
+        const hue = Math.max(0, 0.35 - layer.age * 0.04);
+
+        for (const mesh of layer.meshes) {
+          mesh.material.opacity = opacity;
+          mesh.material.color.setHSL(hue, 1, 0.5);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // ANIMATION LOOP
+    // ═══════════════════════════════════════════════════════════
     function animate() {
       requestAnimationFrame(animate);
       controls.update();
+      fadeTrails();
       renderer.render(scene, camera);
       labelRenderer.render(scene, camera);
     }

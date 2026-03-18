@@ -16,85 +16,89 @@ func mustBuildValue(t *testing.T, input []byte) data.Value {
 	return value
 }
 
+/*
+valueEqual returns true when two Values are bitwise identical (XOR == 0).
+*/
+func valueEqual(a, b data.Value) bool {
+	return a.XOR(b).ActiveCount() == 0
+}
+
 func TestExtractSharedInvariant(t *testing.T) {
-	seqA := []data.Value{
-		mustBuildValue(t, []byte("Apple")),
-		mustBuildValue(t, []byte("Banana")),
-	}
-	seqB := []data.Value{
-		mustBuildValue(t, []byte("Apple")),
-		mustBuildValue(t, []byte("Carrot")),
-	}
-	seqC := []data.Value{
-		mustBuildValue(t, []byte("Peach")),
-		mustBuildValue(t, []byte("Apple")),
-	}
+	apple := mustBuildValue(t, []byte("Apple"))
+	banana := mustBuildValue(t, []byte("Banana"))
+	carrot := mustBuildValue(t, []byte("Carrot"))
+	peach := mustBuildValue(t, []byte("Peach"))
+
+	seqA := []data.Value{apple, banana}
+	seqB := []data.Value{apple, carrot}
+	seqC := []data.Value{peach, apple}
 
 	Convey("Given sequences of values", t, func() {
-		Convey("When passed a list of sequences, it extracts the GCD (AND intersection)", func() {
+		Convey("It should return the exact AND of the per-sequence OR unions", func() {
+			unionA := apple.OR(banana)
+			unionB := apple.OR(carrot)
+			unionC := peach.OR(apple)
+			expected := unionA.AND(unionB)
+			expected = expected.AND(unionC)
+
 			invariant := extractSharedInvariant([][]data.Value{seqA, seqB, seqC})
 
-			// The shared invariant among all should be the representation of "Apple"
-			// But note that "Banana", "Carrot", and "Peach" may share incidental bytes,
-			// so the invariant will be slightly larger than exactly "Apple".
-			expectedApple := mustBuildValue(t, []byte("Apple"))
-
-			// It must completely contain Apple.
-			sim := invariant.Similarity(expectedApple)
-			So(sim, ShouldEqual, expectedApple.ActiveCount())
-
-			// And it should have bits intersecting all three target texts
-			So(invariant.ActiveCount(), ShouldBeGreaterThanOrEqualTo, expectedApple.ActiveCount())
+			So(valueEqual(invariant, expected), ShouldBeTrue)
+			So(invariant.ActiveCount(), ShouldEqual, expected.ActiveCount())
 		})
 
-		Convey("Empty inputs return zero values", func() {
+		Convey("Empty inputs return a zero-energy value", func() {
 			invariant := extractSharedInvariant([][]data.Value{})
 			So(invariant.ActiveCount(), ShouldEqual, 0)
+		})
+
+		Convey("A single sequence returns its own OR union unchanged", func() {
+			expected := apple.OR(banana)
+			invariant := extractSharedInvariant([][]data.Value{seqA})
+
+			So(valueEqual(invariant, expected), ShouldBeTrue)
+		})
+
+		Convey("Two identical sequences return their shared OR union", func() {
+			expected := apple.OR(banana)
+			invariant := extractSharedInvariant([][]data.Value{seqA, seqA})
+
+			So(valueEqual(invariant, expected), ShouldBeTrue)
 		})
 	})
 }
 
 func TestXorSequence(t *testing.T) {
+	value1 := mustBuildValue(t, []byte("The quick brown fox"))
+	value2 := mustBuildValue(t, []byte("jumps over the lazy dog"))
+	label := mustBuildValue(t, []byte("brown dog"))
+
 	Convey("Given a sequence and a label value", t, func() {
-		value1, err := data.BuildValue([]byte("The quick brown fox"))
-		if err != nil {
-			t.Fatalf("BuildValue failed: %v", err)
-		}
-		value2, err := data.BuildValue([]byte("jumps over the lazy dog"))
-		if err != nil {
-			t.Fatalf("BuildValue failed: %v", err)
-		}
-		seq := []data.Value{value1, value2}
-
-		label, err := data.BuildValue([]byte("brown dog"))
-		if err != nil {
-			t.Fatalf("BuildValue failed: %v", err)
-		}
-
-		Convey("It computes the geometric residue correctly", func() {
+		Convey("Each residue should be the exact XOR of the element and the label", func() {
+			seq := []data.Value{value1, value2}
 			residue := xorSequence(seq, label)
+
+			expected0 := value1.XOR(label)
+			expected1 := value2.XOR(label)
+
 			So(len(residue), ShouldEqual, 2)
-
-			// They should have lost the information related to the label.
-			// Specifically, value1 XOR "brown dog" = (value1 - "brown") since "brown" is inside.
-			// Plus bits from "dog" added back (because XOR adds where absent).
-			expected1 := value1.XOR(label)
-			expected2 := value2.XOR(label)
-
-			So(residue[0].ActiveCount(), ShouldEqual, expected1.ActiveCount())
-			So(residue[1].ActiveCount(), ShouldEqual, expected2.ActiveCount())
+			So(valueEqual(residue[0], expected0), ShouldBeTrue)
+			So(valueEqual(residue[1], expected1), ShouldBeTrue)
 		})
 
-		Convey("A value matching the label perfectly drops to zero and is filtered", func() {
-			exactValue, err := data.BuildValue([]byte("absolute match"))
-			if err != nil {
-				t.Fatalf("BuildValue failed: %v", err)
-			}
-			seqExact := []data.Value{exactValue}
-
-			residue := xorSequence(seqExact, exactValue)
-			// Since active count will be 0, the function filters it out
+		Convey("A value XORed with itself produces zero and is filtered out", func() {
+			residue := xorSequence([]data.Value{label}, label)
 			So(len(residue), ShouldEqual, 0)
+		})
+
+		Convey("Mixed: elements that cancel vanish, non-cancelling survive as exact residues", func() {
+			seq := []data.Value{label, value1}
+			residue := xorSequence(seq, label)
+
+			expected := value1.XOR(label)
+
+			So(len(residue), ShouldEqual, 1)
+			So(valueEqual(residue[0], expected), ShouldBeTrue)
 		})
 	})
 }

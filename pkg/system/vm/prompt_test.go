@@ -37,6 +37,39 @@ func TestMachinePromptExactContinuation(t *testing.T) {
 		})
 	})
 
+	gc.Convey("Given a machine with multiple ingested corpus lines", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine := NewMachine(
+			MachineWithContext(ctx),
+		)
+		defer machine.Close()
+
+		err := machine.SetDataset(
+			local.New(local.WithStrings([]string{
+				"Roy was in the living room.",
+				"Roy is in the kitchen.",
+				"If you have an umbrella or stay inside you stay dry.",
+			})),
+		)
+		gc.So(err, gc.ShouldBeNil)
+
+		gc.Convey("It should stop at the matched sequence boundary", func() {
+			result, err := machine.Prompt("Roy was in the ")
+
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(string(result), gc.ShouldEqual, "living room.")
+		})
+
+		gc.Convey("It should cut the prompt using an exact prefix, not a later repeated token", func() {
+			result, err := machine.Prompt("If you have an umbrella or ")
+
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(string(result), gc.ShouldEqual, "stay inside you stay dry.")
+		})
+	})
+
 	cases := []struct {
 		name     string
 		prompt   string

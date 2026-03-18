@@ -305,31 +305,6 @@ func (graph *GraphServer) Evaluate(
 	return bestIdx, lowestEnergy, residue
 }
 
-func (graph *GraphServer) stabilizePaths(
-	pathsData [][]data.Value,
-	metaPathsData [][]data.Value,
-) ([][]data.Value, [][]data.Value, error) {
-	graph.state.Reset()
-
-	if graph.pathWavefront == nil || !graph.pathWavefront.CanStabilize(pathsData) {
-		return pathsData, metaPathsData, nil
-	}
-
-	var (
-		stablePaths     [][]data.Value
-		stableMetaPaths [][]data.Value
-	)
-
-	errnie.GuardVoid(graph.state, func() (err error) {
-		stablePaths, stableMetaPaths, err = graph.pathWavefront.Stabilize(
-			pathsData, metaPathsData,
-		)
-		return
-	})
-
-	return stablePaths, stableMetaPaths, graph.state.Err()
-}
-
 func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.Value) error {
 	graph.state.Reset()
 
@@ -368,8 +343,24 @@ func (graph *GraphServer) writeResult(res Graph_prompt_Results, paths [][]data.V
 /*
 RecursiveFold fractures data encoded in data.Value types
 by using simple bitwise operations (AND, XOR) to identify and isolate shared components.
-Returns an ASTNode tree where each node carries the shared invariant (Label)
-and Morton key back-pointers for byte recovery via the Tree.
+The shared components then become labels for the remaining fragments.
+
+Example:
+
+	DATA:
+		[Sandra]<is in the>[Garden]
+		[Roy]<is in the>[Kitchen]
+		[Harold]<is in the>[Kitchen]
+	FOLDING:
+		<is in the> the shared component that cancels out, becomes a "label".
+		<is in the>   -points to-> [Sandra, Roy, Harold]
+		[Sandra]      -points to-> [Garden]
+		[Roy, Harold] -points to-> [Kitchen]
+		[Kitchen]     -points to-> [Roy, Harold]
+	PROMPT:
+		Where is Roy? <is> cancels out with <is in the> which -points to-> [Sandra, Roy, Harold]
+		[Roy] cancels out with [Roy] which -points to-> [Kitchen]
+		Result: [Kitchen]
 */
 func (graph *GraphServer) RecursiveFold(
 	sequences [][]data.Value,

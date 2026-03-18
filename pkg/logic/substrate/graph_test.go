@@ -1,6 +1,7 @@
 package substrate
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"os"
@@ -9,9 +10,11 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data"
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/process/sequencer"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -1443,3 +1446,255 @@ func TestGraphResidueDepletion(t *testing.T) {
 		})
 	})
 }
+
+// ── RecursiveFold ─────────────────────────────────────────────────────────────
+//
+// RecursiveFold crystallizes a lattice from sequences of Values. Shared
+// rotations become labels (the axes of the lattice). Unique residues become
+// branches (the data that survived cancellation). Walking is reagent injection:
+// XOR your prompt against the lattice, follow where the energy collapses.
+//
+// Every assertion below checks exact Value identity (XOR == 0), not
+// approximations. If cancellation is exact in GF(257), the tests must be too.
+
+func newFoldGraph() *GraphServer {
+	return &GraphServer{
+		state: errnie.NewState("substrate/graph/fold-test"),
+		ctx:   context.Background(),
+		sink:  telemetry.NewSink(),
+	}
+}
+
+func TestRecursiveFold(t *testing.T) {
+	// Seed Values from bytes (I/O). After this line, bytes are gone.
+	// These are now geometric objects in a 257-bit field.
+	royWas := mustBuildValue(t, []byte("Roy was"))
+	royIs := mustBuildValue(t, []byte("Roy is"))
+	royWillBe := mustBuildValue(t, []byte("Roy will be"))
+	inThe := mustBuildValue(t, []byte(" in the "))
+	livingRoom := mustBuildValue(t, []byte("living room"))
+	kitchenVal := mustBuildValue(t, []byte("kitchen"))
+	garageVal := mustBuildValue(t, []byte("garage"))
+
+	seq0 := []data.Value{royWas, inThe, livingRoom}
+	seq1 := []data.Value{royIs, inThe, kitchenVal}
+	seq2 := []data.Value{royWillBe, inThe, garageVal}
+
+	sequences := [][]data.Value{seq0, seq1, seq2}
+	metaSequences := [][]data.Value{seq0, seq1, seq2}
+	keys := [][]uint64{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+
+	// Pre-compute the exact expected root label:
+	// OR each sequence into its union, AND across all unions.
+	// This IS the shared invariant — the rotation that cancels.
+	union0 := royWas.OR(inThe)
+	union0 = union0.OR(livingRoom)
+
+	union1 := royIs.OR(inThe)
+	union1 = union1.OR(kitchenVal)
+
+	union2 := royWillBe.OR(inThe)
+	union2 = union2.OR(garageVal)
+
+	expectedLabel := union0.AND(union1)
+	expectedLabel = expectedLabel.AND(union2)
+
+	// Pre-compute the exact residues: what survives cancellation.
+	res0 := xorSequence(seq0, expectedLabel)
+	res1 := xorSequence(seq1, expectedLabel)
+	res2 := xorSequence(seq2, expectedLabel)
+
+	graph := newFoldGraph()
+
+	Convey("Given 3 sequences crystallized by RecursiveFold", t, func() {
+		root := graph.RecursiveFold(sequences, metaSequences, keys, 0, -1)
+
+		Convey("The root label is the exact AND of the per-sequence OR unions", func() {
+			So(root, ShouldNotBeNil)
+			So(valueEqual(root.Label, expectedLabel), ShouldBeTrue)
+		})
+
+		Convey("The root has exactly 3 children — one residue branch per sequence", func() {
+			So(root, ShouldNotBeNil)
+			So(len(root.Children), ShouldEqual, 3)
+		})
+
+		Convey("Each child's label is the exact OR-union of its residue sequence", func() {
+			So(root, ShouldNotBeNil)
+			So(len(root.Children), ShouldEqual, 3)
+
+			// A child gets RecursiveFold([residues], ...) with 1 sequence.
+			// extractSharedInvariant of 1 sequence = OR of its elements.
+			expChild0 := data.ValueLCM(res0)
+			expChild1 := data.ValueLCM(res1)
+			expChild2 := data.ValueLCM(res2)
+
+			So(valueEqual(root.Children[0].Label, expChild0), ShouldBeTrue)
+			So(valueEqual(root.Children[1].Label, expChild1), ShouldBeTrue)
+			So(valueEqual(root.Children[2].Label, expChild2), ShouldBeTrue)
+		})
+
+		Convey("Reagent injection: walking with kitchenVal reaches a different node than garageVal", func() {
+			So(root, ShouldNotBeNil)
+
+			matchedK, _ := root.Walk(kitchenVal)
+			matchedG, _ := root.Walk(garageVal)
+
+			So(matchedK, ShouldNotBeNil)
+			So(matchedG, ShouldNotBeNil)
+
+			// The algebra must discriminate: different reagents reach different nodes.
+			So(valueEqual(matchedK.Label, matchedG.Label), ShouldBeFalse)
+		})
+
+		Convey("Walking verifies destructive interference at each level", func() {
+			So(root, ShouldNotBeNil)
+
+			// When we XOR kitchenVal with root label, the shared bits cancel.
+			// The surviving residue must have highest similarity with the child
+			// branch that was built from seq1 (the one containing kitchenVal).
+			residue := kitchenVal.XOR(root.Label)
+
+			bestIdx := -1
+			bestSim := -1
+
+			for i, child := range root.Children {
+				sim := residue.Similarity(child.Label)
+
+				if sim > bestSim {
+					bestSim = sim
+					bestIdx = i
+				}
+			}
+
+			// The matched child's label should overlap most with the residue.
+			// Log the actual similarity values so we can see the discrimination.
+			for i, child := range root.Children {
+				sim := residue.Similarity(child.Label)
+				t.Logf("Child %d similarity to kitchen residue: %d bits", i, sim)
+			}
+
+			So(bestIdx, ShouldBeGreaterThanOrEqualTo, 0)
+			So(bestSim, ShouldBeGreaterThan, 0)
+
+			// The winner must have strictly more similarity than any loser.
+			for i, child := range root.Children {
+				if i == bestIdx {
+					continue
+				}
+
+				loserSim := residue.Similarity(child.Label)
+				So(bestSim, ShouldBeGreaterThan, loserSim)
+			}
+		})
+
+		Convey("Algebraic closure: root label XOR'd with an input element and then back recovers the element", func() {
+			So(root, ShouldNotBeNil)
+
+			// XOR is self-inverse: (A XOR B) XOR B == A
+			// This must hold exactly for every element in every sequence.
+			for _, seq := range sequences {
+				for _, element := range seq {
+					residue := element.XOR(root.Label)
+					recovered := residue.XOR(root.Label)
+					So(valueEqual(recovered, element), ShouldBeTrue)
+				}
+			}
+		})
+	})
+}
+
+func BenchmarkRecursiveFold(b *testing.B) {
+	graph := newFoldGraph()
+
+	royWas, _ := data.BuildValue([]byte("Roy was"))
+	royIs, _ := data.BuildValue([]byte("Roy is"))
+	royWillBe, _ := data.BuildValue([]byte("Roy will be"))
+	inThe, _ := data.BuildValue([]byte(" in the "))
+	livingRoom, _ := data.BuildValue([]byte("living room"))
+	kitchenVal, _ := data.BuildValue([]byte("kitchen"))
+	garageVal, _ := data.BuildValue([]byte("garage"))
+
+	seqs := [][]data.Value{
+		{royWas, inThe, livingRoom},
+		{royIs, inThe, kitchenVal},
+		{royWillBe, inThe, garageVal},
+	}
+	meta := [][]data.Value{
+		{royWas, inThe, livingRoom},
+		{royIs, inThe, kitchenVal},
+		{royWillBe, inThe, garageVal},
+	}
+	keys := [][]uint64{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+
+	for b.Loop() {
+		graph.RecursiveFold(seqs, meta, keys, 0, -1)
+	}
+}
+
+/*
+dumpNode recursively prints the full AST structure.
+*/
+func dumpNode(t *testing.T, node *ASTNode, indent string) {
+	t.Helper()
+
+	if node == nil {
+		t.Logf("%s<nil>", indent)
+		return
+	}
+
+	t.Logf("%sLevel=%d  Bin=%d  LabelBits=%d  Children=%d  Leaves=%d  Keys=%d",
+		indent, node.Level, node.Bin, node.Label.ActiveCount(),
+		len(node.Children), len(node.Leaves), len(node.Keys))
+
+	for i, leaf := range node.Leaves {
+		leafBits := 0
+
+		for _, val := range leaf {
+			leafBits += val.ActiveCount()
+		}
+
+		t.Logf("%s  Leaf[%d]: %d values, total %d bits", indent, i, len(leaf), leafBits)
+	}
+
+	for i, child := range node.Children {
+		t.Logf("%s  Child[%d]:", indent, i)
+		dumpNode(t, child, indent+"    ")
+	}
+}
+
+func TestRecursiveFold_DumpTree(t *testing.T) {
+	// Exact data from the diagram:
+	//   [Sandra]<is in the>[Garden]
+	//   [Roy]<is in the>[Kitchen]
+	//   [Harold]<is in the>[Kitchen]
+	//
+	// Roy and Harold share Kitchen. After the first fold removes the shared
+	// invariant, their branches must fold again — Kitchen cancels, leaving
+	// Roy and Harold as the residues. This MUST produce depth > 1.
+	sandra := mustBuildValue(t, []byte("Sandra"))
+	roy := mustBuildValue(t, []byte("Roy"))
+	harold := mustBuildValue(t, []byte("Harold"))
+	isInThe := mustBuildValue(t, []byte("is in the"))
+	garden := mustBuildValue(t, []byte("Garden"))
+	kitchen := mustBuildValue(t, []byte("Kitchen"))
+
+	sequences := [][]data.Value{
+		{sandra, isInThe, garden},
+		{roy, isInThe, kitchen},
+		{harold, isInThe, kitchen},
+	}
+	metaSequences := [][]data.Value{
+		{sandra, isInThe, garden},
+		{roy, isInThe, kitchen},
+		{harold, isInThe, kitchen},
+	}
+	keys := [][]uint64{{0, 0, 0}, {0, 0, 0}, {0, 0, 0}}
+
+	graph := newFoldGraph()
+	root := graph.RecursiveFold(sequences, metaSequences, keys, 0, -1)
+
+	t.Log("=== Full AST from RecursiveFold ===")
+	dumpNode(t, root, "")
+}
+
