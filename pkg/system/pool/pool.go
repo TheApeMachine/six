@@ -82,11 +82,22 @@ func New(ctx context.Context, minWorkers, maxWorkers int, config *Config) *Pool 
 manage dispatches jobs from the queue to available workers.
 */
 func (p *Pool) manage() {
+	retryTimer := time.NewTimer(100 * time.Millisecond)
+	if !retryTimer.Stop() {
+		<-retryTimer.C
+	}
+
+	defer retryTimer.Stop()
+
 	for {
 		select {
 		case <-p.ctx.Done():
 			return
-		case job := <-p.jobs:
+		case job, ok := <-p.jobs:
+			if !ok {
+				return
+			}
+
 			// Scale up on demand when no workers or all busy.
 			if p.scaler != nil {
 				p.scaler.ScaleUpIfNeeded(1)
@@ -95,6 +106,14 @@ func (p *Pool) manage() {
 			deadline := time.Now().Add(p.getSchedulingTimeout())
 			dispatched := false
 			for !dispatched && time.Now().Before(deadline) {
+				if !retryTimer.Stop() {
+					select {
+					case <-retryTimer.C:
+					default:
+					}
+				}
+				retryTimer.Reset(100 * time.Millisecond)
+
 				select {
 				case <-p.ctx.Done():
 					return
@@ -105,7 +124,7 @@ func (p *Pool) manage() {
 					case <-p.ctx.Done():
 						return
 					}
-				case <-time.After(100 * time.Millisecond):
+				case <-retryTimer.C:
 					if p.scaler != nil {
 						p.scaler.ScaleUpIfNeeded(1)
 					}

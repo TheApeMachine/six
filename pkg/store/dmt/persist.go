@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -119,6 +120,10 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 
+	if ps.closed {
+		return fmt.Errorf("persistent store is closed")
+	}
+
 	errnie.GuardVoid(ps.state, func() error {
 		if err := ps.walWriter.WriteByte(opInsert); err != nil {
 			return err
@@ -151,6 +156,8 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 		return nil
 	})
 
+	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
+
 	// Update last term/index
 	ps.lastTerm = term
 	ps.lastIndex = index
@@ -178,6 +185,10 @@ persisted to stable storage.
 */
 func (ps *PersistentStore) backgroundSync() {
 	for range ps.syncChan {
+		if ps.ctx.Err() != nil {
+			return
+		}
+
 		ps.writeMutex.Lock()
 		ps.walWriter.Flush()
 		ps.walFile.Sync()
@@ -219,6 +230,10 @@ func (ps *PersistentStore) LogTerm(term uint64) error {
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 
+	if ps.closed {
+		return fmt.Errorf("persistent store is closed")
+	}
+
 	errnie.GuardVoid(ps.state, func() error {
 		if err := ps.walWriter.WriteByte(opTermUpdate); err != nil {
 			return err
@@ -226,6 +241,8 @@ func (ps *PersistentStore) LogTerm(term uint64) error {
 
 		return binary.Write(ps.walWriter, binary.LittleEndian, term)
 	})
+
+	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
 
 	ps.lastTerm = term
 
@@ -282,7 +299,7 @@ func (ps *PersistentStore) Replay() ([]WALEntry, error) {
 
 			key := make([]byte, keyLen)
 			errnie.GuardVoid(ps.state, func() error {
-				_, err := reader.Read(key)
+				_, err := io.ReadFull(reader, key)
 				return err
 			})
 
@@ -293,7 +310,7 @@ func (ps *PersistentStore) Replay() ([]WALEntry, error) {
 
 			value := make([]byte, valLen)
 			errnie.GuardVoid(ps.state, func() error {
-				_, err := reader.Read(value)
+				_, err := io.ReadFull(reader, value)
 				return err
 			})
 
@@ -332,6 +349,8 @@ func (ps *PersistentStore) Replay() ([]WALEntry, error) {
 			if ps.state.Failed() {
 				return entries, ps.state.Err()
 			}
+		default:
+			return entries, fmt.Errorf("invalid wal operation: %d", op)
 		}
 	}
 
