@@ -43,11 +43,7 @@ Generate returns a channel that emits RawTokens (SampleID, Symbol, Pos) for each
 Closes when all images are streamed. Skips files that fail to decode.
 */
 func (dataset *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-
-	go func() {
-		defer close(out)
-
+	return provider.AsyncTokens("vision-dataset", func(out chan<- provider.RawToken) {
 		for idx, path := range dataset.paths {
 			file, err := os.Open(path)
 			if err != nil {
@@ -80,7 +76,5 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 				}
 			}
 		}
-	}()
-
-	return out
+	})
 }

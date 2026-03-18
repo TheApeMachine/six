@@ -378,14 +378,11 @@ type multiDomainDataset struct {
 }
 
 func (m *multiDomainDataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-	go func() {
-		defer close(out)
+	return provider.AsyncTokens("cross-domain-dataset", func(out chan<- provider.RawToken) {
 		for _, ds := range m.datasets {
 			for tok := range ds.Generate() {
 				out <- tok
 			}
 		}
-	}()
-	return out
+	})
 }

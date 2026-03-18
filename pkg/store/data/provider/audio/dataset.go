@@ -41,11 +41,7 @@ Generate returns a channel that emits RawTokens for each PCM byte (after WAV hea
 Closes when all files are streamed. Skips files shorter than 45 bytes.
 */
 func (d *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-
-	go func() {
-		defer close(out)
-
+	return provider.AsyncTokens("audio-dataset", func(out chan<- provider.RawToken) {
 		for fileIdx, path := range d.paths {
 			fileBytes, err := os.ReadFile(path)
 			if err != nil {
@@ -93,7 +89,5 @@ func (d *Dataset) Generate() chan provider.RawToken {
 				pos++
 			}
 		}
-	}()
-
-	return out
+	})
 }

@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"runtime"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -104,7 +104,7 @@ func (backend *DistributedBackend) Resolve(
 	timeout := time.Duration(config.System.Timeout) * time.Millisecond
 	remoteOnly := config.System.RemoteOnly
 
-	var best atomic.Uint64
+	var best uint64
 	var localBuilder *Builder
 
 	if !remoteOnly {
@@ -181,8 +181,8 @@ func (backend *DistributedBackend) Resolve(
 		)
 	}
 
-	var fallbackWg sync.WaitGroup
 	errCh := make(chan error, len(chunks))
+	fallbackChans := make([]chan *pool.Result, 0, len(chunks))
 
 	for i, chunk := range chunks {
 		if state.Failed() {
@@ -195,7 +195,6 @@ func (backend *DistributedBackend) Resolve(
 		case res := <-resChans[i]:
 			if res.Error != nil {
 				if localBuilder != nil {
-					fallbackWg.Add(1)
 					// Schedule failure fallback locally
 					localFn := func(ctx context.Context) (any, error) {
 						start, end := chunk.start, chunk.end
@@ -207,34 +206,40 @@ func (backend *DistributedBackend) Resolve(
 						return numeric.RebasePackedID(packed, start), nil
 					}
 
-					fbCh := backend.pool.Schedule(fmt.Sprintf("local-%d", chunk.start), localFn, pool.WithTTL(5*time.Second), pool.WithContext(rctx))
-					go func() {
-						defer fallbackWg.Done()
-						select {
-						case <-rctx.Done():
-							return
-						case fbRes := <-fbCh:
-							if fbRes.Error != nil {
-								errCh <- fbRes.Error
-							} else if v, ok := fbRes.Value.(uint64); ok {
-								atomicMaxPacked(&best, v)
-							} else {
-								console.Debug("distributed: local Resolve returned non-uint64", "type", fmt.Sprintf("%T", fbRes.Value), "value", fbRes.Value)
-							}
-						}
-					}()
+					fallbackChans = append(
+						fallbackChans,
+						backend.pool.Schedule(
+							fmt.Sprintf("local-%d", chunk.start),
+							localFn,
+							pool.WithTTL(5*time.Second),
+							pool.WithContext(rctx),
+						),
+					)
 				} else {
 					errnie.GuardVoid(state, func() error { return res.Error })
 				}
 			} else if v, ok := res.Value.(uint64); ok {
-				atomicMaxPacked(&best, v)
+				best = max(best, v)
 			} else {
 				console.Debug("distributed: remote Resolve returned non-uint64", "type", fmt.Sprintf("%T", res.Value), "value", res.Value)
 			}
 		}
 	}
 
-	fallbackWg.Wait()
+	for _, fallbackCh := range fallbackChans {
+		select {
+		case <-rctx.Done():
+		case fbRes := <-fallbackCh:
+			if fbRes.Error != nil {
+				errCh <- fbRes.Error
+			} else if v, ok := fbRes.Value.(uint64); ok {
+				best = max(best, v)
+			} else {
+				console.Debug("distributed: local Resolve returned non-uint64", "type", fmt.Sprintf("%T", fbRes.Value), "value", fbRes.Value)
+			}
+		}
+	}
+
 	close(errCh)
 
 	errnie.GuardVoid(state, func() error {
@@ -244,7 +249,7 @@ func (backend *DistributedBackend) Resolve(
 		return nil
 	})
 
-	return best.Load(), state.Err()
+	return best, state.Err()
 }
 
 func remoteBestFillPacked(
@@ -320,30 +325,48 @@ func StartDistributedWorker(ctx context.Context) (string, error) {
 	}
 
 	boundAddr := fmt.Sprintf(":%d", ln.Addr().(*net.TCPAddr).Port)
-
-	go func() {
-		<-ctx.Done()
-		_ = ln.Close()
-	}()
-
 	localBuilder := NewBuilder()
+	workerPool := pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{})
 
-	go func() {
-		acceptState := errnie.NewState("kernel/distributed/accept")
-		for {
-			conn, acceptErr := ln.Accept()
-			if acceptErr != nil {
-				if ctx.Err() != nil {
-					return
+	workerPool.Schedule(
+		"kernel/distributed/worker-close-listener",
+		func(active context.Context) (any, error) {
+			<-active.Done()
+			return nil, ln.Close()
+		},
+		pool.WithContext(ctx),
+		pool.WithTTL(time.Second),
+	)
+
+	workerPool.Schedule(
+		"kernel/distributed/worker-accept",
+		func(active context.Context) (any, error) {
+			acceptState := errnie.NewState("kernel/distributed/accept")
+			for {
+				conn, acceptErr := ln.Accept()
+				if acceptErr != nil {
+					if ctx.Err() != nil {
+						return nil, nil
+					}
+					acceptState.Handle(acceptErr)
+					acceptState.Reset()
+					continue
 				}
-				acceptState.Handle(acceptErr)
-				acceptState.Reset()
-				continue
-			}
 
-			go handleDistributedConn(conn, localBuilder)
-		}
-	}()
+				workerPool.Schedule(
+					fmt.Sprintf("kernel/distributed/worker-conn-%d", time.Now().UnixNano()),
+					func(runCtx context.Context) (any, error) {
+						handleDistributedConn(conn, localBuilder)
+						return nil, nil
+					},
+					pool.WithContext(ctx),
+					pool.WithTTL(time.Second),
+				)
+			}
+		},
+		pool.WithContext(ctx),
+		pool.WithTTL(time.Second),
+	)
 
 	return boundAddr, nil
 }
@@ -545,18 +568,6 @@ func readStructData(st capnp.Struct, idx uint16) ([]byte, error) {
 	return append([]byte(nil), data...), nil
 }
 
-func atomicMaxPacked(best *atomic.Uint64, packed uint64) {
-	for {
-		current := best.Load()
-		if packed <= current {
-			break
-		}
-		if best.CompareAndSwap(current, packed) {
-			break
-		}
-	}
-}
-
 /*
 DistributedWithContext adds a context to the machine.
 */
@@ -631,14 +642,22 @@ func StartDiscovery(ctx context.Context) error {
 	discoveryState = &discoveryRuntime{ctx: ctx}
 	discoveryMu.Unlock()
 
-	go func(active context.Context) {
-		<-active.Done()
-		discoveryMu.Lock()
-		if discoveryState != nil && discoveryState.ctx == active {
-			discoveryState = nil
-		}
-		discoveryMu.Unlock()
-	}(ctx)
+	discoveryPool := pool.New(ctx, 3, max(3, runtime.NumCPU()), &pool.Config{})
+
+	discoveryPool.Schedule(
+		"kernel/distributed/discovery-cleanup",
+		func(active context.Context) (any, error) {
+			<-active.Done()
+			discoveryMu.Lock()
+			if discoveryState != nil && discoveryState.ctx == active {
+				discoveryState = nil
+			}
+			discoveryMu.Unlock()
+			return nil, nil
+		},
+		pool.WithContext(ctx),
+		pool.WithTTL(time.Second),
+	)
 
 	resetWorkersToConfigured()
 
@@ -670,63 +689,73 @@ func StartDiscovery(ctx context.Context) error {
 		return state.Err()
 	}
 
-	go func() {
-		defer conn.Close()
-		buf := make([]byte, 1024)
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
-			}
-			_ = conn.SetReadDeadline(time.Now().Add(time.Second))
-			n, raddr, err := conn.ReadFromUDP(buf)
-			if err != nil {
-				continue
-			}
+	discoveryPool.Schedule(
+		"kernel/distributed/discovery-listen",
+		func(active context.Context) (any, error) {
+			defer conn.Close()
+			buf := make([]byte, 1024)
+			for {
+				select {
+				case <-ctx.Done():
+					return nil, nil
+				default:
+				}
+				_ = conn.SetReadDeadline(time.Now().Add(time.Second))
+				n, raddr, err := conn.ReadFromUDP(buf)
+				if err != nil {
+					continue
+				}
 
-			msg := string(buf[:n])
-			parts := strings.SplitN(msg, ":", 3)
-			if len(parts) == 3 && parts[0] == "SIX_WORKER" {
-				peerID := parts[1]
-				peerPort := parts[2]
-				if peerID != instanceID {
-					peerIP := raddr.IP.String()
-					if strings.HasPrefix(peerPort, ":") {
-						addWorker(fmt.Sprintf("%s%s", peerIP, peerPort))
-					} else {
-						addWorker(fmt.Sprintf("%s:%s", peerIP, peerPort))
+				msg := string(buf[:n])
+				parts := strings.SplitN(msg, ":", 3)
+				if len(parts) == 3 && parts[0] == "SIX_WORKER" {
+					peerID := parts[1]
+					peerPort := parts[2]
+					if peerID != instanceID {
+						peerIP := raddr.IP.String()
+						if strings.HasPrefix(peerPort, ":") {
+							addWorker(fmt.Sprintf("%s%s", peerIP, peerPort))
+						} else {
+							addWorker(fmt.Sprintf("%s:%s", peerIP, peerPort))
+						}
 					}
 				}
 			}
-		}
-	}()
+		},
+		pool.WithContext(ctx),
+		pool.WithTTL(time.Second),
+	)
 
-	go func() {
-		broadcastState := errnie.NewState("kernel/distributed/broadcast")
-		addr := errnie.Guard(broadcastState, func() (*net.UDPAddr, error) {
-			return net.ResolveUDPAddr("udp4", "255.255.255.255:7778")
-		})
+	discoveryPool.Schedule(
+		"kernel/distributed/discovery-broadcast",
+		func(active context.Context) (any, error) {
+			broadcastState := errnie.NewState("kernel/distributed/broadcast")
+			addr := errnie.Guard(broadcastState, func() (*net.UDPAddr, error) {
+				return net.ResolveUDPAddr("udp4", "255.255.255.255:7778")
+			})
 
-		if broadcastState.Failed() {
-			return
-		}
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			default:
+			if broadcastState.Failed() {
+				return nil, broadcastState.Err()
 			}
-			bconn, err := net.DialUDP("udp4", nil, addr)
-			if err == nil {
-				msg := fmt.Sprintf("SIX_WORKER:%s:%s", instanceID, boundPort)
-				_, _ = bconn.Write([]byte(msg))
-				_ = bconn.Close()
+
+			for {
+				select {
+				case <-ctx.Done():
+					return nil, nil
+				default:
+				}
+				bconn, err := net.DialUDP("udp4", nil, addr)
+				if err == nil {
+					msg := fmt.Sprintf("SIX_WORKER:%s:%s", instanceID, boundPort)
+					_, _ = bconn.Write([]byte(msg))
+					_ = bconn.Close()
+				}
+				time.Sleep(5 * time.Second)
 			}
-			time.Sleep(5 * time.Second)
-		}
-	}()
+		},
+		pool.WithContext(ctx),
+		pool.WithTTL(time.Second),
+	)
 
 	return nil
 }

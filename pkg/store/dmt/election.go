@@ -90,7 +90,10 @@ func NewElection(config ElectionConfig, node *NetworkNode) *Election {
 
 	e.heartbeatTimer.Stop()
 
-	go e.run()
+	e.scheduleLoop("run-loop", func(ctx context.Context) (any, error) {
+		e.run()
+		return nil, nil
+	})
 
 	return e
 }
@@ -435,5 +438,17 @@ func (e *Election) schedule(
 		"dmt/election/"+id,
 		fn,
 		pool.WithContext(e.node.ctx),
+	)
+}
+
+func (e *Election) scheduleLoop(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	e.node.forest.loops.Schedule(
+		"dmt/election/"+id,
+		fn,
+		pool.WithContext(e.node.ctx),
+		pool.WithTTL(time.Second),
 	)
 }

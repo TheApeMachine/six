@@ -7,14 +7,17 @@ package dmt
 
 import (
 	"bufio"
+	"context"
 	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"time"
 
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -52,6 +55,9 @@ type PersistentStore struct {
 	walWriter  *bufio.Writer
 	walPath    string
 	snapPath   string
+	ctx        context.Context
+	cancel     context.CancelFunc
+	pool       *pool.Pool
 	writeMutex sync.Mutex
 	syncChan   chan struct{}
 	lastIndex  uint64
@@ -70,10 +76,14 @@ data durability. The store will create necessary directories if they
 don't exist.
 */
 func NewPersistentStore(dir string) (*PersistentStore, error) {
+	ctx, cancel := context.WithCancel(context.Background())
 	ps := &PersistentStore{
 		state:     errnie.NewState("dmt/persist"),
 		walPath:   filepath.Join(dir, "wal.log"),
 		snapPath:  filepath.Join(dir, "snapshot"),
+		ctx:       ctx,
+		cancel:    cancel,
+		pool:      pool.New(ctx, 1, runtime.NumCPU(), &pool.Config{}),
 		syncChan:  make(chan struct{}, 100),
 		snapCount: 1000,
 	}
@@ -89,7 +99,10 @@ func NewPersistentStore(dir string) (*PersistentStore, error) {
 	ps.walWriter = bufio.NewWriter(ps.walFile)
 
 	// Start background syncing
-	go ps.backgroundSync()
+	ps.schedule("background-sync", func(ctx context.Context) (any, error) {
+		ps.backgroundSync()
+		return nil, nil
+	})
 
 	// Load last term/index from WAL
 	errnie.GuardVoid(ps.state, ps.loadLastState)
@@ -150,7 +163,9 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 
 	// Check if snapshot needed
 	if index%ps.snapCount == 0 {
-		go ps.createSnapshot()
+		ps.schedule("snapshot", func(ctx context.Context) (any, error) {
+			return nil, ps.createSnapshot()
+		})
 	}
 
 	return ps.state.Err()
@@ -183,10 +198,16 @@ func (ps *PersistentStore) Close() error {
 	}
 
 	ps.closed = true
+	if ps.cancel != nil {
+		ps.cancel()
+	}
 	close(ps.syncChan)
 
 	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
 	errnie.GuardVoid(ps.state, ps.walFile.Close)
+	if ps.pool != nil {
+		ps.pool.Close()
+	}
 
 	return ps.state.Err()
 }
@@ -446,4 +467,16 @@ func (ps *PersistentStore) GetLastState() (term, index uint64) {
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 	return ps.lastTerm, ps.lastIndex
+}
+
+func (ps *PersistentStore) schedule(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	ps.pool.Schedule(
+		"dmt/persist/"+id,
+		fn,
+		pool.WithContext(ps.ctx),
+		pool.WithTTL(time.Second),
+	)
 }

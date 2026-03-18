@@ -99,11 +99,20 @@ func NewNetworkNode(config NetworkConfig, forest *Forest) (*NetworkNode, error) 
 		QuorumSize:        1,
 	}, node)
 
-	go node.acceptLoop()
+	node.scheduleLoop("accept-loop", func(ctx context.Context) (any, error) {
+		node.acceptLoop()
+		return nil, nil
+	})
 
-	go node.connectLoop()
+	node.scheduleLoop("connect-loop", func(ctx context.Context) (any, error) {
+		node.connectLoop()
+		return nil, nil
+	})
 
-	go node.syncLoop()
+	node.scheduleLoop("sync-loop", func(ctx context.Context) (any, error) {
+		node.syncLoop()
+		return nil, nil
+	})
 
 	return node, node.state.Err()
 }
@@ -616,5 +625,17 @@ func (n *NetworkNode) schedule(
 		"dmt/network/"+id,
 		fn,
 		pool.WithContext(n.ctx),
+	)
+}
+
+func (n *NetworkNode) scheduleLoop(
+	id string,
+	fn func(ctx context.Context) (any, error),
+) {
+	n.forest.loops.Schedule(
+		"dmt/network/"+id,
+		fn,
+		pool.WithContext(n.ctx),
+		pool.WithTTL(time.Second),
 	)
 }

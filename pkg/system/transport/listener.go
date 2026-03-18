@@ -3,11 +3,14 @@ package transport
 import (
 	"context"
 	"net"
+	"runtime"
 	"sync"
+	"time"
 
 	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -31,6 +34,7 @@ type Listener struct {
 	addr     string
 	client   capnp.Client
 	conns    []*rpc.Conn
+	pool     *pool.Pool
 	mu       sync.Mutex
 }
 
@@ -55,9 +59,23 @@ func NewListener(ctx context.Context, addr string, bootstrap capnp.Client) (*Lis
 		listener: tcpListener,
 		addr:     tcpListener.Addr().String(),
 		client:   bootstrap,
+		pool: pool.New(
+			ctx,
+			1,
+			runtime.NumCPU(),
+			&pool.Config{},
+		),
 	}
 
-	go listener.accept()
+	listener.pool.Schedule(
+		"transport/listener/accept",
+		func(runCtx context.Context) (any, error) {
+			listener.accept()
+			return nil, nil
+		},
+		pool.WithContext(listener.ctx),
+		pool.WithTTL(time.Second),
+	)
 
 	return listener, nil
 }
@@ -108,6 +126,9 @@ func (listener *Listener) Close() error {
 	}
 
 	listener.conns = nil
+	if listener.pool != nil {
+		listener.pool.Close()
+	}
 
 	return nil
 }

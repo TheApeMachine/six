@@ -100,11 +100,7 @@ Generate streams the column as (byte, position) pairs.
 The returned channel closes when all data has been emitted.
 */
 func (dataset *Dataset) Generate() chan provider.RawToken {
-	out := make(chan provider.RawToken, 4096)
-
-	go func() {
-		defer close(out)
-
+	return provider.AsyncTokens("huggingface-dataset", func(out chan<- provider.RawToken) {
 		if cached, ok := dataset.snapshotCachedTokens(); ok {
 			dataset.replayCachedTokens(out, cached)
 			return
@@ -172,9 +168,7 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 		}
 
 		dataset.finishCacheLoad(tokens, true)
-	}()
-
-	return out
+	})
 }
 
 func (dataset *Dataset) snapshotCachedTokens() ([]provider.RawToken, bool) {
@@ -231,7 +225,7 @@ func (dataset *Dataset) finishCacheLoad(tokens []provider.RawToken, ok bool) {
 	dataset.cacheCond.Broadcast()
 }
 
-func (dataset *Dataset) replayCachedTokens(out chan provider.RawToken, tokens []provider.RawToken) {
+func (dataset *Dataset) replayCachedTokens(out chan<- provider.RawToken, tokens []provider.RawToken) {
 	for _, token := range tokens {
 		out <- token
 	}
