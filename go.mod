@@ -8,7 +8,9 @@ require (
 	github.com/chromedp/chromedp v0.14.2
 	github.com/gomlx/gemma v0.0.0-20241101110232-83792b257ba9
 	github.com/gomlx/gomlx v0.15.0
+	github.com/gomlx/gopjrt v0.4.4
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674
+	github.com/hashicorp/go-immutable-radix/v2 v2.1.0
 	github.com/parquet-go/parquet-go v0.28.0
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.10.2
@@ -25,8 +27,6 @@ require (
 	github.com/eliben/go-sentencepiece v0.6.0 // indirect
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/gomlx/exceptions v0.0.3 // indirect
-	github.com/gomlx/gopjrt v0.4.4 // indirect
-	github.com/hashicorp/go-immutable-radix/v2 v2.1.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
 	github.com/mitchellh/colorstring v0.0.0-20190213212951-d06e56a500db // indirect
