@@ -60,11 +60,11 @@ identity affine operator so it behaves like a tiny local program even before
 any lexical observable is projected onto it.
 */
 func NeutralValue() Value {
-	state := errnie.NewState("primitive/value/neutralValue")
+	value, err := New()
 
-	value := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
+	if err != nil {
+		panic("NeutralValue: " + err.Error())
+	}
 
 	value.SetAffine(1, 0)
 
@@ -82,17 +82,36 @@ bitwise operators can then treat overlap and cancellation as exact structural
 signals over that basis instead of semantic symbols.
 */
 func BaseValue(b byte) Value {
-	state := errnie.NewState("primitive/value/baseValue")
+	value, err := New()
 
-	value := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
+	if err != nil {
+		panic("BaseValue: " + err.Error())
+	}
 
 	for _, off := range baseValueOffsets(b) {
 		value.Set(off)
 	}
 
 	return value
+}
+
+/*
+BaseValueInto writes the deterministic 5-bit projection for a byte into an
+existing destination, avoiding allocation when callers can reuse storage.
+*/
+func BaseValueInto(b byte, destination *Value) {
+	destination.SetC0(0)
+	destination.SetC1(0)
+	destination.SetC2(0)
+	destination.SetC3(0)
+	destination.SetC4(0)
+	destination.SetC5(0)
+	destination.SetC6(0)
+	destination.SetC7(0)
+
+	for _, off := range baseValueOffsets(b) {
+		destination.Set(off)
+	}
 }
 
 /*
@@ -111,22 +130,37 @@ func BuildValue(payload []byte) (Value, error) {
 		return Value{}, err
 	}
 
-	state := errnie.NewState("data/buildValue")
+	value, err := NewRootValue(seg)
+	if err != nil {
+		return Value{}, err
+	}
 
-	value := errnie.Guard(state, func() (Value, error) {
-		return NewRootValue(seg)
-	})
+	var base, rolled, merged Value
 
-	if state.Failed() {
-		return Value{}, state.Err()
+	base, err = New()
+	if err != nil {
+		return Value{}, err
+	}
+
+	rolled, err = New()
+	if err != nil {
+		return Value{}, err
+	}
+
+	merged, err = New()
+	if err != nil {
+		return Value{}, err
 	}
 
 	for pos, b := range payload {
-		positioned := BaseValue(b)
-		positioned = positioned.RollLeft(pos)
-		value = errnie.Guard(state, func() (Value, error) {
-			return value.OR(positioned)
-		})
+		BaseValueInto(b, &base)
+		base.RollLeftInto(pos, &rolled)
+
+		if err = value.ORInto(rolled, &merged); err != nil {
+			return Value{}, err
+		}
+
+		value.CopyFrom(merged)
 	}
 
 	return value, nil
@@ -352,8 +386,9 @@ ValueErrorType enumerates stable value-construction and block-layout failures.
 type ValueErrorType string
 
 const (
-	ValueErrorTypeAllocationFailed  ValueErrorType = "allocation failed"
-	ValueErrorTypeInvalidBlockIndex ValueErrorType = "invalid block index"
+	ValueErrorTypeAllocationFailed   ValueErrorType = "allocation failed"
+	ValueErrorTypeInvalidBlockIndex  ValueErrorType = "invalid block index"
+	ValueErrorTypeInvalidDestination ValueErrorType = "invalid destination"
 )
 
 /*

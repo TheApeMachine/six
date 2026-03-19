@@ -19,6 +19,7 @@ type ASTNode struct {
 	LabelMeta primitive.Value
 	Theta     float64
 	Keys      []uint64
+	Text      string
 	Children  []*ASTNode
 	Leaves    [][]primitive.Value
 }

@@ -276,7 +276,10 @@ func (graph *GraphServer) foldWriteSnapshot(keys []uint64) {
 		return
 	}
 
-	paths := [][]primitive.Value{graph.valuesFromKeys(keys)}
+	paths := [][]primitive.Value{
+		primitive.CompileObservableSequenceValues(keys),
+	}
+
 	graph.foldDecodedPaths(paths)
 }
 
@@ -294,7 +297,9 @@ func (graph *GraphServer) foldDecodedPaths(paths [][]primitive.Value) {
 			continue
 		}
 
-		root := graph.recursiveFoldSpan(buffer, 0, len(buffer), 0)
+		symbols := graph.decodePromptSymbols(buffer)
+
+		root := graph.recursiveFoldSpan(buffer, 0, len(buffer), 0, symbols)
 		if root != nil {
 			graph.astRoots = append(graph.astRoots, root)
 			graph.emitFoldTelemetry(root, -1)
@@ -330,31 +335,13 @@ func (graph *GraphServer) emitFoldTelemetry(node *ASTNode, parentBin int) {
 			ParentBin:  parentBin,
 			ChildCount: len(node.Children),
 			Density:    float64(node.Label.CoreActiveCount()) / 257.0,
-			ChunkText:  fmt.Sprintf("bin=%d bits=%d", node.Bin, node.Label.CoreActiveCount()),
+			ChunkText:  node.Text,
 		},
 	})
 
 	for _, child := range node.Children {
 		graph.emitFoldTelemetry(child, node.Bin)
 	}
-}
-
-/*
-valuesFromKeys projects Morton keys into positional primitive values.
-*/
-func (graph *GraphServer) valuesFromKeys(keys []uint64) []primitive.Value {
-	_ = graph
-
-	values := make([]primitive.Value, 0, len(keys))
-
-	for _, key := range keys {
-		position := int(uint32(key & 0xFFFFFFFF))
-		symbol := byte((key >> 32) & 0xFF)
-		value := primitive.BaseValue(symbol).RollLeft(position)
-		values = append(values, value)
-	}
-
-	return values
 }
 
 /*
@@ -707,6 +694,7 @@ func (graph *GraphServer) recursiveFoldSpan(
 	start int,
 	end int,
 	level int,
+	symbols []byte,
 ) *ASTNode {
 	_ = graph
 
@@ -714,11 +702,19 @@ func (graph *GraphServer) recursiveFoldSpan(
 		return nil
 	}
 
+	spanText := ""
+	if len(symbols) >= end {
+		spanText = string(symbols[start:end])
+	} else if len(symbols) > start {
+		spanText = string(symbols[start:])
+	}
+
 	if end-start == 1 {
 		leaf := &ASTNode{
 			Level:  level,
 			Label:  buffer[start],
 			Bin:    buffer[start].Bin(),
+			Text:   spanText,
 			Leaves: [][]primitive.Value{{buffer[start]}},
 		}
 
@@ -731,15 +727,16 @@ func (graph *GraphServer) recursiveFoldSpan(
 		Component: "Graph",
 		Action:    "FoldSpan",
 		Data: telemetry.EventData{
-			Level:    level,
-			Left:     start,
-			Right:    end,
-			SpanSize: end - start,
+			Level:     level,
+			Left:      start,
+			Right:     end,
+			SpanSize:  end - start,
+			ChunkText: spanText,
 		},
 	})
 
-	left := graph.recursiveFoldSpan(buffer, start, mid, level+1)
-	right := graph.recursiveFoldSpan(buffer, mid, end, level+1)
+	left := graph.recursiveFoldSpan(buffer, start, mid, level+1, symbols)
+	right := graph.recursiveFoldSpan(buffer, mid, end, level+1, symbols)
 
 	leftAggregate := graph.aggregateSpan(buffer, start, mid)
 	rightAggregate := graph.aggregateSpan(buffer, mid, end)
@@ -753,6 +750,7 @@ func (graph *GraphServer) recursiveFoldSpan(
 		LabelMeta: graph.arrowMeta(leftAggregate, rightAggregate, label, level),
 		Bin:       label.Bin(),
 		Theta:     float64(label.CoreActiveCount()) / 257.0,
+		Text:      spanText,
 		Children:  []*ASTNode{},
 	}
 

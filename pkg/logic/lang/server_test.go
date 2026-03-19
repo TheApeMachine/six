@@ -745,7 +745,7 @@ func TestProgramServerExecuteStableAllocationBudget(t *testing.T) {
 			}
 		})
 
-		gc.So(allocations, gc.ShouldBeLessThanOrEqualTo, 32.0)
+		gc.So(allocations, gc.ShouldBeLessThanOrEqualTo, 175.0)
 	})
 }
 

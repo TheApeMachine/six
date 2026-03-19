@@ -3,8 +3,6 @@ package primitive
 import (
 	"math/bits"
 
-	capnp "capnproto.org/go/capnp/v3"
-	"github.com/theapemachine/six/pkg/errnie"
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
@@ -18,92 +16,149 @@ func (value *Value) Set(p int) {
 /*
 OR returns the element-wise OR of two values (their LCM in prime exponent space).
 */
-func (value Value) OR(other Value) (Value, error) {
-	state := errnie.NewState("primitive/bitwise/or")
+func (value Value) OR(other Value) (lcm Value, err error) {
+	if lcm, err = New(); err != nil {
+		return Value{}, err
+	}
 
-	lcm := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
+	if err = value.ORInto(other, &lcm); err != nil {
+		return Value{}, err
+	}
 
-	lcm.SetC0(value.C0() | other.C0())
-	lcm.SetC1(value.C1() | other.C1())
-	lcm.SetC2(value.C2() | other.C2())
-	lcm.SetC3(value.C3() | other.C3())
-	lcm.SetC4((value.C4() | other.C4()) & 1)
+	return
+}
 
-	return lcm, state.Err()
+/*
+ORInto writes the element-wise OR result into destination to avoid per-call
+allocation when callers can reuse one Value across iterations.
+*/
+func (value Value) ORInto(other Value, destination *Value) error {
+	if destination == nil || !destination.IsValid() {
+		return NewValueError(ValueErrorTypeInvalidDestination)
+	}
+
+	destination.SetC0(value.C0() | other.C0())
+	destination.SetC1(value.C1() | other.C1())
+	destination.SetC2(value.C2() | other.C2())
+	destination.SetC3(value.C3() | other.C3())
+	destination.SetC4((value.C4() | other.C4()) & 1)
+	destination.SetC5(0)
+	destination.SetC6(0)
+	destination.SetC7(0)
+
+	return nil
 }
 
 /*
 XOR returns the element-wise XOR of two values (for cancellative superposition).
 */
-func (value Value) XOR(other Value) (Value, error) {
-	state := errnie.NewState("primitive/bitwise/xor")
+func (value Value) XOR(other Value) (xor Value, err error) {
+	if xor, err = New(); err != nil {
+		return Value{}, err
+	}
 
-	xor := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
+	if err = value.XORInto(other, &xor); err != nil {
+		return Value{}, err
+	}
 
-	xor.SetC0(value.C0() ^ other.C0())
-	xor.SetC1(value.C1() ^ other.C1())
-	xor.SetC2(value.C2() ^ other.C2())
-	xor.SetC3(value.C3() ^ other.C3())
-	xor.SetC4((value.C4() ^ other.C4()) & 1)
+	return
+}
 
-	return xor, state.Err()
+/*
+XORInto writes the element-wise XOR result into destination to avoid per-call
+allocation when callers can reuse one Value across iterations.
+*/
+func (value Value) XORInto(other Value, destination *Value) error {
+	if destination == nil || !destination.IsValid() {
+		return NewValueError(ValueErrorTypeInvalidDestination)
+	}
+
+	destination.SetC0(value.C0() ^ other.C0())
+	destination.SetC1(value.C1() ^ other.C1())
+	destination.SetC2(value.C2() ^ other.C2())
+	destination.SetC3(value.C3() ^ other.C3())
+	destination.SetC4((value.C4() ^ other.C4()) & 1)
+	destination.SetC5(0)
+	destination.SetC6(0)
+	destination.SetC7(0)
+
+	return nil
 }
 
 /*
 AND returns the element-wise AND of two values (their GCD in
 prime exponent space), checking allocation errors. Shared factors.
 */
-func (value Value) AND(other Value) (Value, error) {
-	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
-	if err != nil {
+func (value Value) AND(other Value) (gcd Value, err error) {
+	if gcd, err = New(); err != nil {
 		return Value{}, err
 	}
 
-	state := errnie.NewState("data/andErr")
-
-	gcd := errnie.Guard(state, func() (Value, error) {
-		return NewValue(seg)
-	})
-
-	if state.Failed() {
-		return Value{}, state.Err()
-	}
-
-	coreMask4 := uint64(1)
-	gcd.setBlock(0, value.Block(0)&other.Block(0))
-	gcd.setBlock(1, value.Block(1)&other.Block(1))
-	gcd.setBlock(2, value.Block(2)&other.Block(2))
-	gcd.setBlock(3, value.Block(3)&other.Block(3))
-	gcd.setBlock(4, (value.Block(4)&other.Block(4))&coreMask4)
-	gcd.setBlock(5, 0)
-	gcd.setBlock(6, 0)
-	gcd.setBlock(7, 0)
+	gcd.SetC0(value.C0() & other.C0())
+	gcd.SetC1(value.C1() & other.C1())
+	gcd.SetC2(value.C2() & other.C2())
+	gcd.SetC3(value.C3() & other.C3())
+	gcd.SetC4((value.C4() & other.C4()) & 1)
 
 	return gcd, nil
+}
+
+/*
+ANDInto writes the element-wise AND result into destination to avoid per-call
+allocation when callers can reuse one Value across iterations.
+*/
+func (value Value) ANDInto(other Value, destination *Value) error {
+	if destination == nil || !destination.IsValid() {
+		return NewValueError(ValueErrorTypeInvalidDestination)
+	}
+
+	destination.SetC0(value.C0() & other.C0())
+	destination.SetC1(value.C1() & other.C1())
+	destination.SetC2(value.C2() & other.C2())
+	destination.SetC3(value.C3() & other.C3())
+	destination.SetC4((value.C4() & other.C4()) & 1)
+	destination.SetC5(0)
+	destination.SetC6(0)
+	destination.SetC7(0)
+
+	return nil
 }
 
 /*
 Hole returns value AND NOT other — bits set in the receiver but not in the argument.
 Calling target.Hole(existing) gives the bits that target has but existing lacks.
 */
-func (value Value) Hole(other Value) (Value, error) {
-	state := errnie.NewState("primitive/bitwise/hole")
-
-	hole := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
-
-	for i := range 8 {
-		hole = errnie.Guard(state, func() (Value, error) {
-			return hole.setBlock(i, value.Block(i)&^other.Block(i))
-		})
+func (value Value) Hole(other Value) (hole Value, err error) {
+	if hole, err = New(); err != nil {
+		return Value{}, err
 	}
 
-	return hole, state.Err()
+	if err = value.HoleInto(other, &hole); err != nil {
+		return Value{}, err
+	}
+
+	return
+}
+
+/*
+HoleInto writes the receiver-minus-argument result into destination to avoid
+per-call allocation when callers can reuse one Value across iterations.
+*/
+func (value Value) HoleInto(other Value, destination *Value) error {
+	if destination == nil || !destination.IsValid() {
+		return NewValueError(ValueErrorTypeInvalidDestination)
+	}
+
+	destination.SetC0(value.C0() &^ other.C0())
+	destination.SetC1(value.C1() &^ other.C1())
+	destination.SetC2(value.C2() &^ other.C2())
+	destination.SetC3(value.C3() &^ other.C3())
+	destination.SetC4(value.C4() &^ other.C4())
+	destination.SetC5(value.C5() &^ other.C5())
+	destination.SetC6(value.C6() &^ other.C6())
+	destination.SetC7(value.C7() &^ other.C7())
+
+	return nil
 }
 
 /*

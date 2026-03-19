@@ -466,6 +466,7 @@ func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
 					Right:     int(symbol),
 					Edges:     1,
 					EdgeCount: 1,
+					ChunkText: fmt.Sprintf("%c→%c", previousSymbol, symbol),
 				},
 			})
 		}

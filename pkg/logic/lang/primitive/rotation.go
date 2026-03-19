@@ -3,7 +3,6 @@ package primitive
 import (
 	"math/bits"
 
-	"github.com/theapemachine/six/pkg/errnie"
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
@@ -62,21 +61,45 @@ RollLeft circular-shifts the value within the 257-bit logical width.
 Binds sequential position to geometry before superposition.
 */
 func (value Value) RollLeft(shift int) Value {
-	state := errnie.NewState("primitive/rotation/rollLeft")
-
 	if shift == 0 {
 		return value
 	}
 
-	const logicalBits = 257 // CubeFaces
+	out, err := New()
 
-	out := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
+	if err != nil {
+		panic("RollLeft: " + err.Error())
+	}
+
+	value.RollLeftInto(shift, &out)
+
+	return out
+}
+
+/*
+RollLeftInto circular-shifts the value within the 257-bit logical width and
+writes the result into destination, avoiding allocation when callers can reuse
+storage across iterations.
+*/
+func (value Value) RollLeftInto(shift int, destination *Value) {
+	const logicalBits = 257
+
+	destination.SetC0(0)
+	destination.SetC1(0)
+	destination.SetC2(0)
+	destination.SetC3(0)
+	destination.SetC4(0)
+	destination.SetC5(0)
+	destination.SetC6(0)
+	destination.SetC7(0)
 
 	shift = shift % logicalBits
 
-	// Fast sparse-array permutation within the 257-bit logical width
+	if shift == 0 {
+		destination.CopyFrom(value)
+		return
+	}
+
 	for i := range config.ValueBlocks {
 		block := value.Block(i)
 
@@ -86,14 +109,12 @@ func (value Value) RollLeft(shift int) Value {
 
 			if primeIdx < logicalBits {
 				newPrimeIdx := (primeIdx + shift) % logicalBits
-				out.Set(newPrimeIdx)
+				destination.Set(newPrimeIdx)
 			}
 
 			block &= block - 1
 		}
 	}
-
-	return out
 }
 
 /*
@@ -104,13 +125,13 @@ Z (Affine):      p → (3·p + 1) mod 257
 Combined orbit ~17M states. 3 is a primitive root of 257.
 */
 func (value *Value) Rotate3D() Value {
-	state := errnie.NewState("primitive/rotation/rotate3D")
-
 	const logicalBits = 257
 
-	out := errnie.Guard(state, func() (Value, error) {
-		return New()
-	})
+	out, err := New()
+
+	if err != nil {
+		panic("Rotate3D: " + err.Error())
+	}
 
 	for i := range config.ValueBlocks {
 		block := value.Block(i)

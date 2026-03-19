@@ -59,14 +59,12 @@ func NewProgramServer(opts ...programServerOpts) *ProgramServer {
 		opt(server)
 	}
 
-	if server.ctx == nil || server.cancel == nil {
-		server.ctx, server.cancel = context.WithCancel(context.Background())
-	}
-
 	errnie.GuardVoid(server.state, func() error {
 		return validate.Require(map[string]any{
-			"ctx":  server.ctx,
-			"sink": server.sink,
+			"ctx":         server.ctx,
+			"cancel":      server.cancel,
+			"sink":        server.sink,
+			"clientConns": server.clientConns,
 		})
 	})
 
@@ -296,24 +294,19 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 				continue // No algebraic relation
 			}
 
-			// FIX 2 & 3: The MatchResult ALREADY contains the mathematically healed,
-			// geometrically perfect residue. No Affine math, no cloning, no allocations!
-			recovered := match.Residue
+			postResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
+				return match.Residue.XOR(prog.target)
+			}).CoreActiveCount()
 
-			// Measure raw physical distance to the ultimate target
-			postResidue := errnie.Guard(prog.state, func() (int, error) {
-				delta, err := recovered.XOR(prog.target)
-				if err != nil {
-					return 0, err
-				}
-				return delta.CoreActiveCount(), nil
-			})
+			if prog.state.Failed() {
+				return nil, prog.state.Err()
+			}
 
 			if bestIndex == -1 ||
 				postResidue < bestResidue ||
 				(postResidue == bestResidue && match.FitnessScore > bestFitness) {
 				bestIndex = idx
-				bestRecovered = recovered
+				bestRecovered = match.Residue
 				bestResidue = postResidue
 				bestFitness = match.FitnessScore
 			}

@@ -21,7 +21,6 @@ capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/dmt/server/server.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/store/dmt/radix.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/substrate/graph.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/store/data/value.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer/universal.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/input/prompt.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/bvp/cantilever.capnp
