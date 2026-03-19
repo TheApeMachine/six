@@ -3,7 +3,7 @@ package phasedial
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/system/vm/input"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
@@ -84,7 +84,7 @@ func (experiment *ChunkingBaselineExperiment) TableData() any {
 
 func (experiment *ChunkingBaselineExperiment) RawOutput() bool { return false }
 
-func totalActive(values []data.Value) int {
+func totalActive(values []primitive.Value) int {
 	n := 0
 	for _, c := range values {
 		n += c.ActiveCount()
