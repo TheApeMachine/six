@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 $Go.package("substrate");
 $Go.import("github.com/theapemachine/six/pkg/logic/substrate");
 
-using import "../../store/data/value.capnp".Value;
+using import "../lang/primitive/value.capnp".Value;
 
 struct GraphEdge {
   left     @0 :UInt32;

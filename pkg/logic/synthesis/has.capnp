@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 $Go.package("synthesis");
 $Go.import("github.com/theapemachine/six/pkg/logic/synthesis");
 
-using import "../../store/data/value.capnp".Value;
+using import "../lang/primitive/value.capnp".Value;
 
 interface HAS {
   write @0 (start :Value, end :Value) -> stream;

@@ -141,6 +141,10 @@ functions because Go does not support type parameters on methods.
 */
 type SafeGuard struct{}
 
+/*
+recoverToError converts a panic payload (any) into an error for SafeMust handlers.
+Panic strings become errors; non-error values are wrapped with fmt.Errorf.
+*/
 func (guard *SafeGuard) recoverToError(r any) error {
 	if err, ok := r.(error); ok {
 		return err

@@ -10,7 +10,7 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	data "github.com/theapemachine/six/pkg/store/data"
+	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
 type HAS capnp.Client
@@ -270,49 +270,49 @@ func (s HAS_write_Params) Message() *capnp.Message {
 func (s HAS_write_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s HAS_write_Params) Start() (data.Value, error) {
+func (s HAS_write_Params) Start() (primitive.Value, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Value(p.Struct()), err
+	return primitive.Value(p.Struct()), err
 }
 
 func (s HAS_write_Params) HasStart() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s HAS_write_Params) SetStart(v data.Value) error {
+func (s HAS_write_Params) SetStart(v primitive.Value) error {
 	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
 }
 
 // NewStart sets the start field to a newly
-// allocated data.Value struct, preferring placement in s's segment.
-func (s HAS_write_Params) NewStart() (data.Value, error) {
-	ss, err := data.NewValue(capnp.Struct(s).Segment())
+// allocated primitive.Value struct, preferring placement in s's segment.
+func (s HAS_write_Params) NewStart() (primitive.Value, error) {
+	ss, err := primitive.NewValue(capnp.Struct(s).Segment())
 	if err != nil {
-		return data.Value{}, err
+		return primitive.Value{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
 	return ss, err
 }
 
-func (s HAS_write_Params) End() (data.Value, error) {
+func (s HAS_write_Params) End() (primitive.Value, error) {
 	p, err := capnp.Struct(s).Ptr(1)
-	return data.Value(p.Struct()), err
+	return primitive.Value(p.Struct()), err
 }
 
 func (s HAS_write_Params) HasEnd() bool {
 	return capnp.Struct(s).HasPtr(1)
 }
 
-func (s HAS_write_Params) SetEnd(v data.Value) error {
+func (s HAS_write_Params) SetEnd(v primitive.Value) error {
 	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
 }
 
 // NewEnd sets the end field to a newly
-// allocated data.Value struct, preferring placement in s's segment.
-func (s HAS_write_Params) NewEnd() (data.Value, error) {
-	ss, err := data.NewValue(capnp.Struct(s).Segment())
+// allocated primitive.Value struct, preferring placement in s's segment.
+func (s HAS_write_Params) NewEnd() (primitive.Value, error) {
+	ss, err := primitive.NewValue(capnp.Struct(s).Segment())
 	if err != nil {
-		return data.Value{}, err
+		return primitive.Value{}, err
 	}
 	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
 	return ss, err
@@ -334,11 +334,11 @@ func (f HAS_write_Params_Future) Struct() (HAS_write_Params, error) {
 	p, err := f.Future.Ptr()
 	return HAS_write_Params(p.Struct()), err
 }
-func (p HAS_write_Params_Future) Start() data.Value_Future {
-	return data.Value_Future{Future: p.Future.Field(0, nil)}
+func (p HAS_write_Params_Future) Start() primitive.Value_Future {
+	return primitive.Value_Future{Future: p.Future.Field(0, nil)}
 }
-func (p HAS_write_Params_Future) End() data.Value_Future {
-	return data.Value_Future{Future: p.Future.Field(1, nil)}
+func (p HAS_write_Params_Future) End() primitive.Value_Future {
+	return primitive.Value_Future{Future: p.Future.Field(1, nil)}
 }
 
 type HAS_done_Params capnp.Struct
@@ -528,39 +528,39 @@ func (f HAS_done_Results_Future) Struct() (HAS_done_Results, error) {
 	return HAS_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d3c = "x\xda\x8c\x91\xbfk\x14A\x1c\xc5\xdf\x9b\x99\xcd^ " +
-	"\xc1\x8cw\x826FB\x14\x7f\x90\x9f'\"\xa2\xe4\xa2" +
-	"\x16*\x8a79\xd1Jd\xcd\x0e\xc9\x91\xb8\xb7\xec\xee" +
-	"q\x89\x16\x9666\x82\x16\xd1\x04\x14\"\x08\x1a\xfc\x0d" +
-	")\"\x04\xb4\xb5\x14\xff\x02;A\xb0\xb0\xd3\x95\x89$" +
-	"\x16\"\xa4[>\xfb\x86\xf7\xf8|\x07\xcf\xb2\xa2\x86:" +
-	"?+\x08s\xd8k\xcbw\xf5\xa9WS\xef\x9f\xceC" +
-	"\xef\x94\xf9\xd1c\xa3\xf1\xc2mo\x09`\xd9\x88\xad," +
-	"\x06\xc2\x07\x8a\x97\xc5\xad\xe2\x92\xfb\xca\xcf\x1f\xfav\xe3" +
-	"\xc0|m\x11\xa6\x87\x12\xf0\xe8\x03\xe5{\xe2:\xc1\xf2" +
-	"#q\x89`\xfe\xeb\xe3\xca\xc5\xe7_O\xae@\xf7\x10" +
-	"\xf0\xdc\xb3\xf2O\xe9\x12\xc5v\xd5\x02\xf3\xb0-K\xf6" +
-	"<8\xf7\xe3O@\xb9\xffV%D\x92\xc7S\x13\x03" +
-	"\xd3\x8d\x89\xba\x1c\x1fHg\xa3l\xd2\xa6\xf5t`2" +
-	"H\xfb\xc7\x838\x8a\x8f\x9c\x1ae\xadJ\x9a\x82\xf4\x80" +
-	"\x8d\x1eF/W[\xe5\xfbW\xe6\xf4\xd00\x84\xde\xed" +
-	"\xf3o\x05\xd7\xf7\xea\x1d\xfb!t\xa7\xdf\xddJ\xea\x99" +
-	"\xadpK\xd8\x88l\x85Ur\xa3T\xfd\xaf\xb4\xd6\xef" +
-	"\xc2\xbdc#6mNg\xa9\xd9.\x15\xa0\x08\xe8\xb9" +
-	"\xe3\x80\xb9+i\x1e\x0a\x92%:\xb6p\x060\xf3\x92" +
-	"\xe6\x89\xa0\x16\x95\x12\x05\xa0\x1f;\xb8(i^\x08j" +
-	")K\xce\x9d^\xba\x0a\x98g\x92fYP+U\xa2" +
-	"\x02\xf4[\x07\xdfH\x9aUA\xedy%z\x80~7" +
-	"\x0c\x98eI\xf3A\xf0\xe6\x94\x9d\xbd`g2v@" +
-	"\xb0\x03\xcc\x9b\xa9=\xd1hF\x19\x00\xb6C\xb0\x1d\xcc" +
-	"'\x83$\xb4\x91\x0d\x1d#\x04\xdd]Z\xf5(\xb2\xc9" +
-	"\xe9\x08~hg\xa8 \xa8\xc0<n\xa4\xd9\x98M\xeb" +
-	"\xf0\xc3\xa6]\xa7\xddif\xe3\x94\x05\x08\x16\xb0)C" +
-	"kZ{G\xaaA\x12\\KMa\xc3\xd0>\xb7\xbc" +
-	"W\xd2\x0c\x0a\xeauE}=\x80\xd9+i\x0e\x0aW" +
-	"\x15$\x19\xbb\xf2/\x9f\xbe\xbf\xde6\\\xbb\xe3\x16w" +
-	"\x81\xbe\x8d\xc2\x7f\xe9\xa6\x8fU\xed^[\xf2;\x00\x00" +
-	"\xff\xff\xec\x1b\xc2\x1f"
+const schema_ad058c9d70413d3c = "x\xda\x8c\x91\xbbk\x14_\x1c\xc5\xcf\xb9\xf7Nf\x03" +
+	"\x09\xbf\xdc\xdfn\xa1\x16FB\x14\x1f\xe4\xb9\"\"J" +
+	"6j\xa1\xc1\xc7\xdeD\xb4\x12\x193\xd7dI\x9c\x1d" +
+	"ff\xd9$\x16\x966\x96ZD\x13P\x88 h\xf0" +
+	"\x81B\x8a\x08\x81\xd8Z\xfbO\x08v\x16\x82\x8e\xdcH" +
+	"\xd6B\x84t\xc3g\xce\xe5\x1c>\xdf\xc1\x0b\xac\xa8\xa1" +
+	"\xce\xcf\x0a\xc2\x1c\xf7\xda\xf2}}\xea\xed\xcc\xe6\x8b%" +
+	"\xe8\xbd2?yj4^\xbe\xef\xad\x02,\x1b\xf1?" +
+	"\x8b\x81\xf0\x81\xe2uq\xaf\xb8\xea\xbe\xf2\xcb\xc7\xbe\xde" +
+	"9\xb24\xb1\x02\xd3C\x09x\xf4\x81\xf2C\xb1@\xb0" +
+	"\xfcT\\#\x98\xff\xfc\xb4~\xf5\xd5\x97\xb3\xeb\xd0=" +
+	"\x04<\xf7\xac\xfcC\xbaD\xb1]5\xc1<l\xcb\x92" +
+	"\x03\x8f/~\xfb\x1dP\xee\xbfU\x09\x91\xe4\xf1\xcc\xd4" +
+	"\xc0l}\xaa&'\x07\xd2\xf9(\x9b\xb6i-\x1d\x98" +
+	"\x0e\xd2\xfe\xc9 \x8e\xe2\x13\xe7F9Q%MAz" +
+	"@\xab\x87\xd1\x9b\x8df\xf9\xd1\x8dE=4\x0c\xa1\xf7" +
+	"\xfb\xfcS\xc1\xed\xbdz\xf7a\x08\xdd\xe9w7\x93Z" +
+	"f+\xfc/\xacG\xb6\xc2*\xd9*U\xff*\x9d\xe8" +
+	"w\xe1\xde\xf1\x11\x9b6f\xb3\xd4\xec\x92\x0aP\x04\xf4" +
+	"\xe2i\xc0<\x904O\x04\xc9\x12\x1d[\x1e\x03\xcc\x92" +
+	"\xa4y.\xa8E\xa5D\x01\xe8g\x0e\xaeH\x9a\xd7\x82" +
+	"Z\xca\x92s\xa7Wo\x02\xe6\xa5\xa4Y\x13\xd4J\x95" +
+	"\xa8\x00\xfd\xde\xc1w\x92fCP{^\x89\x1e\xa0?" +
+	"\x0c\x03fM\xd2|\x14\xbc;c\xe7\xaf\xd8\xb9\x8c\x1d" +
+	"\x10\xec\x00\xf3Fj\xcf\xd4\x1bQ\x06\x80\xed\x10l\x07" +
+	"\xf3\xe9 \x09mdC\xc7\x08Aw\x97f-\x8al" +
+	"r>\x82\x1f\xda9*\x08*0\x8f\xebi6n\xd3" +
+	"\x1a\xfc\xb0a\xb7iw\x9a\xd98e\x01\x82\x05\xec\xc8" +
+	"\xd0\x96\xd6\xde\x91j\x90\x04\xb7SSh\x19:\xe4\x96" +
+	"\xf7J\x9aAA\xbd\xad\xa8\xaf\x070\x07%\xcdQ\xe1" +
+	"\xaa\x82$cW~K\x8d\xed\xb9\xf4}a\xd3-\xee" +
+	"\x02}\x1b\x85\x7f\xd3\x1d\x1f\xab\xda\xbd\xb5\xe4W\x00\x00" +
+	"\x00\xff\xff1\xff\xbf\xb1"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{

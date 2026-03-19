@@ -4,11 +4,14 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestExecutionRegistersTrackResiduesAndCheckpoints(t *testing.T) {
+	state := errnie.NewState("logic/path/registers/test")
+
 	gc.Convey("Given a fresh substrate execution-register workspace", t, func() {
 		registers := newExecutionRegisters()
 
@@ -32,8 +35,12 @@ func TestExecutionRegistersTrackResiduesAndCheckpoints(t *testing.T) {
 				pos:     3,
 				segment: 1,
 				energy:  7,
-				path:    []data.Value{data.MustNewValue()},
-				meta:    []data.Value{data.MustNewValue()},
+				path: []primitive.Value{errnie.Guard(state, func() (primitive.Value, error) {
+					return primitive.New()
+				})},
+				meta: []primitive.Value{errnie.Guard(state, func() (primitive.Value, error) {
+					return primitive.New()
+				})},
 			}
 
 			registers.RecordCheckpoint(head, CheckpointStable)
@@ -43,12 +50,18 @@ func TestExecutionRegistersTrackResiduesAndCheckpoints(t *testing.T) {
 }
 
 func TestExecutionRegistersGarbageCollectKeepsStableAnchors(t *testing.T) {
+	state := errnie.NewState("logic/path/registers/test")
+
 	gc.Convey("Given a checkpoint trail with stale bridge crumbs and recent stable anchors", t, func() {
 		registers := newExecutionRegisters()
 		registers.trailLimit = 8
 
-		meta := data.MustNewValue()
-		value := data.NeutralValue()
+		meta := errnie.Guard(state, func() (primitive.Value, error) {
+			return primitive.New()
+		})
+		value := errnie.Guard(state, func() (primitive.Value, error) {
+			return primitive.New()
+		})
 		value.SetStatePhase(numeric.Phase(7))
 
 		seed := &WavefrontHead{
@@ -56,40 +69,40 @@ func TestExecutionRegistersGarbageCollectKeepsStableAnchors(t *testing.T) {
 			pos:     0,
 			segment: 0,
 			energy:  2,
-			path:    []data.Value{value},
-			meta:    []data.Value{meta},
+			path:    []primitive.Value{value},
+			meta:    []primitive.Value{meta},
 		}
 		bridge := &WavefrontHead{
 			phase:   11,
 			pos:     2,
 			segment: 0,
 			energy:  6,
-			path:    []data.Value{value, value},
-			meta:    []data.Value{meta, meta},
+			path:    []primitive.Value{value, value},
+			meta:    []primitive.Value{meta, meta},
 		}
 		anchor := &WavefrontHead{
 			phase:   17,
 			pos:     3,
 			segment: 1,
 			energy:  11,
-			path:    []data.Value{value, value, value, value},
-			meta:    []data.Value{meta, meta, meta, meta},
+			path:    []primitive.Value{value, value, value, value},
+			meta:    []primitive.Value{meta, meta, meta, meta},
 		}
 		stable := &WavefrontHead{
 			phase:   19,
 			pos:     4,
 			segment: 1,
 			energy:  12,
-			path:    []data.Value{value, value, value, value, value},
-			meta:    []data.Value{meta, meta, meta, meta, meta},
+			path:    []primitive.Value{value, value, value, value, value},
+			meta:    []primitive.Value{meta, meta, meta, meta, meta},
 		}
 		current := &WavefrontHead{
 			phase:   23,
 			pos:     5,
 			segment: 1,
 			energy:  20,
-			path:    []data.Value{value, value, value, value, value, value},
-			meta:    []data.Value{meta, meta, meta, meta, meta, meta},
+			path:    []primitive.Value{value, value, value, value, value, value},
+			meta:    []primitive.Value{meta, meta, meta, meta, meta, meta},
 		}
 
 		registers.RecordCheckpoint(seed, CheckpointSeed)

@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
 /*
@@ -18,7 +18,7 @@ Each byte is stored as a BaseValue so exact identity is preserved through AND.
 type BitwiseHealer struct {
 	state  *errnie.State
 	buffer bytes.Buffer
-	values [][]data.Value
+	values [][]primitive.Value
 }
 
 /*
@@ -27,7 +27,7 @@ NewBitwiseHealer creates a fixed-capacity buffer for fragmented sequences.
 func NewBitwiseHealer() *BitwiseHealer {
 	return &BitwiseHealer{
 		state:  errnie.NewState("sequencer/bitwise/healer"),
-		values: make([][]data.Value, 0),
+		values: make([][]primitive.Value, 0),
 	}
 }
 
@@ -39,10 +39,10 @@ func (bitwise *BitwiseHealer) Write(b byte, isBoundary bool) {
 	bitwise.buffer.WriteByte(b)
 
 	if isBoundary {
-		chunk := make([]data.Value, 0, bitwise.buffer.Len())
+		chunk := make([]primitive.Value, 0, bitwise.buffer.Len())
 
 		for _, value := range bitwise.buffer.Bytes() {
-			chunk = append(chunk, data.BaseValue(value))
+			chunk = append(chunk, primitive.BaseValue(value))
 		}
 
 		bitwise.values = append(bitwise.values, chunk)
@@ -59,10 +59,10 @@ func (bitwise *BitwiseHealer) Flush() [][]byte {
 		return nil
 	}
 
-	chunk := make([]data.Value, 0, bitwise.buffer.Len())
+	chunk := make([]primitive.Value, 0, bitwise.buffer.Len())
 
 	for _, value := range bitwise.buffer.Bytes() {
-		chunk = append(chunk, data.BaseValue(value))
+		chunk = append(chunk, primitive.BaseValue(value))
 	}
 
 	bitwise.values = append(bitwise.values, chunk)
@@ -109,8 +109,8 @@ func (bitwise *BitwiseHealer) Heal() [][]byte {
 /*
 flatten concatenates multiple chunk slices into a single Value slice.
 */
-func (bitwise *BitwiseHealer) flatten(chunks [][]data.Value) []data.Value {
-	var result []data.Value
+func (bitwise *BitwiseHealer) flatten(chunks [][]primitive.Value) []primitive.Value {
+	var result []primitive.Value
 
 	for _, chunk := range chunks {
 		result = append(result, chunk...)
@@ -123,7 +123,7 @@ func (bitwise *BitwiseHealer) flatten(chunks [][]data.Value) []data.Value {
 collectBoundaries records the original fragment boundaries in the flattened
 stream.
 */
-func (bitwise *BitwiseHealer) collectBoundaries(chunks [][]data.Value) map[int]struct{} {
+func (bitwise *BitwiseHealer) collectBoundaries(chunks [][]primitive.Value) map[int]struct{} {
 	boundaries := map[int]struct{}{
 		0: {},
 	}
@@ -143,7 +143,7 @@ selectCuts finds repeated exact spans and converts them into cut positions.
 Crossing and fully aligned spans cut on both edges. Start-only spans cut on
 their supported edge only.
 */
-func (bitwise *BitwiseHealer) selectCuts(raw []data.Value, boundaries map[int]struct{}) []int {
+func (bitwise *BitwiseHealer) selectCuts(raw []primitive.Value, boundaries map[int]struct{}) []int {
 	type candidateEntry struct {
 		length int
 		starts []int
@@ -344,7 +344,7 @@ func (bitwise *BitwiseHealer) mergeOnlyCuts(cuts []int, boundaries map[int]struc
 /*
 segment rebuilds the stream from derived cut positions.
 */
-func (bitwise *BitwiseHealer) segment(raw []data.Value, cuts []int) [][]byte {
+func (bitwise *BitwiseHealer) segment(raw []primitive.Value, cuts []int) [][]byte {
 	var result [][]byte
 
 	for index := 0; index < len(cuts)-1; index++ {
@@ -364,7 +364,7 @@ func (bitwise *BitwiseHealer) segment(raw []data.Value, cuts []int) [][]byte {
 /*
 decodeChunks decodes the original chunk layout unchanged.
 */
-func (bitwise *BitwiseHealer) decodeChunks(chunks [][]data.Value) [][]byte {
+func (bitwise *BitwiseHealer) decodeChunks(chunks [][]primitive.Value) [][]byte {
 	result := make([][]byte, 0, len(chunks))
 
 	for _, chunk := range chunks {
@@ -377,7 +377,7 @@ func (bitwise *BitwiseHealer) decodeChunks(chunks [][]data.Value) [][]byte {
 /*
 sharedPrefix returns the exact common span length from two start positions.
 */
-func (bitwise *BitwiseHealer) sharedPrefix(raw []data.Value, leftStart, rightStart int) int {
+func (bitwise *BitwiseHealer) sharedPrefix(raw []primitive.Value, leftStart, rightStart int) int {
 	limit := len(raw) - rightStart
 
 	if remaining := len(raw) - leftStart; remaining < limit {
@@ -400,7 +400,7 @@ func (bitwise *BitwiseHealer) sharedPrefix(raw []data.Value, leftStart, rightSta
 /*
 signature encodes a Value span into a stable exact key.
 */
-func (bitwise *BitwiseHealer) signature(values []data.Value) string {
+func (bitwise *BitwiseHealer) signature(values []primitive.Value) string {
 	return string(bitwise.decode(values))
 }
 
@@ -488,12 +488,12 @@ func (bitwise *BitwiseHealer) overlaps(occupied []bool, start, end int) bool {
 /*
 decode converts a slice of per-byte BaseValues back to a byte slice.
 */
-func (bitwise *BitwiseHealer) decode(values []data.Value) []byte {
+func (bitwise *BitwiseHealer) decode(values []primitive.Value) []byte {
 	result := make([]byte, len(values))
 
 	for index, value := range values {
 		for symbol := range 256 {
-			if bitwise.matchBytes(value, data.BaseValue(byte(symbol))) {
+			if bitwise.matchBytes(value, primitive.BaseValue(byte(symbol))) {
 				result[index] = byte(symbol)
 				break
 			}
@@ -506,8 +506,11 @@ func (bitwise *BitwiseHealer) decode(values []data.Value) []byte {
 /*
 matchBytes checks if two byte-Values represent the same byte via AND.
 */
-func (bitwise *BitwiseHealer) matchBytes(valA, valB data.Value) bool {
-	shared := valA.AND(valB)
+func (bitwise *BitwiseHealer) matchBytes(valA, valB primitive.Value) bool {
+	shared, err := valA.AND(valB)
+	if err != nil {
+		return false
+	}
 
 	return shared.ActiveCount() == valA.ActiveCount() &&
 		shared.ActiveCount() == valB.ActiveCount()

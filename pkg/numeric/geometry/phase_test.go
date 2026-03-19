@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
@@ -40,7 +40,7 @@ func TestPhaseDialEncodeFromValues(t *testing.T) {
 		})
 
 		Convey("When encoding a single value", func() {
-			values := []data.Value{data.BaseValue('a')}
+			values := []primitive.Value{primitive.BaseValue('a')}
 			encoded := dial.EncodeFromValues(values)
 			var mag float64
 			for _, val := range encoded {
@@ -58,10 +58,10 @@ func TestPhaseDialEncodeFromValues(t *testing.T) {
 				sequenceA = append(sequenceA, byte(10))
 				sequenceB = append(sequenceB, byte(200))
 			}
-			valuesA, _ := data.BuildValue(sequenceA)
-			valuesB, _ := data.BuildValue(sequenceB)
-			encodedA := NewPhaseDial().EncodeFromValues([]data.Value{valuesA})
-			encodedB := NewPhaseDial().EncodeFromValues([]data.Value{valuesB})
+			valuesA, _ := primitive.BuildValue(sequenceA)
+			valuesB, _ := primitive.BuildValue(sequenceB)
+			encodedA := NewPhaseDial().EncodeFromValues([]primitive.Value{primitive.Value(valuesA)})
+			encodedB := NewPhaseDial().EncodeFromValues([]primitive.Value{primitive.Value(valuesB)})
 
 			// Normalization: both should be unit magnitude
 			var magA, magB float64
@@ -99,10 +99,10 @@ func BenchmarkNewPhaseDial(b *testing.B) {
 
 func BenchmarkPhaseDialEncodeFromValues(b *testing.B) {
 	dial := NewPhaseDial()
-	values, _ := data.BuildValue([]byte("benchmark value sequence for phase encoding"))
+	values, _ := primitive.BuildValue([]byte("benchmark value sequence for phase encoding"))
 	b.ResetTimer()
 	b.ReportAllocs()
 	for i := 0; i < b.N; i++ {
-		_ = dial.EncodeFromValues([]data.Value{values})
+		_ = dial.EncodeFromValues([]primitive.Value{primitive.Value(values)})
 	}
 }

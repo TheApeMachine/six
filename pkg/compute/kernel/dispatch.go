@@ -37,6 +37,9 @@ type Builder struct {
 	backends []Backend
 }
 
+/*
+builderOpts configures Builder at construction (e.g. WithBackend).
+*/
 type builderOpts func(*Builder)
 
 /*
@@ -73,6 +76,10 @@ func NewBuilder(opts ...builderOpts) *Builder {
 	return builder
 }
 
+/*
+Resolve walks available backends in order and returns the first successful
+resolve. Panics are recovered and surfaced as errors.
+*/
 func (builder *Builder) Resolve(
 	graphNodes unsafe.Pointer,
 	numNodes int,

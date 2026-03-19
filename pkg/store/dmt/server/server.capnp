@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 $Go.package("server");
 $Go.import("github.com/theapemachine/six/pkg/store/dmt/server");
 
-using import "../../data/value.capnp".Value;
+using import "../../../logic/lang/primitive/value.capnp".Value;
 
 interface Server {
   write          @0 (key :UInt64) -> stream;

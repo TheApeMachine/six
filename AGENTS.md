@@ -133,6 +133,64 @@ func (objError ObjectNameError) Error() string {
 > We like clever code, readability is for amateurs.
 > Keep the comments free of metaphor or needless complexity in their language.
 
+Wrong:
+
+```go
+/*
+ObjectName is an Object with a Name.
+It defines the Object with a Name.
+*/
+```
+
+Right:
+
+```go
+/*
+SetAffine stores a tiny affine operator f(x) = ax + b (mod 257) in the shell.
+This lets each value behave like a local transition rule rather than a passive
+payload. Scale zero is normalized to the identity because traversal wants an
+invertible default, not a black hole.
+*/
+```
+
+Wrong:
+
+```go
+/*
+Done finalizes the current streamed program boundary.
+*/
+```
+
+Right:
+
+```go
+/*
+RecursiveFold dynamically folds data into a graph of AST nodes.
+
+EXAMPLE:
+
+	DATA:
+		[Sandra] <is in the> [Garden]
+		[Roy]    <is in the> [Kitchen]
+		[Harold] <is in the> [Kitchen]
+			<is in the> the shared component that cancels out, becomes a "label".
+			<is in the>   -points to-> [Sandra, Roy, Harold]
+			[Sandra]      -points to-> [Garden]
+			[Garden]      -points to-> [Sandra]
+		    [Roy, Harold] -points to-> [Kitchen]
+		    [Kitchen]     -points to-> [Roy, Harold]
+	PROMPT:
+		Where is Roy?
+		Where has no shared component, ignored (if it don't react, it ain't a fact)
+		<is> cancels out with <{is} in the> which -points to-> [Sandra, Roy, Harold]
+		[Roy] cancels out with [{Roy}] which -points to-> [Kitchen]
+	ANSWER:
+		<in the> [Kitchen] (left over)
+*/
+```
+
+Basically, comments should provide genuine value to the engineer, and we always think of people who may need to onboard into the code-base cold.
+
 ```go
 // Wrong
 minSeg := seq.MinSegmentBytes
@@ -163,6 +221,23 @@ func (seq *Sequencer) isSimilar(d1, d2 *Distribution) bool {
 	c2 := d2.Cost() / float64(d2.n)
 	
     return math.Abs(c1-c2) < 0.2
+}
+
+// Wrong
+values, valueErr := primitive.ValueListToSlice(primitive.Value_List(ptr.List()))
+if valueErr != nil {
+	out = append(out, nil)
+	continue
+}
+
+// Right
+values, valueErr := primitive.ValueListToSlice(
+	primitive.Value_List(ptr.List()),
+)
+
+if valueErr != nil {
+	out = append(out, nil)
+	continue
 }
 ```
 

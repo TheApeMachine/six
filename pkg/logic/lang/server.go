@@ -12,6 +12,7 @@ import (
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
@@ -182,23 +183,23 @@ func (server *ProgramServer) Write(ctx context.Context, call Evaluator_write) er
 	}
 
 	server.start = errnie.Guard(server.state, func() (primitive.Value, error) {
-		clone, err := primitive.New()
+		scratch, err := server.boundaryScratch(server.start)
 		if err != nil {
 			return primitive.Value{}, err
 		}
 
-		clone.CopyFrom(seedList.At(0))
-		return clone, nil
+		scratch.CopyFrom(seedList.At(0))
+		return scratch, nil
 	})
 
 	server.target = errnie.Guard(server.state, func() (primitive.Value, error) {
-		clone, err := primitive.New()
+		scratch, err := server.boundaryScratch(server.target)
 		if err != nil {
 			return primitive.Value{}, err
 		}
 
-		clone.CopyFrom(seedList.At(1))
-		return clone, nil
+		scratch.CopyFrom(seedList.At(1))
+		return scratch, nil
 	})
 
 	if server.state.Failed() {
@@ -249,6 +250,7 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 	}
 
 	loopKey := macro.AffineKeyFromValues(prog.start, prog.target)
+
 	currentState := errnie.Guard(prog.state, func() (primitive.Value, error) {
 		return primitive.New()
 	})
@@ -258,7 +260,6 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 		return nil, prog.state.Err()
 	}
 
-	// Pre-calculate initial residue (how far are we from the target physically?)
 	preResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
 		return currentState.XOR(prog.target)
 	}).CoreActiveCount()
@@ -267,12 +268,21 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 		return nil, prog.state.Err()
 	}
 
-	for step := 0; step < prog.maxSteps; step++ {
-		// 1. Build the Query Mask
-		// The prompt is the fixed known state for query construction.
-		queryMask := primitive.BuildQueryMask(prog.start)
+	prog.sink.Emit(telemetry.Event{
+		Component: "Program",
+		Action:    "Execute",
+		Data: telemetry.EventData{
+			Stage:          "start",
+			PreResidue:     preResidue,
+			CandidateCount: len(candidates),
+			MaxSteps:       prog.maxSteps,
+		},
+	})
 
-		// 2. Evaluate the Pool (Formerly Precipitate / React)
+	for step := 0; step < prog.maxSteps; step++ {
+		queryMask := primitive.BuildQueryMask(currentState)
+
+		// 2. Evaluate the Pool
 		matchResults := primitive.BatchEvaluate(queryMask, candidates)
 
 		bestIndex := -1
@@ -286,27 +296,18 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 				continue // No algebraic relation
 			}
 
-			candidateState := errnie.Guard(prog.state, func() (primitive.Value, error) {
-				clone, err := primitive.New()
-				if err != nil {
-					return primitive.Value{}, err
-				}
-
-				clone.CopyFrom(currentState)
-				return clone, nil
-			})
-
-			if prog.state.Failed() {
-				return nil, prog.state.Err()
-			}
-
-			// Apply the Affine transformation derived from the match
-			recovered := candidateState.ApplyAffineValue(match.PhaseQuotient, 0)
+			// FIX 2 & 3: The MatchResult ALREADY contains the mathematically healed,
+			// geometrically perfect residue. No Affine math, no cloning, no allocations!
+			recovered := match.Residue
 
 			// Measure raw physical distance to the ultimate target
-			postResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
-				return recovered.XOR(prog.target)
-			}).CoreActiveCount()
+			postResidue := errnie.Guard(prog.state, func() (int, error) {
+				delta, err := recovered.XOR(prog.target)
+				if err != nil {
+					return 0, err
+				}
+				return delta.CoreActiveCount(), nil
+			})
 
 			if bestIndex == -1 ||
 				postResidue < bestResidue ||
@@ -329,7 +330,21 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 		advanced := bestResidue < preResidue
 		stable := bestResidue == 0
 
-		// Record the discovered structural bridge
+		prog.sink.Emit(telemetry.Event{
+			Component: "Program",
+			Action:    "Execute",
+			Data: telemetry.EventData{
+				Stage:          "step",
+				Step:           step + 1,
+				MaxSteps:       prog.maxSteps,
+				PreResidue:     preResidue,
+				PostResidue:    bestResidue,
+				BestIndex:      bestIndex,
+				CandidateCount: len(candidates),
+				Advanced:       advanced,
+				Stable:         stable,
+			},
+		})
 		candidateRecord := prog.macroIndex.RecordCandidateResult(
 			loopKey, preResidue, bestResidue, advanced, stable,
 		)
@@ -344,11 +359,44 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 			Candidate:      candidateRecord,
 		}
 
+		console.Trace(
+			"OUTCOME",
+			"mask", queryMask,
+			"matches", matchResults,
+			"winner", bestIndex,
+			"recovered", bestRecovered,
+			"postResidue", bestResidue,
+			"steps", step+1,
+			"candidate", candidateRecord,
+		)
+
 		if stable {
-			return outcome, nil // Target Achieved!
+			prog.sink.Emit(telemetry.Event{
+				Component: "Program",
+				Action:    "Execute",
+				Data: telemetry.EventData{
+					Stage:       "complete",
+					Outcome:     "stable",
+					Step:        step + 1,
+					PostResidue: 0,
+				},
+			})
+
+			return outcome, nil
 		}
 
 		if !advanced {
+			prog.sink.Emit(telemetry.Event{
+				Component: "Program",
+				Action:    "Execute",
+				Data: telemetry.EventData{
+					Stage:       "complete",
+					Outcome:     "stalled",
+					Step:        step + 1,
+					PostResidue: bestResidue,
+				},
+			})
+
 			return outcome, errnie.Error(
 				NewProgramError(ProgramErrorTypeExecutionStalled),
 				"residue", bestResidue,
@@ -360,10 +408,32 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 		preResidue = bestResidue
 	}
 
+	prog.sink.Emit(telemetry.Event{
+		Component: "Program",
+		Action:    "Execute",
+		Data: telemetry.EventData{
+			Stage:       "complete",
+			Outcome:     "exhausted",
+			Step:        prog.maxSteps,
+			PostResidue: preResidue,
+		},
+	})
+
 	return nil, errnie.Error(
 		NewProgramError(ProgramErrorTypeProgramExhausted),
 		"steps", prog.maxSteps,
 	)
+}
+
+/*
+boundaryScratch returns one reusable mutable Value for start/target boundaries.
+*/
+func (server *ProgramServer) boundaryScratch(value primitive.Value) (primitive.Value, error) {
+	if value.ActiveCount() > 0 {
+		return value, nil
+	}
+
+	return primitive.New()
 }
 
 /*
@@ -382,23 +452,23 @@ func (server *ProgramServer) Seed(
 	}
 
 	server.start = errnie.Guard(server.state, func() (primitive.Value, error) {
-		clone, err := primitive.New()
+		scratch, err := server.boundaryScratch(server.start)
 		if err != nil {
 			return primitive.Value{}, err
 		}
 
-		clone.CopyFrom(startValue)
-		return clone, nil
+		scratch.CopyFrom(startValue)
+		return scratch, nil
 	})
 
 	server.target = errnie.Guard(server.state, func() (primitive.Value, error) {
-		clone, err := primitive.New()
+		scratch, err := server.boundaryScratch(server.target)
 		if err != nil {
 			return primitive.Value{}, err
 		}
 
-		clone.CopyFrom(targetValue)
-		return clone, nil
+		scratch.CopyFrom(targetValue)
+		return scratch, nil
 	})
 
 	if server.state.Failed() {

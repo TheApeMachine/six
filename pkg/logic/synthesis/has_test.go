@@ -59,7 +59,7 @@ func hasBit(value primitive.Value, index int) bool {
 /*
 primitiveFromDataTest clones data.Value into primitive.Value for key assertions.
 */
-func primitiveFromDataTest(value data.Value) primitive.Value {
+func primitiveFromDataTest(value primitive.Value) primitive.Value {
 	out, err := primitive.New()
 	if err != nil {
 		panic(err)
@@ -108,21 +108,21 @@ func TestHASDerive(t *testing.T) {
 		testCases := []deriveTestCase{
 			{
 				name:           "Derive should create and reuse the same affine key",
-				start:          primitiveFromDataTest(data.BaseValue('A')),
-				end:            primitiveFromDataTest(data.BaseValue('B')),
+				start:          primitiveFromDataTest(primitive.BaseValue('A')),
+				end:            primitiveFromDataTest(primitive.BaseValue('B')),
 				repeats:        2,
 				expectUseCount: 2,
 			},
 			{
 				name:              "Derive should reject empty start",
 				start:             primitive.Value{},
-				end:               primitiveFromDataTest(data.BaseValue('B')),
+				end:               primitiveFromDataTest(primitive.BaseValue('B')),
 				repeats:           1,
 				expectErrorSubstr: string(HASErrorTypeStartAndEndRequired),
 			},
 			{
 				name:              "Derive should reject empty end",
-				start:             primitiveFromDataTest(data.BaseValue('A')),
+				start:             primitiveFromDataTest(primitive.BaseValue('A')),
 				end:               primitive.Value{},
 				repeats:           1,
 				expectErrorSubstr: string(HASErrorTypeStartAndEndRequired),
@@ -180,8 +180,8 @@ func TestHASWriteDone(t *testing.T) {
 		defer server.Close()
 
 		client := server.Client("logic/synthesis/has_test")
-		start := data.BaseValue('S')
-		end := data.BaseValue('E')
+		start := primitive.BaseValue('S')
+		end := primitive.BaseValue('E')
 
 		writeErr := client.Write(context.Background(), func(params HAS_write_Params) error {
 			if err := params.SetStart(start); err != nil {
@@ -312,8 +312,8 @@ func BenchmarkHASDerive(b *testing.B) {
 	defer index.Close()
 	defer server.Close()
 
-	start := primitiveFromDataTest(data.BaseValue('A'))
-	end := primitiveFromDataTest(data.BaseValue('B'))
+	start := primitiveFromDataTest(primitive.BaseValue('A'))
+	end := primitiveFromDataTest(primitive.BaseValue('B'))
 
 	b.ResetTimer()
 
@@ -379,8 +379,8 @@ func BenchmarkHASWriteDone(b *testing.B) {
 	defer server.Close()
 
 	client := server.Client("logic/synthesis/has_benchmark")
-	start := data.BaseValue('S')
-	end := data.BaseValue('E')
+	start := primitive.BaseValue('S')
+	end := primitive.BaseValue('E')
 
 	b.ResetTimer()
 
@@ -449,8 +449,8 @@ func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
 		forest.Insert(nextKey, []byte{1})
 
 		client := server.Client("logic/synthesis/has_test/program-error-propagation")
-		start := data.BaseValue('S')
-		end := data.BaseValue(promptSymbol)
+		start := primitive.BaseValue('S')
+		end := primitive.BaseValue(promptSymbol)
 
 		writeErr := client.Write(context.Background(), func(params HAS_write_Params) error {
 			if err := params.SetStart(start); err != nil {

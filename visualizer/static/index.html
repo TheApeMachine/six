@@ -247,6 +247,156 @@
     }
     #replay-info { font-size: 8px; color: var(--bp-ink-faint); min-width: 80px; text-align: right; }
 
+    /* ── Prompt Input ───────────────────────────────────────── */
+    #prompt-bar {
+      position: absolute; bottom: 60px; left: 50%;
+      transform: translateX(-50%); z-index: 200;
+      padding: 6px 10px; display: flex; align-items: center;
+      gap: 8px; pointer-events: auto; width: 520px;
+    }
+    #prompt-input {
+      flex: 1; background: rgba(8, 18, 38, 0.9);
+      border: 1px solid var(--bp-line-strong);
+      color: var(--bp-ink); font-family: var(--bp-font);
+      font-size: 11px; padding: 6px 10px; border-radius: 0;
+      outline: none; letter-spacing: 0.3px;
+    }
+    #prompt-input::placeholder {
+      color: var(--bp-ink-faint); letter-spacing: 1px;
+    }
+    #prompt-input:focus {
+      border-color: var(--bp-accent-dim);
+    }
+    #prompt-send {
+      background: rgba(10, 20, 45, 0.8);
+      border: 1px solid var(--bp-accent-dim);
+      color: var(--bp-accent); font-family: inherit; font-size: 9px;
+      padding: 6px 14px; border-radius: 0; cursor: pointer;
+      letter-spacing: 2px; text-transform: uppercase;
+      transition: all 0.15s;
+    }
+    #prompt-send:hover {
+      background: rgba(255, 220, 140, 0.08);
+      border-color: var(--bp-accent);
+    }
+    #prompt-send:disabled {
+      opacity: 0.3; cursor: default;
+    }
+
+    /* ── Ingest Panel ──────────────────────────────────────── */
+    #ingest-toggle {
+      position: absolute; bottom: 100px; left: 50%;
+      transform: translateX(-50%); z-index: 200;
+      background: rgba(10, 20, 45, 0.7);
+      border: 1px solid var(--bp-line-strong);
+      color: var(--bp-ink-dim); font-family: var(--bp-font);
+      font-size: 8px; padding: 3px 14px; cursor: pointer;
+      letter-spacing: 2px; text-transform: uppercase;
+      transition: all 0.15s; pointer-events: auto;
+    }
+    #ingest-toggle:hover { color: var(--bp-ink); border-color: var(--bp-accent-dim); }
+    #ingest-panel {
+      position: absolute; bottom: 120px; left: 50%;
+      transform: translateX(-50%); z-index: 200;
+      width: 520px; padding: 10px 12px;
+      display: none; flex-direction: column; gap: 8px;
+      pointer-events: auto;
+    }
+    #ingest-panel.open { display: flex; }
+    .ingest-title {
+      font-size: 7px; text-transform: uppercase;
+      letter-spacing: 3px; color: var(--bp-accent-dim);
+      border-bottom: 1px solid var(--bp-accent-dim);
+      padding-bottom: 4px;
+    }
+    #ingest-text {
+      width: 100%; min-height: 100px; max-height: 240px;
+      background: rgba(8, 18, 38, 0.95);
+      border: 1px solid var(--bp-line-strong);
+      color: var(--bp-ink); font-family: var(--bp-font);
+      font-size: 10px; padding: 8px 10px;
+      border-radius: 0; outline: none; resize: vertical;
+      letter-spacing: 0.2px; line-height: 1.5;
+    }
+    #ingest-text::placeholder { color: var(--bp-ink-faint); }
+    #ingest-text:focus { border-color: var(--bp-accent-dim); }
+    .ingest-footer {
+      display: flex; justify-content: space-between;
+      align-items: center;
+    }
+    #ingest-status {
+      font-size: 8px; color: var(--bp-ink-faint);
+      letter-spacing: 0.3px;
+    }
+    #ingest-send {
+      background: rgba(10, 20, 45, 0.8);
+      border: 1px solid var(--bp-accent-dim);
+      color: var(--bp-accent); font-family: inherit; font-size: 9px;
+      padding: 6px 14px; border-radius: 0; cursor: pointer;
+      letter-spacing: 2px; text-transform: uppercase;
+      transition: all 0.15s;
+    }
+    #ingest-send:hover {
+      background: rgba(255, 220, 140, 0.08);
+      border-color: var(--bp-accent);
+    }
+    #ingest-send:disabled { opacity: 0.3; cursor: default; }
+
+    /* ── Execute Trace ──────────────────────────────────────── */
+    #execute-panel {
+      position: absolute; top: 220px; right: 16px;
+      width: 240px; z-index: 100; pointer-events: none;
+      padding: 12px 14px; display: none;
+    }
+    .exec-title {
+      font-size: 7px; text-transform: uppercase;
+      letter-spacing: 3px; color: var(--bp-accent-dim); margin-bottom: 8px;
+      border-bottom: 1px solid var(--bp-accent-dim);
+      padding-bottom: 4px;
+    }
+    .exec-meta {
+      font-size: 8px; color: var(--bp-ink-faint);
+      margin-bottom: 6px; letter-spacing: 0.3px;
+    }
+    .exec-meta .val { color: var(--bp-ink); }
+    .exec-steps { max-height: 180px; overflow: hidden; }
+    .exec-step {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 8px; padding: 2px 0; color: var(--bp-ink-faint);
+      border-left: 2px solid var(--bp-line);
+      padding-left: 6px; margin-bottom: 2px;
+      transition: all 0.3s;
+    }
+    .exec-step.advanced {
+      border-left-color: var(--bp-green);
+      color: var(--bp-ink-dim);
+    }
+    .exec-step.stalled {
+      border-left-color: var(--bp-red);
+      color: var(--bp-red);
+    }
+    .exec-step.stable {
+      border-left-color: var(--bp-green);
+      color: var(--bp-green);
+    }
+    .exec-residue-bar {
+      height: 3px; background: var(--bp-line);
+      margin-top: 6px; position: relative;
+      border: 1px solid var(--bp-line);
+    }
+    .exec-residue-fill {
+      height: 100%; background: var(--bp-accent);
+      transition: width 0.4s ease;
+    }
+    .exec-outcome {
+      font-size: 9px; font-weight: 500;
+      letter-spacing: 2px; text-transform: uppercase;
+      text-align: center; padding: 4px 0; margin-top: 6px;
+    }
+    .exec-outcome.stable { color: var(--bp-green); }
+    .exec-outcome.stalled { color: var(--bp-red); }
+    .exec-outcome.exhausted { color: var(--bp-accent); }
+
     /* ── CSS2D Labels ─────────────────────────────────────── */
     .group-label {
       color: var(--bp-accent);
@@ -262,7 +412,7 @@
     .value-node-label {
       color: var(--bp-ink-dim);
       font-family: var(--bp-font);
-      font-size: 7px;
+      font-size: calc(7px * var(--label-zoom, 1));
       pointer-events: none; white-space: nowrap;
       padding: 0px 3px;
       background: transparent;
@@ -277,22 +427,22 @@
       letter-spacing: 0.5px;
     }
     .fold-label.level-0 {
-      font-size: 9px; color: var(--bp-ink);
+      font-size: calc(9px * var(--label-zoom, 1)); color: var(--bp-ink);
       background: rgba(8, 18, 38, 0.85);
       border: 1px solid var(--bp-line-strong);
     }
     .fold-label.level-1 {
-      font-size: 8px; color: var(--bp-ink-dim);
+      font-size: calc(8px * var(--label-zoom, 1)); color: var(--bp-ink-dim);
       background: rgba(8, 18, 38, 0.8);
       border: 1px solid var(--bp-line);
     }
     .fold-label.level-2 {
-      font-size: 8px; color: var(--bp-ink-dim);
+      font-size: calc(8px * var(--label-zoom, 1)); color: var(--bp-ink-dim);
       background: rgba(8, 18, 38, 0.75);
       border: 1px solid var(--bp-line);
     }
     .fold-label.level-deep {
-      font-size: 7px; color: var(--bp-ink-faint);
+      font-size: calc(7px * var(--label-zoom, 1)); color: var(--bp-ink-faint);
       background: rgba(8, 18, 38, 0.7);
       border: 1px solid rgba(100, 160, 240, 0.08);
     }
@@ -301,7 +451,7 @@
     .subsystem-label {
       color: var(--bp-ink);
       font-family: var(--bp-font);
-      font-size: 8px; font-weight: 500;
+      font-size: calc(8px * var(--label-zoom, 1)); font-weight: 500;
       letter-spacing: 3px; text-transform: uppercase;
       pointer-events: none; white-space: nowrap;
       padding: 2px 6px;
@@ -310,14 +460,14 @@
     }
     .subsystem-label.center {
       color: var(--bp-accent);
-      font-size: 10px; letter-spacing: 5px;
+      font-size: calc(10px * var(--label-zoom, 1)); letter-spacing: 5px;
       border-color: var(--bp-accent-dim);
       padding: 3px 10px;
     }
     .conn-label {
       color: var(--bp-ink-faint);
       font-family: var(--bp-font);
-      font-size: 6px; letter-spacing: 1px;
+      font-size: calc(6px * var(--label-zoom, 1)); letter-spacing: 1px;
       pointer-events: none; white-space: nowrap;
       text-transform: uppercase;
     }
@@ -376,6 +526,18 @@
     </div>
   </div>
 
+  <div id="execute-panel" class="panel">
+    <div class="exec-title">Program · Execute</div>
+    <div class="exec-meta">
+      <span>Candidates: </span><span class="val" id="exec-candidates">—</span>
+      &nbsp;·&nbsp;
+      <span>Max: </span><span class="val" id="exec-max-steps">—</span>
+    </div>
+    <div class="exec-residue-bar"><div class="exec-residue-fill" id="exec-residue-fill" style="width:0%"></div></div>
+    <div class="exec-steps" id="exec-steps"></div>
+    <div class="exec-outcome" id="exec-outcome"></div>
+  </div>
+
   <div id="chunk-panel" class="panel">
     <div class="chunk-label">Current Activity</div>
     <div class="chunk-text" id="chunk-text">—</div>
@@ -391,6 +553,22 @@
 
   <div id="density-label">Store</div>
   <div id="density-bar" class="panel"><div id="density-fill" style="height: 0%"></div></div>
+
+  <div id="ingest-panel" class="panel">
+    <div class="ingest-title">Ingest · Training Data</div>
+    <textarea id="ingest-text" placeholder="Paste text here to ingest as training data…" spellcheck="false"></textarea>
+    <div class="ingest-footer">
+      <span id="ingest-status"></span>
+      <button id="ingest-send">Ingest</button>
+    </div>
+  </div>
+
+  <button id="ingest-toggle">▴ training data</button>
+
+  <div id="prompt-bar" class="panel">
+    <input type="text" id="prompt-input" placeholder="Enter a prompt…" autocomplete="off" spellcheck="false">
+    <button id="prompt-send">Send</button>
+  </div>
 
   <div id="replay-bar" class="panel">
     <button id="btn-mode-fold" class="graph-mode-btn" title="Fold graph only">Fold</button>
@@ -895,6 +1073,12 @@
       chunkText.textContent = '—';
       resultText.style.display = 'none';
       logBox.innerHTML = '';
+
+      execPanel.style.display = 'none';
+      execSteps.innerHTML = '';
+      execOutcome.textContent = '';
+      execResidueFill.style.width = '0%';
+      execInitialResidue = 0;
     }
 
     function resetFoldGraph() {
@@ -937,6 +1121,22 @@
     const btnExport = document.getElementById('btn-export');
     const btnImport = document.getElementById('btn-import');
     const importFile = document.getElementById('import-file');
+    const promptInput = document.getElementById('prompt-input');
+    const promptSend = document.getElementById('prompt-send');
+    const ingestToggle = document.getElementById('ingest-toggle');
+    const ingestPanel = document.getElementById('ingest-panel');
+    const ingestText = document.getElementById('ingest-text');
+    const ingestSend = document.getElementById('ingest-send');
+    const ingestStatus = document.getElementById('ingest-status');
+
+    const execPanel = document.getElementById('execute-panel');
+    const execCandidates = document.getElementById('exec-candidates');
+    const execMaxSteps = document.getElementById('exec-max-steps');
+    const execSteps = document.getElementById('exec-steps');
+    const execResidueFill = document.getElementById('exec-residue-fill');
+    const execOutcome = document.getElementById('exec-outcome');
+
+    let execInitialResidue = 0;
 
     let totalIngested = 0;
     let totalEdges = 0;
@@ -1117,11 +1317,107 @@
           resultText.style.display = 'block';
           log(`Empty result`, 'state');
         }
+
+        if (stage === 'prompt-error') {
+          resultText.textContent = `Error: ${d.message || 'unknown'}`;
+          resultText.style.display = 'block';
+          resultText.style.color = 'var(--bp-red)';
+          log(`Prompt error: ${d.message}`, 'state');
+        }
+
+        if (stage === 'ingest-start') {
+          ingestStatus.textContent = `ingesting ${d.message}…`;
+          ingestStatus.style.color = 'var(--bp-ink-dim)';
+          log(`Ingest started: ${d.message}`, 'pipeline');
+        }
+
+        if (stage === 'ingest-complete') {
+          ingestStatus.textContent = d.message;
+          ingestStatus.style.color = 'var(--bp-green)';
+          ingestSend.disabled = false;
+          ingestText.value = '';
+          log(`Ingest complete: ${d.message}`, 'pipeline');
+        }
+
+        if (stage === 'ingest-error') {
+          ingestStatus.textContent = `Error: ${d.message}`;
+          ingestStatus.style.color = 'var(--bp-red)';
+          ingestSend.disabled = false;
+          log(`Ingest error: ${d.message}`, 'state');
+        }
       }
 
       else if (ev.component === 'Sequencer' && ev.action === 'Boundary') {
         spawnParticle('tokenizer', 'machine', 0x7ab4e0, 400);
         log(`Boundary #${d.chunks} density=${((d.density || 0) * 100).toFixed(1)}%`, 'tokenize');
+      }
+
+      else if (ev.component === 'Program' && ev.action === 'Execute') {
+        const stage = d.stage || '';
+
+        if (stage === 'start') {
+          execPanel.style.display = 'block';
+          execCandidates.textContent = d.candidateCount || 0;
+          execMaxSteps.textContent = d.maxSteps || 0;
+          execSteps.innerHTML = '';
+          execOutcome.textContent = '';
+          execOutcome.className = 'exec-outcome';
+          execInitialResidue = d.preResidue || 1;
+          execResidueFill.style.width = '100%';
+
+          spawnParticle('machine', 'graph', 0xffdc8c, 600);
+          addZoneLabel('machine', `Execute: ${d.candidateCount} candidates`);
+          log(`Execute start: residue=${d.preResidue} candidates=${d.candidateCount}`, 'pipeline');
+        }
+
+        if (stage === 'step') {
+          const step = d.step || 0;
+          const pre = d.preResidue || 0;
+          const post = d.postResidue || 0;
+          const adv = d.advanced;
+          const stb = d.stable;
+
+          const cls = stb ? 'stable' : adv ? 'advanced' : 'stalled';
+          const row = document.createElement('div');
+          row.className = `exec-step ${cls}`;
+          row.textContent = `step ${step}: ${pre} → ${post}${stb ? ' ✓' : adv ? ' ↓' : ' ✗'}`;
+          execSteps.appendChild(row);
+          execSteps.scrollTop = execSteps.scrollHeight;
+
+          const pct = execInitialResidue > 0
+            ? Math.max(0, post / execInitialResidue) * 100
+            : 0;
+          execResidueFill.style.width = `${pct}%`;
+
+          spawnParticle('machine', 'graph', adv ? 0x8cffc8 : 0xff8c78, 400);
+          log(`Execute step ${step}: ${pre}→${post} ${cls}`, 'pipeline');
+        }
+
+        if (stage === 'complete') {
+          const outcome = d.outcome || '';
+          execOutcome.textContent = outcome;
+          execOutcome.className = `exec-outcome ${outcome}`;
+
+          if (outcome === 'stable') {
+            execResidueFill.style.width = '0%';
+            spawnParticle('graph', 'machine', 0x8cffc8, 500);
+          }
+
+          addZoneLabel('machine', `Execute: ${outcome} (step ${d.step})`);
+          log(`Execute ${outcome}: step=${d.step} residue=${d.postResidue}`, 'pipeline');
+        }
+      }
+
+      else if (ev.component === 'Graph' && ev.action === 'FoldSpan') {
+        const level = d.level || 0;
+        const spanSize = d.spanSize || 0;
+
+        addZoneLabel('graph', `L${level} span=${spanSize} [${d.left}:${d.right}]`);
+        log(`FoldSpan L${level}: [${d.left}:${d.right}] size=${spanSize}`, 'fold');
+
+        if (level === 0) {
+          spawnParticle('machine', 'graph', 0x6aa0d0, 700);
+        }
       }
 
       else if (ev.component === 'Chaos') {
@@ -1138,18 +1434,24 @@
     // ═══════════════════════════════════════════════════════════
     // WEBSOCKET
     // ═══════════════════════════════════════════════════════════
+    let activeWS = null;
+
     function connect() {
       const ws = new WebSocket(`ws://${location.host}/ws`);
 
       ws.onopen = () => {
+        activeWS = ws;
         statConn.textContent = 'connected';
         statConn.style.color = 'rgba(140, 255, 200, 0.75)';
+        promptSend.disabled = false;
         log('Connected to SIX telemetry', 'state');
       };
 
       ws.onclose = () => {
+        activeWS = null;
         statConn.textContent = 'offline';
         statConn.style.color = 'rgba(255, 140, 120, 0.7)';
+        promptSend.disabled = true;
         log('Disconnected', 'state');
         setTimeout(connect, 2000);
       };
@@ -1163,6 +1465,27 @@
           console.error('Parse:', e);
         }
       };
+    }
+
+    function sendPrompt(msg) {
+      if (!activeWS || activeWS.readyState !== WebSocket.OPEN || !msg.trim()) return;
+
+      activeWS.send(JSON.stringify({ type: 'prompt', message: msg.trim() }));
+      promptInput.value = '';
+      promptSend.disabled = true;
+      log(`Sent prompt: "${msg.trim()}"`, 'pipeline');
+
+      setTimeout(() => { promptSend.disabled = !activeWS; }, 300);
+    }
+
+    function sendIngest(text) {
+      if (!activeWS || activeWS.readyState !== WebSocket.OPEN || !text.trim()) return;
+
+      ingestSend.disabled = true;
+      ingestStatus.textContent = 'ingesting…';
+      ingestStatus.style.color = 'var(--bp-ink-dim)';
+      activeWS.send(JSON.stringify({ type: 'ingest', message: text }));
+      log(`Ingesting ${text.length} bytes`, 'pipeline');
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1180,6 +1503,18 @@
     importFile.addEventListener('change', (e) => {
       if (e.target.files.length) importRecording(e.target.files[0]);
     });
+
+    promptSend.addEventListener('click', () => sendPrompt(promptInput.value));
+    promptInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') sendPrompt(promptInput.value);
+    });
+
+    ingestToggle.addEventListener('click', () => {
+      const open = ingestPanel.classList.toggle('open');
+      ingestToggle.textContent = open ? '▾ training data' : '▴ training data';
+    });
+
+    ingestSend.addEventListener('click', () => sendIngest(ingestText.value));
 
     slider.addEventListener('input', () => {
       if (!replayMode) enterReplayMode();
@@ -1241,9 +1576,24 @@
     // ═══════════════════════════════════════════════════════════
     // ANIMATION LOOP
     // ═══════════════════════════════════════════════════════════
+    const ZOOM_REF_DIST = 40;
+    let prevZoomScale = 1;
+
+    function updateLabelZoom() {
+      const dist = camera.position.distanceTo(controls.target);
+      const scale = Math.min(Math.max(ZOOM_REF_DIST / dist, 0.8), 4.0);
+      const rounded = Math.round(scale * 20) / 20;
+
+      if (rounded !== prevZoomScale) {
+        prevZoomScale = rounded;
+        labelRenderer.domElement.style.setProperty('--label-zoom', rounded.toFixed(2));
+      }
+    }
+
     function animate() {
       requestAnimationFrame(animate);
       updateParticles();
+      updateLabelZoom();
       controls.update();
       renderer.render(scene, camera);
       labelRenderer.render(scene, camera);

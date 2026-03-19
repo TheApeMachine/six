@@ -43,12 +43,14 @@ type GraphServer struct {
 }
 
 /*
-GraphOpt configures GraphServer.
+GraphOpt configures GraphServer at construction. Options inject context,
+worker pool, macro index, or telemetry sink.
 */
 type GraphOpt func(*GraphServer)
 
 /*
-NewGraphServer creates the Cap'n Proto RPC server for the logic graph.
+NewGraphServer creates the Cap'n Proto RPC server for the logic graph and
+wires it to a net.Pipe for in-process RPC. Requires ctx and workerPool.
 */
 func NewGraphServer(opts ...GraphOpt) *GraphServer {
 	graph := &GraphServer{
@@ -221,15 +223,15 @@ func (graph *GraphServer) Prompt(ctx context.Context, call Graph_prompt) error {
 }
 
 /*
-Done implements Graph_Server.
+Done implements Graph_Server. It is a no-op stub required by the RPC interface;
+stream finalization is handled elsewhere (Machine orchestrates tokenizer and graph).
 */
 func (graph *GraphServer) Done(ctx context.Context, call Graph_done) error {
 	return nil
 }
 
 /*
-RecursiveFold is where the Frustration Engine uses the tools it has available
-to synthesize solutions, and new tools, or tool compositions.
+RecursiveFold dynamically folds data into a graph of AST nodes.
 
 EXAMPLE:
 
@@ -563,7 +565,7 @@ func (graph *GraphServer) decodePromptMetaPaths(args Graph_prompt_Params) [][]by
 			continue
 		}
 
-		values, valueErr := data.ValueListToSlice(data.Value_List(ptr.List()))
+		values, valueErr := primitive.ValueListToSlice(primitive.Value_List(ptr.List()))
 		if valueErr != nil {
 			out = append(out, nil)
 			continue
@@ -571,7 +573,7 @@ func (graph *GraphServer) decodePromptMetaPaths(args Graph_prompt_Params) [][]by
 
 		symbols := make([]byte, 0, len(values))
 		for _, value := range values {
-			symbol, ok := data.InferLexicalSeed(value)
+			symbol, ok := primitive.InferLexicalSeed(value)
 			if ok {
 				symbols = append(symbols, symbol)
 			}
@@ -605,7 +607,7 @@ func (graph *GraphServer) decodePromptSymbols(path []primitive.Value) []byte {
 	symbols := make([]byte, 0, len(path))
 
 	for _, value := range path {
-		symbol, ok := data.InferLexicalSeed(data.Value(value))
+		symbol, ok := primitive.InferLexicalSeed(primitive.Value(value))
 		if !ok {
 			continue
 		}
@@ -686,11 +688,11 @@ sequenceToValues compiles one stored key sequence into observable primitive Valu
 func (graph *GraphServer) sequenceToValues(sequence []uint64) []primitive.Value {
 	_ = graph
 
-	cells := data.CompileSequenceCells(sequence)
+	cells := primitive.CompileSequenceCells(sequence)
 	values := make([]primitive.Value, 0, len(cells))
 
 	for _, cell := range cells {
-		values = append(values, primitive.Value(data.SeedObservable(cell.Symbol, cell.Value)))
+		values = append(values, primitive.SeedObservable(cell.Symbol, cell.Value))
 	}
 
 	return values
@@ -724,6 +726,18 @@ func (graph *GraphServer) recursiveFoldSpan(
 	}
 
 	mid := start + ((end - start) / 2)
+
+	graph.sink.Emit(telemetry.Event{
+		Component: "Graph",
+		Action:    "FoldSpan",
+		Data: telemetry.EventData{
+			Level:    level,
+			Left:     start,
+			Right:    end,
+			SpanSize: end - start,
+		},
+	})
+
 	left := graph.recursiveFoldSpan(buffer, start, mid, level+1)
 	right := graph.recursiveFoldSpan(buffer, mid, end, level+1)
 

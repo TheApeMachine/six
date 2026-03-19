@@ -3,7 +3,7 @@ package geometry
 import (
 	"math"
 
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
@@ -45,7 +45,7 @@ BuildMultiScaleCooccurrence is a no-op for the analytical EigenMode.
 Legacy implementations required building massive 256x256 transition matrices
 and running eigendecomposition. The analytical model is instantly ready.
 */
-func (ei *EigenMode) BuildMultiScaleCooccurrence(values []data.Value) error {
+func (ei *EigenMode) BuildMultiScaleCooccurrence(values []primitive.Value) error {
 	ei.Trained = true
 	return nil
 }
@@ -54,8 +54,8 @@ func (ei *EigenMode) BuildMultiScaleCooccurrence(values []data.Value) error {
 PhaseForValue maps a single value to (theta, phi) purely through its
 intrinsic geometric bit distribution over GF(257).
 */
-func (ei *EigenMode) PhaseForValue(c *data.Value) (theta, phi float64) {
-	indices := data.ValuePrimeIndices(c)
+func (ei *EigenMode) PhaseForValue(c *primitive.Value) (theta, phi float64) {
+	indices := primitive.ValuePrimeIndices(c)
 	var sinSum, cosSum float64
 
 	// Theta: circular mean of angles 2π·idx/257 for active prime indices.
@@ -82,7 +82,7 @@ func (ei *EigenMode) PhaseForValue(c *data.Value) (theta, phi float64) {
 SeqToroidalMeanPhase returns the circular means of the intrinsic phases
 for a sequence of values.
 */
-func (ei *EigenMode) SeqToroidalMeanPhase(values []data.Value) (theta, phi float64) {
+func (ei *EigenMode) SeqToroidalMeanPhase(values []primitive.Value) (theta, phi float64) {
 	n := len(values)
 	if n == 0 {
 		return 0, 0
@@ -106,7 +106,7 @@ func (ei *EigenMode) SeqToroidalMeanPhase(values []data.Value) (theta, phi float
 WeightedCircularMean computes the circular mean of Theta phases, weighted by ActiveCount per value.
 Returns (phase, concentration) where concentration = |R|/wSum and R is the resultant vector.
 */
-func (ei *EigenMode) WeightedCircularMean(values []data.Value) (phase float64, concentration float64) {
+func (ei *EigenMode) WeightedCircularMean(values []primitive.Value) (phase float64, concentration float64) {
 	if len(values) == 0 {
 		return 0, 0
 	}
@@ -133,7 +133,7 @@ func (ei *EigenMode) WeightedCircularMean(values []data.Value) (phase float64, c
 IsGeometricallyClosed returns true when the sequence's weighted circular mean phase
 is within config.Numeric.ShannonCapacity of anchorPhase (shortest path around the torus).
 */
-func (ei *EigenMode) IsGeometricallyClosed(values []data.Value, anchorPhase float64) bool {
+func (ei *EigenMode) IsGeometricallyClosed(values []primitive.Value, anchorPhase float64) bool {
 	if len(values) == 0 {
 		return false
 	}

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -11,16 +13,16 @@ import (
 func WavefrontValue(
 	phase numeric.Phase,
 	nextPhase numeric.Phase,
-	opcode data.Opcode,
-) data.Value {
-	value := data.NeutralValue()
+	opcode primitive.Opcode,
+) primitive.Value {
+	value := primitive.NeutralValue()
 	value.SetStatePhase(phase)
 
 	if nextPhase != 0 {
 		value.SetTrajectory(phase, nextPhase)
 	}
 
-	terminal := opcode == data.OpcodeHalt
+	terminal := opcode == primitive.OpcodeHalt
 	jump := uint32(1)
 	if terminal {
 		jump = 0
@@ -30,7 +32,7 @@ func WavefrontValue(
 	return value
 }
 
-func compiledSequence(payload []byte) ([]data.Value, []data.Value) {
+func compiledSequence(payload []byte) ([]primitive.Value, []primitive.Value) {
 	coder := data.NewMortonCoder()
 	keys := make([]uint64, len(payload))
 
@@ -38,12 +40,12 @@ func compiledSequence(payload []byte) ([]data.Value, []data.Value) {
 		keys[index] = coder.Pack(uint32(index), symbol)
 	}
 
-	cells := data.CompileSequenceCells(keys)
-	values := make([]data.Value, len(cells))
-	metaValues := make([]data.Value, len(cells))
+	cells := primitive.CompileSequenceCells(keys)
+	values := make([]primitive.Value, len(cells))
+	metaValues := make([]primitive.Value, len(cells))
 
 	for index, cell := range cells {
-		values[index] = data.SeedObservable(cell.Symbol, cell.Value)
+		values[index] = primitive.SeedObservable(cell.Symbol, cell.Value)
 		metaValues[index] = cell.Meta
 	}
 
@@ -51,13 +53,17 @@ func compiledSequence(payload []byte) ([]data.Value, []data.Value) {
 }
 
 func TestPathWavefrontAnchorSnap(t *testing.T) {
-	gc.Convey("Given a prefetched path with a drifted transition and a valid anchor", t, func() {
-		currentValue := WavefrontValue(10, 206, data.OpcodeNext)
-		anchorValue := WavefrontValue(200, 0, data.OpcodeHalt)
-		meta := data.MustNewValue()
+	state := errnie.NewState("logic/path/wavefront/anchorSnap/test")
 
-		paths := [][]data.Value{{currentValue, anchorValue}}
-		metaPaths := [][]data.Value{{meta, meta}}
+	gc.Convey("Given a prefetched path with a drifted transition and a valid anchor", t, func() {
+		currentValue := WavefrontValue(10, 206, primitive.OpcodeNext)
+		anchorValue := WavefrontValue(200, 0, primitive.OpcodeHalt)
+		meta := errnie.Guard(state, func() (primitive.Value, error) {
+			return primitive.New()
+		})
+
+		paths := [][]primitive.Value{{currentValue, anchorValue}}
+		metaPaths := [][]primitive.Value{{meta, meta}}
 
 		gc.Convey("the substrate wavefront should snap the transition onto the anchor", func() {
 			wavefront := NewWavefront(WavefrontWithAnchors(1, 10))
@@ -155,8 +161,8 @@ func TestPathWavefrontAnchorSnap(t *testing.T) {
 // }
 
 func BenchmarkPathWavefrontStabilize(b *testing.B) {
-	paths := make([][]data.Value, 0, 32)
-	metaPaths := make([][]data.Value, 0, 32)
+	paths := make([][]primitive.Value, 0, 32)
+	metaPaths := make([][]primitive.Value, 0, 32)
 
 	for range 32 {
 		values, metaValues := compiledSequence([]byte("Roy is in the Kitchen"))

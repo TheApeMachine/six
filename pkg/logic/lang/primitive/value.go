@@ -96,6 +96,43 @@ func BaseValue(b byte) Value {
 }
 
 /*
+BuildValue is a projection-plane helper that builds an observable lexical value
+from raw bytes. It deliberately preserves byte shadowing for tests, decode
+paths, and human-facing evaluation.
+
+Do not use BuildValue for persistent storage. Production ingest should tokenize
+into radix keys and then compile native operator cells via CompileSequenceCells,
+letting the key carry lexical identity and the Value carry only local program
+state.
+*/
+func BuildValue(payload []byte) (Value, error) {
+	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
+	if err != nil {
+		return Value{}, err
+	}
+
+	state := errnie.NewState("data/buildValue")
+
+	value := errnie.Guard(state, func() (Value, error) {
+		return NewRootValue(seg)
+	})
+
+	if state.Failed() {
+		return Value{}, state.Err()
+	}
+
+	for pos, b := range payload {
+		positioned := BaseValue(b)
+		positioned = positioned.RollLeft(pos)
+		value = errnie.Guard(state, func() (Value, error) {
+			return value.OR(positioned)
+		})
+	}
+
+	return value, nil
+}
+
+/*
 baseValueOffsets computes five offsets using byteValueMultipliers[int(b)],
 the additive (int(b)*17+1)%257, and canonicalValueBasis, and returns [5]int.
 This keeps byte -> basis projection deterministic while distributing values
@@ -319,6 +356,10 @@ const (
 	ValueErrorTypeInvalidBlockIndex ValueErrorType = "invalid block index"
 )
 
+/*
+ValueError carries a stable message and typed reason so callers can branch
+on exact failure categories (allocation, block index) without string parsing.
+*/
 type ValueError struct {
 	Message string
 	Err     ValueErrorType

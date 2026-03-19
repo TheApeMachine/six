@@ -13,8 +13,8 @@ import (
 	"github.com/gomlx/gomlx/types/tensors"
 	"github.com/gomlx/gopjrt/dtypes"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/substrate"
-	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 )
 
@@ -119,14 +119,14 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 	paths := errnie.Guard(tl.state, func() (capnp.PointerList, error) {
 		return valueMatrixToPointerList(
 			capnp.SingleSegment(nil),
-			[][]data.Value{promptValues},
+			[][]primitive.Value{promptValues},
 		)
 	})
 
 	metaPaths := errnie.Guard(tl.state, func() (capnp.PointerList, error) {
 		return valueMatrixToPointerList(
 			capnp.SingleSegment(nil),
-			[][]data.Value{promptMetaValues},
+			[][]primitive.Value{promptMetaValues},
 		)
 	})
 
@@ -169,8 +169,8 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 			return resultPaths.At(index)
 		})
 
-		values := errnie.Guard(state, func() ([]data.Value, error) {
-			return data.ValueListToSlice(data.Value_List(ptr.List()))
+		values := errnie.Guard(state, func() ([]primitive.Value, error) {
+			return primitive.ValueListToSlice(primitive.Value_List(ptr.List()))
 		})
 
 		if state.Failed() {

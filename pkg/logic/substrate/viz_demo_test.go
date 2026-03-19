@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -19,6 +20,8 @@ This specifically proves that ValueHole does NOT just detect "novel letters", bu
 differentiates entire structural geometry.
 */
 func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
+	state := errnie.NewState("substrate/viz_demo_test")
+
 	Convey("Stress Test: O(1) Anomaly Detection over varied payloads", t, func() {
 		trials := 50
 		successes := 0
@@ -30,7 +33,7 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 		anomalyStr := "?query=' OR 1=1--"
 		anomalyBytes := []byte(anomalyStr)
-		anomalyValue, err := data.BuildValue(anomalyBytes)
+		anomalyValue, err := primitive.BuildValue(anomalyBytes)
 		if err != nil {
 			t.Fatalf("BuildValue failed for anomaly: %v", err)
 		}
@@ -44,21 +47,23 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 			// Generate realistic looking varying baseline strings. They deliberately
 			// contain characters like 'e', 'r', '1', '=', '?', ' ', '-', etc.
 			baselineStr := fmt.Sprintf("GET /api/v1/users?user=%d HTTP/1.1 User-Agent: Mozilla/5.0 status=200", rng.Intn(1000))
-			baselineValue, err := data.BuildValue([]byte(baselineStr))
+			baselineValue, err := primitive.BuildValue([]byte(baselineStr))
 			if err != nil {
 				t.Fatalf("BuildValue failed for baseline: %v", err)
 			}
 
 			// The attack is the baseline + anomaly
 			attackStr := baselineStr + anomalyStr
-			attackValue, err := data.BuildValue([]byte(attackStr))
+			attackValue, err := primitive.BuildValue([]byte(attackStr))
 			if err != nil {
 				t.Fatalf("BuildValue failed for attack: %v", err)
 			}
 
 			// Geometric Extraction
 			// What exists in the Attack that does NOT exist in the Baseline?
-			residue := attackValue.Hole(baselineValue)
+			residue := errnie.Guard(state, func() (primitive.Value, error) {
+				return attackValue.Hole(baselineValue)
+			})
 
 			// How many bits of the FULL signature were recovered cleanly?
 			sim := residue.Similarity(anomalyValue)
@@ -72,12 +77,14 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 				// We visualize the evaluation loop on the dashboard
 				// This sends a physical packet telling the viz what bits were cancelled out
 
-				promptBits := data.ValuePrimeIndices(&attackValue)
-				matchBits := data.ValuePrimeIndices(&baselineValue)
+				promptBits := primitive.ValuePrimeIndices(&attackValue)
+				matchBits := primitive.ValuePrimeIndices(&baselineValue)
 
 				// Cancel bits = bits that were in prompt AND match (cancelled by XOR)
-				intersection := attackValue.AND(baselineValue)
-				cancelBits := data.ValuePrimeIndices(&intersection)
+				intersection := errnie.Guard(state, func() (primitive.Value, error) {
+					return attackValue.AND(baselineValue)
+				})
+				cancelBits := primitive.ValuePrimeIndices(&intersection)
 
 				sink.Emit(telemetry.Event{
 					Component: "Graph",
@@ -116,25 +123,28 @@ func TestMassiveAnomalyIsolationWithViz(t *testing.T) {
 
 func BenchmarkAnomalyIsolation(b *testing.B) {
 	anomalyStr := "?query=' OR 1=1--"
-	anomalyValue, err := data.BuildValue([]byte(anomalyStr))
+	anomalyValue, err := primitive.BuildValue([]byte(anomalyStr))
 	if err != nil {
 		b.Fatalf("BuildValue anomaly: %v", err)
 	}
 
 	baselineStr := "GET /api/v1/users?user=500 HTTP/1.1 User-Agent: Mozilla/5.0 status=200"
-	baselineValue, err := data.BuildValue([]byte(baselineStr))
+	baselineValue, err := primitive.BuildValue([]byte(baselineStr))
 	if err != nil {
 		b.Fatalf("BuildValue baseline: %v", err)
 	}
 
 	attackStr := baselineStr + anomalyStr
-	attackValue, err := data.BuildValue([]byte(attackStr))
+	attackValue, err := primitive.BuildValue([]byte(attackStr))
 	if err != nil {
 		b.Fatalf("BuildValue attack: %v", err)
 	}
 
 	for b.Loop() {
-		residue := attackValue.Hole(baselineValue)
+		residue, err := attackValue.Hole(baselineValue)
+		if err != nil {
+			b.Fatalf("Hole: %v", err)
+		}
 		residue.Similarity(anomalyValue)
 	}
 }

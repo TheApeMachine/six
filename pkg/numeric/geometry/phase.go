@@ -6,8 +6,8 @@ import (
 	"math"
 	"math/cmplx"
 
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/console"
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -34,7 +34,7 @@ EncodeFromValues generates a 512-dim PhaseDial from a value sequence.
 Value-native: uses value structure (active primes) and position for phase;
 no raw bytes. The value's prime signature maps to rotational phase gradients.
 */
-func (dial PhaseDial) EncodeFromValues(values []data.Value) PhaseDial {
+func (dial PhaseDial) EncodeFromValues(values []primitive.Value) PhaseDial {
 	if len(values) == 0 {
 		return dial
 	}
@@ -71,7 +71,7 @@ the serial normalize pass.
 
 If p is nil the call falls back to the serial EncodeFromValues path.
 */
-func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface {
+func (dial PhaseDial) EncodeFromValuesParallel(values []primitive.Value, p interface {
 	Schedule(string, func(context.Context) (any, error), ...pool.JobOption) chan *pool.Result
 }) PhaseDial {
 	if p == nil {
@@ -143,7 +143,7 @@ func (dial PhaseDial) EncodeFromValuesParallel(values []data.Value, p interface 
 AddValuePhase incrementally adds a single value's phase to an unnormalized PhaseDial.
 This allows O(N) instead of O(N^2) sequential dial construction.
 */
-func (dial PhaseDial) AddValuePhase(value data.Value, t int) {
+func (dial PhaseDial) AddValuePhase(value primitive.Value, t int) {
 	var mix uint64
 	for blk := range config.ValueBlocks {
 		mix ^= value.Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)

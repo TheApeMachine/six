@@ -5,10 +5,8 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
-
-
 
 func TestNewEigenMode(t *testing.T) {
 	Convey("Given NewEigenMode constructor", t, func() {
@@ -37,14 +35,14 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 		ei := NewEigenMode()
 
 		Convey("When computing phase for an empty value", func() {
-			var empty data.Value
+			var empty primitive.Value
 			theta, phi := ei.PhaseForValue(&empty)
 			So(theta, ShouldEqual, 0)
 			So(phi, ShouldEqual, 0)
 		})
 
 		Convey("When computing phase for a mock base value", func() {
-			value := data.BaseValue('A')
+			value := primitive.BaseValue('A')
 			theta, phi := ei.PhaseForValue(&value)
 
 			expectedPhi := 2.0 * math.Pi * float64(value.ActiveCount()) / 257.0
@@ -62,9 +60,9 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 		})
 
 		Convey("When computing mean sequence phase", func() {
-			values := []data.Value{
-				data.BaseValue('A'),
-				data.BaseValue('A'),
+			values := []primitive.Value{
+				primitive.BaseValue('A'),
+				primitive.BaseValue('A'),
 			}
 
 			// Sequence of identical values should yield same phase as a single value
@@ -76,7 +74,7 @@ func TestAnalyticalPhaseGeneration(t *testing.T) {
 		})
 
 		Convey("When calling BuildMultiScaleCooccurrence", func() {
-			values := []data.Value{data.BaseValue('a'), data.BaseValue('b')}
+			values := []primitive.Value{primitive.BaseValue('a'), primitive.BaseValue('b')}
 			err := ei.BuildMultiScaleCooccurrence(values)
 			So(err, ShouldBeNil)
 			So(ei.Trained, ShouldBeTrue)
@@ -95,7 +93,7 @@ func TestEigenModeWeightedCircularMean(t *testing.T) {
 		})
 
 		Convey("When computing for single value", func() {
-			values := []data.Value{data.BaseValue('X')}
+			values := []primitive.Value{primitive.BaseValue('X')}
 			phase, conc := ei.WeightedCircularMean(values)
 			So(phase, ShouldBeBetweenOrEqual, -math.Pi, math.Pi)
 			So(conc, ShouldBeBetweenOrEqual, 0, 1)
@@ -112,7 +110,7 @@ func TestGeometricalClosure(t *testing.T) {
 		})
 
 		Convey("When sequence returns exactly to anchor phase", func() {
-			values := []data.Value{data.BaseValue('X')}
+			values := []primitive.Value{primitive.BaseValue('X')}
 			anchor, _ := ei.WeightedCircularMean(values)
 
 			// Same sequence should have distance 0 from its own anchor
@@ -120,7 +118,7 @@ func TestGeometricalClosure(t *testing.T) {
 		})
 
 		Convey("When sequence drifts to opposite side of Torus", func() {
-			valuesA := []data.Value{data.BaseValue('X')}
+			valuesA := []primitive.Value{primitive.BaseValue('X')}
 			anchor, _ := ei.WeightedCircularMean(valuesA)
 
 			// We manually specify an anchor that is π radians away
@@ -136,7 +134,7 @@ func TestGeometricalClosure(t *testing.T) {
 
 func BenchmarkEigenModePhaseForValue(b *testing.B) {
 	ei := NewEigenMode()
-	value := data.BaseValue('A')
+	value := primitive.BaseValue('A')
 	b.ResetTimer()
 	for b.Loop() {
 		ei.PhaseForValue(&value)
@@ -145,9 +143,9 @@ func BenchmarkEigenModePhaseForValue(b *testing.B) {
 
 func BenchmarkEigenModeSeqToroidalMeanPhase(b *testing.B) {
 	ei := NewEigenMode()
-	values := make([]data.Value, 64)
+	values := make([]primitive.Value, 64)
 	for idx := range values {
-		values[idx] = data.BaseValue(byte(idx % 256))
+		values[idx] = primitive.BaseValue(byte(idx % 256))
 	}
 	b.ResetTimer()
 	for b.Loop() {
@@ -157,9 +155,9 @@ func BenchmarkEigenModeSeqToroidalMeanPhase(b *testing.B) {
 
 func BenchmarkEigenModeWeightedCircularMean(b *testing.B) {
 	ei := NewEigenMode()
-	values := make([]data.Value, 64)
+	values := make([]primitive.Value, 64)
 	for idx := range values {
-		values[idx] = data.BaseValue(byte(idx % 256))
+		values[idx] = primitive.BaseValue(byte(idx % 256))
 	}
 	b.ResetTimer()
 	for b.Loop() {

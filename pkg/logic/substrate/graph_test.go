@@ -16,7 +16,7 @@ import (
 /*
 graphValueMatrixToPointerList builds the Graph RPC matrix payload used by Prompt.
 */
-func graphValueMatrixToPointerList(values [][]data.Value) (capnp.PointerList, error) {
+func graphValueMatrixToPointerList(values [][]primitive.Value) (capnp.PointerList, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
 	if err != nil {
 		return capnp.PointerList{}, err
@@ -28,7 +28,7 @@ func graphValueMatrixToPointerList(values [][]data.Value) (capnp.PointerList, er
 	}
 
 	for index, row := range values {
-		valueList, err := data.NewValue_List(seg, int32(len(row)))
+		valueList, err := primitive.NewValue_List(seg, int32(len(row)))
 		if err != nil {
 			return capnp.PointerList{}, err
 		}
@@ -49,7 +49,7 @@ func graphValueMatrixToPointerList(values [][]data.Value) (capnp.PointerList, er
 /*
 compiledSequence builds prompt and meta paths the same way the VM does.
 */
-func compiledSequence(payload []byte) ([]data.Value, []data.Value) {
+func compiledSequence(payload []byte) ([]primitive.Value, []primitive.Value) {
 	coder := data.NewMortonCoder()
 	keys := make([]uint64, len(payload))
 
@@ -57,12 +57,12 @@ func compiledSequence(payload []byte) ([]data.Value, []data.Value) {
 		keys[index] = coder.Pack(uint32(index), symbol)
 	}
 
-	cells := data.CompileSequenceCells(keys)
-	values := make([]data.Value, len(cells))
-	metaValues := make([]data.Value, len(cells))
+	cells := primitive.CompileSequenceCells(keys)
+	values := make([]primitive.Value, len(cells))
+	metaValues := make([]primitive.Value, len(cells))
 
 	for index, cell := range cells {
-		values[index] = data.SeedObservable(cell.Symbol, cell.Value)
+		values[index] = primitive.SeedObservable(cell.Symbol, cell.Value)
 		metaValues[index] = cell.Meta
 	}
 
@@ -75,16 +75,16 @@ wavefrontValue creates an operator-bearing Value for stabilization tests.
 func wavefrontValue(
 	phase numeric.Phase,
 	nextPhase numeric.Phase,
-	opcode data.Opcode,
-) data.Value {
-	value := data.NeutralValue()
+	opcode primitive.Opcode,
+) primitive.Value {
+	value := primitive.NeutralValue()
 	value.SetStatePhase(phase)
 
 	if nextPhase != 0 {
 		value.SetTrajectory(phase, nextPhase)
 	}
 
-	terminal := opcode == data.OpcodeHalt
+	terminal := opcode == primitive.OpcodeHalt
 	jump := uint32(1)
 	if terminal {
 		jump = 0
@@ -98,7 +98,7 @@ func wavefrontValue(
 /*
 sameValueBlocks verifies that two Values carry identical raw state.
 */
-func sameValueBlocks(left data.Value, right data.Value) bool {
+func sameValueBlocks(left primitive.Value, right primitive.Value) bool {
 	for index := range 8 {
 		if left.Block(index) != right.Block(index) {
 			return false
@@ -111,11 +111,11 @@ func sameValueBlocks(left data.Value, right data.Value) bool {
 /*
 decodeObservableSymbols extracts lexical bytes from observable Values.
 */
-func decodeObservableSymbols(values []data.Value) []byte {
+func decodeObservableSymbols(values []primitive.Value) []byte {
 	result := make([]byte, 0, len(values))
 
 	for _, value := range values {
-		symbol, ok := data.InferLexicalSeed(value)
+		symbol, ok := primitive.InferLexicalSeed(value)
 		if !ok {
 			continue
 		}
@@ -153,10 +153,10 @@ func TestGraphServerPromptPreservesPromptPrefix(t *testing.T) {
 		)
 
 		Convey("Prompt should preserve the exact prompt prefix and append continuation values", func() {
-			paths, err := graphValueMatrixToPointerList([][]data.Value{promptValues})
+			paths, err := graphValueMatrixToPointerList([][]primitive.Value{promptValues})
 			So(err, ShouldBeNil)
 
-			metaPaths, err := graphValueMatrixToPointerList([][]data.Value{metaValues})
+			metaPaths, err := graphValueMatrixToPointerList([][]primitive.Value{metaValues})
 			So(err, ShouldBeNil)
 
 			future, release := client.Prompt(ctx, func(params Graph_prompt_Params) error {
@@ -178,7 +178,7 @@ func TestGraphServerPromptPreservesPromptPrefix(t *testing.T) {
 			ptr, err := rows.At(0)
 			So(err, ShouldBeNil)
 
-			values, err := data.ValueListToSlice(data.Value_List(ptr.List()))
+			values, err := primitive.ValueListToSlice(primitive.Value_List(ptr.List()))
 			So(err, ShouldBeNil)
 			So(len(values), ShouldBeGreaterThanOrEqualTo, len(promptValues))
 
@@ -254,10 +254,10 @@ func TestGraphServerPromptRecordsMacroTools(t *testing.T) {
 		promptValues, metaValues := compiledSequence([]byte("Roy is in the "))
 
 		Convey("Prompt should derive and record the boundary tool in MacroIndex", func() {
-			paths, err := graphValueMatrixToPointerList([][]data.Value{promptValues})
+			paths, err := graphValueMatrixToPointerList([][]primitive.Value{promptValues})
 			So(err, ShouldBeNil)
 
-			metaPaths, err := graphValueMatrixToPointerList([][]data.Value{metaValues})
+			metaPaths, err := graphValueMatrixToPointerList([][]primitive.Value{metaValues})
 			So(err, ShouldBeNil)
 
 			future, release := client.Prompt(ctx, func(params Graph_prompt_Params) error {
@@ -308,10 +308,10 @@ func TestGraphServerPromptTracksCandidateOutcomes(t *testing.T) {
 		key := macro.AffineKeyFromValues(start, end)
 
 		Convey("Prompt should accumulate candidate success/failure counts per run", func() {
-			paths, err := graphValueMatrixToPointerList([][]data.Value{promptValues})
+			paths, err := graphValueMatrixToPointerList([][]primitive.Value{promptValues})
 			So(err, ShouldBeNil)
 
-			metaPaths, err := graphValueMatrixToPointerList([][]data.Value{metaValues})
+			metaPaths, err := graphValueMatrixToPointerList([][]primitive.Value{metaValues})
 			So(err, ShouldBeNil)
 
 			const promptRuns = 3
@@ -432,7 +432,7 @@ func TestDecodePromptSymbols(t *testing.T) {
 /*
 primitiveFromDataForGraphTest clones data.Value into primitive.Value for key checks.
 */
-func primitiveFromDataForGraphTest(value data.Value) primitive.Value {
+func primitiveFromDataForGraphTest(value primitive.Value) primitive.Value {
 	out, err := primitive.New()
 	if err != nil {
 		panic(err)
@@ -453,7 +453,7 @@ func primitiveFromDataForGraphTest(value data.Value) primitive.Value {
 /*
 toPrimitivePath maps one observable data.Value path into primitive.Value.
 */
-func toPrimitivePath(values []data.Value) []primitive.Value {
+func toPrimitivePath(values []primitive.Value) []primitive.Value {
 	out := make([]primitive.Value, len(values))
 
 	for index, value := range values {
@@ -470,7 +470,7 @@ func decodePrimitiveSymbols(values []primitive.Value) []byte {
 	out := make([]byte, 0, len(values))
 
 	for _, value := range values {
-		symbol, ok := data.InferLexicalSeed(data.Value(value))
+		symbol, ok := primitive.InferLexicalSeed(primitive.Value(value))
 		if !ok {
 			continue
 		}

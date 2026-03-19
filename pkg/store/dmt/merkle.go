@@ -11,7 +11,10 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
-// MerkleNode represents a node in the Merkle tree
+/*
+MerkleNode is one node in the tree. Leaves store Key/Value; internal nodes
+store only Hash. Left/Right are nil for leaves.
+*/
 type MerkleNode struct {
 	Hash  []byte
 	Left  *MerkleNode
@@ -20,7 +23,10 @@ type MerkleNode struct {
 	Value []byte
 }
 
-// MerkleTree manages a Merkle tree for efficient diff detection
+/*
+MerkleTree maintains a hash tree over key-value pairs for O(log n) diff
+detection. Rebuild must be called after Insert before GetDiff or VerifyProof.
+*/
 type MerkleTree struct {
 	state    *errnie.State
 	mu       sync.RWMutex
@@ -31,7 +37,9 @@ type MerkleTree struct {
 	modified bool
 }
 
-// NewMerkleTree creates a new Merkle tree
+/*
+NewMerkleTree allocates an empty tree. Call Insert then Rebuild before use.
+*/
 func NewMerkleTree() *MerkleTree {
 	return &MerkleTree{
 		state:   errnie.NewState("dmt/merkle"),
@@ -41,7 +49,10 @@ func NewMerkleTree() *MerkleTree {
 	}
 }
 
-// Insert adds or updates a key-value pair in the Merkle tree
+/*
+Insert stores a key-value pair as a leaf. Copies key/value to avoid caller
+aliasing. Rebuild required before GetDiff or VerifyProof.
+*/
 func (mt *MerkleTree) Insert(key, value []byte) {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
@@ -60,7 +71,9 @@ func (mt *MerkleTree) Insert(key, value []byte) {
 	mt.modified = true
 }
 
-// Rebuild reconstructs the Merkle tree from leaves
+/*
+Rebuild reconstructs the tree from the current leaf set. No-op if unmodified.
+*/
 func (mt *MerkleTree) Rebuild() {
 	mt.mu.Lock()
 	defer mt.mu.Unlock()
@@ -88,7 +101,9 @@ func (mt *MerkleTree) Rebuild() {
 	mt.modified = false
 }
 
-// buildLevel constructs one level of the Merkle tree
+/*
+buildLevel hashes pairs of nodes into parent nodes until one root remains.
+*/
 func (mt *MerkleTree) buildLevel(nodes []*MerkleNode) *MerkleNode {
 	if len(nodes) == 0 {
 		return nil
@@ -128,7 +143,10 @@ func (mt *MerkleTree) buildLevel(nodes []*MerkleNode) *MerkleNode {
 	return mt.buildLevel(parents)
 }
 
-// GetDiff returns the differences between this tree and another
+/*
+GetDiff returns keys that differ between this tree and other. Uses tree walk
+when both have roots; otherwise falls back to full leaf comparison.
+*/
 func (mt *MerkleTree) GetDiff(other *MerkleTree) []DiffEntry {
 	other.mu.RLock()
 	defer other.mu.RUnlock()
@@ -145,14 +163,19 @@ func (mt *MerkleTree) GetDiff(other *MerkleTree) []DiffEntry {
 	return diffs
 }
 
-// DiffEntry represents a difference between trees
+/*
+DiffEntry records one key-value pair that differs. Modified=true means the
+key exists in both trees with different values; false means key exists only here.
+*/
 type DiffEntry struct {
 	Key      []byte
 	Value    []byte
 	Modified bool // true if modified, false if new
 }
 
-// diffNode recursively finds differences between trees
+/*
+diffNode walks two trees in parallel; when hashes differ, records leaf diffs.
+*/
 func (mt *MerkleTree) diffNode(a, b *MerkleNode, other *MerkleTree, diffs *[]DiffEntry) {
 	if bytes.Equal(a.Hash, b.Hash) {
 		return // nodes are identical
@@ -188,7 +211,10 @@ func (mt *MerkleTree) diffNode(a, b *MerkleNode, other *MerkleTree, diffs *[]Dif
 	}
 }
 
-// fullDiff returns all entries when trees are too different
+/*
+fullDiff compares all leaves when roots are nil or trees are structurally
+incompatible for a walk.
+*/
 func (mt *MerkleTree) fullDiff(other *MerkleTree) []DiffEntry {
 	diffs := make([]DiffEntry, 0, len(mt.leafMap))
 	for _, leaf := range mt.leafMap {
@@ -212,7 +238,9 @@ func (mt *MerkleTree) fullDiff(other *MerkleTree) []DiffEntry {
 	return diffs
 }
 
-// Verify checks if a key-value pair exists in the tree
+/*
+Verify returns true if the key exists and its stored value matches.
+*/
 func (mt *MerkleTree) Verify(key, value []byte) bool {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
@@ -224,9 +252,10 @@ func (mt *MerkleTree) Verify(key, value []byte) bool {
 	return false
 }
 
-// GetProof generates a Merkle proof for a key.
-// Each proof element is prefixed with a position byte:
-// 0x00 = sibling is on the right, 0x01 = sibling is on the left.
+/*
+GetProof returns sibling hashes from leaf to root. Each element is prefixed
+with 0x00 (sibling right) or 0x01 (sibling left) so VerifyProof knows hash order.
+*/
 func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
@@ -270,8 +299,10 @@ func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
 	return proof, nil
 }
 
-// VerifyProof verifies a Merkle proof.
-// Each proof element carries a position prefix byte that determines hash ordering.
+/*
+VerifyProof recomputes the root from key/value and proof hashes. Returns true
+if the result matches the stored root.
+*/
 func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 	mt.mu.RLock()
 	defer mt.mu.RUnlock()
@@ -300,12 +331,16 @@ func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 	return bytes.Equal(hash, mt.Root.Hash)
 }
 
-// findParent finds the parent node of a given node
+/*
+findParent returns the parent of node from the parent map built during Rebuild.
+*/
 func (mt *MerkleTree) findParent(node *MerkleNode) *MerkleNode {
 	return mt.parent[node]
 }
 
-// hashKV creates a hash of a key-value pair
+/*
+hashKV produces SHA-256(key || value) for leaf nodes.
+*/
 func (mt *MerkleTree) hashKV(key, value []byte) []byte {
 	hasher := sha256.New()
 	hasher.Write(key)
@@ -313,7 +348,9 @@ func (mt *MerkleTree) hashKV(key, value []byte) []byte {
 	return hasher.Sum(nil)
 }
 
-// hashChildren creates a hash of two child nodes
+/*
+hashChildren produces SHA-256(left.Hash || right.Hash). Right may be nil.
+*/
 func (mt *MerkleTree) hashChildren(left, right *MerkleNode) []byte {
 	hasher := sha256.New()
 	hasher.Write(left.Hash)

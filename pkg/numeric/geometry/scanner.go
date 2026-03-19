@@ -5,6 +5,7 @@ import (
 	"math"
 	"sort"
 
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt/server"
 )
@@ -31,7 +32,7 @@ that produced it. Computing PhaseDials is expensive (O(N * NBasis) per entry),
 so we cache aggressively.
 */
 type cachedEntry struct {
-	Values []data.Value
+	Values []primitive.Value
 	Dial   PhaseDial
 }
 
@@ -43,7 +44,7 @@ type ScanResult struct {
 	Position   uint32
 	Symbol     byte
 	Similarity float64
-	Values     []data.Value
+	Values     []primitive.Value
 	Dial       PhaseDial
 }
 
@@ -55,7 +56,7 @@ type GeodesicStep struct {
 	AngleDeg   float64
 	BestKey    uint64
 	Similarity float64
-	Values     []data.Value
+	Values     []primitive.Value
 	Dial       PhaseDial
 }
 
@@ -67,7 +68,7 @@ type HopResult struct {
 	KeyB       uint64
 	DialB      PhaseDial
 	DialAB     PhaseDial
-	ValuesB    []data.Value
+	ValuesB    []primitive.Value
 	Similarity float64
 }
 
@@ -113,8 +114,8 @@ func (scanner *PhaseDialScanner) buildCache() {
 		}
 
 		_, sym := morton.Unpack(mortonKey)
-		value := data.BaseValue(sym)
-		values := []data.Value{value}
+		value := primitive.BaseValue(sym)
+		values := []primitive.Value{primitive.Value(value)}
 		dial := NewPhaseDial()
 		dial = dial.EncodeFromValues(values)
 
@@ -161,7 +162,7 @@ func (scanner *PhaseDialScanner) EntryDial(key uint64) PhaseDial {
 /*
 EntryValues returns the value sequence for a specific Morton key.
 */
-func (scanner *PhaseDialScanner) EntryValues(key uint64) []data.Value {
+func (scanner *PhaseDialScanner) EntryValues(key uint64) []primitive.Value {
 	scanner.buildCache()
 
 	entry, exists := scanner.cache[key]

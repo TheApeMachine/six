@@ -8,6 +8,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
+	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -170,7 +171,7 @@ func (idx *ForestServer) Lookup(
 		return call.AllocResults()
 	})
 
-	out := errnie.Guard(idx.state, func() (data.Value_List, error) {
+	out := errnie.Guard(idx.state, func() (primitive.Value_List, error) {
 		return res.NewValues(int32(keys.Len()))
 	})
 

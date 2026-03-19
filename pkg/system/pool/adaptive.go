@@ -112,7 +112,10 @@ func (as *AdaptiveScalerRegulator) Renormalize() {
 	}
 }
 
-// evaluate assesses current metrics and scales the worker pool accordingly
+/*
+evaluate compares current load to thresholds and scales the pool up or down.
+Respects cooldown and min/max worker bounds.
+*/
 func (as *AdaptiveScalerRegulator) evaluate() {
 	if as.metrics == nil || time.Since(as.lastScale) < as.cooldown {
 		return
@@ -141,7 +144,9 @@ func (as *AdaptiveScalerRegulator) evaluate() {
 	}
 }
 
-// scaleUp adds workers to the pool
+/*
+scaleUp adds up to count workers, capped by maxWorkers.
+*/
 func (as *AdaptiveScalerRegulator) scaleUp(count int) {
 	toAdd := min(as.maxWorkers-as.metrics.WorkerCount, max(1, count))
 	for range toAdd {
@@ -149,7 +154,9 @@ func (as *AdaptiveScalerRegulator) scaleUp(count int) {
 	}
 }
 
-// scaleDown removes workers from the pool
+/*
+scaleDown removes up to count workers from the tail of the worker list.
+*/
 func (as *AdaptiveScalerRegulator) scaleDown(count int) {
 	as.pool.workerMu.Lock()
 	defer as.pool.workerMu.Unlock()

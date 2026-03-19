@@ -4,12 +4,12 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
-func mustBuildValue(t *testing.T, input []byte) data.Value {
+func mustBuildValue(t *testing.T, input []byte) primitive.Value {
 	t.Helper()
-	value, err := data.BuildValue(input)
+	value, err := primitive.BuildValue(input)
 	if err != nil {
 		t.Fatalf("BuildValue failed: %v", err)
 	}
@@ -19,8 +19,12 @@ func mustBuildValue(t *testing.T, input []byte) data.Value {
 /*
 valueEqual returns true when two Values are bitwise identical (XOR == 0).
 */
-func valueEqual(left, right data.Value) bool {
-	return left.XOR(right).ActiveCount() == 0
+func valueEqual(left, right primitive.Value) bool {
+	residue, err := left.XOR(right)
+	if err != nil {
+		return false
+	}
+	return residue.ActiveCount() == 0
 }
 
 func TestExtractSharedInvariant(t *testing.T) {
@@ -29,39 +33,60 @@ func TestExtractSharedInvariant(t *testing.T) {
 	carrot := mustBuildValue(t, []byte("Carrot"))
 	peach := mustBuildValue(t, []byte("Peach"))
 
-	seqA := []data.Value{apple, banana}
-	seqB := []data.Value{apple, carrot}
-	seqC := []data.Value{peach, apple}
+	seqA := []primitive.Value{apple, banana}
+	seqB := []primitive.Value{apple, carrot}
+	seqC := []primitive.Value{peach, apple}
 
 	Convey("Given sequences of values", t, func() {
 		Convey("It should return the exact AND of the per-sequence OR unions", func() {
-			unionA := apple.OR(banana)
-			unionB := apple.OR(carrot)
-			unionC := peach.OR(apple)
-			expected := unionA.AND(unionB)
-			expected = expected.AND(unionC)
+			unionA, err := apple.OR(banana)
+			if err != nil {
+				panic(err)
+			}
+			unionB, err := apple.OR(carrot)
+			if err != nil {
+				panic(err)
+			}
+			unionC, err := peach.OR(apple)
+			if err != nil {
+				panic(err)
+			}
+			expected, err := unionA.AND(unionB)
+			if err != nil {
+				panic(err)
+			}
+			expected, err = expected.AND(unionC)
+			if err != nil {
+				panic(err)
+			}
 
-			invariant := extractSharedInvariant([][]data.Value{seqA, seqB, seqC})
+			invariant := extractSharedInvariant([][]primitive.Value{seqA, seqB, seqC})
 
 			So(valueEqual(invariant, expected), ShouldBeTrue)
 			So(invariant.ActiveCount(), ShouldEqual, expected.ActiveCount())
 		})
 
 		Convey("Empty inputs return a zero-energy value", func() {
-			invariant := extractSharedInvariant([][]data.Value{})
+			invariant := extractSharedInvariant([][]primitive.Value{})
 			So(invariant.ActiveCount(), ShouldEqual, 0)
 		})
 
 		Convey("A single sequence returns its own OR union unchanged", func() {
-			expected := apple.OR(banana)
-			invariant := extractSharedInvariant([][]data.Value{seqA})
+			expected, err := apple.OR(banana)
+			if err != nil {
+				panic(err)
+			}
+			invariant := extractSharedInvariant([][]primitive.Value{seqA})
 
 			So(valueEqual(invariant, expected), ShouldBeTrue)
 		})
 
 		Convey("Two identical sequences return their shared OR union", func() {
-			expected := apple.OR(banana)
-			invariant := extractSharedInvariant([][]data.Value{seqA, seqA})
+			expected, err := apple.OR(banana)
+			if err != nil {
+				panic(err)
+			}
+			invariant := extractSharedInvariant([][]primitive.Value{seqA, seqA})
 
 			So(valueEqual(invariant, expected), ShouldBeTrue)
 		})
@@ -75,11 +100,14 @@ func TestXorSequence(t *testing.T) {
 
 	Convey("Given a sequence and a label value", t, func() {
 		Convey("Each residue should be the exact XOR of the element and the label", func() {
-			seq := []data.Value{value1, value2}
+			seq := []primitive.Value{value1, value2}
 			residue := xorSequence(seq, label)
 
-			expected0 := value1.XOR(label)
-			expected1 := value2.XOR(label)
+			expected0, err := value1.XOR(label)
+			if err != nil {
+				panic(err)
+			}
+			expected1, err := value2.XOR(label)
 
 			So(len(residue), ShouldEqual, 2)
 			So(valueEqual(residue[0], expected0), ShouldBeTrue)
@@ -87,15 +115,18 @@ func TestXorSequence(t *testing.T) {
 		})
 
 		Convey("A value XORed with itself produces zero and is filtered out", func() {
-			residue := xorSequence([]data.Value{label}, label)
+			residue := xorSequence([]primitive.Value{label}, label)
 			So(len(residue), ShouldEqual, 0)
 		})
 
 		Convey("Mixed: elements that cancel vanish, non-cancelling survive as exact residues", func() {
-			seq := []data.Value{label, value1}
+			seq := []primitive.Value{label, value1}
 			residue := xorSequence(seq, label)
 
-			expected := value1.XOR(label)
+			expected, err := value1.XOR(label)
+			if err != nil {
+				panic(err)
+			}
 
 			So(len(residue), ShouldEqual, 1)
 			So(valueEqual(residue[0], expected), ShouldBeTrue)
@@ -104,9 +135,9 @@ func TestXorSequence(t *testing.T) {
 }
 
 func BenchmarkExtractSharedInvariant(b *testing.B) {
-	c1, _ := data.BuildValue([]byte("Common text A"))
-	c2, _ := data.BuildValue([]byte("Common text B"))
-	seqs := [][]data.Value{{c1, c2}, {c1, c2}}
+	c1, _ := primitive.BuildValue([]byte("Common text A"))
+	c2, _ := primitive.BuildValue([]byte("Common text B"))
+	seqs := [][]primitive.Value{{c1, c2}, {c1, c2}}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		extractSharedInvariant(seqs)
@@ -114,10 +145,10 @@ func BenchmarkExtractSharedInvariant(b *testing.B) {
 }
 
 func BenchmarkXorSequence(b *testing.B) {
-	value1, _ := data.BuildValue([]byte("Hello world"))
-	value2, _ := data.BuildValue([]byte("Foo bar"))
-	label, _ := data.BuildValue([]byte("shared value"))
-	seq := []data.Value{value1, value2}
+	value1, _ := primitive.BuildValue([]byte("Hello world"))
+	value2, _ := primitive.BuildValue([]byte("Foo bar"))
+	label, _ := primitive.BuildValue([]byte("shared value"))
+	seq := []primitive.Value{value1, value2}
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		xorSequence(seq, label)

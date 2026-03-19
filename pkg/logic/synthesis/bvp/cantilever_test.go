@@ -8,7 +8,6 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 func TestCantilever(t *testing.T) {
@@ -52,8 +51,8 @@ func TestCantilever(t *testing.T) {
 				macro.MacroIndexWithContext(ctx),
 			)
 
-			startValue := data.BaseValue(tc.StartByte)
-			goalValue := data.BaseValue(tc.GoalByte)
+			startValue := primitive.BaseValue(tc.StartByte)
+			goalValue := primitive.BaseValue(tc.GoalByte)
 
 			cl := NewCantileverServer(
 				CantileverWithContext(ctx),
@@ -110,10 +109,13 @@ func TestCantilever(t *testing.T) {
 			WithMacroIndex(macroIndex),
 		)
 
-		emptyValue := data.MustNewValue()
-		realValue := data.BaseValue(42)
+		emptyValue, err := primitive.New()
+		if err != nil {
+			t.Fatalf("New failed: %v", err)
+		}
+		realValue := primitive.BaseValue(42)
 
-		_, _, err := cl.BridgeValues(emptyValue, realValue)
+		_, _, err = cl.BridgeValues(emptyValue, realValue)
 		So(err, ShouldNotBeNil)
 
 		_, _, err = cl.BridgeValues(realValue, emptyValue)

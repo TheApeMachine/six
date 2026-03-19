@@ -14,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/logic/lang"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
+
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
 	"github.com/theapemachine/six/pkg/validate"
@@ -43,12 +44,14 @@ type HASServer struct {
 }
 
 /*
-hasOpts configures a HASServer.
+hasOpts configures HASServer at construction. Options inject context,
+macro index, program server, or forest.
 */
 type hasOpts func(*HASServer)
 
 /*
-NewHASServer creates a new HASServer.
+NewHASServer creates the HAS RPC server and wires it to a net.Pipe.
+Default macro index and program server are created if not provided.
 */
 func NewHASServer(options ...hasOpts) *HASServer {
 	server := &HASServer{
@@ -186,11 +189,11 @@ func (server *HASServer) Write(ctx context.Context, call HAS_write) error {
 
 	server.state.Reset()
 
-	start := errnie.Guard(server.state, func() (data.Value, error) {
+	start := errnie.Guard(server.state, func() (primitive.Value, error) {
 		return call.Args().Start()
 	})
 
-	end := errnie.Guard(server.state, func() (data.Value, error) {
+	end := errnie.Guard(server.state, func() (primitive.Value, error) {
 		return call.Args().End()
 	})
 
@@ -280,7 +283,7 @@ func (server *HASServer) Done(ctx context.Context, call HAS_done) error {
 copyDataIntoPrimitive copies one data.Value block-for-block into an already
 allocated primitive.Value buffer.
 */
-func (server *HASServer) copyDataIntoPrimitive(dst *primitive.Value, value data.Value) {
+func (server *HASServer) copyDataIntoPrimitive(dst *primitive.Value, value primitive.Value) {
 	_ = server
 
 	dst.SetC0(value.C0())
@@ -301,7 +304,11 @@ func (server *HASServer) collectPromptBranches(prompt primitive.Value) ([]primit
 		return nil, nil
 	}
 
-	promptData := data.MustNewValue()
+	promptData, err := primitive.New()
+	if err != nil {
+		return nil, err
+	}
+
 	promptData.SetC0(prompt.C0())
 	promptData.SetC1(prompt.C1())
 	promptData.SetC2(prompt.C2())
@@ -311,7 +318,7 @@ func (server *HASServer) collectPromptBranches(prompt primitive.Value) ([]primit
 	promptData.SetC6(prompt.C6())
 	promptData.SetC7(prompt.C7())
 
-	promptSymbol, ok := data.InferLexicalSeed(promptData)
+	promptSymbol, ok := primitive.InferLexicalSeed(promptData)
 	if !ok {
 		return nil, NewHASError(HASErrorTypePromptSymbolMissing)
 	}
@@ -364,7 +371,7 @@ func (server *HASServer) collectPromptBranches(prompt primitive.Value) ([]primit
 
 	branches := make([]primitive.Value, 0, len(orderedSymbols))
 	for _, symbol := range orderedSymbols {
-		value := data.BaseValue(byte(symbol))
+		value := primitive.BaseValue(byte(symbol))
 		branch, err := primitive.New()
 		if err != nil {
 			return nil, err

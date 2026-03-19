@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/dmt/server"
 )
 
@@ -17,7 +17,7 @@ func TestPhaseDialScanner(t *testing.T) {
 		// Each position gets a unique value so the PhaseDials differ.
 		for pos := range uint32(5) {
 			sym := byte(65 + pos)
-			values := []data.Value{data.BaseValue(byte(sym))}
+			values := []primitive.Value{primitive.BaseValue(byte(sym))}
 			scanner.cache[morton.Pack(pos, sym)] = cachedEntry{
 				Values: values,
 				Dial:   NewPhaseDial().EncodeFromValues(values),
@@ -136,8 +136,8 @@ func BenchmarkPhaseDialScan(b *testing.B) {
 	for pos := range uint32(100) {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
-		value := data.BaseValue(byte(sym))
-		values := []data.Value{value}
+		value := primitive.BaseValue(byte(sym))
+		values := []primitive.Value{primitive.Value(value)}
 		scanner.cache[key] = cachedEntry{
 			Values: values,
 			Dial:   NewPhaseDial().EncodeFromValues(values),
@@ -157,8 +157,8 @@ func BenchmarkGeodesicScan(b *testing.B) {
 	for pos := uint32(0); pos < 50; pos++ {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
-		value := data.BaseValue(byte(sym))
-		values := []data.Value{value}
+		value := primitive.BaseValue(byte(sym))
+		values := []primitive.Value{primitive.Value(value)}
 		scanner.cache[key] = cachedEntry{
 			Values: values,
 			Dial:   NewPhaseDial().EncodeFromValues(values),

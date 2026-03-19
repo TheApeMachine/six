@@ -75,8 +75,8 @@ func BenchmarkRequire(b *testing.B) {
 		"groups":       3,
 		"ctx":          "valid",
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	
+	for b.Loop() {
 		_ = Require(objs)
 	}
 }
@@ -87,8 +87,8 @@ func BenchmarkRequireWithNil(b *testing.B) {
 		"ctx":   nil,
 		"other": 3,
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	
+	for b.Loop() {
 		_ = Require(objs)
 	}
 }

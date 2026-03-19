@@ -8,6 +8,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/test"
 )
@@ -17,12 +18,22 @@ RunAliceDemo boots the full system with the given dataset and blocks until ctx
 is cancelled. All tokenization, LSM insertion, fold telemetry, and Graph events
 flow through the real system components automatically. The caller owns dataset
 construction so this package stays free of embed/cmd import cycles.
+When a non-nil Server is provided, the Machine's Prompt method is wired into
+it so the UI prompt input can drive the real system.
 */
-func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
+func RunAliceDemo(ctx context.Context, dataset provider.Dataset, srv *Server) error {
 	console.Info("Starting Alice demo")
 
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
+
+	if srv != nil {
+		srv.SetPromptFunc(helper.Machine.Prompt)
+
+		srv.SetIngestFunc(func(raw []byte) error {
+			return helper.Machine.SetDataset(local.New(local.WithBytes(raw)))
+		})
+	}
 
 	// errnie.GuardVoid(errnie.NewState("visualizer/demo"), func() error {
 	// 	return helper.Machine.SetDataset(dataset)

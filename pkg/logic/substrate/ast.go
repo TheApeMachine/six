@@ -3,7 +3,6 @@ package substrate
 import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -81,16 +80,18 @@ func (node *ASTNode) Collect() []uint64 {
 	return result
 }
 
-func extractSharedInvariant(sequences [][]data.Value) data.Value {
+func extractSharedInvariant(sequences [][]primitive.Value) primitive.Value {
+	state := errnie.NewState("substrate/ast/extractSharedInvariant")
+
 	if len(sequences) == 0 {
-		return data.Value{}
+		return primitive.Value{}
 	}
 
 	initialized := false
-	var invariant data.Value
+	var invariant primitive.Value
 
 	for _, seq := range sequences {
-		var seqUnion data.Value
+		var seqUnion primitive.Value
 		seqInit := false
 
 		for _, value := range seq {
@@ -102,7 +103,9 @@ func extractSharedInvariant(sequences [][]data.Value) data.Value {
 				seqUnion = value
 				seqInit = true
 			} else {
-				seqUnion = seqUnion.OR(value)
+				seqUnion = errnie.Guard(state, func() (primitive.Value, error) {
+					return seqUnion.OR(value)
+				})
 			}
 		}
 
@@ -114,12 +117,14 @@ func extractSharedInvariant(sequences [][]data.Value) data.Value {
 			invariant = seqUnion
 			initialized = true
 		} else {
-			invariant = invariant.AND(seqUnion)
+			invariant = errnie.Guard(state, func() (primitive.Value, error) {
+				return invariant.AND(seqUnion)
+			})
 		}
 	}
 
 	if !initialized {
-		return data.Value{}
+		return primitive.Value{}
 	}
 
 	return invariant
@@ -129,11 +134,15 @@ func extractSharedInvariant(sequences [][]data.Value) data.Value {
 xorSequence extracts residue boundaries by applying a logical XOR between
 an active context label and a sequence. It returns only the non-zero residues.
 */
-func xorSequence(seq []data.Value, label data.Value) []data.Value {
-	var out []data.Value
+func xorSequence(seq []primitive.Value, label primitive.Value) []primitive.Value {
+	state := errnie.NewState("substrate/ast/xorSequence")
+
+	var out []primitive.Value
 
 	for _, value := range seq {
-		residue := value.XOR(label)
+		residue := errnie.Guard(state, func() (primitive.Value, error) {
+			return value.XOR(label)
+		})
 
 		if residue.ActiveCount() > 0 {
 			out = append(out, residue)

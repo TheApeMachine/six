@@ -9,6 +9,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis"
 	"github.com/theapemachine/six/pkg/store/data"
@@ -171,14 +172,14 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	paths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
 		return valueMatrixToPointerList(
 			capnp.SingleSegment(nil),
-			[][]data.Value{promptValues},
+			[][]primitive.Value{promptValues},
 		)
 	})
 
 	metaPaths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
 		return valueMatrixToPointerList(
 			capnp.SingleSegment(nil),
-			[][]data.Value{promptValues},
+			[][]primitive.Value{promptValues},
 		)
 	})
 
@@ -296,7 +297,7 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 ingestHASBoundaries feeds adjacent value boundaries to HAS so ingestion-time
 tool synthesis is wired into the runtime pipeline.
 */
-func (machine *Machine) ingestHASBoundaries(ctx context.Context, values []data.Value) {
+func (machine *Machine) ingestHASBoundaries(ctx context.Context, values []primitive.Value) {
 	if machine.booter == nil || !machine.booter.has.IsValid() || len(values) < 2 {
 		return
 	}
@@ -321,8 +322,8 @@ plain-text result line that can be inspected in runtime logs.
 */
 func (machine *Machine) emitHASResult(
 	ctx context.Context,
-	startValue data.Value,
-	endValue data.Value,
+	startValue primitive.Value,
+	endValue primitive.Value,
 	source string,
 ) error {
 	if machine.booter == nil || !machine.booter.has.IsValid() {
@@ -403,6 +404,10 @@ func (machine *Machine) tokenizeStream(raw []byte) ([]uint64, error) {
 	return keys, nil
 }
 
+/*
+tokenizerDone flushes the tokenizer stream and returns any remaining Morton keys
+in its buffer. Called at the end of tokenizeStream before returning.
+*/
 func (machine *Machine) tokenizerDone() ([]uint64, error) {
 	future, release := machine.booter.tok.Done(machine.ctx, nil)
 	defer release()
@@ -484,7 +489,7 @@ func (machine *Machine) emitTokenizerTelemetryFromKeys(keys []uint64, stage stri
 
 	for index, key := range keys {
 		position, symbol := coder.Unpack(key)
-		value := data.BaseValue(symbol)
+		value := primitive.BaseValue(symbol)
 		rolled := value.RollLeft(int(position))
 		chunkStart := max(index-4, 0)
 		chunkEnd := min(index+5, len(symbols))
@@ -497,7 +502,7 @@ func (machine *Machine) emitTokenizerTelemetryFromKeys(keys []uint64, stage stri
 				ValueID:    int(position),
 				Bin:        rolled.Bin(),
 				State:      "stored",
-				ActiveBits: data.ValuePrimeIndices(&rolled),
+				ActiveBits: primitive.ValuePrimeIndices(&rolled),
 				Density:    rolled.ShannonDensity(),
 				ChunkText:  chunkText,
 				Stage:      stage,
@@ -507,15 +512,18 @@ func (machine *Machine) emitTokenizerTelemetryFromKeys(keys []uint64, stage stri
 	}
 }
 
-func compilePromptSequence(keys []uint64) ([]data.Value, []data.Value) {
-	cells := data.CompileSequenceCells(keys)
-	values := make([]data.Value, 0, len(cells))
-	metaValues := make([]data.Value, 0, len(cells))
+func compilePromptSequence(keys []uint64) ([]primitive.Value, []primitive.Value) {
+	state := errnie.NewState("vm/compilePromptSequence")
+	cells := primitive.CompileSequenceCells(keys)
+	values := make([]primitive.Value, 0, len(cells))
+	metaValues := make([]primitive.Value, 0, len(cells))
 
 	for _, cell := range cells {
-		values = append(values, data.SeedObservable(cell.Symbol, cell.Value))
+		values = append(values, primitive.SeedObservable(cell.Symbol, cell.Value))
 
-		meta := data.MustNewValue()
+		meta := errnie.Guard(state, func() (primitive.Value, error) {
+			return primitive.New()
+		})
 		meta.CopyFrom(cell.Meta)
 		metaValues = append(metaValues, meta)
 	}
@@ -525,7 +533,7 @@ func compilePromptSequence(keys []uint64) ([]data.Value, []data.Value) {
 
 func valueMatrixToPointerList(
 	messageOption capnp.Arena,
-	values [][]data.Value,
+	values [][]primitive.Value,
 ) (capnp.PointerList, error) {
 	_, seg, err := capnp.NewMessage(messageOption)
 	if err != nil {
@@ -539,7 +547,7 @@ func valueMatrixToPointerList(
 	})
 
 	for index, row := range values {
-		valueList := errnie.Guard(state, func() (data.Value_List, error) {
+		valueList := errnie.Guard(state, func() (primitive.Value_List, error) {
 			return valueListFromSlice(seg, row)
 		})
 
@@ -566,8 +574,8 @@ func decodeResultPaths(resultPaths capnp.PointerList, skip int) ([]byte, error) 
 		return resultPaths.At(0)
 	})
 
-	values := errnie.Guard(state, func() ([]data.Value, error) {
-		return data.ValueListToSlice(data.Value_List(ptr.List()))
+	values := errnie.Guard(state, func() ([]primitive.Value, error) {
+		return primitive.ValueListToSlice(primitive.Value_List(ptr.List()))
 	})
 
 	if state.Failed() {
@@ -583,11 +591,11 @@ func decodeResultPaths(resultPaths capnp.PointerList, skip int) ([]byte, error) 
 	return decodeObservableValues(values[skip:]), nil
 }
 
-func decodeObservableValues(values []data.Value) []byte {
+func decodeObservableValues(values []primitive.Value) []byte {
 	result := make([]byte, 0, len(values))
 
 	for _, value := range values {
-		symbol, ok := data.InferLexicalSeed(value)
+		symbol, ok := primitive.InferLexicalSeed(value)
 		if !ok {
 			continue
 		}
@@ -600,12 +608,12 @@ func decodeObservableValues(values []data.Value) []byte {
 
 func valueListFromSlice(
 	seg *capnp.Segment,
-	values []data.Value,
-) (data.Value_List, error) {
+	values []primitive.Value,
+) (primitive.Value_List, error) {
 	state := errnie.NewState("vm/valueListFromSlice")
 
-	valueList := errnie.Guard(state, func() (data.Value_List, error) {
-		return data.NewValue_List(seg, int32(len(values)))
+	valueList := errnie.Guard(state, func() (primitive.Value_List, error) {
+		return primitive.NewValue_List(seg, int32(len(values)))
 	})
 
 	for index, value := range values {
@@ -614,7 +622,7 @@ func valueListFromSlice(
 	}
 
 	if state.Failed() {
-		return data.Value_List{}, state.Err()
+		return primitive.Value_List{}, state.Err()
 	}
 
 	return valueList, nil

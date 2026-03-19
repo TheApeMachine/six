@@ -6,7 +6,8 @@ import (
 )
 
 /*
-Program is a sequence of operations to be executed by the Machine.
+Program wraps a capnp Future that resolves to a Struct. Run awaits it and
+extracts the result type T via the caller's extract function.
 */
 type Program[T any] struct {
 	future  capnp.Future
@@ -15,7 +16,7 @@ type Program[T any] struct {
 }
 
 /*
-NewProgram creates a new Program.
+NewProgram wraps a capnp Future and its release func. Call Run to await and extract.
 */
 func NewProgram[T any](future capnp.Future, release capnp.ReleaseFunc) *Program[T] {
 	return &Program[T]{
@@ -26,7 +27,7 @@ func NewProgram[T any](future capnp.Future, release capnp.ReleaseFunc) *Program[
 }
 
 /*
-Run executes the Program.
+Run awaits the capnp Future and panics if not implemented. Use Call for actual RPC.
 */
 func (program *Program[T]) Run() (T, error) {
 	panic("not implemented")

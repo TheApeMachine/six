@@ -45,4 +45,15 @@ type EventData struct {
 	ResultText      string `json:"resultText,omitempty"`
 	WavefrontEnergy int    `json:"wavefrontEnergy,omitempty"`
 	EntryCount      int    `json:"entryCount,omitempty"`
+
+	Step           int    `json:"step,omitempty"`
+	MaxSteps       int    `json:"maxSteps,omitempty"`
+	CandidateCount int    `json:"candidateCount,omitempty"`
+	BestIndex      int    `json:"bestIndex,omitempty"`
+	PreResidue     int    `json:"preResidue,omitempty"`
+	PostResidue    int    `json:"postResidue,omitempty"`
+	Advanced       bool   `json:"advanced,omitempty"`
+	Stable         bool   `json:"stable,omitempty"`
+	Outcome        string `json:"outcome,omitempty"`
+	SpanSize       int    `json:"spanSize,omitempty"`
 }

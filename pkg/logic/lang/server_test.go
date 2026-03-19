@@ -8,7 +8,6 @@ import (
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -28,7 +27,7 @@ func valueBlocksMatch(left primitive.Value, right primitive.Value) bool {
 seedValue returns one deterministic lexical seed converted to primitive.Value.
 */
 func seedValue(symbol byte) primitive.Value {
-	return primitive.Value(data.BaseValue(symbol))
+	return primitive.Value(primitive.BaseValue(symbol))
 }
 
 /*
@@ -675,6 +674,78 @@ func TestProgramServerLifecycle(t *testing.T) {
 			gc.So(server.clientSide, gc.ShouldBeNil)
 			gc.So(len(server.clientConns), gc.ShouldEqual, 0)
 		})
+	})
+}
+
+/*
+TestProgramServerWriteAllocationBudget verifies steady-state Write allocations stay bounded.
+*/
+func TestProgramServerWriteAllocationBudget(t *testing.T) {
+	gc.Convey("Given a ProgramServer and a fixed seed list", t, func() {
+		server := newProgramServerForTests()
+		defer server.macroIndex.Close()
+		defer server.Close()
+
+		client := server.Client("logic/lang/allocation/write")
+		seeds := newSeedList(seedValue('A'), seedValue('B'))
+
+		allocations := testing.AllocsPerRun(200, func() {
+			err := client.Write(context.Background(), func(params Evaluator_write_Params) error {
+				list, err := params.NewSeed(int32(len(seeds)))
+				if err != nil {
+					return err
+				}
+
+				for index, seed := range seeds {
+					entry := list.At(index)
+					entry.CopyFrom(seed)
+				}
+
+				return nil
+			})
+
+			if err != nil {
+				t.Fatalf("write failed: %v", err)
+			}
+		})
+
+		gc.So(allocations, gc.ShouldBeLessThanOrEqualTo, 33.0)
+	})
+}
+
+/*
+TestProgramServerExecuteStableAllocationBudget verifies one-step stable execution allocations stay bounded.
+*/
+func TestProgramServerExecuteStableAllocationBudget(t *testing.T) {
+	gc.Convey("Given a ProgramServer in stable one-step configuration", t, func() {
+		server := newProgramServerForTests()
+		defer server.macroIndex.Close()
+		defer server.Close()
+
+		server.start = seedValue('A')
+
+		target, targetErr := primitive.New()
+		gc.So(targetErr, gc.ShouldBeNil)
+		target.SetStatePhase(2)
+		server.target = target
+
+		candidate, candidateErr := primitive.New()
+		gc.So(candidateErr, gc.ShouldBeNil)
+		candidate.SetStatePhase(2)
+		candidates := []primitive.Value{candidate}
+
+		allocations := testing.AllocsPerRun(200, func() {
+			outcome, execErr := server.Execute(candidates)
+			if execErr != nil {
+				t.Fatalf("execute failed: %v", execErr)
+			}
+
+			if outcome == nil || outcome.PostResidue != 0 {
+				t.Fatalf("unexpected outcome: %+v", outcome)
+			}
+		})
+
+		gc.So(allocations, gc.ShouldBeLessThanOrEqualTo, 32.0)
 	})
 }
 

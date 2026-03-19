@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
+	"github.com/theapemachine/six/pkg/system/vm"
 	"github.com/theapemachine/six/visualizer"
 )
 
@@ -47,24 +48,33 @@ which receives real telemetry from the running system via UDP.`,
 					console.Error(err, "msg", "Server error")
 					os.Exit(1)
 				}
+
 				return nil, nil
 			},
 		)
 
-		<-cmd.Context().Done()
+		if vizListen {
+			machine := vm.NewMachine(vm.MachineWithContext(cmd.Context()))
+			defer machine.Close()
 
-		if !vizListen {
+			server.SetPromptFunc(machine.Prompt)
+			server.SetIngestFunc(func(raw []byte) error {
+				return machine.SetDataset(local.New(local.WithBytes(raw)))
+			})
+		} else {
 			dataset := local.New(local.WithBytes(Alice))
+
 			if err := visualizer.RunAliceDemo(
 				cmd.Context(),
 				dataset,
+				server,
 			); err != nil && cmd.Context().Err() == nil {
 				console.Error(err, "msg", "Demo error")
 				return
 			}
-		} else {
-			<-cmd.Context().Done()
 		}
+
+		<-cmd.Context().Done()
 	},
 }
 

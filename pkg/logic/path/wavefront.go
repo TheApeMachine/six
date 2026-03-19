@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 )
 
 /*
@@ -52,7 +52,7 @@ func NewWavefront(opts ...WavefrontOpts) *Wavefront {
 CanStabilize reports whether at least one supplied sequence carries the operator
 state required for wavefront-style stabilization.
 */
-func (wavefront *Wavefront) CanStabilize(sequences [][]data.Value) bool {
+func (wavefront *Wavefront) CanStabilize(sequences [][]primitive.Value) bool {
 	for _, sequence := range sequences {
 		if wavefront.canStabilizeSequence(sequence) {
 			return true
@@ -67,9 +67,9 @@ Stabilize validates and repairs prefetched sequences before they are folded by t
 graph substrate.
 */
 func (wavefront *Wavefront) Stabilize(
-	sequences [][]data.Value,
-	metaSequences [][]data.Value,
-) ([][]data.Value, [][]data.Value, error) {
+	sequences [][]primitive.Value,
+	metaSequences [][]primitive.Value,
+) ([][]primitive.Value, [][]primitive.Value, error) {
 	wavefront.state.Reset()
 
 	errnie.GuardVoid(wavefront.state, func() error {
@@ -131,8 +131,8 @@ func (wavefront *Wavefront) Stabilize(
 		return nil, nil, wavefront.state.Err()
 	}
 
-	stables := make([][]data.Value, len(results))
-	stableMetas := make([][]data.Value, len(results))
+	stables := make([][]primitive.Value, len(results))
+	stableMetas := make([][]primitive.Value, len(results))
 
 	for index, result := range results {
 		stables[index] = result.path
@@ -142,7 +142,7 @@ func (wavefront *Wavefront) Stabilize(
 	return stables, stableMetas, nil
 }
 
-func (wavefront *Wavefront) canStabilizeSequence(sequence []data.Value) bool {
+func (wavefront *Wavefront) canStabilizeSequence(sequence []primitive.Value) bool {
 	if len(sequence) < 2 || wavefront.phaseForValue(sequence[0]) == 0 {
 		return false
 	}
@@ -168,8 +168,8 @@ func (wavefront *Wavefront) canStabilizeSequence(sequence []data.Value) bool {
 }
 
 func (wavefront *Wavefront) cloneResult(
-	sequence []data.Value,
-	metaSequence []data.Value,
+	sequence []primitive.Value,
+	metaSequence []primitive.Value,
 ) WavefrontResult {
 	phase := numeric.Phase(0)
 	if len(sequence) > 0 {
@@ -186,8 +186,8 @@ func (wavefront *Wavefront) cloneResult(
 
 func (wavefront *Wavefront) stabilizeSequence(
 	sequenceIndex int,
-	sequence []data.Value,
-	metaSequence []data.Value,
+	sequence []primitive.Value,
+	metaSequence []primitive.Value,
 ) (WavefrontResult, error) {
 	head := errnie.Guard(wavefront.state, func() (*WavefrontHead, error) {
 		return wavefront.seedHead(sequenceIndex, sequence, metaSequence)
@@ -327,8 +327,8 @@ func (wavefront *Wavefront) stabilizeSequence(
 
 func (wavefront *Wavefront) seedHead(
 	sequenceIndex int,
-	sequence []data.Value,
-	metaSequence []data.Value,
+	sequence []primitive.Value,
+	metaSequence []primitive.Value,
 ) (*WavefrontHead, error) {
 	if len(sequence) == 0 || len(metaSequence) == 0 {
 		return &WavefrontHead{
@@ -356,8 +356,8 @@ func (wavefront *Wavefront) seedHead(
 
 	head := &WavefrontHead{
 		phase:     phase,
-		path:      []data.Value{sequence[0]},
-		meta:      []data.Value{metaSequence[0]},
+		path:      []primitive.Value{sequence[0]},
+		meta:      []primitive.Value{metaSequence[0]},
 		registers: newExecutionRegisters(),
 	}
 
@@ -372,10 +372,10 @@ func (wavefront *Wavefront) seedHead(
 func (wavefront *Wavefront) advanceCursor(
 	pos uint32,
 	segment uint32,
-	value data.Value,
+	value primitive.Value,
 ) (uint32, uint32, bool) {
 	opcode, jump, _, terminal := value.Program()
-	if terminal || opcode == data.OpcodeHalt {
+	if terminal || opcode == primitive.OpcodeHalt {
 		return pos, segment, false
 	}
 
@@ -384,9 +384,9 @@ func (wavefront *Wavefront) advanceCursor(
 	}
 
 	switch opcode {
-	case data.OpcodeReset:
+	case primitive.OpcodeReset:
 		return 0, segment + 1, true
-	case data.OpcodeJump:
+	case primitive.OpcodeJump:
 		return pos + jump, segment, true
 	default:
 		return pos + jump, segment, true
@@ -394,7 +394,7 @@ func (wavefront *Wavefront) advanceCursor(
 }
 
 func (wavefront *Wavefront) predictNextPhase(
-	value data.Value,
+	value primitive.Value,
 	currentPhase numeric.Phase,
 ) numeric.Phase {
 	if from, to, ok := value.Trajectory(); ok && from == currentPhase {
@@ -411,8 +411,8 @@ func (wavefront *Wavefront) predictNextPhase(
 func (wavefront *Wavefront) resolveTransition(
 	pos uint32,
 	expectedPhase numeric.Phase,
-	currentValue data.Value,
-	nextValue data.Value,
+	currentValue primitive.Value,
+	nextValue primitive.Value,
 	observedPhase numeric.Phase,
 ) (numeric.Phase, int, bool, bool) {
 	resolvedPhase := expectedPhase
@@ -449,8 +449,8 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 	head *WavefrontHead,
 	nextPos uint32,
 	nextSegment uint32,
-	targetValue data.Value,
-	targetMeta data.Value,
+	targetValue primitive.Value,
+	targetMeta primitive.Value,
 	targetPhase numeric.Phase,
 ) (*WavefrontHead, bool, error) {
 	sourceValue := head.path[len(head.path)-1]
@@ -528,10 +528,10 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 func (wavefront *Wavefront) synthesizeBridge(
 	startPhase numeric.Phase,
 	opcodes []*macro.MacroOpcode,
-) ([]data.Value, []data.Value, numeric.Phase, int) {
+) ([]primitive.Value, []primitive.Value, numeric.Phase, int) {
 	phase := startPhase
-	values := make([]data.Value, 0, len(opcodes))
-	metaValues := make([]data.Value, 0, len(opcodes))
+	values := make([]primitive.Value, 0, len(opcodes))
+	metaValues := make([]primitive.Value, 0, len(opcodes))
 	penalty := 0
 
 	for index, opcode := range opcodes {
@@ -542,20 +542,23 @@ func (wavefront *Wavefront) synthesizeBridge(
 		previousPhase := phase
 		phase = opcode.ApplyPhase(phase)
 
-		value := data.NeutralValue()
+		value := primitive.NeutralValue()
 		value.SetStatePhase(phase)
 		value.SetAffine(opcode.Scale, opcode.Translate)
 		value.SetTrajectory(previousPhase, phase)
 		value.SetGuardRadius(2)
 		value.SetMutable(true)
 
-		program := data.OpcodeNext
+		program := primitive.OpcodeNext
 		if index+1 < len(opcodes) {
-			program = data.OpcodeBranch
+			program = primitive.OpcodeBranch
 		}
 		value.SetProgram(program, 1, uint8(len(opcodes)-index-1), false)
 
-		meta := data.MustNewValue()
+		meta := errnie.Guard(wavefront.state, func() (primitive.Value, error) {
+			return primitive.New()
+		})
+
 		meta.SetProgram(program, 1, uint8(len(opcodes)-index-1), false)
 
 		values = append(values, value)
@@ -570,8 +573,8 @@ func (wavefront *Wavefront) synthesizeBridge(
 	return values, metaValues, phase, penalty
 }
 
-func (wavefront *Wavefront) valueCarriesOperator(value data.Value) bool {
-	if value.HasTrajectory() || value.HasGuard() || data.Opcode(value.Opcode()) != 0 {
+func (wavefront *Wavefront) valueCarriesOperator(value primitive.Value) bool {
+	if value.HasTrajectory() || value.HasGuard() || primitive.Opcode(value.Opcode()) != 0 {
 		return true
 	}
 
@@ -583,7 +586,7 @@ func (wavefront *Wavefront) valueCarriesOperator(value data.Value) bool {
 	return scale != 1 || translate != 0
 }
 
-func (wavefront *Wavefront) phaseForValue(value data.Value) numeric.Phase {
+func (wavefront *Wavefront) phaseForValue(value primitive.Value) numeric.Phase {
 	carry := value.ResidualCarry()
 	if carry == 0 {
 		return 0
@@ -616,7 +619,7 @@ func (wavefront *Wavefront) phaseDistance(
 func (wavefront *Wavefront) anchorCorrect(
 	pos uint32,
 	expectedPhase numeric.Phase,
-	value data.Value,
+	value primitive.Value,
 ) (numeric.Phase, int, bool) {
 	if wavefront.anchorStride == 0 || pos == 0 || pos%wavefront.anchorStride != 0 {
 		return 0, 0, false
@@ -636,8 +639,8 @@ func (wavefront *Wavefront) anchorCorrect(
 }
 
 func (wavefront *Wavefront) routePenalty(
-	currentValue data.Value,
-	nextValue data.Value,
+	currentValue primitive.Value,
+	nextValue primitive.Value,
 ) int {
 	if !currentValue.HasRouteHint() || !nextValue.HasRouteHint() {
 		return 0
@@ -703,8 +706,8 @@ type WavefrontHead struct {
 	pos       uint32
 	segment   uint32
 	energy    int
-	path      []data.Value
-	meta      []data.Value
+	path      []primitive.Value
+	meta      []primitive.Value
 	registers *ExecutionRegisters
 }
 
@@ -724,34 +727,34 @@ func (head *WavefrontHead) clone() *WavefrontHead {
 	}
 }
 
-func (head *WavefrontHead) recordOpcodeCheckpoint(value data.Value) {
+func (head *WavefrontHead) recordOpcodeCheckpoint(value primitive.Value) {
 	if head == nil || head.registers == nil {
 		return
 	}
 
 	opcode, _, _, terminal := value.Program()
 
-	if terminal || opcode == data.OpcodeHalt {
+	if terminal || opcode == primitive.OpcodeHalt {
 		head.registers.RecordCheckpoint(head, CheckpointTerminal)
 	}
 
-	if opcode == data.OpcodeReset {
+	if opcode == primitive.OpcodeReset {
 		head.registers.RecordCheckpoint(head, CheckpointReset)
 	}
 }
 
 type WavefrontResult struct {
-	path   []data.Value
-	meta   []data.Value
+	path   []primitive.Value
+	meta   []primitive.Value
 	phase  numeric.Phase
 	energy int
 	depth  uint32
 }
 
-func cloneValueSlice(values []data.Value) []data.Value {
+func cloneValueSlice(values []primitive.Value) []primitive.Value {
 	if len(values) == 0 {
 		return nil
 	}
 
-	return append([]data.Value(nil), values...)
+	return append([]primitive.Value(nil), values...)
 }

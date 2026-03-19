@@ -11,7 +11,6 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -232,7 +231,11 @@ OpcodeForKey deterministically derives a candidate opcode from one geometric key
 This is the crystallization step: one exact gap yields one exact operator guess.
 */
 func OpcodeForKey(key AffineKey) *MacroOpcode {
-	delta := data.MustNewValue()
+	delta, err := primitive.New()
+	if err != nil {
+		return nil
+	}
+
 	for i, block := range key {
 		switch i {
 		case 0:

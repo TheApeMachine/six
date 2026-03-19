@@ -176,6 +176,18 @@ func (value Value) ApplyAffineValue(scale, translate numeric.Phase) Value {
 	return result
 }
 
+/*
+HasAffine reports whether the value explicitly carries an affine operator.
+Legacy values without a stored scale/translate return false.
+*/
+func (value *Value) HasAffine() bool {
+	return value.C7()&(affineWordMaskScale|affineWordMaskTranslate) != 0
+}
+
+/*
+normalizePhaseWord clamps a phase to the GF(257) field so shell word packing
+does not overflow. Used internally by SetAffine and SetTrajectory.
+*/
 func (value Value) normalizePhaseWord(phase numeric.Phase) uint64 {
 	return uint64(uint32(phase) % numeric.FermatPrime)
 }

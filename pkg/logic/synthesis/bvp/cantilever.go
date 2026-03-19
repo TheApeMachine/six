@@ -10,7 +10,6 @@ import (
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
-	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -134,10 +133,10 @@ RPC and computes the rotation needed to span the gap.
 func (server *CantileverServer) Bridge(ctx context.Context, call Cantilever_bridge) error {
 	args := call.Args()
 
-	startValue := data.BaseValue(byte(args.Start() % 256))
+	startValue := primitive.BaseValue(byte(args.Start() % 256))
 	startValue.SetStatePhase(numeric.Phase(args.Start()))
 
-	goalValue := data.BaseValue(byte(args.Goal() % 256))
+	goalValue := primitive.BaseValue(byte(args.Goal() % 256))
 	goalValue.SetStatePhase(numeric.Phase(args.Goal()))
 
 	_, opcode, err := server.BridgeValues(startValue, goalValue)
@@ -165,7 +164,7 @@ corresponding opcode in the MacroIndex. This is the sole solver
 operating on the full 8.8 billion state space.
 */
 func (server *CantileverServer) BridgeValues(
-	startValue, goalValue data.Value,
+	startValue, goalValue primitive.Value,
 ) (macro.AffineKey, *macro.MacroOpcode, error) {
 
 	if startValue.ActiveCount() == 0 || goalValue.ActiveCount() == 0 {
@@ -175,7 +174,10 @@ func (server *CantileverServer) BridgeValues(
 	}
 
 	if startValue.CoreActiveCount() == goalValue.CoreActiveCount() {
-		delta := startValue.XOR(goalValue)
+		delta, err := startValue.XOR(goalValue)
+		if err != nil {
+			return macro.AffineKey{}, nil, err
+		}
 
 		if delta.CoreActiveCount() == 0 {
 			return macro.AffineKey{}, nil, fmt.Errorf(

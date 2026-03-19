@@ -101,6 +101,10 @@ func (dataset *BabiQADataset) Samples() ([]BabiQASample, error) {
 	return out, nil
 }
 
+/*
+load discovers the shard, downloads it, and parses into BabiQASamples.
+Supports both Parquet and JSON formats. Called once via sync.Once.
+*/
 func (dataset *BabiQADataset) load() error {
 	shard, branch, err := dataset.base.discoverShard()
 	if err != nil {
@@ -119,6 +123,10 @@ func (dataset *BabiQADataset) load() error {
 	return dataset.loadJSON(reader, size)
 }
 
+/*
+loadParquet reads the Parquet shard, extracts story text/answer/type columns,
+and builds BabiQASamples. Stops at maxSamples if configured.
+*/
 func (dataset *BabiQADataset) loadParquet(reader io.ReaderAt, size int64) error {
 	pFile, err := parquet.OpenFile(reader, size)
 	if err != nil {
@@ -159,6 +167,10 @@ func (dataset *BabiQADataset) loadParquet(reader io.ReaderAt, size int64) error 
 	return nil
 }
 
+/*
+loadJSON reads the JSON shard, parses story/answer/type, and builds BabiQASamples.
+Handles both top-level arrays and single-object streams.
+*/
 func (dataset *BabiQADataset) loadJSON(reader io.ReaderAt, size int64) error {
 	dec := json.NewDecoder(io.NewSectionReader(reader, 0, size))
 
@@ -204,6 +216,11 @@ func (dataset *BabiQADataset) loadJSON(reader io.ReaderAt, size int64) error {
 	return nil
 }
 
+/*
+buildBabiQASamples converts raw story text/answer/type arrays into BabiQASamples.
+Questions (identified by type or trailing "?") get paired with the next answer;
+context is accumulated from preceding non-question lines.
+*/
 func buildBabiQASamples(texts, answers []string, types []int) []BabiQASample {
 	context := make([]string, 0, len(texts))
 	samples := make([]BabiQASample, 0)
@@ -244,6 +261,10 @@ func buildBabiQASamples(texts, answers []string, types []int) []BabiQASample {
 	return samples
 }
 
+/*
+isBabiQuestion returns true if the line at idx is a question. Uses the types
+array when present; otherwise falls back to trailing "?".
+*/
 func isBabiQuestion(idx int, text string, types []int) bool {
 	if idx < len(types) {
 		return types[idx] != 0
@@ -252,6 +273,10 @@ func isBabiQuestion(idx int, text string, types []int) bool {
 	return strings.HasSuffix(text, "?")
 }
 
+/*
+findStoryColumn returns the Parquet column index for the story.{leaf} field.
+Returns -1 if not found.
+*/
 func findStoryColumn(schema *parquet.Schema, leaf string) int {
 	for i, col := range schema.Columns() {
 		if len(col) == 0 || col[0] != "story" {
@@ -267,6 +292,9 @@ func findStoryColumn(schema *parquet.Schema, leaf string) int {
 	return -1
 }
 
+/*
+parquetStrings extracts string values from a Parquet row for the given column.
+*/
 func parquetStrings(row parquet.Row, column int) []string {
 	if column < 0 {
 		return nil
@@ -284,6 +312,9 @@ func parquetStrings(row parquet.Row, column int) []string {
 	return values
 }
 
+/*
+parquetInts extracts int values from a Parquet row for the given column.
+*/
 func parquetInts(row parquet.Row, column int) []int {
 	if column < 0 {
 		return nil
@@ -305,6 +336,9 @@ func parquetInts(row parquet.Row, column int) []int {
 	return values
 }
 
+/*
+jsonStoryFields unpacks the story object into text, answer, and type slices.
+*/
 func jsonStoryFields(raw interface{}) ([]string, []string, []int) {
 	story, ok := raw.(map[string]interface{})
 	if !ok {
@@ -314,6 +348,9 @@ func jsonStoryFields(raw interface{}) ([]string, []string, []int) {
 	return jsonStrings(story["text"]), jsonStrings(story["answer"]), jsonInts(story["type"])
 }
 
+/*
+jsonStrings coerces a JSON array of mixed types into a []string.
+*/
 func jsonStrings(raw interface{}) []string {
 	items, ok := raw.([]interface{})
 	if !ok {
@@ -330,6 +367,9 @@ func jsonStrings(raw interface{}) []string {
 	return values
 }
 
+/*
+jsonInts coerces a JSON array of numbers into a []int.
+*/
 func jsonInts(raw interface{}) []int {
 	items, ok := raw.([]interface{})
 	if !ok {

@@ -3,14 +3,15 @@ package sequencer
 import (
 	"math"
 
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
-	"github.com/theapemachine/six/pkg/store/data"
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/process"
 )
 
 type Sequencer interface {
-	Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
+	Analyze(pos uint32, byteVal byte) (bool, int, []int, primitive.Value)
 }
 
 /*
@@ -18,13 +19,14 @@ Seq discovers natural boundaries in a raw byte stream using the
 Minimum Description Length (MDL) principle.
 */
 type MDL struct {
+	state      *errnie.State
 	calibrator *process.Calibrator
 	eigen      *geometry.EigenMode
 
 	buf  []byte
 	dist *process.Distribution
 
-	runningValue data.Value
+	runningValue primitive.Value
 
 	prevSegLen  int
 	fluxEmitted bool
@@ -35,9 +37,9 @@ type MDL struct {
 	emaPhase float64
 	emaPop   float64
 
-	runningMeta data.Value
+	runningMeta primitive.Value
 
-	tokens     []data.Value
+	tokens     []primitive.Value
 	candidates []candidate
 	offset     int
 
@@ -65,6 +67,7 @@ func NewMDL(calibrator *process.Calibrator) *MDL {
 		minSeg = 2
 	}
 	return &MDL{
+		state:           errnie.NewState("system/process/sequencer/mdl"),
 		calibrator:      calibrator,
 		eigen:           geometry.NewEigenMode(),
 		dist:            process.NewDistribution(),
@@ -103,7 +106,7 @@ func (seq *MDL) Clone() *MDL {
 	c.emaPhase = seq.emaPhase
 	c.emaPop = seq.emaPop
 	c.runningMeta = seq.runningMeta
-	c.tokens = append([]data.Value(nil), seq.tokens...)
+	c.tokens = append([]primitive.Value(nil), seq.tokens...)
 	c.candidates = append([]candidate(nil), seq.candidates...)
 	c.offset = seq.offset
 	return c
@@ -114,7 +117,7 @@ Analyze appends byteVal, runs MDL boundary detection, and optionally emits a spl
 Returns (true, events) when a boundary is committed; (false, events) otherwise.
 events are geometry.Event* constants for PrimeField.Rotate.
 */
-func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value) {
+func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, primitive.Value) {
 	val, delta, eigenMag := seq.computeSignal(byteVal)
 
 	seq.buf = append(seq.buf, byteVal)
@@ -122,17 +125,21 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
 
 	seq.runningMeta = seq.runningMeta.RollLeft(1)
 
-	base := data.BaseValue(byteVal)
+	base := primitive.BaseValue(byteVal)
 	relativeOffset := len(seq.buf) - seq.offset - 1
 	positioned := base.RollLeft(relativeOffset)
 
 	newBits := 0
 	if relativeOffset > 0 {
-		hole := positioned.Hole(seq.runningValue)
+		hole := errnie.Guard(seq.state, func() (primitive.Value, error) {
+			return positioned.Hole(seq.runningValue)
+		})
 		newBits = hole.ActiveCount()
 	}
 
-	seq.runningValue = seq.runningValue.OR(positioned)
+	seq.runningValue = errnie.Guard(seq.state, func() (primitive.Value, error) {
+		return seq.runningValue.OR(positioned)
+	})
 
 	densityCeiling := seq.ShannonCeiling
 	phaseThreshold := seq.PhaseThreshold
@@ -180,7 +187,7 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
 			seq.dist.Add(b)
 		}
 
-		seq.runningValue = data.Value{}
+		seq.runningValue = primitive.Value{}
 	}
 
 	if seq.calibrator != nil && seq.eigen != nil && seq.eigen.Trained {
@@ -200,22 +207,32 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
 		for _, ev := range events {
 			switch ev {
 			case process.EventLowVarianceFlux:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(0))
+				seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+					return seq.runningMeta.XOR(primitive.BaseValue(0))
+				})
 			case process.EventDensitySpike:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(1))
+				seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+					return seq.runningMeta.XOR(primitive.BaseValue(1))
+				})
 			case process.EventDensityTrough:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(2))
+				seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+					return seq.runningMeta.XOR(primitive.BaseValue(2))
+				})
 			case process.EventPhaseInversion:
-				seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(3))
+				seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+					return seq.runningMeta.XOR(primitive.BaseValue(3))
+				})
 			}
 		}
 
 		emitMeta := seq.runningMeta
 
-		emitValue := data.Value{}
+		emitValue := primitive.Value{}
 		for i, b := range seq.buf[:emitK] {
-			bc := data.BaseValue(b)
-			emitValue = emitValue.OR(bc.RollLeft(i))
+			bc := primitive.BaseValue(b)
+			emitValue = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return emitValue.OR(bc.RollLeft(i))
+			})
 		}
 		emitDensity := emitValue.ShannonDensity()
 
@@ -248,7 +265,9 @@ func (seq *MDL) Analyze(pos uint32, byteVal byte) (bool, int, []int, data.Value)
 	if seq.hasFlux() {
 		events = append(events, process.EventLowVarianceFlux)
 		seq.fluxEmitted = true
-		seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(0))
+		seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+			return seq.runningMeta.XOR(primitive.BaseValue(0))
+		})
 	}
 
 	seq.updateEMA(val, delta, eigenMag)
@@ -263,7 +282,7 @@ func (seq *MDL) computeSignal(byteVal byte) (val, delta, eigenMag float64) {
 	val = float64(byteVal)
 
 	if seq.eigen != nil && seq.eigen.Trained {
-		c := data.BaseValue(byteVal)
+		c := primitive.BaseValue(byteVal)
 		theta, phi := seq.eigen.PhaseForValue(&c)
 		eigenMag = math.Hypot(theta, phi)
 		delta = math.Abs(eigenMag - seq.lastEigenMag)
@@ -436,7 +455,7 @@ func (seq *MDL) updateEMA(val, delta, eigenMag float64) {
 Forecast runs boundary detection on buf+byteVal without committing.
 Returns (true, events) if a boundary would be at k; (false, nil) otherwise.
 */
-func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, data.Value) {
+func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, primitive.Value) {
 	buf := append(seq.buf, byteVal)
 	dist := *seq.dist
 	dist.Add(byteVal)
@@ -454,13 +473,21 @@ func (seq *MDL) Forecast(pos int, byteVal byte) (bool, []int, data.Value) {
 	for _, ev := range events {
 		switch ev {
 		case process.EventLowVarianceFlux:
-			tempMeta = tempMeta.XOR(data.BaseValue(0))
+			tempMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return tempMeta.XOR(primitive.BaseValue(0))
+			})
 		case process.EventDensitySpike:
-			tempMeta = tempMeta.XOR(data.BaseValue(1))
+			tempMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return tempMeta.XOR(primitive.BaseValue(1))
+			})
 		case process.EventDensityTrough:
-			tempMeta = tempMeta.XOR(data.BaseValue(2))
+			tempMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return tempMeta.XOR(primitive.BaseValue(2))
+			})
 		case process.EventPhaseInversion:
-			tempMeta = tempMeta.XOR(data.BaseValue(3))
+			tempMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return tempMeta.XOR(primitive.BaseValue(3))
+			})
 		}
 	}
 
@@ -509,7 +536,7 @@ func (seq *MDL) SetEigenMode(eigen *geometry.EigenMode) {
 Flush commits the first candidate as a boundary and returns (true, events).
 Returns (false, nil) if no candidates. Same event format as Analyze.
 */
-func (seq *MDL) Flush() (bool, int, []int, data.Value) {
+func (seq *MDL) Flush() (bool, int, []int, primitive.Value) {
 	if len(seq.candidates) == 0 {
 		return false, 0, nil, seq.runningMeta
 	}
@@ -521,13 +548,21 @@ func (seq *MDL) Flush() (bool, int, []int, data.Value) {
 	for _, ev := range events {
 		switch ev {
 		case process.EventLowVarianceFlux:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(0))
+			seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return seq.runningMeta.XOR(primitive.BaseValue(0))
+			})
 		case process.EventDensitySpike:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(1))
+			seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return seq.runningMeta.XOR(primitive.BaseValue(1))
+			})
 		case process.EventDensityTrough:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(2))
+			seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return seq.runningMeta.XOR(primitive.BaseValue(2))
+			})
 		case process.EventPhaseInversion:
-			seq.runningMeta = seq.runningMeta.XOR(data.BaseValue(3))
+			seq.runningMeta = errnie.Guard(seq.state, func() (primitive.Value, error) {
+				return seq.runningMeta.XOR(primitive.BaseValue(3))
+			})
 		}
 	}
 

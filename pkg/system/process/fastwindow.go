@@ -53,6 +53,11 @@ func (window *FastWindow) Push(val float64) {
 	}
 }
 
+/*
+recalc recomputes sum and sumSq from scratch over all window entries.
+Called periodically (every size*2 pushes) to prevent floating-point drift
+in incremental updates over long streams.
+*/
 func (window *FastWindow) recalc() {
 	sum := 0.0
 	sumSq := 0.0
