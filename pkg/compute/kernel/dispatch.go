@@ -27,6 +27,29 @@ type Backend interface {
 		numNodes int,
 		context unsafe.Pointer,
 	) (uint64, error)
+	ResolvePhaseDial(
+		cacheNodes unsafe.Pointer,
+		numNodes int,
+		queryDial unsafe.Pointer,
+		similarities unsafe.Pointer,
+	) error
+	EncodePhaseDial(
+		structuralPhases unsafe.Pointer,
+		numValues int,
+		outDial unsafe.Pointer,
+	) error
+	SeqToroidalMeanPhase(
+		valueBlocks unsafe.Pointer,
+		numValues int,
+	) (theta float64, phi float64, err error)
+	WeightedCircularMean(
+		valueBlocks unsafe.Pointer,
+		numValues int,
+	) (phase float64, concentration float64, err error)
+	SolveBVP(
+		startBlocks unsafe.Pointer,
+		goalBlocks unsafe.Pointer,
+	) (scale uint16, translate uint16, distance float64, err error)
 }
 
 /*
@@ -162,4 +185,102 @@ func DecodePacked(packed uint64) (idx int, distSq float64) {
 	}
 
 	return int(idxU32), distSq
+}
+
+/*
+ResolvePhaseDial walks available backends and returns the first successful PhaseDial similarity scan.
+*/
+func (builder *Builder) ResolvePhaseDial(
+	cacheNodes unsafe.Pointer,
+	numNodes int,
+	queryDial unsafe.Pointer,
+	similarities unsafe.Pointer,
+) error {
+	for _, backend := range builder.backends {
+		if !backend.Available() {
+			continue
+		}
+		err := backend.ResolvePhaseDial(cacheNodes, numNodes, queryDial, similarities)
+		if err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("no available backends")
+}
+
+/*
+EncodePhaseDial walks available backends and returns the first successful PhaseDial encoding.
+*/
+func (builder *Builder) EncodePhaseDial(
+	structuralPhases unsafe.Pointer,
+	numValues int,
+	outDial unsafe.Pointer,
+) error {
+	for _, backend := range builder.backends {
+		if !backend.Available() {
+			continue
+		}
+		err := backend.EncodePhaseDial(structuralPhases, numValues, outDial)
+		if err == nil {
+			return nil
+		}
+	}
+	return fmt.Errorf("no available backends")
+}
+
+/*
+SeqToroidalMeanPhase walks available backends and returns the first successful result.
+*/
+func (builder *Builder) SeqToroidalMeanPhase(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (theta float64, phi float64, err error) {
+	for _, backend := range builder.backends {
+		if !backend.Available() {
+			continue
+		}
+		t, p, e := backend.SeqToroidalMeanPhase(valueBlocks, numValues)
+		if e == nil {
+			return t, p, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("no available backends")
+}
+
+/*
+WeightedCircularMean walks available backends and returns the first successful result.
+*/
+func (builder *Builder) WeightedCircularMean(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (phase float64, concentration float64, err error) {
+	for _, backend := range builder.backends {
+		if !backend.Available() {
+			continue
+		}
+		p, c, e := backend.WeightedCircularMean(valueBlocks, numValues)
+		if e == nil {
+			return p, c, nil
+		}
+	}
+	return 0, 0, fmt.Errorf("no available backends")
+}
+
+/*
+SolveBVP walks available backends and returns the first successful BVP solve.
+*/
+func (builder *Builder) SolveBVP(
+	startBlocks unsafe.Pointer,
+	goalBlocks unsafe.Pointer,
+) (scale uint16, translate uint16, distance float64, err error) {
+	for _, backend := range builder.backends {
+		if !backend.Available() {
+			continue
+		}
+		s, t, d, e := backend.SolveBVP(startBlocks, goalBlocks)
+		if e == nil {
+			return s, t, d, nil
+		}
+	}
+	return 0, 0, 0, fmt.Errorf("no available backends")
 }

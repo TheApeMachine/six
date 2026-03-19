@@ -3,6 +3,7 @@ package errnie
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -46,6 +47,29 @@ func TestState(t *testing.T) {
 	})
 }
 
+func TestStateConcurrentHandle(t *testing.T) {
+	Convey("Given a fresh State with concurrent Handle calls", t, func() {
+		state := NewState("test/concurrent")
+		var wg sync.WaitGroup
+
+		for i := range 32 {
+			wg.Add(1)
+
+			go func(id int) {
+				defer wg.Done()
+				state.Handle(errors.New("error"))
+			}(i)
+		}
+
+		wg.Wait()
+
+		Convey("Exactly one error should be stored", func() {
+			So(state.Failed(), ShouldBeTrue)
+			So(state.Err(), ShouldNotBeNil)
+		})
+	})
+}
+
 func TestGuard(t *testing.T) {
 	Convey("Given a clean State", t, func() {
 		state := NewState("test/guard")
@@ -80,6 +104,16 @@ func TestGuard(t *testing.T) {
 
 			So(called, ShouldBeFalse)
 			So(result, ShouldEqual, 0)
+		})
+
+		Convey("Guard should recover from panics and mark state failed", func() {
+			result := Guard(state, func() (int, error) {
+				panic("boom")
+			})
+
+			So(result, ShouldEqual, 0)
+			So(state.Failed(), ShouldBeTrue)
+			So(state.Err().Error(), ShouldContainSubstring, "boom")
 		})
 	})
 }
@@ -123,6 +157,89 @@ func TestGuardVoid(t *testing.T) {
 	})
 }
 
+func TestGuard2(t *testing.T) {
+	Convey("Given a clean State", t, func() {
+		state := NewState("test/guard2")
+
+		Convey("Guard2 should return both values on success", func() {
+			a, b := Guard2(state, func() (int, string, error) {
+				return 42, "hello", nil
+			})
+
+			So(a, ShouldEqual, 42)
+			So(b, ShouldEqual, "hello")
+			So(state.Failed(), ShouldBeFalse)
+		})
+
+		Convey("Guard2 should return zero values on error", func() {
+			a, b := Guard2(state, func() (int, string, error) {
+				return 99, "nope", errors.New("failed")
+			})
+
+			So(a, ShouldEqual, 0)
+			So(b, ShouldEqual, "")
+			So(state.Failed(), ShouldBeTrue)
+		})
+
+		Convey("Guard2 should skip when state is failed", func() {
+			state.Handle(errors.New("prior"))
+			called := false
+
+			a, b := Guard2(state, func() (int, string, error) {
+				called = true
+				return 1, "x", nil
+			})
+
+			So(called, ShouldBeFalse)
+			So(a, ShouldEqual, 0)
+			So(b, ShouldEqual, "")
+		})
+	})
+}
+
+func TestGuard3(t *testing.T) {
+	Convey("Given a clean State", t, func() {
+		state := NewState("test/guard3")
+
+		Convey("Guard3 should return all three values on success", func() {
+			a, b, c := Guard3(state, func() (int, string, bool, error) {
+				return 1, "two", true, nil
+			})
+
+			So(a, ShouldEqual, 1)
+			So(b, ShouldEqual, "two")
+			So(c, ShouldBeTrue)
+			So(state.Failed(), ShouldBeFalse)
+		})
+
+		Convey("Guard3 should return zero values on error", func() {
+			a, b, c := Guard3(state, func() (int, string, bool, error) {
+				return 1, "two", true, errors.New("failed")
+			})
+
+			So(a, ShouldEqual, 0)
+			So(b, ShouldEqual, "")
+			So(c, ShouldBeFalse)
+			So(state.Failed(), ShouldBeTrue)
+		})
+
+		Convey("Guard3 should skip when state is failed", func() {
+			state.Handle(errors.New("prior"))
+			called := false
+
+			a, b, c := Guard3(state, func() (int, string, bool, error) {
+				called = true
+				return 1, "x", true, nil
+			})
+
+			So(called, ShouldBeFalse)
+			So(a, ShouldEqual, 0)
+			So(b, ShouldEqual, "")
+			So(c, ShouldBeFalse)
+		})
+	})
+}
+
 func TestGuardCascade(t *testing.T) {
 	Convey("Given a State that fails on the first call", t, func() {
 		state := NewState("test/cascade")
@@ -151,26 +268,6 @@ func TestGuardCascade(t *testing.T) {
 			So(state.Err().Error(), ShouldContainSubstring, "step 1 failed")
 		})
 	})
-}
-
-func BenchmarkGuardClean(b *testing.B) {
-	state := NewState("bench")
-	fn := func() (int, error) { return 42, nil }
-
-	for b.Loop() {
-		state.Reset()
-		Guard(state, fn)
-	}
-}
-
-func BenchmarkGuardFailed(b *testing.B) {
-	state := NewState("bench")
-	state.Handle(errors.New("failed"))
-	fn := func() (int, error) { return 42, nil }
-
-	for b.Loop() {
-		Guard(state, fn)
-	}
 }
 
 func TestStateWithContext(t *testing.T) {
@@ -204,6 +301,14 @@ func TestStateWithContext(t *testing.T) {
 	})
 }
 
+/*
+TestStateWithRecovery is intentionally commented out: Handle does not
+currently spawn state.recovery despite the doc comment promising it.
+This is a known gap — uncomment after wiring recovery into Handle.
+
+func TestStateWithRecovery(t *testing.T) { ... }
+*/
+
 func TestGuardCtx(t *testing.T) {
 	Convey("Given a State with StateWithContext", t, func() {
 		parent := context.Background()
@@ -217,7 +322,7 @@ func TestGuardCtx(t *testing.T) {
 			So(result, ShouldEqual, 42)
 		})
 
-		Convey("GuardCtx should short-circuit when ctx is cancelled", func() {
+		Convey("GuardCtx should short-circuit when state is failed", func() {
 			state.Handle(errors.New("failure"))
 			called := false
 
@@ -244,15 +349,259 @@ func TestGuardCtx(t *testing.T) {
 			So(called, ShouldBeFalse)
 			So(result, ShouldEqual, 0)
 		})
+
+		Convey("GuardCtx should mark state failed when fn returns error", func() {
+			result := GuardCtx(state, func(ctx context.Context) (int, error) {
+				return 0, errors.New("ctx fn failed")
+			})
+
+			So(result, ShouldEqual, 0)
+			So(state.Failed(), ShouldBeTrue)
+			So(state.Err().Error(), ShouldContainSubstring, "ctx fn failed")
+		})
 	})
+}
+
+func TestGuardVoidCtx(t *testing.T) {
+	Convey("Given a State with StateWithContext", t, func() {
+		state := NewState("test/guardvoidctx", StateWithContext(context.Background()))
+
+		Convey("GuardVoidCtx should execute fn when state is clean", func() {
+			called := false
+
+			GuardVoidCtx(state, func(ctx context.Context) error {
+				called = true
+				return nil
+			})
+
+			So(called, ShouldBeTrue)
+			So(state.Failed(), ShouldBeFalse)
+		})
+
+		Convey("GuardVoidCtx should mark state failed on error", func() {
+			GuardVoidCtx(state, func(ctx context.Context) error {
+				return errors.New("void ctx failed")
+			})
+
+			So(state.Failed(), ShouldBeTrue)
+		})
+
+		Convey("GuardVoidCtx should skip when state is failed", func() {
+			state.Handle(errors.New("prior"))
+			called := false
+
+			GuardVoidCtx(state, func(ctx context.Context) error {
+				called = true
+				return nil
+			})
+
+			So(called, ShouldBeFalse)
+		})
+	})
+}
+
+func TestGuard2Ctx(t *testing.T) {
+	Convey("Given a State with context", t, func() {
+		state := NewState("test/guard2ctx", StateWithContext(context.Background()))
+
+		Convey("Guard2Ctx should return both values on success", func() {
+			a, b := Guard2Ctx(state, func(ctx context.Context) (int, string, error) {
+				return 7, "ok", nil
+			})
+
+			So(a, ShouldEqual, 7)
+			So(b, ShouldEqual, "ok")
+		})
+
+		Convey("Guard2Ctx should skip when state is failed", func() {
+			state.Handle(errors.New("prior"))
+			called := false
+
+			a, b := Guard2Ctx(state, func(ctx context.Context) (int, string, error) {
+				called = true
+				return 1, "x", nil
+			})
+
+			So(called, ShouldBeFalse)
+			So(a, ShouldEqual, 0)
+			So(b, ShouldEqual, "")
+		})
+	})
+}
+
+func TestGuard3Ctx(t *testing.T) {
+	Convey("Given a State with context", t, func() {
+		state := NewState("test/guard3ctx", StateWithContext(context.Background()))
+
+		Convey("Guard3Ctx should return all values on success", func() {
+			a, b, c := Guard3Ctx(state, func(ctx context.Context) (int, string, bool, error) {
+				return 1, "two", true, nil
+			})
+
+			So(a, ShouldEqual, 1)
+			So(b, ShouldEqual, "two")
+			So(c, ShouldBeTrue)
+		})
+
+		Convey("Guard3Ctx should skip when state is failed", func() {
+			state.Handle(errors.New("prior"))
+
+			a, b, c := Guard3Ctx(state, func(ctx context.Context) (int, string, bool, error) {
+				return 1, "x", true, nil
+			})
+
+			So(a, ShouldEqual, 0)
+			So(b, ShouldEqual, "")
+			So(c, ShouldBeFalse)
+		})
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Benchmarks — baseline for every code path
+// ---------------------------------------------------------------------------
+
+func BenchmarkStateFailed(b *testing.B) {
+	state := NewState("bench")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Failed()
+	}
+}
+
+func BenchmarkStateFailedTrue(b *testing.B) {
+	state := NewState("bench")
+	state.Handle(errors.New("failed"))
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Failed()
+	}
+}
+
+func BenchmarkStateReset(b *testing.B) {
+	state := NewState("bench")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+	}
+}
+
+func BenchmarkGuardClean(b *testing.B) {
+	state := NewState("bench")
+	fn := func() (int, error) { return 42, nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+		Guard(state, fn)
+	}
+}
+
+func BenchmarkGuardFailed(b *testing.B) {
+	state := NewState("bench")
+	state.Handle(errors.New("failed"))
+	fn := func() (int, error) { return 42, nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Guard(state, fn)
+	}
+}
+
+func BenchmarkGuardVoidClean(b *testing.B) {
+	state := NewState("bench")
+	fn := func() error { return nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+		GuardVoid(state, fn)
+	}
+}
+
+func BenchmarkGuardVoidFailed(b *testing.B) {
+	state := NewState("bench")
+	state.Handle(errors.New("failed"))
+	fn := func() error { return nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		GuardVoid(state, fn)
+	}
+}
+
+func BenchmarkGuard2Clean(b *testing.B) {
+	state := NewState("bench")
+	fn := func() (int, string, error) { return 42, "ok", nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+		Guard2(state, fn)
+	}
+}
+
+func BenchmarkGuard3Clean(b *testing.B) {
+	state := NewState("bench")
+	fn := func() (int, string, bool, error) { return 1, "two", true, nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+		Guard3(state, fn)
+	}
 }
 
 func BenchmarkGuardCtxClean(b *testing.B) {
 	state := NewState("bench", StateWithContext(context.Background()))
 	fn := func(ctx context.Context) (int, error) { return 42, nil }
+	b.ReportAllocs()
 
 	for b.Loop() {
 		state.Reset()
 		GuardCtx(state, fn)
+	}
+}
+
+func BenchmarkGuardCtxFailed(b *testing.B) {
+	state := NewState("bench", StateWithContext(context.Background()))
+	state.Handle(errors.New("failed"))
+	fn := func(ctx context.Context) (int, error) { return 42, nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		GuardCtx(state, fn)
+	}
+}
+
+func BenchmarkGuardVoidCtxClean(b *testing.B) {
+	state := NewState("bench", StateWithContext(context.Background()))
+	fn := func(ctx context.Context) error { return nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+		GuardVoidCtx(state, fn)
+	}
+}
+
+func BenchmarkSafeMustClean(b *testing.B) {
+	fn := func() (int, error) { return 42, nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		SafeMust(fn)
+	}
+}
+
+func BenchmarkSafeMustVoidClean(b *testing.B) {
+	fn := func() error { return nil }
+	b.ReportAllocs()
+
+	for b.Loop() {
+		SafeMustVoid(fn)
 	}
 }

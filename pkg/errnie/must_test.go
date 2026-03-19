@@ -291,9 +291,9 @@ func BenchmarkSafeMustWithHandler(b *testing.B) {
 	err := errors.New("error")
 	fn := func() (int, error) { return 0, err }
 	handler := func(error) {}
+	b.ReportAllocs()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		SafeMust(fn, handler)
 	}
 }
@@ -302,9 +302,9 @@ func BenchmarkSafeMustVoidWithHandler(b *testing.B) {
 	err := errors.New("error")
 	fn := func() error { return err }
 	handler := func(error) {}
+	b.ReportAllocs()
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		SafeMustVoid(fn, handler)
 	}
 }

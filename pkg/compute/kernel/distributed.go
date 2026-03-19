@@ -225,6 +225,44 @@ func (backend *DistributedBackend) Resolve(
 	return best, nil
 }
 
+func (backend *DistributedBackend) ResolvePhaseDial(
+	cacheNodes unsafe.Pointer,
+	numNodes int,
+	queryDial unsafe.Pointer,
+	similarities unsafe.Pointer,
+) error {
+	return fmt.Errorf("ResolvePhaseDial not yet implemented for DistributedBackend")
+}
+
+func (backend *DistributedBackend) EncodePhaseDial(
+	structuralPhases unsafe.Pointer,
+	numValues int,
+	outDial unsafe.Pointer,
+) error {
+	return fmt.Errorf("EncodePhaseDial not yet implemented for DistributedBackend")
+}
+
+func (backend *DistributedBackend) SeqToroidalMeanPhase(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (theta float64, phi float64, err error) {
+	return 0, 0, fmt.Errorf("SeqToroidalMeanPhase not yet implemented for DistributedBackend")
+}
+
+func (backend *DistributedBackend) WeightedCircularMean(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (phase float64, concentration float64, err error) {
+	return 0, 0, fmt.Errorf("WeightedCircularMean not yet implemented for DistributedBackend")
+}
+
+func (backend *DistributedBackend) SolveBVP(
+	startBlocks unsafe.Pointer,
+	goalBlocks unsafe.Pointer,
+) (scale uint16, translate uint16, distance float64, err error) {
+	return 0, 0, 0, fmt.Errorf("SolveBVP not yet implemented for DistributedBackend")
+}
+
 /*
 distributedTimeout returns the configured distributed timeout with sane defaulting.
 */

@@ -16,6 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
@@ -69,6 +70,97 @@ func (backend *MetalBackend) Resolve(
 	}
 
 	return uint64(packed), nil
+}
+
+func (backend *MetalBackend) ResolvePhaseDial(
+	cacheNodes unsafe.Pointer,
+	numNodes int,
+	queryDial unsafe.Pointer,
+	similarities unsafe.Pointer,
+) error {
+	if !backend.Available() {
+		return MetalErrorUnavailable
+	}
+	if cacheNodes == nil || queryDial == nil || similarities == nil || numNodes <= 0 {
+		return MetalErrorResolveFailed
+	}
+	if C.resolve_phasedial_metal(cacheNodes, C.uint32_t(numNodes), queryDial, similarities) != 0 {
+		return MetalErrorResolveFailed
+	}
+	return nil
+}
+
+func (backend *MetalBackend) EncodePhaseDial(
+	structuralPhases unsafe.Pointer,
+	numValues int,
+	outDial unsafe.Pointer,
+) error {
+	if !backend.Available() {
+		return MetalErrorUnavailable
+	}
+	if structuralPhases == nil || outDial == nil || numValues <= 0 {
+		return MetalErrorResolveFailed
+	}
+	primes := make([]float32, 512)
+	for i, p := range numeric.Primes {
+		primes[i] = float32(p)
+	}
+	if C.encode_phasedial_metal(structuralPhases, unsafe.Pointer(&primes[0]), C.uint32_t(numValues), outDial) != 0 {
+		return MetalErrorResolveFailed
+	}
+	return nil
+}
+
+func (backend *MetalBackend) SeqToroidalMeanPhase(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (theta float64, phi float64, err error) {
+	if !backend.Available() {
+		return 0, 0, MetalErrorUnavailable
+	}
+	if valueBlocks == nil || numValues <= 0 {
+		return 0, 0, nil
+	}
+	var outTheta, outPhi C.double
+	if C.seq_toroidal_mean_phase_metal(valueBlocks, C.uint32_t(numValues), &outTheta, &outPhi) != 0 {
+		return 0, 0, MetalErrorResolveFailed
+	}
+	return float64(outTheta), float64(outPhi), nil
+}
+
+func (backend *MetalBackend) WeightedCircularMean(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (phase float64, concentration float64, err error) {
+	if !backend.Available() {
+		return 0, 0, MetalErrorUnavailable
+	}
+	if valueBlocks == nil || numValues <= 0 {
+		return 0, 0, nil
+	}
+	var outPhase, outConcentration C.double
+	if C.weighted_circular_mean_metal(valueBlocks, C.uint32_t(numValues), &outPhase, &outConcentration) != 0 {
+		return 0, 0, MetalErrorResolveFailed
+	}
+	return float64(outPhase), float64(outConcentration), nil
+}
+
+func (backend *MetalBackend) SolveBVP(
+	startBlocks unsafe.Pointer,
+	goalBlocks unsafe.Pointer,
+) (scale uint16, translate uint16, distance float64, err error) {
+	if !backend.Available() {
+		return 0, 0, 0, MetalErrorUnavailable
+	}
+	if startBlocks == nil || goalBlocks == nil {
+		return 0, 0, 0, MetalErrorResolveFailed
+	}
+	var outScale, outTranslate C.uint16_t
+	var outDistance C.double
+	if C.solve_bvp_metal(startBlocks, goalBlocks, &outScale, &outTranslate, &outDistance) != 0 {
+		return 0, 0, 0, MetalErrorResolveFailed
+	}
+	return uint16(outScale), uint16(outTranslate), float64(outDistance), nil
 }
 
 type MetalError string

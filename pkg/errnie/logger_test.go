@@ -3,13 +3,13 @@ package errnie
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 	"time"
 
+	"github.com/charmbracelet/log"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
 )
@@ -25,12 +25,9 @@ func createTempDir(t *testing.T) string {
 func TestLogger(t *testing.T) {
 	Convey("Given a logger instance", t, func() {
 		originalWd, _ := os.Getwd()
-		originalGoroutines := runtime.NumGoroutine()
 
 		Reset(func() {
 			os.Unsetenv("LOGFILE")
-			os.Unsetenv("NOCONSOLE")
-			os.Unsetenv("LOGGOROUTINES")
 			os.Unsetenv("NOSTACK")
 			os.Unsetenv("NOSNIPPET")
 
@@ -44,7 +41,7 @@ func TestLogger(t *testing.T) {
 		})
 
 		Convey("When initializing the logger", func() {
-			Convey("It should initialize without errors when LOGFILE is not set", func() {
+			Convey("It should not create a log file when LOGFILE is not set", func() {
 				os.Setenv("LOGFILE", "false")
 				InitLogger()
 				So(logFile, ShouldBeNil)
@@ -59,72 +56,27 @@ func TestLogger(t *testing.T) {
 				InitLogger()
 				So(logFile, ShouldNotBeNil)
 			})
-
-			Convey("It should handle goroutine logging when enabled", func() {
-				tmpDir := createTempDir(t)
-				defer os.RemoveAll(tmpDir)
-				os.Chdir(tmpDir)
-
-				os.Setenv("LOGFILE", "true")
-				os.Setenv("LOGGOROUTINES", "true")
-				viper.Set("loglevel", "debug")
-
-				InitLogger()
-
-				// Verify log file was created
-				So(logFile, ShouldNotBeNil)
-
-				// Wait a bit for the goroutine to start
-				time.Sleep(100 * time.Millisecond)
-
-				// Verify that a new goroutine was created
-				currentGoroutines := runtime.NumGoroutine()
-				So(currentGoroutines, ShouldBeGreaterThan, originalGoroutines)
-
-				// Now verify that it's actually logging
-				Debug("trigger log sync")
-				time.Sleep(100 * time.Millisecond)
-
-				content, err := os.ReadFile(filepath.Join("logs", "amsh.log"))
-				So(err, ShouldBeNil)
-				So(string(content), ShouldContainSubstring, "trigger log sync")
-			})
 		})
 
 		Convey("When using trace logging", func() {
 			tmpDir := createTempDir(t)
 			defer os.RemoveAll(tmpDir)
 			os.Chdir(tmpDir)
-			
-			Convey("It should handle trace with console output", func() {
+
+			Convey("Trace should write to the log file", func() {
 				os.Setenv("LOGFILE", "true")
-				os.Setenv("NOCONSOLE", "false")
 				viper.Set("loglevel", "debug")
 				InitLogger()
-				
+
 				Trace("trace message", "key", "value", 42)
 				time.Sleep(100 * time.Millisecond)
-				
+
 				content, err := os.ReadFile(filepath.Join("logs", "amsh.log"))
 				So(err, ShouldBeNil)
 				So(string(content), ShouldContainSubstring, "trace message")
 				So(string(content), ShouldContainSubstring, "key")
 				So(string(content), ShouldContainSubstring, "value")
 				So(string(content), ShouldContainSubstring, "42")
-			})
-			
-			Convey("It should handle trace with console disabled", func() {
-				os.Setenv("LOGFILE", "true")
-				os.Setenv("NOCONSOLE", "true")
-				viper.Set("loglevel", "debug")
-				InitLogger()
-				
-				Trace("trace message", "key", "value")
-				time.Sleep(100 * time.Millisecond)
-				
-				content, err := os.ReadFile(filepath.Join("logs", "amsh.log"))
-				So(err, ShouldBeNil)
-				So(string(content), ShouldContainSubstring, "trace message")
 			})
 		})
 
@@ -171,7 +123,6 @@ func TestLogger(t *testing.T) {
 				os.Chdir(tmpDir)
 
 				os.Setenv("LOGFILE", "true")
-				os.Setenv("NOCONSOLE", "true")
 				InitLogger()
 
 				testStruct := struct {
@@ -190,22 +141,30 @@ func TestLogger(t *testing.T) {
 		})
 
 		Convey("When handling errors", func() {
-			Convey("Error function should return formatted error with stack trace", func() {
+			Convey("Error should return the original error unchanged", func() {
 				testErr := errors.New("test error")
 				resultErr := Error(testErr)
 
 				So(resultErr, ShouldNotBeNil)
-				So(resultErr.Error(), ShouldContainSubstring, "test error")
-				So(resultErr.Error(), ShouldContainSubstring, "STACK TRACE")
+				So(resultErr, ShouldEqual, testErr)
+				So(resultErr.Error(), ShouldEqual, "test error")
 			})
 
-			Convey("Error function should return nil for nil error", func() {
+			Convey("Error should return nil for nil error", func() {
 				resultErr := Error(nil)
 				So(resultErr, ShouldBeNil)
 			})
+
+			Convey("Error should preserve error chain for errors.Is", func() {
+				sentinel := errors.New("sentinel")
+				wrapped := fmt.Errorf("context: %w", sentinel)
+				resultErr := Error(wrapped)
+
+				So(errors.Is(resultErr, sentinel), ShouldBeTrue)
+			})
 		})
 
-		Convey("When using different log levels", func() {
+		Convey("When writing to log file", func() {
 			tmpDir := createTempDir(t)
 			defer os.RemoveAll(tmpDir)
 			os.Chdir(tmpDir)
@@ -213,136 +172,229 @@ func TestLogger(t *testing.T) {
 			os.Setenv("LOGFILE", "true")
 			InitLogger()
 
-			Convey("Debug should log messages at debug level", func() {
-				Debug("debug message %s", "test")
+			Convey("Debug should write keyvals to log file", func() {
+				Debug("debug msg", "k", "v")
 				time.Sleep(100 * time.Millisecond)
+
 				content, _ := os.ReadFile(filepath.Join("logs", "amsh.log"))
-				So(string(content), ShouldContainSubstring, "debug message test")
+				So(string(content), ShouldContainSubstring, "debug msg")
 			})
 
-			Convey("Info should log messages at info level", func() {
-				Info("info message %s", "test")
+			Convey("Info should write keyvals to log file", func() {
+				Info("info msg", "k", "v")
 				time.Sleep(100 * time.Millisecond)
+
 				content, _ := os.ReadFile(filepath.Join("logs", "amsh.log"))
-				So(string(content), ShouldContainSubstring, "info message test")
+				So(string(content), ShouldContainSubstring, "info msg")
 			})
 
-			Convey("Warn should log messages at warn level", func() {
-				Warn("warn message %s", "test")
+			Convey("Warn should write keyvals to log file", func() {
+				Warn("warn msg", "k", "v")
 				time.Sleep(100 * time.Millisecond)
+
 				content, _ := os.ReadFile(filepath.Join("logs", "amsh.log"))
-				So(string(content), ShouldContainSubstring, "warn message test")
+				So(string(content), ShouldContainSubstring, "warn msg")
+			})
+
+			Convey("Error should write to log file and preserve error", func() {
+				testErr := errors.New("logged error")
+				result := Error(testErr)
+				time.Sleep(100 * time.Millisecond)
+
+				So(result, ShouldEqual, testErr)
+				content, _ := os.ReadFile(filepath.Join("logs", "amsh.log"))
+				So(string(content), ShouldContainSubstring, "logged error")
 			})
 		})
 
-		Convey("When handling errors with code snippets", func() {
-			tmpDir := createTempDir(t)
-			defer os.RemoveAll(tmpDir)
-			os.Chdir(tmpDir)
-			
-			// Create a test file with some content
-			testFile := filepath.Join(tmpDir, "test.txt")
-			content := []byte("line 1\nline 2\nline 3\nline 4\nline 5\n")
-			err := os.WriteFile(testFile, content, 0644)
-			So(err, ShouldBeNil)
-
-			os.Setenv("LOGFILE", "true")
-			InitLogger()
-
-			Convey("It should include code snippets in error messages", func() {
-				err := Error(errors.New(testFile))
-				So(err, ShouldNotBeNil)
-				errStr := err.Error()
-				So(errStr, ShouldContainSubstring, "line 1")
-				So(errStr, ShouldContainSubstring, "line 2")
-				So(errStr, ShouldContainSubstring, "line 3")
-			})
-
-			Convey("It should handle missing files gracefully", func() {
-				err := Error(errors.New("/nonexistent/file.txt"))
-				So(err, ShouldNotBeNil)
-				So(err.Error(), ShouldNotContainSubstring, "panic")
-			})
-
-			Convey("It should handle unreadable files gracefully", func() {
-				// Create a file and make it unreadable
-				unreadableFile := filepath.Join(tmpDir, "unreadable.txt")
-				os.WriteFile(unreadableFile, []byte("test"), 0644)
-				os.Chmod(unreadableFile, 0000)
-				
-				err := Error(errors.New(unreadableFile))
-				So(err, ShouldNotBeNil)
-				So(err.Error(), ShouldNotContainSubstring, "panic")
-				
-				// Cleanup
-				os.Chmod(unreadableFile, 0644)
-			})
-
-			Convey("It should handle large files efficiently", func() {
-				// Create a large file
-				largeFile := filepath.Join(tmpDir, "large.txt")
-				f, _ := os.Create(largeFile)
-				for i := 1; i <= 1000; i++ {
-					f.WriteString(fmt.Sprintf("line %d\n", i))
-				}
-				f.Close()
-
-				err := Error(errors.New(largeFile))
-				So(err, ShouldNotBeNil)
-				errStr := err.Error()
-				// Should contain lines around the beginning
-				So(errStr, ShouldContainSubstring, "line 1")
-				// Shouldn't contain all 1000 lines
-				So(len(strings.Split(errStr, "\n")), ShouldBeLessThan, 100)
-			})
+		Convey("writeToLog should be a no-op when LOGFILE is not set", func() {
+			os.Unsetenv("LOGFILE")
+			So(func() { writeToLog("test") }, ShouldNotPanic)
 		})
 
-		Convey("When handling errors with different output configurations", func() {
-			tmpDir := createTempDir(t)
-			defer os.RemoveAll(tmpDir)
-			os.Chdir(tmpDir)
-			
-			// Create a test file with some content
-			testFile := filepath.Join(tmpDir, "test.txt")
-			content := []byte("test content line 1\ntest content line 2\ntest content line 3\n")
-			err := os.WriteFile(testFile, content, 0644)
-			So(err, ShouldBeNil)
+		Convey("ErrorSafe should log without returning", func() {
+			So(func() { ErrorSafe(errors.New("safe error")) }, ShouldNotPanic)
+		})
 
-			os.Setenv("LOGFILE", "true")
-			InitLogger()
-
-			Convey("It should include both stack trace and code snippet by default", func() {
-				err := Error(errors.New(testFile))
-				errStr := err.Error()
-				So(errStr, ShouldContainSubstring, "STACK TRACE")
-				So(errStr, ShouldContainSubstring, "test content line")
-			})
-
-			Convey("It should exclude stack trace when NOSTACK is true", func() {
-				os.Setenv("NOSTACK", "true")
-				err := Error(errors.New(testFile))
-				errStr := err.Error()
-				So(errStr, ShouldNotContainSubstring, "STACK TRACE")
-				So(errStr, ShouldNotContainSubstring, "test content line")
-			})
-
-			Convey("It should exclude code snippet when NOSNIPPET is true", func() {
-				os.Setenv("NOSNIPPET", "true")
-				err := Error(errors.New(testFile))
-				errStr := err.Error()
-				So(errStr, ShouldContainSubstring, "STACK TRACE")
-				So(errStr, ShouldNotContainSubstring, "test content line")
-			})
-
-			Convey("It should exclude both when both flags are true", func() {
-				os.Setenv("NOSTACK", "true")
-				os.Setenv("NOSNIPPET", "true")
-				err := Error(errors.New(testFile))
-				errStr := err.Error()
-				So(errStr, ShouldNotContainSubstring, "STACK TRACE")
-				So(errStr, ShouldNotContainSubstring, "test content line")
-				So(errStr, ShouldEqual, testFile)
-			})
+		Convey("ErrorSafe should be a no-op for nil", func() {
+			So(func() { ErrorSafe(nil) }, ShouldNotPanic)
 		})
 	})
+}
+
+// ---------------------------------------------------------------------------
+// Logger benchmarks
+// ---------------------------------------------------------------------------
+
+/*
+swapLogger replaces the global logger with one that writes to io.Discard
+(removing I/O variance from timing) and returns a restore function.
+*/
+func swapLogger() func() {
+	old := logger
+	logger = log.NewWithOptions(io.Discard, log.Options{
+		ReportCaller:    true,
+		CallerOffset:    1,
+		ReportTimestamp: true,
+		TimeFormat:      time.TimeOnly,
+		Level:           log.DebugLevel,
+	})
+
+	return func() { logger = old }
+}
+
+func BenchmarkErrorNil(b *testing.B) {
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Error(nil)
+	}
+}
+
+func BenchmarkError(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+
+	testErr := errors.New("bench error")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Error(testErr)
+	}
+}
+
+func BenchmarkErrorWithCaller(b *testing.B) {
+	old := logger
+	logger = log.NewWithOptions(io.Discard, log.Options{
+		ReportCaller:    true,
+		ReportTimestamp: true,
+		TimeFormat:      time.TimeOnly,
+		Level:           log.DebugLevel,
+	})
+	defer func() { logger = old }()
+
+	testErr := errors.New("bench error")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Error(testErr)
+	}
+}
+
+func BenchmarkErrorNoCaller(b *testing.B) {
+	old := logger
+	logger = log.NewWithOptions(io.Discard, log.Options{
+		ReportCaller:    false,
+		ReportTimestamp: true,
+		TimeFormat:      time.TimeOnly,
+		Level:           log.DebugLevel,
+	})
+	defer func() { logger = old }()
+
+	testErr := errors.New("bench error")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Error(testErr)
+	}
+}
+
+func BenchmarkErrorSafe(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+
+	testErr := errors.New("bench error")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		ErrorSafe(testErr)
+	}
+}
+
+func BenchmarkDebug(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Debug("test message", "key", "value")
+	}
+}
+
+func BenchmarkWarn(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Warn("test warning", "key", "value")
+	}
+}
+
+func BenchmarkDebugNoFileLog(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+
+	old := logFile
+	logFile = nil
+	defer func() { logFile = old }()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Debug("test message", "key", "value")
+	}
+}
+
+func BenchmarkHandleErrorPath(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+
+	testErr := errors.New("handle bench")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state := NewState("bench")
+		state.Handle(testErr)
+	}
+}
+
+func BenchmarkHandleErrorPathExistingState(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+
+	testErr := errors.New("handle bench")
+	state := NewState("bench")
+	b.ReportAllocs()
+
+	for b.Loop() {
+		state.Reset()
+		state.Handle(testErr)
+	}
+}
+
+func BenchmarkLogDiscard(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		Log("message %d", 42)
+	}
+}
+
+func BenchmarkErrorChainPreserved(b *testing.B) {
+	restore := swapLogger()
+	defer restore()
+
+	sentinel := errors.New("sentinel")
+	wrapped := fmt.Errorf("wrap: %w", sentinel)
+	b.ReportAllocs()
+
+	for b.Loop() {
+		result := Error(wrapped)
+		if !errors.Is(result, sentinel) {
+			b.Fatal("chain broken")
+		}
+	}
 }

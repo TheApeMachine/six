@@ -21,3 +21,41 @@ func (backend *CUDABackend) Resolve(
 ) (uint64, error) {
 	return 0, nil
 }
+
+func (backend *CUDABackend) ResolvePhaseDial(
+	cacheNodes unsafe.Pointer,
+	numNodes int,
+	queryDial unsafe.Pointer,
+	similarities unsafe.Pointer,
+) error {
+	return nil
+}
+
+func (backend *CUDABackend) EncodePhaseDial(
+	structuralPhases unsafe.Pointer,
+	numValues int,
+	outDial unsafe.Pointer,
+) error {
+	return nil
+}
+
+func (backend *CUDABackend) SeqToroidalMeanPhase(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (theta float64, phi float64, err error) {
+	return 0, 0, nil
+}
+
+func (backend *CUDABackend) WeightedCircularMean(
+	valueBlocks unsafe.Pointer,
+	numValues int,
+) (phase float64, concentration float64, err error) {
+	return 0, 0, nil
+}
+
+func (backend *CUDABackend) SolveBVP(
+	startBlocks unsafe.Pointer,
+	goalBlocks unsafe.Pointer,
+) (scale uint16, translate uint16, distance float64, err error) {
+	return 0, 0, 0, nil
+}
