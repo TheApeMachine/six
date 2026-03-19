@@ -7,6 +7,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
@@ -183,7 +184,10 @@ func (server *CantileverServer) BridgeValues(
 		}
 	}
 
-	key := macro.AffineKeyFromValues(startValue, goalValue)
+	key := macro.AffineKeyFromValues(
+		primitive.Value(startValue),
+		primitive.Value(goalValue),
+	)
 
 	op, found := server.Index.FindOpcode(key)
 	if found {

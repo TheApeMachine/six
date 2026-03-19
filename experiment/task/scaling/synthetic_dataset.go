@@ -1,6 +1,7 @@
 package scaling
 
 import (
+	"iter"
 	"math/rand"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
@@ -30,19 +31,21 @@ func NewSyntheticDataset(sampleSize, maxSamples int, seed int64) *SyntheticDatas
 /*
 Generate emits RawTokens for all samples. Printable ASCII (0x20-0x7E).
 */
-func (ds *SyntheticDataset) Generate() chan provider.RawToken {
+func (ds *SyntheticDataset) Generate() iter.Seq[provider.RawToken] {
 	rng := rand.New(rand.NewSource(ds.seed))
 
-	return provider.AsyncTokens("synthetic-dataset", func(out chan<- provider.RawToken) {
+	return func(yield func(provider.RawToken) bool) {
 		for sampleID := 0; sampleID < ds.maxSamples; sampleID++ {
 			for pos := 0; pos < ds.sampleSize; pos++ {
 				b := byte(0x20 + rng.Intn(95))
-				out <- provider.RawToken{
+				if !yield(provider.RawToken{
 					SampleID: uint32(sampleID),
 					Symbol:   b,
 					Pos:      uint32(pos),
+				}) {
+					return
 				}
 			}
 		}
-	})
+	}
 }

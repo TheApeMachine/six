@@ -13,6 +13,7 @@ type Job struct {
 	ID                    string
 	ResultID              string
 	Fn                    func(ctx context.Context) (any, error)
+	OnDrop                func(error)
 	RetryPolicy           *RetryPolicy
 	CircuitID             string
 	CircuitConfig         *CircuitBreakerConfig
@@ -121,5 +122,14 @@ func WithRetry(attempts int, strategy RetryStrategy) JobOption {
 			MaxAttempts: attempts,
 			Strategy:    strategy,
 		}
+	}
+}
+
+/*
+WithOnDrop registers a callback invoked when a job cannot be scheduled.
+*/
+func WithOnDrop(callback func(error)) JobOption {
+	return func(j *Job) {
+		j.OnDrop = callback
 	}
 }

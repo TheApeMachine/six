@@ -1,14 +1,17 @@
 package vision
 
 import (
+	"context"
 	"image"
 	_ "image/jpeg"
 	_ "image/png"
+	"iter"
 	"os"
 	"path/filepath"
 
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/console"
+	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
@@ -18,32 +21,48 @@ Skips alpha; each pixel unfolds into three RawTokens at sequential positions
 (Pos, Pos+1, Pos+2) for r, g, b.
 */
 type Dataset struct {
-	paths []string
+	ctx    context.Context
+	cancel context.CancelFunc
+	dir    string
+	paths  []string
+	pool   *pool.Pool
 }
+
+type datasetOpts func(*Dataset)
 
 /*
 NewDataset walks dir recursively, collects file paths (non-dirs), and returns a Dataset.
 */
-func NewDataset(dir string) *Dataset {
-	var paths []string
-	filepath.Walk(dir, func(filePath string, fileInfo os.FileInfo, entryErr error) error {
-		if entryErr == nil && !fileInfo.IsDir() {
-			paths = append(paths, filePath)
-		}
-		if entryErr != nil {
-			console.Error(entryErr, "path", filePath)
-		}
-		return nil
-	})
-	return &Dataset{paths: paths}
+func NewDataset(opts ...datasetOpts) *Dataset {
+	dataset := &Dataset{
+		paths: []string{},
+	}
+
+	for _, opt := range opts {
+		opt(dataset)
+	}
+
+	return dataset
 }
 
 /*
-Generate returns a channel that emits RawTokens (SampleID, Symbol, Pos) for each RGB byte.
-Closes when all images are streamed. Skips files that fail to decode.
+Generate returns an iterator of RawTokens for each RGB byte.
+Skips files that fail to decode.
 */
-func (dataset *Dataset) Generate() chan provider.RawToken {
-	return provider.AsyncTokens("vision-dataset", func(out chan<- provider.RawToken) {
+func (dataset *Dataset) Generate() iter.Seq[provider.RawToken] {
+	return func(yield func(provider.RawToken) bool) {
+		filepath.Walk(dataset.dir, func(filePath string, fileInfo os.FileInfo, entryErr error) error {
+			if entryErr == nil && !fileInfo.IsDir() {
+				dataset.paths = append(dataset.paths, filePath)
+			}
+
+			if entryErr != nil {
+				console.Error(entryErr, "path", filePath)
+			}
+
+			return nil
+		})
+
 		for idx, path := range dataset.paths {
 			file, err := os.Open(path)
 			if err != nil {
@@ -67,14 +86,46 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 					// RGBA() returns 16-bit premultiplied colors, shift to 8-bit
 					red, green, blue, _ := img.At(px, py).RGBA()
 
-					out <- provider.RawToken{SampleID: uint32(idx), Symbol: byte(red >> 8), Pos: pos}
-					out <- provider.RawToken{SampleID: uint32(idx), Symbol: byte(green >> 8), Pos: pos + 1}
-					out <- provider.RawToken{SampleID: uint32(idx), Symbol: byte(blue >> 8), Pos: pos + 2}
+					if !yield(provider.RawToken{
+						SampleID: uint32(idx), Symbol: byte(red >> 8), Pos: pos,
+					}) {
+						return
+					}
+
+					if !yield(provider.RawToken{
+						SampleID: uint32(idx), Symbol: byte(green >> 8), Pos: pos + 1,
+					}) {
+						return
+					}
+
+					if !yield(provider.RawToken{
+						SampleID: uint32(idx), Symbol: byte(blue >> 8), Pos: pos + 2,
+					}) {
+						return
+					}
 
 					// We skip Alpha channel for simplicity directly returning RGB bytes
 					pos += 3
 				}
 			}
 		}
-	})
+	}
+}
+
+func DatasetWithContext(ctx context.Context) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.ctx, dataset.cancel = context.WithCancel(ctx)
+	}
+}
+
+func DatasetWithPool(pool *pool.Pool) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.pool = pool
+	}
+}
+
+func WithDirectory(dir string) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.dir = dir
+	}
 }

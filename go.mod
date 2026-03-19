@@ -26,6 +26,8 @@ require (
 	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/gomlx/exceptions v0.0.3 // indirect
 	github.com/gomlx/gopjrt v0.4.4 // indirect
+	github.com/grafana/pyroscope-go v1.2.7 // indirect
+	github.com/grafana/pyroscope-go/godeltaprof v0.1.9 // indirect
 	github.com/hashicorp/go-immutable-radix/v2 v2.1.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.0 // indirect
 	github.com/mattn/go-runewidth v0.0.16 // indirect
@@ -61,7 +63,7 @@ require (
 	github.com/gopherjs/gopherjs v1.17.2 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jtolds/gls v4.20.0+incompatible // indirect
-	github.com/klauspost/compress v1.17.10 // indirect
+	github.com/klauspost/compress v1.18.4 // indirect
 	github.com/lucasb-eyer/go-colorful v1.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/muesli/termenv v0.16.0 // indirect

@@ -2,23 +2,25 @@ package lang
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
+	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
+	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
 /*
-ProgramServer is a composition of one or more programmable Value types.
-In this architecture, the system programs itself via its native
-language of Value types. This is the only way it is supposed to
-solve problems, we do not hardcode the logic.
+Program represents an active execution trace seeking a
+specific target state. It applies hyperdimensional query
+masks against a pool of unstructured candidates.
 */
 type ProgramServer struct {
 	mu          sync.RWMutex
@@ -32,7 +34,11 @@ type ProgramServer struct {
 	clientConns map[string]*rpc.Conn
 	workerPool  *pool.Pool
 	sink        *telemetry.Sink
-	values      []data.Value
+	start       primitive.Value
+	target      primitive.Value
+	buffer      []primitive.Value
+	maxSteps    int
+	macroIndex  *macro.MacroIndexServer
 }
 
 type programServerOpts func(*ProgramServer)
@@ -45,6 +51,7 @@ func NewProgramServer(opts ...programServerOpts) *ProgramServer {
 		state:       errnie.NewState("logic/lang/programServer"),
 		clientConns: map[string]*rpc.Conn{},
 		sink:        telemetry.NewSink(),
+		maxSteps:    int(numeric.FermatPrime),
 	}
 
 	for _, opt := range opts {
@@ -66,6 +73,12 @@ func NewProgramServer(opts ...programServerOpts) *ProgramServer {
 		return server
 	}
 
+	if server.macroIndex == nil {
+		server.macroIndex = macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(server.ctx),
+		)
+	}
+
 	server.serverSide, server.clientSide = net.Pipe()
 	server.client = Evaluator_ServerToClient(server)
 
@@ -82,6 +95,9 @@ func NewProgramServer(opts ...programServerOpts) *ProgramServer {
 Client returns a Cap'n Proto client connected to this ProgramServer.
 */
 func (server *ProgramServer) Client(clientID string) Evaluator {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
 		server.clientSide,
 	), &rpc.Options{
@@ -95,6 +111,9 @@ func (server *ProgramServer) Client(clientID string) Evaluator {
 Close shuts down the RPC connections and underlying net.Pipe.
 */
 func (server *ProgramServer) Close() error {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	server.state.Reset()
 
 	if server.serverConn != nil {
@@ -147,20 +166,44 @@ func (server *ProgramServer) Write(ctx context.Context, call Evaluator_write) er
 
 	server.state.Reset()
 
-	seeds := errnie.Guard(server.state, func() ([]data.Value, error) {
-		list, err := call.Args().Seed()
-		if err != nil {
-			return nil, err
-		}
-
-		return data.ValueListToSlice(list)
+	seedList := errnie.Guard(server.state, func() (primitive.Value_List, error) {
+		return call.Args().Seed()
 	})
 
 	if server.state.Failed() {
 		return server.state.Err()
 	}
 
-	server.values = append(server.values, seeds...)
+	if seedList.Len() < 2 {
+		return errnie.Error(
+			NewProgramError(ProgramErrorTypeSeedPairRequired),
+			"seed_count", seedList.Len(),
+		)
+	}
+
+	server.start = errnie.Guard(server.state, func() (primitive.Value, error) {
+		clone, err := primitive.New()
+		if err != nil {
+			return primitive.Value{}, err
+		}
+
+		clone.CopyFrom(seedList.At(0))
+		return clone, nil
+	})
+
+	server.target = errnie.Guard(server.state, func() (primitive.Value, error) {
+		clone, err := primitive.New()
+		if err != nil {
+			return primitive.Value{}, err
+		}
+
+		clone.CopyFrom(seedList.At(1))
+		return clone, nil
+	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
 
 	return nil
 }
@@ -180,30 +223,189 @@ func (server *ProgramServer) Done(ctx context.Context, call Evaluator_done) erro
 }
 
 /*
-Values returns a copy of the buffered native program values.
+Execute drops the query mask into the candidate pool and follows the path
+of lowest geometric resistance until it achieves phase-lock with the Target.
+(This replaces ReagentLoop).
 */
-func (server *ProgramServer) Values() []data.Value {
-	server.mu.RLock()
-	defer server.mu.RUnlock()
+func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error) {
+	prog.state.Reset()
 
-	values := make([]data.Value, len(server.values))
-
-	for index, value := range server.values {
-		copyValue := data.MustNewValue()
-		copyValue.CopyFrom(value)
-		values[index] = copyValue
+	if prog.start.ActiveCount() == 0 || prog.target.ActiveCount() == 0 {
+		return nil, errnie.Error(
+			NewProgramError(ProgramErrorTypeStartAndTargetEmpty),
+		)
 	}
 
-	return values
+	if len(candidates) == 0 {
+		return nil, errnie.Error(
+			NewProgramError(ProgramErrorTypeCandidatePoolEmpty),
+		)
+	}
+
+	if prog.macroIndex == nil {
+		return nil, errnie.Error(
+			NewProgramError(ProgramErrorTypeMacroIndexRequired),
+		)
+	}
+
+	loopKey := macro.AffineKeyFromValues(prog.start, prog.target)
+	currentState := errnie.Guard(prog.state, func() (primitive.Value, error) {
+		return primitive.New()
+	})
+	currentState.CopyFrom(prog.start)
+
+	if prog.state.Failed() {
+		return nil, prog.state.Err()
+	}
+
+	// Pre-calculate initial residue (how far are we from the target physically?)
+	preResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
+		return currentState.XOR(prog.target)
+	}).CoreActiveCount()
+
+	if prog.state.Failed() {
+		return nil, prog.state.Err()
+	}
+
+	for step := 0; step < prog.maxSteps; step++ {
+		// 1. Build the Query Mask
+		// The prompt is the fixed known state for query construction.
+		queryMask := primitive.BuildQueryMask(prog.start)
+
+		// 2. Evaluate the Pool (Formerly Precipitate / React)
+		matchResults := primitive.BatchEvaluate(queryMask, candidates)
+
+		bestIndex := -1
+		var bestRecovered primitive.Value
+		bestResidue := int(numeric.FermatPrime)
+		bestFitness := -1
+
+		// 3. Find the lowest energy path
+		for idx, match := range matchResults {
+			if match.PhaseQuotient == 0 {
+				continue // No algebraic relation
+			}
+
+			candidateState := errnie.Guard(prog.state, func() (primitive.Value, error) {
+				clone, err := primitive.New()
+				if err != nil {
+					return primitive.Value{}, err
+				}
+
+				clone.CopyFrom(currentState)
+				return clone, nil
+			})
+
+			if prog.state.Failed() {
+				return nil, prog.state.Err()
+			}
+
+			// Apply the Affine transformation derived from the match
+			recovered := candidateState.ApplyAffineValue(match.PhaseQuotient, 0)
+
+			// Measure raw physical distance to the ultimate target
+			postResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
+				return recovered.XOR(prog.target)
+			}).CoreActiveCount()
+
+			if bestIndex == -1 ||
+				postResidue < bestResidue ||
+				(postResidue == bestResidue && match.FitnessScore > bestFitness) {
+				bestIndex = idx
+				bestRecovered = recovered
+				bestResidue = postResidue
+				bestFitness = match.FitnessScore
+			}
+		}
+
+		if bestIndex == -1 {
+			return nil, errnie.Error(
+				NewProgramError(ProgramErrorTypeProgramStalled),
+				"residue", preResidue,
+				"step", step+1,
+			)
+		}
+
+		advanced := bestResidue < preResidue
+		stable := bestResidue == 0
+
+		// Record the discovered structural bridge
+		candidateRecord := prog.macroIndex.RecordCandidateResult(
+			loopKey, preResidue, bestResidue, advanced, stable,
+		)
+
+		outcome := &Output{
+			QueryMask:      queryMask,
+			Matches:        matchResults,
+			WinnerIndex:    bestIndex,
+			RecoveredState: bestRecovered,
+			PostResidue:    bestResidue,
+			Steps:          step + 1,
+			Candidate:      candidateRecord,
+		}
+
+		if stable {
+			return outcome, nil // Target Achieved!
+		}
+
+		if !advanced {
+			return outcome, errnie.Error(
+				NewProgramError(ProgramErrorTypeExecutionStalled),
+				"residue", bestResidue,
+				"step", step+1,
+			)
+		}
+
+		currentState.CopyFrom(bestRecovered)
+		preResidue = bestResidue
+	}
+
+	return nil, errnie.Error(
+		NewProgramError(ProgramErrorTypeProgramExhausted),
+		"steps", prog.maxSteps,
+	)
 }
 
 /*
-ProgramServerWithValues adds one or more Value types to the Program.
+Seed sets the execution boundaries used by Execute.
 */
-func ProgramServerWithValues(values ...data.Value) programServerOpts {
-	return func(server *ProgramServer) {
-		server.values = values
+func (server *ProgramServer) Seed(
+	startValue primitive.Value,
+	targetValue primitive.Value,
+) error {
+	server.state.Reset()
+
+	if startValue.ActiveCount() == 0 || targetValue.ActiveCount() == 0 {
+		return errnie.Error(
+			NewProgramError(ProgramErrorTypeStartAndTargetEmpty),
+		)
 	}
+
+	server.start = errnie.Guard(server.state, func() (primitive.Value, error) {
+		clone, err := primitive.New()
+		if err != nil {
+			return primitive.Value{}, err
+		}
+
+		clone.CopyFrom(startValue)
+		return clone, nil
+	})
+
+	server.target = errnie.Guard(server.state, func() (primitive.Value, error) {
+		clone, err := primitive.New()
+		if err != nil {
+			return primitive.Value{}, err
+		}
+
+		clone.CopyFrom(targetValue)
+		return clone, nil
+	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
+	return nil
 }
 
 /*
@@ -231,4 +433,47 @@ func ProgramServerWithSink(sink *telemetry.Sink) programServerOpts {
 	return func(server *ProgramServer) {
 		server.sink = sink
 	}
+}
+
+/*
+ProgramServerWithMaxSteps sets the maximum execution steps.
+*/
+func ProgramServerWithMaxSteps(maxSteps int) programServerOpts {
+	return func(server *ProgramServer) {
+		server.maxSteps = max(maxSteps, 1)
+	}
+}
+
+/*
+ProgramServerWithMacroIndex sets the shared macro index.
+*/
+func ProgramServerWithMacroIndex(index *macro.MacroIndexServer) programServerOpts {
+	return func(server *ProgramServer) {
+		server.macroIndex = index
+	}
+}
+
+type ProgramError struct {
+	Message string
+	Err     ProgramErrorType
+}
+
+type ProgramErrorType string
+
+const (
+	ProgramErrorTypeStartAndTargetEmpty ProgramErrorType = "start and target values cannot be empty"
+	ProgramErrorTypeSeedPairRequired    ProgramErrorType = "write requires at least start and target seeds"
+	ProgramErrorTypeCandidatePoolEmpty  ProgramErrorType = "candidate pool cannot be empty"
+	ProgramErrorTypeMacroIndexRequired  ProgramErrorType = "macro index is required"
+	ProgramErrorTypeProgramStalled      ProgramErrorType = "program stalled"
+	ProgramErrorTypeExecutionStalled    ProgramErrorType = "execution stalled"
+	ProgramErrorTypeProgramExhausted    ProgramErrorType = "program exhausted"
+)
+
+func NewProgramError(err ProgramErrorType) *ProgramError {
+	return &ProgramError{Message: string(err), Err: err}
+}
+
+func (err ProgramError) Error() string {
+	return fmt.Sprintf("program error: %s: %s", err.Message, err.Err)
 }

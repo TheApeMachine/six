@@ -1,13 +1,16 @@
 package huggingface
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"strings"
 	"sync"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/console"
 )
@@ -27,7 +30,10 @@ BabiQADataset wraps a HuggingFace Dataset configured for bAbI QA.
 Parses the story/answer/type structure into BabiQASamples. Defaults: facebook/babi_qa, en-10k-qa1.
 */
 type BabiQADataset struct {
-	base *Dataset
+	ctx    context.Context
+	cancel context.CancelFunc
+	state  *errnie.State
+	base   *Dataset
 
 	once    sync.Once
 	samples []BabiQASample
@@ -51,11 +57,11 @@ func NewBabiQA(opts ...datasetOpts) *BabiQADataset {
 }
 
 /*
-Generate returns a channel that emits RawTokens for each byte of Full across all samples.
-Closes when done. Loads and parses the bAbI shard on first use.
+Generate returns an iterator that emits RawTokens for each byte of Full across all samples.
+Loads and parses the bAbI shard on first use.
 */
-func (dataset *BabiQADataset) Generate() chan provider.RawToken {
-	return provider.AsyncTokens("huggingface-babi", func(out chan<- provider.RawToken) {
+func (dataset *BabiQADataset) Generate() iter.Seq[provider.RawToken] {
+	return func(yield func(provider.RawToken) bool) {
 		samples, err := dataset.Samples()
 		if err != nil {
 			console.Error(err, "repo", dataset.base.repo, "subset", dataset.base.subset)
@@ -64,14 +70,16 @@ func (dataset *BabiQADataset) Generate() chan provider.RawToken {
 
 		for sampleID, sample := range samples {
 			for idx, b := range []byte(sample.Full) {
-				out <- provider.RawToken{
+				if !yield(provider.RawToken{
 					SampleID: uint32(sampleID),
 					Symbol:   b,
 					Pos:      uint32(idx),
+				}) {
+					return
 				}
 			}
 		}
-	})
+	}
 }
 
 /*

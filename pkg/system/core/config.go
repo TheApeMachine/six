@@ -47,6 +47,10 @@ func init() {
 	viper.SetDefault("system.distributed.remoteOnly", false)
 	viper.SetDefault("system.distributed.heteroLocal", false)
 	viper.SetDefault("system.distributed.localShardThreshold", 4096)
+	viper.SetDefault("system.distributed.maxFailures", 3)
+	viper.SetDefault("system.distributed.failureTimeout", 5)
+	viper.SetDefault("system.distributed.failureBackoff", 2)
+	viper.SetDefault("system.distributed.failureMaxRetries", 3)
 
 	viper.SetDefault("architecture.numerics.epsilon", 1e-9)
 	viper.SetDefault("architecture.numerics.nsymbols", 256)
@@ -133,6 +137,10 @@ type Distributed struct {
 	RemoteOnly          bool
 	HeteroLocal         bool
 	LocalShardThreshold int
+	MaxFailures         int
+	FailureTimeout      int
+	FailureBackoff      int
+	FailureMaxRetries   int
 }
 
 var loadOnce sync.Once
@@ -229,6 +237,10 @@ func (ctx *Config) Load() error {
 	ctx.System.RemoteOnly = v.GetBool("system.distributed.remoteOnly")
 	ctx.System.HeteroLocal = v.GetBool("system.distributed.heteroLocal")
 	ctx.System.LocalShardThreshold = v.GetInt("system.distributed.localShardThreshold")
+	ctx.System.MaxFailures = v.GetInt("system.distributed.maxFailures")
+	ctx.System.FailureTimeout = v.GetInt("system.distributed.failureTimeout")
+	ctx.System.FailureBackoff = v.GetInt("system.distributed.failureBackoff")
+	ctx.System.FailureMaxRetries = v.GetInt("system.distributed.failureMaxRetries")
 
 	ctx.GraphConfig.InitialNodes = v.GetInt("graph.initialNodes")
 

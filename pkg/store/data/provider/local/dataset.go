@@ -1,6 +1,9 @@
 package local
 
 import (
+	"context"
+	"iter"
+
 	"github.com/theapemachine/six/pkg/store/data/provider"
 )
 
@@ -9,6 +12,8 @@ Dataset streams in-memory corpus bytes as RawTokens. Each sample is a []byte;
 bytes are emitted with incrementing Pos per sample.
 */
 type Dataset struct {
+	ctx    context.Context
+	cancel context.CancelFunc
 	corpus [][]byte
 }
 
@@ -28,23 +33,31 @@ func New(opts ...datasetOpts) *Dataset {
 }
 
 /*
-Generate returns a channel that emits RawTokens for each byte in the corpus.
-Pos resets per sample. Closes when done.
+Generate returns an iterator of RawTokens for each byte in the corpus.
+Pos resets per sample.
 */
-func (ds *Dataset) Generate() chan provider.RawToken {
-	return provider.AsyncTokens("local-dataset", func(out chan<- provider.RawToken) {
+func (ds *Dataset) Generate() iter.Seq[provider.RawToken] {
+	return func(yield func(provider.RawToken) bool) {
 		for sampleID, data := range ds.corpus {
 			var pos uint32
 			for _, symbol := range data {
-				out <- provider.RawToken{
+				if !yield(provider.RawToken{
 					SampleID: uint32(sampleID),
 					Symbol:   symbol,
 					Pos:      pos,
+				}) {
+					return
 				}
 				pos++
 			}
 		}
-	})
+	}
+}
+
+func DatasetWithContext(ctx context.Context) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.ctx, dataset.cancel = context.WithCancel(ctx)
+	}
 }
 
 func WithStrings(corpus []string) datasetOpts {

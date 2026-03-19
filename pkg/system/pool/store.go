@@ -1,6 +1,7 @@
 package pool
 
 import (
+	"slices"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -368,17 +369,14 @@ func (rs *ResultStore) wouldCreateCircle(parentID, childID string) bool {
 		if current == parentID {
 			return true
 		}
+		
 		if visited[current] {
 			return false
 		}
+
 		visited[current] = true
 
-		for _, parent := range rs.parents[current] {
-			if check(parent) {
-				return true
-			}
-		}
-		return false
+		return slices.ContainsFunc(rs.parents[current], check)
 	}
 
 	return check(childID)

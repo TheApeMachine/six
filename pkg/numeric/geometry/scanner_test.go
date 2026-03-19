@@ -15,12 +15,10 @@ func TestPhaseDialScanner(t *testing.T) {
 
 		// Insert distinct value sequences at different positions.
 		// Each position gets a unique value so the PhaseDials differ.
-		for pos := uint32(0); pos < 5; pos++ {
+		for pos := range uint32(5) {
 			sym := byte(65 + pos)
-			key := morton.Pack(pos, sym)
-			value := data.BaseValue(byte(sym))
-			values := []data.Value{value}
-			scanner.cache[key] = cachedEntry{
+			values := []data.Value{data.BaseValue(byte(sym))}
+			scanner.cache[morton.Pack(pos, sym)] = cachedEntry{
 				Values: values,
 				Dial:   NewPhaseDial().EncodeFromValues(values),
 			}
@@ -48,7 +46,11 @@ func TestPhaseDialScanner(t *testing.T) {
 			results := scanner.Scan(seedDial, 3)
 
 			gc.So(len(results), gc.ShouldBeGreaterThan, 0)
-			gc.So(results[0].Similarity, gc.ShouldBeGreaterThanOrEqualTo, results[len(results)-1].Similarity)
+			gc.So(
+				results[0].Similarity,
+				gc.ShouldBeGreaterThanOrEqualTo,
+				results[len(results)-1].Similarity,
+			)
 		})
 
 		gc.Convey("Scan with the entry's own dial should rank itself first", func() {
@@ -131,7 +133,7 @@ func TestPhaseDialScanner(t *testing.T) {
 func BenchmarkPhaseDialScan(b *testing.B) {
 	scanner := NewPhaseDialScanner(server.NewForestServer())
 
-	for pos := uint32(0); pos < 100; pos++ {
+	for pos := range uint32(100) {
 		sym := byte(pos % 256)
 		key := morton.Pack(pos, sym)
 		value := data.BaseValue(byte(sym))
@@ -144,9 +146,7 @@ func BenchmarkPhaseDialScan(b *testing.B) {
 
 	queryDial := NewPhaseDial()
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		scanner.Scan(queryDial, 10)
 	}
 }
@@ -167,9 +167,7 @@ func BenchmarkGeodesicScan(b *testing.B) {
 
 	queryDial := NewPhaseDial()
 
-	b.ResetTimer()
-
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		scanner.GeodesicScan(queryDial, 24)
 	}
 }

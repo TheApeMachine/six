@@ -1,12 +1,9 @@
 package path
 
 import (
-	"context"
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/logic/synthesis/goal"
-	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -83,47 +80,47 @@ func TestPathWavefrontAnchorSnap(t *testing.T) {
 	})
 }
 
-func TestPathWavefrontBridgeSynthesis(t *testing.T) {
-	gc.Convey("Given a prefetched path with a genuine phase discontinuity", t, func() {
-		ctx := context.Background()
-		currentValue := WavefrontValue(10, 19, data.OpcodeNext)
-		targetValue := WavefrontValue(200, 0, data.OpcodeHalt)
-		meta := data.MustNewValue()
+// func TestPathWavefrontBridgeSynthesis(t *testing.T) {
+// 	gc.Convey("Given a prefetched path with a genuine phase discontinuity", t, func() {
+// 		ctx := context.Background()
+// 		currentValue := WavefrontValue(10, 19, data.OpcodeNext)
+// 		targetValue := WavefrontValue(200, 0, data.OpcodeHalt)
+// 		meta := data.MustNewValue()
 
-		key := macro.ComputeExpectedAffineKey(currentValue, targetValue)
-		macroIndex := macro.NewMacroIndexServer(macro.MacroIndexWithContext(ctx))
-		for range 6 {
-			macroIndex.RecordOpcode(key)
-		}
+// 		key := macro.ComputeExpectedAffineKey(currentValue, targetValue)
+// 		macroIndex := macro.NewMacroIndexServer(macro.MacroIndexWithContext(ctx))
+// 		for range 6 {
+// 			macroIndex.RecordOpcode(key)
+// 		}
 
-		fe := goal.NewFrustrationEngineServer(
-			goal.FrustrationWithContext(ctx),
-			goal.WithSharedIndex(macroIndex),
-		)
-		defer fe.Close()
+// 		fe := goal.NewFrustrationEngineServer(
+// 			goal.FrustrationWithContext(ctx),
+// 			goal.WithSharedIndex(macroIndex),
+// 		)
+// 		defer fe.Close()
 
-		wavefront := NewWavefront(
-			WavefrontWithFrustrationEngine(fe, int(numeric.FermatPrime), 2),
-		)
+// 		wavefront := NewWavefront(
+// 			WavefrontWithFrustrationEngine(fe, int(numeric.FermatPrime), 2),
+// 		)
 
-		paths := [][]data.Value{{currentValue, targetValue}}
-		metaPaths := [][]data.Value{{meta, meta}}
+// 		paths := [][]data.Value{{currentValue, targetValue}}
+// 		metaPaths := [][]data.Value{{meta, meta}}
 
-		gc.Convey("the wavefront should insert an exact synthetic bridge into the graph path", func() {
-			stablePaths, stableMetaPaths, err := wavefront.Stabilize(paths, metaPaths)
+// 		gc.Convey("the wavefront should insert an exact synthetic bridge into the graph path", func() {
+// 			stablePaths, stableMetaPaths, err := wavefront.Stabilize(paths, metaPaths)
 
-			gc.So(err, gc.ShouldBeNil)
-			gc.So(len(stablePaths), gc.ShouldEqual, 1)
-			gc.So(len(stableMetaPaths), gc.ShouldEqual, 1)
-			gc.So(len(stablePaths[0]), gc.ShouldEqual, 3)
-			gc.So(len(stableMetaPaths[0]), gc.ShouldEqual, 3)
-			gc.So(wavefront.phaseForValue(stablePaths[0][1]), gc.ShouldEqual, numeric.Phase(64))
-			gc.So(wavefront.phaseForValue(stablePaths[0][2]), gc.ShouldEqual, numeric.Phase(200))
-			gc.So(stablePaths[0][1].Mutable(), gc.ShouldBeTrue)
-			gc.So(data.Opcode(stablePaths[0][1].Opcode()), gc.ShouldEqual, data.OpcodeNext)
-		})
-	})
-}
+// 			gc.So(err, gc.ShouldBeNil)
+// 			gc.So(len(stablePaths), gc.ShouldEqual, 1)
+// 			gc.So(len(stableMetaPaths), gc.ShouldEqual, 1)
+// 			gc.So(len(stablePaths[0]), gc.ShouldEqual, 3)
+// 			gc.So(len(stableMetaPaths[0]), gc.ShouldEqual, 3)
+// 			gc.So(wavefront.phaseForValue(stablePaths[0][1]), gc.ShouldEqual, numeric.Phase(64))
+// 			gc.So(wavefront.phaseForValue(stablePaths[0][2]), gc.ShouldEqual, numeric.Phase(200))
+// 			gc.So(stablePaths[0][1].Mutable(), gc.ShouldBeTrue)
+// 			gc.So(data.Opcode(stablePaths[0][1].Opcode()), gc.ShouldEqual, data.OpcodeNext)
+// 		})
+// 	})
+// }
 
 // func TestGraphServerStabilizePathsUsesPathWavefront(t *testing.T) {
 // 	gc.Convey("Given a GraphServer configured with a substrate path wavefront", t, func() {

@@ -1,15 +1,6 @@
 package provider
 
-import (
-	"context"
-	"fmt"
-	"runtime"
-	"sync"
-	"sync/atomic"
-	"time"
-
-	"github.com/theapemachine/six/pkg/system/pool"
-)
+import "iter"
 
 /*
 RawToken represents a single token sample from a Dataset.
@@ -25,49 +16,8 @@ type RawToken struct {
 
 /*
 Dataset represents a streaming source of generic token data.
-Generate returns a channel of RawToken that streams token samples,
-and the channel is closed by the Dataset when all tokens have been produced.
+Generate returns an iterator that yields RawTokens sequentially.
 */
 type Dataset interface {
-	Generate() chan RawToken
-}
-
-var (
-	asyncPoolOnce sync.Once
-	asyncPool     *pool.Pool
-	asyncSeq      atomic.Uint64
-)
-
-func backgroundPool() *pool.Pool {
-	asyncPoolOnce.Do(func() {
-		asyncPool = pool.New(
-			context.Background(),
-			1,
-			runtime.NumCPU(),
-			&pool.Config{},
-		)
-	})
-
-	return asyncPool
-}
-
-/*
-AsyncTokens schedules token production on the shared provider pool and returns
-the output channel immediately.
-*/
-func AsyncTokens(id string, fn func(chan<- RawToken)) chan RawToken {
-	out := make(chan RawToken, 4096)
-
-	backgroundPool().Schedule(
-		fmt.Sprintf("provider/%s/%d", id, asyncSeq.Add(1)),
-		func(ctx context.Context) (any, error) {
-			defer close(out)
-			fn(out)
-			return nil, nil
-		},
-		pool.WithContext(context.Background()),
-		pool.WithTTL(time.Second),
-	)
-
-	return out
+	Generate() iter.Seq[RawToken]
 }

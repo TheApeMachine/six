@@ -8,6 +8,8 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/validate"
@@ -29,8 +31,13 @@ AffineKeyFromValues computes the exact geometric signature of
 the delta between two values. By capturing all 512 bits (8 blocks),
 we eliminate catastrophic phase aliasing in the MacroIndex.
 */
-func AffineKeyFromValues(start, goal data.Value) AffineKey {
-	delta := start.XOR(goal)
+func AffineKeyFromValues(start, goal primitive.Value) AffineKey {
+	state := errnie.NewState("macro/affineKeyFromValues")
+
+	delta := errnie.Guard(state, func() (primitive.Value, error) {
+		return start.XOR(goal)
+	})
+
 	return AffineKey{
 		delta.Block(0), delta.Block(1), delta.Block(2), delta.Block(3),
 		delta.Block(4), delta.Block(5), delta.Block(6), delta.Block(7),
@@ -66,6 +73,22 @@ func (opcode *MacroOpcode) ApplyPhase(phase numeric.Phase) numeric.Phase {
 }
 
 /*
+ProgramCandidate stores a transient system-synthesized program before it is
+trusted enough to live as a hardened MacroOpcode.
+*/
+type ProgramCandidate struct {
+	Key          AffineKey
+	Scale        numeric.Phase
+	Translate    numeric.Phase
+	SuccessCount uint64
+	FailureCount uint64
+	PreResidue   int
+	PostResidue  int
+	Advanced     bool
+	Stable       bool
+}
+
+/*
 AnchorRecord stores a cross-modal prime invariant. Multiple modalities can point
 at the same GF(257) anchor so the system can phase-lock text, images, or other
 streams onto one resonant address.
@@ -93,6 +116,7 @@ type MacroIndexServer struct {
 	clientConns map[string]*rpc.Conn
 	mu          sync.RWMutex
 	opcodes     map[AffineKey]*MacroOpcode
+	candidates  map[AffineKey]*ProgramCandidate
 	anchors     map[numeric.Phase]*AnchorRecord
 	anchorNames map[string]numeric.Phase
 }
@@ -109,6 +133,7 @@ func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 	idx := &MacroIndexServer{
 		clientConns: map[string]*rpc.Conn{},
 		opcodes:     make(map[AffineKey]*MacroOpcode),
+		candidates:  make(map[AffineKey]*ProgramCandidate),
 		anchors:     make(map[numeric.Phase]*AnchorRecord),
 		anchorNames: make(map[string]numeric.Phase),
 	}
@@ -198,8 +223,46 @@ func MacroIndexWithContext(ctx context.Context) IndexOpts {
 /*
 ComputeExpectedAffineKey computes the geometric affine key for bridging two Values.
 */
-func ComputeExpectedAffineKey(startValue, goalValue data.Value) AffineKey {
+func ComputeExpectedAffineKey(startValue, goalValue primitive.Value) AffineKey {
 	return AffineKeyFromValues(startValue, goalValue)
+}
+
+/*
+OpcodeForKey deterministically derives a candidate opcode from one geometric key.
+This is the crystallization step: one exact gap yields one exact operator guess.
+*/
+func OpcodeForKey(key AffineKey) *MacroOpcode {
+	delta := data.MustNewValue()
+	for i, block := range key {
+		switch i {
+		case 0:
+			delta.SetC0(block)
+		case 1:
+			delta.SetC1(block)
+		case 2:
+			delta.SetC2(block)
+		case 3:
+			delta.SetC3(block)
+		case 4:
+			delta.SetC4(block)
+		case 5:
+			delta.SetC5(block)
+		case 6:
+			delta.SetC6(block)
+		case 7:
+			delta.SetC7(block)
+		}
+	}
+
+	scale, translate := delta.RotationSeed()
+
+	return &MacroOpcode{
+		Key:       key,
+		Scale:     numeric.Phase(scale),
+		Translate: numeric.Phase(translate),
+		UseCount:  1,
+		Hardened:  false,
+	}
 }
 
 /*
@@ -230,29 +293,7 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 		return
 	}
 
-	delta := data.MustNewValue()
-	for i, block := range key {
-		// Replace C0..C7 calls with setBlock loop if we had it exported, but Since setBlock is unexported, we must use the exported methods.
-		switch i {
-		case 0: delta.SetC0(block)
-		case 1: delta.SetC1(block)
-		case 2: delta.SetC2(block)
-		case 3: delta.SetC3(block)
-		case 4: delta.SetC4(block)
-		case 5: delta.SetC5(block)
-		case 6: delta.SetC6(block)
-		case 7: delta.SetC7(block)
-		}
-	}
-	scale, translate := delta.RotationSeed()
-
-	idx.opcodes[key] = &MacroOpcode{
-		Key:       key,
-		Scale:     numeric.Phase(scale),
-		Translate: numeric.Phase(translate),
-		UseCount:  1,
-		Hardened:  false,
-	}
+	idx.opcodes[key] = OpcodeForKey(key)
 }
 
 /*
@@ -267,6 +308,71 @@ func (idx *MacroIndexServer) StoreOpcode(opcode *MacroOpcode) {
 	defer idx.mu.Unlock()
 
 	idx.opcodes[opcode.Key] = opcode
+}
+
+/*
+FindCandidate returns the transient synthesis record for one exact geometric gap.
+*/
+func (idx *MacroIndexServer) FindCandidate(key AffineKey) (*ProgramCandidate, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	candidate, exists := idx.candidates[key]
+	return candidate, exists
+}
+
+/*
+RecordCandidateResult updates one transient synthesis candidate with the observed
+execution result. Repeated exact success promotes the candidate into a hardened
+MacroOpcode without widening the key or loosening the match.
+*/
+func (idx *MacroIndexServer) RecordCandidateResult(
+	key AffineKey,
+	preResidue int,
+	postResidue int,
+	advanced bool,
+	stable bool,
+) *ProgramCandidate {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	candidate, exists := idx.candidates[key]
+	if !exists {
+		opcode := OpcodeForKey(key)
+		candidate = &ProgramCandidate{
+			Key:       key,
+			Scale:     opcode.Scale,
+			Translate: opcode.Translate,
+		}
+		idx.candidates[key] = candidate
+	}
+
+	candidate.PreResidue = preResidue
+	candidate.PostResidue = postResidue
+	candidate.Advanced = advanced
+	candidate.Stable = stable
+
+	success := advanced && stable && postResidue < preResidue
+	if success {
+		candidate.SuccessCount++
+
+		opcode, exists := idx.opcodes[key]
+		if !exists {
+			opcode = &MacroOpcode{
+				Key:       key,
+				Scale:     candidate.Scale,
+				Translate: candidate.Translate,
+			}
+			idx.opcodes[key] = opcode
+		}
+
+		opcode.UseCount = candidate.SuccessCount
+		opcode.Hardened = candidate.SuccessCount > hardeningThreshold
+	} else {
+		candidate.FailureCount++
+	}
+
+	return candidate
 }
 
 /*

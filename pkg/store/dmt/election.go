@@ -163,6 +163,7 @@ func (e *Election) startElection() {
 				p.SetTerm(currentTerm)
 				p.SetCandidateId(e.node.config.NodeID)
 				p.SetLastLogIndex(e.getLastLogIndex())
+				p.SetLastLogTerm(e.getLastLogTerm())
 				return nil
 			})
 			defer release()
@@ -425,6 +426,13 @@ func (e *Election) getLastLogIndex() uint64 {
 	e.logLock.RLock()
 	defer e.logLock.RUnlock()
 	return e.lastLogIndex
+}
+
+// getLastLogTerm returns the term of the last log entry.
+func (e *Election) getLastLogTerm() uint64 {
+	e.logLock.RLock()
+	defer e.logLock.RUnlock()
+	return e.lastLogTerm
 }
 
 /*

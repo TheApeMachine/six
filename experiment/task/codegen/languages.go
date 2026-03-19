@@ -1,6 +1,8 @@
 package codegen
 
 import (
+	"iter"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
@@ -282,8 +284,8 @@ type multiDataset struct {
 	current   int
 }
 
-func (md *multiDataset) Generate() chan provider.RawToken {
-	return provider.AsyncTokens("codegen-multi-dataset", func(out chan<- provider.RawToken) {
+func (md *multiDataset) Generate() iter.Seq[provider.RawToken] {
+	return func(yield func(provider.RawToken) bool) {
 		for idx, ds := range md.datasets {
 			for tok := range ds.Generate() {
 				// Upper 8 bits: language index (0–255). Lower 24 bits: per-language SampleID (0–16,777,215).
@@ -292,10 +294,12 @@ func (md *multiDataset) Generate() chan provider.RawToken {
 					panic("SampleID exceeds 24-bit limit; use different encoding")
 				}
 				tok.SampleID = uint32(idx)<<24 | (tok.SampleID & 0x00FFFFFF)
-				out <- tok
+				if !yield(tok) {
+					return
+				}
 			}
 		}
-	})
+	}
 }
 
 func (md *multiDataset) LangForSampleID(id uint32) string {

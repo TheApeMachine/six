@@ -28,6 +28,8 @@ capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/goal/frustration.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/macro/macro_index.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/program.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/primitive/value.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/has.capnp
 
 build: capnp
 	cd pkg/compute/kernel/metal \

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/data"
 )
@@ -76,7 +77,10 @@ func TestCantilever(t *testing.T) {
 				Convey(fmt.Sprintf("%s: bridging should synthesize the correct affine key", name), func() {
 					So(lastErr, ShouldBeNil)
 
-					expectedKey := macro.AffineKeyFromValues(startValue, goalValue)
+					expectedKey := macro.AffineKeyFromValues(
+						primitive.Value(startValue),
+						primitive.Value(goalValue),
+					)
 					t.Logf("lastOp.Key: %v, Expected key: %v", lastOp.Key, expectedKey)
 					So(lastKey, ShouldResemble, expectedKey)
 					So(lastOp, ShouldNotBeNil)
@@ -121,10 +125,10 @@ func TestCantilever(t *testing.T) {
 			macro.MacroIndexWithContext(ctx),
 		)
 
-		key25 := macro.AffineKeyFromValues(data.BaseValue(25), data.BaseValue(26))
+		key25 := macro.AffineKeyFromValues(primitive.BaseValue(25), primitive.BaseValue(26))
 		macroIndex.RecordOpcode(key25)
 
-		key40 := macro.AffineKeyFromValues(data.BaseValue(40), data.BaseValue(41))
+		key40 := macro.AffineKeyFromValues(primitive.BaseValue(40), primitive.BaseValue(41))
 		for range 10 {
 			macroIndex.RecordOpcode(key40)
 		}

@@ -254,3 +254,30 @@ func TestNetworkBroadcast(t *testing.T) {
 		})
 	})
 }
+
+func TestNetworkQuorumSizing(t *testing.T) {
+	Convey("Given a network config with multiple peers", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr: "127.0.0.1:0",
+			NodeID:     "quorum-node",
+			PeerAddrs: []string{
+				"127.0.0.1:1111",
+				"127.0.0.1:2222",
+				"127.0.0.1:3333",
+				"127.0.0.1:4444",
+			},
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+		defer node.Close()
+
+		Convey("It should derive quorum as strict majority", func() {
+			// 5 nodes in cluster (self + 4 peers) => quorum 3
+			So(node.election.config.QuorumSize, ShouldEqual, 3)
+		})
+	})
+}

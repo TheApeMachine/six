@@ -132,7 +132,16 @@ func (p *Pool) manage() {
 			}
 			if !dispatched {
 				log.Warn("no available workers, job timed out", "job", job.ID)
-				p.store.StoreError(job.ID, fmt.Errorf("no available workers"), job.TTL)
+				err := fmt.Errorf("no available workers")
+				if job.OnDrop != nil {
+					job.OnDrop(err)
+				}
+				p.store.deliver(job.ResultID, &Result{
+					Error:     err,
+					TTL:       job.TTL,
+					CreatedAt: time.Now(),
+				})
+				p.store.StoreError(job.ID, err, job.TTL)
 			}
 		}
 	}
@@ -182,9 +191,13 @@ func (p *Pool) Schedule(id string, fn func(ctx context.Context) (any, error), op
 	if job.CircuitID != "" {
 		breaker := p.getCircuitBreaker(job)
 		if breaker != nil && !breaker.Allow() {
+			err := fmt.Errorf("circuit breaker %s is open", job.CircuitID)
+			if job.OnDrop != nil {
+				job.OnDrop(err)
+			}
 			ch := make(chan *Result, 1)
 			ch <- &Result{
-				Error:     fmt.Errorf("circuit breaker %s is open", job.CircuitID),
+				Error:     err,
 				CreatedAt: time.Now(),
 			}
 			close(ch)
@@ -200,10 +213,14 @@ func (p *Pool) Schedule(id string, fn func(ctx context.Context) (any, error), op
 		return resultCh
 	case <-ctx.Done():
 		p.store.cancelAwait(job.ResultID, resultCh)
+		err := fmt.Errorf("job scheduling timeout: %w", ctx.Err())
+		if job.OnDrop != nil {
+			job.OnDrop(err)
+		}
 
 		ch := make(chan *Result, 1)
 		ch <- &Result{
-			Error:     fmt.Errorf("job scheduling timeout: %w", ctx.Err()),
+			Error:     err,
 			CreatedAt: time.Now(),
 		}
 		close(ch)
@@ -241,10 +258,13 @@ func (p *Pool) Metrics() *Metrics {
 startWorker spawns a new worker goroutine and registers it.
 */
 func (p *Pool) startWorker() {
+	workerCtx, workerCancel := context.WithCancel(p.ctx)
+
 	worker := &Worker{
 		pool:   p,
+		ctx:    workerCtx,
 		jobs:   make(chan Job),
-		cancel: nil,
+		cancel: workerCancel,
 	}
 	p.workerMu.Lock()
 	p.workerList = append(p.workerList, worker)

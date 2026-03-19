@@ -10,9 +10,11 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/logic/synthesis"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/system/vm/input"
@@ -157,7 +159,23 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return nil, nil
 	}
 
+	if len(promptValues) >= 2 {
+		startValue := promptValues[len(promptValues)-2]
+		endValue := promptValues[len(promptValues)-1]
+
+		errnie.GuardVoid(machine.state, func() error {
+			return machine.emitHASResult(ctx, startValue, endValue, "prompt")
+		})
+	}
+
 	paths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
+		return valueMatrixToPointerList(
+			capnp.SingleSegment(nil),
+			[][]data.Value{promptValues},
+		)
+	})
+
+	metaPaths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
 		return valueMatrixToPointerList(
 			capnp.SingleSegment(nil),
 			[][]data.Value{promptValues},
@@ -167,7 +185,11 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 	graphFuture, graphRelease := machine.booter.graph.Prompt(ctx, func(
 		p substrate.Graph_prompt_Params,
 	) error {
-		return p.SetPaths(paths)
+		if err := p.SetPaths(paths); err != nil {
+			return err
+		}
+
+		return p.SetMetaPaths(metaPaths)
 	})
 
 	defer graphRelease()
@@ -178,6 +200,15 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 
 	resultPaths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
 		return graphResult.Result()
+	})
+
+	machine.sink.Emit(telemetry.Event{
+		Component: "SpatialIndex",
+		Action:    "Lookup",
+		Data: telemetry.EventData{
+			PathCount: resultPaths.Len(),
+			Message:   msg,
+		},
 	})
 
 	result := errnie.Guard(machine.state, func() ([]byte, error) {
@@ -245,6 +276,10 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 		return machine.state.Err()
 	}
 
+	values, _ := compilePromptSequence(keys)
+	machine.ingestHASBoundaries(ctx, values)
+
+	machine.emitTokenizerTelemetryFromKeys(keys, "ingest-tokenize")
 	machine.writeKeys(ctx, keys)
 
 	errnie.GuardVoid(machine.state, func() error {
@@ -255,6 +290,82 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	})
 
 	return machine.state.Err()
+}
+
+/*
+ingestHASBoundaries feeds adjacent value boundaries to HAS so ingestion-time
+tool synthesis is wired into the runtime pipeline.
+*/
+func (machine *Machine) ingestHASBoundaries(ctx context.Context, values []data.Value) {
+	if machine.booter == nil || !machine.booter.has.IsValid() || len(values) < 2 {
+		return
+	}
+
+	for index := 1; index < len(values); index++ {
+		startValue := values[index-1]
+		endValue := values[index]
+
+		errnie.GuardVoid(machine.state, func() error {
+			return machine.emitHASResult(ctx, startValue, endValue, "dataset")
+		})
+
+		if machine.state.Failed() {
+			return
+		}
+	}
+}
+
+/*
+emitHASResult writes one boundary pair to HAS, finalizes synthesis, and emits a
+plain-text result line that can be inspected in runtime logs.
+*/
+func (machine *Machine) emitHASResult(
+	ctx context.Context,
+	startValue data.Value,
+	endValue data.Value,
+	source string,
+) error {
+	if machine.booter == nil || !machine.booter.has.IsValid() {
+		return nil
+	}
+
+	if err := machine.booter.has.Write(ctx, func(params synthesis.HAS_write_Params) error {
+		if err := params.SetStart(startValue); err != nil {
+			return err
+		}
+
+		return params.SetEnd(endValue)
+	}); err != nil {
+		return err
+	}
+
+	doneFuture, release := machine.booter.has.Done(ctx, nil)
+	defer release()
+
+	doneResult, err := doneFuture.Struct()
+	if err != nil {
+		return err
+	}
+
+	keyText, err := doneResult.KeyText()
+	if err != nil {
+		return err
+	}
+
+	line := fmt.Sprintf(
+		"HAS %s result: key=%s useCount=%d hardened=%t winner=%d residue=%d steps=%d",
+		source,
+		keyText,
+		doneResult.UseCount(),
+		doneResult.Hardened(),
+		doneResult.WinnerIndex(),
+		doneResult.PostResidue(),
+		doneResult.Steps(),
+	)
+
+	console.Trace(line)
+
+	return nil
 }
 
 /*
@@ -287,6 +398,8 @@ func (machine *Machine) tokenizeStream(raw []byte) ([]uint64, error) {
 
 	keys = append(keys, drained...)
 
+	machine.emitTokenizerTelemetryFromKeys(keys, "tokenize")
+
 	return keys, nil
 }
 
@@ -315,6 +428,10 @@ func (machine *Machine) tokenizerDone() ([]uint64, error) {
 writeKeys passes the tokenizer key stream into both spatialIndex and graph.
 */
 func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
+	coder := data.NewMortonCoder()
+	var previousSymbol byte
+	havePrevious := false
+
 	for _, key := range keys {
 		errnie.GuardVoid(machine.state, func() error {
 			return machine.booter.forestClient.Write(
@@ -332,6 +449,60 @@ func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
 					return nil
 				},
 			)
+		})
+
+		_, symbol := coder.Unpack(key)
+		if havePrevious {
+			machine.sink.Emit(telemetry.Event{
+				Component: "LSM",
+				Action:    "Insert",
+				Data: telemetry.EventData{
+					Left:      int(previousSymbol),
+					Right:     int(symbol),
+					Edges:     1,
+					EdgeCount: 1,
+				},
+			})
+		}
+
+		previousSymbol = symbol
+		havePrevious = true
+	}
+}
+
+/*
+emitTokenizerTelemetryFromKeys emits token-level geometry events.
+*/
+func (machine *Machine) emitTokenizerTelemetryFromKeys(keys []uint64, stage string) {
+	coder := data.NewMortonCoder()
+	symbols := make([]byte, len(keys))
+
+	for index, key := range keys {
+		_, symbol := coder.Unpack(key)
+		symbols[index] = symbol
+	}
+
+	for index, key := range keys {
+		position, symbol := coder.Unpack(key)
+		value := data.BaseValue(symbol)
+		rolled := value.RollLeft(int(position))
+		chunkStart := max(index-4, 0)
+		chunkEnd := min(index+5, len(symbols))
+		chunkText := string(symbols[chunkStart:chunkEnd])
+
+		machine.sink.Emit(telemetry.Event{
+			Component: "Tokenizer",
+			Action:    "Value",
+			Data: telemetry.EventData{
+				ValueID:    int(position),
+				Bin:        rolled.Bin(),
+				State:      "stored",
+				ActiveBits: data.ValuePrimeIndices(&rolled),
+				Density:    rolled.ShannonDensity(),
+				ChunkText:  chunkText,
+				Stage:      stage,
+				EdgeCount:  1,
+			},
 		})
 	}
 }

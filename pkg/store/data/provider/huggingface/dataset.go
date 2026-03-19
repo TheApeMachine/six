@@ -2,9 +2,11 @@ package huggingface
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
+	"iter"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"encoding/hex"
 
 	"github.com/parquet-go/parquet-go"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/system/console"
 )
@@ -31,6 +34,9 @@ and emits (SampleID, Symbol, Pos) via Generate(). Supports label extraction,
 multi-column join, and optional transform (e.g. DecodeImageBytes).
 */
 type Dataset struct {
+	ctx          context.Context
+	cancel       context.CancelFunc
+	state        *errnie.State
 	repo         string
 	subset       string
 	split        string
@@ -97,17 +103,16 @@ func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 
 /*
 Generate streams the column as (byte, position) pairs.
-The returned channel closes when all data has been emitted.
 */
-func (dataset *Dataset) Generate() chan provider.RawToken {
-	return provider.AsyncTokens("huggingface-dataset", func(out chan<- provider.RawToken) {
+func (dataset *Dataset) Generate() iter.Seq[provider.RawToken] {
+	return func(yield func(provider.RawToken) bool) {
 		if cached, ok := dataset.snapshotCachedTokens(); ok {
-			dataset.replayCachedTokens(out, cached)
+			dataset.replayCachedTokens(yield, cached)
 			return
 		}
 
 		if !dataset.tryStartCacheLoad() {
-			dataset.replayCachedTokens(out, dataset.waitForCachedTokens())
+			dataset.replayCachedTokens(yield, dataset.waitForCachedTokens())
 			return
 		}
 
@@ -139,7 +144,9 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 			for _, b := range []byte(text) {
 				token := provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
 				tokens = append(tokens, token)
-				out <- token
+				if !yield(token) {
+					return false
+				}
 				pos++
 			}
 
@@ -151,7 +158,9 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 				for _, b := range []byte(suffix) {
 					token := provider.RawToken{SampleID: sampleIdx, Symbol: b, Pos: pos}
 					tokens = append(tokens, token)
-					out <- token
+					if !yield(token) {
+						return false
+					}
 					pos++
 				}
 			}
@@ -168,7 +177,7 @@ func (dataset *Dataset) Generate() chan provider.RawToken {
 		}
 
 		dataset.finishCacheLoad(tokens, true)
-	})
+	}
 }
 
 func (dataset *Dataset) snapshotCachedTokens() ([]provider.RawToken, bool) {
@@ -221,13 +230,18 @@ func (dataset *Dataset) finishCacheLoad(tokens []provider.RawToken, ok bool) {
 		dataset.cachedTokens = tokens
 		dataset.cacheReady = true
 	}
+
 	dataset.cacheLoading = false
 	dataset.cacheCond.Broadcast()
 }
 
-func (dataset *Dataset) replayCachedTokens(out chan<- provider.RawToken, tokens []provider.RawToken) {
+func (dataset *Dataset) replayCachedTokens(
+	yield func(provider.RawToken) bool, tokens []provider.RawToken,
+) {
 	for _, token := range tokens {
-		out <- token
+		if !yield(token) {
+			return
+		}
 	}
 }
 
@@ -473,15 +487,15 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor
 	var total int
 
 	// Read the first token to see if it's an array
-	t, err := dec.Token()
-	if err != nil && err != io.EOF {
-		return fmt.Errorf("huggingface json: %w", err)
-	}
+	t := errnie.Guard(dataset.state, func() (json.Token, error) {
+		return dec.Token()
+	})
 
 	isArray := false
+
 	if delim, ok := t.(json.Delim); ok && delim.String() == "[" {
 		isArray = true
-	} else if err == nil {
+	} else if dataset.state.Err() == nil {
 		dec = json.NewDecoder(io.NewSectionReader(reader, 0, size))
 	}
 
@@ -494,18 +508,22 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor
 		}
 
 		var r map[string]interface{}
+
 		if err := dec.Decode(&r); err != nil {
 			if err != io.EOF {
 				console.Error(err, "msg", "huggingface json decode error", "total", total)
 			}
+
 			if err == io.EOF {
 				break
 			}
+
 			continue
 		}
 
 		// Join text columns.
 		var parts []string
+
 		for _, col := range cols {
 			if v, ok := r[col]; ok {
 				if s, ok := v.(string); ok && s != "" {
@@ -515,6 +533,7 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor
 		}
 
 		text := strings.Join(parts, " ")
+
 		if text == "" {
 			continue
 		}
@@ -526,6 +545,7 @@ func (dataset *Dataset) streamJSON(reader io.ReaderAt, size int64, fn rowVisitor
 		// Extract optional label.
 		var label int
 		hasLabel := false
+
 		if dataset.labelColumn != "" {
 			if v, ok := r[dataset.labelColumn]; ok {
 				switch lv := v.(type) {
@@ -559,39 +579,44 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
 	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
 
-	if data, err := os.ReadFile(cachePath); err == nil {
+	if data := errnie.Guard(dataset.state, func() ([]byte, error) {
+		return os.ReadFile(cachePath)
+	}); data != nil {
 		r := bytes.NewReader(data)
 		return r, r.Size(), nil
 	}
 
 	encodedBranch := strings.ReplaceAll(branch, "/", "%2F")
+
 	url := fmt.Sprintf("%s/datasets/%s/resolve/%s/%s", hfBase, dataset.repo, encodedBranch, shard)
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		return nil, 0, fmt.Errorf("huggingface req: %w", err)
-	}
+
+	req := errnie.Guard(dataset.state, func() (*http.Request, error) {
+		return http.NewRequest("GET", url, nil)
+	})
 
 	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
-	resp, err := httpClient.Do(req)
-	if err != nil {
-		return nil, 0, fmt.Errorf("huggingface: %w", err)
-	}
+
+	resp := errnie.Guard(dataset.state, func() (*http.Response, error) {
+		return httpClient.Do(req)
+	})
+
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		return nil, 0, fmt.Errorf("huggingface: HTTP %d from %s", resp.StatusCode, url)
 	}
 
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, 0, fmt.Errorf("huggingface read: %w", err)
-	}
+	body := errnie.Guard(dataset.state, func() ([]byte, error) {
+		return io.ReadAll(resp.Body)
+	})
 
-	_ = os.WriteFile(cachePath, body, 0644)
+	errnie.GuardVoid(dataset.state, func() error {
+		return os.WriteFile(cachePath, body, 0644)
+	})
 
 	r := bytes.NewReader(body)
 
@@ -727,6 +752,15 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 	}
 
 	return "", "", fmt.Errorf("huggingface: no valid parquet/json/jsonl files in %s for subset %q", dataset.repo, dataset.subset)
+}
+
+/*
+DatasetWithContext binds a cancellable context to the dataset.
+*/
+func DatasetWithContext(ctx context.Context) datasetOpts {
+	return func(dataset *Dataset) {
+		dataset.ctx, dataset.cancel = context.WithCancel(ctx)
+	}
 }
 
 /*

@@ -11,6 +11,11 @@ system:
     chunk: 2048
     timeout: 2000
     remoteOnly: false
+    maxFailures: 3
+    failureTimeout: 5
+    failureBackoff: 2
+    failureMaxRetries: 3
+    failureMaxRetries: 3
 
 architecture:
   numerics:

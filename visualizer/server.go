@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	_ "net/http/pprof"
+
 	"github.com/gorilla/websocket"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -85,6 +87,11 @@ func (server *Server) listenUDP() error {
 ListenAndServe starts the HTTP server on the given address.
 */
 func (server *Server) ListenAndServe(addr string) error {
+	// These 2 lines are only required if you're using mutex or block profiling
+	// Read the explanation below for how to set these rates:
+	runtime.SetMutexProfileFraction(5)
+	runtime.SetBlockProfileRate(5)
+
 	server.pool.Schedule(
 		"visualizer/server/listen-udp",
 		func(ctx context.Context) (any, error) {

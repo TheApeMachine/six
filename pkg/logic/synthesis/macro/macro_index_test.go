@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
 /*
@@ -15,7 +15,10 @@ producing a key that bridges the boundary from the end of the byte range
 back to its start. This exercises the system's modular continuity.
 */
 func keyFromByte(b byte) AffineKey {
-	return AffineKeyFromValues(data.BaseValue(b), data.BaseValue(b+1))
+	return AffineKeyFromValues(
+		primitive.BaseValue(b),
+		primitive.BaseValue(b+1),
+	)
 }
 
 func TestMacroIndex(t *testing.T) {
@@ -213,6 +216,61 @@ func TestMacroIndexConcurrency(t *testing.T) {
 			wg.Wait()
 
 			gc.So(len(idx.AvailableHardened()), gc.ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
+func TestMacroIndexProgramCandidates(t *testing.T) {
+	gc.Convey("Given a MacroIndex tracking synthesized program candidates", t, func() {
+		idx := NewMacroIndexServer()
+		key := keyFromByte(123)
+
+		gc.Convey("RecordCandidateResult should create a candidate and keep it transient after one success", func() {
+			candidate := idx.RecordCandidateResult(key, 9, 3, true, true)
+
+			gc.So(candidate, gc.ShouldNotBeNil)
+			gc.So(candidate.Key, gc.ShouldResemble, key)
+			gc.So(candidate.SuccessCount, gc.ShouldEqual, uint64(1))
+			gc.So(candidate.FailureCount, gc.ShouldEqual, uint64(0))
+			gc.So(candidate.PreResidue, gc.ShouldEqual, 9)
+			gc.So(candidate.PostResidue, gc.ShouldEqual, 3)
+			gc.So(candidate.Advanced, gc.ShouldBeTrue)
+			gc.So(candidate.Stable, gc.ShouldBeTrue)
+
+			opcode, found := idx.FindOpcode(key)
+			gc.So(found, gc.ShouldBeTrue)
+			gc.So(opcode.Hardened, gc.ShouldBeFalse)
+			gc.So(opcode.UseCount, gc.ShouldEqual, uint64(1))
+		})
+
+		gc.Convey("Repeated exact success should promote the candidate into a hardened opcode", func() {
+			for range 6 {
+				idx.RecordCandidateResult(key, 9, 1, true, true)
+			}
+
+			candidate, found := idx.FindCandidate(key)
+			gc.So(found, gc.ShouldBeTrue)
+			gc.So(candidate.SuccessCount, gc.ShouldEqual, uint64(6))
+			gc.So(candidate.FailureCount, gc.ShouldEqual, uint64(0))
+
+			opcode, found := idx.FindOpcode(key)
+			gc.So(found, gc.ShouldBeTrue)
+			gc.So(opcode.UseCount, gc.ShouldEqual, uint64(6))
+			gc.So(opcode.Hardened, gc.ShouldBeTrue)
+		})
+
+		gc.Convey("Failed execution should accumulate failure evidence without promotion", func() {
+			idx.RecordCandidateResult(key, 4, 4, false, false)
+			idx.RecordCandidateResult(key, 4, 5, false, true)
+
+			candidate, found := idx.FindCandidate(key)
+			gc.So(found, gc.ShouldBeTrue)
+			gc.So(candidate.SuccessCount, gc.ShouldEqual, uint64(0))
+			gc.So(candidate.FailureCount, gc.ShouldEqual, uint64(2))
+
+			opcode, found := idx.FindOpcode(key)
+			gc.So(found, gc.ShouldBeFalse)
+			gc.So(opcode, gc.ShouldBeNil)
 		})
 	})
 }

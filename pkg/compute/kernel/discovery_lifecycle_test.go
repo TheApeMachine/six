@@ -88,7 +88,7 @@ func BenchmarkStartDiscoveryCanRestartAfterContextCancellation(b *testing.B) {
 		discoveryMu.Unlock()
 	}()
 
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		config.System.Workers = nil
 		configuredWorkersMu.Lock()
 		configuredWorkers = nil

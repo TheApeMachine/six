@@ -2,393 +2,373 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SIX — Value Geometry Visualizer</title>
-  <meta name="description" content="Real-time 3D visualization of the 257-bit value space and geometric inference engine">
+  <title>SIX — Graph Visualizer</title>
+  <meta name="description" content="Real-time 3D visualization of the SIX inference graph">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bp-bg: #091428;
+      --bp-paper: #0b1a34;
+      --bp-line: rgba(120, 180, 240, 0.12);
+      --bp-line-strong: rgba(120, 180, 240, 0.25);
+      --bp-ink: rgba(180, 210, 255, 0.85);
+      --bp-ink-dim: rgba(120, 160, 220, 0.5);
+      --bp-ink-faint: rgba(90, 130, 190, 0.3);
+      --bp-accent: rgba(255, 220, 140, 0.9);
+      --bp-accent-dim: rgba(255, 220, 140, 0.4);
+      --bp-red: rgba(255, 140, 120, 0.8);
+      --bp-green: rgba(140, 255, 200, 0.75);
+      --bp-panel-bg: rgba(8, 18, 38, 0.88);
+      --bp-panel-border: rgba(100, 160, 240, 0.15);
+      --bp-font: 'IBM Plex Mono', 'Space Mono', monospace;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       overflow: hidden;
-      background: #030308;
-      font-family: 'JetBrains Mono', 'SF Mono', 'Fira Code', monospace;
-      color: #aab;
+      background: var(--bp-bg);
+      font-family: var(--bp-font);
+      color: var(--bp-ink-dim);
     }
     canvas#three-canvas { display: block; position: absolute; top: 0; left: 0; z-index: 0; }
 
-    /* ── Glass Panel Base ─────────────────────────────────── */
-    .glass {
-      background: rgba(8, 8, 24, 0.82);
-      backdrop-filter: blur(20px);
-      -webkit-backdrop-filter: blur(20px);
-      border: 1px solid rgba(100, 120, 255, 0.12);
-      border-radius: 10px;
+    body::before {
+      content: '';
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background:
+        repeating-linear-gradient(
+          0deg,
+          transparent,
+          transparent 19px,
+          rgba(60, 120, 200, 0.018) 19px,
+          rgba(60, 120, 200, 0.018) 20px
+        ),
+        repeating-linear-gradient(
+          90deg,
+          transparent,
+          transparent 19px,
+          rgba(60, 120, 200, 0.018) 19px,
+          rgba(60, 120, 200, 0.018) 20px
+        );
+      pointer-events: none;
+      z-index: 50;
+    }
+
+    .panel {
+      background: var(--bp-panel-bg);
+      border: 1px solid var(--bp-panel-border);
+      border-radius: 0;
     }
 
     /* ── HUD ──────────────────────────────────────────────── */
     #hud {
-      position: absolute;
-      top: 20px;
-      left: 20px;
-      z-index: 100;
-      pointer-events: none;
-      padding: 16px 20px;
-      min-width: 240px;
+      position: absolute; top: 16px; left: 16px;
+      z-index: 100; pointer-events: none;
+      padding: 14px 18px; min-width: 220px;
     }
     .hud-title {
-      font-size: 11px;
-      font-weight: 700;
-      letter-spacing: 5px;
-      text-transform: uppercase;
-      background: linear-gradient(135deg, #7df 0%, #c8f 50%, #ff4488 100%);
-      background-clip: text;
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      margin-bottom: 14px;
+      font-size: 9px; font-weight: 500;
+      letter-spacing: 6px; text-transform: uppercase;
+      color: var(--bp-ink);
+      margin-bottom: 12px;
+      border-bottom: 1px solid var(--bp-line-strong);
+      padding-bottom: 6px;
     }
     .hud-stat {
-      font-size: 11px;
-      margin-bottom: 5px;
-      opacity: 0.65;
-      display: flex;
-      justify-content: space-between;
+      font-size: 9px; margin-bottom: 3px;
+      display: flex; justify-content: space-between;
+      letter-spacing: 0.5px;
     }
-    .hud-stat .val { color: #7df; font-weight: 600; }
+    .hud-stat .val { color: var(--bp-ink); font-weight: 400; }
     .hud-divider {
       height: 1px;
-      background: linear-gradient(90deg, transparent, rgba(100, 120, 255, 0.2), transparent);
-      margin: 8px 0;
+      background: var(--bp-line);
+      margin: 6px 0;
     }
 
     /* ── Pipeline Flow ────────────────────────────────────── */
     #pipeline {
-      position: absolute;
-      top: 20px;
-      right: 20px;
-      width: 260px;
-      z-index: 100;
-      pointer-events: none;
-      padding: 16px 18px;
+      position: absolute; top: 16px; right: 16px;
+      width: 240px; z-index: 100; pointer-events: none;
+      padding: 14px 16px;
     }
     .pipeline-title {
-      font-size: 10px;
-      font-weight: 700;
-      letter-spacing: 3px;
-      text-transform: uppercase;
-      color: #668;
-      margin-bottom: 12px;
+      font-size: 8px; font-weight: 500;
+      letter-spacing: 4px; text-transform: uppercase;
+      color: var(--bp-ink-dim); margin-bottom: 10px;
+      border-bottom: 1px solid var(--bp-line);
+      padding-bottom: 5px;
     }
     .pipeline-stage {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 11px;
-      padding: 6px 0;
-      opacity: 0.35;
-      transition: all 0.3s ease;
+      display: flex; align-items: center; gap: 8px;
+      font-size: 9px; padding: 4px 0; opacity: 0.25;
+      transition: opacity 0.3s;
     }
     .pipeline-stage.active { opacity: 1; }
     .pipeline-stage .dot {
-      width: 8px; height: 8px; border-radius: 50%;
-      background: #334; transition: all 0.3s ease; flex-shrink: 0;
+      width: 5px; height: 5px; border-radius: 0;
+      border: 1px solid var(--bp-ink-faint);
+      background: transparent; transition: all 0.3s; flex-shrink: 0;
     }
     .pipeline-stage.active .dot {
-      background: #0fa;
-      box-shadow: 0 0 12px rgba(0, 255, 170, 0.6);
-      animation: pulse-dot 1s ease-in-out infinite;
+      background: var(--bp-accent);
+      border-color: var(--bp-accent);
     }
     .pipeline-stage.done .dot {
-      background: #7df;
-      box-shadow: 0 0 6px rgba(120, 220, 255, 0.3);
+      background: var(--bp-ink-dim);
+      border-color: var(--bp-ink-dim);
     }
-    .pipeline-stage .stage-label { color: #889; }
-    .pipeline-stage.active .stage-label { color: #ddf; }
-    .pipeline-stage.done .stage-label { color: #8ab; }
-    .pipeline-stage .stage-info {
-      margin-left: auto; font-size: 10px; color: #556;
-    }
-    .pipeline-stage.active .stage-info { color: #0fa; }
-    .pipeline-stage.done .stage-info { color: #7df; }
+    .pipeline-stage .stage-label { color: var(--bp-ink-faint); letter-spacing: 0.5px; }
+    .pipeline-stage.active .stage-label { color: var(--bp-ink); }
+    .pipeline-stage.done .stage-label { color: var(--bp-ink-dim); }
+    .pipeline-stage .stage-info { margin-left: auto; font-size: 8px; color: var(--bp-ink-faint); }
+    .pipeline-stage.active .stage-info { color: var(--bp-accent); }
+    .pipeline-stage.done .stage-info { color: var(--bp-ink-dim); }
     .pipeline-connector {
-      width: 1px; height: 10px;
-      background: rgba(100, 120, 255, 0.1);
-      margin-left: 3.5px;
+      width: 1px; height: 8px;
+      background: var(--bp-line); margin-left: 2px;
     }
     @keyframes pulse-dot {
-      0%, 100% { transform: scale(1); }
-      50% { transform: scale(1.4); }
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
     }
+    .pipeline-stage.active .dot { animation: pulse-dot 1.5s ease-in-out infinite; }
 
     /* ── Current Chunk ────────────────────────────────────── */
     #chunk-panel {
-      position: absolute;
-      bottom: 200px;
-      right: 20px;
-      width: 340px;
-      z-index: 100;
-      pointer-events: none;
-      padding: 14px 16px;
+      position: absolute; bottom: 190px; right: 16px;
+      width: 320px; z-index: 100; pointer-events: none;
+      padding: 12px 14px;
     }
     .chunk-label {
-      font-size: 9px; text-transform: uppercase;
-      letter-spacing: 1.5px; color: #556; margin-bottom: 6px;
+      font-size: 7px; text-transform: uppercase;
+      letter-spacing: 2px; color: var(--bp-ink-faint); margin-bottom: 5px;
     }
     .chunk-text {
-      font-size: 11px; color: #dde; line-height: 1.6;
-      max-height: 80px; overflow: hidden; word-break: break-all;
+      font-size: 9px; color: var(--bp-ink-dim); line-height: 1.5;
+      max-height: 72px; overflow: hidden; word-break: break-all;
     }
     .result-text {
-      font-size: 11px; color: #0fa; line-height: 1.6;
-      max-height: 80px; overflow: hidden; word-break: break-all;
-      margin-top: 8px; padding-top: 8px;
-      border-top: 1px solid rgba(0, 255, 170, 0.15);
+      font-size: 9px; color: var(--bp-green); line-height: 1.5;
+      max-height: 72px; overflow: hidden; word-break: break-all;
+      margin-top: 6px; padding-top: 6px;
+      border-top: 1px solid rgba(140, 255, 200, 0.1);
     }
 
     /* ── Log ──────────────────────────────────────────────── */
     #log-container {
-      position: absolute;
-      bottom: 20px; left: 20px;
-      width: 520px; max-height: 160px;
-      overflow: hidden;
+      position: absolute; bottom: 16px; left: 16px;
+      width: 480px; max-height: 140px; overflow: hidden;
       display: flex; flex-direction: column-reverse;
-      font-size: 10px; opacity: 0.55;
+      font-size: 8px; opacity: 0.45;
       pointer-events: none; z-index: 100;
+      letter-spacing: 0.3px;
     }
-    .log-line {
-      white-space: pre-wrap; margin-top: 2px;
-      animation: slide-in 0.15s ease-out;
-    }
-    @keyframes slide-in {
-      from { opacity: 0; transform: translateY(4px); }
-      to   { opacity: 1; transform: translateY(0); }
-    }
-    .log-ingest   { color: #c8f; }
-    .log-tokenize { color: #7df; }
-    .log-lookup   { color: #0fa; }
-    .log-fold     { color: #f4f; }
-    .log-result   { color: #0fa; }
-    .log-pipeline { color: #fa4; }
-    .log-state    { color: #556; }
+    .log-line { white-space: pre-wrap; margin-top: 2px; }
+    .log-ingest   { color: rgba(180, 160, 240, 0.7); }
+    .log-tokenize { color: rgba(140, 200, 255, 0.7); }
+    .log-lookup   { color: rgba(140, 255, 200, 0.7); }
+    .log-fold     { color: rgba(255, 180, 200, 0.6); }
+    .log-result   { color: rgba(140, 255, 200, 0.7); }
+    .log-pipeline { color: rgba(255, 220, 140, 0.7); }
+    .log-state    { color: var(--bp-ink-faint); }
 
     /* ── Sparkline ────────────────────────────────────────── */
     #sparkline-panel {
-      position: absolute;
-      bottom: 185px;
-      left: 20px;
-      z-index: 100;
-      pointer-events: none;
-      padding: 10px 14px;
-      width: 520px;
+      position: absolute; bottom: 170px; left: 16px;
+      z-index: 100; pointer-events: none;
+      padding: 8px 12px; width: 480px;
     }
     #sparkline-panel .spark-title {
-      font-size: 9px;
-      text-transform: uppercase;
-      letter-spacing: 1.5px;
-      color: #556;
-      margin-bottom: 4px;
+      font-size: 7px; text-transform: uppercase;
+      letter-spacing: 2px; color: var(--bp-ink-faint); margin-bottom: 3px;
     }
-    #sparkline-canvas {
-      width: 490px;
-      height: 60px;
-      display: block;
-    }
+    #sparkline-canvas { width: 456px; height: 50px; display: block; }
 
     /* ── Density Bar ──────────────────────────────────────── */
     #density-bar {
-      position: absolute;
-      bottom: 20px; right: 20px;
-      width: 10px; height: 160px;
-      border-radius: 5px; overflow: hidden; z-index: 100;
+      position: absolute; bottom: 16px; right: 16px;
+      width: 4px; height: 140px;
+      border-radius: 0; overflow: hidden; z-index: 100;
+      border: 1px solid var(--bp-line);
     }
     #density-fill {
       position: absolute; bottom: 0; width: 100%;
-      background: linear-gradient(to top, #0af, #0fa);
-      border-radius: 0 0 5px 5px;
-      transition: height 0.3s ease, background 0.3s;
+      background: linear-gradient(to top, rgba(100, 160, 240, 0.4), var(--bp-accent-dim));
+      transition: height 0.3s ease;
     }
     #density-label {
-      position: absolute;
-      bottom: 185px; right: 20px;
-      font-size: 9px; color: #445;
-      text-transform: uppercase; letter-spacing: 1px; z-index: 100;
+      position: absolute; bottom: 162px; right: 16px;
+      font-size: 7px; color: var(--bp-ink-faint);
+      text-transform: uppercase; letter-spacing: 2px; z-index: 100;
     }
 
     /* ── Replay Controls ──────────────────────────────────── */
     #replay-bar {
-      position: absolute;
-      bottom: 20px;
-      left: 50%;
-      transform: translateX(-50%);
-      z-index: 200;
-      padding: 10px 18px;
-      display: flex;
-      align-items: center;
-      gap: 12px;
-      pointer-events: auto;
-      min-width: 420px;
+      position: absolute; bottom: 16px; left: 50%;
+      transform: translateX(-50%); z-index: 200;
+      padding: 8px 14px; display: flex; align-items: center;
+      gap: 10px; pointer-events: auto; min-width: 400px;
     }
     #replay-bar button {
-      background: rgba(100, 120, 255, 0.15);
-      border: 1px solid rgba(100, 120, 255, 0.25);
-      color: #aac;
-      font-family: inherit;
-      font-size: 11px;
-      padding: 5px 12px;
-      border-radius: 5px;
-      cursor: pointer;
-      transition: all 0.2s;
+      background: rgba(10, 20, 45, 0.8);
+      border: 1px solid var(--bp-line);
+      color: var(--bp-ink-dim); font-family: inherit; font-size: 9px;
+      padding: 4px 10px; border-radius: 0; cursor: pointer;
+      transition: all 0.15s; letter-spacing: 0.5px;
     }
     #replay-bar button:hover {
-      background: rgba(100, 120, 255, 0.3);
-      color: #ddf;
+      background: rgba(20, 40, 80, 0.8);
+      color: var(--bp-ink);
+      border-color: var(--bp-line-strong);
     }
     #replay-bar button.active {
-      background: rgba(0, 255, 170, 0.2);
-      border-color: rgba(0, 255, 170, 0.4);
-      color: #0fa;
+      background: rgba(255, 220, 140, 0.08);
+      border-color: var(--bp-accent-dim);
+      color: var(--bp-accent);
+    }
+    .graph-mode-btn.active {
+      background: rgba(140, 200, 255, 0.08) !important;
+      border-color: rgba(140, 200, 255, 0.3) !important;
+      color: rgba(140, 200, 255, 0.85) !important;
     }
     #replay-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      flex: 1;
-      height: 4px;
-      background: rgba(100, 120, 255, 0.15);
-      border-radius: 2px;
-      outline: none;
+      -webkit-appearance: none; appearance: none;
+      flex: 1; height: 1px;
+      background: var(--bp-line-strong);
+      border-radius: 0; outline: none;
     }
     #replay-slider::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 14px; height: 14px;
-      border-radius: 50%;
-      background: #7df;
-      cursor: pointer;
-      box-shadow: 0 0 8px rgba(120, 220, 255, 0.5);
+      width: 8px; height: 8px; border-radius: 0;
+      background: var(--bp-ink); cursor: pointer;
+      border: 1px solid var(--bp-ink-dim);
     }
-    #replay-info {
-      font-size: 10px;
-      color: #668;
-      min-width: 90px;
-      text-align: right;
-    }
+    #replay-info { font-size: 8px; color: var(--bp-ink-faint); min-width: 80px; text-align: right; }
 
     /* ── CSS2D Labels ─────────────────────────────────────── */
     .group-label {
-      color: #c8f;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 10px; font-weight: 600;
-      text-shadow: 0 0 8px rgba(200, 128, 255, 0.5);
+      color: var(--bp-accent);
+      font-family: var(--bp-font);
+      font-size: 8px; font-weight: 400;
       pointer-events: none; white-space: nowrap;
-      padding: 2px 6px;
-      background: rgba(20, 10, 40, 0.5);
-      border-radius: 4px;
-      border: 1px solid rgba(200, 128, 255, 0.15);
-    }
-    .value-label {
-      color: #7df;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 9px; font-weight: 600;
-      opacity: 0.9; pointer-events: none; white-space: nowrap;
-      text-shadow: 0 0 4px #000, 0 0 10px rgba(0, 170, 255, 0.6);
-      padding: 2px 6px;
-      background: rgba(10, 10, 20, 0.4);
-      border-radius: 4px;
-      border: 1px solid rgba(0, 170, 255, 0.12);
-    }
-    .value-label.state-stored { color: #7df; }
-    .value-label.state-matched { color: #0fa; }
-    .value-label.state-active { color: #ff0; }
-    .fold-label {
-      font-family: 'JetBrains Mono', monospace;
-      font-weight: 700; pointer-events: none;
-      white-space: nowrap; padding: 3px 8px; border-radius: 4px;
-    }
-    .fold-label.level-0 {
-      font-size: 11px; color: #ff4488;
-      text-shadow: 0 0 12px rgba(255, 68, 136, 0.6);
-      background: rgba(60, 10, 25, 0.7);
-      border: 1px solid rgba(255, 68, 136, 0.4);
-    }
-    .fold-label.level-1 {
-      font-size: 10px; color: #44ff88;
-      text-shadow: 0 0 10px rgba(68, 255, 136, 0.5);
-      background: rgba(10, 40, 20, 0.6);
-      border: 1px solid rgba(68, 255, 136, 0.3);
-    }
-    .fold-label.level-2 {
-      font-size: 10px; color: #ffaa33;
-      text-shadow: 0 0 8px rgba(255, 170, 51, 0.4);
-      background: rgba(40, 25, 8, 0.6);
-      border: 1px solid rgba(255, 170, 51, 0.3);
-    }
-    .fold-label.level-deep {
-      font-size: 9px; color: #33ddff;
-      text-shadow: 0 0 6px rgba(51, 221, 255, 0.4);
-      background: rgba(8, 25, 40, 0.5);
-      border: 1px solid rgba(51, 221, 255, 0.2);
+      padding: 1px 4px;
+      background: rgba(8, 18, 38, 0.85);
+      border-radius: 0;
+      border: 1px solid var(--bp-accent-dim);
+      letter-spacing: 0.5px;
     }
     .value-node-label {
-      color: #ddb766;
-      font-family: 'JetBrains Mono', monospace;
-      font-size: 9px; opacity: 0.85;
+      color: var(--bp-ink-dim);
+      font-family: var(--bp-font);
+      font-size: 7px;
       pointer-events: none; white-space: nowrap;
-      text-shadow: 0 0 6px rgba(221, 183, 102, 0.3);
-      padding: 1px 4px;
-      background: rgba(30, 22, 8, 0.4);
-      border-radius: 3px;
-      border: 1px solid rgba(221, 183, 102, 0.12);
+      padding: 0px 3px;
+      background: transparent;
+      border-radius: 0;
+      border: none;
+      letter-spacing: 0.3px;
+    }
+    .fold-label {
+      font-family: var(--bp-font);
+      font-weight: 400; pointer-events: none;
+      white-space: nowrap; padding: 1px 5px; border-radius: 0;
+      letter-spacing: 0.5px;
+    }
+    .fold-label.level-0 {
+      font-size: 9px; color: var(--bp-ink);
+      background: rgba(8, 18, 38, 0.85);
+      border: 1px solid var(--bp-line-strong);
+    }
+    .fold-label.level-1 {
+      font-size: 8px; color: var(--bp-ink-dim);
+      background: rgba(8, 18, 38, 0.8);
+      border: 1px solid var(--bp-line);
+    }
+    .fold-label.level-2 {
+      font-size: 8px; color: var(--bp-ink-dim);
+      background: rgba(8, 18, 38, 0.75);
+      border: 1px solid var(--bp-line);
+    }
+    .fold-label.level-deep {
+      font-size: 7px; color: var(--bp-ink-faint);
+      background: rgba(8, 18, 38, 0.7);
+      border: 1px solid rgba(100, 160, 240, 0.08);
+    }
+
+    /* ── Subsystem Labels ─────────────────────────────────── */
+    .subsystem-label {
+      color: var(--bp-ink);
+      font-family: var(--bp-font);
+      font-size: 8px; font-weight: 500;
+      letter-spacing: 3px; text-transform: uppercase;
+      pointer-events: none; white-space: nowrap;
+      padding: 2px 6px;
+      background: rgba(8, 18, 38, 0.9);
+      border: 1px solid var(--bp-line-strong);
+    }
+    .subsystem-label.center {
+      color: var(--bp-accent);
+      font-size: 10px; letter-spacing: 5px;
+      border-color: var(--bp-accent-dim);
+      padding: 3px 10px;
+    }
+    .conn-label {
+      color: var(--bp-ink-faint);
+      font-family: var(--bp-font);
+      font-size: 6px; letter-spacing: 1px;
+      pointer-events: none; white-space: nowrap;
+      text-transform: uppercase;
     }
   </style>
 </head>
 <body>
 
-  <!-- HUD -->
-  <div id="hud" class="glass">
-    <div class="hud-title">SIX · Value Space</div>
+  <div id="hud" class="panel">
+    <div class="hud-title">SIX · Graph</div>
     <div class="hud-stat"><span>Events</span> <span class="val" id="stat-events">0</span></div>
     <div class="hud-stat"><span>Ingested</span> <span class="val" id="stat-ingested">0</span></div>
-    <div class="hud-stat"><span>Edges</span> <span class="val" id="stat-edges">0</span></div>
+    <div class="hud-stat"><span>Stored</span> <span class="val" id="stat-edges">0</span></div>
     <div class="hud-stat"><span>Groups</span> <span class="val" id="stat-groups">0</span></div>
     <div class="hud-divider"></div>
     <div class="hud-stat"><span>Queries</span> <span class="val" id="stat-queries">0</span></div>
     <div class="hud-stat"><span>Paths</span> <span class="val" id="stat-paths">0</span></div>
     <div class="hud-stat"><span>Folds</span> <span class="val" id="stat-folds">0</span></div>
+    <div class="hud-stat"><span>Token Nodes</span> <span class="val" id="stat-token-nodes">0</span></div>
+    <div class="hud-stat"><span>Flow Edges</span> <span class="val" id="stat-flow-edges">0</span></div>
+    <div class="hud-stat"><span>Fold Links</span> <span class="val" id="stat-fold-links">0</span></div>
     <div class="hud-divider"></div>
     <div class="hud-stat"><span>Status</span> <span class="val" id="stat-conn">offline</span></div>
     <div class="hud-stat"><span>Replay</span> <span class="val" id="stat-replay">live</span></div>
   </div>
 
-  <!-- Pipeline Flow -->
-  <div id="pipeline" class="glass">
+  <div id="pipeline" class="panel">
     <div class="pipeline-title">Pipeline</div>
-
     <div class="pipeline-stage" id="stage-tokenize">
       <div class="dot"></div>
       <span class="stage-label">Tokenizer</span>
       <span class="stage-info" id="stage-tokenize-info"></span>
     </div>
     <div class="pipeline-connector"></div>
-
     <div class="pipeline-stage" id="stage-insert">
       <div class="dot"></div>
-      <span class="stage-label">LSM Insert</span>
+      <span class="stage-label">Radix Insert</span>
       <span class="stage-info" id="stage-insert-info"></span>
     </div>
     <div class="pipeline-connector"></div>
-
     <div class="pipeline-stage" id="stage-lookup">
       <div class="dot"></div>
       <span class="stage-label">Wavefront Lookup</span>
       <span class="stage-info" id="stage-lookup-info"></span>
     </div>
     <div class="pipeline-connector"></div>
-
     <div class="pipeline-stage" id="stage-fold">
       <div class="dot"></div>
       <span class="stage-label">Recursive Fold</span>
       <span class="stage-info" id="stage-fold-info"></span>
     </div>
     <div class="pipeline-connector"></div>
-
     <div class="pipeline-stage" id="stage-decode">
       <div class="dot"></div>
       <span class="stage-label">Decode</span>
@@ -396,36 +376,34 @@
     </div>
   </div>
 
-  <!-- Current Chunk -->
-  <div id="chunk-panel" class="glass">
+  <div id="chunk-panel" class="panel">
     <div class="chunk-label">Current Activity</div>
     <div class="chunk-text" id="chunk-text">—</div>
     <div class="result-text" id="result-text" style="display:none"></div>
   </div>
 
-  <!-- Sparkline -->
-  <div id="sparkline-panel" class="glass">
+  <div id="sparkline-panel" class="panel">
     <div class="spark-title">Bit Density Over Time</div>
-    <canvas id="sparkline-canvas" width="490" height="60"></canvas>
+    <canvas id="sparkline-canvas" width="456" height="50"></canvas>
   </div>
 
-  <!-- Log -->
   <div id="log-container"></div>
 
-  <!-- Density Bar -->
   <div id="density-label">Store</div>
-  <div id="density-bar" class="glass"><div id="density-fill" style="height: 0%"></div></div>
+  <div id="density-bar" class="panel"><div id="density-fill" style="height: 0%"></div></div>
 
-  <!-- Replay Controls -->
-  <div id="replay-bar" class="glass">
-    <button id="btn-rec" class="active" title="Record live events">⏺ REC</button>
+  <div id="replay-bar" class="panel">
+    <button id="btn-mode-fold" class="graph-mode-btn" title="Fold graph only">Fold</button>
+    <button id="btn-mode-flow" class="graph-mode-btn" title="Token flow only">Flow</button>
+    <button id="btn-mode-both" class="graph-mode-btn active" title="Both">Both</button>
+    <button id="btn-rec" class="active" title="Record live events">● REC</button>
     <button id="btn-play" title="Play recorded events">▶</button>
-    <button id="btn-pause" title="Pause playback">⏸</button>
-    <button id="btn-step" title="Step one event forward">⏭</button>
+    <button id="btn-pause" title="Pause">⏸</button>
+    <button id="btn-step" title="Step forward">⏭</button>
     <input type="range" id="replay-slider" min="0" max="0" value="0" step="1">
     <span id="replay-info">0 / 0</span>
-    <button id="btn-export" title="Export recording as JSON">⬇ Save</button>
-    <button id="btn-import" title="Import recording from JSON">⬆ Load</button>
+    <button id="btn-export" title="Export JSON">⬇</button>
+    <button id="btn-import" title="Import JSON">⬆</button>
     <input type="file" id="import-file" accept=".json" style="display:none">
   </div>
 
@@ -442,7 +420,7 @@
     // RECORDING / REPLAY ENGINE
     // ═══════════════════════════════════════════════════════════
     const recording = [];
-    let replayMode = false;   // true when replaying, false when live
+    let replayMode = false;
     let replayIdx = 0;
     let replayTimer = null;
     const startTime = Date.now();
@@ -458,7 +436,7 @@
     function enterReplayMode() {
       replayMode = true;
       statReplay.textContent = 'replay';
-      statReplay.style.color = '#fa4';
+      statReplay.style.color = 'rgba(255, 220, 140, 0.8)';
       btnRec.classList.remove('active');
       resetVisualization();
     }
@@ -467,16 +445,14 @@
       replayMode = false;
       if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
       statReplay.textContent = 'live';
-      statReplay.style.color = '#0fa';
+      statReplay.style.color = 'rgba(140, 255, 200, 0.75)';
       btnRec.classList.add('active');
     }
 
     function replayTo(idx) {
       resetVisualization();
       const target = Math.min(idx, recording.length - 1);
-      for (let i = 0; i <= target; i++) {
-        handleEvent(recording[i]);
-      }
+      for (let i = 0; i <= target; i++) handleEvent(recording[i]);
       replayIdx = target;
       slider.value = replayIdx;
       replayInfo.textContent = `${replayIdx + 1} / ${recording.length}`;
@@ -495,7 +471,7 @@
           clearInterval(replayTimer);
           replayTimer = null;
         }
-      }, 16); // ~60fps
+      }, 16);
     }
 
     function pausePlayback() {
@@ -547,16 +523,14 @@
     // THREE.JS SCENE
     // ═══════════════════════════════════════════════════════════
     const scene = new THREE.Scene();
-    scene.fog = new THREE.FogExp2(0x030308, 0.005);
 
-    const camera = new THREE.PerspectiveCamera(60, innerWidth / innerHeight, 0.1, 500);
-    camera.position.set(0, 22, 42);
+    const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 500);
+    camera.position.set(0, 34, 30);
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, canvas: document.getElementById('three-canvas') || undefined });
     renderer.setSize(innerWidth, innerHeight);
-    renderer.setPixelRatio(devicePixelRatio);
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.1;
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
+    renderer.setClearColor(0x091428);
     if (!document.getElementById('three-canvas')) {
       renderer.domElement.id = 'three-canvas';
       document.body.insertBefore(renderer.domElement, document.body.firstChild);
@@ -573,395 +547,362 @@
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.autoRotate = true;
-    controls.autoRotateSpeed = 0.3;
+    controls.target.set(0, 0, 2);
 
-    // ── Constants ──────────────────────────────────────────────
-    const BITS = 257;
-    const R_MAJOR = 14;
-    const R_MINOR = 5;
-    const GROUP_Y = 14;
-    const GROUP_RADIUS = 12;
-    const MAX_CHORD_NODES = 60;
+    // ── Lighting ─────────────────────────────────────────────
+    scene.add(new THREE.AmbientLight(0x1a3050, 1.2));
+    const dirLight = new THREE.DirectionalLight(0x4a80c0, 0.4);
+    dirLight.position.set(10, 30, 15);
+    scene.add(dirLight);
 
-    // ── 257-Bit Torus Layout ─────────────────────────────────
-    function bitToPosition(bitIdx) {
-      const u = (bitIdx / BITS) * Math.PI * 2;
-      const v = ((bitIdx * 7) % BITS) / BITS * Math.PI * 2;
-      return new THREE.Vector3(
-        (R_MAJOR + R_MINOR * Math.cos(v)) * Math.cos(u),
-        R_MINOR * Math.sin(v),
-        (R_MAJOR + R_MINOR * Math.cos(v)) * Math.sin(u)
+    // ── Grid ──────────────────────────────────────────────────
+    const gridHelper = new THREE.GridHelper(60, 60, 0x1a3a60, 0x0e2244);
+    gridHelper.material.transparent = true;
+    gridHelper.material.opacity = 0.25;
+    scene.add(gridHelper);
+
+    const gridMajor = new THREE.GridHelper(60, 12, 0x2a5080, 0x2a5080);
+    gridMajor.material.transparent = true;
+    gridMajor.material.opacity = 0.12;
+    gridMajor.position.y = 0.01;
+    scene.add(gridMajor);
+
+    // ── Axis Lines ────────────────────────────────────────────
+    const axisMat = new THREE.LineBasicMaterial({ color: 0x3060a0, transparent: true, opacity: 0.15 });
+    for (const [a, b] of [[[-30, 0, 0], [30, 0, 0]], [[0, 0, -20], [0, 0, 20]]]) {
+      const g = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(...a), new THREE.Vector3(...b)]);
+      scene.add(new THREE.Line(g, axisMat));
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // SUBSYSTEM ARCHITECTURE
+    // ═══════════════════════════════════════════════════════════
+    const zoneGroup = new THREE.Group();
+    scene.add(zoneGroup);
+    const foldLayer = new THREE.Group();
+    scene.add(foldLayer);
+    const flowLayer = new THREE.Group();
+    scene.add(flowLayer);
+
+    const SYS = {
+      machine:   { x: 0,   z: 0,   w: 8, h: 6, label: 'MACHINE',     accent: true },
+      dataset:   { x: -16, z: 12,  w: 7, h: 5, label: 'DATASET'              },
+      tokenizer: { x: 0,   z: 12,  w: 8, h: 5, label: 'TOKENIZER'            },
+      forest:    { x: 16,  z: 12,  w: 7, h: 5, label: 'FOREST · DMT'         },
+      graph:     { x: 14,  z: 0,   w: 8, h: 6, label: 'GRAPH'                },
+      has:       { x: -14, z: 0,   w: 7, h: 5, label: 'HAS'                  },
+      macroIdx:  { x: 0,   z: -12, w: 8, h: 5, label: 'MACRO INDEX'          },
+    };
+
+    const CONNS = [
+      { from: 'dataset',   to: 'tokenizer', tag: 'raw bytes'   },
+      { from: 'tokenizer', to: 'machine',   tag: 'morton keys' },
+      { from: 'machine',   to: 'forest',    tag: 'write keys'  },
+      { from: 'machine',   to: 'graph',     tag: 'paths'       },
+      { from: 'machine',   to: 'has',       tag: 'boundaries'  },
+      { from: 'has',       to: 'macroIdx',  tag: 'opcodes'     },
+      { from: 'graph',     to: 'macroIdx',  tag: 'tools'       },
+      { from: 'graph',     to: 'forest',    tag: 'lookup'      },
+    ];
+
+    const zoneMat = new THREE.LineBasicMaterial({ color: 0x4080c0, transparent: true, opacity: 0.22 });
+    const zoneAccentMat = new THREE.LineBasicMaterial({ color: 0xffdc8c, transparent: true, opacity: 0.3 });
+    const cornerMat = new THREE.LineBasicMaterial({ color: 0x4080c0, transparent: true, opacity: 0.3 });
+    const cornerAccentMat = new THREE.LineBasicMaterial({ color: 0xffdc8c, transparent: true, opacity: 0.45 });
+
+    for (const [key, sys] of Object.entries(SYS)) {
+      const hw = sys.w / 2, hh = sys.h / 2;
+      const y = 0.05;
+      const corners = [
+        new THREE.Vector3(sys.x - hw, y, sys.z - hh),
+        new THREE.Vector3(sys.x + hw, y, sys.z - hh),
+        new THREE.Vector3(sys.x + hw, y, sys.z + hh),
+        new THREE.Vector3(sys.x - hw, y, sys.z + hh),
+        new THREE.Vector3(sys.x - hw, y, sys.z - hh),
+      ];
+
+      const geo = new THREE.BufferGeometry().setFromPoints(corners);
+      zoneGroup.add(new THREE.Line(geo, sys.accent ? zoneAccentMat : zoneMat));
+
+      const cMat = sys.accent ? cornerAccentMat : cornerMat;
+      const cs = 0.4;
+      for (const c of corners.slice(0, 4)) {
+        const hg = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(c.x - cs, y, c.z), new THREE.Vector3(c.x + cs, y, c.z),
+        ]);
+        zoneGroup.add(new THREE.Line(hg, cMat));
+
+        const vg = new THREE.BufferGeometry().setFromPoints([
+          new THREE.Vector3(c.x, y, c.z - cs), new THREE.Vector3(c.x, y, c.z + cs),
+        ]);
+        zoneGroup.add(new THREE.Line(vg, cMat));
+      }
+
+      const div = document.createElement('div');
+      div.className = sys.accent ? 'subsystem-label center' : 'subsystem-label';
+      div.textContent = sys.label;
+      const lbl = new CSS2DObject(div);
+      lbl.position.set(sys.x, 0.1, sys.z - hh - 0.8);
+      zoneGroup.add(lbl);
+
+      sys.center = new THREE.Vector3(sys.x, 0.3, sys.z);
+      sys.labelObj = lbl;
+      sys.activeGlow = null;
+    }
+
+    // ── Connection Lines ──────────────────────────────────────
+    const connDashMat = new THREE.LineDashedMaterial({
+      color: 0x3060a0, transparent: true, opacity: 0.14,
+      dashSize: 0.6, gapSize: 0.35,
+    });
+
+    for (const conn of CONNS) {
+      const fromSys = SYS[conn.from], toSys = SYS[conn.to];
+      const fromPt = new THREE.Vector3(fromSys.x, 0.04, fromSys.z);
+      const toPt = new THREE.Vector3(toSys.x, 0.04, toSys.z);
+
+      const geo = new THREE.BufferGeometry().setFromPoints([fromPt, toPt]);
+      const line = new THREE.Line(geo, connDashMat);
+      line.computeLineDistances();
+      zoneGroup.add(line);
+
+      const mid = new THREE.Vector3().lerpVectors(fromPt, toPt, 0.5);
+      const tagDiv = document.createElement('div');
+      tagDiv.className = 'conn-label';
+      tagDiv.textContent = conn.tag;
+      const tagLbl = new CSS2DObject(tagDiv);
+      tagLbl.position.copy(mid).setY(0.08);
+      zoneGroup.add(tagLbl);
+
+      conn.fromPt = fromPt;
+      conn.toPt = toPt;
+    }
+
+    // ── Directional Arrows ────────────────────────────────────
+    const arrowGeo = new THREE.ConeGeometry(0.18, 0.5, 4);
+    const arrowMat = new THREE.MeshBasicMaterial({ color: 0x3060a0, transparent: true, opacity: 0.2 });
+
+    for (const conn of CONNS) {
+      const dir = new THREE.Vector3().subVectors(conn.toPt, conn.fromPt);
+      const mid = new THREE.Vector3().lerpVectors(conn.fromPt, conn.toPt, 0.65);
+
+      const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+      arrow.position.copy(mid).setY(0.15);
+      arrow.quaternion.setFromUnitVectors(
+        new THREE.Vector3(0, 1, 0),
+        dir.clone().setY(0).normalize(),
       );
+      zoneGroup.add(arrow);
     }
 
-    // ── Torus ─────────────────────────────────────────────────
-    const torusGeo = new THREE.TorusGeometry(R_MAJOR, R_MINOR, 48, 160);
-    const torusSolidMat = new THREE.MeshPhongMaterial({
-      color: 0x050515, specular: 0x222244, shininess: 60,
-      transparent: false, opacity: 1.0
-    });
-    const torusWireMat = new THREE.MeshBasicMaterial({
-      color: 0x151530, wireframe: true, transparent: true, opacity: 0.35,
-      blending: THREE.AdditiveBlending
-    });
+    // ═══════════════════════════════════════════════════════════
+    // DATA PARTICLES (flow between subsystems)
+    // ═══════════════════════════════════════════════════════════
+    const particleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
+    const particles = [];
+    const MAX_PARTICLES = 120;
 
-    const torusSolid = new THREE.Mesh(torusGeo, torusSolidMat);
-    torusSolid.rotation.x = -Math.PI / 2;
-    scene.add(torusSolid);
+    function spawnParticle(fromKey, toKey, color, duration = 1200) {
+      const from = SYS[fromKey], to = SYS[toKey];
+      if (!from || !to) return;
 
-    const torusWire = new THREE.Mesh(torusGeo, torusWireMat);
-    torusWire.rotation.x = -Math.PI / 2;
-    scene.add(torusWire);
+      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
+      const mesh = new THREE.Mesh(particleGeo, mat);
+      mesh.position.copy(from.center);
+      flowLayer.add(mesh);
 
-    // ── Active Bit Markers on Torus ──────────────────────────
-    const bitMarkerGroup = new THREE.Group();
-    scene.add(bitMarkerGroup);
-    const bitMarkers = [];
-    const bitMarkerGeo = new THREE.SphereGeometry(0.12, 8, 8);
+      particles.push({
+        mesh,
+        start: from.center.clone(),
+        end: to.center.clone(),
+        t0: Date.now(),
+        dur: duration,
+      });
 
-    function showActiveBits(bits, color = 0x00ffaa) {
-      // Clear old bit markers.
-      for (const m of bitMarkers) {
-        bitMarkerGroup.remove(m);
-        m.material.dispose();
-      }
-      bitMarkers.length = 0;
-
-      for (const idx of bits) {
-        const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.9 });
-        const mesh = new THREE.Mesh(bitMarkerGeo, mat);
-        const pos = bitToPosition(idx);
-        // Offset outwards slightly.
-        const dir = pos.clone().normalize();
-        mesh.position.copy(pos).addScaledVector(dir, 0.3);
-        bitMarkerGroup.add(mesh);
-        bitMarkers.push(mesh);
+      while (particles.length > MAX_PARTICLES) {
+        const old = particles.shift();
+        flowLayer.remove(old.mesh);
+        old.mesh.material.dispose();
       }
     }
 
-    // ── LSM Ring (256 byte positions) ────────────────────────
-    const LSM_RADIUS = 8;
-    const LSM_Y = -8;
-    const lsmGroup = new THREE.Group();
-    scene.add(lsmGroup);
+    function updateParticles() {
+      const now = Date.now();
 
-    const lsmByteMeshes = [];
-    const lsmByteGeo = new THREE.SphereGeometry(0.07, 6, 6);
-    const lsmByteMat = new THREE.MeshBasicMaterial({ color: 0x181030, transparent: true, opacity: 0.3 });
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        const t = (now - p.t0) / p.dur;
 
-    for (let i = 0; i < 256; i++) {
-      const angle = (i / 256) * Math.PI * 2;
-      const mesh = new THREE.Mesh(lsmByteGeo, lsmByteMat.clone());
-      mesh.position.set(LSM_RADIUS * Math.cos(angle), LSM_Y, LSM_RADIUS * Math.sin(angle));
-      lsmGroup.add(mesh);
-      lsmByteMeshes.push(mesh);
-    }
+        if (t >= 1) {
+          flowLayer.remove(p.mesh);
+          p.mesh.material.dispose();
+          particles.splice(i, 1);
+          continue;
+        }
 
-    const lsmRingGeo = new THREE.RingGeometry(LSM_RADIUS - 0.04, LSM_RADIUS + 0.04, 128);
-    const lsmRingMat = new THREE.MeshBasicMaterial({ color: 0x120826, side: THREE.DoubleSide, transparent: true, opacity: 0.12 });
-    const lsmRingMesh = new THREE.Mesh(lsmRingGeo, lsmRingMat);
-    lsmRingMesh.rotation.x = -Math.PI / 2;
-    lsmRingMesh.position.y = LSM_Y;
-    lsmGroup.add(lsmRingMesh);
-
-    const lsmEdgeGroup = new THREE.Group();
-    lsmGroup.add(lsmEdgeGroup);
-
-    function lsmBytePosition(byteVal) {
-      const angle = (byteVal / 256) * Math.PI * 2;
-      return new THREE.Vector3(LSM_RADIUS * Math.cos(angle), LSM_Y, LSM_RADIUS * Math.sin(angle));
-    }
-
-    function drawLSMEdge(left, right) {
-      const p1 = lsmBytePosition(left);
-      const p2 = lsmBytePosition(right);
-      const mid = new THREE.Vector3().addVectors(p1, p2).multiplyScalar(0.5);
-      mid.y = LSM_Y + 1.2;
-
-      const curve = new THREE.QuadraticBezierCurve3(p1, mid, p2);
-      const pts = curve.getPoints(16);
-      const geo = new THREE.BufferGeometry().setFromPoints(pts);
-      const mat = new THREE.LineBasicMaterial({ color: 0x6622aa, transparent: true, opacity: 0.12, blending: THREE.AdditiveBlending });
-      lsmEdgeGroup.add(new THREE.Line(geo, mat));
-
-      if (lsmEdgeGroup.children.length > 600) {
-        const old = lsmEdgeGroup.children[0];
-        lsmEdgeGroup.remove(old);
-        old.geometry.dispose();
-        old.material.dispose();
+        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+        p.mesh.position.lerpVectors(p.start, p.end, ease);
+        p.mesh.position.y = 0.3 + Math.sin(t * Math.PI) * 2.5;
+        p.mesh.material.opacity = 0.85 * (1 - t * 0.6);
+        p.mesh.rotation.y += 0.08;
       }
-
-      lsmByteMeshes[left % 256].material.color.setHex(0x8844ff);
-      lsmByteMeshes[left % 256].material.opacity = 0.7;
-      lsmByteMeshes[right % 256].material.color.setHex(0x8844ff);
-      lsmByteMeshes[right % 256].material.opacity = 0.7;
     }
 
-    // ── Group Labels ─────────────────────────────────────────
-    const groups = new Map();
-    const groupLayer = new THREE.Group();
-    scene.add(groupLayer);
+    // ═══════════════════════════════════════════════════════════
+    // ZONE ACTIVITY LABELS (tokens, fold nodes, stats)
+    // ═══════════════════════════════════════════════════════════
+    const zoneLabels = new Map();
+    const MAX_ZONE_LABELS = 10;
 
-    const groupRingGeo = new THREE.RingGeometry(GROUP_RADIUS - 0.03, GROUP_RADIUS + 0.03, 128);
-    const groupRingMat = new THREE.MeshBasicMaterial({ color: 0x1a082e, side: THREE.DoubleSide, transparent: true, opacity: 0.08 });
-    const groupRingMesh = new THREE.Mesh(groupRingGeo, groupRingMat);
-    groupRingMesh.rotation.x = -Math.PI / 2;
-    groupRingMesh.position.y = GROUP_Y;
-    groupLayer.add(groupRingMesh);
+    function addZoneLabel(sysKey, text) {
+      const sys = SYS[sysKey];
+      if (!sys) return;
 
-    function groupPosition(bin) {
-      const angle = (bin / 256) * Math.PI * 2;
-      return new THREE.Vector3(GROUP_RADIUS * Math.cos(angle), GROUP_Y, GROUP_RADIUS * Math.sin(angle));
-    }
-
-    function getOrCreateGroup(bin) {
-      if (groups.has(bin)) return groups.get(bin);
-
-      const basePos = groupPosition(bin);
-      const yOffset = ((bin * 37) % 7 - 3) * 0.5;
-      const pos = new THREE.Vector3(basePos.x, basePos.y + yOffset, basePos.z);
-
-      const labelDiv = document.createElement('div');
-      labelDiv.className = 'group-label';
-      labelDiv.textContent = '';
-      const labelObj = new CSS2DObject(labelDiv);
-      labelObj.position.copy(pos);
-      groupLayer.add(labelObj);
-
-      const group = { label: labelObj, labelDiv, values: [], count: 0, pos, visibleCount: 0 };
-      groups.set(bin, group);
-      return group;
-    }
-
-    // ── Value Nodes ──────────────────────────────────────────
-    const valueNodes = [];
-    const valueNodeGroup = new THREE.Group();
-    scene.add(valueNodeGroup);
-
-    const valueLineMat = new THREE.LineBasicMaterial({ color: 0x997733, transparent: true, opacity: 0.25 });
-
-    function addValueNode(valueId, bin, state, text) {
-      const group = getOrCreateGroup(bin);
-      group.count++;
-      group.visibleCount++;
-      group.values.push({ id: valueId, text, state });
-      group.labelDiv.textContent = group.values[0].text.trim();
-
-      const angle = (group.count * 2.399) % (Math.PI * 2);
-      const r = Math.sqrt(Math.min(group.count, 12)) * 0.4;
-      const nodePos = group.pos.clone().add(new THREE.Vector3(
-        r * Math.cos(angle),
-        -1.5 - Math.min(group.count, 8) * 0.15,
-        r * Math.sin(angle)
-      ));
+      const arr = zoneLabels.get(sysKey) || [];
+      const idx = arr.length % MAX_ZONE_LABELS;
+      const col = idx % 4, row = Math.floor(idx / 4);
 
       const div = document.createElement('div');
       div.className = 'value-node-label';
-      div.textContent = text.trim();
-      const labelObj = new CSS2DObject(div);
-      labelObj.position.copy(nodePos);
-      valueNodeGroup.add(labelObj);
+      div.textContent = text.slice(0, 22);
 
-      const node = { labelObj, labelDiv: div, valueId, bin, state, text };
-      valueNodes.push(node);
+      const lbl = new CSS2DObject(div);
+      lbl.position.set(
+        sys.x - 2.5 + col * 1.8,
+        0.15 + row * 0.6,
+        sys.z + 0.5 + row * 0.4,
+      );
+      zoneGroup.add(lbl);
+      arr.push({ lbl, div, time: Date.now() });
 
-      const lineGeo = new THREE.BufferGeometry().setFromPoints([group.pos, nodePos]);
-      const line = new THREE.Line(lineGeo, valueLineMat.clone());
-      valueNodeGroup.add(line);
-      node.line = line;
-
-      if (valueNodes.length > MAX_CHORD_NODES) {
-        const old = valueNodes.shift();
-        valueNodeGroup.remove(old.labelObj);
-        if (old.line) { valueNodeGroup.remove(old.line); old.line.geometry.dispose(); old.line.material.dispose(); }
-        const oldGroup = groups.get(old.bin);
-        if (oldGroup) {
-          oldGroup.visibleCount--;
-          if (oldGroup.visibleCount <= 0) {
-            groupLayer.remove(oldGroup.label);
-            groups.delete(old.bin);
-          }
-        }
+      while (arr.length > MAX_ZONE_LABELS) {
+        const old = arr.shift();
+        zoneGroup.remove(old.lbl);
       }
+
+      zoneLabels.set(sysKey, arr);
     }
 
-    // ── Fold Tree ────────────────────────────────────────────
-    const foldNodes = new Map();
-    const foldLayer = new THREE.Group();
-    scene.add(foldLayer);
-    const FOLD_BASE_Y = GROUP_Y + 3;
-    const FOLD_LEVEL_STEP = 2.5;
-    const foldChildCounts = new Map();
+    function clearZoneLabels(sysKey) {
+      const arr = zoneLabels.get(sysKey);
+      if (!arr) return;
 
-    function nodeChildIdx(parentKey) {
-      const count = (foldChildCounts.get(parentKey) || 0);
-      foldChildCounts.set(parentKey, count + 1);
-      return count;
+      for (const item of arr) zoneGroup.remove(item.lbl);
+      arr.length = 0;
     }
 
-    function addFoldNode(bin, level, theta, parentBin, _childCount, density, text) {
-      const key = `${parentBin}-L${level}-${bin}`;
-      if (foldNodes.has(key)) return;
+    function clearAllZoneLabels() {
+      for (const [key] of zoneLabels) clearZoneLabels(key);
+      zoneLabels.clear();
+    }
 
-      let parentKey = null;
-      let parentPos = null;
+    // ═══════════════════════════════════════════════════════════
+    // FOLD TREE (within Graph zone)
+    // ═══════════════════════════════════════════════════════════
+    const foldNodes = [];
+    const MAX_FOLD_NODES = 40;
+    const foldLineMats = {
+      0: new THREE.LineBasicMaterial({ color: 0x6090c0, transparent: true, opacity: 0.3 }),
+      1: new THREE.LineBasicMaterial({ color: 0x5080b0, transparent: true, opacity: 0.22 }),
+      deep: new THREE.LineBasicMaterial({ color: 0x4070a0, transparent: true, opacity: 0.15 }),
+    };
 
-      if (level > 0) {
-        for (const [k, node] of foldNodes) {
-          if (node.bin === parentBin && node.level === level - 1) {
-            parentKey = k;
-            parentPos = node.pos;
-            break;
-          }
-        }
-      }
+    function addFoldNode(bin, level, density, text) {
+      const sys = SYS.graph;
+      const idx = foldNodes.length;
+      const col = idx % 5, row = Math.floor(idx / 5);
 
-      let pos;
-      if (parentPos) {
-        const spread = (nodeChildIdx(parentKey) * 2.0) - 1.0;
-        pos = new THREE.Vector3(parentPos.x + spread, parentPos.y + FOLD_LEVEL_STEP, parentPos.z);
-      } else {
-        const radius = GROUP_RADIUS * 0.9;
-        pos = new THREE.Vector3(radius * Math.cos(theta), FOLD_BASE_Y, radius * Math.sin(theta));
-      }
+      const x = sys.x - 3 + col * 1.5;
+      const y = 0.4 + level * 1.8;
+      const z = sys.z - 0.5 + row * 0.8;
 
       const levelClass = level === 0 ? 'level-0' : level === 1 ? 'level-1' : level === 2 ? 'level-2' : 'level-deep';
       const div = document.createElement('div');
       div.className = `fold-label ${levelClass}`;
-      div.textContent = (text || '').trim() || `[${(density * 100).toFixed(0)}%]`;
+      div.textContent = (text || '').trim().slice(0, 16) || `[${(density * 100).toFixed(0)}%]`;
 
-      const labelObj = new CSS2DObject(div);
-      labelObj.position.copy(pos);
-      foldLayer.add(labelObj);
+      const lbl = new CSS2DObject(div);
+      lbl.position.set(x, y, z);
+      foldLayer.add(lbl);
 
-      foldNodes.set(key, { labelObj, pos, level, parentKey, bin, childIdx: 0 });
+      const pos = new THREE.Vector3(x, y, z);
+      const node = { lbl, pos, level, bin };
 
-      if (parentKey && parentPos) {
-        const lineColor = level === 1 ? 0x44ff88 : level === 2 ? 0xffaa33 : 0x33ddff;
-        const lineGeo = new THREE.BufferGeometry().setFromPoints([parentPos, pos]);
-        const lineMat = new THREE.LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.45 });
-        foldLayer.add(new THREE.Line(lineGeo, lineMat));
+      if (foldNodes.length > 0) {
+        const parent = foldNodes[Math.max(0, foldNodes.length - 1 - (level > 0 ? 1 : 0))];
+        const mat = foldLineMats[level] || foldLineMats.deep;
+        const lineGeo = new THREE.BufferGeometry().setFromPoints([parent.pos, pos]);
+        const line = new THREE.Line(lineGeo, mat);
+        foldLayer.add(line);
+        node.line = line;
+      }
+
+      foldNodes.push(node);
+
+      while (foldNodes.length > MAX_FOLD_NODES) {
+        const old = foldNodes.shift();
+        foldLayer.remove(old.lbl);
+        if (old.line) { foldLayer.remove(old.line); old.line.geometry.dispose(); }
       }
     }
 
-    // ── Torus Surface Labels ─────────────────────────────────
-    const torusLabelsGroup = new THREE.Group();
-    scene.add(torusLabelsGroup);
-    const torusLabels = [];
-
-    function addTorusLabel(text, centerPosition, state) {
-      if (!text || text.trim() === '') return;
-
-      const div = document.createElement('div');
-      div.className = `value-label state-${state || 'stored'}`;
-      div.textContent = text.trim();
-
-      const labelObj = new CSS2DObject(div);
-      const p = centerPosition.clone();
-      if (p.x === 0 && p.z === 0) p.x = 0.1;
-      const theta = Math.atan2(p.z, p.x);
-      const pMajor = new THREE.Vector3(R_MAJOR * Math.cos(theta), 0, R_MAJOR * Math.sin(theta));
-      const yBias = Math.max(-1.0, Math.min(1.0, p.y / (R_MINOR * 0.35)));
-      const phi = Math.asin(yBias);
-      const dir = new THREE.Vector3(
-        Math.cos(phi) * Math.cos(theta),
-        Math.sin(phi),
-        Math.cos(phi) * Math.sin(theta)
-      ).normalize();
-
-      labelObj.position.copy(pMajor).add(dir.multiplyScalar(R_MINOR + 1.2));
-      torusLabelsGroup.add(labelObj);
-
-      torusLabels.push({ obj: labelObj, div, createdAt: performance.now() });
-      if (torusLabels.length > 50) {
-        const old = torusLabels.shift();
-        torusLabelsGroup.remove(old.obj);
+    function clearFoldNodes() {
+      for (const n of foldNodes) {
+        foldLayer.remove(n.lbl);
+        if (n.line) { foldLayer.remove(n.line); n.line.geometry.dispose(); }
       }
+      foldNodes.length = 0;
     }
-
-    // ── Lighting ─────────────────────────────────────────────
-    scene.add(new THREE.AmbientLight(0x334466, 0.4));
-
-    const light1 = new THREE.PointLight(0x4488ff, 500, 100);
-    light1.position.set(0, 30, 20);
-    scene.add(light1);
-
-    const light2 = new THREE.PointLight(0xff44aa, 350, 100);
-    light2.position.set(0, -20, -20);
-    scene.add(light2);
-
-    const light3 = new THREE.PointLight(0x00ffaa, 200, 80);
-    light3.position.set(20, 5, -10);
-    scene.add(light3);
 
     // ═══════════════════════════════════════════════════════════
-    // VISUALIZATION RESET (for replay)
+    // GRAPH MODE TOGGLE
+    // ═══════════════════════════════════════════════════════════
+    function setGraphMode(mode) {
+      foldLayer.visible = mode === 'fold' || mode === 'both';
+      flowLayer.visible = mode === 'flow' || mode === 'both';
+      btnModeFold.classList.toggle('active', mode === 'fold');
+      btnModeFlow.classList.toggle('active', mode === 'flow');
+      btnModeBoth.classList.toggle('active', mode === 'both');
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // VISUALIZATION RESET
     // ═══════════════════════════════════════════════════════════
     function resetVisualization() {
-      // Clear value nodes.
-      for (const n of valueNodes) {
-        valueNodeGroup.remove(n.labelObj);
-        if (n.line) { valueNodeGroup.remove(n.line); n.line.geometry.dispose(); n.line.material.dispose(); }
+      clearAllZoneLabels();
+      clearFoldNodes();
+
+      for (const p of particles) {
+        flowLayer.remove(p.mesh);
+        p.mesh.material.dispose();
       }
-      valueNodes.length = 0;
+      particles.length = 0;
 
-      // Clear groups.
-      for (const [, g] of groups) groupLayer.remove(g.label);
-      groups.clear();
-
-      // Clear fold nodes.
-      while (foldLayer.children.length > 0) {
-        const child = foldLayer.children[0];
-        foldLayer.remove(child);
-        if (child.geometry) child.geometry.dispose();
-        if (child.material) child.material.dispose();
-      }
-      foldNodes.clear();
-      foldChildCounts.clear();
-
-      // Clear torus labels.
-      for (const tl of torusLabels) torusLabelsGroup.remove(tl.obj);
-      torusLabels.length = 0;
-
-      // Clear LSM edges.
-      while (lsmEdgeGroup.children.length > 0) {
-        const child = lsmEdgeGroup.children[0];
-        lsmEdgeGroup.remove(child);
-        child.geometry.dispose();
-        child.material.dispose();
-      }
-
-      // Clear bit markers.
-      for (const m of bitMarkers) { bitMarkerGroup.remove(m); m.material.dispose(); }
-      bitMarkers.length = 0;
-
-      // Clear transition markers.
-      for (const m of transitionMarkers) { transitionGroup.remove(m); m.material.dispose(); }
-      transitionMarkers.length = 0;
-      previousBits = new Set();
-
-      // Clear orbit trails.
-      for (const layer of trailLayers) {
-        for (const m of layer.meshes) { trailGroup.remove(m); m.material.dispose(); }
-      }
-      trailLayers.length = 0;
-
-      // Clear sparkline.
       sparkData.length = 0;
       drawSparkline();
 
-      // Reset counters.
       totalIngested = 0; totalEdges = 0; totalQueries = 0; totalPaths = 0; totalFolds = 0;
+      totalTokenNodes = 0; totalFlowEdges = 0; totalFoldLinks = 0;
       statIngested.textContent = '0';
       statEdges.textContent = '0';
       statGroups.textContent = '0';
       statQueries.textContent = '0';
       statPaths.textContent = '0';
       statFolds.textContent = '0';
+      statTokenNodes.textContent = '0';
+      statFlowEdges.textContent = '0';
+      statFoldLinks.textContent = '0';
       chunkText.textContent = '—';
       resultText.style.display = 'none';
       logBox.innerHTML = '';
+    }
+
+    function resetFoldGraph() {
+      clearFoldNodes();
+      totalFoldLinks = 0;
+      statFoldLinks.textContent = '0';
+      totalFolds = 0;
+      statFolds.textContent = '0';
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -975,6 +916,9 @@
     const statQueries = document.getElementById('stat-queries');
     const statPaths = document.getElementById('stat-paths');
     const statFolds = document.getElementById('stat-folds');
+    const statTokenNodes = document.getElementById('stat-token-nodes');
+    const statFlowEdges = document.getElementById('stat-flow-edges');
+    const statFoldLinks = document.getElementById('stat-fold-links');
     const statConn = document.getElementById('stat-conn');
     const statReplay = document.getElementById('stat-replay');
     const chunkText = document.getElementById('chunk-text');
@@ -984,6 +928,9 @@
     const slider = document.getElementById('replay-slider');
     const replayInfo = document.getElementById('replay-info');
     const btnRec = document.getElementById('btn-rec');
+    const btnModeFold = document.getElementById('btn-mode-fold');
+    const btnModeFlow = document.getElementById('btn-mode-flow');
+    const btnModeBoth = document.getElementById('btn-mode-both');
     const btnPlay = document.getElementById('btn-play');
     const btnPause = document.getElementById('btn-pause');
     const btnStep = document.getElementById('btn-step');
@@ -996,6 +943,9 @@
     let totalQueries = 0;
     let totalPaths = 0;
     let totalFolds = 0;
+    let totalTokenNodes = 0;
+    let totalFlowEdges = 0;
+    let totalFoldLinks = 0;
 
     function log(text, type = 'state') {
       const div = document.createElement('div');
@@ -1045,20 +995,15 @@
 
     function updateDensityBar(edgeCount) {
       const pct = Math.min((edgeCount / 5000) * 100, 100);
-      densityFill.style.height = `${pct * 1.6}px`;
-
-      if (pct > 60) densityFill.style.background = 'linear-gradient(to top, #f44, #fa4)';
-      else if (pct > 30) densityFill.style.background = 'linear-gradient(to top, #fa4, #ff0)';
-      else densityFill.style.background = 'linear-gradient(to top, #0af, #0fa)';
+      densityFill.style.height = `${pct * 1.4}px`;
     }
 
     // ═══════════════════════════════════════════════════════════
-    // EVENT HANDLER
+    // EVENT HANDLER (routes to subsystem zones)
     // ═══════════════════════════════════════════════════════════
     function handleEvent(ev) {
       const d = ev.data || {};
 
-      // ── Tokenizer.Value ─────────────────────────────
       if (ev.component === 'Tokenizer' && ev.action === 'Value') {
         const stage = d.stage || '';
         const edgeCount = d.edgeCount || 0;
@@ -1069,38 +1014,29 @@
           statIngested.textContent = totalIngested;
           chunkText.textContent = text.slice(0, 120);
           activateStage('tokenize', `${edgeCount} edges`);
-          log(`Ingest: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'ingest');
 
-          if (text.length >= 2) {
-            for (let i = 0; i < Math.min(text.length - 1, 10); i++) {
-              drawLSMEdge(text.charCodeAt(i), text.charCodeAt(i + 1));
-            }
-          }
+          spawnParticle('dataset', 'tokenizer', 0x6aa0d0, 800);
+          addZoneLabel('tokenizer', text);
+          log(`Ingest: "${text.slice(0, 50)}"`, 'ingest');
         }
 
         if (stage === 'tokenize') {
           totalQueries++;
           statQueries.textContent = totalQueries;
           activateStage('tokenize', `${edgeCount} edges`);
-          log(`Query: "${text.slice(0, 50)}" → ${edgeCount} edges`, 'tokenize');
-        }
 
-        const bits = d.activeBits || [];
-        if (bits.length > 0) {
-          const center = new THREE.Vector3();
-          for (const b of bits) center.add(bitToPosition(b));
-          center.divideScalar(bits.length);
-          addTorusLabel(text, center, d.state);
-          showActiveBits(bits, d.state === 'matched' ? 0x00ffaa : 0x7788ff);
+          spawnParticle('tokenizer', 'machine', 0x7ab4e0, 700);
+          addZoneLabel('tokenizer', text);
+          log(`Query: "${text.slice(0, 50)}"`, 'tokenize');
         }
 
         if (d.bin !== undefined) {
-          addValueNode(d.valueId || 0, d.bin || 0, d.state || 'stored', text);
-          statGroups.textContent = groups.size;
+          totalTokenNodes++;
+          statTokenNodes.textContent = totalTokenNodes;
+          statGroups.textContent = Math.min(totalTokenNodes, 256);
         }
       }
 
-      // ── LSM.Insert ──────────────────────────────────
       else if (ev.component === 'LSM' && ev.action === 'Insert') {
         const edges = d.edges || d.edgeCount || 0;
         totalEdges += edges;
@@ -1108,45 +1044,60 @@
         activateStage('insert', `${edges} stored`);
         updateDensityBar(totalEdges);
 
-        if (d.left !== undefined && d.right !== undefined) {
-          drawLSMEdge(d.left, d.right);
-        }
-
-        log(`LSM insert: ${edges} edges`, 'ingest');
+        spawnParticle('machine', 'forest', 0x5090c0, 900);
+        totalFlowEdges++;
+        statFlowEdges.textContent = totalFlowEdges;
+        log(`Radix insert: ${edges} edges`, 'ingest');
       }
 
-      // ── SpatialIndex.Lookup ─────────────────────────
       else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
         const pathCount = d.pathCount || d.paths || 0;
         totalPaths += pathCount;
         statPaths.textContent = totalPaths;
         activateStage('lookup', `${pathCount} paths`);
-        log(`Lookup: ${pathCount} paths for "${(d.msg || '').slice(0, 40)}"`, 'lookup');
+
+        spawnParticle('graph', 'machine', 0x8cc8ff, 600);
+        addZoneLabel('graph', `${pathCount} paths`);
+        log(`Lookup: ${pathCount} paths`, 'lookup');
       }
 
-      // ── Graph.Evaluate ──────────────────────────────
       else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
         const pathCount = d.pathCount || 0;
         activateStage('fold', `${pathCount} results`);
+
+        spawnParticle('machine', 'graph', 0x6aa0d0, 800);
         log(`Fold complete: ${pathCount} result paths`, 'fold');
       }
 
-      // ── Graph.Fold ──────────────────────────────────
       else if (ev.component === 'Graph' && ev.action === 'Fold') {
         totalFolds++;
         statFolds.textContent = totalFolds;
-        addFoldNode(d.bin || 0, d.level || 0, d.theta || 0, d.parentBin ?? -1, d.childCount || 0, d.density || 0, d.chunkText || '');
+        totalFoldLinks++;
+        statFoldLinks.textContent = totalFoldLinks;
+
+        addFoldNode(d.bin || 0, d.level || 0, d.density || 0, d.chunkText || '');
+        spawnParticle('graph', 'macroIdx', 0x5090c0, 1000);
         log(`Fold L${d.level} bin=${d.bin} children=${d.childCount}`, 'fold');
       }
 
-      // ── Machine.Pipeline ────────────────────────────
       else if (ev.component === 'Machine' && ev.action === 'Pipeline') {
         const stage = d.stage || '';
 
         if (stage === 'prompt-start') {
+          resetFoldGraph();
+          clearZoneLabels('graph');
           chunkText.textContent = `Query: ${d.message || d.msg || ''}`;
           resultText.style.display = 'none';
           for (const el of Object.values(stageElements)) el.classList.remove('active', 'done');
+
+          spawnParticle('dataset', 'tokenizer', 0xffdc8c, 500);
+          setTimeout(() => spawnParticle('tokenizer', 'machine', 0xffdc8c, 500), 300);
+          setTimeout(() => {
+            spawnParticle('machine', 'graph', 0xffdc8c, 500);
+            spawnParticle('machine', 'has', 0xffdc8c, 600);
+          }, 600);
+
+          addZoneLabel('machine', d.message || d.msg || '');
           log(`Prompt: "${(d.message || d.msg || '').slice(0, 50)}"`, 'pipeline');
         }
 
@@ -1154,6 +1105,9 @@
           activateStage('decode', '✓');
           resultText.textContent = `Result: ${(d.resultText || '').slice(0, 200)}`;
           resultText.style.display = 'block';
+
+          spawnParticle('graph', 'machine', 0x8cffc8, 500);
+          addZoneLabel('machine', (d.resultText || '').slice(0, 30));
           log(`Result: "${(d.resultText || '').slice(0, 60)}"`, 'result');
         }
 
@@ -1161,78 +1115,22 @@
           activateStage('decode', '∅');
           resultText.textContent = 'No result';
           resultText.style.display = 'block';
-          log(`Empty result for "${(d.message || d.msg || '').slice(0, 40)}"`, 'state');
+          log(`Empty result`, 'state');
         }
       }
 
-      // ── Sequencer.Boundary ──────────────────────────
       else if (ev.component === 'Sequencer' && ev.action === 'Boundary') {
+        spawnParticle('tokenizer', 'machine', 0x7ab4e0, 400);
         log(`Boundary #${d.chunks} density=${((d.density || 0) * 100).toFixed(1)}%`, 'tokenize');
       }
 
-      // ── Chaos.* (Value interaction experiments) ─────
       else if (ev.component === 'Chaos') {
-        const action = ev.action || '';
-        const bits = d.activeBits || [];
-        const matchBits = d.matchBits || [];
-        const text = d.chunkText || action;
         const density = d.density || 0;
+        pushSparkDensity(density, ev.action || '');
+        log(`${ev.action}: [${(d.activeBits || []).length} bits, ${(density * 100).toFixed(1)}%]`, 'fold');
 
-        const colorMap = {
-          'OR': 0x00ddff, 'AND': 0xff44cc, 'XOR': 0xffdd00,
-          'Hole': 0xff4444, 'Rotate3D': 0x44ff88,
-          'BaseValue': 0x7788ff, 'Similarity': 0xffaa44,
-          'Composite': 0x00ffaa, 'Result': 0xffffff,
-        };
-        const color = colorMap[action] || 0xaaaaff;
-
-        // Show primary bits (result of the operation).
-        if (bits.length > 0) {
-          showActiveBits(bits, color);
-
-          const center = new THREE.Vector3();
-          for (const b of bits) center.add(bitToPosition(b));
-          center.divideScalar(bits.length);
-          addTorusLabel(text, center, 'active');
-        }
-
-        // Show secondary bits (the other operand) in dim.
-        if (matchBits.length > 0) {
-          for (const idx of matchBits) {
-            const mat = new THREE.MeshBasicMaterial({
-              color: 0x553388, transparent: true, opacity: 0.5
-            });
-            const mesh = new THREE.Mesh(bitMarkerGeo, mat);
-            const pos = bitToPosition(idx);
-            const dir = pos.clone().normalize();
-            mesh.position.copy(pos).addScaledVector(dir, 0.15);
-            bitMarkerGroup.add(mesh);
-            bitMarkers.push(mesh);
-          }
-        }
-
-        // Log the interaction.
-        const densityPct = (density * 100).toFixed(1);
-        log(`${action}: ${text} [${bits.length} bits, ${densityPct}%]`, 'fold');
-
-        // Sparkline: push density.
-        pushSparkDensity(density, action);
-
-        // Bit transitions: show what changed.
-        if (bits.length > 0) {
-          showBitTransitions(bits);
-        }
-
-        // Orbit trails for Rotate3D events.
-        if (action === 'Rotate3D' && bits.length > 0) {
-          addTrailLayer(bits);
-        }
-
-        // Update density bar.
         if (density > 0) {
-          const pct = Math.min(density * 100, 100);
-          densityFill.style.height = `${pct * 1.6}px`;
-          densityFill.style.background = `linear-gradient(to top, hsl(${(1 - density) * 180}, 100%, 50%), hsl(${(1 - density) * 120}, 100%, 60%))`;
+          densityFill.style.height = `${Math.min(density * 100, 100) * 1.4}px`;
         }
       }
     }
@@ -1245,13 +1143,13 @@
 
       ws.onopen = () => {
         statConn.textContent = 'connected';
-        statConn.style.color = '#0fa';
+        statConn.style.color = 'rgba(140, 255, 200, 0.75)';
         log('Connected to SIX telemetry', 'state');
       };
 
       ws.onclose = () => {
         statConn.textContent = 'offline';
-        statConn.style.color = '#f44';
+        statConn.style.color = 'rgba(255, 140, 120, 0.7)';
         log('Disconnected', 'state');
         setTimeout(connect, 2000);
       };
@@ -1268,9 +1166,12 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    // REPLAY CONTROLS WIRING
+    // REPLAY CONTROLS
     // ═══════════════════════════════════════════════════════════
     btnRec.addEventListener('click', enterLiveMode);
+    btnModeFold.addEventListener('click', () => setGraphMode('fold'));
+    btnModeFlow.addEventListener('click', () => setGraphMode('flow'));
+    btnModeBoth.addEventListener('click', () => setGraphMode('both'));
     btnPlay.addEventListener('click', startPlayback);
     btnPause.addEventListener('click', pausePlayback);
     btnStep.addEventListener('click', stepForward);
@@ -1286,13 +1187,15 @@
       replayTo(parseInt(slider.value));
     });
 
+    setGraphMode('both');
+
     // ═══════════════════════════════════════════════════════════
-    // SPARKLINE — bit density over time
+    // SPARKLINE
     // ═══════════════════════════════════════════════════════════
     const sparkCanvas = document.getElementById('sparkline-canvas');
     const sparkCtx = sparkCanvas.getContext('2d');
-    const sparkData = [];    // array of { density, action }
-    const SPARK_MAX = 200;   // visible window
+    const sparkData = [];
+    const SPARK_MAX = 200;
 
     function pushSparkDensity(density, action) {
       sparkData.push({ density, action });
@@ -1307,148 +1210,32 @@
 
       if (sparkData.length < 2) return;
 
-      // Grid lines at 25%, 50%, 75%.
-      sparkCtx.strokeStyle = 'rgba(100, 120, 255, 0.08)';
+      sparkCtx.strokeStyle = 'rgba(64, 128, 192, 0.12)';
       sparkCtx.lineWidth = 1;
+      sparkCtx.beginPath();
       for (const pct of [0.25, 0.5, 0.75]) {
         const gy = h - pct * h;
-        sparkCtx.beginPath();
         sparkCtx.moveTo(0, gy);
         sparkCtx.lineTo(w, gy);
-        sparkCtx.stroke();
       }
+      sparkCtx.stroke();
 
-      // Draw line.
       const step = w / (SPARK_MAX - 1);
-      sparkCtx.lineWidth = 1.5;
+      sparkCtx.strokeStyle = 'rgba(140, 200, 255, 0.6)';
+      sparkCtx.lineWidth = 1;
       sparkCtx.beginPath();
-
       for (let i = 0; i < sparkData.length; i++) {
         const x = i * step;
         const y = h - sparkData[i].density * h;
-
-        // Color gradient: blue→cyan→yellow→red based on density.
-        const d = sparkData[i].density;
-        const r = Math.floor(d > 0.5 ? 255 : d * 2 * 255);
-        const g = Math.floor(d < 0.5 ? d * 2 * 255 : (1 - d) * 2 * 255);
-        const b = Math.floor(d < 0.5 ? 255 : 0);
-        sparkCtx.strokeStyle = `rgb(${r},${g},${b})`;
-
         if (i === 0) sparkCtx.moveTo(x, y);
-        else {
-          sparkCtx.lineTo(x, y);
-          sparkCtx.stroke();
-          sparkCtx.beginPath();
-          sparkCtx.moveTo(x, y);
-        }
+        else sparkCtx.lineTo(x, y);
       }
+      sparkCtx.stroke();
 
-      // Current value label.
       const last = sparkData[sparkData.length - 1];
-      sparkCtx.fillStyle = '#7df';
-      sparkCtx.font = '9px JetBrains Mono';
-      sparkCtx.fillText(`${(last.density * 257).toFixed(0)}/257`, w - 50, 10);
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // BIT TRANSITIONS — show added/removed bits between events
-    // ═══════════════════════════════════════════════════════════
-    let previousBits = new Set();
-    const transitionMarkers = [];
-    const transitionGroup = new THREE.Group();
-    scene.add(transitionGroup);
-    const transMarkerGeo = new THREE.SphereGeometry(0.18, 6, 6);
-
-    function showBitTransitions(currentBitsArray) {
-      // Clear old transition markers.
-      for (const m of transitionMarkers) {
-        transitionGroup.remove(m);
-        m.material.dispose();
-      }
-      transitionMarkers.length = 0;
-
-      const currentSet = new Set(currentBitsArray);
-
-      // Added bits (in current but not in previous) → green.
-      for (const idx of currentSet) {
-        if (!previousBits.has(idx)) {
-          const mat = new THREE.MeshBasicMaterial({
-            color: 0x00ff88, transparent: true, opacity: 0.9
-          });
-          const mesh = new THREE.Mesh(transMarkerGeo, mat);
-          const pos = bitToPosition(idx);
-          const dir = pos.clone().normalize();
-          mesh.position.copy(pos).addScaledVector(dir, 0.6);
-          transitionGroup.add(mesh);
-          transitionMarkers.push(mesh);
-        }
-      }
-
-      // Removed bits (in previous but not in current) → red.
-      for (const idx of previousBits) {
-        if (!currentSet.has(idx)) {
-          const mat = new THREE.MeshBasicMaterial({
-            color: 0xff2244, transparent: true, opacity: 0.7
-          });
-          const mesh = new THREE.Mesh(transMarkerGeo, mat);
-          const pos = bitToPosition(idx);
-          const dir = pos.clone().normalize();
-          mesh.position.copy(pos).addScaledVector(dir, 0.6);
-          transitionGroup.add(mesh);
-          transitionMarkers.push(mesh);
-        }
-      }
-
-      previousBits = currentSet;
-    }
-
-    // ═══════════════════════════════════════════════════════════
-    // ORBIT TRAILS — fading ghost particles for Rotate3D
-    // ═══════════════════════════════════════════════════════════
-    const trailGroup = new THREE.Group();
-    scene.add(trailGroup);
-    const trailGeo = new THREE.SphereGeometry(0.06, 4, 4);
-    const MAX_TRAIL_LAYERS = 8;
-    const trailLayers = [];  // each layer = { meshes: [], age: number }
-
-    function addTrailLayer(bitsArray) {
-      const meshes = [];
-
-      for (const idx of bitsArray) {
-        const mat = new THREE.MeshBasicMaterial({
-          color: 0x44ff88, transparent: true, opacity: 0.5
-        });
-        const mesh = new THREE.Mesh(trailGeo, mat);
-        const pos = bitToPosition(idx);
-        const dir = pos.clone().normalize();
-        mesh.position.copy(pos).addScaledVector(dir, 0.15);
-        trailGroup.add(mesh);
-        meshes.push(mesh);
-      }
-
-      trailLayers.push({ meshes, age: 0 });
-
-      // Remove oldest layer if over limit.
-      if (trailLayers.length > MAX_TRAIL_LAYERS) {
-        const old = trailLayers.shift();
-        for (const m of old.meshes) {
-          trailGroup.remove(m);
-          m.material.dispose();
-        }
-      }
-    }
-
-    function fadeTrails() {
-      for (const layer of trailLayers) {
-        layer.age++;
-        const opacity = Math.max(0, 0.5 - layer.age * 0.06);
-        const hue = Math.max(0, 0.35 - layer.age * 0.04);
-
-        for (const mesh of layer.meshes) {
-          mesh.material.opacity = opacity;
-          mesh.material.color.setHSL(hue, 1, 0.5);
-        }
-      }
+      sparkCtx.fillStyle = 'rgba(140, 200, 255, 0.5)';
+      sparkCtx.font = '7px IBM Plex Mono';
+      sparkCtx.fillText(`${(last.density * 257).toFixed(0)}/257`, w - 48, 10);
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1456,8 +1243,8 @@
     // ═══════════════════════════════════════════════════════════
     function animate() {
       requestAnimationFrame(animate);
+      updateParticles();
       controls.update();
-      fadeTrails();
       renderer.render(scene, camera);
       labelRenderer.render(scene, camera);
     }

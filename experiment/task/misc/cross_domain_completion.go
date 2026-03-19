@@ -2,6 +2,7 @@ package misc
 
 import (
 	"fmt"
+	"iter"
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
@@ -377,12 +378,14 @@ type multiDomainDataset struct {
 	domainNames []string
 }
 
-func (m *multiDomainDataset) Generate() chan provider.RawToken {
-	return provider.AsyncTokens("cross-domain-dataset", func(out chan<- provider.RawToken) {
-		for _, ds := range m.datasets {
-			for tok := range ds.Generate() {
-				out <- tok
+func (m *multiDomainDataset) Generate() iter.Seq[provider.RawToken] {
+	return func(yield func(provider.RawToken) bool) {
+		for _, dataset := range m.datasets {
+			for token := range dataset.Generate() {
+				if !yield(token) {
+					return
+				}
 			}
 		}
-	})
+	}
 }

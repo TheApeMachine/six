@@ -1,6 +1,7 @@
 package dmt
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -231,4 +232,49 @@ func TestTreeTermUpdate(t *testing.T) {
 			})
 		})
 	})
+}
+
+func BenchmarkTreeInsert(b *testing.B) {
+	tree, err := NewTree("")
+	if err != nil {
+		b.Fatalf("failed to create tree: %v", err)
+	}
+	defer tree.Close()
+
+	b.ReportAllocs()
+
+	index := 0
+	for b.Loop() {
+		key := []byte(fmt.Sprintf("bench-key-%d", index))
+		value := []byte(fmt.Sprintf("bench-value-%d", index))
+		tree.Insert(key, value)
+		index++
+	}
+}
+
+func BenchmarkTreeGet(b *testing.B) {
+	tree, err := NewTree("")
+	if err != nil {
+		b.Fatalf("failed to create tree: %v", err)
+	}
+	defer tree.Close()
+
+	const seedCount = 4096
+	for i := 0; i < seedCount; i++ {
+		key := []byte(fmt.Sprintf("seed-key-%d", i))
+		value := []byte(fmt.Sprintf("seed-value-%d", i))
+		tree.Insert(key, value)
+	}
+
+	index := 0
+	b.ReportAllocs()
+
+	for b.Loop() {
+		key := []byte(fmt.Sprintf("seed-key-%d", index%seedCount))
+		value, ok := tree.Get(key)
+		if !ok || len(value) == 0 {
+			b.Fatalf("missing key: %s", key)
+		}
+		index++
+	}
 }

@@ -19,9 +19,9 @@ var cases = []struct {
 			{"Roy will be ", "in", " t", "he", " g", "ara", "ge"},
 		},
 		healed: [][]string{
-			{"Roy was", " in the ", "living room"},
-			{"Roy is", " in the ", "kitchen"},
-			{"Roy will be", " in the ", "garage"},
+			{"Roy was in the living room"},
+			{"Roy is in the kitchen"},
+			{"Roy will be in the garage"},
 		},
 	},
 	{
@@ -31,8 +31,8 @@ var cases = []struct {
 			{"Image of ", "do", "g ", "is a ", "do", "g"},
 		},
 		healed: [][]string{
-			{"Image of ", "cat", " is a ", "cat"},
-			{"Image of ", "dog", " is a ", "dog"},
+			{"Image of ", "cat is a ", "cat"},
+			{"Image of ", "dog is a ", "dog"},
 		},
 	},
 }

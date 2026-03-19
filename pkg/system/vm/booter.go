@@ -6,6 +6,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/logic/synthesis"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/dmt/server"
@@ -32,6 +33,8 @@ type Booter struct {
 	graph        substrate.Graph
 	graphServer  *substrate.GraphServer
 	cantilever   bvp.Cantilever
+	has          synthesis.HAS
+	sharedIndex  *macro.MacroIndexServer
 	closers      []io.Closer
 }
 
@@ -74,13 +77,6 @@ func NewBooter(opts ...booterOpts) *Booter {
 	)
 	booter.forestClient = forestServer.Client("booter")
 
-	graphServer := substrate.NewGraphServer(
-		substrate.GraphWithContext(booter.ctx),
-		substrate.GraphWithWorkerPool(booter.pool),
-	)
-	booter.graphServer = graphServer
-	booter.graph = graphServer.Client("booter")
-
 	tokServer := tokenizer.NewUniversalServer(
 		tokenizer.UniversalWithContext(booter.ctx),
 		tokenizer.UniversalWithPool(booter.pool),
@@ -90,6 +86,15 @@ func NewBooter(opts ...booterOpts) *Booter {
 	sharedIndex := macro.NewMacroIndexServer(
 		macro.MacroIndexWithContext(booter.ctx),
 	)
+	booter.sharedIndex = sharedIndex
+
+	graphServer := substrate.NewGraphServer(
+		substrate.GraphWithContext(booter.ctx),
+		substrate.GraphWithWorkerPool(booter.pool),
+		substrate.GraphWithMacroIndex(sharedIndex),
+	)
+	booter.graphServer = graphServer
+	booter.graph = graphServer.Client("booter")
 
 	cantileverServer := bvp.NewCantileverServer(
 		bvp.CantileverWithContext(booter.ctx),
@@ -97,7 +102,15 @@ func NewBooter(opts ...booterOpts) *Booter {
 	)
 	booter.cantilever = cantileverServer.Client("booter")
 
+	hasServer := synthesis.NewHASServer(
+		synthesis.HASWithContext(booter.ctx),
+		synthesis.HASWithMacroIndex(sharedIndex),
+		synthesis.HASWithForest(forestServer.Forest()),
+	)
+	booter.has = hasServer.Client("booter")
+
 	booter.closers = []io.Closer{
+		hasServer,
 		cantileverServer,
 		sharedIndex,
 		graphServer,

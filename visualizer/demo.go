@@ -24,9 +24,9 @@ func RunAliceDemo(ctx context.Context, dataset provider.Dataset) error {
 	helper := test.NewTestHelper()
 	defer helper.Teardown()
 
-	errnie.GuardVoid(errnie.NewState("visualizer/demo"), func() error {
-		return helper.Machine.SetDataset(dataset)
-	})
+	// errnie.GuardVoid(errnie.NewState("visualizer/demo"), func() error {
+	// 	return helper.Machine.SetDataset(dataset)
+	// })
 
 	console.Info("Dataset ingested, starting prompt cycle")
 
@@ -80,6 +80,7 @@ func extractPrompts(dataset provider.Dataset) []string {
 
 	for tok := range dataset.Generate() {
 		sample, ok := byID[tok.SampleID]
+
 		if !ok {
 			ids = append(ids, tok.SampleID)
 		}

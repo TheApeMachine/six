@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/logic/synthesis/goal"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/store/data"
@@ -23,7 +22,6 @@ type Wavefront struct {
 	checkpointWindow      int
 	frustrationAttempts   int
 	frustrationCandidates int
-	fe                    *goal.FrustrationEngineServer
 	state                 *errnie.State
 }
 
@@ -455,34 +453,14 @@ func (wavefront *Wavefront) bridgeDiscontinuity(
 	targetMeta data.Value,
 	targetPhase numeric.Phase,
 ) (*WavefrontHead, bool, error) {
-	if head == nil || wavefront.fe == nil {
-		return nil, false, nil
-	}
-
 	sourceValue := head.path[len(head.path)-1]
 	if sourceValue.ActiveCount() == 0 || targetValue.ActiveCount() == 0 {
 		return nil, false, nil
 	}
 
 	bridgeCandidates := errnie.Guard(wavefront.state, func() ([][]*macro.MacroOpcode, error) {
-		candidates, err := wavefront.fe.ResolveCandidates(
-			sourceValue,
-			targetValue,
-			wavefront.frustrationAttempts,
-			wavefront.frustrationCandidates,
-		)
-
-		if err != nil {
-			return nil, fmt.Errorf(
-				"%w:  %d value %d bridge resolve failed: %v",
-				ErrWavefrontBridgeRejected,
-				sequenceIndex,
-				valueIndex,
-				err,
-			)
-		}
-
-		return candidates, nil
+		// TODO: Frustration Engine Removed
+		return [][]*macro.MacroOpcode{}, nil
 	})
 
 	if wavefront.state.Failed() {
@@ -680,26 +658,6 @@ func WavefrontWithAnchors(stride, tolerance uint32) WavefrontOpts {
 	return func(wavefront *Wavefront) {
 		wavefront.anchorStride = stride
 		wavefront.anchorTolerance = tolerance
-	}
-}
-
-/*
-WavefrontWithFrustrationEngine installs the bridge synthesizer used when a
-prefetched sequence contains a discontinuity.
-*/
-func WavefrontWithFrustrationEngine(
-	fe *goal.FrustrationEngineServer,
-	attempts int,
-	candidates int,
-) WavefrontOpts {
-	return func(wavefront *Wavefront) {
-		wavefront.fe = fe
-		if attempts > 0 {
-			wavefront.frustrationAttempts = attempts
-		}
-		if candidates > 0 {
-			wavefront.frustrationCandidates = candidates
-		}
 	}
 }
 

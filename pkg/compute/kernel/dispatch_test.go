@@ -11,7 +11,7 @@ import (
 
 func generateGFRotations(count int) []geometry.GFRotation {
 	nodes := make([]geometry.GFRotation, count)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		nodes[i] = geometry.GFRotation{
 			CoordU: uint16((i * 17) % 257),
 			CoordV: uint16((i * 31) % 257),

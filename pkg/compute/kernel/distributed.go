@@ -11,9 +11,6 @@ import (
 	"unsafe"
 
 	"capnproto.org/go/capnp/v3"
-	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
-	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
-	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/system/console"
@@ -53,7 +50,9 @@ func NewDistributedBackend(opts ...distributedOpts) (*DistributedBackend, error)
 
 	errnie.GuardVoid(state, func() error {
 		if backend.pool == nil {
-			return fmt.Errorf("DistributedWithPool must be provided")
+			return errnie.Error(
+				NewDistributedError(DistributedErrorPoolRequired),
+			)
 		}
 		return nil
 	})
@@ -74,14 +73,25 @@ func (backend *DistributedBackend) Resolve(
 
 	errnie.GuardVoid(state, func() error {
 		if backend == nil || backend.pool == nil {
-			return fmt.Errorf("distributed backend unavailable")
+			return errnie.Error(
+				NewDistributedError(DistributedErrorBackendUnavailable),
+			)
 		}
+
 		if numNodes <= 0 {
-			return fmt.Errorf("invalid numNodes: must be > 0")
+			return errnie.Error(
+				NewDistributedError(DistributedErrorInvalidNumNodes),
+			)
 		}
+
 		if graphNodes == nil || contextPtr == nil {
-			return fmt.Errorf("invalid distributed pointers")
+			return errnie.Error(
+				NewDistributedError(
+					DistributedErrorInvalidDistributedPointers,
+				),
+			)
 		}
+
 		return nil
 	})
 
@@ -94,41 +104,14 @@ func (backend *DistributedBackend) Resolve(
 		resolveCtx = context.Background()
 	}
 
-	rctx, cancel := context.WithTimeout(resolveCtx, time.Duration(config.System.Timeout)*time.Millisecond)
+	timeout := distributedTimeout()
+	rctx, cancel := context.WithTimeout(resolveCtx, timeout)
 	defer cancel()
 
-	ctxSlice := unsafe.Slice((*byte)(contextPtr), nodeBytes)
-	ctxCopy := append([]byte(nil), ctxSlice...)
+	contextBytes := unsafe.Slice((*byte)(contextPtr), nodeBytes)
 
 	chunkSize := max(config.System.Chunk, config.Numeric.VocabSize)
-	timeout := time.Duration(config.System.Timeout) * time.Millisecond
-	remoteOnly := config.System.RemoteOnly
-
 	var best uint64
-	var localBuilder *Builder
-
-	if !remoteOnly {
-		backendForBuilder := config.System.Backend
-		if backendForBuilder == "distributed" || backendForBuilder == "" {
-			backendForBuilder = "cpu"
-		}
-
-		var localBak Backend
-		switch backendForBuilder {
-		case "metal":
-			localBak = &metal.MetalBackend{}
-		case "cuda":
-			localBak = &cuda.CUDABackend{}
-		case "cpu", "":
-			localBak = &cpu.CPUBackend{}
-		default:
-			localBak = &cpu.CPUBackend{}
-		}
-		if !localBak.Available() {
-			localBak = &cpu.CPUBackend{}
-		}
-		localBuilder = NewBuilder(WithBackend(localBak))
-	}
 
 	type chunkWork struct {
 		start int
@@ -137,17 +120,17 @@ func (backend *DistributedBackend) Resolve(
 
 	var chunks []chunkWork
 	for start := 0; start < numNodes; start += chunkSize {
-		end := start + chunkSize
-		if end > numNodes {
-			end = numNodes
-		}
+		end := min(start+chunkSize, numNodes)
 		chunks = append(chunks, chunkWork{start, end})
 	}
 
 	errnie.GuardVoid(state, func() error {
 		if len(config.System.Workers) == 0 {
-			return fmt.Errorf("no workers available for distributed backend")
+			return errnie.Error(
+				NewDistributedError(DistributedErrorNoWorkersAvailable),
+			)
 		}
+
 		return nil
 	})
 
@@ -155,101 +138,102 @@ func (backend *DistributedBackend) Resolve(
 		return 0, state.Err()
 	}
 
-	resChans := make([]chan *pool.Result, len(chunks))
+	type scheduledChunk struct {
+		start    int
+		end      int
+		addr     string
+		resultCh chan *pool.Result
+	}
+
+	scheduled := make([]scheduledChunk, 0, len(chunks))
+
 	for i, chunk := range chunks {
 		start, end := chunk.start, chunk.end
 		addr := config.System.Workers[i%len(config.System.Workers)]
 
-		shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
-		shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)
-		dictCopy := append([]byte(nil), shardBytes...)
-
 		jobFn := func(ctx context.Context) (any, error) {
-			packed, callErr := remoteBestFillPacked(addr, dictCopy, end-start, ctxCopy, timeout)
+			shardPtr := unsafe.Add(graphNodes, (start * nodeBytes))
+			shardBytes := unsafe.Slice((*byte)(shardPtr), (end-start)*nodeBytes)
+
+			packed, callErr := remoteBestFillPacked(
+				addr, shardBytes, end-start, contextBytes, timeout,
+			)
+
 			if callErr != nil {
 				return nil, callErr
 			}
+
 			return numeric.RebasePackedID(packed, start), nil
 		}
 
-		resChans[i] = backend.pool.Schedule(
+		resultCh := backend.pool.Schedule(
 			fmt.Sprintf("dist-%s-%d", addr, start),
 			jobFn,
-			pool.WithCircuitBreaker(addr, 3, 5*time.Second, 2),
-			pool.WithTTL(5*time.Second),
+			pool.WithCircuitBreaker(
+				addr,
+				config.System.MaxFailures,
+				time.Duration(
+					config.System.FailureTimeout,
+				)*time.Second,
+				config.System.FailureBackoff,
+			),
+			pool.WithTTL(
+				time.Duration(config.System.FailureTimeout)*time.Second,
+			),
 			pool.WithContext(rctx),
 		)
+
+		scheduled = append(scheduled, scheduledChunk{
+			start:    start,
+			end:      end,
+			addr:     addr,
+			resultCh: resultCh,
+		})
 	}
 
-	errCh := make(chan error, len(chunks))
-	fallbackChans := make([]chan *pool.Result, 0, len(chunks))
-
-	for i, chunk := range chunks {
-		if state.Failed() {
-			break
-		}
-
+	for _, chunk := range scheduled {
 		select {
 		case <-rctx.Done():
-			errnie.GuardVoid(state, func() error { return rctx.Err() })
-		case res := <-resChans[i]:
+			return 0, rctx.Err()
+		case res := <-chunk.resultCh:
+			if res == nil {
+				return 0, errnie.Error(
+					NewDistributedError(DistributedErrorChunkResultNil),
+					"chunk", chunk.start, "end", chunk.end, "addr", chunk.addr,
+				)
+			}
+
 			if res.Error != nil {
-				if localBuilder != nil {
-					// Schedule failure fallback locally
-					localFn := func(ctx context.Context) (any, error) {
-						start, end := chunk.start, chunk.end
-						shardPtr := unsafe.Pointer(uintptr(graphNodes) + uintptr(start*nodeBytes))
-						packed, fbErr := localBuilder.Resolve(shardPtr, end-start, contextPtr)
-						if fbErr != nil {
-							return nil, fbErr
-						}
-						return numeric.RebasePackedID(packed, start), nil
-					}
-
-					fallbackChans = append(
-						fallbackChans,
-						backend.pool.Schedule(
-							fmt.Sprintf("local-%d", chunk.start),
-							localFn,
-							pool.WithTTL(5*time.Second),
-							pool.WithContext(rctx),
-						),
-					)
-				} else {
-					errnie.GuardVoid(state, func() error { return res.Error })
-				}
-			} else if v, ok := res.Value.(uint64); ok {
-				best = max(best, v)
-			} else {
-				console.Debug("distributed: remote Resolve returned non-uint64", "type", fmt.Sprintf("%T", res.Value), "value", res.Value)
+				return 0, errnie.Error(
+					NewDistributedError(DistributedErrorChunkResultError),
+					"chunk", chunk.start, "end", chunk.end, "addr", chunk.addr,
+				)
 			}
+
+			value, ok := res.Value.(uint64)
+			if !ok {
+				return 0, errnie.Error(
+					NewDistributedError(DistributedErrorChunkResultNonUint64),
+					"chunk", chunk.start, "end", chunk.end, "addr", chunk.addr,
+				)
+			}
+
+			best = max(best, value)
 		}
 	}
 
-	for _, fallbackCh := range fallbackChans {
-		select {
-		case <-rctx.Done():
-		case fbRes := <-fallbackCh:
-			if fbRes.Error != nil {
-				errCh <- fbRes.Error
-			} else if v, ok := fbRes.Value.(uint64); ok {
-				best = max(best, v)
-			} else {
-				console.Debug("distributed: local Resolve returned non-uint64", "type", fmt.Sprintf("%T", fbRes.Value), "value", fbRes.Value)
-			}
-		}
+	return best, nil
+}
+
+/*
+distributedTimeout returns the configured distributed timeout with sane defaulting.
+*/
+func distributedTimeout() time.Duration {
+	timeout := time.Duration(config.System.Timeout) * time.Millisecond
+	if timeout <= 0 {
+		return 5 * time.Second
 	}
-
-	close(errCh)
-
-	errnie.GuardVoid(state, func() error {
-		if err, ok := <-errCh; ok {
-			return err
-		}
-		return nil
-	})
-
-	return best, state.Err()
+	return timeout
 }
 
 func remoteBestFillPacked(
@@ -301,7 +285,10 @@ func remoteBestFillPacked(
 
 	errnie.GuardVoid(state, func() error {
 		if code != messageErrNone {
-			return fmt.Errorf("remote worker error code=%d", code)
+			return errnie.Error(
+				NewDistributedError(DistributedErrorRemoteWorkerError),
+				"code", code,
+			)
 		}
 		return nil
 	})
@@ -499,7 +486,10 @@ func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, []byte, error) {
 	st := root.Struct()
 	errnie.GuardVoid(state, func() error {
 		if st.Uint16(0) != messageTypeWorkRequest {
-			return fmt.Errorf("unexpected message type: %d", st.Uint16(0))
+			return errnie.Error(
+				NewDistributedError(DistributedErrorUnexpectedMessageType),
+				"type", st.Uint16(0),
+			)
 		}
 		return nil
 	})
@@ -516,10 +506,18 @@ func parseWorkRequestMessage(msg *capnp.Message) ([]byte, int, []byte, error) {
 
 	errnie.GuardVoid(state, func() error {
 		if len(dict) < numNodes*nodeBytes {
-			return fmt.Errorf("invalid dictionary payload")
+			return errnie.Error(
+				NewDistributedError(DistributedErrorInvalidDictionaryPayload),
+				"length", len(dict),
+				"expected", numNodes*nodeBytes,
+			)
 		}
 		if len(context) < nodeBytes {
-			return fmt.Errorf("invalid context payload")
+			return errnie.Error(
+				NewDistributedError(DistributedErrorInvalidContextPayload),
+				"length", len(context),
+				"expected", nodeBytes,
+			)
 		}
 		return nil
 	})
@@ -565,7 +563,7 @@ func readStructData(st capnp.Struct, idx uint16) ([]byte, error) {
 		return nil, nil
 	}
 
-	return append([]byte(nil), data...), nil
+	return data, nil
 }
 
 /*
@@ -738,19 +736,22 @@ func StartDiscovery(ctx context.Context) error {
 				return nil, broadcastState.Err()
 			}
 
+			ticker := time.NewTicker(5 * time.Second)
+			defer ticker.Stop()
+
 			for {
 				select {
 				case <-ctx.Done():
 					return nil, nil
-				default:
+				case <-ticker.C:
 				}
+
 				bconn, err := net.DialUDP("udp4", nil, addr)
 				if err == nil {
 					msg := fmt.Sprintf("SIX_WORKER:%s:%s", instanceID, boundPort)
 					_, _ = bconn.Write([]byte(msg))
 					_ = bconn.Close()
 				}
-				time.Sleep(5 * time.Second)
 			}
 		},
 		pool.WithContext(ctx),
@@ -770,4 +771,40 @@ func addWorker(addr string) {
 	}
 	config.System.Workers = append(config.System.Workers, addr)
 	console.Debug("Discovered peer", "addr", addr)
+}
+
+type DistributedErrorType string
+
+const (
+	DistributedErrorPoolRequired               DistributedErrorType = "pool required"
+	DistributedErrorBackendUnavailable         DistributedErrorType = "backend unavailable"
+	DistributedErrorInvalidDistributedPointers DistributedErrorType = "invalid distributed pointers"
+	DistributedErrorInvalidNumNodes            DistributedErrorType = "invalid numNodes"
+	DistributedErrorInvalidDictionaryPayload   DistributedErrorType = "invalid dictionary payload"
+	DistributedErrorInvalidContextPayload      DistributedErrorType = "invalid context payload"
+	DistributedErrorRemoteWorkerError          DistributedErrorType = "remote worker error"
+	DistributedErrorRemoteWorkerTimeout        DistributedErrorType = "remote worker timeout"
+	DistributedErrorRemoteWorkerCanceled       DistributedErrorType = "remote worker canceled"
+	DistributedErrorRemoteWorkerPanic          DistributedErrorType = "remote worker panic"
+	DistributedErrorNoWorkersAvailable         DistributedErrorType = "no workers available"
+	DistributedErrorChunkResultNil             DistributedErrorType = "chunk result nil"
+	DistributedErrorChunkResultError           DistributedErrorType = "chunk result error"
+	DistributedErrorChunkResultNonUint64       DistributedErrorType = "chunk result non-uint64"
+	DistributedErrorUnexpectedMessageType      DistributedErrorType = "unexpected message type"
+)
+
+type DistributedError struct {
+	Message string
+	Err     DistributedErrorType
+}
+
+func NewDistributedError(err DistributedErrorType) *DistributedError {
+	return &DistributedError{
+		Message: string(err),
+		Err:     err,
+	}
+}
+
+func (err DistributedError) Error() string {
+	return fmt.Sprintf("distributed error: %s: %s", err.Message, err.Err)
 }

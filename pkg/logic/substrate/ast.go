@@ -1,6 +1,8 @@
 package substrate
 
 import (
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/data"
 )
 
@@ -11,14 +13,15 @@ via AND across its input sequences, and the Morton keys that produced
 those sequences so the projection plane can recover the original bytes.
 */
 type ASTNode struct {
-	Level    int
-	Bin      int
-	Label    data.Value
-	LabelMeta data.Value
-	Theta    float64
-	Keys     []uint64
-	Children []*ASTNode
-	Leaves   [][]data.Value
+	state     *errnie.State
+	Level     int
+	Bin       int
+	Label     primitive.Value
+	LabelMeta primitive.Value
+	Theta     float64
+	Keys      []uint64
+	Children  []*ASTNode
+	Leaves    [][]primitive.Value
 }
 
 /*
@@ -27,12 +30,14 @@ At each level, the prompt is XORed with the node's invariant. The child
 whose label has the highest similarity to the residue is followed. Returns
 the leaf node and the leaf's Morton keys (the answer bytes).
 */
-func (node *ASTNode) Walk(prompt data.Value) (matched *ASTNode, leafKeys []uint64) {
+func (node *ASTNode) Walk(prompt primitive.Value) (matched *ASTNode, leafKeys []uint64) {
 	if len(node.Children) == 0 {
 		return node, node.Keys
 	}
 
-	residue := prompt.XOR(node.Label)
+	residue := errnie.Guard(node.state, func() (primitive.Value, error) {
+		return prompt.XOR(node.Label)
+	})
 
 	bestChild := (*ASTNode)(nil)
 	bestSimilarity := -1

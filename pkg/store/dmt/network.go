@@ -93,10 +93,11 @@ func NewNetworkNode(config NetworkConfig, forest *Forest) (*NetworkNode, error) 
 		return net.Listen("tcp", config.ListenAddr)
 	})
 
+	clusterSize := len(config.PeerAddrs) + 1
 	node.election = NewElection(ElectionConfig{
 		ElectionTimeout:   150 * time.Millisecond,
 		HeartbeatInterval: 50 * time.Millisecond,
-		QuorumSize:        1,
+		QuorumSize:        max(1, (clusterSize/2)+1),
 	}, node)
 
 	node.scheduleLoop("accept-loop", func(ctx context.Context) (any, error) {
@@ -328,6 +329,8 @@ func (n *NetworkNode) syncWithPeers() {
 				entry := entries.At(i)
 				key := errnie.Guard(state, entry.Key)
 				value := errnie.Guard(state, entry.Value)
+				entryTerm := entry.Term()
+				entryIndex := entry.Index()
 
 				if state.Failed() {
 					continue
@@ -338,6 +341,7 @@ func (n *NetworkNode) syncWithPeers() {
 				totalBytes += len(key) + len(value)
 				n.forest.Insert(key, value)
 				n.merkleTree.Insert(key, value)
+				n.election.updateLogState(entryIndex, entryTerm)
 			}
 
 			if entries.Len() > 0 {
@@ -420,6 +424,9 @@ func (n *NetworkNode) Sync(ctx context.Context, call RadixRPC_sync) error {
 			return diff.NewEntries(0)
 		})
 		diff.SetEntries(entries)
+		diff.SetMerkleRoot(ourRoot)
+		diff.SetTerm(n.election.getCurrentTerm())
+		diff.SetLogIndex(n.election.getLastLogIndex())
 		return state.Err()
 	}
 
@@ -509,7 +516,8 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 	for _, p := range peers {
 		peer := p
 		n.schedule("broadcast-"+peer.addr, func(ctx context.Context) (any, error) {
-			_, release := peer.client.Insert(n.ctx, func(p RadixRPC_insert_Params) error {
+			state := errnie.NewState("dmt/network/broadcast")
+			future, release := peer.client.Insert(n.ctx, func(p RadixRPC_insert_Params) error {
 				if err := p.SetKey(key); err != nil {
 					return err
 				}
@@ -521,7 +529,18 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 				return nil
 			})
 			defer release()
-			return nil, nil
+
+			insertResult := errnie.Guard(state, future.Struct)
+
+			if state.Failed() {
+				return nil, state.Err()
+			}
+
+			if !insertResult.Success() {
+				return nil, fmt.Errorf("remote insert rejected by %s", peer.addr)
+			}
+
+			return nil, state.Err()
 		})
 	}
 
@@ -574,17 +593,18 @@ func (n *NetworkNode) RequestVote(ctx context.Context, call RadixRPC_requestVote
 	term := args.Term()
 	candidateId := errnie.Guard(state, args.CandidateId)
 	lastLogIndex := args.LastLogIndex()
+	lastLogTerm := args.LastLogTerm()
 
 	if state.Failed() {
 		return state.Err()
 	}
 
 	// Let election manager handle the vote request
-	voteGranted := n.election.handleVoteRequest(term, candidateId, lastLogIndex, term)
+	voteGranted := n.election.handleVoteRequest(term, candidateId, lastLogIndex, lastLogTerm)
 
 	result := errnie.Guard(state, call.AllocResults)
 
-	result.SetTerm(term)
+	result.SetTerm(n.election.getCurrentTerm())
 	result.SetVoteGranted(voteGranted)
 	return state.Err()
 }

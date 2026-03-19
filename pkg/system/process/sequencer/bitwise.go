@@ -91,6 +91,7 @@ func (bitwise *BitwiseHealer) Heal() [][]byte {
 
 	boundaries := bitwise.collectBoundaries(bitwise.values)
 	cuts := bitwise.selectCuts(raw, boundaries)
+	cuts = bitwise.mergeOnlyCuts(cuts, boundaries)
 
 	if len(cuts) <= 2 {
 		result := bitwise.decodeChunks(bitwise.values)
@@ -320,6 +321,24 @@ func (bitwise *BitwiseHealer) selectCuts(raw []data.Value, boundaries map[int]st
 	sort.Ints(positions)
 
 	return positions
+}
+
+/*
+mergeOnlyCuts filters derived cuts to original fragment boundaries so healing
+can only merge buffered fragments and never split them.
+*/
+func (bitwise *BitwiseHealer) mergeOnlyCuts(cuts []int, boundaries map[int]struct{}) []int {
+	filtered := make([]int, 0, len(cuts))
+
+	for _, cut := range cuts {
+		if !bitwise.isBoundary(cut, boundaries) {
+			continue
+		}
+
+		filtered = append(filtered, cut)
+	}
+
+	return filtered
 }
 
 /*

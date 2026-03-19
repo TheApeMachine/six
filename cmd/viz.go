@@ -51,6 +51,8 @@ which receives real telemetry from the running system via UDP.`,
 			},
 		)
 
+		<-cmd.Context().Done()
+
 		if !vizListen {
 			dataset := local.New(local.WithBytes(Alice))
 			if err := visualizer.RunAliceDemo(

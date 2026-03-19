@@ -4,7 +4,7 @@ using Go = import "/go.capnp";
 $Go.package("lang");
 $Go.import("github.com/theapemachine/six/pkg/logic/lang");
 
-using import "../../store/data/value.capnp".Value;
+using import "./primitive/value.capnp".Value;
 
 struct Program {
   values @0 :List(Value);

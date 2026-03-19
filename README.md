@@ -104,6 +104,18 @@ The intelligence of the system resides purely within the 512-bit Value stored at
 
 The Value is programmed into higher-dimensional space (tori, phase-dials, arrows of time). A 5-sparse geometric state on the 257-face Fermat cube is manipulated via affine rotations, acting as continuous generative logic. The Value holds algebraic momentum, continuation rules, and geometric residue, keeping it mathematically anchored to the lower-dimensional static coordinate.
 
+### Prime-Basis Interpretation (What The Bits Mean)
+
+The 257-bit core is not "generic binary payload." It is a sparse occupancy map over a prime basis. In projection code (for example, the phase-dial in `pkg/numeric/geometry/phase.go`), core index `k` maps to `numeric.Primes[k]`, so each active bit corresponds to one prime frequency component.
+
+This is why the system can treat bitwise operators as algebra over prime-factor structure:
+
+- `OR` behaves as superposition over basis occupancy (LCM-style composition in prime-exponent space).
+- `AND` behaves as strict shared structure extraction (GCD-style intersection in prime-exponent space).
+- `ValueHole(a, b) = a & ~b` isolates what remains after exact basis cancellation.
+
+The implementation is bitwise for speed, but the interpretation is prime-factor geometry. That is the core trick: preserve orthogonality and exact cancellation while running on single-cycle hardware operators.
+
 ### Morton Addressing & Radix Compression
 
 A cell address packs byte identity and boundary-local depth into a single 64-bit key:
@@ -145,7 +157,7 @@ $$\text{result} = \text{Kitchen} \bmod{257}$$
 This is not search. It is calculation.
 
 > [!NOTE]
-> **Dual algebra.** Algebraic cancellation operates on **scalar phases** — single elements of GF(257) (`numeric.Phase`, a `uint32`). This is distinct from 257-bit **Value** operations (OR, AND, XOR) which act on the full bitset for resonance measurement and superposition. The system has two parallel algebras: scalar GF(257) arithmetic for fact braids and modular reasoning, and 257-bit Hamming-space operations for structural resonance.
+> **Single algebraic surface.** The system stays in native `Value` geometry as its identity and routing surface. Scalar phase arithmetic is treated as a local coordinate/projection derived from `Value` state (for affine updates and carry handling), not as a separate reasoning algebra and not as a replacement identity space.
 
 ### Frustration (The Drive Signal)
 
@@ -264,8 +276,16 @@ Key operations:
 The logic layer is a volatile, task-specific reasoning substrate ([`substrate/graph.go`](pkg/logic/substrate/graph.go)). A prompt spawns a graph of value nodes. Interference between them — measured by XOR, driven by rotation — produces convergence or frustration.
 
 - **Boundary Value Problem (BVP) Solver.** Generation is framed as a cantilever extending from a known start state toward a goal phase. The solver in [`bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) bridges gaps by interpolating rotational trajectories through GF(257).
-- **Frustration Engine.** When the wavefront stalls (no value in the spatial index aligns with the current phase), the frustration counter in [`goal/frustration.go`](pkg/logic/synthesis/goal/frustration.go) rises. At a threshold, it triggers backtracking — mathematically: `(target_phase × modInverse(current_phase)) mod 257`. This is the algebraic equivalent of "the cantilever snapped."
+- **HAS (Holographic Auto-Synthesizer).** [`synthesis/has.go`](pkg/logic/synthesis/has.go) is the native value synthesis subsystem: it forges affine tools during ingestion (`Derive`) and performs query-mask matching during inference (`Ask`) to recover residues from candidate value sets.
 - **Macro Index.** Skip-pointers ($2^k$-stride values) in [`macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) enable logarithmic jumps through the spatial index, turning linear traversal into a fractal skip list.
+
+### HAS System — `pkg/logic/synthesis/has.go`
+
+The Holographic Auto-Synthesizer (HAS) is the ingestion/inference loop for native value synthesis:
+
+- **Ingestion (`Write` + `Done` + `Derive`)**: consumes boundary pairs `(start, end)`, computes affine key deltas over native values, and hardens reusable operators in the shared `MacroIndex`.
+- **Inference (`Ask`)**: builds a query mask from known values, evaluates it against a candidate value set, scores structural fitness, and returns the best residue.
+- **Contract**: HAS operates on `primitive.Value` geometry as the primary state surface. Any scalar phase quantity is a local derived coordinate, not a global lookup identity.
 
 ### Projection Plane — Human Interface
 
@@ -322,7 +342,7 @@ The four planes map directly to the repository structure:
 
 ### Layer 4 — Logic & Synthesis
 
-> Graph substrate, BVP solving, frustration, macro indexing.
+> Graph substrate, BVP solving, HAS synthesis loops, macro indexing.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
@@ -330,7 +350,7 @@ The four planes map directly to the repository structure:
 | AST | [`pkg/logic/substrate/ast.go`](pkg/logic/substrate/ast.go) | Abstract syntax tree for structural decomposition |
 | Path Wavefront | [`pkg/logic/substrate/path_wavefront.go`](pkg/logic/substrate/path_wavefront.go) | Phase-stable path repair, anchors, and bridge synthesis over prefetched graph paths |
 | BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Span extension toward a goal phase via rotational interpolation |
-| Frustration Engine | [`pkg/logic/synthesis/goal/frustration.go`](pkg/logic/synthesis/goal/frustration.go) | Energy accumulation → backtrack trigger: `(target × modInverse(current)) mod 257` |
+| HAS (Holographic Auto-Synthesizer) | [`pkg/logic/synthesis/has.go`](pkg/logic/synthesis/has.go) | Ingestion-time tool forging (`Derive`) and inference-time query-mask evaluation (`Ask`) on native `primitive.Value` geometry |
 | Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Skip-pointer registry for multi-scale navigation |
 
 ### Layer 5 — Projection (Human Interface)

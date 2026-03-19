@@ -51,33 +51,23 @@ func WithBackend(backend Backend) builderOpts {
 
 /*
 NewBuilder creates the backends prioritized array.
-Automatically detects and appends CUDA, Metal, and Distributed
-backends if available. CPU is always the ultimate fallback.
+To detect the backends, we had to instantiate them, and we also
+check availability in the Resolve method, so we might as well
+just instantiate them all and let the Resolve method handle it.
+They will be overridden by the WithBackend option if provided.
 */
 func NewBuilder(opts ...builderOpts) *Builder {
-	builder := &Builder{}
+	builder := &Builder{
+		backends: []Backend{
+			&cpu.CPUBackend{},
+			&cuda.CUDABackend{},
+			&metal.MetalBackend{},
+			&DistributedBackend{},
+		},
+	}
 
 	for _, opt := range opts {
 		opt(builder)
-	}
-
-	if len(builder.backends) == 0 {
-		cudaBackend := &cuda.CUDABackend{}
-		if cudaBackend.Available() {
-			builder.backends = append(builder.backends, cudaBackend)
-		}
-
-		metalBackend := &metal.MetalBackend{}
-		if metalBackend.Available() {
-			builder.backends = append(builder.backends, metalBackend)
-		}
-
-		distributedBackend := &DistributedBackend{}
-		if distributedBackend.Available() {
-			builder.backends = append(builder.backends, distributedBackend)
-		}
-
-		builder.backends = append(builder.backends, &cpu.CPUBackend{})
 	}
 
 	return builder
@@ -90,21 +80,25 @@ func (builder *Builder) Resolve(
 ) (val uint64, err error) {
 	var lastErr error
 	var attempted bool
+
 	for _, backend := range builder.backends {
 		if !backend.Available() {
 			continue
 		}
+
 		attempted = true
 
 		result, resolveErr := func() (uint64, error) {
 			var resolvedID uint64
 			var resolveErrInside error
+
 			defer func() {
 				if recoverVal := recover(); recoverVal != nil {
 					resolveErrInside = fmt.Errorf("backend panic: %v", recoverVal)
 					errnie.ErrorSafe(resolveErrInside, false)
 				}
 			}()
+
 			resolvedID, resolveErrInside = backend.Resolve(graphNodes, numNodes, context)
 			return resolvedID, resolveErrInside
 		}()
@@ -112,16 +106,19 @@ func (builder *Builder) Resolve(
 		if resolveErr == nil {
 			return result, nil
 		}
+
 		lastErr = resolveErr
 	}
+
 	if !attempted || lastErr == nil {
 		return 0, fmt.Errorf("no available backends")
 	}
+
 	return 0, lastErr
 }
 
 /*
-Available returns true if any backend within the Builder's backends list 
+Available returns true if any backend within the Builder's backends list
 reports it is actively available, short-circuiting on the first success.
 */
 func (builder *Builder) Available() bool {
@@ -139,7 +136,6 @@ Higher inverted values represent closer matches for atomicMax semantics.
 CUDA uses scale 1024 for fractional precision; scaledMax is the CUDA upper bound.
 */
 const maxEncodedDistSq = 1 << 17
-
 const scaledMaxEncoded = maxEncodedDistSq * 1024
 
 /*
@@ -157,5 +153,6 @@ func DecodePacked(packed uint64) (idx int, distSq float64) {
 	} else {
 		distSq = float64(maxEncodedDistSq - invertedDist)
 	}
+
 	return int(idxU32), distSq
 }

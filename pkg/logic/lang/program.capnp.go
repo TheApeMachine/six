@@ -10,7 +10,7 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	data "github.com/theapemachine/six/pkg/store/data"
+	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
 type Program capnp.Struct
@@ -60,25 +60,25 @@ func (s Program) Message() *capnp.Message {
 func (s Program) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Program) Values() (data.Value_List, error) {
+func (s Program) Values() (primitive.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Value_List(p.List()), err
+	return primitive.Value_List(p.List()), err
 }
 
 func (s Program) HasValues() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Program) SetValues(v data.Value_List) error {
+func (s Program) SetValues(v primitive.Value_List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
 // NewValues sets the values field to a newly
-// allocated data.Value_List, preferring placement in s's segment.
-func (s Program) NewValues(n int32) (data.Value_List, error) {
-	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
+// allocated primitive.Value_List, preferring placement in s's segment.
+func (s Program) NewValues(n int32) (primitive.Value_List, error) {
+	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Value_List{}, err
+		return primitive.Value_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
@@ -358,25 +358,25 @@ func (s Evaluator_write_Params) Message() *capnp.Message {
 func (s Evaluator_write_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Evaluator_write_Params) Seed() (data.Value_List, error) {
+func (s Evaluator_write_Params) Seed() (primitive.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return data.Value_List(p.List()), err
+	return primitive.Value_List(p.List()), err
 }
 
 func (s Evaluator_write_Params) HasSeed() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Evaluator_write_Params) SetSeed(v data.Value_List) error {
+func (s Evaluator_write_Params) SetSeed(v primitive.Value_List) error {
 	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
 // NewSeed sets the seed field to a newly
-// allocated data.Value_List, preferring placement in s's segment.
-func (s Evaluator_write_Params) NewSeed(n int32) (data.Value_List, error) {
-	l, err := data.NewValue_List(capnp.Struct(s).Segment(), n)
+// allocated primitive.Value_List, preferring placement in s's segment.
+func (s Evaluator_write_Params) NewSeed(n int32) (primitive.Value_List, error) {
+	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return data.Value_List{}, err
+		return primitive.Value_List{}, err
 	}
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
@@ -529,31 +529,31 @@ func (f Evaluator_done_Results_Future) Struct() (Evaluator_done_Results, error) 
 	return Evaluator_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d87 = "x\xda2\xe0bt`1\xe4\xd5ge`\x0a\xb4a" +
-	"e\xfb\xaf\xb7\xdf\x96\x8b\xd9\xdbg\x0e\x83\xa0,\xe3\xff" +
-	"v[\xc7\x82\xb9=\xack\x19X\x19\xd9\x19\x18\x8ck" +
-	"\x99\xb4\x18\x85{\x99\xd8\x19\x18\x84;\x99\xec\x19\x18\x7f" +
-	"7M\xfdZ\x1e\xde\xb5SP\x96\x19\xa1\x94\x81\xd1x" +
-	"'\x93\x15\xa3\xf0I\xb0\xba\xa3L\xed\xc2\xa2\xcc\xec\x0c" +
-	"\x0c\xff\xe3o8\xbb\x1dn\x158\xc8 \xa8\xce\xc8\x00" +
-	"5\xf0/\xd3\"F\x06Fa^f{\x06\xc6\xff\x91" +
-	";\x1b\xcae\xd3|\x8e@\x14\xb0\x80\xe4m\x99g1" +
-	"2\xb0\xfc\x9f\xc1\xfb\x7fSK\x87\xecw$\x19]\xe6" +
-	"E\x8c\x0cE\xff\x0b\xb2\xd3\xf5s\xf2\xd33\x99\x93\xf5" +
-	"s\x12\xf3\xd2\xf5\x0b\x8a\xf2\xd3\x8b\x12s\xf5\x92\x13\x0b" +
-	"\xf2\x0a\xac\x02\x8a\xf2\xf9A\xdc\x00F\xc6@\x16f\x16" +
-	"\x06\x06\x16F\x06\x06A^+\x06\x86@\x0ef\xc6@" +
-	"\x15&F\xfb\xb2\xc4\x9c\xd2\xd4bF>\x06\xc6\x00f" +
-	"FF\x81\xffO\xaf~\xda,j\x14<\x91\x81\x81\x11" +
-	"$H\xc0\x02\xd7\xb2D\xfb\x9c\xd2\xc4\x92\xfc\"\x90\x15" +
-	"\x1c\xcc\xacH\xfed\xcc\xdbx\xa0\xdcxV\xfcLA" +
-	"C#\x06&AUvF\x84\x17\x19a>\x12\x94\xd4" +
-	"b`\x12\xe4e\x97//\xca,Iu`\xe4O\xc9" +
-	"\xcfKu`\x0c`D\xd8\xcc\x8a\xcbf\x88\xc5z`" +
-	"\x9d*\x01\x89E\xec\x89\xb9\xc5\xc8\xde\xd4Bx\x93\xbf" +
-	"855\x85\xb0'\x09Y\x05r\x1c\xc8\xa6D\xe6\xdc" +
-	"b\xd24\x05\xa5\x16\x97\xb2\xe7\x94\x14\x03\x02\x00\x00\xff" +
-	"\xff1'\xb6="
+const schema_ad058c9d70413d87 = "x\xda\x94\x8fA\x8b\xd3@\x18\x86\xbfo&1\xa5\x10" +
+	"\xdb!xP\x08^*B\xc1\xc6\xda[\xb1\xa4\"z" +
+	"\xd0\"\x89\x17\xf1T\x866\x0d\xc54\x09I\xdb\x80 " +
+	"\x88(U\xd1\xa3\xa0E/\xbd{\xd0[O\xbbKw" +
+	"\x0f\xfb\x0f\xf6\x8f,\x0b\xbb,\xb3\xa4\xdd%\xbd,e" +
+	"\x8f3\xef\xfb\xce3\xcf\xfd<6\xa5\xaaj\xc8@\xec" +
+	"\x87\xf25Q\xd9j\xe4\xe9\xf3\xd6o`:\x8aI\xe3" +
+	"Q\xf8\xe7\x9b\xfc\x17dT\x00j\xefH\x19\xb5\xefD" +
+	"\x01\xd0\xbe\x10\x13\xf0\xe4\xc3\x8f\xc3\xe4\xd5\xd79\xd3i" +
+	"V\x05\xac\xcdI\x1d\xb5\xfdeo\x8fL\xb4\x1bT\x01" +
+	"\x10\xed\x83\xc7O\x17\x9f\x8a;\xc0\xee\"\x9c?xJ" +
+	"f\x08\xa8\xa9\xd4\x04\x14\xaf\xe7\xef\x13\xbd\xd7\xda]\x15" +
+	"\xa44o\xd0)\x82$~\xaa\xe2\xff\xc7\xcf\xfa\xd1Z" +
+	"r\x8f\xce\x10\"\x11\xbeq\x0d/p\xfb\xb4cx\xdc" +
+	"w\x8d0\x0a\xdc\x88\x0f*\x1d\x1e\xfaa\xdd\x8a\x82B" +
+	"z\xb4\x10m\x89J\x00\x12\x020\xb5\x0e`\xe7(\xda" +
+	"%\x82\xe6\x98{#'\xc6\xeb\x80\x16E,\x8a\x9e\xf4" +
+	"\xec\xd6\x8b\xe3\xb7\x0b\x00L/7\x00\x9e\x8c\xb9\xe9\x8d" +
+	"\xf80\x88RD\x8e\xcak\x9e\xe8\xff\xdbNj\xd3\xf6" +
+	"/V}\x00\x84\xddQ0S\xc4\x0b#v\xb3\x0c\x84" +
+	"\xa9\xca\xed$\xea\x0f\x9d&\x16\xba\x81\xef4\xd1\xc2\x8c" +
+	",_F^\x81+\xcbe\xc9\xe2\x91\xc2\x07\xf1\xbaf" +
+	"9\xd3,\xc4\x8e\xd3\xdd,\xb9\x09\x95~.%q:" +
+	"\x88\xaf6z\xe9\xc4#\xc5\x1b\xc6g\x01\x00\x00\xff\xff" +
+	"\xec\x0b\xb3\xcf"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{

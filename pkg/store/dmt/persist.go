@@ -84,7 +84,7 @@ func NewPersistentStore(dir string) (*PersistentStore, error) {
 		snapPath:  filepath.Join(dir, "snapshot"),
 		ctx:       ctx,
 		cancel:    cancel,
-		pool:      pool.New(ctx, 1, runtime.NumCPU(), &pool.Config{}),
+		pool:      pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{}),
 		syncChan:  make(chan struct{}, 100),
 		snapCount: 1000,
 	}
