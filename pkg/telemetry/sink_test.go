@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"encoding/json"
 	"net"
 	"testing"
 	"time"
@@ -21,35 +20,117 @@ func TestSink(t *testing.T) {
 
 		sink := NewSink(WithAddress(listener.LocalAddr().String()))
 
-		Convey("It should connect successfully", func() {
-			// Instead of So(sink.conn, ShouldNotBeNil), we test observable behaviour
-			// below by ensuring Emit executes and data is received by the listener.
-		})
-
-		Convey("It should emit events without erroring", func() {
+		Convey("It should emit events that round-trip through binary encoding", func() {
 			event := Event{
 				Component: "Tokenizer",
 				Action:    "Test",
 				Data: EventData{
 					ChunkText: "hello",
+					Step:      3,
+					MaxSteps:  10,
+					Density:   0.42,
+					Advanced:  true,
 				},
 			}
 			sink.Emit(event)
 
-			// Wait up to 50ms for delivery
 			err := listener.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
 			So(err, ShouldBeNil)
 
-			var buf [1024]byte
+			var buf [4096]byte
 			n, _, err := listener.ReadFromUDP(buf[:])
 			So(err, ShouldBeNil)
 
-			var received Event
-			err = json.Unmarshal(buf[:n], &received)
-			So(err, ShouldBeNil)
+			received := DecodeBinary(buf[:n])
 			So(received.Component, ShouldEqual, "Tokenizer")
 			So(received.Action, ShouldEqual, "Test")
 			So(received.Data.ChunkText, ShouldEqual, "hello")
+			So(received.Data.Step, ShouldEqual, 3)
+			So(received.Data.MaxSteps, ShouldEqual, 10)
+			So(received.Data.Density, ShouldAlmostEqual, 0.42)
+			So(received.Data.Advanced, ShouldBeTrue)
+			So(received.Data.Stable, ShouldBeFalse)
+		})
+
+		Convey("It should round-trip int slices correctly", func() {
+			event := Event{
+				Component: "Graph",
+				Action:    "Insert",
+				Data: EventData{
+					ActiveBits: []int{1, 5, 10, 200},
+					MatchBits:  []int{3, 7},
+					CancelBits: []int{},
+				},
+			}
+			sink.Emit(event)
+
+			err := listener.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+			So(err, ShouldBeNil)
+
+			var buf [4096]byte
+			n, _, err := listener.ReadFromUDP(buf[:])
+			So(err, ShouldBeNil)
+
+			received := DecodeBinary(buf[:n])
+			So(received.Data.ActiveBits, ShouldResemble, []int{1, 5, 10, 200})
+			So(received.Data.MatchBits, ShouldResemble, []int{3, 7})
+			So(received.Data.CancelBits, ShouldResemble, []int{})
+		})
+	})
+}
+
+func TestWireRoundTrip(t *testing.T) {
+	Convey("Given a fully populated Event", t, func() {
+		event := Event{
+			Component: "Program",
+			Action:    "Execute",
+			Data: EventData{
+				ValueID:         42,
+				Bin:             7,
+				State:           "active",
+				ActiveBits:      []int{0, 3, 15, 255},
+				Density:         0.125,
+				ChunkText:       "boundary",
+				Residue:         12,
+				MatchBits:       []int{1, 2},
+				CancelBits:      []int{9},
+				Left:            100,
+				Right:           200,
+				Pos:             50,
+				Paths:           4,
+				Chunks:          8,
+				Edges:           16,
+				Level:           2,
+				Theta:           3.14159,
+				ParentBin:       5,
+				ChildCount:      3,
+				Stage:           "step",
+				Message:         "converged",
+				EdgeCount:       32,
+				PathCount:       64,
+				ResultText:      "answer",
+				WavefrontEnergy: 999,
+				EntryCount:      128,
+				Step:            7,
+				MaxSteps:        20,
+				CandidateCount:  5,
+				BestIndex:       2,
+				PreResidue:      10,
+				PostResidue:     3,
+				Advanced:        true,
+				Stable:          false,
+				Outcome:         "improved",
+				SpanSize:        17,
+			},
+		}
+
+		Convey("AppendBinary/DecodeBinary should reproduce every field", func() {
+			wire := event.AppendBinary(nil)
+			got := DecodeBinary(wire)
+
+			So(got.Component, ShouldEqual, event.Component)
+			So(got.Action, ShouldEqual, event.Action)
+			So(got.Data, ShouldResemble, event.Data)
 		})
 	})
 }
@@ -70,7 +151,9 @@ func BenchmarkSinkEmit(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	b.ReportAllocs()
+
+	for b.Loop() {
 		sink.Emit(event)
 	}
 }
@@ -81,7 +164,6 @@ func BenchmarkSinkEmitLargePayload(b *testing.B) {
 	listener := errnie.Guard(errnie.NewState("visualizer/benchmark"), func() (*net.UDPConn, error) {
 		return net.ListenUDP("udp", addr)
 	})
-
 	defer listener.Close()
 
 	sink := NewSink(WithAddress(listener.LocalAddr().String()))
@@ -97,7 +179,35 @@ func BenchmarkSinkEmitLargePayload(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	b.ReportAllocs()
+
+	for b.Loop() {
 		sink.Emit(event)
+	}
+}
+
+func BenchmarkAppendBinary(b *testing.B) {
+	event := Event{
+		Component: "Program",
+		Action:    "Execute",
+		Data: EventData{
+			Stage:          "step",
+			Step:           5,
+			MaxSteps:       20,
+			PreResidue:     10,
+			PostResidue:    3,
+			BestIndex:      2,
+			CandidateCount: 5,
+			Advanced:       true,
+		},
+	}
+
+	buf := make([]byte, 0, 512)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		buf = event.AppendBinary(buf[:0])
 	}
 }

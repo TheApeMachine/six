@@ -414,36 +414,49 @@
       font-family: var(--bp-font);
       font-size: calc(7px * var(--label-zoom, 1));
       pointer-events: none; white-space: nowrap;
-      padding: 0px 3px;
-      background: transparent;
-      border-radius: 0;
-      border: none;
-      letter-spacing: 0.3px;
+      overflow: hidden; text-overflow: ellipsis;
+      max-width: calc(100px * var(--label-zoom, 1));
+      padding: 1px 4px;
+      background: rgba(8, 18, 38, 0.8);
+      border-left: 1px solid var(--bp-line-strong);
+      letter-spacing: 0.2px;
     }
     .fold-label {
       font-family: var(--bp-font);
       font-weight: 400; pointer-events: none;
-      white-space: nowrap; padding: 1px 5px; border-radius: 0;
+      white-space: nowrap; padding: 2px 6px; border-radius: 0;
+      letter-spacing: 0.3px;
+      max-width: calc(200px * var(--label-zoom, 1));
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .fold-label .fold-text {
+      display: block;
+      overflow: hidden; text-overflow: ellipsis;
+    }
+    .fold-label .fold-meta {
+      display: block;
+      font-size: 0.8em;
+      opacity: 0.5;
       letter-spacing: 0.5px;
     }
     .fold-label.level-0 {
       font-size: calc(9px * var(--label-zoom, 1)); color: var(--bp-ink);
-      background: rgba(8, 18, 38, 0.85);
+      background: rgba(8, 18, 38, 0.88);
       border: 1px solid var(--bp-line-strong);
     }
     .fold-label.level-1 {
       font-size: calc(8px * var(--label-zoom, 1)); color: var(--bp-ink-dim);
-      background: rgba(8, 18, 38, 0.8);
+      background: rgba(8, 18, 38, 0.82);
       border: 1px solid var(--bp-line);
     }
     .fold-label.level-2 {
       font-size: calc(8px * var(--label-zoom, 1)); color: var(--bp-ink-dim);
-      background: rgba(8, 18, 38, 0.75);
+      background: rgba(8, 18, 38, 0.78);
       border: 1px solid var(--bp-line);
     }
     .fold-label.level-deep {
       font-size: calc(7px * var(--label-zoom, 1)); color: var(--bp-ink-faint);
-      background: rgba(8, 18, 38, 0.7);
+      background: rgba(8, 18, 38, 0.72);
       border: 1px solid rgba(100, 160, 240, 0.08);
     }
 
@@ -471,6 +484,49 @@
       pointer-events: none; white-space: nowrap;
       text-transform: uppercase;
     }
+
+    /* ── Data Stream Labels (flow between subsystems) ────── */
+    .data-stream-label {
+      color: var(--bp-ink);
+      font-family: var(--bp-font);
+      font-size: calc(7px * var(--label-zoom, 1));
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: calc(140px * var(--label-zoom, 1));
+      padding: 1px 5px;
+      background: rgba(8, 18, 38, 0.92);
+      border-left: 2px solid var(--bp-accent-dim);
+      letter-spacing: 0.2px;
+      line-height: 1.3;
+    }
+    .data-stream-label.stream-ingest  { border-left-color: rgba(180, 160, 240, 0.7); color: rgba(180, 160, 240, 0.85); }
+    .data-stream-label.stream-token   { border-left-color: rgba(140, 200, 255, 0.7); color: rgba(140, 200, 255, 0.85); }
+    .data-stream-label.stream-store   { border-left-color: rgba(100, 160, 240, 0.6); color: rgba(120, 170, 240, 0.85); }
+    .data-stream-label.stream-lookup  { border-left-color: rgba(140, 255, 200, 0.7); color: rgba(140, 255, 200, 0.85); }
+    .data-stream-label.stream-fold    { border-left-color: rgba(255, 180, 200, 0.6); color: rgba(255, 180, 200, 0.85); }
+    .data-stream-label.stream-result  { border-left-color: var(--bp-green); color: var(--bp-green); }
+    .data-stream-label.stream-prompt  { border-left-color: var(--bp-accent); color: var(--bp-accent); }
+
+    /* ── Zone Activity Labels (stacked, no overlap) ──────── */
+    .zone-activity-label {
+      color: var(--bp-ink-dim);
+      font-family: var(--bp-font);
+      font-size: calc(7px * var(--label-zoom, 1));
+      pointer-events: none;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: calc(110px * var(--label-zoom, 1));
+      padding: 1px 4px;
+      background: rgba(8, 18, 38, 0.8);
+      border-left: 1px solid var(--bp-line-strong);
+      letter-spacing: 0.2px;
+      transition: opacity 0.4s;
+    }
+    .zone-activity-label.fresh { opacity: 1; }
+    .zone-activity-label.fading { opacity: 0.3; }
   </style>
 </head>
 <body>
@@ -874,88 +930,113 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    // DATA PARTICLES (flow between subsystems)
+    // DATA STREAMS (text labels flowing between subsystems)
     // ═══════════════════════════════════════════════════════════
-    const particleGeo = new THREE.BoxGeometry(0.14, 0.14, 0.14);
-    const particles = [];
-    const MAX_PARTICLES = 120;
+    const dataStreams = [];
+    const MAX_STREAMS = 60;
 
-    function spawnParticle(fromKey, toKey, color, duration = 1200) {
+    function spawnDataStream(fromKey, toKey, text, streamClass = '', duration = 2800) {
       const from = SYS[fromKey], to = SYS[toKey];
       if (!from || !to) return;
 
-      const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 });
-      const mesh = new THREE.Mesh(particleGeo, mat);
-      mesh.position.copy(from.center);
-      flowLayer.add(mesh);
+      const displayText = (text || '').trim().slice(0, 32) || '·';
+      const pathKey = `${fromKey}>${toKey}`;
 
-      particles.push({
-        mesh,
-        start: from.center.clone(),
-        end: to.center.clone(),
+      const existing = dataStreams.filter(s => s.pathKey === pathKey);
+      if (existing.length > 0) {
+        const newest = existing[existing.length - 1];
+        const age = (Date.now() - newest.t0) / newest.dur;
+        if (age < 0.12) return;
+      }
+
+      const div = document.createElement('div');
+      div.className = `data-stream-label ${streamClass}`;
+      div.textContent = displayText;
+
+      const lbl = new CSS2DObject(div);
+      const startPos = from.center.clone().setY(0.12);
+      const endPos = to.center.clone().setY(0.12);
+      lbl.position.copy(startPos);
+      flowLayer.add(lbl);
+
+      dataStreams.push({
+        lbl,
+        div,
+        pathKey,
+        start: startPos,
+        end: endPos,
         t0: Date.now(),
         dur: duration,
       });
 
-      while (particles.length > MAX_PARTICLES) {
-        const old = particles.shift();
-        flowLayer.remove(old.mesh);
-        old.mesh.material.dispose();
+      while (dataStreams.length > MAX_STREAMS) {
+        const old = dataStreams.shift();
+        flowLayer.remove(old.lbl);
       }
     }
 
-    function updateParticles() {
+    function updateDataStreams() {
       const now = Date.now();
 
-      for (let i = particles.length - 1; i >= 0; i--) {
-        const p = particles[i];
-        const t = (now - p.t0) / p.dur;
+      for (let i = dataStreams.length - 1; i >= 0; i--) {
+        const s = dataStreams[i];
+        const t = (now - s.t0) / s.dur;
 
         if (t >= 1) {
-          flowLayer.remove(p.mesh);
-          p.mesh.material.dispose();
-          particles.splice(i, 1);
+          flowLayer.remove(s.lbl);
+          dataStreams.splice(i, 1);
           continue;
         }
 
-        const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
-        p.mesh.position.lerpVectors(p.start, p.end, ease);
-        p.mesh.position.y = 0.3 + Math.sin(t * Math.PI) * 2.5;
-        p.mesh.material.opacity = 0.85 * (1 - t * 0.6);
-        p.mesh.rotation.y += 0.08;
+        s.lbl.position.lerpVectors(s.start, s.end, t);
+        s.div.style.opacity = t < 0.1
+          ? (t / 0.1).toFixed(2)
+          : t > 0.85
+            ? ((1 - t) / 0.15).toFixed(2)
+            : '1';
       }
     }
 
     // ═══════════════════════════════════════════════════════════
-    // ZONE ACTIVITY LABELS (tokens, fold nodes, stats)
+    // ZONE ACTIVITY LABELS (vertical stack, no overlap)
     // ═══════════════════════════════════════════════════════════
     const zoneLabels = new Map();
-    const MAX_ZONE_LABELS = 10;
+    const MAX_ZONE_LABELS = 5;
+    const ZONE_LABEL_SPACING = 0.55;
 
     function addZoneLabel(sysKey, text) {
       const sys = SYS[sysKey];
       if (!sys) return;
 
+      const displayText = (text || '').trim().slice(0, 28) || '·';
       const arr = zoneLabels.get(sysKey) || [];
-      const idx = arr.length % MAX_ZONE_LABELS;
-      const col = idx % 4, row = Math.floor(idx / 4);
+
+      for (const item of arr) {
+        item.div.classList.remove('fresh');
+        item.div.classList.add('fading');
+      }
 
       const div = document.createElement('div');
-      div.className = 'value-node-label';
-      div.textContent = text.slice(0, 22);
+      div.className = 'zone-activity-label fresh';
+      div.textContent = displayText;
 
       const lbl = new CSS2DObject(div);
-      lbl.position.set(
-        sys.x - 2.5 + col * 1.8,
-        0.15 + row * 0.6,
-        sys.z + 0.5 + row * 0.4,
-      );
       zoneGroup.add(lbl);
       arr.push({ lbl, div, time: Date.now() });
 
       while (arr.length > MAX_ZONE_LABELS) {
         const old = arr.shift();
         zoneGroup.remove(old.lbl);
+      }
+
+      const hw = sys.w / 2;
+      for (let i = 0; i < arr.length; i++) {
+        const slot = arr.length - 1 - i;
+        arr[i].lbl.position.set(
+          sys.x - hw + 0.3,
+          0.15,
+          sys.z + slot * ZONE_LABEL_SPACING - 0.5,
+        );
       }
 
       zoneLabels.set(sysKey, arr);
@@ -975,29 +1056,46 @@
     }
 
     // ═══════════════════════════════════════════════════════════
-    // FOLD TREE (within Graph zone)
+    // FOLD TREE (within Graph zone, proper tree layout)
     // ═══════════════════════════════════════════════════════════
     const foldNodes = [];
-    const MAX_FOLD_NODES = 40;
+    const foldLevelCounts = {};
+    const MAX_FOLD_NODES = 30;
     const foldLineMats = {
       0: new THREE.LineBasicMaterial({ color: 0x6090c0, transparent: true, opacity: 0.3 }),
       1: new THREE.LineBasicMaterial({ color: 0x5080b0, transparent: true, opacity: 0.22 }),
       deep: new THREE.LineBasicMaterial({ color: 0x4070a0, transparent: true, opacity: 0.15 }),
     };
 
-    function addFoldNode(bin, level, density, text) {
+    function addFoldNode(bin, level, density, text, childCount) {
       const sys = SYS.graph;
-      const idx = foldNodes.length;
-      const col = idx % 5, row = Math.floor(idx / 5);
+      const rawText = (text || '').trim();
 
-      const x = sys.x - 3 + col * 1.5;
-      const y = 0.4 + level * 1.8;
-      const z = sys.z - 0.5 + row * 0.8;
+      foldLevelCounts[level] = (foldLevelCounts[level] || 0) + 1;
+      const indexInLevel = foldLevelCounts[level] - 1;
+
+      const levelSpread = sys.w * 0.8;
+      const maxPerLevel = Math.max(3, 6 - level);
+      const slot = indexInLevel % maxPerLevel;
+      const xOffset = (slot - (maxPerLevel - 1) / 2) * (levelSpread / maxPerLevel);
+
+      const x = sys.x + xOffset;
+      const y = 0.5 + level * 2.2;
+      const z = sys.z + 0.5;
 
       const levelClass = level === 0 ? 'level-0' : level === 1 ? 'level-1' : level === 2 ? 'level-2' : 'level-deep';
       const div = document.createElement('div');
       div.className = `fold-label ${levelClass}`;
-      div.textContent = (text || '').trim().slice(0, 16) || `[${(density * 100).toFixed(0)}%]`;
+
+      const textSpan = document.createElement('span');
+      textSpan.className = 'fold-text';
+      textSpan.textContent = rawText || '[empty]';
+      div.appendChild(textSpan);
+
+      const metaSpan = document.createElement('span');
+      metaSpan.className = 'fold-meta';
+      metaSpan.textContent = `L${level} bin=${bin} ${(density * 100).toFixed(0)}% ch=${childCount || 0}`;
+      div.appendChild(metaSpan);
 
       const lbl = new CSS2DObject(div);
       lbl.position.set(x, y, z);
@@ -1006,8 +1104,13 @@
       const pos = new THREE.Vector3(x, y, z);
       const node = { lbl, pos, level, bin };
 
-      if (foldNodes.length > 0) {
-        const parent = foldNodes[Math.max(0, foldNodes.length - 1 - (level > 0 ? 1 : 0))];
+      if (level > 0 && foldNodes.length > 0) {
+        const parentLevel = level - 1;
+        const parentCandidates = foldNodes.filter(n => n.level === parentLevel);
+        const parent = parentCandidates.length > 0
+          ? parentCandidates[parentCandidates.length - 1]
+          : foldNodes[foldNodes.length - 1];
+
         const mat = foldLineMats[level] || foldLineMats.deep;
         const lineGeo = new THREE.BufferGeometry().setFromPoints([parent.pos, pos]);
         const line = new THREE.Line(lineGeo, mat);
@@ -1030,6 +1133,7 @@
         if (n.line) { foldLayer.remove(n.line); n.line.geometry.dispose(); }
       }
       foldNodes.length = 0;
+      for (const key of Object.keys(foldLevelCounts)) delete foldLevelCounts[key];
     }
 
     // ═══════════════════════════════════════════════════════════
@@ -1050,11 +1154,10 @@
       clearAllZoneLabels();
       clearFoldNodes();
 
-      for (const p of particles) {
-        flowLayer.remove(p.mesh);
-        p.mesh.material.dispose();
+      for (const s of dataStreams) {
+        flowLayer.remove(s.lbl);
       }
-      particles.length = 0;
+      dataStreams.length = 0;
 
       sparkData.length = 0;
       drawSparkline();
@@ -1215,7 +1318,7 @@
           chunkText.textContent = text.slice(0, 120);
           activateStage('tokenize', `${edgeCount} edges`);
 
-          spawnParticle('dataset', 'tokenizer', 0x6aa0d0, 800);
+          spawnDataStream('dataset', 'tokenizer', text || 'raw bytes', 'stream-ingest', 1200);
           addZoneLabel('tokenizer', text);
           log(`Ingest: "${text.slice(0, 50)}"`, 'ingest');
         }
@@ -1225,7 +1328,7 @@
           statQueries.textContent = totalQueries;
           activateStage('tokenize', `${edgeCount} edges`);
 
-          spawnParticle('tokenizer', 'machine', 0x7ab4e0, 700);
+          spawnDataStream('tokenizer', 'machine', text || 'tokens', 'stream-token', 1000);
           addZoneLabel('tokenizer', text);
           log(`Query: "${text.slice(0, 50)}"`, 'tokenize');
         }
@@ -1239,15 +1342,16 @@
 
       else if (ev.component === 'LSM' && ev.action === 'Insert') {
         const edges = d.edges || d.edgeCount || 0;
+        const insertText = d.chunkText || `${edges} edge`;
         totalEdges += edges;
         statEdges.textContent = totalEdges;
         activateStage('insert', `${edges} stored`);
         updateDensityBar(totalEdges);
 
-        spawnParticle('machine', 'forest', 0x5090c0, 900);
+        spawnDataStream('machine', 'forest', insertText, 'stream-store', 1400);
         totalFlowEdges++;
         statFlowEdges.textContent = totalFlowEdges;
-        log(`Radix insert: ${edges} edges`, 'ingest');
+        log(`Radix insert: ${insertText}`, 'ingest');
       }
 
       else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
@@ -1256,7 +1360,7 @@
         statPaths.textContent = totalPaths;
         activateStage('lookup', `${pathCount} paths`);
 
-        spawnParticle('graph', 'machine', 0x8cc8ff, 600);
+        spawnDataStream('graph', 'machine', `${pathCount} paths found`, 'stream-lookup', 1000);
         addZoneLabel('graph', `${pathCount} paths`);
         log(`Lookup: ${pathCount} paths`, 'lookup');
       }
@@ -1265,7 +1369,7 @@
         const pathCount = d.pathCount || 0;
         activateStage('fold', `${pathCount} results`);
 
-        spawnParticle('machine', 'graph', 0x6aa0d0, 800);
+        spawnDataStream('machine', 'graph', `evaluate ${pathCount} paths`, 'stream-fold', 1200);
         log(`Fold complete: ${pathCount} result paths`, 'fold');
       }
 
@@ -1275,9 +1379,10 @@
         totalFoldLinks++;
         statFoldLinks.textContent = totalFoldLinks;
 
-        addFoldNode(d.bin || 0, d.level || 0, d.density || 0, d.chunkText || '');
-        spawnParticle('graph', 'macroIdx', 0x5090c0, 1000);
-        log(`Fold L${d.level} bin=${d.bin} children=${d.childCount}`, 'fold');
+        const foldText = d.chunkText || '';
+        addFoldNode(d.bin || 0, d.level || 0, d.density || 0, foldText, d.childCount || 0);
+        spawnDataStream('graph', 'macroIdx', foldText || `L${d.level} fold`, 'stream-fold', 1400);
+        log(`Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`, 'fold');
       }
 
       else if (ev.component === 'Machine' && ev.action === 'Pipeline') {
@@ -1286,29 +1391,31 @@
         if (stage === 'prompt-start') {
           resetFoldGraph();
           clearZoneLabels('graph');
-          chunkText.textContent = `Query: ${d.message || d.msg || ''}`;
+          const promptText = d.message || d.msg || '';
+          chunkText.textContent = `Query: ${promptText}`;
           resultText.style.display = 'none';
           for (const el of Object.values(stageElements)) el.classList.remove('active', 'done');
 
-          spawnParticle('dataset', 'tokenizer', 0xffdc8c, 500);
-          setTimeout(() => spawnParticle('tokenizer', 'machine', 0xffdc8c, 500), 300);
+          spawnDataStream('dataset', 'tokenizer', promptText, 'stream-prompt', 800);
+          setTimeout(() => spawnDataStream('tokenizer', 'machine', promptText, 'stream-prompt', 800), 400);
           setTimeout(() => {
-            spawnParticle('machine', 'graph', 0xffdc8c, 500);
-            spawnParticle('machine', 'has', 0xffdc8c, 600);
-          }, 600);
+            spawnDataStream('machine', 'graph', promptText, 'stream-prompt', 800);
+            spawnDataStream('machine', 'has', promptText, 'stream-prompt', 900);
+          }, 800);
 
-          addZoneLabel('machine', d.message || d.msg || '');
-          log(`Prompt: "${(d.message || d.msg || '').slice(0, 50)}"`, 'pipeline');
+          addZoneLabel('machine', promptText);
+          log(`Prompt: "${promptText.slice(0, 50)}"`, 'pipeline');
         }
 
         if (stage === 'prompt-complete') {
           activateStage('decode', '✓');
-          resultText.textContent = `Result: ${(d.resultText || '').slice(0, 200)}`;
+          const resultContent = (d.resultText || '').slice(0, 200);
+          resultText.textContent = `Result: ${resultContent}`;
           resultText.style.display = 'block';
 
-          spawnParticle('graph', 'machine', 0x8cffc8, 500);
-          addZoneLabel('machine', (d.resultText || '').slice(0, 30));
-          log(`Result: "${(d.resultText || '').slice(0, 60)}"`, 'result');
+          spawnDataStream('graph', 'machine', resultContent || 'result', 'stream-result', 1000);
+          addZoneLabel('machine', resultContent.slice(0, 30));
+          log(`Result: "${resultContent.slice(0, 60)}"`, 'result');
         }
 
         if (stage === 'prompt-empty') {
@@ -1348,7 +1455,8 @@
       }
 
       else if (ev.component === 'Sequencer' && ev.action === 'Boundary') {
-        spawnParticle('tokenizer', 'machine', 0x7ab4e0, 400);
+        const densityPct = ((d.density || 0) * 100).toFixed(0);
+        spawnDataStream('tokenizer', 'machine', `chunk #${d.chunks} ${densityPct}%`, 'stream-token', 800);
         log(`Boundary #${d.chunks} density=${((d.density || 0) * 100).toFixed(1)}%`, 'tokenize');
       }
 
@@ -1365,7 +1473,7 @@
           execInitialResidue = d.preResidue || 1;
           execResidueFill.style.width = '100%';
 
-          spawnParticle('machine', 'graph', 0xffdc8c, 600);
+          spawnDataStream('machine', 'graph', `${d.candidateCount} candidates`, 'stream-prompt', 1000);
           addZoneLabel('machine', `Execute: ${d.candidateCount} candidates`);
           log(`Execute start: residue=${d.preResidue} candidates=${d.candidateCount}`, 'pipeline');
         }
@@ -1389,7 +1497,8 @@
             : 0;
           execResidueFill.style.width = `${pct}%`;
 
-          spawnParticle('machine', 'graph', adv ? 0x8cffc8 : 0xff8c78, 400);
+          const stepLabel = `step ${step}: ${pre}→${post}`;
+          spawnDataStream('machine', 'graph', stepLabel, adv ? 'stream-result' : 'stream-fold', 700);
           log(`Execute step ${step}: ${pre}→${post} ${cls}`, 'pipeline');
         }
 
@@ -1400,7 +1509,7 @@
 
           if (outcome === 'stable') {
             execResidueFill.style.width = '0%';
-            spawnParticle('graph', 'machine', 0x8cffc8, 500);
+            spawnDataStream('graph', 'machine', `stable (step ${d.step})`, 'stream-result', 1000);
           }
 
           addZoneLabel('machine', `Execute: ${outcome} (step ${d.step})`);
@@ -1411,12 +1520,16 @@
       else if (ev.component === 'Graph' && ev.action === 'FoldSpan') {
         const level = d.level || 0;
         const spanSize = d.spanSize || 0;
+        const spanText = d.chunkText || '';
+        const spanLabel = spanText
+          ? `"${spanText.slice(0, 20)}" L${level} [${d.left}:${d.right}]`
+          : `L${level} [${d.left}:${d.right}] ×${spanSize}`;
 
-        addZoneLabel('graph', `L${level} span=${spanSize} [${d.left}:${d.right}]`);
-        log(`FoldSpan L${level}: [${d.left}:${d.right}] size=${spanSize}`, 'fold');
+        addZoneLabel('graph', spanLabel);
+        log(`FoldSpan L${level}: [${d.left}:${d.right}] "${spanText.slice(0, 40)}"`, 'fold');
 
         if (level === 0) {
-          spawnParticle('machine', 'graph', 0x6aa0d0, 700);
+          spawnDataStream('machine', 'graph', spanText || `span [${d.left}:${d.right}]`, 'stream-fold', 1000);
         }
       }
 
@@ -1592,7 +1705,7 @@
 
     function animate() {
       requestAnimationFrame(animate);
-      updateParticles();
+      updateDataStreams();
       updateLabelZoom();
       controls.update();
       renderer.render(scene, camera);

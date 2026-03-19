@@ -352,16 +352,18 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 			Candidate:      candidateRecord,
 		}
 
-		console.Trace(
-			"OUTCOME",
-			"mask", queryMask,
-			"matches", matchResults,
-			"winner", bestIndex,
-			"recovered", bestRecovered,
-			"postResidue", bestResidue,
-			"steps", step+1,
-			"candidate", candidateRecord,
-		)
+		if console.IsTraceEnabled() {
+			console.Trace(
+				"OUTCOME",
+				"mask", queryMask,
+				"matches", matchResults,
+				"winner", bestIndex,
+				"recovered", bestRecovered,
+				"postResidue", bestResidue,
+				"steps", step+1,
+				"candidate", candidateRecord,
+			)
+		}
 
 		if stable {
 			prog.sink.Emit(telemetry.Event{

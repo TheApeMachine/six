@@ -368,13 +368,22 @@ func initBytePhaseScales() [256]numeric.Phase {
 initByteRouteHints precomputes one compact routing hint per byte from its
 BaseValue footprint. The hint is not semantic metadata; it is a cheap structural
 summary derived from the prime-basis occupancy pattern.
+
+Uses a single reusable Value to avoid 256 Cap'n Proto message allocations at
+init time (~2.5MB saved).
 */
 func initByteRouteHints() [256]uint8 {
 	var hints [256]uint8
 
+	scratch, err := New()
+
+	if err != nil {
+		panic("initByteRouteHints: " + err.Error())
+	}
+
 	for b := range len(hints) {
-		base := BaseValue(byte(b))
-		hints[b] = uint8(base.Bin())
+		BaseValueInto(byte(b), &scratch)
+		hints[b] = uint8(scratch.Bin())
 	}
 
 	return hints

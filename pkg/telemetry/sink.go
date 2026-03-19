@@ -1,7 +1,6 @@
 package telemetry
 
 import (
-	"encoding/json"
 	"net"
 
 	"github.com/theapemachine/six/pkg/errnie"
@@ -9,13 +8,14 @@ import (
 
 /*
 Sink is a fire-and-forget UDP telemetry emitter for the 3D visualizer.
-It broadcasts structural state events non-blockingly, guaranteeing no
-performance degradation on the core processes.
+Events are encoded as flat binary frames (see wire.go) into a reusable
+buffer, so Emit allocates nothing on the hot path.
 */
 type Sink struct {
 	address string
 	conn    *net.UDPConn
 	state   *errnie.State
+	buf     []byte
 }
 
 /*
@@ -31,6 +31,7 @@ func NewSink(opts ...opts) *Sink {
 	sink := &Sink{
 		address: "127.0.0.1:8258",
 		state:   errnie.NewState("telemetry/sink"),
+		buf:     make([]byte, 0, 512),
 	}
 
 	for _, opt := range opts {
@@ -58,17 +59,15 @@ func WithAddress(address string) opts {
 }
 
 /*
-Emit sends the telemetry event as JSON via UDP.
-When the visualization server is offline, write failures are dropped silently.
+Emit sends the telemetry event as a binary frame via UDP.
+The buffer is reused across calls so the hot path is zero-alloc
+for events that fit within the pre-allocated capacity.
 */
 func (sink *Sink) Emit(event Event) {
 	if sink.conn == nil {
 		return
 	}
 
-	raw := errnie.Guard(sink.state, func() ([]byte, error) {
-		return json.Marshal(event)
-	})
-
-	_, _ = sink.conn.Write(raw)
+	sink.buf = event.AppendBinary(sink.buf[:0])
+	_, _ = sink.conn.Write(sink.buf)
 }

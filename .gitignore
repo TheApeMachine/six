@@ -11,3 +11,6 @@ thoughts/ledgers/CONTINUITY_ses_33d3.md
 .kiro/specs/programmable-value-language/design.md
 .kiro/specs/programmable-value-language/requirements.md
 .kiro/specs/programmable-value-language/tasks.md
+*.out
+*.out
+*.test
