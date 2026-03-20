@@ -12,7 +12,16 @@ func TestCircuitBreakerLimitMatchesAllow(t *testing.T) {
 		cb := NewCircuitBreaker(2, 100*time.Millisecond, 1)
 
 		Convey("Limit should be the negation of Allow while closed", func() {
-			So(cb.Limit(), ShouldEqual, !cb.Allow())
+			So(cb.Allow(), ShouldBeTrue)
+			So(cb.Limit(), ShouldBeFalse)
+		})
+
+		Convey("After failures Limit should reject while Allow is false", func() {
+			cb2 := NewCircuitBreaker(2, 100*time.Millisecond, 1)
+			cb2.RecordFailure()
+			cb2.RecordFailure()
+			So(cb2.Allow(), ShouldBeFalse)
+			So(cb2.Limit(), ShouldBeTrue)
 		})
 	})
 }
@@ -50,9 +59,22 @@ func TestCircuitBreakerRenormalizeFromOpen(t *testing.T) {
 		cb.RecordFailure()
 		So(cb.State(), ShouldEqual, CircuitOpen)
 
-		time.Sleep(80 * time.Millisecond)
-		cb.Renormalize()
+		deadline := time.Now().Add(200 * time.Millisecond)
+		halfOpen := false
 
+		for time.Now().Before(deadline) {
+			cb.Renormalize()
+
+			if cb.State() == CircuitHalfOpen {
+				halfOpen = true
+
+				break
+			}
+
+			time.Sleep(5 * time.Millisecond)
+		}
+
+		So(halfOpen, ShouldBeTrue)
 		So(cb.State(), ShouldEqual, CircuitHalfOpen)
 	})
 }

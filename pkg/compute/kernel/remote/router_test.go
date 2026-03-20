@@ -2,10 +2,8 @@ package remote
 
 import (
 	"context"
-	"io"
 	"runtime"
 	"testing"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/store/dmt"
@@ -27,39 +25,35 @@ func TestRouterNoPeers(t *testing.T) {
 			So(n, ShouldEqual, 0)
 
 			_, writeErr := router.Write([]byte("key"))
-			So(writeErr, ShouldEqual, io.ErrClosedPipe)
+			So(writeErr, ShouldEqual, ErrNoPeers)
 
 			buf := make([]byte, 32)
 			_, readErr := router.Read(buf)
-			So(readErr, ShouldEqual, io.EOF)
+			So(readErr, ShouldEqual, ErrNoPeers)
 		})
 	})
 }
 
 func TestRouterAddPeerAndWrite(t *testing.T) {
-	harness := newTestHarness(t)
-	defer harness.close()
+	Convey("Given a router peer and a remote forest", t, func() {
+		harness := newTestHarness(t)
+		defer harness.close()
 
-	time.Sleep(50 * time.Millisecond)
+		waitListenerTCP(t, harness.addr)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
-	router := NewRouter(RouterWithContext(ctx))
-	defer router.Close()
+		router := NewRouter(RouterWithContext(ctx))
+		defer router.Close()
 
-	if err := router.AddPeer(harness.addr); err != nil {
-		t.Fatalf("AddPeer: %v", err)
-	}
+		addErr := router.AddPeer(harness.addr)
+		So(addErr, ShouldBeNil)
 
-	key := []byte("router-test-key")
-	n, writeErr := router.Write(key)
+		key := []byte("router-test-key")
+		n, writeErr := router.WriteSync(key)
+		So(writeErr, ShouldBeNil)
 
-	if writeErr != nil {
-		t.Fatalf("Write: %v", writeErr)
-	}
-
-	Convey("Given a key written through the router", t, func() {
 		Convey("It should succeed and reach the remote forest", func() {
 			So(n, ShouldEqual, len(key))
 
@@ -76,7 +70,8 @@ func TestRouterMultiplePeers(t *testing.T) {
 	h2 := newTestHarness(t)
 	defer h2.close()
 
-	time.Sleep(50 * time.Millisecond)
+	waitListenerTCP(t, h1.addr)
+	waitListenerTCP(t, h2.addr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -88,10 +83,10 @@ func TestRouterMultiplePeers(t *testing.T) {
 	router.AddPeer(h2.addr)
 
 	key := []byte("multi-peer-key")
-	n, writeErr := router.Write(key)
+	n, writeErr := router.WriteSync(key)
 
 	if writeErr != nil {
-		t.Fatalf("Write: %v", writeErr)
+		t.Fatalf("WriteSync: %v", writeErr)
 	}
 
 	Convey("Given a router with two live peers", t, func() {
@@ -132,7 +127,7 @@ func TestRouterClose(t *testing.T) {
 	harness := newTestHarness(t)
 	defer harness.close()
 
-	time.Sleep(50 * time.Millisecond)
+	waitListenerTCP(t, harness.addr)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -140,10 +135,10 @@ func TestRouterClose(t *testing.T) {
 	router := NewRouter(RouterWithContext(ctx))
 	router.AddPeer(harness.addr)
 
-	_, writeErr := router.Write([]byte("trigger-connect"))
+	_, writeErr := router.WriteSync([]byte("trigger-connect"))
 
 	if writeErr != nil {
-		t.Fatalf("Write: %v", writeErr)
+		t.Fatalf("WriteSync: %v", writeErr)
 	}
 
 	Convey("Given a connected router that is closed", t, func() {
@@ -184,8 +179,8 @@ func BenchmarkRouterWrite(b *testing.B) {
 
 	defer netNode.Close()
 
-	time.Sleep(50 * time.Millisecond)
 	addr := netNode.ListenAddr()
+	waitListenerTCP(b, addr)
 
 	router := NewRouter(RouterWithContext(ctx))
 	defer router.Close()
@@ -199,5 +194,49 @@ func BenchmarkRouterWrite(b *testing.B) {
 
 	for b.Loop() {
 		router.Write(key)
+	}
+}
+
+func BenchmarkRouterWriteSync(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	workerPool := pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{})
+	defer workerPool.Close()
+
+	forest, err := dmt.NewForest(dmt.ForestConfig{Pool: workerPool})
+
+	if err != nil {
+		b.Fatalf("forest: %v", err)
+	}
+
+	defer forest.Close()
+
+	netNode, netErr := dmt.NewNetworkNode(dmt.NetworkConfig{
+		ListenAddr: "127.0.0.1:0",
+		NodeID:     "bench-router-sync",
+	}, forest)
+
+	if netErr != nil {
+		b.Fatalf("network node: %v", netErr)
+	}
+
+	defer netNode.Close()
+
+	addr := netNode.ListenAddr()
+	waitListenerTCP(b, addr)
+
+	router := NewRouter(RouterWithContext(ctx))
+	defer router.Close()
+
+	router.AddPeer(addr)
+
+	key := []byte("bench-router-sync-key")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		router.WriteSync(key)
 	}
 }

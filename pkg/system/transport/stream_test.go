@@ -225,11 +225,14 @@ type invertOp struct {
 }
 
 func (op *invertOp) Write(p []byte) (n int, err error) {
-	for idx := range p {
-		p[idx] ^= 0xFF
+	tmp := make([]byte, len(p))
+	copy(tmp, p)
+
+	for idx := range tmp {
+		tmp[idx] ^= 0xFF
 	}
 
-	return op.buf.Write(p)
+	return op.buf.Write(tmp)
 }
 
 func (op *invertOp) Read(p []byte) (n int, err error) {

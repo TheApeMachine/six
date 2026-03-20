@@ -41,20 +41,22 @@ func TestAdaptiveScalerRegulatorRenormalizeAfterCooldown(t *testing.T) {
 			TargetLoad:         2,
 			ScaleUpThreshold:   4,
 			ScaleDownThreshold: 1,
-			Cooldown:           20 * time.Millisecond,
+			Cooldown:           0,
 		})
 
 		as.Observe(&Metrics{WorkerCount: 2, JobQueueSize: 12})
 
 		Convey("Renormalize after cooldown should run another evaluation", func() {
-			time.Sleep(25 * time.Millisecond)
-			pool.workerMu.Lock()
-			before := len(pool.workerList)
-			pool.workerMu.Unlock()
+			before := pool.WorkerCount()
 			as.Renormalize()
-			pool.workerMu.Lock()
-			after := len(pool.workerList)
-			pool.workerMu.Unlock()
+
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+
+			waitErr := pool.WaitForWorkerCount(ctx, before)
+			So(waitErr, ShouldBeNil)
+
+			after := pool.WorkerCount()
 			So(after, ShouldBeGreaterThanOrEqualTo, before)
 		})
 	})
@@ -87,31 +89,21 @@ func TestAdaptiveScalerRegulatorEvaluateScaleDown(t *testing.T) {
 			TargetLoad:         2,
 			ScaleUpThreshold:   4,
 			ScaleDownThreshold: 1,
-			Cooldown:           time.Millisecond,
+			Cooldown:           0,
 		})
 
-		pool.metrics.mu.Lock()
-		pool.metrics.WorkerCount = 3
-		pool.metrics.JobQueueSize = 0
-		pool.metrics.mu.Unlock()
+		as.Observe(pool.Metrics())
 
-		as.metrics = pool.metrics
-		as.lastScale = time.Now().Add(-time.Second)
-
-		pool.workerMu.Lock()
-		before := len(pool.workerList)
-		pool.workerMu.Unlock()
+		before := pool.WorkerCount()
 
 		Convey("evaluate should reduce workers when load is below threshold", func() {
 			as.evaluate()
 
-			pool.workerMu.Lock()
-			after := len(pool.workerList)
-			pool.workerMu.Unlock()
+			after := pool.WorkerCount()
 
 			So(before, ShouldBeGreaterThan, 1)
 			So(after, ShouldEqual, before-1)
-			So(pool.metrics.WorkerCount, ShouldEqual, after)
+			So(pool.Metrics().WorkerCount, ShouldEqual, after)
 		})
 	})
 }

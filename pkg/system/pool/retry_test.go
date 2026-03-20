@@ -34,8 +34,11 @@ func TestExponentialBackoffMaxDelayCapsBase(t *testing.T) {
 func TestExponentialBackoffNonPositiveAttemptClampsExponent(t *testing.T) {
 	Convey("Given ExponentialBackoff", t, func() {
 		eb := &ExponentialBackoff{Initial: 5 * time.Millisecond}
-		So(eb.NextDelay(0), ShouldEqual, 5*time.Millisecond)
-		So(eb.NextDelay(-3), ShouldEqual, 5*time.Millisecond)
+
+		Convey("It should clamp non-positive attempts to the initial delay", func() {
+			So(eb.NextDelay(0), ShouldEqual, 5*time.Millisecond)
+			So(eb.NextDelay(-3), ShouldEqual, 5*time.Millisecond)
+		})
 	})
 }
 

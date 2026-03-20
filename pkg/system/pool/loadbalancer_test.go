@@ -84,13 +84,25 @@ func TestLoadBalancerObserveAddsWorkersFromMetrics(t *testing.T) {
 		lb := NewLoadBalancer(2, 4)
 		m := &Metrics{WorkerCount: 5}
 
-		Convey("Observe should expand internal maps", func() {
+		Convey("Observe should let SelectWorker reach expanded worker ids", func() {
 			lb.Observe(m)
-			for id := 0; id < 5; id++ {
-				_, ok := lb.workerCapacity[id]
-				So(ok, ShouldBeTrue)
-			}
 			So(lb.Limit(), ShouldBeFalse)
+
+			seen := make(map[int]struct{})
+
+			for range 64 {
+				w, err := lb.SelectWorker()
+				So(err, ShouldBeNil)
+				So(w, ShouldBeGreaterThanOrEqualTo, 0)
+				So(w, ShouldBeLessThan, 5)
+				seen[w] = struct{}{}
+
+				if len(seen) == 5 {
+					break
+				}
+			}
+
+			So(len(seen), ShouldEqual, 5)
 		})
 	})
 }

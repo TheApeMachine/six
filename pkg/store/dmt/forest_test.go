@@ -243,10 +243,10 @@ func TestForestIterate(t *testing.T) {
 		defer forest.Close()
 
 		want := map[string]string{
-			"alpha": "1",
-			"beta":  "2",
-			"gamma": "3",
-			"delta": "4",
+			"alpha":   "1",
+			"beta":    "2",
+			"gamma":   "3",
+			"delta":   "4",
 			"epsilon": "5",
 		}
 
@@ -480,14 +480,21 @@ func TestForestSynchronizeTrees(t *testing.T) {
 		secondTree, err := NewTree("")
 		So(err, ShouldBeNil)
 
+		genBefore := forest.postUpdateSyncCount.Load()
 		forest.AddTree(secondTree)
 
 		/*
-			Let the sync loop drain the AddTree signal while both trees are still
-			empty so a later direct insert into trees[0] is not merged into trees[1]
+			Wait until the sync loop has handled the AddTree signal (updates path)
+			so a later direct insert into trees[0] is not merged into trees[1]
 			before we assert the lagging state.
 		*/
-		time.Sleep(250 * time.Millisecond)
+		deadline := time.Now().Add(2 * time.Second)
+
+		for forest.postUpdateSyncCount.Load() == genBefore && time.Now().Before(deadline) {
+			time.Sleep(2 * time.Millisecond)
+		}
+
+		So(forest.postUpdateSyncCount.Load(), ShouldBeGreaterThan, genBefore)
 
 		key := []byte("direct-only")
 		value := []byte("unsynced-path")

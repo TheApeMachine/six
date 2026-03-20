@@ -24,9 +24,7 @@ func TestNewBuilder_DefaultDoesNotPanic(t *testing.T) {
 func TestNewBuilder_CPUFallback(t *testing.T) {
 	Convey("Given a builder with a CPU backend", t, func() {
 		backend := &bytes.Buffer{}
-		builder := &Builder{
-			backends: []Backend{&bufBackend{buf: backend}},
-		}
+		builder := NewBuilder(WithBackend(&bufBackend{buf: backend}))
 
 		Convey("It should round-trip data", func() {
 			payload := []byte("test data")
@@ -52,3 +50,21 @@ func (b *bufBackend) Available() (int, error)     { return 1, nil }
 func (b *bufBackend) Read(p []byte) (int, error)  { return b.buf.Read(p) }
 func (b *bufBackend) Write(p []byte) (int, error) { return b.buf.Write(p) }
 func (b *bufBackend) Close() error                { b.buf.Reset(); return nil }
+
+func BenchmarkBuilder_RoundTrip(b *testing.B) {
+	backend := &bytes.Buffer{}
+	bufBackend := &bufBackend{buf: backend}
+	builder := NewBuilder(WithBackend(bufBackend))
+	payload := []byte("benchmark payload for builder write/read path")
+	out := make([]byte, len(payload))
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		backend.Reset()
+		builder.Reset()
+		builder.Write(payload)
+		builder.Read(out)
+	}
+}

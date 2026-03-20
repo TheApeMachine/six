@@ -525,14 +525,14 @@ func BenchmarkPoolMetricsAccessor(b *testing.B) {
 }
 
 func BenchmarkPoolScheduleEndToEnd(b *testing.B) {
-	p := New(context.Background(), 4, 16, NewConfig())
+	p := New(context.Background(), 2, 32, NewConfig())
 	defer p.Close()
 	wait := resultWaitBudget(p)
 	var seq atomic.Uint64
 	b.ReportAllocs()
 	for b.Loop() {
-		id := fmt.Sprintf("e2e-%d", seq.Add(1))
-		if err := p.Schedule(id, COMPUTE, newTestTask("ok")); err != nil {
+		id := fmt.Sprintf("wide-%d", seq.Add(1))
+		if err := p.Schedule(id, COMPUTE, newTestTask("bench-e2e-wide")); err != nil {
 			b.Fatal(err)
 		}
 		if _, err := waitForResultBenchmark(p.store, id, wait); err != nil {

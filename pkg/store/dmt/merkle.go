@@ -11,6 +11,18 @@ import (
 )
 
 /*
+Proof entries prefix a sibling hash with proofPosLeft or proofPosRight so the
+verifier hashes (left, right) consistently. proofPromoteNilRight marks a
+missing right sibling at rebuild time; the following byte is proofNilRightPad.
+*/
+const (
+	proofPosLeft         byte = 0x00
+	proofPosRight        byte = 0x01
+	proofPromoteNilRight byte = 0x02
+	proofNilRightPad     byte = 0x00
+)
+
+/*
 MerkleNode is one node in the tree. Leaves store Key/Value; internal nodes
 store only Hash. Left/Right are nil for leaves.
 */
@@ -255,10 +267,11 @@ func (mt *MerkleTree) Verify(key, value []byte) bool {
 
 /*
 GetProof returns sibling hashes from leaf to root. Each element is prefixed
-with 0x00 (sibling right) or 0x01 (sibling left) so VerifyProof knows hash order.
-When the current node is the left child and the parent has no right sibling
-(odd leaf count at that level), the entry is 0x02 0x00 so VerifyProof applies
-the same hashChildren(leaf, nil) promotion used in Rebuild.
+with proofPosLeft (sibling right) or proofPosRight (sibling left) so VerifyProof
+knows hash order. When the current node is the left child and the parent has no
+right sibling (odd leaf count at that level), the entry is proofPromoteNilRight
+followed by proofNilRightPad so VerifyProof applies the same hashChildren(leaf,
+nil) promotion used in Rebuild.
 */
 func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
 	mt.mu.RLock()
@@ -288,13 +301,13 @@ func (mt *MerkleTree) GetProof(key []byte) ([][]byte, error) {
 
 		if parent.Left == current {
 			if parent.Right != nil {
-				entry := append([]byte{0x00}, parent.Right.Hash...)
+				entry := append([]byte{proofPosLeft}, parent.Right.Hash...)
 				proof = append(proof, entry)
 			} else {
-				proof = append(proof, []byte{0x02, 0x00})
+				proof = append(proof, []byte{proofPromoteNilRight, proofNilRightPad})
 			}
 		} else {
-			entry := append([]byte{0x01}, parent.Left.Hash...)
+			entry := append([]byte{proofPosRight}, parent.Left.Hash...)
 			proof = append(proof, entry)
 		}
 
@@ -316,8 +329,6 @@ func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 		return false
 	}
 
-	const proofPromoteNilRight byte = 0x02
-
 	hash := mt.hashKV(key, value)
 
 	for _, entry := range proof {
@@ -328,7 +339,7 @@ func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 		position := entry[0]
 
 		if position == proofPromoteNilRight {
-			if len(entry) != 2 || entry[1] != 0x00 {
+			if len(entry) != 2 || entry[1] != proofNilRightPad {
 				return false
 			}
 
@@ -343,7 +354,7 @@ func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 
 		siblingHash := entry[1:]
 
-		if position == 0x00 {
+		if position == proofPosLeft {
 			hash = mt.hashChildren(hash, siblingHash)
 		} else {
 			hash = mt.hashChildren(siblingHash, hash)

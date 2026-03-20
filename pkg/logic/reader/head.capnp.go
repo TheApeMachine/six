@@ -158,6 +158,114 @@ func (p Head_Future) Operation() primitive.Value_Future {
 	return primitive.Value_Future{Future: p.Future.Field(2, nil)}
 }
 
+type DoneResult capnp.Struct
+
+// DoneResult_TypeID is the unique identifier for the type DoneResult.
+const DoneResult_TypeID = 0xf2cb410014a05dc6
+
+func NewDoneResult(s *capnp.Segment) (DoneResult, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return DoneResult(st), err
+}
+
+func NewRootDoneResult(s *capnp.Segment) (DoneResult, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
+	return DoneResult(st), err
+}
+
+func ReadRootDoneResult(msg *capnp.Message) (DoneResult, error) {
+	root, err := msg.Root()
+	return DoneResult(root.Struct()), err
+}
+
+func (s DoneResult) String() string {
+	str, _ := text.Marshal(0xf2cb410014a05dc6, capnp.Struct(s))
+	return str
+}
+
+func (s DoneResult) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (DoneResult) DecodeFromPtr(p capnp.Ptr) DoneResult {
+	return DoneResult(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s DoneResult) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s DoneResult) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s DoneResult) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s DoneResult) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s DoneResult) Count() uint64 {
+	return capnp.Struct(s).Uint64(0)
+}
+
+func (s DoneResult) SetCount(v uint64) {
+	capnp.Struct(s).SetUint64(0, v)
+}
+
+func (s DoneResult) Status() (string, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.Text(), err
+}
+
+func (s DoneResult) HasStatus() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s DoneResult) StatusBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return p.TextBytes(), err
+}
+
+func (s DoneResult) SetStatus(v string) error {
+	return capnp.Struct(s).SetText(0, v)
+}
+
+func (s DoneResult) Detail() (string, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.Text(), err
+}
+
+func (s DoneResult) HasDetail() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s DoneResult) DetailBytes() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return p.TextBytes(), err
+}
+
+func (s DoneResult) SetDetail(v string) error {
+	return capnp.Struct(s).SetText(1, v)
+}
+
+// DoneResult_List is a list of DoneResult.
+type DoneResult_List = capnp.StructList[DoneResult]
+
+// NewDoneResult creates a new list of DoneResult.
+func NewDoneResult_List(s *capnp.Segment, sz int32) (DoneResult_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
+	return capnp.StructList[DoneResult](l), err
+}
+
+// DoneResult_Future is a wrapper for a DoneResult promised by a client call.
+type DoneResult_Future struct{ *capnp.Future }
+
+func (f DoneResult_Future) Struct() (DoneResult, error) {
+	p, err := f.Future.Ptr()
+	return DoneResult(p.Struct()), err
+}
+
 type Reader capnp.Client
 
 // Reader_TypeID is the unique identifier for the type Reader.
@@ -355,7 +463,7 @@ func (c Reader_done) Args() Reader_done_Params {
 
 // AllocResults allocates the results struct.
 func (c Reader_done) AllocResults() (Reader_done_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Reader_done_Results(r), err
 }
 
@@ -527,12 +635,12 @@ type Reader_done_Results capnp.Struct
 const Reader_done_Results_TypeID = 0x91abfb38cbe6befe
 
 func NewReader_done_Results(s *capnp.Segment) (Reader_done_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Reader_done_Results(st), err
 }
 
 func NewRootReader_done_Results(s *capnp.Segment) (Reader_done_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Reader_done_Results(st), err
 }
 
@@ -568,13 +676,36 @@ func (s Reader_done_Results) Message() *capnp.Message {
 func (s Reader_done_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
+func (s Reader_done_Results) Result() (DoneResult, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return DoneResult(p.Struct()), err
+}
+
+func (s Reader_done_Results) HasResult() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Reader_done_Results) SetResult(v DoneResult) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewResult sets the result field to a newly
+// allocated DoneResult struct, preferring placement in s's segment.
+func (s Reader_done_Results) NewResult() (DoneResult, error) {
+	ss, err := NewDoneResult(capnp.Struct(s).Segment())
+	if err != nil {
+		return DoneResult{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
 
 // Reader_done_Results_List is a list of Reader_done_Results.
 type Reader_done_Results_List = capnp.StructList[Reader_done_Results]
 
 // NewReader_done_Results creates a new list of Reader_done_Results.
 func NewReader_done_Results_List(s *capnp.Segment, sz int32) (Reader_done_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
 	return capnp.StructList[Reader_done_Results](l), err
 }
 
@@ -585,36 +716,44 @@ func (f Reader_done_Results_Future) Struct() (Reader_done_Results, error) {
 	p, err := f.Future.Ptr()
 	return Reader_done_Results(p.Struct()), err
 }
+func (p Reader_done_Results_Future) Result() DoneResult_Future {
+	return DoneResult_Future{Future: p.Future.Field(0, nil)}
+}
 
-const schema_ad058c9d70423d67 = "x\xda\x84\x91Ok\x13O\x1c\xc6\x9fgf\xf7\x97R" +
-	"\x9a\x9f\x1d\xd2\x83\x96B\xc1\xc6\x8b\x87\xc66\x17\x89J" +
-	"BP\xa8Re' x\x10di\xc6\xb8\x18w\x97" +
-	"\xcd\xc6b\xc0\x8b\x17/^\xea\xa1\xa2\xd0\x83\x17AE" +
-	"\x82o@\x04{\xb3W\xaf\x82\x07\xbd\x14_\x80\x7fp" +
-	"eR\xba\x8a\xffz\x1b\x9e\xcf\xf7\x99g\x9e\xf9\x1e9" +
-	"\xc8\x86\xb3P\xac\xb8\x10\xfa\xb8\xfb_\xf6\xed\xc5\x87\xd7" +
-	"G\xbf<]\x83\x9a#\xe0\x14\x80\xeaMq\x8bp\xb2" +
-	"\xe1\xe6\xb1a\xa5\xe9<\xfa\x89\x04b`\xc9\\\xed\xde" +
-	"\xfa\xd7\xcd\x89\xc7;\xc4\xa5E\xe7\xad\x89%_\xd4\xc1" +
-	"l\xf0v{\xff\x8d\xed\xf5'P32\xeb\x9ch\xc6" +
-	"\x1bw\xdcg\x00\xabkb\x9a\xa5\x87\xa2\x00\x946\xc4" +
-	"\xed\xd2G{\xca\xb6.\x96\x97\xee~jnA\xcd\xf0" +
-	"\xc7\xb4+\xed\xb5o\xc48K\xefG\x86wb\x88(" +
-	"\x8b\xafv*\xdd\xa8\x13\x8c\xafT\x12\xe3\xb7MR\xb9" +
-	"b\xfc\xf6\xfc\x8a\x1f\x87q\xad5R\xe6\xdbQh\xca" +
-	"-\xd3\xebw\xd3\x1ev\x0d{\xcd\xd7=?\xf1\xaf\xf5" +
-	"\xf2\x00\xf7\x1f\x86\xd5$HMy\xc7\x00\xedH\x07p" +
-	"\x08\xa8b\x0d\xd0c\x92\xba,X\xbf\xeew\xfb\xa6\xc7" +
-	"\xffAO\x92\x93\xd9e\xe7\xcc\xf4\xb9\xcf\x83W\x00\xad" +
-	"\x98\x07\xc9\xbf\x05I\x93x\xa4\x1e\x93.\x90\xff9\xc3" +
-	"\xe7/W\xab\x0f.\xddW\x0b\x8b\x10\xeaP\x81\xcc7" +
-	"\xc5\xdde\xaa\x03\x87!T\xb10;zh\x83\xfbl" +
-	"\xc3\x06=\xee\x91\xbad\xfc6`C'\xf2N\xa7\x16" +
-	"\x01\xdd\x90\xd4\xcb\x82\x8a\x9c\xa2\x15O\xdb\xa2'%\xb5" +
-	"'\xa8\x84\x98\xa2\x00\xd4\xd9\x16\xa0\x97%\xf5\x05\xc1\xd9" +
-	" \x8c\xfb\xe9/\xad'\xc1z\xd4O\xff\x08\xb2(6" +
-	"\x89\x9f\x06\x11\x18\xfeN\xbf\x07\x00\x00\xff\xffB\xdd\xc5" +
-	"<"
+const schema_ad058c9d70423d67 = "x\xda\x8cR?h\x13o\x18~\x9f\xef\xbb\xfb\xa5\xf9" +
+	"\x91h\x8e\xcb\xa0%\x90\xa1qqhl\xb3HD." +
+	"\x0d\x15\xa2\xb4\x92/8((r$\x9f1\x18\xef\xce" +
+	"\xfbc1\xa3K\x17\x17\x1d*\x0a\x82\x93PE\x82\x83" +
+	"\xab(\x16\x97\xd6\xd1\xd5Q\x90\x0e\x82\xe0P\xff\x9d\xdc" +
+	"\xc5\xa4ER\xebv\xf7>\xcf\xf3>\xcf\xc3\xf7\x1e\xb9" +
+	"\x86\x8a2\x93^V\x89\x89\x8a\xfa_\xf8\xf3\xc5\x87\xf5" +
+	"\xa3\xdf\x9e\xdc&m\x0aD*\x12D\xa5Uv\x13\x04" +
+	"\xfd93\x08a\x7f\xedX\xbfXU\x1e\x0d\x08J\x84" +
+	"\xbfc=\x90\x12N\x95\xef\xae|_K\xad\xee\x94\xbe" +
+	"\x1aH\xdf\xc6\xd2\xde\xfb\xcd\x0376W\x1e\x93\x96\xe3" +
+	"a\xfbx\xd5ypK}J\x84\xd2\x0f6\x09=\xcd" +
+	"\x13Dz\x92/\xeb\xe7\xa2\xafp\xe3|\xa1vg\xab" +
+	"\xbaAZ\x0e\xdbl5\xc2Js\xfc\x7f\xe8\"\x16," +
+	"\xf2>\xe1\xd3\x9b\x0b\x0f\xb3s\xeb\x9fE\x0e;\xb9," +
+	"\xe2~\xe4e\xe8[1\xf7\x0b\xef\x93\x1d:W\xda\xc5" +
+	"\xae\xdd\xee\xa8\xcd\xa2+\xcd\x96t\x8b\x97\xa5\xd9\x9an" +
+	"\x9a\x8e\xe5\x94\x1b\xf1d\xbae[\xb2\xd0\x90^\xd0\xf5" +
+	"=\x12\x0aW\x88\x14\x10i\xe92\x91\x98\xe0\x10Y\x06" +
+	"\xc3\x8dqd\x86\xee\x04d\x08\xa3\xfd\xca^\xfb\x8d\xba" +
+	"\xe9\x9aW\xbd\x7f\x0a\xb4\xe4v|Y\x18\x08\xc6\x06*" +
+	"0\x18\xd7\xcdn =\xec#\xd49\x90\x09/)\xa7" +
+	"&O\x7f\xed\xbd&B4\x1c\x19\xf1\xdd\x8c\xb8t\xeb" +
+	"\x80\x98\xe0*\xd1\xe8=a={\xb9T\xba\x7f\xf1\x9e" +
+	"63KL;\x94\xc0\xf6\x15`x/\xda\xc1\xc3\xc4" +
+	"\xb4t\"\x1f\x07\xad`\x7f\xd4\xb0\x82:\xf6p\xadI" +
+	"\xb3E\x14\x99\xa6F\x9dN\xcc\x12\x89\x0a\x87X`\xd0" +
+	"\x80,\xa2\xe1\xc9\xa8\xe8<\x87\xa83h\x8ce\xc1\x88" +
+	"\xb4\xc5\x06\x91X\xe0\x10g\x19\xf2\x1d\xcb\x09\xfc?Z" +
+	"g\x08\x86\x1d\xf8c\x81\xd0v\xa4k\xfa\x1d\x9b`\x8d" +
+	"A\xff\x1a{\xde\xb6\xa41\xb8\x8f\xdd\xb3\x8f\x8f\x8e\xdf" +
+	"\xd1\xa3a\x8dC\x9ca\xc87\xed\xc0\xf2\x91$\x86$" +
+	"\xc1\xf0|\xd3\x0f<\xa4\x88!E0Z\xd27;\xdd" +
+	"\xe1\xef\xaf\x00\x00\x00\xff\xff\xb9\xab\xfbq"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -625,6 +764,7 @@ func RegisterSchema(reg *schemas.Registry) {
 			0xa90cc4fc96973a23,
 			0xaa96eb7918ebde7a,
 			0xcc42f99248245ccc,
+			0xf2cb410014a05dc6,
 		},
 		Compressed: true,
 	})

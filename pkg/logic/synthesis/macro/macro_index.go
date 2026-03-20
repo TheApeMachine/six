@@ -108,10 +108,8 @@ instead of falling back to raw data generation or exhaustive searching.
 type MacroIndexServer struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      MacroIndex
 	serverConn  *rpc.Conn
+	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	mu          sync.RWMutex
 	opcodes     map[AffineKey]*MacroOpcode
@@ -146,29 +144,25 @@ func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 		"cancel": idx.cancel,
 	})
 
-	idx.serverSide, idx.clientSide = net.Pipe()
-	idx.client = MacroIndex_ServerToClient(idx)
+	serverSide, clientSide := net.Pipe()
+	capability := MacroIndex_ServerToClient(idx)
 
-	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		idx.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(idx.client),
+	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
+		BootstrapClient: capnp.Client(capability),
 	})
+
+	idx.clientConn = rpc.NewConn(rpc.NewStreamTransport(clientSide), nil)
 
 	return idx
 }
 
 /*
 Client returns a Cap'n Proto client connected to this MacroIndexServer.
+Returns the bootstrap capability from the pre-created client connection.
 */
 func (server *MacroIndexServer) Client(clientID string) MacroIndex {
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
-
-	return server.client
+	server.clientConns[clientID] = server.clientConn
+	return MacroIndex(server.clientConn.Bootstrap(server.ctx))
 }
 
 /*
@@ -176,26 +170,20 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (server *MacroIndexServer) Close() error {
+	if server.clientConn != nil {
+		_ = server.clientConn.Close()
+		server.clientConn = nil
+	}
+
 	if server.serverConn != nil {
 		_ = server.serverConn.Close()
 		server.serverConn = nil
 	}
 
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			_ = conn.Close()
-		}
+	for clientID := range server.clientConns {
 		delete(server.clientConns, clientID)
 	}
 
-	if server.serverSide != nil {
-		_ = server.serverSide.Close()
-		server.serverSide = nil
-	}
-	if server.clientSide != nil {
-		_ = server.clientSide.Close()
-		server.clientSide = nil
-	}
 	if server.cancel != nil {
 		server.cancel()
 	}
@@ -251,7 +239,11 @@ func (server *MacroIndexServer) Done(ctx context.Context, call MacroIndex_done) 
 
 	if bestUse > 0 {
 		opcode := server.opcodes[bestKey]
-		_ = res.SetKeyText(bestKey.String())
+
+		if setErr := res.SetKeyText(bestKey.String()); setErr != nil {
+			return setErr
+		}
+
 		res.SetUseCount(opcode.UseCount)
 		res.SetHardened(opcode.Hardened)
 	}

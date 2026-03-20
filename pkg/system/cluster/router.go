@@ -3,6 +3,8 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"math"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/system/transport"
@@ -27,6 +29,8 @@ time based on capability match and load.
 type Service interface {
 	Client(string) capnp.Client
 	Close() error
+	// Load is a non-negative load estimate; Resolve prefers the lowest value.
+	Load() int64
 }
 
 /*
@@ -36,6 +40,7 @@ participates in io pipelines like everything else.
 */
 type Router struct {
 	*transport.Stream
+	mu       sync.RWMutex
 	ctx      context.Context
 	cancel   context.CancelFunc
 	services map[string][]Service
@@ -63,20 +68,36 @@ func NewRouter(opts ...routerOpts) *Router {
 Register adds a service under the given capability name.
 */
 func (router *Router) Register(capability string, svc Service) {
+	router.mu.Lock()
+	defer router.mu.Unlock()
+
 	router.services[capability] = append(router.services[capability], svc)
 }
 
 /*
-Resolve returns the first service registered for the capability, or nil.
+Resolve returns the least-loaded service registered for the capability, or nil.
 */
 func (router *Router) Resolve(capability string) Service {
+	router.mu.RLock()
+	defer router.mu.RUnlock()
+
 	svcs := router.services[capability]
 
-	if len(svcs) == 0 {
-		return nil
+	var best Service
+	bestLoad := int64(math.MaxInt64)
+
+	for _, svc := range svcs {
+		if svc == nil {
+			continue
+		}
+
+		load := svc.Load()
+		if load < bestLoad {
+			best, bestLoad = svc, load
+		}
 	}
 
-	return svcs[0]
+	return best
 }
 
 /*
@@ -93,10 +114,30 @@ func (router *Router) Get(_ context.Context, capability string, clientID string)
 }
 
 /*
-RouterWithContext sets a cancellable context.
+RouterWithContext sets a cancellable context. Router.Close invokes cancel
+after closing the embedded Stream.
 */
 func RouterWithContext(ctx context.Context) routerOpts {
 	return func(router *Router) {
 		router.ctx, router.cancel = context.WithCancel(ctx)
 	}
+}
+
+/*
+Close closes the embedded transport Stream first, then cancels the router
+child context from RouterWithContext so in-flight cluster work observes
+cancellation after the stream has signaled EOF.
+*/
+func (router *Router) Close() error {
+	var streamErr error
+
+	if router.Stream != nil {
+		streamErr = router.Stream.Close()
+	}
+
+	if router.cancel != nil {
+		router.cancel()
+	}
+
+	return streamErr
 }

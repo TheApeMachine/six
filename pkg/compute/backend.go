@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/theapemachine/six/pkg/system/transport"
@@ -29,11 +30,11 @@ type Backend struct {
 type backendOpts func(*Backend)
 
 /*
-NewBackend creates a compute backend. Without options it is a bare
-Stream. Pass BackendWithOperations to wire inline transforms that
-inspect register state and dispatch to kernels.
+NewBackend creates a compute backend. The caller must supply a non-nil
+transport.Stream via BackendWithOperations (or by setting Stream before
+options return).
 */
-func NewBackend(opts ...backendOpts) *Backend {
+func NewBackend(opts ...backendOpts) (*Backend, error) {
 	backend := &Backend{}
 
 	for _, opt := range opts {
@@ -41,10 +42,12 @@ func NewBackend(opts ...backendOpts) *Backend {
 	}
 
 	if backend.Stream == nil {
-		backend.Stream = transport.NewStream()
+		return nil, fmt.Errorf(
+			"compute: Backend.Stream is nil; configure a Stream with BackendWithOperations",
+		)
 	}
 
-	return backend
+	return backend, nil
 }
 
 /*

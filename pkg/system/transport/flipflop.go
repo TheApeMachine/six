@@ -6,10 +6,13 @@ import (
 )
 
 /*
-NewFlipFlop creates a bidirectional data flow between two ReadWriters.
-It first copies data from the source to the destination, then copies
-any response back from the destination to the source. This creates
-a complete round-trip data exchange.
+NewFlipFlop creates a synchronous round-trip between two ReadWriters:
+io.Copy(to, from) then io.Copy(from, to) in the calling goroutine.
+
+It is intentionally not concurrent. Scheduling extra goroutines here would
+steal work from callers that already own a pool or runtime budget. If you
+need asynchronous bidirectional buffering, use Stream (ring-buffer pipe)
+instead.
 
 This is most commonly used when you want to flip an artifact into
 another process, which will set some state on that artifact, that
@@ -73,11 +76,11 @@ Example:
 */
 func NewFlipFlop(from io.ReadWriter, to io.ReadWriter) (err error) {
 	if _, err = io.Copy(to, from); err != nil {
-		return fmt.Errorf("flipflop: %w", err)
+		return fmt.Errorf("flipflop: copy from->to: %w", err)
 	}
 
 	if _, err = io.Copy(from, to); err != nil {
-		return fmt.Errorf("flipflop: %w", err)
+		return fmt.Errorf("flipflop: copy to->from: %w", err)
 	}
 
 	return nil

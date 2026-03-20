@@ -28,6 +28,8 @@ func (backend *CUDABackend) Available() (int, error) {
 		return 0, NewCUDABackendError(CUDABackendErrorUnavailable)
 	}
 
+	defer nvml.Shutdown()
+
 	count, ret := nvml.DeviceGetCount()
 
 	if ret != nvml.SUCCESS {

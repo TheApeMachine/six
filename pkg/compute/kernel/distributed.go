@@ -27,7 +27,7 @@ type DistributedBackend struct {
 	router *remote.Router
 }
 
-type distributedOpts func(*DistributedBackend)
+type distributedOpts func(*DistributedBackend) error
 
 /*
 NewDistributedBackend creates a DistributedBackend backed by a
@@ -40,7 +40,9 @@ func NewDistributedBackend(opts ...distributedOpts) (*DistributedBackend, error)
 	}
 
 	for _, opt := range opts {
-		opt(backend)
+		if optErr := opt(backend); optErr != nil {
+			return nil, optErr
+		}
 	}
 
 	if backend.router == nil {
@@ -121,12 +123,14 @@ func (backend *DistributedBackend) Router() *remote.Router {
 DistributedWithContext sets a cancellable context.
 */
 func DistributedWithContext(ctx context.Context) distributedOpts {
-	return func(backend *DistributedBackend) {
+	return func(backend *DistributedBackend) error {
 		if ctx == nil {
 			ctx = context.Background()
 		}
 
 		backend.ctx, backend.cancel = context.WithCancel(ctx)
+
+		return nil
 	}
 }
 
@@ -134,8 +138,10 @@ func DistributedWithContext(ctx context.Context) distributedOpts {
 DistributedWithRouter injects a pre-built remote.Router.
 */
 func DistributedWithRouter(router *remote.Router) distributedOpts {
-	return func(backend *DistributedBackend) {
+	return func(backend *DistributedBackend) error {
 		backend.router = router
+
+		return nil
 	}
 }
 
@@ -144,13 +150,15 @@ DistributedWithCluster injects the cluster-level capability router
 so the remote.Router can discover local services.
 */
 func DistributedWithCluster(clusterRouter *cluster.Router) distributedOpts {
-	return func(backend *DistributedBackend) {
+	return func(backend *DistributedBackend) error {
 		if backend.router == nil {
 			backend.router = remote.NewRouter(
 				remote.RouterWithContext(backend.ctx),
 				remote.RouterWithCluster(clusterRouter),
 			)
 		}
+
+		return nil
 	}
 }
 
@@ -158,9 +166,11 @@ func DistributedWithCluster(clusterRouter *cluster.Router) distributedOpts {
 DistributedWithPeers connects to the listed peer addresses at creation time.
 */
 func DistributedWithPeers(peers []string) distributedOpts {
-	return func(backend *DistributedBackend) {
+	return func(backend *DistributedBackend) error {
 		if backend.router == nil {
-			return
+			return fmt.Errorf(
+				"distributed: router not initialized; call DistributedWithCluster first",
+			)
 		}
 
 		for _, addr := range peers {
@@ -168,6 +178,8 @@ func DistributedWithPeers(peers []string) distributedOpts {
 				return backend.router.AddPeer(addr)
 			})
 		}
+
+		return nil
 	}
 }
 

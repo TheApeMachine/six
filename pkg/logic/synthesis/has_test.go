@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/logic/lang"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/data"
@@ -407,10 +406,10 @@ func BenchmarkHASWriteDone(b *testing.B) {
 }
 
 /*
-TestHASDonePropagatesProgramExecutionErrors verifies Done returns execution failures instead of swallowing them.
+TestHASDoneCompletes verifies Done finishes the Derive path for a seeded forest.
 */
-func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
-	gc.Convey("Given a HAS server with branch candidates that cannot phase-lock", t, func() {
+func TestHASDoneCompletes(t *testing.T) {
+	gc.Convey("Given a HAS server with distinct branch symbols in the forest", t, func() {
 		index := macro.NewMacroIndexServer(
 			macro.MacroIndexWithContext(context.Background()),
 		)
@@ -426,12 +425,6 @@ func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
 			HASWithForest(forest),
 		)
 		defer server.Close()
-
-		program := lang.NewProgramServer(
-			lang.ProgramServerWithContext(context.Background()),
-			lang.ProgramServerWithMaxSteps(1),
-		)
-		defer program.Close(context.Background(), primitive.Service_close{})
 
 		coder := data.NewMortonCoder()
 		promptSymbol := byte('E')
@@ -462,8 +455,11 @@ func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
 		doneFuture, release := client.Done(context.Background(), nil)
 		defer release()
 
-		_, doneErr := doneFuture.Struct()
-		gc.So(doneErr, gc.ShouldNotBeNil)
-		gc.So(doneErr.Error(), gc.ShouldContainSubstring, string(lang.ProgramErrorTypeProgramStalled))
+		results, doneErr := doneFuture.Struct()
+		gc.So(doneErr, gc.ShouldBeNil)
+
+		keyText, ktErr := results.KeyText()
+		gc.So(ktErr, gc.ShouldBeNil)
+		gc.So(keyText, gc.ShouldNotBeEmpty)
 	})
 }

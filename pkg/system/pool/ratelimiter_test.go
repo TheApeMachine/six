@@ -127,7 +127,7 @@ func BenchmarkRateLimiterObserve(b *testing.B) {
 }
 
 func BenchmarkRateLimiterRenormalize(b *testing.B) {
-	limiter := NewRateLimiter(32, time.Millisecond)
+	limiter := NewRateLimiter(32, time.Hour)
 	b.ReportAllocs()
 	for b.Loop() {
 		limiter.Renormalize()

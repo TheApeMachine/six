@@ -13,7 +13,6 @@ import (
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
-	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -30,7 +29,6 @@ type HASServer struct {
 	state      *errnie.State
 	start      primitive.Value
 	end        primitive.Value
-	router     *cluster.Router
 	macroIndex *macro.MacroIndexServer
 	forest     *dmt.Forest
 }
@@ -88,6 +86,13 @@ func (server *HASServer) Client(_ string) capnp.Client {
 	defer server.mu.Unlock()
 
 	return capnp.Client(HAS_ServerToClient(server))
+}
+
+/*
+Load reports no backlog signal yet for this server.
+*/
+func (server *HASServer) Load() int64 {
+	return 0
 }
 
 /*
@@ -402,16 +407,6 @@ HASWithForest injects the shared DMT forest used for prompt branch lookups.
 func HASWithForest(forest *dmt.Forest) hasOpts {
 	return func(server *HASServer) {
 		server.forest = forest
-	}
-}
-
-/*
-HASWithRouter injects the cluster router so HAS can resolve sibling
-capabilities at call time instead of holding direct server references.
-*/
-func HASWithRouter(router *cluster.Router) hasOpts {
-	return func(server *HASServer) {
-		server.router = router
 	}
 }
 

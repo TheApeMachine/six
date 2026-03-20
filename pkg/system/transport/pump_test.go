@@ -12,14 +12,16 @@ func TestPumpClose(t *testing.T) {
 		pump := NewPump(NewStream())
 
 		finished := make(chan struct{})
+		var closeErr error
 
 		go func() {
-			_ = pump.Close()
+			closeErr = pump.Close()
 			close(finished)
 		}()
 
 		select {
 		case <-finished:
+			So(closeErr, ShouldBeNil)
 		case <-time.After(3 * time.Second):
 			t.Fatal("Pump.Close blocked past deadline")
 		}

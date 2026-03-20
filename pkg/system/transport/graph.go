@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sync"
 )
 
 /*
@@ -42,6 +43,7 @@ Fields:
   - processed: Flag indicating if the current data has been processed through the graph
 */
 type Graph struct {
+	mu        sync.Mutex
 	registry  io.ReadWriteCloser
 	nodes     map[string]*Node
 	edges     map[string][]string
@@ -89,30 +91,64 @@ Returns:
   - err: Any error that occurred during reading
 */
 func (graph *Graph) Read(p []byte) (n int, err error) {
+	graph.mu.Lock()
+
 	if graph.registry == nil {
+		graph.mu.Unlock()
+
 		return 0, errors.New("registry not set")
 	}
 
+	var edgeSnap map[string][]string
+	var nodeSnap map[string]*Node
+
 	if !graph.processed {
-		// Process through all edges in the graph
+		edgeSnap = make(map[string][]string, len(graph.edges))
+
 		for from, targets := range graph.edges {
-			if node, ok := graph.nodes[from]; ok {
-				// Copy from source node to all target nodes
-				for _, to := range targets {
-					if targetNode, ok := graph.nodes[to]; ok {
-						if _, err = io.Copy(targetNode.Component, node.Component); err != nil {
-							return 0, fmt.Errorf("graph.Read: %w", err)
-						}
-					}
-				}
-			}
+			edgeSnap[from] = append([]string(nil), targets...)
+		}
+
+		nodeSnap = make(map[string]*Node, len(graph.nodes))
+
+		for id, node := range graph.nodes {
+			nodeSnap[id] = node
 		}
 
 		graph.processed = true
 	}
 
-	// Read from registry after processing
-	return graph.registry.Read(p)
+	reg := graph.registry
+	graph.mu.Unlock()
+
+	if edgeSnap != nil {
+		for from, targets := range edgeSnap {
+			node, ok := nodeSnap[from]
+			if !ok {
+				continue
+			}
+
+			for _, to := range targets {
+				targetNode, ok := nodeSnap[to]
+				if !ok {
+					continue
+				}
+
+				var copied int64
+				var copyErr error
+
+				if copied, copyErr = io.Copy(targetNode.Component, node.Component); copyErr != nil {
+					return 0, fmt.Errorf("graph.Read: %w", copyErr)
+				}
+
+				if copied == 0 {
+					continue
+				}
+			}
+		}
+	}
+
+	return reg.Read(p)
 }
 
 /*
@@ -127,14 +163,15 @@ Returns:
   - err: Any error that occurred during writing
 */
 func (graph *Graph) Write(p []byte) (n int, err error) {
+	graph.mu.Lock()
+	defer graph.mu.Unlock()
+
 	if graph.registry == nil {
 		return 0, errors.New("registry not set")
 	}
 
-	// Reset processed state when new data comes in
 	graph.processed = false
 
-	// Write to registry first
 	if n, err = graph.registry.Write(p); err != nil {
 		return n, fmt.Errorf("graph.Write: %w", err)
 	}
@@ -149,8 +186,11 @@ Returns:
   - error: Any error that occurred while closing the registry
 */
 func (graph *Graph) Close() error {
+	graph.mu.Lock()
+	defer graph.mu.Unlock()
+
 	if graph.registry == nil {
-		return errors.New("registry not set")
+		return nil
 	}
 
 	return graph.registry.Close()
@@ -164,6 +204,9 @@ Parameters:
 */
 func WithRegistry(registry io.ReadWriteCloser) GraphOption {
 	return func(graph *Graph) {
+		graph.mu.Lock()
+		defer graph.mu.Unlock()
+
 		graph.registry = registry
 	}
 }
@@ -176,6 +219,9 @@ Parameters:
 */
 func WithNode(node *Node) GraphOption {
 	return func(graph *Graph) {
+		graph.mu.Lock()
+		defer graph.mu.Unlock()
+
 		graph.nodes[node.ID] = node
 	}
 }
@@ -188,6 +234,9 @@ Parameters:
 */
 func WithEdge(edge *Edge) GraphOption {
 	return func(graph *Graph) {
+		graph.mu.Lock()
+		defer graph.mu.Unlock()
+
 		graph.edges[edge.From] = append(graph.edges[edge.From], edge.To)
 	}
 }
@@ -202,8 +251,15 @@ Returns:
   - []string: Slice of destination node IDs, empty if none exist
 */
 func (graph *Graph) GetEdges(nodeID string) []string {
+	graph.mu.Lock()
+	defer graph.mu.Unlock()
+
 	if edges, ok := graph.edges[nodeID]; ok {
-		return edges
+		out := make([]string, len(edges))
+		copy(out, edges)
+
+		return out
 	}
+
 	return []string{}
 }

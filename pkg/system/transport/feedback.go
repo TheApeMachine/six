@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"io"
 )
 
@@ -95,7 +96,7 @@ Returns:
   - err: Any error that occurred during writing
 */
 func (feedback *Feedback) Write(p []byte) (n int, err error) {
-	// Reset the tee with the updated forward component after writing
+	// TeeReader reads from forward; writes only hit forward — the tee is not rebuilt here.
 	if n, err = feedback.forward.Write(p); err != nil {
 		return n, err
 	}
@@ -111,19 +112,19 @@ Returns:
   - error: Any error that occurred while closing either component
 */
 func (feedback *Feedback) Close() error {
-	// Close the forward component if it implements io.Closer
+	var closeErrs error
+
 	if closer, ok := feedback.forward.(io.Closer); ok {
 		if err := closer.Close(); err != nil {
-			return err
+			closeErrs = errors.Join(closeErrs, err)
 		}
 	}
 
-	// Close the backward component if it implements io.Closer
 	if closer, ok := feedback.backward.(io.Closer); ok {
 		if err := closer.Close(); err != nil {
-			return err
+			closeErrs = errors.Join(closeErrs, err)
 		}
 	}
 
-	return nil
+	return closeErrs
 }

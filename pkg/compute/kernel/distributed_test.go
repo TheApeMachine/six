@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"context"
-	"io"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -27,15 +26,15 @@ func TestDistributedBackendNoPeers(t *testing.T) {
 			So(n, ShouldEqual, 0)
 		})
 
-		Convey("Write should return ErrClosedPipe when no node is reachable", func() {
+		Convey("Write should return ErrNoPeers when no node is reachable", func() {
 			_, writeErr := backend.Write([]byte("key"))
-			So(writeErr, ShouldEqual, io.ErrClosedPipe)
+			So(writeErr, ShouldEqual, remote.ErrNoPeers)
 		})
 
-		Convey("Read should return EOF when no data is buffered", func() {
+		Convey("Read should return ErrNoPeers when no node is reachable", func() {
 			buf := make([]byte, 32)
 			_, readErr := backend.Read(buf)
-			So(readErr, ShouldEqual, io.EOF)
+			So(readErr, ShouldEqual, remote.ErrNoPeers)
 		})
 	})
 }
@@ -93,7 +92,8 @@ func TestDistributedBackendWriteToUnreachablePeer(t *testing.T) {
 
 		backend, err := NewDistributedBackend(
 			DistributedWithContext(ctx),
-			DistributedWithPeers([]string{"127.0.0.1:1"}),
+			DistributedWithCluster(nil),
+			DistributedWithPeers([]string{"127.0.0.1:59999"}),
 		)
 		So(err, ShouldBeNil)
 		defer backend.Close()

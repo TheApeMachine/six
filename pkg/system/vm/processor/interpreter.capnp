@@ -15,7 +15,7 @@ interface Interpreter extends(Primitive.Service) {
   # Inherits read/write/close from Primitive.Service.
   # Values written carry their own dispatch registers:
   #   C5  Opcode      — control flow (Next, Jump, Branch, Halt)
-  #   C7  RouteHint   — device address on the pipeline bus
-  #   C7  Trajectory  — boundary conditions for compute devices
+  #   C6              — residual / carry channel (operand extension)
+  #   C7  shell word  — RouteHint, Trajectory (from/to phases), affine op, guard radius, flags
   #   C0–C3 + C4:0    — 257-bit GF(257) core operand state
 }

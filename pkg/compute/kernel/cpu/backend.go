@@ -37,7 +37,10 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 }
 
 /*
-Close resets the buffer for reuse.
+Close implements io.Closer for composition with io pipelines. It only calls
+backend.buf.Reset(): the buffer is reused in place, not released, so Close
+does not permanently drop resources. Use Reset for an explicit “new
+round-trip on this Backend” signal at call sites that care about naming.
 */
 func (backend *Backend) Close() error {
 	backend.buf.Reset()
@@ -45,7 +48,8 @@ func (backend *Backend) Close() error {
 }
 
 /*
-Reset clears state for another round-trip on the same Backend.
+Reset clears state for another round-trip on the same Backend (same effect
+on backend.buf as Close, named for callers that want explicit reuse semantics).
 */
 func (backend *Backend) Reset() {
 	backend.buf.Reset()

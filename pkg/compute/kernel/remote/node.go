@@ -6,41 +6,69 @@ import (
 	"errors"
 	"net"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/store/dmt"
 )
+
+const pipelineDepth = 64
+
+/*
+DefaultDialTimeout is the TCP dial budget used by Node when no
+NodeWithDialTimeout override is set.
+*/
+const DefaultDialTimeout = 5 * time.Second
+
+/*
+inflight holds a pending RPC call that the drainer goroutine will resolve.
+*/
+type inflight struct {
+	future  dmt.RadixRPC_insert_Results_Future
+	release capnp.ReleaseFunc
+}
 
 /*
 Node wraps a Cap'n Proto RadixRPC client to a single remote dmt peer as an
 io.ReadWriteCloser. Write sends raw key bytes to the remote Forest via
 RadixRPC.Insert. Read drains any buffered response or sync data. Available
-reports 1 when the connection is live, 0 otherwise.
+reports 1 when the node has an address and no terminal error (including
+before the first lazy dial), 0 when unusable.
 
-The connection is established lazily on first Write or explicitly via connect.
+Writes are pipelined: each call pushes the RPC future into a bounded channel
+and returns immediately. A background drainer goroutine resolves futures and
+detects remote failures. The channel depth (pipelineDepth) provides natural
+backpressure when the remote peer is slow.
 */
 type Node struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	addr    string
-	conn    net.Conn
-	rpcConn *rpc.Conn
-	client  dmt.RadixRPC
-	outBuf  bytes.Buffer
-	mu      sync.Mutex
-	alive   bool
+	ctx         context.Context
+	cancel      context.CancelFunc
+	addr        string
+	dialTimeout time.Duration
+	conn        net.Conn
+	rpcConn     *rpc.Conn
+	client      dmt.RadixRPC
+	outBuf      bytes.Buffer
+	mu          sync.Mutex
+	alive       atomic.Bool
+	closed      atomic.Bool
+	pipe        chan inflight
+	lastErr     atomic.Pointer[error]
 }
 
 type nodeOpts func(*Node)
 
 /*
 NewNode creates a remote Node targeting the given address. The underlying
-TCP + RadixRPC connection is not opened until connect is called (or the
-first Write triggers it).
+TCP + RadixRPC connection is not opened until the first Write triggers it.
 */
 func NewNode(opts ...nodeOpts) *Node {
-	node := &Node{}
+	node := &Node{
+		pipe:        make(chan inflight, pipelineDepth),
+		dialTimeout: DefaultDialTimeout,
+	}
 
 	for _, opt := range opts {
 		opt(node)
@@ -50,16 +78,25 @@ func NewNode(opts ...nodeOpts) *Node {
 }
 
 /*
-Write sends p as the key of a RadixRPC.Insert to the remote peer. Each
-call is one Insert. The connection is established lazily on the first
-Write if it has not been opened yet.
+Write sends p as the key of a RadixRPC.Insert to the remote peer. The call
+is pipelined: the RPC is dispatched and the future is pushed to the drainer
+channel, so Write returns as soon as the message is in the TCP send buffer.
+
+If the drainer detected a remote failure on a previous call, that error is
+returned here and the node is marked dead.
 */
 func (node *Node) Write(p []byte) (n int, err error) {
-	node.mu.Lock()
-	defer node.mu.Unlock()
+	if errp := node.lastErr.Load(); errp != nil {
+		node.alive.Store(false)
+		return 0, *errp
+	}
 
-	if !node.alive {
-		if connErr := node.connectLocked(); connErr != nil {
+	if !node.alive.Load() {
+		node.mu.Lock()
+		connErr := node.connectLocked()
+		node.mu.Unlock()
+
+		if connErr != nil {
 			return 0, connErr
 		}
 	}
@@ -75,8 +112,51 @@ func (node *Node) Write(p []byte) (n int, err error) {
 				return setErr
 			}
 
-			params.SetTerm(0)
-			params.SetLogIndex(0)
+			params.SetTerm(1)
+			params.SetLogIndex(1)
+
+			return nil
+		},
+	)
+
+	select {
+	case node.pipe <- inflight{future: future, release: release}:
+		return len(p), nil
+	case <-node.ctx.Done():
+		release()
+		return 0, node.ctx.Err()
+	}
+}
+
+/*
+WriteSync sends p as a RadixRPC.Insert and blocks until the remote confirms
+success. Use when write ordering or confirmation is required (tests, sync
+barriers).
+*/
+func (node *Node) WriteSync(p []byte) (n int, err error) {
+	if !node.alive.Load() {
+		node.mu.Lock()
+		connErr := node.connectLocked()
+		node.mu.Unlock()
+
+		if connErr != nil {
+			return 0, connErr
+		}
+	}
+
+	future, release := node.client.Insert(
+		node.ctx,
+		func(params dmt.RadixRPC_insert_Params) error {
+			if setErr := params.SetKey(p); setErr != nil {
+				return setErr
+			}
+
+			if setErr := params.SetValue(nil); setErr != nil {
+				return setErr
+			}
+
+			params.SetTerm(1)
+			params.SetLogIndex(1)
 
 			return nil
 		},
@@ -86,7 +166,7 @@ func (node *Node) Write(p []byte) (n int, err error) {
 
 	if rpcErr != nil {
 		release()
-		node.alive = false
+		node.alive.Store(false)
 		return 0, rpcErr
 	}
 
@@ -94,7 +174,7 @@ func (node *Node) Write(p []byte) (n int, err error) {
 	release()
 
 	if !ok {
-		return 0, NewNodeError(NodeErrorRemoteRejected)
+		return 0, NodeErrorRemoteRejected
 	}
 
 	return len(p), nil
@@ -112,15 +192,18 @@ func (node *Node) Read(p []byte) (n int, err error) {
 }
 
 /*
-Close tears down the RadixRPC connection and the underlying TCP socket.
+Close tears down the drainer, RadixRPC connection, and TCP socket.
 Benign "use of closed network connection" errors from the peer tearing down
 first are swallowed; real errors propagate.
 */
 func (node *Node) Close() error {
+	node.closed.Store(true)
+	node.alive.Store(false)
+
+	close(node.pipe)
+
 	node.mu.Lock()
 	defer node.mu.Unlock()
-
-	node.alive = false
 
 	var closeErr error
 
@@ -156,30 +239,36 @@ func isClosedConnErr(err error) bool {
 }
 
 /*
-Available reports 1 when the TCP + RPC connection is live, 0 otherwise.
+Available reports 1 when the node can be routed to (address set, not closed,
+no terminal error), including before the first lazy dial. Returns 0 after
+Close or when unusable.
 */
 func (node *Node) Available() (int, error) {
-	node.mu.Lock()
-	defer node.mu.Unlock()
-
-	if node.alive {
-		return 1, nil
+	if node.closed.Load() {
+		return 0, nil
 	}
 
-	return 0, nil
+	if node.addr == "" {
+		return 0, nil
+	}
+
+	if errp := node.lastErr.Load(); errp != nil {
+		return 0, nil
+	}
+
+	return 1, nil
 }
 
 /*
 Sync sends a RadixRPC.Sync to the remote peer and buffers any diff entries
-returned. The buffered data is available via subsequent Read calls. Each
-diff entry is written as [key_len:4][key][value_len:4][value].
+returned. The buffered data is available via subsequent Read calls.
 */
 func (node *Node) Sync(merkleRoot []byte, term, logIndex uint64) error {
 	node.mu.Lock()
 	defer node.mu.Unlock()
 
-	if !node.alive {
-		return NewNodeError(NodeErrorNotConnected)
+	if !node.alive.Load() {
+		return NodeErrorNotConnected
 	}
 
 	future, release := node.client.Sync(
@@ -219,8 +308,19 @@ func (node *Node) Sync(merkleRoot []byte, term, logIndex uint64) error {
 
 	for idx := 0; idx < entries.Len(); idx++ {
 		entry := entries.At(idx)
-		key, _ := entry.Key()
-		value, _ := entry.Value()
+		key, keyErr := entry.Key()
+
+		if keyErr != nil {
+			release()
+			return keyErr
+		}
+
+		value, valueErr := entry.Value()
+
+		if valueErr != nil {
+			release()
+			return valueErr
+		}
 
 		node.outBuf.Write(key)
 		node.outBuf.Write(value)
@@ -239,11 +339,21 @@ func (node *Node) Addr() string {
 }
 
 /*
-connectLocked dials the remote address and bootstraps the RadixRPC client.
-Caller must hold node.mu.
+connectLocked dials the remote address, bootstraps the RadixRPC client, and
+starts the background drainer goroutine. Caller must hold node.mu.
 */
 func (node *Node) connectLocked() error {
-	conn, dialErr := net.DialTimeout("tcp", node.addr, 5*time.Second)
+	if node.alive.Load() {
+		return nil
+	}
+
+	dialTimeout := node.dialTimeout
+
+	if dialTimeout <= 0 {
+		dialTimeout = DefaultDialTimeout
+	}
+
+	conn, dialErr := net.DialTimeout("tcp", node.addr, dialTimeout)
 
 	if dialErr != nil {
 		return dialErr
@@ -253,9 +363,44 @@ func (node *Node) connectLocked() error {
 	transport := rpc.NewStreamTransport(conn)
 	node.rpcConn = rpc.NewConn(transport, nil)
 	node.client = dmt.RadixRPC(node.rpcConn.Bootstrap(node.ctx))
-	node.alive = true
+	node.alive.Store(true)
+
+	go node.drain()
 
 	return nil
+}
+
+/*
+drain resolves pipelined RPC futures in order. If any call fails, the error
+is stored for the next Write to surface and the node is marked dead. The
+goroutine exits when the pipe channel is closed (via Close).
+*/
+func (node *Node) drain() {
+	for call := range node.pipe {
+		result, rpcErr := call.future.Struct()
+
+		if rpcErr != nil {
+			call.release()
+			node.storeErr(rpcErr)
+			node.alive.Store(false)
+			continue
+		}
+
+		ok := result.IsValid() && result.Success()
+		call.release()
+
+		if !ok {
+			node.storeErr(NodeErrorRemoteRejected)
+			node.alive.Store(false)
+		}
+	}
+}
+
+/*
+storeErr stores an error for the next Write call to pick up.
+*/
+func (node *Node) storeErr(err error) {
+	node.lastErr.Store(&err)
 }
 
 /*
@@ -277,6 +422,15 @@ func NodeWithAddress(addr string) nodeOpts {
 }
 
 /*
+NodeWithDialTimeout sets the TCP dial timeout for lazy connect.
+*/
+func NodeWithDialTimeout(d time.Duration) nodeOpts {
+	return func(node *Node) {
+		node.dialTimeout = d
+	}
+}
+
+/*
 NodeError is a typed error for Node failures.
 */
 type NodeError string
@@ -285,13 +439,6 @@ const (
 	NodeErrorNotConnected   NodeError = "node: not connected"
 	NodeErrorRemoteRejected NodeError = "node: remote rejected insert"
 )
-
-/*
-NewNodeError creates a NodeError.
-*/
-func NewNodeError(err NodeError) NodeError {
-	return err
-}
 
 /*
 Error implements the error interface.

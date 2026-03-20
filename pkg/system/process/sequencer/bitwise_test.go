@@ -50,7 +50,8 @@ func TestBitwiseHealerHeal(t *testing.T) {
 				}
 			}
 
-			healed := bitwise.Heal()
+			healed, healErr := bitwise.Heal()
+			gc.So(healErr, gc.ShouldBeNil)
 
 			var expected []string
 
@@ -81,7 +82,8 @@ func TestBitwiseHealerSingleSequence(t *testing.T) {
 			}
 		}
 
-		healed := bitwise.Heal()
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
 
 		gc.So(len(healed), gc.ShouldEqual, 1)
 		gc.So(string(healed[0]), gc.ShouldEqual, "Hello world")
@@ -91,7 +93,8 @@ func TestBitwiseHealerSingleSequence(t *testing.T) {
 func TestBitwiseHealerEmpty(t *testing.T) {
 	gc.Convey("Given no input", t, func() {
 		bitwise := NewBitwiseHealer()
-		healed := bitwise.Heal()
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
 
 		gc.So(healed, gc.ShouldBeNil)
 	})
@@ -101,7 +104,8 @@ func TestBitwiseHealerSingleByte(t *testing.T) {
 	gc.Convey("Given a single byte", t, func() {
 		bitwise := NewBitwiseHealer()
 		bitwise.Write('A', true)
-		healed := bitwise.Heal()
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
 
 		gc.So(len(healed), gc.ShouldEqual, 1)
 		gc.So(string(healed[0]), gc.ShouldEqual, "A")
@@ -118,7 +122,8 @@ func TestBitwiseHealerCleanFragments(t *testing.T) {
 			}
 		}
 
-		healed := bitwise.Heal()
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
 
 		full := ""
 		for _, chunk := range healed {
@@ -137,7 +142,8 @@ func TestBitwiseHealerFlush(t *testing.T) {
 			bitwise.Write(b, false)
 		}
 
-		healed := bitwise.Flush()
+		healed, flushErr := bitwise.Flush()
+		gc.So(flushErr, gc.ShouldBeNil)
 
 		gc.So(len(healed), gc.ShouldEqual, 1)
 		gc.So(string(healed[0]), gc.ShouldEqual, "trailing")
@@ -152,7 +158,9 @@ func TestBitwiseHealerDecodeLookup(t *testing.T) {
 			bitwise.Write(byte(symbol), true)
 		}
 
-		healed := bitwise.Heal()
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
+
 		flat := []byte{}
 
 		for _, chunk := range healed {
@@ -181,7 +189,7 @@ func BenchmarkBitwiseHealerHeal(b *testing.B) {
 			}
 		}
 
-		_ = bitwise.Heal()
+		_, _ = bitwise.Heal()
 	}
 }
 
@@ -203,7 +211,7 @@ func BenchmarkBitwiseHealerLargePayload(b *testing.B) {
 			}
 		}
 
-		_ = bitwise.Heal()
+		_, _ = bitwise.Heal()
 	}
 }
 
@@ -214,10 +222,11 @@ func BenchmarkBitwiseHealerDecode(b *testing.B) {
 		bitwise.Write(byte(symbol), true)
 	}
 
+	flat := bitwise.flatten(bitwise.values)
 	b.ReportAllocs()
 	b.ResetTimer()
 
-	for b.Loop() {
-		_ = bitwise.decode(bitwise.flatten(bitwise.values))
+	for i := 0; i < b.N; i++ {
+		_, _ = bitwise.decode(flat)
 	}
 }

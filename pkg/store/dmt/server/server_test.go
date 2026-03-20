@@ -36,8 +36,13 @@ func TestForest(t *testing.T) {
 				})
 				defer release()
 
-				_, err := future.Struct()
+				res, err := future.Struct()
 				So(err, ShouldBeNil)
+
+				keyList, listErr := res.Keys()
+				So(listErr, ShouldBeNil)
+				So(keyList.Len(), ShouldEqual, 1)
+				So(keyList.At(0), ShouldEqual, keyH)
 			})
 
 			Convey("It should silently drop duplicate keys reflecting collision entropy", func() {

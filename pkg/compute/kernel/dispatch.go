@@ -54,26 +54,40 @@ func NewBuilder(opts ...builderOpts) *Builder {
 }
 
 /*
-best returns the first available backend, caching the result in active.
-Falls back to the first backend regardless of availability.
+Reset clears the cached active backend so the next io call re-selects from
+builder.backends.
+*/
+func (builder *Builder) Reset() {
+	builder.active = nil
+}
+
+/*
+best returns the first backend that reports Available > 0, caching the
+result in active. If the cached active fails a fresh Available check, it
+is cleared and selection runs again. Returns nil when none qualify.
 */
 func (builder *Builder) best() Backend {
 	if builder.active != nil {
-		return builder.active
+		n, err := builder.active.Available()
+
+		if err != nil || n <= 0 {
+			builder.active = nil
+		} else {
+			return builder.active
+		}
 	}
 
 	for _, backend := range builder.backends {
 		n, err := backend.Available()
 
-		if err == nil && n > 0 {
+		if err != nil {
+			continue
+		}
+
+		if n > 0 {
 			builder.active = backend
 			return backend
 		}
-	}
-
-	if len(builder.backends) > 0 {
-		builder.active = builder.backends[0]
-		return builder.active
 	}
 
 	return nil
@@ -125,7 +139,12 @@ func (builder *Builder) Available() (int, error) {
 	total := 0
 
 	for _, backend := range builder.backends {
-		n, _ := backend.Available()
+		n, err := backend.Available()
+
+		if err != nil {
+			return 0, err
+		}
+
 		total += n
 	}
 

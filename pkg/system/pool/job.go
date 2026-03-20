@@ -75,7 +75,7 @@ func (job *Job) Write(p []byte) (n int, err error) {
 
 func (job *Job) Close() error {
 	if job.Task == nil {
-		return nil
+		return fmt.Errorf("job task is nil")
 	}
 
 	return job.Task.Close()

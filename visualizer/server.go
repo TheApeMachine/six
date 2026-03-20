@@ -73,18 +73,7 @@ func NewServer() *Server {
 /*
 listenUDP starts the locked UDP listener, forwarding all telemetry to visualizer clients.
 */
-func (server *Server) listenUDP() error {
-	addr := errnie.Guard(server.state, func() (*net.UDPAddr, error) {
-		return net.ResolveUDPAddr("udp", "127.0.0.1:8258")
-	})
-
-	conn := errnie.Guard(server.state, func() (*net.UDPConn, error) {
-		return net.ListenUDP("udp", addr)
-	})
-
-	server.udpConn = conn
-	defer conn.Close()
-
+func (server *Server) listenUDP(conn *net.UDPConn) error {
 	buf := make([]byte, 65535)
 
 	for {
@@ -107,8 +96,28 @@ func (server *Server) ListenAndServe(addr string) error {
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 
+	udpAddr := errnie.Guard(server.state, func() (*net.UDPAddr, error) {
+		return net.ResolveUDPAddr("udp", "127.0.0.1:8258")
+	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
+	conn := errnie.Guard(server.state, func() (*net.UDPConn, error) {
+		return net.ListenUDP("udp", udpAddr)
+	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
+	server.udpConn = conn
+
 	go func() {
-		errnie.GuardVoid(server.state, server.listenUDP)
+		errnie.GuardVoid(server.state, func() error {
+			return server.listenUDP(conn)
+		})
 	}()
 
 	mux := http.NewServeMux()

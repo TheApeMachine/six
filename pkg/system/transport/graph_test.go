@@ -35,8 +35,8 @@ func TestGraph(t *testing.T) {
 			So(err, ShouldNotBeNil)
 		})
 
-		Convey("Close should error", func() {
-			So(graph.Close(), ShouldNotBeNil)
+		Convey("Close should succeed with no registry", func() {
+			So(graph.Close(), ShouldBeNil)
 		})
 
 		Convey("GetEdges should return empty slice", func() {

@@ -1,11 +1,12 @@
 package reader
 
 import (
-	context "context"
-	"net"
+	"context"
+	"fmt"
 	"sync"
 
 	"capnproto.org/go/capnp/v3/rpc"
+
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/validate"
@@ -28,10 +29,6 @@ type ReaderServer struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	state       *errnie.State
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Head
-	serverConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	registers   map[RegisterType][]primitive.Value
 }
@@ -44,7 +41,8 @@ value s.
 */
 func NewReaderServer(opts ...readerOpts) *ReaderServer {
 	rdr := &ReaderServer{
-		state: errnie.NewState("logic/reader/server"),
+		state:       errnie.NewState("logic/reader/server"),
+		clientConns: make(map[string]*rpc.Conn),
 		registers: map[RegisterType][]primitive.Value{
 			DATA:    []primitive.Value{},
 			CONTEXT: []primitive.Value{},
@@ -57,8 +55,7 @@ func NewReaderServer(opts ...readerOpts) *ReaderServer {
 
 	errnie.GuardVoid(rdr.state, func() error {
 		return validate.Require(map[string]any{
-			"ctx":       rdr.ctx,
-			"registers": rdr.registers,
+			"ctx": rdr.ctx,
 		})
 	})
 
@@ -69,7 +66,12 @@ func NewReaderServer(opts ...readerOpts) *ReaderServer {
 Client returns a Cap'n Proto client connected to this GraphServer.
 */
 func (rdr *ReaderServer) Client(clientID string) Reader {
+	if rdr.clientConns == nil {
+		rdr.clientConns = make(map[string]*rpc.Conn)
+	}
+
 	rdr.clientConns[clientID] = nil
+
 	return Reader_ServerToClient(rdr)
 }
 
@@ -79,6 +81,7 @@ unblocking goroutines stuck on pipe reads.
 */
 func (rdr *ReaderServer) Close() error {
 	rdr.state.Reset()
+
 	return rdr.state.Err()
 }
 
@@ -90,6 +93,8 @@ up a labeled graph.
 func (rdr *ReaderServer) Write(
 	ctx context.Context, call Reader_write,
 ) error {
+	_ = ctx
+
 	args := call.Args()
 
 	values := errnie.Guard(rdr.state, func() (
@@ -98,21 +103,52 @@ func (rdr *ReaderServer) Write(
 		return args.Values()
 	})
 
-	for idx := range values.Len() {
-		value := values.At(idx)
-		rdr.registers[DATA] = append(rdr.registers[DATA], value)
+	if rdr.state.Failed() {
+		return rdr.state.Err()
+	}
+
+	n := int(values.Len())
+
+	for idx := 0; idx < n; idx++ {
+		src := values.At(idx)
+
+		if !src.IsValid() {
+			return fmt.Errorf("reader: invalid value at index %d", idx)
+		}
+
+		slot, err := primitive.NewValue(src.Segment())
+		if err != nil {
+			return err
+		}
+
+		slot.CopyFrom(src)
+		rdr.registers[DATA] = append(rdr.registers[DATA], slot)
 	}
 
 	return nil
 }
 
 /*
-Done implements Graph_Server. It is a no-op stub required by the RPC interface;
-stream finalization is handled elsewhere (Machine orchestrates tokenizer and graph).
+Done implements Reader.done and returns streaming completion metadata.
 */
 func (rdr *ReaderServer) Done(ctx context.Context, call Reader_done) error {
 	rdr.mu.Lock()
 	defer rdr.mu.Unlock()
+
+	_ = ctx
+
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	result, err := res.NewResult()
+	if err != nil {
+		return err
+	}
+
+	result.SetCount(uint64(len(rdr.registers[DATA])))
+	_ = result.SetStatus("ok")
 
 	return nil
 }

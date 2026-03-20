@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/theapemachine/six/pkg/errnie"
@@ -30,6 +31,8 @@ type Forest struct {
 	owned  bool
 	// Network node for distributed operation
 	network *NetworkNode
+	// postUpdateSyncCount increments after each synchronizeTrees triggered by updates.
+	postUpdateSyncCount atomic.Uint64
 }
 
 // ForestConfig holds configuration for creating a new Forest
@@ -163,6 +166,7 @@ func (forest *Forest) syncLoop() {
 			return
 		case <-forest.updates: // Triggered by new updates
 			forest.synchronizeTrees()
+			forest.postUpdateSyncCount.Add(1)
 		case <-ticker.C: // Periodic sync
 			forest.synchronizeTrees()
 		}

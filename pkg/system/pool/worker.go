@@ -165,7 +165,7 @@ func (w *Worker) runSingleAttempt(ctx context.Context, job Job) (any, error) {
 	}
 
 	type singleAttemptResult struct {
-		value any
+		value []byte
 		err   error
 	}
 
@@ -173,21 +173,24 @@ func (w *Worker) runSingleAttempt(ctx context.Context, job Job) (any, error) {
 
 	go func() {
 		var buffer bytes.Buffer
-		readBytes, copyErr := io.Copy(&buffer, job.Task)
-		if copyErr == io.EOF {
-			copyErr = nil
+		_, copyErr := io.Copy(&buffer, job.Task)
+		if copyErr != nil {
+			resultChan <- singleAttemptResult{
+				value: nil,
+				err:   copyErr,
+			}
+
+			return
 		}
 
-		var result any
+		var result []byte
 		if buffer.Len() > 0 {
 			result = buffer.Bytes()
-		} else {
-			result = readBytes
 		}
 
 		resultChan <- singleAttemptResult{
 			value: result,
-			err:   copyErr,
+			err:   nil,
 		}
 	}()
 
@@ -234,6 +237,11 @@ func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) e
 			timeout = w.pool.config.DependencyAwaitTimeout
 		}
 
+		pollInterval := 10 * time.Millisecond
+		if w.pool.config != nil && w.pool.config.PollInterval > 0 {
+			pollInterval = w.pool.config.PollInterval
+		}
+
 		deadline := time.Now().Add(timeout)
 		for time.Now().Before(deadline) {
 			result, ok := w.pool.store.Result(depID)
@@ -243,7 +251,7 @@ func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) e
 				}
 				break
 			}
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(pollInterval)
 		}
 
 		if attempt < maxAttempts-1 {

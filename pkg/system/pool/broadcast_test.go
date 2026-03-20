@@ -86,10 +86,9 @@ func TestBroadcastGroupSendAfterClose(t *testing.T) {
 			bg.Send(NewResult("late"))
 			select {
 			case _, ok := <-ch:
-				if ok {
-					t.Fatal("unexpected delivery after close")
-				}
+				So(ok, ShouldBeFalse)
 			case <-time.After(50 * time.Millisecond):
+				So(false, ShouldBeTrue)
 			}
 		})
 	})

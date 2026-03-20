@@ -82,17 +82,16 @@ func TestMetricsRecordJobExecutionWithoutSuccessFlag(t *testing.T) {
 
 func TestMetricsExportMetrics(t *testing.T) {
 	Convey("Given Metrics with populated fields", t, func() {
-		m := NewMetrics()
-		m.mu.Lock()
-		m.WorkerCount = 3
-		m.IdleWorkers = 1
-		m.JobQueueSize = 7
-		m.JobSuccessRate = 0.75
-		m.AverageJobLatency = 12 * time.Millisecond
-		m.P95JobLatency = 20 * time.Millisecond
-		m.P99JobLatency = 30 * time.Millisecond
-		m.ResourceUtilization = 0.42
-		m.mu.Unlock()
+		m := NewMetricsForExportTest(
+			3,
+			1,
+			7,
+			0.75,
+			12*time.Millisecond,
+			20*time.Millisecond,
+			30*time.Millisecond,
+			0.42,
+		)
 
 		exported := m.ExportMetrics()
 
@@ -112,15 +111,15 @@ func TestMetricsExportMetrics(t *testing.T) {
 func TestMetricsLatencyDigestCompressionPath(t *testing.T) {
 	Convey("Given Metrics", t, func() {
 		m := NewMetrics()
-		m.maxCentroids = 8
-		m.compression = 2
+		m.SetMaxCentroids(8)
+		m.SetCompression(2)
 
 		Convey("Many samples should exercise centroid insert and compression", func() {
 			for i := range 50 {
 				m.RecordJobSuccess(time.Duration(i+1) * time.Millisecond)
 			}
 			So(m.JobCount, ShouldEqual, 50)
-			So(len(m.centroids), ShouldBeGreaterThan, 0)
+			So(m.CentroidCount(), ShouldBeGreaterThan, 0)
 			So(m.P99JobLatency, ShouldBeGreaterThan, 0)
 		})
 	})
@@ -129,22 +128,17 @@ func TestMetricsLatencyDigestCompressionPath(t *testing.T) {
 func TestMetricsLatencyDigestCoalescesIdenticalSamples(t *testing.T) {
 	Convey("Given Metrics receiving identical latency samples", t, func() {
 		m := NewMetrics()
-		m.maxCentroids = 128
-		m.compression = 100
+		m.SetMaxCentroids(128)
+		m.SetCompression(100)
 
 		Convey("RecordJobSuccess should keep a single centroid for repeated values", func() {
 			for range 64 {
 				m.RecordJobSuccess(7 * time.Millisecond)
 			}
 
-			m.mu.RLock()
-			centroidCount := len(m.centroids)
-			totalWeight := m.totalWeight
-			m.mu.RUnlock()
-
 			So(m.JobCount, ShouldEqual, 64)
-			So(totalWeight, ShouldEqual, 64)
-			So(centroidCount, ShouldEqual, 1)
+			So(m.TotalWeight(), ShouldEqual, 64)
+			So(m.CentroidCount(), ShouldEqual, 1)
 			So(m.P95JobLatency, ShouldEqual, 7*time.Millisecond)
 			So(m.P99JobLatency, ShouldEqual, 7*time.Millisecond)
 		})

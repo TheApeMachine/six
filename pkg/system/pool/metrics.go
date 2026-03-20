@@ -60,6 +60,72 @@ func NewMetrics() *Metrics {
 }
 
 /*
+NewMetricsForExportTest builds a Metrics snapshot used to exercise ExportMetrics
+without tests reaching into internal fields.
+*/
+func NewMetricsForExportTest(
+	workerCount, idleWorkers, jobQueueSize int,
+	jobSuccessRate float64,
+	avgLatency, p95Latency, p99Latency time.Duration,
+	resourceUtilization float64,
+) *Metrics {
+	m := NewMetrics()
+
+	m.mu.Lock()
+	m.WorkerCount = workerCount
+	m.IdleWorkers = idleWorkers
+	m.JobQueueSize = jobQueueSize
+	m.JobSuccessRate = jobSuccessRate
+	m.AverageJobLatency = avgLatency
+	m.P95JobLatency = p95Latency
+	m.P99JobLatency = p99Latency
+	m.ResourceUtilization = resourceUtilization
+	m.mu.Unlock()
+
+	return m
+}
+
+/*
+SetMaxCentroids sets the t-digest centroid cap (test and tuning hook).
+Must not be called concurrently with other Metrics methods.
+*/
+func (m *Metrics) SetMaxCentroids(maxCentroids int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maxCentroids = maxCentroids
+}
+
+/*
+SetCompression sets the t-digest compression factor (test and tuning hook).
+Must not be called concurrently with other Metrics methods.
+*/
+func (m *Metrics) SetCompression(compression int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.compression = float64(compression)
+}
+
+/*
+CentroidCount returns the current t-digest centroid count.
+*/
+func (m *Metrics) CentroidCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return len(m.centroids)
+}
+
+/*
+TotalWeight returns the number of samples fed into the latency digest.
+*/
+func (m *Metrics) TotalWeight() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return int(m.totalWeight)
+}
+
+/*
 RecordJobExecution records execution time and outcome.
 */
 func (m *Metrics) RecordJobExecution(startTime time.Time, success bool) {

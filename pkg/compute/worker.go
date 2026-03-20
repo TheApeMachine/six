@@ -1,6 +1,7 @@
 package compute
 
 import (
+	"fmt"
 	"io"
 
 	"github.com/theapemachine/six/pkg/system/transport"
@@ -26,10 +27,11 @@ Worker is a transport.Stream with a directional flag. That is all it is.
 The real power comes from the operations registered on the Stream: they
 mutate, route, or dispatch the bytes that flow through.
 
-	worker := compute.NewWorker(
-	    compute.WorkerWithOperation(compute.Input),
-	    compute.WorkerWithOperations(router),
+	worker, err := compute.NewWorker(
+		compute.WorkerWithOperation(compute.Input),
+		compute.WorkerWithOperations(router),
 	)
+	// Propagate err: NewWorker fails when Stream is not configured.
 	io.Copy(worker, program)
 */
 type Worker struct {
@@ -42,7 +44,7 @@ type workerOpts func(*Worker)
 /*
 NewWorker wraps a Stream with an operation direction.
 */
-func NewWorker(opts ...workerOpts) *Worker {
+func NewWorker(opts ...workerOpts) (*Worker, error) {
 	worker := &Worker{}
 
 	for _, opt := range opts {
@@ -50,10 +52,10 @@ func NewWorker(opts ...workerOpts) *Worker {
 	}
 
 	if worker.Stream == nil {
-		worker.Stream = transport.NewStream()
+		return nil, fmt.Errorf("worker.Stream not configured")
 	}
 
-	return worker
+	return worker, nil
 }
 
 /*
@@ -74,4 +76,11 @@ func WorkerWithOperations(ops ...io.ReadWriteCloser) workerOpts {
 			transport.WithOperations(ops...),
 		)
 	}
+}
+
+/*
+Operation returns the directional flag set by WorkerWithOperation.
+*/
+func (worker *Worker) Operation() Operation {
+	return worker.operation
 }

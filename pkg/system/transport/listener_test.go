@@ -25,7 +25,7 @@ func TestListenerDialLifecycle(t *testing.T) {
 		So(err, ShouldBeNil)
 		So(listener.Addr(), ShouldNotBeEmpty)
 
-		Convey("Dial should open an RPC connection", func() {
+		Convey("It should open an RPC connection on Dial", func() {
 			conn, dialErr := Dial(ctx, listener.Addr())
 			So(dialErr, ShouldBeNil)
 			So(conn, ShouldNotBeNil)

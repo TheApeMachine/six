@@ -2,6 +2,7 @@ package sequencer
 
 import (
 	"bytes"
+	"fmt"
 	"sort"
 	"strconv"
 	"strings"
@@ -54,9 +55,9 @@ func (bitwise *BitwiseHealer) Write(b byte, isBoundary bool) {
 Flush emits any remaining bytes in the buffer as a final chunk.
 Call after feeding all input when the stream ends.
 */
-func (bitwise *BitwiseHealer) Flush() [][]byte {
+func (bitwise *BitwiseHealer) Flush() ([][]byte, error) {
 	if bitwise.buffer.Len() == 0 {
-		return nil
+		return nil, nil
 	}
 
 	chunk := make([]primitive.Value, 0, bitwise.buffer.Len())
@@ -76,9 +77,9 @@ Heal discovers exact repeated anchors in the buffered Value stream and rebuilds
 the segmentation from derived cut positions. This removes false internal cuts
 without relying on text-specific cues.
 */
-func (bitwise *BitwiseHealer) Heal() [][]byte {
+func (bitwise *BitwiseHealer) Heal() ([][]byte, error) {
 	if len(bitwise.values) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	raw := bitwise.flatten(bitwise.values)
@@ -86,24 +87,28 @@ func (bitwise *BitwiseHealer) Heal() [][]byte {
 	if len(raw) == 0 {
 		bitwise.values = bitwise.values[:0]
 
-		return nil
+		return nil, nil
 	}
 
 	boundaries := bitwise.collectBoundaries(bitwise.values)
-	cuts := bitwise.selectCuts(raw, boundaries)
+	cuts, selectErr := bitwise.selectCuts(raw, boundaries)
+	if selectErr != nil {
+		return nil, selectErr
+	}
+
 	cuts = bitwise.mergeOnlyCuts(cuts, boundaries)
 
 	if len(cuts) <= 2 {
-		result := bitwise.decodeChunks(bitwise.values)
+		result, decodeErr := bitwise.decodeChunks(bitwise.values)
 		bitwise.values = bitwise.values[:0]
 
-		return result
+		return result, decodeErr
 	}
 
-	result := bitwise.segment(raw, cuts)
+	result, segmentErr := bitwise.segment(raw, cuts)
 	bitwise.values = bitwise.values[:0]
 
-	return result
+	return result, segmentErr
 }
 
 /*
@@ -143,7 +148,7 @@ selectCuts finds repeated exact spans and converts them into cut positions.
 Crossing and fully aligned spans cut on both edges. Start-only spans cut on
 their supported edge only.
 */
-func (bitwise *BitwiseHealer) selectCuts(raw []primitive.Value, boundaries map[int]struct{}) []int {
+func (bitwise *BitwiseHealer) selectCuts(raw []primitive.Value, boundaries map[int]struct{}) ([]int, error) {
 	type candidateEntry struct {
 		length int
 		starts []int
@@ -166,7 +171,11 @@ func (bitwise *BitwiseHealer) selectCuts(raw []primitive.Value, boundaries map[i
 			}
 
 			span := raw[leftStart : leftStart+commonLength]
-			key := bitwise.signature(span)
+			key, sigErr := bitwise.signature(span)
+			if sigErr != nil {
+				return nil, sigErr
+			}
+
 			candidate := candidates[key]
 
 			if candidate.length == 0 {
@@ -320,7 +329,7 @@ func (bitwise *BitwiseHealer) selectCuts(raw []primitive.Value, boundaries map[i
 
 	sort.Ints(positions)
 
-	return positions
+	return positions, nil
 }
 
 /*
@@ -344,7 +353,7 @@ func (bitwise *BitwiseHealer) mergeOnlyCuts(cuts []int, boundaries map[int]struc
 /*
 segment rebuilds the stream from derived cut positions.
 */
-func (bitwise *BitwiseHealer) segment(raw []primitive.Value, cuts []int) [][]byte {
+func (bitwise *BitwiseHealer) segment(raw []primitive.Value, cuts []int) ([][]byte, error) {
 	var result [][]byte
 
 	for index := 0; index < len(cuts)-1; index++ {
@@ -355,23 +364,33 @@ func (bitwise *BitwiseHealer) segment(raw []primitive.Value, cuts []int) [][]byt
 			continue
 		}
 
-		result = append(result, bitwise.decode(raw[start:end]))
+		chunk, decodeErr := bitwise.decode(raw[start:end])
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+
+		result = append(result, chunk)
 	}
 
-	return result
+	return result, nil
 }
 
 /*
 decodeChunks decodes the original chunk layout unchanged.
 */
-func (bitwise *BitwiseHealer) decodeChunks(chunks [][]primitive.Value) [][]byte {
+func (bitwise *BitwiseHealer) decodeChunks(chunks [][]primitive.Value) ([][]byte, error) {
 	result := make([][]byte, 0, len(chunks))
 
 	for _, chunk := range chunks {
-		result = append(result, bitwise.decode(chunk))
+		decoded, decodeErr := bitwise.decode(chunk)
+		if decodeErr != nil {
+			return nil, decodeErr
+		}
+
+		result = append(result, decoded)
 	}
 
-	return result
+	return result, nil
 }
 
 /*
@@ -400,8 +419,13 @@ func (bitwise *BitwiseHealer) sharedPrefix(raw []primitive.Value, leftStart, rig
 /*
 signature encodes a Value span into a stable exact key.
 */
-func (bitwise *BitwiseHealer) signature(values []primitive.Value) string {
-	return string(bitwise.decode(values))
+func (bitwise *BitwiseHealer) signature(values []primitive.Value) (string, error) {
+	decoded, err := bitwise.decode(values)
+	if err != nil {
+		return "", err
+	}
+
+	return string(decoded), nil
 }
 
 /*
@@ -510,14 +534,24 @@ var baseValueLookup = func() map[[5]uint64]byte {
 decode converts a slice of per-byte BaseValues back to a byte slice via the
 precomputed lookup table.
 */
-func (bitwise *BitwiseHealer) decode(values []primitive.Value) []byte {
+func (bitwise *BitwiseHealer) decode(values []primitive.Value) ([]byte, error) {
 	result := make([]byte, len(values))
 
 	for index, value := range values {
-		result[index] = baseValueLookup[coreKey(value)]
+		key := coreKey(value)
+		symbol, ok := baseValueLookup[key]
+		if !ok {
+			return nil, fmt.Errorf(
+				"sequencer/bitwise: unknown BaseValue core at index %d (key %v)",
+				index,
+				key,
+			)
+		}
+
+		result[index] = symbol
 	}
 
-	return result
+	return result, nil
 }
 
 /*

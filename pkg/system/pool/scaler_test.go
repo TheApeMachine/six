@@ -39,13 +39,15 @@ func TestScalerEvaluateScaleUpUnderQueueLoad(t *testing.T) {
 
 func TestScalerEvaluateScaleDownWhenIdle(t *testing.T) {
 	Convey("Given inflated worker metrics with an empty queue", t, func() {
-		p := New(context.Background(), 2, 8, NewConfig())
+		p := New(context.Background(), 1, 8, NewConfig())
 		defer p.Close()
+
+		p.startWorker()
 
 		So(len(p.workerList), ShouldEqual, 2)
 
 		p.metrics.mu.Lock()
-		p.metrics.WorkerCount = 5
+		p.metrics.WorkerCount = 4
 		p.metrics.JobQueueSize = 0
 		p.metrics.mu.Unlock()
 
@@ -88,4 +90,23 @@ func TestScalerScaleUpWhenWorkerCountMetricZero(t *testing.T) {
 			So(n, ShouldBeGreaterThan, 0)
 		})
 	})
+}
+
+func BenchmarkScalerEvaluate(b *testing.B) {
+	p := New(context.Background(), 2, 8, NewConfig())
+	defer p.Close()
+
+	p.metrics.mu.Lock()
+	p.metrics.WorkerCount = 3
+	p.metrics.JobQueueSize = 1
+	p.metrics.mu.Unlock()
+
+	sc := p.scaler
+	sc.cooldown = 0
+	b.ReportAllocs()
+
+	for b.Loop() {
+		sc.lastScale = time.Time{}
+		sc.evaluate()
+	}
 }

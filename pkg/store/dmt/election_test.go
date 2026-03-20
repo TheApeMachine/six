@@ -31,6 +31,34 @@ func newTestElectionNode(nodeID string) (*NetworkNode, func()) {
 	}
 }
 
+/*
+uint64FromMetricsValue coerces snapshot map values from GetMetrics into uint64.
+*/
+func uint64FromMetricsValue(value interface{}) (uint64, bool) {
+	switch v := value.(type) {
+	case uint64:
+		return v, true
+	case uint:
+		return uint64(v), true
+	case int64:
+		if v >= 0 {
+			return uint64(v), true
+		}
+	case int:
+		if v >= 0 {
+			return uint64(v), true
+		}
+	case uint32:
+		return uint64(v), true
+	case int32:
+		if v >= 0 {
+			return uint64(v), true
+		}
+	}
+
+	return 0, false
+}
+
 func TestNewElection(t *testing.T) {
 	Convey("Given election configuration", t, func() {
 		config := ElectionConfig{
@@ -443,15 +471,33 @@ func TestElectionHandleVoteNotCandidate(t *testing.T) {
 		election.stateLock.Unlock()
 
 		before := node.metrics.GetMetrics()
-		electionMap := before["election"].(map[string]interface{})
-		votesBefore := electionMap["votes_received"].(uint64)
+		electionRaw, hasElection := before["election"]
+		So(hasElection, ShouldBeTrue)
+
+		electionMap, emOk := electionRaw.(map[string]interface{})
+		So(emOk, ShouldBeTrue)
+
+		votesRawBefore, hasVotesBefore := electionMap["votes_received"]
+		So(hasVotesBefore, ShouldBeTrue)
+
+		votesBefore, vbOk := uint64FromMetricsValue(votesRawBefore)
+		So(vbOk, ShouldBeTrue)
 
 		Convey("When handleVote runs", func() {
 			election.handleVote("peer1")
 
 			after := node.metrics.GetMetrics()
-			electionAfter := after["election"].(map[string]interface{})
-			votesAfter := electionAfter["votes_received"].(uint64)
+			afterElectionRaw, hasAfterElection := after["election"]
+			So(hasAfterElection, ShouldBeTrue)
+
+			electionAfter, eaOk := afterElectionRaw.(map[string]interface{})
+			So(eaOk, ShouldBeTrue)
+
+			votesRawAfter, hasVotesAfter := electionAfter["votes_received"]
+			So(hasVotesAfter, ShouldBeTrue)
+
+			votesAfter, vaOk := uint64FromMetricsValue(votesRawAfter)
+			So(vaOk, ShouldBeTrue)
 
 			Convey("Then role stays Follower and vote is not recorded", func() {
 				So(election.getState(), ShouldEqual, Follower)

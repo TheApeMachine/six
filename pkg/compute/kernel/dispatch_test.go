@@ -63,7 +63,7 @@ func BenchmarkBuilderRoundTrip(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		builder.active = nil
+		builder.Reset()
 		builder.Write(payload)
 
 		out.Reset()

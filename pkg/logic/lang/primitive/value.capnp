@@ -21,7 +21,7 @@ interface Service {
   close @2 ();
 
   interface Callback {
-    send @0 () -> stream;
+    send @0 (value :Value) -> stream;
     done @1 ();
   }
 }

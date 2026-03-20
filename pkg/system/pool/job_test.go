@@ -27,8 +27,10 @@ func TestJobReadWriteCloseNilTask(t *testing.T) {
 			So(err, ShouldNotBeNil)
 		})
 
-		Convey("Close should be nil", func() {
-			So(job.Close(), ShouldBeNil)
+		Convey("Close should error like Read/Write when Task is nil", func() {
+			err := job.Close()
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "nil")
 		})
 	})
 }
@@ -148,14 +150,14 @@ func BenchmarkNewJobWithOptions(b *testing.B) {
 }
 
 func BenchmarkJobReadWriteClose(b *testing.B) {
-	job := NewJob(
-		WithID("bench-rwc"),
-		WithTask(COMPUTE, newTestTask("payload")),
-	)
-
 	buffer := make([]byte, 16)
 	b.ReportAllocs()
 	for b.Loop() {
+		job := NewJob(
+			WithID("bench-rwc"),
+			WithTask(COMPUTE, newTestTask("payload")),
+		)
+
 		_, _ = job.Read(buffer)
 		_, _ = job.Write([]byte("x"))
 		_ = job.Close()

@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"runtime"
@@ -40,14 +41,14 @@ type Listener struct {
 }
 
 /*
-listenerTask keeps the accept loop runnable by the pool.
+listenerTask satisfies pool.Task. Read returns EOF immediately so pool workers
+can finish io.Copy while accept runs on the listener goroutine.
 */
 type listenerTask struct {
 	listener *Listener
 }
 
-func (task *listenerTask) Read(p []byte) (n int, err error) {
-	task.listener.accept()
+func (task *listenerTask) Read(_ []byte) (n int, err error) {
 	return 0, io.EOF
 }
 
@@ -88,13 +89,20 @@ func NewListener(ctx context.Context, addr string, bootstrap capnp.Client) (*Lis
 		),
 	}
 
-	_ = listener.pool.Schedule(
+	if scheduleErr := listener.pool.Schedule(
 		"transport/listener/accept",
 		pool.COMPUTE,
 		&listenerTask{listener: listener},
 		pool.WithContext(listener.ctx),
 		pool.WithTTL(time.Second),
-	)
+	); scheduleErr != nil {
+		cancel()
+		_ = tcpListener.Close()
+
+		return nil, scheduleErr
+	}
+
+	go listener.accept()
 
 	return listener, nil
 }
@@ -135,19 +143,29 @@ Close shuts down the listener and all active RPC connections.
 */
 func (listener *Listener) Close() error {
 	listener.cancel()
-	_ = listener.listener.Close()
+
+	var errs []error
+
+	if tcpErr := listener.listener.Close(); tcpErr != nil {
+		errs = append(errs, tcpErr)
+	}
 
 	listener.mu.Lock()
-	defer listener.mu.Unlock()
-
-	for _, conn := range listener.conns {
-		_ = conn.Close()
-	}
-
+	conns := listener.conns
 	listener.conns = nil
-	if listener.pool != nil {
-		_ = listener.pool.Close()
+	listener.mu.Unlock()
+
+	for _, conn := range conns {
+		if connErr := conn.Close(); connErr != nil {
+			errs = append(errs, connErr)
+		}
 	}
 
-	return nil
+	if listener.pool != nil {
+		if poolErr := listener.pool.Close(); poolErr != nil {
+			errs = append(errs, poolErr)
+		}
+	}
+
+	return errors.Join(errs...)
 }

@@ -17,6 +17,10 @@ resets the ring buffer so the same pipe pair is reusable across payload
 boundaries. Operations are applied inline per chunk: Write into the
 operation, Read the transformed result back.
 
+Use this when producer and consumer overlap in time. For a strict
+caller-goroutine flip then flop with no extra buffering, use NewFlipFlop
+instead (that path stays synchronous on purpose).
+
 The default 64 KiB buffer lets io.Copy's 32 KiB writes land without
 blocking, reducing mutex round-trips for medium and large payloads.
 */
@@ -54,6 +58,14 @@ func NewStream(opts ...streamOption) *Stream {
 	return stream
 }
 
+func eofResetPipe(stream *Stream, returnN int, returnErr error) (int, error) {
+	if returnErr == io.EOF {
+		stream.buffer.Reset()
+	}
+
+	return returnN, returnErr
+}
+
 /*
 Read implements io.Reader. Each chunk from the pipe passes through
 every registered operation (Write in, Read back) before returning.
@@ -67,11 +79,11 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 	}
 
 	if n == 0 {
-		if err == io.EOF {
-			stream.buffer.Reset()
+		if err == nil {
+			return 0, nil
 		}
 
-		return 0, io.EOF
+		return eofResetPipe(stream, 0, io.EOF)
 	}
 
 	readErr := err
@@ -88,11 +100,7 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 		}
 	}
 
-	if readErr == io.EOF {
-		stream.buffer.Reset()
-	}
-
-	return n, readErr
+	return eofResetPipe(stream, n, readErr)
 }
 
 /*

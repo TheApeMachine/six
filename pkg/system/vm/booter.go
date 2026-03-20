@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -86,7 +87,6 @@ func NewBooter(opts ...booterOpts) *Booter {
 
 	booter.hasSrv = synthesis.NewHASServer(
 		synthesis.HASWithContext(booter.ctx),
-		synthesis.HASWithRouter(booter.router),
 		synthesis.HASWithForest(booter.forest.Forest()),
 		synthesis.HASWithMacroIndex(booter.macroIdx),
 	)
@@ -121,46 +121,56 @@ func NewBooter(opts ...booterOpts) *Booter {
 /*
 Close releases all router-managed RPC clients and cancels the context.
 */
-func (booter *Booter) Close() {
+func (booter *Booter) Close() error {
 	if booter == nil {
-		return
+		return nil
+	}
+
+	var errs []error
+
+	appendErr := func(closeErr error) {
+		if closeErr != nil {
+			errs = append(errs, closeErr)
+		}
 	}
 
 	if booter.distributed != nil {
-		_ = booter.distributed.Close()
+		appendErr(booter.distributed.Close())
 	}
 
 	if booter.prompter != nil {
-		_ = booter.prompter.Close()
+		appendErr(booter.prompter.Close())
 	}
 
 	if booter.hasSrv != nil {
-		_ = booter.hasSrv.Close()
+		appendErr(booter.hasSrv.Close())
 	}
 
 	if booter.graph != nil {
-		_ = booter.graph.Close()
+		appendErr(booter.graph.Close())
 	}
 
 	if booter.tokenizer != nil {
-		_ = booter.tokenizer.Close()
+		appendErr(booter.tokenizer.Close())
 	}
 
 	if booter.forest != nil {
-		_ = booter.forest.Close()
+		appendErr(booter.forest.Close())
 	}
 
 	if booter.macroIdx != nil {
-		_ = booter.macroIdx.Close()
+		appendErr(booter.macroIdx.Close())
 	}
 
 	if booter.router != nil {
-		_ = booter.router.Close()
+		appendErr(booter.router.Close())
 	}
 
 	if booter.cancel != nil {
 		booter.cancel()
 	}
+
+	return errors.Join(errs...)
 }
 
 /*

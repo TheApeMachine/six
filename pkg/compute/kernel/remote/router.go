@@ -2,7 +2,7 @@ package remote
 
 import (
 	"context"
-	"io"
+	"errors"
 	"sync"
 
 	"github.com/theapemachine/six/pkg/errnie"
@@ -47,16 +47,30 @@ func NewRouter(opts ...routerOpts) *Router {
 }
 
 /*
-Write routes the payload to the best available Node.
+Write routes the payload to the best available Node (pipelined, non-blocking).
 */
 func (router *Router) Write(p []byte) (n int, err error) {
 	node := router.best()
 
 	if node == nil {
-		return 0, io.ErrClosedPipe
+		return 0, ErrNoPeers
 	}
 
 	return node.Write(p)
+}
+
+/*
+WriteSync routes the payload to the best available Node and blocks until
+the remote peer confirms success. Use for ordering guarantees or tests.
+*/
+func (router *Router) WriteSync(p []byte) (n int, err error) {
+	node := router.best()
+
+	if node == nil {
+		return 0, ErrNoPeers
+	}
+
+	return node.WriteSync(p)
 }
 
 /*
@@ -66,7 +80,7 @@ func (router *Router) Read(p []byte) (n int, err error) {
 	node := router.best()
 
 	if node == nil {
-		return 0, io.EOF
+		return 0, ErrNoPeers
 	}
 
 	return node.Read(p)
@@ -83,7 +97,7 @@ func (router *Router) Close() error {
 
 	for _, node := range router.nodes {
 		if err := node.Close(); err != nil {
-			closeErr = err
+			closeErr = errors.Join(closeErr, err)
 		}
 	}
 
@@ -146,11 +160,10 @@ func (router *Router) Nodes() []*Node {
 
 /*
 best returns the first available Node, caching the selection in active.
-Falls back to the first Node regardless of availability.
 */
 func (router *Router) best() *Node {
-	router.mu.RLock()
-	defer router.mu.RUnlock()
+	router.mu.Lock()
+	defer router.mu.Unlock()
 
 	if router.active != nil {
 		n, _ := router.active.Available()
@@ -169,10 +182,7 @@ func (router *Router) best() *Node {
 		}
 	}
 
-	if len(router.nodes) > 0 {
-		router.active = router.nodes[0]
-		return router.active
-	}
+	router.active = nil
 
 	return nil
 }

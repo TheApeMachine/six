@@ -264,6 +264,8 @@ func (p *Pool) Schedule(
 			job.OnDrop(err)
 		}
 
+		p.store.StoreError(job.ID, err, job.TTL)
+
 		p.metrics.mu.Lock()
 		p.metrics.SchedulingFailures++
 		p.metrics.mu.Unlock()
@@ -290,6 +292,8 @@ func (p *Pool) Schedule(
 			job.OnDrop(err)
 		}
 
+		p.store.StoreError(job.ID, err, job.TTL)
+
 		p.metrics.mu.Lock()
 		p.metrics.SchedulingFailures++
 		p.metrics.mu.Unlock()
@@ -300,6 +304,8 @@ func (p *Pool) Schedule(
 		if job.OnDrop != nil {
 			job.OnDrop(err)
 		}
+
+		p.store.StoreError(job.ID, err, job.TTL)
 
 		p.metrics.mu.Lock()
 		p.metrics.SchedulingFailures++
@@ -369,6 +375,34 @@ Metrics returns the pool's metrics instance.
 */
 func (p *Pool) Metrics() *Metrics {
 	return p.metrics
+}
+
+/*
+WorkerCount returns the number of running worker goroutines.
+*/
+func (p *Pool) WorkerCount() int {
+	p.workerMu.Lock()
+	defer p.workerMu.Unlock()
+
+	return len(p.workerList)
+}
+
+/*
+WaitForWorkerCount blocks until WorkerCount is at least minCount or ctx is done.
+*/
+func (p *Pool) WaitForWorkerCount(ctx context.Context, minCount int) error {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	for p.WorkerCount() < minCount {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+
+	return nil
 }
 
 /*

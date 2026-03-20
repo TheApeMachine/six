@@ -14,6 +14,12 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
+/*
+perfWindowSize is how many end-to-end latency samples perfRing retains per tree.
+Ten keeps the rolling average responsive (picks up drift within a few inserts)
+without chasing single-shot noise; each slot is one Insert/Get timing in
+nanoseconds.
+*/
 const perfWindowSize = 10
 
 /*

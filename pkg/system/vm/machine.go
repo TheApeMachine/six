@@ -96,7 +96,7 @@ closing pipe-based RPC connections to prevent goroutine leaks.
 */
 func (machine *Machine) Close() {
 	if machine.booter != nil {
-		machine.booter.Close()
+		_ = machine.booter.Close()
 	}
 
 	if machine.broadcastGroup != nil {
@@ -140,8 +140,9 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		},
 	)
 
+	defer promptRelease()
+
 	promptResult := errnie.Guard(machine.state, func() (input.Prompter_generate_Results, error) {
-		defer promptRelease()
 		return promptFuture.Struct()
 	})
 
@@ -168,16 +169,10 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		)
 	}
 
-	valueList := errnie.Guard(machine.state, func() (primitive.Value_List, error) {
-		return primitive.ValueSliceToList(values)
-	})
-
 	graph := errnie.Guard(machine.state, func() (substrate.Graph, error) {
 		raw, err := machine.booter.router.Get(ctx, cluster.GRAPH, "machine")
 		return substrate.Graph(raw), err
 	})
-
-	_ = valueList
 
 	for _, key := range keys {
 		errnie.GuardVoid(machine.state, func() error {
@@ -185,6 +180,10 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 				p.SetKey(key)
 				return nil
 			})
+		})
+
+		errnie.GuardVoid(machine.state, func() error {
+			return graph.WaitStreaming()
 		})
 	}
 
@@ -244,6 +243,10 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 			)
 		})
 	}
+
+	errnie.GuardVoid(machine.state, func() error {
+		return tokClient.WaitStreaming()
+	})
 
 	keys := errnie.Guard(machine.state, func() ([]uint64, error) {
 		return machine.tokenizerDone()
@@ -332,6 +335,10 @@ func (machine *Machine) emitHASResult(
 		return err
 	}
 
+	if err := has.WaitStreaming(); err != nil {
+		return err
+	}
+
 	doneFuture, release := has.Done(ctx, nil)
 	defer release()
 
@@ -385,6 +392,10 @@ func (machine *Machine) tokenizeStream(raw []byte) ([]uint64, error) {
 		})
 	}
 
+	errnie.GuardVoid(machine.state, func() error {
+		return tokClient.WaitStreaming()
+	})
+
 	drained := errnie.Guard(machine.state, func() ([]uint64, error) {
 		return machine.tokenizerDone()
 	})
@@ -413,9 +424,9 @@ func (machine *Machine) tokenizerDone() ([]uint64, error) {
 	})
 
 	future, release := tokClient.Done(machine.ctx, nil)
+	defer release()
 
 	results := errnie.Guard(machine.state, func() (tokenizer.Universal_done_Results, error) {
-		defer release()
 		return future.Struct()
 	})
 
@@ -461,12 +472,20 @@ func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
 		})
 
 		errnie.GuardVoid(machine.state, func() error {
+			return forest.WaitStreaming()
+		})
+
+		errnie.GuardVoid(machine.state, func() error {
 			return graph.Write(
 				ctx, func(p substrate.Graph_write_Params) error {
 					p.SetKey(key)
 					return nil
 				},
 			)
+		})
+
+		errnie.GuardVoid(machine.state, func() error {
+			return graph.WaitStreaming()
 		})
 
 		_, symbol := coder.Unpack(key)

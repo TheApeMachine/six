@@ -34,6 +34,16 @@ type MetalBackend struct {
 }
 
 /*
+NewMetalBackend returns a Metal kernel Backend with a non-nil transport.Stream
+so Read/Write/Close never delegate to a nil embedded pointer.
+*/
+func NewMetalBackend() *MetalBackend {
+	return &MetalBackend{
+		Stream: transport.NewStream(),
+	}
+}
+
+/*
 Available returns the number of Metal-capable GPUs present on this system,
 or an error if the Metal runtime failed to initialize.
 */

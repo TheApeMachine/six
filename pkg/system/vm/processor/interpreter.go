@@ -55,12 +55,19 @@ type InterpreterServer struct {
 	state   *errnie.State
 	program []primitive.Value
 	output  []primitive.Value
-	loader  Loader
+	loader  *interpreterLoader
+}
+
+/*
+interpreterLoader frames Cap'n Proto Loader roots with dedicated errnie state
+so concurrent Loader io does not share a package-level error sink.
+*/
+type interpreterLoader struct {
+	state *errnie.State
+	root  Loader
 }
 
 type interpreterOpts func(*InterpreterServer)
-
-var state = errnie.NewState("vm/processor/interpreter")
 
 /*
 New allocates a new loader.
@@ -88,15 +95,23 @@ func New() (Loader, error) {
 /*
 NewInterpreterServer creates the interpreter processor.
 */
-func NewInterpreterServer(opts ...interpreterOpts) *InterpreterServer {
+func NewInterpreterServer(opts ...interpreterOpts) (*InterpreterServer, error) {
+	loaderState := errnie.NewState("vm/processor/interpreter.loader")
+
+	root, err := New()
+
+	if err != nil {
+		return nil, err
+	}
 
 	server := &InterpreterServer{
-		state:   state,
+		state:   errnie.NewState("vm/processor/interpreter"),
 		program: make([]primitive.Value, 0, 64),
 		output:  make([]primitive.Value, 0, 16),
-		loader: errnie.Guard(state, func() (Loader, error) {
-			return New()
-		}),
+		loader: &interpreterLoader{
+			state: loaderState,
+			root:  root,
+		},
 	}
 
 	for _, opt := range opts {
@@ -107,51 +122,103 @@ func NewInterpreterServer(opts ...interpreterOpts) *InterpreterServer {
 		return validate.Require(map[string]any{
 			"ctx":    server.ctx,
 			"cancel": server.cancel,
+			"loader": server.loader,
 		})
 	})
 
-	return server
+	if server.state.Failed() {
+		return nil, server.state.Err()
+	}
+
+	return server, nil
 }
 
-func (loader Loader) Read(p []byte) (n int, err error) {
-	buffer := bytes.NewBuffer(p)
-	encoder := capnp.NewEncoder(buffer)
+func (il *interpreterLoader) Read(p []byte) (n int, err error) {
+	var buf bytes.Buffer
+	encoder := capnp.NewEncoder(&buf)
 
-	errnie.GuardVoid(state, func() error {
-		return encoder.Encode(loader.Message())
+	errnie.GuardVoid(il.state, func() error {
+		return encoder.Encode(il.root.Message())
 	})
 
-	return buffer.Len(), nil
+	if il.state.Failed() {
+		return 0, il.state.Err()
+	}
+
+	return copy(p, buf.Bytes()), nil
 }
 
-func (loader Loader) Write(p []byte) (n int, err error) {
-	decoder := capnp.NewDecoder(bytes.NewBuffer(p))
+func (il *interpreterLoader) Write(p []byte) (n int, err error) {
+	decoder := capnp.NewDecoder(bytes.NewReader(p))
 
-	msg := errnie.Guard(state, func() (*capnp.Message, error) {
+	msg := errnie.Guard(il.state, func() (*capnp.Message, error) {
 		return decoder.Decode()
 	})
 
-	root := errnie.Guard(state, func() (Loader, error) {
+	if il.state.Failed() {
+		return 0, il.state.Err()
+	}
+
+	incoming := errnie.Guard(il.state, func() (Loader, error) {
 		return ReadRootLoader(msg)
 	})
 
-	values, err := root.Values()
+	if il.state.Failed() {
+		return 0, il.state.Err()
+	}
+
+	incList, err := incoming.Values()
+
 	if err != nil {
 		return 0, err
 	}
 
-	out, err := primitive.BuildValue(p)
+	incLen := incList.Len()
+
+	if incLen == 0 {
+		return len(p), nil
+	}
+
+	prevLen := 0
+
+	var curList primitive.Value_List
+
+	if il.root.HasValues() {
+		curList, err = il.root.Values()
+
+		if err != nil {
+			return 0, err
+		}
+
+		prevLen = curList.Len()
+	}
+
+	total := prevLen + incLen
+
+	merged, err := primitive.NewValue_List(il.root.Segment(), int32(total))
 
 	if err != nil {
 		return 0, err
 	}
 
-	values.Set(values.Len(), out)
+	for idx := 0; idx < prevLen; idx++ {
+		dst := merged.At(idx)
+		dst.CopyFrom(curList.At(idx))
+	}
 
-	return 0, nil
+	for idx := 0; idx < incLen; idx++ {
+		dst := merged.At(prevLen + idx)
+		dst.CopyFrom(incList.At(idx))
+	}
+
+	if err := il.root.SetValues(merged); err != nil {
+		return 0, err
+	}
+
+	return len(p), nil
 }
 
-func (loader Loader) Close() error {
+func (il *interpreterLoader) Close() error {
 	return nil
 }
 
@@ -187,12 +254,24 @@ func (server *InterpreterServer) Read(
 		return server.state.Err()
 	}
 
-	server.execute()
+	if err := server.execute(); err != nil {
+		return err
+	}
 
-	for range server.output {
+	for _, outValue := range server.output {
+		sendValue := outValue
+
 		if err := callback.Send(ctx, func(
 			params primitive.Service_Callback_send_Params,
 		) error {
+			destination, err := params.NewValue()
+
+			if err != nil {
+				return err
+			}
+
+			destination.CopyFrom(sendValue)
+
 			return nil
 		}); err != nil {
 			return err
@@ -241,7 +320,9 @@ func (server *InterpreterServer) Close(
 	defer server.mu.Unlock()
 
 	if len(server.output) == 0 && len(server.program) > 0 {
-		server.execute()
+		if err := server.execute(); err != nil {
+			return err
+		}
 	}
 
 	if server.cancel != nil {
@@ -257,11 +338,11 @@ is a single phase value in GF(257). Each instruction node transforms the
 phase through its affine operator, and the opcode controls the program
 counter. The output buffer collects emitted Values.
 */
-func (server *InterpreterServer) execute() {
+func (server *InterpreterServer) execute() error {
 	server.output = server.output[:0]
 
 	if len(server.program) == 0 {
-		return
+		return nil
 	}
 
 	phase := numeric.Phase(1)
@@ -274,26 +355,40 @@ func (server *InterpreterServer) execute() {
 		phase = node.ApplyAffinePhase(phase)
 
 		if from, to, ok := node.Trajectory(); ok {
-			server.emitTrajectoryStep(node, phase, from, to)
+			if err := server.emitTrajectoryStep(node, phase, from, to); err != nil {
+				return err
+			}
 		}
 
 		switch opcode {
 		case primitive.OpcodeHalt:
-			server.emit(node, phase)
-			return
+			if err := server.emit(node, phase); err != nil {
+				return err
+			}
+
+			return nil
 
 		case primitive.OpcodeJump:
 			jump := int(node.Jump())
 
 			if jump == 0 {
-				jump = 1
+				return fmt.Errorf(
+					"interpreter: jump offset is zero (pc=%d)", pc)
 			}
 
 			pc += jump
 
 		case primitive.OpcodeBranch:
-			winner := server.evaluateBranches(pc, node, phase)
-			server.emit(winner, phase)
+			winner, err := server.evaluateBranches(pc, node, phase)
+
+			if err != nil {
+				return err
+			}
+
+			if err := server.emit(winner, phase); err != nil {
+				return err
+			}
+
 			pc++
 
 		case primitive.OpcodeReset:
@@ -302,7 +397,9 @@ func (server *InterpreterServer) execute() {
 
 		default:
 			if node.Terminal() {
-				server.emit(node, phase)
+				if err := server.emit(node, phase); err != nil {
+					return err
+				}
 			}
 
 			pc++
@@ -313,12 +410,17 @@ func (server *InterpreterServer) execute() {
 				magnitude, err := node.TransitionMagnitude(server.program[pc-1])
 
 				if err == nil && magnitude > numeric.Phase(node.GuardRadius()) {
-					server.emit(node, phase)
-					return
+					if emitErr := server.emit(node, phase); emitErr != nil {
+						return emitErr
+					}
+
+					return nil
 				}
 			}
 		}
 	}
+
+	return nil
 }
 
 /*
@@ -326,16 +428,18 @@ emit snapshots the current execution state into an output Value. The running
 phase is stamped into the shell so downstream consumers see the computed
 result without re-executing.
 */
-func (server *InterpreterServer) emit(node primitive.Value, phase numeric.Phase) {
+func (server *InterpreterServer) emit(node primitive.Value, phase numeric.Phase) error {
 	result, err := primitive.New()
 
 	if err != nil {
-		return
+		return errnie.Error(err)
 	}
 
 	result.CopyFrom(node)
 	result.SetStatePhase(phase)
 	server.output = append(server.output, result)
+
+	return nil
 }
 
 /*
@@ -346,10 +450,14 @@ emitted as a trajectory completion.
 func (server *InterpreterServer) emitTrajectoryStep(
 	node primitive.Value, phase numeric.Phase,
 	from numeric.Phase, to numeric.Phase,
-) {
+) error {
+	_ = from
+
 	if phase == to {
-		server.emit(node, phase)
+		return server.emit(node, phase)
 	}
+
+	return nil
 }
 
 /*
@@ -359,11 +467,14 @@ match evaluation. The branch with the highest fitness wins.
 */
 func (server *InterpreterServer) evaluateBranches(
 	pc int, node primitive.Value, phase numeric.Phase,
-) primitive.Value {
+) (primitive.Value, error) {
+	_ = phase
+
 	branchCount := int(node.Branches())
 
 	if branchCount == 0 {
-		branchCount = 1
+		return primitive.Value{}, fmt.Errorf(
+			"interpreter: branch count is zero (pc=%d)", pc)
 	}
 
 	end := pc + 1 + branchCount
@@ -375,11 +486,25 @@ func (server *InterpreterServer) evaluateBranches(
 	candidates := server.program[pc+1 : end]
 
 	if len(candidates) == 0 {
-		return node
+		return primitive.Value{}, fmt.Errorf(
+			"interpreter: branch has no candidate slots (pc=%d want=%d have=%d)",
+			pc, branchCount, len(server.program)-pc-1)
 	}
 
 	queryMask := primitive.BuildQueryMask(node)
 	matches := primitive.BatchEvaluate(queryMask, candidates)
+
+	if len(matches) == 0 {
+		return primitive.Value{}, fmt.Errorf(
+			"interpreter: batch evaluate returned no matches (pc=%d candidates=%d)",
+			pc, len(candidates))
+	}
+
+	if len(matches) != len(candidates) {
+		return primitive.Value{}, fmt.Errorf(
+			"interpreter: batch evaluate length mismatch (pc=%d matches=%d candidates=%d)",
+			pc, len(matches), len(candidates))
+	}
 
 	bestIndex := 0
 	bestFitness := matches[0].FitnessScore
@@ -391,7 +516,7 @@ func (server *InterpreterServer) evaluateBranches(
 		}
 	}
 
-	return candidates[bestIndex]
+	return candidates[bestIndex], nil
 }
 
 /*
@@ -408,14 +533,19 @@ func (server *InterpreterServer) Output() []primitive.Value {
 /*
 Execute runs the program and returns the output for direct Go callers.
 */
-func (server *InterpreterServer) Execute(program []primitive.Value) []primitive.Value {
+func (server *InterpreterServer) Execute(
+	program []primitive.Value,
+) ([]primitive.Value, error) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 
 	server.program = program
-	server.execute()
 
-	return server.output
+	if err := server.execute(); err != nil {
+		return nil, err
+	}
+
+	return server.output, nil
 }
 
 /*
@@ -458,5 +588,9 @@ func NewInterpreterError(err InterpreterErrorType) *InterpreterError {
 Error implements error for InterpreterError.
 */
 func (err InterpreterError) Error() string {
-	return fmt.Sprintf("interpreter error: %s: %s", err.Message, err.Err)
+	if err.Message != "" && err.Message != string(err.Err) {
+		return fmt.Sprintf("interpreter error: %s (%s)", err.Err, err.Message)
+	}
+
+	return fmt.Sprintf("interpreter error: %s", err.Err)
 }

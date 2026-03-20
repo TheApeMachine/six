@@ -3,6 +3,7 @@ package bvp
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
@@ -20,8 +21,11 @@ synthesizes or discovers logical rotation tools that
 map across the span.
 */
 type CantileverServer struct {
-	ctx    context.Context
-	cancel context.CancelFunc
+	clientMu sync.Mutex
+	ctx      context.Context
+	cancel   context.CancelFunc
+	// router is reserved for future cluster.Router-driven capability resolution
+	// at synthesis boundaries (sibling services, load-aware peers).
 	router *cluster.Router
 	calc   *numeric.Calculus
 	Index  *macro.MacroIndexServer
@@ -63,6 +67,9 @@ func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 Client returns a Cap'n Proto client for this CantileverServer.
 */
 func (server *CantileverServer) Client(_ string) capnp.Client {
+	server.clientMu.Lock()
+	defer server.clientMu.Unlock()
+
 	return capnp.Client(Cantilever_ServerToClient(server))
 }
 
@@ -181,8 +188,8 @@ func WithMacroIndex(index *macro.MacroIndexServer) cantileverOpts {
 }
 
 /*
-CantileverWithRouter injects the cluster router so the cantilever can
-resolve sibling capabilities at call time.
+CantileverWithRouter injects the cluster router for future sibling
+capability resolution (see CantileverServer.router TODO on the field).
 */
 func CantileverWithRouter(router *cluster.Router) cantileverOpts {
 	return func(cl *CantileverServer) {

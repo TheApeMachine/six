@@ -98,7 +98,8 @@ func TestTokenizeCorpusPreservesBytes(t *testing.T) {
 				server.tokenize(b)
 			}
 
-			remaining := server.healer.Flush()
+			remaining, flushErr := server.healer.Flush()
+			So(flushErr, ShouldBeNil)
 
 			Convey("It should reconstruct every byte without loss", func() {
 				var got []byte
@@ -132,7 +133,8 @@ func TestTokenizeBinaryNoisePreservesBytes(t *testing.T) {
 				server.tokenize(b)
 			}
 
-			remaining := server.healer.Flush()
+			remaining, flushErr := server.healer.Flush()
+			So(flushErr, ShouldBeNil)
 
 			Convey("It should reconstruct every byte without loss", func() {
 				var got []byte

@@ -375,8 +375,7 @@ func (n *NetworkNode) Insert(ctx context.Context, call RadixRPC_insert) error {
 	}
 
 	if term == 0 {
-		term = n.election.getCurrentTerm()
-		index = n.election.getLastLogIndex() + 1
+		return fmt.Errorf("dmt/network insert: missing term in request")
 	}
 
 	// Update local state with log tracking
@@ -508,7 +507,13 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 	start := time.Now()
 
 	currentTerm := n.election.getCurrentTerm()
+	if currentTerm == 0 {
+		currentTerm = 1
+	}
+
 	newLogIndex := n.election.getLastLogIndex() + 1
+
+	n.election.updateLogState(newLogIndex, currentTerm)
 
 	n.peersMutex.RLock()
 	peers := make([]*peer, 0, len(n.peers))

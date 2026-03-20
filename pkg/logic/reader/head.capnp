@@ -12,7 +12,7 @@ struct Head {
   operation @2 :Value;
 }
 
-interface Reader {
-  write  @0 (values :List(Value)) -> stream;
-  done   @1 ();
+interface IO {
+  write  @0 (value :Value) -> stream;
+  done   @1 () -> (result :List(Value));
 }

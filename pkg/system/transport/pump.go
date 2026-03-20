@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -11,12 +12,11 @@ import (
 /*
 Pump is a workflow component that creates a continuous feedback loop in a pipeline.
 It reads from the pipeline's output and feeds it back into its input, creating
-an infinite processing cycle that can be stopped via the done channel.
+an infinite processing cycle that can be stopped via stopping.
 */
 type Pump struct {
 	pipeline    io.ReadWriteCloser
 	passthrough *Stream
-	done        chan struct{}
 	closeOnce   sync.Once
 	wg          sync.WaitGroup
 	stopping    atomic.Uint32
@@ -24,8 +24,8 @@ type Pump struct {
 
 /*
 NewPump creates a new Pump instance that wraps the provided pipeline.
-It initializes a done channel for graceful shutdown and sets up a buffer
-that continuously processes data through the pipeline using a FlipFlop pattern.
+It sets up a buffer that continuously processes data through the pipeline
+using a FlipFlop pattern until Close signals shutdown.
 
 Parameters:
   - pipeline: The io.ReadWriteCloser that will be pumped in a loop
@@ -37,7 +37,6 @@ func NewPump(pipeline io.ReadWriteCloser) *Pump {
 	pump := &Pump{
 		pipeline:    pipeline,
 		passthrough: NewStream(),
-		done:        make(chan struct{}),
 	}
 
 	pump.wg.Add(1)
@@ -107,9 +106,10 @@ func (pump *Pump) Close() error {
 
 	pump.closeOnce.Do(func() {
 		pump.stopping.Store(1)
-		close(pump.done)
-		_ = pump.passthrough.Close()
-		closeErr = pump.pipeline.Close()
+
+		passthroughErr := pump.passthrough.Close()
+		pipelineErr := pump.pipeline.Close()
+		closeErr = errors.Join(pipelineErr, passthroughErr)
 
 		pump.wg.Wait()
 	})

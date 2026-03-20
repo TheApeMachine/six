@@ -84,6 +84,21 @@ func (graph *GraphServer) Client(clientID string) capnp.Client {
 }
 
 /*
+Load reports how many prompt rows are currently held for folding.
+*/
+func (graph *GraphServer) Load() int64 {
+	graph.mu.RLock()
+	defer graph.mu.RUnlock()
+
+	n := graph.ptr + 1
+	if n < 0 {
+		return 0
+	}
+
+	return int64(n)
+}
+
+/*
 Close cancels the server context. No pipe cleanup needed because
 ServerToClient creates direct in-process clients.
 Satisfies cluster.Service.
@@ -114,6 +129,10 @@ func (graph *GraphServer) Write(ctx context.Context, call Graph_write) error {
 
 	if pos == 0 {
 		graph.ptr++
+	}
+
+	for len(graph.data) <= graph.ptr {
+		graph.data = append(graph.data, nil)
 	}
 
 	graph.data[graph.ptr] = append(
@@ -188,51 +207,69 @@ EXAMPLE:
 		<in the> [Kitchen] (left over)
 */
 func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Value {
-	mid := len(graph.signals) / 2
+	if len(data) <= 1 {
+		if len(data) == 0 {
+			return nil
+		}
 
-	left := graph.signals[:mid]
-	right := graph.signals[mid:]
+		return [][]primitive.Value{append([]primitive.Value(nil), data...)}
+	}
+
+	mid := len(data) / 2
+
+	leftSlice := data[:mid]
+	rightSlice := data[mid:]
+
 	remainderLeft := make([]primitive.Value, 0)
 	remainderRight := make([]primitive.Value, 0)
 
-	for _, left := range left {
+	for _, leftItem := range leftSlice {
 		label := make([]primitive.Value, 0)
-		remainderLeft = append(remainderLeft, left)
+		remainderLeft = append(remainderLeft, leftItem)
 
-		br := false
+		matched := false
 
-		for _, right := range right {
-			if !br {
+		for _, rightItem := range rightSlice {
+			if !matched {
 				lbl := errnie.Guard(graph.state, func() (primitive.Value, error) {
-					return left.AND(right)
+					return leftItem.AND(rightItem)
 				})
 
+				if graph.state.Failed() {
+					return [][]primitive.Value{append([]primitive.Value(nil), data...)}
+				}
+
 				if lbl.CoreActiveCount() == 0 {
-					br = true
+					matched = true
 				}
 
 				label = append(label, lbl)
+
 				continue
 			}
 
-			remainderRight = append(remainderRight, right)
+			remainderRight = append(remainderRight, rightItem)
 		}
 
 		graph.addArrows(label, append(remainderLeft, remainderRight...))
 	}
 
-	return graph.RecursiveFold(append(left, right...))
+	return [][]primitive.Value{append([]primitive.Value(nil), data...)}
 }
 
 func (graph *GraphServer) addArrows(label, remainder []primitive.Value) {
-	for idx := range len(remainder) {
-		for _, value := range graph.data[idx] {
+	for rIdx := range remainder {
+		if rIdx >= len(graph.data) {
+			continue
+		}
+
+		for _, value := range graph.data[rIdx] {
 			remPhase, _ := value.RotationSeed()
 
-			for idx := range label {
-				lblPhase, _ := label[idx].RotationSeed()
-				label[idx].SetTrajectory(numeric.Phase(lblPhase), numeric.Phase(remPhase))
-				label[idx].SetGuardRadius(uint8(label[idx].CoreActiveCount() % 256))
+			for lIdx := range label {
+				lblPhase, _ := label[lIdx].RotationSeed()
+				label[lIdx].SetTrajectory(numeric.Phase(lblPhase), numeric.Phase(remPhase))
+				label[lIdx].SetGuardRadius(uint8(label[lIdx].CoreActiveCount() % 256))
 			}
 		}
 	}

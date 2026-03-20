@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"errors"
 	"io"
 )
 
@@ -43,20 +44,16 @@ It reads from the first component and passes data through the pipeline.
 Returns EOF when no more data is available.
 */
 func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
-	var nn int64
-
 	if len(pipeline.components) == 0 {
 		return 0, io.EOF
 	}
 
 	if !pipeline.processed {
 		for i := range len(pipeline.components) - 1 {
-			nn, err = io.Copy(pipeline.components[i+1], pipeline.components[i])
-
-			n += int(nn)
+			_, err = io.Copy(pipeline.components[i+1], pipeline.components[i])
 
 			if err != nil && err != io.EOF {
-				return n, err
+				return 0, err
 			}
 		}
 
@@ -110,5 +107,15 @@ Close implements the io.Closer interface.
 It closes all components in the pipeline and collects any errors encountered.
 */
 func (pipeline *Pipeline) Close() error {
-	return nil
+	var errs []error
+
+	for _, component := range pipeline.components {
+		if closer, ok := component.(io.Closer); ok {
+			if closeErr := closer.Close(); closeErr != nil {
+				errs = append(errs, closeErr)
+			}
+		}
+	}
+
+	return errors.Join(errs...)
 }

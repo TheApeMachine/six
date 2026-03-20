@@ -56,7 +56,7 @@ func TestPipeline(t *testing.T) {
 			n, err := p.Write([]byte("ab"))
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, 2)
-			So(first.Len()+second.Len() > 0, ShouldBeTrue)
+			So(second.String(), ShouldEqual, "ab")
 		})
 	})
 }
@@ -69,10 +69,9 @@ func BenchmarkPipelineWriteTwoStage(b *testing.B) {
 
 	b.ReportAllocs()
 
-	for b.Loop() {
+	for i := 0; i < b.N; i++ {
 		first.Reset()
 		second.Reset()
-		p.processed = false
 		_, _ = p.Write(payload)
 	}
 }

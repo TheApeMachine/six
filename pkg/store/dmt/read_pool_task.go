@@ -9,8 +9,9 @@ import (
 /*
 readPoolTask implements pool.Task for legacy call sites that still submit a
 function: the worker drains Read via io.Copy, so work runs on first Read.
-When loop is false, fn runs once; when true, fn blocks until it returns
-(long-lived background loops).
+fn runs until it returns (once for short tasks, or not until cancel for
+long-lived loops). The loop field is reserved for pool/scheduling hints; Read
+uses a single path for both.
 */
 type readPoolTask struct {
 	ctx  context.Context
@@ -28,17 +29,6 @@ func (task *readPoolTask) Read(p []byte) (n int, err error) {
 	defer task.mu.Unlock()
 
 	if task.done {
-		return 0, io.EOF
-	}
-
-	if !task.loop {
-		_, fnErr := task.fn(task.ctx)
-		task.done = true
-
-		if fnErr != nil {
-			return 0, fnErr
-		}
-
 		return 0, io.EOF
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
@@ -28,13 +29,13 @@ type ForestServer struct {
 	state       *errnie.State
 	ctx         context.Context
 	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Server
 	serverConn  *rpc.Conn
+	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	forest      *dmt.Forest
 	workerPool  *pool.Pool
+	writtenMu   sync.Mutex
+	writtenKeys []uint64
 }
 
 type serverOpts func(*ForestServer)
@@ -66,56 +67,50 @@ func NewForestServer(opts ...serverOpts) *ForestServer {
 		idx.forest = forest
 	}
 
-	idx.serverSide, idx.clientSide = net.Pipe()
-	idx.client = Server_ServerToClient(idx)
+	serverSide, clientSide := net.Pipe()
+	capability := Server_ServerToClient(idx)
 
-	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		idx.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(idx.client),
+	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
+		BootstrapClient: capnp.Client(capability),
 	})
+
+	idx.clientConn = rpc.NewConn(rpc.NewStreamTransport(clientSide), nil)
 
 	return idx
 }
 
 /*
 Client returns a Cap'n Proto client connected to this ForestServer.
+Returns the bootstrap capability from the pre-created client connection.
 */
 func (idx *ForestServer) Client(clientID string) capnp.Client {
-	idx.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		idx.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(idx.client),
-	})
+	idx.clientConns[clientID] = idx.clientConn
+	return idx.clientConn.Bootstrap(idx.ctx)
+}
 
-	return capnp.Client(idx.client)
+/*
+Load approximates concurrent RPC pressure via active client registrations.
+*/
+func (idx *ForestServer) Load() int64 {
+	return int64(len(idx.clientConns))
 }
 
 /*
 Close shuts down the RPC connections, underlying net.Pipe, and the forest.
 */
 func (idx *ForestServer) Close() error {
+	if idx.clientConn != nil {
+		errnie.GuardVoid(idx.state, idx.clientConn.Close)
+		idx.clientConn = nil
+	}
+
 	if idx.serverConn != nil {
 		errnie.GuardVoid(idx.state, idx.serverConn.Close)
 		idx.serverConn = nil
 	}
 
-	for clientID, conn := range idx.clientConns {
-		if conn != nil {
-			errnie.GuardVoid(idx.state, conn.Close)
-		}
-
+	for clientID := range idx.clientConns {
 		delete(idx.clientConns, clientID)
-	}
-
-	if idx.serverSide != nil {
-		errnie.GuardVoid(idx.state, idx.serverSide.Close)
-		idx.serverSide = nil
-	}
-
-	if idx.clientSide != nil {
-		errnie.GuardVoid(idx.state, idx.clientSide.Close)
-		idx.clientSide = nil
 	}
 
 	if idx.cancel != nil {
@@ -133,6 +128,25 @@ func (idx *ForestServer) Close() error {
 Done implements the Forest RPC done method.
 */
 func (idx *ForestServer) Done(ctx context.Context, call Server_done) error {
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	idx.writtenMu.Lock()
+	keys := idx.writtenKeys
+	idx.writtenKeys = nil
+	idx.writtenMu.Unlock()
+
+	list, listErr := res.NewKeys(int32(len(keys)))
+	if listErr != nil {
+		return listErr
+	}
+
+	for i, k := range keys {
+		list.Set(i, k)
+	}
+
 	return nil
 }
 
@@ -148,6 +162,10 @@ func (idx *ForestServer) Write(
 	binary.BigEndian.PutUint64(keyBytes, key)
 
 	idx.forest.Insert(keyBytes, nil)
+
+	idx.writtenMu.Lock()
+	idx.writtenKeys = append(idx.writtenKeys, key)
+	idx.writtenMu.Unlock()
 
 	return nil
 }

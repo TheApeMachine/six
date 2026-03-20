@@ -14,7 +14,17 @@ func TestCUDABackend_Available(t *testing.T) {
 		backend := &cuda.CUDABackend{}
 
 		Convey("It should probe NVML for GPU count", func() {
-			n, _ := backend.Available()
+			n, err := backend.Available()
+
+			if err != nil {
+				So(n, ShouldEqual, 0)
+				So(err, ShouldHaveSameTypeAs, &cuda.CUDABackendError{})
+				So(err.Error(), ShouldEqual, string(cuda.CUDABackendErrorUnavailable))
+
+				return
+			}
+
+			So(err, ShouldBeNil)
 			So(n, ShouldBeGreaterThanOrEqualTo, 0)
 		})
 	})

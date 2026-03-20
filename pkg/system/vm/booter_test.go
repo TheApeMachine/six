@@ -32,6 +32,7 @@ func TestBooterRegistersCapabilities(t *testing.T) {
 			BooterWithPool(workerPool),
 			BooterWithBroadcast(broadcast),
 		)
+
 		defer booter.Close()
 
 		gc.Convey("It should resolve all registered capabilities via the router", func() {
