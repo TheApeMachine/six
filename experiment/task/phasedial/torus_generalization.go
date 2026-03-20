@@ -1,301 +1,301 @@
 package phasedial
 
-// import (
-// 	_ "embed"
-// 	"fmt"
-// 	"math"
-// 	"math/rand"
-// 	"sort"
+import (
+	_ "embed"
+	"fmt"
+	"math"
+	"math/rand"
+	"sort"
 
-// 	gc "github.com/smartystreets/goconvey/convey"
-// 	config "github.com/theapemachine/six/pkg/system/core"
-// 	tools "github.com/theapemachine/six/experiment"
-// 	"github.com/theapemachine/six/pkg/numeric/geometry"
+	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/system/core"
+	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 
-// 		"github.com/theapemachine/six/pkg/system/vm/input"
-// 	"github.com/theapemachine/six/pkg/store/data/provider"
-// )
+		"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/pkg/store/data/provider"
+)
 
-// /*
-// TorusGeneralizationExperiment tests how different split strategies
-// (contiguous, random, energy-based) affect the super-additivity of
-// the torus navigation. It demonstrates that meaningful geometric splits
-// are necessary for coherent navigation.
-// */
-// type TorusGeneralizationExperiment struct {
-// 	tableData     []tools.ExperimentalData
-// 	dataset       provider.Dataset
-// 	prompt        []string
-// 	comboSeries   []tools.ComboSeries
-// 	tableRows     []map[string]any
-// 	xAxis         []string
-// 	seedQueries   []string
-// 	splitRatios   []float64
-// 	effectiveDims []int
-// 	sweepStepDeg  float64
-// 	randomSeed    int64
-// }
+/*
+TorusGeneralizationExperiment tests how different split strategies
+(contiguous, random, energy-based) affect the super-additivity of
+the torus navigation. It demonstrates that meaningful geometric splits
+are necessary for coherent navigation.
+*/
+type TorusGeneralizationExperiment struct {
+	tableData     []tools.ExperimentalData
+	dataset       provider.Dataset
+	prompt        []string
+	comboSeries   []tools.ComboSeries
+	tableRows     []map[string]any
+	xAxis         []string
+	seedQueries   []string
+	splitRatios   []float64
+	effectiveDims []int
+	sweepStepDeg  float64
+	randomSeed    int64
+}
 
-// type torusGeneralizationOpt func(*TorusGeneralizationExperiment)
+type torusGeneralizationOpt func(*TorusGeneralizationExperiment)
 
-// func NewTorusGeneralizationExperiment(opts ...torusGeneralizationOpt) *TorusGeneralizationExperiment {
-// 	experiment := &TorusGeneralizationExperiment{
-// 		tableData: []tools.ExperimentalData{},
-// 		dataset:   tools.NewLocalProvider(tools.Aphorisms),
-// 		seedQueries: []string{
-// 			"Democracy requires individual sacrifice.",
-// 		},
-// 		splitRatios:   []float64{0.375, 0.4375, 0.5, 0.5625, 0.625},
-// 		effectiveDims: []int{config.Numeric.NBasis / 2, config.Numeric.NBasis},
-// 		sweepStepDeg:  5.0,
-// 		randomSeed:    42,
-// 	}
+func NewTorusGeneralizationExperiment(opts ...torusGeneralizationOpt) *TorusGeneralizationExperiment {
+	experiment := &TorusGeneralizationExperiment{
+		tableData: []tools.ExperimentalData{},
+		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		seedQueries: []string{
+			"Democracy requires individual sacrifice.",
+		},
+		splitRatios:   []float64{0.375, 0.4375, 0.5, 0.5625, 0.625},
+		effectiveDims: []int{config.Numeric.NBasis / 2, config.Numeric.NBasis},
+		sweepStepDeg:  5.0,
+		randomSeed:    42,
+	}
 
-// 	for _, opt := range opts {
-// 		opt(experiment)
-// 	}
+	for _, opt := range opts {
+		opt(experiment)
+	}
 
-// 	return experiment
-// }
+	return experiment
+}
 
-// func TorusGeneralizationWithSplitRatios(splitRatios []float64) torusGeneralizationOpt {
-// 	return func(experiment *TorusGeneralizationExperiment) {
-// 		if len(splitRatios) == 0 {
-// 			return
-// 		}
+func TorusGeneralizationWithSplitRatios(splitRatios []float64) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if len(splitRatios) == 0 {
+			return
+		}
 
-// 		experiment.splitRatios = append([]float64(nil), splitRatios...)
-// 	}
-// }
+		experiment.splitRatios = append([]float64(nil), splitRatios...)
+	}
+}
 
-// func TorusGeneralizationWithEffectiveDims(effectiveDims []int) torusGeneralizationOpt {
-// 	return func(experiment *TorusGeneralizationExperiment) {
-// 		if len(effectiveDims) == 0 {
-// 			return
-// 		}
+func TorusGeneralizationWithEffectiveDims(effectiveDims []int) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if len(effectiveDims) == 0 {
+			return
+		}
 
-// 		experiment.effectiveDims = append([]int(nil), effectiveDims...)
-// 	}
-// }
+		experiment.effectiveDims = append([]int(nil), effectiveDims...)
+	}
+}
 
-// func TorusGeneralizationWithSweepStep(stepDeg float64) torusGeneralizationOpt {
-// 	return func(experiment *TorusGeneralizationExperiment) {
-// 		if stepDeg > 0 && stepDeg <= 180 {
-// 			experiment.sweepStepDeg = stepDeg
-// 		}
-// 	}
-// }
+func TorusGeneralizationWithSweepStep(stepDeg float64) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if stepDeg > 0 && stepDeg <= 180 {
+			experiment.sweepStepDeg = stepDeg
+		}
+	}
+}
 
-// func TorusGeneralizationWithRandomSeed(randomSeed int64) torusGeneralizationOpt {
-// 	return func(experiment *TorusGeneralizationExperiment) {
-// 		experiment.randomSeed = randomSeed
-// 	}
-// }
+func TorusGeneralizationWithRandomSeed(randomSeed int64) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		experiment.randomSeed = randomSeed
+	}
+}
 
-// func TorusGeneralizationWithDataset(dataset provider.Dataset) torusGeneralizationOpt {
-// 	return func(experiment *TorusGeneralizationExperiment) {
-// 		if dataset != nil {
-// 			experiment.dataset = dataset
-// 		}
-// 	}
-// }
+func TorusGeneralizationWithDataset(dataset provider.Dataset) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if dataset != nil {
+			experiment.dataset = dataset
+		}
+	}
+}
 
-// func TorusGeneralizationWithSeedQueries(seedQueries []string) torusGeneralizationOpt {
-// 	return func(experiment *TorusGeneralizationExperiment) {
-// 		if len(seedQueries) > 0 {
-// 			experiment.seedQueries = append([]string(nil), seedQueries...)
-// 		}
-// 	}
-// }
+func TorusGeneralizationWithSeedQueries(seedQueries []string) torusGeneralizationOpt {
+	return func(experiment *TorusGeneralizationExperiment) {
+		if len(seedQueries) > 0 {
+			experiment.seedQueries = append([]string(nil), seedQueries...)
+		}
+	}
+}
 
-// func (experiment *TorusGeneralizationExperiment) Name() string {
-// 	return "Torus Generalization"
-// }
+func (experiment *TorusGeneralizationExperiment) Name() string {
+	return "Torus Generalization"
+}
 
-// func (experiment *TorusGeneralizationExperiment) Section() string {
-// 	return "phasedial"
-// }
+func (experiment *TorusGeneralizationExperiment) Section() string {
+	return "phasedial"
+}
 
-// func (experiment *TorusGeneralizationExperiment) Dataset() provider.Dataset {
-// 	return experiment.dataset
-// }
+func (experiment *TorusGeneralizationExperiment) Dataset() provider.Dataset {
+	return experiment.dataset
+}
 
-// func (experiment *TorusGeneralizationExperiment) Prompts() []string {
-// 	return nil
-// }
+func (experiment *TorusGeneralizationExperiment) Prompts() []string {
+	return nil
+}
 
-// func (experiment *TorusGeneralizationExperiment) Holdout() (int, input.HoldoutType) {
-// 	return 0, input.RIGHT
-// }
+func (experiment *TorusGeneralizationExperiment) Holdout() (int, input.HoldoutType) {
+	return 0, input.RIGHT
+}
 
-// func (experiment *TorusGeneralizationExperiment) AddResult(results tools.ExperimentalData) {
-// 	experiment.tableData = append(experiment.tableData, results)
-// }
+func (experiment *TorusGeneralizationExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.tableData = append(experiment.tableData, results)
+}
 
-// func (experiment *TorusGeneralizationExperiment) Outcome() (any, gc.Assertion, any) {
-// 	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
-// }
+func (experiment *TorusGeneralizationExperiment) Outcome() (any, gc.Assertion, any) {
+	return experiment.Score(), gc.ShouldBeGreaterThanOrEqualTo, 0.0
+}
 
-// func (experiment *TorusGeneralizationExperiment) Score() float64 {
-// 	if len(experiment.tableData) == 0 {
-// 		return 0
-// 	}
+func (experiment *TorusGeneralizationExperiment) Score() float64 {
+	if len(experiment.tableData) == 0 {
+		return 0
+	}
 
-// 	total := 0.0
-// 	for _, data := range experiment.tableData {
-// 		total += data.WeightedTotal
-// 	}
+	total := 0.0
+	for _, data := range experiment.tableData {
+		total += data.WeightedTotal
+	}
 
-// 	return total / float64(len(experiment.tableData))
-// }
+	return total / float64(len(experiment.tableData))
+}
 
-// func (experiment *TorusGeneralizationExperiment) TableData() any {
-// 	return experiment.tableData
-// }
+func (experiment *TorusGeneralizationExperiment) TableData() any {
+	return experiment.tableData
+}
 
-// // Helpers ported from the original test for local use
-// func localContiguousSplit(numAxes, totalDims int, boundaries []int) []int {
-// 	dimMap := make([]int, config.Numeric.NBasis)
-// 	for i := range dimMap {
-// 		dimMap[i] = -1
-// 	}
+// Helpers ported from the original test for local use
+func localContiguousSplit(numAxes, totalDims int, boundaries []int) []int {
+	dimMap := make([]int, config.Numeric.NBasis)
+	for i := range dimMap {
+		dimMap[i] = -1
+	}
 
-// 	sub := 0
-// 	for k := 0; k < totalDims; k++ {
-// 		if sub < numAxes-1 && k >= boundaries[sub] {
-// 			sub++
-// 		}
-// 		dimMap[k] = sub
-// 	}
-// 	return dimMap
-// }
+	sub := 0
+	for k := 0; k < totalDims; k++ {
+		if sub < numAxes-1 && k >= boundaries[sub] {
+			sub++
+		}
+		dimMap[k] = sub
+	}
+	return dimMap
+}
 
-// func localRandomSplit(numAxes, totalDims, dimsPerAxis int, seed int64) []int {
-// 	rng := rand.New(rand.NewSource(seed))
-// 	perm := rng.Perm(totalDims)
-// 	dimMap := make([]int, config.Numeric.NBasis)
-// 	for i := range dimMap {
-// 		dimMap[i] = -1
-// 	}
+func localRandomSplit(numAxes, totalDims, dimsPerAxis int, seed int64) []int {
+	rng := rand.New(rand.NewSource(seed))
+	perm := rng.Perm(totalDims)
+	dimMap := make([]int, config.Numeric.NBasis)
+	for i := range dimMap {
+		dimMap[i] = -1
+	}
 
-// 	for i, dim := range perm {
-// 		sub := i / dimsPerAxis
-// 		if sub >= numAxes {
-// 			sub = numAxes - 1
-// 		}
-// 		dimMap[dim] = sub
-// 	}
-// 	return dimMap
-// }
+	for i, dim := range perm {
+		sub := i / dimsPerAxis
+		if sub >= numAxes {
+			sub = numAxes - 1
+		}
+		dimMap[dim] = sub
+	}
+	return dimMap
+}
 
-// func localEnergySplit(fpA, fpB geometry.PhaseDial, totalDims int) []int {
-// 	type dimE struct {
-// 		k    int
-// 		diff float64
-// 	}
-// 	dims := make([]dimE, totalDims)
-// 	for k := 0; k < totalDims; k++ {
-// 		eA := real(fpA[k])*real(fpA[k]) + imag(fpA[k])*imag(fpA[k])
-// 		eB := real(fpB[k])*real(fpB[k]) + imag(fpB[k])*imag(fpB[k])
-// 		dims[k] = dimE{k: k, diff: eA - eB}
-// 	}
-// 	sort.Slice(dims, func(i, j int) bool { return dims[i].diff < dims[j].diff })
-// 	dimMap := make([]int, config.Numeric.NBasis)
-// 	for i := range dimMap {
-// 		dimMap[i] = -1
-// 	}
+func localEnergySplit(fpA, fpB geometry.PhaseDial, totalDims int) []int {
+	type dimE struct {
+		k    int
+		diff float64
+	}
+	dims := make([]dimE, totalDims)
+	for k := 0; k < totalDims; k++ {
+		eA := real(fpA[k])*real(fpA[k]) + imag(fpA[k])*imag(fpA[k])
+		eB := real(fpB[k])*real(fpB[k]) + imag(fpB[k])*imag(fpB[k])
+		dims[k] = dimE{k: k, diff: eA - eB}
+	}
+	sort.Slice(dims, func(i, j int) bool { return dims[i].diff < dims[j].diff })
+	dimMap := make([]int, config.Numeric.NBasis)
+	for i := range dimMap {
+		dimMap[i] = -1
+	}
 
-// 	half := totalDims / 2
-// 	for i, d := range dims {
-// 		if i < half {
-// 			dimMap[d.k] = 0
-// 		} else {
-// 			dimMap[d.k] = 1
-// 		}
-// 	}
-// 	return dimMap
-// }
+	half := totalDims / 2
+	for i, d := range dims {
+		if i < half {
+			dimMap[d.k] = 0
+		} else {
+			dimMap[d.k] = 1
+		}
+	}
+	return dimMap
+}
 
-// func normalizeEffectiveDims(values []int) []int {
-// 	seen := make(map[int]bool, len(values))
-// 	normalized := make([]int, 0, len(values))
+func normalizeEffectiveDims(values []int) []int {
+	seen := make(map[int]bool, len(values))
+	normalized := make([]int, 0, len(values))
 
-// 	for _, value := range values {
-// 		if value < 2 {
-// 			continue
-// 		}
+	for _, value := range values {
+		if value < 2 {
+			continue
+		}
 
-// 		if value > config.Numeric.NBasis {
-// 			value = config.Numeric.NBasis
-// 		}
+		if value > config.Numeric.NBasis {
+			value = config.Numeric.NBasis
+		}
 
-// 		if seen[value] {
-// 			continue
-// 		}
+		if seen[value] {
+			continue
+		}
 
-// 		seen[value] = true
-// 		normalized = append(normalized, value)
-// 	}
+		seen[value] = true
+		normalized = append(normalized, value)
+	}
 
-// 	sort.Ints(normalized)
+	sort.Ints(normalized)
 
-// 	if len(normalized) == 0 {
-// 		return []int{config.Numeric.NBasis}
-// 	}
+	if len(normalized) == 0 {
+		return []int{config.Numeric.NBasis}
+	}
 
-// 	return normalized
-// }
+	return normalized
+}
 
-// func splitCandidates(totalDims int, splitRatios []float64) []int {
-// 	seen := make(map[int]bool, len(splitRatios))
-// 	candidates := make([]int, 0, len(splitRatios))
+func splitCandidates(totalDims int, splitRatios []float64) []int {
+	seen := make(map[int]bool, len(splitRatios))
+	candidates := make([]int, 0, len(splitRatios))
 
-// 	for _, ratio := range splitRatios {
-// 		if ratio <= 0.0 || ratio >= 1.0 {
-// 			continue
-// 		}
+	for _, ratio := range splitRatios {
+		if ratio <= 0.0 || ratio >= 1.0 {
+			continue
+		}
 
-// 		split := int(math.Round(ratio * float64(totalDims)))
-// 		if split < 1 {
-// 			split = 1
-// 		}
-// 		if split >= totalDims {
-// 			split = totalDims - 1
-// 		}
+		split := int(math.Round(ratio * float64(totalDims)))
+		if split < 1 {
+			split = 1
+		}
+		if split >= totalDims {
+			split = totalDims - 1
+		}
 
-// 		if seen[split] {
-// 			continue
-// 		}
+		if seen[split] {
+			continue
+		}
 
-// 		seen[split] = true
-// 		candidates = append(candidates, split)
-// 	}
+		seen[split] = true
+		candidates = append(candidates, split)
+	}
 
-// 	sort.Ints(candidates)
+	sort.Ints(candidates)
 
-// 	if len(candidates) == 0 {
-// 		defaultSplit := totalDims / 2
-// 		if defaultSplit < 1 {
-// 			defaultSplit = 1
-// 		}
-// 		if defaultSplit >= totalDims {
-// 			defaultSplit = totalDims - 1
-// 		}
-// 		return []int{defaultSplit}
-// 	}
+	if len(candidates) == 0 {
+		defaultSplit := totalDims / 2
+		if defaultSplit < 1 {
+			defaultSplit = 1
+		}
+		if defaultSplit >= totalDims {
+			defaultSplit = totalDims - 1
+		}
+		return []int{defaultSplit}
+	}
 
-// 	return candidates
-// }
+	return candidates
+}
 
-// func formatSplitName(prefix string, left, right, totalDims int) string {
-// 	if totalDims == config.Numeric.NBasis {
-// 		return fmt.Sprintf("%s-%d/%d", prefix, left, right)
-// 	}
+func formatSplitName(prefix string, left, right, totalDims int) string {
+	if totalDims == config.Numeric.NBasis {
+		return fmt.Sprintf("%s-%d/%d", prefix, left, right)
+	}
 
-// 	return fmt.Sprintf("%s(D=%d)-%d/%d", prefix, totalDims, left, right)
-// }
+	return fmt.Sprintf("%s(D=%d)-%d/%d", prefix, totalDims, left, right)
+}
 
-// func (experiment *TorusGeneralizationExperiment) RawOutput() bool { return false }
+func (experiment *TorusGeneralizationExperiment) RawOutput() bool { return false }
 
 // func (experiment *TorusGeneralizationExperiment) Finalize(sub *geometry.HybridSubstrate) error {
 // 	// stepDeg := experiment.sweepStepDeg
@@ -522,29 +522,29 @@ package phasedial
 // 	return nil
 // }
 
-// //go:embed torus_generalization.tex
-// var torusProseTemplate string
+//go:embed torus_generalization.tex
+var torusProseTemplate string
 
-// func (experiment *TorusGeneralizationExperiment) Artifacts() []tools.Artifact {
+func (experiment *TorusGeneralizationExperiment) Artifacts() []tools.Artifact {
 
-// 	return []tools.Artifact{
-// 		{
-// 			Type:     tools.ArtifactProse,
-// 			FileName: "torus_generalization_section.tex",
-// 			Data: tools.ProseData{
-// 				Template: torusProseTemplate,
-// 				Data:     map[string]any{},
-// 			},
-// 		},
-// 		{
-// 			Type:     tools.ArtifactProse,
-// 			FileName: "torus_generalization_summary.tex",
-// 			Data: tools.ProseData{
-// 				Template: `% Torus generalisation summary table — results pending.
-// % This file is auto-generated; do not edit by hand.
-// `,
-// 				Data: map[string]any{},
-// 			},
-// 		},
-// 	}
-// }
+	return []tools.Artifact{
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "torus_generalization_section.tex",
+			Data: tools.ProseData{
+				Template: torusProseTemplate,
+				Data:     map[string]any{},
+			},
+		},
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "torus_generalization_summary.tex",
+			Data: tools.ProseData{
+				Template: `% Torus generalisation summary table — results pending.
+% This file is auto-generated; do not edit by hand.
+`,
+				Data: map[string]any{},
+			},
+		},
+	}
+}

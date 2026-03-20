@@ -8,7 +8,6 @@ import (
 	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
 	server "capnproto.org/go/capnp/v3/server"
-	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
 	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
@@ -19,12 +18,12 @@ type Program capnp.Struct
 const Program_TypeID = 0x9c4c4b030a3dbf2e
 
 func NewProgram(s *capnp.Segment) (Program, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
 	return Program(st), err
 }
 
 func NewRootProgram(s *capnp.Segment) (Program, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
 	return Program(st), err
 }
 
@@ -83,13 +82,25 @@ func (s Program) NewValues(n int32) (primitive.Value_List, error) {
 	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
 	return l, err
 }
+func (s Program) Buffer() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return []byte(p.Data()), err
+}
+
+func (s Program) HasBuffer() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s Program) SetBuffer(v []byte) error {
+	return capnp.Struct(s).SetData(1, v)
+}
 
 // Program_List is a list of Program.
 type Program_List = capnp.StructList[Program]
 
 // NewProgram creates a new list of Program.
 func NewProgram_List(s *capnp.Segment, sz int32) (Program_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
 	return capnp.StructList[Program](l), err
 }
 
@@ -101,50 +112,70 @@ func (f Program_Future) Struct() (Program, error) {
 	return Program(p.Struct()), err
 }
 
-type Evaluator capnp.Client
+type Service capnp.Client
 
-// Evaluator_TypeID is the unique identifier for the type Evaluator.
-const Evaluator_TypeID = 0xb98a5777f5009582
+// Service_TypeID is the unique identifier for the type Service.
+const Service_TypeID = 0x80e2eb4e472a8158
 
-func (c Evaluator) Write(ctx context.Context, params func(Evaluator_write_Params) error) error {
+func (c Service) Read(ctx context.Context, params func(primitive.Service_read_Params) error) (primitive.Service_read_Results_Future, capnp.ReleaseFunc) {
+
 	s := capnp.Send{
 		Method: capnp.Method{
-			InterfaceID:   0xb98a5777f5009582,
+			InterfaceID:   0xf962138c05061549,
 			MethodID:      0,
-			InterfaceName: "pkg/logic/lang/program.capnp:Evaluator",
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "read",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(primitive.Service_read_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return primitive.Service_read_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Service) Write(ctx context.Context, params func(primitive.Service_write_Params) error) error {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
 			MethodName:    "write",
 		},
 	}
 	if params != nil {
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Evaluator_write_Params(s)) }
+		s.PlaceArgs = func(s capnp.Struct) error { return params(primitive.Service_write_Params(s)) }
 	}
 
 	return capnp.Client(c).SendStreamCall(ctx, s)
 
 }
 
-func (c Evaluator) Done(ctx context.Context, params func(Evaluator_done_Params) error) (Evaluator_done_Results_Future, capnp.ReleaseFunc) {
+func (c Service) Close(ctx context.Context, params func(primitive.Service_close_Params) error) (primitive.Service_close_Results_Future, capnp.ReleaseFunc) {
 
 	s := capnp.Send{
 		Method: capnp.Method{
-			InterfaceID:   0xb98a5777f5009582,
-			MethodID:      1,
-			InterfaceName: "pkg/logic/lang/program.capnp:Evaluator",
-			MethodName:    "done",
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "close",
 		},
 	}
 	if params != nil {
 		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Evaluator_done_Params(s)) }
+		s.PlaceArgs = func(s capnp.Struct) error { return params(primitive.Service_close_Params(s)) }
 	}
 
 	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return Evaluator_done_Results_Future{Future: ans.Future()}, release
+	return primitive.Service_close_Results_Future{Future: ans.Future()}, release
 
 }
 
-func (c Evaluator) WaitStreaming() error {
+func (c Service) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
 
@@ -152,14 +183,14 @@ func (c Evaluator) WaitStreaming() error {
 // purposes.  Its format should not be depended on: in particular, it
 // should not be used to compare clients.  Use IsSame to compare clients
 // for equality.
-func (c Evaluator) String() string {
-	return "Evaluator(" + capnp.Client(c).String() + ")"
+func (c Service) String() string {
+	return "Service(" + capnp.Client(c).String() + ")"
 }
 
 // AddRef creates a new Client that refers to the same capability as c.
 // If c is nil or has resolved to null, then AddRef returns nil.
-func (c Evaluator) AddRef() Evaluator {
-	return Evaluator(capnp.Client(c).AddRef())
+func (c Service) AddRef() Service {
+	return Service(capnp.Client(c).AddRef())
 }
 
 // Release releases a capability reference.  If this is the last
@@ -168,28 +199,28 @@ func (c Evaluator) AddRef() Evaluator {
 //
 // Release will panic if c has already been released, but not if c is
 // nil or resolved to null.
-func (c Evaluator) Release() {
+func (c Service) Release() {
 	capnp.Client(c).Release()
 }
 
 // Resolve blocks until the capability is fully resolved or the Context
 // expires.
-func (c Evaluator) Resolve(ctx context.Context) error {
+func (c Service) Resolve(ctx context.Context) error {
 	return capnp.Client(c).Resolve(ctx)
 }
 
-func (c Evaluator) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+func (c Service) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
 	return capnp.Client(c).EncodeAsPtr(seg)
 }
 
-func (Evaluator) DecodeFromPtr(p capnp.Ptr) Evaluator {
-	return Evaluator(capnp.Client{}.DecodeFromPtr(p))
+func (Service) DecodeFromPtr(p capnp.Ptr) Service {
+	return Service(capnp.Client{}.DecodeFromPtr(p))
 }
 
 // IsValid reports whether c is a valid reference to a capability.
 // A reference is invalid if it is nil, has resolved to null, or has
 // been released.
-func (c Evaluator) IsValid() bool {
+func (c Service) IsValid() bool {
 	return capnp.Client(c).IsValid()
 }
 
@@ -197,7 +228,7 @@ func (c Evaluator) IsValid() bool {
 // same call to NewClient.  This can return false negatives if c or other
 // are not fully resolved: use Resolve if this is an issue.  If either
 // c or other are released, then IsSame panics.
-func (c Evaluator) IsSame(other Evaluator) bool {
+func (c Service) IsSame(other Service) bool {
 	return capnp.Client(c).IsSame(capnp.Client(other))
 }
 
@@ -205,365 +236,116 @@ func (c Evaluator) IsSame(other Evaluator) bool {
 // this client. This affects all future calls, but not calls already
 // waiting to send. Passing nil sets the value to flowcontrol.NopLimiter,
 // which is also the default.
-func (c Evaluator) SetFlowLimiter(lim fc.FlowLimiter) {
+func (c Service) SetFlowLimiter(lim fc.FlowLimiter) {
 	capnp.Client(c).SetFlowLimiter(lim)
 }
 
 // Get the current flowcontrol.FlowLimiter used to manage flow control
 // for this client.
-func (c Evaluator) GetFlowLimiter() fc.FlowLimiter {
+func (c Service) GetFlowLimiter() fc.FlowLimiter {
 	return capnp.Client(c).GetFlowLimiter()
 }
 
-// A Evaluator_Server is a Evaluator with a local implementation.
-type Evaluator_Server interface {
-	Write(context.Context, Evaluator_write) error
+// A Service_Server is a Service with a local implementation.
+type Service_Server interface {
+	Read(context.Context, primitive.Service_read) error
 
-	Done(context.Context, Evaluator_done) error
+	Write(context.Context, primitive.Service_write) error
+
+	Close(context.Context, primitive.Service_close) error
 }
 
-// Evaluator_NewServer creates a new Server from an implementation of Evaluator_Server.
-func Evaluator_NewServer(s Evaluator_Server) *server.Server {
+// Service_NewServer creates a new Server from an implementation of Service_Server.
+func Service_NewServer(s Service_Server) *server.Server {
 	c, _ := s.(server.Shutdowner)
-	return server.New(Evaluator_Methods(nil, s), s, c)
+	return server.New(Service_Methods(nil, s), s, c)
 }
 
-// Evaluator_ServerToClient creates a new Client from an implementation of Evaluator_Server.
+// Service_ServerToClient creates a new Client from an implementation of Service_Server.
 // The caller is responsible for calling Release on the returned Client.
-func Evaluator_ServerToClient(s Evaluator_Server) Evaluator {
-	return Evaluator(capnp.NewClient(Evaluator_NewServer(s)))
+func Service_ServerToClient(s Service_Server) Service {
+	return Service(capnp.NewClient(Service_NewServer(s)))
 }
 
-// Evaluator_Methods appends Methods to a slice that invoke the methods on s.
+// Service_Methods appends Methods to a slice that invoke the methods on s.
 // This can be used to create a more complicated Server.
-func Evaluator_Methods(methods []server.Method, s Evaluator_Server) []server.Method {
+func Service_Methods(methods []server.Method, s Service_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 2)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
 		Method: capnp.Method{
-			InterfaceID:   0xb98a5777f5009582,
+			InterfaceID:   0xf962138c05061549,
 			MethodID:      0,
-			InterfaceName: "pkg/logic/lang/program.capnp:Evaluator",
-			MethodName:    "write",
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "read",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Write(ctx, Evaluator_write{call})
+			return s.Read(ctx, primitive.Service_read{call})
 		},
 	})
 
 	methods = append(methods, server.Method{
 		Method: capnp.Method{
-			InterfaceID:   0xb98a5777f5009582,
+			InterfaceID:   0xf962138c05061549,
 			MethodID:      1,
-			InterfaceName: "pkg/logic/lang/program.capnp:Evaluator",
-			MethodName:    "done",
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "write",
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Done(ctx, Evaluator_done{call})
+			return s.Write(ctx, primitive.Service_write{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "close",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Close(ctx, primitive.Service_close{call})
 		},
 	})
 
 	return methods
 }
 
-// Evaluator_write holds the state for a server call to Evaluator.write.
-// See server.Call for documentation.
-type Evaluator_write struct {
-	*server.Call
-}
+// Service_List is a list of Service.
+type Service_List = capnp.CapList[Service]
 
-// Args returns the call's arguments.
-func (c Evaluator_write) Args() Evaluator_write_Params {
-	return Evaluator_write_Params(c.Call.Args())
-}
-
-// AllocResults allocates the results struct.
-func (c Evaluator_write) AllocResults() (stream.StreamResult, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return stream.StreamResult(r), err
-}
-
-// Evaluator_done holds the state for a server call to Evaluator.done.
-// See server.Call for documentation.
-type Evaluator_done struct {
-	*server.Call
-}
-
-// Args returns the call's arguments.
-func (c Evaluator_done) Args() Evaluator_done_Params {
-	return Evaluator_done_Params(c.Call.Args())
-}
-
-// AllocResults allocates the results struct.
-func (c Evaluator_done) AllocResults() (Evaluator_done_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Evaluator_done_Results(r), err
-}
-
-// Evaluator_List is a list of Evaluator.
-type Evaluator_List = capnp.CapList[Evaluator]
-
-// NewEvaluator_List creates a new list of Evaluator.
-func NewEvaluator_List(s *capnp.Segment, sz int32) (Evaluator_List, error) {
+// NewService_List creates a new list of Service.
+func NewService_List(s *capnp.Segment, sz int32) (Service_List, error) {
 	l, err := capnp.NewPointerList(s, sz)
-	return capnp.CapList[Evaluator](l), err
+	return capnp.CapList[Service](l), err
 }
 
-type Evaluator_write_Params capnp.Struct
-
-// Evaluator_write_Params_TypeID is the unique identifier for the type Evaluator_write_Params.
-const Evaluator_write_Params_TypeID = 0xc11085c34643d85f
-
-func NewEvaluator_write_Params(s *capnp.Segment) (Evaluator_write_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Evaluator_write_Params(st), err
-}
-
-func NewRootEvaluator_write_Params(s *capnp.Segment) (Evaluator_write_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Evaluator_write_Params(st), err
-}
-
-func ReadRootEvaluator_write_Params(msg *capnp.Message) (Evaluator_write_Params, error) {
-	root, err := msg.Root()
-	return Evaluator_write_Params(root.Struct()), err
-}
-
-func (s Evaluator_write_Params) String() string {
-	str, _ := text.Marshal(0xc11085c34643d85f, capnp.Struct(s))
-	return str
-}
-
-func (s Evaluator_write_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Evaluator_write_Params) DecodeFromPtr(p capnp.Ptr) Evaluator_write_Params {
-	return Evaluator_write_Params(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Evaluator_write_Params) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Evaluator_write_Params) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Evaluator_write_Params) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Evaluator_write_Params) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Evaluator_write_Params) Seed() (primitive.Value_List, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return primitive.Value_List(p.List()), err
-}
-
-func (s Evaluator_write_Params) HasSeed() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Evaluator_write_Params) SetSeed(v primitive.Value_List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewSeed sets the seed field to a newly
-// allocated primitive.Value_List, preferring placement in s's segment.
-func (s Evaluator_write_Params) NewSeed(n int32) (primitive.Value_List, error) {
-	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return primitive.Value_List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// Evaluator_write_Params_List is a list of Evaluator_write_Params.
-type Evaluator_write_Params_List = capnp.StructList[Evaluator_write_Params]
-
-// NewEvaluator_write_Params creates a new list of Evaluator_write_Params.
-func NewEvaluator_write_Params_List(s *capnp.Segment, sz int32) (Evaluator_write_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Evaluator_write_Params](l), err
-}
-
-// Evaluator_write_Params_Future is a wrapper for a Evaluator_write_Params promised by a client call.
-type Evaluator_write_Params_Future struct{ *capnp.Future }
-
-func (f Evaluator_write_Params_Future) Struct() (Evaluator_write_Params, error) {
-	p, err := f.Future.Ptr()
-	return Evaluator_write_Params(p.Struct()), err
-}
-
-type Evaluator_done_Params capnp.Struct
-
-// Evaluator_done_Params_TypeID is the unique identifier for the type Evaluator_done_Params.
-const Evaluator_done_Params_TypeID = 0xc44c661d7780b959
-
-func NewEvaluator_done_Params(s *capnp.Segment) (Evaluator_done_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Evaluator_done_Params(st), err
-}
-
-func NewRootEvaluator_done_Params(s *capnp.Segment) (Evaluator_done_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Evaluator_done_Params(st), err
-}
-
-func ReadRootEvaluator_done_Params(msg *capnp.Message) (Evaluator_done_Params, error) {
-	root, err := msg.Root()
-	return Evaluator_done_Params(root.Struct()), err
-}
-
-func (s Evaluator_done_Params) String() string {
-	str, _ := text.Marshal(0xc44c661d7780b959, capnp.Struct(s))
-	return str
-}
-
-func (s Evaluator_done_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Evaluator_done_Params) DecodeFromPtr(p capnp.Ptr) Evaluator_done_Params {
-	return Evaluator_done_Params(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Evaluator_done_Params) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Evaluator_done_Params) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Evaluator_done_Params) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Evaluator_done_Params) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-
-// Evaluator_done_Params_List is a list of Evaluator_done_Params.
-type Evaluator_done_Params_List = capnp.StructList[Evaluator_done_Params]
-
-// NewEvaluator_done_Params creates a new list of Evaluator_done_Params.
-func NewEvaluator_done_Params_List(s *capnp.Segment, sz int32) (Evaluator_done_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
-	return capnp.StructList[Evaluator_done_Params](l), err
-}
-
-// Evaluator_done_Params_Future is a wrapper for a Evaluator_done_Params promised by a client call.
-type Evaluator_done_Params_Future struct{ *capnp.Future }
-
-func (f Evaluator_done_Params_Future) Struct() (Evaluator_done_Params, error) {
-	p, err := f.Future.Ptr()
-	return Evaluator_done_Params(p.Struct()), err
-}
-
-type Evaluator_done_Results capnp.Struct
-
-// Evaluator_done_Results_TypeID is the unique identifier for the type Evaluator_done_Results.
-const Evaluator_done_Results_TypeID = 0xf71d8884b2ff0d98
-
-func NewEvaluator_done_Results(s *capnp.Segment) (Evaluator_done_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Evaluator_done_Results(st), err
-}
-
-func NewRootEvaluator_done_Results(s *capnp.Segment) (Evaluator_done_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Evaluator_done_Results(st), err
-}
-
-func ReadRootEvaluator_done_Results(msg *capnp.Message) (Evaluator_done_Results, error) {
-	root, err := msg.Root()
-	return Evaluator_done_Results(root.Struct()), err
-}
-
-func (s Evaluator_done_Results) String() string {
-	str, _ := text.Marshal(0xf71d8884b2ff0d98, capnp.Struct(s))
-	return str
-}
-
-func (s Evaluator_done_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Evaluator_done_Results) DecodeFromPtr(p capnp.Ptr) Evaluator_done_Results {
-	return Evaluator_done_Results(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Evaluator_done_Results) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Evaluator_done_Results) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Evaluator_done_Results) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Evaluator_done_Results) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-
-// Evaluator_done_Results_List is a list of Evaluator_done_Results.
-type Evaluator_done_Results_List = capnp.StructList[Evaluator_done_Results]
-
-// NewEvaluator_done_Results creates a new list of Evaluator_done_Results.
-func NewEvaluator_done_Results_List(s *capnp.Segment, sz int32) (Evaluator_done_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
-	return capnp.StructList[Evaluator_done_Results](l), err
-}
-
-// Evaluator_done_Results_Future is a wrapper for a Evaluator_done_Results promised by a client call.
-type Evaluator_done_Results_Future struct{ *capnp.Future }
-
-func (f Evaluator_done_Results_Future) Struct() (Evaluator_done_Results, error) {
-	p, err := f.Future.Ptr()
-	return Evaluator_done_Results(p.Struct()), err
-}
-
-const schema_ad058c9d70413d87 = "x\xda\x94\x8fA\x8b\xd3@\x18\x86\xbfo&1\xa5\x10" +
-	"\xdb!xP\x08^*B\xc1\xc6\xda[\xb1\xa4\"z" +
-	"\xd0\"\x89\x17\xf1T\x866\x0d\xc54\x09I\xdb\x80 " +
-	"\x88(U\xd1\xa3\xa0E/\xbd{\xd0[O\xbbKw" +
-	"\x0f\xfb\x0f\xf6\x8f,\x0b\xbb,\xb3\xa4\xdd%\xbd,e" +
-	"\x8f3\xef\xfb\xce3\xcf\xfd<6\xa5\xaaj\xc8@\xec" +
-	"\x87\xf25Q\xd9j\xe4\xe9\xf3\xd6o`:\x8aI\xe3" +
-	"Q\xf8\xe7\x9b\xfc\x17dT\x00j\xefH\x19\xb5\xefD" +
-	"\x01\xd0\xbe\x10\x13\xf0\xe4\xc3\x8f\xc3\xe4\xd5\xd79\xd3i" +
-	"V\x05\xac\xcdI\x1d\xb5\xfdeo\x8fL\xb4\x1bT\x01" +
-	"\x10\xed\x83\xc7O\x17\x9f\x8a;\xc0\xee\"\x9c?xJ" +
-	"f\x08\xa8\xa9\xd4\x04\x14\xaf\xe7\xef\x13\xbd\xd7\xda]\x15" +
-	"\xa44o\xd0)\x82$~\xaa\xe2\xff\xc7\xcf\xfa\xd1Z" +
-	"r\x8f\xce\x10\"\x11\xbeq\x0d/p\xfb\xb4cx\xdc" +
-	"w\x8d0\x0a\xdc\x88\x0f*\x1d\x1e\xfaa\xdd\x8a\x82B" +
-	"z\xb4\x10m\x89J\x00\x12\x020\xb5\x0e`\xe7(\xda" +
-	"%\x82\xe6\x98{#'\xc6\xeb\x80\x16E,\x8a\x9e\xf4" +
-	"\xec\xd6\x8b\xe3\xb7\x0b\x00L/7\x00\x9e\x8c\xb9\xe9\x8d" +
-	"\xf80\x88RD\x8e\xcak\x9e\xe8\xff\xdbNj\xd3\xf6" +
-	"/V}\x00\x84\xddQ0S\xc4\x0b#v\xb3\x0c\x84" +
-	"\xa9\xca\xed$\xea\x0f\x9d&\x16\xba\x81\xef4\xd1\xc2\x8c" +
-	",_F^\x81+\xcbe\xc9\xe2\x91\xc2\x07\xf1\xbaf" +
-	"9\xd3,\xc4\x8e\xd3\xdd,\xb9\x09\x95~.%q:" +
-	"\x88\xaf6z\xe9\xc4#\xc5\x1b\xc6g\x01\x00\x00\xff\xff" +
-	"\xec\x0b\xb3\xcf"
+const schema_ad058c9d70413d87 = "x\xda\x84\xcb\xbfJ\xf3`\x1c\xc5\xf1s\xf2K\x9a\x97" +
+	"\x17j\x0dQ\x04\xa1\x9b\x8b\x15Z\xa5\x8b\x14J+\x08" +
+	"\xe2\x1fJ\x1e\\\xba\xa6!\x09\xc5\xd8\x84H+8\xe9" +
+	"\xe4\xd2\xddE/\xa1\x83\xa3C\x10\xf1:\\\\\xbd\x02" +
+	"]\x1e\x89\x8b\xa3\xe3\xf9r>\xdb[\xec\x9b;\xd5;" +
+	"\x1b\x86\x1aZ\x15=\xbci\x1c\x0c>\xde\xaf\xe1\xd4E" +
+	"\xdfv\xf7\xb2\x87\xb9\xb5\x00\xd8~\x94\x06\xdd\x17\xb1\x01" +
+	"\xb7\x10\xdb-d\x0d\xd0\xcd\xe7\xee\x7f9>\xb9\x87S" +
+	"\xe7\xef\xdb2l\xa0\xbd(A\xf1\x03\x9e\xe4\x12o:" +
+	";\x8b[I\x1a\x8f%h%\xfe$ney\x1a\xe7" +
+	"\xfey3\xf0\xb3I\xd69\x0d\xf3\xdal\x1c\x84\x1e\xe9" +
+	"\x89\xa5LR\x1f\xaeV\xac\xb9;\xfa\x04\xf0\x07\xf6\xf2" +
+	"\xb4VN\x8fT\xff\xc4\x04L\x02\xcef\x07P\x1bB" +
+	"\xd57\xe8\x90+,c\xb7\x8c\xbbB\xb5o\xb07\xf3" +
+	"\x93ix\xc1%\xd0\x13rYG\xe6\xd1\xfa\xe0\xeb\xea" +
+	"\x15`\x19{\xa3i\x14\x859\xab0X\x05\xbf\x03\x00" +
+	"\x00\xff\xff\x0d\xe1K\xe9"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d87,
 		Nodes: []uint64{
+			0x80e2eb4e472a8158,
 			0x9c4c4b030a3dbf2e,
-			0xb98a5777f5009582,
-			0xc11085c34643d85f,
-			0xc44c661d7780b959,
-			0xf71d8884b2ff0d98,
 		},
 		Compressed: true,
 	})

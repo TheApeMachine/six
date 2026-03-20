@@ -2,17 +2,33 @@ package pool
 
 import (
 	"context"
+	"fmt"
+	"io"
 	"time"
+)
+
+type Task interface {
+	io.ReadWriteCloser
+}
+
+type TaskType uint
+
+const (
+	LOAD TaskType = iota
+	STORE
+	COMPUTE
+	EVALUATE
 )
 
 /*
 Job represents a unit of work to be executed by the pool.
-Fn implementations must respect ctx.Done() for cancellation.
+Task implementations must respect ctx.Done() for cancellation.
 */
 type Job struct {
 	ID                    string
 	ResultID              string
-	Fn                    func(ctx context.Context) (any, error)
+	Task                  Task
+	TaskType              TaskType
 	OnDrop                func(error)
 	RetryPolicy           *RetryPolicy
 	CircuitID             string
@@ -31,6 +47,40 @@ JobOption configures a Job before submission.
 */
 type JobOption func(*Job)
 
+func NewJob(opts ...JobOption) Job {
+	job := Job{}
+
+	for _, opt := range opts {
+		opt(&job)
+	}
+
+	return job
+}
+
+func (job *Job) Read(p []byte) (n int, err error) {
+	if job.Task == nil {
+		return 0, fmt.Errorf("job task is nil")
+	}
+
+	return job.Task.Read(p)
+}
+
+func (job *Job) Write(p []byte) (n int, err error) {
+	if job.Task == nil {
+		return 0, fmt.Errorf("job task is nil")
+	}
+
+	return job.Task.Write(p)
+}
+
+func (job *Job) Close() error {
+	if job.Task == nil {
+		return nil
+	}
+
+	return job.Task.Close()
+}
+
 /*
 CircuitBreakerConfig defines parameters for a circuit breaker.
 */
@@ -40,14 +90,39 @@ type CircuitBreakerConfig struct {
 	HalfOpenMax  int
 }
 
+func WithID(id string) JobOption {
+	return func(job *Job) {
+		job.ID = id
+	}
+}
+
+func WithResultID(resultID string) JobOption {
+	return func(job *Job) {
+		job.ResultID = resultID
+	}
+}
+
+func WithStartTime(startTime time.Time) JobOption {
+	return func(job *Job) {
+		job.StartTime = startTime
+	}
+}
+
+func WithTask(taskType TaskType, task Task) JobOption {
+	return func(job *Job) {
+		job.TaskType = taskType
+		job.Task = task
+	}
+}
+
 /*
 WithDependencyRetry configures retry behaviour for dependency checks.
 */
 func WithDependencyRetry(
 	attempts int, strategy RetryStrategy,
 ) JobOption {
-	return func(j *Job) {
-		j.DependencyRetryPolicy = &RetryPolicy{
+	return func(job *Job) {
+		job.DependencyRetryPolicy = &RetryPolicy{
 			MaxAttempts: attempts,
 			Strategy:    strategy,
 		}
@@ -58,8 +133,8 @@ func WithDependencyRetry(
 WithDependencies sets the IDs of jobs this job depends on.
 */
 func WithDependencies(dependencies []string) JobOption {
-	return func(j *Job) {
-		j.Dependencies = dependencies
+	return func(job *Job) {
+		job.Dependencies = dependencies
 	}
 }
 
@@ -67,8 +142,8 @@ func WithDependencies(dependencies []string) JobOption {
 WithTTL sets the time-to-live for the job's result.
 */
 func WithTTL(ttl time.Duration) JobOption {
-	return func(j *Job) {
-		j.TTL = ttl
+	return func(job *Job) {
+		job.TTL = ttl
 	}
 }
 
@@ -76,8 +151,8 @@ func WithTTL(ttl time.Duration) JobOption {
 WithContext sets a custom context for the job.
 */
 func WithContext(ctx context.Context) JobOption {
-	return func(j *Job) {
-		j.Ctx = ctx
+	return func(job *Job) {
+		job.Ctx = ctx
 	}
 }
 
@@ -90,9 +165,9 @@ func WithCircuitBreaker(
 	resetTimeout time.Duration,
 	halfOpenMax int,
 ) JobOption {
-	return func(j *Job) {
-		j.CircuitID = id
-		j.CircuitConfig = &CircuitBreakerConfig{
+	return func(job *Job) {
+		job.CircuitID = id
+		job.CircuitConfig = &CircuitBreakerConfig{
 			MaxFailures:  maxFailures,
 			ResetTimeout: resetTimeout,
 			HalfOpenMax:  halfOpenMax,
@@ -104,12 +179,12 @@ func WithCircuitBreaker(
 WithHalfOpenMax overrides HalfOpenMax when CircuitConfig is already set.
 */
 func WithHalfOpenMax(max int) JobOption {
-	return func(j *Job) {
-		if j.CircuitConfig == nil {
-			j.CircuitConfig = &CircuitBreakerConfig{HalfOpenMax: max}
+	return func(job *Job) {
+		if job.CircuitConfig == nil {
+			job.CircuitConfig = &CircuitBreakerConfig{HalfOpenMax: max}
 			return
 		}
-		j.CircuitConfig.HalfOpenMax = max
+		job.CircuitConfig.HalfOpenMax = max
 	}
 }
 
@@ -117,8 +192,8 @@ func WithHalfOpenMax(max int) JobOption {
 WithRetry attaches a retry policy to the job.
 */
 func WithRetry(attempts int, strategy RetryStrategy) JobOption {
-	return func(j *Job) {
-		j.RetryPolicy = &RetryPolicy{
+	return func(job *Job) {
+		job.RetryPolicy = &RetryPolicy{
 			MaxAttempts: attempts,
 			Strategy:    strategy,
 		}
@@ -129,7 +204,7 @@ func WithRetry(attempts int, strategy RetryStrategy) JobOption {
 WithOnDrop registers a callback invoked when a job cannot be scheduled.
 */
 func WithOnDrop(callback func(error)) JobOption {
-	return func(j *Job) {
-		j.OnDrop = callback
+	return func(job *Job) {
+		job.OnDrop = callback
 	}
 }

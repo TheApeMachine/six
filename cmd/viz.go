@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"runtime"
@@ -41,17 +40,12 @@ which receives real telemetry from the running system via UDP.`,
 		fmt.Printf("Visualizer running at http://localhost:8257 [%s]\n", mode)
 		fmt.Println("Open in browser to see the 3D value space")
 
-		workerPool.Schedule(
-			"cmd/viz/listen-and-serve",
-			func(ctx context.Context) (any, error) {
-				if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
-					console.Error(err, "msg", "Server error")
-					os.Exit(1)
-				}
-
-				return nil, nil
-			},
-		)
+		go func() {
+			if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
+				console.Error(err, "msg", "Server error")
+				os.Exit(1)
+			}
+		}()
 
 		if vizListen {
 			machine := vm.NewMachine(vm.MachineWithContext(cmd.Context()))

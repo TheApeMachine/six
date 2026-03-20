@@ -89,14 +89,14 @@ func NewPrompterServer(opts ...prompterOpts) *PrompterServer {
 /*
 Client returns a Cap'n Proto client connected to this PrompterServer.
 */
-func (server *PrompterServer) Client(clientID string) Prompter {
+func (server *PrompterServer) Client(clientID string) capnp.Client {
 	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
 		server.clientSide,
 	), &rpc.Options{
 		BootstrapClient: capnp.Client(server.client),
 	})
 
-	return server.client
+	return capnp.Client(server.client)
 }
 
 /*

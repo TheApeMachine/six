@@ -28,6 +28,8 @@ capnp:
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/program.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/primitive/value.capnp
 	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/has.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/reader/head.capnp
+	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/processor/interpreter.capnp
 
 build: capnp
 	cd pkg/compute/kernel/metal \

@@ -2,60 +2,90 @@
 
 package cuda
 
-import "unsafe"
+import (
+	"bytes"
+
+	"github.com/NVIDIA/go-nvml/pkg/nvml"
+)
 
 /*
-CUDABackend is a stub implementation used for non-CUDA builds.
-It provides no-op Available/Resolve so the package compiles without CUDA tooling.
+CUDABackend is the stub used on non-CUDA builds. It satisfies the
+kernel.Backend interface (io.ReadWriteCloser + Available) so the
+package compiles without CUDA tooling. Available probes NVML to
+detect GPUs even without the CUDA compiler present.
 */
-type CUDABackend struct{}
-
-func (backend *CUDABackend) Available() bool {
-	return false
+type CUDABackend struct {
+	buf bytes.Buffer
 }
 
-func (backend *CUDABackend) Resolve(
-	graphNodes unsafe.Pointer,
-	numNodes int,
-	context unsafe.Pointer,
-) (uint64, error) {
-	return 0, nil
+/*
+Available probes NVML for GPU count.
+*/
+func (backend *CUDABackend) Available() (int, error) {
+	ret := nvml.Init()
+
+	if ret != nvml.SUCCESS {
+		return 0, NewCUDABackendError(CUDABackendErrorUnavailable)
+	}
+
+	count, ret := nvml.DeviceGetCount()
+
+	if ret != nvml.SUCCESS {
+		return 0, NewCUDABackendError(CUDABackendErrorUnavailable)
+	}
+
+	return int(count), nil
 }
 
-func (backend *CUDABackend) ResolvePhaseDial(
-	cacheNodes unsafe.Pointer,
-	numNodes int,
-	queryDial unsafe.Pointer,
-	similarities unsafe.Pointer,
-) error {
+/*
+Read drains the result buffer.
+*/
+func (backend *CUDABackend) Read(p []byte) (n int, err error) {
+	return backend.buf.Read(p)
+}
+
+/*
+Write accepts incoming data.
+*/
+func (backend *CUDABackend) Write(p []byte) (n int, err error) {
+	return backend.buf.Write(p)
+}
+
+/*
+Close resets the buffer.
+*/
+func (backend *CUDABackend) Close() error {
+	backend.buf.Reset()
 	return nil
 }
 
-func (backend *CUDABackend) EncodePhaseDial(
-	structuralPhases unsafe.Pointer,
-	numValues int,
-	outDial unsafe.Pointer,
-) error {
-	return nil
+/*
+CUDABackendErrorType enumerates stub error kinds.
+*/
+type CUDABackendErrorType string
+
+const (
+	CUDABackendErrorUnavailable CUDABackendErrorType = "cuda backend unavailable"
+)
+
+/*
+CUDABackendError carries a typed stub failure.
+*/
+type CUDABackendError struct {
+	Message string
+	Err     CUDABackendErrorType
 }
 
-func (backend *CUDABackend) SeqToroidalMeanPhase(
-	valueBlocks unsafe.Pointer,
-	numValues int,
-) (theta float64, phi float64, err error) {
-	return 0, 0, nil
+/*
+NewCUDABackendError constructs a typed error.
+*/
+func NewCUDABackendError(err CUDABackendErrorType) *CUDABackendError {
+	return &CUDABackendError{Message: string(err), Err: err}
 }
 
-func (backend *CUDABackend) WeightedCircularMean(
-	valueBlocks unsafe.Pointer,
-	numValues int,
-) (phase float64, concentration float64, err error) {
-	return 0, 0, nil
-}
-
-func (backend *CUDABackend) SolveBVP(
-	startBlocks unsafe.Pointer,
-	goalBlocks unsafe.Pointer,
-) (scale uint16, translate uint16, distance float64, err error) {
-	return 0, 0, 0, nil
+/*
+Error implements error.
+*/
+func (err CUDABackendError) Error() string {
+	return err.Message
 }

@@ -3,7 +3,6 @@ package vm
 import (
 	"fmt"
 
-	capnp "capnproto.org/go/capnp/v3"
 	"github.com/gomlx/gemma/transformers"
 	"github.com/gomlx/gemma/trees"
 	"github.com/gomlx/gomlx/backends"
@@ -13,10 +12,13 @@ import (
 	"github.com/gomlx/gomlx/types/tensors"
 	"github.com/gomlx/gopjrt/dtypes"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/store/data"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 )
+
+var coder = data.NewMortonCoder()
 
 /*
 InjectionMode controls how the substrate readout is injected into the
@@ -80,9 +82,14 @@ byte through the tokenizer.
 func (tl *TranslationLayer) IngestContext(text string) error {
 	ctx := tl.machine.ctx
 
+	tokClient := errnie.Guard(tl.state, func() (tokenizer.Universal, error) {
+		raw, err := tl.machine.booter.router.Get(ctx, cluster.TOKENIZER, "translation")
+		return tokenizer.Universal(raw), err
+	})
+
 	for _, chByte := range []byte(text) {
 		errnie.GuardVoid(tl.state, func() error {
-			return tl.machine.booter.tok.Write(
+			return tokClient.Write(
 				ctx, func(p tokenizer.Universal_write_Params) error {
 					p.SetData(chByte)
 					return nil
@@ -110,83 +117,36 @@ func (tl *TranslationLayer) QuerySubstrate(query []byte) ([][]byte, error) {
 		return tl.machine.tokenizeStream(query)
 	})
 
-	promptValues, promptMetaValues := compilePromptSequence(keys)
-
-	if len(promptValues) == 0 {
+	if len(keys) == 0 {
 		return nil, nil
 	}
 
-	paths := errnie.Guard(tl.state, func() (capnp.PointerList, error) {
-		return valueMatrixToPointerList(
-			capnp.SingleSegment(nil),
-			[][]primitive.Value{promptValues},
-		)
+	graphClient := errnie.Guard(tl.state, func() (substrate.Graph, error) {
+		raw, err := tl.machine.booter.router.Get(ctx, cluster.GRAPH, "translation")
+		return substrate.Graph(raw), err
 	})
 
-	metaPaths := errnie.Guard(tl.state, func() (capnp.PointerList, error) {
-		return valueMatrixToPointerList(
-			capnp.SingleSegment(nil),
-			[][]primitive.Value{promptMetaValues},
-		)
-	})
-
-	graphFuture, graphRelease := tl.machine.booter.graph.Prompt(ctx, func(
-		p substrate.Graph_prompt_Params,
-	) error {
+	for _, key := range keys {
 		errnie.GuardVoid(tl.state, func() error {
-			return p.SetPaths(paths)
+			return graphClient.Write(ctx, func(p substrate.Graph_write_Params) error {
+				p.SetKey(key)
+				return nil
+			})
 		})
-
-		errnie.GuardVoid(tl.state, func() error {
-			return p.SetMetaPaths(metaPaths)
-		})
-
-		return nil
-	})
-
-	defer graphRelease()
-
-	state := errnie.NewState("vm/querySubstrate")
-
-	graphResult := errnie.Guard(state, func() (
-		substrate.Graph_prompt_Results, error,
-	) {
-		return graphFuture.Struct()
-	})
-
-	resultPaths := errnie.Guard(state, func() (capnp.PointerList, error) {
-		return graphResult.Result()
-	})
-
-	if state.Failed() {
-		return nil, state.Err()
 	}
 
-	results := make([][]byte, 0, resultPaths.Len())
+	errnie.GuardVoid(tl.state, func() error {
+		future, release := graphClient.Done(ctx, nil)
+		defer release()
+		_, err := future.Struct()
+		return err
+	})
 
-	for index := 0; index < resultPaths.Len(); index++ {
-		ptr := errnie.Guard(state, func() (capnp.Ptr, error) {
-			return resultPaths.At(index)
-		})
-
-		values := errnie.Guard(state, func() ([]primitive.Value, error) {
-			return primitive.ValueListToSlice(primitive.Value_List(ptr.List()))
-		})
-
-		if state.Failed() {
-			return nil, state.Err()
-		}
-
-		values = values[len(promptValues):]
-
-		if len(promptValues) >= len(values) {
-			values = nil
-		}
-
-		results = append(results, decodeObservableValues(values))
+	if tl.state.Failed() {
+		return nil, tl.state.Err()
 	}
 
-	return results, tl.state.Err()
+	return nil, nil
 }
 
 /*

@@ -148,20 +148,39 @@ func (m *Metrics) updateLatencyPercentilesLocked(duration time.Duration) {
 		return m.centroids[i].mean >= value
 	})
 
-	q := m.calculateQuantile(value)
-	maxWeight := int64(4 * m.compression * math.Min(q, 1-q))
-
 	inserted := false
-	if idx < len(m.centroids) && m.centroids[idx].count < maxWeight {
+
+	// Identical samples should coalesce into the same centroid.
+	if idx < len(m.centroids) && m.centroids[idx].mean == value {
 		c := &m.centroids[idx]
 		c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
 		c.count++
 		inserted = true
-	} else if idx > 0 && m.centroids[idx-1].count < maxWeight {
+	} else if idx > 0 && m.centroids[idx-1].mean == value {
 		c := &m.centroids[idx-1]
 		c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
 		c.count++
 		inserted = true
+	}
+
+	if !inserted {
+		q := m.calculateQuantile(value)
+		maxWeight := int64(4 * m.compression * math.Min(q, 1-q))
+		if maxWeight < 1 {
+			maxWeight = 1
+		}
+
+		if idx < len(m.centroids) && m.centroids[idx].count <= maxWeight {
+			c := &m.centroids[idx]
+			c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
+			c.count++
+			inserted = true
+		} else if idx > 0 && m.centroids[idx-1].count <= maxWeight {
+			c := &m.centroids[idx-1]
+			c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
+			c.count++
+			inserted = true
+		}
 	}
 
 	if !inserted {

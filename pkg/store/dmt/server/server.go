@@ -8,7 +8,6 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
-	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -82,14 +81,14 @@ func NewForestServer(opts ...serverOpts) *ForestServer {
 /*
 Client returns a Cap'n Proto client connected to this ForestServer.
 */
-func (idx *ForestServer) Client(clientID string) Server {
+func (idx *ForestServer) Client(clientID string) capnp.Client {
 	idx.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
 		idx.clientSide,
 	), &rpc.Options{
 		BootstrapClient: capnp.Client(idx.client),
 	})
 
-	return idx.client
+	return capnp.Client(idx.client)
 }
 
 /*
@@ -149,46 +148,6 @@ func (idx *ForestServer) Write(
 	binary.BigEndian.PutUint64(keyBytes, key)
 
 	idx.forest.Insert(keyBytes, nil)
-
-	return nil
-}
-
-/*
-Lookup retrieves values from the forest for the given Morton-packed keys.
-*/
-func (idx *ForestServer) Lookup(
-	ctx context.Context,
-	call Server_lookup,
-) error {
-	idx.state.Reset()
-	args := call.Args()
-
-	keys := errnie.Guard(idx.state, func() (capnp.UInt64List, error) {
-		return args.Keys()
-	})
-
-	res := errnie.Guard(idx.state, func() (Server_lookup_Results, error) {
-		return call.AllocResults()
-	})
-
-	out := errnie.Guard(idx.state, func() (primitive.Value_List, error) {
-		return res.NewValues(int32(keys.Len()))
-	})
-
-	if idx.state.Failed() {
-		return idx.state.Err()
-	}
-
-	for i := range keys.Len() {
-		keyBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(keyBytes, keys.At(i))
-
-		_, exists := idx.forest.Get(keyBytes)
-		if exists {
-			el := out.At(i)
-			_ = el
-		}
-	}
 
 	return nil
 }

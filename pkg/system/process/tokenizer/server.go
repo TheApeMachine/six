@@ -76,14 +76,14 @@ func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 /*
 Client returns a Cap'n Proto client connected to this UniversalServer.
 */
-func (server *UniversalServer) Client(clientID string) Universal {
+func (server *UniversalServer) Client(clientID string) capnp.Client {
 	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
 		server.clientSide,
 	), &rpc.Options{
 		BootstrapClient: capnp.Client(server.client),
 	})
 
-	return server.client
+	return capnp.Client(server.client)
 }
 
 /*

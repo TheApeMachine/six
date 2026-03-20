@@ -21,7 +21,6 @@ int solve_bvp_cuda(int device_id, const void* start_blocks_ptr, const void* goal
 */
 import "C"
 import (
-	"context"
 	"fmt"
 	"sync"
 	"unsafe"
@@ -30,11 +29,13 @@ import (
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/system/pool"
+	"github.com/theapemachine/six/pkg/system/transport"
 )
 
 //go:generate nvcc -lib resolver.cu -o libresolver.a -std=c++11
 
 type CUDABackend struct {
+	*transport.Stream
 	initOnce    sync.Once
 	deviceCount int
 }

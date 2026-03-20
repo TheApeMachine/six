@@ -3,13 +3,12 @@ package bvp
 import (
 	"context"
 	"fmt"
-	"net"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -21,15 +20,11 @@ synthesizes or discovers logical rotation tools that
 map across the span.
 */
 type CantileverServer struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Cantilever
-	serverConn  *rpc.Conn
-	clientConns map[string]*rpc.Conn
-	calc        *numeric.Calculus
-	Index       *macro.MacroIndexServer
+	ctx    context.Context
+	cancel context.CancelFunc
+	router *cluster.Router
+	calc   *numeric.Calculus
+	Index  *macro.MacroIndexServer
 }
 
 /*
@@ -43,8 +38,7 @@ NewCantileverServer provides a new logic solver acting between fixed start and e
 */
 func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 	cl := &CantileverServer{
-		clientConns: map[string]*rpc.Conn{},
-		calc:        numeric.NewCalculus(),
+		calc: numeric.NewCalculus(),
 	}
 
 	for _, opt := range options {
@@ -62,56 +56,20 @@ func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 		)
 	}
 
-	cl.serverSide, cl.clientSide = net.Pipe()
-	cl.client = Cantilever_ServerToClient(cl)
-
-	cl.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		cl.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(cl.client),
-	})
-
 	return cl
 }
 
 /*
-Client returns a Cap'n Proto client connected to this CantileverServer.
+Client returns a Cap'n Proto client for this CantileverServer.
 */
-func (server *CantileverServer) Client(clientID string) Cantilever {
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
-
-	return server.client
+func (server *CantileverServer) Client(_ string) capnp.Client {
+	return capnp.Client(Cantilever_ServerToClient(server))
 }
 
 /*
-Close shuts down the RPC connections and underlying net.Pipe,
-unblocking goroutines stuck on pipe reads.
+Close cancels the server context.
 */
 func (server *CantileverServer) Close() error {
-	if server.serverConn != nil {
-		_ = server.serverConn.Close()
-		server.serverConn = nil
-	}
-
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			_ = conn.Close()
-		}
-		delete(server.clientConns, clientID)
-	}
-
-	if server.serverSide != nil {
-		_ = server.serverSide.Close()
-		server.serverSide = nil
-	}
-	if server.clientSide != nil {
-		_ = server.clientSide.Close()
-		server.clientSide = nil
-	}
 	if server.cancel != nil {
 		server.cancel()
 	}
@@ -219,6 +177,16 @@ Logic Circuits across Cantilever instances.
 func WithMacroIndex(index *macro.MacroIndexServer) cantileverOpts {
 	return func(cl *CantileverServer) {
 		cl.Index = index
+	}
+}
+
+/*
+CantileverWithRouter injects the cluster router so the cantilever can
+resolve sibling capabilities at call time.
+*/
+func CantileverWithRouter(router *cluster.Router) cantileverOpts {
+	return func(cl *CantileverServer) {
+		cl.router = router
 	}
 }
 

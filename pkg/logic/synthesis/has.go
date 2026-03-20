@@ -4,19 +4,16 @@ import (
 	context "context"
 	"encoding/binary"
 	"fmt"
-	"net"
 	"sort"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/logic/lang"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -27,20 +24,15 @@ programmable Value type to construct "tools" on-the-fly in its
 attempt to solve a given boundary value problem.
 */
 type HASServer struct {
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	state       *errnie.State
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      HAS
-	serverConn  *rpc.Conn
-	clientConns map[string]*rpc.Conn
-	start       primitive.Value
-	end         primitive.Value
-	macroIndex  *macro.MacroIndexServer
-	forest      *dmt.Forest
-	program     *lang.ProgramServer
+	mu         sync.RWMutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	state      *errnie.State
+	start      primitive.Value
+	end        primitive.Value
+	router     *cluster.Router
+	macroIndex *macro.MacroIndexServer
+	forest     *dmt.Forest
 }
 
 /*
@@ -50,13 +42,12 @@ macro index, program server, or forest.
 type hasOpts func(*HASServer)
 
 /*
-NewHASServer creates the HAS RPC server and wires it to a net.Pipe.
+NewHASServer creates the HAS server.
 Default macro index and program server are created if not provided.
 */
 func NewHASServer(options ...hasOpts) *HASServer {
 	server := &HASServer{
-		state:       errnie.NewState("synthesis/has"),
-		clientConns: map[string]*rpc.Conn{},
+		state: errnie.NewState("synthesis/has"),
 	}
 
 	for _, option := range options {
@@ -74,20 +65,6 @@ func NewHASServer(options ...hasOpts) *HASServer {
 		return server
 	}
 
-	if server.macroIndex == nil {
-		server.macroIndex = macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(server.ctx),
-		)
-	}
-
-	if server.program == nil {
-		server.program = lang.NewProgramServer(
-			lang.ProgramServerWithContext(server.ctx),
-			lang.ProgramServerWithMaxSteps(128),
-			lang.ProgramServerWithMacroIndex(server.macroIndex),
-		)
-	}
-
 	server.start = errnie.Guard(server.state, func() (primitive.Value, error) {
 		return primitive.New()
 	})
@@ -100,82 +77,31 @@ func NewHASServer(options ...hasOpts) *HASServer {
 		return server
 	}
 
-	server.serverSide, server.clientSide = net.Pipe()
-	server.client = HAS_ServerToClient(server)
-
-	server.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		server.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
-
 	return server
 }
 
 /*
-Client returns a Cap'n Proto client connected to this HASServer.
+Client returns a Cap'n Proto client for this HASServer.
 */
-func (server *HASServer) Client(clientID string) HAS {
+func (server *HASServer) Client(_ string) capnp.Client {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
-
-	return server.client
+	return capnp.Client(HAS_ServerToClient(server))
 }
 
 /*
-Close shuts down RPC connections and underlying net.Pipe resources.
+Close cancels the server context.
 */
 func (server *HASServer) Close() error {
 	server.mu.Lock()
 	defer server.mu.Unlock()
 
-	server.state.Reset()
-
-	if server.serverConn != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.serverConn.Close()
-		})
-
-		server.serverConn = nil
-	}
-
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			errnie.GuardVoid(server.state, func() error {
-				return conn.Close()
-			})
-		}
-
-		delete(server.clientConns, clientID)
-	}
-
-	if server.serverSide != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.serverSide.Close()
-		})
-
-		server.serverSide = nil
-	}
-
-	if server.clientSide != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.clientSide.Close()
-		})
-
-		server.clientSide = nil
-	}
-
 	if server.cancel != nil {
 		server.cancel()
 	}
 
-	return server.state.Err()
+	return nil
 }
 
 /*
@@ -245,36 +171,6 @@ func (server *HASServer) Done(ctx context.Context, call HAS_done) error {
 	results.SetWinnerIndex(-1)
 	results.SetPostResidue(-1)
 	results.SetSteps(0)
-
-	if server.forest == nil {
-		return nil
-	}
-
-	branches, err := server.collectPromptBranches(server.end)
-	if err != nil {
-		return err
-	}
-
-	if len(branches) == 0 {
-		return nil
-	}
-
-	if err := server.program.Seed(server.start, server.end); err != nil {
-		return err
-	}
-
-	outcome, err := server.program.Execute(branches)
-	if err != nil {
-		return err
-	}
-
-	if outcome == nil {
-		return NewHASError(HASErrorTypeProgramOutcomeMissing)
-	}
-
-	results.SetWinnerIndex(int32(outcome.WinnerIndex))
-	results.SetPostResidue(int32(outcome.PostResidue))
-	results.SetSteps(uint32(outcome.Steps))
 
 	return nil
 }
@@ -506,6 +402,16 @@ HASWithForest injects the shared DMT forest used for prompt branch lookups.
 func HASWithForest(forest *dmt.Forest) hasOpts {
 	return func(server *HASServer) {
 		server.forest = forest
+	}
+}
+
+/*
+HASWithRouter injects the cluster router so HAS can resolve sibling
+capabilities at call time instead of holding direct server references.
+*/
+func HASWithRouter(router *cluster.Router) hasOpts {
+	return func(server *HASServer) {
+		server.router = router
 	}
 }
 

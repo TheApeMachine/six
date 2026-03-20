@@ -281,3 +281,285 @@ func TestNetworkQuorumSizing(t *testing.T) {
 		})
 	})
 }
+
+/*
+TestNetworkUpdateMerkleRoot checks that rebuilding the merkle view from the fastest
+tree produces a non-nil root and leaves that Verify accepts after forest inserts.
+*/
+func TestNetworkUpdateMerkleRoot(t *testing.T) {
+	Convey("Given a network node and forest data", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "merkle-root-node",
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+		defer node.Close()
+
+		key := []byte("merkle-net-key")
+		value := []byte("merkle-net-value")
+
+		forest.Insert(key, value)
+
+		Convey("When updateMerkleRoot runs", func() {
+			node.updateMerkleRoot()
+
+			Convey("Then the merkle root should exist and verify the pair", func() {
+				So(node.merkleTree.Root, ShouldNotBeNil)
+				So(node.merkleTree.Verify(key, value), ShouldBeTrue)
+			})
+		})
+	})
+}
+
+/*
+TestNetworkMetricsAfterInsert asserts BroadcastInsert drives both insert counter
+and bytes_tx in the metrics snapshot.
+*/
+func TestNetworkMetricsAfterInsert(t *testing.T) {
+	Convey("Given a network node", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "metrics-insert-node",
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+		defer node.Close()
+
+		Convey("When broadcasting an insert", func() {
+			node.BroadcastInsert([]byte("m-key"), []byte("m-val"))
+
+			Convey("Then operations and network metrics reflect the write", func() {
+				metrics := node.GetMetrics()
+				So(metrics, ShouldNotBeNil)
+
+				networkStats := metrics["network"].(map[string]interface{})
+				So(networkStats["bytes_tx"], ShouldBeGreaterThan, 0)
+
+				ops := metrics["operations"].(map[string]uint64)
+				So(ops["insert"], ShouldBeGreaterThan, 0)
+			})
+		})
+	})
+}
+
+/*
+TestNetworkTwoNodeBroadcast uses symmetric PeerAddrs so each node registers an
+outbound RPC client; broadcast originates from node1, which only sends to peers
+it holds in its map (outbound connections).
+*/
+func TestNetworkTwoNodeBroadcast(t *testing.T) {
+	Convey("Given two nodes with mutual peer addresses", t, func() {
+		forest1, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest1.Close()
+
+		node1, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "broadcast-a",
+			SyncInterval: 100 * time.Millisecond,
+		}, forest1)
+		So(err, ShouldBeNil)
+		defer node1.Close()
+
+		addr1 := node1.listener.Addr().String()
+
+		forest2, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest2.Close()
+
+		node2, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "broadcast-b",
+			PeerAddrs:    []string{addr1},
+			SyncInterval: 100 * time.Millisecond,
+		}, forest2)
+		So(err, ShouldBeNil)
+		defer node2.Close()
+
+		addr2 := node2.listener.Addr().String()
+		node1.config.PeerAddrs = []string{addr2}
+
+		bcastKey := []byte("two-node-bcast-key")
+		bcastVal := []byte("two-node-bcast-val")
+
+		Convey("When peers connect and node1 broadcasts an insert", func() {
+			deadline := time.Now().Add(3 * time.Second)
+
+			for time.Now().Before(deadline) {
+				node1.peersMutex.RLock()
+				n1 := len(node1.peers)
+				node1.peersMutex.RUnlock()
+
+				node2.peersMutex.RLock()
+				n2 := len(node2.peers)
+				node2.peersMutex.RUnlock()
+
+				if n1 > 0 && n2 > 0 {
+					break
+				}
+
+				time.Sleep(15 * time.Millisecond)
+			}
+
+			node1.BroadcastInsert(bcastKey, bcastVal)
+
+			received := false
+
+			for time.Now().Before(deadline) {
+				if v, ok := forest2.Get(bcastKey); ok && string(v) == string(bcastVal) {
+					received = true
+
+					break
+				}
+
+				if node2.merkleTree.Verify(bcastKey, bcastVal) {
+					received = true
+
+					break
+				}
+
+				time.Sleep(15 * time.Millisecond)
+			}
+
+			Convey("Then node2 should hold the inserted data", func() {
+				So(received, ShouldBeTrue)
+			})
+		})
+	})
+}
+
+/*
+TestNetworkNodeElectionSetup checks quorum size for a five-node cluster
+(four configured peers plus self): majority is three.
+*/
+func TestNetworkNodeElectionSetup(t *testing.T) {
+	Convey("Given a node with four peer addresses", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr: "127.0.0.1:0",
+			NodeID:     "election-setup-node",
+			PeerAddrs: []string{
+				"127.0.0.1:60001",
+				"127.0.0.1:60002",
+				"127.0.0.1:60003",
+				"127.0.0.1:60004",
+			},
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+		defer node.Close()
+
+		Convey("Then quorum size should be strict majority of five nodes", func() {
+			// (4 peers + 1 self) => cluster 5 => (5/2)+1 == 3
+			So(node.election.config.QuorumSize, ShouldEqual, 3)
+		})
+	})
+}
+
+/*
+TestNetworkCloseIdempotent ensures a second Close does not panic; election shutdown
+is already guarded by sync.Once.
+*/
+func TestNetworkCloseIdempotent(t *testing.T) {
+	Convey("Given a closed network node", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "close-twice-node",
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+
+		So(node.Close(), ShouldBeNil)
+
+		Convey("When Close is invoked again", func() {
+			So(func() { _ = node.Close() }, ShouldNotPanic)
+		})
+	})
+}
+
+/*
+TestNetworkGetMetricsStructure checks the top-level keys exposed by GetMetrics.
+*/
+func TestNetworkGetMetricsStructure(t *testing.T) {
+	Convey("Given a network node", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "metrics-shape-node",
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+		defer node.Close()
+
+		Convey("When GetMetrics is called", func() {
+			metrics := node.GetMetrics()
+
+			Convey("Then expected sections should be present", func() {
+				So(metrics, ShouldNotBeNil)
+				_, okNet := metrics["network"]
+				_, okOps := metrics["operations"]
+				_, okElect := metrics["election"]
+				_, okLat := metrics["latencies"]
+				_, okNode := metrics["node"]
+				So(okNet, ShouldBeTrue)
+				So(okOps, ShouldBeTrue)
+				So(okElect, ShouldBeTrue)
+				So(okLat, ShouldBeTrue)
+				So(okNode, ShouldBeTrue)
+			})
+		})
+	})
+}
+
+/*
+BenchmarkNetworkNodeCreate measures allocation and time to stand up and tear down
+a node on an ephemeral port.
+*/
+func BenchmarkNetworkNodeCreate(b *testing.B) {
+	b.ReportAllocs()
+
+	for b.Loop() {
+		forest, err := NewForest(ForestConfig{})
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "bench-create",
+			SyncInterval: time.Second,
+		}, forest)
+		if err != nil {
+			forest.Close()
+			b.Fatal(err)
+		}
+
+		if closeErr := node.Close(); closeErr != nil {
+			forest.Close()
+			b.Fatal(closeErr)
+		}
+
+		if closeErr := forest.Close(); closeErr != nil {
+			b.Fatal(closeErr)
+		}
+	}
+}

@@ -29,8 +29,8 @@ type Pipeline struct {
 
 type pipelineOpts func(*Pipeline)
 
-func NewPipeline(opts ...pipelineOpts) (*Pipeline, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
+	ctx, cancel := context.WithCancel(ctx)
 
 	pipeline := &Pipeline{
 		ctx:       ctx,

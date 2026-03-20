@@ -151,32 +151,12 @@ func (c Graph) Write(ctx context.Context, params func(Graph_write_Params) error)
 
 }
 
-func (c Graph) Prompt(ctx context.Context, params func(Graph_prompt_Params) error) (Graph_prompt_Results_Future, capnp.ReleaseFunc) {
-
-	s := capnp.Send{
-		Method: capnp.Method{
-			InterfaceID:   0xd00db4bbf2cf46cb,
-			MethodID:      1,
-			InterfaceName: "pkg/logic/substrate/graph.capnp:Graph",
-			MethodName:    "prompt",
-		},
-	}
-	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Graph_prompt_Params(s)) }
-	}
-
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return Graph_prompt_Results_Future{Future: ans.Future()}, release
-
-}
-
 func (c Graph) Done(ctx context.Context, params func(Graph_done_Params) error) (Graph_done_Results_Future, capnp.ReleaseFunc) {
 
 	s := capnp.Send{
 		Method: capnp.Method{
 			InterfaceID:   0xd00db4bbf2cf46cb,
-			MethodID:      2,
+			MethodID:      1,
 			InterfaceName: "pkg/logic/substrate/graph.capnp:Graph",
 			MethodName:    "done",
 		},
@@ -266,8 +246,6 @@ func (c Graph) GetFlowLimiter() fc.FlowLimiter {
 type Graph_Server interface {
 	Write(context.Context, Graph_write) error
 
-	Prompt(context.Context, Graph_prompt) error
-
 	Done(context.Context, Graph_done) error
 }
 
@@ -287,7 +265,7 @@ func Graph_ServerToClient(s Graph_Server) Graph {
 // This can be used to create a more complicated Server.
 func Graph_Methods(methods []server.Method, s Graph_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 3)
+		methods = make([]server.Method, 0, 2)
 	}
 
 	methods = append(methods, server.Method{
@@ -306,18 +284,6 @@ func Graph_Methods(methods []server.Method, s Graph_Server) []server.Method {
 		Method: capnp.Method{
 			InterfaceID:   0xd00db4bbf2cf46cb,
 			MethodID:      1,
-			InterfaceName: "pkg/logic/substrate/graph.capnp:Graph",
-			MethodName:    "prompt",
-		},
-		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Prompt(ctx, Graph_prompt{call})
-		},
-	})
-
-	methods = append(methods, server.Method{
-		Method: capnp.Method{
-			InterfaceID:   0xd00db4bbf2cf46cb,
-			MethodID:      2,
 			InterfaceName: "pkg/logic/substrate/graph.capnp:Graph",
 			MethodName:    "done",
 		},
@@ -344,23 +310,6 @@ func (c Graph_write) Args() Graph_write_Params {
 func (c Graph_write) AllocResults() (stream.StreamResult, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return stream.StreamResult(r), err
-}
-
-// Graph_prompt holds the state for a server call to Graph.prompt.
-// See server.Call for documentation.
-type Graph_prompt struct {
-	*server.Call
-}
-
-// Args returns the call's arguments.
-func (c Graph_prompt) Args() Graph_prompt_Params {
-	return Graph_prompt_Params(c.Call.Args())
-}
-
-// AllocResults allocates the results struct.
-func (c Graph_prompt) AllocResults() (Graph_prompt_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Graph_prompt_Results(r), err
 }
 
 // Graph_done holds the state for a server call to Graph.done.
@@ -461,209 +410,10 @@ func (f Graph_write_Params_Future) Struct() (Graph_write_Params, error) {
 	return Graph_write_Params(p.Struct()), err
 }
 
-type Graph_prompt_Params capnp.Struct
-
-// Graph_prompt_Params_TypeID is the unique identifier for the type Graph_prompt_Params.
-const Graph_prompt_Params_TypeID = 0xacf933d1ea136925
-
-func NewGraph_prompt_Params(s *capnp.Segment) (Graph_prompt_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return Graph_prompt_Params(st), err
-}
-
-func NewRootGraph_prompt_Params(s *capnp.Segment) (Graph_prompt_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
-	return Graph_prompt_Params(st), err
-}
-
-func ReadRootGraph_prompt_Params(msg *capnp.Message) (Graph_prompt_Params, error) {
-	root, err := msg.Root()
-	return Graph_prompt_Params(root.Struct()), err
-}
-
-func (s Graph_prompt_Params) String() string {
-	str, _ := text.Marshal(0xacf933d1ea136925, capnp.Struct(s))
-	return str
-}
-
-func (s Graph_prompt_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Graph_prompt_Params) DecodeFromPtr(p capnp.Ptr) Graph_prompt_Params {
-	return Graph_prompt_Params(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Graph_prompt_Params) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Graph_prompt_Params) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Graph_prompt_Params) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Graph_prompt_Params) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Graph_prompt_Params) Paths() (capnp.PointerList, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.PointerList(p.List()), err
-}
-
-func (s Graph_prompt_Params) HasPaths() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Graph_prompt_Params) SetPaths(v capnp.PointerList) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewPaths sets the paths field to a newly
-// allocated capnp.PointerList, preferring placement in s's segment.
-func (s Graph_prompt_Params) NewPaths(n int32) (capnp.PointerList, error) {
-	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.PointerList{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-func (s Graph_prompt_Params) MetaPaths() (capnp.PointerList, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return capnp.PointerList(p.List()), err
-}
-
-func (s Graph_prompt_Params) HasMetaPaths() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s Graph_prompt_Params) SetMetaPaths(v capnp.PointerList) error {
-	return capnp.Struct(s).SetPtr(1, v.ToPtr())
-}
-
-// NewMetaPaths sets the metaPaths field to a newly
-// allocated capnp.PointerList, preferring placement in s's segment.
-func (s Graph_prompt_Params) NewMetaPaths(n int32) (capnp.PointerList, error) {
-	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.PointerList{}, err
-	}
-	err = capnp.Struct(s).SetPtr(1, l.ToPtr())
-	return l, err
-}
-
-// Graph_prompt_Params_List is a list of Graph_prompt_Params.
-type Graph_prompt_Params_List = capnp.StructList[Graph_prompt_Params]
-
-// NewGraph_prompt_Params creates a new list of Graph_prompt_Params.
-func NewGraph_prompt_Params_List(s *capnp.Segment, sz int32) (Graph_prompt_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
-	return capnp.StructList[Graph_prompt_Params](l), err
-}
-
-// Graph_prompt_Params_Future is a wrapper for a Graph_prompt_Params promised by a client call.
-type Graph_prompt_Params_Future struct{ *capnp.Future }
-
-func (f Graph_prompt_Params_Future) Struct() (Graph_prompt_Params, error) {
-	p, err := f.Future.Ptr()
-	return Graph_prompt_Params(p.Struct()), err
-}
-
-type Graph_prompt_Results capnp.Struct
-
-// Graph_prompt_Results_TypeID is the unique identifier for the type Graph_prompt_Results.
-const Graph_prompt_Results_TypeID = 0xfe88eef4dd644993
-
-func NewGraph_prompt_Results(s *capnp.Segment) (Graph_prompt_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Graph_prompt_Results(st), err
-}
-
-func NewRootGraph_prompt_Results(s *capnp.Segment) (Graph_prompt_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Graph_prompt_Results(st), err
-}
-
-func ReadRootGraph_prompt_Results(msg *capnp.Message) (Graph_prompt_Results, error) {
-	root, err := msg.Root()
-	return Graph_prompt_Results(root.Struct()), err
-}
-
-func (s Graph_prompt_Results) String() string {
-	str, _ := text.Marshal(0xfe88eef4dd644993, capnp.Struct(s))
-	return str
-}
-
-func (s Graph_prompt_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Graph_prompt_Results) DecodeFromPtr(p capnp.Ptr) Graph_prompt_Results {
-	return Graph_prompt_Results(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Graph_prompt_Results) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Graph_prompt_Results) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Graph_prompt_Results) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Graph_prompt_Results) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Graph_prompt_Results) Result() (capnp.PointerList, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.PointerList(p.List()), err
-}
-
-func (s Graph_prompt_Results) HasResult() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Graph_prompt_Results) SetResult(v capnp.PointerList) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewResult sets the result field to a newly
-// allocated capnp.PointerList, preferring placement in s's segment.
-func (s Graph_prompt_Results) NewResult(n int32) (capnp.PointerList, error) {
-	l, err := capnp.NewPointerList(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.PointerList{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// Graph_prompt_Results_List is a list of Graph_prompt_Results.
-type Graph_prompt_Results_List = capnp.StructList[Graph_prompt_Results]
-
-// NewGraph_prompt_Results creates a new list of Graph_prompt_Results.
-func NewGraph_prompt_Results_List(s *capnp.Segment, sz int32) (Graph_prompt_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Graph_prompt_Results](l), err
-}
-
-// Graph_prompt_Results_Future is a wrapper for a Graph_prompt_Results promised by a client call.
-type Graph_prompt_Results_Future struct{ *capnp.Future }
-
-func (f Graph_prompt_Results_Future) Struct() (Graph_prompt_Results, error) {
-	p, err := f.Future.Ptr()
-	return Graph_prompt_Results(p.Struct()), err
-}
-
 type Graph_done_Params capnp.Struct
 
 // Graph_done_Params_TypeID is the unique identifier for the type Graph_done_Params.
-const Graph_done_Params_TypeID = 0xa6c504fd8176eee7
+const Graph_done_Params_TypeID = 0xacf933d1ea136925
 
 func NewGraph_done_Params(s *capnp.Segment) (Graph_done_Params, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
@@ -681,7 +431,7 @@ func ReadRootGraph_done_Params(msg *capnp.Message) (Graph_done_Params, error) {
 }
 
 func (s Graph_done_Params) String() string {
-	str, _ := text.Marshal(0xa6c504fd8176eee7, capnp.Struct(s))
+	str, _ := text.Marshal(0xacf933d1ea136925, capnp.Struct(s))
 	return str
 }
 
@@ -728,7 +478,7 @@ func (f Graph_done_Params_Future) Struct() (Graph_done_Params, error) {
 type Graph_done_Results capnp.Struct
 
 // Graph_done_Results_TypeID is the unique identifier for the type Graph_done_Results.
-const Graph_done_Results_TypeID = 0xdbe88eba4482deb4
+const Graph_done_Results_TypeID = 0xfe88eef4dd644993
 
 func NewGraph_done_Results(s *capnp.Segment) (Graph_done_Results, error) {
 	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
@@ -746,7 +496,7 @@ func ReadRootGraph_done_Results(msg *capnp.Message) (Graph_done_Results, error) 
 }
 
 func (s Graph_done_Results) String() string {
-	str, _ := text.Marshal(0xdbe88eba4482deb4, capnp.Struct(s))
+	str, _ := text.Marshal(0xfe88eef4dd644993, capnp.Struct(s))
 	return str
 }
 
@@ -790,55 +540,43 @@ func (f Graph_done_Results_Future) Struct() (Graph_done_Results, error) {
 	return Graph_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d67 = "x\xda\x94\x92MHTQ\x1c\xc5\xff\xe7\xde;\xcd\x08" +
-	"\x99^f\xdc\xb4\x19+\x13\x14Js\xda$\xc4L\xa0" +
-	"E\xd2\xc7\xdcY\x07\xf5\xd2\xe7\xcc\xc373\xaf\xf7\xde" +
-	"8\x15m\x0c\x82\x16\xd1\xc2V\x09m\x82\x92\xa2\x02\xc1" +
-	"6\xb5\x09BZ\xb4\xa8\x16\xb6\xe9ki\xb5\x10\x926" +
-	"\x06\xf9\xe2\xce8O\x0bJ[\xbd\x8f{\xce\x9fs\xff" +
-	"\xbf\xd3;\x8d\x8c\xd8\xd7\xfc)BL\x0dD\xb6\x04\x0b" +
-	"\x8b\xe3\x13?\xc5\xdc]\x92\x9d \x12Q\xa2\xd4<\x9b" +
-	"\x04\x89`\xb7\x15\xff\xfa&\xb5\xfc\xa0~\x12a\xfah" +
-	"\x8e\xdd\x06!>\xcf\xaa\x84`b\xa8\xf7\xe4\xf4\xa5\x95" +
-	"G\xa4:\xd1\xf0V\xf8\x94\x16\\\xe1iB\xf0\xf2\xf0" +
-	"\xab\xa5\xa7\xb3\xcd\xafI\xb6\xf3 \x7f\xf0\x90s\xebZ" +
-	"\xe4!\x11Rwx\x1f\xe2\x8fy\x94(>\xc3_\xc4" +
-	"\xbb\xb45\x98\xfdxy\xe0\xc9\xf5\xcf\xef\xd6%\x91b" +
-	"J'y\xffv\xd7\xbdo\x93\xd5%R\xed`k\x83" +
-	"\"\xd0\x1a\x88\x1c\xe2mZ\x1e\x97b\x81\x10\xdc8:" +
-	"\xf2\xe1\xfb\xe2\xd5\x95\xd5\xdc5\xd1\x17q_\xc7Z\x16" +
-	"i*\x07\xceX\xbe\xc7.\xe7\xad\xc8p\x8fW9\xeb" +
-	"\xf9\xae\xe1\x9b=y\xd7p\x0a{\x87\x0d\xa7\xe4\xf4\x1f" +
-	"\xa9\xbd\x8f\x94KfG\xd6p\x8d\"\xbc\xcdz\x1c\xb7" +
-	"\\t|\xed\x8a\x1aEO\xc5\xb8 \x12 \x92]}" +
-	"D\xaa\x83Ce\x19$\x90\xd0\x0b\x93\xc7sD\xea\x18" +
-	"\x87:\xcf\x90t\x0c\xbf\xe0a\x1b!\xcb\xd1x\xb4\x06" +
-	"\xa3bh\xfb\x89\x1f\x17\x9f\x13\xd5~\x06E\xd37\xb2" +
-	"\x86_ l\xac\xddd\xe6\xaak\xf9\xf5\x8b\xf2\xa2\xa7" +
-	"D\x18\xb9y'\x91\x8aq\xa8\x04Ct\xcc\xbc\x80&" +
-	"bhZ7\x97\xffmn\xb268\x0b\xa8\xad<B" +
-	"\x14\x16\x05\xa5\x99g\xd5\xd4\xd4\xe9\x9bR\xf5\x11\x93\x83" +
-	"Q l\x19\x1a\xd8\xe4\x81~brO\x14,\xec&" +
-	"\x1a\xd5\x90;\xba\x89\xc9\xb6h\xb2\x969\x83t}\xdf" +
-	"\x19\xb4hX\x19d\x81\xff\xa2\x9b3\xbd\x8a\xcd\xfd5" +
-	"\xbc\xe2\x9f\xa6\xc1\x91<L}\xad\xd6pIF7\x91" +
-	":\xc5\xa1\x0a\xeb\xb8\x9a\x1a\xf6\x19\x0ee3H\xc6\x12" +
-	"`D\xd2\x1a\"R\x05\x0e\xe53\x80'\xc0\x89\xe49" +
-	"-\xb4\xeb\x05h\xb1\xcdQ\x1f1b\x88\x11\x92\xae\x95" +
-	"/\x84_\x81S\xf6,\xdf*\x97\x88(T\x8c\x1bv" +
-	"\xc5\xfc\x83z\xeb\xe6\xa9\xaf65gz-\x15\xdb\xff" +
-	"\x8d{\xff*\xf7\xfd\x0ciWo\xc8\xdf\xa8j\xbf\x02" +
-	"\x00\x00\xff\xff\x0e\x993\xcb"
+const schema_ad058c9d70413d67 = "x\xda\x8cQ1l\xd3\\\x18\xbc{\xcf\xfe\x9d\x0eQ" +
+	"\xf3\xe4,?K*\xa0\x1d:\x90&\xd9\x10\x880\x00" +
+	"\"\x03\xe4uF\x02\xd3\xb8\x8eU'1\xb6C\x00\xd1" +
+	"\x81\x09\x06\xa62\x11\xa93\xaaD\x91\x90\xd8X\x90\x98" +
+	"\x10\x03\xb00\xc1\xc0\x84\xc4\x80\xd4\x0a\x862\xd4\xc8A" +
+	"u\xbb\x80\xba}O\xef\xee\xbe\xef\xee\x16jl\x1a\xb5" +
+	"b\xd5\x84\xd0\xa7\xcc\xff\xd2Y\xdf\xfe\xf6\xa1\xb1\xf3\x14" +
+	"j\x8e\x80a\x01\x8dU\xb1F\x18\xe9\xbd\xd6\xc2\xe5'" +
+	"ww\x9fA\xcfq\xef\xab'\xc6\x04\xedUq\x06L" +
+	"\xdf\x9e\x7f\xb7\xfd\xf2E\xf1=\xd4\x8cL\xbd\xd3g\xc3" +
+	"\xf5\x87\xe6&\xc0\xc6\xba\xa8\xd3\xde\x14\x16`o\x88\xfb" +
+	"\xf6N6\xa5\x9f>\x1e\xdb\xd8Z\x1bmC\xcfP\xec" +
+	"\xc3Mf\xba_\xc4\"\xed\x9f\x13\xc6\x96\xf8\x0a\xa6\x8f" +
+	".v>\xff\xf8\xfe`\xf7\xc0Yo\xe4\x98\x88\xd2p" +
+	"\xc5\xab\x06\x03\xcf7\x97\xaa\xf1\xf0z\x9cDN\xe2V" +
+	"\xbd\xc8\x09\xbb'\x96\x9c\xb0\x1f\x9e\xbc0\x99;\x83\xbe" +
+	"{\xbc\xedDN\x8f\xf1a9\xa3\xc8O\xfe\x90d/" +
+	"\xd6\x864\x00\x83\x80*\x1e\x05tAR\x97\x05\xad\x15" +
+	"\xf76\xa7 8\x05\xe6\xba\xf2o\xba\x95\x89p\x9b\xd4" +
+	"\x05i\x02y\xa6\xec?\x7f5j\x8c\xaf>V\xb5:" +
+	"\x84\x9a\xb5\xc8\xbc\x09\xeeyW\xff\xcfC\xa8\xa2U\x99" +
+	"\xdc\xd5\xe4t\xe6\xa9\xc96\xf7\x17\x1b\xff4t\xae\xe3" +
+	"\xd1\xcd\x96\x97r+\xce<\xa0\xafH\xea\xae\xa0\"\xcb" +
+	"Y\xb3\xca\xad\x03\xfa\x9a\xa4\x0e\x04\x95\x10e\x0a@\xf9" +
+	"-@w%u\"HY\xa6\x04\xd4\x8d\x0c\x18H\xea" +
+	"[\x82\xd3\x81\xbb\x9c\xb0\x00\xc1\x02X\x89|\xaf\x9b\xbf" +
+	"\xd2p\x10\xfb\x89?\xe8\x03\xc8\x117\x9d`\xe8\xb2\x94" +
+	".\x1b\xad#\x97~\xddy\x0d\x90\xa5\x03\x19\x1e\xa6\xcf" +
+	"E7\x1e\x062\x89\x7f\x07\x00\x00\xff\xffN\xe2\xc9\xb3"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d67,
 		Nodes: []uint64{
-			0xa6c504fd8176eee7,
 			0xacf933d1ea136925,
 			0xaefe7ca74f304a81,
 			0xd00db4bbf2cf46cb,
-			0xdbe88eba4482deb4,
 			0xf27792f1a923d6dc,
 			0xfe88eef4dd644993,
 		},

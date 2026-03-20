@@ -19,6 +19,26 @@ func TestExponentialBackoffNextDelay(t *testing.T) {
 	})
 }
 
+func TestExponentialBackoffMaxDelayCapsBase(t *testing.T) {
+	Convey("Given ExponentialBackoff with MaxDelay", t, func() {
+		eb := &ExponentialBackoff{
+			Initial:  100 * time.Millisecond,
+			MaxDelay: 150 * time.Millisecond,
+		}
+		Convey("Large attempts should cap at MaxDelay", func() {
+			So(eb.NextDelay(5), ShouldEqual, 150*time.Millisecond)
+		})
+	})
+}
+
+func TestExponentialBackoffNonPositiveAttemptClampsExponent(t *testing.T) {
+	Convey("Given ExponentialBackoff", t, func() {
+		eb := &ExponentialBackoff{Initial: 5 * time.Millisecond}
+		So(eb.NextDelay(0), ShouldEqual, 5*time.Millisecond)
+		So(eb.NextDelay(-3), ShouldEqual, 5*time.Millisecond)
+	})
+}
+
 func TestWithCircuitBreaker(t *testing.T) {
 	Convey("WithCircuitBreaker sets job options", t, func() {
 		j := &Job{}
@@ -44,10 +64,12 @@ func TestWithRetry(t *testing.T) {
 }
 
 func BenchmarkExponentialBackoffNextDelay(b *testing.B) {
-	eb := &ExponentialBackoff{Initial: 10 * time.Millisecond}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		eb.NextDelay(i % 10)
+	eb := &ExponentialBackoff{Initial: 10 * time.Millisecond, MaxDelay: time.Second}
+	b.ReportAllocs()
+	var attempt int
+	for b.Loop() {
+		attempt++
+		eb.NextDelay(attempt % 16)
 	}
 }
 

@@ -377,3 +377,22 @@ And never use "hype" or "marketing" language. We are not selling anything, we ar
 ## FINAL NOTE
 
 Please treat this project with respect, it is very important to me, and this is the result of many months of work. Never fake results, never fake data, never fake any aspect of the system. Always double-check your work and report any issues you find.
+
+## Learned User Preferences
+
+- When asked to fix something narrowly (lint, compile error, single call site), restrict edits to that; avoid broad rewrites or re-architecture unless invited.
+- Stay on the task the user is doing now; if they narrow scope, redirect focus, or stop an approach, follow that instead of expanding or reviving sidelined work.
+- Do not discard or replace substantial user-written structure to “save” the session; treat RPC and capability flow as real constraints, not as generic data piping.
+- Services that need remote peers get a cluster router (or equivalent capability routing), not ad-hoc direct client wiring that bypasses the intended RPC path.
+- For streaming transport code, keep fixes small and avoid replacing ring-buffer-oriented concurrency with extra mutexes, runtime/scheduler manipulation, or heavy casting when the existing stream design already carries the thread-safety goals.
+- Uncovered code is assumed broken until proven otherwise; test coverage and benchmarks gate trust in any package before optimization or feature work proceeds.
+
+## Learned Workspace Facts
+
+- End-state direction: pipeline parts composed with `io.ReadWriteCloser` (including in-place mutating middleware that still implements that interface) and stdlib glue (`io.Copy`, `MultiWriter`, `TeeReader`) where practical; `pool.Task` is `io.ReadWriteCloser`, workers drive jobs via `io.Copy`; `readPoolTask` is the adapter for scheduling background `func` work in dmt and kernel.
+- Cluster RPC registration and bootstrap should live in a layer that does not import-cycle with packages that only consume the router; the router closes or tears down what it owns.
+- `transport.Stream` on a bounded ring blocks unless writers and readers overlap for payloads larger than the buffer; finish the producer with `CloseWrite` so reads can drain to `io.EOF`.
+- Benchmarks of hot loops should hoist `make(chan …)` and per-iteration goroutines when the goal is zero allocs per iteration; one long-lived reader driven by a kick channel is the usual pattern.
+- Prefer Cap’n Proto for on-the-wire work; avoid JSON on hot or internal paths.
+- Bitwise ops on `Value` are structural signals (glue, splits); avoid mutating canonical chunk bytes in place—Heal is merge-oriented; RecursiveFold should split on structure from the data, not blind midpoints.
+- Pool dispatcher uses bounded-wait + retry when handing jobs to workers; scaler can cancel workers mid-dispatch, causing deadlocks under coverage instrumentation or high load.

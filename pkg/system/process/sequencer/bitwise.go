@@ -486,32 +486,48 @@ func (bitwise *BitwiseHealer) overlaps(occupied []bool, start, end int) bool {
 }
 
 /*
-decode converts a slice of per-byte BaseValues back to a byte slice.
+coreKey extracts the 257-bit Fermat core as a compact map key.
+*/
+func coreKey(value primitive.Value) [5]uint64 {
+	return [5]uint64{value.C0(), value.C1(), value.C2(), value.C3(), value.C4() & 1}
+}
+
+/*
+baseValueLookup maps each byte's BaseValue core pattern to the byte it
+represents. Built once at init; O(1) decode per value thereafter.
+*/
+var baseValueLookup = func() map[[5]uint64]byte {
+	table := make(map[[5]uint64]byte, 256)
+
+	for symbol := range 256 {
+		table[coreKey(primitive.BaseValue(byte(symbol)))] = byte(symbol)
+	}
+
+	return table
+}()
+
+/*
+decode converts a slice of per-byte BaseValues back to a byte slice via the
+precomputed lookup table.
 */
 func (bitwise *BitwiseHealer) decode(values []primitive.Value) []byte {
 	result := make([]byte, len(values))
 
 	for index, value := range values {
-		for symbol := range 256 {
-			if bitwise.matchBytes(value, primitive.BaseValue(byte(symbol))) {
-				result[index] = byte(symbol)
-				break
-			}
-		}
+		result[index] = baseValueLookup[coreKey(value)]
 	}
 
 	return result
 }
 
 /*
-matchBytes checks if two byte-Values represent the same byte via AND.
+matchBytes checks if two byte-Values represent the same byte by comparing
+their 257-bit Fermat core directly. No allocation, no AND.
 */
 func (bitwise *BitwiseHealer) matchBytes(valA, valB primitive.Value) bool {
-	shared, err := valA.AND(valB)
-	if err != nil {
-		return false
-	}
-
-	return shared.ActiveCount() == valA.ActiveCount() &&
-		shared.ActiveCount() == valB.ActiveCount()
+	return valA.C0() == valB.C0() &&
+		valA.C1() == valB.C1() &&
+		valA.C2() == valB.C2() &&
+		valA.C3() == valB.C3() &&
+		(valA.C4()&1) == (valB.C4()&1)
 }

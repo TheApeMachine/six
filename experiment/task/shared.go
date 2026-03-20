@@ -1,9 +1,6 @@
 package task
 
 import (
-	"slices"
-	"strings"
-
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 )
@@ -23,12 +20,4 @@ var Aphorisms = []string{
 
 func NewLocalProvider(corpus []string) provider.Dataset {
 	return local.New(local.WithStrings(corpus))
-}
-
-func contains(slice []string, val string) bool {
-	return slices.Contains(slice, val)
-}
-
-func slugify(name string) string {
-	return strings.ReplaceAll(strings.ToLower(strings.TrimSpace(name)), " ", "_")
 }

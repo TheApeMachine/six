@@ -7,7 +7,6 @@ import (
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/substrate"
@@ -15,6 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
@@ -87,8 +87,6 @@ func NewMachine(opts ...machineOpts) *Machine {
 		BooterWithBroadcast(machine.broadcastGroup),
 	)
 
-	kernel.StartDiscovery(machine.ctx)
-
 	return machine
 }
 
@@ -131,14 +129,19 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		},
 	})
 
-	promptFuture, promptRelease := machine.booter.prompter.Generate(
+	prompter := errnie.Guard(machine.state, func() (input.Prompter, error) {
+		raw, err := machine.booter.router.Get(ctx, cluster.PROMPTER, "machine")
+		return input.Prompter(raw), err
+	})
+
+	promptFuture, promptRelease := prompter.Generate(
 		ctx, func(p input.Prompter_generate_Params) error {
 			return p.SetMsg(msg)
 		},
 	)
-	defer promptRelease()
 
 	promptResult := errnie.Guard(machine.state, func() (input.Prompter_generate_Results, error) {
+		defer promptRelease()
 		return promptFuture.Struct()
 	})
 
@@ -150,96 +153,70 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return machine.tokenizeStream(promptBytes)
 	})
 
-	if machine.state.Failed() {
-		return nil, machine.state.Err()
-	}
-
-	promptValues, _ := compilePromptSequence(keys)
-
-	if len(promptValues) == 0 {
+	if len(keys) == 0 {
 		return nil, nil
 	}
 
-	if len(promptValues) >= 2 {
-		startValue := promptValues[len(promptValues)-2]
-		endValue := promptValues[len(promptValues)-1]
+	values := make([]primitive.Value, 0, len(keys))
 
+	for _, key := range keys {
+		pos, b := coder.Unpack(key)
+		values = append(
+			values,
+			primitive.SeedObservable(
+				b, primitive.BaseValue(b).RollLeft(int(pos))),
+		)
+	}
+
+	valueList := errnie.Guard(machine.state, func() (primitive.Value_List, error) {
+		return primitive.ValueSliceToList(values)
+	})
+
+	graph := errnie.Guard(machine.state, func() (substrate.Graph, error) {
+		raw, err := machine.booter.router.Get(ctx, cluster.GRAPH, "machine")
+		return substrate.Graph(raw), err
+	})
+
+	_ = valueList
+
+	for _, key := range keys {
 		errnie.GuardVoid(machine.state, func() error {
-			return machine.emitHASResult(ctx, startValue, endValue, "prompt")
+			return graph.Write(ctx, func(p substrate.Graph_write_Params) error {
+				p.SetKey(key)
+				return nil
+			})
 		})
 	}
 
-	paths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
-		return valueMatrixToPointerList(
-			capnp.SingleSegment(nil),
-			[][]primitive.Value{promptValues},
-		)
+	errnie.GuardVoid(machine.state, func() error {
+		future, release := graph.Done(ctx, nil)
+		defer release()
+		_, err := future.Struct()
+		return err
 	})
 
-	metaPaths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
-		return valueMatrixToPointerList(
-			capnp.SingleSegment(nil),
-			[][]primitive.Value{promptValues},
-		)
-	})
+	out := make([]byte, 0, len(values))
 
-	graphFuture, graphRelease := machine.booter.graph.Prompt(ctx, func(
-		p substrate.Graph_prompt_Params,
-	) error {
-		if err := p.SetPaths(paths); err != nil {
-			return err
+	for _, value := range values {
+		symbol, ok := primitive.InferLexicalSeed(value)
+		if !ok {
+			continue
 		}
 
-		return p.SetMetaPaths(metaPaths)
-	})
-
-	defer graphRelease()
-
-	graphResult := errnie.Guard(machine.state, func() (substrate.Graph_prompt_Results, error) {
-		return graphFuture.Struct()
-	})
-
-	resultPaths := errnie.Guard(machine.state, func() (capnp.PointerList, error) {
-		return graphResult.Result()
-	})
-
-	machine.sink.Emit(telemetry.Event{
-		Component: "SpatialIndex",
-		Action:    "Lookup",
-		Data: telemetry.EventData{
-			PathCount: resultPaths.Len(),
-			Message:   msg,
-		},
-	})
-
-	result := errnie.Guard(machine.state, func() ([]byte, error) {
-		return decodeResultPaths(resultPaths, len(promptValues))
-	})
-
-	if machine.state.Failed() {
-		return nil, machine.state.Err()
-	}
-
-	fmt.Printf("DEBUG: msg=%q, promptBytes=%q, keys=%d, promptValues=%d, resultPathsLen=%d, result=%q\n",
-		msg, string(promptBytes), len(keys), len(promptValues), resultPaths.Len(), string(result))
-
-	stage := "prompt-empty"
-
-	if len(result) > 0 {
-		stage = "prompt-complete"
+		out = append(out, symbol)
 	}
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Machine",
 		Action:    "Pipeline",
 		Data: telemetry.EventData{
-			Stage:      stage,
+			Stage:      "prompt-complete",
 			Message:    msg,
-			ResultText: string(result),
+			ResultText: string(out),
 		},
 	})
 
-	return result, nil
+	return out, nil
 }
 
 /*
@@ -252,9 +229,14 @@ the Graph AST.
 func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	ctx := machine.ctx
 
+	tokClient := errnie.Guard(machine.state, func() (tokenizer.Universal, error) {
+		raw, err := machine.booter.router.Get(ctx, cluster.TOKENIZER, "machine")
+		return tokenizer.Universal(raw), err
+	})
+
 	for tok := range dataset.Generate() {
 		errnie.GuardVoid(machine.state, func() error {
-			return machine.booter.tok.Write(
+			return tokClient.Write(
 				ctx, func(p tokenizer.Universal_write_Params) error {
 					p.SetData(tok.Symbol)
 					return nil
@@ -284,9 +266,15 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	machine.writeKeys(ctx, keys)
 
 	errnie.GuardVoid(machine.state, func() error {
-		future, release := machine.booter.graph.Done(ctx, nil)
+		raw, err := machine.booter.router.Get(ctx, cluster.GRAPH, "machine")
+
+		if err != nil {
+			return err
+		}
+
+		future, release := substrate.Graph(raw).Done(ctx, nil)
 		defer release()
-		_, err := future.Struct()
+		_, err = future.Struct()
 		return err
 	})
 
@@ -298,7 +286,7 @@ ingestHASBoundaries feeds adjacent value boundaries to HAS so ingestion-time
 tool synthesis is wired into the runtime pipeline.
 */
 func (machine *Machine) ingestHASBoundaries(ctx context.Context, values []primitive.Value) {
-	if machine.booter == nil || !machine.booter.has.IsValid() || len(values) < 2 {
+	if machine.booter == nil || machine.booter.router == nil || len(values) < 2 {
 		return
 	}
 
@@ -326,11 +314,15 @@ func (machine *Machine) emitHASResult(
 	endValue primitive.Value,
 	source string,
 ) error {
-	if machine.booter == nil || !machine.booter.has.IsValid() {
-		return nil
+	raw, err := machine.booter.router.Get(ctx, cluster.HAS, "machine")
+
+	if err != nil {
+		return err
 	}
 
-	if err := machine.booter.has.Write(ctx, func(params synthesis.HAS_write_Params) error {
+	has := synthesis.HAS(raw)
+
+	if err := has.Write(ctx, func(params synthesis.HAS_write_Params) error {
 		if err := params.SetStart(startValue); err != nil {
 			return err
 		}
@@ -340,10 +332,11 @@ func (machine *Machine) emitHASResult(
 		return err
 	}
 
-	doneFuture, release := machine.booter.has.Done(ctx, nil)
+	doneFuture, release := has.Done(ctx, nil)
 	defer release()
 
 	doneResult, err := doneFuture.Struct()
+
 	if err != nil {
 		return err
 	}
@@ -376,9 +369,14 @@ func (machine *Machine) tokenizeStream(raw []byte) ([]uint64, error) {
 	ctx := machine.ctx
 	keys := make([]uint64, 0, len(raw))
 
+	tokClient := errnie.Guard(machine.state, func() (tokenizer.Universal, error) {
+		raw, err := machine.booter.router.Get(ctx, cluster.TOKENIZER, "machine")
+		return tokenizer.Universal(raw), err
+	})
+
 	for _, symbol := range raw {
 		errnie.GuardVoid(machine.state, func() error {
-			return machine.booter.tok.Write(
+			return tokClient.Write(
 				ctx, func(p tokenizer.Universal_write_Params) error {
 					p.SetData(symbol)
 					return nil
@@ -409,10 +407,15 @@ tokenizerDone flushes the tokenizer stream and returns any remaining Morton keys
 in its buffer. Called at the end of tokenizeStream before returning.
 */
 func (machine *Machine) tokenizerDone() ([]uint64, error) {
-	future, release := machine.booter.tok.Done(machine.ctx, nil)
-	defer release()
+	tokClient := errnie.Guard(machine.state, func() (tokenizer.Universal, error) {
+		raw, err := machine.booter.router.Get(machine.ctx, cluster.TOKENIZER, "machine")
+		return tokenizer.Universal(raw), err
+	})
+
+	future, release := tokClient.Done(machine.ctx, nil)
 
 	results := errnie.Guard(machine.state, func() (tokenizer.Universal_done_Results, error) {
+		defer release()
 		return future.Struct()
 	})
 
@@ -437,9 +440,19 @@ func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
 	var previousSymbol byte
 	havePrevious := false
 
+	forest := errnie.Guard(machine.state, func() (server.Server, error) {
+		raw, err := machine.booter.router.Get(ctx, cluster.FOREST, "machine")
+		return server.Server(raw), err
+	})
+
+	graph := errnie.Guard(machine.state, func() (substrate.Graph, error) {
+		raw, err := machine.booter.router.Get(ctx, cluster.GRAPH, "machine")
+		return substrate.Graph(raw), err
+	})
+
 	for _, key := range keys {
 		errnie.GuardVoid(machine.state, func() error {
-			return machine.booter.forestClient.Write(
+			return forest.Write(
 				ctx, func(p server.Server_write_Params) error {
 					p.SetKey(key)
 					return nil
@@ -448,7 +461,7 @@ func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
 		})
 
 		errnie.GuardVoid(machine.state, func() error {
-			return machine.booter.graph.Write(
+			return graph.Write(
 				ctx, func(p substrate.Graph_write_Params) error {
 					p.SetKey(key)
 					return nil

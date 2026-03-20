@@ -14,3 +14,14 @@ struct Value {
   c6 @6 :UInt64;
   c7 @7 :UInt64;
 }
+
+interface Service {
+  read  @0 (callback :Callback) -> ();
+  write @1 (value :Value) -> stream;
+  close @2 ();
+
+  interface Callback {
+    send @0 () -> stream;
+    done @1 ();
+  }
+}

@@ -207,3 +207,40 @@ func TestResourceGovernorUpdateResourceUsage(t *testing.T) {
 		})
 	})
 }
+
+func BenchmarkResourceGovernorObserve(b *testing.B) {
+	governor := NewResourceGovernorRegulator(0.8, 0.9, 0)
+	metrics := &Metrics{ResourceUtilization: 0.55}
+	b.ReportAllocs()
+	for b.Loop() {
+		governor.Observe(metrics)
+	}
+}
+
+func BenchmarkResourceGovernorLimit(b *testing.B) {
+	governor := NewResourceGovernorRegulator(0.8, 0.9, time.Hour)
+	governor.Observe(&Metrics{ResourceUtilization: 0.75})
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = governor.Limit()
+	}
+}
+
+func BenchmarkResourceGovernorRenormalize(b *testing.B) {
+	governor := NewResourceGovernorRegulator(0.8, 0.9, 0)
+	governor.Observe(&Metrics{ResourceUtilization: 0.45})
+	b.ReportAllocs()
+	for b.Loop() {
+		governor.Renormalize()
+	}
+}
+
+func BenchmarkResourceGovernorGetters(b *testing.B) {
+	governor := NewResourceGovernorRegulator(0.8, 0.9, time.Second)
+	governor.Observe(&Metrics{ResourceUtilization: 0.35})
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = governor.GetResourceUsage()
+		_, _ = governor.GetThresholds()
+	}
+}

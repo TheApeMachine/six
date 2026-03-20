@@ -1,61 +1,54 @@
 package kernel
 
 import (
+	"bytes"
+	"io"
 	"testing"
-	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
-func TestNewBuilder_DefaultFallbackDoesNotPanicOnCPUHost(t *testing.T) {
-	Convey("Given the default kernel builder on a CPU/default host", t, func() {
+func TestNewBuilder_DefaultDoesNotPanic(t *testing.T) {
+	Convey("Given the default kernel builder with no backends", t, func() {
 		builder := NewBuilder()
-		nodes := []geometry.GFRotation{
-			{CoordU: 1, CoordV: 2},
-			{CoordU: 8, CoordV: 13},
-			{CoordU: 21, CoordV: 34},
-		}
-		target := geometry.GFRotation{CoordU: 8, CoordV: 13}
 
-		Convey("When resolving nodes", func() {
-			packed, err := builder.Resolve(
-				unsafe.Pointer(&nodes[0]),
-				len(nodes),
-				unsafe.Pointer(&target),
-			)
-			
-			Convey("It returns the correct best index and distance", func() {
-				bestIdx, distSq := DecodePacked(packed)
-
-				So(err, ShouldBeNil)
-				So(builder.Available(), ShouldBeTrue)
-				So(bestIdx, ShouldEqual, 1)
-				So(distSq, ShouldEqual, 0)
-			})
+		Convey("It should not panic on io operations", func() {
+			buf := make([]byte, 32)
+			n, err := builder.Read(buf)
+			So(n, ShouldEqual, 0)
+			So(err, ShouldEqual, io.EOF)
 		})
 	})
 }
 
-var sinkIdx int
-var sinkDistSq float64
+func TestNewBuilder_CPUFallback(t *testing.T) {
+	Convey("Given a builder with a CPU backend", t, func() {
+		backend := &bytes.Buffer{}
+		builder := &Builder{
+			backends: []Backend{&bufBackend{buf: backend}},
+		}
 
-func BenchmarkNewBuilder_Resolve(b *testing.B) {
-	builder := NewBuilder()
-	nodes := []geometry.GFRotation{
-		{CoordU: 1, CoordV: 2},
-		{CoordU: 8, CoordV: 13},
-		{CoordU: 21, CoordV: 34},
-	}
-	target := geometry.GFRotation{CoordU: 8, CoordV: 13}
+		Convey("It should round-trip data", func() {
+			payload := []byte("test data")
 
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		packed, _ := builder.Resolve(
-			unsafe.Pointer(&nodes[0]),
-			len(nodes),
-			unsafe.Pointer(&target),
-		)
-		sinkIdx, sinkDistSq = DecodePacked(packed)
-	}
+			n, err := builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+
+			out := make([]byte, len(payload))
+			n, err = builder.Read(out)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(bytes.Equal(out, payload), ShouldBeTrue)
+		})
+	})
 }
+
+type bufBackend struct {
+	buf *bytes.Buffer
+}
+
+func (b *bufBackend) Available() (int, error)     { return 1, nil }
+func (b *bufBackend) Read(p []byte) (int, error)  { return b.buf.Read(p) }
+func (b *bufBackend) Write(p []byte) (int, error) { return b.buf.Write(p) }
+func (b *bufBackend) Close() error                { b.buf.Reset(); return nil }

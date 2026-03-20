@@ -130,7 +130,8 @@ func (forest *Forest) schedule(
 ) {
 	forest.pool.Schedule(
 		"dmt/forest/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: forest.ctx, fn: fn},
 		pool.WithContext(forest.ctx),
 	)
 }
@@ -141,7 +142,8 @@ func (forest *Forest) scheduleLoop(
 ) {
 	forest.loops.Schedule(
 		"dmt/forest/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: forest.ctx, fn: fn, loop: true},
 		pool.WithContext(forest.ctx),
 		pool.WithTTL(time.Second),
 	)
@@ -168,8 +170,24 @@ func (forest *Forest) syncLoop() {
 }
 
 /*
+initTreeMerkle lazy-initializes a Tree's Merkle companion by scanning all
+current leaves. Subsequent inserts keep it incrementally up-to-date via the
+Tree.Insert hook.
+*/
+func (forest *Forest) initTreeMerkle(tree *Tree) {
+	tree.merkle = NewMerkleTree()
+
+	it := tree.root.Root().Iterator()
+	for key, value, ok := it.Next(); ok; key, value, ok = it.Next() {
+		tree.merkle.Insert(key, value)
+	}
+}
+
+/*
 synchronizeTrees ensures all trees have consistent data by comparing and
-updating them based on the most up-to-date tree.
+updating them based on the most up-to-date tree. Merkle trees are kept
+per-Tree and rebuilt only when the tree has been modified, avoiding a full
+leaf scan on every sync cycle.
 */
 func (forest *Forest) synchronizeTrees() {
 	forest.mu.Lock()
@@ -179,29 +197,23 @@ func (forest *Forest) synchronizeTrees() {
 		return
 	}
 
-	// Use the first tree as reference
 	reference := forest.trees[0]
 
-	// Build Merkle tree for reference
-	refMerkle := NewMerkleTree()
-	it := reference.root.Root().Iterator()
-	for key, value, ok := it.Next(); ok; key, value, ok = it.Next() {
-		refMerkle.Insert(key, value)
+	if reference.merkle == nil {
+		forest.initTreeMerkle(reference)
 	}
-	refMerkle.Rebuild()
 
-	// Sync other trees using Merkle diffs
+	reference.merkle.Rebuild()
+
 	for _, tree := range forest.trees[1:] {
-		// Build Merkle tree for target
-		targetMerkle := NewMerkleTree()
-		it := tree.root.Root().Iterator()
-		for key, value, ok := it.Next(); ok; key, value, ok = it.Next() {
-			targetMerkle.Insert(key, value)
+		if tree.merkle == nil {
+			forest.initTreeMerkle(tree)
 		}
-		targetMerkle.Rebuild()
 
-		// Get diff and apply changes
-		diffs := refMerkle.GetDiff(targetMerkle)
+		tree.merkle.Rebuild()
+
+		diffs := reference.merkle.GetDiff(tree.merkle)
+
 		for _, diff := range diffs {
 			tree.Insert(diff.Key, diff.Value)
 		}
@@ -283,20 +295,21 @@ func (forest *Forest) Seek(key []byte) ([]byte, bool) {
 Insert adds or updates a key-value pair across all trees in the forest.
 To maintain data consistency, the operation is performed on every tree,
 ensuring that subsequent read operations will find the same data regardless
-of which tree they query. This method prioritizes consistency over performance.
+of which tree they query. The lock is released before network broadcast so
+reads are not blocked during I/O.
 */
 func (forest *Forest) Insert(key []byte, value []byte) {
 	forest.mu.Lock()
-	defer forest.mu.Unlock()
 
-	// Update all local trees immediately
 	for _, tree := range forest.trees {
 		tree.Insert(key, value)
 	}
 
-	// Broadcast to other nodes if networked
-	if forest.network != nil {
-		forest.network.BroadcastInsert(key, value)
+	network := forest.network
+	forest.mu.Unlock()
+
+	if network != nil {
+		network.BroadcastInsert(key, value)
 	}
 }
 

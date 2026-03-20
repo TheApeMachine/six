@@ -370,9 +370,13 @@ func (n *NetworkNode) Insert(ctx context.Context, call RadixRPC_insert) error {
 	term := args.Term()
 	index := args.LogIndex()
 
-	// Validate term/index
-	if term < n.election.getCurrentTerm() {
+	if term != 0 && term < n.election.getCurrentTerm() {
 		return fmt.Errorf("stale term")
+	}
+
+	if term == 0 {
+		term = n.election.getCurrentTerm()
+		index = n.election.getLastLogIndex() + 1
 	}
 
 	// Update local state with log tracking
@@ -548,6 +552,18 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 }
 
 /*
+ListenAddr returns the resolved listen address including the actual port
+assigned by the OS (useful when configured with port 0).
+*/
+func (n *NetworkNode) ListenAddr() string {
+	if n.listener == nil {
+		return ""
+	}
+
+	return n.listener.Addr().String()
+}
+
+/*
 Close shuts down the network node.
 It properly closes all peer connections and releases resources.
 */
@@ -643,7 +659,8 @@ func (n *NetworkNode) schedule(
 ) {
 	n.forest.pool.Schedule(
 		"dmt/network/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: n.ctx, fn: fn},
 		pool.WithContext(n.ctx),
 	)
 }
@@ -654,7 +671,8 @@ func (n *NetworkNode) scheduleLoop(
 ) {
 	n.forest.loops.Schedule(
 		"dmt/network/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: n.ctx, fn: fn, loop: true},
 		pool.WithContext(n.ctx),
 		pool.WithTTL(time.Second),
 	)

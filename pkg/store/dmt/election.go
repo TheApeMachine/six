@@ -444,7 +444,8 @@ func (e *Election) schedule(
 ) {
 	e.node.forest.pool.Schedule(
 		"dmt/election/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: e.node.ctx, fn: fn},
 		pool.WithContext(e.node.ctx),
 	)
 }
@@ -455,7 +456,8 @@ func (e *Election) scheduleLoop(
 ) {
 	e.node.forest.loops.Schedule(
 		"dmt/election/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: e.node.ctx, fn: fn, loop: true},
 		pool.WithContext(e.node.ctx),
 		pool.WithTTL(time.Second),
 	)

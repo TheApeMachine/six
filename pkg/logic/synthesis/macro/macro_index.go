@@ -204,9 +204,58 @@ func (server *MacroIndexServer) Close() error {
 }
 
 /*
-Prompt implements MacroIndex_Server.
+Write implements MacroIndex_Server. It receives a (start, end) Value pair and
+records an opcode candidate for the geometric gap between the two boundaries.
 */
-func (server *MacroIndexServer) Prompt(ctx context.Context, call MacroIndex_prompt) error {
+func (server *MacroIndexServer) Write(ctx context.Context, call MacroIndex_write) error {
+	args := call.Args()
+
+	start, err := args.Start()
+	if err != nil {
+		return err
+	}
+
+	end, err := args.End()
+	if err != nil {
+		return err
+	}
+
+	key := AffineKeyFromValues(start, end)
+	server.RecordOpcode(key)
+
+	return nil
+}
+
+/*
+Done implements MacroIndex_Server. It finalizes the streaming session and
+returns summary statistics for the most recently recorded opcode.
+*/
+func (server *MacroIndexServer) Done(ctx context.Context, call MacroIndex_done) error {
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	var bestKey AffineKey
+	var bestUse uint64
+
+	for key, opcode := range server.opcodes {
+		if opcode.UseCount > bestUse {
+			bestKey = key
+			bestUse = opcode.UseCount
+		}
+	}
+
+	if bestUse > 0 {
+		opcode := server.opcodes[bestKey]
+		_ = res.SetKeyText(bestKey.String())
+		res.SetUseCount(opcode.UseCount)
+		res.SetHardened(opcode.Hardened)
+	}
+
 	return nil
 }
 

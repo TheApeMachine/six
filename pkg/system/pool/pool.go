@@ -3,12 +3,18 @@ package pool
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"github.com/charmbracelet/log"
 )
+
+var defaultScheduleRetryStrategy RetryStrategy = &ExponentialBackoff{
+	Initial: time.Second,
+}
 
 /*
 Pool is a dynamically-scaling worker pool with circuit breakers,
@@ -87,7 +93,13 @@ func (p *Pool) manage() {
 		<-retryTimer.C
 	}
 
+	dispatchTimer := time.NewTimer(100 * time.Millisecond)
+	if !dispatchTimer.Stop() {
+		<-dispatchTimer.C
+	}
+
 	defer retryTimer.Stop()
+	defer dispatchTimer.Stop()
 
 	for {
 		select {
@@ -118,9 +130,34 @@ func (p *Pool) manage() {
 				case <-p.ctx.Done():
 					return
 				case workerChan := <-p.workers:
+					/*
+						A worker can publish its job channel to p.workers and then exit
+						(scale-down cancel) before it reaches the receive on that channel.
+						An unbuffered send would block forever and stall the whole pool.
+					*/
+					if !dispatchTimer.Stop() {
+						select {
+						case <-dispatchTimer.C:
+						default:
+						}
+					}
+
+					dispatchTimer.Reset(100 * time.Millisecond)
+
 					select {
 					case workerChan <- job:
+						if !dispatchTimer.Stop() {
+							select {
+							case <-dispatchTimer.C:
+							default:
+							}
+						}
+
 						dispatched = true
+					case <-dispatchTimer.C:
+						if p.scaler != nil {
+							p.scaler.ScaleUpIfNeeded(1)
+						}
 					case <-p.ctx.Done():
 						return
 					}
@@ -136,11 +173,6 @@ func (p *Pool) manage() {
 				if job.OnDrop != nil {
 					job.OnDrop(err)
 				}
-				p.store.deliver(job.ResultID, &Result{
-					Error:     err,
-					TTL:       job.TTL,
-					CreatedAt: time.Now(),
-				})
 				p.store.StoreError(job.ID, err, job.TTL)
 			}
 		}
@@ -168,24 +200,47 @@ func (p *Pool) collectMetrics() {
 }
 
 /*
-Schedule submits a job and returns a channel that will receive the result.
+Schedule submits a task-oriented job to the worker queue.
 */
-func (p *Pool) Schedule(id string, fn func(ctx context.Context) (any, error), opts ...JobOption) chan *Result {
-	ctx, cancel := context.WithTimeout(p.ctx, p.getSchedulingTimeout())
-	defer cancel()
-
+func (p *Pool) Schedule(
+	id string,
+	taskType TaskType,
+	task Task,
+	opts ...JobOption,
+) error {
 	job := Job{
-		ID: id,
-		Fn: fn,
+		ID:       id,
+		TaskType: taskType,
+		Task:     task,
 		RetryPolicy: &RetryPolicy{
 			MaxAttempts: 3,
-			Strategy:    &ExponentialBackoff{Initial: time.Second},
+			Strategy:    defaultScheduleRetryStrategy,
 		},
+		Ctx:       p.ctx,
 		StartTime: time.Now(),
 	}
 
 	for _, opt := range opts {
 		opt(&job)
+	}
+
+	if job.Task == nil {
+		return fmt.Errorf("job task is nil")
+	}
+
+	if job.StartTime.IsZero() {
+		job.StartTime = time.Now()
+	}
+
+	if job.RetryPolicy == nil {
+		job.RetryPolicy = &RetryPolicy{
+			MaxAttempts: 3,
+			Strategy:    defaultScheduleRetryStrategy,
+		}
+	}
+
+	if job.Ctx == nil {
+		job.Ctx = p.ctx
 	}
 
 	if job.CircuitID != "" {
@@ -195,42 +250,93 @@ func (p *Pool) Schedule(id string, fn func(ctx context.Context) (any, error), op
 			if job.OnDrop != nil {
 				job.OnDrop(err)
 			}
-			ch := make(chan *Result, 1)
-			ch <- &Result{
-				Error:     err,
-				CreatedAt: time.Now(),
-			}
-			close(ch)
-			return ch
+			return err
 		}
 	}
 
-	job.ResultID = fmt.Sprintf("%s/%d", job.ID, p.jobSeq.Add(1))
-	resultCh := p.store.prepare(job.ResultID)
+	job.ResultID = p.nextResultID(job.ID)
 
 	select {
-	case p.jobs <- job:
-		return resultCh
-	case <-ctx.Done():
-		p.store.cancelAwait(job.ResultID, resultCh)
-		err := fmt.Errorf("job scheduling timeout: %w", ctx.Err())
+	case <-p.ctx.Done():
+		err := fmt.Errorf("job scheduling timeout: %w", p.ctx.Err())
+
 		if job.OnDrop != nil {
 			job.OnDrop(err)
 		}
 
-		ch := make(chan *Result, 1)
-		ch <- &Result{
-			Error:     err,
-			CreatedAt: time.Now(),
+		p.metrics.mu.Lock()
+		p.metrics.SchedulingFailures++
+		p.metrics.mu.Unlock()
+		return err
+	default:
+	}
+
+	select {
+	case p.jobs <- job:
+		return nil
+	default:
+	}
+
+	scheduleTimeout := p.getSchedulingTimeout()
+	scheduleTimer := time.NewTimer(scheduleTimeout)
+	defer scheduleTimer.Stop()
+
+	select {
+	case p.jobs <- job:
+		return nil
+	case <-scheduleTimer.C:
+		err := fmt.Errorf("job scheduling timeout: %w", context.DeadlineExceeded)
+		if job.OnDrop != nil {
+			job.OnDrop(err)
 		}
-		close(ch)
 
 		p.metrics.mu.Lock()
 		p.metrics.SchedulingFailures++
 		p.metrics.mu.Unlock()
+		return err
+	case <-p.ctx.Done():
+		err := fmt.Errorf("job scheduling timeout: %w", p.ctx.Err())
 
-		return ch
+		if job.OnDrop != nil {
+			job.OnDrop(err)
+		}
+
+		p.metrics.mu.Lock()
+		p.metrics.SchedulingFailures++
+		p.metrics.mu.Unlock()
+		return err
 	}
+}
+
+/*
+nextResultID constructs a stable result key from job ID and sequence number.
+*/
+func (p *Pool) nextResultID(jobID string) string {
+	sequence := p.jobSeq.Add(1)
+	var sequenceBuffer [20]byte
+	sequenceBytes := strconv.AppendUint(sequenceBuffer[:0], sequence, 10)
+
+	var idBuilder strings.Builder
+	idBuilder.Grow(len(jobID) + 1 + len(sequenceBytes))
+	idBuilder.WriteString(jobID)
+	idBuilder.WriteByte('/')
+	idBuilder.Write(sequenceBytes)
+
+	return idBuilder.String()
+}
+
+/*
+Read forwards stream reads to the internal ResultStore shell.
+*/
+func (p *Pool) Read(buf []byte) (n int, err error) {
+	return p.store.Read(buf)
+}
+
+/*
+Write forwards stream writes to the internal ResultStore shell.
+*/
+func (p *Pool) Write(buf []byte) (n int, err error) {
+	return p.store.Write(buf)
 }
 
 /*
@@ -245,6 +351,17 @@ Subscribe returns a channel receiving results from a broadcast group.
 */
 func (p *Pool) Subscribe(groupID string) chan *Result {
 	return p.store.Subscribe(groupID)
+}
+
+/*
+StoredResult returns a completed job result from the store.
+*/
+func (p *Pool) StoredResult(id string) (*Result, bool) {
+	if p == nil || p.store == nil {
+		return nil, false
+	}
+
+	return p.store.Result(id)
 }
 
 /*
@@ -319,9 +436,9 @@ func (p *Pool) getSchedulingTimeout() time.Duration {
 /*
 Close gracefully shuts down the pool, draining in-flight jobs.
 */
-func (p *Pool) Close() {
+func (p *Pool) Close() error {
 	if p == nil {
-		return
+		return nil
 	}
 
 	p.cancel()
@@ -338,5 +455,5 @@ func (p *Pool) Close() {
 	close(p.jobs)
 	close(p.workers)
 
-	p.store.Close()
+	return p.store.Close()
 }

@@ -6,14 +6,17 @@ import (
 	"time"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/logic/substrate"
+	"github.com/theapemachine/six/pkg/logic/synthesis"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
 
 /*
-TestBooterWiresSharedMacroIndex verifies that Graph and Cantilever share one
-macro registry instance when Booter boots the runtime.
+TestBooterRegistersCapabilities verifies that every expected capability
+is resolvable through the router after boot.
 */
-func TestBooterWiresSharedMacroIndex(t *testing.T) {
+func TestBooterRegistersCapabilities(t *testing.T) {
 	gc.Convey("Given a Booter with runtime dependencies", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -31,11 +34,14 @@ func TestBooterWiresSharedMacroIndex(t *testing.T) {
 		)
 		defer booter.Close()
 
-		gc.Convey("Then Graph should receive the same shared macro index", func() {
-			gc.So(booter.sharedIndex, gc.ShouldNotBeNil)
-			gc.So(booter.graphServer, gc.ShouldNotBeNil)
-			gc.So(booter.graphServer.MacroIndex(), gc.ShouldEqual, booter.sharedIndex)
-			gc.So(booter.has.IsValid(), gc.ShouldBeTrue)
+		gc.Convey("It should resolve all registered capabilities via the router", func() {
+			raw, err := booter.router.Get(ctx, cluster.GRAPH, "test")
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(substrate.Graph(raw).IsValid(), gc.ShouldBeTrue)
+
+			raw, err = booter.router.Get(ctx, cluster.HAS, "test")
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(synthesis.HAS(raw).IsValid(), gc.ShouldBeTrue)
 		})
 	})
 }

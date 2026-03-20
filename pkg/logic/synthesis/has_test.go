@@ -179,7 +179,7 @@ func TestHASWriteDone(t *testing.T) {
 		defer index.Close()
 		defer server.Close()
 
-		client := server.Client("logic/synthesis/has_test")
+		client := HAS(server.Client("logic/synthesis/has_test"))
 		start := primitive.BaseValue('S')
 		end := primitive.BaseValue('E')
 
@@ -378,7 +378,7 @@ func BenchmarkHASWriteDone(b *testing.B) {
 	defer index.Close()
 	defer server.Close()
 
-	client := server.Client("logic/synthesis/has_benchmark")
+	client := HAS(server.Client("logic/synthesis/has_benchmark"))
 	start := primitive.BaseValue('S')
 	end := primitive.BaseValue('E')
 
@@ -429,11 +429,9 @@ func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
 
 		program := lang.NewProgramServer(
 			lang.ProgramServerWithContext(context.Background()),
-			lang.ProgramServerWithMacroIndex(index),
 			lang.ProgramServerWithMaxSteps(1),
 		)
-		defer program.Close()
-		server.program = program
+		defer program.Close(context.Background(), primitive.Service_close{})
 
 		coder := data.NewMortonCoder()
 		promptSymbol := byte('E')
@@ -448,7 +446,7 @@ func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
 		forest.Insert(promptKey, []byte{1})
 		forest.Insert(nextKey, []byte{1})
 
-		client := server.Client("logic/synthesis/has_test/program-error-propagation")
+		client := HAS(server.Client("logic/synthesis/has_test/program-error-propagation"))
 		start := primitive.BaseValue('S')
 		end := primitive.BaseValue(promptSymbol)
 

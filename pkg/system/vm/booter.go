@@ -2,14 +2,15 @@ package vm
 
 import (
 	"context"
-	"io"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis"
-	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-	"github.com/theapemachine/six/pkg/store/dmt/server"
+	dmtserver "github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/cluster"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/system/vm/input"
@@ -22,20 +23,20 @@ to the Machine. It is the only place where server packages are imported;
 the Machine never touches a server directly — it only calls clients.
 */
 type Booter struct {
-	state        *errnie.State
-	ctx          context.Context
-	cancel       context.CancelFunc
-	pool         *pool.Pool
-	broadcast    *pool.BroadcastGroup
-	prompter     input.Prompter
-	tok          tokenizer.Universal
-	forestClient server.Server
-	graph        substrate.Graph
-	graphServer  *substrate.GraphServer
-	cantilever   bvp.Cantilever
-	has          synthesis.HAS
-	sharedIndex  *macro.MacroIndexServer
-	closers      []io.Closer
+	state     *errnie.State
+	ctx       context.Context
+	cancel    context.CancelFunc
+	pool      *pool.Pool
+	broadcast *pool.BroadcastGroup
+	router    *cluster.Router
+
+	forest      *dmtserver.ForestServer
+	tokenizer   *tokenizer.UniversalServer
+	graph       *substrate.GraphServer
+	macroIdx    *macro.MacroIndexServer
+	hasSrv      *synthesis.HASServer
+	prompter    *input.PrompterServer
+	distributed *kernel.DistributedBackend
 }
 
 type booterOpts func(*Booter)
@@ -61,75 +62,104 @@ func NewBooter(opts ...booterOpts) *Booter {
 		})
 	})
 
-	promptServer := input.NewPrompterServer(
-		input.PrompterWithContext(booter.ctx),
-	)
-	booter.prompter = promptServer.Client("booter")
+	booter.router = cluster.NewRouter(cluster.RouterWithContext(booter.ctx))
 
-	/*
-		ForestServer acts as the primary topological memory substrate.
-		It is initialized early so that higher-level services like the
-		Tokenizer can use it for sequence persistence.
-	*/
-	forestServer := server.NewForestServer(
-		server.WithContext(booter.ctx),
-		server.WithWorkerPool(booter.pool),
+	booter.forest = dmtserver.NewForestServer(
+		dmtserver.WithContext(booter.ctx),
+		dmtserver.WithWorkerPool(booter.pool),
 	)
-	booter.forestClient = forestServer.Client("booter")
 
-	tokServer := tokenizer.NewUniversalServer(
+	booter.tokenizer = tokenizer.NewUniversalServer(
 		tokenizer.UniversalWithContext(booter.ctx),
 		tokenizer.UniversalWithPool(booter.pool),
 	)
-	booter.tok = tokServer.Client("booter")
 
-	sharedIndex := macro.NewMacroIndexServer(
-		macro.MacroIndexWithContext(booter.ctx),
-	)
-	booter.sharedIndex = sharedIndex
-
-	graphServer := substrate.NewGraphServer(
+	booter.graph = substrate.NewGraphServer(
 		substrate.GraphWithContext(booter.ctx),
 		substrate.GraphWithWorkerPool(booter.pool),
-		substrate.GraphWithMacroIndex(sharedIndex),
+		substrate.GraphWithRouter(booter.router),
 	)
-	booter.graphServer = graphServer
-	booter.graph = graphServer.Client("booter")
 
-	cantileverServer := bvp.NewCantileverServer(
-		bvp.CantileverWithContext(booter.ctx),
-		bvp.WithMacroIndex(sharedIndex),
+	booter.macroIdx = macro.NewMacroIndexServer(
+		macro.MacroIndexWithContext(booter.ctx),
 	)
-	booter.cantilever = cantileverServer.Client("booter")
 
-	hasServer := synthesis.NewHASServer(
+	booter.hasSrv = synthesis.NewHASServer(
 		synthesis.HASWithContext(booter.ctx),
-		synthesis.HASWithMacroIndex(sharedIndex),
-		synthesis.HASWithForest(forestServer.Forest()),
+		synthesis.HASWithRouter(booter.router),
+		synthesis.HASWithForest(booter.forest.Forest()),
+		synthesis.HASWithMacroIndex(booter.macroIdx),
 	)
-	booter.has = hasServer.Client("booter")
 
-	booter.closers = []io.Closer{
-		hasServer,
-		cantileverServer,
-		sharedIndex,
-		graphServer,
-		tokServer,
-		forestServer,
-		promptServer,
-	}
+	booter.prompter = input.NewPrompterServer(
+		input.PrompterWithContext(booter.ctx),
+	)
+
+	booter.router.Register(cluster.FOREST, booter.forest)
+	booter.router.Register(cluster.TOKENIZER, booter.tokenizer)
+	booter.router.Register(cluster.GRAPH, booter.graph)
+	booter.router.Register(cluster.HAS, booter.hasSrv)
+	booter.router.Register(cluster.PROMPTER, booter.prompter)
+
+	booter.distributed = errnie.Guard(booter.state, func() (*kernel.DistributedBackend, error) {
+		return kernel.StartDistributed(
+			booter.ctx,
+			booter.router,
+			config.System.Workers,
+		)
+	})
+
+	errnie.GuardVoid(booter.state, func() error {
+		return validate.Require(map[string]any{
+			"router": booter.router,
+		})
+	})
 
 	return booter
 }
 
 /*
-Close cancels the context and closes pipe-based RPC servers.
+Close releases all router-managed RPC clients and cancels the context.
 */
 func (booter *Booter) Close() {
-	booter.cancel()
+	if booter == nil {
+		return
+	}
 
-	for _, closer := range booter.closers {
-		closer.Close()
+	if booter.distributed != nil {
+		_ = booter.distributed.Close()
+	}
+
+	if booter.prompter != nil {
+		_ = booter.prompter.Close()
+	}
+
+	if booter.hasSrv != nil {
+		_ = booter.hasSrv.Close()
+	}
+
+	if booter.graph != nil {
+		_ = booter.graph.Close()
+	}
+
+	if booter.tokenizer != nil {
+		_ = booter.tokenizer.Close()
+	}
+
+	if booter.forest != nil {
+		_ = booter.forest.Close()
+	}
+
+	if booter.macroIdx != nil {
+		_ = booter.macroIdx.Close()
+	}
+
+	if booter.router != nil {
+		_ = booter.router.Close()
+	}
+
+	if booter.cancel != nil {
+		booter.cancel()
 	}
 }
 

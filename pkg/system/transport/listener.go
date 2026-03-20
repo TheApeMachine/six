@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"io"
 	"net"
 	"runtime"
 	"sync"
@@ -39,6 +40,26 @@ type Listener struct {
 }
 
 /*
+listenerTask keeps the accept loop runnable by the pool.
+*/
+type listenerTask struct {
+	listener *Listener
+}
+
+func (task *listenerTask) Read(p []byte) (n int, err error) {
+	task.listener.accept()
+	return 0, io.EOF
+}
+
+func (task *listenerTask) Write(p []byte) (n int, err error) {
+	return len(p), nil
+}
+
+func (task *listenerTask) Close() error {
+	return nil
+}
+
+/*
 NewListener starts a TCP listener on the given address and begins
 accepting Cap'n Proto RPC connections in the background. The bootstrap
 client is provided to every incoming connection.
@@ -67,12 +88,10 @@ func NewListener(ctx context.Context, addr string, bootstrap capnp.Client) (*Lis
 		),
 	}
 
-	listener.pool.Schedule(
+	_ = listener.pool.Schedule(
 		"transport/listener/accept",
-		func(runCtx context.Context) (any, error) {
-			listener.accept()
-			return nil, nil
-		},
+		pool.COMPUTE,
+		&listenerTask{listener: listener},
 		pool.WithContext(listener.ctx),
 		pool.WithTTL(time.Second),
 	)
@@ -127,7 +146,7 @@ func (listener *Listener) Close() error {
 
 	listener.conns = nil
 	if listener.pool != nil {
-		listener.pool.Close()
+		_ = listener.pool.Close()
 	}
 
 	return nil

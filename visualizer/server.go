@@ -107,14 +107,9 @@ func (server *Server) ListenAndServe(addr string) error {
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 
-	server.pool.Schedule(
-		"visualizer/server/listen-udp",
-		func(ctx context.Context) (any, error) {
-			errnie.GuardVoid(server.state, server.listenUDP)
-			return nil, server.state.Err()
-		},
-		pool.WithTTL(time.Second),
-	)
+	go func() {
+		errnie.GuardVoid(server.state, server.listenUDP)
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("visualizer/static")))

@@ -5,7 +5,11 @@ package primitive
 import (
 	capnp "capnproto.org/go/capnp/v3"
 	text "capnproto.org/go/capnp/v3/encoding/text"
+	fc "capnproto.org/go/capnp/v3/flowcontrol"
 	schemas "capnproto.org/go/capnp/v3/schemas"
+	server "capnproto.org/go/capnp/v3/server"
+	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
+	context "context"
 )
 
 type Value capnp.Struct
@@ -136,30 +140,1109 @@ func (f Value_Future) Struct() (Value, error) {
 	return Value(p.Struct()), err
 }
 
-const schema_ad058c9d70413d98 = "x\xdaD\xc8\xbfJ\xc3P\x14\x07\xe0\xf3;\xe7&\xb1" +
-	"\x83\xe0\x81;urq\xd4X\xff\x82 \xe8\xea \xde" +
-	"\xc5\xc1-\x84Z\x82\xb1\x06\xb1\x1d|\x06\x1f\xc0\xc5G" +
-	"\xf0\x11\xc4A\xc4\xc5A\xc1B\x0b\x15*T\xa8\xa0\xe0" +
-	"\xe0\xe4\x12\xb9\x83d\xfb\xf8fn\xb6Lc\xfa\x16\xc4" +
-	"\xce\x06ayhv\xea\xbb\xbf\xe7w\xe4\xe60U^" +
-	"nn\x17W\x17\xc15\x99\x88\xa8q\x7f\x00\x1dx\xf4" +
-	"\x1e@\xf3eq\xd4\x8a\xf3\x93Vf\xd28O\xda\xad" +
-	"\xb88\xcd\x8e\xb3\xb3\xac\xdb\x8c\xbbI\xdei.\xa4I" +
-	"\xd1.6\xf6\x93\\:\xcd=\xc0\xcd\x8a!2 \xd2" +
-	"\xe7:\x91{\x14\xb8>C\x01\x0b\x9f=\x9fO\x027" +
-	"d(\xb3\x05\x13\xe9\xc0\xe7\x8b\xc0\x8d\x18*b!D" +
-	"\xfa\xea\xb3/pc\x86\x1aca\x88\xf4\xcd\xe7P\xe0" +
-	"&\x0c\x0d\x02\x8b\x80H\xdf}\x8e\x04\xee\x93\xa1ah" +
-	"\x11\x12\xe9\x87\xcf\xb1\xc0}34\x8a,\"\"\xfd\xf2" +
-	"9\x11\xb8\x1f\x86\xa4\x8b\xa8\x11\xa3F\x90\xb4Qq\xa9" +
-	"\xe2r\xc5\x95\x8a\xab\x15\xd7*\xae\xff\xf3/\x00\x00\xff" +
-	"\xff\xbb\x0eDe"
+type Service capnp.Client
+
+// Service_TypeID is the unique identifier for the type Service.
+const Service_TypeID = 0xf962138c05061549
+
+func (c Service) Read(ctx context.Context, params func(Service_read_Params) error) (Service_read_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      0,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "read",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Service_read_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Service_read_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Service) Write(ctx context.Context, params func(Service_write_Params) error) error {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "write",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Service_write_Params(s)) }
+	}
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
+func (c Service) Close(ctx context.Context, params func(Service_close_Params) error) (Service_close_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "close",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Service_close_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Service_close_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Service) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
+}
+
+// String returns a string that identifies this capability for debugging
+// purposes.  Its format should not be depended on: in particular, it
+// should not be used to compare clients.  Use IsSame to compare clients
+// for equality.
+func (c Service) String() string {
+	return "Service(" + capnp.Client(c).String() + ")"
+}
+
+// AddRef creates a new Client that refers to the same capability as c.
+// If c is nil or has resolved to null, then AddRef returns nil.
+func (c Service) AddRef() Service {
+	return Service(capnp.Client(c).AddRef())
+}
+
+// Release releases a capability reference.  If this is the last
+// reference to the capability, then the underlying resources associated
+// with the capability will be released.
+//
+// Release will panic if c has already been released, but not if c is
+// nil or resolved to null.
+func (c Service) Release() {
+	capnp.Client(c).Release()
+}
+
+// Resolve blocks until the capability is fully resolved or the Context
+// expires.
+func (c Service) Resolve(ctx context.Context) error {
+	return capnp.Client(c).Resolve(ctx)
+}
+
+func (c Service) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Client(c).EncodeAsPtr(seg)
+}
+
+func (Service) DecodeFromPtr(p capnp.Ptr) Service {
+	return Service(capnp.Client{}.DecodeFromPtr(p))
+}
+
+// IsValid reports whether c is a valid reference to a capability.
+// A reference is invalid if it is nil, has resolved to null, or has
+// been released.
+func (c Service) IsValid() bool {
+	return capnp.Client(c).IsValid()
+}
+
+// IsSame reports whether c and other refer to a capability created by the
+// same call to NewClient.  This can return false negatives if c or other
+// are not fully resolved: use Resolve if this is an issue.  If either
+// c or other are released, then IsSame panics.
+func (c Service) IsSame(other Service) bool {
+	return capnp.Client(c).IsSame(capnp.Client(other))
+}
+
+// Update the flowcontrol.FlowLimiter used to manage flow control for
+// this client. This affects all future calls, but not calls already
+// waiting to send. Passing nil sets the value to flowcontrol.NopLimiter,
+// which is also the default.
+func (c Service) SetFlowLimiter(lim fc.FlowLimiter) {
+	capnp.Client(c).SetFlowLimiter(lim)
+}
+
+// Get the current flowcontrol.FlowLimiter used to manage flow control
+// for this client.
+func (c Service) GetFlowLimiter() fc.FlowLimiter {
+	return capnp.Client(c).GetFlowLimiter()
+}
+
+// A Service_Server is a Service with a local implementation.
+type Service_Server interface {
+	Read(context.Context, Service_read) error
+
+	Write(context.Context, Service_write) error
+
+	Close(context.Context, Service_close) error
+}
+
+// Service_NewServer creates a new Server from an implementation of Service_Server.
+func Service_NewServer(s Service_Server) *server.Server {
+	c, _ := s.(server.Shutdowner)
+	return server.New(Service_Methods(nil, s), s, c)
+}
+
+// Service_ServerToClient creates a new Client from an implementation of Service_Server.
+// The caller is responsible for calling Release on the returned Client.
+func Service_ServerToClient(s Service_Server) Service {
+	return Service(capnp.NewClient(Service_NewServer(s)))
+}
+
+// Service_Methods appends Methods to a slice that invoke the methods on s.
+// This can be used to create a more complicated Server.
+func Service_Methods(methods []server.Method, s Service_Server) []server.Method {
+	if cap(methods) == 0 {
+		methods = make([]server.Method, 0, 3)
+	}
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      0,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "read",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Read(ctx, Service_read{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "write",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Write(ctx, Service_write{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xf962138c05061549,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service",
+			MethodName:    "close",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Close(ctx, Service_close{call})
+		},
+	})
+
+	return methods
+}
+
+// Service_read holds the state for a server call to Service.read.
+// See server.Call for documentation.
+type Service_read struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Service_read) Args() Service_read_Params {
+	return Service_read_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Service_read) AllocResults() (Service_read_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_read_Results(r), err
+}
+
+// Service_write holds the state for a server call to Service.write.
+// See server.Call for documentation.
+type Service_write struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Service_write) Args() Service_write_Params {
+	return Service_write_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Service_write) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
+}
+
+// Service_close holds the state for a server call to Service.close.
+// See server.Call for documentation.
+type Service_close struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Service_close) Args() Service_close_Params {
+	return Service_close_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Service_close) AllocResults() (Service_close_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_close_Results(r), err
+}
+
+// Service_List is a list of Service.
+type Service_List = capnp.CapList[Service]
+
+// NewService_List creates a new list of Service.
+func NewService_List(s *capnp.Segment, sz int32) (Service_List, error) {
+	l, err := capnp.NewPointerList(s, sz)
+	return capnp.CapList[Service](l), err
+}
+
+type Service_Callback capnp.Client
+
+// Service_Callback_TypeID is the unique identifier for the type Service_Callback.
+const Service_Callback_TypeID = 0xa74efdf40dae8bb7
+
+func (c Service_Callback) Send(ctx context.Context, params func(Service_Callback_send_Params) error) error {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xa74efdf40dae8bb7,
+			MethodID:      0,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service.Callback",
+			MethodName:    "send",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Service_Callback_send_Params(s)) }
+	}
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
+func (c Service_Callback) Done(ctx context.Context, params func(Service_Callback_done_Params) error) (Service_Callback_done_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xa74efdf40dae8bb7,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service.Callback",
+			MethodName:    "done",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 0}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Service_Callback_done_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Service_Callback_done_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Service_Callback) WaitStreaming() error {
+	return capnp.Client(c).WaitStreaming()
+}
+
+// String returns a string that identifies this capability for debugging
+// purposes.  Its format should not be depended on: in particular, it
+// should not be used to compare clients.  Use IsSame to compare clients
+// for equality.
+func (c Service_Callback) String() string {
+	return "Service_Callback(" + capnp.Client(c).String() + ")"
+}
+
+// AddRef creates a new Client that refers to the same capability as c.
+// If c is nil or has resolved to null, then AddRef returns nil.
+func (c Service_Callback) AddRef() Service_Callback {
+	return Service_Callback(capnp.Client(c).AddRef())
+}
+
+// Release releases a capability reference.  If this is the last
+// reference to the capability, then the underlying resources associated
+// with the capability will be released.
+//
+// Release will panic if c has already been released, but not if c is
+// nil or resolved to null.
+func (c Service_Callback) Release() {
+	capnp.Client(c).Release()
+}
+
+// Resolve blocks until the capability is fully resolved or the Context
+// expires.
+func (c Service_Callback) Resolve(ctx context.Context) error {
+	return capnp.Client(c).Resolve(ctx)
+}
+
+func (c Service_Callback) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Client(c).EncodeAsPtr(seg)
+}
+
+func (Service_Callback) DecodeFromPtr(p capnp.Ptr) Service_Callback {
+	return Service_Callback(capnp.Client{}.DecodeFromPtr(p))
+}
+
+// IsValid reports whether c is a valid reference to a capability.
+// A reference is invalid if it is nil, has resolved to null, or has
+// been released.
+func (c Service_Callback) IsValid() bool {
+	return capnp.Client(c).IsValid()
+}
+
+// IsSame reports whether c and other refer to a capability created by the
+// same call to NewClient.  This can return false negatives if c or other
+// are not fully resolved: use Resolve if this is an issue.  If either
+// c or other are released, then IsSame panics.
+func (c Service_Callback) IsSame(other Service_Callback) bool {
+	return capnp.Client(c).IsSame(capnp.Client(other))
+}
+
+// Update the flowcontrol.FlowLimiter used to manage flow control for
+// this client. This affects all future calls, but not calls already
+// waiting to send. Passing nil sets the value to flowcontrol.NopLimiter,
+// which is also the default.
+func (c Service_Callback) SetFlowLimiter(lim fc.FlowLimiter) {
+	capnp.Client(c).SetFlowLimiter(lim)
+}
+
+// Get the current flowcontrol.FlowLimiter used to manage flow control
+// for this client.
+func (c Service_Callback) GetFlowLimiter() fc.FlowLimiter {
+	return capnp.Client(c).GetFlowLimiter()
+}
+
+// A Service_Callback_Server is a Service_Callback with a local implementation.
+type Service_Callback_Server interface {
+	Send(context.Context, Service_Callback_send) error
+
+	Done(context.Context, Service_Callback_done) error
+}
+
+// Service_Callback_NewServer creates a new Server from an implementation of Service_Callback_Server.
+func Service_Callback_NewServer(s Service_Callback_Server) *server.Server {
+	c, _ := s.(server.Shutdowner)
+	return server.New(Service_Callback_Methods(nil, s), s, c)
+}
+
+// Service_Callback_ServerToClient creates a new Client from an implementation of Service_Callback_Server.
+// The caller is responsible for calling Release on the returned Client.
+func Service_Callback_ServerToClient(s Service_Callback_Server) Service_Callback {
+	return Service_Callback(capnp.NewClient(Service_Callback_NewServer(s)))
+}
+
+// Service_Callback_Methods appends Methods to a slice that invoke the methods on s.
+// This can be used to create a more complicated Server.
+func Service_Callback_Methods(methods []server.Method, s Service_Callback_Server) []server.Method {
+	if cap(methods) == 0 {
+		methods = make([]server.Method, 0, 2)
+	}
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xa74efdf40dae8bb7,
+			MethodID:      0,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service.Callback",
+			MethodName:    "send",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Send(ctx, Service_Callback_send{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xa74efdf40dae8bb7,
+			MethodID:      1,
+			InterfaceName: "pkg/logic/lang/primitive/value.capnp:Service.Callback",
+			MethodName:    "done",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Done(ctx, Service_Callback_done{call})
+		},
+	})
+
+	return methods
+}
+
+// Service_Callback_send holds the state for a server call to Service_Callback.send.
+// See server.Call for documentation.
+type Service_Callback_send struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Service_Callback_send) Args() Service_Callback_send_Params {
+	return Service_Callback_send_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Service_Callback_send) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
+}
+
+// Service_Callback_done holds the state for a server call to Service_Callback.done.
+// See server.Call for documentation.
+type Service_Callback_done struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Service_Callback_done) Args() Service_Callback_done_Params {
+	return Service_Callback_done_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Service_Callback_done) AllocResults() (Service_Callback_done_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_done_Results(r), err
+}
+
+// Service_Callback_List is a list of Service_Callback.
+type Service_Callback_List = capnp.CapList[Service_Callback]
+
+// NewService_Callback_List creates a new list of Service_Callback.
+func NewService_Callback_List(s *capnp.Segment, sz int32) (Service_Callback_List, error) {
+	l, err := capnp.NewPointerList(s, sz)
+	return capnp.CapList[Service_Callback](l), err
+}
+
+type Service_Callback_send_Params capnp.Struct
+
+// Service_Callback_send_Params_TypeID is the unique identifier for the type Service_Callback_send_Params.
+const Service_Callback_send_Params_TypeID = 0x898cc1561bcb3644
+
+func NewService_Callback_send_Params(s *capnp.Segment) (Service_Callback_send_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_send_Params(st), err
+}
+
+func NewRootService_Callback_send_Params(s *capnp.Segment) (Service_Callback_send_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_send_Params(st), err
+}
+
+func ReadRootService_Callback_send_Params(msg *capnp.Message) (Service_Callback_send_Params, error) {
+	root, err := msg.Root()
+	return Service_Callback_send_Params(root.Struct()), err
+}
+
+func (s Service_Callback_send_Params) String() string {
+	str, _ := text.Marshal(0x898cc1561bcb3644, capnp.Struct(s))
+	return str
+}
+
+func (s Service_Callback_send_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_Callback_send_Params) DecodeFromPtr(p capnp.Ptr) Service_Callback_send_Params {
+	return Service_Callback_send_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_Callback_send_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_Callback_send_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_Callback_send_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_Callback_send_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Service_Callback_send_Params_List is a list of Service_Callback_send_Params.
+type Service_Callback_send_Params_List = capnp.StructList[Service_Callback_send_Params]
+
+// NewService_Callback_send_Params creates a new list of Service_Callback_send_Params.
+func NewService_Callback_send_Params_List(s *capnp.Segment, sz int32) (Service_Callback_send_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Service_Callback_send_Params](l), err
+}
+
+// Service_Callback_send_Params_Future is a wrapper for a Service_Callback_send_Params promised by a client call.
+type Service_Callback_send_Params_Future struct{ *capnp.Future }
+
+func (f Service_Callback_send_Params_Future) Struct() (Service_Callback_send_Params, error) {
+	p, err := f.Future.Ptr()
+	return Service_Callback_send_Params(p.Struct()), err
+}
+
+type Service_Callback_done_Params capnp.Struct
+
+// Service_Callback_done_Params_TypeID is the unique identifier for the type Service_Callback_done_Params.
+const Service_Callback_done_Params_TypeID = 0xfb7261b7baa82337
+
+func NewService_Callback_done_Params(s *capnp.Segment) (Service_Callback_done_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_done_Params(st), err
+}
+
+func NewRootService_Callback_done_Params(s *capnp.Segment) (Service_Callback_done_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_done_Params(st), err
+}
+
+func ReadRootService_Callback_done_Params(msg *capnp.Message) (Service_Callback_done_Params, error) {
+	root, err := msg.Root()
+	return Service_Callback_done_Params(root.Struct()), err
+}
+
+func (s Service_Callback_done_Params) String() string {
+	str, _ := text.Marshal(0xfb7261b7baa82337, capnp.Struct(s))
+	return str
+}
+
+func (s Service_Callback_done_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_Callback_done_Params) DecodeFromPtr(p capnp.Ptr) Service_Callback_done_Params {
+	return Service_Callback_done_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_Callback_done_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_Callback_done_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_Callback_done_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_Callback_done_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Service_Callback_done_Params_List is a list of Service_Callback_done_Params.
+type Service_Callback_done_Params_List = capnp.StructList[Service_Callback_done_Params]
+
+// NewService_Callback_done_Params creates a new list of Service_Callback_done_Params.
+func NewService_Callback_done_Params_List(s *capnp.Segment, sz int32) (Service_Callback_done_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Service_Callback_done_Params](l), err
+}
+
+// Service_Callback_done_Params_Future is a wrapper for a Service_Callback_done_Params promised by a client call.
+type Service_Callback_done_Params_Future struct{ *capnp.Future }
+
+func (f Service_Callback_done_Params_Future) Struct() (Service_Callback_done_Params, error) {
+	p, err := f.Future.Ptr()
+	return Service_Callback_done_Params(p.Struct()), err
+}
+
+type Service_Callback_done_Results capnp.Struct
+
+// Service_Callback_done_Results_TypeID is the unique identifier for the type Service_Callback_done_Results.
+const Service_Callback_done_Results_TypeID = 0xf914a6a0eaa16487
+
+func NewService_Callback_done_Results(s *capnp.Segment) (Service_Callback_done_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_done_Results(st), err
+}
+
+func NewRootService_Callback_done_Results(s *capnp.Segment) (Service_Callback_done_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_Callback_done_Results(st), err
+}
+
+func ReadRootService_Callback_done_Results(msg *capnp.Message) (Service_Callback_done_Results, error) {
+	root, err := msg.Root()
+	return Service_Callback_done_Results(root.Struct()), err
+}
+
+func (s Service_Callback_done_Results) String() string {
+	str, _ := text.Marshal(0xf914a6a0eaa16487, capnp.Struct(s))
+	return str
+}
+
+func (s Service_Callback_done_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_Callback_done_Results) DecodeFromPtr(p capnp.Ptr) Service_Callback_done_Results {
+	return Service_Callback_done_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_Callback_done_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_Callback_done_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_Callback_done_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_Callback_done_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Service_Callback_done_Results_List is a list of Service_Callback_done_Results.
+type Service_Callback_done_Results_List = capnp.StructList[Service_Callback_done_Results]
+
+// NewService_Callback_done_Results creates a new list of Service_Callback_done_Results.
+func NewService_Callback_done_Results_List(s *capnp.Segment, sz int32) (Service_Callback_done_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Service_Callback_done_Results](l), err
+}
+
+// Service_Callback_done_Results_Future is a wrapper for a Service_Callback_done_Results promised by a client call.
+type Service_Callback_done_Results_Future struct{ *capnp.Future }
+
+func (f Service_Callback_done_Results_Future) Struct() (Service_Callback_done_Results, error) {
+	p, err := f.Future.Ptr()
+	return Service_Callback_done_Results(p.Struct()), err
+}
+
+type Service_read_Params capnp.Struct
+
+// Service_read_Params_TypeID is the unique identifier for the type Service_read_Params.
+const Service_read_Params_TypeID = 0xce868630baeecade
+
+func NewService_read_Params(s *capnp.Segment) (Service_read_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Service_read_Params(st), err
+}
+
+func NewRootService_read_Params(s *capnp.Segment) (Service_read_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Service_read_Params(st), err
+}
+
+func ReadRootService_read_Params(msg *capnp.Message) (Service_read_Params, error) {
+	root, err := msg.Root()
+	return Service_read_Params(root.Struct()), err
+}
+
+func (s Service_read_Params) String() string {
+	str, _ := text.Marshal(0xce868630baeecade, capnp.Struct(s))
+	return str
+}
+
+func (s Service_read_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_read_Params) DecodeFromPtr(p capnp.Ptr) Service_read_Params {
+	return Service_read_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_read_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_read_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_read_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_read_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Service_read_Params) Callback() Service_Callback {
+	p, _ := capnp.Struct(s).Ptr(0)
+	return Service_Callback(p.Interface().Client())
+}
+
+func (s Service_read_Params) HasCallback() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Service_read_Params) SetCallback(v Service_Callback) error {
+	if !v.IsValid() {
+		return capnp.Struct(s).SetPtr(0, capnp.Ptr{})
+	}
+	seg := s.Segment()
+	in := capnp.NewInterface(seg, seg.Message().CapTable().Add(capnp.Client(v)))
+	return capnp.Struct(s).SetPtr(0, in.ToPtr())
+}
+
+// Service_read_Params_List is a list of Service_read_Params.
+type Service_read_Params_List = capnp.StructList[Service_read_Params]
+
+// NewService_read_Params creates a new list of Service_read_Params.
+func NewService_read_Params_List(s *capnp.Segment, sz int32) (Service_read_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Service_read_Params](l), err
+}
+
+// Service_read_Params_Future is a wrapper for a Service_read_Params promised by a client call.
+type Service_read_Params_Future struct{ *capnp.Future }
+
+func (f Service_read_Params_Future) Struct() (Service_read_Params, error) {
+	p, err := f.Future.Ptr()
+	return Service_read_Params(p.Struct()), err
+}
+func (p Service_read_Params_Future) Callback() Service_Callback {
+	return Service_Callback(p.Future.Field(0, nil).Client())
+}
+
+type Service_read_Results capnp.Struct
+
+// Service_read_Results_TypeID is the unique identifier for the type Service_read_Results.
+const Service_read_Results_TypeID = 0xbc7a284636bd54b9
+
+func NewService_read_Results(s *capnp.Segment) (Service_read_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_read_Results(st), err
+}
+
+func NewRootService_read_Results(s *capnp.Segment) (Service_read_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_read_Results(st), err
+}
+
+func ReadRootService_read_Results(msg *capnp.Message) (Service_read_Results, error) {
+	root, err := msg.Root()
+	return Service_read_Results(root.Struct()), err
+}
+
+func (s Service_read_Results) String() string {
+	str, _ := text.Marshal(0xbc7a284636bd54b9, capnp.Struct(s))
+	return str
+}
+
+func (s Service_read_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_read_Results) DecodeFromPtr(p capnp.Ptr) Service_read_Results {
+	return Service_read_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_read_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_read_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_read_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_read_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Service_read_Results_List is a list of Service_read_Results.
+type Service_read_Results_List = capnp.StructList[Service_read_Results]
+
+// NewService_read_Results creates a new list of Service_read_Results.
+func NewService_read_Results_List(s *capnp.Segment, sz int32) (Service_read_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Service_read_Results](l), err
+}
+
+// Service_read_Results_Future is a wrapper for a Service_read_Results promised by a client call.
+type Service_read_Results_Future struct{ *capnp.Future }
+
+func (f Service_read_Results_Future) Struct() (Service_read_Results, error) {
+	p, err := f.Future.Ptr()
+	return Service_read_Results(p.Struct()), err
+}
+
+type Service_write_Params capnp.Struct
+
+// Service_write_Params_TypeID is the unique identifier for the type Service_write_Params.
+const Service_write_Params_TypeID = 0x81c2716cd368082a
+
+func NewService_write_Params(s *capnp.Segment) (Service_write_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Service_write_Params(st), err
+}
+
+func NewRootService_write_Params(s *capnp.Segment) (Service_write_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Service_write_Params(st), err
+}
+
+func ReadRootService_write_Params(msg *capnp.Message) (Service_write_Params, error) {
+	root, err := msg.Root()
+	return Service_write_Params(root.Struct()), err
+}
+
+func (s Service_write_Params) String() string {
+	str, _ := text.Marshal(0x81c2716cd368082a, capnp.Struct(s))
+	return str
+}
+
+func (s Service_write_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_write_Params) DecodeFromPtr(p capnp.Ptr) Service_write_Params {
+	return Service_write_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_write_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_write_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_write_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_write_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Service_write_Params) Value() (Value, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return Value(p.Struct()), err
+}
+
+func (s Service_write_Params) HasValue() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Service_write_Params) SetValue(v Value) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewValue sets the value field to a newly
+// allocated Value struct, preferring placement in s's segment.
+func (s Service_write_Params) NewValue() (Value, error) {
+	ss, err := NewValue(capnp.Struct(s).Segment())
+	if err != nil {
+		return Value{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// Service_write_Params_List is a list of Service_write_Params.
+type Service_write_Params_List = capnp.StructList[Service_write_Params]
+
+// NewService_write_Params creates a new list of Service_write_Params.
+func NewService_write_Params_List(s *capnp.Segment, sz int32) (Service_write_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Service_write_Params](l), err
+}
+
+// Service_write_Params_Future is a wrapper for a Service_write_Params promised by a client call.
+type Service_write_Params_Future struct{ *capnp.Future }
+
+func (f Service_write_Params_Future) Struct() (Service_write_Params, error) {
+	p, err := f.Future.Ptr()
+	return Service_write_Params(p.Struct()), err
+}
+func (p Service_write_Params_Future) Value() Value_Future {
+	return Value_Future{Future: p.Future.Field(0, nil)}
+}
+
+type Service_close_Params capnp.Struct
+
+// Service_close_Params_TypeID is the unique identifier for the type Service_close_Params.
+const Service_close_Params_TypeID = 0xed5ca6ff31b34c1f
+
+func NewService_close_Params(s *capnp.Segment) (Service_close_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_close_Params(st), err
+}
+
+func NewRootService_close_Params(s *capnp.Segment) (Service_close_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_close_Params(st), err
+}
+
+func ReadRootService_close_Params(msg *capnp.Message) (Service_close_Params, error) {
+	root, err := msg.Root()
+	return Service_close_Params(root.Struct()), err
+}
+
+func (s Service_close_Params) String() string {
+	str, _ := text.Marshal(0xed5ca6ff31b34c1f, capnp.Struct(s))
+	return str
+}
+
+func (s Service_close_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_close_Params) DecodeFromPtr(p capnp.Ptr) Service_close_Params {
+	return Service_close_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_close_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_close_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_close_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_close_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Service_close_Params_List is a list of Service_close_Params.
+type Service_close_Params_List = capnp.StructList[Service_close_Params]
+
+// NewService_close_Params creates a new list of Service_close_Params.
+func NewService_close_Params_List(s *capnp.Segment, sz int32) (Service_close_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Service_close_Params](l), err
+}
+
+// Service_close_Params_Future is a wrapper for a Service_close_Params promised by a client call.
+type Service_close_Params_Future struct{ *capnp.Future }
+
+func (f Service_close_Params_Future) Struct() (Service_close_Params, error) {
+	p, err := f.Future.Ptr()
+	return Service_close_Params(p.Struct()), err
+}
+
+type Service_close_Results capnp.Struct
+
+// Service_close_Results_TypeID is the unique identifier for the type Service_close_Results.
+const Service_close_Results_TypeID = 0x999fdec074c4b82d
+
+func NewService_close_Results(s *capnp.Segment) (Service_close_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_close_Results(st), err
+}
+
+func NewRootService_close_Results(s *capnp.Segment) (Service_close_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return Service_close_Results(st), err
+}
+
+func ReadRootService_close_Results(msg *capnp.Message) (Service_close_Results, error) {
+	root, err := msg.Root()
+	return Service_close_Results(root.Struct()), err
+}
+
+func (s Service_close_Results) String() string {
+	str, _ := text.Marshal(0x999fdec074c4b82d, capnp.Struct(s))
+	return str
+}
+
+func (s Service_close_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Service_close_Results) DecodeFromPtr(p capnp.Ptr) Service_close_Results {
+	return Service_close_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Service_close_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Service_close_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Service_close_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Service_close_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// Service_close_Results_List is a list of Service_close_Results.
+type Service_close_Results_List = capnp.StructList[Service_close_Results]
+
+// NewService_close_Results creates a new list of Service_close_Results.
+func NewService_close_Results_List(s *capnp.Segment, sz int32) (Service_close_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[Service_close_Results](l), err
+}
+
+// Service_close_Results_Future is a wrapper for a Service_close_Results promised by a client call.
+type Service_close_Results_Future struct{ *capnp.Future }
+
+func (f Service_close_Results_Future) Struct() (Service_close_Results, error) {
+	p, err := f.Future.Ptr()
+	return Service_close_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d98 = "x\xda\x9cT]h\x1cU\x18\xfd\xce\xfd\x99\xd9B\x97" +
+	"\xed\xedLQ#\xb2\x8a\x0dHa\xb3\xd9\xacnQ\x10" +
+	"\xb7T\x05C-\xb9*\x05\xa5 \xd3\xd91\xae\x9dn" +
+	"\xd6\xfdI\xa1o>\xd8\"\xa6\xf8\xea\x0aE\xfb`\xf5" +
+	"E\xa1\xfaP-\x0a\xf5\x07\x0aU\xc4_\xa8RC\x84" +
+	"\x08Q\x8c\xf8\x90\x97(2rg\xb3;\xa3\x82f\xf3" +
+	"\xf6q\xee\xdc\xef\xfb\xce\x99s\xcf\xa4`UQ\xca\xbe" +
+	"`\x11\xd3\x07\xa4\x15\xed\xc9<\xf9U\xf8\xf4\x87\xcf\x90" +
+	"*\x80H\xc2&*\x17\xf8\x97 8\xfb\xf8=\x84\xe8" +
+	"\xde\xca'7\x1e\xfa`\xe19R\x15\x10\x09s\xee\xf1" +
+	"\x9d\x8cDTx\xe7\xe3\xce\xa5\xc5\x97{\xfd\xab\xf1\xc9" +
+	"\xa3\xfc;\x90\x88.<\xfffv\xed\xcf\x83\xaf\x91*" +
+	"\xf0\xe8\x81]\x96\\p\x8e\xac\x13\xa1\xfc \x7f\x0bN" +
+	"\xc0m\"\xc7\xe3\xa7\x9c\xf3\xa6\x8a\xde}\xe4\xfd\xca\xfd" +
+	"\xb7\x9dx/\xd5\xa7g6\x10\xd1\x13bz\xec\xe0\xef" +
+	"'>\"=\x8eL\xf4\xe2\xdd\xfb\x9ag\x16\xe4\x1b\xfd" +
+	"ON\xf3\xc7\xe0\x9c5\x0d\xcag\xf8e\x10\xa2\xc5+" +
+	"\xbf^\x9c<y\xf2\xb34\x15O^1T\xba\xd2P" +
+	"\xc9\x1fx\xbb\x14\x9d;\xbc\x9a\x1e$\xe3A\xa7jg" +
+	"\x7f~\xe5\x9c\xbb\x9e\"yZ\x8e\x19\x92\xc3\xed\xd58" +
+	"O6 \x94\x9f\x95O\xc1\xe9\xc9\xeb\x88\x9cW\xe5e" +
+	"\xe7&\xcbP\xd9{\xeb\xeb\x17/x\xad?R}\xa4" +
+	"\xb5\x93\xd1\xe1\xa8yt\xb6\x18\xce\xcd\xd6-\xbf\x18z" +
+	"\x8d\xd9b\xb3U?V\xef\xd4\xe7\x83\xe2\xbc\x17v\x83" +
+	"\x09\xdfk6\x9aw=\x1c\xb4\xe6\xeb~0q\xbcU" +
+	"\xef\x04\xbbg\xbc\x96w\x0cm-\xb8 \x12 R\xd9" +
+	")\"\x9d\xe1\xd0.C>\xbe\x88\x1d\x89J\x04\xec " +
+	"\x0cG\xd9\x9b\x1a\xb5\xdf\x0b\xc3#\x9e\x7ft\xa2\x1d4" +
+	"j\x83\x91#\xae\xeb\x87s\xed`\xf7CA\xbb\x1b\xf2" +
+	"NrYnv\x81|\xbc\xc1\x0c\xa03\\\x12\x0d=" +
+	"\x87\xc6\xf9K\xc7\xcb/=\xdeS\xa5=\xc4\xd4\xb8\x0d" +
+	"\x0c%\xc6\xe0\x9f\xa9\x1b\xccY\xd6\xce\x19\x02U\xe4j" +
+	"s\x8d\xa0\x8a\x19`D\x12\xad\xc0\xab\xf59tR\x02" +
+	"\x88\xff\xbc{\xc8\x0by70\x8b\xdf<\xfcG_\x8c" +
+	"\x11\xe9O9\xf4U\x06\x05\xb80\xe07\x06\xfc\x9cC" +
+	"_cP\x8c\xb9`D\xea[\x03~\xcd\xa1\x97\x18\x14" +
+	"\xe7.8\x91\xfa\xde\x80W9\xf42\x83\x12\xc2\x85 " +
+	"R?\x18\xf0\x1a\x87^aPR\xba\x90D\xeaG\x03" +
+	".q\xe8_\x18\x94e\xb9\xb0\x88\xd4O\x06\\\xe6\xd0" +
+	"\xbf1(\xdbv\xcd+P\xab\x06\\\xe1\xd0k\x0c\xdc" +
+	"\x9f\xc46b\xd8F\xe0~))\xa7\x92\xb2\x9c\x94\xb7" +
+	"'\xe5\x1dIYI\xca\xbd\x83r+j\xc7nk\x13" +
+	"\xa5\x1d>M\xa4\xb7s\xe8\xeb\x19\"\x7f\xc3\x9bD\x04" +
+	"\x95\xa4\x0a\x01j\xe4\x81}\x8f\xfe\xd3\xdf#\xbe\x11\xe3" +
+	"\xad\x7f\xfb\\\xfc_\x93\x9c\xe9\xa2\x05\x90JFLG" +
+	"\xfb\x13zz{l\xfcA\x84a\x90\x89J\x1bs\xdf" +
+	"g\x8c?H\xea\xe4Q\xdc9EL\x15l\xb0a\xb2" +
+	"a\x90\xc9\xea\x16s\xb6\xcb\xce\x19\x9d\xab\xc8\xc7\x81R" +
+	"E>V\xe1\xef\xafc+\x12l\xc8\xf8W\x00\x00\x00" +
+	"\xff\xff\xab\xe1\xd8?"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d98,
 		Nodes: []uint64{
+			0x81c2716cd368082a,
+			0x898cc1561bcb3644,
+			0x999fdec074c4b82d,
+			0xa74efdf40dae8bb7,
+			0xbc7a284636bd54b9,
 			0xc37afa4e1a4a0466,
+			0xce868630baeecade,
+			0xed5ca6ff31b34c1f,
+			0xf914a6a0eaa16487,
+			0xf962138c05061549,
+			0xfb7261b7baa82337,
 		},
 		Compressed: true,
 	})

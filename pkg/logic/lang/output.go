@@ -2,7 +2,6 @@ package lang
 
 import (
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
-	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 )
 
 /*
@@ -15,5 +14,4 @@ type Output struct {
 	RecoveredState primitive.Value
 	PostResidue    int
 	Steps          int
-	Candidate      *macro.ProgramCandidate
 }

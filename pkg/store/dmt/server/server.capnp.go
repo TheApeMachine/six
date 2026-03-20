@@ -10,7 +10,6 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
-	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
 type Server capnp.Client
@@ -53,26 +52,6 @@ func (c Server) Done(ctx context.Context, params func(Server_done_Params) error)
 
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Server_done_Results_Future{Future: ans.Future()}, release
-
-}
-
-func (c Server) Lookup(ctx context.Context, params func(Server_lookup_Params) error) (Server_lookup_Results_Future, capnp.ReleaseFunc) {
-
-	s := capnp.Send{
-		Method: capnp.Method{
-			InterfaceID:   0xca6cd8732fa23c4c,
-			MethodID:      2,
-			InterfaceName: "pkg/store/dmt/server/server.capnp:Server",
-			MethodName:    "lookup",
-		},
-	}
-	if params != nil {
-		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
-		s.PlaceArgs = func(s capnp.Struct) error { return params(Server_lookup_Params(s)) }
-	}
-
-	ans, release := capnp.Client(c).SendCall(ctx, s)
-	return Server_lookup_Results_Future{Future: ans.Future()}, release
 
 }
 
@@ -152,8 +131,6 @@ type Server_Server interface {
 	Write(context.Context, Server_write) error
 
 	Done(context.Context, Server_done) error
-
-	Lookup(context.Context, Server_lookup) error
 }
 
 // Server_NewServer creates a new Server from an implementation of Server_Server.
@@ -172,7 +149,7 @@ func Server_ServerToClient(s Server_Server) Server {
 // This can be used to create a more complicated Server.
 func Server_Methods(methods []server.Method, s Server_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 3)
+		methods = make([]server.Method, 0, 2)
 	}
 
 	methods = append(methods, server.Method{
@@ -196,18 +173,6 @@ func Server_Methods(methods []server.Method, s Server_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Done(ctx, Server_done{call})
-		},
-	})
-
-	methods = append(methods, server.Method{
-		Method: capnp.Method{
-			InterfaceID:   0xca6cd8732fa23c4c,
-			MethodID:      2,
-			InterfaceName: "pkg/store/dmt/server/server.capnp:Server",
-			MethodName:    "lookup",
-		},
-		Impl: func(ctx context.Context, call *server.Call) error {
-			return s.Lookup(ctx, Server_lookup{call})
 		},
 	})
 
@@ -244,25 +209,8 @@ func (c Server_done) Args() Server_done_Params {
 
 // AllocResults allocates the results struct.
 func (c Server_done) AllocResults() (Server_done_Results, error) {
-	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
-	return Server_done_Results(r), err
-}
-
-// Server_lookup holds the state for a server call to Server.lookup.
-// See server.Call for documentation.
-type Server_lookup struct {
-	*server.Call
-}
-
-// Args returns the call's arguments.
-func (c Server_lookup) Args() Server_lookup_Params {
-	return Server_lookup_Params(c.Call.Args())
-}
-
-// AllocResults allocates the results struct.
-func (c Server_lookup) AllocResults() (Server_lookup_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Server_lookup_Results(r), err
+	return Server_done_Results(r), err
 }
 
 // Server_List is a list of Server.
@@ -417,12 +365,12 @@ type Server_done_Results capnp.Struct
 const Server_done_Results_TypeID = 0xf63d8f3bbfb372ba
 
 func NewServer_done_Results(s *capnp.Segment) (Server_done_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Server_done_Results(st), err
 }
 
 func NewRootServer_done_Results(s *capnp.Segment) (Server_done_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Server_done_Results(st), err
 }
 
@@ -458,13 +406,36 @@ func (s Server_done_Results) Message() *capnp.Message {
 func (s Server_done_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
+func (s Server_done_Results) Keys() (capnp.UInt64List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.UInt64List(p.List()), err
+}
+
+func (s Server_done_Results) HasKeys() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Server_done_Results) SetKeys(v capnp.UInt64List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewKeys sets the keys field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s Server_done_Results) NewKeys(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.UInt64List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
 
 // Server_done_Results_List is a list of Server_done_Results.
 type Server_done_Results_List = capnp.StructList[Server_done_Results]
 
 // NewServer_done_Results creates a new list of Server_done_Results.
 func NewServer_done_Results_List(s *capnp.Segment, sz int32) (Server_done_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
 	return capnp.StructList[Server_done_Results](l), err
 }
 
@@ -476,221 +447,36 @@ func (f Server_done_Results_Future) Struct() (Server_done_Results, error) {
 	return Server_done_Results(p.Struct()), err
 }
 
-type Server_lookup_Params capnp.Struct
-
-// Server_lookup_Params_TypeID is the unique identifier for the type Server_lookup_Params.
-const Server_lookup_Params_TypeID = 0xedde37ccb1d51348
-
-func NewServer_lookup_Params(s *capnp.Segment) (Server_lookup_Params, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Server_lookup_Params(st), err
-}
-
-func NewRootServer_lookup_Params(s *capnp.Segment) (Server_lookup_Params, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Server_lookup_Params(st), err
-}
-
-func ReadRootServer_lookup_Params(msg *capnp.Message) (Server_lookup_Params, error) {
-	root, err := msg.Root()
-	return Server_lookup_Params(root.Struct()), err
-}
-
-func (s Server_lookup_Params) String() string {
-	str, _ := text.Marshal(0xedde37ccb1d51348, capnp.Struct(s))
-	return str
-}
-
-func (s Server_lookup_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Server_lookup_Params) DecodeFromPtr(p capnp.Ptr) Server_lookup_Params {
-	return Server_lookup_Params(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Server_lookup_Params) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Server_lookup_Params) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Server_lookup_Params) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Server_lookup_Params) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Server_lookup_Params) Keys() (capnp.UInt64List, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return capnp.UInt64List(p.List()), err
-}
-
-func (s Server_lookup_Params) HasKeys() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Server_lookup_Params) SetKeys(v capnp.UInt64List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewKeys sets the keys field to a newly
-// allocated capnp.UInt64List, preferring placement in s's segment.
-func (s Server_lookup_Params) NewKeys(n int32) (capnp.UInt64List, error) {
-	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return capnp.UInt64List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// Server_lookup_Params_List is a list of Server_lookup_Params.
-type Server_lookup_Params_List = capnp.StructList[Server_lookup_Params]
-
-// NewServer_lookup_Params creates a new list of Server_lookup_Params.
-func NewServer_lookup_Params_List(s *capnp.Segment, sz int32) (Server_lookup_Params_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Server_lookup_Params](l), err
-}
-
-// Server_lookup_Params_Future is a wrapper for a Server_lookup_Params promised by a client call.
-type Server_lookup_Params_Future struct{ *capnp.Future }
-
-func (f Server_lookup_Params_Future) Struct() (Server_lookup_Params, error) {
-	p, err := f.Future.Ptr()
-	return Server_lookup_Params(p.Struct()), err
-}
-
-type Server_lookup_Results capnp.Struct
-
-// Server_lookup_Results_TypeID is the unique identifier for the type Server_lookup_Results.
-const Server_lookup_Results_TypeID = 0xac22651dc2e01910
-
-func NewServer_lookup_Results(s *capnp.Segment) (Server_lookup_Results, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Server_lookup_Results(st), err
-}
-
-func NewRootServer_lookup_Results(s *capnp.Segment) (Server_lookup_Results, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
-	return Server_lookup_Results(st), err
-}
-
-func ReadRootServer_lookup_Results(msg *capnp.Message) (Server_lookup_Results, error) {
-	root, err := msg.Root()
-	return Server_lookup_Results(root.Struct()), err
-}
-
-func (s Server_lookup_Results) String() string {
-	str, _ := text.Marshal(0xac22651dc2e01910, capnp.Struct(s))
-	return str
-}
-
-func (s Server_lookup_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (Server_lookup_Results) DecodeFromPtr(p capnp.Ptr) Server_lookup_Results {
-	return Server_lookup_Results(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s Server_lookup_Results) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s Server_lookup_Results) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s Server_lookup_Results) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s Server_lookup_Results) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s Server_lookup_Results) Values() (primitive.Value_List, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return primitive.Value_List(p.List()), err
-}
-
-func (s Server_lookup_Results) HasValues() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s Server_lookup_Results) SetValues(v primitive.Value_List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
-}
-
-// NewValues sets the values field to a newly
-// allocated primitive.Value_List, preferring placement in s's segment.
-func (s Server_lookup_Results) NewValues(n int32) (primitive.Value_List, error) {
-	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
-	if err != nil {
-		return primitive.Value_List{}, err
-	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
-}
-
-// Server_lookup_Results_List is a list of Server_lookup_Results.
-type Server_lookup_Results_List = capnp.StructList[Server_lookup_Results]
-
-// NewServer_lookup_Results creates a new list of Server_lookup_Results.
-func NewServer_lookup_Results_List(s *capnp.Segment, sz int32) (Server_lookup_Results_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
-	return capnp.StructList[Server_lookup_Results](l), err
-}
-
-// Server_lookup_Results_Future is a wrapper for a Server_lookup_Results promised by a client call.
-type Server_lookup_Results_Future struct{ *capnp.Future }
-
-func (f Server_lookup_Results_Future) Struct() (Server_lookup_Results, error) {
-	p, err := f.Future.Ptr()
-	return Server_lookup_Results(p.Struct()), err
-}
-
-const schema_ad058c9d70413d66 = "x\xda\x94\x91=hSQ\x1c\xc5\xcf\xb9\xf7\xbd>\x0b" +
-	"\xd6\xf4\x12\x1d*H0dI\xa1F\xcd\xa0FK\x9e" +
-	"\x83(E\xe4\xbd\x0a\xe2&\x0f{+\x924y\xbc\x97" +
-	"\xb4\xc4Y\x90\x82\xe0&(:\xe8\xa6\xe8\xd0\xea\xd2\"" +
-	"T\xe2P\x90\x8e\x0a\xba\x14\xc1\xc9\xc1\xd5\xc1\xe5\xc9M" +
-	"\xd2g\xc0\xa1v\xba\x1f\xfc\xcf9\xf7\xfe\xce\xf1\xd3t" +
-	"\xad\x13c\xf7l\x08\xdf\xb5G\x92\xb7\x1b[\x9b\xd7\xaf" +
-	"\xbd{\x08\xbfH\x02\x96\x03\x94_\x88U\x82\xd95Q" +
-	"\x05\x93\xf1\x89o\xdd#:\xff\x0a\xaaH\xc0\xa6\x19\xf8" +
-	"*\xbaf\xe0Go\xe0\xf2\xb9\xe7\xa5\xf8K\xfd#T" +
-	"^&\xf3\xd3\xe7\xc3\xa7\xf7\xed\xd7\x00\xcb\x13r\x86\xd9" +
-	")\xe9\x00\xd9\xa2\xdc\xcc>3\xbb\xe4n\xf0d\xfbS" +
-	"\xf7\xe2\xf7\xbe]/nY\xbe$\xac\xe4R\xf6\xf3\xca" +
-	"\xd6\xa9\xed\x9f\xc3A\x1d\xb9n\x82\x96\xa5\x09Z\x8f\xde" +
-	"l\x9c}0\xfdkH\xba&W\x89(\x09k\xb7J" +
-	"q\xab\x19\xd9\xba4\xb7\xd0*\xc5:Z\xd4\xd1`9" +
-	"v3\x08\x1ba\xe5j\xff\xb0\x14\xddn\xe9\x82\x97\x0b" +
-	"\xa2`!\xf6-i\x01\x16\x015\x96\x07\xfc}\x92\xfe" +
-	"AA\xa7\xa6;\x1c\x85\xe0(\x98Z\x8f\xecj]o" +
-	"6k\xed\xb00\xab\xe3v\xbd\x15c\xd8\xbc20/" +
-	"\x08V\x17\x83z[\xc7<\x00z\x92\x1cO\xe6\xad\x99" +
-	"\xc3W~\xdf\xf9\x00\xd0\\\xa6\x81\xd6n\x81\x80G\xfa" +
-	"\xfb\xa5\x0d\xa4-\xb2\xb1\xf2~\xa9\xfc\xf8\xc6#\xe5\x9f" +
-	"\x84P\x17\x1c2%\xce\x1d~\xea\xcc$\x84\x9ar(" +
-	"R\xe6\xdciY\x1d\xad@\xa8CN\xae\x07\xcaef" +
-	"\xae\xd9\xd0.\xab\xfd\xcf\xb9\xf4\xc8=\xd06\xe2\x82\x17" +
-	"d\x0c\xec=\xc8\x06$\xab\xde?-M\xfe\x05\x99\xa9" +
-	"\xe9N\x8a\xd1\xb45\x0c\xef?\x9f6\xabs\xbd\xb2\xfe" +
-	"\x04\x00\x00\xff\xffN\x17\xecU"
+const schema_ad058c9d70413d66 = "x\xda\x94\x90\xbbK\xf3P\x18\xc6\x9f\xf7\xe4\xe4K;" +
+	"\xb4\xfdB\\\x9c\x0a\xa5\"\xed`\xac\x9d\xbc\x94\xd6I" +
+	"\x10\x87DAt\x92`\x8f\"\xbd\xa5I\xb4t\x17D" +
+	"\x10\xdc\x04E\x17G\xc1\xc1\xcb$B\xc5E\x10G\x07" +
+	"'\x11\xfc\x1f\x04\xa7Hz\x03'\xe9t\xce\xe1\xe5y" +
+	"\xce\xfb\xfb\xfd\xff(\xf0Ld\x94\x83\x99\xe3\xf2?\xff" +
+	"\xb6\xf5\xf2\xb4\xb2|\x7f\x043E\x04p\x05\xc8~\xd3" +
+	"5\x81\xb40\xcb\x83\xfc\x85\x99s\xdd}+?CM" +
+	"H\xfeFn\xd6>;\x90/\x01\xca\xa6\xd8<i9" +
+	"\xa6\x00\xda$\xdb\xd3\xf6\x83\x9b\xbfk\x9d\xbe\xbf>\xce" +
+	"}BM\xf5\xda\xea\xec\x82\xc0\xfd;\xe7\xa65}\x98" +
+	"\xfb\xeaLd\x0aF\x16k\x7fTgy\xac\xfavi" +
+	"Sw\xbd\x9a#\x0b\xbdX\xf1tW8;\xc2\xe9\x1e" +
+	"c\xeb\x96]\xb5\xa7\x96:\x8f\x86\xb3\xe5\x89\xa4\x11\xb7" +
+	"\x1c\xab\xe2\x9a\\\xe2\x00'@\x8d$\x003$\x919" +
+	"\xc4H)\x89&\x85\xc1(\x0c\xeaW\xf3\xbf\xaa\x01\x83" +
+	"\xc8\x0cI2\xd07C\xd5\xab\x87F\xf6d\xedX\xcd" +
+	"L\x80\xa9#\x0aQ\x1f\x93zT\xeap\x1aL\x8d(" +
+	"\xf1\xf6n\x05\x8a\x15kUQ \x83h\x00\xae \x93" +
+	"4\xacX\x805hlQ\xc4\xdd\xed\xb2\xf7KG\xba" +
+	"\xab#\xc9(V\x12M\x97\xa2 C\xa2\xb6\x96(\xe8" +
+	"'\x00\x00\xff\xff'$\x99\x9a"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d66,
 		Nodes: []uint64{
 			0x96bc5658c7ccbfb4,
-			0xac22651dc2e01910,
 			0xca6cd8732fa23c4c,
 			0xe347c2d4de9c6184,
-			0xedde37ccb1d51348,
 			0xf63d8f3bbfb372ba,
 		},
 		Compressed: true,

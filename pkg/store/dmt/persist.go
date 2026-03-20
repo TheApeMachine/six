@@ -129,15 +129,20 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 			return err
 		}
 
-		if err := binary.Write(ps.walWriter, binary.LittleEndian, term); err != nil {
+		var scratch [8]byte
+
+		binary.LittleEndian.PutUint64(scratch[:], term)
+		if _, err := ps.walWriter.Write(scratch[:]); err != nil {
 			return err
 		}
 
-		if err := binary.Write(ps.walWriter, binary.LittleEndian, index); err != nil {
+		binary.LittleEndian.PutUint64(scratch[:], index)
+		if _, err := ps.walWriter.Write(scratch[:]); err != nil {
 			return err
 		}
 
-		if err := binary.Write(ps.walWriter, binary.LittleEndian, uint32(len(key))); err != nil {
+		binary.LittleEndian.PutUint32(scratch[:4], uint32(len(key)))
+		if _, err := ps.walWriter.Write(scratch[:4]); err != nil {
 			return err
 		}
 
@@ -145,7 +150,8 @@ func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) erro
 			return err
 		}
 
-		if err := binary.Write(ps.walWriter, binary.LittleEndian, uint32(len(value))); err != nil {
+		binary.LittleEndian.PutUint32(scratch[:4], uint32(len(value)))
+		if _, err := ps.walWriter.Write(scratch[:4]); err != nil {
 			return err
 		}
 
@@ -239,7 +245,10 @@ func (ps *PersistentStore) LogTerm(term uint64) error {
 			return err
 		}
 
-		return binary.Write(ps.walWriter, binary.LittleEndian, term)
+		var scratch [8]byte
+		binary.LittleEndian.PutUint64(scratch[:], term)
+		_, err := ps.walWriter.Write(scratch[:])
+		return err
 	})
 
 	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
@@ -394,16 +403,20 @@ func (ps *PersistentStore) createSnapshot() error {
 	}
 	defer file.Close()
 
-	// Write snapshot metadata
+	var scratch [8]byte
+
 	errnie.GuardVoid(ps.state, func() error {
-		return binary.Write(file, binary.LittleEndian, ps.lastTerm)
+		binary.LittleEndian.PutUint64(scratch[:], ps.lastTerm)
+		_, err := file.Write(scratch[:])
+		return err
 	})
 
 	errnie.GuardVoid(ps.state, func() error {
-		return binary.Write(file, binary.LittleEndian, ps.lastIndex)
+		binary.LittleEndian.PutUint64(scratch[:], ps.lastIndex)
+		_, err := file.Write(scratch[:])
+		return err
 	})
 
-	// Log snapshot creation in WAL
 	ps.writeMutex.Lock()
 	defer ps.writeMutex.Unlock()
 
@@ -412,11 +425,15 @@ func (ps *PersistentStore) createSnapshot() error {
 	})
 
 	errnie.GuardVoid(ps.state, func() error {
-		return binary.Write(ps.walWriter, binary.LittleEndian, ps.lastTerm)
+		binary.LittleEndian.PutUint64(scratch[:], ps.lastTerm)
+		_, err := ps.walWriter.Write(scratch[:])
+		return err
 	})
 
 	errnie.GuardVoid(ps.state, func() error {
-		return binary.Write(ps.walWriter, binary.LittleEndian, ps.lastIndex)
+		binary.LittleEndian.PutUint64(scratch[:], ps.lastIndex)
+		_, err := ps.walWriter.Write(scratch[:])
+		return err
 	})
 
 	// Truncate WAL
@@ -444,17 +461,22 @@ func (ps *PersistentStore) truncateWAL() error {
 
 	writer := bufio.NewWriter(newFile)
 
-	// Write snapshot entry
 	errnie.GuardVoid(ps.state, func() error {
 		return writer.WriteByte(opSnapshot)
 	})
 
+	var truncScratch [8]byte
+
 	errnie.GuardVoid(ps.state, func() error {
-		return binary.Write(writer, binary.LittleEndian, ps.lastTerm)
+		binary.LittleEndian.PutUint64(truncScratch[:], ps.lastTerm)
+		_, err := writer.Write(truncScratch[:])
+		return err
 	})
 
 	errnie.GuardVoid(ps.state, func() error {
-		return binary.Write(writer, binary.LittleEndian, ps.lastIndex)
+		binary.LittleEndian.PutUint64(truncScratch[:], ps.lastIndex)
+		_, err := writer.Write(truncScratch[:])
+		return err
 	})
 
 	// Ensure all data is written
@@ -494,7 +516,8 @@ func (ps *PersistentStore) schedule(
 ) {
 	ps.pool.Schedule(
 		"dmt/persist/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: ps.ctx, fn: fn},
 		pool.WithContext(ps.ctx),
 		pool.WithTTL(time.Second),
 	)

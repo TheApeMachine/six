@@ -73,3 +73,22 @@ func BenchmarkBackPressureRegulatorLimit(b *testing.B) {
 		bp.Limit()
 	}
 }
+
+func BenchmarkBackPressureRegulatorGetPressure(b *testing.B) {
+	bp := NewBackPressureRegulator(1000, 50*time.Millisecond, time.Second)
+	bp.Observe(&Metrics{JobQueueSize: 600, AverageJobLatency: 40 * time.Millisecond})
+	b.ReportAllocs()
+	for b.Loop() {
+		_ = bp.GetPressure()
+	}
+}
+
+func BenchmarkBackPressureRegulatorRenormalize(b *testing.B) {
+	bp := NewBackPressureRegulator(1000, 50*time.Millisecond, time.Second)
+	bp.Observe(&Metrics{JobQueueSize: 900, AverageJobLatency: 100 * time.Millisecond})
+	bp.Observe(&Metrics{JobQueueSize: 100, AverageJobLatency: 10 * time.Millisecond})
+	b.ReportAllocs()
+	for b.Loop() {
+		bp.Renormalize()
+	}
+}
