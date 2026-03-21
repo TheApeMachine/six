@@ -11,7 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/cluster"
-	"github.com/theapemachine/six/pkg/system/core"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
@@ -135,6 +135,10 @@ up a labeled graph. Anything resembling semantic structure is to be considered
 coincidental from here on, and no longer relevant to the system itself.
 Another way to think about this is that we are now operating on pure, raw structure
 alone, and any semantic meaning happens to just follow that structure.
+If that sounds scary to you, consider that you can only assume that my assumption
+that human language semantics are less important than the structure of the language
+itself, is incorrect. And you may well be right, the difference is that I understand
+the need to prove my assumptions, and you are looking at my attempt to do so.
 */
 func (graph *GraphServer) Write(ctx context.Context, call Graph_write) error {
 	key := call.Args().Key()

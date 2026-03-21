@@ -274,3 +274,124 @@ func (dial PhaseDial) normalize() PhaseDial {
 
 	return dial
 }
+
+/*
+PhaseRotor is a 512-dimensional Clifford rotor array. Each dimension uses
+a PGA Multivector instead of a complex number, encoding rotation in a
+unique plane derived from the Fibonacci lattice. This lifts PhaseDial's
+2D phase rotations into the full even subalgebra of Cl(3,0,1), enabling
+spatial reasoning beyond the complex plane.
+*/
+type PhaseRotor []Multivector
+
+/*
+NewPhaseRotor allocates a zero-initialized PhaseRotor of NBasis dimensions.
+Each element is a zero Multivector; call EncodeFromValues to populate.
+*/
+func NewPhaseRotor() PhaseRotor {
+	return make(PhaseRotor, config.Numeric.NBasis)
+}
+
+/*
+EncodeFromValues generates a 512-dim PhaseRotor from a value sequence.
+Each dimension k gets a unique rotation axis via the Fibonacci lattice
+on S², using prime frequency omega_k to accumulate phase from position
+and structural identity — identical to PhaseDial's phase formula. The
+per-value rotors are summed (quaternion-mean style) then normalized to
+unit versors.
+*/
+func (rotor PhaseRotor) EncodeFromValues(values []primitive.Value) PhaseRotor {
+	if len(values) == 0 {
+		return rotor
+	}
+
+	goldenAngle := math.Pi * (3 - math.Sqrt(5))
+	nBasis := float64(config.Numeric.NBasis)
+
+	for k := 0; k < config.Numeric.NBasis; k++ {
+		theta := goldenAngle * float64(k)
+		zCoord := 1 - (2*float64(k)+1)/nBasis
+		rCoord := math.Sqrt(1 - zCoord*zCoord)
+
+		axisE23 := rCoord * math.Cos(theta)
+		axisE31 := rCoord * math.Sin(theta)
+		axisE12 := zCoord
+
+		omega := float64(numeric.Primes[k])
+
+		var sum Multivector
+
+		for t := range values {
+			var mix uint64
+
+			for blk := range config.ValueBlocks {
+				mix ^= values[t].Block(blk) * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+			}
+
+			structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
+			phase := (omega * float64(t+1) * 0.1) + (structuralPhase * math.Pi * 2)
+			halfPhase := phase / 2
+			sinHalf := math.Sin(halfPhase)
+			cosHalf := math.Cos(halfPhase)
+
+			sum[MvScalar] += cosHalf
+			sum[MvE12] += sinHalf * axisE12
+			sum[MvE31] += sinHalf * axisE31
+			sum[MvE23] += sinHalf * axisE23
+		}
+
+		rotor[k] = sum.Normalize()
+	}
+
+	return rotor
+}
+
+/*
+Similarity returns the rotor-space similarity between two PhaseRotors.
+For each dimension k, the scalar part of rotor[k]·other[k]† measures the
+cosine of the half-angle between the two rotors (analogous to quaternion
+dot product). The returned value averages this across all dimensions,
+giving 1.0 for identical rotors and values near 0 for uncorrelated ones.
+*/
+func (rotor PhaseRotor) Similarity(other PhaseRotor) float64 {
+	if len(rotor) != len(other) || len(rotor) == 0 {
+		return 0
+	}
+
+	var dotSum float64
+
+	for k := range rotor {
+		product := rotor[k].GeometricProduct(other[k].Reverse())
+		dotSum += product[MvScalar]
+	}
+
+	return dotSum / float64(len(rotor))
+}
+
+/*
+ToDialCompat projects each rotor down to a 2D phase angle for backward
+compatibility with PhaseDial consumers. The total rotation angle
+θ = 2·atan2(|bivector|, scalar) is extracted and signed by the net
+bivector orientation, then mapped to a unit complex number.
+*/
+func (rotor PhaseRotor) ToDialCompat() PhaseDial {
+	dial := make(PhaseDial, len(rotor))
+
+	for k, mv := range rotor {
+		eucNorm := math.Sqrt(
+			mv[MvE12]*mv[MvE12] +
+				mv[MvE31]*mv[MvE31] +
+				mv[MvE23]*mv[MvE23],
+		)
+
+		angle := 2 * math.Atan2(eucNorm, mv[MvScalar])
+
+		if mv[MvE12]+mv[MvE31]+mv[MvE23] < 0 {
+			angle = -angle
+		}
+
+		dial[k] = cmplx.Rect(1.0, angle)
+	}
+
+	return dial.normalize()
+}
