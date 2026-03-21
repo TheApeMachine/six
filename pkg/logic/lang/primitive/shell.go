@@ -15,7 +15,8 @@ word is the last block (block index TotalBlocks-1), which packs:
 	bits 13..25:  affine translate  (13 bits)
 	bits 26..38:  trajectory from   (13 bits)
 	bits 39..51:  trajectory to     (13 bits)
-	bits 52..59:  guard radius      (8 bits)
+	bits 52..58:  guard radius      (7 bits, covers 0..127)
+	bit  59:      active flag       (CA wavefront participation)
 	bits 60..63:  flags             (4 bits)
 
 The residual/carry word is block[CoreBlocks] (shell block 0).
@@ -35,8 +36,9 @@ const (
 
 	shellWordMaskTrajectoryFrom = affineFieldMask << shellWordShiftTrajectoryFrom
 	shellWordMaskTrajectoryTo   = affineFieldMask << shellWordShiftTrajectoryTo
-	shellWordMaskGuardRadius    = uint64(0xFF) << shellWordShiftGuardRadius
+	shellWordMaskGuardRadius    = uint64(0x7F) << shellWordShiftGuardRadius
 	shellWordMaskFlags          = uint64(0xF) << shellWordShiftFlags
+	shellWordBitActive          = uint64(1) << 59
 
 	shellWordBlock = config.TotalBlocks - 1
 )
@@ -46,6 +48,7 @@ const (
 	ValueFlagRouteHint
 	ValueFlagGuard
 	ValueFlagMutable
+	ValueFlagActive
 )
 
 /*
@@ -148,7 +151,7 @@ SetGuardRadius stores a tolerated modular phase drift for the next hop.
 func (value Value) SetGuardRadius(radius uint8) {
 	word := value.Block(shellWordBlock)
 	word &^= shellWordMaskGuardRadius
-	word |= uint64(radius) << shellWordShiftGuardRadius
+	word |= uint64(radius&0x7F) << shellWordShiftGuardRadius
 	value.setBlock(shellWordBlock, word)
 	value.setOperatorFlag(ValueFlagGuard, true)
 }
@@ -165,6 +168,30 @@ HasGuard reports whether the value explicitly carries a transition guard.
 */
 func (value Value) HasGuard() bool {
 	return value.HasOperatorFlag(ValueFlagGuard)
+}
+
+/*
+SetActive marks the value as an active wavefront cell participating in
+the current CA tick. Occupies shell bit 59 between guard radius and the
+general operator flag nybble.
+*/
+func (value *Value) SetActive(active bool) {
+	word := value.Block(shellWordBlock)
+
+	if active {
+		word |= shellWordBitActive
+	} else {
+		word &^= shellWordBitActive
+	}
+
+	value.setBlock(shellWordBlock, word)
+}
+
+/*
+Active reports whether the value is currently an active wavefront cell.
+*/
+func (value *Value) Active() bool {
+	return value.Block(shellWordBlock)&shellWordBitActive != 0
 }
 
 /*
