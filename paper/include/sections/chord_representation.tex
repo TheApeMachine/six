@@ -1,18 +1,25 @@
 % ============================================================================
-% THE 257-BIT CHORD REPRESENTATION
+% THE 8191-BIT CHORD REPRESENTATION
 % ============================================================================
 \subsection{Deterministic Prime-Basis Identity}
 \label{sec:base_value}
 \label{sec:value_representation}
 
-Let $D = 257$ denote the value dimensionality and let $\mathcal{B} = \{0,
-\ldots, 255\}$ be the byte alphabet.  Every byte value $b \in \mathcal{B}$
-is mapped to a deterministic binary vector $\mathbf{c}(b) \in \{0,1\}^{D}$
-by activating exactly five bits at positions given by coprime spreading:
+Let $D = 8191$ denote the value dimensionality (the Mersenne prime
+$2^{13} - 1$) and let $\mathcal{B} = \{0, \ldots, 255\}$ be the byte
+alphabet.  Every byte value $b \in \mathcal{B}$ is mapped to a deterministic
+binary vector $\mathbf{c}(b) \in \{0,1\}^{D}$ by activating exactly five bits
+at positions determined by a Golomb-ruler basis projected through coprime
+multipliers modulo the Mersenne prime $D = 8191$.
+
+Let $\mathcal{G} = \{0, 1, 4, 9, 11\}$ be the 5-sparse Golomb-ruler basis and
+let $\{m_1, \ldots, m_5\}$ be dynamically derived coprime multipliers
+(\texttt{byteValueMultipliers}).  The activation set is:
 
 \begin{equation}
-  \mathcal{P}(b) = \bigl\{7b \bmod D,\; 13b \bmod D,\; 31b \bmod D,\;
-                          61b \bmod D,\; 127b \bmod D\bigr\}
+  \mathcal{P}(b) = \bigl\{\, g_j \cdot m_j \cdot b \bmod D
+                   \;\big|\; g_j \in \mathcal{G},\;
+                   j = 1, \ldots, 5 \,\bigr\}
   \label{eq:base_value}
 \end{equation}
 
@@ -25,26 +32,31 @@ by activating exactly five bits at positions given by coprime spreading:
   \label{eq:indicator}
 \end{equation}
 
-\noindent Because the multipliers $\{7, 13, 31, 61, 127\}$ are pairwise
-coprime and $D = 257$ is prime, distinct byte values receive distinct activation
-patterns (verified by exhaustive enumeration over all $256$ values).  The
-resulting value is extremely sparse: $\|\mathbf{c}(b)\|_1 = 5$ out of
-$D = 257$ bits, yielding a sparsity ratio of $5/257 \approx 1.95\%$.
+\noindent Because $D = 8191$ is a Mersenne prime ($2^{13} - 1$), every
+non-zero multiplier generates a full-period permutation of the residues
+$\{0, \ldots, D-1\}$, and the Golomb-ruler property guarantees that no two
+basis offsets share the same pairwise difference.  Together these ensure that
+distinct byte values receive distinct activation patterns (verified by
+exhaustive enumeration over all $256$ values).  The resulting value is
+extremely sparse: $\|\mathbf{c}(b)\|_1 = 5$ out of $D = 8191$ bits, yielding
+a sparsity ratio of $5/8191 \approx 0.061\%$.
 
-\paragraph{Why Coprime Multipliers.}
+\paragraph{Why Coprime Multipliers over a Golomb Ruler.}
 The choice of coprime multipliers is not arbitrary.  Multiplying by a value
-$p$ and reducing modulo a prime $D = 257$ generates a permutation of the
+$p$ and reducing modulo a prime $D = 8191$ generates a permutation of the
 residues $\{0, \ldots, D-1\}$ for any $p \not\equiv 0 \pmod{D}$.
-Since all five multipliers are themselves prime and less than 257, each
-independently generates a distinct full-period permutation,
-maximizing the minimum Hamming distance between any two byte values.
+Each dynamically derived multiplier independently generates a distinct
+full-period permutation.  The Golomb-ruler basis $\{0, 1, 4, 9, 11\}$
+further guarantees that all pairwise differences between basis positions are
+unique, maximizing the minimum Hamming distance between any two byte values
+across the full 8191-bit space.
 
 \subsection{Algebraic Operations}
 \label{sec:value_algebra}
 
 The Value supports a closed algebra of compositional operations.  Each
 executes in $O(D/w)$ time where $w$ is the SIMD word width (64 for
-\texttt{uint64}, yielding $D/w = 8$ operations per value):
+\texttt{uint64}, yielding $\lceil D/w \rceil = 128$ operations per value):
 
 \begin{align}
   \textbf{ValueOR:}\quad
@@ -140,11 +152,11 @@ co-occurrence matrix without per-value storage.
 \subsection{FlatValue: GPU-Optimized Dense Representation}
 \label{sec:flat_value}
 
-For GPU dispatch, the sparse 257-bit Value is converted to a \emph{FlatValue}:
+For GPU dispatch, the sparse 8191-bit Value is converted to a \emph{FlatValue}:
 a dense array of at most $D$ active prime indices $\{p_1, \ldots, p_k\}$
 where $k = \|\mathbf{c}\|_1$.  This eliminates bit-twiddling thread
 divergence in SIMT architectures: every thread iterates over exactly
-$k$ entries rather than scanning all $D/64 = 8$ blocks.
+$k$ entries rather than scanning all $\lceil D/64 \rceil = 128$ blocks.
 
 Batched flattening across $N$ values is parallelized via a pre-warmed,
 auto-scaling worker pool, yielding amortized $O(k)$ per value with

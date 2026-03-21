@@ -1,51 +1,168 @@
 % ============================================================================
-% THE VIRTUAL MACHINE: PROMPT → GENERATE → EMIT
+% THE VIRTUAL MACHINE: TOKENIZE → STORE → FOLD → PROMPT → EXECUTE → REIFY
 % ============================================================================
 \subsection{Machine Architecture}
 \label{sec:vm_machine}
 
-The Machine is the top-level entrypoint to the architecture.  It orchestrates
-data loading, PrimeField construction, and the prompt-to-generation loop:
+The Machine is the top-level orchestrator of the entire architecture.  It
+manages the lifecycle of a single data-to-inference pipeline by composing
+four RPC-mediated subsystems into a unified processing loop:
 
 \begin{enumerate}[nosep]
-  \item \textbf{Loading:}  Raw byte streams are tokenized via the Universal
-        Tokenizer, sequenced by the topological Sequencer, and inserted into
-        the PrimeField with their structural events driving manifold rotations.
-  \item \textbf{EigenMode Calibration:}  After ingestion, a multi-scale
-        co-occurrence matrix is built from the stored values and factored
-        into toroidal eigenvectors---establishing the navigation phase map.
-  \item \textbf{Prompt Processing:}  Input prompt bytes are converted to
-        values, accumulated into a query manifold via topological event
-        application, and used to seed the generation context.
+  \item \textbf{Loading:} Raw byte streams are tokenized via the Universal
+        Tokenizer into Morton-packed keys.  Each key carries a position
+        coordinate and a symbol byte, interleaved via a Z-order curve so that
+        locality is preserved across scales.
+  \item \textbf{Storage:} Keys are inserted into the DMT Forest (a radix
+        trie) through \texttt{WriteBatch} RPCs, providing prefix-compressed
+        persistent storage for the full tokenized corpus.
+  \item \textbf{Graph Construction:} The same key stream is simultaneously
+        routed to the Graph substrate, which converts it into
+        \texttt{primitive.Value} signals and constructs a fold hierarchy via
+        RecursiveFold (\Cref{sec:self_programming}).
+  \item \textbf{Prompt Resolution:} Prompt strings are tokenized through the
+        same pipeline, compiled into Value sequences, and dispatched to
+        CantileverServer for multi-stage BVP resolution
+        (\Cref{sec:cantilever_bvp}).
 \end{enumerate}
 
-\subsection{The Generation Loop}
-\label{sec:generation_loop}
+All subsystem capabilities (Tokenizer, Forest, Graph, MacroIndex,
+CantileverServer) are resolved at runtime through a cluster Router, which
+performs load-balanced capability selection across registered servers.
+Cap'n~Proto RPC provides the transport layer; every inter-service call is a
+zero-copy capability invocation over in-process pipes.
 
-Generation proceeds as follows (up to \texttt{maxGenerationSteps = 256}):
+\subsection{The Self-Programming Loop}
+\label{sec:self_programming}
+
+The central design contribution is a closed feedback loop in which the
+system discovers, verifies, and internalizes its own computational operators.
+The loop has five stages:
+
+\subsubsection{Observe}
+
+Data bytes are tokenized into Morton keys, stored in the radix trie, and
+assembled into \texttt{primitive.Value} signals.  The Graph substrate
+constructs a topology-guided fold hierarchy using RecursiveFold: all pairwise
+Jaccard similarities are computed, the most similar pairs merge first, and the
+shared structural invariant (bitwise AND) becomes a fold label while
+directional residues (Hole) recurse to deeper levels.  The result is a
+persistent reasoning graph where every node records a shared invariant and
+two residue children.
+
+\subsubsection{Prompt}
+
+CantileverServer resolves prompts in two stages:
 
 \begin{enumerate}[nosep]
-  \item Derive a \emph{slotMask} by comparing the query context against
-        the ExpectedReality manifold, identifying which blocks contain
-        observed data and which represent structural vacuums.
-  \item Execute BestFill across the PrimeField with multi-hop reasoning:
-        up to \texttt{maxReasoningHops = 3} iterative searches, each time
-        masking the previously matched manifold to encourage exploration.
-  \item Integrate the matched span's values into the context manifold via
-        the slotMask, only filling blocks that were identified as missing.
-  \item Decode the best-matching manifold's readout bytes and emit them.
-  \item Check for geometric closure via EigenMode phase convergence, or
-        detect manifold collapse (score below threshold).
+  \item \textbf{Exact lexical continuation.}  The prompt is tokenized through
+        the same Universal Tokenizer path, producing a Value sequence.  This
+        sequence is decoded to bytes and matched against the stored corpus
+        rows; the first exact prefix match yields the suffix as a
+        continuation.
+  \item \textbf{Operator-mediated bridging.}  When no exact prefix match
+        exists, the system attempts BVP bridging.  For each corpus row longer
+        than the prompt, the prompt's accumulated OR-fold signal is treated as
+        the start boundary and the row's suffix signal as the goal boundary.
+        The geometric \texttt{AffineKey} delta between start and goal is
+        computed (one 64-bit word per Value block), and the MacroIndex is
+        queried for an operator that resolves the gap.  The MacroIndex
+        supports both exact lookup (by full AffineKey) and approximate lookup
+        (via PhaseDial embeddings with cosine-similarity nearest-neighbor
+        search among hardened opcodes).
 \end{enumerate}
 
-\subsection{Multi-Hop Reasoning via Iterative Masking}
-\label{sec:multi_hop}
+\subsubsection{Harden}
 
-For reasoning tasks requiring information from multiple memory locations, the
-Machine supports multi-hop retrieval.  After each BestFill match, the matched
-manifold is temporarily masked (\Cref{sec:masking}) and the search is
-repeated.  This forces the system to recruit increasingly distant structural
-neighbors, enabling transitive inference chains.
+Successful Stage~2 bridges feed back into the MacroIndex via
+\texttt{RecordCandidateResult}.  Each bridge outcome records pre-residue,
+post-residue, an ``advanced'' flag (post-residue $<$ pre-residue), and a
+``stable'' flag.  Candidates that succeed repeatedly---advanced, stable, and
+residue-reducing for $\ge 5$ consecutive uses---are promoted from
+\emph{Candidate} to \emph{Hardened} status.  Hardening triggers PhaseDial
+embedding of the operator's AffineKey, making it available for approximate
+lookup by future prompts that encounter geometrically similar gaps.
 
-% TODO: Add generation trace diagram showing the mask → fill → emit cycle.
-% TODO: Report multi-hop reasoning depth vs accuracy on bAbI tasks.
+\subsubsection{Execute}
+
+Hardened MacroOpcodes are first-class Values.  \texttt{EncodeMacroOperator}
+produces a Value carrying \texttt{OpcodeMacro} in its opcode block, the
+learned affine operator $f(x) = \mathit{scale} \cdot x + \mathit{translate}
+\pmod{8191}$ in its shell, and an XOR-signature of the operator's key in its
+core blocks.  These Values can be placed directly into program sequences and
+executed by the Interpreter at native speed, without re-deriving the
+transformation at runtime.
+
+\subsubsection{Reify}
+
+\texttt{ReifyTrace} closes the loop.  After the Interpreter executes a
+program, the execution trace---a sequence of \texttt{ExecutionStep} records,
+each carrying the program counter, opcode, phase-before, and
+phase-after---is composed into a single affine macro operator.  Composition
+chains each step's affine transform:
+\begin{equation}
+  (s_{\mathrm{comp}},\; t_{\mathrm{comp}})
+  = \prod_{i=1}^{n} (s_i,\; t_i)
+  \quad\text{where}\quad
+  s' = s_{\mathrm{comp}} \cdot s_i \!\!\pmod{8191},\;
+  t' = s_{\mathrm{comp}} \cdot t_i + t_{\mathrm{comp}} \!\!\pmod{8191}
+  \label{eq:reify}
+\end{equation}
+The resulting Value is a candidate for insertion into the MacroIndex, where
+it enters the hardening pipeline.  A successful trace between two boundary
+states thus crystallizes into a single instruction that future programs can
+invoke directly.
+
+\subsection{The Interpreter}
+\label{sec:interpreter}
+
+The Interpreter is a register machine that executes programs encoded as
+sequences of \texttt{primitive.Value}.  Each Value is simultaneously
+instruction and operand: the opcode block (C5) carries the control-flow
+instruction and branch metadata, the shell (C7) carries the device address
+and affine operator, and the core blocks (C0--C4) carry the
+$\operatorname{GF}(8191)$ state.
+
+Execution maintains a single running phase $\phi \in \operatorname{GF}(8191)$
+initialized to the multiplicative identity.  At each program counter step,
+the current node's affine operator transforms the phase:
+\begin{equation}
+  \phi \;\leftarrow\; a \cdot \phi + b \pmod{8191}
+\end{equation}
+The opcode then determines the program counter advance:
+
+\begin{center}
+\begin{tabular}{ll}
+  \toprule
+  \textbf{Opcode} & \textbf{Semantics} \\
+  \midrule
+  \texttt{Next}    & $\mathit{pc} \leftarrow \mathit{pc} + 1$ \\
+  \texttt{Jump}    & $\mathit{pc} \leftarrow \mathit{pc} + \Delta$ (relative offset stored in node) \\
+  \texttt{Branch}  & Evaluate $N$ candidate branches; pick lowest-residue winner; $\mathit{pc}$++ \\
+  \texttt{Reset}   & $\phi \leftarrow 1$;\; $\mathit{pc}$++ \\
+  \texttt{Halt}    & Emit accumulated state; stop \\
+  \texttt{Macro}   & Apply learned affine: $\phi \leftarrow s \cdot \phi + t \pmod{8191}$;\; $\mathit{pc}$++ \\
+  \bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{OpcodeMacro} is the critical instruction for self-programmability: it
+executes a hardened learned operator at native interpreter speed.  The macro's
+scale and translate fields are extracted from the Value's shell via
+\texttt{MacroAffine} and applied as a single Mersenne-reduced multiply-add.
+Guard radii provide an optional early-termination mechanism: if the phase
+transition magnitude exceeds the node's guard radius, execution halts and the
+current state is emitted.
+
+\subsection{Batch Transport}
+\label{sec:batch_transport}
+
+Data flows between Machine and its subsystems through \texttt{WriteBatch}
+RPCs.  The Tokenizer, Forest, and Graph each expose a streaming
+\texttt{WriteBatch} method that accepts bulk payloads in a single Cap'n~Proto
+call, amortizing per-key RPC overhead.  The Machine first sends the full byte
+stream to the Tokenizer via \texttt{WriteBatch}, drains the resulting Morton
+keys, then fans the key stream out to both Forest and Graph through their
+respective \texttt{WriteBatch} endpoints.  This bulk pipeline replaces
+per-element streaming and ensures that ingestion throughput scales with
+payload size rather than element count.

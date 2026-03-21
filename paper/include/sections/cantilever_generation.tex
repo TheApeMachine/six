@@ -17,7 +17,7 @@ Contemporary language models formulate generation as an autoregressive Initial V
 
 We reject the IVP formulation entirely, framing generation instead as a \emph{Boundary Value Problem (BVP) solved through coordinate geometry}. Given a boundary constraint (a starting anchor coordinate) and a distant logic goal (a target phase $\phi_t$), the generation engine extends a computational cantilever into unknown territory to bridge the gap.
 
-Generation relies purely on interpolation of rotational trajectories through $\operatorname{GF}(257)$ rather than predicting the next localized step. The wavefront carries ephemeral execution registers to synthesize temporary affine momentum and phase states without committing to the LSM, mathematically ensuring that paths can diverge, extrapolate, and backtrack gracefully.
+Generation relies purely on interpolation of rotational trajectories through $\operatorname{GF}(8191)$ rather than predicting the next localized step. The Interpreter carries execution registers to synthesize temporary affine momentum and phase states without committing to the radix trie, mathematically ensuring that paths can diverge, extrapolate, and backtrack gracefully.
 
 \subsection{The Frustration Engine}
 \label{sec:frustration_engine}
@@ -25,21 +25,34 @@ Generation relies purely on interpolation of rotational trajectories through $\o
 When the cantilever wavefront stalls---meaning no locally available sequence matches the momentum dictated by the execution register---it enters a state of \emph{frustration}. Rather than halting or hallucinating, the system evaluates the unresolved rotation gap between the target phase $\phi_t$ and the current locked phase $\phi_c$:
 
 \begin{equation}
-  \Delta = \phi_t \cdot \phi_c^{-1} \pmod{257}
+  \Delta = \phi_t \cdot \phi_c^{-1} \pmod{8191}
   \label{eq:frustration_gap}
 \end{equation}
 
-When $\Delta = 1$, the span has successfully bridged to the target (phase-lock). When $\Delta \neq 1$, the wavefront elevates frustration levels and searches the \emph{Macro Index}---a fractal skip-list built from $2^k$-stride values. If a macro-opcode resolves the missing affine rotation $Z$, the wavefront seamlessly jumps logarithmic distances to satisfy the boundary constraint.
+When $\Delta = 1$, the span has successfully bridged to the target (phase-lock). When $\Delta \neq 1$, the wavefront elevates frustration levels and searches the \emph{MacroIndex}---a registry of discovered affine operators indexed by their full geometric AffineKey (one 64-bit word per Value block). The MacroIndex supports two resolution modes:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Exact lookup:} The geometric delta between start and goal boundaries is computed as an AffineKey and matched directly against the stored opcode table. A hit returns the corresponding MacroOpcode with its affine operator $f(x) = \mathit{scale} \cdot x + \mathit{translate} \pmod{8191}$.
+  \item \textbf{Approximate lookup:} When no exact match exists, the AffineKey is projected into PhaseDial space---a 512-dimensional unit-normalized complex vector derived from the key's structural phases. Cosine similarity is computed against PhaseDial embeddings of all hardened opcodes. The nearest neighbor above a configurable threshold (default $0.7$) is returned as an approximate bridge operator.
+\end{enumerate}
+
+If a MacroOpcode resolves the missing affine rotation, the wavefront seamlessly applies the learned operator to satisfy the boundary constraint.
 
 \subsection{The Cantilever Generation Loop}
 \label{sec:cantilever_loop}
 
-Generation extends the originating seed like a physical cantilever:
+Generation extends the originating seed like a physical cantilever through a multi-stage pipeline:
 
 \begin{enumerate}[nosep]
-  \item Inject prompt bytes to seed initial $\operatorname{GF}(257)$ phase states.
-  \item Apply affine momentum (execution) inside the Ephemeral Registers: $f(x) = ax + b \pmod{257}$.
-  \item Measure the projected rotation against the LSM spatial index using XOR popcount.
-  \item If phase-locked, advance the cantilever base; otherwise, accumulate frustration and pivot via the Macro Index or backtrack using the checkpoint trail.
-  \item Continue iteratively extending the cantilever until the resulting coordinate state strikes the delimiter bit (Bit 256), yielding geometric closure or a fully satisfied target boundary phase.
+  \item \textbf{Tokenize:} Prompt bytes are fed to the Universal Tokenizer via \texttt{WriteBatch} RPC, producing Morton-packed keys that are compiled into a \texttt{primitive.Value} sequence through the same path used for corpus ingestion.
+  \item \textbf{Stage 1 --- Exact lexical continuation:} The prompt Value sequence is decoded to bytes and matched against the stored corpus. For each corpus row, the system checks whether the decoded prompt is an exact prefix of the row's byte sequence; the first match yields the suffix as a continuation.
+  \item \textbf{Stage 2 --- Operator-mediated bridging:} When no exact prefix match exists, the system performs BVP bridging. For each corpus row longer than the prompt:
+    \begin{enumerate}[nosep]
+      \item The prompt's OR-folded signal serves as the start boundary $\phi_s$.
+      \item The row's suffix signal serves as the goal boundary $\phi_g$.
+      \item \texttt{BridgeValues} computes the AffineKey delta and queries the MacroIndex (exact, then approximate) for an operator that resolves the geometric gap.
+      \item If a bridge operator is found, it is applied to the start phase. The pre-residue (start active count) and post-residue (distance between bridged phase and goal) are recorded.
+    \end{enumerate}
+  \item \textbf{Harden:} Every successful Stage~2 bridge feeds \texttt{RecordCandidateResult} with the bridge outcome (pre-residue, post-residue, advanced flag, stable flag). Candidates that accumulate $\ge 5$ consecutive successes where post-residue $<$ pre-residue are promoted to Hardened status, embedding their AffineKey into PhaseDial space for future approximate retrieval.
+  \item \textbf{Emit:} The continuation---either the exact suffix or the bridged suffix---is decoded from Values back to bytes via \texttt{InferLexicalSeed} and returned as the generation output. Geometric closure occurs when the resulting coordinate state achieves phase-lock ($\Delta = 1$) against the target boundary.
 \end{enumerate}

@@ -45,7 +45,7 @@ extracts two geometric signals:
 \end{align}
 
 where $b_t = \operatorname{ValueBin}(\mathbf{c}_t)$ and $\Theta, \Phi$ are
-the EigenMode phase tables (\Cref{sec:multi_scale}).
+the EigenMode phase tables (\Cref{sec:eigenmode_navigation}).
 
 \paragraph{Step 2: Golden Ratio Exponential Smoothing.}
 Running estimates are maintained via exponential moving averages with
@@ -114,8 +114,9 @@ An additional hard topological boundary fires when:
 where $\kappa$ is the \texttt{FrequencySpread} hyperparameter.
 
 \paragraph{Step 5: Event Classification.}
-Boundary events are classified into topological triggers that drive the
-non-commutative rotations of the manifold (\Cref{sec:manifold_layout}):
+Boundary events are classified into topological triggers that drive
+$\operatorname{GF}(8191)$ affine rotations of the manifold
+(\Cref{sec:manifold_layout}):
 
 \begin{center}
 \begin{tabular}{lll}
@@ -125,18 +126,18 @@ non-commutative rotations of the manifold (\Cref{sec:manifold_layout}):
   \textsc{DensitySpike}
     & $\Delta_{\text{pop}} > \tau_{\text{pop}}$ and
       $\text{pop}_t > \overline{\text{pop}}_t$
-    & 3-Cycle $(0\,1\,2)$ \\
+    & Affine rotation $(1, 1)$ \\
   \textsc{DensityTrough}
     & $\Delta_{\text{pop}} > \tau_{\text{pop}}$ and
       $\text{pop}_t < \overline{\text{pop}}_t$
-    & 3-Cycle $(0\,2\,1)$ \\
+    & Affine rotation $(g, 1)$ \\
   \textsc{PhaseInversion}
     & $\Delta_{\text{phase}} > \tau_{\text{phase}}$ or
       $\Delta_{\text{phase}} > \pi/\kappa$
-    & Double transposition $(0\,3)(1\,4)$ \\
+    & Affine rotation $(g, 0)$ \\
   \textsc{LowVarianceFlux}
     & coherence time $> 10$
-    & 5-Cycle $(0\,1\,2\,3\,4)$ \\
+    & Affine rotation $(1, 2)$ \\
   \bottomrule
 \end{tabular}
 \end{center}
@@ -153,7 +154,7 @@ The Sequencer incorporates bidirectional feedback at two timescales:
         \rho_{\max}$, the sensitivity $\gamma$ is decreased by
         $\varphi^{-9} \approx 0.013$; if $\rho < \rho_{\min}$, it is
         increased symmetrically.
-  \item \textbf{Low-frequency (global):}  BestFill retrieval quality
+  \item \textbf{Low-frequency (global):}  Retrieval quality
         reports adjust calibration at rate $\varphi^{-5} \approx 0.090$:
         over-discrimination (missed relevant matches) raises $\gamma$ to
         widen boundaries; under-discrimination (matched unrelated content)

@@ -8,23 +8,23 @@
 Unlike spectral methods that require building co-occurrence matrices and
 extracting eigenvectors, the phase model derives toroidal coordinates
 \emph{analytically} from the intrinsic bit distribution of each value over
-$\operatorname{GF}(257)$.  No training data is required; every value's position
+$\operatorname{GF}(8191)$.  No training data is required; every value's position
 on the phase torus is determined at construction time.
 
 \subsubsection{Phase Assignment via Prime Geometry}
 
 Each value $\mathbf{c}$ has $k = \|\mathbf{c}\|_1$ active bits at positions
-$\{p_1, \ldots, p_k\} \subset \{0, \ldots, 256\}$.  We assign toroidal
+$\{p_1, \ldots, p_k\} \subset \{0, \ldots, 8190\}$.  We assign toroidal
 coordinates $(\theta, \phi) \in [-\pi, \pi)^2$ directly:
 
 \paragraph{Theta (Circular Mean of Active Positions).}
 The angular identity of a value is the circular mean of its active prime
-indices, uniformly distributed around $[0, 2\pi)$ over the 257-element field:
+indices, uniformly distributed around $[0, 2\pi)$ over the 8191-element field:
 
 \begin{equation}
   \theta(\mathbf{c}) = \operatorname{atan2}\!\Bigl(
-    \sum_{j=1}^{k} \sin\!\bigl(\tfrac{2\pi \, p_j}{257}\bigr),\;\;
-    \sum_{j=1}^{k} \cos\!\bigl(\tfrac{2\pi \, p_j}{257}\bigr)
+    \sum_{j=1}^{k} \sin\!\bigl(\tfrac{2\pi \, p_j}{8191}\bigr),\;\;
+    \sum_{j=1}^{k} \cos\!\bigl(\tfrac{2\pi \, p_j}{8191}\bigr)
   \Bigr)
   \label{eq:theta_analytical}
 \end{equation}
@@ -37,7 +37,7 @@ occupy nearby $\theta$-positions on the torus.
 The secondary phase encodes the value's population density:
 
 \begin{equation}
-  \phi(\mathbf{c}) = \frac{2\pi \cdot \|\mathbf{c}\|_1}{257}
+  \phi(\mathbf{c}) = \frac{2\pi \cdot \|\mathbf{c}\|_1}{8191}
   \label{eq:phi_analytical}
 \end{equation}
 
@@ -90,7 +90,7 @@ phase $\bar{\theta}_{\text{anchor}}$ established at prompt initialization:
 \end{equation}
 
 where $\delta$ is derived from the architecture's Shannon capacity parameter
-(\texttt{shannonCapacity}, default 4.5 radians).  This constitutes a
+(\texttt{shannonCapacity}, default $0.45$, a density threshold).  This constitutes a
 topological proof of structural closure: the generative trajectory has
 completed a semantically coherent loop on the torus.  Because $\mathbb{T}^2$
 is a compact manifold, every trajectory is pre-compact (bounded), preventing
@@ -105,9 +105,9 @@ entrapment in isolated fixed points or periodic orbits.
   \item \textbf{Deterministic.}  Identical values always map to identical
         $(\theta, \phi)$ regardless of context, ensuring reproducibility.
   \item \textbf{$O(k)$ per value.}  Phase computation scales with the number
-        of active bits ($k \leq 257$), not with corpus size.
+        of active bits ($k \leq 8191$), not with corpus size.
   \item \textbf{Intrinsically geometric.}  The prime-index circular mean
         directly corresponds to the value's position in the
-        $\operatorname{GF}(257)$ rotational lattice, making phase navigation
+        $\operatorname{GF}(8191)$ rotational lattice, making phase navigation
         and Galois field operations composable.
 \end{itemize}

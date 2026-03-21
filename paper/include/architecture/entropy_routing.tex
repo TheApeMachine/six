@@ -6,23 +6,21 @@ A persistent vulnerability in traditional Hyperdimensional Computing (HDC) and V
 
 In information theoretic terms, the representational capacity of a binary vector is maximized when exactly 50\% of its bits are active ($p(1) = 0.5$). Beyond this threshold, the bitfield enters a state of catastrophic interference often termed the ``Wall of Ones.'' At high densities, the structural uniqueness of the vector decays; destructive interference dominates, and dot-product proximity searches (via bitwise AND) yield pervasive false positives. 
 
-Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector ($D = 10,000$ to $D = 100,000$). However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
+Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector ($D = 10{,}000$ to $D = 100{,}000$). However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
 
-\subsection{Dynamic Manifolds as Entropy Relief Valves}
-Rather than treating semantic memory as a static container of arbitrary width, the proposed architecture models memory as a dynamic thermodynamic engine. We confine the atomic semantic value to a highly compressed 257-bit vector, but geometrically map $6 \times 4 \times 257 = 6{,}168$ such values into a three-dimensional manifold (the \textit{Fermat Cube}), addressed by $\operatorname{GF}(257)$ affine transformations.
+\subsection{Hierarchical Trie Structure as an Entropy Relief Valve}
+Rather than treating semantic memory as a static container of arbitrary width, the architecture models memory as a dynamic thermodynamic engine. The atomic semantic value is an 8191-bit vector (128 core blocks $\times$ 64 bits $+$ 3 shell blocks $=$ 131 total blocks, stored in 1048 bytes $\approx$ 1~KB). Values are stored in a Morton-keyed radix trie (DMT---Distributed Merkle Trie) indexed by 64-bit spatial keys.
 
-By establishing a rigid, non-commutative rotational lattice, the architecture avoids local saturation through \textbf{Topological Entropy Routing}. Ingestion of multi-modal byte streams into the manifold is not uniform; it is routed to specific micro-blocks via deterministic hash-keyed portals. 
+By routing ingestion through the hierarchical branching structure of the trie and composing $\operatorname{GF}(8191)$ affine transformations, the architecture avoids local saturation through \textbf{Topological Entropy Routing}. Ingestion of multi-modal byte streams is not uniform; each value is routed to a deterministic trie path via its Morton-coded spatial coordinate.
 
-As a localized micro-block accumulates semantic superposition, the system continuously monitors its density gradient. When the population density approaches the Shannon maximum—specifically configured in the architecture as $\rho \ge 0.45$ (\texttt{MitosisThreshold})—the manifold reacts mechanically.
+As the trie accumulates entries, the system monitors density gradients at sequence boundaries. When the population density of active bits within a local region approaches the Shannon maximum---specifically configured as $\rho \ge 0.45$ (\texttt{ShannonCapacity})---this threshold governs the sequencer's boundary decisions, triggering structural splits that diffuse entropy across the trie's branching topology rather than allowing catastrophic interference within any single region.
 
-\subsection{Geometric Expansion and Virtual Mitosis}
-Before the local micro-block crosses the entropy peak and loses discriminative capacity, the system triggers an affine transformation over the finite field $GF(257)$. Because affine transformations $f(p) = (ap + b) \pmod{257}$ are non-commutative, this mathematical manipulation achieves two simultaneous topological functions:
+\subsection{Affine Entropy Diffusion}
+The $\operatorname{GF}(8191)$ affine group provides the mechanism for entropy diffusion. Each affine transformation $f(x) = (ax + b) \pmod{8191}$ is invertible (since 8191 is the Mersenne prime $2^{13}-1$), and the group contains $8191 \times 8190 = 67{,}124{,}490$ composable elements. This achieves two simultaneous functions:
 \begin{enumerate}
     \item \textbf{Sequence Encoding:} The rotational trajectory inherently encodes the grammatical or temporal sequence of the incoming data, eliminating the need for artificial positional embeddings.
-    \item \textbf{Entropy Diffusion:} The highly saturated, high-entropy block is mechanically swung out of the active ingestion portal and preserved in the structural background of the manifold. Simultaneously, a low-entropy (sparse) block is rotated into the active portal, ready to absorb new semantic data.
+    \item \textbf{Entropy Diffusion:} Affine rotation remaps highly saturated regions of the value space to low-entropy coordinates. The trie grows organically through insertion; new branches absorb fresh semantic data while densely populated paths retain their accumulated structure.
 \end{enumerate}
-
-If the global macro-density of the Fermat Cube itself reaches the 0.45 threshold, the system executes an $O(1)$ \textit{Virtual Mitosis}. The geometry is upgraded from the chiral octahedral group ($\mathbf{O}$) to the alternating group ($A_5$), expanding the topology from a single cube to the compound of five intersecting cubes ($5 \times 6{,}168 = 30{,}840$ value positions).
 
 \subsection{State Space Analysis: Topology as a Capacity Multiplier}
 \label{sec:state_space}
@@ -32,42 +30,27 @@ capacity can be increased by adding topology rather than parameters}.
 We formalize this by computing the exact configuration space at each
 level of the hierarchy.
 
-\paragraph{Level 1: The 257-Bit Value.}
-A single value occupies $D = 257$ bits of storage and admits
-$2^{257} \approx 2.31 \times 10^{77}$ possible states.  This is
+\paragraph{Level 1: The 8191-Bit Value.}
+A single value occupies $D = 8191$ bits of storage (131 blocks $\times$ 64 bits) and admits
+$2^{8191}$ possible states.  This is
 the Shannon-limited micro-state.
 
-\paragraph{Level 2: The Fermat Cube ($6 \times 4 \times 257$ positions).}
-$6{,}168$ values are arranged in a three-dimensional lattice, yielding:
+\paragraph{Level 2: The Morton-Keyed Trie.}
+Each trie entry stores one 8191-bit Value at a 64-bit Morton-coded spatial coordinate. The radix trie can hold an arbitrary number of entries, bounded only by available memory. For $N$ stored entries:
 \begin{equation}
-  |\Omega_{\text{cube}}| = (2^{257})^{6168} = 2^{1{,}585{,}176}
-  \approx 10^{477{,}166}
-  \label{eq:state_cube}
+  |\Omega_{\text{trie}}| = (2^{8191})^{N} = 2^{8191N}
+  \label{eq:state_trie}
 \end{equation}
-The memory footprint is $6{,}168 \times 64 = 394{,}752$ bytes $\approx 386$~KB.
 
-\paragraph{Level 3: The Icosahedral Manifold (Post-Mitosis).}
-Five Fermat Cubes expand the lattice to $30{,}840$ value positions:
-\begin{equation}
-  |\Omega_{\text{ico}}| = (2^{257})^{30840} = 2^{7{,}925{,}880}
-  \approx 10^{2{,}385{,}832}
-  \label{eq:state_ico}
-\end{equation}
-Memory: $5 \times 394{,}752 + 8 = 1{,}973{,}768$ bytes $\approx 1.9$~MB.
-
-\paragraph{Level 4: Rotational State Multiplier.}
-The 16-bit rotation header tracks orientational history.  In $\operatorname{GF}(257)$ Affine mode, each distinct configuration can exist in $257 \times 256 = 65{,}792$
-geometrically distinguishable states.  Post-mitosis with the $A_5$ working primitive, this
-rotational memory space interacts with a 60-state macro-permutation.  Combined with the 4-bit winding counter
-($2^4 = 16$ winding states):
+\paragraph{Level 3: Affine Group Multiplier.}
+The $\operatorname{GF}(8191)$ affine group contributes $8191 \times 8190 = 67{,}124{,}490$ composable transforms.  Each stored value can exist in any of these affine orientations, yielding a rotational state multiplier:
 
 \begin{equation}
-  |\Omega_{\text{total}}| = 2^{7{,}925{,}880} \times 65{,}792 \times 16
-  = 2^{7{,}925{,}880} \times 1{,}052{,}672
+  |\Omega_{\text{total}}| = 2^{8191N} \times 67{,}124{,}490^{N}
   \label{eq:state_total}
 \end{equation}
 
-Because the $GF(257)$ affine transformations are \emph{non-commutative}, the
+Because the $\operatorname{GF}(8191)$ affine transformations are \emph{non-commutative}, the
 rotational path matters---two sequences of operations that arrive at
 the same final affine element via different paths produce identical
 bit configurations but encode different syntactic histories in the
@@ -76,13 +59,13 @@ intermediate states.  The effective state space is therefore
 configurations beyond the static count.
 
 \paragraph{Comparison with Parameter-Count Scaling.}
-Table~\ref{tab:capacity_comparison} contrasts the manifold's
+Table~\ref{tab:capacity_comparison} contrasts the trie-based architecture's
 topology-driven capacity with conventional parameter scaling.
 
 \begin{table}[h]
   \centering
   \caption{Memory footprint vs.\ representational state space.  The
-           The Fermat Cube achieves exponentially larger state spaces per byte
+           GF(8191) affine trie achieves exponentially larger state spaces per byte
            by exploiting group-theoretic multipliers rather than
            increasing parameter counts.}
   \label{tab:capacity_comparison}
@@ -93,27 +76,23 @@ topology-driven capacity with conventional parameter scaling.
       & \textbf{State Space}
       & \textbf{$\log_{10}$ States/KB} \\
     \midrule
-    257-dim float32 embedding
-      & 2 KB
-      & $\sim 2^{16{,}384}$ (continuous)
+    8191-dim float32 embedding
+      & 32 KB
+      & $\sim 2^{262{,}112}$ (continuous)
       & $\sim 2{,}466$ \\
     GPT-2 ($117$M params, float16)
       & 234 MB
       & $\sim 2^{1.87 \times 10^9}$
       & $\sim 2{,}406$ \\
     \addlinespace
-    Single Fermat Cube (Affine)
-      & 386 KB
-      & $2^{1{,}585{,}176} \times 65{,}792 \times 16$
-      & $\sim 1{,}236$ \\
-    Single IcosahedralManifold
-      & 1.9 MB
-      & $2^{7{,}925{,}880} \times 65{,}792 \times 16$
-      & $\sim 1{,}236$ \\
-    1M Manifolds (GPU batch)
-      & 1.9 TB
-      & $(2^{7{,}925{,}880})^{10^6}$
-      & $\sim 1{,}236$ \\
+    1K trie entries (Affine)
+      & 1 MB
+      & $2^{8{,}191{,}000} \times 67{,}124{,}490^{1000}$
+      & $\sim 2{,}467$ \\
+    1M trie entries
+      & 1 GB
+      & $2^{8.191 \times 10^{9}} \times 67{,}124{,}490^{10^6}$
+      & $\sim 2{,}467$ \\
     \bottomrule
   \end{tabular}
 \end{table}
@@ -127,31 +106,27 @@ differs is the \emph{structure} of the state space:
   \item In a flat embedding, all $2^{D}$ states are reachable by
         arbitrary bit flips.  Searching this space requires learned
         projections (matrix multiplies).
-  \item In the manifold architecture, the state space is
-        \emph{factored} into $2^{D} \times |G| \times |\text{Winding}|$
-        where $|G|$ is the symmetry group order.  The group structure
+  \item In the trie architecture, the state space is
+        \emph{factored} into $2^{D} \times |G_{\text{affine}}|$
+        where $|G_{\text{affine}}| = 67{,}124{,}490$ is the $\operatorname{GF}(8191)$ affine group order.  The group structure
         imposes a \emph{coordinate system} on the state space, making
-        navigation $O(1)$ via the Geodesic LUT.
+        navigation $O(1)$ via affine composition.
 \end{itemize}
-
-The practical consequence: 1 million IcosahedralManifolds fit in
-$\sim$8.6~GB of VRAM (a single consumer GPU), yet the aggregate
-state space dwarfs the parameter space of the largest language models.
-Because all operations reduce to popcount and integer comparison
-(no floating-point matrix multiplies), the entire memory substrate is
-scanned in milliseconds.
 
 \subsection{Implications for Scaling}
 Through this mechanism, the architecture explicitly respects the Shannon
-limit at the micro-state (the 257-bit value) but circumvents it at the
-macro-state by converting scalar density pressure into geometric expansion.
-The system naturally diffuses semantic heat across the manifold topology,
-enabling $O(1)$ ambiguity resolution over millions of manifolds natively
-on consumer GPU hardware.
+limit at the micro-state (the 8191-bit value) but circumvents it at the
+macro-state by converting scalar density pressure into geometric expansion
+across the trie's branching hierarchy.
+The system naturally diffuses semantic heat across the trie topology,
+enabling $O(1)$ ambiguity resolution via affine group composition.
+Because all operations reduce to popcount and integer comparison
+(no floating-point matrix multiplies), the memory substrate scales
+linearly with stored entries.
 
 The analogy to physical systems is precise: protein folding achieves
 astronomically large conformational spaces ($\gg 10^{100}$) from
 sequences of only thousands of atoms, because \emph{spatial geometry
-multiplies the configuration space exponentially}.  The Fermat Cube
-exploits the same principle: value values $\times$ Galois field permutations
+multiplies the configuration space exponentially}.  The $\operatorname{GF}(8191)$
+affine trie exploits the same principle: value states $\times$ Galois field permutations
 $\times$ rotational paths---topology as a capacity multiplier.

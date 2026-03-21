@@ -12,36 +12,45 @@
   \item \textbf{Modality-agnostic processing:}  The same byte-level tokenizer
         and Value representation processes text, images, and structured data
         through identical pipelines---no modality-specific encoders.
-  \item \textbf{Non-commutative sequence encoding:}  The $A_5$ rotational
-        manifold natively encodes syntactic order through geometric
-        permutations, eliminating the need for learned positional
-        embeddings.
-  \item \textbf{Lossless collision-compression:}  The PrimeField's Value-OR
-        insertion achieves significant memory reduction while preserving
-        all structural information needed for retrieval.
-  \item \textbf{Hardware-native parallelism:}  The entire BestFill pipeline
-        is designed for GPU warp architecture, with integer pre-filters
-        and SIMD popcount operating at single-cycle throughput.
+  \item \textbf{Non-commutative sequence encoding:}  The GF(8191) affine
+        group natively encodes syntactic order through non-commutative
+        composition of affine operators $f(x)=ax+b$, eliminating the
+        need for learned positional embeddings.
+  \item \textbf{Lossless collision-compression:}  The radix trie's Morton
+        key deduplication achieves significant memory reduction while
+        preserving all structural information needed for retrieval.
+  \item \textbf{Hardware-native parallelism:}  The GF(8191) rotation
+        resolver and PhaseDial scanner are designed for GPU warp
+        architecture, with integer pre-filters and SIMD popcount
+        operating at single-cycle throughput.
+  \item \textbf{Self-programming:}  The system synthesizes missing affine
+        operators during cantilever solving, hardens them through
+        repeated success into permanent macro-opcodes, and natively
+        executes the resulting learned operators---closing an
+        observe-prompt-harden-execute-reify cycle without gradient
+        descent.
 \end{enumerate}
 
 \subsection{Known Limitations and Failure Modes}
 \label{sec:limitations}
 
 \begin{enumerate}[nosep]
-  \item \textbf{Energy selectivity:}  The popcount resonance score is
+  \item \textbf{Energy selectivity:}  The current retrieval scoring is
         permissive---any candidate sharing common byte patterns scores
-        highly.  Sharper gating (e.g., weighted popcount, structural vacuum
-        filtering) is needed for discriminative retrieval.
+        highly.  Sharper gating (e.g., weighted energy functions,
+        structural vacuum filtering) is needed for discriminative
+        retrieval.
   \item \textbf{Propagation depth:}  Information propagation through the
-        manifold hierarchy decays with structural distance.  Deep multi-hop
-        reasoning chains attenuate rapidly.
+        fold graph hierarchy decays with structural distance.  Deep
+        multi-hop reasoning chains attenuate rapidly.
   \item \textbf{Scale competitiveness:}  The system has not been benchmarked
         against large autoregressive models on standard leaderboards.
   \item \textbf{Convergence guarantees:}  The cantilever generation loop
         converges empirically but lacks formal convergence proofs.
   \item \textbf{Sparse value coverage:}  With only 5 bits set per byte,
-        the 257-bit value is very sparse.  The capacity limits of this
-        representation under heavy superposition need formal characterization.
+        an 8191-bit value is extremely sparse (${\approx}\,0.06\%$ fill
+        ratio).  The capacity limits of this representation under heavy
+        superposition need formal characterization.
 \end{enumerate}
 
 \subsection{Evaluation Roadmap}
@@ -49,19 +58,20 @@
 
 \paragraph{Planned Ablation Studies.}
 \begin{itemize}[nosep]
-  \item Disable EigenMode steering (flat popcount only) to isolate the
-        contribution of toroidal phase alignment.
-  \item Vary value width ($D \in \{128, 257, 512, 1024\}$) to characterize
-        the sparsity--capacity trade-off.
-  \item Vary manifold depth (Cubic-only vs.\ Icosahedral) to measure the
-        entropy routing contribution.
-  \item Disable winding counter to test syntactic depth discrimination.
+  \item Vary value width ($D \in \{4093, 8191, 16381\}$) to characterize
+        the sparsity--capacity trade-off across Mersenne-prime-adjacent
+        field sizes.
+  \item Disable the self-programming hardening loop (no operator
+        promotion) and measure the effect on cantilever prompt quality
+        and convergence speed.
+  \item Vary RecursiveFold depth limits to quantify the relationship
+        between fold graph depth and retrieval accuracy.
 \end{itemize}
 
 \paragraph{Scaling Experiments.}
 \begin{itemize}[nosep]
-  \item Dictionary size vs.\ BestFill latency: characterize the empirical
-        scaling constant for 1K to 10M manifolds.
+  \item Trie size vs.\ resolver latency: characterize the empirical
+        scaling constant for 1K to 10M stored Values.
   \item Value width vs.\ retrieval accuracy: determine the minimum $D$ for
         each modality.
   \item Compression ratio vs.\ corpus size: validate the predicted
@@ -79,13 +89,13 @@ compelling test case:
         of the byte range, requiring no architectural modification.
   \item Protein backbone geometry is governed by torsion angle pairs
         $(\phi, \psi)$ that naturally inhabit a torus $S^1 \times S^1$---
-        the same manifold topology that EigenMode discovers from
-        co-occurrence statistics.
+        the same manifold topology that analytical EigenMode derives
+        from prime-index geometry.
   \item Secondary structure elements ($\alpha$-helices, $\beta$-sheets)
         are defined by \emph{periodic local patterns} in residue
         sequence---precisely the type of non-commutative rotational
-        structure that the manifold is designed to encode.
-  \item The $O(1)$ rotation and popcount-based search offer an
+        structure that the 8191-bit Value is designed to encode.
+  \item The $O(1)$ GF(8191) rotation and popcount-based search offer an
         asymptotic advantage over molecular dynamics ($O(N^2)$ per
         timestep) for conformational space exploration.
 \end{enumerate}

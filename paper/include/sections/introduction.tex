@@ -25,17 +25,17 @@ it, and repeat.  This framing imposes three fundamental limitations:
 This paper proposes a departure from the IVP framework.  We cast generation
 as a \emph{boundary value problem}: the observer clamps constraints, and the
 remaining degrees of freedom are resolved simultaneously by a massively
-parallel geometric resonance engine operating over a Galois field
-$\operatorname{GF}(257)$.
+parallel geometric resonance engine operating over the Mersenne field
+$\operatorname{GF}(8191)$.
 
 \subsection{Why Bitwise Math Is Wave Interference}
 \label{sec:bitwise_wave}
 
 The key insight underlying this architecture is that binarized prime-frequency
 vectors are not merely compressed representations---they are discrete Fourier
-transforms of semantic waves.  Each bit in a 257-bit Value represents the
-presence of a specific fundamental oscillator.  Bitwise operations then
-execute actual discrete wave interference:
+transforms of semantic waves.  Each bit in an 8191-bit Value represents the
+presence of a specific fundamental oscillator, packed into 128 blocks of 64
+bits.  Bitwise operations then execute actual discrete wave interference:
 
 \begin{itemize}[nosep]
   \item \textbf{\texttt{OR} (Superposition):}  Combining tokens in a context
@@ -49,24 +49,30 @@ execute actual discrete wave interference:
 \end{itemize}
 
 Mathematically, the dot product of two binarized vectors equals the popcount
-of their bitwise AND.  The architecture does not abandon wave mechanics; it
-compiles them down to single-cycle integer operations.
+of their bitwise AND.  Each comparison requires $\lceil 8191/64 \rceil = 128$
+integer operations---the architecture compiles wave mechanics down to 128
+single-cycle machine-word operations per value pair.
 
 \subsection{Paper Organization}
 \label{sec:organization}
 
 The remainder of this paper is organized as follows.
-\Cref{sec:value_representation} defines the 257-bit Value primitive and its
-algebraic operations.
-\Cref{sec:manifold_architecture} introduces the Fermat Cube geometry and the
-Icosahedral $A_5$ extension.
+\Cref{sec:value_representation} defines the 8191-bit Value primitive and its
+algebraic operations over $\operatorname{GF}(8191)$.
+\Cref{sec:manifold_architecture} introduces the manifold layout, Morton-coded
+spatial indexing, and affine transformations.
 \Cref{sec:tokenizer_sequencer} describes the Universal Tokenizer and
 topological boundary detection.
 \Cref{sec:eigenmode_navigation} presents the analytical toroidal phase
 navigation model.
-\Cref{sec:bestfill_problem} details the $\operatorname{GF}(257)$ resolver
+\Cref{sec:bestfill_problem} details the $\operatorname{GF}(8191)$ resolver
 pipeline.
-\Cref{sec:bvp_generation} formalizes generation as a boundary value problem.
+\Cref{sec:cantilever_bvp} formalizes generation as a boundary value problem
+and the cantilever solver.
+\Cref{sec:primefield_layout} describes prime-field storage in the Morton-coded
+radix trie.
+\Cref{sec:vm_machine} presents the virtual machine, macro-opcode hardening,
+and the self-programming loop.
 \Cref{sec:entropy_routing} describes topological entropy routing and virtual
 mitosis.
 \Cref{sec:dual_architecture} introduces the dual Substrate/Graph

@@ -16,7 +16,7 @@ is that the VSA's algebraic closure under binding and bundling provides a
 perception into a high-dimensional space where combinatorial decomposition
 is a single algebraic operation rather than an iterative optimization.
 
-The Sensorium Manifold pushes this factorization principle further in two
+The system pushes this factorization principle further in two
 respects:
 \begin{enumerate}[nosep]
   \item \textbf{No neural front-end:}  Where NVSA uses a learned encoder
@@ -27,9 +27,9 @@ respects:
   \item \textbf{Non-commutative extension:}  Classical VSA binding operators
         (circular convolution, Hadamard products) are commutative---they
         cannot natively distinguish ``dog bites man'' from ``man bites dog''
-        without positional permutations.  The $A_5$ rotational manifold
-        makes non-commutativity structural: syntactic order is physically
-        encoded by the path through the icosahedral group.
+        without positional permutations.  The $\text{GF}(8191)$ affine group
+        makes non-commutativity structural: syntactic order is algebraically
+        encoded by the composition path through the affine group.
 \end{enumerate}
 
 \paragraph{HD Computing as a Hardware Paradigm.}
@@ -42,15 +42,16 @@ concentration of measure in high-dimensional spaces: randomly sampled
 HD vectors are approximately orthogonal, enabling robust distributed
 representations despite random bit-overlaps.
 
-Our 257-bit Value operates in a far lower dimensionality ($D = 257$ vs.\
-$D \geq 4{,}000$ in classical HD), trading the probabilistic near-orthogonality
-guarantee for exact prime-factor uniqueness.  The compensation mechanism is
-the non-commutative manifold: where classical HD relies on dimensionality
-for collision resistance, we rely on the $60$-state $A_5$ rotational
-register plus the 4-bit winding counter to separate sequences that share
-identical Value content.  This is a fundamentally different point in the
-design space---deterministic algebraic separation vs.\ probabilistic
-geometric separation.
+Our 8191-bit Value operates at a dimensionality ($D = 8191$) that approaches
+the classical HD regime ($D \geq 4{,}000$), gaining both the concentration-of-measure
+benefits of high-dimensional spaces and the exact prime-factor uniqueness of
+the deterministic encoding.  The compensation mechanism for any residual
+collision risk is the non-commutative affine group: where classical HD relies
+on dimensionality alone for collision resistance, we additionally rely on
+67 million composable affine transforms under $\text{GF}(8191)$ plus the winding
+counter to separate sequences that share identical Value content.  This occupies
+a novel point in the design space---deterministic algebraic separation
+layered on top of high-dimensional geometric separation.
 
 \paragraph{VSA on Emerging Hardware.}
 Kleyko et al.\ \citep{kleyko2022vsa} provide a comprehensive survey of VSA
@@ -59,6 +60,6 @@ neuromorphic chips.  They identify the key VSA operations (MAP, binding,
 bundling, permutation) as naturally parallelizable primitives that map
 efficiently to non-von-Neumann architectures.  Our Metal/CUDA/CPU kernel
 dispatch layer (\Cref{sec:multi_backend}) instantiates exactly this
-principle: the entire BestFill pipeline reduces to SIMD bitwise operations
-with no data-dependent branching, making it trivially portable across
-any hardware that supports popcount and integer comparison.
+principle: the entire GF(8191) resolver pipeline reduces to SIMD bitwise
+operations with no data-dependent branching, making it trivially portable
+across any hardware that supports popcount and integer comparison.

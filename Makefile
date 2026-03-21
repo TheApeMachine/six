@@ -1,13 +1,20 @@
 .PHONY: build metal cuda paper pprof pprof-mem dump capnp
 
 DUMP_EXTS := -name '*.go' -o -name '*.yml' -o -name '*.cu' -o -name '*.h' -o -name '*.metal' -o -name '*.m' -o -name '*.capnp'
+# Source extensions plus only visualizer/static/index.html (no other HTML).
+DUMP_FIND := find . -type f \( \( $(DUMP_EXTS) \) -o -path './visualizer/static/index.html' \) \
+	| grep -v '/vendor/' \
+	| grep -v '^\./experiment/' \
+	| grep -v '^\./paper/' \
+	| grep -v '_test\.go$$' \
+	| grep -v '\.capnp\.go$$'
 DUMP_FILE := repo.txt
 
 dump:
 	@echo "<<<TREE>>>" > $(DUMP_FILE)
-	@find . -type f \( $(DUMP_EXTS) \) | grep -v '/vendor/' | sort >> $(DUMP_FILE)
+	@$(DUMP_FIND) | sort >> $(DUMP_FILE)
 	@echo "<<<END>>>" >> $(DUMP_FILE)
-	@find . -type f \( $(DUMP_EXTS) \) | grep -v '/vendor/' | sort | while read f; do \
+	@$(DUMP_FIND) | sort | while read f; do \
 		echo "<<<FILE $$f>>>" >> $(DUMP_FILE); \
 		cat "$$f" >> $(DUMP_FILE); \
 		echo "" >> $(DUMP_FILE); \

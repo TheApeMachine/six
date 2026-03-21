@@ -1,26 +1,27 @@
 % ============================================================================
-% PRIMEFIELD: THE THERMODYNAMIC TRIE
+% DMT: THE DISTRIBUTED MERKLE TRIE
 % ============================================================================
-\subsection{Contiguous GPU-Dispatch Array}
-\label{sec:primefield_layout}
+\subsection{The Forest: Concurrent Immutable Radix Trees}
+\label{sec:dmt_forest}
 
-The PrimeField is the compute-side representation of memory: a flat,
-contiguous array of \texttt{IcosahedralManifold} structures that the GPU
-scans in parallel.  Each manifold occupies a fixed $8.64$~KB regardless
-of fill state, guaranteeing stable pointer arithmetic and aligned warp
-strides.
+Storage is realized by the Distributed Merkle Trie (DMT), a Forest of immutable radix trees that stores Value entries keyed by Morton-coded spatial keys. Each tree in the Forest is a persistent, copy-on-write radix trie built on top of immutable data structures, enabling concurrent reads without locking or coordination.
 
 \begin{itemize}[nosep]
-  \item \textbf{Insertion:}  Tokens are merged into the active manifold
-        via \texttt{ValueOR} at a block index determined by the token's
-        topological events and value dynamics.
-  \item \textbf{Rotation:}  Structural events physically permute the
-        active manifold's block array.  Because $A_5$ permutations are
-        applied as array index remappings, they execute in $O(1)$ without
-        data copying.
-  \item \textbf{Atomic Snapshots:}  Read access returns a \texttt{(pointer,\,N)}
-        pair under atomic load, preventing concurrency tearing during
-        background GPU dispatch.
+  \item \textbf{Insertion:} Values are merged into the active tree by writing
+        at the Morton key computed from the token's byte value, position,
+        and scale depth. Writes are serialized through the active tree's
+        transaction mechanism; the immutable backing structure ensures that
+        concurrent readers never observe a partial update.
+  \item \textbf{Read routing:} The Forest maintains running latency metrics
+        for each tree.  A read request is dispatched to all trees in
+        parallel; the first result to return wins.  This races trees
+        against each other, routing traffic to the most performant replica
+        without explicit load-balancing heuristics.
+  \item \textbf{Synchronization:} After every insertion, the Forest
+        propagates the update to all sibling trees via a background
+        synchronization loop.  Because each tree is immutable at the
+        snapshot level, synchronization is a merge of root pointers
+        rather than a diff of mutable state.
 \end{itemize}
 
 \subsection{Morton-Coded Spatial Indexing}
@@ -56,16 +57,15 @@ This layout is load-bearing in three ways:
 \begin{enumerate}[nosep]
   \item \textbf{Scale stratification:}  Grouping by $z$ in the MSBs
         ensures that all entries at the same hierarchical depth sort
-        contiguously, enabling $O(\log N)$ binary search within a
+        contiguously, enabling prefix-bounded iteration within a
         scale layer.
   \item \textbf{Symbol locality:}  Within a scale, all occurrences of the
-        same byte value occupy a contiguous key range
-        $[\text{sym} \ll 32,\; (\text{sym}+1) \ll 32 - 1]$, allowing
-        \texttt{QueryByByte} to narrow a 50M-entry store to a single
-        binary-search band.
+        same byte value share a common key prefix, allowing
+        \texttt{QueryByByte} to narrow a large store to a single
+        prefix-bounded subtree.
   \item \textbf{Positional contiguity:}  Within a symbol band, positions
         are numerically ordered in the LSBs, making neighborhood
-        queries (\texttt{QueryNeighborhood}) a simple range scan.
+        queries (\texttt{QueryNeighborhood}) a simple prefix scan.
 \end{enumerate}
 
 \subsection{Zipfian Distributions and Collision-as-Compression}
@@ -73,11 +73,11 @@ This layout is load-bearing in three ways:
 
 Natural data sources---text, images, audio---universally exhibit
 \emph{Zipfian} frequency distributions: a small number of byte-position
-patterns account for the overwhelming majority of occurrences.  The LSM
-Spatial Index exploits this directly.
+patterns account for the overwhelming majority of occurrences.  The radix
+trie exploits this directly.
 
 When two tokens share the same Morton key (identical byte value at the
-same scale and position), the LSM merge operation natively \emph{coalesces}
+same scale and position), the trie insertion natively \emph{coalesces}
 them into a single entry.  This is not a hash collision requiring
 resolution---it is lossless deduplication:
 
@@ -143,28 +143,8 @@ and the entropy bound measures the efficiency of the Morton key design.
 \subsection{Entropy-Driven Sequence Boundaries}
 \label{sec:sequence_boundaries}
 
-When the Sequencer detects a topological boundary and the active manifold
-carries signal (non-empty values), the PrimeField freezes the current
-manifold and advances to a new one.  The Z-coordinate of the Morton key
+When the Sequencer detects a topological boundary and the active value
+carries signal (non-empty bit-field), the trie commits the current
+sequence and advances to a fresh one.  The Z-coordinate of the Morton key
 tracks scale depth: each sequence reset increments $z$, stratifying memory
-into episodic layers.
-
-\subsection{Prototype Snapping and Cleanup}
-\label{sec:prototype_snapping}
-
-To stabilize the memory substrate against noise, the PrimeField maintains
-per-block prototype attractors.  Incoming values are compared against stored
-prototypes; if similarity exceeds a threshold, the value is ``snapped'' to
-the prototype---reinforcing established patterns.  Novel values that diverge
-sufficiently seed new prototypes, enabling the substrate to discover and
-crystallize recurring structural motifs.
-
-\subsection{Manifold Masking for Self-Exclusion}
-\label{sec:masking}
-
-During BestFill search, the system can \texttt{Mask} individual manifolds
-(temporarily zeroing them) to exclude recently matched spans from
-consideration.  This prevents the popcount echo-attractor problem where the
-same high-scoring span is retrieved repeatedly.  Masked manifolds are restored
-via \texttt{Unmask} after the search completes.
-
+into episodic layers that naturally encode hierarchical structure.

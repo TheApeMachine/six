@@ -1,11 +1,11 @@
 % ============================================================================
-% THE 512-BIT VALUE AND MORTON KEY ADDRESS SPACE
+% THE 8191-BIT VALUE AND MORTON KEY ADDRESS SPACE
 % ============================================================================
 \subsection{Structural Layout: The Address Plane}
 \label{sec:manifold_layout}
 \label{sec:manifold_architecture}
 
-The architecture utilizes a unified address plane in the form of a Morton-keyed Log-Structured Merge (LSM) index. A cell address packs the byte identity ($X$) and the boundary-local depth ($Y$) into a single 64-bit key:
+The architecture utilizes a unified address plane in the form of a Morton-keyed radix trie (DMT). A cell address packs the byte identity ($X$) and the boundary-local depth ($Y$) into a single 64-bit key:
 
 \begin{equation}
   \text{CellKey} = \text{Pack}(\underbrace{v}_{\text{byte value (X)}},\; \underbrace{d}_{\text{local depth (Y)}})
@@ -14,29 +14,35 @@ The architecture utilizes a unified address plane in the form of a Morton-keyed 
 
 The primary layout is computationally efficient ($\texttt{symbol} \ll 32 \mid \texttt{localDepth}$), ensuring that data scan locality intrinsically follows the underlying sequential stream. Because the depth $d$ resets to 0 at each structural boundary discovered by the sequencer, distinct sequences that share identically situated local depths collapse geometrically onto the exact same cell coordinate. 
 
-\subsection{The 512-Bit Native Monotype}
+\subsection{The Native Monotype}
 \label{sec:native_monotype}
 
-At each defined Morton coordinate, the system instantiates its fundamental computational primitive: a 512-bit \emph{Value}. Unlike traditional symbol embeddings, the Value does not redundantly encode the byte (which is already encoded by the spatial $X$ coordinate), but rather serves as a self-contained operational state.
+At each defined Morton coordinate, the system instantiates its fundamental computational primitive: an 8384-bit \emph{Value} spanning 131 64-bit blocks. Unlike traditional symbol embeddings, the Value does not redundantly encode the byte (which is already encoded by the spatial $X$ coordinate), but rather serves as a self-contained operational state.
 
-The 512 bits are structurally partitioned to separate the generative logic from routing metadata:
+The blocks are structurally partitioned to separate the generative logic from routing metadata:
 \begin{itemize}[nosep]
-  \item \textbf{Bits 0--255:} The $\operatorname{GF}(257)$ Fermat core. This acts as the mathematical reasoning state, participating in core affine evolutions.
-  \item \textbf{Bit 256:} The delimiter and algorithmic halt flag, terminating generative loops.
-  \item \textbf{Bits 257--511:} The Operator Shell. These upper bits operate beyond the $\operatorname{GF}(257)$ plane and carry affine constants, route hints, trajectory snapshots, and mutation limits (guard radii).
+  \item \textbf{Core (128 blocks, 8192 bits):} The $\operatorname{GF}(8191)$ Mersenne core. Each of the 8191 addressable bit positions corresponds to an element of the prime field $\mathbb{F}_{8191}$ where $8191 = 2^{13} - 1$. This bit-field acts as the mathematical reasoning state, participating in core affine evolutions. The final core block is masked to the field boundary.
+  \item \textbf{Shell (3 blocks, 192 bits):} Three 64-bit words that operate beyond the $\operatorname{GF}(8191)$ plane:
+  \begin{itemize}[nosep]
+    \item \emph{Block 0 (residual/carry):} Stores the logical $\operatorname{GF}(8191)$ state phase as a scalar for fast retrieval without scanning the core.
+    \item \emph{Block 1 (opcode):} Encodes the current operation, delimiter behaviour, and control flow.
+    \item \emph{Block 2 (operator):} Packs the affine operator (scale and translate, 13 bits each), trajectory endpoints (from/to, 13 bits each), guard radius (7 bits), active flag (1 bit), and status flags (4 bits) into a single 64-bit word.
+  \end{itemize}
 \end{itemize}
 
-This layout is strictly aligned for 512-bit hardware constraints, ensuring zero-cost metadata propagation alongside the core mathematical updates.
+This layout occupies $131 \times 64 = 8384$ bits of storage per Value, with the 128-block core aligned to cache-line boundaries for zero-cost metadata propagation alongside the core mathematical updates.
 
 \subsection{Generative Coordinate Transforms}
 \label{sec:affine_transform}
 
-With the static sequence completely decoupled into the LSM coordinates, reasoning progresses strictly through generative transform logic within the Fermat core array. The core performs affine phase rotation over the cyclic $\operatorname{GF}(257)$ group:
+With the static sequence completely decoupled into the radix trie coordinates, reasoning progresses strictly through generative transform logic within the Mersenne core array. The core performs affine phase rotation over the cyclic $\operatorname{GF}(8191)$ group:
 
 \begin{equation}
-  f(x) = (a \cdot x + b) \pmod{257}, \qquad
-  a \in \{1, \ldots, 256\},\; b \in \{0, \ldots, 256\}
+  f(x) = (a \cdot x + b) \pmod{8191}, \qquad
+  a \in \{1, \ldots, 8190\},\; b \in \{0, \ldots, 8190\}
   \label{eq:gf_affine}
 \end{equation}
+
+Multiplication modulo a Mersenne prime admits an efficient two-step bit reduction: for $M = 2^{13} - 1$, compute $x \bmod M = (x \;\&\; M) + (x \gg 13)$ and iterate until the result fits within 13 bits. This replaces a general-purpose division with shift-and-add, making the affine step essentially free on modern hardware.
 
 By composing sequences of these rotations, the wavefront maps logical deductions strictly into deterministic spatial leaps across the Morton-keyed address plane.

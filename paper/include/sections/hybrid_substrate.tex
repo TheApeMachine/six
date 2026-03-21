@@ -4,7 +4,7 @@
 \subsection{Two-Phase Retrieval Pipeline}
 \label{sec:hybrid_pipeline}
 
-The system resolves queries through a unified pipeline that hybridizes bitwise structural measurement with scalar algebraic cancellation over $\operatorname{GF}(257)$:
+The system resolves queries through a unified pipeline that hybridizes bitwise structural measurement with scalar algebraic cancellation over $\operatorname{GF}(8191)$:
 
 \begin{enumerate}[nosep]
   \item \textbf{Phase 1 --- Resonance Measurement (XOR):}
@@ -16,9 +16,9 @@ The system resolves queries through a unified pipeline that hybridizes bitwise s
         This measurement filters for paths experiencing constructive interference (low residue). Crucially, XOR is strictly an observable measurement gauge; it is never used to permanently compose or store state, as that would inject uncontrolled Shannon entropy.
 
   \item \textbf{Phase 2 --- Algebraic Cancellation:}
-        Once a resonant geometric cluster is localized, logical reasoning over the localized multi-context merges resolves via scalar modular arithmetic. Because multiple facts coexist in a single cell via additive superposition $\phi_{\text{merged}} = (\phi_A + \phi_B) \pmod{257}$, querying isolated entities involves inverse cancellation:
+        Once a resonant geometric cluster is localized, logical reasoning over the localized multi-context merges resolves via scalar modular arithmetic. Because multiple facts coexist in a single cell via additive superposition $\phi_{\text{merged}} = (\phi_A + \phi_B) \pmod{8191}$, querying isolated entities involves inverse cancellation:
         \begin{equation}
-          \text{result} = \phi_{\text{merged}} \cdot \phi_A^{-1} \pmod{257} \approx \phi_B
+          \text{result} = \phi_{\text{merged}} \cdot \phi_A^{-1} \pmod{8191} \approx \phi_B
           \label{eq:modular_inverse}
         \end{equation}
   \item \textbf{Phase 3 --- Frustration or Readout:}
@@ -30,8 +30,8 @@ The system resolves queries through a unified pipeline that hybridizes bitwise s
 
 Beyond positive phase-locking, the dual algebra naturally enforces negative constraints without heuristic branching rules. A negated fact (e.g., "Roy is NOT in the kitchen") is encoded as the absolute additive inverse in the field:
 \begin{equation}
-  \phi_{\text{neg}} = (257 - \phi_{\text{pos}}) \pmod{257}
+  \phi_{\text{neg}} = (8191 - \phi_{\text{pos}}) \pmod{8191}
   \label{eq:additive_inverse}
 \end{equation}
 
-When the exploring wavefront encounters $\phi_{\text{neg}}$, the positive baseline momentum meets the stored anti-phase. The sum algebraically collapses to zero ($\phi_{\text{pos}} + \phi_{\text{neg}} \equiv 0 \pmod{257}$), immediately eliminating path energy and pruning the search space via pure destructive interference.
+When the exploring wavefront encounters $\phi_{\text{neg}}$, the positive baseline momentum meets the stored anti-phase. The sum algebraically collapses to zero ($\phi_{\text{pos}} + \phi_{\text{neg}} \equiv 0 \pmod{8191}$), immediately eliminating path energy and pruning the search space via pure destructive interference.

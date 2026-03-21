@@ -5,8 +5,8 @@
 <h1 align="center">six</h1>
 
 <p align="center">
-  <strong>A native state machine that replaces gradient descent with modular arithmetic.</strong><br/>
-  257-bit Fermat field · Morton spatial indexing · Generative rotational logic
+  <strong>A self-programming spatial VM that replaces gradient descent with modular arithmetic.</strong><br/>
+  8191-bit Mersenne field · Topology-guided folding · Homoiconic value medium
 </p>
 
 <p align="center">
@@ -33,35 +33,37 @@ This project started from a single question:
 
 > **Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?**
 
-The answer is a holographic content addressable memory (HCAM) structure built on the 4th Fermat prime ($2^8 + 1 = 257$). In this field, every non-zero element has a multiplicative inverse, rotations are primitive operations with no dead zones, and collision between stored values **is** compression.
+The answer is a spatial virtual machine whose native medium is `primitive.Value` — an 8191-bit core in the Mersenne field GF(8191) wrapped in a shell carrying affine operators, control flow, trajectory, and routing. In this field every non-zero element has a multiplicative inverse, rotations are primitive operations with no dead zones, and collision between stored values **is** compression.
 
 The system does not predict the next token. It solves for the **longest span** — a Boundary Value Problem where the architecture extends a cantilever into unknown territory and locks onto the nearest stable resonance in its stored memory.
+
+The central architectural goal is **self-programmability**: `primitive.Value` is simultaneously data, instruction, operator, control flow, routing address, and memory. Learned behaviors are reified back into Values and executed natively, making the system's reasoning medium homoiconic.
 
 ### The Three Pillars
 
 | Pillar | One-Liner | Mathematical Basis |
 |:---|:---|:---|
-| **Collision IS Compression** | Multiple byte sequences that share `(byte, localDepth)` collapse onto the same cell. The value carries continuation logic, not redundant identity. | A radix cell address `(byte, localDepth)` resets at each sequencer boundary. Observed: 52.8× compression on CIFAR-10. |
-| **Rotation IS Data** | Sequence order is encoded as generative coordinate transforms, not positional tags. No XOR composition — rotation preserves structure. | $f(x) = (ax + b) \bmod{257}$ — an affine group with ~65K distinct states. Rotation produces translation. |
+| **Collision IS Compression** | Multiple byte sequences that share `(byte, localDepth)` collapse onto the same cell. The value carries continuation logic, not redundant identity. | A radix cell address `(byte, localDepth)` resets at each sequencer boundary. |
+| **Rotation IS Data** | Sequence order is encoded as generative coordinate transforms, not positional tags. No XOR composition — rotation preserves structure. | $f(x) = (ax + b) \bmod{8191}$ — an affine group with ~67M distinct states. Rotation produces translation. |
 | **Resonance IS Retrieval** | Queries don't search; they excite the field at a frequency and follow constructive interference. | `popcount(A & B)` = dot product of binary vectors = Hamming similarity. XOR is measurement, never storage. |
 
 ### Why Not Semantics?
 
 This project **deliberately rejects** optimizing for language semantics as a reasoning substrate.
 
-The reasoning is simple arithmetic. A human vocabulary is roughly $10^5$ words. The 257-bit native value type has $2^{257} \approx 2.3 \times 10^{77}$ possible states — that is more distinct configurations than there are atoms in the observable universe. Optimizing the system to reason in human language would be like building a particle accelerator and then using it to crack walnuts.
+The reasoning is simple arithmetic. A human vocabulary is roughly $10^5$ words. The 8191-bit native value type has $2^{8191}$ possible states — a number incomprehensibly larger than the number of atoms in the observable universe. Optimizing the system to reason in human language would be like building a particle accelerator and then using it to crack walnuts.
 
 > [!IMPORTANT]
-> Semantics puts a **human ceiling** on the system. If the machine reasons in words, it can at best match human-level intelligence. If it reasons in its native monotype — a 257-bit value in GF(257), evolved by affine rotation, measured by Hamming distance — there is no ceiling. The representational capacity is not comparable.
+> Semantics puts a **human ceiling** on the system. If the machine reasons in words, it can at best match human-level intelligence. If it reasons in its native monotype — an 8191-bit value in GF(8191), evolved by affine rotation, measured by Hamming distance — there is no ceiling. The representational capacity is not comparable.
 
 > Six is a finite-field associative machine where computation is affine rotation, memory is a collision-compressed spatial lattice, and language is merely a projection layer for human interaction.
 
-The system does not parse meaning. It does not build ontologies. It does not model synonyms or grammar rules internally. When the code *does* parse S-V-O structure or inject semantic facts, that is a **projection layer** — a translator between the machine's native geometry and the much smaller space of human language. The projection exists so humans can read the output and evaluate experiments. It is the GUI, not the CPU.
+The system does not parse meaning. It does not build ontologies. It does not model synonyms or grammar rules internally. The projection layer exists so humans can read the output and evaluate experiments. It is the GUI, not the CPU.
 
 The doctrine in three lines:
 
 ```
-The LSM is address space, not intelligence.
+The address space is storage, not intelligence.
 The value is intelligence, not payload.
 Semantics is projection, not ontology.
 ```
@@ -70,15 +72,13 @@ Semantics is projection, not ontology.
 
 ## Mathematical Foundations
 
-GitHub renders LaTeX natively. The math below is the complete algebraic substrate — every operation the system performs reduces to one of these.
+### The Field: $\text{GF}(8191)$
 
-### The Field: $\text{GF}(257)$
+$8191 = 2^{13} - 1$ is a Mersenne prime. This gives the field a critical hardware property — branchless reduction via bit masking:
 
-$257$ is the 4th Fermat prime: $2^{2^3} + 1 = 2^8 + 1 = 257$. This gives the field two critical hardware properties:
+$$a \bmod 8191 = (a \mathbin{\&} \text{0x1FFF}) + (a \gg 13) \quad \text{(iterated until result fits)}$$
 
-$$a \bmod 257 = (a \land \text{0xFF}) - (a \gg 8) \quad \text{(branchless reduction)}$$
-
-$$\forall\, a \in [1, 256]: \quad a^{-1} \equiv a^{255} \pmod{257} \quad \text{(Fermat's Little Theorem)}$$
+$$\forall\, a \in [1, 8190]: \quad a^{-1} \equiv a^{8189} \pmod{8191} \quad \text{(Fermat's Little Theorem)}$$
 
 Every non-zero element has a multiplicative inverse. No dead zones, no special cases, no division hardware needed.
 
@@ -86,35 +86,26 @@ Every non-zero element has a multiplicative inverse. No dead zones, no special c
 
 The system's core operation is an affine transform over the field:
 
-$$f(x) = (a \cdot x + b) \bmod{257}, \quad a \in [1, 256],\; b \in [0, 256]$$
-
-where $a$ is derived from the primitive root $g = 3$ via $a = g^k \bmod 257$.
+$$f(x) = (a \cdot x + b) \bmod{8191}, \quad a \in [1, 8190],\; b \in [0, 8190]$$
 
 - **Composition** is $O(1)$: applying $f_1$ then $f_2$ yields a single $(a', b')$ pair:
 
-$$a' = a_2 \cdot a_1 \bmod{257}, \quad b' = (a_2 \cdot b_1 + b_2) \bmod{257}$$
+$$a' = a_2 \cdot a_1 \bmod{8191}, \quad b' = (a_2 \cdot b_1 + b_2) \bmod{8191}$$
 
-- **Inversion** is $O(1)$: $f^{-1}(y) = a^{-1}(y - b) \bmod{257}$
+- **Inversion** is $O(1)$: $f^{-1}(y) = a^{-1}(y - b) \bmod{8191}$
 
-The affine group has $257 \times 256 = 65{,}792$ distinct transforms — enough to encode rich sequential and structural relationships without ever leaving integer arithmetic.
+The affine group has $8191 \times 8190 = 67{,}124{,}890$ distinct transforms.
 
 ### Higher-Dimensional Value Geometry
 
-The intelligence of the system resides purely within the 512-bit Value stored at each Morton cell coordinate. Because the cell's X-coordinate explicitly encodes the byte identity via the Morton key, the Value itself does **not** store the byte. This frees up the entire 257-bit GF(257) core to act purely as a native computational language.
-
-The Value is programmed into higher-dimensional space (tori, phase-dials, arrows of time). A 5-sparse geometric state on the 257-face Fermat cube is manipulated via affine rotations, acting as continuous generative logic. The Value holds algebraic momentum, continuation rules, and geometric residue, keeping it mathematically anchored to the lower-dimensional static coordinate.
-
-### Prime-Basis Interpretation (What The Bits Mean)
-
-The 257-bit core is not "generic binary payload." It is a sparse occupancy map over a prime basis. In projection code (for example, the phase-dial in `pkg/numeric/geometry/phase.go`), core index `k` maps to `numeric.Primes[k]`, so each active bit corresponds to one prime frequency component.
+The 8191-bit core is a sparse occupancy map over a prime basis. Core index `k` maps to `numeric.Primes[k]`, so each active bit corresponds to one prime frequency component. The shell (3 additional 64-bit blocks) carries the affine operator, opcode, trajectory, guard radius, route hint, and flags.
 
 This is why the system can treat bitwise operators as algebra over prime-factor structure:
 
-- `OR` behaves as superposition over basis occupancy (LCM-style composition in prime-exponent space).
-- `AND` behaves as strict shared structure extraction (GCD-style intersection in prime-exponent space).
-- `ValueHole(a, b) = a & ~b` isolates what remains after exact basis cancellation.
-
-The implementation is bitwise for speed, but the interpretation is prime-factor geometry. That is the core trick: preserve orthogonality and exact cancellation while running on single-cycle hardware operators.
+- `OR` behaves as superposition over basis occupancy (LCM-style composition).
+- `AND` behaves as strict shared structure extraction (GCD-style intersection).
+- `Hole(a, b) = a & ~b` isolates what remains after exact basis cancellation.
+- `XOR` is measurement only — comparing a projected rotation against a stored anchor.
 
 ### Morton Addressing & Radix Compression
 
@@ -122,210 +113,186 @@ A cell address packs byte identity and boundary-local depth into a single 64-bit
 
 $$\text{CellKey} = \text{Pack}(\underbrace{v}_{\text{byte value (X)}},\; \underbrace{d}_{\text{local depth (Y)}})$$
 
-The primary layout is `(symbol << 32) | localDepth` — a direct concatenation for O(1) pack/unpack that preserves byte-ordered scan locality. A separate `Encode3D()` utility provides true Z-order interleaved Morton curves for higher-dimensional spatial queries.
-
 The local depth $d$ **resets to 0** at each sequencer boundary. This means distinct byte sequences that share $(v, d)$ collapse onto the same cell:
 
 $$|\text{cells}| \ll |\text{tokens}| \quad \Rightarrow \quad \text{compression ratio} = \frac{|\text{tokens}|}{|\text{cells}|}$$
 
-Observed: **52.8× compression** on CIFAR-10.
-
-### Resonance Search (Measurement)
-
-Retrieval is a Hamming-space similarity measurement:
-
-$$\text{similarity}(A, B) = \text{popcount}(A \land B)$$
-
-$$\text{distance}(A, B) = \text{popcount}(A \oplus B)$$
-
-XOR ($\oplus$) is used **only** for measurement — comparing a projected rotation against a stored anchor. It is never used for composition or storage, because XOR invites Shannon entropy and destroys the generative properties of the rotational algebra.
-
 ### Algebraic Cancellation
 
-Given stored facts as multiplicative braids in $\text{GF}(257)$:
+Given stored facts as multiplicative braids in $\text{GF}(8191)$:
 
-$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is}\_\text{in} \cdot \text{Kitchen}) \bmod{257}$$
+$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is}\_\text{in} \cdot \text{Kitchen}) \bmod{8191}$$
 
 A prompt asking "Where is Roy?" computes the modular inverse cancellation:
 
-$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is}\_\text{in}^{-1} \bmod{257}$$
+$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is}\_\text{in}^{-1} \bmod{8191}$$
 
 The shared structure cancels algebraically:
 
-$$\text{result} = \text{Kitchen} \bmod{257}$$
+$$\text{result} = \text{Kitchen} \bmod{8191}$$
 
 This is not search. It is calculation.
-
-> [!NOTE]
-> **Single algebraic surface.** The system stays in native `Value` geometry as its identity and routing surface. Scalar phase arithmetic is treated as a local coordinate/projection derived from `Value` state (for affine updates and carry handling), not as a separate reasoning algebra and not as a replacement identity space.
 
 ### Frustration (The Drive Signal)
 
 When the system "believes" it should be at target phase $\phi_t$ but is actually at current phase $\phi_c$, the frustration is the **unresolved rotation**:
 
-$$\Delta = \phi_t \cdot \phi_c^{-1} \bmod{257}$$
+$$\Delta = \phi_t \cdot \phi_c^{-1} \bmod{8191}$$
 
 When $\Delta = 1$, the system is phase-locked (frustration zeroed). When $\Delta \neq 1$, the system searches its macro-index for a tool whose rotation matches $\Delta$.
 
-### Tool Synthesis
+### Tool Synthesis & Hardening
 
 When the cantilever hits a gap it cannot bridge, the missing tool is:
 
-$$Z = \phi_{\text{goal}} \cdot \phi_{\text{failed}}^{-1} \bmod{257}$$
+$$Z = \phi_{\text{goal}} \cdot \phi_{\text{failed}}^{-1} \bmod{8191}$$
 
-If applying $Z$ consistently bridges similar gaps across the Morton index, it is hardened as a permanent macro-opcode.
-
-### Multi-Context Merging (Superposition)
-
-Multiple facts coexist in a single cell via additive superposition:
-
-$$\phi_{\text{merged}} = (\phi_A + \phi_B) \bmod{257}$$
-
-Because $257$ is prime, the merged state preserves the spectral signature of both facts. Querying with the inverse of one fact isolates the other:
-
-$$\phi_{\text{merged}} \cdot \phi_A^{-1} \bmod{257} \approx \phi_B$$
-
-### Negative Constraints (Destructive Interference)
-
-"Roy is NOT in the kitchen" is an **anti-value** — the additive inverse:
-
-$$\phi_{\text{neg}} = (257 - \phi_{\text{pos}}) \bmod{257}$$
-
-When the wavefront encounters $\phi_{\text{neg}}$, the positive momentum meets the anti-phase:
-
-$$\phi_{\text{pos}} + \phi_{\text{neg}} \equiv 0 \pmod{257}$$
-
-The path energy drops to zero. The branch is pruned by destructive interference, not by a boolean flag.
+If applying $Z$ consistently bridges similar gaps, it is hardened as a permanent macro-opcode. Hardened opcodes are encoded as `primitive.Value` with `OpcodeMacro`, making them first-class citizens of the native medium — the system programs itself.
 
 ---
 
 ## Architecture
 
-The system is organized into four conceptual planes, implemented across two package trees.
+The system is organized around `primitive.Value` as its universal medium, with four conceptual planes implemented across two package trees.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │            PROJECTION PLANE (Human Interface)           │
-│   Byte recovery via un-Morton · S-V-O parse overlay     │
-│   Natural language decode · Experiment evaluation       │
+│   Byte recovery via un-Morton · Experiment evaluation   │
 ├─────────────────────────────────────────────────────────┤
 │           LOGIC PLANE  (pkg/logic/)                     │
-│   Volatile graph substrate · BVP cantilever solver      │
-│   Frustration-driven backtracking · Macro skip index    │
-│   Affine rotation as execution · Phase-locked loops     │
+│   Topology-guided recursive fold · BVP cantilever       │
+│   Multi-stage prompt resolution · Macro skip index      │
+│   Category-theoretic functors · Persistence diagrams    │
 ├─────────────────────────────────────────────────────────┤
-│           VALUE PLANE  (pkg/store/data/)                │
-│   The 512-bit native monotype · GF(257) core (257 bits) │
-│   Guard band: opcodes, carry, routing (255 bits)        │
+│           VALUE PLANE  (pkg/logic/lang/primitive/)      │
+│   The homoiconic native monotype · GF(8191) core        │
+│   Shell: opcodes, affine, trajectory, routing, guards   │
+│   OpcodeMacro: learned operators as first-class Values  │
 │   Stored values are local operators, not byte shadows   │
 ├─────────────────────────────────────────────────────────┤
-│           ADDRESS PLANE  (pkg/store/lsm/)               │
-│   Morton-keyed LSM · X = byte, Y = boundary-local depth │
-│   Deterministic O(1) insert and lookup · Append-only    │
+│           ADDRESS PLANE  (pkg/store/dmt/)               │
+│   Radix-trie forest · Morton-keyed deterministic lookup │
 │   Collision = compression (radix cell collapse)         │
+│   Batch RPC transport (Cap'n Proto)                     │
+├─────────────────────────────────────────────────────────┤
+│           COMPUTE PLANE  (pkg/compute/)                 │
+│   CPU/GPU/Metal dispatch · Typed Go slices (SSA-safe)   │
+│   Distributed Cap'n Proto routing                       │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Address Plane — `pkg/store/lsm/`
+### Address Plane — `pkg/store/dmt/`
 
-The LSM is a passive spatial lattice ([`spatial_index.go`](pkg/store/lsm/spatial_index.go)). It holds Morton-keyed cells. Each cell address is `(byte_value, sequence_index)` where the sequence index resets at every sequencer boundary — this is what makes collision compressive rather than destructive.
+The storage layer is a radix-trie forest ([`forest.go`](pkg/store/dmt/forest.go)) backed by `hashicorp/go-immutable-radix`. It holds Morton-keyed cells. Each cell address is `(byte_value, local_depth)` where the depth resets at every sequencer boundary — this is what makes collision compressive rather than destructive.
 
-- **Self-Addressing.** Each byte value (0–255) determines the X coordinate. The Y coordinate is the local depth within the current chunk. The byte is recovered from the key, not from the stored value. See [`morton.go`](pkg/store/data/morton.go).
-- **Append-Only.** The LSM does not merge data. It is deterministic storage. Intelligence lives in the values, not in the index structure.
-- **O(1) Retrieval.** Given a coordinate, the lookup is a direct Morton key dereference. Traversal control belongs in the logic plane after paths have been materialized out of the lattice.
+- **Self-Addressing.** Each byte value (0–255) determines the X coordinate. The Y coordinate is the local depth within the current chunk. The byte is recovered from the key, not from the stored value.
+- **Batch Transport.** The `ForestServer` accepts `WriteBatch` RPCs that deliver all keys in a single Cap'n Proto call, eliminating per-key RPC overhead.
+- **O(1) Retrieval.** Given a coordinate, the lookup is a direct Morton key dereference.
 
-### Value Plane — `pkg/store/data/`
+### Value Plane — `pkg/logic/lang/primitive/`
 
-The value at each cell is the system's **native monotype**: a 512-bit Value ([`value.go`](pkg/store/data/value.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator.
+The value at each cell is the system's **native monotype**: a `primitive.Value` ([`value.go`](pkg/logic/lang/primitive/value.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator — and when it carries `OpcodeMacro`, it is a learned program.
 
 ```
- Bits 0–256    │ GF(257) Fermat core — the native execution state
- Bit  256      │ Delimiter / halt flag
- Bits 257–319  │ Guard band: opcode register, control flags
- Bits 320–383  │ Residual phase carry (cross-wavefront state)
- Bits 384–511  │ Operator shell: affine constants, trajectory snapshots,
-               │ route hints, guard radii, and future mutable-program flags
+ Bits 0–8190     │ GF(8191) Mersenne core — the native execution state
+                 │ (128 × uint64 blocks + partial last block)
+ Shell block 0   │ Residual phase carry (cross-wavefront state)
+ Shell block 1   │ Opcode register: instruction, jump, branches, terminal
+                 │ Route hint (bits 8-15): continuation class for dispatch
+ Shell block 2   │ Affine operator: scale (13 bits), translate (13 bits)
+                 │ Trajectory: from/to phase snapshots (13 bits each)
+                 │ Guard radius (7 bits), active flag, operator flags
 ```
 
-The 257-bit core lives inside a 512-bit hardware jacket for GPU alignment. The `Sanitize()` mask (`C4 & 1`) separates core-plane operations from shell-plane operations — core ops only touch the core, shell features use the upper 255 bits deliberately.
-
-> [!IMPORTANT]
-> **The upper 255 bits are not a zero buffer.** They are an active operator shell that carries runtime state (opcodes, carries, affine constants, route hints, guard radii). `CoreActiveCount()` measures the 257-bit Fermat field; `ShellActiveCount()` measures the operator shell; `ActiveCount()` spans both. The shell is free hardware real estate courtesy of GPU alignment — it costs nothing to carry and is deliberately utilized.
+The 8191-bit core lives inside a hardware jacket sized for GPU alignment. `CoreActiveCount()` measures the Mersenne field; `ActiveCount()` spans core + shell.
 
 Key operations:
 
 | Operation | Code | Role |
 |:---|:---|:---|
-| `Rotate3D()` | $x \to (3(3(x+1) \bmod 257)+1) \bmod 257$ | **Generative transform.** Rotation produces momentum and trajectory. This is execution, not measurement. |
-| `RollLeft(n)` | Circular shift mod 257 | Positional binding within the core field. |
-| `RotationSeed()` | Affine hash → `(a, b)` | Structural fingerprint for routing decisions. |
-| `SetTrajectory()` / `Trajectory()` | phaseₙ → phaseₙ₊₁ snapshot | Local orbit memory. Lets a value steer the next hop directly. |
-| `SetRouteHint()` / `RouteHint()` | 8-bit continuation class | Route bias without storing lexical bytes in the value plane. |
-| `SetGuardRadius()` / `GuardRadius()` | modular drift budget | Small local tolerance for re-alignment and backtracking. |
-| `ActiveCount()` | `popcount(all words)` | Total value energy. `CoreActiveCount()` isolates the GF(257) field. |
-| `XOR(other)` | Bitwise XOR | **Measurement only.** Used to compare a projected rotation against a stored anchor. Never used for composition or storage. |
+| `SetAffine()` / `Affine()` | $f(x) = ax + b \pmod{8191}$ | Store/retrieve the local affine operator. |
+| `ApplyAffinePhase()` | phase → transformed phase | Execute the affine transform on a running state. |
+| `SetTrajectory()` / `Trajectory()` | phase → phase snapshot | Local orbit memory for steering the next hop. |
+| `SetRouteHint()` / `RouteHint()` | 8-bit device class | Route bias for interpreter dispatch. |
+| `SetGuardRadius()` / `GuardRadius()` | modular drift budget | Tolerance for re-alignment and backtracking. |
+| `SetProgram()` / `Program()` | opcode, jump, branches, terminal | Threaded-code instruction in the opcode block. |
+| `EncodeMacroOperator()` | scale, translate, key → Value | Encode a learned affine operator as a first-class Value. |
+| `IsMacroOperator()` / `MacroAffine()` | — | Identify and extract learned operators from Values. |
 | `OR(other)` | Bitwise OR | Superposition — accumulate context. |
 | `AND(other)` | Bitwise AND | Intersection — find shared structure. |
-| `ValueHole(a, b)` | `a & ~b` | Gap detection — what is needed but absent. |
+| `Hole(a, b)` | `a & ~b` | Gap detection — what is needed but absent. |
+| `XOR(other)` | Bitwise XOR | **Measurement only.** Never used for composition. |
 
 > [!WARNING]
-> **XOR is measurement, not storage.** If XOR is used to compose or persist data, Shannon entropy enters the system and destroys the generative properties of the rotational algebra. XOR is the thermometer, not the engine. See [`program.puml`](docs/program.puml).
+> **XOR is measurement, not storage.** If XOR is used to compose or persist data, Shannon entropy enters the system and destroys the generative properties of the rotational algebra.
 
 ### Logic Plane — `pkg/logic/`
 
-The logic layer is a volatile, task-specific reasoning substrate ([`substrate/graph.go`](pkg/logic/substrate/graph.go)). A prompt spawns a graph of value nodes. Interference between them — measured by XOR, driven by rotation — produces convergence or frustration.
+The logic layer comprises several interacting subsystems:
 
-- **Boundary Value Problem (BVP) Solver.** Generation is framed as a cantilever extending from a known start state toward a goal phase. The solver in [`bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) bridges gaps by interpolating rotational trajectories through GF(257).
-- **HAS (Holographic Auto-Synthesizer).** [`synthesis/has.go`](pkg/logic/synthesis/has.go) is the native value synthesis subsystem: it forges affine tools during ingestion (`Derive`) and performs query-mask matching during inference (`Ask`) to recover residues from candidate value sets.
-- **Macro Index.** Skip-pointers ($2^k$-stride values) in [`macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) enable logarithmic jumps through the spatial index, turning linear traversal into a fractal skip list.
+- **Topology-Guided Recursive Fold.** [`substrate/graph.go`](pkg/logic/substrate/graph.go) builds a persistent hierarchical graph by discovering shared structural invariants. Merge ordering is determined by Jaccard similarity (via [`topology/persistence.go`](pkg/logic/topology/persistence.go)), not arbitrary midpoint splits. At each level: `AND` extracts the shared label, `Hole` extracts directional residues, and the fold recurses on the residues until no shared structure remains. The result is a `FoldGraph` of persistent `FoldNode`s queryable at prompt time via `FoldLookup`.
 
-### HAS System — `pkg/logic/synthesis/has.go`
+- **BVP Cantilever Solver.** [`synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) implements multi-stage prompt resolution: (1) exact lexical continuation from the stored corpus, (2) operator-mediated bridging via the MacroIndex (with approximate nearest-neighbor fallback). Successful bridges feed `RecordCandidateResult` to close the hardening loop.
 
-The Holographic Auto-Synthesizer (HAS) is the ingestion/inference loop for native value synthesis:
+- **Macro Index.** [`synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) stores discovered affine operators indexed by their full geometric `AffineKey` (XOR delta of start/goal Values). Exact lookup is supplemented by approximate nearest-neighbor search in PhaseDial embedding space: hardened opcodes get projected into 512-D complex vectors via `EmbedKey`, and cosine similarity finds the closest known operator for novel gaps.
 
-- **Ingestion (`Write` + `Done` + `Derive`)**: consumes boundary pairs `(start, end)`, computes affine key deltas over native values, and hardens reusable operators in the shared `MacroIndex`.
-- **Inference (`Ask`)**: builds a query mask from known values, evaluates it against a candidate value set, scores structural fitness, and returns the best residue.
-- **Contract**: HAS operates on `primitive.Value` geometry as the primary state surface. Any scalar phase quantity is a local derived coordinate, not a global lookup identity.
+- **HAS (Holographic Auto-Synthesizer).** [`synthesis/has.go`](pkg/logic/synthesis/has.go) forges affine tools during ingestion and performs query-mask matching during inference.
 
-### Projection Plane — Human Interface
+- **Category-Theoretic Functors.** [`category/functor.go`](pkg/logic/category/functor.go) maps morphisms between MacroIndex categories via Procrustes alignment in PhaseDial space, enabling cross-domain operator transfer.
 
-Semantics is a *downstream projection*, not the machine's reasoning vocabulary. The projection layer exists so that:
+- **Topological Persistence.** [`topology/persistence.go`](pkg/logic/topology/persistence.go) computes Betti numbers and persistence diagrams over Value streams via Jaccard-similarity filtration, tracking connected components (H₀), loops (H₁), and their birth-death events.
 
-- Bytes can be recovered from Morton keys (un-Morton → X coordinate → byte value).
-- S-V-O structure can be parsed from text for human-facing evaluation ([`grammar/parser.go`](pkg/logic/grammar/parser.go)).
-- Semantic facts can be injected and queried as an overlay ([`semantic/server.go`](pkg/logic/semantic/server.go)).
-- Experiment results can be scored and reported in natural language.
+### Interpreter — `pkg/system/vm/processor/`
 
-The machine internally reasons in values and rotations. It does not know what a word is.
+The [`InterpreterServer`](pkg/system/vm/processor/interpreter.go) is a register-machine that executes programs encoded as `[]primitive.Value`. Each Value is simultaneously an instruction and an operand:
+
+| Opcode | Behavior |
+|:---|:---|
+| `OpcodeNext` | Advance `pc++`, apply affine transform to running phase. |
+| `OpcodeJump` | `pc += Jump()`, non-zero jump offset. |
+| `OpcodeBranch` | Fork: evaluate all candidates via `BatchEvaluateInto`, pick lowest-residue winner. |
+| `OpcodeReset` | Reset phase to identity, `pc++`. |
+| `OpcodeHalt` | Emit accumulated state, stop. |
+| **`OpcodeMacro`** | Apply a learned affine operator (scale, translate from the Value's shell) to the running phase. This is how the system executes its own discoveries. |
+
+The interpreter records an `ExecutionStep` trace for every instruction. Successful traces can be reified back into a single `OpcodeMacro` Value via `ReifyTrace()`, composing the affine chain into one operator. This closes the self-programming loop: observe → execute → trace → reify → harden → execute natively.
+
+### Machine — `pkg/system/vm/`
+
+The [`Machine`](pkg/system/vm/machine.go) is the top-level orchestrator. It wires the tokenizer, forest, graph, cantilever, HAS, macro index, and interpreter through a Cap'n Proto RPC router ([`cluster/`](pkg/system/cluster/)).
+
+- **Ingest** (`SetDataset`): streams raw bytes through the tokenizer via batch RPC, stores Morton keys in the Forest and Graph, triggers topology-guided recursive folding, and feeds HAS with boundary pairs for tool synthesis.
+- **Prompt** (`Prompt`): delegates to the CantileverServer for multi-stage resolution (exact → operator-mediated → error).
 
 ---
 
 ## Codebase Map
 
-The four planes map directly to the repository structure:
+### Layer 1 — Primitive Value
 
-### Layer 1 — Data Substrate
-
-> The native monotype, Morton indexing, and the GF(257) field.
+> The homoiconic native monotype and GF(8191) field.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| 512-bit Native Value | [`pkg/store/data/value.go`](pkg/store/data/value.go) | `SetAffine`, `SetLexicalTransition`, `SetProgram`, `GuardRadius`, `ValueHole`, `ActiveCount` |
-| Value (Cap'n Proto schema) | [`pkg/store/data/value.capnp`](pkg/store/data/value.capnp) | Wire format: 8 × `uint64` words (compatibility schema name retained) |
-| Morton Keys | [`pkg/store/data/morton.go`](pkg/store/data/morton.go) | Address encoding: `X = byte`, `Y = localDepth` |
-| Opcodes | [`pkg/store/data/opcode.go`](pkg/store/data/opcode.go) | Guard-band instruction encoding |
-| GF(257) Numerics | [`pkg/numeric/core.go`](pkg/numeric/core.go), [`prime.go`](pkg/numeric/prime.go) | Modular arithmetic, Fermat constants |
-| GF Rotation | [`pkg/numeric/geometry/gf_rotation.go`](pkg/numeric/geometry/gf_rotation.go) | Affine transform $(a, b)$ in the field |
-| Phase Geometry | [`pkg/numeric/geometry/phase.go`](pkg/numeric/geometry/phase.go) | Phase distance, phase wrapping |
-| Eigenmode | [`pkg/numeric/geometry/eigenmode.go`](pkg/numeric/geometry/eigenmode.go) | Co-occurrence eigenvectors for ambiguity handling |
+| Native Value | [`pkg/logic/lang/primitive/value.go`](pkg/logic/lang/primitive/value.go) | 8191-bit core + 3-block shell, Cap'n Proto backed |
+| Bitwise Ops | [`pkg/logic/lang/primitive/bitwise.go`](pkg/logic/lang/primitive/bitwise.go) | `OR`, `AND`, `XOR`, `Hole`, zero-alloc `*Into` variants |
+| Opcode ISA | [`pkg/logic/lang/primitive/opcode.go`](pkg/logic/lang/primitive/opcode.go) | Next, Jump, Branch, Reset, Halt, **Macro** |
+| Shell Layout | [`pkg/logic/lang/primitive/shell.go`](pkg/logic/lang/primitive/shell.go) | Affine, trajectory, guard radius, active flag |
+| Route Hint | [`pkg/logic/lang/primitive/route.go`](pkg/logic/lang/primitive/route.go) | Device dispatch class in opcode block |
+| Program Compiler | [`pkg/logic/lang/primitive/program.go`](pkg/logic/lang/primitive/program.go) | Morton keys → `SequenceCell` → `[]Value` |
+| GF(8191) Numerics | [`pkg/numeric/calculus.go`](pkg/numeric/calculus.go) | Mersenne reduction, field primitives, Primes table |
+| Phase Geometry | [`pkg/numeric/geometry/phase.go`](pkg/numeric/geometry/phase.go) | PhaseDial: 512-D complex embeddings, cosine similarity |
 
-### Layer 2 — Spatial Index
+### Layer 2 — Storage
 
-> Morton-keyed LSM storage only.
+> Radix-trie forest and Morton addressing.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| Spatial Index | [`pkg/store/lsm/spatial_index.go`](pkg/store/lsm/spatial_index.go) | Insert and lookup only — the persistent address lattice |
+| Forest (Radix Trie) | [`pkg/store/dmt/forest.go`](pkg/store/dmt/forest.go) | Immutable radix trie insert/lookup |
+| Forest RPC Server | [`pkg/store/dmt/server/server.go`](pkg/store/dmt/server/server.go) | Cap'n Proto `Write`, `WriteBatch`, `Done`, `Branches` |
+| Morton Keys | [`pkg/store/data/morton.go`](pkg/store/data/morton.go) | `Pack(symbol, depth)` / `Unpack(key)` |
 
 ### Layer 3 — Sensory Processing
 
@@ -333,122 +300,83 @@ The four planes map directly to the repository structure:
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| Tokenizer | [`pkg/system/process/tokenizer/server.go`](pkg/system/process/tokenizer/server.go) | Bytes → cell addresses + values (Cap'n Proto RPC server) |
-| Sequencer (MDL) | [`pkg/system/process/sequencer/mdl.go`](pkg/system/process/sequencer/mdl.go) | Online Minimum Description Length boundary detection |
+| Tokenizer | [`pkg/system/process/tokenizer/server.go`](pkg/system/process/tokenizer/server.go) | Bytes → Morton keys via `Write`, `WriteBatch`, `Done` |
 | Sequencer (Sequitur) | [`pkg/system/process/sequencer/sequitur.go`](pkg/system/process/sequencer/sequitur.go) | Grammar-based hierarchical chunking |
-| Fast Window | [`pkg/system/process/fastwindow.go`](pkg/system/process/fastwindow.go) | Adaptive sliding window with variance heuristics |
-| Distribution | [`pkg/system/process/distribution.go`](pkg/system/process/distribution.go) | Stream statistics for boundary decisions |
-| Calibrator | [`pkg/system/process/calibrator.go`](pkg/system/process/calibrator.go) | Phase/variance calibration across chunks |
 
 ### Layer 4 — Logic & Synthesis
 
-> Graph substrate, BVP solving, HAS synthesis loops, macro indexing.
+> Recursive folding, BVP solving, operator learning, topological analysis.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| Graph Substrate | [`pkg/logic/substrate/graph.go`](pkg/logic/substrate/graph.go) | Recursive fold over value paths — the volatile reasoning workbench |
-| AST | [`pkg/logic/substrate/ast.go`](pkg/logic/substrate/ast.go) | Abstract syntax tree for structural decomposition |
-| Path Wavefront | [`pkg/logic/substrate/path_wavefront.go`](pkg/logic/substrate/path_wavefront.go) | Phase-stable path repair, anchors, and bridge synthesis over prefetched graph paths |
-| BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Span extension toward a goal phase via rotational interpolation |
-| HAS (Holographic Auto-Synthesizer) | [`pkg/logic/synthesis/has.go`](pkg/logic/synthesis/has.go) | Ingestion-time tool forging (`Derive`) and inference-time query-mask evaluation (`Ask`) on native `primitive.Value` geometry |
-| Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Skip-pointer registry for multi-scale navigation |
+| Graph Substrate | [`pkg/logic/substrate/graph.go`](pkg/logic/substrate/graph.go) | Topology-guided recursive fold, `FoldLookup`, `ExactContinuation` |
+| Topological Persistence | [`pkg/logic/topology/persistence.go`](pkg/logic/topology/persistence.go) | Jaccard-filtration persistence diagrams, `Sweep`, Betti numbers |
+| UnionFind | [`pkg/logic/topology/unionfind.go`](pkg/logic/topology/unionfind.go) | Weighted union-find with path compression |
+| BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Multi-stage prompt: exact → operator-mediated, with hardening feedback |
+| HAS | [`pkg/logic/synthesis/has.go`](pkg/logic/synthesis/has.go) | Ingestion-time tool forging, inference-time query-mask evaluation |
+| Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Exact + approximate (PhaseDial NN) operator lookup, hardening, `RecordResult` RPC |
+| Category Functors | [`pkg/logic/category/functor.go`](pkg/logic/category/functor.go) | Cross-domain operator transfer via Procrustes alignment |
 
-### Layer 5 — Projection (Human Interface)
+### Layer 5 — Compute Backend
 
-> Semantic overlays, byte recovery, and natural-language scoring. Optional — the machine runs without it.
-
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Grammar Parser | [`pkg/logic/grammar/parser.go`](pkg/logic/grammar/parser.go) | S-V-O extraction from text (projection, not core logic) |
-| Semantic Engine | [`pkg/logic/semantic/server.go`](pkg/logic/semantic/server.go) | Fact injection and modular-inverse query (human-facing overlay) |
-
-### Layer 6 — Compute Backend
-
-> GPU/Metal/CPU dispatch for parallel resonance resolution.
+> CPU/GPU/Metal dispatch for parallel resolution.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
 | Dispatch | [`pkg/compute/kernel/dispatch.go`](pkg/compute/kernel/dispatch.go) | Backend selection (Metal, CUDA, CPU fallback) |
-| CUDA Kernel | [`pkg/compute/kernel/cuda/resolver.cu`](pkg/compute/kernel/cuda/resolver.cu) | `resolve_resonance_kernel`: GF(257) distance via `atomicMax` reduction |
-| Metal Kernel | [`pkg/compute/kernel/metal/`](pkg/compute/kernel/metal/) | Apple Silicon equivalent of the CUDA resolver |
-| Distributed | [`pkg/compute/kernel/distributed.go`](pkg/compute/kernel/distributed.go) | Multi-node coordination over WebSocket |
+| CUDA Kernel | [`pkg/compute/kernel/cuda/resolver.cu`](pkg/compute/kernel/cuda/resolver.cu) | GF(8191) distance resolution |
+| Metal Kernel | [`pkg/compute/kernel/metal/`](pkg/compute/kernel/metal/) | Apple Silicon equivalent |
+| Distributed | [`pkg/compute/kernel/distributed.go`](pkg/compute/kernel/distributed.go) | Strict no-fallback remote dispatch |
 
-### Layer 7 — Machine & Runtime
+### Layer 6 — Machine & Runtime
 
-> The top-level orchestrator that wires everything together.
+> The top-level orchestrator and interpreter.
 
 | Concept | File | What It Does |
 |:---|:---|:---|
-| Machine | [`pkg/system/vm/machine.go`](pkg/system/vm/machine.go) | `Prompt()`: the pipeline (mask → tokenize → lookup → enrich → fold → decode) |
-| Booter | [`pkg/system/vm/booter.go`](pkg/system/vm/booter.go) | RPC server lifecycle (Cap'n Proto pipe connections) |
-| Prompter | [`pkg/system/vm/input/`](pkg/system/vm/input/) | Holdout masking for evaluation prompts |
-
-### Experiments
-
-> Empirical validation using real datasets via [GoConvey](https://github.com/smartystreets/goconvey) BDD tests.
-
-| Experiment | File | What It Tests |
-|:---|:---|:---|
-| Text Classification | [`experiment/task/classification/text.go`](experiment/task/classification/text.go) | Language identification from value geometry |
-| Blind Classification | [`experiment/task/classification/blind.go`](experiment/task/classification/blind.go) | Classification without labeled training data |
-| Out-of-Corpus Generation | [`experiment/task/textgen/outofcorpus.go`](experiment/task/textgen/outofcorpus.go) | Generating text not present in the training set |
-| Prose Chaining | [`experiment/task/textgen/prose_chaining.go`](experiment/task/textgen/prose_chaining.go) | Multi-sentence coherence via phase carry |
-| bAbI Benchmark | [`experiment/task/logic/babi_benchmark.go`](experiment/task/logic/babi_benchmark.go) | Multi-hop reasoning (Where is X?) via algebraic cancellation |
-| Semantic Algebra | [`experiment/task/logic/semantic_algebra.go`](experiment/task/logic/semantic_algebra.go) | S-V-O injection and modular-inverse query (projection layer test) |
-| Pipeline Harness | [`experiment/task/pipeline.go`](experiment/task/pipeline.go) | Standard test harness — all experiments use the full `vm.Machine` |
+| Machine | [`pkg/system/vm/machine.go`](pkg/system/vm/machine.go) | `SetDataset` (batch ingest), `Prompt` (multi-stage resolution) |
+| Booter | [`pkg/system/vm/booter.go`](pkg/system/vm/booter.go) | RPC server lifecycle and capability registration |
+| Interpreter | [`pkg/system/vm/processor/interpreter.go`](pkg/system/vm/processor/interpreter.go) | Register machine with OpcodeMacro dispatch, execution tracing, trace reification |
+| Cluster Router | [`pkg/system/cluster/`](pkg/system/cluster/) | Capability-based service routing |
+| Worker Pool | [`pkg/system/pool/`](pkg/system/pool/) | Bounded-wait job dispatch with scaler |
 
 ---
 
-## The Execution Lifecycle
+## The Self-Programming Loop
 
-The system operates in two modes: **Ingest** (baking data into the address lattice) and **Prompt** (exciting the field and following resonance).
-
-### Ingest
+The defining architectural feature is that learned behaviors become native instructions. The loop:
 
 ```
-Raw Bytes → Sequencer (boundary detection)
-   → For each chunk:
-      Cell address = Morton(byte, localDepth)
-      Stored value = native operator (phase, carry, opcode)
-      Insert into LSM (append-only, no merge)
-   → Local depth resets at each boundary
+1. OBSERVE    Ingest data → tokenize → Morton keys → Values
+                          → topology-guided recursive fold (graph)
+                          → HAS boundary synthesis (MacroIndex candidates)
+
+2. PROMPT     Query arrives → exact continuation?
+              No → operator-mediated bridging (MacroIndex lookup)
+                → exact match? → apply
+                → no exact → approximate NN in PhaseDial space → apply
+              Report bridge result → RecordCandidateResult
+
+3. HARDEN     Repeated successful bridges increment UseCount
+              UseCount > threshold → opcode.Hardened = true
+              Hardened opcodes get PhaseDial embeddings for NN search
+              MacroOpcode.ToValue() encodes as primitive.Value with OpcodeMacro
+
+4. EXECUTE    Interpreter encounters OpcodeMacro in program
+              → applies learned affine operator to running phase
+              → records execution trace (ExecutionStep per instruction)
+
+5. REIFY      Successful trace → ReifyTrace()
+              → composes affine chain into single (scale, translate)
+              → encodes as new OpcodeMacro Value
+              → feeds back into MacroIndex for future use
+
+              ┌──────────────────────────────────┐
+              │  Value = Data = Instruction =    │
+              │  Operator = Route = Memory       │
+              │  The medium programs itself.     │
+              └──────────────────────────────────┘
 ```
-
-The sequencer decides where chunks begin and end via MDL / Sequitur. The local depth counter resets at each boundary. This is the compression surface: different sequences that share `(byte, localDepth)` collapse onto the same radix cell.
-
-### Prompt
-
-```
-  ┌──────────────┐
-  │  1. Excite   │ Inject prompt bytes as transient seed phases
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐
-  │  2. Rotate   │ Apply affine momentum: State = a(State) + b (mod 257)
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐
-  │  3. Measure  │ XOR projected phase against stored LSM values
-  └──────┬───────┘
-         ├── Constructive (match) → Phase-lock, advance
-         └── Destructive (noise) → Frustration ↑, pivot orbit
-         ▼
-  ┌──────────────┐
-  │  4. Halt?    │ Bit 257 == 1, or orbit reaches fixed point
-  └──────┬───────┘
-         ▼
-  ┌──────────────┐
-  │  5. Project  │ Un-Morton the address → recover byte for humans
-  └──────┬───────┘
-         ▼
-       Result
-```
-
-The prompt does not "search" the index. It injects a phase, rotates, measures, and follows the path of least residue. The system converges on an answer the way a standing wave converges on a resonant frequency.
-
-> [!NOTE]
-> **Implementation status of the doctrine.** Boundary-local indexing and value-identity separation are implemented: the tokenizer emits boundary-local positions, `StorageValue()` strips lexical seeds on insert, `ObservableValue()` re-projects when byte decode is needed, and the wavefront tracks `(key, segment)` for correct compressed-cell revisitation. Projection/enrichment is now an optional overlay, not the default prompt path. The operator shell also carries affine state, trajectory snapshots, route hints, and guard radii so stored values behave more like local transition rules than decorated byte shadows.
-Wavefront heads now carry ephemeral execution registers too: a transient residue/alignment/checkpoint workspace that seeds checkpointed backtracking without persisting any of that scratch state into the LSM.
 
 ---
 
@@ -493,28 +421,29 @@ six/
 ├── cmd/                          # CLI entry points
 ├── pkg/
 │   ├── compute/kernel/           # GPU backends (CUDA, Metal, CPU)
-│   ├── errnie/                   # Error handling utilities
+│   ├── errnie/                   # Error handling + state tracking
 │   ├── logic/
-│   │   ├── grammar/              # S-V-O parser (projection layer)
-│   │   ├── semantic/             # Fact overlay (projection layer)
-│   │   ├── substrate/            # Graph VM (volatile reasoning)
-│   │   └── synthesis/            # BVP, frustration, macro index
-│   ├── numeric/                  # GF(257) math, geometry, phase
+│   │   ├── lang/primitive/       # The native Value monotype
+│   │   ├── substrate/            # Topology-guided recursive fold graph
+│   │   ├── topology/             # Persistence diagrams, UnionFind
+│   │   ├── synthesis/            # BVP cantilever, HAS, MacroIndex
+│   │   └── category/             # Functors, natural transformations
+│   ├── numeric/                  # GF(8191) math, geometry, phase
 │   ├── store/
-│   │   ├── data/                 # Value, Morton, opcode
-│   │   └── lsm/                  # Spatial index, wavefront, skip-pointers
+│   │   ├── data/                 # Morton coder, dataset providers
+│   │   └── dmt/                  # Radix-trie forest, server RPC
 │   ├── system/
-│   │   ├── core/                 # Configuration
-│   │   ├── process/              # Tokenizer, sequencer, calibrator
+│   │   ├── core/                 # Configuration constants
+│   │   ├── cluster/              # Capability-based service routing
+│   │   ├── process/              # Tokenizer, sequencer
 │   │   ├── pool/                 # Worker pool + broadcast groups
-│   │   └── vm/                   # Machine orchestrator + booter
+│   │   └── vm/                   # Machine orchestrator, interpreter
 │   ├── telemetry/                # Observability
 │   └── validate/                 # Invariant checks
 ├── experiment/                   # Experiment harness + task definitions
-│   └── task/                     # classification, textgen, logic, scaling
-├── test/integration/             # End-to-end integration tests
+│   └── task/                     # classification, textgen, logic
 ├── paper/                        # LaTeX research paper (auto-generated)
-├── docs/                         # Design documents + PlantUML diagrams
+├── docs/                         # Design documents
 └── Makefile                      # Build, test, and paper generation
 ```
 
@@ -522,126 +451,54 @@ six/
 
 ## Experiments
 
-All experiments use the full `vm.Machine` pipeline with real data (HuggingFace datasets). No oracles, no faked results.
+All experiments use the full `vm.Machine` pipeline with real data. No oracles, no faked results.
 
 Experiments are structured as GoConvey BDD tests in `experiment/task/pipeline_test.go`. Each task:
 
-1. Boots the full machine (tokenizer, spatial index, graph, BVP)
-2. Ingests a real dataset
-3. Runs prompts through the execution pipeline
+1. Boots the full machine (tokenizer, forest, graph, cantilever, HAS, macro index)
+2. Ingests a real dataset via batch transport
+3. Runs prompts through the multi-stage resolution pipeline
 4. Asserts observable outputs via `gc.So`
 5. Generates LaTeX artifacts for the research paper
-
-Current experiment categories:
-
-| Category              | Tasks                                                      | Status         |
-|:----------------------|:-----------------------------------------------------------|:---------------|
-| **Classification**    | Language identification, blind classification              | ✅ Active      |
-| **Text Generation**   | Out-of-corpus, compositional, prose chaining, text overlap | ✅ Active      |
-| **Logic & Reasoning** | bAbI benchmark, semantic algebra                           | ✅ Active      |
-| **Scaling**           | Throughput and latency under increasing corpus size        | 🔬 In progress |
 
 ---
 
 ## Roadmap
 
-### ✅ Implemented
+### Implemented
 
-- [x] GF(257) affine rotation group with primitive root 3
-- [x] 512-bit value substrate (Cap'n Proto, zero-copy RPC)
-- [x] Morton-keyed LSM spatial index
-- [x] Wavefront search with multi-headed propagation and phase carry
+- [x] GF(8191) Mersenne field with branchless reduction
+- [x] 8191-bit value substrate (Cap'n Proto, zero-copy RPC)
+- [x] Morton-keyed radix-trie forest
 - [x] MDL + Sequitur dual-track sequence boundary detection
-- [x] BVP cantilever solver with rotational interpolation
-- [x] Frustration engine with energy-threshold backtracking
-- [x] Macro index for multi-scale skip-pointer navigation
+- [x] BVP cantilever solver with multi-stage prompt resolution
+- [x] Topology-guided recursive folding with persistent FoldNode hierarchy
+- [x] Macro index with exact + approximate (PhaseDial NN) operator lookup
+- [x] Hardening feedback loop: prompt-time bridge results → RecordCandidateResult
+- [x] MacroOpcode as Value (OpcodeMacro): learned operators as first-class Values
+- [x] Execution trace recording and reification (ReifyTrace → composed affine Value)
+- [x] Interpreter macro dispatch: native execution of learned operators
+- [x] Batch RPC transport (WriteBatch) for tokenizer, forest, and graph
+- [x] Category-theoretic functors for cross-domain operator transfer
+- [x] Topological persistence diagrams (H₀, H₁, Betti numbers)
 - [x] CUDA + Metal + CPU compute backends
 - [x] Full experiment harness with LaTeX paper generation
-- [x] Phase anchors for drift correction
-- [x] Guard band opcode register and residual carry
-- [x] Boundary-local indexing — tokenizer emits `(byte, localDepth)` with depth reset at each sequencer cut
-- [x] Value-identity separation — `StorageValue()` strips lexical seeds on insert, `ObservableValue()` re-projects for decode
-- [x] Native value layer — `NeutralValue()`, `SetAffine()`, `SetLexicalTransition()`, `PhaseScaleForByte()`
-- [x] Segment-aware wavefront — visited marks are `(key, segment)`, `OpcodeReset` handling, correct compressed-cell revisitation
+- [x] Operator shell: affine, trajectory, route hints, guard radii, flags
+- [x] Autonomous tool building: gap detection → synthesis → bridging → hardening → native execution
+- [x] Tool composition: interpreter executes Value sequences (series); `ReifyTrace` composes traces into single operators
+- [x] Recursive meta-tools: `ReifyTrace` condenses traces containing `OpcodeMacro` steps into new operators (tools that build tools)
 
-### 🔧 In Development
+### In Development
 
-- [x] **Projection demotion.** Semantic enrichment is now an explicitly configurable overlay rather than the default prompt path.
-- [x] **Skip-index alignment.** The skip layer now walks concrete stored program states, tracks segment drift, and revalidates reset-aware continuations.
-- [x] **Operator shell registers.** The upper band now carries route hints, trajectory snapshots, guard radii, and mutable-program flags on top of opcode + carry + affine control.
-- [x] **Multi-headed frustration.** Parallel wavefront heads that independently explore alternative rotational trajectories when the primary path stalls.
-- [x] **Logic garbage collection.** Automatic pruning of expired cantilever spans and dead wavefront heads to bound working memory.
-- [ ] **Rotation opcodes.** Extending the guard-band instruction set from basic control flow to a full rotational VM bytecode.
+- [ ] **Graph fold storage.** Persist FoldNode hierarchy into the Forest so fold products survive across sessions and enable graph-structural prompt resolution.
+- [ ] **Execution trace hardening.** Automatically feed ReifyTrace products into the MacroIndex so the interpreter's successful traces become available as macro operators.
 - [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation.
 - [ ] **Spatial paging strategy.** Prefetching Morton clusters into GPU shared memory to respect PCIe bandwidth constraints.
 
-### 🔭 Research Horizon
+### Research Horizon
 
-#### Native Substrate Evolution
-
-- [ ] **Mutable operator substrate.** Making each stored value a first-class program object — logically mutable, physically append-only (LSM versioning). Scale from "state-with-control-fields" to "local transition operator."
-- [x] **Ephemeral execution registers.** Active wavefront heads now carry transient residue/alignment/checkpoint planes plus checkpoint trails for rewind and re-anchor experiments — traversal scratch only, never persisted.
-- [ ] **Synthetic phase-grammar.** The system develops its own optimal phase-language for internal reasoning, using MDL-discovered rotation constants as "letters." Human language is only used at the input/output boundary.
-
-#### Tool Discovery & Composition
-
-- [ ] **Autonomous tool building.** When the cantilever hits a gap, the system synthesizes the missing rotation $Z = \text{target} \times \text{modInverse(current)} \bmod{257}$ and, if it successfully bridges similar gaps elsewhere, hardens it as a permanent macro-opcode.
-- [ ] **Tool composition (truss logic).** Series composition: output phase of tool A becomes input phase of tool B. Parallel composition: two tools run on the same Morton cell to satisfy compound boundaries (multi-context merging).
-- [ ] **Recursive meta-tools.** Tools that build tools — generative templates storing modular ratios and phase offsets that can synthesize domain-specific logic circuits on the fly, bootstrapping from observation → abstraction → meta-tool creation → application.
-
-#### Cross-Domain & Cross-Modal
-
-- [ ] **Ontological transposition.** Using rotational group isomorphisms to translate logic circuits between domains. A rotation that solves a math gap gets domain-shifted and tested against a music or code gap. If it zeroes frustration in the new domain, a universal law has been discovered.
-- [ ] **Cross-modal anchoring.** Text, image, and sensor data share a label phase ($\phi_{\text{label}}$). The anchor is multiplicatively injected during ingest. Query inverts the label, and all modalities that carry it resonate simultaneously — zero-shot multi-modal retrieval without a shared embedding space.
-- [ ] **Domain rotation opcodes.** Every domain (code, music, law, physics) gets a global base phase. Cross-domain tool reuse is a single modular multiplication away: $Z_{\text{domain}} = \phi_{\text{target}} \times \text{modInverse}(\phi_{\text{source}}) \bmod{257}$.
-
-#### Autonomy & Self-Optimization
-
-- [ ] **Autonomous curiosity.** The system scans its own Morton index for low-resonance gaps — places with data but no tools. During idle cycles ("dream state"), it fires ghost spans into these gaps, synthesizing and validating new macro-opcodes without human prompting.
-- [ ] **Self-optimization.** The system treats its own latency and memory fragmentation as internal frustration. It discovers spatial transforms that remap high-density Morton neighborhoods to empty ones, rewriting its own address layout to make the next traversal faster.
-- [ ] **Logic garbage collection.** Extend branch hygiene into full MDL-driven tool retirement so inefficient macro-opcodes and expired cantilever spans are pruned with the same discipline as dead wavefront heads.
-
-#### Distributed & Multi-System
-
-- [ ] **Multi-system braids.** Two engines achieve phase-lock by exchanging a reference wave and computing a rotational offset $Z$ such that $\phi_A \times G^Z \equiv \phi_B \pmod{257}$. Once aligned, system A can invoke system B's macro-opcodes as if they were local.
-- [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation. Network delay is treated as a negative constraint — if local synthesis is faster than the handshake, the system builds locally.
-- [ ] **Collaborative cantilevers.** When a node hits a shear point, it broadcasts its frustration phase. Any peer with a matching macro-opcode responds with the rotation, completing the bridge across the network.
-
----
-
-## Distributed Orchestration
-
-The system does not rely on heavy RPC frameworks for distributed computation. Instead, it utilizes **chunk-based sharding** and **raw TCP serialization** to maintain sub-millisecond latency across the local mesh.
-
-### Zero-Copy Cap'n Proto Wiring
-
-Rather than negotiating complex RPC connection envelopes, the `DistributedBackend` bypasses interface abstractions in favor of raw socket manipulation:
-- **Direct TCP Encoders:** `capnp.NewEncoder(conn)` is pinned directly to raw TCP sockets.
-- **Zero-Copy Manual Schemas:** The orchestrator creates a root Cap'n Proto struct over data buffers, manually injecting offset bytes to serialize memory. Dictionary bits from spatial indices are blasted over the wire via `.SetData()` without any struct recreation or JSON unpacking penalty.
-- The worker node (`handleDistributedConn`) sits on a raw `net.Listen` TCP loop. When traffic hits, the byte stream funnels into a decoder and immediately hits the local CPU/GPU cascade via `localBuilder.Resolve()`.
-
-### Sharded Work Distribution
-
-When a topological query is issued against the distributed backend:
-1. **Dynamic Chunking:** The massive array of tensor nodes is sliced into chunks configured by `config.System.Chunk`.
-2. **Round-Robin Mesh Assignment:** Each chunk is assigned to an available mesh peer discovered via the UDP heartbeat broadcast listener (`:7778`).
-3. **Resilient Circuit Breaking:** Requests are scheduled concurrently via a worker pool. If a remote worker drops or times out, the circuit breaker flips and the host node initiates a local fallback closure, executing the shard natively on its own hardware without failing the broader query.
-4. **Atomic Aggregation:** Results stream back asynchronously and are aggregated using a continuous `CompareAndSwap` loop (`atomicMaxPacked`) to find the mathematically optimal spatial distance across the entire cluster.
-
----
-
-## Hardware Considerations
-
-> [!IMPORTANT]
-> The zero-copy memory architecture currently assumes unified GPU memory provides near-zero latency traversal. This is an idealization. Random access across deeply scattered Morton branches will incur **page-fault stalls** and **PCIe bus saturation** on discrete GPUs. The spatial paging strategy (see Roadmap) is required before multi-gigabyte indices are practical.
-
-The 257-bit core field fits inside a 512-bit hardware jacket. Since $257 = 2^8 + 1$, modular reduction simplifies to:
-
-```
-result = (val & 0xFF) - (val >> 8)    // branchless on GPU
-```
-
-This makes GF(257) arithmetic run at the speed of native bitwise operations on any architecture supporting 256-bit or wider SIMD registers. The 255-bit upper shell is free hardware real estate for control, routing, and execution metadata — no performance penalty for carrying it.
+- [ ] **Cross-modal anchoring.** Text, image, and sensor data share a label phase. The anchor is multiplicatively injected during ingest. Query inverts the label, and all modalities that carry it resonate simultaneously.
+- [ ] **Autonomous curiosity.** The system scans its own index for low-resonance gaps and synthesizes new macro-opcodes during idle cycles without human prompting.
 
 ---
 
@@ -654,4 +511,3 @@ This project is documented in a companion research paper generated automatically
 ## License
 
 See [LICENSE](LICENSE) for details.
-

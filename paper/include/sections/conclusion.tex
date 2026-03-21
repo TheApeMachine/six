@@ -7,27 +7,26 @@ generation as a boundary value problem over discrete bitwise geometry.
 The system rests on four concrete architectural pillars:
 
 \begin{enumerate}[nosep]
-  \item A \textbf{257-bit Value} representation with deterministic prime-basis
-        encoding, where bitwise operations execute discrete wave interference
-        at single-cycle throughput.
-  \item A \textbf{Nested SO(3) Fractal Manifold} that encodes syntactic
-        sequence through non-commutative $A_5$ rotations, with $O(1)$ virtual
-        mitosis for entropy pressure relief.
-  \item A \textbf{5-pass GPU BestFill pipeline} that hierarchically eliminates
-        candidates using integer winding/state filters, SIMD popcount, and
-        precomputed geodesic disambiguation---scanning millions of manifolds
-        in sub-millisecond latency.
-  \item A \textbf{Toroidal Eigenmode} navigation layer that steers generation
-        along dense trajectories on an $S^1 \times S^1$ phase torus, preventing
-        echo-loop entrapment and enabling topological closure detection.
+  \item An \textbf{8191-bit Value} representation with deterministic
+        Golomb-ruler basis encoding over the Mersenne field GF(8191),
+        where bitwise operations execute discrete wave interference at
+        single-cycle throughput.
+  \item A \textbf{Morton-coded radix trie} (DMT) that stores Values with
+        Zipfian collision-compression, indexed by spatial keys encoding
+        byte identity and boundary-local depth.
+  \item A \textbf{self-programming loop} where the cantilever BVP solver
+        synthesizes missing affine operators, hardens them through
+        repeated success into permanent macro-opcodes, and the
+        interpreter executes them as native Value instructions---closing
+        the observe-prompt-harden-execute-reify cycle.
+  \item An \textbf{analytical phase navigation} layer on
+        $S^1 \times S^1$ that derives toroidal coordinates from
+        intrinsic GF(8191) prime-index geometry without training.
 \end{enumerate}
 
 Across the reported experiments, the system demonstrates gradient-free
 inference, modality-agnostic byte-level processing, and hardware-native
 parallel retrieval.  The identified failure modes---insufficient energy
 selectivity and shallow propagation depth---converge on a single
-architectural surface: the interaction between popcount gating and
-manifold hierarchy depth.
-
-% TODO: Add final summary statistics from all experiment categories.
-% TODO: State implementation availability and reproducibility details.
+architectural surface: the interaction between retrieval selectivity
+and fold graph depth.

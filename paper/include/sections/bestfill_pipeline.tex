@@ -1,10 +1,10 @@
 % ============================================================================
-% THE GF(257) RESOLVER PIPELINE
+% THE GF(8191) RESOLVER PIPELINE
 % ============================================================================
 \subsection{Problem Statement}
 \label{sec:bestfill_problem}
 
-Given a context $\operatorname{GF}(257)$ rotation $\mathbf{q} = (a_q, b_q)$
+Given a context $\operatorname{GF}(8191)$ rotation $\mathbf{q} = (a_q, b_q)$
 and a graph of $N$ nodes each carrying their own rotation state
 $\{(a_i, b_i)\}_{i=1}^{N}$, the resolver returns:
 
@@ -18,14 +18,14 @@ where $d^2$ is the squared Euclidean distance in the Galois field coordinate
 space.  This is the system's sole inference primitive---all generation,
 retrieval, and reasoning reduce to repeated resolver calls.
 
-\subsection{GF(257) Geometric Distance}
+\subsection{GF(8191) Geometric Distance}
 \label{sec:gf_distance}
 
 Each node in the thermodynamic field carries a composable affine state
-$(a, b) \in \operatorname{GF}(257)^2$ where:
+$(a, b) \in \operatorname{GF}(8191)^2$ where:
 
 \begin{equation}
-  f(x) = (a \cdot x + b) \bmod 257, \qquad a \in \{1, \ldots, 256\},\; b \in \{0, \ldots, 256\}
+  f(x) = (a \cdot x + b) \bmod 8191, \qquad a \in \{1, \ldots, 8190\},\; b \in \{0, \ldots, 8190\}
   \label{eq:gf_affine}
 \end{equation}
 
@@ -41,7 +41,7 @@ This is pure integer arithmetic---no floating-point operations, no popcount,
 no matrix multiplies.  The geometric interpretation is direct: $a$ encodes
 the \emph{multiplicative} (scaling/rotation) identity, $b$ encodes the
 \emph{additive} (translational) offset.  Nearby nodes in
-$\operatorname{GF}(257)$ space share similar rotational histories.
+$\operatorname{GF}(8191)$ space share similar rotational histories.
 
 \subsection{Single-Pass Parallel Scan}
 \label{sec:single_pass}
@@ -52,7 +52,8 @@ The resolver executes as a single-pass parallel scan across all $N$ nodes:
   \item Each GPU thread evaluates $d^2(\mathbf{q}, \mathbf{n}_i)$ for its
         assigned node (2 subtractions, 2 multiplications, 1 addition).
   \item The distance is inverted to enable lock-free maximum selection:
-        $\hat{s}_i = 131{,}072 - d^2_i$.
+        $\hat{s}_i = 131{,}072 - d^2_i$, where $131{,}072$ is the packed
+        distance ceiling configured in the compute kernel.
   \item The score and index are packed into a single \texttt{uint64}:
 \end{enumerate}
 
@@ -91,8 +92,8 @@ representation.
 \subsection{Composition Instead of Accumulation}
 \label{sec:composition}
 
-A key distinction from popcount-based retrieval (BestFill) is that the
-$\operatorname{GF}(257)$ resolver operates on \emph{composed} rotational
+A key distinction from popcount-based retrieval is that the
+$\operatorname{GF}(8191)$ resolver operates on \emph{composed} rotational
 states rather than accumulated bit densities.  When the Sequencer detects
 a topological boundary event, it emits a rotation:
 
@@ -103,10 +104,12 @@ a topological boundary event, it emits a rotation:
   \item \textbf{Low-Variance Flux} $\to$ $X_{180}$: $(1, 2)$
 \end{itemize}
 
-These compose via the group operation:
+\noindent where $g$ is the smallest primitive root of $\operatorname{GF}(8191)$,
+computed at runtime.  These compose via the group operation:
+
 \begin{equation}
-  (a_2, b_2) \circ (a_1, b_1) = \bigl((a_2 \cdot a_1) \bmod 257,\;\;
-                                        (a_2 \cdot b_1 + b_2) \bmod 257\bigr)
+  (a_2, b_2) \circ (a_1, b_1) = \bigl((a_2 \cdot a_1) \bmod 8191,\;\;
+                                        (a_2 \cdot b_1 + b_2) \bmod 8191\bigr)
   \label{eq:composition}
 \end{equation}
 
