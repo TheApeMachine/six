@@ -176,22 +176,25 @@ func BenchmarkFind(b *testing.B) {
 }
 
 /*
-BenchmarkUnion measures Union throughput on fresh singletons.
+BenchmarkUnion measures Union throughput by rebuilding a fresh
+structure each iteration and merging all pairs.
 */
 func BenchmarkUnion(b *testing.B) {
-	uf := NewUnionFind(b.N * 2)
-
-	for range b.N * 2 {
-		uf.MakeSet()
-	}
+	const pairCount = 512
+	uf := NewUnionFind(pairCount * 2)
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	idx := int32(0)
-
 	for b.Loop() {
-		uf.Union(idx, idx+1)
-		idx += 2
+		uf.Reset()
+
+		for range pairCount * 2 {
+			uf.MakeSet()
+		}
+
+		for idx := int32(0); idx < pairCount*2; idx += 2 {
+			uf.Union(idx, idx+1)
+		}
 	}
 }
