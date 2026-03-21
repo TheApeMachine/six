@@ -97,15 +97,21 @@ func (rdr *ReaderServer) Write(
 		primitive.Value_List, error,
 	) {
 		value, err := args.Value()
-		
+
 		if err != nil {
-			return primitive.Value_List{}, err
+			return primitive.Value_List{}, errnie.Error(
+				NewReaderError(ReaderErrorTypeAllocationFailed),
+				"error", err,
+			)
 		}
 
 		values, err := primitive.NewValue_List(args.Segment(), 1)
-		
+
 		if err != nil {
-			return primitive.Value_List{}, err
+			return primitive.Value_List{}, errnie.Error(
+				NewReaderError(ReaderErrorTypeAllocationFailed),
+				"error", err,
+			)
 		}
 
 		values.Set(0, value)
@@ -123,12 +129,18 @@ func (rdr *ReaderServer) Write(
 		src := values.At(idx)
 
 		if !src.IsValid() {
-			return fmt.Errorf("reader: invalid value at index %d", idx)
+			return errnie.Error(
+				NewReaderError(ReaderErrorTypeInvalidValue),
+				"index", idx,
+			)
 		}
 
 		slot, err := primitive.NewValue(src.Segment())
 		if err != nil {
-			return err
+			return errnie.Error(
+				NewReaderError(ReaderErrorTypeAllocationFailed),
+				"error", err,
+			)
 		}
 
 		slot.CopyFrom(src)
@@ -149,12 +161,18 @@ func (rdr *ReaderServer) Done(ctx context.Context, call Reader_done) error {
 
 	res, err := call.AllocResults()
 	if err != nil {
-		return err
+		return errnie.Error(
+			NewReaderError(ReaderErrorTypeAllocationFailed),
+			"error", err,
+		)
 	}
 
 	result, err := res.NewResult(int32(len(rdr.registers[DATA])))
 	if err != nil {
-		return err
+		return errnie.Error(
+			NewReaderError(ReaderErrorTypeAllocationFailed),
+			"error", err,
+		)
 	}
 
 	for i, value := range rdr.registers[DATA] {
@@ -168,4 +186,24 @@ func ReaderWithContext(ctx context.Context) readerOpts {
 	return func(rdr *ReaderServer) {
 		rdr.ctx, rdr.cancel = context.WithCancel(ctx)
 	}
+}
+
+type ReaderErrorType string
+
+const (
+	ReaderErrorTypeInvalidValue     ReaderErrorType = "reader: invalid value"
+	ReaderErrorTypeAllocationFailed ReaderErrorType = "reader: allocation failed"
+)
+
+type ReaderError struct {
+	Message string
+	Err     ReaderErrorType
+}
+
+func NewReaderError(err ReaderErrorType) *ReaderError {
+	return &ReaderError{Message: string(err), Err: err}
+}
+
+func (err ReaderError) Error() string {
+	return fmt.Sprintf("reader error: %s: %s", err.Message, err.Err)
 }
