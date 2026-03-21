@@ -1,23 +1,22 @@
 \subsection{Spectral Embedding and Toroidal Manifold Discovery}
 \label{sec:related_spectral_embedding}
 
-The Sensorium Manifold's \emph{EigenMode} logic---deriving the intrinsic topology of the data from the subdominant eigenvectors of the value-transition matrix---is grounded in \emph{Spectral Graph Theory} and its application to nonlinear dimensionality reduction.
+The system's \emph{EigenMode} logic---deriving the intrinsic topology of the data from prime-index geometry---is grounded in \emph{Spectral Graph Theory} and its application to nonlinear dimensionality reduction.
 
 \paragraph{Laplacian Eigenmaps and Manifold Learning.}
 Belkin and Niyogi's \emph{Laplacian Eigenmaps} \citep{belkin2003laplacian} established that the eigenvectors of the graph Laplacian $L = D - W$ (where $W$ is a similarity-weighted adjacency matrix and $D$ is its degree matrix) provide optimal low-dimensional embeddings that preserve local neighborhood structure. Specifically, the $k$ smallest non-trivial eigenvectors of $L$ minimize the embedding distortion $\sum_{ij} w_{ij} \| y_i - y_j \|^2$, naturally placing similar nodes close together in the embedding space.
 
-The Sensorium applies this principle to the \emph{value co-occurrence graph}. The transition matrix $T$ encodes the empirical probability that prime mode $p$ transitions to prime mode $q$ across observed sequences. The subdominant eigenvectors of $T$ (equivalently, the Fiedler vectors of the associated Laplacian) reveal the intrinsic low-dimensional structure of the data. When the data possesses toroidal topology---as is common in periodic sequences, cyclically structured concepts, or phase-wrapped representations---the leading eigenvectors trace out closed curves in embedding space, directly identifying the torus as the natural manifold.
+The spectral graph theory framework provides the theoretical grounding for the EigenMode's analytical phase computation. Rather than constructing explicit co-occurrence matrices and performing eigendecomposition, the current implementation derives phase directly from the prime-index geometry of each Value---an analytical shortcut that produces embeddings consistent with the spectral theory but at $O(1)$ cost per value rather than the $O(n^3)$ cost of explicit eigendecomposition. The theoretical justification remains: the phase structure that emerges from prime-index analysis corresponds to what spectral methods would recover from the value-transition graph.
 
 \paragraph{The Dirac Operator and Geodesic Computation.}
-For calculating distances within the icosahedral manifold structure, we draw on Knill's formulation of the \emph{Dirac operator of a graph} \citep{knill2013dirac}. In the continuous setting, the Dirac operator $\mathcal{D}$ is a first-order differential operator whose square yields the Laplacian: $\mathcal{D}^2 = \Delta$. Knill's discrete construction defines an analogous operator on finite graphs, where:
+For calculating distances within the trie-indexed value structure, we draw on Knill's formulation of the \emph{Dirac operator of a graph} \citep{knill2013dirac}. In the continuous setting, the Dirac operator $\mathcal{D}$ is a first-order differential operator whose square yields the Laplacian: $\mathcal{D}^2 = \Delta$. Knill's discrete construction defines an analogous operator on finite graphs, where:
 
 \begin{itemize}[nosep]
   \item The \emph{spectrum} of $\mathcal{D}$ encodes both the topology (via its kernel, related to Betti numbers) and the geometry (via its non-zero eigenvalues) of the graph.
   \item \emph{Geodesic distances} between nodes can be computed from the spectral data of $\mathcal{D}$, avoiding explicit shortest-path algorithms on the combinatorial graph.
 \end{itemize}
 
-The Sensorium's \emph{Geodesic Lookup Table} (LUT) precomputes pairwise distances between the 60 icosahedral orientations using the graph-Dirac spectrum. During runtime, phase-delay calculations (\Cref{sec:inference}) and entropy-routing decisions (\Cref{sec:entropy_routing}) reference this LUT to determine the topological distance between any two manifold positions in $O(1)$ time, without traversing the rotational graph.
+Geodesic distances in the current implementation are computed via PhaseDial angular scanning rather than a precomputed lookup table. The PhaseDial sweeps $\text{GF}(8191)$ affine states and scores candidate entries by angular proximity in phase space, producing distance estimates that are consistent with the graph-Dirac spectral framework while operating in constant time per query.
 
 \paragraph{Why the Torus Emerges.}
-The eigenvector analysis provides a falsifiable prediction: if the value co-occurrence data has genuine periodic or cyclical structure, the spectral embedding will reveal a toroidal manifold. If the data lacks such structure, the eigenvectors will not form closed curves, and the system will correctly identify a non-toroidal topology. This spectral self-diagnosis is a built-in consistency check---the manifold does not assume toroidal structure; it \emph{discovers} it from the data's transition statistics.
-
+The spectral analysis provides a falsifiable prediction: if the value data has genuine periodic or cyclical structure, the analytical phase model will reveal toroidal geometry. If the data lacks such structure, the phase trajectories will not form closed curves, and the system will correctly identify a non-toroidal topology. This spectral self-diagnosis is a built-in consistency check---the system does not assume toroidal structure; it \emph{discovers} it from the data's phase geometry.

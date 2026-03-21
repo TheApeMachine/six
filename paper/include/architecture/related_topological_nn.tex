@@ -15,22 +15,22 @@ TOGL computes persistence diagrams from the graph filtration and feeds
 the resulting topological features into the GNN, improving expressivity
 on tasks where graph structure matters more than node features.
 
-The Sensorium Manifold addresses the same expressivity gap through a
+The system addresses the same expressivity gap through a
 fundamentally different mechanism.  Rather than computing topological
 summaries \emph{post hoc} from a graph filtration, our architecture
 \emph{embeds data into a topological space ab initio}:
 \begin{itemize}[nosep]
   \item \textbf{$H_0$ (connected components):}  Analogous to the
-        carrier/manifold partitioning in the PrimeField---each frozen
-        manifold is a distinct connected component of the memory substrate.
+        partitioning in the radix trie---each frozen trie entry
+        is a distinct connected component of the memory substrate.
   \item \textbf{$H_1$ (loops):}  The toroidal phase trajectory on the
         $S^1 \times S^1$ EigenMode torus is a native $H_1$ structure---generation
         terminates when the phase trajectory closes a loop
         (\Cref{sec:geometric_closure}).
-  \item \textbf{Filtration:}  The Virtual Mitosis threshold ($\rho \geq 0.45$)
-        defines a natural filtration over the manifold space: as value
-        density increases, topological complexity grows from a single
-        MacroCube (Cubic mode) to the full $A_5$ icosahedral manifold.
+  \item \textbf{Filtration:}  The density threshold ($\rho \geq 0.45$)
+        defines a natural filtration over the value space: as value
+        density increases, topological complexity grows through
+        successive affine-group expansions under $\text{GF}(8191)$.
 \end{itemize}
 
 The trade-off is computational: TOGL computes persistence diagrams (which
@@ -48,33 +48,33 @@ cell complexes, hypergraphs).  Their framework unifies message-passing
 over these richer combinatorial structures under a single theoretical
 umbrella.
 
-The Sensorium's Value superposition naturally encodes higher-order
+The Value superposition naturally encodes higher-order
 relationships: when $n$ bytes are superposed via \texttt{ValueOR}, the
-resulting 257-bit pattern captures all $\binom{n}{k}$ subset overlaps
+resulting 8191-bit pattern captures all $\binom{n}{k}$ subset overlaps
 simultaneously through the popcount inner product.  This is not pairwise
 attention---it is a holographic encoding where every subset of the input
-contributes to the structural fingerprint.  The $A_5$ rotational path
+contributes to the structural fingerprint.  The $\text{GF}(8191)$ affine path
 then imposes a strict ordering on these higher-order relationships,
-converting unstructured set-overlap into geometrically precise sequence
+converting unstructured set-overlap into algebraically precise sequence
 encoding.
 
 \paragraph{The Symbolic$\leftrightarrow$Neuro$\leftrightarrow$Symbolic Pipeline.}
 A broader trend in 2024--2025 research involves ``Symbolic $\to$ Neuro
 $\to$ Symbolic'' pipelines: structured data is mapped to a vector space,
 processed via geometric operations, and reconstructed as interpretable
-symbols.  The Sensorium implements a maximally compressed version of this
+symbols.  The system implements a maximally compressed version of this
 pipeline:
 \begin{enumerate}[nosep]
   \item \textbf{Symbolic $\to$ Geometric:}  Raw bytes are deterministically
-        mapped to 257-bit Values and inserted into the $GF(257)$ rotational
-        manifold.  No learning.
-  \item \textbf{Geometric Processing:}  BestFill executes massively parallel
-        popcount resonance search across the memory substrate, modulated
+        mapped to 8191-bit Values and inserted into the $\text{GF}(8191)$ affine
+        substrate.  No learning.
+  \item \textbf{Geometric Processing:}  The resolver executes massively parallel
+        popcount search across the memory substrate, modulated
         by EigenMode toroidal steering.
-  \item \textbf{Geometric $\to$ Symbolic:}  Retrieved manifolds are decoded
+  \item \textbf{Geometric $\to$ Symbolic:}  Retrieved trie entries are decoded
         back to byte sequences via readout, producing interpretable output.
 \end{enumerate}
-The entire pipeline is deterministic, invertible (via the Geodesic LUT),
+The entire pipeline is deterministic, invertible (via affine group inversion),
 and executes without gradient descent.  This positions the architecture
 as a hardware-optimized instantiation of the emerging Symbolic--Neuro--Symbolic
 paradigm, compiling the geometric processing layer down to single-cycle
