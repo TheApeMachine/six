@@ -9,4 +9,5 @@ using import "../../../logic/lang/primitive/value.capnp".Value;
 interface Server {
   write @0 (key :UInt64) -> stream;
   done  @1 () -> (keys :List(UInt64));
+  branches @2 (prompt :Value) -> (branches :List(Value));
 }

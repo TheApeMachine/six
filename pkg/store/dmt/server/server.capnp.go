@@ -10,6 +10,7 @@ import (
 	server "capnproto.org/go/capnp/v3/server"
 	stream "capnproto.org/go/capnp/v3/std/capnp/stream"
 	context "context"
+	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
 )
 
 type Server capnp.Client
@@ -52,6 +53,26 @@ func (c Server) Done(ctx context.Context, params func(Server_done_Params) error)
 
 	ans, release := capnp.Client(c).SendCall(ctx, s)
 	return Server_done_Results_Future{Future: ans.Future()}, release
+
+}
+
+func (c Server) Branches(ctx context.Context, params func(Server_branches_Params) error) (Server_branches_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xca6cd8732fa23c4c,
+			MethodID:      2,
+			InterfaceName: "pkg/store/dmt/server/server.capnp:Server",
+			MethodName:    "branches",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Server_branches_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return Server_branches_Results_Future{Future: ans.Future()}, release
 
 }
 
@@ -131,6 +152,8 @@ type Server_Server interface {
 	Write(context.Context, Server_write) error
 
 	Done(context.Context, Server_done) error
+
+	Branches(context.Context, Server_branches) error
 }
 
 // Server_NewServer creates a new Server from an implementation of Server_Server.
@@ -149,7 +172,7 @@ func Server_ServerToClient(s Server_Server) Server {
 // This can be used to create a more complicated Server.
 func Server_Methods(methods []server.Method, s Server_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 2)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
@@ -173,6 +196,18 @@ func Server_Methods(methods []server.Method, s Server_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Done(ctx, Server_done{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xca6cd8732fa23c4c,
+			MethodID:      2,
+			InterfaceName: "pkg/store/dmt/server/server.capnp:Server",
+			MethodName:    "branches",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.Branches(ctx, Server_branches{call})
 		},
 	})
 
@@ -211,6 +246,23 @@ func (c Server_done) Args() Server_done_Params {
 func (c Server_done) AllocResults() (Server_done_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Server_done_Results(r), err
+}
+
+// Server_branches holds the state for a server call to Server.branches.
+// See server.Call for documentation.
+type Server_branches struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Server_branches) Args() Server_branches_Params {
+	return Server_branches_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Server_branches) AllocResults() (Server_branches_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_branches_Results(r), err
 }
 
 // Server_List is a list of Server.
@@ -447,36 +499,225 @@ func (f Server_done_Results_Future) Struct() (Server_done_Results, error) {
 	return Server_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d66 = "x\xda\x94\x90\xbbK\xf3P\x18\xc6\x9f\xf7\xe4\xe4K;" +
-	"\xb4\xfdB\\\x9c\x0a\xa5\"\xed`\xac\x9d\xbc\x94\xd6I" +
-	"\x10\x87DAt\x92`\x8f\"\xbd\xa5I\xb4t\x17D" +
-	"\x10\xdc\x04E\x17G\xc1\xc1\xcb$B\xc5E\x10G\x07" +
-	"'\x11\xfc\x1f\x04\xa7Hz\x03'\xe9t\xce\xe1\xe5y" +
-	"\xce\xfb\xfb\xfd\xff(\xf0Ld\x94\x83\x99\xe3\xf2?\xff" +
-	"\xb6\xf5\xf2\xb4\xb2|\x7f\x043E\x04p\x05\xc8~\xd3" +
-	"5\x81\xb40\xcb\x83\xfc\x85\x99s\xdd}+?CM" +
-	"H\xfeFn\xd6>;\x90/\x01\xca\xa6\xd8<i9" +
-	"\xa6\x00\xda$\xdb\xd3\xf6\x83\x9b\xbfk\x9d\xbe\xbf>\xce" +
-	"}BM\xf5\xda\xea\xec\x82\xc0\xfd;\xe7\xa65}\x98" +
-	"\xfb\xeaLd\x0aF\x16k\x7fTgy\xac\xfavi" +
-	"Sw\xbd\x9a#\x0b\xbdX\xf1tW8;\xc2\xe9\x1e" +
-	"c\xeb\x96]\xb5\xa7\x96:\x8f\x86\xb3\xe5\x89\xa4\x11\xb7" +
-	"\x1c\xab\xe2\x9a\\\xe2\x00'@\x8d$\x003$\x919" +
-	"\xc4H)\x89&\x85\xc1(\x0c\xeaW\xf3\xbf\xaa\x01\x83" +
-	"\xc8\x0cI2\xd07C\xd5\xab\x87F\xf6d\xedX\xcd" +
-	"L\x80\xa9#\x0aQ\x1f\x93zT\xeap\x1aL\x8d(" +
-	"\xf1\xf6n\x05\x8a\x15kUQ \x83h\x00\xae \x93" +
-	"4\xacX\x805hlQ\xc4\xdd\xed\xb2\xf7KG\xba" +
-	"\xab#\xc9(V\x12M\x97\xa2 C\xa2\xb6\x96(\xe8" +
-	"'\x00\x00\xff\xff'$\x99\x9a"
+type Server_branches_Params capnp.Struct
+
+// Server_branches_Params_TypeID is the unique identifier for the type Server_branches_Params.
+const Server_branches_Params_TypeID = 0xedde37ccb1d51348
+
+func NewServer_branches_Params(s *capnp.Segment) (Server_branches_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_branches_Params(st), err
+}
+
+func NewRootServer_branches_Params(s *capnp.Segment) (Server_branches_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_branches_Params(st), err
+}
+
+func ReadRootServer_branches_Params(msg *capnp.Message) (Server_branches_Params, error) {
+	root, err := msg.Root()
+	return Server_branches_Params(root.Struct()), err
+}
+
+func (s Server_branches_Params) String() string {
+	str, _ := text.Marshal(0xedde37ccb1d51348, capnp.Struct(s))
+	return str
+}
+
+func (s Server_branches_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Server_branches_Params) DecodeFromPtr(p capnp.Ptr) Server_branches_Params {
+	return Server_branches_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Server_branches_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Server_branches_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Server_branches_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Server_branches_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Server_branches_Params) Prompt() (primitive.Value, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return primitive.Value(p.Struct()), err
+}
+
+func (s Server_branches_Params) HasPrompt() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Server_branches_Params) SetPrompt(v primitive.Value) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewPrompt sets the prompt field to a newly
+// allocated primitive.Value struct, preferring placement in s's segment.
+func (s Server_branches_Params) NewPrompt() (primitive.Value, error) {
+	ss, err := primitive.NewValue(capnp.Struct(s).Segment())
+	if err != nil {
+		return primitive.Value{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// Server_branches_Params_List is a list of Server_branches_Params.
+type Server_branches_Params_List = capnp.StructList[Server_branches_Params]
+
+// NewServer_branches_Params creates a new list of Server_branches_Params.
+func NewServer_branches_Params_List(s *capnp.Segment, sz int32) (Server_branches_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Server_branches_Params](l), err
+}
+
+// Server_branches_Params_Future is a wrapper for a Server_branches_Params promised by a client call.
+type Server_branches_Params_Future struct{ *capnp.Future }
+
+func (f Server_branches_Params_Future) Struct() (Server_branches_Params, error) {
+	p, err := f.Future.Ptr()
+	return Server_branches_Params(p.Struct()), err
+}
+func (p Server_branches_Params_Future) Prompt() primitive.Value_Future {
+	return primitive.Value_Future{Future: p.Future.Field(0, nil)}
+}
+
+type Server_branches_Results capnp.Struct
+
+// Server_branches_Results_TypeID is the unique identifier for the type Server_branches_Results.
+const Server_branches_Results_TypeID = 0xac22651dc2e01910
+
+func NewServer_branches_Results(s *capnp.Segment) (Server_branches_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_branches_Results(st), err
+}
+
+func NewRootServer_branches_Results(s *capnp.Segment) (Server_branches_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_branches_Results(st), err
+}
+
+func ReadRootServer_branches_Results(msg *capnp.Message) (Server_branches_Results, error) {
+	root, err := msg.Root()
+	return Server_branches_Results(root.Struct()), err
+}
+
+func (s Server_branches_Results) String() string {
+	str, _ := text.Marshal(0xac22651dc2e01910, capnp.Struct(s))
+	return str
+}
+
+func (s Server_branches_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Server_branches_Results) DecodeFromPtr(p capnp.Ptr) Server_branches_Results {
+	return Server_branches_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Server_branches_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Server_branches_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Server_branches_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Server_branches_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Server_branches_Results) Branches() (primitive.Value_List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return primitive.Value_List(p.List()), err
+}
+
+func (s Server_branches_Results) HasBranches() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Server_branches_Results) SetBranches(v primitive.Value_List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewBranches sets the branches field to a newly
+// allocated primitive.Value_List, preferring placement in s's segment.
+func (s Server_branches_Results) NewBranches(n int32) (primitive.Value_List, error) {
+	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return primitive.Value_List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+// Server_branches_Results_List is a list of Server_branches_Results.
+type Server_branches_Results_List = capnp.StructList[Server_branches_Results]
+
+// NewServer_branches_Results creates a new list of Server_branches_Results.
+func NewServer_branches_Results_List(s *capnp.Segment, sz int32) (Server_branches_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Server_branches_Results](l), err
+}
+
+// Server_branches_Results_Future is a wrapper for a Server_branches_Results promised by a client call.
+type Server_branches_Results_Future struct{ *capnp.Future }
+
+func (f Server_branches_Results_Future) Struct() (Server_branches_Results, error) {
+	p, err := f.Future.Ptr()
+	return Server_branches_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d66 = "x\xda\x9c\x921h\x13a\x1c\xc5\xdf\xfb\xbe\xbb\x9e\x85" +
+	"\xb6\xc9\x11\x97\x0a\x12\x1a2\xd8\x82\xc6\x1aD\xac\x96\xc4" +
+	"A\x94P\xe4\xae\x82\xb8\xc9\xd9~UI\x93\x1cw\xa7" +
+	"\xa5\xce\x8a\x8b\xe0\xa4P\xd1\xc5M\xb1C\xd5\xa5\"T" +
+	"\xeaP,\x9dDA\x97\"8wup9\xf9\xae\xcd" +
+	"\x99\xb8\x94vJ\xeex\xbc\xf7\xe7\xf7\xbb\xe3\x13\xac\x1a" +
+	"\xa3\xfd\x0fL\x08\xb7j\xf6\xc4\xefV6\xd6\xae^\xf9" +
+	"\xf0\x04\xee0\x09\x18\x16P~)\xde\x10\xcc-\x8b\x0a" +
+	"\x18g\x07\x7f\xae\x1eV\x85\xd7\xb0\x87\x09\x98\xd4\x81\x1f" +
+	"\xe2\x8b\x0el%\x81\x89\xb3/J\xe1\xf7\xd9u\xd8\x05" +
+	"\x19\xcf\x8c\x9f\xf3\x9f?4\x17\x01\x96\x87d\x8d\xb9\x93" +
+	"\xd2\x02r\xa3r-\xb7\xa8\xff\xc5\xf7\xbcg\x9b_W" +
+	"/\xfc\xda\xaeK\xe6\x1e\xcbW\x84\x11_\xcc}[\xda" +
+	"8\xb5\xb9\xd59t_\xae\xeb\xa1\x05\xa9\x87\xde\x07o" +
+	"W\xce<\x1a\xff\xdd\x19X\x96\xc9\xa9\x9fe\x05\xad\xd8" +
+	"\xaf\xdf(\x85Q+0Ui\xba\x11\x95B\x15\xdcQ" +
+	"\xc1\xce\xcf\xb1)\xcfo\xfac\x97\xb7\x1f\xe6\x82[\x91" +
+	"*:y/\xf0\x1a\xa1kH\x030\x08\xd8\xfd\x05\xc0" +
+	"= \xe9\x1e\x14\xb4\xeaj\x9e\xbd\x10\xec\x05\xd3\xea\x9e" +
+	"]\xab\xaf\x07^s\xea\xa6\x0a\x8b\x93*\xbc=\x1b\xb1" +
+	"\xab\xbe\x06\xb8}\x92\xee\x11\xc1\xb8\x1d\x04\xc0\x01\xd0\x91" +
+	"d6\x9e1j\x87.\xfd\xb9\xfb\x09\xa0~\x99\xee\x1a" +
+	"\xbb\xed\x02\x0e\xe9\xf6I\x13H\x9d\xb2\xb9\xf4q\xae\xfc" +
+	"\xf4\xda\x82\xed\x9e\x80\xb0\xcf[d\xca\x9fm\x9a\xf6\xe9" +
+	"\x11\x08\xfb\xa8E\x91\x1a`\xdb\xb9=T\x83\xb0\x07\xad" +
+	"|\xc2\xab\xca\xcct\xab\xa9\xaa]\xa7W\xe9\x90{ " +
+	"\xaf\x1b\x8a\x8e\x97\xd1\xe0\xf7C\xd5I\x94\x01\x9dT\xc7" +
+	"\xfeI\xab\xf8A\xab\xe1G\xff\x91\xccb\xcf'N\xaa" +
+	"\xbc\xd6\xd7eodg\xa7(\x98\xa9\xab\xf9\xb0\xadM" +
+	"\x7f$\x03\xe0\xdf\x00\x00\x00\xff\xff\x1a\xa8\xfa\xf5"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d66,
 		Nodes: []uint64{
 			0x96bc5658c7ccbfb4,
+			0xac22651dc2e01910,
 			0xca6cd8732fa23c4c,
 			0xe347c2d4de9c6184,
+			0xedde37ccb1d51348,
 			0xf63d8f3bbfb372ba,
 		},
 		Compressed: true,

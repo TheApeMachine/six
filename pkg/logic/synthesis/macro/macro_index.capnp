@@ -9,4 +9,10 @@ using import "../../../logic/lang/primitive/value.capnp".Value;
 interface MacroIndex {
   write @0 (start :Value, end :Value) -> stream;
   done  @1 () -> (keyText :Text, useCount :UInt64, hardened :Bool);
+  resolveGap @2 (start :Value, end :Value) -> (
+    scale     :UInt32,
+    translate :UInt32,
+    useCount  :UInt64,
+    hardened  :Bool
+  );
 }

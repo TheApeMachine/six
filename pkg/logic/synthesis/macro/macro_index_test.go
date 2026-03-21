@@ -1,6 +1,7 @@
 package macro
 
 import (
+	"context"
 	"sync"
 	"testing"
 
@@ -88,6 +89,40 @@ func TestMacroIndex(t *testing.T) {
 			gc.So(found10, gc.ShouldBeTrue)
 			gc.So(found20, gc.ShouldBeTrue)
 			gc.So(op10.Key, gc.ShouldNotResemble, op20.Key)
+		})
+	})
+}
+
+/*
+TestMacroIndexResolve verifies routed record/resolve returns exact opcode summary.
+*/
+func TestMacroIndexResolve(t *testing.T) {
+	gc.Convey("Given a macro index RPC client", t, func() {
+		idx := NewMacroIndexServer()
+		client := MacroIndex_ServerToClient(idx)
+		defer client.Release()
+
+		start := primitive.BaseValue('A')
+		end := primitive.BaseValue('B')
+
+		gc.Convey("ResolveGap should record the affine gap and return its summary", func() {
+			future, release := client.ResolveGap(
+				context.Background(),
+				func(params MacroIndex_resolveGap_Params) error {
+					if err := params.SetStart(start); err != nil {
+						return err
+					}
+
+					return params.SetEnd(end)
+				},
+			)
+			defer release()
+
+			result, err := future.Struct()
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(result.UseCount(), gc.ShouldEqual, uint64(1))
+			gc.So(result.Hardened(), gc.ShouldBeFalse)
+			gc.So(result.Scale(), gc.ShouldBeGreaterThan, uint32(0))
 		})
 	})
 }

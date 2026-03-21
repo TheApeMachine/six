@@ -26,11 +26,8 @@ type CantileverServer struct {
 	corpusMu sync.RWMutex
 	ctx      context.Context
 	cancel   context.CancelFunc
-	// router is reserved for future cluster.Router-driven capability resolution
-	// at synthesis boundaries (sibling services, load-aware peers).
 	router  *cluster.Router
 	calc    *numeric.Calculus
-	Index   *macro.MacroIndexServer
 	corpus  [][]primitive.Value
 	lexical [][]byte
 }
@@ -59,12 +56,6 @@ func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 		"ctx":    cl.ctx,
 		"cancel": cl.cancel,
 	})
-
-	if cl.Index == nil {
-		cl.Index = macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(cl.ctx),
-		)
-	}
 
 	return cl
 }
@@ -195,16 +186,33 @@ func (server *CantileverServer) BridgeValues(
 		primitive.Value(goalValue),
 	)
 
-	op, found := server.Index.FindOpcode(key)
-	if found {
-		server.Index.RecordOpcode(key)
-		return key, op, nil
+	client, raw, err := server.macroIndexClient()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
+	}
+	defer raw.Release()
+
+	future, release := client.ResolveGap(server.workContext(), func(params macro.MacroIndex_resolveGap_Params) error {
+		if err := params.SetStart(startValue); err != nil {
+			return err
+		}
+
+		return params.SetEnd(goalValue)
+	})
+	defer release()
+
+	results, err := future.Struct()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
 	}
 
-	server.Index.RecordOpcode(key)
-	opNew, _ := server.Index.FindOpcode(key)
-
-	return key, opNew, nil
+	return key, &macro.MacroOpcode{
+		Key:       key,
+		Scale:     numeric.Phase(results.Scale()),
+		Translate: numeric.Phase(results.Translate()),
+		UseCount:  results.UseCount(),
+		Hardened:  results.Hardened(),
+	}, nil
 }
 
 /*
@@ -217,18 +225,8 @@ func CantileverWithContext(ctx context.Context) cantileverOpts {
 }
 
 /*
-WithMacroIndex injects a shared MacroIndex library to utilize discovered
-Logic Circuits across Cantilever instances.
-*/
-func WithMacroIndex(index *macro.MacroIndexServer) cantileverOpts {
-	return func(cl *CantileverServer) {
-		cl.Index = index
-	}
-}
-
-/*
-CantileverWithRouter injects the cluster router for future sibling
-capability resolution (see CantileverServer.router TODO on the field).
+CantileverWithRouter injects the cluster router for sibling
+capability resolution.
 */
 func CantileverWithRouter(router *cluster.Router) cantileverOpts {
 	return func(cl *CantileverServer) {
@@ -244,6 +242,7 @@ type CantileverError string
 const (
 	ErrCantileverZeroBoundary CantileverError = "cantilever boundaries cannot be absolute zero"
 	ErrCantileverIdentical    CantileverError = "start and goal phases identical"
+	ErrCantileverRouterRequired CantileverError = "cantilever router is required"
 )
 
 /*
@@ -260,12 +259,11 @@ func (server *CantileverServer) promptValues(
 	ctx context.Context,
 	prompt []byte,
 ) ([]primitive.Value, error) {
-	tokenizerServer := tokenizer.NewUniversalServer(
-		tokenizer.UniversalWithContext(ctx),
-	)
-	defer tokenizerServer.Close()
-
-	client := tokenizer.Universal(tokenizerServer.Client("cantilever"))
+	client, raw, err := server.tokenizerClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer raw.Release()
 
 	for _, symbol := range prompt {
 		if err := client.Write(
@@ -298,6 +296,51 @@ func (server *CantileverServer) tokenizerKeys(
 	client tokenizer.Universal,
 ) ([]uint64, error) {
 	return tokenizer.DrainKeys(ctx, client)
+}
+
+/*
+workContext returns the server context when available.
+*/
+func (server *CantileverServer) workContext() context.Context {
+	if server.ctx != nil {
+		return server.ctx
+	}
+
+	return context.Background()
+}
+
+/*
+macroIndexClient resolves the routed macro index capability.
+*/
+func (server *CantileverServer) macroIndexClient() (macro.MacroIndex, capnp.Client, error) {
+	if server.router == nil {
+		return macro.MacroIndex{}, capnp.Client{}, ErrCantileverRouterRequired
+	}
+
+	raw, err := server.router.Get(server.workContext(), cluster.MACROINDEX, "cantilever")
+	if err != nil {
+		return macro.MacroIndex{}, capnp.Client{}, err
+	}
+
+	return macro.MacroIndex(raw), raw, nil
+}
+
+/*
+tokenizerClient resolves the routed tokenizer capability.
+*/
+func (server *CantileverServer) tokenizerClient(
+	ctx context.Context,
+) (tokenizer.Universal, capnp.Client, error) {
+	if server.router == nil {
+		return tokenizer.Universal{}, capnp.Client{}, ErrCantileverRouterRequired
+	}
+
+	raw, err := server.router.Get(ctx, cluster.TOKENIZER, "cantilever")
+	if err != nil {
+		return tokenizer.Universal{}, capnp.Client{}, err
+	}
+
+	return tokenizer.Universal(raw), raw, nil
 }
 
 /*

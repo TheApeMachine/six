@@ -56,6 +56,26 @@ func (c MacroIndex) Done(ctx context.Context, params func(MacroIndex_done_Params
 
 }
 
+func (c MacroIndex) ResolveGap(ctx context.Context, params func(MacroIndex_resolveGap_Params) error) (MacroIndex_resolveGap_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0x982c65930257bacb,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/synthesis/macro/macro_index.capnp:MacroIndex",
+			MethodName:    "resolveGap",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 2}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(MacroIndex_resolveGap_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return MacroIndex_resolveGap_Results_Future{Future: ans.Future()}, release
+
+}
+
 func (c MacroIndex) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -132,6 +152,8 @@ type MacroIndex_Server interface {
 	Write(context.Context, MacroIndex_write) error
 
 	Done(context.Context, MacroIndex_done) error
+
+	ResolveGap(context.Context, MacroIndex_resolveGap) error
 }
 
 // MacroIndex_NewServer creates a new Server from an implementation of MacroIndex_Server.
@@ -150,7 +172,7 @@ func MacroIndex_ServerToClient(s MacroIndex_Server) MacroIndex {
 // This can be used to create a more complicated Server.
 func MacroIndex_Methods(methods []server.Method, s MacroIndex_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 2)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
@@ -174,6 +196,18 @@ func MacroIndex_Methods(methods []server.Method, s MacroIndex_Server) []server.M
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Done(ctx, MacroIndex_done{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0x982c65930257bacb,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/synthesis/macro/macro_index.capnp:MacroIndex",
+			MethodName:    "resolveGap",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.ResolveGap(ctx, MacroIndex_resolveGap{call})
 		},
 	})
 
@@ -212,6 +246,23 @@ func (c MacroIndex_done) Args() MacroIndex_done_Params {
 func (c MacroIndex_done) AllocResults() (MacroIndex_done_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 16, PointerCount: 1})
 	return MacroIndex_done_Results(r), err
+}
+
+// MacroIndex_resolveGap holds the state for a server call to MacroIndex.resolveGap.
+// See server.Call for documentation.
+type MacroIndex_resolveGap struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c MacroIndex_resolveGap) Args() MacroIndex_resolveGap_Params {
+	return MacroIndex_resolveGap_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c MacroIndex_resolveGap) AllocResults() (MacroIndex_resolveGap_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 24, PointerCount: 0})
+	return MacroIndex_resolveGap_Results(r), err
 }
 
 // MacroIndex_List is a list of MacroIndex.
@@ -504,35 +555,259 @@ func (f MacroIndex_done_Results_Future) Struct() (MacroIndex_done_Results, error
 	return MacroIndex_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d6c = "x\xda\xa4\x91\xb1k\x13a\x18\xc6\x9f\xe7\xfd\xee\xbc\x06" +
-	"R\xed\x91.v)\x96\x08Uj\xd36BD\x10S" +
-	"E0E%\x9f\x14\xa4\xa0\x94#\xf9lB\x93K\xb8" +
-	"\xbb\x90\xd6E\xb7:\xb8\x89\xa0\x82\x7f\x80C\x107\xa9" +
-	"\x8b\xe0$\x0e.\x82\xb3\x8b.\xfa\x0f\xb8\x9c|\x09\x0d" +
-	"\x82\x8b\xd8\xe5\xe3\xe3\xc7\xcb\x8f\xe7y\xdf\xa5y\x96\x9d" +
-	"\xe5\xc9/\x0eD\x9fs\x8f\xa4G\xbf\x7f\xc8?\xd8h" +
-	"?\x84_\"\xe0x@Q\xcb\x8c\xc0I?\xee\xdf\x92" +
-	"\xc7f\xe1)\xfc\x05\x95\xb6.\xacv_<r\x07\x00" +
-	"\x8b\x15\xd9g.\x10\x0f\xc8\xdd\x91\xbd\xdc\xc0\xfe\xd2=" +
-	"]\xfa\xfc\xf3\xcd\xd7\xb7#\x8fkY\xf1\x89\xcc\x09\x98" +
-	"\x1bH\x1fLW7\x1a\x9f^.~\xfb\x01]\xa2\x00" +
-	".\xedDF\x0d'N\xa8W\xe8\xa4\xdd\xed\xadB\xab" +
-	"\xb3\xd5\xf4j\x85x7L\x1a&n\xc6\x85vP\x8b" +
-	":\xa3w\xb3\x19\xd6\xcd\xceb-\xe8\x86\xdd\xf3\xd7-" +
-	"\xa9\x0cA\xbd\x13\x9a|5\x88\x02\xd5\x8e\xc7\x12\xf7_" +
-	"%\x17G\x96*\xa9'\x94\xfbG\x13\x86\xaf\xdf\xf5\x8b" +
-	"\xcf7\x9f\xf9\xcb+\x10\xff\xa4G\x8e\xb7\xc5\x836\xfe" +
-	"\xf1\xd3\x10\x7f\xd2\x9b\xedG\xcd\xc4\x94y\xcc\x86)\xb3" +
-	"J\xfew\x9d\xa1\xc9\xf6\xf1\x82v\xac'\x94\x038\x04" +
-	"\xfcS+\x80\xce+\xea%\xa1ON\xd3\xc23s\x80" +
-	"\x9eW\xd4g\x85\xb3q\x12D\x09\xa7\xd2\xbb\xce\xda\xcc" +
-	"\x8d_\xf7\xde\x03\xe4\x14\xe8\x99\xb0\xfe7=\xdc\xbao" +
-	"\x9a\xb8\xe7\xb5\x92Xg\xc7\xf9\xae\\\x02tYQ_" +
-	"\x13\x1e\xc4\xab\xac\x01\xfa\xaa\xa2^\x17\xfaR\x9e\xb6\x97" +
-	"\xf7\xb5\x85UE}[x\x7f\xdb\xec\xae\x9b\x9d\x84Y" +
-	"\x08\xb3`\xda\x8b\xcd\xe5N/L\x000\x03a\x06L" +
-	"\x1bAT7\xa1\xa9[F\x08\x09\xfe\x0e\x00\x00\xff\xff" +
-	"\x86\xbf\xc8\x15"
+type MacroIndex_resolveGap_Params capnp.Struct
+
+// MacroIndex_resolveGap_Params_TypeID is the unique identifier for the type MacroIndex_resolveGap_Params.
+const MacroIndex_resolveGap_Params_TypeID = 0xf6539e8f1799878f
+
+func NewMacroIndex_resolveGap_Params(s *capnp.Segment) (MacroIndex_resolveGap_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return MacroIndex_resolveGap_Params(st), err
+}
+
+func NewRootMacroIndex_resolveGap_Params(s *capnp.Segment) (MacroIndex_resolveGap_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2})
+	return MacroIndex_resolveGap_Params(st), err
+}
+
+func ReadRootMacroIndex_resolveGap_Params(msg *capnp.Message) (MacroIndex_resolveGap_Params, error) {
+	root, err := msg.Root()
+	return MacroIndex_resolveGap_Params(root.Struct()), err
+}
+
+func (s MacroIndex_resolveGap_Params) String() string {
+	str, _ := text.Marshal(0xf6539e8f1799878f, capnp.Struct(s))
+	return str
+}
+
+func (s MacroIndex_resolveGap_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (MacroIndex_resolveGap_Params) DecodeFromPtr(p capnp.Ptr) MacroIndex_resolveGap_Params {
+	return MacroIndex_resolveGap_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s MacroIndex_resolveGap_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s MacroIndex_resolveGap_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s MacroIndex_resolveGap_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s MacroIndex_resolveGap_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s MacroIndex_resolveGap_Params) Start() (primitive.Value, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return primitive.Value(p.Struct()), err
+}
+
+func (s MacroIndex_resolveGap_Params) HasStart() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s MacroIndex_resolveGap_Params) SetStart(v primitive.Value) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+}
+
+// NewStart sets the start field to a newly
+// allocated primitive.Value struct, preferring placement in s's segment.
+func (s MacroIndex_resolveGap_Params) NewStart() (primitive.Value, error) {
+	ss, err := primitive.NewValue(capnp.Struct(s).Segment())
+	if err != nil {
+		return primitive.Value{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+func (s MacroIndex_resolveGap_Params) End() (primitive.Value, error) {
+	p, err := capnp.Struct(s).Ptr(1)
+	return primitive.Value(p.Struct()), err
+}
+
+func (s MacroIndex_resolveGap_Params) HasEnd() bool {
+	return capnp.Struct(s).HasPtr(1)
+}
+
+func (s MacroIndex_resolveGap_Params) SetEnd(v primitive.Value) error {
+	return capnp.Struct(s).SetPtr(1, capnp.Struct(v).ToPtr())
+}
+
+// NewEnd sets the end field to a newly
+// allocated primitive.Value struct, preferring placement in s's segment.
+func (s MacroIndex_resolveGap_Params) NewEnd() (primitive.Value, error) {
+	ss, err := primitive.NewValue(capnp.Struct(s).Segment())
+	if err != nil {
+		return primitive.Value{}, err
+	}
+	err = capnp.Struct(s).SetPtr(1, capnp.Struct(ss).ToPtr())
+	return ss, err
+}
+
+// MacroIndex_resolveGap_Params_List is a list of MacroIndex_resolveGap_Params.
+type MacroIndex_resolveGap_Params_List = capnp.StructList[MacroIndex_resolveGap_Params]
+
+// NewMacroIndex_resolveGap_Params creates a new list of MacroIndex_resolveGap_Params.
+func NewMacroIndex_resolveGap_Params_List(s *capnp.Segment, sz int32) (MacroIndex_resolveGap_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 2}, sz)
+	return capnp.StructList[MacroIndex_resolveGap_Params](l), err
+}
+
+// MacroIndex_resolveGap_Params_Future is a wrapper for a MacroIndex_resolveGap_Params promised by a client call.
+type MacroIndex_resolveGap_Params_Future struct{ *capnp.Future }
+
+func (f MacroIndex_resolveGap_Params_Future) Struct() (MacroIndex_resolveGap_Params, error) {
+	p, err := f.Future.Ptr()
+	return MacroIndex_resolveGap_Params(p.Struct()), err
+}
+func (p MacroIndex_resolveGap_Params_Future) Start() primitive.Value_Future {
+	return primitive.Value_Future{Future: p.Future.Field(0, nil)}
+}
+func (p MacroIndex_resolveGap_Params_Future) End() primitive.Value_Future {
+	return primitive.Value_Future{Future: p.Future.Field(1, nil)}
+}
+
+type MacroIndex_resolveGap_Results capnp.Struct
+
+// MacroIndex_resolveGap_Results_TypeID is the unique identifier for the type MacroIndex_resolveGap_Results.
+const MacroIndex_resolveGap_Results_TypeID = 0xff21f6dd4edaa20d
+
+func NewMacroIndex_resolveGap_Results(s *capnp.Segment) (MacroIndex_resolveGap_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 0})
+	return MacroIndex_resolveGap_Results(st), err
+}
+
+func NewRootMacroIndex_resolveGap_Results(s *capnp.Segment) (MacroIndex_resolveGap_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 24, PointerCount: 0})
+	return MacroIndex_resolveGap_Results(st), err
+}
+
+func ReadRootMacroIndex_resolveGap_Results(msg *capnp.Message) (MacroIndex_resolveGap_Results, error) {
+	root, err := msg.Root()
+	return MacroIndex_resolveGap_Results(root.Struct()), err
+}
+
+func (s MacroIndex_resolveGap_Results) String() string {
+	str, _ := text.Marshal(0xff21f6dd4edaa20d, capnp.Struct(s))
+	return str
+}
+
+func (s MacroIndex_resolveGap_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (MacroIndex_resolveGap_Results) DecodeFromPtr(p capnp.Ptr) MacroIndex_resolveGap_Results {
+	return MacroIndex_resolveGap_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s MacroIndex_resolveGap_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s MacroIndex_resolveGap_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s MacroIndex_resolveGap_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s MacroIndex_resolveGap_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s MacroIndex_resolveGap_Results) Scale() uint32 {
+	return capnp.Struct(s).Uint32(0)
+}
+
+func (s MacroIndex_resolveGap_Results) SetScale(v uint32) {
+	capnp.Struct(s).SetUint32(0, v)
+}
+
+func (s MacroIndex_resolveGap_Results) Translate() uint32 {
+	return capnp.Struct(s).Uint32(4)
+}
+
+func (s MacroIndex_resolveGap_Results) SetTranslate(v uint32) {
+	capnp.Struct(s).SetUint32(4, v)
+}
+
+func (s MacroIndex_resolveGap_Results) UseCount() uint64 {
+	return capnp.Struct(s).Uint64(8)
+}
+
+func (s MacroIndex_resolveGap_Results) SetUseCount(v uint64) {
+	capnp.Struct(s).SetUint64(8, v)
+}
+
+func (s MacroIndex_resolveGap_Results) Hardened() bool {
+	return capnp.Struct(s).Bit(128)
+}
+
+func (s MacroIndex_resolveGap_Results) SetHardened(v bool) {
+	capnp.Struct(s).SetBit(128, v)
+}
+
+// MacroIndex_resolveGap_Results_List is a list of MacroIndex_resolveGap_Results.
+type MacroIndex_resolveGap_Results_List = capnp.StructList[MacroIndex_resolveGap_Results]
+
+// NewMacroIndex_resolveGap_Results creates a new list of MacroIndex_resolveGap_Results.
+func NewMacroIndex_resolveGap_Results_List(s *capnp.Segment, sz int32) (MacroIndex_resolveGap_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 24, PointerCount: 0}, sz)
+	return capnp.StructList[MacroIndex_resolveGap_Results](l), err
+}
+
+// MacroIndex_resolveGap_Results_Future is a wrapper for a MacroIndex_resolveGap_Results promised by a client call.
+type MacroIndex_resolveGap_Results_Future struct{ *capnp.Future }
+
+func (f MacroIndex_resolveGap_Results_Future) Struct() (MacroIndex_resolveGap_Results, error) {
+	p, err := f.Future.Ptr()
+	return MacroIndex_resolveGap_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d6c = "x\xda\xbc\x93?h\x14[\x14\xc6\xcfw\xef\xcc\x9b\x0d" +
+	"l\xde\xcbe\x03\x8f\xa4\x09\x09)\xde\x93\xfc_!(" +
+	"\x88\x13%h\x82\x86\xbd1 \x91@\xb8\xec^\xb3K" +
+	"fg\x87\x99Y\x93\xd8\x98.\x16J\x0a\x1b#((" +
+	"X\xa4\x10\xb1\x104*\x08\x16\"\x1666\x0a\x166" +
+	"\xa6\xd16\x85\xcd\xc8\xcd\xba\xeb\x82M4`\xb3\xc5\xb7" +
+	"\x87\x8f\xdf\xf9\x9d;CO\xe1Z\xc3\xadk61\xe9" +
+	"\xda\x7f%\x7fo\xbf\xea]\x9d-_&1\x0a\"\xcb" +
+	"!\xcan\xb2NFV\xf2z\xeb,\xbb\xa6\xfb\xae\x93" +
+	"\xe8\xe3\x89wd,\xb8y\xc5\xbeG\x84\xecm\xb6\x85" +
+	"\xccc\xe6\x10e\x1e\xb2\x97\x99a\xee\x10%kr\xf4" +
+	"\xed\x97G\x1f\x9f\xd4zl\xf3o\xb6\x83\xf70Bf" +
+	"\x98/\x11\x92\xb1\xd9\xe2\x9b\xcd\x81O\x9fI\x8e\x82\x11" +
+	"\xd90\x13Wk\x13w\xf9}B\xb2\xbe\xb6\xf1\xef\xfa" +
+	"\xad3;\xcd\x15\xe3\xd6\xa4\x19P\x96\xa9h\xbd\xf3~" +
+	"\xea\xc3Nwb*\xf8w\xd8g\xd6\xb4\x19xgm" +
+	"S%\x09\x16\x17\x06\xbd\xcaB\xc9\xc9\x0fF+~\\" +
+	"\xd4Q)\x1a,\xab|X\xa9\xfd\xce\x97\xfc\x82^\x1e" +
+	"\xc8\xab\xc0\x0f\x0e\x9f6\xc9\xc4nP\xa8\xf8\xba7\xa7" +
+	"B\xc5\xcbQ\xa3\xc4\xdek\xc9\xd1ZK\x0e\x90in" +
+	"7\xb9\x80\xff\xe0\xf9R\xf6\xc6\xfc\x86\x90#\xc4\xc4\xb8" +
+	"\x034|\xa3\xeeC\x1c:@L\xf4;`\x0d\x01\xa8" +
+	"/*\xba\xcf\x11\x13\x1dN\xd7RX\x8a\xb5\x8b\x7f\x0c" +
+	"\xa8\x8b$\xd4Q\xc5\xbb\xa0O\x10W\x81\x8b\x1c\xf0\xdb" +
+	"\x9b\xef\x16\x9b\xd5\x1dU\x8ed\x8a[D\x16\x88\xc4\xff" +
+	"#D\xb2\x97C\x0e1\x08\xa0\x1d&\xec\xef!\x92\xff" +
+	"q\xc8\x83\x0c]Q\xac\xc2\x18m\xc9yk\xb2s\xea" +
+	"\xeb\xc5\x17D@\x1b\xc1\xd1~\xe1\xe7t\x7f\x97\x99\xd6" +
+	"Q\xd5\xf1\xe2H\xa6\x1b|\xe3\xc7\x88\xa4\xcb!O1" +
+	"\xd4\xf1&&\x89\xe4I\x0e9\xc3 \x98\xdbn\x9e\x99" +
+	"\x90&\xccq\xc89\x86K\x8bzeF/\xc7H\x13" +
+	"C\x9a\x90T#}\xbcR\xf5c\"B\x0b1\xb4\x10" +
+	"\x92\xa2\x0a\x0b\xda\xd7\x05\x93\x81\x18\xd0D\x9f\xfaE\xfa" +
+	"\xfa\x9dT\xb0\xfb\xba\xca\x11\xd1\x1fp\xbc\x0fJc\xda" +
+	"\x8b\x11\xc9\xb6\x06\xa52\x94s\x1c\xb2\xd8D\xa9\xa7\x89" +
+	"d\x81C\x06F5j\xaa\xcbF\xb5\xc7!\x97\x19\x04" +
+	"_m7\xdf\xa8\xa8\x9a0\xe6\x90\xabf\x9f\xbc\xf24" +
+	"R\xc4\x90\"$q\xa8\xfc\xc8S1\xe1G\xb6\xc7\x8b" +
+	"|\x0b\x00\x00\xff\xff\xd3iOb"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -542,6 +817,8 @@ func RegisterSchema(reg *schemas.Registry) {
 			0x982c65930257bacb,
 			0xbbe1b8edd4375187,
 			0xece62ea9cf685941,
+			0xf6539e8f1799878f,
+			0xff21f6dd4edaa20d,
 		},
 		Compressed: true,
 	})

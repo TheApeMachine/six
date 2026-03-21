@@ -13,24 +13,47 @@ import (
 	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
+func newCantileverRouter(
+	ctx context.Context,
+	includeTokenizer bool,
+	includeMacro bool,
+) (*cluster.Router, *macro.MacroIndexServer, *tokenizer.UniversalServer, *input.PrompterServer) {
+	router := cluster.NewRouter(cluster.RouterWithContext(ctx))
+
+	var tok *tokenizer.UniversalServer
+	var prompter *input.PrompterServer
+	if includeTokenizer {
+		tok = tokenizer.NewUniversalServer(
+			tokenizer.UniversalWithContext(ctx),
+		)
+		router.Register(cluster.TOKENIZER, tok)
+
+		prompter = input.NewPrompterServer(
+			input.PrompterWithContext(ctx),
+		)
+		router.Register(cluster.PROMPTER, prompter)
+	}
+
+	var index *macro.MacroIndexServer
+	if includeMacro {
+		index = macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(ctx),
+		)
+		router.Register(cluster.MACROINDEX, index)
+	}
+
+	return router, index, tok, prompter
+}
+
 func TestCantileverPromptValues(t *testing.T) {
 	Convey("Given a cantilever server with tokenizer and prompter capabilities", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		router := cluster.NewRouter(cluster.RouterWithContext(ctx))
-		tok := tokenizer.NewUniversalServer(
-			tokenizer.UniversalWithContext(ctx),
-		)
+		router, _, tok, prompter := newCantileverRouter(ctx, true, false)
+		defer router.Close()
 		defer tok.Close()
-
-		prompter := input.NewPrompterServer(
-			input.PrompterWithContext(ctx),
-		)
 		defer prompter.Close()
-
-		router.Register(cluster.TOKENIZER, tok)
-		router.Register(cluster.PROMPTER, prompter)
 
 		server := NewCantileverServer(
 			CantileverWithContext(ctx),
@@ -69,19 +92,10 @@ func BenchmarkCantileverPromptValues(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	router := cluster.NewRouter(cluster.RouterWithContext(ctx))
-	tok := tokenizer.NewUniversalServer(
-		tokenizer.UniversalWithContext(ctx),
-	)
+	router, _, tok, prompter := newCantileverRouter(ctx, true, false)
+	defer router.Close()
 	defer tok.Close()
-
-	prompter := input.NewPrompterServer(
-		input.PrompterWithContext(ctx),
-	)
 	defer prompter.Close()
-
-	router.Register(cluster.TOKENIZER, tok)
-	router.Register(cluster.PROMPTER, prompter)
 
 	server := NewCantileverServer(
 		CantileverWithContext(ctx),
@@ -164,16 +178,16 @@ func TestCantilever(t *testing.T) {
 
 	for name, tc := range cases {
 		Convey(fmt.Sprintf("Given case: %s", name), t, func() {
-			macroIndex := macro.NewMacroIndexServer(
-				macro.MacroIndexWithContext(ctx),
-			)
+			router, macroIndex, _, _ := newCantileverRouter(ctx, false, true)
+			defer router.Close()
+			defer macroIndex.Close()
 
 			startValue := primitive.BaseValue(tc.StartByte)
 			goalValue := primitive.BaseValue(tc.GoalByte)
 
 			cl := NewCantileverServer(
 				CantileverWithContext(ctx),
-				WithMacroIndex(macroIndex),
+				CantileverWithRouter(router),
 			)
 
 			var lastOp *macro.MacroOpcode
@@ -217,13 +231,13 @@ func TestCantilever(t *testing.T) {
 	}
 
 	Convey("Given BridgeValues with empty values should error", t, func() {
-		macroIndex := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(ctx),
-		)
+		router, macroIndex, _, _ := newCantileverRouter(ctx, false, true)
+		defer router.Close()
+		defer macroIndex.Close()
 
 		cl := NewCantileverServer(
 			CantileverWithContext(ctx),
-			WithMacroIndex(macroIndex),
+			CantileverWithRouter(router),
 		)
 
 		emptyValue, err := primitive.New()

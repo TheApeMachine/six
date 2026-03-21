@@ -89,14 +89,12 @@ func NewBooter(opts ...booterOpts) *Booter {
 
 	booter.hasSrv = synthesis.NewHASServer(
 		synthesis.HASWithContext(booter.ctx),
-		synthesis.HASWithForest(booter.forest.Forest()),
-		synthesis.HASWithMacroIndex(booter.macroIdx),
+		synthesis.HASWithRouter(booter.router),
 	)
 
 	booter.cantilever = bvp.NewCantileverServer(
 		bvp.CantileverWithContext(booter.ctx),
 		bvp.CantileverWithRouter(booter.router),
-		bvp.WithMacroIndex(booter.macroIdx),
 	)
 
 	booter.prompter = input.NewPrompterServer(
@@ -106,6 +104,7 @@ func NewBooter(opts ...booterOpts) *Booter {
 	booter.router.Register(cluster.FOREST, booter.forest)
 	booter.router.Register(cluster.TOKENIZER, booter.tokenizer)
 	booter.router.Register(cluster.GRAPH, booter.graph)
+	booter.router.Register(cluster.MACROINDEX, booter.macroIdx)
 	booter.router.Register(cluster.HAS, booter.hasSrv)
 	booter.router.Register(cluster.CANTILEVER, booter.cantilever)
 	booter.router.Register(cluster.PROMPTER, booter.prompter)

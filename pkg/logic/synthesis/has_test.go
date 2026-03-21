@@ -2,14 +2,14 @@ package synthesis
 
 import (
 	"context"
-	"encoding/binary"
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/dmt"
+	dmtserver "github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/cluster"
 )
 
 /*
@@ -77,19 +77,47 @@ func primitiveFromDataTest(value primitive.Value) primitive.Value {
 }
 
 /*
+newHASTestRouter registers the capabilities HAS resolves during tests.
+*/
+func newHASTestRouter(
+	ctx context.Context,
+	includeMacro bool,
+	includeForest bool,
+) (*cluster.Router, *macro.MacroIndexServer, *dmtserver.ForestServer) {
+	router := cluster.NewRouter(cluster.RouterWithContext(ctx))
+
+	var index *macro.MacroIndexServer
+	if includeMacro {
+		index = macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(ctx),
+		)
+		router.Register(cluster.MACROINDEX, index)
+	}
+
+	var forest *dmtserver.ForestServer
+	if includeForest {
+		forest = dmtserver.NewForestServer(
+			dmtserver.WithContext(ctx),
+		)
+		router.Register(cluster.FOREST, forest)
+	}
+
+	return router, index, forest
+}
+
+/*
 TestHASDerive verifies ingestion-side tool forging from known boundary pairs.
 */
 func TestHASDerive(t *testing.T) {
 	gc.Convey("Given a HAS server with a shared macro index", t, func() {
-		index := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(context.Background()),
-		)
+		router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 		server := NewHASServer(
 			HASWithContext(context.Background()),
-			HASWithMacroIndex(index),
+			HASWithRouter(router),
 		)
 		defer index.Close()
+		defer router.Close()
 		defer server.Close()
 
 		/*
@@ -167,15 +195,14 @@ TestHASWriteDone verifies RPC ingestion path derives/stores one macro tool.
 */
 func TestHASWriteDone(t *testing.T) {
 	gc.Convey("Given a HAS server receiving one start/end pair over RPC", t, func() {
-		index := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(context.Background()),
-		)
+		router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 		server := NewHASServer(
 			HASWithContext(context.Background()),
-			HASWithMacroIndex(index),
+			HASWithRouter(router),
 		)
 		defer index.Close()
+		defer router.Close()
 		defer server.Close()
 
 		client := HAS(server.Client("logic/synthesis/has_test"))
@@ -321,15 +348,14 @@ func TestHASAsk(t *testing.T) {
 BenchmarkHASDerive measures affine tool-forging throughput from known boundaries.
 */
 func BenchmarkHASDerive(b *testing.B) {
-	index := macro.NewMacroIndexServer(
-		macro.MacroIndexWithContext(context.Background()),
-	)
+	router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 	server := NewHASServer(
 		HASWithContext(context.Background()),
-		HASWithMacroIndex(index),
+		HASWithRouter(router),
 	)
 	defer index.Close()
+	defer router.Close()
 	defer server.Close()
 
 	start := primitiveFromDataTest(primitive.BaseValue('A'))
@@ -387,15 +413,14 @@ func BenchmarkHASAsk(b *testing.B) {
 BenchmarkHASWriteDone measures RPC ingestion throughput for boundary pairs.
 */
 func BenchmarkHASWriteDone(b *testing.B) {
-	index := macro.NewMacroIndexServer(
-		macro.MacroIndexWithContext(context.Background()),
-	)
+	router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 	server := NewHASServer(
 		HASWithContext(context.Background()),
-		HASWithMacroIndex(index),
+		HASWithRouter(router),
 	)
 	defer index.Close()
+	defer router.Close()
 	defer server.Close()
 
 	client := HAS(server.Client("logic/synthesis/has_benchmark"))
@@ -431,34 +456,31 @@ TestHASDoneCompletes verifies Done finishes the Derive path for a seeded forest.
 */
 func TestHASDoneCompletes(t *testing.T) {
 	gc.Convey("Given a HAS server with distinct branch symbols in the forest", t, func() {
-		index := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(context.Background()),
-		)
+		router, index, forest := newHASTestRouter(context.Background(), true, true)
 		defer index.Close()
-
-		forest, forestErr := dmt.NewForest(dmt.ForestConfig{})
-		gc.So(forestErr, gc.ShouldBeNil)
 		defer forest.Close()
+		defer router.Close()
 
 		server := NewHASServer(
 			HASWithContext(context.Background()),
-			HASWithMacroIndex(index),
-			HASWithForest(forest),
+			HASWithRouter(router),
 		)
 		defer server.Close()
-
-		coder := data.NewMortonCoder()
 		promptSymbol := byte('E')
 		nextSymbol := byte('X')
+		forestClient := dmtserver.Server_ServerToClient(forest)
+		defer forestClient.Release()
 
-		promptKey := make([]byte, 8)
-		nextKey := make([]byte, 8)
+		writeKey := func(position uint32, symbol byte) {
+			writeErr := forestClient.Write(context.Background(), func(params dmtserver.Server_write_Params) error {
+				params.SetKey(data.NewMortonCoder().Pack(position, symbol))
+				return nil
+			})
+			gc.So(writeErr, gc.ShouldBeNil)
+		}
 
-		binary.BigEndian.PutUint64(promptKey, coder.Pack(1, promptSymbol))
-		binary.BigEndian.PutUint64(nextKey, coder.Pack(2, nextSymbol))
-
-		forest.Insert(promptKey, []byte{1})
-		forest.Insert(nextKey, []byte{1})
+		writeKey(1, promptSymbol)
+		writeKey(2, nextSymbol)
 
 		client := HAS(server.Client("logic/synthesis/has_test/program-error-propagation"))
 		start := primitive.BaseValue('S')
@@ -482,5 +504,49 @@ func TestHASDoneCompletes(t *testing.T) {
 		keyText, ktErr := results.KeyText()
 		gc.So(ktErr, gc.ShouldBeNil)
 		gc.So(keyText, gc.ShouldNotBeEmpty)
+	})
+}
+
+/*
+TestHASCollectPromptBranchesViaRouter verifies HAS resolves forest branches through the router.
+*/
+func TestHASCollectPromptBranchesViaRouter(t *testing.T) {
+	gc.Convey("Given a HAS server with forest capability on the router", t, func() {
+		router, _, forest := newHASTestRouter(context.Background(), false, true)
+		defer forest.Close()
+		defer router.Close()
+
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+			HASWithRouter(router),
+		)
+		defer server.Close()
+
+		forestClient := dmtserver.Server_ServerToClient(forest)
+		defer forestClient.Release()
+
+		writeKey := func(position uint32, symbol byte) {
+			writeErr := forestClient.Write(context.Background(), func(params dmtserver.Server_write_Params) error {
+				params.SetKey(data.NewMortonCoder().Pack(position, symbol))
+				return nil
+			})
+			gc.So(writeErr, gc.ShouldBeNil)
+		}
+
+		writeKey(1, 'E')
+		writeKey(2, 'X')
+		writeKey(2, 'Y')
+
+		branches, err := server.collectPromptBranches(primitive.BaseValue('E'))
+		gc.So(err, gc.ShouldBeNil)
+		gc.So(len(branches), gc.ShouldEqual, 2)
+
+		firstSymbol, ok := primitive.InferLexicalSeed(branches[0])
+		gc.So(ok, gc.ShouldBeTrue)
+		gc.So(firstSymbol, gc.ShouldEqual, byte('X'))
+
+		secondSymbol, ok := primitive.InferLexicalSeed(branches[1])
+		gc.So(ok, gc.ShouldBeTrue)
+		gc.So(secondSymbol, gc.ShouldEqual, byte('Y'))
 	})
 }

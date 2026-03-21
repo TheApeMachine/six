@@ -9,6 +9,7 @@ import (
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
+	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
@@ -48,6 +49,10 @@ func TestBooterRegistersCapabilities(t *testing.T) {
 			raw, err = booter.router.Get(ctx, cluster.CANTILEVER, "test")
 			gc.So(err, gc.ShouldBeNil)
 			gc.So(bvp.Cantilever(raw).IsValid(), gc.ShouldBeTrue)
+
+			raw, err = booter.router.Get(ctx, cluster.MACROINDEX, "test")
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(macro.MacroIndex(raw).IsValid(), gc.ShouldBeTrue)
 		})
 	})
 }

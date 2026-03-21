@@ -162,9 +162,22 @@ func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 Client returns a Cap'n Proto client connected to this MacroIndexServer.
 Returns the bootstrap capability from the pre-created client connection.
 */
-func (server *MacroIndexServer) Client(clientID string) MacroIndex {
+func (server *MacroIndexServer) Client(clientID string) capnp.Client {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	server.clientConns[clientID] = server.clientConn
-	return MacroIndex(server.clientConn.Bootstrap(server.ctx))
+	return server.clientConn.Bootstrap(server.ctx)
+}
+
+/*
+Load approximates RPC pressure via active client registrations.
+*/
+func (server *MacroIndexServer) Load() int64 {
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return int64(len(server.clientConns))
 }
 
 /*
@@ -172,6 +185,9 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (server *MacroIndexServer) Close() error {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
 	if server.clientConn != nil {
 		_ = server.clientConn.Close()
 		server.clientConn = nil
@@ -239,6 +255,45 @@ func (server *MacroIndexServer) Done(ctx context.Context, call MacroIndex_done) 
 		res.SetUseCount(opcode.UseCount)
 		res.SetHardened(opcode.Hardened)
 	}
+
+	return nil
+}
+
+/*
+ResolveGap records one exact affine gap and returns the current opcode summary.
+*/
+func (server *MacroIndexServer) ResolveGap(
+	ctx context.Context,
+	call MacroIndex_resolveGap,
+) error {
+	_ = ctx
+
+	args := call.Args()
+
+	start, err := args.Start()
+	if err != nil {
+		return err
+	}
+
+	end, err := args.End()
+	if err != nil {
+		return err
+	}
+
+	_, opcode, err := server.ResolveGapValues(start, end)
+	if err != nil {
+		return err
+	}
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	results.SetScale(uint32(opcode.Scale))
+	results.SetTranslate(uint32(opcode.Translate))
+	results.SetUseCount(opcode.UseCount)
+	results.SetHardened(opcode.Hardened)
 
 	return nil
 }
@@ -332,6 +387,25 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 
 	idx.opcodes[key] = OpcodeForKey(key)
 	idx.trackBestLocked(key, idx.opcodes[key])
+}
+
+/*
+ResolveGapValues records one exact geometric gap and returns the current opcode summary.
+*/
+func (idx *MacroIndexServer) ResolveGapValues(
+	start primitive.Value,
+	end primitive.Value,
+) (AffineKey, *MacroOpcode, error) {
+	key := AffineKeyFromValues(start, end)
+
+	idx.RecordOpcode(key)
+
+	opcode, found := idx.FindOpcode(key)
+	if !found || opcode == nil {
+		return AffineKey{}, nil, fmt.Errorf("macro index: failed to resolve exact gap")
+	}
+
+	return key, opcode, nil
 }
 
 /*

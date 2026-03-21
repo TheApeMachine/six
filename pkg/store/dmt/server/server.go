@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"sort"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -160,6 +162,44 @@ func (idx *ForestServer) Done(ctx context.Context, call Server_done) error {
 }
 
 /*
+Branches returns exact next lexical branches for one prompt value.
+*/
+func (idx *ForestServer) Branches(
+	ctx context.Context,
+	call Server_branches,
+) error {
+	_ = ctx
+
+	prompt, err := call.Args().Prompt()
+	if err != nil {
+		return err
+	}
+
+	branches, err := idx.collectBranches(prompt)
+	if err != nil {
+		return err
+	}
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	list, err := results.NewBranches(int32(len(branches)))
+	if err != nil {
+		return err
+	}
+
+	for index := range branches {
+		if err := list.Set(index, branches[index]); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+/*
 Write stores a Morton-packed key in the forest. The key is encoded as
 8-byte big-endian to preserve radix tree sort order.
 */
@@ -177,6 +217,64 @@ func (idx *ForestServer) Write(
 	idx.writtenMu.Unlock()
 
 	return nil
+}
+
+/*
+collectBranches resolves exact next lexical branches for one prompt value.
+*/
+func (idx *ForestServer) collectBranches(prompt primitive.Value) ([]primitive.Value, error) {
+	promptSymbol, ok := primitive.InferLexicalSeed(prompt)
+	if !ok {
+		return nil, nil
+	}
+
+	symbolsByPosition := map[uint32]map[byte]struct{}{}
+
+	idx.forest.Iterate(func(keyBytes []byte, _ []byte) bool {
+		if len(keyBytes) != 8 {
+			return true
+		}
+
+		mortonKey := binary.BigEndian.Uint64(keyBytes)
+		position, symbol := morton.Unpack(mortonKey)
+
+		if _, exists := symbolsByPosition[position]; !exists {
+			symbolsByPosition[position] = map[byte]struct{}{}
+		}
+
+		symbolsByPosition[position][symbol] = struct{}{}
+		return true
+	})
+
+	branchSymbols := map[byte]struct{}{}
+
+	for position, symbols := range symbolsByPosition {
+		if _, exists := symbols[promptSymbol]; !exists {
+			continue
+		}
+
+		nextSymbols, exists := symbolsByPosition[position+1]
+		if !exists {
+			continue
+		}
+
+		for symbol := range nextSymbols {
+			branchSymbols[symbol] = struct{}{}
+		}
+	}
+
+	orderedSymbols := make([]int, 0, len(branchSymbols))
+	for symbol := range branchSymbols {
+		orderedSymbols = append(orderedSymbols, int(symbol))
+	}
+	sort.Ints(orderedSymbols)
+
+	branches := make([]primitive.Value, 0, len(orderedSymbols))
+	for _, symbol := range orderedSymbols {
+		branches = append(branches, primitive.BaseValue(byte(symbol)))
+	}
+
+	return branches, nil
 }
 
 /*

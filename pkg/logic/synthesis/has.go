@@ -2,17 +2,16 @@ package synthesis
 
 import (
 	context "context"
-	"encoding/binary"
 	"fmt"
-	"sort"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/dmt"
+	"github.com/theapemachine/six/pkg/numeric"
+	dmtserver "github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -27,21 +26,18 @@ type HASServer struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	state      *errnie.State
+	router     *cluster.Router
 	start      primitive.Value
 	end        primitive.Value
-	macroIndex *macro.MacroIndexServer
-	forest     *dmt.Forest
 }
 
 /*
-hasOpts configures HASServer at construction. Options inject context,
-macro index, program server, or forest.
+hasOpts configures HASServer with context and routed capability access.
 */
 type hasOpts func(*HASServer)
 
 /*
 NewHASServer creates the HAS server.
-Default macro index and program server are created if not provided.
 */
 func NewHASServer(options ...hasOpts) *HASServer {
 	server := &HASServer{
@@ -204,92 +200,37 @@ func (server *HASServer) copyDataIntoPrimitive(dst *primitive.Value, value primi
 collectPromptBranches resolves all next-symbol branches for one prompt value.
 */
 func (server *HASServer) collectPromptBranches(prompt primitive.Value) ([]primitive.Value, error) {
-	if server.forest == nil {
-		return nil, nil
+	client, raw, err := server.forestClient()
+	if err != nil {
+		return nil, err
 	}
+	defer raw.Release()
 
-	promptData, err := primitive.New()
+	future, release := client.Branches(server.workContext(), func(params dmtserver.Server_branches_Params) error {
+		return params.SetPrompt(prompt)
+	})
+	defer release()
+
+	results, err := future.Struct()
 	if err != nil {
 		return nil, err
 	}
 
-	promptData.SetC0(prompt.C0())
-	promptData.SetC1(prompt.C1())
-	promptData.SetC2(prompt.C2())
-	promptData.SetC3(prompt.C3())
-	promptData.SetC4(prompt.C4())
-	promptData.SetC5(prompt.C5())
-	promptData.SetC6(prompt.C6())
-	promptData.SetC7(prompt.C7())
-
-	promptSymbol, ok := primitive.InferLexicalSeed(promptData)
-	if !ok {
-		return nil, NewHASError(HASErrorTypePromptSymbolMissing)
+	branchList, err := results.Branches()
+	if err != nil {
+		return nil, err
 	}
 
-	coder := data.NewMortonCoder()
-	symbolsByPosition := map[uint32]map[byte]struct{}{}
-
-	server.forest.Iterate(func(keyBytes []byte, _ []byte) bool {
-		if len(keyBytes) != 8 {
-			return true
+	branches := make([]primitive.Value, 0, branchList.Len())
+	for index := 0; index < branchList.Len(); index++ {
+		branch := branchList.At(index)
+		cloned, cloneErr := primitive.New()
+		if cloneErr != nil {
+			return nil, cloneErr
 		}
 
-		mortonKey := binary.BigEndian.Uint64(keyBytes)
-		position, symbol := coder.Unpack(mortonKey)
-
-		if _, exists := symbolsByPosition[position]; !exists {
-			symbolsByPosition[position] = map[byte]struct{}{}
-		}
-
-		symbolsByPosition[position][symbol] = struct{}{}
-		return true
-	})
-
-	branchSymbols := map[byte]struct{}{}
-
-	for position, symbols := range symbolsByPosition {
-		if _, exists := symbols[promptSymbol]; !exists {
-			continue
-		}
-
-		nextSymbols, exists := symbolsByPosition[position+1]
-		if !exists {
-			continue
-		}
-
-		for symbol := range nextSymbols {
-			branchSymbols[symbol] = struct{}{}
-		}
-	}
-
-	if len(branchSymbols) == 0 {
-		return nil, nil
-	}
-
-	orderedSymbols := make([]int, 0, len(branchSymbols))
-	for symbol := range branchSymbols {
-		orderedSymbols = append(orderedSymbols, int(symbol))
-	}
-	sort.Ints(orderedSymbols)
-
-	branches := make([]primitive.Value, 0, len(orderedSymbols))
-	for _, symbol := range orderedSymbols {
-		value := primitive.BaseValue(byte(symbol))
-		branch, err := primitive.New()
-		if err != nil {
-			return nil, err
-		}
-
-		branch.SetC0(value.C0())
-		branch.SetC1(value.C1())
-		branch.SetC2(value.C2())
-		branch.SetC3(value.C3())
-		branch.SetC4(value.C4())
-		branch.SetC5(value.C5())
-		branch.SetC6(value.C6())
-		branch.SetC7(value.C7())
-		branches = append(branches, branch)
+		server.copyDataIntoPrimitive(&cloned, branch)
+		branches = append(branches, cloned)
 	}
 
 	return branches, nil
@@ -318,12 +259,32 @@ func (server *HASServer) Derive(
 	}
 
 	key := macro.AffineKeyFromValues(startValue, endValue)
-	server.macroIndex.RecordOpcode(key)
+	client, raw, err := server.macroIndexClient()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
+	}
+	defer raw.Release()
 
-	opcode, found := server.macroIndex.FindOpcode(key)
+	future, release := client.ResolveGap(server.workContext(), func(params macro.MacroIndex_resolveGap_Params) error {
+		if err := params.SetStart(startValue); err != nil {
+			return err
+		}
 
-	if !found || opcode == nil {
-		return macro.AffineKey{}, nil, NewHASError(HASErrorTypeDeriveFailed)
+		return params.SetEnd(endValue)
+	})
+	defer release()
+
+	result, err := future.Struct()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
+	}
+
+	opcode := &macro.MacroOpcode{
+		Key:       key,
+		Scale:     numeric.Phase(result.Scale()),
+		Translate: numeric.Phase(result.Translate()),
+		UseCount:  result.UseCount(),
+		Hardened:  result.Hardened(),
 	}
 
 	return key, opcode, nil
@@ -396,21 +357,55 @@ func HASWithContext(ctx context.Context) hasOpts {
 }
 
 /*
-HASWithMacroIndex injects a shared MacroIndex for tool synthesis.
+HASWithRouter injects the cluster router for sibling capability resolution.
 */
-func HASWithMacroIndex(index *macro.MacroIndexServer) hasOpts {
+func HASWithRouter(router *cluster.Router) hasOpts {
 	return func(server *HASServer) {
-		server.macroIndex = index
+		server.router = router
 	}
 }
 
 /*
-HASWithForest injects the shared DMT forest used for prompt branch lookups.
+workContext returns the server context when available.
 */
-func HASWithForest(forest *dmt.Forest) hasOpts {
-	return func(server *HASServer) {
-		server.forest = forest
+func (server *HASServer) workContext() context.Context {
+	if server.ctx != nil {
+		return server.ctx
 	}
+
+	return context.Background()
+}
+
+/*
+macroIndexClient resolves the routed macro index capability.
+*/
+func (server *HASServer) macroIndexClient() (macro.MacroIndex, capnp.Client, error) {
+	if server.router == nil {
+		return macro.MacroIndex{}, capnp.Client{}, NewHASError(HASErrorTypeRouterRequired)
+	}
+
+	raw, err := server.router.Get(server.workContext(), cluster.MACROINDEX, "has")
+	if err != nil {
+		return macro.MacroIndex{}, capnp.Client{}, err
+	}
+
+	return macro.MacroIndex(raw), raw, nil
+}
+
+/*
+forestClient resolves the routed forest capability.
+*/
+func (server *HASServer) forestClient() (dmtserver.Server, capnp.Client, error) {
+	if server.router == nil {
+		return dmtserver.Server{}, capnp.Client{}, NewHASError(HASErrorTypeRouterRequired)
+	}
+
+	raw, err := server.router.Get(server.workContext(), cluster.FOREST, "has")
+	if err != nil {
+		return dmtserver.Server{}, capnp.Client{}, err
+	}
+
+	return dmtserver.Server(raw), raw, nil
 }
 
 /*
@@ -425,6 +420,7 @@ const (
 	HASErrorTypeVatEmpty              HASErrorType = "candidate vat cannot be empty"
 	HASErrorTypePromptSymbolMissing   HASErrorType = "prompt lexical seed is required"
 	HASErrorTypeProgramOutcomeMissing HASErrorType = "program execution produced no outcome"
+	HASErrorTypeRouterRequired        HASErrorType = "router is required"
 )
 
 /*

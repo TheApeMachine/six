@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	data "github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -52,6 +53,58 @@ func TestForest(t *testing.T) {
 				})
 				So(err2, ShouldBeNil)
 			})
+		})
+	})
+}
+
+/*
+TestForestBranches verifies exact next-branch lookup through RPC.
+*/
+func TestForestBranches(t *testing.T) {
+	Convey("Given a forest server with lexical successor keys", t, func() {
+		ctx := context.Background()
+		server := NewForestServer(WithContext(ctx))
+		client := Server_ServerToClient(server)
+		defer client.Release()
+
+		morton := data.NewMortonCoder()
+		keys := []uint64{
+			morton.Pack(0, 'A'),
+			morton.Pack(1, 'B'),
+			morton.Pack(1, 'C'),
+		}
+
+		for _, key := range keys {
+			err := client.Write(ctx, func(p Server_write_Params) error {
+				p.SetKey(key)
+				return nil
+			})
+			So(err, ShouldBeNil)
+		}
+
+		Convey("It should return exact next branches for the prompt value", func() {
+			future, release := client.Branches(ctx, func(p Server_branches_Params) error {
+				return p.SetPrompt(primitive.BaseValue('A'))
+			})
+			defer release()
+
+			result, err := future.Struct()
+			So(err, ShouldBeNil)
+
+			branches, branchErr := result.Branches()
+			So(branchErr, ShouldBeNil)
+			So(branches.Len(), ShouldEqual, 2)
+
+			first := branches.At(0)
+			second := branches.At(1)
+
+			firstSymbol, ok := primitive.InferLexicalSeed(first)
+			So(ok, ShouldBeTrue)
+			So(firstSymbol, ShouldEqual, byte('B'))
+
+			secondSymbol, ok := primitive.InferLexicalSeed(second)
+			So(ok, ShouldBeTrue)
+			So(secondSymbol, ShouldEqual, byte('C'))
 		})
 	})
 }
