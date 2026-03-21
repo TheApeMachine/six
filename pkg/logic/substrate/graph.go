@@ -24,15 +24,17 @@ The Machine is the sole orchestrator: it fetches data from SpatialIndex and
 hands it to GraphServer via Prompt. GraphServer never calls any other server.
 */
 type GraphServer struct {
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
-	state      *errnie.State
-	router     *cluster.Router
-	workerPool *pool.Pool
-	sink       *telemetry.Sink
-	data       [][]primitive.Value
-	signals    []primitive.Value
+	mu           sync.RWMutex
+	clientMu     sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	state        *errnie.State
+	router       *cluster.Router
+	workerPool   *pool.Pool
+	sink         *telemetry.Sink
+	data         [][]primitive.Value
+	signals      []primitive.Value
+	cachedClient capnp.Client
 
 	ptr int
 }
@@ -80,12 +82,19 @@ func NewGraphServer(opts ...GraphOpt) *GraphServer {
 }
 
 /*
-Client returns a direct in-process Cap'n Proto client for this server.
-No pipes, no goroutines — ServerToClient wires calls straight through.
-Satisfies cluster.Service.
+Client returns a cached in-process Cap'n Proto client for this server.
+ServerToClient spawns a handleCalls goroutine per call, so we create
+the client once and reuse it to avoid goroutine leaks.
 */
 func (graph *GraphServer) Client(clientID string) capnp.Client {
-	return capnp.Client(Graph_ServerToClient(graph))
+	graph.clientMu.Lock()
+	defer graph.clientMu.Unlock()
+
+	if !graph.cachedClient.IsValid() {
+		graph.cachedClient = capnp.Client(Graph_ServerToClient(graph))
+	}
+
+	return graph.cachedClient
 }
 
 /*
@@ -99,11 +108,15 @@ func (graph *GraphServer) Load() int64 {
 }
 
 /*
-Close cancels the server context. No pipe cleanup needed because
-ServerToClient creates direct in-process clients.
-Satisfies cluster.Service.
+Close releases the cached client and cancels the server context.
 */
 func (graph *GraphServer) Close() error {
+	graph.clientMu.Lock()
+	if graph.cachedClient.IsValid() {
+		graph.cachedClient.Release()
+	}
+	graph.clientMu.Unlock()
+
 	if graph.cancel != nil {
 		graph.cancel()
 	}
@@ -255,6 +268,10 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 				rowIndex: mid + rightIndex,
 				value:    rightItem,
 			})
+		}
+
+		for _, lbl := range label {
+			graph.emitFoldLabel(lbl, leftIndex, "", leftItem.Bin(), len(label))
 		}
 
 		graph.addArrows(label, append(remainderLeft, remainderRight...))

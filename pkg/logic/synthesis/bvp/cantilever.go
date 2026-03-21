@@ -22,14 +22,15 @@ synthesizes or discovers logical rotation tools that
 map across the span.
 */
 type CantileverServer struct {
-	clientMu sync.Mutex
-	corpusMu sync.RWMutex
-	ctx      context.Context
-	cancel   context.CancelFunc
-	router  *cluster.Router
-	calc    *numeric.Calculus
-	corpus  [][]primitive.Value
-	lexical [][]byte
+	clientMu     sync.Mutex
+	corpusMu     sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	router       *cluster.Router
+	calc         *numeric.Calculus
+	corpus       [][]primitive.Value
+	lexical      [][]byte
+	cachedClient capnp.Client
 }
 
 /*
@@ -61,19 +62,31 @@ func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 }
 
 /*
-Client returns a Cap'n Proto client for this CantileverServer.
+Client returns a cached Cap'n Proto client for this CantileverServer.
+ServerToClient spawns a handleCalls goroutine per call, so we create
+the client once and reuse it to avoid goroutine leaks.
 */
 func (server *CantileverServer) Client(_ string) capnp.Client {
 	server.clientMu.Lock()
 	defer server.clientMu.Unlock()
 
-	return capnp.Client(Cantilever_ServerToClient(server))
+	if !server.cachedClient.IsValid() {
+		server.cachedClient = capnp.Client(Cantilever_ServerToClient(server))
+	}
+
+	return server.cachedClient
 }
 
 /*
-Close cancels the server context.
+Close releases the cached client and cancels the server context.
 */
 func (server *CantileverServer) Close() error {
+	server.clientMu.Lock()
+	if server.cachedClient.IsValid() {
+		server.cachedClient.Release()
+	}
+	server.clientMu.Unlock()
+
 	if server.cancel != nil {
 		server.cancel()
 	}
@@ -240,8 +253,8 @@ CantileverError is a typed error for Cantilever failures.
 type CantileverError string
 
 const (
-	ErrCantileverZeroBoundary CantileverError = "cantilever boundaries cannot be absolute zero"
-	ErrCantileverIdentical    CantileverError = "start and goal phases identical"
+	ErrCantileverZeroBoundary   CantileverError = "cantilever boundaries cannot be absolute zero"
+	ErrCantileverIdentical      CantileverError = "start and goal phases identical"
 	ErrCantileverRouterRequired CantileverError = "cantilever router is required"
 )
 

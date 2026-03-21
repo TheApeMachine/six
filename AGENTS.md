@@ -380,7 +380,7 @@ Please treat this project with respect. It is important to me and reflects many 
 
 ## Learned User Preferences
 
-- When asked to fix something narrowly (lint, compile error, single call site), restrict edits to that; avoid broad rewrites or re-architecture unless invited.
+- Verify reported findings against the current code before changing anything; when asked to fix something narrowly (lint, compile error, single call site, or a batch of reported issues), restrict edits to the confirmed issues and avoid broad rewrites or re-architecture unless invited.
 - Stay on the task the user is doing now; if they narrow scope, redirect focus, or stop an approach, follow that instead of expanding or reviving sidelined work.
 - Do not discard or replace substantial user-written structure to “save” the session; treat RPC and capability flow, especially Cap’n Proto local/remote semantics, as real constraints rather than generic data piping or unnecessary complexity.
 - Services that need remote peers get a cluster router (or equivalent capability routing), not ad-hoc direct client wiring that bypasses the intended RPC path.

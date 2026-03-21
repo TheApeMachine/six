@@ -9,6 +9,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/system/pool"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -18,21 +19,19 @@ consistency across all trees while optimizing read operations by selecting the f
 responding tree.
 */
 type Forest struct {
-	state *errnie.State
-	trees []*Tree
-	mu    sync.RWMutex
-	// Channel to signal new updates that need synchronization
-	updates chan struct{}
-	// Context for controlling background sync
-	ctx    context.Context
-	cancel context.CancelFunc
-	pool   *pool.Pool
-	loops  *pool.Pool
-	owned  bool
-	// Network node for distributed operation
-	network *NetworkNode
-	// postUpdateSyncCount increments after each synchronizeTrees triggered by updates.
+	state               *errnie.State
+	trees               []*Tree
+	mu                  sync.RWMutex
+	updates             chan struct{}
+	ctx                 context.Context
+	cancel              context.CancelFunc
+	pool                *pool.Pool
+	loops               *pool.Pool
+	owned               bool
+	network             *NetworkNode
 	postUpdateSyncCount atomic.Uint64
+	sink                *telemetry.Sink
+	insertCounter       atomic.Uint64
 }
 
 // ForestConfig holds configuration for creating a new Forest
@@ -55,10 +54,11 @@ func NewForest(config ForestConfig) (*Forest, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	forest := &Forest{
 		state:   errnie.NewState("dmt/forest"),
-		updates: make(chan struct{}, 1), // Buffered channel to prevent blocking
+		updates: make(chan struct{}, 1),
 		ctx:     ctx,
 		cancel:  cancel,
 		pool:    config.Pool,
+		sink:    telemetry.NewSink(),
 		loops: pool.New(
 			ctx,
 			4,
@@ -309,6 +309,12 @@ func (forest *Forest) Insert(key []byte, value []byte) {
 		tree.Insert(key, value)
 	}
 
+	var entryCount int
+
+	if len(forest.trees) > 0 {
+		entryCount = int(forest.trees[0].root.Len())
+	}
+
 	network := forest.network
 	forest.mu.Unlock()
 
@@ -316,6 +322,19 @@ func (forest *Forest) Insert(key []byte, value []byte) {
 		if err := network.BroadcastInsert(key, value); err != nil {
 			errnie.Error(err)
 		}
+	}
+
+	count := forest.insertCounter.Add(1)
+
+	if count%10 == 0 && len(key) > 0 {
+		forest.sink.Emit(telemetry.Event{
+			Component: "DMT",
+			Action:    "Insert",
+			Data: telemetry.EventData{
+				Bin:        int(key[0]),
+				EntryCount: entryCount,
+			},
+		})
 	}
 }
 

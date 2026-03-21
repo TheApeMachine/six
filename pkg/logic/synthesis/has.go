@@ -22,13 +22,15 @@ programmable Value type to construct "tools" on-the-fly in its
 attempt to solve a given boundary value problem.
 */
 type HASServer struct {
-	mu     sync.RWMutex
-	ctx    context.Context
-	cancel context.CancelFunc
-	state  *errnie.State
-	router *cluster.Router
-	start  primitive.Value
-	end    primitive.Value
+	mu           sync.RWMutex
+	clientMu     sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	state        *errnie.State
+	router       *cluster.Router
+	start        primitive.Value
+	end          primitive.Value
+	cachedClient capnp.Client
 }
 
 /*
@@ -75,13 +77,19 @@ func NewHASServer(options ...hasOpts) *HASServer {
 }
 
 /*
-Client returns a Cap'n Proto client for this HASServer.
+Client returns a cached Cap'n Proto client for this HASServer.
+ServerToClient spawns a handleCalls goroutine per call, so we create
+the client once and reuse it to avoid goroutine leaks.
 */
 func (server *HASServer) Client(_ string) capnp.Client {
-	server.mu.Lock()
-	defer server.mu.Unlock()
+	server.clientMu.Lock()
+	defer server.clientMu.Unlock()
 
-	return capnp.Client(HAS_ServerToClient(server))
+	if !server.cachedClient.IsValid() {
+		server.cachedClient = capnp.Client(HAS_ServerToClient(server))
+	}
+
+	return server.cachedClient
 }
 
 /*
@@ -95,11 +103,14 @@ func (server *HASServer) Load() int64 {
 }
 
 /*
-Close cancels the server context.
+Close releases the cached client and cancels the server context.
 */
 func (server *HASServer) Close() error {
-	server.mu.Lock()
-	defer server.mu.Unlock()
+	server.clientMu.Lock()
+	if server.cachedClient.IsValid() {
+		server.cachedClient.Release()
+	}
+	server.clientMu.Unlock()
 
 	if server.cancel != nil {
 		server.cancel()
