@@ -22,13 +22,13 @@ programmable Value type to construct "tools" on-the-fly in its
 attempt to solve a given boundary value problem.
 */
 type HASServer struct {
-	mu         sync.RWMutex
-	ctx        context.Context
-	cancel     context.CancelFunc
-	state      *errnie.State
-	router     *cluster.Router
-	start      primitive.Value
-	end        primitive.Value
+	mu     sync.RWMutex
+	ctx    context.Context
+	cancel context.CancelFunc
+	state  *errnie.State
+	router *cluster.Router
+	start  primitive.Value
+	end    primitive.Value
 }
 
 /*
@@ -237,16 +237,6 @@ func (server *HASServer) collectPromptBranches(prompt primitive.Value) ([]primit
 }
 
 /*
-HASOutcome captures one inference pass where a query mask reacts with a fact vat.
-*/
-type HASOutcome struct {
-	QueryMask   primitive.Value
-	Matches     []primitive.MatchResult
-	WinnerIndex int
-	Residue     primitive.Value
-}
-
-/*
 Derive forges a reusable affine tool from one observed boundary pair and stores
 it in the MacroIndex.
 */
@@ -288,63 +278,6 @@ func (server *HASServer) Derive(
 	}
 
 	return key, opcode, nil
-}
-
-/*
-Ask builds a reagent/query mask from known values and precipitates it against
-candidate facts, returning the best zero-tension residue candidate.
-*/
-func (server *HASServer) Ask(
-	knownValues []primitive.Value,
-	vat []primitive.Value,
-) (*HASOutcome, error) {
-	if len(knownValues) == 0 {
-		return nil, NewHASError(HASErrorTypeKnownValuesRequired)
-	}
-
-	if len(vat) == 0 {
-		return nil, NewHASError(HASErrorTypeVatEmpty)
-	}
-
-	queryMask := primitive.BuildQueryMask(knownValues...)
-	matches := make([]primitive.MatchResult, len(vat))
-
-	bestIndex := 0
-	bestAffinity := 0
-	bestResidue := 0
-	first := true
-
-	for index := range vat {
-		sharedBits, phaseQuotient, affinity, residueBits := primitive.ScoreMatch(queryMask, vat[index])
-
-		matches[index].SharedBits = sharedBits
-		matches[index].PhaseQuotient = phaseQuotient
-		matches[index].FitnessScore = affinity
-
-		if first {
-			bestIndex = index
-			bestAffinity = affinity
-			bestResidue = residueBits
-			first = false
-			continue
-		}
-
-		if affinity > bestAffinity || (affinity == bestAffinity && residueBits < bestResidue) {
-			bestIndex = index
-			bestAffinity = affinity
-			bestResidue = residueBits
-		}
-	}
-
-	winner := queryMask.EvaluateMatch(vat[bestIndex])
-	matches[bestIndex] = winner
-
-	return &HASOutcome{
-		QueryMask:   queryMask,
-		Matches:     matches,
-		WinnerIndex: bestIndex,
-		Residue:     winner.Residue,
-	}, nil
 }
 
 /*
@@ -416,8 +349,6 @@ type HASErrorType string
 const (
 	HASErrorTypeStartAndEndRequired   HASErrorType = "start and end values are required"
 	HASErrorTypeDeriveFailed          HASErrorType = "failed to derive affine operator"
-	HASErrorTypeKnownValuesRequired   HASErrorType = "known query values are required"
-	HASErrorTypeVatEmpty              HASErrorType = "candidate vat cannot be empty"
 	HASErrorTypePromptSymbolMissing   HASErrorType = "prompt lexical seed is required"
 	HASErrorTypeProgramOutcomeMissing HASErrorType = "program execution produced no outcome"
 	HASErrorTypeRouterRequired        HASErrorType = "router is required"

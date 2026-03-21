@@ -111,6 +111,7 @@ type MacroIndexServer struct {
 	serverConn  *rpc.Conn
 	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
+	connMu      sync.Mutex
 	mu          sync.RWMutex
 	opcodes     map[AffineKey]*MacroOpcode
 	candidates  map[AffineKey]*ProgramCandidate
@@ -163,8 +164,8 @@ Client returns a Cap'n Proto client connected to this MacroIndexServer.
 Returns the bootstrap capability from the pre-created client connection.
 */
 func (server *MacroIndexServer) Client(clientID string) capnp.Client {
-	server.mu.Lock()
-	defer server.mu.Unlock()
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
 
 	server.clientConns[clientID] = server.clientConn
 	return server.clientConn.Bootstrap(server.ctx)
@@ -174,8 +175,8 @@ func (server *MacroIndexServer) Client(clientID string) capnp.Client {
 Load approximates RPC pressure via active client registrations.
 */
 func (server *MacroIndexServer) Load() int64 {
-	server.mu.RLock()
-	defer server.mu.RUnlock()
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
 
 	return int64(len(server.clientConns))
 }
@@ -185,8 +186,8 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (server *MacroIndexServer) Close() error {
-	server.mu.Lock()
-	defer server.mu.Unlock()
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
 
 	if server.clientConn != nil {
 		_ = server.clientConn.Close()

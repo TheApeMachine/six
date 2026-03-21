@@ -265,86 +265,6 @@ func TestHASLoad(t *testing.T) {
 }
 
 /*
-TestHASAsk verifies reagent-style inference via table-driven scenarios.
-*/
-func TestHASAsk(t *testing.T) {
-	gc.Convey("Given HAS ask scenarios", t, func() {
-		server := NewHASServer(
-			HASWithContext(context.Background()),
-		)
-		defer server.Close()
-
-		/*
-			askTestCase captures one inference case for table-driven execution.
-		*/
-		type askTestCase struct {
-			name                string
-			known               []primitive.Value
-			vat                 []primitive.Value
-			expectErrorContains string
-			expectWinnerIndex   int
-			expectResidueBits   []int
-			expectResidueCount  int
-		}
-
-		entity := valueWithBits(1, 2)
-		relation := valueWithBits(10, 11)
-		answer := valueWithBits(50, 51)
-
-		testCases := []askTestCase{
-			{
-				name:  "Ask should recover the clean residue from the best matching fact",
-				known: []primitive.Value{entity, relation},
-				vat: []primitive.Value{
-					combineValues(valueWithBits(3, 4), relation, valueWithBits(60)),
-					combineValues(valueWithBits(100), valueWithBits(101)),
-					combineValues(entity, relation, answer),
-				},
-				expectWinnerIndex:  2,
-				expectResidueBits:  []int{50, 51},
-				expectResidueCount: 2,
-			},
-			{
-				name:                "Ask should reject empty known values",
-				known:               nil,
-				vat:                 []primitive.Value{valueWithBits(1)},
-				expectErrorContains: string(HASErrorTypeKnownValuesRequired),
-			},
-			{
-				name:                "Ask should reject empty vat",
-				known:               []primitive.Value{valueWithBits(1)},
-				vat:                 nil,
-				expectErrorContains: string(HASErrorTypeVatEmpty),
-			},
-		}
-
-		for _, testCase := range testCases {
-			testCase := testCase
-
-			gc.Convey(testCase.name, func() {
-				outcome, err := server.Ask(testCase.known, testCase.vat)
-
-				if testCase.expectErrorContains != "" {
-					gc.So(outcome, gc.ShouldBeNil)
-					gc.So(err, gc.ShouldNotBeNil)
-					gc.So(err.Error(), gc.ShouldContainSubstring, testCase.expectErrorContains)
-					return
-				}
-
-				gc.So(err, gc.ShouldBeNil)
-				gc.So(outcome, gc.ShouldNotBeNil)
-				gc.So(outcome.WinnerIndex, gc.ShouldEqual, testCase.expectWinnerIndex)
-				gc.So(outcome.Residue.CoreActiveCount(), gc.ShouldEqual, testCase.expectResidueCount)
-
-				for _, bit := range testCase.expectResidueBits {
-					gc.So(hasBit(outcome.Residue, bit), gc.ShouldBeTrue)
-				}
-			})
-		}
-	})
-}
-
-/*
 BenchmarkHASDerive measures affine tool-forging throughput from known boundaries.
 */
 func BenchmarkHASDerive(b *testing.B) {
@@ -371,40 +291,6 @@ func BenchmarkHASDerive(b *testing.B) {
 
 		if opcode == nil {
 			b.Fatalf("derive returned nil opcode")
-		}
-	}
-}
-
-/*
-BenchmarkHASAsk measures reagent-style inference against a small fact vat.
-*/
-func BenchmarkHASAsk(b *testing.B) {
-	server := NewHASServer(
-		HASWithContext(context.Background()),
-	)
-	defer server.Close()
-
-	entity := valueWithBits(1, 2)
-	relation := valueWithBits(10, 11)
-	answer := valueWithBits(50, 51)
-
-	known := []primitive.Value{entity, relation}
-	vat := []primitive.Value{
-		combineValues(valueWithBits(3, 4), relation, valueWithBits(60)),
-		combineValues(valueWithBits(100), valueWithBits(101)),
-		combineValues(entity, relation, answer),
-	}
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		outcome, err := server.Ask(known, vat)
-		if err != nil {
-			b.Fatalf("ask failed: %v", err)
-		}
-
-		if outcome == nil || outcome.WinnerIndex != 2 {
-			b.Fatalf("ask returned unexpected winner: %+v", outcome)
 		}
 	}
 }
@@ -548,5 +434,51 @@ func TestHASCollectPromptBranchesViaRouter(t *testing.T) {
 		secondSymbol, ok := primitive.InferLexicalSeed(branches[1])
 		gc.So(ok, gc.ShouldBeTrue)
 		gc.So(secondSymbol, gc.ShouldEqual, byte('Y'))
+	})
+}
+
+/*
+TestHASRouterFailures verifies HAS fails cleanly when routed capabilities are missing.
+*/
+func TestHASRouterFailures(t *testing.T) {
+	gc.Convey("Given a HAS server without a router", t, func() {
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+		)
+		defer server.Close()
+
+		_, _, err := server.Derive(primitive.BaseValue('A'), primitive.BaseValue('B'))
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(err.Error(), gc.ShouldContainSubstring, string(HASErrorTypeRouterRequired))
+	})
+
+	gc.Convey("Given a HAS server with a router but no macro index capability", t, func() {
+		router := cluster.NewRouter(cluster.RouterWithContext(context.Background()))
+		defer router.Close()
+
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+			HASWithRouter(router),
+		)
+		defer server.Close()
+
+		_, _, err := server.Derive(primitive.BaseValue('A'), primitive.BaseValue('B'))
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(err.Error(), gc.ShouldContainSubstring, "router: no service registered for")
+	})
+
+	gc.Convey("Given a HAS server with a router but no forest capability", t, func() {
+		router := cluster.NewRouter(cluster.RouterWithContext(context.Background()))
+		defer router.Close()
+
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+			HASWithRouter(router),
+		)
+		defer server.Close()
+
+		_, err := server.collectPromptBranches(primitive.BaseValue('E'))
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(err.Error(), gc.ShouldContainSubstring, "router: no service registered for")
 	})
 }

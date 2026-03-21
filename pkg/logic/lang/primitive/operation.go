@@ -75,11 +75,14 @@ between a query (receiver) and a stored candidate. It evaluates
 spatial bit-overlap alongside affine phase distance.
 */
 func (query *Value) EvaluateMatch(candidate Value) MatchResult {
-	state := errnie.NewState("primitive/operation/evaluateMatch")
+	residue, err := New()
+	if err != nil {
+		panic("EvaluateMatch: " + err.Error())
+	}
 
-	residue := errnie.Guard(state, func() (Value, error) {
-		return candidate.Hole(*query)
-	})
+	if err = candidate.HoleInto(*query, &residue); err != nil {
+		panic("EvaluateMatch: " + err.Error())
+	}
 
 	sharedBits, phaseQuotient, fitnessScore, _ := ScoreMatch(*query, candidate)
 

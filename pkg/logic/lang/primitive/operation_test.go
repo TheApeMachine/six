@@ -47,6 +47,29 @@ func TestOperationEvaluateMatch(t *testing.T) {
 }
 
 /*
+TestOperationEvaluateMatchAllocations verifies the legacy convenience path keeps allocation pressure bounded.
+*/
+func TestOperationEvaluateMatchAllocations(t *testing.T) {
+	gc.Convey("Given one query and candidate", t, func() {
+		query := NeutralValue()
+		query.Set(1)
+		query.Set(10)
+		query.SetStatePhase(3)
+
+		candidate := NeutralValue()
+		candidate.Set(1)
+		candidate.Set(9)
+		candidate.SetStatePhase(9)
+
+		allocs := testing.AllocsPerRun(1000, func() {
+			_ = query.EvaluateMatch(candidate)
+		})
+
+		gc.So(allocs, gc.ShouldBeLessThanOrEqualTo, 4.0)
+	})
+}
+
+/*
 TestOperationApplyAffine verifies halt detection via opcode.
 */
 func TestOperationApplyAffine(t *testing.T) {

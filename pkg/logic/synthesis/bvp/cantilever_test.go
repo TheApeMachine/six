@@ -280,3 +280,48 @@ func TestCantilever(t *testing.T) {
 		})
 	})
 }
+
+func TestCantileverRouterFailures(t *testing.T) {
+	Convey("Given a cantilever server without a router", t, func() {
+		server := NewCantileverServer(
+			CantileverWithContext(context.Background()),
+		)
+
+		_, _, err := server.BridgeValues(primitive.BaseValue('A'), primitive.BaseValue('B'))
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, string(ErrCantileverRouterRequired))
+
+		_, err = server.promptValues(context.Background(), []byte("Roy"))
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, string(ErrCantileverRouterRequired))
+	})
+
+	Convey("Given a cantilever server with router but no macro index capability", t, func() {
+		router := cluster.NewRouter(cluster.RouterWithContext(context.Background()))
+		defer router.Close()
+
+		server := NewCantileverServer(
+			CantileverWithContext(context.Background()),
+			CantileverWithRouter(router),
+		)
+
+		_, _, err := server.BridgeValues(primitive.BaseValue('A'), primitive.BaseValue('B'))
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "router: no service registered for")
+	})
+
+	Convey("Given a cantilever server with router but no tokenizer capability", t, func() {
+		router, macroIndex, _, _ := newCantileverRouter(context.Background(), false, true)
+		defer router.Close()
+		defer macroIndex.Close()
+
+		server := NewCantileverServer(
+			CantileverWithContext(context.Background()),
+			CantileverWithRouter(router),
+		)
+
+		_, err := server.promptValues(context.Background(), []byte("Roy"))
+		So(err, ShouldNotBeNil)
+		So(err.Error(), ShouldContainSubstring, "router: no service registered for")
+	})
+}

@@ -46,6 +46,14 @@ func TestBooterRegistersCapabilities(t *testing.T) {
 			gc.So(err, gc.ShouldBeNil)
 			gc.So(synthesis.HAS(raw).IsValid(), gc.ShouldBeTrue)
 
+			raw, err = booter.router.Get(ctx, cluster.FOREST, "test")
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(raw.IsValid(), gc.ShouldBeTrue)
+
+			raw, err = booter.router.Get(ctx, cluster.TOKENIZER, "test")
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(raw.IsValid(), gc.ShouldBeTrue)
+
 			raw, err = booter.router.Get(ctx, cluster.CANTILEVER, "test")
 			gc.So(err, gc.ShouldBeNil)
 			gc.So(bvp.Cantilever(raw).IsValid(), gc.ShouldBeTrue)
