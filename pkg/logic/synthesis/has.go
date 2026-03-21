@@ -2,21 +2,16 @@ package synthesis
 
 import (
 	context "context"
-	"encoding/binary"
 	"fmt"
-	"net"
-	"sort"
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/logic/lang"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
-
-	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/dmt"
+	"github.com/theapemachine/six/pkg/numeric"
+	dmtserver "github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -27,36 +22,28 @@ programmable Value type to construct "tools" on-the-fly in its
 attempt to solve a given boundary value problem.
 */
 type HASServer struct {
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	state       *errnie.State
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      HAS
-	serverConn  *rpc.Conn
-	clientConns map[string]*rpc.Conn
-	start       primitive.Value
-	end         primitive.Value
-	macroIndex  *macro.MacroIndexServer
-	forest      *dmt.Forest
-	program     *lang.ProgramServer
+	mu           sync.RWMutex
+	clientMu     sync.Mutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	state        *errnie.State
+	router       *cluster.Router
+	start        primitive.Value
+	end          primitive.Value
+	cachedClient capnp.Client
 }
 
 /*
-hasOpts configures HASServer at construction. Options inject context,
-macro index, program server, or forest.
+hasOpts configures HASServer with context and routed capability access.
 */
 type hasOpts func(*HASServer)
 
 /*
-NewHASServer creates the HAS RPC server and wires it to a net.Pipe.
-Default macro index and program server are created if not provided.
+NewHASServer creates the HAS server.
 */
 func NewHASServer(options ...hasOpts) *HASServer {
 	server := &HASServer{
-		state:       errnie.NewState("synthesis/has"),
-		clientConns: map[string]*rpc.Conn{},
+		state: errnie.NewState("synthesis/has"),
 	}
 
 	for _, option := range options {
@@ -74,20 +61,6 @@ func NewHASServer(options ...hasOpts) *HASServer {
 		return server
 	}
 
-	if server.macroIndex == nil {
-		server.macroIndex = macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(server.ctx),
-		)
-	}
-
-	if server.program == nil {
-		server.program = lang.NewProgramServer(
-			lang.ProgramServerWithContext(server.ctx),
-			lang.ProgramServerWithMaxSteps(128),
-			lang.ProgramServerWithMacroIndex(server.macroIndex),
-		)
-	}
-
 	server.start = errnie.Guard(server.state, func() (primitive.Value, error) {
 		return primitive.New()
 	})
@@ -100,82 +73,50 @@ func NewHASServer(options ...hasOpts) *HASServer {
 		return server
 	}
 
-	server.serverSide, server.clientSide = net.Pipe()
-	server.client = HAS_ServerToClient(server)
-
-	server.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		server.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
-
 	return server
 }
 
 /*
-Client returns a Cap'n Proto client connected to this HASServer.
+Client returns a cached Cap'n Proto client for this HASServer.
+ServerToClient spawns a handleCalls goroutine per call, so we create
+the client once and reuse it to avoid goroutine leaks.
 */
-func (server *HASServer) Client(clientID string) HAS {
-	server.mu.Lock()
-	defer server.mu.Unlock()
+func (server *HASServer) Client(_ string) capnp.Client {
+	server.clientMu.Lock()
+	defer server.clientMu.Unlock()
 
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
+	if !server.cachedClient.IsValid() {
+		server.cachedClient = capnp.Client(HAS_ServerToClient(server))
+	}
 
-	return server.client
+	return server.cachedClient
 }
 
 /*
-Close shuts down RPC connections and underlying net.Pipe resources.
+Load derives a lightweight pressure signal from the staged boundary pair.
+*/
+func (server *HASServer) Load() int64 {
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return int64(server.start.ActiveCount() + server.end.ActiveCount())
+}
+
+/*
+Close releases the cached client and cancels the server context.
 */
 func (server *HASServer) Close() error {
-	server.mu.Lock()
-	defer server.mu.Unlock()
-
-	server.state.Reset()
-
-	if server.serverConn != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.serverConn.Close()
-		})
-
-		server.serverConn = nil
+	server.clientMu.Lock()
+	if server.cachedClient.IsValid() {
+		server.cachedClient.Release()
 	}
-
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			errnie.GuardVoid(server.state, func() error {
-				return conn.Close()
-			})
-		}
-
-		delete(server.clientConns, clientID)
-	}
-
-	if server.serverSide != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.serverSide.Close()
-		})
-
-		server.serverSide = nil
-	}
-
-	if server.clientSide != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.clientSide.Close()
-		})
-
-		server.clientSide = nil
-	}
+	server.clientMu.Unlock()
 
 	if server.cancel != nil {
 		server.cancel()
 	}
 
-	return server.state.Err()
+	return nil
 }
 
 /*
@@ -246,36 +187,6 @@ func (server *HASServer) Done(ctx context.Context, call HAS_done) error {
 	results.SetPostResidue(-1)
 	results.SetSteps(0)
 
-	if server.forest == nil {
-		return nil
-	}
-
-	branches, err := server.collectPromptBranches(server.end)
-	if err != nil {
-		return err
-	}
-
-	if len(branches) == 0 {
-		return nil
-	}
-
-	if err := server.program.Seed(server.start, server.end); err != nil {
-		return err
-	}
-
-	outcome, err := server.program.Execute(branches)
-	if err != nil {
-		return err
-	}
-
-	if outcome == nil {
-		return NewHASError(HASErrorTypeProgramOutcomeMissing)
-	}
-
-	results.SetWinnerIndex(int32(outcome.WinnerIndex))
-	results.SetPostResidue(int32(outcome.PostResidue))
-	results.SetSteps(uint32(outcome.Steps))
-
 	return nil
 }
 
@@ -300,105 +211,40 @@ func (server *HASServer) copyDataIntoPrimitive(dst *primitive.Value, value primi
 collectPromptBranches resolves all next-symbol branches for one prompt value.
 */
 func (server *HASServer) collectPromptBranches(prompt primitive.Value) ([]primitive.Value, error) {
-	if server.forest == nil {
-		return nil, nil
+	client, raw, err := server.forestClient()
+	if err != nil {
+		return nil, err
 	}
+	defer raw.Release()
 
-	promptData, err := primitive.New()
+	future, release := client.Branches(server.workContext(), func(params dmtserver.Server_branches_Params) error {
+		return params.SetPrompt(prompt)
+	})
+	defer release()
+
+	results, err := future.Struct()
 	if err != nil {
 		return nil, err
 	}
 
-	promptData.SetC0(prompt.C0())
-	promptData.SetC1(prompt.C1())
-	promptData.SetC2(prompt.C2())
-	promptData.SetC3(prompt.C3())
-	promptData.SetC4(prompt.C4())
-	promptData.SetC5(prompt.C5())
-	promptData.SetC6(prompt.C6())
-	promptData.SetC7(prompt.C7())
-
-	promptSymbol, ok := primitive.InferLexicalSeed(promptData)
-	if !ok {
-		return nil, NewHASError(HASErrorTypePromptSymbolMissing)
+	branchList, err := results.Branches()
+	if err != nil {
+		return nil, err
 	}
 
-	coder := data.NewMortonCoder()
-	symbolsByPosition := map[uint32]map[byte]struct{}{}
-
-	server.forest.Iterate(func(keyBytes []byte, _ []byte) bool {
-		if len(keyBytes) != 8 {
-			return true
+	branches := make([]primitive.Value, 0, branchList.Len())
+	for index := 0; index < branchList.Len(); index++ {
+		branch := branchList.At(index)
+		cloned, cloneErr := primitive.New()
+		if cloneErr != nil {
+			return nil, cloneErr
 		}
 
-		mortonKey := binary.BigEndian.Uint64(keyBytes)
-		position, symbol := coder.Unpack(mortonKey)
-
-		if _, exists := symbolsByPosition[position]; !exists {
-			symbolsByPosition[position] = map[byte]struct{}{}
-		}
-
-		symbolsByPosition[position][symbol] = struct{}{}
-		return true
-	})
-
-	branchSymbols := map[byte]struct{}{}
-
-	for position, symbols := range symbolsByPosition {
-		if _, exists := symbols[promptSymbol]; !exists {
-			continue
-		}
-
-		nextSymbols, exists := symbolsByPosition[position+1]
-		if !exists {
-			continue
-		}
-
-		for symbol := range nextSymbols {
-			branchSymbols[symbol] = struct{}{}
-		}
-	}
-
-	if len(branchSymbols) == 0 {
-		return nil, nil
-	}
-
-	orderedSymbols := make([]int, 0, len(branchSymbols))
-	for symbol := range branchSymbols {
-		orderedSymbols = append(orderedSymbols, int(symbol))
-	}
-	sort.Ints(orderedSymbols)
-
-	branches := make([]primitive.Value, 0, len(orderedSymbols))
-	for _, symbol := range orderedSymbols {
-		value := primitive.BaseValue(byte(symbol))
-		branch, err := primitive.New()
-		if err != nil {
-			return nil, err
-		}
-
-		branch.SetC0(value.C0())
-		branch.SetC1(value.C1())
-		branch.SetC2(value.C2())
-		branch.SetC3(value.C3())
-		branch.SetC4(value.C4())
-		branch.SetC5(value.C5())
-		branch.SetC6(value.C6())
-		branch.SetC7(value.C7())
-		branches = append(branches, branch)
+		server.copyDataIntoPrimitive(&cloned, branch)
+		branches = append(branches, cloned)
 	}
 
 	return branches, nil
-}
-
-/*
-HASOutcome captures one inference pass where a query mask reacts with a fact vat.
-*/
-type HASOutcome struct {
-	QueryMask   primitive.Value
-	Matches     []primitive.MatchResult
-	WinnerIndex int
-	Residue     primitive.Value
 }
 
 /*
@@ -414,72 +260,35 @@ func (server *HASServer) Derive(
 	}
 
 	key := macro.AffineKeyFromValues(startValue, endValue)
-	server.macroIndex.RecordOpcode(key)
+	client, raw, err := server.macroIndexClient()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
+	}
+	defer raw.Release()
 
-	opcode, found := server.macroIndex.FindOpcode(key)
+	future, release := client.ResolveGap(server.workContext(), func(params macro.MacroIndex_resolveGap_Params) error {
+		if err := params.SetStart(startValue); err != nil {
+			return err
+		}
 
-	if !found || opcode == nil {
-		return macro.AffineKey{}, nil, NewHASError(HASErrorTypeDeriveFailed)
+		return params.SetEnd(endValue)
+	})
+	defer release()
+
+	result, err := future.Struct()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
+	}
+
+	opcode := &macro.MacroOpcode{
+		Key:       key,
+		Scale:     numeric.Phase(result.Scale()),
+		Translate: numeric.Phase(result.Translate()),
+		UseCount:  result.UseCount(),
+		Hardened:  result.Hardened(),
 	}
 
 	return key, opcode, nil
-}
-
-/*
-Ask builds a reagent/query mask from known values and precipitates it against
-candidate facts, returning the best zero-tension residue candidate.
-*/
-func (server *HASServer) Ask(
-	knownValues []primitive.Value,
-	vat []primitive.Value,
-) (*HASOutcome, error) {
-	if len(knownValues) == 0 {
-		return nil, NewHASError(HASErrorTypeKnownValuesRequired)
-	}
-
-	if len(vat) == 0 {
-		return nil, NewHASError(HASErrorTypeVatEmpty)
-	}
-
-	queryMask := primitive.BuildQueryMask(knownValues...)
-	matches := make([]primitive.MatchResult, len(vat))
-
-	bestIndex := 0
-	bestAffinity := 0
-	bestResidue := 0
-	first := true
-
-	for index := range vat {
-		sharedBits, phaseQuotient, affinity, residueBits := primitive.ScoreMatch(queryMask, vat[index])
-
-		matches[index].SharedBits = sharedBits
-		matches[index].PhaseQuotient = phaseQuotient
-		matches[index].FitnessScore = affinity
-
-		if first {
-			bestIndex = index
-			bestAffinity = affinity
-			bestResidue = residueBits
-			first = false
-			continue
-		}
-
-		if affinity > bestAffinity || (affinity == bestAffinity && residueBits < bestResidue) {
-			bestIndex = index
-			bestAffinity = affinity
-			bestResidue = residueBits
-		}
-	}
-
-	winner := queryMask.EvaluateMatch(vat[bestIndex])
-	matches[bestIndex] = winner
-
-	return &HASOutcome{
-		QueryMask:   queryMask,
-		Matches:     matches,
-		WinnerIndex: bestIndex,
-		Residue:     winner.Residue,
-	}, nil
 }
 
 /*
@@ -492,21 +301,55 @@ func HASWithContext(ctx context.Context) hasOpts {
 }
 
 /*
-HASWithMacroIndex injects a shared MacroIndex for tool synthesis.
+HASWithRouter injects the cluster router for sibling capability resolution.
 */
-func HASWithMacroIndex(index *macro.MacroIndexServer) hasOpts {
+func HASWithRouter(router *cluster.Router) hasOpts {
 	return func(server *HASServer) {
-		server.macroIndex = index
+		server.router = router
 	}
 }
 
 /*
-HASWithForest injects the shared DMT forest used for prompt branch lookups.
+workContext returns the server context when available.
 */
-func HASWithForest(forest *dmt.Forest) hasOpts {
-	return func(server *HASServer) {
-		server.forest = forest
+func (server *HASServer) workContext() context.Context {
+	if server.ctx != nil {
+		return server.ctx
 	}
+
+	return context.Background()
+}
+
+/*
+macroIndexClient resolves the routed macro index capability.
+*/
+func (server *HASServer) macroIndexClient() (macro.MacroIndex, capnp.Client, error) {
+	if server.router == nil {
+		return macro.MacroIndex{}, capnp.Client{}, NewHASError(HASErrorTypeRouterRequired)
+	}
+
+	raw, err := server.router.Get(server.workContext(), cluster.MACROINDEX, "has")
+	if err != nil {
+		return macro.MacroIndex{}, capnp.Client{}, err
+	}
+
+	return macro.MacroIndex(raw), raw, nil
+}
+
+/*
+forestClient resolves the routed forest capability.
+*/
+func (server *HASServer) forestClient() (dmtserver.Server, capnp.Client, error) {
+	if server.router == nil {
+		return dmtserver.Server{}, capnp.Client{}, NewHASError(HASErrorTypeRouterRequired)
+	}
+
+	raw, err := server.router.Get(server.workContext(), cluster.FOREST, "has")
+	if err != nil {
+		return dmtserver.Server{}, capnp.Client{}, err
+	}
+
+	return dmtserver.Server(raw), raw, nil
 }
 
 /*
@@ -517,10 +360,9 @@ type HASErrorType string
 const (
 	HASErrorTypeStartAndEndRequired   HASErrorType = "start and end values are required"
 	HASErrorTypeDeriveFailed          HASErrorType = "failed to derive affine operator"
-	HASErrorTypeKnownValuesRequired   HASErrorType = "known query values are required"
-	HASErrorTypeVatEmpty              HASErrorType = "candidate vat cannot be empty"
 	HASErrorTypePromptSymbolMissing   HASErrorType = "prompt lexical seed is required"
 	HASErrorTypeProgramOutcomeMissing HASErrorType = "program execution produced no outcome"
+	HASErrorTypeRouterRequired        HASErrorType = "router is required"
 )
 
 /*

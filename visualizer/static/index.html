@@ -159,12 +159,14 @@
     /* ── Log ──────────────────────────────────────────────── */
     #log-container {
       position: absolute; bottom: 16px; left: 16px;
-      width: 480px; max-height: 140px; overflow: hidden;
+      width: 480px; max-height: 160px; overflow-y: auto;
       display: flex; flex-direction: column-reverse;
-      font-size: 8px; opacity: 0.45;
-      pointer-events: none; z-index: 100;
-      letter-spacing: 0.3px;
+      font-size: 8px; opacity: 0.5;
+      pointer-events: auto; z-index: 100;
+      letter-spacing: 0.3px; transition: opacity 0.2s;
+      scrollbar-width: thin; scrollbar-color: var(--bp-line-strong) transparent;
     }
+    #log-container:hover { opacity: 0.85; }
     .log-line { white-space: pre-wrap; margin-top: 2px; }
     .log-ingest   { color: rgba(180, 160, 240, 0.7); }
     .log-tokenize { color: rgba(140, 200, 255, 0.7); }
@@ -527,6 +529,258 @@
     }
     .zone-activity-label.fresh { opacity: 1; }
     .zone-activity-label.fading { opacity: 0.3; }
+
+    /* ── Inspector Panel ─────────────────────────────────── */
+    .inspector-panel {
+      position: fixed; top: 0; right: -400px;
+      width: 400px; height: 100vh; z-index: 300;
+      display: flex; flex-direction: column;
+      transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      pointer-events: auto;
+      border-left: 1px solid var(--bp-panel-border);
+      border-right: none; border-top: none; border-bottom: none;
+    }
+    .inspector-panel.open { right: 0; }
+    .inspector-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 14px 16px; border-bottom: 1px solid var(--bp-line-strong);
+      flex-shrink: 0;
+    }
+    .inspector-title {
+      font-size: 9px; font-weight: 500; letter-spacing: 4px;
+      text-transform: uppercase; color: var(--bp-accent);
+    }
+    .inspector-desc {
+      font-size: 8px; color: var(--bp-ink-faint); margin-top: 2px;
+      letter-spacing: 0.3px;
+    }
+    .inspector-close {
+      background: none; border: 1px solid var(--bp-line);
+      color: var(--bp-ink-dim); font-size: 14px;
+      width: 24px; height: 24px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-family: var(--bp-font); transition: all 0.15s;
+    }
+    .inspector-close:hover {
+      color: var(--bp-ink); border-color: var(--bp-accent-dim);
+    }
+    .inspector-tabs {
+      display: flex; border-bottom: 1px solid var(--bp-line); flex-shrink: 0;
+    }
+    .inspector-tab {
+      flex: 1; background: none; border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--bp-ink-faint); font-family: var(--bp-font);
+      font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+      padding: 8px 0; cursor: pointer; transition: all 0.15s;
+    }
+    .inspector-tab:hover { color: var(--bp-ink-dim); }
+    .inspector-tab.active {
+      color: var(--bp-accent); border-bottom-color: var(--bp-accent);
+    }
+    .inspector-body {
+      flex: 1; overflow-y: auto; padding: 12px 14px;
+      scrollbar-width: thin; scrollbar-color: var(--bp-line-strong) transparent;
+    }
+    .inspector-body::-webkit-scrollbar { width: 4px; }
+    .inspector-body::-webkit-scrollbar-thumb { background: var(--bp-line-strong); }
+
+    .inspector-empty {
+      color: var(--bp-ink-faint); font-size: 9px; text-align: center;
+      padding: 30px 10px; letter-spacing: 0.5px; line-height: 1.8;
+    }
+    .inspector-section { margin-bottom: 14px; }
+    .inspector-section-title {
+      font-size: 7px; text-transform: uppercase; letter-spacing: 2px;
+      color: var(--bp-ink-faint); margin-bottom: 6px;
+      padding-bottom: 4px; border-bottom: 1px solid var(--bp-line);
+    }
+    .inspector-stat {
+      font-size: 9px; display: flex; justify-content: space-between;
+      margin-bottom: 3px; color: var(--bp-ink-dim); letter-spacing: 0.3px;
+    }
+    .inspector-stat .val { color: var(--bp-ink); font-weight: 400; }
+    .inspector-stat .val.green { color: var(--bp-green); }
+    .inspector-stat .val.red { color: var(--bp-red); }
+    .inspector-stat .val.accent { color: var(--bp-accent); }
+
+    .inspector-event {
+      padding: 6px 8px; margin-bottom: 4px;
+      background: rgba(8, 18, 38, 0.6);
+      border-left: 2px solid var(--bp-line);
+      cursor: pointer; transition: all 0.15s;
+    }
+    .inspector-event:hover {
+      background: rgba(20, 40, 80, 0.5);
+      border-left-color: var(--bp-accent-dim);
+    }
+    .inspector-event-header {
+      display: flex; align-items: center; gap: 6px; margin-bottom: 2px;
+    }
+    .inspector-event-comp {
+      font-size: 8px; color: var(--bp-accent);
+      letter-spacing: 1px; text-transform: uppercase;
+    }
+    .inspector-event-action {
+      font-size: 8px; color: var(--bp-ink-dim); letter-spacing: 0.5px;
+    }
+    .inspector-event-ts {
+      font-size: 7px; color: var(--bp-ink-faint); margin-left: auto;
+    }
+    .inspector-event-data {
+      font-size: 8px; color: var(--bp-ink-faint);
+      line-height: 1.4; overflow: hidden; max-height: 40px;
+    }
+
+    /* ── Key Heatmap ──────────────────────────────────────── */
+    .key-heatmap {
+      display: grid; grid-template-columns: repeat(16, 1fr);
+      gap: 1px; margin-top: 8px;
+    }
+    .heatmap-cell {
+      aspect-ratio: 1; background: rgba(100, 160, 240, 0.05);
+      transition: background 0.3s; position: relative; border-radius: 1px;
+    }
+    .heatmap-cell:hover::after {
+      content: attr(data-label);
+      position: absolute; bottom: 100%; left: 50%;
+      transform: translateX(-50%);
+      background: var(--bp-panel-bg); border: 1px solid var(--bp-line-strong);
+      color: var(--bp-ink); font-size: 7px; padding: 2px 4px;
+      white-space: nowrap; z-index: 10; pointer-events: none;
+    }
+    .heatmap-legend {
+      display: flex; justify-content: space-between;
+      margin-top: 4px; font-size: 7px; color: var(--bp-ink-faint);
+    }
+
+    /* ── Fold Tree View ───────────────────────────────────── */
+    .fold-tree-node {
+      padding: 4px 8px; margin: 2px 0;
+      border-left: 2px solid var(--bp-line);
+      font-size: 8px; color: var(--bp-ink-dim); transition: all 0.15s;
+    }
+    .fold-tree-node:hover {
+      border-left-color: var(--bp-accent-dim);
+      background: rgba(20, 40, 80, 0.3);
+    }
+    .fold-tree-node .fold-level {
+      color: var(--bp-accent); font-size: 7px; letter-spacing: 1px;
+    }
+    .fold-tree-node .fold-density {
+      float: right; color: var(--bp-ink-faint); font-size: 7px;
+    }
+    .fold-tree-container { max-height: 400px; overflow-y: auto; }
+
+    /* ── Pipeline Timeline ────────────────────────────────── */
+    .timeline-list { display: flex; flex-direction: column; gap: 2px; margin-top: 8px; }
+    .timeline-entry {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 8px; padding: 3px 6px;
+    }
+    .timeline-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .timeline-dot.complete { background: var(--bp-green); }
+    .timeline-dot.error { background: var(--bp-red); }
+    .timeline-dot.pending { background: var(--bp-ink-faint); }
+    .timeline-dot.active { background: var(--bp-accent); animation: pulse-dot 1.5s ease-in-out infinite; }
+    .timeline-label { color: var(--bp-ink-dim); }
+    .timeline-detail { margin-left: auto; color: var(--bp-ink-faint); font-size: 7px; }
+    .timeline-prompt {
+      padding: 6px 8px; margin: 4px 0;
+      background: rgba(8, 18, 38, 0.6);
+      border-left: 2px solid var(--bp-accent-dim);
+      font-size: 8px; color: var(--bp-ink-dim);
+    }
+    .timeline-prompt .prompt-q { color: var(--bp-accent); }
+    .timeline-prompt .prompt-a { color: var(--bp-green); margin-top: 3px; }
+    .timeline-prompt .prompt-err { color: var(--bp-red); margin-top: 3px; }
+
+    /* ── Token Bin Distribution ────────────────────────────── */
+    .bin-bars { display: flex; align-items: flex-end; gap: 1px; height: 60px; margin-top: 8px; }
+    .bin-bar {
+      flex: 1; background: rgba(140, 200, 255, 0.4); min-height: 1px;
+      transition: height 0.3s; position: relative;
+    }
+    .bin-bar:hover { background: rgba(140, 200, 255, 0.7); }
+    .bin-bar:hover::after {
+      content: attr(data-label);
+      position: absolute; bottom: 100%; left: 50%; transform: translateX(-50%);
+      background: var(--bp-panel-bg); border: 1px solid var(--bp-line-strong);
+      color: var(--bp-ink); font-size: 7px; padding: 2px 4px;
+      white-space: nowrap; z-index: 10; pointer-events: none;
+    }
+
+    /* ── Event Detail Overlay ─────────────────────────────── */
+    .event-detail-overlay {
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.6); z-index: 400;
+      display: flex; align-items: center; justify-content: center;
+      pointer-events: auto;
+    }
+    .event-detail-content {
+      width: 520px; max-height: 70vh;
+      display: flex; flex-direction: column;
+    }
+    .event-detail-header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 14px; border-bottom: 1px solid var(--bp-line-strong);
+      font-size: 8px; letter-spacing: 2px; text-transform: uppercase;
+      color: var(--bp-accent);
+    }
+    .event-detail-close {
+      background: none; border: 1px solid var(--bp-line);
+      color: var(--bp-ink-dim); font-size: 12px;
+      width: 20px; height: 20px;
+      display: flex; align-items: center; justify-content: center;
+      cursor: pointer; font-family: var(--bp-font);
+    }
+    .event-detail-close:hover {
+      color: var(--bp-ink); border-color: var(--bp-accent-dim);
+    }
+    .event-detail-json {
+      flex: 1; overflow-y: auto; padding: 12px 14px;
+      font-size: 9px; color: var(--bp-ink); line-height: 1.6;
+      white-space: pre-wrap; word-break: break-all; margin: 0;
+      scrollbar-width: thin; scrollbar-color: var(--bp-line-strong) transparent;
+    }
+
+    /* ── Log Enhancements ─────────────────────────────────── */
+    #log-search-bar {
+      position: absolute; bottom: 162px; left: 16px;
+      z-index: 100; pointer-events: auto;
+      display: flex; gap: 4px; align-items: center;
+    }
+    #log-search {
+      background: rgba(8, 18, 38, 0.9); border: 1px solid var(--bp-line);
+      color: var(--bp-ink-dim); font-family: var(--bp-font);
+      font-size: 8px; padding: 3px 8px; width: 140px;
+      outline: none; letter-spacing: 0.3px;
+    }
+    #log-search:focus { border-color: var(--bp-accent-dim); color: var(--bp-ink); }
+    #log-search::placeholder { color: var(--bp-ink-faint); }
+    .log-filter-btn {
+      background: rgba(10, 20, 45, 0.8); border: 1px solid var(--bp-line);
+      color: var(--bp-ink-faint); font-family: var(--bp-font);
+      font-size: 7px; padding: 3px 6px; cursor: pointer;
+      letter-spacing: 0.5px; transition: all 0.15s;
+    }
+    .log-filter-btn:hover, .log-filter-btn.active {
+      color: var(--bp-ink); border-color: var(--bp-accent-dim);
+    }
+    #log-container { pointer-events: auto; cursor: default; }
+    .log-line {
+      cursor: pointer; padding: 1px 2px; transition: background 0.1s;
+    }
+    .log-line:hover { background: rgba(20, 40, 80, 0.4); }
+    .log-line.filtered-out { display: none; }
+
+    /* ── Zone Glow (hover feedback on 3D zones) ──────────── */
+    @keyframes zone-glow-pulse {
+      0%, 100% { opacity: 0.06; }
+      50% { opacity: 0.18; }
+    }
   </style>
 </head>
 <body>
@@ -620,6 +874,40 @@
   </div>
 
   <button id="ingest-toggle">▴ training data</button>
+
+  <div id="inspector-panel" class="panel inspector-panel">
+    <div class="inspector-header">
+      <div>
+        <div class="inspector-title" id="inspector-title">—</div>
+        <div class="inspector-desc" id="inspector-desc"></div>
+      </div>
+      <button class="inspector-close" id="inspector-close">×</button>
+    </div>
+    <div class="inspector-tabs" id="inspector-tabs">
+      <button class="inspector-tab active" data-tab="feed">Feed</button>
+      <button class="inspector-tab" data-tab="state">State</button>
+      <button class="inspector-tab" data-tab="internals">Internals</button>
+    </div>
+    <div class="inspector-body" id="inspector-body"></div>
+  </div>
+
+  <div id="event-detail-overlay" class="event-detail-overlay" style="display:none">
+    <div class="event-detail-content panel">
+      <div class="event-detail-header">
+        <span>Event Detail</span>
+        <button class="event-detail-close" id="event-detail-close">×</button>
+      </div>
+      <pre class="event-detail-json" id="event-detail-json"></pre>
+    </div>
+  </div>
+
+  <div id="log-search-bar">
+    <input type="text" id="log-search" placeholder="Filter log…" autocomplete="off" spellcheck="false">
+    <button class="log-filter-btn active" data-filter="all">ALL</button>
+    <button class="log-filter-btn" data-filter="pipeline">PIPE</button>
+    <button class="log-filter-btn" data-filter="ingest">DATA</button>
+    <button class="log-filter-btn" data-filter="fold">FOLD</button>
+  </div>
 
   <div id="prompt-bar" class="panel">
     <input type="text" id="prompt-input" placeholder="Enter a prompt…" autocomplete="off" spellcheck="false">
@@ -882,6 +1170,30 @@
       sys.center = new THREE.Vector3(sys.x, 0.3, sys.z);
       sys.labelObj = lbl;
       sys.activeGlow = null;
+      sys.glowPlane = null;
+    }
+
+    // ── Clickable Zone Planes (invisible, for raycasting) ──
+    const zonePlanes = {};
+    const raycaster = new THREE.Raycaster();
+    const mouseVec = new THREE.Vector2();
+    const glowPlaneMat = new THREE.MeshBasicMaterial({
+      color: 0x4080c0, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+    });
+    const glowPlaneAccentMat = new THREE.MeshBasicMaterial({
+      color: 0xffdc8c, transparent: true, opacity: 0.0, side: THREE.DoubleSide,
+    });
+
+    for (const [key, sys] of Object.entries(SYS)) {
+      const planeGeo = new THREE.PlaneGeometry(sys.w, sys.h);
+      const mat = (sys.accent ? glowPlaneAccentMat : glowPlaneMat).clone();
+      const plane = new THREE.Mesh(planeGeo, mat);
+      plane.rotation.x = -Math.PI / 2;
+      plane.position.set(sys.x, 0.06, sys.z);
+      plane.userData = { sysKey: key };
+      scene.add(plane);
+      zonePlanes[key] = plane;
+      sys.glowPlane = plane;
     }
 
     // ── Connection Lines ──────────────────────────────────────
@@ -1250,13 +1562,101 @@
     let totalFlowEdges = 0;
     let totalFoldLinks = 0;
 
-    function log(text, type = 'state') {
+    // ═══════════════════════════════════════════════════════════
+    // EVENT ACCUMULATOR (per-component event history)
+    // ═══════════════════════════════════════════════════════════
+    const eventsByComponent = new Map();
+    const MAX_COMPONENT_EVENTS = 300;
+    const allEvents = [];
+
+    function accumulateEvent(ev) {
+      const key = ev.component || 'unknown';
+
+      if (!eventsByComponent.has(key)) {
+        eventsByComponent.set(key, []);
+      }
+
+      const arr = eventsByComponent.get(key);
+      arr.push(ev);
+
+      while (arr.length > MAX_COMPONENT_EVENTS) {
+        arr.shift();
+      }
+
+      allEvents.push(ev);
+
+      while (allEvents.length > 2000) {
+        allEvents.shift();
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // INSPECTOR STATE
+    // ═══════════════════════════════════════════════════════════
+    let inspectorOpen = false;
+    let inspectorSysKey = null;
+    let inspectorTab = 'feed';
+    let inspectorRefreshTimer = null;
+
+    const ZONE_COMPONENTS = {
+      machine:   ['Machine', 'Program'],
+      dataset:   ['Dataset'],
+      tokenizer: ['Tokenizer', 'Sequencer'],
+      forest:    ['LSM', 'DMT'],
+      graph:     ['Graph', 'SpatialIndex'],
+      has:       ['HAS'],
+      macroIdx:  ['MacroIndex'],
+    };
+
+    const ZONE_DESCRIPTIONS = {
+      machine:   'Central orchestrator — pipeline, execution, coordination',
+      dataset:   'External data source — raw byte streams',
+      tokenizer: 'Byte-level sequencer — boundary detection, morton coding',
+      forest:    'Immutable radix trie — key-value storage, prefix search',
+      graph:     'Logic substrate — recursive folding, AST graph, evaluation',
+      has:       'Boundary detection — affine derivation, pressure signals',
+      macroIdx:  'Opcode registry — macro instructions, candidate tracking',
+    };
+
+    const inspectorPanel = document.getElementById('inspector-panel');
+    const inspectorTitle = document.getElementById('inspector-title');
+    const inspectorDesc = document.getElementById('inspector-desc');
+    const inspectorBody = document.getElementById('inspector-body');
+    const inspectorCloseBtn = document.getElementById('inspector-close');
+    const inspectorTabsEl = document.getElementById('inspector-tabs');
+    const eventDetailOverlay = document.getElementById('event-detail-overlay');
+    const eventDetailJson = document.getElementById('event-detail-json');
+    const eventDetailCloseBtn = document.getElementById('event-detail-close');
+    const logSearch = document.getElementById('log-search');
+
+    // Accumulated data for subsystem-specific visualizations
+    const forestKeyBins = new Uint32Array(256);
+    let forestEntryCount = 0;
+    const tokenBinCounts = new Uint32Array(256);
+    let tokenBinMax = 1;
+    const promptHistory = [];
+    const foldHistory = [];
+    const executeHistory = [];
+
+    function log(text, type = 'state', eventRef = null) {
       const div = document.createElement('div');
       div.className = `log-line log-${type}`;
+      div.dataset.type = type;
       const t = new Date().toISOString().split('T')[1].slice(0, -1);
       div.textContent = `${t} ${text}`;
+
+      if (eventRef) {
+        div._eventRef = eventRef;
+        div.addEventListener('click', () => showEventDetail(eventRef));
+      }
+
       logBox.insertBefore(div, logBox.firstChild);
-      if (logBox.children.length > 40) logBox.removeChild(logBox.lastChild);
+
+      while (logBox.children.length > 80) {
+        logBox.removeChild(logBox.lastChild);
+      }
+
+      applyLogFilters();
     }
 
     // ── Pipeline Stage Management ────────────────────────────
@@ -1307,6 +1707,21 @@
     function handleEvent(ev) {
       const d = ev.data || {};
 
+      accumulateEvent(ev);
+
+      if (ev.component === 'DMT' && ev.action === 'Insert') {
+        if (d.bin !== undefined) {
+          forestKeyBins[d.bin & 0xFF]++;
+        }
+
+        if (d.entryCount) {
+          forestEntryCount = d.entryCount;
+        }
+
+        addZoneLabel('forest', `entry #${d.entryCount || '?'}`);
+        refreshInspectorIfMatch('forest');
+      }
+
       if (ev.component === 'Tokenizer' && ev.action === 'Value') {
         const stage = d.stage || '';
         const edgeCount = d.edgeCount || 0;
@@ -1320,7 +1735,7 @@
 
           spawnDataStream('dataset', 'tokenizer', text || 'raw bytes', 'stream-ingest', 1200);
           addZoneLabel('tokenizer', text);
-          log(`Ingest: "${text.slice(0, 50)}"`, 'ingest');
+          log(`Ingest: "${text.slice(0, 50)}"`, 'ingest', ev);
         }
 
         if (stage === 'tokenize') {
@@ -1330,14 +1745,18 @@
 
           spawnDataStream('tokenizer', 'machine', text || 'tokens', 'stream-token', 1000);
           addZoneLabel('tokenizer', text);
-          log(`Query: "${text.slice(0, 50)}"`, 'tokenize');
+          log(`Query: "${text.slice(0, 50)}"`, 'tokenize', ev);
         }
 
         if (d.bin !== undefined) {
           totalTokenNodes++;
           statTokenNodes.textContent = totalTokenNodes;
           statGroups.textContent = Math.min(totalTokenNodes, 256);
+          tokenBinCounts[d.bin & 0xFF]++;
+          tokenBinMax = Math.max(tokenBinMax, tokenBinCounts[d.bin & 0xFF]);
         }
+
+        refreshInspectorIfMatch('tokenizer');
       }
 
       else if (ev.component === 'LSM' && ev.action === 'Insert') {
@@ -1351,7 +1770,8 @@
         spawnDataStream('machine', 'forest', insertText, 'stream-store', 1400);
         totalFlowEdges++;
         statFlowEdges.textContent = totalFlowEdges;
-        log(`Radix insert: ${insertText}`, 'ingest');
+        log(`Radix insert: ${insertText}`, 'ingest', ev);
+        refreshInspectorIfMatch('forest');
       }
 
       else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
@@ -1362,7 +1782,8 @@
 
         spawnDataStream('graph', 'machine', `${pathCount} paths found`, 'stream-lookup', 1000);
         addZoneLabel('graph', `${pathCount} paths`);
-        log(`Lookup: ${pathCount} paths`, 'lookup');
+        log(`Lookup: ${pathCount} paths`, 'lookup', ev);
+        refreshInspectorIfMatch('graph');
       }
 
       else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
@@ -1370,7 +1791,8 @@
         activateStage('fold', `${pathCount} results`);
 
         spawnDataStream('machine', 'graph', `evaluate ${pathCount} paths`, 'stream-fold', 1200);
-        log(`Fold complete: ${pathCount} result paths`, 'fold');
+        log(`Fold complete: ${pathCount} result paths`, 'fold', ev);
+        refreshInspectorIfMatch('graph');
       }
 
       else if (ev.component === 'Graph' && ev.action === 'Fold') {
@@ -1382,7 +1804,10 @@
         const foldText = d.chunkText || '';
         addFoldNode(d.bin || 0, d.level || 0, d.density || 0, foldText, d.childCount || 0);
         spawnDataStream('graph', 'macroIdx', foldText || `L${d.level} fold`, 'stream-fold', 1400);
-        log(`Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`, 'fold');
+        foldHistory.push({ level: d.level || 0, bin: d.bin || 0, density: d.density || 0, text: foldText, children: d.childCount || 0, ts: ev._ts });
+        while (foldHistory.length > 200) foldHistory.shift();
+        log(`Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`, 'fold', ev);
+        refreshInspectorIfMatch('graph');
       }
 
       else if (ev.component === 'Machine' && ev.action === 'Pipeline') {
@@ -1404,7 +1829,9 @@
           }, 800);
 
           addZoneLabel('machine', promptText);
-          log(`Prompt: "${promptText.slice(0, 50)}"`, 'pipeline');
+          promptHistory.push({ prompt: promptText, result: null, error: null, ts: ev._ts, stage: 'pending' });
+          while (promptHistory.length > 50) promptHistory.shift();
+          log(`Prompt: "${promptText.slice(0, 50)}"`, 'pipeline', ev);
         }
 
         if (stage === 'prompt-complete') {
@@ -1415,22 +1842,36 @@
 
           spawnDataStream('graph', 'machine', resultContent || 'result', 'stream-result', 1000);
           addZoneLabel('machine', resultContent.slice(0, 30));
-          log(`Result: "${resultContent.slice(0, 60)}"`, 'result');
+
+          const lastPrompt = promptHistory[promptHistory.length - 1];
+          if (lastPrompt) { lastPrompt.result = resultContent; lastPrompt.stage = 'complete'; }
+
+          log(`Result: "${resultContent.slice(0, 60)}"`, 'result', ev);
         }
 
         if (stage === 'prompt-empty') {
           activateStage('decode', '∅');
           resultText.textContent = 'No result';
           resultText.style.display = 'block';
-          log(`Empty result`, 'state');
+
+          const lastPrompt = promptHistory[promptHistory.length - 1];
+          if (lastPrompt) { lastPrompt.result = '∅ empty'; lastPrompt.stage = 'empty'; }
+
+          log(`Empty result`, 'state', ev);
         }
 
         if (stage === 'prompt-error') {
           resultText.textContent = `Error: ${d.message || 'unknown'}`;
           resultText.style.display = 'block';
           resultText.style.color = 'var(--bp-red)';
-          log(`Prompt error: ${d.message}`, 'state');
+
+          const lastPrompt = promptHistory[promptHistory.length - 1];
+          if (lastPrompt) { lastPrompt.error = d.message; lastPrompt.stage = 'error'; }
+
+          log(`Prompt error: ${d.message}`, 'state', ev);
         }
+
+        refreshInspectorIfMatch('machine');
 
         if (stage === 'ingest-start') {
           ingestStatus.textContent = `ingesting ${d.message}…`;
@@ -1475,7 +1916,9 @@
 
           spawnDataStream('machine', 'graph', `${d.candidateCount} candidates`, 'stream-prompt', 1000);
           addZoneLabel('machine', `Execute: ${d.candidateCount} candidates`);
-          log(`Execute start: residue=${d.preResidue} candidates=${d.candidateCount}`, 'pipeline');
+          executeHistory.push({ stage: 'start', candidates: d.candidateCount, preResidue: d.preResidue, steps: [], ts: ev._ts });
+          while (executeHistory.length > 30) executeHistory.shift();
+          log(`Execute start: residue=${d.preResidue} candidates=${d.candidateCount}`, 'pipeline', ev);
         }
 
         if (stage === 'step') {
@@ -1499,7 +1942,11 @@
 
           const stepLabel = `step ${step}: ${pre}→${post}`;
           spawnDataStream('machine', 'graph', stepLabel, adv ? 'stream-result' : 'stream-fold', 700);
-          log(`Execute step ${step}: ${pre}→${post} ${cls}`, 'pipeline');
+
+          const lastExec = executeHistory[executeHistory.length - 1];
+          if (lastExec) lastExec.steps.push({ step, pre, post, advanced: adv, stable: stb });
+
+          log(`Execute step ${step}: ${pre}→${post} ${cls}`, 'pipeline', ev);
         }
 
         if (stage === 'complete') {
@@ -1512,9 +1959,14 @@
             spawnDataStream('graph', 'machine', `stable (step ${d.step})`, 'stream-result', 1000);
           }
 
+          const lastExec = executeHistory[executeHistory.length - 1];
+          if (lastExec) { lastExec.outcome = outcome; lastExec.finalStep = d.step; lastExec.postResidue = d.postResidue; }
+
           addZoneLabel('machine', `Execute: ${outcome} (step ${d.step})`);
-          log(`Execute ${outcome}: step=${d.step} residue=${d.postResidue}`, 'pipeline');
+          log(`Execute ${outcome}: step=${d.step} residue=${d.postResidue}`, 'pipeline', ev);
         }
+
+        refreshInspectorIfMatch('machine');
       }
 
       else if (ev.component === 'Graph' && ev.action === 'FoldSpan') {
@@ -1636,6 +2088,646 @@
     });
 
     setGraphMode('both');
+
+    // ═══════════════════════════════════════════════════════════
+    // INSPECTOR PANEL (click-to-inspect subsystem zones)
+    // ═══════════════════════════════════════════════════════════
+    let mouseDownPos = null;
+
+    renderer.domElement.addEventListener('pointerdown', (e) => {
+      mouseDownPos = { x: e.clientX, y: e.clientY };
+    });
+
+    renderer.domElement.addEventListener('pointerup', (e) => {
+      if (!mouseDownPos) return;
+
+      const dx = e.clientX - mouseDownPos.x;
+      const dy = e.clientY - mouseDownPos.y;
+
+      if (Math.abs(dx) > 4 || Math.abs(dy) > 4) return;
+
+      mouseVec.x = (e.clientX / innerWidth) * 2 - 1;
+      mouseVec.y = -(e.clientY / innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouseVec, camera);
+
+      const planes = Object.values(zonePlanes);
+      const hits = raycaster.intersectObjects(planes);
+
+      if (hits.length > 0) {
+        openInspector(hits[0].object.userData.sysKey);
+      }
+    });
+
+    renderer.domElement.addEventListener('pointermove', (e) => {
+      mouseVec.x = (e.clientX / innerWidth) * 2 - 1;
+      mouseVec.y = -(e.clientY / innerHeight) * 2 + 1;
+      raycaster.setFromCamera(mouseVec, camera);
+
+      const planes = Object.values(zonePlanes);
+      const hits = raycaster.intersectObjects(planes);
+
+      for (const [key, plane] of Object.entries(zonePlanes)) {
+        const isHit = hits.length > 0 && hits[0].object === plane;
+        plane.material.opacity = isHit ? 0.08 : 0.0;
+      }
+
+      renderer.domElement.style.cursor = hits.length > 0 ? 'pointer' : '';
+    });
+
+    function openInspector(sysKey) {
+      inspectorSysKey = sysKey;
+      inspectorOpen = true;
+      inspectorTab = 'feed';
+
+      inspectorPanel.classList.add('open');
+      inspectorTitle.textContent = SYS[sysKey]?.label || sysKey;
+      inspectorDesc.textContent = ZONE_DESCRIPTIONS[sysKey] || '';
+
+      const tabs = inspectorTabsEl.querySelectorAll('.inspector-tab');
+      tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === 'feed'));
+
+      renderInspector();
+    }
+
+    function closeInspector() {
+      inspectorOpen = false;
+      inspectorSysKey = null;
+      inspectorPanel.classList.remove('open');
+    }
+
+    inspectorCloseBtn.addEventListener('click', closeInspector);
+
+    inspectorTabsEl.addEventListener('click', (e) => {
+      const tab = e.target.closest('.inspector-tab');
+      if (!tab) return;
+
+      inspectorTab = tab.dataset.tab;
+      inspectorTabsEl.querySelectorAll('.inspector-tab').forEach(
+        t => t.classList.toggle('active', t.dataset.tab === inspectorTab),
+      );
+
+      renderInspector();
+    });
+
+    function refreshInspectorIfMatch(sysKey) {
+      if (!inspectorOpen || inspectorSysKey !== sysKey) return;
+
+      if (inspectorRefreshTimer) return;
+      inspectorRefreshTimer = setTimeout(() => {
+        inspectorRefreshTimer = null;
+        renderInspector();
+      }, 200);
+    }
+
+    function renderInspector() {
+      if (!inspectorOpen || !inspectorSysKey) return;
+
+      if (inspectorTab === 'feed') renderFeedTab();
+      else if (inspectorTab === 'state') renderStateTab();
+      else if (inspectorTab === 'internals') renderInternalsTab();
+    }
+
+    // ── Feed Tab ──────────────────────────────────────────────
+    function renderFeedTab() {
+      const components = ZONE_COMPONENTS[inspectorSysKey] || [];
+      const events = [];
+
+      for (const comp of components) {
+        const arr = eventsByComponent.get(comp) || [];
+        events.push(...arr);
+      }
+
+      events.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+
+      inspectorBody.innerHTML = '';
+
+      if (events.length === 0) {
+        inspectorBody.innerHTML = `<div class="inspector-empty">
+          No events captured yet for this subsystem.<br><br>
+          Events will appear here as the system processes data.
+          Try ingesting training data or sending a prompt.
+        </div>`;
+        return;
+      }
+
+      const countDiv = document.createElement('div');
+      countDiv.className = 'inspector-section-title';
+      countDiv.textContent = `${events.length} events`;
+      inspectorBody.appendChild(countDiv);
+
+      for (const ev of events.slice(0, 80)) {
+        const div = document.createElement('div');
+        div.className = 'inspector-event';
+        div.innerHTML = `
+          <div class="inspector-event-header">
+            <span class="inspector-event-comp">${ev.component}</span>
+            <span class="inspector-event-action">${ev.action}</span>
+            <span class="inspector-event-ts">${((ev._ts || 0) / 1000).toFixed(1)}s</span>
+          </div>
+          <div class="inspector-event-data">${formatEventData(ev.data)}</div>
+        `;
+        div.addEventListener('click', () => showEventDetail(ev));
+        inspectorBody.appendChild(div);
+      }
+    }
+
+    function formatEventData(data) {
+      if (!data) return '—';
+
+      const parts = [];
+
+      if (data.stage) parts.push(`stage=${data.stage}`);
+      if (data.chunkText) parts.push(`"${data.chunkText.slice(0, 30)}"`);
+      if (data.message) parts.push(data.message.slice(0, 40));
+      if (data.edgeCount) parts.push(`edges=${data.edgeCount}`);
+      if (data.pathCount) parts.push(`paths=${data.pathCount}`);
+      if (data.entryCount) parts.push(`entries=${data.entryCount}`);
+      if (data.level !== undefined && data.level !== 0) parts.push(`L${data.level}`);
+      if (data.bin) parts.push(`bin=${data.bin}`);
+      if (data.density) parts.push(`${(data.density * 100).toFixed(0)}%`);
+      if (data.preResidue) parts.push(`pre=${data.preResidue}`);
+      if (data.postResidue) parts.push(`post=${data.postResidue}`);
+      if (data.outcome) parts.push(data.outcome);
+      if (data.candidateCount) parts.push(`cand=${data.candidateCount}`);
+      if (data.step) parts.push(`step=${data.step}`);
+
+      return parts.join(' · ') || '—';
+    }
+
+    // ── State Tab ─────────────────────────────────────────────
+    function renderStateTab() {
+      inspectorBody.innerHTML = '';
+
+      const components = ZONE_COMPONENTS[inspectorSysKey] || [];
+      const events = [];
+
+      for (const comp of components) {
+        events.push(...(eventsByComponent.get(comp) || []));
+      }
+
+      const section = document.createElement('div');
+      section.className = 'inspector-section';
+
+      const title = document.createElement('div');
+      title.className = 'inspector-section-title';
+      title.textContent = 'Accumulated State';
+      section.appendChild(title);
+
+      const stats = computeSubsystemStats(inspectorSysKey, events);
+
+      for (const [key, val] of stats) {
+        const row = document.createElement('div');
+        row.className = 'inspector-stat';
+        row.innerHTML = `<span>${key}</span><span class="val ${val.cls || ''}">${val.text}</span>`;
+        section.appendChild(row);
+      }
+
+      inspectorBody.appendChild(section);
+    }
+
+    function computeSubsystemStats(sysKey, events) {
+      const stats = [];
+
+      switch (sysKey) {
+        case 'forest': {
+          stats.push(['Total Entries', { text: forestEntryCount.toLocaleString() }]);
+          stats.push(['Total Inserts', { text: (eventsByComponent.get('LSM') || []).length.toLocaleString() }]);
+          const dmtEvents = eventsByComponent.get('DMT') || [];
+          stats.push(['DMT Events', { text: dmtEvents.length.toLocaleString() }]);
+          const usedBins = forestKeyBins.reduce((c, v) => c + (v > 0 ? 1 : 0), 0);
+          stats.push(['Key Prefix Spread', { text: `${usedBins} / 256`, cls: usedBins > 128 ? 'green' : '' }]);
+          const totalKeys = forestKeyBins.reduce((s, v) => s + v, 0);
+          stats.push(['Total Keys Tracked', { text: totalKeys.toLocaleString() }]);
+          break;
+        }
+        case 'graph': {
+          stats.push(['Total Folds', { text: totalFolds.toLocaleString() }]);
+          stats.push(['Total Paths', { text: totalPaths.toLocaleString() }]);
+          stats.push(['Fold Links', { text: totalFoldLinks.toLocaleString() }]);
+          stats.push(['Fold History', { text: foldHistory.length.toLocaleString() }]);
+          if (foldHistory.length > 0) {
+            const maxLevel = Math.max(...foldHistory.map(f => f.level));
+            stats.push(['Max Fold Depth', { text: `L${maxLevel}`, cls: 'accent' }]);
+            const avgDensity = foldHistory.reduce((s, f) => s + f.density, 0) / foldHistory.length;
+            stats.push(['Avg Fold Density', { text: `${(avgDensity * 100).toFixed(1)}%` }]);
+          }
+          break;
+        }
+        case 'machine': {
+          stats.push(['Prompts Sent', { text: promptHistory.length.toLocaleString() }]);
+          const complete = promptHistory.filter(p => p.stage === 'complete').length;
+          const errors = promptHistory.filter(p => p.stage === 'error').length;
+          stats.push(['Completed', { text: complete.toLocaleString(), cls: 'green' }]);
+          stats.push(['Errors', { text: errors.toLocaleString(), cls: errors > 0 ? 'red' : '' }]);
+          stats.push(['Executions', { text: executeHistory.length.toLocaleString() }]);
+          const stableCount = executeHistory.filter(e => e.outcome === 'stable').length;
+          stats.push(['Stable Outcomes', { text: stableCount.toLocaleString(), cls: 'green' }]);
+          break;
+        }
+        case 'tokenizer': {
+          stats.push(['Token Nodes', { text: totalTokenNodes.toLocaleString() }]);
+          stats.push(['Ingested Chunks', { text: totalIngested.toLocaleString() }]);
+          stats.push(['Queries', { text: totalQueries.toLocaleString() }]);
+          const usedBins = tokenBinCounts.reduce((c, v) => c + (v > 0 ? 1 : 0), 0);
+          stats.push(['Bin Spread', { text: `${usedBins} / 256` }]);
+          break;
+        }
+        case 'has': {
+          const hasEvents = eventsByComponent.get('HAS') || [];
+          stats.push(['Events', { text: hasEvents.length.toLocaleString() }]);
+          stats.push(['Status', { text: hasEvents.length > 0 ? 'active' : 'awaiting data', cls: hasEvents.length > 0 ? 'green' : '' }]);
+          break;
+        }
+        case 'macroIdx': {
+          const macroEvents = eventsByComponent.get('MacroIndex') || [];
+          stats.push(['Events', { text: macroEvents.length.toLocaleString() }]);
+          stats.push(['Status', { text: macroEvents.length > 0 ? 'active' : 'awaiting data', cls: macroEvents.length > 0 ? 'green' : '' }]);
+          break;
+        }
+        default:
+          stats.push(['Total Events', { text: events.length.toLocaleString() }]);
+      }
+
+      return stats;
+    }
+
+    // ── Internals Tab ─────────────────────────────────────────
+    function renderInternalsTab() {
+      inspectorBody.innerHTML = '';
+
+      switch (inspectorSysKey) {
+        case 'forest': renderForestInternals(); break;
+        case 'graph': renderGraphInternals(); break;
+        case 'machine': renderMachineInternals(); break;
+        case 'tokenizer': renderTokenizerInternals(); break;
+        default: renderGenericInternals(); break;
+      }
+    }
+
+    function renderForestInternals() {
+      const sec1 = makeSection('Key Prefix Distribution (256 bins)');
+
+      const totalKeys = forestKeyBins.reduce((s, v) => s + v, 0);
+      const maxCount = Math.max(1, ...forestKeyBins);
+
+      if (totalKeys === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.innerHTML = 'No key data yet. Keys will appear as data is inserted into the radix forest.<br><br>' +
+          'Each cell represents a first-byte prefix (0x00–0xFF). Brighter cells have more keys.';
+        sec1.appendChild(emptyMsg);
+      } else {
+        const heatmap = document.createElement('div');
+        heatmap.className = 'key-heatmap';
+
+        for (let i = 0; i < 256; i++) {
+          const cell = document.createElement('div');
+          cell.className = 'heatmap-cell';
+          const intensity = forestKeyBins[i] / maxCount;
+          cell.style.background = `rgba(140, 200, 255, ${0.05 + intensity * 0.7})`;
+          cell.dataset.label = `0x${i.toString(16).padStart(2, '0')}: ${forestKeyBins[i]} keys`;
+          heatmap.appendChild(cell);
+        }
+
+        sec1.appendChild(heatmap);
+
+        const legend = document.createElement('div');
+        legend.className = 'heatmap-legend';
+        legend.innerHTML = `<span>0x00</span><span>${totalKeys} total keys</span><span>0xFF</span>`;
+        sec1.appendChild(legend);
+      }
+
+      inspectorBody.appendChild(sec1);
+
+      const sec2 = makeSection('Recent Insertions');
+      const lsmEvents = (eventsByComponent.get('LSM') || []).slice(-20).reverse();
+
+      if (lsmEvents.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.textContent = 'No insertions recorded yet.';
+        sec2.appendChild(emptyMsg);
+      } else {
+        for (const ev of lsmEvents) {
+          const row = document.createElement('div');
+          row.className = 'fold-tree-node';
+          row.innerHTML = `<span class="fold-level">${ev.data?.edgeCount || 0} edges</span> ` +
+            `${(ev.data?.chunkText || '').slice(0, 30)}` +
+            `<span class="fold-density">${((ev._ts || 0) / 1000).toFixed(1)}s</span>`;
+          row.addEventListener('click', () => showEventDetail(ev));
+          sec2.appendChild(row);
+        }
+      }
+
+      inspectorBody.appendChild(sec2);
+    }
+
+    function renderGraphInternals() {
+      const sec1 = makeSection('Fold Hierarchy');
+
+      if (foldHistory.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.innerHTML = 'No fold events recorded yet.<br><br>' +
+          'The fold hierarchy will appear here as the Graph\'s RecursiveFold processes data.';
+        sec1.appendChild(emptyMsg);
+      } else {
+        const container = document.createElement('div');
+        container.className = 'fold-tree-container';
+
+        for (const fold of foldHistory.slice(-40).reverse()) {
+          const node = document.createElement('div');
+          node.className = 'fold-tree-node';
+          node.style.marginLeft = `${fold.level * 12}px`;
+          node.innerHTML = `<span class="fold-level">L${fold.level}</span> ` +
+            `bin=${fold.bin} ch=${fold.children} ` +
+            `${fold.text ? `"${fold.text.slice(0, 24)}"` : ''}` +
+            `<span class="fold-density">${(fold.density * 100).toFixed(0)}%</span>`;
+          container.appendChild(node);
+        }
+
+        sec1.appendChild(container);
+      }
+
+      inspectorBody.appendChild(sec1);
+
+      const sec2 = makeSection('Fold Density Over Time');
+      const canvas = document.createElement('canvas');
+      canvas.width = 360;
+      canvas.height = 60;
+      canvas.style.width = '100%';
+      canvas.style.height = '60px';
+      sec2.appendChild(canvas);
+      inspectorBody.appendChild(sec2);
+
+      if (foldHistory.length > 1) {
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        ctx.strokeStyle = 'rgba(64, 128, 192, 0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, h / 2);
+        ctx.lineTo(w, h / 2);
+        ctx.stroke();
+
+        const step = w / (foldHistory.length - 1);
+        ctx.strokeStyle = 'rgba(255, 180, 200, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+
+        for (let i = 0; i < foldHistory.length; i++) {
+          const x = i * step;
+          const y = h - foldHistory[i].density * h;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+
+        ctx.stroke();
+      }
+    }
+
+    function renderMachineInternals() {
+      const sec1 = makeSection('Prompt History');
+
+      if (promptHistory.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.textContent = 'No prompts sent yet. Use the prompt input to query the system.';
+        sec1.appendChild(emptyMsg);
+      } else {
+        for (const p of [...promptHistory].reverse()) {
+          const div = document.createElement('div');
+          div.className = 'timeline-prompt';
+          div.innerHTML = `<div class="prompt-q">Q: ${p.prompt.slice(0, 60)}</div>`;
+
+          if (p.result) {
+            div.innerHTML += `<div class="prompt-a">A: ${p.result.slice(0, 80)}</div>`;
+          } else if (p.error) {
+            div.innerHTML += `<div class="prompt-err">Error: ${p.error.slice(0, 60)}</div>`;
+          } else {
+            div.innerHTML += `<div style="color:var(--bp-ink-faint);font-size:7px;margin-top:2px">pending…</div>`;
+          }
+
+          sec1.appendChild(div);
+        }
+      }
+
+      inspectorBody.appendChild(sec1);
+
+      const sec2 = makeSection('Execution Traces');
+
+      if (executeHistory.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.textContent = 'No executions recorded yet.';
+        sec2.appendChild(emptyMsg);
+      } else {
+        for (const exec of [...executeHistory].reverse().slice(0, 10)) {
+          const div = document.createElement('div');
+          div.className = 'timeline-list';
+
+          const header = document.createElement('div');
+          header.className = 'timeline-entry';
+
+          const dotCls = exec.outcome === 'stable' ? 'complete'
+            : exec.outcome === 'stalled' ? 'error'
+            : exec.outcome ? 'pending' : 'active';
+
+          header.innerHTML = `<div class="timeline-dot ${dotCls}"></div>` +
+            `<span class="timeline-label">${exec.candidates || 0} candidates</span>` +
+            `<span class="timeline-detail">${exec.outcome || 'running'}</span>`;
+          div.appendChild(header);
+
+          for (const step of exec.steps.slice(-8)) {
+            const stepDiv = document.createElement('div');
+            stepDiv.className = 'timeline-entry';
+            stepDiv.style.paddingLeft = '18px';
+            stepDiv.innerHTML = `<span class="timeline-label" style="font-size:7px">` +
+              `step ${step.step}: ${step.pre}→${step.post} ` +
+              `${step.stable ? '✓' : step.advanced ? '↓' : '✗'}</span>`;
+            div.appendChild(stepDiv);
+          }
+
+          sec2.appendChild(div);
+        }
+      }
+
+      inspectorBody.appendChild(sec2);
+    }
+
+    function renderTokenizerInternals() {
+      const sec1 = makeSection('Token Bin Distribution');
+      const maxVal = Math.max(1, tokenBinMax);
+      const usedBins = [];
+
+      for (let i = 0; i < 256; i++) {
+        if (tokenBinCounts[i] > 0) usedBins.push(i);
+      }
+
+      if (usedBins.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.innerHTML = 'No token bins recorded yet.<br><br>' +
+          'Token distribution will appear as data is tokenized.';
+        sec1.appendChild(emptyMsg);
+      } else {
+        const barContainer = document.createElement('div');
+        barContainer.className = 'bin-bars';
+
+        for (let i = 0; i < 256; i++) {
+          const bar = document.createElement('div');
+          bar.className = 'bin-bar';
+          const h = (tokenBinCounts[i] / maxVal) * 100;
+          bar.style.height = `${Math.max(h, 1)}%`;
+          bar.dataset.label = `bin ${i}: ${tokenBinCounts[i]}`;
+          barContainer.appendChild(bar);
+        }
+
+        sec1.appendChild(barContainer);
+
+        const legend = document.createElement('div');
+        legend.className = 'heatmap-legend';
+        legend.innerHTML = `<span>bin 0</span><span>${usedBins.length} active bins</span><span>bin 255</span>`;
+        sec1.appendChild(legend);
+      }
+
+      inspectorBody.appendChild(sec1);
+
+      const sec2 = makeSection('Recent Tokens');
+      const tokEvents = (eventsByComponent.get('Tokenizer') || []).slice(-20).reverse();
+
+      if (tokEvents.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.textContent = 'No tokens recorded yet.';
+        sec2.appendChild(emptyMsg);
+      } else {
+        for (const ev of tokEvents) {
+          const row = document.createElement('div');
+          row.className = 'fold-tree-node';
+          row.innerHTML = `<span class="fold-level">bin ${ev.data?.bin || 0}</span> ` +
+            `${(ev.data?.chunkText || '').slice(0, 30)}` +
+            `<span class="fold-density">${(ev.data?.density * 100 || 0).toFixed(0)}%</span>`;
+          row.addEventListener('click', () => showEventDetail(ev));
+          sec2.appendChild(row);
+        }
+      }
+
+      inspectorBody.appendChild(sec2);
+    }
+
+    function renderGenericInternals() {
+      const emptyMsg = document.createElement('div');
+      emptyMsg.className = 'inspector-empty';
+      emptyMsg.innerHTML = `This subsystem does not emit telemetry yet.<br><br>
+        Once telemetry hooks are added, internal state will be visible here.<br><br>
+        <span style="color:var(--bp-accent)">Available data:</span> Check the Feed tab for any events that reference this subsystem.`;
+      inspectorBody.appendChild(emptyMsg);
+    }
+
+    function makeSection(titleText) {
+      const sec = document.createElement('div');
+      sec.className = 'inspector-section';
+      const t = document.createElement('div');
+      t.className = 'inspector-section-title';
+      t.textContent = titleText;
+      sec.appendChild(t);
+      return sec;
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // EVENT DETAIL MODAL
+    // ═══════════════════════════════════════════════════════════
+    function showEventDetail(ev) {
+      eventDetailJson.textContent = JSON.stringify(ev, null, 2);
+      eventDetailOverlay.style.display = 'flex';
+    }
+
+    function closeEventDetail() {
+      eventDetailOverlay.style.display = 'none';
+    }
+
+    eventDetailCloseBtn.addEventListener('click', closeEventDetail);
+
+    eventDetailOverlay.addEventListener('click', (e) => {
+      if (e.target === eventDetailOverlay) closeEventDetail();
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // LOG SEARCH / FILTER
+    // ═══════════════════════════════════════════════════════════
+    let logFilterType = 'all';
+
+    const LOG_TYPE_MAP = {
+      pipeline: ['pipeline', 'result'],
+      ingest: ['ingest'],
+      fold: ['fold'],
+    };
+
+    function applyLogFilters() {
+      const query = (logSearch.value || '').toLowerCase();
+
+      for (const line of logBox.children) {
+        const text = line.textContent.toLowerCase();
+        const type = line.dataset.type || '';
+
+        let matchFilter = logFilterType === 'all';
+
+        if (!matchFilter && LOG_TYPE_MAP[logFilterType]) {
+          matchFilter = LOG_TYPE_MAP[logFilterType].includes(type);
+        }
+
+        const matchSearch = !query || text.includes(query);
+
+        line.classList.toggle('filtered-out', !(matchFilter && matchSearch));
+      }
+    }
+
+    logSearch.addEventListener('input', applyLogFilters);
+
+    document.querySelectorAll('.log-filter-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        logFilterType = btn.dataset.filter;
+        document.querySelectorAll('.log-filter-btn').forEach(b =>
+          b.classList.toggle('active', b === btn),
+        );
+        applyLogFilters();
+      });
+    });
+
+    // ═══════════════════════════════════════════════════════════
+    // KEYBOARD SHORTCUTS
+    // ═══════════════════════════════════════════════════════════
+    document.addEventListener('keydown', (e) => {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+
+      if (e.key === 'Escape') {
+        if (eventDetailOverlay.style.display !== 'none') {
+          closeEventDetail();
+        } else if (inspectorOpen) {
+          closeInspector();
+        }
+      }
+
+      if (e.key === 'i' || e.key === 'I') {
+        if (inspectorOpen) closeInspector();
+      }
+
+      const zoneKeys = {
+        '1': 'machine',
+        '2': 'dataset',
+        '3': 'tokenizer',
+        '4': 'forest',
+        '5': 'graph',
+        '6': 'has',
+        '7': 'macroIdx',
+      };
+
+      if (zoneKeys[e.key]) {
+        openInspector(zoneKeys[e.key]);
+      }
+    });
 
     // ═══════════════════════════════════════════════════════════
     // SPARKLINE

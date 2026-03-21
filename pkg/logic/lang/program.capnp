@@ -4,13 +4,13 @@ using Go = import "/go.capnp";
 $Go.package("lang");
 $Go.import("github.com/theapemachine/six/pkg/logic/lang");
 
-using import "./primitive/value.capnp".Value;
+using Primitive = import "./primitive/value.capnp";
 
 struct Program {
-  values @0 :List(Value);
+  values @0 :List(Primitive.Value);
+  buffer @1 :Data;
 }
 
-interface Evaluator {
-  write  @0 (seed :List(Value)) -> stream;
-  done   @1 ();
+interface Service extends(Primitive.Service) {
+  # Inherits from Primitive.Service
 }

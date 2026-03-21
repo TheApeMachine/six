@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/binary"
 	"net"
+	"sort"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/errnie"
-	primitive "github.com/theapemachine/six/pkg/logic/lang/primitive"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/dmt"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -29,13 +31,14 @@ type ForestServer struct {
 	state       *errnie.State
 	ctx         context.Context
 	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Server
 	serverConn  *rpc.Conn
+	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
+	connMu      sync.Mutex
 	forest      *dmt.Forest
 	workerPool  *pool.Pool
+	writtenMu   sync.Mutex
+	writtenKeys []uint64
 }
 
 type serverOpts func(*ForestServer)
@@ -67,57 +70,59 @@ func NewForestServer(opts ...serverOpts) *ForestServer {
 		idx.forest = forest
 	}
 
-	idx.serverSide, idx.clientSide = net.Pipe()
-	idx.client = Server_ServerToClient(idx)
+	serverSide, clientSide := net.Pipe()
+	capability := Server_ServerToClient(idx)
 
-	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		idx.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(idx.client),
+	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
+		BootstrapClient: capnp.Client(capability),
 	})
+
+	idx.clientConn = rpc.NewConn(rpc.NewStreamTransport(clientSide), nil)
 
 	return idx
 }
 
 /*
 Client returns a Cap'n Proto client connected to this ForestServer.
+Returns the bootstrap capability from the pre-created client connection.
 */
-func (idx *ForestServer) Client(clientID string) Server {
-	idx.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		idx.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(idx.client),
-	})
+func (idx *ForestServer) Client(clientID string) capnp.Client {
+	idx.connMu.Lock()
+	defer idx.connMu.Unlock()
 
-	return idx.client
+	idx.clientConns[clientID] = idx.clientConn
+	return idx.clientConn.Bootstrap(idx.ctx)
+}
+
+/*
+Load approximates concurrent RPC pressure via active client registrations.
+*/
+func (idx *ForestServer) Load() int64 {
+	idx.connMu.Lock()
+	defer idx.connMu.Unlock()
+
+	return int64(len(idx.clientConns))
 }
 
 /*
 Close shuts down the RPC connections, underlying net.Pipe, and the forest.
 */
 func (idx *ForestServer) Close() error {
+	if idx.clientConn != nil {
+		errnie.GuardVoid(idx.state, idx.clientConn.Close)
+		idx.clientConn = nil
+	}
+
 	if idx.serverConn != nil {
 		errnie.GuardVoid(idx.state, idx.serverConn.Close)
 		idx.serverConn = nil
 	}
 
-	for clientID, conn := range idx.clientConns {
-		if conn != nil {
-			errnie.GuardVoid(idx.state, conn.Close)
-		}
-
+	idx.connMu.Lock()
+	for clientID := range idx.clientConns {
 		delete(idx.clientConns, clientID)
 	}
-
-	if idx.serverSide != nil {
-		errnie.GuardVoid(idx.state, idx.serverSide.Close)
-		idx.serverSide = nil
-	}
-
-	if idx.clientSide != nil {
-		errnie.GuardVoid(idx.state, idx.clientSide.Close)
-		idx.clientSide = nil
-	}
+	idx.connMu.Unlock()
 
 	if idx.cancel != nil {
 		idx.cancel()
@@ -134,6 +139,63 @@ func (idx *ForestServer) Close() error {
 Done implements the Forest RPC done method.
 */
 func (idx *ForestServer) Done(ctx context.Context, call Server_done) error {
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	idx.writtenMu.Lock()
+	keys := idx.writtenKeys
+	idx.writtenKeys = nil
+	idx.writtenMu.Unlock()
+
+	list, listErr := res.NewKeys(int32(len(keys)))
+	if listErr != nil {
+		return listErr
+	}
+
+	for i, k := range keys {
+		list.Set(i, k)
+	}
+
+	return nil
+}
+
+/*
+Branches returns exact next lexical branches for one prompt value.
+*/
+func (idx *ForestServer) Branches(
+	ctx context.Context,
+	call Server_branches,
+) error {
+	_ = ctx
+
+	prompt, err := call.Args().Prompt()
+	if err != nil {
+		return err
+	}
+
+	branches, err := idx.collectBranches(prompt)
+	if err != nil {
+		return err
+	}
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	list, err := results.NewBranches(int32(len(branches)))
+	if err != nil {
+		return err
+	}
+
+	for index := range branches {
+		if err := list.Set(index, branches[index]); err != nil {
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -150,47 +212,69 @@ func (idx *ForestServer) Write(
 
 	idx.forest.Insert(keyBytes, nil)
 
+	idx.writtenMu.Lock()
+	idx.writtenKeys = append(idx.writtenKeys, key)
+	idx.writtenMu.Unlock()
+
 	return nil
 }
 
 /*
-Lookup retrieves values from the forest for the given Morton-packed keys.
+collectBranches resolves exact next lexical branches for one prompt value.
 */
-func (idx *ForestServer) Lookup(
-	ctx context.Context,
-	call Server_lookup,
-) error {
-	idx.state.Reset()
-	args := call.Args()
-
-	keys := errnie.Guard(idx.state, func() (capnp.UInt64List, error) {
-		return args.Keys()
-	})
-
-	res := errnie.Guard(idx.state, func() (Server_lookup_Results, error) {
-		return call.AllocResults()
-	})
-
-	out := errnie.Guard(idx.state, func() (primitive.Value_List, error) {
-		return res.NewValues(int32(keys.Len()))
-	})
-
-	if idx.state.Failed() {
-		return idx.state.Err()
+func (idx *ForestServer) collectBranches(prompt primitive.Value) ([]primitive.Value, error) {
+	promptSymbol, ok := primitive.InferLexicalSeed(prompt)
+	if !ok {
+		return nil, nil
 	}
 
-	for i := range keys.Len() {
-		keyBytes := make([]byte, 8)
-		binary.BigEndian.PutUint64(keyBytes, keys.At(i))
+	symbolsByPosition := map[uint32]map[byte]struct{}{}
 
-		_, exists := idx.forest.Get(keyBytes)
-		if exists {
-			el := out.At(i)
-			_ = el
+	idx.forest.Iterate(func(keyBytes []byte, _ []byte) bool {
+		if len(keyBytes) != 8 {
+			return true
+		}
+
+		mortonKey := binary.BigEndian.Uint64(keyBytes)
+		position, symbol := morton.Unpack(mortonKey)
+
+		if _, exists := symbolsByPosition[position]; !exists {
+			symbolsByPosition[position] = map[byte]struct{}{}
+		}
+
+		symbolsByPosition[position][symbol] = struct{}{}
+		return true
+	})
+
+	branchSymbols := map[byte]struct{}{}
+
+	for position, symbols := range symbolsByPosition {
+		if _, exists := symbols[promptSymbol]; !exists {
+			continue
+		}
+
+		nextSymbols, exists := symbolsByPosition[position+1]
+		if !exists {
+			continue
+		}
+
+		for symbol := range nextSymbols {
+			branchSymbols[symbol] = struct{}{}
 		}
 	}
 
-	return nil
+	orderedSymbols := make([]int, 0, len(branchSymbols))
+	for symbol := range branchSymbols {
+		orderedSymbols = append(orderedSymbols, int(symbol))
+	}
+	sort.Ints(orderedSymbols)
+
+	branches := make([]primitive.Value, 0, len(orderedSymbols))
+	for _, symbol := range orderedSymbols {
+		branches = append(branches, primitive.BaseValue(byte(symbol)))
+	}
+
+	return branches, nil
 }
 
 /*

@@ -1,10 +1,16 @@
 package pool
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"time"
 )
+
+var defaultDependencyRetryStrategy RetryStrategy = &ExponentialBackoff{
+	Initial: time.Second,
+}
 
 /*
 Worker processes jobs received from the pool.
@@ -47,24 +53,35 @@ func (w *Worker) run() {
 
 			result, err := w.processJobWithTimeout(runCtx, job)
 			w.currentJob = nil
+			closeErr := job.Close()
 
 			if err != nil {
 				w.pool.metrics.RecordJobFailure()
 				w.recordFailure(job.CircuitID)
-				w.pool.store.deliver(job.ResultID, &Result{
-					Error:     err,
-					TTL:       job.TTL,
-					CreatedAt: time.Now(),
-				})
+				if closeErr != nil {
+					err = fmt.Errorf("%w: %w", err, closeErr)
+				}
+
 				w.pool.store.StoreError(job.ID, err, job.TTL)
 			} else {
+				if closeErr != nil {
+					result = nil
+					err = closeErr
+					w.pool.metrics.RecordJobFailure()
+					w.recordFailure(job.CircuitID)
+					w.pool.store.StoreError(job.ID, err, job.TTL)
+					continue
+				}
+
+				if writeErr := w.writeResultToTask(job, result); writeErr != nil {
+					w.pool.metrics.RecordJobFailure()
+					w.recordFailure(job.CircuitID)
+					w.pool.store.StoreError(job.ID, writeErr, job.TTL)
+					continue
+				}
+
 				w.pool.metrics.RecordJobSuccess(time.Since(job.StartTime))
 				w.recordSuccess(job.CircuitID)
-				w.pool.store.deliver(job.ResultID, &Result{
-					Value:     result,
-					TTL:       job.TTL,
-					CreatedAt: time.Now(),
-				})
 				w.pool.store.Store(job.ID, result, job.TTL)
 			}
 		}
@@ -72,7 +89,7 @@ func (w *Worker) run() {
 }
 
 /*
-processJobWithTimeout runs the job Fn with context cancellation and timeout handling.
+processJobWithTimeout runs the job Task with timeout and retry handling.
 */
 func (w *Worker) processJobWithTimeout(ctx context.Context, job Job) (any, error) {
 	for _, depID := range job.Dependencies {
@@ -140,16 +157,40 @@ func (w *Worker) processJobWithTimeout(ctx context.Context, job Job) (any, error
 }
 
 /*
-runSingleAttempt executes a single attempt of job.Fn with context timeout handling.
+runSingleAttempt executes a single attempt by draining task output.
 */
 func (w *Worker) runSingleAttempt(ctx context.Context, job Job) (any, error) {
-	resultChan := make(chan *Result, 1)
+	if job.Task == nil {
+		return nil, fmt.Errorf("job %s task is nil", job.ID)
+	}
+
+	type singleAttemptResult struct {
+		value []byte
+		err   error
+	}
+
+	resultChan := make(chan singleAttemptResult, 1)
 
 	go func() {
-		result, err := job.Fn(ctx)
-		resultChan <- &Result{
-			Value: result,
-			Error: err,
+		var buffer bytes.Buffer
+		_, copyErr := io.Copy(&buffer, job.Task)
+		if copyErr != nil {
+			resultChan <- singleAttemptResult{
+				value: nil,
+				err:   copyErr,
+			}
+
+			return
+		}
+
+		var result []byte
+		if buffer.Len() > 0 {
+			result = buffer.Bytes()
+		}
+
+		resultChan <- singleAttemptResult{
+			value: result,
+			err:   nil,
 		}
 	}()
 
@@ -157,7 +198,7 @@ func (w *Worker) runSingleAttempt(ctx context.Context, job Job) (any, error) {
 	case <-ctx.Done():
 		return nil, fmt.Errorf("job %s timed out", job.ID)
 	case result := <-resultChan:
-		return result.Value, result.Error
+		return result.value, result.err
 	}
 }
 
@@ -166,11 +207,13 @@ checkSingleDependency waits for depID to be available, retrying according to pol
 */
 func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) error {
 	maxAttempts := 1
-	var strategy RetryStrategy = &ExponentialBackoff{Initial: time.Second}
+	strategy := defaultDependencyRetryStrategy
 
 	if retryPolicy != nil {
 		maxAttempts = retryPolicy.MaxAttempts
-		strategy = retryPolicy.Strategy
+		if retryPolicy.Strategy != nil {
+			strategy = retryPolicy.Strategy
+		}
 	}
 
 	circuitID := ""
@@ -194,13 +237,21 @@ func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) e
 			timeout = w.pool.config.DependencyAwaitTimeout
 		}
 
-		ch := w.pool.store.Await(depID)
-		select {
-		case result := <-ch:
-			if result.Error == nil {
-				return nil
+		pollInterval := 10 * time.Millisecond
+		if w.pool.config != nil && w.pool.config.PollInterval > 0 {
+			pollInterval = w.pool.config.PollInterval
+		}
+
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			result, ok := w.pool.store.Result(depID)
+			if ok {
+				if result.Error == nil {
+					return nil
+				}
+				break
 			}
-		case <-time.After(timeout):
+			time.Sleep(pollInterval)
 		}
 
 		if attempt < maxAttempts-1 {
@@ -222,6 +273,19 @@ func (w *Worker) checkSingleDependency(depID string, retryPolicy *RetryPolicy) e
 	}
 
 	return fmt.Errorf("dependency %s failed after %d attempts", depID, maxAttempts)
+}
+
+/*
+writeResultToTask writes task output bytes back into the task shell.
+*/
+func (w *Worker) writeResultToTask(job Job, value any) error {
+	bytesValue, ok := value.([]byte)
+	if !ok || len(bytesValue) == 0 {
+		return nil
+	}
+
+	_, err := job.Write(bytesValue)
+	return err
 }
 
 /*

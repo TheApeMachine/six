@@ -2,15 +2,14 @@ package synthesis
 
 import (
 	"context"
-	"encoding/binary"
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/logic/lang"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/store/data"
-	"github.com/theapemachine/six/pkg/store/dmt"
+	dmtserver "github.com/theapemachine/six/pkg/store/dmt/server"
+	"github.com/theapemachine/six/pkg/system/cluster"
 )
 
 /*
@@ -78,19 +77,47 @@ func primitiveFromDataTest(value primitive.Value) primitive.Value {
 }
 
 /*
+newHASTestRouter registers the capabilities HAS resolves during tests.
+*/
+func newHASTestRouter(
+	ctx context.Context,
+	includeMacro bool,
+	includeForest bool,
+) (*cluster.Router, *macro.MacroIndexServer, *dmtserver.ForestServer) {
+	router := cluster.NewRouter(cluster.RouterWithContext(ctx))
+
+	var index *macro.MacroIndexServer
+	if includeMacro {
+		index = macro.NewMacroIndexServer(
+			macro.MacroIndexWithContext(ctx),
+		)
+		router.Register(cluster.MACROINDEX, index)
+	}
+
+	var forest *dmtserver.ForestServer
+	if includeForest {
+		forest = dmtserver.NewForestServer(
+			dmtserver.WithContext(ctx),
+		)
+		router.Register(cluster.FOREST, forest)
+	}
+
+	return router, index, forest
+}
+
+/*
 TestHASDerive verifies ingestion-side tool forging from known boundary pairs.
 */
 func TestHASDerive(t *testing.T) {
 	gc.Convey("Given a HAS server with a shared macro index", t, func() {
-		index := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(context.Background()),
-		)
+		router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 		server := NewHASServer(
 			HASWithContext(context.Background()),
-			HASWithMacroIndex(index),
+			HASWithRouter(router),
 		)
 		defer index.Close()
+		defer router.Close()
 		defer server.Close()
 
 		/*
@@ -168,18 +195,17 @@ TestHASWriteDone verifies RPC ingestion path derives/stores one macro tool.
 */
 func TestHASWriteDone(t *testing.T) {
 	gc.Convey("Given a HAS server receiving one start/end pair over RPC", t, func() {
-		index := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(context.Background()),
-		)
+		router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 		server := NewHASServer(
 			HASWithContext(context.Background()),
-			HASWithMacroIndex(index),
+			HASWithRouter(router),
 		)
 		defer index.Close()
+		defer router.Close()
 		defer server.Close()
 
-		client := server.Client("logic/synthesis/has_test")
+		client := HAS(server.Client("logic/synthesis/has_test"))
 		start := primitive.BaseValue('S')
 		end := primitive.BaseValue('E')
 
@@ -218,82 +244,23 @@ func TestHASWriteDone(t *testing.T) {
 }
 
 /*
-TestHASAsk verifies reagent-style inference via table-driven scenarios.
+TestHASLoad verifies the load signal is derived from staged boundary state.
 */
-func TestHASAsk(t *testing.T) {
-	gc.Convey("Given HAS ask scenarios", t, func() {
+func TestHASLoad(t *testing.T) {
+	gc.Convey("Given a HAS server with staged boundaries", t, func() {
 		server := NewHASServer(
 			HASWithContext(context.Background()),
 		)
 		defer server.Close()
 
-		/*
-			askTestCase captures one inference case for table-driven execution.
-		*/
-		type askTestCase struct {
-			name                string
-			known               []primitive.Value
-			vat                 []primitive.Value
-			expectErrorContains string
-			expectWinnerIndex   int
-			expectResidueBits   []int
-			expectResidueCount  int
-		}
+		gc.So(server.Load(), gc.ShouldEqual, int64(0))
 
-		entity := valueWithBits(1, 2)
-		relation := valueWithBits(10, 11)
-		answer := valueWithBits(50, 51)
+		server.copyDataIntoPrimitive(&server.start, primitive.BaseValue('S'))
+		server.copyDataIntoPrimitive(&server.end, primitive.BaseValue('E'))
 
-		testCases := []askTestCase{
-			{
-				name:  "Ask should recover the clean residue from the best matching fact",
-				known: []primitive.Value{entity, relation},
-				vat: []primitive.Value{
-					combineValues(valueWithBits(3, 4), relation, valueWithBits(60)),
-					combineValues(valueWithBits(100), valueWithBits(101)),
-					combineValues(entity, relation, answer),
-				},
-				expectWinnerIndex:  2,
-				expectResidueBits:  []int{50, 51},
-				expectResidueCount: 2,
-			},
-			{
-				name:                "Ask should reject empty known values",
-				known:               nil,
-				vat:                 []primitive.Value{valueWithBits(1)},
-				expectErrorContains: string(HASErrorTypeKnownValuesRequired),
-			},
-			{
-				name:                "Ask should reject empty vat",
-				known:               []primitive.Value{valueWithBits(1)},
-				vat:                 nil,
-				expectErrorContains: string(HASErrorTypeVatEmpty),
-			},
-		}
-
-		for _, testCase := range testCases {
-			testCase := testCase
-
-			gc.Convey(testCase.name, func() {
-				outcome, err := server.Ask(testCase.known, testCase.vat)
-
-				if testCase.expectErrorContains != "" {
-					gc.So(outcome, gc.ShouldBeNil)
-					gc.So(err, gc.ShouldNotBeNil)
-					gc.So(err.Error(), gc.ShouldContainSubstring, testCase.expectErrorContains)
-					return
-				}
-
-				gc.So(err, gc.ShouldBeNil)
-				gc.So(outcome, gc.ShouldNotBeNil)
-				gc.So(outcome.WinnerIndex, gc.ShouldEqual, testCase.expectWinnerIndex)
-				gc.So(outcome.Residue.CoreActiveCount(), gc.ShouldEqual, testCase.expectResidueCount)
-
-				for _, bit := range testCase.expectResidueBits {
-					gc.So(hasBit(outcome.Residue, bit), gc.ShouldBeTrue)
-				}
-			})
-		}
+		gc.Convey("Load should reflect the staged boundary pressure", func() {
+			gc.So(server.Load(), gc.ShouldBeGreaterThan, int64(0))
+		})
 	})
 }
 
@@ -301,15 +268,14 @@ func TestHASAsk(t *testing.T) {
 BenchmarkHASDerive measures affine tool-forging throughput from known boundaries.
 */
 func BenchmarkHASDerive(b *testing.B) {
-	index := macro.NewMacroIndexServer(
-		macro.MacroIndexWithContext(context.Background()),
-	)
+	router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 	server := NewHASServer(
 		HASWithContext(context.Background()),
-		HASWithMacroIndex(index),
+		HASWithRouter(router),
 	)
 	defer index.Close()
+	defer router.Close()
 	defer server.Close()
 
 	start := primitiveFromDataTest(primitive.BaseValue('A'))
@@ -330,55 +296,20 @@ func BenchmarkHASDerive(b *testing.B) {
 }
 
 /*
-BenchmarkHASAsk measures reagent-style inference against a small fact vat.
-*/
-func BenchmarkHASAsk(b *testing.B) {
-	server := NewHASServer(
-		HASWithContext(context.Background()),
-	)
-	defer server.Close()
-
-	entity := valueWithBits(1, 2)
-	relation := valueWithBits(10, 11)
-	answer := valueWithBits(50, 51)
-
-	known := []primitive.Value{entity, relation}
-	vat := []primitive.Value{
-		combineValues(valueWithBits(3, 4), relation, valueWithBits(60)),
-		combineValues(valueWithBits(100), valueWithBits(101)),
-		combineValues(entity, relation, answer),
-	}
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		outcome, err := server.Ask(known, vat)
-		if err != nil {
-			b.Fatalf("ask failed: %v", err)
-		}
-
-		if outcome == nil || outcome.WinnerIndex != 2 {
-			b.Fatalf("ask returned unexpected winner: %+v", outcome)
-		}
-	}
-}
-
-/*
 BenchmarkHASWriteDone measures RPC ingestion throughput for boundary pairs.
 */
 func BenchmarkHASWriteDone(b *testing.B) {
-	index := macro.NewMacroIndexServer(
-		macro.MacroIndexWithContext(context.Background()),
-	)
+	router, index, _ := newHASTestRouter(context.Background(), true, false)
 
 	server := NewHASServer(
 		HASWithContext(context.Background()),
-		HASWithMacroIndex(index),
+		HASWithRouter(router),
 	)
 	defer index.Close()
+	defer router.Close()
 	defer server.Close()
 
-	client := server.Client("logic/synthesis/has_benchmark")
+	client := HAS(server.Client("logic/synthesis/has_benchmark"))
 	start := primitive.BaseValue('S')
 	end := primitive.BaseValue('E')
 
@@ -407,48 +338,37 @@ func BenchmarkHASWriteDone(b *testing.B) {
 }
 
 /*
-TestHASDonePropagatesProgramExecutionErrors verifies Done returns execution failures instead of swallowing them.
+TestHASDoneCompletes verifies Done finishes the Derive path for a seeded forest.
 */
-func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
-	gc.Convey("Given a HAS server with branch candidates that cannot phase-lock", t, func() {
-		index := macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(context.Background()),
-		)
+func TestHASDoneCompletes(t *testing.T) {
+	gc.Convey("Given a HAS server with distinct branch symbols in the forest", t, func() {
+		router, index, forest := newHASTestRouter(context.Background(), true, true)
 		defer index.Close()
-
-		forest, forestErr := dmt.NewForest(dmt.ForestConfig{})
-		gc.So(forestErr, gc.ShouldBeNil)
 		defer forest.Close()
+		defer router.Close()
 
 		server := NewHASServer(
 			HASWithContext(context.Background()),
-			HASWithMacroIndex(index),
-			HASWithForest(forest),
+			HASWithRouter(router),
 		)
 		defer server.Close()
-
-		program := lang.NewProgramServer(
-			lang.ProgramServerWithContext(context.Background()),
-			lang.ProgramServerWithMacroIndex(index),
-			lang.ProgramServerWithMaxSteps(1),
-		)
-		defer program.Close()
-		server.program = program
-
-		coder := data.NewMortonCoder()
 		promptSymbol := byte('E')
 		nextSymbol := byte('X')
+		forestClient := dmtserver.Server_ServerToClient(forest)
+		defer forestClient.Release()
 
-		promptKey := make([]byte, 8)
-		nextKey := make([]byte, 8)
+		writeKey := func(position uint32, symbol byte) {
+			writeErr := forestClient.Write(context.Background(), func(params dmtserver.Server_write_Params) error {
+				params.SetKey(data.NewMortonCoder().Pack(position, symbol))
+				return nil
+			})
+			gc.So(writeErr, gc.ShouldBeNil)
+		}
 
-		binary.BigEndian.PutUint64(promptKey, coder.Pack(1, promptSymbol))
-		binary.BigEndian.PutUint64(nextKey, coder.Pack(2, nextSymbol))
+		writeKey(1, promptSymbol)
+		writeKey(2, nextSymbol)
 
-		forest.Insert(promptKey, []byte{1})
-		forest.Insert(nextKey, []byte{1})
-
-		client := server.Client("logic/synthesis/has_test/program-error-propagation")
+		client := HAS(server.Client("logic/synthesis/has_test/program-error-propagation"))
 		start := primitive.BaseValue('S')
 		end := primitive.BaseValue(promptSymbol)
 
@@ -464,8 +384,101 @@ func TestHASDonePropagatesProgramExecutionErrors(t *testing.T) {
 		doneFuture, release := client.Done(context.Background(), nil)
 		defer release()
 
-		_, doneErr := doneFuture.Struct()
-		gc.So(doneErr, gc.ShouldNotBeNil)
-		gc.So(doneErr.Error(), gc.ShouldContainSubstring, string(lang.ProgramErrorTypeProgramStalled))
+		results, doneErr := doneFuture.Struct()
+		gc.So(doneErr, gc.ShouldBeNil)
+
+		keyText, ktErr := results.KeyText()
+		gc.So(ktErr, gc.ShouldBeNil)
+		gc.So(keyText, gc.ShouldNotBeEmpty)
+	})
+}
+
+/*
+TestHASCollectPromptBranchesViaRouter verifies HAS resolves forest branches through the router.
+*/
+func TestHASCollectPromptBranchesViaRouter(t *testing.T) {
+	gc.Convey("Given a HAS server with forest capability on the router", t, func() {
+		router, _, forest := newHASTestRouter(context.Background(), false, true)
+		defer forest.Close()
+		defer router.Close()
+
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+			HASWithRouter(router),
+		)
+		defer server.Close()
+
+		forestClient := dmtserver.Server_ServerToClient(forest)
+		defer forestClient.Release()
+
+		writeKey := func(position uint32, symbol byte) {
+			writeErr := forestClient.Write(context.Background(), func(params dmtserver.Server_write_Params) error {
+				params.SetKey(data.NewMortonCoder().Pack(position, symbol))
+				return nil
+			})
+			gc.So(writeErr, gc.ShouldBeNil)
+		}
+
+		writeKey(1, 'E')
+		writeKey(2, 'X')
+		writeKey(2, 'Y')
+
+		branches, err := server.collectPromptBranches(primitive.BaseValue('E'))
+		gc.So(err, gc.ShouldBeNil)
+		gc.So(len(branches), gc.ShouldEqual, 2)
+
+		firstSymbol, ok := primitive.InferLexicalSeed(branches[0])
+		gc.So(ok, gc.ShouldBeTrue)
+		gc.So(firstSymbol, gc.ShouldEqual, byte('X'))
+
+		secondSymbol, ok := primitive.InferLexicalSeed(branches[1])
+		gc.So(ok, gc.ShouldBeTrue)
+		gc.So(secondSymbol, gc.ShouldEqual, byte('Y'))
+	})
+}
+
+/*
+TestHASRouterFailures verifies HAS fails cleanly when routed capabilities are missing.
+*/
+func TestHASRouterFailures(t *testing.T) {
+	gc.Convey("Given a HAS server without a router", t, func() {
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+		)
+		defer server.Close()
+
+		_, _, err := server.Derive(primitive.BaseValue('A'), primitive.BaseValue('B'))
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(err.Error(), gc.ShouldContainSubstring, string(HASErrorTypeRouterRequired))
+	})
+
+	gc.Convey("Given a HAS server with a router but no macro index capability", t, func() {
+		router := cluster.NewRouter(cluster.RouterWithContext(context.Background()))
+		defer router.Close()
+
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+			HASWithRouter(router),
+		)
+		defer server.Close()
+
+		_, _, err := server.Derive(primitive.BaseValue('A'), primitive.BaseValue('B'))
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(err.Error(), gc.ShouldContainSubstring, "router: no service registered for")
+	})
+
+	gc.Convey("Given a HAS server with a router but no forest capability", t, func() {
+		router := cluster.NewRouter(cluster.RouterWithContext(context.Background()))
+		defer router.Close()
+
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+			HASWithRouter(router),
+		)
+		defer server.Close()
+
+		_, err := server.collectPromptBranches(primitive.BaseValue('E'))
+		gc.So(err, gc.ShouldNotBeNil)
+		gc.So(err.Error(), gc.ShouldContainSubstring, "router: no service registered for")
 	})
 }

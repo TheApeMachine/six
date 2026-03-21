@@ -3,6 +3,7 @@ package input
 import (
 	context "context"
 	"net"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
@@ -43,12 +44,11 @@ type PrompterServer struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	state       *errnie.State
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Prompter
 	serverConn  *rpc.Conn
+	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	heldout     Holdout
+	connMu      sync.RWMutex
 }
 
 /*
@@ -74,29 +74,38 @@ func NewPrompterServer(opts ...prompterOpts) *PrompterServer {
 		"cancel": server.cancel,
 	})
 
-	server.serverSide, server.clientSide = net.Pipe()
-	server.client = Prompter_ServerToClient(server)
+	serverSide, clientSide := net.Pipe()
+	capability := Prompter_ServerToClient(server)
 
-	server.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		server.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
+	server.serverConn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
+		BootstrapClient: capnp.Client(capability),
 	})
+
+	server.clientConn = rpc.NewConn(rpc.NewStreamTransport(clientSide), nil)
 
 	return server
 }
 
 /*
 Client returns a Cap'n Proto client connected to this PrompterServer.
+Returns the bootstrap capability from the pre-created client connection.
 */
-func (server *PrompterServer) Client(clientID string) Prompter {
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
+func (server *PrompterServer) Client(clientID string) capnp.Client {
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
 
-	return server.client
+	server.clientConns[clientID] = server.clientConn
+	return server.clientConn.Bootstrap(server.ctx)
+}
+
+/*
+Load approximates concurrent RPC pressure via active client registrations.
+*/
+func (server *PrompterServer) Load() int64 {
+	server.connMu.RLock()
+	defer server.connMu.RUnlock()
+
+	return int64(len(server.clientConns))
 }
 
 /*
@@ -104,46 +113,31 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (server *PrompterServer) Close() error {
-	errnie.GuardVoid(server.state, func() error {
-		if server.serverConn != nil {
-			return server.serverConn.Close()
-		}
-		server.serverConn = nil
-		return nil
-	})
-
-	for clientID, conn := range server.clientConns {
+	if server.clientConn != nil {
 		errnie.GuardVoid(server.state, func() error {
-			if conn != nil {
-				return conn.Close()
-			}
-			return nil
+			return server.clientConn.Close()
 		})
-		delete(server.clientConns, clientID)
+
+		server.clientConn = nil
 	}
 
-	errnie.GuardVoid(server.state, func() error {
-		if server.serverSide != nil {
-			return server.serverSide.Close()
-		}
-		server.serverSide = nil
-		return nil
-	})
+	if server.serverConn != nil {
+		errnie.GuardVoid(server.state, func() error {
+			return server.serverConn.Close()
+		})
 
-	errnie.GuardVoid(server.state, func() error {
-		if server.clientSide != nil {
-			return server.clientSide.Close()
-		}
-		server.clientSide = nil
-		return nil
-	})
+		server.serverConn = nil
+	}
 
-	errnie.GuardVoid(server.state, func() error {
-		if server.cancel != nil {
-			server.cancel()
-		}
-		return nil
-	})
+	server.connMu.Lock()
+	for clientID := range server.clientConns {
+		delete(server.clientConns, clientID)
+	}
+	server.connMu.Unlock()
+
+	if server.cancel != nil {
+		server.cancel()
+	}
 
 	return server.state.Err()
 }
@@ -159,11 +153,19 @@ func (server *PrompterServer) Generate(
 		return call.Args().Msg()
 	})
 
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
 	processed := server.applyHoldout([]byte(msg))
 
 	res := errnie.Guard(server.state, func() (Prompter_generate_Results, error) {
 		return call.AllocResults()
 	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
 
 	return res.SetData(processed)
 }

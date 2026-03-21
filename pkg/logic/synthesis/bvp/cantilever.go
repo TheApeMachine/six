@@ -3,13 +3,14 @@ package bvp
 import (
 	"context"
 	"fmt"
-	"net"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
-	"capnproto.org/go/capnp/v3/rpc"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/system/cluster"
+	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -21,15 +22,15 @@ synthesizes or discovers logical rotation tools that
 map across the span.
 */
 type CantileverServer struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Cantilever
-	serverConn  *rpc.Conn
-	clientConns map[string]*rpc.Conn
-	calc        *numeric.Calculus
-	Index       *macro.MacroIndexServer
+	clientMu     sync.Mutex
+	corpusMu     sync.RWMutex
+	ctx          context.Context
+	cancel       context.CancelFunc
+	router       *cluster.Router
+	calc         *numeric.Calculus
+	corpus       [][]primitive.Value
+	lexical      [][]byte
+	cachedClient capnp.Client
 }
 
 /*
@@ -43,8 +44,9 @@ NewCantileverServer provides a new logic solver acting between fixed start and e
 */
 func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 	cl := &CantileverServer{
-		clientConns: map[string]*rpc.Conn{},
-		calc:        numeric.NewCalculus(),
+		calc:    numeric.NewCalculus(),
+		corpus:  make([][]primitive.Value, 0),
+		lexical: make([][]byte, 0),
 	}
 
 	for _, opt := range options {
@@ -56,62 +58,35 @@ func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 		"cancel": cl.cancel,
 	})
 
-	if cl.Index == nil {
-		cl.Index = macro.NewMacroIndexServer(
-			macro.MacroIndexWithContext(cl.ctx),
-		)
-	}
-
-	cl.serverSide, cl.clientSide = net.Pipe()
-	cl.client = Cantilever_ServerToClient(cl)
-
-	cl.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		cl.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(cl.client),
-	})
-
 	return cl
 }
 
 /*
-Client returns a Cap'n Proto client connected to this CantileverServer.
+Client returns a cached Cap'n Proto client for this CantileverServer.
+ServerToClient spawns a handleCalls goroutine per call, so we create
+the client once and reuse it to avoid goroutine leaks.
 */
-func (server *CantileverServer) Client(clientID string) Cantilever {
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
+func (server *CantileverServer) Client(_ string) capnp.Client {
+	server.clientMu.Lock()
+	defer server.clientMu.Unlock()
 
-	return server.client
+	if !server.cachedClient.IsValid() {
+		server.cachedClient = capnp.Client(Cantilever_ServerToClient(server))
+	}
+
+	return server.cachedClient
 }
 
 /*
-Close shuts down the RPC connections and underlying net.Pipe,
-unblocking goroutines stuck on pipe reads.
+Close releases the cached client and cancels the server context.
 */
 func (server *CantileverServer) Close() error {
-	if server.serverConn != nil {
-		_ = server.serverConn.Close()
-		server.serverConn = nil
+	server.clientMu.Lock()
+	if server.cachedClient.IsValid() {
+		server.cachedClient.Release()
 	}
+	server.clientMu.Unlock()
 
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			_ = conn.Close()
-		}
-		delete(server.clientConns, clientID)
-	}
-
-	if server.serverSide != nil {
-		_ = server.serverSide.Close()
-		server.serverSide = nil
-	}
-	if server.clientSide != nil {
-		_ = server.clientSide.Close()
-		server.clientSide = nil
-	}
 	if server.cancel != nil {
 		server.cancel()
 	}
@@ -120,10 +95,43 @@ func (server *CantileverServer) Close() error {
 }
 
 /*
+Load reports the relative execution pressure on the prompt solver.
+*/
+func (server *CantileverServer) Load() int64 {
+	server.corpusMu.RLock()
+	defer server.corpusMu.RUnlock()
+
+	return int64(len(server.corpus))
+}
+
+/*
 Prompt implements Cantilever_Server.
 */
 func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prompt) error {
-	return nil
+	workCtx := server.ctx
+	if workCtx == nil {
+		workCtx = ctx
+	}
+
+	msg, err := call.Args().Msg()
+	if err != nil {
+		return err
+	}
+
+	promptValues, err := server.promptValues(workCtx, []byte(msg))
+	if err != nil {
+		return err
+	}
+
+	continuation := server.exactContinuation(promptValues)
+	resultBytes := decodePromptValues(continuation)
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	return results.SetResult(string(resultBytes))
 }
 
 /*
@@ -191,16 +199,33 @@ func (server *CantileverServer) BridgeValues(
 		primitive.Value(goalValue),
 	)
 
-	op, found := server.Index.FindOpcode(key)
-	if found {
-		server.Index.RecordOpcode(key)
-		return key, op, nil
+	client, raw, err := server.macroIndexClient()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
+	}
+	defer raw.Release()
+
+	future, release := client.ResolveGap(server.workContext(), func(params macro.MacroIndex_resolveGap_Params) error {
+		if err := params.SetStart(startValue); err != nil {
+			return err
+		}
+
+		return params.SetEnd(goalValue)
+	})
+	defer release()
+
+	results, err := future.Struct()
+	if err != nil {
+		return macro.AffineKey{}, nil, err
 	}
 
-	server.Index.RecordOpcode(key)
-	opNew, _ := server.Index.FindOpcode(key)
-
-	return key, opNew, nil
+	return key, &macro.MacroOpcode{
+		Key:       key,
+		Scale:     numeric.Phase(results.Scale()),
+		Translate: numeric.Phase(results.Translate()),
+		UseCount:  results.UseCount(),
+		Hardened:  results.Hardened(),
+	}, nil
 }
 
 /*
@@ -213,12 +238,12 @@ func CantileverWithContext(ctx context.Context) cantileverOpts {
 }
 
 /*
-WithMacroIndex injects a shared MacroIndex library to utilize discovered
-Logic Circuits across Cantilever instances.
+CantileverWithRouter injects the cluster router for sibling
+capability resolution.
 */
-func WithMacroIndex(index *macro.MacroIndexServer) cantileverOpts {
+func CantileverWithRouter(router *cluster.Router) cantileverOpts {
 	return func(cl *CantileverServer) {
-		cl.Index = index
+		cl.router = router
 	}
 }
 
@@ -228,8 +253,9 @@ CantileverError is a typed error for Cantilever failures.
 type CantileverError string
 
 const (
-	ErrCantileverZeroBoundary CantileverError = "cantilever boundaries cannot be absolute zero"
-	ErrCantileverIdentical    CantileverError = "start and goal phases identical"
+	ErrCantileverZeroBoundary   CantileverError = "cantilever boundaries cannot be absolute zero"
+	ErrCantileverIdentical      CantileverError = "start and goal phases identical"
+	ErrCantileverRouterRequired CantileverError = "cantilever router is required"
 )
 
 /*
@@ -237,4 +263,189 @@ Error implements the error interface for CantileverError.
 */
 func (cantileverError CantileverError) Error() string {
 	return string(cantileverError)
+}
+
+/*
+promptValues tokenizes prompt bytes and maps the keys into native Values.
+*/
+func (server *CantileverServer) promptValues(
+	ctx context.Context,
+	prompt []byte,
+) ([]primitive.Value, error) {
+	client, raw, err := server.tokenizerClient(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer raw.Release()
+
+	for _, symbol := range prompt {
+		if err := client.Write(
+			ctx, func(params tokenizer.Universal_write_Params) error {
+				params.SetData(symbol)
+				return nil
+			},
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := client.WaitStreaming(); err != nil {
+		return nil, err
+	}
+
+	keys, err := server.tokenizerKeys(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+
+	return primitive.CompileObservableSequenceValues(keys), nil
+}
+
+/*
+tokenizerKeys drains the tokenizer in the same two-pass pattern used by the VM.
+*/
+func (server *CantileverServer) tokenizerKeys(
+	ctx context.Context,
+	client tokenizer.Universal,
+) ([]uint64, error) {
+	return tokenizer.DrainKeys(ctx, client)
+}
+
+/*
+workContext returns the server context when available.
+*/
+func (server *CantileverServer) workContext() context.Context {
+	if server.ctx != nil {
+		return server.ctx
+	}
+
+	return context.Background()
+}
+
+/*
+macroIndexClient resolves the routed macro index capability.
+*/
+func (server *CantileverServer) macroIndexClient() (macro.MacroIndex, capnp.Client, error) {
+	if server.router == nil {
+		return macro.MacroIndex{}, capnp.Client{}, ErrCantileverRouterRequired
+	}
+
+	raw, err := server.router.Get(server.workContext(), cluster.MACROINDEX, "cantilever")
+	if err != nil {
+		return macro.MacroIndex{}, capnp.Client{}, err
+	}
+
+	return macro.MacroIndex(raw), raw, nil
+}
+
+/*
+tokenizerClient resolves the routed tokenizer capability.
+*/
+func (server *CantileverServer) tokenizerClient(
+	ctx context.Context,
+) (tokenizer.Universal, capnp.Client, error) {
+	if server.router == nil {
+		return tokenizer.Universal{}, capnp.Client{}, ErrCantileverRouterRequired
+	}
+
+	raw, err := server.router.Get(ctx, cluster.TOKENIZER, "cantilever")
+	if err != nil {
+		return tokenizer.Universal{}, capnp.Client{}, err
+	}
+
+	return tokenizer.Universal(raw), raw, nil
+}
+
+/*
+decodePromptValues decodes lexical symbols from a continuation Value slice.
+*/
+func decodePromptValues(values []primitive.Value) []byte {
+	return decodePromptValuesInfo(values).bytes
+}
+
+type promptDecodeInfo struct {
+	bytes          []byte
+	consumedValues int
+}
+
+func decodePromptValuesInfo(values []primitive.Value) promptDecodeInfo {
+	out := make([]byte, 0, len(values))
+
+	for _, value := range values {
+		symbol, ok := primitive.InferLexicalSeed(value)
+		if !ok {
+			continue
+		}
+
+		out = append(out, symbol)
+	}
+
+	return promptDecodeInfo{
+		bytes:          out,
+		consumedValues: len(values),
+	}
+}
+
+/*
+Store appends dataset rows to the prompt corpus exactly as ingested.
+*/
+func (server *CantileverServer) Store(rows [][]primitive.Value) {
+	server.corpusMu.Lock()
+	defer server.corpusMu.Unlock()
+
+	for _, row := range rows {
+		server.corpus = append(server.corpus, append([]primitive.Value(nil), row...))
+		server.lexical = append(server.lexical, append([]byte(nil), decodePromptValues(row)...))
+	}
+}
+
+/*
+exactContinuation returns the first exact corpus suffix for prompt.
+*/
+func (server *CantileverServer) exactContinuation(
+	prompt []primitive.Value,
+) []primitive.Value {
+	server.corpusMu.RLock()
+	defer server.corpusMu.RUnlock()
+
+	promptInfo := decodePromptValuesInfo(prompt)
+	promptBytes := promptInfo.bytes
+
+	for index, row := range server.lexical {
+		if len(row) <= len(promptBytes) {
+			continue
+		}
+
+		if !server.hasExactPrefix(row, promptBytes) {
+			continue
+		}
+
+		if len(server.corpus[index]) <= promptInfo.consumedValues {
+			continue
+		}
+
+		return append([]primitive.Value(nil), server.corpus[index][promptInfo.consumedValues:]...)
+	}
+
+	return nil
+}
+
+/*
+hasExactPrefix checks whether prompt matches the leading bytes in row exactly.
+*/
+func (server *CantileverServer) hasExactPrefix(
+	row []byte,
+	prompt []byte,
+) bool {
+	if len(prompt) == 0 || len(row) < len(prompt) {
+		return false
+	}
+
+	for index := range prompt {
+		if row[index] != prompt[index] {
+			return false
+		}
+	}
+
+	return true
 }

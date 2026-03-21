@@ -108,16 +108,17 @@ instead of falling back to raw data generation or exhaustive searching.
 type MacroIndexServer struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      MacroIndex
 	serverConn  *rpc.Conn
+	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
+	connMu      sync.Mutex
 	mu          sync.RWMutex
 	opcodes     map[AffineKey]*MacroOpcode
 	candidates  map[AffineKey]*ProgramCandidate
 	anchors     map[numeric.Phase]*AnchorRecord
 	anchorNames map[string]numeric.Phase
+	bestKey     AffineKey
+	bestUse     uint64
 }
 
 /*
@@ -146,29 +147,38 @@ func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 		"cancel": idx.cancel,
 	})
 
-	idx.serverSide, idx.clientSide = net.Pipe()
-	idx.client = MacroIndex_ServerToClient(idx)
+	serverSide, clientSide := net.Pipe()
+	capability := MacroIndex_ServerToClient(idx)
 
-	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		idx.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(idx.client),
+	idx.serverConn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
+		BootstrapClient: capnp.Client(capability),
 	})
+
+	idx.clientConn = rpc.NewConn(rpc.NewStreamTransport(clientSide), nil)
 
 	return idx
 }
 
 /*
 Client returns a Cap'n Proto client connected to this MacroIndexServer.
+Returns the bootstrap capability from the pre-created client connection.
 */
-func (server *MacroIndexServer) Client(clientID string) MacroIndex {
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
+func (server *MacroIndexServer) Client(clientID string) capnp.Client {
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
 
-	return server.client
+	server.clientConns[clientID] = server.clientConn
+	return server.clientConn.Bootstrap(server.ctx)
+}
+
+/*
+Load approximates RPC pressure via active client registrations.
+*/
+func (server *MacroIndexServer) Load() int64 {
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
+
+	return int64(len(server.clientConns))
 }
 
 /*
@@ -176,26 +186,23 @@ Close shuts down the RPC connections and underlying net.Pipe,
 unblocking goroutines stuck on pipe reads.
 */
 func (server *MacroIndexServer) Close() error {
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
+
+	if server.clientConn != nil {
+		_ = server.clientConn.Close()
+		server.clientConn = nil
+	}
+
 	if server.serverConn != nil {
 		_ = server.serverConn.Close()
 		server.serverConn = nil
 	}
 
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			_ = conn.Close()
-		}
+	for clientID := range server.clientConns {
 		delete(server.clientConns, clientID)
 	}
 
-	if server.serverSide != nil {
-		_ = server.serverSide.Close()
-		server.serverSide = nil
-	}
-	if server.clientSide != nil {
-		_ = server.clientSide.Close()
-		server.clientSide = nil
-	}
 	if server.cancel != nil {
 		server.cancel()
 	}
@@ -204,9 +211,91 @@ func (server *MacroIndexServer) Close() error {
 }
 
 /*
-Prompt implements MacroIndex_Server.
+Write implements MacroIndex_Server. It receives a (start, end) Value pair and
+records an opcode candidate for the geometric gap between the two boundaries.
 */
-func (server *MacroIndexServer) Prompt(ctx context.Context, call MacroIndex_prompt) error {
+func (server *MacroIndexServer) Write(ctx context.Context, call MacroIndex_write) error {
+	args := call.Args()
+
+	start, err := args.Start()
+	if err != nil {
+		return err
+	}
+
+	end, err := args.End()
+	if err != nil {
+		return err
+	}
+
+	key := AffineKeyFromValues(start, end)
+	server.RecordOpcode(key)
+
+	return nil
+}
+
+/*
+Done implements MacroIndex_Server. It finalizes the streaming session and
+returns summary statistics for the most recently recorded opcode.
+*/
+func (server *MacroIndexServer) Done(ctx context.Context, call MacroIndex_done) error {
+	res, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	if server.bestUse > 0 {
+		opcode := server.opcodes[server.bestKey]
+
+		if setErr := res.SetKeyText(server.bestKey.String()); setErr != nil {
+			return setErr
+		}
+
+		res.SetUseCount(opcode.UseCount)
+		res.SetHardened(opcode.Hardened)
+	}
+
+	return nil
+}
+
+/*
+ResolveGap records one exact affine gap and returns the current opcode summary.
+*/
+func (server *MacroIndexServer) ResolveGap(
+	ctx context.Context,
+	call MacroIndex_resolveGap,
+) error {
+	_ = ctx
+
+	args := call.Args()
+
+	start, err := args.Start()
+	if err != nil {
+		return err
+	}
+
+	end, err := args.End()
+	if err != nil {
+		return err
+	}
+
+	_, opcode, err := server.ResolveGapValues(start, end)
+	if err != nil {
+		return err
+	}
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	results.SetScale(uint32(opcode.Scale))
+	results.SetTranslate(uint32(opcode.Translate))
+	results.SetUseCount(opcode.UseCount)
+	results.SetHardened(opcode.Hardened)
+
 	return nil
 }
 
@@ -293,10 +382,31 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 		if opcode.UseCount > hardeningThreshold {
 			opcode.Hardened = true
 		}
+		idx.trackBestLocked(key, opcode)
 		return
 	}
 
 	idx.opcodes[key] = OpcodeForKey(key)
+	idx.trackBestLocked(key, idx.opcodes[key])
+}
+
+/*
+ResolveGapValues records one exact geometric gap and returns the current opcode summary.
+*/
+func (idx *MacroIndexServer) ResolveGapValues(
+	start primitive.Value,
+	end primitive.Value,
+) (AffineKey, *MacroOpcode, error) {
+	key := AffineKeyFromValues(start, end)
+
+	idx.RecordOpcode(key)
+
+	opcode, found := idx.FindOpcode(key)
+	if !found || opcode == nil {
+		return AffineKey{}, nil, fmt.Errorf("macro index: failed to resolve exact gap")
+	}
+
+	return key, opcode, nil
 }
 
 /*
@@ -311,6 +421,7 @@ func (idx *MacroIndexServer) StoreOpcode(opcode *MacroOpcode) {
 	defer idx.mu.Unlock()
 
 	idx.opcodes[opcode.Key] = opcode
+	idx.trackBestLocked(opcode.Key, opcode)
 }
 
 /*
@@ -371,6 +482,7 @@ func (idx *MacroIndexServer) RecordCandidateResult(
 
 		opcode.UseCount = candidate.SuccessCount
 		opcode.Hardened = candidate.SuccessCount > hardeningThreshold
+		idx.trackBestLocked(key, opcode)
 	} else {
 		candidate.FailureCount++
 	}
@@ -393,7 +505,36 @@ func (idx *MacroIndexServer) GarbageCollect() int {
 		}
 	}
 
+	idx.refreshBestLocked()
+
 	return pruned
+}
+
+/*
+trackBestLocked updates the cached summary used by Done while idx.mu is held.
+*/
+func (idx *MacroIndexServer) trackBestLocked(
+	key AffineKey,
+	opcode *MacroOpcode,
+) {
+	if opcode == nil || opcode.UseCount < idx.bestUse {
+		return
+	}
+
+	idx.bestKey = key
+	idx.bestUse = opcode.UseCount
+}
+
+/*
+refreshBestLocked rebuilds the cached Done summary while idx.mu is held.
+*/
+func (idx *MacroIndexServer) refreshBestLocked() {
+	idx.bestKey = AffineKey{}
+	idx.bestUse = 0
+
+	for key, opcode := range idx.opcodes {
+		idx.trackBestLocked(key, opcode)
+	}
 }
 
 /*

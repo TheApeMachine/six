@@ -19,7 +19,7 @@ var (
 
 	logger = log.NewWithOptions(os.Stderr, log.Options{
 		ReportCaller:    true,
-		CallerOffset:    1,
+		CallerOffset:    16,
 		ReportTimestamp: true,
 		TimeFormat:      time.TimeOnly,
 		Level:           log.DebugLevel,

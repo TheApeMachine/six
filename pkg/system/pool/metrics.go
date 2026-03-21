@@ -60,6 +60,72 @@ func NewMetrics() *Metrics {
 }
 
 /*
+NewMetricsForExportTest builds a Metrics snapshot used to exercise ExportMetrics
+without tests reaching into internal fields.
+*/
+func NewMetricsForExportTest(
+	workerCount, idleWorkers, jobQueueSize int,
+	jobSuccessRate float64,
+	avgLatency, p95Latency, p99Latency time.Duration,
+	resourceUtilization float64,
+) *Metrics {
+	m := NewMetrics()
+
+	m.mu.Lock()
+	m.WorkerCount = workerCount
+	m.IdleWorkers = idleWorkers
+	m.JobQueueSize = jobQueueSize
+	m.JobSuccessRate = jobSuccessRate
+	m.AverageJobLatency = avgLatency
+	m.P95JobLatency = p95Latency
+	m.P99JobLatency = p99Latency
+	m.ResourceUtilization = resourceUtilization
+	m.mu.Unlock()
+
+	return m
+}
+
+/*
+SetMaxCentroids sets the t-digest centroid cap (test and tuning hook).
+This method acquires m.mu and is safe for concurrent use.
+*/
+func (m *Metrics) SetMaxCentroids(maxCentroids int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.maxCentroids = maxCentroids
+}
+
+/*
+SetCompression sets the t-digest compression factor (test and tuning hook).
+This method acquires m.mu and is safe for concurrent use.
+*/
+func (m *Metrics) SetCompression(compression int) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.compression = float64(compression)
+}
+
+/*
+CentroidCount returns the current t-digest centroid count.
+*/
+func (m *Metrics) CentroidCount() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return len(m.centroids)
+}
+
+/*
+TotalWeight returns the number of samples fed into the latency digest.
+*/
+func (m *Metrics) TotalWeight() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return int(m.totalWeight)
+}
+
+/*
 RecordJobExecution records execution time and outcome.
 */
 func (m *Metrics) RecordJobExecution(startTime time.Time, success bool) {
@@ -148,20 +214,39 @@ func (m *Metrics) updateLatencyPercentilesLocked(duration time.Duration) {
 		return m.centroids[i].mean >= value
 	})
 
-	q := m.calculateQuantile(value)
-	maxWeight := int64(4 * m.compression * math.Min(q, 1-q))
-
 	inserted := false
-	if idx < len(m.centroids) && m.centroids[idx].count < maxWeight {
+
+	// Identical samples should coalesce into the same centroid.
+	if idx < len(m.centroids) && m.centroids[idx].mean == value {
 		c := &m.centroids[idx]
 		c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
 		c.count++
 		inserted = true
-	} else if idx > 0 && m.centroids[idx-1].count < maxWeight {
+	} else if idx > 0 && m.centroids[idx-1].mean == value {
 		c := &m.centroids[idx-1]
 		c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
 		c.count++
 		inserted = true
+	}
+
+	if !inserted {
+		q := m.calculateQuantile(value)
+		maxWeight := int64(4 * m.compression * math.Min(q, 1-q))
+		if maxWeight < 1 {
+			maxWeight = 1
+		}
+
+		if idx < len(m.centroids) && m.centroids[idx].count <= maxWeight {
+			c := &m.centroids[idx]
+			c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
+			c.count++
+			inserted = true
+		} else if idx > 0 && m.centroids[idx-1].count <= maxWeight {
+			c := &m.centroids[idx-1]
+			c.mean = (c.mean*float64(c.count) + value) / float64(c.count+1)
+			c.count++
+			inserted = true
+		}
 	}
 
 	if !inserted {

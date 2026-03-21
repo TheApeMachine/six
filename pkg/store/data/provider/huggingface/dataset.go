@@ -69,6 +69,7 @@ func New(opts ...datasetOpts) *Dataset {
 		textColumn:   "text",
 		perSamplePos: true,
 		labels:       make(map[uint32]int),
+		state:        errnie.NewState("store/data/provider/huggingface/dataset"),
 	}
 	dataset.cacheCond = sync.NewCond(&dataset.cacheMu)
 
@@ -579,20 +580,24 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 	shardKey := strings.ReplaceAll(dataset.repo+"_"+shard, "/", "_")
 	cachePath := filepath.Join(os.TempDir(), "six_hf_"+shardKey)
 
-	if data := errnie.Guard(dataset.state, func() ([]byte, error) {
-		return os.ReadFile(cachePath)
-	}); data != nil {
+	data, err := os.ReadFile(cachePath)
+	if err == nil {
 		r := bytes.NewReader(data)
 		return r, r.Size(), nil
+	}
+
+	if !os.IsNotExist(err) {
+		return nil, 0, err
 	}
 
 	encodedBranch := strings.ReplaceAll(branch, "/", "%2F")
 
 	url := fmt.Sprintf("%s/datasets/%s/resolve/%s/%s", hfBase, dataset.repo, encodedBranch, shard)
 
-	req := errnie.Guard(dataset.state, func() (*http.Request, error) {
-		return http.NewRequest("GET", url, nil)
-	})
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	if token := os.Getenv("HF_AUTH_TOKEN"); token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -600,9 +605,10 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 
-	resp := errnie.Guard(dataset.state, func() (*http.Response, error) {
-		return httpClient.Do(req)
-	})
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, 0, err
+	}
 
 	defer resp.Body.Close()
 
@@ -610,13 +616,14 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.ReaderAt, int64,
 		return nil, 0, fmt.Errorf("huggingface: HTTP %d from %s", resp.StatusCode, url)
 	}
 
-	body := errnie.Guard(dataset.state, func() ([]byte, error) {
-		return io.ReadAll(resp.Body)
-	})
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, 0, err
+	}
 
-	errnie.GuardVoid(dataset.state, func() error {
-		return os.WriteFile(cachePath, body, 0644)
-	})
+	if err := os.WriteFile(cachePath, body, 0644); err != nil {
+		return nil, 0, err
+	}
 
 	r := bytes.NewReader(body)
 

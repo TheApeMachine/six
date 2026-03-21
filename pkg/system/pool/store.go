@@ -1,8 +1,10 @@
 package pool
 
 import (
-	"slices"
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -10,16 +12,14 @@ import (
 
 /*
 ResultStore manages job results and subscriber notifications.
-Stores results keyed by job ID, notifies awaiting callers when results arrive,
-and cleans up expired entries periodically.
+Stores results keyed by job ID and cleans up expired entries periodically.
 Uses sync.Map for values to reduce lock contention on Exists (hot path).
 */
 type ResultStore struct {
 	mu sync.RWMutex
 
-	values  sync.Map // map[string]*Result — sync.Map for high read concurrency
-	waiting map[string][]chan *Result
-	groups  map[string]*BroadcastGroup
+	values sync.Map // map[string]*Result — sync.Map for high read concurrency
+	groups map[string]*BroadcastGroup
 
 	children map[string][]string
 	parents  map[string][]string
@@ -27,20 +27,28 @@ type ResultStore struct {
 	cleanupInterval time.Duration
 	wg              sync.WaitGroup
 	done            chan struct{}
+	closeOnce       sync.Once
+
+	streamMu     sync.Mutex
+	streamCond   *sync.Cond
+	streamBuffer bytes.Buffer
+	streamClosed bool
 }
+
+var errResultStoreClosed = errors.New("result store stream is closed")
 
 /*
 NewResultStore creates a store with periodic cleanup.
 */
 func NewResultStore() *ResultStore {
 	rs := &ResultStore{
-		waiting:         make(map[string][]chan *Result),
 		groups:          make(map[string]*BroadcastGroup),
 		children:        make(map[string][]string),
 		parents:         make(map[string][]string),
 		cleanupInterval: time.Minute,
 		done:            make(chan struct{}),
 	}
+	rs.streamCond = sync.NewCond(&rs.streamMu)
 
 	rs.wg.Add(1)
 	go rs.runCleanup()
@@ -49,22 +57,41 @@ func NewResultStore() *ResultStore {
 }
 
 /*
-notifyWaitingChannels sends result to all channels waiting for id and cleans up.
-Must be called with rs.mu held.
+Read drains bytes from the store stream.
 */
-func (rs *ResultStore) notifyWaitingChannels(id string, result *Result) {
-	if channels, ok := rs.waiting[id]; ok {
-		for _, ch := range channels {
-			select {
-			case ch <- result:
-				close(ch)
-			default:
-				close(ch)
-				rs.removeWaitingChannel(id, ch)
-			}
-		}
-		delete(rs.waiting, id)
+func (rs *ResultStore) Read(p []byte) (n int, err error) {
+	rs.streamMu.Lock()
+	defer rs.streamMu.Unlock()
+
+	for rs.streamBuffer.Len() == 0 && !rs.streamClosed {
+		rs.streamCond.Wait()
 	}
+
+	if rs.streamBuffer.Len() > 0 {
+		return rs.streamBuffer.Read(p)
+	}
+
+	return 0, io.EOF
+}
+
+/*
+Write appends bytes to the store stream.
+*/
+func (rs *ResultStore) Write(p []byte) (n int, err error) {
+	rs.streamMu.Lock()
+	defer rs.streamMu.Unlock()
+
+	if rs.streamClosed {
+		return 0, errResultStoreClosed
+	}
+
+	n, err = rs.streamBuffer.Write(p)
+
+	if n > 0 {
+		rs.streamCond.Broadcast()
+	}
+
+	return n, err
 }
 
 /*
@@ -74,10 +101,6 @@ func (rs *ResultStore) Store(id string, value any, ttl time.Duration) {
 	result := NewResult(value)
 	result.TTL = ttl
 	rs.values.Store(id, result)
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	rs.notifyWaitingChannels(id, result)
 }
 
 /*
@@ -88,95 +111,18 @@ func (rs *ResultStore) StoreError(id string, err error, ttl time.Duration) {
 	r.Error = err
 	r.TTL = ttl
 	rs.values.Store(id, r)
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-	rs.notifyWaitingChannels(id, r)
 }
 
 /*
-Await returns a channel that receives the result when available.
+Result returns a stored result when available.
 */
-func (rs *ResultStore) Await(id string) chan *Result {
-	ch := make(chan *Result, 1)
-
-	if v, ok := rs.values.Load(id); ok {
-		ch <- v.(*Result)
-		close(ch)
-		return ch
-	}
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	if v, ok := rs.values.Load(id); ok {
-		ch <- v.(*Result)
-		close(ch)
-		return ch
-	}
-	rs.waiting[id] = append(rs.waiting[id], ch)
-	return ch
-}
-
-/*
-prepare registers a channel to receive the result when it arrives.
-*/
-func (rs *ResultStore) prepare(id string) chan *Result {
-	ch := make(chan *Result, 1)
-
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	if rs.waiting == nil {
-		ch <- &Result{
-			Error:     fmt.Errorf("result store closed"),
-			CreatedAt: time.Now(),
-		}
-		close(ch)
-		return ch
-	}
-
-	rs.waiting[id] = append(rs.waiting[id], ch)
-
-	return ch
-}
-
-/*
-deliver sends result to all channels waiting for id.
-*/
-func (rs *ResultStore) deliver(id string, result *Result) {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	channels, ok := rs.waiting[id]
+func (rs *ResultStore) Result(id string) (*Result, bool) {
+	value, ok := rs.values.Load(id)
 	if !ok {
-		return
+		return nil, false
 	}
 
-	for _, ch := range channels {
-		select {
-		case ch <- result:
-			close(ch)
-		default:
-			close(ch)
-		}
-	}
-
-	delete(rs.waiting, id)
-}
-
-/*
-cancelAwait removes the channel from waiters for id.
-*/
-func (rs *ResultStore) cancelAwait(id string, ch chan *Result) {
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
-
-	rs.removeWaitingChannel(id, ch)
-
-	if len(rs.waiting[id]) == 0 {
-		delete(rs.waiting, id)
-	}
+	return value.(*Result), true
 }
 
 /*
@@ -245,27 +191,28 @@ func (rs *ResultStore) Subscribe(groupID string) chan *Result {
 /*
 Close shuts down the store and releases resources.
 */
-func (rs *ResultStore) Close() {
-	close(rs.done)
-	rs.wg.Wait()
+func (rs *ResultStore) Close() error {
+	rs.closeOnce.Do(func() {
+		close(rs.done)
+		rs.wg.Wait()
 
-	rs.mu.Lock()
-	defer rs.mu.Unlock()
+		rs.streamMu.Lock()
+		rs.streamClosed = true
+		rs.streamMu.Unlock()
+		rs.streamCond.Broadcast()
 
-	for _, channels := range rs.waiting {
-		for _, ch := range channels {
-			close(ch)
+		rs.mu.Lock()
+		defer rs.mu.Unlock()
+
+		for _, group := range rs.groups {
+			group.Close()
 		}
-	}
+		rs.groups = nil
+		rs.children = nil
+		rs.parents = nil
+	})
 
-	for _, group := range rs.groups {
-		group.Close()
-	}
-
-	rs.waiting = nil
-	rs.groups = nil
-	rs.children = nil
-	rs.parents = nil
+	return nil
 }
 
 /*
@@ -346,40 +293,41 @@ func (rs *ResultStore) AddChildDependency(depID, jobID string) {
 }
 
 /*
-removeWaitingChannel removes ch from the waiters for id.
-*/
-func (rs *ResultStore) removeWaitingChannel(id string, ch chan *Result) {
-	channels := rs.waiting[id]
-	for i, waitingCh := range channels {
-		if waitingCh == ch {
-			rs.waiting[id] = append(channels[:i], channels[i+1:]...)
-			return
-		}
-	}
-}
-
-/*
 wouldCreateCircle returns true if adding parentID->childID would create a cycle.
 */
+/*
+wouldCreateCircle detects whether adding parentID->childID would close a directed
+cycle along existing child edges (parent observes children).
+*/
 func (rs *ResultStore) wouldCreateCircle(parentID, childID string) bool {
-	visited := make(map[string]bool)
-	var check func(string) bool
+	if parentID == childID {
+		return true
+	}
 
-	check = func(current string) bool {
-		if current == parentID {
+	visited := make(map[string]bool)
+	var walk func(string) bool
+
+	walk = func(node string) bool {
+		if node == parentID {
 			return true
 		}
-		
-		if visited[current] {
+
+		if visited[node] {
 			return false
 		}
 
-		visited[current] = true
+		visited[node] = true
 
-		return slices.ContainsFunc(rs.parents[current], check)
+		for _, child := range rs.children[node] {
+			if walk(child) {
+				return true
+			}
+		}
+
+		return false
 	}
 
-	return check(childID)
+	return walk(childID)
 }
 
 func removeString(slice []string, s string) []string {

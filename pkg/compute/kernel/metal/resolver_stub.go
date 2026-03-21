@@ -2,60 +2,48 @@
 
 package metal
 
-import "unsafe"
+import "bytes"
 
-type MetalBackend struct{}
-
-func (backend *MetalBackend) Available() bool {
-	return false
+/*
+MetalBackend is the stub for non-darwin builds. Satisfies the
+kernel.Backend interface so the package compiles without Metal.
+*/
+type MetalBackend struct {
+	buf bytes.Buffer
 }
 
-func (backend *MetalBackend) Resolve(
-	graphNodes unsafe.Pointer,
-	numNodes int,
-	context unsafe.Pointer,
-) (uint64, error) {
+/*
+Available always returns zero on non-darwin.
+*/
+func (backend *MetalBackend) Available() (int, error) {
 	return 0, MetalErrorUnavailable
 }
 
-func (backend *MetalBackend) ResolvePhaseDial(
-	cacheNodes unsafe.Pointer,
-	numNodes int,
-	queryDial unsafe.Pointer,
-	similarities unsafe.Pointer,
-) error {
-	return MetalErrorUnavailable
+/*
+Read drains the result buffer.
+*/
+func (backend *MetalBackend) Read(p []byte) (n int, err error) {
+	return backend.buf.Read(p)
 }
 
-func (backend *MetalBackend) EncodePhaseDial(
-	structuralPhases unsafe.Pointer,
-	numValues int,
-	outDial unsafe.Pointer,
-) error {
-	return MetalErrorUnavailable
+/*
+Write accepts incoming data.
+*/
+func (backend *MetalBackend) Write(p []byte) (n int, err error) {
+	return backend.buf.Write(p)
 }
 
-func (backend *MetalBackend) SeqToroidalMeanPhase(
-	valueBlocks unsafe.Pointer,
-	numValues int,
-) (theta float64, phi float64, err error) {
-	return 0, 0, MetalErrorUnavailable
+/*
+Close resets the buffer.
+*/
+func (backend *MetalBackend) Close() error {
+	backend.buf.Reset()
+	return nil
 }
 
-func (backend *MetalBackend) WeightedCircularMean(
-	valueBlocks unsafe.Pointer,
-	numValues int,
-) (phase float64, concentration float64, err error) {
-	return 0, 0, MetalErrorUnavailable
-}
-
-func (backend *MetalBackend) SolveBVP(
-	startBlocks unsafe.Pointer,
-	goalBlocks unsafe.Pointer,
-) (scale uint16, translate uint16, distance float64, err error) {
-	return 0, 0, 0, MetalErrorUnavailable
-}
-
+/*
+MetalError enumerates Metal failure kinds.
+*/
 type MetalError string
 
 const (
@@ -64,6 +52,9 @@ const (
 	MetalErrorResolveFailed MetalError = "metal backend resolve failed"
 )
 
+/*
+Error implements error.
+*/
 func (err MetalError) Error() string {
 	return string(err)
 }

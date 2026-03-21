@@ -3,10 +3,12 @@ package visualizer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"runtime"
+	"strconv"
 	"sync"
 	"time"
 
@@ -73,18 +75,7 @@ func NewServer() *Server {
 /*
 listenUDP starts the locked UDP listener, forwarding all telemetry to visualizer clients.
 */
-func (server *Server) listenUDP() error {
-	addr := errnie.Guard(server.state, func() (*net.UDPAddr, error) {
-		return net.ResolveUDPAddr("udp", "127.0.0.1:8258")
-	})
-
-	conn := errnie.Guard(server.state, func() (*net.UDPConn, error) {
-		return net.ListenUDP("udp", addr)
-	})
-
-	server.udpConn = conn
-	defer conn.Close()
-
+func (server *Server) listenUDP(conn *net.UDPConn) error {
 	buf := make([]byte, 65535)
 
 	for {
@@ -101,20 +92,35 @@ func (server *Server) listenUDP() error {
 /*
 ListenAndServe starts the HTTP server on the given address.
 */
-func (server *Server) ListenAndServe(addr string) error {
+func (server *Server) ListenAndServe(addr string, udpAddr string) error {
 	// These 2 lines are only required if you're using mutex or block profiling
 	// Read the explanation below for how to set these rates:
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 
-	server.pool.Schedule(
-		"visualizer/server/listen-udp",
-		func(ctx context.Context) (any, error) {
-			errnie.GuardVoid(server.state, server.listenUDP)
-			return nil, server.state.Err()
-		},
-		pool.WithTTL(time.Second),
-	)
+	udpListenAddr := errnie.Guard(server.state, func() (*net.UDPAddr, error) {
+		return resolveUDPListenAddr(addr, udpAddr)
+	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
+	conn := errnie.Guard(server.state, func() (*net.UDPConn, error) {
+		return net.ListenUDP("udp", udpListenAddr)
+	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
+	server.udpConn = conn
+
+	go func() {
+		if err := server.listenUDP(conn); err != nil && !errors.Is(err, net.ErrClosed) {
+			server.state.Handle(err)
+		}
+	}()
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.Dir("visualizer/static")))
@@ -123,6 +129,35 @@ func (server *Server) ListenAndServe(addr string) error {
 	server.httpSrv = &http.Server{Addr: addr, Handler: mux}
 
 	return server.httpSrv.ListenAndServe()
+}
+
+/*
+resolveUDPListenAddr derives the UDP bind address from the HTTP listen address
+unless an explicit UDP address is provided.
+*/
+func resolveUDPListenAddr(httpAddr string, udpAddr string) (*net.UDPAddr, error) {
+	if udpAddr != "" {
+		return net.ResolveUDPAddr("udp", udpAddr)
+	}
+
+	host, portText, err := net.SplitHostPort(httpAddr)
+	if err != nil {
+		return nil, err
+	}
+
+	if host == "" {
+		host = "127.0.0.1"
+	}
+
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		return nil, err
+	}
+
+	return net.ResolveUDPAddr(
+		"udp",
+		net.JoinHostPort(host, strconv.Itoa(port+1)),
+	)
 }
 
 /*

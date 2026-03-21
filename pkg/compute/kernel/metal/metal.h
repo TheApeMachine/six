@@ -7,6 +7,10 @@
 extern "C" {
 #endif
 
+// count_metal_devices returns the number of Metal-capable GPUs visible to the process.
+// Uses MTLCopyAllDevices on macOS to enumerate all discrete and integrated GPUs.
+int count_metal_devices(void);
+
 // init_metal allocates default system devices and pipelines mapped directly from the path library.
 // Returns 0 on success, or a non-zero error code upon failure preventing propagation.
 int init_metal(const char* metallib_path);

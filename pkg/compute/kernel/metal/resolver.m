@@ -19,6 +19,14 @@ static int initResult = 0;
 
 #define GFROTATION_SIZE 4
 
+int count_metal_devices(void) {
+    NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
+    if (!devices) return 0;
+    int count = (int)[devices count];
+    [devices release];
+    return count;
+}
+
 int init_metal(const char* metallib_path) {
     if (device != nil && initResult == 0) {
         return 0;

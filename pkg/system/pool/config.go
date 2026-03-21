@@ -6,8 +6,9 @@ import "time"
 Config holds pool-wide settings.
 */
 type Config struct {
-	SchedulingTimeout       time.Duration
-	DependencyAwaitTimeout  time.Duration
+	SchedulingTimeout      time.Duration
+	DependencyAwaitTimeout time.Duration
+	PollInterval           time.Duration
 }
 
 /*
@@ -17,5 +18,6 @@ func NewConfig() *Config {
 	return &Config{
 		SchedulingTimeout:      10 * time.Second,
 		DependencyAwaitTimeout: time.Second,
+		PollInterval:           10 * time.Millisecond,
 	}
 }

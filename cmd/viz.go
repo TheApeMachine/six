@@ -1,9 +1,7 @@
 package cmd
 
 import (
-	"context"
 	"fmt"
-	"os"
 	"runtime"
 
 	"github.com/spf13/cobra"
@@ -41,17 +39,13 @@ which receives real telemetry from the running system via UDP.`,
 		fmt.Printf("Visualizer running at http://localhost:8257 [%s]\n", mode)
 		fmt.Println("Open in browser to see the 3D value space")
 
-		workerPool.Schedule(
-			"cmd/viz/listen-and-serve",
-			func(ctx context.Context) (any, error) {
-				if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
-					console.Error(err, "msg", "Server error")
-					os.Exit(1)
-				}
+		serverErr := make(chan error, 1)
 
-				return nil, nil
-			},
-		)
+		go func() {
+			if err := server.ListenAndServe(":8257", "127.0.0.1:8258"); err != nil && cmd.Context().Err() == nil {
+				serverErr <- err
+			}
+		}()
 
 		if vizListen {
 			machine := vm.NewMachine(vm.MachineWithContext(cmd.Context()))
@@ -74,7 +68,11 @@ which receives real telemetry from the running system via UDP.`,
 			}
 		}
 
-		<-cmd.Context().Done()
+		select {
+		case err := <-serverErr:
+			console.Error(err, "msg", "Server error")
+		case <-cmd.Context().Done():
+		}
 	},
 }
 

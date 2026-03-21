@@ -1,6 +1,7 @@
 package dmt
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -193,4 +194,248 @@ func TestMetricsSnapshot(t *testing.T) {
 			})
 		})
 	})
+}
+
+/*
+TestMetricsConcurrentRecording verifies insert counting stays correct under
+concurrent RecordInsert calls from many goroutines.
+*/
+func TestMetricsConcurrentRecording(t *testing.T) {
+	Convey("Given metrics shared across goroutines", t, func() {
+		metrics := NewMetrics()
+		goroutineCount := 10
+		insertsPerGoroutine := 1000
+		var waitGroup sync.WaitGroup
+
+		Convey("When goroutines record inserts concurrently", func() {
+			for index := 0; index < goroutineCount; index++ {
+				waitGroup.Add(1)
+
+				go func() {
+					defer waitGroup.Done()
+
+					for counter := 0; counter < insertsPerGoroutine; counter++ {
+						metrics.RecordInsert(time.Microsecond, 1)
+					}
+				}()
+			}
+
+			waitGroup.Wait()
+
+			Convey("Then insertCount should equal the total recorded inserts", func() {
+				expectedCount := uint64(goroutineCount * insertsPerGoroutine)
+
+				So(metrics.insertCount.Load(), ShouldEqual, expectedCount)
+			})
+		})
+	})
+}
+
+/*
+TestLatencyTrackerFullWindow checks rolling average behavior when the window
+fills and then is completely overwritten by newer samples.
+*/
+func TestLatencyTrackerFullWindow(t *testing.T) {
+	Convey("Given a latency tracker with a small window", t, func() {
+		tracker := NewLatencyTracker(5)
+
+		Convey("When the window fills with one duration then wraps with another", func() {
+			for index := 0; index < 5; index++ {
+				tracker.RecordLatency(10 * time.Millisecond)
+			}
+
+			firstAverage := tracker.AverageLatency()
+			So(firstAverage, ShouldEqual, 10*time.Millisecond)
+
+			for index := 0; index < 5; index++ {
+				tracker.RecordLatency(20 * time.Millisecond)
+			}
+
+			Convey("Then the average should reflect only the latest window", func() {
+				secondAverage := tracker.AverageLatency()
+
+				So(secondAverage, ShouldEqual, 20*time.Millisecond)
+			})
+		})
+	})
+}
+
+/*
+TestLatencyTrackerSingleEntry verifies AverageLatency with a single non-zero
+sample in a larger window.
+*/
+func TestLatencyTrackerSingleEntry(t *testing.T) {
+	Convey("Given a latency tracker with a sparse first sample", t, func() {
+		tracker := NewLatencyTracker(10)
+
+		Convey("When only one latency is recorded", func() {
+			tracker.RecordLatency(50 * time.Millisecond)
+
+			Convey("Then the average should equal that single sample", func() {
+				So(tracker.AverageLatency(), ShouldEqual, 50*time.Millisecond)
+			})
+		})
+	})
+}
+
+/*
+TestMetricsGetMetricsStructure asserts the snapshot map exposes the expected
+top-level sections for dashboards and introspection.
+*/
+func TestMetricsGetMetricsStructure(t *testing.T) {
+	Convey("Given a fresh metrics instance", t, func() {
+		metrics := NewMetrics()
+
+		Convey("When GetMetrics is called", func() {
+			snapshot := metrics.GetMetrics()
+
+			Convey("Then all top-level keys should be present", func() {
+				_, hasOperations := snapshot["operations"]
+				_, hasElection := snapshot["election"]
+				_, hasLatencies := snapshot["latencies"]
+				_, hasNetwork := snapshot["network"]
+				_, hasNode := snapshot["node"]
+
+				So(hasOperations, ShouldBeTrue)
+				So(hasElection, ShouldBeTrue)
+				So(hasLatencies, ShouldBeTrue)
+				So(hasNetwork, ShouldBeTrue)
+				So(hasNode, ShouldBeTrue)
+			})
+		})
+	})
+}
+
+/*
+TestMetricsMultipleInserts checks cumulative counters and byte totals across
+many insert operations.
+*/
+func TestMetricsMultipleInserts(t *testing.T) {
+	Convey("Given metrics and many insert operations", t, func() {
+		metrics := NewMetrics()
+		insertCount := 100
+		var expectedBytes uint64
+
+		Convey("When inserts use increasing byte counts", func() {
+			for index := 1; index <= insertCount; index++ {
+				metrics.RecordInsert(time.Microsecond, index)
+				expectedBytes += uint64(index)
+			}
+
+			Convey("Then insert and byte counters should match the workload", func() {
+				So(metrics.insertCount.Load(), ShouldEqual, uint64(insertCount))
+				So(metrics.bytesTransmitted.Load(), ShouldEqual, expectedBytes)
+			})
+		})
+	})
+}
+
+/*
+TestMetricsSyncUpdatesTime ensures RecordSync moves lastSyncTime forward
+relative to a captured start instant.
+*/
+func TestMetricsSyncUpdatesTime(t *testing.T) {
+	Convey("Given metrics and a start time", t, func() {
+		metrics := NewMetrics()
+		startTime := time.Now()
+
+		Convey("When a sync is recorded", func() {
+			metrics.RecordSync(time.Millisecond, 1)
+			snapshot := metrics.GetMetrics()
+			node := snapshot["node"].(map[string]interface{})
+			lastSyncTime := node["last_sync_time"].(time.Time)
+
+			Convey("Then lastSyncTime should not be before the test start", func() {
+				So(lastSyncTime.Before(startTime), ShouldBeFalse)
+			})
+		})
+	})
+}
+
+/*
+BenchmarkRecordInsert measures the cost of recording a single insert sample.
+*/
+func BenchmarkRecordInsert(b *testing.B) {
+	metrics := NewMetrics()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		metrics.RecordInsert(time.Microsecond, 64)
+	}
+}
+
+/*
+BenchmarkRecordLookup measures the cost of recording a single lookup sample.
+*/
+func BenchmarkRecordLookup(b *testing.B) {
+	metrics := NewMetrics()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		metrics.RecordLookup(time.Microsecond)
+	}
+}
+
+/*
+BenchmarkRecordSync measures the cost of recording a single sync sample.
+*/
+func BenchmarkRecordSync(b *testing.B) {
+	metrics := NewMetrics()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		metrics.RecordSync(time.Microsecond, 64)
+	}
+}
+
+/*
+BenchmarkGetMetrics measures snapshot construction after the tracker has data.
+*/
+func BenchmarkGetMetrics(b *testing.B) {
+	metrics := NewMetrics()
+
+	for index := 0; index < 50; index++ {
+		metrics.RecordInsert(time.Millisecond, index)
+		metrics.RecordLookup(time.Millisecond)
+		metrics.RecordSync(time.Millisecond, index)
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = metrics.GetMetrics()
+	}
+}
+
+/*
+BenchmarkLatencyRecord measures appending one sample to a rolling window.
+*/
+func BenchmarkLatencyRecord(b *testing.B) {
+	tracker := NewLatencyTracker(256)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		tracker.RecordLatency(time.Microsecond)
+	}
+}
+
+/*
+BenchmarkLatencyAverage measures rolling average computation over a full window.
+*/
+func BenchmarkLatencyAverage(b *testing.B) {
+	tracker := NewLatencyTracker(100)
+
+	for index := 0; index < 100; index++ {
+		tracker.RecordLatency(time.Millisecond)
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = tracker.AverageLatency()
+	}
 }

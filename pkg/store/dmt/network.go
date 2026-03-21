@@ -99,6 +99,9 @@ func NewNetworkNode(config NetworkConfig, forest *Forest) (*NetworkNode, error) 
 		HeartbeatInterval: 50 * time.Millisecond,
 		QuorumSize:        max(1, (clusterSize/2)+1),
 	}, node)
+	node.election.stateLock.Lock()
+	node.election.term = 1
+	node.election.stateLock.Unlock()
 
 	node.scheduleLoop("accept-loop", func(ctx context.Context) (any, error) {
 		node.acceptLoop()
@@ -370,9 +373,12 @@ func (n *NetworkNode) Insert(ctx context.Context, call RadixRPC_insert) error {
 	term := args.Term()
 	index := args.LogIndex()
 
-	// Validate term/index
-	if term < n.election.getCurrentTerm() {
+	if term != 0 && term < n.election.getCurrentTerm() {
 		return fmt.Errorf("stale term")
+	}
+
+	if term == 0 {
+		return fmt.Errorf("dmt/network insert: missing term in request")
 	}
 
 	// Update local state with log tracking
@@ -500,11 +506,17 @@ BroadcastInsert broadcasts an insert operation to all connected peers.
 It ensures data consistency by propagating insertions to all nodes
 in the network.
 */
-func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
+func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) error {
 	start := time.Now()
 
 	currentTerm := n.election.getCurrentTerm()
+	if currentTerm == 0 {
+		return fmt.Errorf("dmt/network broadcast insert: missing term in request")
+	}
+
 	newLogIndex := n.election.getLastLogIndex() + 1
+
+	n.election.updateLogState(newLogIndex, currentTerm)
 
 	n.peersMutex.RLock()
 	peers := make([]*peer, 0, len(n.peers))
@@ -545,6 +557,20 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 	}
 
 	n.metrics.RecordInsert(time.Since(start), len(key)+len(value))
+
+	return nil
+}
+
+/*
+ListenAddr returns the resolved listen address including the actual port
+assigned by the OS (useful when configured with port 0).
+*/
+func (n *NetworkNode) ListenAddr() string {
+	if n.listener == nil {
+		return ""
+	}
+
+	return n.listener.Addr().String()
 }
 
 /*
@@ -643,7 +669,8 @@ func (n *NetworkNode) schedule(
 ) {
 	n.forest.pool.Schedule(
 		"dmt/network/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: n.ctx, fn: fn},
 		pool.WithContext(n.ctx),
 	)
 }
@@ -654,7 +681,8 @@ func (n *NetworkNode) scheduleLoop(
 ) {
 	n.forest.loops.Schedule(
 		"dmt/network/"+id,
-		fn,
+		pool.COMPUTE,
+		&readPoolTask{ctx: n.ctx, fn: fn, loop: true},
 		pool.WithContext(n.ctx),
 		pool.WithTTL(time.Second),
 	)

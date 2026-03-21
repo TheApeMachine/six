@@ -7,14 +7,59 @@ common prefixes to save space and enables fast lookups, insertions, and prefix-b
 package dmt
 
 import (
-	"bytes"
-	"container/ring"
 	"sync"
 	"time"
 
 	iradix "github.com/hashicorp/go-immutable-radix/v2"
 	"github.com/theapemachine/six/pkg/errnie"
 )
+
+/*
+perfWindowSize is how many end-to-end latency samples perfRing retains per tree.
+Ten keeps the rolling average responsive (picks up drift within a few inserts)
+without chasing single-shot noise; each slot is one Insert/Get timing in
+nanoseconds.
+*/
+const perfWindowSize = 10
+
+/*
+perfRing is a fixed-size circular buffer for int64 latency samples.
+Avoids container/ring interface boxing and heap allocation per sample.
+*/
+type perfRing struct {
+	samples [perfWindowSize]int64
+	pos     int
+	count   int
+}
+
+/*
+record appends a latency sample, overwriting the oldest when full.
+*/
+func (pr *perfRing) record(ns int64) {
+	pr.samples[pr.pos] = ns
+	pr.pos = (pr.pos + 1) % perfWindowSize
+
+	if pr.count < perfWindowSize {
+		pr.count++
+	}
+}
+
+/*
+avg returns the arithmetic mean of recorded samples, or zero if empty.
+*/
+func (pr *perfRing) avg() int64 {
+	if pr.count == 0 {
+		return 0
+	}
+
+	var sum int64
+
+	for i := 0; i < pr.count; i++ {
+		sum += pr.samples[i]
+	}
+
+	return sum / int64(pr.count)
+}
 
 /*
 Tree wraps an immutable radix tree implementation from hashicorp/go-immutable-radix.
@@ -25,8 +70,9 @@ type Tree struct {
 	state    *errnie.State
 	root     *iradix.Tree[[]byte]
 	updated  bool
-	perfs    *ring.Ring
+	perfs    perfRing
 	persist  *PersistentStore
+	merkle   *MerkleTree
 	term     uint64
 	logIndex uint64
 	mu       sync.RWMutex
@@ -40,7 +86,6 @@ func NewTree(persistDir string) (*Tree, error) {
 	tree := &Tree{
 		state: errnie.NewState("dmt/tree"),
 		root:  iradix.New[[]byte](),
-		perfs: ring.New(10),
 	}
 
 	if persistDir != "" {
@@ -61,9 +106,9 @@ func NewTree(persistDir string) (*Tree, error) {
 }
 
 /*
-Seek performs a prefix-based search in the tree, finding the first value whose key
-is greater than or equal to the provided key in lexicographical order.
-Returns the value and true if found, or nil and false if no such key exists.
+Seek returns the first value whose key is >= the provided key via
+SeekLowerBound. The previous implementation redundantly re-compared every
+key after the lower-bound position and only recorded latency on misses.
 */
 func (tree *Tree) Seek(key []byte) ([]byte, bool) {
 	tree.mu.RLock()
@@ -73,15 +118,13 @@ func (tree *Tree) Seek(key []byte) ([]byte, bool) {
 
 	it := tree.root.Root().Iterator()
 	it.SeekLowerBound(key)
+	_, v, ok := it.Next()
 
-	for k, v, ok := it.Next(); ok; k, v, ok = it.Next() {
-		if bytes.Compare(k, key) >= 0 {
-			return v, true
-		}
+	tree.perfs.record(time.Since(t).Nanoseconds())
+
+	if ok {
+		return v, true
 	}
-
-	tree.perfs.Value = time.Since(t).Nanoseconds()
-	tree.perfs = tree.perfs.Next()
 
 	return nil, false
 }
@@ -111,10 +154,13 @@ func (tree *Tree) Insert(key []byte, value []byte) (*Tree, bool) {
 				return tree.persist.LogInsert(key, value, tree.term, tree.logIndex)
 			})
 		}
+
+		if tree.merkle != nil {
+			tree.merkle.Insert(key, value)
+		}
 	}
 
-	tree.perfs.Value = time.Since(t).Nanoseconds()
-	tree.perfs = tree.perfs.Next()
+	tree.perfs.record(time.Since(t).Nanoseconds())
 	return tree, tree.updated
 }
 
@@ -128,8 +174,7 @@ func (tree *Tree) Get(key []byte) ([]byte, bool) {
 
 	t := time.Now()
 	v, ok := tree.root.Get(key)
-	tree.perfs.Value = time.Since(t).Nanoseconds()
-	tree.perfs = tree.perfs.Next()
+	tree.perfs.record(time.Since(t).Nanoseconds())
 	return v, ok
 }
 
@@ -137,23 +182,7 @@ func (tree *Tree) Get(key []byte) ([]byte, bool) {
 AVG returns the average performance of the tree in nanoseconds.
 */
 func (tree *Tree) AVG() int64 {
-	var sum int64
-	var count int64
-
-	tree.perfs.Do(func(v any) {
-		if v == nil {
-			return
-		}
-
-		sum += v.(int64)
-		count++
-	})
-
-	if count == 0 {
-		return 0
-	}
-
-	return sum / count
+	return tree.perfs.avg()
 }
 
 /*

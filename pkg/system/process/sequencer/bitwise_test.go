@@ -50,7 +50,8 @@ func TestBitwiseHealerHeal(t *testing.T) {
 				}
 			}
 
-			healed := bitwise.Heal()
+			healed, healErr := bitwise.Heal()
+			gc.So(healErr, gc.ShouldBeNil)
 
 			var expected []string
 
@@ -71,7 +72,112 @@ func TestBitwiseHealerHeal(t *testing.T) {
 	}
 }
 
+func TestBitwiseHealerSingleSequence(t *testing.T) {
+	gc.Convey("Given a single unfragmented sentence", t, func() {
+		bitwise := NewBitwiseHealer()
+
+		for _, fragment := range []string{"Hello world"} {
+			for idx, b := range []byte(fragment) {
+				bitwise.Write(b, idx == len(fragment)-1)
+			}
+		}
+
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
+
+		gc.So(len(healed), gc.ShouldEqual, 1)
+		gc.So(string(healed[0]), gc.ShouldEqual, "Hello world")
+	})
+}
+
+func TestBitwiseHealerEmpty(t *testing.T) {
+	gc.Convey("Given no input", t, func() {
+		bitwise := NewBitwiseHealer()
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
+
+		gc.So(healed, gc.ShouldBeNil)
+	})
+}
+
+func TestBitwiseHealerSingleByte(t *testing.T) {
+	gc.Convey("Given a single byte", t, func() {
+		bitwise := NewBitwiseHealer()
+		bitwise.Write('A', true)
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
+
+		gc.So(len(healed), gc.ShouldEqual, 1)
+		gc.So(string(healed[0]), gc.ShouldEqual, "A")
+	})
+}
+
+func TestBitwiseHealerCleanFragments(t *testing.T) {
+	gc.Convey("Given already-clean word-boundary fragments", t, func() {
+		bitwise := NewBitwiseHealer()
+
+		for _, word := range []string{"The ", "quick ", "brown ", "fox"} {
+			for idx, b := range []byte(word) {
+				bitwise.Write(b, idx == len(word)-1)
+			}
+		}
+
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
+
+		full := ""
+		for _, chunk := range healed {
+			full += string(chunk)
+		}
+
+		gc.So(full, gc.ShouldEqual, "The quick brown fox")
+	})
+}
+
+func TestBitwiseHealerFlush(t *testing.T) {
+	gc.Convey("Given bytes without a trailing boundary", t, func() {
+		bitwise := NewBitwiseHealer()
+
+		for _, b := range []byte("trailing") {
+			bitwise.Write(b, false)
+		}
+
+		healed, flushErr := bitwise.Flush()
+		gc.So(flushErr, gc.ShouldBeNil)
+
+		gc.So(len(healed), gc.ShouldEqual, 1)
+		gc.So(string(healed[0]), gc.ShouldEqual, "trailing")
+	})
+}
+
+func TestBitwiseHealerDecodeLookup(t *testing.T) {
+	gc.Convey("Given every possible byte value", t, func() {
+		bitwise := NewBitwiseHealer()
+
+		for symbol := range 256 {
+			bitwise.Write(byte(symbol), true)
+		}
+
+		healed, healErr := bitwise.Heal()
+		gc.So(healErr, gc.ShouldBeNil)
+
+		flat := []byte{}
+
+		for _, chunk := range healed {
+			flat = append(flat, chunk...)
+		}
+
+		gc.So(len(flat), gc.ShouldEqual, 256)
+
+		for symbol := range 256 {
+			gc.So(flat[symbol], gc.ShouldEqual, byte(symbol))
+		}
+	})
+}
+
 func BenchmarkBitwiseHealerHeal(b *testing.B) {
+	b.ReportAllocs()
+
 	for b.Loop() {
 		bitwise := NewBitwiseHealer()
 
@@ -83,6 +189,44 @@ func BenchmarkBitwiseHealerHeal(b *testing.B) {
 			}
 		}
 
-		_ = bitwise.Heal()
+		_, _ = bitwise.Heal()
+	}
+}
+
+func BenchmarkBitwiseHealerLargePayload(b *testing.B) {
+	fragments := []string{
+		"The quick brown ", "fo", "x jumps over the ", "la", "zy dog. ",
+		"The quick brown ", "fo", "x runs past the ", "la", "zy cat. ",
+		"The quick brown ", "fo", "x leaps over the ", "la", "zy hen. ",
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		bitwise := NewBitwiseHealer()
+
+		for _, fragment := range fragments {
+			for idx, bv := range []byte(fragment) {
+				bitwise.Write(bv, idx == len(fragment)-1)
+			}
+		}
+
+		_, _ = bitwise.Heal()
+	}
+}
+
+func BenchmarkBitwiseHealerDecode(b *testing.B) {
+	bitwise := NewBitwiseHealer()
+
+	for symbol := range 256 {
+		bitwise.Write(byte(symbol), true)
+	}
+
+	flat := bitwise.flatten(bitwise.values)
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		_, _ = bitwise.decode(flat)
 	}
 }

@@ -22,15 +22,14 @@ type UniversalServer struct {
 	state       *errnie.State
 	ctx         context.Context
 	cancel      context.CancelFunc
-	serverSide  net.Conn
-	clientSide  net.Conn
-	client      Universal
 	serverConn  *rpc.Conn
+	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	pool        *pool.Pool
 	seq         *sequencer.Sequitur
 	pos         uint32
 	stateMu     sync.Mutex
+	connMu      sync.RWMutex
 	morton      *data.MortonCoder
 	healer      *sequencer.BitwiseHealer
 	sequences   [][]byte
@@ -61,29 +60,39 @@ func NewUniversalServer(opts ...universalOpts) *UniversalServer {
 		})
 	})
 
-	server.serverSide, server.clientSide = net.Pipe()
-	server.client = Universal_ServerToClient(server)
+	serverSide, clientSide := net.Pipe()
+	capability := Universal_ServerToClient(server)
 
-	server.serverConn = rpc.NewConn(rpc.NewStreamTransport(
-		server.serverSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
+	server.serverConn = rpc.NewConn(rpc.NewStreamTransport(serverSide), &rpc.Options{
+		BootstrapClient: capnp.Client(capability),
 	})
+
+	server.clientConn = rpc.NewConn(rpc.NewStreamTransport(clientSide), nil)
 
 	return server
 }
 
 /*
 Client returns a Cap'n Proto client connected to this UniversalServer.
+Returns the bootstrap capability from the pre-created client connection.
+This connection is shared by all clients for proper RPC multiplexing.
 */
-func (server *UniversalServer) Client(clientID string) Universal {
-	server.clientConns[clientID] = rpc.NewConn(rpc.NewStreamTransport(
-		server.clientSide,
-	), &rpc.Options{
-		BootstrapClient: capnp.Client(server.client),
-	})
+func (server *UniversalServer) Client(clientID string) capnp.Client {
+	server.connMu.Lock()
+	server.clientConns[clientID] = server.clientConn
+	server.connMu.Unlock()
 
-	return server.client
+	return server.clientConn.Bootstrap(server.ctx)
+}
+
+/*
+Load approximates concurrent RPC pressure via active client registrations.
+*/
+func (server *UniversalServer) Load() int64 {
+	server.connMu.RLock()
+	defer server.connMu.RUnlock()
+
+	return int64(len(server.clientConns))
 }
 
 /*
@@ -91,6 +100,14 @@ Close shuts down the RPC connections and underlying net.Pipe.
 */
 func (server *UniversalServer) Close() error {
 	server.state.Reset()
+
+	if server.clientConn != nil {
+		errnie.GuardVoid(server.state, func() error {
+			return server.clientConn.Close()
+		})
+
+		server.clientConn = nil
+	}
 
 	if server.serverConn != nil {
 		errnie.GuardVoid(server.state, func() error {
@@ -100,31 +117,11 @@ func (server *UniversalServer) Close() error {
 		server.serverConn = nil
 	}
 
-	for clientID, conn := range server.clientConns {
-		if conn != nil {
-			errnie.GuardVoid(server.state, func() error {
-				return conn.Close()
-			})
-		}
-
+	server.connMu.Lock()
+	for clientID := range server.clientConns {
 		delete(server.clientConns, clientID)
 	}
-
-	if server.serverSide != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.serverSide.Close()
-		})
-
-		server.serverSide = nil
-	}
-
-	if server.clientSide != nil {
-		errnie.GuardVoid(server.state, func() error {
-			return server.clientSide.Close()
-		})
-
-		server.clientSide = nil
-	}
+	server.connMu.Unlock()
 
 	if server.cancel != nil {
 		server.cancel()
@@ -168,7 +165,14 @@ func (server *UniversalServer) Done(
 
 	server.state.Reset()
 
-	for _, seq := range server.healer.Flush() {
+	flushed, flushErr := server.healer.Flush()
+	if flushErr != nil {
+		server.state.Handle(flushErr)
+
+		return server.state.Err()
+	}
+
+	for _, seq := range flushed {
 		server.sequences = append(server.sequences, seq)
 	}
 
@@ -181,14 +185,25 @@ func (server *UniversalServer) Done(
 	}
 
 	server.sequences = server.sequences[:0]
+	server.seq = sequencer.NewSequitur()
+	server.healer = sequencer.NewBitwiseHealer()
+	server.pos = 0
 
 	res := errnie.Guard(server.state, func() (Universal_done_Results, error) {
 		return call.AllocResults()
 	})
 
+	if server.state.Failed() {
+		return server.state.Err()
+	}
+
 	keyList := errnie.Guard(server.state, func() (capnp.UInt64List, error) {
 		return res.NewKeys(int32(len(keys)))
 	})
+
+	if server.state.Failed() {
+		return server.state.Err()
+	}
 
 	for index, key := range keys {
 		keyList.Set(index, key)
@@ -225,8 +240,16 @@ tokenize runs the Sequencer over one byte and returns a Morton key.
 */
 func (server *UniversalServer) tokenize(raw byte) {
 	server.healer.Write(server.seq.Analyze(server.pos, raw))
+	server.pos++
 
-	if buf := server.healer.Heal(); buf != nil {
+	buf, healErr := server.healer.Heal()
+	if healErr != nil {
+		server.state.Handle(healErr)
+
+		return
+	}
+
+	if buf != nil {
 		for _, seq := range buf {
 			server.sequences = append(server.sequences, seq)
 		}

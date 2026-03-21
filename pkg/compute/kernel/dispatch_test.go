@@ -1,76 +1,132 @@
 package kernel
 
 import (
+	"bytes"
+	"io"
 	"testing"
-	"unsafe"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
-	"github.com/theapemachine/six/pkg/numeric/geometry"
 )
 
-func generateGFRotations(count int) []geometry.GFRotation {
-	nodes := make([]geometry.GFRotation, count)
-	for i := range count {
-		nodes[i] = geometry.GFRotation{
-			CoordU: uint16((i * 17) % 257),
-			CoordV: uint16((i * 31) % 257),
-		}
-	}
-	return nodes
-}
-
 func TestNewBuilder(t *testing.T) {
-	Convey("Given the default kernel builder", t, func() {
-		builder := NewBuilder(WithBackend(&cpu.CPUBackend{}))
+	Convey("Given a builder with a CPU backend", t, func() {
+		builder := NewBuilder(WithBackend(&cpu.Backend{}))
 
-		Convey("It should resolve through an available backend", func() {
-			nodes := generateGFRotations(100)
-			target := nodes[42]
-
-			packed, err := builder.Resolve(
-				unsafe.Pointer(&nodes[0]),
-				len(nodes),
-				unsafe.Pointer(&target),
-			)
-
-			bestIdx, distSq := DecodePacked(packed)
-
+		Convey("It should report availability", func() {
+			n, err := builder.Available()
 			So(err, ShouldBeNil)
-			So(builder.Available(), ShouldBeTrue)
-			So(bestIdx, ShouldEqual, 42)
-			So(distSq, ShouldEqual, 0)
+			So(n, ShouldBeGreaterThan, 0)
+		})
+
+		Convey("It should round-trip bytes through the best backend", func() {
+			payload := []byte("hello kernel")
+
+			n, err := builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+
+			out := new(bytes.Buffer)
+			nn, readErr := io.Copy(out, builder)
+			So(readErr, ShouldBeNil)
+			So(nn, ShouldEqual, int64(len(payload)))
+			So(bytes.Equal(out.Bytes(), payload), ShouldBeTrue)
 		})
 	})
 }
 
-func TestDecodePackedCUDAScaledBranch(t *testing.T) {
-	Convey("Given a packed value with invertedDist > maxEncodedDistSq", t, func() {
-		invertedDist := uint32(maxEncodedDistSq + 1000)
-		idxExpected := 42
-		packed := (uint64(invertedDist) << 32) | uint64(idxExpected)
+func TestNewBuilderEmpty(t *testing.T) {
+	Convey("Given a builder with no backends", t, func() {
+		builder := NewBuilder()
 
-		Convey("DecodePacked applies CUDA scaled decode and returns correct idx and distSq", func() {
-			idx, distSq := DecodePacked(packed)
-			expectedDistSq := float64(scaledMaxEncoded-invertedDist) / 1024
+		Convey("It should return EOF on Read", func() {
+			buf := make([]byte, 16)
+			n, err := builder.Read(buf)
+			So(n, ShouldEqual, 0)
+			So(err, ShouldEqual, io.EOF)
+		})
 
-			So(idx, ShouldEqual, idxExpected)
-			So(distSq, ShouldEqual, expectedDistSq)
+		Convey("It should return ErrClosedPipe on Write", func() {
+			_, err := builder.Write([]byte("x"))
+			So(err, ShouldEqual, io.ErrClosedPipe)
 		})
 	})
 }
 
-func BenchmarkBuilderResolve(b *testing.B) {
-	nodes := generateGFRotations(4096)
-	target := nodes[42]
-	builder := NewBuilder(WithBackend(&cpu.CPUBackend{}))
-	b.ResetTimer()
+func BenchmarkBuilderRoundTrip(b *testing.B) {
+	builder := NewBuilder(WithBackend(&cpu.Backend{}))
+	payload := []byte("benchmark payload of reasonable size for throughput testing")
+
+	var out bytes.Buffer
+	out.Grow(len(payload))
+
+	b.ReportAllocs()
 
 	for b.Loop() {
-		_, _ = builder.Resolve(
-			unsafe.Pointer(&nodes[0]),
-			len(nodes),
-			unsafe.Pointer(&target),
-		)
+		builder.Reset()
+		builder.Write(payload)
+
+		out.Reset()
+		io.Copy(&out, builder)
 	}
+}
+
+type countingBackend struct {
+	buf            bytes.Buffer
+	availableCalls int
+}
+
+func (backend *countingBackend) Available() (int, error) {
+	backend.availableCalls++
+
+	return 1, nil
+}
+
+func (backend *countingBackend) Read(p []byte) (int, error) {
+	return backend.buf.Read(p)
+}
+
+func (backend *countingBackend) Write(p []byte) (int, error) {
+	return backend.buf.Write(p)
+}
+
+func (backend *countingBackend) Close() error {
+	backend.buf.Reset()
+
+	return nil
+}
+
+func TestBuilderBestCachesAvailabilityWithinTTL(t *testing.T) {
+	Convey("Given a builder with a cached backend probe", t, func() {
+		backend := &countingBackend{}
+		builder := NewBuilder(WithBackend(backend))
+		builder.availabilityTTL = time.Hour
+
+		payload := []byte("x")
+
+		Convey("It should avoid repeated Available probes until reset", func() {
+			n, err := builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(backend.availableCalls, ShouldEqual, 1)
+
+			out := make([]byte, len(payload))
+			n, err = builder.Read(out)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(backend.availableCalls, ShouldEqual, 1)
+
+			closeErr := builder.Close()
+			So(closeErr, ShouldBeNil)
+			So(backend.availableCalls, ShouldEqual, 1)
+
+			builder.Reset()
+
+			n, err = builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(backend.availableCalls, ShouldEqual, 2)
+		})
+	})
 }

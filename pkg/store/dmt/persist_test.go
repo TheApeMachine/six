@@ -1,8 +1,12 @@
 package dmt
 
 import (
+	"bytes"
+	"crypto/rand"
+	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -198,4 +202,417 @@ func TestGetLastState(t *testing.T) {
 			So(index, ShouldEqual, uint64(5))
 		})
 	})
+}
+
+/*
+tempPersistDir returns a unique directory under os.TempDir for isolated WAL tests.
+*/
+func tempPersistDir() string {
+	var suffix [4]byte
+
+	_, _ = rand.Read(suffix[:])
+
+	return filepath.Join(
+		os.TempDir(),
+		fmt.Sprintf("dmt-persist-%d-%x", time.Now().UnixNano(), suffix),
+	)
+}
+
+/*
+TestLogInsertOnClosedStore verifies LogInsert fails after Close.
+*/
+func TestLogInsertOnClosedStore(t *testing.T) {
+	Convey("Given a closed persistent store", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		err = store.Close()
+		So(err, ShouldBeNil)
+
+		Convey("When logging an insert after close", func() {
+			err := store.LogInsert([]byte("k"), []byte("v"), 1, 1)
+			So(err, ShouldNotBeNil)
+		})
+	})
+}
+
+/*
+TestLogTermOnClosedStore verifies LogTerm fails after Close.
+*/
+func TestLogTermOnClosedStore(t *testing.T) {
+	Convey("Given a closed persistent store", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		err = store.Close()
+		So(err, ShouldBeNil)
+
+		Convey("When logging a term update after close", func() {
+			err := store.LogTerm(1)
+			So(err, ShouldNotBeNil)
+		})
+	})
+}
+
+/*
+TestLogTerm verifies term-only WAL records advance lastTerm without advancing index.
+*/
+func TestLogTerm(t *testing.T) {
+	Convey("Given a fresh persistent store", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+		defer store.Close()
+
+		Convey("When logging term 5", func() {
+			err := store.LogTerm(5)
+			So(err, ShouldBeNil)
+
+			term, index := store.GetLastState()
+			So(term, ShouldEqual, uint64(5))
+			So(index, ShouldEqual, uint64(0))
+
+			Convey("And logging term 10", func() {
+				err := store.LogTerm(10)
+				So(err, ShouldBeNil)
+
+				term, index := store.GetLastState()
+				So(term, ShouldEqual, uint64(10))
+				So(index, ShouldEqual, uint64(0))
+			})
+		})
+	})
+}
+
+/*
+TestReplayMixedOperations verifies Replay returns only inserts while term updates still affect state.
+*/
+func TestReplayMixedOperations(t *testing.T) {
+	Convey("Given a WAL with inserts and a term update", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		So(store.LogInsert([]byte("a1"), []byte("v1"), 1, 1), ShouldBeNil)
+		So(store.LogInsert([]byte("a2"), []byte("v2"), 1, 2), ShouldBeNil)
+		So(store.LogInsert([]byte("a3"), []byte("v3"), 1, 3), ShouldBeNil)
+		So(store.LogTerm(5), ShouldBeNil)
+		So(store.LogInsert([]byte("a4"), []byte("v4"), 5, 4), ShouldBeNil)
+		So(store.LogInsert([]byte("a5"), []byte("v5"), 5, 5), ShouldBeNil)
+
+		So(store.Close(), ShouldBeNil)
+
+		Convey("When reopening and replaying", func() {
+			newStore, err := NewPersistentStore(tmpDir)
+			So(err, ShouldBeNil)
+			defer newStore.Close()
+
+			entries, replayErr := newStore.Replay()
+			So(replayErr, ShouldBeNil)
+			So(len(entries), ShouldEqual, 5)
+
+			for _, entry := range entries {
+				So(entry.Op, ShouldEqual, opInsert)
+			}
+
+			term, index := newStore.GetLastState()
+			So(term, ShouldEqual, uint64(5))
+			So(index, ShouldEqual, uint64(5))
+		})
+	})
+}
+
+/*
+TestReplayOnEmptyDir verifies Replay on a brand-new WAL yields no entries and no error.
+*/
+func TestReplayOnEmptyDir(t *testing.T) {
+	Convey("Given a new store on an empty directory", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+		defer store.Close()
+
+		Convey("When replaying immediately", func() {
+			entries, replayErr := store.Replay()
+			So(replayErr, ShouldBeNil)
+			So(len(entries), ShouldEqual, 0)
+			So(entries, ShouldBeNil)
+		})
+	})
+}
+
+/*
+TestReplayPreservesOrder verifies insert entries return in WAL order after restart.
+*/
+func TestReplayPreservesOrder(t *testing.T) {
+	Convey("Given sequential inserts", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		for i := 0; i < 5; i++ {
+			key := []byte(fmt.Sprintf("order-%d", i))
+			val := []byte(fmt.Sprintf("val-%d", i))
+			So(store.LogInsert(key, val, 1, uint64(i+1)), ShouldBeNil)
+		}
+
+		So(store.Close(), ShouldBeNil)
+
+		Convey("When reopening and replaying", func() {
+			newStore, err := NewPersistentStore(tmpDir)
+			So(err, ShouldBeNil)
+			defer newStore.Close()
+
+			entries, replayErr := newStore.Replay()
+			So(replayErr, ShouldBeNil)
+			So(len(entries), ShouldEqual, 5)
+
+			for i := 0; i < 5; i++ {
+				So(string(entries[i].Key), ShouldEqual, fmt.Sprintf("order-%d", i))
+				So(string(entries[i].Value), ShouldEqual, fmt.Sprintf("val-%d", i))
+			}
+		})
+	})
+}
+
+/*
+TestDoubleClose verifies Close is idempotent.
+*/
+func TestDoubleClose(t *testing.T) {
+	Convey("Given a persistent store", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		Convey("When closing twice", func() {
+			So(store.Close(), ShouldBeNil)
+			So(store.Close(), ShouldBeNil)
+		})
+	})
+}
+
+/*
+TestConcurrentLogInsert stresses LogInsert from many goroutines with unique indices.
+
+Indices are confined to [1001,1500] and [2001,2500] so no insert satisfies index%1000==0,
+which would schedule createSnapshot and truncate the WAL while other goroutines append.
+*/
+func TestConcurrentLogInsert(t *testing.T) {
+	Convey("Given a persistent store", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		var wg sync.WaitGroup
+
+		var mu sync.Mutex
+		var firstErr error
+
+		for goroutineID := 0; goroutineID < 10; goroutineID++ {
+			wg.Add(1)
+
+			go func(gid int) {
+				defer wg.Done()
+
+				var base uint64
+
+				if gid < 5 {
+					base = 1001 + uint64(gid*100)
+				} else {
+					base = 2001 + uint64((gid-5)*100)
+				}
+
+				for i := uint64(1); i <= 100; i++ {
+					key := []byte(fmt.Sprintf("c-%d-%d", gid, i))
+					walIndex := base + i - 1
+					insertErr := store.LogInsert(key, []byte("v"), 1, walIndex)
+
+					if insertErr != nil {
+						mu.Lock()
+
+						if firstErr == nil {
+							firstErr = insertErr
+						}
+
+						mu.Unlock()
+
+						return
+					}
+				}
+			}(goroutineID)
+		}
+
+		wg.Wait()
+		So(firstErr, ShouldBeNil)
+
+		So(store.Close(), ShouldBeNil)
+
+		Convey("When reopening", func() {
+			newStore, openErr := NewPersistentStore(tmpDir)
+			So(openErr, ShouldBeNil)
+			defer newStore.Close()
+
+			entries, replayErr := newStore.Replay()
+			So(replayErr, ShouldBeNil)
+			So(len(entries), ShouldEqual, 1000)
+
+			for _, entry := range entries {
+				So(entry.Op, ShouldEqual, opInsert)
+				So(entry.Term, ShouldEqual, uint64(1))
+			}
+		})
+	})
+}
+
+/*
+TestPersistLargeValues verifies multi-megabyte key and value round-trip through the WAL.
+*/
+func TestPersistLargeValues(t *testing.T) {
+	Convey("Given a persistent store", t, func() {
+		tmpDir := tempPersistDir()
+		defer os.RemoveAll(tmpDir)
+
+		store, err := NewPersistentStore(tmpDir)
+		So(err, ShouldBeNil)
+
+		const oneMB = 1 << 20
+
+		key := make([]byte, oneMB)
+		value := make([]byte, oneMB)
+
+		for i := range key {
+			key[i] = byte(i % 251)
+		}
+
+		for i := range value {
+			value[i] = byte((i + 13) % 251)
+		}
+
+		So(store.LogInsert(key, value, 1, 1), ShouldBeNil)
+		So(store.Close(), ShouldBeNil)
+
+		Convey("When reopening and replaying", func() {
+			newStore, err := NewPersistentStore(tmpDir)
+			So(err, ShouldBeNil)
+			defer newStore.Close()
+
+			entries, replayErr := newStore.Replay()
+			So(replayErr, ShouldBeNil)
+			So(len(entries), ShouldEqual, 1)
+			So(entries[0].Op, ShouldEqual, opInsert)
+			So(bytes.Equal(entries[0].Key, key), ShouldBeTrue)
+			So(bytes.Equal(entries[0].Value, value), ShouldBeTrue)
+		})
+	})
+}
+
+/*
+BenchmarkLogInsert measures single insert throughput on a warm store.
+*/
+func BenchmarkLogInsert(b *testing.B) {
+	tmpDir := tempPersistDir()
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewPersistentStore(tmpDir)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer store.Close()
+
+	key := []byte("bench-key")
+	val := []byte("bench-val")
+	var index uint64
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		index++
+
+		if err := store.LogInsert(key, val, 1, index); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+/*
+BenchmarkReplay measures NewPersistentStore replay cost after 1000 inserts.
+*/
+func BenchmarkReplay(b *testing.B) {
+	tmpDir := tempPersistDir()
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewPersistentStore(tmpDir)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for i := uint64(1); i <= 1000; i++ {
+		if err := store.LogInsert([]byte("k"), []byte("v"), 1, i); err != nil {
+			store.Close()
+			b.Fatal(err)
+		}
+	}
+
+	store.Close()
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		replayStore, openErr := NewPersistentStore(tmpDir)
+
+		if openErr != nil {
+			b.Fatal(openErr)
+		}
+
+		replayStore.Close()
+	}
+}
+
+/*
+BenchmarkLogTerm measures term-update WAL writes.
+*/
+func BenchmarkLogTerm(b *testing.B) {
+	tmpDir := tempPersistDir()
+	defer os.RemoveAll(tmpDir)
+
+	store, err := NewPersistentStore(tmpDir)
+
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	defer store.Close()
+
+	var term uint64
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		term++
+
+		if err := store.LogTerm(term); err != nil {
+			b.Fatal(err)
+		}
+	}
 }

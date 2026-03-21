@@ -18,6 +18,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/internal/resolve"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
+	"github.com/theapemachine/six/pkg/system/transport"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air
@@ -28,10 +29,30 @@ var resolverMetallib []byte
 
 var metalReady atomic.Bool
 
-type MetalBackend struct{}
+type MetalBackend struct {
+	*transport.Stream
+}
 
-func (backend *MetalBackend) Available() bool {
-	return metalReady.Load()
+/*
+NewMetalBackend returns a Metal kernel Backend with a non-nil transport.Stream
+so Read/Write/Close never delegate to a nil embedded pointer.
+*/
+func NewMetalBackend() *MetalBackend {
+	return &MetalBackend{
+		Stream: transport.NewStream(),
+	}
+}
+
+/*
+Available returns the number of Metal-capable GPUs present on this system,
+or an error if the Metal runtime failed to initialize.
+*/
+func (backend *MetalBackend) Available() (int, error) {
+	if !metalReady.Load() {
+		return 0, MetalErrorUnavailable
+	}
+
+	return int(C.count_metal_devices()), nil
 }
 
 func (backend *MetalBackend) Resolve(
@@ -45,7 +66,7 @@ func (backend *MetalBackend) Resolve(
 	if graphNodes == nil || context == nil {
 		return 0, MetalErrorResolveFailed
 	}
-	if !backend.Available() {
+	if n, err := backend.Available(); n == 0 || err != nil {
 		return 0, MetalErrorUnavailable
 	}
 
@@ -78,7 +99,7 @@ func (backend *MetalBackend) ResolvePhaseDial(
 	queryDial unsafe.Pointer,
 	similarities unsafe.Pointer,
 ) error {
-	if !backend.Available() {
+	if n, err := backend.Available(); n == 0 || err != nil {
 		return MetalErrorUnavailable
 	}
 	if cacheNodes == nil || queryDial == nil || similarities == nil || numNodes <= 0 {
@@ -95,7 +116,7 @@ func (backend *MetalBackend) EncodePhaseDial(
 	numValues int,
 	outDial unsafe.Pointer,
 ) error {
-	if !backend.Available() {
+	if n, err := backend.Available(); n == 0 || err != nil {
 		return MetalErrorUnavailable
 	}
 	if structuralPhases == nil || outDial == nil || numValues <= 0 {
@@ -115,7 +136,7 @@ func (backend *MetalBackend) SeqToroidalMeanPhase(
 	valueBlocks unsafe.Pointer,
 	numValues int,
 ) (theta float64, phi float64, err error) {
-	if !backend.Available() {
+	if n, availErr := backend.Available(); n == 0 || availErr != nil {
 		return 0, 0, MetalErrorUnavailable
 	}
 	if valueBlocks == nil || numValues <= 0 {
@@ -132,7 +153,7 @@ func (backend *MetalBackend) WeightedCircularMean(
 	valueBlocks unsafe.Pointer,
 	numValues int,
 ) (phase float64, concentration float64, err error) {
-	if !backend.Available() {
+	if n, availErr := backend.Available(); n == 0 || availErr != nil {
 		return 0, 0, MetalErrorUnavailable
 	}
 	if valueBlocks == nil || numValues <= 0 {
@@ -149,7 +170,7 @@ func (backend *MetalBackend) SolveBVP(
 	startBlocks unsafe.Pointer,
 	goalBlocks unsafe.Pointer,
 ) (scale uint16, translate uint16, distance float64, err error) {
-	if !backend.Available() {
+	if n, availErr := backend.Available(); n == 0 || availErr != nil {
 		return 0, 0, 0, MetalErrorUnavailable
 	}
 	if startBlocks == nil || goalBlocks == nil {

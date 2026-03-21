@@ -79,6 +79,34 @@ func TestLoadBalancerRecordJobStartComplete(t *testing.T) {
 	})
 }
 
+func TestLoadBalancerObserveAddsWorkersFromMetrics(t *testing.T) {
+	Convey("Given a LoadBalancer sized for 2 workers", t, func() {
+		lb := NewLoadBalancer(2, 4)
+		m := &Metrics{WorkerCount: 5}
+
+		Convey("Observe should let SelectWorker reach expanded worker ids", func() {
+			lb.Observe(m)
+			So(lb.Limit(), ShouldBeFalse)
+
+			seen := make(map[int]struct{})
+
+			for range 64 {
+				w, err := lb.SelectWorker()
+				So(err, ShouldBeNil)
+				So(w, ShouldBeGreaterThanOrEqualTo, 0)
+				So(w, ShouldBeLessThan, 5)
+				seen[w] = struct{}{}
+
+				if len(seen) == 5 {
+					break
+				}
+			}
+
+			So(len(seen), ShouldEqual, 5)
+		})
+	})
+}
+
 func TestLoadBalancerRenormalize(t *testing.T) {
 	Convey("Renormalize caps load at capacity", t, func() {
 		lb := NewLoadBalancer(2, 2)
@@ -97,8 +125,8 @@ func BenchmarkLoadBalancerSelectWorker(b *testing.B) {
 	for i := 0; i < 8; i++ {
 		lb.RecordJobStart(i)
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	b.ReportAllocs()
+	for b.Loop() {
 		lb.SelectWorker()
 	}
 }
@@ -108,10 +136,37 @@ func BenchmarkLoadBalancerRecordJobComplete(b *testing.B) {
 	for i := 0; i < 8; i++ {
 		lb.RecordJobStart(i)
 	}
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		workerID := i % 16
+	var round int
+	b.ReportAllocs()
+	for b.Loop() {
+		workerID := round % 16
+		round++
 		lb.RecordJobComplete(workerID, 10*time.Millisecond)
 		lb.RecordJobStart(workerID)
+	}
+}
+
+func BenchmarkLoadBalancerObserveAndLimit(b *testing.B) {
+	lb := NewLoadBalancer(4, 8)
+	metrics := &Metrics{WorkerCount: 8}
+	lb.Observe(metrics)
+	b.ReportAllocs()
+	for b.Loop() {
+		lb.Observe(metrics)
+		_ = lb.Limit()
+	}
+}
+
+func BenchmarkLoadBalancerRenormalize(b *testing.B) {
+	lb := NewLoadBalancer(8, 4)
+	for workerID := 0; workerID < 8; workerID++ {
+		for range 8 {
+			lb.RecordJobStart(workerID)
+		}
+	}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		lb.Renormalize()
 	}
 }

@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/stretchr/testify/require"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
@@ -37,7 +36,7 @@ func TestPipeline(t *testing.T) {
 		phasedial.NewQueryRobustnessExperiment(),
 		phasedial.NewSnapToSurfaceExperiment(),
 		phasedial.NewSteerabilityExperiment(),
-		// phasedial.NewTorusGeneralizationExperiment(),
+		phasedial.NewTorusGeneralizationExperiment(),
 		phasedial.NewTorusNavigationExperiment(),
 		phasedial.NewTwoHopRetrievalExperiment(),
 		imagegen.NewReconstructionExperiment(),
@@ -52,18 +51,11 @@ func TestPipeline(t *testing.T) {
 		scaling.NewSequencerExperiment(),
 	}
 
-	experiments := allExperiments
-	if testing.Short() {
-		experiments = []tools.PipelineExperiment{
-			scaling.NewSequencerExperiment(),
-			scaling.NewCompressionExperiment(),
-		}
-	}
-
-	for _, experiment := range experiments {
+	for _, experiment := range allExperiments {
 		t.Run(experiment.Name(), func(t *testing.T) {
 			Convey("Given experiment: "+experiment.Name(), t, func() {
 				pipeline, err := NewPipeline(
+					t.Context(),
 					PipelineWithExperiment(experiment),
 					PipelineWithReporter(NewProjectorReporter()),
 				)
@@ -74,18 +66,27 @@ func TestPipeline(t *testing.T) {
 				Convey("When: "+experiment.Name()+" produces an outcome", func() {
 					So(pipeline.Run(), ShouldBeNil)
 
-					outcome, assertion, expected := experiment.Outcome()
-					So(outcome, assertion, expected)
+					Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
+						So(experiment.Outcome())
+					})
 
-					Convey("It should have produced serialized result and artifact snapshots", func() {
+					Convey("It should have produced paper ready artifacts for "+experiment.Name(), func() {
 						section := experiment.Section()
 
-						resultsPath := filepath.Join(PaperDir(section), tools.Slugify(experiment.Name())+"_results.json")
-						_, resultsErr := os.Stat(resultsPath)
+						_, resultsErr := os.Stat(
+							filepath.Join(
+								PaperDir(section),
+								tools.Slugify(experiment.Name())+"_results.json",
+							),
+						)
+
 						So(resultsErr, ShouldBeNil)
 
 						for _, artifact := range experiment.Artifacts() {
-							path := filepath.Join(PaperDir(section), artifactJSONFileName(artifact.FileName))
+							path := filepath.Join(
+								PaperDir(section),
+								artifactJSONFileName(artifact.FileName),
+							)
 
 							_, statErr := os.Stat(path)
 							So(statErr, ShouldBeNil)
@@ -95,19 +96,4 @@ func TestPipeline(t *testing.T) {
 			})
 		})
 	}
-}
-
-func TestPipelineWithScoreWeights(t *testing.T) {
-	experiment := codegen.NewLanguagesExperiment()
-	weights := tools.ScoreWeights{Exact: 0.2, Partial: 0.7, Fuzzy: 0.1}
-
-	pipeline, err := NewPipeline(
-		PipelineWithExperiment(experiment),
-		PipelineWithScoreWeights(weights),
-	)
-
-	require.NoError(t, err)
-	require.InDelta(t, weights.Exact, pipeline.scoreWgts.Exact, 1e-12)
-	require.InDelta(t, weights.Partial, pipeline.scoreWgts.Partial, 1e-12)
-	require.InDelta(t, weights.Fuzzy, pipeline.scoreWgts.Fuzzy, 1e-12)
 }
