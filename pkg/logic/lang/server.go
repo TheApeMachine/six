@@ -168,6 +168,17 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 		return primitive.New()
 	})
 
+	matchScratch := make([]primitive.MatchResult, len(candidates))
+	queryMaskScratch := errnie.Guard(prog.state, func() (primitive.Value, error) {
+		return primitive.New()
+	})
+
+	for index := range matchScratch {
+		matchScratch[index].Residue = errnie.Guard(prog.state, func() (primitive.Value, error) {
+			return primitive.New()
+		})
+	}
+
 	if prog.state.Failed() {
 		return nil, prog.state.Err()
 	}
@@ -194,8 +205,14 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 	})
 
 	for step := 0; step < prog.maxSteps; step++ {
-		queryMask := primitive.BuildQueryMask(currentState)
-		matchResults := primitive.BatchEvaluate(queryMask, candidates)
+		errnie.GuardVoid(prog.state, func() error {
+			return primitive.BuildQueryMaskInto(&queryMaskScratch, currentState)
+		})
+
+		queryMask := queryMaskScratch
+		matchResults := errnie.Guard(prog.state, func() ([]primitive.MatchResult, error) {
+			return primitive.BatchEvaluateInto(queryMask, candidates, matchScratch)
+		})
 
 		bestIndex := -1
 		var bestRecovered primitive.Value

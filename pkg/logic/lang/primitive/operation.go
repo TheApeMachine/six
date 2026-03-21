@@ -1,6 +1,7 @@
 package primitive
 
 import (
+	"fmt"
 	"math/bits"
 
 	"github.com/theapemachine/six/pkg/errnie"
@@ -96,6 +97,41 @@ func (query *Value) EvaluateMatch(candidate Value) MatchResult {
 		PhaseQuotient: phaseQuotient,
 		FitnessScore:  fitnessScore,
 	}
+}
+
+/*
+EvaluateMatchInto writes one query/candidate comparison into a caller-owned
+MatchResult so hot loops can reuse residue storage across iterations.
+*/
+func (query *Value) EvaluateMatchInto(
+	candidate Value,
+	result *MatchResult,
+) error {
+	if result == nil {
+		return fmt.Errorf("primitive: match result is nil")
+	}
+
+	if !result.Residue.IsValid() {
+		return fmt.Errorf("primitive: match residue is not allocated")
+	}
+
+	if err := candidate.HoleInto(*query, &result.Residue); err != nil {
+		return err
+	}
+
+	sharedBits, phaseQuotient, fitnessScore, _ := ScoreMatch(*query, candidate)
+
+	if phaseQuotient > 0 {
+		result.Residue.SetStatePhase(phaseQuotient)
+	} else {
+		result.Residue.SetResidualCarry(0)
+	}
+
+	result.SharedBits = sharedBits
+	result.PhaseQuotient = phaseQuotient
+	result.FitnessScore = fitnessScore
+
+	return nil
 }
 
 /*
@@ -237,19 +273,47 @@ BuildQueryMask constructs a composite search state from known structural compone
 Accumulates the physical bitwise OR mask and the composed inverse scalar phase.
 */
 func BuildQueryMask(knownValues ...Value) Value {
+	queryMask, err := New()
+	if err != nil {
+		panic("BuildQueryMask: " + err.Error())
+	}
+
+	if err := BuildQueryMaskInto(&queryMask, knownValues...); err != nil {
+		panic("BuildQueryMaskInto: " + err.Error())
+	}
+
+	return queryMask
+}
+
+/*
+BuildQueryMaskInto writes a composite search state into caller-owned storage.
+*/
+func BuildQueryMaskInto(destination *Value, knownValues ...Value) error {
+	if destination == nil || !destination.IsValid() {
+		return fmt.Errorf("primitive: query mask destination is invalid")
+	}
+
 	composedInversePhase := numeric.Phase(1)
-	queryMask := NeutralValue()
+
+	destination.SetC0(0)
+	destination.SetC1(0)
+	destination.SetC2(0)
+	destination.SetC3(0)
+	destination.SetC4(0)
+	destination.SetC5(0)
+	destination.SetC6(0)
+	destination.SetC7(0)
 
 	for _, known := range knownValues {
 		if known.ActiveCount() == 0 {
 			continue
 		}
 
-		queryMask.SetC0(queryMask.C0() | known.C0())
-		queryMask.SetC1(queryMask.C1() | known.C1())
-		queryMask.SetC2(queryMask.C2() | known.C2())
-		queryMask.SetC3(queryMask.C3() | known.C3())
-		queryMask.SetC4((queryMask.C4() | known.C4()) & 1)
+		destination.SetC0(destination.C0() | known.C0())
+		destination.SetC1(destination.C1() | known.C1())
+		destination.SetC2(destination.C2() | known.C2())
+		destination.SetC3(destination.C3() | known.C3())
+		destination.SetC4((destination.C4() | known.C4()) & 1)
 
 		phase := numeric.Phase(known.ResidualCarry() % uint64(numeric.FermatPrime))
 
@@ -265,10 +329,10 @@ func BuildQueryMask(knownValues ...Value) Value {
 		composedInversePhase = calc.Multiply(composedInversePhase, inv)
 	}
 
-	queryMask.SetAffine(composedInversePhase, 0)
-	queryMask.SetStatePhase(composedInversePhase)
+	destination.SetAffine(composedInversePhase, 0)
+	destination.SetStatePhase(composedInversePhase)
 
-	return queryMask
+	return nil
 }
 
 /*
@@ -284,6 +348,28 @@ func BatchEvaluate(queryMask Value, candidates []Value) []MatchResult {
 	}
 
 	return results
+}
+
+/*
+BatchEvaluateInto applies the query mask into caller-owned MatchResult buffers.
+The results slice must already contain one allocated Residue per candidate.
+*/
+func BatchEvaluateInto(
+	queryMask Value,
+	candidates []Value,
+	results []MatchResult,
+) ([]MatchResult, error) {
+	if len(results) < len(candidates) {
+		return nil, fmt.Errorf("primitive: results buffer too small")
+	}
+
+	for index := range candidates {
+		if err := queryMask.EvaluateMatchInto(candidates[index], &results[index]); err != nil {
+			return nil, err
+		}
+	}
+
+	return results[:len(candidates)], nil
 }
 
 /*

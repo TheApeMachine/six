@@ -158,114 +158,6 @@ func (p Head_Future) Operation() primitive.Value_Future {
 	return primitive.Value_Future{Future: p.Future.Field(2, nil)}
 }
 
-type DoneResult capnp.Struct
-
-// DoneResult_TypeID is the unique identifier for the type DoneResult.
-const DoneResult_TypeID = 0xf2cb410014a05dc6
-
-func NewDoneResult(s *capnp.Segment) (DoneResult, error) {
-	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return DoneResult(st), err
-}
-
-func NewRootDoneResult(s *capnp.Segment) (DoneResult, error) {
-	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2})
-	return DoneResult(st), err
-}
-
-func ReadRootDoneResult(msg *capnp.Message) (DoneResult, error) {
-	root, err := msg.Root()
-	return DoneResult(root.Struct()), err
-}
-
-func (s DoneResult) String() string {
-	str, _ := text.Marshal(0xf2cb410014a05dc6, capnp.Struct(s))
-	return str
-}
-
-func (s DoneResult) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
-	return capnp.Struct(s).EncodeAsPtr(seg)
-}
-
-func (DoneResult) DecodeFromPtr(p capnp.Ptr) DoneResult {
-	return DoneResult(capnp.Struct{}.DecodeFromPtr(p))
-}
-
-func (s DoneResult) ToPtr() capnp.Ptr {
-	return capnp.Struct(s).ToPtr()
-}
-func (s DoneResult) IsValid() bool {
-	return capnp.Struct(s).IsValid()
-}
-
-func (s DoneResult) Message() *capnp.Message {
-	return capnp.Struct(s).Message()
-}
-
-func (s DoneResult) Segment() *capnp.Segment {
-	return capnp.Struct(s).Segment()
-}
-func (s DoneResult) Count() uint64 {
-	return capnp.Struct(s).Uint64(0)
-}
-
-func (s DoneResult) SetCount(v uint64) {
-	capnp.Struct(s).SetUint64(0, v)
-}
-
-func (s DoneResult) Status() (string, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return p.Text(), err
-}
-
-func (s DoneResult) HasStatus() bool {
-	return capnp.Struct(s).HasPtr(0)
-}
-
-func (s DoneResult) StatusBytes() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(0)
-	return p.TextBytes(), err
-}
-
-func (s DoneResult) SetStatus(v string) error {
-	return capnp.Struct(s).SetText(0, v)
-}
-
-func (s DoneResult) Detail() (string, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return p.Text(), err
-}
-
-func (s DoneResult) HasDetail() bool {
-	return capnp.Struct(s).HasPtr(1)
-}
-
-func (s DoneResult) DetailBytes() ([]byte, error) {
-	p, err := capnp.Struct(s).Ptr(1)
-	return p.TextBytes(), err
-}
-
-func (s DoneResult) SetDetail(v string) error {
-	return capnp.Struct(s).SetText(1, v)
-}
-
-// DoneResult_List is a list of DoneResult.
-type DoneResult_List = capnp.StructList[DoneResult]
-
-// NewDoneResult creates a new list of DoneResult.
-func NewDoneResult_List(s *capnp.Segment, sz int32) (DoneResult_List, error) {
-	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 8, PointerCount: 2}, sz)
-	return capnp.StructList[DoneResult](l), err
-}
-
-// DoneResult_Future is a wrapper for a DoneResult promised by a client call.
-type DoneResult_Future struct{ *capnp.Future }
-
-func (f DoneResult_Future) Struct() (DoneResult, error) {
-	p, err := f.Future.Ptr()
-	return DoneResult(p.Struct()), err
-}
-
 type Reader capnp.Client
 
 // Reader_TypeID is the unique identifier for the type Reader.
@@ -523,28 +415,28 @@ func (s Reader_write_Params) Message() *capnp.Message {
 func (s Reader_write_Params) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Reader_write_Params) Values() (primitive.Value_List, error) {
+func (s Reader_write_Params) Value() (primitive.Value, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return primitive.Value_List(p.List()), err
+	return primitive.Value(p.Struct()), err
 }
 
-func (s Reader_write_Params) HasValues() bool {
+func (s Reader_write_Params) HasValue() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Reader_write_Params) SetValues(v primitive.Value_List) error {
-	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+func (s Reader_write_Params) SetValue(v primitive.Value) error {
+	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
 }
 
-// NewValues sets the values field to a newly
-// allocated primitive.Value_List, preferring placement in s's segment.
-func (s Reader_write_Params) NewValues(n int32) (primitive.Value_List, error) {
-	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
+// NewValue sets the value field to a newly
+// allocated primitive.Value struct, preferring placement in s's segment.
+func (s Reader_write_Params) NewValue() (primitive.Value, error) {
+	ss, err := primitive.NewValue(capnp.Struct(s).Segment())
 	if err != nil {
-		return primitive.Value_List{}, err
+		return primitive.Value{}, err
 	}
-	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
-	return l, err
+	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
+	return ss, err
 }
 
 // Reader_write_Params_List is a list of Reader_write_Params.
@@ -562,6 +454,9 @@ type Reader_write_Params_Future struct{ *capnp.Future }
 func (f Reader_write_Params_Future) Struct() (Reader_write_Params, error) {
 	p, err := f.Future.Ptr()
 	return Reader_write_Params(p.Struct()), err
+}
+func (p Reader_write_Params_Future) Value() primitive.Value_Future {
+	return primitive.Value_Future{Future: p.Future.Field(0, nil)}
 }
 
 type Reader_done_Params capnp.Struct
@@ -676,28 +571,28 @@ func (s Reader_done_Results) Message() *capnp.Message {
 func (s Reader_done_Results) Segment() *capnp.Segment {
 	return capnp.Struct(s).Segment()
 }
-func (s Reader_done_Results) Result() (DoneResult, error) {
+func (s Reader_done_Results) Result() (primitive.Value_List, error) {
 	p, err := capnp.Struct(s).Ptr(0)
-	return DoneResult(p.Struct()), err
+	return primitive.Value_List(p.List()), err
 }
 
 func (s Reader_done_Results) HasResult() bool {
 	return capnp.Struct(s).HasPtr(0)
 }
 
-func (s Reader_done_Results) SetResult(v DoneResult) error {
-	return capnp.Struct(s).SetPtr(0, capnp.Struct(v).ToPtr())
+func (s Reader_done_Results) SetResult(v primitive.Value_List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
 }
 
 // NewResult sets the result field to a newly
-// allocated DoneResult struct, preferring placement in s's segment.
-func (s Reader_done_Results) NewResult() (DoneResult, error) {
-	ss, err := NewDoneResult(capnp.Struct(s).Segment())
+// allocated primitive.Value_List, preferring placement in s's segment.
+func (s Reader_done_Results) NewResult(n int32) (primitive.Value_List, error) {
+	l, err := primitive.NewValue_List(capnp.Struct(s).Segment(), n)
 	if err != nil {
-		return DoneResult{}, err
+		return primitive.Value_List{}, err
 	}
-	err = capnp.Struct(s).SetPtr(0, capnp.Struct(ss).ToPtr())
-	return ss, err
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
 }
 
 // Reader_done_Results_List is a list of Reader_done_Results.
@@ -716,44 +611,36 @@ func (f Reader_done_Results_Future) Struct() (Reader_done_Results, error) {
 	p, err := f.Future.Ptr()
 	return Reader_done_Results(p.Struct()), err
 }
-func (p Reader_done_Results_Future) Result() DoneResult_Future {
-	return DoneResult_Future{Future: p.Future.Field(0, nil)}
-}
 
-const schema_ad058c9d70423d67 = "x\xda\x8cR?h\x13o\x18~\x9f\xef\xbb\xfb\xa5\xf9" +
-	"\x91h\x8e\xcb\xa0%\x90\xa1qqhl\xb3HD." +
-	"\x0d\x15\xa2\xb4\x92/8((r$\x9f1\x18\xef\xce" +
-	"\xfbc1\xa3K\x17\x17\x1d*\x0a\x82\x93PE\x82\x83" +
-	"\xab(\x16\x97\xd6\xd1\xd5Q\x90\x0e\x82\xe0P\xff\x9d\xdc" +
-	"\xc5\xa4ER\xebv\xf7>\xcf\xf3>\xcf\xc3\xf7\x1e\xb9" +
-	"\x86\x8a2\x93^V\x89\x89\x8a\xfa_\xf8\xf3\xc5\x87\xf5" +
-	"\xa3\xdf\x9e\xdc&m\x0aD*\x12D\xa5Uv\x13\x04" +
-	"\xfd93\x08a\x7f\xedX\xbfXU\x1e\x0d\x08J\x84" +
-	"\xbfc=\x90\x12N\x95\xef\xae|_K\xad\xee\x94\xbe" +
-	"\x1aH\xdf\xc6\xd2\xde\xfb\xcd\x0376W\x1e\x93\x96\xe3" +
-	"a\xfbx\xd5ypK}J\x84\xd2\x0f6\x09=\xcd" +
-	"\x13Dz\x92/\xeb\xe7\xa2\xafp\xe3|\xa1vg\xab" +
-	"\xbaAZ\x0e\xdbl5\xc2Js\xfc\x7f\xe8\"\x16," +
-	"\xf2>\xe1\xd3\x9b\x0b\x0f\xb3s\xeb\x9fE\x0e;\xb9," +
-	"\xe2~\xe4e\xe8[1\xf7\x0b\xef\x93\x1d:W\xda\xc5" +
-	"\xae\xdd\xee\xa8\xcd\xa2+\xcd\x96t\x8b\x97\xa5\xd9\x9an" +
-	"\x9a\x8e\xe5\x94\x1b\xf1d\xbae[\xb2\xd0\x90^\xd0\xf5" +
-	"=\x12\x0aW\x88\x14\x10i\xe92\x91\x98\xe0\x10Y\x06" +
-	"\xc3\x8dqd\x86\xee\x04d\x08\xa3\xfd\xca^\xfb\x8d\xba" +
-	"\xe9\x9aW\xbd\x7f\x0a\xb4\xe4v|Y\x18\x08\xc6\x06*" +
-	"0\x18\xd7\xcdn =\xec#\xd49\x90\x09/)\xa7" +
-	"&O\x7f\xed\xbd&B4\x1c\x19\xf1\xdd\x8c\xb8t\xeb" +
-	"\x80\x98\xe0*\xd1\xe8=a={\xb9T\xba\x7f\xf1\x9e" +
-	"63KL;\x94\xc0\xf6\x15`x/\xda\xc1\xc3\xc4" +
-	"\xb4t\"\x1f\x07\xad`\x7f\xd4\xb0\x82:\xf6p\xadI" +
-	"\xb3E\x14\x99\xa6F\x9dN\xcc\x12\x89\x0a\x87X`\xd0" +
-	"\x80,\xa2\xe1\xc9\xa8\xe8<\x87\xa83h\x8ce\xc1\x88" +
-	"\xb4\xc5\x06\x91X\xe0\x10g\x19\xf2\x1d\xcb\x09\xfc?Z" +
-	"g\x08\x86\x1d\xf8c\x81\xd0v\xa4k\xfa\x1d\x9b`\x8d" +
-	"A\xff\x1a{\xde\xb6\xa41\xb8\x8f\xdd\xb3\x8f\x8f\x8e\xdf" +
-	"\xd1\xa3a\x8dC\x9ca\xc87\xed\xc0\xf2\x91$\x86$" +
-	"\xc1\xf0|\xd3\x0f<\xa4\x88!E0Z\xd27;\xdd" +
-	"\xe1\xef\xaf\x00\x00\x00\xff\xff\xb9\xab\xfbq"
+const schema_ad058c9d70423d67 = "x\xda\x8c\x92Ok\x13Q\x14\xc5\xcfyo\xc6)\xd2" +
+	"j\x1f\x13AK!H\xd3\x8d`\xc7&\x1b\x89JB" +
+	"P\xa8Re&+\x17\x82\x0c\xcd3\x06\xe3\xcc0\x99" +
+	"X\x0c\xb8q#\x82\x1b]T\x14\\*\xa8H\xe8\xd2" +
+	"\x8d\x08vg7~\x00\x057n\xfa\x09\xfc\x83#\x93" +
+	"hZ\xadRw\xc3=\xf7p~g\xee;Rd\xd5" +
+	"\x98\x9fpL\x08\xef\xb8\xb9+\xfd\xfe\xea\xd3\xdb\xa3_" +
+	"\x9f\xdf\x85\x9a!`\xd2\x02J7\xc4M\x82\xf6mQ" +
+	"\x01\xd3\xfe\xda\xb1\xbeS3\x9e\x0c\x17\x8cL\x7f)z" +
+	"\x84\x91\xce\x94\xef\xaf|[\x1b\x7f\xba\xd5\xfaxh]" +
+	"\x1dX{\x1f6\xf6_\xdfXy\x065-\xd3\xe6\x89" +
+	"Z\xf4\xe8\x8e\xf9\x02`\xe9\x9d\x98\xa2\xfdQX\x80\xfd" +
+	"^\xdc\xb2\x0fK\x0bH\xd7/\x14\x16\xee}\xae\xadC" +
+	"Mss\xdb\xcc\xb4\xd2>\xb9\x9b\xf6l\xf6i\x1f\x94" +
+	"}\x84it\xa5\xe9\xb4\xc3f\xcb\\rb\xed7t" +
+	"\xec\\\xd6~cn\xc9\x8f\x82\xa8\\\x1fL\xe6\x1aa" +
+	"\xa0\x0bu\xdd\xe9\xb6\x93\x0e<C\x1a\x80A@M\x94" +
+	"\x01oL\xd2+\x08V\xe2\x81\xce=\xa0+\xc9\xc9\xf4" +
+	"\x92qf\xea\xdc\x97\xde\x1b\x80\xd9p\x14d\xec\x14T" +
+	"q\xfd\xd8\xbf\xda\xf9/\xb2\xe5\xb8\x95\xe8\xc2\xd0\xf0\x1b" +
+	"Y\xf1'YN0\x7f\xcdow\xf5\x1fD\x93[\x88" +
+	"\xe4\xbf\x02\xa4\x8e]\xd2\x1b\x93&0:\x12\x83\xd5\xd7" +
+	"\xcb\xa5\x87\x17\x1f\xa8\xf9\"\x84\x9a\xb5\xb8yZ\xfez" +
+	"\x04\xea\xc0!\x085a\xe5\x07\x80U\xee\xcd\x9aU\xe9" +
+	"r\x87\xd4\x05\xed7\x80,t|\xd4\xe5T\xd6\xa5*" +
+	"\xe9-\x0a*2\xc7lx:\xfb\xf5'%=WP" +
+	"\x09\x91\xa3\x00\xd4\xd9:\xe0-Jz\xe7\x05\xf3\xad " +
+	"\xea&\xdb[W\xc2n\xf2W!\x0d#\x1d\xfbI+" +
+	"\x04\x83\xed\xea\x8f\x00\x00\x00\xff\xff\x179\xce\x12"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -764,7 +651,6 @@ func RegisterSchema(reg *schemas.Registry) {
 			0xa90cc4fc96973a23,
 			0xaa96eb7918ebde7a,
 			0xcc42f99248245ccc,
-			0xf2cb410014a05dc6,
 		},
 		Compressed: true,
 	})

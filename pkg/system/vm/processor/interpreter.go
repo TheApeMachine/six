@@ -491,8 +491,30 @@ func (server *InterpreterServer) evaluateBranches(
 			pc, branchCount, len(server.program)-pc-1)
 	}
 
-	queryMask := primitive.BuildQueryMask(node)
-	matches := primitive.BatchEvaluate(queryMask, candidates)
+	queryMask, err := primitive.New()
+	if err != nil {
+		return primitive.Value{}, err
+	}
+
+	if err := primitive.BuildQueryMaskInto(&queryMask, node); err != nil {
+		return primitive.Value{}, err
+	}
+
+	matchScratch := make([]primitive.MatchResult, len(candidates))
+
+	for index := range matchScratch {
+		residue, err := primitive.New()
+		if err != nil {
+			return primitive.Value{}, err
+		}
+
+		matchScratch[index].Residue = residue
+	}
+
+	matches, err := primitive.BatchEvaluateInto(queryMask, candidates, matchScratch)
+	if err != nil {
+		return primitive.Value{}, err
+	}
 
 	if len(matches) == 0 {
 		return primitive.Value{}, fmt.Errorf(

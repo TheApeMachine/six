@@ -96,7 +96,21 @@ func (rdr *ReaderServer) Write(
 	values := errnie.Guard(rdr.state, func() (
 		primitive.Value_List, error,
 	) {
-		return args.Values()
+		value, err := args.Value()
+		
+		if err != nil {
+			return primitive.Value_List{}, err
+		}
+
+		values, err := primitive.NewValue_List(args.Segment(), 1)
+		
+		if err != nil {
+			return primitive.Value_List{}, err
+		}
+
+		values.Set(0, value)
+
+		return values, nil
 	})
 
 	if rdr.state.Failed() {
@@ -138,13 +152,14 @@ func (rdr *ReaderServer) Done(ctx context.Context, call Reader_done) error {
 		return err
 	}
 
-	result, err := res.NewResult()
+	result, err := res.NewResult(int32(len(rdr.registers[DATA])))
 	if err != nil {
 		return err
 	}
 
-	result.SetCount(uint64(len(rdr.registers[DATA])))
-	_ = result.SetStatus("ok")
+	for i, value := range rdr.registers[DATA] {
+		result.Set(i, value)
+	}
 
 	return nil
 }

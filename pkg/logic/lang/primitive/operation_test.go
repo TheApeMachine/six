@@ -199,6 +199,32 @@ func TestOperationBuildQueryMask(t *testing.T) {
 }
 
 /*
+TestOperationBuildQueryMaskInto verifies query-mask construction can reuse one Value buffer.
+*/
+func TestOperationBuildQueryMaskInto(t *testing.T) {
+	gc.Convey("Given a reusable query-mask buffer", t, func() {
+		first, err := New()
+		gc.So(err, gc.ShouldBeNil)
+		first.Set(1)
+		first.SetStatePhase(3)
+
+		second, err := New()
+		gc.So(err, gc.ShouldBeNil)
+		second.Set(20)
+		second.SetStatePhase(9)
+
+		mask, err := New()
+		gc.So(err, gc.ShouldBeNil)
+
+		err = BuildQueryMaskInto(&mask, first, second)
+		gc.So(err, gc.ShouldBeNil)
+		gc.So(primitiveHasBit(mask, 1), gc.ShouldBeTrue)
+		gc.So(primitiveHasBit(mask, 20), gc.ShouldBeTrue)
+		gc.So(mask.ResidualCarry(), gc.ShouldNotEqual, uint64(0))
+	})
+}
+
+/*
 TestOperationBatchEvaluate verifies one output per candidate.
 */
 func TestOperationBatchEvaluate(t *testing.T) {
@@ -216,6 +242,43 @@ func TestOperationBatchEvaluate(t *testing.T) {
 		gc.So(len(results), gc.ShouldEqual, 2)
 		gc.So(results[0].PhaseQuotient, gc.ShouldEqual, numeric.Phase(3))
 		gc.So(results[1].PhaseQuotient, gc.ShouldEqual, numeric.Phase(9))
+	})
+}
+
+/*
+TestOperationBatchEvaluateInto verifies batch matching can reuse caller-owned buffers.
+*/
+func TestOperationBatchEvaluateInto(t *testing.T) {
+	gc.Convey("Given reusable result and residue buffers", t, func() {
+		query := NeutralValue()
+		query.SetStatePhase(3)
+
+		candidateA := NeutralValue()
+		candidateA.Set(1)
+		candidateA.SetStatePhase(9)
+
+		candidateB := NeutralValue()
+		candidateB.Set(9)
+		candidateB.SetStatePhase(27)
+
+		residueA, err := New()
+		gc.So(err, gc.ShouldBeNil)
+
+		residueB, err := New()
+		gc.So(err, gc.ShouldBeNil)
+
+		results := []MatchResult{
+			{Residue: residueA},
+			{Residue: residueB},
+		}
+
+		out, err := BatchEvaluateInto(query, []Value{candidateA, candidateB}, results)
+		gc.So(err, gc.ShouldBeNil)
+		gc.So(len(out), gc.ShouldEqual, 2)
+		gc.So(out[0].PhaseQuotient, gc.ShouldEqual, numeric.Phase(3))
+		gc.So(out[1].PhaseQuotient, gc.ShouldEqual, numeric.Phase(9))
+		gc.So(out[0].Residue.IsValid(), gc.ShouldBeTrue)
+		gc.So(out[1].Residue.IsValid(), gc.ShouldBeTrue)
 	})
 }
 
@@ -268,6 +331,66 @@ func BenchmarkOperationBuildQueryMask(b *testing.B) {
 
 	for b.Loop() {
 		_ = BuildQueryMask(known...)
+	}
+}
+
+/*
+BenchmarkOperationBuildQueryMaskInto measures reusable query-mask construction throughput.
+*/
+func BenchmarkOperationBuildQueryMaskInto(b *testing.B) {
+	known := make([]Value, 16)
+	mask, err := New()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	for index := range known {
+		value := NeutralValue()
+		value.Set(index % 257)
+		value.SetStatePhase(numeric.Phase((index % 256) + 1))
+		known[index] = value
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if err := BuildQueryMaskInto(&mask, known...); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+/*
+BenchmarkOperationBatchEvaluateInto measures reusable batch matching throughput.
+*/
+func BenchmarkOperationBatchEvaluateInto(b *testing.B) {
+	query := NeutralValue()
+	query.SetStatePhase(3)
+
+	candidates := make([]Value, 32)
+	results := make([]MatchResult, len(candidates))
+
+	for index := range candidates {
+		candidates[index] = NeutralValue()
+		candidates[index].Set((index + 1) % 257)
+		candidates[index].SetStatePhase(numeric.Phase((index % 16) + 1))
+
+		residue, err := New()
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		results[index].Residue = residue
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for b.Loop() {
+		if _, err := BatchEvaluateInto(query, candidates, results); err != nil {
+			b.Fatal(err)
+		}
 	}
 }
 
