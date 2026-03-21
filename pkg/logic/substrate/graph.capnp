@@ -15,6 +15,7 @@ struct GraphEdge {
 
 interface Graph {
   # Machine delivers pre-fetched paths; Graph reasons over them.
-  write  @0 (key :UInt64) -> stream;
-  done   @1 ();
+  write      @0 (key :UInt64) -> stream;
+  done       @1 ();
+  writeBatch @2 (keys :List(UInt64)) -> stream;
 }

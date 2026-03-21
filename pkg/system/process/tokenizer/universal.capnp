@@ -9,4 +9,5 @@ interface Universal {
   done        @1 () -> (keys :List(UInt64));
   setDataset  @2 (corpus :List(Text)) -> ();
   feedback    @3 (overDiscriminated :Bool, underDiscriminated :Bool) -> ();
+  writeBatch  @4 (data :Data) -> stream;
 }

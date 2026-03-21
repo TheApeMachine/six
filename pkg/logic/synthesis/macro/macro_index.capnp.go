@@ -76,6 +76,26 @@ func (c MacroIndex) ResolveGap(ctx context.Context, params func(MacroIndex_resol
 
 }
 
+func (c MacroIndex) RecordResult(ctx context.Context, params func(MacroIndex_recordResult_Params) error) (MacroIndex_recordResult_Results_Future, capnp.ReleaseFunc) {
+
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0x982c65930257bacb,
+			MethodID:      3,
+			InterfaceName: "pkg/logic/synthesis/macro/macro_index.capnp:MacroIndex",
+			MethodName:    "recordResult",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 16, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(MacroIndex_recordResult_Params(s)) }
+	}
+
+	ans, release := capnp.Client(c).SendCall(ctx, s)
+	return MacroIndex_recordResult_Results_Future{Future: ans.Future()}, release
+
+}
+
 func (c MacroIndex) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -154,6 +174,8 @@ type MacroIndex_Server interface {
 	Done(context.Context, MacroIndex_done) error
 
 	ResolveGap(context.Context, MacroIndex_resolveGap) error
+
+	RecordResult(context.Context, MacroIndex_recordResult) error
 }
 
 // MacroIndex_NewServer creates a new Server from an implementation of MacroIndex_Server.
@@ -172,7 +194,7 @@ func MacroIndex_ServerToClient(s MacroIndex_Server) MacroIndex {
 // This can be used to create a more complicated Server.
 func MacroIndex_Methods(methods []server.Method, s MacroIndex_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 3)
+		methods = make([]server.Method, 0, 4)
 	}
 
 	methods = append(methods, server.Method{
@@ -208,6 +230,18 @@ func MacroIndex_Methods(methods []server.Method, s MacroIndex_Server) []server.M
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.ResolveGap(ctx, MacroIndex_resolveGap{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0x982c65930257bacb,
+			MethodID:      3,
+			InterfaceName: "pkg/logic/synthesis/macro/macro_index.capnp:MacroIndex",
+			MethodName:    "recordResult",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.RecordResult(ctx, MacroIndex_recordResult{call})
 		},
 	})
 
@@ -263,6 +297,23 @@ func (c MacroIndex_resolveGap) Args() MacroIndex_resolveGap_Params {
 func (c MacroIndex_resolveGap) AllocResults() (MacroIndex_resolveGap_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 24, PointerCount: 0})
 	return MacroIndex_resolveGap_Results(r), err
+}
+
+// MacroIndex_recordResult holds the state for a server call to MacroIndex.recordResult.
+// See server.Call for documentation.
+type MacroIndex_recordResult struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c MacroIndex_recordResult) Args() MacroIndex_recordResult_Params {
+	return MacroIndex_recordResult_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c MacroIndex_recordResult) AllocResults() (MacroIndex_recordResult_Results, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return MacroIndex_recordResult_Results(r), err
 }
 
 // MacroIndex_List is a list of MacroIndex.
@@ -769,45 +820,241 @@ func (f MacroIndex_resolveGap_Results_Future) Struct() (MacroIndex_resolveGap_Re
 	return MacroIndex_resolveGap_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d6c = "x\xda\xbc\x93?h\x14[\x14\xc6\xcfw\xef\xcc\x9b\x0d" +
-	"l\xde\xcbe\x03\x8f\xa4\x09\x09)\xde\x93\xfc_!(" +
-	"\x88\x13%h\x82\x86\xbd1 \x91@\xb8\xec^\xb3K" +
-	"fg\x87\x99Y\x93\xd8\x98.\x16J\x0a\x1b#((" +
-	"X\xa4\x10\xb1\x104*\x08\x16\"\x1666\x0a\x166" +
-	"\xa6\xd16\x85\xcd\xc8\xcd\xba\xeb\x82M4`\xb3\xc5\xb7" +
-	"\x87\x8f\xdf\xf9\x9d;CO\xe1Z\xc3\xadk61\xe9" +
-	"\xda\x7f%\x7fo\xbf\xea]\x9d-_&1\x0a\"\xcb" +
-	"!\xcan\xb2NFV\xf2z\xeb,\xbb\xa6\xfb\xae\x93" +
-	"\xe8\xe3\x89wd,\xb8y\xc5\xbeG\x84\xecm\xb6\x85" +
-	"\xccc\xe6\x10e\x1e\xb2\x97\x99a\xee\x10%kr\xf4" +
-	"\xed\x97G\x1f\x9f\xd4zl\xf3o\xb6\x83\xf70Bf" +
-	"\x98/\x11\x92\xb1\xd9\xe2\x9b\xcd\x81O\x9fI\x8e\x82\x11" +
-	"\xd90\x13Wk\x13w\xf9}B\xb2\xbe\xb6\xf1\xef\xfa" +
-	"\xad3;\xcd\x15\xe3\xd6\xa4\x19P\x96\xa9h\xbd\xf3~" +
-	"\xea\xc3Nwb*\xf8w\xd8g\xd6\xb4\x19xgm" +
-	"S%\x09\x16\x17\x06\xbd\xcaB\xc9\xc9\x0fF+~\\" +
-	"\xd4Q)\x1a,\xab|X\xa9\xfd\xce\x97\xfc\x82^\x1e" +
-	"\xc8\xab\xc0\x0f\x0e\x9f6\xc9\xc4nP\xa8\xf8\xba7\xa7" +
-	"B\xc5\xcbQ\xa3\xc4\xdek\xc9\xd1ZK\x0e\x90in" +
-	"7\xb9\x80\xff\xe0\xf9R\xf6\xc6\xfc\x86\x90#\xc4\xc4\xb8" +
-	"\x034|\xa3\xeeC\x1c:@L\xf4;`\x0d\x01\xa8" +
-	"/*\xba\xcf\x11\x13\x1dN\xd7RX\x8a\xb5\x8b\x7f\x0c" +
-	"\xa8\x8b$\xd4Q\xc5\xbb\xa0O\x10W\x81\x8b\x1c\xf0\xdb" +
-	"\x9b\xef\x16\x9b\xd5\x1dU\x8ed\x8a[D\x16\x88\xc4\xff" +
-	"#D\xb2\x97C\x0e1\x08\xa0\x1d&\xec\xef!\x92\xff" +
-	"q\xc8\x83\x0c]Q\xac\xc2\x18m\xc9yk\xb2s\xea" +
-	"\xeb\xc5\x17D@\x1b\xc1\xd1~\xe1\xe7t\x7f\x97\x99\xd6" +
-	"Q\xd5\xf1\xe2H\xa6\x1b|\xe3\xc7\x88\xa4\xcb!O1" +
-	"\xd4\xf1&&\x89\xe4I\x0e9\xc3 \x98\xdbn\x9e\x99" +
-	"\x90&\xccq\xc89\x86K\x8bzeF/\xc7H\x13" +
-	"C\x9a\x90T#}\xbcR\xf5c\"B\x0b1\xb4\x10" +
-	"\x92\xa2\x0a\x0b\xda\xd7\x05\x93\x81\x18\xd0D\x9f\xfaE\xfa" +
-	"\xfa\x9dT\xb0\xfb\xba\xca\x11\xd1\x1fp\xbc\x0fJc\xda" +
-	"\x8b\x11\xc9\xb6\x06\xa52\x94s\x1c\xb2\xd8D\xa9\xa7\x89" +
-	"d\x81C\x06F5j\xaa\xcbF\xb5\xc7!\x97\x19\x04" +
-	"_m7\xdf\xa8\xa8\x9a0\xe6\x90\xabf\x9f\xbc\xf24" +
-	"R\xc4\x90\"$q\xa8\xfc\xc8S1\xe1G\xb6\xc7\x8b" +
-	"|\x0b\x00\x00\xff\xff\xd3iOb"
+type MacroIndex_recordResult_Params capnp.Struct
+
+// MacroIndex_recordResult_Params_TypeID is the unique identifier for the type MacroIndex_recordResult_Params.
+const MacroIndex_recordResult_Params_TypeID = 0xdf63cc51a6976334
+
+func NewMacroIndex_recordResult_Params(s *capnp.Segment) (MacroIndex_recordResult_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	return MacroIndex_recordResult_Params(st), err
+}
+
+func NewRootMacroIndex_recordResult_Params(s *capnp.Segment) (MacroIndex_recordResult_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1})
+	return MacroIndex_recordResult_Params(st), err
+}
+
+func ReadRootMacroIndex_recordResult_Params(msg *capnp.Message) (MacroIndex_recordResult_Params, error) {
+	root, err := msg.Root()
+	return MacroIndex_recordResult_Params(root.Struct()), err
+}
+
+func (s MacroIndex_recordResult_Params) String() string {
+	str, _ := text.Marshal(0xdf63cc51a6976334, capnp.Struct(s))
+	return str
+}
+
+func (s MacroIndex_recordResult_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (MacroIndex_recordResult_Params) DecodeFromPtr(p capnp.Ptr) MacroIndex_recordResult_Params {
+	return MacroIndex_recordResult_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s MacroIndex_recordResult_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s MacroIndex_recordResult_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s MacroIndex_recordResult_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s MacroIndex_recordResult_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s MacroIndex_recordResult_Params) KeyData() (capnp.UInt64List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.UInt64List(p.List()), err
+}
+
+func (s MacroIndex_recordResult_Params) HasKeyData() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s MacroIndex_recordResult_Params) SetKeyData(v capnp.UInt64List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewKeyData sets the keyData field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s MacroIndex_recordResult_Params) NewKeyData(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.UInt64List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+func (s MacroIndex_recordResult_Params) PreResidue() int32 {
+	return int32(capnp.Struct(s).Uint32(0))
+}
+
+func (s MacroIndex_recordResult_Params) SetPreResidue(v int32) {
+	capnp.Struct(s).SetUint32(0, uint32(v))
+}
+
+func (s MacroIndex_recordResult_Params) PostResidue() int32 {
+	return int32(capnp.Struct(s).Uint32(4))
+}
+
+func (s MacroIndex_recordResult_Params) SetPostResidue(v int32) {
+	capnp.Struct(s).SetUint32(4, uint32(v))
+}
+
+func (s MacroIndex_recordResult_Params) Advanced() bool {
+	return capnp.Struct(s).Bit(64)
+}
+
+func (s MacroIndex_recordResult_Params) SetAdvanced(v bool) {
+	capnp.Struct(s).SetBit(64, v)
+}
+
+func (s MacroIndex_recordResult_Params) Stable() bool {
+	return capnp.Struct(s).Bit(65)
+}
+
+func (s MacroIndex_recordResult_Params) SetStable(v bool) {
+	capnp.Struct(s).SetBit(65, v)
+}
+
+// MacroIndex_recordResult_Params_List is a list of MacroIndex_recordResult_Params.
+type MacroIndex_recordResult_Params_List = capnp.StructList[MacroIndex_recordResult_Params]
+
+// NewMacroIndex_recordResult_Params creates a new list of MacroIndex_recordResult_Params.
+func NewMacroIndex_recordResult_Params_List(s *capnp.Segment, sz int32) (MacroIndex_recordResult_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 16, PointerCount: 1}, sz)
+	return capnp.StructList[MacroIndex_recordResult_Params](l), err
+}
+
+// MacroIndex_recordResult_Params_Future is a wrapper for a MacroIndex_recordResult_Params promised by a client call.
+type MacroIndex_recordResult_Params_Future struct{ *capnp.Future }
+
+func (f MacroIndex_recordResult_Params_Future) Struct() (MacroIndex_recordResult_Params, error) {
+	p, err := f.Future.Ptr()
+	return MacroIndex_recordResult_Params(p.Struct()), err
+}
+
+type MacroIndex_recordResult_Results capnp.Struct
+
+// MacroIndex_recordResult_Results_TypeID is the unique identifier for the type MacroIndex_recordResult_Results.
+const MacroIndex_recordResult_Results_TypeID = 0xb0cb9afe753e6b87
+
+func NewMacroIndex_recordResult_Results(s *capnp.Segment) (MacroIndex_recordResult_Results, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return MacroIndex_recordResult_Results(st), err
+}
+
+func NewRootMacroIndex_recordResult_Results(s *capnp.Segment) (MacroIndex_recordResult_Results, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return MacroIndex_recordResult_Results(st), err
+}
+
+func ReadRootMacroIndex_recordResult_Results(msg *capnp.Message) (MacroIndex_recordResult_Results, error) {
+	root, err := msg.Root()
+	return MacroIndex_recordResult_Results(root.Struct()), err
+}
+
+func (s MacroIndex_recordResult_Results) String() string {
+	str, _ := text.Marshal(0xb0cb9afe753e6b87, capnp.Struct(s))
+	return str
+}
+
+func (s MacroIndex_recordResult_Results) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (MacroIndex_recordResult_Results) DecodeFromPtr(p capnp.Ptr) MacroIndex_recordResult_Results {
+	return MacroIndex_recordResult_Results(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s MacroIndex_recordResult_Results) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s MacroIndex_recordResult_Results) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s MacroIndex_recordResult_Results) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s MacroIndex_recordResult_Results) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+
+// MacroIndex_recordResult_Results_List is a list of MacroIndex_recordResult_Results.
+type MacroIndex_recordResult_Results_List = capnp.StructList[MacroIndex_recordResult_Results]
+
+// NewMacroIndex_recordResult_Results creates a new list of MacroIndex_recordResult_Results.
+func NewMacroIndex_recordResult_Results_List(s *capnp.Segment, sz int32) (MacroIndex_recordResult_Results_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 0}, sz)
+	return capnp.StructList[MacroIndex_recordResult_Results](l), err
+}
+
+// MacroIndex_recordResult_Results_Future is a wrapper for a MacroIndex_recordResult_Results promised by a client call.
+type MacroIndex_recordResult_Results_Future struct{ *capnp.Future }
+
+func (f MacroIndex_recordResult_Results_Future) Struct() (MacroIndex_recordResult_Results, error) {
+	p, err := f.Future.Ptr()
+	return MacroIndex_recordResult_Results(p.Struct()), err
+}
+
+const schema_ad058c9d70413d6c = "x\xda\xccSAh\x1cU\x18\xfe\xbe\xf7fwRH" +
+	"\xda<\xb2 \xf4\x12,\x11\x8c\xb4Mm\x0a\xc1\x82v" +
+	"\xa3\x15\xdb`\xcb\xbeX\x91\x84By\xd9y6kf" +
+	"g\xd7y\xb3M*\x88\xb9H<\x08U\x14l\x8a\x15" +
+	"+E((\xb6\x07A\xeaE\xf0$\x15\xbcx\x12D" +
+	"\xbc\xd8\x8b^\x0bzp\xe4\xedf\xa7[\xbcT\xe3\xc1" +
+	"\xcb\xee\xcc7?\xdf\xfb\xbe\xef\xff\xde\x81\xa3\xa2\x1a<" +
+	":2S\x86\xd0\xc7J\xe5|\xe7\xedo&\xd6\x17\x9a" +
+	"o@\xcd\x10\x08B`\x9ar\xb7@\x90\xdf\xba\xf9\x82" +
+	"x\xc7\xee\xbd\x08\xb5W\xe6\xf1\xe3\xb3\xed\xcbo\x96>" +
+	"\x058\xfd\xbb\xb8\xc91%\xfd\xe8\x88\x0c9\xf6\xb9\x7f" +
+	"\xcc7V\x9e\xe8\xfcy\xe9\xd6\xf5\x01\xa2\xcbr\xc9\x13" +
+	"m\xe8\x99\xef\x7f\xfb\xe2\xe7/{_J\xc2\x7f\xda\x94" +
+	"{\x048vC\xae\x82\xf9\xa1\xfa{\x1f\xebo\xeb?" +
+	"A\xcfP\x00%v\xa9\x83E\x01NO\x06\xe3\x04\xf3" +
+	"\xd9\x85\xe5\xef\xae\xed\xff\xe5\xd7{F\x9e/uI\x9a" +
+	"\xa5\xcf\xc0\xfc\xc2\xc6\xe6\x03\x17>x\xee\xce\xe0)#" +
+	"\xe59?0Y\xf6\xa7\x8c|\xf4\xc3\xc9\x1f\xef<\x98" +
+	"{\x0a\xb9\xa5\xf0\xf5\xf2\xbc\x1f\xb8R\xbe\x8dV\xde^" +
+	"9;\x15\xb7\xce6\xc2\xfa\x94;\x9fd\xcb\xd65\xdc" +
+	"T\xd3\xd4\xd3V\xef\xf7L#\x89\xec\xda\xfe\xbai'" +
+	"\xed\xc3'<r\xbc\x0bD\xad\xc4N\xd4Ljd\xd3" +
+	"\x15$\xa5\xfb%9\xd2c\xa9\x91zT\x96|\x90[" +
+	"q1\xb9\xf1\xd5\xea\xf4\xa53\x9b\xea\xe5\x83\x10\xca\x86" +
+	"d\xb1-\xf6\xf3P\x0b\x8f@\xa8\x13!E\x11\x00\xfb" +
+	"F\xd5\xec\"\x84z,\xa4,\x12f\x7fKj\xdfK" +
+	"\x10\xea\xa1p|5md\xb6\xca]\xdeD\x95yj" +
+	"]+>g\x9f\x814\xed\xeek\xbd\x95F\xf3\x16\xbb" +
+	"\\'\xce\xaa\xac\x91\x85\xc3\xa1\x7f\x18S\x9f\xcb3M" +
+	"\xf8\xbf0\xce\xdc\xbf\x0e\xbd\xab\xdb\xa7\x1e\x9a\xa6\xd3C" +
+	"2\x00\x02\x02j\xf2 \xa0'$\xf5\x01AEV\xe8" +
+	"\xc1}{\x00\xfd\xb0\xa4>$8\xee2\x93f\x1c\xcd" +
+	"_\x0c\xe6v\x9f\xfc\xe3\x95\xaf\x01r\x14\x0cm\x12\xfd" +
+	"\x1d\xfdo\xdcn\x95CW\x0a\x99\xaf>\x09\xe85I" +
+	"\xfd\xae`_\xe5\xdb\x8b\x80~KR\xbf/\xa8\x04+" +
+	"\xbe\xe8js\x09\xd0\x17%\xf5UA%\xab\x15_]" +
+	"ue\x0e\xd0\x1fJ\xeaO\x04U0[a\x00\xa8k" +
+	"\x87\x01}UR_\x17|m\xc5\x9e?j2\xc3\x9d" +
+	"`M\x92; \xfcc\xdeN\xed\xbcu\x8d\x08\xb2c" +
+	"\x19@0\xf0`\xcbe\x1eE\x18\x0d\xa0&:g\x92" +
+	"\xba\x8d\xe0\x93\x80 \xc1#.3K\xb1\xed\xbfn\xef" +
+	"\xc2\xf4\x1b\xa0\x87\x8bP\x9e\xf6\xa1T%\xf5\xb3wC" +
+	"9\xee\xad\x1e\x93\xd4\xa7|(\xd5^(\xda\x835I" +
+	"}\xbag\xf5\x94]\xcb8\x0c\xc1a0\xef8\xfbT" +
+	"\xab\x93d^\xb8\xf7\xbd\x03\xcc\x97M\x1a\xd9\xe4\x1e3" +
+	"\xdb\xd8l\xef\x8a\x98vw\xafM\x07\xfc/\xfbW\xa8" +
+	"\xec\x95\x90N\x8f\x16*\x8dWyZR/\x0f\xa8\xb4" +
+	"\xf3\x80\x8e$u{\xa0\x7fM\x1fu,\xa9\xd7|\xff" +
+	"\xd6{\xfd\xebx0\x93\xd4\xeb\xdeO\xdd\xc4\x96C\x10" +
+	"\x1c\x02\xf3,5\x89\x8bM\x06\xde\xc5\xees#\x7f\x05" +
+	"\x00\x00\xff\xff\x933\xce\x01"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -815,7 +1062,9 @@ func RegisterSchema(reg *schemas.Registry) {
 		Nodes: []uint64{
 			0x886d598024c9e70e,
 			0x982c65930257bacb,
+			0xb0cb9afe753e6b87,
 			0xbbe1b8edd4375187,
+			0xdf63cc51a6976334,
 			0xece62ea9cf685941,
 			0xf6539e8f1799878f,
 			0xff21f6dd4edaa20d,

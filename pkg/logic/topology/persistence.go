@@ -133,7 +133,7 @@ similarity (shared core bits / union core bits) exceeds the current
 filtration threshold.
 */
 func (barcode *Barcode) SweepPair(valA, valB primitive.Value, idA, idB int32) bool {
-	similarity := jaccardSimilarity(valA, valB)
+	similarity := JaccardSimilarity(valA, valB)
 
 	if similarity < barcode.threshold {
 		return false
@@ -250,11 +250,11 @@ func (barcode *Barcode) birthOf(id int32) float64 {
 }
 
 /*
-jaccardSimilarity computes the Jaccard index between two Values using
+JaccardSimilarity computes the Jaccard index between two Values using
 core blocks only: |A ∩ B| / |A ∪ B|. Returns 0 when both values are
 empty (no bits set) to avoid division by zero.
 */
-func jaccardSimilarity(valA, valB primitive.Value) float64 {
+func JaccardSimilarity(valA, valB primitive.Value) float64 {
 	intersection := 0
 	union := 0
 	lastCore := config.CoreBlocks - 1

@@ -15,4 +15,11 @@ interface MacroIndex {
     useCount  :UInt64,
     hardened  :Bool
   );
+  recordResult @3 (
+    keyData     :List(UInt64),
+    preResidue  :Int32,
+    postResidue :Int32,
+    advanced    :Bool,
+    stable      :Bool
+  ) -> ();
 }

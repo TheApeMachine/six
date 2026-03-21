@@ -171,6 +171,24 @@ func (c Graph) Done(ctx context.Context, params func(Graph_done_Params) error) (
 
 }
 
+func (c Graph) WriteBatch(ctx context.Context, params func(Graph_writeBatch_Params) error) error {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xd00db4bbf2cf46cb,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/substrate/graph.capnp:Graph",
+			MethodName:    "writeBatch",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Graph_writeBatch_Params(s)) }
+	}
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
 func (c Graph) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -247,6 +265,8 @@ type Graph_Server interface {
 	Write(context.Context, Graph_write) error
 
 	Done(context.Context, Graph_done) error
+
+	WriteBatch(context.Context, Graph_writeBatch) error
 }
 
 // Graph_NewServer creates a new Server from an implementation of Graph_Server.
@@ -265,7 +285,7 @@ func Graph_ServerToClient(s Graph_Server) Graph {
 // This can be used to create a more complicated Server.
 func Graph_Methods(methods []server.Method, s Graph_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 2)
+		methods = make([]server.Method, 0, 3)
 	}
 
 	methods = append(methods, server.Method{
@@ -289,6 +309,18 @@ func Graph_Methods(methods []server.Method, s Graph_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Done(ctx, Graph_done{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xd00db4bbf2cf46cb,
+			MethodID:      2,
+			InterfaceName: "pkg/logic/substrate/graph.capnp:Graph",
+			MethodName:    "writeBatch",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.WriteBatch(ctx, Graph_writeBatch{call})
 		},
 	})
 
@@ -327,6 +359,23 @@ func (c Graph_done) Args() Graph_done_Params {
 func (c Graph_done) AllocResults() (Graph_done_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return Graph_done_Results(r), err
+}
+
+// Graph_writeBatch holds the state for a server call to Graph.writeBatch.
+// See server.Call for documentation.
+type Graph_writeBatch struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Graph_writeBatch) Args() Graph_writeBatch_Params {
+	return Graph_writeBatch_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Graph_writeBatch) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
 }
 
 // Graph_List is a list of Graph.
@@ -540,40 +589,134 @@ func (f Graph_done_Results_Future) Struct() (Graph_done_Results, error) {
 	return Graph_done_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d67 = "x\xda\x8cQ1l\xd3\\\x18\xbc{\xcf\xfe\x9d\x0eQ" +
-	"\xf3\xe4,?K*\xa0\x1d:\x90&\xd9\x10\x880\x00" +
-	"\"\x03\xe4uF\x02\xd3\xb8\x8eU'1\xb6C\x00\xd1" +
-	"\x81\x09\x06\xa62\x11\xa93\xaaD\x91\x90\xd8X\x90\x98" +
-	"\x10\x03\xb00\xc1\xc0\x84\xc4\x80\xd4\x0a\x862\xd4\xc8A" +
-	"u\xbb\x80\xba}O\xef\xee\xbe\xef\xee\x16jl\x1a\xb5" +
-	"b\xd5\x84\xd0\xa7\xcc\xff\xd2Y\xdf\xfe\xf6\xa1\xb1\xf3\x14" +
-	"j\x8e\x80a\x01\x8dU\xb1F\x18\xe9\xbd\xd6\xc2\xe5'" +
-	"ww\x9fA\xcfq\xef\xab'\xc6\x04\xedUq\x06L" +
-	"\xdf\x9e\x7f\xb7\xfd\xf2E\xf1=\xd4\x8cL\xbd\xd3g\xc3" +
-	"\xf5\x87\xe6&\xc0\xc6\xba\xa8\xd3\xde\x14\x16`o\x88\xfb" +
-	"\xf6N6\xa5\x9f>\x1e\xdb\xd8Z\x1bmC\xcfP\xec" +
-	"\xc3Mf\xba_\xc4\"\xed\x9f\x13\xc6\x96\xf8\x0a\xa6\x8f" +
-	".v>\xff\xf8\xfe`\xf7\xc0Yo\xe4\x98\x88\xd2p" +
-	"\xc5\xab\x06\x03\xcf7\x97\xaa\xf1\xf0z\x9cDN\xe2V" +
-	"\xbd\xc8\x09\xbb'\x96\x9c\xb0\x1f\x9e\xbc0\x99;\x83\xbe" +
-	"{\xbc\xedDN\x8f\xf1a9\xa3\xc8O\xfe\x90d/" +
-	"\xd6\x864\x00\x83\x80*\x1e\x05tAR\x97\x05\xad\x15" +
-	"\xf76\xa7 8\x05\xe6\xba\xf2o\xba\x95\x89p\x9b\xd4" +
-	"\x05i\x02y\xa6\xec?\x7f5j\x8c\xaf>V\xb5:" +
-	"\x84\x9a\xb5\xc8\xbc\x09\xeeyW\xff\xcfC\xa8\xa2U\x99" +
-	"\xdc\xd5\xe4t\xe6\xa9\xc96\xf7\x17\x1b\xff4t\xae\xe3" +
-	"\xd1\xcd\x96\x97r+\xce<\xa0\xafH\xea\xae\xa0\"\xcb" +
-	"Y\xb3\xca\xad\x03\xfa\x9a\xa4\x0e\x04\x95\x10e\x0a@\xf9" +
-	"-@w%u\"HY\xa6\x04\xd4\x8d\x0c\x18H\xea" +
-	"[\x82\xd3\x81\xbb\x9c\xb0\x00\xc1\x02X\x89|\xaf\x9b\xbf" +
-	"\xd2p\x10\xfb\x89?\xe8\x03\xc8\x117\x9d`\xe8\xb2\x94" +
-	".\x1b\xad#\x97~\xddy\x0d\x90\xa5\x03\x19\x1e\xa6\xcf" +
-	"E7\x1e\x062\x89\x7f\x07\x00\x00\xff\xffN\xe2\xc9\xb3"
+type Graph_writeBatch_Params capnp.Struct
+
+// Graph_writeBatch_Params_TypeID is the unique identifier for the type Graph_writeBatch_Params.
+const Graph_writeBatch_Params_TypeID = 0xa6c504fd8176eee7
+
+func NewGraph_writeBatch_Params(s *capnp.Segment) (Graph_writeBatch_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Graph_writeBatch_Params(st), err
+}
+
+func NewRootGraph_writeBatch_Params(s *capnp.Segment) (Graph_writeBatch_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Graph_writeBatch_Params(st), err
+}
+
+func ReadRootGraph_writeBatch_Params(msg *capnp.Message) (Graph_writeBatch_Params, error) {
+	root, err := msg.Root()
+	return Graph_writeBatch_Params(root.Struct()), err
+}
+
+func (s Graph_writeBatch_Params) String() string {
+	str, _ := text.Marshal(0xa6c504fd8176eee7, capnp.Struct(s))
+	return str
+}
+
+func (s Graph_writeBatch_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Graph_writeBatch_Params) DecodeFromPtr(p capnp.Ptr) Graph_writeBatch_Params {
+	return Graph_writeBatch_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Graph_writeBatch_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Graph_writeBatch_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Graph_writeBatch_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Graph_writeBatch_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Graph_writeBatch_Params) Keys() (capnp.UInt64List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.UInt64List(p.List()), err
+}
+
+func (s Graph_writeBatch_Params) HasKeys() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Graph_writeBatch_Params) SetKeys(v capnp.UInt64List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewKeys sets the keys field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s Graph_writeBatch_Params) NewKeys(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.UInt64List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+// Graph_writeBatch_Params_List is a list of Graph_writeBatch_Params.
+type Graph_writeBatch_Params_List = capnp.StructList[Graph_writeBatch_Params]
+
+// NewGraph_writeBatch_Params creates a new list of Graph_writeBatch_Params.
+func NewGraph_writeBatch_Params_List(s *capnp.Segment, sz int32) (Graph_writeBatch_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Graph_writeBatch_Params](l), err
+}
+
+// Graph_writeBatch_Params_Future is a wrapper for a Graph_writeBatch_Params promised by a client call.
+type Graph_writeBatch_Params_Future struct{ *capnp.Future }
+
+func (f Graph_writeBatch_Params_Future) Struct() (Graph_writeBatch_Params, error) {
+	p, err := f.Future.Ptr()
+	return Graph_writeBatch_Params(p.Struct()), err
+}
+
+const schema_ad058c9d70413d67 = "x\xda\x94\x92AH\x14Q\x1c\xc6\xbf\xef\xbdYW!" +
+	"\xd3\xc7l\x07\xbbhe\x1e\x84\xd2\xdcSA\xb4\x05\x16" +
+	"y\xa8}\x1e#\xa8q\x1dg\x06\xc7\xddif\xd4\x8c" +
+	".\x9e*\xa8CvJ\xe8Z\x08\x15\x04]\xa2K\x14" +
+	"\xd1\xa1Cu\x09\x82:\x8b\x1d\x84\xa4KAN\xcc\x98" +
+	"\xb3^\x92\xba\xfd\x1f\xef\xfb\xfe\xef\xf7\x7f\xdf\x7fp\x8c" +
+	"\x15\xe3P\xfb\xb5\x02\x84\xae\x14Z\x92\xe5\xd5\x99\xf9_" +
+	"\xc6\xeb\xfbP}\x04\x0a,\x02\xe5%\xf1\x92\xa0\xf9L" +
+	"\x1c\x03\x93\xfd\x9e\xf9\xf5C\xf9\xc7\xc3\x0d\x81\x91\xde\xaf" +
+	"\x88\x05\xc2H\xe6G\x06\xcf>\xb8\xba\xfe\x18\xba\x8f\x9b" +
+	"W\x9f\xc4bj]\xc9\xacoO\xbe[{\xfe\xb4\xfd" +
+	"=T\x8fL\x9c\xa3\xc7\x83{7\x0b\x8f\x00\x96\xdb\xe4" +
+	"\x10\xcd.Y\x04\xcc]\xf2\x8dy;\xad\x92\xcf\x1f\xf7" +
+	"-}[\x98]\x83\xee\xa1h\xca7\x90\xe6\xe4(\xcd" +
+	"[\x99\xe3\x86\\\x06\x93;\xa7\xc7\xbf|_\xbd\xbe\xbe" +
+	"\x05\xcb2\x16\x890\x09&\x9d\x01\xbf\xe1x-\xb5\x81" +
+	"hz,\x8aC+\xb6\x07\x9c\xd0\x0a\xdc\x835+\xa8" +
+	"\x07GNe\xf5l\xe8\xc5\xf6\x09+\xae\xb9\xbdU+" +
+	"\xb4\xa6\"hC\x1a\x80A@\xb5\xf7\x03\xbaUR\xf7" +
+	"\x0avL\xdas\x11w\x82UI\xb6A\xa4e\xfeH" +
+	"a\xfbG\xc6\x1bu{\xa3=\xa3\x7f\xf5d`\x99I" +
+	"NE[\x99\xf6\xfea*\x09\x16'\xed\xb9\x8c\xa5m" +
+	"\x0b\x8b\xfc[\xdf\xee\xacq\x95\xd4;d\x01\xc8\x83c" +
+	"\xfd\xc9\x8b\xd9\xf2\xe2\x85\xbbJ\x0fA\xa8\xe1\"\x9bq" +
+	"s\xf3\x83\xd5\xe1~\x08u\xa0H\x91\xefJ\xd3\xb7\xe7" +
+	"\x1c\x84\xea*vg\xcc\x15v\xa4\xf3V\x98l\xfe-" +
+	"d\xcd\xad\xb0\xca&\xa3\xb1\xed\xec\xc3\xe3\x0e\xed\x94\xb3" +
+	"3\x9f\xdaJ\x938/\xa9]AE\x96\xd2MS\xf6" +
+	"\x10\xa0/Jj_P\x09Q\xa2\x00\x947\x02hW" +
+	"R\xc7\x82\x94%J@]J\x85\xbe\xa4\xbe,\xd8\xe1" +
+	"\xdb\x131[!\xd8\x0av\x87\x9e\xe3\xe6\xa7$hD" +
+	"^\xec5\xea\x00r\xc5\x8c\xe5O\xdb\xecL&\x8c\x91" +
+	"\xddg~^y\x05\x90\x9d\xff\x19\xfd\xa8\x1dM\xfb2" +
+	"\x8e~\x07\x00\x00\xff\xff\xaf\x0b\xfb\xe6"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d67,
 		Nodes: []uint64{
+			0xa6c504fd8176eee7,
 			0xacf933d1ea136925,
 			0xaefe7ca74f304a81,
 			0xd00db4bbf2cf46cb,

@@ -3,6 +3,7 @@ package macro
 import (
 	"context"
 	"fmt"
+	"math"
 	"net"
 	"sync"
 
@@ -11,6 +12,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/validate"
 )
@@ -48,6 +50,34 @@ func AffineKeyFromValues(start, goal primitive.Value) AffineKey {
 }
 
 /*
+EmbedKey projects an AffineKey into PhaseDial space by interpreting each
+uint64 block as a structural phase contribution, using the same mixing
+constants as PhaseDial.EncodeFromValues. The result is a unit-normalized
+512-dimensional complex vector suitable for cosine-similarity nearest-neighbor
+searches across the hardened opcode library.
+*/
+func EmbedKey(key AffineKey) geometry.PhaseDial {
+	dial := geometry.NewPhaseDial()
+	nDim := config.Numeric.NBasis
+
+	for k := 0; k < nDim; k++ {
+		omega := float64(numeric.Primes[k])
+		var sum complex128
+
+		for blk := 0; blk < config.TotalBlocks; blk++ {
+			var mix uint64 = key[blk] * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
+			structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
+			phase := (omega * float64(blk+1) * 0.1) + (structuralPhase * math.Pi * 2)
+			sum += complex(math.Cos(phase), math.Sin(phase))
+		}
+
+		dial[k] = sum
+	}
+
+	return dial.CopyAndNormalize()
+}
+
+/*
 String formats the key for path signatures and diagnostics.
 */
 func (key AffineKey) String() string {
@@ -74,6 +104,19 @@ type MacroOpcode struct {
 	Translate numeric.Phase // The additive translation component b
 	UseCount  uint64        // Number of times this opcode successfully bridged a gap
 	Hardened  bool          // Promoted to permanent status after verification
+}
+
+/*
+ToValue encodes this MacroOpcode as a primitive.Value with OpcodeMacro, making
+it a first-class citizen of the Value medium. The affine operator (Scale,
+Translate) is stored in the shell; the geometric key occupies the core blocks.
+*/
+func (opcode *MacroOpcode) ToValue() (primitive.Value, error) {
+	return primitive.EncodeMacroOperator(
+		opcode.Scale,
+		opcode.Translate,
+		opcode.Key[:],
+	)
 }
 
 /*
@@ -132,6 +175,7 @@ type MacroIndexServer struct {
 	candidates  map[AffineKey]*ProgramCandidate
 	anchors     map[numeric.Phase]*AnchorRecord
 	anchorNames map[string]numeric.Phase
+	embeddings  map[AffineKey]geometry.PhaseDial
 	bestKey     AffineKey
 	bestUse     uint64
 }
@@ -151,6 +195,7 @@ func NewMacroIndexServer(opts ...IndexOpts) *MacroIndexServer {
 		candidates:  make(map[AffineKey]*ProgramCandidate),
 		anchors:     make(map[numeric.Phase]*AnchorRecord),
 		anchorNames: make(map[string]numeric.Phase),
+		embeddings:  make(map[AffineKey]geometry.PhaseDial),
 	}
 
 	for _, opt := range opts {
@@ -315,6 +360,39 @@ func (server *MacroIndexServer) ResolveGap(
 }
 
 /*
+RecordResult implements MacroIndex_Server. It receives a prompt-time bridge
+outcome and feeds it into RecordCandidateResult so that repeated successful
+syntheses harden into permanent operators.
+*/
+func (server *MacroIndexServer) RecordResult(
+	ctx context.Context,
+	call MacroIndex_recordResult,
+) error {
+	args := call.Args()
+
+	keyData, err := args.KeyData()
+	if err != nil {
+		return err
+	}
+
+	var key AffineKey
+
+	for idx := 0; idx < keyData.Len() && idx < len(key); idx++ {
+		key[idx] = keyData.At(idx)
+	}
+
+	server.RecordCandidateResult(
+		key,
+		int(args.PreResidue()),
+		int(args.PostResidue()),
+		args.Advanced(),
+		args.Stable(),
+	)
+
+	return nil
+}
+
+/*
 MacroIndexWithContext sets the context.
 */
 func MacroIndexWithContext(ctx context.Context) IndexOpts {
@@ -379,9 +457,12 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 
 	if opcode, exists := idx.opcodes[key]; exists {
 		opcode.UseCount++
-		if opcode.UseCount > hardeningThreshold {
+
+		if opcode.UseCount > hardeningThreshold && !opcode.Hardened {
 			opcode.Hardened = true
+			idx.embeddings[key] = EmbedKey(key)
 		}
+
 		idx.trackBestLocked(key, opcode)
 		return
 	}
@@ -391,7 +472,9 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 }
 
 /*
-ResolveGapValues records one exact geometric gap and returns the current opcode summary.
+ResolveGapValues records one exact geometric gap and returns the current opcode
+summary. If no exact match exists after recording, falls back to approximate
+nearest-neighbor search among hardened opcodes in PhaseDial space.
 */
 func (idx *MacroIndexServer) ResolveGapValues(
 	start primitive.Value,
@@ -402,11 +485,54 @@ func (idx *MacroIndexServer) ResolveGapValues(
 	idx.RecordOpcode(key)
 
 	opcode, found := idx.FindOpcode(key)
-	if !found || opcode == nil {
-		return AffineKey{}, nil, fmt.Errorf("macro index: failed to resolve exact gap")
+	if found && opcode != nil {
+		return key, opcode, nil
 	}
 
-	return key, opcode, nil
+	approx, approxFound, _ := idx.FindApproximate(key, 0.7)
+	if approxFound {
+		return approx.Key, approx, nil
+	}
+
+	return AffineKey{}, nil, fmt.Errorf("macro index: no exact or approximate match for gap")
+}
+
+/*
+FindApproximate scans the hardened opcode PhaseDial embeddings for the
+nearest neighbor to the query key. Returns the best match above the
+cosine-similarity threshold, or false if none qualifies. The third return
+value is the similarity score of the match.
+*/
+func (idx *MacroIndexServer) FindApproximate(
+	key AffineKey,
+	threshold float64,
+) (*MacroOpcode, bool, float64) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	if len(idx.embeddings) == 0 {
+		return nil, false, 0
+	}
+
+	queryDial := EmbedKey(key)
+
+	var bestOpcode *MacroOpcode
+	bestSim := -1.0
+
+	for hardenedKey, dial := range idx.embeddings {
+		sim := queryDial.Similarity(dial)
+
+		if sim > bestSim {
+			bestSim = sim
+			bestOpcode = idx.opcodes[hardenedKey]
+		}
+	}
+
+	if bestSim >= threshold && bestOpcode != nil {
+		return bestOpcode, true, bestSim
+	}
+
+	return nil, false, bestSim
 }
 
 /*
@@ -481,7 +607,12 @@ func (idx *MacroIndexServer) RecordCandidateResult(
 		}
 
 		opcode.UseCount = candidate.SuccessCount
-		opcode.Hardened = candidate.SuccessCount > hardeningThreshold
+
+		if candidate.SuccessCount > hardeningThreshold && !opcode.Hardened {
+			opcode.Hardened = true
+			idx.embeddings[key] = EmbedKey(key)
+		}
+
 		idx.trackBestLocked(key, opcode)
 	} else {
 		candidate.FailureCount++

@@ -1,5 +1,10 @@
 package primitive
 
+import (
+	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
+)
+
 /*
 Opcode is the control-plane instruction stored in the opcode shell block.
 The lower 8191 bits remain the resonant state field; the opcode block carries
@@ -13,6 +18,7 @@ const (
 	OpcodeBranch
 	OpcodeReset
 	OpcodeHalt
+	OpcodeMacro
 )
 
 const (
@@ -102,4 +108,53 @@ Program returns the threaded-code instruction stored in the opcode block.
 */
 func (value Value) Program() (Opcode, uint32, uint8, bool) {
 	return Opcode(value.Opcode()), value.Jump(), value.Branches(), value.Terminal()
+}
+
+/*
+EncodeMacroOperator creates a Value that represents a learned affine
+operator f(x) = scale*x + translate (mod 8191). The Value carries
+OpcodeMacro in its opcode block, the affine operator in its shell, and
+an XOR-signature of the operator's key in its core blocks.
+This is the fundamental encoding that makes learned operators first-class
+citizens of the Value medium, enabling self-programmability.
+*/
+func EncodeMacroOperator(
+	scale, translate numeric.Phase,
+	keyBlocks []uint64,
+) (Value, error) {
+	value, err := New()
+	if err != nil {
+		return Value{}, err
+	}
+
+	value.SetProgram(OpcodeMacro, 0, 0, false)
+	value.SetAffine(scale, translate)
+
+	for blockIndex := 0; blockIndex < len(keyBlocks) && blockIndex < config.CoreBlocks; blockIndex++ {
+		if err := value.SetBlock(blockIndex, keyBlocks[blockIndex]); err != nil {
+			return Value{}, err
+		}
+	}
+
+	return value, nil
+}
+
+/*
+IsMacroOperator reports whether this Value encodes a learned affine operator.
+*/
+func (value Value) IsMacroOperator() bool {
+	return Opcode(value.Opcode()) == OpcodeMacro
+}
+
+/*
+MacroAffine retrieves the learned affine operator from a Value that carries
+OpcodeMacro. Returns ok=false if the Value is not a macro operator.
+*/
+func (value Value) MacroAffine() (scale, translate numeric.Phase, ok bool) {
+	if !value.IsMacroOperator() {
+		return 0, 0, false
+	}
+
+	scale, translate = value.Affine()
+	return scale, translate, true
 }

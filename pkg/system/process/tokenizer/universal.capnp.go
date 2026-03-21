@@ -95,6 +95,24 @@ func (c Universal) Feedback(ctx context.Context, params func(Universal_feedback_
 
 }
 
+func (c Universal) WriteBatch(ctx context.Context, params func(Universal_writeBatch_Params) error) error {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xcefd5464be8479d9,
+			MethodID:      4,
+			InterfaceName: "pkg/system/process/tokenizer/universal.capnp:Universal",
+			MethodName:    "writeBatch",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Universal_writeBatch_Params(s)) }
+	}
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
 func (c Universal) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -175,6 +193,8 @@ type Universal_Server interface {
 	SetDataset(context.Context, Universal_setDataset) error
 
 	Feedback(context.Context, Universal_feedback) error
+
+	WriteBatch(context.Context, Universal_writeBatch) error
 }
 
 // Universal_NewServer creates a new Server from an implementation of Universal_Server.
@@ -193,7 +213,7 @@ func Universal_ServerToClient(s Universal_Server) Universal {
 // This can be used to create a more complicated Server.
 func Universal_Methods(methods []server.Method, s Universal_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 4)
+		methods = make([]server.Method, 0, 5)
 	}
 
 	methods = append(methods, server.Method{
@@ -241,6 +261,18 @@ func Universal_Methods(methods []server.Method, s Universal_Server) []server.Met
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Feedback(ctx, Universal_feedback{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xcefd5464be8479d9,
+			MethodID:      4,
+			InterfaceName: "pkg/system/process/tokenizer/universal.capnp:Universal",
+			MethodName:    "writeBatch",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.WriteBatch(ctx, Universal_writeBatch{call})
 		},
 	})
 
@@ -313,6 +345,23 @@ func (c Universal_feedback) Args() Universal_feedback_Params {
 func (c Universal_feedback) AllocResults() (Universal_feedback_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
 	return Universal_feedback_Results(r), err
+}
+
+// Universal_writeBatch holds the state for a server call to Universal.writeBatch.
+// See server.Call for documentation.
+type Universal_writeBatch struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Universal_writeBatch) Args() Universal_writeBatch_Params {
+	return Universal_writeBatch_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Universal_writeBatch) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
 }
 
 // Universal_List is a list of Universal.
@@ -847,44 +896,124 @@ func (f Universal_feedback_Results_Future) Struct() (Universal_feedback_Results,
 	return Universal_feedback_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d69 = "x\xda\xa4\x93?h\x14M\x1c\x86\x7f\xef\xcc^6\xe1" +
-	"\xfbb\x1c\x12\x0b-\x14\xe4,\x12\x8c\xa7\x1e\x92\x18\x08" +
-	"w\x91\x80p\"\xdc\x06\x15\xa2\x85\xac\xb7\xa3,\x97\xdb" +
-	"\xdb\xec\xec%\x9c\x85\x95(B\x1a-\x84\x04\xc4J0" +
-	"\x8a\x81 *\xa6\x08ZX*\xa4\xbcR!`#(" +
-	"\x086\xca\xca\xdce7WX\x98\xb3\x9b\xddg\xf7}" +
-	"\xe7\xcf3Go!o\x1c\xeb\xbd\x9d\"f\xe5S]" +
-	"Qz9\xfb\xf2{\xa1\xb0@\xd6\x08@d\x98D\xd9" +
-	"ev\x90\x11\xfa\xdf\xb2\x1c!\xfa\xf9\xe4s\xcf\xec\xbb" +
-	"\x1fwI\x8c\xc4\xfc#\xdb\xc7\xc8\x88\xbe\xad\xbc\xb8\xe3" +
-	"\x7f\xb9\xf1\xa8\x8d4\xd8)MN\xb3\xfd\xf7\xeb\xd1\xd3" +
-	"\xe56\xb2\xc1\xa64\x19z\xf8\xf8\xd2\x7f+{_\xb5" +
-	"H\x0a\x1a\xbdo\xd5m6\xeb\x1a\xf5\x9b\xeb\xce\xb9_" +
-	"\x1fH\x0c\xf3\xc8\x1d\x9f\xf0\x1f,\xa4\x9e\x11!\xbb\x87" +
-	"\xaf\xa1\x7f\x98\xeb\x1f\x06\xb9\x89\xfe\x0d=\x8c\xce\x94\x1b" +
-	"\xd6\xfaf\xe3S\xfb\xf4_\xf31\x9d\xb7\xc1\xe7\x09\xd1" +
-	"sc\xed\xc2\xea\xa2\xf8\xda^8n\x14\xf4\x07\xd3F" +
-	"\x8e\xa6#\xbf|-\xa3\xea*4e%\xe3\x07\xd5\x92" +
-	"T*\x13V\xcb\xd2s\xaf\xcb S\xf3\xdc9\x19(" +
-	"{\xe6H\xc9\xf6=\x7f\xec|\xf2<\x1f\xb8\xa1L\x17" +
-	"\xed\xc0\xb4+\xca2\xb8Ad\x80H\xf4\x0e\x11Y\xdd" +
-	"\x1c\xd6\x00C\x9fc\x876\xba\x88\xa1\x8b\xd0q\x93S" +
-	"\xf5\x9aE6\xaf\xa8$D\xec0\xe4\xaa\x94\xce\x15\xbb" +
-	"TNOIU\x9b\x09\x15\xc5A;\xccQ2\x9c\xb4" +
-	"C[\xc9p+\x09\xea\xdf\x16\xa6S\xcc\x99\xf0\x8f[" +
-	"\x98f\xe8+\xcb\xba\xc2.B\x91\x03=\xc4\xf40)" +
-	"L\xfdma\xae\xf5\xa2\x08X\xbby\x8a(\xd1\x1e\xde" +
-	"\xea\x9b\xf9\xec\xd2\xe5E1{\x9c\x98\x90&\xb6\x8dG" +
-	",\xab\x98\x1e\"&\xce\x9a`\x89N\x88\x15\x17\x13\x17" +
-	"\x89\x89\x93&x\xe2\"\xe2\x8b!\x86\x0b\xc4\xc4!\xf3" +
-	"@\xd3\x95<\xfa\xf4\x82\xf3\x88\xe2=$.\xc3<\xa2" +
-	"\xf8h\x88(\x8f\":\x17%9\xe3\x9c\xb6\xa5\xa2\xac" +
-	"\xeedK\x07\xef\x11Y\x879\xacQ\x06\x01\x0c\xe8\xcb" +
-	"\"N,\x11Y\xa3\x1c\xd6$CT\x9d\x93\xc1\xa4\xab" +
-	"J\x08\xdc\x8a\xeb\xd9\xa1\x84\x03\x10\x03\x08Q\xcds\x9a" +
-	"\x10\xa5-\xc8\xe56\x8cg\xdb\xdd\xb9I\xad\xe9\x12\xb5" +
-	";0\xb6\xed@\xaeT\x0d\xfcZb\xc1\xff-\x0b~" +
-	"\x07\x00\x00\xff\xffS\xba|\xa1"
+type Universal_writeBatch_Params capnp.Struct
+
+// Universal_writeBatch_Params_TypeID is the unique identifier for the type Universal_writeBatch_Params.
+const Universal_writeBatch_Params_TypeID = 0xa0492731bb0f3e85
+
+func NewUniversal_writeBatch_Params(s *capnp.Segment) (Universal_writeBatch_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Universal_writeBatch_Params(st), err
+}
+
+func NewRootUniversal_writeBatch_Params(s *capnp.Segment) (Universal_writeBatch_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Universal_writeBatch_Params(st), err
+}
+
+func ReadRootUniversal_writeBatch_Params(msg *capnp.Message) (Universal_writeBatch_Params, error) {
+	root, err := msg.Root()
+	return Universal_writeBatch_Params(root.Struct()), err
+}
+
+func (s Universal_writeBatch_Params) String() string {
+	str, _ := text.Marshal(0xa0492731bb0f3e85, capnp.Struct(s))
+	return str
+}
+
+func (s Universal_writeBatch_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Universal_writeBatch_Params) DecodeFromPtr(p capnp.Ptr) Universal_writeBatch_Params {
+	return Universal_writeBatch_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Universal_writeBatch_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Universal_writeBatch_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Universal_writeBatch_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Universal_writeBatch_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Universal_writeBatch_Params) Data() ([]byte, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return []byte(p.Data()), err
+}
+
+func (s Universal_writeBatch_Params) HasData() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Universal_writeBatch_Params) SetData(v []byte) error {
+	return capnp.Struct(s).SetData(0, v)
+}
+
+// Universal_writeBatch_Params_List is a list of Universal_writeBatch_Params.
+type Universal_writeBatch_Params_List = capnp.StructList[Universal_writeBatch_Params]
+
+// NewUniversal_writeBatch_Params creates a new list of Universal_writeBatch_Params.
+func NewUniversal_writeBatch_Params_List(s *capnp.Segment, sz int32) (Universal_writeBatch_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Universal_writeBatch_Params](l), err
+}
+
+// Universal_writeBatch_Params_Future is a wrapper for a Universal_writeBatch_Params promised by a client call.
+type Universal_writeBatch_Params_Future struct{ *capnp.Future }
+
+func (f Universal_writeBatch_Params_Future) Struct() (Universal_writeBatch_Params, error) {
+	p, err := f.Future.Ptr()
+	return Universal_writeBatch_Params(p.Struct()), err
+}
+
+const schema_ad058c9d70413d69 = "x\xda\xa4SMh\x13A\x18\xfd\xbe\x99\xddn\x8b\xc6" +
+	"0\xb4\x17=(J@,j\xac\xa1\xf4\x074i\x89" +
+	"\x14#\x85lQ\xa1z\x90u3\xda%\xcdf\xdd\xd9" +
+	"\xb4D\xd0\x93=\x08\xbdTPhA\xf4\"X\xc5B" +
+	"\x11+T(^\xbc\x0a\x1e<\xf4$\x08\x82\x97\x80\x82" +
+	"\xe0EY\x99Mw\xb3\x87\"6\xdev\xe7\xf1\xde\xfb" +
+	"\xe6\x9b\xf7N\xacaN\xe9K|R\x81\xe8y\xb5\xc3" +
+	"O-g\xd6~\x14\x0a\xf3\xa0\x0f \x02(\x1a@\xe6" +
+	"#9D\x00\xbb\x1b$\x0b\xe8\xffz\xf6\xb5\xeb\xc6\xbb" +
+	"\x9f\x0b\xc0\x06B<A\xf7\x11P\xfc\xb9\xd3\xc97}" +
+	"\x87\xcf>n\"*JH\xa5\x05I=H%\xf5\xfb" +
+	"\xca\xab\xbbN\xe3\xf6\x93\x18u\x84\x8eJ\xea\x18\xd9\xff" +
+	"\xa0\xee?_\x8e!CtB\"\xbd\x8f\x9e^\xde\xb5" +
+	"\xb2\xf7u\\\xb4\x9f\x06\xf3\x8c\x07\xa2\x9b\xf5;\x1b\xa5" +
+	"\xf3\xbf\xdf\x03;F}\xeb\xd4\x88\xf3p^}\x01\x80" +
+	"\x99[t\x1d\xbb\xefSIX\xa0c\xd8\xcd\xa5\xac\x7f" +
+	"\xae\xbc\xa9o|\xd9\xfc\x1c\xbf\xdf\xb82,\xf5\xb82" +
+	"\x0b\xe8\xbfT\xd6/\xae.\xb2oq\xc3\x0fJp\x8b" +
+	"\x86\x92\x85I\xdf)_O\x8b\xba\xf04^I;n" +
+	"\xd5\xe4B\xa4\xbdj\x99\xdb\xd6M\xee\xa6k\xb65\xc3" +
+	"]aL\x1f7\x0d\xc7v\x86/D\xff\xb3\xae\xe5\xf1" +
+	"T\xd1p5\xa3\"t\x85*\x00\x0a\x02\xb0D/\x80" +
+	"\xdeIQ\xef!\x98,\x19\x9e\x81\x1d@\xb0\x03\xb0m" +
+	"\xa7R\xd5\x0e\x8c\x0cZ\x11\x91Hg;\xe3\x8e\x1a\x9e" +
+	"9\x15HU\x04\xc0_\x87N\x00\xc1Dlh\xb6C" +
+	"\xbfk\x9c\x97\xae\x1af95\xc1Em\xda\x13\x10\x0a" +
+	"\xedPGp/ox\x86\xe0\xde\x96\x12\x8a\xff[\xa4" +
+	"T\xd1\xa6\xbdm\x9f,E0Y\xe6u\x81{\x00\x8b" +
+	"\x14\xb1\x0b\x88\xfc\x8c\x0c\xd5\x7f5\xcc6\x0f\x8a\x88z" +
+	"\x0fU\x01\xa2\x1e\xa2\xbd\xfav6\xb3te\x91-\x9c" +
+	"\x04\xc2\xe64lU\x10\xc3r\xb0z/\x10V\xd1\x90" +
+	"D\xf1\xc5\xb0R\xcc\xb8\x04\x84MjH\xa3\xeccX" +
+	"D6^\x00\xc2\xceh\xd8*o\xcboH\xf2\xfa\xb4" +
+	"\x03A\x10r\x98\x94\xcb\xc8\xa1\x1f\xee\x17(\xf7r\xe8" +
+	"\x87\xcf\x06\x009\xf4\xc3\xd0\x005\xa7rX\xc4\xf63" +
+	"\x1c\xc5!\xdbL\x9f\xde\x19m\xff\xc8=\x00\xfd(E" +
+	"}\x90 C\xec\x91=f\xfdK\x00\xfa E=O" +
+	"\xd0\xaf\xcep7o\x09\x13]\xabb\xd9\x86\xc7\xb1\x84" +
+	"\x08\x04\x11\xd0\xaf\xd9\xa5\x00Ds\x0b\xa4\xbc\x05\xb6[" +
+	"\x96X\xe8\xb6+\xcbp+.Y\xb3\xea:\xb5(0" +
+	"\xbb\x9b\x81\xf9\x13\x00\x00\xff\xff\x96W\xb0\x91"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
@@ -892,6 +1021,7 @@ func RegisterSchema(reg *schemas.Registry) {
 		Nodes: []uint64{
 			0x8c4a4af4b633a924,
 			0x91f7c57109e8aafc,
+			0xa0492731bb0f3e85,
 			0xa57eed7089b5aef1,
 			0xa9abff79961e0247,
 			0xb719ae0b5ba89f2a,

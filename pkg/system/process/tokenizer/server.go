@@ -143,6 +143,27 @@ func (server *UniversalServer) Write(ctx context.Context, call Universal_write) 
 }
 
 /*
+WriteBatch accepts a contiguous byte chunk and tokenizes all bytes locally,
+eliminating per-byte RPC overhead. Semantically equivalent to calling Write
+for each byte in the chunk.
+*/
+func (server *UniversalServer) WriteBatch(ctx context.Context, call Universal_writeBatch) error {
+	server.stateMu.Lock()
+	defer server.stateMu.Unlock()
+
+	chunk, err := call.Args().Data()
+	if err != nil {
+		return err
+	}
+
+	for _, b := range chunk {
+		server.tokenize(b)
+	}
+
+	return server.state.Err()
+}
+
+/*
 Feedback receives an error correction signal from the GraphServer.
 This is reserved for a future implementation.
 */

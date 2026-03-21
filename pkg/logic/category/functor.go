@@ -230,30 +230,12 @@ func (functor *Functor) Validate(sampleSize int) (float64, error) {
 }
 
 /*
-EmbedKey projects an AffineKey into PhaseDial space by interpreting each
-uint64 block as a structural phase contribution, using the same mixing
-constants as PhaseDial.EncodeFromValues. The result is a unit-normalized
-512-dimensional complex vector.
+EmbedKey delegates to macro.EmbedKey which is the canonical projection of an
+AffineKey into PhaseDial space. Kept here as a convenience alias so existing
+callers in the category package don't need updating.
 */
 func EmbedKey(key macro.AffineKey) geometry.PhaseDial {
-	dial := geometry.NewPhaseDial()
-	nDim := config.Numeric.NBasis
-
-	for k := 0; k < nDim; k++ {
-		omega := float64(numeric.Primes[k])
-		var sum complex128
-
-		for blk := 0; blk < config.TotalBlocks; blk++ {
-			var mix uint64 = key[blk] * (0x9e3779b185ebca87 + uint64(blk+1)*0x6c62272e07bb0142)
-			structuralPhase := float64(mix>>32) * (1.0 / float64(1<<32))
-			phase := (omega * float64(blk+1) * 0.1) + (structuralPhase * math.Pi * 2)
-			sum += complex(math.Cos(phase), math.Sin(phase))
-		}
-
-		dial[k] = sum
-	}
-
-	return dial.CopyAndNormalize()
+	return macro.EmbedKey(key)
 }
 
 /*

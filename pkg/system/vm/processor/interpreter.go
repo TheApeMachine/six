@@ -48,6 +48,19 @@ selects a device dispatch, and the Opcode controls the pc advance:
 The accumulated output buffer collects terminal residues and branch winners.
 Reading it back yields the execution result as a Value sequence.
 */
+/*
+ExecutionStep records one instruction's effect during execution. The trace
+is the raw material for reification: a successful trace between two
+boundary states can be condensed into a single affine macro operator.
+*/
+type ExecutionStep struct {
+	PC          int
+	Opcode      primitive.Opcode
+	PhaseBefore numeric.Phase
+	PhaseAfter  numeric.Phase
+	Value       primitive.Value
+}
+
 type InterpreterServer struct {
 	mu      sync.RWMutex
 	ctx     context.Context
@@ -55,6 +68,7 @@ type InterpreterServer struct {
 	state   *errnie.State
 	program []primitive.Value
 	output  []primitive.Value
+	trace   []ExecutionStep
 	loader  *interpreterLoader
 }
 
@@ -108,6 +122,7 @@ func NewInterpreterServer(opts ...interpreterOpts) (*InterpreterServer, error) {
 		state:   errnie.NewState("vm/processor/interpreter"),
 		program: make([]primitive.Value, 0, 64),
 		output:  make([]primitive.Value, 0, 16),
+		trace:   make([]ExecutionStep, 0, 64),
 		loader: &interpreterLoader{
 			state: loaderState,
 			root:  root,
@@ -340,6 +355,7 @@ counter. The output buffer collects emitted Values.
 */
 func (server *InterpreterServer) execute() error {
 	server.output = server.output[:0]
+	server.trace = server.trace[:0]
 
 	if len(server.program) == 0 {
 		return nil
@@ -352,7 +368,16 @@ func (server *InterpreterServer) execute() error {
 		node := server.program[pc]
 		opcode := primitive.Opcode(node.Opcode())
 
+		phaseBefore := phase
 		phase = node.ApplyAffinePhase(phase)
+
+		server.trace = append(server.trace, ExecutionStep{
+			PC:          pc,
+			Opcode:      opcode,
+			PhaseBefore: phaseBefore,
+			PhaseAfter:  phase,
+			Value:       node,
+		})
 
 		if from, to, ok := node.Trajectory(); ok {
 			if err := server.emitTrajectoryStep(node, phase, from, to); err != nil {
@@ -393,6 +418,25 @@ func (server *InterpreterServer) execute() error {
 
 		case primitive.OpcodeReset:
 			phase = 1
+			pc++
+
+		case primitive.OpcodeMacro:
+			macroScale, macroTranslate, ok := node.MacroAffine()
+			if !ok {
+				return fmt.Errorf(
+					"interpreter: macro opcode without affine data (pc=%d)", pc)
+			}
+
+			phase = numeric.Phase(numeric.MersenneReduce(
+				uint32(macroScale)*uint32(phase) + uint32(macroTranslate),
+			))
+
+			if node.Terminal() {
+				if err := server.emit(node, phase); err != nil {
+					return err
+				}
+			}
+
 			pc++
 
 		default:
@@ -568,6 +612,77 @@ func (server *InterpreterServer) Execute(
 	}
 
 	return server.output, nil
+}
+
+/*
+Trace returns the execution trace from the most recent run. Each step
+records the pc, opcode, phase-before, and phase-after so callers can
+analyze the execution path and derive a reified operator.
+*/
+func (server *InterpreterServer) Trace() []ExecutionStep {
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return server.trace
+}
+
+/*
+ReifyTrace condenses the most recent execution trace into a single macro
+operator Value. The composite affine transform is computed by chaining
+each step's phase transformation: the start phase is the first step's
+PhaseBefore and the end phase is the last step's PhaseAfter. The resulting
+Value carries OpcodeMacro and the composed affine operator.
+
+Returns an empty Value and false if the trace is empty or all steps are
+identity transforms.
+*/
+func (server *InterpreterServer) ReifyTrace() (primitive.Value, bool) {
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	if len(server.trace) == 0 {
+		return primitive.Value{}, false
+	}
+
+	startPhase := server.trace[0].PhaseBefore
+	endPhase := server.trace[len(server.trace)-1].PhaseAfter
+
+	if startPhase == endPhase {
+		return primitive.Value{}, false
+	}
+
+	scale := numeric.Phase(1)
+	translate := numeric.Phase(0)
+
+	for _, step := range server.trace {
+		stepScale, stepTranslate := step.Value.Affine()
+
+		composedScale := numeric.MersenneReduce(
+			uint32(scale) * uint32(stepScale),
+		)
+
+		composedTranslate := numeric.MersenneReduce(
+			uint32(scale)*uint32(stepTranslate) + uint32(translate),
+		)
+
+		scale = numeric.Phase(composedScale)
+		translate = numeric.Phase(composedTranslate)
+	}
+
+	keyBlocks := make([]uint64, 0)
+
+	for _, step := range server.trace {
+		for blockIdx := 0; blockIdx < len(keyBlocks) || blockIdx == 0; blockIdx++ {
+			keyBlocks = append(keyBlocks, step.Value.Block(blockIdx))
+		}
+	}
+
+	value, err := primitive.EncodeMacroOperator(scale, translate, keyBlocks)
+	if err != nil {
+		return primitive.Value{}, false
+	}
+
+	return value, true
 }
 
 /*

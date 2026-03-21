@@ -269,7 +269,7 @@ func TestJaccardSimilarity(t *testing.T) {
 		}
 
 		gc.Convey("It should compute the correct Jaccard index", func() {
-			similarity := jaccardSimilarity(valA, valB)
+			similarity := JaccardSimilarity(valA, valB)
 			gc.So(similarity, gc.ShouldAlmostEqual, 50.0/150.0, 1e-12)
 		})
 	})
@@ -282,7 +282,7 @@ func TestJaccardSimilarity(t *testing.T) {
 		gc.So(err, gc.ShouldBeNil)
 
 		gc.Convey("It should return 0 to avoid division by zero", func() {
-			gc.So(jaccardSimilarity(valA, valB), gc.ShouldEqual, 0)
+			gc.So(JaccardSimilarity(valA, valB), gc.ShouldEqual, 0)
 		})
 	})
 
@@ -295,7 +295,7 @@ func TestJaccardSimilarity(t *testing.T) {
 		}
 
 		gc.Convey("It should return 1.0", func() {
-			gc.So(jaccardSimilarity(valA, valA), gc.ShouldAlmostEqual, 1.0, 1e-12)
+			gc.So(JaccardSimilarity(valA, valA), gc.ShouldAlmostEqual, 1.0, 1e-12)
 		})
 	})
 }
@@ -317,7 +317,7 @@ func BenchmarkJaccardSimilarity(b *testing.B) {
 	b.ReportAllocs()
 
 	for b.Loop() {
-		jaccardSimilarity(valA, valB)
+		JaccardSimilarity(valA, valB)
 	}
 }
 

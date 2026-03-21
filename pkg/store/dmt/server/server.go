@@ -220,6 +220,36 @@ func (idx *ForestServer) Write(
 }
 
 /*
+WriteBatch stores a list of Morton-packed keys in a single RPC call,
+eliminating per-key RPC overhead. Semantically equivalent to calling
+Write for each key.
+*/
+func (idx *ForestServer) WriteBatch(
+	ctx context.Context, call Server_writeBatch,
+) error {
+	keyList, err := call.Args().Keys()
+	if err != nil {
+		return err
+	}
+
+	keyBytes := make([]byte, 8)
+	batch := make([]uint64, 0, keyList.Len())
+
+	for i := 0; i < keyList.Len(); i++ {
+		key := keyList.At(i)
+		binary.BigEndian.PutUint64(keyBytes, key)
+		idx.forest.Insert(keyBytes, nil)
+		batch = append(batch, key)
+	}
+
+	idx.writtenMu.Lock()
+	idx.writtenKeys = append(idx.writtenKeys, batch...)
+	idx.writtenMu.Unlock()
+
+	return nil
+}
+
+/*
 collectBranches resolves exact next lexical branches for one prompt value.
 */
 func (idx *ForestServer) collectBranches(prompt primitive.Value) ([]primitive.Value, error) {

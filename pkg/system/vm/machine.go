@@ -272,6 +272,8 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 		return tokenizer.Universal(raw), err
 	})
 
+	allBytes := make([]byte, 0, 4096)
+
 	for tok := range dataset.Generate() {
 		if currentSampleID != ^uint32(0) && tok.SampleID != currentSampleID {
 			rows = append(rows, append([]byte(nil), currentRow...))
@@ -280,20 +282,20 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 
 		currentSampleID = tok.SampleID
 		currentRow = append(currentRow, tok.Symbol)
-
-		errnie.GuardVoid(machine.state, func() error {
-			return tokClient.Write(
-				ctx, func(p tokenizer.Universal_write_Params) error {
-					p.SetData(tok.Symbol)
-					return nil
-				},
-			)
-		})
+		allBytes = append(allBytes, tok.Symbol)
 	}
 
 	if len(currentRow) > 0 {
 		rows = append(rows, append([]byte(nil), currentRow...))
 	}
+
+	errnie.GuardVoid(machine.state, func() error {
+		return tokClient.WriteBatch(
+			ctx, func(p tokenizer.Universal_writeBatch_Params) error {
+				return p.SetData(allBytes)
+			},
+		)
+	})
 
 	errnie.GuardVoid(machine.state, func() error {
 		return tokClient.WaitStreaming()
@@ -506,16 +508,13 @@ func (machine *Machine) tokenizeStream(raw []byte) ([]uint64, error) {
 		return tokenizer.Universal(raw), err
 	})
 
-	for _, symbol := range raw {
-		errnie.GuardVoid(machine.state, func() error {
-			return tokClient.Write(
-				ctx, func(p tokenizer.Universal_write_Params) error {
-					p.SetData(symbol)
-					return nil
-				},
-			)
-		})
-	}
+	errnie.GuardVoid(machine.state, func() error {
+		return tokClient.WriteBatch(
+			ctx, func(p tokenizer.Universal_writeBatch_Params) error {
+				return p.SetData(raw)
+			},
+		)
+	})
 
 	errnie.GuardVoid(machine.state, func() error {
 		return tokClient.WaitStreaming()
@@ -572,9 +571,9 @@ func (machine *Machine) tokenizerDone() ([]uint64, error) {
 writeKeys passes the tokenizer key stream into both spatialIndex and graph.
 */
 func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
-	coder := data.NewMortonCoder()
-	var previousSymbol byte
-	havePrevious := false
+	if len(keys) == 0 {
+		return
+	}
 
 	forest := errnie.Guard(machine.state, func() (server.Server, error) {
 		raw, err := machine.booter.router.Get(ctx, cluster.FOREST, "machine")
@@ -586,34 +585,55 @@ func (machine *Machine) writeKeys(ctx context.Context, keys []uint64) {
 		return substrate.Graph(raw), err
 	})
 
+	errnie.GuardVoid(machine.state, func() error {
+		return forest.WriteBatch(
+			ctx, func(p server.Server_writeBatch_Params) error {
+				keyList, err := p.NewKeys(int32(len(keys)))
+				if err != nil {
+					return err
+				}
+
+				for idx, key := range keys {
+					keyList.Set(idx, key)
+				}
+
+				return nil
+			},
+		)
+	})
+
+	errnie.GuardVoid(machine.state, func() error {
+		return forest.WaitStreaming()
+	})
+
+	errnie.GuardVoid(machine.state, func() error {
+		return graph.WriteBatch(
+			ctx, func(p substrate.Graph_writeBatch_Params) error {
+				keyList, err := p.NewKeys(int32(len(keys)))
+				if err != nil {
+					return err
+				}
+
+				for idx, key := range keys {
+					keyList.Set(idx, key)
+				}
+
+				return nil
+			},
+		)
+	})
+
+	errnie.GuardVoid(machine.state, func() error {
+		return graph.WaitStreaming()
+	})
+
+	coder := data.NewMortonCoder()
+	var previousSymbol byte
+	havePrevious := false
+
 	for _, key := range keys {
-		errnie.GuardVoid(machine.state, func() error {
-			return forest.Write(
-				ctx, func(p server.Server_write_Params) error {
-					p.SetKey(key)
-					return nil
-				},
-			)
-		})
-
-		errnie.GuardVoid(machine.state, func() error {
-			return forest.WaitStreaming()
-		})
-
-		errnie.GuardVoid(machine.state, func() error {
-			return graph.Write(
-				ctx, func(p substrate.Graph_write_Params) error {
-					p.SetKey(key)
-					return nil
-				},
-			)
-		})
-
-		errnie.GuardVoid(machine.state, func() error {
-			return graph.WaitStreaming()
-		})
-
 		_, symbol := coder.Unpack(key)
+
 		if havePrevious {
 			machine.sink.Emit(telemetry.Event{
 				Component: "LSM",

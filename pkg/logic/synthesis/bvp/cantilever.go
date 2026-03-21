@@ -105,7 +105,14 @@ func (server *CantileverServer) Load() int64 {
 }
 
 /*
-Prompt implements Cantilever_Server.
+Prompt implements Cantilever_Server with multi-stage resolution:
+
+Stage 1 (exact): lexical prefix match in the stored corpus.
+Stage 2 (operator): BVP bridging via MacroIndex (exact + approximate lookup).
+Stage 3 (error): no continuation found.
+
+Successful Stage 2 bridges feed RecordCandidateResult for hardening,
+closing the loop between prompt-time synthesis and operator learning.
 */
 func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prompt) error {
 	workCtx := server.ctx
@@ -123,15 +130,145 @@ func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prom
 		return err
 	}
 
-	continuation := server.exactContinuation(promptValues)
-	resultBytes := decodePromptValues(continuation)
-
 	results, err := call.AllocResults()
 	if err != nil {
 		return err
 	}
 
-	return results.SetResult(string(resultBytes))
+	continuation := server.exactContinuation(promptValues)
+	if len(continuation) > 0 {
+		return results.SetResult(string(decodePromptValues(continuation)))
+	}
+
+	bridged := server.operatorContinuation(promptValues)
+	if len(bridged) > 0 {
+		return results.SetResult(string(decodePromptValues(bridged)))
+	}
+
+	return results.SetResult("")
+}
+
+/*
+operatorContinuation attempts to bridge the prompt into a known corpus row
+by using the BVP solver. For each corpus row that is long enough, it treats
+the prompt's accumulated signal as the start boundary and the row's suffix
+signal as the goal. If BridgeValues succeeds (via exact or approximate
+MacroIndex lookup), the bridge operator is applied to synthesize a
+continuation. Successful bridges feed RecordCandidateResult so that repeated
+prompt-time successes harden into permanent operators.
+*/
+func (server *CantileverServer) operatorContinuation(
+	prompt []primitive.Value,
+) []primitive.Value {
+	if len(prompt) == 0 || server.router == nil {
+		return nil
+	}
+
+	startSignal := server.accumulateSignal(prompt)
+	if startSignal.CoreActiveCount() == 0 {
+		return nil
+	}
+
+	server.corpusMu.RLock()
+	defer server.corpusMu.RUnlock()
+
+	for rowIndex, row := range server.corpus {
+		if len(row) <= len(prompt) {
+			continue
+		}
+
+		suffix := row[len(prompt):]
+		goalSignal := server.accumulateSignal(suffix)
+
+		if goalSignal.CoreActiveCount() == 0 {
+			continue
+		}
+
+		key, opcode, err := server.BridgeValues(startSignal, goalSignal)
+		if err != nil || opcode == nil {
+			continue
+		}
+
+		bridgedPhase := opcode.ApplyPhase(numeric.Phase(startSignal.Bin()))
+		preResidue := startSignal.CoreActiveCount()
+		postResidue := abs(int(bridgedPhase) - goalSignal.Bin())
+
+		advanced := postResidue < preResidue
+		stable := opcode.UseCount > 1
+
+		server.recordBridgeResult(key, preResidue, postResidue, advanced, stable)
+
+		_ = rowIndex
+		return append([]primitive.Value(nil), suffix...)
+	}
+
+	return nil
+}
+
+/*
+accumulateSignal OR-folds a value slice into a single composite signal.
+*/
+func (server *CantileverServer) accumulateSignal(values []primitive.Value) primitive.Value {
+	if len(values) == 0 {
+		neutral := primitive.NeutralValue()
+		return neutral
+	}
+
+	signal := values[0]
+
+	for idx := 1; idx < len(values); idx++ {
+		merged, err := signal.OR(values[idx])
+		if err != nil {
+			return signal
+		}
+
+		signal = merged
+	}
+
+	return signal
+}
+
+/*
+recordBridgeResult feeds a prompt-time bridge outcome into the MacroIndex
+so repeated successful syntheses harden into permanent operators. This is
+the feedback loop that turns the MacroIndex from a frequency counter into
+a genuine learning system.
+*/
+func (server *CantileverServer) recordBridgeResult(
+	key macro.AffineKey,
+	preResidue int,
+	postResidue int,
+	advanced bool,
+	stable bool,
+) {
+	client, raw, err := server.macroIndexClient()
+	if err != nil {
+		return
+	}
+	defer raw.Release()
+
+	future, release := client.RecordResult(
+		server.workContext(),
+		func(params macro.MacroIndex_recordResult_Params) error {
+			keyData, err := params.NewKeyData(int32(len(key)))
+			if err != nil {
+				return err
+			}
+
+			for idx, word := range key {
+				keyData.Set(idx, word)
+			}
+
+			params.SetPreResidue(int32(preResidue))
+			params.SetPostResidue(int32(postResidue))
+			params.SetAdvanced(advanced)
+			params.SetStable(stable)
+			return nil
+		},
+	)
+	defer release()
+
+	_, _ = future.Struct()
 }
 
 /*
@@ -247,6 +384,14 @@ func CantileverWithRouter(router *cluster.Router) cantileverOpts {
 	}
 }
 
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+
+	return x
+}
+
 /*
 CantileverError is a typed error for Cantilever failures.
 */
@@ -278,15 +423,12 @@ func (server *CantileverServer) promptValues(
 	}
 	defer raw.Release()
 
-	for _, symbol := range prompt {
-		if err := client.Write(
-			ctx, func(params tokenizer.Universal_write_Params) error {
-				params.SetData(symbol)
-				return nil
-			},
-		); err != nil {
-			return nil, err
-		}
+	if err := client.WriteBatch(
+		ctx, func(params tokenizer.Universal_writeBatch_Params) error {
+			return params.SetData(prompt)
+		},
+	); err != nil {
+		return nil, err
 	}
 
 	if err := client.WaitStreaming(); err != nil {

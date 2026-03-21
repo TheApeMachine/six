@@ -76,6 +76,24 @@ func (c Server) Branches(ctx context.Context, params func(Server_branches_Params
 
 }
 
+func (c Server) WriteBatch(ctx context.Context, params func(Server_writeBatch_Params) error) error {
+	s := capnp.Send{
+		Method: capnp.Method{
+			InterfaceID:   0xca6cd8732fa23c4c,
+			MethodID:      3,
+			InterfaceName: "pkg/store/dmt/server/server.capnp:Server",
+			MethodName:    "writeBatch",
+		},
+	}
+	if params != nil {
+		s.ArgsSize = capnp.ObjectSize{DataSize: 0, PointerCount: 1}
+		s.PlaceArgs = func(s capnp.Struct) error { return params(Server_writeBatch_Params(s)) }
+	}
+
+	return capnp.Client(c).SendStreamCall(ctx, s)
+
+}
+
 func (c Server) WaitStreaming() error {
 	return capnp.Client(c).WaitStreaming()
 }
@@ -154,6 +172,8 @@ type Server_Server interface {
 	Done(context.Context, Server_done) error
 
 	Branches(context.Context, Server_branches) error
+
+	WriteBatch(context.Context, Server_writeBatch) error
 }
 
 // Server_NewServer creates a new Server from an implementation of Server_Server.
@@ -172,7 +192,7 @@ func Server_ServerToClient(s Server_Server) Server {
 // This can be used to create a more complicated Server.
 func Server_Methods(methods []server.Method, s Server_Server) []server.Method {
 	if cap(methods) == 0 {
-		methods = make([]server.Method, 0, 3)
+		methods = make([]server.Method, 0, 4)
 	}
 
 	methods = append(methods, server.Method{
@@ -208,6 +228,18 @@ func Server_Methods(methods []server.Method, s Server_Server) []server.Method {
 		},
 		Impl: func(ctx context.Context, call *server.Call) error {
 			return s.Branches(ctx, Server_branches{call})
+		},
+	})
+
+	methods = append(methods, server.Method{
+		Method: capnp.Method{
+			InterfaceID:   0xca6cd8732fa23c4c,
+			MethodID:      3,
+			InterfaceName: "pkg/store/dmt/server/server.capnp:Server",
+			MethodName:    "writeBatch",
+		},
+		Impl: func(ctx context.Context, call *server.Call) error {
+			return s.WriteBatch(ctx, Server_writeBatch{call})
 		},
 	})
 
@@ -263,6 +295,23 @@ func (c Server_branches) Args() Server_branches_Params {
 func (c Server_branches) AllocResults() (Server_branches_Results, error) {
 	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 1})
 	return Server_branches_Results(r), err
+}
+
+// Server_writeBatch holds the state for a server call to Server.writeBatch.
+// See server.Call for documentation.
+type Server_writeBatch struct {
+	*server.Call
+}
+
+// Args returns the call's arguments.
+func (c Server_writeBatch) Args() Server_writeBatch_Params {
+	return Server_writeBatch_Params(c.Call.Args())
+}
+
+// AllocResults allocates the results struct.
+func (c Server_writeBatch) AllocResults() (stream.StreamResult, error) {
+	r, err := c.Call.AllocResults(capnp.ObjectSize{DataSize: 0, PointerCount: 0})
+	return stream.StreamResult(r), err
 }
 
 // Server_List is a list of Server.
@@ -678,41 +727,134 @@ func (f Server_branches_Results_Future) Struct() (Server_branches_Results, error
 	return Server_branches_Results(p.Struct()), err
 }
 
-const schema_ad058c9d70413d66 = "x\xda\x9c\x921h\x13a\x1c\xc5\xdf\xfb\xbe\xbb\x9e\x85" +
-	"\xb6\xc9\x11\x97\x0a\x12\x1a2\xd8\x82\xc6\x1aD\xac\x96\xc4" +
-	"A\x94P\xe4\xae\x82\xb8\xc9\xd9~UI\x93\x1cw\xa7" +
-	"\xa5\xce\x8a\x8b\xe0\xa4P\xd1\xc5M\xb1C\xd5\xa5\"T" +
-	"\xeaP,\x9dDA\x97\"8wup9\xf9\xae\xcd" +
-	"\x99\xb8\x94vJ\xeex\xbc\xf7\xe7\xf7\xbb\xe3\x13\xac\x1a" +
-	"\xa3\xfd\x0fL\x08\xb7j\xf6\xc4\xefV6\xd6\xae^\xf9" +
-	"\xf0\x04\xee0\x09\x18\x16P~)\xde\x10\xcc-\x8b\x0a" +
-	"\x18g\x07\x7f\xae\x1eV\x85\xd7\xb0\x87\x09\x98\xd4\x81\x1f" +
-	"\xe2\x8b\x0el%\x81\x89\xb3/J\xe1\xf7\xd9u\xd8\x05" +
-	"\x19\xcf\x8c\x9f\xf3\x9f?4\x17\x01\x96\x87d\x8d\xb9\x93" +
-	"\xd2\x02r\xa3r-\xb7\xa8\xff\xc5\xf7\xbcg\x9b_W" +
-	"/\xfc\xda\xaeK\xe6\x1e\xcbW\x84\x11_\xcc}[\xda" +
-	"8\xb5\xb9\xd59t_\xae\xeb\xa1\x05\xa9\x87\xde\x07o" +
-	"W\xce<\x1a\xff\xdd\x19X\x96\xc9\xa9\x9fe\x05\xad\xd8" +
-	"\xaf\xdf(\x85Q+0Ui\xba\x11\x95B\x15\xdcQ" +
-	"\xc1\xce\xcf\xb1)\xcfo\xfac\x97\xb7\x1f\xe6\x82[\x91" +
-	"*:y/\xf0\x1a\xa1kH\x030\x08\xd8\xfd\x05\xc0" +
-	"= \xe9\x1e\x14\xb4\xeaj\x9e\xbd\x10\xec\x05\xd3\xea\x9e" +
-	"]\xab\xaf\x07^s\xea\xa6\x0a\x8b\x93*\xbc=\x1b\xb1" +
-	"\xab\xbe\x06\xb8}\x92\xee\x11\xc1\xb8\x1d\x04\xc0\x01\xd0\x91" +
-	"d6\x9e1j\x87.\xfd\xb9\xfb\x09\xa0~\x99\xee\x1a" +
-	"\xbb\xed\x02\x0e\xe9\xf6I\x13H\x9d\xb2\xb9\xf4q\xae\xfc" +
-	"\xf4\xda\x82\xed\x9e\x80\xb0\xcf[d\xca\x9fm\x9a\xf6\xe9" +
-	"\x11\x08\xfb\xa8E\x91\x1a`\xdb\xb9=T\x83\xb0\x07\xad" +
-	"|\xc2\xab\xca\xcct\xab\xa9\xaa]\xa7W\xe9\x90{ " +
-	"\xaf\x1b\x8a\x8e\x97\xd1\xe0\xf7C\xd5I\x94\x01\x9dT\xc7" +
-	"\xfeI\xab\xf8A\xab\xe1G\xff\x91\xccb\xcf'N\xaa" +
-	"\xbc\xd6\xd7eodg\xa7(\x98\xa9\xab\xf9\xb0\xadM" +
-	"\x7f$\x03\xe0\xdf\x00\x00\x00\xff\xff\x1a\xa8\xfa\xf5"
+type Server_writeBatch_Params capnp.Struct
+
+// Server_writeBatch_Params_TypeID is the unique identifier for the type Server_writeBatch_Params.
+const Server_writeBatch_Params_TypeID = 0x958517fa04dcb8b8
+
+func NewServer_writeBatch_Params(s *capnp.Segment) (Server_writeBatch_Params, error) {
+	st, err := capnp.NewStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_writeBatch_Params(st), err
+}
+
+func NewRootServer_writeBatch_Params(s *capnp.Segment) (Server_writeBatch_Params, error) {
+	st, err := capnp.NewRootStruct(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1})
+	return Server_writeBatch_Params(st), err
+}
+
+func ReadRootServer_writeBatch_Params(msg *capnp.Message) (Server_writeBatch_Params, error) {
+	root, err := msg.Root()
+	return Server_writeBatch_Params(root.Struct()), err
+}
+
+func (s Server_writeBatch_Params) String() string {
+	str, _ := text.Marshal(0x958517fa04dcb8b8, capnp.Struct(s))
+	return str
+}
+
+func (s Server_writeBatch_Params) EncodeAsPtr(seg *capnp.Segment) capnp.Ptr {
+	return capnp.Struct(s).EncodeAsPtr(seg)
+}
+
+func (Server_writeBatch_Params) DecodeFromPtr(p capnp.Ptr) Server_writeBatch_Params {
+	return Server_writeBatch_Params(capnp.Struct{}.DecodeFromPtr(p))
+}
+
+func (s Server_writeBatch_Params) ToPtr() capnp.Ptr {
+	return capnp.Struct(s).ToPtr()
+}
+func (s Server_writeBatch_Params) IsValid() bool {
+	return capnp.Struct(s).IsValid()
+}
+
+func (s Server_writeBatch_Params) Message() *capnp.Message {
+	return capnp.Struct(s).Message()
+}
+
+func (s Server_writeBatch_Params) Segment() *capnp.Segment {
+	return capnp.Struct(s).Segment()
+}
+func (s Server_writeBatch_Params) Keys() (capnp.UInt64List, error) {
+	p, err := capnp.Struct(s).Ptr(0)
+	return capnp.UInt64List(p.List()), err
+}
+
+func (s Server_writeBatch_Params) HasKeys() bool {
+	return capnp.Struct(s).HasPtr(0)
+}
+
+func (s Server_writeBatch_Params) SetKeys(v capnp.UInt64List) error {
+	return capnp.Struct(s).SetPtr(0, v.ToPtr())
+}
+
+// NewKeys sets the keys field to a newly
+// allocated capnp.UInt64List, preferring placement in s's segment.
+func (s Server_writeBatch_Params) NewKeys(n int32) (capnp.UInt64List, error) {
+	l, err := capnp.NewUInt64List(capnp.Struct(s).Segment(), n)
+	if err != nil {
+		return capnp.UInt64List{}, err
+	}
+	err = capnp.Struct(s).SetPtr(0, l.ToPtr())
+	return l, err
+}
+
+// Server_writeBatch_Params_List is a list of Server_writeBatch_Params.
+type Server_writeBatch_Params_List = capnp.StructList[Server_writeBatch_Params]
+
+// NewServer_writeBatch_Params creates a new list of Server_writeBatch_Params.
+func NewServer_writeBatch_Params_List(s *capnp.Segment, sz int32) (Server_writeBatch_Params_List, error) {
+	l, err := capnp.NewCompositeList(s, capnp.ObjectSize{DataSize: 0, PointerCount: 1}, sz)
+	return capnp.StructList[Server_writeBatch_Params](l), err
+}
+
+// Server_writeBatch_Params_Future is a wrapper for a Server_writeBatch_Params promised by a client call.
+type Server_writeBatch_Params_Future struct{ *capnp.Future }
+
+func (f Server_writeBatch_Params_Future) Struct() (Server_writeBatch_Params, error) {
+	p, err := f.Future.Ptr()
+	return Server_writeBatch_Params(p.Struct()), err
+}
+
+const schema_ad058c9d70413d66 = "x\xda\x9c\x921h\x13Q\x18\xc7\xff\xdf{\xefz\x16" +
+	"\xac\xc9#\x82T\x90`\x88`\x0a\x1ak\x10\xb1Z\x92" +
+	"\x8a\xa0\x0d*w\x15E\x05\x913}5\x92&9\xef" +
+	"NK\x1d\x9ct\x13\xc4AA\xd1A\xc1Et\xa8:" +
+	"\x14\x11*u\x10J'\xb1 \"Uprpu\xe8" +
+	"r\xf2\xaeM\x9a\xb8\xd48\xdd\x1d\xfc\xef\xff{\xdf\xfb" +
+	"}\xbb\xaeSA\xf4\xf7|3\xc0\xecCFW8=" +
+	"\xfdU,m\xbay\x172C\x80A&\x90[`_" +
+	"\x08\x94\xf8\xc9\xf2\xa0\xf0\xf5\xcc\xfc\x87\xd3\xa7\xde\xde\x83" +
+	"\x9d!\x02\x84\x0e\xf4\xf2\x97:\x90\xe1:\x10\xef\xfd>" +
+	"\xbbE\xa5\x9e\xb76\x0c\xf3\x8f:p.\x0a\x1c=\xf0" +
+	"$\xeb\x7f\x1e\x9f\x83L\xf1plp\xc8}t\xcbx" +
+	"\x01P\xee\x0e/R\xe2)\xd7?<\xe6&%\x86u" +
+	"yx\xc3y\xb8\xf8i\xf6\xf0\x8f\xe5\xbe\x88\xd7/\x9e" +
+	"\x11Dx$\xb105\xbfw\xf1W+i\xab\x98\xd3" +
+	"\xa4=B\x93\xdex\xaff\xf6\xdf\x1e\xfc\xdd\x1a8)" +
+	"\xa2\xb3*\x91G=t+\x17\xb3~P\xf7\xbaTv" +
+	"\xb4\x1ad}\xe5]U\xde\xcacg\xc9qk\xee\xc0" +
+	"\x89\xe5\x8f\x09\xefR\xa0\x0e:A\xa9\x9c\xb6\x1c\xcf\xe1" +
+	"U\xdf\x16\\\x00\x82\x00\xd9\xd3\x07\xd8\xeb8\xd9iF" +
+	"\xb1\x8a\x9a\xf4i\x03\xc8\xe2D\xdd`\xfa\xb5\xc91\xfe" +
+	"\x8d\x93\xb6\x92\x8e\xe7\xb4#R+\x88\x8d\x8c\xcc\x8a\x9a" +
+	"\x8c\xaa\xbb[\xaa\xd7\x1e\xe1\x82\xe7\xd4Je\xe5\xa7G" +
+	"\x94\x7fe<\xa0\xb6\xfa\"`\xaf\xe7dog\x146" +
+	"\x82\x00\x1a\x83\xc4\xc31Q\xdc||\xe9\xda{\x80\xda" +
+	"F\x12kq\x01\x8b\xc8\x8es\x03h.\x0f\xd5\xa6\xde" +
+	"M\xe4\x1e\x9c\xbf//\xef\x06\x93\xca$jz\xa6\x86" +
+	"5y\xa6\x0fL\x1e3\x895MSc\xb9\xe4P\x11" +
+	"L\xee3\x8977v\xb5s\xc7Y0\xb9\xcdLF" +
+	"wY\xa0\xd8h\xbd\xa6\x0amc\x15(l\x08\x05/" +
+	"\x95\x0bdQ'\x92ta\xdarb\xda\xd1\xff\x08\xb0" +
+	"\"\xbb@\xab\x80\x81U\xbfy\xd7\xabW\xdd\xe0\xafK" +
+	"\x8f\xa3\xe3#\x8e\xa8\xa46\xdd\xc9\xaa\xfe\x09\x00\x00\xff" +
+	"\xff6\xaf,C"
 
 func RegisterSchema(reg *schemas.Registry) {
 	reg.Register(&schemas.Schema{
 		String: schema_ad058c9d70413d66,
 		Nodes: []uint64{
+			0x958517fa04dcb8b8,
 			0x96bc5658c7ccbfb4,
 			0xac22651dc2e01910,
 			0xca6cd8732fa23c4c,
