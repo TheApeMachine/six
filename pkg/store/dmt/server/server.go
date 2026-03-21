@@ -96,6 +96,9 @@ func (idx *ForestServer) Client(clientID string) capnp.Client {
 Load approximates concurrent RPC pressure via active client registrations.
 */
 func (idx *ForestServer) Load() int64 {
+	idx.connMu.Lock()
+	defer idx.connMu.Unlock()
+
 	return int64(len(idx.clientConns))
 }
 

@@ -2,6 +2,7 @@ package vm
 
 import (
 	"bytes"
+	"errors"
 	"io"
 
 	"github.com/theapemachine/six/pkg/compute"
@@ -54,6 +55,8 @@ func (task *PromptTask) Read(p []byte) (n int, err error) {
 			if err = task.route.Close(); err != nil {
 				return 0, err
 			}
+
+			task.route = nil
 		}
 
 		task.processed = true
@@ -73,19 +76,23 @@ func (task *PromptTask) Write(p []byte) (n int, err error) {
 Close tears down the pipeline components.
 */
 func (task *PromptTask) Close() error {
-	if task.backend == nil {
-		return nil
-	}
+	var closeErr error
 
-	if task.closed {
-		return nil
-	}
+	if task.backend != nil && !task.closed {
+		if err := task.backend.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
 
-	task.closed = true
+		task.closed = true
+	}
 
 	if task.route != nil {
-		return task.route.Close()
+		if err := task.route.Close(); err != nil {
+			closeErr = errors.Join(closeErr, err)
+		}
+
+		task.route = nil
 	}
 
-	return nil
+	return closeErr
 }

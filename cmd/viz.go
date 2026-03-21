@@ -41,7 +41,7 @@ which receives real telemetry from the running system via UDP.`,
 		fmt.Println("Open in browser to see the 3D value space")
 
 		go func() {
-			if err := server.ListenAndServe(":8257"); err != nil && cmd.Context().Err() == nil {
+			if err := server.ListenAndServe(":8257", "127.0.0.1:8258"); err != nil && cmd.Context().Err() == nil {
 				console.Error(err, "msg", "Server error")
 				os.Exit(1)
 			}

@@ -172,16 +172,25 @@ func BenchmarkGraphWriteDone(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		_ = client.Write(ctx, func(p Graph_write_Params) error {
+		writeErr := client.Write(ctx, func(p Graph_write_Params) error {
 			p.SetKey(0)
 
 			return nil
 		})
+		if writeErr != nil {
+			b.Fatalf("write: %v", writeErr)
+		}
 
-		_ = client.WaitStreaming()
+		if waitErr := client.WaitStreaming(); waitErr != nil {
+			b.Fatalf("wait streaming: %v", waitErr)
+		}
 
 		future, release := client.Done(ctx, nil)
-		_, _ = future.Struct()
+		_, doneErr := future.Struct()
 		release()
+
+		if doneErr != nil {
+			b.Fatalf("done: %v", doneErr)
+		}
 	}
 }

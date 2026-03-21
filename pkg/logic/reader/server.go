@@ -66,10 +66,6 @@ func NewReaderServer(opts ...readerOpts) *ReaderServer {
 Client returns a Cap'n Proto client connected to this GraphServer.
 */
 func (rdr *ReaderServer) Client(clientID string) Reader {
-	if rdr.clientConns == nil {
-		rdr.clientConns = make(map[string]*rpc.Conn)
-	}
-
 	rdr.clientConns[clientID] = nil
 
 	return Reader_ServerToClient(rdr)

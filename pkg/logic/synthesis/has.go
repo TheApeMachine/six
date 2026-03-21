@@ -89,10 +89,13 @@ func (server *HASServer) Client(_ string) capnp.Client {
 }
 
 /*
-Load reports no backlog signal yet for this server.
+Load derives a lightweight pressure signal from the staged boundary pair.
 */
 func (server *HASServer) Load() int64 {
-	return 0
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return int64(server.start.ActiveCount() + server.end.ActiveCount())
 }
 
 /*

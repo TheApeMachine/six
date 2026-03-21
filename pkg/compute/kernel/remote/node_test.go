@@ -2,6 +2,7 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"runtime"
@@ -201,8 +202,38 @@ func TestNodePipelinedWrite(t *testing.T) {
 			So(found, ShouldBeTrue)
 		}
 
-		errp := node.lastErr.Load()
-		So(errp, ShouldBeNil)
+		So(node.LastError(), ShouldBeNil)
+	})
+}
+
+func TestNodeLastErrorPreservesFirstFailure(t *testing.T) {
+	Convey("Given a node that records multiple terminal errors", t, func() {
+		node := NewNode()
+		firstErr := errors.New("first failure")
+		secondErr := errors.New("second failure")
+
+		node.storeErr(firstErr)
+		node.storeErr(secondErr)
+
+		Convey("It should preserve the first error for callers", func() {
+			So(node.LastError(), ShouldEqual, firstErr)
+		})
+	})
+}
+
+func TestNodeWriteAfterClose(t *testing.T) {
+	Convey("Given a closed node", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		node := NewNode(NodeWithContext(ctx))
+		So(node.Close(), ShouldBeNil)
+
+		Convey("It should reject further writes with ErrClosedPipe", func() {
+			n, err := node.Write([]byte("late"))
+			So(err, ShouldEqual, io.ErrClosedPipe)
+			So(n, ShouldEqual, 0)
+		})
 	})
 }
 

@@ -29,7 +29,7 @@ type UniversalServer struct {
 	seq         *sequencer.Sequitur
 	pos         uint32
 	stateMu     sync.Mutex
-	connMu      sync.Mutex
+	connMu      sync.RWMutex
 	morton      *data.MortonCoder
 	healer      *sequencer.BitwiseHealer
 	sequences   [][]byte
@@ -89,6 +89,9 @@ func (server *UniversalServer) Client(clientID string) capnp.Client {
 Load approximates concurrent RPC pressure via active client registrations.
 */
 func (server *UniversalServer) Load() int64 {
+	server.connMu.RLock()
+	defer server.connMu.RUnlock()
+
 	return int64(len(server.clientConns))
 }
 

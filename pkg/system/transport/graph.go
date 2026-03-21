@@ -125,13 +125,17 @@ func (graph *Graph) Read(p []byte) (n int, err error) {
 		for from, targets := range edgeSnap {
 			node, ok := nodeSnap[from]
 			if !ok {
-				continue
+				return 0, fmt.Errorf("graph.Read: missing source node %q", from)
 			}
 
 			for _, to := range targets {
 				targetNode, ok := nodeSnap[to]
 				if !ok {
-					continue
+					return 0, fmt.Errorf(
+						"graph.Read: missing target node %q for source %q",
+						to,
+						from,
+					)
 				}
 
 				var copied int64

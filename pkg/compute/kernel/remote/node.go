@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -86,6 +87,10 @@ If the drainer detected a remote failure on a previous call, that error is
 returned here and the node is marked dead.
 */
 func (node *Node) Write(p []byte) (n int, err error) {
+	if node.closed.Load() {
+		return 0, io.ErrClosedPipe
+	}
+
 	if errp := node.lastErr.Load(); errp != nil {
 		node.alive.Store(false)
 		return 0, *errp
@@ -99,6 +104,10 @@ func (node *Node) Write(p []byte) (n int, err error) {
 		if connErr != nil {
 			return 0, connErr
 		}
+	}
+
+	if node.closed.Load() {
+		return 0, io.ErrClosedPipe
 	}
 
 	future, release := node.client.Insert(
@@ -119,13 +128,18 @@ func (node *Node) Write(p []byte) (n int, err error) {
 		},
 	)
 
-	select {
-	case node.pipe <- inflight{future: future, release: release}:
-		return len(p), nil
-	case <-node.ctx.Done():
+	if errp := node.lastErr.Load(); errp != nil {
 		release()
-		return 0, node.ctx.Err()
+		node.alive.Store(false)
+		return 0, *errp
 	}
+
+	if sendErr := node.enqueue(inflight{future: future, release: release}); sendErr != nil {
+		release()
+		return 0, sendErr
+	}
+
+	return len(p), nil
 }
 
 /*
@@ -197,8 +211,15 @@ Benign "use of closed network connection" errors from the peer tearing down
 first are swallowed; real errors propagate.
 */
 func (node *Node) Close() error {
-	node.closed.Store(true)
+	if !node.closed.CompareAndSwap(false, true) {
+		return nil
+	}
+
 	node.alive.Store(false)
+
+	if node.cancel != nil {
+		node.cancel()
+	}
 
 	close(node.pipe)
 
@@ -221,10 +242,6 @@ func (node *Node) Close() error {
 		}
 
 		node.conn = nil
-	}
-
-	if node.cancel != nil {
-		node.cancel()
 	}
 
 	return closeErr
@@ -339,10 +356,25 @@ func (node *Node) Addr() string {
 }
 
 /*
+LastError returns the first terminal error observed by the node drainer.
+*/
+func (node *Node) LastError() error {
+	if errp := node.lastErr.Load(); errp != nil {
+		return *errp
+	}
+
+	return nil
+}
+
+/*
 connectLocked dials the remote address, bootstraps the RadixRPC client, and
 starts the background drainer goroutine. Caller must hold node.mu.
 */
 func (node *Node) connectLocked() error {
+	if node.closed.Load() {
+		return io.ErrClosedPipe
+	}
+
 	if node.alive.Load() {
 		return nil
 	}
@@ -383,7 +415,11 @@ func (node *Node) drain() {
 			call.release()
 			node.storeErr(rpcErr)
 			node.alive.Store(false)
-			continue
+			if node.cancel != nil {
+				node.cancel()
+			}
+			node.releasePending()
+			return
 		}
 
 		ok := result.IsValid() && result.Success()
@@ -392,6 +428,11 @@ func (node *Node) drain() {
 		if !ok {
 			node.storeErr(NodeErrorRemoteRejected)
 			node.alive.Store(false)
+			if node.cancel != nil {
+				node.cancel()
+			}
+			node.releasePending()
+			return
 		}
 	}
 }
@@ -400,7 +441,57 @@ func (node *Node) drain() {
 storeErr stores an error for the next Write call to pick up.
 */
 func (node *Node) storeErr(err error) {
-	node.lastErr.Store(&err)
+	if err == nil {
+		return
+	}
+
+	firstErr := err
+	node.lastErr.CompareAndSwap(nil, &firstErr)
+}
+
+/*
+enqueue pushes one in-flight call onto the drainer pipe without panicking if
+Close races the send.
+*/
+func (node *Node) enqueue(call inflight) (err error) {
+	if node.closed.Load() {
+		return io.ErrClosedPipe
+	}
+
+	defer func() {
+		if recover() != nil {
+			err = io.ErrClosedPipe
+		}
+	}()
+
+	select {
+	case node.pipe <- call:
+		return nil
+	case <-node.ctx.Done():
+		if node.closed.Load() {
+			return io.ErrClosedPipe
+		}
+
+		return node.ctx.Err()
+	}
+}
+
+/*
+releasePending drops any queued calls after the first fatal drainer failure.
+*/
+func (node *Node) releasePending() {
+	for {
+		select {
+		case call, ok := <-node.pipe:
+			if !ok {
+				return
+			}
+
+			call.release()
+		default:
+			return
+		}
+	}
 }
 
 /*

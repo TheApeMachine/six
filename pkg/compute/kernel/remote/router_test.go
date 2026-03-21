@@ -153,39 +153,57 @@ func TestRouterClose(t *testing.T) {
 	})
 }
 
-func BenchmarkRouterWrite(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+func setupBenchmarkRouter(b *testing.B, nodeID string) (*Router, func()) {
+	b.Helper()
 
+	ctx, cancel := context.WithCancel(context.Background())
 	workerPool := pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{})
-	defer workerPool.Close()
 
 	forest, err := dmt.NewForest(dmt.ForestConfig{Pool: workerPool})
-
 	if err != nil {
+		workerPool.Close()
+		cancel()
 		b.Fatalf("forest: %v", err)
 	}
 
-	defer forest.Close()
-
 	netNode, netErr := dmt.NewNetworkNode(dmt.NetworkConfig{
 		ListenAddr: "127.0.0.1:0",
-		NodeID:     "bench-router",
+		NodeID:     nodeID,
 	}, forest)
-
 	if netErr != nil {
+		forest.Close()
+		workerPool.Close()
+		cancel()
 		b.Fatalf("network node: %v", netErr)
 	}
-
-	defer netNode.Close()
 
 	addr := netNode.ListenAddr()
 	waitListenerTCP(b, addr)
 
 	router := NewRouter(RouterWithContext(ctx))
-	defer router.Close()
+	if addErr := router.AddPeer(addr); addErr != nil {
+		router.Close()
+		netNode.Close()
+		forest.Close()
+		workerPool.Close()
+		cancel()
+		b.Fatalf("add peer: %v", addErr)
+	}
 
-	router.AddPeer(addr)
+	cleanup := func() {
+		_ = router.Close()
+		_ = netNode.Close()
+		_ = forest.Close()
+		workerPool.Close()
+		cancel()
+	}
+
+	return router, cleanup
+}
+
+func BenchmarkRouterWrite(b *testing.B) {
+	router, cleanup := setupBenchmarkRouter(b, "bench-router")
+	defer cleanup()
 
 	key := []byte("bench-router-key")
 
@@ -193,43 +211,15 @@ func BenchmarkRouterWrite(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		router.Write(key)
+		if _, err := router.Write(key); err != nil {
+			b.Fatalf("write: %v", err)
+		}
 	}
 }
 
 func BenchmarkRouterWriteSync(b *testing.B) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	workerPool := pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{})
-	defer workerPool.Close()
-
-	forest, err := dmt.NewForest(dmt.ForestConfig{Pool: workerPool})
-
-	if err != nil {
-		b.Fatalf("forest: %v", err)
-	}
-
-	defer forest.Close()
-
-	netNode, netErr := dmt.NewNetworkNode(dmt.NetworkConfig{
-		ListenAddr: "127.0.0.1:0",
-		NodeID:     "bench-router-sync",
-	}, forest)
-
-	if netErr != nil {
-		b.Fatalf("network node: %v", netErr)
-	}
-
-	defer netNode.Close()
-
-	addr := netNode.ListenAddr()
-	waitListenerTCP(b, addr)
-
-	router := NewRouter(RouterWithContext(ctx))
-	defer router.Close()
-
-	router.AddPeer(addr)
+	router, cleanup := setupBenchmarkRouter(b, "bench-router-sync")
+	defer cleanup()
 
 	key := []byte("bench-router-sync-key")
 
@@ -237,6 +227,8 @@ func BenchmarkRouterWriteSync(b *testing.B) {
 	b.ResetTimer()
 
 	for b.Loop() {
-		router.WriteSync(key)
+		if _, err := router.WriteSync(key); err != nil {
+			b.Fatalf("write sync: %v", err)
+		}
 	}
 }

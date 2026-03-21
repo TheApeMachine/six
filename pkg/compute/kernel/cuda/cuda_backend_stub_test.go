@@ -24,7 +24,6 @@ func TestCUDABackend_Available(t *testing.T) {
 				return
 			}
 
-			So(err, ShouldBeNil)
 			So(n, ShouldBeGreaterThanOrEqualTo, 0)
 		})
 	})

@@ -88,7 +88,7 @@ func TestBroadcastGroupSendAfterClose(t *testing.T) {
 			case _, ok := <-ch:
 				So(ok, ShouldBeFalse)
 			case <-time.After(50 * time.Millisecond):
-				So(false, ShouldBeTrue)
+				t.Fatal("channel was not closed within 50ms")
 			}
 		})
 	})

@@ -83,13 +83,20 @@ func (server *ProgramServer) Read(ctx context.Context, call primitive.Service_re
 	}
 
 	for _, value := range server.buffer {
+		sendValue := value
+
 		if err := callback.Send(ctx, func(params primitive.Service_Callback_send_Params) error {
+			destination, err := params.NewValue()
+			if err != nil {
+				return err
+			}
+
+			destination.CopyFrom(sendValue)
+
 			return nil
 		}); err != nil {
 			return err
 		}
-
-		_ = value
 	}
 
 	_, release := callback.Done(ctx, nil)

@@ -37,6 +37,11 @@ type GraphServer struct {
 	ptr int
 }
 
+type graphRowRemainder struct {
+	rowIndex int
+	value    primitive.Value
+}
+
 /*
 GraphOpt configures GraphServer at construction. Options inject context,
 worker pool, macro index, or telemetry sink.
@@ -90,12 +95,7 @@ func (graph *GraphServer) Load() int64 {
 	graph.mu.RLock()
 	defer graph.mu.RUnlock()
 
-	n := graph.ptr + 1
-	if n < 0 {
-		return 0
-	}
-
-	return int64(n)
+	return int64(graph.ptr + 1)
 }
 
 /*
@@ -220,16 +220,19 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 	leftSlice := data[:mid]
 	rightSlice := data[mid:]
 
-	remainderLeft := make([]primitive.Value, 0)
-	remainderRight := make([]primitive.Value, 0)
+	remainderLeft := make([]graphRowRemainder, 0)
+	remainderRight := make([]graphRowRemainder, 0)
 
-	for _, leftItem := range leftSlice {
+	for leftIndex, leftItem := range leftSlice {
 		label := make([]primitive.Value, 0)
-		remainderLeft = append(remainderLeft, leftItem)
+		remainderLeft = append(remainderLeft, graphRowRemainder{
+			rowIndex: leftIndex,
+			value:    leftItem,
+		})
 
 		matched := false
 
-		for _, rightItem := range rightSlice {
+		for rightIndex, rightItem := range rightSlice {
 			if !matched {
 				lbl := errnie.Guard(graph.state, func() (primitive.Value, error) {
 					return leftItem.AND(rightItem)
@@ -248,7 +251,10 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 				continue
 			}
 
-			remainderRight = append(remainderRight, rightItem)
+			remainderRight = append(remainderRight, graphRowRemainder{
+				rowIndex: mid + rightIndex,
+				value:    rightItem,
+			})
 		}
 
 		graph.addArrows(label, append(remainderLeft, remainderRight...))
@@ -319,13 +325,13 @@ func (graph *GraphServer) valuesEqual(
 		left.C7() == right.C7()
 }
 
-func (graph *GraphServer) addArrows(label, remainder []primitive.Value) {
-	for rIdx := range remainder {
-		if rIdx >= len(graph.data) {
+func (graph *GraphServer) addArrows(label []primitive.Value, remainder []graphRowRemainder) {
+	for _, remainderValue := range remainder {
+		if remainderValue.rowIndex >= len(graph.data) {
 			continue
 		}
 
-		for _, value := range graph.data[rIdx] {
+		for _, value := range graph.data[remainderValue.rowIndex] {
 			remPhase, _ := value.RotationSeed()
 
 			for lIdx := range label {

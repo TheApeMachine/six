@@ -17,11 +17,11 @@ func TestCircuitBreakerLimitMatchesAllow(t *testing.T) {
 		})
 
 		Convey("After failures Limit should reject while Allow is false", func() {
-			cb2 := NewCircuitBreaker(2, 100*time.Millisecond, 1)
-			cb2.RecordFailure()
-			cb2.RecordFailure()
-			So(cb2.Allow(), ShouldBeFalse)
-			So(cb2.Limit(), ShouldBeTrue)
+			openBreaker := NewCircuitBreaker(2, 100*time.Millisecond, 1)
+			openBreaker.RecordFailure()
+			openBreaker.RecordFailure()
+			So(openBreaker.Allow(), ShouldBeFalse)
+			So(openBreaker.Limit(), ShouldBeTrue)
 		})
 	})
 }

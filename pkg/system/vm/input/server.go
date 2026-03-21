@@ -48,7 +48,7 @@ type PrompterServer struct {
 	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	heldout     Holdout
-	connMu      sync.Mutex
+	connMu      sync.RWMutex
 }
 
 /*
@@ -102,6 +102,9 @@ func (server *PrompterServer) Client(clientID string) capnp.Client {
 Load approximates concurrent RPC pressure via active client registrations.
 */
 func (server *PrompterServer) Load() int64 {
+	server.connMu.RLock()
+	defer server.connMu.RUnlock()
+
 	return int64(len(server.clientConns))
 }
 

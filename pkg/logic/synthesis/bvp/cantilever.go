@@ -104,10 +104,6 @@ func (server *CantileverServer) Load() int64 {
 Prompt implements Cantilever_Server.
 */
 func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prompt) error {
-	if server.router == nil {
-		return fmt.Errorf("cantilever prompt requires a cluster router")
-	}
-
 	workCtx := server.ctx
 	if workCtx == nil {
 		workCtx = ctx
@@ -301,37 +297,22 @@ func (server *CantileverServer) tokenizerKeys(
 	ctx context.Context,
 	client tokenizer.Universal,
 ) ([]uint64, error) {
-	keys := make([]uint64, 0)
-
-	for range 2 {
-		future, release := client.Done(ctx, nil)
-
-		results, err := future.Struct()
-		if err != nil {
-			release()
-			return nil, err
-		}
-
-		list, err := results.Keys()
-		if err != nil {
-			release()
-			return nil, err
-		}
-
-		for index := range list.Len() {
-			keys = append(keys, list.At(index))
-		}
-
-		release()
-	}
-
-	return keys, nil
+	return tokenizer.DrainKeys(ctx, client)
 }
 
 /*
 decodePromptValues decodes lexical symbols from a continuation Value slice.
 */
 func decodePromptValues(values []primitive.Value) []byte {
+	return decodePromptValuesInfo(values).bytes
+}
+
+type promptDecodeInfo struct {
+	bytes          []byte
+	consumedValues int
+}
+
+func decodePromptValuesInfo(values []primitive.Value) promptDecodeInfo {
 	out := make([]byte, 0, len(values))
 
 	for _, value := range values {
@@ -343,7 +324,10 @@ func decodePromptValues(values []primitive.Value) []byte {
 		out = append(out, symbol)
 	}
 
-	return out
+	return promptDecodeInfo{
+		bytes:          out,
+		consumedValues: len(values),
+	}
 }
 
 /*
@@ -368,7 +352,8 @@ func (server *CantileverServer) exactContinuation(
 	server.corpusMu.RLock()
 	defer server.corpusMu.RUnlock()
 
-	promptBytes := decodePromptValues(prompt)
+	promptInfo := decodePromptValuesInfo(prompt)
+	promptBytes := promptInfo.bytes
 
 	for index, row := range server.lexical {
 		if len(row) <= len(promptBytes) {
@@ -379,7 +364,11 @@ func (server *CantileverServer) exactContinuation(
 			continue
 		}
 
-		return append([]primitive.Value(nil), server.corpus[index][len(promptBytes):]...)
+		if len(server.corpus[index]) <= promptInfo.consumedValues {
+			continue
+		}
+
+		return append([]primitive.Value(nil), server.corpus[index][promptInfo.consumedValues:]...)
 	}
 
 	return nil

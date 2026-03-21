@@ -3,6 +3,7 @@ package vm
 import (
 	"bytes"
 	"context"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
@@ -13,6 +14,7 @@ CantileverRoute is a single-shot backend operation that routes one prompt
 payload through the Cantilever prompt capability and exposes the result as io.
 */
 type CantileverRoute struct {
+	mu       sync.Mutex
 	ctx      context.Context
 	raw      capnp.Client
 	client   bvp.Cantilever
@@ -41,8 +43,11 @@ func NewCantileverRoute(
 Read executes the prompt once, then drains the result bytes.
 */
 func (route *CantileverRoute) Read(p []byte) (n int, err error) {
+	route.mu.Lock()
+	defer route.mu.Unlock()
+
 	if !route.finished {
-		if err = route.run(); err != nil {
+		if err = route.runLocked(); err != nil {
 			return 0, err
 		}
 	}
@@ -54,6 +59,9 @@ func (route *CantileverRoute) Read(p []byte) (n int, err error) {
 Write buffers the prompt payload for the eventual prompt RPC.
 */
 func (route *CantileverRoute) Write(p []byte) (n int, err error) {
+	route.mu.Lock()
+	defer route.mu.Unlock()
+
 	return route.input.Write(p)
 }
 
@@ -61,6 +69,9 @@ func (route *CantileverRoute) Write(p []byte) (n int, err error) {
 Close releases the held capability.
 */
 func (route *CantileverRoute) Close() error {
+	route.mu.Lock()
+	defer route.mu.Unlock()
+
 	if route.raw.IsValid() {
 		route.raw.Release()
 		route.raw = capnp.Client{}
@@ -73,6 +84,16 @@ func (route *CantileverRoute) Close() error {
 run performs the Cantilever prompt RPC exactly once.
 */
 func (route *CantileverRoute) run() error {
+	route.mu.Lock()
+	defer route.mu.Unlock()
+
+	return route.runLocked()
+}
+
+/*
+runLocked performs the Cantilever prompt RPC while the route mutex is held.
+*/
+func (route *CantileverRoute) runLocked() error {
 	future, release := route.client.Prompt(route.ctx, func(
 		params bvp.Cantilever_prompt_Params,
 	) error {

@@ -65,6 +65,68 @@ func TestCantileverPromptValues(t *testing.T) {
 	})
 }
 
+func BenchmarkCantileverPromptValues(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	router := cluster.NewRouter(cluster.RouterWithContext(ctx))
+	tok := tokenizer.NewUniversalServer(
+		tokenizer.UniversalWithContext(ctx),
+	)
+	defer tok.Close()
+
+	prompter := input.NewPrompterServer(
+		input.PrompterWithContext(ctx),
+	)
+	defer prompter.Close()
+
+	router.Register(cluster.TOKENIZER, tok)
+	router.Register(cluster.PROMPTER, prompter)
+
+	server := NewCantileverServer(
+		CantileverWithContext(ctx),
+		CantileverWithRouter(router),
+	)
+
+	client := tokenizer.Universal(tok.Client("bench"))
+	for _, symbol := range []byte("Roy is in the Kitchen") {
+		if err := client.Write(ctx, func(params tokenizer.Universal_write_Params) error {
+			params.SetData(symbol)
+			return nil
+		}); err != nil {
+			b.Fatalf("write: %v", err)
+		}
+	}
+
+	if err := client.WaitStreaming(); err != nil {
+		b.Fatalf("wait streaming: %v", err)
+	}
+
+	keys, err := server.tokenizerKeys(ctx, client)
+	if err != nil {
+		b.Fatalf("tokenizer keys: %v", err)
+	}
+
+	server.Store([][]primitive.Value{
+		primitive.CompileObservableSequenceValues(keys),
+	})
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		promptValues, err := server.promptValues(ctx, []byte("Roy is in the "))
+		if err != nil {
+			b.Fatalf("prompt values: %v", err)
+		}
+
+		continuation := server.exactContinuation(promptValues)
+		if got := string(decodePromptValues(continuation)); got != "Kitchen" {
+			b.Fatalf("continuation = %q, want %q", got, "Kitchen")
+		}
+	}
+}
+
 func TestCantilever(t *testing.T) {
 	ctx := context.Background()
 

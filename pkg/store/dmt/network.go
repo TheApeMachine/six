@@ -99,6 +99,9 @@ func NewNetworkNode(config NetworkConfig, forest *Forest) (*NetworkNode, error) 
 		HeartbeatInterval: 50 * time.Millisecond,
 		QuorumSize:        max(1, (clusterSize/2)+1),
 	}, node)
+	node.election.stateLock.Lock()
+	node.election.term = 1
+	node.election.stateLock.Unlock()
 
 	node.scheduleLoop("accept-loop", func(ctx context.Context) (any, error) {
 		node.acceptLoop()
@@ -503,12 +506,12 @@ BroadcastInsert broadcasts an insert operation to all connected peers.
 It ensures data consistency by propagating insertions to all nodes
 in the network.
 */
-func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
+func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) error {
 	start := time.Now()
 
 	currentTerm := n.election.getCurrentTerm()
 	if currentTerm == 0 {
-		currentTerm = 1
+		return fmt.Errorf("dmt/network broadcast insert: missing term in request")
 	}
 
 	newLogIndex := n.election.getLastLogIndex() + 1
@@ -554,6 +557,8 @@ func (n *NetworkNode) BroadcastInsert(key []byte, value []byte) {
 	}
 
 	n.metrics.RecordInsert(time.Since(start), len(key)+len(value))
+
+	return nil
 }
 
 /*

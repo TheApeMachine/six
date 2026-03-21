@@ -134,6 +134,22 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		return machine.runPromptThroughBackend(ctx, msg)
 	})
 
+	if machine.state.Failed() {
+		promptErr := machine.state.Err()
+
+		machine.sink.Emit(telemetry.Event{
+			Component: "Machine",
+			Action:    "Pipeline",
+			Data: telemetry.EventData{
+				Stage:      "prompt-error",
+				Message:    promptErr.Error(),
+				ResultText: string(out),
+			},
+		})
+
+		return nil, promptErr
+	}
+
 	machine.sink.Emit(telemetry.Event{
 		Component: "Machine",
 		Action:    "Pipeline",
@@ -208,11 +224,23 @@ func (machine *Machine) awaitPromptResult(
 			}
 
 			if bytes, ok := result.Value.([]byte); ok {
+				if bytes == nil {
+					return nil, fmt.Errorf(
+						"%w for job %s",
+						ErrMachineNilPromptResult,
+						jobID,
+					)
+				}
+
 				return bytes, nil
 			}
 
 			if result.Value == nil {
-				return nil, nil
+				return nil, fmt.Errorf(
+					"%w for job %s",
+					ErrMachineNilPromptResult,
+					jobID,
+				)
 			}
 
 			return nil, fmt.Errorf("prompt result has unexpected type %T", result.Value)
@@ -378,30 +406,7 @@ func (machine *Machine) tokenizerKeys(
 	ctx context.Context,
 	client tokenizer.Universal,
 ) ([]uint64, error) {
-	keys := make([]uint64, 0)
-
-	for range 2 {
-		future, release := client.Done(ctx, nil)
-		results, err := future.Struct()
-		if err != nil {
-			release()
-			return nil, err
-		}
-
-		list, err := results.Keys()
-		if err != nil {
-			release()
-			return nil, err
-		}
-
-		for index := range list.Len() {
-			keys = append(keys, list.At(index))
-		}
-
-		release()
-	}
-
-	return keys, nil
+	return tokenizer.DrainKeys(ctx, client)
 }
 
 /*
@@ -827,6 +832,7 @@ type MachineError string
 
 const (
 	ErrMachineMissingRequirements MachineError = "missing requirements"
+	ErrMachineNilPromptResult     MachineError = "nil prompt result"
 )
 
 func (machineError MachineError) Error() string {

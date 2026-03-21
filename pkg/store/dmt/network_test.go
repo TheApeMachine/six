@@ -244,7 +244,12 @@ func TestNetworkBroadcast(t *testing.T) {
 		defer node.Close()
 
 		Convey("When broadcasting an insert", func() {
-			node.BroadcastInsert([]byte("broadcast-key"), []byte("broadcast-value"))
+			node.election.stateLock.Lock()
+			node.election.term = 1
+			node.election.stateLock.Unlock()
+
+			err := node.BroadcastInsert([]byte("broadcast-key"), []byte("broadcast-value"))
+			So(err, ShouldBeNil)
 
 			Convey("Then metrics should be updated", func() {
 				metrics := node.GetMetrics()
@@ -335,7 +340,12 @@ func TestNetworkMetricsAfterInsert(t *testing.T) {
 		defer node.Close()
 
 		Convey("When broadcasting an insert", func() {
-			node.BroadcastInsert([]byte("m-key"), []byte("m-val"))
+			node.election.stateLock.Lock()
+			node.election.term = 1
+			node.election.stateLock.Unlock()
+
+			err := node.BroadcastInsert([]byte("m-key"), []byte("m-val"))
+			So(err, ShouldBeNil)
 
 			Convey("Then operations and network metrics reflect the write", func() {
 				metrics := node.GetMetrics()
@@ -410,7 +420,12 @@ func TestNetworkTwoNodeBroadcast(t *testing.T) {
 				time.Sleep(15 * time.Millisecond)
 			}
 
-			node1.BroadcastInsert(bcastKey, bcastVal)
+			node1.election.stateLock.Lock()
+			node1.election.term = 1
+			node1.election.stateLock.Unlock()
+
+			err := node1.BroadcastInsert(bcastKey, bcastVal)
+			So(err, ShouldBeNil)
 
 			received := false
 
@@ -433,6 +448,32 @@ func TestNetworkTwoNodeBroadcast(t *testing.T) {
 			Convey("Then node2 should hold the inserted data", func() {
 				So(received, ShouldBeTrue)
 			})
+		})
+	})
+}
+
+func TestNetworkBroadcastInsertRejectsZeroTerm(t *testing.T) {
+	Convey("Given a network node with an invalid election term", t, func() {
+		forest, err := NewForest(ForestConfig{})
+		So(err, ShouldBeNil)
+		defer forest.Close()
+
+		node, err := NewNetworkNode(NetworkConfig{
+			ListenAddr:   "127.0.0.1:0",
+			NodeID:       "broadcast-zero-term",
+			SyncInterval: time.Second,
+		}, forest)
+		So(err, ShouldBeNil)
+		defer node.Close()
+
+		node.election.stateLock.Lock()
+		node.election.term = 0
+		node.election.stateLock.Unlock()
+
+		Convey("BroadcastInsert should reject the invalid state", func() {
+			err := node.BroadcastInsert([]byte("bad-key"), []byte("bad-value"))
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldEqual, "dmt/network broadcast insert: missing term in request")
 		})
 	})
 }

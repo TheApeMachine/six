@@ -167,5 +167,9 @@ func NewRouterError(err RouterErrorType) *RouterError {
 }
 
 func (err RouterError) Error() string {
-	return fmt.Sprintf("router error: %s: %s", err.Message, err.Err)
+	if err.Message != "" && err.Message != string(err.Err) {
+		return fmt.Sprintf("router error: %s: %s", err.Message, err.Err)
+	}
+
+	return fmt.Sprintf("router error: %s", err.Err)
 }

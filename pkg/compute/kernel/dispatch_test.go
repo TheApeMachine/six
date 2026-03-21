@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"io"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -69,4 +70,63 @@ func BenchmarkBuilderRoundTrip(b *testing.B) {
 		out.Reset()
 		io.Copy(&out, builder)
 	}
+}
+
+type countingBackend struct {
+	buf            bytes.Buffer
+	availableCalls int
+}
+
+func (backend *countingBackend) Available() (int, error) {
+	backend.availableCalls++
+
+	return 1, nil
+}
+
+func (backend *countingBackend) Read(p []byte) (int, error) {
+	return backend.buf.Read(p)
+}
+
+func (backend *countingBackend) Write(p []byte) (int, error) {
+	return backend.buf.Write(p)
+}
+
+func (backend *countingBackend) Close() error {
+	backend.buf.Reset()
+
+	return nil
+}
+
+func TestBuilderBestCachesAvailabilityWithinTTL(t *testing.T) {
+	Convey("Given a builder with a cached backend probe", t, func() {
+		backend := &countingBackend{}
+		builder := NewBuilder(WithBackend(backend))
+		builder.availabilityTTL = time.Hour
+
+		payload := []byte("x")
+
+		Convey("It should avoid repeated Available probes until reset", func() {
+			n, err := builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(backend.availableCalls, ShouldEqual, 1)
+
+			out := make([]byte, len(payload))
+			n, err = builder.Read(out)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(backend.availableCalls, ShouldEqual, 1)
+
+			closeErr := builder.Close()
+			So(closeErr, ShouldBeNil)
+			So(backend.availableCalls, ShouldEqual, 1)
+
+			builder.Reset()
+
+			n, err = builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(backend.availableCalls, ShouldEqual, 2)
+		})
+	})
 }

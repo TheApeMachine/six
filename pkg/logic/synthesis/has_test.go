@@ -217,6 +217,27 @@ func TestHASWriteDone(t *testing.T) {
 }
 
 /*
+TestHASLoad verifies the load signal is derived from staged boundary state.
+*/
+func TestHASLoad(t *testing.T) {
+	gc.Convey("Given a HAS server with staged boundaries", t, func() {
+		server := NewHASServer(
+			HASWithContext(context.Background()),
+		)
+		defer server.Close()
+
+		gc.So(server.Load(), gc.ShouldEqual, int64(0))
+
+		server.copyDataIntoPrimitive(&server.start, primitive.BaseValue('S'))
+		server.copyDataIntoPrimitive(&server.end, primitive.BaseValue('E'))
+
+		gc.Convey("Load should reflect the staged boundary pressure", func() {
+			gc.So(server.Load(), gc.ShouldBeGreaterThan, int64(0))
+		})
+	})
+}
+
+/*
 TestHASAsk verifies reagent-style inference via table-driven scenarios.
 */
 func TestHASAsk(t *testing.T) {

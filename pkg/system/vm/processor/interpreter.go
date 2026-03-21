@@ -581,7 +581,7 @@ type InterpreterError struct {
 NewInterpreterError constructs a typed interpreter error.
 */
 func NewInterpreterError(err InterpreterErrorType) *InterpreterError {
-	return &InterpreterError{Message: string(err), Err: err}
+	return &InterpreterError{Err: err}
 }
 
 /*

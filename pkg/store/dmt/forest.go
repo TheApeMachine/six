@@ -313,7 +313,9 @@ func (forest *Forest) Insert(key []byte, value []byte) {
 	forest.mu.Unlock()
 
 	if network != nil {
-		network.BroadcastInsert(key, value)
+		if err := network.BroadcastInsert(key, value); err != nil {
+			errnie.Error(err)
+		}
 	}
 }
 

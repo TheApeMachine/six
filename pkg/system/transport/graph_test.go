@@ -82,6 +82,55 @@ func TestGraph(t *testing.T) {
 			So(graph.Close(), ShouldBeNil)
 		})
 	})
+
+	Convey("Given a graph with an edge whose source node is missing", t, func() {
+		reg := new(memRW)
+		dst := new(memRW)
+
+		graph := NewGraph(
+			WithRegistry(reg),
+			WithNode(&Node{ID: "b", Component: dst}),
+			WithEdge(&Edge{From: "a", To: "b"}),
+		)
+
+		Convey("Read should return a descriptive source-node error", func() {
+			_, err := graph.Write([]byte("reg"))
+			So(err, ShouldBeNil)
+
+			out := make([]byte, 32)
+			n, err := graph.Read(out)
+			So(n, ShouldEqual, 0)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "missing source node")
+			So(err.Error(), ShouldContainSubstring, "a")
+		})
+	})
+
+	Convey("Given a graph with an edge whose target node is missing", t, func() {
+		reg := new(memRW)
+		src := new(memRW)
+
+		_, err := src.WriteString("edge")
+		So(err, ShouldBeNil)
+
+		graph := NewGraph(
+			WithRegistry(reg),
+			WithNode(&Node{ID: "a", Component: src}),
+			WithEdge(&Edge{From: "a", To: "b"}),
+		)
+
+		Convey("Read should return a descriptive target-node error", func() {
+			_, err := graph.Write([]byte("reg"))
+			So(err, ShouldBeNil)
+
+			out := make([]byte, 32)
+			n, err := graph.Read(out)
+			So(n, ShouldEqual, 0)
+			So(err, ShouldNotBeNil)
+			So(err.Error(), ShouldContainSubstring, "missing target node")
+			So(err.Error(), ShouldContainSubstring, "b")
+		})
+	})
 }
 
 func BenchmarkGraphWriteRead(b *testing.B) {

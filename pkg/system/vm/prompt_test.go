@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
 	"github.com/theapemachine/six/pkg/system/cluster"
@@ -174,11 +173,6 @@ func TestCantileverPromptViaRouter(t *testing.T) {
 			})),
 		)
 		gc.So(err, gc.ShouldBeNil)
-
-		row, err := machine.compilePromptRow([]byte("Roy is in the Kitchen"))
-		gc.So(err, gc.ShouldBeNil)
-		gc.So(len(row), gc.ShouldBeGreaterThan, 0)
-		machine.booter.cantilever.Store([][]primitive.Value{row})
 
 		gc.Convey("It should return the continuation through the cantilever capability", func() {
 			raw, err := machine.booter.router.Get(ctx, cluster.CANTILEVER, "test")

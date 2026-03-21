@@ -87,7 +87,7 @@ func NewMetricsForExportTest(
 
 /*
 SetMaxCentroids sets the t-digest centroid cap (test and tuning hook).
-Must not be called concurrently with other Metrics methods.
+This method acquires m.mu and is safe for concurrent use.
 */
 func (m *Metrics) SetMaxCentroids(maxCentroids int) {
 	m.mu.Lock()
@@ -97,7 +97,7 @@ func (m *Metrics) SetMaxCentroids(maxCentroids int) {
 
 /*
 SetCompression sets the t-digest compression factor (test and tuning hook).
-Must not be called concurrently with other Metrics methods.
+This method acquires m.mu and is safe for concurrent use.
 */
 func (m *Metrics) SetCompression(compression int) {
 	m.mu.Lock()

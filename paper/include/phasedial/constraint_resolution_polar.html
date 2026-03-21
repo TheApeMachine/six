@@ -32,7 +32,58 @@
     <div id="chart"></div>
     <script>
 
-const snapshots = [{"title":"Two suspects, shared clue","points":[{"label":"BUTLER","angle":0,"radius":0.15,"color":"#3b82f6"},{"label":"GARDENER","angle":45,"radius":1,"color":"#ec4899"},{"label":"MAID","angle":90,"radius":0.15,"color":"#8b5cf6"},{"label":"CHEF","angle":135,"radius":0.15,"color":"#10b981"},{"label":"EVIDENCE","angle":45,"radius":1,"color":"#1e293b"},{"label":"MID","angle":22.5,"radius":0.11093750000000001,"color":"#64748b"}],"channels":[0,45,90,135]},{"title":"Alibis shift the suspects","points":[{"label":"BUTLER","angle":0,"radius":0.15,"color":"#3b82f6"},{"label":"GARDENER","angle":45,"radius":1,"color":"#ec4899"},{"label":"MAID","angle":90,"radius":0.15,"color":"#8b5cf6"},{"label":"CHEF","angle":135,"radius":0.15,"color":"#10b981"},{"label":"EVIDENCE","angle":45,"radius":1,"color":"#1e293b"},{"label":"MID","angle":22.5,"radius":0.11093750000000001,"color":"#64748b"}],"channels":[0,45,90,135]},{"title":"Rule out one suspect (destructive interference)","points":[{"label":"BUTLER","angle":0,"radius":0.15,"color":"#3b82f6"},{"label":"GARDENER","angle":45,"radius":1,"color":"#ec4899"},{"label":"MAID","angle":90,"radius":0.15,"color":"#8b5cf6"},{"label":"CHEF","angle":135,"radius":0.15,"color":"#10b981"},{"label":"EVIDENCE","angle":45,"radius":1,"color":"#1e293b"},{"label":"MID","angle":22.5,"radius":0.11093750000000001,"color":"#64748b"}],"channels":[0,45,90,135]},{"title":"Hard evidence confirms the final suspect","points":[{"label":"BUTLER","angle":0,"radius":0.15,"color":"#3b82f6"},{"label":"GARDENER","angle":45,"radius":1,"color":"#ec4899"},{"label":"MAID","angle":90,"radius":0.15,"color":"#8b5cf6"},{"label":"CHEF","angle":135,"radius":0.15,"color":"#10b981"},{"label":"EVIDENCE","angle":45,"radius":1,"color":"#1e293b"},{"label":"MID","angle":22.5,"radius":0.11093750000000001,"color":"#64748b"}],"channels":[0,45,90,135]}];
+const basePoints = [
+    { label: 'BUTLER', angle: 0, radius: 0.15, color: '#3b82f6' },
+    { label: 'GARDENER', angle: 45, radius: 1.0, color: '#ec4899' },
+    { label: 'MAID', angle: 90, radius: 0.15, color: '#8b5cf6' },
+    { label: 'CHEF', angle: 135, radius: 0.15, color: '#10b981' },
+    { label: 'EVIDENCE', angle: 45, radius: 1.0, color: '#1e293b' },
+    { label: 'MID', angle: 22.5, radius: 0.1109375, color: '#64748b' }
+];
+
+const stagePoints = (overrides = {}) =>
+    basePoints.map((point) => ({ ...point, ...(overrides[point.label] || {}) }));
+
+const snapshots = [
+    {
+        title: 'Two suspects, shared clue',
+        points: stagePoints(),
+        channels: [0, 45, 90, 135]
+    },
+    {
+        title: 'Alibis shift the suspects',
+        points: stagePoints({
+            BUTLER: { radius: 0.28, angle: 8 },
+            GARDENER: { radius: 0.84, angle: 52 },
+            EVIDENCE: { radius: 0.78, angle: 52 },
+            MID: { radius: 0.2, angle: 30 }
+        }),
+        channels: [0, 52, 90, 135]
+    },
+    {
+        title: 'Rule out one suspect (destructive interference)',
+        points: stagePoints({
+            BUTLER: { radius: 0.08, angle: 350 },
+            GARDENER: { radius: 0.94, angle: 58 },
+            CHEF: { radius: 0.32, angle: 124 },
+            EVIDENCE: { radius: 0.88, angle: 58 },
+            MID: { radius: 0.31, angle: 44 }
+        }),
+        channels: [58, 90, 124]
+    },
+    {
+        title: 'Hard evidence confirms the final suspect',
+        points: stagePoints({
+            GARDENER: { radius: 1.0, angle: 60 },
+            BUTLER: { radius: 0.04, angle: 345 },
+            MAID: { radius: 0.06, angle: 102 },
+            CHEF: { radius: 0.05, angle: 128 },
+            EVIDENCE: { radius: 1.0, angle: 60 },
+            MID: { radius: 0.52, angle: 60 }
+        }),
+        channels: [60]
+    }
+];
 
 const chart = echarts.init(document.getElementById('chart'), null, { renderer: 'svg' });
 
