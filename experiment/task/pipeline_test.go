@@ -52,44 +52,46 @@ func TestPipeline(t *testing.T) {
 	}
 
 	for _, experiment := range allExperiments {
-		Convey("Given experiment: "+experiment.Name(), t, func() {
-			pipeline, err := NewPipeline(
-				t.Context(),
-				PipelineWithExperiment(experiment),
-				PipelineWithReporter(NewProjectorReporter()),
-			)
+		t.Run(experiment.Name(), func(t *testing.T) {
+			Convey("Given experiment: "+experiment.Name(), t, func() {
+				pipeline, err := NewPipeline(
+					t.Context(),
+					PipelineWithExperiment(experiment),
+					PipelineWithReporter(NewProjectorReporter()),
+				)
 
-			So(err, ShouldBeNil)
-			So(pipeline, ShouldNotBeNil)
+				So(err, ShouldBeNil)
+				So(pipeline, ShouldNotBeNil)
 
-			Convey("When: "+experiment.Name()+" produces an outcome", func() {
-				So(pipeline.Run(), ShouldBeNil)
+				Convey("When: "+experiment.Name()+" produces an outcome", func() {
+					So(pipeline.Run(), ShouldBeNil)
 
-				Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
-					So(experiment.Outcome())
-				})
+					Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
+						So(experiment.Outcome())
+					})
 
-				Convey("It should have produced paper ready artifacts for "+experiment.Name(), func() {
-					section := experiment.Section()
+					Convey("It should have produced paper ready artifacts for "+experiment.Name(), func() {
+						section := experiment.Section()
 
-					_, resultsErr := os.Stat(
-						filepath.Join(
-							PaperDir(section),
-							tools.Slugify(experiment.Name())+"_results.json",
-						),
-					)
-
-					So(resultsErr, ShouldBeNil)
-
-					for _, artifact := range experiment.Artifacts() {
-						path := filepath.Join(
-							PaperDir(section),
-							artifactJSONFileName(artifact.FileName),
+						_, resultsErr := os.Stat(
+							filepath.Join(
+								PaperDir(section),
+								tools.Slugify(experiment.Name())+"_results.json",
+							),
 						)
 
-						_, statErr := os.Stat(path)
-						So(statErr, ShouldBeNil)
-					}
+						So(resultsErr, ShouldBeNil)
+
+						for _, artifact := range experiment.Artifacts() {
+							path := filepath.Join(
+								PaperDir(section),
+								artifactJSONFileName(artifact.FileName),
+							)
+
+							_, statErr := os.Stat(path)
+							So(statErr, ShouldBeNil)
+						}
+					})
 				})
 			})
 		})

@@ -8,12 +8,12 @@ import (
 	"sort"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	config "github.com/theapemachine/six/pkg/system/core"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/pkg/numeric/geometry"
+	config "github.com/theapemachine/six/pkg/system/core"
 
-		"github.com/theapemachine/six/pkg/system/vm/input"
 	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
