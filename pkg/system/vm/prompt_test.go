@@ -196,6 +196,30 @@ func TestCantileverPromptViaRouter(t *testing.T) {
 	})
 }
 
+func TestMachineSetDatasetInterpreterExecution(t *testing.T) {
+	gc.Convey("Given a machine ingesting one corpus line", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine := NewMachine(
+			MachineWithContext(ctx),
+		)
+		defer machine.Close()
+
+		err := machine.SetDataset(
+			local.New(local.WithStrings([]string{
+				"Roy is in the Kitchen",
+			})),
+		)
+		gc.So(err, gc.ShouldBeNil)
+
+		gc.Convey("It should execute compiled rows through the interpreter", func() {
+			trace := machine.booter.interpreter.Trace()
+			gc.So(len(trace), gc.ShouldBeGreaterThan, 0)
+		})
+	})
+}
+
 /*
 BenchmarkMachinePromptExactContinuation measures one exact machine prompt.
 */

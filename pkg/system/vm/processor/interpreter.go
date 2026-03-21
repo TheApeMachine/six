@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -707,11 +708,11 @@ func (server *InterpreterServer) reifyTraceNoLock() (primitive.Value, bool) {
 		translate = numeric.Phase(composedTranslate)
 	}
 
-	keyBlocks := make([]uint64, 0)
+	keyBlocks := make([]uint64, config.TotalBlocks)
 
 	for _, step := range server.trace {
-		for blockIdx := 0; blockIdx < len(keyBlocks) || blockIdx == 0; blockIdx++ {
-			keyBlocks = append(keyBlocks, step.Value.Block(blockIdx))
+		for blockIndex := range config.TotalBlocks {
+			keyBlocks[blockIndex] ^= step.Value.Block(blockIndex)
 		}
 	}
 
@@ -730,6 +731,31 @@ func InterpreterWithContext(ctx context.Context) interpreterOpts {
 	return func(server *InterpreterServer) {
 		server.ctx, server.cancel = context.WithCancel(ctx)
 	}
+}
+
+/*
+Load reports interpreter pressure using the current resident program and trace
+sizes. The router uses this metric when selecting among multiple services.
+*/
+func (server *InterpreterServer) Load() int64 {
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	return int64(len(server.program) + len(server.trace))
+}
+
+/*
+Shutdown cancels interpreter context for non-RPC lifecycle management.
+*/
+func (server *InterpreterServer) Shutdown() error {
+	server.mu.Lock()
+	defer server.mu.Unlock()
+
+	if server.cancel != nil {
+		server.cancel()
+	}
+
+	return nil
 }
 
 /*

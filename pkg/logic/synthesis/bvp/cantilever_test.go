@@ -125,11 +125,45 @@ func TestCantileverOperatorContinuationLeadIndex(t *testing.T) {
 		})
 
 		Convey("It should bridge using rows matching the prompt lead symbol", func() {
-			prompt := observableValues("Roy is in xx")
+			prompt := observableValues("Roy is in the ")
 			continuation := server.operatorContinuation(prompt)
-			So(string(decodePromptValues(continuation)), ShouldEqual, "he Kitchen")
+			So(string(decodePromptValues(continuation)), ShouldEqual, "Kitchen")
 		})
 	})
+}
+
+func BenchmarkCantileverOperatorContinuationLeadIndex(b *testing.B) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	router, macroIndex, _, _ := newCantileverRouter(ctx, false, true)
+	defer router.Close()
+	defer macroIndex.Close()
+
+	server := NewCantileverServer(
+		CantileverWithContext(ctx),
+		CantileverWithRouter(router),
+	)
+
+	rows := make([][]primitive.Value, 0, 256)
+	for index := range 256 {
+		prefix := byte('A' + (index % 8))
+		row := observableValues(string([]byte{
+			prefix, 'o', 'w', ' ', 'i', 's', ' ', 'i', 'n', ' ', 't', 'h', 'e', ' ', 'X', byte(index % 26), '\n',
+		}))
+		rows = append(rows, row)
+	}
+
+	server.Store(rows)
+
+	prompt := observableValues("Row is in the ")
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		_ = server.operatorContinuation(prompt)
+	}
 }
 
 func BenchmarkCantileverPromptValues(b *testing.B) {

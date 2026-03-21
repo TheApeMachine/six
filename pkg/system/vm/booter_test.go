@@ -6,6 +6,7 @@ import (
 	"time"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis"
 	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
@@ -61,6 +62,32 @@ func TestBooterRegistersCapabilities(t *testing.T) {
 			raw, err = booter.router.Get(ctx, cluster.MACROINDEX, "test")
 			gc.So(err, gc.ShouldBeNil)
 			gc.So(macro.MacroIndex(raw).IsValid(), gc.ShouldBeTrue)
+
+			raw, err = booter.router.Get(ctx, cluster.PROGRAM, "test")
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(raw.IsValid(), gc.ShouldBeTrue)
+		})
+
+		gc.Convey("Interpreter execution should harden reified traces into MacroIndex", func() {
+			value := primitive.NeutralValue()
+			value.SetProgram(primitive.OpcodeHalt, 0, 0, true)
+			value.SetAffine(11, 7)
+
+			_, err := booter.interpreter.Execute([]primitive.Value{value})
+			gc.So(err, gc.ShouldBeNil)
+
+			reified, ok := booter.interpreter.ReifyTrace()
+			gc.So(ok, gc.ShouldBeTrue)
+			gc.So(reified.IsMacroOperator(), gc.ShouldBeTrue)
+
+			key := macro.AffineKeyFromValue(reified)
+			opcode, found := booter.macroIdx.FindOpcode(key)
+			gc.So(found, gc.ShouldBeTrue)
+
+			scale, translate, macroOK := reified.MacroAffine()
+			gc.So(macroOK, gc.ShouldBeTrue)
+			gc.So(opcode.Scale, gc.ShouldEqual, scale)
+			gc.So(opcode.Translate, gc.ShouldEqual, translate)
 		})
 	})
 }

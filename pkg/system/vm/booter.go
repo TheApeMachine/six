@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 
+	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
@@ -15,6 +16,7 @@ import (
 	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
+	"github.com/theapemachine/six/pkg/system/vm/processor"
 	"github.com/theapemachine/six/pkg/system/vm/input"
 	"github.com/theapemachine/six/pkg/validate"
 )
@@ -39,7 +41,36 @@ type Booter struct {
 	hasSrv      *synthesis.HASServer
 	cantilever  *bvp.CantileverServer
 	prompter    *input.PrompterServer
+	interpreter *processor.InterpreterServer
 	distributed *kernel.DistributedBackend
+}
+
+/*
+interpreterCapability adapts InterpreterServer to cluster.Service.
+*/
+type interpreterCapability struct {
+	server *processor.InterpreterServer
+}
+
+/*
+Client forwards capability bootstrap requests to the interpreter server.
+*/
+func (capability *interpreterCapability) Client(clientID string) capnp.Client {
+	return capability.server.Client(clientID)
+}
+
+/*
+Load reports current interpreter pressure for router balancing.
+*/
+func (capability *interpreterCapability) Load() int64 {
+	return capability.server.Load()
+}
+
+/*
+Close tears down the interpreter server lifecycle.
+*/
+func (capability *interpreterCapability) Close() error {
+	return capability.server.Shutdown()
 }
 
 type booterOpts func(*Booter)
@@ -101,6 +132,13 @@ func NewBooter(opts ...booterOpts) *Booter {
 		input.PrompterWithContext(booter.ctx),
 	)
 
+	booter.interpreter = errnie.Guard(booter.state, func() (*processor.InterpreterServer, error) {
+		return processor.NewInterpreterServer(
+			processor.InterpreterWithContext(booter.ctx),
+			processor.InterpreterWithMacroRecorder(booter.macroIdx),
+		)
+	})
+
 	booter.router.Register(cluster.FOREST, booter.forest)
 	booter.router.Register(cluster.TOKENIZER, booter.tokenizer)
 	booter.router.Register(cluster.GRAPH, booter.graph)
@@ -108,6 +146,9 @@ func NewBooter(opts ...booterOpts) *Booter {
 	booter.router.Register(cluster.HAS, booter.hasSrv)
 	booter.router.Register(cluster.CANTILEVER, booter.cantilever)
 	booter.router.Register(cluster.PROMPTER, booter.prompter)
+	booter.router.Register(cluster.PROGRAM, &interpreterCapability{
+		server: booter.interpreter,
+	})
 
 	booter.distributed = errnie.Guard(booter.state, func() (*kernel.DistributedBackend, error) {
 		return kernel.StartDistributed(
@@ -119,7 +160,8 @@ func NewBooter(opts ...booterOpts) *Booter {
 
 	errnie.GuardVoid(booter.state, func() error {
 		return validate.Require(map[string]any{
-			"router": booter.router,
+			"router":      booter.router,
+			"interpreter": booter.interpreter,
 		})
 	})
 
@@ -148,6 +190,10 @@ func (booter *Booter) Close() error {
 
 	if booter.prompter != nil {
 		appendErr(booter.prompter.Close())
+	}
+
+	if booter.interpreter != nil {
+		appendErr(booter.interpreter.Shutdown())
 	}
 
 	if booter.hasSrv != nil {

@@ -45,9 +45,9 @@ NewCantileverServer provides a new logic solver acting between fixed start and e
 */
 func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 	cl := &CantileverServer{
-		calc:    numeric.NewCalculus(),
-		corpus:  make([][]primitive.Value, 0),
-		lexical: make([][]byte, 0),
+		calc:      numeric.NewCalculus(),
+		corpus:    make([][]primitive.Value, 0),
+		lexical:   make([][]byte, 0),
 		leadIndex: make(map[byte][]int),
 	}
 
@@ -184,7 +184,7 @@ func (server *CantileverServer) operatorContinuation(
 		return nil
 	}
 
-	maxPrefixResidue := max(startSignal.CoreActiveCount()/3, 1)
+	maxPrefixResidue := max(startSignal.CoreActiveCount()/2, 1)
 
 	for _, rowIndex := range candidateRows {
 		row := server.corpus[rowIndex]

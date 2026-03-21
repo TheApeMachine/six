@@ -360,7 +360,34 @@ func (machine *Machine) storePromptCorpusRows(rows [][]byte) error {
 		compiled = append(compiled, values)
 	}
 
+	if err := machine.hardenInterpreterCorpus(compiled); err != nil {
+		return err
+	}
+
 	machine.booter.cantilever.Store(compiled)
+
+	return nil
+}
+
+/*
+hardenInterpreterCorpus executes compiled corpus rows through the interpreter so
+successful traces are reified and persisted into MacroIndex through the recorder
+hook.
+*/
+func (machine *Machine) hardenInterpreterCorpus(rows [][]primitive.Value) error {
+	if machine.booter == nil || machine.booter.interpreter == nil {
+		return nil
+	}
+
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+
+		if _, err := machine.booter.interpreter.Execute(row); err != nil {
+			return err
+		}
+	}
 
 	return nil
 }
@@ -423,6 +450,10 @@ func (machine *Machine) ingestHASBoundaries(ctx context.Context, values []primit
 	for index := 1; index < len(values); index++ {
 		startValue := values[index-1]
 		endValue := values[index]
+
+		if startValue.CoreActiveCount() == 0 || endValue.CoreActiveCount() == 0 {
+			continue
+		}
 
 		errnie.GuardVoid(machine.state, func() error {
 			return machine.emitHASResult(ctx, startValue, endValue, "dataset")
