@@ -18,6 +18,7 @@ int encode_phasedial_cuda(int device_id, const void* structural_phases_ptr, cons
 int seq_toroidal_mean_phase_cuda(int device_id, const void* value_blocks_ptr, uint32_t num_values, double* out_theta, double* out_phi);
 int weighted_circular_mean_cuda(int device_id, const void* value_blocks_ptr, uint32_t num_values, double* out_phase, double* out_concentration);
 int solve_bvp_cuda(int device_id, const void* start_blocks_ptr, const void* goal_blocks_ptr, uint16_t* out_scale, uint16_t* out_translate, double* out_distance);
+void cleanup_cuda_pools(void);
 */
 import "C"
 import (

@@ -197,6 +197,164 @@ __global__ void solve_bvp_kernel(
     atomicMax(best_packed_result, packed);
 }
 
+/* ─── Resident VRAM buffer pools ──────────────────────────────────────── */
+
+static GFRotation* d_graph_pool = nullptr;
+static GFRotation* d_ctx_pool = nullptr;
+static unsigned long long* d_result_pool = nullptr;
+static uint32_t d_graph_pool_capacity = 0;
+
+static double* d_phasedial_cache = nullptr;
+static double* d_phasedial_query = nullptr;
+static double* d_phasedial_sims = nullptr;
+static uint32_t d_phasedial_capacity = 0;
+
+static double* d_encode_phases = nullptr;
+static float* d_encode_primes = nullptr;
+static double* d_encode_out = nullptr;
+static uint32_t d_encode_capacity = 0;
+
+static uint64_t* d_blocks_pool = nullptr;
+static double* d_sums_pool = nullptr;
+static uint32_t d_blocks_capacity = 0;
+
+static uint64_t* d_bvp_start = nullptr;
+static uint64_t* d_bvp_goal = nullptr;
+static unsigned long long* d_bvp_best = nullptr;
+static int d_bvp_allocated = 0;
+
+/* ─── Pool growth functions ───────────────────────────────────────────── */
+
+static int ensure_resonance_pool(uint32_t num_nodes) {
+    if (d_graph_pool != nullptr && d_graph_pool_capacity >= num_nodes) {
+        return 0;
+    }
+
+    if (d_graph_pool) cudaFree(d_graph_pool);
+    if (d_ctx_pool) cudaFree(d_ctx_pool);
+    if (d_result_pool) cudaFree(d_result_pool);
+
+    uint32_t capacity = num_nodes * 2;
+    if (capacity < 1024) capacity = 1024;
+
+    cudaError_t err = cudaMalloc((void**)&d_graph_pool, capacity * sizeof(GFRotation));
+    if (err != cudaSuccess) { d_graph_pool = nullptr; d_graph_pool_capacity = 0; return -1; }
+
+    err = cudaMalloc((void**)&d_ctx_pool, sizeof(GFRotation));
+    if (err != cudaSuccess) {
+        cudaFree(d_graph_pool); d_graph_pool = nullptr; d_graph_pool_capacity = 0; return -1;
+    }
+
+    err = cudaMalloc((void**)&d_result_pool, sizeof(unsigned long long));
+    if (err != cudaSuccess) {
+        cudaFree(d_graph_pool); cudaFree(d_ctx_pool);
+        d_graph_pool = nullptr; d_graph_pool_capacity = 0; return -1;
+    }
+
+    d_graph_pool_capacity = capacity;
+    return 0;
+}
+
+static int ensure_phasedial_pool(uint32_t num_nodes) {
+    if (d_phasedial_cache != nullptr && d_phasedial_capacity >= num_nodes) {
+        return 0;
+    }
+
+    if (d_phasedial_cache) cudaFree(d_phasedial_cache);
+    if (d_phasedial_query) cudaFree(d_phasedial_query);
+    if (d_phasedial_sims) cudaFree(d_phasedial_sims);
+
+    uint32_t capacity = num_nodes * 2;
+    if (capacity < 256) capacity = 256;
+
+    cudaError_t err = cudaMalloc((void**)&d_phasedial_cache, (size_t)capacity * 1024 * sizeof(double));
+    if (err != cudaSuccess) { d_phasedial_cache = nullptr; d_phasedial_capacity = 0; return -1; }
+
+    err = cudaMalloc((void**)&d_phasedial_query, 1024 * sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_phasedial_cache); d_phasedial_cache = nullptr; d_phasedial_capacity = 0; return -1;
+    }
+
+    err = cudaMalloc((void**)&d_phasedial_sims, capacity * sizeof(double));
+    if (err != cudaSuccess) {
+        cudaFree(d_phasedial_cache); cudaFree(d_phasedial_query);
+        d_phasedial_cache = nullptr; d_phasedial_capacity = 0; return -1;
+    }
+
+    d_phasedial_capacity = capacity;
+    return 0;
+}
+
+static int ensure_encode_pool(uint32_t num_values) {
+    if (d_encode_primes == nullptr) {
+        cudaError_t err = cudaMalloc((void**)&d_encode_primes, 512 * sizeof(float));
+        if (err != cudaSuccess) { d_encode_primes = nullptr; return -1; }
+
+        err = cudaMalloc((void**)&d_encode_out, 1024 * sizeof(double));
+        if (err != cudaSuccess) {
+            cudaFree(d_encode_primes); d_encode_primes = nullptr; return -1;
+        }
+    }
+
+    if (d_encode_phases != nullptr && d_encode_capacity >= num_values) {
+        return 0;
+    }
+
+    if (d_encode_phases) cudaFree(d_encode_phases);
+
+    uint32_t capacity = num_values * 2;
+    if (capacity < 256) capacity = 256;
+
+    cudaError_t err = cudaMalloc((void**)&d_encode_phases, capacity * sizeof(double));
+    if (err != cudaSuccess) { d_encode_phases = nullptr; d_encode_capacity = 0; return -1; }
+
+    d_encode_capacity = capacity;
+    return 0;
+}
+
+static int ensure_blocks_pool(uint32_t num_values) {
+    if (d_sums_pool == nullptr) {
+        cudaError_t err = cudaMalloc((void**)&d_sums_pool, 4 * sizeof(double));
+        if (err != cudaSuccess) { d_sums_pool = nullptr; return -1; }
+    }
+
+    if (d_blocks_pool != nullptr && d_blocks_capacity >= num_values) {
+        return 0;
+    }
+
+    if (d_blocks_pool) cudaFree(d_blocks_pool);
+
+    uint32_t capacity = num_values * 2;
+    if (capacity < 256) capacity = 256;
+
+    cudaError_t err = cudaMalloc((void**)&d_blocks_pool, (size_t)capacity * 8 * sizeof(uint64_t));
+    if (err != cudaSuccess) { d_blocks_pool = nullptr; d_blocks_capacity = 0; return -1; }
+
+    d_blocks_capacity = capacity;
+    return 0;
+}
+
+static int ensure_bvp_pool(void) {
+    if (d_bvp_allocated) return 0;
+
+    cudaError_t err = cudaMalloc((void**)&d_bvp_start, 8 * sizeof(uint64_t));
+    if (err != cudaSuccess) { d_bvp_start = nullptr; return -1; }
+
+    err = cudaMalloc((void**)&d_bvp_goal, 8 * sizeof(uint64_t));
+    if (err != cudaSuccess) { cudaFree(d_bvp_start); d_bvp_start = nullptr; return -1; }
+
+    err = cudaMalloc((void**)&d_bvp_best, sizeof(unsigned long long));
+    if (err != cudaSuccess) {
+        cudaFree(d_bvp_start); cudaFree(d_bvp_goal);
+        d_bvp_start = nullptr; d_bvp_goal = nullptr; return -1;
+    }
+
+    d_bvp_allocated = 1;
+    return 0;
+}
+
+/* ─── Host dispatch functions ─────────────────────────────────────────── */
+
 int resolve_phasedial_cuda(
     int device_id,
     const void* cache_nodes_ptr,
@@ -207,38 +365,32 @@ int resolve_phasedial_cuda(
     if (cache_nodes_ptr == nullptr || query_dial_ptr == nullptr || similarities_ptr == nullptr || num_nodes == 0) {
         return -1;
     }
-    if (cudaSetDevice(device_id) != cudaSuccess) return -1;
 
-    double* d_cache = nullptr;
-    double* d_query = nullptr;
-    double* d_sims = nullptr;
+    if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+    if (ensure_phasedial_pool(num_nodes) != 0) return -1;
+
     size_t cache_bytes = (size_t)num_nodes * 1024 * sizeof(double);
 
-    cudaError_t err = cudaMalloc((void**)&d_cache, cache_bytes);
+    cudaError_t err = cudaMemcpy(d_phasedial_cache, cache_nodes_ptr, cache_bytes, cudaMemcpyHostToDevice);
     if (err != cudaSuccess) return -1;
-    err = cudaMalloc((void**)&d_query, 1024 * sizeof(double));
-    if (err != cudaSuccess) { cudaFree(d_cache); return -1; }
-    err = cudaMalloc((void**)&d_sims, num_nodes * sizeof(double));
-    if (err != cudaSuccess) { cudaFree(d_cache); cudaFree(d_query); return -1; }
 
-    err = cudaMemcpy(d_cache, cache_nodes_ptr, cache_bytes, cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_phasedial;
-    err = cudaMemcpy(d_query, query_dial_ptr, 1024 * sizeof(double), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_phasedial;
+    err = cudaMemcpy(d_phasedial_query, query_dial_ptr, 1024 * sizeof(double), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
 
-    resolve_phasedial_kernel<<<(num_nodes + 7) / 8, 256>>>(d_cache, d_query, d_sims, num_nodes);
+    resolve_phasedial_kernel<<<(num_nodes + 7) / 8, 256>>>(
+        d_phasedial_cache, d_phasedial_query, d_phasedial_sims, num_nodes
+    );
+
     err = cudaGetLastError();
-    if (err != cudaSuccess) goto cleanup_phasedial;
+    if (err != cudaSuccess) return -2;
+
     err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) goto cleanup_phasedial;
+    if (err != cudaSuccess) return -2;
 
-    err = cudaMemcpy(similarities_ptr, d_sims, num_nodes * sizeof(double), cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(similarities_ptr, d_phasedial_sims, num_nodes * sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return -3;
 
-cleanup_phasedial:
-    cudaFree(d_cache);
-    cudaFree(d_query);
-    cudaFree(d_sims);
-    return (err != cudaSuccess) ? -1 : 0;
+    return 0;
 }
 
 int encode_phasedial_cuda(
@@ -251,37 +403,30 @@ int encode_phasedial_cuda(
     if (structural_phases_ptr == nullptr || primes_ptr == nullptr || out_dial_ptr == nullptr) {
         return -1;
     }
+
     if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+    if (ensure_encode_pool(num_values) != 0) return -1;
 
-    double* d_phases = nullptr;
-    float* d_primes = nullptr;
-    double* d_out = nullptr;
-
-    cudaError_t err = cudaMalloc((void**)&d_phases, num_values * sizeof(double));
+    cudaError_t err = cudaMemcpy(d_encode_phases, structural_phases_ptr, num_values * sizeof(double), cudaMemcpyHostToDevice);
     if (err != cudaSuccess) return -1;
-    err = cudaMalloc((void**)&d_primes, 512 * sizeof(float));
-    if (err != cudaSuccess) { cudaFree(d_phases); return -1; }
-    err = cudaMalloc((void**)&d_out, 1024 * sizeof(double));
-    if (err != cudaSuccess) { cudaFree(d_phases); cudaFree(d_primes); return -1; }
 
-    err = cudaMemcpy(d_phases, structural_phases_ptr, num_values * sizeof(double), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_encode;
-    err = cudaMemcpy(d_primes, primes_ptr, 512 * sizeof(float), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_encode;
+    err = cudaMemcpy(d_encode_primes, primes_ptr, 512 * sizeof(float), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
 
-    encode_phasedial_kernel<<<(512 + 255) / 256, 256>>>(d_phases, d_primes, d_out, num_values);
+    encode_phasedial_kernel<<<(512 + 255) / 256, 256>>>(
+        d_encode_phases, d_encode_primes, d_encode_out, num_values
+    );
+
     err = cudaGetLastError();
-    if (err != cudaSuccess) goto cleanup_encode;
+    if (err != cudaSuccess) return -2;
+
     err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) goto cleanup_encode;
+    if (err != cudaSuccess) return -2;
 
-    err = cudaMemcpy(out_dial_ptr, d_out, 1024 * sizeof(double), cudaMemcpyDeviceToHost);
+    err = cudaMemcpy(out_dial_ptr, d_encode_out, 1024 * sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return -3;
 
-cleanup_encode:
-    cudaFree(d_phases);
-    cudaFree(d_primes);
-    cudaFree(d_out);
-    return (err != cudaSuccess) ? -1 : 0;
+    return 0;
 }
 
 int seq_toroidal_mean_phase_cuda(
@@ -294,40 +439,37 @@ int seq_toroidal_mean_phase_cuda(
     if (value_blocks_ptr == nullptr || out_theta == nullptr || out_phi == nullptr || num_values == 0) {
         return -1;
     }
+
     if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-
-    uint64_t* d_blocks = nullptr;
-    double* d_sums = nullptr;
-
-    cudaError_t err = cudaMalloc((void**)&d_blocks, num_values * 8 * sizeof(uint64_t));
-    if (err != cudaSuccess) return -1;
-    err = cudaMalloc((void**)&d_sums, 4 * sizeof(double));
-    if (err != cudaSuccess) { cudaFree(d_blocks); return -1; }
+    if (ensure_blocks_pool(num_values) != 0) return -1;
 
     double zeros[4] = {0.0, 0.0, 0.0, 0.0};
-    err = cudaMemcpy(d_blocks, value_blocks_ptr, num_values * 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_seq;
-    err = cudaMemcpy(d_sums, zeros, 4 * sizeof(double), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_seq;
 
-    seq_toroidal_mean_phase_kernel<<<(num_values + 255) / 256, 256>>>(d_blocks, d_sums, num_values);
+    cudaError_t err = cudaMemcpy(d_blocks_pool, value_blocks_ptr, (size_t)num_values * 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
+
+    err = cudaMemcpy(d_sums_pool, zeros, 4 * sizeof(double), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
+
+    seq_toroidal_mean_phase_kernel<<<(num_values + 255) / 256, 256>>>(
+        d_blocks_pool, d_sums_pool, num_values
+    );
+
     err = cudaGetLastError();
-    if (err != cudaSuccess) goto cleanup_seq;
+    if (err != cudaSuccess) return -2;
+
     err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) goto cleanup_seq;
+    if (err != cudaSuccess) return -2;
 
     double sums[4];
-    err = cudaMemcpy(sums, d_sums, 4 * sizeof(double), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) goto cleanup_seq;
+    err = cudaMemcpy(sums, d_sums_pool, 4 * sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return -3;
 
     *out_theta = atan2(sums[0], sums[1]);
     *out_phi = atan2(sums[2], sums[3]);
     if (*out_phi < 0.0) *out_phi += 2.0 * M_PI;
 
-cleanup_seq:
-    cudaFree(d_blocks);
-    cudaFree(d_sums);
-    return (err != cudaSuccess) ? -1 : 0;
+    return 0;
 }
 
 int weighted_circular_mean_cuda(
@@ -340,41 +482,38 @@ int weighted_circular_mean_cuda(
     if (value_blocks_ptr == nullptr || out_phase == nullptr || out_concentration == nullptr || num_values == 0) {
         return -1;
     }
+
     if (cudaSetDevice(device_id) != cudaSuccess) return -1;
+    if (ensure_blocks_pool(num_values) != 0) return -1;
 
-    uint64_t* d_blocks = nullptr;
-    double* d_sums = nullptr;
+    double zeros[4] = {0.0, 0.0, 0.0, 0.0};
 
-    cudaError_t err = cudaMalloc((void**)&d_blocks, num_values * 8 * sizeof(uint64_t));
+    cudaError_t err = cudaMemcpy(d_blocks_pool, value_blocks_ptr, (size_t)num_values * 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
     if (err != cudaSuccess) return -1;
-    err = cudaMalloc((void**)&d_sums, 3 * sizeof(double));
-    if (err != cudaSuccess) { cudaFree(d_blocks); return -1; }
 
-    double zeros[3] = {0.0, 0.0, 0.0};
-    err = cudaMemcpy(d_blocks, value_blocks_ptr, num_values * 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_wcm;
-    err = cudaMemcpy(d_sums, zeros, 3 * sizeof(double), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_wcm;
+    err = cudaMemcpy(d_sums_pool, zeros, 3 * sizeof(double), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
 
-    weighted_circular_mean_kernel<<<(num_values + 255) / 256, 256>>>(d_blocks, d_sums, num_values);
+    weighted_circular_mean_kernel<<<(num_values + 255) / 256, 256>>>(
+        d_blocks_pool, d_sums_pool, num_values
+    );
+
     err = cudaGetLastError();
-    if (err != cudaSuccess) goto cleanup_wcm;
+    if (err != cudaSuccess) return -2;
+
     err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) goto cleanup_wcm;
+    if (err != cudaSuccess) return -2;
 
     double sums[3];
-    err = cudaMemcpy(sums, d_sums, 3 * sizeof(double), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) goto cleanup_wcm;
+    err = cudaMemcpy(sums, d_sums_pool, 3 * sizeof(double), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return -3;
 
     *out_phase = atan2(sums[0], sums[1]);
     if (*out_phase < 0.0) *out_phase += 2.0 * M_PI;
     double r = sqrt(sums[0] * sums[0] + sums[1] * sums[1]);
     *out_concentration = (sums[2] > 0.0) ? (r / sums[2]) : 0.0;
 
-cleanup_wcm:
-    cudaFree(d_blocks);
-    cudaFree(d_sums);
-    return (err != cudaSuccess) ? -1 : 0;
+    return 0;
 }
 
 int solve_bvp_cuda(
@@ -389,36 +528,32 @@ int solve_bvp_cuda(
         out_scale == nullptr || out_translate == nullptr || out_distance == nullptr) {
         return -1;
     }
+
     if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-
-    uint64_t* d_start = nullptr;
-    uint64_t* d_goal = nullptr;
-    unsigned long long* d_best = nullptr;
-
-    cudaError_t err = cudaMalloc((void**)&d_start, 8 * sizeof(uint64_t));
-    if (err != cudaSuccess) return -1;
-    err = cudaMalloc((void**)&d_goal, 8 * sizeof(uint64_t));
-    if (err != cudaSuccess) { cudaFree(d_start); return -1; }
-    err = cudaMalloc((void**)&d_best, sizeof(unsigned long long));
-    if (err != cudaSuccess) { cudaFree(d_start); cudaFree(d_goal); return -1; }
+    if (ensure_bvp_pool() != 0) return -1;
 
     unsigned long long init = 0ULL;
-    err = cudaMemcpy(d_start, start_blocks_ptr, 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_bvp;
-    err = cudaMemcpy(d_goal, goal_blocks_ptr, 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_bvp;
-    err = cudaMemcpy(d_best, &init, sizeof(unsigned long long), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) goto cleanup_bvp;
 
-    solve_bvp_kernel<<<(65792 + 255) / 256, 256>>>(d_start, d_goal, d_best);
+    cudaError_t err = cudaMemcpy(d_bvp_start, start_blocks_ptr, 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
+
+    err = cudaMemcpy(d_bvp_goal, goal_blocks_ptr, 8 * sizeof(uint64_t), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
+
+    err = cudaMemcpy(d_bvp_best, &init, sizeof(unsigned long long), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
+
+    solve_bvp_kernel<<<(65792 + 255) / 256, 256>>>(d_bvp_start, d_bvp_goal, d_bvp_best);
+
     err = cudaGetLastError();
-    if (err != cudaSuccess) goto cleanup_bvp;
+    if (err != cudaSuccess) return -2;
+
     err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) goto cleanup_bvp;
+    if (err != cudaSuccess) return -2;
 
     unsigned long long packed;
-    err = cudaMemcpy(&packed, d_best, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) goto cleanup_bvp;
+    err = cudaMemcpy(&packed, d_bvp_best, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return -3;
 
     uint32_t id = (uint32_t)(packed & 0xFFFFFFFFULL);
     uint32_t match_count = (uint32_t)(packed >> 32);
@@ -426,11 +561,7 @@ int solve_bvp_cuda(
     *out_translate = (uint16_t)(id % 257);
     *out_distance = 1.0 - ((double)match_count / (double)257.0);
 
-cleanup_bvp:
-    cudaFree(d_start);
-    cudaFree(d_goal);
-    cudaFree(d_best);
-    return (err != cudaSuccess) ? -1 : 0;
+    return 0;
 }
 
 int cuda_device_count() {
@@ -451,99 +582,71 @@ int resolve_resonance_cuda(
     if (out_result == nullptr) {
         return -1;
     }
+
     if (num_nodes == 0) {
         *out_result = 0;
         return 0;
     }
 
-    int status_code = 0;
     cudaError_t err = cudaSetDevice(device_id);
-    if (err != cudaSuccess) {
-        return -1;
-    }
+    if (err != cudaSuccess) return -1;
 
-    GFRotation* d_graph_nodes = nullptr;
-    GFRotation* d_active_context = nullptr;
-    unsigned long long* d_best_packed_result = nullptr;
+    if (ensure_resonance_pool(num_nodes) != 0) return -1;
+
     unsigned long long initial_val = 0ULL;
 
-    err = cudaMalloc((void**)&d_graph_nodes, num_nodes * sizeof(GFRotation));
-    if (err != cudaSuccess) {
-        status_code = -1;
-        goto cleanup;
-    }
+    err = cudaMemcpy(d_graph_pool, graph_nodes_ptr, num_nodes * sizeof(GFRotation), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
 
-    err = cudaMalloc((void**)&d_active_context, sizeof(GFRotation));
-    if (err != cudaSuccess) {
-        status_code = -1;
-        goto cleanup;
-    }
+    err = cudaMemcpy(d_ctx_pool, active_context_ptr, sizeof(GFRotation), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
 
-    err = cudaMalloc((void**)&d_best_packed_result, sizeof(unsigned long long));
-    if (err != cudaSuccess) {
-        status_code = -1;
-        goto cleanup;
-    }
-
-    err = cudaMemcpy(d_graph_nodes, graph_nodes_ptr, num_nodes * sizeof(GFRotation), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) {
-        status_code = -1;
-        goto cleanup;
-    }
-
-    err = cudaMemcpy(d_active_context, active_context_ptr, sizeof(GFRotation), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) {
-        status_code = -1;
-        goto cleanup;
-    }
-
-    err = cudaMemcpy(d_best_packed_result, &initial_val, sizeof(unsigned long long), cudaMemcpyHostToDevice);
-    if (err != cudaSuccess) {
-        status_code = -1;
-        goto cleanup;
-    }
+    err = cudaMemcpy(d_result_pool, &initial_val, sizeof(unsigned long long), cudaMemcpyHostToDevice);
+    if (err != cudaSuccess) return -1;
 
     uint32_t threads_per_block = 256u;
     uint32_t blocks_per_grid = (num_nodes + threads_per_block - 1u) / threads_per_block;
 
     resolve_resonance_kernel<<<blocks_per_grid, threads_per_block>>>(
-        d_graph_nodes,
-        d_active_context,
-        d_best_packed_result,
-        num_nodes,
-        0u
+        d_graph_pool, d_ctx_pool, d_result_pool, num_nodes, 0u
     );
 
     err = cudaGetLastError();
-    if (err != cudaSuccess) {
-        status_code = -2;
-        goto cleanup;
-    }
+    if (err != cudaSuccess) return -2;
 
     err = cudaDeviceSynchronize();
-    if (err != cudaSuccess) {
-        status_code = -2;
-        goto cleanup;
-    }
+    if (err != cudaSuccess) return -2;
 
-    err = cudaMemcpy(out_result, d_best_packed_result, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
-    if (err != cudaSuccess) {
-        status_code = -3;
-        goto cleanup;
-    }
+    err = cudaMemcpy(out_result, d_result_pool, sizeof(unsigned long long), cudaMemcpyDeviceToHost);
+    if (err != cudaSuccess) return -3;
 
-cleanup:
-    if (d_graph_nodes != nullptr) {
-        cudaFree(d_graph_nodes);
-    }
-    if (d_active_context != nullptr) {
-        cudaFree(d_active_context);
-    }
-    if (d_best_packed_result != nullptr) {
-        cudaFree(d_best_packed_result);
-    }
+    return 0;
+}
 
-    return status_code;
+void cleanup_cuda_pools(void) {
+    if (d_graph_pool) { cudaFree(d_graph_pool); d_graph_pool = nullptr; }
+    if (d_ctx_pool) { cudaFree(d_ctx_pool); d_ctx_pool = nullptr; }
+    if (d_result_pool) { cudaFree(d_result_pool); d_result_pool = nullptr; }
+    d_graph_pool_capacity = 0;
+
+    if (d_phasedial_cache) { cudaFree(d_phasedial_cache); d_phasedial_cache = nullptr; }
+    if (d_phasedial_query) { cudaFree(d_phasedial_query); d_phasedial_query = nullptr; }
+    if (d_phasedial_sims) { cudaFree(d_phasedial_sims); d_phasedial_sims = nullptr; }
+    d_phasedial_capacity = 0;
+
+    if (d_encode_phases) { cudaFree(d_encode_phases); d_encode_phases = nullptr; }
+    if (d_encode_primes) { cudaFree(d_encode_primes); d_encode_primes = nullptr; }
+    if (d_encode_out) { cudaFree(d_encode_out); d_encode_out = nullptr; }
+    d_encode_capacity = 0;
+
+    if (d_blocks_pool) { cudaFree(d_blocks_pool); d_blocks_pool = nullptr; }
+    if (d_sums_pool) { cudaFree(d_sums_pool); d_sums_pool = nullptr; }
+    d_blocks_capacity = 0;
+
+    if (d_bvp_start) { cudaFree(d_bvp_start); d_bvp_start = nullptr; }
+    if (d_bvp_goal) { cudaFree(d_bvp_goal); d_bvp_goal = nullptr; }
+    if (d_bvp_best) { cudaFree(d_bvp_best); d_bvp_best = nullptr; }
+    d_bvp_allocated = 0;
 }
 
 } // extern "C"

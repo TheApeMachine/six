@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
+	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/cluster"
 	"github.com/theapemachine/six/pkg/system/pool"
@@ -16,6 +17,8 @@ import (
 )
 
 var morton = data.NewMortonCoder()
+
+const densitySaturationThreshold = 0.30
 
 /*
 GraphServer implements the Cap'n Proto RPC interface for the logic graph.
@@ -247,19 +250,42 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 
 		for rightIndex, rightItem := range rightSlice {
 			if !matched {
-				lbl := errnie.Guard(graph.state, func() (primitive.Value, error) {
-					return leftItem.AND(rightItem)
-				})
+				leftDensity := float64(leftItem.CoreActiveCount()) / 257.0
+				rightDensity := float64(rightItem.CoreActiveCount()) / 257.0
 
-				if graph.state.Failed() {
-					return [][]primitive.Value{append([]primitive.Value(nil), data...)}
+				if leftDensity > densitySaturationThreshold && rightDensity > densitySaturationThreshold {
+					leftDial := geometry.NewPhaseDial().EncodeFromValues([]primitive.Value{leftItem})
+					rightDial := geometry.NewPhaseDial().EncodeFromValues([]primitive.Value{rightItem})
+					similarity := leftDial.Similarity(rightDial)
+
+					if similarity < 0.1 {
+						matched = true
+					}
+
+					lbl := errnie.Guard(graph.state, func() (primitive.Value, error) {
+						return leftItem.AND(rightItem)
+					})
+
+					if graph.state.Failed() {
+						return [][]primitive.Value{append([]primitive.Value(nil), data...)}
+					}
+
+					label = append(label, lbl)
+				} else {
+					lbl := errnie.Guard(graph.state, func() (primitive.Value, error) {
+						return leftItem.AND(rightItem)
+					})
+
+					if graph.state.Failed() {
+						return [][]primitive.Value{append([]primitive.Value(nil), data...)}
+					}
+
+					if lbl.CoreActiveCount() == 0 {
+						matched = true
+					}
+
+					label = append(label, lbl)
 				}
-
-				if lbl.CoreActiveCount() == 0 {
-					matched = true
-				}
-
-				label = append(label, lbl)
 
 				continue
 			}

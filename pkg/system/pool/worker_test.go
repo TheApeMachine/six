@@ -96,7 +96,6 @@ func TestWorker(t *testing.T) {
 		Convey("It should process a job successfully", func() {
 			pool := &Pool{
 				ctx:     context.Background(),
-				workers: make(chan chan Job, 1),
 				store:   NewResultStore(),
 				metrics: NewMetrics(),
 			}
@@ -132,7 +131,6 @@ func TestWorker(t *testing.T) {
 		Convey("It should handle job timeout", func() {
 			pool := &Pool{
 				ctx:     context.Background(),
-				workers: make(chan chan Job, 1),
 				store:   NewResultStore(),
 				metrics: NewMetrics(),
 			}
@@ -172,7 +170,6 @@ func TestWorker(t *testing.T) {
 		Convey("It should not process a job if dependencies are not met", func() {
 			pool := &Pool{
 				ctx:     context.Background(),
-				workers: make(chan chan Job, 1),
 				store:   NewResultStore(),
 				metrics: NewMetrics(),
 			}
@@ -208,7 +205,6 @@ func TestWorker(t *testing.T) {
 		Convey("It should run when dependencies already succeeded in the store", func() {
 			pool := &Pool{
 				ctx:     context.Background(),
-				workers: make(chan chan Job, 1),
 				store:   NewResultStore(),
 				metrics: NewMetrics(),
 			}
@@ -246,7 +242,6 @@ func TestWorker(t *testing.T) {
 		Convey("It should retry a failed job using retry policy", func() {
 			pool := &Pool{
 				ctx:     context.Background(),
-				workers: make(chan chan Job, 1),
 				store:   NewResultStore(),
 				metrics: NewMetrics(),
 			}

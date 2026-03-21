@@ -24,22 +24,15 @@ type Worker struct {
 }
 
 /*
-run loops receiving jobs and executing them.
+run reads jobs from the worker's buffered channel. The pool dispatcher
+pushes directly via round-robin; the worker never advertises itself.
 */
 func (w *Worker) run() {
-	jobChan := w.jobs
-
 	for {
 		select {
 		case <-w.ctx.Done():
 			return
-		case w.pool.workers <- jobChan:
-		}
-
-		select {
-		case <-w.ctx.Done():
-			return
-		case job, ok := <-jobChan:
+		case job, ok := <-w.jobs:
 			if !ok {
 				return
 			}
@@ -58,6 +51,7 @@ func (w *Worker) run() {
 			if err != nil {
 				w.pool.metrics.RecordJobFailure()
 				w.recordFailure(job.CircuitID)
+
 				if closeErr != nil {
 					err = fmt.Errorf("%w: %w", err, closeErr)
 				}
@@ -65,11 +59,9 @@ func (w *Worker) run() {
 				w.pool.store.StoreError(job.ID, err, job.TTL)
 			} else {
 				if closeErr != nil {
-					result = nil
-					err = closeErr
 					w.pool.metrics.RecordJobFailure()
 					w.recordFailure(job.CircuitID)
-					w.pool.store.StoreError(job.ID, err, job.TTL)
+					w.pool.store.StoreError(job.ID, closeErr, job.TTL)
 					continue
 				}
 

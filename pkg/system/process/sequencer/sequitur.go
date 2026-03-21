@@ -12,20 +12,22 @@ type Symbol int
 
 /*
 Node is a doubly-linked element in the Sequitur sequence.
+Prev and Next are int32 arena indices; -1 is the nil sentinel.
 */
 type Node struct {
 	Val        Symbol
-	Prev, Next *Node
+	Prev, Next int32
 }
 
 /*
 Rule is a grammar production discovered by Sequitur.
-Head is a circular sentinel whose body nodes are Head.Next … until Head again.
+Head is an arena index to a circular sentinel whose body nodes are
+Head.Next … until Head again.
 */
 type Rule struct {
 	ID    int
 	Count int
-	Head  *Node
+	Head  int32
 }
 
 /*
@@ -39,26 +41,31 @@ type Sequitur struct {
 	mu              sync.Mutex
 	nextID          int
 	rules           map[int]*Rule
-	digrams         map[[2]Symbol]*Node
-	sentinel        *Node
+	digrams         map[[2]Symbol]int32
+	sentinel        int32
+	arena           *NodeArena
 	length          int
 	pendingLen      int
 	approxTolerance int
 }
 
 /*
-NewSequitur creates a new Sequitur.
+NewSequitur creates a new Sequitur backed by a pre-allocated node arena.
 */
 func NewSequitur() *Sequitur {
-	sentinel := &Node{Val: -1}
-	sentinel.Next = sentinel
-	sentinel.Prev = sentinel
+	arena := NewNodeArena(4096)
+	sentinel := arena.Alloc(-1)
+
+	node := arena.Get(sentinel)
+	node.Next = sentinel
+	node.Prev = sentinel
 
 	return &Sequitur{
 		nextID:          256,
 		rules:           make(map[int]*Rule),
-		digrams:         make(map[[2]Symbol]*Node),
+		digrams:         make(map[[2]Symbol]int32),
 		sentinel:        sentinel,
+		arena:           arena,
 		approxTolerance: 2,
 	}
 }
@@ -71,12 +78,14 @@ A boundary fires when a new Rule is created (the digram was seen before).
 func (sequitur *Sequitur) Analyze(pos uint32, byteVal byte) (byte, bool) {
 	sequitur.mu.Lock()
 
-	newNode := &Node{Val: Symbol(byteVal)}
-	sequitur.appendNode(newNode)
+	newIdx := sequitur.arena.Alloc(Symbol(byteVal))
+	sequitur.appendNode(newIdx)
 	sequitur.length++
 	sequitur.pendingLen++
 
-	ruleCreated := sequitur.check(newNode.Prev)
+	prevIdx := sequitur.arena.Get(newIdx).Prev
+	ruleCreated := sequitur.check(prevIdx)
+
 	if ruleCreated {
 		sequitur.pendingLen = 0
 	}
@@ -111,49 +120,66 @@ func (sequitur *Sequitur) RuleCount() int {
 }
 
 /*
-appendNode inserts n before the sentinel (i.e. at the tail of the sequence).
+appendNode inserts the node at idx before the sentinel (tail of the sequence).
 */
-func (sequitur *Sequitur) appendNode(n *Node) {
-	last := sequitur.sentinel.Prev
+func (sequitur *Sequitur) appendNode(idx int32) {
+	sentPrev := sequitur.arena.Get(sequitur.sentinel).Prev
 
-	n.Next = sequitur.sentinel
-	n.Prev = last
-	last.Next = n
-	sequitur.sentinel.Prev = n
+	node := sequitur.arena.Get(idx)
+	node.Next = sequitur.sentinel
+	node.Prev = sentPrev
+
+	sequitur.arena.Get(sentPrev).Next = idx
+	sequitur.arena.Get(sequitur.sentinel).Prev = idx
 }
 
 /*
-check tests whether the digram ending at n forms a repeated pair.
+check tests whether the digram ending at idx forms a repeated pair.
 If a match is found (non-overlapping), reduce fires. Returns true
 when a new rule was created.
 */
-func (sequitur *Sequitur) check(n *Node) bool {
-	if n == nil || n.Next == nil || n.Val == -1 || n.Next.Val == -1 {
+func (sequitur *Sequitur) check(idx int32) bool {
+	if idx == -1 {
 		return false
 	}
 
-	digram := [2]Symbol{n.Val, n.Next.Val}
+	nodeVal := sequitur.arena.Get(idx).Val
+	nodeNext := sequitur.arena.Get(idx).Next
 
-	if match, exists := sequitur.digrams[digram]; exists {
-		if match != n && match.Next != n && match.Next != n.Next &&
-			match.Next != nil && match.Val == digram[0] && match.Next.Val == digram[1] {
-			sequitur.reduce(n, match, digram)
+	if nodeNext == -1 || nodeVal == -1 {
+		return false
+	}
+
+	nextVal := sequitur.arena.Get(nodeNext).Val
+	if nextVal == -1 {
+		return false
+	}
+
+	digram := [2]Symbol{nodeVal, nextVal}
+
+	if matchIdx, exists := sequitur.digrams[digram]; exists {
+		matchNode := sequitur.arena.Get(matchIdx)
+
+		if matchIdx != idx && matchNode.Next != idx && matchNode.Next != nodeNext &&
+			matchNode.Next != -1 && matchNode.Val == digram[0] &&
+			sequitur.arena.Get(matchNode.Next).Val == digram[1] {
+			sequitur.reduce(idx, matchIdx, digram)
 			return true
 		}
 
 		return false
 	}
 
-	if match, ok := sequitur.findApproximateMatch(digram, n); ok {
-		if match.Next != n.Next {
-			sequitur.reduce(n, match, digram)
+	if matchIdx, ok := sequitur.findApproximateMatch(digram, idx); ok {
+		if sequitur.arena.Get(matchIdx).Next != nodeNext {
+			sequitur.reduce(idx, matchIdx, digram)
 			return true
 		}
 
 		return false
 	}
 
-	sequitur.digrams[digram] = n
+	sequitur.digrams[digram] = idx
 
 	return false
 }
@@ -163,12 +189,18 @@ findApproximateMatch scans previously seen digrams for a near-match whose
 residual description is still cheaper than treating the new digram as raw data.
 This is the lossy MDL track described in SEQUENCING.md.
 */
-func (sequitur *Sequitur) findApproximateMatch(digram [2]Symbol, current *Node) (*Node, bool) {
+func (sequitur *Sequitur) findApproximateMatch(digram [2]Symbol, current int32) (int32, bool) {
 	bestDistance := sequitur.approxTolerance + 1
-	var best *Node
+	bestIdx := int32(-1)
+	currentNext := sequitur.arena.Get(current).Next
 
-	for candidateDigram, candidateNode := range sequitur.digrams {
-		if candidateNode == current || candidateNode.Next == current || candidateNode.Next == current.Next {
+	for candidateDigram, candidateIdx := range sequitur.digrams {
+		if candidateIdx == current {
+			continue
+		}
+
+		candidateNext := sequitur.arena.Get(candidateIdx).Next
+		if candidateNext == current || candidateNext == currentNext {
 			continue
 		}
 
@@ -179,11 +211,11 @@ func (sequitur *Sequitur) findApproximateMatch(digram [2]Symbol, current *Node) 
 
 		if distance < bestDistance {
 			bestDistance = distance
-			best = candidateNode
+			bestIdx = candidateIdx
 		}
 	}
 
-	return best, best != nil
+	return bestIdx, bestIdx != -1
 }
 
 /*
@@ -224,18 +256,25 @@ both occurrences with the rule's non-terminal symbol.
 Both substitutions complete before any recursive check; otherwise a nested
 reduce can invalidate the second substitution.
 */
-func (sequitur *Sequitur) reduce(
-	newOccur, firstOccur *Node, d [2]Symbol,
-) {
+func (sequitur *Sequitur) reduce(newOccur, firstOccur int32, d [2]Symbol) {
 	ruleID := sequitur.nextID
 	sequitur.nextID++
 
-	head := &Node{Val: -1}
-	n1 := &Node{Val: d[0], Prev: head}
-	n2 := &Node{Val: d[1], Prev: n1, Next: head}
-	head.Next = n1
-	head.Prev = n2
-	n1.Next = n2
+	head := sequitur.arena.Alloc(-1)
+	n1 := sequitur.arena.Alloc(d[0])
+	n2 := sequitur.arena.Alloc(d[1])
+
+	headNode := sequitur.arena.Get(head)
+	headNode.Next = n1
+	headNode.Prev = n2
+
+	n1Node := sequitur.arena.Get(n1)
+	n1Node.Prev = head
+	n1Node.Next = n2
+
+	n2Node := sequitur.arena.Get(n2)
+	n2Node.Prev = n1
+	n2Node.Next = head
 
 	sequitur.rules[ruleID] = &Rule{
 		ID:    ruleID,
@@ -252,41 +291,61 @@ func (sequitur *Sequitur) reduce(
 }
 
 /*
-substitute replaces a two-node digram starting at n with a single
-non-terminal node. Does not recurse; caller must check adjacencies.
+substitute replaces a two-node digram starting at idx with a single
+non-terminal node. The victim node is freed back to the arena.
+Does not recurse; caller must check adjacencies.
 */
-func (sequitur *Sequitur) substitute(n *Node, id int) {
-	if n == nil || n.Next == nil || n.Next.Next == nil {
+func (sequitur *Sequitur) substitute(idx int32, id int) {
+	if idx == -1 {
 		return
 	}
 
-	victim := n.Next
+	victimIdx := sequitur.arena.Get(idx).Next
+	if victimIdx == -1 {
+		return
+	}
 
-	n.Val = Symbol(id)
-	n.Next = victim.Next
-	victim.Next.Prev = n
+	victimNext := sequitur.arena.Get(victimIdx).Next
+	if victimNext == -1 {
+		return
+	}
 
-	victim.Prev = nil
-	victim.Next = nil
+	node := sequitur.arena.Get(idx)
+	node.Val = Symbol(id)
+	node.Next = victimNext
+
+	sequitur.arena.Get(victimNext).Prev = idx
+
+	sequitur.arena.Free(victimIdx)
 }
 
 /*
 checkAdjacencies re-checks the nodes around both substituted positions
 for fresh digrams. Called after both substitutions in reduce to avoid
 nested reduce invalidating the second substitution.
+Pointers are re-obtained after each check call because recursive reduce
+may grow the arena slice.
 */
-func (sequitur *Sequitur) checkAdjacencies(a, b *Node) {
-	if a != nil && a.Prev != nil && a.Prev.Val != -1 {
-		sequitur.check(a.Prev)
+func (sequitur *Sequitur) checkAdjacencies(aIdx, bIdx int32) {
+	if aIdx != -1 {
+		aPrev := sequitur.arena.Get(aIdx).Prev
+		if aPrev != -1 && sequitur.arena.Get(aPrev).Val != -1 {
+			sequitur.check(aPrev)
+		}
 	}
-	if a != nil && a.Val != -1 {
-		sequitur.check(a)
+
+	if aIdx != -1 && sequitur.arena.Get(aIdx).Val != -1 {
+		sequitur.check(aIdx)
 	}
-	if b != nil && b != a && b.Prev != nil && b.Prev.Val != -1 {
-		sequitur.check(b.Prev)
+
+	if bIdx != -1 && bIdx != aIdx {
+		bPrev := sequitur.arena.Get(bIdx).Prev
+		if bPrev != -1 && sequitur.arena.Get(bPrev).Val != -1 {
+			sequitur.check(bPrev)
+		}
 	}
-	if b != nil && b != a && b.Val != -1 {
-		sequitur.check(b)
+
+	if bIdx != -1 && bIdx != aIdx && sequitur.arena.Get(bIdx).Val != -1 {
+		sequitur.check(bIdx)
 	}
 }
-

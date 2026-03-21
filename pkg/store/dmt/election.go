@@ -414,6 +414,21 @@ func (e *Election) updateLogState(index uint64, term uint64) {
 	}
 }
 
+/*
+LogSnapshot returns the current term and last log index atomically.
+*/
+func (e *Election) LogSnapshot() (term uint64, logIndex uint64) {
+	e.stateLock.RLock()
+	term = e.term
+	e.stateLock.RUnlock()
+
+	e.logLock.RLock()
+	logIndex = e.lastLogIndex
+	e.logLock.RUnlock()
+
+	return
+}
+
 // getCurrentTerm returns the current term number
 func (e *Election) getCurrentTerm() uint64 {
 	e.stateLock.RLock()

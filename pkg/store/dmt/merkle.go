@@ -365,6 +365,41 @@ func (mt *MerkleTree) VerifyProof(key, value []byte, proof [][]byte) bool {
 }
 
 /*
+AllLeaves returns every leaf key-value pair without constructing a comparison
+tree. Used by the Sync handler when roots differ and the full local state
+must be shipped to the peer.
+*/
+func (mt *MerkleTree) AllLeaves() []DiffEntry {
+	mt.mu.RLock()
+	defer mt.mu.RUnlock()
+
+	if mt.Root == nil {
+		return nil
+	}
+
+	var result []DiffEntry
+	mt.collectLeaves(mt.Root, &result)
+	return result
+}
+
+/*
+collectLeaves recursively gathers leaf nodes from a subtree.
+*/
+func (mt *MerkleTree) collectLeaves(node *MerkleNode, result *[]DiffEntry) {
+	if node == nil {
+		return
+	}
+
+	if node.Key != nil {
+		*result = append(*result, DiffEntry{Key: node.Key, Value: node.Value})
+		return
+	}
+
+	mt.collectLeaves(node.Left, result)
+	mt.collectLeaves(node.Right, result)
+}
+
+/*
 hashKV produces SHA-256(key || value) for leaf nodes without allocating a
 hash.Hash state machine. The concatenation buffer is stack-eligible for
 typical key-value sizes.

@@ -156,6 +156,8 @@ func TestTruncateWAL(t *testing.T) {
 			So(err, ShouldBeNil)
 		}
 
+		store.drainBatch()
+
 		originalSize, err := os.Stat(filepath.Join(tmpDir, "wal.log"))
 		So(err, ShouldBeNil)
 

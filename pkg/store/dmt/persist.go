@@ -48,7 +48,9 @@ type WALEntry struct {
 /*
 PersistentStore handles the persistence layer for the radix tree.
 It manages write-ahead logging and provides mechanisms for durable storage
-and recovery of tree data.
+and recovery of tree data. Inserts are batched into a byte buffer and
+flushed either when the buffer exceeds batchLimit or every flushTicker tick,
+eliminating per-insert I/O thrashing.
 */
 type PersistentStore struct {
 	state      *errnie.State
@@ -64,9 +66,14 @@ type PersistentStore struct {
 	lastIndex  uint64
 	lastTerm   uint64
 	closed     bool
-	// Snapshot control
-	snapCount uint64    // Number of entries before triggering snapshot
-	lastSnap  time.Time // Time of last snapshot
+
+	batchBuf    []byte
+	batchMu     sync.Mutex
+	flushTicker *time.Ticker
+	batchLimit  int
+
+	snapCount uint64
+	lastSnap  time.Time
 	snapMutex sync.RWMutex
 }
 
@@ -79,14 +86,17 @@ don't exist.
 func NewPersistentStore(dir string) (*PersistentStore, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 	ps := &PersistentStore{
-		state:     errnie.NewState("dmt/persist"),
-		walPath:   filepath.Join(dir, "wal.log"),
-		snapPath:  filepath.Join(dir, "snapshot"),
-		ctx:       ctx,
-		cancel:    cancel,
-		pool:      pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{}),
-		syncChan:  make(chan struct{}, 100),
-		snapCount: 1000,
+		state:       errnie.NewState("dmt/persist"),
+		walPath:     filepath.Join(dir, "wal.log"),
+		snapPath:    filepath.Join(dir, "snapshot"),
+		ctx:         ctx,
+		cancel:      cancel,
+		pool:        pool.New(ctx, 2, max(2, runtime.NumCPU()), &pool.Config{}),
+		syncChan:    make(chan struct{}, 100),
+		snapCount:   1000,
+		batchBuf:    make([]byte, 0, 4096),
+		batchLimit:  4096,
+		flushTicker: time.NewTicker(5 * time.Millisecond),
 	}
 
 	errnie.GuardVoid(ps.state, func() error {
@@ -112,116 +122,133 @@ func NewPersistentStore(dir string) (*PersistentStore, error) {
 }
 
 /*
-LogInsert asynchronously logs an insert operation to the WAL.
-It writes the operation type, key, and value to the WAL buffer and
-signals the background sync goroutine to flush to disk.
+LogInsert serializes an insert entry into a single byte slice and appends
+it to the batch buffer. The actual I/O happens in drainBatch, triggered
+either when the buffer exceeds batchLimit or by the flushTicker.
 */
 func (ps *PersistentStore) LogInsert(key, value []byte, term, index uint64) error {
-	ps.writeMutex.Lock()
-	defer ps.writeMutex.Unlock()
-
 	if ps.closed {
 		return fmt.Errorf("persistent store is closed")
 	}
 
-	errnie.GuardVoid(ps.state, func() error {
-		if err := ps.walWriter.WriteByte(opInsert); err != nil {
-			return err
-		}
+	entrySize := 1 + 8 + 8 + 4 + len(key) + 4 + len(value)
+	entry := make([]byte, entrySize)
 
-		var scratch [8]byte
+	pos := 0
+	entry[pos] = opInsert
+	pos++
 
-		binary.LittleEndian.PutUint64(scratch[:], term)
-		if _, err := ps.walWriter.Write(scratch[:]); err != nil {
-			return err
-		}
+	binary.LittleEndian.PutUint64(entry[pos:], term)
+	pos += 8
 
-		binary.LittleEndian.PutUint64(scratch[:], index)
-		if _, err := ps.walWriter.Write(scratch[:]); err != nil {
-			return err
-		}
+	binary.LittleEndian.PutUint64(entry[pos:], index)
+	pos += 8
 
-		binary.LittleEndian.PutUint32(scratch[:4], uint32(len(key)))
-		if _, err := ps.walWriter.Write(scratch[:4]); err != nil {
-			return err
-		}
+	binary.LittleEndian.PutUint32(entry[pos:], uint32(len(key)))
+	pos += 4
 
-		if _, err := ps.walWriter.Write(key); err != nil {
-			return err
-		}
+	copy(entry[pos:], key)
+	pos += len(key)
 
-		binary.LittleEndian.PutUint32(scratch[:4], uint32(len(value)))
-		if _, err := ps.walWriter.Write(scratch[:4]); err != nil {
-			return err
-		}
+	binary.LittleEndian.PutUint32(entry[pos:], uint32(len(value)))
+	pos += 4
 
-		if _, err := ps.walWriter.Write(value); err != nil {
-			return err
-		}
+	copy(entry[pos:], value)
 
-		return nil
-	})
-
-	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
-
-	// Update last term/index
+	ps.batchMu.Lock()
+	ps.batchBuf = append(ps.batchBuf, entry...)
+	shouldFlush := len(ps.batchBuf) >= ps.batchLimit
 	ps.lastTerm = term
 	ps.lastIndex = index
+	ps.batchMu.Unlock()
 
-	// Signal for background sync
-	select {
-	case ps.syncChan <- struct{}{}:
-	default:
+	if shouldFlush {
+		select {
+		case ps.syncChan <- struct{}{}:
+		default:
+		}
 	}
 
-	// Check if snapshot needed
 	if index%ps.snapCount == 0 {
 		ps.schedule("snapshot", func(ctx context.Context) (any, error) {
 			return nil, ps.createSnapshot()
 		})
 	}
 
-	return ps.state.Err()
+	return nil
 }
 
 /*
-backgroundSync periodically flushes the WAL to disk.
-It listens on the sync channel and ensures that buffered writes are
-persisted to stable storage.
+backgroundSync drains the batch buffer on syncChan signals, periodic
+flushTicker ticks, or context cancellation. A single write+flush+sync
+per drain replaces the old per-insert I/O.
 */
 func (ps *PersistentStore) backgroundSync() {
-	for range ps.syncChan {
-		if ps.ctx.Err() != nil {
+	for {
+		select {
+		case <-ps.syncChan:
+		case <-ps.flushTicker.C:
+		case <-ps.ctx.Done():
+			ps.drainBatch()
 			return
 		}
 
-		ps.writeMutex.Lock()
-		ps.walWriter.Flush()
-		ps.walFile.Sync()
-		ps.writeMutex.Unlock()
+		ps.drainBatch()
 	}
 }
 
 /*
-Close closes the persistent store, ensuring all buffered data is
-written to disk and resources are properly released.
+drainBatch swaps out the accumulated batch buffer and writes it to the
+WAL in a single operation, then flushes and syncs.
+*/
+func (ps *PersistentStore) drainBatch() {
+	ps.batchMu.Lock()
+
+	if len(ps.batchBuf) == 0 {
+		ps.batchMu.Unlock()
+		return
+	}
+
+	buf := ps.batchBuf
+	ps.batchBuf = make([]byte, 0, ps.batchLimit)
+	ps.batchMu.Unlock()
+
+	ps.writeMutex.Lock()
+	ps.walWriter.Write(buf)
+	ps.walWriter.Flush()
+	ps.walFile.Sync()
+	ps.writeMutex.Unlock()
+}
+
+/*
+Close stops the flush ticker, drains any remaining batched writes,
+and releases all resources.
 */
 func (ps *PersistentStore) Close() error {
 	ps.writeMutex.Lock()
-	defer ps.writeMutex.Unlock()
 
 	if ps.closed {
+		ps.writeMutex.Unlock()
 		return nil
 	}
 
 	ps.closed = true
+	ps.flushTicker.Stop()
+
 	if ps.cancel != nil {
 		ps.cancel()
 	}
-	close(ps.syncChan)
 
+	close(ps.syncChan)
+	ps.writeMutex.Unlock()
+
+	ps.drainBatch()
+
+	ps.writeMutex.Lock()
 	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
 	errnie.GuardVoid(ps.state, ps.walFile.Close)
+	ps.writeMutex.Unlock()
+
 	if ps.pool != nil {
 		ps.pool.Close()
 	}
@@ -230,37 +257,31 @@ func (ps *PersistentStore) Close() error {
 }
 
 /*
-LogTerm writes a term-update entry to the WAL so it survives restart.
+LogTerm serializes a term-update entry and appends it to the batch buffer.
 */
 func (ps *PersistentStore) LogTerm(term uint64) error {
-	ps.writeMutex.Lock()
-	defer ps.writeMutex.Unlock()
-
 	if ps.closed {
 		return fmt.Errorf("persistent store is closed")
 	}
 
-	errnie.GuardVoid(ps.state, func() error {
-		if err := ps.walWriter.WriteByte(opTermUpdate); err != nil {
-			return err
-		}
+	entry := make([]byte, 1+8)
+	entry[0] = opTermUpdate
+	binary.LittleEndian.PutUint64(entry[1:], term)
 
-		var scratch [8]byte
-		binary.LittleEndian.PutUint64(scratch[:], term)
-		_, err := ps.walWriter.Write(scratch[:])
-		return err
-	})
-
-	errnie.GuardVoid(ps.state, ps.walWriter.Flush)
-
+	ps.batchMu.Lock()
+	ps.batchBuf = append(ps.batchBuf, entry...)
+	shouldFlush := len(ps.batchBuf) >= ps.batchLimit
 	ps.lastTerm = term
+	ps.batchMu.Unlock()
 
-	select {
-	case ps.syncChan <- struct{}{}:
-	default:
+	if shouldFlush {
+		select {
+		case ps.syncChan <- struct{}{}:
+		default:
+		}
 	}
 
-	return ps.state.Err()
+	return nil
 }
 
 /*
@@ -384,6 +405,7 @@ func (ps *PersistentStore) createSnapshot() error {
 		return nil
 	}
 
+	ps.drainBatch()
 	ps.state.Reset()
 
 	// Create snapshot directory if not exists
@@ -505,8 +527,8 @@ func (ps *PersistentStore) truncateWAL() error {
 
 // GetLastState returns the last recorded term and index
 func (ps *PersistentStore) GetLastState() (term, index uint64) {
-	ps.writeMutex.Lock()
-	defer ps.writeMutex.Unlock()
+	ps.batchMu.Lock()
+	defer ps.batchMu.Unlock()
 	return ps.lastTerm, ps.lastIndex
 }
 

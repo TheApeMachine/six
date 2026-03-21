@@ -139,7 +139,8 @@ func TestTreeWithPersistence(t *testing.T) {
 				So(newTree, ShouldNotBeNil)
 
 				Convey("The data should be persisted", func() {
-					// Create new tree instance with same persistence
+					tree.Close()
+
 					tree2, err := NewTree(tmpDir)
 					So(err, ShouldBeNil)
 					defer tree2.Close()

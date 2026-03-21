@@ -104,6 +104,23 @@ func (dist *Distribution) Cost() float64 {
 }
 
 /*
+Reset zeroes the distribution without allocating.
+*/
+func (dist *Distribution) Reset() {
+	dist.counts = [256]int{}
+	dist.sumSLogC = 0
+	dist.n = 0
+	dist.numDistinct = 0
+}
+
+/*
+CopyFrom copies all fields from other without allocating a new Distribution.
+*/
+func (dist *Distribution) CopyFrom(other *Distribution) {
+	*dist = *other
+}
+
+/*
 Entropy returns Shannon entropy in nats. H = -sum(p*log(p)) over non-zero counts.
 */
 func (dist *Distribution) Entropy() float64 {

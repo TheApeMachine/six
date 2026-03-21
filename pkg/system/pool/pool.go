@@ -25,7 +25,6 @@ type Pool struct {
 	cancel     context.CancelFunc
 	quit       chan struct{}
 	wg         sync.WaitGroup
-	workers    chan chan Job
 	jobs       chan Job
 	store      *ResultStore
 	scaler     *Scaler
@@ -36,6 +35,7 @@ type Pool struct {
 	breakersMu sync.RWMutex
 	jobSeq     atomic.Uint64
 	config     *Config
+	nextWorker atomic.Uint64
 }
 
 /*
@@ -51,7 +51,6 @@ func New(ctx context.Context, minWorkers, maxWorkers int, config *Config) *Pool 
 		workerList: make([]*Worker, 0),
 		quit:       make(chan struct{}),
 		jobs:       make(chan Job, maxWorkers*10),
-		workers:    make(chan chan Job, maxWorkers),
 		store:      NewResultStore(),
 		metrics:    NewMetrics(),
 		config:     config,
@@ -85,22 +84,11 @@ func New(ctx context.Context, minWorkers, maxWorkers int, config *Config) *Pool 
 }
 
 /*
-manage dispatches jobs from the queue to available workers.
+manage dispatches jobs to workers via round-robin index, eliminating the
+double-channel handshake of chan-chan. Each worker has a buffered(1) job
+channel so the dispatcher does not block on a single busy worker.
 */
 func (p *Pool) manage() {
-	retryTimer := time.NewTimer(100 * time.Millisecond)
-	if !retryTimer.Stop() {
-		<-retryTimer.C
-	}
-
-	dispatchTimer := time.NewTimer(100 * time.Millisecond)
-	if !dispatchTimer.Stop() {
-		<-dispatchTimer.C
-	}
-
-	defer retryTimer.Stop()
-	defer dispatchTimer.Stop()
-
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -110,69 +98,55 @@ func (p *Pool) manage() {
 				return
 			}
 
-			// Scale up on demand when no workers or all busy.
 			if p.scaler != nil {
 				p.scaler.ScaleUpIfNeeded(1)
 			}
 
-			deadline := time.Now().Add(p.getSchedulingTimeout())
 			dispatched := false
+			deadline := time.Now().Add(p.getSchedulingTimeout())
+
 			for !dispatched && time.Now().Before(deadline) {
-				if !retryTimer.Stop() {
-					select {
-					case <-retryTimer.C:
-					default:
-					}
-				}
-				retryTimer.Reset(100 * time.Millisecond)
+				p.workerMu.Lock()
+				workerCount := len(p.workerList)
+				p.workerMu.Unlock()
 
-				select {
-				case <-p.ctx.Done():
-					return
-				case workerChan := <-p.workers:
-					/*
-						A worker can publish its job channel to p.workers and then exit
-						(scale-down cancel) before it reaches the receive on that channel.
-						An unbuffered send would block forever and stall the whole pool.
-					*/
-					if !dispatchTimer.Stop() {
-						select {
-						case <-dispatchTimer.C:
-						default:
-						}
-					}
-
-					dispatchTimer.Reset(100 * time.Millisecond)
-
-					select {
-					case workerChan <- job:
-						if !dispatchTimer.Stop() {
-							select {
-							case <-dispatchTimer.C:
-							default:
-							}
-						}
-
-						dispatched = true
-					case <-dispatchTimer.C:
-						if p.scaler != nil {
-							p.scaler.ScaleUpIfNeeded(1)
-						}
-					case <-p.ctx.Done():
-						return
-					}
-				case <-retryTimer.C:
+				if workerCount == 0 {
 					if p.scaler != nil {
 						p.scaler.ScaleUpIfNeeded(1)
 					}
+
+					time.Sleep(time.Millisecond)
+					continue
+				}
+
+				idx := p.nextWorker.Add(1) % uint64(workerCount)
+
+				p.workerMu.Lock()
+				if int(idx) >= len(p.workerList) {
+					p.workerMu.Unlock()
+					continue
+				}
+				worker := p.workerList[idx]
+				p.workerMu.Unlock()
+
+				select {
+				case worker.jobs <- job:
+					dispatched = true
+				case <-time.After(10 * time.Millisecond):
+					continue
+				case <-p.ctx.Done():
+					return
 				}
 			}
+
 			if !dispatched {
 				log.Warn("no available workers, job timed out", "job", job.ID)
 				err := fmt.Errorf("no available workers")
+
 				if job.OnDrop != nil {
 					job.OnDrop(err)
 				}
+
 				p.store.StoreError(job.ID, err, job.TTL)
 			}
 		}
@@ -181,6 +155,7 @@ func (p *Pool) manage() {
 
 /*
 collectMetrics periodically updates queue size and idle worker count.
+Idle is approximated by counting workers whose job channel has room.
 */
 func (p *Pool) collectMetrics() {
 	ticker := time.NewTicker(500 * time.Millisecond)
@@ -191,9 +166,18 @@ func (p *Pool) collectMetrics() {
 		case <-p.ctx.Done():
 			return
 		case <-ticker.C:
+			p.workerMu.Lock()
+			idle := 0
+			for _, worker := range p.workerList {
+				if len(worker.jobs) == 0 {
+					idle++
+				}
+			}
+			p.workerMu.Unlock()
+
 			p.metrics.mu.Lock()
 			p.metrics.JobQueueSize = len(p.jobs)
-			p.metrics.IdleWorkers = len(p.workers)
+			p.metrics.IdleWorkers = idle
 			p.metrics.mu.Unlock()
 		}
 	}
@@ -414,7 +398,7 @@ func (p *Pool) startWorker() {
 	worker := &Worker{
 		pool:   p,
 		ctx:    workerCtx,
-		jobs:   make(chan Job),
+		jobs:   make(chan Job, 1),
 		cancel: workerCancel,
 	}
 	p.workerMu.Lock()
@@ -487,7 +471,6 @@ func (p *Pool) Close() error {
 
 	close(p.quit)
 	close(p.jobs)
-	close(p.workers)
 
 	return p.store.Close()
 }

@@ -48,6 +48,9 @@ type MDL struct {
 	ShannonCeiling float64
 
 	PhaseThreshold float64
+
+	scratchLeft  *process.Distribution
+	scratchRight *process.Distribution
 }
 
 type candidate struct {
@@ -74,6 +77,8 @@ func NewMDL(calibrator *process.Calibrator) *MDL {
 		MinSegmentBytes: minSeg,
 		ShannonCeiling:  config.Numeric.ShannonCapacity,
 		PhaseThreshold:  math.Pi / 2.0,
+		scratchLeft:     process.NewDistribution(),
+		scratchRight:    process.NewDistribution(),
 	}
 }
 
@@ -89,6 +94,8 @@ func (seq *MDL) CloneEmpty() *MDL {
 		MinSegmentBytes: seq.MinSegmentBytes,
 		ShannonCeiling:  seq.ShannonCeiling,
 		PhaseThreshold:  seq.PhaseThreshold,
+		scratchLeft:     process.NewDistribution(),
+		scratchRight:    process.NewDistribution(),
 	}
 }
 
@@ -311,9 +318,11 @@ func (seq *MDL) detectBoundary(buf []byte, dist *process.Distribution) (bool, in
 	maxGain := 0.0
 
 	costFull := dist.Cost()
-	left := process.NewDistribution()
-	right := process.NewDistribution()
-	*right = *dist // fast copy of histogram state
+	left := seq.scratchLeft
+	right := seq.scratchRight
+	left.Reset()
+	right.Reset()
+	right.CopyFrom(dist)
 
 	for i := 1; i < n; i++ {
 		b := buf[i-1]

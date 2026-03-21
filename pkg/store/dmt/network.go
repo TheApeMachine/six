@@ -291,8 +291,7 @@ func (n *NetworkNode) syncWithPeers() {
 
 	// Update merkle root and get current log state
 	n.updateMerkleRoot()
-	currentTerm := n.election.getCurrentTerm()
-	lastLogIndex := n.election.getLastLogIndex()
+	currentTerm, lastLogIndex := n.election.LogSnapshot()
 
 	n.peersMutex.RLock()
 	peers := make([]*peer, 0, len(n.peers))
@@ -436,7 +435,7 @@ func (n *NetworkNode) Sync(ctx context.Context, call RadixRPC_sync) error {
 		return state.Err()
 	}
 
-	diffs := n.merkleTree.fullDiff(NewMerkleTree())
+	diffs := n.merkleTree.AllLeaves()
 
 	entries := errnie.Guard(state, func() (SyncEntry_List, error) {
 		return diff.NewEntries(int32(len(diffs)))
@@ -452,7 +451,7 @@ func (n *NetworkNode) Sync(ctx context.Context, call RadixRPC_sync) error {
 		entry := entries.At(i)
 		entry.SetKey(d.Key)
 		entry.SetTerm(n.election.getCurrentTerm())
-		entry.SetIndex(n.election.getLastLogIndex() + uint64(i) + 1)
+		entry.SetIndex(n.election.getLastLogIndex())
 
 		value := d.Value
 		if fastest != nil {
