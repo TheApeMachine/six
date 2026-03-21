@@ -376,7 +376,7 @@ And never use "hype" or "marketing" language. We are not selling anything, we ar
 
 ## FINAL NOTE
 
-Please treat this project with respect, it is very important to me, and this is the result of many months of work. Never fake results, never fake data, never fake any aspect of the system. Always double-check your work and report any issues you find.
+Please treat this project with respect. It is important to me and reflects many months of work. Never fake results, never fake data, and never fake any aspect of the system. Always double-check your work and report any issues you find.
 
 ## Learned User Preferences
 
