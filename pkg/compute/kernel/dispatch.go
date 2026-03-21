@@ -2,7 +2,6 @@ package kernel
 
 import (
 	"io"
-	"time"
 )
 
 /*
@@ -18,26 +17,22 @@ type Backend interface {
 
 /*
 Builder aggregates available Backend implementations and routes io to
-the best one. It is itself an io.ReadWriteCloser: Write goes to the
-highest-priority available backend, Read comes back from it.
+the one with the highest reported capacity. It is itself an
+io.ReadWriteCloser: Write goes to the best available backend, Read
+comes back from it.
+
+Backend selection is evaluated on every io call via Available() —
+no TTL cache, no temporal drift. Backends that report higher capacity
+counts are preferred over those with lower counts, enabling smooth
+weighted routing instead of binary available/unavailable decisions.
 */
 type Builder struct {
-	backends        []Backend
-	active          Backend
-	activeIndex     int
-	availability    []backendAvailability
-	availabilityTTL time.Duration
+	backends    []Backend
+	active      Backend
+	activeIndex int
 }
 
 type builderOpts func(*Builder)
-
-type backendAvailability struct {
-	checkedAt time.Time
-	count     int
-	err       error
-}
-
-const defaultAvailabilityTTL = 250 * time.Millisecond
 
 /*
 WithBackend appends a backend to the priority list.
@@ -45,21 +40,18 @@ WithBackend appends a backend to the priority list.
 func WithBackend(backend Backend) builderOpts {
 	return func(builder *Builder) {
 		builder.backends = append(builder.backends, backend)
-		builder.availability = append(builder.availability, backendAvailability{})
 	}
 }
 
 /*
-NewBuilder creates a Builder with the given backends. The first backend
-that reports Available > 0 wins on each io call. If none are provided,
+NewBuilder creates a Builder with the given backends. The backend with
+the highest Available() count wins on each io call. If none are provided,
 the builder starts empty and all io returns EOF.
 */
 func NewBuilder(opts ...builderOpts) *Builder {
 	builder := &Builder{
-		backends:        make([]Backend, 0, 4),
-		activeIndex:     -1,
-		availability:    make([]backendAvailability, 0, 4),
-		availabilityTTL: defaultAvailabilityTTL,
+		backends:    make([]Backend, 0, 4),
+		activeIndex: -1,
 	}
 
 	for _, opt := range opts {
@@ -70,72 +62,46 @@ func NewBuilder(opts ...builderOpts) *Builder {
 }
 
 /*
-Reset clears the cached active backend so the next io call re-selects from
-builder.backends.
+Reset clears the cached active backend so the next io call re-selects.
 */
 func (builder *Builder) Reset() {
 	builder.active = nil
 	builder.activeIndex = -1
-	builder.availability = make([]backendAvailability, len(builder.backends))
 }
 
 /*
-best returns the first backend that reports Available > 0, caching the
-result in active. Availability probes are TTL-cached so hot-path io does not
-re-run expensive backend discovery on every call. Returns nil when none qualify.
+best selects the backend with the highest available capacity on every
+call. No TTL cache — the availability probe runs against the live
+backend state each time, eliminating temporal drift between the
+dispatcher and the physical hardware queues.
 */
 func (builder *Builder) best() Backend {
-	if builder.active != nil && builder.activeIndex >= 0 {
-		n, err := builder.probe(builder.activeIndex)
-
-		if err != nil || n <= 0 {
-			builder.active = nil
-			builder.activeIndex = -1
-		} else {
-			return builder.active
-		}
-	}
+	bestIndex := -1
+	bestCount := 0
 
 	for index, backend := range builder.backends {
-		n, err := builder.probe(index)
+		count, err := backend.Available()
 
-		if err != nil {
+		if err != nil || count <= 0 {
 			continue
 		}
 
-		if n > 0 {
-			builder.active = backend
-			builder.activeIndex = index
-			return backend
+		if count > bestCount {
+			bestCount = count
+			bestIndex = index
 		}
 	}
 
-	return nil
-}
-
-/*
-probe returns a cached backend availability while the TTL is still fresh.
-*/
-func (builder *Builder) probe(index int) (int, error) {
-	if index < 0 || index >= len(builder.backends) {
-		return 0, io.EOF
+	if bestIndex < 0 {
+		builder.active = nil
+		builder.activeIndex = -1
+		return nil
 	}
 
-	entry := builder.availability[index]
-	now := time.Now()
+	builder.active = builder.backends[bestIndex]
+	builder.activeIndex = bestIndex
 
-	if !entry.checkedAt.IsZero() && now.Sub(entry.checkedAt) < builder.availabilityTTL {
-		return entry.count, entry.err
-	}
-
-	count, err := builder.backends[index].Available()
-	builder.availability[index] = backendAvailability{
-		checkedAt: now,
-		count:     count,
-		err:       err,
-	}
-
-	return count, err
+	return builder.active
 }
 
 /*
@@ -184,13 +150,13 @@ func (builder *Builder) Available() (int, error) {
 	total := 0
 
 	for _, backend := range builder.backends {
-		n, err := backend.Available()
+		count, err := backend.Available()
 
 		if err != nil {
 			return 0, err
 		}
 
-		total += n
+		total += count
 	}
 
 	return total, nil

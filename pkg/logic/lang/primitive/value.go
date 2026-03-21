@@ -412,6 +412,40 @@ func initByteRouteHints() [256]uint8 {
 }
 
 /*
+CoreHash returns a 64-bit hash of the mathematical core only (blocks 0
+through CoreBlocks-1). Shell metadata in blocks 128-130 is excluded so
+routing mutations never alter the mathematical identity. Use this for
+memoization, deduplication, and structural equality where the pure
+geometric state must be invariant to control-plane changes.
+*/
+func (value Value) CoreHash() uint64 {
+	var hash uint64
+
+	for blockIndex := range config.CoreBlocks {
+		word := value.Block(blockIndex)
+		hash ^= word * (0x9e3779b185ebca87 + uint64(blockIndex)*0x6c62272e07bb0142)
+		hash = (hash << 17) | (hash >> 47)
+	}
+
+	return hash
+}
+
+/*
+CoreEqual reports whether two Values have identical mathematical cores,
+ignoring all shell metadata. This is the correct equality predicate for
+any context where routing, opcodes, or operator flags are irrelevant.
+*/
+func (value Value) CoreEqual(other Value) bool {
+	for blockIndex := range config.CoreBlocks {
+		if value.Block(blockIndex) != other.Block(blockIndex) {
+			return false
+		}
+	}
+
+	return true
+}
+
+/*
 ValueErrorType enumerates stable value-construction and block-layout failures.
 */
 type ValueErrorType string

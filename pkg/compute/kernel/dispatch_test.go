@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"testing"
-	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -97,36 +96,66 @@ func (backend *countingBackend) Close() error {
 	return nil
 }
 
-func TestBuilderBestCachesAvailabilityWithinTTL(t *testing.T) {
-	Convey("Given a builder with a cached backend probe", t, func() {
+func TestBuilderProbesOnEveryCall(t *testing.T) {
+	Convey("Given a builder with a counting backend", t, func() {
 		backend := &countingBackend{}
 		builder := NewBuilder(WithBackend(backend))
-		builder.availabilityTTL = time.Hour
 
 		payload := []byte("x")
 
-		Convey("It should avoid repeated Available probes until reset", func() {
+		Convey("It should probe Available on every io call", func() {
 			n, err := builder.Write(payload)
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, len(payload))
-			So(backend.availableCalls, ShouldEqual, 1)
+			So(backend.availableCalls, ShouldBeGreaterThanOrEqualTo, 1)
+
+			callsAfterWrite := backend.availableCalls
 
 			out := make([]byte, len(payload))
 			n, err = builder.Read(out)
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, len(payload))
-			So(backend.availableCalls, ShouldEqual, 1)
-
-			closeErr := builder.Close()
-			So(closeErr, ShouldBeNil)
-			So(backend.availableCalls, ShouldEqual, 1)
-
-			builder.Reset()
-
-			n, err = builder.Write(payload)
-			So(err, ShouldBeNil)
-			So(n, ShouldEqual, len(payload))
-			So(backend.availableCalls, ShouldEqual, 2)
+			So(backend.availableCalls, ShouldBeGreaterThan, callsAfterWrite)
 		})
 	})
+}
+
+func TestBuilderSelectsHighestCapacity(t *testing.T) {
+	Convey("Given two backends with different capacity", t, func() {
+		low := &capacityBackend{capacity: 1}
+		high := &capacityBackend{capacity: 10}
+		builder := NewBuilder(WithBackend(low), WithBackend(high))
+
+		Convey("It should route to the backend with higher capacity", func() {
+			payload := []byte("routed")
+			n, err := builder.Write(payload)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, len(payload))
+			So(high.writeCount, ShouldEqual, 1)
+			So(low.writeCount, ShouldEqual, 0)
+		})
+	})
+}
+
+type capacityBackend struct {
+	capacity   int
+	writeCount int
+	buf        bytes.Buffer
+}
+
+func (backend *capacityBackend) Available() (int, error) {
+	return backend.capacity, nil
+}
+
+func (backend *capacityBackend) Read(p []byte) (int, error) {
+	return backend.buf.Read(p)
+}
+
+func (backend *capacityBackend) Write(p []byte) (int, error) {
+	backend.writeCount++
+	return backend.buf.Write(p)
+}
+
+func (backend *capacityBackend) Close() error {
+	return nil
 }

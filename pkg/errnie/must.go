@@ -8,15 +8,8 @@ import (
 
 /*
 Must panics if an error is not nil. Otherwise, it returns the value.
-
-This function is useful for simplifying error handling in scenarios where errors are not expected
-and should terminate the program if they occur. By panicking, it avoids the need for repetitive
-error checks after every call.
-
-Example usage:
-
-	value := Must(someFuncThatReturnsValueAndError())
-	fmt.Println(value) // This will only execute if no error occurs.
+Reserved for init-time invariants where failure is unrecoverable.
+Production hot paths should use Guard instead.
 */
 func Must[T any](value T, err error) T {
 	if err != nil && err != io.EOF {
@@ -28,14 +21,7 @@ func Must[T any](value T, err error) T {
 }
 
 /*
-MustVoid is used when a function returns only an error, and we need to panic if it fails.
-
-This is helpful for simplifying functions that do not return a value but may return an error.
-Instead of handling the error explicitly, MustVoid will panic if the error is non-nil.
-
-Example usage:
-
-	MustVoid(someFuncThatReturnsOnlyError())
+MustVoid panics if err is non-nil. Reserved for init-time invariants.
 */
 func MustVoid(err error) {
 	if err != nil && err != io.EOF {
@@ -45,36 +31,14 @@ func MustVoid(err error) {
 }
 
 /*
-SafeMust wraps a function call, and if there is a panic, it automatically recovers.
-
-This function is used to safely execute a function that may return an error. If an error occurs,
-or if the function panics, SafeMust will recover and log the panic instead of crashing the program.
-
-The optional handlers parameter accepts error handler functions that receive the actual typed
-error when a panic or error occurs. Each handler is called in order, allowing for contextual
-error logging, metrics, or structured cleanup. Define a per-file handler alongside your typed
-errors to give every SafeMust call site proper error context.
-
-Example usage:
-
-	result := SafeMust(func() (int, error) {
-		return someComputation()
-	})
-	fmt.Println(result)
-
-	// With per-file error handler
-	result := SafeMust(
-		func() (int, error) {
-			return someComputation()
-		},
-		handleMyPackageError,
-	)
+SafeMust calls fn and dispatches any returned error to the handlers
+without triggering a panic. A deferred recover still catches actual
+runtime faults (nil-pointer, out-of-bounds) so those do not crash
+the process, but routine errors flow through the handlers as plain
+data — no stack unwinding, no runtime overhead.
 */
 func SafeMust[T any](fn func() (T, error), handlers ...func(error)) T {
-	var (
-		value T
-		err   error
-	)
+	var zero T
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -90,24 +54,26 @@ func SafeMust[T any](fn func() (T, error), handlers ...func(error)) T {
 		}
 	}()
 
-	if value, err = fn(); err != nil && err != io.EOF {
-		panic(err)
+	value, err := fn()
+
+	if err != nil && err != io.EOF {
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		if len(handlers) == 0 {
+			Warn("Error: %v", err)
+		}
+
+		return zero
 	}
 
 	return value
 }
 
 /*
-SafeMustVoid wraps a function call that returns an error and recovers from panics.
-
-If the function provided to SafeMustVoid returns an error or panics, this function will
-recover gracefully and log the error. Accepts optional error handlers identical to SafeMust.
-
-Example usage:
-
-	SafeMustVoid(func() error {
-		return someNonCriticalOperation()
-	}, handleMyPackageError)
+SafeMustVoid calls fn and dispatches any returned error to the handlers
+without triggering a panic. Nil fn is a programming error and panics.
 */
 func SafeMustVoid(fn func() error, handlers ...func(error)) {
 	if fn == nil {
@@ -129,21 +95,28 @@ func SafeMustVoid(fn func() error, handlers ...func(error)) {
 		}
 	}()
 
-	MustVoid(fn())
+	err := fn()
+
+	if err != nil && err != io.EOF {
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		if len(handlers) == 0 {
+			Warn("Error: %v", err)
+		}
+	}
 }
 
 var defaultSafeGuard SafeGuard
 
 /*
-SafeGuard encapsulates recover-and-dispatch behavior. recoverToError is the
-unexported receiver method; SafeMust2 and SafeMust3 remain package-level
-functions because Go does not support type parameters on methods.
+SafeGuard encapsulates recover-and-dispatch behavior for runtime faults.
 */
 type SafeGuard struct{}
 
 /*
-recoverToError converts a panic payload (any) into an error for SafeMust handlers.
-Panic strings become errors; non-error values are wrapped with fmt.Errorf.
+recoverToError converts a panic payload into an error for handler dispatch.
 */
 func (guard *SafeGuard) recoverToError(r any) error {
 	if err, ok := r.(error); ok {
@@ -154,13 +127,13 @@ func (guard *SafeGuard) recoverToError(r any) error {
 }
 
 /*
-SafeMust2 wraps a function call returning two values and an error.
+SafeMust2 calls fn returning two values and dispatches errors to handlers
+without panic. Deferred recover catches runtime faults only.
 */
 func SafeMust2[T any, U any](fn func() (T, U, error), handlers ...func(error)) (T, U) {
 	var (
-		v1  T
-		v2  U
-		err error
+		v1 T
+		v2 U
 	)
 
 	defer func() {
@@ -177,22 +150,32 @@ func SafeMust2[T any, U any](fn func() (T, U, error), handlers ...func(error)) (
 		}
 	}()
 
-	if v1, v2, err = fn(); err != nil && err != io.EOF {
-		panic(err)
+	var err error
+	v1, v2, err = fn()
+
+	if err != nil && err != io.EOF {
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		var z1 T
+		var z2 U
+
+		return z1, z2
 	}
 
 	return v1, v2
 }
 
 /*
-SafeMust3 wraps a function call returning three values and an error.
+SafeMust3 calls fn returning three values and dispatches errors to handlers
+without panic. Deferred recover catches runtime faults only.
 */
 func SafeMust3[T any, U any, V any](fn func() (T, U, V, error), handlers ...func(error)) (T, U, V) {
 	var (
-		v1  T
-		v2  U
-		v3  V
-		err error
+		v1 T
+		v2 U
+		v3 V
 	)
 
 	defer func() {
@@ -209,8 +192,19 @@ func SafeMust3[T any, U any, V any](fn func() (T, U, V, error), handlers ...func
 		}
 	}()
 
-	if v1, v2, v3, err = fn(); err != nil && err != io.EOF {
-		panic(err)
+	var err error
+	v1, v2, v3, err = fn()
+
+	if err != nil && err != io.EOF {
+		for _, handler := range handlers {
+			handler(err)
+		}
+
+		var z1 T
+		var z2 U
+		var z3 V
+
+		return z1, z2, z3
 	}
 
 	return v1, v2, v3
