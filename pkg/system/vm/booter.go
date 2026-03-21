@@ -8,6 +8,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis"
+	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	dmtserver "github.com/theapemachine/six/pkg/store/dmt/server"
 	"github.com/theapemachine/six/pkg/system/cluster"
@@ -36,6 +37,7 @@ type Booter struct {
 	graph       *substrate.GraphServer
 	macroIdx    *macro.MacroIndexServer
 	hasSrv      *synthesis.HASServer
+	cantilever  *bvp.CantileverServer
 	prompter    *input.PrompterServer
 	distributed *kernel.DistributedBackend
 }
@@ -91,6 +93,12 @@ func NewBooter(opts ...booterOpts) *Booter {
 		synthesis.HASWithMacroIndex(booter.macroIdx),
 	)
 
+	booter.cantilever = bvp.NewCantileverServer(
+		bvp.CantileverWithContext(booter.ctx),
+		bvp.CantileverWithRouter(booter.router),
+		bvp.WithMacroIndex(booter.macroIdx),
+	)
+
 	booter.prompter = input.NewPrompterServer(
 		input.PrompterWithContext(booter.ctx),
 	)
@@ -99,6 +107,7 @@ func NewBooter(opts ...booterOpts) *Booter {
 	booter.router.Register(cluster.TOKENIZER, booter.tokenizer)
 	booter.router.Register(cluster.GRAPH, booter.graph)
 	booter.router.Register(cluster.HAS, booter.hasSrv)
+	booter.router.Register(cluster.CANTILEVER, booter.cantilever)
 	booter.router.Register(cluster.PROMPTER, booter.prompter)
 
 	booter.distributed = errnie.Guard(booter.state, func() (*kernel.DistributedBackend, error) {
@@ -144,6 +153,10 @@ func (booter *Booter) Close() error {
 
 	if booter.hasSrv != nil {
 		appendErr(booter.hasSrv.Close())
+	}
+
+	if booter.cantilever != nil {
+		appendErr(booter.cantilever.Close())
 	}
 
 	if booter.graph != nil {

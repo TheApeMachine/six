@@ -11,7 +11,8 @@ var discreteLogTable = buildDiscreteLogTable()
 var calc = numeric.NewCalculus()
 
 /*
-MatchResult contains the evaluated metrics between a query state and a stored candidate.
+MatchResult contains the evaluated metrics
+between a query state and a stored candidate.
 */
 type MatchResult struct {
 	Residue       Value
@@ -26,13 +27,19 @@ one candidate value. It returns shared structure, affine phase quotient, final
 fitness score, and core residue popcount used as the energetic penalty term.
 */
 func ScoreMatch(query Value, candidate Value) (int, numeric.Phase, int, int) {
-	queryPhase := numeric.Phase(query.ResidualCarry() % uint64(numeric.FermatPrime))
-	candidatePhase := numeric.Phase(candidate.ResidualCarry() % uint64(numeric.FermatPrime))
+	queryPhase := numeric.Phase(
+		query.ResidualCarry() % uint64(numeric.FermatPrime),
+	)
+
+	candidatePhase := numeric.Phase(
+		candidate.ResidualCarry() % uint64(numeric.FermatPrime),
+	)
 
 	var phaseQuotient numeric.Phase
 
 	if queryPhase > 0 && candidatePhase > 0 {
 		queryInv, err := calc.Inverse(queryPhase)
+
 		if err == nil {
 			phaseQuotient = calc.Multiply(candidatePhase, queryInv)
 		}
@@ -51,6 +58,7 @@ func ScoreMatch(query Value, candidate Value) (int, numeric.Phase, int, int) {
 		bits.OnesCount64((candidate.C4()&^query.C4())&1)
 
 	phaseCloseness := 0
+
 	if phaseQuotient > 0 {
 		phaseCloseness = int(numeric.FermatPrime) - int(discreteLog(phaseQuotient))
 	}
@@ -61,8 +69,9 @@ func ScoreMatch(query Value, candidate Value) (int, numeric.Phase, int, int) {
 }
 
 /*
-EvaluateMatch computes the bitwise and algebraic differences between a query (receiver)
-and a stored candidate. It evaluates spatial bit-overlap alongside affine phase distance.
+EvaluateMatch computes the bitwise and algebraic differences
+between a query (receiver) and a stored candidate. It evaluates
+spatial bit-overlap alongside affine phase distance.
 */
 func (query *Value) EvaluateMatch(candidate Value) MatchResult {
 	state := errnie.NewState("primitive/operation/evaluateMatch")
@@ -90,10 +99,13 @@ func (query *Value) EvaluateMatch(candidate Value) MatchResult {
 }
 
 /*
-ApplyAffine computes the next phase using the embedded affine operator (ax+b mod 257).
-Returns the resulting phase and a boolean indicating if the halt opcode was encountered.
+ApplyAffine computes the next phase using the embedded affine
+operator (ax+b mod 257). Returns the resulting phase and a
+boolean indicating if the halt opcode was encountered.
 */
-func (value *Value) ApplyAffine(incoming numeric.Phase) (numeric.Phase, bool) {
+func (value *Value) ApplyAffine(
+	incoming numeric.Phase,
+) (numeric.Phase, bool) {
 	outgoing := value.ApplyAffinePhase(incoming)
 	opcode := Opcode(value.Opcode())
 
@@ -101,14 +113,20 @@ func (value *Value) ApplyAffine(incoming numeric.Phase) (numeric.Phase, bool) {
 }
 
 /*
-TransitionMagnitude calculates the discontinuity between the predecessor and the current value.
-Evaluates both spatial bit-distance and affine phase-distance, returning the larger magnitude.
+TransitionMagnitude calculates the discontinuity between
+the predecessor and the current value. Evaluates both spatial
+bit-distance and affine phase-distance, returning the larger magnitude.
 */
-func (value Value) TransitionMagnitude(predecessor Value) (numeric.Phase, error) {
-	calc := numeric.NewCalculus()
+func (value Value) TransitionMagnitude(
+	predecessor Value,
+) (numeric.Phase, error) {
+	selfPhase := numeric.Phase(
+		value.ResidualCarry() % uint64(numeric.FermatPrime),
+	)
 
-	selfPhase := numeric.Phase(value.ResidualCarry() % uint64(numeric.FermatPrime))
-	predecessorPhase := numeric.Phase(predecessor.ResidualCarry() % uint64(numeric.FermatPrime))
+	predecessorPhase := numeric.Phase(
+		predecessor.ResidualCarry() % uint64(numeric.FermatPrime),
+	)
 
 	coreMagnitude := numeric.Phase(
 		bits.OnesCount64(value.C0()^predecessor.C0()) +
@@ -138,14 +156,18 @@ func (value Value) TransitionMagnitude(predecessor Value) (numeric.Phase, error)
 }
 
 /*
-ComputeOperator derives and stores the GF(257) multiplier required to map
-the predecessor phase to the successor phase, updating the local guard radius.
+ComputeOperator derives and stores the GF(257) multiplier
+required to map the predecessor phase to the successor phase,
+updating the local guard radius.
 */
-func (value *Value) ComputeOperator(predecessor Value, successorPhase numeric.Phase) {
+func (value *Value) ComputeOperator(
+	predecessor Value, successorPhase numeric.Phase,
+) {
 	state := errnie.NewState("primitive/operation/computeOperator")
 
-	calc := numeric.NewCalculus()
-	predecessorPhase := numeric.Phase(predecessor.ResidualCarry() % uint64(numeric.FermatPrime))
+	predecessorPhase := numeric.Phase(
+		predecessor.ResidualCarry() % uint64(numeric.FermatPrime),
+	)
 
 	if predecessorPhase == 0 || successorPhase == 0 {
 		return
@@ -173,9 +195,10 @@ func (value *Value) ComputeOperator(predecessor Value, successorPhase numeric.Ph
 }
 
 /*
-ExecuteTrace processes a sequence of values by applying their affine operators sequentially.
-Halts if the transition magnitude exceeds the maximum allowed discontinuity, or if a halt opcode is read.
-Returns the execution trace of phases and the index at which execution halted.
+ExecuteTrace processes a sequence of values by applying their affine
+operators sequentially. Halts if the transition magnitude exceeds the
+maximum allowed discontinuity, or if a halt opcode is read. Returns the
+execution trace of phases and the index at which execution halted.
 */
 func ExecuteTrace(
 	path []Value, seedPhase numeric.Phase, maxDiscontinuity numeric.Phase,
@@ -214,8 +237,6 @@ BuildQueryMask constructs a composite search state from known structural compone
 Accumulates the physical bitwise OR mask and the composed inverse scalar phase.
 */
 func BuildQueryMask(knownValues ...Value) Value {
-	calc := numeric.NewCalculus()
-
 	composedInversePhase := numeric.Phase(1)
 	queryMask := NeutralValue()
 
@@ -276,7 +297,10 @@ func buildDiscreteLogTable() [numeric.FermatPrime]numeric.Phase {
 	// GF(257) multiplicative group has exactly 256 non-zero elements.
 	for k := numeric.Phase(0); k < numeric.Phase(numeric.FermatPrime)-1; k++ {
 		table[power] = k
-		power = numeric.Phase((uint32(power) * numeric.FermatPrimitive) % numeric.FermatPrime)
+
+		power = numeric.Phase(
+			(uint32(power) * numeric.FermatPrimitive) % numeric.FermatPrime,
+		)
 	}
 
 	return table

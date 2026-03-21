@@ -3,6 +3,7 @@ package input
 import (
 	context "context"
 	"net"
+	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
 	"capnproto.org/go/capnp/v3/rpc"
@@ -47,6 +48,7 @@ type PrompterServer struct {
 	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
 	heldout     Holdout
+	connMu      sync.Mutex
 }
 
 /*
@@ -89,6 +91,9 @@ Client returns a Cap'n Proto client connected to this PrompterServer.
 Returns the bootstrap capability from the pre-created client connection.
 */
 func (server *PrompterServer) Client(clientID string) capnp.Client {
+	server.connMu.Lock()
+	defer server.connMu.Unlock()
+
 	server.clientConns[clientID] = server.clientConn
 	return server.clientConn.Bootstrap(server.ctx)
 }
@@ -121,9 +126,11 @@ func (server *PrompterServer) Close() error {
 		server.serverConn = nil
 	}
 
+	server.connMu.Lock()
 	for clientID := range server.clientConns {
 		delete(server.clientConns, clientID)
 	}
+	server.connMu.Unlock()
 
 	if server.cancel != nil {
 		server.cancel()

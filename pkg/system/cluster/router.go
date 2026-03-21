@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/system/transport"
 )
 
@@ -18,6 +19,7 @@ const (
 	HAS        = "has"
 	PROGRAM    = "program"
 	CANTILEVER = "cantilever"
+	MACROINDEX = "macroindex"
 )
 
 /*
@@ -104,10 +106,17 @@ func (router *Router) Resolve(capability string) Service {
 Get resolves a capability and returns a Cap'n Proto client for the given
 clientID. Returns an error if no service is registered under that name.
 */
-func (router *Router) Get(_ context.Context, capability string, clientID string) (capnp.Client, error) {
+func (router *Router) Get(
+	_ context.Context,
+	capability string,
+	clientID string,
+) (capnp.Client, error) {
 	svc := router.Resolve(capability)
 	if svc == nil {
-		return capnp.Client{}, fmt.Errorf("cluster: no service registered for %q", capability)
+		return capnp.Client{}, errnie.Error(
+			NewRouterError(RouterErrorNoService),
+			"capability", capability,
+		)
 	}
 
 	return svc.Client(clientID), nil
@@ -140,4 +149,23 @@ func (router *Router) Close() error {
 	}
 
 	return streamErr
+}
+
+type RouterErrorType string
+
+const (
+	RouterErrorNoService RouterErrorType = "router: no service registered for"
+)
+
+type RouterError struct {
+	Message string
+	Err     RouterErrorType
+}
+
+func NewRouterError(err RouterErrorType) *RouterError {
+	return &RouterError{Message: string(err), Err: err}
+}
+
+func (err RouterError) Error() string {
+	return fmt.Sprintf("router error: %s: %s", err.Message, err.Err)
 }

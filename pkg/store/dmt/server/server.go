@@ -32,6 +32,7 @@ type ForestServer struct {
 	serverConn  *rpc.Conn
 	clientConn  *rpc.Conn
 	clientConns map[string]*rpc.Conn
+	connMu      sync.Mutex
 	forest      *dmt.Forest
 	workerPool  *pool.Pool
 	writtenMu   sync.Mutex
@@ -84,6 +85,9 @@ Client returns a Cap'n Proto client connected to this ForestServer.
 Returns the bootstrap capability from the pre-created client connection.
 */
 func (idx *ForestServer) Client(clientID string) capnp.Client {
+	idx.connMu.Lock()
+	defer idx.connMu.Unlock()
+
 	idx.clientConns[clientID] = idx.clientConn
 	return idx.clientConn.Bootstrap(idx.ctx)
 }
@@ -109,9 +113,11 @@ func (idx *ForestServer) Close() error {
 		idx.serverConn = nil
 	}
 
+	idx.connMu.Lock()
 	for clientID := range idx.clientConns {
 		delete(idx.clientConns, clientID)
 	}
+	idx.connMu.Unlock()
 
 	if idx.cancel != nil {
 		idx.cancel()

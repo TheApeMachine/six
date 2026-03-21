@@ -182,6 +182,9 @@ func (server *UniversalServer) Done(
 	}
 
 	server.sequences = server.sequences[:0]
+	server.seq = sequencer.NewSequitur()
+	server.healer = sequencer.NewBitwiseHealer()
+	server.pos = 0
 
 	res := errnie.Guard(server.state, func() (Universal_done_Results, error) {
 		return call.AllocResults()
@@ -234,6 +237,7 @@ tokenize runs the Sequencer over one byte and returns a Morton key.
 */
 func (server *UniversalServer) tokenize(raw byte) {
 	server.healer.Write(server.seq.Analyze(server.pos, raw))
+	server.pos++
 
 	buf, healErr := server.healer.Heal()
 	if healErr != nil {

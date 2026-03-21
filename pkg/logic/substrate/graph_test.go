@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
+	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/pool"
 )
 
@@ -103,6 +104,54 @@ func TestRecursiveFold(t *testing.T) {
 		So(out, ShouldNotBeNil)
 		So(len(out), ShouldEqual, 1)
 		So(len(out[0]), ShouldEqual, 2)
+	})
+}
+
+func TestExactContinuation(t *testing.T) {
+	Convey("Given stored graph rows with an exact prompt prefix", t, func() {
+		graph := testGraph(t)
+		ctx := context.Background()
+		client := Graph_ServerToClient(graph)
+		coder := data.NewMortonCoder()
+
+		writeKeys := func(text string) {
+			for index, symbol := range []byte(text) {
+				writeErr := client.Write(ctx, func(p Graph_write_Params) error {
+					p.SetKey(coder.Pack(uint32(index), symbol))
+					return nil
+				})
+
+				So(writeErr, ShouldBeNil)
+				So(client.WaitStreaming(), ShouldBeNil)
+			}
+		}
+
+		writeKeys("Roy is in the Kitchen")
+
+		prompt := make([]primitive.Value, 0, len("Roy is in the "))
+		for index, symbol := range []byte("Roy is in the ") {
+			prompt = append(
+				prompt,
+				primitive.SeedObservable(
+					symbol,
+					primitive.BaseValue(symbol).RollLeft(index),
+				),
+			)
+		}
+
+		Convey("It should return only the unmatched continuation suffix", func() {
+			remainder := graph.ExactContinuation(prompt)
+			out := make([]byte, 0, len(remainder))
+
+			for _, value := range remainder {
+				symbol, ok := primitive.InferLexicalSeed(value)
+				if ok {
+					out = append(out, symbol)
+				}
+			}
+
+			So(out, ShouldResemble, []byte("Kitchen"))
+		})
 	})
 }
 

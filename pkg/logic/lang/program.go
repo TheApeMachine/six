@@ -2,6 +2,7 @@ package lang
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 
 	capnp "capnproto.org/go/capnp/v3"
@@ -121,7 +122,7 @@ const (
 )
 
 func NewProgramError(err ProgramErrorType) *ProgramError {
-	return &ProgramError{Message: string(err), Err: fmt.Errorf(string(err))}
+	return &ProgramError{Message: string(err), Err: errors.New(string(err))}
 }
 
 func (err *ProgramError) Error() string {

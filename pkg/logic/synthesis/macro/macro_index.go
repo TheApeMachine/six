@@ -116,6 +116,8 @@ type MacroIndexServer struct {
 	candidates  map[AffineKey]*ProgramCandidate
 	anchors     map[numeric.Phase]*AnchorRecord
 	anchorNames map[string]numeric.Phase
+	bestKey     AffineKey
+	bestUse     uint64
 }
 
 /*
@@ -227,20 +229,10 @@ func (server *MacroIndexServer) Done(ctx context.Context, call MacroIndex_done) 
 	server.mu.RLock()
 	defer server.mu.RUnlock()
 
-	var bestKey AffineKey
-	var bestUse uint64
+	if server.bestUse > 0 {
+		opcode := server.opcodes[server.bestKey]
 
-	for key, opcode := range server.opcodes {
-		if opcode.UseCount > bestUse {
-			bestKey = key
-			bestUse = opcode.UseCount
-		}
-	}
-
-	if bestUse > 0 {
-		opcode := server.opcodes[bestKey]
-
-		if setErr := res.SetKeyText(bestKey.String()); setErr != nil {
+		if setErr := res.SetKeyText(server.bestKey.String()); setErr != nil {
 			return setErr
 		}
 
@@ -334,10 +326,12 @@ func (idx *MacroIndexServer) RecordOpcode(key AffineKey) {
 		if opcode.UseCount > hardeningThreshold {
 			opcode.Hardened = true
 		}
+		idx.trackBestLocked(key, opcode)
 		return
 	}
 
 	idx.opcodes[key] = OpcodeForKey(key)
+	idx.trackBestLocked(key, idx.opcodes[key])
 }
 
 /*
@@ -352,6 +346,7 @@ func (idx *MacroIndexServer) StoreOpcode(opcode *MacroOpcode) {
 	defer idx.mu.Unlock()
 
 	idx.opcodes[opcode.Key] = opcode
+	idx.trackBestLocked(opcode.Key, opcode)
 }
 
 /*
@@ -412,6 +407,7 @@ func (idx *MacroIndexServer) RecordCandidateResult(
 
 		opcode.UseCount = candidate.SuccessCount
 		opcode.Hardened = candidate.SuccessCount > hardeningThreshold
+		idx.trackBestLocked(key, opcode)
 	} else {
 		candidate.FailureCount++
 	}
@@ -434,7 +430,36 @@ func (idx *MacroIndexServer) GarbageCollect() int {
 		}
 	}
 
+	idx.refreshBestLocked()
+
 	return pruned
+}
+
+/*
+trackBestLocked updates the cached summary used by Done while idx.mu is held.
+*/
+func (idx *MacroIndexServer) trackBestLocked(
+	key AffineKey,
+	opcode *MacroOpcode,
+) {
+	if opcode == nil || opcode.UseCount < idx.bestUse {
+		return
+	}
+
+	idx.bestKey = key
+	idx.bestUse = opcode.UseCount
+}
+
+/*
+refreshBestLocked rebuilds the cached Done summary while idx.mu is held.
+*/
+func (idx *MacroIndexServer) refreshBestLocked() {
+	idx.bestKey = AffineKey{}
+	idx.bestUse = 0
+
+	for key, opcode := range idx.opcodes {
+		idx.trackBestLocked(key, opcode)
+	}
 }
 
 /*

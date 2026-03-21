@@ -382,15 +382,17 @@ Please treat this project with respect, it is very important to me, and this is 
 
 - When asked to fix something narrowly (lint, compile error, single call site), restrict edits to that; avoid broad rewrites or re-architecture unless invited.
 - Stay on the task the user is doing now; if they narrow scope, redirect focus, or stop an approach, follow that instead of expanding or reviving sidelined work.
-- Do not discard or replace substantial user-written structure to “save” the session; treat RPC and capability flow as real constraints, not as generic data piping.
+- Do not discard or replace substantial user-written structure to “save” the session; treat RPC and capability flow, especially Cap’n Proto local/remote semantics, as real constraints rather than generic data piping or unnecessary complexity.
 - Services that need remote peers get a cluster router (or equivalent capability routing), not ad-hoc direct client wiring that bypasses the intended RPC path.
-- For streaming transport code, keep fixes small and avoid replacing ring-buffer-oriented concurrency with extra mutexes, runtime/scheduler manipulation, or heavy casting when the existing stream design already carries the thread-safety goals.
+- For streaming transport code, keep fixes small and avoid replacing ring-buffer-oriented concurrency with extra mutexes, runtime/scheduler manipulation, or heavy casting when the existing stream design already carries the thread-safety goals; `FlipFlop` is intentionally sequential, and async bidirectional flow belongs in `transport.Stream`.
 - Uncovered code is assumed broken until proven otherwise; test coverage and benchmarks gate trust in any package before optimization or feature work proceeds.
 
 ## Learned Workspace Facts
 
 - End-state direction: pipeline parts composed with `io.ReadWriteCloser` (including in-place mutating middleware that still implements that interface) and stdlib glue (`io.Copy`, `MultiWriter`, `TeeReader`) where practical; `pool.Task` is `io.ReadWriteCloser`, workers drive jobs via `io.Copy`; `readPoolTask` is the adapter for scheduling background `func` work in dmt and kernel.
 - Cluster RPC registration and bootstrap should live in a layer that does not import-cycle with packages that only consume the router; the router closes or tears down what it owns.
+- Cap’n Proto services are expected to support both local and remote callers through the same capability shape; distributed services should reuse a single client/server `rpc.Conn` pair per transport instead of creating a new `rpc.Conn` on every `Client()` call.
+- For Cap’n Proto streaming calls, keep `-> stream` semantics where appropriate and keep `ReleaseFunc` handling outside `errnie.Guard` closures so deferred releases always run.
 - `transport.Stream` on a bounded ring blocks unless writers and readers overlap for payloads larger than the buffer; finish the producer with `CloseWrite` so reads can drain to `io.EOF`.
 - Benchmarks of hot loops should hoist `make(chan …)` and per-iteration goroutines when the goal is zero allocs per iteration; one long-lived reader driven by a kick channel is the usual pattern.
 - Prefer Cap’n Proto for on-the-wire work; avoid JSON on hot or internal paths.

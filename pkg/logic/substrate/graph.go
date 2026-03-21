@@ -257,6 +257,68 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 	return [][]primitive.Value{append([]primitive.Value(nil), data...)}
 }
 
+/*
+ExactContinuation returns the exact remainder for the first row whose prefix
+matches the prompt Values byte-for-byte across the full Value shell.
+*/
+func (graph *GraphServer) ExactContinuation(
+	prompt []primitive.Value,
+) []primitive.Value {
+	graph.mu.RLock()
+	defer graph.mu.RUnlock()
+
+	for _, row := range graph.data {
+		if len(row) <= len(prompt) {
+			continue
+		}
+
+		if !graph.hasExactPrefix(row, prompt) {
+			continue
+		}
+
+		return append([]primitive.Value(nil), row[len(prompt):]...)
+	}
+
+	return nil
+}
+
+/*
+hasExactPrefix checks whether prompt matches the leading Values in row exactly.
+*/
+func (graph *GraphServer) hasExactPrefix(
+	row []primitive.Value,
+	prompt []primitive.Value,
+) bool {
+	if len(prompt) == 0 || len(row) < len(prompt) {
+		return false
+	}
+
+	for index := range prompt {
+		if !graph.valuesEqual(row[index], prompt[index]) {
+			return false
+		}
+	}
+
+	return true
+}
+
+/*
+valuesEqual compares the full 8-word Value shell with no fuzzy matching.
+*/
+func (graph *GraphServer) valuesEqual(
+	left primitive.Value,
+	right primitive.Value,
+) bool {
+	return left.C0() == right.C0() &&
+		left.C1() == right.C1() &&
+		left.C2() == right.C2() &&
+		left.C3() == right.C3() &&
+		left.C4() == right.C4() &&
+		left.C5() == right.C5() &&
+		left.C6() == right.C6() &&
+		left.C7() == right.C7()
+}
+
 func (graph *GraphServer) addArrows(label, remainder []primitive.Value) {
 	for rIdx := range remainder {
 		if rIdx >= len(graph.data) {

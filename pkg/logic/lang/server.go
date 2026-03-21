@@ -157,13 +157,19 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 	})
 	currentState.CopyFrom(prog.start)
 
+	residueScratch := errnie.Guard(prog.state, func() (primitive.Value, error) {
+		return primitive.New()
+	})
+
 	if prog.state.Failed() {
 		return nil, prog.state.Err()
 	}
 
-	preResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
-		return currentState.XOR(prog.target)
-	}).CoreActiveCount()
+	errnie.GuardVoid(prog.state, func() error {
+		return currentState.XORInto(prog.target, &residueScratch)
+	})
+
+	preResidue := residueScratch.CoreActiveCount()
 
 	if prog.state.Failed() {
 		return nil, prog.state.Err()
@@ -194,9 +200,11 @@ func (prog *ProgramServer) Execute(candidates []primitive.Value) (*Output, error
 				continue
 			}
 
-			postResidue := errnie.Guard(prog.state, func() (primitive.Value, error) {
-				return match.Residue.XOR(prog.target)
-			}).CoreActiveCount()
+			errnie.GuardVoid(prog.state, func() error {
+				return match.Residue.XORInto(prog.target, &residueScratch)
+			})
+
+			postResidue := residueScratch.CoreActiveCount()
 
 			if prog.state.Failed() {
 				return nil, prog.state.Err()

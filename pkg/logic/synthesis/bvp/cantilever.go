@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
 	"github.com/theapemachine/six/pkg/numeric"
 	"github.com/theapemachine/six/pkg/system/cluster"
+	"github.com/theapemachine/six/pkg/system/process/tokenizer"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -22,13 +23,16 @@ map across the span.
 */
 type CantileverServer struct {
 	clientMu sync.Mutex
+	corpusMu sync.RWMutex
 	ctx      context.Context
 	cancel   context.CancelFunc
 	// router is reserved for future cluster.Router-driven capability resolution
 	// at synthesis boundaries (sibling services, load-aware peers).
-	router *cluster.Router
-	calc   *numeric.Calculus
-	Index  *macro.MacroIndexServer
+	router  *cluster.Router
+	calc    *numeric.Calculus
+	Index   *macro.MacroIndexServer
+	corpus  [][]primitive.Value
+	lexical [][]byte
 }
 
 /*
@@ -42,7 +46,9 @@ NewCantileverServer provides a new logic solver acting between fixed start and e
 */
 func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 	cl := &CantileverServer{
-		calc: numeric.NewCalculus(),
+		calc:    numeric.NewCalculus(),
+		corpus:  make([][]primitive.Value, 0),
+		lexical: make([][]byte, 0),
 	}
 
 	for _, opt := range options {
@@ -85,10 +91,47 @@ func (server *CantileverServer) Close() error {
 }
 
 /*
+Load reports the relative execution pressure on the prompt solver.
+*/
+func (server *CantileverServer) Load() int64 {
+	server.corpusMu.RLock()
+	defer server.corpusMu.RUnlock()
+
+	return int64(len(server.corpus))
+}
+
+/*
 Prompt implements Cantilever_Server.
 */
 func (server *CantileverServer) Prompt(ctx context.Context, call Cantilever_prompt) error {
-	return nil
+	if server.router == nil {
+		return fmt.Errorf("cantilever prompt requires a cluster router")
+	}
+
+	workCtx := server.ctx
+	if workCtx == nil {
+		workCtx = ctx
+	}
+
+	msg, err := call.Args().Msg()
+	if err != nil {
+		return err
+	}
+
+	promptValues, err := server.promptValues(workCtx, []byte(msg))
+	if err != nil {
+		return err
+	}
+
+	continuation := server.exactContinuation(promptValues)
+	resultBytes := decodePromptValues(continuation)
+
+	results, err := call.AllocResults()
+	if err != nil {
+		return err
+	}
+
+	return results.SetResult(string(resultBytes))
 }
 
 /*
@@ -212,4 +255,152 @@ Error implements the error interface for CantileverError.
 */
 func (cantileverError CantileverError) Error() string {
 	return string(cantileverError)
+}
+
+/*
+promptValues tokenizes prompt bytes and maps the keys into native Values.
+*/
+func (server *CantileverServer) promptValues(
+	ctx context.Context,
+	prompt []byte,
+) ([]primitive.Value, error) {
+	tokenizerServer := tokenizer.NewUniversalServer(
+		tokenizer.UniversalWithContext(ctx),
+	)
+	defer tokenizerServer.Close()
+
+	client := tokenizer.Universal(tokenizerServer.Client("cantilever"))
+
+	for _, symbol := range prompt {
+		if err := client.Write(
+			ctx, func(params tokenizer.Universal_write_Params) error {
+				params.SetData(symbol)
+				return nil
+			},
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := client.WaitStreaming(); err != nil {
+		return nil, err
+	}
+
+	keys, err := server.tokenizerKeys(ctx, client)
+	if err != nil {
+		return nil, err
+	}
+
+	return primitive.CompileObservableSequenceValues(keys), nil
+}
+
+/*
+tokenizerKeys drains the tokenizer in the same two-pass pattern used by the VM.
+*/
+func (server *CantileverServer) tokenizerKeys(
+	ctx context.Context,
+	client tokenizer.Universal,
+) ([]uint64, error) {
+	keys := make([]uint64, 0)
+
+	for range 2 {
+		future, release := client.Done(ctx, nil)
+
+		results, err := future.Struct()
+		if err != nil {
+			release()
+			return nil, err
+		}
+
+		list, err := results.Keys()
+		if err != nil {
+			release()
+			return nil, err
+		}
+
+		for index := range list.Len() {
+			keys = append(keys, list.At(index))
+		}
+
+		release()
+	}
+
+	return keys, nil
+}
+
+/*
+decodePromptValues decodes lexical symbols from a continuation Value slice.
+*/
+func decodePromptValues(values []primitive.Value) []byte {
+	out := make([]byte, 0, len(values))
+
+	for _, value := range values {
+		symbol, ok := primitive.InferLexicalSeed(value)
+		if !ok {
+			continue
+		}
+
+		out = append(out, symbol)
+	}
+
+	return out
+}
+
+/*
+Store appends dataset rows to the prompt corpus exactly as ingested.
+*/
+func (server *CantileverServer) Store(rows [][]primitive.Value) {
+	server.corpusMu.Lock()
+	defer server.corpusMu.Unlock()
+
+	for _, row := range rows {
+		server.corpus = append(server.corpus, append([]primitive.Value(nil), row...))
+		server.lexical = append(server.lexical, append([]byte(nil), decodePromptValues(row)...))
+	}
+}
+
+/*
+exactContinuation returns the first exact corpus suffix for prompt.
+*/
+func (server *CantileverServer) exactContinuation(
+	prompt []primitive.Value,
+) []primitive.Value {
+	server.corpusMu.RLock()
+	defer server.corpusMu.RUnlock()
+
+	promptBytes := decodePromptValues(prompt)
+
+	for index, row := range server.lexical {
+		if len(row) <= len(promptBytes) {
+			continue
+		}
+
+		if !server.hasExactPrefix(row, promptBytes) {
+			continue
+		}
+
+		return append([]primitive.Value(nil), server.corpus[index][len(promptBytes):]...)
+	}
+
+	return nil
+}
+
+/*
+hasExactPrefix checks whether prompt matches the leading bytes in row exactly.
+*/
+func (server *CantileverServer) hasExactPrefix(
+	row []byte,
+	prompt []byte,
+) bool {
+	if len(prompt) == 0 || len(row) < len(prompt) {
+		return false
+	}
+
+	for index := range prompt {
+		if row[index] != prompt[index] {
+			return false
+		}
+	}
+
+	return true
 }

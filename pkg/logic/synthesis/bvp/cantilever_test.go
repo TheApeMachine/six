@@ -8,7 +8,62 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/synthesis/macro"
+	"github.com/theapemachine/six/pkg/system/cluster"
+	"github.com/theapemachine/six/pkg/system/process/tokenizer"
+	"github.com/theapemachine/six/pkg/system/vm/input"
 )
+
+func TestCantileverPromptValues(t *testing.T) {
+	Convey("Given a cantilever server with tokenizer and prompter capabilities", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		router := cluster.NewRouter(cluster.RouterWithContext(ctx))
+		tok := tokenizer.NewUniversalServer(
+			tokenizer.UniversalWithContext(ctx),
+		)
+		defer tok.Close()
+
+		prompter := input.NewPrompterServer(
+			input.PrompterWithContext(ctx),
+		)
+		defer prompter.Close()
+
+		router.Register(cluster.TOKENIZER, tok)
+		router.Register(cluster.PROMPTER, prompter)
+
+		server := NewCantileverServer(
+			CantileverWithContext(ctx),
+			CantileverWithRouter(router),
+		)
+
+		client := tokenizer.Universal(tok.Client("test"))
+		for _, symbol := range []byte("Roy is in the Kitchen") {
+			err := client.Write(ctx, func(params tokenizer.Universal_write_Params) error {
+				params.SetData(symbol)
+				return nil
+			})
+			So(err, ShouldBeNil)
+		}
+
+		So(client.WaitStreaming(), ShouldBeNil)
+
+		keys, err := server.tokenizerKeys(ctx, client)
+		So(err, ShouldBeNil)
+
+		server.Store([][]primitive.Value{
+			primitive.CompileObservableSequenceValues(keys),
+		})
+
+		Convey("It should recover the exact continuation suffix", func() {
+			promptValues, err := server.promptValues(ctx, []byte("Roy is in the "))
+
+			So(err, ShouldBeNil)
+			So(string(decodePromptValues(promptValues)), ShouldEqual, "Roy is in the ")
+			So(string(decodePromptValues(server.exactContinuation(promptValues))), ShouldEqual, "Kitchen")
+		})
+	})
+}
 
 func TestCantilever(t *testing.T) {
 	ctx := context.Background()

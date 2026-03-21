@@ -5,7 +5,10 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/logic/lang/primitive"
+	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/store/data/provider/local"
+	"github.com/theapemachine/six/pkg/system/cluster"
 )
 
 /*
@@ -13,6 +16,34 @@ TestMachinePromptExactContinuation verifies that the machine returns the exact
 continuation for one ingested corpus line through the real tokenizer and graph.
 */
 func TestMachinePromptExactContinuation(t *testing.T) {
+	gc.Convey("Given a machine with one ingested exact corpus line", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine := NewMachine(
+			MachineWithContext(ctx),
+		)
+		defer machine.Close()
+
+		err := machine.SetDataset(
+			local.New(local.WithStrings([]string{
+				"Roy is in the Kitchen",
+			})),
+		)
+		gc.So(err, gc.ShouldBeNil)
+		gc.So(machine.booter.cantilever.Load(), gc.ShouldBeGreaterThan, 0)
+
+		before := machine.workerPool.Metrics().JobCount
+
+		gc.Convey("It should schedule prompt execution through the worker pool", func() {
+			result, err := machine.Prompt("Roy is in the ")
+
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(string(result), gc.ShouldEqual, "Kitchen")
+			gc.So(machine.workerPool.Metrics().JobCount, gc.ShouldBeGreaterThan, before)
+		})
+	})
+
 	gc.Convey("Given a machine with one ingested exact corpus line", t, func() {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
@@ -125,6 +156,50 @@ func TestMachinePromptExactContinuation(t *testing.T) {
 			})
 		})
 	}
+}
+
+func TestCantileverPromptViaRouter(t *testing.T) {
+	gc.Convey("Given a machine with one ingested exact corpus line", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		machine := NewMachine(
+			MachineWithContext(ctx),
+		)
+		defer machine.Close()
+
+		err := machine.SetDataset(
+			local.New(local.WithStrings([]string{
+				"Roy is in the Kitchen",
+			})),
+		)
+		gc.So(err, gc.ShouldBeNil)
+
+		row, err := machine.compilePromptRow([]byte("Roy is in the Kitchen"))
+		gc.So(err, gc.ShouldBeNil)
+		gc.So(len(row), gc.ShouldBeGreaterThan, 0)
+		machine.booter.cantilever.Store([][]primitive.Value{row})
+
+		gc.Convey("It should return the continuation through the cantilever capability", func() {
+			raw, err := machine.booter.router.Get(ctx, cluster.CANTILEVER, "test")
+			gc.So(err, gc.ShouldBeNil)
+			defer raw.Release()
+
+			future, release := bvp.Cantilever(raw).Prompt(
+				ctx, func(params bvp.Cantilever_prompt_Params) error {
+					return params.SetMsg("Roy is in the ")
+				},
+			)
+			defer release()
+
+			result, err := future.Struct()
+			gc.So(err, gc.ShouldBeNil)
+
+			text, err := result.Result()
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(text, gc.ShouldEqual, "Kitchen")
+		})
+	})
 }
 
 /*

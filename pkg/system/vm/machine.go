@@ -7,10 +7,12 @@ import (
 	"time"
 
 	capnp "capnproto.org/go/capnp/v3"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/logic/substrate"
 	"github.com/theapemachine/six/pkg/logic/synthesis"
+	"github.com/theapemachine/six/pkg/logic/synthesis/bvp"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/store/data/provider"
 	"github.com/theapemachine/six/pkg/store/dmt/server"
@@ -18,7 +20,6 @@ import (
 	"github.com/theapemachine/six/pkg/system/console"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/system/process/tokenizer"
-	"github.com/theapemachine/six/pkg/system/vm/input"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
 )
@@ -129,81 +130,9 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 		},
 	})
 
-	prompter := errnie.Guard(machine.state, func() (input.Prompter, error) {
-		raw, err := machine.booter.router.Get(ctx, cluster.PROMPTER, "machine")
-		return input.Prompter(raw), err
+	out := errnie.Guard(machine.state, func() ([]byte, error) {
+		return machine.runPromptThroughBackend(ctx, msg)
 	})
-
-	promptFuture, promptRelease := prompter.Generate(
-		ctx, func(p input.Prompter_generate_Params) error {
-			return p.SetMsg(msg)
-		},
-	)
-
-	defer promptRelease()
-
-	promptResult := errnie.Guard(machine.state, func() (input.Prompter_generate_Results, error) {
-		return promptFuture.Struct()
-	})
-
-	promptBytes := errnie.Guard(machine.state, func() ([]byte, error) {
-		return promptResult.Data()
-	})
-
-	keys := errnie.Guard(machine.state, func() ([]uint64, error) {
-		return machine.tokenizeStream(promptBytes)
-	})
-
-	if len(keys) == 0 {
-		return nil, nil
-	}
-
-	values := make([]primitive.Value, 0, len(keys))
-
-	for _, key := range keys {
-		pos, b := coder.Unpack(key)
-		values = append(
-			values,
-			primitive.SeedObservable(
-				b, primitive.BaseValue(b).RollLeft(int(pos))),
-		)
-	}
-
-	graph := errnie.Guard(machine.state, func() (substrate.Graph, error) {
-		raw, err := machine.booter.router.Get(ctx, cluster.GRAPH, "machine")
-		return substrate.Graph(raw), err
-	})
-
-	for _, key := range keys {
-		errnie.GuardVoid(machine.state, func() error {
-			return graph.Write(ctx, func(p substrate.Graph_write_Params) error {
-				p.SetKey(key)
-				return nil
-			})
-		})
-
-		errnie.GuardVoid(machine.state, func() error {
-			return graph.WaitStreaming()
-		})
-	}
-
-	errnie.GuardVoid(machine.state, func() error {
-		future, release := graph.Done(ctx, nil)
-		defer release()
-		_, err := future.Struct()
-		return err
-	})
-
-	out := make([]byte, 0, len(values))
-
-	for _, value := range values {
-		symbol, ok := primitive.InferLexicalSeed(value)
-		if !ok {
-			continue
-		}
-
-		out = append(out, symbol)
-	}
 
 	machine.sink.Emit(telemetry.Event{
 		Component: "Machine",
@@ -219,6 +148,85 @@ func (machine *Machine) Prompt(msg string) ([]byte, error) {
 }
 
 /*
+runPromptThroughBackend schedules one prompt/answer cycle on the worker pool and
+drains the result through a transport pipeline backed by compute.Backend.
+*/
+func (machine *Machine) runPromptThroughBackend(
+	ctx context.Context,
+	msg string,
+) ([]byte, error) {
+	raw, err := machine.booter.router.Get(ctx, cluster.CANTILEVER, "machine")
+	if err != nil {
+		return nil, err
+	}
+
+	route := NewCantileverRoute(ctx, raw, bvp.Cantilever(raw))
+	backend, err := compute.NewBackend(
+		compute.BackendWithOperations(
+			route,
+		),
+	)
+	if err != nil {
+		raw.Release()
+		return nil, err
+	}
+
+	task := NewPromptTask(
+		[]byte(msg),
+		backend,
+		route,
+	)
+	jobID := fmt.Sprintf("machine/prompt/%d", time.Now().UnixNano())
+
+	if err := machine.workerPool.Schedule(
+		jobID,
+		pool.COMPUTE,
+		task,
+		pool.WithContext(ctx),
+	); err != nil {
+		return nil, err
+	}
+
+	return machine.awaitPromptResult(ctx, jobID)
+}
+
+/*
+awaitPromptResult waits for the scheduled prompt job to publish its result.
+*/
+func (machine *Machine) awaitPromptResult(
+	ctx context.Context,
+	jobID string,
+) ([]byte, error) {
+	ticker := time.NewTicker(5 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		result, ok := machine.workerPool.StoredResult(jobID)
+		if ok {
+			if result.Error != nil {
+				return nil, result.Error
+			}
+
+			if bytes, ok := result.Value.([]byte); ok {
+				return bytes, nil
+			}
+
+			if result.Value == nil {
+				return nil, nil
+			}
+
+			return nil, fmt.Errorf("prompt result has unexpected type %T", result.Value)
+		}
+
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+/*
 SetDataset streams the raw dataset bytes through the tokenizer RPC as a
 continuous flow. The sequencer discovers boundaries internally; the resulting
 Morton keys encode boundary-local depth which resets at each sequencer cut.
@@ -227,6 +235,9 @@ the Graph AST.
 */
 func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	ctx := machine.ctx
+	rows := make([][]byte, 0, 8)
+	currentRow := make([]byte, 0, 64)
+	currentSampleID := ^uint32(0)
 
 	tokClient := errnie.Guard(machine.state, func() (tokenizer.Universal, error) {
 		raw, err := machine.booter.router.Get(ctx, cluster.TOKENIZER, "machine")
@@ -234,6 +245,14 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	})
 
 	for tok := range dataset.Generate() {
+		if currentSampleID != ^uint32(0) && tok.SampleID != currentSampleID {
+			rows = append(rows, append([]byte(nil), currentRow...))
+			currentRow = currentRow[:0]
+		}
+
+		currentSampleID = tok.SampleID
+		currentRow = append(currentRow, tok.Symbol)
+
 		errnie.GuardVoid(machine.state, func() error {
 			return tokClient.Write(
 				ctx, func(p tokenizer.Universal_write_Params) error {
@@ -242,6 +261,10 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 				},
 			)
 		})
+	}
+
+	if len(currentRow) > 0 {
+		rows = append(rows, append([]byte(nil), currentRow...))
 	}
 
 	errnie.GuardVoid(machine.state, func() error {
@@ -263,6 +286,9 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	}
 
 	values, _ := compilePromptSequence(keys)
+	errnie.GuardVoid(machine.state, func() error {
+		return machine.storePromptCorpusRows(rows)
+	})
 	machine.ingestHASBoundaries(ctx, values)
 
 	machine.emitTokenizerTelemetryFromKeys(keys, "ingest-tokenize")
@@ -282,6 +308,100 @@ func (machine *Machine) SetDataset(dataset provider.Dataset) error {
 	})
 
 	return machine.state.Err()
+}
+
+/*
+storePromptCorpusRows materializes exact prompt rows through a fresh tokenizer
+path per sample so query-time prompt values match the stored corpus shape.
+*/
+func (machine *Machine) storePromptCorpusRows(rows [][]byte) error {
+	compiled := make([][]primitive.Value, 0, len(rows))
+
+	for _, row := range rows {
+		values, err := machine.compilePromptRow(row)
+		if err != nil {
+			return err
+		}
+
+		if len(values) == 0 {
+			continue
+		}
+
+		compiled = append(compiled, values)
+	}
+
+	machine.booter.cantilever.Store(compiled)
+
+	return nil
+}
+
+/*
+compilePromptRow runs one sample through a fresh tokenizer server and returns
+the compiled observable row used by exact prompt lookup.
+*/
+func (machine *Machine) compilePromptRow(raw []byte) ([]primitive.Value, error) {
+	server := tokenizer.NewUniversalServer(
+		tokenizer.UniversalWithContext(machine.ctx),
+		tokenizer.UniversalWithPool(machine.workerPool),
+	)
+	defer server.Close()
+
+	client := tokenizer.Universal(server.Client("prompt-row"))
+
+	for _, symbol := range raw {
+		if err := client.Write(
+			machine.ctx, func(params tokenizer.Universal_write_Params) error {
+				params.SetData(symbol)
+				return nil
+			},
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := client.WaitStreaming(); err != nil {
+		return nil, err
+	}
+
+	keys, err := machine.tokenizerKeys(machine.ctx, client)
+	if err != nil {
+		return nil, err
+	}
+
+	return primitive.CompileObservableSequenceValues(keys), nil
+}
+
+/*
+tokenizerKeys drains a tokenizer client in the same two-pass pattern used by prompt execution.
+*/
+func (machine *Machine) tokenizerKeys(
+	ctx context.Context,
+	client tokenizer.Universal,
+) ([]uint64, error) {
+	keys := make([]uint64, 0)
+
+	for range 2 {
+		future, release := client.Done(ctx, nil)
+		results, err := future.Struct()
+		if err != nil {
+			release()
+			return nil, err
+		}
+
+		list, err := results.Keys()
+		if err != nil {
+			release()
+			return nil, err
+		}
+
+		for index := range list.Len() {
+			keys = append(keys, list.At(index))
+		}
+
+		release()
+	}
+
+	return keys, nil
 }
 
 /*
@@ -562,6 +682,32 @@ func compilePromptSequence(keys []uint64) ([]primitive.Value, []primitive.Value)
 	}
 
 	return values, metaValues
+}
+
+func compilePromptRows(keys []uint64) [][]primitive.Value {
+	values := primitive.CompileObservableSequenceValues(keys)
+
+	if len(values) == 0 {
+		return nil
+	}
+
+	rows := make([][]primitive.Value, 0, 8)
+	rowStart := 0
+
+	for index, key := range keys {
+		position, _ := coder.Unpack(key)
+
+		if index == 0 || position != 0 {
+			continue
+		}
+
+		rows = append(rows, append([]primitive.Value(nil), values[rowStart:index]...))
+		rowStart = index
+	}
+
+	rows = append(rows, append([]primitive.Value(nil), values[rowStart:]...))
+
+	return rows
 }
 
 func valueMatrixToPointerList(
