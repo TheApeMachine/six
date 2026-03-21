@@ -310,6 +310,38 @@ func TestMacroIndexProgramCandidates(t *testing.T) {
 	})
 }
 
+func TestMacroIndexStoreMacroValue(t *testing.T) {
+	gc.Convey("Given a MacroIndex and a reified macro value", t, func() {
+		idx := NewMacroIndexServer()
+		key := keyFromByte(33)
+
+		reified, err := primitive.EncodeMacroOperator(7, 13, key[:])
+		gc.So(err, gc.ShouldBeNil)
+
+		gc.Convey("StoreMacroValue should decode and register the opcode", func() {
+			stored := idx.StoreMacroValue(reified)
+			gc.So(stored, gc.ShouldBeTrue)
+
+			decodedKey := AffineKeyFromValue(reified)
+			opcode, found := idx.FindOpcode(decodedKey)
+
+			gc.So(found, gc.ShouldBeTrue)
+			gc.So(opcode.Scale, gc.ShouldEqual, 7)
+			gc.So(opcode.Translate, gc.ShouldEqual, 13)
+			gc.So(opcode.UseCount, gc.ShouldEqual, uint64(1))
+		})
+	})
+
+	gc.Convey("Given a non-macro value", t, func() {
+		idx := NewMacroIndexServer()
+
+		gc.Convey("StoreMacroValue should reject it", func() {
+			stored := idx.StoreMacroValue(primitive.BaseValue(9))
+			gc.So(stored, gc.ShouldBeFalse)
+		})
+	})
+}
+
 // --- Benchmarks ---
 
 func BenchmarkRecordOpcode(b *testing.B) {

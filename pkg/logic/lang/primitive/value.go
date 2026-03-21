@@ -25,6 +25,7 @@ var (
 	canonicalValueBasis = [5]int{0, 1, 4, 9, 11}
 
 	byteValueMultipliers = initByteValueMultipliers()
+	byteValueOffsets     = initByteValueOffsets()
 
 	bytePhaseScales = initBytePhaseScales()
 	byteRouteHints  = initByteRouteHints()
@@ -179,16 +180,7 @@ the additive (int(b)*17+1)%FieldPrime, and canonicalValueBasis. Distributes
 values across the 8191-bit core to minimize accidental aliasing.
 */
 func baseValueOffsets(b byte) [5]int {
-	mul := byteValueMultipliers[int(b)]
-	add := (int(b)*17 + 1) % int(numeric.FieldPrime)
-
-	var offsets [5]int
-
-	for i, base := range canonicalValueBasis {
-		offsets[i] = (base*mul + add) % int(numeric.FieldPrime)
-	}
-
-	return offsets
+	return byteValueOffsets[int(b)]
 }
 
 /*
@@ -344,6 +336,25 @@ func initByteValueMultipliers() [256]int {
 	}
 
 	return multipliers
+}
+
+/*
+initByteValueOffsets precomputes the five lexical core offsets for every byte.
+This avoids recomputing affine projections in hot lexical decode paths.
+*/
+func initByteValueOffsets() [256][5]int {
+	var offsets [256][5]int
+
+	for b := range len(offsets) {
+		mul := byteValueMultipliers[b]
+		add := (b*17 + 1) % int(numeric.FieldPrime)
+
+		for i, base := range canonicalValueBasis {
+			offsets[b][i] = (base*mul + add) % int(numeric.FieldPrime)
+		}
+	}
+
+	return offsets
 }
 
 /*

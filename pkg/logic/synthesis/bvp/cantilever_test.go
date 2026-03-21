@@ -88,6 +88,50 @@ func TestCantileverPromptValues(t *testing.T) {
 	})
 }
 
+func observableValues(text string) []primitive.Value {
+	values := make([]primitive.Value, 0, len(text))
+
+	for _, symbol := range []byte(text) {
+		value := primitive.SeedObservable(symbol, primitive.NeutralValue())
+		values = append(values, value)
+	}
+
+	return values
+}
+
+func TestCantileverOperatorContinuationLeadIndex(t *testing.T) {
+	Convey("Given a cantilever server with stored corpus rows", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		router, macroIndex, _, _ := newCantileverRouter(ctx, false, true)
+		defer router.Close()
+		defer macroIndex.Close()
+
+		server := NewCantileverServer(
+			CantileverWithContext(ctx),
+			CantileverWithRouter(router),
+		)
+
+		royRow := observableValues("Roy is in the Kitchen")
+		aliceRow := observableValues("Alice is in the Garden")
+
+		server.Store([][]primitive.Value{aliceRow, royRow})
+
+		Convey("It should return nil when no lead-symbol candidate exists", func() {
+			noLeadPrompt := observableValues("Zed is in ")
+			continuation := server.operatorContinuation(noLeadPrompt)
+			So(continuation, ShouldBeNil)
+		})
+
+		Convey("It should bridge using rows matching the prompt lead symbol", func() {
+			prompt := observableValues("Roy is in xx")
+			continuation := server.operatorContinuation(prompt)
+			So(string(decodePromptValues(continuation)), ShouldEqual, "he Kitchen")
+		})
+	})
+}
+
 func BenchmarkCantileverPromptValues(b *testing.B) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

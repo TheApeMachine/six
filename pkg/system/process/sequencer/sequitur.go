@@ -158,11 +158,14 @@ func (sequitur *Sequitur) check(idx int32) bool {
 	digram := [2]Symbol{nodeVal, nextVal}
 
 	if matchIdx, exists := sequitur.digrams[digram]; exists {
-		matchNode := sequitur.arena.Get(matchIdx)
+		if !sequitur.isValidDigramStart(matchIdx, digram) {
+			delete(sequitur.digrams, digram)
+			sequitur.digrams[digram] = idx
+			return false
+		}
 
-		if matchIdx != idx && matchNode.Next != idx && matchNode.Next != nodeNext &&
-			matchNode.Next != -1 && matchNode.Val == digram[0] &&
-			sequitur.arena.Get(matchNode.Next).Val == digram[1] {
+		matchNode := sequitur.arena.Get(matchIdx)
+		if matchIdx != idx && matchNode.Next != idx && matchNode.Next != nodeNext {
 			sequitur.reduce(idx, matchIdx, digram)
 			return true
 		}
@@ -199,6 +202,11 @@ func (sequitur *Sequitur) findApproximateMatch(digram [2]Symbol, current int32) 
 			continue
 		}
 
+		if !sequitur.isValidDigramStart(candidateIdx, candidateDigram) {
+			delete(sequitur.digrams, candidateDigram)
+			continue
+		}
+
 		candidateNext := sequitur.arena.Get(candidateIdx).Next
 		if candidateNext == current || candidateNext == currentNext {
 			continue
@@ -216,6 +224,29 @@ func (sequitur *Sequitur) findApproximateMatch(digram [2]Symbol, current int32) 
 	}
 
 	return bestIdx, bestIdx != -1
+}
+
+/*
+isValidDigramStart verifies that idx still anchors an active two-symbol digram
+with the expected values. Stale digram entries must be rejected before reduce.
+*/
+func (sequitur *Sequitur) isValidDigramStart(idx int32, digram [2]Symbol) bool {
+	if idx == -1 || idx == sequitur.sentinel {
+		return false
+	}
+
+	node := sequitur.arena.Get(idx)
+	if node.Val != digram[0] {
+		return false
+	}
+
+	nextIdx := node.Next
+	if nextIdx == -1 || nextIdx == sequitur.sentinel {
+		return false
+	}
+
+	nextNode := sequitur.arena.Get(nextIdx)
+	return nextNode.Val == digram[1]
 }
 
 /*

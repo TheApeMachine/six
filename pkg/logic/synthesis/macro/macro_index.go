@@ -50,6 +50,21 @@ func AffineKeyFromValues(start, goal primitive.Value) AffineKey {
 }
 
 /*
+AffineKeyFromValue extracts an AffineKey directly from one Value's block layout.
+This is used when a macro operator is already encoded as a first-class Value
+and can be inserted into the MacroIndex without recomputing a boundary delta.
+*/
+func AffineKeyFromValue(value primitive.Value) AffineKey {
+	var key AffineKey
+
+	for blockIndex := range key {
+		key[blockIndex] = value.Block(blockIndex)
+	}
+
+	return key
+}
+
+/*
 EmbedKey projects an AffineKey into PhaseDial space by interpreting each
 uint64 block as a structural phase contribution, using the same mixing
 constants as PhaseDial.EncodeFromValues. The result is a unit-normalized
@@ -548,6 +563,30 @@ func (idx *MacroIndexServer) StoreOpcode(opcode *MacroOpcode) {
 
 	idx.opcodes[opcode.Key] = opcode
 	idx.trackBestLocked(opcode.Key, opcode)
+}
+
+/*
+StoreMacroValue decodes an OpcodeMacro Value and inserts it into the index.
+Returns false when the supplied Value is not a macro operator.
+*/
+func (idx *MacroIndexServer) StoreMacroValue(value primitive.Value) bool {
+	scale, translate, ok := value.MacroAffine()
+
+	if !ok {
+		return false
+	}
+
+	key := AffineKeyFromValue(value)
+
+	idx.StoreOpcode(&MacroOpcode{
+		Key:       key,
+		Scale:     scale,
+		Translate: translate,
+		UseCount:  1,
+		Hardened:  false,
+	})
+
+	return true
 }
 
 /*

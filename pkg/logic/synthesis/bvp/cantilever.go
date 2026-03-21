@@ -30,6 +30,7 @@ type CantileverServer struct {
 	calc         *numeric.Calculus
 	corpus       [][]primitive.Value
 	lexical      [][]byte
+	leadIndex    map[byte][]int
 	cachedClient capnp.Client
 }
 
@@ -47,6 +48,7 @@ func NewCantileverServer(options ...cantileverOpts) *CantileverServer {
 		calc:    numeric.NewCalculus(),
 		corpus:  make([][]primitive.Value, 0),
 		lexical: make([][]byte, 0),
+		leadIndex: make(map[byte][]int),
 	}
 
 	for _, opt := range options {
@@ -169,11 +171,33 @@ func (server *CantileverServer) operatorContinuation(
 		return nil
 	}
 
+	lead, ok := decodeLeadSymbol(prompt)
+	if !ok {
+		return nil
+	}
+
 	server.corpusMu.RLock()
 	defer server.corpusMu.RUnlock()
 
-	for rowIndex, row := range server.corpus {
+	candidateRows, exists := server.leadIndex[lead]
+	if !exists || len(candidateRows) == 0 {
+		return nil
+	}
+
+	maxPrefixResidue := max(startSignal.CoreActiveCount()/3, 1)
+
+	for _, rowIndex := range candidateRows {
+		row := server.corpus[rowIndex]
+
 		if len(row) <= len(prompt) {
+			continue
+		}
+
+		prefix := row[:len(prompt)]
+		prefixSignal := server.accumulateSignal(prefix)
+
+		prefixResidue, ok := coreResidue(startSignal, prefixSignal)
+		if !ok || prefixResidue > maxPrefixResidue {
 			continue
 		}
 
@@ -393,6 +417,32 @@ func abs(x int) int {
 }
 
 /*
+coreResidue computes the geometric mismatch size between two Values.
+*/
+func coreResidue(left, right primitive.Value) (int, bool) {
+	delta, err := left.XOR(right)
+	if err != nil {
+		return 0, false
+	}
+
+	return delta.CoreActiveCount(), true
+}
+
+/*
+decodeLeadSymbol extracts the first observable lexical seed from a Value slice.
+*/
+func decodeLeadSymbol(values []primitive.Value) (byte, bool) {
+	for _, value := range values {
+		symbol, ok := primitive.InferLexicalSeed(value)
+		if ok {
+			return symbol, true
+		}
+	}
+
+	return 0, false
+}
+
+/*
 CantileverError is a typed error for Cantilever failures.
 */
 type CantileverError string
@@ -536,8 +586,17 @@ func (server *CantileverServer) Store(rows [][]primitive.Value) {
 	defer server.corpusMu.Unlock()
 
 	for _, row := range rows {
-		server.corpus = append(server.corpus, append([]primitive.Value(nil), row...))
-		server.lexical = append(server.lexical, append([]byte(nil), decodePromptValues(row)...))
+		rowCopy := append([]primitive.Value(nil), row...)
+		lexical := append([]byte(nil), decodePromptValues(row)...)
+
+		rowIndex := len(server.corpus)
+		server.corpus = append(server.corpus, rowCopy)
+		server.lexical = append(server.lexical, lexical)
+
+		if len(lexical) > 0 {
+			lead := lexical[0]
+			server.leadIndex[lead] = append(server.leadIndex[lead], rowIndex)
+		}
 	}
 }
 

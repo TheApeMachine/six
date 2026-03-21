@@ -49,12 +49,12 @@ The central architectural goal is **self-programmability**: `primitive.Value` is
 
 ### Why Not Semantics?
 
-This project **deliberately rejects** optimizing for language semantics as a reasoning substrate.
+This project does not treat language semantics as the machine's native substrate.
 
-The reasoning is simple arithmetic. A human vocabulary is roughly $10^5$ words. The 8191-bit native value type has $2^{8191}$ possible states — a number incomprehensibly larger than the number of atoms in the observable universe. Optimizing the system to reason in human language would be like building a particle accelerator and then using it to crack walnuts.
+The reasoning layer is algebraic. A human vocabulary is roughly $10^5$ words. The 8191-bit native value type has $2^{8191}$ possible states — a vast representational space, but representational size alone does not guarantee practical capability. Capability still depends on whether operator hardening yields reusable transforms that generalize under real workloads.
 
 > [!IMPORTANT]
-> Semantics puts a **human ceiling** on the system. If the machine reasons in words, it can at best match human-level intelligence. If it reasons in its native monotype — an 8191-bit value in GF(8191), evolved by affine rotation, measured by Hamming distance — there is no ceiling. The representational capacity is not comparable.
+> Semantics is treated as a projection layer for evaluation and interaction, not as the ontology of computation. The objective is to reason in the native monotype (`primitive.Value`) and then project results back into language for measurement.
 
 > Six is a finite-field associative machine where computation is affine rotation, memory is a collision-compressed spatial lattice, and language is merely a projection layer for human interaction.
 
@@ -65,7 +65,7 @@ The doctrine in three lines:
 ```
 The address space is storage, not intelligence.
 The value is intelligence, not payload.
-Semantics is projection, not ontology.
+Semantics is projection, not ontology of execution.
 ```
 
 ---
@@ -127,11 +127,11 @@ A prompt asking "Where is Roy?" computes the modular inverse cancellation:
 
 $$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is}\_\text{in}^{-1} \bmod{8191}$$
 
-The shared structure cancels algebraically:
+If the factorization is exact and the encoding remains collision-free for the participating factors, the shared structure cancels algebraically:
 
 $$\text{result} = \text{Kitchen} \bmod{8191}$$
 
-This is not search. It is calculation.
+In this idealized case, retrieval is resolved by algebraic calculation rather than an explicit lexical scan.
 
 ### Frustration (The Drive Signal)
 

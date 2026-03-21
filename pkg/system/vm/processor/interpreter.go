@@ -61,6 +61,14 @@ type ExecutionStep struct {
 	Value       primitive.Value
 }
 
+/*
+macroRecorder receives reified OpcodeMacro values and persists them in an
+external operator registry.
+*/
+type macroRecorder interface {
+	StoreMacroValue(value primitive.Value) bool
+}
+
 type InterpreterServer struct {
 	mu      sync.RWMutex
 	ctx     context.Context
@@ -70,6 +78,7 @@ type InterpreterServer struct {
 	output  []primitive.Value
 	trace   []ExecutionStep
 	loader  *interpreterLoader
+	recorder macroRecorder
 }
 
 /*
@@ -391,7 +400,7 @@ func (server *InterpreterServer) execute() error {
 				return err
 			}
 
-			return nil
+			return server.recordReifiedTrace()
 
 		case primitive.OpcodeJump:
 			jump := int(node.Jump())
@@ -458,10 +467,31 @@ func (server *InterpreterServer) execute() error {
 						return emitErr
 					}
 
-					return nil
+					return server.recordReifiedTrace()
 				}
 			}
 		}
+	}
+
+	return server.recordReifiedTrace()
+}
+
+/*
+recordReifiedTrace composes the current execution trace into one OpcodeMacro
+Value and stores it via the configured recorder.
+*/
+func (server *InterpreterServer) recordReifiedTrace() error {
+	if server.recorder == nil {
+		return nil
+	}
+
+	reified, ok := server.reifyTraceNoLock()
+	if !ok {
+		return nil
+	}
+
+	if stored := server.recorder.StoreMacroValue(reified); !stored {
+		return fmt.Errorf("interpreter: macro recorder rejected reified trace")
 	}
 
 	return nil
@@ -640,6 +670,14 @@ func (server *InterpreterServer) ReifyTrace() (primitive.Value, bool) {
 	server.mu.RLock()
 	defer server.mu.RUnlock()
 
+	return server.reifyTraceNoLock()
+}
+
+/*
+reifyTraceNoLock performs trace reification assuming the caller already
+controls synchronization.
+*/
+func (server *InterpreterServer) reifyTraceNoLock() (primitive.Value, bool) {
 	if len(server.trace) == 0 {
 		return primitive.Value{}, false
 	}
@@ -691,6 +729,16 @@ InterpreterWithContext sets a cancellable context.
 func InterpreterWithContext(ctx context.Context) interpreterOpts {
 	return func(server *InterpreterServer) {
 		server.ctx, server.cancel = context.WithCancel(ctx)
+	}
+}
+
+/*
+InterpreterWithMacroRecorder wires a macro-operator recorder so successful
+execution traces are fed into a shared opcode index.
+*/
+func InterpreterWithMacroRecorder(recorder macroRecorder) interpreterOpts {
+	return func(server *InterpreterServer) {
+		server.recorder = recorder
 	}
 }
 

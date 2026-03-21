@@ -271,8 +271,15 @@ lexical seed for the supplied byte. Query observables should usually return
 true; canonical stored values should usually return false.
 */
 func HasLexicalSeed(value Value, b byte) bool {
-	base := BaseValue(b)
-	return value.Similarity(base) == base.ActiveCount()
+	offsets := baseValueOffsets(b)
+
+	for _, offset := range offsets {
+		if !value.Has(offset) {
+			return false
+		}
+	}
+
+	return true
 }
 
 /*
