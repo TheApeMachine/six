@@ -54,7 +54,7 @@ The address plane already carries lexical identity as (symbol << 32) | localDept
 so the compiled Value deliberately avoids storing lexical seed bits. Instead each
 cell becomes a tiny local operator containing:
 
-  - the cumulative GF(257) state after consuming the symbol,
+  - the cumulative GF(8191) state after consuming the symbol,
   - the affine transition implied by the next symbol,
   - a trajectory snapshot from current state to next state,
   - a threaded-code program opcode (next / reset / jump / halt).
@@ -170,10 +170,11 @@ func programForStep(
 }
 
 /*
-PhaseScaleForByte returns the multiplicative GF(257) transition induced by a
-byte. It is the native phase operator behind the old lexical update rule
-state' = state * 3^byte (mod 257), but factored out so stored values can carry
-that operator directly without redundantly storing the byte seed.
+PhaseScaleForByte returns the multiplicative GF(8191) transition induced by a
+byte. It is the native phase operator behind the lexical update rule
+state' = state * g^byte (mod numeric.FieldPrime) for field primitive g, but
+factored out so stored values can carry that operator directly without
+redundantly storing the byte seed.
 */
 func PhaseScaleForByte(symbol byte) numeric.Phase {
 	return bytePhaseScales[int(symbol)]
@@ -193,7 +194,7 @@ func (value *Value) SetLexicalTransition(next byte) {
 	value.SetRouteHint(RouteHintForSymbol(next))
 
 	if carry := value.ResidualCarry(); carry > 0 {
-		current := numeric.Phase(carry % uint64(numeric.FermatPrime))
+		current := numeric.Phase(numeric.MersenneReduce64(carry))
 
 		if current > 0 {
 			value.SetTrajectory(current, value.ApplyAffinePhase(current))
@@ -275,12 +276,12 @@ func HasLexicalSeed(value Value, b byte) bool {
 }
 
 /*
-ShannonDensity returns the fraction of the 257 logical core bits that are active.
+ShannonDensity returns the fraction of the config.CoreBits logical core bits that are active.
 The Sequencer uses this to force a boundary before the value saturates.
-Above ~0.40 (103 bits) the core field loses discriminative power. Shell bits do
+Above ~0.40 (roughly 3276 of the 8191 core bits) the core field loses discriminative power. Shell bits do
 not count toward this threshold because they live in the hardware jacket, not in
-the Fermat execution field itself.
+the field execution plane itself.
 */
 func (value Value) ShannonDensity() float64 {
-	return float64(value.CoreActiveCount()) / 257.0
+	return float64(value.CoreActiveCount()) / float64(config.CoreBits)
 }

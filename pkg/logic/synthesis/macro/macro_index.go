@@ -11,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
 	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/validate"
 )
 
@@ -20,14 +21,14 @@ const (
 
 /*
 AffineKey indexes macro-opcodes by their full 5-sparse geometric
-affine signature. It encapsulates the complete 8.8-billion-state
-space of the GF(257) values rather than downcasting to scalars.
+affine signature. One word per Value block (config.TotalBlocks) so the key
+matches the GF(8191) layout without downcasting to scalars.
 */
-type AffineKey [8]uint64
+type AffineKey [config.TotalBlocks]uint64
 
 /*
 AffineKeyFromValues computes the exact geometric signature of
-the delta between two values. By capturing all 512 bits (8 blocks),
+the delta between two values. By capturing every 64-bit block,
 we eliminate catastrophic phase aliasing in the MacroIndex.
 */
 func AffineKeyFromValues(start, goal primitive.Value) AffineKey {
@@ -37,23 +38,34 @@ func AffineKeyFromValues(start, goal primitive.Value) AffineKey {
 		return start.XOR(goal)
 	})
 
-	return AffineKey{
-		delta.Block(0), delta.Block(1), delta.Block(2), delta.Block(3),
-		delta.Block(4), delta.Block(5), delta.Block(6), delta.Block(7),
+	var key AffineKey
+
+	for blockIndex := range key {
+		key[blockIndex] = delta.Block(blockIndex)
 	}
+
+	return key
 }
 
 /*
 String formats the key for path signatures and diagnostics.
 */
 func (key AffineKey) String() string {
-	return fmt.Sprintf("%016x:%016x...%016x", key[0], key[1], key[7])
+	last := len(key) - 1
+
+	return fmt.Sprintf(
+		"%016x:%016x…%016x (%d blocks)",
+		key[0],
+		key[1],
+		key[last],
+		len(key),
+	)
 }
 
 /*
 MacroOpcode represents a discovered affine logic circuit that reliably
 bridges a specific boundary gap in the 5-sparse geometric state space.
-The transformation f(x) = Scale·x + Translate (mod 257) maps one
+The transformation f(x) = Scale·x + Translate in GF(8191) maps one
 sparse state to another.
 */
 type MacroOpcode struct {
@@ -68,7 +80,10 @@ type MacroOpcode struct {
 ApplyPhase advances a scalar phase through this opcode's affine operator.
 */
 func (opcode *MacroOpcode) ApplyPhase(phase numeric.Phase) numeric.Phase {
-	return numeric.Phase((uint32(opcode.Scale)*uint32(phase) + uint32(opcode.Translate)) % numeric.FermatPrime)
+	product := uint64(opcode.Scale) * uint64(phase)
+	sum := product + uint64(opcode.Translate)
+
+	return numeric.Phase(numeric.MersenneReduce64(sum))
 }
 
 /*
@@ -89,7 +104,7 @@ type ProgramCandidate struct {
 
 /*
 AnchorRecord stores a cross-modal prime invariant. Multiple modalities can point
-at the same GF(257) anchor so the system can phase-lock text, images, or other
+at the same GF(8191) anchor so the system can phase-lock text, images, or other
 streams onto one resonant address.
 */
 type AnchorRecord struct {
@@ -325,24 +340,9 @@ func OpcodeForKey(key AffineKey) *MacroOpcode {
 		return nil
 	}
 
-	for i, block := range key {
-		switch i {
-		case 0:
-			delta.SetC0(block)
-		case 1:
-			delta.SetC1(block)
-		case 2:
-			delta.SetC2(block)
-		case 3:
-			delta.SetC3(block)
-		case 4:
-			delta.SetC4(block)
-		case 5:
-			delta.SetC5(block)
-		case 6:
-			delta.SetC6(block)
-		case 7:
-			delta.SetC7(block)
+	for blockIndex, word := range key {
+		if err := delta.SetBlock(blockIndex, word); err != nil {
+			return nil
 		}
 	}
 
@@ -612,7 +612,7 @@ func (idx *MacroIndexServer) FindAnchorByName(name string) (*AnchorRecord, bool)
 }
 
 /*
-FindAnchorByPhase returns the anchor stored at a GF(257) phase.
+FindAnchorByPhase returns the anchor stored at a GF(8191) phase.
 */
 func (idx *MacroIndexServer) FindAnchorByPhase(phase numeric.Phase) (*AnchorRecord, bool) {
 	idx.mu.RLock()

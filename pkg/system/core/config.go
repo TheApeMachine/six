@@ -15,11 +15,16 @@ import (
 /*
 Canonical architecture constants for type definitions.
 Go requires compile-time array sizes; runtime values live in Architecture.
-These must match config defaults.
+NBasis drives PhaseDial dimensionality (independent of field size).
+ValueBlocks covers the full Value layout including shell.
 */
 const (
 	NBasis      = 512
-	ValueBlocks = NBasis / 64
+	CoreBits    = 8191
+	CoreBlocks  = (CoreBits + 63) / 64
+	ShellBlocks = 3
+	TotalBlocks = CoreBlocks + ShellBlocks
+	ValueBlocks = TotalBlocks
 )
 
 var ctx = &Config{}

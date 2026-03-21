@@ -8,6 +8,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -24,11 +25,13 @@ func TestProgramRead(t *testing.T) {
 		first := primitive.BaseValue('A')
 		first.SetStatePhase(3)
 		firstDst := values.At(0)
+		gc.So(primitive.InitValueListElementStorage(firstDst), gc.ShouldBeNil)
 		firstDst.CopyFrom(first)
 
 		second := primitive.BaseValue('B')
 		second.SetStatePhase(5)
 		secondDst := values.At(1)
+		gc.So(primitive.InitValueListElementStorage(secondDst), gc.ShouldBeNil)
 		secondDst.CopyFrom(second)
 
 		err = program.SetValues(values)
@@ -70,6 +73,7 @@ func TestProgramWrite(t *testing.T) {
 		base := primitive.BaseValue('P')
 		base.SetStatePhase(7)
 		existingDst := existing.At(0)
+		gc.So(primitive.InitValueListElementStorage(existingDst), gc.ShouldBeNil)
 		existingDst.CopyFrom(base)
 
 		err = program.SetValues(existing)
@@ -84,6 +88,7 @@ func TestProgramWrite(t *testing.T) {
 		appended := primitive.BaseValue('Q')
 		appended.SetStatePhase(11)
 		incomingDst := incomingValues.At(0)
+		gc.So(primitive.InitValueListElementStorage(incomingDst), gc.ShouldBeNil)
 		incomingDst.CopyFrom(appended)
 
 		err = incoming.SetValues(incomingValues)
@@ -104,7 +109,7 @@ func TestProgramWrite(t *testing.T) {
 		gc.So(err, gc.ShouldBeNil)
 		gc.So(merged.Len(), gc.ShouldEqual, 2)
 
-		for index := range 8 {
+		for index := range config.TotalBlocks {
 			gc.So(merged.At(0).Block(index), gc.ShouldEqual, base.Block(index))
 			gc.So(merged.At(1).Block(index), gc.ShouldEqual, appended.Block(index))
 		}
@@ -126,9 +131,19 @@ func BenchmarkProgramRead(b *testing.B) {
 	}
 
 	firstDst := values.At(0)
+
+	if err := primitive.InitValueListElementStorage(firstDst); err != nil {
+		b.Fatalf("init first value list element: %v", err)
+	}
+
 	firstDst.CopyFrom(primitive.BaseValue('L'))
 
 	secondDst := values.At(1)
+
+	if err := primitive.InitValueListElementStorage(secondDst); err != nil {
+		b.Fatalf("init second value list element: %v", err)
+	}
+
 	secondDst.CopyFrom(primitive.BaseValue('M'))
 
 	if err := program.SetValues(values); err != nil {
@@ -165,6 +180,11 @@ func BenchmarkProgramWrite(b *testing.B) {
 	}
 
 	incomingDst := incomingValues.At(0)
+
+	if err := primitive.InitValueListElementStorage(incomingDst); err != nil {
+		b.Fatalf("init incoming value list element: %v", err)
+	}
+
 	incomingDst.CopyFrom(primitive.BaseValue('N'))
 
 	if err := incoming.SetValues(incomingValues); err != nil {

@@ -119,11 +119,21 @@ func (program *Program) Write(p []byte) (n int, err error) {
 
 	for index := 0; index < currentLen; index++ {
 		destination := merged.At(index)
+
+		if err = primitive.InitValueListElementStorage(destination); err != nil {
+			return 0, err
+		}
+
 		destination.CopyFrom(currentValues.At(index))
 	}
 
 	for index := 0; index < incomingLen; index++ {
 		destination := merged.At(currentLen + index)
+
+		if err = primitive.InitValueListElementStorage(destination); err != nil {
+			return 0, err
+		}
+
 		destination.CopyFrom(incomingValues.At(index))
 	}
 
@@ -183,6 +193,11 @@ func (program *Program) snapshotMessage() (*capnp.Message, error) {
 
 		for index := 0; index < values.Len(); index++ {
 			destination := snapshot.At(index)
+
+			if err := primitive.InitValueListElementStorage(destination); err != nil {
+				return nil, err
+			}
+
 			destination.CopyFrom(values.At(index))
 		}
 

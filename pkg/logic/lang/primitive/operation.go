@@ -2,10 +2,10 @@ package primitive
 
 import (
 	"fmt"
-	"math/bits"
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 var discreteLogTable = buildDiscreteLogTable()
@@ -29,11 +29,11 @@ fitness score, and core residue popcount used as the energetic penalty term.
 */
 func ScoreMatch(query Value, candidate Value) (int, numeric.Phase, int, int) {
 	queryPhase := numeric.Phase(
-		query.ResidualCarry() % uint64(numeric.FermatPrime),
+		numeric.MersenneReduce64(query.ResidualCarry()),
 	)
 
 	candidatePhase := numeric.Phase(
-		candidate.ResidualCarry() % uint64(numeric.FermatPrime),
+		numeric.MersenneReduce64(candidate.ResidualCarry()),
 	)
 
 	var phaseQuotient numeric.Phase
@@ -46,22 +46,15 @@ func ScoreMatch(query Value, candidate Value) (int, numeric.Phase, int, int) {
 		}
 	}
 
-	sharedBits := bits.OnesCount64(query.C0()&candidate.C0()) +
-		bits.OnesCount64(query.C1()&candidate.C1()) +
-		bits.OnesCount64(query.C2()&candidate.C2()) +
-		bits.OnesCount64(query.C3()&candidate.C3()) +
-		bits.OnesCount64((query.C4()&candidate.C4())&1)
+	sharedBits := query.Similarity(candidate)
 
-	coreResidueBits := bits.OnesCount64(candidate.C0()&^query.C0()) +
-		bits.OnesCount64(candidate.C1()&^query.C1()) +
-		bits.OnesCount64(candidate.C2()&^query.C2()) +
-		bits.OnesCount64(candidate.C3()&^query.C3()) +
-		bits.OnesCount64((candidate.C4()&^query.C4())&1)
+	hole, _ := candidate.Hole(query)
+	coreResidueBits := hole.CoreActiveCount()
 
 	phaseCloseness := 0
 
 	if phaseQuotient > 0 {
-		phaseCloseness = int(numeric.FermatPrime) - int(discreteLog(phaseQuotient))
+		phaseCloseness = int(numeric.FieldPrime) - int(discreteLog(phaseQuotient))
 	}
 
 	fitnessScore := sharedBits + phaseCloseness - coreResidueBits
@@ -139,7 +132,7 @@ func (query *Value) EvaluateMatchInto(
 
 /*
 ApplyAffine computes the next phase using the embedded affine
-operator (ax+b mod 257). Returns the resulting phase and a
+operator (ax+b mod 8191). Returns the resulting phase and a
 boolean indicating if the halt opcode was encountered.
 */
 func (value *Value) ApplyAffine(
@@ -160,20 +153,15 @@ func (value Value) TransitionMagnitude(
 	predecessor Value,
 ) (numeric.Phase, error) {
 	selfPhase := numeric.Phase(
-		value.ResidualCarry() % uint64(numeric.FermatPrime),
+		numeric.MersenneReduce64(value.ResidualCarry()),
 	)
 
 	predecessorPhase := numeric.Phase(
-		predecessor.ResidualCarry() % uint64(numeric.FermatPrime),
+		numeric.MersenneReduce64(predecessor.ResidualCarry()),
 	)
 
-	coreMagnitude := numeric.Phase(
-		bits.OnesCount64(value.C0()^predecessor.C0()) +
-			bits.OnesCount64(value.C1()^predecessor.C1()) +
-			bits.OnesCount64(value.C2()^predecessor.C2()) +
-			bits.OnesCount64(value.C3()^predecessor.C3()) +
-			bits.OnesCount64((value.C4()^predecessor.C4())&1),
-	)
+	delta, _ := value.XOR(predecessor)
+	coreMagnitude := numeric.Phase(delta.CoreActiveCount())
 
 	if selfPhase == 0 || predecessorPhase == 0 {
 		return coreMagnitude, nil
@@ -195,7 +183,7 @@ func (value Value) TransitionMagnitude(
 }
 
 /*
-ComputeOperator derives and stores the GF(257) multiplier
+ComputeOperator derives and stores the GF(8191) multiplier
 required to map the predecessor phase to the successor phase,
 updating the local guard radius.
 */
@@ -205,7 +193,7 @@ func (value *Value) ComputeOperator(
 	state := errnie.NewState("primitive/operation/computeOperator")
 
 	predecessorPhase := numeric.Phase(
-		predecessor.ResidualCarry() % uint64(numeric.FermatPrime),
+		numeric.MersenneReduce64(predecessor.ResidualCarry()),
 	)
 
 	if predecessorPhase == 0 || successorPhase == 0 {
@@ -298,27 +286,27 @@ func BuildQueryMaskInto(destination *Value, knownValues ...Value) error {
 
 	composedInversePhase := numeric.Phase(1)
 
-	destination.SetC0(0)
-	destination.SetC1(0)
-	destination.SetC2(0)
-	destination.SetC3(0)
-	destination.SetC4(0)
-	destination.SetC5(0)
-	destination.SetC6(0)
-	destination.SetC7(0)
+	for i := range config.TotalBlocks {
+		destination.setBlock(i, 0)
+	}
+
+	merged, err := New()
+	if err != nil {
+		return err
+	}
 
 	for _, known := range knownValues {
 		if known.ActiveCount() == 0 {
 			continue
 		}
 
-		destination.SetC0(destination.C0() | known.C0())
-		destination.SetC1(destination.C1() | known.C1())
-		destination.SetC2(destination.C2() | known.C2())
-		destination.SetC3(destination.C3() | known.C3())
-		destination.SetC4((destination.C4() | known.C4()) & 1)
+		if err := destination.ORInto(known, &merged); err != nil {
+			continue
+		}
 
-		phase := numeric.Phase(known.ResidualCarry() % uint64(numeric.FermatPrime))
+		destination.CopyFrom(merged)
+
+		phase := numeric.Phase(numeric.MersenneReduce64(known.ResidualCarry()))
 
 		if phase == 0 {
 			continue
@@ -377,18 +365,18 @@ func BatchEvaluateInto(
 
 /*
 buildDiscreteLogTable precomputes the discrete logarithm table for the
-primitive root of GF(257), reducing log lookups to O(1).
+primitive root of GF(8191), reducing log lookups to O(1). The table maps
+every non-zero field element to its discrete log base g (the primitive root).
 */
-func buildDiscreteLogTable() [numeric.FermatPrime]numeric.Phase {
-	var table [numeric.FermatPrime]numeric.Phase
+func buildDiscreteLogTable() []numeric.Phase {
+	table := make([]numeric.Phase, numeric.FieldPrime)
 	power := numeric.Phase(1)
 
-	// GF(257) multiplicative group has exactly 256 non-zero elements.
-	for k := numeric.Phase(0); k < numeric.Phase(numeric.FermatPrime)-1; k++ {
+	for k := numeric.Phase(0); k < numeric.Phase(numeric.FieldPrime)-1; k++ {
 		table[power] = k
 
 		power = numeric.Phase(
-			(uint32(power) * numeric.FermatPrimitive) % numeric.FermatPrime,
+			numeric.MersenneReduce64(uint64(power) * uint64(numeric.FieldPrimitive)),
 		)
 	}
 
@@ -396,10 +384,10 @@ func buildDiscreteLogTable() [numeric.FermatPrime]numeric.Phase {
 }
 
 /*
-discreteLog returns k such that 3^k ≡ phase (mod 257) via O(1) table lookup.
+discreteLog returns k such that g^k ≡ phase (mod 8191) via O(1) table lookup.
 */
 func discreteLog(phase numeric.Phase) numeric.Phase {
-	if phase == 0 || phase >= numeric.Phase(numeric.FermatPrime) {
+	if phase == 0 || phase >= numeric.Phase(numeric.FieldPrime) {
 		return 0
 	}
 

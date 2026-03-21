@@ -5,6 +5,7 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -41,24 +42,22 @@ func TestValueBlockAndCopyFrom(t *testing.T) {
 		source, err := New()
 		gc.So(err, gc.ShouldBeNil)
 
-		source.SetC0(11)
-		source.SetC1(22)
-		source.SetC2(33)
-		source.SetC3(44)
-		source.SetC4(55)
-		source.SetC5(66)
-		source.SetC6(77)
-		source.SetC7(88)
+		source.SetBlock(0, 11)
+		source.SetBlock(1, 22)
+		source.SetBlock(2, 33)
+		source.SetBlock(3, 44)
+		source.SetBlock(4, 55)
+		source.SetBlock(config.CoreBlocks, 66)
+		source.SetBlock(config.CoreBlocks+1, 77)
+		source.SetBlock(config.TotalBlocks-1, 88)
 
 		destination, err := New()
 		gc.So(err, gc.ShouldBeNil)
 		destination.CopyFrom(source)
 
-		for index := range 8 {
+		for index := range config.TotalBlocks {
 			gc.So(destination.Block(index), gc.ShouldEqual, source.Block(index))
 		}
-
-		gc.So(destination.Block(8), gc.ShouldEqual, 0)
 	})
 }
 
@@ -87,7 +86,7 @@ func TestValueSliceListRoundTrip(t *testing.T) {
 		gc.So(len(out), gc.ShouldEqual, len(in))
 
 		for i := range in {
-			for blockIndex := range 8 {
+			for blockIndex := range config.TotalBlocks {
 				gc.So(out[i].Block(blockIndex), gc.ShouldEqual, in[i].Block(blockIndex))
 			}
 		}
@@ -105,7 +104,7 @@ func BenchmarkValueSliceToList(b *testing.B) {
 			b.Fatalf("allocation failed: %v", err)
 		}
 
-		value.Set(index % 257)
+		value.Set(index % numeric.CoreBits)
 		value.SetStatePhase(numeric.Phase((index % 256) + 1))
 		values[index] = value
 	}
@@ -130,7 +129,7 @@ func BenchmarkValueListToSlice(b *testing.B) {
 			b.Fatalf("allocation failed: %v", err)
 		}
 
-		value.Set(index % 257)
+		value.Set(index % numeric.CoreBits)
 		value.SetStatePhase(numeric.Phase((index % 256) + 1))
 		values[index] = value
 	}

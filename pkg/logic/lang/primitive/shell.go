@@ -1,25 +1,44 @@
 package primitive
 
-import "github.com/theapemachine/six/pkg/numeric"
+import (
+	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
+)
 
+/*
+Shell word layout for GF(8191).
+
+The shell occupies blocks[CoreBlocks..TotalBlocks-1]. The primary shell
+word is the last block (block index TotalBlocks-1), which packs:
+
+	bits  0..12:  affine scale      (13 bits, covers 0..8190)
+	bits 13..25:  affine translate  (13 bits)
+	bits 26..38:  trajectory from   (13 bits)
+	bits 39..51:  trajectory to     (13 bits)
+	bits 52..59:  guard radius      (8 bits)
+	bits 60..63:  flags             (4 bits)
+
+The residual/carry word is block[CoreBlocks] (shell block 0).
+The opcode word is block[CoreBlocks+1] (shell block 1).
+*/
 const (
-	affineFieldMask          = uint64(0x1FF)
+	affineFieldMask          = uint64(0x1FFF)
 	affineWordShiftScale     = 0
-	affineWordShiftTranslate = 9
+	affineWordShiftTranslate = 13
 	affineWordMaskScale      = affineFieldMask << affineWordShiftScale
 	affineWordMaskTranslate  = affineFieldMask << affineWordShiftTranslate
 
-	shellWordShiftTrajectoryFrom = 18
-	shellWordShiftTrajectoryTo   = 27
-	shellWordShiftGuardRadius    = 36
-	shellWordShiftRouteHint      = 44
-	shellWordShiftFlags          = 52
+	shellWordShiftTrajectoryFrom = 26
+	shellWordShiftTrajectoryTo   = 39
+	shellWordShiftGuardRadius    = 52
+	shellWordShiftFlags          = 60
 
 	shellWordMaskTrajectoryFrom = affineFieldMask << shellWordShiftTrajectoryFrom
 	shellWordMaskTrajectoryTo   = affineFieldMask << shellWordShiftTrajectoryTo
 	shellWordMaskGuardRadius    = uint64(0xFF) << shellWordShiftGuardRadius
-	shellWordMaskRouteHint      = uint64(0xFF) << shellWordShiftRouteHint
-	shellWordMaskFlags          = uint64(0xFFF) << shellWordShiftFlags
+	shellWordMaskFlags          = uint64(0xF) << shellWordShiftFlags
+
+	shellWordBlock = config.TotalBlocks - 1
 )
 
 const (
@@ -30,7 +49,7 @@ const (
 )
 
 /*
-SetStatePhase records the logical GF(257) state in both the core bit-field and
+SetStatePhase records the logical GF(8191) state in both the core bit-field and
 in ResidualCarry. Fresh native values should use this helper instead of setting
 raw bits directly so the state/control split stays explicit.
 */
@@ -45,9 +64,8 @@ func (value Value) SetStatePhase(phase numeric.Phase) {
 }
 
 /*
-SetAffine stores a tiny affine operator f(x) = ax + b (mod 257) in the shell.
-This lets each value behave like a local transition rule rather than a passive
-payload. Scale zero is normalized to the identity because traversal wants an
+SetAffine stores a tiny affine operator f(x) = ax + b (mod 8191) in the shell.
+Scale zero is normalized to the identity because traversal wants an
 invertible default, not a black hole.
 */
 func (value Value) SetAffine(scale, translate numeric.Phase) {
@@ -59,11 +77,11 @@ func (value Value) SetAffine(scale, translate numeric.Phase) {
 
 	translateWord := value.normalizePhaseWord(translate)
 
-	word := value.C7()
+	word := value.Block(shellWordBlock)
 	word &^= affineWordMaskScale | affineWordMaskTranslate
 	word |= scaleWord << affineWordShiftScale
 	word |= translateWord << affineWordShiftTranslate
-	value.SetC7(word)
+	value.setBlock(shellWordBlock, word)
 }
 
 /*
@@ -71,8 +89,10 @@ Affine retrieves the affine operator stored in the shell. Missing scale data is
 interpreted as identity so older values without shell operators remain valid.
 */
 func (value *Value) Affine() (numeric.Phase, numeric.Phase) {
+	word := value.Block(shellWordBlock)
+
 	scale := numeric.Phase(
-		(value.C7() & affineWordMaskScale) >> affineWordShiftScale,
+		(word & affineWordMaskScale) >> affineWordShiftScale,
 	)
 
 	if scale == 0 {
@@ -80,7 +100,7 @@ func (value *Value) Affine() (numeric.Phase, numeric.Phase) {
 	}
 
 	translate := numeric.Phase(
-		(value.C7() & affineWordMaskTranslate) >> affineWordShiftTranslate,
+		(word & affineWordMaskTranslate) >> affineWordShiftTranslate,
 	)
 
 	return scale, translate
@@ -88,29 +108,29 @@ func (value *Value) Affine() (numeric.Phase, numeric.Phase) {
 
 /*
 SetTrajectory stores a phase-to-phase snapshot of the operator's intended
-continuation. This lets traversal prefer an observed local orbit over a generic
-affine extrapolation when the current state still matches the stored source.
+continuation.
 */
 func (value Value) SetTrajectory(from, to numeric.Phase) {
-	word := value.C7()
+	word := value.Block(shellWordBlock)
 	word &^= shellWordMaskTrajectoryFrom | shellWordMaskTrajectoryTo
 	word |= value.normalizePhaseWord(from) << shellWordShiftTrajectoryFrom
 	word |= value.normalizePhaseWord(to) << shellWordShiftTrajectoryTo
-	value.SetC7(word)
+	value.setBlock(shellWordBlock, word)
 	value.setOperatorFlag(ValueFlagTrajectory, true)
 }
 
 /*
-Trajectory retrieves the stored phase snapshot. It returns ok=false when the
-value does not explicitly carry a trajectory snapshot in its shell.
+Trajectory retrieves the stored phase snapshot. Returns ok=false when the
+value does not explicitly carry a trajectory snapshot.
 */
 func (value Value) Trajectory() (numeric.Phase, numeric.Phase, bool) {
 	if !value.HasTrajectory() {
 		return 0, 0, false
 	}
 
-	from := numeric.Phase((value.C7() & shellWordMaskTrajectoryFrom) >> shellWordShiftTrajectoryFrom)
-	to := numeric.Phase((value.C7() & shellWordMaskTrajectoryTo) >> shellWordShiftTrajectoryTo)
+	word := value.Block(shellWordBlock)
+	from := numeric.Phase((word & shellWordMaskTrajectoryFrom) >> shellWordShiftTrajectoryFrom)
+	to := numeric.Phase((word & shellWordMaskTrajectoryTo) >> shellWordShiftTrajectoryTo)
 
 	return from, to, true
 }
@@ -123,14 +143,13 @@ func (value Value) HasTrajectory() bool {
 }
 
 /*
-SetGuardRadius stores a tolerated modular phase drift for the next hop. A guard
-radius of zero means the operator expects exact continuation.
+SetGuardRadius stores a tolerated modular phase drift for the next hop.
 */
 func (value Value) SetGuardRadius(radius uint8) {
-	word := value.C7()
+	word := value.Block(shellWordBlock)
 	word &^= shellWordMaskGuardRadius
 	word |= uint64(radius) << shellWordShiftGuardRadius
-	value.SetC7(word)
+	value.setBlock(shellWordBlock, word)
 	value.setOperatorFlag(ValueFlagGuard, true)
 }
 
@@ -138,7 +157,7 @@ func (value Value) SetGuardRadius(radius uint8) {
 GuardRadius retrieves the stored modular drift budget for the next hop.
 */
 func (value Value) GuardRadius() uint8 {
-	return uint8((value.C7() & shellWordMaskGuardRadius) >> shellWordShiftGuardRadius)
+	return uint8((value.Block(shellWordBlock) & shellWordMaskGuardRadius) >> shellWordShiftGuardRadius)
 }
 
 /*
@@ -153,19 +172,23 @@ ApplyAffinePhase advances a phase through the value's local affine operator.
 */
 func (value *Value) ApplyAffinePhase(phase numeric.Phase) numeric.Phase {
 	scale, translate := value.Affine()
+
 	return numeric.Phase(
-		(uint32(scale)*uint32(phase) + uint32(translate)) % numeric.FermatPrime,
+		numeric.MersenneReduce(uint32(scale)*uint32(phase) + uint32(translate)),
 	)
 }
 
 /*
-ApplyAffineValue applies an affine operator (scale, translate) in GF(257) to the
+ApplyAffineValue applies an affine operator (scale, translate) in GF(8191) to the
 Value's RotationSeed space, producing a new Value with the transformed state imprinted.
 */
 func (value Value) ApplyAffineValue(scale, translate numeric.Phase) Value {
 	seedScale, seedTranslate := value.RotationSeed()
 
-	combinedScale := (uint32(seedScale)*uint32(scale) + uint32(seedTranslate)*uint32(translate)) % numeric.FermatPrime
+	combinedScale := numeric.MersenneReduce(
+		uint32(seedScale)*uint32(scale) + uint32(seedTranslate)*uint32(translate),
+	)
+
 	if combinedScale == 0 {
 		combinedScale = 1
 	}
@@ -178,16 +201,16 @@ func (value Value) ApplyAffineValue(scale, translate numeric.Phase) Value {
 
 /*
 HasAffine reports whether the value explicitly carries an affine operator.
-Legacy values without a stored scale/translate return false.
 */
 func (value *Value) HasAffine() bool {
-	return value.C7()&(affineWordMaskScale|affineWordMaskTranslate) != 0
+	word := value.Block(shellWordBlock)
+	return word&(affineWordMaskScale|affineWordMaskTranslate) != 0
 }
 
 /*
-normalizePhaseWord clamps a phase to the GF(257) field so shell word packing
-does not overflow. Used internally by SetAffine and SetTrajectory.
+normalizePhaseWord clamps a phase to the GF(8191) field so shell word packing
+does not overflow the 13-bit field.
 */
 func (value Value) normalizePhaseWord(phase numeric.Phase) uint64 {
-	return uint64(uint32(phase) % numeric.FermatPrime)
+	return uint64(numeric.MersenneReduce(uint32(phase)))
 }

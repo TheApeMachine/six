@@ -11,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/numeric/geometry"
 	"github.com/theapemachine/six/pkg/store/data"
 	"github.com/theapemachine/six/pkg/system/cluster"
+	"github.com/theapemachine/six/pkg/system/core"
 	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 	"github.com/theapemachine/six/pkg/validate"
@@ -250,8 +251,8 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 
 		for rightIndex, rightItem := range rightSlice {
 			if !matched {
-				leftDensity := float64(leftItem.CoreActiveCount()) / 257.0
-				rightDensity := float64(rightItem.CoreActiveCount()) / 257.0
+				leftDensity := float64(leftItem.CoreActiveCount()) / float64(numeric.CoreBits)
+				rightDensity := float64(rightItem.CoreActiveCount()) / float64(numeric.CoreBits)
 
 				if leftDensity > densitySaturationThreshold && rightDensity > densitySaturationThreshold {
 					leftDial := geometry.NewPhaseDial().EncodeFromValues([]primitive.Value{leftItem})
@@ -308,7 +309,7 @@ func (graph *GraphServer) RecursiveFold(data []primitive.Value) [][]primitive.Va
 
 /*
 ExactContinuation returns the exact remainder for the first row whose prefix
-matches the prompt Values byte-for-byte across the full Value shell.
+matches the prompt Values byte-for-byte across core blocks of each Value.
 */
 func (graph *GraphServer) ExactContinuation(
 	prompt []primitive.Value,
@@ -352,20 +353,19 @@ func (graph *GraphServer) hasExactPrefix(
 }
 
 /*
-valuesEqual compares the full 8-word Value shell with no fuzzy matching.
+valuesEqual compares each core block with no fuzzy matching.
 */
 func (graph *GraphServer) valuesEqual(
 	left primitive.Value,
 	right primitive.Value,
 ) bool {
-	return left.C0() == right.C0() &&
-		left.C1() == right.C1() &&
-		left.C2() == right.C2() &&
-		left.C3() == right.C3() &&
-		left.C4() == right.C4() &&
-		left.C5() == right.C5() &&
-		left.C6() == right.C6() &&
-		left.C7() == right.C7()
+	for blockIndex := 0; blockIndex < config.CoreBlocks; blockIndex++ {
+		if left.Block(blockIndex) != right.Block(blockIndex) {
+			return false
+		}
+	}
+
+	return true
 }
 
 func (graph *GraphServer) addArrows(label []primitive.Value, remainder []graphRowRemainder) {
@@ -403,10 +403,10 @@ func (graph *GraphServer) emitFoldLabel(
 		Data: telemetry.EventData{
 			Bin:        label.Bin(),
 			Level:      level,
-			Theta:      float64(label.CoreActiveCount()) / 257.0,
+			Theta:      float64(label.CoreActiveCount()) / float64(numeric.CoreBits),
 			ParentBin:  parentBin,
 			ChildCount: childCount,
-			Density:    float64(label.CoreActiveCount()) / 257.0,
+			Density:    float64(label.CoreActiveCount()) / float64(numeric.CoreBits),
 			ChunkText:  text,
 		},
 	})

@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -86,13 +88,13 @@ func TestBitwiseCountsAndSimilarity(t *testing.T) {
 		gc.So(err, gc.ShouldBeNil)
 		left.Set(1)
 		left.Set(2)
-		left.SetC6(0b1011)
+		left.SetBlock(config.CoreBlocks+1, 0b1011)
 
 		right, err := New()
 		gc.So(err, gc.ShouldBeNil)
 		right.Set(2)
 		right.Set(3)
-		right.SetC6(0b1111)
+		right.SetBlock(config.CoreBlocks+1, 0b1111)
 
 		gc.So(left.Similarity(right), gc.ShouldEqual, 1)
 		gc.So(left.CoreActiveCount(), gc.ShouldEqual, 2)
@@ -110,7 +112,7 @@ func BenchmarkBitwiseOR(b *testing.B) {
 
 	for index := range 64 {
 		left.Set(index)
-		right.Set((index + 32) % 257)
+		right.Set((index + 32) % numeric.CoreBits)
 	}
 
 	b.ResetTimer()
@@ -131,7 +133,7 @@ func BenchmarkBitwiseXOR(b *testing.B) {
 
 	for index := range 64 {
 		left.Set(index)
-		right.Set((index + 16) % 257)
+		right.Set((index + 16) % numeric.CoreBits)
 	}
 
 	b.ResetTimer()

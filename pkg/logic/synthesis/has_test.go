@@ -64,14 +64,7 @@ func primitiveFromDataTest(value primitive.Value) primitive.Value {
 		panic(err)
 	}
 
-	out.SetC0(value.C0())
-	out.SetC1(value.C1())
-	out.SetC2(value.C2())
-	out.SetC3(value.C3())
-	out.SetC4(value.C4())
-	out.SetC5(value.C5())
-	out.SetC6(value.C6())
-	out.SetC7(value.C7())
+	out.CopyFrom(value)
 
 	return out
 }

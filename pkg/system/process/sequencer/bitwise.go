@@ -9,6 +9,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/logic/lang/primitive"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -510,18 +511,24 @@ func (bitwise *BitwiseHealer) overlaps(occupied []bool, start, end int) bool {
 }
 
 /*
-coreKey extracts the 257-bit Fermat core as a compact map key.
+coreKey extracts the GF(8191) core field (CoreBlocks words) as a compact map key.
 */
-func coreKey(value primitive.Value) [5]uint64 {
-	return [5]uint64{value.C0(), value.C1(), value.C2(), value.C3(), value.C4() & 1}
+func coreKey(value primitive.Value) [config.CoreBlocks]uint64 {
+	var key [config.CoreBlocks]uint64
+
+	for index := range config.CoreBlocks {
+		key[index] = value.Block(index)
+	}
+
+	return key
 }
 
 /*
 baseValueLookup maps each byte's BaseValue core pattern to the byte it
 represents. Built once at init; O(1) decode per value thereafter.
 */
-var baseValueLookup = func() map[[5]uint64]byte {
-	table := make(map[[5]uint64]byte, 256)
+var baseValueLookup = func() map[[config.CoreBlocks]uint64]byte {
+	table := make(map[[config.CoreBlocks]uint64]byte, 256)
 
 	for symbol := range 256 {
 		table[coreKey(primitive.BaseValue(byte(symbol)))] = byte(symbol)
@@ -556,12 +563,14 @@ func (bitwise *BitwiseHealer) decode(values []primitive.Value) ([]byte, error) {
 
 /*
 matchBytes checks if two byte-Values represent the same byte by comparing
-their 257-bit Fermat core directly. No allocation, no AND.
+each GF(8191) core block. No allocation, no AND.
 */
 func (bitwise *BitwiseHealer) matchBytes(valA, valB primitive.Value) bool {
-	return valA.C0() == valB.C0() &&
-		valA.C1() == valB.C1() &&
-		valA.C2() == valB.C2() &&
-		valA.C3() == valB.C3() &&
-		(valA.C4()&1) == (valB.C4()&1)
+	for index := range config.CoreBlocks {
+		if valA.Block(index) != valB.Block(index) {
+			return false
+		}
+	}
+
+	return true
 }

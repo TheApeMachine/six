@@ -4,17 +4,18 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
 TestFlagOperatorFlags verifies packed operator flags are surfaced correctly.
 */
 func TestFlagOperatorFlags(t *testing.T) {
-	gc.Convey("Given a value with explicit flag bits in C7", t, func() {
+	gc.Convey("Given a value with explicit flag bits in the shell word block", t, func() {
 		value, err := New()
 		gc.So(err, gc.ShouldBeNil)
 
-		value.SetC7(uint64((ValueFlagTrajectory|ValueFlagGuard)&0x0FFF) << shellWordShiftFlags)
+		value.SetBlock(config.TotalBlocks-1, uint64((ValueFlagTrajectory|ValueFlagGuard)&0x0FFF)<<shellWordShiftFlags)
 
 		gc.So(value.OperatorFlags(), gc.ShouldEqual, ValueFlagTrajectory|ValueFlagGuard)
 		gc.So(value.HasOperatorFlag(ValueFlagTrajectory), gc.ShouldBeTrue)

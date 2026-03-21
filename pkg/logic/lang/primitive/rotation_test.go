@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/numeric"
 )
 
 /*
@@ -40,7 +41,7 @@ func TestRotationSeed(t *testing.T) {
 }
 
 /*
-TestRollLeft verifies circular motion over the 257-bit core.
+TestRollLeft verifies circular motion over the CoreBits-wide core.
 */
 func TestRollLeft(t *testing.T) {
 	gc.Convey("Given a single active bit", t, func() {
@@ -52,7 +53,7 @@ func TestRollLeft(t *testing.T) {
 		gc.So(primitiveHasBit(rolled, 1), gc.ShouldBeTrue)
 		gc.So(rolled.CoreActiveCount(), gc.ShouldEqual, 1)
 
-		wrapped := value.RollLeft(257)
+		wrapped := value.RollLeft(numeric.CoreBits)
 		gc.So(primitiveHasBit(wrapped, 0), gc.ShouldBeTrue)
 	})
 }
@@ -111,6 +112,6 @@ func BenchmarkRollLeft(b *testing.B) {
 	shift := 1
 	for b.Loop() {
 		_ = value.RollLeft(shift)
-		shift = (shift + 1) % 257
+		shift = (shift + 1) % numeric.CoreBits
 	}
 }

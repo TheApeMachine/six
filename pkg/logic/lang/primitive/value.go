@@ -6,6 +6,7 @@ import (
 	capnp "capnproto.org/go/capnp/v3"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/numeric"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 var (
@@ -31,8 +32,9 @@ var (
 
 /*
 New allocates one fresh primitive Value in a standalone single-segment
-Cap'n Proto message so the returned value has independent storage and can be
-mutated safely by callers without aliasing another value's backing segment.
+Cap'n Proto message with a pre-sized data blob for all TotalBlocks words.
+The returned value has independent storage and can be mutated safely by
+callers without aliasing another value's backing segment.
 */
 func New() (Value, error) {
 	_, seg, err := capnp.NewMessage(capnp.SingleSegment(nil))
@@ -46,6 +48,12 @@ func New() (Value, error) {
 	value, err := NewValue(seg)
 
 	if err != nil {
+		return Value{}, errnie.Error(
+			NewValueError(ValueErrorTypeAllocationFailed),
+		)
+	}
+
+	if err := value.SetBlocks(make([]byte, config.TotalBlocks*8)); err != nil {
 		return Value{}, errnie.Error(
 			NewValueError(ValueErrorTypeAllocationFailed),
 		)
@@ -100,14 +108,9 @@ BaseValueInto writes the deterministic 5-bit projection for a byte into an
 existing destination, avoiding allocation when callers can reuse storage.
 */
 func BaseValueInto(b byte, destination *Value) {
-	destination.SetC0(0)
-	destination.SetC1(0)
-	destination.SetC2(0)
-	destination.SetC3(0)
-	destination.SetC4(0)
-	destination.SetC5(0)
-	destination.SetC6(0)
-	destination.SetC7(0)
+	for i := range config.TotalBlocks {
+		destination.setBlock(i, 0)
+	}
 
 	for _, off := range baseValueOffsets(b) {
 		destination.Set(off)
@@ -132,6 +135,10 @@ func BuildValue(payload []byte) (Value, error) {
 
 	value, err := NewRootValue(seg)
 	if err != nil {
+		return Value{}, err
+	}
+
+	if err := value.SetBlocks(make([]byte, config.TotalBlocks*8)); err != nil {
 		return Value{}, err
 	}
 
@@ -168,88 +175,107 @@ func BuildValue(payload []byte) (Value, error) {
 
 /*
 baseValueOffsets computes five offsets using byteValueMultipliers[int(b)],
-the additive (int(b)*17+1)%257, and canonicalValueBasis, and returns [5]int.
-This keeps byte -> basis projection deterministic while distributing values
-across the 257-bit core to minimize accidental aliasing.
+the additive (int(b)*17+1)%FieldPrime, and canonicalValueBasis. Distributes
+values across the 8191-bit core to minimize accidental aliasing.
 */
 func baseValueOffsets(b byte) [5]int {
 	mul := byteValueMultipliers[int(b)]
-	add := (int(b)*17 + 1) % 257
+	add := (int(b)*17 + 1) % int(numeric.FieldPrime)
 
 	var offsets [5]int
 
 	for i, base := range canonicalValueBasis {
-		offsets[i] = (base*mul + add) % 257
+		offsets[i] = (base*mul + add) % int(numeric.FieldPrime)
 	}
 
 	return offsets
 }
 
 /*
-setBlock writes one 64-bit word into the requested block index (0..7) and
-returns an explicit error when the index is outside the primitive layout.
+setBlock writes one 64-bit word into the requested block index (0..TotalBlocks-1).
+Reads the backing Data slice and writes 8 bytes in little-endian order at the
+correct offset. Cap'n Proto Data is a direct reference to segment memory, so
+the write takes effect immediately without a second SetBlocks call.
 */
 func (value Value) setBlock(i int, v uint64) (Value, error) {
-	switch i {
-	case 0:
-		value.SetC0(v)
-	case 1:
-		value.SetC1(v)
-	case 2:
-		value.SetC2(v)
-	case 3:
-		value.SetC3(v)
-	case 4:
-		value.SetC4(v)
-	case 5:
-		value.SetC5(v)
-	case 6:
-		value.SetC6(v)
-	case 7:
-		value.SetC7(v)
-	default:
+	if i < 0 || i >= config.TotalBlocks {
 		return value, NewValueError(ValueErrorTypeInvalidBlockIndex)
 	}
+
+	data, err := value.Blocks()
+
+	if err != nil || len(data) < (i+1)*8 {
+		return value, NewValueError(ValueErrorTypeInvalidBlockIndex)
+	}
+
+	off := i * 8
+	data[off] = byte(v)
+	data[off+1] = byte(v >> 8)
+	data[off+2] = byte(v >> 16)
+	data[off+3] = byte(v >> 24)
+	data[off+4] = byte(v >> 32)
+	data[off+5] = byte(v >> 40)
+	data[off+6] = byte(v >> 48)
+	data[off+7] = byte(v >> 56)
 
 	return value, nil
 }
 
 /*
-Block returns the raw 64-bit word at block index i. Indices outside 0..7 are
-treated as invalid and return zero while emitting a warning for diagnostics.
+SetBlock is the exported variant of setBlock for cross-package callers that
+need to reconstruct a Value from raw block data (e.g. MacroIndex rebuilding
+a Value from an AffineKey).
+*/
+func (value *Value) SetBlock(i int, v uint64) error {
+	_, err := value.setBlock(i, v)
+	return err
+}
+
+/*
+Block returns the raw 64-bit word at block index i. Reads 8 bytes from
+the backing Data slice in little-endian order. Indices outside the valid
+range return zero with a diagnostic warning.
 */
 func (value Value) Block(i int) uint64 {
-	switch i {
-	case 0:
-		return value.C0()
-	case 1:
-		return value.C1()
-	case 2:
-		return value.C2()
-	case 3:
-		return value.C3()
-	case 4:
-		return value.C4()
-	case 5:
-		return value.C5()
-	case 6:
-		return value.C6()
-	case 7:
-		return value.C7()
-	default:
-		errnie.Warn("block overflow, wrap around to 0", "index", i)
+	if i < 0 || i >= config.TotalBlocks {
+		errnie.Warn("block overflow", "index", i, "max", config.TotalBlocks)
 		return 0
+	}
+
+	data, err := value.Blocks()
+
+	if err != nil || len(data) < (i+1)*8 {
+		return 0
+	}
+
+	off := i * 8
+
+	return uint64(data[off]) |
+		uint64(data[off+1])<<8 |
+		uint64(data[off+2])<<16 |
+		uint64(data[off+3])<<24 |
+		uint64(data[off+4])<<32 |
+		uint64(data[off+5])<<40 |
+		uint64(data[off+6])<<48 |
+		uint64(data[off+7])<<56
+}
+
+/*
+CopyFrom copies all TotalBlocks words from src into the receiver.
+*/
+func (value *Value) CopyFrom(src Value) {
+	for i := range config.TotalBlocks {
+		value.setBlock(i, src.Block(i))
 	}
 }
 
 /*
-CopyFrom copies all 8 words from src into the receiver.
-Replaces the repeated SetC0..SetC7 call pattern at every call site.
+InitValueListElementStorage allocates the blocks blob for one Value struct
+inside a composite Cap'n Proto Value_List. NewValue_List does not size inline
+data, so CopyFrom would otherwise leave high-index words unset.
 */
-func (value *Value) CopyFrom(src Value) {
-	for i := range 8 {
-		value.setBlock(i, src.Block(i))
-	}
+func InitValueListElementStorage(v Value) error {
+	return v.SetBlocks(make([]byte, config.TotalBlocks*8))
 }
 
 /*
@@ -273,6 +299,11 @@ func ValueSliceToList(values []Value) (Value_List, error) {
 
 	for i, cc := range values {
 		dst := list.At(i)
+
+		if err := InitValueListElementStorage(dst); err != nil {
+			return Value_List{}, err
+		}
+
 		dst.CopyFrom(cc)
 	}
 
@@ -281,30 +312,21 @@ func ValueSliceToList(values []Value) (Value_List, error) {
 
 /*
 ValueListToSlice copies each entry into a freshly allocated Value and returns the slice.
+Each value gets its own message to avoid aliasing.
 */
 func ValueListToSlice(list Value_List) ([]Value, error) {
 	out := make([]Value, list.Len())
 
-	_, seg, err := capnp.NewMessage(capnp.MultiSegment(nil))
-	if err != nil {
-		return nil, err
-	}
-
-	state := errnie.NewState("primitive/value/valueListToSlice")
-
 	for i := 0; i < list.Len(); i++ {
 		src := list.At(i)
 
-		value := errnie.Guard(state, func() (Value, error) {
-			return NewValue(seg)
-		})
+		value, err := New()
+		if err != nil {
+			return nil, err
+		}
 
 		value.CopyFrom(src)
 		out[i] = value
-	}
-
-	if state.Failed() {
-		return nil, state.Err()
 	}
 
 	return out, nil
@@ -312,31 +334,31 @@ func ValueListToSlice(list Value_List) ([]Value, error) {
 
 /*
 initByteValueMultipliers builds a 256-entry multiplier table using
-modPow257(3, b+1) and returns [256]int.
+modPow(primitiveRoot, b+1, FieldPrime).
 */
 func initByteValueMultipliers() [256]int {
 	var multipliers [256]int
 
 	for b := range len(multipliers) {
-		multipliers[b] = modPow257(3, b+1)
+		multipliers[b] = modPowField(int(numeric.FieldPrimitive), b+1)
 	}
 
 	return multipliers
 }
 
 /*
-modPow257 computes modular exponentiation modulo 257 using exponentiation
-by squaring and returns int. Parameters are base and exp.
+modPowField computes base^exp mod FieldPrime via binary exponentiation.
 */
-func modPow257(base, exp int) int {
+func modPowField(base, exp int) int {
 	result := 1
-	base %= 257
+	base %= int(numeric.FieldPrime)
 
 	for exp > 0 {
 		if exp&1 == 1 {
-			result = (result * base) % 257
+			result = (result * base) % int(numeric.FieldPrime)
 		}
-		base = (base * base) % 257
+
+		base = (base * base) % int(numeric.FieldPrime)
 		exp >>= 1
 	}
 
@@ -344,8 +366,8 @@ func modPow257(base, exp int) int {
 }
 
 /*
-initBytePhaseScales precomputes one GF(257) phase scale per byte using the
-field primitive generator. This keeps byte-local phase transforms deterministic
+initBytePhaseScales precomputes one GF(8191) phase scale per byte using the
+field primitive generator. Keeps byte-local phase transforms deterministic
 without doing modular exponentiation in hot paths.
 */
 func initBytePhaseScales() [256]numeric.Phase {
@@ -353,7 +375,7 @@ func initBytePhaseScales() [256]numeric.Phase {
 
 	for b := range len(scales) {
 		scales[b] = numeric.Phase(
-			modPow257(int(numeric.FermatPrimitive), b),
+			modPowField(int(numeric.FieldPrimitive), b),
 		)
 
 		if scales[b] == 0 {

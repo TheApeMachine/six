@@ -3,18 +3,27 @@ package primitive
 import (
 	"math/bits"
 
+	"github.com/theapemachine/six/pkg/numeric"
 	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
-Set activates the prime at index p.
+Set activates the prime at index p within the 8191-bit core field.
 */
 func (value *Value) Set(p int) {
 	value.setBlock(p/64, value.Block(p/64)|(1<<(p%64)))
 }
 
 /*
+Has reports whether bit p is active in the value's core field.
+*/
+func (value *Value) Has(p int) bool {
+	return value.Block(p/64)&(1<<(p%64)) != 0
+}
+
+/*
 OR returns the element-wise OR of two values (their LCM in prime exponent space).
+Operates across the full core; shell blocks are zeroed.
 */
 func (value Value) OR(other Value) (lcm Value, err error) {
 	if lcm, err = New(); err != nil {
@@ -29,22 +38,28 @@ func (value Value) OR(other Value) (lcm Value, err error) {
 }
 
 /*
-ORInto writes the element-wise OR result into destination to avoid per-call
-allocation when callers can reuse one Value across iterations.
+ORInto writes the element-wise OR result into destination. Operates on core
+blocks only (0..CoreBlocks-1); the last core block is masked to CoreBits%64
+active bits. Shell blocks are zeroed.
 */
 func (value Value) ORInto(other Value, destination *Value) error {
 	if destination == nil || !destination.IsValid() {
 		return NewValueError(ValueErrorTypeInvalidDestination)
 	}
 
-	destination.SetC0(value.C0() | other.C0())
-	destination.SetC1(value.C1() | other.C1())
-	destination.SetC2(value.C2() | other.C2())
-	destination.SetC3(value.C3() | other.C3())
-	destination.SetC4((value.C4() | other.C4()) & 1)
-	destination.SetC5(0)
-	destination.SetC6(0)
-	destination.SetC7(0)
+	lastCore := config.CoreBlocks - 1
+
+	for i := range lastCore {
+		destination.setBlock(i, value.Block(i)|other.Block(i))
+	}
+
+	destination.setBlock(lastCore,
+		(value.Block(lastCore)|other.Block(lastCore))&coreMaskLast,
+	)
+
+	for i := config.CoreBlocks; i < config.TotalBlocks; i++ {
+		destination.setBlock(i, 0)
+	}
 
 	return nil
 }
@@ -65,68 +80,83 @@ func (value Value) XOR(other Value) (xor Value, err error) {
 }
 
 /*
-XORInto writes the element-wise XOR result into destination to avoid per-call
-allocation when callers can reuse one Value across iterations.
+XORInto writes the element-wise XOR result into destination. Core-only;
+shell blocks zeroed.
 */
 func (value Value) XORInto(other Value, destination *Value) error {
 	if destination == nil || !destination.IsValid() {
 		return NewValueError(ValueErrorTypeInvalidDestination)
 	}
 
-	destination.SetC0(value.C0() ^ other.C0())
-	destination.SetC1(value.C1() ^ other.C1())
-	destination.SetC2(value.C2() ^ other.C2())
-	destination.SetC3(value.C3() ^ other.C3())
-	destination.SetC4((value.C4() ^ other.C4()) & 1)
-	destination.SetC5(0)
-	destination.SetC6(0)
-	destination.SetC7(0)
+	lastCore := config.CoreBlocks - 1
+
+	for i := range lastCore {
+		destination.setBlock(i, value.Block(i)^other.Block(i))
+	}
+
+	destination.setBlock(lastCore,
+		(value.Block(lastCore)^other.Block(lastCore))&coreMaskLast,
+	)
+
+	for i := config.CoreBlocks; i < config.TotalBlocks; i++ {
+		destination.setBlock(i, 0)
+	}
 
 	return nil
 }
 
 /*
 AND returns the element-wise AND of two values (their GCD in
-prime exponent space), checking allocation errors. Shared factors.
+prime exponent space). Shared factors only.
 */
 func (value Value) AND(other Value) (gcd Value, err error) {
 	if gcd, err = New(); err != nil {
 		return Value{}, err
 	}
 
-	gcd.SetC0(value.C0() & other.C0())
-	gcd.SetC1(value.C1() & other.C1())
-	gcd.SetC2(value.C2() & other.C2())
-	gcd.SetC3(value.C3() & other.C3())
-	gcd.SetC4((value.C4() & other.C4()) & 1)
+	lastCore := config.CoreBlocks - 1
+
+	for i := range lastCore {
+		gcd.setBlock(i, value.Block(i)&other.Block(i))
+	}
+
+	gcd.setBlock(lastCore,
+		(value.Block(lastCore)&other.Block(lastCore))&coreMaskLast,
+	)
 
 	return gcd, nil
 }
 
 /*
-ANDInto writes the element-wise AND result into destination to avoid per-call
-allocation when callers can reuse one Value across iterations.
+ANDInto writes the element-wise AND result into destination.
+Core-only; shell blocks zeroed.
 */
 func (value Value) ANDInto(other Value, destination *Value) error {
 	if destination == nil || !destination.IsValid() {
 		return NewValueError(ValueErrorTypeInvalidDestination)
 	}
 
-	destination.SetC0(value.C0() & other.C0())
-	destination.SetC1(value.C1() & other.C1())
-	destination.SetC2(value.C2() & other.C2())
-	destination.SetC3(value.C3() & other.C3())
-	destination.SetC4((value.C4() & other.C4()) & 1)
-	destination.SetC5(0)
-	destination.SetC6(0)
-	destination.SetC7(0)
+	lastCore := config.CoreBlocks - 1
+
+	for i := range lastCore {
+		destination.setBlock(i, value.Block(i)&other.Block(i))
+	}
+
+	destination.setBlock(lastCore,
+		(value.Block(lastCore)&other.Block(lastCore))&coreMaskLast,
+	)
+
+	for i := config.CoreBlocks; i < config.TotalBlocks; i++ {
+		destination.setBlock(i, 0)
+	}
 
 	return nil
 }
 
 /*
 Hole returns value AND NOT other — bits set in the receiver but not in the argument.
-Calling target.Hole(existing) gives the bits that target has but existing lacks.
+Operates on ALL blocks (core + shell) since hole residue is structurally
+meaningful across the entire value.
 */
 func (value Value) Hole(other Value) (hole Value, err error) {
 	if hole, err = New(); err != nil {
@@ -141,50 +171,44 @@ func (value Value) Hole(other Value) (hole Value, err error) {
 }
 
 /*
-HoleInto writes the receiver-minus-argument result into destination to avoid
-per-call allocation when callers can reuse one Value across iterations.
+HoleInto writes the receiver-minus-argument result into destination.
+Operates on all TotalBlocks since hole residue spans the full value.
 */
 func (value Value) HoleInto(other Value, destination *Value) error {
 	if destination == nil || !destination.IsValid() {
 		return NewValueError(ValueErrorTypeInvalidDestination)
 	}
 
-	destination.SetC0(value.C0() &^ other.C0())
-	destination.SetC1(value.C1() &^ other.C1())
-	destination.SetC2(value.C2() &^ other.C2())
-	destination.SetC3(value.C3() &^ other.C3())
-	destination.SetC4(value.C4() &^ other.C4())
-	destination.SetC5(value.C5() &^ other.C5())
-	destination.SetC6(value.C6() &^ other.C6())
-	destination.SetC7(value.C7() &^ other.C7())
+	for i := range config.TotalBlocks {
+		destination.setBlock(i, value.Block(i)&^other.Block(i))
+	}
 
 	return nil
 }
 
 /*
-Similarity returns the number of shared prime exponents in the 257-bit
-core only. Shell bits (upper 63 bits of block 4 and blocks 5–7) are excluded.
+Similarity returns the number of shared prime exponents in the core field only.
+Shell blocks are excluded so density and energy calculations are not distorted
+by operator metadata.
 */
 func (value *Value) Similarity(other Value) int {
-	coreMask4 := uint64(1)
+	count := 0
+	lastCore := config.CoreBlocks - 1
 
-	return bits.OnesCount64(
-		value.C0()&other.C0(),
-	) + bits.OnesCount64(
-		value.C1()&other.C1(),
-	) + bits.OnesCount64(
-		value.C2()&other.C2(),
-	) + bits.OnesCount64(
-		value.C3()&other.C3(),
-	) + bits.OnesCount64(
-		(value.C4()&other.C4())&coreMask4,
+	for i := range lastCore {
+		count += bits.OnesCount64(value.Block(i) & other.Block(i))
+	}
+
+	count += bits.OnesCount64(
+		(value.Block(lastCore) & other.Block(lastCore)) & coreMaskLast,
 	)
+
+	return count
 }
 
 /*
 Bin maps a value to a structural bin 0..255 for indexing phase tables.
 Deterministic XOR-fold of the value bits ensures similar values map to nearby bins.
-Enables value-native co-occurrence and phase lookup without byte symbols.
 */
 func (value *Value) Bin() int {
 	seeds := [8]uint64{
@@ -200,7 +224,7 @@ func (value *Value) Bin() int {
 
 	var acc [8]int
 
-	for i := range config.ValueBlocks {
+	for i := range config.TotalBlocks {
 		block := value.Block(i)
 
 		for block != 0 {
@@ -233,45 +257,58 @@ func (value *Value) Bin() int {
 }
 
 /*
-CoreActiveCount returns the number of active bits in the lower 257-bit Fermat
-core only. This deliberately ignores the shell/jacket bits so density and core
-energy calculations are not distorted by operator metadata.
+CoreActiveCount returns the number of active bits in the 8191-bit core field.
+Shell blocks are excluded so density calculations reflect only the GF(8191)
+execution space.
 */
 func (value Value) CoreActiveCount() int {
-	return bits.OnesCount64(
-		value.C0(),
-	) + bits.OnesCount64(
-		value.C1(),
-	) + bits.OnesCount64(
-		value.C2(),
-	) + bits.OnesCount64(
-		value.C3(),
-	) + bits.OnesCount64(
-		value.C4()&1,
-	)
+	count := 0
+	lastCore := config.CoreBlocks - 1
+
+	for i := range lastCore {
+		count += bits.OnesCount64(value.Block(i))
+	}
+
+	count += bits.OnesCount64(value.Block(lastCore) & coreMaskLast)
+
+	return count
 }
 
 /*
-ShellActiveCount returns the number of active bits in the 255-bit hardware
-jacket used for control metadata, carries, and higher-dimensional operators.
+ShellActiveCount returns the number of active bits in the shell region
+used for control metadata, carries, and higher-dimensional operators.
 */
 func (value Value) ShellActiveCount() int {
-	return bits.OnesCount64(
-		value.C4()&^uint64(1),
-	) + bits.OnesCount64(
-		value.C5(),
-	) + bits.OnesCount64(
-		value.C6(),
-	) + bits.OnesCount64(
-		value.C7(),
-	)
+	lastCore := config.CoreBlocks - 1
+	count := bits.OnesCount64(value.Block(lastCore) &^ coreMaskLast)
+
+	for i := config.CoreBlocks; i < config.TotalBlocks; i++ {
+		count += bits.OnesCount64(value.Block(i))
+	}
+
+	return count
 }
 
 /*
-ActiveCount returns the number of active bits across the full 512-bit value.
-This is useful for total energy/accounting, while CoreActiveCount should be
-used whenever the caller explicitly means the GF(257) execution field.
+ActiveCount returns the number of active bits across the full value
+(core + shell). Use CoreActiveCount when you specifically mean the
+GF(8191) execution field.
 */
 func (value Value) ActiveCount() int {
 	return value.CoreActiveCount() + value.ShellActiveCount()
 }
+
+/*
+coreMaskLast is the bitmask for the final core block. CoreBits = 8191,
+and 8191 mod 64 = 63, so the last core block uses bits 0..62 (63 bits).
+Bit 63 belongs to the shell.
+*/
+var coreMaskLast = func() uint64 {
+	rem := numeric.CoreBits % 64
+
+	if rem == 0 {
+		return ^uint64(0)
+	}
+
+	return (1 << rem) - 1
+}()

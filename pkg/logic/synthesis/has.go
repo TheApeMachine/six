@@ -197,14 +197,7 @@ allocated primitive.Value buffer.
 func (server *HASServer) copyDataIntoPrimitive(dst *primitive.Value, value primitive.Value) {
 	_ = server
 
-	dst.SetC0(value.C0())
-	dst.SetC1(value.C1())
-	dst.SetC2(value.C2())
-	dst.SetC3(value.C3())
-	dst.SetC4(value.C4())
-	dst.SetC5(value.C5())
-	dst.SetC6(value.C6())
-	dst.SetC7(value.C7())
+	dst.CopyFrom(value)
 }
 
 /*

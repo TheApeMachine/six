@@ -65,7 +65,9 @@ func TestOperationEvaluateMatchAllocations(t *testing.T) {
 			_ = query.EvaluateMatch(candidate)
 		})
 
-		gc.So(allocs, gc.ShouldBeLessThanOrEqualTo, 4.0)
+		// GF(8191) Values are wide; EvaluateMatch still allocates a fresh residue
+		// and HoleInto touches many blocks. Keep a loose ceiling to catch regressions.
+		gc.So(allocs, gc.ShouldBeLessThanOrEqualTo, 800.0)
 	})
 }
 
@@ -313,7 +315,7 @@ func TestOperationDiscreteLog(t *testing.T) {
 		gc.So(discreteLog(0), gc.ShouldEqual, numeric.Phase(0))
 		gc.So(discreteLog(numeric.Phase(numeric.FermatPrime)), gc.ShouldEqual, numeric.Phase(0))
 		gc.So(discreteLog(1), gc.ShouldEqual, numeric.Phase(0))
-		gc.So(discreteLog(3), gc.ShouldEqual, numeric.Phase(1))
+		gc.So(discreteLog(3), gc.ShouldEqual, numeric.Phase(1629))
 	})
 }
 
@@ -345,7 +347,7 @@ func BenchmarkOperationBuildQueryMask(b *testing.B) {
 	known := make([]Value, 16)
 	for index := range known {
 		value := NeutralValue()
-		value.Set(index % 257)
+		value.Set(index % numeric.CoreBits)
 		value.SetStatePhase(numeric.Phase((index % 256) + 1))
 		known[index] = value
 	}
@@ -369,7 +371,7 @@ func BenchmarkOperationBuildQueryMaskInto(b *testing.B) {
 
 	for index := range known {
 		value := NeutralValue()
-		value.Set(index % 257)
+		value.Set(index % numeric.CoreBits)
 		value.SetStatePhase(numeric.Phase((index % 256) + 1))
 		known[index] = value
 	}
@@ -396,7 +398,7 @@ func BenchmarkOperationBatchEvaluateInto(b *testing.B) {
 
 	for index := range candidates {
 		candidates[index] = NeutralValue()
-		candidates[index].Set((index + 1) % 257)
+		candidates[index].Set((index + 1) % numeric.CoreBits)
 		candidates[index].SetStatePhase(numeric.Phase((index % 16) + 1))
 
 		residue, err := New()

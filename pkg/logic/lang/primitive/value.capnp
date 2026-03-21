@@ -5,14 +5,7 @@ $Go.package("primitive");
 $Go.import("github.com/theapemachine/six/pkg/logic/lang/primitive");
 
 struct Value {
-  c0 @0 :UInt64;
-  c1 @1 :UInt64;
-  c2 @2 :UInt64;
-  c3 @3 :UInt64;
-  c4 @4 :UInt64;
-  c5 @5 :UInt64;
-  c6 @6 :UInt64;
-  c7 @7 :UInt64;
+  blocks @0 :Data;
 }
 
 interface Service {

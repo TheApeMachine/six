@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	capnp "capnproto.org/go/capnp/v3"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -68,6 +69,10 @@ func (value *Value) snapshotMessage() (*capnp.Message, error) {
 
 	root, err := NewRootValue(seg)
 	if err != nil {
+		return nil, err
+	}
+
+	if err := root.SetBlocks(make([]byte, config.TotalBlocks*8)); err != nil {
 		return nil, err
 	}
 

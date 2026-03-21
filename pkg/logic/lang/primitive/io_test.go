@@ -6,6 +6,7 @@ import (
 
 	capnp "capnproto.org/go/capnp/v3"
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
@@ -29,7 +30,7 @@ func TestValueIORead(t *testing.T) {
 		decoded, err := ReadRootValue(decodedMsg)
 		gc.So(err, gc.ShouldBeNil)
 
-		for index := range 8 {
+		for index := range config.TotalBlocks {
 			gc.So(decoded.Block(index), gc.ShouldEqual, value.Block(index))
 		}
 	})
@@ -58,7 +59,7 @@ func TestValueIOWrite(t *testing.T) {
 		gc.So(err, gc.ShouldBeNil)
 		gc.So(n, gc.ShouldEqual, encoded.Len())
 
-		for index := range 8 {
+		for index := range config.TotalBlocks {
 			gc.So(destination.Block(index), gc.ShouldEqual, source.Block(index))
 		}
 	})

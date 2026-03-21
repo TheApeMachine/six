@@ -4,23 +4,24 @@ import (
 	"testing"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	config "github.com/theapemachine/six/pkg/system/core"
 )
 
 /*
-TestGuardbandOpcode verifies low 8-bit opcode extraction from C5.
+TestGuardbandOpcode verifies low 8-bit opcode extraction from the opcode shell block.
 */
 func TestGuardbandOpcode(t *testing.T) {
 	gc.Convey("Given a value with a packed control word", t, func() {
 		value, err := New()
 		gc.So(err, gc.ShouldBeNil)
-		value.SetC5(0xABCD)
+		value.SetBlock(config.CoreBlocks, 0xABCD)
 
 		gc.So(value.Opcode(), gc.ShouldEqual, uint64(0xCD))
 	})
 }
 
 /*
-TestGuardbandResidualCarry verifies residual carry read/write in C6.
+TestGuardbandResidualCarry verifies residual carry read/write in the residual shell block.
 */
 func TestGuardbandResidualCarry(t *testing.T) {
 	gc.Convey("Given a value storing residual carry", t, func() {
