@@ -2,15 +2,12 @@ package cmd
 
 import (
 	"embed"
-	"io"
-	"io/fs"
-	"os"
+	"errors"
+	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/system/console"
-	"github.com/theapemachine/six/pkg/system/core/utils"
 )
 
 /*
@@ -62,7 +59,10 @@ func init() {
 }
 
 /*
-initConfig reads in config file and ENV variables if set, and sets up Alice globally.
+initConfig reads in config file and ENV variables if set.
+Tries the local filesystem first ($HOME/.six/config.yml), then
+falls back to the binary-embedded default so the process always
+starts with a valid configuration.
 */
 func initConfig() {
 	viper.SetConfigName("config")
@@ -70,61 +70,54 @@ func initConfig() {
 	viper.AddConfigPath("$HOME/." + projectName)
 
 	if err := viper.ReadInConfig(); err != nil {
-		console.Warn(ErrConfigNotFound, "error", err)
+		errnie.Error(NewRootError(RootErrorTypeConfigNotFound))
+
+		cfgReader, openErr := embedded.Open("cfg/config.yml")
+		if openErr != nil {
+			errnie.Error(NewRootError(RootErrorTypeEmbeddedConfigFailed))
+			return
+		}
+
+		defer cfgReader.Close()
+
+		if readErr := viper.ReadConfig(cfgReader); readErr != nil {
+			errnie.Error(NewRootError(RootErrorTypeEmbeddedConfigFailed))
+		}
 	}
-
-	Alice = errnie.SafeMust(func() ([]byte, error) {
-		return io.ReadAll(errnie.SafeMust(func() (fs.File, error) {
-			return embedded.Open("cfg/alice.txt")
-		}))
-	})
 }
-
-/*
-writeConfig writes the default config file to the home directory if one does not exist.
-*/
-func writeConfig() error {
-	home, _ := os.UserHomeDir()
-	fullPath := home + "/." + projectName + "/" + cfgFile
-
-	if utils.CheckFileExists(fullPath) {
-		return nil
-	}
-
-	errnie.SafeMustVoid(func() error {
-		return os.WriteFile(fullPath, errnie.SafeMust(func() ([]byte, error) {
-			return io.ReadAll(errnie.SafeMust(func() (fs.File, error) {
-				return embedded.Open("cfg/" + cfgFile)
-			}))
-		}), 0644)
-	})
-
-	return nil
-}
-
-/*
-RootError represents errors related to the root command setup and configuration.
-*/
-type RootError string
-
-/*
-Error returns the string representation of the root error.
-*/
-func (err RootError) Error() string {
-	return string(err)
-}
-
-/*
-String returns the string representation of the root error.
-*/
-func (err RootError) String() string {
-	return string(err)
-}
-
-const (
-	ErrConfigNotFound RootError = "no local config file found, using defaults"
-)
 
 const roottxt = `
 six v0.0.1
 `
+
+type RootErrorType string
+
+const (
+	RootErrorTypeConfigNotFound       RootErrorType = "no local config file found, using defaults"
+	RootErrorTypeEmbeddedConfigFailed RootErrorType = "failed to read embedded config"
+)
+
+/*
+RootError represents errors related to the
+root command setup and configuration.
+*/
+type RootError struct {
+	Message string
+	Err     error
+}
+
+/*
+NewRootError creates a new RootError.
+*/
+func NewRootError(err RootErrorType) *RootError {
+	return &RootError{Message: string(err), Err: errors.New(string(err))}
+}
+
+/*
+Error returns the string representation of the RootError.
+*/
+func (err *RootError) Error() string {
+	return fmt.Errorf(
+		"[root] %s: %w", err.Message, err.Err,
+	).Error()
+}

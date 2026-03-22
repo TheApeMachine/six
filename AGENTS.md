@@ -239,6 +239,16 @@ if valueErr != nil {
 	out = append(out, nil)
 	continue
 }
+
+// Wrong
+for i := 0; i < 500; i++ {
+	value.Set(i * 17 % CoreBits)
+}
+
+// Right
+for i := range 500 {
+	value.Set(i * 17 % CoreBits)
+}
 ```
 
 ## Testing
@@ -385,7 +395,13 @@ Please treat this project with respect. It is important to me and reflects many 
 - Do not discard or replace substantial user-written structure to “save” the session; treat RPC and capability flow, especially Cap’n Proto local/remote semantics, as real constraints rather than generic data piping or unnecessary complexity.
 - Services that need remote peers get a cluster router (or equivalent capability routing), not ad-hoc direct client wiring that bypasses the intended RPC path.
 - For streaming transport code, keep fixes small and avoid replacing ring-buffer-oriented concurrency with extra mutexes, runtime/scheduler manipulation, or heavy casting when the existing stream design already carries the thread-safety goals; `FlipFlop` is intentionally sequential, and async bidirectional flow belongs in `transport.Stream`.
+- Respect module ownership boundaries: do not colocate system-owned operations in unrelated files just for speed of implementation; keep in-band and other operation families in dedicated modules instead of convenience files, and avoid reintroducing structures the user intentionally removed.
 - Uncovered code is assumed broken until proven otherwise; test coverage and benchmarks gate trust in any package before optimization or feature work proceeds.
+- For io-style components, mirror method-level tests (`TestRead`, `TestWrite`, `TestClose`) and keep behavior validation in BDD-style cases with benchmarks, rather than ad-hoc test organization.
+- When a performance hotspot is identified (e.g., O(n²)), that becomes the sole priority; push complexity as close to O(1) as possible and do not settle on a worse asymptotic class until every plausible approach has been considered, no matter the difficulty.
+- When reporting a gap, close it in the live runtime path, not only in component tests or scaffolding; verify the externally important outcome (for example exact sequence equality or complete branch sets), and fix recurring subsystem issues once at the root instead of repeated surface patches.
+- Do not declare "open questions" when the math already provides the tools to answer them; connect all dots before declaring gaps.
+- Challenge your own complexity claims — if you say O(n) or O(k) is unavoidable, prove it or discover it isn't; bytes are already numbers with prime factorizations, so "conversion" steps may be O(null).
 
 ## Learned Workspace Facts
 
@@ -396,5 +412,8 @@ Please treat this project with respect. It is important to me and reflects many 
 - `transport.Stream` on a bounded ring blocks unless writers and readers overlap for payloads larger than the buffer; finish the producer with `CloseWrite` so reads can drain to `io.EOF`.
 - Benchmarks of hot loops should hoist `make(chan …)` and per-iteration goroutines when the goal is zero allocs per iteration; one long-lived reader driven by a kick channel is the usual pattern.
 - Prefer Cap’n Proto for on-the-wire work; avoid JSON on hot or internal paths.
-- Bitwise ops on `Value` are structural signals (glue, splits); avoid mutating canonical chunk bytes in place—Heal is merge-oriented; RecursiveFold should split on structure from the data, not blind midpoints.
-- Pool dispatcher uses bounded-wait + retry when handing jobs to workers; scaler can cancel workers mid-dispatch, causing deadlocks under coverage instrumentation or high load.
+- `Value` bit positions represent primes (AND=GCD, OR=LCM via Fundamental Theorem of Arithmetic); the shell is derived from the bit pattern as a PGA motor in GF(8191), never independently set; use standard bitwise operation names (Material Nonimplication, not "Hole").
+- Architecture direction: subsystems (cantilever, graph, macro-index, HAS, wavefront) dissolve into native Value type operations; the full pipeline target is O(null) ingestion + O(1) GPU dispatch for matching, ranking, and classification.
+- Sequence accumulation interleaves motor application with bitwise composition (motor transforms each incoming Value before combining, breaking commutativity); Material Nonimplication (`prompt & ~output`) tracks unresolved request and drives composition switching.
+- Knowledge tree: parallel AND reduction across corpus in O(log N) GPU dispatches builds a cancellation-depth hierarchy; layers correspond to Zipf frequency / Shannon information ordering; classification emerges from the lattice without labels.
+- `NEXTEST.md` is the canonical first-principles architecture document covering Value type, prime indexing, shell-as-motor, 16 bitwise operations, motor composition, bidirectional resolution, composition via residual tracking, knowledge tree, and classification.

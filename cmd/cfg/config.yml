@@ -2,32 +2,10 @@ loglevel: debug
 
 system:
   projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
-  backend: metal
-  workers:
-    min: 2
-    max: CPU
-  distributed:
-    workers: ["localhost:8080", "localhost:8081"]
-    chunk: 2048
-    timeout: 2000
-    remoteOnly: false
-    maxFailures: 3
-    failureTimeout: 5
-    failureBackoff: 2
-    failureMaxRetries: 3
-    failureMaxRetries: 3
 
-architecture:
-  numerics:
-    epsilon: 1e-9
-    nsymbols: 256
-    nbasis: 512
-    windows: [3, 5, 8, 13, 21]
-    shannonCapacity: 0.45
-    vocabSize: 256
-  graph:
-    initialNodes: 8
-
-experiment:
-  samples: 10
-
+numerics:
+  words: 128
+  corebits: 8191
+  epsilon: 1e-9
+  nsymbols: 256
+  nbasis: 512

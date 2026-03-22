@@ -5,16 +5,16 @@
 <h1 align="center">six</h1>
 
 <p align="center">
-  <strong>A self-programming spatial VM that replaces gradient descent with modular arithmetic.</strong><br/>
-  8191-bit Mersenne field · Topology-guided folding · Homoiconic value medium
+  <strong>A prime-indexed bit-field machine that replaces learned parameters with modular arithmetic.</strong><br/>
+  8191-bit Mersenne field · Derived PGA motors · Divisibility-lattice reasoning
 </p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="#core-thesis">Core Thesis</a> ·
+  <a href="#the-value-type">The Value Type</a> ·
   <a href="#architecture">Architecture</a> ·
   <a href="#codebase-map">Codebase Map</a> ·
-  <a href="#experiments">Experiments</a> ·
   <a href="#roadmap">Roadmap</a>
 </p>
 
@@ -22,361 +22,336 @@
 
 > [!NOTE]
 > This is a research project under active development.
-> Certain architectural decisions are built for speed, not for comfort.
-> The project actively seeks critique and feedback.
+> The canonical architecture document is [`NEXTEST.md`](NEXTEST.md).
+> This README is a condensed view grounded in the current codebase.
 
 ---
 
 ## Core Thesis
 
-This project started from a single question:
-
 > **Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?**
 
-The answer is a spatial virtual machine whose native medium is `primitive.Value` — an 8191-bit core in the Mersenne field GF(8191) wrapped in a shell carrying affine operators, control flow, trajectory, and routing. In this field every non-zero element has a multiplicative inverse, rotations are primitive operations with no dead zones, and collision between stored values **is** compression.
+The answer is a machine whose native medium is `primitive.Value` — an 8191-bit prime-indexed field in GF(8191). Each bit position represents the presence of one prime number. The bit pattern is simultaneously a square-free integer (product of active primes), a point on the divisibility lattice of the integers, and an affine motor `f(p) = scale·p + translate (mod 8191)` derived from the field. Every bitwise operation is an operation on prime factorizations, connected to all of number theory by the Fundamental Theorem of Arithmetic.
 
-The system does not predict the next token. It solves for the **longest span** — a Boundary Value Problem where the architecture extends a cantilever into unknown territory and locks onto the nearest stable resonance in its stored memory.
+The system does not predict the next token. It resolves **spans** — a Boundary Value Problem where the architecture navigates a prime lattice from a start boundary toward structurally compatible continuations. The motor derived from the accumulated state navigates to a **region** of the lattice, not a single point. The result is a set of branches ranked by structural compatibility, not a collapsed prediction.
 
-The central architectural goal is **self-programmability**: `primitive.Value` is simultaneously data, instruction, operator, control flow, routing address, and memory. Learned behaviors are reified back into Values and executed natively, making the system's reasoning medium homoiconic.
+### Why GF(8191)?
+
+$8191 = 2^{13} - 1$ is a Mersenne prime. Mersenne primes have a unique hardware property: modular reduction collapses to a bit shift and an add — `(a & 0x1FFF) + (a >> 13)` — bypassing the CPU division unit entirely. This makes field arithmetic as cheap as ordinary bitwise operations while retaining the algebraic guarantees of a prime field: every non-zero element has a multiplicative inverse (Fermat's Little Theorem), there are no dead zones, no rounding errors, and no special cases.
 
 ### The Three Pillars
 
 | Pillar | One-Liner | Mathematical Basis |
 |:---|:---|:---|
-| **Collision IS Compression** | Multiple byte sequences that share `(byte, localDepth)` collapse onto the same cell. The value carries continuation logic, not redundant identity. | A radix cell address `(byte, localDepth)` resets at each sequencer boundary. |
-| **Rotation IS Data** | Sequence order is encoded as generative coordinate transforms, not positional tags. No XOR composition — rotation preserves structure. | $f(x) = (ax + b) \bmod{8191}$ — an affine group with ~67M distinct states. Rotation produces translation. |
-| **Resonance IS Retrieval** | Queries don't search; they excite the field at a frequency and follow constructive interference. | `popcount(A & B)` = dot product of binary vectors = Hamming similarity. XOR is measurement, never storage. |
-
-### Why Not Semantics?
-
-This project does not treat language semantics as the machine's native substrate.
-
-The reasoning layer is algebraic. A human vocabulary is roughly $10^5$ words. The 8191-bit native value type has $2^{8191}$ possible states — a vast representational space, but representational size alone does not guarantee practical capability. Capability still depends on whether operator hardening yields reusable transforms that generalize under real workloads.
-
-> [!IMPORTANT]
-> Semantics is treated as a projection layer for evaluation and interaction, not as the ontology of computation. The objective is to reason in the native monotype (`primitive.Value`) and then project results back into language for measurement.
-
-> Six is a finite-field associative machine where computation is affine rotation, memory is a collision-compressed spatial lattice, and language is merely a projection layer for human interaction.
-
-The system does not parse meaning. It does not build ontologies. It does not model synonyms or grammar rules internally. The projection layer exists so humans can read the output and evaluate experiments. It is the GUI, not the CPU.
-
-The doctrine in three lines:
-
-```
-The address space is storage, not intelligence.
-The value is intelligence, not payload.
-Semantics is projection, not ontology of execution.
-```
+| **AND IS GCD** | Shared structure extraction is a single bitwise AND. The result is the prime factorization of the Greatest Common Divisor. | `A AND B = {shared primes}` → `GCD(A, B)` |
+| **OR IS LCM** | Superposition of two Values produces the Least Common Multiple. The minimal composite containing both inputs. | `A OR B = {union of primes}` → `LCM(A, B)` |
+| **Motor IS Navigation** | Every Value derives an affine transform in GF(8191). The data tells you where to go next. No index, no search. | `f(p) = scale·p + translate (mod 8191)` |
 
 ---
 
-## Mathematical Foundations
+## The Value Type
 
-### The Field: $\text{GF}(8191)$
+The `primitive.Value` is a named array of 128 `uint64` words (1024 bytes). It implements `io.ReadWriteCloser`. It is a value type: copy by assignment, slice with `v[:]`, pass sub-ranges to operations. No struct, no pointer, no hidden fields — the type IS the memory layout.
 
-$8191 = 2^{13} - 1$ is a Mersenne prime. This gives the field a critical hardware property — branchless reduction via bit masking:
+```
+ Bits 0–8190     │ GF(8191) Mersenne core — prime-indexed bit field
+                 │ Bit k = presence of k-th prime number
+                 │ (128 × uint64 words, last word masked to 8191 bits)
+ Bit 8191        │ Control frame flag — in-band signaling
+                 │ (sits outside the prime field, safe for pipeline control)
+```
 
-$$a \bmod 8191 = (a \mathbin{\&} \text{0x1FFF}) + (a \gg 13) \quad \text{(iterated until result fits)}$$
+### What A Value Is
 
-$$\forall\, a \in [1, 8190]: \quad a^{-1} \equiv a^{8189} \pmod{8191} \quad \text{(Fermat's Little Theorem)}$$
+A Value is a bit field of 8191 positions. Position 0 represents prime 2, position 1 represents prime 3, position 2 represents prime 5, and so on. A Value with bits `{0, 2, 4}` represents the number `2 × 5 × 11 = 110`. By the Fundamental Theorem of Arithmetic, this representation is unique — no two different sets of primes produce the same product.
 
-Every non-zero element has a multiplicative inverse. No dead zones, no special cases, no division hardware needed.
+A "base" Value (one byte projected into the field via `BaseValue(b)`) activates the bit positions corresponding to that byte's prime factors. Bytes 0 and 1 have no prime factors and produce zero Values.
 
-### Affine Rotations (The Native Instruction Set)
+### Why Primes, Not Plain Bit Positions
 
-The system's core operation is an affine transform over the field:
+Without primes, bit positions are arbitrary labels. AND means "shared labels." OR means "union of labels." There is no algebraic depth connecting the positions.
 
-$$f(x) = (a \cdot x + b) \bmod{8191}, \quad a \in [1, 8190],\; b \in [0, 8190]$$
+With primes, every bitwise operation becomes an operation on the divisibility lattice of the integers:
 
-- **Composition** is $O(1)$: applying $f_1$ then $f_2$ yields a single $(a', b')$ pair:
+| Operation | Set Meaning | Number-Theoretic Meaning |
+|:---|:---|:---|
+| `AND` | Shared bit positions | GCD — largest common divisor |
+| `OR` | Union of bit positions | LCM — smallest common multiple |
+| `A & ~B` (Material Nonimplication) | Bits in A not in B | Unique factor residue: `A / GCD(A, B)` |
+| `XOR` | Bits in exactly one | Symmetric difference: `LCM / GCD` |
+| `(A AND B) == A` | Subset check | Divisibility: does A divide B? |
+| `A AND B == 0` | Disjoint sets | Coprimality: GCD = 1, completely independent |
 
-$$a' = a_2 \cdot a_1 \bmod{8191}, \quad b' = (a_2 \cdot b_1 + b_2) \bmod{8191}$$
+These are not analogies. They are direct consequences of the Fundamental Theorem of Arithmetic: every integer has a unique prime factorization, so every operation on prime sets is an operation on integers.
 
-- **Inversion** is $O(1)$: $f^{-1}(y) = a^{-1}(y - b) \bmod{8191}$
+### The Shell: A Value As A Transformation
 
-The affine group has $8191 \times 8190 = 67{,}124{,}890$ distinct transforms.
+A Value is not only a number. It is simultaneously a transformation — an affine motor `f(p) = scale·p + translate (mod 8191)` derived deterministically from its bit pattern. Scale is the product of active prime indices mod 8191. Translate is their sum mod 8191. The motor is derived, not stored. The bit pattern IS the motor. There is no separate storage, no external override.
 
-### Higher-Dimensional Value Geometry
+Motors compose in O(1): `f₂(f₁(p)) = (a₂·a₁)·p + (a₂·b₁ + b₂)`. Motors invert in O(1): `f⁻¹(p) = a⁻¹·(p - b)`. The affine group has `8190 × 8191 ≈ 67M` distinct transforms.
 
-The 8191-bit core is a sparse occupancy map over a prime basis. Core index `k` maps to `numeric.Primes[k]`, so each active bit corresponds to one prime frequency component. The shell (3 additional 64-bit blocks) carries the affine operator, opcode, trajectory, guard radius, route hint, and flags.
+When motors compose during sequence accumulation, commutativity breaks. The motor transforms each incoming Value before bitwise combining, so "cat" after "the" produces a different state than "cat" after "dog" — the motor that acted on it was different. This gives sequence sensitivity without positional encodings.
 
-This is why the system can treat bitwise operators as algebra over prime-factor structure:
+### Operations On Values
 
-- `OR` behaves as superposition over basis occupancy (LCM-style composition).
-- `AND` behaves as strict shared structure extraction (GCD-style intersection).
-- `Hole(a, b) = a & ~b` isolates what remains after exact basis cancellation.
-- `XOR` is measurement only — comparing a projected rotation against a stored anchor.
+There are exactly 16 binary boolean operations on two bit fields plus motor operations:
 
-### Morton Addressing & Radix Compression
+| # | Name | Formula | Invertible |
+|---|---|---|---|
+| 0 | Contradiction | `0` | No |
+| 1 | NOR | `~(A \| B)` | No |
+| 2 | Converse Nonimplication | `~A & B` | No |
+| 3 | NOT | `~A` | Yes |
+| 4 | Material Nonimplication | `A & ~B` | No |
+| 5 | NOT (second operand) | `~B` | Yes |
+| 6 | XOR | `A ^ B` | Yes |
+| 7 | NAND | `~(A & B)` | No |
+| 8 | AND | `A & B` | No |
+| 9 | XNOR | `~(A ^ B)` | Yes |
+| 10 | Identity B | `B` | — |
+| 11 | Material Conditional | `~A \| B` | No |
+| 12 | Identity A | `A` | — |
+| 13 | Converse Implication | `A \| ~B` | No |
+| 14 | OR | `A \| B` | No |
+| 15 | Tautology | `1` | No |
+| 16 | Motor Apply | `motor(A) applied to B` | Yes |
+| 17 | Motor Invert | `motor⁻¹(A) applied to B` | Yes |
+| 18 | Motor Compose | `motor(A) ∘ motor(B) applied to B` | Yes |
 
-A cell address packs byte identity and boundary-local depth into a single 64-bit key:
+All 19 operations are implemented in the codebase. In the ISA, each instruction IS a Value with a single prime-position bit set — the truth table index IS the structural index. Operations 0–15 map directly to the universal 16-row truth table. Operations 16–18 are motor transforms outside the truth table.
 
-$$\text{CellKey} = \text{Pack}(\underbrace{v}_{\text{byte value (X)}},\; \underbrace{d}_{\text{local depth (Y)}})$$
-
-The local depth $d$ **resets to 0** at each sequencer boundary. This means distinct byte sequences that share $(v, d)$ collapse onto the same cell:
-
-$$|\text{cells}| \ll |\text{tokens}| \quad \Rightarrow \quad \text{compression ratio} = \frac{|\text{tokens}|}{|\text{cells}|}$$
-
-### Algebraic Cancellation
-
-Given stored facts as multiplicative braids in $\text{GF}(8191)$:
-
-$$\phi_{\text{stored}} = (\text{Roy} \cdot \text{is}\_\text{in} \cdot \text{Kitchen}) \bmod{8191}$$
-
-A prompt asking "Where is Roy?" computes the modular inverse cancellation:
-
-$$\text{result} = \phi_{\text{stored}} \cdot \text{Roy}^{-1} \cdot \text{is}\_\text{in}^{-1} \bmod{8191}$$
-
-If the factorization is exact and the encoding remains collision-free for the participating factors, the shared structure cancels algebraically:
-
-$$\text{result} = \text{Kitchen} \bmod{8191}$$
-
-In this idealized case, retrieval is resolved by algebraic calculation rather than an explicit lexical scan.
-
-### Frustration (The Drive Signal)
-
-When the system "believes" it should be at target phase $\phi_t$ but is actually at current phase $\phi_c$, the frustration is the **unresolved rotation**:
-
-$$\Delta = \phi_t \cdot \phi_c^{-1} \bmod{8191}$$
-
-When $\Delta = 1$, the system is phase-locked (frustration zeroed). When $\Delta \neq 1$, the system searches its macro-index for a tool whose rotation matches $\Delta$.
-
-### Tool Synthesis & Hardening
-
-When the cantilever hits a gap it cannot bridge, the missing tool is:
-
-$$Z = \phi_{\text{goal}} \cdot \phi_{\text{failed}}^{-1} \bmod{8191}$$
-
-If applying $Z$ consistently bridges similar gaps, it is hardened as a permanent macro-opcode. Hardened opcodes are encoded as `primitive.Value` with `OpcodeMacro`, making them first-class citizens of the native medium — the system programs itself.
+Each `Op` implementation contains a hyper-optimized fast-path for the 128-word layout: fixed-size array projection plus explicit 8-way unrolling for branchless SIMD (AVX/NEON) codegen.
 
 ---
 
 ## Architecture
 
-The system is organized around `primitive.Value` as its universal medium, with four conceptual planes implemented across two package trees.
+The system is organized as `io.ReadWriteCloser` pipelines where every component reads, transforms, and writes Values. The universal interface is Go's standard `io` package: `io.Copy`, `io.Pipe`, `io.MultiWriter`, `io.TeeReader`.
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│            PROJECTION PLANE (Human Interface)           │
-│   Byte recovery via un-Morton · Experiment evaluation   │
-├─────────────────────────────────────────────────────────┤
-│           LOGIC PLANE  (pkg/logic/)                     │
-│   Topology-guided recursive fold · BVP cantilever       │
-│   Multi-stage prompt resolution · Macro skip index      │
-│   Category-theoretic functors · Persistence diagrams    │
-├─────────────────────────────────────────────────────────┤
-│           VALUE PLANE  (pkg/logic/lang/primitive/)      │
-│   The homoiconic native monotype · GF(8191) core        │
-│   Shell: opcodes, affine, trajectory, routing, guards   │
-│   OpcodeMacro: learned operators as first-class Values  │
-│   Stored values are local operators, not byte shadows   │
-├─────────────────────────────────────────────────────────┤
-│           ADDRESS PLANE  (pkg/store/dmt/)               │
-│   Radix-trie forest · Morton-keyed deterministic lookup │
-│   Collision = compression (radix cell collapse)         │
-│   Batch RPC transport (Cap'n Proto)                     │
-├─────────────────────────────────────────────────────────┤
-│           COMPUTE PLANE  (pkg/compute/)                 │
-│   CPU/GPU/Metal dispatch · Typed Go slices (SSA-safe)   │
-│   Distributed Cap'n Proto routing                       │
-└─────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│              NETWORK PLANE  (pkg/network/)                  │
+│   UniConn: IPC · UDP multicast · QUIC                       │
+│   One Value = one UDP datagram = one Ethernet frame         │
+├─────────────────────────────────────────────────────────────┤
+│              TRANSPORT PLANE  (pkg/transport/)              │
+│   Stream: ring-buffer pipe with control frame interception  │
+│   Pipeline: sequential io.ReadWriter chain                  │
+│   Resonator: XOR-residual feedback loop with motor reify    │
+│   FlipFlop · Pump · Feedback · Graph · Sink                 │
+├─────────────────────────────────────────────────────────────┤
+│              COMPUTE PLANE  (pkg/compute/)                  │
+│   CPU / Metal / CUDA backends — same op set                 │
+│   Typed Go slices for SSA bounds-check elimination          │
+├─────────────────────────────────────────────────────────────┤
+│              VALUE PLANE  (pkg/primitive/)                  │
+│   The native programmable monotype · GF(8191) core          │
+│   Derived PGA motor (scale, translate) from bit pattern     │
+│   16 truth-table ops + 3 motor ops · RollLeft               │
+│   Möbius inversion · Prime sieve · BaseValue projection     │
+│   ISA: instructions ARE prime-lattice points                │
+└─────────────────────────────────────────────────────────────┘
 ```
 
-### Address Plane — `pkg/store/dmt/`
+### Value Plane — `pkg/primitive/`
 
-The storage layer is a radix-trie forest ([`forest.go`](pkg/store/dmt/forest.go)) backed by `hashicorp/go-immutable-radix`. It holds Morton-keyed cells. Each cell address is `(byte_value, local_depth)` where the depth resets at every sequencer boundary — this is what makes collision compressive rather than destructive.
+The foundation. Everything else operates on Values.
 
-- **Self-Addressing.** Each byte value (0–255) determines the X coordinate. The Y coordinate is the local depth within the current chunk. The byte is recovered from the key, not from the stored value.
-- **Batch Transport.** The `ForestServer` accepts `WriteBatch` RPCs that deliver all keys in a single Cap'n Proto call, eliminating per-key RPC overhead.
-- **O(1) Retrieval.** Given a coordinate, the lookup is a direct Morton key dereference.
+- **`Value`** — 8191-bit prime-indexed field as `[128]uint64`. Implements `io.ReadWriteCloser`. On little-endian architectures, `Read`/`Write` is a single `copy`/`memmove`.
+- **`Motor()`** — derives `(scale, translate)` from the bit pattern via a hybrid strategy: sparse words (<4 bits) use bit-scanning with Mersenne `mod8191`; dense words (≥4 bits) use a precomputed `motorTable` with dual ILP accumulators. Wins or ties at every measured density from 10 to 4000 active bits.
+- **`ApplyMotor`, `ComposeMotor`, `InvertMotor`** — GF(8191) affine algebra. Compose is closed and associative. Invert uses the extended Euclidean algorithm.
+- **`Primes[8191]`** — first 8191 primes, generated once at init via Sieve of Eratosthenes. `PrimeIndex` maps back from prime to bit position.
+- **`BaseValue(b)`** — projects a byte into the field by activating its prime factor positions. Precomputed at init for all 256 byte values.
+- **`operation.Op`** — `func(a, b, dst []uint64)`. All 16 truth-table operations plus motor ops, each with a SIMD-optimized 128-word fast path.
+- **`operation.Bitwise`** — `io.ReadWriteCloser` accumulator. Expects 3 frames (instruction + 2 operands) on its ring buffer, applies the selected `Op`, returns the result.
+- **`operation.RollLeft`** — circular shift exploiting the Mersenne-prime property: 8191 = 128×64 − 1, so the shift reduces to an exact overlap of two flat sequences. Fully branchless.
+- **`algebra.Mobius`** — Möbius function for square-free numbers on the prime lattice. `μ(n) = (−1)^k` where k is the popcount parity.
 
-### Value Plane — `pkg/logic/lang/primitive/`
+### Transport Plane — `pkg/transport/`
 
-The value at each cell is the system's **native monotype**: a `primitive.Value` ([`value.go`](pkg/logic/lang/primitive/value.go)). This is the machine's actual reasoning substrate. It is not a byte fingerprint. It is a local operator — and when it carries `OpcodeMacro`, it is a learned program.
+Everything composes via `io.ReadWriteCloser`.
 
-```
- Bits 0–8190     │ GF(8191) Mersenne core — the native execution state
-                 │ (128 × uint64 blocks + partial last block)
- Shell block 0   │ Residual phase carry (cross-wavefront state)
- Shell block 1   │ Opcode register: instruction, jump, branches, terminal
-                 │ Route hint (bits 8-15): continuation class for dispatch
- Shell block 2   │ Affine operator: scale (13 bits), translate (13 bits)
-                 │ Trajectory: from/to phase snapshots (13 bits each)
-                 │ Guard radius (7 bits), active flag, operator flags
-```
+- **`Stream`** — async pipe backed by a ring buffer. Writes complete immediately when the buffer has space; reads block only when empty. In-band control frame interception: if a 1024-byte chunk is flagged as a control frame (bit 8191 set), the Stream consumes it to rewire its own operational pipeline — never emitting it to the caller.
+- **`Pipeline`** — chains `io.ReadWriter` components. Data flows through all components in sequence via `io.Copy`. Nestable: a Pipeline is itself an `io.ReadWriter`.
+- **`Resonator`** — the feedback loop. Anchored to a prompt Value, it computes `XOR(prompt, output)` as the lattice distance after each cycle. PopCount zero means convergence — the composition fully satisfies the prompt. A repeated residual (same Value in the `visited` map) means the motor entered an orbit — the trajectory is exhausted and the caller should branch. `Reify()` collapses the accumulated motor trace into a single tool Value that can be written back to the corpus.
+- **`FlipFlop`** — synchronous round-trip: `io.Copy(to, from)` then `io.Copy(from, to)`. No goroutines.
+- **`Pump`** — feedback loop around a Pipeline and a Stream. Goroutine runs FlipFlop repeatedly until `Close`.
+- **`Feedback`** — tee pattern: reads from `forward`, copies to `backward` via `io.TeeReader`.
+- **`Graph`** — directed graph of `io.ReadWriteCloser` nodes and edges. Registry holds processed data.
+- **`Sink`** — null device. Writes are dropped, reads return EOF.
 
-The 8191-bit core lives inside a hardware jacket sized for GPU alignment. `CoreActiveCount()` measures the Mersenne field; `ActiveCount()` spans core + shell.
+### Compute Plane — `pkg/compute/`
 
-Key operations:
+Three backends, one interface. All implement the same operation set: `BitwiseOr`, `BitwiseAnd`, `BitwiseXor`, `BitwiseAndNot`, `BitwiseNand`, `BitwiseNor`, `BitwiseXnor`, `ConverseNonimplication`, `BitwiseNot`, `MotorApply`, `MotorInvert`, `MotorCompose`, `RollLeft`.
 
-| Operation | Code | Role |
-|:---|:---|:---|
-| `SetAffine()` / `Affine()` | $f(x) = ax + b \pmod{8191}$ | Store/retrieve the local affine operator. |
-| `ApplyAffinePhase()` | phase → transformed phase | Execute the affine transform on a running state. |
-| `SetTrajectory()` / `Trajectory()` | phase → phase snapshot | Local orbit memory for steering the next hop. |
-| `SetRouteHint()` / `RouteHint()` | 8-bit device class | Route bias for interpreter dispatch. |
-| `SetGuardRadius()` / `GuardRadius()` | modular drift budget | Tolerance for re-alignment and backtracking. |
-| `SetProgram()` / `Program()` | opcode, jump, branches, terminal | Threaded-code instruction in the opcode block. |
-| `EncodeMacroOperator()` | scale, translate, key → Value | Encode a learned affine operator as a first-class Value. |
-| `IsMacroOperator()` / `MacroAffine()` | — | Identify and extract learned operators from Values. |
-| `OR(other)` | Bitwise OR | Superposition — accumulate context. |
-| `AND(other)` | Bitwise AND | Intersection — find shared structure. |
-| `Hole(a, b)` | `a & ~b` | Gap detection — what is needed but absent. |
-| `XOR(other)` | Bitwise XOR | **Measurement only.** Never used for composition. |
+- **`cpu.Backend`** — always available. Uses typed Go slices for SSA bounds-check elimination.
+- **`metal.Backend`** — Apple Silicon (build tag `darwin && cgo`). Embeds compiled `backend.metallib`. Metal 3.1 shaders for all operations.
+- **`cuda.Backend`** — NVIDIA GPUs (build tag `cuda && cgo`). Same operation set. Stub returns `CUDAErrorUnavailable` on unsupported platforms.
+- **`Backend`** — top-level wrapper. Embeds a `transport.Stream` and holds all three kernel backends.
 
-> [!WARNING]
-> **XOR is measurement, not storage.** If XOR is used to compose or persist data, Shannon entropy enters the system and destroys the generative properties of the rotational algebra.
+### Network Plane — `pkg/network/`
 
-### Logic Plane — `pkg/logic/`
+A Value is 1024 bytes. A standard Ethernet MTU is 1500 bytes. A UDP datagram over IPv4 has 28 bytes of header. One Value = one datagram = one Ethernet frame. No fragmentation, no reassembly, no buffering.
 
-The logic layer comprises several interacting subsystems:
+- **`UniConn`** — unified connection. `io.ReadWriteCloser` that delegates to a concrete transport selected at construction via options: `UniConnWithIPC`, `UniConnWithUDP`, `UniConnWithQUIC`.
+- **`IPC`** — Unix domain socket transport. Listen or dial by path. Same-machine, cross-process.
+- **`UDPMulticast`** — LAN multicast. One datagram = one Value. One machine sends, every machine on the network receives. Each machine ANDs the operation with its own summary Value to self-select.
+- **`QUIC`** — QUIC transport with bidirectional stream for WAN communication. Reliable, multiplexed, UDP-based.
 
-- **Topology-Guided Recursive Fold.** [`substrate/graph.go`](pkg/logic/substrate/graph.go) builds a persistent hierarchical graph by discovering shared structural invariants. Merge ordering is determined by Jaccard similarity (via [`topology/persistence.go`](pkg/logic/topology/persistence.go)), not arbitrary midpoint splits. At each level: `AND` extracts the shared label, `Hole` extracts directional residues, and the fold recurses on the residues until no shared structure remains. The result is a `FoldGraph` of persistent `FoldNode`s queryable at prompt time via `FoldLookup`.
+---
 
-- **BVP Cantilever Solver.** [`synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) implements multi-stage prompt resolution: (1) exact lexical continuation from the stored corpus, (2) operator-mediated bridging via the MacroIndex (with approximate nearest-neighbor fallback). Successful bridges feed `RecordCandidateResult` to close the hardening loop.
+## Mathematical Foundations
 
-- **Macro Index.** [`synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) stores discovered affine operators indexed by their full geometric `AffineKey` (XOR delta of start/goal Values). Exact lookup is supplemented by approximate nearest-neighbor search in PhaseDial embedding space: hardened opcodes get projected into 512-D complex vectors via `EmbedKey`, and cosine similarity finds the closest known operator for novel gaps.
+### Affine Rotations
 
-- **HAS (Holographic Auto-Synthesizer).** [`synthesis/has.go`](pkg/logic/synthesis/has.go) forges affine tools during ingestion and performs query-mask matching during inference.
+The system's core operation is an affine transform over the field:
 
-- **Category-Theoretic Functors.** [`category/functor.go`](pkg/logic/category/functor.go) maps morphisms between MacroIndex categories via Procrustes alignment in PhaseDial space, enabling cross-domain operator transfer.
+$$f(x) = (a \cdot x + b) \bmod{8191}, \quad a \in [1, 8190],\; b \in [0, 8190]$$
 
-- **Topological Persistence.** [`topology/persistence.go`](pkg/logic/topology/persistence.go) computes Betti numbers and persistence diagrams over Value streams via Jaccard-similarity filtration, tracking connected components (H₀), loops (H₁), and their birth-death events.
+- **Composition** is $O(1)$: $a' = a_2 \cdot a_1 \bmod{8191}$, $b' = (a_2 \cdot b_1 + b_2) \bmod{8191}$
+- **Inversion** is $O(1)$: $f^{-1}(y) = a^{-1}(y - b) \bmod{8191}$
 
-### Interpreter — `pkg/system/vm/processor/`
+### Bidirectional Resolution
 
-The [`InterpreterServer`](pkg/system/vm/processor/interpreter.go) is a register-machine that executes programs encoded as `[]primitive.Value`. Each Value is simultaneously an instruction and an operand:
+The motor is invertible. Given a fragment, forward navigation uses the motor to find continuations; backward navigation uses the inverse motor to find prefixes. Both directions are multi-branch. Both are O(1) on the GPU. This is the BVP framing: a fragment has two boundaries, and the system resolves spans from both edges.
 
-| Opcode | Behavior |
-|:---|:---|
-| `OpcodeNext` | Advance `pc++`, apply affine transform to running phase. |
-| `OpcodeJump` | `pc += Jump()`, non-zero jump offset. |
-| `OpcodeBranch` | Fork: evaluate all candidates via `BatchEvaluateInto`, pick lowest-residue winner. |
-| `OpcodeReset` | Reset phase to identity, `pc++`. |
-| `OpcodeHalt` | Emit accumulated state, stop. |
-| **`OpcodeMacro`** | Apply a learned affine operator (scale, translate from the Value's shell) to the running phase. This is how the system executes its own discoveries. |
+### Composition Via Residual Tracking
 
-The interpreter records an `ExecutionStep` trace for every instruction. Successful traces can be reified back into a single `OpcodeMacro` Value via `ReifyTrace()`, composing the affine chain into one operator. This closes the self-programming loop: observe → execute → trace → reify → harden → execute natively.
+When no single stored sequence satisfies the prompt, Material Nonimplication tracks the unresolved request: `prompt & ~output_so_far` gives the exact set of primes the output has not yet accounted for. As output accumulates, the residual shrinks in resolved primes and retains unsatisfied ones. When the current continuation is exhausted, the residual's motor navigates to the next matching region. There is no explicit switch signal — the unsatisfied structure takes over navigation automatically.
 
-### Machine — `pkg/system/vm/`
+### Möbius Inversion
 
-The [`Machine`](pkg/system/vm/machine.go) is the top-level orchestrator. It wires the tokenizer, forest, graph, cantilever, HAS, macro index, and interpreter through a Cap'n Proto RPC router ([`cluster/`](pkg/system/cluster/)).
-
-- **Ingest** (`SetDataset`): streams raw bytes through the tokenizer via batch RPC, stores Morton keys in the Forest and Graph, triggers topology-guided recursive folding, and feeds HAS with boundary pairs for tool synthesis.
-- **Prompt** (`Prompt`): delegates to the CantileverServer for multi-stage resolution (exact → operator-mediated → error).
+For square-free numbers (all Values), `μ(n) = (−1)^k` where k is the popcount. The Möbius inversion formula recovers individual contributions from composites. OR does not destroy information on the prime lattice — the divisors of a composite are all Values whose primes are subsets, and inclusion-exclusion is algebraically exact.
 
 ---
 
 ## Codebase Map
 
-### Layer 1 — Primitive Value
+### `pkg/primitive/` — The Native Value Type
 
-> The homoiconic native monotype and GF(8191) field.
+| File | What It Does |
+|:---|:---|
+| [`value.go`](pkg/primitive/value.go) | 8191-bit `[128]uint64` field, `io.ReadWriteCloser`, ISA instruction constants, `Set`, `Has`, `PopCount`, `IsZero`, `Equal`, `Clamp`, `IsInstruction`, `SetInstruction` |
+| [`motor.go`](pkg/primitive/motor.go) | `Motor()` derivation (hybrid sparse/dense), `ApplyMotor`, `ComposeMotor`, `InvertMotor`, `mod8191`, precomputed `motorTable` |
+| [`prime.go`](pkg/primitive/prime.go) | `Primes[8191]`, `PrimeIndex`, `BaseValue(b)`, `BaseValueInto(dst, b)`, sieve init |
+| [`operation/bitwise.go`](pkg/primitive/operation/bitwise.go) | All 16 truth-table `Op`s + `RollLeft` + `Bitwise` accumulator (`io.ReadWriteCloser`) |
+| [`operation/motor.go`](pkg/primitive/operation/motor.go) | `MotorApply`, `MotorInvert`, `MotorCompose` as `Op` functions |
+| [`algebra/mobius.go`](pkg/primitive/algebra/mobius.go) | Möbius function for the square-free lattice |
 
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Native Value | [`pkg/logic/lang/primitive/value.go`](pkg/logic/lang/primitive/value.go) | 8191-bit core + 3-block shell, Cap'n Proto backed |
-| Bitwise Ops | [`pkg/logic/lang/primitive/bitwise.go`](pkg/logic/lang/primitive/bitwise.go) | `OR`, `AND`, `XOR`, `Hole`, zero-alloc `*Into` variants |
-| Opcode ISA | [`pkg/logic/lang/primitive/opcode.go`](pkg/logic/lang/primitive/opcode.go) | Next, Jump, Branch, Reset, Halt, **Macro** |
-| Shell Layout | [`pkg/logic/lang/primitive/shell.go`](pkg/logic/lang/primitive/shell.go) | Affine, trajectory, guard radius, active flag |
-| Route Hint | [`pkg/logic/lang/primitive/route.go`](pkg/logic/lang/primitive/route.go) | Device dispatch class in opcode block |
-| Program Compiler | [`pkg/logic/lang/primitive/program.go`](pkg/logic/lang/primitive/program.go) | Morton keys → `SequenceCell` → `[]Value` |
-| GF(8191) Numerics | [`pkg/numeric/calculus.go`](pkg/numeric/calculus.go) | Mersenne reduction, field primitives, Primes table |
-| Phase Geometry | [`pkg/numeric/geometry/phase.go`](pkg/numeric/geometry/phase.go) | PhaseDial: 512-D complex embeddings, cosine similarity |
+### `pkg/transport/` — Pipeline Composition
 
-### Layer 2 — Storage
+| File | What It Does |
+|:---|:---|
+| [`stream.go`](pkg/transport/stream.go) | Ring-buffer pipe with in-band control frame interception |
+| [`pipeline.go`](pkg/transport/pipeline.go) | Sequential `io.ReadWriter` chain via `io.Copy` |
+| [`resonator.go`](pkg/transport/resonator.go) | XOR-residual feedback loop, convergence/orbit detection, motor trace `Reify` |
+| [`flipflop.go`](pkg/transport/flipflop.go) | Synchronous round-trip between two `io.ReadWriter`s |
+| [`pump.go`](pkg/transport/pump.go) | Feedback loop goroutine driving FlipFlop on a Pipeline + Stream |
+| [`feedback.go`](pkg/transport/feedback.go) | Tee pattern via `io.TeeReader` |
+| [`graph.go`](pkg/transport/graph.go) | Directed graph of `io.ReadWriteCloser` nodes |
+| [`sink.go`](pkg/transport/sink.go) | Null device |
 
-> Radix-trie forest and Morton addressing.
+### `pkg/compute/` — GPU/CPU Backends
 
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Forest (Radix Trie) | [`pkg/store/dmt/forest.go`](pkg/store/dmt/forest.go) | Immutable radix trie insert/lookup |
-| Forest RPC Server | [`pkg/store/dmt/server/server.go`](pkg/store/dmt/server/server.go) | Cap'n Proto `Write`, `WriteBatch`, `Done`, `Branches` |
-| Morton Keys | [`pkg/store/data/morton.go`](pkg/store/data/morton.go) | `Pack(symbol, depth)` / `Unpack(key)` |
+| File | What It Does |
+|:---|:---|
+| [`backend.go`](pkg/compute/backend.go) | Top-level wrapper embedding Stream + all three kernel backends |
+| [`kernel/cpu/backend.go`](pkg/compute/kernel/cpu/backend.go) | CPU fallback: typed Go slices, SSA-safe |
+| [`kernel/metal/backend.go`](pkg/compute/kernel/metal/backend.go) | Apple Silicon Metal 3.1 shaders (build: `darwin && cgo`) |
+| [`kernel/cuda/backend.go`](pkg/compute/kernel/cuda/backend.go) | CUDA kernels (build: `cuda && cgo`) |
 
-### Layer 3 — Sensory Processing
+### `pkg/network/` — Transport Hierarchy
 
-> Byte-stream segmentation and boundary detection.
+| File | What It Does |
+|:---|:---|
+| [`conn.go`](pkg/network/conn.go) | `UniConn` — unified `io.ReadWriteCloser` over IPC/UDP/QUIC |
+| [`ipc.go`](pkg/network/ipc.go) | Unix domain socket transport |
+| [`udp.go`](pkg/network/udp.go) | UDP multicast: one datagram = one Value |
+| [`quic.go`](pkg/network/quic.go) | QUIC bidirectional stream for WAN |
 
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Tokenizer | [`pkg/system/process/tokenizer/server.go`](pkg/system/process/tokenizer/server.go) | Bytes → Morton keys via `Write`, `WriteBatch`, `Done` |
-| Sequencer (Sequitur) | [`pkg/system/process/sequencer/sequitur.go`](pkg/system/process/sequencer/sequitur.go) | Grammar-based hierarchical chunking |
+### `pkg/core/` — Configuration & Validation
 
-### Layer 4 — Logic & Synthesis
+| File | What It Does |
+|:---|:---|
+| [`config.go`](pkg/core/config.go) | Viper-backed configuration (`Cfg` global, `Get[T]`) |
+| [`validate/validate.go`](pkg/core/validate/validate.go) | `Require` — constructor-time nil checks |
 
-> Recursive folding, BVP solving, operator learning, topological analysis.
+### `pkg/errnie/` — Error Handling
 
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Graph Substrate | [`pkg/logic/substrate/graph.go`](pkg/logic/substrate/graph.go) | Topology-guided recursive fold, `FoldLookup`, `ExactContinuation` |
-| Topological Persistence | [`pkg/logic/topology/persistence.go`](pkg/logic/topology/persistence.go) | Jaccard-filtration persistence diagrams, `Sweep`, Betti numbers |
-| UnionFind | [`pkg/logic/topology/unionfind.go`](pkg/logic/topology/unionfind.go) | Weighted union-find with path compression |
-| BVP Cantilever | [`pkg/logic/synthesis/bvp/cantilever.go`](pkg/logic/synthesis/bvp/cantilever.go) | Multi-stage prompt: exact → operator-mediated, with hardening feedback |
-| HAS | [`pkg/logic/synthesis/has.go`](pkg/logic/synthesis/has.go) | Ingestion-time tool forging, inference-time query-mask evaluation |
-| Macro Index | [`pkg/logic/synthesis/macro/macro_index.go`](pkg/logic/synthesis/macro/macro_index.go) | Exact + approximate (PhaseDial NN) operator lookup, hardening, `RecordResult` RPC |
-| Category Functors | [`pkg/logic/category/functor.go`](pkg/logic/category/functor.go) | Cross-domain operator transfer via Procrustes alignment |
+| File | What It Does |
+|:---|:---|
+| [`logger.go`](pkg/errnie/logger.go) | `Error(err, keyvals...)` — log and return; `InitLogger` |
 
-### Layer 5 — Compute Backend
+### `test/integration/` — Empirical Verification
 
-> CPU/GPU/Metal dispatch for parallel resolution.
-
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Dispatch | [`pkg/compute/kernel/dispatch.go`](pkg/compute/kernel/dispatch.go) | Backend selection (Metal, CUDA, CPU fallback) |
-| CUDA Kernel | [`pkg/compute/kernel/cuda/resolver.cu`](pkg/compute/kernel/cuda/resolver.cu) | GF(8191) distance resolution |
-| Metal Kernel | [`pkg/compute/kernel/metal/`](pkg/compute/kernel/metal/) | Apple Silicon equivalent |
-| Distributed | [`pkg/compute/kernel/distributed.go`](pkg/compute/kernel/distributed.go) | Strict no-fallback remote dispatch |
-
-### Layer 6 — Machine & Runtime
-
-> The top-level orchestrator and interpreter.
-
-| Concept | File | What It Does |
-|:---|:---|:---|
-| Machine | [`pkg/system/vm/machine.go`](pkg/system/vm/machine.go) | `SetDataset` (batch ingest), `Prompt` (multi-stage resolution) |
-| Booter | [`pkg/system/vm/booter.go`](pkg/system/vm/booter.go) | RPC server lifecycle and capability registration |
-| Interpreter | [`pkg/system/vm/processor/interpreter.go`](pkg/system/vm/processor/interpreter.go) | Register machine with OpcodeMacro dispatch, execution tracing, trace reification |
-| Cluster Router | [`pkg/system/cluster/`](pkg/system/cluster/) | Capability-based service routing |
-| Worker Pool | [`pkg/system/pool/`](pkg/system/pool/) | Bounded-wait job dispatch with scaler |
+| File | What It Tests |
+|:---|:---|
+| [`claims_test.go`](test/integration/claims_test.go) | XOR/XNOR invertibility, AND/OR non-invertibility, Hamming distance, motor composition, motor invertibility, Material Nonimplication residues, parallel AND reduction |
+| [`classification_test.go`](test/integration/classification_test.go) | Parallel AND reduction across Value sets, pairwise GCD layers, cancellation-depth properties |
+| [`primes_test.go`](test/integration/primes_test.go) | Prime sieve correctness, BaseValue projection, GCD/LCM via AND/OR, divisibility, coprimality |
+| [`motors_test.go`](test/integration/motors_test.go) | Motor derivation, composition, inversion, orbit detection |
+| [`lattice_test.go`](test/integration/lattice_test.go) | Divisibility lattice properties, Material Nonimplication, XOR as LCM/GCD |
+| [`fuzz_test.go`](test/integration/fuzz_test.go) | Randomized property testing across operations |
 
 ---
 
-## The Self-Programming Loop
+## The Feedback Loop
 
-The defining architectural feature is that learned behaviors become native instructions. The loop:
+It is not brute-force search. It is brute-force reasoning.
+
+The system uses the 2^8191 state-space to experiment with compositions the way a mind experiments with thoughts: manifest an idea, observe the outcome, re-align. The Resonator is the entire controller. There is no reward function, no loss landscape, no external evaluator. The residual IS the error signal, and it carries its own navigation.
 
 ```
-1. OBSERVE    Ingest data → tokenize → Morton keys → Values
-                          → topology-guided recursive fold (graph)
-                          → HAS boundary synthesis (MacroIndex candidates)
+1. PROMPT     A prompt Value enters the Resonator.
+              The Resonator emits it as the initial navigation signal.
 
-2. PROMPT     Query arrives → exact continuation?
-              No → operator-mediated bridging (MacroIndex lookup)
-                → exact match? → apply
-                → no exact → approximate NN in PhaseDial space → apply
-              Report bridge result → RecordCandidateResult
+2. COMPOSE    The pipeline processes the signal through the transport graph.
+              Each intermediate Value contributes a motor to the chain.
 
-3. HARDEN     Repeated successful bridges increment UseCount
-              UseCount > threshold → opcode.Hardened = true
-              Hardened opcodes get PhaseDial embeddings for NN search
-              MacroOpcode.ToValue() encodes as primitive.Value with OpcodeMacro
+3. MEASURE    XOR(prompt, output) — the lattice distance, as a Value.
+              Not a scalar loss. A structured error with specific primes
+              and its own motor pointing at the region where the fix lives.
 
-4. EXECUTE    Interpreter encounters OpcodeMacro in program
-              → applies learned affine operator to running phase
-              → records execution trace (ExecutionStep per instruction)
+4. NAVIGATE   The residual's motor navigates to the correction region.
+              The system doesn't search. It follows the structure of
+              its own mistake. The error tells you WHAT's wrong and
+              WHERE to look.
 
-5. REIFY      Successful trace → ReifyTrace()
-              → composes affine chain into single (scale, translate)
-              → encodes as new OpcodeMacro Value
-              → feeds back into MacroIndex for future use
+5. CONVERGE   PopCount zero → the composition fully satisfies the prompt.
+              Repeated residual → orbit detected, trajectory exhausted.
+              if !residual.IsZero() { continue }  — that's a while loop,
+              not a reward function.
 
-              ┌──────────────────────────────────┐
-              │  Value = Data = Instruction =    │
-              │  Operator = Route = Memory       │
-              │  The medium programs itself.     │
-              └──────────────────────────────────┘
+6. REIFY      Resonator.Reify() collapses the motor trace into a single
+              (scale, translate) and encodes it as a tool Value.
+              Written back to the corpus, future prompts with high GCD
+              against the tool navigate to it automatically. Tools
+              compose into bigger tools. The loop builds tools. The
+              tools are found by the loop.
+
+              ┌──────────────────────────────────────┐
+              │  The loop is the only tool.          │
+              │  The loop builds tools.              │
+              │  The tools are found by the loop.    │
+              └──────────────────────────────────────┘
 ```
+
+Whatever structure the system builds in the lattice — trees, clusters, hierarchies, something with no human name — is whatever the 2^8191 space supports given the data that flows through it. The residuals decide. The primes decide. The motors decide. The system does not need to be told what structure to build. It needs a nonzero residual and a while loop.
+
+---
+
+## Distributed Substrate
+
+The Value is the wire format. 1024 bytes, fixed size, no serialization, no schema. One Value = one UDP datagram = one Ethernet frame. The `UniConn` abstracts over the transport hierarchy:
+
+| Scale | Transport | Latency |
+|:---|:---|:---|
+| Same process | Go channel / direct call | Nanoseconds |
+| Same machine | IPC (Unix domain socket) | Microseconds |
+| Same LAN | UDP multicast | Sub-millisecond |
+| Wide area | QUIC | Network-dependent |
+
+**Self-routing via AND**: each machine maintains a summary Value (OR of all stored Values). Route an operation by ANDing it against each summary. Non-zero → relevant. Zero → skip. 128 uint64 ANDs per machine — nanoseconds. The number theory IS the routing algorithm.
 
 ---
 
@@ -384,82 +359,74 @@ The defining architectural feature is that learned behaviors become native instr
 
 ### Prerequisites
 
-- **Go 1.25+**
-- **Cap'n Proto** compiler (for schema regeneration)
-- **Metal** (macOS) or **CUDA** toolkit (Linux/Windows) for GPU acceleration
+- **Go 1.26+**
+- **Metal** (macOS) or **CUDA** toolkit (Linux) for GPU acceleration (optional — CPU fallback always available)
 
 ### Build
 
 ```bash
-# Regenerate Cap'n Proto bindings and compile GPU kernels
-make build
-
-# Or just the Cap'n Proto schemas
-make capnp
-
-# Or just Metal shaders (macOS)
+# Compile Metal shaders (macOS)
 make metal
+
+# Compile CUDA kernels (Linux with NVIDIA GPU)
+make cuda
+
+# Both
+make build
 ```
 
-### Run Experiments
+### Run Tests
 
 ```bash
-# Run all experiments (generates LaTeX paper artifacts)
-make paper
-
-# Run a single experiment
-make pprof EXP=Text_Classification
-
-# Run tests
+# All tests
 go test ./...
+
+# Integration tests only
+go test ./test/integration/
+
+# With benchmarks
+go test -bench=. ./pkg/primitive/...
 ```
 
 ### Project Structure
 
 ```
 six/
-├── cmd/                          # CLI entry points
+├── cmd/                             # CLI entry points (Cobra)
 ├── pkg/
-│   ├── compute/kernel/           # GPU backends (CUDA, Metal, CPU)
-│   ├── errnie/                   # Error handling + state tracking
-│   ├── logic/
-│   │   ├── lang/primitive/       # The native Value monotype
-│   │   ├── substrate/            # Topology-guided recursive fold graph
-│   │   ├── topology/             # Persistence diagrams, UnionFind
-│   │   ├── synthesis/            # BVP cantilever, HAS, MacroIndex
-│   │   └── category/             # Functors, natural transformations
-│   ├── numeric/                  # GF(8191) math, geometry, phase
-│   ├── store/
-│   │   ├── data/                 # Morton coder, dataset providers
-│   │   └── dmt/                  # Radix-trie forest, server RPC
-│   ├── system/
-│   │   ├── core/                 # Configuration constants
-│   │   ├── cluster/              # Capability-based service routing
-│   │   ├── process/              # Tokenizer, sequencer
-│   │   ├── pool/                 # Worker pool + broadcast groups
-│   │   └── vm/                   # Machine orchestrator, interpreter
-│   ├── telemetry/                # Observability
-│   └── validate/                 # Invariant checks
-├── experiment/                   # Experiment harness + task definitions
-│   └── task/                     # classification, textgen, logic
-├── paper/                        # LaTeX research paper (auto-generated)
-├── docs/                         # Design documents
-└── Makefile                      # Build, test, and paper generation
+│   ├── primitive/                   # The native Value type
+│   │   ├── value.go                 # 8191-bit field, io.ReadWriteCloser, ISA
+│   │   ├── motor.go                 # Derived affine motor, compose, invert
+│   │   ├── prime.go                 # Sieve, BaseValue, PrimeIndex
+│   │   ├── operation/               # 16 truth-table Ops + motor Ops + RollLeft
+│   │   └── algebra/                 # Möbius inversion
+│   ├── transport/                   # io.ReadWriteCloser pipeline composition
+│   │   ├── stream.go                # Ring-buffer pipe, control frame interception
+│   │   ├── pipeline.go              # Sequential ReadWriter chain
+│   │   ├── resonator.go             # XOR-residual feedback, motor reify
+│   │   ├── flipflop.go              # Synchronous round-trip
+│   │   ├── pump.go                  # Feedback loop goroutine
+│   │   ├── feedback.go              # TeeReader pattern
+│   │   ├── graph.go                 # Directed node graph
+│   │   └── sink.go                  # Null device
+│   ├── compute/                     # GPU/CPU backends
+│   │   ├── backend.go               # Top-level wrapper
+│   │   └── kernel/
+│   │       ├── cpu/                 # Always-available CPU backend
+│   │       ├── metal/               # Apple Silicon Metal 3.1
+│   │       └── cuda/                # NVIDIA CUDA
+│   ├── network/                     # Transport hierarchy
+│   │   ├── conn.go                  # UniConn (unified io.ReadWriteCloser)
+│   │   ├── ipc.go                   # Unix domain sockets
+│   │   ├── udp.go                   # UDP multicast
+│   │   └── quic.go                  # QUIC for WAN
+│   ├── core/                        # Configuration and validation
+│   └── errnie/                      # Error handling
+├── test/integration/                # Empirical verification
+├── docs/                            # Design documents
+├── NEXTEST.md                       # Canonical architecture document
+└── Makefile                         # Build and test
 ```
-
----
-
-## Experiments
-
-All experiments use the full `vm.Machine` pipeline with real data. No oracles, no faked results.
-
-Experiments are structured as GoConvey BDD tests in `experiment/task/pipeline_test.go`. Each task:
-
-1. Boots the full machine (tokenizer, forest, graph, cantilever, HAS, macro index)
-2. Ingests a real dataset via batch transport
-3. Runs prompts through the multi-stage resolution pipeline
-4. Asserts observable outputs via `gc.So`
-5. Generates LaTeX artifacts for the research paper
 
 ---
 
@@ -467,44 +434,33 @@ Experiments are structured as GoConvey BDD tests in `experiment/task/pipeline_te
 
 ### Implemented
 
-- [x] GF(8191) Mersenne field with branchless reduction
-- [x] 8191-bit value substrate (Cap'n Proto, zero-copy RPC)
-- [x] Morton-keyed radix-trie forest
-- [x] MDL + Sequitur dual-track sequence boundary detection
-- [x] BVP cantilever solver with multi-stage prompt resolution
-- [x] Topology-guided recursive folding with persistent FoldNode hierarchy
-- [x] Macro index with exact + approximate (PhaseDial NN) operator lookup
-- [x] Hardening feedback loop: prompt-time bridge results → RecordCandidateResult
-- [x] MacroOpcode as Value (OpcodeMacro): learned operators as first-class Values
-- [x] Execution trace recording and reification (ReifyTrace → composed affine Value)
-- [x] Interpreter macro dispatch: native execution of learned operators
-- [x] Batch RPC transport (WriteBatch) for tokenizer, forest, and graph
-- [x] Category-theoretic functors for cross-domain operator transfer
-- [x] Topological persistence diagrams (H₀, H₁, Betti numbers)
-- [x] CUDA + Metal + CPU compute backends
-- [x] Full experiment harness with LaTeX paper generation
-- [x] Operator shell: affine, trajectory, route hints, guard radii, flags
-- [x] Autonomous tool building: gap detection → synthesis → bridging → hardening → native execution
-- [x] Tool composition: interpreter executes Value sequences (series); `ReifyTrace` composes traces into single operators
-- [x] Recursive meta-tools: `ReifyTrace` condenses traces containing `OpcodeMacro` steps into new operators (tools that build tools)
+- [x] 8191-bit prime-indexed Value type as `[128]uint64` with `io.ReadWriteCloser`
+- [x] All 16 truth-table operations with SIMD-optimized 128-word fast paths
+- [x] Motor derivation from bit pattern (hybrid sparse/dense with precomputed table)
+- [x] Motor composition, application, and inversion in GF(8191)
+- [x] `RollLeft` circular shift exploiting Mersenne-prime property
+- [x] ISA where instructions ARE prime-lattice points (truth-table index = structural index)
+- [x] In-band control frames for pipeline reconfiguration via instruction flag (bit 8191)
+- [x] `Stream` with ring-buffer pipe and control frame interception
+- [x] `Resonator` feedback loop: XOR residual, convergence detection, orbit detection, motor `Reify`
+- [x] `Pipeline`, `FlipFlop`, `Pump`, `Feedback`, `Graph`, `Sink` transport components
+- [x] CPU + Metal + CUDA compute backends with identical operation sets
+- [x] `UniConn` unified transport: IPC, UDP multicast, QUIC
+- [x] Möbius inversion for the square-free lattice
+- [x] Prime sieve (Eratosthenes) for first 8191 primes with `BaseValue` precomputation
+- [x] Integration tests: claims verification, classification, primes, motors, lattice, fuzz
 
 ### In Development
 
-- [ ] **Graph fold storage.** Persist FoldNode hierarchy into the Forest so fold products survive across sessions and enable graph-structural prompt resolution.
-- [ ] **Execution trace hardening.** Automatically feed ReifyTrace products into the MacroIndex so the interpreter's successful traces become available as macro operators.
-- [ ] **Distributed phase sync.** Peer-to-peer index merging across nodes with latency-aware timeout and phase reconciliation.
-- [ ] **Spatial paging strategy.** Prefetching Morton clusters into GPU shared memory to respect PCIe bandwidth constraints.
+- [ ] **Corpus storage.** Persistent Value collections enabling real data ingestion, retrieval via GCD, and Reify write-back so the feedback loop can accumulate tools.
+- [ ] **Composition orchestration.** Connect the Resonator's residual-tracking loop to a corpus so Material Nonimplication drives multi-fragment composition end-to-end.
+- [ ] **Tool accumulation.** Automatically feed Reify products back into the corpus so successful motor traces become reusable tools. Tools compose into bigger tools. Whatever structure emerges is the system's own discovery.
 
 ### Research Horizon
 
-- [ ] **Cross-modal anchoring.** Text, image, and sensor data share a label phase. The anchor is multiplicatively injected during ingest. Query inverts the label, and all modalities that carry it resonate simultaneously.
-- [ ] **Autonomous curiosity.** The system scans its own index for low-resonance gaps and synthesizes new macro-opcodes during idle cycles without human prompting.
-
----
-
-## Citation
-
-This project is documented in a companion research paper generated automatically from experiment results. See [`paper/`](paper/) for the LaTeX source.
+- [ ] **Cross-modal ingestion.** Text, image, and sensor data as raw bytes → BaseValue → same lattice. Structural overlap via shared prime factors replaces learned embedding alignment.
+- [ ] **Distributed corpus.** Summary-Value routing across UDP multicast (LAN) and QUIC (WAN) for peer-to-peer lattice queries with no central coordinator.
+- [ ] **Autonomous curiosity.** The system scans its own corpus for low-resonance gaps and synthesizes new tool Values during idle cycles without human prompting.
 
 ---
 
