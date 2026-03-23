@@ -24,11 +24,11 @@ func NewBackend() *Backend {
 /*
 Available probes NVML for GPU count.
 */
-func (backend *Backend) Available() (int, error) {
+func Available() int {
 	ret := nvml.Init()
 
 	if ret != nvml.SUCCESS {
-		return 0, CUDAErrorUnavailable
+		return 0
 	}
 
 	defer nvml.Shutdown()
@@ -36,10 +36,22 @@ func (backend *Backend) Available() (int, error) {
 	count, ret := nvml.DeviceGetCount()
 
 	if ret != nvml.SUCCESS {
-		return 0, CUDAErrorUnavailable
+		return 0
 	}
 
-	return int(count), nil
+	return int(count)
+}
+
+func (backend *Backend) Read(p []byte) (n int, err error) {
+	return
+}
+
+func (backend *Backend) Write(p []byte) (n int, err error) {
+	return
+}
+
+func (backend *Backend) Close() error {
+	return nil
 }
 
 func (backend *Backend) BitwiseOr(a, b, dst unsafe.Pointer, n uint32) error {

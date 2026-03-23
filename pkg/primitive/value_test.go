@@ -1,243 +1,185 @@
 package primitive
 
 import (
+	"errors"
+	"fmt"
 	"io"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 )
 
-func TestValueError(t *testing.T) {
-	Convey("Given a ValueError", t, func() {
-		Convey("It should return its string representation", func() {
-			So(ErrShortValue.Error(), ShouldEqual, "value: buffer shorter than 1024 bytes")
+func TestIntegration(t *testing.T) {
+	Convey("Given a stream of bytes", t, func() {
+		data := make([]*Value, 256)
+		for i := range 256 {
+			data[i] = NewValueFromByte(byte(i))
+		}
+
+		Convey("When building the substrate", func() {
+			values := make([]*Value, 0)
+
+			for _, value := range data {
+				newValue := NewValue()
+				out := NewValue()
+				_, err := io.Copy(newValue, value)
+				So(err, ShouldBeNil)
+				_, err = io.Copy(out, newValue)
+				So(err, ShouldBeNil)
+				values = append(values, out)
+			}
+
+			Convey("It should emit new Values from the seed", func() {
+				So(len(values), ShouldEqual, 256)
+			})
 		})
 	})
 }
 
-func TestValue(t *testing.T) {
-	Convey("Given a fresh Value", t, func() {
-		value := NewValue()
+func TestNewValueFromByte(t *testing.T) {
+	for i := range 256 {
+		Convey(fmt.Sprintf(
+			"Given a Value initialized with byte %d", i,
+		), t, func() {
+			value := NewValueFromByte(byte(i))
 
-		Convey("It should start with all bits zero", func() {
-			So(value.PopCount(), ShouldEqual, 0)
-			So(value.IsZero(), ShouldBeTrue)
+			Convey("Every motor orbit position should be set", func() {
+				pos := i
+
+				for range 5 {
+					So(value[pos/64]&(1<<(pos%64)), ShouldNotEqual, 0)
+					pos = (pos*3 + 1) % logicalBits
+				}
+			})
+
+			Convey("No bits outside the data field should be set", func() {
+				for w := DataWords; w < Words; w++ {
+					So(value[w], ShouldEqual, 0)
+				}
+			})
 		})
+	}
+}
 
-		Convey("It should set and query individual bits", func() {
-			value.Set(0)
-			value.Set(42)
-			value.Set(8190)
+func TestRead(t *testing.T) {
+	Convey("Given a Value with a known data field", t, func() {
+		value := NewValueFromByte(42)
+		buf := make([]byte, ByteSize)
 
-			So(value.Has(0), ShouldBeTrue)
-			So(value.Has(42), ShouldBeTrue)
-			So(value.Has(8190), ShouldBeTrue)
-			So(value.Has(1), ShouldBeFalse)
-			So(value.PopCount(), ShouldEqual, 3)
-		})
-
-		Convey("It should round-trip through Read and Write", func() {
-			value.Set(7)
-			value.Set(100)
-			value.Set(4000)
-
-			buf := make([]byte, ByteSize)
+		Convey("It should serialize into a full-size buffer", func() {
 			n, err := value.Read(buf)
-			So(n, ShouldEqual, ByteSize)
-			So(err, ShouldEqual, io.EOF)
 
-			other := NewValue()
-			n, err = other.Write(buf)
+			So(n, ShouldEqual, ByteSize)
+			So(errors.Is(err, io.EOF), ShouldBeTrue)
+
+			var roundtrip Value
+			valueFrom(buf, &roundtrip)
+
+			for w := range Words {
+				So(roundtrip[w], ShouldEqual, value[w])
+			}
+		})
+
+		Convey("It should reject a short buffer", func() {
+			short := make([]byte, ByteSize-1)
+			n, err := value.Read(short)
+
+			So(n, ShouldEqual, 0)
+			So(errors.Is(err, io.ErrShortBuffer), ShouldBeTrue)
+		})
+	})
+}
+
+func TestWrite(t *testing.T) {
+	Convey("Given a source Value and a destination Value", t, func() {
+		src := NewValueFromByte(99)
+		dstOccupied := NewValueFromByte(7)
+
+		Convey("It should copy the incoming data field when the destination data field is empty", func() {
+			dst := NewValue()
+			buf := make([]byte, ByteSize)
+			_, _ = src.Read(buf)
+
+			n, err := dst.Write(buf)
+
 			So(n, ShouldEqual, ByteSize)
 			So(err, ShouldBeNil)
-
-			So(value.Equal(other), ShouldBeTrue)
+			for w := range 4 {
+				So(dst[w], ShouldEqual, src[w])
+			}
+			So(dst[4]&1, ShouldEqual, src[4]&1)
 		})
 
-		Convey("It should satisfy io.ReadWriteCloser exactly", func() {
-			var readWriteCloser io.ReadWriteCloser = value
+		Convey("It should reject a short payload", func() {
+			short := make([]byte, ByteSize-1)
+			n, err := dstOccupied.Write(short)
 
-			So(readWriteCloser, ShouldNotBeNil)
-			So(readWriteCloser.Close(), ShouldBeNil)
-		})
-
-		Convey("Read should return ErrShortValue on undersized buffer", func() {
-			n, err := value.Read(make([]byte, ByteSize-1))
 			So(n, ShouldEqual, 0)
-			So(err, ShouldEqual, ErrShortValue)
+			So(errors.Is(err, io.ErrShortBuffer), ShouldBeTrue)
 		})
 
-		Convey("Write should return ErrShortValue on undersized buffer", func() {
-			n, err := value.Write(make([]byte, ByteSize-1))
-			So(n, ShouldEqual, 0)
-			So(err, ShouldEqual, ErrShortValue)
-		})
-
-		Convey("Write should clamp the unused bit above CoreBits", func() {
+		Convey("It should copy incoming data into the operand when destination has data but incoming has no accumulator (osmosis)", func() {
 			buf := make([]byte, ByteSize)
-			buf[ByteSize-1] = 0xFF
+			_, _ = src.Read(buf)
 
-			v := NewValue()
-			v.Write(buf)
-			So(v[Words-1]&^uint64(LastMask), ShouldEqual, 0)
-		})
+			var before [DataWords]uint64
+			for w := range DataWords {
+				before[w] = dstOccupied[w]
+			}
 
-		Convey("Clamp should zero only the bit above CoreBits", func() {
-			value[Words-1] = ^uint64(0)
-			value.Clamp()
-			So(value[Words-1]&^uint64(LastMask), ShouldEqual, 0)
-			So(value[Words-1]&LastMask, ShouldEqual, uint64(LastMask))
-		})
+			n, err := dstOccupied.Write(buf)
 
-		Convey("IsZero should return false for a non-zero middle word", func() {
-			value[64] = 1
-			So(value.IsZero(), ShouldBeFalse)
-		})
-
-		Convey("Equal should return false for different Values", func() {
-			other := NewValue()
-			other.Set(42)
-			So(value.Equal(other), ShouldBeFalse)
-		})
-	})
-}
-
-func TestValuePortableRoundTrip(t *testing.T) {
-	Convey("Given the portable (big-endian) serialization path", t, func() {
-		origTo, origFrom := valueTo, valueFrom
-		valueTo, valueFrom = valueToPortable, valueFromPortable
-
-		Reset(func() {
-			valueTo, valueFrom = origTo, origFrom
-		})
-
-		Convey("It should round-trip a Value with scattered bits", func() {
-			value := NewValue()
-			value.Set(0)
-			value.Set(63)
-			value.Set(64)
-			value.Set(511)
-			value.Set(4096)
-			value.Set(CoreBits - 1)
-
-			buf := make([]byte, ByteSize)
-			n, err := value.Read(buf)
-			So(n, ShouldEqual, ByteSize)
-			So(err, ShouldEqual, io.EOF)
-
-			other := NewValue()
-			n, err = other.Write(buf)
 			So(n, ShouldEqual, ByteSize)
 			So(err, ShouldBeNil)
-
-			So(value.Equal(other), ShouldBeTrue)
+			for w := range 4 {
+				So(dstOccupied[w], ShouldEqual, before[w])
+			}
+			So(dstOccupied[4]&0x1F, ShouldEqual, before[4]&0x1F)
+			So(dstOccupied[OperandStart>>6], ShouldNotEqual, 0)
 		})
 
-		Convey("It should round-trip a fully saturated Value", func() {
-			value := NewValue()
-
-			for i := range CoreBits {
-				value.Set(i)
+		Convey("It should copy incoming accumulator into the operand without changing the data field", func() {
+			var before [DataWords]uint64
+			for w := range DataWords {
+				before[w] = dstOccupied[w]
 			}
+
+			incoming := NewValue()
+			incoming[AccumStart>>6] |= 1
 
 			buf := make([]byte, ByteSize)
-			value.Read(buf)
+			valueTo(incoming, buf)
 
-			other := NewValue()
-			other.Write(buf)
+			n, err := dstOccupied.Write(buf)
 
-			So(value.Equal(other), ShouldBeTrue)
-		})
-
-		Convey("It should produce the same bytes as the native path", func() {
-			value := NewValue()
-
-			for i := range 200 {
-				value.Set(i * 41 % CoreBits)
+			So(n, ShouldEqual, ByteSize)
+			So(err, ShouldBeNil)
+			for w := range DataWords {
+				So(dstOccupied[w], ShouldEqual, before[w])
 			}
-
-			portBuf := make([]byte, ByteSize)
-			valueToPortable(value, portBuf)
-
-			nativeBuf := make([]byte, ByteSize)
-			origTo(value, nativeBuf)
-
-			So(portBuf, ShouldResemble, nativeBuf)
-		})
-
-		Convey("It should reconstruct the same Value as the native path", func() {
-			src := NewValue()
-
-			for i := range 200 {
-				src.Set(i * 41 % CoreBits)
-			}
-
-			buf := make([]byte, ByteSize)
-			origTo(src, buf)
-
-			portVal := NewValue()
-			valueFromPortable(buf, portVal)
-
-			nativeVal := NewValue()
-			origFrom(buf, nativeVal)
-
-			So(portVal.Equal(nativeVal), ShouldBeTrue)
-			So(portVal.Equal(src), ShouldBeTrue)
 		})
 	})
 }
 
-func BenchmarkPortableRead(b *testing.B) {
-	origTo := valueTo
-	valueTo = valueToPortable
+func TestClose(t *testing.T) {
+	Convey("Given a Value", t, func() {
+		value := NewValueFromByte(1)
 
-	defer func() { valueTo = origTo }()
-
-	value := NewValue()
-
-	for i := range 50 {
-		value.Set(i * 37 % CoreBits)
-	}
-
-	buf := make([]byte, ByteSize)
-	b.ReportAllocs()
-
-	for b.Loop() {
-		value.Read(buf)
-	}
+		Convey("It should return nil", func() {
+			So(value.Close(), ShouldBeNil)
+		})
+	})
 }
 
-func BenchmarkPortableWrite(b *testing.B) {
-	origTo, origFrom := valueTo, valueFrom
-	valueTo, valueFrom = valueToPortable, valueFromPortable
-
-	defer func() { valueTo, valueFrom = origTo, origFrom }()
-
-	src := NewValue()
-
-	for i := range 50 {
-		src.Set(i * 37 % CoreBits)
-	}
-
-	buf := make([]byte, ByteSize)
-	src.Read(buf)
-	dst := NewValue()
-	b.ReportAllocs()
-
+func BenchmarkNewValueFromByte(b *testing.B) {
 	for b.Loop() {
-		dst.Write(buf)
+		NewValueFromByte(42)
 	}
 }
 
 func BenchmarkRead(b *testing.B) {
-	value := NewValue()
-
-	for i := range 50 {
-		value.Set(i * 37 % CoreBits)
-	}
-
+	value := NewValueFromByte(42)
 	buf := make([]byte, ByteSize)
-	b.ReportAllocs()
 
 	for b.Loop() {
 		value.Read(buf)
@@ -245,86 +187,20 @@ func BenchmarkRead(b *testing.B) {
 }
 
 func BenchmarkWrite(b *testing.B) {
-	src := NewValue()
-
-	for i := range 50 {
-		src.Set(i * 37 % CoreBits)
-	}
-
+	src := NewValueFromByte(99)
 	buf := make([]byte, ByteSize)
-	src.Read(buf)
-	dst := NewValue()
-	b.ReportAllocs()
+	_, _ = src.Read(buf)
 
 	for b.Loop() {
-		dst.Write(buf)
+		dst := NewValue()
+		_, _ = dst.Write(buf)
 	}
 }
 
-func BenchmarkSet(b *testing.B) {
-	value := NewValue()
-	b.ReportAllocs()
+func BenchmarkClose(b *testing.B) {
+	value := NewValueFromByte(1)
 
 	for b.Loop() {
-		value.Set(4321)
-	}
-}
-
-func BenchmarkHas(b *testing.B) {
-	value := NewValue()
-	value.Set(4321)
-	b.ReportAllocs()
-
-	for b.Loop() {
-		value.Has(4321)
-	}
-}
-
-func BenchmarkClamp(b *testing.B) {
-	value := NewValue()
-	value[Words-1] = ^uint64(0)
-	b.ReportAllocs()
-
-	for b.Loop() {
-		value.Clamp()
-	}
-}
-
-func BenchmarkPopCount(b *testing.B) {
-	value := NewValue()
-
-	for i := range 500 {
-		value.Set(i * 17 % CoreBits)
-	}
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		value.PopCount()
-	}
-}
-
-func BenchmarkIsZero(b *testing.B) {
-	value := NewValue()
-	b.ReportAllocs()
-
-	for b.Loop() {
-		value.IsZero()
-	}
-}
-
-func BenchmarkEqual(b *testing.B) {
-	a := NewValue()
-	c := NewValue()
-
-	for i := range 50 {
-		a.Set(i * 37 % CoreBits)
-		c.Set(i * 37 % CoreBits)
-	}
-
-	b.ReportAllocs()
-
-	for b.Loop() {
-		a.Equal(c)
+		value.Close()
 	}
 }

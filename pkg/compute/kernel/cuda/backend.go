@@ -36,7 +36,6 @@ import (
 Backend dispatches Value-native GPU kernels on NVIDIA CUDA devices.
 */
 type Backend struct {
-	*transport.Stream
 	initOnce    sync.Once
 	deviceCount int
 }
@@ -45,9 +44,7 @@ type Backend struct {
 NewBackend returns a CUDA kernel Backend.
 */
 func NewBackend() *Backend {
-	return &Backend{
-		Stream: transport.NewStream(),
-	}
+	return &Backend{}
 }
 
 func (backend *Backend) init() {
@@ -63,14 +60,26 @@ func (backend *Backend) init() {
 /*
 Available returns the number of CUDA-capable GPUs.
 */
-func (backend *Backend) Available() (int, error) {
+func Available() int {
 	backend.init()
 
 	if backend.deviceCount == 0 {
-		return 0, CUDAErrorUnavailable
+		return 0
 	}
 
-	return backend.deviceCount, nil
+	return backend.deviceCount
+}
+
+func (backend *Backend) Read(p []byte) (n int, err error) {
+	return
+}
+
+func (backend *Backend) Write(p []byte) (n int, err error) {
+	return
+}
+
+func (backend *Backend) Close() error {
+	return nil
 }
 
 func (backend *Backend) BitwiseOr(a, b, dst unsafe.Pointer, numValues uint32) error {

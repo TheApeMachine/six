@@ -8,7 +8,6 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/internaltest"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/primitive/operation"
 )
 
 func TestCUDABackend_BatchCorrectness(t *testing.T) {
@@ -32,7 +31,7 @@ func TestCUDABackend_BatchCorrectness(t *testing.T) {
 				uint32(len(left)),
 			)
 			So(err, ShouldBeNil)
-			So(dst, ShouldResemble, internaltest.ExpectedBinary(left, right, operation.AND))
+			So(dst, ShouldResemble, internaltest.ExpectedBinary(left, right, func(a, b uint64) uint64 { return a & b }))
 
 			err = backend.BitwiseXor(
 				internaltest.ValuesPointer(left),

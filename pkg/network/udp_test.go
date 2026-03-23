@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"io"
 	"testing"
 
@@ -67,6 +68,70 @@ func TestUDPMulticastImplementsRWC(t *testing.T) {
 		gc.Convey("It should satisfy io.ReadWriteCloser", func() {
 			var _ io.ReadWriteCloser = udp
 			gc.So(udp, gc.ShouldNotBeNil)
+		})
+	})
+}
+
+func TestUDPMulticastWithContext(t *testing.T) {
+	gc.Convey("Given a UDPMulticast with a custom context", t, func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		udp := NewUDPMulticast(UDPMulticastWithContext(ctx))
+
+		gc.Convey("It should propagate cancellation from the parent context", func() {
+			gc.So(udp.ctx.Err(), gc.ShouldBeNil)
+			cancel()
+			gc.So(udp.ctx.Err(), gc.ShouldNotBeNil)
+		})
+
+		gc.Reset(func() {
+			cancel()
+			udp.Close()
+		})
+	})
+}
+
+func TestUDPMulticastErrorString(t *testing.T) {
+	gc.Convey("Given UDPMulticastError constants", t, func() {
+		gc.Convey("ErrUDPNotBound should satisfy the error interface", func() {
+			var err error = ErrUDPNotBound
+			gc.So(err.Error(), gc.ShouldEqual, "udp: no socket bound")
+		})
+	})
+}
+
+func TestUDPMulticastListenerWrite(t *testing.T) {
+	gc.Convey("Given a UDP multicast listener using the WriteToUDP path", t, func() {
+		group := "224.0.0.251:9996"
+
+		listener := NewUDPMulticast(UDPMulticastWithListener(group, ""))
+		gc.So(listener.err, gc.ShouldBeNil)
+
+		gc.Convey("It should write without error via the non-dialed branch", func() {
+			gc.So(listener.dialed, gc.ShouldBeFalse)
+
+			payload := make([]byte, 1024)
+			payload[0] = 0x77
+
+			n, err := listener.Write(payload)
+			gc.So(err, gc.ShouldBeNil)
+			gc.So(n, gc.ShouldEqual, 1024)
+		})
+
+		gc.Reset(func() {
+			listener.Close()
+		})
+	})
+}
+
+func TestUDPMulticastCloseOnBound(t *testing.T) {
+	gc.Convey("Given a bound UDP multicast socket", t, func() {
+		group := "224.0.0.251:9995"
+		udp := NewUDPMulticast(UDPMulticastWithDialer(group))
+		gc.So(udp.err, gc.ShouldBeNil)
+		gc.So(udp.conn, gc.ShouldNotBeNil)
+
+		gc.Convey("Close should release the socket without error", func() {
+			gc.So(udp.Close(), gc.ShouldBeNil)
 		})
 	})
 }

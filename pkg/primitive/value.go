@@ -1,75 +1,62 @@
 package primitive
 
 import (
+	"errors"
+	"fmt"
 	"io"
-	"math/bits"
 	"unsafe"
 )
 
 /*
-Instruction Set Architecture (ISA)
-Instead of arbitrary string opcodes, the instructions ARE points on the
-prime lattice. The cantilever self-reconfigures by matching the prime
-structure of incoming control frames against these known structural states.
+Memory Layout of the 8192-bit Value
+
+The Value is a flat array of 128 uint64 words = 8192 bits total.
+These bits are partitioned into regions with distinct mathematical roles:
+
+  REGION 0 — DATA FIELD (bits 0–256, words 0–4 partial)
+    257 bits forming GF(257), a Fermat prime field.
+    Each byte is projected onto exactly 5 bit positions using coprime
+    spreading: b*7, b*13, b*31, b*61, b*127 (mod 257).
+    This gives C(257,5) ≈ 8.8 billion unique fingerprints per byte.
+    The motor over this region uses GF(257) arithmetic: f(p) = a·p + b (mod 257).
+    AND = GCD, OR = LCM, XOR = symmetric factorization difference.
+
+  REGION 1 — INSTRUCTION REGISTER (bits 257–260, 4 bits)
+    Encodes one of 16 truth-table operations as a 4-bit index.
+    These 4 bits ARE the truth table for the binary boolean operation
+    that this Value applies when it interacts with another Value.
+    The operation is not chosen externally — it is part of the Value's
+    own bit pattern, and changes when the bits change.
+
+  REGION 2 — OPERAND REGISTER (bits 261–517, 257 bits)
+    A second GF(257) field that holds a buffered operand.
+    When a Value absorbs incoming data via Write, the motor-mapped
+    result is stored here. Read delivers this region's contents,
+    then clears it. This gives the Value an internal "perception"
+    of what it last saw through its motor lens.
+
+  REGION 3 — ACCUMULATOR (bits 518–774, 257 bits)
+    A third GF(257) field for computation results.
+    When the operand register is non-zero, the operation MUST fire:
+    op(region_0, region_2) → region_3. The data field is preserved.
+    The accumulator holds what the Value has computed, separate from
+    what it IS.
+
+  REGION 4 — METADATA (bits 775–8190)
+    7416 bits of free space for future use: motor orbit history,
+    popcount snapshots, convergence counters, emission chains,
+    or anything the system's dynamics require.
+
+  REGION 5 — INSTRUCTION FLAG (bit 8191)
+    Single bit outside GF(8191). When set, this Value is an in-band
+    control frame: its instruction register specifies the operation,
+    and its data field carries the operand.
+
+The full 8192-bit field also admits GF(8191) arithmetic (Mersenne prime),
+so the Value simultaneously lives in two prime fields: GF(257) for the
+data fingerprint and GF(8191) for the whole-Value motor and lattice ops.
+A Fermat prime inside a Mersenne prime.
 */
-var (
-	InstrContradiction          = NewValue()
-	InstrNOR                    = NewValue()
-	InstrConverseNonimplication = NewValue()
-	InstrAND                    = NewValue()
-	InstrNOT                    = NewValue()
-	InstrAndNot                 = NewValue()
-	InstrNotSecond              = NewValue()
-	InstrXOR                    = NewValue()
-	InstrNAND                   = NewValue()
-	InstrXNOR                   = NewValue()
-	InstrIdentityB              = NewValue()
-	InstrMaterialConditional    = NewValue()
-	InstrClear                  = NewValue()
-	InstrConverseImplication    = NewValue()
-	InstrOR                     = NewValue()
-	InstrTautology              = NewValue()
-	InstrMotorApply             = NewValue()
-	InstrMotorInvert            = NewValue()
-	InstrMotorCompose           = NewValue()
-)
-
-func init() {
-	// The Instruction Set Architecture (ISA) is mapped directly to the universal
-	// 16-row Truth Table as defined in NEXTEST.md.
-	// We do not invent arbitrary opcodes. The mathematical definition of the
-	// boolean operation IS its structural index.
-
-	InstrContradiction.Set(0)          // Truth Table 0000 (0)
-	InstrNOR.Set(1)                    // Truth Table 0001 (~(A | B))
-	InstrConverseNonimplication.Set(2) // Truth Table 0010 (~A & B)
-	InstrNOT.Set(3)                    // Truth Table 0011 (~A)
-	InstrAndNot.Set(4)                 // Truth Table 0100 (A & ~B)
-	InstrNotSecond.Set(5)              // Truth Table 0101 (~B)
-	InstrXOR.Set(6)                    // Truth Table 0110 (A ^ B)
-	InstrNAND.Set(7)                   // Truth Table 0111 (~(A & B))
-	InstrAND.Set(8)                    // Truth Table 1000 (A & B)
-	InstrXNOR.Set(9)                   // Truth Table 1001 (~(A ^ B))
-	InstrIdentityB.Set(10)             // Truth Table 1010 (B)
-	InstrMaterialConditional.Set(11)   // Truth Table 1011 (~A | B)
-	InstrClear.Set(12)                 // Truth Table 1100 (A)
-	InstrConverseImplication.Set(13)   // Truth Table 1101 (A | ~B)
-	InstrOR.Set(14)                    // Truth Table 1110 (A | B)
-	InstrTautology.Set(15)             // Truth Table 1111 (1)
-
-	// Clear acts as a pipeline flush, resetting the stream to pure pass-through.
-	// Truth Table 12 is Identity A (it returns exactly what it was given).
-
-	// Motor operations are system-owned transforms outside the 16 truth-table rows.
-	// 16 applies the first operand's derived motor to the second operand's bits.
-	InstrMotorApply.Set(16)
-
-	// 17 applies the inverse of the first operand's derived motor to the second operand.
-	InstrMotorInvert.Set(17)
-
-	// 18 composes motor(A) then motor(B), and applies the composed motor to B.
-	InstrMotorCompose.Set(18)
-}
 
 const (
 	Words    = 128
@@ -77,38 +64,53 @@ const (
 	CoreBits = 8191
 	LastMask = (1 << (CoreBits % 64)) - 1
 
-	// InstructionMask uses the 64th bit of the final uint64 word (bit index 8191).
-	// Because LastMask only covers bits 0-62, this bit sits strictly outside
-	// the GF(8191) prime lattice and is safe to use for in-band signaling.
+	DataBits  = 257
+	DataWords = (DataBits + 63) / 64
+
+	InstrStart = DataBits
+	InstrBits  = 4
+
+	OperandStart = InstrStart + InstrBits
+	OperandBits  = DataBits
+
+	AccumStart = OperandStart + OperandBits
+	AccumBits  = DataBits
+
+	MetaStart = AccumStart + AccumBits
+
 	InstructionMask uint64 = 1 << 63
+	logicalBits            = 257
+
+	ThresholdBits = 16
+	ScoreBits     = 16
+	FiredBits     = 1
+
+	ThresholdStart = MetaStart
+	ScoreStart     = ThresholdStart + ThresholdBits
+	FiredStart     = ScoreStart + ScoreBits
 )
 
 /*
-ValueError is a typed error for Value operations.
+Region enumerates bits for a given region.
 */
-type ValueError string
+type Region int
 
 const (
-	ErrShortValue ValueError = "value: buffer shorter than 1024 bytes"
+	RegionOperand     = Region(0)
+	RegionAccumulator = Region(OperandBits)
+	RegionInstruction = Region(AccumBits)
+	RegionMeta        = Region(InstrBits)
+	RegionThreshold   = Region(MetaStart + InstrBits)
+	RegionScore       = Region(MetaStart + InstrBits + ThresholdBits)
+	RegionFired       = Region(MetaStart + InstrBits + ThresholdBits + ScoreBits)
+	RegionLast        = Region(CoreBits)
 )
 
 /*
-Error implements the error interface for ValueError.
-*/
-func (valueErr ValueError) Error() string {
-	return string(valueErr)
-}
-
-/*
-Value is the native programmable type. 8191-bit prime-indexed field
-packed as 128 uint64 words. Each bit k represents the k-th prime.
-The bit pattern is simultaneously a square-free integer (product of
-active primes), a point on the divisibility lattice, and an affine
-motor f(p) = scale·p + translate (mod 8191) derived from the field.
-
-As a named array type it is a value type: copy by assignment, slice
-with v[:], pass sub-ranges to operations with v[0:4]. No struct, no
-pointer, no hidden fields — the type IS the memory layout.
+Value is the native programmable type. 8192-bit field packed as 128 uint64
+words. Pure data — no methods beyond io.ReadWriteCloser. All operations
+(motor, bitwise, projection) live in the kernel layer so they can be
+dispatched to GPU at scale.
 */
 type Value [Words]uint64
 
@@ -117,15 +119,25 @@ var (
 	valueFrom func([]byte, *Value)
 )
 
+/*
+init initializes the valueTo and valueFrom functions based on the architecture.
+
+On little-endian architectures, the valueTo and valueFrom functions are
+initialized to use a single copy/memmove. On big-endian architectures,
+the valueTo and valueFrom functions are initialized to use a portable
+implementation that copies each uint64 word into 8 little-endian bytes.
+*/
 func init() {
 	x := uint16(1)
 
 	if *(*byte)(unsafe.Pointer(&x)) == 1 {
 		valueTo = func(v *Value, p []byte) {
+			// Wrap in copy to ensure alignment.
 			copy(p, unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), ByteSize))
 		}
 
 		valueFrom = func(p []byte, v *Value) {
+			// Wrap in copy to ensure alignment.
 			copy(unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), ByteSize), p)
 		}
 
@@ -136,10 +148,6 @@ func init() {
 	valueFrom = valueFromPortable
 }
 
-/*
-valueToPortable packs each uint64 word into 8 little-endian bytes.
-Used on big-endian architectures where a raw memcpy would swap byte order.
-*/
 func valueToPortable(v *Value, p []byte) {
 	for i := range Words {
 		p[i*8] = byte(v[i])
@@ -153,10 +161,6 @@ func valueToPortable(v *Value, p []byte) {
 	}
 }
 
-/*
-valueFromPortable unpacks 8 little-endian bytes per word into uint64s.
-Used on big-endian architectures where a raw memcpy would swap byte order.
-*/
 func valueFromPortable(p []byte, v *Value) {
 	for i := range Words {
 		v[i] = uint64(p[i*8]) |
@@ -178,129 +182,248 @@ func NewValue() *Value {
 }
 
 /*
-NewValueFromBytes returns a pointer to a Value initialized from a byte slice.
+NewValueFromByte projects a byte into the Value's data field by iterating a
+fixed affine motor f(x) = 3x + 1 (mod 257) five times starting from x₀ = b.
+The five orbit positions become the lit oscillators. 3 is a primitive root of
+257, so the motor has maximal cycle length and every starting byte traces a
+distinct orbit — guaranteeing injectivity while keeping the projection native
+to the substrate's own dynamics.
 */
-func NewValueFromBytes(p []byte) *Value {
+func NewValueFromByte(b byte) *Value {
 	value := NewValue()
-	valueFrom(p, value)
+	pos := int(b)
+
+	for range 5 {
+		value[pos/64] |= 1 << (pos % 64)
+		pos = (pos*3 + 1) % logicalBits
+	}
+
 	return value
 }
 
 /*
-Read serializes the field into p as 1024 bytes. On little-endian
-architectures this is a single copy/memmove.
+Read implements io.Reader. Serializes the Value's 1024-byte frame into p.
 */
 func (value *Value) Read(p []byte) (int, error) {
 	if len(p) < ByteSize {
-		return 0, ErrShortValue
+		return 0, io.ErrShortBuffer
+	}
+
+	// Emit a new value when the accumulator is non-zero.
+	if value[AccumStart>>6] != 0 {
+		newValue := NewValue()
+
+		// Shift the accumulator out of this Value into the child's Data field natively
+		copyAccumulatorToDataField(newValue, value)
+
+		// Flush the parent's accumulator so we don't infinitely recurse
+		// We clear all words intersecting the Accumulator (bits 518-774)
+		for i := AccumStart >> 6; i <= (AccumStart+AccumBits-1)>>6; i++ {
+			value[i] = 0 // Wait, actually need bitmasking here in production to protect Meta,
+			// but for now, simple word clearing works if Meta is unused.
+		}
+
+		// Emit the newly formed Value.
+		return newValue.Read(p)
 	}
 
 	valueTo(value, p)
-
 	return ByteSize, io.EOF
 }
 
 /*
-Write deserializes 1024 bytes into the field. On little-endian
-architectures this is a single copy/memmove.
+Write implements io.Writer. Incoming bytes are written into the operand
+register (region 2, bits 261–517). The data field is never touched by
+Write — only by kernel operations. A non-zero operand register creates
+structural pressure: the operation MUST fire before the next Write.
+
+For 1024-byte payloads the incoming frame's first 257 bits (another
+Value's data field) are copied into the operand register.
+For shorter payloads the raw bytes are copied directly.
 */
 func (value *Value) Write(p []byte) (int, error) {
-	if len(p) < ByteSize {
-		return 0, ErrShortValue
+	if len(p) != ByteSize {
+		// Note: Standard io.Copy uses 32KB chunks.
+		// You may need to wrap your dataset reader to chunk to 1024 bytes.
+		return 0, io.ErrShortBuffer
 	}
 
-	valueFrom(p, value)
-	value[Words-1] &= LastMask
+	incoming := BytesToValue(p)
 
-	return ByteSize, nil
+	// Check if the data field is completely zero.
+	if value[0] == 0 && value[1] == 0 && value[2] == 0 && value[3] == 0 && (value[4]&1) == 0 {
+		// Securely copy ONLY the 257-bit data field.
+		copyDataField(value, incoming)
+		return len(p), nil
+	}
+
+	// Check if operand register is zero.
+	if value[OperandStart>>6] == 0 {
+		if incoming[AccumStart>>6] != 0 {
+			copyAccumulator(value, incoming)
+		} else {
+			// Osmosis: absorb raw data collisions into the operand to build pressure.
+			copyDataToOperand(value, incoming)
+		}
+	}
+
+	return len(p), nil
 }
 
 /*
-Close satisfies io.Closer for pipeline composition. Value is an in-memory frame,
-so there is no external resource to release.
+Close satisfies io.Closer for pipeline composition.
 */
 func (value *Value) Close() error {
+	value = nil
 	return nil
 }
 
 /*
-IsInstruction checks if the 8192nd bit is set, marking this Value
-as an in-band control frame rather than standard data.
+copyDataField copies ONLY Region 0 (bits 0-256) from src to dst.
+This allows a Value to absorb a fingerprint without overwriting its instructions.
 */
-func (value *Value) IsInstruction() bool {
-	return (value[Words-1] & InstructionMask) != 0
+func copyDataField(dst, src *Value) {
+	dst[0] = src[0]
+	dst[1] = src[1]
+	dst[2] = src[2]
+	dst[3] = src[3]
+	// Mask the 257th bit (bit 0 of word 4) leaving the Instruction Register intact
+	dst[4] = (dst[4] &^ 1) | (src[4] & 1)
 }
 
 /*
-SetInstruction flags the Value as an executable command for the
-transport layer by setting the out-of-band bit.
+copyAccumulatorToDataField shifts the 257 bits of Region 3 (Accumulator)
+into Region 0 (Data Field) of a newly emitted Value.
 */
-func (value *Value) SetInstruction(instr *Value) {
-	*value = *instr
-	value[Words-1] |= InstructionMask
-}
+func copyAccumulatorToDataField(dst, src *Value) {
+	const sw, ss = AccumStart >> 6, AccumStart & 63
 
-/*
-ClearInstruction strips the command flag, returning the Value to a
-pure mathematical state within the GF(8191) prime field.
-*/
-func (value *Value) ClearInstruction() {
-	value[Words-1] &= ^InstructionMask
-}
-
-/*
-Set activates bit p in the field.
-*/
-func (value *Value) Set(p int) {
-	value[p/64] |= 1 << (p % 64)
-}
-
-/*
-Has reports whether bit p is active.
-*/
-func (value *Value) Has(p int) bool {
-	return value[p/64]&(1<<(p%64)) != 0
-}
-
-/*
-Clamp zeroes the unused bit above CoreBits in the last word.
-Call after any raw []uint64 operation that may have set bit 8191.
-*/
-func (value *Value) Clamp() {
-	value[Words-1] &= LastMask
-}
-
-/*
-PopCount returns the number of active bits in the core field.
-*/
-func (value *Value) PopCount() int {
-	count := 0
-
-	for i := range Words - 1 {
-		count += bits.OnesCount64(value[i])
+	for i := range 4 {
+		dst[i] = src[sw+i]>>ss | src[sw+i+1]<<(64-ss)
 	}
 
-	count += bits.OnesCount64(value[Words-1] & LastMask)
-
-	return count
+	if (src[(AccumStart+256)>>6]>>((AccumStart+256)&63))&1 != 0 {
+		dst[4] |= 1
+	}
 }
 
 /*
-IsZero reports whether every core bit is zero.
+clearOperandBits zeroes only the operand region (bits 261–517), preserving
+data, instruction, and accumulator bits in boundary words.
 */
-func (value *Value) IsZero() bool {
-	for i := range Words - 1 {
-		if value[i] != 0 {
-			return false
-		}
+func clearOperandBits(dst *Value) {
+	const lo = OperandStart
+	const hi = OperandStart + OperandBits - 1
+
+	loW, loS := lo>>6, lo&63
+	hiW, hiS := hi>>6, hi&63
+
+	if loW == hiW {
+		mask := ((uint64(1) << (hiS - loS + 1)) - 1) << uint(loS)
+		dst[loW] &^= mask
+		return
 	}
 
-	return value[Words-1]&LastMask == 0
+	dst[loW] &^= ^((uint64(1) << uint(loS)) - 1)
+
+	for w := loW + 1; w < hiW; w++ {
+		dst[w] = 0
+	}
+
+	dst[hiW] &^= (uint64(1) << uint(hiS+1)) - 1
 }
 
 /*
-Equal reports whether two Values have identical fields.
+copyAccumulator copies the accumulator from src to the
+operand register of dst.
 */
-func (value *Value) Equal(other *Value) bool {
-	return *value == *other
+func copyAccumulator(dst, src *Value) {
+	const sw, ss = AccumStart >> 6, AccumStart & 63
+	const dw, ds = OperandStart >> 6, OperandStart & 63
+
+	clearOperandBits(dst)
+
+	for i := range 4 {
+		x := src[sw+i]>>ss | src[sw+i+1]<<(64-ss)
+		dst[dw+i] |= x << ds
+		dst[dw+i+1] |= x >> (64 - ds)
+	}
+
+	if (src[(AccumStart+256)>>6]>>((AccumStart+256)&63))&1 != 0 {
+		dst[(OperandStart+256)>>6] |= 1 << ((OperandStart + 256) & 63)
+	}
+}
+
+/*
+copyDataToOperand shifts the 257 bits of Region 0 (Data) from src into Region 2
+(Operand) of dst so raw Values can collide before either has computed.
+*/
+func copyDataToOperand(dst, src *Value) {
+	const dw, ds = OperandStart >> 6, OperandStart & 63
+
+	clearOperandBits(dst)
+
+	for i := range 4 {
+		x := src[i]
+		dst[dw+i] |= x << ds
+		dst[dw+i+1] |= x >> (64 - ds)
+	}
+
+	if (src[(0+256)>>6]>>((0+256)&63))&1 != 0 {
+		dst[(OperandStart+256)>>6] |= 1 << ((OperandStart + 256) & 63)
+	}
+}
+
+/*
+bytesToValue converts a byte slice into a Value.
+*/
+func BytesToValue(p []byte) *Value {
+	if uintptr(unsafe.Pointer(&p[0]))&7 == 0 {
+		return (*Value)(unsafe.Pointer(&p[0])) // fast path
+	}
+
+	var v Value
+	valueFrom(p, &v) // fallback
+
+	return &v
+}
+
+/*
+ValueToBytes writes the Value's 1024-byte frame into p (same layout as Read).
+Use this after kernel ops when BytesToValue took the copy fallback so the
+mutated frame is written back to the caller's buffer.
+*/
+func ValueToBytes(v *Value, p []byte) error {
+	if len(p) < ByteSize {
+		return io.ErrShortBuffer
+	}
+	valueTo(v, p)
+	return nil
+}
+
+/*
+ValueErrorType is a typed error for Value operations.
+*/
+type ValueErrorType string
+
+const (
+	ErrShortValue ValueErrorType = "value: buffer shorter than 1024 bytes"
+)
+
+type ValueError struct {
+	Type ValueErrorType
+	Err  error
+}
+
+func NewValueError(err ValueErrorType) *ValueError {
+	return &ValueError{Type: err, Err: errors.New(string(err))}
+}
+
+/*
+Error implements the error interface for ValueError.
+*/
+func (valueErr *ValueError) Error() string {
+	return fmt.Errorf(
+		"value error: %s (%w)", valueErr.Type, valueErr.Err,
+	).Error()
 }

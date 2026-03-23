@@ -16,7 +16,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/transport"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
@@ -33,28 +32,33 @@ All buffers use StorageModeShared (unified memory) so there is no
 host-to-device copy — the CPU and GPU share the same physical RAM.
 */
 type Backend struct {
-	*transport.Stream
 }
 
 /*
 NewBackend returns a Metal kernel Backend.
 */
 func NewBackend() *Backend {
-	return &Backend{
-		Stream: transport.NewStream(),
-	}
+	return &Backend{}
 }
 
 /*
 Available returns the number of Metal-capable GPUs present on this system,
 or an error if the Metal runtime failed to initialize.
 */
-func (backend *Backend) Available() (int, error) {
-	if !metalReady.Load() {
-		return 0, MetalErrorUnavailable
-	}
+func Available() int {
+	return int(C.count_metal_devices())
+}
 
-	return int(C.count_metal_devices()), nil
+func (backend *Backend) Read(p []byte) (n int, err error) {
+	return
+}
+
+func (backend *Backend) Write(p []byte) (n int, err error) {
+	return
+}
+
+func (backend *Backend) Close() error {
+	return nil
 }
 
 /*

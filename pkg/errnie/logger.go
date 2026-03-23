@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
-	"testing"
 	"time"
 
 	"github.com/charmbracelet/log"
@@ -28,14 +27,9 @@ var (
 )
 
 func init() {
-	/*
-		IDE test panels and log captures treat stderr as plain text, so ANSI
-		sequences show up as junk. Real terminals still get color when running
-		the normal binary (testing.Testing() is false).
-	*/
-	if testing.Testing() {
-		logger.SetColorProfile(termenv.Ascii)
-	}
+	// Match charmbracelet/log output to stderr: no ANSI when not a TTY (tests,
+	// pipes, redirects) or when env disables color (NO_COLOR, CI, etc.).
+	logger.SetColorProfile(termenv.NewOutput(os.Stderr).EnvColorProfile())
 }
 
 /*
@@ -94,6 +88,34 @@ func initLogFile() {
 	}
 
 	logger.Debug("Log file successfully initialized", "path", logFilePath)
+}
+
+/*
+Info logs the info message.
+*/
+func Info(msg string, keyvals ...any) {
+	logger.Info(msg, keyvals...)
+}
+
+/*
+Debug logs the debug message.
+*/
+func Debug(msg string, keyvals ...any) {
+	logger.Debug(msg, keyvals...)
+}
+
+/*
+Trace logs the trace message.
+*/
+func Trace(msg string, keyvals ...any) {
+	writeToLog(append(keyvals, msg)...)
+}
+
+/*
+Warn logs the warn message.
+*/
+func Warn(msg string, keyvals ...any) {
+	logger.Warn(msg, keyvals...)
 }
 
 /*
