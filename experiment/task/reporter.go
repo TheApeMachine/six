@@ -289,6 +289,22 @@ func barChartData(data any) (tools.BarChartData, error) {
 	}
 }
 
+func extractScores(data []tools.ExperimentalData, field string) []float64 {
+	out := make([]float64, len(data))
+	for i, row := range data {
+		out[i] = row.Scores.Exact
+	}
+	return out
+}
+
+func extractWeightedTotal(data []tools.ExperimentalData) []float64 {
+	out := make([]float64, len(data))
+	for i, row := range data {
+		out[i] = row.WeightedTotal
+	}
+	return out
+}
+
 func lineChartData(data any) (tools.LineChartData, error) {
 	switch typed := data.(type) {
 	case tools.LineChartData:

@@ -9,13 +9,10 @@ import (
 	"image/png"
 	"slices"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	"github.com/theapemachine/six/pkg/system/console"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
 // holdoutPercents are the nine occlusion levels tested.
@@ -28,6 +25,8 @@ const (
 	cifarC    = 4 // channels (NRGBA)
 	cifarSize = cifarW * cifarH * cifarC
 )
+
+var samples = 100
 
 /*
 ReconstructionExperiment evaluates image reconstruction quality across nine
@@ -46,7 +45,7 @@ Artifacts:
 */
 type ReconstructionExperiment struct {
 	tableData  []tools.ExperimentalData
-	dataset    provider.Dataset
+	dataset    data.Provider
 	prompt     []string
 	imageBytes [][]byte // raw NRGBA pixels per image, collected in Prompts()
 	evaluator  *tools.Evaluator
@@ -57,7 +56,7 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("uoft-cs/cifar10"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithTextColumn("img"),
 			huggingface.DatasetWithTransform(huggingface.DecodeImageBytes),
 		),
@@ -71,14 +70,9 @@ func NewReconstructionExperiment() *ReconstructionExperiment {
 	}
 }
 
-func (e *ReconstructionExperiment) Name() string              { return "reconstruction" }
-func (e *ReconstructionExperiment) Section() string           { return "imagegen" }
-func (e *ReconstructionExperiment) Dataset() provider.Dataset { return e.dataset }
-
-// Holdout is unused here; we build explicit samples in Prompts().
-func (e *ReconstructionExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
-}
+func (e *ReconstructionExperiment) Name() string           { return "reconstruction" }
+func (e *ReconstructionExperiment) Section() string        { return "imagegen" }
+func (e *ReconstructionExperiment) Dataset() data.Provider { return e.dataset }
 
 /*
 Prompts pre-fetches all images from the dataset and constructs one
@@ -91,10 +85,10 @@ func (e *ReconstructionExperiment) Prompts() []string {
 	var imgOrder []uint32
 
 	for tok := range e.dataset.Generate() {
-		if _, seen := imgMap[tok.SampleID]; !seen {
-			imgOrder = append(imgOrder, tok.SampleID)
+		if _, seen := imgMap[uint32(tok)]; !seen {
+			imgOrder = append(imgOrder, uint32(tok))
 		}
-		imgMap[tok.SampleID] = append(imgMap[tok.SampleID], tok.Symbol)
+		imgMap[uint32(tok)] = append(imgMap[uint32(tok)], tok)
 	}
 
 	slices.Sort(imgOrder)
@@ -117,7 +111,7 @@ func (e *ReconstructionExperiment) AddResult(results tools.ExperimentalData) {
 	e.tableData = append(e.tableData, results)
 }
 
-func (e *ReconstructionExperiment) Outcome() (any, gc.Assertion, any) {
+func (e *ReconstructionExperiment) Outcome() (any, Assertion, any) {
 	return e.evaluator.Outcome(e.Score())
 }
 
@@ -344,7 +338,6 @@ func nrgbaToBase64PNG(pixels []byte, w, h int) string {
 	}
 	var buf bytes.Buffer
 	if err := png.Encode(&buf, img); err != nil {
-		console.Error(err, "msg", "png.Encode failed")
 		return ""
 	}
 	return base64.StdEncoding.EncodeToString(buf.Bytes())

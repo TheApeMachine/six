@@ -36,8 +36,6 @@ func TestPipeline(t *testing.T) {
 		phasedial.NewQueryRobustnessExperiment(),
 		phasedial.NewSnapToSurfaceExperiment(),
 		phasedial.NewSteerabilityExperiment(),
-		phasedial.NewTorusGeneralizationExperiment(),
-		phasedial.NewTorusNavigationExperiment(),
 		phasedial.NewTwoHopRetrievalExperiment(),
 		imagegen.NewReconstructionExperiment(),
 		logic.NewBabiExperiment(),

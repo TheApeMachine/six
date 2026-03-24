@@ -3,10 +3,8 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
 /*
@@ -29,7 +27,7 @@ a denser web of value attractor bridges than raw encyclopaedic text.
 */
 type TextOverlapExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -39,7 +37,7 @@ func NewTextOverlapExperiment() *TextOverlapExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("roneneldan/TinyStories"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(100),
 			huggingface.DatasetWithTextColumn("text"),
 		),
 		// Baseline 0.05: TinyStories overlap patterns are dense enough
@@ -52,18 +50,13 @@ func NewTextOverlapExperiment() *TextOverlapExperiment {
 	}
 }
 
-func (experiment *TextOverlapExperiment) Name() string              { return "Text Overlap" }
-func (experiment *TextOverlapExperiment) Section() string           { return "textgen" }
-func (experiment *TextOverlapExperiment) Dataset() provider.Dataset { return experiment.dataset }
+func (experiment *TextOverlapExperiment) Name() string           { return "Text Overlap" }
+func (experiment *TextOverlapExperiment) Section() string        { return "textgen" }
+func (experiment *TextOverlapExperiment) Dataset() data.Provider { return experiment.dataset }
 
 func (experiment *TextOverlapExperiment) Prompts() []string {
 	experiment.prompt = []string{}
 	return experiment.prompt
-}
-
-// 40% right holdout — tests generation across the second main act of each story.
-func (experiment *TextOverlapExperiment) Holdout() (int, input.HoldoutType) {
-	return 40, input.RIGHT
 }
 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {

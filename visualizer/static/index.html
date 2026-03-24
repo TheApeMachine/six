@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>SIX — Graph Visualizer</title>
-  <meta name="description" content="Real-time 3D visualization of the SIX inference graph">
+  <title>SIX — Substrate Visualizer</title>
+  <meta name="description" content="Real-time 3D view of the Value · CPU substrate pipeline">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <style>
@@ -174,7 +174,10 @@
     .log-fold     { color: rgba(255, 180, 200, 0.6); }
     .log-result   { color: rgba(140, 255, 200, 0.7); }
     .log-pipeline { color: rgba(255, 220, 140, 0.7); }
+    .log-compute  { color: rgba(220, 170, 255, 0.7); }
+    .log-kernel   { color: rgba(170, 220, 255, 0.7); }
     .log-state    { color: var(--bp-ink-faint); }
+    .log-substrate { color: rgba(160, 230, 255, 0.85); }
 
     /* ── Sparkline ────────────────────────────────────────── */
     #sparkline-panel {
@@ -510,6 +513,8 @@
     .data-stream-label.stream-fold    { border-left-color: rgba(255, 180, 200, 0.6); color: rgba(255, 180, 200, 0.85); }
     .data-stream-label.stream-result  { border-left-color: var(--bp-green); color: var(--bp-green); }
     .data-stream-label.stream-prompt  { border-left-color: var(--bp-accent); color: var(--bp-accent); }
+    .data-stream-label.stream-compute { border-left-color: rgba(220, 170, 255, 0.7); color: rgba(220, 170, 255, 0.85); }
+    .data-stream-label.stream-kernel  { border-left-color: rgba(170, 220, 255, 0.7); color: rgba(170, 220, 255, 0.85); }
 
     /* ── Zone Activity Labels (stacked, no overlap) ──────── */
     .zone-activity-label {
@@ -776,62 +781,144 @@
     .log-line:hover { background: rgba(20, 40, 80, 0.4); }
     .log-line.filtered-out { display: none; }
 
+    /* ── Compute Gauges ─────────────────────────────────── */
+    .compute-gauge-row {
+      display: flex; gap: 8px; margin-bottom: 6px;
+    }
+    .compute-gauge {
+      flex: 1; display: flex; flex-direction: column; gap: 2px;
+    }
+    .compute-gauge-label {
+      font-size: 7px; text-transform: uppercase; letter-spacing: 1px;
+      color: var(--bp-ink-faint);
+    }
+    .compute-gauge-bar {
+      height: 4px; background: var(--bp-line); position: relative;
+      overflow: hidden;
+    }
+    .compute-gauge-fill {
+      height: 100%; transition: width 0.4s ease;
+    }
+    .compute-gauge-fill.success { background: rgba(140, 255, 200, 0.6); }
+    .compute-gauge-fill.utilization { background: rgba(220, 170, 255, 0.6); }
+    .compute-gauge-fill.queue { background: rgba(255, 220, 140, 0.6); }
+    .compute-gauge-value {
+      font-size: 8px; color: var(--bp-ink); text-align: right;
+    }
+
+    .worker-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, 12px);
+      gap: 2px; margin-top: 6px;
+    }
+    .worker-cell {
+      width: 12px; height: 12px; border-radius: 1px;
+      transition: background 0.3s; position: relative;
+    }
+    .worker-cell.idle { background: rgba(140, 255, 200, 0.15); border: 1px solid rgba(140, 255, 200, 0.2); }
+    .worker-cell.busy { background: rgba(220, 170, 255, 0.4); border: 1px solid rgba(220, 170, 255, 0.5); }
+    .worker-cell:hover::after {
+      content: attr(data-label);
+      position: absolute; bottom: 100%; left: 50%;
+      transform: translateX(-50%);
+      background: var(--bp-panel-bg); border: 1px solid var(--bp-line-strong);
+      color: var(--bp-ink); font-size: 7px; padding: 2px 4px;
+      white-space: nowrap; z-index: 10; pointer-events: none;
+    }
+
+    .latency-chart { margin-top: 8px; }
+    .latency-bar-row {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 7px; color: var(--bp-ink-faint); margin-bottom: 3px;
+    }
+    .latency-bar-row .latency-label { width: 28px; text-align: right; letter-spacing: 0.5px; }
+    .latency-bar-row .latency-track { flex: 1; height: 4px; background: var(--bp-line); position: relative; }
+    .latency-bar-row .latency-fill { height: 100%; background: rgba(220, 170, 255, 0.5); transition: width 0.4s; }
+    .latency-bar-row .latency-val { width: 36px; font-size: 7px; color: var(--bp-ink-dim); }
+
+    .circuit-breaker-row {
+      display: flex; align-items: center; gap: 6px;
+      font-size: 8px; padding: 3px 0; color: var(--bp-ink-dim);
+    }
+    .circuit-dot {
+      width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+    }
+    .circuit-dot.closed { background: rgba(140, 255, 200, 0.7); }
+    .circuit-dot.open { background: rgba(255, 140, 120, 0.8); }
+    .circuit-dot.half-open { background: rgba(255, 220, 140, 0.7); }
+
     /* ── Zone Glow (hover feedback on 3D zones) ──────────── */
     @keyframes zone-glow-pulse {
       0%, 100% { opacity: 0.06; }
       50% { opacity: 0.18; }
+    }
+
+    /* Legacy graph / pool / prompt UI — not used by substrate viz */
+    #execute-panel,
+    #prompt-bar,
+    #ingest-panel,
+    #ingest-toggle {
+      display: none !important;
+    }
+
+    #replay-bar .graph-mode-btn {
+      display: none !important;
     }
   </style>
 </head>
 <body>
 
   <div id="hud" class="panel">
-    <div class="hud-title">SIX · Graph</div>
+    <div class="hud-title">SIX · Substrate</div>
     <div class="hud-stat"><span>Events</span> <span class="val" id="stat-events">0</span></div>
-    <div class="hud-stat"><span>Ingested</span> <span class="val" id="stat-ingested">0</span></div>
-    <div class="hud-stat"><span>Stored</span> <span class="val" id="stat-edges">0</span></div>
-    <div class="hud-stat"><span>Groups</span> <span class="val" id="stat-groups">0</span></div>
-    <div class="hud-divider"></div>
-    <div class="hud-stat"><span>Queries</span> <span class="val" id="stat-queries">0</span></div>
-    <div class="hud-stat"><span>Paths</span> <span class="val" id="stat-paths">0</span></div>
-    <div class="hud-stat"><span>Folds</span> <span class="val" id="stat-folds">0</span></div>
-    <div class="hud-stat"><span>Token Nodes</span> <span class="val" id="stat-token-nodes">0</span></div>
-    <div class="hud-stat"><span>Flow Edges</span> <span class="val" id="stat-flow-edges">0</span></div>
-    <div class="hud-stat"><span>Fold Links</span> <span class="val" id="stat-fold-links">0</span></div>
+    <div class="hud-stat"><span>Frames</span> <span class="val" id="stat-ingested">0</span></div>
+    <div class="hud-stat"><span>Last op</span> <span class="val" id="stat-last-op">—</span></div>
     <div class="hud-divider"></div>
     <div class="hud-stat"><span>Status</span> <span class="val" id="stat-conn">offline</span></div>
     <div class="hud-stat"><span>Replay</span> <span class="val" id="stat-replay">live</span></div>
+    <div id="hud-legacy-stats" hidden>
+      <div class="hud-stat"><span>Stored</span> <span class="val" id="stat-edges">0</span></div>
+      <div class="hud-stat"><span>Groups</span> <span class="val" id="stat-groups">0</span></div>
+      <div class="hud-stat"><span>Queries</span> <span class="val" id="stat-queries">0</span></div>
+      <div class="hud-stat"><span>Paths</span> <span class="val" id="stat-paths">0</span></div>
+      <div class="hud-stat"><span>Folds</span> <span class="val" id="stat-folds">0</span></div>
+      <div class="hud-stat"><span>Token Nodes</span> <span class="val" id="stat-token-nodes">0</span></div>
+      <div class="hud-stat"><span>Flow Edges</span> <span class="val" id="stat-flow-edges">0</span></div>
+      <div class="hud-stat"><span>Fold Links</span> <span class="val" id="stat-fold-links">0</span></div>
+      <div class="hud-stat"><span>Workers</span> <span class="val" id="stat-workers">0</span></div>
+      <div class="hud-stat"><span>Queue</span> <span class="val" id="stat-queue">0</span></div>
+      <div class="hud-stat"><span>Jobs</span> <span class="val" id="stat-jobs-done">0</span></div>
+    </div>
   </div>
 
   <div id="pipeline" class="panel">
-    <div class="pipeline-title">Pipeline</div>
+    <div class="pipeline-title">Pipeline · 1024 B frame</div>
     <div class="pipeline-stage" id="stage-tokenize">
       <div class="dot"></div>
-      <span class="stage-label">Tokenizer</span>
+      <span class="stage-label">Frame</span>
       <span class="stage-info" id="stage-tokenize-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-insert">
       <div class="dot"></div>
-      <span class="stage-label">Radix Insert</span>
+      <span class="stage-label">Chamber</span>
       <span class="stage-info" id="stage-insert-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-lookup">
       <div class="dot"></div>
-      <span class="stage-label">Wavefront Lookup</span>
+      <span class="stage-label">CPU Kernel</span>
       <span class="stage-info" id="stage-lookup-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-fold">
       <div class="dot"></div>
-      <span class="stage-label">Recursive Fold</span>
+      <span class="stage-label">Registers</span>
       <span class="stage-info" id="stage-fold-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-decode">
       <div class="dot"></div>
-      <span class="stage-label">Decode</span>
+      <span class="stage-label">Cycle</span>
       <span class="stage-info" id="stage-decode-info"></span>
     </div>
   </div>
@@ -855,13 +942,13 @@
   </div>
 
   <div id="sparkline-panel" class="panel">
-    <div class="spark-title">Bit Density Over Time</div>
+    <div class="spark-title">Accumulator pressure (pop / 257)</div>
     <canvas id="sparkline-canvas" width="456" height="50"></canvas>
   </div>
 
   <div id="log-container"></div>
 
-  <div id="density-label">Store</div>
+  <div id="density-label">Accum</div>
   <div id="density-bar" class="panel"><div id="density-fill" style="height: 0%"></div></div>
 
   <div id="ingest-panel" class="panel">
@@ -907,6 +994,7 @@
     <button class="log-filter-btn" data-filter="pipeline">PIPE</button>
     <button class="log-filter-btn" data-filter="ingest">DATA</button>
     <button class="log-filter-btn" data-filter="fold">FOLD</button>
+    <button class="log-filter-btn" data-filter="compute">POOL</button>
   </div>
 
   <div id="prompt-bar" class="panel">
@@ -1106,25 +1194,21 @@
     const flowLayer = new THREE.Group();
     scene.add(flowLayer);
 
+    /* Five zones: the actual substrate path (dataset → frame → orchestrator → chamber → kernel). */
     const SYS = {
-      machine:   { x: 0,   z: 0,   w: 8, h: 6, label: 'MACHINE',     accent: true },
-      dataset:   { x: -16, z: 12,  w: 7, h: 5, label: 'DATASET'              },
-      tokenizer: { x: 0,   z: 12,  w: 8, h: 5, label: 'TOKENIZER'            },
-      forest:    { x: 16,  z: 12,  w: 7, h: 5, label: 'FOREST · DMT'         },
-      graph:     { x: 14,  z: 0,   w: 8, h: 6, label: 'GRAPH'                },
-      has:       { x: -14, z: 0,   w: 7, h: 5, label: 'HAS'                  },
-      macroIdx:  { x: 0,   z: -12, w: 8, h: 5, label: 'MACRO INDEX'          },
+      dataset: { x: -12, z: 11,  w: 7, h: 5, label: 'DATASET' },
+      frame:   { x: 0,   z: 12,  w: 7, h: 5, label: 'FRAME · 1024 B' },
+      machine: { x: 0,   z: 0,   w: 8, h: 6, label: 'ORCHESTRATOR', accent: true },
+      chamber: { x: 12,  z: 0,   w: 7, h: 6, label: 'VALUE · CHAMBER' },
+      kernel:  { x: 0,   z: -12, w: 8, h: 5, label: 'CPU KERNEL' },
     };
 
     const CONNS = [
-      { from: 'dataset',   to: 'tokenizer', tag: 'raw bytes'   },
-      { from: 'tokenizer', to: 'machine',   tag: 'morton keys' },
-      { from: 'machine',   to: 'forest',    tag: 'write keys'  },
-      { from: 'machine',   to: 'graph',     tag: 'paths'       },
-      { from: 'machine',   to: 'has',       tag: 'boundaries'  },
-      { from: 'has',       to: 'macroIdx',  tag: 'opcodes'     },
-      { from: 'graph',     to: 'macroIdx',  tag: 'tools'       },
-      { from: 'graph',     to: 'forest',    tag: 'lookup'      },
+      { from: 'dataset', to: 'frame',   tag: '1024 B frame' },
+      { from: 'frame',   to: 'machine', tag: 'Value.Write' },
+      { from: 'machine', to: 'chamber', tag: 'io.Copy merge' },
+      { from: 'chamber', to: 'kernel',  tag: 'motor + ALU' },
+      { from: 'kernel',  to: 'machine', tag: 'frame out' },
     ];
 
     const zoneMat = new THREE.LineBasicMaterial({ color: 0x4080c0, transparent: true, opacity: 0.22 });
@@ -1380,7 +1464,7 @@
     };
 
     function addFoldNode(bin, level, density, text, childCount) {
-      const sys = SYS.graph;
+      const sys = SYS.chamber;
       const rawText = (text || '').trim();
 
       foldLevelCounts[level] = (foldLevelCounts[level] || 0) + 1;
@@ -1476,6 +1560,11 @@
 
       totalIngested = 0; totalEdges = 0; totalQueries = 0; totalPaths = 0; totalFolds = 0;
       totalTokenNodes = 0; totalFlowEdges = 0; totalFoldLinks = 0;
+      substrateFrames = 0;
+      totalJobsScheduled = 0; totalJobsDone = 0; totalJobsFailed = 0;
+      poolWorkerCount = 0; poolIdleWorkers = 0; poolQueueSize = 0;
+      poolSuccessRate = 1.0; poolAvgLatencyMs = 0; poolP95LatencyMs = 0; poolP99LatencyMs = 0;
+      poolFailureCount = 0; poolJobHistory.length = 0; poolScaleHistory.length = 0; poolLatencyHistory.length = 0;
       statIngested.textContent = '0';
       statEdges.textContent = '0';
       statGroups.textContent = '0';
@@ -1485,8 +1574,12 @@
       statTokenNodes.textContent = '0';
       statFlowEdges.textContent = '0';
       statFoldLinks.textContent = '0';
+      statWorkers.textContent = '0';
+      statQueue.textContent = '0';
+      statJobsDone.textContent = '0';
       chunkText.textContent = '—';
       resultText.style.display = 'none';
+      if (statLastOp) statLastOp.textContent = '—';
       logBox.innerHTML = '';
 
       execPanel.style.display = 'none';
@@ -1520,6 +1613,7 @@
     const statFoldLinks = document.getElementById('stat-fold-links');
     const statConn = document.getElementById('stat-conn');
     const statReplay = document.getElementById('stat-replay');
+    const statLastOp = document.getElementById('stat-last-op');
     const chunkText = document.getElementById('chunk-text');
     const resultText = document.getElementById('result-text');
     const densityFill = document.getElementById('density-fill');
@@ -1562,6 +1656,27 @@
     let totalFlowEdges = 0;
     let totalFoldLinks = 0;
 
+    const statWorkers = document.getElementById('stat-workers');
+    const statQueue = document.getElementById('stat-queue');
+    const statJobsDone = document.getElementById('stat-jobs-done');
+
+    let substrateFrames = 0;
+
+    let totalJobsScheduled = 0;
+    let totalJobsDone = 0;
+    let totalJobsFailed = 0;
+    let poolWorkerCount = 0;
+    let poolIdleWorkers = 0;
+    let poolQueueSize = 0;
+    let poolSuccessRate = 1.0;
+    let poolAvgLatencyMs = 0;
+    let poolP95LatencyMs = 0;
+    let poolP99LatencyMs = 0;
+    let poolFailureCount = 0;
+    const poolJobHistory = [];
+    const poolScaleHistory = [];
+    const poolLatencyHistory = [];
+
     // ═══════════════════════════════════════════════════════════
     // EVENT ACCUMULATOR (per-component event history)
     // ═══════════════════════════════════════════════════════════
@@ -1599,23 +1714,19 @@
     let inspectorRefreshTimer = null;
 
     const ZONE_COMPONENTS = {
-      machine:   ['Machine', 'Program'],
-      dataset:   ['Dataset'],
-      tokenizer: ['Tokenizer', 'Sequencer'],
-      forest:    ['LSM', 'DMT'],
-      graph:     ['Graph', 'SpatialIndex'],
-      has:       ['HAS'],
-      macroIdx:  ['MacroIndex'],
+      machine: ['Machine', 'Program', 'Substrate'],
+      dataset: ['Dataset', 'Substrate'],
+      frame:   ['Tokenizer', 'Sequencer', 'Substrate'],
+      chamber: ['Graph', 'SpatialIndex', 'Substrate'],
+      kernel:  ['Kernel', 'Pool', 'Substrate'],
     };
 
     const ZONE_DESCRIPTIONS = {
-      machine:   'Central orchestrator — pipeline, execution, coordination',
-      dataset:   'External data source — raw byte streams',
-      tokenizer: 'Byte-level sequencer — boundary detection, morton coding',
-      forest:    'Immutable radix trie — key-value storage, prefix search',
-      graph:     'Logic substrate — recursive folding, AST graph, evaluation',
-      has:       'Boundary detection — affine derivation, pressure signals',
-      macroIdx:  'Opcode registry — macro instructions, candidate tracking',
+      machine: 'Orchestrates io between dataset, Value chamber, and CPU kernel',
+      dataset: 'Byte source (e.g. Hugging Face) — chunked into 1024-byte frames',
+      frame:   'Each frame is a primitive.Value on the wire',
+      chamber: 'Holds merged Value state — registers + instruction nibble',
+      kernel:  'cpu.Backend — motor (Accumulate) + truth-table ALU on operand pressure',
     };
 
     const inspectorPanel = document.getElementById('inspector-panel');
@@ -1718,8 +1829,8 @@
           forestEntryCount = d.entryCount;
         }
 
-        addZoneLabel('forest', `entry #${d.entryCount || '?'}`);
-        refreshInspectorIfMatch('forest');
+        addZoneLabel('frame', `entry #${d.entryCount || '?'}`);
+        refreshInspectorIfMatch('frame');
       }
 
       if (ev.component === 'Tokenizer' && ev.action === 'Value') {
@@ -1733,8 +1844,8 @@
           chunkText.textContent = text.slice(0, 120);
           activateStage('tokenize', `${edgeCount} edges`);
 
-          spawnDataStream('dataset', 'tokenizer', text || 'raw bytes', 'stream-ingest', 1200);
-          addZoneLabel('tokenizer', text);
+          spawnDataStream('dataset', 'frame', text || 'raw bytes', 'stream-ingest', 1200);
+          addZoneLabel('frame', text);
           log(`Ingest: "${text.slice(0, 50)}"`, 'ingest', ev);
         }
 
@@ -1743,8 +1854,8 @@
           statQueries.textContent = totalQueries;
           activateStage('tokenize', `${edgeCount} edges`);
 
-          spawnDataStream('tokenizer', 'machine', text || 'tokens', 'stream-token', 1000);
-          addZoneLabel('tokenizer', text);
+          spawnDataStream('frame', 'machine', text || 'tokens', 'stream-token', 1000);
+          addZoneLabel('frame', text);
           log(`Query: "${text.slice(0, 50)}"`, 'tokenize', ev);
         }
 
@@ -1756,7 +1867,7 @@
           tokenBinMax = Math.max(tokenBinMax, tokenBinCounts[d.bin & 0xFF]);
         }
 
-        refreshInspectorIfMatch('tokenizer');
+        refreshInspectorIfMatch('frame');
       }
 
       else if (ev.component === 'LSM' && ev.action === 'Insert') {
@@ -1767,11 +1878,11 @@
         activateStage('insert', `${edges} stored`);
         updateDensityBar(totalEdges);
 
-        spawnDataStream('machine', 'forest', insertText, 'stream-store', 1400);
+        spawnDataStream('machine', 'chamber', insertText, 'stream-store', 1400);
         totalFlowEdges++;
         statFlowEdges.textContent = totalFlowEdges;
         log(`Radix insert: ${insertText}`, 'ingest', ev);
-        refreshInspectorIfMatch('forest');
+        refreshInspectorIfMatch('frame');
       }
 
       else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
@@ -1780,19 +1891,19 @@
         statPaths.textContent = totalPaths;
         activateStage('lookup', `${pathCount} paths`);
 
-        spawnDataStream('graph', 'machine', `${pathCount} paths found`, 'stream-lookup', 1000);
-        addZoneLabel('graph', `${pathCount} paths`);
+        spawnDataStream('chamber', 'machine', `${pathCount} paths found`, 'stream-lookup', 1000);
+        addZoneLabel('chamber', `${pathCount} paths`);
         log(`Lookup: ${pathCount} paths`, 'lookup', ev);
-        refreshInspectorIfMatch('graph');
+        refreshInspectorIfMatch('chamber');
       }
 
       else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
         const pathCount = d.pathCount || 0;
         activateStage('fold', `${pathCount} results`);
 
-        spawnDataStream('machine', 'graph', `evaluate ${pathCount} paths`, 'stream-fold', 1200);
+        spawnDataStream('machine', 'chamber', `evaluate ${pathCount} paths`, 'stream-fold', 1200);
         log(`Fold complete: ${pathCount} result paths`, 'fold', ev);
-        refreshInspectorIfMatch('graph');
+        refreshInspectorIfMatch('chamber');
       }
 
       else if (ev.component === 'Graph' && ev.action === 'Fold') {
@@ -1803,11 +1914,11 @@
 
         const foldText = d.chunkText || '';
         addFoldNode(d.bin || 0, d.level || 0, d.density || 0, foldText, d.childCount || 0);
-        spawnDataStream('graph', 'macroIdx', foldText || `L${d.level} fold`, 'stream-fold', 1400);
+        spawnDataStream('chamber', 'kernel', foldText || `L${d.level} fold`, 'stream-fold', 1400);
         foldHistory.push({ level: d.level || 0, bin: d.bin || 0, density: d.density || 0, text: foldText, children: d.childCount || 0, ts: ev._ts });
         while (foldHistory.length > 200) foldHistory.shift();
         log(`Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`, 'fold', ev);
-        refreshInspectorIfMatch('graph');
+        refreshInspectorIfMatch('chamber');
       }
 
       else if (ev.component === 'Machine' && ev.action === 'Pipeline') {
@@ -1815,17 +1926,17 @@
 
         if (stage === 'prompt-start') {
           resetFoldGraph();
-          clearZoneLabels('graph');
+          clearZoneLabels('chamber');
           const promptText = d.message || d.msg || '';
           chunkText.textContent = `Query: ${promptText}`;
           resultText.style.display = 'none';
           for (const el of Object.values(stageElements)) el.classList.remove('active', 'done');
 
-          spawnDataStream('dataset', 'tokenizer', promptText, 'stream-prompt', 800);
-          setTimeout(() => spawnDataStream('tokenizer', 'machine', promptText, 'stream-prompt', 800), 400);
+          spawnDataStream('dataset', 'frame', promptText, 'stream-prompt', 800);
+          setTimeout(() => spawnDataStream('frame', 'machine', promptText, 'stream-prompt', 800), 400);
           setTimeout(() => {
-            spawnDataStream('machine', 'graph', promptText, 'stream-prompt', 800);
-            spawnDataStream('machine', 'has', promptText, 'stream-prompt', 900);
+            spawnDataStream('machine', 'chamber', promptText, 'stream-prompt', 800);
+            spawnDataStream('machine', 'chamber', promptText, 'stream-prompt', 900);
           }, 800);
 
           addZoneLabel('machine', promptText);
@@ -1840,7 +1951,7 @@
           resultText.textContent = `Result: ${resultContent}`;
           resultText.style.display = 'block';
 
-          spawnDataStream('graph', 'machine', resultContent || 'result', 'stream-result', 1000);
+          spawnDataStream('chamber', 'machine', resultContent || 'result', 'stream-result', 1000);
           addZoneLabel('machine', resultContent.slice(0, 30));
 
           const lastPrompt = promptHistory[promptHistory.length - 1];
@@ -1897,7 +2008,7 @@
 
       else if (ev.component === 'Sequencer' && ev.action === 'Boundary') {
         const densityPct = ((d.density || 0) * 100).toFixed(0);
-        spawnDataStream('tokenizer', 'machine', `chunk #${d.chunks} ${densityPct}%`, 'stream-token', 800);
+        spawnDataStream('frame', 'machine', `chunk #${d.chunks} ${densityPct}%`, 'stream-token', 800);
         log(`Boundary #${d.chunks} density=${((d.density || 0) * 100).toFixed(1)}%`, 'tokenize');
       }
 
@@ -1914,7 +2025,7 @@
           execInitialResidue = d.preResidue || 1;
           execResidueFill.style.width = '100%';
 
-          spawnDataStream('machine', 'graph', `${d.candidateCount} candidates`, 'stream-prompt', 1000);
+          spawnDataStream('machine', 'chamber', `${d.candidateCount} candidates`, 'stream-prompt', 1000);
           addZoneLabel('machine', `Execute: ${d.candidateCount} candidates`);
           executeHistory.push({ stage: 'start', candidates: d.candidateCount, preResidue: d.preResidue, steps: [], ts: ev._ts });
           while (executeHistory.length > 30) executeHistory.shift();
@@ -1941,7 +2052,7 @@
           execResidueFill.style.width = `${pct}%`;
 
           const stepLabel = `step ${step}: ${pre}→${post}`;
-          spawnDataStream('machine', 'graph', stepLabel, adv ? 'stream-result' : 'stream-fold', 700);
+          spawnDataStream('machine', 'chamber', stepLabel, adv ? 'stream-result' : 'stream-fold', 700);
 
           const lastExec = executeHistory[executeHistory.length - 1];
           if (lastExec) lastExec.steps.push({ step, pre, post, advanced: adv, stable: stb });
@@ -1956,7 +2067,7 @@
 
           if (outcome === 'stable') {
             execResidueFill.style.width = '0%';
-            spawnDataStream('graph', 'machine', `stable (step ${d.step})`, 'stream-result', 1000);
+            spawnDataStream('chamber', 'machine', `stable (step ${d.step})`, 'stream-result', 1000);
           }
 
           const lastExec = executeHistory[executeHistory.length - 1];
@@ -1977,12 +2088,105 @@
           ? `"${spanText.slice(0, 20)}" L${level} [${d.left}:${d.right}]`
           : `L${level} [${d.left}:${d.right}] ×${spanSize}`;
 
-        addZoneLabel('graph', spanLabel);
+        addZoneLabel('chamber', spanLabel);
         log(`FoldSpan L${level}: [${d.left}:${d.right}] "${spanText.slice(0, 40)}"`, 'fold');
 
         if (level === 0) {
-          spawnDataStream('machine', 'graph', spanText || `span [${d.left}:${d.right}]`, 'stream-fold', 1000);
+          spawnDataStream('machine', 'chamber', spanText || `span [${d.left}:${d.right}]`, 'stream-fold', 1000);
         }
+      }
+
+      else if (ev.component === 'Pool') {
+        if (ev.action === 'Schedule') {
+          totalJobsScheduled++;
+          spawnDataStream('machine', 'kernel', d.jobId || 'job', 'stream-compute', 800);
+          addZoneLabel('kernel', `schedule: ${d.jobId || '?'}`);
+          log(`Schedule: ${d.jobId} type=${d.taskType} queue=${d.queueSize}`, 'compute', ev);
+        }
+
+        if (ev.action === 'Dispatch') {
+          spawnDataStream('machine', 'kernel', d.taskType || 'task', 'stream-compute', 600);
+          addZoneLabel('kernel', `dispatch: ${d.taskType || '?'}`);
+          log(`Dispatch: ${d.jobId} type=${d.taskType}`, 'compute', ev);
+        }
+
+        if (ev.action === 'JobDone') {
+          totalJobsDone++;
+          statJobsDone.textContent = totalJobsDone;
+          spawnDataStream('kernel', 'machine', `done ${d.durationMs}ms`, 'stream-result', 800);
+          addZoneLabel('kernel', `done: ${d.durationMs}ms`);
+
+          poolJobHistory.push({ id: d.jobId, type: d.taskType, duration: d.durationMs, success: true, ts: ev._ts });
+          while (poolJobHistory.length > 100) poolJobHistory.shift();
+
+          poolLatencyHistory.push(d.durationMs || 0);
+          while (poolLatencyHistory.length > 200) poolLatencyHistory.shift();
+
+          log(`JobDone: ${d.jobId} ${d.durationMs}ms`, 'compute', ev);
+        }
+
+        if (ev.action === 'JobFail') {
+          totalJobsFailed++;
+          addZoneLabel('kernel', `FAIL: ${(d.message || '').slice(0, 24)}`);
+
+          poolJobHistory.push({ id: d.jobId, type: d.taskType, duration: d.durationMs, success: false, error: d.message, ts: ev._ts });
+          while (poolJobHistory.length > 100) poolJobHistory.shift();
+
+          log(`JobFail: ${d.jobId} "${(d.message || '').slice(0, 40)}"`, 'compute', ev);
+        }
+
+        if (ev.action === 'Drop') {
+          addZoneLabel('kernel', `DROP: ${d.jobId || '?'}`);
+          log(`Drop: ${d.jobId} — ${d.message}`, 'compute', ev);
+        }
+
+        if (ev.action === 'Metrics') {
+          poolWorkerCount = d.workerCount || 0;
+          poolIdleWorkers = d.idleWorkers || 0;
+          poolQueueSize = d.queueSize || 0;
+          poolSuccessRate = d.successRate || 0;
+          poolAvgLatencyMs = d.avgLatencyMs || 0;
+          poolP95LatencyMs = d.p95LatencyMs || 0;
+          poolP99LatencyMs = d.p99LatencyMs || 0;
+          poolFailureCount = d.failureCount || 0;
+
+          statWorkers.textContent = `${poolWorkerCount - poolIdleWorkers}/${poolWorkerCount}`;
+          statQueue.textContent = poolQueueSize;
+        }
+
+        if (ev.action === 'Scale') {
+          const dir = d.scaleDirection || '?';
+          const cnt = d.scaleCount || 0;
+          const total = d.workerCount || 0;
+          addZoneLabel('kernel', `scale ${dir}: ${cnt} → ${total}`);
+
+          poolScaleHistory.push({ direction: dir, count: cnt, total, ts: ev._ts });
+          while (poolScaleHistory.length > 50) poolScaleHistory.shift();
+
+          log(`Scale ${dir}: ${cnt} workers (total=${total})`, 'compute', ev);
+        }
+
+        refreshInspectorIfMatch('kernel');
+      }
+
+      else if (ev.component === 'Kernel') {
+        if (ev.action === 'Route') {
+          addZoneLabel('kernel', `backend #${d.bestIndex} avail=${d.avail}`);
+          spawnDataStream('kernel', 'machine', `backend #${d.bestIndex}`, 'stream-kernel', 800);
+          log(`Route: backend #${d.bestIndex} avail=${d.avail}`, 'kernel', ev);
+        }
+
+        if (ev.action === 'PeerAdd') {
+          addZoneLabel('kernel', `peer: ${d.nodeAddr}`);
+          log(`PeerAdd: ${d.nodeAddr} (${d.nodeCount} nodes)`, 'kernel', ev);
+        }
+
+        if (ev.action === 'WriteError') {
+          addZoneLabel('kernel', `ERR: ${(d.message || '').slice(0, 20)}`);
+          log(`Kernel error: ${d.message}`, 'kernel', ev);
+        }
+
+        refreshInspectorIfMatch('kernel');
       }
 
       else if (ev.component === 'Chaos') {
@@ -1992,6 +2196,94 @@
 
         if (density > 0) {
           densityFill.style.height = `${Math.min(density * 100, 100) * 1.4}px`;
+        }
+      }
+
+      else if (ev.component === 'Substrate') {
+        if (ev.action === 'Run') {
+          if (d.stage === 'start') {
+            resetFoldGraph();
+            clearZoneLabels('chamber');
+            clearZoneLabels('dataset');
+            chunkText.textContent = d.message || '';
+            resultText.style.display = 'none';
+            for (const el of Object.values(stageElements)) el.classList.remove('active', 'done');
+            log(`Substrate: ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('machine');
+          }
+
+          if (d.stage === 'complete') {
+            activateStage('decode', 'ok');
+            resultText.textContent = d.message || '';
+            resultText.style.display = 'block';
+            resultText.style.color = 'var(--bp-green)';
+            log(`Substrate: ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('machine');
+          }
+
+          if (d.stage === 'dataset-error') {
+            log(`Dataset error: ${d.message}`, 'state', ev);
+          }
+        }
+
+        if (ev.action === 'Step') {
+          const st = d.stage || '';
+
+          if (st === 'frame') {
+            substrateFrames++;
+            totalIngested = substrateFrames;
+            statIngested.textContent = totalIngested;
+            chunkText.textContent = (d.chunkText || d.message || '').slice(0, 400);
+            activateStage('tokenize', `row ${d.frameIndex}`);
+            spawnDataStream('dataset', 'frame', (d.chunkText || 'frame').slice(0, 28), 'stream-ingest', 1200);
+            addZoneLabel('dataset', `frame ${d.frameIndex}`);
+            log(`Frame ${d.frameIndex}: ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('dataset');
+          }
+
+          if (st === 'chamber-before') {
+            activateStage('insert', 'absorb');
+            spawnDataStream('frame', 'machine', 'chamber', 'stream-token', 900);
+            addZoneLabel('chamber', `before · ${(d.instruction || '').slice(0, 12)}`);
+            log(`Chamber (before): ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('chamber');
+          }
+
+          if (st === 'chamber-after') {
+            activateStage('insert', `merged · ${d.instruction || '?'}`);
+            spawnDataStream('machine', 'chamber', (d.message || '').slice(0, 24), 'stream-fold', 1000);
+            addZoneLabel('machine', (d.message || '').slice(0, 28));
+            log(`Chamber (after): ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('machine');
+          }
+
+          if (st === 'kernel') {
+            activateStage('lookup', d.instruction || 'cpu');
+            if (statLastOp) statLastOp.textContent = (d.instruction || '—').slice(0, 24);
+            spawnDataStream('chamber', 'kernel', d.instruction || 'ALU', 'stream-compute', 850);
+            addZoneLabel('kernel', (d.instruction || 'op').slice(0, 20));
+            log(`Kernel: ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('kernel');
+          }
+
+          if (st === 'state') {
+            const dens = d.density || 0;
+            if (statLastOp) statLastOp.textContent = (d.instruction || '—').slice(0, 24);
+            pushSparkDensity(dens, 'accum');
+            activateStage('fold', `${d.instruction || ''} · p=${d.accumPop ?? '?'}`);
+            chunkText.textContent = (d.chunkText || '').slice(0, 400);
+            resultText.textContent = d.message || '';
+            resultText.style.display = 'block';
+            resultText.style.color = 'var(--bp-green)';
+            spawnDataStream('chamber', 'kernel', d.instruction || 'cpu', 'stream-compute', 900);
+            spawnDataStream('kernel', 'machine', 'out', 'stream-result', 800);
+            addZoneLabel('kernel', `${d.instruction || 'op'} acc=${d.accumPop ?? '?'}`);
+            if (dens > 0) {
+              densityFill.style.height = `${Math.min(dens * 100, 100) * 1.4}px`;
+            }
+            log(`State: ${d.message}`, 'substrate', ev);
+            refreshInspectorIfMatch('kernel');
+          }
         }
       }
     }
@@ -2087,7 +2379,8 @@
       replayTo(parseInt(slider.value));
     });
 
-    setGraphMode('both');
+    setGraphMode('flow');
+    foldLayer.visible = false;
 
     // ═══════════════════════════════════════════════════════════
     // INSPECTOR PANEL (click-to-inspect subsystem zones)
@@ -2203,9 +2496,8 @@
 
       if (events.length === 0) {
         inspectorBody.innerHTML = `<div class="inspector-empty">
-          No events captured yet for this subsystem.<br><br>
-          Events will appear here as the system processes data.
-          Try ingesting training data or sending a prompt.
+          No events for this zone yet.<br><br>
+          Run the live demo (<code style="opacity:.8">go run . viz</code>) — <code>go test</code> does not stream here.
         </div>`;
         return;
       }
@@ -2250,6 +2542,19 @@
       if (data.outcome) parts.push(data.outcome);
       if (data.candidateCount) parts.push(`cand=${data.candidateCount}`);
       if (data.step) parts.push(`step=${data.step}`);
+      if (data.jobId) parts.push(`job=${data.jobId.slice(0, 16)}`);
+      if (data.taskType) parts.push(data.taskType);
+      if (data.durationMs) parts.push(`${data.durationMs}ms`);
+      if (data.workerCount) parts.push(`w=${data.workerCount}`);
+      if (data.queueSize) parts.push(`q=${data.queueSize}`);
+      if (data.nodeAddr) parts.push(data.nodeAddr);
+      if (data.scaleDirection) parts.push(`scale-${data.scaleDirection}×${data.scaleCount || 0}`);
+      if (data.avail) parts.push(`avail=${data.avail}`);
+      if (data.frameIndex !== undefined) parts.push(`#${data.frameIndex}`);
+      if (data.instruction) parts.push(data.instruction);
+      if (data.dataPop !== undefined) parts.push(`data↑${data.dataPop}`);
+      if (data.operandPop !== undefined) parts.push(`op↑${data.operandPop}`);
+      if (data.accumPop !== undefined) parts.push(`acc↑${data.accumPop}`);
 
       return parts.join(' · ') || '—';
     }
@@ -2289,59 +2594,36 @@
       const stats = [];
 
       switch (sysKey) {
-        case 'forest': {
-          stats.push(['Total Entries', { text: forestEntryCount.toLocaleString() }]);
-          stats.push(['Total Inserts', { text: (eventsByComponent.get('LSM') || []).length.toLocaleString() }]);
-          const dmtEvents = eventsByComponent.get('DMT') || [];
-          stats.push(['DMT Events', { text: dmtEvents.length.toLocaleString() }]);
-          const usedBins = forestKeyBins.reduce((c, v) => c + (v > 0 ? 1 : 0), 0);
-          stats.push(['Key Prefix Spread', { text: `${usedBins} / 256`, cls: usedBins > 128 ? 'green' : '' }]);
-          const totalKeys = forestKeyBins.reduce((s, v) => s + v, 0);
-          stats.push(['Total Keys Tracked', { text: totalKeys.toLocaleString() }]);
+        case 'dataset': {
+          stats.push(['Frames (substrate)', { text: substrateFrames.toLocaleString(), cls: 'accent' }]);
+          stats.push(['Legacy LSM inserts', { text: (eventsByComponent.get('LSM') || []).length.toLocaleString() }]);
           break;
         }
-        case 'graph': {
-          stats.push(['Total Folds', { text: totalFolds.toLocaleString() }]);
-          stats.push(['Total Paths', { text: totalPaths.toLocaleString() }]);
-          stats.push(['Fold Links', { text: totalFoldLinks.toLocaleString() }]);
-          stats.push(['Fold History', { text: foldHistory.length.toLocaleString() }]);
-          if (foldHistory.length > 0) {
-            const maxLevel = Math.max(...foldHistory.map(f => f.level));
-            stats.push(['Max Fold Depth', { text: `L${maxLevel}`, cls: 'accent' }]);
-            const avgDensity = foldHistory.reduce((s, f) => s + f.density, 0) / foldHistory.length;
-            stats.push(['Avg Fold Density', { text: `${(avgDensity * 100).toFixed(1)}%` }]);
-          }
+        case 'frame': {
+          stats.push(['Frames', { text: substrateFrames.toLocaleString(), cls: 'accent' }]);
+          stats.push(['Legacy token nodes', { text: totalTokenNodes.toLocaleString() }]);
+          break;
+        }
+        case 'chamber': {
+          stats.push(['Substrate events', { text: (eventsByComponent.get('Substrate') || []).length.toLocaleString() }]);
+          stats.push(['Legacy folds', { text: totalFolds.toLocaleString() }]);
+          stats.push(['Paths (legacy)', { text: totalPaths.toLocaleString() }]);
           break;
         }
         case 'machine': {
-          stats.push(['Prompts Sent', { text: promptHistory.length.toLocaleString() }]);
-          const complete = promptHistory.filter(p => p.stage === 'complete').length;
-          const errors = promptHistory.filter(p => p.stage === 'error').length;
-          stats.push(['Completed', { text: complete.toLocaleString(), cls: 'green' }]);
-          stats.push(['Errors', { text: errors.toLocaleString(), cls: errors > 0 ? 'red' : '' }]);
-          stats.push(['Executions', { text: executeHistory.length.toLocaleString() }]);
-          const stableCount = executeHistory.filter(e => e.outcome === 'stable').length;
-          stats.push(['Stable Outcomes', { text: stableCount.toLocaleString(), cls: 'green' }]);
+          stats.push(['Substrate frames', { text: substrateFrames.toLocaleString(), cls: 'accent' }]);
+          stats.push(['Prompts (UI)', { text: promptHistory.length.toLocaleString() }]);
+          stats.push(['Executions (legacy)', { text: executeHistory.length.toLocaleString() }]);
           break;
         }
-        case 'tokenizer': {
-          stats.push(['Token Nodes', { text: totalTokenNodes.toLocaleString() }]);
-          stats.push(['Ingested Chunks', { text: totalIngested.toLocaleString() }]);
-          stats.push(['Queries', { text: totalQueries.toLocaleString() }]);
-          const usedBins = tokenBinCounts.reduce((c, v) => c + (v > 0 ? 1 : 0), 0);
-          stats.push(['Bin Spread', { text: `${usedBins} / 256` }]);
-          break;
-        }
-        case 'has': {
-          const hasEvents = eventsByComponent.get('HAS') || [];
-          stats.push(['Events', { text: hasEvents.length.toLocaleString() }]);
-          stats.push(['Status', { text: hasEvents.length > 0 ? 'active' : 'awaiting data', cls: hasEvents.length > 0 ? 'green' : '' }]);
-          break;
-        }
-        case 'macroIdx': {
-          const macroEvents = eventsByComponent.get('MacroIndex') || [];
-          stats.push(['Events', { text: macroEvents.length.toLocaleString() }]);
-          stats.push(['Status', { text: macroEvents.length > 0 ? 'active' : 'awaiting data', cls: macroEvents.length > 0 ? 'green' : '' }]);
+        case 'kernel': {
+          const kernelEvents = eventsByComponent.get('Kernel') || [];
+          const subEvents = eventsByComponent.get('Substrate') || [];
+          stats.push(['CPU kernel events', { text: kernelEvents.length.toLocaleString() }]);
+          stats.push(['Substrate telemetry', { text: subEvents.length.toLocaleString(), cls: 'accent' }]);
+          stats.push(['Pool jobs done (legacy)', { text: totalJobsDone.toLocaleString() }]);
+          const routes = kernelEvents.filter(e => e.action === 'Route').length;
+          if (routes > 0) stats.push(['GPU routes (legacy)', { text: routes.toLocaleString() }]);
           break;
         }
         default:
@@ -2356,10 +2638,11 @@
       inspectorBody.innerHTML = '';
 
       switch (inspectorSysKey) {
-        case 'forest': renderForestInternals(); break;
-        case 'graph': renderGraphInternals(); break;
+        case 'dataset': renderForestInternals(); break;
+        case 'chamber': renderGraphInternals(); break;
         case 'machine': renderMachineInternals(); break;
-        case 'tokenizer': renderTokenizerInternals(); break;
+        case 'frame': renderTokenizerInternals(); break;
+        case 'kernel': renderKernelInternals(); break;
         default: renderGenericInternals(); break;
       }
     }
@@ -2617,6 +2900,280 @@
       inspectorBody.appendChild(sec2);
     }
 
+    function renderComputeInternals() {
+      // ── Worker Grid ──
+      const sec1 = makeSection('Worker Pool');
+
+      if (poolWorkerCount === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.innerHTML = 'No workers active yet.<br><br>' +
+          'Workers will appear here as the pool spins up to handle jobs.';
+        sec1.appendChild(emptyMsg);
+      } else {
+        const grid = document.createElement('div');
+        grid.className = 'worker-grid';
+
+        for (let i = 0; i < poolWorkerCount; i++) {
+          const cell = document.createElement('div');
+          const isIdle = i >= (poolWorkerCount - poolIdleWorkers);
+          cell.className = `worker-cell ${isIdle ? 'idle' : 'busy'}`;
+          cell.dataset.label = `worker #${i} ${isIdle ? 'idle' : 'busy'}`;
+          grid.appendChild(cell);
+        }
+
+        sec1.appendChild(grid);
+
+        const legend = document.createElement('div');
+        legend.className = 'heatmap-legend';
+        legend.innerHTML = `<span>${poolWorkerCount - poolIdleWorkers} busy</span>` +
+          `<span>${poolWorkerCount} total</span>` +
+          `<span>${poolIdleWorkers} idle</span>`;
+        sec1.appendChild(legend);
+      }
+
+      inspectorBody.appendChild(sec1);
+
+      // ── Throughput Gauges ──
+      const sec2 = makeSection('Throughput');
+      const gaugeRow = document.createElement('div');
+      gaugeRow.className = 'compute-gauge-row';
+
+      const successGauge = buildGauge('Success', `${(poolSuccessRate * 100).toFixed(0)}%`, poolSuccessRate * 100, 'success');
+      gaugeRow.appendChild(successGauge);
+
+      const utilPct = poolWorkerCount > 0 ? ((poolWorkerCount - poolIdleWorkers) / poolWorkerCount) * 100 : 0;
+      const utilGauge = buildGauge('Utilization', `${utilPct.toFixed(0)}%`, utilPct, 'utilization');
+      gaugeRow.appendChild(utilGauge);
+
+      const queuePct = Math.min((poolQueueSize / Math.max(poolWorkerCount * 10, 1)) * 100, 100);
+      const queueGauge = buildGauge('Queue', poolQueueSize.toString(), queuePct, 'queue');
+      gaugeRow.appendChild(queueGauge);
+
+      sec2.appendChild(gaugeRow);
+      inspectorBody.appendChild(sec2);
+
+      // ── Latency Distribution ──
+      const sec3 = makeSection('Latency');
+      const maxLatency = Math.max(poolP99LatencyMs, poolAvgLatencyMs, 1);
+
+      const latencies = [
+        { label: 'Avg', value: poolAvgLatencyMs },
+        { label: 'P95', value: poolP95LatencyMs },
+        { label: 'P99', value: poolP99LatencyMs },
+      ];
+
+      const chart = document.createElement('div');
+      chart.className = 'latency-chart';
+
+      for (const lat of latencies) {
+        const row = document.createElement('div');
+        row.className = 'latency-bar-row';
+        row.innerHTML = `<span class="latency-label">${lat.label}</span>` +
+          `<div class="latency-track"><div class="latency-fill" style="width:${(lat.value / maxLatency) * 100}%"></div></div>` +
+          `<span class="latency-val">${lat.value}ms</span>`;
+        chart.appendChild(row);
+      }
+
+      sec3.appendChild(chart);
+      inspectorBody.appendChild(sec3);
+
+      // ── Latency Sparkline ──
+      if (poolLatencyHistory.length > 1) {
+        const sec3b = makeSection('Latency Over Time');
+        const canvas = document.createElement('canvas');
+        canvas.width = 360;
+        canvas.height = 50;
+        canvas.style.width = '100%';
+        canvas.style.height = '50px';
+        sec3b.appendChild(canvas);
+        inspectorBody.appendChild(sec3b);
+
+        const ctx = canvas.getContext('2d');
+        const w = canvas.width, h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        const maxVal = Math.max(1, ...poolLatencyHistory);
+        const step = w / (poolLatencyHistory.length - 1);
+
+        ctx.strokeStyle = 'rgba(64, 128, 192, 0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, h / 2);
+        ctx.lineTo(w, h / 2);
+        ctx.stroke();
+
+        ctx.strokeStyle = 'rgba(220, 170, 255, 0.6)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+
+        for (let i = 0; i < poolLatencyHistory.length; i++) {
+          const x = i * step;
+          const y = h - (poolLatencyHistory[i] / maxVal) * (h - 4) - 2;
+          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+
+        ctx.stroke();
+
+        ctx.fillStyle = 'rgba(220, 170, 255, 0.5)';
+        ctx.font = '7px IBM Plex Mono';
+        ctx.fillText(`${poolLatencyHistory[poolLatencyHistory.length - 1]}ms`, w - 40, 10);
+      }
+
+      // ── Recent Jobs ──
+      const sec4 = makeSection('Recent Jobs');
+
+      if (poolJobHistory.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.textContent = 'No jobs recorded yet.';
+        sec4.appendChild(emptyMsg);
+      } else {
+        const list = document.createElement('div');
+        list.className = 'timeline-list';
+
+        for (const job of [...poolJobHistory].reverse().slice(0, 20)) {
+          const row = document.createElement('div');
+          row.className = 'timeline-entry';
+          row.innerHTML = `<div class="timeline-dot ${job.success ? 'complete' : 'error'}"></div>` +
+            `<span class="timeline-label">${job.type || '?'}</span>` +
+            `<span class="timeline-detail">${job.duration || 0}ms${job.error ? ' · ' + job.error.slice(0, 20) : ''}</span>`;
+          list.appendChild(row);
+        }
+
+        sec4.appendChild(list);
+      }
+
+      inspectorBody.appendChild(sec4);
+
+      // ── Scale History ──
+      if (poolScaleHistory.length > 0) {
+        const sec5 = makeSection('Scale History');
+        const list = document.createElement('div');
+        list.className = 'timeline-list';
+
+        for (const ev of [...poolScaleHistory].reverse().slice(0, 15)) {
+          const row = document.createElement('div');
+          row.className = 'timeline-entry';
+          row.innerHTML = `<div class="timeline-dot ${ev.direction === 'up' ? 'complete' : 'pending'}"></div>` +
+            `<span class="timeline-label">scale ${ev.direction}</span>` +
+            `<span class="timeline-detail">+${ev.count} → ${ev.total} workers</span>`;
+          list.appendChild(row);
+        }
+
+        sec5.appendChild(list);
+        inspectorBody.appendChild(sec5);
+      }
+    }
+
+    function buildGauge(label, valueText, pct, fillClass) {
+      const gauge = document.createElement('div');
+      gauge.className = 'compute-gauge';
+      gauge.innerHTML = `<div class="compute-gauge-label">${label}</div>` +
+        `<div class="compute-gauge-bar"><div class="compute-gauge-fill ${fillClass}" style="width:${Math.min(pct, 100)}%"></div></div>` +
+        `<div class="compute-gauge-value">${valueText}</div>`;
+      return gauge;
+    }
+
+    function renderKernelInternals() {
+      const kernelEvents = eventsByComponent.get('Kernel') || [];
+
+      // ── Backend Routing ──
+      const sec1 = makeSection('Backend Routing');
+
+      const routes = kernelEvents.filter(e => e.action === 'Route');
+
+      if (routes.length === 0) {
+        const emptyMsg = document.createElement('div');
+        emptyMsg.className = 'inspector-empty';
+        emptyMsg.innerHTML = 'No routing events yet.<br><br>' +
+          'Backend routing data will appear when kernels are dispatched.';
+        sec1.appendChild(emptyMsg);
+      } else {
+        const backendUsage = {};
+
+        for (const ev of routes) {
+          const idx = ev.data?.bestIndex || 0;
+          backendUsage[idx] = (backendUsage[idx] || 0) + 1;
+        }
+
+        const maxUsage = Math.max(1, ...Object.values(backendUsage));
+
+        for (const [idx, count] of Object.entries(backendUsage)) {
+          const row = document.createElement('div');
+          row.className = 'latency-bar-row';
+          row.innerHTML = `<span class="latency-label">#${idx}</span>` +
+            `<div class="latency-track"><div class="latency-fill" style="width:${(count / maxUsage) * 100}%;background:rgba(170,220,255,0.5)"></div></div>` +
+            `<span class="latency-val">${count}×</span>`;
+          sec1.appendChild(row);
+        }
+
+        const lastRoute = routes[routes.length - 1];
+        const stat = document.createElement('div');
+        stat.className = 'inspector-stat';
+        stat.innerHTML = `<span>Current Backend</span><span class="val accent">#${lastRoute.data?.bestIndex || 0} (avail=${lastRoute.data?.avail || 0})</span>`;
+        sec1.appendChild(stat);
+      }
+
+      inspectorBody.appendChild(sec1);
+
+      // ── Peer Nodes ──
+      const peerEvents = kernelEvents.filter(e => e.action === 'PeerAdd');
+
+      if (peerEvents.length > 0) {
+        const sec2 = makeSection('Remote Peers');
+        const list = document.createElement('div');
+        list.className = 'timeline-list';
+
+        for (const ev of peerEvents) {
+          const row = document.createElement('div');
+          row.className = 'timeline-entry';
+          row.innerHTML = `<div class="timeline-dot complete"></div>` +
+            `<span class="timeline-label">${ev.data?.nodeAddr || '?'}</span>` +
+            `<span class="timeline-detail">${ev.data?.nodeCount || 0} nodes</span>`;
+          list.appendChild(row);
+        }
+
+        sec2.appendChild(list);
+        inspectorBody.appendChild(sec2);
+      }
+
+      // ── Errors ──
+      const errors = kernelEvents.filter(e => e.action === 'WriteError');
+
+      if (errors.length > 0) {
+        const sec3 = makeSection('Recent Errors');
+
+        for (const ev of errors.slice(-10).reverse()) {
+          const row = document.createElement('div');
+          row.className = 'fold-tree-node';
+          row.style.borderLeftColor = 'var(--bp-red)';
+          row.innerHTML = `<span class="fold-level" style="color:var(--bp-red)">${ev.data?.backendType || '?'}</span> ` +
+            `${(ev.data?.message || '').slice(0, 40)}` +
+            `<span class="fold-density">${((ev._ts || 0) / 1000).toFixed(1)}s</span>`;
+          row.addEventListener('click', () => showEventDetail(ev));
+          sec3.appendChild(row);
+        }
+
+        inspectorBody.appendChild(sec3);
+      }
+
+      // ── Event Feed Summary ──
+      const sec4 = makeSection('Recent Activity');
+
+      for (const ev of kernelEvents.slice(-15).reverse()) {
+        const row = document.createElement('div');
+        row.className = 'fold-tree-node';
+        row.innerHTML = `<span class="fold-level">${ev.action}</span> ` +
+          `${formatEventData(ev.data)}` +
+          `<span class="fold-density">${((ev._ts || 0) / 1000).toFixed(1)}s</span>`;
+        row.addEventListener('click', () => showEventDetail(ev));
+        sec4.appendChild(row);
+      }
+
+      inspectorBody.appendChild(sec4);
+    }
+
     function renderGenericInternals() {
       const emptyMsg = document.createElement('div');
       emptyMsg.className = 'inspector-empty';
@@ -2660,9 +3217,10 @@
     let logFilterType = 'all';
 
     const LOG_TYPE_MAP = {
-      pipeline: ['pipeline', 'result'],
+      pipeline: ['pipeline', 'result', 'substrate'],
       ingest: ['ingest'],
       fold: ['fold'],
+      compute: ['compute', 'kernel'],
     };
 
     function applyLogFilters() {
@@ -2717,11 +3275,9 @@
       const zoneKeys = {
         '1': 'machine',
         '2': 'dataset',
-        '3': 'tokenizer',
-        '4': 'forest',
-        '5': 'graph',
-        '6': 'has',
-        '7': 'macroIdx',
+        '3': 'frame',
+        '4': 'chamber',
+        '5': 'kernel',
       };
 
       if (zoneKeys[e.key]) {

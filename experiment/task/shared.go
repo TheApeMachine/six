@@ -1,8 +1,8 @@
 package task
 
 import (
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 var Aphorisms = []string{
@@ -18,6 +18,6 @@ var Aphorisms = []string{
 	"It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.",
 }
 
-func NewLocalProvider(corpus []string) provider.Dataset {
+func NewLocalProvider(corpus []string) data.Provider {
 	return local.New(local.WithStrings(corpus))
 }

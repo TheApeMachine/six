@@ -4,11 +4,10 @@ import (
 	"fmt"
 	"iter"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
 // crossDomains defines the three domains tested in this experiment.
@@ -76,7 +75,7 @@ func NewCrossDomainCompletionExperiment() *CrossDomainCompletionExperiment {
 		domainNames[i] = d.Name
 	}
 
-	datasets := make([]provider.Dataset, len(crossDomains))
+	datasets := make([]data.Provider, len(crossDomains))
 	for i, d := range crossDomains {
 		if len(d.Columns) == 1 {
 			datasets[i] = huggingface.New(
@@ -106,7 +105,7 @@ func NewCrossDomainCompletionExperiment() *CrossDomainCompletionExperiment {
 func (experiment *CrossDomainCompletionExperiment) Name() string    { return "CrossDomainCompletion" }
 func (experiment *CrossDomainCompletionExperiment) Section() string { return "misc" }
 
-func (experiment *CrossDomainCompletionExperiment) Dataset() provider.Dataset {
+func (experiment *CrossDomainCompletionExperiment) Dataset() data.Provider {
 	return experiment.mds
 }
 
@@ -114,10 +113,6 @@ func (experiment *CrossDomainCompletionExperiment) Prompts() []string {
 	return []string{
 		"Complete the suffix of the given prefix.",
 	}
-}
-
-func (experiment *CrossDomainCompletionExperiment) Holdout() (int, input.HoldoutType) {
-	return 50, input.RIGHT
 }
 
 func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.ExperimentalData) {
@@ -130,7 +125,7 @@ func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.Exper
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *CrossDomainCompletionExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *CrossDomainCompletionExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -374,12 +369,12 @@ before value resonance can reliably recover novel suffixes.
 }
 
 type multiDomainDataset struct {
-	datasets    []provider.Dataset
+	datasets    []data.Provider
 	domainNames []string
 }
 
-func (m *multiDomainDataset) Generate() iter.Seq[provider.RawToken] {
-	return func(yield func(provider.RawToken) bool) {
+func (m *multiDomainDataset) Generate() iter.Seq[byte] {
+	return func(yield func(byte) bool) {
 		for _, dataset := range m.datasets {
 			for token := range dataset.Generate() {
 				if !yield(token) {
@@ -388,4 +383,12 @@ func (m *multiDomainDataset) Generate() iter.Seq[provider.RawToken] {
 			}
 		}
 	}
+}
+
+func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
+	return m.datasets[0].Read(p)
+}
+
+func (m *multiDomainDataset) Close() error {
+	return nil
 }

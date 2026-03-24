@@ -1,8 +1,8 @@
 package phasedial
 
 import (
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
 var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
@@ -35,7 +35,7 @@ func (builder *AGNewsDatasetBuilder) WithSplit(split string) *AGNewsDatasetBuild
 	return builder
 }
 
-func (builder *AGNewsDatasetBuilder) Build() provider.Dataset {
+func (builder *AGNewsDatasetBuilder) Build() data.Provider {
 	return huggingface.New(
 		huggingface.DatasetWithRepo("sh0416/ag_news"),
 		huggingface.DatasetWithSamples(int(builder.samples)),
@@ -44,18 +44,6 @@ func (builder *AGNewsDatasetBuilder) Build() provider.Dataset {
 		huggingface.DatasetWithLabelColumn("label"),
 		huggingface.DatasetWithLabelAppend(agNewsLabels),
 	)
-}
-
-func NewTorusNavigationAGNewsExperiment(
-	samples uint32, opts ...torusNavigationOpt,
-) *TorusNavigationExperiment {
-	agNewsDataset := NewAGNewsDatasetBuilder().WithSamples(samples).Build()
-
-	combinedOpts := append(
-		[]torusNavigationOpt{TorusNavigationWithDataset(agNewsDataset)}, opts...,
-	)
-
-	return NewTorusNavigationExperiment(combinedOpts...)
 }
 
 // func NewTorusGeneralizationAGNewsExperiment(

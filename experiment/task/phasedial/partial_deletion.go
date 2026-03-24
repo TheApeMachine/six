@@ -4,8 +4,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -15,7 +15,7 @@ even if a significant portion of the corpus is removed.
 */
 type PartialDeletionExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -29,7 +29,7 @@ func NewPartialDeletionExperiment() *PartialDeletionExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset: tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -41,7 +41,7 @@ func (experiment *PartialDeletionExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *PartialDeletionExperiment) Dataset() provider.Dataset {
+func (experiment *PartialDeletionExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -49,10 +49,6 @@ func (experiment *PartialDeletionExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (experiment *PartialDeletionExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *PartialDeletionExperiment) AddResult(results tools.ExperimentalData) {

@@ -4,8 +4,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -16,7 +16,7 @@ structural nodes.
 */
 type SnapToSurfaceExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -24,7 +24,7 @@ type SnapToSurfaceExperiment struct {
 func NewSnapToSurfaceExperiment() *SnapToSurfaceExperiment {
 	return &SnapToSurfaceExperiment{
 		tableData: []tools.ExperimentalData{},
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset:   local.New(local.WithStrings(tools.Aphorisms)),
 		// Baseline 0.05: snap-to-surface geometric property.
 		// Any non-zero result demonstrates the property holds.
 		// Target 0.50: strong geometric invariant.
@@ -42,7 +42,7 @@ func (experiment *SnapToSurfaceExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *SnapToSurfaceExperiment) Dataset() provider.Dataset {
+func (experiment *SnapToSurfaceExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -50,10 +50,6 @@ func (experiment *SnapToSurfaceExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (experiment *SnapToSurfaceExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *SnapToSurfaceExperiment) AddResult(results tools.ExperimentalData) {
@@ -80,11 +76,11 @@ func (experiment *SnapToSurfaceExperiment) TableData() any {
 }
 
 func (experiment *SnapToSurfaceExperiment) Artifacts() []tools.Artifact {
-return PhasedialSectionArtifacts(
-"Snap to Surface",
-experiment.tableData,
-experiment.Score(),
-`\subsection{Snap to Surface}
+	return PhasedialSectionArtifacts(
+		"Snap to Surface",
+		experiment.tableData,
+		experiment.Score(),
+		`\subsection{Snap to Surface}
 \label{sec:snap_to_surface}
 
 \paragraph{Task Description.}
@@ -121,6 +117,6 @@ the substrate with the necessary compositional data.
 
 Figure~\ref{fig:snap_to_surface_map} shows the trial outcome map.
 `,
-map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
-)
+		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+	)
 }

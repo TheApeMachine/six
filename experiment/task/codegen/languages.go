@@ -3,15 +3,14 @@ package codegen
 import (
 	"iter"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
-
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
 )
+
+var samples = 100
 
 // Ensure LanguagesExperiment implements the full interface at compile time.
 var _ tools.PipelineExperiment = (*LanguagesExperiment)(nil)
@@ -37,7 +36,7 @@ Each sample ingests a function prompt + canonical solution; the right-50-byte
 holdout is used as the expected completion.
 */
 type LanguagesExperiment struct {
-	dataset   provider.Dataset
+	dataset   data.Provider
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	prompt    []string
@@ -54,12 +53,12 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 		),
 	}
 
-	datasets := make([]provider.Dataset, len(humanEvalLanguages))
+	datasets := make([]data.Provider, len(humanEvalLanguages))
 	for i, lang := range humanEvalLanguages {
 		datasets[i] = huggingface.New(
 			huggingface.DatasetWithRepo("bigcode/humanevalpack"),
 			huggingface.DatasetWithSubset(lang.Subset),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithTextColumns("prompt", "canonical_solution"),
 		)
 	}
@@ -87,7 +86,7 @@ func NewLanguagesExperiment() *LanguagesExperiment {
 func (experiment *LanguagesExperiment) Name() string    { return "Languages" }
 func (experiment *LanguagesExperiment) Section() string { return "codegen" }
 
-func (experiment *LanguagesExperiment) Dataset() provider.Dataset {
+func (experiment *LanguagesExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -104,13 +103,8 @@ func (experiment *LanguagesExperiment) Prompts() []string {
 	return experiment.prompt
 }
 
-func (experiment *LanguagesExperiment) Holdout() (int, input.HoldoutType) {
-	// 50% holdout, from center to right side.
-	return 50, input.RIGHT
-}
-
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
-	langIdx := results.Idx / config.Experiment.Samples
+	langIdx := results.Idx / samples
 	if langIdx < len(humanEvalLanguages) {
 		results.Name = humanEvalLanguages[langIdx].DisplayName
 	}
@@ -119,7 +113,7 @@ func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *LanguagesExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *LanguagesExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -277,23 +271,16 @@ is expected to improve results substantially.
 	}
 }
 
-// ── multiDataset ─────────────────────────────────────────────────────────────
 type multiDataset struct {
-	datasets  []provider.Dataset
+	datasets  []data.Provider
 	langNames []string
 	current   int
 }
 
-func (md *multiDataset) Generate() iter.Seq[provider.RawToken] {
-	return func(yield func(provider.RawToken) bool) {
-		for idx, ds := range md.datasets {
+func (md *multiDataset) Generate() iter.Seq[byte] {
+	return func(yield func(byte) bool) {
+		for _, ds := range md.datasets {
 			for tok := range ds.Generate() {
-				// Upper 8 bits: language index (0–255). Lower 24 bits: per-language SampleID (0–16,777,215).
-				// Max 256 languages and ~16.7M samples per language; use different encoding if either limit is exceeded.
-				if tok.SampleID >= 0x01000000 {
-					panic("SampleID exceeds 24-bit limit; use different encoding")
-				}
-				tok.SampleID = uint32(idx)<<24 | (tok.SampleID & 0x00FFFFFF)
 				if !yield(tok) {
 					return
 				}
@@ -302,10 +289,10 @@ func (md *multiDataset) Generate() iter.Seq[provider.RawToken] {
 	}
 }
 
-func (md *multiDataset) LangForSampleID(id uint32) string {
-	langIdx := int(id >> 24)
-	if langIdx < len(md.langNames) {
-		return md.langNames[langIdx]
-	}
-	return "unknown"
+func (md *multiDataset) Read(p []byte) (n int, err error) {
+	return md.datasets[md.current].Read(p)
+}
+
+func (md *multiDataset) Close() error {
+	return nil
 }

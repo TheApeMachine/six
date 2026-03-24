@@ -4,13 +4,11 @@ import (
 	"fmt"
 	"strings"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -25,12 +23,14 @@ type BabiExperiment struct {
 	evaluator *tools.Evaluator
 }
 
+var samples = 100
+
 func NewBabiExperiment() *BabiExperiment {
 	experiment := &BabiExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.NewBabiQA(
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
 		),
 		// Baseline 0.10: bAbI Task 1 answers are named locations (bathroom,
@@ -58,17 +58,13 @@ func (experiment *BabiExperiment) Name() string {
 	return "babi_benchmark"
 }
 
-func (experiment *BabiExperiment) Dataset() provider.Dataset {
+func (experiment *BabiExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
 func (experiment *BabiExperiment) Prompts() []string {
 	experiment.prompt = []string{}
 	return experiment.prompt
-}
-
-func (experiment *BabiExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *BabiExperiment) Section() string {
@@ -80,7 +76,7 @@ func (experiment *BabiExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *BabiExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *BabiExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 

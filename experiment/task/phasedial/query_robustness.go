@@ -4,8 +4,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -16,7 +16,7 @@ readouts from queries with 30% character dropout by scanning the phase torus.
 type QueryRobustnessExperiment struct {
 	tableData         []tools.ExperimentalData
 	robustnessResults []robustnessEntry
-	dataset           provider.Dataset
+	dataset           data.Provider
 	prompt            []string
 	evaluator         *tools.Evaluator
 }
@@ -31,7 +31,7 @@ func NewQueryRobustnessExperiment() *QueryRobustnessExperiment {
 			tools.EvalWithExpectation(0.20, 0.60),
 		),
 		robustnessResults: []robustnessEntry{},
-		dataset:           tools.NewLocalProvider(tools.Aphorisms),
+		dataset:           local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -43,7 +43,7 @@ func (experiment *QueryRobustnessExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *QueryRobustnessExperiment) Dataset() provider.Dataset {
+func (experiment *QueryRobustnessExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -51,10 +51,6 @@ func (experiment *QueryRobustnessExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (experiment *QueryRobustnessExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *QueryRobustnessExperiment) AddResult(results tools.ExperimentalData) {

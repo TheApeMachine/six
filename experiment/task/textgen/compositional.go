@@ -1,12 +1,10 @@
 package textgen
 
 import (
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
 /*
@@ -23,7 +21,7 @@ even when the specific nouns and events are novel?
 */
 type CompositionalExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -33,7 +31,7 @@ func NewCompositionalExperiment() *CompositionalExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("roneneldan/TinyStories"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(1000),
 			huggingface.DatasetWithTextColumn("text"),
 		),
 		// Baseline 0.05: TinyStories has high structural regularity,
@@ -46,9 +44,9 @@ func NewCompositionalExperiment() *CompositionalExperiment {
 	}
 }
 
-func (experiment *CompositionalExperiment) Name() string              { return "Compositional" }
-func (experiment *CompositionalExperiment) Section() string           { return "textgen" }
-func (experiment *CompositionalExperiment) Dataset() provider.Dataset { return experiment.dataset }
+func (experiment *CompositionalExperiment) Name() string           { return "Compositional" }
+func (experiment *CompositionalExperiment) Section() string        { return "textgen" }
+func (experiment *CompositionalExperiment) Dataset() data.Provider { return experiment.dataset }
 
 func (experiment *CompositionalExperiment) Prompts() []string {
 	experiment.prompt = []string{}
@@ -56,16 +54,12 @@ func (experiment *CompositionalExperiment) Prompts() []string {
 }
 
 // 30% right holdout: system must reconstruct the ending of each story.
-func (experiment *CompositionalExperiment) Holdout() (int, input.HoldoutType) {
-	return 30, input.RIGHT
-}
-
 func (experiment *CompositionalExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *CompositionalExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *CompositionalExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 

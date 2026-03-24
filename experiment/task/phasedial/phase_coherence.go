@@ -1,11 +1,11 @@
 package phasedial
 
 import (
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -16,7 +16,7 @@ long-range attraction.
 */
 type PhaseCoherenceExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -30,7 +30,7 @@ func NewPhaseCoherenceExperiment() *PhaseCoherenceExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -42,7 +42,7 @@ func (experiment *PhaseCoherenceExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *PhaseCoherenceExperiment) Dataset() provider.Dataset {
+func (experiment *PhaseCoherenceExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -52,15 +52,11 @@ func (experiment *PhaseCoherenceExperiment) Prompts() []string {
 	}
 }
 
-func (experiment *PhaseCoherenceExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
-}
-
 func (experiment *PhaseCoherenceExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *PhaseCoherenceExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *PhaseCoherenceExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -80,11 +76,11 @@ func (experiment *PhaseCoherenceExperiment) TableData() any {
 }
 
 func (experiment *PhaseCoherenceExperiment) Artifacts() []tools.Artifact {
-return PhasedialSectionArtifacts(
-"Phase Coherence",
-experiment.tableData,
-experiment.Score(),
-`\subsection{Phase Coherence}
+	return PhasedialSectionArtifacts(
+		"Phase Coherence",
+		experiment.tableData,
+		experiment.Score(),
+		`\subsection{Phase Coherence}
 \label{sec:phase_coherence}
 
 \paragraph{Task Description.}
@@ -120,6 +116,6 @@ the substrate with the necessary compositional data.
 
 Figure~\ref{fig:phase_coherence_map} shows the trial outcome map.
 `,
-map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
-)
+		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+	)
 }

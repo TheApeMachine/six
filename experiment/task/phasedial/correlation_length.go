@@ -6,8 +6,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -18,7 +18,7 @@ hard boundaries are necessary for structural independence.
 */
 type CorrelationLengthExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -32,7 +32,7 @@ func NewCorrelationLengthExperiment() *CorrelationLengthExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset: tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -44,17 +44,13 @@ func (experiment *CorrelationLengthExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *CorrelationLengthExperiment) Dataset() provider.Dataset {
+func (experiment *CorrelationLengthExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
 func (experiment *CorrelationLengthExperiment) Prompts() []string {
 	experiment.prompt = []string{}
 	return experiment.prompt
-}
-
-func (experiment *CorrelationLengthExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *CorrelationLengthExperiment) AddResult(results tools.ExperimentalData) {

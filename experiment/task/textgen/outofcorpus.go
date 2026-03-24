@@ -3,10 +3,8 @@ package textgen
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
 /*
@@ -25,7 +23,7 @@ has no overlap with the training split at the sample level.
 */
 type OutOfCorpusExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -36,7 +34,7 @@ func NewOutOfCorpusExperiment() *OutOfCorpusExperiment {
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("wikitext"),
 			huggingface.DatasetWithSubset("wikitext-2-raw-v1"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(10),
 			huggingface.DatasetWithTextColumn("text"),
 		),
 		// Baseline 0.05: any partial byte overlap with the held-out suffix
@@ -48,18 +46,13 @@ func NewOutOfCorpusExperiment() *OutOfCorpusExperiment {
 	}
 }
 
-func (experiment *OutOfCorpusExperiment) Name() string              { return "Out of Corpus" }
-func (experiment *OutOfCorpusExperiment) Section() string           { return "textgen" }
-func (experiment *OutOfCorpusExperiment) Dataset() provider.Dataset { return experiment.dataset }
+func (experiment *OutOfCorpusExperiment) Name() string           { return "Out of Corpus" }
+func (experiment *OutOfCorpusExperiment) Section() string        { return "textgen" }
+func (experiment *OutOfCorpusExperiment) Dataset() data.Provider { return experiment.dataset }
 
 func (experiment *OutOfCorpusExperiment) Prompts() []string {
 	experiment.prompt = []string{}
 	return experiment.prompt
-}
-
-// 50% right holdout: system must complete the second half of each sample.
-func (experiment *OutOfCorpusExperiment) Holdout() (int, input.HoldoutType) {
-	return 50, input.RIGHT
 }
 
 func (experiment *OutOfCorpusExperiment) AddResult(results tools.ExperimentalData) {

@@ -3,10 +3,9 @@ package scaling
 import (
 	"fmt"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
 )
 
 /*
@@ -17,7 +16,7 @@ over all prompts.
 */
 type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -38,7 +37,7 @@ func NewSequencerExperiment() *SequencerExperiment {
 
 func (experiment *SequencerExperiment) Name() string    { return "Sequencer" }
 func (experiment *SequencerExperiment) Section() string { return "scaling" }
-func (experiment *SequencerExperiment) Dataset() provider.Dataset {
+func (experiment *SequencerExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -47,16 +46,12 @@ func (experiment *SequencerExperiment) Prompts() []string {
 	return experiment.prompt
 }
 
-func (experiment *SequencerExperiment) Holdout() (int, input.HoldoutType) {
-	return 32, input.RIGHT
-}
-
 func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *SequencerExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *SequencerExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 

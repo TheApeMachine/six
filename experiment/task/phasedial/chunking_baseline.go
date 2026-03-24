@@ -1,12 +1,10 @@
 package phasedial
 
 import (
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/logic/lang/primitive"
-	"github.com/theapemachine/six/pkg/system/vm/input"
-
-	"github.com/theapemachine/six/pkg/store/data/provider"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -17,7 +15,7 @@ topological frequency structure.
 */
 type ChunkingBaselineExperiment struct {
 	tableData         []tools.ExperimentalData
-	dataset           provider.Dataset
+	dataset           data.Provider
 	prompt            []string
 	evaluator         *tools.Evaluator
 	chunkingRows      []map[string]any
@@ -33,7 +31,7 @@ func NewChunkingBaselineExperiment() *ChunkingBaselineExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset: tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -45,7 +43,7 @@ func (experiment *ChunkingBaselineExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *ChunkingBaselineExperiment) Dataset() provider.Dataset {
+func (experiment *ChunkingBaselineExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -55,15 +53,11 @@ func (experiment *ChunkingBaselineExperiment) Prompts() []string {
 	return experiment.prompt
 }
 
-func (experiment *ChunkingBaselineExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
-}
-
 func (experiment *ChunkingBaselineExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *ChunkingBaselineExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *ChunkingBaselineExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -83,14 +77,6 @@ func (experiment *ChunkingBaselineExperiment) TableData() any {
 }
 
 func (experiment *ChunkingBaselineExperiment) RawOutput() bool { return false }
-
-func totalActive(values []primitive.Value) int {
-	n := 0
-	for _, c := range values {
-		n += c.ActiveCount()
-	}
-	return n
-}
 
 func (experiment *ChunkingBaselineExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{

@@ -3,9 +3,7 @@ package experiment
 import (
 	"slices"
 
-	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
+	. "github.com/smartystreets/goconvey/convey"
 )
 
 type BenchmarkType uint
@@ -27,18 +25,14 @@ var Aphorisms = []string{
 	"It is a truth universally acknowledged, that a single man in possession of a good fortune, must be in want of a wife.",
 }
 
-func NewLocalProvider(corpus []string) provider.Dataset {
-	return local.New(local.WithStrings(corpus))
-}
-
 func Contains(slice []string, val string) bool {
 	return slices.Contains(slice, val)
 }
 
-func Outcome(score float64, n int, benchmarkType BenchmarkType) (any, gc.Assertion, any) {
+func Outcome(score float64, n int, benchmarkType BenchmarkType) (any, Assertion, any) {
 	switch benchmarkType {
 	case ABOVERANDOM:
-		return score, gc.ShouldBeGreaterThanOrEqualTo, 100.0/float64(n) + 0.05
+		return score, ShouldBeGreaterThanOrEqualTo, 100.0/float64(n) + 0.05
 	default:
 		panic("unknown benchmark type")
 	}

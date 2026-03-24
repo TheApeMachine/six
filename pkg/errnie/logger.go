@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/charmbracelet/log"
-	"github.com/davecgh/go-spew/spew"
+	"github.com/muesli/termenv"
 	"github.com/spf13/viper"
 )
 
@@ -25,6 +25,12 @@ var (
 		Level:           log.DebugLevel,
 	})
 )
+
+func init() {
+	// Match charmbracelet/log output to stderr: no ANSI when not a TTY (tests,
+	// pipes, redirects) or when env disables color (NO_COLOR, CI, etc.).
+	logger.SetColorProfile(termenv.NewOutput(os.Stderr).EnvColorProfile())
+}
 
 /*
 InitLogger configures log styles, sets log levels, and initializes
@@ -85,89 +91,31 @@ func initLogFile() {
 }
 
 /*
-Log formats and writes a message to the log file.
+Info logs the info message.
 */
-func Log(format string, v ...any) {
-	message := fmt.Sprintf(format, v...)
-
-	if message == "" {
-		return
-	}
-
-	if logFile != nil {
-		writeToLog(message)
-	}
-}
-
-/*
-Raw is a full decomposition of the object via spew.
-*/
-func Raw(v ...any) {
-	spew.Dump(v...)
-
-	if logFile != nil {
-		writeToLog(spew.Sdump(v...))
-	}
-}
-
-/*
-Trace logs at debug level to the global logger.
-*/
-func Trace(v ...any) {
-	logger.Debug(v[0], v[1:]...)
-
-	if logFile != nil {
-		writeToLog(fmt.Sprintf("%v", v))
-	}
-}
-
-/*
-Debug logs at debug level.
-*/
-func Debug(msg any, keyvals ...any) {
-	logger.Debug(msg, keyvals...)
-
-	if logFile != nil {
-		writeToLog(append(keyvals, msg)...)
-	}
-}
-
-/*
-Info logs at info level.
-*/
-func Info(msg any, keyvals ...any) {
+func Info(msg string, keyvals ...any) {
 	logger.Info(msg, keyvals...)
-
-	if logFile != nil {
-		writeToLog(append(keyvals, msg)...)
-	}
 }
 
 /*
-Warn logs at warn level.
+Debug logs the debug message.
 */
-func Warn(msg any, keyvals ...any) {
+func Debug(msg string, keyvals ...any) {
+	logger.Debug(msg, keyvals...)
+}
+
+/*
+Trace logs the trace message.
+*/
+func Trace(msg string, keyvals ...any) {
+	writeToLog(append(keyvals, msg)...)
+}
+
+/*
+Warn logs the warn message.
+*/
+func Warn(msg string, keyvals ...any) {
 	logger.Warn(msg, keyvals...)
-
-	if logFile != nil {
-		writeToLog(append(keyvals, msg)...)
-	}
-}
-
-/*
-ErrorSafe logs the error without returning a new one. Used by SafeMust
-and Handle where the caller manages error state independently.
-*/
-func ErrorSafe(err error, v ...any) {
-	if err == nil {
-		return
-	}
-
-	logger.Error(err.Error(), v...)
-
-	if logFile != nil {
-		writeToLog(append(v, err)...)
-	}
 }
 
 /*

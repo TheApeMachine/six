@@ -1,18 +1,17 @@
 package phasedial
 
 import (
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 type TwoHopRetrievalExperiment struct {
 	tableData       []tools.ExperimentalData
-	dataset         provider.Dataset
+	dataset         data.Provider
 	prompt          []string
-	evaluator *tools.Evaluator
+	evaluator       *tools.Evaluator
 	phases          []string
 	simCA           []float64
 	simCB           []float64
@@ -34,7 +33,7 @@ func NewTwoHopRetrievalExperiment() *TwoHopRetrievalExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.20, 0.60),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -46,7 +45,7 @@ func (experiment *TwoHopRetrievalExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *TwoHopRetrievalExperiment) Dataset() provider.Dataset {
+func (experiment *TwoHopRetrievalExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -56,15 +55,11 @@ func (experiment *TwoHopRetrievalExperiment) Prompts() []string {
 	}
 }
 
-func (experiment *TwoHopRetrievalExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
-}
-
 func (experiment *TwoHopRetrievalExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *TwoHopRetrievalExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *TwoHopRetrievalExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -77,21 +72,6 @@ func (experiment *TwoHopRetrievalExperiment) TableData() any {
 }
 
 func (experiment *TwoHopRetrievalExperiment) RawOutput() bool { return false }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 func (experiment *TwoHopRetrievalExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{
@@ -135,12 +115,12 @@ func (experiment *TwoHopRetrievalExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Best match and gains for two-hop composition.",
 			Label:    "tab:two_hop_summary",
 		},
-	
-{
-Type:     tools.ArtifactProse,
-FileName: "two_hop_retrieval_section.tex",
-Data: tools.ProseData{
-Template: `\subsection{Two-Hop Retrieval}
+
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "two_hop_retrieval_section.tex",
+			Data: tools.ProseData{
+				Template: `\subsection{Two-Hop Retrieval}
 \label{sec:two_hop_retrieval}
 
 \paragraph{Task Description.}
@@ -170,11 +150,11 @@ with compositional data; this infrastructure is being rebuilt during
 the current refactoring phase.
 {{- end}}
 `,
-Data: map[string]any{
-"N":     len(experiment.tableData),
-"Score": experiment.Score(),
-},
-},
-},
+				Data: map[string]any{
+					"N":     len(experiment.tableData),
+					"Score": experiment.Score(),
+				},
+			},
+		},
 	}
 }

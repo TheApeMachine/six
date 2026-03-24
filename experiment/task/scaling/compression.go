@@ -3,10 +3,9 @@ package scaling
 import (
 	"fmt"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
 )
 
 /*
@@ -21,7 +20,7 @@ explains that the ratio would sharpen at larger N.
 */
 type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -41,7 +40,7 @@ func NewCompressionExperiment() *CompressionExperiment {
 
 func (experiment *CompressionExperiment) Name() string    { return "Compression" }
 func (experiment *CompressionExperiment) Section() string { return "scaling" }
-func (experiment *CompressionExperiment) Dataset() provider.Dataset {
+func (experiment *CompressionExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -50,16 +49,12 @@ func (experiment *CompressionExperiment) Prompts() []string {
 	return experiment.prompt
 }
 
-func (experiment *CompressionExperiment) Holdout() (int, input.HoldoutType) {
-	return 32, input.RIGHT
-}
-
 func (experiment *CompressionExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *CompressionExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *CompressionExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 

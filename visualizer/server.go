@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io/fs"
 	"net"
 	"net/http"
 	"runtime"
@@ -15,8 +16,6 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/system/pool"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -42,13 +41,11 @@ type wsCommand struct {
 Server serves the 3D visualization and streams value events via WebSocket.
 */
 type Server struct {
-	state      *errnie.State
 	mu         sync.RWMutex
 	clients    map[*websocket.Conn]bool
 	upgrade    websocket.Upgrader
 	httpSrv    *http.Server
 	udpConn    *net.UDPConn
-	pool       *pool.Pool
 	promptFunc PromptFunc
 	ingestFunc IngestFunc
 }
@@ -58,17 +55,10 @@ NewServer instantiates a visualization server.
 */
 func NewServer() *Server {
 	return &Server{
-		state:   errnie.NewState("visualizer/server"),
 		clients: make(map[*websocket.Conn]bool),
 		upgrade: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
-		pool: pool.New(
-			context.Background(),
-			1,
-			runtime.NumCPU(),
-			&pool.Config{},
-		),
 	}
 }
 
@@ -98,32 +88,31 @@ func (server *Server) ListenAndServe(addr string, udpAddr string) error {
 	runtime.SetMutexProfileFraction(5)
 	runtime.SetBlockProfileRate(5)
 
-	udpListenAddr := errnie.Guard(server.state, func() (*net.UDPAddr, error) {
-		return resolveUDPListenAddr(addr, udpAddr)
-	})
-
-	if server.state.Failed() {
-		return server.state.Err()
+	udpListenAddr, err := resolveUDPListenAddr(addr, udpAddr)
+	if err != nil {
+		return err
 	}
 
-	conn := errnie.Guard(server.state, func() (*net.UDPConn, error) {
-		return net.ListenUDP("udp", udpListenAddr)
-	})
-
-	if server.state.Failed() {
-		return server.state.Err()
+	conn, err := net.ListenUDP("udp", udpListenAddr)
+	if err != nil {
+		return err
 	}
 
 	server.udpConn = conn
 
 	go func() {
 		if err := server.listenUDP(conn); err != nil && !errors.Is(err, net.ErrClosed) {
-			server.state.Handle(err)
+			// UDP listener stopped.
 		}
 	}()
 
+	sub, err := fs.Sub(staticFiles, "static")
+	if err != nil {
+		return err
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("/", http.FileServer(http.Dir("visualizer/static")))
+	mux.Handle("/", http.FileServer(http.FS(sub)))
 	mux.HandleFunc("/ws", server.handleWS)
 
 	server.httpSrv = &http.Server{Addr: addr, Handler: mux}
@@ -174,10 +163,6 @@ func (server *Server) Shutdown() {
 
 		server.httpSrv.Shutdown(shutdownCtx)
 	}
-
-	if server.pool != nil {
-		server.pool.Close()
-	}
 }
 
 /*
@@ -201,9 +186,10 @@ func (server *Server) SetIngestFunc(fn IngestFunc) {
 }
 
 func (server *Server) handleWS(w http.ResponseWriter, r *http.Request) {
-	conn := errnie.Guard(server.state, func() (*websocket.Conn, error) {
-		return server.upgrade.Upgrade(w, r, nil)
-	})
+	conn, err := server.upgrade.Upgrade(w, r, nil)
+	if err != nil {
+		return
+	}
 
 	server.mu.Lock()
 	server.clients[conn] = true
@@ -331,9 +317,10 @@ func (server *Server) handleIngestCommand(text string) {
 Broadcast sends an event to all connected WebSocket clients.
 */
 func (server *Server) Broadcast(event telemetry.Event) {
-	msg := errnie.Guard(server.state, func() ([]byte, error) {
-		return json.Marshal(event)
-	})
+	msg, err := json.Marshal(event)
+	if err != nil {
+		return
+	}
 
 	server.mu.RLock()
 	defer server.mu.RUnlock()

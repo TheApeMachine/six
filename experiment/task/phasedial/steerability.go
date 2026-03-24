@@ -4,8 +4,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -15,9 +15,9 @@ boundary for independent perspective shifts.
 */
 type SteerabilityExperiment struct {
 	tableData       []tools.ExperimentalData
-	dataset         provider.Dataset
+	dataset         data.Provider
 	prompt          []string
-	evaluator *tools.Evaluator
+	evaluator       *tools.Evaluator
 	accuracy        float64
 	splitCandidates []int
 	sweepStepDeg    float64
@@ -27,14 +27,14 @@ type steerabilityOpt func(*SteerabilityExperiment)
 
 func NewSteerabilityExperiment(opts ...steerabilityOpt) *SteerabilityExperiment {
 	experiment := &SteerabilityExperiment{
-		tableData:       []tools.ExperimentalData{},
+		tableData: []tools.ExperimentalData{},
 		// Baseline 0.20: Phase steerability control.
 		// Any non-zero result demonstrates the property holds.
 		// Target 0.70: strong geometric invariant.
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.20, 0.70),
 		),
-		dataset:         tools.NewLocalProvider(tools.Aphorisms),
+		dataset:         local.New(local.WithStrings(tools.Aphorisms)),
 		splitCandidates: []int{192, 224, 256, 288, 320},
 		sweepStepDeg:    5.0,
 	}
@@ -54,7 +54,7 @@ func NewSteerabilityExperiment(opts ...steerabilityOpt) *SteerabilityExperiment 
 	return experiment
 }
 
-func SteerabilityWithDataset(dataset provider.Dataset) steerabilityOpt {
+func SteerabilityWithDataset(dataset data.Provider) steerabilityOpt {
 	return func(experiment *SteerabilityExperiment) {
 		if dataset != nil {
 			experiment.dataset = dataset
@@ -86,7 +86,7 @@ func (experiment *SteerabilityExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *SteerabilityExperiment) Dataset() provider.Dataset {
+func (experiment *SteerabilityExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -94,10 +94,6 @@ func (experiment *SteerabilityExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (experiment *SteerabilityExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *SteerabilityExperiment) AddResult(results tools.ExperimentalData) {
@@ -118,26 +114,6 @@ func (experiment *SteerabilityExperiment) TableData() any {
 
 func (experiment *SteerabilityExperiment) RawOutput() bool { return false }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 func (experiment *SteerabilityExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{
 		{
@@ -148,12 +124,12 @@ func (experiment *SteerabilityExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Steerability and gain across different split boundaries.",
 			Label:    "fig:steerability_scores",
 		},
-	
-{
-Type:     tools.ArtifactProse,
-FileName: "steerability_section.tex",
-Data: tools.ProseData{
-Template: `\subsection{Steerability}
+
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "steerability_section.tex",
+			Data: tools.ProseData{
+				Template: `\subsection{Steerability}
 \label{sec:steerability}
 
 \paragraph{Task Description.}
@@ -182,11 +158,11 @@ with compositional data; this infrastructure is being rebuilt during
 the current refactoring phase.
 {{- end}}
 `,
-Data: map[string]any{
-"N":     len(experiment.tableData),
-"Score": experiment.Score(),
-},
-},
-},
+				Data: map[string]any{
+					"N":     len(experiment.tableData),
+					"Score": experiment.Score(),
+				},
+			},
+		},
 	}
 }

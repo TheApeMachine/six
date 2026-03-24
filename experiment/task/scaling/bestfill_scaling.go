@@ -3,8 +3,7 @@ package scaling
 import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
 )
 
 /*
@@ -19,7 +18,7 @@ linearly with N.
 */
 type BestFillScalingExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -39,7 +38,7 @@ func NewBestFillScalingExperiment() *BestFillScalingExperiment {
 
 func (experiment *BestFillScalingExperiment) Name() string    { return "BestFill Scaling" }
 func (experiment *BestFillScalingExperiment) Section() string { return "scaling" }
-func (experiment *BestFillScalingExperiment) Dataset() provider.Dataset {
+func (experiment *BestFillScalingExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -48,10 +47,6 @@ func (experiment *BestFillScalingExperiment) Prompts() []string {
 	// We don't need to run 5000 prompts through the active inference Graph
 	// just to benchmark the latency of raw BestFill.
 	return []string{}
-}
-
-func (experiment *BestFillScalingExperiment) Holdout() (int, input.HoldoutType) {
-	return 32, input.RIGHT
 }
 
 func (experiment *BestFillScalingExperiment) AddResult(results tools.ExperimentalData) {

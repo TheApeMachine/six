@@ -1,18 +1,18 @@
 package phasedial
 
 import (
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 type AdaptiveSplitExperiment struct {
 	tableData    []tools.ExperimentalData
-	dataset      provider.Dataset
+	dataset      data.Provider
 	prompt       []string
-	evaluator *tools.Evaluator
+	evaluator    *tools.Evaluator
 	adaptGain    float64
 	boundaryRows []map[string]any
 	summaryRows  []map[string]any
@@ -29,7 +29,7 @@ func NewAdaptiveSplitExperiment() *AdaptiveSplitExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -41,7 +41,7 @@ func (experiment *AdaptiveSplitExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *AdaptiveSplitExperiment) Dataset() provider.Dataset {
+func (experiment *AdaptiveSplitExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -51,15 +51,11 @@ func (experiment *AdaptiveSplitExperiment) Prompts() []string {
 	return experiment.prompt
 }
 
-func (experiment *AdaptiveSplitExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
-}
-
 func (experiment *AdaptiveSplitExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *AdaptiveSplitExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *AdaptiveSplitExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -72,34 +68,6 @@ func (experiment *AdaptiveSplitExperiment) TableData() any {
 }
 
 func (experiment *AdaptiveSplitExperiment) RawOutput() bool { return false }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 func (experiment *AdaptiveSplitExperiment) Artifacts() []tools.Artifact {
 	return []tools.Artifact{
@@ -130,12 +98,12 @@ func (experiment *AdaptiveSplitExperiment) Artifacts() []tools.Artifact {
 			Caption:  "Comparison of adaptive split vs reference split.",
 			Label:    "tab:adaptive_split_summary",
 		},
-	
-{
-Type:     tools.ArtifactProse,
-FileName: "adaptive_split_section.tex",
-Data: tools.ProseData{
-Template: `\subsection{Adaptive Split}
+
+		{
+			Type:     tools.ArtifactProse,
+			FileName: "adaptive_split_section.tex",
+			Data: tools.ProseData{
+				Template: `\subsection{Adaptive Split}
 \label{sec:adaptive_split}
 
 \paragraph{Task Description.}
@@ -165,11 +133,11 @@ with compositional data; this infrastructure is being rebuilt during
 the current refactoring phase.
 {{- end}}
 `,
-Data: map[string]any{
-"N":     len(experiment.tableData),
-"Score": experiment.Score(),
-},
-},
-},
+				Data: map[string]any{
+					"N":     len(experiment.tableData),
+					"Score": experiment.Score(),
+				},
+			},
+		},
 	}
 }

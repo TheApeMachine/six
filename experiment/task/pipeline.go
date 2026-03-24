@@ -1,13 +1,15 @@
 package task
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 type runTiming struct {
@@ -20,7 +22,6 @@ type runTiming struct {
 type Pipeline struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
-	machine    *vm.Machine
 	experiment tools.PipelineExperiment
 	scoreWgts  tools.ScoreWeights
 	reporter   Reporter
@@ -55,60 +56,35 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 	return pipeline, nil
 }
 
-func (pipeline *Pipeline) Run() error {
-	defer pipeline.cancel()
-
-	loadStart := time.Now()
-
-	pipeline.machine = vm.NewMachine(
-		vm.MachineWithContext(pipeline.ctx),
+func (pipeline *Pipeline) Run() (err error) {
+	machine := vm.NewMachine(
+		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
-	defer pipeline.machine.Close()
 
-	dataset := pipeline.experiment.Dataset()
-	if dataset != nil {
-		if err := pipeline.machine.SetDataset(dataset); err != nil {
-			return err
+	for idx, prompt := range pipeline.experiment.Prompts() {
+		p := bytes.NewBuffer([]byte{})
+		p.WriteString(prompt)
+
+		if _, err = io.Copy(machine, p); err != nil {
+			return errnie.Error(err)
 		}
-	}
 
-	pipeline.timing.loadDur = time.Since(loadStart)
+		result := bytes.NewBuffer([]byte{})
 
-	prompts := pipeline.experiment.Prompts()
-
-	if len(prompts) == 0 && dataset != nil {
-		prompts = promptsFromDataset(dataset)
-	}
-
-	if len(prompts) == 0 {
-		return PipelineError("dataset produced zero prompts")
-	}
-
-	holdoutN, holdoutType := pipeline.experiment.Holdout()
-
-	promptStart := time.Now()
-
-	for idx, prompt := range prompts {
-		prefix, expected := splitHoldout(prompt, holdoutN, holdoutType)
-
-		result, err := pipeline.machine.Prompt(prefix)
-		if err != nil {
-			return err
+		if _, err = io.Copy(result, machine); err != nil {
+			return errnie.Error(err)
 		}
+
+		errnie.Debug("Prompt", "prompt", prompt)
 
 		pipeline.experiment.AddResult(tools.ExperimentalData{
 			Idx:      idx,
 			Name:     pipeline.experiment.Name(),
-			Prefix:   []byte(prefix),
-			Holdout:  expected,
-			Observed: result,
+			Prefix:   []byte(prompt),
+			Holdout:  []byte{},
+			Observed: result.Bytes(),
 		})
 	}
-
-	pipeline.timing.promptDur = time.Since(promptStart)
-	pipeline.timing.n = len(prompts)
-
-	finalizeStart := time.Now()
 
 	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
 		return err
@@ -120,96 +96,32 @@ func (pipeline *Pipeline) Run() error {
 		}
 	}
 
-	pipeline.timing.finalizeDur = time.Since(finalizeStart)
-
 	return pipeline.writeStandardSummary()
 }
 
 /*
-splitHoldout separates a prompt into the prefix the machine sees and
-the expected bytes it must reconstruct. The holdoutN parameter is
-interpreted as a byte count for RIGHT/LEFT/CENTER, or ignored for
-MATCH (which strips label substrings). Returns the truncated prefix
-and the held-out ground truth.
+promptsFromDataset reconstructs full text samples from a dataset's byte stream,
+ordered by SampleID, for use as prompts when the experiment does not provide
+explicit prompts.
 */
-func splitHoldout(prompt string, holdoutN int, holdoutType input.HoldoutType) (string, []byte) {
-	raw := []byte(prompt)
-
-	if holdoutType == input.NONE || holdoutN <= 0 || len(raw) == 0 {
-		return prompt, nil
-	}
-
-	n := min(holdoutN, len(raw))
-
-	switch holdoutType {
-	case input.RIGHT:
-		cut := len(raw) - n
-		return string(raw[:cut]), raw[cut:]
-
-	case input.LEFT:
-		return string(raw[n:]), raw[:n]
-
-	case input.CENTER:
-		start := (len(raw) - n) / 2
-		expected := make([]byte, n)
-		copy(expected, raw[start:start+n])
-
-		prefix := make([]byte, 0, len(raw)-n)
-		prefix = append(prefix, raw[:start]...)
-		prefix = append(prefix, raw[start+n:]...)
-
-		return string(prefix), expected
-
-	case input.MATCH:
-		return prompt, nil
-	}
-
-	return prompt, nil
-}
-
-/*
-promptsFromDataset reconstructs full text samples from a dataset's RawToken
-stream, ordered by SampleID, for use as prompts when the experiment does not
-provide explicit prompts.
-*/
-func promptsFromDataset(dataset provider.Dataset) []string {
-	byID := map[uint32][]byte{}
-	order := []uint32{}
+func promptsFromDataset(dataset data.Provider) []string {
+	byID := map[byte][]byte{}
+	order := []byte{}
 
 	for tok := range dataset.Generate() {
-		if _, exists := byID[tok.SampleID]; !exists {
-			order = append(order, tok.SampleID)
+		if _, exists := byID[tok]; !exists {
+			order = append(order, tok)
 		}
 
-		byID[tok.SampleID] = append(byID[tok.SampleID], tok.Symbol)
+		byID[tok] = append(byID[tok], tok)
 	}
 
-	prompts := make([]string, 0, len(order))
-
-	for _, id := range order {
-		prompts = append(prompts, string(byID[id]))
+	prompts := make([]string, len(order))
+	for i, tok := range order {
+		prompts[i] = string(tok)
 	}
 
 	return prompts
-}
-
-func extractScores(data []tools.ExperimentalData, field string) []float64 {
-	scores := make([]float64, len(data))
-
-	for i, d := range data {
-		switch field {
-		case "Exact":
-			scores[i] = d.Scores.Exact
-		case "Partial":
-			scores[i] = d.Scores.Partial
-		case "Fuzzy":
-			scores[i] = d.Scores.Fuzzy
-		case "Weighted":
-			scores[i] = d.WeightedTotal
-		}
-	}
-
-	return scores
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {
@@ -242,26 +154,12 @@ func (pipeline *Pipeline) writeStandardSummary() error {
 		return nil
 	}
 
-	holdoutN, holdoutType := pipeline.experiment.Holdout()
-
-	htStr := "RIGHT"
-	switch holdoutType {
-	case input.LEFT:
-		htStr = "LEFT"
-	case input.CENTER:
-		htStr = "CENTER"
-	case input.RANDOM:
-		htStr = "RANDOM"
-	case input.MATCH:
-		htStr = "MATCH"
-	}
-
 	return WriteStandardSummary(
 		pipeline.experiment.Name(),
 		pipeline.experiment.Section(),
 		rows,
-		holdoutN,
-		htStr,
+		len(rows),
+		"",
 		pipeline.timing,
 	)
 }

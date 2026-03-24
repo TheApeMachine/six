@@ -3,15 +3,11 @@ package classification
 import (
 	"fmt"
 
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
-
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-
-	gc "github.com/smartystreets/goconvey/convey"
 )
 
 // ag_news label indices → human readable names
@@ -33,7 +29,7 @@ seen before.
 type TextClassificationExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -43,7 +39,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("sh0416/ag_news"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithSplit("test"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
@@ -70,7 +66,7 @@ func (experiment *TextClassificationExperiment) Section() string {
 	return "classification"
 }
 
-func (experiment *TextClassificationExperiment) Dataset() provider.Dataset {
+func (experiment *TextClassificationExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -78,10 +74,6 @@ func (experiment *TextClassificationExperiment) Dataset() provider.Dataset {
 // suffixes via SUBSTRING holdout so the machine sees pure article text.
 func (experiment *TextClassificationExperiment) Prompts() []string {
 	return experiment.prompt
-}
-
-func (experiment *TextClassificationExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.MATCH
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
@@ -107,7 +99,7 @@ Outcome delegates to the Evaluator which holds the real expectation
 thresholds. Baseline = 0.30 (above random for 4 classes), Target = 0.85.
 */
 func (experiment *TextClassificationExperiment) Outcome() (
-	any, gc.Assertion, any,
+	any, Assertion, any,
 ) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }

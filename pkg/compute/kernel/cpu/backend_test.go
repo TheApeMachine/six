@@ -1,79 +1,108 @@
 package cpu
 
 import (
-	"bytes"
+	"errors"
 	"io"
-	"math/rand"
+	"math/bits"
+	"runtime"
 	"testing"
+	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
-func TestBackendAvailable(t *testing.T) {
-	Convey("Given a CPU backend", t, func() {
-		backend := &Backend{}
-
-		Convey("It should report at least one CPU", func() {
-			n, err := backend.Available()
-			So(err, ShouldBeNil)
-			So(n, ShouldBeGreaterThan, 0)
-		})
+func TestAvailable(t *testing.T) {
+	Convey("Available reports logical CPU count", t, func() {
+		So(Available(), ShouldEqual, runtime.NumCPU())
+		So(Available(), ShouldBeGreaterThan, 0)
 	})
 }
 
-func TestBackendWriteReadRoundTrip(t *testing.T) {
-	Convey("Given a CPU backend", t, func() {
-		backend := &Backend{}
-
-		cases := []struct {
-			label string
-			data  []byte
-		}{
-			{"empty", nil},
-			{"single byte", []byte{0x42}},
-			{"small", []byte("hello world")},
-			{"4k", make([]byte, 4096)},
-		}
-
-		rand.Read(cases[3].data)
-
-		for _, tc := range cases {
-			Convey("It should round-trip "+tc.label, func() {
-				if len(tc.data) > 0 {
-					n, err := backend.Write(tc.data)
-					So(err, ShouldBeNil)
-					So(n, ShouldEqual, len(tc.data))
-				}
-
-				out := new(bytes.Buffer)
-				nn, err := io.Copy(out, backend)
-
-				So(err, ShouldBeNil)
-				So(nn, ShouldEqual, int64(len(tc.data)))
-				So(bytes.Equal(out.Bytes(), tc.data), ShouldBeTrue)
-
-				backend.Reset()
-			})
-		}
+func TestNewBackend(t *testing.T) {
+	Convey("NewBackend returns a non-nil Backend", t, func() {
+		b := NewBackend()
+		So(b, ShouldNotBeNil)
 	})
 }
 
-func BenchmarkBackendRoundTrip(b *testing.B) {
-	payload := make([]byte, 4096)
-	rand.Read(payload)
+func TestRead(t *testing.T) {
+	Convey("Read returns EOF when the pipe has no data", t, func() {
+		b := NewBackend()
+		n, err := b.Read(nil)
+		So(n, ShouldEqual, 0)
+		So(errors.Is(err, io.EOF), ShouldBeTrue)
 
-	backend := &Backend{}
+		buf := make([]byte, 16)
+		n, err = b.Read(buf)
+		So(errors.Is(err, io.EOF), ShouldBeTrue)
+		So(n, ShouldEqual, 0)
+	})
+}
 
-	var out bytes.Buffer
-	out.Grow(len(payload))
+func TestWrite(t *testing.T) {
+	Convey("Write forwards non-empty payloads to the ring buffer", t, func() {
+		b := NewBackend()
+		n, err := b.Write(nil)
+		So(err, ShouldBeNil)
+		So(n, ShouldEqual, 0)
 
-	b.ReportAllocs()
+		buf := make([]byte, 16)
+		n, err = b.Write(buf)
+		So(err, ShouldBeNil)
+		So(n, ShouldEqual, len(buf))
+	})
+}
 
+func TestClose(t *testing.T) {
+	Convey("Close always succeeds", t, func() {
+		b := NewBackend()
+		So(b.Close(), ShouldBeNil)
+		So(b.Close(), ShouldBeNil)
+	})
+}
+
+func BenchmarkBackend_Read(b *testing.B) {
+	be := NewBackend()
+	buf := make([]byte, 1024)
+	b.ResetTimer()
 	for b.Loop() {
-		backend.Reset()
-		backend.Write(payload)
+		_, _ = be.Read(buf)
+	}
+}
 
-		out.Reset()
-		io.Copy(&out, backend)
+func BenchmarkBackend_Write(b *testing.B) {
+	be := NewBackend()
+	buf := make([]byte, primitive.ByteSize)
+	drain := make([]byte, primitive.ByteSize)
+	b.ResetTimer()
+	for b.Loop() {
+		_, _ = be.Write(buf)
+		// Ring capacity matches one frame; without a read the next Write blocks forever.
+		_, _ = io.ReadFull(be, drain)
+	}
+}
+
+func BenchmarkBackend_Close(b *testing.B) {
+	be := NewBackend()
+	b.ResetTimer()
+	for b.Loop() {
+		_ = be.Close()
+	}
+}
+
+func BenchmarkBackend_UniversalBitwise(b *testing.B) {
+	be := NewBackend()
+	const n = 64
+	a := make([]primitive.Value, n)
+	bv := make([]primitive.Value, n)
+	dst := make([]primitive.Value, n)
+	for i := range n {
+		a[i][0] = uint64(i + 1)
+		bv[i][4] = uint64(bits.Reverse64(uint64(i)))
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		_ = be.UniversalBitwise(0b1110, unsafe.Pointer(&a[0]), unsafe.Pointer(&bv[0]), unsafe.Pointer(&dst[0]), n)
 	}
 }

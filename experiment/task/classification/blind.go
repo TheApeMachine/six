@@ -3,15 +3,11 @@ package classification
 import (
 	"fmt"
 
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	config "github.com/theapemachine/six/pkg/system/core"
-	"github.com/theapemachine/six/pkg/system/vm/input"
-
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-
-	gc "github.com/smartystreets/goconvey/convey"
 )
 
 /*
@@ -28,17 +24,19 @@ seen before.
 type BlindClassificationExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
+
+var samples = 100
 
 func NewBlindClassificationExperiment() *BlindClassificationExperiment {
 	experiment := &BlindClassificationExperiment{
 		tableData: []tools.ExperimentalData{},
 		dataset: huggingface.New(
 			huggingface.DatasetWithRepo("sh0416/ag_news"),
-			huggingface.DatasetWithSamples(config.Experiment.Samples),
+			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithSplit("test"),
 			huggingface.DatasetWithTextColumns("title", "description"),
 			huggingface.DatasetWithLabelColumn("label"),
@@ -64,16 +62,12 @@ func (experiment *BlindClassificationExperiment) Section() string {
 	return "blind classification"
 }
 
-func (experiment *BlindClassificationExperiment) Dataset() provider.Dataset {
+func (experiment *BlindClassificationExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
 func (experiment *BlindClassificationExperiment) Prompts() []string {
 	return experiment.prompt
-}
-
-func (experiment *BlindClassificationExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.MATCH
 }
 
 func (experiment *BlindClassificationExperiment) AddResult(results tools.ExperimentalData) {
@@ -100,7 +94,7 @@ thresholds. Baseline = 0.05 (barely above noise for blind task),
 Target = 0.50 (strong unsupervised clustering).
 */
 func (experiment *BlindClassificationExperiment) Outcome() (
-	any, gc.Assertion, any,
+	any, Assertion, any,
 ) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }

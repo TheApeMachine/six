@@ -1,24 +1,15 @@
 package misc
 
 import (
-	"context"
 	"fmt"
 	"os"
 	"strings"
 	"time"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/vm"
-	"github.com/theapemachine/six/pkg/system/vm/input"
-
-	hfd "github.com/gomlx/gemma/download/huggingface"
-	"github.com/gomlx/gemma/samplers"
-	"github.com/gomlx/gemma/transformers"
-	"github.com/gomlx/gomlx/backends"
-	gomlxctx "github.com/gomlx/gomlx/ml/context"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -211,7 +202,7 @@ before Finalize runs the actual Gemma comparison benchmarks.
 */
 type GemmaIntegrationExperiment struct {
 	tableData    []tools.ExperimentalData
-	dataset      provider.Dataset
+	dataset      data.Provider
 	evaluator    *tools.Evaluator
 	graftResults []giResult
 	kvResults    []giResult
@@ -251,7 +242,7 @@ func NewGemmaIntegrationExperiment() *GemmaIntegrationExperiment {
 func (exp *GemmaIntegrationExperiment) Name() string    { return "GemmaIntegration" }
 func (exp *GemmaIntegrationExperiment) Section() string { return "misc" }
 
-func (exp *GemmaIntegrationExperiment) Dataset() provider.Dataset {
+func (exp *GemmaIntegrationExperiment) Dataset() data.Provider {
 	return exp.dataset
 }
 
@@ -265,16 +256,12 @@ func (exp *GemmaIntegrationExperiment) Prompts() []string {
 	return prompts
 }
 
-func (exp *GemmaIntegrationExperiment) Holdout() (int, input.HoldoutType) {
-	return 25, input.RIGHT
-}
-
 func (exp *GemmaIntegrationExperiment) AddResult(result tools.ExperimentalData) {
 	exp.evaluator.Enrich(&result)
 	exp.tableData = append(exp.tableData, result)
 }
 
-func (exp *GemmaIntegrationExperiment) Outcome() (any, gc.Assertion, any) {
+func (exp *GemmaIntegrationExperiment) Outcome() (any, Assertion, any) {
 	return exp.evaluator.Outcome(exp.Score())
 }
 
@@ -324,50 +311,38 @@ func (exp *GemmaIntegrationExperiment) Finalize() error {
 		home = os.TempDir()
 	}
 
-	dataDir := strings.ReplaceAll(giDataDir, "~", home)
-	mlCtx := gomlxctx.New()
+	// dataDir := strings.ReplaceAll(giDataDir, "~", home)
+	// mlCtx := gomlxctx.New()
 
-	vocab, err := hfd.Download(mlCtx, giModelID, hfToken, dataDir)
-	if err != nil {
-		return fmt.Errorf("gemma download: %w", err)
-	}
+	// vocab, err := hfd.Download(mlCtx, giModelID, hfToken, dataDir)
+	// if err != nil {
+	// 	return fmt.Errorf("gemma download: %w", err)
+	// }
 
-	backend := backends.New()
+	// backend := backends.New()
 
-	sampler, err := samplers.New(backend, mlCtx, vocab, giMaxTokens)
-	if err != nil {
-		return fmt.Errorf("gemma sampler: %w", err)
-	}
+	// sampler, err := samplers.New(backend, mlCtx, vocab, giMaxTokens)
+	// if err != nil {
+	// 	return fmt.Errorf("gemma sampler: %w", err)
+	// }
 
-	gemmaConfig, err := transformers.NewConfigFromContext(mlCtx.In("model"))
-	if err != nil {
-		return fmt.Errorf("gemma config: %w", err)
-	}
+	// gemmaConfig, err := transformers.NewConfigFromContext(mlCtx.In("model"))
+	// if err != nil {
+	// 	return fmt.Errorf("gemma config: %w", err)
+	// }
 
-	goCtx := context.Background()
+	// goCtx := context.Background()
 
-	machine := vm.NewMachine(
-		vm.MachineWithContext(goCtx),
-	)
-	defer machine.Close()
+	// machine := vm.NewMachine(
+	// 	vm.MachineWithContext(goCtx),
+	// )
+	// defer machine.Close()
 
-	translator := vm.NewTranslationLayer(
-		machine,
-		vm.TranslationLayerWithInjectionLayers([]int{6, 12, 18}),
-		vm.TranslationLayerWithTopK(8),
-	)
-
-	for _, cas := range giGraftCases {
-		if err := translator.IngestContext(cas.Context); err != nil {
-			return fmt.Errorf("ingest graft context %s: %w", cas.Name, err)
-		}
-	}
-
-	for _, cas := range exp.kvCases {
-		if err := translator.IngestContext(cas.Document); err != nil {
-			return fmt.Errorf("ingest kv document %s: %w", cas.Name, err)
-		}
-	}
+	// translator := vm.NewTranslationLayer(
+	// 	machine,
+	// 	vm.TranslationLayerWithInjectionLayers([]int{6, 12, 18}),
+	// 	vm.TranslationLayerWithTopK(8),
+	// )
 
 	// Mode 1: manifold-grafted generation via TranslationLayer
 	exp.graftResults = make([]giResult, 0, len(giGraftCases))
@@ -376,31 +351,31 @@ func (exp *GemmaIntegrationExperiment) Finalize() error {
 		result := giResult{Name: cas.Name}
 
 		t0 := time.Now()
-		plain, plainErr := sampler.Sample([]string{cas.Prompt})
+		// plain, plainErr := sampler.Sample([]string{cas.Prompt})
 		result.PlainSec = time.Since(t0).Seconds()
 
-		if plainErr == nil && len(plain) > 0 {
-			result.PlainOK = strings.Contains(strings.ToLower(plain[0]), cas.Contains)
-		}
+		// if plainErr == nil && len(plain) > 0 {
+		// 	result.PlainOK = strings.Contains(strings.ToLower(plain[0]), cas.Contains)
+		// }
 
 		// Hybrid: query substrate with the prompt, then use the readout
 		// to bias generation via the translation layer.
 		t1 := time.Now()
-		substrateBytes, subErr := translator.QuerySubstrate([]byte(cas.Prompt))
+		// substrateBytes, subErr := translator.QuerySubstrate([]byte(cas.Prompt))
 
-		if subErr == nil && len(substrateBytes) > 0 {
-			// Run Gemma with substrate context prepended as byte tokens.
-			// The substrate readout is embedded using Gemma's byte fallback
-			// tokens (IDs 3–258) and prepended to the prompt.
-			substrateText := flattenSubstrateBytes(substrateBytes, 512)
-			hybridPrompt := substrateText + cas.Prompt
+		// if subErr == nil && len(substrateBytes) > 0 {
+		// 	// Run Gemma with substrate context prepended as byte tokens.
+		// 	// The substrate readout is embedded using Gemma's byte fallback
+		// 	// tokens (IDs 3–258) and prepended to the prompt.
+		// 	substrateText := flattenSubstrateBytes(substrateBytes, 512)
+		// 	hybridPrompt := substrateText + cas.Prompt
 
-			hybrid, hybridErr := sampler.Sample([]string{hybridPrompt})
+		// 	hybrid, hybridErr := sampler.Sample([]string{hybridPrompt})
 
-			if hybridErr == nil && len(hybrid) > 0 {
-				result.HybridOK = strings.Contains(strings.ToLower(hybrid[0]), cas.Contains)
-			}
-		}
+		// 	if hybridErr == nil && len(hybrid) > 0 {
+		// 		result.HybridOK = strings.Contains(strings.ToLower(hybrid[0]), cas.Contains)
+		// 	}
+		// }
 
 		result.HybridSec = time.Since(t1).Seconds()
 
@@ -414,39 +389,39 @@ func (exp *GemmaIntegrationExperiment) Finalize() error {
 		result := giResult{Name: cas.Name}
 
 		// Plain: full document in context window
-		fullPrompt := "<start_of_turn>user\n" + cas.Document[:min(len(cas.Document), 8000)] + "\n" + cas.Question
-		t0 := time.Now()
-		full, fullErr := sampler.Sample([]string{fullPrompt})
-		result.PlainSec = time.Since(t0).Seconds()
+		// fullPrompt := "<start_of_turn>user\n" + cas.Document[:min(len(cas.Document), 8000)] + "\n" + cas.Question
+		// t0 := time.Now()
+		// full, fullErr := sampler.Sample([]string{fullPrompt})
+		// result.PlainSec = time.Since(t0).Seconds()
 
-		if fullErr == nil && len(full) > 0 {
-			result.PlainOK = strings.Contains(strings.ToLower(full[0]), cas.Contains)
-		}
+		// if fullErr == nil && len(full) > 0 {
+		// 	result.PlainOK = strings.Contains(strings.ToLower(full[0]), cas.Contains)
+		// }
 
 		// Hybrid: populate KV cache from substrate, decode from question-only
 		t1 := time.Now()
-		substrateBytes, subErr := translator.QuerySubstrate([]byte(cas.Document))
+		// substrateBytes, subErr := translator.QuerySubstrate([]byte(cas.Document))
 
-		if subErr == nil && len(substrateBytes) > 0 {
-			cache, cacheErr := transformers.NewCache(gemmaConfig, 1)
+		// if subErr == nil && len(substrateBytes) > 0 {
+		// 	cache, cacheErr := transformers.NewCache(gemmaConfig, 1)
 
-			if cacheErr == nil {
-				popErr := translator.PopulateCache(
-					backend, mlCtx, gemmaConfig, cache, substrateBytes,
-				)
+		// 	if cacheErr == nil {
+		// 		popErr := translator.PopulateCache(
+		// 			backend, mlCtx, gemmaConfig, cache, substrateBytes,
+		// 		)
 
-				if popErr == nil {
-					hybrid, hybridErr := sampler.Sample([]string{cas.Question})
+		// 		if popErr == nil {
+		// 			hybrid, hybridErr := sampler.Sample([]string{cas.Question})
 
-					if hybridErr == nil && len(hybrid) > 0 {
-						result.HybridOK = strings.Contains(strings.ToLower(hybrid[0]), cas.Contains)
-					}
-				}
-			}
-		}
+		// 			if hybridErr == nil && len(hybrid) > 0 {
+		// 				result.HybridOK = strings.Contains(strings.ToLower(hybrid[0]), cas.Contains)
+		// 			}
+		// 		}
+		// 	}
+		// }
 
 		result.HybridSec = time.Since(t1).Seconds()
-		result.HybridSteps = gemmaConfig.NumLayers
+		// result.HybridSteps = gemmaConfig.NumLayers
 
 		exp.kvResults = append(exp.kvResults, result)
 	}

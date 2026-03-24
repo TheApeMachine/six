@@ -1,7 +1,8 @@
 package telemetry
 
 /*
-Event is a telemetry event sent to all connected visualization clients.
+Event is the JSON shape consumed by the visualizer WebSocket clients.
+All fields use lowercase JSON names to match the browser.
 */
 type Event struct {
 	Component string    `json:"component"`
@@ -10,50 +11,52 @@ type Event struct {
 }
 
 /*
-EventData carries the payload for a visualization event.
+EventData carries optional telemetry payload. Only non-zero / non-empty
+fields are serialized (omitempty).
 */
 type EventData struct {
-	ValueID int    `json:"valueId,omitempty"`
-	Bin     int    `json:"bin,omitempty"`
-	State   string `json:"state,omitempty"`
+	Stage   string `json:"stage,omitempty"`
+	Message string `json:"message,omitempty"`
 
-	ActiveBits []int   `json:"activeBits,omitempty"`
-	Density    float64 `json:"density,omitempty"`
-	ChunkText  string  `json:"chunkText,omitempty"`
+	ChunkText string `json:"chunkText,omitempty"`
+	Frame     int    `json:"frameIndex,omitempty"`
 
-	Residue    int   `json:"residue,omitempty"`
-	MatchBits  []int `json:"matchBits,omitempty"`
-	CancelBits []int `json:"cancelBits,omitempty"`
+	Instruction string `json:"instruction,omitempty"`
+	DataPop     int    `json:"dataPop,omitempty"`
+	OperandPop  int    `json:"operandPop,omitempty"`
+	AccumPop    int    `json:"accumPop,omitempty"`
 
-	Left  int `json:"left,omitempty"`
-	Right int `json:"right,omitempty"`
-	Pos   int `json:"pos,omitempty"`
-
-	Paths  int `json:"paths,omitempty"`
-	Chunks int `json:"chunks,omitempty"`
-	Edges  int `json:"edges,omitempty"`
-
+	EdgeCount  int     `json:"edgeCount,omitempty"`
+	PathCount  int     `json:"pathCount,omitempty"`
+	Paths      int     `json:"paths,omitempty"`
+	EntryCount int     `json:"entryCount,omitempty"`
+	Bin        int     `json:"bin,omitempty"`
 	Level      int     `json:"level,omitempty"`
-	Theta      float64 `json:"theta,omitempty"`
-	ParentBin  int     `json:"parentBin,omitempty"`
 	ChildCount int     `json:"childCount,omitempty"`
+	Density    float64 `json:"density,omitempty"`
 
-	Stage           string `json:"stage,omitempty"`
-	Message         string `json:"message,omitempty"`
-	EdgeCount       int    `json:"edgeCount,omitempty"`
-	PathCount       int    `json:"pathCount,omitempty"`
-	ResultText      string `json:"resultText,omitempty"`
-	WavefrontEnergy int    `json:"wavefrontEnergy,omitempty"`
-	EntryCount      int    `json:"entryCount,omitempty"`
+	ResultText string `json:"resultText,omitempty"`
+	Msg        string `json:"msg,omitempty"`
 
-	Step           int    `json:"step,omitempty"`
-	MaxSteps       int    `json:"maxSteps,omitempty"`
-	CandidateCount int    `json:"candidateCount,omitempty"`
-	BestIndex      int    `json:"bestIndex,omitempty"`
-	PreResidue     int    `json:"preResidue,omitempty"`
-	PostResidue    int    `json:"postResidue,omitempty"`
-	Advanced       bool   `json:"advanced,omitempty"`
-	Stable         bool   `json:"stable,omitempty"`
-	Outcome        string `json:"outcome,omitempty"`
-	SpanSize       int    `json:"spanSize,omitempty"`
+	PreResidue     int `json:"preResidue,omitempty"`
+	PostResidue    int `json:"postResidue,omitempty"`
+	Step           int `json:"step,omitempty"`
+	CandidateCount int `json:"candidateCount,omitempty"`
+	MaxSteps       int `json:"maxSteps,omitempty"`
+
+	JobID       string `json:"jobId,omitempty"`
+	TaskType    string `json:"taskType,omitempty"`
+	DurationMs  int    `json:"durationMs,omitempty"`
+	QueueSize   int    `json:"queueSize,omitempty"`
+	WorkerCount int    `json:"workerCount,omitempty"`
+	IdleWorkers int    `json:"idleWorkers,omitempty"`
+
+	BestIndex int    `json:"bestIndex,omitempty"`
+	Avail     int    `json:"avail,omitempty"`
+	NodeAddr  string `json:"nodeAddr,omitempty"`
+	NodeCount int    `json:"nodeCount,omitempty"`
+
+	Chunks int `json:"chunks,omitempty"`
+
+	ActiveBits []int `json:"activeBits,omitempty"`
 }

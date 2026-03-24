@@ -1,82 +1,83 @@
 package cmd
 
 import (
+	"context"
+	"errors"
 	"fmt"
-	"runtime"
+	"net/http"
+	"os"
+	"os/signal"
+	"time"
 
 	"github.com/spf13/cobra"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/console"
-	"github.com/theapemachine/six/pkg/system/pool"
-	"github.com/theapemachine/six/pkg/system/vm"
 	"github.com/theapemachine/six/visualizer"
 )
 
-var vizListen bool
+var (
+	vizHTTPAddr string
+	vizUDPAddr  string
+	vizRepo     string
+	vizSubset   string
+	vizColumn   string
+	vizIters    int
+	vizDelay    time.Duration
+)
 
 var vizCmd = &cobra.Command{
 	Use:   "viz",
-	Short: "Launch the 3D value geometry visualizer",
-	Long: `Starts a WebSocket server and opens a Three.js visualization of value operations in real-time.
+	Short: "Run the 3D substrate visualizer with live telemetry",
+	Long: `Starts the HTTP/WebSocket visualizer and runs the experiment substrate loop
+(dataset -> Value chamber -> CPU kernel) so you can inspect human-readable state
+in the browser. Requires network access to fetch the Hugging Face dataset on first run.`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		srv := visualizer.NewServer()
 
-By default runs the Alice demo. Use --listen to start in listener mode,
-which receives real telemetry from the running system via UDP.`,
-	Run: func(cmd *cobra.Command, args []string) {
-		server := visualizer.NewServer()
-		workerPool := pool.New(
-			cmd.Context(),
-			1,
-			runtime.NumCPU(),
-			&pool.Config{},
-		)
-		defer workerPool.Close()
-
-		mode := "demo"
-		if vizListen {
-			mode = "listener (waiting for real system telemetry on UDP :8258)"
-		}
-
-		fmt.Printf("Visualizer running at http://localhost:8257 [%s]\n", mode)
-		fmt.Println("Open in browser to see the 3D value space")
-
-		serverErr := make(chan error, 1)
+		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer stop()
 
 		go func() {
-			if err := server.ListenAndServe(":8257", "127.0.0.1:8258"); err != nil && cmd.Context().Err() == nil {
-				serverErr <- err
+			err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
+				Repo:       vizRepo,
+				Subset:     vizSubset,
+				TextColumn: vizColumn,
+				Iterations: vizIters,
+				StepDelay:  vizDelay,
+			})
+
+			if err != nil && ctx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
 			}
 		}()
 
-		if vizListen {
-			machine := vm.NewMachine(vm.MachineWithContext(cmd.Context()))
-			defer machine.Close()
+		go func() {
+			<-ctx.Done()
+			srv.Shutdown()
+		}()
 
-			server.SetPromptFunc(machine.Prompt)
-			server.SetIngestFunc(func(raw []byte) error {
-				return machine.SetDataset(local.New(local.WithBytes(raw)))
-			})
-		} else {
-			dataset := local.New(local.WithBytes(Alice))
-
-			if err := visualizer.RunAliceDemo(
-				cmd.Context(),
-				dataset,
-				server,
-			); err != nil && cmd.Context().Err() == nil {
-				console.Error(err, "msg", "Demo error")
-				return
-			}
+		udpHint := "auto"
+		if vizUDPAddr != "" {
+			udpHint = vizUDPAddr
 		}
 
-		select {
-		case err := <-serverErr:
-			console.Error(err, "msg", "Server error")
-		case <-cmd.Context().Done():
+		fmt.Fprintf(os.Stderr, "visualizer http://%s  (UDP %s for external JSON telemetry)\n", vizHTTPAddr, udpHint)
+
+		err := srv.ListenAndServe(vizHTTPAddr, vizUDPAddr)
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			return err
 		}
+
+		return nil
 	},
 }
 
 func init() {
-	vizCmd.Flags().BoolVarP(&vizListen, "listen", "l", false, "Listen-only mode: no demo, just receive real system telemetry")
+	vizCmd.Flags().StringVar(&vizHTTPAddr, "http", ":8257", "HTTP listen address")
+	vizCmd.Flags().StringVar(&vizUDPAddr, "udp", "", "UDP listen address (default: http port+1)")
+	vizCmd.Flags().StringVar(&vizRepo, "repo", "facebook/babi_qa", "Hugging Face dataset repo")
+	vizCmd.Flags().StringVar(&vizSubset, "subset", "en-10k-qa1", "dataset subset / config")
+	vizCmd.Flags().StringVar(&vizColumn, "column", "story", "text column to stream")
+	vizCmd.Flags().IntVar(&vizIters, "iterations", 80, "number of 1024-byte frames (0 = until dataset EOF)")
+	vizCmd.Flags().DurationVar(&vizDelay, "delay", 40*time.Millisecond, "pause between frames (for readability)")
+
 	rootCmd.AddCommand(vizCmd)
 }

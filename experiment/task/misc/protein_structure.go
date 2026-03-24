@@ -3,12 +3,11 @@ package misc
 import (
 	"fmt"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/huggingface"
-	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 /*
@@ -31,7 +30,7 @@ Dataset: proteinea/secondary_structure_prediction (HuggingFace)
 type ProteinStructureExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	manifold  [][]byte
 	seen      map[string]struct{}
@@ -78,7 +77,7 @@ func (experiment *ProteinStructureExperiment) Section() string {
 	return "misc"
 }
 
-func (experiment *ProteinStructureExperiment) Dataset() provider.Dataset {
+func (experiment *ProteinStructureExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -86,11 +85,6 @@ func (experiment *ProteinStructureExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (experiment *ProteinStructureExperiment) Holdout() (int, input.HoldoutType) {
-	// Hold out the last 50 bytes for structure prediction
-	return 50, input.RIGHT
 }
 
 /*
@@ -101,7 +95,7 @@ func (experiment *ProteinStructureExperiment) AddResult(results tools.Experiment
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *ProteinStructureExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *ProteinStructureExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 

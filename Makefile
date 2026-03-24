@@ -28,32 +28,18 @@ dump:
 
 CAPNP_STD ?= ../../capnproto/go-capnp/std
 
-capnp:
-	capnp compile -I $(CAPNP_STD) -ogo pkg/store/dmt/server/server.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/store/dmt/radix.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/substrate/graph.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/system/process/tokenizer/universal.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/input/prompt.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/bvp/cantilever.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/macro/macro_index.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/program.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/lang/primitive/value.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/synthesis/has.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/logic/reader/head.capnp
-	capnp compile -I $(CAPNP_STD) -ogo pkg/system/vm/processor/interpreter.capnp
-
 build: capnp
 	cd pkg/compute/kernel/metal \
-		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
-		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
+		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 		
 	cd pkg/compute/kernel/cuda \
 		&& go generate
 
 metal:
 	cd pkg/compute/kernel/metal \
-		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c resolver.metal -o resolver.air \
-		&& xcrun -sdk macosx metallib resolver.air -o resolver.metallib
+		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
+		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 
 cuda:
 	cd pkg/compute/kernel/cuda \

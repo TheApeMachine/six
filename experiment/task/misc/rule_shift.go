@@ -3,11 +3,10 @@ package misc
 import (
 	"fmt"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 // ruleShiftSamplesPerPhase is the number of samples per phase.
@@ -73,7 +72,7 @@ interference once Phase B is established.
 */
 type RuleShiftExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 
@@ -138,16 +137,12 @@ func NewRuleShiftExperiment() *RuleShiftExperiment {
 func (exp *RuleShiftExperiment) Name() string    { return "RuleShift" }
 func (exp *RuleShiftExperiment) Section() string { return "misc" }
 
-func (exp *RuleShiftExperiment) Dataset() provider.Dataset { return exp.dataset }
+func (exp *RuleShiftExperiment) Dataset() data.Provider { return exp.dataset }
 
 func (exp *RuleShiftExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (exp *RuleShiftExperiment) Holdout() (int, input.HoldoutType) {
-	return ruleShiftHoldoutPct, input.RIGHT
 }
 
 /*
@@ -186,7 +181,7 @@ func (exp *RuleShiftExperiment) AddResult(result tools.ExperimentalData) {
 	exp.tableData = append(exp.tableData, result)
 }
 
-func (exp *RuleShiftExperiment) Outcome() (any, gc.Assertion, any) {
+func (exp *RuleShiftExperiment) Outcome() (any, Assertion, any) {
 	return exp.evaluator.Outcome(exp.Score())
 }
 

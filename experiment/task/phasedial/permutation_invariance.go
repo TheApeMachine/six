@@ -6,8 +6,8 @@ import (
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -17,7 +17,7 @@ scan and generates a multi-panel chart showing the semantic geodesic matrix.
 */
 type PermutationInvarianceExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -31,7 +31,7 @@ func NewPermutationInvarianceExperiment() *PermutationInvarianceExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -43,7 +43,7 @@ func (experiment *PermutationInvarianceExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *PermutationInvarianceExperiment) Dataset() provider.Dataset {
+func (experiment *PermutationInvarianceExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -51,10 +51,6 @@ func (experiment *PermutationInvarianceExperiment) Prompts() []string {
 	return []string{
 		"Predict the secondary structure of the given amino acid sequence.",
 	}
-}
-
-func (experiment *PermutationInvarianceExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *PermutationInvarianceExperiment) AddResult(results tools.ExperimentalData) {
@@ -81,11 +77,11 @@ func (experiment *PermutationInvarianceExperiment) TableData() any {
 }
 
 func (experiment *PermutationInvarianceExperiment) Artifacts() []tools.Artifact {
-return PhasedialSectionArtifacts(
-"Permutation Invariance",
-experiment.tableData,
-experiment.Score(),
-`\subsection{Permutation Invariance}
+	return PhasedialSectionArtifacts(
+		"Permutation Invariance",
+		experiment.tableData,
+		experiment.Score(),
+		`\subsection{Permutation Invariance}
 \label{sec:permutation_invariance}
 
 \paragraph{Task Description.}
@@ -121,6 +117,6 @@ the substrate with the necessary compositional data.
 
 Figure~\ref{fig:permutation_invariance_map} shows the trial outcome map.
 `,
-map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
-)
+		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+	)
 }

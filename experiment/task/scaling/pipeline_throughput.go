@@ -6,8 +6,7 @@ import (
 
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
 )
 
 /*
@@ -17,7 +16,7 @@ ingestion and querying. Finalize records timing and substrate size metrics.
 */
 type PipelineThroughputExperiment struct {
 	tableData  []tools.ExperimentalData
-	dataset    provider.Dataset
+	dataset    data.Provider
 	prompt     []string
 	ingestTime time.Time
 	sampleLen  int
@@ -42,7 +41,7 @@ func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 
 func (experiment *PipelineThroughputExperiment) Name() string    { return "Pipeline Throughput" }
 func (experiment *PipelineThroughputExperiment) Section() string { return "scaling" }
-func (experiment *PipelineThroughputExperiment) Dataset() provider.Dataset {
+func (experiment *PipelineThroughputExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -50,10 +49,6 @@ func (experiment *PipelineThroughputExperiment) Prompts() []string {
 	experiment.ingestTime = time.Now()
 	experiment.prompt = []string{}
 	return experiment.prompt
-}
-
-func (experiment *PipelineThroughputExperiment) Holdout() (int, input.HoldoutType) {
-	return 32, input.RIGHT
 }
 
 func (experiment *PipelineThroughputExperiment) AddResult(results tools.ExperimentalData) {

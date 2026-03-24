@@ -3,16 +3,15 @@ package logic
 import (
 	"fmt"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 type SemanticAlgebraExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -44,17 +43,13 @@ func (experiment *SemanticAlgebraExperiment) Name() string {
 	return "holographic_algebra"
 }
 
-func (experiment *SemanticAlgebraExperiment) Dataset() provider.Dataset {
+func (experiment *SemanticAlgebraExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
 func (experiment *SemanticAlgebraExperiment) Prompts() []string {
 	experiment.prompt = []string{}
 	return experiment.prompt
-}
-
-func (experiment *SemanticAlgebraExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
 }
 
 func (experiment *SemanticAlgebraExperiment) Section() string {
@@ -66,7 +61,7 @@ func (experiment *SemanticAlgebraExperiment) AddResult(results tools.Experimenta
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *SemanticAlgebraExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *SemanticAlgebraExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 

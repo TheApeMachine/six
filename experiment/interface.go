@@ -5,9 +5,8 @@ import (
 	"math"
 	"strings"
 
-	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/experiment/data"
 )
 
 type Scores struct {
@@ -66,11 +65,10 @@ type Result interface {
 type PipelineExperiment interface {
 	Name() string
 	Section() string
-	Dataset() provider.Dataset
+	Dataset() data.Provider
 	Prompts() []string
-	Holdout() (int, input.HoldoutType)
 	AddResult(ExperimentalData)
-	Outcome() (any, gc.Assertion, any)
+	Outcome() (any, Assertion, any)
 	TableData() any
 	Artifacts() []Artifact
 }

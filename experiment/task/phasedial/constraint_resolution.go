@@ -5,12 +5,11 @@ import (
 	"math"
 	"sort"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 	"github.com/theapemachine/six/experiment/projector"
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/store/data/provider/local"
-	"github.com/theapemachine/six/pkg/system/vm/input"
 )
 
 // crSamplesPerSuspect is the number of ingestion samples per suspect.
@@ -99,7 +98,7 @@ This is a pure dataset→AddResult experiment: the full architecture
 */
 type ConstraintResolutionExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 
@@ -169,15 +168,11 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 func (exp *ConstraintResolutionExperiment) Name() string    { return "ConstraintResolution" }
 func (exp *ConstraintResolutionExperiment) Section() string { return "phasedial" }
 
-func (exp *ConstraintResolutionExperiment) Dataset() provider.Dataset { return exp.dataset }
+func (exp *ConstraintResolutionExperiment) Dataset() data.Provider { return exp.dataset }
 
 func (exp *ConstraintResolutionExperiment) Prompts() []string {
 	exp.prompt = []string{}
 	return exp.prompt
-}
-
-func (exp *ConstraintResolutionExperiment) Holdout() (int, input.HoldoutType) {
-	return crHoldoutPct, input.RIGHT
 }
 
 /*
@@ -224,7 +219,7 @@ func (exp *ConstraintResolutionExperiment) AddResult(result tools.ExperimentalDa
 	exp.tableData = append(exp.tableData, result)
 }
 
-func (exp *ConstraintResolutionExperiment) Outcome() (any, gc.Assertion, any) {
+func (exp *ConstraintResolutionExperiment) Outcome() (any, Assertion, any) {
 	return exp.evaluator.Outcome(exp.Score())
 }
 

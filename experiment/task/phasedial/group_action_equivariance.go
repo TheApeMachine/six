@@ -3,11 +3,11 @@ package phasedial
 import (
 	"math"
 
-	gc "github.com/smartystreets/goconvey/convey"
+	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
-	"github.com/theapemachine/six/pkg/store/data/provider"
-	"github.com/theapemachine/six/pkg/system/vm/input"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 )
 
 /*
@@ -18,7 +18,7 @@ inference paths.
 */
 type GroupActionEquivarianceExperiment struct {
 	tableData []tools.ExperimentalData
-	dataset   provider.Dataset
+	dataset   data.Provider
 	prompt    []string
 	evaluator *tools.Evaluator
 }
@@ -32,7 +32,7 @@ func NewGroupActionEquivarianceExperiment() *GroupActionEquivarianceExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:   tools.NewLocalProvider(tools.Aphorisms),
+		dataset: local.New(local.WithStrings(tools.Aphorisms)),
 	}
 }
 
@@ -44,7 +44,7 @@ func (experiment *GroupActionEquivarianceExperiment) Section() string {
 	return "phasedial"
 }
 
-func (experiment *GroupActionEquivarianceExperiment) Dataset() provider.Dataset {
+func (experiment *GroupActionEquivarianceExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
@@ -54,15 +54,11 @@ func (experiment *GroupActionEquivarianceExperiment) Prompts() []string {
 	}
 }
 
-func (experiment *GroupActionEquivarianceExperiment) Holdout() (int, input.HoldoutType) {
-	return 0, input.RIGHT
-}
-
 func (experiment *GroupActionEquivarianceExperiment) AddResult(results tools.ExperimentalData) {
 	experiment.tableData = append(experiment.tableData, results)
 }
 
-func (experiment *GroupActionEquivarianceExperiment) Outcome() (any, gc.Assertion, any) {
+func (experiment *GroupActionEquivarianceExperiment) Outcome() (any, Assertion, any) {
 	return experiment.evaluator.Outcome(experiment.Score())
 }
 
@@ -82,11 +78,11 @@ func (experiment *GroupActionEquivarianceExperiment) TableData() any {
 }
 
 func (experiment *GroupActionEquivarianceExperiment) Artifacts() []tools.Artifact {
-return PhasedialSectionArtifacts(
-"Group Action Equivariance",
-experiment.tableData,
-experiment.Score(),
-`\subsection{Group Action Equivariance}
+	return PhasedialSectionArtifacts(
+		"Group Action Equivariance",
+		experiment.tableData,
+		experiment.Score(),
+		`\subsection{Group Action Equivariance}
 \label{sec:group_action_equivariance}
 
 \paragraph{Task Description.}
@@ -121,6 +117,6 @@ the substrate with the necessary compositional data.
 
 Figure~\ref{fig:group_action_equivariance_map} shows the trial outcome map.
 `,
-map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
-)
+		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+	)
 }
