@@ -22,7 +22,7 @@ var (
 	RegionData        = Region{Start: 0, Bits: primitive.DataBits}
 	RegionInstruction = Region{Start: primitive.InstrStart, Bits: primitive.InstrBits}
 	RegionOperand     = Region{Start: primitive.OperandStart, Bits: primitive.OperandBits}
-	RegionAccumulator = Region{Start: primitive.AccumStart, Bits: primitive.AccumBits}
+	RegionStateVector = Region{Start: primitive.StateStart, Bits: primitive.StateBits}
 	RegionMeta        = Region{Start: primitive.MetaStart, Bits: primitive.CoreBits - primitive.MetaStart}
 )
 
@@ -97,13 +97,29 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 			return 0, err
 		}
 
-		// Spark impulse: structural pressure → ALU (boolean op on Data × Operand → Accumulator).
+		// Spark impulse: structural pressure → ALU (boolean op on Data × Operand → Data).
 		if incoming[primitive.OperandStart>>6] != 0 {
 			instr := uint8(ReadRegion(incoming, RegionInstruction) & 0xF)
 			if err := backend.UniversalBitwise(
 				instr,
 				unsafe.Pointer(incoming),
 				unsafe.Pointer(incoming),
+				unsafe.Pointer(incoming),
+				1,
+			); errnie.Error(err) != nil {
+				return 0, err
+			}
+
+			// CRDT Fold: Merge new Data into State Vector.
+			if err := backend.UpdateStateVector(
+				unsafe.Pointer(incoming),
+				1,
+			); errnie.Error(err) != nil {
+				return 0, err
+			}
+
+			// Clear the operand so it doesn't re-fire until new data arrives.
+			if err := backend.ClearOperand(
 				unsafe.Pointer(incoming),
 				1,
 			); errnie.Error(err) != nil {
@@ -198,12 +214,11 @@ func (backend *Backend) UniversalBitwise(
 	const (
 		// Region 2 (operand) starts at word 4 bit 5.
 		b0w = primitive.OperandStart >> 6
-		// Region 3 (accumulator) starts at word 8 bit 6.
-		d0w = primitive.AccumStart >> 6
-		d0s = primitive.AccumStart & 63
+		// Region 0 (data) starts at word 0 bit 0.
+		d0w = 0
+		d0s = 0
 
-		preserveDstWord0 = (uint64(1) << d0s) - 1 // Keep bits below accumulator start.
-		preserveDstWord4 = ^uint64(0x7F)          // Keep bits above accumulator end.
+		preserveDstWord4 = ^uint64(1) // Keep bits above data field end.
 	)
 
 	for v := range numValues {
@@ -232,13 +247,13 @@ func (backend *Backend) UniversalBitwise(
 		r3 := m0 ^ (k1 & a3) ^ (k2 & b3) ^ (k3 & (a3 & b3))
 		r4 := (m0 ^ (k1 & a4) ^ (k2 & b4) ^ (k3 & (a4 & b4))) & 1
 
-		// Write 257 result bits into Region 3 (word 8 bit 6), preserving bits
-		// outside the accumulator window in boundary words.
-		ds[v][d0w+0] = (ds[v][d0w+0] & preserveDstWord0) | (r0 << d0s)
-		ds[v][d0w+1] = (r0 >> (64 - d0s)) | (r1 << d0s)
-		ds[v][d0w+2] = (r1 >> (64 - d0s)) | (r2 << d0s)
-		ds[v][d0w+3] = (r2 >> (64 - d0s)) | (r3 << d0s)
-		ds[v][d0w+4] = (ds[v][d0w+4] & preserveDstWord4) | (r3 >> (64 - d0s)) | (r4 << d0s)
+		// Write 257 result bits into Region 0, preserving bits
+		// outside the data window in boundary words.
+		ds[v][d0w+0] = r0
+		ds[v][d0w+1] = r1
+		ds[v][d0w+2] = r2
+		ds[v][d0w+3] = r3
+		ds[v][d0w+4] = (ds[v][d0w+4] & preserveDstWord4) | r4
 	}
 
 	return nil
@@ -343,4 +358,62 @@ func WriteRegion(
 	}
 
 	WriteBits(value, region.Start, region.Bits, payload)
+}
+
+/*
+UpdateStateVector merges the current Data Field (Region 0) into the State Vector (Region 3)
+using a bitwise OR, effectively creating a CRDT lattice of all computed states.
+*/
+func (backend *Backend) UpdateStateVector(state unsafe.Pointer, numValues uint32) error {
+	stateSlices := unsafe.Slice((*[primitive.Words]uint64)(state), numValues)
+	
+	const (
+		s0w = primitive.StateStart >> 6
+		s0s = primitive.StateStart & 63
+	)
+
+	for v := uint32(0); v < numValues; v++ {
+		r0 := stateSlices[v][0]
+		r1 := stateSlices[v][1]
+		r2 := stateSlices[v][2]
+		r3 := stateSlices[v][3]
+		r4 := stateSlices[v][4] & 1
+
+		// OR into State Vector (word 8 bit 6)
+		stateSlices[v][s0w+0] |= (r0 << s0s)
+		stateSlices[v][s0w+1] |= (r0 >> (64 - s0s)) | (r1 << s0s)
+		stateSlices[v][s0w+2] |= (r1 >> (64 - s0s)) | (r2 << s0s)
+		stateSlices[v][s0w+3] |= (r2 >> (64 - s0s)) | (r3 << s0s)
+		stateSlices[v][s0w+4] |= (r3 >> (64 - s0s)) | (r4 << s0s)
+	}
+	return nil
+}
+
+/*
+ClearOperand zeroes out the Operand Register (Region 2) after an operation has fired.
+*/
+func (backend *Backend) ClearOperand(state unsafe.Pointer, numValues uint32) error {
+	stateSlices := unsafe.Slice((*[primitive.Words]uint64)(state), numValues)
+	
+	const (
+		lo = primitive.OperandStart
+		hi = primitive.OperandStart + primitive.OperandBits - 1
+		loW, loS = lo >> 6, lo & 63
+		hiW, hiS = hi >> 6, hi & 63
+	)
+
+	for v := uint32(0); v < numValues; v++ {
+		if loW == hiW {
+			mask := ((uint64(1) << (hiS - loS + 1)) - 1) << uint(loS)
+			stateSlices[v][loW] &^= mask
+			continue
+		}
+
+		stateSlices[v][loW] &^= ^((uint64(1) << uint(loS)) - 1)
+		for w := loW + 1; w < hiW; w++ {
+			stateSlices[v][w] = 0
+		}
+		stateSlices[v][hiW] &^= (uint64(1) << uint(hiS+1)) - 1
+	}
+	return nil
 }

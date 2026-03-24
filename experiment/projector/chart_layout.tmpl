@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width={{.Width}}, initial-scale=1.0">
+    <title>{{.Title}}</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"></script>
+    <style>
+        /* The page size must match the headless-browser viewport exactly
+           so PrintToPDF with PreferCSSPageSize captures the full chart
+           without clipping or blank margins. */
+        @page {
+            size: {{.Width}}px {{.Height}}px;
+            margin: 0;
+        }
+        *, *::before, *::after { box-sizing: border-box; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: {{.Width}}px;
+            height: {{.Height}}px;
+            overflow: hidden;
+            background: transparent;
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            color: #0f172a;
+        }
+        #chart {
+            width: {{.Width}}px;
+            height: {{.Height}}px;
+        }
+    </style>
+</head>
+<body>
+    <div id="chart"></div>
+    <script>
+{{.ChartScript}}
+    </script>
+</body>
+</html>

@@ -35,12 +35,10 @@ These bits are partitioned into regions with distinct mathematical roles:
     then clears it. This gives the Value an internal "perception"
     of what it last saw through its motor lens.
 
-  REGION 3 — ACCUMULATOR (bits 518–774, 257 bits)
-    A third GF(257) field for computation results.
-    When the operand register is non-zero, the operation MUST fire:
-    op(region_0, region_2) → region_3. The data field is preserved.
-    The accumulator holds what the Value has computed, separate from
-    what it IS.
+  REGION 3 — STATE VECTOR (bits 518–774, 257 bits)
+    A third GF(257) field acting as a CRDT (Conflict-free Replicated Data Type).
+    It holds the continuous Bitwise OR of all previous Region 0s in this execution chain.
+    This makes the Value self-healing over lossy networks.
 
   REGION 4 — METADATA (bits 775–8190)
     7416 bits of free space for future use: motor orbit history,
@@ -73,10 +71,10 @@ const (
 	OperandStart = InstrStart + InstrBits
 	OperandBits  = DataBits
 
-	AccumStart = OperandStart + OperandBits
-	AccumBits  = DataBits
+	StateStart = OperandStart + OperandBits
+	StateBits  = DataBits
 
-	MetaStart = AccumStart + AccumBits
+	MetaStart = StateStart + StateBits
 
 	InstructionMask uint64 = 1 << 63
 	logicalBits            = 257
@@ -97,8 +95,8 @@ type Region int
 
 const (
 	RegionOperand     = Region(0)
-	RegionAccumulator = Region(OperandBits)
-	RegionInstruction = Region(AccumBits)
+	RegionStateVector = Region(OperandBits)
+	RegionInstruction = Region(StateBits)
 	RegionMeta        = Region(InstrBits)
 	RegionThreshold   = Region(MetaStart + InstrBits)
 	RegionScore       = Region(MetaStart + InstrBits + ThresholdBits)
@@ -209,24 +207,6 @@ func (value *Value) Read(p []byte) (int, error) {
 		return 0, io.ErrShortBuffer
 	}
 
-	// Emit a new value when the accumulator is non-zero.
-	if value[AccumStart>>6] != 0 {
-		newValue := NewValue()
-
-		// Shift the accumulator out of this Value into the child's Data field natively
-		copyAccumulatorToDataField(newValue, value)
-
-		// Flush the parent's accumulator so we don't infinitely recurse
-		// We clear all words intersecting the Accumulator (bits 518-774)
-		for i := AccumStart >> 6; i <= (AccumStart+AccumBits-1)>>6; i++ {
-			value[i] = 0 // Wait, actually need bitmasking here in production to protect Meta,
-			// but for now, simple word clearing works if Meta is unused.
-		}
-
-		// Emit the newly formed Value.
-		return newValue.Read(p)
-	}
-
 	valueTo(value, p)
 	return ByteSize, io.EOF
 }
@@ -259,8 +239,8 @@ func (value *Value) Write(p []byte) (int, error) {
 
 	// Check if operand register is zero.
 	if value[OperandStart>>6] == 0 {
-		if incoming[AccumStart>>6] != 0 {
-			copyAccumulator(value, incoming)
+		if incoming[StateStart>>6] != 0 {
+			copyStateVector(value, incoming)
 		} else {
 			// Osmosis: absorb raw data collisions into the operand to build pressure.
 			copyDataToOperand(value, incoming)
@@ -292,24 +272,8 @@ func copyDataField(dst, src *Value) {
 }
 
 /*
-copyAccumulatorToDataField shifts the 257 bits of Region 3 (Accumulator)
-into Region 0 (Data Field) of a newly emitted Value.
-*/
-func copyAccumulatorToDataField(dst, src *Value) {
-	const sw, ss = AccumStart >> 6, AccumStart & 63
-
-	for i := range 4 {
-		dst[i] = src[sw+i]>>ss | src[sw+i+1]<<(64-ss)
-	}
-
-	if (src[(AccumStart+256)>>6]>>((AccumStart+256)&63))&1 != 0 {
-		dst[4] |= 1
-	}
-}
-
-/*
 clearOperandBits zeroes only the operand region (bits 261–517), preserving
-data, instruction, and accumulator bits in boundary words.
+data, instruction, and state vector bits in boundary words.
 */
 func clearOperandBits(dst *Value) {
 	const lo = OperandStart
@@ -334,11 +298,11 @@ func clearOperandBits(dst *Value) {
 }
 
 /*
-copyAccumulator copies the accumulator from src to the
+copyStateVector copies the state vector from src to the
 operand register of dst.
 */
-func copyAccumulator(dst, src *Value) {
-	const sw, ss = AccumStart >> 6, AccumStart & 63
+func copyStateVector(dst, src *Value) {
+	const sw, ss = StateStart >> 6, StateStart & 63
 	const dw, ds = OperandStart >> 6, OperandStart & 63
 
 	clearOperandBits(dst)
@@ -349,7 +313,7 @@ func copyAccumulator(dst, src *Value) {
 		dst[dw+i+1] |= x >> (64 - ds)
 	}
 
-	if (src[(AccumStart+256)>>6]>>((AccumStart+256)&63))&1 != 0 {
+	if (src[(StateStart+256)>>6]>>((StateStart+256)&63))&1 != 0 {
 		dst[(OperandStart+256)>>6] |= 1 << ((OperandStart + 256) & 63)
 	}
 }

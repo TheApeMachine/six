@@ -11,6 +11,9 @@ import (
 )
 
 func TestValueReaction(t *testing.T) {
+	t.Log("This test only logs to the terminal; it does not open the 3D visualizer.")
+	t.Log("For live WebSocket telemetry in the browser, run: go run . viz")
+
 	Convey("Given a Dataset", t, func() {
 		dataset := huggingface.New(
 			huggingface.DatasetWithContext(t.Context()),
@@ -47,7 +50,7 @@ func TestValueReaction(t *testing.T) {
 				chamber = primitive.BytesToValue(mutatedFrame)
 
 				instr := cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF
-				pressure := cpu.Popcount(chamber, primitive.AccumStart, primitive.AccumBits)
+				pressure := cpu.Popcount(chamber, primitive.StateStart, primitive.StateBits)
 				if pressure > 0 || instr != 0 {
 					sawEmergent = true
 				}

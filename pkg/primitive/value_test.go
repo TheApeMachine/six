@@ -118,7 +118,7 @@ func TestWrite(t *testing.T) {
 			So(errors.Is(err, io.ErrShortBuffer), ShouldBeTrue)
 		})
 
-		Convey("It should copy incoming data into the operand when destination has data but incoming has no accumulator (osmosis)", func() {
+		Convey("It should copy incoming data into the operand when destination has data but incoming has no state vector (osmosis)", func() {
 			buf := make([]byte, ByteSize)
 			_, _ = src.Read(buf)
 
@@ -138,14 +138,14 @@ func TestWrite(t *testing.T) {
 			So(dstOccupied[OperandStart>>6], ShouldNotEqual, 0)
 		})
 
-		Convey("It should copy incoming accumulator into the operand without changing the data field", func() {
+		Convey("It should copy incoming state vector into the operand without changing the data field", func() {
 			var before [DataWords]uint64
 			for w := range DataWords {
 				before[w] = dstOccupied[w]
 			}
 
 			incoming := NewValue()
-			incoming[AccumStart>>6] |= 1
+			incoming[StateStart>>6] |= 1
 
 			buf := make([]byte, ByteSize)
 			valueTo(incoming, buf)

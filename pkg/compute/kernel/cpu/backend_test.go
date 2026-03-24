@@ -180,8 +180,8 @@ func TestUniversalBitwise(t *testing.T) {
 				r0w = 0
 				r2w = primitive.OperandStart >> 6
 				r2s = primitive.OperandStart & 63
-				r3w = primitive.AccumStart >> 6
-				r3s = primitive.AccumStart & 63
+				r3w = 0
+				r3s = 0
 			)
 			for instr := uint8(0); instr < 16; instr++ {
 				for ab := range 4 {
@@ -194,7 +194,7 @@ func TestUniversalBitwise(t *testing.T) {
 					if bBit != 0 {
 						B[r2w] |= 1 << r2s
 					}
-					// Poison accumulator region to ensure kernel clears then writes.
+					// Poison state vector region to ensure kernel clears then writes.
 					for i := range 5 {
 						dst[r3w+i] = ^uint64(0)
 					}
@@ -245,7 +245,7 @@ func TestUniversalBitwise(t *testing.T) {
 					unsafe.Pointer(&dst),
 					1,
 				), ShouldBeNil)
-				got := (dst[primitive.AccumStart>>6] >> (primitive.AccumStart & 63)) & 1
+				got := (dst[0] >> 0) & 1
 				So(got, ShouldEqual, tc.want)
 			}
 		})
@@ -259,7 +259,7 @@ func TestUniversalBitwise(t *testing.T) {
 			bPos := primitive.OperandStart + j
 			bWord := bPos / 64
 			bBit := bPos % 64
-			dPos := primitive.AccumStart + j
+			dPos := j
 			dWord := dPos / 64
 			dBit := dPos % 64
 
@@ -275,7 +275,7 @@ func TestUniversalBitwise(t *testing.T) {
 						B[bWord] |= 1 << bBit
 					}
 					for i := range 5 {
-						dst[primitive.AccumStart>>6+i] = ^uint64(0)
+						dst[i] = ^uint64(0)
 					}
 					So(b.UniversalBitwise(
 						instr,
@@ -311,7 +311,7 @@ func TestUniversalBitwise(t *testing.T) {
 				n,
 			), ShouldBeNil)
 			for i := range n {
-				bit := (dst[i][primitive.AccumStart>>6] >> (primitive.AccumStart & 63)) & 1
+				bit := (dst[i][0] >> 0) & 1
 				if i%2 == 0 {
 					So(bit, ShouldEqual, 1)
 				} else {
@@ -320,14 +320,14 @@ func TestUniversalBitwise(t *testing.T) {
 			}
 		})
 
-		Convey("non-accumulator words in dst are preserved when clearing region 3", func() {
+		Convey("non-data words in dst are preserved when clearing region 0", func() {
 			b := NewBackend()
 			var A, B, dst primitive.Value
 			A[0] = 1
 			B[primitive.OperandStart>>6] |= 1 << (primitive.OperandStart & 63)
-			// Set words outside the 5-word accumulator window to a pattern.
-			dst[0] = 0xdeadbeefcafebabe
-			dst[primitive.AccumStart>>6+5] = 0x1122334455667788
+			// Set words outside the 5-word data window to a pattern.
+			dst[5] = 0xdeadbeefcafebabe
+			dst[primitive.StateStart>>6+5] = 0x1122334455667788
 			So(b.UniversalBitwise(
 				0b1110, // OR
 				unsafe.Pointer(&A),
@@ -335,8 +335,8 @@ func TestUniversalBitwise(t *testing.T) {
 				unsafe.Pointer(&dst),
 				1,
 			), ShouldBeNil)
-			So(dst[0], ShouldEqual, uint64(0xdeadbeefcafebabe))
-			So(dst[primitive.AccumStart>>6+5], ShouldEqual, uint64(0x1122334455667788))
+			So(dst[5], ShouldEqual, uint64(0xdeadbeefcafebabe))
+			So(dst[primitive.StateStart>>6+5], ShouldEqual, uint64(0x1122334455667788))
 		})
 	})
 }
@@ -372,6 +372,18 @@ func writeRef(b *Backend, p []byte) error {
 			instr,
 			unsafe.Pointer(incoming),
 			unsafe.Pointer(incoming),
+			unsafe.Pointer(incoming),
+			1,
+		); err != nil {
+			return err
+		}
+		if err := b.UpdateStateVector(
+			unsafe.Pointer(incoming),
+			1,
+		); err != nil {
+			return err
+		}
+		if err := b.ClearOperand(
 			unsafe.Pointer(incoming),
 			1,
 		); err != nil {
