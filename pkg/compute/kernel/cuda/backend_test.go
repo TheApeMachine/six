@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/internaltest"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 

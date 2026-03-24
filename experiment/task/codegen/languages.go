@@ -288,3 +288,11 @@ func (md *multiDataset) Generate() iter.Seq[byte] {
 		}
 	}
 }
+
+func (md *multiDataset) Read(p []byte) (n int, err error) {
+	return md.datasets[md.current].Read(p)
+}
+
+func (md *multiDataset) Close() error {
+	return nil
+}

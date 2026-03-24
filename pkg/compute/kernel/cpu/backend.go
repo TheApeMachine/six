@@ -65,6 +65,35 @@ func (backend *Backend) Read(p []byte) (n int, err error) {
 
 	n, err = backend.pr.Read(p)
 
+	// Read the value from the pipe
+	if n != 0 {
+		value := primitive.BytesToValue(p)
+
+		// Check if the Operand region is filled
+		if Popcount(value, primitive.OperandStart, primitive.OperandBits) > 0 {
+			// Emit a new value
+			newValue := primitive.NewValue()
+
+			// Extract Region 2 (Operand) and place it into Region 0 (Data) of the new value
+			newValue[0] = (value[4] >> 5) | (value[5] << 59)
+			newValue[1] = (value[5] >> 5) | (value[6] << 59)
+			newValue[2] = (value[6] >> 5) | (value[7] << 59)
+			newValue[3] = (value[7] >> 5) | (value[8] << 59)
+			newValue[4] = (value[8] >> 5) & 1
+
+			// Write the new value to the pipe
+			newBytes := make([]byte, primitive.ByteSize)
+			primitive.ValueToBytes(newValue, newBytes)
+			backend.pw.Write(newBytes)
+
+			// Zero out the operand field of the current value
+			backend.ClearOperand(unsafe.Pointer(value), 1)
+
+			// Write the updated value back to p
+			primitive.ValueToBytes(value, p)
+		}
+	}
+
 	if err != nil && err != io.EOF {
 		errnie.Error(err)
 		return 0, err
@@ -82,106 +111,33 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 		return 0, nil
 	}
 
-	incoming := primitive.BytesToValue(p)
-	// Fast path aliases p[:ByteSize]; copy fallback uses a separate Value buffer.
-	frameInPlace := len(p) >= primitive.ByteSize &&
-		uintptr(unsafe.Pointer(incoming)) == uintptr(unsafe.Pointer(&p[0]))
+	// Check if the instruction register is flipped
+	if p[len(p)-1]&InstructionByteMask != 0 {
+		// Turn p into a Value
+		value := primitive.BytesToValue(p)
 
-	if len(p) >= primitive.ByteSize {
-		// Spin impulse: motor rotates topology; data shifts across instruction/operand slots.
-		if err := backend.Accumulate(
-			unsafe.Pointer(incoming),
-			unsafe.Pointer(incoming),
+		// Apply region 0 using the instruction to the operand register
+		backend.UniversalBitwise(
+			uint8(ReadRegion(value, RegionInstruction)),
+			unsafe.Pointer(value),
+			unsafe.Pointer(value),
+			unsafe.Pointer(value),
 			1,
-		); errnie.Error(err) != nil {
-			return 0, err
-		}
+		)
 
-		// Spark impulse: structural pressure → ALU (boolean op on Data × Operand → Data).
-		if incoming[primitive.OperandStart>>6] != 0 {
-			instr := uint8(ReadRegion(incoming, RegionInstruction) & 0xF)
-			if err := backend.UniversalBitwise(
-				instr,
-				unsafe.Pointer(incoming),
-				unsafe.Pointer(incoming),
-				unsafe.Pointer(incoming),
-				1,
-			); errnie.Error(err) != nil {
-				return 0, err
-			}
-
-			// CRDT Fold: Merge new Data into State Vector.
-			if err := backend.UpdateStateVector(
-				unsafe.Pointer(incoming),
-				1,
-			); errnie.Error(err) != nil {
-				return 0, err
-			}
-
-			// Clear the operand so it doesn't re-fire until new data arrives.
-			if err := backend.ClearOperand(
-				unsafe.Pointer(incoming),
-				1,
-			); errnie.Error(err) != nil {
-				return 0, err
-			}
-		}
-
-		if !frameInPlace {
-			if err := primitive.ValueToBytes(incoming, p); errnie.Error(err) != nil {
-				return 0, err
-			}
-		}
+		// Write the value back to p
+		primitive.ValueToBytes(value, p)
 	}
 
+	// Write p to the pipe
 	if n, err = backend.pw.Write(p); errnie.Error(err) != nil {
-		return
+		return 0, err
 	}
 
 	return n, nil
 }
 
 func (backend *Backend) Close() error {
-	return nil
-}
-
-/*
-Accumulate interleaves motor application with bitwise composition
-for N Value pairs. It applies the incoming Value's derived motor
-to the current state, then composes them via OR (LCM), natively
-mapping sequence chronology to discrete topology.
-*/
-func (backend *Backend) Accumulate(
-	incoming, state unsafe.Pointer, numValues uint32,
-) error {
-	inSlices := unsafe.Slice(
-		(*[primitive.Words]uint64)(incoming), numValues,
-	)
-
-	stateSlices := unsafe.Slice(
-		(*[primitive.Words]uint64)(state), numValues,
-	)
-
-	for v := uint32(0); v < numValues; v++ {
-		s, t := deriveMotor(&inSlices[v])
-
-		var mapped [primitive.Words]uint64
-		applyMotor(&stateSlices[v], &mapped, s, t)
-
-		for i := uint32(0); i < primitive.Words; i += 8 {
-			stateSlices[v][i+0] = mapped[i+0] | inSlices[v][i+0]
-			stateSlices[v][i+1] = mapped[i+1] | inSlices[v][i+1]
-			stateSlices[v][i+2] = mapped[i+2] | inSlices[v][i+2]
-			stateSlices[v][i+3] = mapped[i+3] | inSlices[v][i+3]
-			stateSlices[v][i+4] = mapped[i+4] | inSlices[v][i+4]
-			stateSlices[v][i+5] = mapped[i+5] | inSlices[v][i+5]
-			stateSlices[v][i+6] = mapped[i+6] | inSlices[v][i+6]
-			stateSlices[v][i+7] = mapped[i+7] | inSlices[v][i+7]
-		}
-
-		stateSlices[v][primitive.Words-1] &= primitive.LastMask
-	}
-
 	return nil
 }
 
@@ -214,11 +170,17 @@ func (backend *Backend) UniversalBitwise(
 	const (
 		// Region 2 (operand) starts at word 4 bit 5.
 		b0w = primitive.OperandStart >> 6
-		// Region 0 (data) starts at word 0 bit 0.
-		d0w = 0
-		d0s = 0
+		// Region 2 destination (operand) starts at word 4 bit 5.
+		d2w = primitive.OperandStart >> 6
+		d2s = primitive.OperandStart & 63
 
-		preserveDstWord4 = ^uint64(1) // Keep bits above data field end.
+		// We need to write 257 bits starting at bit 5 of word 4.
+		// Word 4: bits 5..63 (59 bits)
+		// Word 5: bits 0..63 (64 bits)
+		// Word 6: bits 0..63 (64 bits)
+		// Word 7: bits 0..63 (64 bits)
+		// Word 8: bits 0..5 (6 bits)
+		// Total: 59 + 64 + 64 + 64 + 6 = 257 bits
 	)
 
 	for v := range numValues {
@@ -247,13 +209,27 @@ func (backend *Backend) UniversalBitwise(
 		r3 := m0 ^ (k1 & a3) ^ (k2 & b3) ^ (k3 & (a3 & b3))
 		r4 := (m0 ^ (k1 & a4) ^ (k2 & b4) ^ (k3 & (a4 & b4))) & 1
 
-		// Write 257 result bits into Region 0, preserving bits
-		// outside the data window in boundary words.
-		ds[v][d0w+0] = r0
-		ds[v][d0w+1] = r1
-		ds[v][d0w+2] = r2
-		ds[v][d0w+3] = r3
-		ds[v][d0w+4] = (ds[v][d0w+4] & preserveDstWord4) | r4
+		// Write 257 result bits into Region 2 (Operand)
+		// Region 2 starts at word 4 bit 5
+		// We need to shift the 257-bit result up by 5 bits and write it across words 4-8
+
+		// Shift result up by 5 bits
+		s0 := r0 << 5
+		s1 := (r0 >> 59) | (r1 << 5)
+		s2 := (r1 >> 59) | (r2 << 5)
+		s3 := (r2 >> 59) | (r3 << 5)
+		s4 := (r3 >> 59) | (r4 << 5)
+		s5 := (r4 >> 59)
+
+		// Apply to destination words
+		// Word 4: keep bottom 5 bits, replace top 59 bits
+		ds[v][d2w+0] = (ds[v][d2w+0] & ((1 << 5) - 1)) | s0
+		// Words 5-7: replace entirely
+		ds[v][d2w+1] = s1
+		ds[v][d2w+2] = s2
+		ds[v][d2w+3] = s3
+		// Word 8: replace bottom 6 bits, keep top 58 bits
+		ds[v][d2w+4] = (ds[v][d2w+4] & ^uint64((1<<6)-1)) | s4 | s5
 	}
 
 	return nil

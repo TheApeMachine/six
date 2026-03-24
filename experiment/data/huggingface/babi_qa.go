@@ -79,6 +79,14 @@ func (dataset *BabiQADataset) Generate() iter.Seq[byte] {
 	}
 }
 
+func (dataset *BabiQADataset) Read(p []byte) (n int, err error) {
+	return dataset.base.Read(p)
+}
+
+func (dataset *BabiQADataset) Close() error {
+	return dataset.base.Close()
+}
+
 /*
 GeneratePrompts emits one Prompt per sample.
 Text is the visible question/context and Label is the expected answer.

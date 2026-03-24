@@ -46,6 +46,14 @@ func (ds *Dataset) Generate() iter.Seq[byte] {
 	}
 }
 
+func (ds *Dataset) Read(p []byte) (n int, err error) {
+	return copy(p, ds.corpus[0]), nil
+}
+
+func (ds *Dataset) Close() error {
+	return nil
+}
+
 func DatasetWithContext(ctx context.Context) datasetOpts {
 	return func(dataset *Dataset) {
 		dataset.ctx, dataset.cancel = context.WithCancel(ctx)

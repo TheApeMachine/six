@@ -43,3 +43,11 @@ func (ds *SyntheticDataset) Generate() iter.Seq[byte] {
 		}
 	}
 }
+
+func (ds *SyntheticDataset) Read(p []byte) (n int, err error) {
+	return copy(p, make([]byte, ds.sampleSize)), nil
+}
+
+func (ds *SyntheticDataset) Close() error {
+	return nil
+}

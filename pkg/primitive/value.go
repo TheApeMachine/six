@@ -200,6 +200,22 @@ func NewValueFromByte(b byte) *Value {
 	return value
 }
 
+func (value *Value) empty() bool {
+	return value[0] == 0 && value[1] == 0 && value[2] == 0 && value[3] == 0 && (value[4]&1) == 0
+}
+
+func (value *Value) projectByte(b byte) {
+	value[0] = uint64(b)
+	value[1] = 0
+	value[2] = 0
+	value[3] = 0
+	value[4] = (value[4] &^ 1) | 1
+}
+
+func (value *Value) projectValue(buf []byte) {
+	valueFrom(buf, value)
+}
+
 /*
 Read implements io.Reader. Serializes the Value's 1024-byte frame into p.
 */
@@ -213,42 +229,34 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
-Write implements io.Writer. Incoming bytes are written into the operand
-register (region 2, bits 261–517). The data field is never touched by
-Write — only by kernel operations. A non-zero operand register creates
-structural pressure: the operation MUST fire before the next Write.
-
-For 1024-byte payloads the incoming frame's first 257 bits (another
-Value's data field) are copied into the operand register.
-For shorter payloads the raw bytes are copied directly.
+Write implements the first stage of the "folding" process, which can be seen as the
+"instruction pointer" equivalent in a self-computing substrate. In this stage we take
+the value, and the incoming value, and prepare them for the Read stage, where an
+operation is potentially fired, and new values are emitted
 */
 func (value *Value) Write(p []byte) (int, error) {
-	if len(p) != ByteSize {
-		// Note: Standard io.Copy uses 32KB chunks.
-		// You may need to wrap your dataset reader to chunk to 1024 bytes.
+	lp := len(p)
+
+	if lp == 0 {
+		return 0, nil
+	}
+
+	// 1. SEEDING: If Region 0 is empty, we just need to read 1 byte into Region 0.
+	if value.empty() {
+		value.projectByte(p[0])
+		return 1, nil // Consume exactly 1 byte from the stream
+	}
+
+	// 2. INGESTION: Region 0 is set, so we expect a full 1024-byte Value.
+	if lp < ByteSize {
 		return 0, io.ErrShortBuffer
 	}
 
-	incoming := BytesToValue(p)
+	incoming := BytesToValue(p[:lp])
 
-	// Check if the data field is completely zero.
-	if value[0] == 0 && value[1] == 0 && value[2] == 0 && value[3] == 0 && (value[4]&1) == 0 {
-		// Securely copy ONLY the 257-bit data field.
-		copyDataField(value, incoming)
-		return len(p), nil
-	}
-
-	// Check if operand register is zero.
-	if value[OperandStart>>6] == 0 {
-		if incoming[StateStart>>6] != 0 {
-			copyStateVector(value, incoming)
-		} else {
-			// Osmosis: absorb raw data collisions into the operand to build pressure.
-			copyDataToOperand(value, incoming)
-		}
-	}
-
-	return len(p), nil
+	// Move Region 0 of the incoming Value into Region 2 (Operand) of the current Value
+	copyDataToOperand(value, incoming)
+	return lp, nil
 }
 
 /*
@@ -367,33 +375,6 @@ func ValueToBytes(v *Value, p []byte) error {
 }
 
 /*
-ValueErrorType is a typed error for Value operations.
-*/
-type ValueErrorType string
-
-const (
-	ErrShortValue ValueErrorType = "value: buffer shorter than 1024 bytes"
-)
-
-type ValueError struct {
-	Type ValueErrorType
-	Err  error
-}
-
-func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Type: err, Err: errors.New(string(err))}
-}
-
-/*
-Error implements the error interface for ValueError.
-*/
-func (valueErr *ValueError) Error() string {
-	return fmt.Errorf(
-		"value error: %s (%w)", valueErr.Type, valueErr.Err,
-	).Error()
-}
-
-/*
 MergeStateVector performs a CRDT merge (Bitwise OR) of the src State Vector
 into the dst State Vector. This operation is commutative, associative, and idempotent,
 allowing a node to instantly recover missing state from dropped packets.
@@ -445,4 +426,31 @@ func HammingDistance(a, b *Value) int {
 		dist += bits.OnesCount64(diff)
 	}
 	return dist
+}
+
+/*
+ValueErrorType is a typed error for Value operations.
+*/
+type ValueErrorType string
+
+const (
+	ErrShortValue ValueErrorType = "value: buffer shorter than 1024 bytes"
+)
+
+type ValueError struct {
+	Type ValueErrorType
+	Err  error
+}
+
+func NewValueError(err ValueErrorType) *ValueError {
+	return &ValueError{Type: err, Err: errors.New(string(err))}
+}
+
+/*
+Error implements the error interface for ValueError.
+*/
+func (valueErr *ValueError) Error() string {
+	return fmt.Errorf(
+		"value error: %s (%w)", valueErr.Type, valueErr.Err,
+	).Error()
 }

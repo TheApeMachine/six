@@ -1,8 +1,12 @@
 package data
 
-import "iter"
+import (
+	"io"
+	"iter"
+)
 
 type Provider interface {
+	io.ReadCloser
 	Generate() iter.Seq[byte]
 }
 

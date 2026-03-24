@@ -227,6 +227,10 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
+func (dataset *Dataset) Close() error {
+	return nil
+}
+
 /*
 GeneratePrompts emits each dataset row as a structured Prompt.
 It keeps sample boundaries intact, and preserves discovered labels.

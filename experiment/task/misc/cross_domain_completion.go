@@ -384,3 +384,11 @@ func (m *multiDomainDataset) Generate() iter.Seq[byte] {
 		}
 	}
 }
+
+func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
+	return m.datasets[0].Read(p)
+}
+
+func (m *multiDomainDataset) Close() error {
+	return nil
+}
