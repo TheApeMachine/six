@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"unsafe"
 )
 
@@ -400,7 +401,7 @@ allowing a node to instantly recover missing state from dropped packets.
 func MergeStateVector(dst, src *Value) {
 	const w = StateStart >> 6
 	const s = StateStart & 63
-	
+
 	mask0 := ^((uint64(1) << s) - 1)
 	mask4 := (uint64(1) << ((StateStart + StateBits) & 63)) - 1
 
@@ -409,4 +410,20 @@ func MergeStateVector(dst, src *Value) {
 	dst[w+2] |= src[w+2]
 	dst[w+3] |= src[w+3]
 	dst[w+4] |= (src[w+4] & mask4)
+}
+
+/*
+HammingDistance calculates the topological distance between two Values
+by counting the number of differing bits (symmetric difference).
+This is the core metric for associative resonance and emergent compute.
+*/
+func HammingDistance(a, b *Value) int {
+	dist := 0
+	for i := range Words {
+		// We use a simple bitwise XOR and count the set bits
+		// to find the geometric distance between two concepts.
+		diff := a[i] ^ b[i]
+		dist += bits.OnesCount64(diff)
+	}
+	return dist
 }
