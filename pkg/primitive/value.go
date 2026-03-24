@@ -212,10 +212,6 @@ func (value *Value) projectByte(b byte) {
 	value[4] = (value[4] &^ 1) | 1
 }
 
-func (value *Value) projectValue(buf []byte) {
-	valueFrom(buf, value)
-}
-
 /*
 Read implements io.Reader. Serializes the Value's 1024-byte frame into p.
 */
@@ -268,19 +264,6 @@ func (value *Value) Close() error {
 }
 
 /*
-copyDataField copies ONLY Region 0 (bits 0-256) from src to dst.
-This allows a Value to absorb a fingerprint without overwriting its instructions.
-*/
-func copyDataField(dst, src *Value) {
-	dst[0] = src[0]
-	dst[1] = src[1]
-	dst[2] = src[2]
-	dst[3] = src[3]
-	// Mask the 257th bit (bit 0 of word 4) leaving the Instruction Register intact
-	dst[4] = (dst[4] &^ 1) | (src[4] & 1)
-}
-
-/*
 clearOperandBits zeroes only the operand region (bits 261–517), preserving
 data, instruction, and state vector bits in boundary words.
 */
@@ -304,27 +287,6 @@ func clearOperandBits(dst *Value) {
 	}
 
 	dst[hiW] &^= (uint64(1) << uint(hiS+1)) - 1
-}
-
-/*
-copyStateVector copies the state vector from src to the
-operand register of dst.
-*/
-func copyStateVector(dst, src *Value) {
-	const sw, ss = StateStart >> 6, StateStart & 63
-	const dw, ds = OperandStart >> 6, OperandStart & 63
-
-	clearOperandBits(dst)
-
-	for i := range 4 {
-		x := src[sw+i]>>ss | src[sw+i+1]<<(64-ss)
-		dst[dw+i] |= x << ds
-		dst[dw+i+1] |= x >> (64 - ds)
-	}
-
-	if (src[(StateStart+256)>>6]>>((StateStart+256)&63))&1 != 0 {
-		dst[(OperandStart+256)>>6] |= 1 << ((OperandStart + 256) & 63)
-	}
 }
 
 /*

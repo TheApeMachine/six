@@ -1,26 +1,41 @@
 package vm
 
 import (
+	"context"
 	"io"
 
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/workflow"
 )
 
+/*
+Machine is purely a convenience wrapper around a workflow,
+which in itself if just a convenience wrapper around Value types.
+The idea is that Values pass through Values, which activates the
+second property of the Value type: behavior.
+Machine reduces boilerplate, but is not an essential part of the
+system's operational mechanics.
+*/
 type Machine struct {
+	ctx     context.Context
+	cancel  context.CancelFunc
 	dataset io.ReadCloser
-	seed    io.ReadWriteCloser
-	prompt  io.ReadWriteCloser
 	backend io.ReadWriteCloser
+	prompt  io.ReadWriteCloser
 }
 
+/*
+machineOption is a function that can be used to configure a Machine.
+*/
 type machineOption func(*Machine)
 
+/*
+NewMachine creates a new Machine with the given options.
+*/
 func NewMachine(opts ...machineOption) *Machine {
 	machine := &Machine{
-		seed:    primitive.NewValue(),
-		prompt:  primitive.NewValue(),
 		backend: compute.NewBackend(),
 	}
 
@@ -28,35 +43,25 @@ func NewMachine(opts ...machineOption) *Machine {
 		opt(machine)
 	}
 
-	// 1. The Core Reactor Pipeline
-	// Data flows: Seed -> Backend
-	reactor := workflow.NewPipeline(machine.seed, machine.backend)
+	reactor := workflow.NewPipeline(
+		workflow.NewSeeder(machine.dataset),
+		primitive.NewValue(),
+		machine.backend,
+	)
 
-	// 2. The Ingestion Loop
-	// Continuously stream the raw dataset into the seed.
-	go func() {
-		// We write directly to the seed. The seed absorbs bytes into its operand.
-		io.Copy(machine.seed, machine.dataset)
-	}()
-
-	// 3. The Feedback & Observation Loop
-	// We read from the reactor (which pulls from Backend, which pulls from Seed).
-	// The output of the reactor is the newly folded Value.
-	// We use Feedback to write this new Value back into the Seed (for further folding)
-	// AND we write it to the Prompt (so the outside world can read it).
-
-	// Create a feedback loop that reads from the reactor.
-	// The TeeReader will read from reactor, and write a copy to the seed.
-	feedback := workflow.NewFeedback(reactor, machine.seed)
+	feedback := workflow.NewFeedback(reactor, machine.prompt)
 
 	go func() {
 		for {
-			// We copy from the feedback loop into the prompt.
-			// This triggers feedback.Read(), which:
-			// 1. Reads a folded Value from the reactor (Backend).
-			// 2. Writes a copy of that Value back into the Seed.
-			// 3. Returns the Value to io.Copy, which writes it to the Prompt.
-			io.Copy(machine.prompt, feedback)
+			select {
+			case <-machine.ctx.Done():
+				return
+			default:
+				if _, err := io.Copy(feedback, feedback); err != nil {
+					errnie.Error(err)
+					return
+				}
+			}
 		}
 	}()
 
@@ -64,7 +69,7 @@ func NewMachine(opts ...machineOption) *Machine {
 }
 
 func (machine *Machine) Read(p []byte) (n int, err error) {
-	return machine.dataset.Read(p)
+	return machine.prompt.Read(p)
 }
 
 func (machine *Machine) Write(p []byte) (n int, err error) {
@@ -72,7 +77,14 @@ func (machine *Machine) Write(p []byte) (n int, err error) {
 }
 
 func (machine *Machine) Close() error {
-	return machine.dataset.Close()
+	machine.cancel()
+	return nil
+}
+
+func WithContext(ctx context.Context) machineOption {
+	return func(m *Machine) {
+		m.ctx, m.cancel = context.WithCancel(ctx)
+	}
 }
 
 func WithDataset(dataset io.ReadCloser) machineOption {
