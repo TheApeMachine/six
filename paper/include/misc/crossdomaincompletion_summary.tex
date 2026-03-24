@@ -1,35 +1,36 @@
 \begin{table}[htbp]
 \centering
-\caption{CrossDomainCompletion — standardised result summary (N=1).}
+\caption{CrossDomainCompletion — standardised result summary (N=2).}
 \label{tab:crossdomaincompletion_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 1 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 2 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
+0 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 0 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{Complete the suffix of the given prefix.}} & \multicolumn{2}{l}{\texttt{}} \\
+\multicolumn{2}{l}{\texttt{Complete the suffix of the given prefix.}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 1} & \multicolumn{3}{l}{Holdout: 50\% (RIGHT)} \\
+\multicolumn{3}{l}{Samples: 2} & \multicolumn{3}{l}{Holdout: 2\% ()} \\
 \multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Timing}} \\
 \midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{45.46 s} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{93µs} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{93µs} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.94 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{47.40 s}} \\
+\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{0µs} \\
+\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4µs} \\
+\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{4µs} \\
+\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.42 s} \\
+\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.42 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

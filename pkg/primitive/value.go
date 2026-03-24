@@ -410,6 +410,25 @@ func MergeStateVector(dst, src *Value) {
 	dst[w+2] |= src[w+2]
 	dst[w+3] |= src[w+3]
 	dst[w+4] |= (src[w+4] & mask4)
+
+	// Decay mechanism to prevent CRDT saturation
+	pop := bits.OnesCount64(dst[w+0]>>s) +
+		bits.OnesCount64(dst[w+1]) +
+		bits.OnesCount64(dst[w+2]) +
+		bits.OnesCount64(dst[w+3]) +
+		bits.OnesCount64(dst[w+4]&mask4)
+
+	if pop > 128 {
+		const decayMask = 0x5555555555555555
+		dMask0 := uint64(decayMask) | ^mask0
+		dMask4 := uint64(decayMask) | ^mask4
+
+		dst[w+0] &= dMask0
+		dst[w+1] &= decayMask
+		dst[w+2] &= decayMask
+		dst[w+3] &= decayMask
+		dst[w+4] &= dMask4
+	}
 }
 
 /*

@@ -2,10 +2,13 @@ package task
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type runTiming struct {
@@ -60,10 +63,22 @@ func (pipeline *Pipeline) Run() error {
 	dataset := pipeline.experiment.Dataset()
 	pipeline.timing.loadDur = time.Since(loadStart)
 
-	prompts := pipeline.experiment.Prompts()
-
-	if len(prompts) == 0 && dataset != nil {
-		prompts = promptsFromDataset(dataset)
+	var prompts []data.Prompt
+	if promptProvider, ok := dataset.(data.PromptProvider); ok {
+		for p := range promptProvider.GeneratePrompts() {
+			prompts = append(prompts, p)
+		}
+	} else {
+		rawPrompts := pipeline.experiment.Prompts()
+		if len(rawPrompts) == 0 && dataset != nil {
+			rawPrompts = promptsFromDataset(dataset)
+		}
+		for i, p := range rawPrompts {
+			prompts = append(prompts, data.Prompt{
+				SampleID: uint32(i),
+				Text:     p,
+			})
+		}
 	}
 
 	if len(prompts) == 0 {
@@ -71,12 +86,48 @@ func (pipeline *Pipeline) Run() error {
 	}
 
 	promptStart := time.Now()
+	backend := cpu.NewBackend()
 
 	for idx, prompt := range prompts {
-		_ = prompt
+		// The system must run uniformly for each prompt.
+		// We project the incoming text into the topological substrate
+		// and feed it through the physics engine.
+		stateBuf := make([]byte, primitive.ByteSize)
+		state := primitive.BytesToValue(stateBuf)
+
+		// Set instruction to OR (0b1110) to accumulate state
+		state[primitive.InstrStart>>6] |= (uint64(0b1110) << (primitive.InstrStart & 63))
+
+		for i := 0; i < len(prompt.Text); i++ {
+			incoming := primitive.NewValueFromByte(prompt.Text[i])
+
+			// Load incoming data into the worker's operand register
+			const dw = primitive.OperandStart >> 6
+			const ds = primitive.OperandStart & 63
+			for j := 0; j < 4; j++ {
+				state[dw+j] |= incoming[j] << ds
+				state[dw+j+1] |= incoming[j] >> (64 - ds)
+			}
+			if (incoming[4] & 1) != 0 {
+				state[(primitive.OperandStart+256)>>6] |= 1 << ((primitive.OperandStart + 256) & 63)
+			}
+
+			// Run it through the kernel pipeline
+			if _, err := backend.Write(stateBuf); err != nil {
+				return fmt.Errorf("kernel write failed on prompt %d byte %d: %w", idx, i, err)
+			}
+		}
+
+		// Extract the final mutated frame (the topological state)
+		outFrame := make([]byte, primitive.ByteSize)
+		_ = primitive.ValueToBytes(state, outFrame)
+
 		pipeline.experiment.AddResult(tools.ExperimentalData{
-			Idx:  idx,
-			Name: pipeline.experiment.Name(),
+			Idx:      idx,
+			Name:     pipeline.experiment.Name(),
+			Prefix:   []byte(prompt.Text),
+			Holdout:  []byte(prompt.Label),
+			Observed: outFrame,
 		})
 	}
 

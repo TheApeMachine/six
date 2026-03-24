@@ -385,6 +385,29 @@ func (backend *Backend) UpdateStateVector(state unsafe.Pointer, numValues uint32
 		stateSlices[v][s0w+2] |= (r1 >> (64 - s0s)) | (r2 << s0s)
 		stateSlices[v][s0w+3] |= (r2 >> (64 - s0s)) | (r3 << s0s)
 		stateSlices[v][s0w+4] |= (r3 >> (64 - s0s)) | (r4 << s0s)
+
+		// Decay mechanism to prevent CRDT saturation
+		// If popcount exceeds ~50% (128 bits), we apply a decay mask to forget older state.
+		pop := bits.OnesCount64(stateSlices[v][s0w+0]>>s0s) +
+			bits.OnesCount64(stateSlices[v][s0w+1]) +
+			bits.OnesCount64(stateSlices[v][s0w+2]) +
+			bits.OnesCount64(stateSlices[v][s0w+3]) +
+			bits.OnesCount64(stateSlices[v][s0w+4]&((1<<((primitive.StateBits+s0s)&63))-1))
+
+		if pop > 128 {
+			// Apply a checkerboard decay mask to randomly drop half the bits
+			// Ensure we do not touch bits outside the State Vector
+			const decayMask = 0x5555555555555555
+
+			mask0 := uint64(decayMask) | ((uint64(1) << s0s) - 1)
+			mask4 := uint64(decayMask) | ^((uint64(1) << ((primitive.StateBits + s0s) & 63)) - 1)
+
+			stateSlices[v][s0w+0] &= mask0
+			stateSlices[v][s0w+1] &= decayMask
+			stateSlices[v][s0w+2] &= decayMask
+			stateSlices[v][s0w+3] &= decayMask
+			stateSlices[v][s0w+4] &= mask4
+		}
 	}
 	return nil
 }

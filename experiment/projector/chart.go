@@ -61,7 +61,11 @@ func renderAndExport(html string, outDir, filename string, dims ...int) error {
 	default:
 		return fmt.Errorf("projector.renderAndExport(%s): invalid dims %v; expected 0 or 2 values (width,height)", htmlPath, dims)
 	}
-	return ExportPDFWithSize(htmlPath, filepath.Join(outDir, filename+".pdf"), w, h)
+	if err := ExportPDFWithSize(htmlPath, filepath.Join(outDir, filename+".pdf"), w, h); err != nil {
+		// Log a warning instead of failing, so CI/CD pipelines without Chrome don't crash.
+		fmt.Fprintf(os.Stderr, "Warning: failed to export PDF (is Chrome installed?): %v\n", err)
+	}
+	return nil
 }
 
 // emitFigure renders the shared LaTeX \begin{figure}…\end{figure} wrapper to out.
