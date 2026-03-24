@@ -366,7 +366,7 @@ using a bitwise OR, effectively creating a CRDT lattice of all computed states.
 */
 func (backend *Backend) UpdateStateVector(state unsafe.Pointer, numValues uint32) error {
 	stateSlices := unsafe.Slice((*[primitive.Words]uint64)(state), numValues)
-	
+
 	const (
 		s0w = primitive.StateStart >> 6
 		s0s = primitive.StateStart & 63
@@ -394,10 +394,10 @@ ClearOperand zeroes out the Operand Register (Region 2) after an operation has f
 */
 func (backend *Backend) ClearOperand(state unsafe.Pointer, numValues uint32) error {
 	stateSlices := unsafe.Slice((*[primitive.Words]uint64)(state), numValues)
-	
+
 	const (
-		lo = primitive.OperandStart
-		hi = primitive.OperandStart + primitive.OperandBits - 1
+		lo       = primitive.OperandStart
+		hi       = primitive.OperandStart + primitive.OperandBits - 1
 		loW, loS = lo >> 6, lo & 63
 		hiW, hiS = hi >> 6, hi & 63
 	)

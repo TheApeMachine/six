@@ -12,7 +12,7 @@ func TestMobiusSign(t *testing.T) {
 	gc.Convey("Given Values with known popcount parity", t, func() {
 		gc.Convey("It should return +1 for even popcount", func() {
 			even := primitive.NewValue()
-			even[0] = 10
+			even[0] = 1 << 10
 			even[0] |= 1 << 20
 
 			gc.So(MobiusSign(even), gc.ShouldEqual, 1)
@@ -20,7 +20,7 @@ func TestMobiusSign(t *testing.T) {
 
 		gc.Convey("It should return -1 for odd popcount", func() {
 			odd := primitive.NewValue()
-			odd[0] = 10
+			odd[0] = 1 << 10
 			odd[0] |= 1 << 20
 			odd[0] |= 1 << 30
 
@@ -58,7 +58,7 @@ func TestDivides(t *testing.T) {
 		gc.Convey("It should reject when divisor has bits absent from numerator", func() {
 			notSub := primitive.NewValue()
 			notSub[0] = 1 << 10
-			notSub[0] |= 1 << 20
+			notSub[0] |= 1 << 30
 
 			sup := primitive.NewValue()
 			sup[0] = 1 << 10
@@ -169,6 +169,7 @@ func TestContributorCounter(t *testing.T) {
 			full[0] |= 1 << 30
 			full[0] |= 1 << 40
 			full[0] |= 1 << 50
+			full[0] |= 1 << 60
 
 			gc.So(counter(full), gc.ShouldEqual, 3)
 		})

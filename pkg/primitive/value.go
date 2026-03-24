@@ -391,3 +391,22 @@ func (valueErr *ValueError) Error() string {
 		"value error: %s (%w)", valueErr.Type, valueErr.Err,
 	).Error()
 }
+
+/*
+MergeStateVector performs a CRDT merge (Bitwise OR) of the src State Vector
+into the dst State Vector. This operation is commutative, associative, and idempotent,
+allowing a node to instantly recover missing state from dropped packets.
+*/
+func MergeStateVector(dst, src *Value) {
+	const w = StateStart >> 6
+	const s = StateStart & 63
+	
+	mask0 := ^((uint64(1) << s) - 1)
+	mask4 := (uint64(1) << ((StateStart + StateBits) & 63)) - 1
+
+	dst[w+0] |= (src[w+0] & mask0)
+	dst[w+1] |= src[w+1]
+	dst[w+2] |= src[w+2]
+	dst[w+3] |= src[w+3]
+	dst[w+4] |= (src[w+4] & mask4)
+}
