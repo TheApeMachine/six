@@ -6,6 +6,11 @@ import (
 	"io"
 )
 
+// ErrNotOwner is returned by MergeSource.Close to signal that MergeSource does
+// not own m.loop or any provided readers/writers. Callers (e.g. the Pump that
+// constructed the MergeSource) are responsible for closing m.loop and dataset.
+var ErrNotOwner = errors.New("workflow: MergeSource does not own the loop or dataset resources")
+
 // LoopReadGater is implemented by pipeline heads that can temporarily disable
 // reads from the feedback loop during Pipeline's first processed pass (see Pipeline.Read).
 type LoopReadGater interface {
@@ -89,9 +94,10 @@ func (m *MergeSource) readLoop(p []byte) (n int, err error) {
 	return m.loop.Read(p)
 }
 
-// Close is a no-op. MergeSource does not close m.loop: the owner of that
-// ReadWriter (e.g. the Pump that created it) must close it when tearing down.
-// Close the dataset from the caller if it is an io.ReadCloser.
+// Close returns ErrNotOwner to make explicit that MergeSource does NOT close
+// m.loop or the dataset: the owner (e.g. the Pump that created this source)
+// must close those resources when tearing down. Callers can check for
+// ErrNotOwner using errors.Is to distinguish this sentinel from real failures.
 func (m *MergeSource) Close() error {
-	return nil
+	return ErrNotOwner
 }

@@ -1,5 +1,7 @@
 package errnie
 
+import "errors"
+
 type ErrnieError struct {
 	Msg     string
 	Err     error
@@ -8,6 +10,10 @@ type ErrnieError struct {
 }
 
 func (err *ErrnieError) Error() string {
+	if err.Op != "" {
+		return err.Op + ": " + err.Msg
+	}
+
 	return err.Msg
 }
 
@@ -25,9 +31,9 @@ func (err *ErrnieError) Unwrap() error {
 }
 
 func (err *ErrnieError) Is(target error) bool {
-	return err.Err == target
+	return errors.Is(err.Err, target)
 }
 
 func (err *ErrnieError) As(target any) bool {
-	return err.Err == target
+	return errors.As(err.Err, target)
 }

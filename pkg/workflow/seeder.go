@@ -21,7 +21,7 @@ func (seeder *Seeder) Read(p []byte) (n int, err error) {
 }
 
 func (seeder *Seeder) Write(p []byte) (n int, err error) {
-	errnie.Trace("workflow.seeder.Write", "p", string(p))
+	errnie.Trace("workflow.seeder.Write", "len", len(p))
 	return len(p), nil
 }
 

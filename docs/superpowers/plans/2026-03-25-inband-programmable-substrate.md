@@ -4,7 +4,7 @@
 
 **Goal:** Eliminate the `residents` von Neumann controller and move all merging, shattering, and orchestration logic in-band into the Value using Region 2 (Affinity) and Region 3 (64-op Program).
 
-**Architecture:** 
+**Architecture:**
 - Extend primitive.Value with new region constants and program helpers.
 - Make UniversalBitwise support full 64-tick program execution from Region 3.
 - Replace Go-level cancellation logic (trie.go) with fast bitwise affinity matching.
@@ -18,13 +18,14 @@
 
 ---
 
-### Task 1: Define New Regions and Helpers in primitive.Value
+## Task 1: Define New Regions and Helpers in primitive.Value
 
 **Files:**
 - Modify: `pkg/primitive/value.go` (add constants + helpers)
 - Test: `pkg/primitive/value_test.go`
 
 - [ ] **Step 1:** Add new region constants after existing ones
+
 ```go
 	RegionAffinityStart = 3856 // after current instr + padding
 	RegionAffinityBits  = 256
@@ -38,7 +39,7 @@
 - [ ] **Step 6:** Run test → verify it passes
 - [ ] **Step 7:** Commit with message "feat(primitive): add Region 2 Affinity and Region 3 Program support"
 
-### Task 2: Extend UniversalBitwise for Multi-Tick Programs
+## Task 2: Extend UniversalBitwise for Multi-Tick Programs
 
 **Files:**
 - Modify: `pkg/compute/kernel/cpu/backend.go` (UniversalBitwise + Read/WriteRegion)
@@ -52,7 +53,7 @@
 - [ ] **Step 6:** Fix implementation until test passes
 - [ ] **Step 7:** Commit "feat(cpu): extend UniversalBitwise to execute 64-op programs from Region 3"
 
-### Task 3: Add Hardcoded Structuring Programs
+## Task 3: Add Hardcoded Structuring Programs
 
 **Files:**
 - Modify: `pkg/primitive/value.go` (add Install*Program helpers)
@@ -64,7 +65,7 @@
 - [ ] **Step 4:** Run tests
 - [ ] **Step 5:** Commit "feat(primitive): add hardcoded structuring programs for merge/shatter/xor"
 
-### Task 4: Replace Cancellation Logic with Affinity Matching
+## Task 4: Replace Cancellation Logic with Affinity Matching
 
 **Files:**
 - Modify: `pkg/compute/kernel/cpu/trie.go` (delete old functions, add AffinityMatch)
@@ -77,7 +78,7 @@
 - [ ] **Step 5:** Run all tests, fix any breakage
 - [ ] **Step 6:** Commit "refactor(cpu): replace residents + token cancellation with in-band affinity + programs"
 
-### Task 5: Final Cleanup and Telemetry/Visualizer Updates
+## Task 5: Final Cleanup and Telemetry/Visualizer Updates
 
 **Files:**
 - Modify: `pkg/compute/kernel/cpu/backend.go` (remove residents field entirely)
@@ -99,7 +100,7 @@
 - Visualizer still works
 - Single-tick instructions still function for backward compat
 
-**Plan complete.** 
+**Plan complete.**
 
 Now that the implementation plan is written, we have two options:
 

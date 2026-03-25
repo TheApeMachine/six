@@ -243,7 +243,7 @@ func writeToLog(msg ...any) {
 		return
 	}
 
-	appendLineToFile(&logFile, &logFileMu, msg)
+	appendLineToFile(logFile, &logFileMu, msg)
 }
 
 // buildTraceLine formats a trace line as "msg k1=v1 k2=v2" for readability.
@@ -297,8 +297,8 @@ func writeTraceLine(line string) {
 	}
 }
 
-func appendLineToFile(f **os.File, mu *sync.Mutex, parts []any) {
-	if len(parts) == 0 || *f == nil {
+func appendLineToFile(f *os.File, mu *sync.Mutex, parts []any) {
+	if len(parts) == 0 || f == nil {
 		return
 	}
 
@@ -312,13 +312,13 @@ func appendLineToFile(f **os.File, mu *sync.Mutex, parts []any) {
 	mu.Lock()
 	defer mu.Unlock()
 
-	_, err := (*f).WriteString(line)
+	_, err := f.WriteString(line)
 	if err != nil {
 		logger.Warn("Failed to write to log file", "error", err)
 		return
 	}
 
-	if syncErr := (*f).Sync(); syncErr != nil {
+	if syncErr := f.Sync(); syncErr != nil {
 		logger.Warn("Failed to sync log file", "error", syncErr)
 	}
 }

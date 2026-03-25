@@ -89,37 +89,14 @@ func CreateValueWithProgram(data string, programType ProgramType) *primitive.Val
 	// Initialize affinity for clustering
 	v.InitializeAffinity()
 
-	// Set up program based on type
-	switch programType {
-	case ProgramShatter:
-		v.InstallShatterProgram()
-	case ProgramXOR:
-		// Simple XOR program for annihilation (Roy test)
-		v.SetProgramOp(0, 0b0110) // XOR
-		v.SetProgramOp(1, 0b0000) // HALT
-	case ProgramMerge:
-		// OR/accumulate - merges information
-		v.SetProgramOp(0, 0b1110) // OR
-		v.SetProgramOp(1, 0b0000) // HALT
-	case ProgramProjectA:
-		// Keep only component from A (A & ~B)
-		v.SetProgramOp(0, 0b0010) // A AND NOT B
-		v.SetProgramOp(1, 0b0000) // HALT
-	case ProgramProjectB:
-		// Keep only component from B (B & ~A)
-		v.SetProgramOp(0, 0b0100) // B AND NOT A
-		v.SetProgramOp(1, 0b0000) // HALT
-	default:
-		// Default: simple passthrough with OR
-		v.SetProgramOp(0, 0b1110) // OR/accumulate
-		v.SetProgramOp(1, 0b0000) // HALT
-	}
+	// Delegate all opcode assignments to InstallProgram (single source of truth).
+	InstallProgram(v, programType)
 
 	return v
 }
 
 // InstallProgram installs a named program into a Value.
-// This provides a more flexible way to set up structuring programs.
+// This is the single source of truth for all ProgramType opcode assignments.
 func InstallProgram(value *primitive.Value, programType ProgramType) {
 	switch programType {
 	case ProgramShatter:
@@ -136,6 +113,10 @@ func InstallProgram(value *primitive.Value, programType ProgramType) {
 	case ProgramProjectB:
 		value.SetProgramOp(0, 0b0100) // B AND NOT A
 		value.SetProgramOp(1, 0b0000) // HALT
+	default:
+		// Fallback: simple OR/accumulate passthrough
+		value.SetProgramOp(0, 0b1110) // OR
+		value.SetProgramOp(1, 0b0000) // HALT
 	}
 }
 
@@ -146,6 +127,9 @@ This is still useful for testing and initialization.
 func (backend *Backend) EncodeTrieBatch(
 	sequences [][]byte, dst unsafe.Pointer, numValues uint32,
 ) {
+	if uint32(len(sequences)) < numValues {
+		numValues = uint32(len(sequences))
+	}
 	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), numValues)
 
 	for v := uint32(0); v < numValues; v++ {
@@ -196,15 +180,24 @@ func InstallProgramFrom(value *primitive.Value, program Program) {
 
 // ComposePrograms creates a new program by concatenating multiple programs.
 // This allows building complex operations from simpler ones.
+// Intermediate HALT (0) instructions from each sub-program are stripped before
+// appending the next program so they cannot stop execution prematurely.
+// A single HALT is always appended at the very end.
 func ComposePrograms(programs ...Program) Program {
 	var result Program
 	for _, p := range programs {
+		// Strip trailing HALTs from the accumulating result before appending
+		// the next program so intermediate HALTs don't stop execution early.
+		for len(result) > 0 && result[len(result)-1] == 0 {
+			result = result[:len(result)-1]
+		}
 		result = append(result, p...)
 	}
-	// Ensure it ends with HALT if not already present
-	if len(result) == 0 || result[len(result)-1] != 0 {
-		result = append(result, 0)
+	// Ensure the composed program ends with exactly one HALT.
+	for len(result) > 0 && result[len(result)-1] == 0 {
+		result = result[:len(result)-1]
 	}
+	result = append(result, 0)
 	return result
 }
 

@@ -16,7 +16,7 @@ Value layout: 128 contiguous uint64 words (1024 bytes) per Value.
 num_values: number of Values in each array.
 Returns 0 on success, negative on failure.
 */
-int universal_bitwise_metal(const void* a, const void* b, void* dst, uint8_t op, uint32_t num_values);
+int unified_bitwise_metal(const void* a, const void* b, void* dst, uint32_t num_values);
 
 void cleanup_metal_pools(void);
 

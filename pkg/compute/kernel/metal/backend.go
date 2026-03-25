@@ -12,12 +12,12 @@ import "C"
 import (
 	_ "embed"
 	"errors"
+	"io"
 	"os"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
@@ -55,7 +55,7 @@ func Available() int {
 Read implements io.Reader.
 */
 func (backend *Backend) Read(p []byte) (n int, err error) {
-	return
+	return 0, io.EOF
 }
 
 /*
@@ -73,8 +73,13 @@ func (backend *Backend) Close() error {
 }
 
 /*
-UniversalBitwise reads the 4-bit opcode from each Value's instruction
-region and dispatches to the compiled Metal kernel.
+UniversalBitwise dispatches a batch of Values to the compiled Metal kernel.
+
+The opcode is no longer passed externally — each Value carries its own
+64-op program in Region 3 (words 68–71). The unified_bitwise_kernel reads
+that program and executes up to 64 ticks per Value, halting at opcode 0.
+The batch may therefore be heterogeneous: each Value runs its own independent
+program in parallel on the GPU.
 */
 func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
 	if !metalReady.Load() {
@@ -85,16 +90,7 @@ func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) err
 		)
 	}
 
-	// Read the opcode from the first Value's instruction region.
-	// All Values in a batch share the same opcode (set by the caller
-	// via bitwiseViaALU or program execution).
-	as := unsafe.Slice((*primitive.Value)(a), n)
-	word := primitive.InstrStart >> 6
-	shift := uint(primitive.InstrStart & 63)
-	mask := uint64((1 << primitive.InstrBits) - 1)
-	op := uint8((as[0][word] >> shift) & mask)
-
-	if C.universal_bitwise_metal(a, b, dst, C.uint8_t(op), C.uint32_t(n)) != 0 {
+	if C.unified_bitwise_metal(a, b, dst, C.uint32_t(n)) != 0 {
 		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise", n)
 	}
 	return nil
@@ -157,7 +153,7 @@ type MetalError struct {
 func NewMetalError(merr MetalErrorType, err error, op string, n uint32) *MetalError {
 	return &MetalError{
 		Err: err,
-		Msg: err.Error(),
+		Msg: string(merr),
 		Op:  op,
 		N:   n,
 	}

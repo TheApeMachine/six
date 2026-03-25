@@ -19,26 +19,31 @@ This violates the core thesis that **the Value is the substrate**.
 The 128-word (8192-bit) `Value` is partitioned as follows:
 
 ### Region 0 — Data Field (unchanged)
+
 - Words 0–59: 57 tokens + ValueID, PrevValueID, NextValueID
 - `primitive.Region0TokenCount = 57`
 - `DataWords = 60`, `DataBits = 3840`
 
 ### Region 1 — Instruction Register (kept for compatibility)
+
 - Current 4-bit instruction (single-tick fallback)
 - Location: `primitive.InstrStart`
 
 ### Region 2 — Affinity Mask (256 bits)
+
 - Used for fast topological clustering via bitwise `AND` + popcount
 - When two Values have sufficient overlap in this mask, they are considered "topologically close" and pulled into the ALU together.
 - Replaces Go-level search over `residents`.
 
 ### Region 3 — Program Register (256 bits)
+
 - **64 × 4-bit instructions** (`256 / 4 = 64`)
 - Each 4-bit opcode drives the existing `UniversalBitwise` truth table.
 - `0b0000` = NOP/HALT (early exit)
 - This turns every `Value` into a self-executing 64-step microcode machine.
 
 ### Region 4+ — Temporary Links / Grouping + Future Use
+
 - Remaining ~7400 bits.
 - Can be used for explicit temporary linking/grouping of Values that should participate together in a structuring program (optional enhancement).
 - Not required for initial implementation.

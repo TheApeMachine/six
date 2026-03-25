@@ -58,38 +58,5 @@ func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) err
 	return NewCUDAError(nil, "UniversalBitwise", "UniversalBitwise", n)
 }
 
-/*
-CUDAErrorType is a typed error for CUDA backend failures.
-*/
-type CUDAErrorType string
-
-const (
-	CUDAErrorUnavailable    CUDAErrorType = "cuda backend unavailable"
-	CUDAErrorDispatchFailed CUDAErrorType = "cuda backend dispatch failed"
-)
-
-type CUDAError struct {
-	Err error
-	Msg string
-	Op  string
-	N   uint32
-}
-
-/*
-NewCUDAError returns a new CUDAError.
-*/
-func NewCUDAError(err error, msg string, op string, n uint32) *CUDAError {
-	return &CUDAError{
-		Err: err,
-		Msg: msg,
-		Op:  op,
-		N:   n,
-	}
-}
-
-/*
-Error implements the error interface for CUDAErrorType.
-*/
-func (err *CUDAError) Error() string {
-	return err.Msg
-}
+// CUDAError, NewCUDAError, and related constants are defined in errors.go
+// (no build tag) so both the CUDA and stub builds share one implementation.

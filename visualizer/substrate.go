@@ -13,6 +13,11 @@ import (
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
+// regionBitWidth is the number of bits in a single region field (e.g.
+// the instruction register). It is used to normalise cpu.Popcount results
+// to a [0, 1] density fraction.
+const regionBitWidth = 64.0
+
 /*
 SubstrateOpts configures the demo loop that mirrors experiment/pipeline_test.go:
 dataset frames -> Value chamber -> CPU backend -> updated chamber state.
@@ -244,7 +249,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
 				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64),
 				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),
-				Density:     float64(pressure) / 64.0, // updated for new architecture
+				Density:     float64(pressure) / regionBitWidth, // normalised instruction-region density
 			},
 		})
 

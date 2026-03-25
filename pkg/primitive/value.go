@@ -167,6 +167,12 @@ func valueFromPortable(p []byte, v *Value) {
 	}
 }
 
+/*
+valuePool helps us tame the garbage collector when we often
+create and destroy values. It is safe to re-use ValueIDs,
+because if it has been returned to the pool, it means that
+all references of the ValueID have been released entirely.
+*/
 var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
@@ -194,6 +200,10 @@ func (value *Value) Read(p []byte) (int, error) {
 		return 0, io.EOF
 	}
 
+	if len(p) < ByteSize {
+		return 0, io.ErrShortBuffer
+	}
+
 	valueTo(value, p)
 	return ByteSize, io.EOF
 }
@@ -205,6 +215,9 @@ the words for pipeline reuse (previous Read behavior).
 func (value *Value) Consume(p []byte) (int, error) {
 	if value[StateSlotIndex] == 0 {
 		return 0, io.EOF
+	}
+	if len(p) < ByteSize {
+		return 0, io.ErrShortBuffer
 	}
 
 	valueTo(value, p)
@@ -500,6 +513,20 @@ func (value *Value) Link() uint64 {
 		return (*value)[word]
 	}
 	return 0
+}
+
+// HasProgram reports whether this Value has any non-zero opcodes in its Program
+// Region (Region 3). It is an O(1) check across the 4 words that cover
+// RegionProgram (bits 4352–4607, words 68–71) and requires no separate flag.
+func (value *Value) HasProgram() bool {
+	const firstWord = RegionProgramStart / 64 // 68
+	const numWords = RegionProgramBits / 64   // 4
+	for i := firstWord; i < firstWord+numWords; i++ {
+		if (*value)[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // ProgramOp reads a 4-bit opcode from the program region at program counter pc.

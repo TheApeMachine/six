@@ -270,8 +270,11 @@ func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
 	for i := range batch {
 		v := &batch[i]
 
-		// Find the best match for this Value using affinity
-		bestMatch := i
+		// Find the best match for this Value using affinity.
+		// bestMatch is only set when a genuine partner is found;
+		// matched == false means no other Value in the batch had
+		// sufficient affinity overlap.
+		bestMatch := -1
 		for j := range batch {
 			if i == j {
 				continue
@@ -282,16 +285,22 @@ func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
 			}
 		}
 
-		target := &batch[bestMatch]
-
 		emitted := primitive.NewValue()
-		if err := backend.UniversalBitwise(
-			unsafe.Pointer(v),
-			unsafe.Pointer(target),
-			unsafe.Pointer(emitted),
-			1,
-		); err != nil {
-			return err
+
+		if bestMatch == -1 {
+			// No affinity partner found — pass the value through unchanged
+			// rather than running UniversalBitwise against itself.
+			*emitted = *v
+		} else {
+			target := &batch[bestMatch]
+			if err := backend.UniversalBitwise(
+				unsafe.Pointer(v),
+				unsafe.Pointer(target),
+				unsafe.Pointer(emitted),
+				1,
+			); err != nil {
+				return err
+			}
 		}
 
 		// Set metadata
@@ -299,9 +308,11 @@ func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
 		backend.nextID++
 		emitted[primitive.StateSlotIndex] = 1
 
-		// Preserve linking information if present
-		if target.NextValueID() != 0 {
-			emitted.SetNextValueID(target.NextValueID())
+		// Preserve linking information if present.
+		// When a real match was found, prefer the target's link chain;
+		// otherwise fall back to v's own link (or none).
+		if bestMatch != -1 && batch[bestMatch].NextValueID() != 0 {
+			emitted.SetNextValueID(batch[bestMatch].NextValueID())
 		} else if v.NextValueID() != 0 {
 			emitted.SetNextValueID(v.NextValueID())
 		}
@@ -378,16 +389,8 @@ func (backend *Backend) UniversalBitwise(
 		aValue := (*primitive.Value)(unsafe.Pointer(&as[v]))
 		dstValue := (*primitive.Value)(unsafe.Pointer(&ds[v]))
 
-		// Check if this Value has a full program in Region 3
-		hasProgram := false
-		for i := 0; i < 64; i++ {
-			if aValue.ProgramOp(i) != 0 {
-				hasProgram = true
-				break
-			}
-		}
-
-		if hasProgram {
+		// O(1) check: inspect the 4 program-region words directly.
+		if aValue.HasProgram() {
 			// NEW: Multi-tick program execution mode
 			backend.executeProgram(aValue, b, dst, v)
 			continue
@@ -425,10 +428,21 @@ func (backend *Backend) UniversalBitwise(
 // executeProgram runs a full 64-tick program from Region 3 of the controlling Value.
 // This implements the "self-executing packet" concept where each Value
 // carries its own microcode.
+//
+// v is the index of the value pair within the b/dst buffers; the function reads
+// b[v] and writes dst[v] so that multi-value batches are handled correctly.
+// aValue is never mutated: its Region 0 data is copied into a local workWords
+// array that is evolved each tick, keeping the caller's input intact.
 func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Pointer, v uint32) {
-	bs := unsafe.Slice((*[primitive.Words]uint64)(b), 1)
-	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), 1)
+	// Slice the shared buffers to cover at least v+1 elements.
+	bs := unsafe.Slice((*[primitive.Words]uint64)(b), v+1)
+	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), v+1)
+
+	// Copy Region 0 of aValue into a local working buffer so we never
+	// mutate the caller's input value across ticks.
+	var workWords [primitive.Words]uint64
 	aWords := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))
+	copy(workWords[:], aWords[:])
 
 	// For each tick in the 64-op program
 	for pc := 0; pc < 64; pc++ {
@@ -447,22 +461,18 @@ func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Po
 		k2 := m0 ^ m1
 		k3 := m0 ^ m1 ^ m2 ^ m3
 
-		// Execute across Region 0 data
+		// Execute across Region 0 data using the v-th input pair.
 		for i := 0; i < primitive.Region0TokenCount; i++ {
-			left := aWords[i]
-			right := bs[0][i]
-			ds[0][i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
-		}
-
-		// Copy result back to aValue for next iteration (in-place evolution)
-		for i := 0; i < primitive.Region0TokenCount; i++ {
-			aWords[i] = ds[0][i]
+			left := workWords[i]
+			right := bs[v][i]
+			workWords[i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
 		}
 	}
 
-	// Copy final result to destination and mark as program result
-	dstValue := (*primitive.Value)(unsafe.Pointer(&ds[0]))
-	// Clear instruction bits for program mode - the program itself defines behavior
+	// Write the final evolved Region 0 into dst[v] and clear instruction bits.
+	copy(ds[v][:primitive.Region0TokenCount], workWords[:primitive.Region0TokenCount])
+	dstValue := (*primitive.Value)(unsafe.Pointer(&ds[v]))
+	// Clear instruction bits for program mode - the program itself defines behavior.
 	WriteRegion(dstValue, RegionInstruction, 0)
 }
 

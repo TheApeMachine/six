@@ -5,7 +5,6 @@
 <h1 align="center">six</h1>
 
 <p align="center">
-  <strong></strong>
 </p>
 
 ---

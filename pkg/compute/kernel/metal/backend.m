@@ -8,7 +8,7 @@
 static id<MTLDevice>       device       = nil;
 static id<MTLCommandQueue> commandQueue = nil;
 
-static id<MTLComputePipelineState> pipelineUniversalBitwise = nil;
+static id<MTLComputePipelineState> pipelineUnifiedBitwise = nil;
 
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
@@ -82,10 +82,10 @@ int init_metal(const char* metallib_path) {
             commandQueue = nil; device = nil; initResult = -3; return;
         }
 
-        pipelineUniversalBitwise = makePipeline(library, @"universal_bitwise_kernel", &error);
+        pipelineUnifiedBitwise = makePipeline(library, @"unified_bitwise_kernel", &error);
 
-        if (!pipelineUniversalBitwise) {
-            NSLog(@"metal: failed to create universal_bitwise pipeline: %@", error);
+        if (!pipelineUnifiedBitwise) {
+            NSLog(@"metal: failed to create unified_bitwise pipeline: %@", error);
             commandQueue = nil; device = nil; initResult = -4; return;
         }
 
@@ -120,10 +120,11 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
 }
 
 /*
-Universal Bitwise dispatch
+Unified Bitwise dispatch — no external opcode; each Value carries its own
+64-op program in Region 3 which the kernel reads and executes in-band.
 */
-int universal_bitwise_metal(const void* a_host, const void* b_host, void* dst_host, uint8_t op, uint32_t num_values) {
-    if (!pipelineUniversalBitwise || !a_host || !b_host || !dst_host) return -1;
+int unified_bitwise_metal(const void* a_host, const void* b_host, void* dst_host, uint32_t num_values) {
+    if (!pipelineUnifiedBitwise || !a_host || !b_host || !dst_host) return -1;
     if (num_values == 0) return 0;
     if (ensure_pool(num_values) != 0) return -2;
 
@@ -138,9 +139,9 @@ int universal_bitwise_metal(const void* a_host, const void* b_host, void* dst_ho
         [enc setBuffer:poolA   offset:0 atIndex:0];
         [enc setBuffer:poolB   offset:0 atIndex:1];
         [enc setBuffer:poolDst offset:0 atIndex:2];
-        [enc setBytes:&op length:sizeof(uint8_t) atIndex:3];
+        // No op byte — program dispatch is fully in-band.
 
-        dispatchKernel(enc, pipelineUniversalBitwise, num_values);
+        dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);

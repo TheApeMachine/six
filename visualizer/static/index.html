@@ -276,9 +276,9 @@
       color: var(--bp-accent);
     }
     .graph-mode-btn.active {
-      background: rgba(140, 200, 255, 0.08) !important;
-      border-color: rgba(140, 200, 255, 0.3) !important;
-      color: rgba(140, 200, 255, 0.85) !important;
+      background: rgba(140, 200, 255, 0.08);
+      border-color: rgba(140, 200, 255, 0.3);
+      color: rgba(140, 200, 255, 0.85);
     }
     #replay-slider {
       -webkit-appearance: none; appearance: none;
@@ -899,11 +899,11 @@
     #prompt-bar,
     #ingest-panel,
     #ingest-toggle {
-      display: none !important;
+      display: none;
     }
 
     #replay-bar .graph-mode-btn {
-      display: none !important;
+      display: none;
     }
   </style>
 </head>
@@ -1271,7 +1271,7 @@
     const cornerMat = new THREE.LineBasicMaterial({ color: 0x4080c0, transparent: true, opacity: 0.3 });
     const cornerAccentMat = new THREE.LineBasicMaterial({ color: 0xffdc8c, transparent: true, opacity: 0.45 });
 
-    for (const [key, sys] of Object.entries(SYS)) {
+    for (const [_, sys] of Object.entries(SYS)) {
       const hw = sys.w / 2, hh = sys.h / 2;
       const y = 0.05;
       const corners = [
@@ -1602,6 +1602,7 @@
     // VISUALIZATION RESET
     // ═══════════════════════════════════════════════════════════
     function resetVisualization() {
+      graphClear();
       clearAllZoneLabels();
       clearFoldNodes();
 
@@ -1717,17 +1718,10 @@
 
     let substrateFrames = 0;
 
-    let totalJobsScheduled = 0;
     let totalJobsDone = 0;
-    let totalJobsFailed = 0;
     let poolWorkerCount = 0;
     let poolIdleWorkers = 0;
     let poolQueueSize = 0;
-    let poolSuccessRate = 1.0;
-    let poolAvgLatencyMs = 0;
-    let poolP95LatencyMs = 0;
-    let poolP99LatencyMs = 0;
-    let poolFailureCount = 0;
     const poolJobHistory = [];
     const poolScaleHistory = [];
     const poolLatencyHistory = [];
@@ -1797,7 +1791,6 @@
 
     // Accumulated data for subsystem-specific visualizations
     const forestKeyBins = new Uint32Array(256);
-    let forestEntryCount = 0;
     const tokenBinCounts = new Uint32Array(256);
     let tokenBinMax = 1;
     const promptHistory = [];
@@ -2359,9 +2352,22 @@
     // ═══════════════════════════════════════════════════════════
     const graphNodes = new Map();
     const graphEdges = [];
+    // graphEdgeSet provides O(1) deduplication for graphAddEdge.
+    // Format: "fromId:toId". Kept in sync with graphEdges.
+    const graphEdgeSet = new Set();
     const graphSvg = document.getElementById('graph-svg');
     const graphEdgesG = document.getElementById('graph-edges');
     const graphNodesG = document.getElementById('graph-nodes');
+
+    // graphDirty is set to true whenever graphNodes or graphEdges change so
+    // that graphLayout runs only when there is something new to lay out.
+    let graphDirty = false;
+    // graphLayoutFrame tracks the requestAnimationFrame handle for the
+    // incremental layout runner so we never start two concurrent runners.
+    let graphLayoutFrame = null;
+    // graphLayoutIter counts how many iterations have been applied in the
+    // current incremental layout run (reset to 0 each time it starts fresh).
+    let graphLayoutIter = 0;
 
     const NODE_COLORS = {
       label:     { bg: 'rgba(255, 220, 140, 0.18)', border: 'rgba(255, 220, 140, 0.6)', text: 'rgba(255, 220, 140, 0.95)' },
@@ -2374,7 +2380,6 @@
 
       const svgRect = graphSvg.getBoundingClientRect();
       const w = svgRect.width || 800;
-      const h = svgRect.height || 500;
 
       const existing = graphNodes.size;
       const cols = Math.max(3, Math.ceil(Math.sqrt(graphNodes.size + 1) * 1.5));
@@ -2385,20 +2390,100 @@
 
       const node = { id, tokens, type, x, y, vx: 0, vy: 0 };
       graphNodes.set(id, node);
-      graphRender();
+      graphDirty = true;
+      graphStartLayout();
     }
 
     function graphAddEdge(fromId, toId) {
-      if (graphEdges.some(e => e.from === fromId && e.to === toId)) return;
+      const key = `${fromId}:${toId}`;
+      // O(1) existence check via Set instead of O(n) Array.some().
+      if (graphEdgeSet.has(key)) return;
+      graphEdgeSet.add(key);
       graphEdges.push({ from: fromId, to: toId });
-      graphRender();
+      graphDirty = true;
+      graphStartLayout();
     }
 
-    function graphRender() {
+
+
+    // graphStartLayout begins an incremental async layout run if the graph is
+    // dirty and no run is already in progress.
+    function graphStartLayout() {
+      if (graphLayoutFrame !== null) return; // already running
+      graphLayoutIter = 0;
+      graphLayoutFrame = requestAnimationFrame(graphLayoutStep);
+    }
+
+    // graphLayoutStep performs one chunk of iterations per animation frame,
+    // then re-schedules itself until the target iteration count is reached.
+    function graphLayoutStep() {
+      const ITERS_PER_FRAME = 5;
+      const TOTAL_ITERS    = 50;
+
+      if (!graphDirty || graphNodes.size <= 1) {
+        graphLayoutFrame = null;
+        graphDirty = false;
+        return;
+      }
+
+      const svgRect = graphSvg.getBoundingClientRect();
+      const W = svgRect.width  || 800;
+      const H = svgRect.height || 500;
+      const nodes = [...graphNodes.values()];
+
+      for (let k = 0; k < ITERS_PER_FRAME && graphLayoutIter < TOTAL_ITERS; k++, graphLayoutIter++) {
+        for (const n of nodes) { n.fx = 0; n.fy = 0; }
+
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            const dx = nodes[j].x - nodes[i].x;
+            const dy = nodes[j].y - nodes[i].y;
+            const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            const repulsion = 8000 / (dist * dist);
+            const fx = (dx / dist) * repulsion;
+            const fy = (dy / dist) * repulsion;
+            nodes[i].fx -= fx; nodes[i].fy -= fy;
+            nodes[j].fx += fx; nodes[j].fy += fy;
+          }
+        }
+
+        for (const edge of graphEdges) {
+          const a = graphNodes.get(edge.from);
+          const b = graphNodes.get(edge.to);
+          if (!a || !b) continue;
+          const dx = b.x - a.x, dy = b.y - a.y;
+          const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          const attraction = (dist - 120) * 0.05;
+          const fx = (dx / dist) * attraction;
+          const fy = (dy / dist) * attraction;
+          a.fx += fx; a.fy += fy;
+          b.fx -= fx; b.fy -= fy;
+        }
+
+        for (const n of nodes) {
+          n.x += Math.max(-10, Math.min(10, n.fx));
+          n.y += Math.max(-10, Math.min(10, n.fy));
+          n.x = Math.max(60, Math.min(W - 60, n.x));
+          n.y = Math.max(30, Math.min(H - 30, n.y));
+        }
+      }
+
+      // Re-render after each chunk so the user sees incremental progress.
+      graphRenderEdgesAndNodes();
+
+      if (graphLayoutIter < TOTAL_ITERS) {
+        graphLayoutFrame = requestAnimationFrame(graphLayoutStep);
+      } else {
+        graphLayoutFrame = null;
+        graphDirty = false;
+      }
+    }
+
+    // graphRenderEdgesAndNodes redraws the SVG edges + nodes using the already-
+    // laid-out node positions. Called by graphLayoutStep after each chunk.
+    function graphRenderEdgesAndNodes() {
       graphEdgesG.innerHTML = '';
       graphNodesG.innerHTML = '';
-
-      graphLayout();
 
       for (const edge of graphEdges) {
         const a = graphNodes.get(edge.from);
@@ -2458,55 +2543,15 @@
       }
     }
 
-    function graphLayout() {
-      if (graphNodes.size <= 1) return;
-
-      const svgRect = graphSvg.getBoundingClientRect();
-      const W = svgRect.width || 800;
-      const H = svgRect.height || 500;
-      const nodes = [...graphNodes.values()];
-
-      for (let iter = 0; iter < 50; iter++) {
-        for (const n of nodes) { n.fx = 0; n.fy = 0; }
-
-        for (let i = 0; i < nodes.length; i++) {
-          for (let j = i + 1; j < nodes.length; j++) {
-            let dx = nodes[j].x - nodes[i].x;
-            let dy = nodes[j].y - nodes[i].y;
-            let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-            let repulsion = 8000 / (dist * dist);
-            let fx = (dx / dist) * repulsion;
-            let fy = (dy / dist) * repulsion;
-            nodes[i].fx -= fx; nodes[i].fy -= fy;
-            nodes[j].fx += fx; nodes[j].fy += fy;
-          }
-        }
-
-        for (const edge of graphEdges) {
-          const a = graphNodes.get(edge.from);
-          const b = graphNodes.get(edge.to);
-          if (!a || !b) continue;
-          let dx = b.x - a.x, dy = b.y - a.y;
-          let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-          let attraction = (dist - 120) * 0.05;
-          let fx = (dx / dist) * attraction;
-          let fy = (dy / dist) * attraction;
-          a.fx += fx; a.fy += fy;
-          b.fx -= fx; b.fy -= fy;
-        }
-
-        for (const n of nodes) {
-          n.x += Math.max(-10, Math.min(10, n.fx));
-          n.y += Math.max(-10, Math.min(10, n.fy));
-          n.x = Math.max(60, Math.min(W - 60, n.x));
-          n.y = Math.max(30, Math.min(H - 30, n.y));
-        }
-      }
-    }
-
     function graphClear() {
       graphNodes.clear();
       graphEdges.length = 0;
+      graphEdgeSet.clear();
+      if (graphLayoutFrame !== null) {
+        cancelAnimationFrame(graphLayoutFrame);
+        graphLayoutFrame = null;
+      }
+      graphDirty = false;
       graphEdgesG.innerHTML = '';
       graphNodesG.innerHTML = '';
     }
@@ -2599,7 +2644,7 @@
     slider.addEventListener('input', () => {
       if (!replayMode) enterReplayMode();
       pausePlayback();
-      replayTo(parseInt(slider.value));
+      replayTo(parseInt(slider.value, 10));
     });
 
     setGraphMode('flow');
@@ -2642,7 +2687,7 @@
       const planes = Object.values(zonePlanes);
       const hits = raycaster.intersectObjects(planes);
 
-      for (const [key, plane] of Object.entries(zonePlanes)) {
+      for (const [_, plane] of Object.entries(zonePlanes)) {
         const isHit = hits.length > 0 && hits[0].object === plane;
         plane.material.opacity = isHit ? 0.08 : 0.0;
       }
@@ -2660,7 +2705,7 @@
       inspectorDesc.textContent = ZONE_DESCRIPTIONS[sysKey] || '';
 
       const tabs = inspectorTabsEl.querySelectorAll('.inspector-tab');
-      tabs.forEach(t => t.classList.toggle('active', t.dataset.tab === 'feed'));
+      tabs.forEach(t => { t.classList.toggle('active', t.dataset.tab === 'feed'); });
 
       renderInspector();
     }
@@ -2679,7 +2724,7 @@
 
       inspectorTab = tab.dataset.tab;
       inspectorTabsEl.querySelectorAll('.inspector-tab').forEach(
-        t => t.classList.toggle('active', t.dataset.tab === inspectorTab),
+        t => { t.classList.toggle('active', t.dataset.tab === inspectorTab); },
       );
 
       renderInspector();
@@ -3123,181 +3168,6 @@
       inspectorBody.appendChild(sec2);
     }
 
-    function renderComputeInternals() {
-      // ── Worker Grid ──
-      const sec1 = makeSection('Worker Pool');
-
-      if (poolWorkerCount === 0) {
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'inspector-empty';
-        emptyMsg.innerHTML = 'No workers active yet.<br><br>' +
-          'Workers will appear here as the pool spins up to handle jobs.';
-        sec1.appendChild(emptyMsg);
-      } else {
-        const grid = document.createElement('div');
-        grid.className = 'worker-grid';
-
-        for (let i = 0; i < poolWorkerCount; i++) {
-          const cell = document.createElement('div');
-          const isIdle = i >= (poolWorkerCount - poolIdleWorkers);
-          cell.className = `worker-cell ${isIdle ? 'idle' : 'busy'}`;
-          cell.dataset.label = `worker #${i} ${isIdle ? 'idle' : 'busy'}`;
-          grid.appendChild(cell);
-        }
-
-        sec1.appendChild(grid);
-
-        const legend = document.createElement('div');
-        legend.className = 'heatmap-legend';
-        legend.innerHTML = `<span>${poolWorkerCount - poolIdleWorkers} busy</span>` +
-          `<span>${poolWorkerCount} total</span>` +
-          `<span>${poolIdleWorkers} idle</span>`;
-        sec1.appendChild(legend);
-      }
-
-      inspectorBody.appendChild(sec1);
-
-      // ── Throughput Gauges ──
-      const sec2 = makeSection('Throughput');
-      const gaugeRow = document.createElement('div');
-      gaugeRow.className = 'compute-gauge-row';
-
-      const successGauge = buildGauge('Success', `${(poolSuccessRate * 100).toFixed(0)}%`, poolSuccessRate * 100, 'success');
-      gaugeRow.appendChild(successGauge);
-
-      const utilPct = poolWorkerCount > 0 ? ((poolWorkerCount - poolIdleWorkers) / poolWorkerCount) * 100 : 0;
-      const utilGauge = buildGauge('Utilization', `${utilPct.toFixed(0)}%`, utilPct, 'utilization');
-      gaugeRow.appendChild(utilGauge);
-
-      const queuePct = Math.min((poolQueueSize / Math.max(poolWorkerCount * 10, 1)) * 100, 100);
-      const queueGauge = buildGauge('Queue', poolQueueSize.toString(), queuePct, 'queue');
-      gaugeRow.appendChild(queueGauge);
-
-      sec2.appendChild(gaugeRow);
-      inspectorBody.appendChild(sec2);
-
-      // ── Latency Distribution ──
-      const sec3 = makeSection('Latency');
-      const maxLatency = Math.max(poolP99LatencyMs, poolAvgLatencyMs, 1);
-
-      const latencies = [
-        { label: 'Avg', value: poolAvgLatencyMs },
-        { label: 'P95', value: poolP95LatencyMs },
-        { label: 'P99', value: poolP99LatencyMs },
-      ];
-
-      const chart = document.createElement('div');
-      chart.className = 'latency-chart';
-
-      for (const lat of latencies) {
-        const row = document.createElement('div');
-        row.className = 'latency-bar-row';
-        row.innerHTML = `<span class="latency-label">${lat.label}</span>` +
-          `<div class="latency-track"><div class="latency-fill" style="width:${(lat.value / maxLatency) * 100}%"></div></div>` +
-          `<span class="latency-val">${lat.value}ms</span>`;
-        chart.appendChild(row);
-      }
-
-      sec3.appendChild(chart);
-      inspectorBody.appendChild(sec3);
-
-      // ── Latency Sparkline ──
-      if (poolLatencyHistory.length > 1) {
-        const sec3b = makeSection('Latency Over Time');
-        const canvas = document.createElement('canvas');
-        canvas.width = 360;
-        canvas.height = 50;
-        canvas.style.width = '100%';
-        canvas.style.height = '50px';
-        sec3b.appendChild(canvas);
-        inspectorBody.appendChild(sec3b);
-
-        const ctx = canvas.getContext('2d');
-        const w = canvas.width, h = canvas.height;
-        ctx.clearRect(0, 0, w, h);
-
-        const maxVal = Math.max(1, ...poolLatencyHistory);
-        const step = w / (poolLatencyHistory.length - 1);
-
-        ctx.strokeStyle = 'rgba(64, 128, 192, 0.12)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(0, h / 2);
-        ctx.lineTo(w, h / 2);
-        ctx.stroke();
-
-        ctx.strokeStyle = 'rgba(220, 170, 255, 0.6)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-
-        for (let i = 0; i < poolLatencyHistory.length; i++) {
-          const x = i * step;
-          const y = h - (poolLatencyHistory[i] / maxVal) * (h - 4) - 2;
-          if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-
-        ctx.stroke();
-
-        ctx.fillStyle = 'rgba(220, 170, 255, 0.5)';
-        ctx.font = '7px IBM Plex Mono';
-        ctx.fillText(`${poolLatencyHistory[poolLatencyHistory.length - 1]}ms`, w - 40, 10);
-      }
-
-      // ── Recent Jobs ──
-      const sec4 = makeSection('Recent Jobs');
-
-      if (poolJobHistory.length === 0) {
-        const emptyMsg = document.createElement('div');
-        emptyMsg.className = 'inspector-empty';
-        emptyMsg.textContent = 'No jobs recorded yet.';
-        sec4.appendChild(emptyMsg);
-      } else {
-        const list = document.createElement('div');
-        list.className = 'timeline-list';
-
-        for (const job of [...poolJobHistory].reverse().slice(0, 20)) {
-          const row = document.createElement('div');
-          row.className = 'timeline-entry';
-          row.innerHTML = `<div class="timeline-dot ${job.success ? 'complete' : 'error'}"></div>` +
-            `<span class="timeline-label">${job.type || '?'}</span>` +
-            `<span class="timeline-detail">${job.duration || 0}ms${job.error ? ' · ' + job.error.slice(0, 20) : ''}</span>`;
-          list.appendChild(row);
-        }
-
-        sec4.appendChild(list);
-      }
-
-      inspectorBody.appendChild(sec4);
-
-      // ── Scale History ──
-      if (poolScaleHistory.length > 0) {
-        const sec5 = makeSection('Scale History');
-        const list = document.createElement('div');
-        list.className = 'timeline-list';
-
-        for (const ev of [...poolScaleHistory].reverse().slice(0, 15)) {
-          const row = document.createElement('div');
-          row.className = 'timeline-entry';
-          row.innerHTML = `<div class="timeline-dot ${ev.direction === 'up' ? 'complete' : 'pending'}"></div>` +
-            `<span class="timeline-label">scale ${ev.direction}</span>` +
-            `<span class="timeline-detail">+${ev.count} → ${ev.total} workers</span>`;
-          list.appendChild(row);
-        }
-
-        sec5.appendChild(list);
-        inspectorBody.appendChild(sec5);
-      }
-    }
-
-    function buildGauge(label, valueText, pct, fillClass) {
-      const gauge = document.createElement('div');
-      gauge.className = 'compute-gauge';
-      gauge.innerHTML = `<div class="compute-gauge-label">${label}</div>` +
-        `<div class="compute-gauge-bar"><div class="compute-gauge-fill ${fillClass}" style="width:${Math.min(pct, 100)}%"></div></div>` +
-        `<div class="compute-gauge-value">${valueText}</div>`;
-      return gauge;
-    }
-
     function renderKernelInternals() {
       const kernelEvents = eventsByComponent.get('Kernel') || [];
 
@@ -3470,9 +3340,9 @@
     document.querySelectorAll('.log-filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         logFilterType = btn.dataset.filter;
-        document.querySelectorAll('.log-filter-btn').forEach(b =>
-          b.classList.toggle('active', b === btn),
-        );
+        document.querySelectorAll('.log-filter-btn').forEach(b => {
+          b.classList.toggle('active', b === btn);
+        });
         applyLogFilters();
       });
     });

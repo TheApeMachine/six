@@ -2,14 +2,31 @@ package workflow
 
 import (
 	"io"
+	"sync"
 )
+
+// bufferPool reuses 32 KB byte slices across copyChain calls to reduce
+// per-copy heap allocations and GC pressure in hot pipeline paths.
+var bufferPool = sync.Pool{
+	New: func() any {
+		// Allocate once; the slice is reused across calls.
+		buf := make([]byte, 32*1024)
+		return &buf
+	},
+}
 
 // copyChain moves bytes from src to dst. Unlike io.Copy, if dst.Write accepts
 // only a prefix of the buffer (n < len(p), err == nil) — as *primitive.Value does
 // at chunk boundaries — copyChain keeps calling Write with the remainder until the
 // batch is drained. io.Copy would return io.ErrShortWrite in that situation.
+//
+// copyChain borrows a 32 KB buffer from bufferPool for the duration of the copy
+// and returns it when done, so no per-call heap allocation is needed.
 func copyChain(dst io.Writer, src io.Reader) (written int64, err error) {
-	buf := make([]byte, 32*1024)
+	bufPtr := bufferPool.Get().(*[]byte)
+	buf := *bufPtr
+	defer bufferPool.Put(bufPtr)
+
 	for {
 		var nr int
 		nr, err = src.Read(buf)

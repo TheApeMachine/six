@@ -3,6 +3,7 @@
 package metal
 
 import (
+	"io"
 	"unsafe"
 )
 
@@ -26,7 +27,7 @@ func Available() int {
 }
 
 func (backend *Backend) Read(p []byte) (n int, err error) {
-	return
+	return 0, io.EOF
 }
 
 func (backend *Backend) Write(p []byte) (n int, err error) {
@@ -38,7 +39,7 @@ func (backend *Backend) Close() error {
 }
 
 func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
-	return NewMetalError(nil, "UniversalBitwise", "UniversalBitwise", n)
+	return NewMetalError(MetalErrorUnavailable, nil, "UniversalBitwise", n)
 }
 
 /*
@@ -59,7 +60,11 @@ type MetalError struct {
 	N   uint32
 }
 
-func NewMetalError(err error, msg string, op string, n uint32) *MetalError {
+func NewMetalError(merr MetalErrorType, err error, op string, n uint32) *MetalError {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
 	return &MetalError{
 		Err: err,
 		Msg: msg,

@@ -107,7 +107,7 @@ func graphHook(t *testing.T) func(cpu.GraphEvent) {
 		if ev.Type == "add-edge" {
 			action = "AddEdge"
 		}
-		sender(telemetry.Event{
+		sender.Send(telemetry.Event{
 			Component: "Backend",
 			Action:    action,
 			Data: telemetry.EventData{
@@ -157,10 +157,16 @@ func TestGraphFolding(t *testing.T) {
 			for {
 				frame := make([]byte, primitive.ByteSize)
 				n, err := backend.Read(frame)
-				if n == 0 || err == io.EOF {
+				if err == io.EOF {
 					break
 				}
-				So(err, ShouldBeNil)
+				if err != nil {
+					So(err, ShouldBeNil) // fail fast on unexpected errors
+					break
+				}
+				if n == 0 {
+					break
+				}
 				emitted = append(emitted, primitive.BytesToValue(frame))
 			}
 

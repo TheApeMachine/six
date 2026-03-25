@@ -57,9 +57,13 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() (err error) {
-	machine := vm.NewMachine(
+	machine, err := vm.NewMachine(
 		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
+
+	if err != nil {
+		return errnie.Error(err)
+	}
 
 	for idx, prompt := range pipeline.experiment.Prompts() {
 		p := bytes.NewBuffer([]byte{})

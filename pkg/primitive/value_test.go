@@ -128,7 +128,7 @@ func TestClose(t *testing.T) {
 	})
 }
 
-func BenchmarkNewValueFromByte(b *testing.B) {
+func BenchmarkNewValue(b *testing.B) {
 	for b.Loop() {
 		NewValue()
 	}

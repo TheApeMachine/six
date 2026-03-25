@@ -44,19 +44,19 @@ type machineOption func(*Machine)
 NewMachine creates a new Machine with the given options.
 */
 func NewMachine(opts ...machineOption) (machine *Machine, err error) {
-	prompt := primitive.NewValue()
-	pump := workflow.NewPump()
-
 	pool, err := ants.NewPool(runtime.NumCPU() - 1)
 
 	if err != nil {
 		return nil, errnie.Wrap(err, "vm.machine.NewMachine")
 	}
 
+	pump := workflow.NewPump()
+
 	machine = &Machine{
 		pool:    pool,
 		backend: compute.NewBackend(),
-		prompt:  prompt,
+		prompt:  primitive.NewValue(),
+		pump:    pump,
 		source:  workflow.NewMergeSource(nil, pump.Loop()),
 	}
 
@@ -65,11 +65,13 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	}
 
 	if err = validate.Require(map[string]any{
-		"backend":  machine.backend,
-		"prompt":   machine.prompt,
-		"source":   machine.source,
-		"pipeline": machine.pipeline,
-		"pump":     machine.pump,
+		"ctx":     machine.ctx,
+		"cancel":  machine.cancel,
+		"pool":    machine.pool,
+		"backend": machine.backend,
+		"prompt":  machine.prompt,
+		"source":  machine.source,
+		"pump":    machine.pump,
 	}); err != nil {
 		return nil, errnie.Wrap(err, "vm.machine.NewMachine")
 	}
@@ -80,7 +82,7 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		machine.source,
 		primitive.NewValue(),
 		workflow.NewFeedback(machine.backend, io.MultiWriter(
-			&valueFeedbackWriter{dst: prompt},
+			machine.prompt,
 			workflow.DrainWriter{W: pump.Sink()},
 		)),
 	)
@@ -88,7 +90,7 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	machine.pump = pump
 	machine.pipeline = pump
 
-	return machine
+	return machine, nil
 }
 
 func (machine *Machine) Read(p []byte) (n int, err error) {

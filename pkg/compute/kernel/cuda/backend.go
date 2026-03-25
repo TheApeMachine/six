@@ -8,15 +8,13 @@ package cuda
 int cuda_device_count();
 void cleanup_cuda_pools();
 
-int universal_bitwise_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t op, uint32_t n);
+int unified_bitwise_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
 */
 import "C"
 import (
 	"fmt"
 	"sync"
 	"unsafe"
-
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
@@ -67,54 +65,23 @@ func (backend *Backend) Close() error {
 	return nil
 }
 
-// UniversalBitwise reads the 4-bit opcode from each Value's instruction
-// region and dispatches to the compiled CUDA kernel.
-func (backend *Backend) UniversalBitwise(a, bPtr, dst unsafe.Pointer, n uint32) error {
-	// Read the opcode from the first Value's instruction region.
-	as := unsafe.Slice((*primitive.Value)(a), n)
-	word := primitive.InstrStart >> 6
-	shift := uint(primitive.InstrStart & 63)
-	mask := uint64((1 << primitive.InstrBits) - 1)
-	op := uint32((as[0][word] >> shift) & mask)
+/*
+UniversalBitwise dispatches a batch of Values to the compiled CUDA kernel.
 
-	if C.universal_bitwise_cuda(0, a, bPtr, dst, C.uint32_t(op), C.uint32_t(n)) != 0 {
-		return NewCUDAError(fmt.Errorf("dispatch failed for op=%d", op), string(CUDAErrorDispatchFailed), "UniversalBitwise", n)
+The opcode is no longer passed explicitly — each Value carries its own
+64-op program in Region 3 (bits 4352–4607). The unified_bitwise_kernel
+reads that program and executes up to 64 ticks per Value, halting at the
+first zero opcode. The batch may therefore be heterogeneous: each Value
+runs its own independent program in parallel.
+*/
+func (backend *Backend) UniversalBitwise(a, bPtr, dst unsafe.Pointer, n uint32) error {
+	if C.unified_bitwise_cuda(0, a, bPtr, dst, C.uint32_t(n)) != 0 {
+		return NewCUDAError(
+			fmt.Errorf("unified dispatch failed for %d values", n),
+			string(CUDAErrorDispatchFailed),
+			"UniversalBitwise",
+			n,
+		)
 	}
 	return nil
-}
-
-/*
-CUDAErrorType is a typed error for CUDA backend failures.
-*/
-type CUDAErrorType string
-
-const (
-	CUDAErrorUnavailable    CUDAErrorType = "cuda backend unavailable"
-	CUDAErrorDispatchFailed CUDAErrorType = "cuda backend dispatch failed"
-)
-
-type CUDAError struct {
-	Err error
-	Msg string
-	Op  string
-	N   uint32
-}
-
-/*
-NewCUDAError returns a new CUDAError.
-*/
-func NewCUDAError(err error, msg string, op string, n uint32) *CUDAError {
-	return &CUDAError{
-		Err: err,
-		Msg: msg,
-		Op:  op,
-		N:   n,
-	}
-}
-
-/*
-Error implements the error interface for CUDAErrorType.
-*/
-func (err *CUDAError) Error() string {
-	return err.Msg
 }
