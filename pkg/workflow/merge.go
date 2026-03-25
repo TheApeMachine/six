@@ -1,0 +1,74 @@
+package workflow
+
+import (
+	"bytes"
+	"errors"
+	"io"
+)
+
+/*
+MergeSource multiplexes several logical inputs into one io.Reader for pipeline
+heads:
+ 1. Inject buffer (written via Write — e.g. host prompt injection)
+ 2. Optional primary stream (e.g. dataset), until EOF
+ 3. Loop substrate (io.ReadWriter — e.g. *primitive.Value fed by Feedback)
+
+After the primary stream is exhausted, reads continue from Loop so an
+always-on system can consume feedback-fed state on subsequent ticks.
+*/
+type MergeSource struct {
+	inject           bytes.Buffer
+	dataset          io.Reader
+	loop             io.ReadWriter
+	datasetExhausted bool
+}
+
+// NewMergeSource builds a merge reader. dataset may be nil (inject + loop only).
+func NewMergeSource(dataset io.Reader, loop io.ReadWriter) *MergeSource {
+	return &MergeSource{dataset: dataset, loop: loop}
+}
+
+// SetDataset replaces the primary stream and clears EOF state.
+func (m *MergeSource) SetDataset(dataset io.Reader) {
+	m.dataset = dataset
+	m.datasetExhausted = false
+}
+
+// Write appends to the inject buffer, consumed before dataset and loop reads.
+func (m *MergeSource) Write(p []byte) (n int, err error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	return m.inject.Write(p)
+}
+func (m *MergeSource) Read(p []byte) (n int, err error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if m.inject.Len() > 0 {
+		return m.inject.Read(p)
+	}
+	if m.dataset != nil && !m.datasetExhausted {
+		n, err = m.dataset.Read(p)
+		if errors.Is(err, io.EOF) {
+			m.datasetExhausted = true
+			if n > 0 {
+				return n, nil
+			}
+			return m.readLoop(p)
+		}
+		return n, err
+	}
+	return m.readLoop(p)
+}
+func (m *MergeSource) readLoop(p []byte) (n int, err error) {
+	if m.loop == nil {
+		return 0, io.EOF
+	}
+	return m.loop.Read(p)
+}
+
+// Close is a no-op; close the dataset from the caller if it is an io.ReadCloser.
+func (m *MergeSource) Close() error {
+	return nil
+}

@@ -27,7 +27,7 @@ func NewBackend() *Backend {
 			}
 
 			errnie.Info("Using CPU backend")
-			return cpu.NewBackend()
+			return cpu.NewBackend(cpu.BackendWithStreamPassthrough())
 		}(),
 	}
 }

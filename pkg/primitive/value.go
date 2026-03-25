@@ -74,9 +74,9 @@ type Value [Words]uint64
 
 var (
 	ErrChunkBoundary = errors.New("chunk boundary reached")
-	valueTo   func(*Value, []byte)
-	valueFrom func([]byte, *Value)
-	
+	valueTo          func(*Value, []byte)
+	valueFrom        func([]byte, *Value)
+
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
 
@@ -143,18 +143,18 @@ func (value *Value) Read(p []byte) (int, error) {
 	}
 
 	valueTo(value, p)
-	
+
 	// Save the NextValueID to become the new ValueID
 	nextID := value.NextValueID()
-	
+
 	// Reset the physical state so the Value can be reused in the pipeline
 	for i := 0; i < Words; i++ {
 		value[i] = 0
 	}
-	
+
 	// Set the new ValueID
 	value.SetValueID(nextID)
-	
+
 	return ByteSize, io.EOF
 }
 
@@ -179,7 +179,7 @@ func (value *Value) Write(p []byte) (int, error) {
 		// Stop if Region 0 is physically full.
 		if slot >= Region0TokenCount {
 			value.SetNextValueID(nextGlobalValueID())
-			return bytesConsumed, ErrChunkBoundary
+			return len(p), nil
 		}
 
 		token := Tokenize(b, seqIndex)
@@ -214,11 +214,11 @@ func (value *Value) Write(p []byte) (int, error) {
 			value[StateSeqIndex] = 0
 			value[StateSlotIndex] = slot + 1
 			value[StateAccumulator] = accumulator
-			
+
 			// Generate a new ValueID and set it as the NextValueID
 			value.SetNextValueID(nextGlobalValueID())
-			
-			return bytesConsumed, ErrChunkBoundary
+
+			return len(p), nil
 		} else {
 			value[StateSeqIndex] = seqIndex + 1
 		}

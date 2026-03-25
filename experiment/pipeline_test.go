@@ -17,7 +17,7 @@ func TestValueReaction(t *testing.T) {
 	Convey("Given a machine with a dataset", t, func() {
 		machine := vm.NewMachine(
 			vm.WithContext(context.Background()),
-			vm.WithBackend(cpu.NewBackend()),
+			vm.WithBackend(cpu.NewBackend(cpu.BackendWithStreamPassthrough())),
 			vm.WithDataset(huggingface.New(
 				huggingface.DatasetWithRepo("sh0416/ag_news"),
 				huggingface.DatasetWithSamples(100),

@@ -29,15 +29,16 @@ the Metal/CUDA dispatch surface so that every
 GPU kernel has a verified CPU fallback.
 */
 type Backend struct {
-	pr        *ringbuffer.PipeReader
-	pw        *ringbuffer.PipeWriter
-	rb        *ringbuffer.RingBuffer
-	outPr     *ringbuffer.PipeReader
-	outPw     *ringbuffer.PipeWriter
-	outRb     *ringbuffer.RingBuffer
-	batchCap  int
-	residents []primitive.Value
-	nextID    uint64
+	pr                *ringbuffer.PipeReader
+	pw                *ringbuffer.PipeWriter
+	rb                *ringbuffer.RingBuffer
+	outPr             *ringbuffer.PipeReader
+	outPw             *ringbuffer.PipeWriter
+	outRb             *ringbuffer.RingBuffer
+	batchCap          int
+	streamPassthrough bool
+	residents         []primitive.Value
+	nextID            uint64
 }
 
 type backendOption func(*Backend)
@@ -76,6 +77,16 @@ func NewBackend(opts ...backendOption) *Backend {
 func BackendWithBatchCap(batchCap int) backendOption {
 	return func(backend *Backend) {
 		backend.batchCap = batchCap
+	}
+}
+
+// BackendWithStreamPassthrough enables single-frame (and sub-batchCap) processing
+// for io pipelines that emit one Value at a time. When no cancellation pair exists,
+// frames are passed through to Read unchanged. Default backend batches batchCap
+// frames before any output (see tests).
+func BackendWithStreamPassthrough() backendOption {
+	return func(backend *Backend) {
+		backend.streamPassthrough = true
 	}
 }
 
@@ -126,6 +137,13 @@ func (backend *Backend) Close() error {
 }
 
 func (backend *Backend) processAvailableBatch() error {
+	if backend.streamPassthrough {
+		return backend.processStreamBatches()
+	}
+	return backend.processFullBatch()
+}
+
+func (backend *Backend) processFullBatch() error {
 	batchBytes := backend.batchCap * primitive.ByteSize
 	if batchBytes <= 0 || backend.rb.Length() < batchBytes {
 		return nil
@@ -136,11 +154,9 @@ func (backend *Backend) processAvailableBatch() error {
 		return err
 	}
 
-	// Convert raw bytes back into physical Values
 	batch := decodeBatchFrames(buf)
 	backend.residents = append(backend.residents, batch...)
 
-	// 1. FIND THE COLLISION
 	candidate, ok := strongestCancellation(backend.residents)
 	if !ok {
 		return nil
@@ -156,7 +172,6 @@ func (backend *Backend) processAvailableBatch() error {
 		"right", right.TokenIDs(),
 	)
 
-	// 2. CHECK FOR BEHAVIOR
 	isInstruction := (left[primitive.Words-1] & primitive.InstructionMask) != 0
 
 	var emitted *primitive.Value
@@ -178,24 +193,101 @@ func (backend *Backend) processAvailableBatch() error {
 		emitted.SetPrevValueID(left.ValueID())
 		emitted.SetNextValueID(right.ValueID())
 	} else {
-		// 3. STRUCTURAL FOLDING
 		emitted = buildEmittedValue(left, right, candidate.Span, backend.nextID)
 	}
 
-	// 4. LINK AND DUMP TO THE OUTPUT PIPE
 	emitted.SetValueID(backend.nextID)
-	emitted[primitive.StateSlotIndex] = 1 // Mark as not empty so it serializes
+	emitted[primitive.StateSlotIndex] = 1
 	backend.nextID++
 
-	// Serialize the new Value back into a 1024-byte frame
 	frame := make([]byte, primitive.ByteSize)
 	if err := primitive.ValueToBytes(emitted, frame); err != nil {
 		return err
 	}
 
-	// Write the emitted frame back into the pipeline
 	_, err := backend.outPw.Write(frame)
 	return err
+}
+
+func (backend *Backend) processStreamBatches() error {
+	frameSize := primitive.ByteSize
+	for backend.rb.Length() >= frameSize {
+		nFrames := min(backend.rb.Length()/frameSize, backend.batchCap)
+		batchBytes := nFrames * frameSize
+		buf := make([]byte, batchBytes)
+		if _, err := io.ReadFull(backend.pr, buf); err != nil {
+			return err
+		}
+
+		batch := decodeBatchFrames(buf)
+		backend.residents = append(backend.residents, batch...)
+
+		candidate, ok := strongestCancellation(backend.residents)
+		if !ok {
+			for i := range batch {
+				emitted := batch[i]
+				emitted.SetValueID(backend.nextID)
+				emitted[primitive.StateSlotIndex] = 1
+				backend.nextID++
+				frame := make([]byte, frameSize)
+				if err := primitive.ValueToBytes(&emitted, frame); err != nil {
+					return err
+				}
+				if _, err := backend.outPw.Write(frame); err != nil {
+					return err
+				}
+			}
+			continue
+		}
+
+		left := &backend.residents[candidate.LeftIndex]
+		right := &backend.residents[candidate.RightIndex]
+
+		errnie.Trace(
+			"compute.kernel.cpu.backend.processAvailableBatch",
+			"candidate", candidate,
+			"left", left.TokenIDs(),
+			"right", right.TokenIDs(),
+		)
+
+		isInstruction := (left[primitive.Words-1] & primitive.InstructionMask) != 0
+
+		var emitted *primitive.Value
+
+		if isInstruction {
+			emitted = primitive.NewValue()
+			if err := backend.UniversalBitwise(
+				unsafe.Pointer(left),
+				unsafe.Pointer(right),
+				unsafe.Pointer(emitted),
+				1,
+			); err != nil {
+				return err
+			}
+
+			opBits := ReadRegion(left, RegionInstruction) & 0xF
+			WriteRegion(emitted, RegionInstruction, opBits)
+			setInstructionFlag(emitted)
+			emitted.SetPrevValueID(left.ValueID())
+			emitted.SetNextValueID(right.ValueID())
+		} else {
+			emitted = buildEmittedValue(left, right, candidate.Span, backend.nextID)
+		}
+
+		emitted.SetValueID(backend.nextID)
+		emitted[primitive.StateSlotIndex] = 1
+		backend.nextID++
+
+		frame := make([]byte, frameSize)
+		if err := primitive.ValueToBytes(emitted, frame); err != nil {
+			return err
+		}
+
+		if _, err := backend.outPw.Write(frame); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func setInstructionFlag(value *primitive.Value) {

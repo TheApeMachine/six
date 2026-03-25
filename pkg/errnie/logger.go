@@ -21,14 +21,20 @@ var (
 	traceFileMu sync.Mutex
 	traceInitMu sync.Mutex
 
-	logger = log.NewWithOptions(os.Stderr, log.Options{
-		ReportCaller:    true,
-		CallerOffset:    16,
-		ReportTimestamp: true,
-		TimeFormat:      time.TimeOnly,
-		Level:           log.DebugLevel,
-	})
+	logger = &ErrnieLogger{
+		Logger: log.NewWithOptions(os.Stderr, log.Options{
+			ReportCaller:    true,
+			CallerOffset:    16,
+			ReportTimestamp: true,
+			TimeFormat:      time.TimeOnly,
+			Level:           log.DebugLevel,
+		}),
+	}
 )
+
+type ErrnieLogger struct {
+	*log.Logger
+}
 
 func init() {
 	// Match charmbracelet/log output to stderr: no ANSI when not a TTY (tests,
@@ -92,6 +98,31 @@ func initLogFile() {
 	}
 
 	logger.Debug("Log file successfully initialized", "path", logFilePath)
+}
+
+func Logger() *ErrnieLogger {
+	return logger
+}
+
+/*
+Read implements io.Reader.
+*/
+func (logger *ErrnieLogger) Read(p []byte) (n int, err error) {
+	return logFile.Read(p)
+}
+
+/*
+Write implements io.Writer.
+*/
+func (logger *ErrnieLogger) Write(p []byte) (n int, err error) {
+	return logFile.Write(p)
+}
+
+/*
+Close implements io.Closer.
+*/
+func (logger *ErrnieLogger) Close() error {
+	return logFile.Close()
 }
 
 /*

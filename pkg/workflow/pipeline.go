@@ -49,19 +49,17 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	if !pipeline.processed {
-		for i := range len(pipeline.components) - 1 {
-			nn, err = io.Copy(pipeline.components[i+1], pipeline.components[i])
+	for i := range len(pipeline.components) - 1 {
+		nn, err = io.Copy(pipeline.components[i+1], pipeline.components[i])
 
-			n += int(nn)
+		n += int(nn)
 
-			if err != nil && err != io.EOF {
-				return n, err
-			}
+		if err != nil && err != io.EOF {
+			return n, err
 		}
-
-		pipeline.processed = true
 	}
+
+	pipeline.processed = true
 
 	n, err = pipeline.components[len(pipeline.components)-1].Read(p)
 

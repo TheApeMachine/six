@@ -24,6 +24,7 @@ type Machine struct {
 	dataset  io.ReadCloser
 	backend  io.ReadWriteCloser
 	prompt   io.ReadWriteCloser
+	source   *workflow.MergeSource
 	pipeline io.ReadWriter
 }
 
@@ -36,20 +37,27 @@ type machineOption func(*Machine)
 NewMachine creates a new Machine with the given options.
 */
 func NewMachine(opts ...machineOption) *Machine {
+	prompt := primitive.NewValue()
+	pump := workflow.NewPump()
 	machine := &Machine{
 		backend: compute.NewBackend(),
-		prompt:  primitive.NewValue(),
+		prompt:  prompt,
+		source:  workflow.NewMergeSource(nil, pump.Loop()),
 	}
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	machine.pipeline = workflow.NewPipeline(
-		workflow.NewSeeder(machine.dataset),
+	// Feedback tees backend output into prompt (for Prompt()) and into the pump
+	// ring (MergeSource loop) so each tick can consume the previous output.
+	inner := workflow.NewPipeline(
+		machine.source,
 		primitive.NewValue(),
-		workflow.NewFeedback(machine.backend, machine.backend),
+		workflow.NewFeedback(machine.backend, io.MultiWriter(prompt, pump.Sink())),
 	)
+	pump.Attach(inner)
+	machine.pipeline = pump
 
 	return machine
 }
@@ -60,14 +68,27 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+// Write injects host bytes into the pipeline head (consumed before dataset
+// and loop reads). Use this for prompts and steering input.
 func (machine *Machine) Write(p []byte) (n int, err error) {
-	n, err = machine.pipeline.Write(p)
+	n, err = machine.source.Write(p)
 	errnie.Trace("vm.machine.Write", "n", n, "err", err)
 	return n, err
 }
 
+// Prompt returns the feedback-fed loop substrate (same Value teed by Feedback).
+// Prefer Machine.Write for injection; this is for direct Read/Write access.
+func (machine *Machine) Prompt() io.ReadWriter {
+	return machine.prompt
+}
+
 func (machine *Machine) Close() error {
-	machine.cancel()
+	if machine.cancel != nil {
+		machine.cancel()
+	}
+	if machine.dataset != nil {
+		return machine.dataset.Close()
+	}
 	return nil
 }
 
@@ -87,5 +108,6 @@ func WithBackend(backend io.ReadWriteCloser) machineOption {
 func WithDataset(dataset io.ReadCloser) machineOption {
 	return func(m *Machine) {
 		m.dataset = dataset
+		m.source.SetDataset(dataset)
 	}
 }
