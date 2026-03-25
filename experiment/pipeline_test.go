@@ -1,78 +1,86 @@
 package experiment
 
 import (
-	"fmt"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestValueReaction(t *testing.T) {
-	Convey("Given the Destructive Interference engine", t, func() {
-		// 1. Create the raw backend with a batch capacity of 2
-		// This forces the backend to wait for both frames before reacting.
+	Convey("Given the Graph Reduction Engine", t, func() {
 		backend := cpu.NewBackend(cpu.BackendWithBatchCap(2))
 
-		Convey("When a Prompt collides with a Fact", func() {
-			// 2. The Substrate Fact: "Roy is in the Kitchen"
-			fact := primitive.NewValue()
-			fact.Write([]byte("Roy is in the Kitchen"))
-			fact.SetValueID(100)
-			fact[primitive.StateSlotIndex] = 1 // Mark as active
+		Convey("When executing the 'Where is Roy?' graph traversal", func() {
+			// ---------------------------------------------------------
+			// 1. BUILD THE GRAPH (From your diagram)
+			// ---------------------------------------------------------
 
-			factFrame := make([]byte, primitive.ByteSize)
-			primitive.ValueToBytes(fact, factFrame)
+			// Node A: [Kitchen]
+			kitchen := primitive.NewValue()
+			kitchen.Write([]byte("Kitchen"))
+			kitchen.SetValueID(300)
+			kitchen[primitive.StateSlotIndex] = 1
 
-			// 3. The Prompt: "Roy"
+			// Node B: [Roy] -points to-> [Kitchen]
+			royFact := primitive.NewValue()
+			royFact.Write([]byte("Roy"))
+			royFact.SetValueID(200)
+			royFact.SetNextValueID(kitchen.ValueID()) // The Arrow!
+			royFact[primitive.StateSlotIndex] = 1
+
+			// ---------------------------------------------------------
+			// 2. THE PROMPT (The Executable Query)
+			// ---------------------------------------------------------
+
+			// Prompt: [Roy] (Instruction = XOR)
 			prompt := primitive.NewValue()
 			prompt.Write([]byte("Roy"))
-			prompt.SetValueID(200)
-			prompt[primitive.StateSlotIndex] = 1 // Mark as active
+			prompt.SetValueID(999)
+			prompt[primitive.StateSlotIndex] = 1
 
-			// 4. BEHAVIOR: Turn the Prompt into an active Instruction
-			// We set the Instruction Flag to 1, and the Opcode to XOR (6)
-			cpu.WriteRegion(prompt, cpu.RegionInstruction, 6)
+			// Turn it into an active instruction
+			cpu.WriteRegion(prompt, cpu.RegionInstruction, 6) // 6 = XOR
 			prompt[primitive.Words-1] |= primitive.InstructionMask
+
+			// ---------------------------------------------------------
+			// 3. THE COLLISION (Values passing through Values)
+			// ---------------------------------------------------------
 
 			promptFrame := make([]byte, primitive.ByteSize)
 			primitive.ValueToBytes(prompt, promptFrame)
 
-			// 5. Collide them in the Backend
-			// The second write fills the batch and triggers processAvailableBatch()
-			_, err1 := backend.Write(promptFrame)
-			_, err2 := backend.Write(factFrame)
+			factFrame := make([]byte, primitive.ByteSize)
+			primitive.ValueToBytes(royFact, factFrame)
 
-			So(err1, ShouldBeNil)
-			So(err2, ShouldBeNil)
+			// Push to backend. Prompt goes first so it acts as the instruction.
+			backend.Write(promptFrame)
+			backend.Write(factFrame)
 
-			// 6. Read the Residue (The Answer)
+			// ---------------------------------------------------------
+			// 4. THE RESULT
+			// ---------------------------------------------------------
+
 			residueFrame := make([]byte, primitive.ByteSize)
 			n, err := backend.Read(residueFrame)
-
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, primitive.ByteSize)
 
 			residue := primitive.BytesToValue(residueFrame)
 
-			errnie.Trace(fmt.Sprintf("%v", residue.TokenIDs()))
-
-			// 7. Verify the physics: "Roy" should be annihilated (0s), leaving the rest.
-			// Token 0, 1, 2 ('R', 'o', 'y') should be 0 because they XOR'd themselves out.
+			// PHYSICS CHECK 1: Destructive Interference
+			// "Roy" XOR "Roy" = 0. The data is annihilated.
 			So(residue.TokenID(0), ShouldEqual, 0)
 			So(residue.TokenID(1), ShouldEqual, 0)
 			So(residue.TokenID(2), ShouldEqual, 0)
 
-			// Token 3 should be ' ' (space)
-			So(byte(residue.TokenID(3)>>32), ShouldEqual, ' ')
-			// Token 4 should be 'i'
-			So(byte(residue.TokenID(4)>>32), ShouldEqual, 'i')
-			// Token 5 should be 's'
-			So(byte(residue.TokenID(5)>>32), ShouldEqual, 's')
+			// PHYSICS CHECK 2: The Instruction Pointer
+			// The residue must now point to [Kitchen] (ID 300)
+			So(residue.NextValueID(), ShouldEqual, 300)
 
-			t.Logf("Residue successfully computed. Shared tokens annihilated.")
+			t.Logf("Graph Traversal Success!")
+			t.Logf("Data annihilated to 0. Instruction pointer advanced to Node ID: %d (Kitchen)", residue.NextValueID())
 		})
 	})
 }

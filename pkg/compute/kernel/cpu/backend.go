@@ -67,7 +67,7 @@ func NewBackend(opts ...backendOption) *Backend {
 
 	rb := ringbuffer.New(backend.batchCap * primitive.ByteSize)
 	pr, pw := rb.Pipe()
-	outRb := ringbuffer.New(backend.batchCap * primitive.ByteSize)
+	outRb := ringbuffer.New(3 * backend.batchCap * primitive.ByteSize)
 	outPr, outPw := outRb.Pipe()
 
 	backend.pr = pr
@@ -210,7 +210,17 @@ func (backend *Backend) processFullBatch() error {
 		return nil
 	}
 
-	return backend.processCandidate(candidate)
+	if err := backend.processCandidate(candidate); err != nil {
+		return err
+	}
+
+	li, ri := candidate.LeftIndex, candidate.RightIndex
+	if li > ri {
+		li, ri = ri, li
+	}
+	backend.residents = append(backend.residents[:ri], backend.residents[ri+1:]...)
+	backend.residents = append(backend.residents[:li], backend.residents[li+1:]...)
+	return nil
 }
 
 func (backend *Backend) processCandidate(candidate CancellationCandidate) error {
@@ -226,10 +236,8 @@ func (backend *Backend) processCandidate(candidate CancellationCandidate) error 
 
 	isInstruction := (left[primitive.Words-1] & primitive.InstructionMask) != 0
 
-	var emitted *primitive.Value
-
 	if isInstruction {
-		emitted = primitive.NewValue()
+		emitted := primitive.NewValue()
 		if err := backend.UniversalBitwise(
 			unsafe.Pointer(left),
 			unsafe.Pointer(right),
@@ -243,21 +251,33 @@ func (backend *Backend) processCandidate(candidate CancellationCandidate) error 
 		WriteRegion(emitted, RegionInstruction, opBits)
 		setInstructionFlag(emitted)
 		emitted.SetPrevValueID(left.ValueID())
-		emitted.SetNextValueID(right.ValueID())
-	} else {
-		emitted = buildEmittedValue(left, right, candidate.Span, backend.nextID)
+		emitted.SetNextValueID(right.NextValueID())
+		emitted.SetValueID(backend.nextID)
+		emitted[primitive.StateSlotIndex] = 1
+		backend.nextID++
+
+		frame := make([]byte, primitive.ByteSize)
+		if err := primitive.ValueToBytes(emitted, frame); err != nil {
+			return err
+		}
+		return backend.emitOutputFrame(frame)
 	}
 
-	emitted.SetValueID(backend.nextID)
-	emitted[primitive.StateSlotIndex] = 1
-	backend.nextID++
+	values := buildEmittedValues(left, right, candidate.Span, &backend.nextID)
 
-	frame := make([]byte, primitive.ByteSize)
-	if err := primitive.ValueToBytes(emitted, frame); err != nil {
-		return err
+	for _, v := range values {
+		backend.residents = append(backend.residents, *v)
+
+		frame := make([]byte, primitive.ByteSize)
+		if err := primitive.ValueToBytes(v, frame); err != nil {
+			return err
+		}
+		if err := backend.emitOutputFrame(frame); err != nil {
+			return err
+		}
 	}
 
-	return backend.emitOutputFrame(frame)
+	return nil
 }
 
 func (backend *Backend) processStreamBatches() error {
@@ -295,6 +315,7 @@ func (backend *Backend) processStreamBatches() error {
 		if err := backend.processCandidate(candidate); err != nil {
 			return err
 		}
+		// Remove the two consumed originals (highest index first to preserve lower index).
 		li, ri := candidate.LeftIndex, candidate.RightIndex
 		if li > ri {
 			li, ri = ri, li
