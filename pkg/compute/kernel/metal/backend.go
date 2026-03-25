@@ -11,11 +11,13 @@ package metal
 import "C"
 import (
 	_ "embed"
+	"errors"
 	"os"
 	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
@@ -49,210 +51,52 @@ func Available() int {
 	return int(C.count_metal_devices())
 }
 
+/*
+Read implements io.Reader.
+*/
 func (backend *Backend) Read(p []byte) (n int, err error) {
 	return
 }
 
+/*
+Write implements io.Writer.
+*/
 func (backend *Backend) Write(p []byte) (n int, err error) {
 	return
 }
 
+/*
+Close implements io.Closer.
+*/
 func (backend *Backend) Close() error {
 	return nil
 }
 
 /*
-BitwiseOr dispatches bitwise OR (LCM) across N Value pairs.
+UniversalBitwise reads the 4-bit opcode from each Value's instruction
+region and dispatches to the compiled Metal kernel.
 */
-func (backend *Backend) BitwiseOr(a, b, dst unsafe.Pointer, numValues uint32) error {
+func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
 	if !metalReady.Load() {
-		return MetalErrorUnavailable
+		return NewMetalError(
+			MetalErrorUnavailable,
+			errors.New("failed to load metal backend"),
+			"UniversalBitwise", n,
+		)
 	}
 
-	if C.bitwise_or_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
+	// Read the opcode from the first Value's instruction region.
+	// All Values in a batch share the same opcode (set by the caller
+	// via bitwiseViaALU or program execution).
+	as := unsafe.Slice((*primitive.Value)(a), n)
+	word := primitive.InstrStart >> 6
+	shift := uint(primitive.InstrStart & 63)
+	mask := uint64((1 << primitive.InstrBits) - 1)
+	op := uint8((as[0][word] >> shift) & mask)
+
+	if C.universal_bitwise_metal(a, b, dst, C.uint8_t(op), C.uint32_t(n)) != 0 {
+		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise", n)
 	}
-
-	return nil
-}
-
-/*
-BitwiseAnd dispatches bitwise AND (GCD) across N Value pairs.
-*/
-func (backend *Backend) BitwiseAnd(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_and_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseXor dispatches bitwise XOR (symmetric difference) across N Value pairs.
-*/
-func (backend *Backend) BitwiseXor(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_xor_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseAndNot dispatches material nonimplication (A & ~B) across N Value pairs.
-*/
-func (backend *Backend) BitwiseAndNot(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_and_not_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseNand dispatches NAND across N Value pairs.
-*/
-func (backend *Backend) BitwiseNand(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_nand_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseNor dispatches NOR across N Value pairs.
-*/
-func (backend *Backend) BitwiseNor(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_nor_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseXnor dispatches XNOR across N Value pairs.
-*/
-func (backend *Backend) BitwiseXnor(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_xnor_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseConverseNonimplication dispatches converse nonimplication (B & ~A) across N Value pairs.
-*/
-func (backend *Backend) BitwiseConverseNonimplication(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_converse_nonimplication_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-BitwiseNot dispatches unary NOT across N Values.
-*/
-func (backend *Backend) BitwiseNot(a, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.bitwise_not_metal(a, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-MotorApply derives motor(A) and applies it to B for N Value pairs.
-*/
-func (backend *Backend) MotorApply(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.motor_apply_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-MotorInvert derives inverse motor(A) and applies it to B for N Value pairs.
-*/
-func (backend *Backend) MotorInvert(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.motor_invert_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-MotorCompose composes motor(A) then motor(B) and applies to B for N Value pairs.
-*/
-func (backend *Backend) MotorCompose(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.motor_compose_metal(a, b, dst, C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
-	return nil
-}
-
-/*
-RollLeft circular-shifts all core bits left by shift positions for N Values.
-*/
-func (backend *Backend) RollLeft(src, dst unsafe.Pointer, shift uint32, numValues uint32) error {
-	if !metalReady.Load() {
-		return MetalErrorUnavailable
-	}
-
-	if C.roll_left_metal(src, dst, C.uint32_t(shift), C.uint32_t(numValues)) != 0 {
-		return MetalErrorDispatchFailed
-	}
-
 	return nil
 }
 
@@ -285,7 +129,7 @@ func init() {
 	defer C.free(unsafe.Pointer(cPath))
 
 	if res := C.init_metal(cPath); res != 0 {
-		errnie.Error(MetalErrorInitFailed)
+		errnie.Error(NewMetalError(MetalErrorInitFailed, nil, "init_metal", 0))
 		return
 	}
 
@@ -303,9 +147,25 @@ const (
 	MetalErrorDispatchFailed MetalErrorType = "metal backend dispatch failed"
 )
 
+type MetalError struct {
+	Err error
+	Msg string
+	Op  string
+	N   uint32
+}
+
+func NewMetalError(merr MetalErrorType, err error, op string, n uint32) *MetalError {
+	return &MetalError{
+		Err: err,
+		Msg: err.Error(),
+		Op:  op,
+		N:   n,
+	}
+}
+
 /*
 Error implements the error interface for MetalErrorType.
 */
-func (err MetalErrorType) Error() string {
-	return string(err)
+func (err MetalError) Error() string {
+	return err.Msg
 }

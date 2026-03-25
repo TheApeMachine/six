@@ -27,6 +27,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/klauspost/compress v1.17.9 // indirect
 	github.com/mattn/go-runewidth v0.0.21 // indirect
+	github.com/panjf2000/ants/v2 v2.12.0 // indirect
 	github.com/parquet-go/bitpack v1.0.0 // indirect
 	github.com/parquet-go/jsonlite v1.0.0 // indirect
 	github.com/pierrec/lz4/v4 v4.1.21 // indirect
@@ -34,6 +35,7 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.49.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 

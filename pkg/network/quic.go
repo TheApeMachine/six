@@ -52,7 +52,7 @@ Read receives bytes from the QUIC stream.
 */
 func (q *QUIC) Read(p []byte) (int, error) {
 	if q.stream == nil {
-		return 0, ErrQUICNoStream
+		return 0, &TransportError{Layer: "quic", Op: "read", Err: ErrQUICNoStream}
 	}
 
 	return q.stream.Read(p)
@@ -64,7 +64,7 @@ Value hits the wire as a distinct datagram when possible.
 */
 func (q *QUIC) Write(p []byte) (int, error) {
 	if q.stream == nil {
-		return 0, ErrQUICNoStream
+		return 0, &TransportError{Layer: "quic", Op: "write", Err: ErrQUICNoStream}
 	}
 
 	n, err := q.stream.Write(p)
@@ -112,7 +112,7 @@ created by QUICWithListen, then opens the first bidirectional stream.
 */
 func (q *QUIC) Accept() error {
 	if q.endpoint == nil {
-		return ErrQUICNotListening
+		return &TransportError{Layer: "quic", Op: "accept", Err: ErrQUICNotListening}
 	}
 
 	conn, err := q.endpoint.Accept(q.ctx)

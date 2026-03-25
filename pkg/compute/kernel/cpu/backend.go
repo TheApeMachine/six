@@ -35,12 +35,17 @@ var (
 	RegionInstruction = Region{Start: primitive.InstrStart, Bits: primitive.InstrBits}
 	RegionAffinity    = Region{Start: primitive.RegionAffinityStart, Bits: primitive.RegionAffinityBits}
 	RegionProgram     = Region{Start: primitive.RegionProgramStart, Bits: primitive.RegionProgramBits}
+	RegionLink        = Region{Start: primitive.RegionLinkStart, Bits: primitive.RegionLinkBits}
 )
 
 /*
-Backend is the CPU kernel backend. It mirrors
-the Metal/CUDA dispatch surface so that every
-GPU kernel has a verified CPU fallback.
+Backend is the CPU kernel backend. It is now a dumb physics engine
+that performs in-band affinity-based pairing and program execution.
+
+The old "residents" array, cancellation logic, and Go-level orchestration
+have been removed. Values now carry their own programs in Region 3 and
+affinity masks in Region 2. The backend simply streams Values through
+the UniversalBitwise ALU.
 */
 type Backend struct {
 	pr                *ringbuffer.PipeReader
@@ -67,7 +72,7 @@ func NewBackend(opts ...backendOption) *Backend {
 	backend := &Backend{
 		batchCap:        max(2, runtime.NumCPU()-1),
 		nextID:          1,
-		useAffinityMode: true, // new default: use in-band affinity + programs
+		useAffinityMode: true, // default: use in-band affinity + program execution (no residents list)
 	}
 
 	for _, opt := range opts {
@@ -186,6 +191,7 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 	// goroutine. Chunk by Free() and drain between chunks so we never block inside
 	// pw.Write with no other code able to call processAvailableBatch.
 	total := 0
+
 	for len(p) > 0 {
 		if err := backend.processAvailableBatch(); err != nil {
 			return total, err
@@ -239,6 +245,12 @@ func (backend *Backend) processFullBatch() error {
 
 	batch := decodeBatchFrames(buf)
 
+	// Initialize affinity masks for all Values in this batch.
+	// This enables the topological clustering used by AffinityMatch.
+	for i := range batch {
+		batch[i].InitializeAffinity()
+	}
+
 	// NEW PATH: Use affinity-based pairing + program execution
 	// The old residents/cancellation path has been removed.
 	if err := backend.processAffinityBatch(batch); err != nil {
@@ -254,55 +266,48 @@ func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
 		return nil
 	}
 
-	// Simple affinity pairing - pair first instruction-like Value with data Values
+	// Use affinity-based pairing to find good topological matches
 	for i := range batch {
 		v := &batch[i]
 
-		// If this looks like an instruction (has instruction flag or program), use it
-		isInstruction := (v[primitive.Words-1] & primitive.InstructionMask) != 0
-		hasProgram := false
-		for pc := 0; pc < 8; pc++ { // check first few ops
-			if v.ProgramOp(pc) != 0 {
-				hasProgram = true
-				break
+		// Find the best match for this Value using affinity
+		bestMatch := i
+		for j := range batch {
+			if i == j {
+				continue
+			}
+			if AffinityMatch(v, &batch[j], 2) { // threshold of 2 overlapping bits
+				bestMatch = j
+				break // take the first good match for now
 			}
 		}
 
-		if isInstruction || hasProgram {
-			// Run this instruction against the next Value in batch (or itself)
-			targetIdx := (i + 1) % len(batch)
-			target := &batch[targetIdx]
+		target := &batch[bestMatch]
 
-			emitted := primitive.NewValue()
-			if err := backend.UniversalBitwise(
-				unsafe.Pointer(v),
-				unsafe.Pointer(target),
-				unsafe.Pointer(emitted),
-				1,
-			); err != nil {
-				return err
-			}
+		emitted := primitive.NewValue()
+		if err := backend.UniversalBitwise(
+			unsafe.Pointer(v),
+			unsafe.Pointer(target),
+			unsafe.Pointer(emitted),
+			1,
+		); err != nil {
+			return err
+		}
 
-			// Preserve linking information from the fact
-			emitted.SetValueID(backend.nextID)
-			backend.nextID++
-			emitted[primitive.StateSlotIndex] = 1
+		// Set metadata
+		emitted.SetValueID(backend.nextID)
+		backend.nextID++
+		emitted[primitive.StateSlotIndex] = 1
 
-			// For the Roy test: if target has a NextValueID, propagate it
-			if target.NextValueID() != 0 {
-				emitted.SetNextValueID(target.NextValueID())
-			} else if v.NextValueID() != 0 {
-				emitted.SetNextValueID(v.NextValueID())
-			}
+		// Preserve linking information if present
+		if target.NextValueID() != 0 {
+			emitted.SetNextValueID(target.NextValueID())
+		} else if v.NextValueID() != 0 {
+			emitted.SetNextValueID(v.NextValueID())
+		}
 
-			if err := backend.emitOutputFrameFromValue(emitted); err != nil {
-				return err
-			}
-		} else {
-			// Regular data - just emit
-			if err := backend.emitOutputFrameFromValue(v); err != nil {
-				return err
-			}
+		if err := backend.emitOutputFrameFromValue(emitted); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -418,9 +423,12 @@ func (backend *Backend) UniversalBitwise(
 }
 
 // executeProgram runs a full 64-tick program from Region 3 of the controlling Value.
+// This implements the "self-executing packet" concept where each Value
+// carries its own microcode.
 func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Pointer, v uint32) {
 	bs := unsafe.Slice((*[primitive.Words]uint64)(b), 1)
 	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), 1)
+	aWords := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))
 
 	// For each tick in the 64-op program
 	for pc := 0; pc < 64; pc++ {
@@ -441,20 +449,21 @@ func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Po
 
 		// Execute across Region 0 data
 		for i := 0; i < primitive.Region0TokenCount; i++ {
-			left := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))[i]
+			left := aWords[i]
 			right := bs[0][i]
 			ds[0][i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
 		}
 
 		// Copy result back to aValue for next iteration (in-place evolution)
 		for i := 0; i < primitive.Region0TokenCount; i++ {
-			(*[primitive.Words]uint64)(unsafe.Pointer(aValue))[i] = ds[0][i]
+			aWords[i] = ds[0][i]
 		}
 	}
 
-	// Copy final result to destination
+	// Copy final result to destination and mark as program result
 	dstValue := (*primitive.Value)(unsafe.Pointer(&ds[0]))
-	WriteRegion(dstValue, RegionInstruction, 0) // clear instruction for program mode
+	// Clear instruction bits for program mode - the program itself defines behavior
+	WriteRegion(dstValue, RegionInstruction, 0)
 }
 
 func WriteBits(value *primitive.Value, startBit, bitLen int, payload uint64) {

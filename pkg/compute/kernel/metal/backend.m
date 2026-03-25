@@ -8,32 +8,18 @@
 static id<MTLDevice>       device       = nil;
 static id<MTLCommandQueue> commandQueue = nil;
 
-static id<MTLComputePipelineState> pipelineBitwiseOr      = nil;
-static id<MTLComputePipelineState> pipelineBitwiseAnd     = nil;
-static id<MTLComputePipelineState> pipelineBitwiseXor     = nil;
-static id<MTLComputePipelineState> pipelineBitwiseAndNot  = nil;
-static id<MTLComputePipelineState> pipelineBitwiseNand    = nil;
-static id<MTLComputePipelineState> pipelineBitwiseNor     = nil;
-static id<MTLComputePipelineState> pipelineBitwiseXnor    = nil;
-static id<MTLComputePipelineState> pipelineBitwiseCNI     = nil;
-static id<MTLComputePipelineState> pipelineBitwiseNot     = nil;
-
-static id<MTLComputePipelineState> pipelineMotorApply     = nil;
-static id<MTLComputePipelineState> pipelineMotorInvert    = nil;
-static id<MTLComputePipelineState> pipelineMotorCompose   = nil;
-
-static id<MTLComputePipelineState> pipelineRollLeft       = nil;
+static id<MTLComputePipelineState> pipelineUniversalBitwise = nil;
 
 static dispatch_once_t initOnceToken;
 static int initResult = 0;
 
 #define VALUE_BYTES 1024
 
-/* ─── Single shared buffer pool ───────────────────────────────────────
-   Three buffers (A, B, dst) that grow geometrically. Every kernel uses
-   the same triple — no per-kernel pool overhead.
+/*
+Single shared buffer pool
+Three buffers (A, B, dst) that grow geometrically. Every kernel uses
+the same triple — no per-kernel pool overhead.
 */
-
 static id<MTLBuffer> poolA   = nil;
 static id<MTLBuffer> poolB   = nil;
 static id<MTLBuffer> poolDst = nil;
@@ -61,8 +47,9 @@ static int ensure_pool(uint32_t num_values) {
     return 0;
 }
 
-/* ─── Device init ─────────────────────────────────────────────────────── */
-
+/*
+Device init
+*/
 int count_metal_devices(void) {
     NSArray<id<MTLDevice>> *devices = MTLCopyAllDevices();
     if (!devices) return 0;
@@ -95,24 +82,10 @@ int init_metal(const char* metallib_path) {
             commandQueue = nil; device = nil; initResult = -3; return;
         }
 
-        pipelineBitwiseOr     = makePipeline(library, @"bitwise_or",     &error);
-        pipelineBitwiseAnd    = makePipeline(library, @"bitwise_and",    &error);
-        pipelineBitwiseXor    = makePipeline(library, @"bitwise_xor",    &error);
-        pipelineBitwiseAndNot = makePipeline(library, @"bitwise_and_not",&error);
-        pipelineBitwiseNand   = makePipeline(library, @"bitwise_nand",   &error);
-        pipelineBitwiseNor    = makePipeline(library, @"bitwise_nor",    &error);
-        pipelineBitwiseXnor   = makePipeline(library, @"bitwise_xnor",  &error);
-        pipelineBitwiseCNI    = makePipeline(library, @"bitwise_converse_nonimplication", &error);
-        pipelineBitwiseNot    = makePipeline(library, @"bitwise_not",    &error);
+        pipelineUniversalBitwise = makePipeline(library, @"universal_bitwise_kernel", &error);
 
-        pipelineMotorApply    = makePipeline(library, @"motor_apply",    &error);
-        pipelineMotorInvert   = makePipeline(library, @"motor_invert",   &error);
-        pipelineMotorCompose  = makePipeline(library, @"motor_compose",  &error);
-
-        pipelineRollLeft      = makePipeline(library, @"roll_left",      &error);
-
-        if (!pipelineBitwiseAnd || !pipelineMotorApply) {
-            NSLog(@"metal: failed to create core pipelines: %@", error);
+        if (!pipelineUniversalBitwise) {
+            NSLog(@"metal: failed to create universal_bitwise pipeline: %@", error);
             commandQueue = nil; device = nil; initResult = -4; return;
         }
 
@@ -122,8 +95,9 @@ int init_metal(const char* metallib_path) {
     return initResult;
 }
 
-/* ─── Dispatch helpers ────────────────────────────────────────────────── */
-
+/*
+Dispatch helpers
+*/
 static void dispatchKernel(id<MTLComputeCommandEncoder> enc,
                            id<MTLComputePipelineState>   pipeline,
                            NSUInteger                    threadCount) {
@@ -145,23 +119,18 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
     return (cb.status == MTLCommandBufferStatusCompleted) ? 0 : -5;
 }
 
-/* ─── Binary bitwise dispatch (shared logic) ──────────────────────────── */
-
-static int dispatch_binary(
-    id<MTLComputePipelineState> pipeline,
-    const void* a_host,
-    const void* b_host,
-    void*       dst_host,
-    uint32_t    num_values
-) {
-    if (!pipeline || !a_host || !b_host || !dst_host) return -1;
+/*
+Universal Bitwise dispatch
+*/
+int universal_bitwise_metal(const void* a_host, const void* b_host, void* dst_host, uint8_t op, uint32_t num_values) {
+    if (!pipelineUniversalBitwise || !a_host || !b_host || !dst_host) return -1;
     if (num_values == 0) return 0;
     if (ensure_pool(num_values) != 0) return -2;
 
     @autoreleasepool {
         size_t bytes = (size_t)num_values * VALUE_BYTES;
-        memcpy([poolA contents],   a_host, bytes);
-        memcpy([poolB contents],   b_host, bytes);
+        memcpy([poolA contents], a_host, bytes);
+        memcpy([poolB contents], b_host, bytes);
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
@@ -169,8 +138,9 @@ static int dispatch_binary(
         [enc setBuffer:poolA   offset:0 atIndex:0];
         [enc setBuffer:poolB   offset:0 atIndex:1];
         [enc setBuffer:poolDst offset:0 atIndex:2];
+        [enc setBytes:&op length:sizeof(uint8_t) atIndex:3];
 
-        dispatchKernel(enc, pipeline, num_values);
+        dispatchKernel(enc, pipelineUniversalBitwise, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
@@ -180,98 +150,6 @@ static int dispatch_binary(
         return 0;
     }
 }
-
-/* ─── Exported dispatch functions ─────────────────────────────────────── */
-
-int bitwise_or_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseOr, a, b, dst, n);
-}
-int bitwise_and_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseAnd, a, b, dst, n);
-}
-int bitwise_xor_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseXor, a, b, dst, n);
-}
-int bitwise_and_not_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseAndNot, a, b, dst, n);
-}
-int bitwise_nand_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseNand, a, b, dst, n);
-}
-int bitwise_nor_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseNor, a, b, dst, n);
-}
-int bitwise_xnor_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseXnor, a, b, dst, n);
-}
-int bitwise_converse_nonimplication_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineBitwiseCNI, a, b, dst, n);
-}
-
-int bitwise_not_metal(const void* a, void* dst, uint32_t num_values) {
-    if (!pipelineBitwiseNot || !a || !dst) return -1;
-    if (num_values == 0) return 0;
-    if (ensure_pool(num_values) != 0) return -2;
-
-    @autoreleasepool {
-        size_t bytes = (size_t)num_values * VALUE_BYTES;
-        memcpy([poolA contents], a, bytes);
-
-        id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
-        id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-
-        [enc setBuffer:poolA   offset:0 atIndex:0];
-        [enc setBuffer:poolDst offset:0 atIndex:1];
-
-        dispatchKernel(enc, pipelineBitwiseNot, num_values);
-        [enc endEncoding];
-
-        int r = commitAndWait(cb);
-        if (r != 0) return r;
-
-        memcpy(dst, [poolDst contents], bytes);
-        return 0;
-    }
-}
-
-int motor_apply_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineMotorApply, a, b, dst, n);
-}
-int motor_invert_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineMotorInvert, a, b, dst, n);
-}
-int motor_compose_metal(const void* a, const void* b, void* dst, uint32_t n) {
-    return dispatch_binary(pipelineMotorCompose, a, b, dst, n);
-}
-
-int roll_left_metal(const void* src, void* dst, uint32_t shift, uint32_t num_values) {
-    if (!pipelineRollLeft || !src || !dst) return -1;
-    if (num_values == 0) return 0;
-    if (ensure_pool(num_values) != 0) return -2;
-
-    @autoreleasepool {
-        size_t bytes = (size_t)num_values * VALUE_BYTES;
-        memcpy([poolA contents], src, bytes);
-
-        id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
-        id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
-
-        [enc setBuffer:poolA   offset:0 atIndex:0];
-        [enc setBuffer:poolDst offset:0 atIndex:1];
-        [enc setBytes:&shift length:sizeof(uint32_t) atIndex:2];
-
-        dispatchKernel(enc, pipelineRollLeft, num_values);
-        [enc endEncoding];
-
-        int r = commitAndWait(cb);
-        if (r != 0) return r;
-
-        memcpy(dst, [poolDst contents], bytes);
-        return 0;
-    }
-}
-
-/* ─── Cleanup ─────────────────────────────────────────────────────────── */
 
 void cleanup_metal_pools(void) {
     if (poolA)   { [poolA release];   poolA   = nil; }

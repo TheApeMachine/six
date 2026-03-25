@@ -151,7 +151,8 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Message:     telemetry.HumanDescribeValue(chamber),
 				Instruction: telemetry.TruthOpName(uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
-				OperandPop:  cpu.Popcount(chamber, primitive.InstrStart, primitive.InstrBits),
+				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64), // affinity instead of old instr popcount
+				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),  // program info
 			},
 		})
 
@@ -178,7 +179,8 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Message:     telemetry.HumanDescribeValue(chamber),
 				Instruction: telemetry.TruthOpName(uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
-				OperandPop:  cpu.Popcount(chamber, primitive.InstrStart, primitive.InstrBits),
+				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64),
+				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),
 			},
 		})
 
@@ -202,10 +204,11 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 			Data: telemetry.EventData{
 				Stage:       "kernel",
 				Frame:       i,
-				Message:     telemetry.HumanDescribeValue(chamber) + " · cpu.Backend: motor (Accumulate) + ALU on operand pressure",
+				Message:     telemetry.HumanDescribeValue(chamber) + " · cpu.Backend: physics engine (affinity + program execution)",
 				Instruction: telemetry.TruthOpName(uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
-				OperandPop:  cpu.Popcount(chamber, primitive.InstrStart, primitive.InstrBits),
+				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64),
+				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),
 			},
 		})
 
@@ -239,8 +242,9 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				ChunkText:   telemetry.ASCIIFramePreview(mutatedFrame, 120),
 				Instruction: telemetry.TruthOpName(instr),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
-				OperandPop:  cpu.Popcount(chamber, primitive.InstrStart, primitive.InstrBits),
-				Density:     float64(pressure) / float64(primitive.InstrBits),
+				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64),
+				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),
+				Density:     float64(pressure) / 64.0, // updated for new architecture
 			},
 		})
 

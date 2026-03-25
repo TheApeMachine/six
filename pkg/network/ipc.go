@@ -47,7 +47,7 @@ Read receives bytes from the connected peer.
 */
 func (ipc *IPC) Read(p []byte) (int, error) {
 	if ipc.conn == nil {
-		return 0, ErrIPCNotConnected
+		return 0, &TransportError{Layer: "ipc", Op: "read", Addr: ipc.path, Err: ErrIPCNotConnected}
 	}
 
 	return ipc.conn.Read(p)
@@ -58,7 +58,7 @@ Write sends bytes to the connected peer.
 */
 func (ipc *IPC) Write(p []byte) (int, error) {
 	if ipc.conn == nil {
-		return 0, ErrIPCNotConnected
+		return 0, &TransportError{Layer: "ipc", Op: "write", Addr: ipc.path, Err: ErrIPCNotConnected}
 	}
 
 	return ipc.conn.Write(p)
@@ -96,7 +96,7 @@ be called after constructing with IPCWithListen.
 */
 func (ipc *IPC) Accept() error {
 	if ipc.listen == nil {
-		return ErrIPCNotListening
+		return &TransportError{Layer: "ipc", Op: "accept", Addr: ipc.path, Err: ErrIPCNotListening}
 	}
 
 	conn, err := ipc.listen.Accept()

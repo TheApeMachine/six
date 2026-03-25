@@ -41,8 +41,8 @@ var truthOpNames = []string{
 }
 
 /*
-HumanDescribeValue returns a compact, readable summary of register
-pressure and the active boolean op for debugging and visualization.
+HumanDescribeValue returns a compact, readable summary of the new
+multi-region architecture for debugging and visualization.
 */
 func HumanDescribeValue(v *primitive.Value) string {
 	if v == nil {
@@ -50,13 +50,33 @@ func HumanDescribeValue(v *primitive.Value) string {
 	}
 
 	instr := uint8(cpu.ReadRegion(v, cpu.RegionInstruction) & 0xF)
-	dPop := cpu.Popcount(v, 0, primitive.DataBits)
-	oPop := cpu.Popcount(v, primitive.InstrStart, primitive.InstrBits)
+	dataPop := cpu.Popcount(v, 0, primitive.DataBits)
+	affPop := cpu.Popcount(v, primitive.RegionAffinityStart, 64) // first 64 bits of affinity
+	progPop := cpu.Popcount(v, primitive.RegionProgramStart, 64) // first 64 bits of program
+
+	// Show program info if present
+	progInfo := ""
+	if progPop > 0 {
+		progInfo = fmt.Sprintf(" program=%dops", countProgramOps(v))
+	}
 
 	return fmt.Sprintf(
-		"op=%s · popcount data=%d instruction=%d",
-		TruthOpName(instr), dPop, oPop,
+		"op=%s · data=%d aff=%d prog=%d%s",
+		TruthOpName(instr), dataPop, affPop, progPop, progInfo,
 	)
+}
+
+// countProgramOps counts how many non-zero operations are in the program region.
+func countProgramOps(v *primitive.Value) int {
+	count := 0
+	for i := 0; i < 64; i++ {
+		if v.ProgramOp(i) != 0 {
+			count++
+		} else {
+			break // stop at first HALT
+		}
+	}
+	return count
 }
 
 /*

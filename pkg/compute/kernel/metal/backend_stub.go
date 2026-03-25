@@ -2,7 +2,9 @@
 
 package metal
 
-import "unsafe"
+import (
+	"unsafe"
+)
 
 /*
 Backend is the stub for non-darwin builds.
@@ -19,60 +21,24 @@ func NewBackend() *Backend {
 /*
 Available always returns zero on non-darwin.
 */
-func (backend *Backend) Available() (int, error) {
-	return 0, MetalErrorUnavailable
+func Available() int {
+	return 0
 }
 
-func (backend *Backend) BitwiseOr(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
+func (backend *Backend) Read(p []byte) (n int, err error) {
+	return
 }
 
-func (backend *Backend) BitwiseAnd(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
+func (backend *Backend) Write(p []byte) (n int, err error) {
+	return
 }
 
-func (backend *Backend) BitwiseXor(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
+func (backend *Backend) Close() error {
+	return nil
 }
 
-func (backend *Backend) BitwiseAndNot(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) BitwiseNand(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) BitwiseNor(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) BitwiseXnor(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) BitwiseConverseNonimplication(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) BitwiseNot(a, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) MotorApply(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) MotorInvert(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) MotorCompose(a, b, dst unsafe.Pointer, n uint32) error {
-	return MetalErrorUnavailable
-}
-
-func (backend *Backend) RollLeft(src, dst unsafe.Pointer, shift, n uint32) error {
-	return MetalErrorUnavailable
+func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
+	return NewMetalError(nil, "UniversalBitwise", "UniversalBitwise", n)
 }
 
 /*
@@ -86,9 +52,25 @@ const (
 	MetalErrorDispatchFailed MetalErrorType = "metal backend dispatch failed"
 )
 
+type MetalError struct {
+	Err error
+	Msg string
+	Op  string
+	N   uint32
+}
+
+func NewMetalError(err error, msg string, op string, n uint32) *MetalError {
+	return &MetalError{
+		Err: err,
+		Msg: msg,
+		Op:  op,
+		N:   n,
+	}
+}
+
 /*
 Error implements the error interface for MetalErrorType.
 */
-func (err MetalErrorType) Error() string {
-	return string(err)
+func (err *MetalError) Error() string {
+	return err.Msg
 }

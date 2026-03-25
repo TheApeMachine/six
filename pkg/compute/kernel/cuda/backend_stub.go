@@ -54,56 +54,8 @@ func (backend *Backend) Close() error {
 	return nil
 }
 
-func (backend *Backend) BitwiseOr(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseAnd(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseXor(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseAndNot(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseNand(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseNor(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseXnor(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseConverseNonimplication(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) BitwiseNot(a, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) MotorApply(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) MotorInvert(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) MotorCompose(a, b, dst unsafe.Pointer, n uint32) error {
-	return CUDAErrorUnavailable
-}
-
-func (backend *Backend) RollLeft(src, dst unsafe.Pointer, shift, n uint32) error {
-	return CUDAErrorUnavailable
+func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
+	return NewCUDAError(nil, "UniversalBitwise", "UniversalBitwise", n)
 }
 
 /*
@@ -116,9 +68,28 @@ const (
 	CUDAErrorDispatchFailed CUDAErrorType = "cuda backend dispatch failed"
 )
 
+type CUDAError struct {
+	Err error
+	Msg string
+	Op  string
+	N   uint32
+}
+
+/*
+NewCUDAError returns a new CUDAError.
+*/
+func NewCUDAError(err error, msg string, op string, n uint32) *CUDAError {
+	return &CUDAError{
+		Err: err,
+		Msg: msg,
+		Op:  op,
+		N:   n,
+	}
+}
+
 /*
 Error implements the error interface for CUDAErrorType.
 */
-func (err CUDAErrorType) Error() string {
-	return string(err)
+func (err *CUDAError) Error() string {
+	return err.Msg
 }

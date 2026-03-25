@@ -1,6 +1,7 @@
 package network
 
 import (
+	"errors"
 	"io"
 	"testing"
 
@@ -14,16 +15,16 @@ func TestIPC(t *testing.T) {
 		gc.Convey("It should return ErrIPCNotConnected on Read", func() {
 			buf := make([]byte, 1024)
 			_, err := ipc.Read(buf)
-			gc.So(err, gc.ShouldEqual, ErrIPCNotConnected)
+			gc.So(errors.Is(err, ErrIPCNotConnected), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should return ErrIPCNotConnected on Write", func() {
 			_, err := ipc.Write([]byte("data"))
-			gc.So(err, gc.ShouldEqual, ErrIPCNotConnected)
+			gc.So(errors.Is(err, ErrIPCNotConnected), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should return ErrIPCNotListening on Accept", func() {
-			gc.So(ipc.Accept(), gc.ShouldEqual, ErrIPCNotListening)
+			gc.So(errors.Is(ipc.Accept(), ErrIPCNotListening), gc.ShouldBeTrue)
 		})
 	})
 

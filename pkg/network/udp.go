@@ -50,7 +50,7 @@ The caller should provide at least 1024 bytes to capture a full Value.
 */
 func (udp *UDPMulticast) Read(p []byte) (int, error) {
 	if udp.conn == nil {
-		return 0, ErrUDPNotBound
+		return 0, &TransportError{Layer: "udp", Op: "read", Err: ErrUDPNotBound}
 	}
 
 	return udp.conn.Read(p)
@@ -63,7 +63,7 @@ socket uses WriteToUDP with the explicit group address.
 */
 func (udp *UDPMulticast) Write(p []byte) (int, error) {
 	if udp.conn == nil {
-		return 0, ErrUDPNotBound
+		return 0, &TransportError{Layer: "udp", Op: "write", Err: ErrUDPNotBound}
 	}
 
 	if udp.dialed {

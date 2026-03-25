@@ -25,6 +25,8 @@ type EventData struct {
 	DataPop     int    `json:"dataPop,omitempty"`
 	OperandPop  int    `json:"operandPop,omitempty"`
 	AccumPop    int    `json:"accumPop,omitempty"`
+	AffinityPop int    `json:"affinityPop,omitempty"` // new: Region 2 affinity mask popcount
+	ProgramPop  int    `json:"programPop,omitempty"`  // new: Region 3 program popcount
 
 	EdgeCount  int     `json:"edgeCount,omitempty"`
 	PathCount  int     `json:"pathCount,omitempty"`

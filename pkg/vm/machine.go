@@ -4,8 +4,12 @@ import (
 	"context"
 	"errors"
 	"io"
+	"runtime"
 
+	"github.com/panjf2000/ants/v2"
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/workflow"
@@ -22,8 +26,9 @@ system's operational mechanics.
 type Machine struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
+	pool     *ants.Pool
 	dataset  io.ReadCloser
-	backend  io.ReadWriteCloser
+	backend  kernel.Substrate
 	prompt   io.ReadWriteCloser
 	source   *workflow.MergeSource
 	pipeline io.ReadWriter
@@ -38,10 +43,18 @@ type machineOption func(*Machine)
 /*
 NewMachine creates a new Machine with the given options.
 */
-func NewMachine(opts ...machineOption) *Machine {
+func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	prompt := primitive.NewValue()
 	pump := workflow.NewPump()
-	machine := &Machine{
+
+	pool, err := ants.NewPool(runtime.NumCPU() - 1)
+
+	if err != nil {
+		return nil, errnie.Wrap(err, "vm.machine.NewMachine")
+	}
+
+	machine = &Machine{
+		pool:    pool,
 		backend: compute.NewBackend(),
 		prompt:  prompt,
 		source:  workflow.NewMergeSource(nil, pump.Loop()),
@@ -49,6 +62,16 @@ func NewMachine(opts ...machineOption) *Machine {
 
 	for _, opt := range opts {
 		opt(machine)
+	}
+
+	if err = validate.Require(map[string]any{
+		"backend":  machine.backend,
+		"prompt":   machine.prompt,
+		"source":   machine.source,
+		"pipeline": machine.pipeline,
+		"pump":     machine.pump,
+	}); err != nil {
+		return nil, errnie.Wrap(err, "vm.machine.NewMachine")
 	}
 
 	// Feedback tees backend output into prompt (for Prompt()) and into the pump
@@ -89,9 +112,8 @@ func (machine *Machine) Prompt() io.ReadWriter {
 }
 
 func (machine *Machine) Close() error {
-	if machine.cancel != nil {
-		machine.cancel()
-	}
+	machine.cancel()
+	machine.pool.Release()
 
 	var errs error
 	if machine.pump != nil {
@@ -118,11 +140,18 @@ func WithContext(ctx context.Context) machineOption {
 	}
 }
 
-func WithBackend(backend io.ReadWriteCloser) machineOption {
+func WithBackend(backend kernel.Substrate) machineOption {
 	return func(m *Machine) {
 		errnie.Info("vm.machine.WithBackend", "msg", "overriding backend")
 		m.backend = backend
 	}
+}
+
+// Backend returns the underlying kernel.Substrate for direct dispatch of
+// vectorized operations (UniversalBitwise, MotorCompose, etc.) without
+// going through the streaming pipeline.
+func (machine *Machine) Backend() kernel.Substrate {
+	return machine.backend
 }
 
 func WithDataset(dataset io.ReadCloser) machineOption {

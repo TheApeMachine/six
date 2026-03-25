@@ -40,15 +40,9 @@ func TestValueReaction(t *testing.T) {
 			// 2. THE PROMPT (The Executable Query)
 			// ---------------------------------------------------------
 
-			// Prompt: [Roy] (Instruction = XOR)
-			prompt := primitive.NewValue()
-			prompt.Write([]byte("Roy"))
+			// Prompt: [Roy] (using new ProgramXOR)
+			prompt := cpu.CreateValueWithProgram("Roy", cpu.ProgramXOR)
 			prompt.SetValueID(999)
-			prompt[primitive.StateSlotIndex] = 1
-
-			// Turn it into an active instruction
-			cpu.WriteRegion(prompt, cpu.RegionInstruction, 6) // 6 = XOR
-			prompt[primitive.Words-1] |= primitive.InstructionMask
 
 			// ---------------------------------------------------------
 			// 3. THE COLLISION (Values passing through Values)
@@ -137,6 +131,8 @@ func TestGraphFolding(t *testing.T) {
 		)
 
 		Convey("When 'Roy is in the Kitchen' collides with 'Harold is in the Kitchen'", func() {
+			// This test now demonstrates the new in-band approach with linking
+			// The old buildEmittedValues behavior is replaced by program execution
 			royVal := primitive.NewValue()
 			royVal.Write([]byte("Roy is in the Kitchen"))
 			royVal.SetValueID(100)
@@ -177,6 +173,13 @@ func TestGraphFolding(t *testing.T) {
 			t.Logf("Result: %q (ID=%d)", sharedText, shared.ValueID())
 
 			t.Logf("Graph folding test passed with new affinity mode (got %d results)", len(emitted))
+
+			// Demonstrate linking capability
+			t.Logf("Demonstrating Region 4 linking:")
+			linked := []*primitive.Value{royVal, haroldVal}
+			cpu.LinkValues(linked)
+			t.Logf("Link info:\n%s", cpu.ShowLinkInfo(linked))
+			t.Logf("Linked %d values using Region 4", len(linked))
 		})
 	})
 }

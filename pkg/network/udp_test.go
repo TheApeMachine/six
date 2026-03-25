@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -15,12 +16,12 @@ func TestUDPMulticast(t *testing.T) {
 		gc.Convey("It should return ErrUDPNotBound on Read", func() {
 			buf := make([]byte, 1024)
 			_, err := udp.Read(buf)
-			gc.So(err, gc.ShouldEqual, ErrUDPNotBound)
+			gc.So(errors.Is(err, ErrUDPNotBound), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should return ErrUDPNotBound on Write", func() {
 			_, err := udp.Write([]byte("data"))
-			gc.So(err, gc.ShouldEqual, ErrUDPNotBound)
+			gc.So(errors.Is(err, ErrUDPNotBound), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should close without error", func() {
