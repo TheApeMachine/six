@@ -1,7 +1,10 @@
 package primitive
 
 import (
+	"errors"
+	"fmt"
 	"io"
+	"sync/atomic"
 	"unsafe"
 )
 
@@ -41,11 +44,11 @@ const (
 	DataWords               = Region0NextValueIDIndex + 1
 	DataBits                = DataWords * 64
 
-	StateSlotIndex   = 60
-	StateSeqIndex    = 61
-	StateAccumulator = 62
+	StateSlotIndex   = 61
+	StateSeqIndex    = 62
+	StateAccumulator = 63
 
-	InstrStart = StateAccumulator + 1
+	InstrStart = DataBits
 	InstrBits  = 4
 
 	InstructionMask uint64 = 1 << 63
@@ -70,9 +73,16 @@ through the Orchestrator loop.
 type Value [Words]uint64
 
 var (
+	ErrChunkBoundary = errors.New("chunk boundary reached")
 	valueTo   func(*Value, []byte)
 	valueFrom func([]byte, *Value)
+	
+	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
+
+func nextGlobalValueID() uint64 {
+	return atomic.AddUint64(&globalValueIDCounter, 1)
+}
 
 func init() {
 	x := uint16(1)
@@ -127,7 +137,24 @@ Read implements io.Reader. It serializes the Value's physical 1024-byte frame
 so it can be piped into the Backend or the feedback loop.
 */
 func (value *Value) Read(p []byte) (int, error) {
+	// If the Value is physically empty, return EOF immediately
+	if value[StateSlotIndex] == 0 {
+		return 0, io.EOF
+	}
+
 	valueTo(value, p)
+	
+	// Save the NextValueID to become the new ValueID
+	nextID := value.NextValueID()
+	
+	// Reset the physical state so the Value can be reused in the pipeline
+	for i := 0; i < Words; i++ {
+		value[i] = 0
+	}
+	
+	// Set the new ValueID
+	value.SetValueID(nextID)
+	
 	return ByteSize, io.EOF
 }
 
@@ -151,7 +178,8 @@ func (value *Value) Write(p []byte) (int, error) {
 
 		// Stop if Region 0 is physically full.
 		if slot >= Region0TokenCount {
-			break
+			value.SetNextValueID(nextGlobalValueID())
+			return bytesConsumed, ErrChunkBoundary
 		}
 
 		token := Tokenize(b, seqIndex)
@@ -184,6 +212,13 @@ func (value *Value) Write(p []byte) (int, error) {
 		// We use the mechanical bit-pattern of the accumulator to find natural resets.
 		if accumulator&SignalMask == 0 {
 			value[StateSeqIndex] = 0
+			value[StateSlotIndex] = slot + 1
+			value[StateAccumulator] = accumulator
+			
+			// Generate a new ValueID and set it as the NextValueID
+			value.SetNextValueID(nextGlobalValueID())
+			
+			return bytesConsumed, ErrChunkBoundary
 		} else {
 			value[StateSeqIndex] = seqIndex + 1
 		}
@@ -296,4 +331,23 @@ ValueToBytes writes the Value's 1024-byte frame into p.
 func ValueToBytes(v *Value, p []byte) error {
 	valueTo(v, p)
 	return nil
+}
+
+type ValueErrorType string
+
+const (
+	ValueErrorTypeDivergence ValueErrorType = "divergence"
+)
+
+type ValueError struct {
+	Err error
+	Msg string
+}
+
+func NewValueError(err ValueErrorType) *ValueError {
+	return &ValueError{Err: errors.New(string(err)), Msg: string(err)}
+}
+
+func (e *ValueError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
 }

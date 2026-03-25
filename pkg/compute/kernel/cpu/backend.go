@@ -156,13 +156,13 @@ func (backend *Backend) processAvailableBatch() error {
 		"right", right.TokenIDs(),
 	)
 
-	// 2. STRUCTURAL FOLDING
-	emitted := buildEmittedValue(left, right, candidate.Span, backend.nextID)
-
-	// 3. CHECK FOR BEHAVIOR
+	// 2. CHECK FOR BEHAVIOR
 	isInstruction := (left[primitive.Words-1] & primitive.InstructionMask) != 0
 
+	var emitted *primitive.Value
+
 	if isInstruction {
+		emitted = primitive.NewValue()
 		if err := backend.UniversalBitwise(
 			unsafe.Pointer(left),
 			unsafe.Pointer(right),
@@ -175,10 +175,16 @@ func (backend *Backend) processAvailableBatch() error {
 		opBits := ReadRegion(left, RegionInstruction) & 0xF
 		WriteRegion(emitted, RegionInstruction, opBits)
 		setInstructionFlag(emitted)
+		emitted.SetPrevValueID(left.ValueID())
+		emitted.SetNextValueID(right.ValueID())
+	} else {
+		// 3. STRUCTURAL FOLDING
+		emitted = buildEmittedValue(left, right, candidate.Span, backend.nextID)
 	}
 
 	// 4. LINK AND DUMP TO THE OUTPUT PIPE
 	emitted.SetValueID(backend.nextID)
+	emitted[primitive.StateSlotIndex] = 1 // Mark as not empty so it serializes
 	backend.nextID++
 
 	// Serialize the new Value back into a 1024-byte frame

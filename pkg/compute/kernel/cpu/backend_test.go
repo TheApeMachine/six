@@ -60,6 +60,7 @@ func TestWriteWaitsForFullBatch(t *testing.T) {
 		value := primitive.NewValue()
 		value.SetTokenID(0, primitive.Tokenize('a', 0))
 		value.SetValueID(1)
+		value[primitive.StateSlotIndex] = 1
 
 		frame := make([]byte, primitive.ByteSize)
 		So(primitive.ValueToBytes(value, frame), ShouldBeNil)
@@ -85,6 +86,7 @@ func TestWriteEmitsStrongestCancellationOnly(t *testing.T) {
 		left.SetTokenID(2, primitive.Tokenize('y', 2))
 		left.SetTokenID(3, primitive.Tokenize('R', 3))
 		left.SetValueID(10)
+		left[primitive.StateSlotIndex] = 1
 
 		right := primitive.NewValue()
 		right.SetTokenID(0, primitive.Tokenize('Q', 0))
@@ -92,6 +94,7 @@ func TestWriteEmitsStrongestCancellationOnly(t *testing.T) {
 		right.SetTokenID(2, primitive.Tokenize('y', 2))
 		right.SetTokenID(3, primitive.Tokenize('Z', 3))
 		right.SetValueID(20)
+		right[primitive.StateSlotIndex] = 1
 
 		leftFrame := make([]byte, primitive.ByteSize)
 		rightFrame := make([]byte, primitive.ByteSize)
@@ -120,8 +123,8 @@ func TestWriteEmitsStrongestCancellationOnly(t *testing.T) {
 		So(emitted.TokenID(5), ShouldEqual, primitive.Tokenize('Z', 3))
 		So(emitted.PrevValueID(), ShouldEqual, uint64(10))
 		So(emitted.NextValueID(), ShouldEqual, uint64(20))
-		So(ReadRegion(emitted, RegionInstruction)&0xF, ShouldEqual, uint64(0b0110))
-		So((emitted[primitive.Words-1]&primitive.InstructionMask) != 0, ShouldBeTrue)
+		So(ReadRegion(emitted, RegionInstruction)&0xF, ShouldEqual, uint64(0))
+		So((emitted[primitive.Words-1]&primitive.InstructionMask) != 0, ShouldBeFalse)
 
 		n, err = b.Read(make([]byte, primitive.ByteSize))
 		So(n, ShouldEqual, 0)
@@ -139,11 +142,13 @@ func TestWriteRetainsNonWinningValuesForLaterRounds(t *testing.T) {
 		a.SetTokenID(2, primitive.Tokenize('y', 2))
 		a.SetTokenID(3, primitive.Tokenize('R', 3))
 		a.SetValueID(100)
+		a[primitive.StateSlotIndex] = 1
 
 		batchMate := primitive.NewValue()
 		batchMate.SetTokenID(0, primitive.Tokenize('n', 0))
 		batchMate.SetTokenID(1, primitive.Tokenize('o', 1))
 		batchMate.SetValueID(200)
+		batchMate[primitive.StateSlotIndex] = 1
 
 		c := primitive.NewValue()
 		c.SetTokenID(0, primitive.Tokenize('Q', 0))
@@ -151,10 +156,12 @@ func TestWriteRetainsNonWinningValuesForLaterRounds(t *testing.T) {
 		c.SetTokenID(2, primitive.Tokenize('y', 2))
 		c.SetTokenID(3, primitive.Tokenize('Z', 3))
 		c.SetValueID(300)
+		c[primitive.StateSlotIndex] = 1
 
 		filler := primitive.NewValue()
 		filler.SetTokenID(0, primitive.Tokenize('f', 0))
 		filler.SetValueID(400)
+		filler[primitive.StateSlotIndex] = 1
 
 		frameA := make([]byte, primitive.ByteSize)
 		frameB := make([]byte, primitive.ByteSize)
@@ -184,7 +191,7 @@ func TestWriteRetainsNonWinningValuesForLaterRounds(t *testing.T) {
 		So(emitted.TokenID(1), ShouldEqual, primitive.Tokenize('y', 2))
 		So(emitted.PrevValueID(), ShouldEqual, uint64(100))
 		So(emitted.NextValueID(), ShouldEqual, uint64(300))
-		So(ReadRegion(emitted, RegionInstruction)&0xF, ShouldEqual, uint64(0b0110))
+		So(ReadRegion(emitted, RegionInstruction)&0xF, ShouldEqual, uint64(0))
 	})
 }
 

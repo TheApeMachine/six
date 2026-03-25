@@ -48,7 +48,7 @@ func NewMachine(opts ...machineOption) *Machine {
 	machine.pipeline = workflow.NewPipeline(
 		workflow.NewSeeder(machine.dataset),
 		primitive.NewValue(),
-		machine.backend,
+		workflow.NewFeedback(machine.backend, machine.backend),
 	)
 
 	return machine
@@ -79,6 +79,7 @@ func WithContext(ctx context.Context) machineOption {
 
 func WithBackend(backend io.ReadWriteCloser) machineOption {
 	return func(m *Machine) {
+		errnie.Info("vm.machine.WithBackend", "msg", "overriding backend")
 		m.backend = backend
 	}
 }
