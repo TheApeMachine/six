@@ -132,6 +132,15 @@ func WithDataset(dataset io.ReadCloser) machineOption {
 	}
 }
 
+// maxValueFeedbackBuf limits how much deframing buffer valueFeedbackWriter may
+// hold (partial tail + queued raw bytes). It should exceed any plausible burst
+// of full frames from the backend; tune if a backend streams longer runs.
+const maxValueFeedbackBuf = 256 * primitive.ByteSize
+
+// ErrValueFeedbackBufferFull is returned when appending to the feedback deframer
+// would exceed maxValueFeedbackBuf.
+var ErrValueFeedbackBufferFull = errors.New("vm: value feedback buffer cap exceeded")
+
 // valueFeedbackWriter buffers bytes from Feedback's tee until full wire frames
 // are available, then applies each via ApplyWireFrame. Backend output is
 // serialized Value frames, not a raw byte stream for Value.Write (which would
@@ -146,12 +155,15 @@ func (w *valueFeedbackWriter) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
+	if len(w.buf)+len(p) > maxValueFeedbackBuf {
+		return 0, ErrValueFeedbackBufferFull
+	}
 	w.buf = append(w.buf, p...)
 	for len(w.buf) >= primitive.ByteSize {
 		frame := w.buf[:primitive.ByteSize]
 		w.buf = w.buf[primitive.ByteSize:]
 		if err := w.dst.ApplyWireFrame(frame); err != nil {
-			return 0, err
+			return len(p), err
 		}
 	}
 	return len(p), nil

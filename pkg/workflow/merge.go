@@ -6,6 +6,12 @@ import (
 	"io"
 )
 
+// LoopReadGater is implemented by pipeline heads that can temporarily disable
+// reads from the feedback loop during Pipeline's first processed pass (see Pipeline.Read).
+type LoopReadGater interface {
+	SetAllowLoopReads(ok bool)
+}
+
 /*
 MergeSource multiplexes several logical inputs into one io.Reader for pipeline
 heads:

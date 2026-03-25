@@ -92,8 +92,8 @@ func (pump *Pump) Attach(pipeline io.ReadWriter) {
 
 func (pump *Pump) Read(p []byte) (n int, err error) {
 	pump.mu.RLock()
+	defer pump.mu.RUnlock()
 	pipe := pump.pipeline
-	pump.mu.RUnlock()
 	if pipe == nil {
 		return 0, errors.New("workflow: pump: Attach pipeline before Read")
 	}
@@ -102,8 +102,8 @@ func (pump *Pump) Read(p []byte) (n int, err error) {
 
 func (pump *Pump) Write(p []byte) (n int, err error) {
 	pump.mu.RLock()
+	defer pump.mu.RUnlock()
 	pipe := pump.pipeline
-	pump.mu.RUnlock()
 	if pipe == nil {
 		return 0, errors.New("workflow: pump: Attach pipeline before Write")
 	}

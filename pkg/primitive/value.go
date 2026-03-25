@@ -74,8 +74,11 @@ type Value [Words]uint64
 
 var (
 	ErrChunkBoundary = errors.New("chunk boundary reached")
-	valueTo          func(*Value, []byte)
-	valueFrom        func([]byte, *Value)
+	// ErrRegion0Full is returned from Write when Region 0 already holds the maximum
+	// token count and no input byte can be accepted (loss would occur if ignored).
+	ErrRegion0Full = errors.New("region0 full: no bytes written")
+	valueTo        func(*Value, []byte)
+	valueFrom      func([]byte, *Value)
 
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
@@ -181,7 +184,6 @@ func (value *Value) Write(p []byte) (int, error) {
 	bytesConsumed := 0
 
 	for _, b := range p {
-		// Read the current physical state from Region 2
 		slot := value[StateSlotIndex]
 		seqIndex := value[StateSeqIndex]
 		accumulator := value[StateAccumulator]
@@ -190,11 +192,7 @@ func (value *Value) Write(p []byte) (int, error) {
 		if slot >= Region0TokenCount {
 			value.SetNextValueID(nextGlobalValueID())
 			if bytesConsumed == 0 {
-				// Value already holds Region0TokenCount tokens; no byte from this
-				// Write can be accepted. Report len(p) so io.Copy / copyChain do not
-				// treat (0, nil) as ErrShortWrite. Callers must rotate or flush the
-				// Value; remainder of p is not stored (same as historical behavior).
-				return len(p), nil
+				return 0, ErrRegion0Full
 			}
 			return bytesConsumed, nil
 		}
@@ -205,43 +203,31 @@ func (value *Value) Write(p []byte) (int, error) {
 		switch existing {
 		case token:
 			// 1. COLLISION IS COMPRESSION
-			// We are traversing an existing path. We do not write to memory,
-			// but we consume the byte and update our XOR signal.
 			bytesConsumed++
 			accumulator ^= token
 
 		case 0:
 			// 2. PATH EXTENSION
-			// The physical slot is empty. We extend the current path.
 			value[slot] = token
 			bytesConsumed++
 			accumulator ^= token
 
 		default:
 			// 3. DIVERGENCE
-			// The memory holds a different path. We break immediately.
-			// The pipeline will take the unconsumed bytes and feed them
-			// into a new Value.
 			return bytesConsumed, nil
 		}
 
 		// 4. THE SIGNAL (Organic Boundaries)
-		// We use the mechanical bit-pattern of the accumulator to find natural resets.
-		if accumulator&SignalMask == 0 {
+		// Shift by 32 to check the chaotic byte-data, not the sequence index.
+		if (accumulator>>32)&SignalMask == 0 {
 			value[StateSeqIndex] = 0
-			value[StateSlotIndex] = slot + 1
-			value[StateAccumulator] = accumulator
-
-			// Generate a new ValueID and set it as the NextValueID
-			value.SetNextValueID(nextGlobalValueID())
-
-			return bytesConsumed, nil
+			// We DO NOT return early here. We just reset the sequence index
+			// and keep packing until the Value is physically full.
 		} else {
 			value[StateSeqIndex] = seqIndex + 1
 		}
 
 		// 5. UPDATE PHYSICAL STATE
-		// Move to the next physical slot and save the accumulator
 		value[StateSlotIndex] = slot + 1
 		value[StateAccumulator] = accumulator
 	}

@@ -86,8 +86,8 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 	}
 
 	if !pipeline.processed {
-		if ms, ok := pipeline.components[0].(*MergeSource); ok {
-			ms.SetAllowLoopReads(false)
+		if g, ok := pipeline.components[0].(LoopReadGater); ok {
+			g.SetAllowLoopReads(false)
 		}
 		for i := range len(pipeline.components) - 1 {
 			_, err = copyChain(pipeline.components[i+1], pipeline.components[i])
@@ -95,8 +95,8 @@ func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
 				return 0, err
 			}
 			if i == 0 {
-				if ms, ok := pipeline.components[0].(*MergeSource); ok {
-					ms.SetAllowLoopReads(true)
+				if g, ok := pipeline.components[0].(LoopReadGater); ok {
+					g.SetAllowLoopReads(true)
 				}
 			}
 		}
