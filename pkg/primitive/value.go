@@ -23,10 +23,17 @@ These bits are partitioned into regions with distinct roles:
 	(byte_value << 32) | sequence_index
 
   REGION 1 — INSTRUCTION REGISTER (bits 3840–3843, 4 bits)
-    Encodes one of 16 truth-table operations as a 4-bit index.
+    Encodes one of 16 truth-table operations as a 4-bit index (single-tick compat).
 
-  REGION 2, 3, 4 — UNUSED REGISTERS
-    Intentionally uncommitted for now.
+  REGION 2 — AFFINITY MASK (256 bits)
+    Sparse bit-pattern used for fast topological clustering via bitwise AND.
+
+  REGION 3 — PROGRAM REGISTER (256 bits)
+    64 × 4-bit instructions. When present, UniversalBitwise runs a full 64-tick
+    program. 0b0000 = NOP/HALT (early exit).
+
+  REGION 4+ — TEMPORARY LINKS / GROUPING + FUTURE USE
+    Remaining bits available for explicit Value grouping or routing tables.
 
   REGION 5 — INSTRUCTION FLAG (bit 8191)
     Single bit. When set, this Value acts as an in-band control frame.
@@ -51,6 +58,12 @@ const (
 	InstrStart = DataBits
 	InstrBits  = 4
 
+	// New regions for in-band execution
+	RegionAffinityStart = InstrStart + InstrBits + 4 // after instruction + padding
+	RegionAffinityBits  = 256
+	RegionProgramStart  = RegionAffinityStart + RegionAffinityBits
+	RegionProgramBits   = 256
+
 	InstructionMask uint64 = 1 << 63
 
 	// SignalMask is the mechanical bit-pattern used to reset the sequence index.
@@ -63,6 +76,8 @@ type Region int
 const (
 	RegionData        = Region(0)
 	RegionInstruction = Region(InstrStart)
+	RegionAffinity    = Region(RegionAffinityStart)
+	RegionProgram     = Region(RegionProgramStart)
 )
 
 /*
@@ -349,6 +364,25 @@ func (v *Value) ApplyWireFrame(p []byte) error {
 	return nil
 }
 
+// DecodeTokensToText extracts the byte portion (upper 32 bits) of each
+// non-zero TokenID in Region 0 and returns it as a printable string.
+func DecodeTokensToText(v *Value) string {
+	var b []byte
+	for i := 0; i < Region0TokenCount; i++ {
+		tok := v[i]
+		if tok == 0 {
+			break
+		}
+		ch := byte(tok >> 32)
+		if ch >= 32 && ch < 127 {
+			b = append(b, ch)
+		} else {
+			b = append(b, '.')
+		}
+	}
+	return string(b)
+}
+
 type ValueErrorType string
 
 const (
@@ -366,4 +400,65 @@ func NewValueError(err ValueErrorType) *ValueError {
 
 func (e *ValueError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
+}
+
+// AffinityMask returns the 256-bit affinity pattern from Region 2 (first 64 bits for now).
+func (value *Value) AffinityMask() uint64 {
+	// TODO: Use cpu.ReadBits once we decide on package boundaries.
+	// For now we return a simple hash of the data as affinity.
+	hash := uint64(0)
+	for i := 0; i < 8 && i < Region0TokenCount; i++ {
+		hash = hash*31 + value[i]
+	}
+	return hash
+}
+
+// SetAffinityMask writes a pattern into the affinity region.
+func (value *Value) SetAffinityMask(mask uint64) {
+	// TODO: Implement via WriteBits when we expose it.
+	// For now this is a no-op stub.
+}
+
+// ProgramOp reads a 4-bit opcode from the program region at program counter pc.
+func (value *Value) ProgramOp(pc int) uint8 {
+	if pc < 0 || pc >= 64 {
+		return 0
+	}
+	bitPos := RegionProgramStart + (pc * 4)
+	// For now we read directly from the word array (simple implementation)
+	word := bitPos / 64
+	shift := uint(bitPos % 64)
+	if word >= len(*value) {
+		return 0
+	}
+	return uint8(((*value)[word] >> shift) & 0xF)
+}
+
+// SetProgramOp writes a 4-bit opcode into the program at position pc.
+func (value *Value) SetProgramOp(pc int, op uint8) {
+	if pc < 0 || pc >= 64 {
+		return
+	}
+	bitPos := RegionProgramStart + (pc * 4)
+	word := bitPos / 64
+	shift := uint(bitPos % 64)
+	if word >= len(*value) {
+		return
+	}
+
+	mask := uint64(0xF) << shift
+	(*value)[word] &^= mask
+	(*value)[word] |= uint64(op) << shift
+}
+
+// InstallShatterProgram installs a simple shatter program (AND, A&^B, B&^A, HALT).
+func (value *Value) InstallShatterProgram() {
+	// Tick 0: AND (shared label)
+	value.SetProgramOp(0, 0b1000)
+	// Tick 1: A AND NOT B
+	value.SetProgramOp(1, 0b0010)
+	// Tick 2: B AND NOT A
+	value.SetProgramOp(2, 0b0100)
+	// Tick 3: HALT
+	value.SetProgramOp(3, 0b0000)
 }

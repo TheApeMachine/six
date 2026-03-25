@@ -59,4 +59,10 @@ type EventData struct {
 	Chunks int `json:"chunks,omitempty"`
 
 	ActiveBits []int `json:"activeBits,omitempty"`
+
+	NodeID     uint64 `json:"nodeId,omitempty"`
+	NodeTokens string `json:"nodeTokens,omitempty"`
+	NodeType   string `json:"nodeType,omitempty"`
+	FromID     uint64 `json:"fromId,omitempty"`
+	ToID       uint64 `json:"toId,omitempty"`
 }

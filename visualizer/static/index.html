@@ -209,6 +209,48 @@
       text-transform: uppercase; letter-spacing: 2px; z-index: 100;
     }
 
+    /* ── Graph Panel ──────────────────────────────────────── */
+    #graph-panel {
+      position: absolute; top: 16px; left: 50%;
+      transform: translateX(-50%);
+      width: 60vw; max-width: 900px; height: 50vh; max-height: 560px;
+      z-index: 150; pointer-events: auto;
+      padding: 0; overflow: hidden;
+      display: none;
+    }
+    #graph-panel.visible { display: block; }
+    .graph-title {
+      font-size: 8px; font-weight: 500;
+      letter-spacing: 4px; text-transform: uppercase;
+      color: var(--bp-ink); padding: 10px 14px 6px;
+      border-bottom: 1px solid var(--bp-line-strong);
+    }
+    #graph-svg {
+      width: 100%; height: calc(100% - 30px);
+      display: block;
+    }
+    #graph-svg .graph-node {
+      cursor: default;
+    }
+    #graph-svg .node-label-bg {
+      rx: 3; ry: 3;
+    }
+    #graph-svg .node-label-text {
+      font-family: var(--bp-font); font-size: 10px;
+      dominant-baseline: central; text-anchor: middle;
+      fill: var(--bp-ink);
+    }
+    #graph-svg .node-id-text {
+      font-family: var(--bp-font); font-size: 7px;
+      dominant-baseline: central; text-anchor: middle;
+      fill: var(--bp-ink-dim);
+    }
+    #graph-svg .edge-line {
+      stroke: rgba(120, 180, 240, 0.35);
+      stroke-width: 1.5;
+      marker-end: url(#arrowhead);
+    }
+
     /* ── Replay Controls ──────────────────────────────────── */
     #replay-bar {
       position: absolute; bottom: 16px; left: 50%;
@@ -950,6 +992,19 @@
 
   <div id="density-label">Accum</div>
   <div id="density-bar" class="panel"><div id="density-fill" style="height: 0%"></div></div>
+
+  <div id="graph-panel" class="panel visible">
+    <div class="graph-title">Value Graph · Live Topology</div>
+    <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg">
+      <defs>
+        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
+          <polygon points="0 0, 8 3, 0 6" fill="rgba(120, 180, 240, 0.5)" />
+        </marker>
+      </defs>
+      <g id="graph-edges"></g>
+      <g id="graph-nodes"></g>
+    </svg>
+  </div>
 
   <div id="ingest-panel" class="panel">
     <div class="ingest-title">Ingest · Training Data</div>
@@ -2286,6 +2341,174 @@
           }
         }
       }
+
+      else if (ev.component === 'Backend') {
+        if (ev.action === 'AddNode') {
+          graphAddNode(d.nodeId, d.nodeTokens || '', d.nodeType || 'raw');
+          log(`Node #${d.nodeId} [${d.nodeTokens}] (${d.nodeType})`, 'fold', ev);
+        }
+        if (ev.action === 'AddEdge') {
+          graphAddEdge(d.fromId, d.toId);
+          log(`Edge ${d.fromId} → ${d.toId}`, 'fold', ev);
+        }
+      }
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // GRAPH RENDERER (2D SVG force-directed)
+    // ═══════════════════════════════════════════════════════════
+    const graphNodes = new Map();
+    const graphEdges = [];
+    const graphSvg = document.getElementById('graph-svg');
+    const graphEdgesG = document.getElementById('graph-edges');
+    const graphNodesG = document.getElementById('graph-nodes');
+
+    const NODE_COLORS = {
+      label:     { bg: 'rgba(255, 220, 140, 0.18)', border: 'rgba(255, 220, 140, 0.6)', text: 'rgba(255, 220, 140, 0.95)' },
+      remainder: { bg: 'rgba(120, 180, 240, 0.14)', border: 'rgba(120, 180, 240, 0.5)', text: 'rgba(180, 210, 255, 0.9)' },
+      raw:       { bg: 'rgba(140, 255, 200, 0.12)', border: 'rgba(140, 255, 200, 0.4)', text: 'rgba(140, 255, 200, 0.85)' },
+    };
+
+    function graphAddNode(id, tokens, type) {
+      if (graphNodes.has(id)) return;
+
+      const svgRect = graphSvg.getBoundingClientRect();
+      const w = svgRect.width || 800;
+      const h = svgRect.height || 500;
+
+      const existing = graphNodes.size;
+      const cols = Math.max(3, Math.ceil(Math.sqrt(graphNodes.size + 1) * 1.5));
+      const col = existing % cols;
+      const row = Math.floor(existing / cols);
+      const x = 80 + col * ((w - 160) / Math.max(cols - 1, 1));
+      const y = 60 + row * 80;
+
+      const node = { id, tokens, type, x, y, vx: 0, vy: 0 };
+      graphNodes.set(id, node);
+      graphRender();
+    }
+
+    function graphAddEdge(fromId, toId) {
+      if (graphEdges.some(e => e.from === fromId && e.to === toId)) return;
+      graphEdges.push({ from: fromId, to: toId });
+      graphRender();
+    }
+
+    function graphRender() {
+      graphEdgesG.innerHTML = '';
+      graphNodesG.innerHTML = '';
+
+      graphLayout();
+
+      for (const edge of graphEdges) {
+        const a = graphNodes.get(edge.from);
+        const b = graphNodes.get(edge.to);
+        if (!a || !b) continue;
+
+        const dx = b.x - a.x, dy = b.y - a.y;
+        const dist = Math.sqrt(dx * dx + dy * dy) || 1;
+        const ox = (dx / dist) * 14;
+        const oy = (dy / dist) * 14;
+
+        const line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+        line.setAttribute('x1', a.x + ox);
+        line.setAttribute('y1', a.y + oy);
+        line.setAttribute('x2', b.x - ox);
+        line.setAttribute('y2', b.y - oy);
+        line.setAttribute('class', 'edge-line');
+        graphEdgesG.appendChild(line);
+      }
+
+      for (const [id, node] of graphNodes) {
+        const colors = NODE_COLORS[node.type] || NODE_COLORS.raw;
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'graph-node');
+
+        const label = node.tokens || `#${id}`;
+        const textW = Math.max(label.length * 7, 30) + 16;
+        const textH = 32;
+
+        const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
+        rect.setAttribute('x', node.x - textW / 2);
+        rect.setAttribute('y', node.y - textH / 2);
+        rect.setAttribute('width', textW);
+        rect.setAttribute('height', textH);
+        rect.setAttribute('fill', colors.bg);
+        rect.setAttribute('stroke', colors.border);
+        rect.setAttribute('stroke-width', '1');
+        rect.setAttribute('class', 'node-label-bg');
+        g.appendChild(rect);
+
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', node.x);
+        text.setAttribute('y', node.y - 4);
+        text.setAttribute('class', 'node-label-text');
+        text.setAttribute('fill', colors.text);
+        text.textContent = label;
+        g.appendChild(text);
+
+        const idText = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        idText.setAttribute('x', node.x);
+        idText.setAttribute('y', node.y + 10);
+        idText.setAttribute('class', 'node-id-text');
+        idText.textContent = `id:${id}`;
+        g.appendChild(idText);
+
+        graphNodesG.appendChild(g);
+      }
+    }
+
+    function graphLayout() {
+      if (graphNodes.size <= 1) return;
+
+      const svgRect = graphSvg.getBoundingClientRect();
+      const W = svgRect.width || 800;
+      const H = svgRect.height || 500;
+      const nodes = [...graphNodes.values()];
+
+      for (let iter = 0; iter < 50; iter++) {
+        for (const n of nodes) { n.fx = 0; n.fy = 0; }
+
+        for (let i = 0; i < nodes.length; i++) {
+          for (let j = i + 1; j < nodes.length; j++) {
+            let dx = nodes[j].x - nodes[i].x;
+            let dy = nodes[j].y - nodes[i].y;
+            let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+            let repulsion = 8000 / (dist * dist);
+            let fx = (dx / dist) * repulsion;
+            let fy = (dy / dist) * repulsion;
+            nodes[i].fx -= fx; nodes[i].fy -= fy;
+            nodes[j].fx += fx; nodes[j].fy += fy;
+          }
+        }
+
+        for (const edge of graphEdges) {
+          const a = graphNodes.get(edge.from);
+          const b = graphNodes.get(edge.to);
+          if (!a || !b) continue;
+          let dx = b.x - a.x, dy = b.y - a.y;
+          let dist = Math.sqrt(dx * dx + dy * dy) || 1;
+          let attraction = (dist - 120) * 0.05;
+          let fx = (dx / dist) * attraction;
+          let fy = (dy / dist) * attraction;
+          a.fx += fx; a.fy += fy;
+          b.fx -= fx; b.fy -= fy;
+        }
+
+        for (const n of nodes) {
+          n.x += Math.max(-10, Math.min(10, n.fx));
+          n.y += Math.max(-10, Math.min(10, n.fy));
+          n.x = Math.max(60, Math.min(W - 60, n.x));
+          n.y = Math.max(30, Math.min(H - 30, n.y));
+        }
+      }
+    }
+
+    function graphClear() {
+      graphNodes.clear();
+      graphEdges.length = 0;
+      graphEdgesG.innerHTML = '';
+      graphNodesG.innerHTML = '';
     }
 
     // ═══════════════════════════════════════════════════════════

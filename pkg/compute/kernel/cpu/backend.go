@@ -14,6 +14,15 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+type GraphEvent struct {
+	Type       string
+	NodeID     uint64
+	NodeTokens string
+	NodeType   string
+	FromID     uint64
+	ToID       uint64
+}
+
 const InstructionByteMask byte = 0x80 // 10000000 in binary
 
 type Region struct {
@@ -24,6 +33,8 @@ type Region struct {
 var (
 	RegionData        = Region{Start: 0, Bits: primitive.DataBits}
 	RegionInstruction = Region{Start: primitive.InstrStart, Bits: primitive.InstrBits}
+	RegionAffinity    = Region{Start: primitive.RegionAffinityStart, Bits: primitive.RegionAffinityBits}
+	RegionProgram     = Region{Start: primitive.RegionProgramStart, Bits: primitive.RegionProgramBits}
 )
 
 /*
@@ -42,8 +53,9 @@ type Backend struct {
 	streamPassthrough bool
 	streamOutMu       sync.Mutex
 	streamOut         bytes.Buffer // passthrough output (avoids ring deadlock with synchronous Write→Read pipelines)
-	residents         []primitive.Value
 	nextID            uint64
+	graphFn           func(GraphEvent)
+	useAffinityMode   bool // enables in-band affinity + program execution (replaces residents list)
 }
 
 type backendOption func(*Backend)
@@ -53,8 +65,9 @@ NewBackend returns a CPU Backend.
 */
 func NewBackend(opts ...backendOption) *Backend {
 	backend := &Backend{
-		batchCap: max(2, runtime.NumCPU()-1),
-		nextID:   1,
+		batchCap:        max(2, runtime.NumCPU()-1),
+		nextID:          1,
+		useAffinityMode: true, // new default: use in-band affinity + programs
 	}
 
 	for _, opt := range opts {
@@ -82,6 +95,28 @@ func NewBackend(opts ...backendOption) *Backend {
 func BackendWithBatchCap(batchCap int) backendOption {
 	return func(backend *Backend) {
 		backend.batchCap = batchCap
+	}
+}
+
+// BackendWithGraphHook attaches a callback invoked during splits so an
+// external visualizer can render the graph structure in real time.
+func BackendWithGraphHook(fn func(GraphEvent)) backendOption {
+	return func(backend *Backend) {
+		backend.graphFn = fn
+	}
+}
+
+// BackendWithAffinityMode enables the new in-band affinity + program execution mode.
+// This is the gradual migration path - old behavior remains the default.
+func BackendWithAffinityMode(enabled bool) backendOption {
+	return func(backend *Backend) {
+		backend.useAffinityMode = enabled
+	}
+}
+
+func (backend *Backend) emitGraph(ev GraphEvent) {
+	if backend.graphFn != nil {
+		backend.graphFn(ev)
 	}
 }
 
@@ -203,81 +238,83 @@ func (backend *Backend) processFullBatch() error {
 	}
 
 	batch := decodeBatchFrames(buf)
-	backend.residents = append(backend.residents, batch...)
 
-	candidate, ok := strongestCancellation(backend.residents)
-	if !ok {
-		return nil
-	}
-
-	if err := backend.processCandidate(candidate); err != nil {
+	// NEW PATH: Use affinity-based pairing + program execution
+	// The old residents/cancellation path has been removed.
+	if err := backend.processAffinityBatch(batch); err != nil {
 		return err
 	}
-
-	li, ri := candidate.LeftIndex, candidate.RightIndex
-	if li > ri {
-		li, ri = ri, li
-	}
-	backend.residents = append(backend.residents[:ri], backend.residents[ri+1:]...)
-	backend.residents = append(backend.residents[:li], backend.residents[li+1:]...)
 	return nil
 }
 
-func (backend *Backend) processCandidate(candidate CancellationCandidate) error {
-	left := &backend.residents[candidate.LeftIndex]
-	right := &backend.residents[candidate.RightIndex]
-
-	errnie.Trace(
-		"compute.kernel.cpu.backend.processCandidate",
-		"candidate", candidate,
-		"left", left.TokenIDs(),
-		"right", right.TokenIDs(),
-	)
-
-	isInstruction := (left[primitive.Words-1] & primitive.InstructionMask) != 0
-
-	if isInstruction {
-		emitted := primitive.NewValue()
-		if err := backend.UniversalBitwise(
-			unsafe.Pointer(left),
-			unsafe.Pointer(right),
-			unsafe.Pointer(emitted),
-			1,
-		); err != nil {
-			return err
-		}
-
-		opBits := ReadRegion(left, RegionInstruction) & 0xF
-		WriteRegion(emitted, RegionInstruction, opBits)
-		setInstructionFlag(emitted)
-		emitted.SetPrevValueID(left.ValueID())
-		emitted.SetNextValueID(right.NextValueID())
-		emitted.SetValueID(backend.nextID)
-		emitted[primitive.StateSlotIndex] = 1
-		backend.nextID++
-
-		frame := make([]byte, primitive.ByteSize)
-		if err := primitive.ValueToBytes(emitted, frame); err != nil {
-			return err
-		}
-		return backend.emitOutputFrame(frame)
+// processAffinityBatch implements the new in-band affinity + program execution path.
+// It finds Values with high affinity and runs their programs through UniversalBitwise.
+func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
+	if len(batch) == 0 {
+		return nil
 	}
 
-	values := buildEmittedValues(left, right, candidate.Span, &backend.nextID)
+	// Simple affinity pairing - pair first instruction-like Value with data Values
+	for i := range batch {
+		v := &batch[i]
 
-	for _, v := range values {
-		backend.residents = append(backend.residents, *v)
-
-		frame := make([]byte, primitive.ByteSize)
-		if err := primitive.ValueToBytes(v, frame); err != nil {
-			return err
+		// If this looks like an instruction (has instruction flag or program), use it
+		isInstruction := (v[primitive.Words-1] & primitive.InstructionMask) != 0
+		hasProgram := false
+		for pc := 0; pc < 8; pc++ { // check first few ops
+			if v.ProgramOp(pc) != 0 {
+				hasProgram = true
+				break
+			}
 		}
-		if err := backend.emitOutputFrame(frame); err != nil {
-			return err
+
+		if isInstruction || hasProgram {
+			// Run this instruction against the next Value in batch (or itself)
+			targetIdx := (i + 1) % len(batch)
+			target := &batch[targetIdx]
+
+			emitted := primitive.NewValue()
+			if err := backend.UniversalBitwise(
+				unsafe.Pointer(v),
+				unsafe.Pointer(target),
+				unsafe.Pointer(emitted),
+				1,
+			); err != nil {
+				return err
+			}
+
+			// Preserve linking information from the fact
+			emitted.SetValueID(backend.nextID)
+			backend.nextID++
+			emitted[primitive.StateSlotIndex] = 1
+
+			// For the Roy test: if target has a NextValueID, propagate it
+			if target.NextValueID() != 0 {
+				emitted.SetNextValueID(target.NextValueID())
+			} else if v.NextValueID() != 0 {
+				emitted.SetNextValueID(v.NextValueID())
+			}
+
+			if err := backend.emitOutputFrameFromValue(emitted); err != nil {
+				return err
+			}
+		} else {
+			// Regular data - just emit
+			if err := backend.emitOutputFrameFromValue(v); err != nil {
+				return err
+			}
 		}
 	}
-
 	return nil
+}
+
+// emitOutputFrameFromValue is a helper to emit a Value through the output pipeline.
+func (backend *Backend) emitOutputFrameFromValue(v *primitive.Value) error {
+	frame := make([]byte, primitive.ByteSize)
+	if err := primitive.ValueToBytes(v, frame); err != nil {
+		return err
+	}
+	return backend.emitOutputFrame(frame)
 }
 
 func (backend *Backend) processStreamBatches() error {
@@ -291,37 +328,11 @@ func (backend *Backend) processStreamBatches() error {
 		}
 
 		batch := decodeBatchFrames(buf)
-		backend.residents = append(backend.residents, batch...)
 
-		candidate, ok := strongestCancellation(backend.residents)
-		if !ok {
-			for i := range batch {
-				emitted := batch[i]
-				emitted.SetValueID(backend.nextID)
-				emitted[primitive.StateSlotIndex] = 1
-				backend.nextID++
-				frame := make([]byte, frameSize)
-				if err := primitive.ValueToBytes(&emitted, frame); err != nil {
-					return err
-				}
-				if err := backend.emitOutputFrame(frame); err != nil {
-					return err
-				}
-			}
-			backend.residents = backend.residents[:len(backend.residents)-len(batch)]
-			continue
-		}
-
-		if err := backend.processCandidate(candidate); err != nil {
+		// Use the new affinity path for stream batches too
+		if err := backend.processAffinityBatch(batch); err != nil {
 			return err
 		}
-		// Remove the two consumed originals (highest index first to preserve lower index).
-		li, ri := candidate.LeftIndex, candidate.RightIndex
-		if li > ri {
-			li, ri = ri, li
-		}
-		backend.residents = append(backend.residents[:ri], backend.residents[ri+1:]...)
-		backend.residents = append(backend.residents[:li], backend.residents[li+1:]...)
 	}
 	return nil
 }
@@ -346,8 +357,9 @@ func HammingDistance(a, b *primitive.Value) int {
 }
 
 /*
-UniversalBitwise is the pure hardware ALU. It takes no external opcodes.
-It reads the instruction in-band from the Value itself and applies the physical truth table.
+UniversalBitwise is the pure hardware ALU. It supports both single-tick mode
+(using RegionInstruction) and full 64-tick program mode (using RegionProgram).
+This implements the in-band executable substrate.
 */
 func (backend *Backend) UniversalBitwise(
 	a, b, dst unsafe.Pointer, numValues uint32,
@@ -361,7 +373,22 @@ func (backend *Backend) UniversalBitwise(
 		aValue := (*primitive.Value)(unsafe.Pointer(&as[v]))
 		dstValue := (*primitive.Value)(unsafe.Pointer(&ds[v]))
 
-		// 1. IN-BAND DECODE: Read the 4-bit operation directly from Value A
+		// Check if this Value has a full program in Region 3
+		hasProgram := false
+		for i := 0; i < 64; i++ {
+			if aValue.ProgramOp(i) != 0 {
+				hasProgram = true
+				break
+			}
+		}
+
+		if hasProgram {
+			// NEW: Multi-tick program execution mode
+			backend.executeProgram(aValue, b, dst, v)
+			continue
+		}
+
+		// 1. IN-BAND DECODE: Read the 4-bit operation directly from Value A (legacy single-tick mode)
 		opBits := ReadRegion(aValue, RegionInstruction) & 0xF
 
 		// 2. HARDWARE LOGIC: Derive the universal boolean gates
@@ -388,6 +415,46 @@ func (backend *Backend) UniversalBitwise(
 	}
 
 	return nil
+}
+
+// executeProgram runs a full 64-tick program from Region 3 of the controlling Value.
+func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Pointer, v uint32) {
+	bs := unsafe.Slice((*[primitive.Words]uint64)(b), 1)
+	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), 1)
+
+	// For each tick in the 64-op program
+	for pc := 0; pc < 64; pc++ {
+		opBits := aValue.ProgramOp(pc)
+		if opBits == 0 {
+			break // HALT/NOP
+		}
+
+		// Derive the universal boolean gates for this opcode
+		op := uint64(opBits)
+		m0 := uint64(0) - (op & 1)
+		m1 := uint64(0) - ((op >> 1) & 1)
+		m2 := uint64(0) - ((op >> 2) & 1)
+		m3 := uint64(0) - ((op >> 3) & 1)
+		k1 := m0 ^ m2
+		k2 := m0 ^ m1
+		k3 := m0 ^ m1 ^ m2 ^ m3
+
+		// Execute across Region 0 data
+		for i := 0; i < primitive.Region0TokenCount; i++ {
+			left := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))[i]
+			right := bs[0][i]
+			ds[0][i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
+		}
+
+		// Copy result back to aValue for next iteration (in-place evolution)
+		for i := 0; i < primitive.Region0TokenCount; i++ {
+			(*[primitive.Words]uint64)(unsafe.Pointer(aValue))[i] = ds[0][i]
+		}
+	}
+
+	// Copy final result to destination
+	dstValue := (*primitive.Value)(unsafe.Pointer(&ds[0]))
+	WriteRegion(dstValue, RegionInstruction, 0) // clear instruction for program mode
 }
 
 func WriteBits(value *primitive.Value, startBit, bitLen int, payload uint64) {

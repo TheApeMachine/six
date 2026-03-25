@@ -21,33 +21,36 @@ var (
 	vizColumn   string
 	vizIters    int
 	vizDelay    time.Duration
+	vizListen   bool
 )
 
 var vizCmd = &cobra.Command{
 	Use:   "viz",
 	Short: "Run the 3D substrate visualizer with live telemetry",
-	Long: `Starts the HTTP/WebSocket visualizer and runs the experiment substrate loop
-(dataset -> Value chamber -> CPU kernel) so you can inspect human-readable state
-in the browser. Requires network access to fetch the Hugging Face dataset on first run.`,
+	Long: `Starts the HTTP/WebSocket visualizer and optionally runs the experiment
+substrate loop. Use --listen to skip the dataset loop and only serve the UI,
+accepting graph events via UDP from external test runs.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		srv := visualizer.NewServer()
 
 		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 		defer stop()
 
-		go func() {
-			err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
-				Repo:       vizRepo,
-				Subset:     vizSubset,
-				TextColumn: vizColumn,
-				Iterations: vizIters,
-				StepDelay:  vizDelay,
-			})
+		if !vizListen {
+			go func() {
+				err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
+					Repo:       vizRepo,
+					Subset:     vizSubset,
+					TextColumn: vizColumn,
+					Iterations: vizIters,
+					StepDelay:  vizDelay,
+				})
 
-			if err != nil && ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
-			}
-		}()
+				if err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
+				}
+			}()
+		}
 
 		go func() {
 			<-ctx.Done()
@@ -59,7 +62,12 @@ in the browser. Requires network access to fetch the Hugging Face dataset on fir
 			udpHint = vizUDPAddr
 		}
 
-		fmt.Fprintf(os.Stderr, "visualizer http://%s  (UDP %s for external JSON telemetry)\n", vizHTTPAddr, udpHint)
+		mode := "substrate"
+		if vizListen {
+			mode = "listen-only (send events via UDP)"
+		}
+
+		fmt.Fprintf(os.Stderr, "visualizer http://%s  (UDP %s)  mode=%s\n", vizHTTPAddr, udpHint, mode)
 
 		err := srv.ListenAndServe(vizHTTPAddr, vizUDPAddr)
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -73,6 +81,7 @@ in the browser. Requires network access to fetch the Hugging Face dataset on fir
 func init() {
 	vizCmd.Flags().StringVar(&vizHTTPAddr, "http", ":8257", "HTTP listen address")
 	vizCmd.Flags().StringVar(&vizUDPAddr, "udp", "", "UDP listen address (default: http port+1)")
+	vizCmd.Flags().BoolVar(&vizListen, "listen", false, "Listen-only mode: skip substrate loop, just serve UI and accept UDP events")
 	vizCmd.Flags().StringVar(&vizRepo, "repo", "facebook/babi_qa", "Hugging Face dataset repo")
 	vizCmd.Flags().StringVar(&vizSubset, "subset", "en-10k-qa1", "dataset subset / config")
 	vizCmd.Flags().StringVar(&vizColumn, "column", "story", "text column to stream")
