@@ -36,6 +36,10 @@ func decodeBatchFrames(batch []byte) []primitive.Value {
 }
 
 func strongestCancellation(values []primitive.Value) (CancellationCandidate, bool) {
+	if len(values) < 2 {
+		return CancellationCandidate{}, false
+	}
+
 	workers := max(1, min(len(values), runtime.NumCPU()-1))
 	type result struct {
 		candidate CancellationCandidate

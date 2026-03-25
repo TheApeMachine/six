@@ -359,7 +359,7 @@ func (dataset *Dataset) finishCacheLoad(tokens []byte, ok bool) {
 	}
 
 	dataset.cacheLoading = false
-	errnie.Info("huggingface.dataset.finishCacheLoad", "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "ok", ok)
+	errnie.Debug("huggingface.dataset.finishCacheLoad", "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "ok", ok)
 	dataset.cacheCond.Broadcast()
 }
 

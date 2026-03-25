@@ -5,6 +5,38 @@ import (
 	"io"
 )
 
+// DrainWriter wraps an io.Writer so each Write(p) call loops until all of p is
+// accepted or the inner writer errors. Use this when composing *primitive.Value
+// (or similar) with io.MultiWriter or io.Copy: those require nw == len(p) on
+// success, while Value.Write may return a smaller n at chunk boundaries without error.
+type DrainWriter struct {
+	W io.Writer
+}
+
+func (d DrainWriter) Write(p []byte) (int, error) {
+	if d.W == nil {
+		if len(p) == 0 {
+			return 0, nil
+		}
+		return 0, io.ErrShortWrite
+	}
+	if len(p) == 0 {
+		return 0, nil
+	}
+	total := 0
+	for total < len(p) {
+		n, err := d.W.Write(p[total:])
+		total += n
+		if err != nil {
+			return total, err
+		}
+		if n == 0 {
+			return total, io.ErrShortWrite
+		}
+	}
+	return total, nil
+}
+
 /*
 Feedback implements a bidirectional data flow mechanism that allows simultaneous forward
 and backward streaming of data in a workflow pipeline. It wraps io.ReadWriter and io.Writer

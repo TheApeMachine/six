@@ -133,26 +133,36 @@ func NewValue() *Value {
 }
 
 /*
-Read implements io.Reader. It serializes the Value's physical 1024-byte frame
-so it can be piped into the Backend or the feedback loop.
+Read implements io.Reader. It copies the Value's physical frame into p without
+mutating the Value (read-only semantics).
 */
 func (value *Value) Read(p []byte) (int, error) {
-	// If the Value is physically empty, return EOF immediately
 	if value[StateSlotIndex] == 0 {
 		return 0, io.EOF
 	}
 
 	valueTo(value, p)
 
-	// Save the NextValueID to become the new ValueID
+	return ByteSize, io.EOF
+}
+
+/*
+Consume serializes the frame into p, promotes NextValueID to ValueID, and clears
+the words for pipeline reuse (previous Read behavior).
+*/
+func (value *Value) Consume(p []byte) (int, error) {
+	if value[StateSlotIndex] == 0 {
+		return 0, io.EOF
+	}
+
+	valueTo(value, p)
+
 	nextID := value.NextValueID()
 
-	// Reset the physical state so the Value can be reused in the pipeline
-	for i := 0; i < Words; i++ {
+	for i := range Words {
 		value[i] = 0
 	}
 
-	// Set the new ValueID
 	value.SetValueID(nextID)
 
 	return ByteSize, io.EOF
@@ -179,7 +189,14 @@ func (value *Value) Write(p []byte) (int, error) {
 		// Stop if Region 0 is physically full.
 		if slot >= Region0TokenCount {
 			value.SetNextValueID(nextGlobalValueID())
-			return len(p), nil
+			if bytesConsumed == 0 {
+				// Value already holds Region0TokenCount tokens; no byte from this
+				// Write can be accepted. Report len(p) so io.Copy / copyChain do not
+				// treat (0, nil) as ErrShortWrite. Callers must rotate or flush the
+				// Value; remainder of p is not stored (same as historical behavior).
+				return len(p), nil
+			}
+			return bytesConsumed, nil
 		}
 
 		token := Tokenize(b, seqIndex)
@@ -205,7 +222,7 @@ func (value *Value) Write(p []byte) (int, error) {
 			// The memory holds a different path. We break immediately.
 			// The pipeline will take the unconsumed bytes and feed them
 			// into a new Value.
-			return len(p), nil
+			return bytesConsumed, nil
 		}
 
 		// 4. THE SIGNAL (Organic Boundaries)
@@ -218,7 +235,7 @@ func (value *Value) Write(p []byte) (int, error) {
 			// Generate a new ValueID and set it as the NextValueID
 			value.SetNextValueID(nextGlobalValueID())
 
-			return len(p), nil
+			return bytesConsumed, nil
 		} else {
 			value[StateSeqIndex] = seqIndex + 1
 		}
@@ -229,7 +246,7 @@ func (value *Value) Write(p []byte) (int, error) {
 		value[StateAccumulator] = accumulator
 	}
 
-	return len(p), nil
+	return bytesConsumed, nil
 }
 
 /*
@@ -330,6 +347,19 @@ ValueToBytes writes the Value's 1024-byte frame into p.
 */
 func ValueToBytes(v *Value, p []byte) error {
 	valueTo(v, p)
+	return nil
+}
+
+/*
+ApplyWireFrame copies a single serialized 1024-byte frame into the Value (the inverse
+of ValueToBytes). Use this for bulk frame transfer; Value.Write tokenizes a byte
+stream and is not appropriate for raw wire frames.
+*/
+func (v *Value) ApplyWireFrame(p []byte) error {
+	if len(p) != ByteSize {
+		return fmt.Errorf("primitive: wire frame length %d, want %d", len(p), ByteSize)
+	}
+	valueFrom(p, v)
 	return nil
 }
 

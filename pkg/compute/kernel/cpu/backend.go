@@ -1,9 +1,12 @@
 package cpu
 
 import (
+	"bytes"
+	"fmt"
 	"io"
 	"math/bits"
 	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/smallnest/ringbuffer"
@@ -37,6 +40,8 @@ type Backend struct {
 	outRb             *ringbuffer.RingBuffer
 	batchCap          int
 	streamPassthrough bool
+	streamOutMu       sync.Mutex
+	streamOut         bytes.Buffer // passthrough output (avoids ring deadlock with synchronous Write→Read pipelines)
 	residents         []primitive.Value
 	nextID            uint64
 }
@@ -98,6 +103,15 @@ func Available() int {
 }
 
 func (backend *Backend) Read(p []byte) (n int, err error) {
+	if backend.streamPassthrough {
+		backend.streamOutMu.Lock()
+		defer backend.streamOutMu.Unlock()
+		if backend.streamOut.Len() == 0 {
+			return 0, io.EOF
+		}
+		return backend.streamOut.Read(p)
+	}
+
 	if backend.outRb.Length() == 0 {
 		return 0, io.EOF
 	}
@@ -116,20 +130,54 @@ func (backend *Backend) Read(p []byte) (n int, err error) {
 	return n, err
 }
 
+func (backend *Backend) emitOutputFrame(frame []byte) error {
+	if backend.streamPassthrough {
+		backend.streamOutMu.Lock()
+		_, err := backend.streamOut.Write(frame)
+		backend.streamOutMu.Unlock()
+		return err
+	}
+	_, err := backend.outPw.Write(frame)
+	return err
+}
+
 func (backend *Backend) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 
-	if n, err = backend.pw.Write(p); errnie.Error(err) != nil {
-		return 0, err
+	// copyChain uses a large buffer; pw.Write blocks when the ring is full until a
+	// reader drains, but draining only happens in processAvailableBatch on this
+	// goroutine. Chunk by Free() and drain between chunks so we never block inside
+	// pw.Write with no other code able to call processAvailableBatch.
+	total := 0
+	for len(p) > 0 {
+		if err := backend.processAvailableBatch(); err != nil {
+			return total, err
+		}
+		free := backend.rb.Free()
+		if free == 0 {
+			return total, fmt.Errorf("cpu.backend: input ring full after drain (len=%d cap=%d)", backend.rb.Length(), backend.rb.Capacity())
+		}
+		chunk := p
+		if len(chunk) > free {
+			chunk = p[:free]
+		}
+		var nw int
+		nw, err = backend.pw.Write(chunk)
+		total += nw
+		if errnie.Error(err) != nil {
+			return total, err
+		}
+		if nw == 0 && len(p) > 0 {
+			return total, io.ErrShortWrite
+		}
+		p = p[nw:]
+		if err := backend.processAvailableBatch(); err != nil {
+			return total, err
+		}
 	}
-
-	if err := backend.processAvailableBatch(); err != nil {
-		return 0, err
-	}
-
-	return n, nil
+	return total, nil
 }
 
 func (backend *Backend) Close() error {
@@ -162,11 +210,15 @@ func (backend *Backend) processFullBatch() error {
 		return nil
 	}
 
+	return backend.processCandidate(candidate)
+}
+
+func (backend *Backend) processCandidate(candidate CancellationCandidate) error {
 	left := &backend.residents[candidate.LeftIndex]
 	right := &backend.residents[candidate.RightIndex]
 
 	errnie.Trace(
-		"compute.kernel.cpu.backend.processAvailableBatch",
+		"compute.kernel.cpu.backend.processCandidate",
 		"candidate", candidate,
 		"left", left.TokenIDs(),
 		"right", right.TokenIDs(),
@@ -205,8 +257,7 @@ func (backend *Backend) processFullBatch() error {
 		return err
 	}
 
-	_, err := backend.outPw.Write(frame)
-	return err
+	return backend.emitOutputFrame(frame)
 }
 
 func (backend *Backend) processStreamBatches() error {
@@ -233,59 +284,23 @@ func (backend *Backend) processStreamBatches() error {
 				if err := primitive.ValueToBytes(&emitted, frame); err != nil {
 					return err
 				}
-				if _, err := backend.outPw.Write(frame); err != nil {
+				if err := backend.emitOutputFrame(frame); err != nil {
 					return err
 				}
 			}
+			backend.residents = backend.residents[:len(backend.residents)-len(batch)]
 			continue
 		}
 
-		left := &backend.residents[candidate.LeftIndex]
-		right := &backend.residents[candidate.RightIndex]
-
-		errnie.Trace(
-			"compute.kernel.cpu.backend.processAvailableBatch",
-			"candidate", candidate,
-			"left", left.TokenIDs(),
-			"right", right.TokenIDs(),
-		)
-
-		isInstruction := (left[primitive.Words-1] & primitive.InstructionMask) != 0
-
-		var emitted *primitive.Value
-
-		if isInstruction {
-			emitted = primitive.NewValue()
-			if err := backend.UniversalBitwise(
-				unsafe.Pointer(left),
-				unsafe.Pointer(right),
-				unsafe.Pointer(emitted),
-				1,
-			); err != nil {
-				return err
-			}
-
-			opBits := ReadRegion(left, RegionInstruction) & 0xF
-			WriteRegion(emitted, RegionInstruction, opBits)
-			setInstructionFlag(emitted)
-			emitted.SetPrevValueID(left.ValueID())
-			emitted.SetNextValueID(right.ValueID())
-		} else {
-			emitted = buildEmittedValue(left, right, candidate.Span, backend.nextID)
-		}
-
-		emitted.SetValueID(backend.nextID)
-		emitted[primitive.StateSlotIndex] = 1
-		backend.nextID++
-
-		frame := make([]byte, frameSize)
-		if err := primitive.ValueToBytes(emitted, frame); err != nil {
+		if err := backend.processCandidate(candidate); err != nil {
 			return err
 		}
-
-		if _, err := backend.outPw.Write(frame); err != nil {
-			return err
+		li, ri := candidate.LeftIndex, candidate.RightIndex
+		if li > ri {
+			li, ri = ri, li
 		}
+		backend.residents = append(backend.residents[:ri], backend.residents[ri+1:]...)
+		backend.residents = append(backend.residents[:li], backend.residents[li+1:]...)
 	}
 	return nil
 }

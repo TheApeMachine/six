@@ -2,6 +2,7 @@ package errnie
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,6 +109,9 @@ func Logger() *ErrnieLogger {
 Read implements io.Reader.
 */
 func (logger *ErrnieLogger) Read(p []byte) (n int, err error) {
+	if logFile == nil {
+		return 0, io.EOF
+	}
 	return logFile.Read(p)
 }
 
@@ -115,6 +119,9 @@ func (logger *ErrnieLogger) Read(p []byte) (n int, err error) {
 Write implements io.Writer.
 */
 func (logger *ErrnieLogger) Write(p []byte) (n int, err error) {
+	if logFile == nil {
+		return 0, fmt.Errorf("no log file configured")
+	}
 	return logFile.Write(p)
 }
 
@@ -122,6 +129,9 @@ func (logger *ErrnieLogger) Write(p []byte) (n int, err error) {
 Close implements io.Closer.
 */
 func (logger *ErrnieLogger) Close() error {
+	if logFile == nil {
+		return nil
+	}
 	return logFile.Close()
 }
 
@@ -149,9 +159,8 @@ If the file cannot be opened, the line is written to stderr so output is
 never silently dropped.
 */
 func Trace(msg string, keyvals ...any) {
-	parts := append(keyvals, msg)
 	ensureTraceFile()
-	line := formatTraceLine(parts)
+	line := buildTraceLine(msg, keyvals)
 
 	if traceFile != nil {
 		writeTraceLine(line)
@@ -235,6 +244,20 @@ func writeToLog(msg ...any) {
 	}
 
 	appendLineToFile(&logFile, &logFileMu, msg)
+}
+
+// buildTraceLine formats a trace line as "msg k1=v1 k2=v2" for readability.
+func buildTraceLine(msg string, keyvals []any) string {
+	parts := make([]string, 0, 1+len(keyvals)/2+1)
+	parts = append(parts, msg)
+	for i := 0; i < len(keyvals); i += 2 {
+		if i+1 < len(keyvals) {
+			parts = append(parts, fmt.Sprintf("%v=%v", keyvals[i], keyvals[i+1]))
+		} else {
+			parts = append(parts, fmt.Sprintf("%v", keyvals[i]))
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func formatTraceLine(parts []any) string {

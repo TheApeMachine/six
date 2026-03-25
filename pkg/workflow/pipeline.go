@@ -4,6 +4,44 @@ import (
 	"io"
 )
 
+// copyChain moves bytes from src to dst. Unlike io.Copy, if dst.Write accepts
+// only a prefix of the buffer (n < len(p), err == nil) — as *primitive.Value does
+// at chunk boundaries — copyChain keeps calling Write with the remainder until the
+// batch is drained. io.Copy would return io.ErrShortWrite in that situation.
+func copyChain(dst io.Writer, src io.Reader) (written int64, err error) {
+	buf := make([]byte, 32*1024)
+	for {
+		var nr int
+		nr, err = src.Read(buf)
+		if nr > 0 {
+			chunk := buf[:nr]
+			for len(chunk) > 0 {
+				var nw int
+				nw, err = dst.Write(chunk)
+				if nw > 0 {
+					written += int64(nw)
+				}
+				if err != nil {
+					return written, err
+				}
+				if nw == 0 && len(chunk) > 0 {
+					return written, io.ErrShortWrite
+				}
+				chunk = chunk[nw:]
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return written, nil
+			}
+			return written, err
+		}
+		if nr == 0 {
+			return written, nil
+		}
+	}
+}
+
 /*
 Pipeline manages a chain of io.ReadWriteCloser components.
 
@@ -43,23 +81,27 @@ It reads from the first component and passes data through the pipeline.
 Returns EOF when no more data is available.
 */
 func (pipeline *Pipeline) Read(p []byte) (n int, err error) {
-	var nn int64
-
 	if len(pipeline.components) == 0 {
 		return 0, io.EOF
 	}
 
-	for i := range len(pipeline.components) - 1 {
-		nn, err = io.Copy(pipeline.components[i+1], pipeline.components[i])
-
-		n += int(nn)
-
-		if err != nil && err != io.EOF {
-			return n, err
+	if !pipeline.processed {
+		if ms, ok := pipeline.components[0].(*MergeSource); ok {
+			ms.SetAllowLoopReads(false)
 		}
+		for i := range len(pipeline.components) - 1 {
+			_, err = copyChain(pipeline.components[i+1], pipeline.components[i])
+			if err != nil && err != io.EOF {
+				return 0, err
+			}
+			if i == 0 {
+				if ms, ok := pipeline.components[0].(*MergeSource); ok {
+					ms.SetAllowLoopReads(true)
+				}
+			}
+		}
+		pipeline.processed = true
 	}
-
-	pipeline.processed = true
 
 	n, err = pipeline.components[len(pipeline.components)-1].Read(p)
 
@@ -93,7 +135,7 @@ func (pipeline *Pipeline) Write(p []byte) (n int, err error) {
 
 	// Flow data through remaining components
 	for i := 0; i < len(pipeline.components)-1; i++ {
-		_, err = io.Copy(pipeline.components[i+1], pipeline.components[i])
+		_, err = copyChain(pipeline.components[i+1], pipeline.components[i])
 		if err != nil && err != io.EOF {
 			return n, err
 		}

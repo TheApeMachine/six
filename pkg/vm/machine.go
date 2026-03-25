@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/theapemachine/six/pkg/compute"
@@ -26,6 +27,7 @@ type Machine struct {
 	prompt   io.ReadWriteCloser
 	source   *workflow.MergeSource
 	pipeline io.ReadWriter
+	pump     *workflow.Pump
 }
 
 /*
@@ -54,9 +56,13 @@ func NewMachine(opts ...machineOption) *Machine {
 	inner := workflow.NewPipeline(
 		machine.source,
 		primitive.NewValue(),
-		workflow.NewFeedback(machine.backend, io.MultiWriter(prompt, pump.Sink())),
+		workflow.NewFeedback(machine.backend, io.MultiWriter(
+			&valueFeedbackWriter{dst: prompt},
+			workflow.DrainWriter{W: pump.Sink()},
+		)),
 	)
 	pump.Attach(inner)
+	machine.pump = pump
 	machine.pipeline = pump
 
 	return machine
@@ -86,10 +92,24 @@ func (machine *Machine) Close() error {
 	if machine.cancel != nil {
 		machine.cancel()
 	}
-	if machine.dataset != nil {
-		return machine.dataset.Close()
+
+	var errs error
+	if machine.pump != nil {
+		if err := machine.pump.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
 	}
-	return nil
+	if machine.backend != nil {
+		if err := machine.backend.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+	if machine.dataset != nil {
+		if err := machine.dataset.Close(); err != nil {
+			errs = errors.Join(errs, err)
+		}
+	}
+	return errs
 }
 
 func WithContext(ctx context.Context) machineOption {
@@ -110,4 +130,29 @@ func WithDataset(dataset io.ReadCloser) machineOption {
 		m.dataset = dataset
 		m.source.SetDataset(dataset)
 	}
+}
+
+// valueFeedbackWriter buffers bytes from Feedback's tee until full wire frames
+// are available, then applies each via ApplyWireFrame. Backend output is
+// serialized Value frames, not a raw byte stream for Value.Write (which would
+// tokenize frame bytes and can hit divergence or chunk boundaries and report
+// partial counts to io.MultiWriter).
+type valueFeedbackWriter struct {
+	dst *primitive.Value
+	buf []byte
+}
+
+func (w *valueFeedbackWriter) Write(p []byte) (int, error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	w.buf = append(w.buf, p...)
+	for len(w.buf) >= primitive.ByteSize {
+		frame := w.buf[:primitive.ByteSize]
+		w.buf = w.buf[primitive.ByteSize:]
+		if err := w.dst.ApplyWireFrame(frame); err != nil {
+			return 0, err
+		}
+	}
+	return len(p), nil
 }

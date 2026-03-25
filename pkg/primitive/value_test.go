@@ -28,6 +28,18 @@ func TestRead(t *testing.T) {
 			for w := range Words {
 				So(roundtrip[w], ShouldEqual, original[w])
 			}
+
+			So(value[StateSlotIndex], ShouldEqual, original[StateSlotIndex])
+		})
+
+		Convey("Consume resets the value after serialization", func() {
+			v := NewValue()
+			v[0] = 42
+			v[StateSlotIndex] = 1
+			n, err := v.Consume(buf)
+			So(n, ShouldEqual, ByteSize)
+			So(errors.Is(err, io.EOF), ShouldBeTrue)
+			So(v[StateSlotIndex], ShouldEqual, 0)
 		})
 
 	})
@@ -35,13 +47,32 @@ func TestRead(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	Convey("Given a Value", t, func() {
-		Convey("It should accept a short payload", func() {
+		Convey("It should accept a short payload and report bytes consumed accurately", func() {
 			value := NewValue()
-			short := []byte("hello")
-			n, err := value.Write(short)
+			want := []byte("hello")
+			rest := want
+			for len(rest) > 0 {
+				n, err := value.Write(rest)
+				So(err, ShouldBeNil)
+				So(n, ShouldBeGreaterThan, 0)
+				So(n, ShouldBeLessThanOrEqualTo, len(rest))
+				rest = rest[n:]
+			}
 
-			So(n, ShouldBeGreaterThan, 0)
-			So(err == nil || errors.Is(err, ErrChunkBoundary), ShouldBeTrue)
+			for i, b := range want {
+				tok := value.TokenID(i)
+				So(byte(tok>>32), ShouldEqual, b)
+			}
+
+			readBack := make([]byte, ByteSize)
+			_, rerr := value.Read(readBack)
+			So(errors.Is(rerr, io.EOF), ShouldBeTrue)
+			var decoded Value
+			valueFrom(readBack, &decoded)
+			for i, b := range want {
+				tok := decoded.TokenID(i)
+				So(byte(tok>>32), ShouldEqual, b)
+			}
 		})
 	})
 }

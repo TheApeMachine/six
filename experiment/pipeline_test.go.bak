@@ -20,7 +20,7 @@ func TestValueReaction(t *testing.T) {
 			vm.WithBackend(cpu.NewBackend(cpu.BackendWithStreamPassthrough())),
 			vm.WithDataset(huggingface.New(
 				huggingface.DatasetWithRepo("sh0416/ag_news"),
-				huggingface.DatasetWithSamples(10),
+				huggingface.DatasetWithSamples(100),
 				huggingface.DatasetWithSplit("train"),
 				huggingface.DatasetWithTextColumns("title", "description"),
 				huggingface.DatasetWithLabelColumn("label"),
