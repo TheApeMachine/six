@@ -1,6 +1,10 @@
 package workflow
 
-import "io"
+import (
+	"io"
+
+	"github.com/theapemachine/six/pkg/errnie"
+)
 
 type Seeder struct {
 	seed io.ReadCloser
@@ -10,11 +14,14 @@ func NewSeeder(seed io.ReadCloser) *Seeder {
 	return &Seeder{seed: seed}
 }
 
-func (s *Seeder) Read(p []byte) (n int, err error) {
-	return s.seed.Read(p)
+func (seeder *Seeder) Read(p []byte) (n int, err error) {
+	n, err = seeder.seed.Read(p)
+	errnie.Trace("workflow.seeder.Read", "n", n, "err", err)
+	return n, err
 }
 
-func (s *Seeder) Write(p []byte) (n int, err error) {
+func (seeder *Seeder) Write(p []byte) (n int, err error) {
+	errnie.Trace("workflow.seeder.Write", "p", string(p))
 	return 0, nil
 }
 

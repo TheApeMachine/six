@@ -102,13 +102,12 @@ func (o *Observer) measure(p []byte, n int) {
 		val := primitive.BytesToValue(p)
 
 		// Extract observability metrics directly from the topological frame
-		pressure := cpu.Popcount(val, primitive.StateStart, primitive.StateBits)
+		pressure := cpu.Popcount(val, primitive.StateSeqIndex, primitive.InstrBits)
 		instr := uint8(cpu.ReadRegion(val, cpu.RegionInstruction) & 0xF)
-		density := cpu.Popcount(val, 0, primitive.CoreBits)
+		density := cpu.Popcount(val, primitive.StateAccumulator, primitive.InstrBits)
 
 		o.lastInstr.Store(uint32(instr))
 		o.lastPressure.Store(int64(pressure))
 		o.lastDensity.Store(int64(density))
-		o.opsCount.Add(1)
 	}
 }

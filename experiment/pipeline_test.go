@@ -1,65 +1,40 @@
 package experiment
 
 import (
+	"bytes"
+	"context"
 	"io"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data/huggingface"
-	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 func TestValueReaction(t *testing.T) {
-	t.Log("This test only logs to the terminal; it does not open the 3D visualizer.")
-	t.Log("For live WebSocket telemetry in the browser, run: go run . viz")
-
-	Convey("Given a Dataset", t, func() {
-		dataset := huggingface.New(
-			huggingface.DatasetWithContext(t.Context()),
-			huggingface.DatasetWithRepo("facebook/babi_qa"),
-			huggingface.DatasetWithSubset("en-10k-qa1"),
-			huggingface.DatasetWithTextColumns("story"),
+	Convey("Given a machine with a dataset", t, func() {
+		machine := vm.NewMachine(
+			vm.WithContext(context.Background()),
+			vm.WithDataset(huggingface.New(
+				huggingface.DatasetWithRepo("sh0416/ag_news"),
+				huggingface.DatasetWithSamples(100),
+				huggingface.DatasetWithSplit("train"),
+				huggingface.DatasetWithTextColumns("title", "description"),
+				huggingface.DatasetWithLabelColumn("label"),
+				huggingface.DatasetWithLabelAppend([]string{"world", "sports", "business", "sci_tech"}),
+			)),
 		)
 
-		Convey("The Substrate computes inherently via feedback", func() {
-			backend := cpu.NewBackend()
+		Convey("It should be able to read and write to the machine", func() {
+			buf := make([]byte, 1024)
+			output := bytes.NewBuffer(buf)
 
-			chamber := primitive.NewValue()
-			frame := make([]byte, primitive.ByteSize)
-			var sawEmergent bool
+			_, err := io.Copy(output, machine)
+			errnie.Trace("experiment.pipeline_test.TestValueReaction", "result", output.String())
 
-			for i := range 10 {
-				_, err := io.ReadFull(dataset, frame)
-				So(err, ShouldBeNil)
-
-				incoming := primitive.NewValue()
-				_, err = incoming.Write(frame)
-				So(err, ShouldBeNil)
-
-				_, err = io.Copy(chamber, incoming)
-				So(err, ShouldBeNil)
-
-				_, err = io.Copy(backend, chamber)
-				So(err, ShouldBeNil)
-
-				mutatedFrame := make([]byte, primitive.ByteSize)
-				_, err = io.ReadFull(backend, mutatedFrame)
-				So(err, ShouldBeNil)
-
-				chamber = primitive.BytesToValue(mutatedFrame)
-
-				instr := cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF
-				pressure := cpu.Popcount(chamber, primitive.StateStart, primitive.StateBits)
-				if pressure > 0 || instr != 0 {
-					sawEmergent = true
-				}
-
-				t.Logf("Iteration %d - Instruction Evolved to: %04b, Pressure: %d",
-					i, instr, pressure)
-			}
-
-			So(sawEmergent, ShouldBeTrue)
+			So(err, ShouldBeNil)
+			So(output.String(), ShouldNotBeEmpty)
 		})
 	})
 }

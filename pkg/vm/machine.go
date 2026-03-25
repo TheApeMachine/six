@@ -19,11 +19,12 @@ Machine reduces boilerplate, but is not an essential part of the
 system's operational mechanics.
 */
 type Machine struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	dataset io.ReadCloser
-	backend io.ReadWriteCloser
-	prompt  io.ReadWriteCloser
+	ctx      context.Context
+	cancel   context.CancelFunc
+	dataset  io.ReadCloser
+	backend  io.ReadWriteCloser
+	prompt   io.ReadWriteCloser
+	pipeline io.ReadWriter
 }
 
 /*
@@ -37,43 +38,32 @@ NewMachine creates a new Machine with the given options.
 func NewMachine(opts ...machineOption) *Machine {
 	machine := &Machine{
 		backend: compute.NewBackend(),
+		prompt:  primitive.NewValue(),
 	}
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	reactor := workflow.NewPipeline(
+	machine.pipeline = workflow.NewPipeline(
 		workflow.NewSeeder(machine.dataset),
 		primitive.NewValue(),
 		machine.backend,
 	)
 
-	feedback := workflow.NewFeedback(reactor, machine.prompt)
-
-	go func() {
-		for {
-			select {
-			case <-machine.ctx.Done():
-				return
-			default:
-				if _, err := io.Copy(feedback, feedback); err != nil {
-					errnie.Error(err)
-					return
-				}
-			}
-		}
-	}()
-
 	return machine
 }
 
 func (machine *Machine) Read(p []byte) (n int, err error) {
-	return machine.prompt.Read(p)
+	n, err = machine.pipeline.Read(p)
+	errnie.Trace("vm.machine.Read", "n", n, "err", err)
+	return n, err
 }
 
 func (machine *Machine) Write(p []byte) (n int, err error) {
-	return machine.prompt.Write(p)
+	n, err = machine.pipeline.Write(p)
+	errnie.Trace("vm.machine.Write", "n", n, "err", err)
+	return n, err
 }
 
 func (machine *Machine) Close() error {
@@ -84,6 +74,12 @@ func (machine *Machine) Close() error {
 func WithContext(ctx context.Context) machineOption {
 	return func(m *Machine) {
 		m.ctx, m.cancel = context.WithCancel(ctx)
+	}
+}
+
+func WithBackend(backend io.ReadWriteCloser) machineOption {
+	return func(m *Machine) {
+		m.backend = backend
 	}
 }
 

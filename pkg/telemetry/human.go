@@ -51,12 +51,11 @@ func HumanDescribeValue(v *primitive.Value) string {
 
 	instr := uint8(cpu.ReadRegion(v, cpu.RegionInstruction) & 0xF)
 	dPop := cpu.Popcount(v, 0, primitive.DataBits)
-	oPop := cpu.Popcount(v, primitive.OperandStart, primitive.OperandBits)
-	aPop := cpu.Popcount(v, primitive.StateStart, primitive.StateBits)
+	oPop := cpu.Popcount(v, primitive.InstrStart, primitive.InstrBits)
 
 	return fmt.Sprintf(
-		"op=%s · popcount data=%d operand=%d state=%d",
-		TruthOpName(instr), dPop, oPop, aPop,
+		"op=%s · popcount data=%d instruction=%d",
+		TruthOpName(instr), dPop, oPop,
 	)
 }
 

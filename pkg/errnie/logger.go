@@ -17,6 +17,10 @@ var (
 	logFile   *os.File
 	logFileMu sync.Mutex
 
+	traceFile   *os.File
+	traceFileMu sync.Mutex
+	traceInitMu sync.Mutex
+
 	logger = log.NewWithOptions(os.Stderr, log.Options{
 		ReportCaller:    true,
 		CallerOffset:    16,
@@ -105,10 +109,25 @@ func Debug(msg string, keyvals ...any) {
 }
 
 /*
-Trace logs the trace message.
+Trace appends a line to a log file (default ./trace.log under the process
+working directory, so e.g. package-dir/trace.log when running `go test`).
+
+Override the path with env TRACE_LOG (absolute or relative to cwd).
+
+If the file cannot be opened, the line is written to stderr so output is
+never silently dropped.
 */
 func Trace(msg string, keyvals ...any) {
-	writeToLog(append(keyvals, msg)...)
+	parts := append(keyvals, msg)
+	ensureTraceFile()
+	line := formatTraceLine(parts)
+
+	if traceFile != nil {
+		writeTraceLine(line)
+		return
+	}
+
+	fmt.Fprintln(os.Stderr, line)
 }
 
 /*
@@ -136,31 +155,116 @@ func Error(err error, keyvals ...any) error {
 	return err
 }
 
+func ensureTraceFile() {
+	traceInitMu.Lock()
+	defer traceInitMu.Unlock()
+
+	if traceFile != nil {
+		return
+	}
+
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "errnie trace: getwd: %v\n", err)
+		logger.Warn("trace: failed to get working directory", "error", err)
+		return
+	}
+
+	path := os.Getenv("TRACE_LOG")
+	if path == "" {
+		path = filepath.Join(wd, "trace.log")
+	}
+
+	dir := filepath.Dir(path)
+	if dir != "." && dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			fmt.Fprintf(os.Stderr, "errnie trace: mkdir %q: %v\n", dir, err)
+			logger.Warn("trace: failed to create log directory", "error", err, "path", dir)
+			return
+		}
+	}
+
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "errnie trace: open %q: %v\n", path, err)
+		logger.Warn("trace: failed to open trace log", "error", err, "path", path)
+		return
+	}
+
+	traceFile = f
+	logger.Debug("Trace log initialized", "path", path)
+}
+
 /*
 writeToLog appends to the log file when LOGFILE=true.
 */
 func writeToLog(msg ...any) {
-	if len(msg) == 0 {
+	if logFile == nil {
 		return
 	}
 
-	logFileMu.Lock()
-	defer logFileMu.Unlock()
+	appendLineToFile(&logFile, &logFileMu, msg)
+}
 
-	var builder strings.Builder
+func formatTraceLine(parts []any) string {
+	if len(parts) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range parts {
+		b.WriteString(fmt.Sprintf("%v", p))
+	}
+	return b.String()
+}
 
-	for _, msg := range msg {
-		builder.WriteString(fmt.Sprintf("%v", msg))
+func writeTraceLine(line string) {
+	traceFileMu.Lock()
+	defer traceFileMu.Unlock()
+
+	if traceFile == nil {
+		return
 	}
 
-	formattedMessage := builder.String()
+	if line == "" {
+		line = "\n"
+	} else {
+		line += "\n"
+	}
 
-	_, err := logFile.WriteString(formattedMessage)
+	_, err := traceFile.WriteString(line)
+	if err != nil {
+		logger.Warn("trace: write failed", "error", err)
+		fmt.Fprintf(os.Stderr, "errnie trace: write: %v\n", err)
+		return
+	}
+
+	if syncErr := traceFile.Sync(); syncErr != nil {
+		logger.Warn("trace: sync failed", "error", syncErr)
+	}
+}
+
+func appendLineToFile(f **os.File, mu *sync.Mutex, parts []any) {
+	if len(parts) == 0 || *f == nil {
+		return
+	}
+
+	line := formatTraceLine(parts)
+	if line == "" {
+		line = "\n"
+	} else {
+		line += "\n"
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+
+	_, err := (*f).WriteString(line)
 	if err != nil {
 		logger.Warn("Failed to write to log file", "error", err)
+		return
 	}
 
-	if syncErr := logFile.Sync(); syncErr != nil {
+	if syncErr := (*f).Sync(); syncErr != nil {
 		logger.Warn("Failed to sync log file", "error", syncErr)
 	}
 }
