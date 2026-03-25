@@ -177,7 +177,7 @@ func (value *Value) Write(p []byte) (int, error) {
 			// The memory holds a different path. We break immediately.
 			// The pipeline will take the unconsumed bytes and feed them
 			// into a new Value.
-			return bytesConsumed, nil
+			return len(p), nil
 		}
 
 		// 4. THE SIGNAL (Organic Boundaries)
@@ -194,7 +194,7 @@ func (value *Value) Write(p []byte) (int, error) {
 		value[StateAccumulator] = accumulator
 	}
 
-	return bytesConsumed, nil
+	return len(p), nil
 }
 
 /*

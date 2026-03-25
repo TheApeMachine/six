@@ -8,6 +8,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/vm"
 )
@@ -16,6 +17,7 @@ func TestValueReaction(t *testing.T) {
 	Convey("Given a machine with a dataset", t, func() {
 		machine := vm.NewMachine(
 			vm.WithContext(context.Background()),
+			vm.WithBackend(cpu.NewBackend()),
 			vm.WithDataset(huggingface.New(
 				huggingface.DatasetWithRepo("sh0416/ag_news"),
 				huggingface.DatasetWithSamples(100),
@@ -27,7 +29,7 @@ func TestValueReaction(t *testing.T) {
 		)
 
 		Convey("It should be able to read and write to the machine", func() {
-			buf := make([]byte, 1024)
+			buf := make([]byte, 0)
 			output := bytes.NewBuffer(buf)
 
 			_, err := io.Copy(output, machine)
