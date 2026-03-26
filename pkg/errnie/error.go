@@ -1,12 +1,17 @@
 package errnie
 
-import "errors"
+import (
+	"context"
+	"errors"
+)
 
 type ErrnieError struct {
-	Msg     string
-	Err     error
-	Op      string
-	Keyvals []any
+	Msg          string
+	Err          error
+	Op           string
+	Keyvals      []any
+	Reschedulable bool
+	Ctx          context.Context
 }
 
 func (err *ErrnieError) Error() string {
@@ -17,13 +22,23 @@ func (err *ErrnieError) Error() string {
 	return err.Msg
 }
 
-func Wrap(err error, keyvals ...any) error {
+func Wrap(err error, keyvals ...any) *ErrnieError {
 	return &ErrnieError{
 		Msg:     err.Error(),
 		Err:     err,
 		Op:      "",
 		Keyvals: keyvals,
 	}
+}
+
+func (err *ErrnieError) WithContext(ctx context.Context) *ErrnieError {
+	err.Ctx = ctx
+	return err
+}
+
+func (err *ErrnieError) WithReschedule() *ErrnieError {
+	err.Reschedulable = true
+	return err
 }
 
 func (err *ErrnieError) Unwrap() error {
@@ -36,4 +51,20 @@ func (err *ErrnieError) Is(target error) bool {
 
 func (err *ErrnieError) As(target any) bool {
 	return errors.As(err.Err, target)
+}
+
+func IsReschedulable(err error) bool {
+	var e *ErrnieError
+	if errors.As(err, &e) {
+		return e.Reschedulable
+	}
+	return false
+}
+
+func HasContext(err error) context.Context {
+	var e *ErrnieError
+	if errors.As(err, &e) {
+		return e.Ctx
+	}
+	return nil
 }

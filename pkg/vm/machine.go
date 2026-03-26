@@ -131,7 +131,7 @@ func (m *Machine) scheduleProcess(val *primitive.Value) *primitive.Value {
 			// Serialize without destroying the source value for safe retries
 			buffer := make([]byte, primitive.ByteSize)
 			if err := primitive.ValueToBytes(val, buffer); err != nil {
-				errnie.Error(errnie.Wrap(err, "vm.scheduleProcess", "stage", "serialize"))
+				errnie.Error(errnie.Wrap(err, "vm.scheduleProcess", "stage", "serialize").WithContext(m.ctx).WithReschedule())
 				retries++
 				continue
 			}
@@ -163,7 +163,7 @@ func (m *Machine) scheduleProcess(val *primitive.Value) *primitive.Value {
 			// Update value via the returned processed frame
 			res = primitive.NewValue()
 			if aErr := res.ApplyWireFrame(buffer); aErr != nil {
-				errnie.Error(errnie.Wrap(aErr, "vm.scheduleProcess", "stage", "apply_frame"))
+				errnie.Error(errnie.Wrap(aErr, "vm.scheduleProcess", "stage", "apply_frame").WithContext(m.ctx).WithReschedule())
 				retries++
 				continue
 			}
@@ -172,8 +172,17 @@ func (m *Machine) scheduleProcess(val *primitive.Value) *primitive.Value {
 		}
 
 		if res == nil {
-			errnie.Error(errors.New("exceeded max retries inside scheduleProcess"), "context", "zero_drop_rescue")
-			result = val // Rescue unmodified value to outChan rather than dropping
+			errnie.Error(errnie.Wrap(errors.New("exceeded max retries inside scheduleProcess"), "context", "zero_drop_rescue").WithContext(m.ctx).WithReschedule())
+			
+			// Reschedule directly to inChan to guarantee zero drop rate
+			go func() {
+				select {
+				case <-m.ctx.Done():
+				case m.inChan <- []*primitive.Value{val}:
+				}
+			}()
+			
+			result = nil // Returning nil ensures the Pipeline's Filter drops this from flowing to outChan
 		} else {
 			// Successful execution, return the value to the pool as we produced a new one
 			val.Close()
@@ -182,8 +191,14 @@ func (m *Machine) scheduleProcess(val *primitive.Value) *primitive.Value {
 	})
 
 	if err != nil {
-		errnie.Error(errnie.Wrap(err, "vm.scheduleProcess", "stage", "submit"))
-		return val // Rescue operation directly instead of dropping
+		errnie.Error(errnie.Wrap(err, "vm.scheduleProcess", "stage", "submit").WithContext(m.ctx).WithReschedule())
+		go func() {
+			select {
+			case <-m.ctx.Done():
+			case m.inChan <- []*primitive.Value{val}:
+			}
+		}()
+		return nil
 	}
 
 	wg.Wait()
@@ -203,7 +218,11 @@ func (m *Machine) Read(p []byte) (n int, err error) {
 			if !ok {
 				return 0, io.EOF
 			}
-			m.unread = append(m.unread, batch...)
+			for _, val := range batch {
+				if val != nil {
+					m.unread = append(m.unread, val)
+				}
+			}
 		default:
 			return 0, nil // Non-blocking if nothing ready
 		}
