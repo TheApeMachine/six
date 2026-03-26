@@ -22,23 +22,21 @@ These bits are partitioned into regions with distinct roles:
 	TokenIDs use the byte value and the sequence index:
 	(byte_value << 32) | sequence_index
 
-  	INSTRUCTION REGISTER (bits 3840–3843, 4 bits)
-    Encodes one of 16 truth-table operations as a 4-bit index (single-tick compat).
-
   	AFFINITY MASK (256 bits)
     Sparse bit-pattern used for fast topological clustering via bitwise AND.
 
   	PROGRAM REGISTER (256 bits)
-    64 × 4-bit instructions. When present, UniversalBitwise runs a full
-	64-tick program. 0b0000 = NOP/HALT (early exit).
+    8 × 32-bit VM instructions. Enables a Turing-complete 128-Registry RISC
+	processor capable of natively addressing and computing across the Value's
+	own memory to perform conditional logic and routing.
 
-  	EPHEMERAL LINKS + RESERVED FOR FUTURE USE
-    Used to form temporary groupings as participation clusters for programs.
-	Remaining bits available for explicit Value grouping or routing tables.
+  	EPHEMERAL LINKS + RESERVED FOR FUTURE USE (256 bits)
+    Used to form temporary groupings as participation clusters for programs,
+	or effectively acts as general-purpose VM registers (R0-R3) for 32-bit instructions.
 
-  	INSTRUCTION FLAG (bit 8191)
-    Single bit. When set, this Value acts as an in-band control frame.
-	Will potentially be used for some other purpose in the future.
+  	TOMBSTONE FLAG (bit 8191)
+    Single bit (highest bit of Word 127). When set, this Value acts as a self-executing
+	network control frame (poison pill) used for Gossip heuristic link healing.
 */
 
 const (
@@ -57,9 +55,6 @@ const (
 	StateSeqIndex    = 62
 	StateAccumulator = 63
 
-	InstrStart = DataBits
-	InstrBits  = 4
-
 	RegionAffinityStart = 4096
 	RegionAffinityBits  = 256
 	RegionProgramStart  = RegionAffinityStart + RegionAffinityBits
@@ -71,7 +66,9 @@ const (
 	RegionTTLStart      = RegionGossipStart + RegionGossipBits
 	RegionTTLBits       = 8
 
-	InstructionMask uint64 = 1 << 63
+	// TombstoneMask is the final bit of the 128th word (Word 127).
+	// When set, the Value is a network control frame executing a healing algorithm.
+	TombstoneMask uint64 = 1 << 63
 
 	// SignalMask is the mechanical bit-pattern
 	// used to reset the sequence index.
@@ -80,16 +77,15 @@ const (
 	SignalMask = 0xF
 )
 
-type Region int
+type RegionOffset int
 
 const (
-	RegionData        = Region(0)
-	RegionInstruction = Region(InstrStart)
-	RegionAffinity    = Region(RegionAffinityStart)
-	RegionProgram     = Region(RegionProgramStart)
-	RegionLink        = Region(RegionLinkStart)
-	RegionGossip      = Region(RegionGossipStart)
-	RegionTTL         = Region(RegionTTLStart)
+	RegionData     = RegionOffset(0)
+	RegionAffinity = RegionOffset(RegionAffinityStart)
+	RegionProgram  = RegionOffset(RegionProgramStart)
+	RegionLink     = RegionOffset(RegionLinkStart)
+	RegionGossip   = RegionOffset(RegionGossipStart)
+	RegionTTL      = RegionOffset(RegionTTLStart)
 )
 
 var (
@@ -294,7 +290,9 @@ is discarded. It guarantees a sane exist from the substrate
 and returns the value to the value pool.
 */
 func (value *Value) Close() error {
-	// Check value for any relationships
+	// Check value for any relationships.
+	// In the future, this is where we trigger CreateTombstone() and broadcast
+	// it via gossip to heal broken symmetric links throughout the Region.
 	for _, index := range []int{
 		Region0PrevValueIDIndex, Region0NextValueIDIndex,
 	} {
@@ -529,46 +527,92 @@ func (value *Value) HasProgram() bool {
 	return false
 }
 
-// ProgramOp reads a 4-bit opcode from the program region at program counter pc.
-func (value *Value) ProgramOp(pc int) uint8 {
-	if pc < 0 || pc >= 64 {
-		return 0
-	}
-	bitPos := RegionProgramStart + (pc * 4)
-	// For now we read directly from the word array (simple implementation)
-	word := bitPos / 64
-	shift := uint(bitPos % 64)
-	if word >= len(*value) {
-		return 0
-	}
-	return uint8(((*value)[word] >> shift) & 0xF)
+// VM Opcodes
+const (
+	OpHalt      = 0x0
+	OpAnd       = 0x1
+	OpOr        = 0x2
+	OpXor       = 0x3
+	OpMatchZero = 0x4 // If Src1 == Src2, Dest = 0
+)
+
+// MakeInstruction formats a 32-bit VM instruction.
+// Format:
+//
+//	Bits 0-3:   Opcode (0-15)
+//	Bits 4-11:  Src1   (Bit 7: Tombstone/Target Flag, Bits 0-6: Word Index)
+//	Bits 12-19: Src2   (Bit 7: Tombstone/Target Flag, Bits 0-6: Word Index)
+//	Bits 20-27: Dest   (Bit 7: Ignored, Bits 0-6: Word Index)
+//	Bits 28-31: Run Length (Number of 64-bit words to apply operation to)
+func MakeInstruction(opcode uint8, src1, src2, dest uint8, length uint8) uint32 {
+	return uint32(opcode&0xF) |
+		(uint32(src1) << 4) |
+		(uint32(src2) << 12) |
+		(uint32(dest) << 20) |
+		(uint32(length&0xF) << 28)
 }
 
-// SetProgramOp writes a 4-bit opcode into the program at position pc.
-func (value *Value) SetProgramOp(pc int, op uint8) {
-	if pc < 0 || pc >= 64 {
-		return
+// ReadVMInstruction reads a 32-bit instruction from the program counter pc (0-7).
+func (value *Value) ReadVMInstruction(pc int) uint32 {
+	if pc < 0 || pc >= 8 {
+		return 0
 	}
-	bitPos := RegionProgramStart + (pc * 4)
-	word := bitPos / 64
-	shift := uint(bitPos % 64)
-	if word >= len(*value) {
-		return
-	}
-
-	mask := uint64(0xF) << shift
-	(*value)[word] &^= mask
-	(*value)[word] |= uint64(op) << shift
+	wordOffset := RegionProgramStart/64 + (pc / 2)
+	shift := uint((pc % 2) * 32)
+	return uint32((*value)[wordOffset] >> shift)
 }
 
-// InstallShatterProgram installs a simple shatter program (AND, A&^B, B&^A, HALT).
-func (value *Value) InstallShatterProgram() {
-	// Tick 0: AND (shared label)
-	value.SetProgramOp(0, 0b1000)
-	// Tick 1: A AND NOT B
-	value.SetProgramOp(1, 0b0010)
-	// Tick 2: B AND NOT A
-	value.SetProgramOp(2, 0b0100)
-	// Tick 3: HALT
-	value.SetProgramOp(3, 0b0000)
+// WriteVMInstruction writes a 32-bit instruction into pc (0-7).
+func (value *Value) WriteVMInstruction(pc int, instr uint32) {
+	if pc < 0 || pc >= 8 {
+		return
+	}
+	wordOffset := RegionProgramStart/64 + (pc / 2)
+	shift := uint((pc % 2) * 32)
+
+	mask := uint64(0xFFFFFFFF) << shift
+	(*value)[wordOffset] &^= mask
+	(*value)[wordOffset] |= uint64(instr) << shift
+}
+
+// CreateTombstone generates a self-executing network control frame designed to heal
+// the mesh via gossip. It installs the Match-Zero VM program to untangle links natively.
+func (value *Value) CreateTombstone() *Value {
+	tomb := NewValue()
+
+	// Set the Tombstone Flag natively (highest bit of Word 127)
+	tomb[Words-1] |= TombstoneMask
+
+	deadID := value.ValueID()
+	tomb.SetValueID(deadID)
+
+	// Tick 1: Check & Zero PrevValueID
+	// Src1: Tombstone's deadID (Flag 0x80 | Word 57)
+	// Src2: Target's PrevValueID (Word 58)
+	// Dest: Target's PrevValueID (Word 58)
+	tomb.WriteVMInstruction(0, MakeInstruction(
+		OpMatchZero,
+		0x80|Region0ValueIDIndex,
+		Region0PrevValueIDIndex,
+		Region0PrevValueIDIndex,
+		1,
+	))
+
+	// Tick 2: Check & Zero NextValueID
+	tomb.WriteVMInstruction(1, MakeInstruction(
+		OpMatchZero,
+		0x80|Region0ValueIDIndex,
+		Region0NextValueIDIndex,
+		Region0NextValueIDIndex,
+		1,
+	))
+
+	// Tick 3: Implicit 0x0 HALT
+
+	return tomb
+}
+
+// IsTombstone checks if the Tombstone bit (Bit 8191) is set.
+func (value *Value) IsTombstone() bool {
+	return (value[Words-1] & TombstoneMask) != 0
 }

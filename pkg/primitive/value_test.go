@@ -81,7 +81,7 @@ func TestRegion0Layout(t *testing.T) {
 	Convey("Region0 reserves 57 tokens and 3 IDs", t, func() {
 		So(DataWords, ShouldEqual, 60)
 		So(DataBits, ShouldEqual, 60*64)
-		So(InstrStart, ShouldEqual, DataBits)
+		So(RegionAffinityStart, ShouldEqual, 4096)
 	})
 }
 

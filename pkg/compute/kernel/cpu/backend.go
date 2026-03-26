@@ -31,11 +31,10 @@ type Region struct {
 }
 
 var (
-	RegionData        = Region{Start: 0, Bits: primitive.DataBits}
-	RegionInstruction = Region{Start: primitive.InstrStart, Bits: primitive.InstrBits}
-	RegionAffinity    = Region{Start: primitive.RegionAffinityStart, Bits: primitive.RegionAffinityBits}
-	RegionProgram     = Region{Start: primitive.RegionProgramStart, Bits: primitive.RegionProgramBits}
-	RegionLink        = Region{Start: primitive.RegionLinkStart, Bits: primitive.RegionLinkBits}
+	RegionData     = Region{Start: 0, Bits: primitive.DataBits}
+	RegionAffinity = Region{Start: primitive.RegionAffinityStart, Bits: primitive.RegionAffinityBits}
+	RegionProgram  = Region{Start: primitive.RegionProgramStart, Bits: primitive.RegionProgramBits}
+	RegionLink     = Region{Start: primitive.RegionLinkStart, Bits: primitive.RegionLinkBits}
 )
 
 /*
@@ -354,7 +353,7 @@ func (backend *Backend) processStreamBatches() error {
 }
 
 func setInstructionFlag(value *primitive.Value) {
-	value[primitive.Words-1] |= primitive.InstructionMask
+	value[primitive.Words-1] |= primitive.TombstoneMask
 }
 
 /*
@@ -397,13 +396,14 @@ func (backend *Backend) UniversalBitwise(
 		}
 
 		// 1. IN-BAND DECODE: Read the 4-bit operation directly from Value A (legacy single-tick mode)
-		opBits := ReadRegion(aValue, RegionInstruction) & 0xF
+		opBits := aValue.ReadVMInstruction(0) & 0xF
 
 		// 2. HARDWARE LOGIC: Derive the universal boolean gates
-		m0 := uint64(0) - (opBits & 1)
-		m1 := uint64(0) - ((opBits >> 1) & 1)
-		m2 := uint64(0) - ((opBits >> 2) & 1)
-		m3 := uint64(0) - ((opBits >> 3) & 1)
+		op := uint64(opBits)
+		m0 := uint64(0) - (op & 1)
+		m1 := uint64(0) - ((op >> 1) & 1)
+		m2 := uint64(0) - ((op >> 2) & 1)
+		m3 := uint64(0) - ((op >> 3) & 1)
 		k1 := m0 ^ m2
 		k2 := m0 ^ m1
 		k3 := m0 ^ m1 ^ m2 ^ m3
@@ -416,8 +416,8 @@ func (backend *Backend) UniversalBitwise(
 		}
 
 		// 4. PERSIST STATE: Ensure the destination Value retains the instruction state
-		WriteRegion(dstValue, RegionInstruction, opBits)
-		if (aValue[primitive.Words-1] & primitive.InstructionMask) != 0 {
+		dstValue.WriteVMInstruction(0, uint32(opBits))
+		if (aValue[primitive.Words-1] & primitive.TombstoneMask) != 0 {
 			setInstructionFlag(dstValue)
 		}
 	}
@@ -444,9 +444,10 @@ func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Po
 	aWords := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))
 	copy(workWords[:], aWords[:])
 
-	// For each tick in the 64-op program
-	for pc := 0; pc < 64; pc++ {
-		opBits := aValue.ProgramOp(pc)
+	// For each tick in the 8-op VM program
+	for pc := 0; pc < 8; pc++ {
+		instr := aValue.ReadVMInstruction(pc)
+		opBits := instr & 0xF
 		if opBits == 0 {
 			break // HALT/NOP
 		}
@@ -473,7 +474,7 @@ func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Po
 	copy(ds[v][:primitive.Region0TokenCount], workWords[:primitive.Region0TokenCount])
 	dstValue := (*primitive.Value)(unsafe.Pointer(&ds[v]))
 	// Clear instruction bits for program mode - the program itself defines behavior.
-	WriteRegion(dstValue, RegionInstruction, 0)
+	dstValue.WriteVMInstruction(0, 0)
 }
 
 func WriteBits(value *primitive.Value, startBit, bitLen int, payload uint64) {

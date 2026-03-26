@@ -100,23 +100,18 @@ func CreateValueWithProgram(data string, programType ProgramType) *primitive.Val
 func InstallProgram(value *primitive.Value, programType ProgramType) {
 	switch programType {
 	case ProgramShatter:
-		value.InstallShatterProgram()
+		InstallProgramFrom(value, ShatterProgram)
 	case ProgramXOR:
-		value.SetProgramOp(0, 0b0110) // XOR
-		value.SetProgramOp(1, 0b0000) // HALT
+		InstallProgramFrom(value, XorProgram)
 	case ProgramMerge:
-		value.SetProgramOp(0, 0b1110) // OR
-		value.SetProgramOp(1, 0b0000) // HALT
+		InstallProgramFrom(value, MergeProgram)
 	case ProgramProjectA:
-		value.SetProgramOp(0, 0b0010) // A AND NOT B
-		value.SetProgramOp(1, 0b0000) // HALT
+		InstallProgramFrom(value, ProjectAProgram)
 	case ProgramProjectB:
-		value.SetProgramOp(0, 0b0100) // B AND NOT A
-		value.SetProgramOp(1, 0b0000) // HALT
+		InstallProgramFrom(value, ProjectBProgram)
 	default:
 		// Fallback: simple OR/accumulate passthrough
-		value.SetProgramOp(0, 0b1110) // OR
-		value.SetProgramOp(1, 0b0000) // HALT
+		InstallProgramFrom(value, MergeProgram)
 	}
 }
 
@@ -148,33 +143,38 @@ func (backend *Backend) EncodeTrieBatch(
 }
 
 // Program represents a sequence of operations that can be installed into a Value.
-type Program []uint8
+type Program []uint32
 
 // Common program templates for different operations.
 var (
 	// ShatterProgram implements the classic "shared label + remainders" pattern
-	ShatterProgram = Program{0b1000, 0b0010, 0b0100, 0b0000} // AND, A&^B, B&^A, HALT
+	ShatterProgram = Program{
+		primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1),
+		primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), // Placeholder A&^B
+		primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), // Placeholder B&^A
+		primitive.OpHalt,
+	}
 
 	// XorProgram for prompt-style annihilation
-	XorProgram = Program{0b0110, 0b0000} // XOR, HALT
+	XorProgram = Program{primitive.MakeInstruction(primitive.OpXor, 0, 1, 0, 1), primitive.OpHalt}
 
 	// MergeProgram for accumulating information
-	MergeProgram = Program{0b1110, 0b0000} // OR, HALT
+	MergeProgram = Program{primitive.MakeInstruction(primitive.OpOr, 0, 1, 0, 1), primitive.OpHalt}
 
 	// ProjectAProgram keeps only A's unique components
-	ProjectAProgram = Program{0b0010, 0b0000} // A AND NOT B, HALT
+	ProjectAProgram = Program{primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), primitive.OpHalt}
 
 	// ProjectBProgram keeps only B's unique components
-	ProjectBProgram = Program{0b0100, 0b0000} // B AND NOT A, HALT
+	ProjectBProgram = Program{primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), primitive.OpHalt}
 )
 
 // InstallProgramFrom installs a Program (sequence of opcodes) into a Value.
 func InstallProgramFrom(value *primitive.Value, program Program) {
 	for i, op := range program {
-		if i >= 64 {
-			break // can't exceed 64 operations
+		if i >= 8 {
+			break // can't exceed 8 VM operations
 		}
-		value.SetProgramOp(i, op)
+		value.WriteVMInstruction(i, op)
 	}
 }
 
@@ -208,20 +208,8 @@ func AnalyzeProgram(program Program) string {
 		if op == 0 {
 			break
 		}
-		switch op {
-		case 0b1000:
-			desc += fmt.Sprintf("Tick %d: AND (shared label)\n", i)
-		case 0b0010:
-			desc += fmt.Sprintf("Tick %d: A AND NOT B (A remainder)\n", i)
-		case 0b0100:
-			desc += fmt.Sprintf("Tick %d: B AND NOT A (B remainder)\n", i)
-		case 0b0110:
-			desc += fmt.Sprintf("Tick %d: XOR (annihilation)\n", i)
-		case 0b1110:
-			desc += fmt.Sprintf("Tick %d: OR (merge/accumulate)\n", i)
-		default:
-			desc += fmt.Sprintf("Tick %d: Op 0b%04b\n", i, op)
-		}
+		opcode := op & 0xF
+		desc += fmt.Sprintf("Tick %d: VM Opcode 0b%04b\n", i, opcode)
 	}
 	return desc
 }

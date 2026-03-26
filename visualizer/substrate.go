@@ -154,7 +154,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "chamber-before",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
-				Instruction: telemetry.TruthOpName(uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)),
+				Instruction: telemetry.TruthOpName(uint8(chamber.ReadVMInstruction(0) & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
 				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64), // affinity instead of old instr popcount
 				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),  // program info
@@ -182,7 +182,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "chamber-after",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
-				Instruction: telemetry.TruthOpName(uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)),
+				Instruction: telemetry.TruthOpName(uint8(chamber.ReadVMInstruction(0) & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
 				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64),
 				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),
@@ -210,7 +210,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "kernel",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber) + " · cpu.Backend: physics engine (affinity + program execution)",
-				Instruction: telemetry.TruthOpName(uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)),
+				Instruction: telemetry.TruthOpName(uint8(chamber.ReadVMInstruction(0) & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, primitive.DataBits),
 				OperandPop:  cpu.Popcount(chamber, primitive.RegionAffinityStart, 64),
 				AffinityPop: cpu.Popcount(chamber, primitive.RegionProgramStart, 64),
@@ -234,8 +234,8 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 
 		chamber = primitive.BytesToValue(mutatedFrame)
 
-		instr := uint8(cpu.ReadRegion(chamber, cpu.RegionInstruction) & 0xF)
-		pressure := cpu.Popcount(chamber, primitive.InstrStart, primitive.InstrBits)
+		instr := uint8(chamber.ReadVMInstruction(0) & 0xF)
+		pressure := cpu.Popcount(chamber, primitive.RegionProgramStart, primitive.RegionProgramBits)
 
 		srv.Broadcast(telemetry.Event{
 			Component: "Substrate",

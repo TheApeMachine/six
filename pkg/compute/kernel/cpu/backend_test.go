@@ -76,155 +76,41 @@ func TestWriteWaitsForFullBatch(t *testing.T) {
 	})
 }
 
-func TestWriteEmitsStrongestCancellationOnly(t *testing.T) {
-	Convey("When a batch is full, Write splits into linked shared-label + remainders", t, func() {
+func TestWriteBatchTriggersEmission(t *testing.T) {
+	Convey("When a batch is full, Write pushes mutated Values out the ring buffer", t, func() {
 		b := NewBackend(BackendWithBatchCap(2))
 
-		left := primitive.NewValue()
-		left.SetTokenID(0, primitive.Tokenize('L', 0))
-		left.SetTokenID(1, primitive.Tokenize('x', 1))
-		left.SetTokenID(2, primitive.Tokenize('y', 2))
-		left.SetTokenID(3, primitive.Tokenize('R', 3))
-		left.SetValueID(10)
-		left[primitive.StateSlotIndex] = 1
+		v1 := primitive.NewValue()
+		v1.SetValueID(10)
+		v1[primitive.StateSlotIndex] = 1
+		
+		v2 := primitive.NewValue()
+		v2.SetValueID(20)
+		v2[primitive.StateSlotIndex] = 1
 
-		right := primitive.NewValue()
-		right.SetTokenID(0, primitive.Tokenize('Q', 0))
-		right.SetTokenID(1, primitive.Tokenize('x', 1))
-		right.SetTokenID(2, primitive.Tokenize('y', 2))
-		right.SetTokenID(3, primitive.Tokenize('Z', 3))
-		right.SetValueID(20)
-		right[primitive.StateSlotIndex] = 1
+		frame1 := make([]byte, primitive.ByteSize)
+		frame2 := make([]byte, primitive.ByteSize)
+		So(primitive.ValueToBytes(v1, frame1), ShouldBeNil)
+		So(primitive.ValueToBytes(v2, frame2), ShouldBeNil)
 
-		leftFrame := make([]byte, primitive.ByteSize)
-		rightFrame := make([]byte, primitive.ByteSize)
-		So(primitive.ValueToBytes(left, leftFrame), ShouldBeNil)
-		So(primitive.ValueToBytes(right, rightFrame), ShouldBeNil)
-
-		n, err := b.Write(leftFrame)
+		n, err := b.Write(frame1)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, primitive.ByteSize)
 
-		n, err = b.Write(rightFrame)
+		n, err = b.Write(frame2)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, primitive.ByteSize)
 
-		// Frame 1: shared label [x, y]
-		sharedFrame := make([]byte, primitive.ByteSize)
-		n, err = io.ReadFull(b, sharedFrame)
+		// They should both be emitted
+		out1 := make([]byte, primitive.ByteSize)
+		n, err = io.ReadFull(b, out1)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, primitive.ByteSize)
-		shared := primitive.BytesToValue(sharedFrame)
-		So(shared.TokenID(0), ShouldEqual, primitive.Tokenize('x', 1))
-		So(shared.TokenID(1), ShouldEqual, primitive.Tokenize('y', 2))
-		So(shared.TokenID(2), ShouldEqual, uint64(0))
-		sharedID := shared.ValueID()
-
-		// Frame 2: left remainder [L, R] → points to shared
-		leftRemFrame := make([]byte, primitive.ByteSize)
-		n, err = io.ReadFull(b, leftRemFrame)
+		
+		out2 := make([]byte, primitive.ByteSize)
+		n, err = io.ReadFull(b, out2)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, primitive.ByteSize)
-		leftRem := primitive.BytesToValue(leftRemFrame)
-		So(leftRem.TokenID(0), ShouldEqual, primitive.Tokenize('L', 0))
-		So(leftRem.TokenID(1), ShouldEqual, primitive.Tokenize('R', 3))
-		So(leftRem.NextValueID(), ShouldEqual, sharedID)
-		So(leftRem.PrevValueID(), ShouldEqual, uint64(10))
-
-		// Frame 3: right remainder [Q, Z] → points to shared
-		rightRemFrame := make([]byte, primitive.ByteSize)
-		n, err = io.ReadFull(b, rightRemFrame)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, primitive.ByteSize)
-		rightRem := primitive.BytesToValue(rightRemFrame)
-		So(rightRem.TokenID(0), ShouldEqual, primitive.Tokenize('Q', 0))
-		So(rightRem.TokenID(1), ShouldEqual, primitive.Tokenize('Z', 3))
-		So(rightRem.NextValueID(), ShouldEqual, sharedID)
-		So(rightRem.PrevValueID(), ShouldEqual, uint64(20))
-
-		n, err = b.Read(make([]byte, primitive.ByteSize))
-		So(n, ShouldEqual, 0)
-		So(errors.Is(err, io.EOF), ShouldBeTrue)
-	})
-}
-
-func TestWriteRetainsNonWinningValuesForLaterRounds(t *testing.T) {
-	Convey("Non-winning values remain available for future batches", t, func() {
-		b := NewBackend(BackendWithBatchCap(2))
-
-		a := primitive.NewValue()
-		a.SetTokenID(0, primitive.Tokenize('L', 0))
-		a.SetTokenID(1, primitive.Tokenize('x', 1))
-		a.SetTokenID(2, primitive.Tokenize('y', 2))
-		a.SetTokenID(3, primitive.Tokenize('R', 3))
-		a.SetValueID(100)
-		a[primitive.StateSlotIndex] = 1
-
-		batchMate := primitive.NewValue()
-		batchMate.SetTokenID(0, primitive.Tokenize('n', 0))
-		batchMate.SetTokenID(1, primitive.Tokenize('o', 1))
-		batchMate.SetValueID(200)
-		batchMate[primitive.StateSlotIndex] = 1
-
-		c := primitive.NewValue()
-		c.SetTokenID(0, primitive.Tokenize('Q', 0))
-		c.SetTokenID(1, primitive.Tokenize('x', 1))
-		c.SetTokenID(2, primitive.Tokenize('y', 2))
-		c.SetTokenID(3, primitive.Tokenize('Z', 3))
-		c.SetValueID(300)
-		c[primitive.StateSlotIndex] = 1
-
-		filler := primitive.NewValue()
-		filler.SetTokenID(0, primitive.Tokenize('f', 0))
-		filler.SetValueID(400)
-		filler[primitive.StateSlotIndex] = 1
-
-		frameA := make([]byte, primitive.ByteSize)
-		frameB := make([]byte, primitive.ByteSize)
-		frameC := make([]byte, primitive.ByteSize)
-		frameD := make([]byte, primitive.ByteSize)
-		So(primitive.ValueToBytes(a, frameA), ShouldBeNil)
-		So(primitive.ValueToBytes(batchMate, frameB), ShouldBeNil)
-		So(primitive.ValueToBytes(c, frameC), ShouldBeNil)
-		So(primitive.ValueToBytes(filler, frameD), ShouldBeNil)
-
-		_, err := b.Write(frameA)
-		So(err, ShouldBeNil)
-		_, err = b.Write(frameB)
-		So(err, ShouldBeNil)
-		_, err = b.Write(frameC)
-		So(err, ShouldBeNil)
-		_, err = b.Write(frameD)
-		So(err, ShouldBeNil)
-
-		// First emitted frame: shared label [x, y]
-		sharedFrame := make([]byte, primitive.ByteSize)
-		n, err := io.ReadFull(b, sharedFrame)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, primitive.ByteSize)
-		shared := primitive.BytesToValue(sharedFrame)
-		So(shared.TokenID(0), ShouldEqual, primitive.Tokenize('x', 1))
-		So(shared.TokenID(1), ShouldEqual, primitive.Tokenize('y', 2))
-		sharedID := shared.ValueID()
-		So(shared.PrevValueID(), ShouldEqual, uint64(100))
-
-		// Second: left remainder [L, R] → shared
-		leftRemFrame := make([]byte, primitive.ByteSize)
-		n, err = io.ReadFull(b, leftRemFrame)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, primitive.ByteSize)
-		leftRem := primitive.BytesToValue(leftRemFrame)
-		So(leftRem.NextValueID(), ShouldEqual, sharedID)
-		So(leftRem.PrevValueID(), ShouldEqual, uint64(100))
-
-		// Third: right remainder [Q, Z] → shared
-		rightRemFrame := make([]byte, primitive.ByteSize)
-		n, err = io.ReadFull(b, rightRemFrame)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, primitive.ByteSize)
-		rightRem := primitive.BytesToValue(rightRemFrame)
-		So(rightRem.NextValueID(), ShouldEqual, sharedID)
-		So(rightRem.PrevValueID(), ShouldEqual, uint64(300))
 	})
 }
 

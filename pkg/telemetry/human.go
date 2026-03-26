@@ -49,7 +49,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 		return "nil Value"
 	}
 
-	instr := uint8(cpu.ReadRegion(v, cpu.RegionInstruction) & 0xF)
+	instr := uint8(v.ReadVMInstruction(0) & 0xF)
 	dataPop := cpu.Popcount(v, 0, primitive.DataBits)
 	affPop := cpu.Popcount(v, primitive.RegionAffinityStart, 64) // first 64 bits of affinity
 	progPop := cpu.Popcount(v, primitive.RegionProgramStart, 64) // first 64 bits of program
@@ -69,8 +69,8 @@ func HumanDescribeValue(v *primitive.Value) string {
 // countProgramOps counts how many non-zero operations are in the program region.
 func countProgramOps(v *primitive.Value) int {
 	count := 0
-	for i := 0; i < 64; i++ {
-		if v.ProgramOp(i) != 0 {
+	for i := 0; i < 8; i++ {
+		if v.ReadVMInstruction(i) != 0 {
 			count++
 		} else {
 			break // stop at first HALT
