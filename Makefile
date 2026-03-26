@@ -29,6 +29,8 @@ dump:
 CAPNP_STD ?= ../../capnproto/go-capnp/std
 
 build: capnp
+	go generate ./pkg/primitive/...
+	
 	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
@@ -37,11 +39,13 @@ build: capnp
 		&& go generate
 
 metal:
+	go generate ./pkg/primitive/...
 	cd pkg/compute/kernel/metal \
 		&& xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air \
 		&& xcrun -sdk macosx metallib backend.air -o backend.metallib
 
 cuda:
+	go generate ./pkg/primitive/...
 	cd pkg/compute/kernel/cuda \
 		&& go generate
 

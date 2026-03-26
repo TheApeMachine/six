@@ -10,6 +10,7 @@ import (
 	"unsafe"
 
 	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -24,18 +25,6 @@ type GraphEvent struct {
 }
 
 const InstructionByteMask byte = 0x80 // 10000000 in binary
-
-type Region struct {
-	Start int
-	Bits  int
-}
-
-var (
-	RegionData     = Region{Start: 0, Bits: primitive.DataBits}
-	RegionAffinity = Region{Start: primitive.RegionAffinityStart, Bits: primitive.RegionAffinityBits}
-	RegionProgram  = Region{Start: primitive.RegionProgramStart, Bits: primitive.RegionProgramBits}
-	RegionLink     = Region{Start: primitive.RegionLinkStart, Bits: primitive.RegionLinkBits}
-)
 
 /*
 Backend is the CPU kernel backend. It is now a dumb physics engine
@@ -305,7 +294,7 @@ func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
 		// Set metadata
 		emitted.SetValueID(backend.nextID)
 		backend.nextID++
-		emitted[primitive.StateSlotIndex] = 1
+		emitted[core.Cfg.StateIndex] = 1
 
 		// Preserve linking information if present.
 		// When a real match was found, prefer the target's link chain;
@@ -352,10 +341,6 @@ func (backend *Backend) processStreamBatches() error {
 	return nil
 }
 
-func setInstructionFlag(value *primitive.Value) {
-	value[primitive.Words-1] |= primitive.TombstoneMask
-}
-
 /*
 HammingDistance calculates the topological distance between two Values
 by counting the number of differing bits (symmetric difference).
@@ -372,155 +357,210 @@ func HammingDistance(a, b *primitive.Value) int {
 }
 
 /*
-UniversalBitwise is the pure hardware ALU. It supports both single-tick mode
-(using RegionInstruction) and full 64-tick program mode (using RegionProgram).
-This implements the in-band executable substrate.
+UniversalBitwise is the pure hardware ALU. Each Value's in-band program
+is executed through the 16 two-input boolean truth tables.
 */
 func (backend *Backend) UniversalBitwise(
 	a, b, dst unsafe.Pointer, numValues uint32,
 ) error {
 	as := unsafe.Slice((*[primitive.Words]uint64)(a), numValues)
-	bs := unsafe.Slice((*[primitive.Words]uint64)(b), numValues)
-	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), numValues)
 
 	for v := uint32(0); v < numValues; v++ {
-		// Only cast the pointers we actually need for ReadRegion/WriteRegion
 		aValue := (*primitive.Value)(unsafe.Pointer(&as[v]))
-		dstValue := (*primitive.Value)(unsafe.Pointer(&ds[v]))
-
-		// O(1) check: inspect the 4 program-region words directly.
-		if aValue.HasProgram() {
-			// NEW: Multi-tick program execution mode
-			backend.executeProgram(aValue, b, dst, v)
-			continue
-		}
-
-		// 1. IN-BAND DECODE: Read the 4-bit operation directly from Value A (legacy single-tick mode)
-		opBits := aValue.ReadVMInstruction(0) & 0xF
-
-		// 2. HARDWARE LOGIC: Derive the universal boolean gates
-		op := uint64(opBits)
-		m0 := uint64(0) - (op & 1)
-		m1 := uint64(0) - ((op >> 1) & 1)
-		m2 := uint64(0) - ((op >> 2) & 1)
-		m3 := uint64(0) - ((op >> 3) & 1)
-		k1 := m0 ^ m2
-		k2 := m0 ^ m1
-		k3 := m0 ^ m1 ^ m2 ^ m3
-
-		// 3. EXECUTE: Run the truth table across the physical Data slots
-		for i := 0; i < primitive.Region0TokenCount; i++ {
-			left := as[v][i]
-			right := bs[v][i]
-			ds[v][i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
-		}
-
-		// 4. PERSIST STATE: Ensure the destination Value retains the instruction state
-		dstValue.WriteVMInstruction(0, uint32(opBits))
-		if (aValue[primitive.Words-1] & primitive.TombstoneMask) != 0 {
-			setInstructionFlag(dstValue)
-		}
+		backend.executeProgram(aValue, b, dst, v)
 	}
 
 	return nil
 }
 
-// executeProgram runs a full 64-tick program from Region 3 of the controlling Value.
-// This implements the "self-executing packet" concept where each Value
-// carries its own microcode.
+// executeProgram runs truth-table instructions from the Value's boot + program region.
 //
-// v is the index of the value pair within the b/dst buffers; the function reads
-// b[v] and writes dst[v] so that multi-value batches are handled correctly.
-// aValue is never mutated: its Region 0 data is copied into a local workWords
-// array that is evolved each tick, keeping the caller's input intact.
+// Bit 31:       src immediate (value is the 7-bit index itself, not a memory read)
+// Halt:         full 32-bit instruction == 0
+// Skip-if-zero: zero result skips the next instruction
+// PC register:  writable for jumps
+// Range deref:  *r0 or *r3 use register triples (context, offset, length)
 func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Pointer, v uint32) {
-	// Slice the shared buffers to cover at least v+1 elements.
 	bs := unsafe.Slice((*[primitive.Words]uint64)(b), v+1)
 	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), v+1)
 
-	// Copy Region 0 of aValue into a local working buffer so we never
-	// mutate the caller's input value across ticks.
-	var workWords [primitive.Words]uint64
 	aWords := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))
-	copy(workWords[:], aWords[:])
+	copy(ds[v][:], aWords[:])
 
-	// For each tick in the 8-op VM program
-	for pc := 0; pc < 8; pc++ {
-		instr := aValue.ReadVMInstruction(pc)
-		opBits := instr & 0xF
-		if opBits == 0 {
-			break // HALT/NOP
+	ds[v][core.Cfg.RegPC] = 0
+	skip := false
+
+	for {
+		pc := int(ds[v][core.Cfg.RegPC])
+		if pc < 0 || pc >= core.Cfg.MaxPC {
+			break
 		}
 
-		// Derive the universal boolean gates for this opcode
-		op := uint64(opBits)
-		m0 := uint64(0) - (op & 1)
-		m1 := uint64(0) - ((op >> 1) & 1)
-		m2 := uint64(0) - ((op >> 2) & 1)
-		m3 := uint64(0) - ((op >> 3) & 1)
+		instr := aValue.ReadVMInstruction(pc)
+		if instr == 0 {
+			break
+		}
+
+		ds[v][core.Cfg.RegPC] = uint64(pc + 1)
+
+		if skip {
+			skip = false
+			continue
+		}
+
+		s1Imm := (instr & (1 << 31)) != 0
+
+		parseOp := func(shift uint) (bool, bool, uint32) {
+			block := (instr >> shift) & 0x1FF
+			return (block & (1 << 8)) != 0, (block & (1 << 7)) != 0, block & 0x7F
+		}
+
+		s1Deref, s1Part, s1Idx := parseOp(4)
+		_, s2Part, s2Idx := parseOp(13)
+		dDeref, dPart, dIdx := parseOp(22)
+
+		opBits := uint64(instr & 0xF)
+		m0 := uint64(0) - (opBits & 1)
+		m1 := uint64(0) - ((opBits >> 1) & 1)
+		m2 := uint64(0) - ((opBits >> 2) & 1)
+		m3 := uint64(0) - ((opBits >> 3) & 1)
 		k1 := m0 ^ m2
 		k2 := m0 ^ m1
 		k3 := m0 ^ m1 ^ m2 ^ m3
 
-		// Execute across Region 0 data using the v-th input pair.
-		for i := 0; i < primitive.Region0TokenCount; i++ {
-			left := workWords[i]
-			right := bs[v][i]
-			workWords[i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
+		selfWords := (*[primitive.Words]uint64)(unsafe.Pointer(&ds[v]))
+		partWords := (*[primitive.Words]uint64)(unsafe.Pointer(&bs[v]))
+
+		pickSrc := func(part bool) *[primitive.Words]uint64 {
+			if part {
+				return partWords
+			}
+			return selfWords
+		}
+
+		// Check if register index starts a triple (r0→Reg0, r3→Reg3)
+		isTripleStart := func(idx uint32) bool {
+			return idx == uint32(core.Cfg.R0) || idx == uint32(core.Cfg.R3)
+		}
+
+		// Range deref: *r0 uses (r0=context, r1=offset, r2=length)
+		//              *r3 uses (r3=context, r4=offset, r5=length)
+		if (s1Deref || dDeref) && (isTripleStart(s1Idx) || isTripleStart(dIdx)) {
+			// Resolve source range
+			var srcArr *[primitive.Words]uint64
+			var srcOff, srcLen uint32
+
+			if s1Imm {
+				// Immediate src in range mode: broadcast the value
+				srcArr = selfWords
+				srcOff = 0
+				srcLen = 1
+			} else if s1Deref && isTripleStart(s1Idx) {
+				ctx := selfWords[s1Idx]
+				srcOff = uint32(selfWords[s1Idx+1])
+				srcLen = uint32(selfWords[s1Idx+2])
+				if ctx == 1 {
+					srcArr = partWords
+				} else {
+					srcArr = selfWords
+				}
+			} else {
+				src := pickSrc(s1Part)
+				if s1Idx < primitive.Words {
+					srcOff = s1Idx
+					srcLen = 1
+					srcArr = src
+				}
+			}
+
+			// Resolve dest range
+			var dstArr *[primitive.Words]uint64
+			var dstOff, dstLen uint32
+
+			if dDeref && isTripleStart(dIdx) {
+				ctx := selfWords[dIdx]
+				dstOff = uint32(selfWords[dIdx+1])
+				dstLen = uint32(selfWords[dIdx+2])
+				if ctx == 1 {
+					dstArr = partWords
+				} else {
+					dstArr = selfWords
+				}
+			} else {
+				dstArr = pickSrc(dPart)
+				dstOff = dIdx
+				dstLen = 1
+			}
+
+			opLen := srcLen
+			if dstLen < opLen {
+				opLen = dstLen
+			}
+
+			allZero := true
+			for i := uint32(0); i < opLen; i++ {
+				sp := srcOff + i
+				dp := dstOff + i
+				if sp >= primitive.Words || dp >= primitive.Words {
+					continue
+				}
+
+				var left uint64
+				if s1Imm {
+					left = uint64(s1Idx)
+				} else {
+					left = srcArr[sp]
+				}
+				right := dstArr[dp]
+
+				result := m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
+				dstArr[dp] = result
+				if result != 0 {
+					allZero = false
+				}
+			}
+
+			if allZero {
+				skip = true
+			}
+			continue
+		}
+
+		// Single-word path
+		var left uint64
+		if s1Imm {
+			left = uint64(s1Idx)
+		} else {
+			src := pickSrc(s1Part)
+			idx := s1Idx
+			if s1Deref && idx < primitive.Words {
+				idx = uint32(src[idx])
+			}
+			if idx >= primitive.Words {
+				continue
+			}
+			left = src[idx]
+		}
+
+		destSrc := pickSrc(s2Part)
+		destIdx := s2Idx
+		if dDeref && dIdx < primitive.Words {
+			destIdx = uint32(selfWords[dIdx])
+		}
+		if destIdx >= primitive.Words {
+			continue
+		}
+
+		right := destSrc[destIdx]
+		result := m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
+
+		writeSrc := pickSrc(dPart)
+		writeSrc[destIdx] = result
+
+		if result == 0 {
+			skip = true
 		}
 	}
-
-	// Write the final evolved Region 0 into dst[v] and clear instruction bits.
-	copy(ds[v][:primitive.Region0TokenCount], workWords[:primitive.Region0TokenCount])
-	dstValue := (*primitive.Value)(unsafe.Pointer(&ds[v]))
-	// Clear instruction bits for program mode - the program itself defines behavior.
-	dstValue.WriteVMInstruction(0, 0)
-}
-
-func WriteBits(value *primitive.Value, startBit, bitLen int, payload uint64) {
-	word := startBit >> 6
-	shift := uint(startBit & 63)
-
-	if bitLen <= 0 || bitLen > 64 {
-		return
-	}
-
-	mask := uint64(0xFFFFFFFFFFFFFFFF)
-	if bitLen < 64 {
-		mask = (uint64(1) << uint(bitLen)) - 1
-	}
-	payload &= mask
-
-	value[word] &^= mask << shift
-	value[word] |= payload << shift
-
-	if shift+uint(bitLen) > 64 {
-		hiBits := int(shift) + bitLen - 64
-		hiMask := (uint64(1) << uint(hiBits)) - 1
-		value[word+1] &^= hiMask
-		value[word+1] |= payload >> (64 - shift)
-	}
-}
-
-func ReadBits(value *primitive.Value, startBit, bitLen int) uint64 {
-	word := startBit >> 6
-	shift := uint(startBit & 63)
-
-	if bitLen <= 0 || bitLen > 64 {
-		return 0
-	}
-
-	mask := uint64(0xFFFFFFFFFFFFFFFF)
-	if bitLen < 64 {
-		mask = (uint64(1) << uint(bitLen)) - 1
-	}
-
-	v := value[word] >> shift
-	if shift+uint(bitLen) > 64 {
-		v |= value[word+1] << (64 - shift)
-	}
-
-	return v & mask
 }
 
 func Popcount(value *primitive.Value, startBit, bitLen int) int {
@@ -556,24 +596,4 @@ func Popcount(value *primitive.Value, startBit, bitLen int) int {
 	}
 
 	return total
-}
-
-func ReadRegion(
-	value *primitive.Value, region Region,
-) uint64 {
-	if region.Bits > 64 {
-		return 0
-	}
-
-	return ReadBits(value, region.Start, region.Bits)
-}
-
-func WriteRegion(
-	value *primitive.Value, region Region, payload uint64,
-) {
-	if region.Bits > 64 {
-		return
-	}
-
-	WriteBits(value, region.Start, region.Bits, payload)
 }

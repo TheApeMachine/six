@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -50,9 +51,9 @@ func HumanDescribeValue(v *primitive.Value) string {
 	}
 
 	instr := uint8(v.ReadVMInstruction(0) & 0xF)
-	dataPop := cpu.Popcount(v, 0, primitive.DataBits)
-	affPop := cpu.Popcount(v, primitive.RegionAffinityStart, 64) // first 64 bits of affinity
-	progPop := cpu.Popcount(v, primitive.RegionProgramStart, 64) // first 64 bits of program
+	dataPop := cpu.Popcount(v, 0, int(core.Cfg.TokenBits))
+	affPop := cpu.Popcount(v, int(core.Cfg.AffinityIndex), 64) // first 64 bits of affinity
+	progPop := cpu.Popcount(v, int(core.Cfg.ProgramIndex), 64) // first 64 bits of program
 
 	// Show program info if present
 	progInfo := ""

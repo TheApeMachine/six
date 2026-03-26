@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"sync"
+
+	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -104,10 +106,11 @@ func (region *Region) Write(p []byte) (n int, err error) {
 
 	for offset := 0; offset+ByteSize <= len(p); offset += ByteSize {
 		chunk := p[offset : offset+ByteSize]
-		val := BytesToValue(chunk)
+		val := NewValue()
+		val.ApplyWireFrame(chunk)
 
-		ttlWord := RegionTTLStart / 64
-		ttlShift := RegionTTLStart % 64
+		ttlWord := core.Cfg.TTLIndex / 64
+		ttlShift := core.Cfg.TTLIndex % 64
 
 		// Read TTL byte structure
 		ttl := byte((*val)[ttlWord] >> ttlShift)
@@ -123,7 +126,7 @@ func (region *Region) Write(p []byte) (n int, err error) {
 			// HARDWARE BUS: Trap network-healing Tombstones or Search binaries
 			if val.HasProgram() || val.IsTombstone() {
 				localCopy := make([]byte, ByteSize)
-				copy(localCopy, chunk)
+				ValueToBytes(val, localCopy)
 
 				select {
 				case region.inbox <- localCopy:
@@ -133,12 +136,17 @@ func (region *Region) Write(p []byte) (n int, err error) {
 			}
 
 			// GOSSIP
+			gossipChunk := make([]byte, ByteSize)
+			ValueToBytes(val, gossipChunk)
+
 			region.mu.RLock()
 			for _, peer := range region.Peers {
-				_, _ = peer.Write(chunk)
+				_, _ = peer.Write(gossipChunk)
 			}
 			region.mu.RUnlock()
 		}
+
+		val.Close()
 
 		// Consume perfectly, preserving alignment.
 		bytesConsumed += ByteSize
@@ -259,8 +267,8 @@ Region's affine transformation, and writes the newly encoded state back
 into the Value's memory layout.
 */
 func (region *Region) UpdateRoutingSignature(value *Value) {
-	const startWord = RegionGossipStart / 64
-	const wordsCount = RegionGossipBits / 64 // 4 words (256 bits)
+	startWord := core.Cfg.GossipIndex / 64
+	wordsCount := int(core.Cfg.GossipBits) / 64
 
 	var blocks [16]uint16
 	for i := range wordsCount {
@@ -287,8 +295,8 @@ the GF(65537) affine inverse transformation. This allows search queries to
 analytically map query paths backwards through the mathematical namespace.
 */
 func (region *Region) UpdateInverseSignature(value *Value) {
-	const startWord = RegionGossipStart / 64
-	const wordsCount = RegionGossipBits / 64
+	startWord := core.Cfg.GossipIndex / 64
+	wordsCount := int(core.Cfg.GossipBits) / 64
 
 	var blocks [16]uint16
 	for i := range wordsCount {

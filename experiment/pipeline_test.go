@@ -7,6 +7,7 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -27,14 +28,14 @@ func TestValueReaction(t *testing.T) {
 			kitchen := primitive.NewValue()
 			kitchen.Write([]byte("Kitchen"))
 			kitchen.SetValueID(300)
-			kitchen[primitive.StateSlotIndex] = 1
+			kitchen[core.Cfg.StateIndex] = 1
 
 			// Node B: [Roy] -points to-> [Kitchen]
 			royFact := primitive.NewValue()
 			royFact.Write([]byte("Roy"))
 			royFact.SetValueID(200)
 			royFact.SetNextValueID(kitchen.ValueID()) // The Arrow!
-			royFact[primitive.StateSlotIndex] = 1
+			royFact[core.Cfg.StateIndex] = 1
 
 			// ---------------------------------------------------------
 			// 2. THE PROMPT (The Executable Query)
@@ -136,12 +137,12 @@ func TestGraphFolding(t *testing.T) {
 			royVal := primitive.NewValue()
 			royVal.Write([]byte("Roy is in the Kitchen"))
 			royVal.SetValueID(100)
-			royVal[primitive.StateSlotIndex] = 1
+			royVal[core.Cfg.StateIndex] = 1
 
 			haroldVal := primitive.NewValue()
 			haroldVal.Write([]byte("Harold is in the Kitchen"))
 			haroldVal.SetValueID(200)
-			haroldVal[primitive.StateSlotIndex] = 1
+			haroldVal[core.Cfg.StateIndex] = 1
 
 			royFrame := make([]byte, primitive.ByteSize)
 			haroldFrame := make([]byte, primitive.ByteSize)
@@ -179,13 +180,6 @@ func TestGraphFolding(t *testing.T) {
 			t.Logf("Result: %q (ID=%d)", sharedText, shared.ValueID())
 
 			t.Logf("Graph folding test passed with new affinity mode (got %d results)", len(emitted))
-
-			// Demonstrate linking capability
-			t.Logf("Demonstrating Region 4 linking:")
-			linked := []*primitive.Value{royVal, haroldVal}
-			cpu.LinkValues(linked)
-			t.Logf("Link info:\n%s", cpu.ShowLinkInfo(linked))
-			t.Logf("Linked %d values using Region 4", len(linked))
 		})
 	})
 }

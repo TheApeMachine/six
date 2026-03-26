@@ -1,3 +1,4 @@
+//go:generate go run gen.go
 package primitive
 
 import (
@@ -8,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
@@ -22,79 +25,45 @@ These bits are partitioned into regions with distinct roles:
 	TokenIDs use the byte value and the sequence index:
 	(byte_value << 32) | sequence_index
 
-  	AFFINITY MASK (256 bits)
-    Sparse bit-pattern used for fast topological clustering via bitwise AND.
+	STATE (words 61–63)
+	Slot index, sequence index, XOR accumulator for the Write engine.
 
-  	PROGRAM REGISTER (256 bits)
-    8 × 32-bit VM instructions. Enables a Turing-complete 128-Registry RISC
-	processor capable of natively addressing and computing across the Value's
-	own memory to perform conditional logic and routing.
+	AFFINITY (word 64)
+	64-bit mask for topological clustering via bitwise AND.
 
-  	EPHEMERAL LINKS + RESERVED FOR FUTURE USE (256 bits)
-    Used to form temporary groupings as participation clusters for programs,
-	or effectively acts as general-purpose VM registers (R0-R3) for 32-bit instructions.
+	LINK (word 65)
+	64-bit temporary grouping pointer.
 
-  	TOMBSTONE FLAG (bit 8191)
-    Single bit (highest bit of Word 127). When set, this Value acts as a self-executing
-	network control frame (poison pill) used for Gossip heuristic link healing.
+	GOSSIP (words 66–69)
+	256-bit routing signature for GF(65537) mesh traversal.
+
+	TTL (word 70, low 8 bits)
+	Hop counter decremented by each Region.
+
+	REGISTERS r0–r6 (words 71–77)
+	General-purpose registers for native programs.
+
+	PC (word 78)
+	Program counter. Writable by programs for jumps.
+
+	PROGRAM (words 79–127)
+	49 words = 3136 bits = 98 × 32-bit instruction slots.
+	Native programs execute all 16 two-input boolean truth tables.
+	Conditional skip-if-zero enables loops without invented opcodes.
 */
 
 const (
+	// Compile-time constants needed for the Value type definition.
 	Words    = 128
 	ByteSize = Words * 8
-	CoreBits = 8191
 
-	Region0TokenCount       = 57
-	Region0ValueIDIndex     = Region0TokenCount
-	Region0PrevValueIDIndex = Region0ValueIDIndex + 1
-	Region0NextValueIDIndex = Region0PrevValueIDIndex + 1
-	DataWords               = Region0NextValueIDIndex + 1
-	DataBits                = DataWords * 64
-
-	StateSlotIndex   = 61
-	StateSeqIndex    = 62
-	StateAccumulator = 63
-
-	RegionAffinityStart = 4096
-	RegionAffinityBits  = 256
-	RegionProgramStart  = RegionAffinityStart + RegionAffinityBits
-	RegionProgramBits   = 256
-	RegionLinkStart     = RegionProgramStart + RegionProgramBits
-	RegionLinkBits      = 256
-	RegionGossipStart   = RegionLinkStart + RegionLinkBits
-	RegionGossipBits    = 256
-	RegionTTLStart      = RegionGossipStart + RegionGossipBits
-	RegionTTLBits       = 8
-
-	// TombstoneMask is the final bit of the 128th word (Word 127).
-	// When set, the Value is a network control frame executing a healing algorithm.
-	TombstoneMask uint64 = 1 << 63
-
-	// SignalMask is the mechanical bit-pattern
-	// used to reset the sequence index.
-	// 0xF (1111) means the sequence resets whenever
-	// the bottom 4 bits of the XOR signal hit 0.
+	// SignalMask is the mechanical bit-pattern used to reset the sequence index.
 	SignalMask = 0xF
 )
 
-type RegionOffset int
-
-const (
-	RegionData     = RegionOffset(0)
-	RegionAffinity = RegionOffset(RegionAffinityStart)
-	RegionProgram  = RegionOffset(RegionProgramStart)
-	RegionLink     = RegionOffset(RegionLinkStart)
-	RegionGossip   = RegionOffset(RegionGossipStart)
-	RegionTTL      = RegionOffset(RegionTTLStart)
-)
-
 var (
-	ErrChunkBoundary = errors.New("chunk boundary reached")
-	// ErrRegion0Full is returned from Write when Region 0 already holds the maximum
-	// token count and no input byte can be accepted (loss would occur if ignored).
-	ErrRegion0Full = errors.New("region0 full: no bytes written")
-	valueTo        func(*Value, []byte)
-	valueFrom      func([]byte, *Value)
+	valueTo   func(*Value, []byte)
+	valueFrom func([]byte, *Value)
 
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
@@ -163,12 +132,6 @@ func valueFromPortable(p []byte, v *Value) {
 	}
 }
 
-/*
-valuePool helps us tame the garbage collector when we often
-create and destroy values. It is safe to re-use ValueIDs,
-because if it has been returned to the pool, it means that
-all references of the ValueID have been released entirely.
-*/
 var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
@@ -192,7 +155,7 @@ traditional serialization tax, because the Value is already
 serialized in memory.
 */
 func (value *Value) Read(p []byte) (int, error) {
-	if value[StateSlotIndex] == 0 {
+	if value[core.Cfg.StateIndex] == 0 {
 		return 0, io.EOF
 	}
 
@@ -209,7 +172,7 @@ Consume serializes the frame into p, promotes NextValueID to ValueID, and clears
 the words for pipeline reuse (previous Read behavior).
 */
 func (value *Value) Consume(p []byte) (int, error) {
-	if value[StateSlotIndex] == 0 {
+	if value[core.Cfg.StateIndex] == 0 {
 		return 0, io.EOF
 	}
 	if len(p) < ByteSize {
@@ -242,14 +205,14 @@ func (value *Value) Write(p []byte) (int, error) {
 	bytesConsumed := 0
 
 	for _, b := range p {
-		slot := value[StateSlotIndex]
-		seqIndex := value[StateSeqIndex]
-		accumulator := value[StateAccumulator]
+		slot := value[core.Cfg.StateIndex]
+		seqIndex := value[core.Cfg.StateSequence]
+		accumulator := value[core.Cfg.StateAccumulator]
 
 		// Stop if Region 0 is physically full.
-		if slot >= Region0TokenCount {
+		if !region0TokenIndexOK(int(slot)) {
 			if bytesConsumed == 0 {
-				return 0, ErrRegion0Full
+				return 0, NewValueError(ValueErrorDataFull)
 			}
 
 			return bytesConsumed, nil
@@ -270,15 +233,15 @@ func (value *Value) Write(p []byte) (int, error) {
 			return bytesConsumed, nil
 		}
 
-		value[StateSeqIndex] = seqIndex + 1
+		value[core.Cfg.StateSequence] = seqIndex + 1
 
 		// Shift by 32 to check the chaotic byte-data, not the sequence index.
 		if (accumulator>>32)&SignalMask == 0 {
-			value[StateSeqIndex] = 0
+			value[core.Cfg.StateSequence] = 0
 		}
 
-		value[StateSlotIndex] = slot + 1
-		value[StateAccumulator] = accumulator
+		value[core.Cfg.StateIndex] = slot + 1
+		value[core.Cfg.StateAccumulator] = accumulator
 	}
 
 	return bytesConsumed, nil
@@ -290,17 +253,11 @@ is discarded. It guarantees a sane exist from the substrate
 and returns the value to the value pool.
 */
 func (value *Value) Close() error {
-	// Check value for any relationships.
-	// In the future, this is where we trigger CreateTombstone() and broadcast
-	// it via gossip to heal broken symmetric links throughout the Region.
-	for _, index := range []int{
-		Region0PrevValueIDIndex, Region0NextValueIDIndex,
-	} {
-		if value[index] != 0 {
-			// Decouple the previous value from this one
-		}
+	vid := value.ValueID()
+	for i := range Words {
+		value[i] = 0
 	}
-
+	value.SetValueID(vid)
 	valuePool.Put(value)
 	return nil
 }
@@ -308,7 +265,7 @@ func (value *Value) Close() error {
 func (value *Value) String() string {
 	var builder strings.Builder
 
-	for i := range Region0TokenCount {
+	for i := range core.Cfg.TokenIndex {
 		builder.WriteByte(byte(value[i] >> 32))
 	}
 
@@ -323,7 +280,7 @@ func Tokenize(b byte, index uint64) uint64 {
 }
 
 func region0TokenIndexOK(index int) bool {
-	return index >= 0 && index < Region0TokenCount
+	return index >= 0 && index < int(core.Cfg.TokenIndex)
 }
 
 func (value *Value) TokenID(index int) uint64 {
@@ -342,61 +299,51 @@ func (value *Value) SetTokenID(index int, token uint64) bool {
 }
 
 func (value *Value) TokenIDs() []uint64 {
-	tokens := make([]uint64, Region0TokenCount)
-	copy(tokens, value[:Region0TokenCount])
+	tokens := make([]uint64, core.Cfg.TokenBits)
+	copy(tokens, value[:core.Cfg.TokenBits])
 	return tokens
 }
 
 func (value *Value) SetTokenIDs(tokens []uint64) int {
-	n := min(len(tokens), Region0TokenCount)
+	n := min(len(tokens), int(core.Cfg.TokenBits))
 	copy(value[:n], tokens[:n])
 	return n
 }
 
-func (value *Value) Region0Span(start, length int) []uint64 {
-	if start < 0 || start >= Region0TokenCount || length <= 0 {
-		return nil
-	}
-	end := min(start+length, Region0TokenCount)
-	span := make([]uint64, end-start)
-	copy(span, value[start:end])
-	return span
+func (value *Value) ValueID() uint64 {
+	return value[core.Cfg.ValueID]
 }
 
-func (value *Value) ValueID() uint64 {
-	return value[Region0ValueIDIndex]
+func (value *Value) ID() string {
+	return fmt.Sprintf("%d", value.ValueID())
 }
 
 func (value *Value) SetValueID(id uint64) {
-	value[Region0ValueIDIndex] = id
+	value[core.Cfg.ValueID] = id
 }
 
 func (value *Value) PrevValueID() uint64 {
-	return value[Region0PrevValueIDIndex]
+	return value[core.Cfg.PreviousID]
 }
 
 func (value *Value) SetPrevValueID(id uint64) {
-	value[Region0PrevValueIDIndex] = id
+	value[core.Cfg.PreviousID] = id
 }
 
 func (value *Value) NextValueID() uint64 {
-	return value[Region0NextValueIDIndex]
+	return value[core.Cfg.NextID]
 }
 
 func (value *Value) SetNextValueID(id uint64) {
-	value[Region0NextValueIDIndex] = id
+	value[core.Cfg.NextID] = id
 }
 
 /*
 BytesToValue overlays a 1024-byte slice onto the Value pointer via unsafe memory access.
 */
 func BytesToValue(p []byte) *Value {
-	if uintptr(unsafe.Pointer(&p[0]))&7 == 0 {
-		return (*Value)(unsafe.Pointer(&p[0])) // fast path
-	}
-
 	var v Value
-	valueFrom(p, &v) // fallback
+	valueFrom(p, &v)
 
 	return &v
 }
@@ -422,11 +369,13 @@ func (v *Value) ApplyWireFrame(p []byte) error {
 	return nil
 }
 
-// DecodeTokensToText extracts the byte portion (upper 32 bits) of each
-// non-zero TokenID in Region 0 and returns it as a printable string.
+/*
+DecodeTokensToText extracts the byte portion (upper 32 bits) of each
+non-zero TokenID in Region 0 and returns it as a printable string.
+*/
 func DecodeTokensToText(v *Value) string {
 	var b []byte
-	for i := range Region0TokenCount {
+	for i := range core.Cfg.TokenBits {
 		tok := v[i]
 		if tok == 0 {
 			break
@@ -441,32 +390,13 @@ func DecodeTokensToText(v *Value) string {
 	return string(b)
 }
 
-type ValueErrorType string
-
-const (
-	ValueErrorTypeDivergence ValueErrorType = "divergence"
-)
-
-type ValueError struct {
-	Err error
-	Msg string
-}
-
-func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Err: errors.New(string(err)), Msg: string(err)}
-}
-
-func (e *ValueError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
-}
-
 // AffinityMask returns a 64-bit affinity pattern derived from the Value's content.
 // This is used for fast topological clustering via bitwise operations in Region 2.
 func (value *Value) AffinityMask() uint64 {
 	// Create a simple but effective affinity signature from the first 8 tokens.
 	// In a more sophisticated version, this could be a learned hash or bloom filter.
 	hash := uint64(0)
-	for i := 0; i < 8 && i < Region0TokenCount; i++ {
+	for i := 0; i < 8 && i < int(core.Cfg.TokenBits); i++ {
 		if value[i] != 0 {
 			// Mix the token with its position for better distribution
 			hash = hash*31 + value[i]
@@ -480,7 +410,7 @@ func (value *Value) AffinityMask() uint64 {
 func (value *Value) SetAffinityMask(mask uint64) {
 	// For now we just store it in the first word of the region.
 	// In a fuller implementation this would write across multiple words.
-	bitPos := RegionAffinityStart
+	bitPos := core.Cfg.AffinityIndex
 	word := bitPos / 64
 	if word < len(*value) {
 		(*value)[word] = mask
@@ -494,31 +424,11 @@ func (value *Value) InitializeAffinity() {
 	value.SetAffinityMask(mask)
 }
 
-// SetLink sets a link pointer in Region 4 for temporary grouping or next pointers.
-func (value *Value) SetLink(linkID uint64) {
-	bitPos := RegionLinkStart
-	word := bitPos / 64
-	if word < len(*value) {
-		(*value)[word] = linkID
-	}
-}
-
-// Link returns the link pointer from Region 4.
-func (value *Value) Link() uint64 {
-	bitPos := RegionLinkStart
-	word := bitPos / 64
-	if word < len(*value) {
-		return (*value)[word]
-	}
-	return 0
-}
-
-// HasProgram reports whether this Value has any non-zero opcodes in its Program
-// Region (Region 3). It is an O(1) check across the 4 words that cover
-// RegionProgram (bits 4352–4607, words 68–71) and requires no separate flag.
+// HasProgram reports whether this Value has any non-zero instructions
+// in its Program Region.
 func (value *Value) HasProgram() bool {
-	const firstWord = RegionProgramStart / 64 // 68
-	const numWords = RegionProgramBits / 64   // 4
+	firstWord := core.Cfg.ProgramIndex / 64
+	numWords := int(core.Cfg.ProgramBits) / 64
 	for i := firstWord; i < firstWord+numWords; i++ {
 		if (*value)[i] != 0 {
 			return true
@@ -527,47 +437,45 @@ func (value *Value) HasProgram() bool {
 	return false
 }
 
-// VM Opcodes
-const (
-	OpHalt      = 0x0
-	OpAnd       = 0x1
-	OpOr        = 0x2
-	OpXor       = 0x3
-	OpMatchZero = 0x4 // If Src1 == Src2, Dest = 0
-)
-
-// MakeInstruction formats a 32-bit VM instruction.
-// Format:
-//
-//	Bits 0-3:   Opcode (0-15)
-//	Bits 4-11:  Src1   (Bit 7: Tombstone/Target Flag, Bits 0-6: Word Index)
-//	Bits 12-19: Src2   (Bit 7: Tombstone/Target Flag, Bits 0-6: Word Index)
-//	Bits 20-27: Dest   (Bit 7: Ignored, Bits 0-6: Word Index)
-//	Bits 28-31: Run Length (Number of 64-bit words to apply operation to)
-func MakeInstruction(opcode uint8, src1, src2, dest uint8, length uint8) uint32 {
-	return uint32(opcode&0xF) |
-		(uint32(src1) << 4) |
-		(uint32(src2) << 12) |
-		(uint32(dest) << 20) |
-		(uint32(length&0xF) << 28)
+// MakeInstruction packs a 32-bit instruction.
+// Bit 31 = s1 immediate flag (src value is the 7-bit index itself, not a word read).
+func MakeInstruction(opcode uint8, s1Imm, s1Deref, s1Part bool, s1Idx uint8, s2Deref, s2Part bool, s2Idx uint8, dDeref, dPart bool, dIdx uint8) uint32 {
+	pack := func(deref, part bool, idx uint8) uint32 {
+		v := uint32(idx & 0x7F)
+		if part {
+			v |= 1 << 7
+		}
+		if deref {
+			v |= 1 << 8
+		}
+		return v
+	}
+	result := uint32(opcode&0xF) |
+		(pack(s1Deref, s1Part, s1Idx) << 4) |
+		(pack(s2Deref, s2Part, s2Idx) << 13) |
+		(pack(dDeref, dPart, dIdx) << 22)
+	if s1Imm {
+		result |= 1 << 31
+	}
+	return result
 }
 
-// ReadVMInstruction reads a 32-bit instruction from the program counter pc (0-7).
+// ReadVMInstruction reads a 32-bit instruction at the given PC slot.
 func (value *Value) ReadVMInstruction(pc int) uint32 {
-	if pc < 0 || pc >= 8 {
+	if pc < 0 || pc >= core.Cfg.MaxPC {
 		return 0
 	}
-	wordOffset := RegionProgramStart/64 + (pc / 2)
+	wordOffset := core.Cfg.ProgramIndex/64 + (pc / 2)
 	shift := uint((pc % 2) * 32)
 	return uint32((*value)[wordOffset] >> shift)
 }
 
-// WriteVMInstruction writes a 32-bit instruction into pc (0-7).
+// WriteVMInstruction writes a 32-bit instruction at the given PC slot.
 func (value *Value) WriteVMInstruction(pc int, instr uint32) {
-	if pc < 0 || pc >= 8 {
+	if pc < 0 || pc >= core.Cfg.MaxPC {
 		return
 	}
-	wordOffset := RegionProgramStart/64 + (pc / 2)
+	wordOffset := core.Cfg.ProgramIndex/64 + (pc / 2)
 	shift := uint((pc % 2) * 32)
 
 	mask := uint64(0xFFFFFFFF) << shift
@@ -575,44 +483,62 @@ func (value *Value) WriteVMInstruction(pc int, instr uint32) {
 	(*value)[wordOffset] |= uint64(instr) << shift
 }
 
-// CreateTombstone generates a self-executing network control frame designed to heal
-// the mesh via gossip. It installs the Match-Zero VM program to untangle links natively.
+// CreateTombstone generates a self-executing network control frame.
+// The program uses truth table 1100 (outputs first input) to load
+// values into registers, and 0110 (XOR) to nullify matching links.
 func (value *Value) CreateTombstone() *Value {
 	tomb := NewValue()
+	tomb.SetValueID(value.ValueID())
 
-	// Set the Tombstone Flag natively (highest bit of Word 127)
-	tomb[Words-1] |= TombstoneMask
+	prog, err := Compile(`
+		57 r0 1100    // r0 = word[57] (ValueID)
+		58 r1 1100    // r1 = word[58] (PrevValueID)
+		59 r2 1100    // r2 = word[59] (NextValueID)
+		r0 r1 0110    // r1 = r0 XOR r1 (nullify if match)
+		r0 r2 0110    // r2 = r0 XOR r2 (nullify if match)
+		r1 58 1100    // word[58] = r1
+		r2 59 1100    // word[59] = r2
+	`)
 
-	deadID := value.ValueID()
-	tomb.SetValueID(deadID)
-
-	// Tick 1: Check & Zero PrevValueID
-	// Src1: Tombstone's deadID (Flag 0x80 | Word 57)
-	// Src2: Target's PrevValueID (Word 58)
-	// Dest: Target's PrevValueID (Word 58)
-	tomb.WriteVMInstruction(0, MakeInstruction(
-		OpMatchZero,
-		0x80|Region0ValueIDIndex,
-		Region0PrevValueIDIndex,
-		Region0PrevValueIDIndex,
-		1,
-	))
-
-	// Tick 2: Check & Zero NextValueID
-	tomb.WriteVMInstruction(1, MakeInstruction(
-		OpMatchZero,
-		0x80|Region0ValueIDIndex,
-		Region0NextValueIDIndex,
-		Region0NextValueIDIndex,
-		1,
-	))
-
-	// Tick 3: Implicit 0x0 HALT
+	if err == nil && len(prog) <= 8 {
+		for i, instr := range prog {
+			tomb.WriteVMInstruction(i, instr)
+		}
+	}
 
 	return tomb
 }
 
-// IsTombstone checks if the Tombstone bit (Bit 8191) is set.
+var tombstoneSignature uint32
+
+func init() {
+	p, _ := Compile(`57 r0 1100`)
+	if len(p) > 0 {
+		tombstoneSignature = p[0]
+	}
+}
+
+// IsTombstone evaluates if this Value currently hosts the tombstone program natively.
 func (value *Value) IsTombstone() bool {
-	return (value[Words-1] & TombstoneMask) != 0
+	return value.ReadVMInstruction(0) == tombstoneSignature
+}
+
+type ValueErrorType string
+
+const (
+	ValueErrorDivergence ValueErrorType = "divergence"
+	ValueErrorDataFull   ValueErrorType = "data_full"
+)
+
+type ValueError struct {
+	Err error
+	Msg string
+}
+
+func NewValueError(err ValueErrorType) *ValueError {
+	return &ValueError{Err: errors.New(string(err)), Msg: string(err)}
+}
+
+func (e *ValueError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
 }

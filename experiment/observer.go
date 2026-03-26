@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -102,9 +103,9 @@ func (o *Observer) measure(p []byte, n int) {
 		val := primitive.BytesToValue(p)
 
 		// Extract observability metrics directly from the topological frame
-		pressure := cpu.Popcount(val, primitive.StateSeqIndex, 64)
+		pressure := cpu.Popcount(val, int(core.Cfg.StateSequence), 64)
 		instr := uint8(val.ReadVMInstruction(0) & 0xF)
-		density := cpu.Popcount(val, primitive.StateAccumulator, 64)
+		density := cpu.Popcount(val, int(core.Cfg.StateAccumulator), 64)
 
 		o.lastInstr.Store(uint32(instr))
 		o.lastPressure.Store(int64(pressure))

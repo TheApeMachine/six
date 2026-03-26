@@ -9,6 +9,7 @@ import (
 	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -60,7 +61,7 @@ func TestWriteWaitsForFullBatch(t *testing.T) {
 		value := primitive.NewValue()
 		value.SetTokenID(0, primitive.Tokenize('a', 0))
 		value.SetValueID(1)
-		value[primitive.StateSlotIndex] = 1
+		value[core.Cfg.StateIndex] = 1
 
 		frame := make([]byte, primitive.ByteSize)
 		So(primitive.ValueToBytes(value, frame), ShouldBeNil)
@@ -82,11 +83,11 @@ func TestWriteBatchTriggersEmission(t *testing.T) {
 
 		v1 := primitive.NewValue()
 		v1.SetValueID(10)
-		v1[primitive.StateSlotIndex] = 1
-		
+		v1[core.Cfg.StateIndex] = 1
+
 		v2 := primitive.NewValue()
 		v2.SetValueID(20)
-		v2[primitive.StateSlotIndex] = 1
+		v2[core.Cfg.StateIndex] = 1
 
 		frame1 := make([]byte, primitive.ByteSize)
 		frame2 := make([]byte, primitive.ByteSize)
@@ -106,7 +107,7 @@ func TestWriteBatchTriggersEmission(t *testing.T) {
 		n, err = io.ReadFull(b, out1)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, primitive.ByteSize)
-		
+
 		out2 := make([]byte, primitive.ByteSize)
 		n, err = io.ReadFull(b, out2)
 		So(err, ShouldBeNil)

@@ -6,13 +6,14 @@ import (
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/core"
 )
 
 func TestRead(t *testing.T) {
 	Convey("Given a Value with a known data field", t, func() {
 		value := NewValue()
 		value[0] = 42
-		value[StateSlotIndex] = 1 // Mark as not empty
+		value[core.Cfg.StateIndex] = 1 // Mark as not empty
 		buf := make([]byte, ByteSize)
 
 		Convey("It should serialize into a full-size buffer", func() {
@@ -29,17 +30,17 @@ func TestRead(t *testing.T) {
 				So(roundtrip[w], ShouldEqual, original[w])
 			}
 
-			So(value[StateSlotIndex], ShouldEqual, original[StateSlotIndex])
+			So(value[core.Cfg.StateIndex], ShouldEqual, original[core.Cfg.StateIndex])
 		})
 
 		Convey("Consume resets the value after serialization", func() {
 			v := NewValue()
 			v[0] = 42
-			v[StateSlotIndex] = 1
+			v[core.Cfg.StateIndex] = 1
 			n, err := v.Consume(buf)
 			So(n, ShouldEqual, ByteSize)
 			So(errors.Is(err, io.EOF), ShouldBeTrue)
-			So(v[StateSlotIndex], ShouldEqual, 0)
+			So(v[core.Cfg.StateIndex], ShouldEqual, 0)
 		})
 
 	})
@@ -79,9 +80,9 @@ func TestWrite(t *testing.T) {
 
 func TestRegion0Layout(t *testing.T) {
 	Convey("Region0 reserves 57 tokens and 3 IDs", t, func() {
-		So(DataWords, ShouldEqual, 60)
-		So(DataBits, ShouldEqual, 60*64)
-		So(RegionAffinityStart, ShouldEqual, 4096)
+		So(core.Cfg.TokenIndex, ShouldEqual, 60)
+		So(core.Cfg.TokenBits, ShouldEqual, 60*64)
+		So(core.Cfg.AffinityIndex, ShouldEqual, 4096)
 	})
 }
 
@@ -92,7 +93,7 @@ func TestRegion0RoundTrip(t *testing.T) {
 		for i := 0; i < 57; i++ {
 			So(value.SetTokenID(i, Tokenize(byte('a'+i%26), uint64(i))), ShouldBeTrue)
 		}
-		value[StateSlotIndex] = 57 // Mark as not empty
+		value[core.Cfg.StateIndex] = 57 // Mark as not empty
 
 		value.SetValueID(0xAABBCCDD)
 		value.SetPrevValueID(0x11223344)

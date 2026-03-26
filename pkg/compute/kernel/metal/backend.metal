@@ -1,46 +1,29 @@
 #include <metal_stdlib>
+#include "../shared/primitives.h"
 using namespace metal;
 
 /*
 SIX NATIVE VM KERNELS (APPLE SILICON MSL)
 
-All kernels operate on `primitive.Value` arrays: 128 ulong words (8192 bits).
-The 8192nd bit (bit 63 of word 127) is the OOB Instruction Mask.
+All kernels operate on physical primitive.Value matrix slices (128 words, 1024 bytes).
+The 8192nd bit (bit 63 of word 127) is the Tombstone execution interrupt.
 */
 
-/*
-get_program_op decodes a 4-bit opcode at position pc from the 256-bit
-Program Region packed into a ulong4 (64 opcodes total, 16 per lane).
-
-  pc 0..15  → prog.x
-  pc 16..31 → prog.y
-  pc 32..47 → prog.z
-  pc 48..63 → prog.w
-*/
-inline uchar get_program_op(ulong4 prog, int pc) {
-    int word_idx = pc / 16;
-    int shift    = (pc % 16) * 4;
-    if (word_idx == 0) return (prog.x >> shift) & 0xF;
-    if (word_idx == 1) return (prog.y >> shift) & 0xF;
-    if (word_idx == 2) return (prog.z >> shift) & 0xF;
-    return                    (prog.w >> shift) & 0xF;
+// resolve_window geometrically bounds operation domains dynamically 
+// by intercepting predefined Register pointers.
+template <typename T>
+inline uint2 resolve_window(uint ptr, uint default_len, T src) {
+    if (ptr >= REG0 && ptr <= REG6) {
+        ulong reg_val = src[ptr];
+        uint start_idx = (uint)(reg_val >> 32);
+        uint length_val = (uint)(reg_val & 0xFFFFFFFF);
+        return uint2(start_idx, length_val);
+    }
+    return uint2(ptr, default_len);
 }
 
 /*
-1. UNIFIED BITWISE ALU — per-Value programmable kernel.
-
-Each thread processes exactly one 1024-byte Value.
-
-1. Fetch the 64-op program from Region 3 (words 68–71), which sits at
-   the start of the flat ulong array for this Value.
-2. Load the 57 data tokens (Region 0) into thread-local registers.
-3. Execute up to 64 program ticks. Each tick derives the truth-table ALU
-   gates from the 4-bit opcode and applies them in-place to the working
-   buffer (output of tick N is input to tick N+1). Halt at opcode 0.
-4. Write the evolved Region 0 back to DST. Clear the legacy Instruction
-   Register (word 60, bits 3840–3843). Pass all other metadata words
-   (ValueID, Affinity Mask, Program Register, Links, Gossip, TTL) through
-   unchanged from A.
+1. UNIFIED BITWISE ALU — completely aligned Register Kernel
 */
 kernel void unified_bitwise_kernel(
     device const ulong* A   [[buffer(0)]],
@@ -48,60 +31,79 @@ kernel void unified_bitwise_kernel(
     device       ulong* DST [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
-    // Each Value is exactly 128 ulong words.
-    uint base = id * 128;
+    // Each Value is perfectly 128 ulong words.
+    uint base = id * WORDS;
 
-    // ── Step 1: fetch the 64-op program (words 68–71 = Region 3) ──────────
-    ulong4 prog = ulong4(
-        A[base + 68],
-        A[base + 69],
-        A[base + 70],
-        A[base + 71]
-    );
-
-    // ── Step 2: load 57 data tokens (Region 0) into thread-local memory ───
-    // Matches Region0TokenCount = 57 in primitive.value.go.
-    ulong work_A[57];
-    for (int i = 0; i < 57; i++) {
-        work_A[i] = A[base + i];
+    // ── Step 1: Copy passive Receiver B into mutable scratchpad memory ──
+    ulong work_words[WORDS];
+    for (int i = 0; i < WORDS; i++) {
+        work_words[i] = B[base + i];
     }
 
-    // ── Step 3: execute the microcode program (up to 64 ticks) ────────────
-    for (int pc = 0; pc < 64; pc++) {
-        uchar op = get_program_op(prog, pc);
-        if (op == 0) break; // NOP / HALT
+    // ── Step 2: execute the microcode program strictly (8 ticks max) ────
+    for (int pc = 0; pc < 8; pc++) {
+        uint word_offset = (REGION_PROGRAM_START_BIT / 64) + (pc / 2);
+        uint shift = (pc % 2) * 32;
+        
+        // Read native 32-bit executable firmware slice out of the graph memory
+        uint instr = (uint)(A[base + word_offset] >> shift);
+        
+        uchar opBits = instr & 0xF;
+        if (opBits == OP_HALT) {
+            break;
+        }
 
-        // Expand the 4-bit truth-table index to 64-bit gate masks.
-        ulong m0 = 0 - (ulong)(op & 1);
-        ulong m1 = 0 - (ulong)((op >> 1) & 1);
-        ulong m2 = 0 - (ulong)((op >> 2) & 1);
-        ulong m3 = 0 - (ulong)((op >> 3) & 1);
+        uint src1  = (instr >> 4)  & 0xFF;
+        uint src2  = (instr >> 12) & 0xFF;
+        uint dest  = (instr >> 20) & 0xFF;
+        uint len   = (instr >> 28) & 0xF;
+
+        if (len == 0) {
+            len = 1; // Operational boundary initialization
+        }
+
+        // Expand the literal 4-bit Universal Logic matrix to 64-Bit truth gates
+        ulong m0 = 0 - (ulong)(opBits & 1);
+        ulong m1 = 0 - (ulong)((opBits >> 1) & 1);
+        ulong m2 = 0 - (ulong)((opBits >> 2) & 1);
+        ulong m3 = 0 - (ulong)((opBits >> 3) & 1);
 
         ulong k1 = m0 ^ m2;
         ulong k2 = m0 ^ m1;
         ulong k3 = m0 ^ m1 ^ m2 ^ m3;
 
-        // Apply the gate strictly to Region 0 data tokens.
-        for (int i = 0; i < 57; i++) {
-            ulong left  = work_A[i];
-            ulong right = B[base + i];
-            work_A[i] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right));
+        // Perform Substrate Pointer Mapping natively inside GPU cache
+        uint2 s1 = resolve_window(src1, len, &A[base]);
+        uint2 s2 = resolve_window(src2, len, work_words);
+        uint2 d  = resolve_window(dest, len, work_words);
+
+        // Guard topological buffer boundaries
+        uint op_len = s1.y;
+        if (s2.y < op_len) op_len = s2.y;
+        if (d.y < op_len) op_len = d.y;
+
+        // Geometrically apply Boolean ALUs across the window parameters
+        for (uint l = 0; l < op_len; l++) {
+            uint s1_idx = s1.x + l;
+            uint s2_idx = s2.x + l;
+            uint d_idx  = d.x  + l;
+
+            if (s1_idx >= WORDS || s2_idx >= WORDS || d_idx >= WORDS) {
+                continue; // Guard hardware exceptions
+            }
+
+            ulong left  = A[base + s1_idx];
+            ulong right = work_words[s2_idx];
+
+            work_words[d_idx] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right));
         }
     }
 
-    // ── Step 4: reconstruct the frame into DST ────────────────────────────
-    for (int i = 0; i < 128; i++) {
-        if (i < 57) {
-            // Evolved Region 0 data tokens.
-            DST[base + i] = work_A[i];
-        } else if (i == 60) {
-            // Word 60 holds the legacy Instruction Register (bits 3840–3843).
-            // Clear its 4 low bits so the opcode is consumed after execution.
-            DST[base + i] = A[base + i] & ~0x000000000000000Full;
-        } else {
-            // Pass through: ValueID (57–59), state slots (61–63),
-            // Affinity (64–67), Program (68–71), Links, Gossip, TTL, reserved.
-            DST[base + i] = A[base + i];
-        }
+    // ── Step 3: flush memory states from Scratchpad to native RAM (DST) ────
+    for (int i = 0; i < WORDS; i++) {
+        DST[base + i] = work_words[i];
     }
+    
+    // Mathematically wipe Program Instruction Register zero from persistent destination layer
+    DST[base + (REGION_PROGRAM_START_BIT / 64)] &= 0xFFFFFFFF00000000ull; 
 }

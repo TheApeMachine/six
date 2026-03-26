@@ -9,3 +9,137 @@ numerics:
   epsilon: 1e-9
   nsymbols: 256
   nbasis: 512
+
+value:
+  words: 128
+  region:
+    tokens:
+      start: 0
+      bits: 3648
+    id:
+      start: 57
+      bits: 64
+    prev:
+      start: 58
+      bits: 64
+    next:
+      start: 59
+      bits: 64
+    state: 
+      index: 60
+      sequence: 61
+      accumulator: 62
+    affinity:
+      start: 64
+      bits: 64
+    gossip:
+      start: 65
+      bits: 320
+    ttl:
+      start: 70
+      bits: 8
+    registers:
+      start: 71
+      bits: 64
+      r0: 71
+      r1: 72
+      r2: 73
+      r3: 74
+      r4: 75
+      r5: 76
+      pc: 77
+    pc:
+      start: 78
+      bits: 64
+    program:
+      start: 79
+      bits: 2944
+  opcodes:
+    false: 0000
+    and: 0001
+    aandnotb: 0010
+    a: 0011
+    notandb: 0100
+    b: 0101
+    xor: 0110
+    or: 0111
+    nor: 1000
+    xnor: 1001
+    notb: 1010
+    ifbthena: 1011
+    nota: 1100
+    ifathenb: 1101
+    nand: 1110
+    true: 1111
+
+
+# Substrate Firmware Programs
+# Format: src dest gate (Polish Notation, 2-address)
+#
+# Operands:
+#   number    = immediate value (0-127)
+#   rN        = register (r0-r5, pc)
+#   *N        = dereference: read word[N]
+#   *rN       = dereference through register
+#   bN / brN  = partner (Value B) word/register
+#
+# Registers (triple model):
+#   r0 = context A (0=self, 1=partner)
+#   r1 = offset A
+#   r2 = length A
+#   r3 = context B (0=self, 1=partner)
+#   r4 = offset B
+#   r5 = length B
+#
+# Gates: all 16 two-input boolean truth tables (0000-1111)
+#   0000=FALSE  0001=AND   0010=A∧¬B  0011=A
+#   0100=¬A∧B   0101=B     0110=XOR   0111=OR
+#   1000=NOR    1001=XNOR  1010=¬B    1011=B→A
+#   1100=¬A     1101=A→B   1110=NAND  1111=TRUE
+#
+# Control flow:
+#   Zero result skips the next instruction.
+#   Write to pc to jump: `8 pc 0011` jumps to slot 8.
+
+programs:
+  # Bootloader: copies program from partner (Value B) into self's
+  # program region (slots 8-99), then jumps to slot 8 to execute it.
+  # This is the native program loader — no Go-level bit manipulation.
+  bootloader: |
+    0   r0  0000 // r0 = 0  (self context) — FALSE zeros dest
+    82  r1  0011 // r1 = 82 (program start word) — gate A loads immediate
+    46  r2  0011 // r2 = 46 (program length in words)
+    1   r3  0011 // r3 = 1  (partner context)
+    82  r4  0011 // r4 = 82 (same offset in partner)
+    46  r5  0011 // r5 = 46 (same length)
+    *r3 *r0 0011 // copy partner[82..128] → self[82..128]
+    8   pc  0011 // jump to slot 8 (first loaded instruction)
+
+  # Shatter: 3-pass AND for structural decomposition
+  shatter: |
+    *0 *0 0001
+    *0 *0 0001
+    *0 *0 0001
+
+  # Tombstone: nullify links that match this Value's ID
+  # Loads ValueID, PrevID, NextID into registers, XORs to nullify matches,
+  # writes results back.
+  tombstone: |
+    *57 r0 0011 // r0 = word[57] (ValueID)
+    *58 r1 0011 // r1 = word[58] (PrevValueID)
+    *59 r2 0011 // r2 = word[59] (NextValueID)
+    r0  r1 0110 // r1 = r0 XOR r1 (zero if match → nullified)
+    r0  r2 0110 // r2 = r0 XOR r2 (zero if match → nullified)
+    r1 *58 0011 // word[58] = r1 (write back via deref)
+    r2 *59 0011 // word[59] = r2
+
+  # Wipe: zero the data and metadata regions (words 0-70) for pool reuse.
+  # Uses range-deref to clear in one sweep.
+  wipe: |
+    0   r0  0000 // r0 = 0 (self context)
+    0   r1  0000 // r1 = 0 (start offset)
+    71  r2  0011 // r2 = 71 (length: words 0-70)
+    0   r3  0000 // r3 = 0 (self context, source = zeros)
+    0   r4  0000 // r4 = 0 (source offset)
+    71  r5  0011 // r5 = 71
+    *r3 *r0 0000 // FALSE across self[0..71] → zeros everything

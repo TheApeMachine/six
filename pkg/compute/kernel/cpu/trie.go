@@ -2,8 +2,13 @@ package cpu
 
 import (
 	"fmt"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"unsafe"
 
+	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -44,29 +49,6 @@ func decodeBatchFrames(batch []byte) []primitive.Value {
 	return values
 }
 
-// LinkValues demonstrates the Region 4 temporary linking capability.
-// It sets up a chain of Values using the new linking primitives.
-func LinkValues(values []*primitive.Value) {
-	for i := 0; i < len(values)-1; i++ {
-		values[i].SetLink(values[i+1].ValueID())
-	}
-	if len(values) > 0 {
-		// Last value can point back or to a sentinel
-		values[len(values)-1].SetLink(0)
-	}
-}
-
-// ShowLinkInfo returns information about the linking structure for debugging.
-func ShowLinkInfo(values []*primitive.Value) string {
-	var result string
-	for i, v := range values {
-		link := v.Link()
-		tok := primitive.DecodeTokensToText(v)
-		result += fmt.Sprintf("Value %d: %q -> Link: %d\n", i, tok, link)
-	}
-	return result
-}
-
 // ProgramType represents different types of structuring programs.
 type ProgramType string
 
@@ -84,7 +66,7 @@ func CreateValueWithProgram(data string, programType ProgramType) *primitive.Val
 	v := primitive.NewValue()
 	v.Write([]byte(data))
 	v.SetValueID(1000) // arbitrary ID for demo
-	v[primitive.StateSlotIndex] = 1
+	v[core.Cfg.StateIndex] = 1
 
 	// Initialize affinity for clustering
 	v.InitializeAffinity()
@@ -100,18 +82,18 @@ func CreateValueWithProgram(data string, programType ProgramType) *primitive.Val
 func InstallProgram(value *primitive.Value, programType ProgramType) {
 	switch programType {
 	case ProgramShatter:
-		InstallProgramFrom(value, ShatterProgram)
+		InstallProgramFrom(value, GetProgram("shatter"))
 	case ProgramXOR:
-		InstallProgramFrom(value, XorProgram)
+		InstallProgramFrom(value, GetProgram("xor"))
 	case ProgramMerge:
-		InstallProgramFrom(value, MergeProgram)
+		InstallProgramFrom(value, GetProgram("merge"))
 	case ProgramProjectA:
-		InstallProgramFrom(value, ProjectAProgram)
+		InstallProgramFrom(value, GetProgram("projecta"))
 	case ProgramProjectB:
-		InstallProgramFrom(value, ProjectBProgram)
+		InstallProgramFrom(value, GetProgram("projectb"))
 	default:
 		// Fallback: simple OR/accumulate passthrough
-		InstallProgramFrom(value, MergeProgram)
+		InstallProgramFrom(value, GetProgram("merge"))
 	}
 }
 
@@ -132,7 +114,7 @@ func (backend *Backend) EncodeTrieBatch(
 		seq := sequences[v]
 
 		for i, b := range seq {
-			if i >= primitive.Region0TokenCount {
+			if i >= int(core.Cfg.TokenIndex) {
 				break
 			}
 			value.SetTokenID(i, primitive.Tokenize(b, uint64(i)))
@@ -145,34 +127,38 @@ func (backend *Backend) EncodeTrieBatch(
 // Program represents a sequence of operations that can be installed into a Value.
 type Program []uint32
 
-// Common program templates for different operations.
-var (
-	// ShatterProgram implements the classic "shared label + remainders" pattern
-	ShatterProgram = Program{
-		primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1),
-		primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), // Placeholder A&^B
-		primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), // Placeholder B&^A
-		primitive.OpHalt,
+// GetProgram reads a named program from config.yml and compiles it using
+// the native 3-token Polish Notation compiler. Programs in config are
+// multi-line strings of the form: src dest gate
+func GetProgram(name string) Program {
+	// Ensure Viper can find the configuration if we are running in headless tests
+	if viper.ConfigFileUsed() == "" {
+		_, b, _, _ := runtime.Caller(0)
+		projectRoot := filepath.Join(filepath.Dir(b), "../../../../")
+		viper.SetConfigFile(filepath.Join(projectRoot, "cmd/cfg/config.yml"))
+		_ = viper.ReadInConfig()
 	}
 
-	// XorProgram for prompt-style annihilation
-	XorProgram = Program{primitive.MakeInstruction(primitive.OpXor, 0, 1, 0, 1), primitive.OpHalt}
+	key := "programs." + strings.ToLower(name)
+	source := viper.GetString(key)
+	if source == "" {
+		return Program{0}
+	}
 
-	// MergeProgram for accumulating information
-	MergeProgram = Program{primitive.MakeInstruction(primitive.OpOr, 0, 1, 0, 1), primitive.OpHalt}
+	kernel, err := primitive.Compile(source)
+	if err != nil {
+		fmt.Printf("cpu: program %q compile error: %v\n", name, err)
+		return Program{0}
+	}
 
-	// ProjectAProgram keeps only A's unique components
-	ProjectAProgram = Program{primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), primitive.OpHalt}
-
-	// ProjectBProgram keeps only B's unique components
-	ProjectBProgram = Program{primitive.MakeInstruction(primitive.OpAnd, 0, 1, 0, 1), primitive.OpHalt}
-)
+	return Program(kernel)
+}
 
 // InstallProgramFrom installs a Program (sequence of opcodes) into a Value.
 func InstallProgramFrom(value *primitive.Value, program Program) {
 	for i, op := range program {
-		if i >= 8 {
-			break // can't exceed 8 VM operations
+		if i >= core.Cfg.MaxPC {
+			break
 		}
 		value.WriteVMInstruction(i, op)
 	}
@@ -220,12 +206,12 @@ func CreateComplexValue(data string, programs ...Program) *primitive.Value {
 	v := primitive.NewValue()
 	v.Write([]byte(data))
 	v.SetValueID(1000)
-	v[primitive.StateSlotIndex] = 1
+	v[core.Cfg.StateIndex] = 1
 	v.InitializeAffinity()
 
 	// If no programs provided, use shatter as default
 	if len(programs) == 0 {
-		InstallProgramFrom(v, ShatterProgram)
+		InstallProgramFrom(v, GetProgram("shatter"))
 	} else if len(programs) == 1 {
 		InstallProgramFrom(v, programs[0])
 	} else {

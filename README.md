@@ -26,6 +26,18 @@ By composing Unix-like `io.Reader` and `io.Writer` pipelines down to the foundat
 
 ---
 
+## Organization
+
+Given this is a research project, there are certain additional tools that are included that have no direct bearing on the core substrate. If you understand Go's packaging system, it should be obvious how to pull out the standalone engine.
+
+```go
+go get -u github.com/theapemachine/six/pkg/primitive
+```
+
+The tooling remains in place for reproducibility.
+
+---
+
 ## Architectural Pillars
 
 ### 1. `Value`: The Self-Executing Data Plane (Virtual Machine)
