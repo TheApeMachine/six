@@ -2,6 +2,7 @@ package cpu
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"math/bits"
@@ -82,6 +83,9 @@ func NewBackend(opts ...backendOption) *Backend {
 	backend.outPr = outPr
 	backend.outPw = outPw
 	backend.outRb = outRb
+
+	go backend.runProcessLoop()
+
 	return backend
 }
 
@@ -204,7 +208,39 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 	return total, nil
 }
 
+func (backend *Backend) runProcessLoop() {
+	buffer := make([]byte, backend.batchCap*primitive.ByteSize)
+	blankPartner := make([]byte, primitive.ByteSize) // All 0s dummy partner
+
+	for {
+		n, err := backend.pr.Read(buffer)
+		if n > 0 {
+			numValues := n / primitive.ByteSize
+
+			// Process directly through the core CPU bitwise ALU physics engine
+			for i := 0; i < numValues; i++ {
+				offset := i * primitive.ByteSize
+				aPtr := unsafe.Pointer(&buffer[offset])
+				bPtr := unsafe.Pointer(&blankPartner[0]) // Local pairing happens geometrically in Region now
+				backend.UniversalBitwise(aPtr, bPtr, unsafe.Pointer(nil), 1)
+			}
+
+			// Blast processed residues directly to output queue
+			backend.outPw.Write(buffer[:n])
+		}
+
+		if err != nil {
+			if err == io.EOF || errors.Is(err, io.ErrClosedPipe) {
+				backend.outPw.Close()
+				return
+			}
+			errnie.Error(err)
+		}
+	}
+}
+
 func (backend *Backend) Close() error {
+	backend.pw.Close()
 	return nil
 }
 

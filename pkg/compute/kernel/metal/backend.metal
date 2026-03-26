@@ -2,108 +2,113 @@
 #include "../shared/primitives.h"
 using namespace metal;
 
-/*
-SIX NATIVE VM KERNELS (APPLE SILICON MSL)
-
-All kernels operate on physical primitive.Value matrix slices (128 words, 1024 bytes).
-The 8192nd bit (bit 63 of word 127) is the Tombstone execution interrupt.
-*/
-
-// resolve_window geometrically bounds operation domains dynamically 
-// by intercepting predefined Register pointers.
-template <typename T>
-inline uint2 resolve_window(uint ptr, uint default_len, T src) {
-    if (ptr >= REG0 && ptr <= REG6) {
-        ulong reg_val = src[ptr];
-        uint start_idx = (uint)(reg_val >> 32);
-        uint length_val = (uint)(reg_val & 0xFFFFFFFF);
-        return uint2(start_idx, length_val);
-    }
-    return uint2(ptr, default_len);
-}
-
-/*
-1. UNIFIED BITWISE ALU — completely aligned Register Kernel
-*/
 kernel void unified_bitwise_kernel(
     device const ulong* A   [[buffer(0)]],
     device const ulong* B   [[buffer(1)]],
     device       ulong* DST [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
-    // Each Value is perfectly 128 ulong words.
     uint base = id * WORDS;
 
-    // ── Step 1: Copy passive Receiver B into mutable scratchpad memory ──
-    ulong work_words[WORDS];
+    ulong contexts[2][128];
     for (int i = 0; i < WORDS; i++) {
-        work_words[i] = B[base + i];
+        contexts[0][i] = A[base + i];
+        contexts[1][i] = B[base + i];
     }
 
-    // ── Step 2: execute the microcode program strictly (8 ticks max) ────
-    for (int pc = 0; pc < 8; pc++) {
-        uint word_offset = (REGION_PROGRAM_START_BIT / 64) + (pc / 2);
-        uint shift = (pc % 2) * 32;
-        
-        // Read native 32-bit executable firmware slice out of the graph memory
-        uint instr = (uint)(A[base + word_offset] >> shift);
-        
-        uchar opBits = instr & 0xF;
-        if (opBits == OP_HALT) {
+    while (true) {
+        ulong pc = contexts[0][REG_PC];
+        if (pc >= MAX_PC) {
             break;
         }
 
-        uint src1  = (instr >> 4)  & 0xFF;
-        uint src2  = (instr >> 12) & 0xFF;
-        uint dest  = (instr >> 20) & 0xFF;
-        uint len   = (instr >> 28) & 0xF;
+        ulong wordPos = PROGRAM_INDEX_WORD + (pc / 2);
+        uint shift = (pc % 2) * 32;
+        uint instr = (uint)(contexts[0][wordPos] >> shift);
 
-        if (len == 0) {
-            len = 1; // Operational boundary initialization
+        uchar op = instr & 0xF;
+        if (op == 0 && pc > 0) {
+            break;
         }
 
-        // Expand the literal 4-bit Universal Logic matrix to 64-Bit truth gates
-        ulong m0 = 0 - (ulong)(opBits & 1);
-        ulong m1 = 0 - (ulong)((opBits >> 1) & 1);
-        ulong m2 = 0 - (ulong)((opBits >> 2) & 1);
-        ulong m3 = 0 - (ulong)((opBits >> 3) & 1);
+        uint16_t srcCode = (instr >> 4) & 0x3FFF;
+        uint16_t dstCode = (instr >> 18) & 0x3FFF;
 
-        ulong k1 = m0 ^ m2;
-        ulong k2 = m0 ^ m1;
-        ulong k3 = m0 ^ m1 ^ m2 ^ m3;
+        contexts[0][REG_PC]++;
 
-        // Perform Substrate Pointer Mapping natively inside GPU cache
-        uint2 s1 = resolve_window(src1, len, &A[base]);
-        uint2 s2 = resolve_window(src2, len, work_words);
-        uint2 d  = resolve_window(dest, len, work_words);
+        ulong srcVal = 0;
+        bool sSpan = false;
+        if ((srcCode & 0x1000) != 0) {
+            srcVal = (ulong)(srcCode & 0x0FFF);
+            sSpan = true;
+        } else if ((srcCode & 0x2000) != 0) {
+            srcVal = contexts[0][srcCode & 0x0FFF];
+        } else {
+            srcVal = (ulong)srcCode;
+        }
 
-        // Guard topological buffer boundaries
-        uint op_len = s1.y;
-        if (s2.y < op_len) op_len = s2.y;
-        if (d.y < op_len) op_len = d.y;
+        ulong dstVal = 0;
+        bool dSpan = false;
+        if ((dstCode & 0x1000) != 0) {
+            dstVal = (ulong)(dstCode & 0x0FFF);
+            dSpan = true;
+        } else if ((dstCode & 0x2000) != 0) {
+            dstVal = contexts[0][dstCode & 0x0FFF];
+        } else {
+            dstVal = (ulong)dstCode;
+        }
 
-        // Geometrically apply Boolean ALUs across the window parameters
-        for (uint l = 0; l < op_len; l++) {
-            uint s1_idx = s1.x + l;
-            uint s2_idx = s2.x + l;
-            uint d_idx  = d.x  + l;
+        if (sSpan || dSpan) {
+            ulong sBase = srcVal;
+            ulong sCtx = contexts[0][sBase];
+            ulong sOff = contexts[0][sBase+1];
+            ulong sLen = contexts[0][sBase+2];
 
-            if (s1_idx >= WORDS || s2_idx >= WORDS || d_idx >= WORDS) {
-                continue; // Guard hardware exceptions
+            ulong dBase = dstVal;
+            ulong dCtx = contexts[0][dBase];
+            ulong dOff = contexts[0][dBase+1];
+            ulong dLen = contexts[0][dBase+2];
+
+            ulong limit = (sLen < dLen) ? sLen : dLen;
+            for (ulong i = 0; i < limit; i++) {
+                ulong sWord = (sOff + i) / 64;
+                ulong sBit = (sOff + i) % 64;
+                uchar sb = 0;
+                if (sWord < WORDS) sb = (contexts[sCtx % 2][sWord] >> sBit) & 1;
+
+                ulong dWord = (dOff + i) / 64;
+                ulong dBit = (dOff + i) % 64;
+                uchar db = 0;
+                if (dWord < WORDS) db = (contexts[dCtx % 2][dWord] >> dBit) & 1;
+
+                uint idx = (1 - db) | ((1 - sb) << 1);
+                uchar res = (op >> idx) & 1;
+
+                if (dWord < WORDS) {
+                    if (res == 1) {
+                        contexts[dCtx % 2][dWord] |= (1ULL << dBit);
+                    } else {
+                        contexts[dCtx % 2][dWord] &= ~(1ULL << dBit);
+                    }
+                }
             }
-
-            ulong left  = A[base + s1_idx];
-            ulong right = work_words[s2_idx];
-
-            work_words[d_idx] = m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right));
+            continue;
         }
+
+        uint dstIdx = dstCode & 0x0FFF;
+        ulong left = srcVal;
+        ulong right = dstVal;
+
+        ulong m0 = 0 - (ulong)((op >> 3) & 1);
+        ulong m1 = 0 - (ulong)((op >> 2) & 1);
+        ulong m2 = 0 - (ulong)((op >> 1) & 1);
+        ulong m3 = 0 - (ulong)(op & 1);
+
+        ulong res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
+        contexts[0][dstIdx] = res;
     }
 
-    // ── Step 3: flush memory states from Scratchpad to native RAM (DST) ────
     for (int i = 0; i < WORDS; i++) {
-        DST[base + i] = work_words[i];
+        DST[base + i] = contexts[0][i];
     }
-    
-    // Mathematically wipe Program Instruction Register zero from persistent destination layer
-    DST[base + (REGION_PROGRAM_START_BIT / 64)] &= 0xFFFFFFFF00000000ull; 
 }
