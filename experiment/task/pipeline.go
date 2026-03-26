@@ -58,6 +58,7 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 
 func (pipeline *Pipeline) Run() (err error) {
 	machine, err := vm.NewMachine(
+		vm.WithContext(pipeline.ctx),
 		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
 
