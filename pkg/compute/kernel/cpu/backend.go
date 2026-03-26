@@ -181,9 +181,6 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 	total := 0
 
 	for len(p) > 0 {
-		if err := backend.processAvailableBatch(); err != nil {
-			return total, err
-		}
 		free := backend.rb.Free()
 		if free == 0 {
 			return total, fmt.Errorf("cpu.backend: input ring full after drain (len=%d cap=%d)", backend.rb.Length(), backend.rb.Capacity())
@@ -202,113 +199,12 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 			return total, io.ErrShortWrite
 		}
 		p = p[nw:]
-		if err := backend.processAvailableBatch(); err != nil {
-			return total, err
-		}
 	}
+
 	return total, nil
 }
 
 func (backend *Backend) Close() error {
-	return nil
-}
-
-func (backend *Backend) processAvailableBatch() error {
-	if backend.streamPassthrough {
-		return backend.processStreamBatches()
-	}
-	return backend.processFullBatch()
-}
-
-func (backend *Backend) processFullBatch() error {
-	batchBytes := backend.batchCap * primitive.ByteSize
-	if batchBytes <= 0 || backend.rb.Length() < batchBytes {
-		return nil
-	}
-
-	buf := make([]byte, batchBytes)
-	if _, err := io.ReadFull(backend.pr, buf); err != nil {
-		return err
-	}
-
-	batch := decodeBatchFrames(buf)
-
-	// Initialize affinity masks for all Values in this batch.
-	// This enables the topological clustering used by AffinityMatch.
-	for i := range batch {
-		batch[i].InitializeAffinity()
-	}
-
-	// NEW PATH: Use affinity-based pairing + program execution
-	// The old residents/cancellation path has been removed.
-	if err := backend.processAffinityBatch(batch); err != nil {
-		return err
-	}
-	return nil
-}
-
-// processAffinityBatch implements the new in-band affinity + program execution path.
-// It finds Values with high affinity and runs their programs through UniversalBitwise.
-func (backend *Backend) processAffinityBatch(batch []primitive.Value) error {
-	if len(batch) == 0 {
-		return nil
-	}
-
-	// Use affinity-based pairing to find good topological matches
-	for i := range batch {
-		v := &batch[i]
-
-		// Find the best match for this Value using affinity.
-		// bestMatch is only set when a genuine partner is found;
-		// matched == false means no other Value in the batch had
-		// sufficient affinity overlap.
-		bestMatch := -1
-		for j := range batch {
-			if i == j {
-				continue
-			}
-			if AffinityMatch(v, &batch[j], 2) { // threshold of 2 overlapping bits
-				bestMatch = j
-				break // take the first good match for now
-			}
-		}
-
-		emitted := primitive.NewValue()
-
-		if bestMatch == -1 {
-			// No affinity partner found — pass the value through unchanged
-			// rather than running UniversalBitwise against itself.
-			*emitted = *v
-		} else {
-			target := &batch[bestMatch]
-			if err := backend.UniversalBitwise(
-				unsafe.Pointer(v),
-				unsafe.Pointer(target),
-				unsafe.Pointer(emitted),
-				1,
-			); err != nil {
-				return err
-			}
-		}
-
-		// Set metadata
-		emitted.SetValueID(backend.nextID)
-		backend.nextID++
-		emitted[core.Cfg.StateIndex] = 1
-
-		// Preserve linking information if present.
-		// When a real match was found, prefer the target's link chain;
-		// otherwise fall back to v's own link (or none).
-		if bestMatch != -1 && batch[bestMatch].NextValueID() != 0 {
-			emitted.SetNextValueID(batch[bestMatch].NextValueID())
-		} else if v.NextValueID() != 0 {
-			emitted.SetNextValueID(v.NextValueID())
-		}
-
-		if err := backend.emitOutputFrameFromValue(emitted); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
@@ -319,26 +215,6 @@ func (backend *Backend) emitOutputFrameFromValue(v *primitive.Value) error {
 		return err
 	}
 	return backend.emitOutputFrame(frame)
-}
-
-func (backend *Backend) processStreamBatches() error {
-	frameSize := primitive.ByteSize
-	for backend.rb.Length() >= frameSize {
-		nFrames := min(backend.rb.Length()/frameSize, backend.batchCap)
-		batchBytes := nFrames * frameSize
-		buf := make([]byte, batchBytes)
-		if _, err := io.ReadFull(backend.pr, buf); err != nil {
-			return err
-		}
-
-		batch := decodeBatchFrames(buf)
-
-		// Use the new affinity path for stream batches too
-		if err := backend.processAffinityBatch(batch); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 /*
@@ -360,206 +236,139 @@ func HammingDistance(a, b *primitive.Value) int {
 UniversalBitwise is the pure hardware ALU. Each Value's in-band program
 is executed through the 16 two-input boolean truth tables.
 */
+/*
+UniversalBitwise is the hardware ALU. Each Value executes its in-band
+program across contexts A and B using the 7-register RISC model.
+*/
 func (backend *Backend) UniversalBitwise(
-	a, b, dst unsafe.Pointer, numValues uint32,
+	a, b, _ unsafe.Pointer, numValues uint32,
 ) error {
-	as := unsafe.Slice((*[primitive.Words]uint64)(a), numValues)
-
 	for v := uint32(0); v < numValues; v++ {
-		aValue := (*primitive.Value)(unsafe.Pointer(&as[v]))
-		backend.executeProgram(aValue, b, dst, v)
+		backend.executeProgram(a, b, v)
 	}
-
 	return nil
 }
 
-// executeProgram runs truth-table instructions from the Value's boot + program region.
-//
-// Bit 31:       src immediate (value is the 7-bit index itself, not a memory read)
-// Halt:         full 32-bit instruction == 0
-// Skip-if-zero: zero result skips the next instruction
-// PC register:  writable for jumps
-// Range deref:  *r0 or *r3 use register triples (context, offset, length)
-func (backend *Backend) executeProgram(aValue *primitive.Value, b, dst unsafe.Pointer, v uint32) {
-	bs := unsafe.Slice((*[primitive.Words]uint64)(b), v+1)
-	ds := unsafe.Slice((*[primitive.Words]uint64)(dst), v+1)
+func (backend *Backend) executeProgram(a, b unsafe.Pointer, v uint32) {
+	as := unsafe.Slice((*primitive.Value)(a), v+1)
+	bs := unsafe.Slice((*primitive.Value)(b), v+1)
+	valA := &as[v]
+	valB := &bs[v]
+	contexts := []*primitive.Value{valA, valB}
 
-	aWords := (*[primitive.Words]uint64)(unsafe.Pointer(aValue))
-	copy(ds[v][:], aWords[:])
+	pcIdx := uint64(core.Cfg.RegPC)
+	wordBase := uint64(core.Cfg.ProgramIndex) / 64
 
-	ds[v][core.Cfg.RegPC] = 0
-	skip := false
+	// If firmware register (FW) is set, initialize the program region.
+	fwIdx := valA[core.Cfg.FW]
+	if fwIdx > 0 && int(fwIdx) < len(core.Cfg.Firmware) {
+		bootloaderIdx, ok := core.Cfg.FirmwareIndex["bootloader"]
+		if ok && bootloaderIdx >= 0 && bootloaderIdx < len(core.Cfg.Firmware) {
+			copyProgram(valA, core.Cfg.Firmware[bootloaderIdx], 0)
+		}
+		copyProgram(valA, core.Cfg.Firmware[fwIdx], 8)
+		valA[core.Cfg.FW] = 0 // Clear the trigger
+	}
 
 	for {
-		pc := int(ds[v][core.Cfg.RegPC])
-		if pc < 0 || pc >= core.Cfg.MaxPC {
+		pc := valA[pcIdx]
+		if pc >= uint64(core.Cfg.MaxPC) {
 			break
 		}
 
-		instr := aValue.ReadVMInstruction(pc)
-		if instr == 0 {
+		wordPos := wordBase + (pc / 2)
+		shift := uint((pc % 2) * 32)
+		instr := uint32(valA[wordPos] >> shift)
+
+		op := uint8(instr & 0xF)
+		if op == 0 && pc > 0 {
 			break
 		}
 
-		ds[v][core.Cfg.RegPC] = uint64(pc + 1)
+		srcCode := uint16((instr >> 4) & 0x3FFF)
+		dstCode := uint16((instr >> 18) & 0x3FFF)
 
-		if skip {
-			skip = false
-			continue
+		valA[pcIdx]++
+
+		resolve := func(code uint16) (uint64, bool) {
+			if code&0x1000 != 0 {
+				return uint64(code & 0x0FFF), true
+			}
+			if code&0x2000 != 0 {
+				return valA[code&0x0FFF], false
+			}
+			return uint64(code), false
 		}
 
-		s1Imm := (instr & (1 << 31)) != 0
+		srcVal, sSpan := resolve(srcCode)
+		dstVal, dSpan := resolve(dstCode)
 
-		parseOp := func(shift uint) (bool, bool, uint32) {
-			block := (instr >> shift) & 0x1FF
-			return (block & (1 << 8)) != 0, (block & (1 << 7)) != 0, block & 0x7F
-		}
+		if sSpan || dSpan {
+			sBase := srcVal
+			sCtx, sOff, sLen := valA[sBase], valA[sBase+1], valA[sBase+2]
 
-		s1Deref, s1Part, s1Idx := parseOp(4)
-		_, s2Part, s2Idx := parseOp(13)
-		dDeref, dPart, dIdx := parseOp(22)
+			dBase := dstVal
+			dCtx, dOff, dLen := valA[dBase], valA[dBase+1], valA[dBase+2]
 
-		opBits := uint64(instr & 0xF)
-		m0 := uint64(0) - (opBits & 1)
-		m1 := uint64(0) - ((opBits >> 1) & 1)
-		m2 := uint64(0) - ((opBits >> 2) & 1)
-		m3 := uint64(0) - ((opBits >> 3) & 1)
-		k1 := m0 ^ m2
-		k2 := m0 ^ m1
-		k3 := m0 ^ m1 ^ m2 ^ m3
-
-		selfWords := (*[primitive.Words]uint64)(unsafe.Pointer(&ds[v]))
-		partWords := (*[primitive.Words]uint64)(unsafe.Pointer(&bs[v]))
-
-		pickSrc := func(part bool) *[primitive.Words]uint64 {
-			if part {
-				return partWords
-			}
-			return selfWords
-		}
-
-		// Check if register index starts a triple (r0→Reg0, r3→Reg3)
-		isTripleStart := func(idx uint32) bool {
-			return idx == uint32(core.Cfg.R0) || idx == uint32(core.Cfg.R3)
-		}
-
-		// Range deref: *r0 uses (r0=context, r1=offset, r2=length)
-		//              *r3 uses (r3=context, r4=offset, r5=length)
-		if (s1Deref || dDeref) && (isTripleStart(s1Idx) || isTripleStart(dIdx)) {
-			// Resolve source range
-			var srcArr *[primitive.Words]uint64
-			var srcOff, srcLen uint32
-
-			if s1Imm {
-				// Immediate src in range mode: broadcast the value
-				srcArr = selfWords
-				srcOff = 0
-				srcLen = 1
-			} else if s1Deref && isTripleStart(s1Idx) {
-				ctx := selfWords[s1Idx]
-				srcOff = uint32(selfWords[s1Idx+1])
-				srcLen = uint32(selfWords[s1Idx+2])
-				if ctx == 1 {
-					srcArr = partWords
-				} else {
-					srcArr = selfWords
-				}
-			} else {
-				src := pickSrc(s1Part)
-				if s1Idx < primitive.Words {
-					srcOff = s1Idx
-					srcLen = 1
-					srcArr = src
-				}
-			}
-
-			// Resolve dest range
-			var dstArr *[primitive.Words]uint64
-			var dstOff, dstLen uint32
-
-			if dDeref && isTripleStart(dIdx) {
-				ctx := selfWords[dIdx]
-				dstOff = uint32(selfWords[dIdx+1])
-				dstLen = uint32(selfWords[dIdx+2])
-				if ctx == 1 {
-					dstArr = partWords
-				} else {
-					dstArr = selfWords
-				}
-			} else {
-				dstArr = pickSrc(dPart)
-				dstOff = dIdx
-				dstLen = 1
-			}
-
-			opLen := srcLen
-			if dstLen < opLen {
-				opLen = dstLen
-			}
-
-			allZero := true
-			for i := uint32(0); i < opLen; i++ {
-				sp := srcOff + i
-				dp := dstOff + i
-				if sp >= primitive.Words || dp >= primitive.Words {
-					continue
-				}
-
-				var left uint64
-				if s1Imm {
-					left = uint64(s1Idx)
-				} else {
-					left = srcArr[sp]
-				}
-				right := dstArr[dp]
-
-				result := m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
-				dstArr[dp] = result
-				if result != 0 {
-					allZero = false
-				}
-			}
-
-			if allZero {
-				skip = true
+			limit := min(sLen, dLen)
+			for i := uint64(0); i < limit; i++ {
+				sb := getBit(contexts[sCtx%2], sOff+i)
+				db := getBit(contexts[dCtx%2], dOff+i)
+				// Reverse binary order: (1,1)=0, (1,0)=1, (0,1)=2, (0,0)=3
+				idx := (1 - db) | ((1 - sb) << 1)
+				res := (op >> idx) & 1
+				setBit(contexts[dCtx%2], dOff+i, res)
 			}
 			continue
 		}
 
-		// Single-word path
-		var left uint64
-		if s1Imm {
-			left = uint64(s1Idx)
-		} else {
-			src := pickSrc(s1Part)
-			idx := s1Idx
-			if s1Deref && idx < primitive.Words {
-				idx = uint32(src[idx])
-			}
-			if idx >= primitive.Words {
-				continue
-			}
-			left = src[idx]
-		}
+		dstIdx := int(dstCode & 0x0FFF)
+		left := srcVal
+		right := dstVal
 
-		destSrc := pickSrc(s2Part)
-		destIdx := s2Idx
-		if dDeref && dIdx < primitive.Words {
-			destIdx = uint32(selfWords[dIdx])
-		}
-		if destIdx >= primitive.Words {
-			continue
-		}
+		// m0-m3 mapped to bits 3-0
+		m0 := uint64(0) - uint64((op>>3)&1) // bit 3 = f(0,0)
+		m1 := uint64(0) - uint64((op>>2)&1) // bit 2 = f(0,1)
+		m2 := uint64(0) - uint64((op>>1)&1) // bit 1 = f(1,0)
+		m3 := uint64(0) - uint64(op&1)      // bit 0 = f(1,1)
 
-		right := destSrc[destIdx]
-		result := m0 ^ (k1 & left) ^ (k2 & right) ^ (k3 & (left & right))
+		valA[dstIdx] = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
+	}
+}
 
-		writeSrc := pickSrc(dPart)
-		writeSrc[destIdx] = result
+func copyProgram(v *primitive.Value, instrs []uint32, startSlot int) {
+	wordBase := uint64(core.Cfg.ProgramIndex) / 64
+	for i, inst := range instrs {
+		slot := startSlot + i
+		wordPos := wordBase + uint64(slot/2)
+		shift := uint((slot % 2) * 32)
+		
+		// Clear the 32-bit slot
+		v[wordPos] &^= (uint64(0xFFFFFFFF) << shift)
+		// Set the instruction
+		v[wordPos] |= (uint64(inst) << shift)
+	}
+}
 
-		if result == 0 {
-			skip = true
-		}
+func getBit(v *primitive.Value, pos uint64) uint8 {
+	word := pos >> 6
+	bit := pos & 63
+	if word >= primitive.Words {
+		return 0
+	}
+	return uint8((v[word] >> bit) & 1)
+}
+
+func setBit(v *primitive.Value, pos uint64, val uint8) {
+	word := pos >> 6
+	bit := pos & 63
+	if word >= primitive.Words {
+		return
+	}
+	if val == 1 {
+		v[word] |= (1 << bit)
+	} else {
+		v[word] &= ^(1 << bit)
 	}
 }
 

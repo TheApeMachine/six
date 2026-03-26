@@ -390,139 +390,6 @@ func DecodeTokensToText(v *Value) string {
 	return string(b)
 }
 
-// AffinityMask returns a 64-bit affinity pattern derived from the Value's content.
-// This is used for fast topological clustering via bitwise operations in Region 2.
-func (value *Value) AffinityMask() uint64 {
-	// Create a simple but effective affinity signature from the first 8 tokens.
-	// In a more sophisticated version, this could be a learned hash or bloom filter.
-	hash := uint64(0)
-	for i := 0; i < 8 && i < int(core.Cfg.TokenBits); i++ {
-		if value[i] != 0 {
-			// Mix the token with its position for better distribution
-			hash = hash*31 + value[i]
-			hash ^= (uint64(i) << 32)
-		}
-	}
-	return hash
-}
-
-// SetAffinityMask writes a pattern into the affinity region (Region 2).
-func (value *Value) SetAffinityMask(mask uint64) {
-	// For now we just store it in the first word of the region.
-	// In a fuller implementation this would write across multiple words.
-	bitPos := core.Cfg.AffinityIndex
-	word := bitPos / 64
-	if word < len(*value) {
-		(*value)[word] = mask
-	}
-}
-
-// InitializeAffinity sets a reasonable affinity mask based on the Value's content.
-// This should be called after writing data to enable topological clustering.
-func (value *Value) InitializeAffinity() {
-	mask := value.AffinityMask()
-	value.SetAffinityMask(mask)
-}
-
-// HasProgram reports whether this Value has any non-zero instructions
-// in its Program Region.
-func (value *Value) HasProgram() bool {
-	firstWord := core.Cfg.ProgramIndex / 64
-	numWords := int(core.Cfg.ProgramBits) / 64
-	for i := firstWord; i < firstWord+numWords; i++ {
-		if (*value)[i] != 0 {
-			return true
-		}
-	}
-	return false
-}
-
-// MakeInstruction packs a 32-bit instruction.
-// Bit 31 = s1 immediate flag (src value is the 7-bit index itself, not a word read).
-func MakeInstruction(opcode uint8, s1Imm, s1Deref, s1Part bool, s1Idx uint8, s2Deref, s2Part bool, s2Idx uint8, dDeref, dPart bool, dIdx uint8) uint32 {
-	pack := func(deref, part bool, idx uint8) uint32 {
-		v := uint32(idx & 0x7F)
-		if part {
-			v |= 1 << 7
-		}
-		if deref {
-			v |= 1 << 8
-		}
-		return v
-	}
-	result := uint32(opcode&0xF) |
-		(pack(s1Deref, s1Part, s1Idx) << 4) |
-		(pack(s2Deref, s2Part, s2Idx) << 13) |
-		(pack(dDeref, dPart, dIdx) << 22)
-	if s1Imm {
-		result |= 1 << 31
-	}
-	return result
-}
-
-// ReadVMInstruction reads a 32-bit instruction at the given PC slot.
-func (value *Value) ReadVMInstruction(pc int) uint32 {
-	if pc < 0 || pc >= core.Cfg.MaxPC {
-		return 0
-	}
-	wordOffset := core.Cfg.ProgramIndex/64 + (pc / 2)
-	shift := uint((pc % 2) * 32)
-	return uint32((*value)[wordOffset] >> shift)
-}
-
-// WriteVMInstruction writes a 32-bit instruction at the given PC slot.
-func (value *Value) WriteVMInstruction(pc int, instr uint32) {
-	if pc < 0 || pc >= core.Cfg.MaxPC {
-		return
-	}
-	wordOffset := core.Cfg.ProgramIndex/64 + (pc / 2)
-	shift := uint((pc % 2) * 32)
-
-	mask := uint64(0xFFFFFFFF) << shift
-	(*value)[wordOffset] &^= mask
-	(*value)[wordOffset] |= uint64(instr) << shift
-}
-
-// CreateTombstone generates a self-executing network control frame.
-// The program uses truth table 1100 (outputs first input) to load
-// values into registers, and 0110 (XOR) to nullify matching links.
-func (value *Value) CreateTombstone() *Value {
-	tomb := NewValue()
-	tomb.SetValueID(value.ValueID())
-
-	prog, err := Compile(`
-		57 r0 1100    // r0 = word[57] (ValueID)
-		58 r1 1100    // r1 = word[58] (PrevValueID)
-		59 r2 1100    // r2 = word[59] (NextValueID)
-		r0 r1 0110    // r1 = r0 XOR r1 (nullify if match)
-		r0 r2 0110    // r2 = r0 XOR r2 (nullify if match)
-		r1 58 1100    // word[58] = r1
-		r2 59 1100    // word[59] = r2
-	`)
-
-	if err == nil && len(prog) <= 8 {
-		for i, instr := range prog {
-			tomb.WriteVMInstruction(i, instr)
-		}
-	}
-
-	return tomb
-}
-
-var tombstoneSignature uint32
-
-func init() {
-	p, _ := Compile(`57 r0 1100`)
-	if len(p) > 0 {
-		tombstoneSignature = p[0]
-	}
-}
-
-// IsTombstone evaluates if this Value currently hosts the tombstone program natively.
-func (value *Value) IsTombstone() bool {
-	return value.ReadVMInstruction(0) == tombstoneSignature
-}
-
 type ValueErrorType string
 
 const (
@@ -541,4 +408,20 @@ func NewValueError(err ValueErrorType) *ValueError {
 
 func (e *ValueError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
+}
+
+func (value *Value) HasProgram() bool {
+	// If the firmware register is set, it signals a program should be loaded
+	if value[core.Cfg.FW] > 0 {
+		return true
+	}
+	// Check if the program region has any non-zero words
+	startWord := core.Cfg.ProgramIndex / 64
+	endWord := (core.Cfg.ProgramIndex + int(core.Cfg.ProgramBits)) / 64
+	for i := startWord; i < endWord && i < Words; i++ {
+		if value[i] != 0 {
+			return true
+		}
+	}
+	return false
 }

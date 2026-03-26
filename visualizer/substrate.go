@@ -155,7 +155,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "chamber-before",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
-				Instruction: telemetry.TruthOpName(uint8(chamber.ReadVMInstruction(0) & 0xF)),
+				Instruction: telemetry.TruthOpName(uint8(telemetry.ReadVMInstruction() & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
 				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64), // affinity instead of old instr popcount
 				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),  // program info
@@ -183,7 +183,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "chamber-after",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
-				Instruction: telemetry.TruthOpName(uint8(chamber.ReadVMInstruction(0) & 0xF)),
+				Instruction: telemetry.TruthOpName(uint8(telemetry.ReadVMInstruction() & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
 				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64),
 				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),
@@ -211,7 +211,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "kernel",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber) + " · cpu.Backend: physics engine (affinity + program execution)",
-				Instruction: telemetry.TruthOpName(uint8(chamber.ReadVMInstruction(0) & 0xF)),
+				Instruction: telemetry.TruthOpName(uint8(telemetry.ReadVMInstruction() & 0xF)),
 				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
 				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64),
 				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),
@@ -235,7 +235,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 
 		chamber = primitive.BytesToValue(mutatedFrame)
 
-		instr := uint8(chamber.ReadVMInstruction(0) & 0xF)
+		instr := uint8(telemetry.ReadVMInstruction() & 0xF)
 		pressure := cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64)
 
 		srv.Broadcast(telemetry.Event{

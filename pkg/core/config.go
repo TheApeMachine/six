@@ -1,6 +1,9 @@
 package core
 
 import (
+	"fmt"
+	"sort"
+
 	"github.com/spf13/viper"
 )
 
@@ -44,6 +47,7 @@ type ValueRegistersConfig struct {
 	R3    int `mapstructure:"r3"`
 	R4    int `mapstructure:"r4"`
 	R5    int `mapstructure:"r5"`
+	FW    int `mapstructure:"fw"`
 	PC    int `mapstructure:"pc"`
 }
 
@@ -103,6 +107,7 @@ var Cfg = &Config{
 	R3:               vCfg.Region.Registers.R3,
 	R4:               vCfg.Region.Registers.R4,
 	R5:               vCfg.Region.Registers.R5,
+	FW:               vCfg.Region.Registers.FW,
 	RegPC:            vCfg.Region.Registers.PC,
 }
 
@@ -134,7 +139,52 @@ type Config struct {
 	R3               int
 	R4               int
 	R5               int
+	FW               int
 	RegPC            int
+
+	// Firmware holds compiled programs from config.yml, indexed by position.
+	// Set a Value's firmware register to the index to select a program.
+	Firmware      [][]uint32
+	FirmwareIndex map[string]int
+}
+
+// CompileFunc is set by the primitive package to avoid circular imports.
+// It compiles a program source string into instructions.
+var CompileFunc func(string) ([]uint32, error)
+
+// LoadFirmware compiles all programs from the config's `programs` section
+// into Cfg.Firmware. Must be called after viper has loaded config.
+func LoadFirmware() error {
+	if CompileFunc == nil {
+		return fmt.Errorf("core: CompileFunc not registered")
+	}
+
+	programs := viper.GetStringMapString("programs")
+	if len(programs) == 0 {
+		return nil
+	}
+
+	// Sort for deterministic indexing
+	names := make([]string, 0, len(programs))
+	for name := range programs {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	Cfg.Firmware = make([][]uint32, len(names))
+	Cfg.FirmwareIndex = make(map[string]int, len(names))
+
+	for i, name := range names {
+		src := programs[name]
+		instrs, err := CompileFunc(src)
+		if err != nil {
+			return fmt.Errorf("core: firmware %q: %w", name, err)
+		}
+		Cfg.Firmware[i] = instrs
+		Cfg.FirmwareIndex[name] = i
+	}
+
+	return nil
 }
 
 func Get[T any](key string) T {

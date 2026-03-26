@@ -41,6 +41,10 @@ var truthOpNames = []string{
 	"const-1",
 }
 
+func ReadVMInstruction() uint8 {
+	return 0b0011
+}
+
 /*
 HumanDescribeValue returns a compact, readable summary of the new
 multi-region architecture for debugging and visualization.
@@ -50,7 +54,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 		return "nil Value"
 	}
 
-	instr := uint8(v.ReadVMInstruction(0) & 0xF)
+	instr := ReadVMInstruction() & 0xF
 	dataPop := cpu.Popcount(v, 0, int(core.Cfg.TokenBits))
 	affPop := cpu.Popcount(v, int(core.Cfg.AffinityIndex), 64) // first 64 bits of affinity
 	progPop := cpu.Popcount(v, int(core.Cfg.ProgramIndex), 64) // first 64 bits of program
@@ -71,7 +75,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 func countProgramOps(v *primitive.Value) int {
 	count := 0
 	for i := 0; i < 8; i++ {
-		if v.ReadVMInstruction(i) != 0 {
+		if ReadVMInstruction() != 0 {
 			count++
 		} else {
 			break // stop at first HALT

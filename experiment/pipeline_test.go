@@ -42,8 +42,10 @@ func TestValueReaction(t *testing.T) {
 			// ---------------------------------------------------------
 
 			// Prompt: [Roy] (using new ProgramXOR)
-			prompt := cpu.CreateValueWithProgram("Roy", cpu.ProgramXOR)
+			prompt := primitive.NewValue()
+			prompt.Write([]byte("Roy"))
 			prompt.SetValueID(999)
+			prompt[core.Cfg.StateIndex] = 1
 
 			// ---------------------------------------------------------
 			// 3. THE COLLISION (Values passing through Values)

@@ -124,7 +124,7 @@ func (region *Region) Write(p []byte) (n int, err error) {
 			region.UpdateRoutingSignature(val)
 
 			// HARDWARE BUS: Trap network-healing Tombstones or Search binaries
-			if val.HasProgram() || val.IsTombstone() {
+			if val.HasProgram() {
 				localCopy := make([]byte, ByteSize)
 				ValueToBytes(val, localCopy)
 
