@@ -1,0 +1,112 @@
+/* ═══════════════════════════════════════════════════════════
+   recording.js — Event recording and replay engine
+   ═══════════════════════════════════════════════════════════ */
+
+export const recording = [];
+let replayMode = false;
+let replayIdx = 0;
+let replayTimer = null;
+const startTime = Date.now();
+
+let handleEventFn = null;
+let resetVisFn = null;
+
+export function initRecording(handleEvent, resetVis) {
+  handleEventFn = handleEvent;
+  resetVisFn = resetVis;
+}
+
+export function recordEvent(ev) {
+  ev._ts = Date.now() - startTime;
+  recording.push(ev);
+}
+
+export function isReplayMode() {
+  return replayMode;
+}
+
+export function getRecordingLength() {
+  return recording.length;
+}
+
+export function getReplayIdx() {
+  return replayIdx;
+}
+
+export function enterReplayMode() {
+  replayMode = true;
+  if (resetVisFn) resetVisFn();
+}
+
+export function enterLiveMode() {
+  replayMode = false;
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+}
+
+export function replayTo(idx) {
+  if (resetVisFn) resetVisFn();
+  const target = Math.min(idx, recording.length - 1);
+  for (let i = 0; i <= target; i++) {
+    if (handleEventFn) handleEventFn(recording[i]);
+  }
+  replayIdx = target;
+}
+
+export function startPlayback(onTick) {
+  enterReplayMode();
+  if (replayTimer) clearInterval(replayTimer);
+  replayTimer = setInterval(() => {
+    if (replayIdx < recording.length - 1) {
+      replayIdx++;
+      if (handleEventFn) handleEventFn(recording[replayIdx]);
+      if (onTick) onTick(replayIdx, recording.length);
+    } else {
+      clearInterval(replayTimer);
+      replayTimer = null;
+    }
+  }, 16);
+}
+
+export function pausePlayback() {
+  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+}
+
+export function stepForward() {
+  if (!replayMode) enterReplayMode();
+  if (replayIdx < recording.length - 1) {
+    replayIdx++;
+    if (handleEventFn) handleEventFn(recording[replayIdx]);
+  }
+  return replayIdx;
+}
+
+export function exportRecording() {
+  const blob = new Blob([JSON.stringify(recording, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `six-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export function importRecording(file) {
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const data = JSON.parse(e.target.result);
+        if (Array.isArray(data)) {
+          recording.length = 0;
+          recording.push(...data);
+          replayTo(0);
+          resolve(recording.length);
+        }
+      } catch (err) {
+        console.error('Import error:', err);
+        resolve(0);
+      }
+    };
+    reader.readAsText(file);
+  });
+}
