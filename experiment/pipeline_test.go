@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
@@ -66,7 +67,16 @@ func TestValueReaction(t *testing.T) {
 			// ---------------------------------------------------------
 
 			residueFrame := make([]byte, primitive.ByteSize)
-			n, err := backend.Read(residueFrame)
+			var n int
+			var err error
+			for i := 0; i < 100; i++ {
+				n, err = backend.Read(residueFrame)
+				if err == nil && n == primitive.ByteSize {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+
 			So(err, ShouldBeNil)
 			So(n, ShouldEqual, primitive.ByteSize)
 

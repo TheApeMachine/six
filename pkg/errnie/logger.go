@@ -186,6 +186,16 @@ func Error(err error, keyvals ...any) error {
 		return nil
 	}
 
+	if IsReschedulable(err) {
+		keyvals = append(keyvals, "reschedulable", true)
+	}
+	
+	if ctx := HasContext(err); ctx != nil {
+		if ctx.Err() != nil {
+			keyvals = append(keyvals, "context_err", ctx.Err())
+		}
+	}
+
 	logger.Error(err, keyvals...)
 
 	if logFile != nil {
