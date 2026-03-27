@@ -3,9 +3,8 @@
 using namespace metal;
 
 kernel void unified_bitwise_kernel(
-    device const ulong* A   [[buffer(0)]],
+    device ulong* A         [[buffer(0)]],
     device const ulong* B   [[buffer(1)]],
-    device       ulong* DST [[buffer(2)]],
     uint id [[thread_position_in_grid]]
 ) {
     uint base = id * WORDS;
@@ -109,6 +108,6 @@ kernel void unified_bitwise_kernel(
     }
 
     for (int i = 0; i < WORDS; i++) {
-        DST[base + i] = contexts[0][i];
+        A[base + i] = contexts[0][i];
     }
 }

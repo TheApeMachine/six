@@ -65,7 +65,7 @@ func TestExecuteProgram_FirmwareLoad(t *testing.T) {
 		valA[core.Cfg.FW] = 2
 
 		// Execute frame
-		backend.UniversalBitwise(unsafe.Pointer(valA), unsafe.Pointer(valB), nil, 1)
+		backend.UniversalBitwise(unsafe.Pointer(valA), unsafe.Pointer(valB))
 
 		// Assertions: FW register is cleared; PC jumped to 8 then progressed to 9; R5 set
 		So(valA[core.Cfg.FW], ShouldEqual, 0)

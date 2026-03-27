@@ -17,7 +17,7 @@ type Substrate interface {
 	// corresponding boolean gate across the data lanes. Values carrying a
 	// full 64-tick program in Region 3 execute that program instead.
 	// This is the canonical in-band instruction path.
-	UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error
+	UniversalBitwise(a, b unsafe.Pointer) error
 
 	// Schedule pushes abstract functional execution payloads onto the underlying worker pool.
 	Schedule(job func(ctx context.Context) error)

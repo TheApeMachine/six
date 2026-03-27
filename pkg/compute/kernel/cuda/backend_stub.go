@@ -47,8 +47,8 @@ func Available() int {
 	return int(count)
 }
 
-func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
-	return NewCUDAError(nil, "UniversalBitwise", "UniversalBitwise", n)
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+	return NewCUDAError(CUDAErrorUnavailable, nil, "UniversalBitwise")
 }
 
 func (backend *Backend) Schedule(job func(ctx context.Context) error) {

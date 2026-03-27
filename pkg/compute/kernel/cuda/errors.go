@@ -20,18 +20,20 @@ type CUDAError struct {
 	Err error
 	Msg string
 	Op  string
-	N   uint32
 }
 
 /*
 NewCUDAError returns a new CUDAError.
 */
-func NewCUDAError(err error, msg string, op string, n uint32) *CUDAError {
+func NewCUDAError(cerr CUDAErrorType, err error, op string) *CUDAError {
+	msg := string(cerr)
+	if err != nil {
+		msg += ": " + err.Error()
+	}
 	return &CUDAError{
 		Err: err,
 		Msg: msg,
 		Op:  op,
-		N:   n,
 	}
 }
 

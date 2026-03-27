@@ -3,13 +3,11 @@
 #include "../shared/primitives.h"
 
 __global__ void unified_bitwise_kernel(
-    const uint64_t* A,
-    const uint64_t* B,
-    uint64_t* DST,
-    uint32_t num_values
+    uint64_t* A,
+    const uint64_t* B
 ) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= num_values) return;
+    if (id >= 1) return;
 
     uint32_t base = id * WORDS;
 
@@ -108,21 +106,17 @@ __global__ void unified_bitwise_kernel(
     }
 
     for (int i = 0; i < WORDS; i++) {
-        DST[base + i] = contexts[0][i];
+        A[base + i] = contexts[0][i];
     }
 }
 
-static uint64_t* d_pool_A = nullptr;
 static uint64_t* d_pool_B = nullptr;
-static uint64_t* d_pool_dst = nullptr;
 static uint32_t pool_capacity = 0;
 
 static int ensure_pool(uint32_t num_values) {
     if (pool_capacity >= num_values) return 0;
 
-    if (d_pool_A) cudaFree(d_pool_A);
     if (d_pool_B) cudaFree(d_pool_B);
-    if (d_pool_dst) cudaFree(d_pool_dst);
 
     uint32_t cap = num_values * 2;
     if (cap < 1024) cap = 1024;
@@ -130,7 +124,6 @@ static int ensure_pool(uint32_t num_values) {
     size_t bytes = cap * 1024; // 1024 bytes per Value
     if (cudaMalloc((void**)&d_pool_A, bytes) != cudaSuccess) return -1;
     if (cudaMalloc((void**)&d_pool_B, bytes) != cudaSuccess) return -1;
-    if (cudaMalloc((void**)&d_pool_dst, bytes) != cudaSuccess) return -1;
 
     pool_capacity = cap;
     return 0;
@@ -145,42 +138,36 @@ extern "C" {
     }
 
     void cleanup_cuda_pools() {
-        if (d_pool_A) { cudaFree(d_pool_A); d_pool_A = nullptr; }
         if (d_pool_B) { cudaFree(d_pool_B); d_pool_B = nullptr; }
-        if (d_pool_dst) { cudaFree(d_pool_dst); d_pool_dst = nullptr; }
         pool_capacity = 0;
     }
 
     int unified_bitwise_cuda(
         int device_id,
-        const void* a_host,
-        const void* b_host,
-        void* dst_host,
-        uint32_t num_values
+        void* a_host,
+        const void* b_host
     ) {
-        if (!a_host || !b_host || !dst_host || num_values == 0) return -1;
+        if (!a_host || !b_host) return -1;
         if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-        if (ensure_pool(num_values) != 0) return -1;
+        if (ensure_pool(1) != 0) return -1;
 
-        size_t bytes = num_values * 1024;
+        size_t bytes = 1024;
 
         cudaMemcpy(d_pool_A,   a_host, bytes, cudaMemcpyHostToDevice);
         cudaMemcpy(d_pool_B,   b_host, bytes, cudaMemcpyHostToDevice);
 
-        int threads = 256;
-        int blocks  = (num_values + threads - 1) / threads;
+        int threads = 1;
+        int blocks  = 1;
 
         unified_bitwise_kernel<<<blocks, threads>>>(
-            (const uint64_t*)d_pool_A,
-            (const uint64_t*)d_pool_B,
-            (uint64_t*)d_pool_dst,
-            num_values
+            (uint64_t*)d_pool_A,
+            (const uint64_t*)d_pool_B
         );
 
         if (cudaGetLastError()    != cudaSuccess) return -2;
         if (cudaDeviceSynchronize() != cudaSuccess) return -3;
 
-        cudaMemcpy(dst_host, d_pool_dst, bytes, cudaMemcpyDeviceToHost);
+        cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
         return 0;
     }
 }

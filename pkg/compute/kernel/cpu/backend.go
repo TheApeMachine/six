@@ -180,13 +180,25 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 			dCtx, dOff, dLen := valA[dBase], valA[dBase+1], valA[dBase+2]
 
 			limit := min(sLen, dLen)
+
+			// This is the "Hardware Span" execution (Bootloader/Affinity)
+			// We treat the context as a raw bit-array
 			for i := uint64(0); i < limit; i++ {
-				sb := getBit(contexts[sCtx%2], sOff+i)
-				db := getBit(contexts[dCtx%2], dOff+i)
-				// Reverse binary order: (1,1)=0, (1,0)=1, (0,1)=2, (0,0)=3
+				// RAW BIT READ (Manual extraction)
+				sIdx, sShift := (sOff+i)/64, (sOff+i)%64
+				dIdx, dShift := (dOff+i)/64, (dOff+i)%64
+				
+				sb := (contexts[sCtx%2][sIdx] >> sShift) & 1
+				db := (contexts[dCtx%2][dIdx] >> dShift) & 1
+
+				// UNIVERSAL ALU LOGIC (Algebraic Normal Form)
+				// Maps (sb,db) to the truth table result
 				idx := (1 - db) | ((1 - sb) << 1)
 				res := (op >> idx) & 1
-				setBit(contexts[dCtx%2], dOff+i, res)
+
+				// RAW BIT WRITE (Manual insertion)
+				target := &contexts[dCtx%2][dIdx]
+				*target = (*target & ^(uint64(1) << dShift)) | (uint64(res) << dShift)
 			}
 			continue
 		}

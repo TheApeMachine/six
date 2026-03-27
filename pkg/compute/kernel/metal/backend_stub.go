@@ -30,8 +30,8 @@ func Available() int {
 	return 0
 }
 
-func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
-	return NewMetalError(MetalErrorUnavailable, nil, "UniversalBitwise", n)
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+	return NewMetalError(MetalErrorUnavailable, nil, "UniversalBitwise")
 }
 
 /*
@@ -49,10 +49,9 @@ type MetalError struct {
 	Err error
 	Msg string
 	Op  string
-	N   uint32
 }
 
-func NewMetalError(merr MetalErrorType, err error, op string, n uint32) *MetalError {
+func NewMetalError(merr MetalErrorType, err error, op string) *MetalError {
 	msg := ""
 	if err != nil {
 		msg = err.Error()
@@ -61,7 +60,6 @@ func NewMetalError(merr MetalErrorType, err error, op string, n uint32) *MetalEr
 		Err: err,
 		Msg: msg,
 		Op:  op,
-		N:   n,
 	}
 }
 

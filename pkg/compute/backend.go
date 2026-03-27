@@ -70,18 +70,17 @@ func NewBackend(opts ...BackendOption) (*Backend, error) {
 /*
 UniversalBitwise implements the raw memory dispatcher if bypassing the stream.
 */
-func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	if len(backend.hardware) == 0 {
 		return errnie.Error(
 			NewBackendError(
 				nil,
 				"compute.backend.UniversalBitwise",
-				n,
 			),
 		)
 	}
 
-	return backend.hardware[0].UniversalBitwise(a, b, dst, n)
+	return backend.hardware[0].UniversalBitwise(a, b)
 }
 
 /*
@@ -125,15 +124,17 @@ type BackendError struct {
 	Err error
 	Msg string
 	Op  string
-	N   uint32
 }
 
-func NewBackendError(err error, op string, n uint32) *BackendError {
+func NewBackendError(err error, op string) *BackendError {
+	msg := ""
+	if err != nil {
+		msg = err.Error()
+	}
 	return &BackendError{
 		Err: err,
-		Msg: err.Error(),
+		Msg: msg,
 		Op:  op,
-		N:   n,
 	}
 }
 

@@ -6,8 +6,8 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/spf13/viper"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -131,7 +131,7 @@ func TestValueReaction(t *testing.T) {
 			// ---------------------------------------------------------
 
 			// Explicitly pair them and execute the firmware program natively
-			backend.UniversalBitwise(unsafe.Pointer(prompt), unsafe.Pointer(royFact), nil, 1)
+			backend.UniversalBitwise(unsafe.Pointer(prompt), unsafe.Pointer(royFact))
 
 			// ---------------------------------------------------------
 			// 4. THE RESULT
@@ -164,7 +164,7 @@ func graphHook(t *testing.T) func(cpu.GraphEvent) {
 		// Automatically fallback to the visualizer's default UDP listen port
 		addr = "127.0.0.1:8258"
 	}
-	
+
 	sender, err := telemetry.NewUDPSender(addr)
 	if err != nil {
 		t.Logf("viz UDP dial failed: %v, falling back to log", err)
@@ -177,9 +177,9 @@ func graphHook(t *testing.T) func(cpu.GraphEvent) {
 		if ev.Type == "add-edge" {
 			action = "AddEdge"
 		}
-		
+
 		t.Logf("VIZ: Dispatching %s %d over UDP", action, ev.NodeID)
-		
+
 		sender.Send(telemetry.Event{
 			Component: "Backend",
 			Action:    action,
@@ -217,7 +217,7 @@ func TestGraphFolding(t *testing.T) {
 			haroldVal[core.Cfg.StateIndex] = 1
 
 			// Trigger the CPU ALU geometry simulation directly
-			backend.UniversalBitwise(unsafe.Pointer(royVal), unsafe.Pointer(haroldVal), nil, 1)
+			backend.UniversalBitwise(unsafe.Pointer(royVal), unsafe.Pointer(haroldVal))
 
 			// After UniversalBitwise, the pointers are mutated in place
 			emitted := []*primitive.Value{royVal}

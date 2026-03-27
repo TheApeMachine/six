@@ -63,17 +63,17 @@ that program and executes up to 64 ticks per Value, halting at opcode 0.
 The batch may therefore be heterogeneous: each Value runs its own independent
 program in parallel on the GPU.
 */
-func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	if !metalReady.Load() {
 		return NewMetalError(
 			MetalErrorUnavailable,
 			errors.New("failed to load metal backend"),
-			"UniversalBitwise", n,
+			"UniversalBitwise",
 		)
 	}
 
-	if C.unified_bitwise_metal(a, b, dst, C.uint32_t(n)) != 0 {
-		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise", n)
+	if C.unified_bitwise_metal(a, b) != 0 {
+		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
 	}
 	return nil
 }
@@ -107,7 +107,7 @@ func init() {
 	defer C.free(unsafe.Pointer(cPath))
 
 	if res := C.init_metal(cPath); res != 0 {
-		errnie.Error(NewMetalError(MetalErrorInitFailed, nil, "init_metal", 0))
+		errnie.Error(NewMetalError(MetalErrorInitFailed, nil, "init_metal"))
 		return
 	}
 
@@ -129,15 +129,13 @@ type MetalError struct {
 	Err error
 	Msg string
 	Op  string
-	N   uint32
 }
 
-func NewMetalError(merr MetalErrorType, err error, op string, n uint32) *MetalError {
+func NewMetalError(merr MetalErrorType, err error, op string) *MetalError {
 	return &MetalError{
 		Err: err,
 		Msg: string(merr),
 		Op:  op,
-		N:   n,
 	}
 }
 

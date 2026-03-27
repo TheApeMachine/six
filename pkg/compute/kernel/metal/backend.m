@@ -22,7 +22,6 @@ the same triple — no per-kernel pool overhead.
 */
 static id<MTLBuffer> poolA   = nil;
 static id<MTLBuffer> poolB   = nil;
-static id<MTLBuffer> poolDst = nil;
 static uint32_t      poolCap = 0;
 
 static int ensure_pool(uint32_t num_values) {
@@ -33,15 +32,13 @@ static int ensure_pool(uint32_t num_values) {
 
     if (poolA)   { [poolA release];   poolA   = nil; }
     if (poolB)   { [poolB release];   poolB   = nil; }
-    if (poolDst) { [poolDst release]; poolDst = nil; }
 
     NSUInteger bytes = (NSUInteger)cap * VALUE_BYTES;
 
     poolA   = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
     poolB   = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-    poolDst = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
 
-    if (!poolA || !poolB || !poolDst) { poolCap = 0; return -1; }
+    if (!poolA || !poolB) { poolCap = 0; return -1; }
 
     poolCap = cap;
     return 0;
@@ -123,31 +120,27 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
 Unified Bitwise dispatch — no external opcode; each Value carries its own
 64-op program in Region 3 which the kernel reads and executes in-band.
 */
-int unified_bitwise_metal(const void* a_host, const void* b_host, void* dst_host, uint32_t num_values) {
-    if (!pipelineUnifiedBitwise || !a_host || !b_host || !dst_host) return -1;
-    if (num_values == 0) return 0;
-    if (ensure_pool(num_values) != 0) return -2;
+int unified_bitwise_metal(void* a_host, const void* b_host) {
+    if (!pipelineUnifiedBitwise || !a_host || !b_host) return -1;
 
     @autoreleasepool {
-        size_t bytes = (size_t)num_values * VALUE_BYTES;
-        memcpy([poolA contents], a_host, bytes);
-        memcpy([poolB contents], b_host, bytes);
+        memcpy([poolA contents], a_host, VALUE_BYTES);
+        memcpy([poolB contents], b_host, VALUE_BYTES);
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
         [enc setBuffer:poolA   offset:0 atIndex:0];
         [enc setBuffer:poolB   offset:0 atIndex:1];
-        [enc setBuffer:poolDst offset:0 atIndex:2];
         // No op byte — program dispatch is fully in-band.
 
-        dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
+        dispatchKernel(enc, pipelineUnifiedBitwise, 1);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
         if (r != 0) return r;
 
-        memcpy(dst_host, [poolDst contents], bytes);
+        memcpy(a_host, [poolA contents], VALUE_BYTES);
         return 0;
     }
 }
@@ -155,6 +148,5 @@ int unified_bitwise_metal(const void* a_host, const void* b_host, void* dst_host
 void cleanup_metal_pools(void) {
     if (poolA)   { [poolA release];   poolA   = nil; }
     if (poolB)   { [poolB release];   poolB   = nil; }
-    if (poolDst) { [poolDst release]; poolDst = nil; }
     poolCap = 0;
 }

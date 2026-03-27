@@ -13,6 +13,7 @@ int unified_bitwise_cuda(int device_id, const void* a, const void* b, void* dst,
 import "C"
 import (
 	"context"
+	"errors"
 	"sync"
 	"unsafe"
 )
@@ -65,13 +66,12 @@ reads that program and executes up to 64 ticks per Value, halting at the
 first zero opcode. The batch may therefore be heterogeneous: each Value
 runs its own independent program in parallel.
 */
-func (backend *Backend) UniversalBitwise(a, bPtr, dst unsafe.Pointer, n uint32) error {
-	if C.unified_bitwise_cuda(0, a, bPtr, dst, C.uint32_t(n)) != 0 {
+func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
+	if C.unified_bitwise_cuda(0, a, bPtr) != 0 {
 		return NewCUDAError(
 			CUDAErrorDispatchFailed,
-			"failed to dispatch unified bitwise operation",
+			errors.New("failed to dispatch unified bitwise operation"),
 			"UniversalBitwise",
-			n,
 		)
 	}
 

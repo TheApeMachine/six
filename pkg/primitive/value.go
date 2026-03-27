@@ -198,8 +198,6 @@ func (value *Value) Write(p []byte) (int, error) {
 			return Backend.UniversalBitwise(
 				unsafe.Pointer(value),
 				unsafe.Pointer(incoming),
-				unsafe.Pointer(nil),
-				1,
 			)
 		})
 	}
