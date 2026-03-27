@@ -3,6 +3,8 @@ package network
 import (
 	"context"
 	"io"
+
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -62,7 +64,11 @@ func (conn *UniConn) Read(p []byte) (int, error) {
 		return 0, &TransportError{Layer: "uniconn", Op: "read", Err: ErrNoTransport}
 	}
 
-	return conn.rwc.Read(p)
+	n, err := conn.rwc.Read(p)
+	if err == nil && conn.connType == QUICType && n == primitive.ByteSize {
+		primitive.ApplyQUICIngressScar(p[:n])
+	}
+	return n, err
 }
 
 /*

@@ -16,7 +16,7 @@ import {
   clearAllZoneLabels,
   setZoneHover, updateZonePulses,
 } from './architecture.js';
-import { buildValueRing, animateValueRing } from './value-viz.js';
+import { buildValueRing, animateValueRing, updateValueFromBinaryBuffer } from './value-viz.js';
 import {
   updateDataStreams, clearDataStreams,
   buildFlowParticles, updateFlowParticles,
@@ -402,6 +402,10 @@ initEventHandler({
 initWebSocket(
   // onEvent
   (ev) => {
+    if (ev._binary && ev.buffer) {
+      updateValueFromBinaryBuffer(ev.buffer);
+      return;
+    }
     recordEvent(ev);
     if (!isReplayMode()) handleEvent(ev);
     // Update slider

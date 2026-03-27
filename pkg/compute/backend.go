@@ -12,6 +12,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 )
 
@@ -87,13 +88,31 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 		)
 	}
 
-	return backend.pickSubstrate().UniversalBitwise(a, b)
+	sub := backend.pickSubstrate(a)
+	if sub == nil {
+		return errnie.Error(
+			NewBackendError(
+				nil,
+				"compute.backend.UniversalBitwise",
+			),
+		)
+	}
+	return sub.UniversalBitwise(a, b)
 }
 
-func (backend *Backend) pickSubstrate() kernel.Substrate {
+// pickSubstrate rotates across local substrates. Values tagged by QUIC ingress
+// (WANIngressScarred) stick to the first registered device to avoid ping-pong
+// routing costs across heterogeneous transports elsewhere in the mesh.
+func (backend *Backend) pickSubstrate(hostFrame unsafe.Pointer) kernel.Substrate {
 	n := len(backend.hardware)
 	if n == 0 {
 		return nil
+	}
+	if hostFrame != nil {
+		v := (*primitive.Value)(hostFrame)
+		if v.WANIngressScarred() {
+			return backend.hardware[0]
+		}
 	}
 	i := atomic.AddUint32(&backend.nextHW, 1) - 1
 	return backend.hardware[int(i)%n]

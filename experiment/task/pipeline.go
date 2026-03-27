@@ -75,7 +75,9 @@ func (pipeline *Pipeline) Run() (err error) {
 
 	var viralBuf []byte = make([]byte, primitive.ByteSize)
 	primitive.ValueToBytes(v, viralBuf)
-	machine.Write(viralBuf)
+	if _, err := machine.Write(viralBuf); err != nil {
+		return errnie.Error(err)
+	}
 
 	for idx, prompt := range pipeline.experiment.Prompts() {
 		p := bytes.NewBuffer([]byte{})

@@ -3,6 +3,7 @@ package primitive
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -61,6 +62,22 @@ const (
 
 	// SignalMask is the mechanical bit-pattern used to reset the sequence index.
 	SignalMask = 0xF
+
+	// ExecStatusWord is the word reserved for kernel exit markers (high 16 bits);
+	// must match generated pkg/compute/kernel/shared/primitives.h EXEC_STATUS_WORD.
+	ExecStatusWord  = 63
+	ExecStatusShift = 48
+
+	// GossipWord0Fallback is the first GOSSIP word index when core.Cfg is unset.
+	GossipWord0Fallback = 66
+)
+
+// Exit reasons written into ExecStatusWord by CPU / GPU kernels (high 16 bits).
+const (
+	ExecExitNone uint16 = iota
+	ExecExitExhausted
+	ExecExitHaltOpcode
+	ExecExitBadProgramWord
 )
 
 var (
@@ -350,6 +367,56 @@ func (v *Value) ApplyWireFrame(p []byte) error {
 	}
 	valueFrom(p, v)
 	return nil
+}
+
+func gossipWordIndex() int {
+	if core.Cfg.GossipIndex > 0 {
+		return core.Cfg.GossipIndex
+	}
+	return GossipWord0Fallback
+}
+
+/*
+ApplyQUICIngressScar marks a full wire frame that arrived over QUIC so higher
+levels can prefer local execution without exposing transport type in APIs.
+It only touches the first GOSSIP word (bit 63); program and data regions are unchanged.
+*/
+func ApplyQUICIngressScar(p []byte) {
+	if len(p) != ByteSize {
+		return
+	}
+	idx := gossipWordIndex()
+	if idx < 0 || idx >= Words {
+		return
+	}
+	off := idx * 8
+	w := binary.LittleEndian.Uint64(p[off : off+8])
+	w |= uint64(1) << 63
+	binary.LittleEndian.PutUint64(p[off:off+8], w)
+}
+
+// WANIngressScarred reports whether ApplyQUICIngressScar has tagged this Value.
+func (value *Value) WANIngressScarred() bool {
+	idx := gossipWordIndex()
+	if idx < 0 || idx >= Words {
+		return false
+	}
+	return (value[idx]>>63)&1 == 1
+}
+
+// ClearExecExitCode clears the kernel exit marker in the high bits of ExecStatusWord.
+func (value *Value) ClearExecExitCode() {
+	value[ExecStatusWord] &= 0x0000FFFFFFFFFFFF
+}
+
+// SetExecExitCode records why a native kernel stopped (high 16 bits of ExecStatusWord).
+func (value *Value) SetExecExitCode(code uint16) {
+	value[ExecStatusWord] = (value[ExecStatusWord] & 0x0000FFFFFFFFFFFF) | (uint64(code) << ExecStatusShift)
+}
+
+// ExecExitCode returns the last kernel exit marker, if any.
+func (value *Value) ExecExitCode() uint16 {
+	return uint16(value[ExecStatusWord] >> ExecStatusShift)
 }
 
 /*

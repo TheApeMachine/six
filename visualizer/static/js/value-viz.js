@@ -135,6 +135,22 @@ export function buildValueRing() {
 
 // ── Update Value Display ───────────────────────────────────
 // Accepts telemetry data and updates which bits are "lit"
+// Map raw 1024-byte LE wire frame to sampled bit cells (no JSON, no object churn).
+export function updateValueFromBinaryBuffer(buf) {
+  if (!cellMeshes.length || !(buf instanceof ArrayBuffer) || buf.byteLength < 1024) return;
+  const u8 = new Uint8Array(buf);
+
+  for (const cell of cellMeshes) {
+    const bit = cell.bit;
+    const byteIdx = bit >>> 3;
+    const bitInByte = bit & 7;
+    const active = ((u8[byteIdx] >> bitInByte) & 1) === 1;
+
+    cell.mesh.material.opacity = active ? 0.75 + Math.random() * 0.2 : 0.08;
+    cell.mesh.scale.y = active ? 1.7 : 0.55;
+  }
+}
+
 export function updateValueDisplay(data) {
   if (!cellMeshes.length) return;
 

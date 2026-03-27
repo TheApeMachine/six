@@ -8,5 +8,10 @@
 #define REG_PC                                   78
 #define PROGRAM_INDEX_WORD                       79
 #define MAX_PC                                   98
+#define EXEC_STATUS_WORD                         63
+#define EXEC_STATUS_SHIFT                        48
+#define EXEC_EXIT_EXHAUSTED                      1
+#define EXEC_EXIT_HALT                           2
+#define EXEC_EXIT_BAD_WORD                       3
 
 #endif // SUBSTRATE_PRIMITIVES_H

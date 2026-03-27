@@ -16,6 +16,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gorilla/websocket"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -327,5 +328,24 @@ func (server *Server) Broadcast(event telemetry.Event) {
 
 	for conn := range server.clients {
 		conn.WriteMessage(websocket.TextMessage, msg)
+	}
+}
+
+/*
+BroadcastValueFrame pushes a raw 1024-byte Value frame to clients as a binary
+WebSocket message so the browser can map the buffer without JSON overhead.
+*/
+func (server *Server) BroadcastValueFrame(frame []byte) {
+	if len(frame) != primitive.ByteSize {
+		return
+	}
+
+	server.mu.RLock()
+	defer server.mu.RUnlock()
+
+	for conn := range server.clients {
+		cp := make([]byte, primitive.ByteSize)
+		copy(cp, frame)
+		_ = conn.WriteMessage(websocket.BinaryMessage, cp)
 	}
 }

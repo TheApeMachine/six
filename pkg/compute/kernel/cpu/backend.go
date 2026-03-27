@@ -171,18 +171,26 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 		}
 	}
 
+	valA.ClearExecExitCode()
+
 	for {
 		pc := valA[pcIdx]
 		if pc >= uint64(core.Cfg.MaxPC) {
+			valA.SetExecExitCode(primitive.ExecExitExhausted)
 			break
 		}
 
 		wordPos := wordBase + (pc / 2)
+		if int(wordPos) >= primitive.Words {
+			valA.SetExecExitCode(primitive.ExecExitBadProgramWord)
+			break
+		}
 		shift := uint((pc % 2) * 32)
 		instr := uint32(valA[wordPos] >> shift)
 
 		op := uint8(instr & 0xF)
 		if op == 0 && pc > 0 {
+			valA.SetExecExitCode(primitive.ExecExitHaltOpcode)
 			break
 		}
 

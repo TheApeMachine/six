@@ -15,6 +15,7 @@ export function initWebSocket(onEvent, onConnect, onDisconnect) {
 
 export function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.binaryType = 'arraybuffer';
 
   ws.onopen = () => {
     activeWS = ws;
@@ -28,6 +29,10 @@ export function connect() {
   };
 
   ws.onmessage = (event) => {
+    if (event.data instanceof ArrayBuffer) {
+      if (onEventCallback) onEventCallback({ _binary: true, buffer: event.data });
+      return;
+    }
     try {
       const ev = JSON.parse(event.data);
       if (onEventCallback) onEventCallback(ev);

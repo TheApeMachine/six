@@ -2,6 +2,11 @@
 #include "../shared/primitives.h"
 using namespace metal;
 
+#define MARK_EXEC_EXIT(ctx, code) do { \
+    (ctx)[EXEC_STATUS_WORD] &= 0x0000FFFFFFFFFFFFUL; \
+    (ctx)[EXEC_STATUS_WORD] |= ((ulong)(code) << EXEC_STATUS_SHIFT); \
+} while (0)
+
 kernel void unified_bitwise_kernel(
     device ulong* A         [[buffer(0)]],
     device const ulong* B   [[buffer(1)]],
@@ -15,14 +20,18 @@ kernel void unified_bitwise_kernel(
         contexts[1][i] = B[base + i];
     }
 
+    contexts[0][EXEC_STATUS_WORD] &= 0x0000FFFFFFFFFFFFUL;
+
     while (true) {
         ulong pc = contexts[0][REG_PC];
         if (pc >= MAX_PC) {
+            MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_EXHAUSTED);
             break;
         }
 
         ulong wordPos = PROGRAM_INDEX_WORD + (pc / 2);
         if (wordPos >= WORDS) {
+            MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_BAD_WORD);
             break;
         }
         uint shift = (pc % 2) * 32;
@@ -30,6 +39,7 @@ kernel void unified_bitwise_kernel(
 
         uchar op = instr & 0xF;
         if (op == 0 && pc > 0) {
+            MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_HALT);
             break;
         }
 

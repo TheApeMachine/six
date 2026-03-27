@@ -2,6 +2,11 @@
 #include <stdint.h>
 #include "../shared/primitives.h"
 
+#define MARK_EXEC_EXIT(ctx, code) do { \
+    (ctx)[EXEC_STATUS_WORD] &= 0x0000FFFFFFFFFFFFULL; \
+    (ctx)[EXEC_STATUS_WORD] |= ((uint64_t)(code) << EXEC_STATUS_SHIFT); \
+} while (0)
+
 __global__ void unified_bitwise_kernel(
     uint64_t* A,
     const uint64_t* B
@@ -17,19 +22,28 @@ __global__ void unified_bitwise_kernel(
         contexts[1][i] = B[base + i];
     }
 
+    contexts[0][EXEC_STATUS_WORD] &= 0x0000FFFFFFFFFFFFULL;
+
     while (true) {
         uint64_t pc = contexts[0][REG_PC];
-        if (pc >= MAX_PC) break;
+        if (pc >= MAX_PC) {
+            MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_EXHAUSTED);
+            break;
+        }
 
         uint64_t wordPos = PROGRAM_INDEX_WORD + (pc / 2);
         if (wordPos >= WORDS) {
+            MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_BAD_WORD);
             break;
         }
         uint32_t shift = (pc % 2) * 32;
         uint32_t instr = (uint32_t)(contexts[0][wordPos] >> shift);
 
         uint8_t op = instr & 0xF;
-        if (op == 0 && pc > 0) break;
+        if (op == 0 && pc > 0) {
+            MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_HALT);
+            break;
+        }
 
         uint16_t srcCode = (instr >> 4) & 0x3FFF;
         uint16_t dstCode = (instr >> 18) & 0x3FFF;

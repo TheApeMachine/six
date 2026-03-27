@@ -188,7 +188,10 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 		})
 
 		mutatedFrame := make([]byte, primitive.ByteSize)
-		chamber = primitive.BytesToValue(mutatedFrame)
+		if err := primitive.ValueToBytes(chamber, mutatedFrame); err != nil {
+			return err
+		}
+		srv.BroadcastValueFrame(mutatedFrame)
 
 		instr := uint8(telemetry.ReadVMInstruction() & 0xF)
 		pressure := cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64)

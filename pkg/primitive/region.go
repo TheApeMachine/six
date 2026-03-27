@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"sync"
+	"sync/atomic"
 )
 
 /*
@@ -13,22 +14,33 @@ stirring colored paint in a bucket. Multiple streams read and write Values
 to this Region, and by rotating which Regions the streams interact with,
 the Values are rapidly and chaotically mixed across the system.
 */
+// spillMaxFrames bounds the secondary overflow buffer so a hot writer cannot
+// enqueue unbounded work when the primary mixer is saturated.
+const spillMaxFrames = 256
+
 type Region struct {
 	ID        uint64
 	mixer     chan []byte
+	spill     chan []byte
 	closeOnce sync.Once
+
+	spillAccept atomic.Uint64
+	spillDrop   atomic.Uint64
 }
 
 /*
 NewRegion creates a new mixing pool that can hold a predefined capacity
-of 1024-byte Values. We use a buffered channel as a lock-free queue to
-ensure clean Value-aligned deposits without fragmentation.
+of 1024-byte Values. Deposit paths use buffered channels and non-blocking
+select only (no Region-level mutex): the primary mixer plus a bounded spill
+channel for overflow. (The Go runtime still serializes channel operations
+internally. Global FIFO across mixer vs spill is not guaranteed once both fill.)
 */
 func NewRegion(id uint64) *Region {
 	capacity := 64 // Hold up to 64 Values at once for mixing
 	return &Region{
 		ID:    id,
 		mixer: make(chan []byte, capacity),
+		spill: make(chan []byte, spillMaxFrames),
 	}
 }
 
@@ -45,8 +57,14 @@ func (region *Region) Read(p []byte) (n int, err error) {
 	case frame := <-region.mixer:
 		return copy(p, frame), nil
 	default:
-		return 0, io.EOF
 	}
+
+	select {
+	case frame := <-region.spill:
+		return copy(p, frame), nil
+	default:
+	}
+	return 0, io.EOF
 }
 
 /*
@@ -77,7 +95,14 @@ func (region *Region) Write(p []byte) (n int, err error) {
 		case region.mixer <- cp:
 			bytesConsumed += ByteSize
 		default:
-			return bytesConsumed, io.ErrShortWrite
+			select {
+			case region.spill <- cp:
+				region.spillAccept.Add(1)
+				bytesConsumed += ByteSize
+			default:
+				region.spillDrop.Add(1)
+				return bytesConsumed, io.ErrShortWrite
+			}
 		}
 	}
 
@@ -93,6 +118,21 @@ func (region *Region) Close() error {
 	}
 	region.closeOnce.Do(func() {
 		close(region.mixer)
+		if region.spill != nil {
+			close(region.spill)
+		}
 	})
 	return nil
+}
+
+/*
+SpillStats reports overflow-buffer depth and lifetime counters for observability.
+queued is the number of Values buffered on the spill channel; accepted counts
+successful spill enqueues; dropped counts Values lost when both channels are full.
+*/
+func (region *Region) SpillStats() (queued int, accepted uint64, dropped uint64) {
+	if region.spill != nil {
+		queued = len(region.spill)
+	}
+	return queued, region.spillAccept.Load(), region.spillDrop.Load()
 }
