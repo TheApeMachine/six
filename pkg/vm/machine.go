@@ -38,8 +38,14 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		"poolProcs", maxProcs,
 	)
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	machine = &Machine{
-		stream: transport.NewStream(),
+		ctx:    ctx,
+		cancel: cancel,
+		stream: transport.NewStream(
+			transport.WithContext(ctx),
+		),
 	}
 
 	for _, opt := range opts {

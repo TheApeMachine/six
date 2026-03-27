@@ -5,67 +5,88 @@ import (
 	"strings"
 )
 
-/*
-CompileFunc compiles the firmware programs from the config
-into the proper instruction format.
-*/
 func CompileFunc(src string) ([]uint32, error) {
 	program := make([]uint32, 0)
 
 	for _, line := range strings.Split(src, "\n") {
 		// First remove all the comments.
 		line = strings.TrimSpace(strings.Split(line, "//")[0])
-
-		for _, chunk := range strings.Split(line, " ") {
-			chunk = strings.TrimSpace(chunk)
-
-			if chunk == "" {
-				continue
-			}
-
-			val, err := parseInstruction(chunk)
-
-			if err != nil {
-				return nil, err
-			}
-
-			program = append(program, uint32(val))
+		
+		if line == "" {
+			continue
 		}
+
+		chunks := strings.Fields(line)
+		if len(chunks) < 3 {
+			continue
+		}
+
+		srcCode, err := parseInstruction(chunks[0])
+		if err != nil {
+			return nil, err
+		}
+
+		dstCode, err := parseInstruction(chunks[1])
+		if err != nil {
+			return nil, err
+		}
+
+		opVal, err := strconv.ParseUint(chunks[2], 2, 8)
+		if err != nil {
+			return nil, err
+		}
+
+		instr := uint32(opVal&0xF) | (uint32(srcCode&0x3FFF) << 4) | (uint32(dstCode&0x3FFF) << 18)
+		program = append(program, instr)
 	}
 
 	return program, nil
 }
 
 func parseInstruction(chunk string) (uint64, error) {
-	switch chunk[0] {
-	case 'r':
-		r, err := strconv.ParseUint(chunk[1:], 10, 64)
+	if strings.HasPrefix(chunk, "*") {
+		val, err := parseInstruction(chunk[1:])
+		if err != nil {
+			return 0, err
+		}
+		// Clear 0x2000 if it was a register, then add 0x1000 to mark as span/pointer
+		return (val &^ 0x2000) | 0x1000, nil
+	}
 
+	if chunk == "pc" {
+		return uint64(Cfg.RegPC) | 0x2000, nil
+	}
+	if chunk == "fw" {
+		return uint64(Cfg.FW) | 0x2000, nil
+	}
+
+	if strings.HasPrefix(chunk, "r") {
+		r, err := strconv.ParseUint(chunk[1:], 10, 64)
 		if err != nil {
 			return 0, err
 		}
 
+		var reg uint64
 		switch r {
 		case 0:
-			return uint64(Cfg.R0), nil
+			reg = uint64(Cfg.R0)
 		case 1:
-			return uint64(Cfg.R1), nil
+			reg = uint64(Cfg.R1)
 		case 2:
-			return uint64(Cfg.R2), nil
+			reg = uint64(Cfg.R2)
 		case 3:
-			return uint64(Cfg.R3), nil
+			reg = uint64(Cfg.R3)
 		case 4:
-			return uint64(Cfg.R4), nil
+			reg = uint64(Cfg.R4)
 		case 5:
-			return uint64(Cfg.R5), nil
+			reg = uint64(Cfg.R5)
 		}
-	case '*':
-		return parseInstruction(chunk[1:])
-	case 'p':
-		return uint64(Cfg.RegPC), nil
-	default:
-		return strconv.ParseUint(chunk, 10, 64)
+		return reg | 0x2000, nil
 	}
 
-	return 0, nil
+	val, err := strconv.ParseUint(chunk, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	return val, nil
 }

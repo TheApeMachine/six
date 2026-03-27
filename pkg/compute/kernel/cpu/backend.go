@@ -88,7 +88,6 @@ func (backend *Backend) emitGraph(ev GraphEvent) {
 	}
 }
 
-
 /*
 Available returns the number of logical CPU cores.
 */
@@ -112,62 +111,33 @@ func HammingDistance(a, b *primitive.Value) int {
 }
 
 /*
-UniversalBitwise is the pure hardware ALU. Each Value's in-band program
-is executed through the 16 two-input boolean truth tables.
-*/
-/*
-UniversalBitwise is the hardware ALU. Each Value executes its in-band
-program across contexts A and B using the 7-register RISC model.
-*/
-func (backend *Backend) UniversalBitwise(
-	a, b, _ unsafe.Pointer, numValues uint32,
-) error {
-	for v := uint32(0); v < numValues; v++ {
-		backend.executeProgram(a, b, v)
-	}
-	return nil
-}
+UniversalBitwise is the hardware ALU. The only valid way to execute a
+program is by applying the 4 bit truth table directly to the spans.
 
-func (backend *Backend) executeProgram(a, b unsafe.Pointer, v uint32) {
-	as := unsafe.Slice((*primitive.Value)(a), v+1)
-	bs := unsafe.Slice((*primitive.Value)(b), v+1)
-	valA := &as[v]
-	valB := &bs[v]
+For reference:
+
+	r0 = context A (0=a, 1=b)
+	r1 = offset A
+	r2 = length A
+	r3 = context B (0=a, 1=b)
+	r4 = offset B
+	r5 = length B
+	pc = program counter (index of next instruction)
+	fw = firmware index (index of next program to execute)
+
+In many cases you would need r0 and r3 to both be a (self).
+Keep the following in mind: you select the src and dst bits, you
+apply the truth table to the bits, that's basically it.
+It is important to mind the bootloader, which should be installed
+into all new Values.
+*/
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+	valA := (*primitive.Value)(a)
+	valB := (*primitive.Value)(b)
 	contexts := []*primitive.Value{valA, valB}
-
-	if backend.graphFn != nil {
-		backend.emitGraph(GraphEvent{
-			Type:       "add-node",
-			NodeID:     valA.ValueID(),
-			NodeTokens: primitive.DecodeTokensToText(valA),
-			NodeType:   "Context A",
-		})
-		backend.emitGraph(GraphEvent{
-			Type:       "add-node",
-			NodeID:     valB.ValueID(),
-			NodeTokens: primitive.DecodeTokensToText(valB),
-			NodeType:   "Context B",
-		})
-		backend.emitGraph(GraphEvent{
-			Type:       "add-edge",
-			FromID:     valB.ValueID(),
-			ToID:       valA.ValueID(),
-		})
-	}
 
 	pcIdx := uint64(core.Cfg.RegPC)
 	wordBase := uint64(core.Cfg.ProgramIndex) / 64
-
-	// If firmware register (FW) is set, initialize the program region.
-	fwIdx := valA[core.Cfg.FW]
-	if fwIdx > 0 && int(fwIdx) < len(core.Cfg.Firmware) {
-		bootloaderIdx, ok := core.Cfg.FirmwareIndex["bootloader"]
-		if ok && bootloaderIdx >= 0 && bootloaderIdx < len(core.Cfg.Firmware) {
-			copyProgram(valA, core.Cfg.Firmware[bootloaderIdx], 0)
-		}
-		copyProgram(valA, core.Cfg.Firmware[fwIdx], 8)
-		valA[core.Cfg.FW] = 0 // Clear the trigger
-	}
 
 	for {
 		pc := valA[pcIdx]
@@ -233,42 +203,8 @@ func (backend *Backend) executeProgram(a, b unsafe.Pointer, v uint32) {
 
 		valA[dstIdx] = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
 	}
-}
 
-func copyProgram(v *primitive.Value, instrs []uint32, startSlot int) {
-	wordBase := uint64(core.Cfg.ProgramIndex) / 64
-	for i, inst := range instrs {
-		slot := startSlot + i
-		wordPos := wordBase + uint64(slot/2)
-		shift := uint((slot % 2) * 32)
-
-		// Clear the 32-bit slot
-		v[wordPos] &^= (uint64(0xFFFFFFFF) << shift)
-		// Set the instruction
-		v[wordPos] |= (uint64(inst) << shift)
-	}
-}
-
-func getBit(v *primitive.Value, pos uint64) uint8 {
-	word := pos >> 6
-	bit := pos & 63
-	if word >= primitive.Words {
-		return 0
-	}
-	return uint8((v[word] >> bit) & 1)
-}
-
-func setBit(v *primitive.Value, pos uint64, val uint8) {
-	word := pos >> 6
-	bit := pos & 63
-	if word >= primitive.Words {
-		return
-	}
-	if val == 1 {
-		v[word] |= (1 << bit)
-	} else {
-		v[word] &= ^(1 << bit)
-	}
+	return nil
 }
 
 func Popcount(value *primitive.Value, startBit, bitLen int) int {

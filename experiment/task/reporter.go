@@ -148,70 +148,58 @@ func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperi
 		return err
 	}
 
-	switch artifact.Type {
-	case tools.ArtifactTable:
-		return WriteTable(artifact.Data, artifact.FileName, experiment.Section())
-	case tools.ArtifactBarChart:
-		data, err := barChartData(artifact.Data)
-		if err != nil {
-			return err
+	go func(exp tools.PipelineExperiment, a tools.Artifact) {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Recovered from panic in background artifact generation: %v\n", r)
+			}
+		}()
+
+		switch a.Type {
+		case tools.ArtifactTable:
+			WriteTable(a.Data, a.FileName, exp.Section())
+		case tools.ArtifactBarChart:
+			if data, err := barChartData(a.Data); err == nil {
+				WriteBarChart(data.XAxis, data.Series, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
+			}
+		case tools.ArtifactLineChart:
+			if data, err := lineChartData(a.Data); err == nil {
+				WriteLineChart(data.XAxis, data.Series, a.Title, a.Caption, a.Label, a.FileName, data.YMin, data.YMax, exp.Section())
+			}
+		case tools.ArtifactComboChart:
+			if data, err := comboChartData(a.Data); err == nil {
+				WriteComboChart(data.XAxis, data.Series, data.XName, data.YName, data.YMin, data.YMax, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
+			}
+		case tools.ArtifactHeatMap:
+			if data, err := heatMapData(a.Data); err == nil {
+				WriteHeatMap(data.XAxis, data.YAxis, data.Data, data.Min, data.Max, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
+			}
+		case tools.ArtifactConfusionMatrix:
+			if data, err := confusionMatrixData(exp, a.Data); err == nil {
+				WriteConfusionMatrix(data.Labels, data.Matrix, data.MeanScore, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
+			}
+		case tools.ArtifactMultiPanel:
+			if data, err := multiPanelData(a.Data); err == nil {
+				WriteMultiPanel(data.Panels, data.Width, data.Height, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
+			}
+		case tools.ArtifactProse:
+			if data, err := proseData(a.Data); err == nil {
+				if err := WriteProse(data.Template, data.Data, a.FileName, exp.Section()); err == nil && strings.HasSuffix(a.FileName, "_section.tex") {
+					registerSection(exp.Section(), a.FileName)
+				}
+			}
+		case tools.ArtifactImageStrip:
+			if data, err := imageStripData(a.Data); err == nil {
+				WriteImageStrip(data.Rows, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
+			}
+		case tools.ArtifactPolarConstraint:
+			if data, err := polarConstraintData(a.Data); err == nil {
+				WritePolarConstraint(data, a.FileName, exp.Section())
+			}
 		}
-		return WriteBarChart(data.XAxis, data.Series, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
-	case tools.ArtifactLineChart:
-		data, err := lineChartData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WriteLineChart(data.XAxis, data.Series, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, data.YMin, data.YMax, experiment.Section())
-	case tools.ArtifactComboChart:
-		data, err := comboChartData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WriteComboChart(data.XAxis, data.Series, data.XName, data.YName, data.YMin, data.YMax, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
-	case tools.ArtifactHeatMap:
-		data, err := heatMapData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WriteHeatMap(data.XAxis, data.YAxis, data.Data, data.Min, data.Max, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
-	case tools.ArtifactConfusionMatrix:
-		data, err := confusionMatrixData(experiment, artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WriteConfusionMatrix(data.Labels, data.Matrix, data.MeanScore, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
-	case tools.ArtifactMultiPanel:
-		data, err := multiPanelData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WriteMultiPanel(data.Panels, data.Width, data.Height, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
-	case tools.ArtifactProse:
-		data, err := proseData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		err = WriteProse(data.Template, data.Data, artifact.FileName, experiment.Section())
-		if err == nil && strings.HasSuffix(artifact.FileName, "_section.tex") {
-			registerSection(experiment.Section(), artifact.FileName)
-		}
-		return err
-	case tools.ArtifactImageStrip:
-		data, err := imageStripData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WriteImageStrip(data.Rows, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
-	case tools.ArtifactPolarConstraint:
-		data, err := polarConstraintData(artifact.Data)
-		if err != nil {
-			return err
-		}
-		return WritePolarConstraint(data, artifact.FileName, experiment.Section())
-	default:
-		return fmt.Errorf("unsupported artifact type %q", artifact.Type)
-	}
+	}(experiment, artifact)
+
+	return nil
 }
 
 func (reporter *SnapshotReporter) WriteArtifact(experiment tools.PipelineExperiment, artifact tools.Artifact) error {

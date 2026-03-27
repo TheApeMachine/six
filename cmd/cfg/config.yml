@@ -105,6 +105,10 @@ value:
 #   Loop: Write target line to PC. Exit loop: Write currentpc + 1 to PC.
 
 programs:
+  # Dummy program to take index 0 so that affinity is index 1
+  00_null: |
+    0     pc  0000
+
   # Bootloader: copies program from partner (Value B) into self's
   # program region (bits 5056-8000), then jumps to starting slot.
   bootloader: |
@@ -163,3 +167,22 @@ programs:
     0     r4  0011 // Triplet B offset = 0
     4544  r5  0011 // Triplet B length = 4544
     *r3   *r0 0000 // Wipe Self with FALSE gate
+
+  # Viral: propagate self to partner, set FW to affinity (1), jump to bootloader
+  viral: |
+    1     r0  0011 // Triplet A context = 1 (Partner)
+    5056  r1  0011 // Triplet A offset = 79*64
+    3136  r2  0011 // Triplet A length = 49*64
+    0     r3  0011 // Triplet B context = 0 (Self)
+    5056  r4  0011 // Triplet B offset = 79*64
+    3136  r5  0011 // Triplet B length = 49*64
+    *r3   *r0 0011 // Copy Self Program to Partner
+    1     r0  0011 // Partner Context
+    4992  r1  0011 // Partner PC offset
+    64    r2  0011 // 64 bits
+    1     r3  0011
+    4992  r4  0011
+    64    r5  0011
+    *r3   *r0 0000 // Zero out Partner PC so it starts from bootloader
+    1     fw  0011 // Set Self FW to affinity (index 1)
+    0     pc  0011 // Jump back to bootloader

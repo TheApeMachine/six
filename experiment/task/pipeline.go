@@ -3,12 +3,15 @@ package task
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 )
 
@@ -62,6 +65,15 @@ func (pipeline *Pipeline) Run() (err error) {
 		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
 
+	// Deploy a viral Value to initiate self-propagating execution
+	viralIdx := core.Cfg.FirmwareIndex["viral"]
+	v := primitive.NewValue()
+	v[core.Cfg.FW] = uint64(viralIdx)
+
+	var viralBuf []byte = make([]byte, primitive.ByteSize)
+	primitive.ValueToBytes(v, viralBuf)
+	machine.Write(viralBuf)
+
 	if err != nil {
 		return errnie.Error(err)
 	}
@@ -102,7 +114,16 @@ func (pipeline *Pipeline) Run() (err error) {
 		}
 	}
 
-	return pipeline.writeStandardSummary()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				errnie.Error(fmt.Errorf("panic in writeStandardSummary: %v", r))
+			}
+		}()
+		_ = pipeline.writeStandardSummary()
+	}()
+
+	return nil
 }
 
 /*
