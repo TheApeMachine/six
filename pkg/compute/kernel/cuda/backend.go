@@ -8,7 +8,7 @@ package cuda
 int cuda_device_count();
 void cleanup_cuda_pools();
 
-int unified_bitwise_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
+int unified_bitwise_cuda(int device_id, void* a_host, const void* b_host);
 */
 import "C"
 import (
@@ -67,7 +67,7 @@ first zero opcode. The batch may therefore be heterogeneous: each Value
 runs its own independent program in parallel.
 */
 func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
-	if C.unified_bitwise_cuda(0, a, bPtr) != 0 {
+	if C.unified_bitwise_cuda(C.int(backend.deviceIdx), unsafe.Pointer(a), unsafe.Pointer(bPtr)) != 0 {
 		return NewCUDAError(
 			CUDAErrorDispatchFailed,
 			errors.New("failed to dispatch unified bitwise operation"),

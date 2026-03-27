@@ -3,23 +3,18 @@ package vm
 import (
 	"context"
 	"errors"
-	"sync"
+	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
-var workerPool = sync.Pool{
-	New: func() any {
-		return &Worker{}
-	},
-}
-
 type Pool struct {
-	ctx    context.Context
-	cancel context.CancelFunc
-	procs  int
-	jobs   chan func(context.Context) error
+	ctx           context.Context
+	cancel        context.CancelFunc
+	procs         int
+	jobs          chan func(context.Context) error
+	droppedErrors atomic.Uint64
 }
 
 type poolOpts func(*Pool)
@@ -43,6 +38,18 @@ func NewPool(opts ...poolOpts) (pool *Pool, err error) {
 	return pool, nil
 }
 
+func (pool *Pool) DroppedErrors() uint64 {
+	return pool.droppedErrors.Load()
+}
+
+func (pool *Pool) trySendErr(out chan error, err error) {
+	select {
+	case out <- err:
+	default:
+		pool.droppedErrors.Add(1)
+	}
+}
+
 func (pool *Pool) Run() chan error {
 	out := make(chan error, pool.procs)
 
@@ -50,7 +57,7 @@ func (pool *Pool) Run() chan error {
 		go func() {
 			defer func() {
 				if r := recover(); r != nil {
-					out <- NewPoolError(PoolErrFail, r)
+					pool.trySendErr(out, NewPoolError(PoolErrFail, r))
 				}
 			}()
 
@@ -58,7 +65,7 @@ func (pool *Pool) Run() chan error {
 				select {
 				case job := <-pool.jobs:
 					if err := job(pool.ctx); err != nil {
-						out <- err
+						pool.trySendErr(out, err)
 					}
 				case <-pool.ctx.Done():
 					return
@@ -70,8 +77,15 @@ func (pool *Pool) Run() chan error {
 	return out
 }
 
-func (pool *Pool) Schedule(job func(ctx context.Context) error) {
-	pool.jobs <- job
+func (pool *Pool) Schedule(ctx context.Context, job func(ctx context.Context) error) error {
+	select {
+	case pool.jobs <- job:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+		return errnie.Error(NewPoolError(PoolErrFail, errors.New("job buffer full")))
+	}
 }
 
 func PoolWithContext(ctx context.Context) poolOpts {
@@ -80,9 +94,28 @@ func PoolWithContext(ctx context.Context) poolOpts {
 	}
 }
 
+// PoolWithProcs sets worker count and, when pool.jobs is still nil, allocates a
+// buffered jobs channel sized to max(pool.procs*2, 1). Use PoolWithJobBuffer
+// before this option when you need a different buffer size.
 func PoolWithProcs(procs int) poolOpts {
 	return func(pool *Pool) {
 		pool.procs = procs
+		if pool.jobs == nil {
+			buf := max(pool.procs*2, 1)
+			pool.jobs = make(chan func(context.Context) error, buf)
+		}
+	}
+}
+
+// PoolWithJobBuffer replaces pool.jobs with a new buffered channel of the given
+// size (minimum 1). Call before PoolWithProcs if both are used and this should
+// define the buffer.
+func PoolWithJobBuffer(size int) poolOpts {
+	return func(pool *Pool) {
+		if size < 1 {
+			size = 1
+		}
+		pool.jobs = make(chan func(context.Context) error, size)
 	}
 }
 

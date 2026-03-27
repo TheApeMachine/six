@@ -68,24 +68,19 @@ func (experiment *BabiExperiment) Prompts() []string {
 		return experiment.prompt
 	}
 
-	// BabiQA encodes sample index into the highest byte or simply interleaves it.
-	// We read from the dataset stream using the same pattern intended.
-	byID := map[byte][]byte{}
-	order := []byte{}
-
+	order := make([]byte, 0)
+	seen := make(map[byte]struct{})
 	for tok := range experiment.dataset.Generate() {
-		if _, exists := byID[tok]; !exists {
-			order = append(order, tok)
+		if _, ok := seen[tok]; ok {
+			continue
 		}
-		byID[tok] = append(byID[tok], tok)
+		seen[tok] = struct{}{}
+		order = append(order, tok)
 	}
 
 	experiment.prompt = make([]string, len(order))
 	for i, tok := range order {
-		// Wait, if tok is just the ID byte, how is the string obtained?
-		// Oh, the value stream pattern puts the ID byte in tok, then the payload somehow?
-		// Actually, I should just use the exact logic from promptsFromDataset that the user expects.
-		experiment.prompt[i] = string(byID[tok])
+		experiment.prompt[i] = string(tok)
 	}
 	return experiment.prompt
 }

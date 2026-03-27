@@ -148,7 +148,14 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 		// Physically merge the incoming tokens (Region 0) and state into the chamber.
 		// We avoid io.Copy because Value.Write treats any byte slice as raw user stream
 		// and would attempt to tokenize the binary frame structure sequentially.
-		for j := 0; j <= int(core.Cfg.StateAccumulator); j++ {
+		acc := int(core.Cfg.StateAccumulator)
+		if acc < 0 || acc >= primitive.Words {
+			return fmt.Errorf(
+				"visualizer: StateAccumulator %d out of bounds for value (%d words)",
+				core.Cfg.StateAccumulator, primitive.Words,
+			)
+		}
+		for j := 0; j <= acc; j++ {
 			(*chamber)[j] = (*incoming)[j]
 		}
 

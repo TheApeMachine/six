@@ -146,8 +146,25 @@ var valuePool = sync.Pool{
 func NewValue(p ...[]byte) *Value {
 	value := valuePool.Get().(*Value)
 	if len(p) > 0 && len(p[0]) > 0 {
-		valueFrom(p[0], value)
+		payload := p[0]
+		if len(payload) < ByteSize {
+			buf := make([]byte, ByteSize)
+			copy(buf, payload)
+			valueFrom(buf, value)
+		} else {
+			valueFrom(payload, value)
+		}
 	}
+
+	// Always default to the bootloader so Values can self-replicate properly
+	if core.Cfg.FirmwareIndex != nil {
+		if idx, ok := core.Cfg.FirmwareIndex["bootloader"]; ok {
+			if value[core.Cfg.FW] == 0 {
+				value[core.Cfg.FW] = uint64(idx)
+			}
+		}
+	}
+
 	return value
 }
 
@@ -186,11 +203,17 @@ func (value *Value) Write(p []byte) (int, error) {
 
 	// Natively tokenize the incoming abstract payload into Region 0
 	// to ensure graphical readout and bitwise interference works sequentially
-	for i, b := range p {
-		value.SetTokenID(i, Tokenize(b, uint64(i)))
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	writable := min(len(p), tokenWords)
+	for i := 0; i < writable; i++ {
+		value.SetTokenID(core.Cfg.TokenIndex+i, Tokenize(p[i], uint64(i)))
 	}
 
-	incoming := NewValue(p)
+	payload := p
+	if writable < len(p) {
+		payload = p[:writable]
+	}
+	incoming := NewValue(payload)
 
 	if value.HasProgram() && Backend != nil {
 		// Use the abstraction to schedule the UniversalBitwise on the pool
@@ -202,7 +225,7 @@ func (value *Value) Write(p []byte) (int, error) {
 		})
 	}
 
-	return len(p), nil
+	return writable, nil
 }
 
 /*
@@ -238,7 +261,9 @@ func Tokenize(b byte, index uint64) uint64 {
 }
 
 func region0TokenIndexOK(index int) bool {
-	return index >= 0 && index < int(core.Cfg.TokenIndex)
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	hi := core.Cfg.TokenIndex + tokenWords
+	return index >= core.Cfg.TokenIndex && index < hi
 }
 
 func (value *Value) TokenID(index int) uint64 {
@@ -366,6 +391,23 @@ func NewValueError(err ValueErrorType) *ValueError {
 
 func (e *ValueError) Error() string {
 	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
+}
+
+// ProgramOp returns the 4-bit opcode at instruction slot i in the in-band
+// program region, or 0 if i is out of range.
+func (value *Value) ProgramOp(slot int) uint8 {
+	if slot < 0 || slot >= core.Cfg.MaxPC {
+		return 0
+	}
+	wordBase := uint64(core.Cfg.ProgramIndex)
+	pc := uint64(slot)
+	wordPos := wordBase + (pc / 2)
+	if int(wordPos) >= Words {
+		return 0
+	}
+	shift := uint((pc % 2) * 32)
+	instr := uint32(value[wordPos] >> shift)
+	return uint8(instr & 0xF)
 }
 
 func (value *Value) HasProgram() bool {

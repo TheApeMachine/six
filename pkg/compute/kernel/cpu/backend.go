@@ -2,11 +2,13 @@ package cpu
 
 import (
 	"context"
+	"fmt"
 	"math/bits"
 	"runtime"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -132,12 +134,42 @@ It is important to mind the bootloader, which should be installed
 into all new Values.
 */
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+	if a == nil || b == nil {
+		return fmt.Errorf("cpu.Backend.UniversalBitwise: nil value pointer")
+	}
 	valA := (*primitive.Value)(a)
 	valB := (*primitive.Value)(b)
 	contexts := []*primitive.Value{valA, valB}
 
 	pcIdx := uint64(core.Cfg.RegPC)
-	wordBase := uint64(core.Cfg.ProgramIndex) / 64
+	wordBase := uint64(core.Cfg.ProgramIndex)
+
+	fwIdx := uint64(core.Cfg.FW)
+	fw := valA[fwIdx]
+
+	// In-band firmware loading mechanism
+	if fw > 0 && int(fw) < len(core.Cfg.Firmware) && valA[pcIdx] == uint64(0) {
+		prog := core.Cfg.Firmware[fw]
+		empty := true
+		for i := uint64(0); i < uint64(core.Cfg.ProgramBits)/64; i++ {
+			if valA[wordBase+i] != 0 {
+				empty = false
+				break
+			}
+		}
+		if empty {
+			for i := 0; i < len(prog); i += 2 {
+				wordPos := wordBase + uint64(i/2)
+				var w uint64
+				w = uint64(prog[i])
+				if i+1 < len(prog) {
+					w |= uint64(prog[i+1]) << 32
+				}
+				valA[wordPos] = w
+			}
+			valA[fwIdx] = 0 // consumed firmware index; avoid re-loading same slot
+		}
+	}
 
 	for {
 		pc := valA[pcIdx]
@@ -164,7 +196,11 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 				return uint64(code & 0x0FFF), true
 			}
 			if code&0x2000 != 0 {
-				return valA[code&0x0FFF], false
+				idx := int(code & 0x0FFF)
+				if idx < 0 || idx >= primitive.Words {
+					return 0, false
+				}
+				return valA[idx], false
 			}
 			return uint64(code), false
 		}
@@ -174,22 +210,42 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 
 		if sSpan || dSpan {
 			sBase := srcVal
+			dBase := dstVal
+			if int(sBase)+2 >= primitive.Words || int(dBase)+2 >= primitive.Words {
+				continue
+			}
+
 			sCtx, sOff, sLen := valA[sBase], valA[sBase+1], valA[sBase+2]
 
-			dBase := dstVal
 			dCtx, dOff, dLen := valA[dBase], valA[dBase+1], valA[dBase+2]
 
 			limit := min(sLen, dLen)
 
+			if limit > 0 {
+				sLast := (sOff + limit - 1) / 64
+				dLast := (dOff + limit - 1) / 64
+				if sLast >= uint64(primitive.Words) || dLast >= uint64(primitive.Words) {
+					return fmt.Errorf(
+						"cpu.Backend.UniversalBitwise: span exceeds value (%d words): sLast=%d dLast=%d",
+						primitive.Words, sLast, dLast,
+					)
+				}
+			}
+
 			// This is the "Hardware Span" execution (Bootloader/Affinity)
 			// We treat the context as a raw bit-array
-			for i := uint64(0); i < limit; i++ {
+			for itr := uint64(0); itr < limit; itr++ {
 				// RAW BIT READ (Manual extraction)
-				sIdx, sShift := (sOff+i)/64, (sOff+i)%64
-				dIdx, dShift := (dOff+i)/64, (dOff+i)%64
-				
-				sb := (contexts[sCtx%2][sIdx] >> sShift) & 1
-				db := (contexts[dCtx%2][dIdx] >> dShift) & 1
+				sIdx, sShift := (sOff+itr)/64, (sOff+itr)%64
+				dIdx, dShift := (dOff+itr)/64, (dOff+itr)%64
+				if sIdx >= uint64(primitive.Words) || dIdx >= uint64(primitive.Words) {
+					break
+				}
+				sLane := int(sCtx) & 1
+				dLane := int(dCtx) & 1
+
+				sb := (contexts[sLane][sIdx] >> sShift) & 1
+				db := (contexts[dLane][dIdx] >> dShift) & 1
 
 				// UNIVERSAL ALU LOGIC (Algebraic Normal Form)
 				// Maps (sb,db) to the truth table result
@@ -197,13 +253,16 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 				res := (op >> idx) & 1
 
 				// RAW BIT WRITE (Manual insertion)
-				target := &contexts[dCtx%2][dIdx]
+				target := &contexts[dLane][dIdx]
 				*target = (*target & ^(uint64(1) << dShift)) | (uint64(res) << dShift)
 			}
 			continue
 		}
 
 		dstIdx := int(dstCode & 0x0FFF)
+		if dstIdx < 0 || dstIdx >= primitive.Words {
+			continue
+		}
 		left := srcVal
 		right := dstVal
 
@@ -255,5 +314,7 @@ func Popcount(value *primitive.Value, startBit, bitLen int) int {
 }
 
 func (backend *Backend) Schedule(job func(ctx context.Context) error) {
-	_ = job(context.Background())
+	if err := job(context.Background()); err != nil {
+		errnie.Error(err)
+	}
 }

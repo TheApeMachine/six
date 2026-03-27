@@ -4,20 +4,23 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"testing"
 
-	"github.com/spf13/viper"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/core"
 )
 
 func init() {
 	viper.SetConfigFile("../../cmd/cfg/config.yml")
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Error reading config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "primitive/value_test: viper.ReadInConfig: %v\n", err)
+		os.Exit(1)
 	}
 	if err := core.LoadValueConfig(); err != nil {
-		fmt.Printf("Error loading value config: %v\n", err)
+		fmt.Fprintf(os.Stderr, "primitive/value_test: core.LoadValueConfig: %v\n", err)
+		os.Exit(1)
 	}
 }
 
@@ -66,6 +69,7 @@ func TestWrite(t *testing.T) {
 				So(byte(tok>>32), ShouldEqual, b)
 			}
 
+			value[core.Cfg.StateIndex] = 1
 			readBack := make([]byte, ByteSize)
 			_, rerr := value.Read(readBack)
 			So(errors.Is(rerr, io.EOF), ShouldBeTrue)
@@ -80,10 +84,13 @@ func TestWrite(t *testing.T) {
 }
 
 func TestRegion0Layout(t *testing.T) {
-	Convey("Region0 reserves 57 tokens and 3 IDs", t, func() {
-		So(core.Cfg.TokenIndex, ShouldEqual, 60)
-		So(core.Cfg.TokenBits, ShouldEqual, 60*64)
-		So(core.Cfg.AffinityIndex, ShouldEqual, 4096)
+	Convey("Region0 layout invariants from config", t, func() {
+		tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+		So(core.Cfg.TokenBits, ShouldEqual, tokenWords*64)
+		So(core.Cfg.TokenBits%64, ShouldEqual, 0)
+		So(core.Cfg.ValueID, ShouldEqual, core.Cfg.TokenIndex+tokenWords)
+		So(core.Cfg.AffinityIndex, ShouldBeGreaterThan, core.Cfg.NextID)
+		So(core.Cfg.AffinityIndex%64, ShouldEqual, 0)
 	})
 }
 

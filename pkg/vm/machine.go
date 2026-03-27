@@ -31,7 +31,11 @@ type Machine struct {
 type machineOption func(*Machine)
 
 func NewMachine(opts ...machineOption) (machine *Machine, err error) {
-	maxProcs := runtime.NumCPU() - 1
+	cpu := runtime.NumCPU()
+	maxProcs := cpu - 1
+	if cpu <= 1 {
+		maxProcs = 1
+	}
 
 	errnie.Info(
 		"vm.machine.NewMachine",
@@ -43,9 +47,6 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	machine = &Machine{
 		ctx:    ctx,
 		cancel: cancel,
-		stream: transport.NewStream(
-			transport.WithContext(ctx),
-		),
 	}
 
 	for _, opt := range opts {
@@ -55,7 +56,6 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	if machine.err = validate.Require(map[string]any{
 		"ctx":    machine.ctx,
 		"cancel": machine.cancel,
-		"stream": machine.stream,
 	}); machine.err != nil {
 		return nil, errnie.Error(
 			NewMachineError(MachineErrFailStart),
@@ -74,18 +74,9 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	}
 
 	machine.regions = make([]*primitive.Region, 0)
-	var region *primitive.Region
 
 	for idx := range 10 {
-		if region, machine.err = primitive.NewRegion(
-			uint64(idx),
-		); machine.err != nil {
-			return nil, errnie.Error(
-				NewMachineError(MachineErrFailStart),
-				"error", machine.err,
-			)
-		}
-
+		region := primitive.NewRegion(uint64(idx)) // each region has its own ID
 		machine.regions = append(machine.regions, region)
 	}
 
@@ -93,6 +84,12 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		transport.WithContext(machine.ctx),
 		transport.WithRegions(machine.regions),
 	)
+	if machine.stream == nil {
+		return nil, errnie.Error(
+			NewMachineError(MachineErrFailStart),
+			"error", errors.New("transport.NewStream returned nil"),
+		)
+	}
 
 	return machine, nil
 }
@@ -110,12 +107,29 @@ func (machine *Machine) Write(p []byte) (n int, err error) {
 }
 
 func (machine *Machine) Close() error {
-	machine.cancel()
-	return nil
+	if machine.cancel != nil {
+		machine.cancel()
+	}
+	var errs []error
+	if machine.dataset != nil {
+		if err := machine.dataset.Close(); err != nil {
+			errs = append(errs, err)
+		}
+		machine.dataset = nil
+	}
+	if machine.stream != nil {
+		if err := machine.stream.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func WithContext(ctx context.Context) machineOption {
 	return func(machine *Machine) {
+		if machine.cancel != nil {
+			machine.cancel()
+		}
 		machine.ctx, machine.cancel = context.WithCancel(ctx)
 		errnie.Info(
 			"vm.machine.WithContext",
@@ -144,6 +158,10 @@ type MachineError struct {
 
 func (err *MachineError) Error() string {
 	return err.Msg
+}
+
+func (err *MachineError) Unwrap() error {
+	return err.Err
 }
 
 func NewMachineError(err MachineErrorType) *MachineError {

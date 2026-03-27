@@ -1,6 +1,7 @@
 package core
 
 import (
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -8,17 +9,21 @@ import (
 func CompileFunc(src string) ([]uint32, error) {
 	program := make([]uint32, 0)
 
-	for _, line := range strings.Split(src, "\n") {
+	lines := strings.Split(src, "\n")
+	for lineNum, line := range lines {
 		// First remove all the comments.
 		line = strings.TrimSpace(strings.Split(line, "//")[0])
-		
+
 		if line == "" {
 			continue
 		}
 
 		chunks := strings.Fields(line)
 		if len(chunks) < 3 {
-			continue
+			return nil, fmt.Errorf(
+				"compile line %d: need at least 3 fields (src dst op), got %d: %q",
+				lineNum+1, len(chunks), line,
+			)
 		}
 
 		srcCode, err := parseInstruction(chunks[0])
@@ -49,15 +54,15 @@ func parseInstruction(chunk string) (uint64, error) {
 		if err != nil {
 			return 0, err
 		}
-		// Clear 0x2000 if it was a register, then add 0x1000 to mark as span/pointer
-		return (val &^ 0x2000) | 0x1000, nil
+		// Clear 0x3000 if it was a register, then add 0x2000 to mark as span/pointer
+		return (val &^ 0x3000) | 0x2000, nil
 	}
 
 	if chunk == "pc" {
-		return uint64(Cfg.RegPC) | 0x2000, nil
+		return uint64(Cfg.RegPC) | 0x3000, nil
 	}
 	if chunk == "fw" {
-		return uint64(Cfg.FW) | 0x2000, nil
+		return uint64(Cfg.FW) | 0x3000, nil
 	}
 
 	if strings.HasPrefix(chunk, "r") {
@@ -80,8 +85,10 @@ func parseInstruction(chunk string) (uint64, error) {
 			reg = uint64(Cfg.R4)
 		case 5:
 			reg = uint64(Cfg.R5)
+		default:
+			return 0, fmt.Errorf("invalid register r%d (expected r0–r5)", r)
 		}
-		return reg | 0x2000, nil
+		return reg | 0x3000, nil
 	}
 
 	val, err := strconv.ParseUint(chunk, 10, 64)

@@ -54,28 +54,33 @@ accepting graph events via UDP from external test runs.`,
 			return errnie.Wrap(err, "cmd.viz.RunE")
 		}
 
-		primitive.Backend, _ = compute.NewBackend(
+		backend, err := compute.NewBackend(
 			compute.WithContext(ctx),
 			compute.WithPool(machine.Pool()),
 		)
+		if err != nil {
+			_ = machine.Close()
+			return errnie.Wrap(err, "cmd.viz.compute.NewBackend")
+		}
+		primitive.Backend = backend
 
 		defer machine.Close()
 
-		// if !vizListen {
-		go func() {
-			err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
-				Repo:       vizRepo,
-				Subset:     vizSubset,
-				TextColumn: vizColumn,
-				Iterations: vizIters,
-				StepDelay:  vizDelay,
-			})
+		if !vizListen {
+			go func() {
+				err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
+					Repo:       vizRepo,
+					Subset:     vizSubset,
+					TextColumn: vizColumn,
+					Iterations: vizIters,
+					StepDelay:  vizDelay,
+				})
 
-			if err != nil && ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
-			}
-		}()
-		// }
+				if err != nil && ctx.Err() == nil {
+					fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
+				}
+			}()
+		}
 
 		go func() {
 			<-ctx.Done()

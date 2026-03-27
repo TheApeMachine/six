@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
@@ -25,6 +26,7 @@ type Backend struct {
 	cancel   context.CancelFunc
 	hardware []kernel.Substrate
 	pool     *vm.Pool
+	nextHW   uint32 // round-robin substrate index
 }
 
 // BackendOption configures the multi-substrate router
@@ -39,12 +41,13 @@ func NewBackend(opts ...BackendOption) (*Backend, error) {
 		hardware: make([]kernel.Substrate, 0),
 	}
 
-	for idx := range cuda.Available() {
+	// Available() returns a device count; iterate 0..n-1 explicitly.
+	for idx := 0; idx < cuda.Available(); idx++ {
 		errnie.Info("compute.backend: CUDA substrate registered")
 		backend.hardware = append(backend.hardware, cuda.NewBackend(idx))
 	}
 
-	for idx := range metal.Available() {
+	for idx := 0; idx < metal.Available(); idx++ {
 		errnie.Info("compute.backend: Metal substrate registered")
 		backend.hardware = append(backend.hardware, metal.NewBackend(idx))
 	}
@@ -54,6 +57,10 @@ func NewBackend(opts ...BackendOption) (*Backend, error) {
 
 	for _, opt := range opts {
 		opt(backend)
+	}
+
+	if backend.ctx == nil {
+		backend.ctx, backend.cancel = context.WithCancel(context.Background())
 	}
 
 	if err := validate.Require(map[string]any{
@@ -80,7 +87,16 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 		)
 	}
 
-	return backend.hardware[0].UniversalBitwise(a, b)
+	return backend.pickSubstrate().UniversalBitwise(a, b)
+}
+
+func (backend *Backend) pickSubstrate() kernel.Substrate {
+	n := len(backend.hardware)
+	if n == 0 {
+		return nil
+	}
+	i := atomic.AddUint32(&backend.nextHW, 1) - 1
+	return backend.hardware[int(i)%n]
 }
 
 /*
@@ -106,10 +122,14 @@ Schedule pushes abstract functional execution payloads onto the underlying worke
 */
 func (backend *Backend) Schedule(job func(ctx context.Context) error) {
 	if backend.pool != nil {
-		backend.pool.Schedule(job)
+		if err := backend.pool.Schedule(backend.ctx, job); err != nil {
+			errnie.Error(err)
+		}
 	} else {
 		// Fallback for isolated tests to execute synchronously if no pool is injected
-		_ = job(backend.ctx)
+		if err := job(backend.ctx); err != nil {
+			errnie.Error(fmt.Errorf("compute.Backend.Schedule: job failed (no pool): %w", err))
+		}
 	}
 }
 
@@ -140,9 +160,15 @@ func NewBackendError(err error, op string) *BackendError {
 
 func (e *BackendError) Error() string {
 	if e.Err != nil {
-		return fmt.Sprintf("%s: %v", e.Msg, e.Err)
+		return e.Err.Error()
 	}
-	return e.Msg
+	if e.Msg != "" {
+		return e.Msg
+	}
+	if e.Op != "" {
+		return fmt.Sprintf("backend error (%s)", e.Op)
+	}
+	return "backend error"
 }
 
 func (e *BackendError) Unwrap() error {

@@ -122,6 +122,7 @@ Unified Bitwise dispatch — no external opcode; each Value carries its own
 */
 int unified_bitwise_metal(void* a_host, const void* b_host) {
     if (!pipelineUnifiedBitwise || !a_host || !b_host) return -1;
+    if (ensure_pool(1) != 0) return -1;
 
     @autoreleasepool {
         memcpy([poolA contents], a_host, VALUE_BYTES);

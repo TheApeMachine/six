@@ -9,10 +9,8 @@ TestRegionMixing pool confirms that treating Regions as a bounded Queue
 allows for writing and reading of independent values.
 */
 func TestRegionMixing(t *testing.T) {
-	region, err := NewRegion(1)
-	if err != nil {
-		t.Fatalf("failed to create node A: %v", err)
-	}
+	region := NewRegion(1)
+	defer region.Close()
 
 	// Write 5 Values to the pool
 	for i := 0; i < 5; i++ {

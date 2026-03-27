@@ -22,6 +22,9 @@ kernel void unified_bitwise_kernel(
         }
 
         ulong wordPos = PROGRAM_INDEX_WORD + (pc / 2);
+        if (wordPos >= WORDS) {
+            break;
+        }
         uint shift = (pc % 2) * 32;
         uint instr = (uint)(contexts[0][wordPos] >> shift);
 
@@ -41,7 +44,12 @@ kernel void unified_bitwise_kernel(
             srcVal = (ulong)(srcCode & 0x0FFF);
             sSpan = true;
         } else if ((srcCode & 0x2000) != 0) {
-            srcVal = contexts[0][srcCode & 0x0FFF];
+            uint srcIdx = srcCode & 0x0FFF;
+            if (srcIdx < WORDS) {
+                srcVal = contexts[0][srcIdx];
+            } else {
+                srcVal = 0;
+            }
         } else {
             srcVal = (ulong)srcCode;
         }
@@ -52,21 +60,32 @@ kernel void unified_bitwise_kernel(
             dstVal = (ulong)(dstCode & 0x0FFF);
             dSpan = true;
         } else if ((dstCode & 0x2000) != 0) {
-            dstVal = contexts[0][dstCode & 0x0FFF];
+            uint dstIdxReg = dstCode & 0x0FFF;
+            if (dstIdxReg < WORDS) {
+                dstVal = contexts[0][dstIdxReg];
+            } else {
+                dstVal = 0;
+            }
         } else {
             dstVal = (ulong)dstCode;
         }
 
         if (sSpan || dSpan) {
             ulong sBase = srcVal;
-            ulong sCtx = contexts[0][sBase];
-            ulong sOff = contexts[0][sBase+1];
-            ulong sLen = contexts[0][sBase+2];
+            ulong sCtx = 0, sOff = 0, sLen = 0;
+            if (sBase + 2 < WORDS) {
+                sCtx = contexts[0][sBase];
+                sOff = contexts[0][sBase+1];
+                sLen = contexts[0][sBase+2];
+            }
 
             ulong dBase = dstVal;
-            ulong dCtx = contexts[0][dBase];
-            ulong dOff = contexts[0][dBase+1];
-            ulong dLen = contexts[0][dBase+2];
+            ulong dCtx = 0, dOff = 0, dLen = 0;
+            if (dBase + 2 < WORDS) {
+                dCtx = contexts[0][dBase];
+                dOff = contexts[0][dBase+1];
+                dLen = contexts[0][dBase+2];
+            }
 
             ulong limit = (sLen < dLen) ? sLen : dLen;
             for (ulong i = 0; i < limit; i++) {
@@ -104,7 +123,9 @@ kernel void unified_bitwise_kernel(
         ulong m3 = 0 - (ulong)(op & 1);
 
         ulong res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
-        contexts[0][dstIdx] = res;
+        if (dstIdx < WORDS) {
+            contexts[0][dstIdx] = res;
+        }
     }
 
     for (int i = 0; i < WORDS; i++) {

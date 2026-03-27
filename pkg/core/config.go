@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 
 	"github.com/spf13/viper"
@@ -106,7 +107,7 @@ func LoadValueConfig() (err error) {
 	if err = viper.GetViper().UnmarshalKey(
 		"value", &vCfg,
 	); err != nil {
-		err = errnie.Error(
+		return errnie.Error(
 			NewConfigError(
 				ConfigErrorTypeMissingKey,
 				"value",
@@ -115,41 +116,45 @@ func LoadValueConfig() (err error) {
 		)
 	}
 
+	syncCfgFromVCfg()
 	return LoadFirmware()
 }
 
-/*
-Cfg is the global config accessor. All reads go through typed methods
-that error when the requested key is absent, so callers never silently
-operate on zero-values from a missing key.
-*/
-var Cfg = &Config{
-	StateIndex:       vCfg.Region.State.Index,
-	StateSequence:    vCfg.Region.State.Sequence,
-	StateAccumulator: vCfg.Region.State.Accumulator,
-	TokenIndex:       vCfg.Region.Tokens.Start,
-	TokenBits:        vCfg.Region.Tokens.Bits,
-	ValueID:          vCfg.Region.ID.Start,
-	PreviousID:       vCfg.Region.Prev.Start,
-	NextID:           vCfg.Region.Next.Start,
-	AffinityIndex:    vCfg.Region.Affinity.Start,
-	AffinityBits:     vCfg.Region.Affinity.Bits,
-	GossipIndex:      vCfg.Region.Gossip.Start,
-	GossipBits:       vCfg.Region.Gossip.Bits,
-	TTLIndex:         vCfg.Region.TTL.Start,
-	TTLBits:          vCfg.Region.TTL.Bits,
-	ProgramIndex:     vCfg.Region.Program.Start,
-	ProgramBits:      vCfg.Region.Program.Bits,
-	MaxPC:            int(vCfg.Region.Program.Bits) / 32,
-	R0:               vCfg.Region.Registers.R0,
-	R1:               vCfg.Region.Registers.R1,
-	R2:               vCfg.Region.Registers.R2,
-	R3:               vCfg.Region.Registers.R3,
-	R4:               vCfg.Region.Registers.R4,
-	R5:               vCfg.Region.Registers.R5,
-	FW:               vCfg.Region.Registers.FW,
-	RegPC:            vCfg.Region.Registers.PC,
+// syncCfgFromVCfg copies unmarshaled layout from vCfg into the global Cfg
+// after LoadValueConfig unmarshals vCfg from config.
+func syncCfgFromVCfg() {
+	Cfg.StateIndex = vCfg.Region.State.Index
+	Cfg.StateSequence = vCfg.Region.State.Sequence
+	Cfg.StateAccumulator = vCfg.Region.State.Accumulator
+	Cfg.TokenIndex = vCfg.Region.Tokens.Start
+	Cfg.TokenBits = vCfg.Region.Tokens.Bits
+	Cfg.ValueID = vCfg.Region.ID.Start
+	Cfg.PreviousID = vCfg.Region.Prev.Start
+	Cfg.NextID = vCfg.Region.Next.Start
+	Cfg.AffinityIndex = vCfg.Region.Affinity.Start
+	Cfg.AffinityBits = vCfg.Region.Affinity.Bits
+	Cfg.GossipIndex = vCfg.Region.Gossip.Start
+	Cfg.GossipBits = vCfg.Region.Gossip.Bits
+	Cfg.TTLIndex = vCfg.Region.TTL.Start
+	Cfg.TTLBits = vCfg.Region.TTL.Bits
+	Cfg.ProgramIndex = vCfg.Region.Program.Start
+	Cfg.ProgramBits = vCfg.Region.Program.Bits
+	Cfg.MaxPC = int(vCfg.Region.Program.Bits) / 32
+	Cfg.R0 = vCfg.Region.Registers.R0
+	Cfg.R1 = vCfg.Region.Registers.R1
+	Cfg.R2 = vCfg.Region.Registers.R2
+	Cfg.R3 = vCfg.Region.Registers.R3
+	Cfg.R4 = vCfg.Region.Registers.R4
+	Cfg.R5 = vCfg.Region.Registers.R5
+	Cfg.FW = vCfg.Region.Registers.FW
+	Cfg.RegPC = vCfg.Region.Registers.PC
 }
+
+/*
+Cfg is the global config accessor. Layout fields are populated by
+LoadValueConfig; until then they are zero — call LoadValueConfig before use.
+*/
+var Cfg = new(Config)
 
 /*
 Config wraps viper with strict typed accessors that refuse to
@@ -194,7 +199,7 @@ into Cfg.Firmware. Must be called after viper has loaded config.
 */
 func LoadFirmware() error {
 	rawPrograms := viper.GetViper().Get("programs")
-	
+
 	if rawPrograms == nil {
 		return errnie.Error(
 			NewConfigError(
@@ -240,22 +245,31 @@ func LoadFirmware() error {
 	Cfg.FirmwareIndex = make(map[string]int, len(names))
 
 	for i, name := range names {
-		if src, ok := programs[name].(string); ok {
-			instrs, err := CompileFunc(src)
-
-			if err != nil {
-				return errnie.Error(
-					NewConfigError(
-						ConfigErrorFirmwareCompile,
-						name,
-						err.Error(),
-					),
-				)
-			}
-
-			Cfg.Firmware[i] = instrs
-			Cfg.FirmwareIndex[name] = i
+		src, ok := programs[name].(string)
+		if !ok {
+			return errnie.Error(
+				NewConfigError(
+					ConfigErrorTypeInvalidValue,
+					name,
+					fmt.Sprintf("program source must be a string, got %T", programs[name]),
+				),
+			)
 		}
+
+		instrs, err := CompileFunc(src)
+
+		if err != nil {
+			return errnie.Error(
+				NewConfigError(
+					ConfigErrorFirmwareCompile,
+					name,
+					err.Error(),
+				),
+			)
+		}
+
+		Cfg.Firmware[i] = instrs
+		Cfg.FirmwareIndex[name] = i
 	}
 
 	errnie.Info(
@@ -269,8 +283,19 @@ func LoadFirmware() error {
 /*
 Get is a type-safe wrapper around viper.GetViper().Get.
 */
-func Get[T any](key string) T {
-	return viper.GetViper().Get(key).(T)
+func Get[T any](key string) (T, error) {
+	var zero T
+	raw := viper.GetViper().Get(key)
+	if raw == nil {
+		return zero, fmt.Errorf("config: missing key %q", key)
+	}
+	if v, ok := raw.(T); ok {
+		return v, nil
+	}
+	return zero, fmt.Errorf(
+		"config: key %q has type %T, want %s",
+		key, raw, reflect.TypeOf(zero).String(),
+	)
 }
 
 /*

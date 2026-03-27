@@ -64,6 +64,9 @@ func (pipeline *Pipeline) Run() (err error) {
 		vm.WithContext(pipeline.ctx),
 		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
+	if err != nil {
+		return errnie.Error(err)
+	}
 
 	// Deploy a viral Value to initiate self-propagating execution
 	viralIdx := core.Cfg.FirmwareIndex["viral"]
@@ -73,10 +76,6 @@ func (pipeline *Pipeline) Run() (err error) {
 	var viralBuf []byte = make([]byte, primitive.ByteSize)
 	primitive.ValueToBytes(v, viralBuf)
 	machine.Write(viralBuf)
-
-	if err != nil {
-		return errnie.Error(err)
-	}
 
 	for idx, prompt := range pipeline.experiment.Prompts() {
 		p := bytes.NewBuffer([]byte{})
@@ -120,7 +119,9 @@ func (pipeline *Pipeline) Run() (err error) {
 				errnie.Error(fmt.Errorf("panic in writeStandardSummary: %v", r))
 			}
 		}()
-		_ = pipeline.writeStandardSummary()
+		if err := pipeline.writeStandardSummary(); err != nil {
+			errnie.Error(err)
+		}
 	}()
 
 	return nil

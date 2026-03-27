@@ -1,6 +1,16 @@
 package vm
 
-import "context"
+import (
+	"context"
+	"sync"
+)
+
+// workerPool reuses Worker shells allocated by NewWorker.
+var workerPool = sync.Pool{
+	New: func() any {
+		return &Worker{}
+	},
+}
 
 type Worker struct {
 	job func(ctx context.Context) error
@@ -12,12 +22,15 @@ func NewWorker(job func(ctx context.Context) error) *Worker {
 	}
 }
 
-func (worker *Worker) Run(ctx context.Context) error {
-	defer workerPool.Put(worker)
+func (worker *Worker) Run(ctx context.Context) (err error) {
+	defer func() {
+		worker.job = nil
+		workerPool.Put(worker)
+	}()
 
 	defer func() {
 		if r := recover(); r != nil {
-			panic(NewPoolError(PoolErrFail, r))
+			err = NewPoolError(PoolErrFail, r)
 		}
 	}()
 

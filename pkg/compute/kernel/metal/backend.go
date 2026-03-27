@@ -132,9 +132,13 @@ type MetalError struct {
 }
 
 func NewMetalError(merr MetalErrorType, err error, op string) *MetalError {
+	msg := string(merr)
+	if err != nil {
+		msg += ": " + err.Error()
+	}
 	return &MetalError{
 		Err: err,
-		Msg: string(merr),
+		Msg: msg,
 		Op:  op,
 	}
 }
@@ -147,5 +151,7 @@ func (err MetalError) Error() string {
 }
 
 func (backend *Backend) Schedule(job func(ctx context.Context) error) {
-	_ = job(context.Background())
+	if err := job(context.Background()); err != nil {
+		errnie.Error(err)
+	}
 }

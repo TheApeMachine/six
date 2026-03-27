@@ -22,6 +22,9 @@ __global__ void unified_bitwise_kernel(
         if (pc >= MAX_PC) break;
 
         uint64_t wordPos = PROGRAM_INDEX_WORD + (pc / 2);
+        if (wordPos >= WORDS) {
+            break;
+        }
         uint32_t shift = (pc % 2) * 32;
         uint32_t instr = (uint32_t)(contexts[0][wordPos] >> shift);
 
@@ -39,7 +42,12 @@ __global__ void unified_bitwise_kernel(
             srcVal = (uint64_t)(srcCode & 0x0FFF);
             sSpan = true;
         } else if ((srcCode & 0x2000) != 0) {
-            srcVal = contexts[0][srcCode & 0x0FFF];
+            uint32_t srcIdx = (uint32_t)(srcCode & 0x0FFF);
+            if (srcIdx < WORDS) {
+                srcVal = contexts[0][srcIdx];
+            } else {
+                srcVal = 0;
+            }
         } else {
             srcVal = (uint64_t)srcCode;
         }
@@ -50,21 +58,32 @@ __global__ void unified_bitwise_kernel(
             dstVal = (uint64_t)(dstCode & 0x0FFF);
             dSpan = true;
         } else if ((dstCode & 0x2000) != 0) {
-            dstVal = contexts[0][dstCode & 0x0FFF];
+            uint32_t dstIdxReg = (uint32_t)(dstCode & 0x0FFF);
+            if (dstIdxReg < WORDS) {
+                dstVal = contexts[0][dstIdxReg];
+            } else {
+                dstVal = 0;
+            }
         } else {
             dstVal = (uint64_t)dstCode;
         }
 
         if (sSpan || dSpan) {
             uint64_t sBase = srcVal;
-            uint64_t sCtx = contexts[0][sBase];
-            uint64_t sOff = contexts[0][sBase+1];
-            uint64_t sLen = contexts[0][sBase+2];
+            uint64_t sCtx = 0, sOff = 0, sLen = 0;
+            if (sBase + 2 < WORDS) {
+                sCtx = contexts[0][sBase];
+                sOff = contexts[0][sBase+1];
+                sLen = contexts[0][sBase+2];
+            }
 
             uint64_t dBase = dstVal;
-            uint64_t dCtx = contexts[0][dBase];
-            uint64_t dOff = contexts[0][dBase+1];
-            uint64_t dLen = contexts[0][dBase+2];
+            uint64_t dCtx = 0, dOff = 0, dLen = 0;
+            if (dBase + 2 < WORDS) {
+                dCtx = contexts[0][dBase];
+                dOff = contexts[0][dBase+1];
+                dLen = contexts[0][dBase+2];
+            }
 
             uint64_t limit = (sLen < dLen) ? sLen : dLen;
             for (uint64_t i = 0; i < limit; i++) {
@@ -102,7 +121,9 @@ __global__ void unified_bitwise_kernel(
         uint64_t m3 = 0 - (uint64_t)(op & 1);
 
         uint64_t res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
-        contexts[0][dstIdx] = res;
+        if (dstIdx < WORDS) {
+            contexts[0][dstIdx] = res;
+        }
     }
 
     for (int i = 0; i < WORDS; i++) {
@@ -110,13 +131,15 @@ __global__ void unified_bitwise_kernel(
     }
 }
 
+static uint64_t* d_pool_A = nullptr;
 static uint64_t* d_pool_B = nullptr;
 static uint32_t pool_capacity = 0;
 
 static int ensure_pool(uint32_t num_values) {
     if (pool_capacity >= num_values) return 0;
 
-    if (d_pool_B) cudaFree(d_pool_B);
+    if (d_pool_A) { cudaFree(d_pool_A); d_pool_A = nullptr; }
+    if (d_pool_B) { cudaFree(d_pool_B); d_pool_B = nullptr; }
 
     uint32_t cap = num_values * 2;
     if (cap < 1024) cap = 1024;
@@ -138,6 +161,7 @@ extern "C" {
     }
 
     void cleanup_cuda_pools() {
+        if (d_pool_A) { cudaFree(d_pool_A); d_pool_A = nullptr; }
         if (d_pool_B) { cudaFree(d_pool_B); d_pool_B = nullptr; }
         pool_capacity = 0;
     }

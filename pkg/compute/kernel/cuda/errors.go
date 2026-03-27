@@ -1,7 +1,5 @@
 package cuda
 
-import "fmt"
-
 /*
 CUDAErrorType is a typed string for CUDA backend failure categories.
 */
@@ -38,13 +36,9 @@ func NewCUDAError(cerr CUDAErrorType, err error, op string) *CUDAError {
 }
 
 /*
-Error implements the error interface. It combines Msg and Err so that callers
-see the full context rather than only the typed category string.
+Error implements the error interface. Msg already includes Err via NewCUDAError.
 */
 func (e *CUDAError) Error() string {
-	if e.Err != nil {
-		return fmt.Sprintf("%s: %v", e.Msg, e.Err)
-	}
 	return e.Msg
 }
 

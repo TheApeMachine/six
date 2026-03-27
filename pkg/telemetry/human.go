@@ -54,15 +54,18 @@ func HumanDescribeValue(v *primitive.Value) string {
 		return "nil Value"
 	}
 
-	instr := ReadVMInstruction() & 0xF
+	instr := uint8(0)
 	dataPop := cpu.Popcount(v, 0, int(core.Cfg.TokenBits))
 	affPop := cpu.Popcount(v, int(core.Cfg.AffinityIndex), 64) // first 64 bits of affinity
 	progPop := cpu.Popcount(v, int(core.Cfg.ProgramIndex), 64) // first 64 bits of program
 
-	// Show program info if present
+	// Show program info if present (first-slot opcode when program bits exist)
 	progInfo := ""
 	if progPop > 0 {
+		instr = v.ProgramOp(0)
 		progInfo = fmt.Sprintf(" program=%dops", countProgramOps(v))
+	} else {
+		instr = ReadVMInstruction() & 0xF
 	}
 
 	return fmt.Sprintf(
@@ -71,14 +74,16 @@ func HumanDescribeValue(v *primitive.Value) string {
 	)
 }
 
-// countProgramOps counts how many non-zero operations are in the program region.
+// countProgramOps counts instruction slots until VM HALT (opcode 0 with slot > 0), matching the CPU core loop.
 func countProgramOps(v *primitive.Value) int {
 	count := 0
-	for i := 0; i < 8; i++ {
-		if ReadVMInstruction() != 0 {
+	for i := 0; i < core.Cfg.MaxPC; i++ {
+		op := v.ProgramOp(i)
+		if op == 0 && i > 0 {
+			break
+		}
+		if op != 0 {
 			count++
-		} else {
-			break // stop at first HALT
 		}
 	}
 	return count

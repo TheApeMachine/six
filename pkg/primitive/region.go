@@ -3,6 +3,7 @@ package primitive
 import (
 	"fmt"
 	"io"
+	"sync"
 )
 
 /*
@@ -13,8 +14,9 @@ to this Region, and by rotating which Regions the streams interact with,
 the Values are rapidly and chaotically mixed across the system.
 */
 type Region struct {
-	ID    uint64
-	mixer chan []byte
+	ID        uint64
+	mixer     chan []byte
+	closeOnce sync.Once
 }
 
 /*
@@ -22,12 +24,12 @@ NewRegion creates a new mixing pool that can hold a predefined capacity
 of 1024-byte Values. We use a buffered channel as a lock-free queue to
 ensure clean Value-aligned deposits without fragmentation.
 */
-func NewRegion(id uint64) (*Region, error) {
+func NewRegion(id uint64) *Region {
 	capacity := 64 // Hold up to 64 Values at once for mixing
 	return &Region{
 		ID:    id,
 		mixer: make(chan []byte, capacity),
-	}, nil
+	}
 }
 
 /*
@@ -70,14 +72,13 @@ func (region *Region) Write(p []byte) (n int, err error) {
 		cp := make([]byte, ByteSize)
 		copy(cp, chunk)
 
-		// Non-blocking drop-if-full to chaotic mix
+		// Non-blocking: if the pool is full, report a short write.
 		select {
 		case region.mixer <- cp:
+			bytesConsumed += ByteSize
 		default:
-			// Mix is full, drop it for chaotic routing
+			return bytesConsumed, io.ErrShortWrite
 		}
-
-		bytesConsumed += ByteSize
 	}
 
 	return bytesConsumed, nil
@@ -87,5 +88,11 @@ func (region *Region) Write(p []byte) (n int, err error) {
 Close gracefully cleans up the Region.
 */
 func (region *Region) Close() error {
+	if region == nil || region.mixer == nil {
+		return nil
+	}
+	region.closeOnce.Do(func() {
+		close(region.mixer)
+	})
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -95,9 +96,14 @@ func initConfig() {
 		errnie.Error(fmt.Errorf("failed to load value config: %w", err))
 	}
 
-	primitive.Backend, _ = compute.NewBackend(
+	backend, err := compute.NewBackend(
 		compute.WithContext(context.Background()),
 	)
+	if err != nil {
+		errnie.Error(fmt.Errorf("compute.NewBackend: %w", err))
+		os.Exit(1)
+	}
+	primitive.Backend = backend
 }
 
 const roottxt = `

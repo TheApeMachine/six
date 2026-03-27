@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -52,63 +53,110 @@ func NewStream(opts ...streamOpts) *Stream {
 	return stream
 }
 
-/*
-Read draws a Value from one of the Regions in a rotating round-robin fashion.
-When possible, it draws a pair of Values to fold them (in-band execution pointer),
-pushing the folded task to the global hardware bus.
-*/
-func (stream *Stream) Read(p []byte) (n int, err error) {
-	if len(stream.regions) == 0 {
-		return 0, io.EOF
+type regionSlot struct {
+	side int
+	idx  int
+}
+
+func (stream *Stream) readSlots() []regionSlot {
+	var slots []regionSlot
+	for i := range stream.regions[0] {
+		slots = append(slots, regionSlot{0, i})
 	}
-
-	// Generate a random number.
-	rand1 := rand.Uint32()
-	rand2 := rand.Uint32()
-
-	// Rotate the regions based on the random number.
-	stream.regions[0] = append(stream.regions[0][1:], stream.regions[0][rand1%uint32(len(stream.regions[0]))])
-	stream.regions[1] = append(stream.regions[1][1:], stream.regions[1][rand2%uint32(len(stream.regions[1]))])
-
-	// Read the data from the regions.
-	for _, region := range stream.regions {
-		for _, value := range region {
-			value.Read(p)
-		}
+	for i := range stream.regions[1] {
+		slots = append(slots, regionSlot{1, i})
 	}
+	return slots
+}
 
-	return len(p), nil
+func (stream *Stream) shuffleRegions() {
+	r1 := rand.Uint32()
+	r2 := rand.Uint32()
+	if len(stream.regions[0]) > 0 {
+		r := stream.regions[0]
+		stream.regions[0] = append(r[1:], r[r1%uint32(len(r))])
+	}
+	if len(stream.regions[1]) > 0 {
+		r := stream.regions[1]
+		stream.regions[1] = append(r[1:], r[r2%uint32(len(r))])
+	}
 }
 
 /*
-Write pushes a Value into one of the Regions in a rotating round-robin fashion.
-This simulates pouring the color pool into a mixture.
+Read pulls a Value frame from regions in round-robin order: it starts at
+readIdx modulo slot count and tries each Region.Read until one returns data
+or every slot returns EOF / short read.
 */
-func (stream *Stream) Write(p []byte) (n int, err error) {
-	if len(stream.regions) == 0 {
+func (stream *Stream) Read(p []byte) (n int, err error) {
+	if len(stream.regions) < 2 {
 		return 0, io.EOF
 	}
 
-	// Generate a random number.
-	rand1 := rand.Uint32()
-	rand2 := rand.Uint32()
-
-	// Rotate the regions based on the random number.
-	stream.regions[0] = append(stream.regions[0][1:], stream.regions[0][rand1%uint32(len(stream.regions[0]))])
-	stream.regions[1] = append(stream.regions[1][1:], stream.regions[1][rand2%uint32(len(stream.regions[1]))])
-
-	// Write the data to the regions.
-	for _, region := range stream.regions {
-		for _, value := range region {
-			value.Write(p)
-		}
+	slots := stream.readSlots()
+	if len(slots) == 0 {
+		return 0, io.EOF
 	}
 
+	stream.shuffleRegions()
+
+	frame := stream.left[:primitive.ByteSize]
+	start := int((stream.readIdx.Add(1) - 1) % uint32(len(slots)))
+	for j := range slots {
+		s := slots[(start+j)%len(slots)]
+		reg := stream.regions[s.side][s.idx]
+		rn, rerr := reg.Read(frame)
+		if rerr != nil && rerr != io.EOF {
+			return 0, rerr
+		}
+		if rn > 0 {
+			return copy(p, frame[:rn]), nil
+		}
+	}
+	return 0, io.EOF
+}
+
+/*
+Write tokenizes the payload into a Value frame and enqueues a copy into every
+Region (both sides), matching the previous “pour into the mixture” semantics and
+keeping Region.Write’s ByteSize alignment requirement.
+*/
+func (stream *Stream) Write(p []byte) (n int, err error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if len(stream.regions) < 2 {
+		return 0, io.EOF
+	}
+
+	stream.shuffleRegions()
+
+	v := primitive.NewValue()
+	for i, b := range p {
+		_ = v.SetTokenID(i, primitive.Tokenize(b, uint64(i)))
+	}
+	if core.Cfg.FW >= 0 && core.Cfg.FW < primitive.Words {
+		v[core.Cfg.FW] = 0
+	}
+	frame := make([]byte, primitive.ByteSize)
+	if err := primitive.ValueToBytes(v, frame); err != nil {
+		return 0, err
+	}
+
+	stream.writeIdx.Add(1)
+	for side := 0; side < 2; side++ {
+		for _, reg := range stream.regions[side] {
+			if _, werr := reg.Write(frame); werr != nil {
+				return 0, werr
+			}
+		}
+	}
 	return len(p), nil
 }
 
 func (stream *Stream) Close() error {
-	stream.cancel()
+	if stream.cancel != nil {
+		stream.cancel()
+	}
 	return nil
 }
 
