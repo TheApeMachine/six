@@ -34,13 +34,16 @@ All buffers use StorageModeShared (unified memory) so there is no
 host-to-device copy — the CPU and GPU share the same physical RAM.
 */
 type Backend struct {
+	idx int
 }
 
 /*
 NewBackend returns a Metal kernel Backend.
 */
-func NewBackend() *Backend {
-	return &Backend{}
+func NewBackend(idx int) *Backend {
+	return &Backend{
+		idx: idx,
+	}
 }
 
 /*

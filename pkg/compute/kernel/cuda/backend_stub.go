@@ -12,13 +12,17 @@ import (
 Backend is the stub used on non-CUDA builds. Available probes NVML to
 detect GPUs even without the CUDA compiler present.
 */
-type Backend struct{}
+type Backend struct {
+	deviceIdx int
+}
 
 /*
 NewBackend returns a stub Backend.
 */
-func NewBackend() *Backend {
-	return &Backend{}
+func NewBackend(idx int) *Backend {
+	return &Backend{
+		deviceIdx: idx,
+	}
 }
 
 /*
@@ -57,6 +61,3 @@ func (backend *Backend) Close() error {
 func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
 	return NewCUDAError(nil, "UniversalBitwise", "UniversalBitwise", n)
 }
-
-// CUDAError, NewCUDAError, and related constants are defined in errors.go
-// (no build tag) so both the CUDA and stub builds share one implementation.

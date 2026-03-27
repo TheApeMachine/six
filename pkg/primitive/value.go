@@ -140,8 +140,12 @@ var valuePool = sync.Pool{
 	},
 }
 
-func NewValue() *Value {
-	return valuePool.Get().(*Value)
+func NewValue(p ...[]byte) *Value {
+	value := valuePool.Get().(*Value)
+	if len(p) > 0 && len(p[0]) > 0 {
+		valueFrom(p[0], value)
+	}
+	return value
 }
 
 /*
@@ -164,31 +168,6 @@ func (value *Value) Read(p []byte) (int, error) {
 	}
 
 	valueTo(value, p)
-	return ByteSize, io.EOF
-}
-
-/*
-Consume serializes the frame into p, promotes NextValueID to ValueID, and clears
-the words for pipeline reuse (previous Read behavior).
-*/
-func (value *Value) Consume(p []byte) (int, error) {
-	if value[core.Cfg.StateIndex] == 0 {
-		return 0, io.EOF
-	}
-	if len(p) < ByteSize {
-		return 0, io.ErrShortBuffer
-	}
-
-	valueTo(value, p)
-
-	nextID := value.NextValueID()
-
-	for i := range Words {
-		value[i] = 0
-	}
-
-	value.SetValueID(nextID)
-
 	return ByteSize, io.EOF
 }
 

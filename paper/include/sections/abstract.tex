@@ -2,40 +2,13 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-Current generative architectures treat sequence modeling as an initial value
-problem: gradient-trained weights predict the next token before any future
-constraint can be applied.  We reject this framing entirely and cast
-generation as a \emph{boundary value problem} (BVP).  The observer clamps a
-subset of symbols as fixed constraints and the remaining degrees of freedom
-are resolved simultaneously via massively parallel geometric resonance search.
+We present a computational substrate in which data, execution, and storage are unified into a single discrete representation. Rather than separating memory, program logic, and inference into distinct components, the system encodes all three within a shared value space and executes by navigating this space directly.
 
-We instantiate this paradigm in a physics-native substrate built on three
-layers:
-\begin{enumerate}[nosep]
-  \item An \textbf{8191-bit Value} representation over the Mersenne field
-        $\operatorname{GF}(8191)$ ($2^{13}-1$), where each byte value maps to
-        a deterministic prime-basis bitset across 128 blocks of 64 bits, and
-        bitwise operations (\texttt{OR}, \texttt{AND}, \texttt{popcount})
-        execute discrete wave interference at single-cycle throughput.
-  \item A \textbf{Morton-coded Radix Trie} (Distributed Merkle Trie) that
-        indexes values by their spatial keys, with sequential structure encoded
-        as composable affine transformations over $\operatorname{GF}(8191)$.
-  \item An \textbf{Analytical Phase} navigation layer that maps values onto a
-        $S^1 \times S^1$ phase torus via their intrinsic prime-index geometry
-        over $\operatorname{GF}(8191)$, enabling deterministic closure
-        detection and intent steering without trained co-occurrence models.
-\end{enumerate}
+Each unit of information is represented as a fixed-width binary value and stored within a structured memory substrate indexed by spatial coordinates. Computation proceeds not by applying learned parameters or explicit control flow, but by composing transformations over these stored values and resolving queries through global search primitives.
 
-No loss function is minimized.  No weights are updated.  Inference is a
-single-pass $\operatorname{GF}(8191)$ geometric distance scan across the
-entire memory substrate, resolving the nearest rotational state via integer
-arithmetic on GPU.  A two-phase hybrid retrieval pipeline (bitwise filter
-followed by complex-valued PhaseDial scoring) provides precise candidate
-ranking.  A self-programming loop closes the system: the cantilever BVP
-solver synthesizes missing operators, successful bridges harden into native
-macro-opcodes, and the interpreter dispatches them directly---reifying
-execution traces into new operators.  We validate the architecture across
-text classification, code generation, logical reasoning, phase-dial
-generalization, image reconstruction, and cross-modal tasks, reporting both
-successes and failure regimes with equal detail.
+Generation is framed as a constraint resolution process: given partial structure, the system retrieves or synthesizes continuations by traversing the value space and composing existing transformations. New execution patterns discovered during this process are captured and reused, enabling a form of self-extending behavior without gradient-based training.
+
+The system operates entirely through deterministic, hardware-native operations and produces reproducible outputs across modalities. We demonstrate its behavior across multiple experimental domains and describe a pipeline in which the system generates both results and the corresponding research artifact automatically.
+
+This work explores an alternative to parameterized models, where computation emerges from the organization of memory rather than from learned weights.
 \end{abstract}

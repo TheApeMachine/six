@@ -12,7 +12,6 @@ int unified_bitwise_cuda(int device_id, const void* a, const void* b, void* dst,
 */
 import "C"
 import (
-	"fmt"
 	"sync"
 	"unsafe"
 )
@@ -25,13 +24,16 @@ Backend dispatches Value-native GPU kernels on NVIDIA CUDA devices.
 type Backend struct {
 	initOnce    sync.Once
 	deviceCount int
+	deviceIdx   int
 }
 
 /*
 NewBackend returns a CUDA kernel Backend.
 */
-func NewBackend() *Backend {
-	return &Backend{}
+func NewBackend(idx int) *Backend {
+	return &Backend{
+		deviceIdx: idx,
+	}
 }
 
 func (backend *Backend) init() {
@@ -77,11 +79,12 @@ runs its own independent program in parallel.
 func (backend *Backend) UniversalBitwise(a, bPtr, dst unsafe.Pointer, n uint32) error {
 	if C.unified_bitwise_cuda(0, a, bPtr, dst, C.uint32_t(n)) != 0 {
 		return NewCUDAError(
-			fmt.Errorf("unified dispatch failed for %d values", n),
-			string(CUDAErrorDispatchFailed),
+			CUDAErrorDispatchFailed,
+			"failed to dispatch unified bitwise operation",
 			"UniversalBitwise",
 			n,
 		)
 	}
+
 	return nil
 }

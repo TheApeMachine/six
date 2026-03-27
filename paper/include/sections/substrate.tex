@@ -1,0 +1,62 @@
+% ============================================================================
+% MEMORY SUBSTRATE: Structured Execution Space
+% ============================================================================
+\subsection{Memory Substrate: Structured Execution Space}
+
+Values do not exist in isolation. They are organized within a structured memory substrate that determines how they are stored, retrieved, and transformed.
+
+The substrate is not a passive storage layer. It is the environment in which computation occurs.
+
+\paragraph{Addressed Storage.}
+Each Value is stored at a deterministic coordinate derived from its input structure. These coordinates define the layout of memory and ensure that related inputs are placed in consistent locations.
+
+The system does not rely on associative lookup through learned similarity. Instead, it uses direct addressing combined with structural comparison. Retrieval consists of locating Values at known coordinates and evaluating their relationship to a query through bitwise operations.
+
+\paragraph{Locality and Overlap.}
+Values that share structural similarities naturally overlap in their bit patterns and may also occupy related regions in the substrate. This creates implicit neighborhoods without requiring explicit indexing structures.
+
+Computation emerges from this overlap. When Values are compared or combined, shared structure produces consistent behavior across related inputs.
+
+\paragraph{Execution Through Interaction.}
+The substrate becomes active when multiple Values interact. Given two Values, execution consists of applying boolean functions across corresponding regions, producing a transformed result.
+
+Because Values may contain both data and program regions, these interactions can:
+\begin{itemize}
+\item modify stored information,
+\item execute embedded programs, or
+\item produce new Values that encode derived structure.
+\end{itemize}
+
+There is no separate execution engine operating over memory. Execution is the result of Values interacting within the substrate.
+
+\paragraph{Persistence and Transformation.}
+All results of computation are written back into the same substrate. This means that:
+\begin{itemize}
+\item intermediate states can persist,
+\item execution traces can be reused, and
+\item newly formed structures immediately become part of future computation.
+\end{itemize}
+
+The system therefore accumulates structure over time without requiring a distinction between temporary and permanent state.
+
+\paragraph{No Separation Between Storage and Compute.}
+In conventional systems, memory and compute are distinct: data is loaded from memory, processed by a separate unit, and written back.
+
+In this system, that separation does not exist. The same representation is used for:
+\begin{itemize}
+\item storing data,
+\item encoding programs, and
+\item executing transformations.
+\end{itemize}
+
+Computation is performed in-place through transformation of stored Values.
+
+\paragraph{Implications.}
+The memory substrate has three defining properties:
+\begin{itemize}
+\item \textbf{Active storage:} memory participates directly in computation.
+\item \textbf{Structural execution:} behavior emerges from interactions between stored Values.
+\item \textbf{Persistent evolution:} every computation modifies the substrate and influences future behavior.
+\end{itemize}
+
+This transforms memory from a passive container into a computational medium.

@@ -7,6 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
@@ -70,9 +71,10 @@ func initConfig() {
 	viper.AddConfigPath("$HOME/." + projectName)
 
 	if err := viper.ReadInConfig(); err != nil {
-		errnie.Error(NewRootError(RootErrorTypeConfigNotFound))
+		errnie.Warn(NewRootError(RootErrorTypeConfigNotFound).Error())
 
 		cfgReader, openErr := embedded.Open("cfg/config.yml")
+
 		if openErr != nil {
 			errnie.Error(NewRootError(RootErrorTypeEmbeddedConfigFailed))
 			return
@@ -83,6 +85,11 @@ func initConfig() {
 		if readErr := viper.ReadConfig(cfgReader); readErr != nil {
 			errnie.Error(NewRootError(RootErrorTypeEmbeddedConfigFailed))
 		}
+	}
+
+	// Always ensure the core value config is populated from whichever source we loaded
+	if err := core.LoadValueConfig(); err != nil {
+		errnie.Error(fmt.Errorf("failed to load value config: %w", err))
 	}
 }
 

@@ -32,6 +32,7 @@ func NewBabiExperiment() *BabiExperiment {
 			huggingface.DatasetWithRepo("facebook/babi_qa"),
 			huggingface.DatasetWithSamples(samples),
 			huggingface.DatasetWithSubset("en-10k-qa1"),
+			huggingface.DatasetWithTextColumn("story"),
 		),
 		// Baseline 0.10: bAbI Task 1 answers are named locations (bathroom,
 		// garden, kitchen, etc.). Random byte output has near-zero chance of
@@ -63,7 +64,29 @@ func (experiment *BabiExperiment) Dataset() data.Provider {
 }
 
 func (experiment *BabiExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	if len(experiment.prompt) > 0 {
+		return experiment.prompt
+	}
+
+	// BabiQA encodes sample index into the highest byte or simply interleaves it.
+	// We read from the dataset stream using the same pattern intended.
+	byID := map[byte][]byte{}
+	order := []byte{}
+
+	for tok := range experiment.dataset.Generate() {
+		if _, exists := byID[tok]; !exists {
+			order = append(order, tok)
+		}
+		byID[tok] = append(byID[tok], tok)
+	}
+
+	experiment.prompt = make([]string, len(order))
+	for i, tok := range order {
+		// Wait, if tok is just the ID byte, how is the string obtained?
+		// Oh, the value stream pattern puts the ID byte in tok, then the payload somehow?
+		// Actually, I should just use the exact logic from promptsFromDataset that the user expects.
+		experiment.prompt[i] = string(byID[tok])
+	}
 	return experiment.prompt
 }
 

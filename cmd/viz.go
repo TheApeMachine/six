@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -10,6 +9,9 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/vm"
 	"github.com/theapemachine/six/visualizer"
 )
 
@@ -33,24 +35,40 @@ accepting graph events via UDP from external test runs.`,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		srv := visualizer.NewServer()
 
-		ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 		defer stop()
 
-		if !vizListen {
-			go func() {
-				err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
-					Repo:       vizRepo,
-					Subset:     vizSubset,
-					TextColumn: vizColumn,
-					Iterations: vizIters,
-					StepDelay:  vizDelay,
-				})
+		machine, err := vm.NewMachine(
+			vm.WithContext(ctx),
+			vm.WithDataset(huggingface.New(
+				huggingface.DatasetWithContext(ctx),
+				huggingface.DatasetWithRepo("facebook/babi_qa"),
+				huggingface.DatasetWithSubset("en-10k-qa1"),
+				huggingface.DatasetWithTextColumns("story"),
+			)),
+		)
 
-				if err != nil && ctx.Err() == nil {
-					fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
-				}
-			}()
+		if err != nil {
+			return errnie.Wrap(err, "cmd.viz.RunE")
 		}
+
+		defer machine.Close()
+
+		// if !vizListen {
+		go func() {
+			err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
+				Repo:       vizRepo,
+				Subset:     vizSubset,
+				TextColumn: vizColumn,
+				Iterations: vizIters,
+				StepDelay:  vizDelay,
+			})
+
+			if err != nil && ctx.Err() == nil {
+				fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
+			}
+		}()
+		// }
 
 		go func() {
 			<-ctx.Done()
@@ -69,8 +87,11 @@ accepting graph events via UDP from external test runs.`,
 
 		fmt.Fprintf(os.Stderr, "visualizer http://%s  (UDP %s)  mode=%s\n", vizHTTPAddr, udpHint, mode)
 
-		err := srv.ListenAndServe(vizHTTPAddr, vizUDPAddr)
-		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err = srv.ListenAndServe(
+			vizHTTPAddr, vizUDPAddr,
+		); err != nil && !errors.Is(
+			err, http.ErrServerClosed,
+		) {
 			return err
 		}
 

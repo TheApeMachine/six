@@ -5,14 +5,21 @@ import (
 	"sort"
 
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
+/*
+ValueConfig holds the configuration for a Value.
+*/
 type ValueConfig struct {
 	Words   int                `mapstructure:"words"`
 	Region  ValueRegionConfig  `mapstructure:"region"`
 	Opcodes ValueOpcodesConfig `mapstructure:"opcodes"`
 }
 
+/*
+ValueRegionConfig holds the configuration for a Value's region.
+*/
 type ValueRegionConfig struct {
 	Tokens    ValueOffsetConfig      `mapstructure:"tokens"`
 	ID        ValueOffsetConfig      `mapstructure:"id"`
@@ -27,17 +34,29 @@ type ValueRegionConfig struct {
 	Program   ValueOffsetConfig      `mapstructure:"program"`
 }
 
+/*
+ValueOffsetConfig holds the configuration
+for a Value's offset.
+*/
 type ValueOffsetConfig struct {
 	Start int    `mapstructure:"start"`
 	Bits  uint64 `mapstructure:"bits"`
 }
 
+/*
+ValueRegionConfigState holds the configuration
+for a Value's region state.
+*/
 type ValueRegionConfigState struct {
 	Index       int `mapstructure:"index"`
 	Sequence    int `mapstructure:"sequence"`
 	Accumulator int `mapstructure:"accumulator"`
 }
 
+/*
+ValueRegistersConfig holds the configuration
+for a Value's registers.
+*/
 type ValueRegistersConfig struct {
 	Start int `mapstructure:"start"`
 	Bits  int `mapstructure:"bits"`
@@ -51,6 +70,10 @@ type ValueRegistersConfig struct {
 	PC    int `mapstructure:"pc"`
 }
 
+/*
+ValueOpcodesConfig holds the configuration
+for a Value's opcodes.
+*/
 type ValueOpcodesConfig struct {
 	False    string `mapstructure:"false"`
 	And      string `mapstructure:"and"`
@@ -70,12 +93,29 @@ type ValueOpcodesConfig struct {
 	TRUE     string `mapstructure:"true"`
 }
 
-// V holds the loaded Value configuration. Populated by LoadValueConfig.
+/*
+vCfg holds the loaded Value configuration.
+Populated by LoadValueConfig.
+*/
 var vCfg ValueConfig
 
-// LoadValueConfig reads the "value" section from viper into V.
-func LoadValueConfig() error {
-	return viper.UnmarshalKey("value", &vCfg)
+/*
+LoadValueConfig reads the "value" section from viper into V.
+*/
+func LoadValueConfig() (err error) {
+	if err = viper.GetViper().UnmarshalKey(
+		"value", &vCfg,
+	); err != nil {
+		err = errnie.Error(
+			NewConfigError(
+				ConfigErrorTypeMissingKey,
+				"value",
+				err.Error(),
+			),
+		)
+	}
+
+	return LoadFirmware()
 }
 
 /*
@@ -148,45 +188,122 @@ type Config struct {
 	FirmwareIndex map[string]int
 }
 
-// CompileFunc is set by the primitive package to avoid circular imports.
-// It compiles a program source string into instructions.
-var CompileFunc func(string) ([]uint32, error)
-
-// LoadFirmware compiles all programs from the config's `programs` section
-// into Cfg.Firmware. Must be called after viper has loaded config.
+/*
+LoadFirmware compiles all programs from the config's `programs` section
+into Cfg.Firmware. Must be called after viper has loaded config.
+*/
 func LoadFirmware() error {
-	if CompileFunc == nil {
-		return fmt.Errorf("core: CompileFunc not registered")
+	rawPrograms := viper.GetViper().Get("programs")
+	
+	if rawPrograms == nil {
+		return errnie.Error(
+			NewConfigError(
+				ConfigErrorMissingFirmware,
+				"programs",
+				"no programs defined in config.yml",
+			),
+		)
 	}
 
-	programs := viper.GetStringMapString("programs")
+	programs, ok := rawPrograms.(map[string]any)
+	if !ok {
+		// Sometimes Viper parses empty maps or missing roots as nil maps.
+		return errnie.Error(
+			NewConfigError(
+				ConfigErrorMissingFirmware,
+				"programs",
+				"programs key is not a dictionary format",
+			),
+		)
+	}
+
 	if len(programs) == 0 {
-		return nil
+		return errnie.Error(
+			NewConfigError(
+				ConfigErrorMissingFirmware,
+				"programs",
+				"programs object is empty in config.yml",
+			),
+		)
 	}
 
 	// Sort for deterministic indexing
 	names := make([]string, 0, len(programs))
+
 	for name := range programs {
 		names = append(names, name)
 	}
+
 	sort.Strings(names)
 
 	Cfg.Firmware = make([][]uint32, len(names))
 	Cfg.FirmwareIndex = make(map[string]int, len(names))
 
 	for i, name := range names {
-		src := programs[name]
-		instrs, err := CompileFunc(src)
-		if err != nil {
-			return fmt.Errorf("core: firmware %q: %w", name, err)
+		if src, ok := programs[name].(string); ok {
+			instrs, err := CompileFunc(src)
+
+			if err != nil {
+				return errnie.Error(
+					NewConfigError(
+						ConfigErrorFirmwareCompile,
+						name,
+						err.Error(),
+					),
+				)
+			}
+
+			Cfg.Firmware[i] = instrs
+			Cfg.FirmwareIndex[name] = i
 		}
-		Cfg.Firmware[i] = instrs
-		Cfg.FirmwareIndex[name] = i
 	}
+
+	errnie.Info(
+		"core: firmware loaded",
+		"programs", len(Cfg.Firmware),
+	)
 
 	return nil
 }
 
+/*
+Get is a type-safe wrapper around viper.GetViper().Get.
+*/
 func Get[T any](key string) T {
 	return viper.GetViper().Get(key).(T)
+}
+
+/*
+ConfigErrorType is the type of a config error.
+*/
+type ConfigErrorType string
+
+const (
+	ConfigErrorTypeMissingKey   ConfigErrorType = "missing_key"
+	ConfigErrorTypeInvalidValue ConfigErrorType = "invalid_value"
+	ConfigErrorMissingFirmware  ConfigErrorType = "missing_firmware"
+	ConfigErrorFirmwareCompile  ConfigErrorType = "firmware_compile"
+)
+
+/*
+ConfigError is an error that occurs when loading the config.
+*/
+type ConfigError struct {
+	Type ConfigErrorType
+	Key  string
+	Msg  string
+}
+
+/*
+NewConfigError creates a new config error.
+*/
+func NewConfigError(t ConfigErrorType, key, msg string) ConfigError {
+	return ConfigError{Type: t, Key: key, Msg: msg}
+}
+
+/*
+Error returns the error message.
+*/
+func (e ConfigError) Error() string {
+	return fmt.Sprintf("%s: %s: %s", e.Type, e.Key, e.Msg)
 }

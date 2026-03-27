@@ -117,41 +117,49 @@ programs:
     *r3   *r0 0011 // Copy from Partner (at r3) to Self (at r0)
     8     pc  0011 // jump to slot 8
 
-  # Affinity: XOR-fold first 8 tokens into the affinity word (bits 4096-4160).
+  # Affinity: XOR Tokens and adopt Partner's structural links
   affinity: |
-    0     *64 0000 // zero word 64
-    *0    *64 0110 // xor word 0
-    *1    *64 0110 // xor word 1
-    *2    *64 0110 // xor word 2
-    *3    *64 0110 // xor word 3
-    *4    *64 0110 // xor word 4
-    *5    *64 0110 // xor word 5
-    *6    *64 0110 // xor word 6
-    *7    *64 0110 // xor word 7
+    0     r0  0011 // Triplet A context = 0 (Self)
+    0     r1  0011 // Triplet A offset = 0 (Tokens)
+    3648  r2  0011 // Triplet A length = 57*64 = 3648 bits
+    1     r3  0011 // Triplet B context = 1 (Partner)
+    0     r4  0011 // Triplet B offset = 0
+    3648  r5  0011 // Triplet B length = 3648 bits
+    *r3   *r0 0110 // XOR Partner Tokens to Self Tokens
+    3712  r1  0011 // Triplet A offset = 58*64 (PrevID & NextID)
+    128   r2  0011 // Triplet A length = 128
+    3712  r4  0011 // Triplet B offset = 58*64
+    128   r5  0011 // Triplet B length = 128
+    *r3   *r0 0011 // COPY Partner Links to Self Links
 
   # Shatter: 3-pass AND for structural decomposition
   shatter: |
-    *0 *0 0001
-    *0 *0 0001
-    *0 *0 0001
+    0     r0  0011 // Triplet A context = 0 (Self)
+    0     r1  0011 // Triplet A offset = 0
+    3648  r2  0011 // Triplet A length = 3648
+    1     r3  0011 // Triplet B context = 1 (Partner)
+    0     r4  0011 // Triplet B offset = 0
+    3648  r5  0011 // Triplet B length = 3648
+    *r3   *r0 0001 // AND pass 1
+    *r3   *r0 0001 // AND pass 2
+    *r3   *r0 0001 // AND pass 3
 
-  # Tombstone: nullify links that match this Value's ID
+  # Tombstone: nullify links using structural zeroing (simulated via FALSE gate over ID spans)
   tombstone: |
-    *57 r0  0011 // load ValueID
-    *58 r1  0011 // load PrevID
-    *59 r2  0011 // load NextID
-    r0  r1  0110 // nullify Prev if match
-    r0  r2  0110 // nullify Next if match
-    r1  *58 0011 // write back
-    r2  *59 0011 // write back
+    0     r0  0011 // Triplet A context = 0 (Self)
+    3712  r1  0011 // Triplet A offset = 58*64
+    128   r2  0011 // Triplet A length = 128
+    1     r3  0011 // Triplet B context = 1 (Partner)
+    3712  r4  0011 // Triplet B offset = 58*64
+    128   r5  0011 // Triplet B length = 128
+    *r3   *r0 0000 // FALSE gate to zero the Links span
 
   # Wipe: zero the data and metadata regions (words 0-70)
   wipe: |
-    0     *0  0000 // zero word 0? Wait, range wipe is better if span implemented.
-    0     r0  0011 // ctx = 0
-    0     r1  0011 // off = 0
-    4544  r2  0011 // len = 71*64 = 4544
-    0     r3  0011 // dst ctx = 0
-    0     r4  0011 // dst off = 0
-    4544  r5  0011 // dst len = 4544
-    *r0   *r3 0000 // wipe with FALSE gate
+    0     r0  0011 // Triplet A context = 0 (Self)
+    0     r1  0011 // Triplet A offset = 0
+    4544  r2  0011 // Triplet A length = 71*64 = 4544
+    1     r3  0011 // Triplet B context = 1 (Partner)
+    0     r4  0011 // Triplet B offset = 0
+    4544  r5  0011 // Triplet B length = 4544
+    *r3   *r0 0000 // Wipe Self with FALSE gate

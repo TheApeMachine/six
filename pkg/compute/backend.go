@@ -1,7 +1,9 @@
 package compute
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"io"
 	"unsafe"
 
@@ -9,6 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -20,6 +23,8 @@ overflows into the local Region (which acts as a local clustering space and
 network mesh interface) if local capabilities are fully saturated.
 */
 type Backend struct {
+	ctx        context.Context
+	cancel     context.CancelFunc
 	hardware   []kernel.Substrate
 	meshRegion *primitive.Region
 }
@@ -27,40 +32,42 @@ type Backend struct {
 // BackendOption configures the multi-substrate router
 type BackendOption func(*Backend)
 
-// WithRegion hooks the affine topological mesh over the execution hardware
-func WithRegion(region *primitive.Region) BackendOption {
-	return func(b *Backend) {
-		b.meshRegion = region
-	}
-}
-
 /*
 NewBackend initializes the unified Load Balancer by probing for
 all available compute substrates and layering them by speed priority.
 */
-func NewBackend(opts ...BackendOption) *Backend {
-	b := &Backend{
+func NewBackend(opts ...BackendOption) (*Backend, error) {
+	backend := &Backend{
 		hardware: make([]kernel.Substrate, 0),
 	}
 
-	if cuda.Available() > 0 {
-		errnie.Info("compute.backend: CUDA substrate registered", "priority", 1)
-		b.hardware = append(b.hardware, cuda.NewBackend())
+	for idx := range cuda.Available() {
+		errnie.Info("compute.backend: CUDA substrate registered")
+		backend.hardware = append(backend.hardware, cuda.NewBackend(idx))
 	}
 
-	if metal.Available() > 0 {
-		errnie.Info("compute.backend: Metal substrate registered", "priority", 2)
-		b.hardware = append(b.hardware, metal.NewBackend())
+	for idx := range metal.Available() {
+		errnie.Info("compute.backend: Metal substrate registered")
+		backend.hardware = append(backend.hardware, metal.NewBackend(idx))
 	}
 
-	errnie.Info("compute.backend: CPU substrate registered", "priority", 3)
-	b.hardware = append(b.hardware, cpu.NewBackend())
+	errnie.Info("compute.backend: CPU substrate registered")
+	backend.hardware = append(backend.hardware, cpu.NewBackend())
 
 	for _, opt := range opts {
-		opt(b)
+		opt(backend)
 	}
 
-	return b
+	if err := validate.Require(map[string]any{
+		"ctx":        backend.ctx,
+		"cancel":     backend.cancel,
+		"hardware":   backend.hardware,
+		"meshRegion": backend.meshRegion,
+	}); err != nil {
+		return nil, errnie.Wrap(err)
+	}
+
+	return backend, nil
 }
 
 /*
@@ -141,16 +148,19 @@ func (backend *Backend) Write(p []byte) (n int, err error) {
 
 func (backend *Backend) Close() error {
 	var errs error
+
 	for _, hw := range backend.hardware {
 		if err := hw.Close(); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
+
 	if backend.meshRegion != nil {
 		if err := backend.meshRegion.Close(); err != nil {
 			errs = errors.Join(errs, err)
 		}
 	}
+
 	return errs
 }
 
@@ -159,7 +169,66 @@ UniversalBitwise implements the raw memory dispatcher if bypassing the stream.
 */
 func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
 	if len(backend.hardware) == 0 {
-		return errors.New("compute.backend: no hardware kernel initialized")
+		return errnie.Error(
+			NewBackendError(
+				nil,
+				"compute.backend.UniversalBitwise",
+				n,
+			),
+		)
 	}
+
 	return backend.hardware[0].UniversalBitwise(a, b, dst, n)
+}
+
+/*
+WithContext sets the context for the backend.
+*/
+func WithContext(ctx context.Context) BackendOption {
+	return func(backend *Backend) {
+		backend.ctx, backend.cancel = context.WithCancel(ctx)
+	}
+}
+
+/*
+WithRegion hooks the affine topological mesh over the execution hardware
+*/
+func WithRegion(region *primitive.Region) BackendOption {
+	return func(backend *Backend) {
+		backend.meshRegion = region
+	}
+}
+
+type BackendErrorType string
+
+const (
+	BackendErrorNoHardware         BackendErrorType = "no hardware initialized"
+	BackendErrorCompleteSaturation BackendErrorType = "complete saturation"
+)
+
+type BackendError struct {
+	Err error
+	Msg string
+	Op  string
+	N   uint32
+}
+
+func NewBackendError(err error, op string, n uint32) *BackendError {
+	return &BackendError{
+		Err: err,
+		Msg: err.Error(),
+		Op:  op,
+		N:   n,
+	}
+}
+
+func (e *BackendError) Error() string {
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", e.Msg, e.Err)
+	}
+	return e.Msg
+}
+
+func (e *BackendError) Unwrap() error {
+	return e.Err
 }

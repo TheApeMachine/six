@@ -1,0 +1,51 @@
+% ============================================================================
+% THE 8191-BIT VALUE REPRESENTATION
+% ============================================================================
+\subsection{Representation and Primitive Operations}
+
+The system operates on a single primitive type, referred to as a \emph{Value}, which is a fixed-width binary structure. All computation is expressed as transformations over these Values using standard bitwise operations.
+
+At the lowest level, the system defines its instruction set as the complete set of 16 two-input boolean functions. Each operation corresponds to a 4-bit truth table, allowing any possible boolean transformation between two input regions to be expressed directly.
+
+Rather than introducing higher-level arithmetic or symbolic primitives, all behavior is constructed from these elementary operations. Complex transformations emerge through repeated application of simple boolean functions such as AND, OR, XOR, and their complements.
+
+\paragraph{Instructions as Boolean Functions.}
+
+Each instruction in the system is encoded as a 4-bit truth table representing a complete two-input boolean function. Rather than selecting from a predefined set of operations (e.g., AND, OR, XOR), the system interprets the instruction directly as a mapping from input bit pairs to output bits.
+
+During execution, pairs of bits from source and destination regions are used to index into this truth table, and the resulting bit is written back into memory. This process is applied uniformly across regions, enabling bulk evaluation of boolean functions over structured data.
+
+As a result, the system does not implement operations in the conventional sense. Instead, it evaluates arbitrary boolean functions encoded in memory, using the same representation for both instructions and data. This eliminates the distinction between instruction decoding and execution: the instruction is the function.
+
+\paragraph{Region-Based Execution.}
+Operations are applied over contiguous regions of a Value. A small set of registers defines:
+\begin{itemize}
+\item which Value to operate on (self or partner),
+\item the offset within that Value,
+\item and the length of the region.
+\end{itemize}
+
+Execution consists of selecting two regions and applying a chosen boolean function across them. The result is written back into the target region. This model reduces all computation to structured memory transformation.
+
+\paragraph{Programs as Data.}
+Programs are stored within the same Value structure that holds data. A program is simply a sequence of region operations, each specifying:
+\begin{itemize}
+\item source regions,
+\item destination regions,
+\item and a boolean operation.
+\end{itemize}
+
+Because programs are embedded directly within Values, there is no distinction between code and data. A Value may represent stored information, an executable program, or both simultaneously.
+
+\paragraph{Control Through State Mutation.}
+Control flow is achieved by modifying designated regions within the Value, such as the program counter. Branching and looping are implemented by writing new positions into these regions, rather than through external control mechanisms.
+
+\paragraph{Implications.}
+This design yields a computational model with three defining properties:
+\begin{itemize}
+\item \textbf{Minimal primitives:} all computation reduces to boolean truth tables.
+\item \textbf{Uniform substrate:} data, programs, and execution state share the same representation.
+\item \textbf{Direct execution:} behavior emerges from transforming memory rather than invoking external instructions.
+\end{itemize}
+
+The expressive power of the system arises not from complex operations, but from the composition of simple ones applied across structured memory.

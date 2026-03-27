@@ -10,13 +10,17 @@ import (
 /*
 Backend is the stub for non-darwin builds.
 */
-type Backend struct{}
+type Backend struct {
+	idx int
+}
 
 /*
 NewBackend returns a stub Backend on non-darwin.
 */
-func NewBackend() *Backend {
-	return &Backend{}
+func NewBackend(idx int) *Backend {
+	return &Backend{
+		idx: idx,
+	}
 }
 
 /*

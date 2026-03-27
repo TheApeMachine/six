@@ -69,6 +69,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	for idx, prompt := range pipeline.experiment.Prompts() {
 		p := bytes.NewBuffer([]byte{})
 		p.WriteString(prompt)
+		errnie.Trace("Prompt", "prompt", prompt)
 
 		if _, err = io.Copy(machine, p); err != nil {
 			return errnie.Error(err)

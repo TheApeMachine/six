@@ -39,23 +39,6 @@ complete, or the dataset errors.
 func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) error {
 	unbounded := opts.Iterations <= 0
 
-	if opts.StepDelay <= 0 {
-		opts.StepDelay = 50 * time.Millisecond
-	}
-
-	if opts.Repo == "" {
-		opts.Repo = "facebook/babi_qa"
-	}
-
-	if opts.Subset == "" {
-		opts.Subset = "en-10k-qa1"
-	}
-
-	if opts.TextColumn == "" {
-		opts.TextColumn = "story"
-	}
-
-	backend := cpu.NewBackend()
 	chamber := primitive.NewValue()
 	frame := make([]byte, primitive.ByteSize)
 
@@ -162,18 +145,11 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 			},
 		})
 
-		if _, err := io.Copy(chamber, incoming); err != nil {
-			srv.Broadcast(telemetry.Event{
-				Component: "Substrate",
-				Action:    "Step",
-				Data: telemetry.EventData{
-					Stage:   "chamber-copy-error",
-					Message: err.Error(),
-					Frame:   i,
-				},
-			})
-
-			return err
+		// Physically merge the incoming tokens (Region 0) and state into the chamber.
+		// We avoid io.Copy because Value.Write treats any byte slice as raw user stream
+		// and would attempt to tokenize the binary frame structure sequentially.
+		for j := 0; j <= int(core.Cfg.StateAccumulator); j++ {
+			(*chamber)[j] = (*incoming)[j]
 		}
 
 		srv.Broadcast(telemetry.Event{
@@ -190,20 +166,6 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 			},
 		})
 
-		if _, err := io.Copy(backend, chamber); err != nil {
-			srv.Broadcast(telemetry.Event{
-				Component: "Substrate",
-				Action:    "Step",
-				Data: telemetry.EventData{
-					Stage:   "backend-error",
-					Message: err.Error(),
-					Frame:   i,
-				},
-			})
-
-			return err
-		}
-
 		srv.Broadcast(telemetry.Event{
 			Component: "Substrate",
 			Action:    "Step",
@@ -219,20 +181,6 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 		})
 
 		mutatedFrame := make([]byte, primitive.ByteSize)
-		if _, err := io.ReadFull(backend, mutatedFrame); err != nil {
-			srv.Broadcast(telemetry.Event{
-				Component: "Substrate",
-				Action:    "Step",
-				Data: telemetry.EventData{
-					Stage:   "backend-read-error",
-					Message: err.Error(),
-					Frame:   i,
-				},
-			})
-
-			return err
-		}
-
 		chamber = primitive.BytesToValue(mutatedFrame)
 
 		instr := uint8(telemetry.ReadVMInstruction() & 0xF)

@@ -212,6 +212,9 @@ func (backend *Backend) runProcessLoop() {
 	buffer := make([]byte, backend.batchCap*primitive.ByteSize)
 	blankPartner := make([]byte, primitive.ByteSize) // All 0s dummy partner
 
+	// Maintain the active firmware injected contextually by the distributed mesh
+	var activeProgram *primitive.Value
+
 	for {
 		n, err := backend.pr.Read(buffer)
 		if n > 0 {
@@ -221,6 +224,27 @@ func (backend *Backend) runProcessLoop() {
 			for i := 0; i < numValues; i++ {
 				offset := i * primitive.ByteSize
 				aPtr := unsafe.Pointer(&buffer[offset])
+				val := (*primitive.Value)(aPtr)
+
+				// 1. If we encounter a distributed programmatic Value, cache it.
+				if val.HasProgram() {
+					if activeProgram == nil {
+						activeProgram = primitive.NewValue(make([]byte, primitive.ByteSize))
+					}
+					// Ensure we copy the exact memory snapshot so it doesn't get overwritten by ring buffer
+					_ = activeProgram.ApplyWireFrame(buffer[offset : offset+primitive.ByteSize])
+				} else if activeProgram != nil {
+					// 2. Other unstructured Values are triggered to load and execute the program!
+					startWord := int(core.Cfg.ProgramIndex / 64)
+					endWord := int((core.Cfg.ProgramIndex + int(core.Cfg.ProgramBits)) / 64)
+					for j := startWord; j < endWord && j < int(primitive.Words); j++ {
+						(*val)[j] = (*activeProgram)[j]
+					}
+					// Pass the hardware trigger flags
+					(*val)[core.Cfg.RegPC] = (*activeProgram)[core.Cfg.RegPC]
+					(*val)[core.Cfg.FW] = (*activeProgram)[core.Cfg.FW]
+				}
+
 				bPtr := unsafe.Pointer(&blankPartner[0]) // Local pairing happens geometrically in Region now
 				backend.UniversalBitwise(aPtr, bPtr, unsafe.Pointer(nil), 1)
 			}
