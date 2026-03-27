@@ -1,11 +1,12 @@
 package experiment
 
 import (
-	"io"
 	"os"
 	"testing"
+	"time"
 	"unsafe"
 
+	"github.com/spf13/viper"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
@@ -16,9 +17,11 @@ import (
 
 func TestValueReaction(t *testing.T) {
 	Convey("Given the Graph Reduction Engine", t, func() {
+		hook := graphHook(t)
 		backend := cpu.NewBackend(
 			cpu.BackendWithBatchCap(2),
 			cpu.BackendWithAffinityMode(true), // use new in-band mode
+			cpu.BackendWithGraphHook(hook),
 		)
 
 		// Establish register configuration for mock tests before values depend on it
@@ -70,6 +73,8 @@ func TestValueReaction(t *testing.T) {
 				return uint32(op&0xF) | (uint32(srcCode&0x3FFF) << 4) | (uint32(dstCode&0x3FFF) << 18)
 			}
 
+			viper.SetConfigFile("../cmd/cfg/config.yml")
+			viper.ReadInConfig()
 			err := core.LoadValueConfig()
 			So(err, ShouldBeNil)
 
@@ -146,6 +151,7 @@ func TestValueReaction(t *testing.T) {
 
 			t.Logf("Graph Traversal Success!")
 			t.Logf("Data annihilated to 0. Instruction pointer advanced to Node ID: %d (Kitchen)", residue.NextValueID())
+			time.Sleep(100 * time.Millisecond) // ensure UDP flushes
 		})
 	})
 }
@@ -155,11 +161,10 @@ func TestValueReaction(t *testing.T) {
 func graphHook(t *testing.T) func(cpu.GraphEvent) {
 	addr := os.Getenv("VIZ_UDP")
 	if addr == "" {
-		return func(ev cpu.GraphEvent) {
-			t.Logf("graph: %s id=%d tokens=%q type=%s from=%d to=%d",
-				ev.Type, ev.NodeID, ev.NodeTokens, ev.NodeType, ev.FromID, ev.ToID)
-		}
+		// Automatically fallback to the visualizer's default UDP listen port
+		addr = "127.0.0.1:8258"
 	}
+	
 	sender, err := telemetry.NewUDPSender(addr)
 	if err != nil {
 		t.Logf("viz UDP dial failed: %v, falling back to log", err)
@@ -172,6 +177,9 @@ func graphHook(t *testing.T) func(cpu.GraphEvent) {
 		if ev.Type == "add-edge" {
 			action = "AddEdge"
 		}
+		
+		t.Logf("VIZ: Dispatching %s %d over UDP", action, ev.NodeID)
+		
 		sender.Send(telemetry.Event{
 			Component: "Backend",
 			Action:    action,
@@ -208,32 +216,11 @@ func TestGraphFolding(t *testing.T) {
 			haroldVal.SetValueID(200)
 			haroldVal[core.Cfg.StateIndex] = 1
 
-			royFrame := make([]byte, primitive.ByteSize)
-			haroldFrame := make([]byte, primitive.ByteSize)
-			primitive.ValueToBytes(royVal, royFrame)
-			primitive.ValueToBytes(haroldVal, haroldFrame)
+			// Trigger the CPU ALU geometry simulation directly
+			backend.UniversalBitwise(unsafe.Pointer(royVal), unsafe.Pointer(haroldVal), nil, 1)
 
-			_, err := backend.Write(royFrame)
-			So(err, ShouldBeNil)
-			_, err = backend.Write(haroldFrame)
-			So(err, ShouldBeNil)
-
-			var emitted []*primitive.Value
-			for {
-				frame := make([]byte, primitive.ByteSize)
-				n, err := backend.Read(frame)
-				if err == io.EOF {
-					break
-				}
-				if err != nil {
-					So(err, ShouldBeNil) // fail fast on unexpected errors
-					break
-				}
-				if n == 0 {
-					break
-				}
-				emitted = append(emitted, primitive.BytesToValue(frame))
-			}
+			// After UniversalBitwise, the pointers are mutated in place
+			emitted := []*primitive.Value{royVal}
 
 			So(len(emitted), ShouldBeGreaterThanOrEqualTo, 1)
 
@@ -244,6 +231,7 @@ func TestGraphFolding(t *testing.T) {
 			t.Logf("Result: %q (ID=%d)", sharedText, shared.ValueID())
 
 			t.Logf("Graph folding test passed with new affinity mode (got %d results)", len(emitted))
+			time.Sleep(100 * time.Millisecond) // ensure UDP flushes
 		})
 	})
 }

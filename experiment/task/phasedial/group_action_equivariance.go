@@ -1,8 +1,6 @@
 package phasedial
 
 import (
-	"math"
-
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
@@ -64,7 +62,7 @@ func (experiment *GroupActionEquivarianceExperiment) Outcome() (any, Assertion, 
 
 func (experiment *GroupActionEquivarianceExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
-		return math.NaN() // Not yet computed
+		return 0.0 // No data yet
 	}
 	total := 0.0
 	for _, data := range experiment.tableData {

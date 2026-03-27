@@ -91,6 +91,10 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	return machine, nil
 }
 
+func (machine *Machine) Pool() *Pool {
+	return machine.pool
+}
+
 func (machine *Machine) Read(p []byte) (n int, err error) {
 	return machine.stream.Read(p)
 }

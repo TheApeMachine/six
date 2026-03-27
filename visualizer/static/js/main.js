@@ -286,35 +286,70 @@ document.querySelectorAll('.log-filter-btn').forEach(btn => {
 const graphNodes = new Map();
 const graphEdges = [];
 const graphEdgeSet = new Set();
-const graphEdgesG = document.getElementById('graph-edges');
-const graphNodesG = document.getElementById('graph-nodes');
 
 function graphAddNode(id, tokens, type) {
   if (graphNodes.has(id)) return;
-  const w = 800, cols = Math.max(3, Math.ceil(Math.sqrt(graphNodes.size + 1) * 1.5));
-  const existing = graphNodes.size;
-  const col = existing % cols, row = Math.floor(existing / cols);
-  const x = 80 + col * ((w - 160) / Math.max(cols - 1, 1));
-  const y = 60 + row * 80;
-  graphNodes.set(id, { id, tokens, type, x, y, vx: 0, vy: 0 });
-  graphDirty = true;
+  const sys = SYS.kernel;
+  
+  // Distribute nodes dynamically in a wide orbit above the CPU kernel
+  const count = graphNodes.size;
+  const radius = 35.0;
+  const angle = count * (Math.PI * 2 / 7) + Math.random(); 
+  const x = sys.x + Math.cos(angle) * (radius + Math.random() * 12);
+  const z = sys.z + Math.sin(angle) * (radius + Math.random() * 12);
+  const y = sys.depth + 18.0 + Math.random() * 15.0;
+
+  const div = document.createElement('div');
+  div.className = 'fold-label level-1';
+
+  const textSpan = document.createElement('span');
+  textSpan.className = 'fold-text';
+  textSpan.textContent = (tokens || '').trim() || '[empty val]';
+  div.appendChild(textSpan);
+
+  const metaSpan = document.createElement('span');
+  metaSpan.className = 'fold-meta';
+  metaSpan.textContent = `#${id} · ${type}`;
+  div.appendChild(metaSpan);
+
+  const lbl = new CSS2DObject(div);
+  lbl.position.set(x, y, z);
+  foldLayer.add(lbl);
+
+  graphNodes.set(id, { id, tokens, type, pos: new THREE.Vector3(x, y, z), lbl });
 }
 
 function graphAddEdge(fromId, toId) {
   const key = `${fromId}:${toId}`;
   if (graphEdgeSet.has(key)) return;
   graphEdgeSet.add(key);
-  graphEdges.push({ from: fromId, to: toId });
-  graphDirty = true;
+
+  const from = graphNodes.get(fromId);
+  const to = graphNodes.get(toId);
+
+  if (from && to) {
+    const mat = new THREE.LineBasicMaterial({ color: 0x5080b0, transparent: true, opacity: 0.6 });
+    const lineGeo = new THREE.BufferGeometry().setFromPoints([from.pos, to.pos]);
+    const line = new THREE.Line(lineGeo, mat);
+    foldLayer.add(line);
+    graphEdges.push({ from, to, line });
+  }
 }
 
 function graphClear() {
+  for (const n of graphNodes.values()) {
+    foldLayer.remove(n.lbl);
+  }
   graphNodes.clear();
+
+  for (const e of graphEdges) {
+    if (e.line) {
+      foldLayer.remove(e.line);
+      e.line.geometry.dispose();
+    }
+  }
   graphEdges.length = 0;
   graphEdgeSet.clear();
-  graphDirty = false;
-  graphEdgesG.innerHTML = '';
-  graphNodesG.innerHTML = '';
 }
 
 // ═══════════════════════════════════════════════════════════

@@ -1,14 +1,17 @@
 package cmd
 
 import (
+	"context"
 	"embed"
 	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -91,6 +94,10 @@ func initConfig() {
 	if err := core.LoadValueConfig(); err != nil {
 		errnie.Error(fmt.Errorf("failed to load value config: %w", err))
 	}
+
+	primitive.Backend, _ = compute.NewBackend(
+		compute.WithContext(context.Background()),
+	)
 }
 
 const roottxt = `

@@ -10,12 +10,9 @@ require (
 	github.com/chromedp/cdproto v0.0.0-20260321001828-e3e3800016bc
 	github.com/chromedp/chromedp v0.15.1
 	github.com/gorilla/websocket v1.5.3
-	github.com/panjf2000/ants/v2 v2.12.0
-	github.com/smallnest/ringbuffer v0.1.1
 	github.com/smartystreets/goconvey v1.8.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/viper v1.21.0
-	github.com/whitaker-io/machine v1.1.0
 	golang.org/x/net v0.52.0
 )
 
@@ -55,7 +52,6 @@ require (
 	github.com/twpayne/go-geom v1.6.1 // indirect
 	github.com/xo/terminfo v0.0.0-20220910002029-abceb7e1c41e // indirect
 	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/sync v0.20.0 // indirect
 	google.golang.org/protobuf v1.34.2 // indirect
 )
 

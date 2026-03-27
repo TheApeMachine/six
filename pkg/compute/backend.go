@@ -2,9 +2,7 @@ package compute
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
@@ -13,7 +11,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 /*
@@ -23,10 +21,10 @@ overflows into the local Region (which acts as a local clustering space and
 network mesh interface) if local capabilities are fully saturated.
 */
 type Backend struct {
-	ctx        context.Context
-	cancel     context.CancelFunc
-	hardware   []kernel.Substrate
-	meshRegion *primitive.Region
+	ctx      context.Context
+	cancel   context.CancelFunc
+	hardware []kernel.Substrate
+	pool     *vm.Pool
 }
 
 // BackendOption configures the multi-substrate router
@@ -59,109 +57,14 @@ func NewBackend(opts ...BackendOption) (*Backend, error) {
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":        backend.ctx,
-		"cancel":     backend.cancel,
-		"hardware":   backend.hardware,
-		"meshRegion": backend.meshRegion,
+		"ctx":      backend.ctx,
+		"cancel":   backend.cancel,
+		"hardware": backend.hardware,
 	}); err != nil {
 		return nil, errnie.Wrap(err)
 	}
 
 	return backend, nil
-}
-
-/*
-Read polls all attached hardware architectures and the affine regional mesh
-for completed execution residues, ensuring a rapid O(1) non-blocking return
-that feeds back into the VM pipeline.
-*/
-func (backend *Backend) Read(p []byte) (n int, err error) {
-	if len(p) < primitive.ByteSize {
-		return 0, io.ErrShortBuffer
-	}
-
-	// 1. Try to pluck frames off local hardware
-	for _, hw := range backend.hardware {
-		n, err = hw.Read(p)
-		if n > 0 && (err == nil || err == io.EOF) {
-			return n, nil // Found data! Return it instantly.
-		}
-	}
-
-	// 2. Try to pull trapped firmware programs or search tombstones off the mesh
-	if backend.meshRegion != nil {
-		n, err = backend.meshRegion.Read(p)
-		if n > 0 && (err == nil || err == io.EOF) {
-			return n, nil
-		}
-	}
-
-	return 0, io.EOF
-}
-
-/*
-Write pushes raw 1024-byte Values onto the execution bus. It applies
-backpressure routing: utilizing the fastest available ALU first, and cascading
-downwards into the geometric mesh if the node's local silicone is saturated.
-*/
-func (backend *Backend) Write(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	total := 0
-
-	// Push in chunks to track throughput
-	for len(p) > 0 {
-		var written int
-		var pushErr error
-		dispatched := false
-
-		// Try standard hardware
-		for _, hw := range backend.hardware {
-			written, pushErr = hw.Write(p)
-			if pushErr == nil && written > 0 {
-				dispatched = true
-				break // Success!
-			}
-		}
-
-		if !dispatched && backend.meshRegion != nil {
-			errnie.Warn("compute.backend: ALU saturated! Spilling to region mesh", "size", len(p))
-			written, pushErr = backend.meshRegion.Write(p)
-			if pushErr == nil && written > 0 {
-				dispatched = true
-			}
-		}
-
-		if !dispatched {
-			// Total architecture congestion. Return whatever was accomplished.
-			return total, errors.New("compute.backend: complete node saturation, zero viable write targets")
-		}
-
-		p = p[written:]
-		total += written
-	}
-
-	return total, nil
-}
-
-func (backend *Backend) Close() error {
-	var errs error
-
-	for _, hw := range backend.hardware {
-		if err := hw.Close(); err != nil {
-			errs = errors.Join(errs, err)
-		}
-	}
-
-	if backend.meshRegion != nil {
-		if err := backend.meshRegion.Close(); err != nil {
-			errs = errors.Join(errs, err)
-		}
-	}
-
-	return errs
 }
 
 /*
@@ -191,11 +94,23 @@ func WithContext(ctx context.Context) BackendOption {
 }
 
 /*
-WithRegion hooks the affine topological mesh over the execution hardware
+WithPool injects the worker pool for job scheduling.
 */
-func WithRegion(region *primitive.Region) BackendOption {
+func WithPool(p *vm.Pool) BackendOption {
 	return func(backend *Backend) {
-		backend.meshRegion = region
+		backend.pool = p
+	}
+}
+
+/*
+Schedule pushes abstract functional execution payloads onto the underlying worker pool.
+*/
+func (backend *Backend) Schedule(job func(ctx context.Context) error) {
+	if backend.pool != nil {
+		backend.pool.Schedule(job)
+	} else {
+		// Fallback for isolated tests to execute synchronously if no pool is injected
+		_ = job(backend.ctx)
 	}
 }
 

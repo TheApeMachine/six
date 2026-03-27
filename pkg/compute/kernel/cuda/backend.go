@@ -12,6 +12,7 @@ int unified_bitwise_cuda(int device_id, const void* a, const void* b, void* dst,
 */
 import "C"
 import (
+	"context"
 	"sync"
 	"unsafe"
 )
@@ -55,18 +56,6 @@ func Available() int {
 	return backend.deviceCount
 }
 
-func (backend *Backend) Read(p []byte) (n int, err error) {
-	return
-}
-
-func (backend *Backend) Write(p []byte) (n int, err error) {
-	return
-}
-
-func (backend *Backend) Close() error {
-	return nil
-}
-
 /*
 UniversalBitwise dispatches a batch of Values to the compiled CUDA kernel.
 
@@ -87,4 +76,8 @@ func (backend *Backend) UniversalBitwise(a, bPtr, dst unsafe.Pointer, n uint32) 
 	}
 
 	return nil
+}
+
+func (backend *Backend) Schedule(job func(ctx context.Context) error) {
+	_ = job(context.Background())
 }

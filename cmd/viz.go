@@ -10,7 +10,9 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 	"github.com/theapemachine/six/visualizer"
 )
@@ -51,6 +53,11 @@ accepting graph events via UDP from external test runs.`,
 		if err != nil {
 			return errnie.Wrap(err, "cmd.viz.RunE")
 		}
+
+		primitive.Backend, _ = compute.NewBackend(
+			compute.WithContext(ctx),
+			compute.WithPool(machine.Pool()),
+		)
 
 		defer machine.Close()
 

@@ -3,7 +3,7 @@
 package metal
 
 import (
-	"io"
+	"context"
 	"unsafe"
 )
 
@@ -28,18 +28,6 @@ Available always returns zero on non-darwin.
 */
 func Available() int {
 	return 0
-}
-
-func (backend *Backend) Read(p []byte) (n int, err error) {
-	return 0, io.EOF
-}
-
-func (backend *Backend) Write(p []byte) (n int, err error) {
-	return
-}
-
-func (backend *Backend) Close() error {
-	return nil
 }
 
 func (backend *Backend) UniversalBitwise(a, b, dst unsafe.Pointer, n uint32) error {
@@ -82,4 +70,8 @@ Error implements the error interface for MetalErrorType.
 */
 func (err *MetalError) Error() string {
 	return err.Msg
+}
+
+func (backend *Backend) Schedule(job func(ctx context.Context) error) {
+	_ = job(context.Background())
 }

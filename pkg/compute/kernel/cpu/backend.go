@@ -1,18 +1,12 @@
 package cpu
 
 import (
-	"bytes"
-	"errors"
-	"fmt"
-	"io"
+	"context"
 	"math/bits"
 	"runtime"
-	"sync"
 	"unsafe"
 
-	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -37,19 +31,10 @@ affinity masks in Region 2. The backend simply streams Values through
 the UniversalBitwise ALU.
 */
 type Backend struct {
-	pr                *ringbuffer.PipeReader
-	pw                *ringbuffer.PipeWriter
-	rb                *ringbuffer.RingBuffer
-	outPr             *ringbuffer.PipeReader
-	outPw             *ringbuffer.PipeWriter
-	outRb             *ringbuffer.RingBuffer
-	batchCap          int
-	streamPassthrough bool
-	streamOutMu       sync.Mutex
-	streamOut         bytes.Buffer // passthrough output (avoids ring deadlock with synchronous Write→Read pipelines)
-	nextID            uint64
-	graphFn           func(GraphEvent)
-	useAffinityMode   bool // enables in-band affinity + program execution (replaces residents list)
+	batchCap        int
+	nextID          uint64
+	graphFn         func(GraphEvent)
+	useAffinityMode bool
 }
 
 type backendOption func(*Backend)
@@ -61,7 +46,7 @@ func NewBackend(opts ...backendOption) *Backend {
 	backend := &Backend{
 		batchCap:        max(2, runtime.NumCPU()-1),
 		nextID:          1,
-		useAffinityMode: true, // default: use in-band affinity + program execution (no residents list)
+		useAffinityMode: true,
 	}
 
 	for _, opt := range opts {
@@ -71,20 +56,6 @@ func NewBackend(opts ...backendOption) *Backend {
 	if backend.batchCap < 2 {
 		backend.batchCap = 2
 	}
-
-	rb := ringbuffer.New(backend.batchCap * primitive.ByteSize)
-	pr, pw := rb.Pipe()
-	outRb := ringbuffer.New(3 * backend.batchCap * primitive.ByteSize)
-	outPr, outPw := outRb.Pipe()
-
-	backend.pr = pr
-	backend.pw = pw
-	backend.rb = rb
-	backend.outPr = outPr
-	backend.outPw = outPw
-	backend.outRb = outRb
-
-	go backend.runProcessLoop()
 
 	return backend
 }
@@ -117,164 +88,12 @@ func (backend *Backend) emitGraph(ev GraphEvent) {
 	}
 }
 
-// BackendWithStreamPassthrough enables single-frame (and sub-batchCap) processing
-// for io pipelines that emit one Value at a time. When no cancellation pair exists,
-// frames are passed through to Read unchanged. Default backend batches batchCap
-// frames before any output (see tests).
-func BackendWithStreamPassthrough() backendOption {
-	return func(backend *Backend) {
-		backend.streamPassthrough = true
-	}
-}
 
 /*
 Available returns the number of logical CPU cores.
 */
 func Available() int {
 	return runtime.NumCPU()
-}
-
-func (backend *Backend) Read(p []byte) (n int, err error) {
-	if backend.streamPassthrough {
-		backend.streamOutMu.Lock()
-		defer backend.streamOutMu.Unlock()
-		if backend.streamOut.Len() == 0 {
-			return 0, io.EOF
-		}
-		return backend.streamOut.Read(p)
-	}
-
-	if backend.outRb.Length() == 0 {
-		return 0, io.EOF
-	}
-
-	n, err = backend.outPr.Read(p)
-
-	if err != nil && err != io.EOF {
-		errnie.Error(err)
-		return 0, err
-	}
-
-	if n == 0 {
-		return 0, io.EOF
-	}
-
-	return n, err
-}
-
-func (backend *Backend) emitOutputFrame(frame []byte) error {
-	if backend.streamPassthrough {
-		backend.streamOutMu.Lock()
-		_, err := backend.streamOut.Write(frame)
-		backend.streamOutMu.Unlock()
-		return err
-	}
-	_, err := backend.outPw.Write(frame)
-	return err
-}
-
-func (backend *Backend) Write(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
-	// copyChain uses a large buffer; pw.Write blocks when the ring is full until a
-	// reader drains, but draining only happens in processAvailableBatch on this
-	// goroutine. Chunk by Free() and drain between chunks so we never block inside
-	// pw.Write with no other code able to call processAvailableBatch.
-	total := 0
-
-	for len(p) > 0 {
-		free := backend.rb.Free()
-		if free == 0 {
-			return total, fmt.Errorf("cpu.backend: input ring full after drain (len=%d cap=%d)", backend.rb.Length(), backend.rb.Capacity())
-		}
-		chunk := p
-		if len(chunk) > free {
-			chunk = p[:free]
-		}
-		var nw int
-		nw, err = backend.pw.Write(chunk)
-		total += nw
-		if errnie.Error(err) != nil {
-			return total, err
-		}
-		if nw == 0 && len(p) > 0 {
-			return total, io.ErrShortWrite
-		}
-		p = p[nw:]
-	}
-
-	return total, nil
-}
-
-func (backend *Backend) runProcessLoop() {
-	buffer := make([]byte, backend.batchCap*primitive.ByteSize)
-	blankPartner := make([]byte, primitive.ByteSize) // All 0s dummy partner
-
-	// Maintain the active firmware injected contextually by the distributed mesh
-	var activeProgram *primitive.Value
-
-	for {
-		n, err := backend.pr.Read(buffer)
-		if n > 0 {
-			numValues := n / primitive.ByteSize
-
-			// Process directly through the core CPU bitwise ALU physics engine
-			for i := 0; i < numValues; i++ {
-				offset := i * primitive.ByteSize
-				aPtr := unsafe.Pointer(&buffer[offset])
-				val := (*primitive.Value)(aPtr)
-
-				// 1. If we encounter a distributed programmatic Value, cache it.
-				if val.HasProgram() {
-					if activeProgram == nil {
-						activeProgram = primitive.NewValue(make([]byte, primitive.ByteSize))
-					}
-					// Ensure we copy the exact memory snapshot so it doesn't get overwritten by ring buffer
-					_ = activeProgram.ApplyWireFrame(buffer[offset : offset+primitive.ByteSize])
-				} else if activeProgram != nil {
-					// 2. Other unstructured Values are triggered to load and execute the program!
-					startWord := int(core.Cfg.ProgramIndex / 64)
-					endWord := int((core.Cfg.ProgramIndex + int(core.Cfg.ProgramBits)) / 64)
-					for j := startWord; j < endWord && j < int(primitive.Words); j++ {
-						(*val)[j] = (*activeProgram)[j]
-					}
-					// Pass the hardware trigger flags
-					(*val)[core.Cfg.RegPC] = (*activeProgram)[core.Cfg.RegPC]
-					(*val)[core.Cfg.FW] = (*activeProgram)[core.Cfg.FW]
-				}
-
-				bPtr := unsafe.Pointer(&blankPartner[0]) // Local pairing happens geometrically in Region now
-				backend.UniversalBitwise(aPtr, bPtr, unsafe.Pointer(nil), 1)
-			}
-
-			// Blast processed residues directly to output queue
-			backend.outPw.Write(buffer[:n])
-		}
-
-		if err != nil {
-			if err == io.EOF || errors.Is(err, io.ErrClosedPipe) {
-				backend.outPw.Close()
-				return
-			}
-			errnie.Error(err)
-		}
-	}
-}
-
-func (backend *Backend) Close() error {
-	backend.pw.Close()
-	return nil
-}
-
-// emitOutputFrameFromValue is a helper to emit a Value through the output pipeline.
-func (backend *Backend) emitOutputFrameFromValue(v *primitive.Value) error {
-	frame := make([]byte, primitive.ByteSize)
-	if err := primitive.ValueToBytes(v, frame); err != nil {
-		return err
-	}
-	return backend.emitOutputFrame(frame)
 }
 
 /*
@@ -315,6 +134,26 @@ func (backend *Backend) executeProgram(a, b unsafe.Pointer, v uint32) {
 	valA := &as[v]
 	valB := &bs[v]
 	contexts := []*primitive.Value{valA, valB}
+
+	if backend.graphFn != nil {
+		backend.emitGraph(GraphEvent{
+			Type:       "add-node",
+			NodeID:     valA.ValueID(),
+			NodeTokens: primitive.DecodeTokensToText(valA),
+			NodeType:   "Context A",
+		})
+		backend.emitGraph(GraphEvent{
+			Type:       "add-node",
+			NodeID:     valB.ValueID(),
+			NodeTokens: primitive.DecodeTokensToText(valB),
+			NodeType:   "Context B",
+		})
+		backend.emitGraph(GraphEvent{
+			Type:       "add-edge",
+			FromID:     valB.ValueID(),
+			ToID:       valA.ValueID(),
+		})
+	}
 
 	pcIdx := uint64(core.Cfg.RegPC)
 	wordBase := uint64(core.Cfg.ProgramIndex) / 64
@@ -402,7 +241,7 @@ func copyProgram(v *primitive.Value, instrs []uint32, startSlot int) {
 		slot := startSlot + i
 		wordPos := wordBase + uint64(slot/2)
 		shift := uint((slot % 2) * 32)
-		
+
 		// Clear the 32-bit slot
 		v[wordPos] &^= (uint64(0xFFFFFFFF) << shift)
 		// Set the instruction
@@ -465,4 +304,8 @@ func Popcount(value *primitive.Value, startBit, bitLen int) int {
 	}
 
 	return total
+}
+
+func (backend *Backend) Schedule(job func(ctx context.Context) error) {
+	_ = job(context.Background())
 }

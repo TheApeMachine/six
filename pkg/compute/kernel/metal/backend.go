@@ -10,9 +10,9 @@ package metal
 */
 import "C"
 import (
+	"context"
 	_ "embed"
 	"errors"
-	"io"
 	"os"
 	"sync/atomic"
 	"unsafe"
@@ -52,27 +52,6 @@ or an error if the Metal runtime failed to initialize.
 */
 func Available() int {
 	return int(C.count_metal_devices())
-}
-
-/*
-Read implements io.Reader.
-*/
-func (backend *Backend) Read(p []byte) (n int, err error) {
-	return 0, io.EOF
-}
-
-/*
-Write implements io.Writer.
-*/
-func (backend *Backend) Write(p []byte) (n int, err error) {
-	return
-}
-
-/*
-Close implements io.Closer.
-*/
-func (backend *Backend) Close() error {
-	return nil
 }
 
 /*
@@ -167,4 +146,8 @@ Error implements the error interface for MetalErrorType.
 */
 func (err MetalError) Error() string {
 	return err.Msg
+}
+
+func (backend *Backend) Schedule(job func(ctx context.Context) error) {
+	_ = job(context.Background())
 }

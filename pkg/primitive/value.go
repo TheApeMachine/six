@@ -2,6 +2,7 @@
 package primitive
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -10,6 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -66,6 +68,7 @@ var (
 	valueFrom func([]byte, *Value)
 
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
+	Backend              kernel.Substrate
 )
 
 /*
@@ -181,49 +184,27 @@ func (value *Value) Write(p []byte) (int, error) {
 		return 0, nil
 	}
 
-	bytesConsumed := 0
-
-	for _, b := range p {
-		slot := value[core.Cfg.StateIndex]
-		seqIndex := value[core.Cfg.StateSequence]
-		accumulator := value[core.Cfg.StateAccumulator]
-
-		// Stop if Region 0 is physically full.
-		if !region0TokenIndexOK(int(slot)) {
-			if bytesConsumed == 0 {
-				return 0, NewValueError(ValueErrorDataFull)
-			}
-
-			return bytesConsumed, nil
-		}
-
-		token := Tokenize(b, seqIndex)
-		existing := value[slot]
-
-		switch existing {
-		case token:
-			bytesConsumed++
-			accumulator ^= token
-		case 0:
-			value[slot] = token
-			bytesConsumed++
-			accumulator ^= token
-		default:
-			return bytesConsumed, nil
-		}
-
-		value[core.Cfg.StateSequence] = seqIndex + 1
-
-		// Shift by 32 to check the chaotic byte-data, not the sequence index.
-		if (accumulator>>32)&SignalMask == 0 {
-			value[core.Cfg.StateSequence] = 0
-		}
-
-		value[core.Cfg.StateIndex] = slot + 1
-		value[core.Cfg.StateAccumulator] = accumulator
+	// Natively tokenize the incoming abstract payload into Region 0
+	// to ensure graphical readout and bitwise interference works sequentially
+	for i, b := range p {
+		value.SetTokenID(i, Tokenize(b, uint64(i)))
 	}
 
-	return bytesConsumed, nil
+	incoming := NewValue(p)
+
+	if value.HasProgram() && Backend != nil {
+		// Use the abstraction to schedule the UniversalBitwise on the pool
+		Backend.Schedule(func(ctx context.Context) error {
+			return Backend.UniversalBitwise(
+				unsafe.Pointer(value),
+				unsafe.Pointer(incoming),
+				unsafe.Pointer(nil),
+				1,
+			)
+		})
+	}
+
+	return len(p), nil
 }
 
 /*

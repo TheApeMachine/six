@@ -3,8 +3,10 @@ package transport
 import (
 	"context"
 	"io"
+	"math/rand/v2"
 	"sync/atomic"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -14,15 +16,25 @@ type Stream struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	err      error
-	regions  []*primitive.Region
+	regions  [2][]*primitive.Region
+	backend  kernel.Substrate
 	readIdx  atomic.Uint32
 	writeIdx atomic.Uint32
+	left     []byte
+	right    []byte
 }
 
 type streamOpts func(*Stream)
 
 func NewStream(opts ...streamOpts) *Stream {
-	stream := &Stream{}
+	stream := &Stream{
+		regions: [2][]*primitive.Region{
+			make([]*primitive.Region, 0),
+			make([]*primitive.Region, 0),
+		},
+		left:  make([]byte, primitive.ByteSize),
+		right: make([]byte, primitive.ByteSize),
+	}
 
 	for _, opt := range opts {
 		opt(stream)
@@ -42,18 +54,30 @@ func NewStream(opts ...streamOpts) *Stream {
 
 /*
 Read draws a Value from one of the Regions in a rotating round-robin fashion.
-This simulates the drawing from the mixed color pool.
+When possible, it draws a pair of Values to fold them (in-band execution pointer),
+pushing the folded task to the global hardware bus.
 */
 func (stream *Stream) Read(p []byte) (n int, err error) {
 	if len(stream.regions) == 0 {
 		return 0, io.EOF
 	}
 
-	// Rotate read indexing to organically mix out
-	idx := stream.readIdx.Add(1) % uint32(len(stream.regions))
-	region := stream.regions[idx]
+	// Generate a random number.
+	rand1 := rand.Uint32()
+	rand2 := rand.Uint32()
 
-	return region.Read(p)
+	// Rotate the regions based on the random number.
+	stream.regions[0] = append(stream.regions[0][1:], stream.regions[0][rand1%uint32(len(stream.regions[0]))])
+	stream.regions[1] = append(stream.regions[1][1:], stream.regions[1][rand2%uint32(len(stream.regions[1]))])
+
+	// Read the data from the regions.
+	for _, region := range stream.regions {
+		for _, value := range region {
+			value.Read(p)
+		}
+	}
+
+	return len(p), nil
 }
 
 /*
@@ -65,11 +89,22 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 		return 0, io.EOF
 	}
 
-	// Rotate write indexing to organically mix in
-	idx := stream.writeIdx.Add(1) % uint32(len(stream.regions))
-	region := stream.regions[idx]
+	// Generate a random number.
+	rand1 := rand.Uint32()
+	rand2 := rand.Uint32()
 
-	return region.Write(p)
+	// Rotate the regions based on the random number.
+	stream.regions[0] = append(stream.regions[0][1:], stream.regions[0][rand1%uint32(len(stream.regions[0]))])
+	stream.regions[1] = append(stream.regions[1][1:], stream.regions[1][rand2%uint32(len(stream.regions[1]))])
+
+	// Write the data to the regions.
+	for _, region := range stream.regions {
+		for _, value := range region {
+			value.Write(p)
+		}
+	}
+
+	return len(p), nil
 }
 
 func (stream *Stream) Close() error {
@@ -85,6 +120,14 @@ func WithContext(ctx context.Context) streamOpts {
 
 func WithRegions(regions []*primitive.Region) streamOpts {
 	return func(stream *Stream) {
-		stream.regions = regions
+		regionSplit := len(regions) / 2
+		stream.regions[0] = regions[:regionSplit]
+		stream.regions[1] = regions[regionSplit:]
+	}
+}
+
+func WithBackend(backend kernel.Substrate) streamOpts {
+	return func(stream *Stream) {
+		stream.backend = backend
 	}
 }

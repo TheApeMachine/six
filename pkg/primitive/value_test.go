@@ -2,12 +2,24 @@ package primitive
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"testing"
 
+	"github.com/spf13/viper"
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
 )
+
+func init() {
+	viper.SetConfigFile("../../cmd/cfg/config.yml")
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Printf("Error reading config: %v\n", err)
+	}
+	if err := core.LoadValueConfig(); err != nil {
+		fmt.Printf("Error loading value config: %v\n", err)
+	}
+}
 
 func TestRead(t *testing.T) {
 	Convey("Given a Value with a known data field", t, func() {
@@ -32,17 +44,6 @@ func TestRead(t *testing.T) {
 
 			So(value[core.Cfg.StateIndex], ShouldEqual, original[core.Cfg.StateIndex])
 		})
-
-		Convey("Consume resets the value after serialization", func() {
-			v := NewValue()
-			v[0] = 42
-			v[core.Cfg.StateIndex] = 1
-			n, err := v.Consume(buf)
-			So(n, ShouldEqual, ByteSize)
-			So(errors.Is(err, io.EOF), ShouldBeTrue)
-			So(v[core.Cfg.StateIndex], ShouldEqual, 0)
-		})
-
 	})
 }
 
