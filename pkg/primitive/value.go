@@ -221,7 +221,7 @@ func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
 
 	for i, b := range p {
-		if !value.SetTokenID(i, Tokenize(b, uint64(i))) {
+		if !value.SetTokenID(core.Cfg.TokenIndex+i, Tokenize(b, uint64(i))) {
 			return nil, errnie.Error(
 				NewValueError(ValueErrorFailedToken),
 			)
@@ -378,7 +378,7 @@ func (value *Value) String() string {
 		builder.WriteByte(byte(value[idx] >> 32))
 	}
 
-	return builder.String()
+	return strings.TrimRight(builder.String(), "\x00")
 }
 
 // TraceString implements errnie.TraceStringer for compact trace / log output.

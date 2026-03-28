@@ -147,28 +147,28 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	fwIdx := uint64(core.Cfg.FW)
 	fw := valA[fwIdx]
 
-	// In-band firmware loading mechanism
+	// In-band firmware loading mechanism.
+	// When fw > 0 and pc == 0, load the firmware program into the user
+	// program region (slots 8+, i.e. words 83-127) preserving the
+	// permanent bootloader in slots 0-7 (words 79-82).
 	if fw > 0 && int(fw) < len(core.Cfg.Firmware) && valA[pcIdx] == uint64(0) {
 		prog := core.Cfg.Firmware[fw]
-		empty := true
-		for i := uint64(0); i < uint64(core.Cfg.ProgramBits)/64; i++ {
-			if valA[wordBase+i] != 0 {
-				empty = false
+		// Bootloader occupies the first 4 words (8 instruction slots).
+		// User programs start at wordBase+4 (slot 8).
+		bootloaderWords := uint64(4)
+		for i := 0; i < len(prog); i += 2 {
+			wordPos := wordBase + bootloaderWords + uint64(i/2)
+			if int(wordPos) >= primitive.Words {
 				break
 			}
-		}
-		if empty {
-			for i := 0; i < len(prog); i += 2 {
-				wordPos := wordBase + uint64(i/2)
-				var w uint64
-				w = uint64(prog[i])
-				if i+1 < len(prog) {
-					w |= uint64(prog[i+1]) << 32
-				}
-				valA[wordPos] = w
+			var w uint64
+			w = uint64(prog[i])
+			if i+1 < len(prog) {
+				w |= uint64(prog[i+1]) << 32
 			}
-			valA[fwIdx] = 0 // consumed firmware index; avoid re-loading same slot
+			valA[wordPos] = w
 		}
+		valA[fwIdx] = 0 // consumed firmware index; avoid re-loading same slot
 	}
 
 	valA.ClearExecExitCode()
@@ -211,26 +211,39 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 		valA[pcIdx]++
 		errnie.Trace("cpu.Backend.UniversalBitwise", "pcIdx", pcIdx, "valA[pcIdx]", valA[pcIdx])
 
+		// resolve decodes a 14-bit operand field:
+		//   0x3000 (both bits set) = register → word index, span-capable
+		//   0x2000 (bit 13 only)   = dereference → read valA[idx], not span
+		//   anything else           = immediate (full 14-bit value), not span
+		// Large immediates (≥4096) naturally have bit 12 set but NOT bit 13,
+		// so they fall through to the immediate case — not span.
 		resolve := func(code uint16) (uint64, bool) {
-			if code&0x1000 != 0 {
-				return uint64(code & 0x0FFF), true
+			flags := code & 0x3000
+			idx := uint64(code & 0x0FFF)
+			if flags == 0x3000 {
+				// Register: return its word index; span-capable.
+				return idx, true
 			}
-			if code&0x2000 != 0 {
-				idx := int(code & 0x0FFF)
-				if idx >= primitive.Words {
-					errnie.Trace("cpu.Backend.UniversalBitwise", "idx", idx, "primitive.Words", primitive.Words)
+			if flags == 0x2000 {
+				// Dereference: read the value stored at word[idx].
+				if int(idx) >= primitive.Words {
+					errnie.Trace("cpu.Backend.UniversalBitwise", "deref_idx", idx, "primitive.Words", primitive.Words)
 					return 0, false
 				}
 				return valA[idx], false
 			}
-			return uint64(code), false
+			// Immediate: return full 14-bit value (0–16383).
+			return uint64(code & 0x3FFF), false
 		}
 
 		srcVal, sSpan := resolve(srcCode)
 		dstVal, dSpan := resolve(dstCode)
 		errnie.Trace("cpu.Backend.UniversalBitwise", "srcVal", srcVal, "dstVal", dstVal)
 
-		if sSpan || dSpan {
+		// Span mode: BOTH operands must be registers (triplet bases).
+		// A single register operand paired with an immediate is a
+		// word-level write (e.g. "5248 r1 0011" sets r1 = 5248).
+		if sSpan && dSpan {
 			sBase := srcVal
 			dBase := dstVal
 
@@ -311,7 +324,13 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 			continue
 		}
 		left := srcVal
+		// For register destinations (0x3000), the resolved dstVal is the word
+		// index, so we read the actual current value. For immediates and derefs,
+		// use the resolved value directly (which IS the operand).
 		right := dstVal
+		if dSpan {
+			right = valA[dstIdx]
+		}
 
 		// m0-m3 mapped to bits 3-0
 		m0 := uint64(0) - uint64((op>>3)&1) // bit 3 = f(0,0)

@@ -18,6 +18,7 @@ const (
 	FirmwareTypeShatter
 	FirmwareTypeWipe
 	FirmwareTypeViral
+	FirmwareTypeQuery
 )
 
 /*
@@ -200,7 +201,7 @@ type Config struct {
 
 	// Firmware holds compiled programs from config.yml, indexed by position.
 	// Set a Value's firmware register to the index to select a program.
-	Firmware [FirmwareTypeViral + 1][]uint32
+	Firmware [FirmwareTypeQuery + 1][]uint32
 }
 
 /*
@@ -223,6 +224,7 @@ func LoadFirmware() error {
 	fwShatter := viper.GetViper().GetString("programs.shatter")
 	fwWipe := viper.GetViper().GetString("programs.wipe")
 	fwViral := viper.GetViper().GetString("programs.viral")
+	fwQuery := viper.GetViper().GetString("programs.query")
 
 	if err := compileAndAssign(FirmwareTypeBootloader, fwBootloader); err != nil {
 		return err
@@ -240,6 +242,9 @@ func LoadFirmware() error {
 		return err
 	}
 	if err := compileAndAssign(FirmwareTypeViral, fwViral); err != nil {
+		return err
+	}
+	if err := compileAndAssign(FirmwareTypeQuery, fwQuery); err != nil {
 		return err
 	}
 	return nil

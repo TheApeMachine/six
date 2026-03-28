@@ -2,14 +2,12 @@ package task
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"io"
-	"strings"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
@@ -82,138 +80,65 @@ func (pipeline *Pipeline) Run() (err error) {
 		vm.WithContext(pipeline.ctx),
 		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
+
 	if err != nil {
 		return errnie.Error(err)
 	}
-	defer func() {
-		if closeErr := machine.Close(); closeErr != nil {
-			_ = errnie.Error(closeErr, "op", "pipeline.Run.machine.Close")
-			if err == nil {
-				err = closeErr
-			} else {
-				err = errors.Join(err, closeErr)
-			}
-		}
-	}()
 
-	// ── Recirculation loop ───────────────────────────────────────────
-	// Read executed frames from the pipe output and feed them back into
-	// the pipe input. Each pass through the Stream pairs the frame with
-	// its neighbor and fires the ALU. The fan-out in Stream.Write
-	// deposits every result into Regions, so the population accumulates
-	// there. The loop runs until CloseWrite shuts the pipe.
-	loopDone := make(chan error, 1)
 	go func() {
-		buf := make([]byte, primitive.ByteSize)
+		observer := tools.NewObserver(machine)
+		defer observer.Close()
+
 		for {
-			if _, err := machine.Read(buf); err != nil {
-				loopDone <- err
+			select {
+			case <-pipeline.ctx.Done():
 				return
-			}
-			if _, err := machine.Write(buf); err != nil {
-				loopDone <- err
-				return
+			default:
+				io.Copy(observer, observer)
 			}
 		}
 	}()
 
-	// ── Phase 1: Hydrate ────────────────────────────────────────────
-	// Pump dataset into the Machine. Frames enter the recirculation
-	// loop and begin mixing immediately.
-	if ds := pipeline.experiment.Dataset(); ds != nil {
-		if _, copyErr := io.Copy(machine, ds); copyErr != nil {
-			return errnie.Error(copyErr)
-		}
-	}
-
-	// ── Phase 2: Prompt ─────────────────────────────────────────────
-	// Inject workspace Values carrying Viral firmware. They enter the
-	// same recirculation loop and propagate through the population.
+	// Grab prompts early so we can size the drop-out buffer.
 	prompts := pipeline.experiment.Prompts()
+
 	for idx, prompt := range prompts {
-		errnie.Trace("Prompt", "prompt", prompt)
+		value, err := primitive.NewValue([]byte(prompt))
 
-		workspace, werr := primitive.NewValue([]byte(prompt))
-		if werr != nil {
-			return errnie.Error(werr)
-		}
-		workspace[core.Cfg.FW] = uint64(core.FirmwareTypeViral)
-
-		frame := make([]byte, primitive.ByteSize)
-		if err := primitive.ValueToBytes(workspace, frame); err != nil {
-			return errnie.Error(err)
+		if err != nil {
+			errnie.Error(err)
+			continue
 		}
 
-		if _, err = machine.Write(frame); err != nil {
-			return errnie.Error(err)
-		}
+		// Inject prompt
+		io.Copy(machine, value)
 
-		errnie.Debug("Prompt", "prompt", prompt, "idx", idx)
-	}
+		for {
+			select {
+			case <-pipeline.ctx.Done():
+				return errnie.Error(pipeline.ctx.Err())
+			default:
+				// Check if the prompt Value has tokens.
+				if value.String() == "" {
+					continue
+				}
 
-	// ── Phase 3: Stop and observe ───────────────────────────────────
-	// Close the pipe to stop recirculation, then read results from
-	// Regions where every pass deposited frames via fan-out.
-	if cwErr := machine.CloseWrite(); cwErr != nil {
-		return errnie.Error(cwErr)
-	}
-	if loopErr := <-loopDone; loopErr != nil && !errors.Is(loopErr, io.EOF) {
-		return errnie.Error(loopErr)
-	}
+				errnie.Trace(
+					"experiment.task.pipeline.Run",
+					"prompt", prompt,
+					"value", value.String(),
+				)
 
-	// Collect observations from Regions.
-	readBuf := make([]byte, primitive.ByteSize)
-	for idx, prompt := range prompts {
-		// Read one frame from the first Region that has data.
-		found := false
-		for _, reg := range machine.Regions() {
-			if _, err := reg.Read(readBuf); err == nil {
-				found = true
+				pipeline.experiment.AddResult(tools.ExperimentalData{
+					Idx:      idx,
+					Name:     fmt.Sprintf("prompt-%d", idx),
+					Prefix:   []byte(prompt),
+					Observed: []byte(value.String()),
+				})
+
 				break
 			}
 		}
-
-		obs := make([]byte, primitive.ByteSize)
-		if found {
-			copy(obs, readBuf)
-		}
-
-		observed := obs
-		if wo, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && wo.ObserveWorkspaceAsTokens() {
-			var result primitive.Value
-			if err := result.ApplyWireFrame(obs); err == nil {
-				observed = []byte(strings.TrimSpace(primitive.DecodeTokensToText(&result)))
-			}
-		}
-
-		holdout := []byte(nil)
-		if hp, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
-			if h, ok := hp.HoldoutForPrompt(idx); ok {
-				holdout = h
-			}
-		}
-
-		pipeline.experiment.AddResult(tools.ExperimentalData{
-			Idx:      idx,
-			Name:     pipeline.experiment.Name(),
-			Prefix:   []byte(prompt),
-			Holdout:  holdout,
-			Observed: observed,
-		})
-	}
-
-	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
-		return err
-	}
-
-	for _, artifact := range pipeline.experiment.Artifacts() {
-		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
-			return err
-		}
-	}
-
-	if err := pipeline.writeStandardSummary(); err != nil {
-		return errnie.Error(err)
 	}
 
 	return nil

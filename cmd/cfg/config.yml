@@ -135,16 +135,17 @@ programs:
   00_null: |
     0     pc  0000
 
-  # Bootloader: copies program from partner (Value B) into self's
-  # program region (bits 5056-8000), then jumps to starting slot.
+  # Bootloader: copies user program from partner (Value B) into self's
+  # user program region (words 83-127, bits 5312-8128), preserving
+  # the bootloader in slots 0-7 (words 79-82). Then jumps to slot 8.
   bootloader: |
     0     r0  0011 // Triplet A context = 0 (Self)
-    5248  r1  0011 // Triplet A offset = 82*64
-    2944  r2  0011 // Triplet A length = 46*64
+    5312  r1  0011 // Triplet A offset = 83*64 (skip bootloader)
+    2880  r2  0011 // Triplet A length = 45*64 (words 83-127)
     1     r3  0011 // Triplet B context = 1 (Partner)
-    5248  r4  0011 // Triplet B offset = 82*64
-    2944  r5  0011 // Triplet B length = 46*64
-    *r3   *r0 0011 // Copy from Partner (at r3) to Self (at r0)
+    5312  r4  0011 // Triplet B offset = 83*64
+    2880  r5  0011 // Triplet B length = 45*64
+    r3    r0  0011 // Copy from Partner user region to Self user region
     8     pc  0011 // jump to slot 8
 
   # Affinity: XOR Tokens and adopt Partner's structural links
@@ -155,12 +156,12 @@ programs:
     1     r3  0011 // Triplet B context = 1 (Partner)
     0     r4  0011 // Triplet B offset = 0
     3648  r5  0011 // Triplet B length = 3648 bits
-    *r3   *r0 0110 // XOR Partner Tokens to Self Tokens
+    r3    r0  0110 // XOR Partner Tokens to Self Tokens
     3712  r1  0011 // Triplet A offset = 58*64 (PrevID & NextID)
     128   r2  0011 // Triplet A length = 128
     3712  r4  0011 // Triplet B offset = 58*64
     128   r5  0011 // Triplet B length = 128
-    *r3   *r0 0011 // COPY Partner Links to Self Links
+    r3    r0  0011 // COPY Partner Links to Self Links
 
   # Shatter: 3-pass AND for structural decomposition
   shatter: |
@@ -170,9 +171,9 @@ programs:
     1     r3  0011 // Triplet B context = 1 (Partner)
     0     r4  0011 // Triplet B offset = 0
     3648  r5  0011 // Triplet B length = 3648
-    *r3   *r0 0001 // AND pass 1
-    *r3   *r0 0001 // AND pass 2
-    *r3   *r0 0001 // AND pass 3
+    r3    r0  0001 // AND pass 1
+    r3    r0  0001 // AND pass 2
+    r3    r0  0001 // AND pass 3
 
   # Tombstone: nullify links using structural zeroing (simulated via FALSE gate over ID spans)
   tombstone: |
@@ -182,33 +183,72 @@ programs:
     1     r3  0011 // Triplet B context = 1 (Partner)
     3712  r4  0011 // Triplet B offset = 58*64
     128   r5  0011 // Triplet B length = 128
-    *r3   *r0 0000 // FALSE gate to zero the Links span
+    r3    r0  0000 // FALSE gate to zero the Links span
 
-  # Wipe: zero the data and metadata regions (words 0-70)
+  # Wipe: zero the user program region (slots 8+, words 83-127)
+  # using FALSE gate on self. This is how programs clean up before
+  # chaining to the next firmware via the bootloader.
   wipe: |
     0     r0  0011 // Triplet A context = 0 (Self)
-    0     r1  0011 // Triplet A offset = 0
-    4544  r2  0011 // Triplet A length = 71*64 = 4544
-    1     r3  0011 // Triplet B context = 1 (Partner)
-    0     r4  0011 // Triplet B offset = 0
-    4544  r5  0011 // Triplet B length = 4544
-    *r3   *r0 0000 // Wipe Self with FALSE gate
-
-  # Viral: propagate self to partner, set FW to affinity (1), jump to bootloader
-  viral: |
-    1     r0  0011 // Triplet A context = 1 (Partner)
-    5056  r1  0011 // Triplet A offset = 79*64
-    3136  r2  0011 // Triplet A length = 49*64
+    5312  r1  0011 // Triplet A offset = 83*64 (user program start)
+    2880  r2  0011 // Triplet A length = 45*64 (user program region)
     0     r3  0011 // Triplet B context = 0 (Self)
+    5312  r4  0011 // Triplet B offset = 83*64
+    2880  r5  0011 // Triplet B length = 45*64
+    r3    r0  0000 // FALSE gate zeros the user program region
+
+  # Viral: propagate self program to partner, then chain self to affinity.
+  # 1. Copy self's full program region into partner's program region
+  # 2. Zero partner's PC so partner boots from its bootloader
+  # 3. Set self's FW to wipe (5) so self wipes its user program
+  #    before the bootloader loads affinity (3) on the next cycle.
+  viral: |
+    1     r0  0011 // Triplet A context = 1 (Partner) — destination
+    5056  r1  0011 // Triplet A offset = 79*64 (program region start)
+    3136  r2  0011 // Triplet A length = 49*64 (full program region)
+    0     r3  0011 // Triplet B context = 0 (Self) — source
     5056  r4  0011 // Triplet B offset = 79*64
     3136  r5  0011 // Triplet B length = 49*64
-    *r3   *r0 0011 // Copy Self Program to Partner
-    1     r0  0011 // Partner Context
-    4992  r1  0011 // Partner PC offset
-    64    r2  0011 // 64 bits
-    1     r3  0011
-    4992  r4  0011
-    64    r5  0011
-    *r3   *r0 0000 // Zero out Partner PC so it starts from bootloader
-    1     fw  0011 // Set Self FW to affinity (index 1)
-    0     pc  0011 // Jump back to bootloader
+    r3    r0  0011 // Copy Self Program to Partner
+    1     r0  0011 // Triplet A context = 1 (Partner)
+    4992  r1  0011 // Triplet A offset = 78*64 (PC word)
+    64    r2  0011 // Triplet A length = 64 bits
+    1     r3  0011 // Triplet B context = 1 (Partner)
+    4992  r4  0011 // Triplet B offset = 78*64
+    64    r5  0011 // Triplet B length = 64
+    r3    r0  0000 // FALSE gate zeros Partner PC → boots from bootloader
+    3     fw  0011 // Set Self FW to affinity (index 3)
+    0     pc  0011 // Reset Self PC → bootloader loads affinity
+
+  # Query: match affinity with partner via XNOR, accumulate partner
+  # tokens into self token region via AND, and adopt partner links.
+  # This is the "search" firmware: circulating Values run this after
+  # the affinity program has folded structure into the affinity word.
+  #
+  # Step 1: XNOR self.affinity ⊕ partner.affinity → self.affinity
+  #         (matching bits become 1, differing bits become 0)
+  # Step 2: AND partner.tokens with self.tokens → self.tokens
+  #         (keep only tokens that both share)
+  # Step 3: Copy partner links → self links (walk the graph)
+  # Step 4: Decrement TTL by ANDing with self (no-op placeholder)
+  # Step 5: Chain to wipe → bootloader reloads next firmware
+  query: |
+    0     r0  0011 // Triplet A context = 0 (Self)
+    4096  r1  0011 // Triplet A offset = 64*64 (affinity word)
+    64    r2  0011 // Triplet A length = 64 bits
+    1     r3  0011 // Triplet B context = 1 (Partner)
+    4096  r4  0011 // Triplet B offset = 64*64
+    64    r5  0011 // Triplet B length = 64 bits
+    r3    r0  1001 // XNOR: matching affinity bits → 1
+    0     r1  0011 // Triplet A offset = 0 (Tokens)
+    3648  r2  0011 // Triplet A length = 57*64 = 3648
+    0     r4  0011 // Triplet B offset = 0
+    3648  r5  0011 // Triplet B length = 3648
+    r3    r0  0001 // AND: keep shared tokens
+    3712  r1  0011 // Triplet A offset = 58*64 (links: PrevID & NextID)
+    128   r2  0011 // Triplet A length = 128
+    3712  r4  0011 // Triplet B offset = 58*64
+    128   r5  0011 // Triplet B length = 128
+    r3    r0  0011 // COPY partner links to self (walk graph)
+    5     fw  0011 // Chain to wipe (index 5)
+    0     pc  0011 // Reset PC → bootloader loads wipe

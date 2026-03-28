@@ -202,16 +202,20 @@ func TestRegion_SpillStats(t *testing.T) {
 			r := NewRegion(7)
 			defer r.Close()
 
+			const lastFrameMarker = 0xffff // outside 0..total-1; two-byte distinct from sequence indices
+
 			// Fill mixer + spill completely.
 			total := MixerCapacity + spillMaxFrames
 			for i := 0; i < total; i++ {
 				f := make([]byte, ByteSize)
-				f[0] = byte(i)
+				f[0] = byte(i & 0xFF)
+				f[1] = byte((i >> 8) & 0xFF)
 				So(regionWriteOK(r, f), ShouldBeNil)
 			}
 			// Next frame must land in overflow (Write must not block).
 			last := make([]byte, ByteSize)
-			last[0] = 0xfe
+			last[0] = byte(lastFrameMarker & 0xFF)
+			last[1] = byte((lastFrameMarker >> 8) & 0xFF)
 			So(regionWriteOK(r, last), ShouldBeNil)
 
 			queued, _, drop := r.SpillStats()
@@ -221,10 +225,12 @@ func TestRegion_SpillStats(t *testing.T) {
 			buf := make([]byte, ByteSize)
 			for want := 0; want < total; want++ {
 				So(regionReadCount(r, buf), ShouldEqual, ByteSize)
-				So(buf[0], ShouldEqual, byte(want))
+				got := int(buf[0]) | int(buf[1])<<8
+				So(got, ShouldEqual, want)
 			}
 			So(regionReadCount(r, buf), ShouldEqual, ByteSize)
-			So(buf[0], ShouldEqual, 0xfe)
+			gotLast := int(buf[0]) | int(buf[1])<<8
+			So(gotLast, ShouldEqual, lastFrameMarker)
 		})
 	})
 }

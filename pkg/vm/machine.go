@@ -103,15 +103,13 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		machine.regions = append(machine.regions, primitive.NewRegion(uint64(i)))
 	}
 
-	var streamErr error
-	machine.stream, streamErr = transport.NewStream(
-		transport.WithContext(machine.ctx),
-		transport.WithRegions(machine.regions),
+	machine.stream = transport.NewStream(
+		transport.StreamWithContext(machine.ctx),
 	)
-	if streamErr != nil {
+	if machine.stream == nil {
 		return nil, errnie.Error(
 			NewMachineError(MachineErrFailStart),
-			"error", streamErr,
+			"error", "stream failed to start",
 		)
 	}
 
@@ -186,7 +184,7 @@ func (machine *Machine) CloseWrite() error {
 	if err := machine.flushWritePending(); err != nil {
 		return errnie.Error(err)
 	}
-	return machine.stream.CloseWrite()
+	return machine.stream.Close()
 }
 
 func (machine *Machine) Close() error {

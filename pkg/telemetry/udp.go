@@ -59,6 +59,22 @@ func (s *UDPSender) WriteDropped() uint64 {
 	return s.writeDropped.Load()
 }
 
+func (s *UDPSender) SendFrame(frame []byte) {
+	if s == nil || s.conn == nil {
+		return
+	}
+	_, werr := s.conn.Write(frame)
+	if werr != nil {
+		s.writeDropped.Add(1)
+		errnie.Warn(
+			"telemetry.UDPSender.SendFrame",
+			"op", "write",
+			"err", werr,
+			"dropped_total", s.writeDropped.Load(),
+		)
+	}
+}
+
 func (s *UDPSender) Close() error {
 	if s == nil {
 		return nil

@@ -29,6 +29,7 @@ var embedded embed.FS
 var (
 	projectName = "six"
 	cfgFile     string
+	Backend     *compute.Backend
 
 	// initErr records fatal errors from initConfig (e.g. LoadLoggingConfig,
 	// compute.NewBackend) so Execute can return them instead of os.Exit.
@@ -159,15 +160,16 @@ func initConfig() {
 		"elasticsearch", loggingCfg.Elasticsearch.Enabled,
 	)
 
-	backend, err := compute.NewBackend(
+	Backend, err = compute.NewBackend(
 		compute.WithContext(context.Background()),
 	)
+
 	if err != nil {
 		initErr = fmt.Errorf("compute.NewBackend: %w", err)
 		errnie.Error(initErr)
 		return
 	}
-	primitive.Backend = backend
+	primitive.Backend = Backend
 }
 
 const roottxt = `

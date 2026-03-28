@@ -90,7 +90,8 @@ func TestBackend_UniversalBitwise(t *testing.T) {
 		{"and_3_4", "3 100 0001" + haltSecond, 100, 0},
 		{"or_3_4", "3 4 0111" + haltSecond, 4, 7},
 		{"xor_3_4", "3 4 0110" + haltSecond, 4, 7},
-		// Largest immediate without 0x1000 (that bit selects span mode in the ALU).
+		// Immediates with bit 12 set (≥4096) no longer trigger span mode;
+		// only the register flag 0x3000 does. This tests the old boundary.
 		{"max12_xor_no_span_flag", "4095 100 0110" + haltSecond, 100, 4095 ^ 100},
 	}
 

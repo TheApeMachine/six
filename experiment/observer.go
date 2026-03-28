@@ -1,6 +1,7 @@
 package experiment
 
 import (
+	"fmt"
 	"io"
 	"sync/atomic"
 	"time"
@@ -29,13 +30,17 @@ type Observer struct {
 	lastDensity  atomic.Int64
 
 	done chan struct{}
+	udp  *telemetry.UDPSender
 }
 
 func NewObserver(target io.ReadWriter) *Observer {
+	udp, _ := telemetry.NewUDPSender("127.0.0.1:8258")
+
 	o := &Observer{
 		Target:  target,
 		Metrics: make(chan Telemetry, 10), // Small buffer, polled at 60Hz
 		done:    make(chan struct{}),
+		udp:     udp,
 	}
 
 	go o.pollMetrics()
@@ -68,14 +73,29 @@ func (o *Observer) pollMetrics() {
 
 			// Only send if there's activity
 			if opsDelta > 0 {
-				select {
-				case o.Metrics <- Telemetry{
+				tel := Telemetry{
 					Instruction:  uint8(o.lastInstr.Load()),
 					Pressure:     int(o.lastPressure.Load()),
 					TotalDensity: int(o.lastDensity.Load()),
 					OpsPerSec:    opsPerSec,
-				}:
+				}
+				select {
+				case o.Metrics <- tel:
 				default:
+				}
+
+				if o.udp != nil {
+					o.udp.Send(telemetry.Event{
+						Component: "Pipeline",
+						Action:    "Step",
+						Data: telemetry.EventData{
+							Stage:       "state",
+							Instruction: telemetry.TruthOpName(tel.Instruction),
+							DataPop:     tel.Pressure,
+							Density:     float64(tel.TotalDensity) / 64.0,
+							Message:     fmt.Sprintf("Pipeline running: %d ops/s", tel.OpsPerSec),
+						},
+					})
 				}
 			}
 		}
@@ -84,6 +104,9 @@ func (o *Observer) pollMetrics() {
 
 func (o *Observer) Close() error {
 	close(o.done)
+	if o.udp != nil {
+		o.udp.Close()
+	}
 	return nil
 }
 
@@ -111,5 +134,16 @@ func (o *Observer) measure(p []byte, n int) {
 		o.lastInstr.Store(uint32(instr))
 		o.lastPressure.Store(int64(pressure))
 		o.lastDensity.Store(int64(density))
+		o.opsCount.Add(1)
+
+		if o.udp != nil {
+			// Throttle frames sent over UDP so we don't spam 100k packets per second
+			// we only send occasionally (e.g. if instruction changed or modulo count).
+			// Here we just send it if opsCount % 100 == 0 or something similar,
+			// or just unconditionally, but it might overwhelm UDP buffer. Let's send every 1024 ops or so
+			if o.opsCount.Load()%32 == 0 {
+				o.udp.SendFrame(p[:primitive.ByteSize])
+			}
+		}
 	}
 }

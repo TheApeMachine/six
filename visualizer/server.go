@@ -76,6 +76,11 @@ func (server *Server) listenUDP(conn *net.UDPConn) error {
 			return err
 		}
 
+		if n == primitive.ByteSize {
+			server.BroadcastValueFrame(buf[:n])
+			continue
+		}
+
 		event := telemetry.DecodeBinary(buf[:n])
 		server.Broadcast(event)
 	}
