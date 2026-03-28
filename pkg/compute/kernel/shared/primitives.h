@@ -5,9 +5,9 @@
 #define SUBSTRATE_PRIMITIVES_H
 
 #define WORDS                                    128
-#define REG_PC                                   78
-#define PROGRAM_INDEX_WORD                       79
-#define MAX_PC                                   98
+#define REG_PC                                   75
+#define PROGRAM_INDEX_WORD                       76
+#define MAX_PC                                   104
 #define EXEC_STATUS_WORD                         63
 #define EXEC_STATUS_SHIFT                        48
 #define EXEC_EXIT_EXHAUSTED                      1

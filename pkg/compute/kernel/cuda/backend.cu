@@ -44,105 +44,94 @@ __global__ void unified_bitwise_kernel(
         uint32_t instr = (uint32_t)(contexts[0][wordPos] >> shift);
 
         uint8_t op = instr & 0xF;
-        if (op == 0 && pc > 0) {
+        if (instr == 0) {
             MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_HALT);
             break;
         }
 
-        uint16_t srcCode = (instr >> 4) & 0x3FFF;
-        uint16_t dstCode = (instr >> 18) & 0x3FFF;
+        uint16_t sc = (instr >> 4) & 0x3FFF;
+        uint16_t dc = (instr >> 18) & 0x3FFF;
+        bool sSp = (sc & 0x3F80) == 0x3000;
+        bool dSp = (dc & 0x3F80) == 0x3000;
 
         contexts[0][REG_PC]++;
 
-        uint64_t srcVal = 0;
-        bool sSpan = false;
-        if ((srcCode & 0x1000) != 0) {
-            srcVal = (uint64_t)(srcCode & 0x0FFF);
-            sSpan = true;
-        } else if ((srcCode & 0x2000) != 0) {
-            uint32_t srcIdx = (uint32_t)(srcCode & 0x0FFF);
-            if (srcIdx < WORDS) {
-                srcVal = contexts[0][srcIdx];
-            } else {
-                srcVal = 0;
-            }
-        } else {
-            srcVal = (uint64_t)srcCode;
-        }
-
-        uint64_t dstVal = 0;
-        bool dSpan = false;
-        if ((dstCode & 0x1000) != 0) {
-            dstVal = (uint64_t)(dstCode & 0x0FFF);
-            dSpan = true;
-        } else if ((dstCode & 0x2000) != 0) {
-            uint32_t dstIdxReg = (uint32_t)(dstCode & 0x0FFF);
-            if (dstIdxReg < WORDS) {
-                dstVal = contexts[0][dstIdxReg];
-            } else {
-                dstVal = 0;
-            }
-        } else {
-            dstVal = (uint64_t)dstCode;
-        }
-
-        if (sSpan || dSpan) {
-            uint64_t sBase = srcVal;
-            uint64_t sCtx = 0, sOff = 0, sLen = 0;
-            if (sBase + 2 < WORDS) {
-                sCtx = contexts[0][sBase];
-                sOff = contexts[0][sBase+1];
-                sLen = contexts[0][sBase+2];
+        if (sSp && dSp) {
+            uint64_t sB = (uint64_t)(sc & 0x7F);
+            uint64_t dB = (uint64_t)(dc & 0x7F);
+            if (sB + 2 >= WORDS || dB + 2 >= WORDS) {
+                continue;
             }
 
-            uint64_t dBase = dstVal;
-            uint64_t dCtx = 0, dOff = 0, dLen = 0;
-            if (dBase + 2 < WORDS) {
-                dCtx = contexts[0][dBase];
-                dOff = contexts[0][dBase+1];
-                dLen = contexts[0][dBase+2];
+            uint64_t sL = contexts[0][sB] & 1ULL;
+            uint64_t sS = contexts[0][sB+1];
+            uint64_t sE = contexts[0][sB+2];
+            uint64_t dL = contexts[0][dB] & 1ULL;
+            uint64_t dS = contexts[0][dB+1];
+            uint64_t dE = contexts[0][dB+2];
+            if (sE <= sS || dE <= dS) {
+                continue;
             }
 
-            uint64_t limit = (sLen < dLen) ? sLen : dLen;
+            uint64_t sN = sE - sS;
+            uint64_t dN = dE - dS;
+            uint64_t limit = (sN < dN) ? sN : dN;
+            if (sN == 1) {
+                limit = dN;
+            }
             if (limit > MAX_SPAN_ITERATIONS) {
                 limit = MAX_SPAN_ITERATIONS;
             }
             for (uint64_t i = 0; i < limit; i++) {
-                uint64_t sWord = (sOff + i) / 64;
-                uint64_t sBit = (sOff + i) % 64;
-                uint8_t sb = 0;
-                if (sWord < WORDS) sb = (contexts[sCtx % 2][sWord] >> sBit) & 1;
+                uint64_t sBit = sS + i;
+                if (sN == 1) {
+                    sBit = sS;
+                }
+                uint64_t sWord = sBit / 64;
+                uint64_t sShift = sBit % 64;
+                uint64_t dWord = (dS + i) / 64;
+                uint64_t dShift = (dS + i) % 64;
+                if (sWord >= WORDS || dWord >= WORDS) {
+                    break;
+                }
 
-                uint64_t dWord = (dOff + i) / 64;
-                uint64_t dBit = (dOff + i) % 64;
-                uint8_t db = 0;
-                if (dWord < WORDS) db = (contexts[dCtx % 2][dWord] >> dBit) & 1;
+                uint8_t sb = (contexts[sL][sWord] >> sShift) & 1;
+                uint8_t db = (contexts[dL][dWord] >> dShift) & 1;
 
                 uint32_t idx = (1 - db) | ((1 - sb) << 1);
                 uint8_t res = (op >> idx) & 1;
 
-                if (dWord < WORDS) {
-                    if (res == 1) {
-                        contexts[dCtx % 2][dWord] |= (1ULL << dBit);
-                    } else {
-                        contexts[dCtx % 2][dWord] &= ~(1ULL << dBit);
-                    }
+                if (res == 1) {
+                    contexts[dL][dWord] |= (1ULL << dShift);
+                } else {
+                    contexts[dL][dWord] &= ~(1ULL << dShift);
                 }
             }
             continue;
         }
 
-        uint32_t dstIdx = dstCode & 0x0FFF;
-        uint64_t left = srcVal;
-        uint64_t right = dstVal;
+        if (dSp) {
+            uint32_t dstIdx = (uint32_t)(dc & 0x7F);
+            if (dstIdx >= WORDS) {
+                continue;
+            }
 
-        uint64_t m0 = 0 - (uint64_t)((op >> 3) & 1);
-        uint64_t m1 = 0 - (uint64_t)((op >> 2) & 1);
-        uint64_t m2 = 0 - (uint64_t)((op >> 1) & 1);
-        uint64_t m3 = 0 - (uint64_t)(op & 1);
+            uint64_t left = (uint64_t)sc;
+            if ((sc & 0x3F80) == 0x3000) {
+                uint32_t srcIdx = (uint32_t)(sc & 0x7F);
+                if (srcIdx >= WORDS) {
+                    continue;
+                }
+                left = contexts[0][srcIdx];
+            }
+            uint64_t right = contexts[0][dstIdx];
 
-        uint64_t res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
-        if (dstIdx < WORDS) {
+            uint64_t m0 = 0 - (uint64_t)((op >> 3) & 1);
+            uint64_t m1 = 0 - (uint64_t)((op >> 2) & 1);
+            uint64_t m2 = 0 - (uint64_t)((op >> 1) & 1);
+            uint64_t m3 = 0 - (uint64_t)(op & 1);
+
+            uint64_t res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
             contexts[0][dstIdx] = res;
         }
     }

@@ -10,7 +10,7 @@ export const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x060e1e, 0.012);
 
 export const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 800);
-camera.position.set(0, 42, 38);
+camera.position.set(7, 38, 40);
 
 // ── WebGL Renderer ─────────────────────────────────────────
 export const renderer = new THREE.WebGLRenderer({
@@ -43,7 +43,7 @@ document.body.appendChild(labelRenderer.domElement);
 export const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.target.set(0, 2, 0);
+controls.target.set(7, 2, 0);
 controls.minDistance = 5;
 controls.maxDistance = 200;
 controls.maxPolarAngle = Math.PI * 0.85;

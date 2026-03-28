@@ -39,105 +39,94 @@ kernel void unified_bitwise_kernel(
         uint instr = (uint)(contexts[0][wordPos] >> shift);
 
         uchar op = instr & 0xF;
-        if (op == 0 && pc > 0) {
+        if (instr == 0) {
             MARK_EXEC_EXIT(contexts[0], EXEC_EXIT_HALT);
             break;
         }
 
-        uint16_t srcCode = (instr >> 4) & 0x3FFF;
-        uint16_t dstCode = (instr >> 18) & 0x3FFF;
+        uint16_t sc = (instr >> 4) & 0x3FFF;
+        uint16_t dc = (instr >> 18) & 0x3FFF;
+        bool sSp = (sc & 0x3F80) == 0x3000;
+        bool dSp = (dc & 0x3F80) == 0x3000;
 
         contexts[0][REG_PC]++;
 
-        ulong srcVal = 0;
-        bool sSpan = false;
-        if ((srcCode & 0x1000) != 0) {
-            srcVal = (ulong)(srcCode & 0x0FFF);
-            sSpan = true;
-        } else if ((srcCode & 0x2000) != 0) {
-            uint srcIdx = srcCode & 0x0FFF;
-            if (srcIdx < WORDS) {
-                srcVal = contexts[0][srcIdx];
-            } else {
-                srcVal = 0;
-            }
-        } else {
-            srcVal = (ulong)srcCode;
-        }
-
-        ulong dstVal = 0;
-        bool dSpan = false;
-        if ((dstCode & 0x1000) != 0) {
-            dstVal = (ulong)(dstCode & 0x0FFF);
-            dSpan = true;
-        } else if ((dstCode & 0x2000) != 0) {
-            uint dstIdxReg = dstCode & 0x0FFF;
-            if (dstIdxReg < WORDS) {
-                dstVal = contexts[0][dstIdxReg];
-            } else {
-                dstVal = 0;
-            }
-        } else {
-            dstVal = (ulong)dstCode;
-        }
-
-        if (sSpan || dSpan) {
-            ulong sBase = srcVal;
-            ulong sCtx = 0, sOff = 0, sLen = 0;
-            if (sBase + 2 < WORDS) {
-                sCtx = contexts[0][sBase];
-                sOff = contexts[0][sBase+1];
-                sLen = contexts[0][sBase+2];
+        if (sSp && dSp) {
+            ulong sB = (ulong)(sc & 0x7F);
+            ulong dB = (ulong)(dc & 0x7F);
+            if (sB + 2 >= WORDS || dB + 2 >= WORDS) {
+                continue;
             }
 
-            ulong dBase = dstVal;
-            ulong dCtx = 0, dOff = 0, dLen = 0;
-            if (dBase + 2 < WORDS) {
-                dCtx = contexts[0][dBase];
-                dOff = contexts[0][dBase+1];
-                dLen = contexts[0][dBase+2];
+            ulong sL = contexts[0][sB] & 1UL;
+            ulong sS = contexts[0][sB+1];
+            ulong sE = contexts[0][sB+2];
+            ulong dL = contexts[0][dB] & 1UL;
+            ulong dS = contexts[0][dB+1];
+            ulong dE = contexts[0][dB+2];
+            if (sE <= sS || dE <= dS) {
+                continue;
             }
 
-            ulong limit = (sLen < dLen) ? sLen : dLen;
+            ulong sN = sE - sS;
+            ulong dN = dE - dS;
+            ulong limit = (sN < dN) ? sN : dN;
+            if (sN == 1) {
+                limit = dN;
+            }
             if (limit > MAX_SPAN) {
                 limit = MAX_SPAN;
             }
             for (ulong i = 0; i < limit; i++) {
-                ulong sWord = (sOff + i) / 64;
-                ulong sBit = (sOff + i) % 64;
-                uchar sb = 0;
-                if (sWord < WORDS) sb = (contexts[sCtx % 2][sWord] >> sBit) & 1;
+                ulong sBit = sS + i;
+                if (sN == 1) {
+                    sBit = sS;
+                }
+                ulong sWord = sBit / 64;
+                ulong sShift = sBit % 64;
+                ulong dWord = (dS + i) / 64;
+                ulong dShift = (dS + i) % 64;
+                if (sWord >= WORDS || dWord >= WORDS) {
+                    break;
+                }
 
-                ulong dWord = (dOff + i) / 64;
-                ulong dBit = (dOff + i) % 64;
-                uchar db = 0;
-                if (dWord < WORDS) db = (contexts[dCtx % 2][dWord] >> dBit) & 1;
+                uchar sb = (contexts[sL][sWord] >> sShift) & 1;
+                uchar db = (contexts[dL][dWord] >> dShift) & 1;
 
                 uint idx = (1 - db) | ((1 - sb) << 1);
                 uchar res = (op >> idx) & 1;
 
-                if (dWord < WORDS) {
-                    if (res == 1) {
-                        contexts[dCtx % 2][dWord] |= (1ULL << dBit);
-                    } else {
-                        contexts[dCtx % 2][dWord] &= ~(1ULL << dBit);
-                    }
+                if (res == 1) {
+                    contexts[dL][dWord] |= (1ULL << dShift);
+                } else {
+                    contexts[dL][dWord] &= ~(1ULL << dShift);
                 }
             }
             continue;
         }
 
-        uint dstIdx = dstCode & 0x0FFF;
-        ulong left = srcVal;
-        ulong right = dstVal;
+        if (dSp) {
+            uint dstIdx = (uint)(dc & 0x7F);
+            if (dstIdx >= WORDS) {
+                continue;
+            }
 
-        ulong m0 = 0 - (ulong)((op >> 3) & 1);
-        ulong m1 = 0 - (ulong)((op >> 2) & 1);
-        ulong m2 = 0 - (ulong)((op >> 1) & 1);
-        ulong m3 = 0 - (ulong)(op & 1);
+            ulong left = (ulong)sc;
+            if ((sc & 0x3F80) == 0x3000) {
+                uint srcIdx = (uint)(sc & 0x7F);
+                if (srcIdx >= WORDS) {
+                    continue;
+                }
+                left = contexts[0][srcIdx];
+            }
+            ulong right = contexts[0][dstIdx];
 
-        ulong res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
-        if (dstIdx < WORDS) {
+            ulong m0 = 0 - (ulong)((op >> 3) & 1);
+            ulong m1 = 0 - (ulong)((op >> 2) & 1);
+            ulong m2 = 0 - (ulong)((op >> 1) & 1);
+            ulong m3 = 0 - (ulong)(op & 1);
+
+            ulong res = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right));
             contexts[0][dstIdx] = res;
         }
     }

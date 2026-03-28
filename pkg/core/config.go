@@ -216,10 +216,14 @@ func compileAndAssign(ft FirmwareType, src string) error {
 }
 
 func LoadFirmware() error {
+	fwLearn := viper.GetViper().GetString("programs.learn")
 	fwBootloader := viper.GetViper().GetString("programs.bootloader")
 	fwTombstone := viper.GetViper().GetString("programs.tombstone")
 	fwViral := viper.GetViper().GetString("programs.viral")
 
+	if err := compileAndAssign(FirmwareTypeLearn, fwLearn); err != nil {
+		return err
+	}
 	if err := compileAndAssign(FirmwareTypeBootloader, fwBootloader); err != nil {
 		return err
 	}

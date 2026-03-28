@@ -128,10 +128,73 @@ value:
 #   Loop: Write target line to PC. Exit loop: Write currentpc + 1 to PC.
 
 programs:
-  # Placeholder program at slot 0. Used when FW is cleared.
+  # Learn is a fitness controller, not a hardcoded fold/shatter recipe.
+  # It rewards edge novelty and arms tombstone on local stagnation.
   learn: |
-    0     pc  0000
+    1     r0  0011 // A context = partner
+    3648  r1  0011 // A start = partner ValueID bit start
+    3712  r2  0011 // A end   = partner ValueID bit end
+    0     r3  0011 // B context = self
+    4480  r4  0011 // B start = r6 bit start
+    4544  r5  0011 // B end   = r6 bit end
+    r0    r3  0011 // COPY partner ValueID -> r6 candidate edge
 
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 low-8 bit start
+    4488  r2  0011 // A end   = r6 low-8 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 low-8 bit start
+    4552  r5  0011 // B end   = r7 low-8 bit end
+    r0    r3  0011 // COPY candidate low-8 -> r7 low-8 scratch
+
+    0     r0  0011 // A context = self
+    3968  r1  0011 // A start = accumulator low-8 bit start
+    3976  r2  0011 // A end   = accumulator low-8 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = candidate low-8 scratch
+    4552  r5  0011 // B end   = candidate low-8 scratch end
+    r0    r3  0100 // novelty = candidate ANDNOT accumulator (into r7 low-8)
+
+    0     r0  0011 // A context = self
+    4544  r1  0011 // A start = r7[0:7)
+    4551  r2  0011 // A end   = r7[0:7) end
+    0     r3  0011 // B context = self
+    4545  r4  0011 // B start = r7[1:8)
+    4552  r5  0011 // B end   = r7[1:8) end
+    r0    r3  0111 // OR cascade collapse (overlap carries to bit 4551)
+
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 candidate bit start
+    4544  r2  0011 // A end   = r6 candidate bit end
+    0     r3  0011 // B context = self
+    3968  r4  0011 // B start = accumulator bit start
+    4032  r5  0011 // B end   = accumulator bit end
+    r0    r3  0111 // accumulator OR= candidate (novelty bloom)
+
+    0     r0  0011 // A context = self
+    3776  r1  0011 // A start = NextID bit start
+    3840  r2  0011 // A end   = NextID bit end
+    0     r3  0011 // B context = self
+    3712  r4  0011 // B start = PrevID bit start
+    3776  r5  0011 // B end   = PrevID bit end
+    r0    r3  0011 // COPY NextID -> PrevID
+
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 candidate bit start
+    4544  r2  0011 // A end   = r6 candidate bit end
+    0     r3  0011 // B context = self
+    3776  r4  0011 // B start = NextID bit start
+    3840  r5  0011 // B end   = NextID bit end
+    r0    r3  0011 // COPY candidate -> NextID
+
+    2     fw  0011 // default next firmware = tombstone
+    0     r0  0011 // A context = self
+    4551  r1  0011 // A start = progress bit
+    4552  r2  0011 // A end   = progress bit end
+    0     r3  0011 // B context = self
+    4736  r4  0011 // B start = fw bit 0
+    4737  r5  0011 // B end   = fw bit 0 end
+    r0    r3  0011 // COPY progress bit to fw bit0 => 2(tombstone) or 3(viral)
   # Bootloader clears the mutable user-program span while preserving
   # the resident ROM in words 76-79 (bits 4864-5119).
   bootloader: |

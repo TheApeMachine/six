@@ -17,6 +17,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
@@ -54,6 +55,31 @@ func Available() int {
 	return int(C.count_metal_devices())
 }
 
+func preloadFirmwareFrame(c *[128]uint64) {
+	if c == nil {
+		return
+	}
+
+	p := uint64(core.Cfg.RegPC)
+	w := uint64(core.Cfg.ProgramIndex)
+	f := c[uint64(core.Cfg.FW)]
+
+	if f == 0 || int(f) >= len(core.Cfg.Firmware) || c[p] != 0 {
+		return
+	}
+
+	g := core.Cfg.Firmware[f]
+	for i, j := 0, w+4; i < len(g) && int(j) < len(c); i, j = i+2, j+1 {
+		v := uint64(g[i])
+		if i+1 < len(g) {
+			v |= uint64(g[i+1]) << 32
+		}
+		c[j] = v
+	}
+
+	c[uint64(core.Cfg.FW)] = 0
+}
+
 /*
 UniversalBitwise dispatches a batch of Values to the compiled Metal kernel.
 
@@ -65,6 +91,7 @@ program in parallel on the GPU.
 */
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	errnie.Trace("metal.Backend.UniversalBitwise", "a", a, "b", b)
+	preloadFirmwareFrame((*[128]uint64)(a))
 
 	if !metalReady.Load() {
 		return NewMetalError(

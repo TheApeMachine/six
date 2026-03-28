@@ -71,6 +71,68 @@ func TestTombstonePropagation(t *testing.T) {
 	}
 }
 
+func TestLearnFirmwareFitnessRouting(t *testing.T) {
+	be := NewBackend()
+
+	tests := []struct {
+		name            string
+		accumulatorInit uint64
+		wantFW          uint64
+		wantAccumulator uint64
+	}{
+		{
+			name:            "novel edge chooses viral",
+			accumulatorInit: 0x00,
+			wantFW:          uint64(core.FirmwareTypeViral),
+			wantAccumulator: 0x0F,
+		},
+		{
+			name:            "stagnant edge chooses tombstone",
+			accumulatorInit: 0xFF,
+			wantFW:          uint64(core.FirmwareTypeTombstone),
+			wantAccumulator: 0xFF,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var a, b [128]uint64
+
+			installFirmware(&a, core.FirmwareTypeLearn)
+
+			const (
+				partnerID = uint64(0x0F)
+				oldNextID = uint64(0x1234)
+			)
+
+			b[core.Cfg.ValueID] = partnerID
+			a[core.Cfg.NextID] = oldNextID
+			a[core.Cfg.PreviousID] = 0x9999
+			a[core.Cfg.StateAccumulator] = tc.accumulatorInit
+
+			if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)); err != nil {
+				t.Fatal(err)
+			}
+
+			if got := a[core.Cfg.FW]; got != tc.wantFW {
+				t.Fatalf("fw mismatch: got %d want %d", got, tc.wantFW)
+			}
+
+			if got := a[core.Cfg.PreviousID]; got != oldNextID {
+				t.Fatalf("PrevID mismatch: got %#x want %#x", got, oldNextID)
+			}
+
+			if got := a[core.Cfg.NextID]; got != partnerID {
+				t.Fatalf("NextID mismatch: got %#x want %#x", got, partnerID)
+			}
+
+			if got := a[core.Cfg.StateAccumulator]; got != tc.wantAccumulator {
+				t.Fatalf("accumulator mismatch: got %#x want %#x", got, tc.wantAccumulator)
+			}
+		})
+	}
+}
+
 func BenchmarkUniversalBitwise(b *testing.B) {
 	be := NewBackend()
 	var a, c [128]uint64

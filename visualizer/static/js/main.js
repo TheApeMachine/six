@@ -15,6 +15,8 @@ import {
   buildArchitecture,
   clearAllZoneLabels,
   setZoneHover, updateZonePulses,
+  animateStreamRing, advanceStreamPtr,
+  spawnFoldEffect, updateFoldEffects,
 } from './architecture.js';
 import { buildValueRing, animateValueRing, setValueLayout, decodeValueFrame } from './value-viz.js';
 import { buildSystemOrbit, animateSystemOrbit, setSystemTopology } from './system-viz.js';
@@ -320,16 +322,20 @@ function hashString(text) {
   return hash >>> 0;
 }
 
-function disposeGraphLine(line) {
-  if (!line) return;
-  foldLayer.remove(line);
-  if (line.geometry) line.geometry.dispose();
-  const mat = line.material;
+function disposeGraphObj(obj) {
+  if (!obj) return;
+  foldLayer.remove(obj);
+  if (obj.geometry) obj.geometry.dispose();
+  const mat = obj.material;
   if (mat) {
     (Array.isArray(mat) ? mat : [mat]).forEach((item) => {
       if (item && typeof item.dispose === 'function') item.dispose();
     });
   }
+}
+
+function disposeGraphLine(line) {
+  disposeGraphObj(line);
 }
 
 function removeGraphNode(id) {
@@ -344,6 +350,7 @@ function removeGraphNode(id) {
     const edge = graphEdges[i];
     if (edge.fromKey === key || edge.toKey === key) {
       disposeGraphLine(edge.line);
+      disposeGraphObj(edge.arrow);
       graphEdgeSet.delete(edge.key);
       graphEdges.splice(i, 1);
     }
@@ -363,6 +370,8 @@ function pruneGraphNodes() {
   }
 }
 
+let graphNodeCounter = 0;
+
 function graphAddNode(id, tokens, type, extra = {}) {
   const key = String(id);
   const existing = graphNodes.get(key);
@@ -380,13 +389,20 @@ function graphAddNode(id, tokens, type, extra = {}) {
     return existing;
   }
 
+  // Linear chain layout: nodes placed left-to-right as they arrive,
+  // reflecting the singly-linked chain that learn firmware builds.
+  // Each new Value extends the chain: old NextID → PrevID, partner → NextID.
   const sys = SYS.emitter || SYS.machine;
-  const hash = hashString(key);
-  const angle = ((hash % 360) / 360) * Math.PI * 2;
-  const radius = 30.0 + ((hash >> 8) % 12);
-  const x = sys.x + Math.cos(angle) * radius;
-  const z = sys.z + Math.sin(angle) * radius;
-  const y = sys.depth + 18.0 + ((hash >> 16) % 12);
+  const idx = graphNodeCounter++;
+  const chainSpacing = 3.5;
+  const nodesPerRow = 12;
+  const row = Math.floor(idx / nodesPerRow);
+  const col = idx % nodesPerRow;
+  // Alternate row direction (boustrophedon) to show the chain wrapping
+  const actualCol = row % 2 === 0 ? col : (nodesPerRow - 1 - col);
+  const x = sys.x - (nodesPerRow * chainSpacing) / 2 + actualCol * chainSpacing;
+  const z = sys.z - 6 - row * 4;
+  const y = sys.depth + 10.0;
 
   const div = document.createElement('div');
   div.className = `fold-label level-1${type === 'value' ? ' value-node' : ''}`;
@@ -461,11 +477,28 @@ function graphAddEdge(fromId, toId, kind = 'link') {
       : kind === 'affinity'
         ? 0.42
         : 0.46;
+
+  // Curved edge with arc
+  const mid = new THREE.Vector3().lerpVectors(from.pos, to.pos, 0.5);
+  mid.y += 2.0 + Math.random() * 1.5;
+  const curve = new THREE.QuadraticBezierCurve3(from.pos, mid, to.pos);
+  const curvePoints = curve.getPoints(24);
   const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-  const lineGeo = new THREE.BufferGeometry().setFromPoints([from.pos, to.pos]);
+  const lineGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
   const line = new THREE.Line(lineGeo, mat);
   foldLayer.add(line);
-  graphEdges.push({ key, fromKey, toKey, kind, line });
+
+  // Small arrowhead at 70% along the curve
+  const arrowPos = curve.getPointAt(0.7);
+  const arrowDir = curve.getTangentAt(0.7).normalize();
+  const arrowGeo = new THREE.ConeGeometry(0.15, 0.4, 4);
+  const arrowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: opacity * 0.8 });
+  const arrow = new THREE.Mesh(arrowGeo, arrowMat);
+  arrow.position.copy(arrowPos);
+  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), arrowDir);
+  foldLayer.add(arrow);
+
+  graphEdges.push({ key, fromKey, toKey, kind, line, arrow });
 }
 
 function flushPendingGraphEdges() {
@@ -484,9 +517,11 @@ function graphClear() {
   }
   graphNodes.clear();
   graphNodeOrder.length = 0;
+  graphNodeCounter = 0;
 
   for (const e of graphEdges) {
     disposeGraphLine(e.line);
+    disposeGraphObj(e.arrow);
   }
   graphEdges.length = 0;
   graphEdgeSet.clear();
@@ -497,8 +532,10 @@ function graphAddValueNode(snapshot) {
   if (!snapshot || !snapshot.valueId) return null;
 
   const text = snapshot.tokenPreview || snapshot.tokenText || '[empty val]';
+  const fw = snapshot.registers?.fw || '';
+  const fwLabel = fw && fw !== '0x0000000000000000' ? ` fw=${fw}` : '';
   const summary = snapshot.summary
-    || `#${snapshot.valueId} prev=${snapshot.prevId || '0'} next=${snapshot.nextId || '0'} aff=${snapshot.affinityPop || 0}`;
+    || `#${snapshot.valueId} prev=${snapshot.prevId || '0'} next=${snapshot.nextId || '0'}${fwLabel}`;
 
   const node = graphAddNode(snapshot.valueId, text, 'value', {
     text,
@@ -506,10 +543,16 @@ function graphAddValueNode(snapshot) {
     snapshot,
   });
 
+  // The learn firmware builds a chain:
+  //   old NextID → PrevID (backward pointer)
+  //   partner ValueID → NextID (forward chain link)
+  // So prevId points backward in the chain, nextId points forward.
   if (snapshot.prevId && snapshot.prevId !== '0') {
+    // Backward link: this Value came from prevId
     graphAddEdge(snapshot.prevId, snapshot.valueId, 'prev');
   }
   if (snapshot.nextId && snapshot.nextId !== '0') {
+    // Forward link: this Value's next encounter
     graphAddEdge(snapshot.valueId, snapshot.nextId, 'next');
   }
 
@@ -670,7 +713,12 @@ btnPlay.addEventListener('click', () => {
   });
 });
 
-btnPause.addEventListener('click', pausePlayback);
+btnPause.addEventListener('click', () => {
+  pausePlayback();
+  // Toggle animation freeze
+  state.set('animationPaused', !state.animationPaused);
+  btnPause.classList.toggle('active', state.animationPaused);
+});
 
 btnStep.addEventListener('click', () => {
   if (!isReplayMode()) {
@@ -833,8 +881,8 @@ document.addEventListener('keydown', (e) => {
   // Home key to reset camera
   if (e.key === 'Home' || e.key === '0') {
     flyTo(
-      new THREE.Vector3(0, 42, 38),
-      new THREE.Vector3(0, 2, 0),
+      new THREE.Vector3(7, 38, 40),
+      new THREE.Vector3(7, 2, 0),
     );
   }
 });
@@ -845,14 +893,24 @@ document.addEventListener('keydown', (e) => {
 function animate(time) {
   requestAnimationFrame(animate);
 
-  updateDataStreams();
-  updateFlowParticles(time);
+  const paused = state.animationPaused;
+
+  if (!paused) {
+    updateDataStreams();
+    updateFlowParticles(time);
+  }
   updateLabelZoom();
-  updateAmbientParticles(time);
+  if (!paused) {
+    updateAmbientParticles(time);
+  }
   updateFlyAnimation();
   updateZonePulses();
-  animateValueRing(time);
-  animateSystemOrbit(time);
+  if (!paused) {
+    animateValueRing(time);
+    animateSystemOrbit(time);
+    animateStreamRing(time, false);
+  }
+  updateFoldEffects();
 
   controls.update();
   renderer.render(scene, camera);

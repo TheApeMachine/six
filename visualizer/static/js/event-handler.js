@@ -3,7 +3,10 @@
    ═══════════════════════════════════════════════════════════ */
 import * as state from './state.js';
 import { spawnDataStream, activateFlowParticles } from './particles.js';
-import { addZoneLabel, clearZoneLabels, pulseZone } from './architecture.js';
+import {
+  addZoneLabel, clearZoneLabels, pulseZone,
+  advanceStreamPtr, spawnFoldEffect,
+} from './architecture.js';
 import { updateValueDisplay, updateValueFromWireFrame } from './value-viz.js';
 import { pulseSystemNode, pulseSystemBackendSelection } from './system-viz.js';
 
@@ -69,6 +72,7 @@ export function handleEvent(ev) {
 
     if (stg === 'ingest-tokenize') {
       state.inc('totalIngested');
+      advanceStreamPtr(); // Stream write advances ptr
       activateStage('tokenize', `${edgeCount} edges`);
       spawnDataStream('dataset', 'frame', text || 'raw bytes', 'stream-ingest', 1200);
       activateFlowParticles('dataset', 'frame');
@@ -139,6 +143,8 @@ export function handleEvent(ev) {
     state.inc('totalFoldLinks');
     const foldText = d.chunkText || '';
     if (addFoldNodeFn) addFoldNodeFn(d.bin || 0, d.level || 0, d.density || 0, foldText, d.childCount || 0);
+    // Show fold: incoming Value written into receiver's ALU (UniversalBitwise)
+    spawnFoldEffect(foldText, d.partnerText || '', d.firmware || '');
     spawnDataStream('backend', 'pool', foldText || `L${d.level} fold`, 'stream-fold', 1400);
     activateFlowParticles('backend', 'pool');
     addZoneLabel('backend', foldText || `L${d.level} fold`);
@@ -535,6 +541,8 @@ function handleSubstrateEvent(ev, d) {
     if (st === 'frame') {
       state.inc('substrateFrames');
       state.set('totalIngested', state.substrateFrames);
+      // Each frame write advances the stream's rotation pointer
+      advanceStreamPtr();
       pulseSystemNode('stream', d.chunkText || `frame ${d.frameIndex}`);
       activateStage('tokenize', `row ${d.frameIndex}`);
       spawnDataStream('machine', 'stream', (d.chunkText || 'frame').slice(0, 28), 'stream-ingest', 1200);
@@ -559,6 +567,8 @@ function handleSubstrateEvent(ev, d) {
     if (st === 'chamber-after') {
       activateStage('insert', `merged · ${d.instruction || '?'}`);
       pulseSystemNode('backend', d.message || 'backend after');
+      // Fold: incoming written into receiver, ALU executes
+      spawnFoldEffect(d.chunkText || '', d.instruction || '', d.firmware || '');
       spawnDataStream('emitter', 'backend', (d.message || '').slice(0, 24), 'stream-fold', 1000);
       activateFlowParticles('emitter', 'backend');
       addZoneLabel('backend', (d.message || '').slice(0, 28));

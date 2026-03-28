@@ -35,6 +35,9 @@ export const eventsByComponent = new Map();
 export const MAX_COMPONENT_EVENTS = 300;
 export const allEvents = [];
 
+// Animation pause
+export let animationPaused = false;
+
 // Inspector
 export let inspectorOpen = false;
 export let inspectorMode = 'zone';
@@ -104,6 +107,7 @@ export function set(name, value) {
     case 'totalIngested': totalIngested = value; break;
     case 'substrateFrames': substrateFrames = value; break;
     case 'totalValueFrames': totalValueFrames = value; break;
+    case 'animationPaused': animationPaused = value; break;
     case 'inspectorOpen': inspectorOpen = value; break;
     case 'inspectorMode': inspectorMode = value; break;
     case 'inspectorKey': inspectorKey = value; break;

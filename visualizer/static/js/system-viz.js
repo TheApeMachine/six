@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { valueGroup } from './scene.js';
-import { resolveZoneKey } from './architecture.js';
+import { SYS, resolveZoneKey } from './architecture.js';
 
 const SYSTEM_RING_RADIUS = 9.3;
 const SYSTEM_RING_THICKNESS = 0.22;
@@ -297,7 +297,8 @@ export function buildSystemOrbit() {
   rebuildBackendRanges();
 
   systemOrbitGroup = new THREE.Group();
-  systemOrbitGroup.position.set(0, SYSTEM_Y, 0);
+  const anchor = SYS.machine || { x: 0, z: 0 };
+  systemOrbitGroup.position.set(anchor.x, SYSTEM_Y, anchor.z);
 
   const ringGeo = new THREE.RingGeometry(
     SYSTEM_RING_RADIUS - SYSTEM_RING_THICKNESS,
