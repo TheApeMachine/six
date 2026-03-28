@@ -201,8 +201,17 @@ func execSpan(c [2]*[128]uint64, op uint8, sc, dc uint16) {
 	if sE <= sS || dE <= dS {
 		return
 	}
-	for i := uint64(0); i < min(sE-sS, dE-dS); i++ {
-		si, ss := (sS+i)/64, (sS+i)%64
+	sN, dN := sE-sS, dE-dS
+	limit := min(sN, dN)
+	if sN == 1 {
+		limit = dN
+	}
+	for i := uint64(0); i < limit; i++ {
+		sBit := sS + i
+		if sN == 1 {
+			sBit = sS
+		}
+		si, ss := sBit/64, sBit%64
 		di, ds := (dS+i)/64, (dS+i)%64
 		if si|di >= 128 {
 			break
@@ -233,44 +242,6 @@ func writeReg(c *[128]uint64, op uint8, dc, sc uint16) {
 	}
 }
 
-func firmwareWordAt(prog []uint32, i int) uint64 {
-	v := uint64(prog[i])
-	if i+1 < len(prog) {
-		v |= uint64(prog[i+1]) << 32
-	}
-	return v
-}
-
-func firmwareLoadedAt(c *[128]uint64, start uint64, fw core.FirmwareType) bool {
-	prog := core.Cfg.Firmware[fw]
-	if len(prog) == 0 {
-		return false
-	}
-	for i, j := 0, start; i < len(prog) && int(j) < 128; i, j = i+2, j+1 {
-		if c[j] != firmwareWordAt(prog, i) {
-			return false
-		}
-	}
-	return true
-}
-
-func tombstoneLoaded(c *[128]uint64, w uint64) bool {
-	return firmwareLoadedAt(c, w, core.FirmwareTypeTombstone) || firmwareLoadedAt(c, w+4, core.FirmwareTypeTombstone)
-}
-
-func applyTombstone(c *[128]uint64) {
-	target := c[uint64(core.Cfg.R6)]
-	if target == 0 {
-		return
-	}
-	if c[uint64(core.Cfg.PreviousID)] == target {
-		c[uint64(core.Cfg.PreviousID)] = 0
-	}
-	if c[uint64(core.Cfg.NextID)] == target {
-		c[uint64(core.Cfg.NextID)] = 0
-	}
-}
-
 // detectLoop tracks hardware loop state on backward PC writes.
 func detectLoop(c *[128]uint64, p, pc, le uint64, lp bool) (uint64, bool) {
 	n := c[p]
@@ -291,7 +262,6 @@ func (k *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	p, w := uint64(core.Cfg.RegPC), uint64(core.Cfg.ProgramIndex)
 
 	loadFirmware(c[0], p, w)
-	tombstoneActive := tombstoneLoaded(c[0], w)
 
 	var le uint64
 	lp := false
@@ -307,9 +277,6 @@ func (k *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 			writeReg(c[0], op, dc, sc)
 		}
 		le, lp = detectLoop(c[0], p, pc, le, lp)
-	}
-	if tombstoneActive {
-		applyTombstone(c[0])
 	}
 	return nil
 }

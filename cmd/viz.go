@@ -95,28 +95,6 @@ accepting graph events via UDP from external test runs.`,
 
 		defer machine.Close()
 
-		if !vizListen {
-			go func() {
-				err := visualizer.RunSubstrateLoop(ctx, srv, nil, visualizer.SubstrateOpts{
-					Repo:       vizRepo,
-					Subset:     vizSubset,
-					TextColumn: vizColumn,
-					Iterations: vizIters,
-					StepDelay:  vizDelay,
-				})
-
-				if err != nil && ctx.Err() == nil {
-					errnie.Error(err,
-						"component", "substrate_loop",
-						"repo", vizRepo,
-						"subset", vizSubset,
-						"text_column", vizColumn,
-						"iterations", vizIters,
-					)
-				}
-			}()
-		}
-
 		go func() {
 			<-ctx.Done()
 			srv.Shutdown()

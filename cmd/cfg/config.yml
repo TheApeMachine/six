@@ -160,6 +160,62 @@ programs:
     4480  r4  0011 // B start = r6 bit start
     4544  r5  0011 // B end   = r6 bit end
     r0    r3  0011 // COPY target ValueID to partner r6
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 bit start
+    4544  r2  0011 // A end   = r6 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0011 // COPY target ValueID to r7 scratch
+    0     r0  0011 // A context = self
+    3712  r1  0011 // A start = PrevID bit start
+    3776  r2  0011 // A end   = PrevID bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  1001 // XNOR PrevID with target into r7
+    0     r0  0011 // A context = self
+    4544  r1  0011 // A start = r7 bit start
+    4607  r2  0011 // A end   = r7 bit end - 1
+    0     r3  0011 // B context = self
+    4545  r4  0011 // B start = r7 bit start + 1
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0001 // AND collapse r7 to final decision bit
+    0     r0  0011 // A context = self
+    4607  r1  0011 // A start = collapsed match bit
+    4608  r2  0011 // A end   = collapsed match bit + 1
+    0     r3  0011 // B context = self
+    3712  r4  0011 // B start = PrevID bit start
+    3776  r5  0011 // B end   = PrevID bit end
+    r0    r3  0100 // if match then zero PrevID, else keep it
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 bit start
+    4544  r2  0011 // A end   = r6 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0011 // COPY target ValueID to r7 scratch
+    0     r0  0011 // A context = self
+    3776  r1  0011 // A start = NextID bit start
+    3840  r2  0011 // A end   = NextID bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  1001 // XNOR NextID with target into r7
+    0     r0  0011 // A context = self
+    4544  r1  0011 // A start = r7 bit start
+    4607  r2  0011 // A end   = r7 bit end - 1
+    0     r3  0011 // B context = self
+    4545  r4  0011 // B start = r7 bit start + 1
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0001 // AND collapse r7 to final decision bit
+    0     r0  0011 // A context = self
+    4607  r1  0011 // A start = collapsed match bit
+    4608  r2  0011 // A end   = collapsed match bit + 1
+    0     r3  0011 // B context = self
+    3776  r4  0011 // B start = NextID bit start
+    3840  r5  0011 // B end   = NextID bit end
+    r0    r3  0100 // if match then zero NextID, else keep it
 
   # Viral copies the active mutable user-program span from self to partner.
   viral: |
