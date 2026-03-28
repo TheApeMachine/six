@@ -16,9 +16,8 @@ static int initResult = 0;
 #define VALUE_BYTES 1024
 
 /*
-Single shared buffer pool
-Three buffers (A, B, dst) that grow geometrically. Every kernel uses
-the same triple — no per-kernel pool overhead.
+Single shared buffer pool: two host-visible buffers (poolA, poolB) that grow
+geometrically (capacity tracked in poolCap) and are reused by every kernel path.
 */
 static id<MTLBuffer> poolA   = nil;
 static id<MTLBuffer> poolB   = nil;

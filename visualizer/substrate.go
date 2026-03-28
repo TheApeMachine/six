@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -36,7 +37,8 @@ RunSubstrateLoop feeds the substrate pipeline and broadcasts human-readable
 telemetry for each step. It returns when the context is cancelled, iterations
 complete, or the dataset errors.
 */
-func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) error {
+func RunSubstrateLoop(ctx context.Context, srv *Server, substrate kernel.Substrate, opts SubstrateOpts) error {
+	ctx = primitive.ContextWithSubstrate(ctx, substrate)
 	unbounded := opts.Iterations <= 0
 
 	chamber, err := primitive.NewValue(nil)
@@ -123,7 +125,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 		if inErr != nil {
 			return inErr
 		}
-		if _, err := incoming.Write(frame); err != nil {
+		if _, err := incoming.WriteContext(ctx, frame); err != nil {
 			srv.Broadcast(telemetry.Event{
 				Component: "Substrate",
 				Action:    "Step",
@@ -137,6 +139,10 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 			return err
 		}
 
+		instrBefore := telemetry.InstructionFromValue(chamber)
+		dataPopBefore := cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits))
+		operandPopBefore := cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64)
+		affinityPopBefore := cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64)
 		srv.Broadcast(telemetry.Event{
 			Component: "Substrate",
 			Action:    "Step",
@@ -144,10 +150,10 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "chamber-before",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
-				Instruction: telemetry.TruthOpName(uint8(telemetry.ReadVMInstruction() & 0xF)),
-				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
-				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64), // affinity instead of old instr popcount
-				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),  // program info
+				Instruction: telemetry.TruthOpName(instrBefore),
+				DataPop:     dataPopBefore,
+				OperandPop:  operandPopBefore,
+				AffinityPop: affinityPopBefore,
 			},
 		})
 
@@ -165,6 +171,11 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 			(*chamber)[j] = (*incoming)[j]
 		}
 
+		instrMerged := telemetry.InstructionFromValue(chamber)
+		dataPopMerged := cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits))
+		operandPopMerged := cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64)
+		affinityPopMerged := cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64)
+
 		srv.Broadcast(telemetry.Event{
 			Component: "Substrate",
 			Action:    "Step",
@@ -172,10 +183,10 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "chamber-after",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
-				Instruction: telemetry.TruthOpName(uint8(telemetry.ReadVMInstruction() & 0xF)),
-				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
-				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64),
-				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),
+				Instruction: telemetry.TruthOpName(instrMerged),
+				DataPop:     dataPopMerged,
+				OperandPop:  operandPopMerged,
+				AffinityPop: affinityPopMerged,
 			},
 		})
 
@@ -186,10 +197,10 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Stage:       "kernel",
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber) + " · cpu.Backend: physics engine (affinity + program execution)",
-				Instruction: telemetry.TruthOpName(uint8(telemetry.ReadVMInstruction() & 0xF)),
-				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
-				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64),
-				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),
+				Instruction: telemetry.TruthOpName(instrMerged),
+				DataPop:     dataPopMerged,
+				OperandPop:  operandPopMerged,
+				AffinityPop: affinityPopMerged,
 			},
 		})
 
@@ -199,9 +210,6 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 		}
 		srv.BroadcastValueFrame(mutatedFrame)
 
-		instr := uint8(telemetry.ReadVMInstruction() & 0xF)
-		pressure := cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64)
-
 		srv.Broadcast(telemetry.Event{
 			Component: "Substrate",
 			Action:    "Step",
@@ -210,11 +218,11 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 				Frame:       i,
 				Message:     telemetry.HumanDescribeValue(chamber),
 				ChunkText:   telemetry.ASCIIFramePreview(mutatedFrame, 120),
-				Instruction: telemetry.TruthOpName(instr),
-				DataPop:     cpu.Popcount(chamber, 0, int(core.Cfg.TokenBits)),
-				OperandPop:  cpu.Popcount(chamber, int(core.Cfg.AffinityIndex), 64),
-				AffinityPop: cpu.Popcount(chamber, int(core.Cfg.ProgramIndex), 64),
-				Density:     float64(pressure) / regionBitWidth, // normalised instruction-region density
+				Instruction: telemetry.TruthOpName(instrMerged),
+				DataPop:     dataPopMerged,
+				OperandPop:  operandPopMerged,
+				AffinityPop: affinityPopMerged,
+				Density:     float64(affinityPopMerged) / regionBitWidth, // normalised instruction-region density
 			},
 		})
 

@@ -16,6 +16,8 @@ import (
 	"errors"
 	"sync"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
@@ -52,9 +54,9 @@ func (backend *Backend) init() {
 Available returns the number of CUDA-capable GPUs.
 */
 func Available() int {
-	backend := &Backend{}
-	backend.init()
-	return backend.deviceCount
+	b := NewBackend(0)
+	b.init()
+	return b.deviceCount
 }
 
 /*
@@ -72,12 +74,17 @@ func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
 			CUDAErrorDispatchFailed,
 			errors.New("failed to dispatch unified bitwise operation"),
 			"UniversalBitwise",
+			1,
 		)
 	}
 
 	return nil
 }
 
-func (backend *Backend) Schedule(job func(ctx context.Context) error) {
-	_ = job(context.Background())
+func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
+	if err := job(context.Background()); err != nil {
+		_ = errnie.Error(err)
+		return err
+	}
+	return nil
 }

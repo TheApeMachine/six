@@ -24,6 +24,11 @@ var (
 	esBulkMu      sync.Mutex
 )
 
+// defaultBulkFlushBytes is used when BulkFlushBytes is unset or non-positive.
+// A small or zero threshold makes esutil treat each log line as “oversize” and
+// flush per item; ~5MiB batches amortizes HTTP overhead under high volume.
+const defaultBulkFlushBytes = 5 * 1024 * 1024
+
 type esLogSink struct {
 	bi esutil.BulkIndexer
 }
@@ -156,8 +161,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 
 	flushBytes := cfg.BulkFlushBytes
 	if flushBytes <= 0 {
-		// Any positive value ≤ typical doc size triggers per-item flush in esutil (oversize path).
-		flushBytes = 1
+		flushBytes = defaultBulkFlushBytes
 	}
 	flushMS := cfg.FlushIntervalMS
 	if flushMS <= 0 {

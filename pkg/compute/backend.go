@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync/atomic"
 	"unsafe"
@@ -80,22 +81,16 @@ UniversalBitwise implements the raw memory dispatcher if bypassing the stream.
 */
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	if len(backend.hardware) == 0 {
-		return errnie.Error(
-			NewBackendError(
-				nil,
-				"compute.backend.UniversalBitwise",
-			),
-		)
+		err := NewBackendError(BackendErrorNoHardware, nil, "compute.backend.UniversalBitwise")
+		_ = errnie.Error(err)
+		return fmt.Errorf("compute.backend.UniversalBitwise: %w", err)
 	}
 
 	sub := backend.pickSubstrate(a)
 	if sub == nil {
-		return errnie.Error(
-			NewBackendError(
-				nil,
-				"compute.backend.UniversalBitwise",
-			),
-		)
+		err := NewBackendError(BackendErrorCompleteSaturation, nil, "compute.backend.UniversalBitwise")
+		_ = errnie.Error(err)
+		return fmt.Errorf("compute.backend.UniversalBitwise: %w", err)
 	}
 	return sub.UniversalBitwise(a, b)
 }
@@ -137,19 +132,23 @@ func WithPool(p *vm.Pool) BackendOption {
 }
 
 /*
-Schedule pushes abstract functional execution payloads onto the underlying worker pool.
+Schedule pushes work onto the pool when configured; otherwise runs the job
+inline with backend.ctx. Returns nil on success, or a wrapped error on pool
+enqueue failure / context cancellation / inline job failure.
 */
-func (backend *Backend) Schedule(job func(ctx context.Context) error) {
+func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	if backend.pool != nil {
 		if err := backend.pool.Schedule(backend.ctx, job); err != nil {
-			errnie.Error(err)
+			_ = errnie.Error(err)
+			return fmt.Errorf("compute.Backend.Schedule: %w", err)
 		}
-	} else {
-		// Fallback for isolated tests to execute synchronously if no pool is injected
-		if err := job(backend.ctx); err != nil {
-			errnie.Error(fmt.Errorf("compute.Backend.Schedule: job failed (no pool): %w", err))
-		}
+		return nil
 	}
+	if err := job(backend.ctx); err != nil {
+		_ = errnie.Error(err)
+		return fmt.Errorf("compute.Backend.Schedule: %w", err)
+	}
+	return nil
 }
 
 type BackendErrorType string
@@ -160,26 +159,40 @@ const (
 )
 
 type BackendError struct {
-	Err error
-	Msg string
-	Op  string
+	Type BackendErrorType
+	Err  error
+	Msg  string
+	Op   string
 }
 
-func NewBackendError(err error, op string) *BackendError {
-	msg := ""
-	if err != nil {
+func NewBackendError(typ BackendErrorType, err error, op string) *BackendError {
+	msg := string(typ)
+	if msg == "" && err != nil {
 		msg = err.Error()
 	}
 	return &BackendError{
-		Err: err,
-		Msg: msg,
-		Op:  op,
+		Type: typ,
+		Err:  err,
+		Msg:  msg,
+		Op:   op,
 	}
+}
+
+// AsType reports whether err wraps a *BackendError whose Type matches.
+func AsType(err error, t BackendErrorType) bool {
+	var be *BackendError
+	return errors.As(err, &be) && be.Type == t
 }
 
 func (e *BackendError) Error() string {
 	if e.Err != nil {
 		return e.Err.Error()
+	}
+	if e.Type != "" {
+		if e.Op != "" {
+			return fmt.Sprintf("%s (%s)", e.Type, e.Op)
+		}
+		return string(e.Type)
 	}
 	if e.Msg != "" {
 		return e.Msg

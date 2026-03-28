@@ -52,8 +52,8 @@ func buildLogger(enab zapcore.LevelEnabler, escfg ElasticsearchConfig) (*zap.Log
 	cores := []zapcore.Core{consoleCore}
 
 	esOut, err := newElasticsearchClientAndSink(escfg)
-	initErr = err
 	if err != nil {
+		initErr = err
 		return nil, err
 	}
 	if esOut != nil {

@@ -42,9 +42,25 @@ let cellMeshes = [];
 const regionLabels = [];
 let valueRingGroup = null;
 
+function disposeValueRingGroup(group) {
+  if (!group) return;
+  const geometries = new Set();
+  group.traverse((obj) => {
+    if (obj.geometry) geometries.add(obj.geometry);
+    if (obj.material) {
+      const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
+      for (const m of mats) m.dispose();
+    }
+  });
+  for (const g of geometries) g.dispose();
+}
+
 export function buildValueRing() {
   if (valueRingGroup) {
     valueGroup.remove(valueRingGroup);
+    disposeValueRingGroup(valueRingGroup);
+    valueRingGroup = null;
+    regionLabels.length = 0;
   }
 
   valueRingGroup = new THREE.Group();
@@ -137,8 +153,13 @@ export function buildValueRing() {
 // Accepts telemetry data and updates which bits are "lit"
 // Map raw 1024-byte LE wire frame to sampled bit cells (no JSON, no object churn).
 export function updateValueFromBinaryBuffer(buf) {
-  if (!cellMeshes.length || !(buf instanceof ArrayBuffer) || buf.byteLength < 1024) return;
-  const u8 = new Uint8Array(buf);
+  if (!cellMeshes.length || buf == null || typeof buf.byteLength !== 'number' || buf.byteLength < 1024) {
+    return;
+  }
+  const isArrayBuffer = buf instanceof ArrayBuffer;
+  const isView = typeof ArrayBuffer !== 'undefined' && ArrayBuffer.isView(buf);
+  if (!isArrayBuffer && !isView) return;
+  const u8 = isArrayBuffer ? new Uint8Array(buf) : new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength);
 
   for (const cell of cellMeshes) {
     const bit = cell.bit;

@@ -17,19 +17,29 @@ Machine provides a unified stream processing pipeline using github.com/whitaker-
 and ants goroutine pooling. It dynamically schedules work across local hardware substrates
 and remote network nodes natively through a homogeneous data flow, while guaranteeing
 zero-drop fault tolerance using errnie error handling contexts.
+
+All machineOption functions (WithContext, WithDataset, WithRegionsCount, etc.) apply only
+during NewMachine construction. Options mutate the in-progress *Machine before the pool,
+regions, and transport stream are wired up; calling them after NewMachine returns is
+unsupported and may race with in-flight I/O or scheduling.
 */
 type Machine struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	pool    *Pool
-	stream  *transport.Stream
-	regions []*primitive.Region
-	dataset io.ReadCloser
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	pool         *Pool
+	stream       *transport.Stream
+	regions      []*primitive.Region
+	dataset      io.ReadCloser
+	regionsCount int
 }
 
 type machineOption func(*Machine)
 
+// NewMachine constructs a Machine: it applies opts, validates ctx/cancel, starts the pool
+// workers, allocates regions (see WithRegionsCount), and opens the transport stream.
+// Pass all options only via opts during this call—do not reuse machineOption implementations
+// on an already-built *Machine (see WithContext).
 func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	cpu := runtime.NumCPU()
 	maxProcs := cpu - 1
@@ -72,22 +82,32 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 			"error", machine.err,
 		)
 	}
+	// Workers must run before Schedule jobs are processed.
+	machine.pool.Run()
 
-	machine.regions = make([]*primitive.Region, 0)
-
-	for idx := range 10 {
-		region := primitive.NewRegion(uint64(idx)) // each region has its own ID
-		machine.regions = append(machine.regions, region)
+	regionsCount := machine.regionsCount
+	if regionsCount <= 0 {
+		regionsCount = runtime.NumCPU()
+		if regionsCount < 1 {
+			regionsCount = 1
+		}
 	}
 
-	machine.stream = transport.NewStream(
+	machine.regions = make([]*primitive.Region, 0, regionsCount)
+
+	for i := 0; i < regionsCount; i++ {
+		machine.regions = append(machine.regions, primitive.NewRegion(uint64(i)))
+	}
+
+	var streamErr error
+	machine.stream, streamErr = transport.NewStream(
 		transport.WithContext(machine.ctx),
 		transport.WithRegions(machine.regions),
 	)
-	if machine.stream == nil {
+	if streamErr != nil {
 		return nil, errnie.Error(
 			NewMachineError(MachineErrFailStart),
-			"error", errors.New("transport.NewStream returned nil"),
+			"error", streamErr,
 		)
 	}
 
@@ -133,6 +153,10 @@ func (machine *Machine) Close() error {
 	return errors.Join(errs...)
 }
 
+// WithContext replaces the Machine's context and cancel func. It cancels Machine.cancel
+// when one already exists. Intended for use only as a machineOption inside NewMachine:
+// calling WithContext after the Machine is returned can race with concurrent Read/Write,
+// pool workers, and stream I/O because the previous context is canceled immediately.
 func WithContext(ctx context.Context) machineOption {
 	return func(machine *Machine) {
 		if machine.cancel != nil {
@@ -144,6 +168,16 @@ func WithContext(ctx context.Context) machineOption {
 			"msg",
 			"context set",
 		)
+	}
+}
+
+// WithRegionsCount sets how many primitive.Region instances are created. When unset or
+// non-positive, the count defaults to runtime.NumCPU() (minimum 1).
+func WithRegionsCount(n int) machineOption {
+	return func(machine *Machine) {
+		if n > 0 {
+			machine.regionsCount = n
+		}
 	}
 }
 

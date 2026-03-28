@@ -30,6 +30,10 @@ var (
 	projectName = "six"
 	cfgFile     string
 
+	// initErr records fatal errors from initConfig (e.g. LoadLoggingConfig,
+	// compute.NewBackend) so Execute can return them instead of os.Exit.
+	initErr error
+
 	/*
 		Alice holds the default dataset/context used by the visualizer and tests.
 		It is loaded from embedded filesystem and available globally after initConfig.
@@ -41,12 +45,16 @@ var (
 		Short: "Check yo six",
 		Long:  roottxt,
 		// One structured log per invocation so shipping sinks (e.g. Elasticsearch) always see activity.
-		PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if initErr != nil {
+				return initErr
+			}
 			errnie.Info(
 				"six.run",
 				"command", cmd.CommandPath(),
 				"args", strings.Join(args, " "),
 			)
+			return nil
 		},
 		Run: func(cmd *cobra.Command, args []string) {
 		},
@@ -140,8 +148,9 @@ func initConfig() {
 
 	loggingCfg, err := core.LoadLoggingConfig()
 	if err != nil {
-		errnie.Error(fmt.Errorf("logging config: %w", err))
-		os.Exit(1)
+		initErr = fmt.Errorf("core.LoadLoggingConfig: %w", err)
+		errnie.Error(initErr)
+		return
 	}
 	errnie.InitLogger(loggingCfg)
 	errnie.Info(
@@ -154,8 +163,9 @@ func initConfig() {
 		compute.WithContext(context.Background()),
 	)
 	if err != nil {
-		errnie.Error(fmt.Errorf("compute.NewBackend: %w", err))
-		os.Exit(1)
+		initErr = fmt.Errorf("compute.NewBackend: %w", err)
+		errnie.Error(initErr)
+		return
 	}
 	primitive.Backend = backend
 }

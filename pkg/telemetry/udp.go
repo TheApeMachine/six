@@ -2,6 +2,7 @@ package telemetry
 
 import (
 	"encoding/json"
+	"fmt"
 	"net"
 	"sync/atomic"
 
@@ -25,8 +26,17 @@ func NewUDPSender(addr string) (*UDPSender, error) {
 }
 
 func (s *UDPSender) Send(ev Event) {
+	if s == nil {
+		return
+	}
 	data, err := json.Marshal(ev)
 	if err != nil {
+		errnie.Debug(
+			"telemetry.UDPSender.Send",
+			"op", "json.Marshal",
+			"err", err,
+			"event_type", fmt.Sprintf("%T", ev),
+		)
 		return
 	}
 	_, werr := s.conn.Write(data)
@@ -43,9 +53,18 @@ func (s *UDPSender) Send(ev Event) {
 
 // WriteDropped returns how many UDP payload writes failed after Connect succeeded.
 func (s *UDPSender) WriteDropped() uint64 {
+	if s == nil {
+		return 0
+	}
 	return s.writeDropped.Load()
 }
 
 func (s *UDPSender) Close() error {
+	if s == nil {
+		return nil
+	}
+	if s.conn == nil {
+		return nil
+	}
 	return s.conn.Close()
 }

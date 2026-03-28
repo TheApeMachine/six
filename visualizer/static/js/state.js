@@ -134,7 +134,16 @@ export function resetCounters() {
   poolLatencyHistory.length = 0;
   tokenBinMax = 1;
   sparkData.length = 0;
+  forestKeyBins.fill(0);
+  tokenBinCounts.fill(0);
+  eventsByComponent.clear();
+  promptHistory.length = 0;
+  foldHistory.length = 0;
+  executeHistory.length = 0;
+  allEvents.length = 0;
 }
+
+const MAX_ALL_EVENTS = 2000;
 
 export function accumulateEvent(ev) {
   const key = ev.component || 'unknown';
@@ -143,7 +152,9 @@ export function accumulateEvent(ev) {
   }
   const arr = eventsByComponent.get(key);
   arr.push(ev);
-  while (arr.length > MAX_COMPONENT_EVENTS) arr.shift();
+  const overComp = arr.length - MAX_COMPONENT_EVENTS;
+  if (overComp > 0) arr.splice(0, overComp);
   allEvents.push(ev);
-  while (allEvents.length > 2000) allEvents.shift();
+  const overAll = allEvents.length - MAX_ALL_EVENTS;
+  if (overAll > 0) allEvents.splice(0, overAll);
 }

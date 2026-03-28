@@ -207,50 +207,41 @@ type Config struct {
 LoadFirmware compiles all programs from the config's `programs` section
 into Cfg.Firmware. Must be called after viper has loaded config.
 */
-func LoadFirmware() (err error) {
+func compileAndAssign(ft FirmwareType, src string) error {
+	program, err := CompileFunc(src)
+	if err != nil {
+		return errnie.Error(err)
+	}
+	Cfg.Firmware[ft] = program
+	return nil
+}
+
+func LoadFirmware() error {
 	fwBootloader := viper.GetViper().GetString("programs.bootloader")
-	fwTombstone := viper.GetViper().GetString("programs.tomstone")
+	fwTombstone := viper.GetViper().GetString("programs.tombstone")
 	fwAffinity := viper.GetViper().GetString("programs.affinity")
 	fwShatter := viper.GetViper().GetString("programs.shatter")
 	fwWipe := viper.GetViper().GetString("programs.wipe")
 	fwViral := viper.GetViper().GetString("programs.viral")
 
-	Cfg.Firmware[FirmwareTypeBootloader], err = CompileFunc(fwBootloader)
-
-	if err != nil {
-		return errnie.Error(err)
+	if err := compileAndAssign(FirmwareTypeBootloader, fwBootloader); err != nil {
+		return err
 	}
-
-	Cfg.Firmware[FirmwareTypeTombstone], err = CompileFunc(fwTombstone)
-
-	if err != nil {
-		return errnie.Error(err)
+	if err := compileAndAssign(FirmwareTypeTombstone, fwTombstone); err != nil {
+		return err
 	}
-
-	Cfg.Firmware[FirmwareTypeAffinity], err = CompileFunc(fwAffinity)
-
-	if err != nil {
-		return errnie.Error(err)
+	if err := compileAndAssign(FirmwareTypeAffinity, fwAffinity); err != nil {
+		return err
 	}
-
-	Cfg.Firmware[FirmwareTypeShatter], err = CompileFunc(fwShatter)
-
-	if err != nil {
-		return errnie.Error(err)
+	if err := compileAndAssign(FirmwareTypeShatter, fwShatter); err != nil {
+		return err
 	}
-
-	Cfg.Firmware[FirmwareTypeWipe], err = CompileFunc(fwWipe)
-
-	if err != nil {
-		return errnie.Error(err)
+	if err := compileAndAssign(FirmwareTypeWipe, fwWipe); err != nil {
+		return err
 	}
-
-	Cfg.Firmware[FirmwareTypeViral], err = CompileFunc(fwViral)
-
-	if err != nil {
-		return errnie.Error(err)
+	if err := compileAndAssign(FirmwareTypeViral, fwViral); err != nil {
+		return err
 	}
-
 	return nil
 }
 

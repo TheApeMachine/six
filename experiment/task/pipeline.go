@@ -2,7 +2,7 @@ package task
 
 import (
 	"context"
-	"fmt"
+	"errors"
 	"io"
 	"strings"
 	"time"
@@ -77,7 +77,16 @@ func (pipeline *Pipeline) Run() (err error) {
 	if err != nil {
 		return errnie.Error(err)
 	}
-	defer func() { _ = machine.Close() }()
+	defer func() {
+		if closeErr := machine.Close(); closeErr != nil {
+			_ = errnie.Error(closeErr, "op", "pipeline.Run.machine.Close")
+			if err == nil {
+				err = closeErr
+			} else {
+				err = errors.Join(err, closeErr)
+			}
+		}
+	}()
 
 	// Hydrate the region mesh from the dataset (transport only — no ALU here).
 	if ds := pipeline.experiment.Dataset(); ds != nil {
@@ -127,16 +136,9 @@ func (pipeline *Pipeline) Run() (err error) {
 		}
 	}
 
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				errnie.Error(fmt.Errorf("panic in writeStandardSummary: %v", r))
-			}
-		}()
-		if err := pipeline.writeStandardSummary(); err != nil {
-			errnie.Error(err)
-		}
-	}()
+	if err := pipeline.writeStandardSummary(); err != nil {
+		return errnie.Error(err)
+	}
 
 	return nil
 }

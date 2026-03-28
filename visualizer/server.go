@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"runtime"
@@ -340,12 +341,29 @@ func (server *Server) BroadcastValueFrame(frame []byte) {
 		return
 	}
 
-	server.mu.RLock()
-	defer server.mu.RUnlock()
+	cp := make([]byte, primitive.ByteSize)
+	copy(cp, frame)
 
+	server.mu.RLock()
+	var dead []*websocket.Conn
 	for conn := range server.clients {
-		cp := make([]byte, primitive.ByteSize)
-		copy(cp, frame)
-		_ = conn.WriteMessage(websocket.BinaryMessage, cp)
+		if err := conn.WriteMessage(websocket.BinaryMessage, cp); err != nil {
+			log.Printf("visualizer: BroadcastValueFrame: write failed: %v", err)
+			dead = append(dead, conn)
+		}
 	}
+	server.mu.RUnlock()
+
+	if len(dead) == 0 {
+		return
+	}
+
+	server.mu.Lock()
+	for _, conn := range dead {
+		if server.clients[conn] {
+			delete(server.clients, conn)
+			_ = conn.Close()
+		}
+	}
+	server.mu.Unlock()
 }

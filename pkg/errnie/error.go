@@ -6,12 +6,12 @@ import (
 )
 
 type ErrnieError struct {
-	Msg          string
-	Err          error
-	Op           string
-	Keyvals      []any
+	Msg           string
+	Err           error
+	Op            string
+	Keyvals       []any
 	Reschedulable bool
-	Ctx          context.Context
+	Ctx           context.Context
 }
 
 func (err *ErrnieError) Error() string {
@@ -23,6 +23,9 @@ func (err *ErrnieError) Error() string {
 }
 
 func Wrap(err error, keyvals ...any) *ErrnieError {
+	if err == nil {
+		return nil
+	}
 	return &ErrnieError{
 		Msg:     err.Error(),
 		Err:     err,
@@ -32,13 +35,21 @@ func Wrap(err error, keyvals ...any) *ErrnieError {
 }
 
 func (err *ErrnieError) WithContext(ctx context.Context) *ErrnieError {
-	err.Ctx = ctx
-	return err
+	if err == nil {
+		return nil
+	}
+	clone := *err
+	clone.Ctx = ctx
+	return &clone
 }
 
 func (err *ErrnieError) WithReschedule() *ErrnieError {
-	err.Reschedulable = true
-	return err
+	if err == nil {
+		return nil
+	}
+	clone := *err
+	clone.Reschedulable = true
+	return &clone
 }
 
 func (err *ErrnieError) Unwrap() error {

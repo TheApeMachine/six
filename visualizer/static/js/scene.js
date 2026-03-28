@@ -156,7 +156,11 @@ export function updateAmbientParticles(time) {
   const pos = ambientParticles.geometry.attributes.position.array;
   for (let i = 0; i < particleCount; i++) {
     pos[i * 3 + 1] += Math.sin(time * 0.001 + i * 0.3) * 0.002;
-    if (pos[i * 3 + 1] > 40) pos[i * 3 + 1] = 0;
+    if (pos[i * 3 + 1] > 40) {
+      pos[i * 3 + 1] = -Math.random() * 5;
+      pos[i * 3] += (Math.random() - 0.5) * 4;
+      pos[i * 3 + 2] += (Math.random() - 0.5) * 4;
+    }
   }
   ambientParticles.geometry.attributes.position.needsUpdate = true;
 }
@@ -176,12 +180,12 @@ export function flyTo(targetPos, lookAtPos) {
     pos: targetPos.clone(),
     target: lookAtPos.clone(),
   };
-  flyStartTime = Date.now();
+  flyStartTime = performance.now();
 }
 
 export function updateFlyAnimation() {
   if (!flyTarget) return;
-  const elapsed = Date.now() - flyStartTime;
+  const elapsed = performance.now() - flyStartTime;
   const t = Math.min(elapsed / FLY_DURATION, 1);
   const ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
 

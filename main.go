@@ -9,8 +9,9 @@ import (
 )
 
 func main() {
-	defer func() { _ = errnie.Shutdown(context.Background()) }()
-	if err := errnie.Error(cmd.Execute()); err != nil {
+	err := errnie.Error(cmd.Execute())
+	_ = errnie.Shutdown(context.Background())
+	if err != nil {
 		os.Exit(1)
 	}
 }

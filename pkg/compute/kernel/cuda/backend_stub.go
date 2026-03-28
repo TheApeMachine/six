@@ -4,6 +4,7 @@ package cuda
 
 import (
 	"context"
+	"log"
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
@@ -48,9 +49,13 @@ func Available() int {
 }
 
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
-	return NewCUDAError(CUDAErrorUnavailable, nil, "UniversalBitwise")
+	return NewCUDAError(CUDAErrorUnavailable, nil, "UniversalBitwise", 0)
 }
 
-func (backend *Backend) Schedule(job func(ctx context.Context) error) {
-	_ = job(context.Background())
+func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
+	if err := job(context.Background()); err != nil {
+		log.Printf("Backend.Schedule job error: %v", err)
+		return err
+	}
+	return nil
 }

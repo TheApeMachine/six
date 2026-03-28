@@ -12,10 +12,14 @@ type KernelError struct {
 }
 
 func (e *KernelError) Error() string {
-	if e.N > 0 {
-		return fmt.Sprintf("%s: %s (n=%d): %v", e.Backend, e.Op, e.N, e.Err)
+	cause := "(no error)"
+	if e.Err != nil {
+		cause = e.Err.Error()
 	}
-	return fmt.Sprintf("%s: %s: %v", e.Backend, e.Op, e.Err)
+	if e.N > 0 {
+		return fmt.Sprintf("%s: %s (n=%d): %s", e.Backend, e.Op, e.N, cause)
+	}
+	return fmt.Sprintf("%s: %s: %s", e.Backend, e.Op, cause)
 }
 
 func (e *KernelError) Unwrap() error { return e.Err }

@@ -31,7 +31,7 @@ type Stream struct {
 
 type streamOpts func(*Stream)
 
-func NewStream(opts ...streamOpts) *Stream {
+func NewStream(opts ...streamOpts) (*Stream, error) {
 	rb := ringbuffer.New(primitive.ByteSize * 64)
 	pr, pw := rb.Pipe()
 
@@ -55,12 +55,11 @@ func NewStream(opts ...streamOpts) *Stream {
 		"cancel":  stream.cancel,
 		"regions": stream.regions,
 	}); err != nil {
-		errnie.Error(err)
-		return nil
+		return nil, err
 	}
 
 	stream.rb.WithCancel(stream.ctx)
-	return stream
+	return stream, nil
 }
 
 /*
@@ -105,7 +104,7 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 	}
 
 	if len(stream.regions[0])+len(stream.regions[1]) == 0 {
-		return 0, io.EOF
+		return 0, NewStreamError(StreamErrNoRegions)
 	}
 
 	for side := 0; side < 2; side++ {
@@ -156,7 +155,12 @@ func WithContext(ctx context.Context) streamOpts {
 
 func WithRegions(regions []*primitive.Region) streamOpts {
 	return func(stream *Stream) {
-		regionSplit := len(regions) / 2
+		if len(regions) == 0 {
+			stream.regions[0] = nil
+			stream.regions[1] = nil
+			return
+		}
+		regionSplit := (len(regions) + 1) / 2
 		stream.regions[0] = regions[:regionSplit]
 		stream.regions[1] = regions[regionSplit:]
 	}

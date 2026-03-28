@@ -224,7 +224,8 @@ func writeProjectorArtifactTex(exp tools.PipelineExperiment, a tools.Artifact) (
 		}
 		return WritePolarConstraint(data, a.FileName, exp.Section())
 	default:
-		return nil
+		errnie.Warn("writeProjectorArtifactTex unsupported artifact type", "artifact_type", string(a.Type))
+		return fmt.Errorf("unsupported artifact type: %s", a.Type)
 	}
 }
 

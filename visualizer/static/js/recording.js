@@ -45,6 +45,10 @@ export function enterLiveMode() {
 
 export function replayTo(idx) {
   if (resetVisFn) resetVisFn();
+  if (recording.length === 0) {
+    replayIdx = 0;
+    return;
+  }
   const target = Math.min(idx, recording.length - 1);
   for (let i = 0; i <= target; i++) {
     if (handleEventFn) handleEventFn(recording[i]);
@@ -86,27 +90,33 @@ export function exportRecording() {
   const a = document.createElement('a');
   a.href = url;
   a.download = `six-recording-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
-  a.click();
-  URL.revokeObjectURL(url);
+  try {
+    a.click();
+  } finally {
+    URL.revokeObjectURL(url);
+  }
 }
 
 export function importRecording(file) {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        if (Array.isArray(data)) {
-          recording.length = 0;
-          recording.push(...data);
-          replayTo(0);
-          resolve(recording.length);
+        if (!Array.isArray(data)) {
+          reject(new Error('Imported data is not an array'));
+          return;
         }
+        recording.length = 0;
+        recording.push(...data);
+        replayTo(0);
+        resolve(recording.length);
       } catch (err) {
         console.error('Import error:', err);
-        resolve(0);
+        reject(err);
       }
     };
+    reader.onerror = () => reject(new Error('Failed to read import file'));
     reader.readAsText(file);
   });
 }

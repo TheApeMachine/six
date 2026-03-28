@@ -21,6 +21,10 @@ the Values are rapidly and chaotically mixed across the system.
 // block when both mixer and spill are full (back-pressure), they never drop frames.
 const spillMaxFrames = 256
 
+// MixerCapacity is the buffer depth of each Region's primary mixer channel.
+// Tests and benchmarks should use this instead of hardcoding capacities.
+const MixerCapacity = 64
+
 // regionFramePool recycles ByteSize buffers between Write and Read to avoid an
 // allocation per enqueued frame on the steady-state path.
 var regionFramePool = sync.Pool{
@@ -61,7 +65,7 @@ mixer without blocking; if it is full, enqueue on spill (blocking until space).
 When both queues are saturated, writers wait—frames are never discarded.
 */
 func NewRegion(id uint64) *Region {
-	capacity := 64 // Hold up to 64 Values at once for mixing
+	capacity := MixerCapacity
 	return &Region{
 		ID:    id,
 		mixer: make(chan []byte, capacity),
@@ -80,7 +84,7 @@ func (region *Region) Read(p []byte) (n int, err error) {
 
 	select {
 	case frame := <-region.mixer:
-		n := copy(p, frame)
+		n = copy(p, frame)
 		putRegionFrame(frame)
 		return n, nil
 	default:
@@ -88,7 +92,7 @@ func (region *Region) Read(p []byte) (n int, err error) {
 
 	select {
 	case frame := <-region.spill:
-		n := copy(p, frame)
+		n = copy(p, frame)
 		putRegionFrame(frame)
 		return n, nil
 	default:
@@ -146,9 +150,7 @@ func (region *Region) Close() error {
 	}
 	region.closeOnce.Do(func() {
 		close(region.mixer)
-		if region.spill != nil {
-			close(region.spill)
-		}
+		close(region.spill)
 	})
 	return nil
 }

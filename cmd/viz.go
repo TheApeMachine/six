@@ -12,7 +12,6 @@ import (
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 	"github.com/theapemachine/six/visualizer"
 )
@@ -62,13 +61,12 @@ accepting graph events via UDP from external test runs.`,
 			_ = machine.Close()
 			return errnie.Wrap(err, "cmd.viz.compute.NewBackend")
 		}
-		primitive.Backend = backend
 
 		defer machine.Close()
 
 		if !vizListen {
 			go func() {
-				err := visualizer.RunSubstrateLoop(ctx, srv, visualizer.SubstrateOpts{
+				err := visualizer.RunSubstrateLoop(ctx, srv, backend, visualizer.SubstrateOpts{
 					Repo:       vizRepo,
 					Subset:     vizSubset,
 					TextColumn: vizColumn,
@@ -77,7 +75,13 @@ accepting graph events via UDP from external test runs.`,
 				})
 
 				if err != nil && ctx.Err() == nil {
-					fmt.Fprintf(os.Stderr, "substrate loop: %v\n", err)
+					errnie.Error(err,
+						"component", "substrate_loop",
+						"repo", vizRepo,
+						"subset", vizSubset,
+						"text_column", vizColumn,
+						"iterations", vizIters,
+					)
 				}
 			}()
 		}

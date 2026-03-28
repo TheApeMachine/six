@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"sync"
 	"sync/atomic"
 
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -52,9 +53,11 @@ func (pool *Pool) trySendErr(out chan error, err error) {
 
 func (pool *Pool) Run() chan error {
 	out := make(chan error, pool.procs)
-
-	for range pool.procs {
+	var wg sync.WaitGroup
+	for i := 0; i < pool.procs; i++ {
+		wg.Add(1)
 		go func() {
+			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					pool.trySendErr(out, NewPoolError(PoolErrFail, r))
@@ -63,7 +66,14 @@ func (pool *Pool) Run() chan error {
 
 			for {
 				select {
-				case job := <-pool.jobs:
+				case job, ok := <-pool.jobs:
+					if !ok {
+						return
+					}
+					if job == nil {
+						pool.trySendErr(out, NewPoolError(PoolErrInvalidJob, errors.New("nil job")))
+						continue
+					}
 					if err := job(pool.ctx); err != nil {
 						pool.trySendErr(out, err)
 					}
@@ -73,7 +83,10 @@ func (pool *Pool) Run() chan error {
 			}
 		}()
 	}
-
+	go func() {
+		wg.Wait()
+		close(out)
+	}()
 	return out
 }
 
@@ -99,6 +112,9 @@ func PoolWithContext(ctx context.Context) poolOpts {
 // before this option when you need a different buffer size.
 func PoolWithProcs(procs int) poolOpts {
 	return func(pool *Pool) {
+		if procs <= 0 {
+			procs = 1
+		}
 		pool.procs = procs
 		if pool.jobs == nil {
 			buf := max(pool.procs*2, 1)
@@ -122,7 +138,8 @@ func PoolWithJobBuffer(size int) poolOpts {
 type PoolErrorType string
 
 const (
-	PoolErrFail PoolErrorType = "pool failure"
+	PoolErrFail       PoolErrorType = "pool failure"
+	PoolErrInvalidJob PoolErrorType = "invalid job"
 )
 
 type PoolError struct {

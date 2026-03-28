@@ -102,6 +102,7 @@ export function buildArchitecture() {
       Math.min(sys.w, sys.h) - 1,
       sys.color, sys.color
     );
+    innerGrid.material = innerGrid.material.clone();
     innerGrid.material.transparent = true;
     innerGrid.material.opacity = 0.06;
     innerGrid.position.set(sys.x, 0.02, sys.z);
@@ -236,7 +237,12 @@ export function addZoneLabel(sysKey, text) {
 
   while (arr.length > MAX_ZONE_LABELS) {
     const old = arr.shift();
+    if (old.lbl?.element?.parentNode) {
+      old.lbl.element.remove();
+    }
     zoneGroup.remove(old.lbl);
+    old.lbl = null;
+    old.div = null;
   }
 
   const hw = sys.w / 2;
@@ -255,7 +261,16 @@ export function addZoneLabel(sysKey, text) {
 export function clearZoneLabels(sysKey) {
   const arr = zoneLabels.get(sysKey);
   if (!arr) return;
-  for (const item of arr) zoneGroup.remove(item.lbl);
+  for (const item of arr) {
+    if (item.lbl?.element?.parentNode) {
+      item.lbl.element.remove();
+    }
+    zoneGroup.remove(item.lbl);
+    if (item.el) item.el = null;
+    if (item.dom) item.dom = null;
+    if (item.div) item.div = null;
+    item.lbl = null;
+  }
   arr.length = 0;
 }
 

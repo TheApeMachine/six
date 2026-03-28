@@ -114,14 +114,22 @@ function renderFeedTab() {
   for (const ev of events.slice(0, 80)) {
     const div = document.createElement('div');
     div.className = 'inspector-event';
-    div.innerHTML = `
-      <div class="inspector-event-header">
-        <span class="inspector-event-comp">${ev.component}</span>
-        <span class="inspector-event-action">${ev.action}</span>
-        <span class="inspector-event-ts">${((ev._ts || 0) / 1000).toFixed(1)}s</span>
-      </div>
-      <div class="inspector-event-data">${formatEventData(ev.data)}</div>
-    `;
+    const header = document.createElement('div');
+    header.className = 'inspector-event-header';
+    const comp = document.createElement('span');
+    comp.className = 'inspector-event-comp';
+    comp.textContent = ev.component ?? '';
+    const action = document.createElement('span');
+    action.className = 'inspector-event-action';
+    action.textContent = ev.action ?? '';
+    const ts = document.createElement('span');
+    ts.className = 'inspector-event-ts';
+    ts.textContent = `${((ev._ts || 0) / 1000).toFixed(1)}s`;
+    header.append(comp, action, ts);
+    const dataEl = document.createElement('div');
+    dataEl.className = 'inspector-event-data';
+    dataEl.textContent = formatEventData(ev.data);
+    div.append(header, dataEl);
     div.addEventListener('click', () => showEventDetail(ev));
     els.body.appendChild(div);
   }
@@ -243,9 +251,21 @@ function renderMachineInternals() {
     for (const p of [...state.promptHistory].reverse()) {
       const div = document.createElement('div');
       div.className = 'timeline-prompt';
-      div.innerHTML = `<div class="prompt-q">Q: ${p.prompt.slice(0, 60)}</div>`;
-      if (p.result) div.innerHTML += `<div class="prompt-a">A: ${p.result.slice(0, 80)}</div>`;
-      else if (p.error) div.innerHTML += `<div class="prompt-err">Error: ${p.error.slice(0, 60)}</div>`;
+      const promptQ = document.createElement('div');
+      promptQ.className = 'prompt-q';
+      promptQ.textContent = `Q: ${(p.prompt || '').slice(0, 60)}`;
+      div.appendChild(promptQ);
+      if (p.result) {
+        const promptA = document.createElement('div');
+        promptA.className = 'prompt-a';
+        promptA.textContent = `A: ${(p.result || '').slice(0, 80)}`;
+        div.appendChild(promptA);
+      } else if (p.error) {
+        const promptErr = document.createElement('div');
+        promptErr.className = 'prompt-err';
+        promptErr.textContent = `Error: ${(p.error || '').slice(0, 60)}`;
+        div.appendChild(promptErr);
+      }
       sec1.appendChild(div);
     }
   }

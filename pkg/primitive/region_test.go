@@ -67,8 +67,7 @@ func TestRegion_Read(t *testing.T) {
 			r := NewRegion(3)
 			defer r.Close()
 
-			mixerCap := 64
-			for i := 0; i < mixerCap; i++ {
+			for i := 0; i < MixerCapacity; i++ {
 				f := make([]byte, ByteSize)
 				f[0] = 1
 				So(regionWriteOK(r, f), ShouldBeNil)
@@ -79,7 +78,7 @@ func TestRegion_Read(t *testing.T) {
 			So(regionWriteOK(r, spillFrame), ShouldBeNil)
 
 			drain := make([]byte, ByteSize)
-			for i := 0; i < mixerCap; i++ {
+			for i := 0; i < MixerCapacity; i++ {
 				So(regionReadCount(r, drain), ShouldEqual, ByteSize)
 			}
 
@@ -183,8 +182,7 @@ func TestRegion_SpillStats(t *testing.T) {
 			r := NewRegion(6)
 			defer r.Close()
 
-			mixerCap := 64
-			for i := 0; i < mixerCap; i++ {
+			for i := 0; i < MixerCapacity; i++ {
 				f := make([]byte, ByteSize)
 				f[0] = 1
 				So(regionWriteOK(r, f), ShouldBeNil)
@@ -252,9 +250,13 @@ func BenchmarkRegion_Write(b *testing.B) {
 }
 
 func BenchmarkRegion_Close(b *testing.B) {
+	regs := make([]*Region, b.N)
 	for i := 0; i < b.N; i++ {
-		r := NewRegion(0)
-		_ = r.Close()
+		regs[i] = NewRegion(0)
+	}
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		_ = regs[i].Close()
 	}
 }
 

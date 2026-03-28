@@ -41,8 +41,19 @@ var truthOpNames = []string{
 	"const-1",
 }
 
-func ReadVMInstruction() uint8 {
-	return 0b0011
+// DefaultVMInstruction is the opcode used only when a Value has no in-band
+// program to read (HumanDescribeValue fallback). Real paths should use
+// InstructionFromValue instead.
+const DefaultVMInstruction uint8 = 0b0011
+
+// InstructionFromValue returns the current 4-bit opcode at the Value's PC.
+// When v is nil or the PC is out of range, it returns DefaultVMInstruction.
+func InstructionFromValue(v *primitive.Value) uint8 {
+	if v == nil {
+		return DefaultVMInstruction & 0xF
+	}
+	pc := int(v[core.Cfg.RegPC])
+	return v.ProgramOp(pc) & 0xF
 }
 
 /*
@@ -65,7 +76,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 		instr = v.ProgramOp(0)
 		progInfo = fmt.Sprintf(" program=%dops", countProgramOps(v))
 	} else {
-		instr = ReadVMInstruction() & 0xF
+		instr = DefaultVMInstruction & 0xF
 	}
 
 	return fmt.Sprintf(

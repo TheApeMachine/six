@@ -1,6 +1,10 @@
 #include <cuda_runtime.h>
 #include <stdint.h>
+#include <stdio.h>
 #include "../shared/primitives.h"
+
+/* Upper bound on span-loop iterations (matches Metal MAX_SPAN in backend.metal). */
+#define MAX_SPAN_ITERATIONS 1048576ULL
 
 #define MARK_EXEC_EXIT(ctx, code) do { \
     (ctx)[EXEC_STATUS_WORD] &= 0x0000FFFFFFFFFFFFULL; \
@@ -16,7 +20,7 @@ __global__ void unified_bitwise_kernel(
 
     uint32_t base = id * WORDS;
 
-    uint64_t contexts[2][128];
+    uint64_t contexts[2][WORDS];
     for (int i = 0; i < WORDS; i++) {
         contexts[0][i] = A[base + i];
         contexts[1][i] = B[base + i];
@@ -100,6 +104,9 @@ __global__ void unified_bitwise_kernel(
             }
 
             uint64_t limit = (sLen < dLen) ? sLen : dLen;
+            if (limit > MAX_SPAN_ITERATIONS) {
+                limit = MAX_SPAN_ITERATIONS;
+            }
             for (uint64_t i = 0; i < limit; i++) {
                 uint64_t sWord = (sOff + i) / 64;
                 uint64_t sBit = (sOff + i) % 64;
@@ -191,8 +198,18 @@ extern "C" {
 
         size_t bytes = 1024;
 
-        cudaMemcpy(d_pool_A,   a_host, bytes, cudaMemcpyHostToDevice);
-        cudaMemcpy(d_pool_B,   b_host, bytes, cudaMemcpyHostToDevice);
+        cudaError_t cpyErr = cudaMemcpy(d_pool_A, a_host, bytes, cudaMemcpyHostToDevice);
+        if (cpyErr != cudaSuccess) {
+            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy H->D d_pool_A failed: %s\n",
+                    cudaGetErrorString(cpyErr));
+            return -4;
+        }
+        cpyErr = cudaMemcpy(d_pool_B, b_host, bytes, cudaMemcpyHostToDevice);
+        if (cpyErr != cudaSuccess) {
+            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy H->D d_pool_B failed: %s\n",
+                    cudaGetErrorString(cpyErr));
+            return -5;
+        }
 
         int threads = 1;
         int blocks  = 1;
@@ -205,7 +222,12 @@ extern "C" {
         if (cudaGetLastError()    != cudaSuccess) return -2;
         if (cudaDeviceSynchronize() != cudaSuccess) return -3;
 
-        cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
+        cpyErr = cudaMemcpy(a_host, d_pool_A, bytes, cudaMemcpyDeviceToHost);
+        if (cpyErr != cudaSuccess) {
+            fprintf(stderr, "unified_bitwise_cuda: cudaMemcpy D->H d_pool_A failed: %s\n",
+                    cudaGetErrorString(cpyErr));
+            return -6;
+        }
         return 0;
     }
 }

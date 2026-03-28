@@ -82,6 +82,29 @@ const (
 	ExecExitBadProgramWord
 )
 
+// SubstrateContextKey carries a kernel.Substrate for Value.WriteContext.
+// Use ContextWithSubstrate to attach a substrate to a context tree.
+type substrateContextKey struct{}
+
+var SubstrateContextKey = substrateContextKey{}
+
+// ContextWithSubstrate returns ctx with substrate looked up by WriteContext.
+func ContextWithSubstrate(ctx context.Context, s kernel.Substrate) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, SubstrateContextKey, s)
+}
+
+func substrateFromContext(ctx context.Context) kernel.Substrate {
+	if ctx != nil {
+		if s, ok := ctx.Value(SubstrateContextKey).(kernel.Substrate); ok && s != nil {
+			return s
+		}
+	}
+	return Backend
+}
+
 var (
 	valueTo   func(*Value, []byte)
 	valueFrom func([]byte, *Value)
@@ -236,25 +259,39 @@ Write implements io.Writer. It is how Values are "folded" through each
 other, which acts as the closes thing to an instruction pointer.
 */
 func (value *Value) Write(p []byte) (int, error) {
+	return value.WriteContext(context.Background(), p)
+}
+
+// WriteContext is like Write but resolves the kernel substrate from ctx
+// (see ContextWithSubstrate), then falls back to package Backend.
+func (value *Value) WriteContext(ctx context.Context, p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 
 	incoming := valuePool.Get().(*Value)
 	valueFrom(p, incoming)
-	defer valuePool.Put(incoming) // TODO: Install the tombstone firmware.
 
 	errnie.Trace("value.Write", "p", p, "incoming", incoming)
 
-	if value.HasProgram() && Backend != nil {
-		// Use the backend abstraction to schedule the
-		// UniversalBitwise (ALU) on the pool.
-		Backend.Schedule(func(ctx context.Context) error {
-			return Backend.UniversalBitwise(
+	sub := substrateFromContext(ctx)
+	if value.HasProgram() && sub != nil {
+		var putOnce sync.Once
+		putIncoming := func() {
+			putOnce.Do(func() { valuePool.Put(incoming) })
+		}
+		if err := sub.Schedule(func(ctx context.Context) error {
+			defer putIncoming()
+			return sub.UniversalBitwise(
 				unsafe.Pointer(value),
 				unsafe.Pointer(incoming),
 			)
-		})
+		}); err != nil {
+			putIncoming()
+			return 0, err
+		}
+	} else {
+		valuePool.Put(incoming)
 	}
 
 	return len(p), nil
@@ -293,15 +330,6 @@ func (value *Value) Close() error {
 	checkRegion(core.Cfg.GossipIndex, core.Cfg.GossipBits)
 	checkRegion(core.Cfg.TTLIndex, core.Cfg.TTLBits)
 	checkRegion(core.Cfg.ProgramIndex, core.Cfg.ProgramBits)
-
-	// Compensate for the bootloader firmware (low-index program words).
-	bootloaderWords := int((core.Cfg.ProgramBits + 63) / 64)
-	for i := 0; i < bootloaderWords && i < Words; i++ {
-		if value[i] != 0 {
-			wiped = false
-			break
-		}
-	}
 
 	if wiped {
 		valuePool.Put(value)
@@ -577,10 +605,16 @@ func (value *Value) HasProgram() bool {
 	if value[core.Cfg.FW] > 0 {
 		return true
 	}
-	// Check if the program region has any non-zero words
-	startWord := core.Cfg.ProgramIndex / 64
-	endWord := (core.Cfg.ProgramIndex + int(core.Cfg.ProgramBits)) / 64
-	for i := startWord; i < endWord && i < Words; i++ {
+	startWord := core.Cfg.ProgramIndex
+	nProgWords := int((core.Cfg.ProgramBits + 63) / 64)
+	endWord := startWord + nProgWords
+	if startWord < 0 {
+		startWord = 0
+	}
+	if endWord > Words {
+		endWord = Words
+	}
+	for i := startWord; i < endWord; i++ {
 		if value[i] != 0 {
 			return true
 		}

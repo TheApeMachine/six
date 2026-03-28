@@ -14,7 +14,8 @@ kernel void unified_bitwise_kernel(
 ) {
     uint base = id * WORDS;
 
-    ulong contexts[2][128];
+    const ulong MAX_SPAN = 1048576UL;
+    ulong contexts[2][WORDS];
     for (int i = 0; i < WORDS; i++) {
         contexts[0][i] = A[base + i];
         contexts[1][i] = B[base + i];
@@ -98,6 +99,9 @@ kernel void unified_bitwise_kernel(
             }
 
             ulong limit = (sLen < dLen) ? sLen : dLen;
+            if (limit > MAX_SPAN) {
+                limit = MAX_SPAN;
+            }
             for (ulong i = 0; i < limit; i++) {
                 ulong sWord = (sOff + i) / 64;
                 ulong sBit = (sOff + i) % 64;

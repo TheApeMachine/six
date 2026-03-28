@@ -7,6 +7,10 @@ let onEventCallback = null;
 let onConnectCallback = null;
 let onDisconnectCallback = null;
 
+const RECONNECT_INITIAL_MS = 2000;
+const RECONNECT_MAX_MS = 30000;
+let reconnectDelay = RECONNECT_INITIAL_MS;
+
 export function initWebSocket(onEvent, onConnect, onDisconnect) {
   onEventCallback = onEvent;
   onConnectCallback = onConnect;
@@ -19,13 +23,16 @@ export function connect() {
 
   ws.onopen = () => {
     activeWS = ws;
+    reconnectDelay = RECONNECT_INITIAL_MS;
     if (onConnectCallback) onConnectCallback();
   };
 
   ws.onclose = () => {
     activeWS = null;
     if (onDisconnectCallback) onDisconnectCallback();
-    setTimeout(connect, 2000);
+    const delay = reconnectDelay;
+    reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+    setTimeout(connect, delay);
   };
 
   ws.onmessage = (event) => {
@@ -49,8 +56,9 @@ export function sendPrompt(msg) {
 }
 
 export function sendIngest(text) {
-  if (!activeWS || activeWS.readyState !== WebSocket.OPEN || !text.trim()) return false;
-  activeWS.send(JSON.stringify({ type: 'ingest', message: text }));
+  const msg = text.trim();
+  if (!activeWS || activeWS.readyState !== WebSocket.OPEN || !msg) return false;
+  activeWS.send(JSON.stringify({ type: 'ingest', message: msg }));
   return true;
 }
 

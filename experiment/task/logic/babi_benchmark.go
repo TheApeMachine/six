@@ -68,19 +68,8 @@ func (experiment *BabiExperiment) Prompts() []string {
 		return experiment.prompt
 	}
 
-	order := make([]byte, 0)
-	seen := make(map[byte]struct{})
-	for tok := range experiment.dataset.Generate() {
-		if _, ok := seen[tok]; ok {
-			continue
-		}
-		seen[tok] = struct{}{}
-		order = append(order, tok)
-	}
-
-	experiment.prompt = make([]string, len(order))
-	for i, tok := range order {
-		experiment.prompt[i] = string(tok)
+	for p := range experiment.dataset.GeneratePrompts() {
+		experiment.prompt = append(experiment.prompt, p.Text)
 	}
 	return experiment.prompt
 }

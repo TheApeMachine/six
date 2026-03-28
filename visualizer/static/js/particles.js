@@ -37,7 +37,7 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
   const startPos = from.center.clone();
   const endPos = to.center.clone();
 
-  if (conn.curve) {
+  if (conn && conn.curve) {
     const curveStart = conn.curve.getPointAt(0);
     lbl.position.copy(curveStart);
   } else {
@@ -54,7 +54,7 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
     pathKey,
     start: startPos,
     end: endPos,
-    curve: conn ? conn.curve : null,
+    curve: conn && conn.curve ? conn.curve : null,
     t0: Date.now(),
     dur: duration,
   });

@@ -8,7 +8,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -76,8 +75,8 @@ func BackendWithGraphHook(fn func(GraphEvent)) backendOption {
 	}
 }
 
-// BackendWithAffinityMode enables the new in-band affinity + program execution mode.
-// This is the gradual migration path - old behavior remains the default.
+// BackendWithAffinityMode toggles in-band affinity + program execution mode.
+// NewBackend enables this mode by default; pass false to disable (legacy behavior).
 func BackendWithAffinityMode(enabled bool) backendOption {
 	return func(backend *Backend) {
 		backend.useAffinityMode = enabled
@@ -205,7 +204,7 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 			}
 			if code&0x2000 != 0 {
 				idx := int(code & 0x0FFF)
-				if idx < 0 || idx >= primitive.Words {
+				if idx >= primitive.Words {
 					return 0, false
 				}
 				return valA[idx], false
@@ -268,7 +267,7 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 		}
 
 		dstIdx := int(dstCode & 0x0FFF)
-		if dstIdx < 0 || dstIdx >= primitive.Words {
+		if dstIdx >= primitive.Words {
 			continue
 		}
 		left := srcVal
@@ -321,8 +320,6 @@ func Popcount(value *primitive.Value, startBit, bitLen int) int {
 	return total
 }
 
-func (backend *Backend) Schedule(job func(ctx context.Context) error) {
-	if err := job(context.Background()); err != nil {
-		errnie.Error(err)
-	}
+func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
+	return job(context.Background())
 }

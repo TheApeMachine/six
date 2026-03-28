@@ -38,28 +38,35 @@ import {
 // ═══════════════════════════════════════════════════════════
 // DOM REFERENCES
 // ═══════════════════════════════════════════════════════════
-const logBox = document.getElementById('log-container');
-const statEvents = document.getElementById('stat-events');
-const statIngested = document.getElementById('stat-ingested');
-const statConn = document.getElementById('stat-conn');
-const statReplay = document.getElementById('stat-replay');
-const statLastOp = document.getElementById('stat-last-op');
-const chunkText = document.getElementById('chunk-text');
-const resultText = document.getElementById('result-text');
-const densityFill = document.getElementById('density-fill');
+function getRequired(id) {
+  const el = document.getElementById(id);
+  if (!el) throw new Error(`Six viz: missing required DOM element #${id}`);
+  return el;
+}
 
-const slider = document.getElementById('replay-slider');
-const replayInfo = document.getElementById('replay-info');
-const btnRec = document.getElementById('btn-rec');
-const btnPlay = document.getElementById('btn-play');
-const btnPause = document.getElementById('btn-pause');
-const btnStep = document.getElementById('btn-step');
-const btnExport = document.getElementById('btn-export');
-const btnImport = document.getElementById('btn-import');
-const importFile = document.getElementById('import-file');
-const promptInput = document.getElementById('prompt-input');
-const promptSend = document.getElementById('prompt-send');
-const logSearch = document.getElementById('log-search');
+const logBox = getRequired('log-container');
+const statEvents = getRequired('stat-events');
+const statIngested = getRequired('stat-ingested');
+const statConn = getRequired('stat-conn');
+const statReplay = getRequired('stat-replay');
+const statLastOp = getRequired('stat-last-op');
+const chunkText = getRequired('chunk-text');
+const resultText = getRequired('result-text');
+const densityFill = getRequired('density-fill');
+
+const slider = getRequired('replay-slider');
+const replayInfo = getRequired('replay-info');
+const btnRec = getRequired('btn-rec');
+const btnPlay = getRequired('btn-play');
+const btnPause = getRequired('btn-pause');
+const btnStep = getRequired('btn-step');
+const btnExport = getRequired('btn-export');
+const btnImport = getRequired('btn-import');
+const importFile = getRequired('import-file');
+const promptBar = getRequired('prompt-bar');
+const promptInput = getRequired('prompt-input');
+const promptSend = getRequired('prompt-send');
+const logSearch = getRequired('log-search');
 
 const stageElements = {
   tokenize: document.getElementById('stage-tokenize'),
@@ -102,7 +109,7 @@ function activateStage(name, info) {
 // ═══════════════════════════════════════════════════════════
 // SPARKLINE
 // ═══════════════════════════════════════════════════════════
-const sparkCanvas = document.getElementById('sparkline-canvas');
+const sparkCanvas = getRequired('sparkline-canvas');
 const sparkCtx = sparkCanvas.getContext('2d');
 
 function pushSparkDensity(density, action) {
@@ -211,14 +218,24 @@ function addFoldNode(bin, level, density, text, childCount) {
   while (foldNodes.length > MAX_FOLD_NODES) {
     const old = foldNodes.shift();
     foldLayer.remove(old.lbl);
-    if (old.line) { foldLayer.remove(old.line); old.line.geometry.dispose(); }
+    if (old.line) {
+      foldLayer.remove(old.line);
+      old.line.geometry.dispose();
+      const m = old.line.material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach((mat) => mat.dispose());
+    }
   }
 }
 
 function clearFoldNodes() {
   for (const n of foldNodes) {
     foldLayer.remove(n.lbl);
-    if (n.line) { foldLayer.remove(n.line); n.line.geometry.dispose(); }
+    if (n.line) {
+      foldLayer.remove(n.line);
+      n.line.geometry.dispose();
+      const m = n.line.material;
+      if (m) (Array.isArray(m) ? m : [m]).forEach((mat) => mat.dispose());
+    }
   }
   foldNodes.length = 0;
   for (const key of Object.keys(foldLevelCounts)) delete foldLevelCounts[key];
@@ -417,14 +434,16 @@ initWebSocket(
   () => {
     statConn.textContent = 'connected';
     statConn.style.color = 'rgba(140, 255, 200, 0.75)';
-    if (promptSend) promptSend.disabled = false;
+    promptSend.disabled = false;
+    promptBar.classList.remove('hidden');
     log('Connected to SIX telemetry', 'state');
   },
   // onDisconnect
   () => {
     statConn.textContent = 'offline';
     statConn.style.color = 'rgba(255, 140, 120, 0.7)';
-    if (promptSend) promptSend.disabled = true;
+    promptSend.disabled = true;
+    promptBar.classList.add('hidden');
     log('Disconnected', 'state');
   },
 );
@@ -467,35 +486,33 @@ btnStep.addEventListener('click', () => {
 btnExport.addEventListener('click', exportRecording);
 btnImport.addEventListener('click', () => importFile.click());
 importFile.addEventListener('change', async (e) => {
-  if (e.target.files.length) {
+  if (!e.target.files.length) return;
+  try {
     const count = await importRecording(e.target.files[0]);
-    if (count > 0) {
-      slider.max = count - 1;
-      replayInfo.textContent = `${count} events`;
-      statEvents.textContent = count;
-      log(`Loaded ${count} events`, 'state');
-    }
+    slider.max = Math.max(0, count - 1);
+    replayInfo.textContent = `${count} events`;
+    statEvents.textContent = count;
+    log(count > 0 ? `Loaded ${count} events` : 'Imported empty recording', 'state');
+  } catch (err) {
+    console.error(err);
+    log(`Import failed: ${err && err.message ? err.message : err}`, 'state');
   }
 });
 
-if (promptSend) {
-  promptSend.addEventListener('click', () => {
+promptSend.addEventListener('click', () => {
+  if (sendPrompt(promptInput.value)) {
+    promptInput.value = '';
+    log(`Sent prompt`, 'pipeline');
+  }
+});
+promptInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
     if (sendPrompt(promptInput.value)) {
       promptInput.value = '';
       log(`Sent prompt`, 'pipeline');
     }
-  });
-}
-if (promptInput) {
-  promptInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      if (sendPrompt(promptInput.value)) {
-        promptInput.value = '';
-        log(`Sent prompt`, 'pipeline');
-      }
-    }
-  });
-}
+  }
+});
 
 slider.addEventListener('input', () => {
   if (!isReplayMode()) {

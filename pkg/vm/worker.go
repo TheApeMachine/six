@@ -2,6 +2,7 @@ package vm
 
 import (
 	"context"
+	"errors"
 	"sync"
 )
 
@@ -17,12 +18,20 @@ type Worker struct {
 }
 
 func NewWorker(job func(ctx context.Context) error) *Worker {
-	return &Worker{
-		job: job,
+	var w *Worker
+	if v := workerPool.Get(); v != nil {
+		w = v.(*Worker)
+	} else {
+		w = &Worker{}
 	}
+	w.job = job
+	return w
 }
 
 func (worker *Worker) Run(ctx context.Context) (err error) {
+	if worker.job == nil {
+		return NewPoolError(PoolErrInvalidJob, errors.New("nil job"))
+	}
 	defer func() {
 		worker.job = nil
 		workerPool.Put(worker)

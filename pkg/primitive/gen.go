@@ -4,18 +4,42 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/spf13/viper"
 )
 
+// resolveConfigPath picks the config file path: --config flag, then
+// CONFIG_PATH env, then ../../cmd/cfg/config.yml relative to this source file
+// (via runtime.Caller), so the generator works from any working directory.
+func resolveConfigPath(configFlag string) string {
+	if strings.TrimSpace(configFlag) != "" {
+		return filepath.Clean(configFlag)
+	}
+	if env := strings.TrimSpace(os.Getenv("CONFIG_PATH")); env != "" {
+		return filepath.Clean(env)
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml"))
+	}
+	return filepath.Clean(filepath.Join("..", "..", "cmd", "cfg", "config.yml"))
+}
+
 func main() {
-	viper.SetConfigFile("../../cmd/cfg/config.yml")
+	configPath := flag.String("config", "", "path to config.yml (overrides CONFIG_PATH and default)")
+	flag.Parse()
+
+	cfgFile := resolveConfigPath(*configPath)
+	viper.SetConfigFile(cfgFile)
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Printf("Error reading config: %v\n", err)
+		fmt.Printf("Error reading config %q: %v\n", cfgFile, err)
 		os.Exit(1)
 	}
 
@@ -46,7 +70,12 @@ func main() {
 		fmt.Printf("gen primitives: value.region.program.bits (%d) must be divisible by 32\n", progBits)
 		os.Exit(1)
 	}
-	maxPC := int(progBits / 32)
+	q := progBits / 32
+	if q > uint64(math.MaxInt) {
+		fmt.Printf("gen primitives: program bits imply maxPC=%d which overflows int\n", q)
+		os.Exit(1)
+	}
+	maxPC := int(q)
 	stateAccum := viper.GetInt("value.region.state.accumulator")
 	execStatusWord := stateAccum + 1
 

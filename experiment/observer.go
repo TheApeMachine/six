@@ -105,7 +105,7 @@ func (o *Observer) measure(p []byte, n int) {
 
 		// Extract observability metrics directly from the topological frame
 		pressure := cpu.Popcount(val, int(core.Cfg.StateSequence), 64)
-		instr := uint8(telemetry.ReadVMInstruction() & 0xF)
+		instr := telemetry.InstructionFromValue(val)
 		density := cpu.Popcount(val, int(core.Cfg.StateAccumulator), 64)
 
 		o.lastInstr.Store(uint32(instr))

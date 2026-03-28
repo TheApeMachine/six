@@ -14,7 +14,7 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
-func init() {
+func setupValueTests() {
 	viper.SetConfigFile("../../cmd/cfg/config.yml")
 	if err := viper.ReadInConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "primitive/value_test: viper.ReadInConfig: %v\n", err)
@@ -33,6 +33,7 @@ func init() {
 }
 
 func TestMain(m *testing.M) {
+	setupValueTests()
 	code := m.Run()
 	_ = errnie.Shutdown(context.Background())
 	os.Exit(code)

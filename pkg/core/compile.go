@@ -26,19 +26,26 @@ func CompileFunc(src string) ([]uint32, error) {
 			)
 		}
 
+		lineNo := lineNum + 1
 		srcCode, err := parseInstruction(chunks[0])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("compile line %d: parseInstruction(src) on %q: %w", lineNo, chunks[0], err)
 		}
 
 		dstCode, err := parseInstruction(chunks[1])
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("compile line %d: parseInstruction(dst) on %q: %w", lineNo, chunks[1], err)
 		}
 
 		opVal, err := strconv.ParseUint(chunks[2], 2, 8)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("compile line %d: failed to parse op: %w", lineNo, err)
+		}
+		if opVal > 0xF {
+			return nil, fmt.Errorf(
+				"compile line %d: op literal %d exceeds 4-bit opcode (max 15); see CompileFunc encoding",
+				lineNo, opVal,
+			)
 		}
 
 		instr := uint32(opVal&0xF) | (uint32(srcCode&0x3FFF) << 4) | (uint32(dstCode&0x3FFF) << 18)
@@ -94,6 +101,12 @@ func parseInstruction(chunk string) (uint64, error) {
 	val, err := strconv.ParseUint(chunk, 10, 64)
 	if err != nil {
 		return 0, err
+	}
+	if val > 0x3FFF {
+		return 0, fmt.Errorf(
+			"operand %d exceeds 14-bit field (max 16383); see CompileFunc immediate encoding and flag bits 0x1000/0x2000",
+			val,
+		)
 	}
 	return val, nil
 }
