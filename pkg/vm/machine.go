@@ -122,6 +122,12 @@ func (machine *Machine) Pool() *Pool {
 	return machine.pool
 }
 
+// Regions returns the machine's Region set. Callers can read accumulated
+// frames directly from Regions after the recirculation loop has stopped.
+func (machine *Machine) Regions() []*primitive.Region {
+	return machine.regions
+}
+
 func (machine *Machine) Read(p []byte) (n int, err error) {
 	return machine.stream.Read(p)
 }

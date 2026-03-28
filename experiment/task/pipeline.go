@@ -27,10 +27,18 @@ Pipeline is the orchestrator for running experiments.
 The Six architecture is "always-on" so this needs to
 be orchestrated in a particular way.
 
-1. Read data from the dataset to create Values in the system
-2. Deploy any needed Values with programs (e.g. Affinity, etc.)
-3. Deploy Values with prompt programs (bytes folded through workspace; firmware from config)
-4. Observe results: raw Value frame by default, or token-region text when the experiment implements WorkspaceTokenObserver (answers materialized in tokens)
+ 1. Start the recirculation loop: a goroutine reads executed frames
+    from the pipe's output and writes them back into the pipe's input.
+    Each pass through the Stream pairs the frame with its neighbor and
+    fires the ALU. Values keep mixing until the pipe is closed.
+ 2. Hydrate: pump dataset bytes into the Machine. They enter the
+    recirculation loop and begin mixing immediately.
+ 3. Prompt: inject workspace Values carrying Viral firmware into the
+    Machine. They enter the same loop and propagate through the
+    population via firmware chaining.
+ 4. Observe: after all prompts are injected, close the pipe to stop
+    recirculation, then read results from the Regions (which
+    accumulated every frame via fan-out on each pass).
 */
 type Pipeline struct {
 	ctx        context.Context
@@ -88,58 +96,95 @@ func (pipeline *Pipeline) Run() (err error) {
 		}
 	}()
 
-	// Hydrate the region mesh from the dataset (transport only — no ALU here).
-	// The stream pipe is bounded; a concurrent drain avoids blocking once the
-	// ring fills. CloseWrite after Copy lets the drain exit on EOF.
+	// ── Recirculation loop ───────────────────────────────────────────
+	// Read executed frames from the pipe output and feed them back into
+	// the pipe input. Each pass through the Stream pairs the frame with
+	// its neighbor and fires the ALU. The fan-out in Stream.Write
+	// deposits every result into Regions, so the population accumulates
+	// there. The loop runs until CloseWrite shuts the pipe.
+	loopDone := make(chan error, 1)
+	go func() {
+		buf := make([]byte, primitive.ByteSize)
+		for {
+			if _, err := machine.Read(buf); err != nil {
+				loopDone <- err
+				return
+			}
+			if _, err := machine.Write(buf); err != nil {
+				loopDone <- err
+				return
+			}
+		}
+	}()
+
+	// ── Phase 1: Hydrate ────────────────────────────────────────────
+	// Pump dataset into the Machine. Frames enter the recirculation
+	// loop and begin mixing immediately.
 	if ds := pipeline.experiment.Dataset(); ds != nil {
-		drainDone := make(chan error, 1)
-		go func() {
-			_, err := io.Copy(io.Discard, machine)
-			drainDone <- err
-		}()
-
-		_, copyErr := io.Copy(machine, ds)
-		cwErr := machine.CloseWrite()
-
-		drainErr := <-drainDone
-		if copyErr != nil {
+		if _, copyErr := io.Copy(machine, ds); copyErr != nil {
 			return errnie.Error(copyErr)
 		}
-		if cwErr != nil {
-			return errnie.Error(cwErr)
-		}
-		if drainErr != nil && !errors.Is(drainErr, io.EOF) {
-			return errnie.Error(drainErr)
-		}
 	}
 
-	// Always-on workspace: folding happens only via Value.Write → Backend (fold-through).
-	workspace, werr := primitive.NewValue(nil)
-	if werr != nil {
-		return errnie.Error(werr)
-	}
-	workspace[core.Cfg.FW] = uint64(core.FirmwareTypeViral)
-	defer workspace.Close()
-
+	// ── Phase 2: Prompt ─────────────────────────────────────────────
+	// Inject workspace Values carrying Viral firmware. They enter the
+	// same recirculation loop and propagate through the population.
 	prompts := pipeline.experiment.Prompts()
 	for idx, prompt := range prompts {
 		errnie.Trace("Prompt", "prompt", prompt)
 
-		if _, err = io.Copy(workspace, strings.NewReader(prompt)); err != nil {
+		workspace, werr := primitive.NewValue([]byte(prompt))
+		if werr != nil {
+			return errnie.Error(werr)
+		}
+		workspace[core.Cfg.FW] = uint64(core.FirmwareTypeViral)
+
+		frame := make([]byte, primitive.ByteSize)
+		if err := primitive.ValueToBytes(workspace, frame); err != nil {
 			return errnie.Error(err)
 		}
 
-		var obs []byte
-		if wo, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && wo.ObserveWorkspaceAsTokens() {
-			obs = []byte(strings.TrimSpace(primitive.DecodeTokensToText(workspace)))
-		} else {
-			obs = make([]byte, primitive.ByteSize)
-			if err := primitive.ValueToBytes(workspace, obs); err != nil {
-				return errnie.Error(err)
+		if _, err = machine.Write(frame); err != nil {
+			return errnie.Error(err)
+		}
+
+		errnie.Debug("Prompt", "prompt", prompt, "idx", idx)
+	}
+
+	// ── Phase 3: Stop and observe ───────────────────────────────────
+	// Close the pipe to stop recirculation, then read results from
+	// Regions where every pass deposited frames via fan-out.
+	if cwErr := machine.CloseWrite(); cwErr != nil {
+		return errnie.Error(cwErr)
+	}
+	if loopErr := <-loopDone; loopErr != nil && !errors.Is(loopErr, io.EOF) {
+		return errnie.Error(loopErr)
+	}
+
+	// Collect observations from Regions.
+	readBuf := make([]byte, primitive.ByteSize)
+	for idx, prompt := range prompts {
+		// Read one frame from the first Region that has data.
+		found := false
+		for _, reg := range machine.Regions() {
+			if _, err := reg.Read(readBuf); err == nil {
+				found = true
+				break
 			}
 		}
 
-		errnie.Debug("Prompt", "prompt", prompt)
+		obs := make([]byte, primitive.ByteSize)
+		if found {
+			copy(obs, readBuf)
+		}
+
+		observed := obs
+		if wo, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && wo.ObserveWorkspaceAsTokens() {
+			var result primitive.Value
+			if err := result.ApplyWireFrame(obs); err == nil {
+				observed = []byte(strings.TrimSpace(primitive.DecodeTokensToText(&result)))
+			}
+		}
 
 		holdout := []byte(nil)
 		if hp, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
@@ -153,7 +198,7 @@ func (pipeline *Pipeline) Run() (err error) {
 			Name:     pipeline.experiment.Name(),
 			Prefix:   []byte(prompt),
 			Holdout:  holdout,
-			Observed: obs,
+			Observed: observed,
 		})
 	}
 

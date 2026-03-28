@@ -1,79 +1,139 @@
 % ============================================================================
-% FIRMWARE AND SELF-MODIFICATION
+% FIRMWARE CHAINING, VALUE EMISSION, AND PROGRAM COMPOSITION
 % ============================================================================
-\subsection{Firmware and Self-Modification}
+\subsection{Firmware Chaining and Value Emission}
 \label{sec:firmware}
 
-A system built entirely from boolean truth tables must bootstrap
-higher-level behaviors from these primitives.  The firmware system
-addresses this by providing a library of pre-compiled programs that
-encode common operations as sequences of boolean instructions.
+The program region of a single Value holds 98 instruction slots.  This
+is not, however, the limit of a program's length.  Because the firmware
+index register (\texttt{fw}) and the program counter (\texttt{pc}) are
+both addressable by the same boolean operations used for all other
+computation, a program can \emph{chain} to the next firmware by writing
+a new firmware index into \texttt{fw} and resetting \texttt{pc} to zero
+as its final two instructions.  On the next execution cycle, the
+bootloader loads the indicated firmware and execution continues from the
+beginning of the new program.  An arbitrarily long computation can
+therefore be expressed as a sequence of firmware segments, each fitting
+within 98 slots, linked end-to-end through the \texttt{fw}/\texttt{pc}
+handoff.
 
 \subsubsection{Firmware Compilation}
 
-Each firmware program is specified as a sequence of textual instructions,
-one per line, in the format \texttt{source destination operation}.
+Each firmware segment is specified as a sequence of textual
+instructions in the format \texttt{source~destination~operation}.
 Operands may name a register (\texttt{r0}--\texttt{r5}, \texttt{pc},
-\texttt{fw}), a pointer dereference, or a fourteen-bit immediate value.
-The operation field is a four-bit binary literal selecting one of the
-sixteen truth tables.  A compiler translates each line into a packed
-thirty-two-bit instruction word and stores the resulting sequence in
-memory.  At runtime, any of these compiled programs can be loaded into a
-Value's program region before execution.
+\texttt{fw}), a pointer dereference, or a fourteen-bit immediate
+value.  The operation field is a four-bit binary literal selecting one
+of the sixteen truth tables.  A compiler translates each line into a
+packed thirty-two-bit instruction word.  At runtime, any compiled
+segment can be loaded into a Value's program region by setting
+\texttt{fw} to the corresponding index.
 
 \subsubsection{The Firmware Library}
 
-Six firmware programs are defined, each targeting a specific structural
-operation on one or more Values.
+Six firmware segments are defined.  Each performs a focused structural
+operation; together, they compose into longer pipelines through
+chaining.
 
-The \textbf{bootloader} initializes a frame's registers to known values,
-preparing it for subsequent computation.  The \textbf{tombstone} program
-zeroes structural metadata---linking pointers, state fields, and the
-affinity bitmask---while leaving the data region intact, effectively
-marking a frame as decommissioned.  The \textbf{wipe} program performs
-the complementary operation, zeroing the data region while preserving
-structural metadata.
+The \textbf{bootloader} initializes a frame's registers to known
+values and prepares it for subsequent execution.  Every firmware chain
+begins here: a chain is expressed as bootloader~$\to$~segment$_1$~$\to
+$~segment$_2$~$\to \cdots$, with each segment ending by writing the
+next index into \texttt{fw} and resetting \texttt{pc}.
 
-The \textbf{affinity} program computes a running XOR accumulation across
-the data region of the executing frame and adopts linking metadata from a
-partner frame.  This produces a compact summary of the frame's data
-content while establishing a structural relationship with another frame.
-
-The \textbf{shatter} program applies a three-pass AND operation that
-decomposes a frame's data content.  Each pass combines the data region
-with a different register value, progressively isolating subsets of the
-active bits.  The result is a decomposed representation in which
-individual bit patterns from the original data are separated into
-distinct register states.
+The \textbf{affinity} program performs two operations.  First, it
+accumulates a structural summary of the executing frame's data region
+through a running boolean combination across the token words.  Second,
+it adopts linking metadata from a partner frame, establishing an edge
+in the implicit graph that connects related Values.  Crucially, the
+result of affinity is not merely a modification of the executing frame:
+it is intended to \emph{emit} a new Value whose data region encodes
+the folded structure---the residual after shared components between
+the two participating frames have been identified and factored out.
+This emission deposits the new Value back into the Region, where it
+becomes available for further interaction.
 
 The \textbf{viral} program copies the executing frame's program region
-into a partner frame's program region, overwriting the partner's
-existing instructions.  After execution, both frames carry identical
-programs.  This is the mechanism by which useful programs can propagate
-through a population of Values: a frame that has developed an effective
-program (through any combination of firmware loading, external
-injection, or self-modification) can spread that program to neighboring
-frames during Region mixing.
+into a partner frame's program region.  Its final instructions then
+write a specified firmware index into the partner's \texttt{fw}
+register and reset the partner's \texttt{pc}, so that the partner
+wakes up running the next segment in the chain.  A typical deployment
+is viral~$\to$~affinity: the viral step propagates the query logic to
+a neighboring frame, and the affinity step evaluates structural overlap
+between the query and the neighbor's data.
+
+The \textbf{shatter} program applies a three-pass AND operation that
+decomposes a frame's data content, progressively isolating subsets of
+active bits into distinct register states.  The \textbf{tombstone}
+program zeroes structural metadata---linking pointers, state fields,
+and the affinity bitmask---to mark a frame as inactive.  The
+\textbf{wipe} program zeroes the data region while preserving
+structural metadata.
+
+\subsubsection{Graph Construction Through Folding}
+
+When the affinity firmware processes a set of Values that share a
+common component---for example, the predicate ``is in the'' appearing
+in three distinct propositions---the shared component factors out and
+becomes a structural node in the resulting graph.  The mechanism is
+boolean cancellation: applying XNOR across two data regions yields all
+ones where the regions match, and the residual (obtained via AND-NOT
+or XOR) isolates the distinguishing content.
+
+Consider three propositions: ``Sandra is in the Garden,'' ``Roy is in
+the Kitchen,'' ``Harold is in the Kitchen.''  After affinity processing,
+the shared predicate collapses into a single label node that links to
+the set of subjects $\{$Sandra, Roy, Harold$\}$, while each subject
+links to its associated location.  The link pointers (word~65) and
+affinity bitmasks (word~64) encode these edges.  The emitted Values
+representing the folded structure are deposited back into the Region.
+
+A query such as ``Where is Roy?'' then traverses this graph: the
+predicate component cancels against the label node via XNOR, the
+subject component cancels against the Roy node, and the remaining edge
+resolves to ``Kitchen.''  The traversal cost is proportional to the
+graph depth, not the total number of stored Values.
+
+\subsubsection{Firmware Chains as Pipelines}
+
+The chaining mechanism allows firmware segments to compose into
+multi-stage pipelines.  A retrieval pipeline, for instance, might
+proceed as:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Viral:} propagate the query program to a neighbor.
+  \item \textbf{Affinity:} evaluate structural overlap; emit a new
+        Value encoding the residual.
+  \item \textbf{Shatter:} decompose the residual to isolate individual
+        features.
+  \item \textbf{Affinity} (second pass): match decomposed features
+        against the neighbor's link targets.
+\end{enumerate}
+
+Each transition is a two-instruction \texttt{fw}/\texttt{pc} handoff.
+The pipeline length is limited only by the number of defined firmware
+segments, not by the 98-slot capacity of a single program region.
 
 \subsubsection{Self-Modification and Operator Discovery}
 
 Because the program region is part of the frame's addressable memory,
-the firmware programs themselves can be targets of boolean operations.
-A sequence of interactions between frames may produce a program region
-that differs from any of the six firmware templates.  If such a derived
-program produces a useful transformation---for example, a composition
-of shatter and affinity operations that extracts a specific structural
-feature---the viral firmware can then propagate it through the
-population of active frames.
+boolean operations applied during Region mixing can produce instruction
+sequences that differ from any of the six firmware templates.  If such
+a derived program produces a useful transformation, the viral firmware
+can propagate it to neighboring frames.
 
-This creates a closed loop: firmware seeds initial behavior; boolean
-interactions during Region mixing may produce novel instruction
-sequences; and the viral mechanism distributes successful sequences.
-No gradient computation or external optimization is involved.  The
-process is entirely combinatorial, driven by the stochastic mixing
-order of the Region and the deterministic execution of boolean
-instructions.
+The selection signal for ``useful'' need not be external.  A frame's
+own state region tracks execution outcomes: the TTL counter (word~70)
+decrements with each hop, and the state accumulator (word~63) records
+whether interactions produced non-trivial residuals.  A program that
+leads to successful structural matches---non-zero XNOR overlap with
+query targets---will tend to leave its host frame in a state that
+other frames recognize as high-affinity, increasing the probability
+that the viral mechanism copies it.
 
-Whether this loop converges to useful programs in practice, and under
-what conditions, is an empirical question addressed in the experimental
-sections that follow.
+This creates a feedback loop: firmware seeds initial behavior; Region
+mixing produces novel instruction sequences; the viral mechanism
+propagates sequences from frames with favorable state; and the
+cycle repeats.  No gradient computation is involved.  The process is
+combinatorial, driven by the stochastic mixing order of the Region
+and the deterministic execution of boolean instructions.

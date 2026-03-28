@@ -64,6 +64,8 @@ The batch may therefore be heterogeneous: each Value runs its own independent
 program in parallel on the GPU.
 */
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+	errnie.Trace("metal.Backend.UniversalBitwise", "a", a, "b", b)
+
 	if !metalReady.Load() {
 		return NewMetalError(
 			MetalErrorUnavailable,

@@ -8,6 +8,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -174,29 +175,41 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 
 	for {
 		pc := valA[pcIdx]
+		errnie.Trace("cpu.Backend.UniversalBitwise", "pc", pc, "maxPC", core.Cfg.MaxPC)
+
 		if pc >= uint64(core.Cfg.MaxPC) {
 			valA.SetExecExitCode(primitive.ExecExitExhausted)
+			errnie.Trace("cpu.Backend.UniversalBitwise", "pc", pc, "maxPC", core.Cfg.MaxPC)
 			break
 		}
 
 		wordPos := wordBase + (pc / 2)
+		errnie.Trace("cpu.Backend.UniversalBitwise", "wordPos", wordPos, "primitive.Words", primitive.Words)
+
 		if int(wordPos) >= primitive.Words {
 			valA.SetExecExitCode(primitive.ExecExitBadProgramWord)
+			errnie.Trace("cpu.Backend.UniversalBitwise", "wordPos", wordPos, "primitive.Words", primitive.Words)
 			break
 		}
+
 		shift := uint((pc % 2) * 32)
 		instr := uint32(valA[wordPos] >> shift)
 
 		op := uint8(instr & 0xF)
+		errnie.Trace("cpu.Backend.UniversalBitwise", "op", op, "pc", pc)
+
 		if op == 0 && pc > 0 {
 			valA.SetExecExitCode(primitive.ExecExitHaltOpcode)
+			errnie.Trace("cpu.Backend.UniversalBitwise", "op", op, "pc", pc)
 			break
 		}
 
 		srcCode := uint16((instr >> 4) & 0x3FFF)
 		dstCode := uint16((instr >> 18) & 0x3FFF)
+		errnie.Trace("cpu.Backend.UniversalBitwise", "srcCode", srcCode, "dstCode", dstCode)
 
 		valA[pcIdx]++
+		errnie.Trace("cpu.Backend.UniversalBitwise", "pcIdx", pcIdx, "valA[pcIdx]", valA[pcIdx])
 
 		resolve := func(code uint16) (uint64, bool) {
 			if code&0x1000 != 0 {
@@ -205,6 +218,7 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 			if code&0x2000 != 0 {
 				idx := int(code & 0x0FFF)
 				if idx >= primitive.Words {
+					errnie.Trace("cpu.Backend.UniversalBitwise", "idx", idx, "primitive.Words", primitive.Words)
 					return 0, false
 				}
 				return valA[idx], false
@@ -214,10 +228,12 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 
 		srcVal, sSpan := resolve(srcCode)
 		dstVal, dSpan := resolve(dstCode)
+		errnie.Trace("cpu.Backend.UniversalBitwise", "srcVal", srcVal, "dstVal", dstVal)
 
 		if sSpan || dSpan {
 			sBase := srcVal
 			dBase := dstVal
+
 			if int(sBase)+2 >= primitive.Words || int(dBase)+2 >= primitive.Words {
 				continue
 			}
@@ -228,10 +244,25 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 
 			limit := min(sLen, dLen)
 
+			errnie.Trace(
+				"cpu.Backend.UniversalBitwise",
+				"limit", limit,
+				"sLen", sLen,
+				"dLen", dLen,
+				"sBase", sBase,
+				"dBase", dBase,
+			)
+
 			if limit > 0 {
 				sLast := (sOff + limit - 1) / 64
 				dLast := (dOff + limit - 1) / 64
 				if sLast >= uint64(primitive.Words) || dLast >= uint64(primitive.Words) {
+					errnie.Trace(
+						"cpu.Backend.UniversalBitwise",
+						"sLast", sLast,
+						"dLast", dLast,
+						"primitive.Words", primitive.Words,
+					)
 					return fmt.Errorf(
 						"cpu.Backend.UniversalBitwise: span exceeds value (%d words): sLast=%d dLast=%d",
 						primitive.Words, sLast, dLast,
@@ -254,6 +285,14 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 				sb := (contexts[sLane][sIdx] >> sShift) & 1
 				db := (contexts[dLane][dIdx] >> dShift) & 1
 
+				errnie.Trace(
+					"cpu.Backend.UniversalBitwise",
+					"sIdx", sIdx,
+					"dIdx", dIdx,
+					"sLane", sLane,
+					"dLane", dLane,
+				)
+
 				// UNIVERSAL ALU LOGIC (Algebraic Normal Form)
 				// Maps (sb,db) to the truth table result
 				idx := (1 - db) | ((1 - sb) << 1)
@@ -263,6 +302,7 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 				target := &contexts[dLane][dIdx]
 				*target = (*target & ^(uint64(1) << dShift)) | (uint64(res) << dShift)
 			}
+
 			continue
 		}
 
