@@ -120,11 +120,30 @@ func (server *Server) ListenAndServe(addr string, udpAddr string) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(sub)))
+	mux.HandleFunc("/api/layout", server.handleLayout)
+	mux.HandleFunc("/api/system", server.handleSystem)
 	mux.HandleFunc("/ws", server.handleWS)
 
 	server.httpSrv = &http.Server{Addr: addr, Handler: mux}
 
 	return server.httpSrv.ListenAndServe()
+}
+
+/*
+handleLayout returns the current Value layout so the browser can decode live
+binary frames without guessing the field offsets.
+*/
+func (server *Server) handleLayout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(BuildValueLayout())
+}
+
+/*
+handleSystem returns the runtime topology around the chamber.
+*/
+func (server *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(BuildSystemTopology())
 }
 
 /*
@@ -252,6 +271,15 @@ func (server *Server) handlePromptCommand(msg string) {
 		return
 	}
 
+	server.Broadcast(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:   "prompt-start",
+			Message: msg,
+		},
+	})
+
 	result, err := fn(msg)
 
 	if err != nil {
@@ -267,7 +295,29 @@ func (server *Server) handlePromptCommand(msg string) {
 		return
 	}
 
-	_ = result
+	resultText := string(result)
+	if len(result) == primitive.ByteSize {
+		if value := primitive.BytesToValue(result); value != nil {
+			resultText = primitive.DecodeTokensToText(value)
+		}
+	}
+
+	stage := "prompt-complete"
+	if len(result) == 0 {
+		stage = "prompt-empty"
+	}
+
+	server.Broadcast(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:       stage,
+			Message:     fmt.Sprintf("%d bytes", len(result)),
+			ResultText:  resultText,
+			ChunkText:   telemetry.ASCIIFramePreview(result, 120),
+			Instruction: "",
+		},
+	})
 }
 
 func (server *Server) handleIngestCommand(text string) {

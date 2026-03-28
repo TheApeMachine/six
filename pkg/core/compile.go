@@ -57,12 +57,7 @@ func CompileFunc(src string) ([]uint32, error) {
 
 func parseInstruction(chunk string) (uint64, error) {
 	if strings.HasPrefix(chunk, "*") {
-		val, err := parseInstruction(chunk[1:])
-		if err != nil {
-			return 0, err
-		}
-		// Clear 0x3000 if it was a register, then add 0x2000 to mark as span/pointer
-		return (val &^ 0x3000) | 0x2000, nil
+		return 0, fmt.Errorf("dereference operands are no longer supported: %q", chunk)
 	}
 
 	if chunk == "pc" {
@@ -92,8 +87,16 @@ func parseInstruction(chunk string) (uint64, error) {
 			reg = uint64(Cfg.R4)
 		case 5:
 			reg = uint64(Cfg.R5)
+		case 6:
+			reg = uint64(Cfg.R6)
+		case 7:
+			reg = uint64(Cfg.R7)
+		case 8:
+			reg = uint64(Cfg.R8)
+		case 9:
+			reg = uint64(Cfg.R9)
 		default:
-			return 0, fmt.Errorf("invalid register r%d (expected r0–r5)", r)
+			return 0, fmt.Errorf("invalid register r%d (expected r0–r9)", r)
 		}
 		return reg | 0x3000, nil
 	}

@@ -1,11 +1,13 @@
 package task
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
@@ -15,7 +17,31 @@ import (
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
+
+func TestMain(m *testing.M) {
+	viper.SetConfigFile("../../cmd/cfg/config.yml")
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "...: %v\n", err)
+		os.Exit(1)
+	}
+	if err := core.LoadValueConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "...: %v\n", err)
+		os.Exit(1)
+	}
+	viper.Set("loglevel", "error")
+	viper.Set("logging.trace.path", os.DevNull)
+	loggingCfg, err := core.LoadLoggingConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "...: %v\n", err)
+		os.Exit(1)
+	}
+	errnie.InitLogger(loggingCfg)
+	code := m.Run()
+	os.Exit(code)
+}
 
 // TestPipeline runs each experiment through the real pipeline (hydration, prompts,
 // scoring, JSON artifacts). Expectation failures are normal until baselines are met;

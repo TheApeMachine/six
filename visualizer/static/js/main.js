@@ -16,7 +16,8 @@ import {
   clearAllZoneLabels,
   setZoneHover, updateZonePulses,
 } from './architecture.js';
-import { buildValueRing, animateValueRing, updateValueFromBinaryBuffer } from './value-viz.js';
+import { buildValueRing, animateValueRing, setValueLayout, decodeValueFrame } from './value-viz.js';
+import { buildSystemOrbit, animateSystemOrbit, setSystemTopology } from './system-viz.js';
 import {
   updateDataStreams, clearDataStreams,
   buildFlowParticles, updateFlowParticles,
@@ -28,11 +29,11 @@ import {
   startPlayback, pausePlayback, stepForward,
   exportRecording, importRecording, initRecording,
 } from './recording.js';
-import { initWebSocket, connect, sendPrompt } from './websocket.js';
+import { initWebSocket, connect, sendPrompt, sendIngest } from './websocket.js';
 import { initEventHandler, handleEvent } from './event-handler.js';
 import {
   initInspector, openInspector, closeInspector, refreshInspectorIfMatch,
-  showEventDetail, closeEventDetail, isDetailOpen,
+  openValueInspector, showEventDetail, closeEventDetail, isDetailOpen,
 } from './inspector.js';
 
 // ═══════════════════════════════════════════════════════════
@@ -63,6 +64,9 @@ const btnStep = getRequired('btn-step');
 const btnExport = getRequired('btn-export');
 const btnImport = getRequired('btn-import');
 const importFile = getRequired('import-file');
+const ingestBar = getRequired('ingest-bar');
+const ingestInput = getRequired('ingest-input');
+const ingestSend = getRequired('ingest-send');
 const promptBar = getRequired('prompt-bar');
 const promptInput = getRequired('prompt-input');
 const promptSend = getRequired('prompt-send');
@@ -169,7 +173,7 @@ const foldLineMats = {
 };
 
 function addFoldNode(bin, level, density, text, childCount) {
-  const sys = SYS.chamber;
+  const sys = SYS.backend || SYS.machine;
   foldLevelCounts[level] = (foldLevelCounts[level] || 0) + 1;
   const indexInLevel = foldLevelCounts[level] - 1;
 
@@ -271,7 +275,7 @@ const LOG_TYPE_MAP = {
   pipeline: ['pipeline', 'result', 'substrate'],
   ingest: ['ingest'],
   fold: ['fold'],
-  compute: ['compute', 'kernel'],
+  compute: ['compute', 'kernel', 'backend', 'pool'],
 };
 
 function applyLogFilters() {
@@ -301,55 +305,176 @@ document.querySelectorAll('.log-filter-btn').forEach(btn => {
 // GRAPH (SVG 2D — kept for graph events)
 // ═══════════════════════════════════════════════════════════
 const graphNodes = new Map();
+const graphNodeOrder = [];
 const graphEdges = [];
 const graphEdgeSet = new Set();
+const graphPendingEdges = new Map();
+const MAX_GRAPH_NODES = 220;
 
-function graphAddNode(id, tokens, type) {
-  if (graphNodes.has(id)) return;
-  const sys = SYS.kernel;
-  
-  // Distribute nodes dynamically in a wide orbit above the CPU kernel
-  const count = graphNodes.size;
-  const radius = 35.0;
-  const angle = count * (Math.PI * 2 / 7) + Math.random(); 
-  const x = sys.x + Math.cos(angle) * (radius + Math.random() * 12);
-  const z = sys.z + Math.sin(angle) * (radius + Math.random() * 12);
-  const y = sys.depth + 18.0 + Math.random() * 15.0;
+function hashString(text) {
+  let hash = 2166136261;
+  for (const ch of String(text)) {
+    hash ^= ch.charCodeAt(0);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function disposeGraphLine(line) {
+  if (!line) return;
+  foldLayer.remove(line);
+  if (line.geometry) line.geometry.dispose();
+  const mat = line.material;
+  if (mat) {
+    (Array.isArray(mat) ? mat : [mat]).forEach((item) => {
+      if (item && typeof item.dispose === 'function') item.dispose();
+    });
+  }
+}
+
+function removeGraphNode(id) {
+  const key = String(id);
+  const node = graphNodes.get(key);
+  if (!node) return;
+
+  foldLayer.remove(node.lbl);
+  graphNodes.delete(key);
+
+  for (let i = graphEdges.length - 1; i >= 0; i--) {
+    const edge = graphEdges[i];
+    if (edge.fromKey === key || edge.toKey === key) {
+      disposeGraphLine(edge.line);
+      graphEdgeSet.delete(edge.key);
+      graphEdges.splice(i, 1);
+    }
+  }
+
+  for (const [pendingKey, edge] of graphPendingEdges.entries()) {
+    if (edge.fromKey === key || edge.toKey === key) {
+      graphPendingEdges.delete(pendingKey);
+    }
+  }
+}
+
+function pruneGraphNodes() {
+  while (graphNodeOrder.length > MAX_GRAPH_NODES) {
+    const oldest = graphNodeOrder.shift();
+    removeGraphNode(oldest);
+  }
+}
+
+function graphAddNode(id, tokens, type, extra = {}) {
+  const key = String(id);
+  const existing = graphNodes.get(key);
+  if (existing) {
+    if (extra.text !== undefined) {
+      existing.textSpan.textContent = extra.text;
+    } else if (tokens !== undefined) {
+      existing.textSpan.textContent = (tokens || '').trim() || '[empty val]';
+    }
+    existing.metaSpan.textContent = extra.summary || `#${key} · ${type}`;
+    existing.type = type;
+    existing.snapshot = extra.snapshot || existing.snapshot;
+    existing.lbl.element.title = extra.summary || existing.metaSpan.textContent;
+    flushPendingGraphEdges();
+    return existing;
+  }
+
+  const sys = SYS.emitter || SYS.machine;
+  const hash = hashString(key);
+  const angle = ((hash % 360) / 360) * Math.PI * 2;
+  const radius = 30.0 + ((hash >> 8) % 12);
+  const x = sys.x + Math.cos(angle) * radius;
+  const z = sys.z + Math.sin(angle) * radius;
+  const y = sys.depth + 18.0 + ((hash >> 16) % 12);
 
   const div = document.createElement('div');
-  div.className = 'fold-label level-1';
+  div.className = `fold-label level-1${type === 'value' ? ' value-node' : ''}`;
 
   const textSpan = document.createElement('span');
   textSpan.className = 'fold-text';
-  textSpan.textContent = (tokens || '').trim() || '[empty val]';
+  textSpan.textContent = (extra.text ?? tokens ?? '').trim() || '[empty val]';
   div.appendChild(textSpan);
 
   const metaSpan = document.createElement('span');
   metaSpan.className = 'fold-meta';
-  metaSpan.textContent = `#${id} · ${type}`;
+  metaSpan.textContent = extra.summary || `#${key} · ${type}`;
   div.appendChild(metaSpan);
+
+  if (type === 'value') {
+    div.style.pointerEvents = 'auto';
+    div.style.cursor = 'pointer';
+    div.title = extra.summary || key;
+    div.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openValueInspector(key);
+    });
+  }
 
   const lbl = new CSS2DObject(div);
   lbl.position.set(x, y, z);
   foldLayer.add(lbl);
 
-  graphNodes.set(id, { id, tokens, type, pos: new THREE.Vector3(x, y, z), lbl });
+  const node = {
+    id: key,
+    tokens,
+    type,
+    snapshot: extra.snapshot || null,
+    textSpan,
+    metaSpan,
+    pos: new THREE.Vector3(x, y, z),
+    lbl,
+  };
+  graphNodes.set(key, node);
+  graphNodeOrder.push(key);
+  pruneGraphNodes();
+  flushPendingGraphEdges();
+  return node;
 }
 
-function graphAddEdge(fromId, toId) {
-  const key = `${fromId}:${toId}`;
+function graphAddEdge(fromId, toId, kind = 'link') {
+  const fromKey = String(fromId);
+  const toKey = String(toId);
+  const key = `${kind}:${fromKey}:${toKey}`;
   if (graphEdgeSet.has(key)) return;
+  const from = graphNodes.get(fromKey);
+  const to = graphNodes.get(toKey);
+
+  if (!from || !to) {
+    graphPendingEdges.set(key, { fromKey, toKey, kind });
+    return;
+  }
+
+  graphPendingEdges.delete(key);
   graphEdgeSet.add(key);
+  const color = kind === 'prev'
+    ? 0x7fb8ff
+    : kind === 'next'
+      ? 0xffd37d
+      : kind === 'affinity'
+        ? 0x9d7bff
+        : 0x5080b0;
+  const opacity = kind === 'prev'
+    ? 0.72
+    : kind === 'next'
+      ? 0.54
+      : kind === 'affinity'
+        ? 0.42
+        : 0.46;
+  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+  const lineGeo = new THREE.BufferGeometry().setFromPoints([from.pos, to.pos]);
+  const line = new THREE.Line(lineGeo, mat);
+  foldLayer.add(line);
+  graphEdges.push({ key, fromKey, toKey, kind, line });
+}
 
-  const from = graphNodes.get(fromId);
-  const to = graphNodes.get(toId);
+function flushPendingGraphEdges() {
+  if (graphPendingEdges.size === 0) return;
 
-  if (from && to) {
-    const mat = new THREE.LineBasicMaterial({ color: 0x5080b0, transparent: true, opacity: 0.6 });
-    const lineGeo = new THREE.BufferGeometry().setFromPoints([from.pos, to.pos]);
-    const line = new THREE.Line(lineGeo, mat);
-    foldLayer.add(line);
-    graphEdges.push({ from, to, line });
+  for (const [key, edge] of [...graphPendingEdges.entries()]) {
+    if (!graphNodes.has(edge.fromKey) || !graphNodes.has(edge.toKey)) continue;
+    graphPendingEdges.delete(key);
+    graphAddEdge(edge.fromKey, edge.toKey, edge.kind);
   }
 }
 
@@ -358,15 +483,37 @@ function graphClear() {
     foldLayer.remove(n.lbl);
   }
   graphNodes.clear();
+  graphNodeOrder.length = 0;
 
   for (const e of graphEdges) {
-    if (e.line) {
-      foldLayer.remove(e.line);
-      e.line.geometry.dispose();
-    }
+    disposeGraphLine(e.line);
   }
   graphEdges.length = 0;
   graphEdgeSet.clear();
+  graphPendingEdges.clear();
+}
+
+function graphAddValueNode(snapshot) {
+  if (!snapshot || !snapshot.valueId) return null;
+
+  const text = snapshot.tokenPreview || snapshot.tokenText || '[empty val]';
+  const summary = snapshot.summary
+    || `#${snapshot.valueId} prev=${snapshot.prevId || '0'} next=${snapshot.nextId || '0'} aff=${snapshot.affinityPop || 0}`;
+
+  const node = graphAddNode(snapshot.valueId, text, 'value', {
+    text,
+    summary,
+    snapshot,
+  });
+
+  if (snapshot.prevId && snapshot.prevId !== '0') {
+    graphAddEdge(snapshot.prevId, snapshot.valueId, 'prev');
+  }
+  if (snapshot.nextId && snapshot.nextId !== '0') {
+    graphAddEdge(snapshot.valueId, snapshot.nextId, 'next');
+  }
+
+  return node;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -390,23 +537,58 @@ function resetVisualization() {
 // ═══════════════════════════════════════════════════════════
 // HUD UPDATE
 // ═══════════════════════════════════════════════════════════
+function updateValueHud(snapshot) {
+  if (!snapshot) return;
+  chunkText.textContent = snapshot.tokenPreview || snapshot.tokenText || '—';
+  resultText.style.display = 'block';
+  resultText.textContent = snapshot.summary || snapshot.tokenPreview || 'Value snapshot';
+  if (statLastOp) statLastOp.textContent = snapshot.summary || '—';
+}
+
 function updateHud() {
   statEvents.textContent = getRecordingLength();
   statIngested.textContent = state.totalIngested;
+  if (statLastOp) statLastOp.textContent = state.lastValueSummary || '—';
+}
+
+async function loadValueLayout() {
+  try {
+    const res = await fetch('/api/layout', { cache: 'no-store' });
+    if (!res.ok) return;
+    const layout = await res.json();
+    setValueLayout(layout);
+  } catch (err) {
+    console.warn('Six viz layout fetch failed:', err);
+  }
+}
+
+async function loadSystemTopology() {
+  try {
+    const res = await fetch('/api/system', { cache: 'no-store' });
+    if (!res.ok) return;
+    const topology = await res.json();
+    setSystemTopology(topology);
+  } catch (err) {
+    console.warn('Six viz system topology fetch failed:', err);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
 // INITIALIZE MODULES
 // ═══════════════════════════════════════════════════════════
 buildArchitecture();
-buildValueRing();
 buildFlowParticles();
 initInspector();
+Promise.all([loadValueLayout(), loadSystemTopology()]).finally(() => {
+  buildValueRing();
+  buildSystemOrbit();
+});
 
 initRecording(handleEvent, resetVisualization);
 initEventHandler({
   updateHud,
   refreshInspector: refreshInspectorIfMatch,
+  updateValueHud,
   log,
   activateStage,
   pushSpark: pushSparkDensity,
@@ -414,17 +596,32 @@ initEventHandler({
   resetFoldGraph,
   graphAddNode,
   graphAddEdge,
+  graphAddValueNode,
 });
 
 initWebSocket(
   // onEvent
   (ev) => {
     if (ev._binary && ev.buffer) {
-      updateValueFromBinaryBuffer(ev.buffer);
-      return;
+      const snapshot = decodeValueFrame(ev.buffer);
+      if (!snapshot) return;
+      ev = {
+        component: 'Value',
+        action: 'Frame',
+        data: {
+          stage: 'wire',
+          message: snapshot.summary,
+          chunkText: snapshot.tokenPreview || snapshot.tokenText || '',
+          summary: snapshot.summary,
+          value: snapshot,
+        },
+      };
+      recordEvent(ev);
+      if (!isReplayMode()) handleEvent(ev);
+    } else {
+      recordEvent(ev);
+      if (!isReplayMode()) handleEvent(ev);
     }
-    recordEvent(ev);
-    if (!isReplayMode()) handleEvent(ev);
     // Update slider
     slider.max = getRecordingLength() - 1;
     replayInfo.textContent = `${getRecordingLength()} events`;
@@ -434,6 +631,8 @@ initWebSocket(
   () => {
     statConn.textContent = 'connected';
     statConn.style.color = 'rgba(140, 255, 200, 0.75)';
+    ingestSend.disabled = false;
+    ingestBar.classList.remove('hidden');
     promptSend.disabled = false;
     promptBar.classList.remove('hidden');
     log('Connected to SIX telemetry', 'state');
@@ -442,6 +641,8 @@ initWebSocket(
   () => {
     statConn.textContent = 'offline';
     statConn.style.color = 'rgba(255, 140, 120, 0.7)';
+    ingestSend.disabled = true;
+    ingestBar.classList.add('hidden');
     promptSend.disabled = true;
     promptBar.classList.add('hidden');
     log('Disconnected', 'state');
@@ -496,6 +697,21 @@ importFile.addEventListener('change', async (e) => {
   } catch (err) {
     console.error(err);
     log(`Import failed: ${err && err.message ? err.message : err}`, 'state');
+  }
+});
+
+ingestSend.addEventListener('click', () => {
+  if (sendIngest(ingestInput.value)) {
+    ingestInput.value = '';
+    log(`Loaded data`, 'ingest');
+  }
+});
+ingestInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    if (sendIngest(ingestInput.value)) {
+      ingestInput.value = '';
+      log(`Loaded data`, 'ingest');
+    }
   }
 });
 
@@ -601,7 +817,7 @@ document.addEventListener('keydown', (e) => {
     if (state.inspectorOpen) closeInspector();
   }
 
-  const zoneKeys = { '1': 'machine', '2': 'dataset', '3': 'frame', '4': 'chamber', '5': 'kernel' };
+  const zoneKeys = { '1': 'machine', '2': 'stream', '3': 'emitter', '4': 'backend', '5': 'pool', '6': 'cuda', '7': 'metal', '8': 'cpu' };
   if (zoneKeys[e.key]) {
     openInspector(zoneKeys[e.key]);
     // Fly to zone
@@ -636,6 +852,7 @@ function animate(time) {
   updateFlyAnimation();
   updateZonePulses();
   animateValueRing(time);
+  animateSystemOrbit(time);
 
   controls.update();
   renderer.render(scene, camera);

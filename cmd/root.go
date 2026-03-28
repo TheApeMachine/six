@@ -1,7 +1,6 @@
 package cmd
 
 import (
-	"context"
 	"embed"
 	"errors"
 	"fmt"
@@ -14,7 +13,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -159,17 +157,6 @@ func initConfig() {
 		"config_file", viper.ConfigFileUsed(),
 		"elasticsearch", loggingCfg.Elasticsearch.Enabled,
 	)
-
-	Backend, err = compute.NewBackend(
-		compute.WithContext(context.Background()),
-	)
-
-	if err != nil {
-		initErr = fmt.Errorf("compute.NewBackend: %w", err)
-		errnie.Error(initErr)
-		return
-	}
-	primitive.Backend = Backend
 }
 
 const roottxt = `

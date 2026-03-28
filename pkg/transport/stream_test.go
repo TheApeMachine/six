@@ -6,12 +6,12 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -26,37 +26,41 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "...: %v\n", err)
 		os.Exit(1)
 	}
-	primitive.Backend = cpu.NewBackend()
 	code := m.Run()
-	primitive.Backend = nil
 	os.Exit(code)
 }
 
 func TestRead(t *testing.T) {
 	Convey("Given a Stream", t, func() {
+		regions := 2
+
 		stream := NewStream(
 			StreamWithContext(t.Context()),
 			StreamWithTTL(time.Second),
+			StreamWithRegions(regions),
 		)
+
 		So(stream, ShouldNotBeNil)
 
 		Convey("And a Value is written to the stream", func() {
-			value, err := primitive.NewValue(nil)
-			defer value.Close()
+			for range regions {
+				value, err := primitive.NewValue(nil)
+				defer value.Close()
 
-			So(err, ShouldBeNil)
+				So(err, ShouldBeNil)
 
-			(*value)[core.Cfg.StateIndex] = 1
-			n, err := io.Copy(stream, value)
-
-			So(n, ShouldEqual, primitive.ByteSize)
-			So(err, ShouldBeNil)
-
-			Convey("Then the Value should be read from the stream", func() {
-				buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize))
-				n, err := io.Copy(buf, stream)
+				(*value)[core.Cfg.StateIndex] = 1
+				n, err := io.Copy(stream, value)
 
 				So(n, ShouldEqual, primitive.ByteSize)
+				So(err, ShouldBeNil)
+			}
+
+			Convey("Then the Value should be read from the stream", func() {
+				buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize*regions))
+				n, err := io.Copy(buf, stream)
+
+				So(n, ShouldEqual, primitive.ByteSize*regions)
 				So(err, ShouldBeNil)
 			})
 		})
@@ -65,42 +69,59 @@ func TestRead(t *testing.T) {
 
 func TestWrite(t *testing.T) {
 	Convey("Given a Stream", t, func() {
+		regions := 2
+
 		stream := NewStream(
 			StreamWithContext(t.Context()),
 			StreamWithTTL(time.Second),
+			StreamWithRegions(regions),
 		)
+
 		So(stream, ShouldNotBeNil)
 
 		Convey("And a Value is written to the stream", func() {
-			value, err := primitive.NewValue(nil)
-			defer value.Close()
+			for range regions {
+				value, err := primitive.NewValue(nil)
+				defer value.Close()
 
-			So(err, ShouldBeNil)
+				So(err, ShouldBeNil)
 
-			(*value)[core.Cfg.StateIndex] = 1
-			n, err := io.Copy(stream, value)
+				(*value)[core.Cfg.StateIndex] = 1
+				n, err := io.Copy(stream, value)
 
-			So(n, ShouldEqual, primitive.ByteSize)
-			So(err, ShouldBeNil)
+				So(n, ShouldEqual, primitive.ByteSize)
+				So(err, ShouldBeNil)
+			}
 		})
 
 		Convey("Then the Value should be read from the stream", func() {
 			str := []byte("Hello!")
-			value, err := primitive.NewValue(str)
-			defer value.Close()
+			var decoded strings.Builder
 
-			(*value)[core.Cfg.StateIndex] = 1
-			n, err := io.Copy(stream, value)
+			for range regions {
+				value, err := primitive.NewValue(str)
+				defer value.Close()
 
+				(*value)[core.Cfg.StateIndex] = 1
+				n, err := io.Copy(stream, value)
+
+				So(n, ShouldEqual, primitive.ByteSize)
+				So(err, ShouldBeNil)
+			}
+
+			buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize*regions))
+			n, err := io.Copy(buf, stream)
+
+			So(n, ShouldEqual, primitive.ByteSize*regions)
 			So(err, ShouldBeNil)
 
-			buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize))
-			n, err = io.Copy(buf, stream)
+			for i := 0; i < regions; i++ {
+				start := i * primitive.ByteSize
+				end := start + primitive.ByteSize
+				decoded.WriteString(primitive.BytesToValue(buf.Bytes()[start:end]).String())
+			}
 
-			So(n, ShouldEqual, primitive.ByteSize)
-			So(err, ShouldBeNil)
-
-			So(primitive.BytesToValue(buf.Bytes()).String(), ShouldEqual, string(str))
+			So(decoded.String(), ShouldEqual, string(append(str, str...)))
 		})
 	})
 }

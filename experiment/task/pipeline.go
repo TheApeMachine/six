@@ -8,6 +8,7 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
@@ -31,6 +32,12 @@ be orchestrated in a particular way.
     fires the ALU. Values keep mixing until the pipe is closed.
  2. Hydrate: pump dataset bytes into the Machine. They enter the
     recirculation loop and begin mixing immediately.
+    Inject additional "conditioning" programs, such as the Affinity
+    firmware, which needs to be distributed. The way to distribute things
+    is to load the Viral firmware, and set the final two instructions
+    to FW=<affinity> and PC=<start of bootloader>, which results in a
+    Value that will first copy the Viral firmware into another Value,
+    and then load and execute the Affinity firmware.
  3. Prompt: inject workspace Values carrying Viral firmware into the
     Machine. They enter the same loop and propagate through the
     population via firmware chaining.
@@ -76,6 +83,9 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() (err error) {
+	defer pipeline.cancel()
+
+	loadStart := time.Now()
 	machine, err := vm.NewMachine(
 		vm.WithContext(pipeline.ctx),
 		vm.WithDataset(pipeline.experiment.Dataset()),
@@ -84,25 +94,30 @@ func (pipeline *Pipeline) Run() (err error) {
 	if err != nil {
 		return errnie.Error(err)
 	}
-
-	go func() {
-		observer := tools.NewObserver(machine)
-		defer observer.Close()
-
-		for {
-			select {
-			case <-pipeline.ctx.Done():
-				return
-			default:
-				io.Copy(observer, observer)
-			}
+	pipeline.timing.loadDur = time.Since(loadStart)
+	defer func() {
+		if closeErr := machine.Close(); closeErr != nil && err == nil {
+			err = errnie.Error(closeErr)
 		}
 	}()
 
+	observer := tools.NewObserver(machine)
+	defer observer.Close()
+
 	// Grab prompts early so we can size the drop-out buffer.
 	prompts := pipeline.experiment.Prompts()
+	if len(prompts) == 0 {
+		return errnie.Error(PipelineErrNoPrompt)
+	}
 
+	promptStart := time.Now()
 	for idx, prompt := range prompts {
+		select {
+		case <-pipeline.ctx.Done():
+			return errnie.Error(pipeline.ctx.Err())
+		default:
+		}
+
 		value, err := primitive.NewValue([]byte(prompt))
 
 		if err != nil {
@@ -110,36 +125,71 @@ func (pipeline *Pipeline) Run() (err error) {
 			continue
 		}
 
-		// Inject prompt
-		io.Copy(machine, value)
+		value[core.Cfg.StateIndex] = 1
 
-		for {
-			select {
-			case <-pipeline.ctx.Done():
-				return errnie.Error(pipeline.ctx.Err())
-			default:
-				// Check if the prompt Value has tokens.
-				if value.String() == "" {
-					continue
-				}
+		// Inject the prompt frame, then read the transformed frame back once.
+		if _, err := io.Copy(observer, value); err != nil {
+			return errnie.Error(err)
+		}
 
-				errnie.Trace(
-					"experiment.task.pipeline.Run",
-					"prompt", prompt,
-					"value", value.String(),
-				)
+		observedFrame := make([]byte, primitive.ByteSize)
+		if _, err := io.ReadFull(observer, observedFrame); err != nil {
+			return errnie.Error(err)
+		}
 
-				pipeline.experiment.AddResult(tools.ExperimentalData{
-					Idx:      idx,
-					Name:     fmt.Sprintf("prompt-%d", idx),
-					Prefix:   []byte(prompt),
-					Observed: []byte(value.String()),
-				})
+		observedValue := primitive.BytesToValue(observedFrame)
+		observedText := observedValue.String()
 
-				break
+		if tokenObserver, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && tokenObserver.ObserveWorkspaceAsTokens() {
+			observedText = primitive.DecodeTokensToText(observedValue)
+		}
+
+		holdout := []byte(nil)
+		if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
+			if h, ok := provider.HoldoutForPrompt(idx); ok {
+				holdout = append([]byte(nil), h...)
 			}
 		}
+
+		errnie.Trace(
+			"experiment.task.pipeline.Run",
+			"prompt", prompt,
+			"value", observedText,
+		)
+
+		pipeline.experiment.AddResult(tools.ExperimentalData{
+			Idx:      idx,
+			Name:     fmt.Sprintf("prompt-%d", idx),
+			Prefix:   []byte(prompt),
+			Holdout:  holdout,
+			Observed: []byte(observedText),
+		})
+
+		pipeline.timing.n++
 	}
+	pipeline.timing.promptDur = time.Since(promptStart)
+
+	type finalizer interface {
+		Finalize(any) error
+	}
+	if f, ok := pipeline.experiment.(finalizer); ok {
+		finalizeStart := time.Now()
+		if err := f.Finalize(machine); err != nil {
+			return errnie.Error(err)
+		}
+		pipeline.timing.finalizeDur = time.Since(finalizeStart)
+	}
+
+	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
+		return errnie.Error(err)
+	}
+	for _, artifact := range pipeline.experiment.Artifacts() {
+		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
+			return errnie.Error(err)
+		}
+	}
+
+	machine.Close()
 
 	return nil
 }

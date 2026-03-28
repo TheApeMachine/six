@@ -3,15 +3,19 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/signal"
+	"sync"
 	"time"
 
 	"github.com/spf13/cobra"
+	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data/huggingface"
-	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 	"github.com/theapemachine/six/visualizer"
 )
@@ -53,20 +57,47 @@ accepting graph events via UDP from external test runs.`,
 			return errnie.Wrap(err, "cmd.viz.RunE")
 		}
 
-		backend, err := compute.NewBackend(
-			compute.WithContext(ctx),
-			compute.WithPool(machine.Pool()),
-		)
-		if err != nil {
-			_ = machine.Close()
-			return errnie.Wrap(err, "cmd.viz.compute.NewBackend")
+		var promptMu sync.Mutex
+		runFrame := func(raw []byte) ([]byte, error) {
+			promptMu.Lock()
+			defer promptMu.Unlock()
+
+			observer := tools.NewObserver(machine)
+			defer observer.Close()
+
+			value, err := primitive.NewValue(raw)
+			if err != nil {
+				return nil, err
+			}
+			defer value.Close()
+
+			value[core.Cfg.StateIndex] = 1
+
+			if _, err := io.Copy(observer, value); err != nil {
+				return nil, err
+			}
+
+			observedFrame := make([]byte, primitive.ByteSize)
+			if _, err := io.ReadFull(observer, observedFrame); err != nil {
+				return nil, err
+			}
+
+			return observedFrame, nil
 		}
+
+		srv.SetPromptFunc(func(msg string) ([]byte, error) {
+			return runFrame([]byte(msg))
+		})
+		srv.SetIngestFunc(func(raw []byte) error {
+			_, err := runFrame(raw)
+			return err
+		})
 
 		defer machine.Close()
 
 		if !vizListen {
 			go func() {
-				err := visualizer.RunSubstrateLoop(ctx, srv, backend, visualizer.SubstrateOpts{
+				err := visualizer.RunSubstrateLoop(ctx, srv, nil, visualizer.SubstrateOpts{
 					Repo:       vizRepo,
 					Subset:     vizSubset,
 					TextColumn: vizColumn,

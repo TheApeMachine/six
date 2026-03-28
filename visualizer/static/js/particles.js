@@ -5,18 +5,19 @@
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { flowLayer } from './scene.js';
-import { SYS, CONNS } from './architecture.js';
+import { SYS, CONNS, resolveZoneKey } from './architecture.js';
+import { pulseSystemNode } from './system-viz.js';
 
 // ── Data Stream Labels (CSS2D text flowing between zones) ────
 const dataStreams = [];
 const MAX_STREAMS = 60;
 
 export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration = 2800) {
-  const from = SYS[fromKey], to = SYS[toKey];
+  const from = SYS[resolveZoneKey(fromKey)], to = SYS[resolveZoneKey(toKey)];
   if (!from || !to) return;
 
   const displayText = (text || '').trim().slice(0, 32) || '·';
-  const pathKey = `${fromKey}>${toKey}`;
+  const pathKey = `${resolveZoneKey(fromKey)}>${resolveZoneKey(toKey)}`;
 
   // Rate-limit streams on same path
   const existing = dataStreams.filter(s => s.pathKey === pathKey);
@@ -29,11 +30,12 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
   const div = document.createElement('div');
   div.className = `data-stream-label ${streamClass}`;
   div.textContent = displayText;
+  pulseSystemNode(resolveZoneKey(fromKey), displayText);
 
   const lbl = new CSS2DObject(div);
 
   // Use arc path from CONNS if available
-  const conn = CONNS.find(c => c.from === fromKey && c.to === toKey);
+  const conn = CONNS.find(c => c.from === resolveZoneKey(fromKey) && c.to === resolveZoneKey(toKey));
   const startPos = from.center.clone();
   const endPos = to.center.clone();
 
@@ -148,7 +150,7 @@ export function buildFlowParticles() {
 }
 
 export function activateFlowParticles(fromKey, toKey) {
-  const connIdx = CONNS.findIndex(c => c.from === fromKey && c.to === toKey);
+  const connIdx = CONNS.findIndex(c => c.from === resolveZoneKey(fromKey) && c.to === resolveZoneKey(toKey));
   if (connIdx >= 0 && particleSystems[connIdx]) {
     particleSystems[connIdx].active = true;
     particleSystems[connIdx].fadeTimer = Date.now();

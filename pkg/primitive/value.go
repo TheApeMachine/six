@@ -2,8 +2,6 @@
 package primitive
 
 import (
-	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -13,7 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 )
@@ -30,29 +28,20 @@ These bits are partitioned into regions with distinct roles:
 	TokenIDs use the byte value and the sequence index:
 	(byte_value << 32) | sequence_index
 
-	STATE (words 61–63)
+	STATE (words 60–62)
 	Slot index, sequence index, XOR accumulator for the Write engine.
 
-	AFFINITY (word 64)
+	AFFINITY (word 63)
 	64-bit mask for topological clustering via bitwise AND.
 
-	LINK (word 65)
-	64-bit temporary grouping pointer.
+	REGISTERS r0–r9, fw (words 64–74)
+	General-purpose registers for native programs and scratch spans.
 
-	GOSSIP (words 66–69)
-	256-bit routing signature for GF(65537) mesh traversal.
-
-	TTL (word 70, low 8 bits)
-	Hop counter decremented by each Region.
-
-	REGISTERS r0–r6 (words 71–77)
-	General-purpose registers for native programs.
-
-	PC (word 78)
+	PC (word 75)
 	Program counter. Writable by programs for jumps.
 
-	PROGRAM (words 79–127)
-	49 words = 3136 bits = 98 × 32-bit instruction slots.
+	PROGRAM (words 76–127)
+	52 words = 3328 bits = 104 × 32-bit instruction slots.
 	Native programs execute all 16 two-input boolean truth tables.
 	Conditional skip-if-zero enables loops without invented opcodes.
 */
@@ -69,9 +58,6 @@ const (
 	// must match generated pkg/compute/kernel/shared/primitives.h EXEC_STATUS_WORD.
 	ExecStatusWord  = 63
 	ExecStatusShift = 48
-
-	// GossipWord0Fallback is the first GOSSIP word index when core.Cfg is unset.
-	GossipWord0Fallback = 66
 )
 
 // Exit reasons written into ExecStatusWord by CPU / GPU kernels (high 16 bits).
@@ -82,35 +68,11 @@ const (
 	ExecExitBadProgramWord
 )
 
-// SubstrateContextKey carries a kernel.Substrate for Value.WriteContext.
-// Use ContextWithSubstrate to attach a substrate to a context tree.
-type substrateContextKey struct{}
-
-var SubstrateContextKey = substrateContextKey{}
-
-// ContextWithSubstrate returns ctx with substrate looked up by WriteContext.
-func ContextWithSubstrate(ctx context.Context, s kernel.Substrate) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return context.WithValue(ctx, SubstrateContextKey, s)
-}
-
-func substrateFromContext(ctx context.Context) kernel.Substrate {
-	if ctx != nil {
-		if s, ok := ctx.Value(SubstrateContextKey).(kernel.Substrate); ok && s != nil {
-			return s
-		}
-	}
-	return Backend
-}
-
 var (
 	valueTo   func(*Value, []byte)
 	valueFrom func([]byte, *Value)
 
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
-	Backend              kernel.Substrate
 )
 
 /*
@@ -220,6 +182,25 @@ This method should not be used to create temporary Values.
 func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
 
+	// Reinitialize the pooled frame so prompt construction never inherits stale
+	// bytes from a previous temporary Value.
+	for i := range value {
+		value[i] = 0
+	}
+	value.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+	value.installFirmware(core.FirmwareTypeBootloader)
+
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	if tokenWords <= 0 {
+		return nil, errnie.Error(
+			NewValueError(ValueErrorFailedToken),
+		)
+	}
+
+	if len(p) > tokenWords {
+		p = p[:tokenWords]
+	}
+
 	for i, b := range p {
 		if !value.SetTokenID(core.Cfg.TokenIndex+i, Tokenize(b, uint64(i))) {
 			return nil, errnie.Error(
@@ -242,10 +223,6 @@ traditional serialization tax, because the Value is already
 serialized in memory.
 */
 func (value *Value) Read(p []byte) (int, error) {
-	if value[core.Cfg.StateIndex] == 0 {
-		return 0, io.EOF
-	}
-
 	if len(p) < ByteSize {
 		return 0, io.ErrShortBuffer
 	}
@@ -259,39 +236,18 @@ Write implements io.Writer. It is how Values are "folded" through each
 other, which acts as the closes thing to an instruction pointer.
 */
 func (value *Value) Write(p []byte) (int, error) {
-	return value.WriteContext(context.Background(), p)
-}
-
-// WriteContext is like Write but resolves the kernel substrate from ctx
-// (see ContextWithSubstrate), then falls back to package Backend.
-func (value *Value) WriteContext(ctx context.Context, p []byte) (int, error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
 	incoming := valuePool.Get().(*Value)
+	defer valuePool.Put(incoming)
+
 	valueFrom(p, incoming)
 
-	errnie.Trace("value.Write", "p", p, "incoming", incoming)
-
-	sub := substrateFromContext(ctx)
-	if value.HasProgram() && sub != nil {
-		var putOnce sync.Once
-		putIncoming := func() {
-			putOnce.Do(func() { valuePool.Put(incoming) })
-		}
-		if err := sub.Schedule(func(ctx context.Context) error {
-			defer putIncoming()
-			return sub.UniversalBitwise(
-				unsafe.Pointer(value),
-				unsafe.Pointer(incoming),
-			)
-		}); err != nil {
-			putIncoming()
+	if value.HasProgram() {
+		if err := compute.UniversalBitwise(
+			unsafe.Pointer(value),
+			unsafe.Pointer(incoming),
+		); err != nil {
 			return 0, err
 		}
-	} else {
-		valuePool.Put(incoming)
 	}
 
 	return len(p), nil
@@ -327,8 +283,6 @@ func (value *Value) Close() error {
 
 	checkRegion(core.Cfg.TokenIndex, core.Cfg.TokenBits)
 	checkRegion(core.Cfg.AffinityIndex, core.Cfg.AffinityBits)
-	checkRegion(core.Cfg.GossipIndex, core.Cfg.GossipBits)
-	checkRegion(core.Cfg.TTLIndex, core.Cfg.TTLBits)
 	checkRegion(core.Cfg.ProgramIndex, core.Cfg.ProgramBits)
 
 	if wiped {
@@ -505,41 +459,6 @@ func (v *Value) ApplyWireFrame(p []byte) error {
 	}
 	valueFrom(p, v)
 	return nil
-}
-
-func gossipWordIndex() int {
-	if core.Cfg.GossipIndex > 0 {
-		return core.Cfg.GossipIndex
-	}
-	return GossipWord0Fallback
-}
-
-/*
-ApplyQUICIngressScar marks a full wire frame that arrived over QUIC so higher
-levels can prefer local execution without exposing transport type in APIs.
-It only touches the first GOSSIP word (bit 63); program and data regions are unchanged.
-*/
-func ApplyQUICIngressScar(p []byte) {
-	if len(p) != ByteSize {
-		return
-	}
-	idx := gossipWordIndex()
-	if idx < 0 || idx >= Words {
-		return
-	}
-	off := idx * 8
-	w := binary.LittleEndian.Uint64(p[off : off+8])
-	w |= uint64(1) << 63
-	binary.LittleEndian.PutUint64(p[off:off+8], w)
-}
-
-// WANIngressScarred reports whether ApplyQUICIngressScar has tagged this Value.
-func (value *Value) WANIngressScarred() bool {
-	idx := gossipWordIndex()
-	if idx < 0 || idx >= Words {
-		return false
-	}
-	return (value[idx]>>63)&1 == 1
 }
 
 // ClearExecExitCode clears the kernel exit marker in the high bits of ExecStatusWord.

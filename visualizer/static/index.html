@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>SIX — Substrate Visualizer</title>
-  <meta name="description" content="Real-time 3D view of the Value · CPU substrate pipeline">
+  <meta name="description" content="Real-time 3D view of the machine, stream, emitter, backend, and pool pipeline">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/base.css">
@@ -15,7 +15,7 @@
   <div id="hud" class="panel">
     <div class="hud-title">SIX · Substrate</div>
     <div class="hud-stat"><span>Events</span> <span class="val" id="stat-events">0</span></div>
-    <div class="hud-stat"><span>Frames</span> <span class="val" id="stat-ingested">0</span></div>
+    <div class="hud-stat"><span>Value Frames</span> <span class="val" id="stat-ingested">0</span></div>
     <div class="hud-stat"><span>Last op</span> <span class="val" id="stat-last-op">—</span></div>
     <div class="hud-divider"></div>
     <div class="hud-stat"><span>Status</span> <span class="val" id="stat-conn">offline</span></div>
@@ -24,34 +24,34 @@
 
   <!-- ── Pipeline Flow ────────────────────────────────────── -->
   <div id="pipeline" class="panel">
-    <div class="pipeline-title">Pipeline · 1024 B frame</div>
+    <div class="pipeline-title">Runtime Flow · Machine → Stream → Emitter → Backend → Pool</div>
     <div class="pipeline-stage" id="stage-tokenize">
       <div class="dot"></div>
-      <span class="stage-label">Frame</span>
+      <span class="stage-label">Machine</span>
       <span class="stage-info" id="stage-tokenize-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-insert">
       <div class="dot"></div>
-      <span class="stage-label">Chamber</span>
+      <span class="stage-label">Stream</span>
       <span class="stage-info" id="stage-insert-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-lookup">
       <div class="dot"></div>
-      <span class="stage-label">CPU Kernel</span>
+      <span class="stage-label">Emitter</span>
       <span class="stage-info" id="stage-lookup-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-fold">
       <div class="dot"></div>
-      <span class="stage-label">Registers</span>
+      <span class="stage-label">Backend</span>
       <span class="stage-info" id="stage-fold-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-decode">
       <div class="dot"></div>
-      <span class="stage-label">Cycle</span>
+      <span class="stage-label">Pool</span>
       <span class="stage-info" id="stage-decode-info"></span>
     </div>
   </div>
@@ -128,6 +128,12 @@
   </div>
 
   <!-- ── Prompt Input ─────────────────────────────────────── -->
+  <div id="ingest-bar" class="panel hidden">
+    <label for="ingest-input" class="visually-hidden">Data load</label>
+    <input type="text" id="ingest-input" placeholder="Load data…" autocomplete="off" spellcheck="false">
+    <button type="button" id="ingest-send">Load</button>
+  </div>
+
   <div id="prompt-bar" class="panel hidden">
     <label for="prompt-input" class="visually-hidden">Prompt</label>
     <input type="text" id="prompt-input" placeholder="Enter a prompt…" autocomplete="off" spellcheck="false">
@@ -149,7 +155,7 @@
 
   <!-- ── Navigation Hint ──────────────────────────────────── -->
   <div id="nav-hint">
-    Click zone to inspect · Double-click to fly · Keys 1–5 for zones · 0 for overview
+    Click zone to inspect · Double-click to fly · Keys 1–8 for subsystems · 0 for overview
   </div>
 
   <!-- ── Three.js Canvas ──────────────────────────────────── -->

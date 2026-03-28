@@ -3,6 +3,7 @@ package telemetry
 import (
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
@@ -66,9 +67,13 @@ func HumanDescribeValue(v *primitive.Value) string {
 	}
 
 	instr := uint8(0)
-	dataPop := cpu.Popcount(v, 0, int(core.Cfg.TokenBits))
-	affPop := cpu.Popcount(v, int(core.Cfg.AffinityIndex), 64) // first 64 bits of affinity
-	progPop := cpu.Popcount(v, int(core.Cfg.ProgramIndex), 64) // first 64 bits of program
+	dataPop := cpu.Popcount(unsafe.Pointer(v), 0, int(core.Cfg.TokenBits))
+	affPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.AffinityIndex), int(core.Cfg.AffinityBits))
+	progPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.ProgramIndex), int(core.Cfg.ProgramBits))
+	tokens := primitive.DecodeTokensToText(v)
+	if tokens == "" {
+		tokens = v.String()
+	}
 
 	// Show program info if present (first-slot opcode when program bits exist)
 	progInfo := ""
@@ -80,7 +85,11 @@ func HumanDescribeValue(v *primitive.Value) string {
 	}
 
 	return fmt.Sprintf(
-		"op=%s · data=%d aff=%d prog=%d%s",
+		"id=%d prev=%d next=%d tokens=%q · op=%s · data=%d aff=%d prog=%d%s",
+		v.ValueID(),
+		v.PrevValueID(),
+		v.NextValueID(),
+		tokens,
 		TruthOpName(instr), dataPop, affPop, progPop, progInfo,
 	)
 }

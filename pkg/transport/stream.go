@@ -25,11 +25,13 @@ type Stream struct {
 	ttlDuration time.Duration
 	expiryTimer *time.Timer
 	closeOnce   sync.Once
-	rb          *ringbuffer.RingBuffer
-	pr          *ringbuffer.PipeReader
-	pw          *ringbuffer.PipeWriter
-	frame       []byte
-	emitter     *Emitter
+	regions     int
+	rb          []*ringbuffer.RingBuffer
+	pr          []*ringbuffer.PipeReader
+	pw          []*ringbuffer.PipeWriter
+	frame       [][]byte
+	emitter     []*Emitter
+	ptr         int
 }
 
 type StreamOption func(*Stream)
@@ -37,20 +39,14 @@ type StreamOption func(*Stream)
 func NewStream(options ...StreamOption) *Stream {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	rb := ringbuffer.New(
-		primitive.ByteSize * primitive.ByteSize,
-	).WithCancel(ctx)
-
-	pr, pw := rb.Pipe()
-
 	stream := &Stream{
 		ctx:     ctx,
 		cancel:  cancel,
-		rb:      rb,
-		pr:      pr,
-		pw:      pw,
-		frame:   make([]byte, primitive.ByteSize),
-		emitter: NewEmitter(pr, pw, nil),
+		rb:      make([]*ringbuffer.RingBuffer, 0),
+		pr:      make([]*ringbuffer.PipeReader, 0),
+		pw:      make([]*ringbuffer.PipeWriter, 0),
+		frame:   make([][]byte, 0),
+		emitter: make([]*Emitter, 0),
 	}
 
 	for _, option := range options {
@@ -88,15 +84,28 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 	default:
 	}
 
-	if n, err = io.ReadFull(stream.emitter, stream.frame); err != nil {
-		if errors.Is(err, io.ErrClosedPipe) {
-			return n, io.EOF
+	buf := bufPool.Get().([]byte)[:0]
+	defer bufPool.Put(buf)
+
+	for i := range len(stream.emitter) {
+		idx := (i + stream.ptr) % stream.regions
+
+		if n, err = io.ReadFull(
+			stream.emitter[i],
+			stream.frame[idx],
+		); err != nil {
+			if errors.Is(err, io.ErrClosedPipe) {
+				return n, io.EOF
+			}
+
+			return n, err
 		}
-		return n, err
+
+		buf = append(buf, stream.frame[idx][:n]...)
 	}
 
 	stream.resetTTL()
-	return copy(p, stream.frame[:n]), nil
+	return copy(p, buf), nil
 }
 
 func (stream *Stream) Write(p []byte) (n int, err error) {
@@ -106,10 +115,13 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 	default:
 	}
 
-	if n, err = stream.emitter.Write(p); err != nil {
-		return n, err
+	for _, emitter := range stream.emitter {
+		if n, err = emitter.Write(p); err != nil {
+			return n, err
+		}
 	}
 
+	stream.ptr++
 	stream.resetTTL()
 	return n, nil
 }
@@ -137,7 +149,9 @@ func (stream *Stream) Close() (err error) {
 			stream.expiryTimer.Stop()
 		}
 
-		err = stream.pw.Close()
+		for _, pw := range stream.pw {
+			err = pw.Close()
+		}
 	})
 
 	return err
@@ -152,6 +166,22 @@ func StreamWithContext(ctx context.Context) StreamOption {
 func StreamWithTTL(ttl time.Duration) StreamOption {
 	return func(stream *Stream) {
 		stream.ttlDuration = ttl
+	}
+}
+
+func StreamWithRegions(n int) StreamOption {
+	return func(stream *Stream) {
+		stream.regions = n
+
+		for range n {
+			rb := ringbuffer.New(primitive.ByteSize * primitive.ByteSize)
+			pr, pw := rb.Pipe()
+			stream.rb = append(stream.rb, rb)
+			stream.pr = append(stream.pr, pr)
+			stream.pw = append(stream.pw, pw)
+			stream.frame = append(stream.frame, make([]byte, primitive.ByteSize))
+			stream.emitter = append(stream.emitter, NewEmitter(pr, pw, nil))
+		}
 	}
 }
 

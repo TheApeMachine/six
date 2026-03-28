@@ -1,28 +1,47 @@
 /* ═══════════════════════════════════════════════════════════
-   architecture.js — 3D Subsystem zones, connections, arrows,
+   architecture.js — 3D subsystem zones, connections, arrows,
                      zone planes (raycasting), and zone labels
    ═══════════════════════════════════════════════════════════ */
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { zoneGroup } from './scene.js';
 
-/* Five zones: the actual substrate path
-   (dataset → frame → orchestrator → chamber → kernel). */
+/* Actual runtime subsystems:
+   machine → stream → emitter → backend → pool, with hardware substrates above. */
 export const SYS = {
-  dataset: { x: -16, z: 14, y: 0,   w: 8, h: 6, depth: 4, label: 'DATASET',        color: 0x6080c0 },
-  frame:   { x: 0,   z: 16, y: 0,   w: 8, h: 6, depth: 4, label: 'FRAME · 1024 B', color: 0x5090d0 },
-  machine: { x: 0,   z: 0,  y: 0,   w: 10, h: 8, depth: 6, label: 'ORCHESTRATOR',  color: 0xffcc66, accent: true },
-  chamber: { x: 16,  z: 0,  y: 0,   w: 8, h: 8, depth: 5, label: 'VALUE · CHAMBER', color: 0x50c0a0 },
-  kernel:  { x: 0,   z: -16, y: 0,  w: 9, h: 6, depth: 5, label: 'CPU KERNEL',     color: 0x9070e0 },
+  machine: { x: 0,   z: -10, y: 0, w: 12, h: 8, depth: 6, label: 'MACHINE', color: 0xffcc66, accent: true },
+  stream:  { x: -16, z: 6,   y: 0, w: 10, h: 6, depth: 4, label: 'STREAM',  color: 0x5090d0 },
+  emitter: { x: -2,  z: 6,   y: 0, w: 10, h: 6, depth: 4, label: 'EMITTER', color: 0x50c0a0 },
+  backend: { x: 14,  z: 6,   y: 0, w: 10, h: 6, depth: 5, label: 'BACKEND', color: 0xa070e0 },
+  pool:    { x: 30,  z: 6,   y: 0, w: 10, h: 6, depth: 5, label: 'POOL',    color: 0x8fdc7a },
+  cuda:    { x: 12,  z: 18,  y: 0, w: 8,  h: 5, depth: 4, label: 'CUDA',    color: 0x7fb8ff },
+  metal:   { x: 24,  z: 18,  y: 0, w: 8,  h: 5, depth: 4, label: 'METAL',   color: 0x6de0c0 },
+  cpu:     { x: 36,  z: 18,  y: 0, w: 8,  h: 5, depth: 4, label: 'CPU',     color: 0xffb84d },
 };
 
 export const CONNS = [
-  { from: 'dataset', to: 'frame',   tag: '1024 B frame' },
-  { from: 'frame',   to: 'machine', tag: 'Value.Write' },
-  { from: 'machine', to: 'chamber', tag: 'io.Copy merge' },
-  { from: 'chamber', to: 'kernel',  tag: 'motor + ALU' },
-  { from: 'kernel',  to: 'machine', tag: 'frame out' },
+  { from: 'machine', to: 'stream',  tag: 'load' },
+  { from: 'stream',  to: 'emitter', tag: 'frame' },
+  { from: 'emitter', to: 'backend', tag: 'dispatch' },
+  { from: 'backend', to: 'pool',    tag: 'jobs' },
+  { from: 'pool',    to: 'machine', tag: 'result' },
+  { from: 'backend', to: 'cuda',    tag: 'CUDA' },
+  { from: 'backend', to: 'metal',   tag: 'Metal' },
+  { from: 'backend', to: 'cpu',     tag: 'CPU' },
 ];
+
+const ZONE_ALIASES = {
+  dataset: 'machine',
+  frame: 'stream',
+  chamber: 'emitter',
+  kernel: 'backend',
+};
+
+export function resolveZoneKey(sysKey) {
+  const key = String(sysKey || '');
+  if (SYS[key]) return key;
+  return ZONE_ALIASES[key] || key;
+}
 
 export const zonePlanes = {};
 
@@ -55,22 +74,21 @@ function createGlassPanel(w, h, d, color, opacity = 0.03) {
 function createCornerBrackets(w, h, y, color, opacity = 0.35) {
   const group = new THREE.Group();
   const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-  const hw = w / 2, hh = h / 2;
-  const cs = 0.7; // corner bracket size
+  const hw = w / 2;
+  const hh = h / 2;
+  const cs = 0.7;
 
   const corners = [
     [-hw, -hh], [hw, -hh], [hw, hh], [-hw, hh],
   ];
 
   for (const [cx, cz] of corners) {
-    // Horizontal bracket
     const hg = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(cx - cs * Math.sign(cx || 1), y, cz),
       new THREE.Vector3(cx + cs * Math.sign(cx || 1), y, cz),
     ]);
     group.add(new THREE.Line(hg, mat));
 
-    // Vertical bracket
     const vg = new THREE.BufferGeometry().setFromPoints([
       new THREE.Vector3(cx, y, cz - cs * Math.sign(cz || 1)),
       new THREE.Vector3(cx, y, cz + cs * Math.sign(cz || 1)),
@@ -86,21 +104,19 @@ export function buildArchitecture() {
   for (const [key, sys] of Object.entries(SYS)) {
     const baseY = sys.depth / 2;
 
-    // Wireframe box (main structure)
     const wireBox = createWireframeBox(sys.w, sys.h, sys.depth, sys.color, 0.3);
     wireBox.position.set(sys.x, baseY, sys.z);
     zoneGroup.add(wireBox);
 
-    // Glass fill
     const glass = createGlassPanel(sys.w, sys.h, sys.depth, sys.color, sys.accent ? 0.04 : 0.02);
     glass.position.set(sys.x, baseY, sys.z);
     zoneGroup.add(glass);
 
-    // Floor grid within zone
     const innerGrid = new THREE.GridHelper(
-      Math.min(sys.w, sys.h) - 1,
-      Math.min(sys.w, sys.h) - 1,
-      sys.color, sys.color
+      Math.max(1, Math.min(sys.w, sys.h) - 1),
+      Math.max(1, Math.min(sys.w, sys.h) - 1),
+      sys.color,
+      sys.color,
     );
     innerGrid.material = innerGrid.material.clone();
     innerGrid.material.transparent = true;
@@ -108,22 +124,18 @@ export function buildArchitecture() {
     innerGrid.position.set(sys.x, 0.02, sys.z);
     zoneGroup.add(innerGrid);
 
-    // Corner brackets on floor
     const brackets = createCornerBrackets(sys.w, sys.h, 0.03, sys.color, 0.4);
     brackets.position.set(sys.x, 0, sys.z);
     zoneGroup.add(brackets);
 
-    // Top corner brackets
     const topBrackets = createCornerBrackets(sys.w, sys.h, sys.depth, sys.color, 0.2);
     topBrackets.position.set(sys.x, 0, sys.z);
     zoneGroup.add(topBrackets);
 
-    // Point light inside zone
     const zonePL = new THREE.PointLight(sys.color, sys.accent ? 0.25 : 0.1, 15, 2);
     zonePL.position.set(sys.x, baseY, sys.z);
     zoneGroup.add(zonePL);
 
-    // Label
     const div = document.createElement('div');
     div.className = sys.accent ? 'subsystem-label center' : 'subsystem-label';
     div.textContent = sys.label;
@@ -131,13 +143,11 @@ export function buildArchitecture() {
     lbl.position.set(sys.x, sys.depth + 0.5, sys.z);
     zoneGroup.add(lbl);
 
-    // Store metadata
     sys.center = new THREE.Vector3(sys.x, baseY, sys.z);
     sys.labelObj = lbl;
     sys.wireBox = wireBox;
     sys.glassPanel = glass;
 
-    // Clickable plane for raycasting
     const planeGeo = new THREE.BoxGeometry(sys.w, sys.depth, sys.h);
     const planeMat = new THREE.MeshBasicMaterial({
       color: sys.color,
@@ -153,7 +163,6 @@ export function buildArchitecture() {
     zonePlanes[key] = plane;
   }
 
-  // ── Connection Lines ───────────────────────────────────────
   const connMat = new THREE.LineDashedMaterial({
     color: 0x3060a0,
     transparent: true,
@@ -163,14 +172,14 @@ export function buildArchitecture() {
   });
 
   for (const conn of CONNS) {
-    const fromSys = SYS[conn.from], toSys = SYS[conn.to];
+    const fromSys = SYS[conn.from];
+    const toSys = SYS[conn.to];
     const midY = 1.5;
     const fromPt = new THREE.Vector3(fromSys.x, midY, fromSys.z);
     const toPt = new THREE.Vector3(toSys.x, midY, toSys.z);
 
-    // Build a curved path using an intermediate point above
     const midPt = new THREE.Vector3().lerpVectors(fromPt, toPt, 0.5);
-    midPt.y += 3; // arc height
+    midPt.y += 3;
 
     const curve = new THREE.QuadraticBezierCurve3(fromPt, midPt, toPt);
     const curvePoints = curve.getPoints(40);
@@ -179,7 +188,6 @@ export function buildArchitecture() {
     curveLine.computeLineDistances();
     zoneGroup.add(curveLine);
 
-    // Connection tag at midpoint
     const tagDiv = document.createElement('div');
     tagDiv.className = 'conn-label';
     tagDiv.textContent = conn.tag;
@@ -187,7 +195,6 @@ export function buildArchitecture() {
     tagLbl.position.copy(midPt);
     zoneGroup.add(tagLbl);
 
-    // Arrow at 70% along the curve
     const arrowPos = curve.getPointAt(0.7);
     const arrowDir = curve.getTangentAt(0.7);
     const arrowGeo = new THREE.ConeGeometry(0.2, 0.6, 4);
@@ -216,11 +223,12 @@ const MAX_ZONE_LABELS = 5;
 const ZONE_LABEL_SPACING = 0.6;
 
 export function addZoneLabel(sysKey, text) {
-  const sys = SYS[sysKey];
+  const actualKey = resolveZoneKey(sysKey);
+  const sys = SYS[actualKey];
   if (!sys) return;
 
   const displayText = (text || '').trim().slice(0, 28) || '·';
-  const arr = zoneLabels.get(sysKey) || [];
+  const arr = zoneLabels.get(actualKey) || [];
 
   for (const item of arr) {
     item.div.classList.remove('fresh');
@@ -255,11 +263,12 @@ export function addZoneLabel(sysKey, text) {
     );
   }
 
-  zoneLabels.set(sysKey, arr);
+  zoneLabels.set(actualKey, arr);
 }
 
 export function clearZoneLabels(sysKey) {
-  const arr = zoneLabels.get(sysKey);
+  const actualKey = resolveZoneKey(sysKey);
+  const arr = zoneLabels.get(actualKey);
   if (!arr) return;
   for (const item of arr) {
     if (item.lbl?.element?.parentNode) {
@@ -283,9 +292,9 @@ export function clearAllZoneLabels() {
 let currentHoverKey = null;
 
 export function setZoneHover(key) {
-  if (key === currentHoverKey) return;
+  const actualKey = resolveZoneKey(key);
+  if (actualKey === currentHoverKey) return;
 
-  // Reset previous
   if (currentHoverKey && SYS[currentHoverKey]) {
     const sys = SYS[currentHoverKey];
     if (sys.wireBox) {
@@ -296,16 +305,15 @@ export function setZoneHover(key) {
     }
   }
 
-  currentHoverKey = key;
+  currentHoverKey = actualKey;
 
-  // Highlight new
-  if (key && SYS[key]) {
-    const sys = SYS[key];
+  if (actualKey && SYS[actualKey]) {
+    const sys = SYS[actualKey];
     if (sys.wireBox) {
       sys.wireBox.material.opacity = 0.6;
     }
-    if (zonePlanes[key]) {
-      zonePlanes[key].material.opacity = 0.04;
+    if (zonePlanes[actualKey]) {
+      zonePlanes[actualKey].material.opacity = 0.04;
     }
   }
 }
@@ -314,7 +322,7 @@ export function setZoneHover(key) {
 const pulseTargets = new Map();
 
 export function pulseZone(sysKey) {
-  pulseTargets.set(sysKey, Date.now());
+  pulseTargets.set(resolveZoneKey(sysKey), Date.now());
 }
 
 export function updateZonePulses() {
@@ -324,7 +332,7 @@ export function updateZonePulses() {
     if (elapsed > 600) {
       pulseTargets.delete(key);
       const sys = SYS[key];
-      if (sys.glassPanel) {
+      if (sys?.glassPanel) {
         sys.glassPanel.material.opacity = sys.accent ? 0.04 : 0.02;
       }
       continue;
@@ -332,7 +340,7 @@ export function updateZonePulses() {
     const t = elapsed / 600;
     const pulse = Math.sin(t * Math.PI) * 0.08;
     const sys = SYS[key];
-    if (sys.glassPanel) {
+    if (sys?.glassPanel) {
       sys.glassPanel.material.opacity = (sys.accent ? 0.04 : 0.02) + pulse;
     }
   }

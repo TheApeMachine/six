@@ -208,16 +208,21 @@
 }
 #replay-info { font-size: 8px; color: var(--bp-ink-faint); min-width: 80px; text-align: right; }
 
-/* ── Prompt Input ───────────────────────────────────────── */
+/* ── Prompt / Ingest Inputs ─────────────────────────────── */
+#ingest-bar,
 #prompt-bar {
-  position: absolute; bottom: 60px; left: 50%;
+  position: absolute; left: 50%;
   transform: translateX(-50%); z-index: 200;
   padding: 6px 10px; display: flex; align-items: center;
   gap: 8px; pointer-events: auto; width: 520px;
 }
+#ingest-bar { bottom: 100px; }
+#prompt-bar { bottom: 60px; }
+#ingest-bar.hidden,
 #prompt-bar.hidden {
   display: none;
 }
+#ingest-input,
 #prompt-input {
   flex: 1; background: rgba(6, 14, 30, 0.9);
   border: 1px solid var(--bp-line-strong);
@@ -225,8 +230,11 @@
   font-size: 11px; padding: 6px 10px; border-radius: 0;
   outline: none; letter-spacing: 0.3px;
 }
+#ingest-input::placeholder,
 #prompt-input::placeholder { color: var(--bp-ink-faint); letter-spacing: 1px; }
+#ingest-input:focus,
 #prompt-input:focus { border-color: var(--bp-accent-dim); }
+#ingest-send,
 #prompt-send {
   background: rgba(10, 20, 45, 0.8);
   border: 1px solid var(--bp-accent-dim);
@@ -235,10 +243,12 @@
   letter-spacing: 2px; text-transform: uppercase;
   transition: all 0.15s;
 }
+#ingest-send:hover,
 #prompt-send:hover {
   background: rgba(255, 220, 140, 0.08);
   border-color: var(--bp-accent);
 }
+#ingest-send:disabled,
 #prompt-send:disabled { opacity: 0.3; cursor: default; }
 
 /* ── Inspector Panel ─────────────────────────────────── */
@@ -333,6 +343,53 @@
 .inspector-event-data {
   font-size: 8px; color: var(--bp-ink-faint);
   line-height: 1.4; overflow: hidden; max-height: 40px;
+}
+
+.program-row {
+  display: grid;
+  grid-template-columns: 46px 1fr 90px;
+  gap: 8px;
+  align-items: start;
+  padding: 6px 8px;
+  margin-bottom: 4px;
+  background: rgba(6, 14, 30, 0.62);
+  border-left: 2px solid var(--bp-line);
+  font-size: 8px;
+  color: var(--bp-ink-dim);
+  cursor: pointer;
+}
+.program-row:hover {
+  border-left-color: var(--bp-accent-dim);
+  background: rgba(20, 40, 80, 0.42);
+}
+.program-row.active {
+  border-left-color: var(--bp-accent);
+  background: rgba(255, 220, 140, 0.08);
+}
+.program-slot {
+  color: var(--bp-accent);
+  letter-spacing: 1px;
+  font-size: 7px;
+}
+.program-op {
+  color: var(--bp-ink);
+  line-height: 1.35;
+}
+.program-raw {
+  text-align: right;
+  color: var(--bp-ink-faint);
+  font-size: 7px;
+}
+.value-raw {
+  margin: 0;
+  padding: 10px 12px;
+  font-size: 8px;
+  color: var(--bp-ink);
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: rgba(6, 14, 30, 0.72);
+  border: 1px solid var(--bp-line);
 }
 
 /* ── Event Detail Overlay ─────────────────────────────── */

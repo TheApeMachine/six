@@ -22,7 +22,7 @@ const regionBitWidth = 64.0
 
 /*
 SubstrateOpts configures the demo loop that mirrors experiment/pipeline_test.go:
-dataset frames -> Value chamber -> CPU backend -> updated chamber state.
+dataset frames -> live Value snapshot -> CPU backend -> updated state.
 */
 type SubstrateOpts struct {
 	Repo       string
@@ -38,7 +38,6 @@ telemetry for each step. It returns when the context is cancelled, iterations
 complete, or the dataset errors.
 */
 func RunSubstrateLoop(ctx context.Context, srv *Server, substrate kernel.Substrate, opts SubstrateOpts) error {
-	ctx = primitive.ContextWithSubstrate(ctx, substrate)
 	unbounded := opts.Iterations <= 0
 
 	chamber, err := primitive.NewValue(nil)
@@ -157,7 +156,7 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, substrate kernel.Substra
 			},
 		})
 
-		// Physically merge the incoming tokens (Region 0) and state into the chamber.
+		// Physically merge the incoming tokens (Region 0) and state into the live Value.
 		// We avoid io.Copy because Value.Write treats any byte slice as raw user stream
 		// and would attempt to tokenize the binary frame structure sequentially.
 		acc := int(core.Cfg.StateAccumulator)

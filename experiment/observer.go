@@ -5,6 +5,7 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
@@ -127,9 +128,9 @@ func (o *Observer) measure(p []byte, n int) {
 		val := primitive.BytesToValue(p)
 
 		// Extract observability metrics directly from the topological frame
-		pressure := cpu.Popcount(val, int(core.Cfg.StateSequence), 64)
+		pressure := cpu.Popcount(unsafe.Pointer(val), int(core.Cfg.StateSequence), 64)
 		instr := telemetry.InstructionFromValue(val)
-		density := cpu.Popcount(val, int(core.Cfg.StateAccumulator), 64)
+		density := cpu.Popcount(unsafe.Pointer(val), int(core.Cfg.StateAccumulator), 64)
 
 		o.lastInstr.Store(uint32(instr))
 		o.lastPressure.Store(int64(pressure))
@@ -137,13 +138,9 @@ func (o *Observer) measure(p []byte, n int) {
 		o.opsCount.Add(1)
 
 		if o.udp != nil {
-			// Throttle frames sent over UDP so we don't spam 100k packets per second
-			// we only send occasionally (e.g. if instruction changed or modulo count).
-			// Here we just send it if opsCount % 100 == 0 or something similar,
-			// or just unconditionally, but it might overwhelm UDP buffer. Let's send every 1024 ops or so
-			if o.opsCount.Load()%32 == 0 {
-				o.udp.SendFrame(p[:primitive.ByteSize])
-			}
+			// Mirror every raw Value frame so the visualizer can reconstruct the exact
+			// data flow. The metrics event below stays throttled to keep the HUD light.
+			o.udp.SendFrame(p[:primitive.ByteSize])
 		}
 	}
 }

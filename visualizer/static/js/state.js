@@ -12,6 +12,7 @@ export let totalTokenNodes = 0;
 export let totalFlowEdges = 0;
 export let totalFoldLinks = 0;
 export let substrateFrames = 0;
+export let totalValueFrames = 0;
 export let totalJobsDone = 0;
 export let totalJobsFailed = 0;
 export let totalJobsScheduled = 0;
@@ -36,8 +37,10 @@ export const allEvents = [];
 
 // Inspector
 export let inspectorOpen = false;
-export let inspectorSysKey = null;
+export let inspectorMode = 'zone';
+export let inspectorKey = null;
 export let inspectorTab = 'feed';
+export let lastValueSummary = '—';
 
 // Histories
 export const forestKeyBins = new Uint32Array(256);
@@ -46,6 +49,8 @@ export let tokenBinMax = 1;
 export const promptHistory = [];
 export const foldHistory = [];
 export const executeHistory = [];
+export const valueHistory = [];
+export const valueSnapshots = new Map();
 
 // Sparkline data
 export const sparkData = [];
@@ -54,18 +59,24 @@ export const SPARK_MAX = 200;
 // Subsystem config
 export const ZONE_COMPONENTS = {
   machine: ['Machine', 'Program', 'Substrate'],
-  dataset: ['Dataset', 'Substrate'],
-  frame:   ['Tokenizer', 'Sequencer', 'Substrate'],
-  chamber: ['Graph', 'SpatialIndex', 'Substrate'],
-  kernel:  ['Kernel', 'Pool', 'Substrate'],
+  stream:  ['Tokenizer', 'Sequencer', 'DMT', 'LSM'],
+  emitter: ['Value'],
+  backend: ['Kernel', 'Backend', 'Graph', 'SpatialIndex', 'Substrate'],
+  pool:    ['Pool'],
+  cuda:    ['Kernel', 'Backend'],
+  metal:   ['Kernel', 'Backend'],
+  cpu:     ['Kernel', 'Backend'],
 };
 
 export const ZONE_DESCRIPTIONS = {
-  machine: 'Orchestrates io between dataset, Value chamber, and CPU kernel',
-  dataset: 'Byte source (e.g. Hugging Face) — chunked into 1024-byte frames',
-  frame:   'Each frame is a primitive.Value on the wire',
-  chamber: 'Holds merged Value state — registers + instruction nibble',
-  kernel:  'cpu.Backend — motor (Accumulate) + truth-table ALU on operand pressure',
+  machine: 'Orchestrates prompts, ingest, and value circulation',
+  stream:  'Frames and tokens moving through transport',
+  emitter: 'Captures framed Value snapshots and preserves wire content',
+  backend: 'Routes work to CPU, CUDA, and Metal substrates',
+  pool:    'Schedules jobs across worker goroutines',
+  cuda:    'CUDA device routes selected by the backend',
+  metal:   'Metal device routes selected by the backend',
+  cpu:     'CPU fallback routes selected by the backend',
 };
 
 // Mutator helpers (since ES modules export bindings by reference for let)
@@ -79,6 +90,7 @@ export function inc(name, amount = 1) {
     case 'totalTokenNodes': totalTokenNodes += amount; return totalTokenNodes;
     case 'totalFlowEdges': totalFlowEdges += amount; return totalFlowEdges;
     case 'totalFoldLinks': totalFoldLinks += amount; return totalFoldLinks;
+    case 'totalValueFrames': totalValueFrames += amount; return totalValueFrames;
     case 'totalJobsDone': totalJobsDone += amount; return totalJobsDone;
     case 'totalJobsFailed': totalJobsFailed += amount; return totalJobsFailed;
     case 'totalJobsScheduled': totalJobsScheduled += amount; return totalJobsScheduled;
@@ -91,9 +103,12 @@ export function set(name, value) {
   switch (name) {
     case 'totalIngested': totalIngested = value; break;
     case 'substrateFrames': substrateFrames = value; break;
+    case 'totalValueFrames': totalValueFrames = value; break;
     case 'inspectorOpen': inspectorOpen = value; break;
-    case 'inspectorSysKey': inspectorSysKey = value; break;
+    case 'inspectorMode': inspectorMode = value; break;
+    case 'inspectorKey': inspectorKey = value; break;
     case 'inspectorTab': inspectorTab = value; break;
+    case 'lastValueSummary': lastValueSummary = value; break;
     case 'poolWorkerCount': poolWorkerCount = value; break;
     case 'poolIdleWorkers': poolIdleWorkers = value; break;
     case 'poolQueueSize': poolQueueSize = value; break;
@@ -118,6 +133,7 @@ export function resetCounters() {
   totalFlowEdges = 0;
   totalFoldLinks = 0;
   substrateFrames = 0;
+  totalValueFrames = 0;
   totalJobsDone = 0;
   totalJobsFailed = 0;
   totalJobsScheduled = 0;
@@ -140,7 +156,12 @@ export function resetCounters() {
   promptHistory.length = 0;
   foldHistory.length = 0;
   executeHistory.length = 0;
+  valueHistory.length = 0;
+  valueSnapshots.clear();
   allEvents.length = 0;
+  inspectorMode = 'zone';
+  inspectorKey = null;
+  lastValueSummary = '—';
 }
 
 const MAX_ALL_EVENTS = 2000;
@@ -157,4 +178,11 @@ export function accumulateEvent(ev) {
   allEvents.push(ev);
   const overAll = allEvents.length - MAX_ALL_EVENTS;
   if (overAll > 0) allEvents.splice(0, overAll);
+}
+
+export function rememberValueSnapshot(snapshot) {
+  if (!snapshot || !snapshot.valueId) return;
+  valueSnapshots.set(snapshot.valueId, snapshot);
+  valueHistory.push(snapshot);
+  while (valueHistory.length > 240) valueHistory.shift();
 }

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
@@ -13,9 +12,31 @@ import (
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/vm"
 )
+
+var substrate *Backend
+var ctx context.Context
+var cancel context.CancelFunc
+
+func init() {
+	var err error
+
+	ctx, cancel = context.WithCancel(context.Background())
+
+	pool, err := NewPool(
+		PoolWithContext(ctx),
+		PoolWithProcs(10),
+	)
+
+	if err != nil {
+		panic(err)
+	}
+
+	substrate = NewBackend(
+		WithContext(context.Background()),
+		WithPool(pool),
+	)
+}
 
 /*
 Backend acts as an intelligent Multi-Substrate Load Balancer. It monitors
@@ -27,7 +48,7 @@ type Backend struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	hardware []kernel.Substrate
-	pool     *vm.Pool
+	pool     *Pool
 	nextHW   uint32 // round-robin substrate index
 }
 
@@ -38,79 +59,47 @@ type BackendOption func(*Backend)
 NewBackend initializes the unified Load Balancer by probing for
 all available compute substrates and layering them by speed priority.
 */
-func NewBackend(opts ...BackendOption) (*Backend, error) {
-	backend := &Backend{
+func NewBackend(opts ...BackendOption) *Backend {
+	substrate = &Backend{
 		hardware: make([]kernel.Substrate, 0),
 	}
+
+	errnie.Info("compute.backend: CPU substrate registered")
+	substrate.hardware = append(substrate.hardware, cpu.NewBackend())
 
 	// Available() returns a device count; iterate 0..n-1 explicitly.
 	for idx := 0; idx < cuda.Available(); idx++ {
 		errnie.Info("compute.backend: CUDA substrate registered")
-		backend.hardware = append(backend.hardware, cuda.NewBackend(idx))
+		substrate.hardware = append(substrate.hardware, cuda.NewBackend(idx))
 	}
 
 	for idx := 0; idx < metal.Available(); idx++ {
 		errnie.Info("compute.backend: Metal substrate registered")
-		backend.hardware = append(backend.hardware, metal.NewBackend(idx))
+		substrate.hardware = append(substrate.hardware, metal.NewBackend(idx))
 	}
-
-	errnie.Info("compute.backend: CPU substrate registered")
-	backend.hardware = append(backend.hardware, cpu.NewBackend())
 
 	for _, opt := range opts {
-		opt(backend)
+		opt(substrate)
 	}
 
-	if backend.ctx == nil {
-		backend.ctx, backend.cancel = context.WithCancel(context.Background())
+	if substrate.ctx == nil {
+		substrate.ctx, substrate.cancel = context.WithCancel(context.Background())
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":      backend.ctx,
-		"cancel":   backend.cancel,
-		"hardware": backend.hardware,
+		"ctx":      substrate.ctx,
+		"cancel":   substrate.cancel,
+		"hardware": substrate.hardware,
 	}); err != nil {
-		return nil, errnie.Wrap(err)
-	}
-
-	return backend, nil
-}
-
-/*
-UniversalBitwise implements the raw memory dispatcher if bypassing the stream.
-*/
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
-	if len(backend.hardware) == 0 {
-		err := NewBackendError(BackendErrorNoHardware, nil, "compute.backend.UniversalBitwise")
-		_ = errnie.Error(err)
-		return fmt.Errorf("compute.backend.UniversalBitwise: %w", err)
-	}
-
-	sub := backend.pickSubstrate(a)
-	if sub == nil {
-		err := NewBackendError(BackendErrorCompleteSaturation, nil, "compute.backend.UniversalBitwise")
-		_ = errnie.Error(err)
-		return fmt.Errorf("compute.backend.UniversalBitwise: %w", err)
-	}
-	return sub.UniversalBitwise(a, b)
-}
-
-// pickSubstrate rotates across local substrates. Values tagged by QUIC ingress
-// (WANIngressScarred) stick to the first registered device to avoid ping-pong
-// routing costs across heterogeneous transports elsewhere in the mesh.
-func (backend *Backend) pickSubstrate(hostFrame unsafe.Pointer) kernel.Substrate {
-	n := len(backend.hardware)
-	if n == 0 {
+		errnie.Error(err)
 		return nil
 	}
-	if hostFrame != nil {
-		v := (*primitive.Value)(hostFrame)
-		if v.WANIngressScarred() {
-			return backend.hardware[0]
-		}
-	}
-	i := atomic.AddUint32(&backend.nextHW, 1) - 1
-	return backend.hardware[int(i)%n]
+
+	return substrate
+}
+
+func UniversalBitwise(a, b unsafe.Pointer) error {
+	return substrate.hardware[0].UniversalBitwise(a, b)
 }
 
 /*
@@ -125,7 +114,7 @@ func WithContext(ctx context.Context) BackendOption {
 /*
 WithPool injects the worker pool for job scheduling.
 */
-func WithPool(p *vm.Pool) BackendOption {
+func WithPool(p *Pool) BackendOption {
 	return func(backend *Backend) {
 		backend.pool = p
 	}

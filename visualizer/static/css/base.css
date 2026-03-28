@@ -198,12 +198,99 @@ body {
 }
 
 .region-label.data    { color: rgba(100, 180, 255, 0.8); border: 1px solid rgba(100, 180, 255, 0.2); }
+.region-label.tokens  { color: rgba(100, 180, 255, 0.8); border: 1px solid rgba(100, 180, 255, 0.2); }
+.region-label.identity { color: rgba(150, 240, 150, 0.8); border: 1px solid rgba(150, 240, 150, 0.2); }
 .region-label.instr   { color: var(--bp-accent); border: 1px solid var(--bp-accent-dim); }
+.region-label.state   { color: var(--bp-accent); border: 1px solid var(--bp-accent-dim); }
+.region-label.exec    { color: var(--bp-red); border: 1px solid rgba(255, 140, 120, 0.25); }
 .region-label.affinity { color: var(--bp-cyan); border: 1px solid rgba(100, 220, 255, 0.2); }
 .region-label.program { color: var(--bp-purple); border: 1px solid rgba(180, 140, 255, 0.2); }
 .region-label.link    { color: var(--bp-green); border: 1px solid rgba(140, 255, 200, 0.2); }
 .region-label.gossip  { color: rgba(100, 200, 200, 0.7); border: 1px solid rgba(100, 200, 200, 0.15); }
 .region-label.ttl     { color: var(--bp-red); border: 1px solid rgba(255, 140, 120, 0.2); }
+.region-label.registers { color: var(--bp-purple); border: 1px solid rgba(180, 140, 255, 0.2); }
+.region-label.pc      { color: var(--bp-accent); border: 1px solid var(--bp-accent-dim); }
+
+.system-orbit-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  color: var(--bp-ink);
+  font-family: var(--bp-font);
+  font-size: calc(7px * var(--label-zoom, 1));
+  pointer-events: none;
+  white-space: nowrap;
+  padding: 3px 6px 2px;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  background: rgba(6, 14, 30, 0.9);
+  border: 1px solid rgba(100, 160, 240, 0.22);
+  min-width: calc(72px * var(--label-zoom, 1));
+}
+
+.system-orbit-label.center {
+  color: var(--bp-accent);
+  font-size: calc(9px * var(--label-zoom, 1));
+  letter-spacing: 4px;
+  border-color: rgba(255, 220, 140, 0.35);
+  padding: 4px 10px 3px;
+  min-width: calc(140px * var(--label-zoom, 1));
+}
+
+.system-orbit-title {
+  display: block;
+  font-size: calc(8px * var(--label-zoom, 1));
+  line-height: 1.1;
+  letter-spacing: 3px;
+}
+
+.system-orbit-detail {
+  display: block;
+  font-size: calc(5px * var(--label-zoom, 1));
+  line-height: 1.15;
+  letter-spacing: 0.7px;
+  opacity: 0.72;
+}
+
+.system-orbit-label.machine { color: rgba(255, 212, 128, 0.9); border-color: rgba(255, 212, 128, 0.24); }
+.system-orbit-label.stream  { color: rgba(110, 190, 255, 0.88); border-color: rgba(110, 190, 255, 0.24); }
+.system-orbit-label.emitter { color: rgba(110, 230, 200, 0.9); border-color: rgba(110, 230, 200, 0.24); }
+.system-orbit-label.pool    { color: rgba(150, 255, 190, 0.88); border-color: rgba(150, 255, 190, 0.24); }
+.system-orbit-label.backend { color: rgba(200, 150, 255, 0.88); border-color: rgba(200, 150, 255, 0.24); }
+.system-orbit-label.cuda    { color: rgba(140, 210, 255, 0.9); border-color: rgba(140, 210, 255, 0.24); }
+.system-orbit-label.metal   { color: rgba(110, 230, 200, 0.9); border-color: rgba(110, 230, 200, 0.24); }
+.system-orbit-label.cpu     { color: rgba(255, 196, 96, 0.9); border-color: rgba(255, 196, 96, 0.24); }
+
+.system-orbit-label.offline {
+  opacity: 0.4;
+  filter: saturate(0.8);
+}
+
+.system-orbit-label.active {
+  opacity: 1;
+  box-shadow: 0 0 18px rgba(120, 180, 255, 0.16);
+}
+
+.fold-label.value-node {
+  pointer-events: auto;
+  cursor: pointer;
+  background: rgba(6, 14, 30, 0.94);
+  border: 1px solid rgba(140, 200, 255, 0.28);
+  box-shadow: 0 0 18px rgba(80, 160, 255, 0.12);
+  transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+}
+.fold-label.value-node:hover {
+  border-color: rgba(255, 220, 140, 0.65);
+  box-shadow: 0 0 24px rgba(255, 220, 140, 0.18);
+}
+.fold-label.value-node .fold-text {
+  color: var(--bp-ink);
+  font-weight: 500;
+}
+.fold-label.value-node .fold-meta {
+  color: var(--bp-ink-dim);
+}
 
 /* ── Fold Label Styles ───────────────────────────────── */
 .fold-label {

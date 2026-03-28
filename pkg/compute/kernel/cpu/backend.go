@@ -9,7 +9,6 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 type GraphEvent struct {
@@ -20,8 +19,6 @@ type GraphEvent struct {
 	FromID     uint64
 	ToID       uint64
 }
-
-const InstructionByteMask byte = 0x80 // 10000000 in binary
 
 /*
 Backend is the CPU kernel backend. It is now a dumb physics engine
@@ -37,6 +34,7 @@ type Backend struct {
 	nextID          uint64
 	graphFn         func(GraphEvent)
 	useAffinityMode bool
+	traceEnabled    bool
 }
 
 type backendOption func(*Backend)
@@ -84,10 +82,25 @@ func BackendWithAffinityMode(enabled bool) backendOption {
 	}
 }
 
+// BackendWithTraceEnabled enables the verbose UniversalBitwise trace path.
+// It is disabled by default because it is far too expensive for normal runs.
+func BackendWithTraceEnabled(enabled bool) backendOption {
+	return func(backend *Backend) {
+		backend.traceEnabled = enabled
+	}
+}
+
 func (backend *Backend) emitGraph(ev GraphEvent) {
 	if backend.graphFn != nil {
 		backend.graphFn(ev)
 	}
+}
+
+func traceBackend(enabled bool, msg string, keyvals ...any) {
+	if !enabled {
+		return
+	}
+	errnie.Trace(msg, keyvals...)
 }
 
 /*
@@ -101,12 +114,14 @@ func Available() int {
 HammingDistance calculates the topological distance between two Values
 by counting the number of differing bits (symmetric difference).
 */
-func HammingDistance(a, b *primitive.Value) int {
+func HammingDistance(a, b unsafe.Pointer) int {
 	dist := 0
-	for i := range primitive.Words {
+	contexts := [2]*[128]uint64{(*[128]uint64)(a), (*[128]uint64)(b)}
+
+	for i := range 128 {
 		// We use a simple bitwise XOR and count the set bits
 		// to find the geometric distance between two Values.
-		diff := a[i] ^ b[i]
+		diff := contexts[0][i] ^ contexts[1][i]
 		dist += bits.OnesCount64(diff)
 	}
 	return dist
@@ -119,11 +134,11 @@ program is by applying the 4 bit truth table directly to the spans.
 For reference:
 
 	r0 = context A (0=a, 1=b)
-	r1 = offset A
-	r2 = length A
+	r1 = start A
+	r2 = end A
 	r3 = context B (0=a, 1=b)
-	r4 = offset B
-	r5 = length B
+	r4 = start B
+	r5 = end B
 	pc = program counter (index of next instruction)
 	fw = firmware index (index of next program to execute)
 
@@ -133,218 +148,175 @@ apply the truth table to the bits, that's basically it.
 It is important to mind the bootloader, which should be installed
 into all new Values.
 */
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+// loadFirmware copies a compiled firmware program into the user program
+// region (slots 4+) when the firmware register is set and pc is zero.
+func loadFirmware(c *[128]uint64, p, w uint64) {
+	f := c[uint64(core.Cfg.FW)]
+	if f == 0 || int(f) >= len(core.Cfg.Firmware) || c[p] != 0 {
+		return
+	}
+	g := core.Cfg.Firmware[f]
+	for i, j := 0, w+4; i < len(g) && int(j) < 128; i, j = i+2, j+1 {
+		v := uint64(g[i])
+		if i+1 < len(g) {
+			v |= uint64(g[i+1]) << 32
+		}
+		c[j] = v
+	}
+	c[uint64(core.Cfg.FW)] = 0
+}
+
+// fetch returns the next instruction word and the pre-increment pc.
+// Returns 0, _, true when execution should halt.
+func fetch(c *[128]uint64, p, w uint64) (instr uint32, pc uint64, halt bool) {
+	pc = c[p]
+	j := w + pc/2
+	if int(j) >= 128 {
+		return 0, pc, true
+	}
+	instr = uint32(c[j] >> (pc % 2 * 32))
+	if instr == 0 {
+		return 0, pc, true
+	}
+	c[p]++
+	return instr, pc, false
+}
+
+// decode splits a 32-bit instruction into its opcode and operand fields.
+func decode(instr uint32) (op uint8, sc, dc uint16, sSp, dSp bool) {
+	op = uint8(instr & 0xF)
+	sc, dc = uint16((instr>>4)&0x3FFF), uint16((instr>>18)&0x3FFF)
+	sSp, dSp = sc&0x3F80 == 0x3000, dc&0x3F80 == 0x3000
+	return
+}
+
+// execSpan applies the 4-bit truth table bit-by-bit across two spans.
+func execSpan(c [2]*[128]uint64, op uint8, sc, dc uint16) {
+	sB, dB := uint64(sc&0x7F), uint64(dc&0x7F)
+	if int(sB)+2 >= 128 || int(dB)+2 >= 128 {
+		return
+	}
+	sL, sS, sE := int(c[0][sB])&1, c[0][sB+1], c[0][sB+2]
+	dL, dS, dE := int(c[0][dB])&1, c[0][dB+1], c[0][dB+2]
+	if sE <= sS || dE <= dS {
+		return
+	}
+	for i := uint64(0); i < min(sE-sS, dE-dS); i++ {
+		si, ss := (sS+i)/64, (sS+i)%64
+		di, ds := (dS+i)/64, (dS+i)%64
+		if si|di >= 128 {
+			break
+		}
+		sb := (c[sL][si] >> ss) & 1
+		db := (c[dL][di] >> ds) & 1
+		c[dL][di] = c[dL][di]&^(1<<ds) | uint64((op>>((1-db)|(1-sb)<<1))&1)<<ds
+	}
+}
+
+// writeReg applies the truth table to a control/register word destination.
+func writeReg(c *[128]uint64, op uint8, dc, sc uint16) {
+	if idx := uint64(dc & 0x7F); int(idx) < 128 {
+		left := uint64(sc)
+		if sc&0x3F80 == 0x3000 {
+			if src := uint64(sc & 0x7F); int(src) < 128 {
+				left = c[src]
+			} else {
+				return
+			}
+		}
+		right := c[idx]
+		m0 := uint64(0) - uint64((op>>3)&1)
+		m1 := uint64(0) - uint64((op>>2)&1)
+		m2 := uint64(0) - uint64((op>>1)&1)
+		m3 := uint64(0) - uint64(op&1)
+		c[idx] = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
+	}
+}
+
+func firmwareWordAt(prog []uint32, i int) uint64 {
+	v := uint64(prog[i])
+	if i+1 < len(prog) {
+		v |= uint64(prog[i+1]) << 32
+	}
+	return v
+}
+
+func firmwareLoadedAt(c *[128]uint64, start uint64, fw core.FirmwareType) bool {
+	prog := core.Cfg.Firmware[fw]
+	if len(prog) == 0 {
+		return false
+	}
+	for i, j := 0, start; i < len(prog) && int(j) < 128; i, j = i+2, j+1 {
+		if c[j] != firmwareWordAt(prog, i) {
+			return false
+		}
+	}
+	return true
+}
+
+func tombstoneLoaded(c *[128]uint64, w uint64) bool {
+	return firmwareLoadedAt(c, w, core.FirmwareTypeTombstone) || firmwareLoadedAt(c, w+4, core.FirmwareTypeTombstone)
+}
+
+func applyTombstone(c *[128]uint64) {
+	target := c[uint64(core.Cfg.R6)]
+	if target == 0 {
+		return
+	}
+	if c[uint64(core.Cfg.PreviousID)] == target {
+		c[uint64(core.Cfg.PreviousID)] = 0
+	}
+	if c[uint64(core.Cfg.NextID)] == target {
+		c[uint64(core.Cfg.NextID)] = 0
+	}
+}
+
+// detectLoop tracks hardware loop state on backward PC writes.
+func detectLoop(c *[128]uint64, p, pc, le uint64, lp bool) (uint64, bool) {
+	n := c[p]
+	if !lp && n < pc {
+		return pc, true
+	}
+	if lp && n > le {
+		return 0, false
+	}
+	return le, lp
+}
+
+func (k *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	if a == nil || b == nil {
 		return fmt.Errorf("cpu.Backend.UniversalBitwise: nil value pointer")
 	}
-	valA := (*primitive.Value)(a)
-	valB := (*primitive.Value)(b)
-	contexts := []*primitive.Value{valA, valB}
+	c := [2]*[128]uint64{(*[128]uint64)(a), (*[128]uint64)(b)}
+	p, w := uint64(core.Cfg.RegPC), uint64(core.Cfg.ProgramIndex)
 
-	pcIdx := uint64(core.Cfg.RegPC)
-	wordBase := uint64(core.Cfg.ProgramIndex)
+	loadFirmware(c[0], p, w)
+	tombstoneActive := tombstoneLoaded(c[0], w)
 
-	fwIdx := uint64(core.Cfg.FW)
-	fw := valA[fwIdx]
-
-	// In-band firmware loading mechanism.
-	// When fw > 0 and pc == 0, load the firmware program into the user
-	// program region (slots 8+, i.e. words 83-127) preserving the
-	// permanent bootloader in slots 0-7 (words 79-82).
-	if fw > 0 && int(fw) < len(core.Cfg.Firmware) && valA[pcIdx] == uint64(0) {
-		prog := core.Cfg.Firmware[fw]
-		// Bootloader occupies the first 4 words (8 instruction slots).
-		// User programs start at wordBase+4 (slot 8).
-		bootloaderWords := uint64(4)
-		for i := 0; i < len(prog); i += 2 {
-			wordPos := wordBase + bootloaderWords + uint64(i/2)
-			if int(wordPos) >= primitive.Words {
-				break
-			}
-			var w uint64
-			w = uint64(prog[i])
-			if i+1 < len(prog) {
-				w |= uint64(prog[i+1]) << 32
-			}
-			valA[wordPos] = w
-		}
-		valA[fwIdx] = 0 // consumed firmware index; avoid re-loading same slot
-	}
-
-	valA.ClearExecExitCode()
-
+	var le uint64
+	lp := false
 	for {
-		pc := valA[pcIdx]
-		errnie.Trace("cpu.Backend.UniversalBitwise", "pc", pc, "maxPC", core.Cfg.MaxPC)
-
-		if pc >= uint64(core.Cfg.MaxPC) {
-			valA.SetExecExitCode(primitive.ExecExitExhausted)
-			errnie.Trace("cpu.Backend.UniversalBitwise", "pc", pc, "maxPC", core.Cfg.MaxPC)
+		instr, pc, halt := fetch(c[0], p, w)
+		if halt {
 			break
 		}
-
-		wordPos := wordBase + (pc / 2)
-		errnie.Trace("cpu.Backend.UniversalBitwise", "wordPos", wordPos, "primitive.Words", primitive.Words)
-
-		if int(wordPos) >= primitive.Words {
-			valA.SetExecExitCode(primitive.ExecExitBadProgramWord)
-			errnie.Trace("cpu.Backend.UniversalBitwise", "wordPos", wordPos, "primitive.Words", primitive.Words)
-			break
+		op, sc, dc, sSp, dSp := decode(instr)
+		if sSp && dSp {
+			execSpan(c, op, sc, dc)
+		} else if dSp {
+			writeReg(c[0], op, dc, sc)
 		}
-
-		shift := uint((pc % 2) * 32)
-		instr := uint32(valA[wordPos] >> shift)
-
-		op := uint8(instr & 0xF)
-		errnie.Trace("cpu.Backend.UniversalBitwise", "op", op, "pc", pc)
-
-		if op == 0 && pc > 0 {
-			valA.SetExecExitCode(primitive.ExecExitHaltOpcode)
-			errnie.Trace("cpu.Backend.UniversalBitwise", "op", op, "pc", pc)
-			break
-		}
-
-		srcCode := uint16((instr >> 4) & 0x3FFF)
-		dstCode := uint16((instr >> 18) & 0x3FFF)
-		errnie.Trace("cpu.Backend.UniversalBitwise", "srcCode", srcCode, "dstCode", dstCode)
-
-		valA[pcIdx]++
-		errnie.Trace("cpu.Backend.UniversalBitwise", "pcIdx", pcIdx, "valA[pcIdx]", valA[pcIdx])
-
-		// resolve decodes a 14-bit operand field:
-		//   0x3000 (both bits set) = register → word index, span-capable
-		//   0x2000 (bit 13 only)   = dereference → read valA[idx], not span
-		//   anything else           = immediate (full 14-bit value), not span
-		// Large immediates (≥4096) naturally have bit 12 set but NOT bit 13,
-		// so they fall through to the immediate case — not span.
-		resolve := func(code uint16) (uint64, bool) {
-			flags := code & 0x3000
-			idx := uint64(code & 0x0FFF)
-			if flags == 0x3000 {
-				// Register: return its word index; span-capable.
-				return idx, true
-			}
-			if flags == 0x2000 {
-				// Dereference: read the value stored at word[idx].
-				if int(idx) >= primitive.Words {
-					errnie.Trace("cpu.Backend.UniversalBitwise", "deref_idx", idx, "primitive.Words", primitive.Words)
-					return 0, false
-				}
-				return valA[idx], false
-			}
-			// Immediate: return full 14-bit value (0–16383).
-			return uint64(code & 0x3FFF), false
-		}
-
-		srcVal, sSpan := resolve(srcCode)
-		dstVal, dSpan := resolve(dstCode)
-		errnie.Trace("cpu.Backend.UniversalBitwise", "srcVal", srcVal, "dstVal", dstVal)
-
-		// Span mode: BOTH operands must be registers (triplet bases).
-		// A single register operand paired with an immediate is a
-		// word-level write (e.g. "5248 r1 0011" sets r1 = 5248).
-		if sSpan && dSpan {
-			sBase := srcVal
-			dBase := dstVal
-
-			if int(sBase)+2 >= primitive.Words || int(dBase)+2 >= primitive.Words {
-				continue
-			}
-
-			sCtx, sOff, sLen := valA[sBase], valA[sBase+1], valA[sBase+2]
-
-			dCtx, dOff, dLen := valA[dBase], valA[dBase+1], valA[dBase+2]
-
-			limit := min(sLen, dLen)
-
-			errnie.Trace(
-				"cpu.Backend.UniversalBitwise",
-				"limit", limit,
-				"sLen", sLen,
-				"dLen", dLen,
-				"sBase", sBase,
-				"dBase", dBase,
-			)
-
-			if limit > 0 {
-				sLast := (sOff + limit - 1) / 64
-				dLast := (dOff + limit - 1) / 64
-				if sLast >= uint64(primitive.Words) || dLast >= uint64(primitive.Words) {
-					errnie.Trace(
-						"cpu.Backend.UniversalBitwise",
-						"sLast", sLast,
-						"dLast", dLast,
-						"primitive.Words", primitive.Words,
-					)
-					return fmt.Errorf(
-						"cpu.Backend.UniversalBitwise: span exceeds value (%d words): sLast=%d dLast=%d",
-						primitive.Words, sLast, dLast,
-					)
-				}
-			}
-
-			// This is the "Hardware Span" execution (Bootloader/Affinity)
-			// We treat the context as a raw bit-array
-			for itr := uint64(0); itr < limit; itr++ {
-				// RAW BIT READ (Manual extraction)
-				sIdx, sShift := (sOff+itr)/64, (sOff+itr)%64
-				dIdx, dShift := (dOff+itr)/64, (dOff+itr)%64
-				if sIdx >= uint64(primitive.Words) || dIdx >= uint64(primitive.Words) {
-					break
-				}
-				sLane := int(sCtx) & 1
-				dLane := int(dCtx) & 1
-
-				sb := (contexts[sLane][sIdx] >> sShift) & 1
-				db := (contexts[dLane][dIdx] >> dShift) & 1
-
-				errnie.Trace(
-					"cpu.Backend.UniversalBitwise",
-					"sIdx", sIdx,
-					"dIdx", dIdx,
-					"sLane", sLane,
-					"dLane", dLane,
-				)
-
-				// UNIVERSAL ALU LOGIC (Algebraic Normal Form)
-				// Maps (sb,db) to the truth table result
-				idx := (1 - db) | ((1 - sb) << 1)
-				res := (op >> idx) & 1
-
-				// RAW BIT WRITE (Manual insertion)
-				target := &contexts[dLane][dIdx]
-				*target = (*target & ^(uint64(1) << dShift)) | (uint64(res) << dShift)
-			}
-
-			continue
-		}
-
-		dstIdx := int(dstCode & 0x0FFF)
-		if dstIdx >= primitive.Words {
-			continue
-		}
-		left := srcVal
-		// For register destinations (0x3000), the resolved dstVal is the word
-		// index, so we read the actual current value. For immediates and derefs,
-		// use the resolved value directly (which IS the operand).
-		right := dstVal
-		if dSpan {
-			right = valA[dstIdx]
-		}
-
-		// m0-m3 mapped to bits 3-0
-		m0 := uint64(0) - uint64((op>>3)&1) // bit 3 = f(0,0)
-		m1 := uint64(0) - uint64((op>>2)&1) // bit 2 = f(0,1)
-		m2 := uint64(0) - uint64((op>>1)&1) // bit 1 = f(1,0)
-		m3 := uint64(0) - uint64(op&1)      // bit 0 = f(1,1)
-
-		valA[dstIdx] = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
+		le, lp = detectLoop(c[0], p, pc, le, lp)
 	}
-
+	if tombstoneActive {
+		applyTombstone(c[0])
+	}
 	return nil
 }
 
-func Popcount(value *primitive.Value, startBit, bitLen int) int {
+func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
+	contexts := (*[128]uint64)(value)
+
 	if bitLen <= 0 {
 		return 0
 	}
@@ -360,10 +332,10 @@ func Popcount(value *primitive.Value, startBit, bitLen int) int {
 		chunk := min(64-shift, remaining)
 
 		var lane uint64
-		lane = value[word] >> uint(shift)
+		lane = contexts[word] >> uint(shift)
 
-		if shift > 0 && word+1 < primitive.Words {
-			lane |= value[word+1] << uint(64-shift)
+		if shift > 0 && word+1 < 128 {
+			lane |= contexts[word+1] << uint(64-shift)
 		}
 
 		if chunk < 64 {

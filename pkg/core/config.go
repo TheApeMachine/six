@@ -11,14 +11,10 @@ import (
 type FirmwareType uint
 
 const (
-	FirmwareTypeNone FirmwareType = iota
+	FirmwareTypeLearn FirmwareType = iota
 	FirmwareTypeBootloader
 	FirmwareTypeTombstone
-	FirmwareTypeAffinity
-	FirmwareTypeShatter
-	FirmwareTypeWipe
 	FirmwareTypeViral
-	FirmwareTypeQuery
 )
 
 /*
@@ -40,8 +36,6 @@ type ValueRegionConfig struct {
 	Next      ValueOffsetConfig      `mapstructure:"next"`
 	State     ValueRegionConfigState `mapstructure:"state"`
 	Affinity  ValueOffsetConfig      `mapstructure:"affinity"`
-	Gossip    ValueOffsetConfig      `mapstructure:"gossip"`
-	TTL       ValueOffsetConfig      `mapstructure:"ttl"`
 	Registers ValueRegistersConfig   `mapstructure:"registers"`
 	PC        ValueOffsetConfig      `mapstructure:"pc"`
 	Program   ValueOffsetConfig      `mapstructure:"program"`
@@ -79,6 +73,10 @@ type ValueRegistersConfig struct {
 	R3    int `mapstructure:"r3"`
 	R4    int `mapstructure:"r4"`
 	R5    int `mapstructure:"r5"`
+	R6    int `mapstructure:"r6"`
+	R7    int `mapstructure:"r7"`
+	R8    int `mapstructure:"r8"`
+	R9    int `mapstructure:"r9"`
 	FW    int `mapstructure:"fw"`
 	PC    int `mapstructure:"pc"`
 }
@@ -145,10 +143,6 @@ func syncCfgFromVCfg() {
 	Cfg.NextID = vCfg.Region.Next.Start
 	Cfg.AffinityIndex = vCfg.Region.Affinity.Start
 	Cfg.AffinityBits = vCfg.Region.Affinity.Bits
-	Cfg.GossipIndex = vCfg.Region.Gossip.Start
-	Cfg.GossipBits = vCfg.Region.Gossip.Bits
-	Cfg.TTLIndex = vCfg.Region.TTL.Start
-	Cfg.TTLBits = vCfg.Region.TTL.Bits
 	Cfg.ProgramIndex = vCfg.Region.Program.Start
 	Cfg.ProgramBits = vCfg.Region.Program.Bits
 	Cfg.MaxPC = int(vCfg.Region.Program.Bits) / 32
@@ -158,6 +152,10 @@ func syncCfgFromVCfg() {
 	Cfg.R3 = vCfg.Region.Registers.R3
 	Cfg.R4 = vCfg.Region.Registers.R4
 	Cfg.R5 = vCfg.Region.Registers.R5
+	Cfg.R6 = vCfg.Region.Registers.R6
+	Cfg.R7 = vCfg.Region.Registers.R7
+	Cfg.R8 = vCfg.Region.Registers.R8
+	Cfg.R9 = vCfg.Region.Registers.R9
 	Cfg.FW = vCfg.Region.Registers.FW
 	Cfg.RegPC = vCfg.Region.Registers.PC
 }
@@ -183,10 +181,6 @@ type Config struct {
 	NextID           int
 	AffinityIndex    int
 	AffinityBits     uint64
-	GossipIndex      int
-	GossipBits       uint64
-	TTLIndex         int
-	TTLBits          uint64
 	ProgramIndex     int
 	ProgramBits      uint64
 	MaxPC            int
@@ -196,12 +190,16 @@ type Config struct {
 	R3               int
 	R4               int
 	R5               int
+	R6               int
+	R7               int
+	R8               int
+	R9               int
 	FW               int
 	RegPC            int
 
 	// Firmware holds compiled programs from config.yml, indexed by position.
 	// Set a Value's firmware register to the index to select a program.
-	Firmware [FirmwareTypeQuery + 1][]uint32
+	Firmware [FirmwareTypeViral + 1][]uint32
 }
 
 /*
@@ -220,11 +218,7 @@ func compileAndAssign(ft FirmwareType, src string) error {
 func LoadFirmware() error {
 	fwBootloader := viper.GetViper().GetString("programs.bootloader")
 	fwTombstone := viper.GetViper().GetString("programs.tombstone")
-	fwAffinity := viper.GetViper().GetString("programs.affinity")
-	fwShatter := viper.GetViper().GetString("programs.shatter")
-	fwWipe := viper.GetViper().GetString("programs.wipe")
 	fwViral := viper.GetViper().GetString("programs.viral")
-	fwQuery := viper.GetViper().GetString("programs.query")
 
 	if err := compileAndAssign(FirmwareTypeBootloader, fwBootloader); err != nil {
 		return err
@@ -232,19 +226,7 @@ func LoadFirmware() error {
 	if err := compileAndAssign(FirmwareTypeTombstone, fwTombstone); err != nil {
 		return err
 	}
-	if err := compileAndAssign(FirmwareTypeAffinity, fwAffinity); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeShatter, fwShatter); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeWipe, fwWipe); err != nil {
-		return err
-	}
 	if err := compileAndAssign(FirmwareTypeViral, fwViral); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeQuery, fwQuery); err != nil {
 		return err
 	}
 	return nil

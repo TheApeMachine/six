@@ -8,7 +8,6 @@ import (
 
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/transport"
 )
 
@@ -24,18 +23,11 @@ regions, and transport stream are wired up; calling them after NewMachine return
 unsupported and may race with in-flight I/O or scheduling.
 */
 type Machine struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	err          error
-	pool         *Pool
-	stream       *transport.Stream
-	regions      []*primitive.Region
-	dataset      io.ReadCloser
-	regionsCount int
-	// writePending holds a tail shorter than primitive.ByteSize between Writes.
-	// io.Copy uses arbitrary buffer sizes; transport.Stream requires each Write
-	// to be a multiple of ByteSize.
-	writePending []byte
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	stream  *transport.Stream
+	dataset io.ReadCloser
 }
 
 type machineOption func(*Machine)
@@ -47,6 +39,7 @@ type machineOption func(*Machine)
 func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	cpu := runtime.NumCPU()
 	maxProcs := cpu - 1
+
 	if cpu <= 1 {
 		maxProcs = 1
 	}
@@ -77,35 +70,10 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		)
 	}
 
-	if machine.pool, machine.err = NewPool(
-		PoolWithContext(machine.ctx),
-		PoolWithProcs(maxProcs),
-	); machine.err != nil {
-		return nil, errnie.Error(
-			NewMachineError(MachineErrFailStart),
-			"error", machine.err,
-		)
-	}
-	// Workers must run before Schedule jobs are processed.
-	machine.pool.Run()
-
-	regionsCount := machine.regionsCount
-	if regionsCount <= 0 {
-		regionsCount = runtime.NumCPU()
-		if regionsCount < 1 {
-			regionsCount = 1
-		}
-	}
-
-	machine.regions = make([]*primitive.Region, 0, regionsCount)
-
-	for i := 0; i < regionsCount; i++ {
-		machine.regions = append(machine.regions, primitive.NewRegion(uint64(i)))
-	}
-
 	machine.stream = transport.NewStream(
 		transport.StreamWithContext(machine.ctx),
 	)
+
 	if machine.stream == nil {
 		return nil, errnie.Error(
 			NewMachineError(MachineErrFailStart),
@@ -116,96 +84,34 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	return machine, nil
 }
 
-func (machine *Machine) Pool() *Pool {
-	return machine.pool
-}
-
-// Regions returns the machine's Region set. Callers can read accumulated
-// frames directly from Regions after the recirculation loop has stopped.
-func (machine *Machine) Regions() []*primitive.Region {
-	return machine.regions
-}
-
 func (machine *Machine) Read(p []byte) (n int, err error) {
 	return machine.stream.Read(p)
 }
 
 func (machine *Machine) Write(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-	if machine.stream == nil {
-		return 0, errnie.Error(
-			NewMachineError(MachineErrFailStart),
-			"msg", "nil stream",
-		)
-	}
-
-	machine.writePending = append(machine.writePending, p...)
-	aligned := len(machine.writePending) - (len(machine.writePending) % primitive.ByteSize)
-	if aligned == 0 {
-		return len(p), nil
-	}
-
-	if _, err = machine.stream.Write(machine.writePending[:aligned]); err != nil {
-		return 0, errnie.Error(err)
-	}
-	machine.writePending = append(machine.writePending[:0], machine.writePending[aligned:]...)
-	return len(p), nil
-}
-
-// flushWritePending pads any tail to a full frame with zeros and forwards it.
-// Call before CloseWrite / stream teardown so the byte length is a multiple of ByteSize.
-func (machine *Machine) flushWritePending() error {
-	if machine.stream == nil || len(machine.writePending) == 0 {
-		return nil
-	}
-	pending := machine.writePending
-	rem := len(pending) % primitive.ByteSize
-	var block []byte
-	if rem == 0 {
-		block = pending
-	} else {
-		block = make([]byte, len(pending)+primitive.ByteSize-rem)
-		copy(block, pending)
-	}
-	if _, err := machine.stream.Write(block); err != nil {
-		return err
-	}
-	machine.writePending = machine.writePending[:0]
-	return nil
-}
-
-// CloseWrite signals EOF to stream readers after the last framed Write.
-func (machine *Machine) CloseWrite() error {
-	if machine.stream == nil {
-		return nil
-	}
-	if err := machine.flushWritePending(); err != nil {
-		return errnie.Error(err)
-	}
-	return machine.stream.Close()
+	return machine.stream.Write(p)
 }
 
 func (machine *Machine) Close() error {
 	if machine.cancel != nil {
 		machine.cancel()
 	}
+
 	var errs []error
+
 	if machine.dataset != nil {
 		if err := machine.dataset.Close(); err != nil {
 			errs = append(errs, err)
 		}
 		machine.dataset = nil
 	}
+
 	if machine.stream != nil {
-		if err := machine.flushWritePending(); err != nil {
-			errs = append(errs, err)
-		}
 		if err := machine.stream.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
+
 	return errors.Join(errs...)
 }
 
@@ -224,16 +130,6 @@ func WithContext(ctx context.Context) machineOption {
 			"msg",
 			"context set",
 		)
-	}
-}
-
-// WithRegionsCount sets how many primitive.Region instances are created. When unset or
-// non-positive, the count defaults to runtime.NumCPU() (minimum 1).
-func WithRegionsCount(n int) machineOption {
-	return func(machine *Machine) {
-		if n > 0 {
-			machine.regionsCount = n
-		}
 	}
 }
 

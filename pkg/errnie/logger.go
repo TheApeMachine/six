@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 
 	"github.com/spf13/viper"
 	"go.uber.org/zap"
@@ -16,20 +17,21 @@ import (
 
 var (
 	logFile   *os.File
-	logFileMu sync.Mutex
 
 	traceFile   *os.File
-	traceFileMu sync.Mutex
 	traceInitMu sync.Mutex
 
-	loggerMu sync.RWMutex
-	logger   = mustNewDefaultLogger()
+	loggerPtr atomic.Pointer[ErrnieLogger]
 
 	initErr error
 
-	loggingCfgMu sync.RWMutex
-	loggingCfg   LoggingConfig
+	loggingCfg atomic.Value
 )
+
+func init() {
+	loggerPtr.Store(mustNewDefaultLogger())
+	loggingCfg.Store(LoggingConfig{})
+}
 
 func mustNewDefaultLogger() *ErrnieLogger {
 	z, err := buildLogger(zapcore.InfoLevel, ElasticsearchConfig{})
@@ -86,9 +88,7 @@ InitLogger rebuilds the global zap logger from cfg (loaded via core.LoadLoggingC
 and the "logging" section of config.yml). Call after Viper config is loaded.
 */
 func InitLogger(cfg LoggingConfig) {
-	loggingCfgMu.Lock()
-	loggingCfg = cfg
-	loggingCfgMu.Unlock()
+	loggingCfg.Store(cfg)
 
 	if cfg.Logfile {
 		initLogFile()
@@ -105,11 +105,10 @@ func InitLogger(cfg LoggingConfig) {
 		initErr = err
 	}
 
-	loggerMu.Lock()
-	old := logger.Logger
-	logger = &ErrnieLogger{Logger: z}
-	loggerMu.Unlock()
-	_ = old.Sync()
+	old := loggerPtr.Swap(&ErrnieLogger{Logger: z})
+	if old != nil && old.Logger != nil {
+		_ = old.Sync()
+	}
 
 	if cfg.Elasticsearch.Enabled {
 		if initErr != nil {
@@ -126,9 +125,11 @@ func InitLogger(cfg LoggingConfig) {
 
 // Sync flushes any buffered stdout/stderr log I/O (see zap.Logger.Sync).
 func Sync() error {
-	loggerMu.RLock()
-	z := logger.Logger
-	loggerMu.RUnlock()
+	l := loggerPtr.Load()
+	if l == nil {
+		return nil
+	}
+	z := l.Logger
 	if z == nil {
 		return nil
 	}
@@ -149,9 +150,7 @@ type ErrnieLogger struct {
 }
 
 func Logger() *ErrnieLogger {
-	loggerMu.RLock()
-	defer loggerMu.RUnlock()
-	return logger
+	return loggerPtr.Load()
 }
 
 func (l *ErrnieLogger) Read(p []byte) (n int, err error) {
@@ -189,7 +188,7 @@ func initLogFile() {
 	}
 
 	logFilePath := filepath.Join(logDir, "amsh.log")
-	logFile, err = os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	logFile, err = os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "errnie: open log file: %v\n", err)
 		return
@@ -216,9 +215,11 @@ func keyvalsToFields(keyvals []any) []zap.Field {
 }
 
 func logZ(level zapcore.Level, msg string, keyvals []any) {
-	loggerMu.RLock()
-	z := logger.Logger
-	loggerMu.RUnlock()
+	l := loggerPtr.Load()
+	if l == nil {
+		return
+	}
+	z := l.Logger
 	if z == nil {
 		return
 	}
@@ -246,21 +247,35 @@ Trace logs at debug level with component=trace for structured sinks, and optiona
 appends a plain line to logging.trace.path or ./trace.log when path is empty.
 */
 func Trace(msg string, keyvals ...any) {
-	formatted := traceKeyvalsFormatted(keyvals)
-	fields := append(keyvalsToFields(formatted), zap.String("component", "trace"))
-	loggerMu.RLock()
-	z := logger.Logger
-	loggerMu.RUnlock()
-	if z != nil {
-		z.Debug(msg, fields...)
+	l := loggerPtr.Load()
+	var z *zap.Logger
+	if l != nil {
+		z = l.Logger
 	}
-	ensureTraceFile()
-	line := buildTraceLine(msg, formatted)
-	if traceFile != nil {
-		writeTraceLine(line)
+	debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
+
+	cfg, _ := loggingCfg.Load().(LoggingConfig)
+	tracePath := strings.TrimSpace(cfg.Trace.Path)
+	traceEnabled := traceFile != nil || (tracePath != "" && filepath.Clean(tracePath) != os.DevNull)
+
+	if !debugEnabled && !traceEnabled {
 		return
 	}
-	fmt.Fprintln(os.Stderr, line)
+
+	formatted := traceKeyvalsFormatted(keyvals)
+	if debugEnabled {
+		fields := append(keyvalsToFields(formatted), zap.String("component", "trace"))
+		z.Debug(msg, fields...)
+	}
+	if traceEnabled {
+		ensureTraceFile()
+		line := buildTraceLine(msg, formatted)
+		if traceFile != nil {
+			writeTraceLine(line)
+			return
+		}
+	}
+	fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
 }
 
 func Error(err error, keyvals ...any) error {
@@ -277,9 +292,11 @@ func Error(err error, keyvals ...any) error {
 	}
 
 	fields := append([]zap.Field{zap.Error(err)}, keyvalsToFields(kv)...)
-	loggerMu.RLock()
-	z := logger.Logger
-	loggerMu.RUnlock()
+	l := loggerPtr.Load()
+	var z *zap.Logger
+	if l != nil {
+		z = l.Logger
+	}
 	if z != nil {
 		z.Error(err.Error(), fields...)
 	}
@@ -305,13 +322,15 @@ func ensureTraceFile() {
 		return
 	}
 
-	loggingCfgMu.RLock()
-	cfgPath := strings.TrimSpace(loggingCfg.Trace.Path)
-	loggingCfgMu.RUnlock()
+	cfg, _ := loggingCfg.Load().(LoggingConfig)
+	cfgPath := strings.TrimSpace(cfg.Trace.Path)
 
 	path := cfgPath
 	if path == "" {
 		path = filepath.Join(wd, "trace.log")
+	}
+	if filepath.Clean(path) == os.DevNull {
+		return
 	}
 
 	dir := filepath.Dir(path)
@@ -336,7 +355,7 @@ func writeToLog(msg ...any) {
 	if logFile == nil {
 		return
 	}
-	appendLineToFile(logFile, &logFileMu, msg)
+	appendLineToFile(logFile, msg)
 }
 
 func buildTraceLine(msg string, keyvals []any) string {
@@ -368,9 +387,6 @@ func formatTraceLine(parts []any) string {
 }
 
 func writeTraceLine(line string) {
-	traceFileMu.Lock()
-	defer traceFileMu.Unlock()
-
 	if traceFile == nil {
 		return
 	}
@@ -390,7 +406,7 @@ func writeTraceLine(line string) {
 	// timeouts; the kernel flushes on process exit and under memory pressure.
 }
 
-func appendLineToFile(f *os.File, mu *sync.Mutex, parts []any) {
+func appendLineToFile(f *os.File, parts []any) {
 	if len(parts) == 0 || f == nil {
 		return
 	}
@@ -401,9 +417,6 @@ func appendLineToFile(f *os.File, mu *sync.Mutex, parts []any) {
 	} else {
 		line += "\n"
 	}
-
-	mu.Lock()
-	defer mu.Unlock()
 
 	_, err := f.WriteString(line)
 	if err != nil {
