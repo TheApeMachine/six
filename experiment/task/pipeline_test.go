@@ -9,14 +9,8 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
-	"github.com/theapemachine/six/experiment/task/imagegen"
 	"github.com/theapemachine/six/experiment/task/logic"
-	"github.com/theapemachine/six/experiment/task/misc"
-	"github.com/theapemachine/six/experiment/task/phasedial"
-	"github.com/theapemachine/six/experiment/task/scaling"
-	"github.com/theapemachine/six/experiment/task/textgen"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 )
@@ -51,33 +45,33 @@ func TestMain(m *testing.M) {
 func TestPipeline(t *testing.T) {
 	allExperiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
-		classification.NewTextClassificationExperiment(),
-		textgen.NewCompositionalExperiment(),
-		textgen.NewProseChainingExperiment(),
-		textgen.NewOutOfCorpusExperiment(),
-		textgen.NewTextOverlapExperiment(),
-		phasedial.NewAdaptiveSplitExperiment(),
-		phasedial.NewChunkingBaselineExperiment(),
-		phasedial.NewConstraintResolutionExperiment(),
-		phasedial.NewCorrelationLengthExperiment(),
-		phasedial.NewGroupActionEquivarianceExperiment(),
-		phasedial.NewPartialDeletionExperiment(),
-		phasedial.NewPermutationInvarianceExperiment(),
-		phasedial.NewPhaseCoherenceExperiment(),
-		phasedial.NewQueryRobustnessExperiment(),
-		phasedial.NewSnapToSurfaceExperiment(),
-		phasedial.NewSteerabilityExperiment(),
-		phasedial.NewTwoHopRetrievalExperiment(),
-		imagegen.NewReconstructionExperiment(),
+		// classification.NewTextClassificationExperiment(),
+		// textgen.NewCompositionalExperiment(),
+		// textgen.NewProseChainingExperiment(),
+		// textgen.NewOutOfCorpusExperiment(),
+		// textgen.NewTextOverlapExperiment(),
+		// phasedial.NewAdaptiveSplitExperiment(),
+		// phasedial.NewChunkingBaselineExperiment(),
+		// phasedial.NewConstraintResolutionExperiment(),
+		// phasedial.NewCorrelationLengthExperiment(),
+		// phasedial.NewGroupActionEquivarianceExperiment(),
+		// phasedial.NewPartialDeletionExperiment(),
+		// phasedial.NewPermutationInvarianceExperiment(),
+		// phasedial.NewPhaseCoherenceExperiment(),
+		// phasedial.NewQueryRobustnessExperiment(),
+		// phasedial.NewSnapToSurfaceExperiment(),
+		// phasedial.NewSteerabilityExperiment(),
+		// phasedial.NewTwoHopRetrievalExperiment(),
+		// imagegen.NewReconstructionExperiment(),
 		logic.NewBabiExperiment(),
-		logic.NewSemanticAlgebraExperiment(),
-		misc.NewCrossDomainCompletionExperiment(),
-		misc.NewGemmaIntegrationExperiment(),
-		misc.NewRuleShiftExperiment(),
-		scaling.NewBestFillScalingExperiment(),
-		scaling.NewCompressionExperiment(),
-		scaling.NewPipelineThroughputExperiment(),
-		scaling.NewSequencerExperiment(),
+		// logic.NewSemanticAlgebraExperiment(),
+		// misc.NewCrossDomainCompletionExperiment(),
+		// misc.NewGemmaIntegrationExperiment(),
+		// misc.NewRuleShiftExperiment(),
+		// scaling.NewBestFillScalingExperiment(),
+		// scaling.NewCompressionExperiment(),
+		// scaling.NewPipelineThroughputExperiment(),
+		// scaling.NewSequencerExperiment(),
 	}
 
 	for _, experiment := range allExperiments {

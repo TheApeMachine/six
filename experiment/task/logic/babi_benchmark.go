@@ -99,6 +99,8 @@ func (experiment *BabiExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
 
 func (*BabiExperiment) ObserveWorkspaceAsTokens() bool { return true }
 
+func (*BabiExperiment) SeedViralLearn() bool { return true }
+
 func (experiment *BabiExperiment) Section() string {
 	return "logic"
 }

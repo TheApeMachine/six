@@ -21,6 +21,10 @@ type runTiming struct {
 	n           int // number of prompts processed
 }
 
+type viralLearnSeeder interface {
+	SeedViralLearn() bool
+}
+
 /*
 Pipeline is the orchestrator for running experiments.
 The Six architecture is "always-on" so this needs to
@@ -110,6 +114,14 @@ func (pipeline *Pipeline) Run() (err error) {
 		return errnie.Error(PipelineErrNoPrompt)
 	}
 
+	if err := pipeline.hydrateDataset(observer); err != nil {
+		return errnie.Error(err)
+	}
+
+	if err := pipeline.maybeSeedViralLearn(observer); err != nil {
+		return errnie.Error(err)
+	}
+
 	promptStart := time.Now()
 	for idx, prompt := range prompts {
 		select {
@@ -128,12 +140,8 @@ func (pipeline *Pipeline) Run() (err error) {
 		value[core.Cfg.StateIndex] = 1
 
 		// Inject the prompt frame, then read the transformed frame back once.
-		if _, err := io.Copy(observer, value); err != nil {
-			return errnie.Error(err)
-		}
-
-		observedFrame := make([]byte, primitive.ByteSize)
-		if _, err := io.ReadFull(observer, observedFrame); err != nil {
+		observedFrame, err := pipeline.injectAndObserve(observer, value)
+		if err != nil {
 			return errnie.Error(err)
 		}
 
@@ -192,6 +200,105 @@ func (pipeline *Pipeline) Run() (err error) {
 	machine.Close()
 
 	return nil
+}
+
+func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
+	if _, err := io.Copy(observer, value); err != nil {
+		return nil, err
+	}
+
+	observedFrame := make([]byte, primitive.ByteSize)
+	if _, err := io.ReadFull(observer, observedFrame); err != nil {
+		return nil, err
+	}
+
+	return observedFrame, nil
+}
+
+func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
+	dataset := pipeline.experiment.Dataset()
+	if dataset == nil {
+		return nil
+	}
+
+	// NewValue stores one tokenized byte per 64-bit token word.
+	chunkSize := int((core.Cfg.TokenBits + 63) / 64)
+	if chunkSize <= 0 {
+		return nil
+	}
+
+	chunk := make([]byte, 0, chunkSize)
+	flush := func() error {
+		if len(chunk) == 0 {
+			return nil
+		}
+
+		frame, err := primitive.NewValue(append([]byte(nil), chunk...))
+		if err != nil {
+			return err
+		}
+		frame[core.Cfg.StateIndex] = 1
+
+		if _, err := pipeline.injectAndObserve(observer, frame); err != nil {
+			return err
+		}
+
+		chunk = chunk[:0]
+		return nil
+	}
+
+	for b := range dataset.Generate() {
+		chunk = append(chunk, b)
+		if len(chunk) == chunkSize {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return flush()
+}
+
+func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {
+	seeder, ok := pipeline.experiment.(viralLearnSeeder)
+	if !ok || !seeder.SeedViralLearn() {
+		return nil
+	}
+
+	seed, err := primitive.NewValue(nil)
+	if err != nil {
+		return err
+	}
+	seed[core.Cfg.StateIndex] = 1
+	seed[core.Cfg.RegPC] = 0
+	seed[core.Cfg.FW] = 0
+
+	program := append([]uint32(nil), core.Cfg.Firmware[core.FirmwareTypeViral]...)
+	program = append(program, encodeWriteRegImmediate(uint16(core.FirmwareTypeLearn), core.Cfg.FW))
+	installProgram(seed, core.Cfg.ProgramIndex, program)
+
+	_, err = pipeline.injectAndObserve(observer, seed)
+	return err
+}
+
+func installProgram(value *primitive.Value, wordStart int, program []uint32) {
+	for i, w := 0, uint64(wordStart); i < len(program) && int(w) < primitive.Words; i, w = i+2, w+1 {
+		v := uint64(program[i])
+		if i+1 < len(program) {
+			v |= uint64(program[i+1]) << 32
+		}
+		value[w] = v
+	}
+}
+
+func encodeWriteRegImmediate(src uint16, dstReg int) uint32 {
+	const (
+		opA                 = uint32(0x3)
+		operandFlagRegister = uint16(0x3000)
+	)
+	sc := uint32(src & 0x3FFF)
+	dc := uint32((operandFlagRegister | uint16(dstReg)) & 0x3FFF)
+	return opA | (sc << 4) | (dc << 18)
 }
 
 /*

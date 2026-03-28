@@ -37,7 +37,7 @@ target (same as passthrough), matching the stream folding layout.
 func NewEmitter(forward io.Reader, target io.Writer, dup io.Writer) *Emitter {
 	teeTo := dup
 	if teeTo == nil {
-		teeTo = target
+		teeTo = io.Discard
 	}
 	return &Emitter{
 		passthrough: target,
@@ -54,7 +54,15 @@ and mirrors full ByteSize chunks into wait.
 */
 func (emitter *Emitter) Read(p []byte) (n int, err error) {
 	if emitter.wait != nil && !emitter.mirrorReads {
-		if _, err = io.Copy(emitter.wait, emitter.tee); err != nil {
+		if cap(emitter.mirrorBuf) < primitive.ByteSize {
+			emitter.mirrorBuf = make([]byte, primitive.ByteSize)
+		}
+		frame := emitter.mirrorBuf[:primitive.ByteSize]
+
+		if _, err = io.ReadFull(emitter.tee, frame); err != nil {
+			return
+		}
+		if _, err = emitter.wait.Write(frame); err != nil {
 			return
 		}
 

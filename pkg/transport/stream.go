@@ -49,6 +49,29 @@ type Stream struct {
 
 type StreamOption func(*Stream)
 
+func (stream *Stream) configureEmitters(n int) {
+	if n < 1 {
+		n = 1
+	}
+
+	stream.regions = n
+	stream.rb = make([]*ringbuffer.RingBuffer, 0, n)
+	stream.pr = make([]*ringbuffer.PipeReader, 0, n)
+	stream.pw = make([]*ringbuffer.PipeWriter, 0, n)
+	stream.frame = make([][]byte, 0, n)
+	stream.emitter = make([]*Emitter, 0, n)
+
+	for range n {
+		rb := ringbuffer.New(primitive.ByteSize * primitive.ByteSize)
+		pr, pw := rb.Pipe()
+		stream.rb = append(stream.rb, rb)
+		stream.pr = append(stream.pr, pr)
+		stream.pw = append(stream.pw, pw)
+		stream.frame = append(stream.frame, make([]byte, primitive.ByteSize))
+		stream.emitter = append(stream.emitter, NewEmitter(pr, pw, nil))
+	}
+}
+
 func NewStream(options ...StreamOption) *Stream {
 	ctx, cancel := context.WithCancel(context.Background())
 
@@ -64,6 +87,12 @@ func NewStream(options ...StreamOption) *Stream {
 
 	for _, option := range options {
 		option(stream)
+	}
+
+	// The stream must always expose at least one emitter path. This keeps
+	// Write/Read balanced even when callers no longer configure "regions".
+	if len(stream.emitter) == 0 {
+		stream.configureEmitters(1)
 	}
 
 	// ttlDuration / expiryTimer are intentionally omitted: expiryTimer is created
@@ -189,17 +218,7 @@ func StreamWithTTL(ttl time.Duration) StreamOption {
 
 func StreamWithRegions(n int) StreamOption {
 	return func(stream *Stream) {
-		stream.regions = n
-
-		for range n {
-			rb := ringbuffer.New(primitive.ByteSize * primitive.ByteSize)
-			pr, pw := rb.Pipe()
-			stream.rb = append(stream.rb, rb)
-			stream.pr = append(stream.pr, pr)
-			stream.pw = append(stream.pw, pw)
-			stream.frame = append(stream.frame, make([]byte, primitive.ByteSize))
-			stream.emitter = append(stream.emitter, NewEmitter(pr, pw, nil))
-		}
+		stream.configureEmitters(n)
 	}
 }
 

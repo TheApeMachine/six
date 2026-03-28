@@ -396,20 +396,23 @@ function graphAddNode(id, tokens, type, extra = {}) {
     return existing;
   }
 
-  // Linear chain layout: nodes placed left-to-right as they arrive,
-  // reflecting the singly-linked chain that learn firmware builds.
-  // Each new Value extends the chain: old NextID → PrevID, partner → NextID.
-  const sys = SYS.emitter || SYS.machine;
+  // Spiral layout: nodes orbit outward from a center point above the scene.
+  // Reflects the singly-linked chain that learn firmware builds — each Value
+  // extends the chain, and the spiral keeps everything compact and centered.
   const idx = graphNodeCounter++;
-  const chainSpacing = 3.5;
-  const nodesPerRow = 12;
-  const row = Math.floor(idx / nodesPerRow);
-  const col = idx % nodesPerRow;
-  // Alternate row direction (boustrophedon) to show the chain wrapping
-  const actualCol = row % 2 === 0 ? col : (nodesPerRow - 1 - col);
-  const x = sys.x - (nodesPerRow * chainSpacing) / 2 + actualCol * chainSpacing;
-  const z = sys.z - 6 - row * 4;
-  const y = sys.depth + 10.0;
+  const centerX = 7;   // Centered over the scene (midpoint of all subsystems)
+  const centerZ = 2;   // Above the middle row of subsystems
+  const y = 12.0;      // Fixed height above the scene
+
+  // Fermat spiral: r = a * sqrt(idx), theta = idx * golden_angle
+  // Distributes nodes evenly like sunflower seeds — compact and centered
+  // regardless of node count. Max radius ~25 at 220 nodes.
+  const goldenAngle = 2.399963;    // ~137.5 degrees in radians
+  const spacing = 1.6;             // Controls density (distance between nodes)
+  const theta = idx * goldenAngle;
+  const r = spacing * Math.sqrt(idx);
+  const x = centerX + r * Math.cos(theta);
+  const z = centerZ + r * Math.sin(theta);
 
   const div = document.createElement('div');
   div.className = `fold-label level-1${type === 'value' ? ' value-node' : ''}`;
