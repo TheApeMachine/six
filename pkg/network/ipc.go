@@ -1,6 +1,7 @@
 package network
 
 import (
+	"context"
 	"net"
 	"os"
 )
@@ -108,6 +109,19 @@ func (ipc *IPC) Accept() error {
 	ipc.conn = conn
 
 	return nil
+}
+
+// Ready ensures the transport has an active connection. Listener-side IPC
+// blocks in Accept until a peer connects.
+func (ipc *IPC) Ready(ctx context.Context) error {
+	_ = ctx // net.Listener.Accept has no context-aware variant in stdlib.
+	if ipc.conn != nil {
+		return nil
+	}
+	if ipc.listen == nil {
+		return &TransportError{Layer: "ipc", Op: "ready", Addr: ipc.path, Err: ErrIPCNotConnected}
+	}
+	return ipc.Accept()
 }
 
 /*

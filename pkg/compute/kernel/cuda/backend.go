@@ -17,6 +17,7 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -31,18 +32,40 @@ type Backend struct {
 	deviceIdx   int
 	ctx         context.Context
 	cancel      context.CancelFunc
+	observer    kernel.Observer
 }
+
+type backendOption func(*Backend)
 
 /*
 NewBackend returns a CUDA kernel Backend.
 */
-func NewBackend(idx int) *Backend {
+func NewBackend(idx int, opts ...backendOption) *Backend {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Backend{
+	backend := &Backend{
 		deviceIdx: idx,
 		ctx:       ctx,
 		cancel:    cancel,
+		observer:  kernel.NoopObserver{},
 	}
+	for _, opt := range opts {
+		opt(backend)
+	}
+	backend.observer = kernel.NormalizeObserver(backend.observer)
+	return backend
+}
+
+// BackendWithObserver injects a kernel observer used for optional trace/error
+// reporting. Pass nil to disable.
+func BackendWithObserver(observer kernel.Observer) backendOption {
+	return func(backend *Backend) {
+		backend.observer = kernel.NormalizeObserver(observer)
+	}
+}
+
+// SetObserver updates the backend observer at runtime.
+func (backend *Backend) SetObserver(observer kernel.Observer) {
+	backend.observer = kernel.NormalizeObserver(observer)
 }
 
 // Context returns the backend-scoped context canceled by Shutdown.
@@ -146,12 +169,18 @@ func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
 	preloadFirmwareFrame((*[128]uint64)(a))
 
 	if C.unified_bitwise_cuda(C.int(backend.deviceIdx), unsafe.Pointer(a), unsafe.Pointer(bPtr)) != 0 {
-		return NewCUDAError(
+		err := NewCUDAError(
 			CUDAErrorDispatchFailed,
 			errors.New("failed to dispatch unified bitwise operation"),
 			"UniversalBitwise",
 			1,
 		)
+		backend.observer.Error(
+			"cuda.Backend.UniversalBitwise",
+			err,
+			"device_idx", backend.deviceIdx,
+		)
+		return err
 	}
 
 	return nil

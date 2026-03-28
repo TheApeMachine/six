@@ -7,8 +7,8 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 type GraphEvent struct {
@@ -35,6 +35,7 @@ type Backend struct {
 	graphFn         func(GraphEvent)
 	useAffinityMode bool
 	traceEnabled    bool
+	observer        kernel.Observer
 }
 
 type backendOption func(*Backend)
@@ -47,6 +48,7 @@ func NewBackend(opts ...backendOption) *Backend {
 		batchCap:        max(2, runtime.NumCPU()-1),
 		nextID:          1,
 		useAffinityMode: true,
+		observer:        kernel.NoopObserver{},
 	}
 
 	for _, opt := range opts {
@@ -90,17 +92,30 @@ func BackendWithTraceEnabled(enabled bool) backendOption {
 	}
 }
 
+// BackendWithObserver injects a kernel observer used for optional trace/error
+// reporting. Pass nil to disable.
+func BackendWithObserver(observer kernel.Observer) backendOption {
+	return func(backend *Backend) {
+		backend.observer = kernel.NormalizeObserver(observer)
+	}
+}
+
+// SetObserver updates the backend observer at runtime.
+func (backend *Backend) SetObserver(observer kernel.Observer) {
+	backend.observer = kernel.NormalizeObserver(observer)
+}
+
 func (backend *Backend) emitGraph(ev GraphEvent) {
 	if backend.graphFn != nil {
 		backend.graphFn(ev)
 	}
 }
 
-func traceBackend(enabled bool, msg string, keyvals ...any) {
+func traceBackend(observer kernel.Observer, enabled bool, msg string, keyvals ...any) {
 	if !enabled {
 		return
 	}
-	errnie.Trace(msg, keyvals...)
+	kernel.NormalizeObserver(observer).Trace(msg, keyvals...)
 }
 
 /*

@@ -3,6 +3,7 @@ package network
 import (
 	"context"
 	"io"
+	"sync"
 )
 
 /*
@@ -28,6 +29,8 @@ type UniConn struct {
 	cancel   context.CancelFunc
 	connType UniConnType
 	rwc      io.ReadWriteCloser
+	readyErr error
+	ready    sync.Once
 }
 
 /*
@@ -58,8 +61,8 @@ func NewUniConn(opts ...uniConnOption) *UniConn {
 Read delegates to the underlying transport.
 */
 func (conn *UniConn) Read(p []byte) (int, error) {
-	if conn.rwc == nil {
-		return 0, &TransportError{Layer: "uniconn", Op: "read", Err: ErrNoTransport}
+	if err := conn.ensureReady(); err != nil {
+		return 0, err
 	}
 
 	return conn.rwc.Read(p)
@@ -69,11 +72,18 @@ func (conn *UniConn) Read(p []byte) (int, error) {
 Write delegates to the underlying transport.
 */
 func (conn *UniConn) Write(p []byte) (int, error) {
-	if conn.rwc == nil {
-		return 0, &TransportError{Layer: "uniconn", Op: "write", Err: ErrNoTransport}
+	if err := conn.ensureReady(); err != nil {
+		return 0, err
 	}
 
 	return conn.rwc.Write(p)
+}
+
+// Ready blocks until the configured transport reaches a protocol-specific
+// ready state. For IPC/UDP this is immediate; QUIC listener mode accepts and
+// primes the first stream under the hood.
+func (conn *UniConn) Ready() error {
+	return conn.ensureReady()
 }
 
 /*
@@ -87,6 +97,20 @@ func (conn *UniConn) Close() error {
 	}
 
 	return conn.rwc.Close()
+}
+
+func (conn *UniConn) ensureReady() error {
+	if conn.rwc == nil {
+		return &TransportError{Layer: "uniconn", Op: "ready", Err: ErrNoTransport}
+	}
+
+	conn.ready.Do(func() {
+		if ready, ok := conn.rwc.(ReadyTransport); ok {
+			conn.readyErr = ready.Ready(conn.ctx)
+		}
+	})
+
+	return conn.readyErr
 }
 
 /*

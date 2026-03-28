@@ -75,6 +75,13 @@ var (
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
 
+type valueLifecycle struct {
+	refs   atomic.Int64
+	pooled atomic.Bool
+}
+
+var valueLifecycles sync.Map // map[uintptr]*valueLifecycle
+
 /*
 Value is the self-programmable type that acts as the fundamental unit of
 computation and memory, while also forming its own substrate. It is an
@@ -160,6 +167,7 @@ This method should not be used to create temporary Values.
 */
 func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
+	registerPooledLifecycle(value)
 
 	// Reinitialize the pooled frame so prompt construction never inherits stale
 	// bytes from a previous temporary Value.
@@ -240,6 +248,57 @@ as a quick-and-dirty way to discard a Value, that has to
 be done by loading the tombstone firmware.
 */
 func (value *Value) Close() error {
+	return value.Release()
+}
+
+// Retain increments the external reference count for pooled Values.
+// For unmanaged Values (e.g. stack / raw overlays) this is a no-op.
+func (value *Value) Retain() int64 {
+	lc, ok := lifecycleFor(value)
+	if !ok {
+		return 1
+	}
+
+	for {
+		current := lc.refs.Load()
+		if current <= 0 {
+			return current
+		}
+		if lc.refs.CompareAndSwap(current, current+1) {
+			return current + 1
+		}
+	}
+}
+
+// Release decrements the external reference count for pooled Values and
+// returns them to the pool only after the final owner releases.
+func (value *Value) Release() error {
+	lc, ok := lifecycleFor(value)
+	if !ok {
+		return nil
+	}
+
+	refs := lc.refs.Add(-1)
+	if refs > 0 {
+		return nil
+	}
+	if refs < 0 {
+		lc.refs.Store(0)
+		return fmt.Errorf("primitive.Value.Release: refcount underflow for value id=%d", value.ValueID())
+	}
+
+	if lc.pooled.Load() && value.isPoolReusable() {
+		valuePool.Put(value)
+		return nil
+	}
+
+	// If this frame cannot be safely reused, drop lifecycle tracking so it can
+	// be reclaimed naturally by GC.
+	valueLifecycles.Delete(valueLifecycleKey(value))
+	return nil
+}
+
+func (value *Value) isPoolReusable() bool {
 	wiped := true
 
 	// Cfg *Bits fields are bit widths; convert to word spans before indexing value[i].
@@ -264,11 +323,7 @@ func (value *Value) Close() error {
 	checkRegion(core.Cfg.AffinityIndex, core.Cfg.AffinityBits)
 	checkRegion(core.Cfg.ProgramIndex, core.Cfg.ProgramBits)
 
-	if wiped {
-		valuePool.Put(value)
-	}
-
-	return nil
+	return wiped
 }
 
 /*
@@ -407,6 +462,33 @@ func (value *Value) NextValueID() uint64 {
 
 func (value *Value) SetNextValueID(id uint64) {
 	value[core.Cfg.NextID] = id
+}
+
+func registerPooledLifecycle(value *Value) {
+	if value == nil {
+		return
+	}
+
+	key := valueLifecycleKey(value)
+	entryAny, _ := valueLifecycles.LoadOrStore(key, &valueLifecycle{})
+	entry := entryAny.(*valueLifecycle)
+	entry.pooled.Store(true)
+	entry.refs.Store(1)
+}
+
+func lifecycleFor(value *Value) (*valueLifecycle, bool) {
+	if value == nil {
+		return nil, false
+	}
+	entry, ok := valueLifecycles.Load(valueLifecycleKey(value))
+	if !ok {
+		return nil, false
+	}
+	return entry.(*valueLifecycle), true
+}
+
+func valueLifecycleKey(value *Value) uintptr {
+	return uintptr(unsafe.Pointer(value))
 }
 
 /*

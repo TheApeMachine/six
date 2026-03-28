@@ -13,12 +13,13 @@ import (
 	"context"
 	_ "embed"
 	"errors"
+	"fmt"
 	"os"
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 //go:generate xcrun -sdk macosx metal -std=metal3.1 -mmacosx-version-min=14.0 -c backend.metal -o backend.air
@@ -35,16 +36,38 @@ All buffers use StorageModeShared (unified memory) so there is no
 host-to-device copy — the CPU and GPU share the same physical RAM.
 */
 type Backend struct {
-	idx int
+	idx      int
+	observer kernel.Observer
 }
+
+type backendOption func(*Backend)
 
 /*
 NewBackend returns a Metal kernel Backend.
 */
-func NewBackend(idx int) *Backend {
-	return &Backend{
-		idx: idx,
+func NewBackend(idx int, opts ...backendOption) *Backend {
+	backend := &Backend{
+		idx:      idx,
+		observer: kernel.NoopObserver{},
 	}
+	for _, opt := range opts {
+		opt(backend)
+	}
+	backend.observer = kernel.NormalizeObserver(backend.observer)
+	return backend
+}
+
+// BackendWithObserver injects a kernel observer used for optional trace/error
+// reporting. Pass nil to disable.
+func BackendWithObserver(observer kernel.Observer) backendOption {
+	return func(backend *Backend) {
+		backend.observer = kernel.NormalizeObserver(observer)
+	}
+}
+
+// SetObserver updates the backend observer at runtime.
+func (backend *Backend) SetObserver(observer kernel.Observer) {
+	backend.observer = kernel.NormalizeObserver(observer)
 }
 
 /*
@@ -90,7 +113,7 @@ The batch may therefore be heterogeneous: each Value runs its own independent
 program in parallel on the GPU.
 */
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
-	errnie.Trace("metal.Backend.UniversalBitwise", "a", a, "b", b)
+	backend.observer.Trace("metal.Backend.UniversalBitwise", "a", a, "b", b)
 	preloadFirmwareFrame((*[128]uint64)(a))
 
 	if !metalReady.Load() {
@@ -111,7 +134,7 @@ func init() {
 	tmpFile, err := os.CreateTemp("", "backend-*.metallib")
 
 	if err != nil {
-		errnie.Error(err)
+		reportInitError(err)
 		return
 	}
 
@@ -123,12 +146,12 @@ func init() {
 
 	if _, err := tmpFile.Write(backendMetallib); err != nil {
 		tmpFile.Close()
-		errnie.Error(err)
+		reportInitError(err)
 		return
 	}
 
 	if err := tmpFile.Close(); err != nil {
-		errnie.Error(err)
+		reportInitError(err)
 		return
 	}
 
@@ -136,11 +159,18 @@ func init() {
 	defer C.free(unsafe.Pointer(cPath))
 
 	if res := C.init_metal(cPath); res != 0 {
-		errnie.Error(NewMetalError(MetalErrorInitFailed, nil, "init_metal"))
+		reportInitError(NewMetalError(MetalErrorInitFailed, nil, "init_metal"))
 		return
 	}
 
 	metalReady.Store(true)
+}
+
+func reportInitError(err error) {
+	if err == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(os.Stderr, "metal backend init: %v\n", err)
 }
 
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {

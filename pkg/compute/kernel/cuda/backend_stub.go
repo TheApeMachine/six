@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/NVIDIA/go-nvml/pkg/nvml"
+	"github.com/theapemachine/six/pkg/compute/kernel"
 )
 
 /*
@@ -17,18 +18,40 @@ type Backend struct {
 	deviceIdx int
 	ctx       context.Context
 	cancel    context.CancelFunc
+	observer  kernel.Observer
 }
+
+type backendOption func(*Backend)
 
 /*
 NewBackend returns a stub Backend.
 */
-func NewBackend(idx int) *Backend {
+func NewBackend(idx int, opts ...backendOption) *Backend {
 	ctx, cancel := context.WithCancel(context.Background())
-	return &Backend{
+	backend := &Backend{
 		deviceIdx: idx,
 		ctx:       ctx,
 		cancel:    cancel,
+		observer:  kernel.NoopObserver{},
 	}
+	for _, opt := range opts {
+		opt(backend)
+	}
+	backend.observer = kernel.NormalizeObserver(backend.observer)
+	return backend
+}
+
+// BackendWithObserver injects a kernel observer used for optional trace/error
+// reporting. Pass nil to disable.
+func BackendWithObserver(observer kernel.Observer) backendOption {
+	return func(backend *Backend) {
+		backend.observer = kernel.NormalizeObserver(observer)
+	}
+}
+
+// SetObserver updates the backend observer at runtime.
+func (backend *Backend) SetObserver(observer kernel.Observer) {
+	backend.observer = kernel.NormalizeObserver(observer)
 }
 
 // Context returns the backend-scoped context canceled by Shutdown.

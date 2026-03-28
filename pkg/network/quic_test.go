@@ -65,12 +65,10 @@ func testQUICTLSConfigs() (*tls.Config, *tls.Config) {
 
 /*
 setupQUICPair creates a connected QUIC server/client pair for testing.
-QUIC streams are lazy: the server only sees a stream after the client
-sends the first STREAM frame. This helper writes a trigger payload from
-the client so Accept can complete, and returns that payload for the caller
-to drain.
+The transport now primes stream readiness internally, so callers can use
+the stream directly without protocol-specific trigger writes.
 */
-func setupQUICPair(t testing.TB) (server *QUIC, client *QUIC, trigger []byte) {
+func setupQUICPair(t testing.TB) (server *QUIC, client *QUIC) {
 	t.Helper()
 
 	serverTLS, clientTLS := testQUICTLSConfigs()
@@ -94,18 +92,11 @@ func setupQUICPair(t testing.TB) (server *QUIC, client *QUIC, trigger []byte) {
 		t.Fatal(client.err)
 	}
 
-	trigger = make([]byte, 1)
-	trigger[0] = 0x01
-
-	if _, err := client.Write(trigger); err != nil {
-		t.Fatal(err)
-	}
-
 	if err := <-accepted; err != nil {
 		t.Fatal(err)
 	}
 
-	return server, client, trigger
+	return server, client
 }
 
 func TestQUIC(t *testing.T) {
@@ -135,13 +126,9 @@ func TestQUIC(t *testing.T) {
 
 func TestQUICRoundtrip(t *testing.T) {
 	gc.Convey("Given a connected QUIC server and client", t, func() {
-		server, client, trigger := setupQUICPair(t)
+		server, client := setupQUICPair(t)
 
 		gc.Convey("It should transfer data bidirectionally", func() {
-			drain := make([]byte, len(trigger))
-			_, err := io.ReadFull(server, drain)
-			gc.So(err, gc.ShouldBeNil)
-
 			payload := make([]byte, 1024)
 			for idx := range payload {
 				payload[idx] = byte(idx % 256)
@@ -181,7 +168,7 @@ func TestQUICRoundtrip(t *testing.T) {
 
 func TestQUICWithStream(t *testing.T) {
 	gc.Convey("Given a QUIC transport wrapping an externally-managed stream", t, func() {
-		server, client, trigger := setupQUICPair(t)
+		server, client := setupQUICPair(t)
 
 		wrapped := NewQUIC(QUICWithStream(server.stream))
 
@@ -189,10 +176,6 @@ func TestQUICWithStream(t *testing.T) {
 			gc.So(wrapped.conn, gc.ShouldBeNil)
 			gc.So(wrapped.endpoint, gc.ShouldBeNil)
 			gc.So(wrapped.stream, gc.ShouldNotBeNil)
-
-			drain := make([]byte, len(trigger))
-			_, err := io.ReadFull(wrapped, drain)
-			gc.So(err, gc.ShouldBeNil)
 
 			payload := make([]byte, 1024)
 			payload[0] = 0xBE
@@ -218,7 +201,7 @@ func TestQUICWithStream(t *testing.T) {
 
 func TestQUICCloseWithResources(t *testing.T) {
 	gc.Convey("Given a fully-connected QUIC transport", t, func() {
-		server, client, _ := setupQUICPair(t)
+		server, client := setupQUICPair(t)
 
 		gc.Convey("Close should tear down all three layers and cancel the context", func() {
 			gc.So(client.stream, gc.ShouldNotBeNil)
@@ -278,10 +261,7 @@ func TestQUICImplementsRWC(t *testing.T) {
 }
 
 func BenchmarkQUICRoundtrip(b *testing.B) {
-	server, client, trigger := setupQUICPair(b)
-
-	drain := make([]byte, len(trigger))
-	io.ReadFull(server, drain)
+	server, client := setupQUICPair(b)
 
 	payload := make([]byte, 1024)
 	sink := make([]byte, 1024)

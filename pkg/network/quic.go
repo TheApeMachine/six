@@ -3,9 +3,13 @@ package network
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
+	"io"
 
 	"golang.org/x/net/quic"
 )
+
+const quicReadyHandshakeByte = 0xA7
 
 /*
 QUIC provides reliable WAN transport using golang.org/x/net/quic.
@@ -111,19 +115,40 @@ Accept blocks until an inbound connection arrives on the endpoint
 created by QUICWithListen, then opens the first bidirectional stream.
 */
 func (q *QUIC) Accept() error {
+	if q.stream != nil {
+		return nil
+	}
+
+	return q.accept(q.ctx)
+}
+
+func (q *QUIC) accept(ctx context.Context) error {
 	if q.endpoint == nil {
 		return &TransportError{Layer: "quic", Op: "accept", Err: ErrQUICNotListening}
 	}
 
-	conn, err := q.endpoint.Accept(q.ctx)
+	if ctx == nil {
+		ctx = q.ctx
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	conn, err := q.endpoint.Accept(ctx)
 
 	if err != nil {
 		return err
 	}
 
-	stream, err := conn.AcceptStream(q.ctx)
+	stream, err := conn.AcceptStream(ctx)
 
 	if err != nil {
+		conn.Close()
+		return err
+	}
+
+	if err := q.consumeHandshake(stream); err != nil {
+		stream.Close()
 		conn.Close()
 		return err
 	}
@@ -132,6 +157,21 @@ func (q *QUIC) Accept() error {
 	q.stream = stream
 
 	return nil
+}
+
+// Ready normalizes transport readiness. Listener-side QUIC accepts the first
+// connection+stream and consumes the internal handshake before reporting ready.
+func (q *QUIC) Ready(ctx context.Context) error {
+	if q.err != nil {
+		return q.err
+	}
+	if q.stream != nil {
+		return nil
+	}
+	if q.endpoint == nil {
+		return &TransportError{Layer: "quic", Op: "ready", Err: ErrQUICNoStream}
+	}
+	return q.accept(ctx)
 }
 
 /*
@@ -186,6 +226,14 @@ func QUICWithDial(addr string, tlsConf *tls.Config) quicOption {
 			return
 		}
 
+		if err := q.sendHandshake(stream); err != nil {
+			stream.Close()
+			conn.Close()
+			endpoint.Close(context.Background())
+			q.err = err
+			return
+		}
+
 		q.endpoint = endpoint
 		q.conn = conn
 		q.stream = stream
@@ -222,6 +270,7 @@ type QUICError string
 const (
 	ErrQUICNoStream     QUICError = "quic: no active stream"
 	ErrQUICNotListening QUICError = "quic: no endpoint listening"
+	ErrQUICHandshake    QUICError = "quic: handshake mismatch"
 )
 
 /*
@@ -229,4 +278,33 @@ Error implements the error interface for QUICError.
 */
 func (quicErr QUICError) Error() string {
 	return string(quicErr)
+}
+
+func (q *QUIC) sendHandshake(stream *quic.Stream) error {
+	if stream == nil {
+		return &TransportError{Layer: "quic", Op: "handshake_write", Err: ErrQUICNoStream}
+	}
+	if _, err := stream.Write([]byte{quicReadyHandshakeByte}); err != nil {
+		return err
+	}
+	return stream.Flush()
+}
+
+func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
+	if stream == nil {
+		return &TransportError{Layer: "quic", Op: "handshake_read", Err: ErrQUICNoStream}
+	}
+
+	var buf [1]byte
+	if _, err := io.ReadFull(stream, buf[:]); err != nil {
+		return err
+	}
+	if buf[0] != quicReadyHandshakeByte {
+		return &TransportError{
+			Layer: "quic",
+			Op:    "handshake_read",
+			Err:   fmt.Errorf("%w: got=0x%02x", ErrQUICHandshake, buf[0]),
+		}
+	}
+	return nil
 }

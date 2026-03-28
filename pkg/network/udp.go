@@ -86,6 +86,15 @@ func (udp *UDPMulticast) Close() error {
 	return udp.conn.Close()
 }
 
+// Ready reports whether the multicast socket is bound/open.
+func (udp *UDPMulticast) Ready(ctx context.Context) error {
+	_ = ctx
+	if udp.conn == nil {
+		return &TransportError{Layer: "udp", Op: "ready", Err: ErrUDPNotBound}
+	}
+	return nil
+}
+
 /*
 UDPMulticastWithListener joins the multicast group and listens for
 inbound datagrams. iface selects the network interface; empty string

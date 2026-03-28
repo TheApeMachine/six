@@ -36,7 +36,7 @@ Six explores a different shape of system: fixed-size **values** that carry data 
 | `pkg/telemetry`, `pkg/transport` | Events, streaming, S3 adapter |
 | `experiment/` | Task suites, reporters, datasets (e.g. Hugging Face), artifact/projector pipeline |
 | `visualizer/` | HTTP / WebSocket UI for substrate telemetry |
-| `cmd/` | Cobra CLI (`six`, `viz`, `paper`, `worker` stub) |
+| `cmd/` | Cobra CLI (`six`, `viz`, `paper`, `worker`, `mesh`) |
 
 If you only want the core types:
 
@@ -117,7 +117,28 @@ Configuration is loaded via **Viper**: try `$HOME/.six/config.yml`, then fall ba
 | `six` | Root (no-op run). Persistent `--config` path. |
 | `six viz` | HTTP / WebSocket **visualizer**; optional Hugging Face dataset driver; `--listen` to serve UI only and ingest UDP graph events |
 | `six paper` | Stitch **LaTeX** fragments and figures from experiment artifacts into `paper/main.tex` (paths from config / `paper.dir`) |
-| `six worker` | **Stub**: returns an error; distributed worker not yet ported to the current `Backend` |
+| `six worker` | Runs a LAN-discoverable distributed worker with HTTP endpoint for remote `UniversalBitwise` jobs |
+| `six mesh nodes` | Discover active workers on the LAN multicast group |
+| `six mesh run` | Submit one remote `UniversalBitwise` frame job to a discovered worker |
+
+### Distributed mesh quick start
+
+1. Start one or more workers (on different machines on the same LAN):
+   ```bash
+   six worker --addr :7777
+   ```
+2. Discover peers from any node:
+   ```bash
+   six mesh nodes
+   ```
+3. Schedule a remote job:
+   ```bash
+   six mesh run --left hello --right world
+   ```
+
+Defaults:
+- Discovery group: `239.42.6.1:7778`
+- Worker endpoint: `POST /v1/jobs/universal-bitwise`
 
 ---
 

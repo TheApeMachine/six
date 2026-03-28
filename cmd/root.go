@@ -154,6 +154,7 @@ func initConfig() {
 		return
 	}
 	errnie.InitLogger(loggingCfg)
+	compute.SetKernelObserver(compute.NewErrnieKernelObserver(2048))
 	errnie.Info(
 		"six.init",
 		"config_file", viper.ConfigFileUsed(),

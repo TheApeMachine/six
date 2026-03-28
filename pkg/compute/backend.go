@@ -50,6 +50,7 @@ type Backend struct {
 	hardware []kernel.Substrate
 	pool     *Pool
 	nextHW   uint32 // round-robin substrate index
+	observer kernel.Observer
 }
 
 // BackendOption configures the multi-substrate router
@@ -62,24 +63,35 @@ all available compute substrates and layering them by speed priority.
 func NewBackend(opts ...BackendOption) *Backend {
 	substrate = &Backend{
 		hardware: make([]kernel.Substrate, 0),
-	}
-
-	errnie.Info("compute.backend: CPU substrate registered")
-	substrate.hardware = append(substrate.hardware, cpu.NewBackend())
-
-	// Available() returns a device count; iterate 0..n-1 explicitly.
-	for idx := 0; idx < cuda.Available(); idx++ {
-		errnie.Info("compute.backend: CUDA substrate registered")
-		substrate.hardware = append(substrate.hardware, cuda.NewBackend(idx))
-	}
-
-	for idx := 0; idx < metal.Available(); idx++ {
-		errnie.Info("compute.backend: Metal substrate registered")
-		substrate.hardware = append(substrate.hardware, metal.NewBackend(idx))
+		observer: kernel.NoopObserver{},
 	}
 
 	for _, opt := range opts {
 		opt(substrate)
+	}
+
+	substrate.observer = kernel.NormalizeObserver(substrate.observer)
+
+	errnie.Info("compute.backend: CPU substrate registered")
+	substrate.hardware = append(substrate.hardware, cpu.NewBackend(
+		cpu.BackendWithObserver(substrate.observer),
+	))
+
+	// Available() returns a device count; iterate 0..n-1 explicitly.
+	for idx := 0; idx < cuda.Available(); idx++ {
+		errnie.Info("compute.backend: CUDA substrate registered")
+		substrate.hardware = append(substrate.hardware, cuda.NewBackend(
+			idx,
+			cuda.BackendWithObserver(substrate.observer),
+		))
+	}
+
+	for idx := 0; idx < metal.Available(); idx++ {
+		errnie.Info("compute.backend: Metal substrate registered")
+		substrate.hardware = append(substrate.hardware, metal.NewBackend(
+			idx,
+			metal.BackendWithObserver(substrate.observer),
+		))
 	}
 
 	if substrate.ctx == nil {
@@ -118,6 +130,49 @@ func WithPool(p *Pool) BackendOption {
 	return func(backend *Backend) {
 		backend.pool = p
 	}
+}
+
+// WithKernelObserver injects a kernel observer for all discovered backends.
+func WithKernelObserver(observer kernel.Observer) BackendOption {
+	return func(backend *Backend) {
+		backend.observer = kernel.NormalizeObserver(observer)
+	}
+}
+
+// SetKernelObserver updates the observer for the active global substrate.
+func SetKernelObserver(observer kernel.Observer) {
+	if substrate == nil {
+		return
+	}
+	normalized := kernel.NormalizeObserver(observer)
+	substrate.observer = normalized
+
+	for _, hw := range substrate.hardware {
+		if aware, ok := hw.(kernel.ObserverAware); ok {
+			aware.SetObserver(normalized)
+		}
+	}
+}
+
+type errnieKernelObserver struct{}
+
+func (errnieKernelObserver) Trace(event string, keyvals ...any) {
+	errnie.Trace(event, keyvals...)
+}
+
+func (errnieKernelObserver) Error(event string, err error, keyvals ...any) {
+	if err == nil {
+		return
+	}
+	kv := make([]any, 0, len(keyvals)+2)
+	kv = append(kv, "event", event)
+	kv = append(kv, keyvals...)
+	_ = errnie.Error(err, kv...)
+}
+
+// NewErrnieKernelObserver returns an async observer that forwards to errnie.
+func NewErrnieKernelObserver(queueSize int) kernel.Observer {
+	return kernel.NewAsyncObserver(errnieKernelObserver{}, queueSize)
 }
 
 /*
