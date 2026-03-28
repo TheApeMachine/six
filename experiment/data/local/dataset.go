@@ -2,7 +2,9 @@ package local
 
 import (
 	"context"
+	"io"
 	"iter"
+	"sync"
 )
 
 /*
@@ -13,6 +15,10 @@ type Dataset struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	corpus [][]byte
+
+	readMu  sync.Mutex
+	readRow int // index in corpus
+	readOff int // offset within corpus[readRow]
 }
 
 type datasetOpts func(*Dataset)
@@ -47,7 +53,40 @@ func (ds *Dataset) Generate() iter.Seq[byte] {
 }
 
 func (ds *Dataset) Read(p []byte) (n int, err error) {
-	return copy(p, ds.corpus[0]), nil
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	ds.readMu.Lock()
+	defer ds.readMu.Unlock()
+
+	for n < len(p) {
+		for ds.readRow < len(ds.corpus) && ds.readOff >= len(ds.corpus[ds.readRow]) {
+			ds.readRow++
+			ds.readOff = 0
+		}
+		if ds.readRow >= len(ds.corpus) {
+			if n == 0 {
+				return 0, io.EOF
+			}
+			return n, nil
+		}
+
+		row := ds.corpus[ds.readRow]
+		copied := copy(p[n:], row[ds.readOff:])
+		ds.readOff += copied
+		n += copied
+	}
+	return n, nil
+}
+
+// Reset rewinds the read cursor to the start of the corpus so Read can scan again
+// (e.g. multiple epochs). It is safe for concurrent use with Read.
+func (ds *Dataset) Reset() {
+	ds.readMu.Lock()
+	defer ds.readMu.Unlock()
+	ds.readRow = 0
+	ds.readOff = 0
 }
 
 func (ds *Dataset) Close() error {

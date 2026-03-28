@@ -59,7 +59,7 @@ Read delegates to the underlying transport.
 */
 func (conn *UniConn) Read(p []byte) (int, error) {
 	if conn.rwc == nil {
-		return 0, ErrNoTransport
+		return 0, &TransportError{Layer: "uniconn", Op: "read", Err: ErrNoTransport}
 	}
 
 	return conn.rwc.Read(p)
@@ -70,7 +70,7 @@ Write delegates to the underlying transport.
 */
 func (conn *UniConn) Write(p []byte) (int, error) {
 	if conn.rwc == nil {
-		return 0, ErrNoTransport
+		return 0, &TransportError{Layer: "uniconn", Op: "write", Err: ErrNoTransport}
 	}
 
 	return conn.rwc.Write(p)

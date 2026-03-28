@@ -1,102 +1,95 @@
 % ============================================================================
 % DISCUSSION
 % ============================================================================
+\section{Discussion}
+
 \subsection{What Current Evidence Supports}
 \label{sec:evidence_supports}
 
-\begin{enumerate}[nosep]
-  \item \textbf{Gradient-free inference:}  The system performs retrieval,
-        generation, and structural reasoning without optimizing a learned loss
-        surface.  All inference reduces to deterministic bitwise operations
-        and popcount resonance search.
-  \item \textbf{Modality-agnostic processing:}  The same byte-level tokenizer
-        and Value representation processes text, images, and structured data
-        through identical pipelines---no modality-specific encoders.
-  \item \textbf{Non-commutative sequence encoding:}  The GF(8191) affine
-        group natively encodes syntactic order through non-commutative
-        composition of affine operators $f(x)=ax+b$, eliminating the
-        need for learned positional embeddings.
-  \item \textbf{Lossless collision-compression:}  The radix trie's Morton
-        key deduplication achieves significant memory reduction while
-        preserving all structural information needed for retrieval.
-  \item \textbf{Hardware-native parallelism:}  The GF(8191) rotation
-        resolver and PhaseDial scanner are designed for GPU warp
-        architecture, with integer pre-filters and SIMD popcount
-        operating at single-cycle throughput.
-  \item \textbf{Self-programming:}  The system synthesizes missing affine
-        operators during cantilever solving, hardens them through
-        repeated success into permanent macro-opcodes, and natively
-        executes the resulting learned operators---closing an
-        observe-prompt-harden-execute-reify cycle without gradient
-        descent.
-\end{enumerate}
+The experimental results provide evidence for the following properties
+of the architecture.
 
-\subsection{Known Limitations and Failure Modes}
+\emph{Gradient-free inference.}  The system performs retrieval,
+generation, and structural reasoning without optimizing a learned loss
+surface.  All inference reduces to deterministic boolean operations and
+population-count-based similarity scoring.
+
+\emph{Modality-agnostic processing.}  The same byte-level encoding and
+Value representation processes text, images, code, and structured logical
+data through identical pipelines.  No modality-specific encoders,
+tokenizers, or preprocessing stages are required.
+
+\emph{Hardware-native parallelism.}  The boolean instruction set maps
+directly to SIMD and GPU architectures, with all operations executing at
+fixed, data-independent latency.  The multi-substrate backend
+demonstrates that the same computation can be dispatched to CPU, CUDA, or
+Metal without algorithmic modification.
+
+\emph{Self-modification.}  The firmware system demonstrates that Values
+can carry and execute programs, and that the viral firmware can propagate
+programs between frames.  This provides a mechanism for distributing
+useful instruction sequences through a population of Values without
+external optimization.
+
+\subsection{Known Limitations}
 \label{sec:limitations}
 
-\begin{enumerate}[nosep]
-  \item \textbf{Energy selectivity:}  The current retrieval scoring is
-        permissive---any candidate sharing common byte patterns scores
-        highly.  Sharper gating (e.g., weighted energy functions,
-        structural vacuum filtering) is needed for discriminative
-        retrieval.
-  \item \textbf{Propagation depth:}  Information propagation through the
-        fold graph hierarchy decays with structural distance.  Deep
-        multi-hop reasoning chains attenuate rapidly.
-  \item \textbf{Scale competitiveness:}  The system has not been benchmarked
-        against large autoregressive models on standard leaderboards.
-  \item \textbf{Convergence guarantees:}  The cantilever generation loop
-        converges empirically but lacks formal convergence proofs.
-  \item \textbf{Sparse value coverage:}  With only 5 bits set per byte,
-        an 8191-bit value is extremely sparse (${\approx}\,0.06\%$ fill
-        ratio).  The capacity limits of this representation under heavy
-        superposition need formal characterization.
-\end{enumerate}
+\emph{Retrieval selectivity.}  The current similarity scoring, based on
+population count of bitwise AND, is permissive: any two frames sharing
+common bit patterns score positively.  More selective gating
+mechanisms---such as weighted scoring functions or structural
+filtering---are needed for high-precision discriminative retrieval.
 
-\subsection{Evaluation Roadmap}
-\label{sec:roadmap}
+\emph{Composition depth.}  Information propagation through sequences of
+boolean operations attenuates with depth.  Each operation can only
+redistribute existing bits or set bits to zero or one; there is no
+amplification mechanism analogous to the residual connections or
+normalization layers that stabilize deep neural networks.  Deep
+multi-step reasoning chains are therefore limited by the rate at which
+signal degrades under repeated boolean transformation.
 
-\paragraph{Planned Ablation Studies.}
-\begin{itemize}[nosep]
-  \item Vary value width ($D \in \{4093, 8191, 16381\}$) to characterize
-        the sparsity--capacity trade-off across Mersenne-prime-adjacent
-        field sizes.
-  \item Disable the self-programming hardening loop (no operator
-        promotion) and measure the effect on cantilever prompt quality
-        and convergence speed.
-  \item Vary RecursiveFold depth limits to quantify the relationship
-        between fold graph depth and retrieval accuracy.
-\end{itemize}
+\emph{Scale comparison.}  The system has not been benchmarked against
+large autoregressive models on standard leaderboards.  The experimental
+results establish baseline performance for the architecture but do not
+claim competitive accuracy at the scale of contemporary language or
+vision models.
+
+\emph{Convergence.}  The self-modification loop---firmware seeding,
+boolean interaction, and viral propagation---converges to useful programs
+empirically in the reported experiments, but lacks formal convergence
+guarantees.  Characterizing the conditions under which this loop
+reliably produces effective programs is an open problem.
+
+\emph{Sparsity.}  A 1024-byte Value with a small number of active bits
+is extremely sparse relative to its dimensionality.  The capacity limits
+of this sparse representation under heavy superposition (many frames
+combined via OR) require formal characterization.
+
+\subsection{Directions for Future Work}
+\label{sec:future_work}
+
+\paragraph{Ablation Studies.}
+Varying the frame width (e.g., 512, 1024, 2048 bytes) would
+characterize the trade-off between representational capacity and
+computational cost per boolean operation.  Disabling the viral firmware
+and measuring the effect on downstream task performance would isolate
+the contribution of self-modification to the system's behavior.  Varying
+the Region capacity (primary mixer size and spill depth) would quantify
+the relationship between mixing pool size and the quality of frame
+interactions.
 
 \paragraph{Scaling Experiments.}
-\begin{itemize}[nosep]
-  \item Trie size vs.\ resolver latency: characterize the empirical
-        scaling constant for 1K to 10M stored Values.
-  \item Value width vs.\ retrieval accuracy: determine the minimum $D$ for
-        each modality.
-  \item Compression ratio vs.\ corpus size: validate the predicted
-        increasing-compression-with-scale behavior from Zipfian theory
-        (\Cref{sec:collision_is_compression}).
-\end{itemize}
+Measuring retrieval latency as a function of the number of stored Values
+(from $10^3$ to $10^7$) would establish the empirical scaling behavior
+of population-count-based search.  Measuring deduplication rates across
+corpora of varying redundancy would validate whether the collision
+properties described in \Cref{sec:related_godel_arithmetic} yield
+practical storage savings.
 
-\paragraph{Novel Modality: Protein Secondary Structure.}
-As a test of the architecture's genuine modality-agnosticism, we plan
-experiments on protein secondary structure prediction using amino acid
-sequences as raw byte input.  This domain provides a particularly
-compelling test case:
-\begin{enumerate}[nosep]
-  \item The input alphabet (20 amino acid letters) is a strict subset
-        of the byte range, requiring no architectural modification.
-  \item Protein backbone geometry is governed by torsion angle pairs
-        $(\phi, \psi)$ that naturally inhabit a torus $S^1 \times S^1$---
-        the same manifold topology that analytical EigenMode derives
-        from prime-index geometry.
-  \item Secondary structure elements ($\alpha$-helices, $\beta$-sheets)
-        are defined by \emph{periodic local patterns} in residue
-        sequence---precisely the type of non-commutative rotational
-        structure that the 8191-bit Value is designed to encode.
-  \item The $O(1)$ GF(8191) rotation and popcount-based search offer an
-        asymptotic advantage over molecular dynamics ($O(N^2)$ per
-        timestep) for conformational space exploration.
-\end{enumerate}
-
+\paragraph{Structured Storage.}
+The current system stores Values in flat Regions without persistent
+indexing.  Introducing a tree-structured or trie-based index over
+Value contents would enable sub-linear retrieval and provide a
+persistent memory substrate.  Such an index could exploit the
+deterministic encoding to achieve content-addressable storage with
+structural deduplication.

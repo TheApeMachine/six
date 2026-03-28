@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"os"
 
 	"github.com/theapemachine/six/cmd"
@@ -8,7 +9,9 @@ import (
 )
 
 func main() {
-	if err := errnie.Error(cmd.Execute()); err != nil {
+	err := errnie.Error(cmd.Execute())
+	_ = errnie.Shutdown(context.Background())
+	if err != nil {
 		os.Exit(1)
 	}
 }

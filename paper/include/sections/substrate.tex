@@ -1,0 +1,73 @@
+% ============================================================================
+% SUBSTRATE: RUNTIME ARCHITECTURE
+% ============================================================================
+\subsection{Computational Substrate}
+\label{sec:substrate}
+
+Values do not execute in isolation.  The runtime organizes them into
+concurrent pools, routes boolean operations to available hardware, and
+manages the flow of frames through a buffered streaming pipeline.
+
+\paragraph{Regions.}
+\label{sec:regions}
+A \emph{Region} is a concurrent mixing pool that accepts and returns
+Value-sized frames.  Each Region maintains three tiers of storage: a
+primary mixer channel (capacity 64 frames), a bounded spill channel
+(capacity 256 frames), and an unbounded overflow queue.  Writes always
+succeed---a frame is deposited into the primary channel if space is
+available, otherwise into the spill channel, and finally into the
+overflow queue.  Reads drain the tiers in the same order, returning
+frames non-deterministically.
+
+This design guarantees that no frame is ever dropped or blocked during
+concurrent access.  The non-deterministic read order means that frames
+deposited by different producers may interact in varying sequences,
+creating a form of stochastic mixing that enables combinatorial
+exploration of frame interactions without explicit scheduling.
+
+\paragraph{Multi-Substrate Backend.}
+\label{sec:multi_backend}
+A \emph{Backend} abstracts the heterogeneous hardware available on the
+host.  At initialization, the Backend probes for NVIDIA CUDA devices,
+Apple Metal devices, and the always-present CPU, registering each as a
+compute substrate.  All substrates implement a common interface with two
+operations: \texttt{UniversalBitwise}, which reads a four-bit opcode
+from a Value's current instruction, executes the corresponding boolean
+truth table across the frame's data lanes, and advances the program
+counter; and \texttt{Schedule}, which enqueues a job for asynchronous
+execution on the substrate's worker path.
+
+The Backend selects a substrate for each operation through round-robin
+rotation over the registered hardware.  An exception is made for frames
+that arrive over wide-area network (WAN) transport: these frames are
+pinned to the substrate that first processes them, avoiding repeated
+migration between devices.
+
+\paragraph{Machine.}
+The \emph{Machine} is the top-level runtime orchestrator.  It binds
+together a worker pool, a transport stream, a set of Regions, and an
+optional dataset source.  The worker pool allocates one goroutine per
+available CPU core (with a minimum of one), and each worker draws jobs
+from a shared channel.  Workers are recycled through a pool to minimize
+allocation overhead, and each is wrapped in a panic-recovery guard to
+prevent a single faulting job from terminating the runtime.
+
+\paragraph{Stream and Framing.}
+The \emph{Stream} provides a ring-buffered framing layer between the
+Machine and its Regions.  Incoming data is written in frame-aligned
+units of 1024 bytes.  Each complete frame is first committed to the ring
+buffer and then fanned out to every Region, split into two configurable
+sides.  Reads from the Stream return one complete frame at a time.  If
+the final write is shorter than a full frame, the Stream pads the
+remainder with zero bytes before committing.
+
+\paragraph{Network Transport.}
+A unified connection type, \emph{UniConn}, abstracts three transport
+mechanisms: inter-process communication (IPC) via Unix domain sockets,
+UDP multicast for local-network broadcast, and QUIC for reliable
+wide-area transport.  All three implement the standard
+\texttt{io.ReadWriteCloser} interface, allowing Values to flow across
+process and network boundaries using the same read/write operations
+used within a single Machine.  Frames arriving over QUIC are tagged
+with an ingress marker so that the Backend can apply the pinning policy
+described above.

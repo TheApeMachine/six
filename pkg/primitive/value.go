@@ -1,145 +1,111 @@
+//go:generate go run gen.go
 package primitive
 
 import (
 	"errors"
 	"fmt"
 	"io"
-	"math/bits"
+	"strconv"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
-Memory Layout of the 8192-bit Value
-
 The Value is a flat array of 128 uint64 words = 8192 bits total.
-These bits are partitioned into regions with distinct mathematical roles:
+These bits are partitioned into regions with distinct roles:
 
-  REGION 0 — DATA FIELD (bits 0–256, words 0–4 partial)
-    257 bits forming GF(257), a Fermat prime field.
-    Each byte is projected onto exactly 5 bit positions using coprime
-    spreading: b*7, b*13, b*31, b*61, b*127 (mod 257).
-    This gives C(257,5) ≈ 8.8 billion unique fingerprints per byte.
-    The motor over this region uses GF(257) arithmetic: f(p) = a·p + b (mod 257).
-    AND = GCD, OR = LCM, XOR = symmetric factorization difference.
+	DATA REGION (words 0–59)
+	Stores 57 packed TokenIDs followed by:
+		- ValueID     (word 57)
+		- PrevValueID (word 58)
+		- NextValueID (word 59)
+	TokenIDs use the byte value and the sequence index:
+	(byte_value << 32) | sequence_index
 
-  REGION 1 — INSTRUCTION REGISTER (bits 257–260, 4 bits)
-    Encodes one of 16 truth-table operations as a 4-bit index.
-    These 4 bits ARE the truth table for the binary boolean operation
-    that this Value applies when it interacts with another Value.
-    The operation is not chosen externally — it is part of the Value's
-    own bit pattern, and changes when the bits change.
+	STATE (words 60–62)
+	Slot index, sequence index, XOR accumulator for the Write engine.
 
-  REGION 2 — OPERAND REGISTER (bits 261–517, 257 bits)
-    A second GF(257) field that holds a buffered operand.
-    When a Value absorbs incoming data via Write, the motor-mapped
-    result is stored here. Read delivers this region's contents,
-    then clears it. This gives the Value an internal "perception"
-    of what it last saw through its motor lens.
+	AFFINITY (word 63)
+	64-bit mask for topological clustering via bitwise AND.
 
-  REGION 3 — STATE VECTOR (bits 518–774, 257 bits)
-    A third GF(257) field acting as a CRDT (Conflict-free Replicated Data Type).
-    It holds the continuous Bitwise OR of all previous Region 0s in this execution chain.
-    This makes the Value self-healing over lossy networks.
+	REGISTERS r0–r9, fw (words 64–74)
+	General-purpose registers for native programs and scratch spans.
 
-  REGION 4 — METADATA (bits 775–8190)
-    7416 bits of free space for future use: motor orbit history,
-    popcount snapshots, convergence counters, emission chains,
-    or anything the system's dynamics require.
+	PC (word 75)
+	Program counter. Writable by programs for jumps.
 
-  REGION 5 — INSTRUCTION FLAG (bit 8191)
-    Single bit outside GF(8191). When set, this Value is an in-band
-    control frame: its instruction register specifies the operation,
-    and its data field carries the operand.
-
-The full 8192-bit field also admits GF(8191) arithmetic (Mersenne prime),
-so the Value simultaneously lives in two prime fields: GF(257) for the
-data fingerprint and GF(8191) for the whole-Value motor and lattice ops.
-A Fermat prime inside a Mersenne prime.
+	PROGRAM (words 76–127)
+	52 words = 3328 bits = 104 × 32-bit instruction slots.
+	Native programs execute all 16 two-input boolean truth tables.
+	Conditional skip-if-zero enables loops without invented opcodes.
 */
 
 const (
+	// Compile-time constants needed for the Value type definition.
 	Words    = 128
 	ByteSize = Words * 8
-	CoreBits = 8191
-	LastMask = (1 << (CoreBits % 64)) - 1
 
-	DataBits  = 257
-	DataWords = (DataBits + 63) / 64
+	// SignalMask is the mechanical bit-pattern used to reset the sequence index.
+	SignalMask = 0xF
 
-	InstrStart = DataBits
-	InstrBits  = 4
-
-	OperandStart = InstrStart + InstrBits
-	OperandBits  = DataBits
-
-	StateStart = OperandStart + OperandBits
-	StateBits  = DataBits
-
-	MetaStart = StateStart + StateBits
-
-	InstructionMask uint64 = 1 << 63
-	logicalBits            = 257
-
-	ThresholdBits = 16
-	ScoreBits     = 16
-	FiredBits     = 1
-
-	ThresholdStart = MetaStart
-	ScoreStart     = ThresholdStart + ThresholdBits
-	FiredStart     = ScoreStart + ScoreBits
+	// ExecStatusWord is the word reserved for kernel exit markers (high 16 bits);
+	// must match generated pkg/compute/kernel/shared/primitives.h EXEC_STATUS_WORD.
+	ExecStatusWord  = 63
+	ExecStatusShift = 48
 )
 
-/*
-Region enumerates bits for a given region.
-*/
-type Region int
-
+// Exit reasons written into ExecStatusWord by CPU / GPU kernels (high 16 bits).
 const (
-	RegionOperand     = Region(0)
-	RegionStateVector = Region(OperandBits)
-	RegionInstruction = Region(StateBits)
-	RegionMeta        = Region(InstrBits)
-	RegionThreshold   = Region(MetaStart + InstrBits)
-	RegionScore       = Region(MetaStart + InstrBits + ThresholdBits)
-	RegionFired       = Region(MetaStart + InstrBits + ThresholdBits + ScoreBits)
-	RegionLast        = Region(CoreBits)
+	ExecExitNone uint16 = iota
+	ExecExitExhausted
+	ExecExitHaltOpcode
+	ExecExitBadProgramWord
 )
-
-/*
-Value is the native programmable type. 8192-bit field packed as 128 uint64
-words. Pure data — no methods beyond io.ReadWriteCloser. All operations
-(motor, bitwise, projection) live in the kernel layer so they can be
-dispatched to GPU at scale.
-*/
-type Value [Words]uint64
 
 var (
 	valueTo   func(*Value, []byte)
 	valueFrom func([]byte, *Value)
+
+	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
 
 /*
-init initializes the valueTo and valueFrom functions based on the architecture.
+Value is the self-programmable type that acts as the fundamental unit of
+computation and memory, while also forming its own substrate. It is an
+experimental attempt to design a native "language" for intelligent
+systems, in favor of having A.I. forced to reason in human language.
 
-On little-endian architectures, the valueTo and valueFrom functions are
-initialized to use a single copy/memmove. On big-endian architectures,
-the valueTo and valueFrom functions are initialized to use a portable
-implementation that copies each uint64 word into 8 little-endian bytes.
+The core concepts behind its design are:
+
+ 1. Minimal Core, Maximal Composability
+    The instruction set consist of the 16 truth-table operations
+ 2. High Compatibility
+    io.Reader and io.Writer interface compliance make it compatible
+    with file systems, network connections, and most other
+    I/O infrastructure.
+ 3. High Portability
+    As much as possible is carried in-band, balanced against
+    hardware symphathy.
 */
+type Value [Words]uint64
+
 func init() {
 	x := uint16(1)
 
+	// Fast-path memory alignment for little-endian architectures
 	if *(*byte)(unsafe.Pointer(&x)) == 1 {
 		valueTo = func(v *Value, p []byte) {
-			// Wrap in copy to ensure alignment.
 			copy(p, unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), ByteSize))
 		}
-
 		valueFrom = func(p []byte, v *Value) {
-			// Wrap in copy to ensure alignment.
 			copy(unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), ByteSize), p)
 		}
-
 		return
 	}
 
@@ -174,46 +140,66 @@ func valueFromPortable(p []byte, v *Value) {
 }
 
 /*
-NewValue returns a pointer to a zero-initialized Value.
+valuePool is a global pool of Values. It is used to recycle
+Values that have been closed. It should be safe to re-use ValueIDs
+because the Tomstone program should be clearing up any references to
+a discarded ValueID.
 */
-func NewValue() *Value {
-	return &Value{}
+var valuePool = sync.Pool{
+	New: func() any {
+		val := &Value{}
+		val.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+		val.installFirmware(core.FirmwareTypeBootloader)
+		return val
+	},
 }
 
 /*
-NewValueFromByte projects a byte into the Value's data field by iterating a
-fixed affine motor f(x) = 3x + 1 (mod 257) five times starting from x₀ = b.
-The five orbit positions become the lit oscillators. 3 is a primitive root of
-257, so the motor has maximal cycle length and every starting byte traces a
-distinct orbit — guaranteeing injectivity while keeping the projection native
-to the substrate's own dynamics.
+NewValue should only be used to create the initial Value.
+This method should not be used to create temporary Values.
 */
-func NewValueFromByte(b byte) *Value {
-	value := NewValue()
-	pos := int(b)
+func NewValue(p []byte) (*Value, error) {
+	value := valuePool.Get().(*Value)
 
-	for range 5 {
-		value[pos/64] |= 1 << (pos % 64)
-		pos = (pos*3 + 1) % logicalBits
+	// Reinitialize the pooled frame so prompt construction never inherits stale
+	// bytes from a previous temporary Value.
+	for i := range value {
+		value[i] = 0
+	}
+	value.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+	value.installFirmware(core.FirmwareTypeBootloader)
+
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	if tokenWords <= 0 {
+		return nil, errnie.Error(
+			NewValueError(ValueErrorFailedToken),
+		)
 	}
 
-	return value
-}
+	if len(p) > tokenWords {
+		p = p[:tokenWords]
+	}
 
-func (value *Value) empty() bool {
-	return value[0] == 0 && value[1] == 0 && value[2] == 0 && value[3] == 0 && (value[4]&1) == 0
-}
+	for i, b := range p {
+		if !value.SetTokenID(core.Cfg.TokenIndex+i, Tokenize(b, uint64(i))) {
+			return nil, errnie.Error(
+				NewValueError(ValueErrorFailedToken),
+			)
+		}
+	}
 
-func (value *Value) projectByte(b byte) {
-	value[0] = uint64(b)
-	value[1] = 0
-	value[2] = 0
-	value[3] = 0
-	value[4] = (value[4] &^ 1) | 1
+	return value, nil
 }
 
 /*
-Read implements io.Reader. Serializes the Value's 1024-byte frame into p.
+Read implements io.Reader, which serves two main purposes.
+ 1. It contributes to the High Compatibility core concept.
+ 2. It allows Values to pass through Values, which is the
+    closest equivalent of an instruction-pointer.
+
+It is important to understand that we do not pay any
+traditional serialization tax, because the Value is already
+serialized in memory.
 */
 func (value *Value) Read(p []byte) (int, error) {
 	if len(p) < ByteSize {
@@ -225,194 +211,338 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
-Write implements the first stage of the "folding" process, which can be seen as the
-"instruction pointer" equivalent in a self-computing substrate. In this stage we take
-the value, and the incoming value, and prepare them for the Read stage, where an
-operation is potentially fired, and new values are emitted
+Write implements io.Writer. It is how Values are "folded" through each
+other, which acts as the closes thing to an instruction pointer.
 */
 func (value *Value) Write(p []byte) (int, error) {
-	lp := len(p)
+	incoming := valuePool.Get().(*Value)
+	defer valuePool.Put(incoming)
 
-	if lp == 0 {
-		return 0, nil
+	valueFrom(p, incoming)
+
+	if value.HasProgram() {
+		if err := compute.UniversalBitwise(
+			unsafe.Pointer(value),
+			unsafe.Pointer(incoming),
+		); err != nil {
+			return 0, err
+		}
 	}
 
-	// 1. SEEDING: If Region 0 is empty, we just need to read 1 byte into Region 0.
-	if value.empty() {
-		value.projectByte(p[0])
-		return 1, nil // Consume exactly 1 byte from the stream
-	}
-
-	// 2. INGESTION: Region 0 is set, so we expect a full 1024-byte Value.
-	if lp < ByteSize {
-		return 0, io.ErrShortBuffer
-	}
-
-	incoming := BytesToValue(p[:lp])
-
-	// Move Region 0 of the incoming Value into Region 2 (Operand) of the current Value
-	copyDataToOperand(value, incoming)
-	return lp, nil
+	return len(p), nil
 }
 
 /*
-Close satisfies io.Closer for pipeline composition.
+Close implements io.Closer, and must be called when a Value
+is discarded. It guarantees a sane exist from the substrate
+and returns the value to the value pool. This is not meant
+as a quick-and-dirty way to discard a Value, that has to
+be done by loading the tombstone firmware.
 */
 func (value *Value) Close() error {
-	value = nil
+	wiped := true
+
+	// Cfg *Bits fields are bit widths; convert to word spans before indexing value[i].
+	checkRegion := func(start int, bits uint64) {
+		if !wiped {
+			return
+		}
+		n := int((bits + 63) / 64)
+		for i := 0; i < n; i++ {
+			idx := start + i
+			if idx < 0 || idx >= Words {
+				continue
+			}
+			if value[idx] != 0 {
+				wiped = false
+				return
+			}
+		}
+	}
+
+	checkRegion(core.Cfg.TokenIndex, core.Cfg.TokenBits)
+	checkRegion(core.Cfg.AffinityIndex, core.Cfg.AffinityBits)
+	checkRegion(core.Cfg.ProgramIndex, core.Cfg.ProgramBits)
+
+	if wiped {
+		valuePool.Put(value)
+	}
+
 	return nil
 }
 
 /*
-clearOperandBits zeroes only the operand region (bits 261–517), preserving
-data, instruction, and state vector bits in boundary words.
+installFirmware installs the firmware into the Value. This should
+ideally only be used to install the bootloader firmware. In all
+other cases, setting the fw register to the firmware index and
+setting the pc register to the program index (which is where)
+the bootloader starts) is the correct way to install firmware.
 */
-func clearOperandBits(dst *Value) {
-	const lo = OperandStart
-	const hi = OperandStart + OperandBits - 1
+func (value *Value) installFirmware(fw core.FirmwareType) {
+	prog := core.Cfg.Firmware[fw]
+	wordBase := uint64(core.Cfg.ProgramIndex)
 
-	loW, loS := lo>>6, lo&63
-	hiW, hiS := hi>>6, hi&63
+	for i := 0; i < len(prog); i += 2 {
+		wordPos := wordBase + uint64(i/2)
 
-	if loW == hiW {
-		mask := ((uint64(1) << (hiS - loS + 1)) - 1) << uint(loS)
-		dst[loW] &^= mask
-		return
-	}
+		if int(wordPos) >= Words {
+			break
+		}
 
-	dst[loW] &^= ^((uint64(1) << uint(loS)) - 1)
+		var w uint64
+		w = uint64(prog[i])
 
-	for w := loW + 1; w < hiW; w++ {
-		dst[w] = 0
-	}
+		if i+1 < len(prog) {
+			w |= uint64(prog[i+1]) << 32
+		}
 
-	dst[hiW] &^= (uint64(1) << uint(hiS+1)) - 1
-}
-
-/*
-copyDataToOperand shifts the 257 bits of Region 0 (Data) from src into Region 2
-(Operand) of dst so raw Values can collide before either has computed.
-*/
-func copyDataToOperand(dst, src *Value) {
-	const dw, ds = OperandStart >> 6, OperandStart & 63
-
-	clearOperandBits(dst)
-
-	for i := range 4 {
-		x := src[i]
-		dst[dw+i] |= x << ds
-		dst[dw+i+1] |= x >> (64 - ds)
-	}
-
-	if (src[(0+256)>>6]>>((0+256)&63))&1 != 0 {
-		dst[(OperandStart+256)>>6] |= 1 << ((OperandStart + 256) & 63)
+		value[wordPos] = w
 	}
 }
 
+func (value *Value) String() string {
+	var builder strings.Builder
+	n := int((core.Cfg.TokenBits + 63) / 64)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		builder.WriteByte(byte(value[idx] >> 32))
+	}
+
+	return strings.TrimRight(builder.String(), "\x00")
+}
+
+// TraceString implements errnie.TraceStringer for compact trace / log output.
+func (v *Value) TraceString() string {
+	if v == nil {
+		return "<nil>"
+	}
+	tok := v.String()
+	r := []rune(tok)
+	if len(r) > errnie.TraceTokenPreviewRunes {
+		tok = string(r[:errnie.TraceTokenPreviewRunes]) + "…"
+	}
+	return fmt.Sprintf("id=%d tokens=%s", v.ValueID(), strconv.Quote(tok))
+}
+
 /*
-bytesToValue converts a byte slice into a Value.
+Tokenize securely packs a byte and its sequence index into a 64-bit hardware token.
+*/
+func Tokenize(b byte, index uint64) uint64 {
+	return (uint64(b) << 32) | index
+}
+
+func region0TokenIndexOK(index int) bool {
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	hi := core.Cfg.TokenIndex + tokenWords
+	return index >= core.Cfg.TokenIndex && index < hi
+}
+
+func (value *Value) TokenID(index int) uint64 {
+	if !region0TokenIndexOK(index) {
+		return 0
+	}
+	return value[index]
+}
+
+func (value *Value) SetTokenID(index int, token uint64) bool {
+	if !region0TokenIndexOK(index) {
+		return false
+	}
+	value[index] = token
+	return true
+}
+
+func (value *Value) TokenIDs() []uint64 {
+	n := int((core.Cfg.TokenBits + 63) / 64)
+	out := make([]uint64, n)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		out[i] = value[idx]
+	}
+	return out
+}
+
+func (value *Value) SetTokenIDs(tokens []uint64) int {
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	n := min(len(tokens), nWords)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		value[idx] = tokens[i]
+	}
+	return n
+}
+
+func (value *Value) ValueID() uint64 {
+	return value[core.Cfg.ValueID]
+}
+
+func (value *Value) ID() string {
+	return fmt.Sprintf("%d", value.ValueID())
+}
+
+func (value *Value) SetValueID(id uint64) {
+	value[core.Cfg.ValueID] = id
+}
+
+func (value *Value) PrevValueID() uint64 {
+	return value[core.Cfg.PreviousID]
+}
+
+func (value *Value) SetPrevValueID(id uint64) {
+	value[core.Cfg.PreviousID] = id
+}
+
+func (value *Value) NextValueID() uint64 {
+	return value[core.Cfg.NextID]
+}
+
+func (value *Value) SetNextValueID(id uint64) {
+	value[core.Cfg.NextID] = id
+}
+
+/*
+BytesToValue overlays a 1024-byte slice onto the Value pointer via unsafe memory access.
 */
 func BytesToValue(p []byte) *Value {
-	if uintptr(unsafe.Pointer(&p[0]))&7 == 0 {
-		return (*Value)(unsafe.Pointer(&p[0])) // fast path
-	}
-
 	var v Value
-	valueFrom(p, &v) // fallback
+	valueFrom(p, &v)
 
 	return &v
 }
 
 /*
-ValueToBytes writes the Value's 1024-byte frame into p (same layout as Read).
-Use this after kernel ops when BytesToValue took the copy fallback so the
-mutated frame is written back to the caller's buffer.
+ValueToBytes writes the Value's 1024-byte frame into p.
 */
 func ValueToBytes(v *Value, p []byte) error {
-	if len(p) < ByteSize {
-		return io.ErrShortBuffer
-	}
 	valueTo(v, p)
 	return nil
 }
 
 /*
-MergeStateVector performs a CRDT merge (Bitwise OR) of the src State Vector
-into the dst State Vector. This operation is commutative, associative, and idempotent,
-allowing a node to instantly recover missing state from dropped packets.
+ApplyWireFrame copies a single serialized 1024-byte frame into the Value (the inverse
+of ValueToBytes). Use this for bulk frame transfer; Value.Write tokenizes a byte
+stream and is not appropriate for raw wire frames.
 */
-func MergeStateVector(dst, src *Value) {
-	const w = StateStart >> 6
-	const s = StateStart & 63
-
-	mask0 := ^((uint64(1) << s) - 1)
-	mask4 := (uint64(1) << ((StateStart + StateBits) & 63)) - 1
-
-	dst[w+0] |= (src[w+0] & mask0)
-	dst[w+1] |= src[w+1]
-	dst[w+2] |= src[w+2]
-	dst[w+3] |= src[w+3]
-	dst[w+4] |= (src[w+4] & mask4)
-
-	// Decay mechanism to prevent CRDT saturation
-	pop := bits.OnesCount64(dst[w+0]>>s) +
-		bits.OnesCount64(dst[w+1]) +
-		bits.OnesCount64(dst[w+2]) +
-		bits.OnesCount64(dst[w+3]) +
-		bits.OnesCount64(dst[w+4]&mask4)
-
-	if pop > 128 {
-		const decayMask = 0x5555555555555555
-		dMask0 := uint64(decayMask) | ^mask0
-		dMask4 := uint64(decayMask) | ^mask4
-
-		dst[w+0] &= dMask0
-		dst[w+1] &= decayMask
-		dst[w+2] &= decayMask
-		dst[w+3] &= decayMask
-		dst[w+4] &= dMask4
+func (v *Value) ApplyWireFrame(p []byte) error {
+	if len(p) != ByteSize {
+		return fmt.Errorf("primitive: wire frame length %d, want %d", len(p), ByteSize)
 	}
+	valueFrom(p, v)
+	return nil
+}
+
+// ClearExecExitCode clears the kernel exit marker in the high bits of ExecStatusWord.
+func (value *Value) ClearExecExitCode() {
+	value[ExecStatusWord] &= 0x0000FFFFFFFFFFFF
+}
+
+// SetExecExitCode records why a native kernel stopped (high 16 bits of ExecStatusWord).
+func (value *Value) SetExecExitCode(code uint16) {
+	value[ExecStatusWord] = (value[ExecStatusWord] & 0x0000FFFFFFFFFFFF) | (uint64(code) << ExecStatusShift)
+}
+
+// ExecExitCode returns the last kernel exit marker, if any.
+func (value *Value) ExecExitCode() uint16 {
+	return uint16(value[ExecStatusWord] >> ExecStatusShift)
 }
 
 /*
-HammingDistance calculates the topological distance between two Values
-by counting the number of differing bits (symmetric difference).
-This is the core metric for associative resonance and emergent compute.
+DecodeTokensToText extracts the byte portion (upper 32 bits) of each
+non-zero TokenID in Region 0 and returns it as a printable string.
 */
-func HammingDistance(a, b *Value) int {
-	dist := 0
-	for i := range Words {
-		// We use a simple bitwise XOR and count the set bits
-		// to find the geometric distance between two concepts.
-		diff := a[i] ^ b[i]
-		dist += bits.OnesCount64(diff)
+func DecodeTokensToText(v *Value) string {
+	var b []byte
+	n := int((core.Cfg.TokenBits + 63) / 64)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		tok := v[idx]
+		if tok == 0 {
+			break
+		}
+		ch := byte(tok >> 32)
+		if ch >= 32 && ch < 127 {
+			b = append(b, ch)
+		} else {
+			b = append(b, '.')
+		}
 	}
-	return dist
+	return string(b)
 }
 
-/*
-ValueErrorType is a typed error for Value operations.
-*/
+// ProgramOp returns the 4-bit opcode at instruction slot i in the in-band
+// program region, or 0 if i is out of range.
+func (value *Value) ProgramOp(slot int) uint8 {
+	if slot < 0 || slot >= core.Cfg.MaxPC {
+		return 0
+	}
+	wordBase := uint64(core.Cfg.ProgramIndex)
+	pc := uint64(slot)
+	wordPos := wordBase + (pc / 2)
+	if int(wordPos) >= Words {
+		return 0
+	}
+	shift := uint((pc % 2) * 32)
+	instr := uint32(value[wordPos] >> shift)
+	return uint8(instr & 0xF)
+}
+
+func (value *Value) HasProgram() bool {
+	// If the firmware register is set, it signals a program should be loaded
+	if value[core.Cfg.FW] > 0 {
+		return true
+	}
+	startWord := core.Cfg.ProgramIndex
+	nProgWords := int((core.Cfg.ProgramBits + 63) / 64)
+	endWord := startWord + nProgWords
+	if startWord < 0 {
+		startWord = 0
+	}
+	if endWord > Words {
+		endWord = Words
+	}
+	for i := startWord; i < endWord; i++ {
+		if value[i] != 0 {
+			return true
+		}
+	}
+	return false
+}
+
 type ValueErrorType string
 
 const (
-	ErrShortValue ValueErrorType = "value: buffer shorter than 1024 bytes"
+	ValueErrorFailedToken ValueErrorType = "failed_token"
+	ValueErrorDivergence  ValueErrorType = "divergence"
+	ValueErrorDataFull    ValueErrorType = "data_full"
 )
 
 type ValueError struct {
-	Type ValueErrorType
-	Err  error
+	Err error
 }
 
 func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Type: err, Err: errors.New(string(err))}
+	return &ValueError{Err: errors.New(string(err))}
 }
 
-/*
-Error implements the error interface for ValueError.
-*/
-func (valueErr *ValueError) Error() string {
-	return fmt.Errorf(
-		"value error: %s (%w)", valueErr.Type, valueErr.Err,
-	).Error()
+func (e *ValueError) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return "value error"
+}
+
+func (e *ValueError) Unwrap() error {
+	return e.Err
 }

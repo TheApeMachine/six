@@ -3,8 +3,10 @@ package telemetry
 import (
 	"fmt"
 	"strings"
+	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -40,24 +42,71 @@ var truthOpNames = []string{
 	"const-1",
 }
 
+// DefaultVMInstruction is the opcode used only when a Value has no in-band
+// program to read (HumanDescribeValue fallback). Real paths should use
+// InstructionFromValue instead.
+const DefaultVMInstruction uint8 = 0b0011
+
+// InstructionFromValue returns the current 4-bit opcode at the Value's PC.
+// When v is nil or the PC is out of range, it returns DefaultVMInstruction.
+func InstructionFromValue(v *primitive.Value) uint8 {
+	if v == nil {
+		return DefaultVMInstruction & 0xF
+	}
+	pc := int(v[core.Cfg.RegPC])
+	return v.ProgramOp(pc) & 0xF
+}
+
 /*
-HumanDescribeValue returns a compact, readable summary of register
-pressure and the active boolean op for debugging and visualization.
+HumanDescribeValue returns a compact, readable summary of the new
+multi-region architecture for debugging and visualization.
 */
 func HumanDescribeValue(v *primitive.Value) string {
 	if v == nil {
 		return "nil Value"
 	}
 
-	instr := uint8(cpu.ReadRegion(v, cpu.RegionInstruction) & 0xF)
-	dPop := cpu.Popcount(v, 0, primitive.DataBits)
-	oPop := cpu.Popcount(v, primitive.OperandStart, primitive.OperandBits)
-	aPop := cpu.Popcount(v, primitive.StateStart, primitive.StateBits)
+	instr := uint8(0)
+	dataPop := cpu.Popcount(unsafe.Pointer(v), 0, int(core.Cfg.TokenBits))
+	affPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.AffinityIndex), int(core.Cfg.AffinityBits))
+	progPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.ProgramIndex), int(core.Cfg.ProgramBits))
+	tokens := primitive.DecodeTokensToText(v)
+	if tokens == "" {
+		tokens = v.String()
+	}
+
+	// Show program info if present (first-slot opcode when program bits exist)
+	progInfo := ""
+	if progPop > 0 {
+		instr = v.ProgramOp(0)
+		progInfo = fmt.Sprintf(" program=%dops", countProgramOps(v))
+	} else {
+		instr = DefaultVMInstruction & 0xF
+	}
 
 	return fmt.Sprintf(
-		"op=%s · popcount data=%d operand=%d state=%d",
-		TruthOpName(instr), dPop, oPop, aPop,
+		"id=%d prev=%d next=%d tokens=%q · op=%s · data=%d aff=%d prog=%d%s",
+		v.ValueID(),
+		v.PrevValueID(),
+		v.NextValueID(),
+		tokens,
+		TruthOpName(instr), dataPop, affPop, progPop, progInfo,
 	)
+}
+
+// countProgramOps counts instruction slots until VM HALT (opcode 0 with slot > 0), matching the CPU core loop.
+func countProgramOps(v *primitive.Value) int {
+	count := 0
+	for i := 0; i < core.Cfg.MaxPC; i++ {
+		op := v.ProgramOp(i)
+		if op == 0 && i > 0 {
+			break
+		}
+		if op != 0 {
+			count++
+		}
+	}
+	return count
 }
 
 /*

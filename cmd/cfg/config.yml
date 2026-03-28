@@ -1,5 +1,35 @@
 loglevel: debug
 
+# UDP destination for experiment pipeline telemetry (Observer JSON + raw frames).
+telemetry:
+  udp_endpoint: "127.0.0.1:8258"
+
+# Logging and trace shipping (see pkg/errnie/logging_config.go).
+logging:
+  logfile: false
+  trace:
+    # Empty path writes to ./trace.log under the process working directory.
+    path: ""
+  elasticsearch:
+    # Must be true for logs to ship. Or export ELASTICSEARCH_ENABLED=true.
+    enabled: true
+    urls:
+      - https://127.0.0.1:9200
+    index: six-logs
+    username: elastic
+    # Leave empty and set ELASTIC_PASSWORD (e.g. from .env) for Docker stacks.
+    password: ""
+    # Base64 API key (optional); overrides username/password when set. Or ELASTICSEARCH_API_KEY.
+    api_key: ""
+    # PEM path to the cluster CA (e.g. Elasticsearch docker certs/ca/ca.crt).
+    ca_cert: ""
+    # Local development only when you cannot mount the CA.
+    insecure_skip_verify: true
+    # Low-latency shipping defaults are applied when these are omitted (near-real-time in Kibana).
+    # bulk_flush_bytes: 1
+    # flush_interval_ms: 50
+    # bulk_refresh: "true"
+
 system:
   projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
 
@@ -9,3 +39,257 @@ numerics:
   epsilon: 1e-9
   nsymbols: 256
   nbasis: 512
+
+value:
+  words: 128
+  region:
+    tokens:
+      start: 0
+      bits: 3648
+    id:
+      start: 57
+      bits: 64
+    prev:
+      start: 58
+      bits: 64
+    next:
+      start: 59
+      bits: 64
+    state: 
+      index: 60
+      sequence: 61
+      accumulator: 62
+    affinity:
+      start: 63
+      bits: 64
+    registers:
+      start: 64
+      bits: 768
+      r0: 64
+      r1: 65
+      r2: 66
+      r3: 67
+      r4: 68
+      r5: 69
+      r6: 70
+      r7: 71
+      r8: 72
+      r9: 73
+      fw: 74
+      pc: 75
+    pc:
+      start: 75
+      bits: 64
+    program:
+      start: 76
+      bits: 3328
+  opcodes:
+    false: 0000
+    and: 0001
+    aandnotb: 0010
+    a: 0011
+    notandb: 0100
+    b: 0101
+    xor: 0110
+    or: 0111
+    nor: 1000
+    xnor: 1001
+    notb: 1010
+    ifbthena: 1011
+    nota: 1100
+    ifathenb: 1101
+    nand: 1110
+    true: 1111
+
+
+# Substrate Firmware Programs
+# Format: src dest gate (Polish Notation, 2-address)
+#
+# Operands:
+#   number    = immediate value (0-16383)
+#   rN        = register (r0-r9, pc, fw)
+#
+# Registers (triple model):
+#   r0 = context A (0=self, 1=partner)
+#   r1 = start A
+#   r2 = end A
+#   r3 = context B (0=self, 1=partner)
+#   r4 = start B
+#   r5 = end B
+#   r6-r9 = scratch registers
+#   fw = firmware selector
+#   pc = program counter
+#
+# Gates: all 16 two-input boolean truth tables (0000-1111)
+#   0000=FALSE  0001=AND   0010=A∧¬B  0011=A
+#   0100=¬A∧B   0101=B     0110=XOR   0111=OR
+#   1000=NOR    1001=XNOR  1010=¬B    1011=B→A
+#   1100=¬A     1101=A→B   1110=NAND  1111=TRUE
+#
+# Control flow:
+#   Directly manipulate the PC register (word 78) to branch.
+#   Write a line number to PC to jump. 
+#   Loop: Write target line to PC. Exit loop: Write currentpc + 1 to PC.
+
+programs:
+  # Learn is a fitness controller, not a hardcoded fold/shatter recipe.
+  # It rewards edge novelty and arms tombstone on local stagnation.
+  learn: |
+    1     r0  0011 // A context = partner
+    3648  r1  0011 // A start = partner ValueID bit start
+    3712  r2  0011 // A end   = partner ValueID bit end
+    0     r3  0011 // B context = self
+    4480  r4  0011 // B start = r6 bit start
+    4544  r5  0011 // B end   = r6 bit end
+    r0    r3  0011 // COPY partner ValueID -> r6 candidate edge
+
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 low-8 bit start
+    4488  r2  0011 // A end   = r6 low-8 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 low-8 bit start
+    4552  r5  0011 // B end   = r7 low-8 bit end
+    r0    r3  0011 // COPY candidate low-8 -> r7 low-8 scratch
+
+    0     r0  0011 // A context = self
+    3968  r1  0011 // A start = accumulator low-8 bit start
+    3976  r2  0011 // A end   = accumulator low-8 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = candidate low-8 scratch
+    4552  r5  0011 // B end   = candidate low-8 scratch end
+    r0    r3  0100 // novelty = candidate ANDNOT accumulator (into r7 low-8)
+
+    0     r0  0011 // A context = self
+    4544  r1  0011 // A start = r7[0:7)
+    4551  r2  0011 // A end   = r7[0:7) end
+    0     r3  0011 // B context = self
+    4545  r4  0011 // B start = r7[1:8)
+    4552  r5  0011 // B end   = r7[1:8) end
+    r0    r3  0111 // OR cascade collapse (overlap carries to bit 4551)
+
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 candidate bit start
+    4544  r2  0011 // A end   = r6 candidate bit end
+    0     r3  0011 // B context = self
+    3968  r4  0011 // B start = accumulator bit start
+    4032  r5  0011 // B end   = accumulator bit end
+    r0    r3  0111 // accumulator OR= candidate (novelty bloom)
+
+    0     r0  0011 // A context = self
+    3776  r1  0011 // A start = NextID bit start
+    3840  r2  0011 // A end   = NextID bit end
+    0     r3  0011 // B context = self
+    3712  r4  0011 // B start = PrevID bit start
+    3776  r5  0011 // B end   = PrevID bit end
+    r0    r3  0011 // COPY NextID -> PrevID
+
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 candidate bit start
+    4544  r2  0011 // A end   = r6 candidate bit end
+    0     r3  0011 // B context = self
+    3776  r4  0011 // B start = NextID bit start
+    3840  r5  0011 // B end   = NextID bit end
+    r0    r3  0011 // COPY candidate -> NextID
+
+    2     fw  0011 // default next firmware = tombstone
+    0     r0  0011 // A context = self
+    4551  r1  0011 // A start = progress bit
+    4552  r2  0011 // A end   = progress bit end
+    0     r3  0011 // B context = self
+    4736  r4  0011 // B start = fw bit 0
+    4737  r5  0011 // B end   = fw bit 0 end
+    r0    r3  0011 // COPY progress bit to fw bit0 => 2(tombstone) or 3(viral)
+  # Bootloader clears the mutable user-program span while preserving
+  # the resident ROM in words 76-79 (bits 4864-5119).
+  bootloader: |
+    0     r0  0011 // A context = self
+    5120  r1  0011 // A start = first mutable program bit
+    8192  r2  0011 // A end   = end of frame
+    0     r3  0011 // B context = self
+    5120  r4  0011 // B start = first mutable program bit
+    8192  r5  0011 // B end   = end of frame
+    r0    r3  0000 // FALSE over A->B clears mutable program span
+    0     fw  0011 // Clear firmware selector
+
+  # Tombstone propagates itself and the target ValueID in r6.
+  tombstone: |
+    0     r0  0011 // A context = self
+    5120  r1  0011 // A start = first mutable program bit
+    8192  r2  0011 // A end   = end of frame
+    1     r3  0011 // B context = partner
+    5120  r4  0011 // B start = first mutable program bit
+    8192  r5  0011 // B end   = end of frame
+    r0    r3  0011 // COPY active tombstone program to partner
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 bit start
+    4544  r2  0011 // A end   = r6 bit end
+    1     r3  0011 // B context = partner
+    4480  r4  0011 // B start = r6 bit start
+    4544  r5  0011 // B end   = r6 bit end
+    r0    r3  0011 // COPY target ValueID to partner r6
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 bit start
+    4544  r2  0011 // A end   = r6 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0011 // COPY target ValueID to r7 scratch
+    0     r0  0011 // A context = self
+    3712  r1  0011 // A start = PrevID bit start
+    3776  r2  0011 // A end   = PrevID bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  1001 // XNOR PrevID with target into r7
+    0     r0  0011 // A context = self
+    4544  r1  0011 // A start = r7 bit start
+    4607  r2  0011 // A end   = r7 bit end - 1
+    0     r3  0011 // B context = self
+    4545  r4  0011 // B start = r7 bit start + 1
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0001 // AND collapse r7 to final decision bit
+    0     r0  0011 // A context = self
+    4607  r1  0011 // A start = collapsed match bit
+    4608  r2  0011 // A end   = collapsed match bit + 1
+    0     r3  0011 // B context = self
+    3712  r4  0011 // B start = PrevID bit start
+    3776  r5  0011 // B end   = PrevID bit end
+    r0    r3  0100 // if match then zero PrevID, else keep it
+    0     r0  0011 // A context = self
+    4480  r1  0011 // A start = r6 bit start
+    4544  r2  0011 // A end   = r6 bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0011 // COPY target ValueID to r7 scratch
+    0     r0  0011 // A context = self
+    3776  r1  0011 // A start = NextID bit start
+    3840  r2  0011 // A end   = NextID bit end
+    0     r3  0011 // B context = self
+    4544  r4  0011 // B start = r7 bit start
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  1001 // XNOR NextID with target into r7
+    0     r0  0011 // A context = self
+    4544  r1  0011 // A start = r7 bit start
+    4607  r2  0011 // A end   = r7 bit end - 1
+    0     r3  0011 // B context = self
+    4545  r4  0011 // B start = r7 bit start + 1
+    4608  r5  0011 // B end   = r7 bit end
+    r0    r3  0001 // AND collapse r7 to final decision bit
+    0     r0  0011 // A context = self
+    4607  r1  0011 // A start = collapsed match bit
+    4608  r2  0011 // A end   = collapsed match bit + 1
+    0     r3  0011 // B context = self
+    3776  r4  0011 // B start = NextID bit start
+    3840  r5  0011 // B end   = NextID bit end
+    r0    r3  0100 // if match then zero NextID, else keep it
+
+  # Viral copies the active mutable user-program span from self to partner.
+  viral: |
+    0     r0  0011 // A context = self
+    5120  r1  0011 // A start = first mutable program bit
+    8192  r2  0011 // A end   = end of frame
+    1     r3  0011 // B context = partner
+    5120  r4  0011 // B start = first mutable program bit
+    8192  r5  0011 // B end   = end of frame
+    r0    r3  0011 // COPY A to B

@@ -2,6 +2,7 @@ package network
 
 import (
 	"context"
+	"errors"
 	"io"
 	"testing"
 
@@ -15,12 +16,12 @@ func TestUniConn(t *testing.T) {
 		gc.Convey("It should return ErrNoTransport on Read", func() {
 			buf := make([]byte, 1024)
 			_, err := conn.Read(buf)
-			gc.So(err, gc.ShouldEqual, ErrNoTransport)
+			gc.So(errors.Is(err, ErrNoTransport), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should return ErrNoTransport on Write", func() {
 			_, err := conn.Write([]byte("hello"))
-			gc.So(err, gc.ShouldEqual, ErrNoTransport)
+			gc.So(errors.Is(err, ErrNoTransport), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should close without error", func() {

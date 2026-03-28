@@ -9,40 +9,32 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+0 & Prose Chaining & 0.0000 & 0.1667 & 0.0029 & 0.0460 \\
+6 & Prose Chaining & 0.0000 & 0.0770 & 0.0732 & 0.0343 \\
+5 & Prose Chaining & 0.0000 & 0.0846 & 0.0605 & 0.0341 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-9 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 8 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-7 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+8 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+4 & Prose Chaining & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{= Valkyria Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{Senjō no Valkyria 3 : Unrecorded Chronic\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{····8r·········QH·C·····················\ldots}} \\
-\multicolumn{2}{l}{\texttt{The game takes place during the Second E\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{*·······································\ldots}} \\
-\multicolumn{2}{l}{\texttt{= = Plot = = ·}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{= = Plot!= = ···························\ldots}} \\
+\multicolumn{2}{l}{\texttt{= Valkyria}} & \multicolumn{2}{l}{\texttt{Chronicles III = ·}} & \multicolumn{2}{l}{\texttt{········es to sing. She sings in the mor\ldots}} \\
+\multicolumn{2}{l}{\texttt{The game 's battle system , the BliTZ sy\ldots}} & \multicolumn{2}{l}{\texttt{s to them , such as their health points \ldots}} & \multicolumn{2}{l}{\texttt{········es to sing. She sings in the mor\ldots}} \\
+\multicolumn{2}{l}{\texttt{= = P}} & \multicolumn{2}{l}{\texttt{lot = = ·}} & \multicolumn{2}{l}{\texttt{········es to sing. She sings in the mor\ldots}} \\
+\multicolumn{2}{l}{\texttt{= = Ga}} & \multicolumn{2}{l}{\texttt{meplay = = ·}} & \multicolumn{2}{l}{\texttt{········e takes place during the Second \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 20} & \multicolumn{3}{l}{Holdout: 20\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Mean score: 0.0237} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0460} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{80µs} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{8µs} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.51 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.51 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

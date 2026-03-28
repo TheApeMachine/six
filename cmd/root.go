@@ -4,10 +4,16 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	yaml "go.yaml.in/yaml/v3"
 )
 
 /*
@@ -21,6 +27,11 @@ var embedded embed.FS
 var (
 	projectName = "six"
 	cfgFile     string
+	Backend     *compute.Backend
+
+	// initErr records fatal errors from initConfig (e.g. LoadLoggingConfig,
+	// compute.NewBackend) so Execute can return them instead of os.Exit.
+	initErr error
 
 	/*
 		Alice holds the default dataset/context used by the visualizer and tests.
@@ -32,6 +43,18 @@ var (
 		Use:   "six",
 		Short: "Check yo six",
 		Long:  roottxt,
+		// One structured log per invocation so shipping sinks (e.g. Elasticsearch) always see activity.
+		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+			if initErr != nil {
+				return initErr
+			}
+			errnie.Info(
+				"six.run",
+				"command", cmd.CommandPath(),
+				"args", strings.Join(args, " "),
+			)
+			return nil
+		},
 		Run: func(cmd *cobra.Command, args []string) {
 		},
 	}
@@ -53,37 +76,89 @@ func init() {
 	rootCmd.PersistentFlags().StringVar(
 		&cfgFile,
 		"config",
-		"config.yml",
-		"config file (default is $HOME/."+projectName+"/config.yml)",
+		"",
+		"path to config file (default: try cmd/cfg/config.yml, ./config.yml, $HOME/."+projectName+"/config.yml, then embedded default)",
 	)
 }
 
 /*
-initConfig reads in config file and ENV variables if set.
-Tries the local filesystem first ($HOME/.six/config.yml), then
-falls back to the binary-embedded default so the process always
-starts with a valid configuration.
+initConfig loads config.yml from, in order:
+  - path given by --config (if set)
+  - ./cmd/cfg/config.yml (repo checkout)
+  - ./config.yml
+  - $HOME/.six/config.yml
+  - embedded cmd/cfg/config.yml
 */
 func initConfig() {
-	viper.SetConfigName("config")
 	viper.SetConfigType("yml")
-	viper.AddConfigPath("$HOME/." + projectName)
 
-	if err := viper.ReadInConfig(); err != nil {
-		errnie.Error(NewRootError(RootErrorTypeConfigNotFound))
+	tryRead := func(path string) error {
+		viper.SetConfigFile(path)
+		return viper.ReadInConfig()
+	}
 
+	loaded := false
+	if rootCmd.PersistentFlags().Changed("config") && strings.TrimSpace(cfgFile) != "" {
+		if err := tryRead(cfgFile); err == nil {
+			loaded = true
+		} else {
+			errnie.Warn(fmt.Sprintf("config file %q unreadable: %v", cfgFile, err))
+		}
+	}
+
+	if !loaded {
+		paths := []string{
+			"cmd/cfg/config.yml",
+			"config.yml",
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			paths = append(paths, filepath.Join(home, "."+projectName, "config.yml"))
+		}
+		for _, p := range paths {
+			if err := tryRead(p); err == nil {
+				loaded = true
+				break
+			}
+		}
+	}
+
+	if !loaded {
+		errnie.Warn(NewRootError(RootErrorTypeConfigNotFound).Error())
 		cfgReader, openErr := embedded.Open("cfg/config.yml")
 		if openErr != nil {
 			errnie.Error(NewRootError(RootErrorTypeEmbeddedConfigFailed))
 			return
 		}
-
 		defer cfgReader.Close()
-
 		if readErr := viper.ReadConfig(cfgReader); readErr != nil {
 			errnie.Error(NewRootError(RootErrorTypeEmbeddedConfigFailed))
+			return
 		}
 	}
+
+	if err := mergeEmbeddedLoggingIfMissing(); err != nil {
+		errnie.Warn(fmt.Sprintf("could not merge default logging config: %v", err))
+	}
+
+	// Always ensure the core value config is populated from whichever source we loaded
+	if err := core.LoadValueConfig(); err != nil {
+		initErr = fmt.Errorf("core.LoadValueConfig: %w", err)
+		errnie.Error(initErr)
+		return
+	}
+
+	loggingCfg, err := core.LoadLoggingConfig()
+	if err != nil {
+		initErr = fmt.Errorf("core.LoadLoggingConfig: %w", err)
+		errnie.Error(initErr)
+		return
+	}
+	errnie.InitLogger(loggingCfg)
+	errnie.Info(
+		"six.init",
+		"config_file", viper.ConfigFileUsed(),
+		"elasticsearch", loggingCfg.Elasticsearch.Enabled,
+	)
 }
 
 const roottxt = `
@@ -120,4 +195,24 @@ func (err *RootError) Error() string {
 	return fmt.Errorf(
 		"[root] %s: %w", err.Message, err.Err,
 	).Error()
+}
+
+// mergeEmbeddedLoggingIfMissing copies the embedded cfg's "logging" tree into Viper
+// when the loaded config file does not define "logging" (common for older ~/.six/config.yml).
+func mergeEmbeddedLoggingIfMissing() error {
+	if viper.IsSet("logging") {
+		return nil
+	}
+	b, err := embedded.ReadFile("cfg/config.yml")
+	if err != nil {
+		return err
+	}
+	var root map[string]any
+	if err := yaml.Unmarshal(b, &root); err != nil {
+		return err
+	}
+	if lg, ok := root["logging"]; ok {
+		viper.Set("logging", lg)
+	}
+	return nil
 }

@@ -10,6 +10,7 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/projector"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 // sectionRegistry tracks all experiment section .tex files written in this
@@ -148,69 +149,83 @@ func (reporter *ProjectorReporter) WriteArtifact(experiment tools.PipelineExperi
 		return err
 	}
 
-	switch artifact.Type {
+	return writeProjectorArtifactTex(experiment, artifact)
+}
+
+func writeProjectorArtifactTex(exp tools.PipelineExperiment, a tools.Artifact) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("artifact tex generation panic: %v", r)
+			errnie.Error(err)
+		}
+	}()
+
+	switch a.Type {
 	case tools.ArtifactTable:
-		return WriteTable(artifact.Data, artifact.FileName, experiment.Section())
+		return WriteTable(a.Data, a.FileName, exp.Section())
 	case tools.ArtifactBarChart:
-		data, err := barChartData(artifact.Data)
+		data, err := barChartData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteBarChart(data.XAxis, data.Series, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
+		return WriteBarChart(data.XAxis, data.Series, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactLineChart:
-		data, err := lineChartData(artifact.Data)
+		data, err := lineChartData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteLineChart(data.XAxis, data.Series, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, data.YMin, data.YMax, experiment.Section())
+		return WriteLineChart(data.XAxis, data.Series, a.Title, a.Caption, a.Label, a.FileName, data.YMin, data.YMax, exp.Section())
 	case tools.ArtifactComboChart:
-		data, err := comboChartData(artifact.Data)
+		data, err := comboChartData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteComboChart(data.XAxis, data.Series, data.XName, data.YName, data.YMin, data.YMax, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
+		return WriteComboChart(data.XAxis, data.Series, data.XName, data.YName, data.YMin, data.YMax, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactHeatMap:
-		data, err := heatMapData(artifact.Data)
+		data, err := heatMapData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteHeatMap(data.XAxis, data.YAxis, data.Data, data.Min, data.Max, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
+		return WriteHeatMap(data.XAxis, data.YAxis, data.Data, data.Min, data.Max, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactConfusionMatrix:
-		data, err := confusionMatrixData(experiment, artifact.Data)
+		data, err := confusionMatrixData(exp, a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteConfusionMatrix(data.Labels, data.Matrix, data.MeanScore, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
+		return WriteConfusionMatrix(data.Labels, data.Matrix, data.MeanScore, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactMultiPanel:
-		data, err := multiPanelData(artifact.Data)
+		data, err := multiPanelData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteMultiPanel(data.Panels, data.Width, data.Height, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
+		return WriteMultiPanel(data.Panels, data.Width, data.Height, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactProse:
-		data, err := proseData(artifact.Data)
+		data, err := proseData(a.Data)
 		if err != nil {
 			return err
 		}
-		err = WriteProse(data.Template, data.Data, artifact.FileName, experiment.Section())
-		if err == nil && strings.HasSuffix(artifact.FileName, "_section.tex") {
-			registerSection(experiment.Section(), artifact.FileName)
+		if err := WriteProse(data.Template, data.Data, a.FileName, exp.Section()); err != nil {
+			return err
 		}
-		return err
+		if strings.HasSuffix(a.FileName, "_section.tex") {
+			registerSection(exp.Section(), a.FileName)
+		}
+		return nil
 	case tools.ArtifactImageStrip:
-		data, err := imageStripData(artifact.Data)
+		data, err := imageStripData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WriteImageStrip(data.Rows, artifact.Title, artifact.Caption, artifact.Label, artifact.FileName, experiment.Section())
+		return WriteImageStrip(data.Rows, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactPolarConstraint:
-		data, err := polarConstraintData(artifact.Data)
+		data, err := polarConstraintData(a.Data)
 		if err != nil {
 			return err
 		}
-		return WritePolarConstraint(data, artifact.FileName, experiment.Section())
+		return WritePolarConstraint(data, a.FileName, exp.Section())
 	default:
-		return fmt.Errorf("unsupported artifact type %q", artifact.Type)
+		errnie.Warn("writeProjectorArtifactTex unsupported artifact type", "artifact_type", string(a.Type))
+		return fmt.Errorf("unsupported artifact type: %s", a.Type)
 	}
 }
 

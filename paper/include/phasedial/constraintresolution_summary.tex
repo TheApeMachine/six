@@ -9,40 +9,32 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-21 & clue05 & 0.0000 & 0.0000 & 0.0010 & 0.0010 \\
-22 & clue06 & 0.0000 & 0.0000 & 0.0010 & 0.0010 \\
-21 & clue05 & 0.0000 & 0.0000 & 0.0010 & 0.0010 \\
+31 & clue15 & 0.0000 & 0.0000 & 0.0628 & 0.0628 \\
+21 & clue05 & 0.0000 & 0.0000 & 0.0593 & 0.0593 \\
+18 & clue02 & 0.0000 & 0.0000 & 0.0558 & 0.0558 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-31 & clue15 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-30 & clue14 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-29 & clue13 & 0.0000 & 0.0010 & 0.0000 & 0.0000 \\
+17 & clue01 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+30 & clue14 & 0.0010 & 0.0010 & 0.0000 & 0.0000 \\
+29 & clue13 & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{F}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{F· ·····································\ldots}} \\
-\multicolumn{2}{l}{\texttt{I}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{I·······································\ldots}} \\
-\multicolumn{2}{l}{\texttt{d}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{a}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{a·······································\ldots}} \\
+\multicolumn{2}{l}{\texttt{T\_ju···*5@KValw···!,7BMXcny···\#.9DOZep\{·\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{···········*5@KValw···!,7BMXcny···\#.9DOZ\ldots}} \\
+\multicolumn{2}{l}{\texttt{8CNYdoz···\$/:EP[fq|···\&1<GR]hs\textasciitilde{}···(3>IT\_\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{···········*5@KValw···!,7BMXcny···\#.9DOZ\ldots}} \\
+\multicolumn{2}{l}{\texttt{\_ju···*5@KValw···!,7BMXcny···\#.9DOZep\{··\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········truth universally acknowledged, \ldots}} \\
+\multicolumn{2}{l}{\texttt{·*5@KValw···!,7BMXcny···\#.9DOZep\{···\%0;F\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{···········*5@KValw···!,7BMXcny···\#.9DOZ\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 32} & \multicolumn{3}{l}{Holdout: 32\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0001} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0010} \\
+\multicolumn{3}{l}{Mean score: 0.0087} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0628} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{303µs} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{1µs} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.32 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.32 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

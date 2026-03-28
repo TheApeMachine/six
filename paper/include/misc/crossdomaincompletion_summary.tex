@@ -1,36 +1,40 @@
 \begin{table}[htbp]
 \centering
-\caption{CrossDomainCompletion — standardised result summary (N=2).}
+\caption{CrossDomainCompletion — standardised result summary (N=400).}
 \label{tab:crossdomaincompletion_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 2 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-0 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+196 & Source Code & 0.0000 & 0.1000 & 0.0049 & 0.0282 \\
+159 & Source Code & 0.0000 & 0.1000 & 0.0049 & 0.0282 \\
+156 & Source Code & 0.0000 & 0.1000 & 0.0049 & 0.0282 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+1 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+3 & Natural Language & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Complete the suffix of the given prefix.}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{PPAVHLSNGPGQEPIAVMTFDLTKITKTSSSFEVRTWDPE\ldots}} & \multicolumn{2}{l}{\texttt{EEEEECCCCCCHHHCCCCCCCCCCEEEEEEEECCHHHEEE\ldots}} & \multicolumn{2}{l}{\texttt{········MLQHIDYRMRCILQDGRIFIGTFKAFDKHMNL\ldots}} \\
+\multicolumn{2}{l}{\texttt{MPRLKVKLVKSPIGYPKDQKAALKALGLRRLQQERVLEDT\ldots}} & \multicolumn{2}{l}{\texttt{CCCCCCHHHHHHHHHHCCCCCCCEEEECCCHHHHHHHHHC\ldots}} & \multicolumn{2}{l}{\texttt{········MLQHIDYRMRCILQDGRIFIGTFKAFDKHMNL\ldots}} \\
+\multicolumn{2}{l}{\texttt{Albedo (; ) is the fraction of sunlight \ldots}} & \multicolumn{2}{l}{\texttt{ative transfer (optics)·Radiation·1760s \ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{A, or a, is the first letter and the fir\ldots}} & \multicolumn{2}{l}{\texttt{Alphabet· ··ISO basic Latin letters·Vowe\ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 2} & \multicolumn{3}{l}{Holdout: 2\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 400} & \multicolumn{3}{l}{Holdout: 400\% ()} \\
+\multicolumn{3}{l}{Mean score: 0.0032} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0282} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{4µs} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{4µs} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.42 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.42 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

@@ -8,26 +8,16 @@ package cuda
 int cuda_device_count();
 void cleanup_cuda_pools();
 
-int bitwise_or_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_and_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_xor_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_and_not_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_nand_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_nor_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_xnor_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_converse_nonimplication_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int bitwise_not_cuda(int device_id, const void* a, void* dst, uint32_t n);
-
-int motor_apply_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int motor_invert_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-int motor_compose_cuda(int device_id, const void* a, const void* b, void* dst, uint32_t n);
-
-int roll_left_cuda(int device_id, const void* src, void* dst, uint32_t shift, uint32_t n);
+int unified_bitwise_cuda(int device_id, void* a_host, const void* b_host);
 */
 import "C"
 import (
+	"context"
+	"errors"
 	"sync"
 	"unsafe"
+
+	"github.com/theapemachine/six/pkg/core"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
@@ -38,13 +28,35 @@ Backend dispatches Value-native GPU kernels on NVIDIA CUDA devices.
 type Backend struct {
 	initOnce    sync.Once
 	deviceCount int
+	deviceIdx   int
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 /*
 NewBackend returns a CUDA kernel Backend.
 */
-func NewBackend() *Backend {
-	return &Backend{}
+func NewBackend(idx int) *Backend {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &Backend{
+		deviceIdx: idx,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+}
+
+// Context returns the backend-scoped context canceled by Shutdown.
+func (backend *Backend) Context() context.Context {
+	return backend.ctx
+}
+
+// Shutdown cancels the backend context so work passed to Schedule observes
+// ctx.Done. Global CUDA pool memory in the C layer is shared across device
+// indices; this does not free device buffers.
+func (backend *Backend) Shutdown() {
+	if backend.cancel != nil {
+		backend.cancel()
+	}
 }
 
 func (backend *Backend) init() {
@@ -61,144 +73,91 @@ func (backend *Backend) init() {
 Available returns the number of CUDA-capable GPUs.
 */
 func Available() int {
-	backend.init()
+	b := NewBackend(0)
+	b.init()
+	return b.deviceCount
+}
 
-	if backend.deviceCount == 0 {
-		return 0
+func preloadFirmwareFrame(c *[128]uint64) {
+	if c == nil {
+		return
 	}
 
-	return backend.deviceCount
-}
+	const maxIdx = 127
+	const nWords = 128
 
-func (backend *Backend) Read(p []byte) (n int, err error) {
-	return
-}
+	pc := core.Cfg.RegPC
+	w := core.Cfg.ProgramIndex
+	fwIdx := core.Cfg.FW
 
-func (backend *Backend) Write(p []byte) (n int, err error) {
-	return
-}
-
-func (backend *Backend) Close() error {
-	return nil
-}
-
-func (backend *Backend) BitwiseOr(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_or_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
+	if pc < 0 || pc > maxIdx || w < 0 || w > maxIdx || fwIdx < 0 || fwIdx > maxIdx {
+		return
 	}
 
-	return nil
-}
+	p := pc
+	f := c[fwIdx]
 
-func (backend *Backend) BitwiseAnd(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_and_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
+	if f == 0 {
+		return
 	}
 
-	return nil
-}
-
-func (backend *Backend) BitwiseXor(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_xor_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
+	fi := int(f)
+	if fi < 0 || fi >= len(core.Cfg.Firmware) {
+		return
 	}
 
-	return nil
-}
-
-func (backend *Backend) BitwiseAndNot(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_and_not_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
+	if c[p] != 0 {
+		return
 	}
 
-	return nil
-}
-
-func (backend *Backend) BitwiseNand(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_nand_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
+	g := core.Cfg.Firmware[fi]
+	if len(g) > 0 {
+		if w+4 > maxIdx {
+			return
+		}
+		numWrites := (len(g) + 1) / 2
+		maxJ := w + 4 + numWrites - 1
+		if maxJ > maxIdx {
+			return
+		}
 	}
 
-	return nil
-}
-
-func (backend *Backend) BitwiseNor(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_nor_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
+	for i, j := 0, w+4; i < len(g) && j < nWords; i, j = i+2, j+1 {
+		v := uint64(g[i])
+		if i+1 < len(g) {
+			v |= uint64(g[i+1]) << 32
+		}
+		c[j] = v
 	}
 
-	return nil
-}
-
-func (backend *Backend) BitwiseXnor(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_xnor_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
-}
-
-func (backend *Backend) BitwiseConverseNonimplication(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_converse_nonimplication_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
-}
-
-func (backend *Backend) BitwiseNot(a, dst unsafe.Pointer, numValues uint32) error {
-	if C.bitwise_not_cuda(0, a, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
-}
-
-func (backend *Backend) MotorApply(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.motor_apply_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
-}
-
-func (backend *Backend) MotorInvert(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.motor_invert_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
-}
-
-func (backend *Backend) MotorCompose(a, b, dst unsafe.Pointer, numValues uint32) error {
-	if C.motor_compose_cuda(0, a, b, dst, C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
-}
-
-func (backend *Backend) RollLeft(src, dst unsafe.Pointer, shift, numValues uint32) error {
-	if C.roll_left_cuda(0, src, dst, C.uint32_t(shift), C.uint32_t(numValues)) != 0 {
-		return CUDAErrorDispatchFailed
-	}
-
-	return nil
+	c[fwIdx] = 0
 }
 
 /*
-CUDAErrorType is a typed error for CUDA backend failures.
-*/
-type CUDAErrorType string
+UniversalBitwise dispatches a batch of Values to the compiled CUDA kernel.
 
-const (
-	CUDAErrorUnavailable    CUDAErrorType = "cuda backend unavailable"
-	CUDAErrorDispatchFailed CUDAErrorType = "cuda backend dispatch failed"
-)
-
-/*
-Error implements the error interface for CUDAErrorType.
+The opcode is no longer passed explicitly — each Value carries its own
+64-op program in Region 3 (bits 4352–4607). The unified_bitwise_kernel
+reads that program and executes up to 64 ticks per Value, halting at the
+first zero opcode. The batch may therefore be heterogeneous: each Value
+runs its own independent program in parallel.
 */
-func (err CUDAErrorType) Error() string {
-	return string(err)
+func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
+	preloadFirmwareFrame((*[128]uint64)(a))
+
+	if C.unified_bitwise_cuda(C.int(backend.deviceIdx), unsafe.Pointer(a), unsafe.Pointer(bPtr)) != 0 {
+		return NewCUDAError(
+			CUDAErrorDispatchFailed,
+			errors.New("failed to dispatch unified bitwise operation"),
+			"UniversalBitwise",
+			1,
+		)
+	}
+
+	return nil
+}
+
+// Schedule runs the job with Context(); cancellation is tied to Shutdown.
+func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
+	return job(backend.ctx)
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"log"
 	"net"
 	"net/http"
 	"runtime"
@@ -16,6 +17,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gorilla/websocket"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -74,6 +76,11 @@ func (server *Server) listenUDP(conn *net.UDPConn) error {
 			return err
 		}
 
+		if n == primitive.ByteSize {
+			server.BroadcastValueFrame(buf[:n])
+			continue
+		}
+
 		event := telemetry.DecodeBinary(buf[:n])
 		server.Broadcast(event)
 	}
@@ -113,11 +120,36 @@ func (server *Server) ListenAndServe(addr string, udpAddr string) error {
 
 	mux := http.NewServeMux()
 	mux.Handle("/", http.FileServer(http.FS(sub)))
+	mux.HandleFunc("/api/layout", server.handleLayout)
+	mux.HandleFunc("/api/system", server.handleSystem)
 	mux.HandleFunc("/ws", server.handleWS)
 
 	server.httpSrv = &http.Server{Addr: addr, Handler: mux}
 
 	return server.httpSrv.ListenAndServe()
+}
+
+/*
+handleLayout returns the current Value layout so the browser can decode live
+binary frames without guessing the field offsets.
+*/
+func (server *Server) handleLayout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(BuildValueLayout()); err != nil {
+		log.Printf("visualizer: handleLayout encode: %v", err)
+		http.Error(w, "failed to encode layout", http.StatusInternalServerError)
+	}
+}
+
+/*
+handleSystem returns the runtime topology around the chamber.
+*/
+func (server *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(BuildSystemTopology()); err != nil {
+		log.Printf("visualizer: handleSystem encode: %v", err)
+		http.Error(w, "failed to encode system topology", http.StatusInternalServerError)
+	}
 }
 
 /*
@@ -245,6 +277,15 @@ func (server *Server) handlePromptCommand(msg string) {
 		return
 	}
 
+	server.Broadcast(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:   "prompt-start",
+			Message: msg,
+		},
+	})
+
 	result, err := fn(msg)
 
 	if err != nil {
@@ -260,7 +301,29 @@ func (server *Server) handlePromptCommand(msg string) {
 		return
 	}
 
-	_ = result
+	resultText := string(result)
+	if len(result) == primitive.ByteSize {
+		if value := primitive.BytesToValue(result); value != nil {
+			resultText = primitive.DecodeTokensToText(value)
+		}
+	}
+
+	stage := "prompt-complete"
+	if len(result) == 0 {
+		stage = "prompt-empty"
+	}
+
+	server.Broadcast(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:       stage,
+			Message:     fmt.Sprintf("%d bytes", len(result)),
+			ResultText:  resultText,
+			ChunkText:   telemetry.ASCIIFramePreview(result, 120),
+			Instruction: "",
+		},
+	})
 }
 
 func (server *Server) handleIngestCommand(text string) {
@@ -328,4 +391,40 @@ func (server *Server) Broadcast(event telemetry.Event) {
 	for conn := range server.clients {
 		conn.WriteMessage(websocket.TextMessage, msg)
 	}
+}
+
+/*
+BroadcastValueFrame pushes a raw 1024-byte Value frame to clients as a binary
+WebSocket message so the browser can map the buffer without JSON overhead.
+*/
+func (server *Server) BroadcastValueFrame(frame []byte) {
+	if len(frame) != primitive.ByteSize {
+		return
+	}
+
+	cp := make([]byte, primitive.ByteSize)
+	copy(cp, frame)
+
+	server.mu.RLock()
+	var dead []*websocket.Conn
+	for conn := range server.clients {
+		if err := conn.WriteMessage(websocket.BinaryMessage, cp); err != nil {
+			log.Printf("visualizer: BroadcastValueFrame: write failed: %v", err)
+			dead = append(dead, conn)
+		}
+	}
+	server.mu.RUnlock()
+
+	if len(dead) == 0 {
+		return
+	}
+
+	server.mu.Lock()
+	for _, conn := range dead {
+		if server.clients[conn] {
+			delete(server.clients, conn)
+			_ = conn.Close()
+		}
+	}
+	server.mu.Unlock()
 }

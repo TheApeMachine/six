@@ -1,8 +1,6 @@
 package phasedial
 
 import (
-	"math"
-
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
@@ -20,6 +18,7 @@ type CorrelationLengthExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -49,11 +48,19 @@ func (experiment *CorrelationLengthExperiment) Dataset() data.Provider {
 }
 
 func (experiment *CorrelationLengthExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
 	return experiment.prompt
 }
 
+func (experiment *CorrelationLengthExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
+}
+
 func (experiment *CorrelationLengthExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -63,7 +70,7 @@ func (experiment *CorrelationLengthExperiment) Outcome() (any, gc.Assertion, any
 
 func (experiment *CorrelationLengthExperiment) Score() float64 {
 	if len(experiment.tableData) == 0 {
-		return math.NaN() // Not yet computed
+		return 0.0 // No data yet
 	}
 	total := 0.0
 	for _, data := range experiment.tableData {

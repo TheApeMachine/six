@@ -12,8 +12,8 @@ type AdaptiveSplitExperiment struct {
 	tableData    []tools.ExperimentalData
 	dataset      data.Provider
 	prompt       []string
+	holdouts     [][]byte
 	evaluator    *tools.Evaluator
-	adaptGain    float64
 	boundaryRows []map[string]any
 	summaryRows  []map[string]any
 	gapXAxis     []string
@@ -46,12 +46,19 @@ func (experiment *AdaptiveSplitExperiment) Dataset() data.Provider {
 }
 
 func (experiment *AdaptiveSplitExperiment) Prompts() []string {
-	experiment.prompt = []string{}
-
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
 	return experiment.prompt
 }
 
+func (experiment *AdaptiveSplitExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
+}
+
 func (experiment *AdaptiveSplitExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -60,7 +67,14 @@ func (experiment *AdaptiveSplitExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (experiment *AdaptiveSplitExperiment) Score() float64 {
-	return experiment.adaptGain
+	if len(experiment.tableData) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, d := range experiment.tableData {
+		total += d.WeightedTotal
+	}
+	return total / float64(len(experiment.tableData))
 }
 
 func (experiment *AdaptiveSplitExperiment) TableData() any {

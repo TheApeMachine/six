@@ -99,8 +99,10 @@ This is a pure dataset→AddResult experiment: the full architecture
 type ConstraintResolutionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
-	prompt    []string
 	evaluator *tools.Evaluator
+
+	// Pipeline prompts mirror dataset samples in order (ingestion then clues).
+	pipelinePrompts []string
 
 	// Per-step: which suspect won the retrieval at that step.
 	// stepSuspect[step] = suspectIdx whose expected bytes best match observed.
@@ -151,6 +153,11 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 		}
 	}
 
+	pipelinePrompts := make([]string, len(corpus))
+	for i, b := range corpus {
+		pipelinePrompts[i] = string(b)
+	}
+
 	return &ConstraintResolutionExperiment{
 		tableData: []tools.ExperimentalData{},
 		// Baseline 0.05: Phase constraint resolution.
@@ -159,9 +166,10 @@ func NewConstraintResolutionExperiment() *ConstraintResolutionExperiment {
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithExpectation(0.05, 0.50),
 		),
-		dataset:    local.New(local.WithBytesOfBytes(corpus)),
-		expected:   expected,
-		totalSteps: totalClues,
+		dataset:         local.New(local.WithBytesOfBytes(corpus)),
+		expected:        expected,
+		totalSteps:      totalClues,
+		pipelinePrompts: pipelinePrompts,
 	}
 }
 
@@ -171,8 +179,7 @@ func (exp *ConstraintResolutionExperiment) Section() string { return "phasedial"
 func (exp *ConstraintResolutionExperiment) Dataset() data.Provider { return exp.dataset }
 
 func (exp *ConstraintResolutionExperiment) Prompts() []string {
-	exp.prompt = []string{}
-	return exp.prompt
+	return exp.pipelinePrompts
 }
 
 /*

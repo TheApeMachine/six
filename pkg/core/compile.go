@@ -1,0 +1,102 @@
+package core
+
+import (
+	"fmt"
+	"strconv"
+	"strings"
+)
+
+// OperandFlagRegister marks a 14-bit operand field as a register index (words 0–127).
+// Immediates use values without this flag; 0x1000/0x2000 are reserved in the encoding
+// validator message for other operand classes — 0x3000 is the register tag in parseInstruction.
+const OperandFlagRegister uint64 = 0x3000
+
+func CompileFunc(src string) ([]uint32, error) {
+	program := make([]uint32, 0)
+
+	lines := strings.Split(src, "\n")
+	for lineNum, line := range lines {
+		// First remove all the comments.
+		line = strings.TrimSpace(strings.Split(line, "//")[0])
+
+		if line == "" {
+			continue
+		}
+
+		chunks := strings.Fields(line)
+		if len(chunks) < 3 {
+			return nil, fmt.Errorf(
+				"compile line %d: need at least 3 fields (src dst op), got %d: %q",
+				lineNum+1, len(chunks), line,
+			)
+		}
+
+		lineNo := lineNum + 1
+		srcCode, err := parseInstruction(chunks[0])
+		if err != nil {
+			return nil, fmt.Errorf("compile line %d: parseInstruction(src) on %q: %w", lineNo, chunks[0], err)
+		}
+
+		dstCode, err := parseInstruction(chunks[1])
+		if err != nil {
+			return nil, fmt.Errorf("compile line %d: parseInstruction(dst) on %q: %w", lineNo, chunks[1], err)
+		}
+
+		opVal, err := strconv.ParseUint(chunks[2], 2, 8)
+		if err != nil {
+			return nil, fmt.Errorf("compile line %d: failed to parse op: %w", lineNo, err)
+		}
+		if opVal > 0xF {
+			return nil, fmt.Errorf(
+				"compile line %d: op literal %d exceeds 4-bit opcode (max 15); see CompileFunc encoding",
+				lineNo, opVal,
+			)
+		}
+
+		instr := uint32(opVal&0xF) | (uint32(srcCode&0x3FFF) << 4) | (uint32(dstCode&0x3FFF) << 18)
+		program = append(program, instr)
+	}
+
+	return program, nil
+}
+
+func parseInstruction(chunk string) (uint64, error) {
+	if strings.HasPrefix(chunk, "*") {
+		return 0, fmt.Errorf("dereference operands are no longer supported: %q", chunk)
+	}
+
+	if chunk == "pc" {
+		return uint64(Cfg.RegPC) | OperandFlagRegister, nil
+	}
+	if chunk == "fw" {
+		return uint64(Cfg.FW) | OperandFlagRegister, nil
+	}
+
+	if strings.HasPrefix(chunk, "r") {
+		r, err := strconv.ParseUint(chunk[1:], 10, 64)
+		if err != nil {
+			return 0, err
+		}
+
+		regs := []uint64{
+			uint64(Cfg.R0), uint64(Cfg.R1), uint64(Cfg.R2), uint64(Cfg.R3), uint64(Cfg.R4),
+			uint64(Cfg.R5), uint64(Cfg.R6), uint64(Cfg.R7), uint64(Cfg.R8), uint64(Cfg.R9),
+		}
+		if r >= uint64(len(regs)) {
+			return 0, fmt.Errorf("invalid register r%d (expected r0–r9)", r)
+		}
+		return regs[r] | OperandFlagRegister, nil
+	}
+
+	val, err := strconv.ParseUint(chunk, 10, 64)
+	if err != nil {
+		return 0, err
+	}
+	if val > 0x3FFF {
+		return 0, fmt.Errorf(
+			"operand %d exceeds 14-bit field (max 16383); see CompileFunc immediate encoding and flag bits 0x1000/0x2000",
+			val,
+		)
+	}
+	return val, nil
+}

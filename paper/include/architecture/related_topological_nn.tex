@@ -1,81 +1,67 @@
 % ============================================================================
-% TOPOLOGICAL NEURAL NETWORKS AND THE EMERGING TDL FRONTIER
+% RELATED: TOPOLOGICAL METHODS AND HIGHER-ORDER STRUCTURE
 % ============================================================================
-\subsection{Topological Neural Networks and the Symbolic$\leftrightarrow$Neuro Frontier}
+\subsection{Topological Methods and Higher-Order Structure}
 \label{sec:related_topological_nn}
 
 \paragraph{Topological Graph Neural Networks.}
-Horn et al.\ \citep{horn2022togl} introduced TOGL, a layer that infuses
+Horn et al.\ \citep{horn2022togl} introduced TOGL, a layer that enriches
 Graph Neural Networks with global topological information derived from
-persistent homology.  Their key contribution is demonstrating that standard
-GNN message-passing---which propagates information along edges---misses
-structural invariants that are only visible at the \emph{topological}
-level: connected components ($H_0$), loops ($H_1$), and voids ($H_2$).
-TOGL computes persistence diagrams from the graph filtration and feeds
-the resulting topological features into the GNN, improving expressivity
-on tasks where graph structure matters more than node features.
+persistent homology.  Their contribution demonstrates that standard GNN
+message-passing, which propagates information along edges, misses
+structural invariants visible only at the topological level: connected
+components ($H_0$), loops ($H_1$), and voids ($H_2$).  TOGL computes
+persistence diagrams from graph filtrations and feeds the resulting
+features into the GNN.
 
-The system addresses the same expressivity gap through a
-fundamentally different mechanism.  Rather than computing topological
-summaries \emph{post hoc} from a graph filtration, our architecture
-\emph{embeds data into a topological space ab initio}:
+The Value architecture addresses structural expressivity through a
+different mechanism.  Rather than computing topological summaries from an
+existing graph, the system constructs its representations directly in a
+high-dimensional binary space where topological properties arise from
+the encoding:
+
 \begin{itemize}[nosep]
-  \item \textbf{$H_0$ (connected components):}  Analogous to the
-        partitioning in the radix trie---each frozen trie entry
-        is a distinct connected component of the memory substrate.
-  \item \textbf{$H_1$ (loops):}  The toroidal phase trajectory on the
-        $S^1 \times S^1$ EigenMode torus is a native $H_1$ structure---generation
-        terminates when the phase trajectory closes a loop
-        (\Cref{sec:geometric_closure}).
-  \item \textbf{Filtration:}  The density threshold ($\rho \geq 0.45$)
-        defines a natural filtration over the value space: as value
-        density increases, topological complexity grows through
-        successive affine-group expansions under $\text{GF}(8191)$.
+  \item \textbf{$H_0$ (connected components):} Each Value in a Region
+        is a distinct entity.  The degree of overlap between Values---
+        measured by their Hamming inner product---defines an implicit
+        adjacency structure whose connected components correspond to
+        clusters of related inputs.
+  \item \textbf{$H_1$ (loops):} If a sequence of boolean operations
+        applied to a Value returns it to its original state, this
+        constitutes a cycle in the state space.  Detecting such cycles
+        is equivalent to identifying $H_1$ features in the
+        transformation graph.
 \end{itemize}
 
-The trade-off is computational: TOGL computes persistence diagrams (which
-can be expensive for large graphs) to \emph{detect} topology; our system
-does not detect topology---it \emph{is} the topology.  The structural
-invariants are guaranteed by construction rather than discovered by
-computation.
+The trade-off relative to TOGL is computational cost versus
+construction cost.  TOGL computes persistence diagrams, which can be
+expensive for large graphs, to \emph{detect} topological structure.
+The Value architecture does not explicitly detect topology; instead,
+any topological structure present in the data is encoded implicitly
+through the bit patterns of the resulting Values.
 
-\paragraph{Topological Deep Learning as the New Frontier.}
-Papillon et al.\ \citep{papillon2024tdl} position topological deep learning
-(TDL) as the next frontier for relational learning, arguing that graph-based
-representations are fundamentally limited to pairwise relationships, while
-real-world data exhibits higher-order interactions (simplicial complexes,
-cell complexes, hypergraphs).  Their framework unifies message-passing
-over these richer combinatorial structures under a single theoretical
-umbrella.
+\paragraph{Topological Deep Learning.}
+Papillon et al.\ \citep{papillon2024tdl} position topological deep
+learning as the next frontier for relational data, arguing that
+graph-based representations are limited to pairwise relationships while
+real-world data exhibits higher-order interactions best captured by
+simplicial complexes, cell complexes, and hypergraphs.
 
-The Value superposition naturally encodes higher-order
-relationships: when $n$ bytes are superposed via \texttt{ValueOR}, the
-resulting 8191-bit pattern captures all $\binom{n}{k}$ subset overlaps
-simultaneously through the popcount inner product.  This is not pairwise
-attention---it is a holographic encoding where every subset of the input
-contributes to the structural fingerprint.  The $\text{GF}(8191)$ affine path
-then imposes a strict ordering on these higher-order relationships,
-converting unstructured set-overlap into algebraically precise sequence
-encoding.
+The bitwise OR operation over Values provides a natural encoding of
+higher-order relationships: when $n$ Values are combined via disjunction,
+the resulting bit pattern captures all $\binom{n}{k}$ subset overlaps
+simultaneously through the population-count inner product.  This is not
+pairwise attention; it is a set-theoretic encoding where every subset of
+the inputs contributes to the composite fingerprint.  The sequential
+ordering of operations during Region mixing then imposes a strict
+temporal structure on these higher-order relationships.
 
-\paragraph{The Symbolic$\leftrightarrow$Neuro$\leftrightarrow$Symbolic Pipeline.}
-A broader trend in 2024--2025 research involves ``Symbolic $\to$ Neuro
-$\to$ Symbolic'' pipelines: structured data is mapped to a vector space,
-processed via geometric operations, and reconstructed as interpretable
-symbols.  The system implements a maximally compressed version of this
-pipeline:
-\begin{enumerate}[nosep]
-  \item \textbf{Symbolic $\to$ Geometric:}  Raw bytes are deterministically
-        mapped to 8191-bit Values and inserted into the $\text{GF}(8191)$ affine
-        substrate.  No learning.
-  \item \textbf{Geometric Processing:}  The resolver executes massively parallel
-        popcount search across the memory substrate, modulated
-        by EigenMode toroidal steering.
-  \item \textbf{Geometric $\to$ Symbolic:}  Retrieved trie entries are decoded
-        back to byte sequences via readout, producing interpretable output.
-\end{enumerate}
-The entire pipeline is deterministic, invertible (via affine group inversion),
-and executes without gradient descent.  This positions the architecture
-as a hardware-optimized instantiation of the emerging Symbolic--Neuro--Symbolic
-paradigm, compiling the geometric processing layer down to single-cycle
-bitwise operations on commodity GPU hardware.
+\paragraph{The Symbolic--Geometric--Symbolic Pipeline.}
+A broader trend in recent research involves structured data being mapped
+to a vector space, processed via geometric operations, and reconstructed
+as interpretable symbols.  The Value architecture implements a
+compressed version of this pipeline: raw bytes are deterministically
+mapped to binary frames, processed through boolean operations during
+Region mixing, and the resulting frames are decoded back to byte
+sequences.  The entire pipeline is deterministic and executes without
+gradient descent.

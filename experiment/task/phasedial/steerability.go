@@ -17,8 +17,8 @@ type SteerabilityExperiment struct {
 	tableData       []tools.ExperimentalData
 	dataset         data.Provider
 	prompt          []string
+	holdouts        [][]byte
 	evaluator       *tools.Evaluator
-	accuracy        float64
 	splitCandidates []int
 	sweepStepDeg    float64
 }
@@ -91,12 +91,19 @@ func (experiment *SteerabilityExperiment) Dataset() data.Provider {
 }
 
 func (experiment *SteerabilityExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
+	return experiment.prompt
+}
+
+func (experiment *SteerabilityExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
 	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *SteerabilityExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -105,7 +112,14 @@ func (experiment *SteerabilityExperiment) Outcome() (any, gc.Assertion, any) {
 }
 
 func (experiment *SteerabilityExperiment) Score() float64 {
-	return experiment.accuracy
+	if len(experiment.tableData) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, d := range experiment.tableData {
+		total += d.WeightedTotal
+	}
+	return total / float64(len(experiment.tableData))
 }
 
 func (experiment *SteerabilityExperiment) TableData() any {

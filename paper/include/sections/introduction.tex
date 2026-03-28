@@ -1,82 +1,64 @@
 % ============================================================================
 % INTRODUCTION
 % ============================================================================
-\subsection{Motivation}
-\label{sec:motivation}
+\section{Introduction}
 
-The current generative AI stack is structurally constrained by its formulation
-as an \emph{initial value problem}.  Whether through autoregressive
-transformers or state-space models, generation is treated as strictly
-sequential extrapolation: given a prefix $x_{0:t}$, compute $x_{t+1}$, append
-it, and repeat.  This framing imposes three fundamental limitations:
+Most computational systems enforce a strict separation between three
+concerns: memory stores data, programs specify how data is transformed, and
+learning mechanisms adjust parameters to improve the transformations over
+time.  This division is foundational in both classical software engineering
+and modern machine learning, where data resides in tensors, programs are
+defined by network architectures, and learning is driven by gradient
+descent over differentiable loss surfaces.
 
-\begin{enumerate}[nosep]
-  \item \textbf{Serial depth bottleneck.}  Each step depends on the
-        materialization of all preceding outputs, forcing an $O(N)$
-        critical-path depth that hardware parallelism cannot bypass.
-  \item \textbf{Irrevocable commitment.}  Tokens cannot be retracted once
-        emitted; local errors propagate forward with no mechanism for future
-        constraints to resolve past ambiguity.
-  \item \textbf{Static memory.}  Knowledge is compressed into static weight
-        matrices requiring gradient descent to update, causing catastrophic
-        forgetting and forcing reliance on retrieval augmentation.
-\end{enumerate}
+This work explores an alternative formulation in which these distinctions
+are collapsed.  We describe a system where data, programs, and execution
+state share a single binary representation: a fixed-width frame of 1024
+bytes.  Each frame carries token data, general-purpose registers, a program
+counter, and an embedded program composed from the sixteen two-input boolean
+truth tables.  Computation consists of applying these operations across
+designated regions of one or more frames, with the result written back into
+the same representation.  Because programs are stored within frames, there
+is no boundary between the instruction stream and the data it operates on;
+a frame may serve as passive storage, an executable program, or both
+simultaneously.
 
-This paper proposes a departure from the IVP framework.  We cast generation
-as a \emph{boundary value problem}: the observer clamps constraints, and the
-remaining degrees of freedom are resolved simultaneously by a massively
-parallel geometric resonance engine operating over the Mersenne field
-$\operatorname{GF}(8191)$.
+Frames interact inside concurrent mixing pools called Regions.  A Region
+accepts frames through a multi-tier buffering mechanism and returns them in
+non-deterministic order, so that computation emerges from the pattern of
+interactions rather than from a predetermined schedule.  A
+hardware-abstraction layer routes the underlying boolean operations to
+whichever compute substrate is available---CPU, NVIDIA CUDA, or Apple
+Metal---through a unified kernel interface that requires only bitwise
+logic, integer comparison, and population count.
 
-\subsection{Why Bitwise Math Is Wave Interference}
-\label{sec:bitwise_wave}
+The architecture does not employ floating-point arithmetic, gradient-based
+optimization, or learned parameters.  Instead, behavior arises from the
+composition of elementary boolean functions over structured binary memory.
+A firmware system provides a library of pre-compiled programs that can be
+loaded into any frame's program region at initialization, giving the system
+a repertoire of reusable behaviors---including bootstrapping sequences,
+structural transformations, and a self-propagating replication program---
+without external training.
 
-The key insight underlying this architecture is that binarized prime-frequency
-vectors are not merely compressed representations---they are discrete Fourier
-transforms of semantic waves.  Each bit in an 8191-bit Value represents the
-presence of a specific fundamental oscillator, packed into 128 blocks of 64
-bits.  Bitwise operations then execute actual discrete wave interference:
+We evaluate the system across five experimental domains: text
+classification, multi-language code generation, CIFAR-10 image
+reconstruction, logical reasoning on the bAbI benchmark, and several text
+generation tasks including compositional assembly, out-of-corpus retrieval,
+and prose chaining.  The experiments are defined programmatically, executed
+within the substrate, and compiled into the present document automatically.
 
-\begin{itemize}[nosep]
-  \item \textbf{\texttt{OR} (Superposition):}  Combining tokens in a context
-        window ($A \,|\, B$) superposes their oscillator spectra.
-  \item \textbf{\texttt{popcount}$(A \mathbin{\&} B)$ (Constructive
-        Interference):}  Measures the amplitude of shared oscillators between
-        context and memory.
-  \item \textbf{\texttt{popcount}$(A \mathbin{\&} {\sim}B)$ (Destructive
-        Interference / Noise):}  Measures oscillators present in memory but
-        absent from context---harmonic noise or phase mismatch.
-\end{itemize}
+The contributions of this paper are as follows.  First, we define the
+architecture: a minimal set of primitives---the frame, the boolean
+instruction set, the Region, and the multi-substrate backend---and show how
+they compose into a functioning runtime.  Second, we report empirical
+results across modalities, providing a baseline characterization of what
+gradient-free boolean computation can and cannot achieve.  Third, we
+demonstrate a self-documenting experimental pipeline in which the system
+produces both results and the corresponding research artifact.
 
-Mathematically, the dot product of two binarized vectors equals the popcount
-of their bitwise AND.  Each comparison requires $\lceil 8191/64 \rceil = 128$
-integer operations---the architecture compiles wave mechanics down to 128
-single-cycle machine-word operations per value pair.
-
-\subsection{Paper Organization}
-\label{sec:organization}
-
-The remainder of this paper is organized as follows.
-\Cref{sec:value_representation} defines the 8191-bit Value primitive and its
-algebraic operations over $\operatorname{GF}(8191)$.
-\Cref{sec:manifold_architecture} introduces the manifold layout, Morton-coded
-spatial indexing, and affine transformations.
-\Cref{sec:tokenizer_sequencer} describes the Universal Tokenizer and
-topological boundary detection.
-\Cref{sec:eigenmode_navigation} presents the analytical toroidal phase
-navigation model.
-\Cref{sec:bestfill_problem} details the $\operatorname{GF}(8191)$ resolver
-pipeline.
-\Cref{sec:cantilever_bvp} formalizes generation as a boundary value problem
-and the cantilever solver.
-\Cref{sec:primefield_layout} describes prime-field storage in the Morton-coded
-radix trie.
-\Cref{sec:vm_machine} presents the virtual machine, macro-opcode hardening,
-and the self-programming loop.
-\Cref{sec:entropy_routing} describes topological entropy routing and virtual
-mitosis.
-\Cref{sec:dual_architecture} introduces the dual Substrate/Graph
-architecture.
-Experimental results span text classification, code generation, logical
-reasoning (bAbI), phase-dial robustness, image reconstruction, cross-domain
-completion, scaling analysis, and Graph channel routing.
+This work does not aim to match the performance of large parameterized
+models on standard benchmarks.  Its purpose is to explore a different point
+in the design space: one where all computation reduces to deterministic,
+hardware-native bitwise operations, and where memory is not a passive
+container but the medium through which behavior emerges.

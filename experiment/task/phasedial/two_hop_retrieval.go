@@ -8,20 +8,20 @@ import (
 )
 
 type TwoHopRetrievalExperiment struct {
-	tableData       []tools.ExperimentalData
-	dataset         data.Provider
-	prompt          []string
-	evaluator       *tools.Evaluator
-	phases          []string
-	simCA           []float64
-	simCB           []float64
-	gains           []float64
-	xAxis           []string
-	base1Data       []float64
-	base2Data       []float64
-	composedData    []float64
-	summaryRows     []map[string]any
-	overallBestGain float64
+	tableData    []tools.ExperimentalData
+	dataset      data.Provider
+	prompt       []string
+	holdouts     [][]byte
+	evaluator    *tools.Evaluator
+	phases       []string
+	simCA        []float64
+	simCB        []float64
+	gains        []float64
+	xAxis        []string
+	base1Data    []float64
+	base2Data    []float64
+	composedData []float64
+	summaryRows  []map[string]any
 }
 
 func NewTwoHopRetrievalExperiment() *TwoHopRetrievalExperiment {
@@ -50,12 +50,19 @@ func (experiment *TwoHopRetrievalExperiment) Dataset() data.Provider {
 }
 
 func (experiment *TwoHopRetrievalExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
+	return experiment.prompt
+}
+
+func (experiment *TwoHopRetrievalExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
 	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *TwoHopRetrievalExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 
@@ -64,7 +71,14 @@ func (experiment *TwoHopRetrievalExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (experiment *TwoHopRetrievalExperiment) Score() float64 {
-	return experiment.overallBestGain
+	if len(experiment.tableData) == 0 {
+		return 0
+	}
+	total := 0.0
+	for _, d := range experiment.tableData {
+		total += d.WeightedTotal
+	}
+	return total / float64(len(experiment.tableData))
 }
 
 func (experiment *TwoHopRetrievalExperiment) TableData() any {

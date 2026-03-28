@@ -71,10 +71,10 @@ transient confusion at the shift boundary, and residual cross-rule
 interference once Phase B is established.
 */
 type RuleShiftExperiment struct {
-	tableData []tools.ExperimentalData
-	dataset   data.Provider
-	prompt    []string
-	evaluator *tools.Evaluator
+	tableData       []tools.ExperimentalData
+	dataset         data.Provider
+	pipelinePrompts []string
+	evaluator       *tools.Evaluator
 
 	kA     []float64
 	kB     []float64
@@ -119,11 +119,17 @@ func NewRuleShiftExperiment() *RuleShiftExperiment {
 		expectedB[step] = bFull[len(bFull)-holdoutBytes:]
 	}
 
+	pipelinePrompts := make([]string, len(corpus))
+	for i, b := range corpus {
+		pipelinePrompts[i] = string(b)
+	}
+
 	return &RuleShiftExperiment{
-		tableData: []tools.ExperimentalData{},
-		dataset:   local.New(local.WithBytesOfBytes(corpus)),
-		expectedA: expectedA,
-		expectedB: expectedB,
+		tableData:       []tools.ExperimentalData{},
+		dataset:         local.New(local.WithBytesOfBytes(corpus)),
+		pipelinePrompts: pipelinePrompts,
+		expectedA:       expectedA,
+		expectedB:       expectedB,
 		// Baseline 0.05: mid-stream rule shift adaptation without any
 		// explicit signal is extremely hard. Any K_B > K_A after the
 		// shift point is evidence of spontaneous reorganization.
@@ -140,9 +146,7 @@ func (exp *RuleShiftExperiment) Section() string { return "misc" }
 func (exp *RuleShiftExperiment) Dataset() data.Provider { return exp.dataset }
 
 func (exp *RuleShiftExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
-	}
+	return exp.pipelinePrompts
 }
 
 /*

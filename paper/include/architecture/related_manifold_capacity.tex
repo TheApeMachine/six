@@ -1,77 +1,58 @@
 % ============================================================================
-% MANIFOLD CAPACITY AND NONCOMMUTATIVE PRODUCT STRUCTURE
+% RELATED: MANIFOLD CAPACITY AND REPRESENTATION GEOMETRY
 % ============================================================================
-\subsection{Manifold Capacity and Noncommutative Product Structure}
+\subsection{Manifold Capacity and Representation Geometry}
 \label{sec:related_manifold_capacity}
 
 \paragraph{Manifold Capacity Theory.}
 Chung, Lee, and Sompolinsky \citep{chung2018classification} developed a
-statistical-physics theory of \emph{perceptual manifold capacity}---the
-maximum number of object manifolds that can be linearly separated by a
-downstream readout.  Their framework establishes that capacity depends not
-on ambient dimensionality alone but on the \emph{geometry} of the manifolds:
-their intrinsic dimension, radius, and center correlations.  Recent
-extensions \citep{cohen2024manifoldcapacity} apply this theory across
-biological neural recordings and artificial networks, introducing
-\emph{Geometric measures from Correlated Manifold Capacity} (GCMC) that
-analytically connect neural co-variabilities to downstream task efficiency.
+statistical-physics theory of \emph{perceptual manifold capacity}: the
+maximum number of object manifolds that a linear readout can separate.
+Their framework establishes that capacity depends not on ambient
+dimensionality alone but on the \emph{geometry} of the manifolds---their
+intrinsic dimension, radius, and center correlations.  Recent extensions
+\citep{cohen2024manifoldcapacity} apply this theory across biological
+neural recordings and artificial networks, introducing Geometric measures
+from Correlated Manifold Capacity (GCMC) that analytically connect
+neural co-variabilities to downstream task efficiency.
 
-The system provides a concrete, fully characterized instantiation
-of this theoretical framework.  Each Value entry in the radix trie
-is a discrete perceptual manifold with:
+The Value representation provides a concrete setting in which these
+geometric quantities can be characterized.  Each Value occupies a point
+in $\{0,1\}^{8192}$, and a collection of Values derived from related
+inputs (for example, different byte sequences sharing a common prefix)
+defines a discrete manifold in this space.  The relevant geometric
+properties are:
+
 \begin{itemize}[nosep]
-  \item \textbf{Intrinsic dimension:}  Bounded by the number of active
-        prime factors in the constituent Values (typically 5 bits per byte
-        $\times$ sequence length), spanning the 8191-bit representation
-        (128 blocks $\times$ 64 bits).
-  \item \textbf{Radius:}  Controlled by the ValueOR superposition density
-        within each stored entry.
-  \item \textbf{Center correlations:}  Determined by the $\text{GF}(8191)$ affine
-        state, which algebraically separates entries that share
-        byte-level content but differ in syntactic structure.
+  \item \textbf{Intrinsic dimension:} bounded by the number of bits
+        that vary across the manifold, which depends on the length and
+        diversity of the input sequences.
+  \item \textbf{Radius:} controlled by the Hamming distance between the
+        most dissimilar Values in the manifold.
+  \item \textbf{Center correlations:} determined by the shared
+        bit-pattern structure among Values derived from related inputs.
 \end{itemize}
 
-The GF(8191) rotation resolver score (\Cref{sec:five_pass}) is effectively a
-linear readout over this manifold space: it computes a weighted inner
-product (via popcount) that separates the query manifold from all candidates.
-The achievable capacity---how many distinct memory entries the resolver can
-discriminate---is therefore directly governed by the geometric properties
-that Chung's theory characterizes.  Formal application of manifold capacity
-bounds to the Value representation is a natural direction for future work.
+A population-count-based similarity score between two Values---the
+Hamming inner product---functions as a linear readout over this binary
+manifold space.  The discriminative capacity of this readout, i.e., how
+many distinct input classes it can separate, is therefore directly
+governed by the geometric properties that Chung's theory characterizes.
+Formal application of manifold capacity bounds to the Value
+representation is a direction for future analytical work.
 
-\paragraph{Noncommutative $C^*$-algebra Structure.}
-Hataya and Hashimoto \citep{hataya2023noncommutative} provide the formal
+\paragraph{Relationship to Noncommutative Algebra.}
+Hataya and Hashimoto \citep{hataya2023noncommutative} provide a formal
 proof that noncommutative product structures in parameter spaces induce
-``powerful effects'' in learning structured features.  Their framework
+improved feature learning for structured tasks.  Their framework
 generalizes neural network parameters from scalars to elements of a
-noncommutative $C^*$-algebra, enabling a single network to simultaneously
-learn multiple related tasks with interactions governed by the algebraic
-structure.
+noncommutative $C^*$-algebra.
 
-The $\text{GF}(8191)$ affine group that governs our value transformations is a
-finite noncommutative algebra with precisely the properties that Hataya and
-Hashimoto formalize:
-\begin{enumerate}[nosep]
-  \item \textbf{Product non-commutativity:}  $f \circ g \neq
-        g \circ f$ for generic affine maps $f, g \in \text{Aff}(\text{GF}(8191))$.
-        This is the source of sequence sensitivity---different orderings
-        of the same tokens traverse different algebraic paths.
-  \item \textbf{Closure and invertibility:}  Every affine map has
-        a unique inverse (since $a \neq 0$ is invertible in $\text{GF}(8191)$),
-        and the composition of any two maps is again affine.  This
-        guarantees that transformations are reversible, and that resolver
-        lookups are well-defined.
-  \item \textbf{Scale:}  With $8190 \times 8191 = 67{,}083{,}690$ group
-        elements, the affine group provides a vast algebraically
-        structured state space---far richer than finite rotation groups
-        of comparable computational cost.
-\end{enumerate}
-
-Where Hataya and Hashimoto's framework \emph{learns} the algebraic
-structure through gradient descent, our architecture \emph{prescribes} it
-through the $\text{GF}(8191)$ affine geometry.  The sequential events detected by
-the Sequencer (\Cref{sec:sequencer}) are the algebraic operations; the
-resolver pipeline is the readout.  The question of whether this prescribed
-noncommutative structure yields the ``powerful effects'' that their theory
-predicts is answered empirically by the experiments in
-\Cref{sec:experiments}.
+As discussed in \Cref{sec:related_algebraic_topology}, the composition
+of boolean operations over Values is non-commutative: different orderings
+of the same operations produce different frame states.  This
+non-commutativity is structural rather than learned---it arises from the
+sequential application of truth tables to a shared binary substrate.  The
+question of whether this prescribed non-commutative structure yields the
+representational benefits that Hataya and Hashimoto's theory predicts is
+addressed empirically in the experimental sections.

@@ -1,206 +1,187 @@
 package primitive
 
 import (
-	"errors"
+	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
+	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
-func TestIntegration(t *testing.T) {
-	Convey("Given a stream of bytes", t, func() {
-		data := make([]*Value, 256)
-		for i := range 256 {
-			data[i] = NewValueFromByte(byte(i))
-		}
-
-		Convey("When building the substrate", func() {
-			values := make([]*Value, 0)
-
-			for _, value := range data {
-				newValue := NewValue()
-				out := NewValue()
-				_, err := io.Copy(newValue, value)
-				So(err, ShouldBeNil)
-				_, err = io.Copy(out, newValue)
-				So(err, ShouldBeNil)
-				values = append(values, out)
-			}
-
-			Convey("It should emit new Values from the seed", func() {
-				So(len(values), ShouldEqual, 256)
-			})
-		})
-	})
+func resolveValueTestConfigPath() string {
+	if e := strings.TrimSpace(os.Getenv("TEST_CONFIG_PATH")); e != "" {
+		return filepath.Clean(e)
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml"))
+	}
+	return filepath.Clean(filepath.Join("..", "..", "cmd", "cfg", "config.yml"))
 }
 
-func TestNewValueFromByte(t *testing.T) {
-	for i := range 256 {
-		Convey(fmt.Sprintf(
-			"Given a Value initialized with byte %d", i,
-		), t, func() {
-			value := NewValueFromByte(byte(i))
+func TestMain(m *testing.M) {
+	viper.SetConfigFile(resolveValueTestConfigPath())
 
-			Convey("Every motor orbit position should be set", func() {
-				pos := i
-
-				for range 5 {
-					So(value[pos/64]&(1<<(pos%64)), ShouldNotEqual, 0)
-					pos = (pos*3 + 1) % logicalBits
-				}
-			})
-
-			Convey("No bits outside the data field should be set", func() {
-				for w := DataWords; w < Words; w++ {
-					So(value[w], ShouldEqual, 0)
-				}
-			})
-		})
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "primitive/value_test: viper.ReadInConfig: %v\n", err)
+		os.Exit(1)
 	}
+
+	if err := core.LoadValueConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "primitive/value_test: core.LoadValueConfig: %v\n", err)
+		os.Exit(1)
+	}
+	viper.Set("loglevel", "error")
+	viper.Set("logging.trace.path", os.DevNull)
+	loggingCfg, err := core.LoadLoggingConfig()
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "primitive/value_test: core.LoadLoggingConfig: %v\n", err)
+		os.Exit(1)
+	}
+
+	errnie.InitLogger(loggingCfg)
+	code := m.Run()
+	_ = errnie.Shutdown(context.Background())
+	os.Exit(code)
 }
 
 func TestRead(t *testing.T) {
-	Convey("Given a Value with a known data field", t, func() {
-		value := NewValueFromByte(42)
-		buf := make([]byte, ByteSize)
+	Convey("Given two Values", t, func() {
+		valueA, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueA.Close()
 
-		Convey("It should serialize into a full-size buffer", func() {
-			n, err := value.Read(buf)
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
 
-			So(n, ShouldEqual, ByteSize)
-			So(errors.Is(err, io.EOF), ShouldBeTrue)
+		Convey("And the Values are Folded", func() {
+			n, err := io.Copy(valueA, valueB)
+			So(err, ShouldBeNil)
+			So(n, ShouldEqual, 1024)
 
-			var roundtrip Value
-			valueFrom(buf, &roundtrip)
+			Convey("Then a new Value is emitted", func() {
+				buf := bytes.NewBuffer(make([]byte, 0, 1024))
+				n, err := io.Copy(buf, valueA)
+				So(err, ShouldBeNil)
+				So(n, ShouldEqual, 1024)
 
-			for w := range Words {
-				So(roundtrip[w], ShouldEqual, value[w])
-			}
+				valueC, err := NewValue(nil)
+				So(err, ShouldBeNil)
+				defer valueC.Close()
+
+				valueFrom(buf.Bytes(), valueC)
+			})
 		})
 
-		Convey("It should reject a short buffer", func() {
-			short := make([]byte, ByteSize-1)
-			n, err := value.Read(short)
+		Convey("And Value A has the Viral Firmware", func() {
+			valueA.installFirmware(core.FirmwareTypeViral)
 
-			So(n, ShouldEqual, 0)
-			So(errors.Is(err, io.ErrShortBuffer), ShouldBeTrue)
+			Convey("And the Values are Folded", func() {
+				n, err := io.Copy(valueA, valueB)
+				So(err, ShouldBeNil)
+				So(n, ShouldEqual, 1024)
+			})
 		})
 	})
 }
 
 func TestWrite(t *testing.T) {
-	Convey("Given a source Value and a destination Value", t, func() {
-		src := NewValueFromByte(99)
-		dstOccupied := NewValueFromByte(7)
+	Convey("Given three Values", t, func() {
+		valueA, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueA.Close()
 
-		Convey("It should copy the incoming data field when the destination data field is empty", func() {
-			dst := NewValue()
-			buf := make([]byte, ByteSize)
-			_, _ = src.Read(buf)
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
 
-			n, err := dst.Write(buf)
+		valueC, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueC.Close()
 
-			So(n, ShouldEqual, ByteSize)
-			So(err, ShouldBeNil)
-			for w := range 4 {
-				So(dst[w], ShouldEqual, src[w])
-			}
-			So(dst[4]&1, ShouldEqual, src[4]&1)
-		})
+		Convey("And Value A has the Viral Firmware", func() {
+			valueA.installFirmware(core.FirmwareTypeViral)
 
-		Convey("It should reject a short payload", func() {
-			short := make([]byte, ByteSize-1)
-			n, err := dstOccupied.Write(short)
+			Convey("And ValueB is Folded into ValueA", func() {
+				n, err := io.Copy(valueA, valueB)
+				So(err, ShouldBeNil)
+				So(n, ShouldEqual, 1024)
 
-			So(n, ShouldEqual, 0)
-			So(errors.Is(err, io.ErrShortBuffer), ShouldBeTrue)
-		})
+				Convey("ValueB should have the Viral Firmware", func() {
+					buf := bytes.NewBuffer(make([]byte, 0, 1024))
+					_, err = io.Copy(buf, valueA)
+					So(err, ShouldBeNil)
+					valueFrom(buf.Bytes(), valueB)
+					So(valueB[core.Cfg.ProgramIndex:], ShouldResemble, valueA[core.Cfg.ProgramIndex:])
+				})
 
-		Convey("It should copy incoming data into the operand when destination has data but incoming has no state vector (osmosis)", func() {
-			buf := make([]byte, ByteSize)
-			_, _ = src.Read(buf)
+				Convey("And ValueC is Folded into ValueB", func() {
+					n, err := io.Copy(valueB, valueC)
+					So(err, ShouldBeNil)
+					So(n, ShouldEqual, 1024)
 
-			var before [DataWords]uint64
-			for w := range DataWords {
-				before[w] = dstOccupied[w]
-			}
-
-			n, err := dstOccupied.Write(buf)
-
-			So(n, ShouldEqual, ByteSize)
-			So(err, ShouldBeNil)
-			for w := range 4 {
-				So(dstOccupied[w], ShouldEqual, before[w])
-			}
-			So(dstOccupied[4]&0x1F, ShouldEqual, before[4]&0x1F)
-			So(dstOccupied[OperandStart>>6], ShouldNotEqual, 0)
-		})
-
-		Convey("It should copy incoming state vector into the operand without changing the data field", func() {
-			var before [DataWords]uint64
-			for w := range DataWords {
-				before[w] = dstOccupied[w]
-			}
-
-			incoming := NewValue()
-			incoming[StateStart>>6] |= 1
-
-			buf := make([]byte, ByteSize)
-			valueTo(incoming, buf)
-
-			n, err := dstOccupied.Write(buf)
-
-			So(n, ShouldEqual, ByteSize)
-			So(err, ShouldBeNil)
-			for w := range DataWords {
-				So(dstOccupied[w], ShouldEqual, before[w])
-			}
+					Convey("ValueC should have the Viral Firmware", func() {
+						buf := bytes.NewBuffer(make([]byte, 0, 1024))
+						_, err = io.Copy(buf, valueB)
+						So(err, ShouldBeNil)
+						valueFrom(buf.Bytes(), valueC)
+						So(valueC[core.Cfg.ProgramIndex:], ShouldResemble, valueB[core.Cfg.ProgramIndex:])
+					})
+				})
+			})
 		})
 	})
 }
 
-func TestClose(t *testing.T) {
-	Convey("Given a Value", t, func() {
-		value := NewValueFromByte(1)
-
-		Convey("It should return nil", func() {
-			So(value.Close(), ShouldBeNil)
-		})
-	})
-}
-
-func BenchmarkNewValueFromByte(b *testing.B) {
-	for b.Loop() {
-		NewValueFromByte(42)
+func BenchmarkValue_Read(b *testing.B) {
+	v, err := NewValue(nil)
+	if err != nil {
+		b.Fatal(err)
 	}
-}
+	defer v.Close()
 
-func BenchmarkRead(b *testing.B) {
-	value := NewValueFromByte(42)
 	buf := make([]byte, ByteSize)
-
+	b.SetBytes(int64(ByteSize))
+	b.ResetTimer()
 	for b.Loop() {
-		value.Read(buf)
+		n, err := v.Read(buf)
+		if n != ByteSize || err != io.EOF {
+			b.Fatalf("Read: n=%d err=%v", n, err)
+		}
 	}
 }
 
-func BenchmarkWrite(b *testing.B) {
-	src := NewValueFromByte(99)
-	buf := make([]byte, ByteSize)
-	_, _ = src.Read(buf)
-
-	for b.Loop() {
-		dst := NewValue()
-		_, _ = dst.Write(buf)
+func BenchmarkValue_Write(b *testing.B) {
+	dst, err := NewValue(nil)
+	if err != nil {
+		b.Fatal(err)
 	}
-}
+	defer dst.Close()
 
-func BenchmarkClose(b *testing.B) {
-	value := NewValueFromByte(1)
+	payload := make([]byte, ByteSize)
+	for i := range payload {
+		payload[i] = byte(i)
+	}
+	if _, err := dst.Write(payload); err != nil {
+		b.Fatal(err)
+	}
 
+	b.SetBytes(int64(ByteSize))
+	b.ResetTimer()
 	for b.Loop() {
-		value.Close()
+		if _, err := dst.Write(payload); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

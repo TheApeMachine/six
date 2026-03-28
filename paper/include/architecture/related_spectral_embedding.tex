@@ -1,22 +1,52 @@
-\subsection{Spectral Embedding and Toroidal Manifold Discovery}
+% ============================================================================
+% RELATED: SPECTRAL METHODS AND MANIFOLD STRUCTURE
+% ============================================================================
+\subsection{Spectral Methods and Manifold Structure}
 \label{sec:related_spectral_embedding}
 
-The system's \emph{EigenMode} logic---deriving the intrinsic topology of the data from prime-index geometry---is grounded in \emph{Spectral Graph Theory} and its application to nonlinear dimensionality reduction.
-
 \paragraph{Laplacian Eigenmaps and Manifold Learning.}
-Belkin and Niyogi's \emph{Laplacian Eigenmaps} \citep{belkin2003laplacian} established that the eigenvectors of the graph Laplacian $L = D - W$ (where $W$ is a similarity-weighted adjacency matrix and $D$ is its degree matrix) provide optimal low-dimensional embeddings that preserve local neighborhood structure. Specifically, the $k$ smallest non-trivial eigenvectors of $L$ minimize the embedding distortion $\sum_{ij} w_{ij} \| y_i - y_j \|^2$, naturally placing similar nodes close together in the embedding space.
+Belkin and Niyogi's Laplacian Eigenmaps \citep{belkin2003laplacian}
+established that the eigenvectors of the graph Laplacian $L = D - W$
+provide optimal low-dimensional embeddings that preserve local
+neighborhood structure.  The $k$ smallest non-trivial eigenvectors
+minimize the embedding distortion $\sum_{ij} w_{ij} \| y_i - y_j
+\|^2$, placing similar nodes close together in the embedding space.
 
-The spectral graph theory framework provides the theoretical grounding for the EigenMode's analytical phase computation. Rather than constructing explicit co-occurrence matrices and performing eigendecomposition, the current implementation derives phase directly from the prime-index geometry of each Value---an analytical shortcut that produces embeddings consistent with the spectral theory but at $O(1)$ cost per value rather than the $O(n^3)$ cost of explicit eigendecomposition. The theoretical justification remains: the phase structure that emerges from prime-index analysis corresponds to what spectral methods would recover from the value-transition graph.
+The Value architecture offers an implicit analogue.  Values derived from
+similar input byte sequences occupy nearby points in $\{0,1\}^{8192}$
+under the Hamming metric, and the population-count inner product provides
+a measure of neighborhood similarity.  A graph defined by thresholding
+this similarity would have a Laplacian whose spectral properties reflect
+the structure of the data.  While the current system does not perform
+explicit eigendecomposition, the geometric structure of the Value space
+is consistent with what spectral methods would recover: inputs that share
+byte-level structure are embedded nearby, and the boolean operations
+applied during Region mixing correspond to local transformations in this
+space.
 
-\paragraph{The Dirac Operator and Geodesic Computation.}
-For calculating distances within the trie-indexed value structure, we draw on Knill's formulation of the \emph{Dirac operator of a graph} \citep{knill2013dirac}. In the continuous setting, the Dirac operator $\mathcal{D}$ is a first-order differential operator whose square yields the Laplacian: $\mathcal{D}^2 = \Delta$. Knill's discrete construction defines an analogous operator on finite graphs, where:
+\paragraph{The Dirac Operator and Distance Computation.}
+Knill's formulation of the Dirac operator on graphs
+\citep{knill2013dirac} provides a discrete analogue of the continuous
+Dirac operator whose square yields the Laplacian.  The spectrum of this
+operator encodes both the topology (via its kernel, related to Betti
+numbers) and the geometry (via its non-zero eigenvalues) of the graph,
+enabling geodesic distance computation from spectral data without
+explicit shortest-path algorithms.
 
-\begin{itemize}[nosep]
-  \item The \emph{spectrum} of $\mathcal{D}$ encodes both the topology (via its kernel, related to Betti numbers) and the geometry (via its non-zero eigenvalues) of the graph.
-  \item \emph{Geodesic distances} between nodes can be computed from the spectral data of $\mathcal{D}$, avoiding explicit shortest-path algorithms on the combinatorial graph.
-\end{itemize}
+In the Value architecture, distances between frames are computed directly
+through population-count operations: the Hamming distance between two
+Values counts the number of bit positions at which they differ, and the
+Hamming inner product (the population count of their bitwise AND) measures
+their overlap.  These operations execute in constant time per frame and
+produce distance estimates consistent with the spectral framework, though
+they do not require constructing or decomposing a graph Laplacian.
 
-Geodesic distances in the current implementation are computed via PhaseDial angular scanning rather than a precomputed lookup table. The PhaseDial sweeps $\text{GF}(8191)$ affine states and scores candidate entries by angular proximity in phase space, producing distance estimates that are consistent with the graph-Dirac spectral framework while operating in constant time per query.
-
-\paragraph{Why the Torus Emerges.}
-The spectral analysis provides a falsifiable prediction: if the value data has genuine periodic or cyclical structure, the analytical phase model will reveal toroidal geometry. If the data lacks such structure, the phase trajectories will not form closed curves, and the system will correctly identify a non-toroidal topology. This spectral self-diagnosis is a built-in consistency check---the system does not assume toroidal structure; it \emph{discovers} it from the data's phase geometry.
+\paragraph{Emergent Manifold Structure.}
+Whether the collection of Values produced by processing a given dataset
+exhibits non-trivial manifold structure---such as periodicity or toroidal
+geometry---is an empirical question that depends on the structure of the
+input data.  If the input contains periodic or cyclical patterns (for
+example, temporal sequences with repeating motifs), these patterns will
+manifest as regularities in the Hamming geometry of the resulting Values.
+The phase coherence experiments in the experimental sections provide
+initial measurements of whether such structure is detectable.

@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/tls"
 	"crypto/x509"
+	"errors"
 	"io"
 	"math/big"
 	"testing"
@@ -114,16 +115,16 @@ func TestQUIC(t *testing.T) {
 		gc.Convey("It should return ErrQUICNoStream on Read", func() {
 			buf := make([]byte, 1024)
 			_, err := q.Read(buf)
-			gc.So(err, gc.ShouldEqual, ErrQUICNoStream)
+			gc.So(errors.Is(err, ErrQUICNoStream), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should return ErrQUICNoStream on Write", func() {
 			_, err := q.Write([]byte("data"))
-			gc.So(err, gc.ShouldEqual, ErrQUICNoStream)
+			gc.So(errors.Is(err, ErrQUICNoStream), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should return ErrQUICNotListening on Accept", func() {
-			gc.So(q.Accept(), gc.ShouldEqual, ErrQUICNotListening)
+			gc.So(errors.Is(q.Accept(), ErrQUICNotListening), gc.ShouldBeTrue)
 		})
 
 		gc.Convey("It should close without error", func() {

@@ -32,6 +32,7 @@ type ProteinStructureExperiment struct {
 	prose     []projector.ProseEntry
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	manifold  [][]byte
 	seen      map[string]struct{}
 	evaluator *tools.Evaluator
@@ -82,9 +83,21 @@ func (experiment *ProteinStructureExperiment) Dataset() data.Provider {
 }
 
 func (experiment *ProteinStructureExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
+	const line = "Predict the secondary structure of the given amino acid sequence."
+	pr, ho := tools.BytePrefixFraction(line, 0.5)
+	if ho == "" {
+		experiment.holdouts = nil
+		return []string{line}
 	}
+	experiment.holdouts = [][]byte{[]byte(ho)}
+	return []string{pr}
+}
+
+func (experiment *ProteinStructureExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx != 0 || len(experiment.holdouts) == 0 {
+		return nil, false
+	}
+	return experiment.holdouts[0], true
 }
 
 /*

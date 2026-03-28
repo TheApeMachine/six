@@ -55,6 +55,7 @@ type CrossDomainCompletionExperiment struct {
 	tableData []tools.ExperimentalData
 	mds       *multiDomainDataset
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -110,9 +111,27 @@ func (experiment *CrossDomainCompletionExperiment) Dataset() data.Provider {
 }
 
 func (experiment *CrossDomainCompletionExperiment) Prompts() []string {
-	return []string{
-		"Complete the suffix of the given prefix.",
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	for p := range experiment.mds.GeneratePrompts() {
+		if p.Text == "" {
+			continue
+		}
+		pr, ho := tools.ByteSuffixLastN(p.Text, 50)
+		if ho == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, pr)
+		experiment.holdouts = append(experiment.holdouts, []byte(ho))
 	}
+	return experiment.prompt
+}
+
+func (experiment *CrossDomainCompletionExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *CrossDomainCompletionExperiment) AddResult(results tools.ExperimentalData) {
@@ -391,4 +410,26 @@ func (m *multiDomainDataset) Read(p []byte) (n int, err error) {
 
 func (m *multiDomainDataset) Close() error {
 	return nil
+}
+
+func (m *multiDomainDataset) GeneratePrompts() iter.Seq[data.Prompt] {
+	return func(yield func(data.Prompt) bool) {
+		// globalID assigns stable SampleIDs across domains. uint32 limits distinct IDs to
+		// ~4.29e9; increment wraps to 0 on overflow. Use uint64 here if combined prompt
+		// counts can exceed that in the future.
+		var globalID uint32
+		for _, ds := range m.datasets {
+			pp, ok := ds.(data.PromptProvider)
+			if !ok {
+				continue
+			}
+			for p := range pp.GeneratePrompts() {
+				p.SampleID = globalID
+				globalID++
+				if !yield(p) {
+					return
+				}
+			}
+		}
+	}
 }

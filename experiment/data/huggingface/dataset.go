@@ -95,6 +95,7 @@ func (dataset *Dataset) effectiveTextColumns() []string {
 	if len(dataset.textColumns) > 0 {
 		return dataset.textColumns
 	}
+
 	return []string{dataset.textColumn}
 }
 
@@ -105,6 +106,7 @@ Requires DatasetWithLabelColumn. Safe for concurrent use.
 func (dataset *Dataset) LabelForSample(id uint32) (int, bool) {
 	dataset.mu.RLock()
 	defer dataset.mu.RUnlock()
+
 	v, ok := dataset.labels[id]
 	return v, ok
 }
@@ -133,9 +135,11 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 			}
 
 			dataset.mu.Lock()
+
 			for sampleIdx, label := range labelBatch {
 				dataset.labels[sampleIdx] = label
 			}
+
 			dataset.mu.Unlock()
 			clear(labelBatch)
 		}
@@ -144,6 +148,7 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
 			if hasLabel {
 				labelBatch[sampleIdx] = label
+
 				if len(labelBatch) >= labelBatchSize {
 					flushLabels()
 				}
@@ -151,9 +156,11 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 
 			for _, b := range []byte(text) {
 				tokens = append(tokens, b)
+
 				if !yield(b) {
 					return false
 				}
+
 				pos++
 			}
 
@@ -162,11 +169,14 @@ func (dataset *Dataset) Generate() iter.Seq[byte] {
 			// single continuous sequence (classification-as-generation).
 			if hasLabel && len(dataset.labelAppend) > 0 && label >= 0 && label < len(dataset.labelAppend) {
 				suffix := " → " + dataset.labelAppend[label]
+
 				for _, b := range []byte(suffix) {
 					tokens = append(tokens, b)
+
 					if !yield(b) {
 						return false
 					}
+
 					pos++
 				}
 			}
@@ -201,17 +211,21 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 	defer dataset.readMu.Unlock()
 
 	if dataset.readErr != nil {
+		errnie.Error(dataset.readErr, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return 0, dataset.readErr
 	}
 
 	if !dataset.readDone {
 		for range dataset.Generate() {
 		}
+
 		dataset.readDone = true
 
 		tok, ok := dataset.snapshotCachedTokens()
+
 		if !ok {
 			dataset.readErr = io.ErrUnexpectedEOF
+			errnie.Error(dataset.readErr, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 			return 0, dataset.readErr
 		}
 
@@ -224,6 +238,7 @@ func (dataset *Dataset) Read(p []byte) (n int, err error) {
 
 	n = copy(p, dataset.readBuf[dataset.readPos:])
 	dataset.readPos += n
+
 	return n, nil
 }
 
@@ -245,9 +260,11 @@ func (dataset *Dataset) GeneratePrompts() iter.Seq[data.Prompt] {
 			}
 
 			dataset.mu.Lock()
+
 			for sampleIdx, label := range labelBatch {
 				dataset.labels[sampleIdx] = label
 			}
+
 			dataset.mu.Unlock()
 			clear(labelBatch)
 		}
@@ -256,6 +273,7 @@ func (dataset *Dataset) GeneratePrompts() iter.Seq[data.Prompt] {
 		if err := dataset.streamRows(func(text string, label int, hasLabel bool, sampleIdx uint32) bool {
 			if hasLabel {
 				labelBatch[sampleIdx] = label
+
 				if len(labelBatch) >= labelBatchSize {
 					flushLabels()
 				}
@@ -327,6 +345,7 @@ func (dataset *Dataset) waitForCachedTokens() []byte {
 
 	cached := make([]byte, len(dataset.cachedTokens))
 	copy(cached, dataset.cachedTokens)
+
 	return cached
 }
 
@@ -340,6 +359,7 @@ func (dataset *Dataset) finishCacheLoad(tokens []byte, ok bool) {
 	}
 
 	dataset.cacheLoading = false
+	errnie.Debug("huggingface.dataset.finishCacheLoad", "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "ok", ok)
 	dataset.cacheCond.Broadcast()
 }
 
@@ -405,6 +425,7 @@ func findColumn(schema *parquet.Schema, name string) int {
 func (dataset *Dataset) streamParquet(reader io.Reader, fn rowVisitor) error {
 	data, err := io.ReadAll(reader)
 	if err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return fmt.Errorf("huggingface: read shard: %w", err)
 	}
 
@@ -413,6 +434,7 @@ func (dataset *Dataset) streamParquet(reader io.Reader, fn rowVisitor) error {
 
 	pFile, err := parquet.OpenFile(r, size)
 	if err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return fmt.Errorf("huggingface: open parquet: %w", err)
 	}
 
@@ -426,6 +448,7 @@ func (dataset *Dataset) streamParquet(reader io.Reader, fn rowVisitor) error {
 	// Single-column fast path: use column-level page iteration.
 	textCol := findColumn(pFile.Schema(), cols[0])
 	if textCol < 0 {
+		errnie.Error(fmt.Errorf("huggingface: column %s not found", cols[0]), "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return fmt.Errorf("huggingface: column %s not found", cols[0])
 	}
 
@@ -450,7 +473,9 @@ func (dataset *Dataset) streamParquet(reader io.Reader, fn rowVisitor) error {
 
 					if dataset.transform != nil {
 						var err error
+
 						if rawBytes, err = dataset.transform(rawBytes); err != nil {
+							errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 							continue
 						}
 					}
@@ -611,6 +636,7 @@ func (dataset *Dataset) streamJSON(reader io.Reader, fn rowVisitor) error {
 	// Read the first token to see if it's an array
 	t, err := dec.Token()
 	if err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return err
 	}
 
@@ -708,6 +734,7 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 	}
 
 	if !os.IsNotExist(err) {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
 	}
 
@@ -717,6 +744,7 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
 	}
 
@@ -728,21 +756,25 @@ func (dataset *Dataset) downloadShard(shard, branch string) (io.Reader, error) {
 
 	resp, err := httpClient.Do(req)
 	if err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
 	}
 
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		errnie.Error(fmt.Errorf("huggingface: HTTP %d from %s", resp.StatusCode, url), "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, fmt.Errorf("huggingface: HTTP %d from %s", resp.StatusCode, url)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
 	}
 
 	if err := os.WriteFile(cachePath, body, 0644); err != nil {
+		errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","))
 		return nil, err
 	}
 
@@ -805,7 +837,7 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 
 		req, err := http.NewRequest("GET", url, nil)
 		if err != nil {
-			errnie.Error(err, "branch", encodedBranch, "url", url)
+			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "branch", encodedBranch, "url", url)
 			continue
 		}
 
@@ -816,13 +848,13 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 		httpClient := &http.Client{Timeout: 30 * time.Second}
 		resp, err := httpClient.Do(req)
 		if err != nil {
-			errnie.Error(err, "branch", encodedBranch, "url", url)
+			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "branch", encodedBranch, "url", url)
 			continue
 		}
 
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
-			errnie.Error(fmt.Errorf("HTTP %d", resp.StatusCode), "branch", encodedBranch, "url", url, "body", string(body))
+			errnie.Error(fmt.Errorf("HTTP %d", resp.StatusCode), "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "branch", encodedBranch, "url", url, "body", string(body))
 			resp.Body.Close()
 			continue
 		}
@@ -830,13 +862,13 @@ func (dataset *Dataset) discoverShard() (string, string, error) {
 		body, err := io.ReadAll(resp.Body)
 		resp.Body.Close()
 		if err != nil {
-			errnie.Error(err, "branch", encodedBranch, "url", url)
+			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "branch", encodedBranch, "url", url)
 			continue
 		}
 
 		var entries []Entry
 		if err := json.Unmarshal(body, &entries); err != nil {
-			errnie.Error(err, "branch", encodedBranch, "url", url)
+			errnie.Error(err, "repo", dataset.repo, "columns", strings.Join(dataset.effectiveTextColumns(), ","), "branch", encodedBranch, "url", url)
 			continue
 		}
 

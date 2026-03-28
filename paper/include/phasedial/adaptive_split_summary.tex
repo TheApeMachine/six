@@ -1,1 +1,41 @@
-% Results pending — no data available for this table yet.
+\begin{table}[htbp]
+\centering
+\caption{Adaptive Split — standardised result summary (N=20).}
+\label{tab:adaptive_split_summary}
+\begin{adjustbox}{max width=\textwidth}
+\begin{tabular}{r p{5cm} r r r r}
+\toprule
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+3 & Adaptive Split & 0.0000 & 0.1364 & 0.0029 & 0.0377 \\
+0 & Adaptive Split & 0.0000 & 0.1000 & 0.0020 & 0.0276 \\
+5 & Adaptive Split & 0.0000 & 0.0789 & 0.0029 & 0.0221 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+4 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+2 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & Adaptive Split & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
+\midrule
+\multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
+\midrule
+\multicolumn{2}{l}{\texttt{The only way to have}} & \multicolumn{2}{l}{\texttt{a friend is to be one.}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
+\multicolumn{2}{l}{\texttt{Democracy requires i}} & \multicolumn{2}{l}{\texttt{ndividual sacrifice.}} & \multicolumn{2}{l}{\texttt{········truth universally acknowledged, \ldots}} \\
+\multicolumn{2}{l}{\texttt{To be, or not to be,}} & \multicolumn{2}{l}{\texttt{that is the question.}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
+\multicolumn{2}{l}{\texttt{Nature does not hurry, yet}} & \multicolumn{2}{l}{\texttt{everything is accomplished.}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
+\midrule
+\multicolumn{6}{l}{\textbf{Experiment conditions}} \\
+\midrule
+\multicolumn{3}{l}{Samples: 20} & \multicolumn{3}{l}{Holdout: 20\% ()} \\
+\multicolumn{3}{l}{Mean score: 0.0100} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0377} \\
+\multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\end{table}

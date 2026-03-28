@@ -1,42 +1,57 @@
 % ============================================================================
-% RELATED WORK (Additional to Architecture-Specific Citations)
+% RELATED WORK
 % ============================================================================
+\section{Related Work}
 
 \paragraph{Hyperdimensional Computing and VSAs.}
-The Value representation is most directly situated within Hyperdimensional
-Computing (HDC) and Vector Symbolic Architectures (VSA).  Classical VSA
-frameworks use high-dimensional random vectors ($D \geq 10{,}000$) with
-binding, bundling, and permutation operations.  Our 8191-bit Value provides
-a far more aggressive compression, trading dimensionality for the
-non-commutative GF(8191) affine group that escapes the Shannon capacity
-limit via topological entropy routing (\Cref{sec:entropy_routing}).
+The Value representation is situated within the Hyperdimensional
+Computing (HDC) and Vector Symbolic Architecture (VSA) family.  Classical
+VSA frameworks use high-dimensional random vectors ($D \ge 10{,}000$)
+with binding, bundling, and permutation operations.  The Value provides
+an 8192-bit binary frame with the complete set of sixteen boolean
+functions, subsuming the standard VSA operators while using a
+deterministic rather than random encoding.  The multi-frame Region
+structure addresses the bundling saturation problem by distributing
+content across a population of interacting frames rather than a single
+high-dimensional vector.
 
-\paragraph{Discrete Symmetry Groups in ML.}
-Equivariant neural networks exploit continuous symmetry groups (rotations,
-translations) to build inductive biases.  Our use of the GF(8191) affine
-group is architecturally distinct: rather than learning equivariant
-features, we use non-commutative affine composition $f \circ g \neq g
-\circ f$ as the \emph{computational substrate itself}---syntactic events
-directly manipulate geometric state through group actions.
+\paragraph{Discrete Symmetry in Machine Learning.}
+Equivariant neural networks exploit continuous symmetry groups to build
+inductive biases.  The Value architecture uses the discrete boolean
+algebra over $\{0,1\}^{8192}$ as its computational substrate, providing
+deterministic algebraic closure rather than learned equivariance.  The
+non-commutativity of composed boolean operations encodes sequence order
+without explicit positional embeddings.
 
 \paragraph{Content-Addressable Memory.}
-Hopfield networks, modern Hopfield networks, and transformer-based
-associative memories store patterns as energy minima or attention-weighted
-retrievals.  Our system differs in substrate: memory is not a learned weight
-matrix but a persistent geometric index of bitwise Values stored in a
-radix trie.  New observations reshape memory immediately via
-deterministic insertion.
+Hopfield networks and modern transformer-based associative memories
+store patterns as energy minima or attention-weighted retrievals.  The
+Value architecture differs in substrate: memory consists of binary
+frames stored in concurrent mixing pools, and retrieval is based on
+population-count similarity rather than learned attention weights.  New
+observations enter memory immediately through deterministic encoding and
+frame deposition.
 
 \paragraph{Byte-Level Models.}
-ByT5 and MEGABYTE process raw bytes to eliminate vocabulary failures, but
-retain learned encoders and autoregressive decoding.  Our Universal Tokenizer
-assigns deterministic identities without learning, and downstream inference
-is parallel GF(8191) rotation resolver rather than autoregressive.
+ByT5 and MEGABYTE process raw bytes to eliminate vocabulary constraints,
+but retain learned encoders and autoregressive decoding.  The Value
+system processes raw bytes through a deterministic encoding and performs
+inference via parallel boolean operations rather than sequential token
+generation.
 
 \paragraph{Non-Autoregressive Generation.}
-Masked language models and diffusion-based text generators produce tokens
-in parallel but struggle with output coherence.  Our BVP formulation resolves
-inter-position dependencies through shared radix trie topology and
-fold-graph structure---structural coherence is a geometric constraint,
-not a decoding heuristic.
+Masked language models and diffusion-based text generators produce
+tokens in parallel but rely on learned denoising schedules or masking
+strategies for output coherence.  The Value architecture resolves
+inter-position dependencies through the structural constraints imposed
+by boolean composition: output coherence is a consequence of the
+encoding and mixing process rather than a learned decoding strategy.
 
+\paragraph{Self-Modifying Code.}
+The firmware system and viral propagation mechanism relate to the
+tradition of self-modifying code in computer science, from von Neumann's
+stored-program architecture to genetic programming.  The distinction is
+that modification in the Value architecture occurs through the same
+boolean operations used for all other computation, within the same
+binary representation, and without a separate mutation or crossover
+operator.

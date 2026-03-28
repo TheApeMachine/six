@@ -16,7 +16,10 @@ func TestTruthOpName(t *testing.T) {
 }
 
 func TestHumanDescribeValue(t *testing.T) {
-	v := primitive.NewValue()
+	v, err := primitive.NewValue(nil)
+	if err != nil {
+		t.Fatalf("new value: %v", err)
+	}
 	s := HumanDescribeValue(v)
 	if s == "" {
 		t.Fatal("empty describe")

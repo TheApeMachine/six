@@ -2,40 +2,25 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-Current generative architectures treat sequence modeling as an initial value
-problem: gradient-trained weights predict the next token before any future
-constraint can be applied.  We reject this framing entirely and cast
-generation as a \emph{boundary value problem} (BVP).  The observer clamps a
-subset of symbols as fixed constraints and the remaining degrees of freedom
-are resolved simultaneously via massively parallel geometric resonance search.
+We present a computational substrate in which data, programs, and execution
+state occupy a single fixed-width binary representation.  The fundamental
+primitive is a 1024-byte frame---128 sixty-four-bit words---partitioned into
+regions for token data, execution registers, and an embedded program.
+Computation proceeds through the complete set of sixteen two-input boolean
+truth tables, applied across frame regions by a multi-substrate backend that
+dispatches to CPU, CUDA, or Metal hardware.
 
-We instantiate this paradigm in a physics-native substrate built on three
-layers:
-\begin{enumerate}[nosep]
-  \item An \textbf{8191-bit Value} representation over the Mersenne field
-        $\operatorname{GF}(8191)$ ($2^{13}-1$), where each byte value maps to
-        a deterministic prime-basis bitset across 128 blocks of 64 bits, and
-        bitwise operations (\texttt{OR}, \texttt{AND}, \texttt{popcount})
-        execute discrete wave interference at single-cycle throughput.
-  \item A \textbf{Morton-coded Radix Trie} (Distributed Merkle Trie) that
-        indexes values by their spatial keys, with sequential structure encoded
-        as composable affine transformations over $\operatorname{GF}(8191)$.
-  \item An \textbf{Analytical Phase} navigation layer that maps values onto a
-        $S^1 \times S^1$ phase torus via their intrinsic prime-index geometry
-        over $\operatorname{GF}(8191)$, enabling deterministic closure
-        detection and intent steering without trained co-occurrence models.
-\end{enumerate}
+Frames are deposited into concurrent mixing pools, termed Regions, where
+non-deterministic interaction between frames drives computation without
+centralized control flow.  A configurable firmware system provides
+pre-compiled programs---including bootstrapping, structural zeroing, and
+self-propagating replication---that can be loaded into any frame's program
+region, enabling a form of self-modification within the substrate.
 
-No loss function is minimized.  No weights are updated.  Inference is a
-single-pass $\operatorname{GF}(8191)$ geometric distance scan across the
-entire memory substrate, resolving the nearest rotational state via integer
-arithmetic on GPU.  A two-phase hybrid retrieval pipeline (bitwise filter
-followed by complex-valued PhaseDial scoring) provides precise candidate
-ranking.  A self-programming loop closes the system: the cantilever BVP
-solver synthesizes missing operators, successful bridges harden into native
-macro-opcodes, and the interpreter dispatches them directly---reifying
-execution traces into new operators.  We validate the architecture across
-text classification, code generation, logical reasoning, phase-dial
-generalization, image reconstruction, and cross-modal tasks, reporting both
-successes and failure regimes with equal detail.
+The system processes all input modalities as raw byte sequences, requiring
+no learned encoders or modality-specific preprocessing.  We evaluate the
+architecture across text classification, code generation, image
+reconstruction, logical reasoning, and text generation.  All experiments
+execute within the substrate and produce their own documentation artifacts,
+yielding the present paper as a structured output of the system itself.
 \end{abstract}

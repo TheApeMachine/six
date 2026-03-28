@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{Languages — standardised result summary (N=198).}
+\caption{Languages — standardised result summary (N=1200).}
 \label{tab:languages_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -17,32 +17,24 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-98 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-97 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-96 & Python & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+599 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+598 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+597 & Rust & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{f}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{r}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{Q}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{·}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{from typing import List···def has\_close\_\ldots}} & \multicolumn{2}{l}{\texttt{return True··    return False·}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{from typing import List···def separate\_p\ldots}} & \multicolumn{2}{l}{\texttt{current\_string.clear()··    return resul\ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{n value.parse::<f64>().unwrap().round() \ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{fn main()\{\}··use std::\{slice::Iter, cmp:\ldots}} & \multicolumn{2}{l}{\texttt{\}·        \}·    \}·    return count;·\}·}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 198} & \multicolumn{3}{l}{Holdout: 198\% ()} \\
+\multicolumn{3}{l}{Samples: 1200} & \multicolumn{3}{l}{Holdout: 1200\% ()} \\
 \multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{3.0 ms} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{39µs} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.60 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.61 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

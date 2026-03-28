@@ -1,65 +1,52 @@
 % ============================================================================
-% NEURO-VECTOR-SYMBOLIC ARCHITECTURES AND HD COMPUTING HARDWARE
+% RELATED: NEURO-VECTOR-SYMBOLIC ARCHITECTURES AND HD COMPUTING HARDWARE
 % ============================================================================
 \subsection{Neuro-Vector-Symbolic Architectures and HD Computing Hardware}
 \label{sec:related_nvsa}
 
-The most direct bridge between classical neural architectures and the
-prime-basis Value substrate is the emerging family of
-\emph{Neuro-Vector-Symbolic Architectures} (NVSA).  Hersche et al.\
-\citep{hersche2023nvsa} demonstrated that combining neural front-ends with
-VSA back-ends solves Raven's Progressive Matrices---a benchmark for
-abstract visual reasoning---more accurately and with orders-of-magnitude
-fewer gradient steps than pure deep-learning baselines.  Their key insight
-is that the VSA's algebraic closure under binding and bundling provides a
-\emph{native factorization substrate}: the network learns to project
-perception into a high-dimensional space where combinatorial decomposition
-is a single algebraic operation rather than an iterative optimization.
+\paragraph{The NVSA Bridge.}
+Hersche et al.\ \citep{hersche2023nvsa} demonstrated that combining
+neural front-ends with VSA back-ends solves Raven's Progressive
+Matrices---a benchmark for abstract visual reasoning---more accurately
+and with orders-of-magnitude fewer gradient steps than pure deep-learning
+baselines.  Their key insight is that the VSA's algebraic closure under
+binding and bundling provides a native factorization substrate: the
+network learns to project perception into a space where combinatorial
+decomposition is a single algebraic operation.
 
-The system pushes this factorization principle further in two
-respects:
-\begin{enumerate}[nosep]
-  \item \textbf{No neural front-end:}  Where NVSA uses a learned encoder
-        to project pixels into VSA space, our Universal Tokenizer assigns
-        deterministic prime-basis identities directly from raw bytes.
-        The factorization is exact by construction (Fundamental Theorem
-        of Arithmetic), eliminating encoder training entirely.
-  \item \textbf{Non-commutative extension:}  Classical VSA binding operators
-        (circular convolution, Hadamard products) are commutative---they
-        cannot natively distinguish ``dog bites man'' from ``man bites dog''
-        without positional permutations.  The $\text{GF}(8191)$ affine group
-        makes non-commutativity structural: syntactic order is algebraically
-        encoded by the composition path through the affine group.
-\end{enumerate}
+The Value architecture pushes this factorization principle in a specific
+direction: it eliminates the neural front-end entirely.  Where NVSA uses
+a learned encoder to project raw input into VSA space, the Value
+encoding assigns deterministic binary representations directly from raw
+bytes.  This removes encoder training at the cost of a rigid,
+input-dependent encoding that cannot adapt to the statistics of a
+particular dataset.  The trade-off is clear: guaranteed determinism and
+reproducibility versus the flexibility of learned representations.
 
 \paragraph{HD Computing as a Hardware Paradigm.}
-Rahimi et al.\ \citep{rahimi2017hd} established hyperdimensional computing
-as a nanoscalable paradigm, demonstrating that HD vectors with thousands
-of dimensions can perform classification, language recognition, and
-biosignal processing with simple, fast-learning algorithms amenable to
-3D nanometer circuit technology.  Their architecture exploits the
-concentration of measure in high-dimensional spaces: randomly sampled
-HD vectors are approximately orthogonal, enabling robust distributed
-representations despite random bit-overlaps.
+Rahimi et al.\ \citep{rahimi2017hd} established hyperdimensional
+computing as a nanoscalable paradigm, demonstrating that HD vectors with
+thousands of dimensions can perform classification, language recognition,
+and biosignal processing with fast-learning algorithms amenable to 3D
+nanometer circuit technology.  Their architecture exploits concentration
+of measure in high-dimensional spaces: randomly sampled HD vectors are
+approximately orthogonal, enabling robust distributed representations.
 
-Our 8191-bit Value operates at a dimensionality ($D = 8191$) that approaches
-the classical HD regime ($D \geq 4{,}000$), gaining both the concentration-of-measure
-benefits of high-dimensional spaces and the exact prime-factor uniqueness of
-the deterministic encoding.  The compensation mechanism for any residual
-collision risk is the non-commutative affine group: where classical HD relies
-on dimensionality alone for collision resistance, we additionally rely on
-67 million composable affine transforms under $\text{GF}(8191)$ plus the winding
-counter to separate sequences that share identical Value content.  This occupies
-a novel point in the design space---deterministic algebraic separation
-layered on top of high-dimensional geometric separation.
+The Value operates at a dimensionality ($D = 8192$) within the classical
+HD regime ($D \ge 4{,}000$), gaining the concentration-of-measure
+benefits of high-dimensional spaces.  The compensation for any residual
+collision risk between similar inputs is the population of frames in
+the Region: rather than encoding all information into a single
+high-dimensional vector, the system distributes content across many
+frames that interact through boolean operations.
 
 \paragraph{VSA on Emerging Hardware.}
-Kleyko et al.\ \citep{kleyko2022vsa} provide a comprehensive survey of VSA
-as a computing framework for emerging hardware, from in-memory computing to
-neuromorphic chips.  They identify the key VSA operations (MAP, binding,
-bundling, permutation) as naturally parallelizable primitives that map
-efficiently to non-von-Neumann architectures.  Our Metal/CUDA/CPU kernel
-dispatch layer (\Cref{sec:multi_backend}) instantiates exactly this
-principle: the entire GF(8191) resolver pipeline reduces to SIMD bitwise
-operations with no data-dependent branching, making it trivially portable
-across any hardware that supports popcount and integer comparison.
+Kleyko et al.\ \citep{kleyko2022vsa} survey VSA as a computing framework
+for emerging hardware, from in-memory computing to neuromorphic chips.
+They identify the core VSA operations---binding, bundling, and
+permutation---as naturally parallelizable primitives that map efficiently
+to non-von-Neumann architectures.  The multi-substrate backend described
+in \Cref{sec:multi_backend} instantiates this principle: the entire
+execution pipeline reduces to SIMD bitwise operations with no
+data-dependent branching, making it portable across any hardware that
+supports population count and integer comparison.

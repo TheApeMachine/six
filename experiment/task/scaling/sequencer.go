@@ -18,6 +18,7 @@ type SequencerExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -42,8 +43,21 @@ func (experiment *SequencerExperiment) Dataset() data.Provider {
 }
 
 func (experiment *SequencerExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	ds, ok := experiment.dataset.(*SyntheticDataset)
+	if !ok {
+		experiment.prompt = experiment.prompt[:0]
+		experiment.holdouts = nil
+		return experiment.prompt
+	}
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 32)
 	return experiment.prompt
+}
+
+func (experiment *SequencerExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *SequencerExperiment) AddResult(results tools.ExperimentalData) {
@@ -84,3 +98,5 @@ func (experiment *SequencerExperiment) Finalize(substrate any) error {
 
 	return nil
 }
+
+var _ tools.HoldoutProvider = (*SequencerExperiment)(nil)

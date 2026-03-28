@@ -23,6 +23,7 @@ type CompositionalExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -49,8 +50,31 @@ func (experiment *CompositionalExperiment) Section() string        { return "tex
 func (experiment *CompositionalExperiment) Dataset() data.Provider { return experiment.dataset }
 
 func (experiment *CompositionalExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	pp, ok := experiment.dataset.(data.PromptProvider)
+	if !ok {
+		return experiment.prompt
+	}
+	for p := range pp.GeneratePrompts() {
+		if len(p.Text) < 8 {
+			continue
+		}
+		prefix, hold := tools.BytePrefixFraction(p.Text, 0.7)
+		if hold == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, prefix)
+		experiment.holdouts = append(experiment.holdouts, []byte(hold))
+	}
 	return experiment.prompt
+}
+
+func (experiment *CompositionalExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 // 30% right holdout: system must reconstruct the ending of each story.
