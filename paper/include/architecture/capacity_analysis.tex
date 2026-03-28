@@ -1,0 +1,110 @@
+% ============================================================================
+% CAPACITY ANALYSIS OF THE BINARY REPRESENTATION
+% ============================================================================
+\subsection{Representational Capacity}
+\label{sec:capacity_analysis}
+
+This subsection analyzes the state space of the Value representation and
+compares it with the capacity of conventional parameterized architectures.
+
+\subsubsection{State Space of a Single Value}
+
+A Value occupies $D = 8192$ bits of storage (128 words $\times$ 64
+bits) and admits $2^{8192}$ possible binary configurations.  Of these,
+the data region (words 0--59, yielding 3840 bits) contributes
+$2^{3840}$ distinguishable data states, while the program region
+(words 79--127, yielding 3136 bits encoding 98 instruction slots)
+contributes $2^{3136}$ distinguishable programs.  Because data and
+program regions are independently addressable, the joint state space of
+a single frame is the Cartesian product of its regions---substantially
+larger than either region alone.
+
+\subsubsection{Combinatorial Interaction in Regions}
+
+A Region holds up to 64 frames in its primary mixer and up to 256 in its
+spill channel.  When two frames interact through a boolean operation, the
+result depends on both frames' data and program contents.  For $N$ frames
+in a Region, the number of ordered interaction pairs is $N(N-1)$, and
+each pair can produce a distinct output depending on which boolean
+operation is applied.  With 16 possible operations per instruction slot,
+the reachable state space after $k$ interaction steps grows
+combinatorially.
+
+This combinatorial expansion is not merely theoretical: the
+non-deterministic read order of the Region means that repeated
+executions over the same initial set of frames may explore different
+interaction sequences, providing a form of stochastic search over the
+space of possible compositions.
+
+\subsubsection{Comparison with Parameter-Count Scaling}
+\label{sec:capacity_comparison}
+
+Table~\ref{tab:capacity_comparison} contrasts the representational state
+space of the Value architecture with that of conventional parameterized
+models.
+
+\begin{table}[h]
+  \centering
+  \caption{Memory footprint and representational state space.  The Value
+           architecture achieves comparable information density per byte
+           to parameterized models, but the structure of the state space
+           differs: Values compose through boolean operations rather than
+           matrix multiplications.}
+  \label{tab:capacity_comparison}
+  \begin{tabular}{lrrr}
+    \toprule
+    \textbf{Architecture}
+      & \textbf{Memory}
+      & \textbf{State Space}
+      & \textbf{$\log_{10}$ States/KB} \\
+    \midrule
+    8192-dim float32 embedding
+      & 32\,KB
+      & $\sim 2^{262{,}144}$ (continuous)
+      & $\sim 2{,}467$ \\
+    GPT-2 (117M params, float16)
+      & 234\,MB
+      & $\sim 2^{1.87 \times 10^9}$
+      & $\sim 2{,}406$ \\
+    \addlinespace
+    1K Values (mixed)
+      & 1\,MB
+      & $(2^{8192})^{1000}$
+      & $\sim 2{,}467$ \\
+    1M Values (mixed)
+      & 1\,GB
+      & $(2^{8192})^{10^6}$
+      & $\sim 2{,}467$ \\
+    \bottomrule
+  \end{tabular}
+\end{table}
+
+The states-per-kilobyte ratio is comparable across architectures, as
+information density is ultimately bounded by the entropy of the
+underlying bits.  The difference lies in the structure of the state
+space and the cost of navigating it:
+
+\begin{itemize}[nosep]
+  \item In a parameterized model, the state space is navigated through
+        matrix multiplications and gradient updates over continuous
+        parameters.  The cost per step scales with the number of
+        parameters.
+  \item In the Value architecture, the state space is navigated through
+        boolean operations over binary frames.  Each operation executes
+        in constant time per 64-bit word, independent of the number of
+        stored Values.  Navigation is combinatorial rather than
+        gradient-driven: the system explores states through composition
+        of elementary boolean functions rather than through optimization
+        of a differentiable objective.
+\end{itemize}
+
+\subsubsection{Implications}
+
+The capacity analysis highlights a trade-off.  Parameterized models
+achieve efficient navigation of their state space through learned
+projections, at the cost of requiring gradient-based training and
+floating-point arithmetic.  The Value architecture eliminates both
+requirements but relies on combinatorial exploration through boolean
+composition, which may require many interaction steps to reach a
+desired state.  The experimental sections that follow provide empirical
+evidence for what this exploration achieves in practice.

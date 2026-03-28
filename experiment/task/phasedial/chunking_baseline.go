@@ -17,6 +17,7 @@ type ChunkingBaselineExperiment struct {
 	tableData         []tools.ExperimentalData
 	dataset           data.Provider
 	prompt            []string
+	holdouts          [][]byte
 	evaluator         *tools.Evaluator
 	chunkingRows      []map[string]any
 	falsificationRows []map[string]any
@@ -48,12 +49,19 @@ func (experiment *ChunkingBaselineExperiment) Dataset() data.Provider {
 }
 
 func (experiment *ChunkingBaselineExperiment) Prompts() []string {
-	experiment.prompt = []string{}
-
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
 	return experiment.prompt
 }
 
+func (experiment *ChunkingBaselineExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
+}
+
 func (experiment *ChunkingBaselineExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 

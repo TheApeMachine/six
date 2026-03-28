@@ -1,18 +1,49 @@
-\subsection{Algebraic Topology and Group-Equivariant Computation}
+% ============================================================================
+% RELATED: ALGEBRAIC STRUCTURE AND GROUP-EQUIVARIANT COMPUTATION
+% ============================================================================
+\subsection{Algebraic Structure and Group-Equivariant Computation}
 \label{sec:related_algebraic_topology}
 
-The system's use of discrete non-commutative transformations as a reasoning engine directly engages the \emph{Geometric Deep Learning} programme formalized by Bronstein et al.\ \citep{bronstein2021geometric}. Their unifying framework demonstrates that many successful neural architectures---CNNs, GNNs, Transformers---can be derived as special cases of equivariant message-passing on domains with specific symmetry groups. The architecture instantiates this principle not as a learned neural network layer, but as the literal algebra of its value substrate.
+The Geometric Deep Learning programme formalized by Bronstein et al.\
+\citep{bronstein2021geometric} demonstrates that many successful neural
+architectures---CNNs, GNNs, Transformers---can be derived as special
+cases of equivariant message-passing on domains with specific symmetry
+groups.  Cohen and Welling's work on Group Equivariant Convolutional
+Networks \citep{cohen2016group} provides the formal justification: when
+the underlying data possesses a known symmetry, restricting
+transformations to that symmetry group improves sample efficiency and
+generalization.
 
-\paragraph{The Affine Group $\text{Aff}(\text{GF}(8191))$ and Non-Commutative Computation.}
-The \emph{affine group} over $\text{GF}(8191)$---the Mersenne prime $2^{13} - 1$---serves as the discrete algebraic structure governing the system's value transformations. Each affine map $f(x) = ax + b \pmod{8191}$ with $a \neq 0$ composes non-commutatively, providing:
+The Value architecture relates to this programme through its boolean
+instruction set.  The sixteen two-input boolean functions form a
+closed algebraic structure: composing any two operations yields another
+operation expressible as a sequence of truth-table applications.  When
+the same instruction is applied uniformly across all bit positions of a
+frame, the operation is translation-equivariant in the bit-position
+coordinate---shifting the input by $k$ positions and then applying the
+operation produces the same result as applying the operation and then
+shifting.
 
-\begin{enumerate}[nosep]
-  \item \textbf{Non-commutativity:} Affine composition $f \circ g \neq g \circ f$ inherently encodes sequence order. Two distinct orderings of the same semantic content traverse different affine paths and produce distinguishable geometric fingerprints without explicit positional embeddings.
-  \item \textbf{Group size:} $\text{Aff}(\text{GF}(8191))$ contains $8190 \times 8191 = 67{,}083{,}690$ elements---over sixty-seven million composable transforms---providing a vast state space for encoding structural distinctions.
-  \item \textbf{Equivariance:} Value operations that route data through the affine group are equivariant maps: applying a group element before versus after the operation commutes, ensuring that semantic invariants are preserved across all addressable states.
-\end{enumerate}
+This equivariance is a weaker property than that of learned
+group-equivariant networks, which can adapt to continuous symmetries
+(rotations, reflections) of the input domain.  The Value architecture
+instead provides a fixed, discrete algebraic structure---the boolean
+algebra over $\{0,1\}^{8192}$---that is deterministic and
+algebraically closed by construction.  The trade-off is rigidity:
+the system cannot learn new symmetries from data, but the symmetries it
+does possess are guaranteed rather than approximate, and they can be
+exploited at the hardware level through SIMD parallelism over 64-bit
+words.
 
-Cohen and Welling's seminal work on \emph{Group Equivariant Convolutional Networks} \citep{cohen2016group} provides the formal justification for why restricting transformations to a known symmetry group improves sample efficiency and generalization. Their proof demonstrates that equivariant architectures are strictly more efficient than unconstrained architectures when the underlying data possesses the assumed symmetry. In this architecture, the symmetry is not assumed from the data---it is \emph{imposed} by the substrate's algebra. The $\text{GF}(8191)$ affine group defines a fixed, deterministic coordinate system through which all data must pass, providing a structural prior that is analogous to (but more rigid than) the translational equivariance of standard CNNs.
-
-\paragraph{Implications for Value Addressing.}
-Each 8191-bit core Value (128 blocks $\times$ 64 bits) carries an affine operator $f(x) = ax + b \pmod{8191}$ as a local transition rule. Composing these operators along a sequence of values produces a path-dependent fingerprint in the affine group that encodes the full sequential context. This is the algebraic analogue of a learned positional encoding---except that it is deterministic, non-colliding, and algebraically invertible.
+\paragraph{Non-Commutativity and Sequence Sensitivity.}
+Although individual boolean operations are bitwise-commutative (AND is
+commutative), sequences of operations applied to a frame are generally
+\emph{non-commutative}: applying operation $A$ followed by operation $B$
+to a frame typically produces a different result than applying $B$
+followed by $A$.  This property allows the order in which frames
+interact during Region mixing to encode structural information.  Two
+sequences of the same frames, mixed in different orders, may yield
+different final states.  In this sense, the non-commutativity of
+composed boolean operations serves a role analogous to positional
+encoding in sequence models, without requiring an explicit position
+representation.

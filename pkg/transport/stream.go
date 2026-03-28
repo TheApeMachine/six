@@ -72,7 +72,8 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 	}
 
 	if _, err = io.ReadFull(stream.pr, stream.frame); err != nil {
-		if errors.Is(err, io.ErrUnexpectedEOF) {
+		// Immediate EOF (empty pipe) is io.EOF; short read then EOF is ErrUnexpectedEOF.
+		if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
 			return 0, io.EOF
 		}
 
@@ -86,9 +87,9 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 }
 
 /*
-Write forwards aligned Value frames to every Region on both sides, then enqueues
-the same bytes on the PipeWriter. p must be a whole multiple of primitive.ByteSize;
-building frames is the caller's responsibility.
+Write enqueues aligned Value frames on the PipeWriter first, then fans the same
+payload out to every Region on both sides. p must be a whole multiple of
+primitive.ByteSize; building frames is the caller's responsibility.
 */
 func (stream *Stream) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
@@ -107,19 +108,21 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 		return 0, NewStreamError(StreamErrNoRegions)
 	}
 
+	// Enqueue on the pipe first so concurrent readers can drain the ring while
+	// region mixers take the same payload (avoids pipe deadlock before regions).
+	if _, err = stream.pw.Write(p); err != nil {
+		return 0, errnie.Error(
+			NewStreamError(StreamErrFail),
+			"error", err,
+		)
+	}
+
 	for side := 0; side < 2; side++ {
 		for _, reg := range stream.regions[side] {
 			if _, werr := reg.Write(p); werr != nil {
 				return 0, werr
 			}
 		}
-	}
-
-	if _, err = stream.pw.Write(p); err != nil {
-		return 0, errnie.Error(
-			NewStreamError(StreamErrFail),
-			"error", err,
-		)
 	}
 
 	return len(p), nil

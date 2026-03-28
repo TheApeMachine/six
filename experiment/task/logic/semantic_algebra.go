@@ -12,9 +12,13 @@ import (
 type SemanticAlgebraExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
+	facts     []string
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
+
+var _ tools.WorkspaceTokenObserver = (*SemanticAlgebraExperiment)(nil)
 
 func NewSemanticAlgebraExperiment() *SemanticAlgebraExperiment {
 	// We load a generated dataset of logical facts to test GF(257) phase cancellation
@@ -27,6 +31,7 @@ func NewSemanticAlgebraExperiment() *SemanticAlgebraExperiment {
 
 	return &SemanticAlgebraExperiment{
 		tableData: []tools.ExperimentalData{},
+		facts:     append([]string(nil), facts...),
 		dataset:   local.New(local.WithStrings(facts)),
 		// Baseline 0.95: algebraic cancellation in GF(257) is exact.
 		// If the stored phase is Roy·is_in·Kitchen and the query cancels
@@ -48,9 +53,27 @@ func (experiment *SemanticAlgebraExperiment) Dataset() data.Provider {
 }
 
 func (experiment *SemanticAlgebraExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	for _, f := range experiment.facts {
+		pr, ho := tools.BytePrefixFraction(f, 0.45)
+		if ho == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, pr)
+		experiment.holdouts = append(experiment.holdouts, []byte(ho))
+	}
 	return experiment.prompt
 }
+
+func (experiment *SemanticAlgebraExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
+}
+
+func (*SemanticAlgebraExperiment) ObserveWorkspaceAsTokens() bool { return true }
 
 func (experiment *SemanticAlgebraExperiment) Section() string {
 	return "logic"

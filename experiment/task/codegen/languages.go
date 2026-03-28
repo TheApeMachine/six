@@ -10,6 +10,8 @@ import (
 	"github.com/theapemachine/six/experiment/projector"
 )
 
+var _ data.PromptProvider = (*multiDataset)(nil)
+
 var samples = 100
 
 // Ensure LanguagesExperiment implements the full interface at compile time.
@@ -40,6 +42,7 @@ type LanguagesExperiment struct {
 	tableData []tools.ExperimentalData
 	prose     []projector.ProseEntry
 	prompt    []string
+	holdouts  [][]byte
 	seen      map[string]struct{}
 	evaluator *tools.Evaluator
 }
@@ -99,8 +102,31 @@ func langDisplayNames() []string {
 }
 
 func (experiment *LanguagesExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	md, ok := experiment.dataset.(*multiDataset)
+	if !ok {
+		return experiment.prompt
+	}
+	for p := range md.GeneratePrompts() {
+		if p.Text == "" {
+			continue
+		}
+		prefix, tail := tools.ByteSuffixLastN(p.Text, 50)
+		if tail == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, prefix)
+		experiment.holdouts = append(experiment.holdouts, []byte(tail))
+	}
 	return experiment.prompt
+}
+
+func (experiment *LanguagesExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *LanguagesExperiment) AddResult(results tools.ExperimentalData) {
@@ -295,4 +321,23 @@ func (md *multiDataset) Read(p []byte) (n int, err error) {
 
 func (md *multiDataset) Close() error {
 	return nil
+}
+
+func (md *multiDataset) GeneratePrompts() iter.Seq[data.Prompt] {
+	return func(yield func(data.Prompt) bool) {
+		var globalID uint32
+		for _, ds := range md.datasets {
+			pp, ok := ds.(data.PromptProvider)
+			if !ok {
+				continue
+			}
+			for p := range pp.GeneratePrompts() {
+				p.SampleID = globalID
+				globalID++
+				if !yield(p) {
+					return
+				}
+			}
+		}
+	}
 }

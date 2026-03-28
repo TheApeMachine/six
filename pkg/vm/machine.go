@@ -32,6 +32,10 @@ type Machine struct {
 	regions      []*primitive.Region
 	dataset      io.ReadCloser
 	regionsCount int
+	// writePending holds a tail shorter than primitive.ByteSize between Writes.
+	// io.Copy uses arbitrary buffer sizes; transport.Stream requires each Write
+	// to be a multiple of ByteSize.
+	writePending []byte
 }
 
 type machineOption func(*Machine)
@@ -123,13 +127,58 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 }
 
 func (machine *Machine) Write(p []byte) (n int, err error) {
-	return machine.stream.Write(p)
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if machine.stream == nil {
+		return 0, errnie.Error(
+			NewMachineError(MachineErrFailStart),
+			"msg", "nil stream",
+		)
+	}
+
+	machine.writePending = append(machine.writePending, p...)
+	aligned := len(machine.writePending) - (len(machine.writePending) % primitive.ByteSize)
+	if aligned == 0 {
+		return len(p), nil
+	}
+
+	if _, err = machine.stream.Write(machine.writePending[:aligned]); err != nil {
+		return 0, errnie.Error(err)
+	}
+	machine.writePending = append(machine.writePending[:0], machine.writePending[aligned:]...)
+	return len(p), nil
+}
+
+// flushWritePending pads any tail to a full frame with zeros and forwards it.
+// Call before CloseWrite / stream teardown so the byte length is a multiple of ByteSize.
+func (machine *Machine) flushWritePending() error {
+	if machine.stream == nil || len(machine.writePending) == 0 {
+		return nil
+	}
+	pending := machine.writePending
+	rem := len(pending) % primitive.ByteSize
+	var block []byte
+	if rem == 0 {
+		block = pending
+	} else {
+		block = make([]byte, len(pending)+primitive.ByteSize-rem)
+		copy(block, pending)
+	}
+	if _, err := machine.stream.Write(block); err != nil {
+		return err
+	}
+	machine.writePending = machine.writePending[:0]
+	return nil
 }
 
 // CloseWrite signals EOF to stream readers after the last framed Write.
 func (machine *Machine) CloseWrite() error {
 	if machine.stream == nil {
 		return nil
+	}
+	if err := machine.flushWritePending(); err != nil {
+		return errnie.Error(err)
 	}
 	return machine.stream.CloseWrite()
 }
@@ -146,6 +195,9 @@ func (machine *Machine) Close() error {
 		machine.dataset = nil
 	}
 	if machine.stream != nil {
+		if err := machine.flushWritePending(); err != nil {
+			errs = append(errs, err)
+		}
 		if err := machine.stream.Close(); err != nil {
 			errs = append(errs, err)
 		}

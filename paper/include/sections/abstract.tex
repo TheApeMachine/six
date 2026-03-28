@@ -2,13 +2,25 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-We present a computational substrate in which data, execution, and storage are unified into a single discrete representation. Rather than separating memory, program logic, and inference into distinct components, the system encodes all three within a shared value space and executes by navigating this space directly.
+We present a computational substrate in which data, programs, and execution
+state occupy a single fixed-width binary representation.  The fundamental
+primitive is a 1024-byte frame---128 sixty-four-bit words---partitioned into
+regions for token data, execution registers, and an embedded program.
+Computation proceeds through the complete set of sixteen two-input boolean
+truth tables, applied across frame regions by a multi-substrate backend that
+dispatches to CPU, CUDA, or Metal hardware.
 
-Each unit of information is represented as a fixed-width binary value and stored within a structured memory substrate indexed by spatial coordinates. Computation proceeds not by applying learned parameters or explicit control flow, but by composing transformations over these stored values and resolving queries through global search primitives.
+Frames are deposited into concurrent mixing pools, termed Regions, where
+non-deterministic interaction between frames drives computation without
+centralized control flow.  A configurable firmware system provides
+pre-compiled programs---including bootstrapping, structural zeroing, and
+self-propagating replication---that can be loaded into any frame's program
+region, enabling a form of self-modification within the substrate.
 
-Generation is framed as a constraint resolution process: given partial structure, the system retrieves or synthesizes continuations by traversing the value space and composing existing transformations. New execution patterns discovered during this process are captured and reused, enabling a form of self-extending behavior without gradient-based training.
-
-The system operates entirely through deterministic, hardware-native operations and produces reproducible outputs across modalities. We demonstrate its behavior across multiple experimental domains and describe a pipeline in which the system generates both results and the corresponding research artifact automatically.
-
-This work explores an alternative to parameterized models, where computation emerges from the organization of memory rather than from learned weights.
+The system processes all input modalities as raw byte sequences, requiring
+no learned encoders or modality-specific preprocessing.  We evaluate the
+architecture across text classification, code generation, image
+reconstruction, logical reasoning, and text generation.  All experiments
+execute within the substrate and produce their own documentation artifacts,
+yielding the present paper as a structured output of the system itself.
 \end{abstract}

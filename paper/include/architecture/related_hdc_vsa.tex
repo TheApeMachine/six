@@ -1,15 +1,47 @@
+% ============================================================================
+% RELATED: HYPERDIMENSIONAL COMPUTING AND VECTOR SYMBOLIC ARCHITECTURES
+% ============================================================================
 \subsection{Hyperdimensional Computing and Vector Symbolic Architectures}
 \label{sec:related_hdc_vsa}
 
-The computational substrate is most directly situated within the framework of \emph{Hyperdimensional Computing} (HDC) and \emph{Vector Symbolic Architectures} (VSA). In the canonical VSA formulation \citep{kanerva2009hyperdimensional}, data is represented as high-dimensional random vectors (typically $D \ge 10{,}000$), and computation is performed through three algebraic operations: \emph{binding} (element-wise multiplication or circular convolution), \emph{bundling} (element-wise addition or disjunction), and \emph{permutation} (coordinate rotation). These operations form an approximate algebra over a vector space, enabling compositional representations of structured data without learned parameters.
+The Value representation is situated within the framework of
+\emph{Hyperdimensional Computing} (HDC) and \emph{Vector Symbolic
+Architectures} (VSA).  In the canonical VSA formulation
+\citep{kanerva2009hyperdimensional}, data is represented as
+high-dimensional random vectors (typically $D \ge 10{,}000$) and
+manipulated through three algebraic operations: \emph{binding}
+(element-wise multiplication or circular convolution), \emph{bundling}
+(element-wise addition or disjunction), and \emph{permutation}
+(coordinate rotation).  These operations form an approximate algebra
+over a vector space, enabling compositional representations of
+structured data without learned parameters.
 
-The \emph{Value} representation maps directly onto this framework but with critical architectural departures. Each byte identity is encoded as a sparse 8191-bit binary hypervector---the prime-basis bitset---where active bits correspond to the prime factors of a deterministic hash. In VSA terminology:
+The Value maps onto this framework with specific design choices.  At
+8192 bits, each frame operates in a dimensionality approaching the
+classical HD regime ($D \ge 4{,}000$), gaining the
+concentration-of-measure benefits that make high-dimensional binary
+vectors approximately orthogonal under random sampling.  The boolean
+instruction set provides all sixteen two-input operations, subsuming the
+standard VSA binding and bundling operators as special cases: bitwise AND
+serves as a similarity probe, bitwise OR implements bundling through
+disjunction, and circular shift (achievable through register-offset
+addressing) provides positional binding.
 
-\begin{itemize}[nosep]
-  \item \textbf{Binding} is implemented as \texttt{RollLeft} (circular bit-shift), which encodes positional information into the hypervector. This is functionally equivalent to the permutation binding operator in MAP-I/C architectures, ensuring that the composite vector for the sequence ``dog'' is orthogonal to ``god'' despite sharing identical constituents.
-  \item \textbf{Bundling} is implemented as \texttt{ValueOR} (bitwise disjunction), which superposes multiple identities into a single bitfield. This satisfies the VSA superposition axiom: the bundled vector approximately preserves similarity to each of its components when probed via \texttt{AND}-popcount.
-\end{itemize}
+Gayler's analysis \citep{gayler2003vector} demonstrated that VSAs
+support systematic compositional generalization because binding and
+bundling preserve algebraic structure.  The Value architecture inherits
+this property: the encoding of input bytes into the data region is
+deterministic, and the sixteen boolean operations are closed over the
+binary frame, meaning that any sequence of operations on valid frames
+produces a valid frame.
 
-Gayler's foundational analysis \citep{gayler2003vector} demonstrated that VSAs provide a viable substrate for commonsense reasoning, precisely because the algebraic structure of binding and bundling supports systematic compositional generalization---a property that standard dense embeddings achieve only through expensive gradient-based training. The system inherits this guarantee: the prime-basis encoding is deterministic and compositional by construction, and the capacity of the 8191-bit value is analytically bounded by Shannon entropy rather than by learned embedding quality.
-
-The critical innovation relative to classical HDC is the \emph{Topological Entropy Routing} mechanism (\Cref{sec:entropy_routing}). Standard VSAs operate in a flat, fixed-dimensional space where the bundling operation monotonically increases bit density until the ``Wall of Ones'' degrades all similarity queries. The system escapes this Shannon limit by embedding values into the $\text{GF}(8191)$ affine group, converting scalar density pressure into algebraic expansion. This transforms the VSA from a static container into a dynamic engine with analytically unbounded capacity.
+A notable difference from classical HDC is the absence of a fixed
+bundling threshold.  Standard VSAs operate in a flat vector space where
+repeated bundling via disjunction monotonically increases the population
+count (the number of active bits), eventually degrading all similarity
+queries when the count exceeds approximately 50\% of the dimensionality.
+The Value architecture addresses this through the multi-tier Region
+structure: rather than accumulating all information into a single vector,
+the system distributes content across a population of frames that
+interact combinatorially.  Saturation is a property of individual frames,
+not of the system as a whole.

@@ -1,51 +1,93 @@
 % ============================================================================
-% THE 8191-BIT VALUE REPRESENTATION
+% REPRESENTATION: THE VALUE PRIMITIVE
 % ============================================================================
 \subsection{Representation and Primitive Operations}
+\label{sec:representation}
 
-The system operates on a single primitive type, referred to as a \emph{Value}, which is a fixed-width binary structure. All computation is expressed as transformations over these Values using standard bitwise operations.
+The system operates on a single primitive type called a \emph{Value}: a
+fixed-width binary frame of 1024 bytes, organized as 128 sixty-four-bit
+words.  All computation is expressed as transformations over Values using
+the complete set of two-input boolean functions.
 
-At the lowest level, the system defines its instruction set as the complete set of 16 two-input boolean functions. Each operation corresponds to a 4-bit truth table, allowing any possible boolean transformation between two input regions to be expressed directly.
+\paragraph{Frame Layout.}
+Each Value is partitioned into contiguous regions with distinct roles.
+The \emph{data region} (words 0--59) holds packed token identifiers
+derived from the input byte stream, together with a unique frame
+identifier and forward/backward linking pointers.  Words 61--63 store
+execution \emph{state}: a slot index, a sequence index, and a running
+XOR accumulator.  Word~64 carries a 64-bit \emph{affinity} bitmask that
+encodes topological routing preferences, and word~65 serves as a
+temporary \emph{link} pointer for grouping related frames.  A 256-bit
+\emph{gossip} signature occupies words 66--69, providing a compact
+fingerprint for distributed routing.  Word~70 holds an 8-bit
+time-to-live (TTL) counter in its low byte.
 
-Rather than introducing higher-level arithmetic or symbolic primitives, all behavior is constructed from these elementary operations. Complex transformations emerge through repeated application of simple boolean functions such as AND, OR, XOR, and their complements.
+Seven general-purpose \emph{registers} (words 71--77) and a
+\emph{program counter} (word~78) support execution.  The remaining 49
+words (79--127) constitute the \emph{program region}, which stores up to
+98 thirty-two-bit instruction slots.
 
-\paragraph{Instructions as Boolean Functions.}
+This layout is not fixed at compile time.  A configuration file
+specifies the word offsets and bit widths for every region, allowing the
+frame geometry to be altered without modifying the runtime.
 
-Each instruction in the system is encoded as a 4-bit truth table representing a complete two-input boolean function. Rather than selecting from a predefined set of operations (e.g., AND, OR, XOR), the system interprets the instruction directly as a mapping from input bit pairs to output bits.
+\paragraph{Instructions as Boolean Truth Tables.}
+The instruction set consists of the sixteen two-input boolean functions,
+each encoded as a four-bit truth table.  During execution, pairs of bits
+drawn from a source and a destination region are used to index into the
+truth table; the resulting bit is written back to the destination.  The
+sixteen operations include the familiar AND, OR, XOR, and their
+complements, as well as projection, negation, and the constant
+functions.  No higher-level arithmetic or symbolic primitives are
+provided; all behavior is constructed by composing these elementary
+operations.
 
-During execution, pairs of bits from source and destination regions are used to index into this truth table, and the resulting bit is written back into memory. This process is applied uniformly across regions, enabling bulk evaluation of boolean functions over structured data.
+Because the opcode \emph{is} the truth table---not a selector for a
+separate implementation---there is no distinction between instruction
+decoding and execution.  The operation is the function.
 
-As a result, the system does not implement operations in the conventional sense. Instead, it evaluates arbitrary boolean functions encoded in memory, using the same representation for both instructions and data. This eliminates the distinction between instruction decoding and execution: the instruction is the function.
-
-\paragraph{Region-Based Execution.}
-Operations are applied over contiguous regions of a Value. A small set of registers defines:
-\begin{itemize}
-\item which Value to operate on (self or partner),
-\item the offset within that Value,
-\item and the length of the region.
-\end{itemize}
-
-Execution consists of selecting two regions and applying a chosen boolean function across them. The result is written back into the target region. This model reduces all computation to structured memory transformation.
+\paragraph{Instruction Encoding.}
+Each instruction is packed into a thirty-two-bit word with three fields:
+a source operand, a destination operand, and a four-bit opcode.  Operands
+may reference one of the seven general-purpose registers, the program
+counter, a firmware word, or a fourteen-bit immediate value.  A flag
+field distinguishes register references from immediates and pointer
+dereferences.  This encoding allows the compiler to translate a textual
+assembly language---one instruction per line, each specifying a source,
+destination, and operation---into the packed binary form.
 
 \paragraph{Programs as Data.}
-Programs are stored within the same Value structure that holds data. A program is simply a sequence of region operations, each specifying:
-\begin{itemize}
-\item source regions,
-\item destination regions,
-\item and a boolean operation.
+Programs reside within the same frame that holds data.  The program
+region (words 79--127) is addressable by the same boolean operations
+that act on the data region, and the program counter advances through
+this region during execution.  A frame may therefore carry stored
+information, an executable program, or both.  Self-modifying behavior
+is a natural consequence: an instruction in the program region can
+target another instruction in the same region, rewriting the program
+during execution.
+
+\paragraph{Firmware.}
+The system provides a library of pre-compiled programs called
+\emph{firmware}.  Each firmware program is a short sequence of boolean
+instructions compiled from a textual source at initialization.  Six
+firmware types are defined:
+
+\begin{itemize}[nosep]
+  \item \textbf{Bootloader:} initializes a frame's registers and
+        prepares it for execution.
+  \item \textbf{Tombstone:} zeroes structural metadata to mark a frame
+        as inactive.
+  \item \textbf{Affinity:} computes an XOR accumulation of the data
+        region and adopts link metadata from a partner frame.
+  \item \textbf{Shatter:} applies a three-pass AND operation that
+        decomposes a frame's data region.
+  \item \textbf{Wipe:} zeroes the data region while preserving
+        structural metadata.
+  \item \textbf{Viral:} propagates a frame's program region into a
+        partner frame, implementing self-replicating code.
 \end{itemize}
 
-Because programs are embedded directly within Values, there is no distinction between code and data. A Value may represent stored information, an executable program, or both simultaneously.
-
-\paragraph{Control Through State Mutation.}
-Control flow is achieved by modifying designated regions within the Value, such as the program counter. Branching and looping are implemented by writing new positions into these regions, rather than through external control mechanisms.
-
-\paragraph{Implications.}
-This design yields a computational model with three defining properties:
-\begin{itemize}
-\item \textbf{Minimal primitives:} all computation reduces to boolean truth tables.
-\item \textbf{Uniform substrate:} data, programs, and execution state share the same representation.
-\item \textbf{Direct execution:} behavior emerges from transforming memory rather than invoking external instructions.
-\end{itemize}
-
-The expressive power of the system arises not from complex operations, but from the composition of simple ones applied across structured memory.
+Firmware is loaded into a frame's program region before execution
+begins.  Because firmware programs use the same instruction encoding as
+any other program, they are indistinguishable from user-defined programs
+at runtime.

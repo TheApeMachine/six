@@ -20,8 +20,14 @@ type BabiExperiment struct {
 	prose     []projector.ProseEntry
 	dataset   *huggingface.BabiQADataset
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
+
+var (
+	_ tools.HoldoutProvider        = (*BabiExperiment)(nil)
+	_ tools.WorkspaceTokenObserver = (*BabiExperiment)(nil)
+)
 
 var samples = 100
 
@@ -70,9 +76,28 @@ func (experiment *BabiExperiment) Prompts() []string {
 
 	for p := range experiment.dataset.GeneratePrompts() {
 		experiment.prompt = append(experiment.prompt, p.Text)
+		if p.HasLabel && strings.TrimSpace(p.Label) != "" {
+			experiment.holdouts = append(experiment.holdouts, []byte(strings.TrimSpace(p.Label)))
+		} else {
+			experiment.holdouts = append(experiment.holdouts, nil)
+		}
 	}
 	return experiment.prompt
 }
+
+func (experiment *BabiExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	experiment.Prompts()
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	h := experiment.holdouts[idx]
+	if len(h) == 0 {
+		return nil, false
+	}
+	return h, true
+}
+
+func (*BabiExperiment) ObserveWorkspaceAsTokens() bool { return true }
 
 func (experiment *BabiExperiment) Section() string {
 	return "logic"

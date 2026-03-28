@@ -10,6 +10,8 @@ import (
 	"github.com/theapemachine/six/experiment/projector"
 )
 
+var _ tools.HoldoutProvider = (*TextClassificationExperiment)(nil)
+
 // ag_news label indices → human readable names
 var agNewsLabels = []string{"world", "sports", "business", "sci_tech"}
 
@@ -31,6 +33,7 @@ type TextClassificationExperiment struct {
 	prose     []projector.ProseEntry
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -70,10 +73,35 @@ func (experiment *TextClassificationExperiment) Dataset() data.Provider {
 	return experiment.dataset
 }
 
-// Prompts creates test prompts from the same dataset, stripping label
-// suffixes via SUBSTRING holdout so the machine sees pure article text.
+// Prompts builds one prompt per structured sample: article text without the
+// classification suffix (GeneratePrompts.Text). Holdout is the label string
+// for byte-level resonance scoring against Observed.
 func (experiment *TextClassificationExperiment) Prompts() []string {
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	pp, ok := experiment.dataset.(data.PromptProvider)
+	if !ok {
+		return experiment.prompt
+	}
+	for p := range pp.GeneratePrompts() {
+		if p.Text == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, p.Text)
+		var ho []byte
+		if p.HasLabel && p.Label != "" {
+			ho = []byte(p.Label)
+		}
+		experiment.holdouts = append(experiment.holdouts, ho)
+	}
 	return experiment.prompt
+}
+
+func (experiment *TextClassificationExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
@@ -105,7 +133,12 @@ func (experiment *TextClassificationExperiment) Outcome() (
 }
 
 func (experiment *TextClassificationExperiment) Score() float64 {
-	return experiment.evaluator.MeanScore(experiment.tableData)
+	experiment.ComputePredictions()
+	n := len(experiment.tableData)
+	if n == 0 {
+		return 0
+	}
+	return experiment.evaluator.Metrics(experiment.tableData, n).Accuracy
 }
 
 func (experiment *TextClassificationExperiment) TableData() any {

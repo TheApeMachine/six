@@ -146,26 +146,26 @@
 
 \InputIfFileExists{include/sections/abstract.tex}{}{}
 \InputIfFileExists{include/sections/introduction.tex}{}{}
-\InputIfFileExists{include/sections/representation.tex}{}{}
-\InputIfFileExists{include/sections/substrate.tex}{}{}
-\FloatBarrier
-\clearpage
 
 \section{Architecture}
+\label{sec:architecture}
+
+\graphicspath{{include/sections/}}
+\InputIfFileExists{include/sections/representation.tex}{}{}
+\InputIfFileExists{include/sections/substrate.tex}{}{}
 
 \graphicspath{{include/architecture/}}
-
-\InputIfFileExists{include/architecture/address_and_logic_planes.tex}{}{}
-\InputIfFileExists{include/architecture/entropy_routing.tex}{}{}
+\InputIfFileExists{include/architecture/value_architecture.tex}{}{}
+\InputIfFileExists{include/architecture/capacity_analysis.tex}{}{}
+\InputIfFileExists{include/architecture/firmware_system.tex}{}{}
+\InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
 \InputIfFileExists{include/architecture/related_algebraic_topology.tex}{}{}
 \InputIfFileExists{include/architecture/related_godel_arithmetic.tex}{}{}
 \InputIfFileExists{include/architecture/related_hardware_accel.tex}{}{}
-\InputIfFileExists{include/architecture/related_hdc_vsa.tex}{}{}
 \InputIfFileExists{include/architecture/related_manifold_capacity.tex}{}{}
 \InputIfFileExists{include/architecture/related_nvsa_hd.tex}{}{}
 \InputIfFileExists{include/architecture/related_spectral_embedding.tex}{}{}
 \InputIfFileExists{include/architecture/related_topological_nn.tex}{}{}
-\InputIfFileExists{include/architecture/topological_sequencing.tex}{}{}
 \FloatBarrier
 \clearpage
 

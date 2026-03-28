@@ -17,6 +17,7 @@ type PartialDeletionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -46,12 +47,19 @@ func (experiment *PartialDeletionExperiment) Dataset() data.Provider {
 }
 
 func (experiment *PartialDeletionExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
+	return experiment.prompt
+}
+
+func (experiment *PartialDeletionExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
 	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *PartialDeletionExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 

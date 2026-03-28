@@ -1,32 +1,32 @@
 % ============================================================================
 % CONCLUSION
 % ============================================================================
+\section{Conclusion}
 
-We presented a physics-native cognitive architecture that frames sequence
-generation as a boundary value problem over discrete bitwise geometry.
-The system rests on four concrete architectural pillars:
+We presented a computational architecture that unifies data, programs,
+and execution state within a single 1024-byte binary frame.  The system
+rests on three design decisions: a fixed-width Value representation with
+embedded registers and program space; an instruction set consisting of
+the sixteen two-input boolean truth tables; and a concurrent mixing
+substrate that drives computation through non-deterministic frame
+interaction.
 
-\begin{enumerate}[nosep]
-  \item An \textbf{8191-bit Value} representation with deterministic
-        Golomb-ruler basis encoding over the Mersenne field GF(8191),
-        where bitwise operations execute discrete wave interference at
-        single-cycle throughput.
-  \item A \textbf{Morton-coded radix trie} (DMT) that stores Values with
-        Zipfian collision-compression, indexed by spatial keys encoding
-        byte identity and boundary-local depth.
-  \item A \textbf{self-programming loop} where the cantilever BVP solver
-        synthesizes missing affine operators, hardens them through
-        repeated success into permanent macro-opcodes, and the
-        interpreter executes them as native Value instructions---closing
-        the observe-prompt-harden-execute-reify cycle.
-  \item An \textbf{analytical phase navigation} layer on
-        $S^1 \times S^1$ that derives toroidal coordinates from
-        intrinsic GF(8191) prime-index geometry without training.
-\end{enumerate}
+The multi-substrate backend demonstrates that boolean computation over
+fixed-size frames maps efficiently to heterogeneous hardware---CPU, CUDA,
+and Metal---with deterministic, data-independent latency.  The firmware
+system provides a mechanism for bootstrapping higher-level behaviors from
+boolean primitives and for propagating useful programs through a
+population of frames.
 
-Across the reported experiments, the system demonstrates gradient-free
-inference, modality-agnostic byte-level processing, and hardware-native
-parallel retrieval.  The identified failure modes---insufficient energy
-selectivity and shallow propagation depth---converge on a single
-architectural surface: the interaction between retrieval selectivity
-and fold graph depth.
+Across the reported experiments---text classification, code generation,
+image reconstruction, logical reasoning, and text generation---the system
+demonstrates that gradient-free, parameter-free computation through
+structured binary interaction is capable of non-trivial inference across
+modalities.  The identified limitations---retrieval selectivity,
+composition depth, and sparse representation capacity---define concrete
+targets for architectural refinement.
+
+The self-documenting experimental pipeline, which produces both results
+and the corresponding research artifact, illustrates a secondary
+contribution: a system that generates structured accounts of its own
+behavior as part of its normal operation.

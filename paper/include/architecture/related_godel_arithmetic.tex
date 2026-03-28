@@ -1,17 +1,53 @@
-\subsection{Prime Factorization as Identity: G\"{o}del Numbering and Arithmetic Coding}
+% ============================================================================
+% RELATED: DETERMINISTIC ENCODING AND ARITHMETIC CODING
+% ============================================================================
+\subsection{Deterministic Encoding and Collision Properties}
 \label{sec:related_godel_arithmetic}
 
-The system's use of \emph{prime-basis bitsets} as deterministic, non-colliding identity encodings is a direct computational descendant of \emph{G\"{o}del numbering}---the technique introduced in G\"{o}del's 1931 incompleteness proofs, in which every formula of a formal language is assigned a unique natural number via products of prime powers. The Fundamental Theorem of Arithmetic guarantees that every positive integer has a unique prime factorization; by encoding each token identity as a product (equivalently, a bitfield over prime indices), the system inherits this uniqueness guarantee at the hardware level.
+The system encodes input bytes into Value frames through a deterministic
+mapping that assigns each byte sequence a fixed binary representation.
+This subsection places this encoding in the context of two classical
+results: G\"{o}del numbering and arithmetic coding.
 
-\paragraph{From G\"{o}del Numbers to Prime Bitsets.}
-In classical G\"{o}del encoding, a sequence of symbols $\langle s_1, s_2, \ldots, s_n \rangle$ is mapped to the integer $\prod_{i=1}^{n} p_i^{s_i}$, where $p_i$ is the $i$-th prime. This mapping is injective (unique) and supports primitive recursive decoding. The system replaces exponentiation with bit-activation: each prime index either participates (bit = 1) or does not (bit = 0) in the 8191-bit value. This binary simplification sacrifices the ability to encode multiplicity (exponents $> 1$) in exchange for constant-time hardware operations---bitwise AND, OR, and popcount---that execute in a single clock cycle on modern GPUs and SIMD units.
+\paragraph{Relationship to G\"{o}del Numbering.}
+G\"{o}del's 1931 encoding assigns every formula of a formal language a
+unique natural number via products of prime powers.  The Fundamental
+Theorem of Arithmetic guarantees that this mapping is injective: distinct
+formulas receive distinct numbers, and the original formula can be
+recovered from its number.  The Value encoding shares the structural
+goal of providing a deterministic, reproducible mapping from symbolic
+input to a fixed binary representation, though it operates at the byte
+level rather than over formal language symbols.
 
-The critical property preserved from G\"{o}del's construction is \emph{collision-freeness under composition}. When two distinct token identities are bound via the \texttt{RollLeft} operator (circular bit-shift) and then superposed via \texttt{ValueOR} (bitwise disjunction), the resulting composite value is a set-union of shifted prime indices. Because the shift is position-dependent and the primes are distinct by construction, two sequences with different orderings produce distinct composite values---a direct analogue of the injectivity of G\"{o}del numbering for sequences.
+The key property inherited from the G\"{o}del construction is
+\emph{determinism}: the same input byte sequence always produces the
+same Value content, and distinct inputs that differ in at least one byte
+position produce Values that differ in the corresponding data-region
+words.  This guarantee holds without learning or randomized hashing; it
+is a consequence of the encoding rule itself.
 
-\paragraph{Collision as Compression via Arithmetic Coding.}
-Witten, Neal, and Cleary's foundational work on \emph{Arithmetic Coding} \citep{witten1987arithmetic} established that optimal lossless compression maps symbols to sub-intervals of $[0, 1)$ proportional to their empirical probability, achieving entropy-rate coding without the block-alignment constraints of Huffman codes. The system's collision-compression mechanism (\Cref{sec:collision_is_compression}) implements an analogous principle in the spatial domain: when two tokens share the same $(X, Y, Z)$ Morton coordinate, their entries in the radix trie natively coalesce via key deduplication. This is not a failure mode requiring linked-list resolution; it is \emph{lossless deduplication} that reduces the trie's memory footprint in proportion to the dataset's redundancy.
+\paragraph{Collision and Deduplication.}
+When two distinct input sequences produce Values that share a common
+prefix in their data regions, the shared structure can be exploited for
+storage efficiency.  This is analogous to the principle underlying
+arithmetic coding \citep{witten1987arithmetic}, in which symbols are
+mapped to sub-intervals of $[0, 1)$ proportional to their empirical
+probability, achieving entropy-rate compression.
 
-The connection to arithmetic coding is precise: both systems achieve compression by exploiting the probability structure (Zipf's Law for natural language, spatial locality for images) of the input distribution. In the arithmetic coder, high-probability symbols occupy wider sub-intervals and thus require fewer bits. In the radix trie, high-frequency byte-position patterns produce more key collisions and thus require fewer trie nodes. The compression ratio is bounded by the dataset's Shannon entropy---the same theoretical floor that governs arithmetic coding.
+In the Value architecture, deduplication arises naturally when multiple
+inputs map to identical data-region contents.  Because the mapping is
+deterministic, identical byte sequences always produce identical Values,
+and a storage layer that indexes Values by their content can coalesce
+duplicates without additional computation.  The degree of deduplication
+depends on the redundancy structure of the input data: highly repetitive
+corpora (such as natural language, where Zipf's law governs token
+frequencies) produce more collisions than uniformly random input.
 
-\paragraph{Implications for Capacity and Scaling.}
-The combination of G\"{o}del-style uniqueness (at the identity level) and arithmetic-coding-style compression (at the storage level) yields a system whose memory footprint scales with the \emph{information content} of the data rather than its raw volume. The empirical demonstration on CIFAR-10 (\Cref{sec:collision_is_compression}; 98.1\% deduplication, $52.8\times$ compression) directly validates this theoretical prediction.
+\paragraph{Implications for Storage Scaling.}
+This collision property means that the effective memory footprint of a
+collection of Values scales with the information content of the data
+rather than its raw volume.  The compression ratio is bounded below by
+the Shannon entropy of the input distribution---the same theoretical
+floor that governs arithmetic coding.  Empirical measurements of
+deduplication rates across different data domains are reported in the
+scaling experiments.

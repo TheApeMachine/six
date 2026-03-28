@@ -1,27 +1,39 @@
 \begin{table}[htbp]
 \centering
-\caption{Snap to Surface — standardised result summary (N=2).}
+\caption{Snap to Surface — standardised result summary (N=20).}
 \label{tab:snap_to_surface_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
 \toprule
-\multicolumn{6}{l}{\textbf{Top 2 results (highest weighted score)}} \\
+\multicolumn{6}{l}{\textbf{Top 3 results (highest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Snap to Surface & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-0 & Snap to Surface & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+0 & Snap to Surface & 0.0000 & 0.1000 & 0.0020 & 0.0276 \\
+0 & Snap to Surface & 0.0000 & 0.1000 & 0.0020 & 0.0276 \\
+5 & Snap to Surface & 0.0000 & 0.0789 & 0.0029 & 0.0221 \\
 \midrule
-\multicolumn{6}{l}{\textbf{Generation examples (1 curated)}} \\
+\multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
+\midrule
+\# & Name & Exact & Partial & Fuzzy & Weighted \\
+\midrule
+6 & Snap to Surface & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+6 & Snap to Surface & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+3 & Snap to Surface & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+\midrule
+\multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{Predict the secondary structure of the g\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{Democracy requires i}} & \multicolumn{2}{l}{\texttt{ndividual sacrifice.}} & \multicolumn{2}{l}{\texttt{········truth universally acknowledged, \ldots}} \\
+\multicolumn{2}{l}{\texttt{All happy families are alike; each unh}} & \multicolumn{2}{l}{\texttt{appy family is unhappy in its own way.}} & \multicolumn{2}{l}{\texttt{········truth universally acknowledged, \ldots}} \\
+\multicolumn{2}{l}{\texttt{It was the best of times,}} & \multicolumn{2}{l}{\texttt{it was the worst of times.}} & \multicolumn{2}{l}{\texttt{········truth universally acknowledged, \ldots}} \\
+\multicolumn{2}{l}{\texttt{The only way to have}} & \multicolumn{2}{l}{\texttt{a friend is to be one.}} & \multicolumn{2}{l}{\texttt{········truth universally acknowledged, \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 2} & \multicolumn{3}{l}{Holdout: 2\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 20} & \multicolumn{3}{l}{Holdout: 20\% ()} \\
+\multicolumn{3}{l}{Mean score: 0.0112} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0276} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

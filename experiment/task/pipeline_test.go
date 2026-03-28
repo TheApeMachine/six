@@ -17,6 +17,11 @@ import (
 	"github.com/theapemachine/six/experiment/task/textgen"
 )
 
+// TestPipeline runs each experiment through the real pipeline (hydration, prompts,
+// scoring, JSON artifacts). Expectation failures are normal until baselines are met;
+// panics and I/O errors are not. A full run takes minutes — use a long -timeout
+// (e.g. go test -timeout 30m ./experiment/task -run TestPipeline); IDE defaults
+// like 30s will kill the suite mid-run.
 func TestPipeline(t *testing.T) {
 	allExperiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
@@ -52,10 +57,12 @@ func TestPipeline(t *testing.T) {
 	for _, experiment := range allExperiments {
 		t.Run(experiment.Name(), func(t *testing.T) {
 			Convey("Given experiment: "+experiment.Name(), t, func() {
+				// JSON snapshots only — no chromedp/LaTeX/PDF. ProjectorReporter is for
+				// paper builds; it can exceed IDE test timeouts when Run awaits Chrome.
 				pipeline, err := NewPipeline(
 					t.Context(),
 					PipelineWithExperiment(experiment),
-					PipelineWithReporter(NewProjectorReporter()),
+					PipelineWithReporter(NewSnapshotReporter()),
 				)
 
 				So(err, ShouldBeNil)

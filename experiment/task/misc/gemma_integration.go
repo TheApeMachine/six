@@ -203,6 +203,7 @@ before Finalize runs the actual Gemma comparison benchmarks.
 type GemmaIntegrationExperiment struct {
 	tableData    []tools.ExperimentalData
 	dataset      data.Provider
+	holdouts     [][]byte
 	evaluator    *tools.Evaluator
 	graftResults []giResult
 	kvResults    []giResult
@@ -247,13 +248,20 @@ func (exp *GemmaIntegrationExperiment) Dataset() data.Provider {
 }
 
 func (exp *GemmaIntegrationExperiment) Prompts() []string {
-	var prompts []string
-
+	prompts := make([]string, 0, len(giGraftCases))
+	exp.holdouts = exp.holdouts[:0]
 	for _, cas := range giGraftCases {
 		prompts = append(prompts, cas.Context)
+		exp.holdouts = append(exp.holdouts, []byte(strings.ToLower(cas.Contains)))
 	}
-
 	return prompts
+}
+
+func (exp *GemmaIntegrationExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(exp.holdouts) {
+		return nil, false
+	}
+	return exp.holdouts[idx], true
 }
 
 func (exp *GemmaIntegrationExperiment) AddResult(result tools.ExperimentalData) {
@@ -266,19 +274,17 @@ func (exp *GemmaIntegrationExperiment) Outcome() (any, Assertion, any) {
 }
 
 func (exp *GemmaIntegrationExperiment) Score() float64 {
-	if len(exp.graftResults) == 0 {
-		return 0
-	}
-
-	ok := 0
-
-	for _, result := range exp.graftResults {
-		if result.HybridOK {
-			ok++
+	if len(exp.graftResults) > 0 {
+		ok := 0
+		for _, result := range exp.graftResults {
+			if result.HybridOK {
+				ok++
+			}
 		}
+		return float64(ok) / float64(len(exp.graftResults))
 	}
-
-	return float64(ok) / float64(len(exp.graftResults))
+	// Pipeline path: Finalize() never ran — use substrate holdout resonance only.
+	return exp.evaluator.MeanScore(exp.tableData)
 }
 
 func (exp *GemmaIntegrationExperiment) TableData() any {

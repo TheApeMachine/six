@@ -26,6 +26,7 @@ type BlindClassificationExperiment struct {
 	prose     []projector.ProseEntry
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -67,7 +68,31 @@ func (experiment *BlindClassificationExperiment) Dataset() data.Provider {
 }
 
 func (experiment *BlindClassificationExperiment) Prompts() []string {
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	pp, ok := experiment.dataset.(data.PromptProvider)
+	if !ok {
+		return experiment.prompt
+	}
+	for p := range pp.GeneratePrompts() {
+		if p.Text == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, p.Text)
+		var ho []byte
+		if p.HasLabel && p.Label != "" {
+			ho = []byte(p.Label)
+		}
+		experiment.holdouts = append(experiment.holdouts, ho)
+	}
 	return experiment.prompt
+}
+
+func (experiment *BlindClassificationExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *BlindClassificationExperiment) AddResult(results tools.ExperimentalData) {
@@ -100,7 +125,12 @@ func (experiment *BlindClassificationExperiment) Outcome() (
 }
 
 func (experiment *BlindClassificationExperiment) Score() float64 {
-	return experiment.evaluator.MeanScore(experiment.tableData)
+	experiment.ComputePredictions()
+	n := len(experiment.tableData)
+	if n == 0 {
+		return 0
+	}
+	return experiment.evaluator.Metrics(experiment.tableData, n).Accuracy
 }
 
 func (experiment *BlindClassificationExperiment) TableData() any {

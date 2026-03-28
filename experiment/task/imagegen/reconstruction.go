@@ -47,6 +47,7 @@ type ReconstructionExperiment struct {
 	tableData  []tools.ExperimentalData
 	dataset    data.Provider
 	prompt     []string
+	holdouts   [][]byte
 	imageBytes [][]byte // raw NRGBA pixels per image, collected in Prompts()
 	evaluator  *tools.Evaluator
 }
@@ -75,32 +76,52 @@ func (e *ReconstructionExperiment) Section() string        { return "imagegen" }
 func (e *ReconstructionExperiment) Dataset() data.Provider { return e.dataset }
 
 /*
-Prompts pre-fetches all images from the dataset and constructs one
-PromptSample per image × holdout-percentage combination (9 × N samples).
-It also caches the raw pixel buffers in e.imageBytes for Artifacts().
+Prompts pre-fetches all images from the dataset byte stream and builds one
+prompt per image × occlusion level (right-side holdout). Full frames are
+cached in e.imageBytes for Artifacts().
 */
 func (e *ReconstructionExperiment) Prompts() []string {
-	// Collect raw pixel bytes per image from the dataset's byte stream.
-	imgMap := make(map[uint32][]byte)
-	var imgOrder []uint32
-
-	for tok := range e.dataset.Generate() {
-		if _, seen := imgMap[uint32(tok)]; !seen {
-			imgOrder = append(imgOrder, uint32(tok))
+	var raw []byte
+	for b := range e.dataset.Generate() {
+		raw = append(raw, b)
+	}
+	if len(raw) < cifarSize {
+		e.prompt = e.prompt[:0]
+		e.holdouts = nil
+		e.imageBytes = nil
+		return e.prompt
+	}
+	nImg := len(raw) / cifarSize
+	e.imageBytes = make([][]byte, 0, nImg)
+	for i := 0; i < nImg; i++ {
+		chunk := raw[i*cifarSize : (i+1)*cifarSize]
+		e.imageBytes = append(e.imageBytes, slices.Clone(chunk))
+	}
+	e.prompt = e.prompt[:0]
+	e.holdouts = e.holdouts[:0]
+	for i := 0; i < nImg; i++ {
+		img := e.imageBytes[i]
+		for _, pct := range holdoutPercents {
+			holdLen := len(img) * pct / 100
+			if holdLen < 1 {
+				holdLen = 1
+			}
+			if holdLen >= len(img) {
+				holdLen = len(img) - 1
+			}
+			prefixLen := len(img) - holdLen
+			e.prompt = append(e.prompt, string(img[:prefixLen]))
+			e.holdouts = append(e.holdouts, slices.Clone(img[prefixLen:]))
 		}
-		imgMap[uint32(tok)] = append(imgMap[uint32(tok)], tok)
 	}
-
-	slices.Sort(imgOrder)
-
-	// Cache full pixel buffers.
-	e.imageBytes = make([][]byte, 0, len(imgOrder))
-	for _, id := range imgOrder {
-		e.imageBytes = append(e.imageBytes, imgMap[id])
-	}
-
-	e.prompt = []string{}
 	return e.prompt
+}
+
+func (e *ReconstructionExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(e.holdouts) {
+		return nil, false
+	}
+	return e.holdouts[idx], true
 }
 
 func (e *ReconstructionExperiment) AddResult(results tools.ExperimentalData) {

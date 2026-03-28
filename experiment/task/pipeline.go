@@ -29,8 +29,8 @@ be orchestrated in a particular way.
 
 1. Read data from the dataset to create Values in the system
 2. Deploy any needed Values with programs (e.g. Affinity, etc.)
-3. Deploy Values with prompt programs
-4. Find a way to observe the results
+3. Deploy Values with prompt programs (bytes folded through workspace; firmware from config)
+4. Observe results: raw Value frame by default, or token-region text when the experiment implements WorkspaceTokenObserver (answers materialized in tokens)
 */
 type Pipeline struct {
 	ctx        context.Context
@@ -89,9 +89,27 @@ func (pipeline *Pipeline) Run() (err error) {
 	}()
 
 	// Hydrate the region mesh from the dataset (transport only — no ALU here).
+	// The stream pipe is bounded; a concurrent drain avoids blocking once the
+	// ring fills. CloseWrite after Copy lets the drain exit on EOF.
 	if ds := pipeline.experiment.Dataset(); ds != nil {
-		if _, err := io.Copy(machine, ds); err != nil {
-			return errnie.Error(err)
+		drainDone := make(chan error, 1)
+		go func() {
+			_, err := io.Copy(io.Discard, machine)
+			drainDone <- err
+		}()
+
+		_, copyErr := io.Copy(machine, ds)
+		cwErr := machine.CloseWrite()
+
+		drainErr := <-drainDone
+		if copyErr != nil {
+			return errnie.Error(copyErr)
+		}
+		if cwErr != nil {
+			return errnie.Error(cwErr)
+		}
+		if drainErr != nil && !errors.Is(drainErr, io.EOF) {
+			return errnie.Error(drainErr)
 		}
 	}
 
@@ -103,25 +121,38 @@ func (pipeline *Pipeline) Run() (err error) {
 	workspace[core.Cfg.FW] = uint64(core.FirmwareTypeViral)
 	defer workspace.Close()
 
-	for idx, prompt := range pipeline.experiment.Prompts() {
+	prompts := pipeline.experiment.Prompts()
+	for idx, prompt := range prompts {
 		errnie.Trace("Prompt", "prompt", prompt)
 
 		if _, err = io.Copy(workspace, strings.NewReader(prompt)); err != nil {
 			return errnie.Error(err)
 		}
 
-		obs := make([]byte, primitive.ByteSize)
-		if err := primitive.ValueToBytes(workspace, obs); err != nil {
-			return errnie.Error(err)
+		var obs []byte
+		if wo, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && wo.ObserveWorkspaceAsTokens() {
+			obs = []byte(strings.TrimSpace(primitive.DecodeTokensToText(workspace)))
+		} else {
+			obs = make([]byte, primitive.ByteSize)
+			if err := primitive.ValueToBytes(workspace, obs); err != nil {
+				return errnie.Error(err)
+			}
 		}
 
 		errnie.Debug("Prompt", "prompt", prompt)
+
+		holdout := []byte(nil)
+		if hp, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
+			if h, ok := hp.HoldoutForPrompt(idx); ok {
+				holdout = h
+			}
+		}
 
 		pipeline.experiment.AddResult(tools.ExperimentalData{
 			Idx:      idx,
 			Name:     pipeline.experiment.Name(),
 			Prefix:   []byte(prompt),
-			Holdout:  []byte{},
+			Holdout:  holdout,
 			Observed: obs,
 		})
 	}

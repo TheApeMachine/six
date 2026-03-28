@@ -1,18 +1,64 @@
 % ============================================================================
 % INTRODUCTION
 % ============================================================================
-\subsection{Introduction}
+\section{Introduction}
 
-Most modern computational systems separate three concerns: memory, execution, and learning. Data is stored in memory, programs define how that data is processed, and learning mechanisms adjust parameters to improve behavior over time. This separation is foundational across both classical software systems and modern machine learning architectures.
+Most computational systems enforce a strict separation between three
+concerns: memory stores data, programs specify how data is transformed, and
+learning mechanisms adjust parameters to improve the transformations over
+time.  This division is foundational in both classical software engineering
+and modern machine learning, where data resides in tensors, programs are
+defined by network architectures, and learning is driven by gradient
+descent over differentiable loss surfaces.
 
-This work explores an alternative formulation in which these distinctions are collapsed into a single substrate.
+This work explores an alternative formulation in which these distinctions
+are collapsed.  We describe a system where data, programs, and execution
+state share a single binary representation: a fixed-width frame of 1024
+bytes.  Each frame carries token data, general-purpose registers, a program
+counter, and an embedded program composed from the sixteen two-input boolean
+truth tables.  Computation consists of applying these operations across
+designated regions of one or more frames, with the result written back into
+the same representation.  Because programs are stored within frames, there
+is no boundary between the instruction stream and the data it operates on;
+a frame may serve as passive storage, an executable program, or both
+simultaneously.
 
-We present a system where memory, execution, and program structure are unified. Data is stored in a structured memory space where each stored element is not only a passive representation, but also participates directly in computation. Execution does not proceed through an explicit sequence of instructions or through parameterized function approximation, but instead emerges from the resolution of queries over this memory substrate.
+Frames interact inside concurrent mixing pools called Regions.  A Region
+accepts frames through a multi-tier buffering mechanism and returns them in
+non-deterministic order, so that computation emerges from the pattern of
+interactions rather than from a predetermined schedule.  A
+hardware-abstraction layer routes the underlying boolean operations to
+whichever compute substrate is available---CPU, NVIDIA CUDA, or Apple
+Metal---through a unified kernel interface that requires only bitwise
+logic, integer comparison, and population count.
 
-In this formulation, computation is driven by the interaction between stored structures. Given a partial input, the system resolves continuations by searching, composing, and transforming existing elements within the memory space. The result is a form of execution that is neither strictly symbolic nor statistical, but structural: behavior arises from how information is organized rather than from externally defined programs or trained weights.
+The architecture does not employ floating-point arithmetic, gradient-based
+optimization, or learned parameters.  Instead, behavior arises from the
+composition of elementary boolean functions over structured binary memory.
+A firmware system provides a library of pre-compiled programs that can be
+loaded into any frame's program region at initialization, giving the system
+a repertoire of reusable behaviors---including bootstrapping sequences,
+structural transformations, and a self-propagating replication program---
+without external training.
 
-A key consequence of this design is that the system can extend its own computational capabilities. When new patterns of execution are observed—such as successful transformations between states—they can be captured and reused as first-class operators. Over time, the system accumulates a library of reusable transformations derived directly from its own activity.
+We evaluate the system across five experimental domains: text
+classification, multi-language code generation, CIFAR-10 image
+reconstruction, logical reasoning on the bAbI benchmark, and several text
+generation tasks including compositional assembly, out-of-corpus retrieval,
+and prose chaining.  The experiments are defined programmatically, executed
+within the substrate, and compiled into the present document automatically.
 
-In addition to unifying memory and execution, the system also unifies experimentation and documentation. Experiments are defined programmatically and executed within the same substrate, producing structured outputs that are directly compiled into a formal research document. The resulting paper is therefore not a separate artifact written about the system, but a product generated by the system itself.
+The contributions of this paper are as follows.  First, we define the
+architecture: a minimal set of primitives---the frame, the boolean
+instruction set, the Region, and the multi-substrate backend---and show how
+they compose into a functioning runtime.  Second, we report empirical
+results across modalities, providing a baseline characterization of what
+gradient-free boolean computation can and cannot achieve.  Third, we
+demonstrate a self-documenting experimental pipeline in which the system
+produces both results and the corresponding research artifact.
 
-This work does not aim to outperform existing architectures on standard benchmarks. Instead, it introduces a different computational perspective: one in which memory is active, execution is emergent, and systems are capable of describing their own behavior through the artifacts they produce.
+This work does not aim to match the performance of large parameterized
+models on standard benchmarks.  Its purpose is to explore a different point
+in the design space: one where all computation reduces to deterministic,
+hardware-native bitwise operations, and where memory is not a passive
+container but the medium through which behavior emerges.

@@ -18,6 +18,7 @@ type GroupActionEquivarianceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -47,12 +48,19 @@ func (experiment *GroupActionEquivarianceExperiment) Dataset() data.Provider {
 }
 
 func (experiment *GroupActionEquivarianceExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
+	return experiment.prompt
+}
+
+func (experiment *GroupActionEquivarianceExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
 	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *GroupActionEquivarianceExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 

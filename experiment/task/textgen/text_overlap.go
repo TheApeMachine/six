@@ -7,6 +7,8 @@ import (
 	"github.com/theapemachine/six/experiment/data/huggingface"
 )
 
+var _ tools.HoldoutProvider = (*TextOverlapExperiment)(nil)
+
 /*
 TextOverlapExperiment evaluates overlap-aware span bridging using a real
 narrative corpus. TinyStories provides short stories with highly regular
@@ -29,6 +31,7 @@ type TextOverlapExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -55,8 +58,32 @@ func (experiment *TextOverlapExperiment) Section() string        { return "textg
 func (experiment *TextOverlapExperiment) Dataset() data.Provider { return experiment.dataset }
 
 func (experiment *TextOverlapExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	experiment.prompt = experiment.prompt[:0]
+	experiment.holdouts = experiment.holdouts[:0]
+	pp, ok := experiment.dataset.(data.PromptProvider)
+	if !ok {
+		return experiment.prompt
+	}
+	for p := range pp.GeneratePrompts() {
+		if len(p.Text) < 8 {
+			continue
+		}
+		// 40% right holdout → 60% left prefix.
+		prefix, hold := tools.BytePrefixFraction(p.Text, 0.6)
+		if hold == "" {
+			continue
+		}
+		experiment.prompt = append(experiment.prompt, prefix)
+		experiment.holdouts = append(experiment.holdouts, []byte(hold))
+	}
 	return experiment.prompt
+}
+
+func (experiment *TextOverlapExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *TextOverlapExperiment) AddResult(results tools.ExperimentalData) {

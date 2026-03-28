@@ -1,0 +1,79 @@
+% ============================================================================
+% FIRMWARE AND SELF-MODIFICATION
+% ============================================================================
+\subsection{Firmware and Self-Modification}
+\label{sec:firmware}
+
+A system built entirely from boolean truth tables must bootstrap
+higher-level behaviors from these primitives.  The firmware system
+addresses this by providing a library of pre-compiled programs that
+encode common operations as sequences of boolean instructions.
+
+\subsubsection{Firmware Compilation}
+
+Each firmware program is specified as a sequence of textual instructions,
+one per line, in the format \texttt{source destination operation}.
+Operands may name a register (\texttt{r0}--\texttt{r5}, \texttt{pc},
+\texttt{fw}), a pointer dereference, or a fourteen-bit immediate value.
+The operation field is a four-bit binary literal selecting one of the
+sixteen truth tables.  A compiler translates each line into a packed
+thirty-two-bit instruction word and stores the resulting sequence in
+memory.  At runtime, any of these compiled programs can be loaded into a
+Value's program region before execution.
+
+\subsubsection{The Firmware Library}
+
+Six firmware programs are defined, each targeting a specific structural
+operation on one or more Values.
+
+The \textbf{bootloader} initializes a frame's registers to known values,
+preparing it for subsequent computation.  The \textbf{tombstone} program
+zeroes structural metadata---linking pointers, state fields, and the
+affinity bitmask---while leaving the data region intact, effectively
+marking a frame as decommissioned.  The \textbf{wipe} program performs
+the complementary operation, zeroing the data region while preserving
+structural metadata.
+
+The \textbf{affinity} program computes a running XOR accumulation across
+the data region of the executing frame and adopts linking metadata from a
+partner frame.  This produces a compact summary of the frame's data
+content while establishing a structural relationship with another frame.
+
+The \textbf{shatter} program applies a three-pass AND operation that
+decomposes a frame's data content.  Each pass combines the data region
+with a different register value, progressively isolating subsets of the
+active bits.  The result is a decomposed representation in which
+individual bit patterns from the original data are separated into
+distinct register states.
+
+The \textbf{viral} program copies the executing frame's program region
+into a partner frame's program region, overwriting the partner's
+existing instructions.  After execution, both frames carry identical
+programs.  This is the mechanism by which useful programs can propagate
+through a population of Values: a frame that has developed an effective
+program (through any combination of firmware loading, external
+injection, or self-modification) can spread that program to neighboring
+frames during Region mixing.
+
+\subsubsection{Self-Modification and Operator Discovery}
+
+Because the program region is part of the frame's addressable memory,
+the firmware programs themselves can be targets of boolean operations.
+A sequence of interactions between frames may produce a program region
+that differs from any of the six firmware templates.  If such a derived
+program produces a useful transformation---for example, a composition
+of shatter and affinity operations that extracts a specific structural
+feature---the viral firmware can then propagate it through the
+population of active frames.
+
+This creates a closed loop: firmware seeds initial behavior; boolean
+interactions during Region mixing may produce novel instruction
+sequences; and the viral mechanism distributes successful sequences.
+No gradient computation or external optimization is involved.  The
+process is entirely combinatorial, driven by the stochastic mixing
+order of the Region and the deterministic execution of boolean
+instructions.
+
+Whether this loop converges to useful programs in practice, and under
+what conditions, is an empirical question addressed in the experimental
+sections that follow.

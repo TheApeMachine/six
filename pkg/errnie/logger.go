@@ -384,12 +384,10 @@ func writeTraceLine(line string) {
 	_, err := traceFile.WriteString(line)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "errnie trace: write: %v\n", err)
-		return
 	}
-
-	if syncErr := traceFile.Sync(); syncErr != nil {
-		fmt.Fprintf(os.Stderr, "errnie trace: sync: %v\n", syncErr)
-	}
+	// Do not Sync per line: callers like the experiment pipeline emit one Trace per
+	// prompt (e.g. 1000+ rows). Per-line fsync dominated wall time and tripped test
+	// timeouts; the kernel flushes on process exit and under memory pressure.
 }
 
 func appendLineToFile(f *os.File, mu *sync.Mutex, parts []any) {

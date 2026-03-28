@@ -1,22 +1,65 @@
-\subsection{Hardware-Accelerated Symbolic Logic and Write-Optimized Storage}
+% ============================================================================
+% RELATED: HARDWARE-ACCELERATED BOOLEAN COMPUTATION
+% ============================================================================
+\subsection{Hardware-Accelerated Boolean Computation}
 \label{sec:related_hardware_accel}
 
-The system's storage substrate---a Radix Trie (DMT) indexed by Morton-coded spatial keys---bridges two traditionally separate areas of systems research: \emph{write-optimized data structures} and \emph{GPU-native symbolic computation}.
+The Value architecture is designed to align with the native instruction
+sets of modern parallel hardware.  Every operation in the system reduces
+to a combination of bitwise logic (AND, OR, XOR, NOT), population count
+(popcount), and integer comparison---instructions that execute in a
+single clock cycle on contemporary CPU, GPU, and accelerator
+architectures.
 
-\paragraph{Immutable Radix Trie and Collision-as-Compression.}
-The storage layer uses an immutable radix trie (the DMT) where each insertion shares prefix structure with existing keys, achieving structural deduplication at the trie-node level. When the same $(X, Y, Z)$ Morton key appears across multiple ingestion passes, the trie's key-sharing property natively coalesces the entries without explicit merge operations. This is the same collision-as-compression effect (\Cref{sec:collision_is_compression}) that reduces the index's footprint in proportion to the dataset's redundancy---functionally equivalent to maintaining a running set of unique observations without scanning the full history.
+\paragraph{SIMD and GPU Mapping.}
+Each Value is 1024 bytes, or sixteen 512-bit SIMD registers on x86
+(AVX-512) and thirty-two 256-bit registers on ARM (NEON).  A single
+boolean truth-table operation across an entire Value therefore requires
+at most 16--32 SIMD instructions, independent of the semantic content of
+the frame.  On GPU hardware, the same operation maps to a threadgroup
+dispatch where each thread processes one 64-bit word of the frame.
 
-The radix trie's amortized insertion cost is $O(k)$ where $k$ is the key length, independent of the number of stored entries. Read amplification is bounded by the trie depth, and the immutable structure enables lock-free concurrent reads---properties that are difficult to guarantee in mutable B-tree or hash-map substrates.
-
-\paragraph{Morton-Coded Keys and Cache Locality.}
-The choice of Morton (Z-order) coding (\Cref{sec:morton_codes}) for the trie sort key exploits the space-filling curve's \emph{locality-preserving} property \citep{morton1966computer, samet2006foundations}: points that are spatially adjacent in the 3D $(X, Y, Z)$ coordinate system map to nearby positions in the 1D key space. This ensures that trie traversals access geometrically coherent regions, maximizing cache-line utilization on both CPU and GPU memory hierarchies.
-
-\paragraph{Metal Compute Kernels and SIMD Bitwise Operations.}
-The wave-domain computation---bitwise AND/OR/XOR, popcount, and circular shift on 8191-bit values---maps directly onto the SIMD instruction sets of modern hardware:
+The system provides three backend implementations:
 
 \begin{itemize}[nosep]
-  \item \textbf{Apple Metal:} The Metal compute shaders execute value operations across threadgroups, with each thread processing one 8191-bit value as $\lceil 8191/64 \rceil = 128$ 64-bit blocks. Popcount is implemented via the hardware \texttt{popcount} intrinsic, achieving single-cycle throughput per 64-bit lane.
-  \item \textbf{NVIDIA CUDA/Triton:} Equivalent kernels dispatch value operations across warps, with coalesced memory access patterns ensuring full memory bandwidth utilization for the GF(8191) resolver search.
+  \item \textbf{CPU:} A portable implementation that iterates over the
+        128 words of each frame, applying the selected truth table via
+        bitwise logic and writing the result in-place.  Population count
+        is computed via the hardware \texttt{popcount} intrinsic where
+        available.
+  \item \textbf{Apple Metal:} Compute shaders dispatch value operations
+        across threadgroups, with each thread processing one 64-bit
+        word.  The Metal backend is compiled from shader source at build
+        time using \texttt{xcrun}.
+  \item \textbf{NVIDIA CUDA:} Equivalent kernels dispatch across warps,
+        with coalesced memory access patterns to maximize memory
+        bandwidth utilization.
 \end{itemize}
 
-The architectural insight is that the prime-basis value representation was designed \emph{for} this hardware: every operation required for identity comparison, similarity scoring, and superposition reduces to a fixed-length bitwise instruction with deterministic latency. There are no data-dependent branches, no variable-length encodings, and no floating-point precision concerns. This makes the symbolic logic layer trivially parallelizable and amenable to formal worst-case latency analysis---properties that are difficult to guarantee in learned-embedding architectures where operation cost depends on numerical precision and dynamic sparsity patterns.
+\paragraph{Deterministic Latency.}
+Because every instruction is a fixed-length bitwise operation over a
+fixed-size frame, execution time is data-independent: there are no
+variable-length encodings, no data-dependent branches, and no
+floating-point precision concerns.  This property makes worst-case
+latency trivially analyzable and eliminates the tail-latency variance
+that characterizes matrix-multiplication-based inference on the same
+hardware.
+
+\paragraph{Write-Optimized Access Patterns.}
+The Region's multi-tier buffering structure (primary channel, spill
+channel, overflow queue) is designed for write-heavy workloads.  Writes
+never block: a frame is always accepted into the next available tier.
+Reads are non-blocking and return \texttt{io.EOF} when the Region is
+empty.  This lock-free design avoids the contention that arises in
+shared-memory architectures when multiple producers and consumers
+compete for the same data structure, and it ensures that the GPU
+backends are never stalled waiting for a synchronization barrier.
+
+\paragraph{Relationship to In-Memory Computing.}
+The all-boolean, fixed-size nature of Value operations is particularly
+well-suited to emerging in-memory computing architectures, where bitwise
+operations can be performed directly within memory arrays without
+transferring data to a separate processing unit.  While the current
+implementation uses conventional CPU and GPU hardware, the instruction
+set imposes no requirements beyond bitwise logic and population count,
+making it portable to any substrate that supports these primitives.

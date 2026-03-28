@@ -22,6 +22,7 @@ type CompressionExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -45,8 +46,20 @@ func (experiment *CompressionExperiment) Dataset() data.Provider {
 }
 
 func (experiment *CompressionExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	ds, ok := experiment.dataset.(*SyntheticDataset)
+	if !ok {
+		experiment.prompt = experiment.prompt[:0]
+		return experiment.prompt
+	}
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 12, 0)
 	return experiment.prompt
+}
+
+func (experiment *CompressionExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *CompressionExperiment) AddResult(results tools.ExperimentalData) {
@@ -94,3 +107,5 @@ func (experiment *CompressionExperiment) Finalize(substrate any) error {
 
 	return nil
 }
+
+var _ tools.HoldoutProvider = (*CompressionExperiment)(nil)

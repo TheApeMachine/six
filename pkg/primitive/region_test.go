@@ -197,6 +197,35 @@ func TestRegion_SpillStats(t *testing.T) {
 			So(acc, ShouldEqual, 1)
 			So(drop, ShouldEqual, 0)
 		})
+
+		Convey("It should queue past full spill into overflow and preserve FIFO on Read", func() {
+			r := NewRegion(7)
+			defer r.Close()
+
+			// Fill mixer + spill completely.
+			total := MixerCapacity + spillMaxFrames
+			for i := 0; i < total; i++ {
+				f := make([]byte, ByteSize)
+				f[0] = byte(i)
+				So(regionWriteOK(r, f), ShouldBeNil)
+			}
+			// Next frame must land in overflow (Write must not block).
+			last := make([]byte, ByteSize)
+			last[0] = 0xfe
+			So(regionWriteOK(r, last), ShouldBeNil)
+
+			queued, _, drop := r.SpillStats()
+			So(queued, ShouldEqual, spillMaxFrames+1)
+			So(drop, ShouldEqual, 0)
+
+			buf := make([]byte, ByteSize)
+			for want := 0; want < total; want++ {
+				So(regionReadCount(r, buf), ShouldEqual, ByteSize)
+				So(buf[0], ShouldEqual, byte(want))
+			}
+			So(regionReadCount(r, buf), ShouldEqual, ByteSize)
+			So(buf[0], ShouldEqual, 0xfe)
+		})
 	})
 }
 

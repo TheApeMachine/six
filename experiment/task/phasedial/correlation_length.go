@@ -18,6 +18,7 @@ type CorrelationLengthExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -47,11 +48,19 @@ func (experiment *CorrelationLengthExperiment) Dataset() data.Provider {
 }
 
 func (experiment *CorrelationLengthExperiment) Prompts() []string {
-	experiment.prompt = []string{}
+	experiment.prompt, experiment.holdouts = aphorismSplitPrompts()
 	return experiment.prompt
 }
 
+func (experiment *CorrelationLengthExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
+}
+
 func (experiment *CorrelationLengthExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 

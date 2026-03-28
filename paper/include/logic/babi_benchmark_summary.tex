@@ -1,6 +1,6 @@
 \begin{table}[htbp]
 \centering
-\caption{babi\_benchmark — standardised result summary (N=60).}
+\caption{babi\_benchmark — standardised result summary (N=1000).}
 \label{tab:babi_benchmark_summary}
 \begin{adjustbox}{max width=\textwidth}
 \begin{tabular}{r p{5cm} r r r r}
@@ -9,31 +9,31 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+288 & babi\_benchmark & 0.0000 & 1.0000 & 0.1429 & 0.2987 \\
+261 & babi\_benchmark & 0.0000 & 1.0000 & 0.1429 & 0.2987 \\
+321 & babi\_benchmark & 0.0000 & 1.0000 & 0.1429 & 0.2987 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-29 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-28 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-27 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+7 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+498 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+12 & babi\_benchmark & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{M}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{a}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{u}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
-\multicolumn{2}{l}{\texttt{j}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{John journeyed to the bathroom. Daniel w\ldots}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{the bathroom. Daniel went to the hallway\ldots}} \\
+\multicolumn{2}{l}{\texttt{Daniel went back to the bathroom. John m\ldots}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{the bathroom. John moved to the bathroom\ldots}} \\
+\multicolumn{2}{l}{\texttt{Sandra travelled to the office. Sandra w\ldots}} & \multicolumn{2}{l}{\texttt{bathroom}} & \multicolumn{2}{l}{\texttt{he bedroom. Daniel moved to the hallway.\ldots}} \\
+\multicolumn{2}{l}{\texttt{Mary moved to the bedroom. Sandra travel\ldots}} & \multicolumn{2}{l}{\texttt{hallway}} & \multicolumn{2}{l}{\texttt{the kitchen. Daniel went to the garden. \ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
-\multicolumn{3}{l}{Samples: 60} & \multicolumn{3}{l}{Holdout: 60\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Samples: 1000} & \multicolumn{3}{l}{Holdout: 1000\% ()} \\
+\multicolumn{3}{l}{Mean score: 0.1217} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.2987} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
 \bottomrule
 \end{tabular}

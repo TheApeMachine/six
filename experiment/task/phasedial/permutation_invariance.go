@@ -17,6 +17,7 @@ type PermutationInvarianceExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -46,12 +47,25 @@ func (experiment *PermutationInvarianceExperiment) Dataset() data.Provider {
 }
 
 func (experiment *PermutationInvarianceExperiment) Prompts() []string {
-	return []string{
-		"Predict the secondary structure of the given amino acid sequence.",
+	const line = "Predict the secondary structure of the given amino acid sequence."
+	pr, ho := tools.BytePrefixFraction(line, 0.5)
+	if ho == "" {
+		experiment.holdouts = nil
+		return []string{line}
 	}
+	experiment.holdouts = [][]byte{[]byte(ho)}
+	return []string{pr}
+}
+
+func (experiment *PermutationInvarianceExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx != 0 || len(experiment.holdouts) == 0 {
+		return nil, false
+	}
+	return experiment.holdouts[0], true
 }
 
 func (experiment *PermutationInvarianceExperiment) AddResult(results tools.ExperimentalData) {
+	experiment.evaluator.Enrich(&results)
 	experiment.tableData = append(experiment.tableData, results)
 }
 

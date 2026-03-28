@@ -18,6 +18,7 @@ type PipelineThroughputExperiment struct {
 	tableData  []tools.ExperimentalData
 	dataset    data.Provider
 	prompt     []string
+	holdouts   [][]byte
 	ingestTime time.Time
 	sampleLen  int
 	nSamples   int
@@ -47,8 +48,20 @@ func (experiment *PipelineThroughputExperiment) Dataset() data.Provider {
 
 func (experiment *PipelineThroughputExperiment) Prompts() []string {
 	experiment.ingestTime = time.Now()
-	experiment.prompt = []string{}
+	ds, ok := experiment.dataset.(*SyntheticDataset)
+	if !ok {
+		experiment.prompt = experiment.prompt[:0]
+		return experiment.prompt
+	}
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 0)
 	return experiment.prompt
+}
+
+func (experiment *PipelineThroughputExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *PipelineThroughputExperiment) AddResult(results tools.ExperimentalData) {
@@ -97,3 +110,5 @@ func (experiment *PipelineThroughputExperiment) Finalize(substrate any) error {
 
 	return nil
 }
+
+var _ tools.HoldoutProvider = (*PipelineThroughputExperiment)(nil)

@@ -20,6 +20,7 @@ type BestFillScalingExperiment struct {
 	tableData []tools.ExperimentalData
 	dataset   data.Provider
 	prompt    []string
+	holdouts  [][]byte
 	evaluator *tools.Evaluator
 }
 
@@ -43,10 +44,19 @@ func (experiment *BestFillScalingExperiment) Dataset() data.Provider {
 }
 
 func (experiment *BestFillScalingExperiment) Prompts() []string {
-	// The substrate is populated during Loader.Start()
-	// We don't need to run 5000 prompts through the active inference Graph
-	// just to benchmark the latency of raw BestFill.
-	return []string{}
+	ds, ok := experiment.dataset.(*SyntheticDataset)
+	if !ok {
+		return nil
+	}
+	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 0)
+	return experiment.prompt
+}
+
+func (experiment *BestFillScalingExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+	return experiment.holdouts[idx], true
 }
 
 func (experiment *BestFillScalingExperiment) AddResult(results tools.ExperimentalData) {
@@ -71,3 +81,5 @@ func (experiment *BestFillScalingExperiment) Artifacts() []tools.Artifact {
 }
 
 func (experiment *BestFillScalingExperiment) RawOutput() bool { return false }
+
+var _ tools.HoldoutProvider = (*BestFillScalingExperiment)(nil)

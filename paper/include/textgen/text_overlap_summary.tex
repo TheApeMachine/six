@@ -9,40 +9,32 @@
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-0 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-1 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-2 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+35 & Text Overlap & 0.0000 & 0.1080 & 0.0410 & 0.0369 \\
+63 & Text Overlap & 0.0000 & 0.1130 & 0.0322 & 0.0367 \\
+43 & Text Overlap & 0.0000 & 0.1065 & 0.0352 & 0.0354 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Bottom 3 results (lowest weighted score)}} \\
 \midrule
 \# & Name & Exact & Partial & Fuzzy & Weighted \\
 \midrule
-99 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-98 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
-97 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+67 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+68 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
+1 & Text Overlap & 0.0000 & 0.0000 & 0.0000 & 0.0000 \\
 \midrule
 \multicolumn{6}{l}{\textbf{Generation examples (4 curated)}} \\
 \midrule
 \multicolumn{2}{l}{\textit{Prefix (truncated)}} & \multicolumn{2}{l}{\textit{Expected}} & \multicolumn{2}{l}{\textit{Observed}} \\
 \midrule
-\multicolumn{2}{l}{\texttt{One day, a little girl named Lily found \ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{·g·gnc··································\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a little car\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{·o··\}··o································\ldots}} \\
-\multicolumn{2}{l}{\texttt{John and Sarah were playing together in \ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{·································oo6and0\ldots}} \\
-\multicolumn{2}{l}{\texttt{Once upon a time, there was a small girl\ldots}} & \multicolumn{2}{l}{\texttt{}} & \multicolumn{2}{l}{\texttt{[+3s'g?·6\&3\#F\#;c*3'·····················\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a big gray e\ldots}} & \multicolumn{2}{l}{\texttt{o use her long nose to spray water on th\ldots}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
+\multicolumn{2}{l}{\texttt{Once there were two friends named Bob an\ldots}} & \multicolumn{2}{l}{\texttt{ob smiled and nodded. "That's a good ide\ldots}} & \multicolumn{2}{l}{\texttt{········ Sarah were playing together in \ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a caterpilla\ldots}} & \multicolumn{2}{l}{\texttt{with being scared, just always be brave \ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
+\multicolumn{2}{l}{\texttt{Once upon a time, there was a baby who w\ldots}} & \multicolumn{2}{l}{\texttt{uldn't wait to show his mum and dad. He \ldots}} & \multicolumn{2}{l}{\texttt{········································\ldots}} \\
 \midrule
 \multicolumn{6}{l}{\textbf{Experiment conditions}} \\
 \midrule
 \multicolumn{3}{l}{Samples: 200} & \multicolumn{3}{l}{Holdout: 200\% ()} \\
-\multicolumn{3}{l}{Mean score: 0.0000} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0000} \\
+\multicolumn{3}{l}{Mean score: 0.0110} & \multicolumn{3}{l}{Min: 0.0000 \quad Max: 0.0369} \\
 \multicolumn{6}{l}{Score weights: Exact $\times$1.0, Partial $\times$0.5, Fuzzy $\times$0.33} \\
-\midrule
-\multicolumn{6}{l}{\textbf{Timing}} \\
-\midrule
-\multicolumn{3}{l}{Dataset load:} & \multicolumn{3}{l}{0µs} \\
-\multicolumn{3}{l}{Inference loop:} & \multicolumn{3}{l}{1.0 ms} \\
-\multicolumn{3}{l}{Mean per prediction:} & \multicolumn{3}{l}{10µs} \\
-\multicolumn{3}{l}{Finalize:} & \multicolumn{3}{l}{1.60 s} \\
-\multicolumn{3}{l}{\textbf{Total wall-clock:}} & \multicolumn{3}{l}{\textbf{1.60 s}} \\
 \bottomrule
 \end{tabular}
 \end{adjustbox}

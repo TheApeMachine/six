@@ -1,8 +1,10 @@
 package scaling
 
 import (
+	"io"
 	"iter"
 	"math/rand"
+	"sync"
 )
 
 /*
@@ -13,6 +15,12 @@ type SyntheticDataset struct {
 	sampleSize int
 	maxSamples int
 	seed       int64
+
+	readMu       sync.Mutex
+	readRNG      *rand.Rand
+	readSample   int
+	readPosInSmp int
+	readInit     bool
 }
 
 /*
@@ -45,7 +53,38 @@ func (ds *SyntheticDataset) Generate() iter.Seq[byte] {
 }
 
 func (ds *SyntheticDataset) Read(p []byte) (n int, err error) {
-	return copy(p, make([]byte, ds.sampleSize)), nil
+	if len(p) == 0 {
+		return 0, nil
+	}
+	if ds.maxSamples <= 0 || ds.sampleSize <= 0 {
+		return 0, io.EOF
+	}
+
+	ds.readMu.Lock()
+	defer ds.readMu.Unlock()
+
+	if !ds.readInit {
+		ds.readRNG = rand.New(rand.NewSource(ds.seed))
+		ds.readInit = true
+	}
+
+	for n < len(p) {
+		for ds.readSample < ds.maxSamples && ds.readPosInSmp >= ds.sampleSize {
+			ds.readSample++
+			ds.readPosInSmp = 0
+		}
+		if ds.readSample >= ds.maxSamples {
+			if n == 0 {
+				return 0, io.EOF
+			}
+			return n, nil
+		}
+
+		p[n] = byte(0x20 + ds.readRNG.Intn(95))
+		ds.readPosInSmp++
+		n++
+	}
+	return n, nil
 }
 
 func (ds *SyntheticDataset) Close() error {
