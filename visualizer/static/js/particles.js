@@ -137,7 +137,9 @@ export function buildFlowParticles() {
     const points = new THREE.Points(geo, mat);
     flowLayer.add(points);
 
+    const connKey = `${conn.from}->${conn.to}`;
     particleSystems.push({
+      connKey,
       points,
       geo,
       positions,
@@ -150,10 +152,11 @@ export function buildFlowParticles() {
 }
 
 export function activateFlowParticles(fromKey, toKey) {
-  const connIdx = CONNS.findIndex(c => c.from === resolveZoneKey(fromKey) && c.to === resolveZoneKey(toKey));
-  if (connIdx >= 0 && particleSystems[connIdx]) {
-    particleSystems[connIdx].active = true;
-    particleSystems[connIdx].fadeTimer = Date.now();
+  const connKey = `${resolveZoneKey(fromKey)}->${resolveZoneKey(toKey)}`;
+  const ps = particleSystems.find(p => p.connKey === connKey);
+  if (ps) {
+    ps.active = true;
+    ps.fadeTimer = Date.now();
   }
 }
 

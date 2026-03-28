@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -122,7 +121,16 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 			},
 		}
 	} else {
-		return nil, errors.New("elasticsearch: set logging.elasticsearch.ca_cert to the cluster CA PEM, or insecure_skip_verify: true for local dev only")
+		pool, err := x509.SystemCertPool()
+		if err != nil || pool == nil {
+			pool = x509.NewCertPool()
+		}
+		transport = &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    pool,
+				MinVersion: tls.VersionTLS12,
+			},
+		}
 	}
 
 	index := strings.TrimSpace(cfg.Index)
@@ -169,7 +177,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 	}
 	refresh := strings.TrimSpace(cfg.BulkRefresh)
 	if refresh == "" {
-		refresh = "true"
+		refresh = "false"
 	}
 
 	esBulkMu.Lock()

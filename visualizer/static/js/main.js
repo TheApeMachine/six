@@ -17,6 +17,8 @@ import {
   setZoneHover, updateZonePulses,
   animateStreamRing, advanceStreamPtr,
   spawnFoldEffect, updateFoldEffects,
+  animateUniConn,
+  setStreamRegionCount, rebuildStreamRing,
 } from './architecture.js';
 import { buildValueRing, animateValueRing, setValueLayout, decodeValueFrame } from './value-viz.js';
 import { buildSystemOrbit, animateSystemOrbit, setSystemTopology } from './system-viz.js';
@@ -66,10 +68,15 @@ const btnStep = getRequired('btn-step');
 const btnExport = getRequired('btn-export');
 const btnImport = getRequired('btn-import');
 const importFile = getRequired('import-file');
-const ingestBar = getRequired('ingest-bar');
+const inputBar = getRequired('input-bar');
+const ingestPanel = getRequired('ingest-panel');
 const ingestInput = getRequired('ingest-input');
 const ingestSend = getRequired('ingest-send');
-const promptBar = getRequired('prompt-bar');
+const ingestClose = getRequired('ingest-close');
+const ingestClear = getRequired('ingest-clear');
+const ingestToggle = getRequired('ingest-toggle');
+const ingestStatus = getRequired('ingest-status');
+const ingestHint = getRequired('ingest-hint');
 const promptInput = getRequired('prompt-input');
 const promptSend = getRequired('prompt-send');
 const logSearch = getRequired('log-search');
@@ -611,6 +618,10 @@ async function loadSystemTopology() {
     if (!res.ok) return;
     const topology = await res.json();
     setSystemTopology(topology);
+    if (topology.streamRegions != null) {
+      setStreamRegionCount(topology.streamRegions);
+      rebuildStreamRing();
+    }
   } catch (err) {
     console.warn('Six viz system topology fetch failed:', err);
   }
@@ -675,9 +686,8 @@ initWebSocket(
     statConn.textContent = 'connected';
     statConn.style.color = 'rgba(140, 255, 200, 0.75)';
     ingestSend.disabled = false;
-    ingestBar.classList.remove('hidden');
     promptSend.disabled = false;
-    promptBar.classList.remove('hidden');
+    inputBar.classList.remove('hidden');
     log('Connected to SIX telemetry', 'state');
   },
   // onDisconnect
@@ -685,9 +695,10 @@ initWebSocket(
     statConn.textContent = 'offline';
     statConn.style.color = 'rgba(255, 140, 120, 0.7)';
     ingestSend.disabled = true;
-    ingestBar.classList.add('hidden');
     promptSend.disabled = true;
-    promptBar.classList.add('hidden');
+    inputBar.classList.add('hidden');
+    ingestPanel.classList.remove('open');
+    ingestToggle.classList.remove('active');
     log('Disconnected', 'state');
   },
 );
@@ -748,33 +759,66 @@ importFile.addEventListener('change', async (e) => {
   }
 });
 
-ingestSend.addEventListener('click', () => {
-  if (sendIngest(ingestInput.value)) {
-    ingestInput.value = '';
-    log(`Loaded data`, 'ingest');
-  }
+// ── Ingest slide-out panel ──
+ingestToggle.addEventListener('click', () => {
+  const opening = !ingestPanel.classList.contains('open');
+  ingestPanel.classList.toggle('open', opening);
+  ingestToggle.classList.toggle('active', opening);
+  if (opening) ingestInput.focus();
 });
-ingestInput.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter') {
-    if (sendIngest(ingestInput.value)) {
-      ingestInput.value = '';
-      log(`Loaded data`, 'ingest');
-    }
-  }
+ingestClose.addEventListener('click', () => {
+  ingestPanel.classList.remove('open');
+  ingestToggle.classList.remove('active');
+});
+ingestClear.addEventListener('click', () => {
+  ingestInput.value = '';
+  ingestStatus.textContent = '';
+  ingestStatus.className = 'ingest-panel-status';
+  ingestInput.focus();
 });
 
-promptSend.addEventListener('click', () => {
+function doIngest() {
+  const text = ingestInput.value;
+  if (sendIngest(text)) {
+    const lines = text.split('\n').filter(l => l.trim()).length;
+    const chars = text.length;
+    ingestInput.value = '';
+    ingestStatus.textContent = `Sent ${lines} line${lines !== 1 ? 's' : ''}, ${chars} chars`;
+    ingestStatus.className = 'ingest-panel-status success';
+    log(`Loaded data (${chars} chars)`, 'ingest');
+    setTimeout(() => {
+      ingestStatus.textContent = '';
+      ingestStatus.className = 'ingest-panel-status';
+    }, 4000);
+  } else {
+    ingestStatus.textContent = 'Not connected or empty';
+    ingestStatus.className = 'ingest-panel-status error';
+  }
+}
+
+ingestSend.addEventListener('click', doIngest);
+ingestInput.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    doIngest();
+  }
+});
+ingestInput.addEventListener('input', () => {
+  ingestSend.disabled = !ingestInput.value.trim();
+});
+
+// ── Prompt input ──
+function doPrompt() {
   if (sendPrompt(promptInput.value)) {
     promptInput.value = '';
     log(`Sent prompt`, 'pipeline');
   }
-});
+}
+promptSend.addEventListener('click', doPrompt);
 promptInput.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
-    if (sendPrompt(promptInput.value)) {
-      promptInput.value = '';
-      log(`Sent prompt`, 'pipeline');
-    }
+    e.preventDefault();
+    doPrompt();
   }
 });
 
@@ -909,6 +953,7 @@ function animate(time) {
     animateValueRing(time);
     animateSystemOrbit(time);
     animateStreamRing(time, false);
+    animateUniConn(time, false);
   }
   updateFoldEffects();
 

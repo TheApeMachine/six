@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	logFile   *os.File
+	logFile *os.File
 
 	traceFile   *os.File
 	traceInitMu sync.Mutex
@@ -107,7 +107,17 @@ func InitLogger(cfg LoggingConfig) {
 
 	old := loggerPtr.Swap(&ErrnieLogger{Logger: z})
 	if old != nil && old.Logger != nil {
-		_ = old.Sync()
+		prev := old.Logger
+		go func() {
+			if syncErr := prev.Sync(); syncErr != nil {
+				nl := loggerPtr.Load()
+				if nl != nil && nl.Logger != nil {
+					nl.Logger.Error("previous logger Sync failed", zap.Error(syncErr))
+				} else {
+					fmt.Fprintf(os.Stderr, "errnie: previous logger Sync failed: %v\n", syncErr)
+				}
+			}
+		}()
 	}
 
 	if cfg.Elasticsearch.Enabled {
@@ -264,7 +274,10 @@ func Trace(msg string, keyvals ...any) {
 
 	formatted := traceKeyvalsFormatted(keyvals)
 	if debugEnabled {
-		fields := append(keyvalsToFields(formatted), zap.String("component", "trace"))
+		base := keyvalsToFields(formatted)
+		fields := make([]zap.Field, len(base)+1)
+		copy(fields, base)
+		fields[len(base)] = zap.String("component", "trace")
 		z.Debug(msg, fields...)
 	}
 	if traceEnabled {
@@ -422,6 +435,4 @@ func appendLineToFile(f *os.File, parts []any) {
 	if err != nil {
 		return
 	}
-
-	_ = f.Sync()
 }

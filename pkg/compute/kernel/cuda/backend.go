@@ -18,7 +18,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
@@ -30,14 +29,33 @@ type Backend struct {
 	initOnce    sync.Once
 	deviceCount int
 	deviceIdx   int
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 /*
 NewBackend returns a CUDA kernel Backend.
 */
 func NewBackend(idx int) *Backend {
+	ctx, cancel := context.WithCancel(context.Background())
 	return &Backend{
 		deviceIdx: idx,
+		ctx:       ctx,
+		cancel:    cancel,
+	}
+}
+
+// Context returns the backend-scoped context canceled by Shutdown.
+func (backend *Backend) Context() context.Context {
+	return backend.ctx
+}
+
+// Shutdown cancels the backend context so work passed to Schedule observes
+// ctx.Done. Global CUDA pool memory in the C layer is shared across device
+// indices; this does not free device buffers.
+func (backend *Backend) Shutdown() {
+	if backend.cancel != nil {
+		backend.cancel()
 	}
 }
 
@@ -65,16 +83,46 @@ func preloadFirmwareFrame(c *[128]uint64) {
 		return
 	}
 
-	p := uint64(core.Cfg.RegPC)
-	w := uint64(core.Cfg.ProgramIndex)
-	f := c[uint64(core.Cfg.FW)]
+	const maxIdx = 127
+	const nWords = 128
 
-	if f == 0 || int(f) >= len(core.Cfg.Firmware) || c[p] != 0 {
+	pc := core.Cfg.RegPC
+	w := core.Cfg.ProgramIndex
+	fwIdx := core.Cfg.FW
+
+	if pc < 0 || pc > maxIdx || w < 0 || w > maxIdx || fwIdx < 0 || fwIdx > maxIdx {
 		return
 	}
 
-	g := core.Cfg.Firmware[f]
-	for i, j := 0, w+4; i < len(g) && int(j) < len(c); i, j = i+2, j+1 {
+	p := pc
+	f := c[fwIdx]
+
+	if f == 0 {
+		return
+	}
+
+	fi := int(f)
+	if fi < 0 || fi >= len(core.Cfg.Firmware) {
+		return
+	}
+
+	if c[p] != 0 {
+		return
+	}
+
+	g := core.Cfg.Firmware[fi]
+	if len(g) > 0 {
+		if w+4 > maxIdx {
+			return
+		}
+		numWrites := (len(g) + 1) / 2
+		maxJ := w + 4 + numWrites - 1
+		if maxJ > maxIdx {
+			return
+		}
+	}
+
+	for i, j := 0, w+4; i < len(g) && j < nWords; i, j = i+2, j+1 {
 		v := uint64(g[i])
 		if i+1 < len(g) {
 			v |= uint64(g[i+1]) << 32
@@ -82,7 +130,7 @@ func preloadFirmwareFrame(c *[128]uint64) {
 		c[j] = v
 	}
 
-	c[uint64(core.Cfg.FW)] = 0
+	c[fwIdx] = 0
 }
 
 /*
@@ -109,10 +157,7 @@ func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
 	return nil
 }
 
+// Schedule runs the job with Context(); cancellation is tied to Shutdown.
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
-	if err := job(context.Background()); err != nil {
-		_ = errnie.Error(err)
-		return err
-	}
-	return nil
+	return job(backend.ctx)
 }

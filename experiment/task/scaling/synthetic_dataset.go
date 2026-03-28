@@ -69,11 +69,7 @@ func (ds *SyntheticDataset) Read(p []byte) (n int, err error) {
 	}
 
 	for n < len(p) {
-		for ds.readSample < ds.maxSamples && ds.readPosInSmp >= ds.sampleSize {
-			ds.readSample++
-			ds.readPosInSmp = 0
-		}
-		if ds.readSample >= ds.maxSamples {
+		if ds.advanceReadSampleForNextByte() {
 			if n == 0 {
 				return 0, io.EOF
 			}
@@ -85,6 +81,19 @@ func (ds *SyntheticDataset) Read(p []byte) (n int, err error) {
 		n++
 	}
 	return n, nil
+}
+
+// advanceReadSampleForNextByte skips any fully consumed samples so the next
+// byte will come from the current sample or, if none remain, reports EOF.
+// It updates readSample and readPosInSmp. The return value is true when
+// there is no next byte to read (caller should return io.EOF if no bytes
+// were copied yet, otherwise end the read successfully).
+func (ds *SyntheticDataset) advanceReadSampleForNextByte() bool {
+	for ds.readSample < ds.maxSamples && ds.readPosInSmp >= ds.sampleSize {
+		ds.readSample++
+		ds.readPosInSmp = 0
+	}
+	return ds.readSample >= ds.maxSamples
 }
 
 func (ds *SyntheticDataset) Close() error {

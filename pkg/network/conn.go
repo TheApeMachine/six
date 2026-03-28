@@ -62,8 +62,7 @@ func (conn *UniConn) Read(p []byte) (int, error) {
 		return 0, &TransportError{Layer: "uniconn", Op: "read", Err: ErrNoTransport}
 	}
 
-	n, err := conn.rwc.Read(p)
-	return n, err
+	return conn.rwc.Read(p)
 }
 
 /*

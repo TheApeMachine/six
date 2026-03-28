@@ -80,6 +80,15 @@ func (ds *Dataset) Read(p []byte) (n int, err error) {
 	return n, nil
 }
 
+// Reset rewinds the read cursor to the start of the corpus so Read can scan again
+// (e.g. multiple epochs). It is safe for concurrent use with Read.
+func (ds *Dataset) Reset() {
+	ds.readMu.Lock()
+	defer ds.readMu.Unlock()
+	ds.readRow = 0
+	ds.readOff = 0
+}
+
 func (ds *Dataset) Close() error {
 	return nil
 }

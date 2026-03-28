@@ -6,6 +6,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/textutil"
 )
 
 /*
@@ -13,11 +14,12 @@ SystemTopology describes the runtime layers that sit around the live machine:
 Machine, Stream, Emitter, Backend, Pool, and the hardware substrates beneath it.
 */
 type SystemTopology struct {
-	Title    string               `json:"title"`
-	Subtitle string               `json:"subtitle"`
-	Core     []SystemTopologyNode `json:"core"`
-	Hardware []SystemTopologyNode `json:"hardware"`
-	Links    []SystemTopologyLink `json:"links"`
+	Title         string               `json:"title"`
+	Subtitle      string               `json:"subtitle"`
+	StreamRegions int                  `json:"streamRegions"`
+	Core          []SystemTopologyNode `json:"core"`
+	Hardware      []SystemTopologyNode `json:"hardware"`
+	Links         []SystemTopologyLink `json:"links"`
 }
 
 /*
@@ -39,12 +41,9 @@ type SystemTopologyLink struct {
 	To   string `json:"to"`
 }
 
-func pluralize(count int, singular, plural string) string {
-	if count == 1 {
-		return singular
-	}
-	return plural
-}
+// defaultStreamRegions is the transport ring slot count shown in the UI; align with
+// transport.StreamWithRegions when the vm wires a multi-region stream.
+const defaultStreamRegions = 4
 
 /*
 BuildSystemTopology snapshots the runtime substrate stack for the browser.
@@ -85,14 +84,14 @@ func BuildSystemTopology() SystemTopology {
 		{
 			ID:     "backend",
 			Label:  "Backend",
-			Detail: fmt.Sprintf("%d substrate%s", backendCount, pluralize(backendCount, "", "s")),
+			Detail: fmt.Sprintf("%d substrate%s", backendCount, textutil.Pluralize(backendCount, "", "s")),
 			Kind:   "backend",
 			Count:  backendCount,
 		},
 		{
 			ID:     "pool",
 			Label:  "Pool",
-			Detail: fmt.Sprintf("%d worker%s", poolWorkers, pluralize(poolWorkers, "", "s")),
+			Detail: fmt.Sprintf("%d worker%s", poolWorkers, textutil.Pluralize(poolWorkers, "", "s")),
 			Kind:   "pool",
 			Count:  poolWorkers,
 		},
@@ -102,14 +101,14 @@ func BuildSystemTopology() SystemTopology {
 		{
 			ID:     "cuda",
 			Label:  "Cuda",
-			Detail: fmt.Sprintf("%d %s", cudaCount, pluralize(cudaCount, "device", "devices")),
+			Detail: fmt.Sprintf("%d %s", cudaCount, textutil.Pluralize(cudaCount, "device", "devices")),
 			Kind:   "cuda",
 			Count:  cudaCount,
 		},
 		{
 			ID:     "metal",
 			Label:  "Metal",
-			Detail: fmt.Sprintf("%d %s", metalCount, pluralize(metalCount, "device", "devices")),
+			Detail: fmt.Sprintf("%d %s", metalCount, textutil.Pluralize(metalCount, "device", "devices")),
 			Kind:   "metal",
 			Count:  metalCount,
 		},
@@ -134,10 +133,11 @@ func BuildSystemTopology() SystemTopology {
 	}
 
 	return SystemTopology{
-		Title:    "SYSTEM",
-		Subtitle: "machine · stream · emitter · backend · pool",
-		Core:     core,
-		Hardware: hardware,
-		Links:    links,
+		Title:         "SYSTEM",
+		Subtitle:      "machine · stream · emitter · backend · pool",
+		StreamRegions: defaultStreamRegions,
+		Core:          core,
+		Hardware:      hardware,
+		Links:         links,
 	}
 }

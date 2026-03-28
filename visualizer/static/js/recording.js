@@ -17,8 +17,12 @@ export function initRecording(handleEvent, resetVis) {
 }
 
 export function recordEvent(ev) {
-  ev._ts = Date.now() - startTime;
-  recording.push(ev);
+  const copy = { ...ev };
+  if (ev.data != null && typeof ev.data === 'object' && !Array.isArray(ev.data)) {
+    copy.data = { ...ev.data };
+  }
+  copy._ts = Date.now() - startTime;
+  recording.push(copy);
 }
 
 export function isReplayMode() {
@@ -40,7 +44,10 @@ export function enterReplayMode() {
 
 export function enterLiveMode() {
   replayMode = false;
-  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  if (replayTimer) {
+    clearTimeout(replayTimer);
+    replayTimer = null;
+  }
 }
 
 export function replayTo(idx) {
@@ -58,21 +65,45 @@ export function replayTo(idx) {
 
 export function startPlayback(onTick) {
   enterReplayMode();
-  if (replayTimer) clearInterval(replayTimer);
-  replayTimer = setInterval(() => {
-    if (replayIdx < recording.length - 1) {
-      replayIdx++;
-      if (handleEventFn) handleEventFn(recording[replayIdx]);
-      if (onTick) onTick(replayIdx, recording.length);
-    } else {
-      clearInterval(replayTimer);
+  if (replayTimer) {
+    clearTimeout(replayTimer);
+    replayTimer = null;
+  }
+  if (recording.length === 0) {
+    replayIdx = 0;
+    return;
+  }
+
+  replayIdx = -1;
+
+  function playStep() {
+    if (replayIdx >= recording.length - 1) {
       replayTimer = null;
+      if (onTick) onTick(replayIdx, recording.length);
+      return;
     }
-  }, 16);
+    replayIdx += 1;
+    if (handleEventFn) handleEventFn(recording[replayIdx]);
+    if (onTick) onTick(replayIdx, recording.length);
+
+    if (replayIdx >= recording.length - 1) {
+      replayTimer = null;
+      return;
+    }
+    const curTs = recording[replayIdx]._ts ?? 0;
+    const nextTs = recording[replayIdx + 1]._ts ?? 0;
+    const delay = Math.max(0, nextTs - curTs);
+    replayTimer = setTimeout(playStep, delay);
+  }
+
+  replayTimer = setTimeout(playStep, 0);
 }
 
 export function pausePlayback() {
-  if (replayTimer) { clearInterval(replayTimer); replayTimer = null; }
+  if (replayTimer) {
+    clearTimeout(replayTimer);
+    replayTimer = null;
+  }
 }
 
 export function stepForward() {
@@ -93,7 +124,7 @@ export function exportRecording() {
   try {
     a.click();
   } finally {
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 2500);
   }
 }
 

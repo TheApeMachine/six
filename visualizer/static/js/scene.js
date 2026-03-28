@@ -157,7 +157,7 @@ export function updateAmbientParticles(time) {
   for (let i = 0; i < particleCount; i++) {
     pos[i * 3 + 1] += Math.sin(time * 0.001 + i * 0.3) * 0.002;
     if (pos[i * 3 + 1] > 40) {
-      pos[i * 3 + 1] = -Math.random() * 5;
+      pos[i * 3 + 1] = Math.random() * 5 + 0.5;
       pos[i * 3] += (Math.random() - 0.5) * 4;
       pos[i * 3 + 2] += (Math.random() - 0.5) * 4;
     }

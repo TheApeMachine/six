@@ -414,6 +414,9 @@ func (m *multiDomainDataset) Close() error {
 
 func (m *multiDomainDataset) GeneratePrompts() iter.Seq[data.Prompt] {
 	return func(yield func(data.Prompt) bool) {
+		// globalID assigns stable SampleIDs across domains. uint32 limits distinct IDs to
+		// ~4.29e9; increment wraps to 0 on overflow. Use uint64 here if combined prompt
+		// counts can exceed that in the future.
 		var globalID uint32
 		for _, ds := range m.datasets {
 			pp, ok := ds.(data.PromptProvider)

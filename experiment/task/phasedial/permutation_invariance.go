@@ -47,7 +47,10 @@ func (experiment *PermutationInvarianceExperiment) Dataset() data.Provider {
 }
 
 func (experiment *PermutationInvarianceExperiment) Prompts() []string {
-	const line = "Predict the secondary structure of the given amino acid sequence."
+	line := ""
+	if len(tools.Aphorisms) > 0 {
+		line = tools.Aphorisms[0]
+	}
 	pr, ho := tools.BytePrefixFraction(line, 0.5)
 	if ho == "" {
 		experiment.holdouts = nil

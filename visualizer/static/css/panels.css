@@ -206,23 +206,40 @@
   background: var(--bp-ink); cursor: pointer;
   border: 1px solid var(--bp-ink-dim);
 }
+#replay-slider::-moz-range-thumb {
+  width: 8px;
+  height: 8px;
+  border-radius: 0;
+  background: var(--bp-ink);
+  cursor: pointer;
+  border: 1px solid var(--bp-ink-dim);
+}
 #replay-info { font-size: 8px; color: var(--bp-ink-faint); min-width: 80px; text-align: right; }
 
-/* ── Prompt / Ingest Inputs ─────────────────────────────── */
-#ingest-bar,
-#prompt-bar {
-  position: absolute; left: 50%;
+/* ── Input Bar (bottom prompt + data toggle) ─────────────── */
+#input-bar {
+  position: absolute; bottom: 60px; left: 50%;
   transform: translateX(-50%); z-index: 200;
   padding: 6px 10px; display: flex; align-items: center;
-  gap: 8px; pointer-events: auto; width: 520px;
+  gap: 8px; pointer-events: auto; width: 560px;
 }
-#ingest-bar { bottom: 100px; }
-#prompt-bar { bottom: 60px; }
-#ingest-bar.hidden,
-#prompt-bar.hidden {
-  display: none;
+#input-bar.hidden { display: none; }
+.input-bar-btn {
+  background: rgba(10, 20, 45, 0.8);
+  border: 1px solid var(--bp-line-strong);
+  color: var(--bp-ink-dim); font-family: var(--bp-font);
+  font-size: 8px; padding: 6px 10px; cursor: pointer;
+  letter-spacing: 2px; text-transform: uppercase;
+  transition: all 0.15s; white-space: nowrap;
 }
-#ingest-input,
+.input-bar-btn:hover {
+  color: var(--bp-ink); border-color: var(--bp-accent-dim);
+}
+.input-bar-btn.active {
+  background: rgba(255, 220, 140, 0.08);
+  border-color: var(--bp-accent-dim);
+  color: var(--bp-accent);
+}
 #prompt-input {
   flex: 1; background: rgba(6, 14, 30, 0.9);
   border: 1px solid var(--bp-line-strong);
@@ -230,12 +247,9 @@
   font-size: 11px; padding: 6px 10px; border-radius: 0;
   outline: none; letter-spacing: 0.3px;
 }
-#ingest-input::placeholder,
 #prompt-input::placeholder { color: var(--bp-ink-faint); letter-spacing: 1px; }
-#ingest-input:focus,
 #prompt-input:focus { border-color: var(--bp-accent-dim); }
-#ingest-send,
-#prompt-send {
+.input-bar-send {
   background: rgba(10, 20, 45, 0.8);
   border: 1px solid var(--bp-accent-dim);
   color: var(--bp-accent); font-family: inherit; font-size: 9px;
@@ -243,13 +257,95 @@
   letter-spacing: 2px; text-transform: uppercase;
   transition: all 0.15s;
 }
-#ingest-send:hover,
-#prompt-send:hover {
+.input-bar-send:hover {
   background: rgba(255, 220, 140, 0.08);
   border-color: var(--bp-accent);
 }
-#ingest-send:disabled,
-#prompt-send:disabled { opacity: 0.3; cursor: default; }
+.input-bar-send:disabled { opacity: 0.3; cursor: default; }
+
+/* ── Ingest Slide-Out Panel ──────────────────────────────── */
+.ingest-panel {
+  position: fixed; top: 0; right: -420px;
+  width: 420px; height: 100vh; z-index: 350;
+  display: flex; flex-direction: column;
+  background: var(--bp-panel-bg);
+  border-left: 1px solid var(--bp-panel-border);
+  transition: right 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: auto;
+}
+.ingest-panel.open { right: 0; }
+.ingest-panel-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--bp-line-strong);
+  flex-shrink: 0;
+}
+.ingest-panel-title {
+  font-size: 9px; font-weight: 500; letter-spacing: 4px;
+  text-transform: uppercase; color: var(--bp-accent);
+}
+.ingest-panel-status {
+  font-size: 8px; color: var(--bp-ink-faint);
+  letter-spacing: 0.5px; margin-left: auto;
+}
+.ingest-panel-status.success { color: var(--bp-green); }
+.ingest-panel-status.error { color: var(--bp-red); }
+.ingest-panel-close {
+  background: none; border: 1px solid var(--bp-line);
+  color: var(--bp-ink-dim); font-size: 14px;
+  width: 24px; height: 24px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; font-family: var(--bp-font); transition: all 0.15s;
+}
+.ingest-panel-close:hover {
+  color: var(--bp-ink); border-color: var(--bp-accent-dim);
+}
+#ingest-input {
+  flex: 1; resize: none;
+  background: rgba(6, 14, 30, 0.6);
+  border: none; border-bottom: 1px solid var(--bp-line);
+  color: var(--bp-ink); font-family: var(--bp-font);
+  font-size: 11px; padding: 14px 16px; line-height: 1.6;
+  outline: none; letter-spacing: 0.3px;
+  scrollbar-width: thin; scrollbar-color: var(--bp-line-strong) transparent;
+}
+#ingest-input::placeholder { color: var(--bp-ink-faint); letter-spacing: 0.5px; }
+#ingest-input:focus { background: rgba(6, 14, 30, 0.8); }
+.ingest-panel-footer {
+  display: flex; align-items: center; gap: 8px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--bp-line);
+  flex-shrink: 0;
+}
+.ingest-panel-hint {
+  font-size: 7px; color: var(--bp-ink-faint);
+  letter-spacing: 1px; text-transform: uppercase;
+  margin-right: auto;
+}
+.ingest-btn-secondary {
+  background: rgba(10, 20, 45, 0.8);
+  border: 1px solid var(--bp-line);
+  color: var(--bp-ink-dim); font-family: inherit; font-size: 8px;
+  padding: 5px 12px; cursor: pointer;
+  letter-spacing: 1.5px; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.ingest-btn-secondary:hover {
+  color: var(--bp-ink); border-color: var(--bp-line-strong);
+}
+.ingest-btn-primary {
+  background: rgba(10, 20, 45, 0.8);
+  border: 1px solid var(--bp-accent-dim);
+  color: var(--bp-accent); font-family: inherit; font-size: 9px;
+  padding: 5px 16px; cursor: pointer;
+  letter-spacing: 2px; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.ingest-btn-primary:hover {
+  background: rgba(255, 220, 140, 0.08);
+  border-color: var(--bp-accent);
+}
+.ingest-btn-primary:disabled { opacity: 0.3; cursor: default; }
 
 /* ── Inspector Panel ─────────────────────────────────── */
 .inspector-panel {
@@ -496,7 +592,7 @@
 
 /* ── Nav Hint ─────────────────────────────────────────── */
 #nav-hint {
-  position: absolute; bottom: 56px; left: 50%;
+  position: absolute; bottom: 100px; left: 50%;
   transform: translateX(-50%); z-index: 100;
   pointer-events: none;
   font-size: 7px; color: var(--bp-ink-faint);

@@ -45,15 +45,14 @@ func TestRead(t *testing.T) {
 		Convey("And a Value is written to the stream", func() {
 			for range regions {
 				value, err := primitive.NewValue(nil)
-				defer value.Close()
-
 				So(err, ShouldBeNil)
 
 				(*value)[core.Cfg.StateIndex] = 1
-				n, err := io.Copy(stream, value)
+				n, cerr := io.Copy(stream, value)
+				value.Close()
 
 				So(n, ShouldEqual, primitive.ByteSize)
-				So(err, ShouldBeNil)
+				So(cerr, ShouldBeNil)
 			}
 
 			Convey("Then the Value should be read from the stream", func() {
@@ -82,15 +81,14 @@ func TestWrite(t *testing.T) {
 		Convey("And a Value is written to the stream", func() {
 			for range regions {
 				value, err := primitive.NewValue(nil)
-				defer value.Close()
-
 				So(err, ShouldBeNil)
 
 				(*value)[core.Cfg.StateIndex] = 1
-				n, err := io.Copy(stream, value)
+				n, cerr := io.Copy(stream, value)
+				value.Close()
 
 				So(n, ShouldEqual, primitive.ByteSize)
-				So(err, ShouldBeNil)
+				So(cerr, ShouldBeNil)
 			}
 		})
 
@@ -100,13 +98,14 @@ func TestWrite(t *testing.T) {
 
 			for range regions {
 				value, err := primitive.NewValue(str)
-				defer value.Close()
+				So(err, ShouldBeNil)
 
 				(*value)[core.Cfg.StateIndex] = 1
-				n, err := io.Copy(stream, value)
+				n, cerr := io.Copy(stream, value)
+				value.Close()
 
 				So(n, ShouldEqual, primitive.ByteSize)
-				So(err, ShouldBeNil)
+				So(cerr, ShouldBeNil)
 			}
 
 			buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize*regions))

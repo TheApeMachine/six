@@ -146,10 +146,23 @@ function renderFeedTab() {
   els.body.innerHTML = '';
 
   if (events.length === 0) {
-    els.body.innerHTML = `<div class="inspector-empty">
-      No events for this zone yet.<br><br>
-      Run the live demo (<code style="opacity:.8">go run . viz</code>) to stream telemetry.
-    </div>`;
+    const wrap = document.createElement('div');
+    wrap.className = 'inspector-empty';
+    wrap.style.whiteSpace = 'pre-line';
+    const p1 = document.createElement('div');
+    p1.textContent = 'No events for this zone yet.';
+    const p2 = document.createElement('div');
+    p2.style.marginTop = '0.75em';
+    const code = document.createElement('code');
+    code.style.opacity = '0.8';
+    code.textContent = 'go run . viz';
+    p2.append(
+      document.createTextNode('Run the live demo ('),
+      code,
+      document.createTextNode(') to stream telemetry.'),
+    );
+    wrap.append(p1, p2);
+    els.body.appendChild(wrap);
     return;
   }
 
@@ -194,7 +207,12 @@ function renderStateTab() {
   for (const [key, val] of stats) {
     const row = document.createElement('div');
     row.className = 'inspector-stat';
-    row.innerHTML = `<span>${key}</span><span class="val ${val.cls || ''}">${val.text}</span>`;
+    const sk = document.createElement('span');
+    sk.textContent = key;
+    const sv = document.createElement('span');
+    sv.className = `val ${val.cls || ''}`;
+    sv.textContent = val.text;
+    row.append(sk, sv);
     section.appendChild(row);
   }
   els.body.appendChild(section);
@@ -311,9 +329,19 @@ function renderGraphInternals() {
       const node = document.createElement('div');
       node.className = 'fold-tree-node';
       node.style.marginLeft = `${fold.level * 12}px`;
-      node.innerHTML = `<span class="fold-level">L${fold.level}</span> bin=${fold.bin} ch=${fold.children} ` +
-        `${fold.text ? `"${fold.text.slice(0, 24)}"` : ''}` +
-        `<span class="fold-density">${(fold.density * 100).toFixed(0)}%</span>`;
+      const lv = document.createElement('span');
+      lv.className = 'fold-level';
+      lv.textContent = `L${fold.level}`;
+      node.append(lv, document.createTextNode(` bin=${fold.bin} ch=${fold.children} `));
+      if (fold.text) {
+        const qt = document.createElement('span');
+        qt.textContent = `"${String(fold.text).slice(0, 24)}"`;
+        node.appendChild(qt);
+      }
+      const dn = document.createElement('span');
+      dn.className = 'fold-density';
+      dn.textContent = `${(fold.density * 100).toFixed(0)}%`;
+      node.appendChild(dn);
       container.appendChild(node);
     }
     sec1.appendChild(container);
@@ -361,9 +389,15 @@ function renderMachineInternals() {
         : exec.outcome ? 'pending' : 'active';
       const header = document.createElement('div');
       header.className = 'timeline-entry';
-      header.innerHTML = `<div class="timeline-dot ${dotCls}"></div>` +
-        `<span class="timeline-label">${exec.candidates || 0} candidates</span>` +
-        `<span class="timeline-detail">${exec.outcome || 'running'}</span>`;
+      const dot = document.createElement('div');
+      dot.className = `timeline-dot ${dotCls}`;
+      const lab = document.createElement('span');
+      lab.className = 'timeline-label';
+      lab.textContent = `${exec.candidates || 0} candidates`;
+      const det = document.createElement('span');
+      det.className = 'timeline-detail';
+      det.textContent = exec.outcome || 'running';
+      header.append(dot, lab, det);
       div.appendChild(header);
       sec2.appendChild(div);
     }
@@ -502,9 +536,19 @@ function renderHardwareInternals(kind) {
     for (const [idx, count] of Object.entries(routesByIndex)) {
       const row = document.createElement('div');
       row.className = 'latency-bar-row';
-      row.innerHTML = `<span class="latency-label">#${idx}</span>` +
-        `<div class="latency-track"><div class="latency-fill" style="width:${(count / maxUsage) * 100}%"></div></div>` +
-        `<span class="latency-val">${count}×</span>`;
+      const lab = document.createElement('span');
+      lab.className = 'latency-label';
+      lab.textContent = `#${idx}`;
+      const track = document.createElement('div');
+      track.className = 'latency-track';
+      const fill = document.createElement('div');
+      fill.className = 'latency-fill';
+      fill.style.width = `${(count / maxUsage) * 100}%`;
+      track.appendChild(fill);
+      const val = document.createElement('span');
+      val.className = 'latency-val';
+      val.textContent = `${count}×`;
+      row.append(lab, track, val);
       sec1.appendChild(row);
     }
   }
@@ -514,9 +558,15 @@ function renderHardwareInternals(kind) {
   for (const ev of hits.slice(-15).reverse()) {
     const row = document.createElement('div');
     row.className = 'fold-tree-node';
-    row.innerHTML = `<span class="fold-level">${ev.action}</span> ` +
-      `${formatEventData(ev.data)}` +
-      `<span class="fold-density">${((ev._ts || 0) / 1000).toFixed(1)}s</span>`;
+    const act = document.createElement('span');
+    act.className = 'fold-level';
+    act.textContent = ev.action ?? '';
+    const dataSpan = document.createElement('span');
+    dataSpan.textContent = formatEventData(ev.data);
+    const ts = document.createElement('span');
+    ts.className = 'fold-density';
+    ts.textContent = `${((ev._ts || 0) / 1000).toFixed(1)}s`;
+    row.append(act, document.createTextNode(' '), dataSpan, ts);
     row.addEventListener('click', () => showEventDetail(ev));
     sec2.appendChild(row);
   }
@@ -540,9 +590,19 @@ function renderKernelInternals() {
     for (const [idx, count] of Object.entries(backendUsage)) {
       const row = document.createElement('div');
       row.className = 'latency-bar-row';
-      row.innerHTML = `<span class="latency-label">#${idx}</span>` +
-        `<div class="latency-track"><div class="latency-fill" style="width:${(count / maxUsage) * 100}%"></div></div>` +
-        `<span class="latency-val">${count}×</span>`;
+      const lab = document.createElement('span');
+      lab.className = 'latency-label';
+      lab.textContent = `#${idx}`;
+      const track = document.createElement('div');
+      track.className = 'latency-track';
+      const fill = document.createElement('div');
+      fill.className = 'latency-fill';
+      fill.style.width = `${(count / maxUsage) * 100}%`;
+      track.appendChild(fill);
+      const val = document.createElement('span');
+      val.className = 'latency-val';
+      val.textContent = `${count}×`;
+      row.append(lab, track, val);
       sec1.appendChild(row);
     }
   }
@@ -552,9 +612,15 @@ function renderKernelInternals() {
   for (const ev of kernelEvents.slice(-15).reverse()) {
     const row = document.createElement('div');
     row.className = 'fold-tree-node';
-    row.innerHTML = `<span class="fold-level">${ev.action}</span> ` +
-      `${formatEventData(ev.data)}` +
-      `<span class="fold-density">${((ev._ts || 0) / 1000).toFixed(1)}s</span>`;
+    const act = document.createElement('span');
+    act.className = 'fold-level';
+    act.textContent = ev.action ?? '';
+    const dataSpan = document.createElement('span');
+    dataSpan.textContent = formatEventData(ev.data);
+    const ts = document.createElement('span');
+    ts.className = 'fold-density';
+    ts.textContent = `${((ev._ts || 0) / 1000).toFixed(1)}s`;
+    row.append(act, document.createTextNode(' '), dataSpan, ts);
     row.addEventListener('click', () => showEventDetail(ev));
     sec2.appendChild(row);
   }
@@ -562,7 +628,11 @@ function renderKernelInternals() {
 }
 
 function renderGenericInternals() {
-  els.body.appendChild(emptyMsg(`This subsystem does not emit telemetry yet.<br>Check the Feed tab for events.`));
+  const wrap = document.createElement('div');
+  wrap.className = 'inspector-empty';
+  wrap.style.whiteSpace = 'pre-line';
+  wrap.textContent = 'This subsystem does not emit telemetry yet.\nCheck the Feed tab for events.';
+  els.body.appendChild(wrap);
 }
 
 function getSelectedValueSnapshot() {
@@ -724,7 +794,7 @@ function makeSection(titleText) {
 function emptyMsg(text) {
   const div = document.createElement('div');
   div.className = 'inspector-empty';
-  div.innerHTML = text;
+  div.textContent = text;
   return div;
 }
 

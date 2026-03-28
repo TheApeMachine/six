@@ -124,6 +124,14 @@ int unified_bitwise_metal(void* a_host, const void* b_host) {
     if (ensure_pool(1) != 0) return -1;
 
     @autoreleasepool {
+        NSUInteger la = [poolA length];
+        NSUInteger lb = [poolB length];
+        if (la < VALUE_BYTES || lb < VALUE_BYTES) {
+            NSLog(@"metal: pool buffer too small (need %d): poolA=%lu poolB=%lu",
+                  VALUE_BYTES, (unsigned long)la, (unsigned long)lb);
+            return -6;
+        }
+
         memcpy([poolA contents], a_host, VALUE_BYTES);
         memcpy([poolB contents], b_host, VALUE_BYTES);
 

@@ -211,6 +211,26 @@ body {
 .region-label.registers { color: var(--bp-purple); border: 1px solid rgba(180, 140, 255, 0.2); }
 .region-label.pc      { color: var(--bp-accent); border: 1px solid var(--bp-accent-dim); }
 
+.uniconn-label {
+  font-family: var(--bp-font);
+  pointer-events: none;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+.uniconn-gate-label {
+  font-family: var(--bp-font);
+  color: var(--bp-ink-faint);
+  pointer-events: none;
+  white-space: nowrap;
+  text-transform: uppercase;
+}
+.uniconn-peer-label {
+  font-family: var(--bp-font);
+  color: var(--bp-ink-faint);
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 .system-orbit-label {
   display: flex;
   flex-direction: column;
@@ -339,5 +359,5 @@ body {
 
 @keyframes scan-line {
   0% { transform: translateY(-100%); }
-  100% { transform: translateY(100vh); }
+  100% { transform: translateY(200%); }
 }

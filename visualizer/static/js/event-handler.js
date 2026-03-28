@@ -6,6 +6,7 @@ import { spawnDataStream, activateFlowParticles } from './particles.js';
 import {
   addZoneLabel, clearZoneLabels, pulseZone,
   advanceStreamPtr, spawnFoldEffect,
+  setUniConnTransport, setUniConnState, spawnUniConnFrame, addUniConnPeer,
 } from './architecture.js';
 import { updateValueDisplay, updateValueFromWireFrame } from './value-viz.js';
 import { pulseSystemNode, pulseSystemBackendSelection } from './system-viz.js';
@@ -52,6 +53,45 @@ function pushSpark(density, action) {
   if (pushSparkFn) pushSparkFn(density, action);
 }
 
+/**
+ * Shared visualization path: stream, particles, zone label, pulse(s), log, inspector.
+ */
+function visualizeFlow(opts) {
+  const {
+    from, to, streamText, streamClass, duration,
+    labelZone, labelText,
+    pulseZones,
+    logText, logType, ev,
+    inspectorKey,
+    skipFlowParticles = false,
+    skipDataStream = false,
+    skipRefreshInspector = false,
+    skipLog = false,
+  } = opts;
+
+  if (!skipDataStream) {
+    spawnDataStream(from, to, streamText, streamClass, duration);
+  }
+  if (!skipFlowParticles) {
+    activateFlowParticles(from, to);
+  }
+  if (labelZone != null && labelText != null) {
+    addZoneLabel(labelZone, labelText);
+  }
+  const zones = pulseZones === undefined || pulseZones === null
+    ? []
+    : (Array.isArray(pulseZones) ? pulseZones : [pulseZones]);
+  for (const z of zones) {
+    if (z) pulseZone(z);
+  }
+  if (!skipLog && logText != null) {
+    log(logText, logType, ev);
+  }
+  if (!skipRefreshInspector && inspectorKey) {
+    refreshInspector(inspectorKey);
+  }
+}
+
 export function handleEvent(ev) {
   const d = ev.data || {};
   state.accumulateEvent(ev);
@@ -73,23 +113,41 @@ export function handleEvent(ev) {
     if (stg === 'ingest-tokenize') {
       state.inc('totalIngested');
       advanceStreamPtr(); // Stream write advances ptr
+      spawnUniConnFrame(null, 'in'); // Data arrived via network transport
       activateStage('tokenize', `${edgeCount} edges`);
-      spawnDataStream('dataset', 'frame', text || 'raw bytes', 'stream-ingest', 1200);
-      activateFlowParticles('dataset', 'frame');
-      addZoneLabel('frame', text);
-      pulseZone('dataset');
-      pulseZone('frame');
-      log(`Ingest: "${text.slice(0, 50)}"`, 'ingest', ev);
+      visualizeFlow({
+        from: 'dataset',
+        to: 'frame',
+        streamText: text || 'raw bytes',
+        streamClass: 'stream-ingest',
+        duration: 1200,
+        labelZone: 'frame',
+        labelText: text,
+        pulseZones: ['dataset', 'frame'],
+        logText: `Ingest: "${text.slice(0, 50)}"`,
+        logType: 'ingest',
+        ev,
+        skipRefreshInspector: true,
+      });
     }
 
     if (stg === 'tokenize') {
       state.inc('totalQueries');
       activateStage('tokenize', `${edgeCount} edges`);
-      spawnDataStream('frame', 'machine', text || 'tokens', 'stream-token', 1000);
-      activateFlowParticles('frame', 'machine');
-      addZoneLabel('frame', text);
-      pulseZone('frame');
-      log(`Query: "${text.slice(0, 50)}"`, 'tokenize', ev);
+      visualizeFlow({
+        from: 'frame',
+        to: 'machine',
+        streamText: text || 'tokens',
+        streamClass: 'stream-token',
+        duration: 1000,
+        labelZone: 'frame',
+        labelText: text,
+        pulseZones: ['frame'],
+        logText: `Query: "${text.slice(0, 50)}"`,
+        logType: 'tokenize',
+        ev,
+        skipRefreshInspector: true,
+      });
     }
 
     if (d.bin !== undefined) {
@@ -107,13 +165,21 @@ export function handleEvent(ev) {
     const insertText = d.chunkText || `${edges} edge`;
     state.inc('totalEdges', edges);
     activateStage('insert', `${edges} stored`);
-    spawnDataStream('machine', 'stream', insertText, 'stream-store', 1400);
-    activateFlowParticles('machine', 'stream');
+    visualizeFlow({
+      from: 'machine',
+      to: 'stream',
+      streamText: insertText,
+      streamClass: 'stream-store',
+      duration: 1400,
+      labelZone: 'stream',
+      labelText: insertText,
+      pulseZones: ['stream'],
+      logText: `Radix insert: ${insertText}`,
+      logType: 'ingest',
+      ev,
+      inspectorKey: 'stream',
+    });
     state.inc('totalFlowEdges');
-    addZoneLabel('stream', insertText);
-    pulseZone('stream');
-    log(`Radix insert: ${insertText}`, 'ingest', ev);
-    refreshInspector('stream');
   }
 
   // ── SpatialIndex Lookup ──
@@ -121,11 +187,21 @@ export function handleEvent(ev) {
     const pathCount = d.pathCount || d.paths || 0;
     state.inc('totalPaths', pathCount);
     activateStage('lookup', `${pathCount} paths`);
-    spawnDataStream('backend', 'pool', `${pathCount} paths found`, 'stream-lookup', 1000);
-    addZoneLabel('backend', `${pathCount} paths`);
-    pulseZone('backend');
-    log(`Lookup: ${pathCount} paths`, 'lookup', ev);
-    refreshInspector('backend');
+    visualizeFlow({
+      from: 'backend',
+      to: 'pool',
+      streamText: `${pathCount} paths found`,
+      streamClass: 'stream-lookup',
+      duration: 1000,
+      labelZone: 'backend',
+      labelText: `${pathCount} paths`,
+      pulseZones: ['backend'],
+      logText: `Lookup: ${pathCount} paths`,
+      logType: 'lookup',
+      ev,
+      inspectorKey: 'backend',
+      skipFlowParticles: true,
+    });
   }
 
   // ── Graph Evaluate ──
@@ -145,18 +221,27 @@ export function handleEvent(ev) {
     if (addFoldNodeFn) addFoldNodeFn(d.bin || 0, d.level || 0, d.density || 0, foldText, d.childCount || 0);
     // Show fold: incoming Value written into receiver's ALU (UniversalBitwise)
     spawnFoldEffect(foldText, d.partnerText || '', d.firmware || '');
-    spawnDataStream('backend', 'pool', foldText || `L${d.level} fold`, 'stream-fold', 1400);
-    activateFlowParticles('backend', 'pool');
-    addZoneLabel('backend', foldText || `L${d.level} fold`);
 
     state.foldHistory.push({
       level: d.level || 0, bin: d.bin || 0, density: d.density || 0,
       text: foldText, children: d.childCount || 0, ts: ev._ts,
     });
     while (state.foldHistory.length > 200) state.foldHistory.shift();
-    pulseZone('backend');
-    log(`Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`, 'fold', ev);
-    refreshInspector('backend');
+
+    visualizeFlow({
+      from: 'backend',
+      to: 'pool',
+      streamText: foldText || `L${d.level} fold`,
+      streamClass: 'stream-fold',
+      duration: 1400,
+      labelZone: 'backend',
+      labelText: foldText || `L${d.level} fold`,
+      pulseZones: ['backend'],
+      logText: `Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`,
+      logType: 'fold',
+      ev,
+      inspectorKey: 'backend',
+    });
   }
 
   // ── Machine Pipeline ──
@@ -189,11 +274,22 @@ export function handleEvent(ev) {
     const spanLabel = spanText
       ? `"${spanText.slice(0, 20)}" L${level} [${d.left}:${d.right}]`
       : `L${level} [${d.left}:${d.right}] ×${d.spanSize || 0}`;
-    addZoneLabel('backend', spanLabel);
-    if (level === 0) {
-      spawnDataStream('backend', 'pool', spanText || `span`, 'stream-fold', 1000);
-    }
-    log(`FoldSpan L${level}: [${d.left}:${d.right}] "${spanText.slice(0, 40)}"`, 'fold');
+    visualizeFlow({
+      from: 'backend',
+      to: 'pool',
+      streamText: spanText || 'span',
+      streamClass: 'stream-fold',
+      duration: 1000,
+      labelZone: 'backend',
+      labelText: spanLabel,
+      pulseZones: [],
+      logText: `FoldSpan L${level}: [${d.left}:${d.right}] "${spanText.slice(0, 40)}"`,
+      logType: 'fold',
+      ev,
+      skipFlowParticles: true,
+      skipDataStream: level !== 0,
+      skipRefreshInspector: true,
+    });
   }
 
   // ── Pool ──
@@ -211,6 +307,11 @@ export function handleEvent(ev) {
     const density = d.density || 0;
     pushSpark(density, ev.action || '');
     log(`${ev.action}: [${(d.activeBits || []).length} bits, ${(density * 100).toFixed(1)}%]`, 'fold');
+  }
+
+  // ── UniConn ──
+  else if (ev.component === 'UniConn') {
+    handleUniConnEvent(ev, d);
   }
 
   // ── Substrate ──
@@ -500,6 +601,15 @@ function handleKernelEvent(ev, d) {
   if (ev.action === 'PeerAdd') {
     pulseSystemNode('backend', d.nodeAddr || 'peer');
     addZoneLabel('backend', `peer: ${d.nodeAddr}`);
+    // Wire into UniConn viz — peer nodes appear on network layer
+    const addr = d.nodeAddr || '';
+    if (addr.includes(':')) {
+      // Network address → QUIC or UDP peer
+      const transport = addr.startsWith('/') ? 'ipc' : (addr.includes('239.') ? 'udp' : 'quic');
+      addUniConnPeer(addr, transport);
+      setUniConnState(transport, 'connected');
+      spawnUniConnFrame(transport, 'in');
+    }
     log(`PeerAdd: ${d.nodeAddr} (${d.nodeCount} nodes)`, 'backend', ev);
   }
 
@@ -618,5 +728,62 @@ function handleSubstrateEvent(ev, d) {
         density: dens,
       });
     }
+  }
+}
+
+// ── UniConn Network Events ─────────────────────────────────
+// Handles events from the UniConn transport layer.
+// Event format: { component: "UniConn", action: "...", data: {...} }
+//
+// Actions:
+//   Transport — transport type selected (data.transport: "ipc"|"udp"|"quic")
+//   Connect   — connection established (data.transport, data.addr)
+//   Disconnect — connection lost (data.transport, data.addr)
+//   Read      — frame read through transport (data.transport, data.bytes)
+//   Write     — frame written through transport (data.transport, data.bytes)
+//   Error     — transport error (data.transport, data.message)
+//   GateSwitch — Gate switched from primary to secondary (data.from, data.to)
+function handleUniConnEvent(ev, d) {
+  const transport = d.transport || d.connType || '';
+
+  if (ev.action === 'Transport') {
+    setUniConnTransport(transport);
+    log(`UniConn: transport=${transport}`, 'pipeline', ev);
+  }
+
+  if (ev.action === 'Connect') {
+    setUniConnState(transport, 'connected');
+    setUniConnTransport(transport);
+    if (d.addr) addUniConnPeer(d.addr, transport);
+    log(`UniConn: ${transport} connected → ${d.addr || 'local'}`, 'pipeline', ev);
+  }
+
+  if (ev.action === 'Disconnect') {
+    setUniConnState(transport, 'idle');
+    log(`UniConn: ${transport} disconnected`, 'pipeline', ev);
+  }
+
+  if (ev.action === 'Listen') {
+    setUniConnState(transport, 'listening');
+    log(`UniConn: ${transport} listening on ${d.addr || '?'}`, 'pipeline', ev);
+  }
+
+  if (ev.action === 'Read' || ev.action === 'Write') {
+    const dir = ev.action === 'Read' ? 'in' : 'out';
+    spawnUniConnFrame(transport, dir);
+  }
+
+  if (ev.action === 'Error') {
+    setUniConnState(transport, 'error');
+    log(`UniConn ERROR: ${transport} ${d.message || ''}`, 'pipeline', ev);
+  }
+
+  if (ev.action === 'GateSwitch') {
+    const from = d.from || '';
+    const to = d.to || '';
+    setUniConnTransport(to);
+    setUniConnState(from, 'idle');
+    setUniConnState(to, 'connected');
+    log(`UniConn Gate: ${from} → ${to}`, 'pipeline', ev);
   }
 }

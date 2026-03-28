@@ -3,12 +3,14 @@ package experiment
 import (
 	"fmt"
 	"io"
+	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -35,7 +37,15 @@ type Observer struct {
 }
 
 func NewObserver(target io.ReadWriter) *Observer {
-	udp, _ := telemetry.NewUDPSender("127.0.0.1:8258")
+	endpoint := strings.TrimSpace(core.Cfg.TelemetryEndpoint)
+	if endpoint == "" {
+		endpoint = "127.0.0.1:8258"
+	}
+	var udp *telemetry.UDPSender
+	udp, err := telemetry.NewUDPSender(endpoint)
+	if err != nil {
+		errnie.Error(fmt.Errorf("experiment.NewObserver: telemetry.NewUDPSender(%q): %w", endpoint, err))
+	}
 
 	o := &Observer{
 		Target:  target,

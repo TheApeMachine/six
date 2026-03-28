@@ -135,7 +135,10 @@ binary frames without guessing the field offsets.
 */
 func (server *Server) handleLayout(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(BuildValueLayout())
+	if err := json.NewEncoder(w).Encode(BuildValueLayout()); err != nil {
+		log.Printf("visualizer: handleLayout encode: %v", err)
+		http.Error(w, "failed to encode layout", http.StatusInternalServerError)
+	}
 }
 
 /*
@@ -143,7 +146,10 @@ handleSystem returns the runtime topology around the chamber.
 */
 func (server *Server) handleSystem(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(BuildSystemTopology())
+	if err := json.NewEncoder(w).Encode(BuildSystemTopology()); err != nil {
+		log.Printf("visualizer: handleSystem encode: %v", err)
+		http.Error(w, "failed to encode system topology", http.StatusInternalServerError)
+	}
 }
 
 /*

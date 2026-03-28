@@ -281,7 +281,10 @@ function bytesToBase64(bytes) {
   let binary = '';
   const chunk = 0x8000;
   for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+    const end = Math.min(i + chunk, bytes.length);
+    for (let j = i; j < end; j++) {
+      binary += String.fromCharCode(bytes[j]);
+    }
   }
   return btoa(binary);
 }
@@ -589,15 +592,19 @@ export function updateValueFromWireFrame(wire) {
 function disposeValueRingGroup(group) {
   if (!group) return;
   const geometries = new Set();
+  const materials = new Set();
   group.traverse((obj) => {
     if (obj.geometry) geometries.add(obj.geometry);
     if (obj.material) {
       const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
       for (const mat of mats) {
-        if (mat && typeof mat.dispose === 'function') mat.dispose();
+        if (mat) materials.add(mat);
       }
     }
   });
+  for (const mat of materials) {
+    if (typeof mat.dispose === 'function') mat.dispose();
+  }
   for (const geometry of geometries) {
     geometry.dispose();
   }
@@ -622,19 +629,28 @@ export function buildValueRing() {
   const cellGeo = new THREE.BoxGeometry(0.06, 0.12, 0.06);
   cellMeshes = [];
 
+  const cellMaterialCache = new Map();
+  function materialForField(field) {
+    const key = field ? fields.indexOf(field) : -1;
+    if (!cellMaterialCache.has(key)) {
+      cellMaterialCache.set(key, new THREE.MeshBasicMaterial({
+        color: fieldColor(field),
+        transparent: true,
+        opacity: 0.12,
+        blending: THREE.AdditiveBlending,
+        depthWrite: false,
+      }));
+    }
+    return cellMaterialCache.get(key);
+  }
+
   for (let i = 0; i < DISPLAY_BITS; i++) {
     const actualBit = Math.min(totalBits - 1, i * step);
     const field = getRegionForBit(actualBit, fields);
     const angle = (i / DISPLAY_BITS) * Math.PI * 2;
     const fieldOffset = field ? fields.indexOf(field) * 0.11 : 0;
     const radius = 5.5 + fieldOffset;
-    const mat = new THREE.MeshBasicMaterial({
-      color: fieldColor(field),
-      transparent: true,
-      opacity: 0.12,
-      blending: THREE.AdditiveBlending,
-      depthWrite: false,
-    });
+    const mat = materialForField(field);
 
     const cell = new THREE.Mesh(cellGeo, mat);
     cell.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);

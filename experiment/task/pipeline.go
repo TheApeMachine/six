@@ -121,7 +121,7 @@ func (pipeline *Pipeline) Run() (err error) {
 		value, err := primitive.NewValue([]byte(prompt))
 
 		if err != nil {
-			errnie.Error(err)
+			_ = errnie.Error(err)
 			continue
 		}
 

@@ -142,7 +142,9 @@ func initConfig() {
 
 	// Always ensure the core value config is populated from whichever source we loaded
 	if err := core.LoadValueConfig(); err != nil {
-		errnie.Error(fmt.Errorf("failed to load value config: %w", err))
+		initErr = fmt.Errorf("core.LoadValueConfig: %w", err)
+		errnie.Error(initErr)
+		return
 	}
 
 	loggingCfg, err := core.LoadLoggingConfig()

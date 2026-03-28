@@ -6,6 +6,11 @@ import (
 	"strings"
 )
 
+// OperandFlagRegister marks a 14-bit operand field as a register index (words 0–127).
+// Immediates use values without this flag; 0x1000/0x2000 are reserved in the encoding
+// validator message for other operand classes — 0x3000 is the register tag in parseInstruction.
+const OperandFlagRegister uint64 = 0x3000
+
 func CompileFunc(src string) ([]uint32, error) {
 	program := make([]uint32, 0)
 
@@ -61,10 +66,10 @@ func parseInstruction(chunk string) (uint64, error) {
 	}
 
 	if chunk == "pc" {
-		return uint64(Cfg.RegPC) | 0x3000, nil
+		return uint64(Cfg.RegPC) | OperandFlagRegister, nil
 	}
 	if chunk == "fw" {
-		return uint64(Cfg.FW) | 0x3000, nil
+		return uint64(Cfg.FW) | OperandFlagRegister, nil
 	}
 
 	if strings.HasPrefix(chunk, "r") {
@@ -73,32 +78,14 @@ func parseInstruction(chunk string) (uint64, error) {
 			return 0, err
 		}
 
-		var reg uint64
-		switch r {
-		case 0:
-			reg = uint64(Cfg.R0)
-		case 1:
-			reg = uint64(Cfg.R1)
-		case 2:
-			reg = uint64(Cfg.R2)
-		case 3:
-			reg = uint64(Cfg.R3)
-		case 4:
-			reg = uint64(Cfg.R4)
-		case 5:
-			reg = uint64(Cfg.R5)
-		case 6:
-			reg = uint64(Cfg.R6)
-		case 7:
-			reg = uint64(Cfg.R7)
-		case 8:
-			reg = uint64(Cfg.R8)
-		case 9:
-			reg = uint64(Cfg.R9)
-		default:
+		regs := []uint64{
+			uint64(Cfg.R0), uint64(Cfg.R1), uint64(Cfg.R2), uint64(Cfg.R3), uint64(Cfg.R4),
+			uint64(Cfg.R5), uint64(Cfg.R6), uint64(Cfg.R7), uint64(Cfg.R8), uint64(Cfg.R9),
+		}
+		if r >= uint64(len(regs)) {
 			return 0, fmt.Errorf("invalid register r%d (expected r0–r9)", r)
 		}
-		return reg | 0x3000, nil
+		return regs[r] | OperandFlagRegister, nil
 	}
 
 	val, err := strconv.ParseUint(chunk, 10, 64)

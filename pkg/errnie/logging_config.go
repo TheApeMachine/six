@@ -29,6 +29,6 @@ type ElasticsearchConfig struct {
 	BulkFlushBytes int `mapstructure:"bulk_flush_bytes"`
 	// FlushIntervalMS is the max time before an auto-flush; lower = fresher logs, more requests.
 	FlushIntervalMS int `mapstructure:"flush_interval_ms"`
-	// BulkRefresh is passed to the bulk API (e.g. "true", "wait_for", ""). "true" makes docs searchable immediately.
+	// BulkRefresh is passed to the bulk API (e.g. "true", "wait_for", "false"). Empty defaults to "false" (no forced refresh per bulk).
 	BulkRefresh string `mapstructure:"bulk_refresh"`
 }

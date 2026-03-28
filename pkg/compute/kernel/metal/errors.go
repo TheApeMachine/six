@@ -36,3 +36,11 @@ func (err *MetalError) Error() string {
 	}
 	return err.Msg
 }
+
+// Unwrap returns the wrapped error for errors.Is / errors.As.
+func (err *MetalError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
+	return err.Err
+}

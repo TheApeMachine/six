@@ -1,8 +1,11 @@
 package transport
 
 import (
+	"errors"
 	"io"
 )
+
+var _ io.Closer = (*Observer)(nil)
 
 /*
 Observer creates a side-channel for observing the contents of a
@@ -42,4 +45,25 @@ Write writes to the observer's passthrough writer.
 */
 func (observer *Observer) Write(p []byte) (n int, err error) {
 	return observer.out.Write(p)
+}
+
+/*
+Close closes underlying streams that implement io.Closer (typically the pipe writer).
+*/
+func (observer *Observer) Close() error {
+	if observer == nil {
+		return nil
+	}
+	var errs []error
+	if c, ok := observer.out.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if c, ok := observer.tee.(io.Closer); ok {
+		if err := c.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }

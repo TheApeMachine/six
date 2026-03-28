@@ -13,10 +13,11 @@
 
 __global__ void unified_bitwise_kernel(
     uint64_t* A,
-    const uint64_t* B
+    const uint64_t* B,
+    uint32_t num_values
 ) {
     uint32_t id = blockIdx.x * blockDim.x + threadIdx.x;
-    if (id >= 1) return;
+    if (id >= num_values) return;
 
     uint32_t base = id * WORDS;
 
@@ -200,12 +201,15 @@ extern "C" {
             return -5;
         }
 
-        int threads = 1;
-        int blocks  = 1;
+        const uint32_t num_values = 1;
+        const int threadsPerBlock = 256;
+        int blocks = (int)((num_values + threadsPerBlock - 1) / threadsPerBlock);
+        if (blocks < 1) blocks = 1;
 
-        unified_bitwise_kernel<<<blocks, threads>>>(
+        unified_bitwise_kernel<<<blocks, threadsPerBlock>>>(
             (uint64_t*)d_pool_A,
-            (const uint64_t*)d_pool_B
+            (const uint64_t*)d_pool_B,
+            num_values
         );
 
         if (cudaGetLastError()    != cudaSuccess) return -2;

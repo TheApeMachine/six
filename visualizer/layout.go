@@ -59,6 +59,16 @@ BuildValueLayout snapshots the current config into a browser-friendly shape.
 func BuildValueLayout() ValueLayout {
 	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
 	programWords := int((core.Cfg.ProgramBits + 63) / 64)
+	stateWords := (core.Cfg.StateBits + 63) / 64
+	if stateWords < 1 {
+		stateWords = 1
+	}
+	stateStart := core.Cfg.StateIndex
+	for _, w := range []int{core.Cfg.StateSequence, core.Cfg.StateAccumulator} {
+		if w < stateStart {
+			stateStart = w
+		}
+	}
 	registersStart := core.Cfg.R0
 	registersWordCount := max(0, core.Cfg.RegPC-registersStart)
 
@@ -99,9 +109,9 @@ func BuildValueLayout() ValueLayout {
 			Name:      "state",
 			Kind:      "state",
 			Label:     "State",
-			StartWord: core.Cfg.StateIndex,
-			WordCount: 3,
-			Bits:      192,
+			StartWord: stateStart,
+			WordCount: stateWords,
+			Bits:      core.Cfg.StateBits,
 		},
 		{
 			Name:      "exec-status",

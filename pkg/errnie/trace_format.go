@@ -51,12 +51,21 @@ func formatTraceByteSlice(p []byte) string {
 }
 
 // traceKeyvalsFormatted returns a copy of keyvals with odd-index values passed through formatForTrace.
+// Even indices are treated as keys, odd as values (zap-style pairs). An odd-length slice leaves the
+// final key unpaired; that value is left unchanged and we log once so callers notice the mismatch.
 func traceKeyvalsFormatted(keyvals []any) []any {
 	if len(keyvals) == 0 {
 		return nil
 	}
 	out := make([]any, len(keyvals))
 	copy(out, keyvals)
+	if len(out)%2 == 1 {
+		Warn(
+			"errnie.traceKeyvalsFormatted",
+			"msg", "odd-length keyvals: trailing key has no paired value",
+			"trailing_key", out[len(out)-1],
+		)
+	}
 	for i := 1; i < len(out); i += 2 {
 		out[i] = formatForTrace(out[i])
 	}

@@ -46,6 +46,7 @@ func (experiment *SequencerExperiment) Prompts() []string {
 	ds, ok := experiment.dataset.(*SyntheticDataset)
 	if !ok {
 		experiment.prompt = experiment.prompt[:0]
+		experiment.holdouts = nil
 		return experiment.prompt
 	}
 	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 32)

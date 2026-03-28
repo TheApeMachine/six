@@ -3,6 +3,8 @@ package compute
 import (
 	"context"
 	"errors"
+	"fmt"
+	"runtime/debug"
 	"sync"
 	"sync/atomic"
 
@@ -16,6 +18,10 @@ type Pool struct {
 	procs         int
 	jobs          chan func(context.Context) error
 	droppedErrors atomic.Uint64
+	// errBufSize is the capacity of the per-Run error channel. When zero, Run uses pool.procs.
+	// trySendErr is non-blocking; if this buffer fills, errors are dropped and DroppedErrors increments.
+	// Raise errBufSize for workloads that may surface many failures at once.
+	errBufSize int
 }
 
 type poolOpts func(*Pool)
@@ -36,6 +42,10 @@ func NewPool(opts ...poolOpts) (pool *Pool, err error) {
 		return nil, errnie.Error(NewPoolError(PoolErrFail, err))
 	}
 
+	if pool.procs <= 0 {
+		return nil, errnie.Error(NewPoolError(PoolErrFail, errors.New("pool procs must be positive")))
+	}
+
 	return pool, nil
 }
 
@@ -43,6 +53,8 @@ func (pool *Pool) DroppedErrors() uint64 {
 	return pool.droppedErrors.Load()
 }
 
+// trySendErr sends err to out without blocking. If out is full, the error is dropped
+// and droppedErrors is incremented; increase errBufSize (PoolWithErrBuffer) if that is unacceptable.
 func (pool *Pool) trySendErr(out chan error, err error) {
 	select {
 	case out <- err:
@@ -52,7 +64,11 @@ func (pool *Pool) trySendErr(out chan error, err error) {
 }
 
 func (pool *Pool) Run() chan error {
-	out := make(chan error, pool.procs)
+	bufSize := pool.errBufSize
+	if bufSize <= 0 {
+		bufSize = pool.procs
+	}
+	out := make(chan error, bufSize)
 	var wg sync.WaitGroup
 	for i := 0; i < pool.procs; i++ {
 		wg.Add(1)
@@ -60,7 +76,7 @@ func (pool *Pool) Run() chan error {
 			defer wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
-					pool.trySendErr(out, NewPoolError(PoolErrFail, r))
+					pool.trySendErr(out, NewPoolError(PoolErrFail, fmt.Sprintf("%v\n%s", r, debug.Stack())))
 				}
 			}()
 
@@ -90,10 +106,16 @@ func (pool *Pool) Run() chan error {
 	return out
 }
 
+// Schedule submits job to the pool's job buffer without blocking.
+// It returns nil on success. If the job buffer is full, it returns immediately with
+// PoolErrFail (backpressure). If ctx is cancelled, it returns ctx.Err().
+// If the pool's context is cancelled, it returns pool.ctx.Err().
 func (pool *Pool) Schedule(ctx context.Context, job func(ctx context.Context) error) error {
 	select {
 	case pool.jobs <- job:
 		return nil
+	case <-pool.ctx.Done():
+		return pool.ctx.Err()
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
@@ -101,9 +123,24 @@ func (pool *Pool) Schedule(ctx context.Context, job func(ctx context.Context) er
 	}
 }
 
+// PoolWithContext attaches ctx to the pool. Prefer calling once when constructing the pool;
+// if a cancel was already installed, the previous cancel is invoked before replacing it.
 func PoolWithContext(ctx context.Context) poolOpts {
 	return func(pool *Pool) {
+		if pool.cancel != nil {
+			pool.cancel()
+		}
 		pool.ctx, pool.cancel = context.WithCancel(ctx)
+	}
+}
+
+// PoolWithErrBuffer sets the capacity of the error channel used by Run (minimum 1).
+func PoolWithErrBuffer(n int) poolOpts {
+	return func(pool *Pool) {
+		if n < 1 {
+			n = 1
+		}
+		pool.errBufSize = n
 	}
 }
 
@@ -144,18 +181,33 @@ const (
 
 type PoolError struct {
 	Err error
-	Msg string
 	Obj any
 }
 
 func (e *PoolError) Error() string {
-	return e.Msg
+	if e == nil {
+		return ""
+	}
+	return e.Err.Error()
+}
+
+func (e *PoolError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
 }
 
 func NewPoolError(err PoolErrorType, obj any) *PoolError {
-	return &PoolError{
-		Msg: string(err),
-		Err: errors.New(string(err)),
-		Obj: obj,
+	t := string(err)
+	var wrapped error
+	switch x := obj.(type) {
+	case nil:
+		wrapped = errors.New(t)
+	case error:
+		wrapped = fmt.Errorf("%s: %w", t, x)
+	default:
+		wrapped = fmt.Errorf("%s: %v", t, x)
 	}
+	return &PoolError{Err: wrapped, Obj: obj}
 }

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -14,8 +17,19 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
+func resolveValueTestConfigPath() string {
+	if e := strings.TrimSpace(os.Getenv("TEST_CONFIG_PATH")); e != "" {
+		return filepath.Clean(e)
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml"))
+	}
+	return filepath.Clean(filepath.Join("..", "..", "cmd", "cfg", "config.yml"))
+}
+
 func TestMain(m *testing.M) {
-	viper.SetConfigFile("../../cmd/cfg/config.yml")
+	viper.SetConfigFile(resolveValueTestConfigPath())
 
 	if err := viper.ReadInConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "primitive/value_test: viper.ReadInConfig: %v\n", err)

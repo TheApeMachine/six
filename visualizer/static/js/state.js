@@ -52,8 +52,29 @@ export let tokenBinMax = 1;
 export const promptHistory = [];
 export const foldHistory = [];
 export const executeHistory = [];
-export const valueHistory = [];
 export const valueSnapshots = new Map();
+
+const VALUE_HISTORY_CAP = 240;
+const _valueHistoryRing = new Array(VALUE_HISTORY_CAP);
+let _valueHistoryStart = 0;
+let _valueHistoryCount = 0;
+
+function clearValueHistoryBuffer() {
+  _valueHistoryStart = 0;
+  _valueHistoryCount = 0;
+}
+
+/** Ring buffer of recent Value snapshots (capacity 240). */
+export const valueHistory = {
+  get length() {
+    return _valueHistoryCount;
+  },
+  *[Symbol.iterator]() {
+    for (let i = 0; i < _valueHistoryCount; i++) {
+      yield _valueHistoryRing[(_valueHistoryStart + i) % VALUE_HISTORY_CAP];
+    }
+  },
+};
 
 // Sparkline data
 export const sparkData = [];
@@ -61,7 +82,7 @@ export const SPARK_MAX = 200;
 
 // Subsystem config
 export const ZONE_COMPONENTS = {
-  machine: ['Machine', 'Program', 'Substrate'],
+  machine: ['Machine', 'Program', 'Substrate', 'UniConn'],
   stream:  ['Tokenizer', 'Sequencer', 'DMT', 'LSM'],
   emitter: ['Value'],
   backend: ['Kernel', 'Backend', 'Graph', 'SpatialIndex', 'Substrate'],
@@ -99,6 +120,8 @@ export function inc(name, amount = 1) {
     case 'totalJobsScheduled': totalJobsScheduled += amount; return totalJobsScheduled;
     case 'substrateFrames': substrateFrames += amount; return substrateFrames;
     case 'tokenBinMax': tokenBinMax = Math.max(tokenBinMax, amount); return tokenBinMax;
+    default:
+      throw new Error(`Unknown counter name: ${name}`);
   }
 }
 
@@ -124,6 +147,8 @@ export function set(name, value) {
     case 'tokenBinMax': tokenBinMax = value; break;
     case 'totalFoldLinks': totalFoldLinks = value; break;
     case 'totalFolds': totalFolds = value; break;
+    default:
+      console.warn('[state.set] unrecognized key:', name, value);
   }
 }
 
@@ -160,7 +185,7 @@ export function resetCounters() {
   promptHistory.length = 0;
   foldHistory.length = 0;
   executeHistory.length = 0;
-  valueHistory.length = 0;
+  clearValueHistoryBuffer();
   valueSnapshots.clear();
   allEvents.length = 0;
   inspectorMode = 'zone';
@@ -187,6 +212,12 @@ export function accumulateEvent(ev) {
 export function rememberValueSnapshot(snapshot) {
   if (!snapshot || !snapshot.valueId) return;
   valueSnapshots.set(snapshot.valueId, snapshot);
-  valueHistory.push(snapshot);
-  while (valueHistory.length > 240) valueHistory.shift();
+  const idx = (_valueHistoryStart + _valueHistoryCount) % VALUE_HISTORY_CAP;
+  if (_valueHistoryCount < VALUE_HISTORY_CAP) {
+    _valueHistoryRing[idx] = snapshot;
+    _valueHistoryCount++;
+  } else {
+    _valueHistoryRing[idx] = snapshot;
+    _valueHistoryStart = (_valueHistoryStart + 1) % VALUE_HISTORY_CAP;
+  }
 }

@@ -149,28 +149,7 @@ var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
 		val.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
-
-		// Install the bootloader firmware.
-		prog := core.Cfg.Firmware[core.FirmwareTypeBootloader]
-		wordBase := uint64(core.Cfg.ProgramIndex)
-
-		for i := 0; i < len(prog); i += 2 {
-			wordPos := wordBase + uint64(i/2)
-
-			if int(wordPos) >= Words {
-				break
-			}
-
-			var w uint64
-			w = uint64(prog[i])
-
-			if i+1 < len(prog) {
-				w |= uint64(prog[i+1]) << 32
-			}
-
-			val[wordPos] = w
-		}
-
+		val.installFirmware(core.FirmwareTypeBootloader)
 		return val
 	},
 }
@@ -551,13 +530,19 @@ const (
 
 type ValueError struct {
 	Err error
-	Msg string
 }
 
 func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Err: errors.New(string(err)), Msg: string(err)}
+	return &ValueError{Err: errors.New(string(err))}
 }
 
 func (e *ValueError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return "value error"
+}
+
+func (e *ValueError) Unwrap() error {
+	return e.Err
 }

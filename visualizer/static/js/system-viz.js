@@ -390,8 +390,13 @@ export function pulseSystemBackendSelection(index, detail = '') {
     }
   }
 
-  pulseSystemNode('backend', detail || `route #${Number.isFinite(routeIndex) ? routeIndex : '?'}`);
-  pulseSystemNode(nodeId, detail || `route #${Number.isFinite(routeIndex) ? routeIndex : '?'}`);
+  const routeDetail = detail || `route #${Number.isFinite(routeIndex) ? routeIndex : '?'}`;
+  if (nodeId === 'backend') {
+    pulseSystemNode('backend', routeDetail);
+    return 'backend';
+  }
+  pulseSystemNode('backend', `backend · ${routeDetail}`);
+  pulseSystemNode(nodeId, `${nodeId} · ${routeDetail}`);
   return nodeId;
 }
 

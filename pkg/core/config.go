@@ -3,10 +3,24 @@ package core
 import (
 	"fmt"
 	"reflect"
+	"strings"
+	"sync"
 
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/errnie"
 )
+
+// typeNameCache maps reflect.Type to its String() for cheap, repeated Get[T] type errors.
+var typeNameCache sync.Map
+
+func cachedTypeName(t reflect.Type) string {
+	if v, ok := typeNameCache.Load(t); ok {
+		return v.(string)
+	}
+	s := t.String()
+	typeNameCache.Store(t, s)
+	return s
+}
 
 type FirmwareType uint
 
@@ -127,7 +141,15 @@ func LoadValueConfig() (err error) {
 	}
 
 	syncCfgFromVCfg()
+	syncTelemetryFromViper()
 	return LoadFirmware()
+}
+
+func syncTelemetryFromViper() {
+	Cfg.TelemetryEndpoint = strings.TrimSpace(viper.GetString("telemetry.udp_endpoint"))
+	if Cfg.TelemetryEndpoint == "" {
+		Cfg.TelemetryEndpoint = "127.0.0.1:8258"
+	}
 }
 
 // syncCfgFromVCfg copies unmarshaled layout from vCfg into the global Cfg
@@ -136,6 +158,21 @@ func syncCfgFromVCfg() {
 	Cfg.StateIndex = vCfg.Region.State.Index
 	Cfg.StateSequence = vCfg.Region.State.Sequence
 	Cfg.StateAccumulator = vCfg.Region.State.Accumulator
+	si, sq, sa := Cfg.StateIndex, Cfg.StateSequence, Cfg.StateAccumulator
+	minS, maxS := si, si
+	for _, w := range []int{sq, sa} {
+		if w < minS {
+			minS = w
+		}
+		if w > maxS {
+			maxS = w
+		}
+	}
+	stateWords := maxS - minS + 1
+	if stateWords < 1 {
+		stateWords = 1
+	}
+	Cfg.StateBits = stateWords * 64
 	Cfg.TokenIndex = vCfg.Region.Tokens.Start
 	Cfg.TokenBits = vCfg.Region.Tokens.Bits
 	Cfg.ValueID = vCfg.Region.ID.Start
@@ -174,32 +211,38 @@ type Config struct {
 	StateIndex       int
 	StateSequence    int
 	StateAccumulator int
-	TokenIndex       int
-	TokenBits        uint64
-	ValueID          int
-	PreviousID       int
-	NextID           int
-	AffinityIndex    int
-	AffinityBits     uint64
-	ProgramIndex     int
-	ProgramBits      uint64
-	MaxPC            int
-	R0               int
-	R1               int
-	R2               int
-	R3               int
-	R4               int
-	R5               int
-	R6               int
-	R7               int
-	R8               int
-	R9               int
-	FW               int
-	RegPC            int
+	// StateBits is the total bit span covering Index, Sequence, and Accumulator words (multiple of 64).
+	StateBits     int
+	TokenIndex    int
+	TokenBits     uint64
+	ValueID       int
+	PreviousID    int
+	NextID        int
+	AffinityIndex int
+	AffinityBits  uint64
+	ProgramIndex  int
+	ProgramBits   uint64
+	MaxPC         int
+	R0            int
+	R1            int
+	R2            int
+	R3            int
+	R4            int
+	R5            int
+	R6            int
+	R7            int
+	R8            int
+	R9            int
+	FW            int
+	RegPC         int
 
 	// Firmware holds compiled programs from config.yml, indexed by position.
 	// Set a Value's firmware register to the index to select a program.
 	Firmware [FirmwareTypeViral + 1][]uint32
+
+	// TelemetryEndpoint is the UDP address for experiment/visualizer telemetry (e.g. "127.0.0.1:8258").
+	// Populated by LoadValueConfig from viper key "telemetry.udp_endpoint"; empty uses default in syncTelemetryFromViper.
+	TelemetryEndpoint string
 }
 
 /*
@@ -250,7 +293,7 @@ func Get[T any](key string) (T, error) {
 	}
 	return zero, fmt.Errorf(
 		"config: key %q has type %T, want %s",
-		key, raw, reflect.TypeOf(zero).String(),
+		key, raw, cachedTypeName(reflect.TypeOf(zero)),
 	)
 }
 

@@ -33,9 +33,64 @@ func TestMain(m *testing.M) {
 	os.Exit(m.Run())
 }
 
+func encodeWriteRegInstr(op uint8, sc, dc uint16) uint64 {
+	return uint64(uint32(op) | uint32(sc)<<4 | uint32(dc)<<18)
+}
+
+// TestUniversalBitwise exercises writeReg-style programs on [128]uint64 frames
+// (the same memory layout as primitive.Value; cpu tests cannot import primitive
+// without a compute import cycle).
 func TestUniversalBitwise(t *testing.T) {
 	Convey("UniversalBitwise performs bitwise operations on two Values", t, func() {
+		be := NewBackend()
+		var b [128]uint64
 
+		Convey("OR merges a nonzero immediate into the destination (writeReg path)", func() {
+			var a [128]uint64
+			w := core.Cfg.ProgramIndex
+			a[core.Cfg.RegPC] = 0
+			a[core.Cfg.FW] = 0
+			// Opcode 0x7 matches config `or: 0111`. Left must not use 0x3F80==0x3000 or
+			// decode routes to execSpan; use a 14-bit immediate and zeroed dst.
+			a[w] = encodeWriteRegInstr(0x7, 0x2B2C, uint16(0x3000|core.Cfg.R2))
+			a[core.Cfg.R2] = 0
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(a[core.Cfg.R2], ShouldEqual, uint64(0x2B2C))
+		})
+
+		Convey("AND masks destination with a 14-bit immediate", func() {
+			var a [128]uint64
+			w := core.Cfg.ProgramIndex
+			a[core.Cfg.RegPC] = 0
+			a[core.Cfg.FW] = 0
+			a[w] = encodeWriteRegInstr(0x1, 0x00F0, uint16(0x3000|core.Cfg.R2))
+			a[core.Cfg.R2] = 0xABCD
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(a[core.Cfg.R2], ShouldEqual, uint64(0x00F0&0xABCD))
+		})
+
+		Convey("XOR combines a 14-bit immediate with the destination word", func() {
+			var a [128]uint64
+			w := core.Cfg.ProgramIndex
+			a[core.Cfg.RegPC] = 0
+			a[core.Cfg.FW] = 0
+			// Opcode 0x6 matches config `xor: 0110`; immediate sc avoids the span decode path.
+			a[w] = encodeWriteRegInstr(6, 0x00FF, uint16(0x3000|core.Cfg.R2))
+			a[core.Cfg.R2] = 0x0F
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(a[core.Cfg.R2], ShouldEqual, uint64(0xF0))
+		})
+
+		Convey("zero immediate AND clears the destination word", func() {
+			var a [128]uint64
+			w := core.Cfg.ProgramIndex
+			a[core.Cfg.RegPC] = 0
+			a[core.Cfg.FW] = 0
+			a[w] = encodeWriteRegInstr(0x1, 0, uint16(0x3000|core.Cfg.R3))
+			a[core.Cfg.R3] = 0xFFFFFFFFFFFFFFFF
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(a[core.Cfg.R3], ShouldEqual, uint64(0))
+		})
 	})
 }
 

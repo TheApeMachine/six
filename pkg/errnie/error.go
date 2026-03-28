@@ -53,15 +53,10 @@ func (err *ErrnieError) WithReschedule() *ErrnieError {
 }
 
 func (err *ErrnieError) Unwrap() error {
+	if err == nil {
+		return nil
+	}
 	return err.Err
-}
-
-func (err *ErrnieError) Is(target error) bool {
-	return errors.Is(err.Err, target)
-}
-
-func (err *ErrnieError) As(target any) bool {
-	return errors.As(err.Err, target)
 }
 
 func IsReschedulable(err error) bool {

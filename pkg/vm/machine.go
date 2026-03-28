@@ -3,6 +3,7 @@ package vm
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"runtime"
 
@@ -49,15 +50,16 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		"poolProcs", maxProcs,
 	)
 
-	ctx, cancel := context.WithCancel(context.Background())
-
-	machine = &Machine{
-		ctx:    ctx,
-		cancel: cancel,
-	}
+	machine = &Machine{}
 
 	for _, opt := range opts {
 		opt(machine)
+	}
+
+	if machine.ctx == nil {
+		ctx, cancel := context.WithCancel(context.Background())
+		machine.ctx = ctx
+		machine.cancel = cancel
 	}
 
 	if machine.err = validate.Require(map[string]any{
@@ -65,8 +67,7 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		"cancel": machine.cancel,
 	}); machine.err != nil {
 		return nil, errnie.Error(
-			NewMachineError(MachineErrFailStart),
-			"error", machine.err,
+			NewMachineError(MachineErrFailStart, machine.err),
 		)
 	}
 
@@ -76,8 +77,7 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 
 	if machine.stream == nil {
 		return nil, errnie.Error(
-			NewMachineError(MachineErrFailStart),
-			"error", "stream failed to start",
+			NewMachineError(MachineErrFailStart, errors.New("stream failed to start")),
 		)
 	}
 
@@ -158,9 +158,13 @@ func (err *MachineError) Unwrap() error {
 	return err.Err
 }
 
-func NewMachineError(err MachineErrorType) *MachineError {
+func NewMachineError(typ MachineErrorType, cause error) *MachineError {
+	msg := string(typ)
+	if cause != nil {
+		msg = fmt.Sprintf("%s: %v", typ, cause)
+	}
 	return &MachineError{
-		Msg: string(err),
-		Err: errors.New(string(err)),
+		Msg: msg,
+		Err: cause,
 	}
 }

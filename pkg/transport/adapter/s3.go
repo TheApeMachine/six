@@ -45,11 +45,11 @@ func NewS3Adapter(opts ...s3AdapterOpts) (*S3Adapter, error) {
 		cancel: cancel,
 	}
 
-	endpoint := getEnvOrDefault(envEndpoint, defaultEndpoint)
-	profile := getEnvOrDefault(envProfile, defaultProfile)
-	region := getEnvOrDefault(envRegion, defaultRegion)
+	endpoint := GetEnvOrDefault(envEndpoint, defaultEndpoint)
+	profile := GetEnvOrDefault(envProfile, defaultProfile)
+	region := GetEnvOrDefault(envRegion, defaultRegion)
 
-	cfg, err := config.LoadDefaultConfig(adapter.ctx,
+	cfg, err := config.LoadDefaultConfig(adapter.Context(),
 		config.WithSharedConfigProfile(profile),
 		config.WithRegion(region),
 	)
@@ -80,7 +80,18 @@ func (adapter *S3Adapter) Client() *s3.Client {
 	return adapter.client
 }
 
-func getEnvOrDefault(key, fallback string) string {
+// Context returns the adapter context used when the client was built and for
+// subsequent operations. Replace via WithContext before or after NewS3Adapter;
+// pass this to AWS API calls that accept context.Context.
+func (adapter *S3Adapter) Context() context.Context {
+	if adapter == nil || adapter.ctx == nil {
+		return context.Background()
+	}
+	return adapter.ctx
+}
+
+// GetEnvOrDefault returns os.Getenv(key) trimmed, or fallback when empty.
+func GetEnvOrDefault(key, fallback string) string {
 	v := strings.TrimSpace(os.Getenv(key))
 	if v == "" {
 		return fallback

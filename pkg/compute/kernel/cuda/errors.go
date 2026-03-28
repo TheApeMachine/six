@@ -44,6 +44,9 @@ func NewCUDAError(cerr CUDAErrorType, err error, op string, batchSize int) *CUDA
 Error implements the error interface. Msg already includes Err via NewCUDAError.
 */
 func (e *CUDAError) Error() string {
+	if e == nil {
+		return ""
+	}
 	if e.BatchSize > 0 {
 		return fmt.Sprintf("%s (batchSize=%d)", e.Msg, e.BatchSize)
 	}
@@ -55,5 +58,8 @@ Unwrap returns the wrapped error so that errors.Is / errors.As work across the
 error chain.
 */
 func (e *CUDAError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
 	return e.Err
 }

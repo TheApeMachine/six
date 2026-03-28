@@ -97,7 +97,11 @@ func main() {
 
 	content.WriteString("\n#endif // SUBSTRATE_PRIMITIVES_H\n")
 
-	targetDir := "../../pkg/compute/kernel/shared"
+	_, genFile, _, ok := runtime.Caller(0)
+	if !ok {
+		genFile = "."
+	}
+	targetDir := filepath.Join(filepath.Dir(genFile), "..", "compute", "kernel", "shared")
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		fmt.Printf("Error creating directory: %v\n", err)
 		os.Exit(1)

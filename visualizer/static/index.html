@@ -127,17 +127,27 @@
     <button class="log-filter-btn" data-filter="compute">POOL</button>
   </div>
 
-  <!-- ── Prompt Input ─────────────────────────────────────── -->
-  <div id="ingest-bar" class="panel hidden">
-    <label for="ingest-input" class="visually-hidden">Data load</label>
-    <input type="text" id="ingest-input" placeholder="Load data…" autocomplete="off" spellcheck="false">
-    <button type="button" id="ingest-send">Load</button>
+  <!-- ── Ingest Slide-Out Panel ──────────────────────────── -->
+  <div id="ingest-panel" class="ingest-panel">
+    <div class="ingest-panel-header">
+      <span class="ingest-panel-title">Load Data</span>
+      <span class="ingest-panel-status" id="ingest-status"></span>
+      <button type="button" id="ingest-close" class="ingest-panel-close">&times;</button>
+    </div>
+    <textarea id="ingest-input" placeholder="Paste or type data to load into the system...&#10;&#10;Supports raw text, JSON, or any format your ingest pipeline accepts." spellcheck="false"></textarea>
+    <div class="ingest-panel-footer">
+      <span class="ingest-panel-hint" id="ingest-hint">Ctrl+Enter to send</span>
+      <button type="button" id="ingest-clear" class="ingest-btn-secondary">Clear</button>
+      <button type="button" id="ingest-send" class="ingest-btn-primary" disabled>Load</button>
+    </div>
   </div>
 
-  <div id="prompt-bar" class="panel hidden">
+  <!-- ── Bottom Input Bar ──────────────────────────────────── -->
+  <div id="input-bar" class="panel hidden">
+    <button type="button" id="ingest-toggle" class="input-bar-btn" title="Open data loader">DATA</button>
     <label for="prompt-input" class="visually-hidden">Prompt</label>
     <input type="text" id="prompt-input" placeholder="Enter a prompt…" autocomplete="off" spellcheck="false">
-    <button type="button" id="prompt-send">Send</button>
+    <button type="button" id="prompt-send" class="input-bar-send">Send</button>
   </div>
 
   <!-- ── Replay Controls ──────────────────────────────────── -->

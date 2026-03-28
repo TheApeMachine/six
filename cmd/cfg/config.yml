@@ -1,5 +1,9 @@
 loglevel: debug
 
+# UDP destination for experiment pipeline telemetry (Observer JSON + raw frames).
+telemetry:
+  udp_endpoint: "127.0.0.1:8258"
+
 # Logging and trace shipping (see pkg/errnie/logging_config.go).
 logging:
   logfile: false

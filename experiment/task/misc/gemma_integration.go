@@ -249,7 +249,11 @@ func (exp *GemmaIntegrationExperiment) Dataset() data.Provider {
 
 func (exp *GemmaIntegrationExperiment) Prompts() []string {
 	prompts := make([]string, 0, len(giGraftCases))
-	exp.holdouts = exp.holdouts[:0]
+	if cap(exp.holdouts) < len(giGraftCases) {
+		exp.holdouts = make([][]byte, 0, len(giGraftCases))
+	} else {
+		exp.holdouts = exp.holdouts[:0]
+	}
 	for _, cas := range giGraftCases {
 		prompts = append(prompts, cas.Context)
 		exp.holdouts = append(exp.holdouts, []byte(strings.ToLower(cas.Contains)))

@@ -28,6 +28,7 @@ type PipelineThroughputExperiment struct {
 func NewPipelineThroughputExperiment() *PipelineThroughputExperiment {
 	return &PipelineThroughputExperiment{
 		tableData: []tools.ExperimentalData{},
+		prompt:    []string{},
 		dataset:   NewSyntheticDataset(128, 50, 42),
 		sampleLen: 128,
 		nSamples:  50,
@@ -50,7 +51,12 @@ func (experiment *PipelineThroughputExperiment) Prompts() []string {
 	experiment.ingestTime = time.Now()
 	ds, ok := experiment.dataset.(*SyntheticDataset)
 	if !ok {
-		experiment.prompt = experiment.prompt[:0]
+		if experiment.prompt == nil {
+			experiment.prompt = []string{}
+		} else {
+			experiment.prompt = experiment.prompt[:0]
+		}
+		experiment.holdouts = nil
 		return experiment.prompt
 	}
 	experiment.prompt, experiment.holdouts = syntheticSamplePrompts(ds, 16, 0)

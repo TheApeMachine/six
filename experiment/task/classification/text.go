@@ -29,12 +29,13 @@ category, and be able to classify articles into categories it has never
 seen before.
 */
 type TextClassificationExperiment struct {
-	tableData []tools.ExperimentalData
-	prose     []projector.ProseEntry
-	dataset   data.Provider
-	prompt    []string
-	holdouts  [][]byte
-	evaluator *tools.Evaluator
+	tableData           []tools.ExperimentalData
+	prose               []projector.ProseEntry
+	dataset             data.Provider
+	prompt              []string
+	holdouts            [][]byte
+	evaluator           *tools.Evaluator
+	predictionsComputed bool
 }
 
 func NewTextClassificationExperiment() *TextClassificationExperiment {
@@ -112,7 +113,16 @@ func (experiment *TextClassificationExperiment) AddResult(results tools.Experime
 	}
 
 	experiment.evaluator.Enrich(&results)
+	experiment.predictionsComputed = false
 	experiment.tableData = append(experiment.tableData, results)
+}
+
+func (experiment *TextClassificationExperiment) ensurePredictions() {
+	if experiment.predictionsComputed {
+		return
+	}
+	experiment.evaluator.ComputePredictions(experiment.tableData)
+	experiment.predictionsComputed = true
 }
 
 /*
@@ -120,6 +130,7 @@ ComputePredictions delegates to the Evaluator for label string matching.
 */
 func (experiment *TextClassificationExperiment) ComputePredictions() {
 	experiment.evaluator.ComputePredictions(experiment.tableData)
+	experiment.predictionsComputed = true
 }
 
 /*
@@ -133,7 +144,7 @@ func (experiment *TextClassificationExperiment) Outcome() (
 }
 
 func (experiment *TextClassificationExperiment) Score() float64 {
-	experiment.ComputePredictions()
+	experiment.ensurePredictions()
 	n := len(experiment.tableData)
 	if n == 0 {
 		return 0
@@ -148,8 +159,6 @@ func (experiment *TextClassificationExperiment) TableData() any {
 func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 	numSamples := len(experiment.tableData)
 	score := experiment.Score()
-
-	experiment.ComputePredictions()
 	metrics := experiment.evaluator.Metrics(experiment.tableData, numSamples)
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"

@@ -14,7 +14,6 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data/huggingface"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
 	"github.com/theapemachine/six/visualizer"
@@ -31,6 +30,45 @@ var (
 	vizListen   bool
 )
 
+// vizMachinePool hands out vm.Machine instances for concurrent prompt/ingest
+// handling; each goroutine releases its machine back to the pool when done.
+type vizMachinePool struct {
+	mu   sync.Mutex
+	idle []*vm.Machine
+	newM func() (*vm.Machine, error)
+}
+
+func (p *vizMachinePool) acquire() (*vm.Machine, error) {
+	p.mu.Lock()
+	n := len(p.idle)
+	if n > 0 {
+		m := p.idle[n-1]
+		p.idle = p.idle[:n-1]
+		p.mu.Unlock()
+		return m, nil
+	}
+	p.mu.Unlock()
+	return p.newM()
+}
+
+func (p *vizMachinePool) release(m *vm.Machine) {
+	if m == nil {
+		return
+	}
+	p.mu.Lock()
+	p.idle = append(p.idle, m)
+	p.mu.Unlock()
+}
+
+func (p *vizMachinePool) closeAll() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, m := range p.idle {
+		_ = m.Close()
+	}
+	p.idle = nil
+}
+
 var vizCmd = &cobra.Command{
 	Use:   "viz",
 	Short: "Run the 3D substrate visualizer with live telemetry",
@@ -43,57 +81,69 @@ accepting graph events via UDP from external test runs.`,
 		ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt)
 		defer stop()
 
-		machine, err := vm.NewMachine(
-			vm.WithContext(ctx),
-			vm.WithDataset(huggingface.New(
-				huggingface.DatasetWithContext(ctx),
-				huggingface.DatasetWithRepo("facebook/babi_qa"),
-				huggingface.DatasetWithSubset("en-10k-qa1"),
-				huggingface.DatasetWithTextColumns("story"),
-			)),
-		)
-
-		if err != nil {
-			return errnie.Wrap(err, "cmd.viz.RunE")
+		mode := "substrate"
+		if vizListen {
+			mode = "listen-only (send events via UDP)"
 		}
 
-		var promptMu sync.Mutex
-		runFrame := func(raw []byte) ([]byte, error) {
-			promptMu.Lock()
-			defer promptMu.Unlock()
-
-			observer := tools.NewObserver(machine)
-			defer observer.Close()
-
-			value, err := primitive.NewValue(raw)
-			if err != nil {
-				return nil, err
+		var pool *vizMachinePool
+		if !vizListen {
+			pool = &vizMachinePool{
+				newM: func() (*vm.Machine, error) {
+					return vm.NewMachine(
+						vm.WithContext(ctx),
+						vm.WithDataset(huggingface.New(
+							huggingface.DatasetWithContext(ctx),
+							huggingface.DatasetWithRepo(vizRepo),
+							huggingface.DatasetWithSubset(vizSubset),
+							huggingface.DatasetWithTextColumns(vizColumn),
+						)),
+					)
+				},
 			}
-			defer value.Close()
+			defer pool.closeAll()
 
-			value[core.Cfg.StateIndex] = 1
+			runFrame := func(raw []byte) ([]byte, error) {
+				machine, err := pool.acquire()
+				if err != nil {
+					return nil, err
+				}
+				defer pool.release(machine)
 
-			if _, err := io.Copy(observer, value); err != nil {
-				return nil, err
+				observer := tools.NewObserver(machine)
+				defer observer.Close()
+
+				value, err := primitive.NewValue(raw)
+				if err != nil {
+					return nil, err
+				}
+				defer value.Close()
+
+				idx := core.Cfg.StateIndex
+				if idx >= 0 && idx < len(value) {
+					value[idx] = 1
+				}
+
+				if _, err := io.Copy(observer, value); err != nil {
+					return nil, err
+				}
+
+				observedFrame := make([]byte, primitive.ByteSize)
+				if _, err := io.ReadFull(observer, observedFrame); err != nil {
+					return nil, err
+				}
+
+				return observedFrame, nil
 			}
 
-			observedFrame := make([]byte, primitive.ByteSize)
-			if _, err := io.ReadFull(observer, observedFrame); err != nil {
-				return nil, err
-			}
-
-			return observedFrame, nil
+			srv.SetPromptFunc(func(msg string) ([]byte, error) {
+				return runFrame([]byte(msg))
+			})
+			srv.SetIngestFunc(func(raw []byte) error {
+				_, err := runFrame(raw)
+				return err
+			})
 		}
-
-		srv.SetPromptFunc(func(msg string) ([]byte, error) {
-			return runFrame([]byte(msg))
-		})
-		srv.SetIngestFunc(func(raw []byte) error {
-			_, err := runFrame(raw)
-			return err
-		})
-
-		defer machine.Close()
 
 		go func() {
 			<-ctx.Done()
@@ -105,14 +155,9 @@ accepting graph events via UDP from external test runs.`,
 			udpHint = vizUDPAddr
 		}
 
-		mode := "substrate"
-		if vizListen {
-			mode = "listen-only (send events via UDP)"
-		}
-
 		fmt.Fprintf(os.Stderr, "visualizer http://%s  (UDP %s)  mode=%s\n", vizHTTPAddr, udpHint, mode)
 
-		if err = srv.ListenAndServe(
+		if err := srv.ListenAndServe(
 			vizHTTPAddr, vizUDPAddr,
 		); err != nil && !errors.Is(
 			err, http.ErrServerClosed,
