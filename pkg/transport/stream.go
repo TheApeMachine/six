@@ -2,39 +2,48 @@ package transport
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
-	"math/rand/v2"
-	"sync/atomic"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/core"
+	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
+/*
+Stream is a framed byte pipe over a ring buffer (PipeReader / PipeWriter) plus
+fan-out to Region mixers. Writes must be aligned to primitive.ByteSize; each Read
+returns one full frame from the pipe. Region fan-out preserves chaotic mixing;
+the ring carries the same frames for a single linear io.Reader view.
+*/
 type Stream struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	err      error
-	regions  [2][]*primitive.Region
-	backend  kernel.Substrate
-	readIdx  atomic.Uint32
-	writeIdx atomic.Uint32
-	left     []byte
-	right    []byte
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	rb      *ringbuffer.RingBuffer
+	pr      *ringbuffer.PipeReader
+	pw      *ringbuffer.PipeWriter
+	regions [2][]*primitive.Region
+	frame   []byte
 }
 
 type streamOpts func(*Stream)
 
 func NewStream(opts ...streamOpts) *Stream {
+	rb := ringbuffer.New(primitive.ByteSize * 64)
+	pr, pw := rb.Pipe()
+
 	stream := &Stream{
+		rb: rb,
+		pr: pr,
+		pw: pw,
 		regions: [2][]*primitive.Region{
 			make([]*primitive.Region, 0),
 			make([]*primitive.Region, 0),
 		},
-		left:  make([]byte, primitive.ByteSize),
-		right: make([]byte, primitive.ByteSize),
+		frame: make([]byte, primitive.ByteSize),
 	}
 
 	for _, opt := range opts {
@@ -50,110 +59,89 @@ func NewStream(opts ...streamOpts) *Stream {
 		return nil
 	}
 
+	stream.rb.WithCancel(stream.ctx)
 	return stream
 }
 
-type regionSlot struct {
-	side int
-	idx  int
-}
-
-func (stream *Stream) readSlots() []regionSlot {
-	var slots []regionSlot
-	for i := range stream.regions[0] {
-		slots = append(slots, regionSlot{0, i})
-	}
-	for i := range stream.regions[1] {
-		slots = append(slots, regionSlot{1, i})
-	}
-	return slots
-}
-
-func (stream *Stream) shuffleRegions() {
-	r1 := rand.Uint32()
-	r2 := rand.Uint32()
-	if len(stream.regions[0]) > 0 {
-		r := stream.regions[0]
-		stream.regions[0] = append(r[1:], r[r1%uint32(len(r))])
-	}
-	if len(stream.regions[1]) > 0 {
-		r := stream.regions[1]
-		stream.regions[1] = append(r[1:], r[r2%uint32(len(r))])
-	}
-}
-
 /*
-Read pulls a Value frame from regions in round-robin order: it starts at
-readIdx modulo slot count and tries each Region.Read until one returns data
-or every slot returns EOF / short read.
+Read returns one Value frame from the pipe. p must hold at least primitive.ByteSize
+bytes. Data is framed by io.ReadFull on the PipeReader—no region polling here.
 */
 func (stream *Stream) Read(p []byte) (n int, err error) {
-	if len(stream.regions) < 2 {
-		return 0, io.EOF
+	if len(p) < primitive.ByteSize {
+		return 0, io.ErrShortBuffer
 	}
 
-	slots := stream.readSlots()
-	if len(slots) == 0 {
-		return 0, io.EOF
-	}
-
-	stream.shuffleRegions()
-
-	frame := stream.left[:primitive.ByteSize]
-	start := int((stream.readIdx.Add(1) - 1) % uint32(len(slots)))
-	for j := range slots {
-		s := slots[(start+j)%len(slots)]
-		reg := stream.regions[s.side][s.idx]
-		rn, rerr := reg.Read(frame)
-		if rerr != nil && rerr != io.EOF {
-			return 0, rerr
+	if _, err = io.ReadFull(stream.pr, stream.frame); err != nil {
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return 0, io.EOF
 		}
-		if rn > 0 {
-			return copy(p, frame[:rn]), nil
-		}
+
+		return 0, errnie.Error(
+			NewStreamError(StreamErrFail),
+			"error", err,
+		)
 	}
-	return 0, io.EOF
+
+	return copy(p, stream.frame), nil
 }
 
 /*
-Write tokenizes the payload into a Value frame and enqueues a copy into every
-Region (both sides), matching the previous “pour into the mixture” semantics and
-keeping Region.Write’s ByteSize alignment requirement.
+Write forwards aligned Value frames to every Region on both sides, then enqueues
+the same bytes on the PipeWriter. p must be a whole multiple of primitive.ByteSize;
+building frames is the caller's responsibility.
 */
 func (stream *Stream) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
-	if len(stream.regions) < 2 {
+
+	if len(p)%primitive.ByteSize != 0 {
+		return 0, errnie.Error(
+			NewStreamError(StreamErrAlign),
+			"length", len(p),
+			"frameSize", primitive.ByteSize,
+		)
+	}
+
+	if len(stream.regions[0])+len(stream.regions[1]) == 0 {
 		return 0, io.EOF
 	}
 
-	stream.shuffleRegions()
-
-	v := primitive.NewValue()
-	for i, b := range p {
-		_ = v.SetTokenID(i, primitive.Tokenize(b, uint64(i)))
-	}
-	if core.Cfg.FW >= 0 && core.Cfg.FW < primitive.Words {
-		v[core.Cfg.FW] = 0
-	}
-	frame := make([]byte, primitive.ByteSize)
-	if err := primitive.ValueToBytes(v, frame); err != nil {
-		return 0, err
-	}
-
-	stream.writeIdx.Add(1)
 	for side := 0; side < 2; side++ {
 		for _, reg := range stream.regions[side] {
-			if _, werr := reg.Write(frame); werr != nil {
+			if _, werr := reg.Write(p); werr != nil {
 				return 0, werr
 			}
 		}
 	}
+
+	if _, err = stream.pw.Write(p); err != nil {
+		return 0, errnie.Error(
+			NewStreamError(StreamErrFail),
+			"error", err,
+		)
+	}
+
 	return len(p), nil
 }
 
+/*
+CloseWrite shuts down only the pipe writer. Readers of the stream observe EOF once
+the buffer drains, while region writes are unchanged. Used after bulk hydration so
+a concurrent drain goroutine can exit without tearing down the full stream.
+*/
+func (stream *Stream) CloseWrite() error {
+	if stream.pw == nil {
+		return nil
+	}
+	return stream.pw.Close()
+}
+
 func (stream *Stream) Close() error {
+	if stream.pw != nil {
+		_ = stream.pw.Close()
+	}
 	if stream.cancel != nil {
 		stream.cancel()
 	}
@@ -174,8 +162,23 @@ func WithRegions(regions []*primitive.Region) streamOpts {
 	}
 }
 
-func WithBackend(backend kernel.Substrate) streamOpts {
-	return func(stream *Stream) {
-		stream.backend = backend
-	}
+type StreamErrorType string
+
+const (
+	StreamErrFail      StreamErrorType = "fail"
+	StreamErrAlign     StreamErrorType = "align"
+	StreamErrNoRegions StreamErrorType = "no_regions"
+)
+
+type StreamError struct {
+	Err error
+	Msg string
+}
+
+func NewStreamError(err StreamErrorType) *StreamError {
+	return &StreamError{Err: errors.New(string(err)), Msg: string(err)}
+}
+
+func (err *StreamError) Error() string {
+	return fmt.Sprintf("%s: %s", err.Err, err.Msg)
 }

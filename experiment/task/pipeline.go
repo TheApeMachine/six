@@ -1,10 +1,10 @@
 package task
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
@@ -22,6 +22,16 @@ type runTiming struct {
 	n           int // number of prompts processed
 }
 
+/*
+Pipeline is the orchestrator for running experiments.
+The Six architecture is "always-on" so this needs to
+be orchestrated in a particular way.
+
+1. Read data from the dataset to create Values in the system
+2. Deploy any needed Values with programs (e.g. Affinity, etc.)
+3. Deploy Values with prompt programs
+4. Find a way to observe the results
+*/
 type Pipeline struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -67,30 +77,32 @@ func (pipeline *Pipeline) Run() (err error) {
 	if err != nil {
 		return errnie.Error(err)
 	}
+	defer func() { _ = machine.Close() }()
 
-	// Deploy a viral Value to initiate self-propagating execution
-	viralIdx := core.Cfg.FirmwareIndex["viral"]
-	v := primitive.NewValue()
-	v[core.Cfg.FW] = uint64(viralIdx)
-
-	var viralBuf []byte = make([]byte, primitive.ByteSize)
-	primitive.ValueToBytes(v, viralBuf)
-	if _, err := machine.Write(viralBuf); err != nil {
-		return errnie.Error(err)
+	// Hydrate the region mesh from the dataset (transport only — no ALU here).
+	if ds := pipeline.experiment.Dataset(); ds != nil {
+		if _, err := io.Copy(machine, ds); err != nil {
+			return errnie.Error(err)
+		}
 	}
 
+	// Always-on workspace: folding happens only via Value.Write → Backend (fold-through).
+	workspace, werr := primitive.NewValue(nil)
+	if werr != nil {
+		return errnie.Error(werr)
+	}
+	workspace[core.Cfg.FW] = uint64(core.FirmwareTypeViral)
+	defer workspace.Close()
+
 	for idx, prompt := range pipeline.experiment.Prompts() {
-		p := bytes.NewBuffer([]byte{})
-		p.WriteString(prompt)
 		errnie.Trace("Prompt", "prompt", prompt)
 
-		if _, err = io.Copy(machine, p); err != nil {
+		if _, err = io.Copy(workspace, strings.NewReader(prompt)); err != nil {
 			return errnie.Error(err)
 		}
 
-		result := bytes.NewBuffer([]byte{})
-
-		if _, err = io.Copy(result, machine); err != nil {
+		obs := make([]byte, primitive.ByteSize)
+		if err := primitive.ValueToBytes(workspace, obs); err != nil {
 			return errnie.Error(err)
 		}
 
@@ -101,7 +113,7 @@ func (pipeline *Pipeline) Run() (err error) {
 			Name:     pipeline.experiment.Name(),
 			Prefix:   []byte(prompt),
 			Holdout:  []byte{},
-			Observed: result.Bytes(),
+			Observed: obs,
 		})
 	}
 

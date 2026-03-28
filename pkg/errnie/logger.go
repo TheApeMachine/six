@@ -1,17 +1,17 @@
 package errnie
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-	"time"
 
-	"github.com/charmbracelet/log"
-	"github.com/muesli/termenv"
 	"github.com/spf13/viper"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -22,184 +22,270 @@ var (
 	traceFileMu sync.Mutex
 	traceInitMu sync.Mutex
 
-	logger = &ErrnieLogger{
-		Logger: log.NewWithOptions(os.Stderr, log.Options{
-			ReportCaller:    true,
-			CallerOffset:    16,
-			ReportTimestamp: true,
-			TimeFormat:      time.TimeOnly,
-			Level:           log.DebugLevel,
-		}),
-	}
+	loggerMu sync.RWMutex
+	logger   = mustNewDefaultLogger()
+
+	initErr error
+
+	loggingCfgMu sync.RWMutex
+	loggingCfg   LoggingConfig
 )
 
-type ErrnieLogger struct {
-	*log.Logger
+func mustNewDefaultLogger() *ErrnieLogger {
+	z, err := buildLogger(zapcore.InfoLevel, ElasticsearchConfig{})
+	if err != nil {
+		initErr = err
+		enc := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
+		core := zapcore.NewCore(enc, zapcore.Lock(os.Stderr), zapcore.InfoLevel)
+		z = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+	}
+	return &ErrnieLogger{Logger: z}
 }
 
-func init() {
-	// Match charmbracelet/log output to stderr: no ANSI when not a TTY (tests,
-	// pipes, redirects) or when env disables color (NO_COLOR, CI, etc.).
-	logger.SetColorProfile(termenv.NewOutput(os.Stderr).EnvColorProfile())
+func buildLogger(enab zapcore.LevelEnabler, escfg ElasticsearchConfig) (*zap.Logger, error) {
+	consoleCore := zapcore.NewCore(
+		zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig()),
+		zapcore.Lock(os.Stderr),
+		enab,
+	)
+
+	cores := []zapcore.Core{consoleCore}
+
+	esOut, err := newElasticsearchClientAndSink(escfg)
+	initErr = err
+	if err != nil {
+		return nil, err
+	}
+	if esOut != nil {
+		jsonEnc := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+		esCore := zapcore.NewCore(jsonEnc, zapcore.AddSync(esOut), enab)
+		cores = append(cores, esCore)
+	}
+
+	core := zapcore.NewTee(cores...)
+	return zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1)), nil
+}
+
+func zapLevelFromViper() zapcore.Level {
+	switch strings.ToLower(viper.GetString("loglevel")) {
+	case "trace", "debug":
+		return zapcore.DebugLevel
+	case "info":
+		return zapcore.InfoLevel
+	case "warn", "warning":
+		return zapcore.WarnLevel
+	case "error":
+		return zapcore.ErrorLevel
+	default:
+		return zapcore.DebugLevel
+	}
 }
 
 /*
-InitLogger configures log styles, sets log levels, and initializes
-file logging when LOGFILE=true.
+InitLogger rebuilds the global zap logger from cfg (loaded via core.LoadLoggingConfig
+and the "logging" section of config.yml). Call after Viper config is loaded.
 */
-func InitLogger() {
-	if os.Getenv("LOGFILE") == "true" {
+func InitLogger(cfg LoggingConfig) {
+	loggingCfgMu.Lock()
+	loggingCfg = cfg
+	loggingCfgMu.Unlock()
+
+	if cfg.Logfile {
 		initLogFile()
 	}
 
-	setLogLevel()
+	lvl := zapLevelFromViper()
+
+	z, err := buildLogger(lvl, cfg.Elasticsearch)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "errnie: logger init: %v (using stderr-only fallback)\n", err)
+		enc := zapcore.NewConsoleEncoder(zap.NewDevelopmentEncoderConfig())
+		core := zapcore.NewCore(enc, zapcore.Lock(os.Stderr), lvl)
+		z = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
+		initErr = err
+	}
+
+	loggerMu.Lock()
+	old := logger.Logger
+	logger = &ErrnieLogger{Logger: z}
+	loggerMu.Unlock()
+	_ = old.Sync()
+
+	if cfg.Elasticsearch.Enabled {
+		if initErr != nil {
+			fmt.Fprintf(os.Stderr, "errnie: elasticsearch not active: %v\n", initErr)
+		} else {
+			idx := strings.TrimSpace(cfg.Elasticsearch.Index)
+			if idx == "" {
+				idx = "six-logs"
+			}
+			fmt.Fprintf(os.Stderr, "errnie: elasticsearch indexing enabled (index=%q)\n", idx)
+		}
+	}
 }
 
-/*
-setLogLevel reads the Viper "loglevel" key and configures the global logger.
-*/
-func setLogLevel() {
-	switch viper.GetString("loglevel") {
-	case "trace", "debug":
-		logger.SetLevel(log.DebugLevel)
-	case "info":
-		logger.SetLevel(log.InfoLevel)
-	case "warn":
-		logger.SetLevel(log.WarnLevel)
-	case "error":
-		logger.SetLevel(log.ErrorLevel)
-	default:
-		logger.SetLevel(log.DebugLevel)
+// Sync flushes any buffered stdout/stderr log I/O (see zap.Logger.Sync).
+func Sync() error {
+	loggerMu.RLock()
+	z := logger.Logger
+	loggerMu.RUnlock()
+	if z == nil {
+		return nil
 	}
+	return z.Sync()
 }
 
-/*
-initLogFile opens (or creates) the log file under $CWD/logs/amsh.log.
-*/
-func initLogFile() {
-	wd, err := os.Getwd()
-	if err != nil {
-		logger.Warn("Failed to get working directory", "error", err)
-		return
-	}
+// Shutdown closes the Elasticsearch bulk indexer (if enabled) and flushes zap. Call from main on exit.
+func Shutdown(ctx context.Context) error {
+	closeElasticsearchSink(ctx)
+	return Sync()
+}
 
-	logDir := filepath.Join(wd, "logs")
+// InitError returns the last error from enabling Elasticsearch, if any.
+func InitError() error { return initErr }
 
-	if err := os.MkdirAll(logDir, 0755); err != nil {
-		logger.Warn("Failed to create log directory", "error", err)
-		return
-	}
-
-	logFilePath := filepath.Join(logDir, "amsh.log")
-
-	logFile, err = os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
-	if err != nil {
-		logger.Warn("Failed to open log file", "error", err)
-		return
-	}
-
-	logger.Debug("Log file successfully initialized", "path", logFilePath)
+type ErrnieLogger struct {
+	*zap.Logger
 }
 
 func Logger() *ErrnieLogger {
+	loggerMu.RLock()
+	defer loggerMu.RUnlock()
 	return logger
 }
 
-/*
-Read implements io.Reader.
-*/
-func (logger *ErrnieLogger) Read(p []byte) (n int, err error) {
+func (l *ErrnieLogger) Read(p []byte) (n int, err error) {
 	if logFile == nil {
 		return 0, io.EOF
 	}
 	return logFile.Read(p)
 }
 
-/*
-Write implements io.Writer.
-*/
-func (logger *ErrnieLogger) Write(p []byte) (n int, err error) {
+func (l *ErrnieLogger) Write(p []byte) (n int, err error) {
 	if logFile == nil {
 		return 0, fmt.Errorf("no log file configured")
 	}
 	return logFile.Write(p)
 }
 
-/*
-Close implements io.Closer.
-*/
-func (logger *ErrnieLogger) Close() error {
+func (l *ErrnieLogger) Close() error {
 	if logFile == nil {
 		return nil
 	}
 	return logFile.Close()
 }
 
-/*
-Info logs the info message.
-*/
-func Info(msg string, keyvals ...any) {
-	logger.Info(msg, keyvals...)
+func initLogFile() {
+	wd, err := os.Getwd()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "errnie: getwd: %v\n", err)
+		return
+	}
+
+	logDir := filepath.Join(wd, "logs")
+	if err := os.MkdirAll(logDir, 0755); err != nil {
+		fmt.Fprintf(os.Stderr, "errnie: mkdir logs: %v\n", err)
+		return
+	}
+
+	logFilePath := filepath.Join(logDir, "amsh.log")
+	logFile, err = os.OpenFile(logFilePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "errnie: open log file: %v\n", err)
+		return
+	}
 }
 
-/*
-Debug logs the debug message.
-*/
-func Debug(msg string, keyvals ...any) {
-	logger.Debug(msg, keyvals...)
+func keyvalsToFields(keyvals []any) []zap.Field {
+	if len(keyvals) == 0 {
+		return nil
+	}
+	fields := make([]zap.Field, 0, (len(keyvals)+1)/2)
+	for i := 0; i < len(keyvals); i += 2 {
+		if i+1 >= len(keyvals) {
+			fields = append(fields, zap.Any(fmt.Sprintf("key_%d", i), keyvals[i]))
+			continue
+		}
+		k, ok := keyvals[i].(string)
+		if !ok {
+			k = fmt.Sprint(keyvals[i])
+		}
+		fields = append(fields, zap.Any(k, keyvals[i+1]))
+	}
+	return fields
 }
 
+func logZ(level zapcore.Level, msg string, keyvals []any) {
+	loggerMu.RLock()
+	z := logger.Logger
+	loggerMu.RUnlock()
+	if z == nil {
+		return
+	}
+	fields := keyvalsToFields(keyvals)
+	switch level {
+	case zapcore.DebugLevel:
+		z.Debug(msg, fields...)
+	case zapcore.InfoLevel:
+		z.Info(msg, fields...)
+	case zapcore.WarnLevel:
+		z.Warn(msg, fields...)
+	case zapcore.ErrorLevel:
+		z.Error(msg, fields...)
+	default:
+		z.Info(msg, fields...)
+	}
+}
+
+func Info(msg string, keyvals ...any)  { logZ(zapcore.InfoLevel, msg, keyvals) }
+func Debug(msg string, keyvals ...any) { logZ(zapcore.DebugLevel, msg, keyvals) }
+func Warn(msg string, keyvals ...any)  { logZ(zapcore.WarnLevel, msg, keyvals) }
+
 /*
-Trace appends a line to a log file (default ./trace.log under the process
-working directory, so e.g. package-dir/trace.log when running `go test`).
-
-Override the path with env TRACE_LOG (absolute or relative to cwd).
-
-If the file cannot be opened, the line is written to stderr so output is
-never silently dropped.
+Trace logs at debug level with component=trace for structured sinks, and optionally
+appends a plain line to logging.trace.path or ./trace.log when path is empty.
 */
 func Trace(msg string, keyvals ...any) {
+	formatted := traceKeyvalsFormatted(keyvals)
+	fields := append(keyvalsToFields(formatted), zap.String("component", "trace"))
+	loggerMu.RLock()
+	z := logger.Logger
+	loggerMu.RUnlock()
+	if z != nil {
+		z.Debug(msg, fields...)
+	}
 	ensureTraceFile()
-	line := buildTraceLine(msg, keyvals)
-
+	line := buildTraceLine(msg, formatted)
 	if traceFile != nil {
 		writeTraceLine(line)
 		return
 	}
-
 	fmt.Fprintln(os.Stderr, line)
 }
 
-/*
-Warn logs the warn message.
-*/
-func Warn(msg string, keyvals ...any) {
-	logger.Warn(msg, keyvals...)
-}
-
-/*
-Error logs the error and returns it unchanged, preserving the full
-error chain for errors.Is/errors.As downstream.
-*/
 func Error(err error, keyvals ...any) error {
 	if err == nil {
 		return nil
 	}
 
+	kv := append([]any{}, keyvals...)
 	if IsReschedulable(err) {
-		keyvals = append(keyvals, "reschedulable", true)
+		kv = append(kv, "reschedulable", true)
 	}
-	
-	if ctx := HasContext(err); ctx != nil {
-		if ctx.Err() != nil {
-			keyvals = append(keyvals, "context_err", ctx.Err())
-		}
+	if ctx := HasContext(err); ctx != nil && ctx.Err() != nil {
+		kv = append(kv, "context_err", ctx.Err())
 	}
 
-	logger.Error(err, keyvals...)
+	fields := append([]zap.Field{zap.Error(err)}, keyvalsToFields(kv)...)
+	loggerMu.RLock()
+	z := logger.Logger
+	loggerMu.RUnlock()
+	if z != nil {
+		z.Error(err.Error(), fields...)
+	}
 
 	if logFile != nil {
-		writeToLog(append(keyvals, err)...)
+		writeToLog(append(kv, err)...)
 	}
 
 	return err
@@ -216,11 +302,14 @@ func ensureTraceFile() {
 	wd, err := os.Getwd()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "errnie trace: getwd: %v\n", err)
-		logger.Warn("trace: failed to get working directory", "error", err)
 		return
 	}
 
-	path := os.Getenv("TRACE_LOG")
+	loggingCfgMu.RLock()
+	cfgPath := strings.TrimSpace(loggingCfg.Trace.Path)
+	loggingCfgMu.RUnlock()
+
+	path := cfgPath
 	if path == "" {
 		path = filepath.Join(wd, "trace.log")
 	}
@@ -229,7 +318,6 @@ func ensureTraceFile() {
 	if dir != "." && dir != "" {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "errnie trace: mkdir %q: %v\n", dir, err)
-			logger.Warn("trace: failed to create log directory", "error", err, "path", dir)
 			return
 		}
 	}
@@ -237,37 +325,35 @@ func ensureTraceFile() {
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "errnie trace: open %q: %v\n", path, err)
-		logger.Warn("trace: failed to open trace log", "error", err, "path", path)
 		return
 	}
 
 	traceFile = f
-	logger.Debug("Trace log initialized", "path", path)
+	Debug("Trace log file initialized", "path", path)
 }
 
-/*
-writeToLog appends to the log file when LOGFILE=true.
-*/
 func writeToLog(msg ...any) {
 	if logFile == nil {
 		return
 	}
-
 	appendLineToFile(logFile, &logFileMu, msg)
 }
 
-// buildTraceLine formats a trace line as "msg k1=v1 k2=v2" for readability.
 func buildTraceLine(msg string, keyvals []any) string {
-	parts := make([]string, 0, 1+len(keyvals)/2+1)
-	parts = append(parts, msg)
+	if len(keyvals) == 0 {
+		return msg
+	}
+	var b strings.Builder
+	b.WriteString(msg)
 	for i := 0; i < len(keyvals); i += 2 {
+		b.WriteByte(' ')
 		if i+1 < len(keyvals) {
-			parts = append(parts, fmt.Sprintf("%v=%v", keyvals[i], keyvals[i+1]))
+			b.WriteString(fmt.Sprintf("%v=%v", keyvals[i], keyvals[i+1]))
 		} else {
-			parts = append(parts, fmt.Sprintf("%v", keyvals[i]))
+			b.WriteString(fmt.Sprintf("%v", keyvals[i]))
 		}
 	}
-	return strings.Join(parts, " ")
+	return b.String()
 }
 
 func formatTraceLine(parts []any) string {
@@ -297,13 +383,12 @@ func writeTraceLine(line string) {
 
 	_, err := traceFile.WriteString(line)
 	if err != nil {
-		logger.Warn("trace: write failed", "error", err)
 		fmt.Fprintf(os.Stderr, "errnie trace: write: %v\n", err)
 		return
 	}
 
 	if syncErr := traceFile.Sync(); syncErr != nil {
-		logger.Warn("trace: sync failed", "error", syncErr)
+		fmt.Fprintf(os.Stderr, "errnie trace: sync: %v\n", syncErr)
 	}
 }
 
@@ -324,11 +409,8 @@ func appendLineToFile(f *os.File, mu *sync.Mutex, parts []any) {
 
 	_, err := f.WriteString(line)
 	if err != nil {
-		logger.Warn("Failed to write to log file", "error", err)
 		return
 	}
 
-	if syncErr := f.Sync(); syncErr != nil {
-		logger.Warn("Failed to sync log file", "error", syncErr)
-	}
+	_ = f.Sync()
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -152,37 +154,58 @@ func valueFromPortable(p []byte, v *Value) {
 	}
 }
 
+/*
+valuePool is a global pool of Values. It is used to recycle
+Values that have been closed. It should be safe to re-use ValueIDs
+because the Tomstone program should be clearing up any references to
+a discarded ValueID.
+*/
 var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
 		val.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+
+		// Install the bootloader firmware.
+		prog := core.Cfg.Firmware[core.FirmwareTypeBootloader]
+		wordBase := uint64(core.Cfg.ProgramIndex)
+
+		for i := 0; i < len(prog); i += 2 {
+			wordPos := wordBase + uint64(i/2)
+
+			if int(wordPos) >= Words {
+				break
+			}
+
+			var w uint64
+			w = uint64(prog[i])
+
+			if i+1 < len(prog) {
+				w |= uint64(prog[i+1]) << 32
+			}
+
+			val[wordPos] = w
+		}
+
 		return val
 	},
 }
 
-func NewValue(p ...[]byte) *Value {
+/*
+NewValue should only be used to create the initial Value.
+This method should not be used to create temporary Values.
+*/
+func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
-	if len(p) > 0 && len(p[0]) > 0 {
-		payload := p[0]
-		if len(payload) < ByteSize {
-			buf := make([]byte, ByteSize)
-			copy(buf, payload)
-			valueFrom(buf, value)
-		} else {
-			valueFrom(payload, value)
+
+	for i, b := range p {
+		if !value.SetTokenID(i, Tokenize(b, uint64(i))) {
+			return nil, errnie.Error(
+				NewValueError(ValueErrorFailedToken),
+			)
 		}
 	}
 
-	// Always default to the bootloader so Values can self-replicate properly
-	if core.Cfg.FirmwareIndex != nil {
-		if idx, ok := core.Cfg.FirmwareIndex["bootloader"]; ok {
-			if value[core.Cfg.FW] == 0 {
-				value[core.Cfg.FW] = uint64(idx)
-			}
-		}
-	}
-
-	return value
+	return value, nil
 }
 
 /*
@@ -209,31 +232,23 @@ func (value *Value) Read(p []byte) (int, error) {
 }
 
 /*
-Write implements io.Writer. It streams raw bytes into Region 0.
-It enforces the physical rules of "Collision is Compression", path extension,
-and organic sequence resets driven by a bitwise XOR signal accumulator.
+Write implements io.Writer. It is how Values are "folded" through each
+other, which acts as the closes thing to an instruction pointer.
 */
 func (value *Value) Write(p []byte) (int, error) {
 	if len(p) == 0 {
 		return 0, nil
 	}
 
-	// Natively tokenize the incoming abstract payload into Region 0
-	// to ensure graphical readout and bitwise interference works sequentially
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
-	writable := min(len(p), tokenWords)
-	for i := 0; i < writable; i++ {
-		value.SetTokenID(core.Cfg.TokenIndex+i, Tokenize(p[i], uint64(i)))
-	}
+	incoming := valuePool.Get().(*Value)
+	valueFrom(p, incoming)
+	defer valuePool.Put(incoming) // TODO: Install the tombstone firmware.
 
-	payload := p
-	if writable < len(p) {
-		payload = p[:writable]
-	}
-	incoming := NewValue(payload)
+	errnie.Trace("value.Write", "p", p, "incoming", incoming)
 
 	if value.HasProgram() && Backend != nil {
-		// Use the abstraction to schedule the UniversalBitwise on the pool
+		// Use the backend abstraction to schedule the
+		// UniversalBitwise (ALU) on the pool.
 		Backend.Schedule(func(ctx context.Context) error {
 			return Backend.UniversalBitwise(
 				unsafe.Pointer(value),
@@ -242,32 +257,113 @@ func (value *Value) Write(p []byte) (int, error) {
 		})
 	}
 
-	return writable, nil
+	return len(p), nil
 }
 
 /*
 Close implements io.Closer, and must be called when a Value
 is discarded. It guarantees a sane exist from the substrate
-and returns the value to the value pool.
+and returns the value to the value pool. This is not meant
+as a quick-and-dirty way to discard a Value, that has to
+be done by loading the tombstone firmware.
 */
 func (value *Value) Close() error {
-	vid := value.ValueID()
-	for i := range Words {
-		value[i] = 0
+	wiped := true
+
+	// Cfg *Bits fields are bit widths; convert to word spans before indexing value[i].
+	checkRegion := func(start int, bits uint64) {
+		if !wiped {
+			return
+		}
+		n := int((bits + 63) / 64)
+		for i := 0; i < n; i++ {
+			idx := start + i
+			if idx < 0 || idx >= Words {
+				continue
+			}
+			if value[idx] != 0 {
+				wiped = false
+				return
+			}
+		}
 	}
-	value.SetValueID(vid)
-	valuePool.Put(value)
+
+	checkRegion(core.Cfg.TokenIndex, core.Cfg.TokenBits)
+	checkRegion(core.Cfg.AffinityIndex, core.Cfg.AffinityBits)
+	checkRegion(core.Cfg.GossipIndex, core.Cfg.GossipBits)
+	checkRegion(core.Cfg.TTLIndex, core.Cfg.TTLBits)
+	checkRegion(core.Cfg.ProgramIndex, core.Cfg.ProgramBits)
+
+	// Compensate for the bootloader firmware (low-index program words).
+	bootloaderWords := int((core.Cfg.ProgramBits + 63) / 64)
+	for i := 0; i < bootloaderWords && i < Words; i++ {
+		if value[i] != 0 {
+			wiped = false
+			break
+		}
+	}
+
+	if wiped {
+		valuePool.Put(value)
+	}
+
 	return nil
+}
+
+/*
+installFirmware installs the firmware into the Value. This should
+ideally only be used to install the bootloader firmware. In all
+other cases, setting the fw register to the firmware index and
+setting the pc register to the program index (which is where)
+the bootloader starts) is the correct way to install firmware.
+*/
+func (value *Value) installFirmware(fw core.FirmwareType) {
+	prog := core.Cfg.Firmware[fw]
+	wordBase := uint64(core.Cfg.ProgramIndex)
+
+	for i := 0; i < len(prog); i += 2 {
+		wordPos := wordBase + uint64(i/2)
+
+		if int(wordPos) >= Words {
+			break
+		}
+
+		var w uint64
+		w = uint64(prog[i])
+
+		if i+1 < len(prog) {
+			w |= uint64(prog[i+1]) << 32
+		}
+
+		value[wordPos] = w
+	}
 }
 
 func (value *Value) String() string {
 	var builder strings.Builder
-
-	for i := range core.Cfg.TokenIndex {
-		builder.WriteByte(byte(value[i] >> 32))
+	n := int((core.Cfg.TokenBits + 63) / 64)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		builder.WriteByte(byte(value[idx] >> 32))
 	}
 
 	return builder.String()
+}
+
+// TraceString implements errnie.TraceStringer for compact trace / log output.
+func (v *Value) TraceString() string {
+	if v == nil {
+		return "<nil>"
+	}
+	tok := v.String()
+	r := []rune(tok)
+	if len(r) > errnie.TraceTokenPreviewRunes {
+		tok = string(r[:errnie.TraceTokenPreviewRunes]) + "…"
+	}
+	return fmt.Sprintf("id=%d tokens=%s", v.ValueID(), strconv.Quote(tok))
 }
 
 /*
@@ -299,14 +395,28 @@ func (value *Value) SetTokenID(index int, token uint64) bool {
 }
 
 func (value *Value) TokenIDs() []uint64 {
-	tokens := make([]uint64, core.Cfg.TokenBits)
-	copy(tokens, value[:core.Cfg.TokenBits])
-	return tokens
+	n := int((core.Cfg.TokenBits + 63) / 64)
+	out := make([]uint64, n)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		out[i] = value[idx]
+	}
+	return out
 }
 
 func (value *Value) SetTokenIDs(tokens []uint64) int {
-	n := min(len(tokens), int(core.Cfg.TokenBits))
-	copy(value[:n], tokens[:n])
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	n := min(len(tokens), nWords)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		value[idx] = tokens[i]
+	}
 	return n
 }
 
@@ -425,8 +535,13 @@ non-zero TokenID in Region 0 and returns it as a printable string.
 */
 func DecodeTokensToText(v *Value) string {
 	var b []byte
-	for i := range core.Cfg.TokenBits {
-		tok := v[i]
+	n := int((core.Cfg.TokenBits + 63) / 64)
+	for i := 0; i < n; i++ {
+		idx := core.Cfg.TokenIndex + i
+		if idx >= Words {
+			break
+		}
+		tok := v[idx]
 		if tok == 0 {
 			break
 		}
@@ -438,26 +553,6 @@ func DecodeTokensToText(v *Value) string {
 		}
 	}
 	return string(b)
-}
-
-type ValueErrorType string
-
-const (
-	ValueErrorDivergence ValueErrorType = "divergence"
-	ValueErrorDataFull   ValueErrorType = "data_full"
-)
-
-type ValueError struct {
-	Err error
-	Msg string
-}
-
-func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Err: errors.New(string(err)), Msg: string(err)}
-}
-
-func (e *ValueError) Error() string {
-	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
 }
 
 // ProgramOp returns the 4-bit opcode at instruction slot i in the in-band
@@ -491,4 +586,25 @@ func (value *Value) HasProgram() bool {
 		}
 	}
 	return false
+}
+
+type ValueErrorType string
+
+const (
+	ValueErrorFailedToken ValueErrorType = "failed_token"
+	ValueErrorDivergence  ValueErrorType = "divergence"
+	ValueErrorDataFull    ValueErrorType = "data_full"
+)
+
+type ValueError struct {
+	Err error
+	Msg string
+}
+
+func NewValueError(err ValueErrorType) *ValueError {
+	return &ValueError{Err: errors.New(string(err)), Msg: string(err)}
+}
+
+func (e *ValueError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
 }

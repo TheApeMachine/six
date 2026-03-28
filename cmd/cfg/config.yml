@@ -1,5 +1,31 @@
 loglevel: debug
 
+# Logging and trace shipping (see pkg/errnie/logging_config.go).
+logging:
+  logfile: false
+  trace:
+    # Empty path writes to ./trace.log under the process working directory.
+    path: ""
+  elasticsearch:
+    # Must be true for logs to ship. Or export ELASTICSEARCH_ENABLED=true.
+    enabled: true
+    urls:
+      - https://127.0.0.1:9200
+    index: six-logs
+    username: elastic
+    # Leave empty and set ELASTIC_PASSWORD (e.g. from .env) for Docker stacks.
+    password: ""
+    # Base64 API key (optional); overrides username/password when set. Or ELASTICSEARCH_API_KEY.
+    api_key: ""
+    # PEM path to the cluster CA (e.g. Elasticsearch docker certs/ca/ca.crt).
+    ca_cert: ""
+    # Local development only when you cannot mount the CA.
+    insecure_skip_verify: true
+    # Low-latency shipping defaults are applied when these are omitted (near-real-time in Kibana).
+    # bulk_flush_bytes: 1
+    # flush_interval_ms: 50
+    # bulk_refresh: "true"
+
 system:
   projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
 

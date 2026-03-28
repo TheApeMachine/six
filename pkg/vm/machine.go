@@ -106,6 +106,14 @@ func (machine *Machine) Write(p []byte) (n int, err error) {
 	return machine.stream.Write(p)
 }
 
+// CloseWrite signals EOF to stream readers after the last framed Write.
+func (machine *Machine) CloseWrite() error {
+	if machine.stream == nil {
+		return nil
+	}
+	return machine.stream.CloseWrite()
+}
+
 func (machine *Machine) Close() error {
 	if machine.cancel != nil {
 		machine.cancel()

@@ -1,10 +1,13 @@
 package primitive
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -14,9 +17,33 @@ stirring colored paint in a bucket. Multiple streams read and write Values
 to this Region, and by rotating which Regions the streams interact with,
 the Values are rapidly and chaotically mixed across the system.
 */
-// spillMaxFrames bounds the secondary overflow buffer so a hot writer cannot
-// enqueue unbounded work when the primary mixer is saturated.
+// spillMaxFrames caps the secondary queue depth so memory stays bounded; writes
+// block when both mixer and spill are full (back-pressure), they never drop frames.
 const spillMaxFrames = 256
+
+// regionFramePool recycles ByteSize buffers between Write and Read to avoid an
+// allocation per enqueued frame on the steady-state path.
+var regionFramePool = sync.Pool{
+	New: func() any {
+		b := make([]byte, ByteSize)
+		return b
+	},
+}
+
+func getRegionFrame() []byte {
+	b := regionFramePool.Get().([]byte)
+	if cap(b) < ByteSize {
+		return make([]byte, ByteSize)
+	}
+	return b[:ByteSize]
+}
+
+func putRegionFrame(b []byte) {
+	if cap(b) < ByteSize {
+		return
+	}
+	regionFramePool.Put(b[:ByteSize])
+}
 
 type Region struct {
 	ID        uint64
@@ -25,15 +52,13 @@ type Region struct {
 	closeOnce sync.Once
 
 	spillAccept atomic.Uint64
-	spillDrop   atomic.Uint64
 }
 
 /*
 NewRegion creates a new mixing pool that can hold a predefined capacity
-of 1024-byte Values. Deposit paths use buffered channels and non-blocking
-select only (no Region-level mutex): the primary mixer plus a bounded spill
-channel for overflow. (The Go runtime still serializes channel operations
-internally. Global FIFO across mixer vs spill is not guaranteed once both fill.)
+of 1024-byte Values. Deposit paths use buffered channels: try the primary
+mixer without blocking; if it is full, enqueue on spill (blocking until space).
+When both queues are saturated, writers wait—frames are never discarded.
 */
 func NewRegion(id uint64) *Region {
 	capacity := 64 // Hold up to 64 Values at once for mixing
@@ -55,13 +80,17 @@ func (region *Region) Read(p []byte) (n int, err error) {
 
 	select {
 	case frame := <-region.mixer:
-		return copy(p, frame), nil
+		n := copy(p, frame)
+		putRegionFrame(frame)
+		return n, nil
 	default:
 	}
 
 	select {
 	case frame := <-region.spill:
-		return copy(p, frame), nil
+		n := copy(p, frame)
+		putRegionFrame(frame)
+		return n, nil
 	default:
 	}
 	return 0, io.EOF
@@ -69,8 +98,9 @@ func (region *Region) Read(p []byte) (n int, err error) {
 
 /*
 Write implements io.Writer, depositing a stream of 1024-byte Values into
-the mixing pool. If the pool is full, writes are gracefully dropped (or overwrites),
-facilitating chaotic mixing without blocking the architecture.
+the mixing pool. If the primary mixer has capacity, the frame is queued
+immediately; otherwise the frame is written to the spill queue, blocking until
+there is room—Values are never dropped.
 */
 func (region *Region) Write(p []byte) (n int, err error) {
 	if len(p) == 0 {
@@ -78,7 +108,11 @@ func (region *Region) Write(p []byte) (n int, err error) {
 	}
 
 	if len(p)%ByteSize != 0 {
-		return 0, fmt.Errorf("primitive: region write payload must be aligned to %d-byte boundaries", ByteSize)
+		return 0, errnie.Error(
+			NewRegionError(RegionErrAlign),
+			"length", len(p),
+			"frameSize", ByteSize,
+		)
 	}
 
 	bytesConsumed := 0
@@ -86,23 +120,17 @@ func (region *Region) Write(p []byte) (n int, err error) {
 	for offset := 0; offset+ByteSize <= len(p); offset += ByteSize {
 		chunk := p[offset : offset+ByteSize]
 
-		// Copy chunk so we don't hold references to volatile memory
-		cp := make([]byte, ByteSize)
+		// Copy chunk into a pooled buffer so we don't hold references to p.
+		cp := getRegionFrame()
 		copy(cp, chunk)
 
-		// Non-blocking: if the pool is full, report a short write.
 		select {
 		case region.mixer <- cp:
 			bytesConsumed += ByteSize
 		default:
-			select {
-			case region.spill <- cp:
-				region.spillAccept.Add(1)
-				bytesConsumed += ByteSize
-			default:
-				region.spillDrop.Add(1)
-				return bytesConsumed, io.ErrShortWrite
-			}
+			region.spill <- cp
+			region.spillAccept.Add(1)
+			bytesConsumed += ByteSize
 		}
 	}
 
@@ -126,13 +154,31 @@ func (region *Region) Close() error {
 }
 
 /*
-SpillStats reports overflow-buffer depth and lifetime counters for observability.
-queued is the number of Values buffered on the spill channel; accepted counts
-successful spill enqueues; dropped counts Values lost when both channels are full.
+SpillStats reports overflow-buffer depth and lifetime spill enqueue count.
+The dropped count is always zero (frames are not discarded).
 */
 func (region *Region) SpillStats() (queued int, accepted uint64, dropped uint64) {
 	if region.spill != nil {
 		queued = len(region.spill)
 	}
-	return queued, region.spillAccept.Load(), region.spillDrop.Load()
+	return queued, region.spillAccept.Load(), 0
+}
+
+type RegionErrorType string
+
+const (
+	RegionErrAlign RegionErrorType = "align"
+)
+
+type RegionError struct {
+	Err error
+	Msg string
+}
+
+func NewRegionError(t RegionErrorType) *RegionError {
+	return &RegionError{Err: errors.New(string(t)), Msg: string(t)}
+}
+
+func (e *RegionError) Error() string {
+	return fmt.Sprintf("%s: %s", e.Err, e.Msg)
 }

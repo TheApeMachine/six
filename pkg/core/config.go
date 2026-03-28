@@ -3,10 +3,21 @@ package core
 import (
 	"fmt"
 	"reflect"
-	"sort"
 
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/errnie"
+)
+
+type FirmwareType uint
+
+const (
+	FirmwareTypeNone FirmwareType = iota
+	FirmwareTypeBootloader
+	FirmwareTypeTombstone
+	FirmwareTypeAffinity
+	FirmwareTypeShatter
+	FirmwareTypeWipe
+	FirmwareTypeViral
 )
 
 /*
@@ -189,93 +200,56 @@ type Config struct {
 
 	// Firmware holds compiled programs from config.yml, indexed by position.
 	// Set a Value's firmware register to the index to select a program.
-	Firmware      [][]uint32
-	FirmwareIndex map[string]int
+	Firmware [FirmwareTypeViral + 1][]uint32
 }
 
 /*
 LoadFirmware compiles all programs from the config's `programs` section
 into Cfg.Firmware. Must be called after viper has loaded config.
 */
-func LoadFirmware() error {
-	rawPrograms := viper.GetViper().Get("programs")
+func LoadFirmware() (err error) {
+	fwBootloader := viper.GetViper().GetString("programs.bootloader")
+	fwTombstone := viper.GetViper().GetString("programs.tomstone")
+	fwAffinity := viper.GetViper().GetString("programs.affinity")
+	fwShatter := viper.GetViper().GetString("programs.shatter")
+	fwWipe := viper.GetViper().GetString("programs.wipe")
+	fwViral := viper.GetViper().GetString("programs.viral")
 
-	if rawPrograms == nil {
-		return errnie.Error(
-			NewConfigError(
-				ConfigErrorMissingFirmware,
-				"programs",
-				"no programs defined in config.yml",
-			),
-		)
+	Cfg.Firmware[FirmwareTypeBootloader], err = CompileFunc(fwBootloader)
+
+	if err != nil {
+		return errnie.Error(err)
 	}
 
-	programs, ok := rawPrograms.(map[string]any)
-	if !ok {
-		// Sometimes Viper parses empty maps or missing roots as nil maps.
-		return errnie.Error(
-			NewConfigError(
-				ConfigErrorMissingFirmware,
-				"programs",
-				"programs key is not a dictionary format",
-			),
-		)
+	Cfg.Firmware[FirmwareTypeTombstone], err = CompileFunc(fwTombstone)
+
+	if err != nil {
+		return errnie.Error(err)
 	}
 
-	if len(programs) == 0 {
-		return errnie.Error(
-			NewConfigError(
-				ConfigErrorMissingFirmware,
-				"programs",
-				"programs object is empty in config.yml",
-			),
-		)
+	Cfg.Firmware[FirmwareTypeAffinity], err = CompileFunc(fwAffinity)
+
+	if err != nil {
+		return errnie.Error(err)
 	}
 
-	// Sort for deterministic indexing
-	names := make([]string, 0, len(programs))
+	Cfg.Firmware[FirmwareTypeShatter], err = CompileFunc(fwShatter)
 
-	for name := range programs {
-		names = append(names, name)
+	if err != nil {
+		return errnie.Error(err)
 	}
 
-	sort.Strings(names)
+	Cfg.Firmware[FirmwareTypeWipe], err = CompileFunc(fwWipe)
 
-	Cfg.Firmware = make([][]uint32, len(names))
-	Cfg.FirmwareIndex = make(map[string]int, len(names))
-
-	for i, name := range names {
-		src, ok := programs[name].(string)
-		if !ok {
-			return errnie.Error(
-				NewConfigError(
-					ConfigErrorTypeInvalidValue,
-					name,
-					fmt.Sprintf("program source must be a string, got %T", programs[name]),
-				),
-			)
-		}
-
-		instrs, err := CompileFunc(src)
-
-		if err != nil {
-			return errnie.Error(
-				NewConfigError(
-					ConfigErrorFirmwareCompile,
-					name,
-					err.Error(),
-				),
-			)
-		}
-
-		Cfg.Firmware[i] = instrs
-		Cfg.FirmwareIndex[name] = i
+	if err != nil {
+		return errnie.Error(err)
 	}
 
-	errnie.Info(
-		"core: firmware loaded",
-		"programs", len(Cfg.Firmware),
-	)
+	Cfg.Firmware[FirmwareTypeViral], err = CompileFunc(fwViral)
+
+	if err != nil {
+		return errnie.Error(err)
+	}
 
 	return nil
 }

@@ -5,79 +5,146 @@
 <h1 align="center">six</h1>
 
 <p align="center">
-  <strong>Physics-Sympathetic, Algebraic Computing Substrate</strong>
+  <strong>Physics-sympathetic, stream-composed computing substrate</strong>
 </p>
 
 ---
 
 > [!NOTE]
-> This is a research project under active development.
-> This README is a condensed view grounded in the current codebase.
+> This is a research project under active development. This README is written to match **what the repository actually does today** (packages, CLI, and key types). Earlier design notes that are not reflected in code—such as GF(65537) affine routing on `Region`—are not described here as current behavior.
 
 ---
 
-## Core Thesis
+## Core thesis
 
 > **Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?**
 
-Six is a radical departure from traditional Von Neumann architectures and heavyweight network overlays. We are eliminating state orchestrators, distributed hash tables (DHTs), consensus-heavy coordination layers, and legacy control flow patterns. Instead, Six is built fundamentally as a **physics-sympathetic, algebraically routed, execution-in-data computing substrate**. 
-
-By composing Unix-like `io.Reader` and `io.Writer` pipelines down to the foundational byte structures, network distribution and in-memory execution unify perfectly without "split-brain" state caching.
+Six explores a different shape of system: fixed-size **values** that carry data and **in-band programs**, flowing through **I/O-native** pipelines (`io.Reader` / `io.Writer`) into **multi-backend** execution (CPU, optional CUDA / Metal). The goal is to minimize heavyweight orchestration and treat the byte layout as the source of truth, so file handles, sockets, and kernels all speak the same physical frame.
 
 ---
 
-## Organization
+## Repository layout
 
-Given this is a research project, there are certain additional tools that are included that have no direct bearing on the core substrate. If you understand Go's packaging system, it should be obvious how to pull out the standalone engine.
+| Path | Role |
+|------|------|
+| `pkg/primitive` | `Value` fixed layout; `Region` concurrent mixer; global `Backend` hook used by the VM |
+| `pkg/core` | Viper-driven **value layout config** (`config.yml` / embedded default), opcode names, `CompileFunc` (text → packed 32-bit words) |
+| `pkg/compute` | `Backend`: registers CUDA, Metal, and CPU substrates; routes `UniversalBitwise` |
+| `pkg/compute/kernel` | `Substrate` interface; CPU / CUDA / Metal implementations |
+| `pkg/vm` | `Machine` stream pipeline, worker pool, `Region` fan-out |
+| `pkg/network` | UDP, QUIC, IPC transports (tests and adapters) |
+| `pkg/telemetry`, `pkg/transport` | Events, streaming, S3 adapter |
+| `experiment/` | Task suites, reporters, datasets (e.g. Hugging Face), artifact/projector pipeline |
+| `visualizer/` | HTTP / WebSocket UI for substrate telemetry |
+| `cmd/` | Cobra CLI (`six`, `viz`, `paper`, `worker` stub) |
 
-```go
+If you only want the core types:
+
+```bash
 go get -u github.com/theapemachine/six/pkg/primitive
 ```
 
-The tooling remains in place for reproducibility.
+The rest of the tree stays for **reproducible experiments**, visualization, and paper tooling.
 
 ---
 
-## Architectural Pillars
+## `Value`: fixed 1024-byte frame
 
-### 1. `Value`: The Self-Executing Data Plane (Virtual Machine)
-Traditional software separates data objects from the logic that modifies them. In Six, data and execution are mathematically fused. A `Value` is a contiguous, hardware-aligned 1024-byte (128-word) topological frame holding:
-- **Data Limits**: Pure memory tokens.
-- **Topological Links**: Mathematical identity pointers to preceding and succeeding frame IDs.
-- **Affinity Masks**: Hardware alignment flags defining compatibility matches.
-- **Embedded VM Program**: An 8-instruction, 32-bit Virtual Machine bytecode array defining how this specific `Value` interacts with others on the network.
+In code, a `Value` is `type Value [128]uint64` — **128 little-endian words, 1024 bytes total** (`primitive.Words`, `primitive.ByteSize`). The exact field map is **driven by `pkg/core` config** (loaded from `$HOME/.six/config.yml` when present, else embedded `cmd/cfg/config.yml`). The file `pkg/primitive/value.go` documents the default intent:
 
-**Values process themselves.** When a Value requires search, graph healing, or matching, it natively installs an embedded Tombstone query (using mathematical logic like `OpMatchZero` or `OpXor`). Go-level orchestration is minimized; data behavior is entirely governed by its embedded payload traversing the computational execution logic.
+- **Data / identity**: packed token region, `ValueID`, `PrevValueID`, `NextValueID`
+- **State** (write engine): slot index, sequence index, XOR accumulator
+- **Affinity**: bitmask for clustering (used by kernels for routing hints)
+- **Link**: temporary grouping pointer
+- **Gossip**: 256-bit routing signature (reserved for mesh-style use)
+- **TTL**: hop budget (low 8 bits of the configured word)
+- **Registers** and **PC**: VM-visible state
+- **Program**: tail words hold **packed 32-bit instructions**; the instruction set is built from the **16 two-input boolean truth tables**, with skip / control flow patterns described in-package
 
-### 2. `Region`: Affine Gossip Routing over GF(65537)
-Instead of traditional network routing tables or diffusion models which flood graphs and create bottlenecks, Six handles topology using geometry. 
+`Value` implements **`io.Reader`** and **`io.Writer`**: reads emit one full frame (then `io.EOF`); writes participate in collision / sequence-aware path semantics documented in `value.go`. Serialization cost for streaming is avoided when both sides agree on the 1024-byte boundary—the layout **is** the on-wire form.
 
-A `Region` doesn’t "store" Values. It's not a container; **it's a mixer.** 
-
-A Region implements `io.ReadWriteCloser`. As a `Value` streams horizontally through the region's `io.Writer` pipeline, the Region applies a bijection—an affine transform over **GF(65537)** (the 4th Fermat prime). This $O(1)$ multiplication mathematically remaps the Value's telemetry signature, teleporting it algebraically across the search space.
-- **Inbound Mixing**: $y = (a \cdot x + b) \pmod{65537}$. Mathematical dispersion without data loss.
-- **Algebraic Search Convergence**: Because GF(65537) is closed, a query traversing the hierarchy simply inverts the local transform recursively ($a^{-1} \cdot (y-b)$). This collapses complex graph searches down to static algebra. 
-
-Because the entire mesh layer relies purely on primitive recursive `io.Writer` pipelines, **Regions within Regions** compose seamlessly, creating multi-scale, hierarchical topological search without implementing complex messaging protocols. The `Value` holds the spatial depth TTL; the system handles the distribution automatically.
-
-### 3. `Backend`: Universal Bitwise Execution 
-When a programmed `Value` or experimental Query traverses the mesh, it runs on the CPU physical ALU engine. The backend takes resident memory arrays and meshes incoming programs together. It executes Universal Boolean gates to slice and combine 1024-bit arrays strictly mathematically. 
-
-Network control packages (like "Tombstones") are trapped seamlessly into a Region's internal `inbox` queue when detected mid-pipe. The local physical CPU `Backend` consumes the Region like any other `io.Reader`, dynamically ingesting queries and naturally acting on the local data before dropping the results out the other end.
+Assembly-like programs are compiled with `core.CompileFunc(src string) ([]uint32, error)`: lines are `src dst op` with binary opcode digits, registers like `r0`, `pc`, `fw`, and `*` for pointer/span forms (see `pkg/core/compile.go`).
 
 ---
 
-## How it Fits Together
+## `Region`: concurrent channel mixer (not algebraic routing)
 
-The pipeline is perfectly decoupled via unix composition:
+`primitive.Region` is an **`io.ReadWriteCloser`** that **buffers whole Values** on two Go channels:
 
-1. **Ingress**: `io.Copy(myRegion, udpSocket)`  
-   Inbound packets stream into the affine topology layer. The stream magically stirs payloads, updating their topological hashes natively inline.
-   
-2. **Topological Sub-Routing**: `io.Copy(subRegion, myRegion)`  
-   `Region` objects map to one another through simple `io.Writer` arrays. Multi-scale search cascades natively downward.
+- **Primary** buffer: capacity **64** frames (`NewRegion`)
+- **Spill** buffer: up to **256** extra frames when the primary is full (`spillMaxFrames`)
 
-3. **Execution**: `io.Copy(cpuBackend, myRegion)`  
-   When the topology detects `Values` programmed for search/healing, it dynamically routes them through the `inbox`. The `cpu.Backend` acts as a physical engine seamlessly drawing and executing the queries locally.
+**Writes** copy each incoming 1024-byte chunk into a private buffer, try the primary channel without blocking, then enqueue on **spill** if the primary is full—blocking until space exists so **no frames are dropped**.
 
-Zero serialization overhead. Zero messaging protocols. Pure native algorithmic physics.
+**Reads** are **non-blocking** at the `io.Reader` level: if nothing is available, **`io.EOF`** is returned (not a blocking wait).
+
+`SpillStats()` exposes queued spill depth plus lifetime spill enqueue count; the legacy “dropped” figure is always zero.
+
+This is intentionally a **simple “stir the bucket”** mixing model, as described in `region.go`, so you can still compose pipelines with `io.Copy(regionB, regionA)` without inventing a separate messaging protocol—writers **block** when both queues are saturated instead of losing Values.
+
+---
+
+## `compute.Backend`: multi-substrate bitwise execution
+
+`NewBackend` **probes hardware** and builds a slice of `kernel.Substrate` implementations in order:
+
+1. One backend per **CUDA** device (`cuda.Available()`)
+2. One per **Metal** device (`metal.Available()`)
+3. A single **CPU** backend (always registered)
+
+The primary entry point is **`UniversalBitwise(a, b unsafe.Pointer)`**, which dispatches to one substrate. **`pickSubstrate`** round-robins across devices, **except** when the host `Value` reports **`WANIngressScarred()`**—those frames are pinned to the **first** registered device to avoid bouncing across heterogeneous hardware.
+
+Optional **`WithPool`** injects a `vm.Pool`; **`Schedule`** runs jobs on that pool or synchronously in tests when no pool is set.
+
+On CLI startup (`cmd/root.go`), a **`compute.Backend`** is constructed and assigned to **`primitive.Backend`**, so library code that imports `primitive` can invoke the global substrate after init.
+
+*Note:* comments in `backend.go` still mention overflowing into a local `Region`; the struct itself is a **substrate router**, not a container for `primitive.Region`. Region fan-out today lives primarily under **`vm.Machine`**.
+
+---
+
+## `vm.Machine` pipeline
+
+`vm.NewMachine` builds a goroutine pool sized from `runtime.NumCPU()`, creates a **fixed set of `primitive.Region` instances** (currently 10), and can attach a **`transport.Stream`** and dataset (`io.ReadCloser`). It is the main orchestration path for the **visualizer** experiment loop: stream Values through regions and telemetry without ad hoc global state.
+
+---
+
+## Command-line tools
+
+Configuration is loaded via **Viper**: try `$HOME/.six/config.yml`, then fall back to **embedded** `cmd/cfg/config.yml`. `core.LoadValueConfig()` must succeed for a consistent word layout.
+
+| Command | Purpose |
+|---------|---------|
+| `six` | Root (no-op run). Persistent `--config` path. |
+| `six viz` | HTTP / WebSocket **visualizer**; optional Hugging Face dataset driver; `--listen` to serve UI only and ingest UDP graph events |
+| `six paper` | Stitch **LaTeX** fragments and figures from experiment artifacts into `paper/main.tex` (paths from config / `paper.dir`) |
+| `six worker` | **Stub**: returns an error; distributed worker not yet ported to the current `Backend` |
+
+---
+
+## Building and module notes
+
+- **Go**: see `go.mod` (currently **Go 1.26**).
+- **Optional accelerators**: CUDA / Metal backends are included where the toolchain and tags allow; CPU is always available.
+- **Local replace**: `go.mod` contains `replace github.com/tphakala/simd => ../simd`. Clone the sibling **`simd`** repo next to this one, or adjust/remove the replace for your layout.
+
+---
+
+## Research / experiments
+
+The **`experiment/`** tree defines **tasks** (classification, text generation, scaling, phasedial, logic benchmarks, etc.), **artifact** writers, and **projectors** (charts, tables, LaTeX helpers). It is the main place for **measurable** behavior on top of the substrate. **`visualizer/`** complements this with a live view of graph/substrate activity.
+
+---
+
+## How the pieces compose (today)
+
+1. **Ingress**: any `io.Reader` that yields 1024-byte aligned chunks can feed a **`Region`** or materialize **`primitive.NewValue(...)`** frames.
+2. **Mixing / fan-out**: **`io.Copy`** between regions and **`vm.Machine`** region sets shuffle workloads without a separate message broker—at the cost of **bounded buffers and possible drops** under load.
+3. **Execution**: **`primitive.Backend`** (when set) runs **kernel `UniversalBitwise`** on pairs of pointers into **`Value`** storage, using the substrate order described above.
+
+This is **not** “zero serialization” in the abstract—any real network still needs framing—but for local pipelines the **Value** is a single opaque 1024-byte atom end-to-end.
+
+---
+
+## License / status
+
+Treat behavior as **authoritative in tests and source** when it disagrees with older prose or diagrams. Contributions and questions are welcome while the design is still moving.

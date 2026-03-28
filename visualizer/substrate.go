@@ -39,7 +39,10 @@ complete, or the dataset errors.
 func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) error {
 	unbounded := opts.Iterations <= 0
 
-	chamber := primitive.NewValue()
+	chamber, err := primitive.NewValue(nil)
+	if err != nil {
+		return err
+	}
 	frame := make([]byte, primitive.ByteSize)
 
 	dataset := huggingface.New(
@@ -116,7 +119,10 @@ func RunSubstrateLoop(ctx context.Context, srv *Server, opts SubstrateOpts) erro
 			},
 		})
 
-		incoming := primitive.NewValue()
+		incoming, inErr := primitive.NewValue(nil)
+		if inErr != nil {
+			return inErr
+		}
 		if _, err := incoming.Write(frame); err != nil {
 			srv.Broadcast(telemetry.Event{
 				Component: "Substrate",
