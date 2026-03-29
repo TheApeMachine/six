@@ -40,16 +40,14 @@ func PhasedialSectionArtifacts(
 		})
 	}
 
-	if section.Title != "" {
-		artifacts = append(artifacts, tools.Artifact{
-			Type:     tools.ArtifactProse,
-			FileName: slug + "_section.tex",
-			Data: tools.ProseData{
-				Template: projector.ExperimentSectionTmpl,
-				Data:     section,
-			},
-		})
-	}
+	artifacts = append(artifacts, tools.Artifact{
+		Type:     tools.ArtifactProse,
+		FileName: slug + "_section.tex",
+		Data: tools.ProseData{
+			Template: projector.ExperimentSectionTmpl,
+			Data:     section,
+		},
+	})
 
 	return artifacts
 }

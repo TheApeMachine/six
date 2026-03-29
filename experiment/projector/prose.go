@@ -101,6 +101,10 @@ func ProseWithData(data any) proseOpts {
 	return func(p *Prose) { p.data = data }
 }
 
+// F3 formats a float64 to 3 decimal places.  It is exported so that
+// callers can pre-format values into ExperimentSection strings.
+func F3(v float64) string { return formatF(v, 3) }
+
 func ProseWithOutput(outDir, outFile string) proseOpts {
 	return func(p *Prose) {
 		p.outDir = outDir

@@ -372,45 +372,15 @@ func (exp *ConstraintResolutionExperiment) Artifacts() []tools.Artifact {
 		isolationRatio = finalMaid / finalMean
 	}
 
-	var assessment string
+	assessment := `Partial isolation was achieved.  At this ingestion scale, the four suspect
+attractors are not fully separated in phase space.  Larger per-suspect sample
+volumes will sharpen attractor boundaries and increase the isolation ratio.`
 	if finalMaid >= 0.5 {
 		assessment = `The substrate successfully isolated the target suspect through phase-based
 constraint propagation.  Successive clue injections drove constructive
 interference with MAID's attractor and destructive interference with the
 others, consistent with the theoretical prediction of topological
 re-equilibration in the value manifold.`
-	} else {
-		assessment = `Partial isolation was achieved.  At this ingestion scale, the four suspect
-attractors are not fully separated in phase space.  Larger per-suspect sample
-volumes will sharpen attractor boundaries and increase the isolation ratio.`
-	}
-
-	section := tools.ExperimentSection{
-		Title: "Phase-Based Constraint Resolution",
-		Label: "constraint_resolution",
-		TaskDescription: fmt.Sprintf(`This experiment validates that PhaseDial geometry can narrow a multi-hypothesis
-constraint-satisfaction problem through successive clue injection --- without
-explicit Bayesian priors, numeric scoring, or any oracle information.
-
-Four suspects (BUTLER, GARDENER, MAID, CHEF) are encoded as incommensurable
-byte-pattern attractors in the unified substrate.  Each suspect's samples
-follow a distinct linear modular stride (3, 7, 11, 13 respectively), producing
-maximally separated regions of the value/PhaseDial attractor landscape.
-
-After ingestion, four stages of $%d$ clue prompts are presented.
-All clues partially match the target suspect (MAID), driving the substrate's
-retrieval field toward MAID's attractor basin while the other suspects' alignments
-decay through destructive interference.`, crCluesPerStage),
-		Results: fmt.Sprintf(`Figure~\ref{fig:constraint_resolution} shows four temporal snapshots of the
-constraint-resolution process on the PhaseDial polar grid.  Each panel plots
-suspects and the evidence centroid as dots at $(\theta_j, A_j)$, where
-$\theta_j$ is phase angle (suspect assignment) and $A_j$ is retrieval alignment.
-
-Mean final alignment with target (MAID): %s.
-Mean final alignment averaged across all suspects: %s.
-Target isolation ratio: %s.`,
-			projector.F3(finalMaid), projector.F3(finalMean), projector.F3(isolationRatio)),
-		Assessment: assessment,
 	}
 
 	return []tools.Artifact{
@@ -431,7 +401,33 @@ Target isolation ratio: %s.`,
 			FileName: "constraint_resolution_section.tex",
 			Data: tools.ProseData{
 				Template: projector.ExperimentSectionTmpl,
-				Data:     section,
+				Data: tools.ExperimentSection{
+					Title: "Phase-Based Constraint Resolution",
+					Label: "constraint_resolution",
+					TaskDescription: fmt.Sprintf(`This experiment validates that PhaseDial geometry can narrow a multi-hypothesis
+constraint-satisfaction problem through successive clue injection --- without
+explicit Bayesian priors, numeric scoring, or any oracle information.
+
+Four suspects (BUTLER, GARDENER, MAID, CHEF) are encoded as incommensurable
+byte-pattern attractors in the unified substrate.  Each suspect's samples
+follow a distinct linear modular stride (3, 7, 11, 13 respectively), producing
+maximally separated regions of the value/PhaseDial attractor landscape.
+
+After ingestion, four stages of $%d$ clue prompts are presented.
+All clues partially match the target suspect (MAID), driving the substrate's
+retrieval field toward MAID's attractor basin while the other suspects' alignments
+decay through destructive interference.`, crCluesPerStage),
+					Results: fmt.Sprintf(`Figure~\ref{fig:constraint_resolution} shows four temporal snapshots of the
+constraint-resolution process on the PhaseDial polar grid.  Each panel plots
+suspects and the evidence centroid as dots at $(\theta_j, A_j)$, where
+$\theta_j$ is phase angle (suspect assignment) and $A_j$ is retrieval alignment.
+
+Mean final alignment with target (MAID): %s.
+Mean final alignment averaged across all suspects: %s.
+Target isolation ratio: %s.`, projector.F3(finalMaid), projector.F3(finalMean), projector.F3(isolationRatio)),
+					Assessment: assessment,
+					FigureRef:  "fig:constraint_resolution",
+				},
 			},
 		},
 	}

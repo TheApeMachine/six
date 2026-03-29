@@ -1,11 +1,14 @@
 package phasedial
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -143,38 +146,17 @@ func (experiment *SteerabilityExperiment) Artifacts() []tools.Artifact {
 			Type:     tools.ArtifactProse,
 			FileName: "steerability_section.tex",
 			Data: tools.ProseData{
-				Template: `\subsection{Steerability}
-\label{sec:steerability}
-
-\paragraph{Task Description.}
-The steerability experiment evaluates the stability of retrieval under phase rotations across
+				Template: projector.ExperimentSectionTmpl,
+				Data: tools.ExperimentSection{
+					Title: "Steerability",
+					Label: "steerability",
+					TaskDescription: `The steerability experiment evaluates the stability of retrieval under phase rotations across
 different split boundaries.  It identifies the optimal boundary for
 independent perspective shifts and measures whether high steerability
-predicts super-additive composition gain.
-
-\paragraph{Results.}
-Figure~\ref{fig:steerability_map} shows the trial outcome map.
-The mean weighted score was {{.Score | f3}} across $N = {{.N}}$ samples.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong performance on this geometric property,
-confirming that the invariant holds reliably at this ingestion scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but becomes unreliable under more challenging conditions.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this stage.  The phasedial
-experiments require a functional Finalize path to populate the substrate
-with compositional data; this infrastructure is being rebuilt during
-the current refactoring phase.
-{{- end}}
-`,
-				Data: map[string]any{
-					"N":     len(experiment.tableData),
-					"Score": experiment.Score(),
+predicts super-additive composition gain.`,
+					Results:    fmt.Sprintf(`The mean weighted score was %s across $N = %d$ samples.`, projector.F3(experiment.Score()), len(experiment.tableData)),
+					Assessment: phasedialAssessment(experiment.Score()),
+					FigureRef:  "fig:steerability_map",
 				},
 			},
 		},

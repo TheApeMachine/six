@@ -1,22 +1,20 @@
 package projector
 
-import (
-	_ "embed"
-	"strconv"
-)
+// ExperimentSectionTmpl is the canonical Go text/template for rendering a
+// standardised experiment subsection.  The template expects an
+// ExperimentSection struct (defined in the experiment package) as its
+// data context.
+const ExperimentSectionTmpl = `\subsection{{{.Title}}}
+\label{sec:{{.Label}}}
 
-//go:embed experiment_section.tmpl
-var ExperimentSectionTmpl string
+\paragraph{Task Description.}
+{{.TaskDescription}}
 
-// Exported formatting helpers so task packages can pre-render metric strings
-// for ExperimentSection fields without duplicating formatting logic.
+\paragraph{Results.}
+{{.Results}}
 
-func F0(v float64) string { return strconv.FormatFloat(v, 'f', 0, 64) }
-func F1(v float64) string { return strconv.FormatFloat(v, 'f', 1, 64) }
-func F2(v float64) string { return strconv.FormatFloat(v, 'f', 2, 64) }
-func F3(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
-func F4(v float64) string { return strconv.FormatFloat(v, 'f', 4, 64) }
+\paragraph{Assessment.}
+{{.Assessment}}
 
-func Pct(v float64) string {
-	return F1(v*100) + `\%`
-}
+Figure~\ref{ {{- .FigureRef -}} } shows the trial outcome map.
+`

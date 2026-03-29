@@ -1,11 +1,14 @@
 package phasedial
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -106,39 +109,18 @@ func (experiment *QueryRobustnessExperiment) Artifacts() []tools.Artifact {
 			Type:     tools.ArtifactProse,
 			FileName: "query_robustness_section.tex",
 			Data: tools.ProseData{
-				Template: `\subsection{Query Robustness}
-\label{sec:query_robustness}
-
-\paragraph{Task Description.}
-The query robustness experiment evaluates the topological resilience of the PhaseDial to corrupted
+				Template: projector.ExperimentSectionTmpl,
+				Data: tools.ExperimentSection{
+					Title: "Query Robustness",
+					Label: "query_robustness",
+					TaskDescription: `The query robustness experiment evaluates the topological resilience of the PhaseDial to corrupted
 inputs.  A clean query is compared against a version with 30\% value
 dropout; both are submitted to geodesic scan.  The score reflects
 how accurately the substrate recovers the same retrieval target
-despite input corruption.
-
-\paragraph{Results.}
-Figure~\ref{fig:query_robustness_map} shows the trial outcome map.
-The mean weighted score was {{.Score | f3}} across $N = {{.N}}$ samples.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong performance on this geometric property,
-confirming that the invariant holds reliably at this ingestion scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but becomes unreliable under more challenging conditions.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this stage.  The phasedial
-experiments require a functional Finalize path to populate the substrate
-with compositional data; this infrastructure is being rebuilt during
-the current refactoring phase.
-{{- end}}
-`,
-				Data: map[string]any{
-					"N":     len(experiment.tableData),
-					"Score": experiment.Score(),
+despite input corruption.`,
+					Results:    fmt.Sprintf(`The mean weighted score was %s across $N = %d$ samples.`, projector.F3(experiment.Score()), len(experiment.tableData)),
+					Assessment: phasedialAssessment(experiment.Score()),
+					FigureRef:  "fig:query_robustness_map",
 				},
 			},
 		},
