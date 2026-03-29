@@ -91,34 +91,9 @@ for (const [a, b] of [[[-40, 0, 0], [40, 0, 0]], [[0, 0, -30], [0, 0, 30]]]) {
   scene.add(new THREE.Line(g, axisMat));
 }
 
-// ── Ambient Particles ──────────────────────────────────────
-const particleCount = 800;
-const particleGeo = new THREE.BufferGeometry();
-const positions = new Float32Array(particleCount * 3);
-const particleSizes = new Float32Array(particleCount);
-
-for (let i = 0; i < particleCount; i++) {
-  positions[i * 3 + 0] = (Math.random() - 0.5) * 120;
-  positions[i * 3 + 1] = Math.random() * 40;
-  positions[i * 3 + 2] = (Math.random() - 0.5) * 120;
-  particleSizes[i] = Math.random() * 1.5 + 0.3;
-}
-
-particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-particleGeo.setAttribute('size', new THREE.BufferAttribute(particleSizes, 1));
-
-const particleMat = new THREE.PointsMaterial({
-  color: 0x4080c0,
-  size: 0.08,
-  transparent: true,
-  opacity: 0.15,
-  sizeAttenuation: true,
-  blending: THREE.AdditiveBlending,
-  depthWrite: false,
-});
-
-const ambientParticles = new THREE.Points(particleGeo, particleMat);
-scene.add(ambientParticles);
+// ── Ambient Particles (removed for performance) ───────────
+// The 800-particle system updated every frame added GPU sync
+// overhead without contributing useful debugging information.
 
 // ── Groups ─────────────────────────────────────────────────
 export const zoneGroup = new THREE.Group();
@@ -140,8 +115,11 @@ export const mouseVec = new THREE.Vector2();
 // ── Label Zoom ─────────────────────────────────────────────
 const ZOOM_REF_DIST = 40;
 let prevZoomScale = 1;
+let _zoomFrameSkip = 0;
 
 export function updateLabelZoom() {
+  // Only check every 4th frame — camera rarely moves that fast
+  if (++_zoomFrameSkip & 3) return;
   const dist = camera.position.distanceTo(controls.target);
   const scale = Math.min(Math.max(ZOOM_REF_DIST / dist, 0.8), 4.0);
   const rounded = Math.round(scale * 20) / 20;
@@ -151,18 +129,9 @@ export function updateLabelZoom() {
   }
 }
 
-// ── Ambient Particle Animation ─────────────────────────────
-export function updateAmbientParticles(time) {
-  const pos = ambientParticles.geometry.attributes.position.array;
-  for (let i = 0; i < particleCount; i++) {
-    pos[i * 3 + 1] += Math.sin(time * 0.001 + i * 0.3) * 0.002;
-    if (pos[i * 3 + 1] > 40) {
-      pos[i * 3 + 1] = Math.random() * 5 + 0.5;
-      pos[i * 3] += (Math.random() - 0.5) * 4;
-      pos[i * 3 + 2] += (Math.random() - 0.5) * 4;
-    }
-  }
-  ambientParticles.geometry.attributes.position.needsUpdate = true;
+// ── Ambient Particle Animation (removed) ──────────────────
+export function updateAmbientParticles(_time) {
+  // No-op: ambient particles removed for performance.
 }
 
 // ── Camera Fly-To ──────────────────────────────────────────

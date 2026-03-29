@@ -68,6 +68,7 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
 }
 
 export function updateDataStreams() {
+  if (dataStreams.length === 0) return; // Fast exit when idle
   const now = Date.now();
 
   for (let i = dataStreams.length - 1; i >= 0; i--) {
@@ -88,12 +89,9 @@ export function updateDataStreams() {
       s.lbl.position.lerpVectors(s.start, s.end, t);
     }
 
-    // Fade in and out
-    s.div.style.opacity = t < 0.1
-      ? (t / 0.1).toFixed(2)
-      : t > 0.85
-        ? ((1 - t) / 0.15).toFixed(2)
-        : '1';
+    // Fade in and out — avoid toFixed string allocation in hot path
+    const opacity = t < 0.1 ? t * 10 : t > 0.85 ? (1 - t) * 6.667 : 1;
+    s.div.style.opacity = opacity;
   }
 }
 
@@ -155,13 +153,19 @@ export function activateFlowParticles(fromKey, toKey) {
   const connKey = `${resolveZoneKey(fromKey)}->${resolveZoneKey(toKey)}`;
   const ps = particleSystems.find(p => p.connKey === connKey);
   if (ps) {
+    if (!ps.active) _activeFlowCount++;
     ps.active = true;
     ps.fadeTimer = Date.now();
   }
 }
 
+let _activeFlowCount = 0;
+
 export function updateFlowParticles(time) {
+  if (_activeFlowCount === 0) return; // Fast exit when idle
+
   const now = Date.now();
+  let stillActive = 0;
 
   for (const ps of particleSystems) {
     if (!ps.active) continue;
@@ -173,10 +177,12 @@ export function updateFlowParticles(time) {
       continue;
     }
 
+    stillActive++;
     ps.points.material.opacity = 0.3;
 
+    const timeOffset = time * 0.001 * ps.speed;
     for (let i = 0; i < PARTICLES_PER_PATH; i++) {
-      const t = (ps.offsets[i] + time * 0.001 * ps.speed) % 1;
+      const t = (ps.offsets[i] + timeOffset) % 1;
       const pt = ps.curve.getPointAt(t);
 
       ps.positions[i * 3 + 0] = pt.x;
@@ -186,4 +192,6 @@ export function updateFlowParticles(time) {
 
     ps.geo.attributes.position.needsUpdate = true;
   }
+
+  _activeFlowCount = stillActive;
 }

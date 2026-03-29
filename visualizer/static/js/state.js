@@ -195,18 +195,22 @@ export function resetCounters() {
 
 const MAX_ALL_EVENTS = 2000;
 
+// Batch-trim thresholds: let arrays grow past the cap before splicing.
+// splice(0, N) on every push is O(N) — doing it less often amortises the cost.
+const _COMP_TRIM_AT = MAX_COMPONENT_EVENTS + 50;
+const _ALL_TRIM_AT = MAX_ALL_EVENTS + 200;
+
 export function accumulateEvent(ev) {
   const key = ev.component || 'unknown';
-  if (!eventsByComponent.has(key)) {
-    eventsByComponent.set(key, []);
+  let arr = eventsByComponent.get(key);
+  if (arr === undefined) {
+    arr = [];
+    eventsByComponent.set(key, arr);
   }
-  const arr = eventsByComponent.get(key);
   arr.push(ev);
-  const overComp = arr.length - MAX_COMPONENT_EVENTS;
-  if (overComp > 0) arr.splice(0, overComp);
+  if (arr.length > _COMP_TRIM_AT) arr.splice(0, arr.length - MAX_COMPONENT_EVENTS);
   allEvents.push(ev);
-  const overAll = allEvents.length - MAX_ALL_EVENTS;
-  if (overAll > 0) allEvents.splice(0, overAll);
+  if (allEvents.length > _ALL_TRIM_AT) allEvents.splice(0, allEvents.length - MAX_ALL_EVENTS);
 }
 
 export function rememberValueSnapshot(snapshot) {

@@ -7,7 +7,7 @@ import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import {
   scene, camera, renderer, labelRenderer, controls,
   foldLayer, raycaster, mouseVec,
-  updateLabelZoom, updateAmbientParticles,
+  updateLabelZoom,
   flyTo, updateFlyAnimation,
 } from './scene.js';
 import {
@@ -125,10 +125,21 @@ function activateStage(name, info) {
 const sparkCanvas = getRequired('sparkline-canvas');
 const sparkCtx = sparkCanvas.getContext('2d');
 
+let _sparkDirty = false;
+let _sparkRAF = 0;
+
 function pushSparkDensity(density, action) {
   state.sparkData.push({ density, action });
   if (state.sparkData.length > state.SPARK_MAX) state.sparkData.shift();
-  drawSparkline();
+
+  // Coalesce rapid-fire spark updates into a single repaint
+  if (!_sparkDirty) {
+    _sparkDirty = true;
+    _sparkRAF = requestAnimationFrame(() => {
+      _sparkDirty = false;
+      drawSparkline();
+    });
+  }
 
   if (density > 0) {
     densityFill.style.height = `${Math.min(density * 100, 100) * 1.4}px`;
@@ -263,6 +274,8 @@ function resetFoldGraph() {
 // ═══════════════════════════════════════════════════════════
 // LOG
 // ═══════════════════════════════════════════════════════════
+let _logFilterDirty = false;
+
 function log(text, type = 'state', eventRef = null) {
   const div = document.createElement('div');
   div.className = `log-line log-${type}`;
@@ -274,9 +287,23 @@ function log(text, type = 'state', eventRef = null) {
     div.addEventListener('click', () => showEventDetail(eventRef));
   }
 
+  // Apply filter to the new line only (avoids re-scanning all children)
+  if (logFilterType !== 'all') {
+    const matchFilter = LOG_TYPE_MAP[logFilterType]
+      ? LOG_TYPE_MAP[logFilterType].includes(type)
+      : false;
+    const query = (logSearch.value || '').toLowerCase();
+    const matchSearch = !query || `${t} ${text}`.toLowerCase().includes(query);
+    if (!(matchFilter && matchSearch)) div.classList.add('filtered-out');
+  } else {
+    const query = (logSearch.value || '').toLowerCase();
+    if (query && !`${t} ${text}`.toLowerCase().includes(query)) {
+      div.classList.add('filtered-out');
+    }
+  }
+
   logBox.insertBefore(div, logBox.firstChild);
   while (logBox.children.length > 80) logBox.removeChild(logBox.lastChild);
-  applyLogFilters();
 }
 
 let logFilterType = 'all';
@@ -624,10 +651,25 @@ function updateValueHud(snapshot) {
   if (statLastOp) statLastOp.textContent = snapshot.summary || '—';
 }
 
+let _prevHudEvents = -1;
+let _prevHudIngested = -1;
+let _prevHudOp = '';
+
 function updateHud() {
-  statEvents.textContent = getRecordingLength();
-  statIngested.textContent = state.totalIngested;
-  if (statLastOp) statLastOp.textContent = state.lastValueSummary || '—';
+  const evts = getRecordingLength();
+  if (evts !== _prevHudEvents) {
+    _prevHudEvents = evts;
+    statEvents.textContent = evts;
+  }
+  if (state.totalIngested !== _prevHudIngested) {
+    _prevHudIngested = state.totalIngested;
+    statIngested.textContent = state.totalIngested;
+  }
+  const op = state.lastValueSummary || '—';
+  if (statLastOp && op !== _prevHudOp) {
+    _prevHudOp = op;
+    statLastOp.textContent = op;
+  }
 }
 
 async function loadValueLayout() {
@@ -973,9 +1015,6 @@ function animate(time) {
     updateFlowParticles(time);
   }
   updateLabelZoom();
-  if (!paused) {
-    updateAmbientParticles(time);
-  }
   updateFlyAnimation();
   updateZonePulses();
   if (!paused) {
