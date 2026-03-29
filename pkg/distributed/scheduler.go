@@ -163,10 +163,22 @@ func (s *Scheduler) tryNode(
 		return nil, fmt.Errorf("node %s returned invalid frame sizes left+right=%d", node.Addr, n)
 	}
 
+	durationMs := int64(0)
+	if raw := strings.TrimSpace(httpResp.Header.Get("X-Six-Duration-Ms")); raw != "" {
+		if ms, parseErr := time.ParseDuration(raw + "ms"); parseErr == nil {
+			durationMs = int64(ms / time.Millisecond)
+		}
+	}
+	nodeID := strings.TrimSpace(httpResp.Header.Get("X-Six-Node-ID"))
+	if nodeID == "" {
+		nodeID = node.ID
+	}
+
 	return &UniversalBitwiseJobResponse{
-		NodeID: node.ID,
-		Left:   respBody[:primitive.ByteSize],
-		Right:  respBody[primitive.ByteSize:],
+		NodeID:     nodeID,
+		DurationMS: durationMs,
+		Left:       respBody[:primitive.ByteSize],
+		Right:      respBody[primitive.ByteSize:],
 	}, nil
 }
 

@@ -173,15 +173,29 @@ apply the truth table to the bits, that's basically it.
 It is important to mind the bootloader, which should be installed
 into all new Values.
 */
-// loadFirmware copies a compiled firmware program into the user program
-// region (slots 4+) when the firmware register is set and pc is zero.
-func loadFirmware(c *[128]uint64, p, w uint64) {
-	f := c[uint64(core.Cfg.FW)]
-	if f == 0 || int(f) >= len(core.Cfg.Firmware) || c[p] != 0 {
-		return
+// loadFirmware resolves the in-band fw register to a compiled payload,
+// clears the existing user program region, copies the new payload into
+// slots 4+, and arms execution to start at the first user slot.
+func loadFirmware(c *[128]uint64, p, w uint64) bool {
+	reg := c[uint64(core.Cfg.FW)]
+	ft, ok := core.ResolveFirmwareRegister(reg)
+	if !ok || c[p] != 0 {
+		return false
 	}
-	g := core.Cfg.Firmware[f]
-	for i, j := 0, w+4; i < len(g) && int(j) < 128; i, j = i+2, j+1 {
+	userStart := int(w + core.UserProgramPCStart)
+	progWords := int((core.Cfg.ProgramBits + 63) / 64)
+	userEnd := int(w) + progWords
+	if userStart < 0 {
+		userStart = 0
+	}
+	if userEnd > len(c) {
+		userEnd = len(c)
+	}
+	for i := userStart; i < userEnd; i++ {
+		c[i] = 0
+	}
+	g := core.Cfg.Firmware[ft]
+	for i, j := 0, w+core.UserProgramPCStart; i < len(g) && int(j) < 128; i, j = i+2, j+1 {
 		v := uint64(g[i])
 		if i+1 < len(g) {
 			v |= uint64(g[i+1]) << 32
@@ -189,6 +203,8 @@ func loadFirmware(c *[128]uint64, p, w uint64) {
 		c[j] = v
 	}
 	c[uint64(core.Cfg.FW)] = 0
+	c[p] = core.UserProgramPCStart
+	return true
 }
 
 // fetch returns the next instruction word and the pre-increment pc.
@@ -353,6 +369,15 @@ func detectLoop(c *[128]uint64, p, pc, le uint64, lp bool) (uint64, bool) {
 	return le, lp
 }
 
+func armNextFirmware(c *[128]uint64, p uint64) {
+	if c == nil {
+		return
+	}
+	if _, ok := core.ResolveFirmwareRegister(c[uint64(core.Cfg.FW)]); ok {
+		c[p] = 0
+	}
+}
+
 func clearExecExit(c *[128]uint64) {
 	if c == nil || execStatusWord >= len(c) {
 		return
@@ -389,6 +414,7 @@ func (k *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 				if exitCode != 0 {
 					markExecExit(c[0], exitCode)
 				}
+				armNextFirmware(c[0], p)
 				break
 			}
 			op, sc, dc, sSp, dSp := decode(instr)

@@ -1,52 +1,14 @@
 % ============================================================================
-% RELATED: SPECTRAL METHODS AND MANIFOLD STRUCTURE
+% RELATED: TOPOLOGICAL BOOLEAN NETWORKS AND MANIFOLD STRUCTURE
 % ============================================================================
-\subsection{Spectral Methods and Manifold Structure}
-\label{sec:related_spectral_embedding}
+\subsection{Topological Boolean Networks and Manifold Structure}
+\label{sec:related_topological_boolean}
 
-\paragraph{Laplacian Eigenmaps and Manifold Learning.}
-Belkin and Niyogi's Laplacian Eigenmaps \citep{belkin2003laplacian}
-established that the eigenvectors of the graph Laplacian $L = D - W$
-provide optimal low-dimensional embeddings that preserve local
-neighborhood structure.  The $k$ smallest non-trivial eigenvectors
-minimize the embedding distortion $\sum_{ij} w_{ij} \| y_i - y_j
-\|^2$, placing similar nodes close together in the embedding space.
+\paragraph{Hyperdimensional Computing and Binding.}
+The In-Band Substrate shares foundational similarities with Hyperdimensional Computing (HDC) \citep{kanerva2009hyperdimensional}, which relies on high-dimensional holographic representations (e.g., 8192-bit vectors) where robustness is guaranteed by the geometry of the space. However, while traditional HDC emphasizes algebraic operations (binding, bundling, and permutation) to form continuations of representations, the Six architecture utilizes its rigid 8192-bit frames strictly to govern localized physical interactions. Rather than serving purely as a static representation of data, the structural similarity within the dedicated Affinity Mask regions directly triggers localized arithmetic logic unit (ALU) operations, bridging representational embedding with an active execution environment.
 
-The Value architecture offers an implicit analogue.  Values derived from
-similar input byte sequences occupy nearby points in $\{0,1\}^{8192}$
-under the Hamming metric, and the population-count inner product provides
-a measure of neighborhood similarity.  A graph defined by thresholding
-this similarity would have a Laplacian whose spectral properties reflect
-the structure of the data.  While the current system does not perform
-explicit eigendecomposition, the geometric structure of the Value space
-is consistent with what spectral methods would recover: inputs that share
-byte-level structure are embedded nearby, and the boolean operations
-applied during Region mixing correspond to local transformations in this
-space.
+\paragraph{Active Topological Graphs via Affinity Masks.}
+Traditional manifold learning models, such as Laplacian Eigenmaps \citep{belkin2003laplacian}, rely on continuous Euclidean distance and expensive spectral decompositions to discover neighborhood graph structures. In contrast, the In-Band Substrate constructs an active topological graph dynamically and deterministically. The manifold is traversed through physical collisions evaluated via bitwise \texttt{AND} and population-count (popcount) operations on the Affinity Masks. Edges in this execution graph are not pre-computed or globally optimized; instead, an explicit topological collision occurs if and only if the popcount meets a strictly defined threshold. This replaces the complex eigen-space geometry with a ``dumb physics engine,'' where proximity instantly translates to in-place deterministic instruction execution.
 
-\paragraph{The Dirac Operator and Distance Computation.}
-Knill's formulation of the Dirac operator on graphs
-\citep{knill2013dirac} provides a discrete analogue of the continuous
-Dirac operator whose square yields the Laplacian.  The spectrum of this
-operator encodes both the topology (via its kernel, related to Betti
-numbers) and the geometry (via its non-zero eigenvalues) of the graph,
-enabling geodesic distance computation from spectral data without
-explicit shortest-path algorithms.
-
-In the Value architecture, distances between frames are computed directly
-through population-count operations: the Hamming distance between two
-Values counts the number of bit positions at which they differ, and the
-Hamming inner product (the population count of their bitwise AND) measures
-their overlap.  These operations execute in constant time per frame and
-produce distance estimates consistent with the spectral framework, though
-they do not require constructing or decomposing a graph Laplacian.
-
-\paragraph{Emergent Manifold Structure.}
-Whether the collection of Values produced by processing a given dataset
-exhibits non-trivial manifold structure---such as periodicity or toroidal
-geometry---is an empirical question that depends on the structure of the
-input data.  If the input contains periodic or cyclical patterns (for
-example, temporal sequences with repeating motifs), these patterns will
-manifest as regularities in the Hamming geometry of the resulting Values.
-The phase coherence experiments in the experimental sections provide
-initial measurements of whether such structure is detectable.
+\paragraph{Localized Boolean Networks and In-Place Evolution.}
+The resulting dynamics exhibit properties analogous to localized Boolean networks, historically studied in the context of Kauffman networks \citep{kauffman1969metabolic} and cellular automata. However, the In-Band Substrate extends this paradigm by embedding both the data payload and the routing/execution instructions within the same extremely wide binary frame. Frame evolution occurs recursively and in-place, dictated entirely by spatial affinity rules rather than a centralized program counter or global clock. This physical locality ensures that operations remain heavily localized, bounded by the physical capacity of the substrate, while enabling highly parallelized and resilient transformations without the need for traditional von Neumann memory fetching.

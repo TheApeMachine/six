@@ -137,6 +137,10 @@ __global__ void unified_bitwise_kernel(
         }
     }
 
+    if (contexts[0][FW_WORD] != 0) {
+        contexts[0][REG_PC] = 0;
+    }
+
     for (int i = 0; i < WORDS; i++) {
         A[base + i] = contexts[0][i];
     }
@@ -224,3 +228,5 @@ extern "C" {
         return 0;
     }
 }
+
+

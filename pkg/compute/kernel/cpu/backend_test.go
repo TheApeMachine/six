@@ -188,12 +188,85 @@ func TestLearnFirmwareFitnessRouting(t *testing.T) {
 	}
 }
 
+func firmwareWord(ft core.FirmwareType, wordIdx int) uint64 {
+	prog := core.Cfg.Firmware[ft]
+	i := wordIdx * 2
+	if i >= len(prog) {
+		return 0
+	}
+	v := uint64(prog[i])
+	if i+1 < len(prog) {
+		v |= uint64(prog[i+1]) << 32
+	}
+	return v
+}
+
+func TestBootloaderSequencesToBuild(t *testing.T) {
+	be := NewBackend()
+	var a, b [128]uint64
+
+	installFirmware(&a, core.FirmwareTypeBootloader)
+	a[core.Cfg.RegPC] = 0
+	a[core.Cfg.FW] = 0
+
+	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := a[core.Cfg.FW], core.FirmwareRegisterBuild; got != want {
+		t.Fatalf("bootloader fw mismatch: got %d want %d", got, want)
+	}
+	if got := a[core.Cfg.RegPC]; got != 0 {
+		t.Fatalf("bootloader should arm next firmware load at pc=0, got %d", got)
+	}
+
+	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := a[core.Cfg.ProgramIndex+int(core.UserProgramPCStart)], firmwareWord(core.FirmwareTypeBuild, 0); got != want {
+		t.Fatalf("build payload word mismatch: got %#x want %#x", got, want)
+	}
+	if got, want := a[core.Cfg.FW], core.FirmwareRegisterLearn; got != want {
+		t.Fatalf("build should sequence to learn: got %d want %d", got, want)
+	}
+	if got := a[core.Cfg.RegPC]; got != 0 {
+		t.Fatalf("build should arm next firmware load at pc=0, got %d", got)
+	}
+}
+
+func TestViralArmsSelfAndPartnerForLearn(t *testing.T) {
+	be := NewBackend()
+	var a, b [128]uint64
+
+	installFirmware(&a, core.FirmwareTypeViral)
+	a[core.Cfg.RegPC] = 0
+	a[core.Cfg.FW] = 0
+
+	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
+		t.Fatal(err)
+	}
+
+	if got, want := a[core.Cfg.FW], core.FirmwareRegisterLearn; got != want {
+		t.Fatalf("self fw mismatch: got %d want %d", got, want)
+	}
+	if got := a[core.Cfg.RegPC]; got != 0 {
+		t.Fatalf("self should be armed for next learn load at pc=0, got %d", got)
+	}
+	if got, want := b[core.Cfg.FW], core.FirmwareRegisterLearn; got != want {
+		t.Fatalf("partner fw mismatch: got %d want %d", got, want)
+	}
+	if got := b[core.Cfg.RegPC]; got != 0 {
+		t.Fatalf("partner should be armed for next learn load at pc=0, got %d", got)
+	}
+}
+
 func BenchmarkUniversalBitwise(b *testing.B) {
 	be := NewBackend()
 	var a, c [128]uint64
 
 	aWord := uint64(core.Cfg.ProgramIndex)
-	for i, w := 0, aWord+4; i < len(core.Cfg.Firmware[core.FirmwareTypeViral]) && int(w) < len(a); i, w = i+2, w+1 {
+	for i, w := 0, aWord+core.UserProgramPCStart; i < len(core.Cfg.Firmware[core.FirmwareTypeViral]) && int(w) < len(a); i, w = i+2, w+1 {
 		v := uint64(core.Cfg.Firmware[core.FirmwareTypeViral][i])
 		if i+1 < len(core.Cfg.Firmware[core.FirmwareTypeViral]) {
 			v |= uint64(core.Cfg.Firmware[core.FirmwareTypeViral][i+1]) << 32
@@ -210,7 +283,7 @@ func BenchmarkUniversalBitwise(b *testing.B) {
 	b.SetBytes(1024)
 	b.ResetTimer()
 	for b.Loop() {
-		a[core.Cfg.RegPC] = 4
+		a[core.Cfg.RegPC] = core.UserProgramPCStart
 		if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&c), 1); err != nil {
 			b.Fatal(err)
 		}

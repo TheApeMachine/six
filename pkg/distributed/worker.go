@@ -291,6 +291,8 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 	})
 
 	rw.Header().Set("Content-Type", "application/octet-stream")
+	rw.Header().Set("X-Six-Node-ID", w.discovery.Self().ID)
+	rw.Header().Set("X-Six-Duration-Ms", fmt.Sprintf("%d", dur.Milliseconds()))
 	rw.WriteHeader(http.StatusOK)
 
 	leftOut := make([]byte, primitive.ByteSize)

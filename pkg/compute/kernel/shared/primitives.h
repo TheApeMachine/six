@@ -6,7 +6,9 @@
 
 #define WORDS                                    128
 #define REG_PC                                   75
+#define FW_WORD                                  74
 #define PROGRAM_INDEX_WORD                       76
+#define USER_PROGRAM_PC_START                    4
 #define MAX_PC                                   104
 #define EXEC_STATUS_WORD                         63
 #define EXEC_STATUS_SHIFT                        48

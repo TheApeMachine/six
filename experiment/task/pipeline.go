@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sync"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
@@ -31,10 +30,10 @@ Pipeline is the orchestrator for running experiments.
 The Six architecture is "always-on" so this needs to
 be orchestrated in a particular way.
 
- 1. Start the recirculation loop: a goroutine reads executed frames
-    from the pipe's output and writes them back into the pipe's input.
-    Each pass through the Stream pairs the frame with its neighbor and
-    fires the ALU. Values keep mixing until the pipe is closed.
+ 1. Start the recirculation loop: pump executed frames from the pipe's
+    output back into the pipe's input. Each pass through the Stream
+    pairs a resident wait Value with the next partner and fires the ALU.
+    Values keep mixing until the pipe is closed.
  2. Hydrate: pump dataset bytes into the Machine. They enter the
     recirculation loop and begin mixing immediately.
     Inject additional "conditioning" programs, such as the Affinity
@@ -57,7 +56,7 @@ type Pipeline struct {
 	scoreWgts  tools.ScoreWeights
 	reporter   Reporter
 	timing     runTiming
-	streamSize int // Tracks the number of frames in the ring buffer
+	population int // Tracks the number of resident Values currently in the substrate
 	config     vm.SubstrateConfig
 }
 
@@ -132,27 +131,20 @@ func (pipeline *Pipeline) Run() (err error) {
 
 	// Recirculation loop: pump the stream to allow the dataset and seed to mix and evolve.
 	// We pump based on the size of the stream/dataset to ensure full mixing rather than a hardcoded 2000.
-	pumpCount := pipeline.streamSize * 2 // Apply a 2x mixing multiplier to hydrated data
+	pumpCount := pipeline.population * 2 // Apply a 2x mixing multiplier to hydrated data.
 	if pumpCount == 0 {
 		pumpCount = 100 // fallback if no dataset was hydrated
 	}
 
-	var wg sync.WaitGroup
 	for i := 0; i < pumpCount; i++ {
 		buf := make([]byte, primitive.ByteSize)
 		if _, err := observer.Read(buf); err != nil {
 			break
 		}
-
-		wg.Add(1)
-		pipeline.streamSize++
-
-		go func(b []byte) {
-			defer wg.Done()
-			observer.Write(b)
-		}(buf)
+		if err := pipeline.recirculate(observer, buf); err != nil {
+			return errnie.Error(err)
+		}
 	}
-	wg.Wait()
 
 	promptStart := time.Now()
 	for idx, prompt := range prompts {
@@ -171,7 +163,9 @@ func (pipeline *Pipeline) Run() (err error) {
 
 		value[pipeline.config.ValueConfig.StateIndex] = 1
 
-		// Inject the prompt frame, then read the transformed frame back once.
+		// Inject the prompt frame, then read until the same ValueID rotates
+		// back out of the substrate. This keeps observation grounded in the
+		// in-band identity carried by the Value itself.
 		observedFrame, err := pipeline.injectAndObserve(observer, value)
 		closeErr := value.Close()
 		if err != nil {
@@ -244,8 +238,13 @@ func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value)
 	if _, err := io.Copy(observer, value); err != nil {
 		return err
 	}
-	pipeline.streamSize++
+	pipeline.population++
 	return nil
+}
+
+func (pipeline *Pipeline) recirculate(observer io.ReadWriter, frame []byte) error {
+	_, err := observer.Write(frame)
+	return err
 }
 
 func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
@@ -253,16 +252,27 @@ func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primit
 		return nil, err
 	}
 
-	// To observe the result of THIS value, we must pump the stream until this value reaches
-	// the front of the queue and is processed by the emitter's fold (wait state).
+	targetID := value.ValueID()
 	observedFrame := make([]byte, primitive.ByteSize)
-	for i := 0; i < pipeline.streamSize; i++ {
+	maxReads := max(pipeline.population+1, 1)
+
+	for i := 0; i < maxReads; i++ {
 		if _, err := io.ReadFull(observer, observedFrame); err != nil {
 			return nil, err
 		}
+
+		observedValue := primitive.BytesToValue(observedFrame)
+		id := observedValue.ValueID()
+		closeErr := observedValue.Close()
+		if closeErr != nil {
+			return nil, closeErr
+		}
+		if id == targetID {
+			return append([]byte(nil), observedFrame...), nil
+		}
 	}
 
-	return observedFrame, nil
+	return append([]byte(nil), observedFrame...), nil
 }
 
 func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
@@ -301,11 +311,9 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 		return nil
 	}
 
-	chunks := 0
 	for b := range dataset.Generate() {
 		chunk = append(chunk, b)
 		if len(chunk) == chunkSize {
-			chunks++
 			if err := flush(); err != nil {
 				return err
 			}
@@ -327,34 +335,10 @@ func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {
 	}
 	seed[pipeline.config.ValueConfig.StateIndex] = 1
 	seed[pipeline.config.ValueConfig.RegPC] = 0
-	seed[pipeline.config.ValueConfig.FW] = 0
+	seed[pipeline.config.ValueConfig.FW] = core.FirmwareRegisterValue(core.FirmwareTypeViral)
 	defer seed.Close()
 
-	program := append([]uint32(nil), pipeline.config.ValueConfig.Firmware[core.FirmwareTypeViral]...)
-	program = append(program, encodeWriteRegImmediate(uint16(core.FirmwareTypeLearn), pipeline.config.ValueConfig.FW))
-	installProgram(seed, pipeline.config.ValueConfig.ProgramIndex, program)
-
 	return pipeline.inject(observer, seed)
-}
-
-func installProgram(value *primitive.Value, wordStart int, program []uint32) {
-	for i, w := 0, uint64(wordStart); i < len(program) && int(w) < primitive.Words; i, w = i+2, w+1 {
-		v := uint64(program[i])
-		if i+1 < len(program) {
-			v |= uint64(program[i+1]) << 32
-		}
-		value[w] = v
-	}
-}
-
-func encodeWriteRegImmediate(src uint16, dstReg int) uint32 {
-	const (
-		opA                 = uint32(0x3)
-		operandFlagRegister = uint16(0x3000)
-	)
-	sc := uint32(src & 0x3FFF)
-	dc := uint32((operandFlagRegister | uint16(dstReg)) & 0x3FFF)
-	return opA | (sc << 4) | (dc << 18)
 }
 
 /*

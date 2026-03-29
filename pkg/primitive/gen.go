@@ -46,6 +46,7 @@ func main() {
 	requiredKeys := []string{
 		"value.words",
 		"value.region.registers.pc",
+		"value.region.registers.fw",
 		"value.region.program.start",
 		"value.region.program.bits",
 		"value.region.state.accumulator",
@@ -59,11 +60,12 @@ func main() {
 
 	words := viper.GetInt("value.words")
 	regPC := viper.GetInt("value.region.registers.pc")
+	fwWord := viper.GetInt("value.region.registers.fw")
 	progStart := viper.GetInt("value.region.program.start")
 	progBits := viper.GetUint64("value.region.program.bits")
-	if words == 0 || regPC == 0 || progStart == 0 || progBits == 0 {
-		fmt.Printf("gen primitives: value.words, registers.pc, program.start, and program.bits must be non-zero (got words=%d regPC=%d progStart=%d progBits=%d)\n",
-			words, regPC, progStart, progBits)
+	if words == 0 || regPC == 0 || fwWord == 0 || progStart == 0 || progBits == 0 {
+		fmt.Printf("gen primitives: value.words, registers.pc, registers.fw, program.start, and program.bits must be non-zero (got words=%d regPC=%d fwWord=%d progStart=%d progBits=%d)\n",
+			words, regPC, fwWord, progStart, progBits)
 		os.Exit(1)
 	}
 	if progBits%32 != 0 {
@@ -87,7 +89,9 @@ func main() {
 
 	writeMacro(&content, "WORDS", words)
 	writeMacro(&content, "REG_PC", regPC)
+	writeMacro(&content, "FW_WORD", fwWord)
 	writeMacro(&content, "PROGRAM_INDEX_WORD", progStart)
+	writeMacro(&content, "USER_PROGRAM_PC_START", 4)
 	writeMacro(&content, "MAX_PC", maxPC)
 	writeMacro(&content, "EXEC_STATUS_WORD", execStatusWord)
 	writeMacro(&content, "EXEC_STATUS_SHIFT", 48)

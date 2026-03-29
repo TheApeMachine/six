@@ -147,7 +147,13 @@ kernel void unified_bitwise_kernel(
         }
     }
 
+    if (ctx[FW_WORD] != 0) {
+        ctx[REG_PC] = 0;
+    }
+
     for (int i = 0; i < WORDS; i++) {
         A[base + i] = ctx[i];
     }
 }
+
+

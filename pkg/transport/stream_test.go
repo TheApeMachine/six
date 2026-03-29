@@ -137,6 +137,48 @@ func TestWrite(t *testing.T) {
 	})
 }
 
+func TestReadRotatesAcrossResidentValues(t *testing.T) {
+	Convey("Given a one-region Stream with two inert Values", t, func() {
+		stream := NewStream(t.Context(), StreamWithRegions(1))
+		defer stream.Close()
+
+		mk := func(token string) *primitive.Value {
+			value, err := primitive.NewValue([]byte(token))
+			So(err, ShouldBeNil)
+			for i := core.Cfg.ProgramIndex; i < primitive.Words; i++ {
+				(*value)[i] = 0
+			}
+			(*value)[core.Cfg.FW] = 0
+			(*value)[core.Cfg.RegPC] = 0
+			(*value)[core.Cfg.StateIndex] = 1
+			return value
+		}
+
+		valueA := mk("A")
+		defer valueA.Close()
+		valueB := mk("B")
+		defer valueB.Close()
+
+		_, err := io.Copy(stream, valueA)
+		So(err, ShouldBeNil)
+		_, err = io.Copy(stream, valueB)
+		So(err, ShouldBeNil)
+
+		buf := make([]byte, primitive.ByteSize)
+		_, err = io.ReadFull(stream, buf)
+		So(err, ShouldBeNil)
+		first := primitive.BytesToValue(buf)
+		So(first.String(), ShouldEqual, "A")
+		So(first.Close(), ShouldBeNil)
+
+		_, err = io.ReadFull(stream, buf)
+		So(err, ShouldBeNil)
+		second := primitive.BytesToValue(buf)
+		So(second.String(), ShouldEqual, "B")
+		So(second.Close(), ShouldBeNil)
+	})
+}
+
 func BenchmarkStream(b *testing.B) {
 	payload := make([]byte, primitive.ByteSize)
 	readBuf := make([]byte, primitive.ByteSize)

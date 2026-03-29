@@ -13,21 +13,17 @@ the complete set of two-input boolean functions.
 Each Value is partitioned into contiguous regions with distinct roles.
 The \emph{data region} (words 0--59) holds packed token identifiers
 derived from the input byte stream, together with a unique frame
-identifier and forward/backward linking pointers.  Words 61--63 store
+identifier and forward/backward linking pointers.  Words 60--62 store
 execution \emph{state}: a slot index, a sequence index, and a running
-accumulator.  Word~64 carries a 64-bit \emph{affinity} bitmask that
-encodes topological routing preferences, and word~65 serves as a
-\emph{link} pointer establishing directed edges to other Values.  A
-256-bit \emph{gossip} signature occupies words 66--69, providing a
-compact fingerprint for distributed routing.  Word~70 holds an 8-bit
-time-to-live (TTL) counter in its low byte.
+XOR accumulator for the write engine.  Word~63 carries a 64-bit
+\emph{affinity} bitmask that encodes topological clustering preferences
+via bitwise AND.
 
-Seven general-purpose \emph{registers} (words 71--77) and a
-\emph{program counter} (word~78) support execution.  A \emph{firmware
-index} register selects which pre-compiled program occupies the
-program region.  The remaining 49 words (79--127) constitute the
-\emph{program region}, storing up to 98 thirty-two-bit instruction
-slots.
+Eleven general-purpose \emph{registers} (words 64--74)—including 
+scratch spans and a firmware index—and a \emph{program counter}
+(word~75) support execution.  The remaining 52 words (76--127)
+constitute the \emph{program region}, storing up to 104
+thirty-two-bit instruction slots.
 
 This layout is not fixed at compile time.  A configuration file
 specifies the word offsets and bit widths for every region, allowing the
@@ -89,15 +85,13 @@ behavior is constructed by composing these operations across the
 regions of one or more frames.
 
 \paragraph{Computed Control Flow.}
-Because the program counter and firmware index are stored in
+Because the program counter and registers are stored in
 addressable words, any boolean operation can target them.  A
-conditional branch is implemented by computing a target address into a
-register (using AND to mask the address with a condition bit) and then
-writing the register to the program counter (using OR to merge it).  If
-the condition is zero, the AND produces zero, and the OR leaves the
-program counter unchanged; if the condition is one, the target address
-propagates into the program counter.  This provides data-dependent
-branching without a dedicated branch instruction.
+conditional skip-if-zero mechanism enables loops without invented opcodes.
+If a specified condition evaluates to zero, the program counter skips
+the subsequent instruction, allowing for data-dependent execution paths
+while preserving the simplicity of the uniform boolean truth table
+instructions.
 
 \paragraph{Instruction Encoding.}
 Each instruction is packed into a thirty-two-bit word with three fields:

@@ -1,4 +1,4 @@
-\section{Topological Entropy Routing: Bypassing Capacity Limits in Vector Symbolic Architectures}
+\section{Topological Affinity Clustering: In-Band Programmable Substrate}
 \label{sec:entropy_routing}
 
 \subsection{The Shannon Limit and the ``Wall of Ones''}
@@ -6,127 +6,57 @@ A persistent vulnerability in traditional Hyperdimensional Computing (HDC) and V
 
 In information theoretic terms, the representational capacity of a binary vector is maximized when exactly 50\% of its bits are active ($p(1) = 0.5$). Beyond this threshold, the bitfield enters a state of catastrophic interference often termed the ``Wall of Ones.'' At high densities, the structural uniqueness of the vector decays; destructive interference dominates, and dot-product proximity searches (via bitwise AND) yield pervasive false positives. 
 
-Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector ($D = 10{,}000$ to $D = 100{,}000$). However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
+Conventionally, architectures attempt to delay this thermal death by arbitrarily scaling the dimensionality of the vector. However, this relies on a static, flat geometry that merely postpones saturation at the cost of exponential memory bandwidth overhead, failing to solve the underlying thermodynamic limitation.
 
-\subsection{Hierarchical Trie Structure as an Entropy Relief Valve}
-Rather than treating semantic memory as a static container of arbitrary width, the architecture models memory as a dynamic thermodynamic engine. The atomic semantic value is an 8191-bit vector (128 core blocks $\times$ 64 bits $+$ 3 shell blocks $=$ 131 total blocks, stored in 1048 bytes $\approx$ 1~KB). Values are stored in a Morton-keyed radix trie (DMT---Distributed Merkle Trie) indexed by 64-bit spatial keys.
+\subsection{The In-Band Programmable Substrate}
+Rather than treating semantic memory as a static container of arbitrary width, or relying on external orchestration to manage routing and collisions, the architecture introduces a unified \textbf{In-Band Programmable Substrate}. Within this paradigm, the data itself dictates its execution trajectory and structural behavior.
 
-By routing ingestion through the hierarchical branching structure of the trie and composing $\operatorname{GF}(8191)$ affine transformations, the architecture avoids local saturation through \textbf{Topological Entropy Routing}. Ingestion of multi-modal byte streams is not uniform; each value is routed to a deterministic trie path via its Morton-coded spatial coordinate.
+The fundamental unit of computation is a rigid, 128-word (8192-bit) \texttt{Value} frame. This frame is strictly partitioned to encapsulate not just semantic data, but also topological routing directives and internal execution logic:
 
-As the trie accumulates entries, the system monitors density gradients at sequence boundaries. When the population density of active bits within a local region approaches the Shannon maximum---specifically configured as $\rho \ge 0.45$ (\texttt{ShannonCapacity})---this threshold governs the sequencer's boundary decisions, triggering structural splits that diffuse entropy across the trie's branching topology rather than allowing catastrophic interference within any single region.
+\begin{itemize}[nosep]
+    \item \textbf{Data Field:} The core semantic payload representing encoded tokens and relationships.
+    \item \textbf{Affinity Mask:} A dedicated 256-bit region serving as a high-dimensional positional anchor, enabling rapid spatial correlation.
+    \item \textbf{Program Region:} A localized, 104-slot execution register containing programmatic opcodes that natively dictate the frame's interaction behavior.
+\end{itemize}
 
-\subsection{Affine Entropy Diffusion}
-The $\operatorname{GF}(8191)$ affine group provides the mechanism for entropy diffusion. Each affine transformation $f(x) = (ax + b) \pmod{8191}$ is invertible (since 8191 is the Mersenne prime $2^{13}-1$), and the group contains $8191 \times 8190 = 67{,}124{,}490$ composable elements. This achieves two simultaneous functions:
-\begin{enumerate}
-    \item \textbf{Sequence Encoding:} The rotational trajectory inherently encodes the grammatical or temporal sequence of the incoming data, eliminating the need for artificial positional embeddings.
-    \item \textbf{Entropy Diffusion:} Affine rotation remaps highly saturated regions of the value space to low-entropy coordinates. The trie grows organically through insertion; new branches absorb fresh semantic data while densely populated paths retain their accumulated structure.
-\end{enumerate}
+By embedding both routing and executable logic directly into the native 8192-bit geometry, the \texttt{Value} effectively becomes a self-executing cellular automaton, eliminating external control structures and offloading permutation management directly into the topological substrate.
+
+\subsection{Topological Affinity Clustering}
+To bypass local Shannon saturation without incurring the prohibitive bandwidth costs of infinite vector expansion, the architecture facilitates dynamic structural expansion via \textbf{Topological Affinity Clustering}. Ingestion of data streams is not uniform; instead, new information is spatially clustered into an emergent graph based strictly on overlap in the \texttt{Value}'s Affinity Mask.
+
+Topological proximity is computed as a native physics engine: when discrete \texttt{Value} frames enter the processing window, their Affinity Masks undergo a highly optimized bitwise \texttt{AND} operation followed by a hardware-accelerated \texttt{popcount}. When the emergent population density of this overlap clears a tuned thermodynamic threshold, the frames are deemed ``topologically close'' and are mutually pulled into the Arithmetic Logic Unit (ALU) for programmatic interaction.
+
+This mechanism replaces expensive heuristic searches and arbitrary spatial mappings. The environment scales dynamically; as the local substrate approaches theoretical maximum entropy limits, the Affinity Mask clustering isolates distinct conceptual structures into discrete topological subgraphs, naturally diffusing informational heat across a distributed representational fabric.
 
 \subsection{State Space Analysis: Topology as a Capacity Multiplier}
 \label{sec:state_space}
 
-The fundamental architectural insight is that \emph{representational
-capacity can be increased by adding topology rather than parameters}.
-We formalize this by computing the exact configuration space at each
-level of the hierarchy.
+The fundamental architectural insight is that \emph{representational capacity can be dramatically amplified by topological structuring and in-band programmatic permutation, rather than parameterized scaling}. We formalize this by evaluating the emergent configuration space at each level of the substrate hierarchy.
 
-\paragraph{Level 1: The 8191-Bit Value.}
-A single value occupies $D = 8191$ bits of storage (131 blocks $\times$ 64 bits) and admits
-$2^{8191}$ possible states.  This is
-the Shannon-limited micro-state.
-
-\paragraph{Level 2: The Morton-Keyed Trie.}
-Each trie entry stores one 8191-bit Value at a 64-bit Morton-coded spatial coordinate. The radix trie can hold an arbitrary number of entries, bounded only by available memory. For $N$ stored entries:
+\paragraph{Level 1: The 8192-Bit Value.}
+The atomic unit of the substrate is an 8192-bit frame. When considered simply as a static binary matrix, it admits:
 \begin{equation}
-  |\Omega_{\text{trie}}| = (2^{8191})^{N} = 2^{8191N}
-  \label{eq:state_trie}
+  |\Omega_{\text{frame}}| = 2^{8192}
+  \label{eq:state_frame}
 \end{equation}
+This establishes the base Shannon-limited micro-state for an isolated vector.
 
-\paragraph{Level 3: Affine Group Multiplier.}
-The $\operatorname{GF}(8191)$ affine group contributes $8191 \times 8190 = 67{,}124{,}490$ composable transforms.  Each stored value can exist in any of these affine orientations, yielding a rotational state multiplier:
-
+\paragraph{Level 2: The Distributed Topological Graph.}
+Structural relations emerge between vectors via their matching Affinity Masks. For an environment scaled to $N$ active values, the combinatorial space of topological edges---dictated entirely by successful hardware matches ($A \text{ AND } B \ge \theta$)---spans every emergent graph configuration:
 \begin{equation}
-  |\Omega_{\text{total}}| = 2^{8191N} \times 67{,}124{,}490^{N}
+  |\Omega_{\text{topology}}| = (2^{8192})^{N} \times \mathcal{O}(2^{N(N-1)/2})
+  \label{eq:state_topology}
+\end{equation}
+This structural mapping organically defines the memory space, clustering related semantic items implicitly into discrete sub-networks bounded by natural affinity rather than an external rigid layout.
+
+\paragraph{Level 3: Execution Permutations over the 104-Slot Substrate.}
+Further multiplying the representational bounds, each \texttt{Value} operates as its own programmable mechanism. With a 104-slot local program region consisting of base instruction mappings (assuming $O$ operator combinations per slot), the interactive state is perturbed dynamically during ALU processing. The accessible configuration space thus expands factorially:
+\begin{equation}
+  |\Omega_{\text{total}}| = |\Omega_{\text{topology}}| \times O^{104N}
   \label{eq:state_total}
 \end{equation}
 
-Because the $\operatorname{GF}(8191)$ affine transformations are \emph{non-commutative}, the
-rotational path matters---two sequences of operations that arrive at
-the same final affine element via different paths produce identical
-bit configurations but encode different syntactic histories in the
-intermediate states.  The effective state space is therefore
-\emph{path-dependent}, further multiplying the distinguishable
-configurations beyond the static count.
+By encapsulating self-modifying, localized logic natively within the same geometric bound as the encoded data, the \texttt{Value} substrate ensures that identically grouped data units can still trace dramatically different semantic operations depending on their in-band instruction sets.
 
-\paragraph{Comparison with Parameter-Count Scaling.}
-Table~\ref{tab:capacity_comparison} contrasts the trie-based architecture's
-topology-driven capacity with conventional parameter scaling.
-
-\begin{table}[h]
-  \centering
-  \caption{Memory footprint vs.\ representational state space.  The
-           GF(8191) affine trie achieves exponentially larger state spaces per byte
-           by exploiting group-theoretic multipliers rather than
-           increasing parameter counts.}
-  \label{tab:capacity_comparison}
-  \begin{tabular}{lrrr}
-    \toprule
-    \textbf{Architecture}
-      & \textbf{Memory}
-      & \textbf{State Space}
-      & \textbf{$\log_{10}$ States/KB} \\
-    \midrule
-    8191-dim float32 embedding
-      & 32 KB
-      & $\sim 2^{262{,}112}$ (continuous)
-      & $\sim 2{,}466$ \\
-    GPT-2 ($117$M params, float16)
-      & 234 MB
-      & $\sim 2^{1.87 \times 10^9}$
-      & $\sim 2{,}406$ \\
-    \addlinespace
-    1K trie entries (Affine)
-      & 1 MB
-      & $2^{8{,}191{,}000} \times 67{,}124{,}490^{1000}$
-      & $\sim 2{,}467$ \\
-    1M trie entries
-      & 1 GB
-      & $2^{8.191 \times 10^{9}} \times 67{,}124{,}490^{10^6}$
-      & $\sim 2{,}467$ \\
-    \bottomrule
-  \end{tabular}
-\end{table}
-
-\noindent The key observation is that the states-per-KB ratio is
-\emph{comparable} across architectures---because information density is
-ultimately governed by Shannon's limit on the bits themselves.  What
-differs is the \emph{structure} of the state space:
-
-\begin{itemize}[nosep]
-  \item In a flat embedding, all $2^{D}$ states are reachable by
-        arbitrary bit flips.  Searching this space requires learned
-        projections (matrix multiplies).
-  \item In the trie architecture, the state space is
-        \emph{factored} into $2^{D} \times |G_{\text{affine}}|$
-        where $|G_{\text{affine}}| = 67{,}124{,}490$ is the $\operatorname{GF}(8191)$ affine group order.  The group structure
-        imposes a \emph{coordinate system} on the state space, making
-        navigation $O(1)$ via affine composition.
-\end{itemize}
-
-\subsection{Implications for Scaling}
-Through this mechanism, the architecture explicitly respects the Shannon
-limit at the micro-state (the 8191-bit value) but circumvents it at the
-macro-state by converting scalar density pressure into geometric expansion
-across the trie's branching hierarchy.
-The system naturally diffuses semantic heat across the trie topology,
-enabling $O(1)$ ambiguity resolution via affine group composition.
-Because all operations reduce to popcount and integer comparison
-(no floating-point matrix multiplies), the memory substrate scales
-linearly with stored entries.
-
-The analogy to physical systems is precise: protein folding achieves
-astronomically large conformational spaces ($\gg 10^{100}$) from
-sequences of only thousands of atoms, because \emph{spatial geometry
-multiplies the configuration space exponentially}.  The $\operatorname{GF}(8191)$
-affine trie exploits the same principle: value states $\times$ Galois field permutations
-$\times$ rotational paths---topology as a capacity multiplier.
+\paragraph{Topology as a Capacity Multiplier.}
+Through this tri-level mechanism, the architecture fundamentally circumvents Shannon's static parameter ceilings. It maps scalar density pressure directly into physical geometry (via topological Affinity Masking) and programmatic combinations (via the 104-slot program register). The computational substrate organically diffuses semantic stress, scaling representational state spaces efficiently through local interactions rather than brute-force dimensional expansion.

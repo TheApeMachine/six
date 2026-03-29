@@ -21,9 +21,12 @@ type Emitter struct {
 
 /*
 NewEmitter wires the pipe ends: writes go to target (pw). Reads use the
-forward reader (pr). Every frame consumed is processed and then explicitly
-written back to target to re-insert the (now potentially mutated) partner
-frame into the stream ring.
+forward reader (pr).
+
+The emitter keeps one in-memory "wait" Value outside the ring and rotates it
+with every consumed partner. This preserves a constant population without
+pinning the same catalyst frame forever: after a fold, the old wait is written
+back into the ring and the just-collided partner becomes the new wait.
 */
 func NewEmitter(forward io.Reader, target io.Writer) *Emitter {
 	return &Emitter{
@@ -35,9 +38,10 @@ func NewEmitter(forward io.Reader, target io.Writer) *Emitter {
 /*
 Read reads from the emitter's forward reader into p (one ByteSize wire frame).
 
-The first Read seeds wait from the forward reader. Later reads fold additional
-frames directly in Value space and serialize the resulting wait state into p.
-Callers must pass len(p) >= ByteSize (as Stream does via ReadFull).
+The first Read seeds wait from the forward reader without duplicating the
+resident frame back into the ring. Later reads fold the current wait with the
+next partner directly in Value space, rotate the partner into wait, and
+reinsert the mutated previous wait into the ring.
 */
 func (emitter *Emitter) Read(p []byte) (n int, err error) {
 	if len(p) < primitive.ByteSize {
@@ -47,12 +51,6 @@ func (emitter *Emitter) Read(p []byte) (n int, err error) {
 
 	if emitter.wait == nil {
 		if _, err = io.ReadFull(emitter.forward, p); err != nil {
-			errnie.Error(err)
-			return 0, err
-		}
-
-		// Re-insert the unmodified initial frame back into the ring.
-		if _, err = emitter.passthrough.Write(p); err != nil {
 			errnie.Error(err)
 			return 0, err
 		}
@@ -76,18 +74,24 @@ func (emitter *Emitter) Read(p []byte) (n int, err error) {
 	if err = emitter.scratch.ApplyWireFrame(next[:]); err != nil {
 		return 0, err
 	}
-	if err = emitter.wait.Fold(emitter.scratch); err != nil {
-		return 0, err
-	}
-	if err = primitive.ValueToBytes(emitter.scratch, next[:]); err != nil {
+
+	oldWait := emitter.wait
+	newWait := emitter.scratch
+
+	if err = oldWait.Fold(newWait); err != nil {
 		return 0, err
 	}
 
-	// Re-insert the mutated partner so Viral / Tombstone propagation remains a
-	// property of the substrate itself rather than host-side bookkeeping.
+	if err = primitive.ValueToBytes(oldWait, next[:]); err != nil {
+		return 0, err
+	}
 	if _, err = emitter.passthrough.Write(next[:]); err != nil {
 		return 0, err
 	}
+
+	emitter.wait = newWait
+	emitter.scratch = oldWait
+
 	if err = primitive.ValueToBytes(emitter.wait, p); err != nil {
 		return 0, err
 	}
