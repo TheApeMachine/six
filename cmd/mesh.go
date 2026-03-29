@@ -83,7 +83,7 @@ func runMeshDiscovery(parent context.Context) (*distributed.Discovery, error) {
 	defer cancel()
 
 	d := distributed.NewDiscovery(
-		distributed.DiscoveryWithContext(ctx),
+		ctx,
 		distributed.DiscoveryWithGroup(meshGroup),
 		distributed.DiscoveryWithInterface(meshIface),
 		distributed.DiscoveryWithAnnounce(false),

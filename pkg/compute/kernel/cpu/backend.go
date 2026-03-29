@@ -40,6 +40,16 @@ type Backend struct {
 
 type backendOption func(*Backend)
 
+const (
+	execStatusWord  = 63
+	execStatusMask  = 0x0000FFFFFFFFFFFF
+	execStatusShift = 48
+
+	execExitExhausted = 1
+	execExitHalt      = 2
+	execExitBadWord   = 3
+)
+
 /*
 NewBackend returns a CPU Backend.
 */
@@ -183,18 +193,21 @@ func loadFirmware(c *[128]uint64, p, w uint64) {
 
 // fetch returns the next instruction word and the pre-increment pc.
 // Returns 0, _, true when execution should halt.
-func fetch(c *[128]uint64, p, w uint64) (instr uint32, pc uint64, halt bool) {
+func fetch(c *[128]uint64, p, w uint64) (instr uint32, pc uint64, halt bool, exitCode uint16) {
 	pc = c[p]
 	j := w + pc/2
+	if pc >= uint64(core.Cfg.MaxPC) {
+		return 0, pc, true, execExitExhausted
+	}
 	if int(j) >= 128 {
-		return 0, pc, true
+		return 0, pc, true, execExitBadWord
 	}
 	instr = uint32(c[j] >> (pc % 2 * 32))
 	if instr == 0 {
-		return 0, pc, true
+		return 0, pc, true, execExitHalt
 	}
 	c[p]++
-	return instr, pc, false
+	return instr, pc, false, 0
 }
 
 // decode splits a 32-bit instruction into its opcode and operand fields.
@@ -269,6 +282,20 @@ func detectLoop(c *[128]uint64, p, pc, le uint64, lp bool) (uint64, bool) {
 	return le, lp
 }
 
+func clearExecExit(c *[128]uint64) {
+	if c == nil || execStatusWord >= len(c) {
+		return
+	}
+	c[execStatusWord] &= execStatusMask
+}
+
+func markExecExit(c *[128]uint64, code uint16) {
+	if c == nil || execStatusWord >= len(c) {
+		return
+	}
+	c[execStatusWord] = (c[execStatusWord] & execStatusMask) | (uint64(code) << execStatusShift)
+}
+
 func (k *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	if a == nil || b == nil {
 		return fmt.Errorf("cpu.Backend.UniversalBitwise: nil value pointer")
@@ -277,12 +304,16 @@ func (k *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	p, w := uint64(core.Cfg.RegPC), uint64(core.Cfg.ProgramIndex)
 
 	loadFirmware(c[0], p, w)
+	clearExecExit(c[0])
 
 	var le uint64
 	lp := false
 	for {
-		instr, pc, halt := fetch(c[0], p, w)
+		instr, pc, halt, exitCode := fetch(c[0], p, w)
 		if halt {
+			if exitCode != 0 {
+				markExecExit(c[0], exitCode)
+			}
 			break
 		}
 		op, sc, dc, sSp, dSp := decode(instr)

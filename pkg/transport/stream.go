@@ -72,8 +72,11 @@ func (stream *Stream) configureEmitters(n int) {
 	}
 }
 
-func NewStream(options ...StreamOption) *Stream {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewStream(ctx context.Context, options ...StreamOption) *Stream {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
 
 	stream := &Stream{
 		ctx:     ctx,
@@ -202,12 +205,6 @@ func (stream *Stream) Close() (err error) {
 	})
 
 	return err
-}
-
-func StreamWithContext(ctx context.Context) StreamOption {
-	return func(stream *Stream) {
-		stream.ctx, stream.cancel = context.WithCancel(ctx)
-	}
 }
 
 func StreamWithTTL(ttl time.Duration) StreamOption {

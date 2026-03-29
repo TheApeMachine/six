@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -23,13 +24,18 @@ type Worker struct {
 	cancel        context.CancelFunc
 	listenAddr    string
 	advertiseAddr string
+	maxCapacity   int
+	inFlight      atomic.Int64
 	discovery     *Discovery
 	server        *http.Server
 	path          string
 }
 
-func NewWorker(opts ...workerOption) (*Worker, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewWorker(ctx context.Context, opts ...workerOption) (*Worker, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
 	w := &Worker{
 		ctx:        ctx,
 		cancel:     cancel,
@@ -53,12 +59,21 @@ func NewWorker(opts ...workerOption) (*Worker, error) {
 		w.advertiseAddr = addr
 	}
 
+	if w.maxCapacity <= 0 && w.discovery != nil {
+		w.maxCapacity = w.discovery.Self().Capacity
+	}
+	if w.maxCapacity <= 0 {
+		w.maxCapacity = max(1, runtime.NumCPU()-1)
+	}
+
 	if w.discovery == nil {
 		w.discovery = NewDiscovery(
-			DiscoveryWithContext(w.ctx),
+			w.ctx,
 			DiscoveryWithAdvertiseAddr(w.advertiseAddr),
-			DiscoveryWithCapacity(max(1, runtime.NumCPU()-1)),
+			DiscoveryWithCapacity(w.maxCapacity),
 		)
+	} else {
+		w.discovery.SetCapacity(w.maxCapacity)
 	}
 
 	mux := http.NewServeMux()
@@ -75,15 +90,6 @@ func NewWorker(opts ...workerOption) (*Worker, error) {
 	return w, nil
 }
 
-func WorkerWithContext(ctx context.Context) workerOption {
-	return func(w *Worker) {
-		if w.cancel != nil {
-			w.cancel()
-		}
-		w.ctx, w.cancel = context.WithCancel(ctx)
-	}
-}
-
 func WorkerWithListenAddr(addr string) workerOption {
 	return func(w *Worker) {
 		w.listenAddr = strings.TrimSpace(addr)
@@ -93,6 +99,15 @@ func WorkerWithListenAddr(addr string) workerOption {
 func WorkerWithAdvertiseAddr(addr string) workerOption {
 	return func(w *Worker) {
 		w.advertiseAddr = strings.TrimSpace(addr)
+	}
+}
+
+func WorkerWithCapacity(capacity int) workerOption {
+	return func(w *Worker) {
+		if capacity < 0 {
+			capacity = 0
+		}
+		w.maxCapacity = capacity
 	}
 }
 
@@ -140,11 +155,6 @@ func (w *Worker) Close() error {
 		w.cancel()
 	}
 	var errs []error
-	if w.discovery != nil {
-		if err := w.discovery.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
 	if w.server != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -152,7 +162,36 @@ func (w *Worker) Close() error {
 			errs = append(errs, err)
 		}
 	}
+	if w.discovery != nil {
+		if err := w.discovery.Close(); err != nil {
+			errs = append(errs, err)
+		}
+	}
 	return errorsJoin(errs)
+}
+
+func (w *Worker) refreshAdvertisedCapacity(inFlight int64) {
+	if w.discovery == nil {
+		return
+	}
+	capacity := w.maxCapacity - int(inFlight)
+	if capacity < 0 {
+		capacity = 0
+	}
+	w.discovery.SetCapacity(capacity)
+}
+
+func (w *Worker) beginJob() func() {
+	inFlight := w.inFlight.Add(1)
+	w.refreshAdvertisedCapacity(inFlight)
+	return func() {
+		inFlight := w.inFlight.Add(-1)
+		if inFlight < 0 {
+			w.inFlight.Store(0)
+			inFlight = 0
+		}
+		w.refreshAdvertisedCapacity(inFlight)
+	}
 }
 
 func (w *Worker) handleHealth(rw http.ResponseWriter, req *http.Request) {
@@ -182,6 +221,8 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+	done := w.beginJob()
+	defer done()
 
 	var job UniversalBitwiseJobRequest
 	if err := json.NewDecoder(http.MaxBytesReader(rw, req.Body, 2<<20)).Decode(&job); err != nil {

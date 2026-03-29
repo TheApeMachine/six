@@ -287,15 +287,33 @@ func (value *Value) Release() error {
 		return fmt.Errorf("primitive.Value.Release: refcount underflow for value id=%d", value.ValueID())
 	}
 
-	if lc.pooled.Load() && value.isPoolReusable() {
-		valuePool.Put(value)
-		return nil
+	if lc.pooled.Load() {
+		if value.shouldRecycleFromExecStatus() || value.isPoolReusable() {
+			value.resetForPool()
+			valuePool.Put(value)
+			return nil
+		}
 	}
 
 	// If this frame cannot be safely reused, drop lifecycle tracking so it can
 	// be reclaimed naturally by GC.
 	valueLifecycles.Delete(valueLifecycleKey(value))
 	return nil
+}
+
+func (value *Value) shouldRecycleFromExecStatus() bool {
+	switch value.ExecExitCode() {
+	case ExecExitHaltOpcode, ExecExitExhausted, ExecExitBadProgramWord:
+		return true
+	default:
+		return false
+	}
+}
+
+func (value *Value) resetForPool() {
+	for i := range value {
+		value[i] = 0
+	}
 }
 
 func (value *Value) isPoolReusable() bool {

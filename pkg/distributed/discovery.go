@@ -37,8 +37,12 @@ type Discovery struct {
 	tx *network.UDPMulticast
 }
 
-func NewDiscovery(opts ...discoveryOption) *Discovery {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewDiscovery(ctx context.Context, opts ...discoveryOption) *Discovery {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, cancel := context.WithCancel(ctx)
+
 	d := &Discovery{
 		ctx:          ctx,
 		cancel:       cancel,
@@ -61,8 +65,8 @@ func NewDiscovery(opts ...discoveryOption) *Discovery {
 	if d.ttl <= d.heartbeat {
 		d.ttl = 5 * d.heartbeat
 	}
-	if d.capacity <= 0 {
-		d.capacity = 1
+	if d.capacity < 0 {
+		d.capacity = 0
 	}
 
 	d.upsertNode(Node{
@@ -74,15 +78,6 @@ func NewDiscovery(opts ...discoveryOption) *Discovery {
 	})
 
 	return d
-}
-
-func DiscoveryWithContext(ctx context.Context) discoveryOption {
-	return func(d *Discovery) {
-		if d.cancel != nil {
-			d.cancel()
-		}
-		d.ctx, d.cancel = context.WithCancel(ctx)
-	}
 }
 
 func DiscoveryWithNodeID(nodeID string) discoveryOption {
@@ -129,6 +124,9 @@ func DiscoveryWithTTL(ttl time.Duration) discoveryOption {
 
 func DiscoveryWithCapacity(capacity int) discoveryOption {
 	return func(d *Discovery) {
+		if capacity < 0 {
+			capacity = 0
+		}
 		d.capacity = capacity
 	}
 }
@@ -216,6 +214,47 @@ func (d *Discovery) Self() Node {
 	}
 }
 
+func (d *Discovery) Capacity() int {
+	if d == nil {
+		return 0
+	}
+
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+
+	return d.capacity
+}
+
+func (d *Discovery) SetCapacity(capacity int) int {
+	if d == nil {
+		return 0
+	}
+	if capacity < 0 {
+		capacity = 0
+	}
+
+	d.mu.Lock()
+	d.capacity = capacity
+
+	self, ok := d.nodes[d.nodeID]
+	if !ok {
+		self = Node{
+			ID:   d.nodeID,
+			Addr: d.advertise,
+			Self: true,
+		}
+	}
+
+	self.Capacity = capacity
+	self.LastSeen = time.Now()
+	self.Self = true
+	d.nodes[d.nodeID] = self
+	d.mu.Unlock()
+
+	d.sendHeartbeat()
+	return capacity
+}
+
 func (d *Discovery) recvLoop() {
 	buf := make([]byte, 1500)
 	for {
@@ -249,8 +288,8 @@ func (d *Discovery) recvLoop() {
 			LastSeen: time.Now(),
 			Self:     msg.NodeID == d.nodeID,
 		}
-		if node.Capacity <= 0 {
-			node.Capacity = 1
+		if node.Capacity < 0 {
+			node.Capacity = 0
 		}
 		d.upsertNode(node)
 	}

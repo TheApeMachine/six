@@ -103,22 +103,22 @@ value:
 
 
 # Substrate Firmware Programs
-# Format: src dest gate (Polish Notation, 2-address)
+# Format: src dest gate (Reverse Polish Notation, 2-address)
 #
 # Operands:
 #   number    = immediate value (0-16383)
 #   rN        = register (r0-r9, pc, fw)
 #
 # Registers (triple model):
-#   r0 = context A (0=self, 1=partner)
-#   r1 = start A
-#   r2 = end A
-#   r3 = context B (0=self, 1=partner)
-#   r4 = start B
-#   r5 = end B
+#   r0    = context A (0=self, 1=partner)
+#   r1    = start A
+#   r2    = end A
+#   r3    = context B (0=self, 1=partner)
+#   r4    = start B
+#   r5    = end B
 #   r6-r9 = scratch registers
-#   fw = firmware selector
-#   pc = program counter
+#   fw    = firmware selector
+#   pc    = program counter
 #
 # Gates: all 16 two-input boolean truth tables (0000-1111)
 #   0000=FALSE  0001=AND   0010=A∧¬B  0011=A

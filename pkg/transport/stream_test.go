@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -35,7 +34,7 @@ func TestRead(t *testing.T) {
 		regions := 2
 
 		stream := NewStream(
-			StreamWithContext(t.Context()),
+			t.Context(),
 			StreamWithTTL(time.Second),
 			StreamWithRegions(regions),
 		)
@@ -56,10 +55,10 @@ func TestRead(t *testing.T) {
 			}
 
 			Convey("Then the Value should be read from the stream", func() {
-				buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize*regions))
-				n, err := io.Copy(buf, stream)
+				buf := make([]byte, primitive.ByteSize*regions)
+				n, err := io.ReadFull(stream, buf)
 
-				So(n, ShouldEqual, primitive.ByteSize*regions)
+				So(n, ShouldEqual, len(buf))
 				So(err, ShouldBeNil)
 			})
 		})
@@ -71,7 +70,7 @@ func TestWrite(t *testing.T) {
 		regions := 2
 
 		stream := NewStream(
-			StreamWithContext(t.Context()),
+			t.Context(),
 			StreamWithTTL(time.Second),
 			StreamWithRegions(regions),
 		)
@@ -108,16 +107,16 @@ func TestWrite(t *testing.T) {
 				So(cerr, ShouldBeNil)
 			}
 
-			buf := bytes.NewBuffer(make([]byte, 0, primitive.ByteSize*regions))
-			n, err := io.Copy(buf, stream)
+			buf := make([]byte, primitive.ByteSize*regions)
+			n, err := io.ReadFull(stream, buf)
 
-			So(n, ShouldEqual, primitive.ByteSize*regions)
+			So(n, ShouldEqual, len(buf))
 			So(err, ShouldBeNil)
 
 			for i := 0; i < regions; i++ {
 				start := i * primitive.ByteSize
 				end := start + primitive.ByteSize
-				decoded.WriteString(primitive.BytesToValue(buf.Bytes()[start:end]).String())
+				decoded.WriteString(primitive.BytesToValue(buf[start:end]).String())
 			}
 
 			So(decoded.String(), ShouldEqual, string(append(str, str...)))
@@ -129,7 +128,7 @@ func BenchmarkStream(b *testing.B) {
 	payload := make([]byte, primitive.ByteSize)
 	readBuf := make([]byte, primitive.ByteSize)
 
-	stream := NewStream(StreamWithContext(context.Background()))
+	stream := NewStream(context.Background())
 	defer stream.Close()
 
 	b.SetBytes(int64(primitive.ByteSize))

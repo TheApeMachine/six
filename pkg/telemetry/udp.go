@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -13,13 +14,31 @@ import (
 // defaultUDPWriteTimeout bounds blocking on a full kernel UDP send buffer.
 const defaultUDPWriteTimeout = 500 * time.Millisecond
 
+const (
+	defaultDropBurstThreshold = 100
+	defaultDropBurstWindow    = 50 * time.Millisecond
+	defaultBackoffBase        = 50 * time.Millisecond
+	defaultBackoffMax         = 2 * time.Second
+)
+
 // NewUDPSender returns a broadcast function that JSON-encodes events and
 // sends them to the given UDP address (e.g. "127.0.0.1:8258"). The
 // returned function is safe for concurrent use.
 type UDPSender struct {
 	conn         net.Conn
 	writeDropped atomic.Uint64
+	writeShed    atomic.Uint64
 	writeTimeout time.Duration
+
+	stateMu            sync.Mutex
+	dropBurstStart     time.Time
+	dropBurstCount     uint64
+	backoffUntil       time.Time
+	currentBackoff     time.Duration
+	dropBurstThreshold uint64
+	dropBurstWindow    time.Duration
+	backoffBase        time.Duration
+	backoffMax         time.Duration
 }
 
 func NewUDPSender(addr string) (*UDPSender, error) {
@@ -33,7 +52,14 @@ func NewUDPSenderWithWriteTimeout(addr string, writeTimeout time.Duration) (*UDP
 	if err != nil {
 		return nil, err
 	}
-	return &UDPSender{conn: conn, writeTimeout: writeTimeout}, nil
+	return &UDPSender{
+		conn:               conn,
+		writeTimeout:       writeTimeout,
+		dropBurstThreshold: defaultDropBurstThreshold,
+		dropBurstWindow:    defaultDropBurstWindow,
+		backoffBase:        defaultBackoffBase,
+		backoffMax:         defaultBackoffMax,
+	}, nil
 }
 
 func (s *UDPSender) writeWithDeadline(fn func() error) error {
@@ -51,8 +77,104 @@ func (s *UDPSender) writeWithDeadline(fn func() error) error {
 	return err
 }
 
+func (s *UDPSender) shouldShed(now time.Time) bool {
+	if s == nil {
+		return false
+	}
+
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	if now.Before(s.backoffUntil) {
+		return true
+	}
+	return false
+}
+
+func (s *UDPSender) recordWriteDrop(op string, err error) {
+	if s == nil {
+		return
+	}
+
+	droppedTotal := s.writeDropped.Add(1)
+	now := time.Now()
+
+	var (
+		backoffApplied bool
+		backoffFor     time.Duration
+		windowDrops    uint64
+	)
+
+	s.stateMu.Lock()
+	if s.dropBurstStart.IsZero() || now.Sub(s.dropBurstStart) > s.dropBurstWindow {
+		s.dropBurstStart = now
+		s.dropBurstCount = 0
+	}
+	s.dropBurstCount++
+	windowDrops = s.dropBurstCount
+
+	if s.dropBurstCount >= s.dropBurstThreshold {
+		if s.currentBackoff <= 0 {
+			s.currentBackoff = s.backoffBase
+		} else {
+			s.currentBackoff *= 2
+			if s.currentBackoff > s.backoffMax {
+				s.currentBackoff = s.backoffMax
+			}
+		}
+		s.backoffUntil = now.Add(s.currentBackoff)
+		s.dropBurstStart = now
+		s.dropBurstCount = 0
+		backoffFor = s.currentBackoff
+		backoffApplied = true
+	}
+	s.stateMu.Unlock()
+
+	errnie.Warn(
+		"telemetry.UDPSender.write_drop",
+		"op", op,
+		"err", err,
+		"dropped_total", droppedTotal,
+		"dropped_window", windowDrops,
+	)
+
+	if backoffApplied {
+		errnie.Warn(
+			"telemetry.UDPSender.backpressure",
+			"op", op,
+			"backoff", backoffFor.String(),
+			"dropped_total", droppedTotal,
+		)
+	}
+}
+
+func (s *UDPSender) recordWriteSuccess() {
+	if s == nil {
+		return
+	}
+
+	now := time.Now()
+
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
+
+	if now.Before(s.backoffUntil) {
+		return
+	}
+	if s.currentBackoff > 0 {
+		s.currentBackoff /= 2
+		if s.currentBackoff < s.backoffBase {
+			s.currentBackoff = 0
+		}
+	}
+}
+
 func (s *UDPSender) Send(ev Event) {
 	if s == nil {
+		return
+	}
+	if s.shouldShed(time.Now()) {
+		s.writeShed.Add(1)
 		return
 	}
 	data, err := json.Marshal(ev)
@@ -70,14 +192,10 @@ func (s *UDPSender) Send(ev Event) {
 		return e
 	})
 	if werr != nil {
-		s.writeDropped.Add(1)
-		errnie.Warn(
-			"telemetry.UDPSender.Send",
-			"op", "write",
-			"err", werr,
-			"dropped_total", s.writeDropped.Load(),
-		)
+		s.recordWriteDrop("send", werr)
+		return
 	}
+	s.recordWriteSuccess()
 }
 
 // WriteDropped returns how many UDP payload writes failed after Connect succeeded.
@@ -88,8 +206,20 @@ func (s *UDPSender) WriteDropped() uint64 {
 	return s.writeDropped.Load()
 }
 
+// WriteShed returns how many events were intentionally skipped during adaptive backoff.
+func (s *UDPSender) WriteShed() uint64 {
+	if s == nil {
+		return 0
+	}
+	return s.writeShed.Load()
+}
+
 func (s *UDPSender) SendFrame(frame []byte) {
 	if s == nil || s.conn == nil {
+		return
+	}
+	if s.shouldShed(time.Now()) {
+		s.writeShed.Add(1)
 		return
 	}
 	werr := s.writeWithDeadline(func() error {
@@ -97,14 +227,10 @@ func (s *UDPSender) SendFrame(frame []byte) {
 		return e
 	})
 	if werr != nil {
-		s.writeDropped.Add(1)
-		errnie.Warn(
-			"telemetry.UDPSender.SendFrame",
-			"op", "write",
-			"err", werr,
-			"dropped_total", s.writeDropped.Load(),
-		)
+		s.recordWriteDrop("send_frame", werr)
+		return
 	}
+	s.recordWriteSuccess()
 }
 
 func (s *UDPSender) Close() error {

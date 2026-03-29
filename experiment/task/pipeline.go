@@ -91,7 +91,7 @@ func (pipeline *Pipeline) Run() (err error) {
 
 	loadStart := time.Now()
 	machine, err := vm.NewMachine(
-		vm.WithContext(pipeline.ctx),
+		pipeline.ctx,
 		vm.WithDataset(pipeline.experiment.Dataset()),
 	)
 
@@ -141,8 +141,12 @@ func (pipeline *Pipeline) Run() (err error) {
 
 		// Inject the prompt frame, then read the transformed frame back once.
 		observedFrame, err := pipeline.injectAndObserve(observer, value)
+		closeErr := value.Close()
 		if err != nil {
 			return errnie.Error(err)
+		}
+		if closeErr != nil {
+			return errnie.Error(closeErr)
 		}
 
 		observedValue := primitive.BytesToValue(observedFrame)
@@ -197,8 +201,6 @@ func (pipeline *Pipeline) Run() (err error) {
 		}
 	}
 
-	machine.Close()
-
 	return nil
 }
 
@@ -239,8 +241,13 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 		}
 		frame[core.Cfg.StateIndex] = 1
 
-		if _, err := pipeline.injectAndObserve(observer, frame); err != nil {
-			return err
+		_, observeErr := pipeline.injectAndObserve(observer, frame)
+		closeErr := frame.Close()
+		if observeErr != nil {
+			return observeErr
+		}
+		if closeErr != nil {
+			return closeErr
 		}
 
 		chunk = chunk[:0]
@@ -272,6 +279,7 @@ func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {
 	seed[core.Cfg.StateIndex] = 1
 	seed[core.Cfg.RegPC] = 0
 	seed[core.Cfg.FW] = 0
+	defer seed.Close()
 
 	program := append([]uint32(nil), core.Cfg.Firmware[core.FirmwareTypeViral]...)
 	program = append(program, encodeWriteRegImmediate(uint16(core.FirmwareTypeLearn), core.Cfg.FW))

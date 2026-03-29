@@ -91,7 +91,7 @@ accepting graph events via UDP from external test runs.`,
 			pool = &vizMachinePool{
 				newM: func() (*vm.Machine, error) {
 					return vm.NewMachine(
-						vm.WithContext(ctx),
+						ctx,
 						vm.WithDataset(huggingface.New(
 							huggingface.DatasetWithContext(ctx),
 							huggingface.DatasetWithRepo(vizRepo),

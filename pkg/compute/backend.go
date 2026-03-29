@@ -71,6 +71,19 @@ func NewBackend(opts ...BackendOption) *Backend {
 	}
 
 	substrate.observer = kernel.NormalizeObserver(substrate.observer)
+	if substrate.pool != nil {
+		substrate.pool.SetDropObserver(func(err error) {
+			if err == nil {
+				return
+			}
+			substrate.observer.Error(
+				"compute.pool.saturation",
+				err,
+				"dropped_total", substrate.pool.DroppedErrors(),
+				"saturation_total", substrate.pool.SaturationEvents(),
+			)
+		})
+	}
 
 	errnie.Info("compute.backend: CPU substrate registered")
 	substrate.hardware = append(substrate.hardware, cpu.NewBackend(
@@ -151,6 +164,19 @@ func SetKernelObserver(observer kernel.Observer) {
 		if aware, ok := hw.(kernel.ObserverAware); ok {
 			aware.SetObserver(normalized)
 		}
+	}
+	if substrate.pool != nil {
+		substrate.pool.SetDropObserver(func(err error) {
+			if err == nil {
+				return
+			}
+			substrate.observer.Error(
+				"compute.pool.saturation",
+				err,
+				"dropped_total", substrate.pool.DroppedErrors(),
+				"saturation_total", substrate.pool.SaturationEvents(),
+			)
+		})
 	}
 }
 

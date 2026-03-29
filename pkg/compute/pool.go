@@ -7,6 +7,7 @@ import (
 	"runtime/debug"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -18,10 +19,18 @@ type Pool struct {
 	procs         int
 	jobs          chan func(context.Context) error
 	droppedErrors atomic.Uint64
+	saturationCnt atomic.Uint64
 	// errBufSize is the capacity of the per-Run error channel. When zero, Run uses pool.procs.
 	// trySendErr is non-blocking; if this buffer fills, errors are dropped and DroppedErrors increments.
 	// Raise errBufSize for workloads that may surface many failures at once.
 	errBufSize int
+
+	dropStateMu     sync.Mutex
+	dropObserver    func(error)
+	dropWindow      time.Duration
+	dropThreshold   uint64
+	dropWindowStart time.Time
+	dropWindowCount uint64
 }
 
 type poolOpts func(*Pool)
@@ -31,6 +40,13 @@ func NewPool(opts ...poolOpts) (pool *Pool, err error) {
 
 	for _, opt := range opts {
 		opt(pool)
+	}
+
+	if pool.dropWindow <= 0 {
+		pool.dropWindow = 50 * time.Millisecond
+	}
+	if pool.dropThreshold == 0 {
+		pool.dropThreshold = 100
 	}
 
 	if err := validate.Require(map[string]any{
@@ -53,14 +69,79 @@ func (pool *Pool) DroppedErrors() uint64 {
 	return pool.droppedErrors.Load()
 }
 
+func (pool *Pool) SaturationEvents() uint64 {
+	return pool.saturationCnt.Load()
+}
+
 // trySendErr sends err to out without blocking. If out is full, the error is dropped
 // and droppedErrors is incremented; increase errBufSize (PoolWithErrBuffer) if that is unacceptable.
 func (pool *Pool) trySendErr(out chan error, err error) {
 	select {
 	case out <- err:
 	default:
-		pool.droppedErrors.Add(1)
+		droppedTotal := pool.droppedErrors.Add(1)
+		pool.observeDropSaturation(droppedTotal, err)
 	}
+}
+
+func (pool *Pool) observeDropSaturation(droppedTotal uint64, cause error) {
+	if pool == nil || pool.dropThreshold == 0 {
+		return
+	}
+
+	now := time.Now()
+	var (
+		saturated   bool
+		windowCount uint64
+		observer    func(error)
+		window      time.Duration
+	)
+
+	pool.dropStateMu.Lock()
+	if pool.dropWindowStart.IsZero() || now.Sub(pool.dropWindowStart) > pool.dropWindow {
+		pool.dropWindowStart = now
+		pool.dropWindowCount = 0
+	}
+	pool.dropWindowCount++
+	windowCount = pool.dropWindowCount
+	window = pool.dropWindow
+	if pool.dropWindowCount >= pool.dropThreshold {
+		pool.dropWindowStart = now
+		pool.dropWindowCount = 0
+		saturated = true
+	}
+	observer = pool.dropObserver
+	pool.dropStateMu.Unlock()
+
+	if !saturated {
+		return
+	}
+
+	saturationErr := NewBackendError(BackendErrorCompleteSaturation, cause, "compute.pool.trySendErr")
+	pool.saturationCnt.Add(1)
+	if observer != nil {
+		observer(saturationErr)
+		return
+	}
+
+	errnie.Warn(
+		"compute.pool.saturation",
+		"err", saturationErr,
+		"dropped_total", droppedTotal,
+		"dropped_window", windowCount,
+		"window", window.String(),
+		"saturation_total", pool.saturationCnt.Load(),
+	)
+}
+
+func (pool *Pool) SetDropObserver(observer func(error)) {
+	if pool == nil {
+		return
+	}
+
+	pool.dropStateMu.Lock()
+	pool.dropObserver = observer
+	pool.dropStateMu.Unlock()
 }
 
 func (pool *Pool) Run() chan error {
@@ -141,6 +222,19 @@ func PoolWithErrBuffer(n int) poolOpts {
 			n = 1
 		}
 		pool.errBufSize = n
+	}
+}
+
+func PoolWithDropObserver(observer func(error)) poolOpts {
+	return func(pool *Pool) {
+		pool.dropObserver = observer
+	}
+}
+
+func PoolWithDropSaturation(threshold uint64, window time.Duration) poolOpts {
+	return func(pool *Pool) {
+		pool.dropThreshold = threshold
+		pool.dropWindow = window
 	}
 }
 

@@ -18,7 +18,7 @@ and ants goroutine pooling. It dynamically schedules work across local hardware 
 and remote network nodes natively through a homogeneous data flow, while guaranteeing
 zero-drop fault tolerance using errnie error handling contexts.
 
-All machineOption functions (WithContext, WithDataset, WithRegionsCount, etc.) apply only
+All machineOption functions (WithDataset, WithRegionsCount, etc.) apply only
 during NewMachine construction. Options mutate the in-progress *Machine before the pool,
 regions, and transport stream are wired up; calling them after NewMachine returns is
 unsupported and may race with in-flight I/O or scheduling.
@@ -35,9 +35,11 @@ type machineOption func(*Machine)
 
 // NewMachine constructs a Machine: it applies opts, validates ctx/cancel, starts the pool
 // workers, allocates regions (see WithRegionsCount), and opens the transport stream.
-// Pass all options only via opts during this call—do not reuse machineOption implementations
-// on an already-built *Machine (see WithContext).
-func NewMachine(opts ...machineOption) (machine *Machine, err error) {
+func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
 	cpu := runtime.NumCPU()
 	maxProcs := cpu - 1
 
@@ -51,15 +53,10 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 	)
 
 	machine = &Machine{}
+	machine.ctx, machine.cancel = context.WithCancel(ctx)
 
 	for _, opt := range opts {
 		opt(machine)
-	}
-
-	if machine.ctx == nil {
-		ctx, cancel := context.WithCancel(context.Background())
-		machine.ctx = ctx
-		machine.cancel = cancel
 	}
 
 	if machine.err = validate.Require(map[string]any{
@@ -71,9 +68,7 @@ func NewMachine(opts ...machineOption) (machine *Machine, err error) {
 		)
 	}
 
-	machine.stream = transport.NewStream(
-		transport.StreamWithContext(machine.ctx),
-	)
+	machine.stream = transport.NewStream(machine.ctx)
 
 	if machine.stream == nil {
 		return nil, errnie.Error(
@@ -113,24 +108,6 @@ func (machine *Machine) Close() error {
 	}
 
 	return errors.Join(errs...)
-}
-
-// WithContext replaces the Machine's context and cancel func. It cancels Machine.cancel
-// when one already exists. Intended for use only as a machineOption inside NewMachine:
-// calling WithContext after the Machine is returned can race with concurrent Read/Write,
-// pool workers, and stream I/O because the previous context is canceled immediately.
-func WithContext(ctx context.Context) machineOption {
-	return func(machine *Machine) {
-		if machine.cancel != nil {
-			machine.cancel()
-		}
-		machine.ctx, machine.cancel = context.WithCancel(ctx)
-		errnie.Info(
-			"vm.machine.WithContext",
-			"msg",
-			"context set",
-		)
-	}
 }
 
 func WithDataset(dataset io.ReadCloser) machineOption {

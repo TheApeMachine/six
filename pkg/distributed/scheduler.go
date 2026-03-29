@@ -77,11 +77,10 @@ func (s *Scheduler) ScheduleUniversalBitwise(
 		return nil, fmt.Errorf("no remote mesh nodes discovered")
 	}
 
-	start := int(s.rr.Add(1)-1) % len(nodes)
+	candidates := candidateOrder(nodes, s.rr.Add(1)-1)
 	var lastErr error
 
-	for i := 0; i < len(nodes); i++ {
-		n := nodes[(start+i)%len(nodes)]
+	for _, n := range candidates {
 		resp, err := s.tryNode(ctx, n, left, right)
 		if err == nil {
 			return resp, nil
@@ -145,4 +144,54 @@ func toHTTPURL(addr, path string) string {
 		return strings.TrimRight(addr, "/") + path
 	}
 	return "http://" + addr + path
+}
+
+func candidateOrder(nodes []Node, rr uint64) []Node {
+	positive := make([]Node, 0, len(nodes))
+	for _, n := range nodes {
+		if n.Capacity > 0 {
+			positive = append(positive, n)
+		}
+	}
+	if len(positive) == 0 {
+		return rotateNodes(nodes, rr)
+	}
+
+	weighted := make([]Node, 0, len(positive)*2)
+	for _, n := range positive {
+		weight := n.Capacity
+		if weight > 8 {
+			weight = 8
+		}
+		for i := 0; i < weight; i++ {
+			weighted = append(weighted, n)
+		}
+	}
+	if len(weighted) == 0 {
+		return rotateNodes(positive, rr)
+	}
+
+	start := int(rr % uint64(len(weighted)))
+	seen := make(map[string]struct{}, len(positive))
+	out := make([]Node, 0, len(positive))
+	for i := 0; i < len(weighted) && len(out) < len(positive); i++ {
+		n := weighted[(start+i)%len(weighted)]
+		if _, ok := seen[n.ID]; ok {
+			continue
+		}
+		seen[n.ID] = struct{}{}
+		out = append(out, n)
+	}
+	return out
+}
+
+func rotateNodes(nodes []Node, rr uint64) []Node {
+	if len(nodes) <= 1 {
+		return nodes
+	}
+	start := int(rr % uint64(len(nodes)))
+	out := make([]Node, 0, len(nodes))
+	out = append(out, nodes[start:]...)
+	out = append(out, nodes[:start]...)
+	return out
 }

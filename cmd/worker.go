@@ -38,7 +38,7 @@ var workerCmd = &cobra.Command{
 		}
 
 		discovery := distributed.NewDiscovery(
-			distributed.DiscoveryWithContext(ctx),
+			ctx,
 			distributed.DiscoveryWithNodeID(workerNodeID),
 			distributed.DiscoveryWithAdvertiseAddr(workerAdvertise),
 			distributed.DiscoveryWithGroup(workerGroup),
@@ -49,9 +49,10 @@ var workerCmd = &cobra.Command{
 		)
 
 		worker, err := distributed.NewWorker(
-			distributed.WorkerWithContext(ctx),
+			ctx,
 			distributed.WorkerWithListenAddr(workerAddr),
 			distributed.WorkerWithAdvertiseAddr(workerAdvertise),
+			distributed.WorkerWithCapacity(max(1, runtime.NumCPU()-1)),
 			distributed.WorkerWithDiscovery(discovery),
 		)
 		if err != nil {
