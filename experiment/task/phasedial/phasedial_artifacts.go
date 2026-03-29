@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -16,8 +17,7 @@ func PhasedialSectionArtifacts(
 	expName string,
 	tableData []tools.ExperimentalData,
 	score float64,
-	proseTemplate string,
-	proseData map[string]any,
+	section tools.ExperimentSection,
 ) []tools.Artifact {
 	n := len(tableData)
 	slug := tools.Slugify(expName)
@@ -40,16 +40,14 @@ func PhasedialSectionArtifacts(
 		})
 	}
 
-	if proseTemplate != "" {
-		artifacts = append(artifacts, tools.Artifact{
-			Type:     tools.ArtifactProse,
-			FileName: slug + "_section.tex",
-			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data:     proseData,
-			},
-		})
-	}
+	artifacts = append(artifacts, tools.Artifact{
+		Type:     tools.ArtifactProse,
+		FileName: slug + "_section.tex",
+		Data: tools.ProseData{
+			Template: projector.ExperimentSectionTmpl,
+			Data:     section,
+		},
+	})
 
 	return artifacts
 }

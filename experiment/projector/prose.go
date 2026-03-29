@@ -22,7 +22,7 @@ type ProseEntry struct {
 // The template uses standard Go template syntax:  {{.Ceiling | printf "%.4f"}}
 type Prose struct {
 	tmplSrc string
-	data    map[string]any
+	data    any
 	outDir  string
 	outFile string
 	out     io.Writer
@@ -97,9 +97,13 @@ func ProseWithTemplate(src string) proseOpts {
 	return func(p *Prose) { p.tmplSrc = src }
 }
 
-func ProseWithData(data map[string]any) proseOpts {
+func ProseWithData(data any) proseOpts {
 	return func(p *Prose) { p.data = data }
 }
+
+// F3 formats a float64 to 3 decimal places.  It is exported so that
+// callers can pre-format values into ExperimentSection strings.
+func F3(v float64) string { return formatF(v, 3) }
 
 func ProseWithOutput(outDir, outFile string) proseOpts {
 	return func(p *Prose) {

@@ -1,11 +1,14 @@
 package phasedial
 
 import (
+	"fmt"
+
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -84,15 +87,16 @@ func (experiment *PhaseCoherenceExperiment) TableData() any {
 }
 
 func (experiment *PhaseCoherenceExperiment) Artifacts() []tools.Artifact {
+	n := len(experiment.tableData)
+	score := experiment.Score()
 	return PhasedialSectionArtifacts(
 		"Phase Coherence",
 		experiment.tableData,
-		experiment.Score(),
-		`\subsection{Phase Coherence}
-\label{sec:phase_coherence}
-
-\paragraph{Task Description.}
-The phase coherence experiment evaluates whether the PhaseDial maintains
+		score,
+		tools.ExperimentSection{
+			Title: "Phase Coherence",
+			Label: "phase_coherence",
+			TaskDescription: `The phase coherence experiment evaluates whether the PhaseDial maintains
 internal consistency after multiple rounds of composition and retrieval.
 Starting from a seed entry, the system performs sequential hops; at
 each step the coherence between the current fingerprint and the
@@ -100,30 +104,10 @@ original is measured.
 
 High coherence indicates that the manifold's geometric structure is
 stable under composition --- each hop navigates to a structurally
-related region rather than diverging into noise.
-
-\paragraph{Results.}
-Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong phase coherence invariance,
-confirming that the geometric property holds reliably at this scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but is not yet reliable across all test conditions.
-Increasing ingestion corpus size is expected to strengthen the invariant.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this ingestion scale.
-This is an expected result during the refactoring phase; the underlying
-geometric mechanism requires a functional Finalize path to populate
-the substrate with the necessary compositional data.
-{{- end}}
-
-Figure~\ref{fig:phase_coherence_map} shows the trial outcome map.
-`,
-		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+related region rather than diverging into noise.`,
+			Results:    fmt.Sprintf(`Across $N = %d$ test samples the mean weighted score was %s.`, n, projector.F3(score)),
+			Assessment: phasedialAssessment(score),
+			FigureRef:  "fig:phase_coherence_map",
+		},
 	)
 }

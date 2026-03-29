@@ -211,7 +211,7 @@ func WriteMultiPanel(panels []tools.Panel, width, height int, title, caption, la
 	return projector.WriteMultiPanel(projectorPanels(panels), width, height, title, caption, label, dir, filename, f)
 }
 
-func WriteProse(tmplSrc string, data map[string]any, outFile string, section ...string) error {
+func WriteProse(tmplSrc string, data any, outFile string, section ...string) error {
 	dir, err := ensurePaperDir(section...)
 	if err != nil {
 		return err

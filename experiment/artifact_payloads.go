@@ -100,8 +100,20 @@ type MultiPanelData struct {
 }
 
 type ProseData struct {
-	Template string         `json:"template"`
-	Data     map[string]any `json:"data"`
+	Template string `json:"template"`
+	Data     any    `json:"data"`
+}
+
+// ExperimentSection holds the structured content for a standardised
+// experiment subsection.  It is passed as the Data field of ProseData
+// together with projector.ExperimentSectionTmpl.
+type ExperimentSection struct {
+	Title           string
+	Label           string
+	TaskDescription string
+	Results         string
+	Assessment      string
+	FigureRef       string
 }
 
 type ImageStripRow struct {

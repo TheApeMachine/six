@@ -1,10 +1,13 @@
 package phasedial
 
 import (
+	"fmt"
+
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -109,40 +112,19 @@ func (experiment *ChunkingBaselineExperiment) Artifacts() []tools.Artifact {
 			Type:     tools.ArtifactProse,
 			FileName: "chunking_baseline_section.tex",
 			Data: tools.ProseData{
-				Template: `\subsection{Chunking Baseline}
-\label{sec:chunking_baseline}
-
-\paragraph{Task Description.}
-The chunking baseline experiment compares retrieval quality between chunk-level and sentence-level
+				Template: projector.ExperimentSectionTmpl,
+				Data: tools.ExperimentSection{
+					Title: "Chunking Baseline",
+					Label: "chunking_baseline",
+					TaskDescription: `The chunking baseline experiment compares retrieval quality between chunk-level and sentence-level
 ingestion strategies.  Aphorisms are ingested both as full sentences
 and as overlapping two-sentence chunks.  The chunking baseline
 determines whether the substrate benefits from denser, shorter-span
 entries or whether full-sentence ingestion provides better attractor
-coverage.
-
-\paragraph{Results.}
-Figure~\ref{fig:chunking_baseline_map} shows the trial outcome map.
-The mean weighted score was {{.Score | f3}} across $N = {{.N}}$ samples.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong performance on this geometric property,
-confirming that the invariant holds reliably at this ingestion scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but becomes unreliable under more challenging conditions.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this stage.  The phasedial
-experiments require a functional Finalize path to populate the substrate
-with compositional data; this infrastructure is being rebuilt during
-the current refactoring phase.
-{{- end}}
-`,
-				Data: map[string]any{
-					"N":     len(experiment.tableData),
-					"Score": experiment.Score(),
+coverage.`,
+					Results:    fmt.Sprintf(`The mean weighted score was %s across $N = %d$ samples.`, projector.F3(experiment.Score()), len(experiment.tableData)),
+					Assessment: phasedialAssessment(experiment.Score()),
+					FigureRef:  "fig:chunking_baseline_map",
 				},
 			},
 		},

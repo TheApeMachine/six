@@ -197,7 +197,7 @@ func WriteMultiPanel(
 
 func WriteProse(
 	tmplSrc string,
-	data map[string]any,
+	data any,
 	outDir,
 	outFile string,
 ) error {

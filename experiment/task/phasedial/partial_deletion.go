@@ -1,11 +1,14 @@
 package phasedial
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
 
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -97,38 +100,17 @@ func (experiment *PartialDeletionExperiment) Artifacts() []tools.Artifact {
 			Type:     tools.ArtifactProse,
 			FileName: "partial_deletion_section.tex",
 			Data: tools.ProseData{
-				Template: `\subsection{Partial Deletion}
-\label{sec:partial_deletion}
-
-\paragraph{Task Description.}
-The partial deletion experiment evaluates the topological resilience of the PhaseDial to sparse
+				Template: projector.ExperimentSectionTmpl,
+				Data: tools.ExperimentSection{
+					Title: "Partial Deletion",
+					Label: "partial_deletion",
+					TaskDescription: `The partial deletion experiment evaluates the topological resilience of the PhaseDial to sparse
 manifolds.  After ingesting a full corpus, a fraction of substrate
 entries is deleted, and retrieval quality is re-evaluated.  The score
-reflects how gracefully the value manifold degrades under erasure.
-
-\paragraph{Results.}
-Figure~\ref{fig:partial_deletion_map} shows the trial outcome map.
-The mean weighted score was {{.Score | f3}} across $N = {{.N}}$ samples.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong performance on this geometric property,
-confirming that the invariant holds reliably at this ingestion scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but becomes unreliable under more challenging conditions.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this stage.  The phasedial
-experiments require a functional Finalize path to populate the substrate
-with compositional data; this infrastructure is being rebuilt during
-the current refactoring phase.
-{{- end}}
-`,
-				Data: map[string]any{
-					"N":     len(experiment.tableData),
-					"Score": experiment.Score(),
+reflects how gracefully the value manifold degrades under erasure.`,
+					Results:    fmt.Sprintf(`The mean weighted score was %s across $N = %d$ samples.`, projector.F3(experiment.Score()), len(experiment.tableData)),
+					Assessment: phasedialAssessment(experiment.Score()),
+					FigureRef:  "fig:partial_deletion_map",
 				},
 			},
 		},

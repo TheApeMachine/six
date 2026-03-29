@@ -1,5 +1,23 @@
 package phasedial
 
+// phasedialAssessment returns a standardised assessment paragraph for a
+// phasedial experiment based on the overall score.
+func phasedialAssessment(score float64) string {
+	switch {
+	case score > 0.5:
+		return `The substrate demonstrated strong performance on this geometric property,
+confirming that the invariant holds reliably at this ingestion scale.`
+	case score > 0.1:
+		return `Partial invariance was observed.  The property holds for a subset of
+samples but becomes unreliable under more challenging conditions.`
+	default:
+		return `The property was not reliably detected at this stage.  The phasedial
+experiments require a functional Finalize path to populate the substrate
+with compositional data; this infrastructure is being rebuilt during
+the current refactoring phase.`
+	}
+}
+
 // TwoHopTrace records one (α₂, best-C) sample from a two-hop sweep.
 type TwoHopTrace struct {
 	Alpha2      float64 `json:"alpha2"`
