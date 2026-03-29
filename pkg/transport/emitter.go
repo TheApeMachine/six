@@ -13,27 +13,28 @@ read/write stream. It is used to perform the folding operation.
 */
 type Emitter struct {
 	passthrough io.Writer
-	tee         io.Reader
+	forward     io.Reader
 	wait        *primitive.Value
 }
 
 /*
-NewEmitter wires the pipe ends: writes go to target (pw). Reads use a
-tee on forward (pr) so every byte consumed is also written back to target,
-re-inserting the emitted frame into the stream ring.
+NewEmitter wires the pipe ends: writes go to target (pw). Reads use the
+forward reader (pr). Every byte consumed is processed and then explicitly
+written back to target to re-insert the (now potentially mutated) frame
+into the stream ring.
 */
 func NewEmitter(forward io.Reader, target io.Writer) *Emitter {
 	return &Emitter{
 		passthrough: target,
-		tee:         io.TeeReader(forward, target),
+		forward:     forward,
 	}
 }
 
 /*
-Read reads from the emitter's tee reader into p (one ByteSize wire frame).
+Read reads from the emitter's forward reader into p (one ByteSize wire frame).
 
-The first Read seeds wait from the tee. Later reads fold additional
-tee bytes into wait via Value.Write, then serialize the folded Value
+The first Read seeds wait from the forward reader. Later reads fold additional
+bytes into wait via Value.Write, then serialize the folded Value
 into p. Callers must pass len(p) >= ByteSize (as Stream does via ReadFull).
 */
 func (emitter *Emitter) Read(p []byte) (n int, err error) {
@@ -43,23 +44,38 @@ func (emitter *Emitter) Read(p []byte) (n int, err error) {
 	p = p[:primitive.ByteSize]
 
 	if emitter.wait == nil {
-		if _, err = io.ReadFull(emitter.tee, p); err != nil {
+		if _, err = io.ReadFull(emitter.forward, p); err != nil {
 			errnie.Error(err)
 			return 0, err
 		}
+
+		// Re-insert the unmodified initial frame back into the ring
+		if _, err = emitter.passthrough.Write(p); err != nil {
+			errnie.Error(err)
+			return 0, err
+		}
+
 		emitter.wait = primitive.BytesToValue(p).Clone()
 		return primitive.ByteSize, nil
 	}
 
-	// One Read consumes exactly one wire frame from the tee. io.Copy would
-	// block until the pipe closes because TeeReader's source does not EOF.
+	// One Read consumes exactly one wire frame.
 	var next [primitive.ByteSize]byte
-	if _, err = io.ReadFull(emitter.tee, next[:]); err != nil {
+	if _, err = io.ReadFull(emitter.forward, next[:]); err != nil {
 		return 0, err
 	}
+
+	// Write mutates BOTH emitter.wait AND next[:] (the incoming partner).
 	if _, err = emitter.wait.Write(next[:]); err != nil {
 		return 0, err
 	}
+
+	// Re-insert the mutated partner (next) back into the ring!
+	// This physically allows Tombstone/Viral to survive and spread.
+	if _, err = emitter.passthrough.Write(next[:]); err != nil {
+		return 0, err
+	}
+
 	return emitter.wait.Read(p)
 }
 

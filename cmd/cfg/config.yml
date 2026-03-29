@@ -133,164 +133,249 @@ value:
 #   Loop: Write target line to PC. Exit loop: Write currentpc + 1 to PC.
 
 programs:
-  # Learn is a fitness controller, not a hardcoded fold/shatter recipe.
-  # It rewards edge novelty and arms tombstone on local stagnation.
+  # Learn evaluates fitness via Bitwise Overlap (A AND B).
+  # If Success: triggers Viral (fw=3).
+  # If Failure: Frustration++, if Frustration maxes out, triggers Tombstone (fw=2).
   learn: |
-    1     r0  0011 // A context = partner
-    3648  r1  0011 // A start = partner ValueID bit start
-    3712  r2  0011 // A end   = partner ValueID bit end
-    0     r3  0011 // B context = self
-    4480  r4  0011 // B start = r6 bit start
-    4544  r5  0011 // B end   = r6 bit end
-    r0    r3  0011 // COPY partner ValueID -> r6 candidate edge
+    0     r0  0011 # Self
+    0     r1  0011 # Tokens start
+    64    r2  0011 # Check first 64 bits for speed
+    0     r3  0011 # Self
+    4480  r4  0011 # r6 start
+    4544  r5  0011 # r6 end
+    r0    r3  0011 # COPY Self to r6
 
-    0     r0  0011 // A context = self
-    4480  r1  0011 // A start = r6 low-8 bit start
-    4488  r2  0011 // A end   = r6 low-8 bit end
-    0     r3  0011 // B context = self
-    4544  r4  0011 // B start = r7 low-8 bit start
-    4552  r5  0011 // B end   = r7 low-8 bit end
-    r0    r3  0011 // COPY candidate low-8 -> r7 low-8 scratch
+    1     r0  0011 # Partner
+    0     r1  0011 
+    64    r2  0011 
+    0     r3  0011 
+    4480  r4  0011 
+    4544  r5  0011 
+    r0    r3  0001 # r6 = r6 AND Partner
 
-    0     r0  0011 // A context = self
-    3968  r1  0011 // A start = accumulator low-8 bit start
-    3976  r2  0011 // A end   = accumulator low-8 bit end
-    0     r3  0011 // B context = self
-    4544  r4  0011 // B start = candidate low-8 scratch
-    4552  r5  0011 // B end   = candidate low-8 scratch end
-    r0    r3  0100 // novelty = candidate ANDNOT accumulator (into r7 low-8)
+    0     r0  0011
+    4480  r1  0011
+    4543  r2  0011
+    0     r3  0011
+    4481  r4  0011
+    4544  r5  0011
+    r0    r3  0111 # OR Cascade
 
-    0     r0  0011 // A context = self
-    4544  r1  0011 // A start = r7[0:7)
-    4551  r2  0011 // A end   = r7[0:7) end
-    0     r3  0011 // B context = self
-    4545  r4  0011 // B start = r7[1:8)
-    4552  r5  0011 // B end   = r7[1:8) end
-    r0    r3  0111 // OR cascade collapse (overlap carries to bit 4551)
+    0     r0  0011
+    4543  r1  0011
+    4544  r2  0011
+    0     r3  0011
+    4544  r4  0011
+    4545  r5  0011
+    r0    r3  0011 # Seed
 
-    0     r0  0011 // A context = self
-    4480  r1  0011 // A start = r6 candidate bit start
-    4544  r2  0011 // A end   = r6 candidate bit end
-    0     r3  0011 // B context = self
-    3968  r4  0011 // B start = accumulator bit start
-    4032  r5  0011 // B end   = accumulator bit end
-    r0    r3  0111 // accumulator OR= candidate (novelty bloom)
+    0     r0  0011
+    4544  r1  0011
+    4607  r2  0011
+    0     r3  0011
+    4545  r4  0011
+    4608  r5  0011
+    r0    r3  0111 # Cascade OR
 
-    0     r0  0011 // A context = self
-    3776  r1  0011 // A start = NextID bit start
-    3840  r2  0011 // A end   = NextID bit end
-    0     r3  0011 // B context = self
-    3712  r4  0011 // B start = PrevID bit start
-    3776  r5  0011 // B end   = PrevID bit end
-    r0    r3  0011 // COPY NextID -> PrevID
+    0     r0  0011 # r7
+    4544  r1  0011
+    4608  r2  0011
+    0     r3  0011 # r9
+    4672  r4  0011
+    4736  r5  0011
+    r0    r3  1100 # NOT A
 
-    0     r0  0011 // A context = self
-    4480  r1  0011 // A start = r6 candidate bit start
-    4544  r2  0011 // A end   = r6 candidate bit end
-    0     r3  0011 // B context = self
-    3776  r4  0011 // B start = NextID bit start
-    3840  r5  0011 // B end   = NextID bit end
-    r0    r3  0011 // COPY candidate -> NextID
+    0     r0  0011 # Frustration
+    3904  r1  0011
+    3967  r2  0011
+    0     r3  0011 # r8
+    4609  r4  0011
+    4672  r5  0011
+    r0    r3  0011 # Shift Left into r8
 
-    2     fw  0011 // default next firmware = tombstone
-    0     r0  0011 // A context = self
-    4551  r1  0011 // A start = progress bit
-    4552  r2  0011 // A end   = progress bit end
-    0     r3  0011 // B context = self
-    4736  r4  0011 // B start = fw bit 0
-    4737  r5  0011 // B end   = fw bit 0 end
-    r0    r3  0011 // COPY progress bit to fw bit0 => 2(tombstone) or 3(viral)
-  # Bootloader clears the mutable user-program span while preserving
-  # the resident ROM in words 76-79 (bits 4864-5119).
+    1     r8  0111 # Insert 1 at bit 0
+
+    0     r0  0011 # r9
+    4672  r1  0011
+    4736  r2  0011
+    0     r3  0011 # r8
+    4608  r4  0011
+    4672  r5  0011
+    r0    r3  0001 # r8 = r8 AND Fail Mask
+
+    0     r0  0011 # r7
+    4544  r1  0011
+    4608  r2  0011
+    0     r3  0011 # Frustration
+    3904  r4  0011
+    3968  r5  0011
+    r0    r3  0001 # Frustration = Frustration AND Success Mask
+
+    0     r0  0011 # r8
+    4608  r1  0011
+    4672  r2  0011
+    0     r3  0011 # Frustration
+    3904  r4  0011
+    3968  r5  0011
+    r0    r3  0111 # Frustration = Frustration OR r8
+
+    0     r0  0011
+    3967  r1  0011
+    3968  r2  0011
+    0     r3  0011 # r7
+    4544  r4  0011
+    4545  r5  0011
+    r0    r3  0011
+
+    0     r0  0011
+    4544  r1  0011
+    4607  r2  0011
+    0     r3  0011
+    4545  r4  0011
+    4608  r5  0011
+    r0    r3  0111 # Tombstone Mask
+
+    0     r0  0011
+    4544  r1  0011
+    4608  r2  0011
+    0     r3  0011
+    4672  r4  0011
+    4736  r5  0011
+    r0    r3  1100
+
+    2     r8  0011 # Tombstone ID
+    0     r0  0011 # r7
+    4544  r1  0011
+    4608  r2  0011
+    0     r3  0011 # r8
+    4608  r4  0011
+    4672  r5  0011
+    r0    r3  0001 # r8 = 2 AND Tombstone Mask
+
+    0     r0  0011 # r9
+    4672  r1  0011
+    4736  r2  0011
+    0     r3  0011 # fw
+    4736  r4  0011
+    4800  r5  0011
+    r0    r3  0001 # fw = fw AND Inverse Tombstone Mask
+
+    0     r0  0011 # r8
+    4608  r1  0011
+    4672  r2  0011
+    0     r3  0011 # fw
+    4736  r4  0011
+    4800  r5  0011
+    r0    r3  0111 # fw = fw OR
+
   bootloader: |
-    0     r0  0011 // A context = self
-    5120  r1  0011 // A start = first mutable program bit
-    8192  r2  0011 // A end   = end of frame
-    0     r3  0011 // B context = self
-    5120  r4  0011 // B start = first mutable program bit
-    8192  r5  0011 // B end   = end of frame
-    r0    r3  0000 // FALSE over A->B clears mutable program span
-    0     fw  0011 // Clear firmware selector
+    0     r0  0011
+    5120  r1  0011
+    8192  r2  0011
+    0     r3  0011
+    5120  r4  0011
+    8192  r5  0011
+    r0    r3  0000 
+    0     fw  0011 
 
-  # Tombstone propagates itself and the target ValueID in r6.
   tombstone: |
-    0     r0  0011 // A context = self
-    5120  r1  0011 // A start = first mutable program bit
-    8192  r2  0011 // A end   = end of frame
-    1     r3  0011 // B context = partner
-    5120  r4  0011 // B start = first mutable program bit
-    8192  r5  0011 // B end   = end of frame
-    r0    r3  0011 // COPY active tombstone program to partner
-    0     r0  0011 // A context = self
-    4480  r1  0011 // A start = r6 bit start
-    4544  r2  0011 // A end   = r6 bit end
-    1     r3  0011 // B context = partner
-    4480  r4  0011 // B start = r6 bit start
-    4544  r5  0011 // B end   = r6 bit end
-    r0    r3  0011 // COPY target ValueID to partner r6
-    0     r0  0011 // A context = self
-    4480  r1  0011 // A start = r6 bit start
-    4544  r2  0011 // A end   = r6 bit end
-    0     r3  0011 // B context = self
-    4544  r4  0011 // B start = r7 bit start
-    4608  r5  0011 // B end   = r7 bit end
-    r0    r3  0011 // COPY target ValueID to r7 scratch
-    0     r0  0011 // A context = self
-    3712  r1  0011 // A start = PrevID bit start
-    3776  r2  0011 // A end   = PrevID bit end
-    0     r3  0011 // B context = self
-    4544  r4  0011 // B start = r7 bit start
-    4608  r5  0011 // B end   = r7 bit end
-    r0    r3  1001 // XNOR PrevID with target into r7
-    0     r0  0011 // A context = self
-    4544  r1  0011 // A start = r7 bit start
-    4607  r2  0011 // A end   = r7 bit end - 1
-    0     r3  0011 // B context = self
-    4545  r4  0011 // B start = r7 bit start + 1
-    4608  r5  0011 // B end   = r7 bit end
-    r0    r3  0001 // AND collapse r7 to final decision bit
-    0     r0  0011 // A context = self
-    4607  r1  0011 // A start = collapsed match bit
-    4608  r2  0011 // A end   = collapsed match bit + 1
-    0     r3  0011 // B context = self
-    3712  r4  0011 // B start = PrevID bit start
-    3776  r5  0011 // B end   = PrevID bit end
-    r0    r3  0100 // if match then zero PrevID, else keep it
-    0     r0  0011 // A context = self
-    4480  r1  0011 // A start = r6 bit start
-    4544  r2  0011 // A end   = r6 bit end
-    0     r3  0011 // B context = self
-    4544  r4  0011 // B start = r7 bit start
-    4608  r5  0011 // B end   = r7 bit end
-    r0    r3  0011 // COPY target ValueID to r7 scratch
-    0     r0  0011 // A context = self
-    3776  r1  0011 // A start = NextID bit start
-    3840  r2  0011 // A end   = NextID bit end
-    0     r3  0011 // B context = self
-    4544  r4  0011 // B start = r7 bit start
-    4608  r5  0011 // B end   = r7 bit end
-    r0    r3  1001 // XNOR NextID with target into r7
-    0     r0  0011 // A context = self
-    4544  r1  0011 // A start = r7 bit start
-    4607  r2  0011 // A end   = r7 bit end - 1
-    0     r3  0011 // B context = self
-    4545  r4  0011 // B start = r7 bit start + 1
-    4608  r5  0011 // B end   = r7 bit end
-    r0    r3  0001 // AND collapse r7 to final decision bit
-    0     r0  0011 // A context = self
-    4607  r1  0011 // A start = collapsed match bit
-    4608  r2  0011 // A end   = collapsed match bit + 1
-    0     r3  0011 // B context = self
-    3776  r4  0011 // B start = NextID bit start
-    3840  r5  0011 // B end   = NextID bit end
-    r0    r3  0100 // if match then zero NextID, else keep it
+    0     r0  0011
+    5120  r1  0011 
+    8192  r2  0011 
+    1     r3  0011 
+    5120  r4  0011
+    8192  r5  0011
+    r0    r3  0011 
 
-  # Viral copies the active mutable user-program span from self to partner.
+    0     r0  0011
+    3648  r1  0011 
+    3712  r2  0011
+    0     r3  0011 
+    4480  r4  0011
+    4544  r5  0011
+    r0    r3  0011
+
+    1     r0  0011
+    3712  r1  0011
+    3776  r2  0011
+    0     r3  0011 
+    4480  r4  0011
+    4544  r5  0011
+    r0    r3  1001
+
+    0     r0  0011
+    4480  r1  0011
+    4543  r2  0011
+    0     r3  0011
+    4481  r4  0011
+    4544  r5  0011
+    r0    r3  0001
+
+    0     r0  0011
+    4543  r1  0011
+    4544  r2  0011
+    0     r3  0011 
+    4544  r4  0011
+    4545  r5  0011
+    r0    r3  0011
+
+    0     r0  0011
+    4544  r1  0011
+    4607  r2  0011
+    0     r3  0011
+    4545  r4  0011
+    4608  r5  0011
+    r0    r3  0111
+
+    0     r0  0011
+    4544  r1  0011
+    4608  r2  0011
+    0     r3  0011 
+    4608  r4  0011
+    4672  r5  0011
+    r0    r3  1100
+
+    0     r0  0011
+    4608  r1  0011
+    4672  r2  0011
+    1     r3  0011 
+    3712  r4  0011
+    3776  r5  0011
+    r0    r3  0001
+
   viral: |
-    0     r0  0011 // A context = self
-    5120  r1  0011 // A start = first mutable program bit
-    8192  r2  0011 // A end   = end of frame
-    1     r3  0011 // B context = partner
-    5120  r4  0011 // B start = first mutable program bit
-    8192  r5  0011 // B end   = end of frame
-    r0    r3  0011 // COPY A to B
+    0     r0  0011
+    5120  r1  0011
+    8192  r2  0011
+    1     r3  0011
+    5120  r4  0011
+    8192  r5  0011
+    r0    r3  0011
+
+    0     r0  0011
+    4672  r1  0011
+    4736  r2  0011
+    1     r3  0011
+    4736  r4  0011
+    4800  r5  0011
+    r0    r3  0011
+
+    1     r3  0011
+    4800  r4  0011
+    4864  r5  0011
+    0     r0  0000
+    r0    r3  0000
+
+    0     r0  0011
+    4672  r1  0011
+    4736  r2  0011
+    0     r3  0011
+    4736  r4  0011
+    4800  r5  0011
+    r0    r3  0011
+
+    0     r3  0011
+    4800  r4  0011
+    4864  r5  0011
+    0     r0  0000
+    r0    r3  0000

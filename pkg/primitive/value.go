@@ -244,6 +244,8 @@ func (value *Value) Write(p []byte) (int, error) {
 		}
 	}
 
+	valueTo(incoming, p)
+
 	return len(p), nil
 }
 
@@ -524,7 +526,6 @@ func (value *Value) Clone() *Value {
 	registerPooledLifecycle(clone)
 	clone.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
 	// Do not blindly install bootloader on a clone, we want to clone the exact state!
-	// If it had a program, it should retain it.
 	return clone
 }
 
