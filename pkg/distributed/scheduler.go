@@ -3,7 +3,6 @@ package distributed
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -91,12 +90,33 @@ func (s *Scheduler) ScheduleUniversalBitwise(
 
 	var lastErr error
 
+	// Basic concurrent scheduling hedging to avoid head-of-line blocking
+	// from bad nodes hanging HTTP connections.
+	type result struct {
+		resp *UniversalBitwiseJobResponse
+		err  error
+	}
+	resCh := make(chan result, len(candidates))
+	childCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
 	for _, n := range candidates {
-		resp, err := s.tryNode(ctx, n, left, right)
-		if err == nil {
-			return resp, nil
+		go func(node Node) {
+			resp, err := s.tryNode(childCtx, node, left, right)
+			resCh <- result{resp, err}
+		}(n)
+	}
+
+	for i := 0; i < len(candidates); i++ {
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case r := <-resCh:
+			if r.err == nil {
+				return r.resp, nil
+			}
+			lastErr = r.err
 		}
-		lastErr = err
 	}
 
 	if lastErr == nil {
@@ -110,12 +130,10 @@ func (s *Scheduler) tryNode(
 	node Node,
 	left, right []byte,
 ) (*UniversalBitwiseJobResponse, error) {
-	reqBody, err := json.Marshal(UniversalBitwiseJobRequest{
-		Left:  left,
-		Right: right,
-	})
-	if err != nil {
-		return nil, err
+	reqBody := make([]byte, primitive.ByteSize*2)
+	copy(reqBody[:primitive.ByteSize], left)
+	if len(right) > 0 {
+		copy(reqBody[primitive.ByteSize:], right)
 	}
 
 	url := toHTTPURL(node.Addr, s.path)
@@ -123,7 +141,7 @@ func (s *Scheduler) tryNode(
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Content-Type", "application/octet-stream")
 
 	httpResp, err := s.client.Do(req)
 	if err != nil {
@@ -131,22 +149,25 @@ func (s *Scheduler) tryNode(
 	}
 	defer httpResp.Body.Close()
 
-	body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 2<<20))
 	if httpResp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(httpResp.Body, 2<<10))
 		return nil, fmt.Errorf("node %s status %d: %s", node.Addr, httpResp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	var resp UniversalBitwiseJobResponse
-	if err := json.Unmarshal(body, &resp); err != nil {
-		return nil, err
+	respBody := make([]byte, primitive.ByteSize*2)
+	n, err := io.ReadFull(httpResp.Body, respBody)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return nil, fmt.Errorf("node %s read response: %w", node.Addr, err)
 	}
-	if resp.Error != "" {
-		return nil, fmt.Errorf("node %s: %s", node.Addr, resp.Error)
+	if n != primitive.ByteSize*2 {
+		return nil, fmt.Errorf("node %s returned invalid frame sizes left+right=%d", node.Addr, n)
 	}
-	if len(resp.Left) != primitive.ByteSize || len(resp.Right) != primitive.ByteSize {
-		return nil, fmt.Errorf("node %s returned invalid frame sizes left=%d right=%d", node.Addr, len(resp.Left), len(resp.Right))
-	}
-	return &resp, nil
+
+	return &UniversalBitwiseJobResponse{
+		NodeID: node.ID,
+		Left:   respBody[:primitive.ByteSize],
+		Right:  respBody[primitive.ByteSize:],
+	}, nil
 }
 
 func toHTTPURL(addr, path string) string {

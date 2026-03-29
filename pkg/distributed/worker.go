@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"runtime"
 	"strings"
@@ -234,27 +235,32 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 	done := w.beginJob()
 	defer done()
 
-	var job UniversalBitwiseJobRequest
-	if err := json.NewDecoder(http.MaxBytesReader(rw, req.Body, 2<<20)).Decode(&job); err != nil {
-		http.Error(rw, fmt.Sprintf("decode request: %v", err), http.StatusBadRequest)
+	body := make([]byte, primitive.ByteSize*2)
+	n, err := io.ReadFull(req.Body, body)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		http.Error(rw, fmt.Sprintf("read request: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	if len(job.Left) != primitive.ByteSize {
-		http.Error(rw, fmt.Sprintf("left frame size %d, want %d", len(job.Left), primitive.ByteSize), http.StatusBadRequest)
+	if n != primitive.ByteSize && n != primitive.ByteSize*2 {
+		http.Error(rw, fmt.Sprintf("invalid payload size %d, want %d or %d", n, primitive.ByteSize, primitive.ByteSize*2), http.StatusBadRequest)
 		return
 	}
-	if len(job.Right) == 0 {
-		job.Right = make([]byte, primitive.ByteSize)
-	}
-	if len(job.Right) != primitive.ByteSize {
-		http.Error(rw, fmt.Sprintf("right frame size %d, want %d", len(job.Right), primitive.ByteSize), http.StatusBadRequest)
-		return
+
+	leftBytes := body[:primitive.ByteSize]
+	var rightBytes []byte
+	if n == primitive.ByteSize*2 {
+		rightBytes = body[primitive.ByteSize:]
+	} else {
+		rightBytes = make([]byte, primitive.ByteSize)
 	}
 
 	start := time.Now()
-	left := primitive.BytesToValue(job.Left)
-	right := primitive.BytesToValue(job.Right)
+	left := primitive.BytesToValue(leftBytes)
+	right := primitive.BytesToValue(rightBytes)
+
+	defer left.Release()
+	defer right.Release()
 
 	if err := compute.UniversalBitwise(unsafe.Pointer(left), unsafe.Pointer(right)); err != nil {
 		dur := time.Since(start)
@@ -268,11 +274,8 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 				Message:    err.Error(),
 			},
 		})
-		writeJSON(rw, http.StatusOK, UniversalBitwiseJobResponse{
-			NodeID:     w.discovery.Self().ID,
-			DurationMS: dur.Milliseconds(),
-			Error:      err.Error(),
-		})
+		rw.WriteHeader(http.StatusInternalServerError)
+		rw.Write([]byte(err.Error()))
 		return
 	}
 
@@ -287,17 +290,16 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 		},
 	})
 
+	rw.Header().Set("Content-Type", "application/octet-stream")
+	rw.WriteHeader(http.StatusOK)
+
 	leftOut := make([]byte, primitive.ByteSize)
 	rightOut := make([]byte, primitive.ByteSize)
 	_ = primitive.ValueToBytes(left, leftOut)
 	_ = primitive.ValueToBytes(right, rightOut)
 
-	writeJSON(rw, http.StatusOK, UniversalBitwiseJobResponse{
-		NodeID:     w.discovery.Self().ID,
-		DurationMS: dur.Milliseconds(),
-		Left:       leftOut,
-		Right:      rightOut,
-	})
+	rw.Write(leftOut)
+	rw.Write(rightOut)
 }
 
 func writeJSON(rw http.ResponseWriter, status int, payload any) {

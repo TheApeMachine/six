@@ -7,11 +7,19 @@ import (
 	"io"
 	"runtime"
 
+	"go.uber.org/zap"
+
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/transport"
 	"github.com/theapemachine/six/pkg/transport/adapter"
 )
+
+type SubstrateConfig struct {
+	ValueConfig core.ValueConfig
+	Logger      *zap.Logger
+}
 
 /*
 Machine provides a unified stream processing pipeline using github.com/whitaker-io/machine
@@ -30,6 +38,7 @@ type Machine struct {
 	err     error
 	stream  *transport.Stream
 	dataset io.ReadCloser
+	config  SubstrateConfig
 }
 
 type machineOption func(*Machine)

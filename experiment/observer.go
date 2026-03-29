@@ -32,6 +32,8 @@ type Observer struct {
 
 	done    chan struct{}
 	emitter telemetry.Emitter
+
+	lastFrame atomic.Pointer[[primitive.ByteSize]byte]
 }
 
 func NewObserver(target io.ReadWriter) *Observer {
@@ -83,6 +85,10 @@ func (o *Observer) pollMetrics() {
 				default:
 				}
 
+				if frame := o.lastFrame.Load(); frame != nil {
+					o.emitter.EmitFrame((*frame)[:])
+				}
+
 				o.emitter.Emit(telemetry.Event{
 					Component: "Pipeline",
 					Action:    "Step",
@@ -130,8 +136,8 @@ func (o *Observer) measure(p []byte, n int) {
 		o.lastDensity.Store(int64(density))
 		o.opsCount.Add(1)
 
-		// Mirror every raw Value frame so the visualizer can reconstruct the exact
-		// data flow. The metrics event above stays throttled to keep the HUD light.
-		o.emitter.EmitFrame(p[:primitive.ByteSize])
+		var frameCopy [primitive.ByteSize]byte
+		copy(frameCopy[:], p[:primitive.ByteSize])
+		o.lastFrame.Store(&frameCopy)
 	}
 }

@@ -246,7 +246,7 @@ function addFoldNode(bin, level, density, text, childCount) {
       foldLayer.remove(old.line);
       old.line.geometry.dispose();
       const m = old.line.material;
-      if (m) (Array.isArray(m) ? m : [m]).forEach((mat) => mat.dispose());
+      if (m) (Array.isArray(m) ? m : [m]).forEach((mat) => { mat.dispose(); });
     }
   }
 }
@@ -258,7 +258,7 @@ function clearFoldNodes() {
       foldLayer.remove(n.line);
       n.line.geometry.dispose();
       const m = n.line.material;
-      if (m) (Array.isArray(m) ? m : [m]).forEach((mat) => mat.dispose());
+      if (m) (Array.isArray(m) ? m : [m]).forEach((mat) => { mat.dispose(); });
     }
   }
   foldNodes.length = 0;
@@ -276,15 +276,31 @@ function resetFoldGraph() {
 // ═══════════════════════════════════════════════════════════
 let _logFilterDirty = false;
 
+const logDivPool = [];
+function getLogDiv() {
+  if (logDivPool.length > 0) {
+    const div = logDivPool.pop();
+    div.onclick = null;
+    div.className = '';
+    div.classList.remove('filtered-out');
+    return div;
+  }
+  return document.createElement('div');
+}
+
+function releaseLogDiv(div) {
+  logDivPool.push(div);
+}
+
 function log(text, type = 'state', eventRef = null) {
-  const div = document.createElement('div');
+  const div = getLogDiv();
   div.className = `log-line log-${type}`;
   div.dataset.type = type;
   const t = new Date().toISOString().split('T')[1].slice(0, -1);
   div.textContent = `${t} ${text}`;
 
   if (eventRef) {
-    div.addEventListener('click', () => showEventDetail(eventRef));
+    div.onclick = () => showEventDetail(eventRef);
   }
 
   // Apply filter to the new line only (avoids re-scanning all children)
@@ -303,7 +319,11 @@ function log(text, type = 'state', eventRef = null) {
   }
 
   logBox.insertBefore(div, logBox.firstChild);
-  while (logBox.children.length > 80) logBox.removeChild(logBox.lastChild);
+  while (logBox.children.length > 80) {
+    const old = logBox.lastChild;
+    logBox.removeChild(old);
+    releaseLogDiv(old);
+  }
 }
 
 let logFilterType = 'all';

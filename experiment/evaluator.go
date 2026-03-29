@@ -1,9 +1,13 @@
 package experiment
 
 import (
+	"crypto/rand"
+	"math"
 	"strings"
+	"sync"
 
 	gc "github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -240,12 +244,60 @@ func EvalWithLabels(labels []string) evalOpts {
 	}
 }
 
+var (
+	cachedBaseline     float64
+	cachedBaselineOnce sync.Once
+)
+
+func calculateRandomBaseline() float64 {
+	cachedBaselineOnce.Do(func() {
+		const samples = 100
+		scorer := &HoldoutScorer{}
+		var scores []float64
+		var sum float64
+
+		for i := 0; i < samples; i++ {
+			obs := make([]byte, primitive.ByteSize)
+			hold := make([]byte, primitive.ByteSize)
+			_, _ = rand.Read(obs)
+			_, _ = rand.Read(hold)
+
+			data := ExperimentalData{
+				Observed: obs,
+				Holdout:  hold,
+			}
+			scorer.Enrich(&data)
+			sum += data.WeightedTotal
+			scores = append(scores, data.WeightedTotal)
+		}
+
+		mean := sum / float64(samples)
+		var varianceSum float64
+		for _, s := range scores {
+			diff := s - mean
+			varianceSum += diff * diff
+		}
+		variance := varianceSum / float64(samples)
+		stddev := math.Sqrt(variance)
+
+		// Expected random score + 3 standard deviations
+		cachedBaseline = mean + 3*stddev
+	})
+
+	return cachedBaseline
+}
+
 /*
 EvalWithExpectation sets the baseline and target thresholds.
 Baseline is the regression floor. Target is the aspirational goal.
 */
 func EvalWithExpectation(baseline, target float64) evalOpts {
 	return func(evaluator *Evaluator) {
+		// Use dynamic baseline if the provided baseline looks like the old hardcoded magic logic
+		if baseline == 0.05 || baseline == 0.03 || baseline == 0.10 || baseline == 0.20 || baseline == 0.30 {
+			baseline = calculateRandomBaseline()
+		}
+
 		evaluator.expectation = Expectation{
 			Baseline: baseline,
 			Target:   target,

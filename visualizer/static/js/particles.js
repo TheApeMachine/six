@@ -9,8 +9,29 @@ import { SYS, CONNS, resolveZoneKey } from './architecture.js';
 import { pulseSystemNode } from './system-viz.js';
 
 // ── Data Stream Labels (CSS2D text flowing between zones) ────
-const dataStreams = [];
+const activeDataStreams = [];
+const streamPool = [];
 const MAX_STREAMS = 60;
+
+function getStreamLabel() {
+  if (streamPool.length > 0) {
+    const pooled = streamPool.pop();
+    pooled.div.style.display = 'block';
+    pooled.lbl.visible = true;
+    return pooled;
+  }
+  const div = document.createElement('div');
+  div.className = 'data-stream-label';
+  const lbl = new CSS2DObject(div);
+  flowLayer.add(lbl);
+  return { div, lbl };
+}
+
+function releaseStreamLabel(s) {
+  s.div.style.display = 'none';
+  s.lbl.visible = false;
+  streamPool.push({ div: s.div, lbl: s.lbl });
+}
 
 export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration = 2800) {
   const from = SYS[resolveZoneKey(fromKey)], to = SYS[resolveZoneKey(toKey)];
@@ -20,19 +41,17 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
   const pathKey = `${resolveZoneKey(fromKey)}>${resolveZoneKey(toKey)}`;
 
   // Rate-limit streams on same path
-  const existing = dataStreams.filter(s => s.pathKey === pathKey);
+  const existing = activeDataStreams.filter(s => s.pathKey === pathKey);
   if (existing.length > 0) {
     const newest = existing[existing.length - 1];
     const age = (Date.now() - newest.t0) / newest.dur;
     if (age < 0.12) return;
   }
 
-  const div = document.createElement('div');
+  const { div, lbl } = getStreamLabel();
   div.className = `data-stream-label ${streamClass}`;
   div.textContent = displayText;
   pulseSystemNode(resolveZoneKey(fromKey), displayText);
-
-  const lbl = new CSS2DObject(div);
 
   // Use arc path from CONNS if available
   const conn = CONNS.find(c => c.from === resolveZoneKey(fromKey) && c.to === resolveZoneKey(toKey));
@@ -48,9 +67,7 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
     lbl.position.copy(startPos);
   }
 
-  flowLayer.add(lbl);
-
-  dataStreams.push({
+  activeDataStreams.push({
     lbl,
     div,
     pathKey,
@@ -61,23 +78,23 @@ export function spawnDataStream(fromKey, toKey, text, streamClass = '', duration
     dur: duration,
   });
 
-  while (dataStreams.length > MAX_STREAMS) {
-    const old = dataStreams.shift();
-    flowLayer.remove(old.lbl);
+  while (activeDataStreams.length > MAX_STREAMS) {
+    const old = activeDataStreams.shift();
+    releaseStreamLabel(old);
   }
 }
 
 export function updateDataStreams() {
-  if (dataStreams.length === 0) return; // Fast exit when idle
+  if (activeDataStreams.length === 0) return; // Fast exit when idle
   const now = Date.now();
 
-  for (let i = dataStreams.length - 1; i >= 0; i--) {
-    const s = dataStreams[i];
+  for (let i = activeDataStreams.length - 1; i >= 0; i--) {
+    const s = activeDataStreams[i];
     const t = (now - s.t0) / s.dur;
 
     if (t >= 1) {
-      flowLayer.remove(s.lbl);
-      dataStreams.splice(i, 1);
+      releaseStreamLabel(s);
+      activeDataStreams.splice(i, 1);
       continue;
     }
 
@@ -96,10 +113,10 @@ export function updateDataStreams() {
 }
 
 export function clearDataStreams() {
-  for (const s of dataStreams) {
-    flowLayer.remove(s.lbl);
+  for (const s of activeDataStreams) {
+    releaseStreamLabel(s);
   }
-  dataStreams.length = 0;
+  activeDataStreams.length = 0;
 }
 
 // ── GPU Particle Streams ───────────────────────────────────

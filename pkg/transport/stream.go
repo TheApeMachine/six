@@ -14,24 +14,6 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
-// maxPoolBufCap limits pooled slice backing arrays so a single Read cannot return
-// a huge buffer to the pool after unbounded appends.
-const maxPoolBufCap = 4096
-
-var bufPool = sync.Pool{
-	New: func() any {
-		return make([]byte, 1024)
-	},
-}
-
-func putBufToPool(b []byte) {
-	if cap(b) > maxPoolBufCap {
-		bufPool.Put(make([]byte, 0, 1024))
-		return
-	}
-	bufPool.Put(b[:0:cap(b)])
-}
-
 type Stream struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -104,32 +86,34 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 	default:
 	}
 
-	buf := bufPool.Get().([]byte)[:0]
-	defer putBufToPool(buf)
+	copied := 0
 
 	for i := range len(stream.emitter) {
 		idx := (i + stream.ptr) % stream.regions
 
-		if n, err = io.ReadFull(
+		var readN int
+		if readN, err = io.ReadFull(
 			stream.emitter[idx],
 			stream.frame[idx],
 		); err != nil {
 			if errors.Is(err, io.ErrClosedPipe) {
-				return n, io.EOF
+				return copied, io.EOF
 			}
 
-			return n, err
+			return copied, err
 		}
 
 		for _, adapter := range stream.adapters {
-			_, _ = adapter.Write(stream.frame[idx][:n])
+			_, _ = adapter.Write(stream.frame[idx][:readN])
 		}
 
-		buf = append(buf, stream.frame[idx][:n]...)
+		if copied < len(p) {
+			copied += copy(p[copied:], stream.frame[idx][:readN])
+		}
 	}
 
 	stream.resetTTL()
-	return copy(p, buf), nil
+	return copied, nil
 }
 
 func (stream *Stream) Write(p []byte) (n int, err error) {

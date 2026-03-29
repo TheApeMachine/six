@@ -3,9 +3,6 @@ package projector
 import (
 	"io"
 	"os"
-	"os/exec"
-	"path/filepath"
-	"sync"
 )
 
 /*
@@ -21,53 +18,15 @@ func WriteTable(data any, outDir, outFile string) error {
 		return err
 	}
 	defer f.Close()
-	defer TriggerAutoBuild()
 	return NewTable(
 		TableWithData(data),
 		TableWithOutput(f),
 	).Generate()
 }
 
-var autobuildOnce sync.Once
-
-// TriggerAutoBuild spawns a background bash script to
-// debounce and compile the paper automatically.
 func TriggerAutoBuild() {
-	autobuildOnce.Do(func() {
-		wd, _ := os.Getwd()
-		rootDir := ""
-		for d := wd; d != ""; d = filepath.Dir(d) {
-			if _, err := os.Stat(
-				filepath.Join(d, "go.mod"),
-			); err == nil {
-				rootDir = d
-				break
-			}
-
-			if d == filepath.Dir(d) {
-				break
-			}
-		}
-
-		if rootDir == "" {
-			return
-		}
-
-		script := `
-sleep 1
-if mkdir /tmp/six_paper_lock 2>/dev/null; then
-	trap 'rm -rf /tmp/six_paper_lock' EXIT
-	sleep 3
-	cd "` + rootDir + `" || exit 1
-	# don't trigger go run paper inside an active go build lock if we can avoid it
-	go run main.go paper >/dev/null 2>&1
-	cd paper || exit 1
-	pdflatex -interaction=nonstopmode main.tex >/dev/null 2>&1
-fi
-`
-		cmd := exec.Command("bash", "-c", script)
-		cmd.Start()
-	})
+	// AutoBuild disabled to prevent asynchronous LaTeX compilation race conditions
+	// Paper compilation should be a distinct manual step using `go run main.go paper`
 }
 
 func WriteBarChart(
@@ -80,7 +39,7 @@ func WriteBarChart(
 	filename string,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	c := NewBarChart(
 		BarChartWithAxes(xAxis, series),
@@ -107,7 +66,7 @@ func WriteLineChart(
 	yMax float64,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	c := NewLineChart(
 		LineChartWithAxes(xAxis, series),
@@ -137,7 +96,7 @@ func WriteComboChart(
 	filename string,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	c := NewComboChart(
 		ComboChartWithAxes(xAxis, series),
@@ -167,7 +126,7 @@ func WriteHeatMap(
 	filename string,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	hm := NewHeatMap(
 		HeatMapWithData(xAxis, yAxis, data, minV, maxV),
@@ -193,7 +152,7 @@ func WriteConfusionMatrix(
 	filename string,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	cm := NewConfusionMatrix(
 		ConfusionMatrixWithData(labels, matrix),
@@ -220,7 +179,7 @@ func WriteMultiPanel(
 	filename string,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	mp := NewMultiPanel(
 		MultiPanelWithPanels(panels...),
@@ -242,7 +201,7 @@ func WriteProse(
 	outDir,
 	outFile string,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	p := NewProse(
 		ProseWithTemplate(tmplSrc),
@@ -264,7 +223,7 @@ func WriteImageStrip(
 	filename string,
 	out *os.File,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	is := NewImageStrip(
 		ImageStripWithData(rows),

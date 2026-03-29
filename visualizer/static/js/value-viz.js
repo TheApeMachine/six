@@ -14,6 +14,7 @@ const TOTAL_BITS = WORDS * 64;
 const DISPLAY_BITS = 512;
 
 let cellMeshes = [];
+let instancedCellMesh = null;
 let regionLabels = [];
 let valueRingGroup = null;
 
@@ -626,40 +627,64 @@ export function buildValueRing() {
   const anchor = SYS.machine || SYS.emitter || { x: 0, z: 0 };
   valueRingGroup.position.set(anchor.x, 3.0, anchor.z);
 
-  const cellGeo = new THREE.BoxGeometry(0.06, 0.12, 0.06);
-  cellMeshes = [];
+	  const cellGeo = new THREE.BoxGeometry(0.06, 0.12, 0.06);
+	  cellMeshes = [];
+	
+	  const instMat = new THREE.MeshBasicMaterial({
+	    color: 0xffffff,
+	    transparent: true,
+	    blending: THREE.AdditiveBlending,
+	    depthWrite: false,
+	  });
+	  instMat.onBeforeCompile = (shader) => {
+	    shader.vertexShader = shader.vertexShader.replace(
+	      '#include <color_vertex>',
+	      `#include <color_vertex>
+	       vColor = instanceColor.rgb;`
+	    );
+	    shader.fragmentShader = shader.fragmentShader.replace(
+	      '#include <color_fragment>',
+	      `#include <color_fragment>
+	       diffuseColor.a *= instanceColor.a;`
+	    );
+	  };
 
-  const cellMaterialCache = new Map();
-  function materialForField(field) {
-    const key = field ? fields.indexOf(field) : -1;
-    if (!cellMaterialCache.has(key)) {
-      cellMaterialCache.set(key, new THREE.MeshBasicMaterial({
-        color: fieldColor(field),
-        transparent: true,
-        opacity: 0.12,
-        blending: THREE.AdditiveBlending,
-        depthWrite: false,
-      }));
-    }
-    return cellMaterialCache.get(key);
-  }
-
-  for (let i = 0; i < DISPLAY_BITS; i++) {
-    const actualBit = Math.min(totalBits - 1, i * step);
-    const field = getRegionForBit(actualBit, fields);
-    const angle = (i / DISPLAY_BITS) * Math.PI * 2;
-    const fieldOffset = field ? fields.indexOf(field) * 0.11 : 0;
-    const radius = 5.5 + fieldOffset;
-    const mat = materialForField(field);
-
-    const cell = new THREE.Mesh(cellGeo, mat);
-    cell.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
-    cell.lookAt(0, 0, 0);
-    valueRingGroup.add(cell);
-    cellMeshes.push({ mesh: cell, bit: actualBit, field, baseOpacity: 0.12 });
-  }
-
-  const ringOutlineGeo = new THREE.RingGeometry(5.35, 5.65, 128, 1);
+	  instancedCellMesh = new THREE.InstancedMesh(cellGeo, instMat, DISPLAY_BITS);
+	  instancedCellMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+	  
+	  const colors = new Float32Array(DISPLAY_BITS * 4);
+	  instancedCellMesh.geometry.setAttribute('instanceColor', new THREE.InstancedBufferAttribute(colors, 4));
+	
+	  const dummy = new THREE.Object3D();
+	  const color = new THREE.Color();
+	
+	  for (let i = 0; i < DISPLAY_BITS; i++) {
+	    const actualBit = Math.min(totalBits - 1, i * step);
+	    const field = getRegionForBit(actualBit, fields);
+	    const angle = (i / DISPLAY_BITS) * Math.PI * 2;
+	    const fieldOffset = field ? fields.indexOf(field) * 0.11 : 0;
+	    const radius = 5.5 + fieldOffset;
+	    
+	    dummy.position.set(Math.cos(angle) * radius, 0, Math.sin(angle) * radius);
+	    dummy.lookAt(0, 0, 0);
+	    dummy.scale.set(1, 1, 1);
+	    dummy.updateMatrix();
+	    instancedCellMesh.setMatrixAt(i, dummy.matrix);
+	    
+	    const fColor = fieldColor(field);
+	    color.setHex(fColor);
+	    colors[i * 4 + 0] = color.r;
+	    colors[i * 4 + 1] = color.g;
+	    colors[i * 4 + 2] = color.b;
+	    colors[i * 4 + 3] = 0.12;
+	
+	    cellMeshes.push({ index: i, bit: actualBit, field, baseOpacity: 0.12, r: color.r, g: color.g, b: color.b, dummy: dummy });
+	  }
+	  instancedCellMesh.instanceMatrix.needsUpdate = true;
+	  instancedCellMesh.geometry.attributes.instanceColor.needsUpdate = true;
+	  valueRingGroup.add(instancedCellMesh);
+	
+	  const ringOutlineGeo = new THREE.RingGeometry(5.35, 5.65, 128, 1);
   const ringOutlineMat = new THREE.MeshBasicMaterial({
     color: 0x4080c0,
     transparent: true,
@@ -700,29 +725,36 @@ export function buildValueRing() {
 }
 
 export function updateValueFromBinaryBuffer(buf) {
-  if (!cellMeshes.length || buf == null) return;
+  if (!cellMeshes.length || buf == null || !instancedCellMesh) return;
 
   const bytes = decodeWireBuffer(buf);
   if (bytes.length < BYTE_SIZE) return;
 
+  const colors = instancedCellMesh.geometry.attributes.instanceColor.array;
   for (const cell of cellMeshes) {
     const bit = cell.bit;
     const byteIdx = bit >>> 3;
     const bitInByte = bit & 7;
     const active = ((bytes[byteIdx] >> bitInByte) & 1) === 1;
-    cell.mesh.material.opacity = active ? 0.78 : 0.08;
-    cell.mesh.scale.y = active ? 1.7 : 0.55;
+    
+    colors[cell.index * 4 + 3] = active ? 0.78 : 0.08;
+    cell.dummy.scale.y = active ? 1.7 : 0.55;
+    cell.dummy.updateMatrix();
+    instancedCellMesh.setMatrixAt(cell.index, cell.dummy.matrix);
   }
+  instancedCellMesh.instanceMatrix.needsUpdate = true;
+  instancedCellMesh.geometry.attributes.instanceColor.needsUpdate = true;
 }
 
 export function updateValueDisplay(data) {
-  if (!cellMeshes.length) return;
+  if (!cellMeshes.length || !instancedCellMesh) return;
 
   const dataPop = Number(data?.dataPop || 0);
   const operandPop = Number(data?.operandPop || 0);
   const affinityPop = Number(data?.affinityPop || 0);
   const programPop = Number(data?.programPop || 0);
 
+  const colors = instancedCellMesh.geometry.attributes.instanceColor.array;
   for (const cell of cellMeshes) {
     let active = false;
     let intensity = 0.12;
@@ -752,9 +784,13 @@ export function updateValueDisplay(data) {
       }
     }
 
-    cell.mesh.material.opacity = intensity;
-    cell.mesh.scale.y = active ? 1.45 : 0.6;
+    colors[cell.index * 4 + 3] = intensity;
+    cell.dummy.scale.y = active ? 1.45 : 0.6;
+    cell.dummy.updateMatrix();
+    instancedCellMesh.setMatrixAt(cell.index, cell.dummy.matrix);
   }
+  instancedCellMesh.instanceMatrix.needsUpdate = true;
+  instancedCellMesh.geometry.attributes.instanceColor.needsUpdate = true;
 }
 
 export function animateValueRing(time) {

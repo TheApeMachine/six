@@ -20,6 +20,7 @@ var (
 
 	traceFile   *os.File
 	traceInitMu sync.Mutex
+	traceQueue  chan string
 
 	loggerPtr atomic.Pointer[ErrnieLogger]
 
@@ -364,6 +365,15 @@ func ensureTraceFile() {
 	}
 
 	traceFile = f
+	traceQueue = make(chan string, 10000)
+	go func() {
+		for line := range traceQueue {
+			if _, err := traceFile.WriteString(line); err != nil {
+				fmt.Fprintf(os.Stderr, "errnie trace: write: %v\n", err)
+			}
+		}
+	}()
+
 	Debug("Trace log file initialized", "path", path)
 }
 
@@ -403,7 +413,7 @@ func formatTraceLine(parts []any) string {
 }
 
 func writeTraceLine(line string) {
-	if traceFile == nil {
+	if traceFile == nil || traceQueue == nil {
 		return
 	}
 
@@ -413,13 +423,11 @@ func writeTraceLine(line string) {
 		line += "\n"
 	}
 
-	_, err := traceFile.WriteString(line)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "errnie trace: write: %v\n", err)
+	select {
+	case traceQueue <- line:
+	default:
+		fmt.Fprintf(os.Stderr, "errnie trace: dropped line (buffer full)\n")
 	}
-	// Do not Sync per line: callers like the experiment pipeline emit one Trace per
-	// prompt (e.g. 1000+ rows). Per-line fsync dominated wall time and tripped test
-	// timeouts; the kernel flushes on process exit and under memory pressure.
 }
 
 func appendLineToFile(f *os.File, parts []any) {

@@ -30,6 +30,7 @@ type Discovery struct {
 	heartbeat    time.Duration
 	ttl          time.Duration
 	announce     bool
+	seedNodes    []string
 
 	mu    sync.RWMutex
 	nodes map[string]Node
@@ -123,6 +124,17 @@ func DiscoveryWithTTL(ttl time.Duration) discoveryOption {
 	}
 }
 
+func DiscoveryWithSeedNodes(nodes []string) discoveryOption {
+	return func(d *Discovery) {
+		d.seedNodes = make([]string, 0, len(nodes))
+		for _, n := range nodes {
+			if trimmed := strings.TrimSpace(n); trimmed != "" {
+				d.seedNodes = append(d.seedNodes, trimmed)
+			}
+		}
+	}
+}
+
 func DiscoveryWithCapacity(capacity int) discoveryOption {
 	return func(d *Discovery) {
 		if capacity < 0 {
@@ -141,18 +153,35 @@ func DiscoveryWithAnnounce(enabled bool) discoveryOption {
 func (d *Discovery) Start() error {
 	d.rx = network.NewUDPMulticast(network.UDPMulticastWithListener(d.discoveryGrp, d.iface))
 	if d.rx == nil || d.rx.Ready(d.ctx) != nil {
-		return fmt.Errorf("distributed discovery listener: failed to bind %s", d.discoveryGrp)
+		errnie.Warn("distributed discovery listener: failed to bind, falling back to seed nodes", "group", d.discoveryGrp)
+		d.rx = nil
 	}
 
 	d.tx = network.NewUDPMulticast(network.UDPMulticastWithDialer(d.discoveryGrp))
 	if d.tx == nil || d.tx.Ready(d.ctx) != nil {
-		_ = d.rx.Close()
-		return fmt.Errorf("distributed discovery dialer: failed to bind %s", d.discoveryGrp)
+		errnie.Warn("distributed discovery dialer: failed to bind, falling back to seed nodes", "group", d.discoveryGrp)
+		if d.rx != nil {
+			_ = d.rx.Close()
+			d.rx = nil
+		}
+		d.tx = nil
 	}
 
-	go d.recvLoop()
-	go d.announceLoop()
-	go d.pruneLoop()
+	for i, seed := range d.seedNodes {
+		d.upsertNode(Node{
+			ID:       fmt.Sprintf("seed-%d", i),
+			Addr:     seed,
+			Capacity: 1,                           // Assume basic capacity for static seed nodes
+			LastSeen: time.Now().Add(d.ttl * 100), // Seeds never expire
+			Self:     false,
+		})
+	}
+
+	if d.rx != nil && d.tx != nil {
+		go d.recvLoop()
+		go d.announceLoop()
+		go d.pruneLoop()
+	}
 
 	return nil
 }

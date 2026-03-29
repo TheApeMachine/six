@@ -125,8 +125,12 @@ func (pipeline *Pipeline) Run() (err error) {
 	}
 
 	// Recirculation loop: pump the stream to allow the dataset and seed to mix and evolve.
-	// Since there are around 1700 chunks, we pump it enough times to ensure full mixing.
-	pumpCount := 2000
+	// We pump based on the size of the stream/dataset to ensure full mixing rather than a hardcoded 2000.
+	pumpCount := pipeline.streamSize * 2 // Apply a 2x mixing multiplier to hydrated data
+	if pumpCount == 0 {
+		pumpCount = 100 // fallback if no dataset was hydrated
+	}
+
 	var wg sync.WaitGroup
 	for i := 0; i < pumpCount; i++ {
 		buf := make([]byte, primitive.ByteSize)

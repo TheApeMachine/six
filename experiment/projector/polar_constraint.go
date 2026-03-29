@@ -233,7 +233,7 @@ func WritePolarConstraint(
 	outDir, filename string,
 	out io.Writer,
 ) error {
-	defer TriggerAutoBuild()
+	
 
 	pc := NewPolarConstraintChart(
 		PolarConstraintWithSnapshots(data.Snapshots),
