@@ -13,6 +13,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/telemetry"
 	yaml "go.yaml.in/yaml/v3"
 )
 
@@ -147,6 +148,14 @@ func initConfig() {
 		return
 	}
 
+	if core.Cfg.TelemetryEnabled {
+		if sender, err := telemetry.NewUDPSender(core.Cfg.TelemetryEndpoint); err == nil {
+			telemetry.SetGlobal(sender)
+		} else {
+			errnie.Warn(fmt.Sprintf("telemetry: UDP sender disabled: %v", err))
+		}
+	}
+
 	loggingCfg, err := core.LoadLoggingConfig()
 	if err != nil {
 		initErr = fmt.Errorf("core.LoadLoggingConfig: %w", err)
@@ -154,6 +163,18 @@ func initConfig() {
 		return
 	}
 	errnie.InitLogger(loggingCfg)
+	compute.SetPoolEmitFunc(func(ev compute.PoolEvent) {
+		telemetry.Emit(telemetry.Event{
+			Component: "Pool",
+			Action:    ev.Action,
+			Data: telemetry.EventData{
+				DurationMs:  ev.DurationMs,
+				QueueSize:   ev.QueueSize,
+				WorkerCount: ev.Workers,
+				Message:     ev.Message,
+			},
+		})
+	})
 	compute.SetKernelObserver(compute.NewErrnieKernelObserver(2048))
 	errnie.Info(
 		"six.init",

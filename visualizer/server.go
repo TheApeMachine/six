@@ -82,6 +82,9 @@ func (server *Server) listenUDP(conn *net.UDPConn) error {
 		}
 
 		event := telemetry.DecodeBinary(buf[:n])
+		if event.Timestamp == 0 {
+			event.Timestamp = time.Now().UnixNano()
+		}
 		server.Broadcast(event)
 	}
 }
@@ -268,6 +271,7 @@ func (server *Server) handlePromptCommand(msg string) {
 		server.Broadcast(telemetry.Event{
 			Component: "Machine",
 			Action:    "Pipeline",
+			Timestamp: time.Now().UnixNano(),
 			Data: telemetry.EventData{
 				Stage:   "prompt-error",
 				Message: "no machine connected",
@@ -292,6 +296,7 @@ func (server *Server) handlePromptCommand(msg string) {
 		server.Broadcast(telemetry.Event{
 			Component: "Machine",
 			Action:    "Pipeline",
+			Timestamp: time.Now().UnixNano(),
 			Data: telemetry.EventData{
 				Stage:   "prompt-error",
 				Message: err.Error(),
@@ -335,6 +340,7 @@ func (server *Server) handleIngestCommand(text string) {
 		server.Broadcast(telemetry.Event{
 			Component: "Machine",
 			Action:    "Pipeline",
+			Timestamp: time.Now().UnixNano(),
 			Data: telemetry.EventData{
 				Stage:   "ingest-error",
 				Message: "no machine connected",
@@ -357,6 +363,7 @@ func (server *Server) handleIngestCommand(text string) {
 		server.Broadcast(telemetry.Event{
 			Component: "Machine",
 			Action:    "Pipeline",
+			Timestamp: time.Now().UnixNano(),
 			Data: telemetry.EventData{
 				Stage:   "ingest-error",
 				Message: err.Error(),

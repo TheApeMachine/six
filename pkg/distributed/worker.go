@@ -15,6 +15,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 type workerOption func(*Worker)
@@ -256,13 +257,35 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 	right := primitive.BytesToValue(job.Right)
 
 	if err := compute.UniversalBitwise(unsafe.Pointer(left), unsafe.Pointer(right)); err != nil {
+		dur := time.Since(start)
+		telemetry.Emit(telemetry.Event{
+			Component: "Pool",
+			Action:    "JobFail",
+			Data: telemetry.EventData{
+				TaskType:   "UniversalBitwise",
+				DurationMs: int(dur.Milliseconds()),
+				NodeAddr:   w.advertiseAddr,
+				Message:    err.Error(),
+			},
+		})
 		writeJSON(rw, http.StatusOK, UniversalBitwiseJobResponse{
 			NodeID:     w.discovery.Self().ID,
-			DurationMS: time.Since(start).Milliseconds(),
+			DurationMS: dur.Milliseconds(),
 			Error:      err.Error(),
 		})
 		return
 	}
+
+	dur := time.Since(start)
+	telemetry.Emit(telemetry.Event{
+		Component: "Pool",
+		Action:    "JobDone",
+		Data: telemetry.EventData{
+			TaskType:   "UniversalBitwise",
+			DurationMs: int(dur.Milliseconds()),
+			NodeAddr:   w.advertiseAddr,
+		},
+	})
 
 	leftOut := make([]byte, primitive.ByteSize)
 	rightOut := make([]byte, primitive.ByteSize)
@@ -271,7 +294,7 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 
 	writeJSON(rw, http.StatusOK, UniversalBitwiseJobResponse{
 		NodeID:     w.discovery.Self().ID,
-		DurationMS: time.Since(start).Milliseconds(),
+		DurationMS: dur.Milliseconds(),
 		Left:       leftOut,
 		Right:      rightOut,
 	})

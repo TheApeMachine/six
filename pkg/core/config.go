@@ -146,6 +146,7 @@ func LoadValueConfig() (err error) {
 }
 
 func syncTelemetryFromViper() {
+	Cfg.TelemetryEnabled = viper.GetBool("telemetry.enabled")
 	Cfg.TelemetryEndpoint = strings.TrimSpace(viper.GetString("telemetry.udp_endpoint"))
 	if Cfg.TelemetryEndpoint == "" {
 		Cfg.TelemetryEndpoint = "127.0.0.1:8258"
@@ -239,6 +240,10 @@ type Config struct {
 	// Firmware holds compiled programs from config.yml, indexed by position.
 	// Set a Value's firmware register to the index to select a program.
 	Firmware [FirmwareTypeViral + 1][]uint32
+
+	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
+	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
+	TelemetryEnabled bool
 
 	// TelemetryEndpoint is the UDP address for experiment/visualizer telemetry (e.g. "127.0.0.1:8258").
 	// Populated by LoadValueConfig from viper key "telemetry.udp_endpoint"; empty uses default in syncTelemetryFromViper.

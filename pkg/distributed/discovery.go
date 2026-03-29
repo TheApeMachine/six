@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/network"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 type discoveryOption func(*Discovery)
@@ -325,6 +326,7 @@ func (d *Discovery) pruneLoop() {
 			return
 		case <-t.C:
 			cutoff := time.Now().Add(-d.ttl)
+			var removed []Node
 			d.mu.Lock()
 			for id, n := range d.nodes {
 				if n.Self {
@@ -332,9 +334,22 @@ func (d *Discovery) pruneLoop() {
 				}
 				if n.LastSeen.Before(cutoff) {
 					delete(d.nodes, id)
+					removed = append(removed, n)
 				}
 			}
+			count := len(d.nodes)
 			d.mu.Unlock()
+			for _, n := range removed {
+				telemetry.Emit(telemetry.Event{
+					Component: "Kernel",
+					Action:    "PeerAdd",
+					Data: telemetry.EventData{
+						NodeAddr:  n.Addr,
+						NodeCount: count,
+						Message:   "leave",
+					},
+				})
+			}
 		}
 	}
 }
@@ -362,11 +377,25 @@ func (d *Discovery) sendHeartbeat() {
 
 func (d *Discovery) upsertNode(n Node) {
 	d.mu.Lock()
-	defer d.mu.Unlock()
 	if n.LastSeen.IsZero() {
 		n.LastSeen = time.Now()
 	}
+	_, existed := d.nodes[n.ID]
 	d.nodes[n.ID] = n
+	count := len(d.nodes)
+	d.mu.Unlock()
+
+	if !existed && !n.Self {
+		telemetry.Emit(telemetry.Event{
+			Component: "Kernel",
+			Action:    "PeerAdd",
+			Data: telemetry.EventData{
+				NodeAddr:  n.Addr,
+				NodeCount: count,
+				Message:   "join",
+			},
+		})
+	}
 }
 
 func ResolveAdvertiseAddr(listenAddr string) (string, error) {

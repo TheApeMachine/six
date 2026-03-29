@@ -13,6 +13,31 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
+// PoolEvent is a lightweight telemetry event emitted by the pool. It avoids
+// importing pkg/telemetry directly (which would create an import cycle through
+// pkg/primitive). The bridge is wired in cmd/root.go at startup.
+type PoolEvent struct {
+	Action     string
+	DurationMs int
+	QueueSize  int
+	Workers    int
+	Message    string
+}
+
+// poolEmitFn is the global hook for pool telemetry. Defaults to no-op.
+var poolEmitFn func(PoolEvent)
+
+// SetPoolEmitFunc installs the telemetry bridge. Call once at startup.
+func SetPoolEmitFunc(fn func(PoolEvent)) {
+	poolEmitFn = fn
+}
+
+func emitPoolEvent(ev PoolEvent) {
+	if fn := poolEmitFn; fn != nil {
+		fn(ev)
+	}
+}
+
 type Pool struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -80,6 +105,10 @@ func (pool *Pool) trySendErr(out chan error, err error) {
 	case out <- err:
 	default:
 		droppedTotal := pool.droppedErrors.Add(1)
+		emitPoolEvent(PoolEvent{
+			Action:  "Drop",
+			Message: fmt.Sprintf("dropped_total=%d: %v", droppedTotal, err),
+		})
 		pool.observeDropSaturation(droppedTotal, err)
 	}
 }
@@ -174,8 +203,19 @@ func (pool *Pool) Run() chan error {
 						pool.trySendErr(out, NewPoolError(PoolErrInvalidJob, errors.New("nil job")))
 						continue
 					}
+					jobStart := time.Now()
 					if err := job(pool.ctx); err != nil {
+						emitPoolEvent(PoolEvent{
+							Action:     "JobFail",
+							DurationMs: int(time.Since(jobStart).Milliseconds()),
+							Message:    err.Error(),
+						})
 						pool.trySendErr(out, err)
+					} else {
+						emitPoolEvent(PoolEvent{
+							Action:     "JobDone",
+							DurationMs: int(time.Since(jobStart).Milliseconds()),
+						})
 					}
 				case <-pool.ctx.Done():
 					return
@@ -197,6 +237,11 @@ func (pool *Pool) Run() chan error {
 func (pool *Pool) Schedule(ctx context.Context, job func(ctx context.Context) error) error {
 	select {
 	case pool.jobs <- job:
+		emitPoolEvent(PoolEvent{
+			Action:    "Schedule",
+			QueueSize: len(pool.jobs),
+			Workers:   pool.procs,
+		})
 		return nil
 	case <-pool.ctx.Done():
 		return pool.ctx.Err()
