@@ -10,6 +10,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -581,11 +582,25 @@ func (exp *GemmaIntegrationExperiment) Artifacts() []tools.Artifact {
 	plainMean := plainSecSum / ng
 	hybridMean := hybridSecSum / ng
 
-	proseTemplate := `\subsection{Integration with Gemma 2B-IT}
-\label{sec:gemma_integration}
+	nGraft := len(exp.graftResults)
+	nKV := len(exp.kvResults)
 
-\paragraph{Task Description.}
-This experiment evaluates two modes of manifold--transformer integration using
+	var assessment string
+	if graftOKHybrid > graftOKPlain {
+		assessment = `The manifold logit-bias graft improved task success on contradiction-heavy
+prompts where plain Gemma fails to suppress overridden distractors.  The
+latency overhead is dominated by the GoMLX/XLA graph JIT compilation on the
+first call; subsequent calls are faster.`
+	} else {
+		assessment = `At this substrate density the bias signal is insufficient to consistently
+override Gemma's base prior.  Larger ingestion volumes will sharpen the
+attractor field and increase the projection contrast ratio.`
+	}
+
+	section := tools.ExperimentSection{
+		Title: "Integration with Gemma 2B-IT",
+		Label: "gemma_integration",
+		TaskDescription: fmt.Sprintf(`This experiment evaluates two modes of manifold--transformer integration using
 \texttt{google/gemma-2-2b-it} via the GoMLX/XLA backend.  The substrate
 performs silent reasoning in the complex plane---resolving constraints,
 falsifying hypotheses, and crystallising coherent modes via wave
@@ -595,7 +610,7 @@ centre that translates the manifold's pre-resolved geometric state into fluent
 natural language via logit biases.
 
 \textbf{Manifold-grafted generation.}
-For each of $N={{.NGraft}}$ contradiction-heavy prompts the manifold substrate
+For each of $N=%d$ contradiction-heavy prompts the manifold substrate
 (populated by ingesting the relevant context paragraphs through the full
 pipeline) projects its top-$k$ readout value bytes onto a logit bias over the
 Gemma vocabulary.  Byte-level fallback tokens (IDs 3--258) receive a positive
@@ -603,33 +618,21 @@ bias proportional to their frequency in the substrate readout, nudging
 generation toward tokens coherent with the manifold's constraint state.
 
 \textbf{KV-cache replacement.}
-For each of $N={{.NKV}}$ needle-in-distractor documents the full document is
+For each of $N=%d$ needle-in-distractor documents the full document is
 ingested into the substrate.  Gemma then generates from a question-only prompt;
 the substrate readout provides context via the same logit-bias projection.
 This decouples generation cost from document length---the LLM prompt is
-\emph{never} shown the document.
-
-\paragraph{Results.}
-Figure~\ref{fig:gemma_integration} summarises wall-clock latency and
+\emph{never} shown the document.`, nGraft, nKV),
+		Results: fmt.Sprintf(`Figure~\ref{fig:gemma_integration} summarises wall-clock latency and
 task-success (heuristic substring match) for both modes.
 
-Graft mode: plain Gemma solved {{.PlainOKGraft}}/{{.NGraft}} cases;
-Gemma+Manifold solved {{.HybridOKGraft}}/{{.NGraft}} cases.
-Mean latency: Gemma {{.PlainSecGraft | f2}}\,s, Hybrid {{.HybridSecGraft | f2}}\,s.
-
-{{if gt .HybridOKGraft .PlainOKGraft -}}
-\paragraph{Assessment.}
-The manifold logit-bias graft improved task success on contradiction-heavy
-prompts where plain Gemma fails to suppress overridden distractors.  The
-latency overhead is dominated by the GoMLX/XLA graph JIT compilation on the
-first call; subsequent calls are faster.
-{{- else -}}
-\paragraph{Assessment.}
-At this substrate density the bias signal is insufficient to consistently
-override Gemma's base prior.  Larger ingestion volumes will sharpen the
-attractor field and increase the projection contrast ratio.
-{{- end}}
-`
+Graft mode: plain Gemma solved %d/%d cases;
+Gemma+Manifold solved %d/%d cases.
+Mean latency: Gemma %s\,s, Hybrid %s\,s.`,
+			graftOKPlain, nGraft, graftOKHybrid, nGraft,
+			projector.F2(plainMean), projector.F2(hybridMean)),
+		Assessment: assessment,
+	}
 
 	return []tools.Artifact{
 		{
@@ -641,22 +644,15 @@ attractor field and increase the projection contrast ratio.
 				Height: 800,
 			},
 			Title:   "Gemma 2B-IT Integration",
-			Caption: fmt.Sprintf("Integration comparison. N_graft=%d, N_kv=%d.", len(exp.graftResults), len(exp.kvResults)),
+			Caption: fmt.Sprintf("Integration comparison. N_graft=%d, N_kv=%d.", nGraft, nKV),
 			Label:   "fig:gemma_integration",
 		},
 		{
 			Type:     tools.ArtifactProse,
 			FileName: "gemmaintegration_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"NGraft":         len(exp.graftResults),
-					"NKV":            len(exp.kvResults),
-					"PlainOKGraft":   graftOKPlain,
-					"HybridOKGraft":  graftOKHybrid,
-					"PlainSecGraft":  plainMean,
-					"HybridSecGraft": hybridMean,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
 	}

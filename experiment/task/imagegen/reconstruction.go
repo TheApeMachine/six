@@ -13,6 +13,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 // holdoutPercents are the nine occlusion levels tested.
@@ -239,22 +240,18 @@ func (e *ReconstructionExperiment) Artifacts() []tools.Artifact {
 		})
 	}
 
-	// ── Prose ────────────────────────────────────────────────────
-	proseTemplate := `\subsection{Image Reconstruction (CIFAR-10)}
-\label{sec:reconstruction}
-
-\paragraph{Task Description.}
-The reconstruction experiment evaluates how gracefully the value substrate
+	section := tools.ExperimentSection{
+		Title: "Image Reconstruction (CIFAR-10)",
+		Label: "reconstruction",
+		TaskDescription: `The reconstruction experiment evaluates how gracefully the value substrate
 degrades as the occlusion level increases.
 Each CIFAR-10 image ($32 \times 32$, decoded to raw NRGBA pixel bytes,
 4\,096 bytes total) is ingested once into the unified substrate.
 The same image is then queried at nine holdout levels (10\%--90\% RIGHT),
 where the last $k$\% of pixel bytes are withheld and must be recovered
 purely from value attractor resonance, with no explicit image model,
-convolution, or colour-space interpolation.
-
-\paragraph{Results.}
-Figure~\ref{fig:reconstruction_scaling} shows the \emph{occlusion scaling
+convolution, or colour-space interpolation.`,
+		Results: fmt.Sprintf(`Figure~\ref{fig:reconstruction_scaling} shows the \emph{occlusion scaling
 curve}: mean scores plotted against holdout percentage.
 A graceful decay (slow slope) would indicate that the value substrate
 encodes global spatial structure, whereas a cliff at high holdout
@@ -262,33 +259,13 @@ percentages is expected once the missing region exceeds the attractor's
 effective support radius.
 
 Figure~\ref{fig:reconstruction_strip} shows the qualitative result at the
-representative 50\% holdout level: each row presents the Original, the
+representative 50\%% holdout level: each row presents the Original, the
 Prompt (bottom half zeroed), the Reconstructed image, and an automatically
 computed Error Heatmap (green = zero error, red = maximum error).
 
-Across all holdout levels the overall weighted score was {{.Score | f3}}.
-
-{{if gt .Score 0.4 -}}
-\paragraph{Assessment.}
-The substrate maintained non-trivial reconstruction quality across
-multiple occlusion levels, suggesting that the value attractor encodes
-spatial structure that is not restricted to the pixel-level neighbourhood
-of the prompt boundary.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial fidelity was observed at low holdout percentages, consistent with
-the attractor recovering coarse spatial statistics (dominant colour regions,
-low-frequency structure) before losing the fine-grained detail that requires
-higher attractor density.  Increasing the ingestion sample count is expected
-to shift the performance cliff toward higher occlusion levels.
-{{- else -}}
-\paragraph{Assessment.}
-Reconstruction quality was low across all holdout levels.  At this ingestion
-scale the value substrate has not accumulated sufficient pixel-level
-redundancy to anchor reliable attractor retrieval across the diverse
-colour distributions of CIFAR-10 imagery.
-{{- end}}
-`
+Across all holdout levels the overall weighted score was %s.`, projector.F3(score)),
+		Assessment: reconstructionAssessment(score),
+	}
 
 	return []tools.Artifact{
 		// 1. Occlusion scaling line chart.
@@ -326,13 +303,31 @@ colour distributions of CIFAR-10 imagery.
 			Type:     tools.ArtifactProse,
 			FileName: "reconstruction_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"Score":   score,
-					"NImages": nImages,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func reconstructionAssessment(score float64) string {
+	switch {
+	case score > 0.4:
+		return `The substrate maintained non-trivial reconstruction quality across
+multiple occlusion levels, suggesting that the value attractor encodes
+spatial structure that is not restricted to the pixel-level neighbourhood
+of the prompt boundary.`
+	case score > 0.1:
+		return `Partial fidelity was observed at low holdout percentages, consistent with
+the attractor recovering coarse spatial statistics (dominant colour regions,
+low-frequency structure) before losing the fine-grained detail that requires
+higher attractor density.  Increasing the ingestion sample count is expected
+to shift the performance cliff toward higher occlusion levels.`
+	default:
+		return `Reconstruction quality was low across all holdout levels.  At this ingestion
+scale the value substrate has not accumulated sufficient pixel-level
+redundancy to anchor reliable attractor retrieval across the diverse
+colour distributions of CIFAR-10 imagery.`
 	}
 }
 

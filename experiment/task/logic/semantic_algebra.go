@@ -7,6 +7,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 type SemanticAlgebraExperiment struct {
@@ -166,42 +167,21 @@ func (experiment *SemanticAlgebraExperiment) Artifacts() []tools.Artifact {
 		},
 	}
 
-	proseTemplate := `\subsection{Semantic Algebra --- GF(257) Fact Cancellation}
-\label{sec:semantic_algebra}
-
-\paragraph{Task Description.}
-The semantic algebra experiment evaluates whether the substrate can perform
+	section := tools.ExperimentSection{
+		Title: "Semantic Algebra --- GF(257) Fact Cancellation",
+		Label: "semantic_algebra",
+		TaskDescription: `The semantic algebra experiment evaluates whether the substrate can perform
 logical fact cancellation using arithmetic in GF(257).  A set of relational
 facts (e.g., \texttt{Roy is\_in Kitchen}) is ingested. At test time the
 query presents a partial fact (e.g., \texttt{Roy is\_in}) and the held-out
 target is the missing entity (\texttt{Kitchen}).  The value representation
 encodes each token as a GF(257) element; fact cancellation reduces to
-modular subtraction, and the residue should uniquely identify the answer.
-
-\paragraph{Results.}
-Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
-Exact cancellation rate: {{.ExactRate | pct}}.
-
-{{if ge .Score 0.95 -}}
-\paragraph{Assessment.}
-The substrate achieved near-perfect algebraic cancellation, confirming
-that the GF(257) arithmetic path is functioning correctly.  This is the
-expected result: the operation is exact by construction.
-{{- else if ge .Score 0.5 -}}
-\paragraph{Assessment.}
-Partial cancellation was observed.  Some facts resolve correctly while
-others produce residues that do not uniquely map to the expected entity.
-This suggests value collision or boundary detection issues that need
-investigation.
-{{- else -}}
-\paragraph{Assessment.}
-Cancellation accuracy was low.  The GF(257) arithmetic path is not
-producing correct residues at this stage, likely due to incomplete
-integration of the phase encoding with the substrate retrieval path.
-{{- end}}
-
-Figure~\ref{fig:semantic_algebra_map} shows the trial outcome map.
-`
+modular subtraction, and the residue should uniquely identify the answer.`,
+		Results: fmt.Sprintf(`Across $N = %d$ test samples the mean weighted score was %s.
+Exact cancellation rate: %s.`, n, projector.F3(score), projector.Pct(exactRate)),
+		Assessment: semanticAlgebraAssessment(score),
+		FigureRef:  "fig:semantic_algebra_map",
+	}
 
 	return []tools.Artifact{
 		{
@@ -220,13 +200,27 @@ Figure~\ref{fig:semantic_algebra_map} shows the trial outcome map.
 			Type:     tools.ArtifactProse,
 			FileName: "semantic_algebra_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":         n,
-					"Score":     score,
-					"ExactRate": exactRate,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func semanticAlgebraAssessment(score float64) string {
+	switch {
+	case score >= 0.95:
+		return `The substrate achieved near-perfect algebraic cancellation, confirming
+that the GF(257) arithmetic path is functioning correctly.  This is the
+expected result: the operation is exact by construction.`
+	case score >= 0.5:
+		return `Partial cancellation was observed.  Some facts resolve correctly while
+others produce residues that do not uniquely map to the expected entity.
+This suggests value collision or boundary detection issues that need
+investigation.`
+	default:
+		return `Cancellation accuracy was low.  The GF(257) arithmetic path is not
+producing correct residues at this stage, likely due to incomplete
+integration of the phase encoding with the substrate retrieval path.`
 	}
 }

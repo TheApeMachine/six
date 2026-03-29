@@ -82,7 +82,7 @@ type valueLifecycle struct {
 
 type lifecycleShard struct {
 	sync.RWMutex
-	m map[uintptr]*valueLifecycle
+	m map[*Value]*valueLifecycle
 }
 
 const numLifecycleShards = 256
@@ -91,11 +91,16 @@ var lifecycleShards [numLifecycleShards]lifecycleShard
 
 func init() {
 	for i := 0; i < numLifecycleShards; i++ {
-		lifecycleShards[i].m = make(map[uintptr]*valueLifecycle)
+		lifecycleShards[i].m = make(map[*Value]*valueLifecycle)
 	}
 }
 
-func getLifecycleShard(key uintptr) *lifecycleShard {
+func getLifecycleShard(value *Value) *lifecycleShard {
+	if value == nil {
+		return &lifecycleShards[0]
+	}
+
+	key := uintptr(unsafe.Pointer(value))
 	hash := (key ^ (key >> 16)) % numLifecycleShards
 	return &lifecycleShards[hash]
 }
@@ -236,35 +241,61 @@ func (value *Value) Read(p []byte) (int, error) {
 	return ByteSize, io.EOF
 }
 
-/*
-Write implements io.Writer. It is how Values are "folded" through each
-other, which acts as the closes thing to an instruction pointer.
-*/
-func (value *Value) Write(p []byte) (int, error) {
-	incoming := valuePool.Get().(*Value)
-	defer valuePool.Put(incoming)
-
-	valueFrom(p, incoming)
-
-	if value.HasProgram() {
-		if err := compute.UniversalBitwise(
+// Fold executes one in-memory collision between value and partner.
+// Both frames are mutated in place by the ALU. Internal hot paths should
+// prefer this method over Write so the fold remains in Value space until the
+// actual transport boundary.
+func (value *Value) Fold(partner *Value) error {
+	switch {
+	case value == nil || partner == nil:
+		return nil
+	case value.HasProgram():
+		return compute.UniversalBitwise(
 			unsafe.Pointer(value),
-			unsafe.Pointer(incoming),
-		); err != nil {
-			return 0, err
-		}
-	} else if incoming.HasProgram() {
-		if err := compute.UniversalBitwise(
-			unsafe.Pointer(incoming),
+			unsafe.Pointer(partner),
+		)
+	case partner.HasProgram():
+		return compute.UniversalBitwise(
+			unsafe.Pointer(partner),
 			unsafe.Pointer(value),
-		); err != nil {
-			return 0, err
-		}
+		)
+	default:
+		return nil
+	}
+}
+
+// FoldFrame applies a serialized wire frame to a temporary partner Value,
+// performs the in-memory fold, and then writes the mutated partner back into
+// the same byte slice.
+func (value *Value) FoldFrame(p []byte) (int, error) {
+	if len(p) < ByteSize {
+		return 0, io.ErrShortBuffer
 	}
 
-	valueTo(incoming, p)
+	frame := p[:ByteSize]
+	var incoming Value
+	valueFrom(frame, &incoming)
 
-	return len(p), nil
+	if err := value.Fold(&incoming); err != nil {
+		return 0, err
+	}
+
+	valueTo(&incoming, frame)
+	return ByteSize, nil
+}
+
+/*
+Write implements io.Writer as a compatibility shim for the wire format.
+It intentionally preserves the existing domain behavior: folding mutates the
+receiver and rewrites the incoming 1024-byte partner frame in place.
+Internal compute paths should prefer Fold / FoldFrame.
+*/
+func (value *Value) Write(p []byte) (int, error) {
+	n, err := value.FoldFrame(p)
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
 }
 
 /*
@@ -314,21 +345,16 @@ func (value *Value) Release() error {
 		return fmt.Errorf("primitive.Value.Release: refcount underflow for value id=%d", value.ValueID())
 	}
 
-	if lc.pooled.Load() {
-		if value.shouldRecycleFromExecStatus() || value.isPoolReusable() {
-			value.resetForPool()
-			valuePool.Put(value)
-			return nil
-		}
+	shard := getLifecycleShard(value)
+	shard.Lock()
+	delete(shard.m, value)
+	shard.Unlock()
+
+	if lc.pooled.Load() && (value.shouldRecycleFromExecStatus() || value.isPoolReusable()) {
+		value.resetForPool()
+		valuePool.Put(value)
 	}
 
-	// If this frame cannot be safely reused, drop lifecycle tracking so it can
-	// be reclaimed naturally by GC.
-	key := valueLifecycleKey(value)
-	shard := getLifecycleShard(key)
-	shard.Lock()
-	delete(shard.m, key)
-	shard.Unlock()
 	return nil
 }
 
@@ -518,14 +544,13 @@ func registerPooledLifecycle(value *Value) {
 		return
 	}
 
-	key := valueLifecycleKey(value)
-	shard := getLifecycleShard(key)
+	shard := getLifecycleShard(value)
 
 	shard.Lock()
-	entry, ok := shard.m[key]
+	entry, ok := shard.m[value]
 	if !ok {
 		entry = &valueLifecycle{}
-		shard.m[key] = entry
+		shard.m[value] = entry
 	}
 	shard.Unlock()
 
@@ -538,18 +563,13 @@ func lifecycleFor(value *Value) (*valueLifecycle, bool) {
 		return nil, false
 	}
 
-	key := valueLifecycleKey(value)
-	shard := getLifecycleShard(key)
+	shard := getLifecycleShard(value)
 
 	shard.RLock()
-	entry, ok := shard.m[key]
+	entry, ok := shard.m[value]
 	shard.RUnlock()
 
 	return entry, ok
-}
-
-func valueLifecycleKey(value *Value) uintptr {
-	return uintptr(unsafe.Pointer(value))
 }
 
 func (value *Value) Clone() *Value {

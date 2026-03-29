@@ -187,6 +187,9 @@ func (pipeline *Pipeline) Run() (err error) {
 		if tokenObserver, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && tokenObserver.ObserveWorkspaceAsTokens() {
 			observedText = primitive.DecodeTokensToText(observedValue)
 		}
+		if closeErr := observedValue.Close(); closeErr != nil {
+			return errnie.Error(closeErr)
+		}
 
 		holdout := []byte(nil)
 		if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {

@@ -5,7 +5,6 @@ import (
 
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
 	"github.com/theapemachine/six/experiment/projector"

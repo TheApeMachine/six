@@ -125,6 +125,7 @@ func (o *Observer) Read(p []byte) (n int, err error) {
 func (o *Observer) measure(p []byte, n int) {
 	if n >= primitive.ByteSize {
 		val := primitive.BytesToValue(p)
+		defer val.Close()
 
 		// Extract observability metrics directly from the topological frame
 		pressure := cpu.Popcount(unsafe.Pointer(val), int(core.Cfg.StateSequence), 64)

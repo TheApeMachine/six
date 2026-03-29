@@ -104,16 +104,17 @@ type ProseData struct {
 	Data     any    `json:"data"`
 }
 
-// ExperimentSection holds the structured content for a standardised
-// experiment subsection.  It is passed as the Data field of ProseData
-// together with projector.ExperimentSectionTmpl.
+// ExperimentSection is the unified data structure for all experiment prose
+// sections. Each experiment fills in its content blocks; the shared
+// experiment_section.tmpl template arranges them structurally.
 type ExperimentSection struct {
-	Title           string
-	Label           string
-	TaskDescription string
-	Results         string
-	Assessment      string
-	FigureRef       string
+	Title           string // subsection title, e.g. "Compositional Pattern Recall (TinyStories)"
+	Label           string // LaTeX label slug, e.g. "compositional"
+	TaskDescription string // pre-rendered LaTeX paragraph(s) describing the task
+	Results         string // pre-rendered results paragraph with formatted metrics
+	Assessment      string // pre-computed assessment paragraph (empty to omit)
+	Table           string // optional pre-rendered LaTeX table (empty to omit)
+	FigureRef       string // optional figure label, e.g. "fig:compositional_map"
 }
 
 type ImageStripRow struct {

@@ -29,6 +29,17 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func TestNewStreamDefaultsToOneRegion(t *testing.T) {
+	Convey("Given a Stream with no explicit region option", t, func() {
+		stream := NewStream(t.Context())
+		defer stream.Close()
+
+		So(stream, ShouldNotBeNil)
+		So(stream.regions, ShouldEqual, 1)
+		So(len(stream.emitter), ShouldEqual, 1)
+	})
+}
+
 func TestRead(t *testing.T) {
 	Convey("Given a Stream", t, func() {
 		regions := 2
@@ -116,7 +127,9 @@ func TestWrite(t *testing.T) {
 			for i := 0; i < regions; i++ {
 				start := i * primitive.ByteSize
 				end := start + primitive.ByteSize
-				decoded.WriteString(primitive.BytesToValue(buf[start:end]).String())
+				value := primitive.BytesToValue(buf[start:end])
+				decoded.WriteString(value.String())
+				_ = value.Close()
 			}
 
 			So(decoded.String(), ShouldEqual, string(append(str, str...)))

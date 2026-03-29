@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"fmt"
 	"iter"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -217,48 +218,28 @@ func (experiment *LanguagesExperiment) Artifacts() []tools.Artifact {
 
 	chartFile := tools.Slugify(experiment.Name()) + "_scores"
 
-	proseTemplate := `\subsection{Code Generation: Multi-Language Coverage}
-\label{sec:codegen_languages}
+	samplesPerLang := 0
+	if nLangs > 0 {
+		samplesPerLang = n / nLangs
+	}
 
-\paragraph{Task Description.}
-The languages experiment evaluates zero-shot code completion across six
+	section := tools.ExperimentSection{
+		Title: "Code Generation: Multi-Language Coverage",
+		Label: "codegen_languages",
+		TaskDescription: `The languages experiment evaluates zero-shot code completion across six
 programming languages---Python, JavaScript, Java, Go, C\texttt{++}, and
 Rust---using the \texttt{bigcode/humanevalpack} benchmark \cite{muennighoff2023octopack}.
 Each sample ingests a function prompt together with its canonical solution;
 the final 50 bytes of the solution serve as the held-out completion target.
 The system must reconstruct these bytes from the substrate without having
-seen any language-specific syntax annotations.
-
-\paragraph{Results.}
-Figure~\ref{fig:languages_scores} shows per-language scores across
-$N = {{.N}}$ total samples (${{.SamplesPerLang}}$ per language).
+seen any language-specific syntax annotations.`,
+		Results: fmt.Sprintf(`Figure~\ref{fig:languages_scores} shows per-language scores across
+$N = %d$ total samples ($%d$ per language).
 Averaged across all languages, the system achieved an exact-match rate
-of {{.ExactAvg | pct}}, a partial score of {{.PartialAvg | f3}},
-and an overall weighted score of {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate captured structural regularity across multiple language families,
-suggesting that low-level byte patterns in code are sufficiently regular for
-the value attractor to generalise across syntax dialects.
-{{- else if gt .Score 0.15 -}}
-\paragraph{Assessment.}
-The substrate recovered partial code structure in the majority of languages.
-Languages with more idiomatic or verbose syntax (e.g.\ Java, C\texttt{++})
-showed lower fidelity than those with compact representations (e.g.\ Python, Go),
-consistent with the higher token-level redundancy in the former.
-{{- else -}}
-\paragraph{Assessment.}
-Completion accuracy was low across languages.  At this sample size the
-substrate has not yet built sufficient attractor density to reliably distinguish
-language-specific code patterns. Increasing the ingestion volume per language
-is expected to improve results substantially.
-{{- end}}
-`
-
-	samplesPerLang := 0
-	if nLangs > 0 {
-		samplesPerLang = n / nLangs
+of %s, a partial score of %s,
+and an overall weighted score of %s.`,
+			n, samplesPerLang, projector.Pct(exactAvg), projector.F3(partialAvg), projector.F3(score)),
+		Assessment: codegenAssessment(score),
 	}
 
 	series := []tools.BarSeries{
@@ -284,16 +265,29 @@ is expected to improve results substantially.
 			Type:     tools.ArtifactProse,
 			FileName: "languages_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":              n,
-					"Score":          score,
-					"ExactAvg":       exactAvg,
-					"PartialAvg":     partialAvg,
-					"SamplesPerLang": samplesPerLang,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func codegenAssessment(score float64) string {
+	switch {
+	case score > 0.5:
+		return `The substrate captured structural regularity across multiple language families,
+suggesting that low-level byte patterns in code are sufficiently regular for
+the value attractor to generalise across syntax dialects.`
+	case score > 0.15:
+		return `The substrate recovered partial code structure in the majority of languages.
+Languages with more idiomatic or verbose syntax (e.g.\ Java, C\texttt{++})
+showed lower fidelity than those with compact representations (e.g.\ Python, Go),
+consistent with the higher token-level redundancy in the former.`
+	default:
+		return `Completion accuracy was low across languages.  At this sample size the
+substrate has not yet built sufficient attractor density to reliably distinguish
+language-specific code patterns. Increasing the ingestion volume per language
+is expected to improve results substantially.`
 	}
 }
 

@@ -257,12 +257,37 @@ func (experiment *BabiExperiment) Artifacts() []tools.Artifact {
 		}
 	}
 
-	// ── Prose template ─────────────────────────────────────────────
-	proseTemplate := `\subsection{bAbI QA Task 1: Single Supporting Fact}
-\label{sec:babi_benchmark}
+	// ── Build failure table string ────────────────────────────────
+	var failureTable string
+	if len(failures) > 0 {
+		var sb strings.Builder
+		sb.WriteString(fmt.Sprintf(`\begin{table}[htbp]
+  \centering
+  \caption{bAbI Task~1 failure cases (showing first %d of
+    %d). $N = %d$, exact accuracy
+    %s.}
+  \label{tab:babi_failures}
+  \begin{tabular}{rlll}
+    \toprule
+    \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
+    \midrule`,
+			maxFail, len(failures), n, projector.Pct(exactRate)))
+		for i := 0; i < maxFail; i++ {
+			f := failures[i]
+			sb.WriteString(fmt.Sprintf("\n    %d & %s & \\texttt{%s} & \\texttt{%s} \\\\",
+				f.Idx, f.Entity, f.Expected, f.Observed))
+		}
+		sb.WriteString(`
+    \bottomrule
+  \end{tabular}
+\end{table}`)
+		failureTable = sb.String()
+	}
 
-\paragraph{Task Description.}
-The bAbI QA benchmark (Task~1) evaluates single-supporting-fact
+	section := tools.ExperimentSection{
+		Title: "bAbI QA Task 1: Single Supporting Fact",
+		Label: "babi_benchmark",
+		TaskDescription: fmt.Sprintf(`The bAbI QA benchmark (Task~1) evaluates single-supporting-fact
 question answering. Each sample consists of a short story describing
 entity movements between named locations, followed by a question of
 the form \textit{''Where is Person?''}. The correct answer is the
@@ -271,65 +296,27 @@ an entity through a chain of movement facts without any explicit
 pointer to the relevant sentence.
 
 \paragraph{Test Conditions.}
-Experiments used {{.NSamples}} samples from
+Experiments used %d samples from
 \texttt{facebook/babi\_qa} (subset \texttt{en-10k-qa1}).
 Reasoning is performed via Transitive Resonance: the entity value is
 extracted from the question, the story is scanned geometrically for
 its last movement relationship, and the residue value is decoded as
-the location answer.
-
-\paragraph{Results.}
-Figure~\ref{fig:babi_trial_map} shows the per-sample Trial Outcome
+the location answer.`, n),
+		Results: fmt.Sprintf(`Figure~\ref{fig:babi_trial_map} shows the per-sample Trial Outcome
 Map. Each row of the left heatmap corresponds to one question;
 columns show the Exact, Partial, Fuzzy, and Weighted scores on a
 0--1 colour scale (viridis, dark = 0, bright = 1). The right
 panel displays the weighted score per sample alongside the
 overall mean (orange dashed line).
 
-The system achieved an exact-match accuracy of {{.ExactRate | pct}}
-across all {{.NSamples}} samples, with a mean partial score of
-{{.PartialRate | f3}} and an overall weighted score of
-{{.Score | f3}}.
-
-{{if gt .ExactRate 0.7 -}}
-\paragraph{Assessment.}
-The substrate resolved the majority of single-supporting-fact queries
-exactly, demonstrating reliable transitive chain traversal through
-geometric residue accumulation.
-{{- else if gt .ExactRate 0.3 -}}
-\paragraph{Assessment.}
-The substrate correctly resolved a minority of queries by exact match.
-Partial scores indicate that many outputs were geometrically adjacent
-to the correct location value, suggesting the attractor is in the
-right region but final decoding introduces ambiguity.
-{{- else -}}
-\paragraph{Assessment.}
-Exact-match accuracy was low.  The Transitive Resonance mechanism
-requires the entity's movement facts to produce a sufficiently
-distinct residue value; at this sample size the substrate geometry
-may not separate location attractors reliably.
-{{- end}}
-
-{{- if gt .NFailures 0}}
-
-\begin{table}[htbp]
-  \centering
-  \caption{bAbI Task~1 failure cases (showing first {{.NFailureRows}} of
-    {{.NFailures}}). $N = {{.NSamples}}$, exact accuracy
-    {{.ExactRate | pct}}.}
-  \label{tab:babi_failures}
-  \begin{tabular}{rlll}
-    \toprule
-    \textbf{Q\#} & \textbf{Entity} & \textbf{Expected} & \textbf{Observed} \\
-    \midrule
-{{- range .FailureRows}}
-    {{index . 0}} & {{index . 1}} & \texttt{ {{- index . 2 -}} } & \texttt{ {{- index . 3 -}} } \\
-{{- end}}
-    \bottomrule
-  \end{tabular}
-\end{table}
-{{- end}}
-`
+The system achieved an exact-match accuracy of %s
+across all %d samples, with a mean partial score of
+%s and an overall weighted score of
+%s.`, projector.Pct(exactRate), n, projector.F3(partialRate), projector.F3(score)),
+		Assessment: babiAssessment(exactRate),
+		Table:      failureTable,
+		FigureRef:  "fig:babi_trial_map",
+	}
 
 	return []tools.Artifact{
 		{
@@ -348,18 +335,29 @@ may not separate location attractors reliably.
 			Type:     tools.ArtifactProse,
 			FileName: "babi_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"NSamples":     n,
-					"ExactRate":    exactRate,
-					"PartialRate":  partialRate,
-					"Score":        score,
-					"NFailures":    len(failures),
-					"NFailureRows": maxFail,
-					"FailureRows":  failureRows,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func babiAssessment(exactRate float64) string {
+	switch {
+	case exactRate > 0.7:
+		return `The substrate resolved the majority of single-supporting-fact queries
+exactly, demonstrating reliable transitive chain traversal through
+geometric residue accumulation.`
+	case exactRate > 0.3:
+		return `The substrate correctly resolved a minority of queries by exact match.
+Partial scores indicate that many outputs were geometrically adjacent
+to the correct location value, suggesting the attractor is in the
+right region but final decoding introduces ambiguity.`
+	default:
+		return `Exact-match accuracy was low.  The Transitive Resonance mechanism
+requires the entity's movement facts to produce a sufficiently
+distinct residue value; at this sample size the substrate geometry
+may not separate location attractors reliably.`
 	}
 }
 

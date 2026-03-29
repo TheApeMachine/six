@@ -302,12 +302,10 @@ func (experiment *ProteinStructureExperiment) Artifacts() []tools.Artifact {
 		},
 	}
 
-	// ── Prose template ─────────────────────────────────────────────
-	proseTemplate := `\subsection{Protein Secondary Structure Prediction}
-\label{sec:protein_structure}
-
-\paragraph{Task Description.}
-The protein secondary structure experiment evaluates whether the
+	section := tools.ExperimentSection{
+		Title: "Protein Secondary Structure Prediction",
+		Label: "protein_structure",
+		TaskDescription: `The protein secondary structure experiment evaluates whether the
 geometric substrate can predict per-residue secondary structure
 labels---Helix (\texttt{H}), Sheet (\texttt{E}), Coil
 (\texttt{C})---from raw amino acid sequences, using solely the
@@ -326,46 +324,24 @@ $\beta$-sheets alternate in a zigzag pattern, and coils are aperiodic
 connectors.
 A random 3-class classifier achieves $\approx 33\%$ accuracy.
 Any score above this baseline implies the substrate is detecting
-non-trivial periodic structure in the amino acid byte stream.
-
-\paragraph{Results.}
-Figure~\ref{fig:protein_trial_map} shows the three-panel composite.
-Panel~A is the score fingerprint heatmap across all $N = {{.N}}$ samples.
+non-trivial periodic structure in the amino acid byte stream.`,
+		Results: fmt.Sprintf(`Figure~\ref{fig:protein_trial_map} shows the three-panel composite.
+Panel~A is the score fingerprint heatmap across all $N = %d$ samples.
 Panel~B shows the per-sample weighted score against the mean
-({{.Score | f2}}, orange dashed line).
+(%s, orange dashed line).
 Panel~C is the per-position alignment strip for the highest-scoring
-sample (S{{.BestIdx}}, weighted score {{.BestScore | f2}}):
+sample (S%d, weighted score %s):
 rows show Truth (top) and Predicted (middle) labels encoded as
 H$\to$1, E$\to$0.5, C$\to$0; the bottom row shows exact
 position-level matches (1 = correct, 0 = incorrect).
 
-The system achieved an exact-sequence accuracy of {{.ExactRate | pct}},
-a mean partial score of {{.PartialRate | f3}}, and an overall
-weighted score of {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate significantly exceeded the 3-class random baseline
-($\approx 33\%$), suggesting that the non-commutative manifold
-rotations naturally encode the periodic byte-level patterns
-associated with $\alpha$-helical and $\beta$-sheet periodicity.
-{{- else if gt .Score 0.2 -}}
-\paragraph{Assessment.}
-The weighted score exceeds zero but remains near the random
-baseline.  Partial matches (Panel~A, Partial column) indicate that
-the substrate recovers some structural regularity but fails to
-maintain accurate label prediction over longer subsequences.
-Increasing the ingestion sample count is expected to sharpen the
-periodic attractors for each structural class.
-{{- else -}}
-\paragraph{Assessment.}
-Performance is near the random baseline, indicating that the
-current substrate size is insufficient to distinguish the three
-structural attractor classes from raw amino acid byte patterns at
-this resolution.
-{{- end}}
-
-`
+The system achieved an exact-sequence accuracy of %s,
+a mean partial score of %s, and an overall
+weighted score of %s.`,
+			n, projector.F2(score), bestIdx+1, projector.F2(best.WeightedTotal),
+			projector.Pct(exactRate), projector.F3(partialRate), projector.F3(score)),
+		Assessment: proteinAssessment(score),
+	}
 
 	return []tools.Artifact{
 		{
@@ -384,16 +360,31 @@ this resolution.
 			Type:     tools.ArtifactProse,
 			FileName: "proteinstructure_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":           n,
-					"Score":       score,
-					"ExactRate":   exactRate,
-					"PartialRate": partialRate,
-					"BestIdx":     bestIdx + 1,
-					"BestScore":   best.WeightedTotal,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func proteinAssessment(score float64) string {
+	switch {
+	case score > 0.5:
+		return `The substrate significantly exceeded the 3-class random baseline
+($\approx 33\%$), suggesting that the non-commutative manifold
+rotations naturally encode the periodic byte-level patterns
+associated with $\alpha$-helical and $\beta$-sheet periodicity.`
+	case score > 0.2:
+		return `The weighted score exceeds zero but remains near the random
+baseline.  Partial matches (Panel~A, Partial column) indicate that
+the substrate recovers some structural regularity but fails to
+maintain accurate label prediction over longer subsequences.
+Increasing the ingestion sample count is expected to sharpen the
+periodic attractors for each structural class.`
+	default:
+		return `Performance is near the random baseline, indicating that the
+current substrate size is insufficient to distinguish the three
+structural attractor classes from raw amino acid byte patterns at
+this resolution.`
 	}
 }
