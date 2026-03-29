@@ -50,18 +50,78 @@ type Server struct {
 	udpConn    *net.UDPConn
 	promptFunc PromptFunc
 	ingestFunc IngestFunc
+
+	frameMu       sync.Mutex
+	frameOnce     sync.Once
+	latestFrame   []byte
+	frameInterval time.Duration
+	frameStop     chan struct{}
 }
 
 /*
 NewServer instantiates a visualization server.
 */
 func NewServer() *Server {
-	return &Server{
-		clients: make(map[*websocket.Conn]bool),
+	server := &Server{
+		clients:       make(map[*websocket.Conn]bool),
+		frameInterval: time.Second / 30,
+		frameStop:     make(chan struct{}),
 		upgrade: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool { return true },
 		},
 	}
+
+	go server.runFrameBroadcaster()
+	return server
+}
+
+func (server *Server) runFrameBroadcaster() {
+	ticker := time.NewTicker(server.frameInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-server.frameStop:
+			return
+		case <-ticker.C:
+			server.flushLatestFrame()
+		}
+	}
+}
+
+func (server *Server) flushLatestFrame() {
+	server.frameMu.Lock()
+	if len(server.latestFrame) != primitive.ByteSize {
+		server.frameMu.Unlock()
+		return
+	}
+	frame := make([]byte, primitive.ByteSize)
+	copy(frame, server.latestFrame)
+	server.latestFrame = nil
+	server.frameMu.Unlock()
+
+	server.mu.RLock()
+	var dead []*websocket.Conn
+	for conn := range server.clients {
+		if err := conn.WriteMessage(websocket.BinaryMessage, frame); err != nil {
+			log.Printf("visualizer: BroadcastValueFrame: write failed: %v", err)
+			dead = append(dead, conn)
+		}
+	}
+	server.mu.RUnlock()
+
+	if len(dead) == 0 {
+		return
+	}
+
+	server.mu.Lock()
+	for _, conn := range dead {
+		if server.clients[conn] {
+			delete(server.clients, conn)
+			_ = conn.Close()
+		}
+	}
+	server.mu.Unlock()
 }
 
 /*
@@ -188,6 +248,12 @@ func resolveUDPListenAddr(httpAddr string, udpAddr string) (*net.UDPAddr, error)
 Shutdown gracefully stops the HTTP server and UDP listener.
 */
 func (server *Server) Shutdown() {
+	if server.frameStop != nil {
+		server.frameOnce.Do(func() {
+			close(server.frameStop)
+		})
+	}
+
 	if server.udpConn != nil {
 		server.udpConn.Close()
 	}
@@ -310,6 +376,7 @@ func (server *Server) handlePromptCommand(msg string) {
 	if len(result) == primitive.ByteSize {
 		if value := primitive.BytesToValue(result); value != nil {
 			resultText = primitive.DecodeTokensToText(value)
+			_ = value.Close()
 		}
 	}
 
@@ -409,29 +476,12 @@ func (server *Server) BroadcastValueFrame(frame []byte) {
 		return
 	}
 
-	cp := make([]byte, primitive.ByteSize)
-	copy(cp, frame)
-
-	server.mu.RLock()
-	var dead []*websocket.Conn
-	for conn := range server.clients {
-		if err := conn.WriteMessage(websocket.BinaryMessage, cp); err != nil {
-			log.Printf("visualizer: BroadcastValueFrame: write failed: %v", err)
-			dead = append(dead, conn)
-		}
+	server.frameMu.Lock()
+	if cap(server.latestFrame) < primitive.ByteSize {
+		server.latestFrame = make([]byte, primitive.ByteSize)
+	} else {
+		server.latestFrame = server.latestFrame[:primitive.ByteSize]
 	}
-	server.mu.RUnlock()
-
-	if len(dead) == 0 {
-		return
-	}
-
-	server.mu.Lock()
-	for _, conn := range dead {
-		if server.clients[conn] {
-			delete(server.clients, conn)
-			_ = conn.Close()
-		}
-	}
-	server.mu.Unlock()
+	copy(server.latestFrame, frame)
+	server.frameMu.Unlock()
 }
