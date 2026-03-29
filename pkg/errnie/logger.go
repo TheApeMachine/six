@@ -59,7 +59,10 @@ func buildLogger(enab zapcore.LevelEnabler, escfg ElasticsearchConfig) (*zap.Log
 		return nil, err
 	}
 	if esOut != nil {
-		jsonEnc := zapcore.NewJSONEncoder(zap.NewProductionEncoderConfig())
+		esEncCfg := zap.NewProductionEncoderConfig()
+		esEncCfg.TimeKey = "timestamp"
+		esEncCfg.EncodeTime = zapcore.ISO8601TimeEncoder
+		jsonEnc := zapcore.NewJSONEncoder(esEncCfg)
 		esCore := zapcore.NewCore(jsonEnc, zapcore.AddSync(esOut), enab)
 		cores = append(cores, esCore)
 	}

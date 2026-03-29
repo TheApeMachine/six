@@ -133,33 +133,16 @@ value:
 #   Loop: Write target line to PC. Exit loop: Write currentpc + 1 to PC.
 
 programs:
-  # Learn evaluates fitness via Bitwise Overlap (A AND B).
-  # If Success: triggers Viral (fw=3).
-  # If Failure: Frustration++, if Frustration maxes out, triggers Tombstone (fw=2).
+  # Evaluate checks if the generated instruction found a feature (r6 > 0).
+  # If yes: fw=4 (Viral). If no: Frustration++, if timeout fw=3 (Tombstone), else fw=5 (Build).
   learn: |
-    0     r0  0011 # Self
-    0     r1  0011 # Tokens start
-    64    r2  0011 # Check first 64 bits for speed
-    0     r3  0011 # Self
-    4480  r4  0011 # r6 start
-    4544  r5  0011 # r6 end
-    r0    r3  0011 # COPY Self to r6
-
-    1     r0  0011 # Partner
-    0     r1  0011 
-    64    r2  0011 
-    0     r3  0011 
-    4480  r4  0011 
-    4544  r5  0011 
-    r0    r3  0001 # r6 = r6 AND Partner
-
     0     r0  0011
     4480  r1  0011
     4543  r2  0011
     0     r3  0011
     4481  r4  0011
     4544  r5  0011
-    r0    r3  0111 # OR Cascade
+    r0    r3  0111 # OR Cascade. Bit 4543 is 1 if r6 != 0.
 
     0     r0  0011
     4543  r1  0011
@@ -167,7 +150,7 @@ programs:
     0     r3  0011
     4544  r4  0011
     4545  r5  0011
-    r0    r3  0011 # Seed
+    r0    r3  0011 # Seed r7
 
     0     r0  0011
     4544  r1  0011
@@ -175,23 +158,23 @@ programs:
     0     r3  0011
     4545  r4  0011
     4608  r5  0011
-    r0    r3  0111 # Cascade OR
+    r0    r3  0111 # r7 = Success Mask
 
-    0     r0  0011 # r7
+    0     r0  0011
     4544  r1  0011
     4608  r2  0011
-    0     r3  0011 # r9
+    0     r3  0011
     4672  r4  0011
     4736  r5  0011
-    r0    r3  1100 # NOT A
+    r0    r3  1100 # r9 = Fail Mask
 
-    0     r0  0011 # Frustration
+    0     r0  0011 # Shift Frustration Left
     3904  r1  0011
     3967  r2  0011
     0     r3  0011 # r8
     4609  r4  0011
     4672  r5  0011
-    r0    r3  0011 # Shift Left into r8
+    r0    r3  0011 
 
     1     r8  0111 # Insert 1 at bit 0
 
@@ -201,7 +184,7 @@ programs:
     0     r3  0011 # r8
     4608  r4  0011
     4672  r5  0011
-    r0    r3  0001 # r8 = r8 AND Fail Mask
+    r0    r3  0001 # r8 &= Fail Mask
 
     0     r0  0011 # r7
     4544  r1  0011
@@ -209,7 +192,7 @@ programs:
     0     r3  0011 # Frustration
     3904  r4  0011
     3968  r5  0011
-    r0    r3  0001 # Frustration = Frustration AND Success Mask
+    r0    r3  0001 # Frustration &= Success Mask
 
     0     r0  0011 # r8
     4608  r1  0011
@@ -217,56 +200,105 @@ programs:
     0     r3  0011 # Frustration
     3904  r4  0011
     3968  r5  0011
-    r0    r3  0111 # Frustration = Frustration OR r8
+    r0    r3  0111 # Frustration |= r8
 
-    0     r0  0011
+    0     r0  0011 # Check Timeout
     3967  r1  0011
     3968  r2  0011
-    0     r3  0011 # r7
-    4544  r4  0011
-    4545  r5  0011
+    0     r3  0011 # r8 (Timeout Mask)
+    4608  r4  0011
+    4609  r5  0011
     r0    r3  0011
 
     0     r0  0011
-    4544  r1  0011
-    4607  r2  0011
+    4608  r1  0011
+    4671  r2  0011
     0     r3  0011
-    4545  r4  0011
-    4608  r5  0011
-    r0    r3  0111 # Tombstone Mask
+    4609  r4  0011
+    4672  r5  0011
+    r0    r3  0111 # r8 is Dead Mask
 
-    0     r0  0011
+    0     r0  0011 # Rebuild Fail Mask into r9
     4544  r1  0011
     4608  r2  0011
-    0     r3  0011
+    0     r3  0011 
     4672  r4  0011
     4736  r5  0011
-    r0    r3  1100
+    r0    r3  1100 
 
-    2     r8  0011 # Tombstone ID
+    0     r3  0011 # Clear FW
+    4736  r4  0011
+    4800  r5  0011
+    r0    r3  0000
+
+    4     r6  0011 # Viral
     0     r0  0011 # r7
     4544  r1  0011
     4608  r2  0011
-    0     r3  0011 # r8
-    4608  r4  0011
-    4672  r5  0011
-    r0    r3  0001 # r8 = 2 AND Tombstone Mask
-
-    0     r0  0011 # r9
-    4672  r1  0011
-    4736  r2  0011
+    0     r3  0011 # r6
+    4480  r4  0011
+    4544  r5  0011
+    r0    r3  0001 
+    
+    0     r0  0011 # r6
+    4480  r1  0011
+    4544  r2  0011
     0     r3  0011 # fw
     4736  r4  0011
     4800  r5  0011
-    r0    r3  0001 # fw = fw AND Inverse Tombstone Mask
+    r0    r3  0111 
 
+    0     r0  0011 # r9 (Fail)
+    4672  r1  0011
+    4736  r2  0011
+    0     r3  0011 # r8 (Dead)
+    4608  r4  0011
+    4672  r5  0011
+    r0    r3  0001 # r8 = Dead & Fail
+    
+    3     r6  0011 # Tombstone
     0     r0  0011 # r8
     4608  r1  0011
     4672  r2  0011
+    0     r3  0011 # r6
+    4480  r4  0011
+    4544  r5  0011
+    r0    r3  0001 
+
+    0     r0  0011 # r6
+    4480  r1  0011
+    4544  r2  0011
     0     r3  0011 # fw
     4736  r4  0011
     4800  r5  0011
-    r0    r3  0111 # fw = fw OR
+    r0    r3  0111 
+
+    0     r0  0011 # r8 (Dead & Fail)
+    4608  r1  0011
+    4672  r2  0011
+    0     r3  0011 # r9 (Fail)
+    4672  r4  0011
+    4736  r5  0011
+    r0    r3  0100 # r9 = Fail & Not Dead
+
+    5     r6  0011 # Build
+    0     r0  0011 # r9
+    4672  r1  0011
+    4736  r2  0011
+    0     r3  0011 # r6
+    4480  r4  0011
+    4544  r5  0011
+    r0    r3  0001 
+
+    0     r0  0011 # r6
+    4480  r1  0011
+    4544  r2  0011
+    0     r3  0011 # fw
+    4736  r4  0011
+    4800  r5  0011
+    r0    r3  0111 
+
+    104   pc  0011 # Halt
 
   bootloader: |
     0     r0  0011
@@ -276,20 +308,17 @@ programs:
     5120  r4  0011
     8192  r5  0011
     r0    r3  0000 
-    4     fw  0011
-    0     pc  0011
 
-  mutate: |
-    1     r0  0011
-    0     r1  0011
-    3072  r2  0011
+    0     r0  0011 # Clear Frustration
+    3904  r1  0011
+    3968  r2  0011
     0     r3  0011
-    5120  r4  0011
-    8192  r5  0011
-    r0    r3  0110
+    3904  r4  0011
+    3968  r5  0011
+    r0    r3  0000
 
-    0     fw  0011
-    0     pc  0011
+    5     fw  0011 # Sequence to Build
+    104   pc  0011 # Halt
 
   tombstone: |
     0     r0  0011
@@ -356,8 +385,10 @@ programs:
     3776  r5  0011
     r0    r3  0001
 
+    104   pc  0011 # Halt
+
   viral: |
-    0     r0  0011
+    0     r0  0011 # Copy Program
     5120  r1  0011
     8192  r2  0011
     1     r3  0011
@@ -365,30 +396,90 @@ programs:
     8192  r5  0011
     r0    r3  0011
 
+    1     r8  0011 # Evaluate fw=1
     0     r0  0011
-    4672  r1  0011
-    4736  r2  0011
-    1     r3  0011
+    4608  r1  0011
+    4672  r2  0011
+    1     r3  0011 # Partner
     4736  r4  0011
     4800  r5  0011
     r0    r3  0011
 
-    1     r3  0011
+    1     r3  0011 # Clear Partner PC
     4800  r4  0011
     4864  r5  0011
     0     r0  0000
     r0    r3  0000
 
     0     r0  0011
-    4672  r1  0011
-    4736  r2  0011
-    0     r3  0011
+    4608  r1  0011
+    4672  r2  0011
+    0     r3  0011 # Self
     4736  r4  0011
     4800  r5  0011
     r0    r3  0011
 
+    104   pc  0011 # Halt
+
+  # Build explicitly constructs a logic gate from Partner's tokens, targeting r6.
+  build: |
+    0     r0  0011 # Clear target instruction slot (Bits 7680-7712)
+    7680  r1  0011
+    7712  r2  0011
     0     r3  0011
-    4800  r4  0011
-    4864  r5  0011
-    0     r0  0000
+    7680  r4  0011
+    7712  r5  0011
     r0    r3  0000
+
+    1     r0  0011 # Extract 32 bits from Partner
+    0     r1  0011
+    32    r2  0011
+    0     r3  0011 
+    7680  r4  0011
+    7712  r5  0011
+    r0    r3  0011
+
+    1     r0  0011 # Shift Partner tokens left for next build
+    32    r1  0011
+    3648  r2  0011
+    1     r3  0011
+    0     r4  0011
+    3616  r5  0011
+    r0    r3  0011
+
+    0     r0  0011 # Force Opcode to XOR (0110)
+    7680  r1  0011
+    7684  r2  0011
+    0     r3  0011
+    7680  r4  0011
+    7684  r5  0011
+    r0    r3  0000 # Clear opcode
+
+    6     r8  0011
+    0     r0  0011
+    4608  r1  0011
+    4612  r2  0011
+    0     r3  0011
+    7680  r4  0011
+    7684  r5  0011
+    r0    r3  0111 # OR opcode
+
+    0     r0  0011 # Force Dest to r6 (12358)
+    7698  r1  0011
+    7712  r2  0011
+    0     r3  0011
+    7698  r4  0011
+    7712  r5  0011
+    r0    r3  0000 # Clear Dest
+
+    12358 r8  0011 
+    0     r0  0011
+    4608  r1  0011
+    4622  r2  0011
+    0     r3  0011
+    7698  r4  0011
+    7712  r5  0011
+    r0    r3  0111 # OR Dest
+
+    1     fw  0011 # Next state: Evaluate
+    88    pc  0011 # Immediately execute the built instruction!
