@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
@@ -126,15 +127,22 @@ func (pipeline *Pipeline) Run() (err error) {
 	// Recirculation loop: pump the stream to allow the dataset and seed to mix and evolve.
 	// Since there are around 1700 chunks, we pump it enough times to ensure full mixing.
 	pumpCount := 2000
-	buf := make([]byte, primitive.ByteSize)
+	var wg sync.WaitGroup
 	for i := 0; i < pumpCount; i++ {
+		buf := make([]byte, primitive.ByteSize)
 		if _, err := observer.Read(buf); err != nil {
 			break
 		}
-		// Write the newly emitted folded value back into the stream to continue the evolution.
-		observer.Write(buf)
+
+		wg.Add(1)
 		pipeline.streamSize++
+
+		go func(b []byte) {
+			defer wg.Done()
+			observer.Write(b)
+		}(buf)
 	}
+	wg.Wait()
 
 	promptStart := time.Now()
 	for idx, prompt := range prompts {

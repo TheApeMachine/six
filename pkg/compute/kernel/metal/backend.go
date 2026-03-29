@@ -103,6 +103,13 @@ func preloadFirmwareFrame(c *[128]uint64) {
 	c[uint64(core.Cfg.FW)] = 0
 }
 
+func preloadFirmwareFrameBatch(a unsafe.Pointer, count int) {
+	for i := 0; i < count; i++ {
+		c := (*[128]uint64)(unsafe.Pointer(uintptr(a) + uintptr(i)*1024))
+		preloadFirmwareFrame(c)
+	}
+}
+
 /*
 UniversalBitwise dispatches a batch of Values to the compiled Metal kernel.
 
@@ -112,9 +119,9 @@ that program and executes up to 64 ticks per Value, halting at opcode 0.
 The batch may therefore be heterogeneous: each Value runs its own independent
 program in parallel on the GPU.
 */
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 	backend.observer.Trace("metal.Backend.UniversalBitwise", "a", a, "b", b)
-	preloadFirmwareFrame((*[128]uint64)(a))
+	preloadFirmwareFrameBatch(a, count)
 
 	if !metalReady.Load() {
 		return NewMetalError(
@@ -124,7 +131,7 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 		)
 	}
 
-	if C.unified_bitwise_metal(a, b) != 0 {
+	if C.unified_bitwise_metal(a, b, C.uint32_t(count)) != 0 {
 		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
 	}
 	return nil

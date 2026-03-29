@@ -180,13 +180,14 @@ extern "C" {
     int unified_bitwise_cuda(
         int device_id,
         void* a_host,
-        const void* b_host
+        const void* b_host,
+        uint32_t num_values
     ) {
-        if (!a_host || !b_host) return -1;
+        if (!a_host || !b_host || num_values == 0) return -1;
         if (cudaSetDevice(device_id) != cudaSuccess) return -1;
-        if (ensure_pool(1) != 0) return -1;
+        if (ensure_pool(num_values) != 0) return -1;
 
-        size_t bytes = 1024;
+        size_t bytes = (size_t)num_values * 1024;
 
         cudaError_t cpyErr = cudaMemcpy(d_pool_A, a_host, bytes, cudaMemcpyHostToDevice);
         if (cpyErr != cudaSuccess) {
@@ -201,7 +202,6 @@ extern "C" {
             return -5;
         }
 
-        const uint32_t num_values = 1;
         const int threadsPerBlock = 256;
         int blocks = (int)((num_values + threadsPerBlock - 1) / threadsPerBlock);
         if (blocks < 1) blocks = 1;

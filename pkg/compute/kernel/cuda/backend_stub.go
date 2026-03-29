@@ -87,7 +87,7 @@ func Available() int {
 	return int(count)
 }
 
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 	return NewCUDAError(CUDAErrorUnavailable, nil, "UniversalBitwise", 0)
 }
 

@@ -119,21 +119,22 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
 Unified Bitwise dispatch — no external opcode; each Value carries its own
 64-op program in Region 3 which the kernel reads and executes in-band.
 */
-int unified_bitwise_metal(void* a_host, const void* b_host) {
+int unified_bitwise_metal(void* a_host, const void* b_host, uint32_t num_values) {
     if (!pipelineUnifiedBitwise || !a_host || !b_host) return -1;
-    if (ensure_pool(1) != 0) return -1;
+    if (ensure_pool(num_values) != 0) return -1;
 
     @autoreleasepool {
+        NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
         NSUInteger la = [poolA length];
         NSUInteger lb = [poolB length];
-        if (la < VALUE_BYTES || lb < VALUE_BYTES) {
-            NSLog(@"metal: pool buffer too small (need %d): poolA=%lu poolB=%lu",
-                  VALUE_BYTES, (unsigned long)la, (unsigned long)lb);
+        if (la < reqBytes || lb < reqBytes) {
+            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu poolB=%lu",
+                  (unsigned long)reqBytes, (unsigned long)la, (unsigned long)lb);
             return -6;
         }
 
-        memcpy([poolA contents], a_host, VALUE_BYTES);
-        memcpy([poolB contents], b_host, VALUE_BYTES);
+        memcpy([poolA contents], a_host, reqBytes);
+        memcpy([poolB contents], b_host, reqBytes);
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
@@ -142,13 +143,13 @@ int unified_bitwise_metal(void* a_host, const void* b_host) {
         [enc setBuffer:poolB   offset:0 atIndex:1];
         // No op byte — program dispatch is fully in-band.
 
-        dispatchKernel(enc, pipelineUnifiedBitwise, 1);
+        dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
         [enc endEncoding];
 
         int r = commitAndWait(cb);
         if (r != 0) return r;
 
-        memcpy(a_host, [poolA contents], VALUE_BYTES);
+        memcpy(a_host, [poolA contents], reqBytes);
         return 0;
     }
 }

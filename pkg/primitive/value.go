@@ -80,7 +80,25 @@ type valueLifecycle struct {
 	pooled atomic.Bool
 }
 
-var valueLifecycles sync.Map // map[uintptr]*valueLifecycle
+type lifecycleShard struct {
+	sync.RWMutex
+	m map[uintptr]*valueLifecycle
+}
+
+const numLifecycleShards = 256
+
+var lifecycleShards [numLifecycleShards]lifecycleShard
+
+func init() {
+	for i := 0; i < numLifecycleShards; i++ {
+		lifecycleShards[i].m = make(map[uintptr]*valueLifecycle)
+	}
+}
+
+func getLifecycleShard(key uintptr) *lifecycleShard {
+	hash := (key ^ (key >> 16)) % numLifecycleShards
+	return &lifecycleShards[hash]
+}
 
 /*
 Value is the self-programmable type that acts as the fundamental unit of
@@ -306,7 +324,11 @@ func (value *Value) Release() error {
 
 	// If this frame cannot be safely reused, drop lifecycle tracking so it can
 	// be reclaimed naturally by GC.
-	valueLifecycles.Delete(valueLifecycleKey(value))
+	key := valueLifecycleKey(value)
+	shard := getLifecycleShard(key)
+	shard.Lock()
+	delete(shard.m, key)
+	shard.Unlock()
 	return nil
 }
 
@@ -497,8 +519,16 @@ func registerPooledLifecycle(value *Value) {
 	}
 
 	key := valueLifecycleKey(value)
-	entryAny, _ := valueLifecycles.LoadOrStore(key, &valueLifecycle{})
-	entry := entryAny.(*valueLifecycle)
+	shard := getLifecycleShard(key)
+
+	shard.Lock()
+	entry, ok := shard.m[key]
+	if !ok {
+		entry = &valueLifecycle{}
+		shard.m[key] = entry
+	}
+	shard.Unlock()
+
 	entry.pooled.Store(true)
 	entry.refs.Store(1)
 }
@@ -507,11 +537,15 @@ func lifecycleFor(value *Value) (*valueLifecycle, bool) {
 	if value == nil {
 		return nil, false
 	}
-	entry, ok := valueLifecycles.Load(valueLifecycleKey(value))
-	if !ok {
-		return nil, false
-	}
-	return entry.(*valueLifecycle), true
+
+	key := valueLifecycleKey(value)
+	shard := getLifecycleShard(key)
+
+	shard.RLock()
+	entry, ok := shard.m[key]
+	shard.RUnlock()
+
+	return entry, ok
 }
 
 func valueLifecycleKey(value *Value) uintptr {
@@ -533,10 +567,11 @@ func (value *Value) Clone() *Value {
 BytesToValue overlays a 1024-byte slice onto the Value pointer via unsafe memory access.
 */
 func BytesToValue(p []byte) *Value {
-	var v Value
-	valueFrom(p, &v)
+	v := valuePool.Get().(*Value)
+	registerPooledLifecycle(v)
+	valueFrom(p, v)
 
-	return &v
+	return v
 }
 
 /*

@@ -29,7 +29,7 @@ type Substrate interface {
 	// Do not invoke concurrently on the same *Value instances unless you
 	// externally synchronize those frames; distinct Value pointers may be
 	// used from different goroutines per backend.
-	UniversalBitwise(a, b unsafe.Pointer) error
+	UniversalBitwise(a, b unsafe.Pointer, count int) error
 
 	// Schedule runs job on the backend worker path (or synchronously if
 	// there is no pool). When a pool is used, the returned error reflects

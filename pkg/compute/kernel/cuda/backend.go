@@ -156,6 +156,13 @@ func preloadFirmwareFrame(c *[128]uint64) {
 	c[fwIdx] = 0
 }
 
+func preloadFirmwareFrameBatch(a unsafe.Pointer, count int) {
+	for i := 0; i < count; i++ {
+		c := (*[128]uint64)(unsafe.Pointer(uintptr(a) + uintptr(i)*1024))
+		preloadFirmwareFrame(c)
+	}
+}
+
 /*
 UniversalBitwise dispatches a batch of Values to the compiled CUDA kernel.
 
@@ -165,10 +172,10 @@ reads that program and executes up to 64 ticks per Value, halting at the
 first zero opcode. The batch may therefore be heterogeneous: each Value
 runs its own independent program in parallel.
 */
-func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer) error {
-	preloadFirmwareFrame((*[128]uint64)(a))
+func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer, count int) error {
+	preloadFirmwareFrameBatch(a, count)
 
-	if C.unified_bitwise_cuda(C.int(backend.deviceIdx), unsafe.Pointer(a), unsafe.Pointer(bPtr)) != 0 {
+	if C.unified_bitwise_cuda(C.int(backend.deviceIdx), unsafe.Pointer(a), unsafe.Pointer(bPtr), C.uint32_t(count)) != 0 {
 		err := NewCUDAError(
 			CUDAErrorDispatchFailed,
 			errors.New("failed to dispatch unified bitwise operation"),

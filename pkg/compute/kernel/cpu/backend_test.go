@@ -54,7 +54,7 @@ func TestUniversalBitwise(t *testing.T) {
 			// decode routes to execSpan; use a 14-bit immediate and zeroed dst.
 			a[w] = encodeWriteRegInstr(0x7, 0x2B2C, uint16(0x3000|core.Cfg.R2))
 			a[core.Cfg.R2] = 0
-			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1), ShouldBeNil)
 			So(a[core.Cfg.R2], ShouldEqual, uint64(0x2B2C))
 		})
 
@@ -65,7 +65,7 @@ func TestUniversalBitwise(t *testing.T) {
 			a[core.Cfg.FW] = 0
 			a[w] = encodeWriteRegInstr(0x1, 0x00F0, uint16(0x3000|core.Cfg.R2))
 			a[core.Cfg.R2] = 0xABCD
-			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1), ShouldBeNil)
 			So(a[core.Cfg.R2], ShouldEqual, uint64(0x00F0&0xABCD))
 		})
 
@@ -77,7 +77,7 @@ func TestUniversalBitwise(t *testing.T) {
 			// Opcode 0x6 matches config `xor: 0110`; immediate sc avoids the span decode path.
 			a[w] = encodeWriteRegInstr(6, 0x00FF, uint16(0x3000|core.Cfg.R2))
 			a[core.Cfg.R2] = 0x0F
-			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1), ShouldBeNil)
 			So(a[core.Cfg.R2], ShouldEqual, uint64(0xF0))
 		})
 
@@ -88,7 +88,7 @@ func TestUniversalBitwise(t *testing.T) {
 			a[core.Cfg.FW] = 0
 			a[w] = encodeWriteRegInstr(0x1, 0, uint16(0x3000|core.Cfg.R3))
 			a[core.Cfg.R3] = 0xFFFFFFFFFFFFFFFF
-			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)), ShouldBeNil)
+			So(be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1), ShouldBeNil)
 			So(a[core.Cfg.R3], ShouldEqual, uint64(0))
 		})
 	})
@@ -112,7 +112,7 @@ func TestTombstonePropagation(t *testing.T) {
 	installFirmware(&a, core.FirmwareTypeTombstone)
 	a[core.Cfg.R6] = 1234
 
-	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)); err != nil {
+	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -165,7 +165,7 @@ func TestLearnFirmwareFitnessRouting(t *testing.T) {
 			a[core.Cfg.PreviousID] = 0x9999
 			a[core.Cfg.StateAccumulator] = tc.accumulatorInit
 
-			if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b)); err != nil {
+			if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
 				t.Fatal(err)
 			}
 
@@ -211,7 +211,7 @@ func BenchmarkUniversalBitwise(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		a[core.Cfg.RegPC] = 4
-		if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&c)); err != nil {
+		if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&c), 1); err != nil {
 			b.Fatal(err)
 		}
 	}

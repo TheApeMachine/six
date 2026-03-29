@@ -296,33 +296,38 @@ func markExecExit(c *[128]uint64, code uint16) {
 	c[execStatusWord] = (c[execStatusWord] & execStatusMask) | (uint64(code) << execStatusShift)
 }
 
-func (k *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
+func (k *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 	if a == nil || b == nil {
 		return fmt.Errorf("cpu.Backend.UniversalBitwise: nil value pointer")
 	}
-	c := [2]*[128]uint64{(*[128]uint64)(a), (*[128]uint64)(b)}
 	p, w := uint64(core.Cfg.RegPC), uint64(core.Cfg.ProgramIndex)
 
-	loadFirmware(c[0], p, w)
-	clearExecExit(c[0])
+	for i := 0; i < count; i++ {
+		curA := unsafe.Pointer(uintptr(a) + uintptr(i)*1024)
+		curB := unsafe.Pointer(uintptr(b) + uintptr(i)*1024)
+		c := [2]*[128]uint64{(*[128]uint64)(curA), (*[128]uint64)(curB)}
 
-	var le uint64
-	lp := false
-	for {
-		instr, pc, halt, exitCode := fetch(c[0], p, w)
-		if halt {
-			if exitCode != 0 {
-				markExecExit(c[0], exitCode)
+		loadFirmware(c[0], p, w)
+		clearExecExit(c[0])
+
+		var le uint64
+		lp := false
+		for {
+			instr, pc, halt, exitCode := fetch(c[0], p, w)
+			if halt {
+				if exitCode != 0 {
+					markExecExit(c[0], exitCode)
+				}
+				break
 			}
-			break
+			op, sc, dc, sSp, dSp := decode(instr)
+			if sSp && dSp {
+				execSpan(c, op, sc, dc)
+			} else if dSp {
+				writeReg(c[0], op, dc, sc)
+			}
+			le, lp = detectLoop(c[0], p, pc, le, lp)
 		}
-		op, sc, dc, sSp, dSp := decode(instr)
-		if sSp && dSp {
-			execSpan(c, op, sc, dc)
-		} else if dSp {
-			writeReg(c[0], op, dc, sc)
-		}
-		le, lp = detectLoop(c[0], p, pc, le, lp)
 	}
 	return nil
 }

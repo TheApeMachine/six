@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
@@ -17,6 +18,15 @@ import (
 var substrate *Backend
 var ctx context.Context
 var cancel context.CancelFunc
+
+type bitwiseJob struct {
+	a, b unsafe.Pointer
+	done chan error
+}
+
+var jobQueue = make(chan bitwiseJob, 20000)
+
+const batchSize = 10000
 
 func init() {
 	var err error
@@ -36,6 +46,41 @@ func init() {
 		WithContext(context.Background()),
 		WithPool(pool),
 	)
+
+	go func() {
+		for {
+			var batch []bitwiseJob
+			job := <-jobQueue
+			batch = append(batch, job)
+
+			timeout := time.After(2 * time.Millisecond)
+		gather:
+			for len(batch) < batchSize {
+				select {
+				case j := <-jobQueue:
+					batch = append(batch, j)
+				case <-timeout:
+					break gather
+				}
+			}
+
+			flatA := make([]byte, len(batch)*1024)
+			flatB := make([]byte, len(batch)*1024)
+
+			for i, j := range batch {
+				copy(flatA[i*1024:(i+1)*1024], unsafe.Slice((*byte)(j.a), 1024))
+				copy(flatB[i*1024:(i+1)*1024], unsafe.Slice((*byte)(j.b), 1024))
+			}
+
+			err := substrate.hardware[0].UniversalBitwise(unsafe.Pointer(&flatA[0]), unsafe.Pointer(&flatB[0]), len(batch))
+
+			for i, j := range batch {
+				copy(unsafe.Slice((*byte)(j.a), 1024), flatA[i*1024:(i+1)*1024])
+				copy(unsafe.Slice((*byte)(j.b), 1024), flatB[i*1024:(i+1)*1024])
+				j.done <- err
+			}
+		}
+	}()
 }
 
 /*
@@ -124,7 +169,9 @@ func NewBackend(opts ...BackendOption) *Backend {
 }
 
 func UniversalBitwise(a, b unsafe.Pointer) error {
-	return substrate.hardware[0].UniversalBitwise(a, b)
+	done := make(chan error, 1)
+	jobQueue <- bitwiseJob{a: a, b: b, done: done}
+	return <-done
 }
 
 /*
