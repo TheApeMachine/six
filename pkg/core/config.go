@@ -29,6 +29,7 @@ const (
 	FirmwareTypeBootloader
 	FirmwareTypeTombstone
 	FirmwareTypeViral
+	FirmwareTypeMutate
 )
 
 /*
@@ -239,7 +240,7 @@ type Config struct {
 
 	// Firmware holds compiled programs from config.yml, indexed by position.
 	// Set a Value's firmware register to the index to select a program.
-	Firmware [FirmwareTypeViral + 1][]uint32
+	Firmware [FirmwareTypeMutate + 1][]uint32
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
 	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
@@ -268,6 +269,7 @@ func LoadFirmware() error {
 	fwBootloader := viper.GetViper().GetString("programs.bootloader")
 	fwTombstone := viper.GetViper().GetString("programs.tombstone")
 	fwViral := viper.GetViper().GetString("programs.viral")
+	fwMutate := viper.GetViper().GetString("programs.mutate")
 
 	if err := compileAndAssign(FirmwareTypeLearn, fwLearn); err != nil {
 		return err
@@ -279,6 +281,9 @@ func LoadFirmware() error {
 		return err
 	}
 	if err := compileAndAssign(FirmwareTypeViral, fwViral); err != nil {
+		return err
+	}
+	if err := compileAndAssign(FirmwareTypeMutate, fwMutate); err != nil {
 		return err
 	}
 	return nil
