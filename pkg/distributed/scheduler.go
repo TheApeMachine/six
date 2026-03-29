@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 type schedulerOption func(*Scheduler)
@@ -78,6 +79,16 @@ func (s *Scheduler) ScheduleUniversalBitwise(
 	}
 
 	candidates := candidateOrder(nodes, s.rr.Add(1)-1)
+
+	telemetry.Emit(telemetry.Event{
+		Component: "Pool",
+		Action:    "Dispatch",
+		Data: telemetry.EventData{
+			TaskType:  "UniversalBitwise",
+			NodeCount: len(nodes),
+		},
+	})
+
 	var lastErr error
 
 	for _, n := range candidates {

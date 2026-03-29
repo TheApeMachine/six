@@ -3,14 +3,12 @@ package experiment
 import (
 	"fmt"
 	"io"
-	"strings"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -32,26 +30,16 @@ type Observer struct {
 	lastPressure atomic.Int64
 	lastDensity  atomic.Int64
 
-	done chan struct{}
-	udp  *telemetry.UDPSender
+	done    chan struct{}
+	emitter telemetry.Emitter
 }
 
 func NewObserver(target io.ReadWriter) *Observer {
-	endpoint := strings.TrimSpace(core.Cfg.TelemetryEndpoint)
-	if endpoint == "" {
-		endpoint = "127.0.0.1:8258"
-	}
-	var udp *telemetry.UDPSender
-	udp, err := telemetry.NewUDPSender(endpoint)
-	if err != nil {
-		errnie.Error(fmt.Errorf("experiment.NewObserver: telemetry.NewUDPSender(%q): %w", endpoint, err))
-	}
-
 	o := &Observer{
 		Target:  target,
 		Metrics: make(chan Telemetry, 10), // Small buffer, polled at 60Hz
 		done:    make(chan struct{}),
-		udp:     udp,
+		emitter: telemetry.Global(),
 	}
 
 	go o.pollMetrics()
@@ -95,19 +83,17 @@ func (o *Observer) pollMetrics() {
 				default:
 				}
 
-				if o.udp != nil {
-					o.udp.Send(telemetry.Event{
-						Component: "Pipeline",
-						Action:    "Step",
-						Data: telemetry.EventData{
-							Stage:       "state",
-							Instruction: telemetry.TruthOpName(tel.Instruction),
-							DataPop:     tel.Pressure,
-							Density:     float64(tel.TotalDensity) / 64.0,
-							Message:     fmt.Sprintf("Pipeline running: %d ops/s", tel.OpsPerSec),
-						},
-					})
-				}
+				o.emitter.Emit(telemetry.Event{
+					Component: "Pipeline",
+					Action:    "Step",
+					Data: telemetry.EventData{
+						Stage:       "state",
+						Instruction: telemetry.TruthOpName(tel.Instruction),
+						DataPop:     tel.Pressure,
+						Density:     float64(tel.TotalDensity) / 64.0,
+						Message:     fmt.Sprintf("Pipeline running: %d ops/s", tel.OpsPerSec),
+					},
+				})
 			}
 		}
 	}
@@ -115,9 +101,6 @@ func (o *Observer) pollMetrics() {
 
 func (o *Observer) Close() error {
 	close(o.done)
-	if o.udp != nil {
-		o.udp.Close()
-	}
 	return nil
 }
 
@@ -147,10 +130,8 @@ func (o *Observer) measure(p []byte, n int) {
 		o.lastDensity.Store(int64(density))
 		o.opsCount.Add(1)
 
-		if o.udp != nil {
-			// Mirror every raw Value frame so the visualizer can reconstruct the exact
-			// data flow. The metrics event below stays throttled to keep the HUD light.
-			o.udp.SendFrame(p[:primitive.ByteSize])
-		}
+		// Mirror every raw Value frame so the visualizer can reconstruct the exact
+		// data flow. The metrics event above stays throttled to keep the HUD light.
+		o.emitter.EmitFrame(p[:primitive.ByteSize])
 	}
 }

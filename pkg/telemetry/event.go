@@ -7,6 +7,7 @@ All fields use lowercase JSON names to match the browser.
 type Event struct {
 	Component string    `json:"component"`
 	Action    string    `json:"action"`
+	Timestamp int64     `json:"ts,omitempty"`
 	Data      EventData `json:"data"`
 }
 

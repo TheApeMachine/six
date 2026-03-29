@@ -233,6 +233,22 @@ func (s *UDPSender) SendFrame(frame []byte) {
 	s.recordWriteSuccess()
 }
 
+// Emit implements the Emitter interface. It stamps the event timestamp if zero
+// and delegates to Send.
+func (s *UDPSender) Emit(ev Event) {
+	if ev.Timestamp == 0 {
+		ev.Timestamp = time.Now().UnixNano()
+	}
+	s.Send(ev)
+}
+
+// EmitFrame implements the Emitter interface by delegating to SendFrame.
+func (s *UDPSender) EmitFrame(frame []byte) {
+	s.SendFrame(frame)
+}
+
+var _ Emitter = (*UDPSender)(nil)
+
 func (s *UDPSender) Close() error {
 	if s == nil {
 		return nil
