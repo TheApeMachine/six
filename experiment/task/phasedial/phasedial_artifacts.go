@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -16,8 +17,7 @@ func PhasedialSectionArtifacts(
 	expName string,
 	tableData []tools.ExperimentalData,
 	score float64,
-	proseTemplate string,
-	proseData map[string]any,
+	section tools.ExperimentSection,
 ) []tools.Artifact {
 	n := len(tableData)
 	slug := tools.Slugify(expName)
@@ -40,13 +40,13 @@ func PhasedialSectionArtifacts(
 		})
 	}
 
-	if proseTemplate != "" {
+	if section.Title != "" {
 		artifacts = append(artifacts, tools.Artifact{
 			Type:     tools.ArtifactProse,
 			FileName: slug + "_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data:     proseData,
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		})
 	}
@@ -119,5 +119,23 @@ func phasedialTrialMapPanels(tableData []tools.ExperimentalData, score float64) 
 			YMin: tools.Float64Ptr(0),
 			YMax: tools.Float64Ptr(1),
 		},
+	}
+}
+
+// phasedialAssessment returns a standard three-tier assessment for phasedial experiments.
+func phasedialAssessment(score float64) string {
+	switch {
+	case score > 0.5:
+		return `The substrate demonstrated strong performance on this geometric property,
+confirming that the invariant holds reliably at this ingestion scale.`
+	case score > 0.1:
+		return `Partial invariance was observed.  The property holds for a subset of
+samples but is not yet reliable across all test conditions.
+Increasing ingestion corpus size is expected to strengthen the invariant.`
+	default:
+		return `The property was not reliably detected at this ingestion scale.
+This is an expected result during the refactoring phase; the underlying
+geometric mechanism requires a functional Finalize path to populate
+the substrate with the necessary compositional data.`
 	}
 }

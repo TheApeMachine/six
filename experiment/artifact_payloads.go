@@ -100,8 +100,21 @@ type MultiPanelData struct {
 }
 
 type ProseData struct {
-	Template string         `json:"template"`
-	Data     map[string]any `json:"data"`
+	Template string `json:"template"`
+	Data     any    `json:"data"`
+}
+
+// ExperimentSection is the unified data structure for all experiment prose
+// sections. Each experiment fills in its content blocks; the shared
+// experiment_section.tmpl template arranges them structurally.
+type ExperimentSection struct {
+	Title           string // subsection title, e.g. "Compositional Pattern Recall (TinyStories)"
+	Label           string // LaTeX label slug, e.g. "compositional"
+	TaskDescription string // pre-rendered LaTeX paragraph(s) describing the task
+	Results         string // pre-rendered results paragraph with formatted metrics
+	Assessment      string // pre-computed assessment paragraph (empty to omit)
+	Table           string // optional pre-rendered LaTeX table (empty to omit)
+	FigureRef       string // optional figure label, e.g. "fig:compositional_map"
 }
 
 type ImageStripRow struct {

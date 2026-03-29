@@ -146,42 +146,22 @@ func (experiment *BlindClassificationExperiment) Artifacts() []tools.Artifact {
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
 
-	proseTemplate := `\subsection{Blind Classification}
-\label{sec:blind_classification}
-
-\paragraph{Task Description.}
-The blind classification experiment evaluates zero-shot topical categorisation
+	section := tools.ExperimentSection{
+		Title: "Blind Classification",
+		Label: "blind_classification",
+		TaskDescription: `The blind classification experiment evaluates zero-shot topical categorisation
 on the AG News dataset (\texttt{sh0416/ag\_news}) \emph{without} label
 supervision.  Unlike the standard text classification variant, category
 labels are never appended during ingestion---the system must discover
 topical structure purely from value co-occurrence patterns in the article
 text.  At test time the system must surface the correct category word
-through associative recall alone.
-
-\paragraph{Results.}
-Table~\ref{tab:blind_classification_metrics} summarises the classification
-metrics across $N = {{.N}}$ test samples.
-The confusion matrix is shown in Figure~\ref{fig:blind_classification_confusion}.
-
-{{if gt .Accuracy 0.7 -}}
-\paragraph{Assessment.}
-The substrate achieved strong topical separation even without explicit
-label supervision, indicating robust attractor formation from article
-content alone.
-{{- else if gt .Accuracy 0.4 -}}
-\paragraph{Assessment.}
-The substrate demonstrated moderate blind classification capability.
-Some categories are separable through content co-occurrence alone, while
-others require label reinforcement for reliable disambiguation.
-{{- else -}}
-\paragraph{Assessment.}
-Blind classification accuracy was low.  Without label supervision the
-substrate relies entirely on structural similarity between article content
-and category words.  Scaling ingestion volume or enriching the corpus with
-category-adjacent vocabulary may improve attractor formation.
-{{- end}}
-
-\begin{table}[htbp]
+through associative recall alone.`,
+		Results: fmt.Sprintf(`Table~\ref{tab:blind_classification_metrics} summarises the classification
+metrics across $N = %d$ test samples.
+The confusion matrix is shown in Figure~\ref{fig:blind_classification_confusion}.`,
+			numSamples),
+		Assessment: blindClassificationAssessment(metrics.Accuracy),
+		Table: fmt.Sprintf(`\begin{table}[htbp]
   \centering
   \caption{Blind Classification --- summary metrics.}
   \label{tab:blind_classification_metrics}
@@ -189,15 +169,20 @@ category-adjacent vocabulary may improve attractor formation.
     \toprule
     \textbf{Metric} & \textbf{Value} \\
     \midrule
-    Overall Accuracy  & {{.AccuracyPct}} \\
-    Balanced Accuracy & {{.BalancedAccPct}} \\
-    Macro-F1          & {{.MacroF1 | f3}} \\
-    Mean Resonance    & {{.Score | f4}} \\
-    Sample Size       & $N = {{.N}}$ \\
+    Overall Accuracy  & %s \\
+    Balanced Accuracy & %s \\
+    Macro-F1          & %s \\
+    Mean Resonance    & %s \\
+    Sample Size       & $N = %d$ \\
     \bottomrule
   \end{tabular}
-\end{table}
-`
+\end{table}`,
+			fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
+			fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
+			projector.F3(metrics.MacroF1),
+			projector.F4(score),
+			numSamples),
+	}
 
 	return []tools.Artifact{
 		{
@@ -212,16 +197,27 @@ category-adjacent vocabulary may improve attractor formation.
 			Type:     tools.ArtifactProse,
 			FileName: tools.Slugify(experiment.Name()) + "_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":              numSamples,
-					"Score":          score,
-					"Accuracy":       metrics.Accuracy,
-					"AccuracyPct":    fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
-					"BalancedAccPct": fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
-					"MacroF1":        metrics.MacroF1,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func blindClassificationAssessment(accuracy float64) string {
+	switch {
+	case accuracy > 0.7:
+		return `The substrate achieved strong topical separation even without explicit
+label supervision, indicating robust attractor formation from article
+content alone.`
+	case accuracy > 0.4:
+		return `The substrate demonstrated moderate blind classification capability.
+Some categories are separable through content co-occurrence alone, while
+others require label reinforcement for reliable disambiguation.`
+	default:
+		return `Blind classification accuracy was low.  Without label supervision the
+substrate relies entirely on structural similarity between article content
+and category words.  Scaling ingestion volume or enriching the corpus with
+category-adjacent vocabulary may improve attractor formation.`
 	}
 }

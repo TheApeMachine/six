@@ -7,6 +7,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 // ruleShiftSamplesPerPhase is the number of samples per phase.
@@ -259,60 +260,6 @@ func (exp *RuleShiftExperiment) Artifacts() []tools.Artifact {
 		recoveryDesc = fmt.Sprintf("stabilised at step %d (%d steps after the shift)", recoveryStep, recoveryStep-shiftStep)
 	}
 
-	proseTemplate := `\subsection{Rule-Shift Adaptation}
-\label{sec:rule_shift}
-
-\paragraph{Task Description.}
-This experiment injects a mid-stream rule change into the substrate without
-any explicit signal or re-training.  Two generative rules partition the
-$2N$ = {{.Total}}-sample stream:
-
-\begin{itemize}[nosep]
-  \item \textbf{Rule A} (steps 0--{{.ShiftStep}}, $N={{.N}}$ samples):
-        linear modular sequences, $b_k = (s_i + 3k) \bmod 251$.
-  \item \textbf{Rule B} (steps {{.ShiftStep}}--{{.Total}}, $N={{.N}}$ samples):
-        XOR-nonlinear sequences, $b_k = s_i \oplus (11k \bmod 256)$.
-\end{itemize}
-
-At every step the pipeline's retrieval output is scored against the
-expected continuation under \emph{both} rules simultaneously, yielding
-per-step alignment signals $K_A$ and $K_B$.  The winner at each step
-is $\arg\max(K_A, K_B)$.
-
-\paragraph{Results.}
-Figure~\ref{fig:ruleshift_trajectory} shows the full adaptation
-trajectory.  The shift boundary is at step {{.ShiftStep}}.  Rule B
-{{.RecoveryDesc}}.  Phase A had ${{.PhaseAWins}}$ of
-${{.PhaseASteps}}$ steps won by Rule A
-({{.PhaseAPct | f0}}\,\%); Phase B had ${{.PhaseBWins}}$ of
-${{.PhaseBSteps}}$ steps won by Rule B ({{.PhaseBPct | f0}}\,\%).
-
-{{if ge .PhaseBPct 60.0 -}}
-\paragraph{Assessment.}
-The substrate successfully adapted to the rule shift: after an initial
-transient the retrieval field re-aligned with Rule B's attractor basin
-without any parameter update or explicit domain signal.  This demonstrates
-that the value manifold reorganises spontaneously in response to
-distributional change, consistent with the Holographic BVP framing in
-which the field settles to the lowest-energy configuration compatible
-with the current input boundary conditions.
-{{- else if ge .PhaseBPct 40.0 -}}
-\paragraph{Assessment.}
-Partial adaptation was observed.  The substrate showed sensitivity to the
-shift but did not reach complete dominance of Rule B within the observation
-window.  Larger Phase A pre-training volumes are expected to sharpen the
-Phase A attractor, increasing the contrast ratio $|K_A - K_B|$ and
-accelerating re-equilibration.
-{{- else -}}
-\paragraph{Assessment.}
-The substrate did not complete the transition within the available window.
-At this scale, Rules A and B produce similar value cosine similarities;
-longer samples or larger \textit{N} would widen the attractor gap and make
-the shift detectable.
-{{- end}}
-
-`
-
 	// Per-phase winner counts.
 	phaseAWins, phaseBWins := 0, 0
 	for i, w := range exp.winner {
@@ -401,6 +348,35 @@ the shift detectable.
 		},
 	}
 
+	section := tools.ExperimentSection{
+		Title: "Rule-Shift Adaptation",
+		Label: "rule_shift",
+		TaskDescription: fmt.Sprintf(`This experiment injects a mid-stream rule change into the substrate without
+any explicit signal or re-training.  Two generative rules partition the
+$2N$ = %d-sample stream:
+
+\begin{itemize}[nosep]
+  \item \textbf{Rule A} (steps 0--%d, $N=%d$ samples):
+        linear modular sequences, $b_k = (s_i + 3k) \bmod 251$.
+  \item \textbf{Rule B} (steps %d--%d, $N=%d$ samples):
+        XOR-nonlinear sequences, $b_k = s_i \oplus (11k \bmod 256)$.
+\end{itemize}
+
+At every step the pipeline's retrieval output is scored against the
+expected continuation under \emph{both} rules simultaneously, yielding
+per-step alignment signals $K_A$ and $K_B$.  The winner at each step
+is $\arg\max(K_A, K_B)$.`, steps, shiftStep, n, shiftStep, steps, n),
+		Results: fmt.Sprintf(`Figure~\ref{fig:ruleshift_trajectory} shows the full adaptation
+trajectory.  The shift boundary is at step %d.  Rule B
+%s.  Phase A had $%d$ of
+$%d$ steps won by Rule A
+(%s\,%%%%); Phase B had $%d$ of
+$%d$ steps won by Rule B (%s\,%%%%).`,
+			shiftStep, recoveryDesc, phaseAWins, phaseASteps, projector.F0(phaseAPct),
+			phaseBWins, phaseBSteps, projector.F0(phaseBPct)),
+		Assessment: ruleShiftAssessment(phaseBPct),
+	}
+
 	return []tools.Artifact{
 		{
 			Type:     tools.ArtifactMultiPanel,
@@ -418,20 +394,33 @@ the shift detectable.
 			Type:     tools.ArtifactProse,
 			FileName: "ruleshift_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":            n,
-					"Total":        steps,
-					"ShiftStep":    shiftStep,
-					"RecoveryDesc": recoveryDesc,
-					"PhaseASteps":  phaseASteps,
-					"PhaseBSteps":  phaseBSteps,
-					"PhaseAWins":   phaseAWins,
-					"PhaseBWins":   phaseBWins,
-					"PhaseAPct":    phaseAPct,
-					"PhaseBPct":    phaseBPct,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func ruleShiftAssessment(phaseBPct float64) string {
+	switch {
+	case phaseBPct >= 60.0:
+		return `The substrate successfully adapted to the rule shift: after an initial
+transient the retrieval field re-aligned with Rule B's attractor basin
+without any parameter update or explicit domain signal.  This demonstrates
+that the value manifold reorganises spontaneously in response to
+distributional change, consistent with the Holographic BVP framing in
+which the field settles to the lowest-energy configuration compatible
+with the current input boundary conditions.`
+	case phaseBPct >= 40.0:
+		return `Partial adaptation was observed.  The substrate showed sensitivity to the
+shift but did not reach complete dominance of Rule B within the observation
+window.  Larger Phase A pre-training volumes are expected to sharpen the
+Phase A attractor, increasing the contrast ratio $|K_A - K_B|$ and
+accelerating re-equilibration.`
+	default:
+		return `The substrate did not complete the transition within the available window.
+At this scale, Rules A and B produce similar value cosine similarities;
+longer samples or larger \textit{N} would widen the attractor gap and make
+the shift detectable.`
 	}
 }

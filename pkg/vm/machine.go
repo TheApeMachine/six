@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"runtime"
 
 	"go.uber.org/zap"
 
@@ -22,15 +21,9 @@ type SubstrateConfig struct {
 }
 
 /*
-Machine provides a unified stream processing pipeline using github.com/whitaker-io/machine
-and ants goroutine pooling. It dynamically schedules work across local hardware substrates
-and remote network nodes natively through a homogeneous data flow, while guaranteeing
-zero-drop fault tolerance using errnie error handling contexts.
-
-All machineOption functions (WithDataset, WithRegionsCount, etc.) apply only
-during NewMachine construction. Options mutate the in-progress *Machine before the pool,
-regions, and transport stream are wired up; calling them after NewMachine returns is
-unsupported and may race with in-flight I/O or scheduling.
+Machine provides a unified stream processing pipeline. All machine options are
+applied during construction so tests and callers can instantiate isolated
+machines without relying on package-level state.
 */
 type Machine struct {
 	ctx     context.Context
@@ -39,6 +32,11 @@ type Machine struct {
 	stream  *transport.Stream
 	dataset io.ReadCloser
 	config  SubstrateConfig
+
+	regions     int
+	autoS3      bool
+	streamOpts  []transport.StreamOption
+	streamSides []io.ReadWriter
 }
 
 type machineOption func(*Machine)
@@ -49,37 +47,56 @@ func WithConfig(config SubstrateConfig) machineOption {
 	}
 }
 
-// NewMachine constructs a Machine: it applies opts, validates ctx/cancel, starts the pool
-// workers, allocates regions (see WithRegionsCount), and opens the transport stream.
+// WithRegionsCount configures how many parallel stream regions are constructed.
+func WithRegionsCount(n int) machineOption {
+	return func(machine *Machine) {
+		if n > 0 {
+			machine.regions = n
+		}
+	}
+}
+
+// WithStreamOptions appends low-level transport options to the machine.
+func WithStreamOptions(opts ...transport.StreamOption) machineOption {
+	return func(machine *Machine) {
+		machine.streamOpts = append(machine.streamOpts, opts...)
+	}
+}
+
+// WithStreamAdapter attaches an additional observer / sink to the stream.
+func WithStreamAdapter(side io.ReadWriter) machineOption {
+	return func(machine *Machine) {
+		if side != nil {
+			machine.streamSides = append(machine.streamSides, side)
+		}
+	}
+}
+
+// WithS3Adapter opts in to the LakeFS / MinIO adapter. It is disabled by
+// default so NewMachine remains side-effect free in tests.
+func WithS3Adapter() machineOption {
+	return func(machine *Machine) {
+		machine.autoS3 = true
+	}
+}
+
+// NewMachine constructs a Machine: it applies opts, validates ctx/cancel, and
+// wires an isolated transport stream.
 func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, err error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
-	cpu := runtime.NumCPU()
-	maxProcs := cpu - 1
-
-	if cpu <= 1 {
-		maxProcs = 1
-	}
-
-	errnie.Info(
-		"vm.machine.NewMachine",
-		"poolProcs", maxProcs,
-	)
-
-	machine = &Machine{}
+	machine = &Machine{regions: 1}
 	machine.ctx, machine.cancel = context.WithCancel(ctx)
-
-	var streamOpts []transport.StreamOption
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	// Default to at least 1 region if none was set via streamOpts in opts.
-	// We'll just append it directly for now, or ensure StreamWithRegions is called.
-	streamOpts = append(streamOpts, transport.StreamWithRegions(1))
+	if machine.config.ValueConfig == nil {
+		machine.config.ValueConfig = core.Cfg
+	}
 
 	if machine.err = validate.Require(map[string]any{
 		"ctx":    machine.ctx,
@@ -90,20 +107,24 @@ func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, e
 		)
 	}
 
-	// Add the S3 Adapter to log stream to LakeFS/MinIO natively if enabled/configured
-	s3adapter, err := adapter.NewS3Adapter(machine.ctx)
+	streamOpts := make([]transport.StreamOption, 0, len(machine.streamOpts)+1+len(machine.streamSides)+1)
+	streamOpts = append(streamOpts, transport.StreamWithRegions(machine.regions))
+	streamOpts = append(streamOpts, machine.streamOpts...)
 
-	if err == nil && s3adapter != nil {
-		streamOpts = append(
-			streamOpts,
-			transport.StreamWithAdapter(s3adapter),
-		)
-	} else if err != nil {
-		errnie.Trace("vm.NewMachine", "s3_adapter", "disabled/not_configured: "+err.Error())
+	if machine.autoS3 {
+		s3adapter, s3Err := adapter.NewS3Adapter(machine.ctx)
+		if s3Err == nil && s3adapter != nil {
+			streamOpts = append(streamOpts, transport.StreamWithAdapter(s3adapter))
+		} else if s3Err != nil {
+			errnie.Trace("vm.NewMachine", "s3_adapter", "disabled/not_configured: "+s3Err.Error())
+		}
+	}
+
+	for _, side := range machine.streamSides {
+		streamOpts = append(streamOpts, transport.StreamWithAdapter(side))
 	}
 
 	machine.stream = transport.NewStream(machine.ctx, streamOpts...)
-
 	if machine.stream == nil {
 		return nil, errnie.Error(
 			NewMachineError(MachineErrFailStart, errors.New("stream failed to start")),

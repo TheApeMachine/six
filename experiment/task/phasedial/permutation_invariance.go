@@ -1,11 +1,13 @@
 package phasedial
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -92,15 +94,16 @@ func (experiment *PermutationInvarianceExperiment) TableData() any {
 }
 
 func (experiment *PermutationInvarianceExperiment) Artifacts() []tools.Artifact {
+	n := len(experiment.tableData)
+	score := experiment.Score()
 	return PhasedialSectionArtifacts(
 		"Permutation Invariance",
 		experiment.tableData,
-		experiment.Score(),
-		`\subsection{Permutation Invariance}
-\label{sec:permutation_invariance}
-
-\paragraph{Task Description.}
-The permutation invariance experiment verifies that the PhaseDial
+		score,
+		tools.ExperimentSection{
+			Title: "Permutation Invariance",
+			Label: "permutation_invariance",
+			TaskDescription: `The permutation invariance experiment verifies that the PhaseDial
 representation is insensitive to the ordering of ingested samples.
 Two identical corpora are ingested in different random orderings; the
 resulting substrate fingerprints should produce equivalent retrieval
@@ -108,30 +111,10 @@ results.
 
 This is a critical structural property: if retrieval quality depends
 on ingestion order, the substrate is encoding positional artefacts
-rather than genuine structural relationships.
-
-\paragraph{Results.}
-Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong permutation invariance invariance,
-confirming that the geometric property holds reliably at this scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but is not yet reliable across all test conditions.
-Increasing ingestion corpus size is expected to strengthen the invariant.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this ingestion scale.
-This is an expected result during the refactoring phase; the underlying
-geometric mechanism requires a functional Finalize path to populate
-the substrate with the necessary compositional data.
-{{- end}}
-
-Figure~\ref{fig:permutation_invariance_map} shows the trial outcome map.
-`,
-		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+rather than genuine structural relationships.`,
+			Results:    fmt.Sprintf(`Across $N = %d$ test samples the mean weighted score was %s.`, n, projector.F3(score)),
+			Assessment: phasedialAssessment(score),
+			FigureRef:  "fig:permutation_invariance_map",
+		},
 	)
 }

@@ -1,0 +1,21 @@
+\subsection{ {{.Title}} }
+\label{sec:{{.Label}}}
+
+\paragraph{Task Description.}
+{{.TaskDescription}}
+
+\paragraph{Results.}
+{{.Results}}
+{{- if .Assessment}}
+
+\paragraph{Assessment.}
+{{.Assessment}}
+{{- end}}
+{{- if .Table}}
+
+{{.Table}}
+{{- end}}
+{{- if .FigureRef}}
+
+Figure~\ref{ {{.FigureRef}} } shows the trial outcome map.
+{{- end}}

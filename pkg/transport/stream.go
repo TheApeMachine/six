@@ -53,6 +53,10 @@ func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 		option(stream)
 	}
 
+	if stream.regions < 1 || len(stream.emitter) == 0 {
+		StreamWithRegions(1)(stream)
+	}
+
 	if err := validate.Require(map[string]any{
 		"ctx":      stream.ctx,
 		"cancel":   stream.cancel,
@@ -158,6 +162,14 @@ func (stream *Stream) Close() (err error) {
 		}
 
 		var closeErrs []error
+		for _, emitter := range stream.emitter {
+			if emitter == nil {
+				continue
+			}
+			if cerr := emitter.Close(); cerr != nil {
+				closeErrs = append(closeErrs, cerr)
+			}
+		}
 		for _, pw := range stream.pw {
 			if cerr := pw.Close(); cerr != nil {
 				closeErrs = append(closeErrs, cerr)
@@ -187,6 +199,11 @@ func StreamWithRegions(n int) StreamOption {
 			n = 1
 		}
 
+		for _, emitter := range stream.emitter {
+			if emitter != nil {
+				_ = emitter.Close()
+			}
+		}
 		for _, pw := range stream.pw {
 			_ = pw.Close()
 		}

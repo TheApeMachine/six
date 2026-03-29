@@ -1,11 +1,13 @@
 package phasedial
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -84,15 +86,16 @@ func (experiment *SnapToSurfaceExperiment) TableData() any {
 }
 
 func (experiment *SnapToSurfaceExperiment) Artifacts() []tools.Artifact {
+	n := len(experiment.tableData)
+	score := experiment.Score()
 	return PhasedialSectionArtifacts(
 		"Snap to Surface",
 		experiment.tableData,
-		experiment.Score(),
-		`\subsection{Snap to Surface}
-\label{sec:snap_to_surface}
-
-\paragraph{Task Description.}
-The snap-to-surface experiment evaluates whether a composed midpoint in
+		score,
+		tools.ExperimentSection{
+			Title: "Snap to Surface",
+			Label: "snap_to_surface",
+			TaskDescription: `The snap-to-surface experiment evaluates whether a composed midpoint in
 phase space can be rotated to maximize its resonance with the corpus
 manifold. This ensures that compositional results land on valid
 structural nodes rather than falling into interstitial regions between
@@ -101,30 +104,10 @@ attractors.
 The substrate ingests a set of aphorisms; after two-hop composition the
 resulting midpoint fingerprint is searched against the manifold surface.
 The score reflects how accurately the nearest valid substrate entry is
-recovered.
-
-\paragraph{Results.}
-Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong snap to surface invariance,
-confirming that the geometric property holds reliably at this scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but is not yet reliable across all test conditions.
-Increasing ingestion corpus size is expected to strengthen the invariant.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this ingestion scale.
-This is an expected result during the refactoring phase; the underlying
-geometric mechanism requires a functional Finalize path to populate
-the substrate with the necessary compositional data.
-{{- end}}
-
-Figure~\ref{fig:snap_to_surface_map} shows the trial outcome map.
-`,
-		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+recovered.`,
+			Results:    fmt.Sprintf(`Across $N = %d$ test samples the mean weighted score was %s.`, n, projector.F3(score)),
+			Assessment: phasedialAssessment(score),
+			FigureRef:  "fig:snap_to_surface_map",
+		},
 	)
 }

@@ -1,11 +1,13 @@
 package phasedial
 
 import (
+	"fmt"
+
 	gc "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -84,48 +86,29 @@ func (experiment *CorrelationLengthExperiment) TableData() any {
 }
 
 func (experiment *CorrelationLengthExperiment) Artifacts() []tools.Artifact {
+	n := len(experiment.tableData)
+	score := experiment.Score()
 	return PhasedialSectionArtifacts(
 		"Correlation Length",
 		experiment.tableData,
-		experiment.Score(),
-		`\subsection{Correlation Length}
-\label{sec:correlation_length}
-
-\paragraph{Task Description.}
-The correlation length experiment measures the spatial decay of value
+		score,
+		tools.ExperimentSection{
+			Title: "Correlation Length",
+			Label: "correlation_length",
+			TaskDescription: `The correlation length experiment measures the spatial decay of value
 similarity as a function of angular distance on the phase torus.
 Starting from a seed fingerprint, the system rotates in fixed angular
 increments and measures how quickly similarity to the original decays.
-The decay rate characterises the \\textit{correlation length} of the value
+The decay rate characterises the \textit{correlation length} of the value
 manifold --- the angular radius within which attractor influence is
 detectable.
 
 A well-structured manifold should exhibit a clean exponential or
 power-law decay, indicating that nearby regions share structural
-information while distant regions are independent.
-
-\paragraph{Results.}
-Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong correlation length invariance,
-confirming that the geometric property holds reliably at this scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but is not yet reliable across all test conditions.
-Increasing ingestion corpus size is expected to strengthen the invariant.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this ingestion scale.
-This is an expected result during the refactoring phase; the underlying
-geometric mechanism requires a functional Finalize path to populate
-the substrate with the necessary compositional data.
-{{- end}}
-
-Figure~\ref{fig:correlation_length_map} shows the trial outcome map.
-`,
-		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+information while distant regions are independent.`,
+			Results:    fmt.Sprintf(`Across $N = %d$ test samples the mean weighted score was %s.`, n, projector.F3(score)),
+			Assessment: phasedialAssessment(score),
+			FigureRef:  "fig:correlation_length_map",
+		},
 	)
 }

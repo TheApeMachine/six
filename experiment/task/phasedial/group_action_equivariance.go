@@ -1,11 +1,13 @@
 package phasedial
 
 import (
+	"fmt"
+
 	. "github.com/smartystreets/goconvey/convey"
 	tools "github.com/theapemachine/six/experiment"
-
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/local"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 /*
@@ -84,45 +86,26 @@ func (experiment *GroupActionEquivarianceExperiment) TableData() any {
 }
 
 func (experiment *GroupActionEquivarianceExperiment) Artifacts() []tools.Artifact {
+	n := len(experiment.tableData)
+	score := experiment.Score()
 	return PhasedialSectionArtifacts(
 		"Group Action Equivariance",
 		experiment.tableData,
-		experiment.Score(),
-		`\subsection{Group Action Equivariance}
-\label{sec:group_action_equivariance}
-
-\paragraph{Task Description.}
-The group action equivariance experiment verifies that rotation in
+		score,
+		tools.ExperimentSection{
+			Title: "Group Action Equivariance",
+			Label: "group_action_equivariance",
+			TaskDescription: `The group action equivariance experiment verifies that rotation in
 phase space commutes with retrieval: rotating a query fingerprint by
-angle $lpha$ and then retrieving should produce the same result as
-retrieving first and then rotating the result by $lpha$.
+angle $\alpha$ and then retrieving should produce the same result as
+retrieving first and then rotating the result by $\alpha$.
 
 Equivariance is a necessary condition for the PhaseDial to serve as a
 navigable manifold --- it guarantees that rotational operations have
-predictable effects on retrieval outcomes, enabling controlled steering.
-
-\paragraph{Results.}
-Across $N = {{.N}}$ test samples the mean weighted score was {{.Score | f3}}.
-
-{{if gt .Score 0.5 -}}
-\paragraph{Assessment.}
-The substrate demonstrated strong group action equivariance invariance,
-confirming that the geometric property holds reliably at this scale.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial invariance was observed.  The property holds for a subset of
-samples but is not yet reliable across all test conditions.
-Increasing ingestion corpus size is expected to strengthen the invariant.
-{{- else -}}
-\paragraph{Assessment.}
-The property was not reliably detected at this ingestion scale.
-This is an expected result during the refactoring phase; the underlying
-geometric mechanism requires a functional Finalize path to populate
-the substrate with the necessary compositional data.
-{{- end}}
-
-Figure~\ref{fig:group_action_equivariance_map} shows the trial outcome map.
-`,
-		map[string]any{"N": len(experiment.tableData), "Score": experiment.Score()},
+predictable effects on retrieval outcomes, enabling controlled steering.`,
+			Results:    fmt.Sprintf(`Across $N = %d$ test samples the mean weighted score was %s.`, n, projector.F3(score)),
+			Assessment: phasedialAssessment(score),
+			FigureRef:  "fig:group_action_equivariance_map",
+		},
 	)
 }

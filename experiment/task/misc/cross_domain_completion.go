@@ -8,6 +8,7 @@ import (
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/experiment/data/huggingface"
+	"github.com/theapemachine/six/experiment/projector"
 )
 
 // crossDomains defines the three domains tested in this experiment.
@@ -280,12 +281,17 @@ func (experiment *CrossDomainCompletionExperiment) Artifacts() []tools.Artifact 
 		},
 	}
 
-	// ── Prose template ─────────────────────────────────────────────
-	proseTemplate := `\subsection{Cross-Domain Span Completion}
-\label{sec:cross_domain_completion}
+	// Pre-render per-domain summary lines.
+	var domainLines string
+	for i, name := range xAxis {
+		domainLines += fmt.Sprintf("\n\\textbf{%s}: %s (exact: %s).",
+			name, projector.F3(weightedVals[i]), projector.Pct(exactVals[i]))
+	}
 
-\paragraph{Task Description.}
-The cross-domain completion experiment evaluates the substrate's
+	section := tools.ExperimentSection{
+		Title: "Cross-Domain Span Completion",
+		Label: "cross_domain_completion",
+		TaskDescription: fmt.Sprintf(`The cross-domain completion experiment evaluates the substrate's
 domain-agnosticism: without any domain-specific ingestion, indexing,
 or parameter adjustment, the same value manifold is asked to complete
 the final 50 bytes of samples drawn from three structurally distinct
@@ -300,62 +306,20 @@ domains:
         (\texttt{proteinea/secondary\_structure\_prediction})
 \end{itemize}
 
-Each domain contributes ${{.SamplesPerDomain}}$ training samples,
+Each domain contributes $%d$ training samples,
 ingested sequentially into a single unified substrate.
 Test prompts hold out the last 50 bytes; the system reconstructs
-them from the value resonance field without any domain indicator.
-
-\paragraph{Results.}
-Figure~\ref{fig:cross_domain_map} shows the composite.
+them from the value resonance field without any domain indicator.`, crossDomainSamplesPerDomain),
+		Results: fmt.Sprintf(`Figure~\ref{fig:cross_domain_map} shows the composite.
 Panel~A is the per-sample score fingerprint heatmap; sample labels
 encode domain (first four characters) and local index.
 Panel~B shows mean Exact / Partial / Fuzzy / Weighted scores grouped
 by domain, directly comparing substrate performance across the
 three data modalities.
 
-Across all $N = {{.N}}$ samples the overall weighted score was
-{{.Score | f3}}. Per-domain weighted means:
-{{- range .DomainSummary}}
-\textbf{ {{- .Name -}} }: {{.Weighted | f3}} (exact: {{.Exact | pct}}).
-{{- end}}
-
-{{if gt .Score 0.4 -}}
-\paragraph{Assessment.}
-The substrate achieved non-trivial completion accuracy across domains,
-demonstrating that a single unchained value manifold can operate as a
-unified memory across qualitatively different data modalities.
-The absence of domain-specific tuning or retrieval routing supports
-the claim that bitwise value resonance is a domain-agnostic indexing
-primitive.
-{{- else if gt .Score 0.1 -}}
-\paragraph{Assessment.}
-Partial matches across domains indicate that the substrate is
-detecting shared structural regularities (n-gram byte patterns,
-token-boundary alignment) even across very different data modalities.
-Exact matches remain low due to sample-size constraints; increasing
-ingestion volume per domain is expected to sharpen per-domain
-attractor density.
-{{- else -}}
-\paragraph{Assessment.}
-Completion accuracy was low across all domains at this ingestion
-scale.  The result is consistent with the theoretical expectation:
-the attractor field requires a minimum density of related samples
-before value resonance can reliably recover novel suffixes.
-{{- end}}
-
-`
-	type domainSum struct {
-		Name     string
-		Exact    float64
-		Weighted float64
-	}
-	domainSummary := make([]domainSum, 0, len(xAxis))
-	for i, name := range xAxis {
-		domainSummary = append(domainSummary, domainSum{
-			Name:     name,
-			Exact:    exactVals[i],
-			Weighted: weightedVals[i],
-		})
+Across all $N = %d$ samples the overall weighted score was
+%s. Per-domain weighted means:%s`, n, projector.F3(score), domainLines),
+		Assessment: crossDomainAssessment(score),
 	}
 
 	return []tools.Artifact{
@@ -375,15 +339,34 @@ before value resonance can reliably recover novel suffixes.
 			Type:     tools.ArtifactProse,
 			FileName: "crossdomaincompletion_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":                n,
-					"Score":            score,
-					"SamplesPerDomain": crossDomainSamplesPerDomain,
-					"DomainSummary":    domainSummary,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func crossDomainAssessment(score float64) string {
+	switch {
+	case score > 0.4:
+		return `The substrate achieved non-trivial completion accuracy across domains,
+demonstrating that a single unchained value manifold can operate as a
+unified memory across qualitatively different data modalities.
+The absence of domain-specific tuning or retrieval routing supports
+the claim that bitwise value resonance is a domain-agnostic indexing
+primitive.`
+	case score > 0.1:
+		return `Partial matches across domains indicate that the substrate is
+detecting shared structural regularities (n-gram byte patterns,
+token-boundary alignment) even across very different data modalities.
+Exact matches remain low due to sample-size constraints; increasing
+ingestion volume per domain is expected to sharpen per-domain
+attractor density.`
+	default:
+		return `Completion accuracy was low across all domains at this ingestion
+scale.  The result is consistent with the theoretical expectation:
+the attractor field requires a minimum density of related samples
+before value resonance can reliably recover novel suffixes.`
 	}
 }
 

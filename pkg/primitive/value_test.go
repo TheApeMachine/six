@@ -55,6 +55,30 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+func TestFold(t *testing.T) {
+	Convey("Given two Values", t, func() {
+		valueA, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueA.Close()
+
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
+
+		Convey("And Value A has the Viral Firmware", func() {
+			valueA.installFirmware(core.FirmwareTypeViral)
+
+			Convey("When Fold is used directly", func() {
+				So(valueA.Fold(valueB), ShouldBeNil)
+
+				Convey("Then the partner program space should be rewritten in place", func() {
+					So(valueB[core.Cfg.ProgramIndex:], ShouldResemble, valueA[core.Cfg.ProgramIndex:])
+				})
+			})
+		})
+	})
+}
+
 func TestRead(t *testing.T) {
 	Convey("Given two Values", t, func() {
 		valueA, err := NewValue(nil)
@@ -164,7 +188,7 @@ func BenchmarkValue_Read(b *testing.B) {
 
 func BenchmarkValue_Write(b *testing.B) {
 	dst, err := NewValue(nil)
-	
+
 	if err != nil {
 		b.Fatal(err)
 	}

@@ -163,41 +163,21 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 
 	matrixFile := tools.Slugify(experiment.Name()) + "_scores"
 
-	proseTemplate := `\subsection{Text Classification}
-\label{sec:text_classification}
-
-\paragraph{Task Description.}
-The text classification experiment evaluates zero-shot topical categorisation
+	section := tools.ExperimentSection{
+		Title: "Text Classification",
+		Label: "text_classification",
+		TaskDescription: `The text classification experiment evaluates zero-shot topical categorisation
 on the AG News dataset (\texttt{sh0416/ag\_news}).  Articles from four
 categories---World, Sports, Business, and Science/Technology---are ingested
 with their label appended.  At test time the label suffix is stripped via
 substring holdout; the system must surface the correct category word through
-value co-occurrence in its generated output.
-
-\paragraph{Results.}
-Table~\ref{tab:text_classification_metrics} summarises the classification
-metrics across $N = {{.N}}$ test samples.
-The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
-
-{{if gt .Accuracy 0.7 -}}
-\paragraph{Assessment.}
-The substrate achieved strong topical separation, correctly routing the
-majority of article value patterns to their ground-truth category attractors.
-{{- else if gt .Accuracy 0.4 -}}
-\paragraph{Assessment.}
-The substrate demonstrated moderate classification capability.
-Some categories are reliably separated while others exhibit value overlap,
-suggesting attractor boundaries between topically adjacent classes could
-benefit from a larger ingestion corpus.
-{{- else -}}
-\paragraph{Assessment.}
-Classification accuracy was low.  With only $N = {{.N}}$ samples the
-substrate may not have built sufficient attractor density to separate all
-four AG News categories reliably.  Scaling the ingestion volume is expected
-to improve per-class disambiguation.
-{{- end}}
-
-\begin{table}[htbp]
+value co-occurrence in its generated output.`,
+		Results: fmt.Sprintf(`Table~\ref{tab:text_classification_metrics} summarises the classification
+metrics across $N = %d$ test samples.
+The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.`,
+			numSamples),
+		Assessment: textClassificationAssessment(metrics.Accuracy, numSamples),
+		Table: fmt.Sprintf(`\begin{table}[htbp]
   \centering
   \caption{Text Classification --- summary metrics.}
   \label{tab:text_classification_metrics}
@@ -205,15 +185,20 @@ to improve per-class disambiguation.
     \toprule
     \textbf{Metric} & \textbf{Value} \\
     \midrule
-    Overall Accuracy  & {{.AccuracyPct}} \\
-    Balanced Accuracy & {{.BalancedAccPct}} \\
-    Macro-F1          & {{.MacroF1 | f3}} \\
-    Mean Resonance    & {{.Score | f4}} \\
-    Sample Size       & $N = {{.N}}$ \\
+    Overall Accuracy  & %s \\
+    Balanced Accuracy & %s \\
+    Macro-F1          & %s \\
+    Mean Resonance    & %s \\
+    Sample Size       & $N = %d$ \\
     \bottomrule
   \end{tabular}
-\end{table}
-`
+\end{table}`,
+			fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
+			fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
+			projector.F3(metrics.MacroF1),
+			projector.F4(score),
+			numSamples),
+	}
 
 	return []tools.Artifact{
 		{
@@ -228,16 +213,27 @@ to improve per-class disambiguation.
 			Type:     tools.ArtifactProse,
 			FileName: "text_classification_section.tex",
 			Data: tools.ProseData{
-				Template: proseTemplate,
-				Data: map[string]any{
-					"N":              numSamples,
-					"Score":          score,
-					"Accuracy":       metrics.Accuracy,
-					"AccuracyPct":    fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
-					"BalancedAccPct": fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
-					"MacroF1":        metrics.MacroF1,
-				},
+				Template: projector.ExperimentSectionTmpl,
+				Data:     section,
 			},
 		},
+	}
+}
+
+func textClassificationAssessment(accuracy float64, n int) string {
+	switch {
+	case accuracy > 0.7:
+		return `The substrate achieved strong topical separation, correctly routing the
+majority of article value patterns to their ground-truth category attractors.`
+	case accuracy > 0.4:
+		return `The substrate demonstrated moderate classification capability.
+Some categories are reliably separated while others exhibit value overlap,
+suggesting attractor boundaries between topically adjacent classes could
+benefit from a larger ingestion corpus.`
+	default:
+		return fmt.Sprintf(`Classification accuracy was low.  With only $N = %d$ samples the
+substrate may not have built sufficient attractor density to separate all
+four AG News categories reliably.  Scaling the ingestion volume is expected
+to improve per-class disambiguation.`, n)
 	}
 }
