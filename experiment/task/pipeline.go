@@ -58,6 +58,7 @@ type Pipeline struct {
 	reporter   Reporter
 	timing     runTiming
 	streamSize int // Tracks the number of frames in the ring buffer
+	config     vm.SubstrateConfig
 }
 
 type pipelineOpts func(*Pipeline)
@@ -73,6 +74,10 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 
 	for _, opt := range opts {
 		opt(pipeline)
+	}
+
+	if pipeline.config.ValueConfig == nil {
+		pipeline.config.ValueConfig = core.Cfg
 	}
 
 	if pipeline.experiment == nil {
@@ -95,6 +100,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	machine, err := vm.NewMachine(
 		pipeline.ctx,
 		vm.WithDataset(pipeline.experiment.Dataset()),
+		vm.WithConfig(pipeline.config),
 	)
 
 	if err != nil {
@@ -163,7 +169,7 @@ func (pipeline *Pipeline) Run() (err error) {
 			continue
 		}
 
-		value[core.Cfg.StateIndex] = 1
+		value[pipeline.config.ValueConfig.StateIndex] = 1
 
 		// Inject the prompt frame, then read the transformed frame back once.
 		observedFrame, err := pipeline.injectAndObserve(observer, value)
@@ -263,7 +269,7 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 	}
 
 	// NewValue stores one tokenized byte per 64-bit token word.
-	chunkSize := int((core.Cfg.TokenBits + 63) / 64)
+	chunkSize := int((pipeline.config.ValueConfig.TokenBits + 63) / 64)
 	if chunkSize <= 0 {
 		return nil
 	}
@@ -278,7 +284,7 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 		if err != nil {
 			return err
 		}
-		frame[core.Cfg.StateIndex] = 1
+		frame[pipeline.config.ValueConfig.StateIndex] = 1
 
 		if err := pipeline.inject(observer, frame); err != nil {
 			return err
@@ -316,14 +322,14 @@ func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {
 	if err != nil {
 		return err
 	}
-	seed[core.Cfg.StateIndex] = 1
-	seed[core.Cfg.RegPC] = 0
-	seed[core.Cfg.FW] = 0
+	seed[pipeline.config.ValueConfig.StateIndex] = 1
+	seed[pipeline.config.ValueConfig.RegPC] = 0
+	seed[pipeline.config.ValueConfig.FW] = 0
 	defer seed.Close()
 
-	program := append([]uint32(nil), core.Cfg.Firmware[core.FirmwareTypeViral]...)
-	program = append(program, encodeWriteRegImmediate(uint16(core.FirmwareTypeLearn), core.Cfg.FW))
-	installProgram(seed, core.Cfg.ProgramIndex, program)
+	program := append([]uint32(nil), pipeline.config.ValueConfig.Firmware[core.FirmwareTypeViral]...)
+	program = append(program, encodeWriteRegImmediate(uint16(core.FirmwareTypeLearn), pipeline.config.ValueConfig.FW))
+	installProgram(seed, pipeline.config.ValueConfig.ProgramIndex, program)
 
 	return pipeline.inject(observer, seed)
 }
@@ -371,6 +377,12 @@ func promptsFromDataset(dataset data.Provider) []string {
 	}
 
 	return prompts
+}
+
+func PipelineWithConfig(config vm.SubstrateConfig) pipelineOpts {
+	return func(pipeline *Pipeline) {
+		pipeline.config = config
+	}
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {

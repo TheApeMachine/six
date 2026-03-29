@@ -234,19 +234,90 @@ func execSpan(c [2]*[128]uint64, op uint8, sc, dc uint16) {
 	if sN == 1 {
 		limit = dN
 	}
-	for i := uint64(0); i < limit; i++ {
-		sBit := sS + i
-		if sN == 1 {
-			sBit = sS
+
+	m0 := uint64(0) - uint64((op>>3)&1)
+	m1 := uint64(0) - uint64((op>>2)&1)
+	m2 := uint64(0) - uint64((op>>1)&1)
+	m3 := uint64(0) - uint64(op&1)
+
+	if sN == 1 {
+		sWord := sS / 64
+		sShift := sS % 64
+		if sWord >= 128 {
+			return
 		}
-		si, ss := sBit/64, sBit%64
-		di, ds := (dS+i)/64, (dS+i)%64
-		if si|di >= 128 {
-			break
+		sb := (c[sL][sWord] >> sShift) & 1
+		var left uint64
+		if sb == 1 {
+			left = ^uint64(0)
 		}
-		sb := (c[sL][si] >> ss) & 1
-		db := (c[dL][di] >> ds) & 1
-		c[dL][di] = c[dL][di]&^(1<<ds) | uint64((op>>((1-db)|(1-sb)<<1))&1)<<ds
+
+		for i := uint64(0); i < limit; {
+			di := (dS + i) / 64
+			ds := (dS + i) % 64
+			if di >= 128 {
+				break
+			}
+
+			chunk := uint64(64) - ds
+			if i+chunk > limit {
+				chunk = limit - i
+			}
+
+			var mask uint64
+			if chunk == 64 {
+				mask = ^uint64(0)
+			} else {
+				mask = (1 << chunk) - 1
+			}
+			mask <<= ds
+
+			right := c[dL][di]
+			res := m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
+
+			c[dL][di] = (right & ^mask) | (res & mask)
+			i += chunk
+		}
+	} else {
+		for i := uint64(0); i < limit; {
+			di := (dS + i) / 64
+			ds := (dS + i) % 64
+			if di >= 128 {
+				break
+			}
+
+			chunk := uint64(64) - ds
+			if i+chunk > limit {
+				chunk = limit - i
+			}
+
+			var mask uint64
+			if chunk == 64 {
+				mask = ^uint64(0)
+			} else {
+				mask = (1 << chunk) - 1
+			}
+			mask <<= ds
+
+			sBit := sS + i
+			si := sBit / 64
+			ss := sBit % 64
+			if si >= 128 {
+				break
+			}
+
+			left := c[sL][si] >> ss
+			if ss+chunk > 64 && si+1 < 128 {
+				left |= c[sL][si+1] << (64 - ss)
+			}
+			left <<= ds
+
+			right := c[dL][di]
+			res := m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
+
+			c[dL][di] = (right & ^mask) | (res & mask)
+			i += chunk
+		}
 	}
 }
 

@@ -17,7 +17,7 @@ import (
 )
 
 type SubstrateConfig struct {
-	ValueConfig core.ValueConfig
+	ValueConfig *core.Config
 	Logger      *zap.Logger
 }
 
@@ -42,6 +42,12 @@ type Machine struct {
 }
 
 type machineOption func(*Machine)
+
+func WithConfig(config SubstrateConfig) machineOption {
+	return func(machine *Machine) {
+		machine.config = config
+	}
+}
 
 // NewMachine constructs a Machine: it applies opts, validates ctx/cancel, starts the pool
 // workers, allocates regions (see WithRegionsCount), and opens the transport stream.
