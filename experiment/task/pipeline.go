@@ -56,6 +56,7 @@ type Pipeline struct {
 	scoreWgts  tools.ScoreWeights
 	reporter   Reporter
 	timing     runTiming
+	streamSize int // Tracks the number of frames in the ring buffer
 }
 
 type pipelineOpts func(*Pipeline)
@@ -122,6 +123,19 @@ func (pipeline *Pipeline) Run() (err error) {
 		return errnie.Error(err)
 	}
 
+	// Recirculation loop: pump the stream to allow the dataset and seed to mix and evolve.
+	// Since there are around 1700 chunks, we pump it enough times to ensure full mixing.
+	pumpCount := 2000
+	buf := make([]byte, primitive.ByteSize)
+	for i := 0; i < pumpCount; i++ {
+		if _, err := observer.Read(buf); err != nil {
+			break
+		}
+		// Write the newly emitted folded value back into the stream to continue the evolution.
+		observer.Write(buf)
+		pipeline.streamSize++
+	}
+
 	promptStart := time.Now()
 	for idx, prompt := range prompts {
 		select {
@@ -166,7 +180,8 @@ func (pipeline *Pipeline) Run() (err error) {
 		errnie.Trace(
 			"experiment.task.pipeline.Run",
 			"prompt", prompt,
-			"value", observedText,
+			"observed", observedText,
+			"holdout", string(holdout),
 		)
 
 		pipeline.experiment.AddResult(tools.ExperimentalData{
@@ -204,14 +219,26 @@ func (pipeline *Pipeline) Run() (err error) {
 	return nil
 }
 
-func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
+func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value) error {
 	if _, err := io.Copy(observer, value); err != nil {
+		return err
+	}
+	pipeline.streamSize++
+	return nil
+}
+
+func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
+	if err := pipeline.inject(observer, value); err != nil {
 		return nil, err
 	}
 
+	// To observe the result of THIS value, we must pump the stream until this value reaches
+	// the front of the queue and is processed by the emitter's fold (wait state).
 	observedFrame := make([]byte, primitive.ByteSize)
-	if _, err := io.ReadFull(observer, observedFrame); err != nil {
-		return nil, err
+	for i := 0; i < pipeline.streamSize; i++ {
+		if _, err := io.ReadFull(observer, observedFrame); err != nil {
+			return nil, err
+		}
 	}
 
 	return observedFrame, nil
@@ -241,11 +268,10 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 		}
 		frame[core.Cfg.StateIndex] = 1
 
-		_, observeErr := pipeline.injectAndObserve(observer, frame)
-		closeErr := frame.Close()
-		if observeErr != nil {
-			return observeErr
+		if err := pipeline.inject(observer, frame); err != nil {
+			return err
 		}
+		closeErr := frame.Close()
 		if closeErr != nil {
 			return closeErr
 		}
@@ -254,9 +280,11 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 		return nil
 	}
 
+	chunks := 0
 	for b := range dataset.Generate() {
 		chunk = append(chunk, b)
 		if len(chunk) == chunkSize {
+			chunks++
 			if err := flush(); err != nil {
 				return err
 			}
@@ -285,8 +313,7 @@ func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {
 	program = append(program, encodeWriteRegImmediate(uint16(core.FirmwareTypeLearn), core.Cfg.FW))
 	installProgram(seed, core.Cfg.ProgramIndex, program)
 
-	_, err = pipeline.injectAndObserve(observer, seed)
-	return err
+	return pipeline.inject(observer, seed)
 }
 
 func installProgram(value *primitive.Value, wordStart int, program []uint32) {

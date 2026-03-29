@@ -55,9 +55,15 @@ func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, e
 	machine = &Machine{}
 	machine.ctx, machine.cancel = context.WithCancel(ctx)
 
+	var streamOpts []transport.StreamOption
+
 	for _, opt := range opts {
 		opt(machine)
 	}
+
+	// Default to at least 1 region if none was set via streamOpts in opts.
+	// We'll just append it directly for now, or ensure StreamWithRegions is called.
+	streamOpts = append(streamOpts, transport.StreamWithRegions(1))
 
 	if machine.err = validate.Require(map[string]any{
 		"ctx":    machine.ctx,
@@ -68,7 +74,7 @@ func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, e
 		)
 	}
 
-	machine.stream = transport.NewStream(machine.ctx)
+	machine.stream = transport.NewStream(machine.ctx, streamOpts...)
 
 	if machine.stream == nil {
 		return nil, errnie.Error(

@@ -374,6 +374,28 @@ function handleValueEvent(d, ev) {
   spawnDataStream('emitter', 'backend', snapshot.summary || snapshot.tokenPreview || 'value', 'stream-fold', 1100);
   activateFlowParticles('emitter', 'backend');
 
+  // Continue the pipeline: backend → pool → machine (full loop)
+  const shortLabel = (snapshot.tokenPreview || snapshot.tokenText || 'value').slice(0, 20);
+  setTimeout(() => {
+    addZoneLabel('backend', shortLabel);
+    pulseZone('backend');
+    // Backend dispatches to a compute substrate (CPU by default)
+    spawnDataStream('backend', 'cpu', 'compute', 'stream-compute', 700);
+    activateFlowParticles('backend', 'cpu');
+    pulseZone('cpu');
+  }, 500);
+  setTimeout(() => {
+    spawnDataStream('backend', 'pool', 'result', 'stream-compute', 900);
+    activateFlowParticles('backend', 'pool');
+    addZoneLabel('pool', 'result');
+    pulseZone('pool');
+  }, 1000);
+  setTimeout(() => {
+    spawnDataStream('pool', 'machine', 'emitted', 'stream-result', 800);
+    activateFlowParticles('pool', 'machine');
+    pulseZone('machine');
+  }, 1600);
+
   if (graphAddValueNodeFn) {
     graphAddValueNodeFn(snapshot);
   }
@@ -683,6 +705,18 @@ function handleSubstrateEvent(ev, d) {
       activateFlowParticles('emitter', 'backend');
       addZoneLabel('backend', (d.message || '').slice(0, 28));
       pulseZone('backend');
+      // Continue flow through pool and back to machine (full pipeline loop)
+      setTimeout(() => {
+        spawnDataStream('backend', 'pool', 'fold result', 'stream-compute', 900);
+        activateFlowParticles('backend', 'pool');
+        addZoneLabel('pool', 'fold result');
+        pulseZone('pool');
+      }, 400);
+      setTimeout(() => {
+        spawnDataStream('pool', 'machine', 'emitted', 'stream-result', 800);
+        activateFlowParticles('pool', 'machine');
+        pulseZone('machine');
+      }, 900);
       log(`Backend (after): ${d.message}`, 'substrate', ev);
       refreshInspector('backend');
     }

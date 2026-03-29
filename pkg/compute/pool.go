@@ -134,6 +134,9 @@ func (pool *Pool) observeDropSaturation(droppedTotal uint64, cause error) {
 	)
 }
 
+// SetDropObserver registers a callback invoked synchronously from a worker goroutine when
+// observeDropSaturation/trySendErr reports saturation. The callback MUST be non-blocking and return
+// quickly; offload heavier work to another goroutine or use a buffered channel so job processing is not delayed.
 func (pool *Pool) SetDropObserver(observer func(error)) {
 	if pool == nil {
 		return
@@ -225,6 +228,8 @@ func PoolWithErrBuffer(n int) poolOpts {
 	}
 }
 
+// PoolWithDropObserver sets the drop observer at construction time. The callback is invoked
+// synchronously from a worker goroutine (see SetDropObserver); it MUST be non-blocking and return quickly.
 func PoolWithDropObserver(observer func(error)) poolOpts {
 	return func(pool *Pool) {
 		pool.dropObserver = observer

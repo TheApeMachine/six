@@ -187,8 +187,17 @@ func (w *Worker) beginJob() func() {
 	return func() {
 		inFlight := w.inFlight.Add(-1)
 		if inFlight < 0 {
-			w.inFlight.Store(0)
-			inFlight = 0
+			for {
+				cur := w.inFlight.Load()
+				if cur >= 0 {
+					inFlight = cur
+					break
+				}
+				if w.inFlight.CompareAndSwap(cur, 0) {
+					inFlight = 0
+					break
+				}
+			}
 		}
 		w.refreshAdvertisedCapacity(inFlight)
 	}

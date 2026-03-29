@@ -3,92 +3,64 @@ package transport
 import (
 	"io"
 
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
 Emitter creates a side-channel for emitting the contents of a
 read/write stream. It is used to perform the folding operation.
-
-Reads use the pipe reader (pr). When dup is non-nil, data read from pr is
-teed to dup. When dup is nil, reads use TeeReader(forward, target) so the
-pipe writer still receives each read chunk; stream consumers then fold via
-io.Copy into wait (see Read).
-
-Writes go to the pipe writer (pw); frames are captured in wait for folding
-(first full frame from Write; later writes are merged via Value.Write).
-
-When dup is non-nil and wait is set, Read uses tee.Read and mirrors full
-ByteSize chunks into wait instead of draining the tee in one Copy.
 */
 type Emitter struct {
 	passthrough io.Writer
 	tee         io.Reader
 	wait        *primitive.Value
-	mirrorBuf   []byte
-	mirrorReads bool // true when dup != nil: mirror tee reads into wait in ByteSize chunks
 }
 
 /*
-NewEmitter wires the pipe ends: reads from pr, writes to pw. When dup is
-non-nil, read data is teed to dup; when dup is nil, read data is teed to
-target (same as passthrough), matching the stream folding layout.
+NewEmitter wires the pipe ends: writes go to target (pw). Reads use a
+tee on forward (pr) so every byte consumed is also written back to target,
+re-inserting the emitted frame into the stream ring.
 */
-func NewEmitter(forward io.Reader, target io.Writer, dup io.Writer) *Emitter {
-	teeTo := dup
-	if teeTo == nil {
-		teeTo = io.Discard
-	}
+func NewEmitter(forward io.Reader, target io.Writer) *Emitter {
 	return &Emitter{
 		passthrough: target,
-		tee:         io.TeeReader(forward, teeTo),
-		mirrorReads: dup != nil,
+		tee:         io.TeeReader(forward, target),
 	}
 }
 
 /*
-Read reads from the emitter's tee reader. For the stream case (dup nil),
-once wait is set, the prior behavior is preserved: drain the tee into wait
-then Read one frame from wait. When dup is set, Read uses the tee directly
-and mirrors full ByteSize chunks into wait.
+Read reads from the emitter's tee reader into p (one ByteSize wire frame).
+
+The first Read seeds wait from the tee. Later reads fold additional
+tee bytes into wait via Value.Write, then serialize the folded Value
+into p. Callers must pass len(p) >= ByteSize (as Stream does via ReadFull).
 */
 func (emitter *Emitter) Read(p []byte) (n int, err error) {
-	if emitter.wait != nil && !emitter.mirrorReads {
-		if cap(emitter.mirrorBuf) < primitive.ByteSize {
-			emitter.mirrorBuf = make([]byte, primitive.ByteSize)
-		}
-		frame := emitter.mirrorBuf[:primitive.ByteSize]
-
-		if _, err = io.ReadFull(emitter.tee, frame); err != nil {
-			return
-		}
-		if _, err = emitter.wait.Write(frame); err != nil {
-			return
-		}
-
-		return emitter.wait.Read(p)
+	if len(p) < primitive.ByteSize {
+		return 0, io.ErrShortBuffer
 	}
+	p = p[:primitive.ByteSize]
 
 	if emitter.wait == nil {
-		return io.ReadFull(emitter.tee, p)
-	}
-
-	n, err = emitter.tee.Read(p)
-
-	if n > 0 {
-		emitter.mirrorBuf = append(emitter.mirrorBuf, p[:n]...)
-
-		for len(emitter.mirrorBuf) >= primitive.ByteSize {
-			chunk := emitter.mirrorBuf[:primitive.ByteSize]
-			emitter.mirrorBuf = emitter.mirrorBuf[primitive.ByteSize:]
-
-			if _, err = emitter.wait.Write(chunk); err != nil {
-				return
-			}
+		if _, err = io.ReadFull(emitter.tee, p); err != nil {
+			errnie.Error(err)
+			return 0, err
 		}
+		emitter.wait = primitive.BytesToValue(p).Clone()
+		return primitive.ByteSize, nil
 	}
 
-	return n, err
+	// One Read consumes exactly one wire frame from the tee. io.Copy would
+	// block until the pipe closes because TeeReader's source does not EOF.
+	var next [primitive.ByteSize]byte
+	if _, err = io.ReadFull(emitter.tee, next[:]); err != nil {
+		return 0, err
+	}
+	if _, err = emitter.wait.Write(next[:]); err != nil {
+		return 0, err
+	}
+	return emitter.wait.Read(p)
 }
 
 /*
@@ -96,15 +68,5 @@ Write writes to the emitter's passthrough writer. The first frame seeds
 wait; subsequent frames are merged into wait with Value.Write.
 */
 func (emitter *Emitter) Write(p []byte) (n int, err error) {
-	if emitter.wait == nil {
-		clone := make([]byte, len(p))
-		copy(clone, p)
-		emitter.wait = primitive.BytesToValue(clone)
-	} else {
-		if _, err = emitter.wait.Write(p); err != nil {
-			return
-		}
-	}
-
 	return emitter.passthrough.Write(p)
 }

@@ -21,17 +21,21 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed loading core value config: %v\n", err)
 		os.Exit(1)
 	}
+
 	if err := core.LoadValueConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed loading value config: %v\n", err)
 		os.Exit(1)
 	}
+
 	viper.Set("loglevel", "error")
 	viper.Set("logging.trace.path", os.DevNull)
 	loggingCfg, err := core.LoadLoggingConfig()
+
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed loading logging config: %v\n", err)
 		os.Exit(1)
 	}
+
 	errnie.InitLogger(loggingCfg)
 	code := m.Run()
 	os.Exit(code)

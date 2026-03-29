@@ -167,9 +167,6 @@ func candidateOrder(nodes []Node, rr uint64) []Node {
 			weighted = append(weighted, n)
 		}
 	}
-	if len(weighted) == 0 {
-		return rotateNodes(positive, rr)
-	}
 
 	start := int(rr % uint64(len(weighted)))
 	seen := make(map[string]struct{}, len(positive))

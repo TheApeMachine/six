@@ -164,21 +164,26 @@ func BenchmarkValue_Read(b *testing.B) {
 
 func BenchmarkValue_Write(b *testing.B) {
 	dst, err := NewValue(nil)
+	
 	if err != nil {
 		b.Fatal(err)
 	}
+
 	defer dst.Close()
 
 	payload := make([]byte, ByteSize)
+
 	for i := range payload {
 		payload[i] = byte(i)
 	}
+
 	if _, err := dst.Write(payload); err != nil {
 		b.Fatal(err)
 	}
 
 	b.SetBytes(int64(ByteSize))
 	b.ResetTimer()
+
 	for b.Loop() {
 		if _, err := dst.Write(payload); err != nil {
 			b.Fatal(err)

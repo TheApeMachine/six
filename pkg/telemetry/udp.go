@@ -85,10 +85,7 @@ func (s *UDPSender) shouldShed(now time.Time) bool {
 	s.stateMu.Lock()
 	defer s.stateMu.Unlock()
 
-	if now.Before(s.backoffUntil) {
-		return true
-	}
-	return false
+	return now.Before(s.backoffUntil)
 }
 
 func (s *UDPSender) recordWriteDrop(op string, err error) {

@@ -332,17 +332,41 @@ export function animateStreamRing(time, paused) {
   if (!streamPtrIndicator || paused) return;
 
   const sys = SYS.stream;
+  const n = streamRegionCount;
   const ringRadius = Math.min(sys.w, sys.h) * 0.28;
 
   // Smoothly interpolate pointer angle toward target
   streamPtrAngle += (streamPtrTarget - streamPtrAngle) * 0.08;
 
+  // Pointer dot orbits the ring
   const px = sys.x + Math.cos(streamPtrAngle) * ringRadius;
   const pz = sys.z + Math.sin(streamPtrAngle) * ringRadius;
   streamPtrIndicator.position.set(px, sys.depth / 2 + 0.2, pz);
 
+  // Rotate the entire ring — the arc segments spin together to show
+  // stream.go's pipe rotation: Read() accesses (i + ptr) % regions,
+  // so the physical slots cycle around as ptr advances on Write().
+  for (const slot of streamSlots) {
+    // Ring lies in XZ plane (rotation.x = -PI/2), so spinning it
+    // around its face normal (the world Y-axis) uses rotation.y.
+    slot.arc.rotation.y = streamPtrAngle;
+  }
+
+  // Also rotate region labels around the center to match
+  const slotArc = (Math.PI * 2) / n;
+  const slotGap = slotArc * 0.08;
+  for (const slot of streamSlots) {
+    const startAngle = slot.idx * slotArc + slotGap;
+    const endAngle = (slot.idx + 1) * slotArc - slotGap;
+    const midAngle = (startAngle + endAngle) / 2 + streamPtrAngle;
+    const lx = Math.cos(midAngle) * (ringRadius + 0.5);
+    const lz = Math.sin(midAngle) * (ringRadius + 0.5);
+    if (slot.lbl) {
+      slot.lbl.position.set(sys.x + lx, sys.depth / 2, sys.z + lz);
+    }
+  }
+
   // Highlight the slot the pointer is currently over
-  const n = streamRegionCount;
   const currentSlot = Math.floor(
     ((streamPtrAngle % (Math.PI * 2)) + Math.PI * 2) % (Math.PI * 2)
     / ((Math.PI * 2) / n),

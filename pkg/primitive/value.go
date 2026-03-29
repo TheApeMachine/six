@@ -235,6 +235,13 @@ func (value *Value) Write(p []byte) (int, error) {
 		); err != nil {
 			return 0, err
 		}
+	} else if incoming.HasProgram() {
+		if err := compute.UniversalBitwise(
+			unsafe.Pointer(incoming),
+			unsafe.Pointer(value),
+		); err != nil {
+			return 0, err
+		}
 	}
 
 	return len(p), nil
@@ -507,6 +514,18 @@ func lifecycleFor(value *Value) (*valueLifecycle, bool) {
 
 func valueLifecycleKey(value *Value) uintptr {
 	return uintptr(unsafe.Pointer(value))
+}
+
+func (value *Value) Clone() *Value {
+	clone := valuePool.Get().(*Value)
+	for i := range value {
+		clone[i] = value[i]
+	}
+	registerPooledLifecycle(clone)
+	clone.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+	// Do not blindly install bootloader on a clone, we want to clone the exact state!
+	// If it had a program, it should retain it.
+	return clone
 }
 
 /*

@@ -346,6 +346,41 @@ body {
   background: rgba(6, 14, 30, 0.72); border: 1px solid rgba(100, 160, 240, 0.08);
 }
 
+/* ── Graph Node Labels ─────────────────────────────── */
+.graph-node {
+  font-family: var(--bp-font);
+  font-size: calc(9px * var(--label-zoom, 1));
+  color: var(--bp-ink);
+  pointer-events: auto;
+  white-space: nowrap;
+  padding: 3px 8px;
+  background: rgba(6, 14, 30, 0.94);
+  border: 1px solid rgba(140, 200, 255, 0.28);
+  box-shadow: 0 0 18px rgba(80, 160, 255, 0.12);
+  letter-spacing: 0.3px;
+  line-height: 1.3;
+  opacity: 1;
+  transition: border-color 0.15s, box-shadow 0.15s;
+  cursor: pointer;
+}
+.graph-node:hover {
+  border-color: rgba(255, 220, 140, 0.65);
+  box-shadow: 0 0 24px rgba(255, 220, 140, 0.18);
+  background: rgba(20, 40, 80, 0.95);
+}
+.graph-node-text {
+  display: block;
+  color: var(--bp-ink);
+  font-size: calc(9px * var(--label-zoom, 1));
+  font-weight: 500;
+}
+.graph-node-meta {
+  display: block;
+  font-size: calc(6px * var(--label-zoom, 1));
+  color: var(--bp-ink-dim);
+  letter-spacing: 0.5px;
+}
+
 /* ── Keyframes ─────────────────────────────────────── */
 @keyframes pulse-dot {
   0%, 100% { opacity: 1; }

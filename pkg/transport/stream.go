@@ -49,29 +49,6 @@ type Stream struct {
 
 type StreamOption func(*Stream)
 
-func (stream *Stream) configureEmitters(n int) {
-	if n < 1 {
-		n = 1
-	}
-
-	stream.regions = n
-	stream.rb = make([]*ringbuffer.RingBuffer, 0, n)
-	stream.pr = make([]*ringbuffer.PipeReader, 0, n)
-	stream.pw = make([]*ringbuffer.PipeWriter, 0, n)
-	stream.frame = make([][]byte, 0, n)
-	stream.emitter = make([]*Emitter, 0, n)
-
-	for range n {
-		rb := ringbuffer.New(primitive.ByteSize * primitive.ByteSize)
-		pr, pw := rb.Pipe()
-		stream.rb = append(stream.rb, rb)
-		stream.pr = append(stream.pr, pr)
-		stream.pw = append(stream.pw, pw)
-		stream.frame = append(stream.frame, make([]byte, primitive.ByteSize))
-		stream.emitter = append(stream.emitter, NewEmitter(pr, pw, nil))
-	}
-}
-
 func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 	if ctx == nil {
 		ctx = context.Background()
@@ -92,22 +69,16 @@ func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 		option(stream)
 	}
 
-	// The stream must always expose at least one emitter path. This keeps
-	// Write/Read balanced even when callers no longer configure "regions".
-	if len(stream.emitter) == 0 {
-		stream.configureEmitters(1)
-	}
-
-	// ttlDuration / expiryTimer are intentionally omitted: expiryTimer is created
-	// below only when ttlDuration > 0, and a nil *time.Timer in the map would
-	// fail validate.Require even when TTL is disabled.
 	if err := validate.Require(map[string]any{
-		"ctx":    stream.ctx,
-		"cancel": stream.cancel,
-		"rb":     stream.rb,
-		"pr":     stream.pr,
-		"pw":     stream.pw,
-		"frame":  stream.frame,
+		"ctx":     stream.ctx,
+		"cancel":  stream.cancel,
+		"rb":      stream.rb,
+		"pr":      stream.pr,
+		"pw":      stream.pw,
+		"frame":   stream.frame,
+		"emitter": stream.emitter,
+		"ptr":     stream.ptr,
+		"regions": stream.regions,
 	}); err != nil {
 		errnie.Error(NewStreamError(StreamErrFail, err))
 		stream.Close()
@@ -215,7 +186,31 @@ func StreamWithTTL(ttl time.Duration) StreamOption {
 
 func StreamWithRegions(n int) StreamOption {
 	return func(stream *Stream) {
-		stream.configureEmitters(n)
+		if n < 1 {
+			n = 1
+		}
+
+		for _, pw := range stream.pw {
+			_ = pw.Close()
+		}
+
+		stream.regions = n
+		stream.rb = make([]*ringbuffer.RingBuffer, 0, n)
+		stream.pr = make([]*ringbuffer.PipeReader, 0, n)
+		stream.pw = make([]*ringbuffer.PipeWriter, 0, n)
+		stream.frame = make([][]byte, 0, n)
+		stream.emitter = make([]*Emitter, 0, n)
+
+		for range n {
+			// Allocate a large enough ring buffer (e.g. 128MB) to hold the dataset without blocking.
+			rb := ringbuffer.New(primitive.ByteSize * primitive.ByteSize * 128)
+			pr, pw := rb.Pipe()
+			stream.rb = append(stream.rb, rb)
+			stream.pr = append(stream.pr, pr)
+			stream.pw = append(stream.pw, pw)
+			stream.frame = append(stream.frame, make([]byte, primitive.ByteSize))
+			stream.emitter = append(stream.emitter, NewEmitter(pr, pw))
+		}
 	}
 }
 

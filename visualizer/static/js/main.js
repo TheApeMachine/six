@@ -318,7 +318,7 @@ const graphNodeOrder = [];
 const graphEdges = [];
 const graphEdgeSet = new Set();
 const graphPendingEdges = new Map();
-const MAX_GRAPH_NODES = 220;
+const MAX_GRAPH_NODES = 40;
 
 function hashString(text) {
   let hash = 2166136261;
@@ -405,31 +405,33 @@ function graphAddNode(id, tokens, type, extra = {}) {
   const y = 12.0;      // Fixed height above the scene
 
   // Fermat spiral: r = a * sqrt(idx), theta = idx * golden_angle
-  // Distributes nodes evenly like sunflower seeds — compact and centered
-  // regardless of node count. Max radius ~25 at 220 nodes.
-  const goldenAngle = 2.399963;    // ~137.5 degrees in radians
-  const spacing = 1.6;             // Controls density (distance between nodes)
+  // Distributes nodes evenly — compact and centered.
+  // At 40 nodes max: radius = 1.1 * sqrt(40) = ~7 units
+  const goldenAngle = 2.399963;
+  const spacing = 1.1;
   const theta = idx * goldenAngle;
-  const r = spacing * Math.sqrt(idx);
+  const r = spacing * Math.sqrt(Math.max(1, idx));
   const x = centerX + r * Math.cos(theta);
   const z = centerZ + r * Math.sin(theta);
 
+  // Label IS the node — no 3D sphere, just the CSS2D label box (Neo4j style)
+  const idShort = key.length > 6 ? key.slice(-6) : key;
   const div = document.createElement('div');
-  div.className = `fold-label level-1${type === 'value' ? ' value-node' : ''}`;
+  div.className = 'graph-node';
 
   const textSpan = document.createElement('span');
-  textSpan.className = 'fold-text';
-  textSpan.textContent = (extra.text ?? tokens ?? '').trim() || '[empty val]';
+  textSpan.className = 'graph-node-text';
+  textSpan.textContent = extra.text || (tokens || '').trim() || idShort;
   div.appendChild(textSpan);
 
   const metaSpan = document.createElement('span');
-  metaSpan.className = 'fold-meta';
-  metaSpan.textContent = extra.summary || `#${key} · ${type}`;
+  metaSpan.className = 'graph-node-meta';
+  const prevShort = extra.snapshot?.prevId ? extra.snapshot.prevId.slice(-4) : '—';
+  const nextShort = extra.snapshot?.nextId ? extra.snapshot.nextId.slice(-4) : '—';
+  metaSpan.textContent = `#${idShort} ${prevShort} → ${nextShort}`;
   div.appendChild(metaSpan);
 
   if (type === 'value') {
-    div.style.pointerEvents = 'auto';
-    div.style.cursor = 'pointer';
     div.title = extra.summary || key;
     div.addEventListener('click', (e) => {
       e.stopPropagation();
@@ -481,31 +483,39 @@ function graphAddEdge(fromId, toId, kind = 'link') {
         ? 0x9d7bff
         : 0x5080b0;
   const opacity = kind === 'prev'
-    ? 0.72
+    ? 0.85
     : kind === 'next'
-      ? 0.54
+      ? 0.75
       : kind === 'affinity'
-        ? 0.42
-        : 0.46;
+        ? 0.6
+        : 0.65;
 
-  // Curved edge with arc
-  const mid = new THREE.Vector3().lerpVectors(from.pos, to.pos, 0.5);
-  mid.y += 2.0 + Math.random() * 1.5;
-  const curve = new THREE.QuadraticBezierCurve3(from.pos, mid, to.pos);
-  const curvePoints = curve.getPoints(24);
-  const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
-  const lineGeo = new THREE.BufferGeometry().setFromPoints(curvePoints);
-  const line = new THREE.Line(lineGeo, mat);
+  // Visible edge: cylinder mesh between nodes (WebGL lines are 1px, invisible)
+  const dir = new THREE.Vector3().subVectors(to.pos, from.pos);
+  const length = dir.length();
+  dir.normalize();
+  const midpoint = new THREE.Vector3().lerpVectors(from.pos, to.pos, 0.5);
+
+  const lineGeo = new THREE.CylinderGeometry(0.04, 0.04, length, 4, 1);
+  const mat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
+  const line = new THREE.Mesh(lineGeo, mat);
+  line.position.copy(midpoint);
+  line.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   foldLayer.add(line);
 
-  // Small arrowhead at 70% along the curve
-  const arrowPos = curve.getPointAt(0.7);
-  const arrowDir = curve.getTangentAt(0.7).normalize();
-  const arrowGeo = new THREE.ConeGeometry(0.15, 0.4, 4);
-  const arrowMat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity: opacity * 0.8 });
+  // Arrowhead at 80% along the line, pointing toward target
+  const arrowPos = new THREE.Vector3().lerpVectors(from.pos, to.pos, 0.80);
+  const arrowGeo = new THREE.ConeGeometry(0.18, 0.5, 6);
+  const arrowMat = new THREE.MeshBasicMaterial({
+    color, transparent: true, opacity: opacity * 0.9,
+    blending: THREE.AdditiveBlending, depthWrite: false,
+  });
   const arrow = new THREE.Mesh(arrowGeo, arrowMat);
   arrow.position.copy(arrowPos);
-  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), arrowDir);
+  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
   foldLayer.add(arrow);
 
   graphEdges.push({ key, fromKey, toKey, kind, line, arrow });
@@ -541,6 +551,16 @@ function graphClear() {
 function graphAddValueNode(snapshot) {
   if (!snapshot || !snapshot.valueId) return null;
 
+  // Only show Values where learn firmware has actually executed and built
+  // chain links. The definitive signal is a non-zero prevId or nextId:
+  //   learn copies old NextID → PrevID, writes partner → NextID.
+  // Raw ingest frames — even those with firmware pre-loaded (programPop > 0)
+  // — will have prevId=0 and nextId=0 until they've been folded and learn
+  // has run. We want to see the *result* of learn, not the raw input.
+  const hasChainLink = (snapshot.prevId && snapshot.prevId !== '0')
+    || (snapshot.nextId && snapshot.nextId !== '0');
+  if (!hasChainLink) return null;
+
   const text = snapshot.tokenPreview || snapshot.tokenText || '[empty val]';
   const fw = snapshot.registers?.fw || '';
   const fwLabel = fw && fw !== '0x0000000000000000' ? ` fw=${fw}` : '';
@@ -557,12 +577,18 @@ function graphAddValueNode(snapshot) {
   //   old NextID → PrevID (backward pointer)
   //   partner ValueID → NextID (forward chain link)
   // So prevId points backward in the chain, nextId points forward.
+  // Create stub nodes for referenced IDs that don't exist yet, so
+  // edges are always drawn (not left pending forever).
   if (snapshot.prevId && snapshot.prevId !== '0') {
-    // Backward link: this Value came from prevId
+    if (!graphNodes.has(String(snapshot.prevId))) {
+      graphAddNode(snapshot.prevId, '', 'ref', { text: `#${String(snapshot.prevId).slice(-6)}` });
+    }
     graphAddEdge(snapshot.prevId, snapshot.valueId, 'prev');
   }
   if (snapshot.nextId && snapshot.nextId !== '0') {
-    // Forward link: this Value's next encounter
+    if (!graphNodes.has(String(snapshot.nextId))) {
+      graphAddNode(snapshot.nextId, '', 'ref', { text: `#${String(snapshot.nextId).slice(-6)}` });
+    }
     graphAddEdge(snapshot.valueId, snapshot.nextId, 'next');
   }
 
