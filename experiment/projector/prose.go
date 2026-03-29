@@ -101,9 +101,20 @@ func ProseWithData(data any) proseOpts {
 	return func(p *Prose) { p.data = data }
 }
 
-// F3 formats a float64 to 3 decimal places.  It is exported so that
-// callers can pre-format values into ExperimentSection strings.
+// F0, F1, F2, F3, F4 format float64 values with 0–4 decimal places for use in
+// ExperimentSection strings and other LaTeX-facing prose. They match the f0–f4
+// helpers in Prose template FuncMap.
+func F0(v float64) string { return formatF(v, 0) }
+func F1(v float64) string { return formatF(v, 1) }
+func F2(v float64) string { return formatF(v, 2) }
 func F3(v float64) string { return formatF(v, 3) }
+func F4(v float64) string { return formatF(v, 4) }
+
+// Pct formats a fraction in [0,1] as a LaTeX-safe percentage (e.g. "42.3\%").
+// It matches the "pct" helper in Prose template FuncMap.
+func Pct(v float64) string {
+	return formatF(v*100, 1) + `\%`
+}
 
 func ProseWithOutput(outDir, outFile string) proseOpts {
 	return func(p *Prose) {
