@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/transport"
+	"github.com/theapemachine/six/pkg/transport/adapter"
 )
 
 /*
@@ -72,6 +73,18 @@ func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, e
 		return nil, errnie.Error(
 			NewMachineError(MachineErrFailStart, machine.err),
 		)
+	}
+
+	// Add the S3 Adapter to log stream to LakeFS/MinIO natively if enabled/configured
+	s3adapter, err := adapter.NewS3Adapter(machine.ctx)
+
+	if err == nil && s3adapter != nil {
+		streamOpts = append(
+			streamOpts,
+			transport.StreamWithAdapter(s3adapter),
+		)
+	} else if err != nil {
+		errnie.Trace("vm.NewMachine", "s3_adapter", "disabled/not_configured: "+err.Error())
 	}
 
 	machine.stream = transport.NewStream(machine.ctx, streamOpts...)

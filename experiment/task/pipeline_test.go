@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -13,6 +14,7 @@ import (
 	"github.com/theapemachine/six/experiment/task/logic"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 func TestMain(m *testing.M) {
@@ -25,6 +27,25 @@ func TestMain(m *testing.M) {
 	if err := core.LoadValueConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed loading value config: %v\n", err)
 		os.Exit(1)
+	}
+
+	// Same wiring as cmd/root: Observer.Emit / EmitFrame go to the global emitter.
+	// With `go run . viz --listen`, UDP must match config telemetry.udp_endpoint
+	// (default HTTP :8257 → UDP :8258).
+	var shutdownTelemetry func()
+	if core.Cfg.TelemetryEnabled && strings.TrimSpace(core.Cfg.TelemetryEndpoint) != "" {
+		if sender, err := telemetry.NewUDPSender(core.Cfg.TelemetryEndpoint); err == nil {
+			telemetry.SetGlobal(sender)
+			shutdownTelemetry = func() {
+				_ = sender.Close()
+				telemetry.SetGlobal(nil)
+			}
+		} else {
+			fmt.Fprintf(os.Stderr, "pipeline tests: telemetry UDP sender disabled: %v\n", err)
+		}
+	}
+	if shutdownTelemetry != nil {
+		defer shutdownTelemetry()
 	}
 
 	viper.Set("loglevel", "error")

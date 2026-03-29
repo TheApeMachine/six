@@ -169,8 +169,8 @@ programs:
     r0    r3  1100 # r9 = Fail Mask
 
     0     r0  0011 # Shift Frustration Left
-    3904  r1  0011
-    3967  r2  0011
+    3968  r1  0011
+    4031  r2  0011
     0     r3  0011 # r8
     4609  r4  0011
     4672  r5  0011
@@ -190,21 +190,21 @@ programs:
     4544  r1  0011
     4608  r2  0011
     0     r3  0011 # Frustration
-    3904  r4  0011
-    3968  r5  0011
+    3968  r4  0011
+    4032  r5  0011
     r0    r3  0001 # Frustration &= Success Mask
 
     0     r0  0011 # r8
     4608  r1  0011
     4672  r2  0011
     0     r3  0011 # Frustration
-    3904  r4  0011
-    3968  r5  0011
+    3968  r4  0011
+    4032  r5  0011
     r0    r3  0111 # Frustration |= r8
 
     0     r0  0011 # Check Timeout
-    3967  r1  0011
-    3968  r2  0011
+    4031  r1  0011
+    4032  r2  0011
     0     r3  0011 # r8 (Timeout Mask)
     4608  r4  0011
     4609  r5  0011
@@ -231,7 +231,7 @@ programs:
     4800  r5  0011
     r0    r3  0000
 
-    4     r6  0011 # Viral
+    3     r6  0011 # Viral
     0     r0  0011 # r7
     4544  r1  0011
     4608  r2  0011
@@ -256,7 +256,7 @@ programs:
     4672  r5  0011
     r0    r3  0001 # r8 = Dead & Fail
     
-    3     r6  0011 # Tombstone
+    2     r6  0011 # Tombstone
     0     r0  0011 # r8
     4608  r1  0011
     4672  r2  0011
@@ -281,7 +281,7 @@ programs:
     4736  r5  0011
     r0    r3  0100 # r9 = Fail & Not Dead
 
-    5     r6  0011 # Build
+    4     r6  0011 # Build
     0     r0  0011 # r9
     4672  r1  0011
     4736  r2  0011
@@ -310,14 +310,14 @@ programs:
     r0    r3  0000 
 
     0     r0  0011 # Clear Frustration
-    3904  r1  0011
-    3968  r2  0011
+    3968  r1  0011
+    4032  r2  0011
     0     r3  0011
-    3904  r4  0011
-    3968  r5  0011
+    3968  r4  0011
+    4032  r5  0011
     r0    r3  0000
 
-    5     fw  0011 # Sequence to Build
+    4     fw  0011 # Sequence to Build
     104   pc  0011 # Halt
 
   tombstone: |

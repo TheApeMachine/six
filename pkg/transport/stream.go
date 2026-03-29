@@ -45,6 +45,7 @@ type Stream struct {
 	frame       [][]byte
 	emitter     []*Emitter
 	ptr         int
+	adapters    []io.ReadWriter
 }
 
 type StreamOption func(*Stream)
@@ -56,13 +57,14 @@ func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 	ctx, cancel := context.WithCancel(ctx)
 
 	stream := &Stream{
-		ctx:     ctx,
-		cancel:  cancel,
-		rb:      make([]*ringbuffer.RingBuffer, 0),
-		pr:      make([]*ringbuffer.PipeReader, 0),
-		pw:      make([]*ringbuffer.PipeWriter, 0),
-		frame:   make([][]byte, 0),
-		emitter: make([]*Emitter, 0),
+		ctx:      ctx,
+		cancel:   cancel,
+		rb:       make([]*ringbuffer.RingBuffer, 0),
+		pr:       make([]*ringbuffer.PipeReader, 0),
+		pw:       make([]*ringbuffer.PipeWriter, 0),
+		frame:    make([][]byte, 0),
+		emitter:  make([]*Emitter, 0),
+		adapters: make([]io.ReadWriter, 0),
 	}
 
 	for _, option := range options {
@@ -70,15 +72,16 @@ func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 	}
 
 	if err := validate.Require(map[string]any{
-		"ctx":     stream.ctx,
-		"cancel":  stream.cancel,
-		"rb":      stream.rb,
-		"pr":      stream.pr,
-		"pw":      stream.pw,
-		"frame":   stream.frame,
-		"emitter": stream.emitter,
-		"ptr":     stream.ptr,
-		"regions": stream.regions,
+		"ctx":      stream.ctx,
+		"cancel":   stream.cancel,
+		"rb":       stream.rb,
+		"pr":       stream.pr,
+		"pw":       stream.pw,
+		"frame":    stream.frame,
+		"emitter":  stream.emitter,
+		"ptr":      stream.ptr,
+		"regions":  stream.regions,
+		"adapters": stream.adapters,
 	}); err != nil {
 		errnie.Error(NewStreamError(StreamErrFail, err))
 		stream.Close()
@@ -116,6 +119,10 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 			}
 
 			return n, err
+		}
+
+		for _, adapter := range stream.adapters {
+			_, _ = adapter.Write(stream.frame[idx][:n])
 		}
 
 		buf = append(buf, stream.frame[idx][:n]...)
@@ -181,6 +188,12 @@ func (stream *Stream) Close() (err error) {
 func StreamWithTTL(ttl time.Duration) StreamOption {
 	return func(stream *Stream) {
 		stream.ttlDuration = ttl
+	}
+}
+
+func StreamWithAdapter(adapter io.ReadWriter) StreamOption {
+	return func(stream *Stream) {
+		stream.adapters = append(stream.adapters, adapter)
 	}
 }
 

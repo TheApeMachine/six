@@ -9,7 +9,9 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	"github.com/aws/aws-sdk-go-v2/service/s3"
+	"github.com/theapemachine/six/pkg/core/validate"
 )
 
 const (
@@ -22,13 +24,12 @@ const (
 	defaultRegion   = "us-east-1"
 )
 
-// Ensure S3Adapter can be used wherever an io.Closer is required.
-var _ io.Closer = (*S3Adapter)(nil)
-
 type S3Adapter struct {
+	io.ReadWriteCloser
 	ctx    context.Context
 	cancel context.CancelFunc
 	client *s3.Client
+	tm     *transfermanager.Client
 }
 
 type s3AdapterOpts func(*S3Adapter)
@@ -38,8 +39,9 @@ type s3AdapterOpts func(*S3Adapter)
 // MinIO-friendly values and can be overridden with MINIO_ENDPOINT, MINIO_PROFILE,
 // MINIO_REGION. Options in opts are applied after env defaults and client
 // construction so callers can replace ctx used for subsequent operations.
-func NewS3Adapter(opts ...s3AdapterOpts) (*S3Adapter, error) {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewS3Adapter(ctx context.Context, opts ...s3AdapterOpts) (*S3Adapter, error) {
+	ctx, cancel := context.WithCancel(ctx)
+
 	adapter := &S3Adapter{
 		ctx:    ctx,
 		cancel: cancel,
@@ -49,7 +51,8 @@ func NewS3Adapter(opts ...s3AdapterOpts) (*S3Adapter, error) {
 	profile := GetEnvOrDefault(envProfile, defaultProfile)
 	region := GetEnvOrDefault(envRegion, defaultRegion)
 
-	cfg, err := config.LoadDefaultConfig(adapter.Context(),
+	cfg, err := config.LoadDefaultConfig(
+		adapter.ctx,
 		config.WithSharedConfigProfile(profile),
 		config.WithRegion(region),
 	)
@@ -64,30 +67,49 @@ func NewS3Adapter(opts ...s3AdapterOpts) (*S3Adapter, error) {
 		o.UsePathStyle = true
 	})
 
+	adapter.tm = transfermanager.New(adapter.client)
+
 	for _, opt := range opts {
 		opt(adapter)
+	}
+
+	if err = validate.Require(map[string]any{
+		"adapter": adapter,
+		"client":  adapter.client,
+		"tm":      adapter.tm,
+	}); err != nil {
+		cancel()
+		return nil, err
 	}
 
 	return adapter, nil
 }
 
-// Client returns the underlying AWS SDK v2 S3 client. It is non-nil after
-// NewS3Adapter succeeds.
-func (adapter *S3Adapter) Client() *s3.Client {
-	if adapter == nil {
-		return nil
-	}
-	return adapter.client
+/*
+Read implements io.Reader and is used to store the current state
+of the system on S3 (LakeFS).
+*/
+func (adapter *S3Adapter) Read(p []byte) (n int, err error) {
+	return len(p), nil
 }
 
-// Context returns the adapter context used when the client was built and for
-// subsequent operations. Replace via WithContext before or after NewS3Adapter;
-// pass this to AWS API calls that accept context.Context.
-func (adapter *S3Adapter) Context() context.Context {
-	if adapter == nil || adapter.ctx == nil {
-		return context.Background()
+/*
+Write implements io.Writer and is used to retrieve the current state
+of the system on S3 (LakeFS).
+*/
+func (adapter *S3Adapter) Write(p []byte) (n int, err error) {
+	return len(p), nil
+}
+
+/*
+Close releases resources associated with the adapter context.
+*/
+func (adapter *S3Adapter) Close() error {
+	if adapter.cancel != nil {
+		adapter.cancel()
+		adapter.cancel = nil
 	}
-	return adapter.ctx
+	return nil
 }
 
 // GetEnvOrDefault returns os.Getenv(key) trimmed, or fallback when empty.
@@ -97,22 +119,4 @@ func GetEnvOrDefault(key, fallback string) string {
 		return fallback
 	}
 	return v
-}
-
-// Close releases resources associated with the adapter context.
-func (adapter *S3Adapter) Close() error {
-	if adapter.cancel != nil {
-		adapter.cancel()
-		adapter.cancel = nil
-	}
-	return nil
-}
-
-func WithContext(ctx context.Context) s3AdapterOpts {
-	return func(adapter *S3Adapter) {
-		if adapter.cancel != nil {
-			adapter.cancel()
-		}
-		adapter.ctx, adapter.cancel = context.WithCancel(ctx)
-	}
 }
