@@ -168,6 +168,42 @@ func TestWrite(t *testing.T) {
 	})
 }
 
+func TestInstallPayloadProgram(t *testing.T) {
+	Convey("Installing a payload program should arm the payload entry", t, func() {
+		value, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer value.Close()
+
+		payload := []uint32{core.EncodeWriteRegisterImmediate(7, core.Cfg.R8)}
+		value.InstallPayloadProgram(payload)
+
+		So(value[core.Cfg.RegPC], ShouldEqual, core.PayloadProgramPCStart())
+		So(value.ProgramOp(int(core.PayloadProgramPCStart())), ShouldEqual, uint8(payload[0]&0xF))
+	})
+}
+
+func TestInstallProgramClearsTrailingInstructions(t *testing.T) {
+	Convey("Installing a short program should clear trailing instruction slots", t, func() {
+		value, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer value.Close()
+
+		program := []uint32{core.EncodeWriteRegisterImmediate(3, core.Cfg.R6)}
+		value.InstallProgram(program)
+
+		So(uint32(value[core.Cfg.ProgramIndex]), ShouldEqual, program[0])
+		So(uint32(value[core.Cfg.ProgramIndex]>>32), ShouldEqual, uint32(0))
+
+		for word := core.Cfg.ProgramIndex + 1; word < primitiveProgramWordLimit(); word++ {
+			So(value[word], ShouldEqual, uint64(0))
+		}
+	})
+}
+
+func primitiveProgramWordLimit() int {
+	return min(core.Cfg.ProgramIndex+int((core.Cfg.ProgramBits+63)/64), Words)
+}
+
 func BenchmarkValue_Read(b *testing.B) {
 	v, err := NewValue(nil)
 	if err != nil {

@@ -25,6 +25,10 @@ type viralLearnSeeder interface {
 	SeedViralLearn() bool
 }
 
+type seedValueProvider interface {
+	SeedValues() []*primitive.Value
+}
+
 /*
 Pipeline is the orchestrator for running experiments.
 The Six architecture is "always-on" so this needs to
@@ -122,6 +126,10 @@ func (pipeline *Pipeline) Run() (err error) {
 	}
 
 	if err := pipeline.hydrateDataset(observer); err != nil {
+		return errnie.Error(err)
+	}
+
+	if err := pipeline.maybeSeedValues(observer); err != nil {
 		return errnie.Error(err)
 	}
 
@@ -254,7 +262,7 @@ func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primit
 
 	targetID := value.ValueID()
 	observedFrame := make([]byte, primitive.ByteSize)
-	maxReads := max(pipeline.population+1, 1)
+	maxReads := max(pipeline.population*4, 1)
 
 	for i := 0; i < maxReads; i++ {
 		if _, err := io.ReadFull(observer, observedFrame); err != nil {
@@ -268,11 +276,19 @@ func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primit
 			return nil, closeErr
 		}
 		if id == targetID {
+			if pipeline.population > 0 {
+				pipeline.population--
+			}
 			return append([]byte(nil), observedFrame...), nil
+		}
+
+		frameCopy := append([]byte(nil), observedFrame...)
+		if err := pipeline.recirculate(observer, frameCopy); err != nil {
+			return nil, err
 		}
 	}
 
-	return append([]byte(nil), observedFrame...), nil
+	return nil, fmt.Errorf("prompt value %d did not rotate back out after %d reads", targetID, maxReads)
 }
 
 func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
@@ -321,6 +337,31 @@ func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
 	}
 
 	return flush()
+}
+
+func (pipeline *Pipeline) maybeSeedValues(observer io.ReadWriter) error {
+	provider, ok := pipeline.experiment.(seedValueProvider)
+	if !ok {
+		return nil
+	}
+
+	for _, seed := range provider.SeedValues() {
+		if seed == nil {
+			continue
+		}
+		if idx := pipeline.config.ValueConfig.StateIndex; idx >= 0 && idx < len(seed) && seed[idx] == 0 {
+			seed[idx] = 1
+		}
+		if err := pipeline.inject(observer, seed); err != nil {
+			_ = seed.Close()
+			return err
+		}
+		if err := seed.Close(); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {

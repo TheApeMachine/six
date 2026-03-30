@@ -134,7 +134,7 @@ value:
 
 programs:
   # Evaluate checks if the generated instruction found a feature (r6 > 0).
-  # If yes: fw=4 (Viral). If no: Frustration++, if timeout fw=3 (Tombstone), else fw=5 (Build).
+  # If yes: fw=3 (Viral). If no: Frustration++, if timeout fw=2 (Tombstone), else fw=4 (Build).
   learn: |
     0     r0  0011
     4480  r1  0011
@@ -396,7 +396,7 @@ programs:
     8192  r5  0011
     r0    r3  0011
 
-    1     r8  0011 # Evaluate fw=1
+    1     r8  0011 # Learn fw=1
     0     r0  0011
     4608  r1  0011
     4672  r2  0011
@@ -481,5 +481,7 @@ programs:
     7712  r5  0011
     r0    r3  0111 # OR Dest
 
-    1     fw  0011 # Next state: Evaluate
+    1     fw  0011 # Next state: Learn
     88    pc  0011 # Immediately execute the built instruction!
+
+

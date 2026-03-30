@@ -404,7 +404,7 @@ func (value *Value) isPoolReusable() bool {
 /*
 installFirmware installs the firmware into the Value. This should
 ideally only be used to install the bootloader firmware. In all
-other cases, setting the fw register to the firmware index and
+other cases, setting the fw register to the in-band firmware code and
 setting the pc register to the program index (which is where)
 the bootloader starts) is the correct way to install firmware.
 */
@@ -572,6 +572,35 @@ func lifecycleFor(value *Value) (*valueLifecycle, bool) {
 	return entry, ok
 }
 
+// InstallProgram replaces the full in-band program region with program.
+func (value *Value) InstallProgram(program []uint32) {
+	if value == nil {
+		return
+	}
+	core.ClearProgramRegion(value[:])
+	core.InstallProgramAtSlot(value[:], 0, program)
+}
+
+// InstallProgramAtSlot clears the program region from slot onward and writes
+// program beginning at the absolute instruction slot slot.
+func (value *Value) InstallProgramAtSlot(slot int, program []uint32) {
+	if value == nil {
+		return
+	}
+	core.ReplaceProgramAtSlot(value[:], slot, program)
+}
+
+// InstallPayloadProgram preserves the resident bootstrap prefix and writes a
+// payload program into the payload span, then arms pc to the payload start.
+func (value *Value) InstallPayloadProgram(program []uint32) {
+	if value == nil {
+		return
+	}
+	start := int(core.PayloadProgramPCStart())
+	core.ReplaceProgramAtSlot(value[:], start, program)
+	value[core.Cfg.RegPC] = core.PayloadProgramPCStart()
+}
+
 func (value *Value) Clone() *Value {
 	clone := valuePool.Get().(*Value)
 	for i := range value {
@@ -589,6 +618,18 @@ BytesToValue overlays a 1024-byte slice onto the Value pointer via unsafe memory
 func BytesToValue(p []byte) *Value {
 	v := valuePool.Get().(*Value)
 	registerPooledLifecycle(v)
+	for i := range v {
+		v[i] = 0
+	}
+	if len(p) > ByteSize {
+		p = p[:ByteSize]
+	}
+	if len(p) != ByteSize {
+		var frame [ByteSize]byte
+		copy(frame[:], p)
+		valueFrom(frame[:], v)
+		return v
+	}
 	valueFrom(p, v)
 
 	return v

@@ -105,66 +105,7 @@ func preloadFirmwareFrame(c *[128]uint64) {
 	if c == nil {
 		return
 	}
-
-	const maxIdx = 127
-	const nWords = 128
-
-	pc := core.Cfg.RegPC
-	w := core.Cfg.ProgramIndex
-	fwIdx := core.Cfg.FW
-
-	if pc < 0 || pc > maxIdx || w < 0 || w > maxIdx || fwIdx < 0 || fwIdx > maxIdx {
-		return
-	}
-
-	p := pc
-	f := c[fwIdx]
-
-	if f == 0 {
-		return
-	}
-
-	ft, ok := core.ResolveFirmwareRegister(f)
-	if !ok {
-		return
-	}
-
-	if c[p] != 0 {
-		return
-	}
-
-	userStart := w + int(core.UserProgramPCStart)
-	progWords := int((core.Cfg.ProgramBits + 63) / 64)
-	userEnd := w + progWords
-	if userEnd > nWords {
-		userEnd = nWords
-	}
-	for idx := userStart; idx < userEnd; idx++ {
-		c[idx] = 0
-	}
-
-	g := core.Cfg.Firmware[ft]
-	if len(g) > 0 {
-		if w+int(core.UserProgramPCStart) > maxIdx {
-			return
-		}
-		numWrites := (len(g) + 1) / 2
-		maxJ := w + int(core.UserProgramPCStart) + numWrites - 1
-		if maxJ > maxIdx {
-			return
-		}
-	}
-
-	for i, j := 0, w+int(core.UserProgramPCStart); i < len(g) && j < nWords; i, j = i+2, j+1 {
-		v := uint64(g[i])
-		if i+1 < len(g) {
-			v |= uint64(g[i+1]) << 32
-		}
-		c[j] = v
-	}
-
-	c[fwIdx] = 0
-	c[p] = core.UserProgramPCStart
+	core.PreloadPendingFirmware(c[:])
 }
 
 func preloadFirmwareFrameBatch(a unsafe.Pointer, count int) {

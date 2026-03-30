@@ -238,8 +238,9 @@ type Config struct {
 	FW            int
 	RegPC         int
 
-	// Firmware holds compiled programs from config.yml, indexed by position.
-	// Set a Value's firmware register to the index to select a program.
+	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
+	// Values should write the in-band FirmwareRegister* codes to fw rather than
+	// assuming the host enum ordinals are stable.
 	Firmware [FirmwareTypeBuild + 1][]uint32
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.

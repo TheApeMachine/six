@@ -165,7 +165,7 @@ For reference:
 	r4 = start B
 	r5 = end B
 	pc = program counter (index of next instruction)
-	fw = firmware index (index of next program to execute)
+	fw = in-band firmware register code (selects next payload firmware)
 
 In many cases you would need r0 and r3 to both be a (self).
 Keep the following in mind: you select the src and dst bits, you
@@ -173,38 +173,16 @@ apply the truth table to the bits, that's basically it.
 It is important to mind the bootloader, which should be installed
 into all new Values.
 */
-// loadFirmware resolves the in-band fw register to a compiled payload,
-// clears the existing user program region, copies the new payload into
-// slots 4+, and arms execution to start at the first user slot.
-func loadFirmware(c *[128]uint64, p, w uint64) bool {
-	reg := c[uint64(core.Cfg.FW)]
-	ft, ok := core.ResolveFirmwareRegister(reg)
-	if !ok || c[p] != 0 {
+// loadFirmware resolves the in-band fw register to a payload firmware and
+// installs it into the payload region after the resident bootloader. This is
+// what makes the self-programming loop coherent: fresh Values cold-boot via
+// the resident bootloader, while Viral / Build / Learn can sequence the next
+// payload entirely in-band through fw+pc.
+func loadFirmware(c *[128]uint64, _p, _w uint64) bool {
+	if c == nil {
 		return false
 	}
-	userStart := int(w + core.UserProgramPCStart)
-	progWords := int((core.Cfg.ProgramBits + 63) / 64)
-	userEnd := int(w) + progWords
-	if userStart < 0 {
-		userStart = 0
-	}
-	if userEnd > len(c) {
-		userEnd = len(c)
-	}
-	for i := userStart; i < userEnd; i++ {
-		c[i] = 0
-	}
-	g := core.Cfg.Firmware[ft]
-	for i, j := 0, w+core.UserProgramPCStart; i < len(g) && int(j) < 128; i, j = i+2, j+1 {
-		v := uint64(g[i])
-		if i+1 < len(g) {
-			v |= uint64(g[i+1]) << 32
-		}
-		c[j] = v
-	}
-	c[uint64(core.Cfg.FW)] = 0
-	c[p] = core.UserProgramPCStart
-	return true
+	return core.PreloadPendingFirmware(c[:])
 }
 
 // fetch returns the next instruction word and the pre-increment pc.
@@ -374,6 +352,7 @@ func armNextFirmware(c *[128]uint64, p uint64) {
 		return
 	}
 	if _, ok := core.ResolveFirmwareRegister(c[uint64(core.Cfg.FW)]); ok {
+		core.ClearPayloadProgram(c[:])
 		c[p] = 0
 	}
 }
