@@ -129,14 +129,6 @@ func (pipeline *Pipeline) Run() (err error) {
 		return errnie.Error(err)
 	}
 
-	if err := pipeline.maybeSeedValues(observer); err != nil {
-		return errnie.Error(err)
-	}
-
-	if err := pipeline.maybeSeedViralLearn(observer); err != nil {
-		return errnie.Error(err)
-	}
-
 	// Recirculation loop: pump the stream to allow the dataset and seed to mix and evolve.
 	// We pump based on the size of the stream/dataset to ensure full mixing rather than a hardcoded 2000.
 	pumpCount := pipeline.population * 2 // Apply a 2x mixing multiplier to hydrated data.
@@ -171,28 +163,6 @@ func (pipeline *Pipeline) Run() (err error) {
 
 		value[pipeline.config.ValueConfig.StateIndex] = 1
 
-		// Inject the prompt frame, then read until the same ValueID rotates
-		// back out of the substrate. This keeps observation grounded in the
-		// in-band identity carried by the Value itself.
-		observedFrame, err := pipeline.injectAndObserve(observer, value)
-		closeErr := value.Close()
-		if err != nil {
-			return errnie.Error(err)
-		}
-		if closeErr != nil {
-			return errnie.Error(closeErr)
-		}
-
-		observedValue := primitive.BytesToValue(observedFrame)
-		observedText := observedValue.String()
-
-		if tokenObserver, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && tokenObserver.ObserveWorkspaceAsTokens() {
-			observedText = primitive.DecodeTokensToText(observedValue)
-		}
-		if closeErr := observedValue.Close(); closeErr != nil {
-			return errnie.Error(closeErr)
-		}
-
 		holdout := []byte(nil)
 		if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
 			if h, ok := provider.HoldoutForPrompt(idx); ok {
@@ -203,7 +173,6 @@ func (pipeline *Pipeline) Run() (err error) {
 		errnie.Trace(
 			"experiment.task.pipeline.Run",
 			"prompt", prompt,
-			"observed", observedText,
 			"holdout", string(holdout),
 		)
 
@@ -212,7 +181,7 @@ func (pipeline *Pipeline) Run() (err error) {
 			Name:     fmt.Sprintf("prompt-%d", idx),
 			Prefix:   []byte(prompt),
 			Holdout:  holdout,
-			Observed: []byte(observedText),
+			Observed: []byte(value.String()),
 		})
 
 		pipeline.timing.n++
@@ -253,42 +222,6 @@ func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value)
 func (pipeline *Pipeline) recirculate(observer io.ReadWriter, frame []byte) error {
 	_, err := observer.Write(frame)
 	return err
-}
-
-func (pipeline *Pipeline) injectAndObserve(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
-	if err := pipeline.inject(observer, value); err != nil {
-		return nil, err
-	}
-
-	targetID := value.ValueID()
-	observedFrame := make([]byte, primitive.ByteSize)
-	maxReads := max(pipeline.population*4, 1)
-
-	for i := 0; i < maxReads; i++ {
-		if _, err := io.ReadFull(observer, observedFrame); err != nil {
-			return nil, err
-		}
-
-		observedValue := primitive.BytesToValue(observedFrame)
-		id := observedValue.ValueID()
-		closeErr := observedValue.Close()
-		if closeErr != nil {
-			return nil, closeErr
-		}
-		if id == targetID {
-			if pipeline.population > 0 {
-				pipeline.population--
-			}
-			return append([]byte(nil), observedFrame...), nil
-		}
-
-		frameCopy := append([]byte(nil), observedFrame...)
-		if err := pipeline.recirculate(observer, frameCopy); err != nil {
-			return nil, err
-		}
-	}
-
-	return nil, fmt.Errorf("prompt value %d did not rotate back out after %d reads", targetID, maxReads)
 }
 
 func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
@@ -362,24 +295,6 @@ func (pipeline *Pipeline) maybeSeedValues(observer io.ReadWriter) error {
 	}
 
 	return nil
-}
-
-func (pipeline *Pipeline) maybeSeedViralLearn(observer io.ReadWriter) error {
-	seeder, ok := pipeline.experiment.(viralLearnSeeder)
-	if !ok || !seeder.SeedViralLearn() {
-		return nil
-	}
-
-	seed, err := primitive.NewValue(nil)
-	if err != nil {
-		return err
-	}
-	seed[pipeline.config.ValueConfig.StateIndex] = 1
-	seed[pipeline.config.ValueConfig.RegPC] = 0
-	seed[pipeline.config.ValueConfig.FW] = core.FirmwareRegisterValue(core.FirmwareTypeViral)
-	defer seed.Close()
-
-	return pipeline.inject(observer, seed)
 }
 
 /*

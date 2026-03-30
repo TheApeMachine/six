@@ -160,7 +160,8 @@ func TestWrite(t *testing.T) {
 
 func TestBootloaderProjectsStructureInBand(t *testing.T) {
 	Convey("Bootloader derives affinity and state seeds from token spans in-band", t, func() {
-		valueA, err := NewValue([]byte("Mary moved to the kitchen."))
+		text := []byte("Mary moved to the kitchen.")
+		valueA, err := NewValue(text)
 		So(err, ShouldBeNil)
 		defer valueA.Close()
 
@@ -169,7 +170,9 @@ func TestBootloaderProjectsStructureInBand(t *testing.T) {
 		defer valueB.Close()
 
 		So(valueA.Fold(valueB), ShouldBeNil)
-		So(valueA[core.Cfg.AffinityIndex]&0x0000FFFFFFFFFFFF, ShouldNotEqual, uint64(0))
+		affinity := valueA[core.Cfg.AffinityIndex] & 0x0000FFFFFFFFFFFF
+		So(affinity, ShouldNotEqual, uint64(0))
+		So(byte(affinity>>40), ShouldEqual, text[0])
 		So(valueA[core.Cfg.StateSequence], ShouldNotEqual, uint64(0))
 		So(valueA[core.Cfg.StateAccumulator], ShouldNotEqual, uint64(0))
 	})

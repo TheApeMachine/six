@@ -194,6 +194,12 @@ func toHTTPURL(addr, path string) string {
 }
 
 func candidateOrder(nodes []Node, left, right []byte, rr uint64) []Node {
+	routingAffinity := frameRoutingAffinity(left, right)
+	nodes = preferAffinityShard(nodes, routingAffinity)
+	if len(nodes) == 0 {
+		return nil
+	}
+
 	positive := make([]Node, 0, len(nodes))
 	for _, n := range nodes {
 		if n.Capacity > 0 {
@@ -201,7 +207,7 @@ func candidateOrder(nodes []Node, left, right []byte, rr uint64) []Node {
 		}
 	}
 	if len(positive) == 0 {
-		return rotateNodes(nodes, affinityStartIndex(frameRoutingAffinity(left, right), len(nodes), rr))
+		return rotateNodes(nodes, affinityStartIndex(routingAffinity, len(nodes), rr))
 	}
 
 	weighted := make([]Node, 0, len(positive)*2)
@@ -215,7 +221,7 @@ func candidateOrder(nodes []Node, left, right []byte, rr uint64) []Node {
 		}
 	}
 
-	start := affinityStartIndex(frameRoutingAffinity(left, right), len(weighted), rr)
+	start := affinityStartIndex(routingAffinity, len(weighted), rr)
 	seen := make(map[string]struct{}, len(positive))
 	out := make([]Node, 0, len(positive))
 	for i := 0; i < len(weighted) && len(out) < len(positive); i++ {
@@ -227,6 +233,22 @@ func candidateOrder(nodes []Node, left, right []byte, rr uint64) []Node {
 		out = append(out, n)
 	}
 	return out
+}
+
+func preferAffinityShard(nodes []Node, affinity uint64) []Node {
+	if len(nodes) == 0 {
+		return nil
+	}
+	matched := make([]Node, 0, len(nodes))
+	for _, node := range nodes {
+		if nodeOwnsAffinity(node, affinity) {
+			matched = append(matched, node)
+		}
+	}
+	if len(matched) > 0 {
+		return matched
+	}
+	return nodes
 }
 
 func rotateNodes(nodes []Node, start int) []Node {
@@ -280,4 +302,28 @@ func affinityStartIndex(affinity uint64, count int, fallback uint64) int {
 		idx %= count
 	}
 	return idx
+}
+
+func nodeOwnsAffinity(node Node, affinity uint64) bool {
+	if node.ShardBits == 0 {
+		return false
+	}
+	if node.ShardBits > 48 {
+		return false
+	}
+	mask := prefixMask(node.ShardBits)
+	if mask == 0 {
+		return false
+	}
+	return (affinity & mask) == (node.ShardMask & mask)
+}
+
+func prefixMask(bits uint8) uint64 {
+	if bits == 0 {
+		return 0
+	}
+	if bits >= 48 {
+		return 0x0000FFFFFFFFFFFF
+	}
+	return ((uint64(1) << bits) - 1) << (48 - bits)
 }

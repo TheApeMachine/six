@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"io"
 	"net/http"
 	"runtime"
@@ -27,6 +28,9 @@ type Worker struct {
 	listenAddr    string
 	advertiseAddr string
 	maxCapacity   int
+	shardBits     uint8
+	shardMask     uint64
+	autoShardBits uint8
 	inFlight      atomic.Int64
 	discovery     *Discovery
 	server        *http.Server
@@ -64,6 +68,15 @@ func NewWorker(ctx context.Context, opts ...workerOption) (*Worker, error) {
 	if w.maxCapacity <= 0 && w.discovery != nil {
 		w.maxCapacity = w.discovery.Self().Capacity
 	}
+	if w.discovery != nil && w.shardBits == 0 && w.shardMask == 0 {
+		self := w.discovery.Self()
+		w.shardBits = self.ShardBits
+		w.shardMask = self.ShardMask & 0x0000FFFFFFFFFFFF
+	}
+	if w.shardBits == 0 && w.shardMask == 0 && w.autoShardBits > 0 {
+		w.shardBits = min(w.autoShardBits, 48)
+		w.shardMask = autoShardMask(w.shardBits, autoShardIdentity(w.advertiseAddr, w.discovery))
+	}
 	if w.maxCapacity <= 0 {
 		w.maxCapacity = max(1, runtime.NumCPU()-1)
 	}
@@ -73,8 +86,11 @@ func NewWorker(ctx context.Context, opts ...workerOption) (*Worker, error) {
 			w.ctx,
 			DiscoveryWithAdvertiseAddr(w.advertiseAddr),
 			DiscoveryWithCapacity(w.maxCapacity),
+			DiscoveryWithAffinityShard(w.shardMask, w.shardBits),
 		)
 	} else {
+		w.discovery.shardBits = w.shardBits
+		w.discovery.shardMask = w.shardMask & 0x0000FFFFFFFFFFFF
 		w.discovery.SetCapacity(w.maxCapacity)
 	}
 
@@ -119,6 +135,25 @@ func WorkerWithDiscovery(discovery *Discovery) workerOption {
 	}
 }
 
+func WorkerWithAffinityShard(mask uint64, bits uint8) workerOption {
+	return func(w *Worker) {
+		if bits > 48 {
+			bits = 48
+		}
+		w.shardBits = bits
+		w.shardMask = mask & 0x0000FFFFFFFFFFFF
+	}
+}
+
+func WorkerWithAutoAffinityShard(bits uint8) workerOption {
+	return func(w *Worker) {
+		if bits > 48 {
+			bits = 48
+		}
+		w.autoShardBits = bits
+	}
+}
+
 func WorkerWithPath(path string) workerOption {
 	return func(w *Worker) {
 		if p := strings.TrimSpace(path); p != "" {
@@ -144,6 +179,9 @@ func (w *Worker) ListenAndServe() error {
 		"listen", w.listenAddr,
 		"advertise", w.advertiseAddr,
 		"group", w.discovery.discoveryGrp,
+		"shard_bits", w.discovery.Self().ShardBits,
+		"shard_mask", w.discovery.Self().ShardMask,
+		"shard_label", shardLabel(w.discovery.Self().ShardMask, w.discovery.Self().ShardBits),
 	)
 
 	if err := w.server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -212,10 +250,13 @@ func (w *Worker) handleHealth(rw http.ResponseWriter, req *http.Request) {
 	}
 	self := w.discovery.Self()
 	writeJSON(rw, http.StatusOK, map[string]any{
-		"node_id":   self.ID,
-		"addr":      self.Addr,
-		"capacity":  self.Capacity,
-		"timestamp": time.Now().UnixNano(),
+		"node_id":     self.ID,
+		"addr":        self.Addr,
+		"capacity":    self.Capacity,
+		"shard_bits":  self.ShardBits,
+		"shard_mask":  self.ShardMask,
+		"shard_label": shardLabel(self.ShardMask, self.ShardBits),
+		"timestamp":   time.Now().UnixNano(),
 	})
 }
 
@@ -224,7 +265,56 @@ func (w *Worker) handleNodes(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	writeJSON(rw, http.StatusOK, w.discovery.Nodes(true))
+	nodes := w.discovery.Nodes(true)
+	payload := make([]map[string]any, 0, len(nodes))
+	for _, node := range nodes {
+		payload = append(payload, map[string]any{
+			"id":          node.ID,
+			"addr":        node.Addr,
+			"capacity":    node.Capacity,
+			"shard_bits":  node.ShardBits,
+			"shard_mask":  node.ShardMask,
+			"shard_label": shardLabel(node.ShardMask, node.ShardBits),
+			"last_seen":   node.LastSeen,
+			"self":        node.Self,
+		})
+	}
+	writeJSON(rw, http.StatusOK, payload)
+}
+
+func shardLabel(mask uint64, bits uint8) string {
+	if bits == 0 {
+		return "unassigned"
+	}
+	if bits > 48 {
+		bits = 48
+	}
+	prefix := mask >> (48 - bits)
+	return fmt.Sprintf("%0*b/%d", bits, prefix, bits)
+}
+
+func autoShardIdentity(advertiseAddr string, discovery *Discovery) string {
+	if discovery != nil {
+		self := discovery.Self()
+		if self.ID != "" {
+			if advertiseAddr != "" {
+				return self.ID + "@" + advertiseAddr
+			}
+			return self.ID
+		}
+	}
+	return advertiseAddr
+}
+
+func autoShardMask(bits uint8, identity string) uint64 {
+	if bits == 0 || identity == "" {
+		return 0
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(identity))
+	prefixMask := uint64(1<<bits) - 1
+	prefix := h.Sum64() & prefixMask
+	return prefix << (48 - bits)
 }
 
 func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Request) {

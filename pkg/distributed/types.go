@@ -12,15 +12,19 @@ type DiscoveryMessage struct {
 	NodeID    string `json:"node_id"`
 	Addr      string `json:"addr"`
 	Capacity  int    `json:"capacity"`
+	ShardBits uint8  `json:"shard_bits,omitempty"`
+	ShardMask uint64 `json:"shard_mask,omitempty"`
 	Timestamp int64  `json:"ts_unix_nano"`
 }
 
 type Node struct {
-	ID       string    `json:"id"`
-	Addr     string    `json:"addr"`
-	Capacity int       `json:"capacity"`
-	LastSeen time.Time `json:"last_seen"`
-	Self     bool      `json:"self"`
+	ID        string    `json:"id"`
+	Addr      string    `json:"addr"`
+	Capacity  int       `json:"capacity"`
+	ShardBits uint8     `json:"shard_bits,omitempty"`
+	ShardMask uint64    `json:"shard_mask,omitempty"`
+	LastSeen  time.Time `json:"last_seen"`
+	Self      bool      `json:"self"`
 }
 
 type UniversalBitwiseJobRequest struct {

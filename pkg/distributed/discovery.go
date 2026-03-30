@@ -31,6 +31,8 @@ type Discovery struct {
 	ttl          time.Duration
 	announce     bool
 	seedNodes    []string
+	shardBits    uint8
+	shardMask    uint64
 
 	mu    sync.RWMutex
 	nodes map[string]Node
@@ -72,11 +74,13 @@ func NewDiscovery(ctx context.Context, opts ...discoveryOption) *Discovery {
 	}
 
 	d.upsertNode(Node{
-		ID:       d.nodeID,
-		Addr:     d.advertise,
-		Capacity: d.capacity,
-		LastSeen: time.Now(),
-		Self:     true,
+		ID:        d.nodeID,
+		Addr:      d.advertise,
+		Capacity:  d.capacity,
+		ShardBits: d.shardBits,
+		ShardMask: d.shardMask,
+		LastSeen:  time.Now(),
+		Self:      true,
 	})
 
 	return d
@@ -150,6 +154,16 @@ func DiscoveryWithAnnounce(enabled bool) discoveryOption {
 	}
 }
 
+func DiscoveryWithAffinityShard(mask uint64, bits uint8) discoveryOption {
+	return func(d *Discovery) {
+		if bits > 48 {
+			bits = 48
+		}
+		d.shardBits = bits
+		d.shardMask = mask & 0x0000FFFFFFFFFFFF
+	}
+}
+
 func (d *Discovery) Start() error {
 	d.rx = network.NewUDPMulticast(network.UDPMulticastWithListener(d.discoveryGrp, d.iface))
 	if d.rx == nil || d.rx.Ready(d.ctx) != nil {
@@ -169,11 +183,13 @@ func (d *Discovery) Start() error {
 
 	for i, seed := range d.seedNodes {
 		d.upsertNode(Node{
-			ID:       fmt.Sprintf("seed-%d", i),
-			Addr:     seed,
-			Capacity: 1,                           // Assume basic capacity for static seed nodes
-			LastSeen: time.Now().Add(d.ttl * 100), // Seeds never expire
-			Self:     false,
+			ID:        fmt.Sprintf("seed-%d", i),
+			Addr:      seed,
+			Capacity:  1, // Assume basic capacity for static seed nodes
+			ShardBits: 0,
+			ShardMask: 0,
+			LastSeen:  time.Now().Add(d.ttl * 100), // Seeds never expire
+			Self:      false,
 		})
 	}
 
@@ -236,11 +252,13 @@ func (d *Discovery) Self() Node {
 		return n
 	}
 	return Node{
-		ID:       d.nodeID,
-		Addr:     d.advertise,
-		Capacity: d.capacity,
-		LastSeen: time.Now(),
-		Self:     true,
+		ID:        d.nodeID,
+		Addr:      d.advertise,
+		Capacity:  d.capacity,
+		ShardBits: d.shardBits,
+		ShardMask: d.shardMask,
+		LastSeen:  time.Now(),
+		Self:      true,
 	}
 }
 
@@ -276,6 +294,8 @@ func (d *Discovery) SetCapacity(capacity int) int {
 	}
 
 	self.Capacity = capacity
+	self.ShardBits = d.shardBits
+	self.ShardMask = d.shardMask
 	self.LastSeen = time.Now()
 	self.Self = true
 	d.nodes[d.nodeID] = self
@@ -312,11 +332,13 @@ func (d *Discovery) recvLoop() {
 		}
 
 		node := Node{
-			ID:       msg.NodeID,
-			Addr:     strings.TrimSpace(msg.Addr),
-			Capacity: msg.Capacity,
-			LastSeen: time.Now(),
-			Self:     msg.NodeID == d.nodeID,
+			ID:        msg.NodeID,
+			Addr:      strings.TrimSpace(msg.Addr),
+			Capacity:  msg.Capacity,
+			ShardBits: msg.ShardBits,
+			ShardMask: msg.ShardMask & 0x0000FFFFFFFFFFFF,
+			LastSeen:  time.Now(),
+			Self:      msg.NodeID == d.nodeID,
 		}
 		if node.Capacity < 0 {
 			node.Capacity = 0
@@ -390,6 +412,8 @@ func (d *Discovery) sendHeartbeat() {
 		NodeID:    self.ID,
 		Addr:      self.Addr,
 		Capacity:  self.Capacity,
+		ShardBits: self.ShardBits,
+		ShardMask: self.ShardMask & 0x0000FFFFFFFFFFFF,
 		Timestamp: time.Now().UnixNano(),
 	}
 

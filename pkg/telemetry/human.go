@@ -54,7 +54,7 @@ func InstructionFromValue(v *primitive.Value) uint8 {
 		return DefaultVMInstruction & 0xF
 	}
 	pc := int(v[core.Cfg.RegPC])
-	return v.ProgramOp(pc) & 0xF
+	return programOpAt(v, pc) & 0xF
 }
 
 /*
@@ -78,7 +78,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 	// Show program info if present (first-slot opcode when program bits exist)
 	progInfo := ""
 	if progPop > 0 {
-		instr = v.ProgramOp(0)
+		instr = programOpAt(v, 0)
 		progInfo = fmt.Sprintf(" program=%dops", countProgramOps(v))
 	} else {
 		instr = DefaultVMInstruction & 0xF
@@ -95,7 +95,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 func countProgramOps(v *primitive.Value) int {
 	count := 0
 	for i := 0; i < core.Cfg.MaxPC; i++ {
-		op := v.ProgramOp(i)
+		op := programOpAt(v, i)
 		if op == 0 && i > 0 {
 			break
 		}
@@ -104,6 +104,19 @@ func countProgramOps(v *primitive.Value) int {
 		}
 	}
 	return count
+}
+
+func programOpAt(v *primitive.Value, slot int) uint8 {
+	if v == nil || slot < 0 || slot >= core.Cfg.MaxPC {
+		return 0
+	}
+	wordPos := core.Cfg.ProgramIndex + slot/2
+	if wordPos < 0 || wordPos >= primitive.Words {
+		return 0
+	}
+	shift := uint((slot % 2) * 32)
+	instr := uint32(v[wordPos] >> shift)
+	return uint8(instr & 0xF)
 }
 
 /*
