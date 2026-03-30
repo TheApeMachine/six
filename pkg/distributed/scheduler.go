@@ -3,13 +3,16 @@ package distributed
 import (
 	"bytes"
 	"context"
+	"encoding/binary"
 	"fmt"
 	"io"
+	"math/bits"
 	"net/http"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -77,7 +80,7 @@ func (s *Scheduler) ScheduleUniversalBitwise(
 		return nil, fmt.Errorf("no remote mesh nodes discovered")
 	}
 
-	candidates := candidateOrder(nodes, s.rr.Add(1)-1)
+	candidates := candidateOrder(nodes, left, right, s.rr.Add(1)-1)
 
 	telemetry.Emit(telemetry.Event{
 		Component: "Pool",
@@ -190,7 +193,7 @@ func toHTTPURL(addr, path string) string {
 	return "http://" + addr + path
 }
 
-func candidateOrder(nodes []Node, rr uint64) []Node {
+func candidateOrder(nodes []Node, left, right []byte, rr uint64) []Node {
 	positive := make([]Node, 0, len(nodes))
 	for _, n := range nodes {
 		if n.Capacity > 0 {
@@ -198,7 +201,7 @@ func candidateOrder(nodes []Node, rr uint64) []Node {
 		}
 	}
 	if len(positive) == 0 {
-		return rotateNodes(nodes, rr)
+		return rotateNodes(nodes, affinityStartIndex(frameRoutingAffinity(left, right), len(nodes), rr))
 	}
 
 	weighted := make([]Node, 0, len(positive)*2)
@@ -212,7 +215,7 @@ func candidateOrder(nodes []Node, rr uint64) []Node {
 		}
 	}
 
-	start := int(rr % uint64(len(weighted)))
+	start := affinityStartIndex(frameRoutingAffinity(left, right), len(weighted), rr)
 	seen := make(map[string]struct{}, len(positive))
 	out := make([]Node, 0, len(positive))
 	for i := 0; i < len(weighted) && len(out) < len(positive); i++ {
@@ -226,13 +229,55 @@ func candidateOrder(nodes []Node, rr uint64) []Node {
 	return out
 }
 
-func rotateNodes(nodes []Node, rr uint64) []Node {
+func rotateNodes(nodes []Node, start int) []Node {
 	if len(nodes) <= 1 {
 		return nodes
 	}
-	start := int(rr % uint64(len(nodes)))
+	if start < 0 {
+		start = 0
+	}
+	start %= len(nodes)
 	out := make([]Node, 0, len(nodes))
 	out = append(out, nodes[start:]...)
 	out = append(out, nodes[:start]...)
 	return out
+}
+
+func frameRoutingAffinity(left, right []byte) uint64 {
+	affinity := frameAffinity(left)
+	if affinity != 0 {
+		return affinity
+	}
+	return frameAffinity(right)
+}
+
+func frameAffinity(frame []byte) uint64 {
+	start := core.Cfg.AffinityIndex * 8
+	end := start + 8
+	if start < 0 || end > len(frame) {
+		return 0
+	}
+	return binary.LittleEndian.Uint64(frame[start:end]) & 0x0000FFFFFFFFFFFF
+}
+
+func affinityStartIndex(affinity uint64, count int, fallback uint64) int {
+	if count <= 1 {
+		return 0
+	}
+	if affinity == 0 {
+		return int(fallback % uint64(count))
+	}
+	routeBits := bits.Len(uint(count - 1))
+	if routeBits <= 0 {
+		return 0
+	}
+	shift := 48 - routeBits
+	if shift < 0 {
+		shift = 0
+	}
+	idx := int((affinity >> shift) & ((1 << routeBits) - 1))
+	if idx >= count {
+		idx %= count
+	}
+	return idx
 }
