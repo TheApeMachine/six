@@ -85,10 +85,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 	}
 
 	return fmt.Sprintf(
-		"id=%d prev=%d next=%d tokens=%q · op=%s · data=%d aff=%d prog=%d%s",
-		v.ValueID(),
-		v.PrevValueID(),
-		v.NextValueID(),
+		"tokens=%q · op=%s · data=%d aff=%d prog=%d%s",
 		tokens,
 		TruthOpName(instr), dataPop, affPop, progPop, progInfo,
 	)

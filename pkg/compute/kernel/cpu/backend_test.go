@@ -224,7 +224,7 @@ func TestBootloaderSequencesToBuild(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got, want := a[core.PayloadProgramWordStart()], firmwareWord(core.FirmwareTypeBuild, 0); got != want {
+	if got, want := a[payloadProgramWordStart()], firmwareWord(core.FirmwareTypeBuild, 0); got != want {
 		t.Fatalf("build payload word mismatch: got %#x want %#x", got, want)
 	}
 	if got, want := a[core.Cfg.FW], core.FirmwareRegisterLearn; got != want {
@@ -249,15 +249,63 @@ func TestBuildPayloadCanBeReplacedByLearn(t *testing.T) {
 	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := a[core.PayloadProgramWordStart()], firmwareWord(core.FirmwareTypeBuild, 0); got != want {
+	if got, want := a[payloadProgramWordStart()], firmwareWord(core.FirmwareTypeBuild, 0); got != want {
 		t.Fatalf("build payload word mismatch before learn replacement: got %#x want %#x", got, want)
 	}
 
 	if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
 		t.Fatal(err)
 	}
-	if got, want := a[core.PayloadProgramWordStart()], firmwareWord(core.FirmwareTypeLearn, 0); got != want {
+	if got, want := a[payloadProgramWordStart()], firmwareWord(core.FirmwareTypeLearn, 0); got != want {
 		t.Fatalf("learn payload word mismatch after replacement: got %#x want %#x", got, want)
+	}
+}
+
+func TestBuildUsesAffinityOverlapAsFeatureSignal(t *testing.T) {
+	be := NewBackend()
+
+	tests := []struct {
+		name       string
+		self       uint64
+		partner    uint64
+		wantSignal uint64
+	}{
+		{
+			name:       "shared affinity raises feature bit",
+			self:       0b10110100,
+			partner:    0b00110110,
+			wantSignal: 0b00110100,
+		},
+		{
+			name:       "disjoint affinity leaves feature clear",
+			self:       0b11000000,
+			partner:    0b00110000,
+			wantSignal: 0,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var a, b [128]uint64
+
+			installFirmware(&a, core.FirmwareTypeBuild)
+			a[core.Cfg.AffinityIndex] = tc.self
+			b[core.Cfg.AffinityIndex] = tc.partner
+
+			if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&b), 1); err != nil {
+				t.Fatal(err)
+			}
+
+			if got := a[core.Cfg.R6]; got != tc.wantSignal {
+				t.Fatalf("feature signal mismatch: got %#x want %#x", got, tc.wantSignal)
+			}
+			if got, want := a[core.Cfg.FW], core.FirmwareRegisterLearn; got != want {
+				t.Fatalf("build should sequence to learn: got %d want %d", got, want)
+			}
+			if got := a[core.Cfg.RegPC]; got != 0 {
+				t.Fatalf("build should arm next firmware load at pc=0, got %d", got)
+			}
+		})
 	}
 }
 
@@ -291,7 +339,7 @@ func BenchmarkUniversalBitwise(b *testing.B) {
 	be := NewBackend()
 	var a, c [128]uint64
 
-	for i, w := 0, uint64(core.PayloadProgramWordStart()); i < len(core.Cfg.Firmware[core.FirmwareTypeViral]) && int(w) < len(a); i, w = i+2, w+1 {
+	for i, w := 0, uint64(payloadProgramWordStart()); i < len(core.Cfg.Firmware[core.FirmwareTypeViral]) && int(w) < len(a); i, w = i+2, w+1 {
 		v := uint64(core.Cfg.Firmware[core.FirmwareTypeViral][i])
 		if i+1 < len(core.Cfg.Firmware[core.FirmwareTypeViral]) {
 			v |= uint64(core.Cfg.Firmware[core.FirmwareTypeViral][i+1]) << 32
@@ -308,7 +356,7 @@ func BenchmarkUniversalBitwise(b *testing.B) {
 	b.SetBytes(1024)
 	b.ResetTimer()
 	for b.Loop() {
-		a[core.Cfg.RegPC] = core.PayloadProgramPCStart()
+		a[core.Cfg.RegPC] = payloadProgramPCStart()
 		if err := be.UniversalBitwise(unsafe.Pointer(&a), unsafe.Pointer(&c), 1); err != nil {
 			b.Fatal(err)
 		}

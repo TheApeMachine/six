@@ -182,7 +182,101 @@ func loadFirmware(c *[128]uint64, _p, _w uint64) bool {
 	if c == nil {
 		return false
 	}
-	return core.PreloadPendingFirmware(c[:])
+	return preloadPendingFirmware(c)
+}
+
+func resolveFirmwareRegister(sel uint64) (core.FirmwareType, bool) {
+	switch sel {
+	case core.FirmwareRegisterLearn:
+		return core.FirmwareTypeLearn, true
+	case core.FirmwareRegisterTombstone:
+		return core.FirmwareTypeTombstone, true
+	case core.FirmwareRegisterViral:
+		return core.FirmwareTypeViral, true
+	case core.FirmwareRegisterBuild:
+		return core.FirmwareTypeBuild, true
+	default:
+		return 0, false
+	}
+}
+
+func payloadProgramWordStart() int {
+	return core.Cfg.ProgramIndex + core.PayloadProgramWordOffset
+}
+
+func payloadProgramPCStart() uint64 {
+	return uint64(core.PayloadProgramPCOffset)
+}
+
+func clearPayloadProgram(c *[128]uint64) {
+	if c == nil {
+		return
+	}
+	for slot := int(payloadProgramPCStart()); slot < core.Cfg.MaxPC; slot++ {
+		wordIdx := core.Cfg.ProgramIndex + slot/2
+		if wordIdx < 0 || wordIdx >= len(c) {
+			break
+		}
+		shift := uint((slot % 2) * 32)
+		mask := uint64(0xFFFFFFFF) << shift
+		c[wordIdx] &^= mask
+	}
+}
+
+func installProgramAtSlot(c *[128]uint64, startSlot int, program []uint32) {
+	if c == nil || startSlot < 0 || startSlot >= core.Cfg.MaxPC {
+		return
+	}
+	for i, instr := range program {
+		slot := startSlot + i
+		if slot >= core.Cfg.MaxPC {
+			break
+		}
+		wordIdx := core.Cfg.ProgramIndex + slot/2
+		if wordIdx < 0 || wordIdx >= len(c) {
+			break
+		}
+		shift := uint((slot % 2) * 32)
+		mask := uint64(0xFFFFFFFF) << shift
+		c[wordIdx] = (c[wordIdx] &^ mask) | (uint64(instr) << shift)
+	}
+}
+
+func frameReadyForFirmwareLoad(c *[128]uint64) bool {
+	if c == nil {
+		return false
+	}
+	pc := c[core.Cfg.RegPC]
+	if pc == 0 || pc >= uint64(core.Cfg.MaxPC) {
+		return true
+	}
+	wordPos := core.Cfg.ProgramIndex + int(pc/2)
+	if wordPos < 0 || wordPos >= len(c) {
+		return true
+	}
+	shift := uint((pc % 2) * 32)
+	return uint32(c[wordPos]>>shift) == 0
+}
+
+func preloadPendingFirmware(c *[128]uint64) bool {
+	if c == nil {
+		return false
+	}
+	ft, ok := resolveFirmwareRegister(c[core.Cfg.FW])
+	if !ok || !frameReadyForFirmwareLoad(c) {
+		return false
+	}
+	prog := core.Cfg.Firmware[ft]
+	if len(prog) == 0 {
+		c[core.Cfg.FW] = core.FirmwareRegisterNone
+		return false
+	}
+	clearPayloadProgram(c)
+	installProgramAtSlot(c, int(payloadProgramPCStart()), prog)
+	cc := core.FirmwareRegisterNone
+	c[core.Cfg.FW] = cc
+	c[core.Cfg.RegPC] = payloadProgramPCStart()
+	return true
 }
 
 // fetch returns the next instruction word and the pre-increment pc.
@@ -351,8 +445,8 @@ func armNextFirmware(c *[128]uint64, p uint64) {
 	if c == nil {
 		return
 	}
-	if _, ok := core.ResolveFirmwareRegister(c[uint64(core.Cfg.FW)]); ok {
-		core.ClearPayloadProgram(c[:])
+	if _, ok := resolveFirmwareRegister(c[uint64(core.Cfg.FW)]); ok {
+		clearPayloadProgram(c)
 		c[p] = 0
 	}
 }

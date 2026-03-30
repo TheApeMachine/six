@@ -2,13 +2,16 @@ package transport
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math/bits"
 	"sync"
 	"time"
 
 	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -26,6 +29,7 @@ type Stream struct {
 	pw          []*ringbuffer.PipeWriter
 	frame       [][]byte
 	emitter     []*Emitter
+	pending     []int
 	ptr         int
 	adapters    []io.ReadWriter
 }
@@ -46,6 +50,7 @@ func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 		pw:       make([]*ringbuffer.PipeWriter, 0),
 		frame:    make([][]byte, 0),
 		emitter:  make([]*Emitter, 0),
+		pending:  make([]int, 0),
 		adapters: make([]io.ReadWriter, 0),
 	}
 
@@ -65,6 +70,7 @@ func NewStream(ctx context.Context, options ...StreamOption) *Stream {
 		"pw":       stream.pw,
 		"frame":    stream.frame,
 		"emitter":  stream.emitter,
+		"pending":  stream.pending,
 		"ptr":      stream.ptr,
 		"regions":  stream.regions,
 		"adapters": stream.adapters,
@@ -91,28 +97,42 @@ func (stream *Stream) Read(p []byte) (n int, err error) {
 	}
 
 	copied := 0
-
-	for i := range len(stream.emitter) {
-		idx := (i + stream.ptr) % stream.regions
-
-		var readN int
-		if readN, err = io.ReadFull(
-			stream.emitter[idx],
-			stream.frame[idx],
-		); err != nil {
-			if errors.Is(err, io.ErrClosedPipe) {
-				return copied, io.EOF
+	for copied+primitive.ByteSize <= len(p) {
+		idx := stream.nextReadableRegion()
+		if idx < 0 {
+			if copied > 0 {
+				stream.resetTTL()
+				return copied, nil
 			}
+			return 0, io.EOF
+		}
 
+		hadWait := stream.emitter[idx].wait != nil
+		var readN int
+		if readN, err = io.ReadFull(stream.emitter[idx], stream.frame[idx]); err != nil {
+			if errors.Is(err, io.ErrClosedPipe) {
+				if copied > 0 {
+					stream.resetTTL()
+					return copied, nil
+				}
+				return 0, io.EOF
+			}
 			return copied, err
+		}
+
+		if !hadWait {
+			stream.pending[idx] = max(stream.pending[idx]-1, 0)
 		}
 
 		for _, adapter := range stream.adapters {
 			_, _ = adapter.Write(stream.frame[idx][:readN])
 		}
 
-		if copied < len(p) {
-			copied += copy(p[copied:], stream.frame[idx][:readN])
+		copied += copy(p[copied:], stream.frame[idx][:readN])
+		stream.ptr = (idx + 1) % stream.regions
+
+		if len(p)-copied < primitive.ByteSize {
+			break
 		}
 	}
 
@@ -127,15 +147,66 @@ func (stream *Stream) Write(p []byte) (n int, err error) {
 	default:
 	}
 
-	for _, emitter := range stream.emitter {
-		if n, err = emitter.Write(p); err != nil {
-			return n, err
-		}
+	if len(p)%primitive.ByteSize != 0 {
+		return 0, io.ErrShortBuffer
 	}
 
-	stream.ptr++
+	written := 0
+	for offset := 0; offset < len(p); offset += primitive.ByteSize {
+		frame := p[offset : offset+primitive.ByteSize]
+		idx := stream.routeRegion(frame)
+		if n, err = stream.emitter[idx].Write(frame); err != nil {
+			return written + n, err
+		}
+		stream.pending[idx]++
+		written += n
+	}
+
 	stream.resetTTL()
-	return n, nil
+	return written, nil
+}
+
+func (stream *Stream) nextReadableRegion() int {
+	if stream == nil || stream.regions == 0 {
+		return -1
+	}
+	for i := 0; i < stream.regions; i++ {
+		idx := (stream.ptr + i) % stream.regions
+		if stream.pending[idx] > 0 {
+			return idx
+		}
+	}
+	return -1
+}
+
+func (stream *Stream) routeRegion(frame []byte) int {
+	if stream == nil || stream.regions <= 1 {
+		return 0
+	}
+	affinityWord := frameAffinity(frame)
+	usableAffinity := affinityWord & 0x0000FFFFFFFFFFFF
+	routeBits := bits.Len(uint(stream.regions - 1))
+	if routeBits <= 0 {
+		return 0
+	}
+	shift := 48 - routeBits
+	if shift < 0 {
+		shift = 0
+	}
+	idx := int((usableAffinity >> shift) & ((1 << routeBits) - 1))
+	if idx >= stream.regions {
+		idx %= stream.regions
+	}
+	return idx
+}
+
+func frameAffinity(frame []byte) uint64 {
+	start := core.Cfg.AffinityIndex * 8
+	end := start + 8
+	if start < 0 || end > len(frame) {
+		return 0
+	}
+	return binary.LittleEndian.Uint64(frame[start:end])
 }
 
 func (stream *Stream) resetTTL() {
@@ -214,6 +285,7 @@ func StreamWithRegions(n int) StreamOption {
 		stream.pw = make([]*ringbuffer.PipeWriter, 0, n)
 		stream.frame = make([][]byte, 0, n)
 		stream.emitter = make([]*Emitter, 0, n)
+		stream.pending = make([]int, n)
 
 		for range n {
 			// Allocate a large enough ring buffer (e.g. 128MB) to hold the dataset without blocking.

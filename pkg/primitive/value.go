@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -178,7 +177,6 @@ a discarded ValueID.
 var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
-		val.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
 		val.installFirmware(core.FirmwareTypeBootloader)
 		return val
 	},
@@ -197,7 +195,8 @@ func NewValue(p []byte) (*Value, error) {
 	for i := range value {
 		value[i] = 0
 	}
-	value.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+
+	value[core.Cfg.ValueID] = atomic.AddUint64(&globalValueIDCounter, 1)
 	value.installFirmware(core.FirmwareTypeBootloader)
 
 	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
@@ -342,7 +341,9 @@ func (value *Value) Release() error {
 	}
 	if refs < 0 {
 		lc.refs.Store(0)
-		return fmt.Errorf("primitive.Value.Release: refcount underflow for value id=%d", value.ValueID())
+		return errnie.Error(
+			NewValueError(ValueErrorRefcountUnderflow),
+		)
 	}
 
 	shard := getLifecycleShard(value)
@@ -444,19 +445,6 @@ func (value *Value) String() string {
 	return strings.TrimRight(builder.String(), "\x00")
 }
 
-// TraceString implements errnie.TraceStringer for compact trace / log output.
-func (v *Value) TraceString() string {
-	if v == nil {
-		return "<nil>"
-	}
-	tok := v.String()
-	r := []rune(tok)
-	if len(r) > errnie.TraceTokenPreviewRunes {
-		tok = string(r[:errnie.TraceTokenPreviewRunes]) + "…"
-	}
-	return fmt.Sprintf("id=%d tokens=%s", v.ValueID(), strconv.Quote(tok))
-}
-
 /*
 Tokenize securely packs a byte and its sequence index into a 64-bit hardware token.
 */
@@ -511,34 +499,6 @@ func (value *Value) SetTokenIDs(tokens []uint64) int {
 	return n
 }
 
-func (value *Value) ValueID() uint64 {
-	return value[core.Cfg.ValueID]
-}
-
-func (value *Value) ID() string {
-	return fmt.Sprintf("%d", value.ValueID())
-}
-
-func (value *Value) SetValueID(id uint64) {
-	value[core.Cfg.ValueID] = id
-}
-
-func (value *Value) PrevValueID() uint64 {
-	return value[core.Cfg.PreviousID]
-}
-
-func (value *Value) SetPrevValueID(id uint64) {
-	value[core.Cfg.PreviousID] = id
-}
-
-func (value *Value) NextValueID() uint64 {
-	return value[core.Cfg.NextID]
-}
-
-func (value *Value) SetNextValueID(id uint64) {
-	value[core.Cfg.NextID] = id
-}
-
 func registerPooledLifecycle(value *Value) {
 	if value == nil {
 		return
@@ -572,42 +532,19 @@ func lifecycleFor(value *Value) (*valueLifecycle, bool) {
 	return entry, ok
 }
 
-// InstallProgram replaces the full in-band program region with program.
-func (value *Value) InstallProgram(program []uint32) {
-	if value == nil {
-		return
-	}
-	core.ClearProgramRegion(value[:])
-	core.InstallProgramAtSlot(value[:], 0, program)
-}
-
-// InstallProgramAtSlot clears the program region from slot onward and writes
-// program beginning at the absolute instruction slot slot.
-func (value *Value) InstallProgramAtSlot(slot int, program []uint32) {
-	if value == nil {
-		return
-	}
-	core.ReplaceProgramAtSlot(value[:], slot, program)
-}
-
-// InstallPayloadProgram preserves the resident bootstrap prefix and writes a
-// payload program into the payload span, then arms pc to the payload start.
-func (value *Value) InstallPayloadProgram(program []uint32) {
-	if value == nil {
-		return
-	}
-	start := int(core.PayloadProgramPCStart())
-	core.ReplaceProgramAtSlot(value[:], start, program)
-	value[core.Cfg.RegPC] = core.PayloadProgramPCStart()
-}
-
+/*
+Clone is used to create a new Value from an existing one, which is how
+we emit new Values from the substrate. It copies the entire frame, including
+the ValueID, so we need to set a new ValueID for the clone. We intentionally
+do not install the bootloader, because it should already be there.
+*/
 func (value *Value) Clone() *Value {
 	clone := valuePool.Get().(*Value)
 	for i := range value {
 		clone[i] = value[i]
 	}
 	registerPooledLifecycle(clone)
-	clone.SetValueID(atomic.AddUint64(&globalValueIDCounter, 1))
+	clone[core.Cfg.ValueID] = atomic.AddUint64(&globalValueIDCounter, 1)
 	// Do not blindly install bootloader on a clone, we want to clone the exact state!
 	return clone
 }
@@ -697,23 +634,6 @@ func DecodeTokensToText(v *Value) string {
 	return string(b)
 }
 
-// ProgramOp returns the 4-bit opcode at instruction slot i in the in-band
-// program region, or 0 if i is out of range.
-func (value *Value) ProgramOp(slot int) uint8 {
-	if slot < 0 || slot >= core.Cfg.MaxPC {
-		return 0
-	}
-	wordBase := uint64(core.Cfg.ProgramIndex)
-	pc := uint64(slot)
-	wordPos := wordBase + (pc / 2)
-	if int(wordPos) >= Words {
-		return 0
-	}
-	shift := uint((pc % 2) * 32)
-	instr := uint32(value[wordPos] >> shift)
-	return uint8(instr & 0xF)
-}
-
 func (value *Value) HasProgram() bool {
 	// If the firmware register is set, it signals a program should be loaded
 	if value[core.Cfg.FW] > 0 {
@@ -739,9 +659,11 @@ func (value *Value) HasProgram() bool {
 type ValueErrorType string
 
 const (
-	ValueErrorFailedToken ValueErrorType = "failed_token"
-	ValueErrorDivergence  ValueErrorType = "divergence"
-	ValueErrorDataFull    ValueErrorType = "data_full"
+	ValueErrorFailedToken        ValueErrorType = "failed_token"
+	ValueErrorDivergence         ValueErrorType = "divergence"
+	ValueErrorDataFull           ValueErrorType = "data_full"
+	ValueErrorInvalidProgramWord ValueErrorType = "invalid_program_word"
+	ValueErrorRefcountUnderflow  ValueErrorType = "refcount_underflow"
 )
 
 type ValueError struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math/bits"
 	"os"
 	"strings"
 	"testing"
@@ -53,9 +54,10 @@ func TestRead(t *testing.T) {
 		So(stream, ShouldNotBeNil)
 
 		Convey("And a Value is written to the stream", func() {
-			for range regions {
+			for idx := range regions {
 				value, err := primitive.NewValue(nil)
 				So(err, ShouldBeNil)
+				(*value)[core.Cfg.AffinityIndex] = affinityForRegion(idx, regions)
 
 				(*value)[core.Cfg.StateIndex] = 1
 				n, cerr := io.Copy(stream, value)
@@ -66,9 +68,12 @@ func TestRead(t *testing.T) {
 			}
 
 			Convey("Then the Value should be read from the stream", func() {
-				buf := make([]byte, primitive.ByteSize*regions)
+				buf := make([]byte, primitive.ByteSize)
 				n, err := io.ReadFull(stream, buf)
+				So(n, ShouldEqual, len(buf))
+				So(err, ShouldBeNil)
 
+				n, err = io.ReadFull(stream, buf)
 				So(n, ShouldEqual, len(buf))
 				So(err, ShouldBeNil)
 			})
@@ -106,9 +111,10 @@ func TestWrite(t *testing.T) {
 			str := []byte("Hello!")
 			var decoded strings.Builder
 
-			for range regions {
+			for idx := range regions {
 				value, err := primitive.NewValue(str)
 				So(err, ShouldBeNil)
+				(*value)[core.Cfg.AffinityIndex] = affinityForRegion(idx, regions)
 
 				(*value)[core.Cfg.StateIndex] = 1
 				n, cerr := io.Copy(stream, value)
@@ -118,16 +124,13 @@ func TestWrite(t *testing.T) {
 				So(cerr, ShouldBeNil)
 			}
 
-			buf := make([]byte, primitive.ByteSize*regions)
-			n, err := io.ReadFull(stream, buf)
+			for range regions {
+				buf := make([]byte, primitive.ByteSize)
+				n, err := io.ReadFull(stream, buf)
+				So(n, ShouldEqual, len(buf))
+				So(err, ShouldBeNil)
 
-			So(n, ShouldEqual, len(buf))
-			So(err, ShouldBeNil)
-
-			for i := 0; i < regions; i++ {
-				start := i * primitive.ByteSize
-				end := start + primitive.ByteSize
-				value := primitive.BytesToValue(buf[start:end])
+				value := primitive.BytesToValue(buf)
 				decoded.WriteString(value.String())
 				_ = value.Close()
 			}
@@ -177,6 +180,51 @@ func TestReadRotatesAcrossResidentValues(t *testing.T) {
 		So(second.String(), ShouldEqual, "B")
 		So(second.Close(), ShouldBeNil)
 	})
+}
+
+func TestWriteRoutesByAffinityBits(t *testing.T) {
+	Convey("Given a multi-region Stream", t, func() {
+		stream := NewStream(t.Context(), StreamWithRegions(4))
+		defer stream.Close()
+
+		mk := func(token string, region int) *primitive.Value {
+			value, err := primitive.NewValue([]byte(token))
+			So(err, ShouldBeNil)
+			(*value)[core.Cfg.AffinityIndex] = affinityForRegion(region, 4)
+			(*value)[core.Cfg.StateIndex] = 1
+			return value
+		}
+
+		left := mk("A", 1)
+		defer left.Close()
+		right := mk("B", 3)
+		defer right.Close()
+
+		_, err := io.Copy(stream, left)
+		So(err, ShouldBeNil)
+		_, err = io.Copy(stream, right)
+		So(err, ShouldBeNil)
+
+		So(stream.pending[0], ShouldEqual, 0)
+		So(stream.pending[1], ShouldEqual, 1)
+		So(stream.pending[2], ShouldEqual, 0)
+		So(stream.pending[3], ShouldEqual, 1)
+	})
+}
+
+func affinityForRegion(region, regions int) uint64 {
+	if regions <= 1 {
+		return 0
+	}
+	routeBits := bits.Len(uint(regions - 1))
+	if routeBits <= 0 {
+		return 0
+	}
+	shift := 48 - routeBits
+	if shift < 0 {
+		shift = 0
+	}
+	return uint64(region) << shift
 }
 
 func BenchmarkStream(b *testing.B) {

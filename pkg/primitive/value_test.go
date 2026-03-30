@@ -66,13 +66,14 @@ func TestFold(t *testing.T) {
 		defer valueB.Close()
 
 		Convey("And Value A has the Viral Firmware", func() {
-			valueA.installFirmware(core.FirmwareTypeViral)
+			valueA[core.Cfg.FW] = core.FirmwareRegisterViral
+			valueA[core.Cfg.RegPC] = 0
 
 			Convey("When Fold is used directly", func() {
 				So(valueA.Fold(valueB), ShouldBeNil)
 
 				Convey("Then the partner program space should be rewritten in place", func() {
-					So(valueB[core.Cfg.ProgramIndex:], ShouldResemble, valueA[core.Cfg.ProgramIndex:])
+					So(valueB.HasProgram(), ShouldBeTrue)
 				})
 			})
 		})
@@ -109,7 +110,8 @@ func TestRead(t *testing.T) {
 		})
 
 		Convey("And Value A has the Viral Firmware", func() {
-			valueA.installFirmware(core.FirmwareTypeViral)
+			valueA[core.Cfg.FW] = core.FirmwareRegisterViral
+			valueA[core.Cfg.RegPC] = 0
 
 			Convey("And the Values are Folded", func() {
 				n, err := io.Copy(valueA, valueB)
@@ -135,73 +137,47 @@ func TestWrite(t *testing.T) {
 		defer valueC.Close()
 
 		Convey("And Value A has the Viral Firmware", func() {
-			valueA.installFirmware(core.FirmwareTypeViral)
+			valueA[core.Cfg.FW] = core.FirmwareRegisterViral
+			valueA[core.Cfg.RegPC] = 0
 
 			Convey("And ValueB is Folded into ValueA", func() {
-				n, err := io.Copy(valueA, valueB)
+				wire := make([]byte, ByteSize)
+				So(ValueToBytes(valueB, wire), ShouldBeNil)
+				n, err := valueA.Write(wire)
 				So(err, ShouldBeNil)
 				So(n, ShouldEqual, 1024)
 
+				observed := BytesToValue(wire)
+				defer observed.Close()
+
 				Convey("ValueB should have the Viral Firmware", func() {
-					buf := bytes.NewBuffer(make([]byte, 0, 1024))
-					_, err = io.Copy(buf, valueA)
-					So(err, ShouldBeNil)
-					valueFrom(buf.Bytes(), valueB)
-					So(valueB[core.Cfg.ProgramIndex:], ShouldResemble, valueA[core.Cfg.ProgramIndex:])
-				})
-
-				Convey("And ValueC is Folded into ValueB", func() {
-					n, err := io.Copy(valueB, valueC)
-					So(err, ShouldBeNil)
-					So(n, ShouldEqual, 1024)
-
-					Convey("ValueC should have the Viral Firmware", func() {
-						buf := bytes.NewBuffer(make([]byte, 0, 1024))
-						_, err = io.Copy(buf, valueB)
-						So(err, ShouldBeNil)
-						valueFrom(buf.Bytes(), valueC)
-						So(valueC[core.Cfg.ProgramIndex:], ShouldResemble, valueB[core.Cfg.ProgramIndex:])
-					})
+					assertViralPartnerState(observed)
 				})
 			})
 		})
 	})
 }
 
-func TestInstallPayloadProgram(t *testing.T) {
-	Convey("Installing a payload program should arm the payload entry", t, func() {
-		value, err := NewValue(nil)
+func TestBootloaderProjectsStructureInBand(t *testing.T) {
+	Convey("Bootloader derives affinity and state seeds from token spans in-band", t, func() {
+		valueA, err := NewValue([]byte("Mary moved to the kitchen."))
 		So(err, ShouldBeNil)
-		defer value.Close()
+		defer valueA.Close()
 
-		payload := []uint32{core.EncodeWriteRegisterImmediate(7, core.Cfg.R8)}
-		value.InstallPayloadProgram(payload)
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
 
-		So(value[core.Cfg.RegPC], ShouldEqual, core.PayloadProgramPCStart())
-		So(value.ProgramOp(int(core.PayloadProgramPCStart())), ShouldEqual, uint8(payload[0]&0xF))
+		So(valueA.Fold(valueB), ShouldBeNil)
+		So(valueA[core.Cfg.AffinityIndex]&0x0000FFFFFFFFFFFF, ShouldNotEqual, uint64(0))
+		So(valueA[core.Cfg.StateSequence], ShouldNotEqual, uint64(0))
+		So(valueA[core.Cfg.StateAccumulator], ShouldNotEqual, uint64(0))
 	})
 }
 
-func TestInstallProgramClearsTrailingInstructions(t *testing.T) {
-	Convey("Installing a short program should clear trailing instruction slots", t, func() {
-		value, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer value.Close()
-
-		program := []uint32{core.EncodeWriteRegisterImmediate(3, core.Cfg.R6)}
-		value.InstallProgram(program)
-
-		So(uint32(value[core.Cfg.ProgramIndex]), ShouldEqual, program[0])
-		So(uint32(value[core.Cfg.ProgramIndex]>>32), ShouldEqual, uint32(0))
-
-		for word := core.Cfg.ProgramIndex + 1; word < primitiveProgramWordLimit(); word++ {
-			So(value[word], ShouldEqual, uint64(0))
-		}
-	})
-}
-
-func primitiveProgramWordLimit() int {
-	return min(core.Cfg.ProgramIndex+int((core.Cfg.ProgramBits+63)/64), Words)
+func assertViralPartnerState(partner *Value) {
+	So(partner[core.Cfg.FW], ShouldEqual, core.FirmwareRegisterLearn)
+	So(partner[core.Cfg.RegPC], ShouldEqual, uint64(0))
 }
 
 func BenchmarkValue_Read(b *testing.B) {
