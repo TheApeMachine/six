@@ -178,6 +178,77 @@ func TestBootloaderProjectsStructureInBand(t *testing.T) {
 	})
 }
 
+func TestLearnAdvancesStateSequenceInBand(t *testing.T) {
+	Convey("Learn advances StateSequence in-band as a geometric signal", t, func() {
+		valueA, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueA.Close()
+
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
+
+		valueA[core.Cfg.StateSequence] = 1
+		valueA[core.Cfg.FW] = core.FirmwareRegisterLearn
+		valueA[core.Cfg.RegPC] = 0
+
+		So(valueA.Fold(valueB), ShouldBeNil)
+		So(valueA[core.Cfg.StateSequence], ShouldEqual, uint64(0x8000000000000000))
+	})
+}
+
+func TestLearnWeavesAccumulatorWithSequenceInBand(t *testing.T) {
+	Convey("Learn folds the evolved sequence into StateAccumulator in-band", t, func() {
+		valueA, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueA.Close()
+
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
+
+		valueA[core.Cfg.StateSequence] = 1
+		valueA[core.Cfg.StateAccumulator] = 0x82
+		valueA[core.Cfg.R6] = 1
+		valueA[core.Cfg.FW] = core.FirmwareRegisterLearn
+		valueA[core.Cfg.RegPC] = 0
+
+		So(valueA.Fold(valueB), ShouldBeNil)
+		So(valueA[core.Cfg.StateAccumulator], ShouldEqual, uint64(0x8000000000000082))
+	})
+}
+
+func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
+	Convey("Build applies the XOR-delta sketch across dispersed token anchors in-band", t, func() {
+		valueA, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueA.Close()
+
+		valueB, err := NewValue(nil)
+		So(err, ShouldBeNil)
+		defer valueB.Close()
+
+		anchorWords := []int{core.Cfg.TokenIndex, core.Cfg.TokenIndex + 7, core.Cfg.TokenIndex + 14, core.Cfg.TokenIndex + 21, core.Cfg.TokenIndex + 28, core.Cfg.TokenIndex + 35}
+		seedTokens := []uint64{0x55, 0x11, 0x22, 0x33, 0x44, 0x66}
+		wantTokens := []uint64{0xD7, 0x93, 0xA0, 0xB1, 0xC6, 0xE4}
+
+		for i, idx := range anchorWords {
+			valueA[idx] = seedTokens[i]
+		}
+
+		valueA[core.Cfg.AffinityIndex] = 0b10110100
+		valueA[core.Cfg.FW] = core.FirmwareRegisterBuild
+		valueA[core.Cfg.RegPC] = 0
+		valueB[core.Cfg.AffinityIndex] = 0b00110110
+
+		So(valueA.Fold(valueB), ShouldBeNil)
+		So(valueA[core.Cfg.StateAccumulator], ShouldEqual, uint64(0b10000010))
+		for i, idx := range anchorWords {
+			So(valueA[idx], ShouldEqual, wantTokens[i])
+		}
+	})
+}
+
 func assertViralPartnerState(partner *Value) {
 	So(partner[core.Cfg.FW], ShouldEqual, core.FirmwareRegisterLearn)
 	So(partner[core.Cfg.RegPC], ShouldEqual, uint64(0))

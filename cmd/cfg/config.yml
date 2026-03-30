@@ -137,43 +137,43 @@ programs:
   # If yes: fw=3 (Viral). If no: Frustration++, if timeout fw=2 (Tombstone), else fw=4 (Build).
   learn: |
     0     r0  0011 # Advance StateSequence as a geometric position signal
-    3967  r1  0011
-    3968  r2  0011
+    4544  r1  0011
+    4545  r2  0011
     0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
+    4544  r4  0011
+    4545  r5  0011
     r0    r3  0000
 
-    0     r0  0011 # feedback ^= bit0
+    0     r0  0011 # feedback ^= bit0 (staged in r7 bit0)
     3904  r1  0011
     3905  r2  0011
     0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
+    4544  r4  0011
+    4545  r5  0011
     r0    r3  0011
 
     0     r0  0011 # feedback ^= bit1
     3905  r1  0011
     3906  r2  0011
     0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
+    4544  r4  0011
+    4545  r5  0011
     r0    r3  0110
 
     0     r0  0011 # feedback ^= bit3
     3907  r1  0011
     3908  r2  0011
     0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
+    4544  r4  0011
+    4545  r5  0011
     r0    r3  0110
 
     0     r0  0011 # feedback ^= bit4
     3908  r1  0011
     3909  r2  0011
     0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
+    4544  r4  0011
+    4545  r5  0011
     r0    r3  0110
 
     0     r0  0011 # rotate remaining bits right by one slot
@@ -183,6 +183,30 @@ programs:
     3904  r4  0011
     3967  r5  0011
     r0    r3  0011
+
+    0     r0  0011 # install staged feedback into the top bit
+    3967  r1  0011
+    3968  r2  0011
+    0     r3  0011
+    3967  r4  0011
+    3968  r5  0011
+    r0    r3  0000
+
+    0     r0  0011
+    4544  r1  0011
+    4545  r2  0011
+    0     r3  0011
+    3967  r4  0011
+    3968  r5  0011
+    r0    r3  0011
+
+    0     r0  0011 # Weave the evolved sequence into the delta sketch
+    3904  r1  0011
+    3968  r2  0011
+    0     r3  0011
+    3968  r4  0011
+    4032  r5  0011
+    r0    r3  0110
 
     0     r0  0011
     4480  r1  0011
@@ -216,9 +240,9 @@ programs:
     4736  r5  0011
     r0    r3  1100 # r9 = Fail Mask
 
-    0     r0  0011 # Shift Frustration Left
-    3968  r1  0011
-    4031  r2  0011
+    0     r0  0011 # Shift StateIndex Left
+    3840  r1  0011
+    3903  r2  0011
     0     r3  0011 # r8
     4609  r4  0011
     4672  r5  0011
@@ -237,22 +261,22 @@ programs:
     0     r0  0011 # r7
     4544  r1  0011
     4608  r2  0011
-    0     r3  0011 # Frustration
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0001 # Frustration &= Success Mask
+    0     r3  0011 # StateIndex
+    3840  r4  0011
+    3904  r5  0011
+    r0    r3  0001 # StateIndex &= Success Mask
 
     0     r0  0011 # r8
     4608  r1  0011
     4672  r2  0011
-    0     r3  0011 # Frustration
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0111 # Frustration |= r8
+    0     r3  0011 # StateIndex
+    3840  r4  0011
+    3904  r5  0011
+    r0    r3  0111 # StateIndex |= r8
 
     0     r0  0011 # Check Timeout
-    4031  r1  0011
-    4032  r2  0011
+    3903  r1  0011
+    3904  r2  0011
     0     r3  0011 # r8 (Timeout Mask)
     4608  r4  0011
     4609  r5  0011
@@ -453,12 +477,12 @@ programs:
     8192  r5  0011
     r0    r3  0000 
 
-    0     r0  0011 # Clear Frustration
-    3968  r1  0011
-    4032  r2  0011
+    0     r0  0011 # Clear StateIndex
+    3840  r1  0011
+    3904  r2  0011
     0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
+    3840  r4  0011
+    3904  r5  0011
     r0    r3  0000
 
     4     fw  0011 # Sequence to Build
@@ -590,6 +614,78 @@ programs:
     4480  r4  0011
     4544  r5  0011
     r0    r3  0001
+
+    0     r0  0011 # Clear StateAccumulator delta sketch
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    3968  r4  0011
+    4032  r5  0011
+    r0    r3  0000
+
+    0     r0  0011 # Seed StateAccumulator with self affinity
+    4032  r1  0011
+    4096  r2  0011
+    0     r3  0011
+    3968  r4  0011
+    4032  r5  0011
+    r0    r3  0011
+
+    1     r0  0011 # StateAccumulator = self affinity XOR partner affinity
+    4032  r1  0011
+    4096  r2  0011
+    0     r3  0011
+    3968  r4  0011
+    4032  r5  0011
+    r0    r3  0110
+
+    0     r0  0011 # Apply predicted XOR-delta across locality anchor spans
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    0     r4  0011
+    64    r5  0011
+    r0    r3  0110
+
+    0     r0  0011
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    448   r4  0011
+    512   r5  0011
+    r0    r3  0110
+
+    0     r0  0011
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    896   r4  0011
+    960   r5  0011
+    r0    r3  0110
+
+    0     r0  0011
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    1344  r4  0011
+    1408  r5  0011
+    r0    r3  0110
+
+    0     r0  0011
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    1792  r4  0011
+    1856  r5  0011
+    r0    r3  0110
+
+    0     r0  0011
+    3968  r1  0011
+    4032  r2  0011
+    0     r3  0011
+    2240  r4  0011
+    2304  r5  0011
+    r0    r3  0110
 
     1     fw  0011 # Next state: Learn
     104   pc  0011 # Halt
