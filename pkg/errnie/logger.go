@@ -107,21 +107,14 @@ func InitLogger(cfg LoggingConfig) {
 		core := zapcore.NewCore(enc, zapcore.Lock(os.Stderr), lvl)
 		z = zap.New(core, zap.AddCaller(), zap.AddCallerSkip(1))
 		initErr = err
+	} else {
+		initErr = nil
 	}
 
 	old := loggerPtr.Swap(&ErrnieLogger{Logger: z})
 	if old != nil && old.Logger != nil {
-		prev := old.Logger
-		go func() {
-			if syncErr := prev.Sync(); syncErr != nil {
-				nl := loggerPtr.Load()
-				if nl != nil && nl.Logger != nil {
-					nl.Logger.Error("previous logger Sync failed", zap.Error(syncErr))
-				} else {
-					fmt.Fprintf(os.Stderr, "errnie: previous logger Sync failed: %v\n", syncErr)
-				}
-			}
-		}()
+		// Sync errors on stderr/stdout are expected (can't fsync a pipe); ignore them.
+		_ = old.Logger.Sync()
 	}
 
 	if cfg.Elasticsearch.Enabled {
@@ -150,9 +143,22 @@ func Sync() error {
 	return z.Sync()
 }
 
-// Shutdown closes the Elasticsearch bulk indexer (if enabled) and flushes zap. Call from main on exit.
+// Shutdown closes the Elasticsearch bulk indexer (if enabled), drains the trace
+// queue, and flushes zap. Call from main on exit.
 func Shutdown(ctx context.Context) error {
 	closeElasticsearchSink(ctx)
+
+	traceInitMu.Lock()
+	if traceQueue != nil {
+		close(traceQueue)
+		traceQueue = nil
+	}
+	if traceFile != nil {
+		_ = traceFile.Close()
+		traceFile = nil
+	}
+	traceInitMu.Unlock()
+
 	return Sync()
 }
 

@@ -45,6 +45,7 @@ func NewBabiExperiment() *BabiExperiment {
 		// containing a valid location word. Any match is structural evidence.
 		// Target 0.70: strong single-supporting-fact reasoning.
 		evaluator: tools.NewEvaluator(
+			tools.EvalWithExtractionScorer(),
 			tools.EvalWithExpectation(0.10, 0.70),
 		),
 	}

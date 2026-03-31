@@ -30,6 +30,22 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	viper.Set("loglevel", "trace")
+	viper.Set("logging.elasticsearch.enabled", false) // Avoid noisy elastic logs during tests; re-enable for benchmarking.
+	viper.Set("logging.trace.path", os.DevNull)
+	viper.Set("logging.elasticsearch.endpoint", "https://127.0.0.1:9200")
+	viper.Set("logging.elasticsearch.index", "six-logs")
+	viper.Set("logging.elasticsearch.insecure_skip_verify", true)
+
+	loggingCfg, err := core.LoadLoggingConfig()
+
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed loading logging config: %v\n", err)
+		os.Exit(1)
+	}
+
+	errnie.InitLogger(loggingCfg)
+
 	if err := core.LoadValueConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "failed loading value config: %v\n", err)
 		os.Exit(1)
@@ -54,16 +70,6 @@ func TestMain(m *testing.M) {
 		defer shutdownTelemetry()
 	}
 
-	viper.Set("loglevel", "error")
-	viper.Set("logging.trace.path", os.DevNull)
-	loggingCfg, err := core.LoadLoggingConfig()
-
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed loading logging config: %v\n", err)
-		os.Exit(1)
-	}
-
-	errnie.InitLogger(loggingCfg)
 	code := m.Run()
 	os.Exit(code)
 }

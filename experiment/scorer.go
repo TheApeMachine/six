@@ -1,5 +1,40 @@
 package experiment
 
+import "strings"
+
+/*
+ExtractionScorer scores by exact word match only — no substring credit.
+Used for answer-extraction tasks (e.g. bAbI) where the observed output
+must be the answer word itself, not a paragraph that happens to contain it.
+*/
+type ExtractionScorer struct{}
+
+func (scorer *ExtractionScorer) Enrich(data *ExperimentalData) {
+	exp := strings.TrimSpace(strings.ToLower(string(data.Holdout)))
+	obs := strings.TrimSpace(strings.ToLower(string(data.Observed)))
+	var exact float64
+	if exp != "" && obs == exp {
+		exact = 1.0
+	}
+	data.Scores = Scores{Exact: exact, Partial: exact, Fuzzy: exact}
+	data.WeightedTotal = exact
+}
+
+func (scorer *ExtractionScorer) Aggregate(data []ExperimentalData) float64 {
+	if len(data) == 0 {
+		return 0
+	}
+	sum := 0.0
+	for _, row := range data {
+		sum += row.WeightedTotal
+	}
+	return sum / float64(len(data))
+}
+
+func EvalWithExtractionScorer() evalOpts {
+	return EvalWithScorer(&ExtractionScorer{})
+}
+
 /*
 Scorer captures the per-result enrichment and aggregate score
 computation strategy. Each experiment category plugs in its own

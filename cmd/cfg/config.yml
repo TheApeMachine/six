@@ -1,4 +1,4 @@
-loglevel: debug
+loglevel: trace
 
 # UDP destination for experiment pipeline telemetry (Observer JSON + raw frames).
 telemetry:

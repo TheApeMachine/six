@@ -67,7 +67,10 @@ func NewMachine(
 
 func (machine *Machine) start() (err error) {
 	scanner := bufio.NewScanner(machine.sources)
-	buf := make([]byte, 0, core.Cfg.ValueSize/128)
+	// Buffer sized to the token region capacity: TokenBits/8 bytes minus
+	// 3 reserved words (ValueID, PrevID, NextID) × 8 bytes each.
+	tokenBytes := int(core.Cfg.TokenBits/8) - 3*8
+	scanner.Buffer(make([]byte, tokenBytes), tokenBytes)
 
 	for {
 		select {
@@ -84,18 +87,20 @@ func (machine *Machine) start() (err error) {
 				return nil
 			}
 
-			scanner.Buffer(buf, len(buf))
+			line := scanner.Bytes()
+			if len(line) == 0 {
+				continue
+			}
 
 			var value *primitive.Value
 
-			if value, err = primitive.NewValue(buf); err != nil {
-				return errnie.Error(
-					NewMachineError(ErrValueError, err),
-				)
+			if value, err = primitive.NewValue(line); err != nil {
+				_ = errnie.Error(err)
+				continue
 			}
 
+			value.InstallLearnFirmware()
 			machine.values = append(machine.values, value)
-			buf = buf[:0]
 		}
 	}
 }

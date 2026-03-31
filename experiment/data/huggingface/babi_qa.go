@@ -102,7 +102,7 @@ func (dataset *BabiQADataset) GeneratePrompts() iter.Seq[data.Prompt] {
 		for sampleIdx, sample := range samples {
 			prompt := data.Prompt{
 				SampleID: uint32(sampleIdx),
-				Text:     sample.Visible,
+				Text:     extractBabiQuestion(sample.Visible),
 				Label:    sample.Answer,
 				HasLabel: sample.Answer != "",
 			}
@@ -303,6 +303,19 @@ func buildBabiQASamples(texts, answers []string, types []int) []BabiQASample {
 	}
 
 	return samples
+}
+
+// extractBabiQuestion returns the last sentence ending in "?" from visible,
+// or the full visible text if no question sentence is found.
+func extractBabiQuestion(visible string) string {
+	sentences := strings.Split(visible, ".")
+	for i := len(sentences) - 1; i >= 0; i-- {
+		s := strings.TrimSpace(sentences[i])
+		if strings.HasSuffix(s, "?") {
+			return s
+		}
+	}
+	return visible
 }
 
 /*

@@ -528,9 +528,14 @@ func (value *Value) String() string {
 
 	var builder strings.Builder
 
-	tokenIDs := store.DefaultSpatialIndex().QueryHamming(
-		affinity, 0,
-	)
+	// Walk outward from exact match to a loose bound, stopping at the first hit.
+	var tokenIDs []uint64
+	for dist := 0; dist <= 8; dist++ {
+		tokenIDs = store.DefaultSpatialIndex().QueryHamming(affinity, dist)
+		if len(tokenIDs) > 0 {
+			break
+		}
+	}
 
 	slices.SortFunc(tokenIDs, func(a, b uint64) int {
 		idxA := a & 0xFFFFFFFF
@@ -555,7 +560,9 @@ func (value *Value) String() string {
 		return "[superposed state]"
 	}
 
-	return builder.String()
+	str := builder.String()
+	errnie.Info(str)
+	return str
 }
 
 func (value *Value) Bytes() []byte {

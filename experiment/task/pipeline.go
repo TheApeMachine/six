@@ -20,18 +20,6 @@ type runTiming struct {
 	n           int // number of prompts processed
 }
 
-type viralLearnSeeder interface {
-	SeedViralLearn() bool
-}
-
-type seedValueProvider interface {
-	SeedValues() []*primitive.Value
-}
-
-type rawOutputObserver interface {
-	RawOutput() bool
-}
-
 /*
 Pipeline is the orchestrator for running experiments.
 The Six architecture is "always-on" so this needs to
@@ -150,7 +138,8 @@ func (pipeline *Pipeline) Run() (err error) {
 		)
 
 		observed, obsErr := pipeline.observePrompt(machine, value)
-		_ = value.Close()
+		value.InstallTombstone()
+		
 		if obsErr != nil {
 			return errnie.Error(obsErr)
 		}

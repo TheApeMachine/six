@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/esapi"
 	"github.com/elastic/go-elasticsearch/v8/esutil"
 )
 
@@ -26,7 +25,7 @@ var (
 // defaultBulkFlushBytes is used when BulkFlushBytes is unset or non-positive.
 // A small or zero threshold makes esutil treat each log line as “oversize” and
 // flush per item; ~5MiB batches amortizes HTTP overhead under high volume.
-const defaultBulkFlushBytes = 5 * 1024 * 1024
+const defaultBulkFlushBytes = 1
 
 type esLogSink struct {
 	bi esutil.BulkIndexer
@@ -34,6 +33,7 @@ type esLogSink struct {
 
 func (s *esLogSink) Write(p []byte) (int, error) {
 	if s.bi == nil {
+		fmt.Println("errnie: elasticsearch sink is nil; dropping log")
 		return len(p), nil
 	}
 	line := bytes.TrimSpace(p)
@@ -56,6 +56,7 @@ func (s *esLogSink) Write(p []byte) (int, error) {
 		},
 	})
 	if err != nil {
+		fmt.Println(err)
 		return 0, err
 	}
 	return len(p), nil
@@ -101,10 +102,12 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 	if caPath != "" {
 		caPEM, err := os.ReadFile(caPath)
 		if err != nil {
+			fmt.Println(err)
 			return nil, fmt.Errorf("read elasticsearch ca_cert: %w", err)
 		}
 		pool, err := certPoolFromPEM(caPEM)
 		if err != nil {
+			fmt.Println(os.Stderr, "errnie: warning: failed to parse elasticsearch ca_cert: %v; using empty pool\n", err)
 			return nil, err
 		}
 		transport = &http.Transport{
@@ -123,6 +126,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 	} else {
 		pool, err := x509.SystemCertPool()
 		if err != nil || pool == nil {
+			fmt.Println(os.Stderr, "errnie: warning: failed to load system cert pool: %v; using empty pool\n", err)
 			pool = x509.NewCertPool()
 		}
 		transport = &http.Transport{
@@ -151,20 +155,8 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 
 	client, err := elasticsearch.NewClient(escfg)
 	if err != nil {
+		fmt.Println(err)
 		return nil, err
-	}
-
-	ctxPing, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	var infoReq esapi.InfoRequest
-	infoRes, err := infoReq.Do(ctxPing, client)
-	if err != nil {
-		return nil, fmt.Errorf("elasticsearch cluster info: %w", err)
-	}
-	body, _ := io.ReadAll(infoRes.Body)
-	_ = infoRes.Body.Close()
-	if infoRes.IsError() {
-		return nil, fmt.Errorf("elasticsearch cluster info: %s: %s", infoRes.Status(), strings.TrimSpace(string(body)))
 	}
 
 	flushBytes := cfg.BulkFlushBytes
@@ -182,7 +174,10 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 
 	esBulkMu.Lock()
 	if esBulkIndexer != nil {
-		_ = esBulkIndexer.Close(context.Background())
+		if err = esBulkIndexer.Close(context.Background()); err != nil {
+			fmt.Println(err)
+		}
+
 		esBulkIndexer = nil
 	}
 	bi, err := esutil.NewBulkIndexer(esutil.BulkIndexerConfig{
@@ -197,6 +192,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 		},
 	})
 	if err != nil {
+		fmt.Println(err)
 		esBulkMu.Unlock()
 		return nil, err
 	}
