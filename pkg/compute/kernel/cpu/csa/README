@@ -1,6 +1,15 @@
 High-performance vectorised positional popcount routines for Go
 ===============================================================
 
+six fork (this directory)
+-------------------------
+
+Only **Count64** on `[]uint64` is exposed. Dispatch matches
+`pkg/compute/kernel/cpu`: **amd64** uses AVX2 when `cpu.X86.HasAVX2`, else SSE2,
+else Go generic; **arm64** uses NEON then generic; other GOARCH uses generic
+only. **386** and **AVX-512** assembly have been removed. COPYING, citation,
+and upstream paper reference below are retained.
+
 This repository contains implementations of the positional population
 count functions for Go using an algorithm described in our publication
 
@@ -12,15 +21,14 @@ Our publication is open access and can be found on line at
 
     http://dx.doi.org/10.1002/cpe.70435
 
-To use this library, import it as follows:
+Import in six:
 
-    import "github.com/clausecker/pospop"
+    import pospop "github.com/theapemachine/six/pkg/compute/kernel/cpu/csa"
 
-You can then count populations using the Count8, Count16, Count32,
-Count64, and CountString functions:
+Count set bits per lane across all uint64 words (adds into counts):
 
-    var counts [8]int
-    pospop.Count8(&counts, buf)
+    var counts [64]int
+    pospop.Count64(&counts, buf)
 
 The positional population count for buf is added to the contents of
 counts.
@@ -35,17 +43,12 @@ The kernels works on a block size of 240 or 480 bytes (depending on
 whether AVX2 is available or not).  A buffer size that is a multiple
 of 480 bytes and at least 10 kB in size is recommended.
 
-Implementations are provided for the following SIMD extensions:
+Implementations in this fork:
 
- * AVX-512 F/BW (amd64)
- * AVX2 (amd64, 386)
- * SSE2 (amd64, 386)
+ * AVX2 (amd64)
+ * SSE2 (amd64, when AVX2 unavailable)
  * NEON (arm64)
- * generic kernel (all architectures)
-
-The three kernels for amd64 correspond to the v4, v3, and v1 values
-of the GOAMD64 environment variable.  However, all kernels are
-compiled in regardless of what value GOAMD64 is set to.
+ * generic (all architectures, including non-amd64/non-arm64)
 
 The library automatically chooses the fastest available kernel for
 the system it is running on.
@@ -53,11 +56,9 @@ the system it is running on.
 Performance
 -----------
 
-As all functions (Count8, Count16, Count32, Count64, CountString) of
-one set are based on the same kernel with a different accumulation
-function, they all perform equally well.  This does not apply to the
-generic implementations whose performance is therefore given for every
-function individually.
+The upstream paper benchmarks all element widths; this fork only ships
+the Count64 accumulation path on amd64/arm64. Generic fallback behaviour
+is as in the table's generic64 row for relevant architectures.
 
 The following performance table is grouped by the instruction set used
 and the architecture it runs on.  A buffer size of 100 kB was used to

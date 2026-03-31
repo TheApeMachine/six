@@ -1,11 +1,42 @@
 package store
 
 import (
+	"fmt"
 	"math/rand"
+	"os"
+	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
+	bsi "github.com/RoaringBitmap/roaring/v2/BitSliceIndexing"
 	. "github.com/smartystreets/goconvey/convey"
+	"github.com/spf13/viper"
+
+	"github.com/theapemachine/six/pkg/core"
 )
+
+func resolveStoreTestConfigPath() string {
+	if envPath := strings.TrimSpace(os.Getenv("TEST_CONFIG_PATH")); envPath != "" {
+		return filepath.Clean(envPath)
+	}
+	_, file, _, ok := runtime.Caller(0)
+	if ok {
+		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml"))
+	}
+	return filepath.Clean(filepath.Join("..", "..", "cmd", "cfg", "config.yml"))
+}
+
+func TestMain(m *testing.M) {
+	viper.SetConfigFile(resolveStoreTestConfigPath())
+	if err := viper.ReadInConfig(); err != nil {
+		fmt.Fprintf(os.Stderr, "store: viper.ReadInConfig: %v\n", err)
+		os.Exit(1)
+	}
+	core.NewConfig()
+	ResetDefaultSpatialIndex()
+	os.Exit(m.Run())
+}
 
 func makeValue(seed uint64) [valueWords]uint64 {
 	var v [valueWords]uint64
@@ -16,16 +47,22 @@ func makeValue(seed uint64) [valueWords]uint64 {
 	return v
 }
 
+func makeValueWithIDAndPC(seed uint64, valueID, pc uint64) [valueWords]uint64 {
+	v := makeValue(seed)
+	reg := core.Cfg.Value.Region
+	v[reg.ID.Start] = valueID
+	v[reg.Registers.PC] = pc
+	return v
+}
+
 func TestMergeLevels(t *testing.T) {
 	Convey("mergeLevels", t, func() {
-		Convey("colliding TokenIDs merge their bitmaps with OR", func() {
-			va := makeValue(1)
-			vb := makeValue(2)
-
+		Convey("colliding TokenIDs merge their postings with OR", func() {
 			sa := newValueStore()
-			sa.bitmap.Or(ValueFrameBitmap(va))
+			sa.postings.Add(100)
+			sa.postings.Add(101)
 			sb := newValueStore()
-			sb.bitmap.Or(ValueFrameBitmap(vb))
+			sb.postings.Add(102)
 
 			a := &lsmLevel{
 				keys:   []uint64{0b0001},
@@ -40,17 +77,17 @@ func TestMergeLevels(t *testing.T) {
 
 			So(len(merged.keys), ShouldEqual, 1)
 			So(merged.keys[0], ShouldEqual, 0b0001)
-			union := ValueFrameBitmap(va)
-			tmp := ValueFrameBitmap(vb)
-			union.Or(tmp)
-			So(merged.stores[0].bitmap.Equals(union), ShouldBeTrue)
+			So(merged.stores[0].postings.GetCardinality(), ShouldEqual, uint64(3))
+			So(merged.stores[0].postings.Contains(100), ShouldBeTrue)
+			So(merged.stores[0].postings.Contains(101), ShouldBeTrue)
+			So(merged.stores[0].postings.Contains(102), ShouldBeTrue)
 		})
 
 		Convey("disjoint TokenIDs stay separate and sorted", func() {
 			sa := newValueStore()
-			sa.bitmap.Or(ValueFrameBitmap(makeValue(10)))
+			sa.postings.Add(1)
 			sb := newValueStore()
-			sb.bitmap.Or(ValueFrameBitmap(makeValue(20)))
+			sb.postings.Add(2)
 
 			a := &lsmLevel{
 				keys:   []uint64{0b0010},
@@ -159,6 +196,27 @@ func TestExactLookup(t *testing.T) {
 			bm := idx.ExactLookup(0xDEAD)
 			So(bm.GetCardinality(), ShouldEqual, uint64(0))
 		})
+	})
+}
+
+func TestComparePC(t *testing.T) {
+	Convey("ComparePC uses BSI over dense columns", t, func() {
+		idx := NewSpatialIndex()
+		lowPC := makeValueWithIDAndPC(11, 5000, 0)
+		highPC := makeValueWithIDAndPC(12, 5001, 100)
+		idx.InsertBatch([]uint64{42}, lowPC)
+		idx.InsertBatch([]uint64{42}, highPC)
+
+		candidates := idx.ValueIDsForToken(42)
+		So(candidates.GetCardinality(), ShouldEqual, uint64(2))
+
+		lt := idx.ComparePC(0, bsi.LT, 10, 0, candidates)
+		So(lt.Contains(5000), ShouldBeTrue)
+		So(lt.Contains(5001), ShouldBeFalse)
+
+		eq := idx.ComparePC(0, bsi.EQ, 100, 0, candidates)
+		So(eq.Contains(5001), ShouldBeTrue)
+		So(eq.Contains(5000), ShouldBeFalse)
 	})
 }
 

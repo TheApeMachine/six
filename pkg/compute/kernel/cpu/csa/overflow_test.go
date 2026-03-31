@@ -28,7 +28,7 @@ func testOverflow(t *testing.T, count64 func(*[64]int, []uint64)) {
 
 	for i := 1; i <= imax; i++ {
 		for j := -jmax; j <= jmax; j++ {
-			testOverflowBuf(t, count64, buf[:i * 65536 + j])
+			testOverflowBuf(t, count64, buf[:i*65536+j])
 		}
 	}
 }

@@ -40,6 +40,7 @@ func TestMain(m *testing.M) {
 
 	viper.Set("loglevel", "error")
 	viper.Set("logging.trace.path", os.DevNull)
+	core.NewConfig()
 	loggingCfg, err := core.LoadLoggingConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "pkg/vm: core.LoadLoggingConfig: %v\n", err)
@@ -76,7 +77,7 @@ func TestStructureFromWorkspaceLinksParentAndRegistersLSM(t *testing.T) {
 		st := StructureFromWorkspace(StructureKindLearnCancel, parent, &workSelf)
 		So(st.SourceValueID, ShouldEqual, parent[core.Cfg.Value.Region.ID.Start])
 		So(st.Frame[core.Cfg.Value.Region.ID.Start], ShouldNotEqual, parent[core.Cfg.Value.Region.ID.Start])
-		So(st.Frame[core.Cfg.Value.Region.Prev.Start], ShouldEqual, parent[core.Cfg.Value.Region.Prev.Start])
+		So(st.Frame[core.Cfg.Value.Region.Prev.Start], ShouldEqual, parent[core.Cfg.Value.Region.ID.Start])
 
 		st.RegisterDefaultLSM()
 		store.DefaultSpatialIndex().Flush()

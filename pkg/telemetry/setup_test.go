@@ -9,6 +9,8 @@ import (
 	"testing"
 
 	"github.com/spf13/viper"
+
+	"github.com/theapemachine/six/pkg/core"
 )
 
 func resolveTelemetryTestConfigPath() string {
@@ -28,5 +30,8 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "telemetry tests: viper.ReadInConfig: %v\n", err)
 		os.Exit(1)
 	}
+	viper.Set("loglevel", "error")
+	viper.Set("logging.trace.path", os.DevNull)
+	core.NewConfig()
 	os.Exit(m.Run())
 }

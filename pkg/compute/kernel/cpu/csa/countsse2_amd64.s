@@ -520,69 +520,6 @@ runt_accum:
 	ACCUMQ(a, X6) \
 	ACCUMQ(a+4, X)
 
-// zero-extend words in X and Y to dwords, sum them, and move the
-// halves back into X and Y.  Assumes X7 == 0.  Trashes X4, X5.
-#define FOLDW(X, Y) \
-	MOVOA X, X4 \
-	PUNPCKLWL X7, X \
-	PUNPCKHWL X7, X4 \
-	MOVOA Y, X5 \
-	PUNPCKLWL X7, X5 \
-	PUNPCKHWL X7, Y \
-	PADDL X5, X \
-	PADDL X4, Y
-
-// Count8 accumulation function.  Accumulates words X8--X15 into
-// 8 qword counters at (DI).  Assumes X7 == 0.  Trashes X4--X15.
-TEXT accum8<>(SB), NOSPLIT, $0-0
-	FOLDW(X8, X12)
-	FOLDW(X9, X13)
-	FOLDW(X10, X14)
-	FOLDW(X11, X15)
-	PADDL X10, X8
-	PADDL X11, X9
-	PADDL X14, X12
-	PADDL X15, X13
-	PADDL X9, X8
-	ACCUMQ(0, X8)
-	PADDL X13, X12
-	ACCUMQ(4, X12)
-	RET
-
-// Count16 accumulation function.  Accumulates words X8--X15 into
-// 16 qword counters at (DI).  Assumes X7 == 0.  Trashes X4--X15.
-TEXT accum16<>(SB), NOSPLIT, $0-0
-	FOLDW(X8, X12)
-	FOLDW(X9, X13)
-	FOLDW(X10, X14)
-	FOLDW(X11, X15)
-	PADDL X10, X8
-	ACCUMQ(0, X8)
-	PADDL X14, X12
-	ACCUMQ(4, X12)
-	PADDL X11, X9
-	ACCUMQ(8, X9)
-	PADDL X15, X13
-	ACCUMQ(12, X13)
-	RET
-
-// Count32 accumulation function.  Accumulates words X8--X15 into
-// 32 qword counters at (DI).  Assumes X7 == 0.  Trashes X4--X15.
-TEXT accum32<>(SB), NOSPLIT, $0-0
-	FOLDW(X8, X12)
-	ACCUMQ(0, X8)
-	ACCUMQ(4, X12)
-	FOLDW(X9, X13)
-	ACCUMQ(8, X9)
-	ACCUMQ(12, X13)
-	FOLDW(X10, X14)
-	ACCUMQ(16, X10)
-	ACCUMQ(20, X14)
-	FOLDW(X11, X15)
-	ACCUMQ(24, X11)
-	ACCUMQ(28, X15)
-	RET
-
 // Count64 accumulation function.  Accumulates words X8--X15 into
 // 64 qword counters at (DI).  Assumes X7 == 0.  Trashes X4--X15.
 TEXT accum64<>(SB), NOSPLIT, $0-0
@@ -594,35 +531,6 @@ TEXT accum64<>(SB), NOSPLIT, $0-0
 	ACCUMO(40, X13)
 	ACCUMO(48, X14)
 	ACCUMO(56, X15)
-	RET
-
-// func count8sse2(counts *[8]int, buf []uint8)
-TEXT ·count8sse2(SB), 0, $0-32
-	MOVQ counts+0(FP), DI
-	MOVQ buf_base+8(FP), SI		// SI = &buf[0]
-	MOVQ buf_len+16(FP), CX		// CX = len(buf)
-	MOVQ $accum8<>(SB), BX
-	CALL countsse2<>(SB)
-	RET
-
-// func count16sse2(counts *[16]int, buf []uint16)
-TEXT ·count16sse2(SB), 0, $0-32
-	MOVQ counts+0(FP), DI
-	MOVQ buf_base+8(FP), SI		// SI = &buf[0]
-	MOVQ buf_len+16(FP), CX		// CX = len(buf)
-	MOVQ $accum16<>(SB), BX
-	SHLQ $1, CX			// count in bytes
-	CALL countsse2<>(SB)
-	RET
-
-// func count32sse2(counts *[32]int, buf []uint32)
-TEXT ·count32sse2(SB), 0, $0-32
-	MOVQ counts+0(FP), DI
-	MOVQ buf_base+8(FP), SI		// SI = &buf[0]
-	MOVQ buf_len+16(FP), CX		// CX = len(buf)
-	MOVQ $accum32<>(SB), BX
-	SHLQ $2, CX			// count in bytes
-	CALL countsse2<>(SB)
 	RET
 
 // func count64sse2(counts *[64]int, buf []uint64)

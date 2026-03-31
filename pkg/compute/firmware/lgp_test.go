@@ -20,6 +20,7 @@ func TestMain(m *testing.M) {
 	}
 	viper.Set("loglevel", "error")
 	viper.Set("logging.trace.path", os.DevNull)
+	core.NewConfig()
 	loggingCfg, _ := core.LoadLoggingConfig()
 	errnie.InitLogger(loggingCfg)
 	os.Exit(m.Run())

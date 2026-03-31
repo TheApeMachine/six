@@ -38,6 +38,7 @@ func TestMain(m *testing.M) {
 
 	viper.Set("loglevel", "error")
 	viper.Set("logging.trace.path", os.DevNull)
+	core.NewConfig()
 	loggingCfg, err := core.LoadLoggingConfig()
 
 	if err != nil {

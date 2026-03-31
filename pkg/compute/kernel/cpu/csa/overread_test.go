@@ -5,13 +5,12 @@
 package pospop
 
 import (
-	"golang.org/x/sys/unix"
 	"testing"
+	"unsafe"
+
+	"golang.org/x/sys/unix"
 )
 
-// Allocate three pages of memory.  Make the first and last page
-// inaccessible.  Return the full array as well as just the part
-// in the middle (which is accessible).
 func mapGuarded() (mapping []byte, slice []byte, err error) {
 	pagesize := unix.Getpagesize()
 	mapping, err = unix.Mmap(-1, 0, 3*pagesize, unix.PROT_NONE, unix.MAP_ANON|unix.MAP_PRIVATE)
@@ -29,22 +28,20 @@ func mapGuarded() (mapping []byte, slice []byte, err error) {
 	return
 }
 
-// Verify that our count functions only overread memory in benign ways,
-// i.e. such that we never cross a page size boundary.
 func TestOverread(t *testing.T) {
-	for i := range count8funcs {
-		t.Run(count8funcs[i].name, func(tt *testing.T) {
-			if !count8funcs[i].available {
+	for index := range count64funcs {
+		t.Run(count64funcs[index].name, func(tt *testing.T) {
+			if !count64funcs[index].available {
 				tt.SkipNow()
 			}
 
-			testOverread(tt, count8funcs[i].count8)
+			testOverread(tt, count64funcs[index].count64)
 		})
 	}
 }
 
-func testOverread(t *testing.T, count8 func(*[8]int, []uint8)) {
-	var counters [8]int
+func testOverread(t *testing.T, count64 func(*[64]int, []uint64)) {
+	var counters [64]int
 
 	mapping, slice, err := mapGuarded()
 	defer unix.Munmap(mapping)
@@ -53,24 +50,25 @@ func testOverread(t *testing.T, count8 func(*[8]int, []uint8)) {
 		t.SkipNow()
 	}
 
-	// test large slices that start/end right at the page boundary
-	for i := 0; i < 64; i++ {
-		for j := len(slice) - 64; j <= len(slice); j++ {
-			count8(&counters, slice[i:j])
+	words := unsafe.Slice((*uint64)(unsafe.Pointer(&slice[0])), len(slice)/8)
+
+	for start := 0; start < 64 && start < len(words); start++ {
+		for end := len(words) - 64; end <= len(words); end++ {
+			if end >= start {
+				count64(&counters, words[start:end])
+			}
 		}
 	}
 
-	// test small slices that start right after the page boundary
-	for i := 0; i < 64; i++ {
-		for j := i; j <= 64; j++ {
-			count8(&counters, slice[i:j])
+	for start := 0; start < 64; start++ {
+		for end := start; end <= 64 && end <= len(words); end++ {
+			count64(&counters, words[start:end])
 		}
 	}
 
-	// test small slices that end right before the page boundary
-	for i := len(slice) - 64; i <= len(slice); i++ {
-		for j := i; j <= len(slice); j++ {
-			count8(&counters, slice[i:j])
+	for start := len(words) - 64; start <= len(words); start++ {
+		for end := start; end <= len(words); end++ {
+			count64(&counters, words[start:end])
 		}
 	}
 }
