@@ -168,6 +168,8 @@ func writeProjectorArtifactTex(exp tools.PipelineExperiment, a tools.Artifact) (
 		if err != nil {
 			return err
 		}
+		data.Series = NormalizeBarChartSeries(data.Series)
+
 		return WriteBarChart(data.XAxis, data.Series, a.Title, a.Caption, a.Label, a.FileName, exp.Section())
 	case tools.ArtifactLineChart:
 		data, err := lineChartData(a.Data)
@@ -246,13 +248,21 @@ func writeArtifactSnapshot(experiment tools.PipelineExperiment, artifact tools.A
 }
 
 func artifactSnapshot(artifact tools.Artifact) map[string]any {
+	dataPayload := artifact.Data
+
+	if artifact.Type == tools.ArtifactBarChart {
+		if chart, err := barChartData(dataPayload); err == nil {
+			dataPayload = FormatBarChartDataForArtifactJSON(chart)
+		}
+	}
+
 	return map[string]any{
 		"type":      artifact.Type,
 		"file_name": artifact.FileName,
 		"title":     artifact.Title,
 		"caption":   artifact.Caption,
 		"label":     artifact.Label,
-		"data":      artifact.Data,
+		"data":      dataPayload,
 	}
 }
 
