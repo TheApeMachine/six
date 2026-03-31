@@ -37,12 +37,25 @@ func TestHolographicCrossover(t *testing.T) {
 		primitiveCopyProgramPrefix(&recipient, &donorA)
 
 		Convey("HolographicCrossover writes a decoded child without touching bootstrap slots", func() {
-			HolographicCrossover(&recipient, &donorA, &donorB, rng)
+			HolographicCrossover(&recipient, &donorA, &donorB, rng, 0)
 			So(InstructionSlot(&recipient, first), ShouldNotEqual, 0)
 			before := InstructionSlot(&recipient, 0)
-			HolographicCrossover(&recipient, &donorA, &donorB, rand.New(rand.NewSource(99)))
+			HolographicCrossover(&recipient, &donorA, &donorB, rand.New(rand.NewSource(99)), 0)
 			So(InstructionSlot(&recipient, 0), ShouldEqual, before)
 		})
+	})
+}
+
+func TestHolographicCrossoverParentBiasMax(t *testing.T) {
+	Convey("parentBias 1 collapses each slot to donor A’s instruction", t, func() {
+		var recipient, donorA, donorB [128]uint64
+		first := ProgramPayloadFirst32BitSlot()
+		instrA := uint32(0x0F0F0F0F)
+		instrB := uint32(0xF0F0F0F0)
+		SetInstructionSlot(&donorA, first, instrA)
+		SetInstructionSlot(&donorB, first, instrB)
+		HolographicCrossover(&recipient, &donorA, &donorB, rand.New(rand.NewSource(314)), 1)
+		So(InstructionSlot(&recipient, first), ShouldEqual, instrA)
 	})
 }
 
@@ -55,8 +68,8 @@ func TestHolographicCrossoverTwoParent(t *testing.T) {
 		want = baseline
 		got = baseline
 		seed := int64(99)
-		HolographicCrossover(&want, &want, &donor, rand.New(rand.NewSource(seed)))
-		HolographicCrossoverTwoParent(&got, &donor, rand.New(rand.NewSource(seed)))
+		HolographicCrossover(&want, &want, &donor, rand.New(rand.NewSource(seed)), 0)
+		HolographicCrossoverTwoParent(&got, &donor, rand.New(rand.NewSource(seed)), 0)
 		So(InstructionSlot(&want, slot), ShouldEqual, InstructionSlot(&got, slot))
 	})
 }
@@ -99,6 +112,6 @@ func BenchmarkHolographicCrossover(b *testing.B) {
 	SetInstructionSlot(&donorB, ProgramPayloadFirst32BitSlot(), 0x87654321)
 	b.ResetTimer()
 	for b.Loop() {
-		HolographicCrossover(&recipient, &donorA, &donorB, rng)
+		HolographicCrossover(&recipient, &donorA, &donorB, rng, 0)
 	}
 }

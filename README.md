@@ -123,6 +123,10 @@ The LGP subsystem provides three mechanisms to make this safe:
 
 **Homologous crossover.** When two Values are crossed, `HomologousCrossover` only copies effective instructions from the donor, and only into non-effective slots in the recipient. If both have effective code at the same slot, the donor wins with probability proportional to the instruction's bit complexity. This prevents catastrophic destruction of working logic while still allowing new behavior to be introduced.
 
+**Holographic instruction encoding (HIE).** `HolographicCrossover` (`pkg/compute/firmware/hie.go`) multiplexes each 32-bit LGP slot into eight disjoint 8-bit bands, majority-blends two donors with a stochastic third parent, and decodes each band to the nearest valid nibble. The firmware bootstrap prefix is never overwritten. `StructureFromWorkspace` runs HIE between the canonical parent and the post-kernel workspace.
+
+**Substrate exploit score.** `SubstrateExploitScore` (`pkg/primitive/substrate_fitness.go`) is experiment-agnostic: it uses `ScanSignals` / `SplitSignals` on the parent vs workspace token regions and returns the longest local cancel or merge run normalized to `[0, 1]`. That value biases the third parent toward donor A (the canonical parent frame), so sharp token-level structure increases exploitation of the canonical program; weak structure keeps the third parent random. `HolographicCrossoverTwoParent` takes the same `parentBias` argument for call sites that only have one donor.
+
 ### Token Encoding
 
 Raw bytes are not stored verbatim in the token region. Each byte is encoded using a hyperdimensional computing scheme:
@@ -149,6 +153,10 @@ Values are 1024 bytes. This is not an accident. It is the size of a single UDP p
 The distributed layer uses UDP multicast for peer discovery with heartbeats and TTL-based expiry. Each node advertises an affinity shard mask, allowing the cluster to partition the Value space by affinity region. Work is distributed through a scheduler that assigns Value pairs to workers based on available capacity and shard ownership.
 
 QUIC connections handle reliable point-to-point transfer when Values need to move between nodes. An IPC transport exists for same-machine communication between processes. An S3 adapter provides durable storage for Values that need to survive node restarts.
+
+### Experiment pipeline
+
+`experiment/task.Pipeline` grades each prompt by running **learn** on two copies via `compute.Backend.UniversalBitwise`, then sets `Observed` from `primitive.TokenRegionObservedBytes` on the workspace — not from `Value.String()` (exact LSM bitmap match on the prompt frame). Each prompt `Value` is tombstone-executed on the backend, then `Close`d. The old `vm.NewMachine` + `LimitReader` ingest during `Run` was removed so dataset streaming is not conflated with per-prompt evaluation.
 
 ## Project Structure
 

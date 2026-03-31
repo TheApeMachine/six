@@ -5,13 +5,14 @@ import (
 	"fmt"
 	"io"
 	"time"
+	"unsafe"
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store"
-	"github.com/theapemachine/six/pkg/vm"
 )
 
 type runTiming struct {
@@ -23,27 +24,22 @@ type runTiming struct {
 
 /*
 Pipeline is the orchestrator for running experiments.
-The Six architecture is "always-on" so this needs to
-be orchestrated in a particular way.
 
- 1. Start the recirculation loop: pump executed frames from the pipe's
-    output back into the pipe's input. Each pass through the Stream
-    pairs a resident wait Value with the next partner and fires the ALU.
-    Values keep mixing until the pipe is closed.
- 2. Hydrate: pump dataset bytes into the Machine. They enter the
-    recirculation loop and begin mixing immediately.
-    Inject additional "conditioning" programs, such as the Affinity
-    firmware, which needs to be distributed. The way to distribute things
-    is to load the Viral firmware, and set the final two instructions
-    to FW=<affinity> and PC=<start of bootloader>, which results in a
-    Value that will first copy the Viral firmware into another Value,
-    and then load and execute the Affinity firmware.
- 3. Prompt: inject workspace Values carrying Viral firmware into the
-    Machine. They enter the same loop and propagate through the
-    population via firmware chaining.
- 4. Observe: after all prompts are injected, close the pipe to stop
-    recirculation, then read results from the Regions (which
-    accumulated every frame via fan-out on each pass).
+Current execution path (aligned with the substrate, not the historical
+“recirculating machine” sketch):
+
+ 1. Build a compute Backend for in-band firmware (learn / tombstone).
+ 2. For each prompt: NewValue encodes the text into token HV form and
+    indexes it in the spatial store (corpus side — separate from readout).
+ 3. Observe: copy the prompt frame, install learn, run UniversalBitwise
+    against an identical partner copy (README pairwise learn), then grade
+    TokenRegionObservedBytes on the workspace — no Value.String() / exact
+    frame-equality LSM readout on the prompt object.
+ 4. Install tombstone, execute it once on the Backend so regions zero,
+    then Close the Value back to the pool.
+
+A full stream recirculator can be reintroduced later; eval runs must not
+pretend it already exists.
 */
 type Pipeline struct {
 	ctx        context.Context
@@ -87,20 +83,11 @@ func (pipeline *Pipeline) Run() (err error) {
 	defer pipeline.cancel()
 
 	loadStart := time.Now()
-	machine, err := vm.NewMachine(
-		pipeline.ctx,
-		vm.WithSources(pipeline.experiment.Dataset()),
-	)
-
-	if err != nil {
-		return errnie.Error(err)
-	}
+	backend := compute.NewBackend()
 	pipeline.timing.loadDur = time.Since(loadStart)
 	defer func() {
-		if closeErr := machine.Close(); closeErr != nil && err == nil {
-			err = errnie.Error(closeErr)
-		}
-		// Flush emitted dataset Structures (Machine RegisterDefaultLSM) into LSM levels.
+		backend.Close()
+		// Flush any memtables from prompt-time indexing / structure emissions.
 		store.DefaultSpatialIndex().Flush()
 	}()
 
@@ -119,10 +106,10 @@ func (pipeline *Pipeline) Run() (err error) {
 		default:
 		}
 
-		value, err := primitive.NewValue([]byte(prompt))
+		value, newErr := primitive.NewValue([]byte(prompt))
 
-		if err != nil {
-			_ = errnie.Error(err)
+		if newErr != nil {
+			_ = errnie.Error(newErr)
 			continue
 		}
 
@@ -140,11 +127,23 @@ func (pipeline *Pipeline) Run() (err error) {
 			"holdout", string(holdout),
 		)
 
-		observed, obsErr := pipeline.observePrompt(machine, value)
-		value.InstallTombstone()
-
+		observed, obsErr := pipeline.observePrompt(backend, value)
 		if obsErr != nil {
 			return errnie.Error(obsErr)
+		}
+
+		value.InstallTombstone()
+		var tombPartner primitive.Value
+
+		if execErr := backend.UniversalBitwise(
+			unsafe.Pointer(value),
+			unsafe.Pointer(&tombPartner),
+		); execErr != nil {
+			return errnie.Error(execErr)
+		}
+
+		if closeErr := value.Close(); closeErr != nil {
+			return errnie.Error(closeErr)
 		}
 
 		pipeline.experiment.AddResult(tools.ExperimentalData{
@@ -164,7 +163,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	}
 	if f, ok := pipeline.experiment.(finalizer); ok {
 		finalizeStart := time.Now()
-		if err := f.Finalize(machine); err != nil {
+		if err := f.Finalize(nil); err != nil {
 			return errnie.Error(err)
 		}
 		pipeline.timing.finalizeDur = time.Since(finalizeStart)
@@ -182,15 +181,30 @@ func (pipeline *Pipeline) Run() (err error) {
 	return nil
 }
 
-func (pipeline *Pipeline) observePrompt(_ io.ReadWriter, value *primitive.Value) ([]byte, error) {
+func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primitive.Value) ([]byte, error) {
+	if backend == nil {
+		return nil, PipelineError("nil compute backend")
+	}
+
 	if value == nil {
 		return nil, PipelineError("nil prompt value")
 	}
 
-	// The Value is the program. NewValue encoded the prompt as a hypervector
-	// and registered it in the LSM. String() queries the LSM by affinity to
-	// retrieve the nearest matching content from the dataset population.
-	return []byte(value.String()), nil
+	var workSelf, workPartner primitive.Value
+	primitive.CopyFrame(&workSelf, value)
+	primitive.CopyFrame(&workPartner, value)
+	workSelf.InstallLearnFirmware()
+
+	if err := backend.UniversalBitwise(
+		unsafe.Pointer(&workSelf),
+		unsafe.Pointer(&workPartner),
+	); err != nil {
+		return nil, err
+	}
+
+	// Substrate readout: packed token words after learn — not LSM/String() self-lookup.
+	// WorkspaceTokenObserver on an experiment documents that grading expects this path.
+	return primitive.TokenRegionObservedBytes(&workSelf), nil
 }
 
 func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value) error {

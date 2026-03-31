@@ -606,6 +606,50 @@ func (value *Value) TokenIDs() []uint64 {
 	return out
 }
 
+/*
+TokenRegionObservedBytes packs the token region into a byte slice without using
+the spatial index. Little-endian byte order per uint64 word; trailing zero bytes
+are trimmed. Used by the experiment pipeline after learn for a substrate-faithful
+readout that does not depend on exact frame equality in the LSM.
+*/
+func TokenRegionObservedBytes(value *Value) []byte {
+	if value == nil {
+		return nil
+	}
+
+	tokenBits := core.Cfg.Value.Region.Tokens.Bits
+	if tokenBits == 0 {
+		return nil
+	}
+
+	nWords := int((tokenBits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
+	if nWords <= 0 || base < 0 {
+		return nil
+	}
+
+	out := make([]byte, 0, nWords*8)
+
+	for wordIdx := 0; wordIdx < nWords; wordIdx++ {
+		idx := base + wordIdx
+		if idx >= Words {
+			break
+		}
+
+		word := value[idx]
+
+		for shift := 0; shift < 64; shift += 8 {
+			out = append(out, byte(word>>shift))
+		}
+	}
+
+	for len(out) > 0 && out[len(out)-1] == 0 {
+		out = out[:len(out)-1]
+	}
+
+	return out
+}
+
 func (value *Value) SetTokenIDs(tokens []uint64) int {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	n := min(len(tokens), nWords)

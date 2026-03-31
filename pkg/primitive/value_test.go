@@ -222,6 +222,19 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 	})
 }
 
+func TestTokenRegionObservedBytes(t *testing.T) {
+	Convey("TokenRegionObservedBytes packs token words little-endian and trims trailing zeros", t, func() {
+		var v Value
+		base := core.Cfg.Value.Region.Tokens.Start
+		So(base < Words, ShouldBeTrue)
+
+		v[base] = 0x020100
+
+		got := TokenRegionObservedBytes(&v)
+		So(got, ShouldResemble, []byte{0, 1, 2})
+	})
+}
+
 func TestNewValueIndexesOriginalBytesInLSM(t *testing.T) {
 	Convey("NewValue stores TokenIDs mapping to the full Value frame bitmap", t, func() {
 		idx := store.ResetDefaultSpatialIndex()

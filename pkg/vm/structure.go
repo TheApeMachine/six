@@ -61,12 +61,16 @@ func StructureFromWorkspace(kind StructureKind, parent, workspace *primitive.Val
 		// Holographic program recombination: blend parent and workspace genotypes in
 		// spatially multiplexed HIE space so emitted structures carry continuous
 		// crossover in the payload program while the firmware prefix stays intact.
+		// SubstrateExploitScore (no experiment coupling) biases third-parent noise
+		// toward the canonical parent when token-level signals are sharp.
+		parentBias := primitive.SubstrateExploitScore(parent, workspace)
 		structureHieMu.Lock()
 		firmware.HolographicCrossover(
 			(*[primitive.Words]uint64)(&s.Frame),
 			(*[primitive.Words]uint64)(parent),
 			(*[primitive.Words]uint64)(workspace),
 			structureHieRNG,
+			parentBias,
 		)
 		structureHieMu.Unlock()
 	}

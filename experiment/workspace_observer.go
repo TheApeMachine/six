@@ -1,12 +1,13 @@
 package experiment
 
 /*
-WorkspaceTokenObserver marks experiments where the graded answer should be read
-from the workspace token region (DecodeTokensToText) after each prompt Write,
-instead of the raw 1024-byte wire frame.
+WorkspaceTokenObserver marks experiments whose graded Observed bytes are defined
+as the post-learn token workspace (see primitive.TokenRegionObservedBytes), not
+Value.String() / exact LSM frame equality on the prompt Value.
 
-In-band programs (e.g. query) should write the final answer into token slots;
-HoldoutScorer then compares Holdout to that decoded text.
+The pipeline always runs learn on a pair of copies before packing tokens for
+HoldoutScorer; this interface is documentation + hook for future inverse-HV
+decode variants.
 */
 type WorkspaceTokenObserver interface {
 	ObserveWorkspaceAsTokens() bool

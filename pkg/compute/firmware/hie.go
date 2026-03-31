@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"math"
 	"math/bits"
 	"math/rand"
 
@@ -116,18 +117,65 @@ func MajorityRuleBitwise(parentA, parentB, noise uint64) uint64 {
 }
 
 /*
+hieNoiseThirdParent draws a 64-bit third parent for majority blend.
+
+parentBias in [0, 1]: at 0, every byte is random (maximum exploration). At 1,
+every byte matches the corresponding byte of hvDonorA’s multiplexed vector so the
+2-of-3 vote collapses toward donor A’s slot (exploit). Values in between mix
+per-byte using rng.Float64() for simulated annealing-style pressure without any
+experiment-layer scorer.
+*/
+func hieNoiseThirdParent(hvDonorA uint64, rng *rand.Rand, parentBias float64) uint64 {
+	if rng == nil {
+		return 0
+	}
+
+	if parentBias != parentBias || parentBias <= 0 {
+		return rng.Uint64()
+	}
+
+	if parentBias >= 1 {
+		return hvDonorA
+	}
+
+	var noise uint64
+
+	for shift := 0; shift < 64; shift += 8 {
+		var byteVal byte
+		if rng.Float64() < parentBias {
+			byteVal = byte(hvDonorA >> shift)
+		} else {
+			byteVal = byte(rng.Uint32())
+		}
+
+		noise |= uint64(byteVal) << shift
+	}
+
+	return noise
+}
+
+/*
 HolographicCrossover writes into recipient the per-slot majority blend of donorA,
 donorB, and noise in HIE space, then decodes to executable 32-bit slots.
+
+parentBias steers the third parent toward donor A’s hypervector (substrate
+exploit); 0 preserves the original fully random third parent.
 
 Bootstrap program words (first PayloadProgramWordOffset uint64s) are left
 unchanged so installed firmware entrypoints stay intact.
 
 If donorA or donorB is nil, the function returns without writing.
 */
-func HolographicCrossover(recipient, donorA, donorB *[128]uint64, rng *rand.Rand) {
+func HolographicCrossover(recipient, donorA, donorB *[128]uint64, rng *rand.Rand, parentBias float64) {
 	if recipient == nil || donorA == nil || donorB == nil || rng == nil {
 		return
 	}
+
+	if parentBias != parentBias {
+		parentBias = 0
+	}
+
+	parentBias = math.Max(0, math.Min(1, parentBias))
 
 	firstEvolved := ProgramPayloadFirst32BitSlot()
 	numSlots := program32BitSlotCount()
@@ -137,7 +185,7 @@ func HolographicCrossover(recipient, donorA, donorB *[128]uint64, rng *rand.Rand
 		instrB := InstructionSlot(donorB, slot)
 		hvA := EncodeHIE(instrA)
 		hvB := EncodeHIE(instrB)
-		noise := rng.Uint64()
+		noise := hieNoiseThirdParent(hvA, rng, parentBias)
 		childHV := MajorityRuleBitwise(hvA, hvB, noise)
 		childInstr := DecodeHIE(childHV)
 		SetInstructionSlot(recipient, slot, childInstr)
@@ -147,12 +195,13 @@ func HolographicCrossover(recipient, donorA, donorB *[128]uint64, rng *rand.Rand
 /*
 HolographicCrossoverTwoParent blends the recipient's current payload program with
 donor's payload (recipient as first parent, donor as second). Useful where only
-one mate exists; still uses bitwise noise as the third voter.
+one mate exists; parentBias applies the same third-parent steering as
+HolographicCrossover.
 */
-func HolographicCrossoverTwoParent(recipient, donor *[128]uint64, rng *rand.Rand) {
+func HolographicCrossoverTwoParent(recipient, donor *[128]uint64, rng *rand.Rand, parentBias float64) {
 	if recipient == nil || donor == nil || rng == nil {
 		return
 	}
 
-	HolographicCrossover(recipient, recipient, donor, rng)
+	HolographicCrossover(recipient, recipient, donor, rng, parentBias)
 }
