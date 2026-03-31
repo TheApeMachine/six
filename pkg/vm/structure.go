@@ -1,11 +1,19 @@
 package vm
 
 import (
+	"math/rand"
+	"sync"
 	"sync/atomic"
 
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store"
+)
+
+var (
+	structureHieMu  sync.Mutex
+	structureHieRNG = rand.New(rand.NewSource(42))
 )
 
 // StructureKind classifies emitted signal / cut-point results (README Signals).
@@ -49,6 +57,18 @@ func StructureFromWorkspace(kind StructureKind, parent, workspace *primitive.Val
 	s.Frame[core.Cfg.Value.Region.ID.Start] = nextStructureFrameID()
 	if parent != nil {
 		s.Frame[core.Cfg.Value.Region.Prev.Start] = parent[core.Cfg.Value.Region.ID.Start]
+
+		// Holographic program recombination: blend parent and workspace genotypes in
+		// spatially multiplexed HIE space so emitted structures carry continuous
+		// crossover in the payload program while the firmware prefix stays intact.
+		structureHieMu.Lock()
+		firmware.HolographicCrossover(
+			(*[primitive.Words]uint64)(&s.Frame),
+			(*[primitive.Words]uint64)(parent),
+			(*[primitive.Words]uint64)(workspace),
+			structureHieRNG,
+		)
+		structureHieMu.Unlock()
 	}
 
 	hi := s.Frame[primitive.ExecStatusWord] >> primitive.ExecStatusShift

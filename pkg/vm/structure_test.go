@@ -13,6 +13,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
@@ -83,5 +84,38 @@ func TestStructureFromWorkspaceLinksParentAndRegistersLSM(t *testing.T) {
 		store.DefaultSpatialIndex().Flush()
 
 		So(primitive.TokenRegionFingerprint(parent), ShouldNotEqual, 0)
+	})
+}
+
+func TestStructureFromWorkspaceAppliesHIEWhenProgramsDiffer(t *testing.T) {
+	Convey("Payload program slots are recombined when parent and workspace disagree", t, func() {
+		store.ResetDefaultSpatialIndex()
+
+		parent, err := primitive.NewValue([]byte("x"))
+		So(err, ShouldBeNil)
+		defer func() {
+			parent.InstallTombstone()
+			_ = parent.Close()
+		}()
+
+		var workSelf, workPartner primitive.Value
+		primitive.CopyFrame(&workSelf, parent)
+		primitive.CopyFrame(&workPartner, parent)
+		workSelf.InstallLearnFirmware()
+
+		slot := firmware.ProgramPayloadFirst32BitSlot()
+		firmware.SetInstructionSlot((*[primitive.Words]uint64)(parent), slot, 0x11111111)
+		firmware.SetInstructionSlot((*[primitive.Words]uint64)(&workSelf), slot, 0xEEEEEEEE)
+
+		backend := compute.NewBackend()
+		So(backend.UniversalBitwise(
+			unsafe.Pointer(&workSelf),
+			unsafe.Pointer(&workPartner),
+		), ShouldBeNil)
+
+		st := StructureFromWorkspace(StructureKindLearnCancel, parent, &workSelf)
+		childInstr := firmware.InstructionSlot((*[primitive.Words]uint64)(&st.Frame), slot)
+		wsInstr := firmware.InstructionSlot((*[primitive.Words]uint64)(&workSelf), slot)
+		So(childInstr, ShouldNotEqual, wsInstr)
 	})
 }
