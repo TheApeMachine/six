@@ -82,7 +82,7 @@ func TestAndValueIDs(t *testing.T) {
 }
 
 func TestRemoveValueID(t *testing.T) {
-	Convey("RemoveValueID purges frame, BSI, and postings", t, func() {
+	Convey("RemoveValueID purges frame, BSI, and logical postings via tombstones", t, func() {
 		idx := NewSpatialIndex()
 		v := makeValueWithIDAndPC(30, 8001, 5)
 		idx.InsertBatch([]uint64{99}, v)
@@ -100,6 +100,31 @@ func TestRemoveValueID(t *testing.T) {
 		So(after.Contains(8001), ShouldBeFalse)
 
 		So(idx.ValueIDsForToken(99).Contains(8001), ShouldBeFalse)
+
+		idx.ProcessPostingsTombstones()
+		So(idx.ValueIDsForToken(99).Contains(8001), ShouldBeFalse)
+	})
+}
+
+func TestRemoveValueIDImmediate(t *testing.T) {
+	Convey("RemoveValueIDImmediate purges postings without deferred tombstone pass", t, func() {
+		idx := NewSpatialIndex()
+		v := makeValueWithIDAndPC(31, 8002, 3)
+		idx.InsertBatch([]uint64{77}, v)
+		idx.RemoveValueIDImmediate(8002)
+		So(idx.ValueIDsForToken(77).Contains(8002), ShouldBeFalse)
+	})
+}
+
+func TestRemoveValueIDThenProcess(t *testing.T) {
+	Convey("ProcessPostingsTombstones clears physical postings after deferred remove", t, func() {
+		idx := NewSpatialIndex()
+		v := makeValueWithIDAndPC(32, 8003, 0)
+		idx.InsertBatch([]uint64{1}, v)
+		idx.RemoveValueID(8003)
+		So(idx.ValueIDsForToken(1).Contains(8003), ShouldBeFalse)
+		idx.ProcessPostingsTombstones()
+		So(idx.ValueIDsForToken(1).GetCardinality(), ShouldEqual, uint64(0))
 	})
 }
 

@@ -12,7 +12,9 @@ Typical consumption:
 
  3. Vector / VSA path: ids := store.ValueIDsToSlice(subset); buf := idx.MaterializeTokenRegionWords(ids); pospop.Count64(&counts, buf)
 
- 4. Tombstone: idx.RemoveValueID(valueID) when a Value is erased from the substrate.
+ 4. Tombstone: idx.RemoveValueID(valueID) hides the row from index reads immediately; call
+    idx.ProcessPostingsTombstones() in batches to peel IDs off physical posting bitmaps (O(token keys)).
+    idx.RemoveValueIDImmediate(valueID) does synchronous posting removal when you cannot rely on the tombstone set.
 
 BSI column ids are dense uint32s internal to the index; compare helpers always return *roaring64.Bitmap of ValueIDs.
 */

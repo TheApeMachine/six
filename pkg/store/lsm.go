@@ -1,6 +1,7 @@
 package store
 
 import (
+	"math"
 	"sort"
 	"sync"
 
@@ -87,6 +88,10 @@ type SpatialIndex struct {
 	metaFW          *bsi.BSI
 	metaSequence    *bsi.BSI
 	metaAccumulator *bsi.BSI
+
+	// postingTombstones lists ValueIDs logically removed from inverted-index reads until
+	// ProcessPostingsTombstones peels them from physical posting bitmaps.
+	postingTombstones *roaring64.Bitmap
 }
 
 var (
@@ -99,13 +104,14 @@ NewSpatialIndex creates a new hybrid LSM index.
 */
 func NewSpatialIndex() *SpatialIndex {
 	return &SpatialIndex{
-		memtable:        make(map[uint64]*valueStore),
-		frames:          make(map[uint64][valueWords]uint64),
-		valueToDense:    make(map[uint64]uint32),
-		metaPC:          bsi.NewDefaultBSI(),
-		metaFW:          bsi.NewDefaultBSI(),
-		metaSequence:    bsi.NewDefaultBSI(),
-		metaAccumulator: bsi.NewDefaultBSI(),
+		memtable:          make(map[uint64]*valueStore),
+		frames:            make(map[uint64][valueWords]uint64),
+		valueToDense:      make(map[uint64]uint32),
+		metaPC:            bsi.NewDefaultBSI(),
+		metaFW:            bsi.NewDefaultBSI(),
+		metaSequence:      bsi.NewDefaultBSI(),
+		metaAccumulator:   bsi.NewDefaultBSI(),
+		postingTombstones: roaring64.New(),
 	}
 }
 
@@ -242,6 +248,10 @@ func (idx *SpatialIndex) InsertBatch(tokenIDs []uint64, value [valueWords]uint64
 	copy(frameCopy[:], value[:])
 	idx.frames[rowID] = frameCopy
 
+	if idx.postingTombstones != nil {
+		idx.postingTombstones.Remove(rowID)
+	}
+
 	dense := idx.denseFor(rowID)
 	reg := core.Cfg.Value.Region
 	idx.metaPC.SetValue(uint64(dense), int64(value[reg.Registers.PC]))
@@ -303,7 +313,11 @@ func (idx *SpatialIndex) mergedPostingsLocked(tokenID uint64) *roaring64.Bitmap 
 		return roaring64.New()
 	}
 
-	return roaring64.FastOr(parts...)
+	merged := roaring64.FastOr(parts...)
+	if idx.postingTombstones != nil && !idx.postingTombstones.IsEmpty() {
+		merged.AndNot(idx.postingTombstones)
+	}
+	return merged
 }
 
 func (idx *SpatialIndex) aggregateFrameBitmapLocked(postings *roaring64.Bitmap) *roaring64.Bitmap {
@@ -400,6 +414,10 @@ func (idx *SpatialIndex) FrameByValueID(valueID uint64) ([valueWords]uint64, boo
 func (idx *SpatialIndex) denseFor(valueID uint64) uint32 {
 	if dense, ok := idx.valueToDense[valueID]; ok {
 		return dense
+	}
+
+	if len(idx.denseToValue) > math.MaxUint32 {
+		panic("store.SpatialIndex: dense BSI column count exceeds math.MaxUint32")
 	}
 
 	dense := uint32(len(idx.denseToValue))

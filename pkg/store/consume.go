@@ -60,12 +60,14 @@ func (idx *SpatialIndex) MaterializeTokenRegionWordsInto(valueIDs []uint64, dst 
 
 	offset := 0
 	for _, valueID := range valueIDs {
+		window := dst[offset : offset+wordCount]
 		frame, ok := idx.frames[valueID]
 		if !ok {
+			clear(window)
 			offset += wordCount
 			continue
 		}
-		copy(dst[offset:offset+wordCount], frame[tokenStart:tokenStart+wordCount])
+		copy(window, frame[tokenStart:tokenStart+wordCount])
 		offset += wordCount
 	}
 
@@ -102,7 +104,7 @@ func AndValueIDs(parts ...*roaring64.Bitmap) *roaring64.Bitmap {
 			return roaring64.New()
 		}
 		if first {
-			out.Or(part.Clone())
+			out = part.Clone()
 			first = false
 			continue
 		}
@@ -112,16 +114,11 @@ func AndValueIDs(parts ...*roaring64.Bitmap) *roaring64.Bitmap {
 }
 
 /*
-ValueIDsToSlice copies bitmap contents into a sorted slice (iterator order).
+ValueIDsToSlice returns bitmap integers in sorted order (roaring ToArray).
 */
 func ValueIDsToSlice(bitmap *roaring64.Bitmap) []uint64 {
 	if bitmap == nil || bitmap.IsEmpty() {
 		return nil
 	}
-	out := make([]uint64, 0, bitmap.GetCardinality())
-	iter := bitmap.Iterator()
-	for iter.HasNext() {
-		out = append(out, iter.Next())
-	}
-	return out
+	return bitmap.ToArray()
 }

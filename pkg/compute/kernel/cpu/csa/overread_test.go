@@ -52,6 +52,10 @@ func testOverread(t *testing.T, count64 func(*[64]int, []uint64)) {
 
 	words := unsafe.Slice((*uint64)(unsafe.Pointer(&slice[0])), len(slice)/8)
 
+	if len(words) < 64 {
+		return
+	}
+
 	for start := 0; start < 64 && start < len(words); start++ {
 		for end := len(words) - 64; end <= len(words); end++ {
 			if end >= start {
