@@ -14,10 +14,10 @@ import (
 
 // InstructionSlot reads the 32-bit instruction at the given program slot.
 func InstructionSlot(c *[128]uint64, slot int) uint32 {
-	if c == nil || slot < 0 || slot >= core.Cfg.MaxPC {
+	if c == nil || slot < 0 || slot >= int(core.Cfg.Value.Region.Program.Bits) {
 		return 0
 	}
-	wordIdx := core.Cfg.ProgramIndex + slot/2
+	wordIdx := core.Cfg.Value.Region.Program.Start + slot/2
 	if wordIdx < 0 || wordIdx >= len(c) {
 		return 0
 	}
@@ -27,10 +27,10 @@ func InstructionSlot(c *[128]uint64, slot int) uint32 {
 
 // SetInstructionSlot writes a 32-bit instruction at the given program slot.
 func SetInstructionSlot(c *[128]uint64, slot int, instr uint32) {
-	if c == nil || slot < 0 || slot >= core.Cfg.MaxPC {
+	if c == nil || slot < 0 || slot >= int(core.Cfg.Value.Region.Program.Bits) {
 		return
 	}
-	wordIdx := core.Cfg.ProgramIndex + slot/2
+	wordIdx := core.Cfg.Value.Region.Program.Start + slot/2
 	if wordIdx < 0 || wordIdx >= len(c) {
 		return
 	}
@@ -81,10 +81,10 @@ func InsertIntrons(c *[128]uint64, spacing int) {
 	if c == nil || spacing <= 0 {
 		return
 	}
-	start := int(PayloadProgramPCStart())
+	start := int(core.Cfg.Value.Region.Program.Start)
 	// Use r0 for intron identity operations (word index of r0)
-	intronInstr := MakeIntron(uint16(core.Cfg.R0))
-	for slot := start; slot < core.Cfg.MaxPC; slot++ {
+	intronInstr := MakeIntron(uint16(core.Cfg.Value.Region.Registers.R0))
+	for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits); slot++ {
 		if (slot-start)%(spacing+1) == spacing {
 			SetInstructionSlot(c, slot, intronInstr)
 		}
@@ -104,7 +104,7 @@ func TraceEffective(c *[128]uint64) uint64 {
 		return 0
 	}
 
-	r6Idx := uint16(core.Cfg.R6 & 0x7F)
+	r6Idx := uint16(core.Cfg.Value.Region.Registers.R6 & 0x7F)
 
 	// Dependency tracking: for each register, which instruction slots wrote to it.
 	type regDep struct {
@@ -120,8 +120,8 @@ func TraceEffective(c *[128]uint64) uint64 {
 		return d
 	}
 
-	start := int(PayloadProgramPCStart())
-	for slot := start; slot < core.Cfg.MaxPC && slot-start < 64; slot++ {
+	start := int(core.Cfg.Value.Region.Program.Start)
+	for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits) && slot-start < 64; slot++ {
 		instr := InstructionSlot(c, slot)
 		if instr == 0 {
 			break
@@ -169,8 +169,8 @@ func HomologousCrossover(recipient, donor *[128]uint64, rng *rand.Rand) {
 	donorEffective := TraceEffective(donor)
 	recipientEffective := TraceEffective(recipient)
 
-	start := int(PayloadProgramPCStart())
-	for slot := start; slot < core.Cfg.MaxPC && slot-start < 64; slot++ {
+	start := int(core.Cfg.Value.Region.Program.Start)
+	for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits) && slot-start < 64; slot++ {
 		bit := uint64(1) << (slot - start)
 
 		donorInstr := InstructionSlot(donor, slot)

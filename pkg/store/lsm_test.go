@@ -18,14 +18,14 @@ func makeValue(seed uint64) [valueWords]uint64 {
 
 func TestMergeLevels(t *testing.T) {
 	Convey("mergeLevels", t, func() {
-		Convey("colliding TokenIDs merge their value stores", func() {
+		Convey("colliding TokenIDs merge their bitmaps with OR", func() {
 			va := makeValue(1)
 			vb := makeValue(2)
 
 			sa := newValueStore()
-			sa.add(va)
+			sa.bitmap.Or(ValueFrameBitmap(va))
 			sb := newValueStore()
-			sb.add(vb)
+			sb.bitmap.Or(ValueFrameBitmap(vb))
 
 			a := &lsmLevel{
 				keys:   []uint64{0b0001},
@@ -40,14 +40,17 @@ func TestMergeLevels(t *testing.T) {
 
 			So(len(merged.keys), ShouldEqual, 1)
 			So(merged.keys[0], ShouldEqual, 0b0001)
-			So(len(merged.stores[0].frames), ShouldEqual, 2)
+			union := ValueFrameBitmap(va)
+			tmp := ValueFrameBitmap(vb)
+			union.Or(tmp)
+			So(merged.stores[0].bitmap.Equals(union), ShouldBeTrue)
 		})
 
 		Convey("disjoint TokenIDs stay separate and sorted", func() {
 			sa := newValueStore()
-			sa.add(makeValue(10))
+			sa.bitmap.Or(ValueFrameBitmap(makeValue(10)))
 			sb := newValueStore()
-			sb.add(makeValue(20))
+			sb.bitmap.Or(ValueFrameBitmap(makeValue(20)))
 
 			a := &lsmLevel{
 				keys:   []uint64{0b0010},
@@ -95,13 +98,13 @@ func TestInsertBatch(t *testing.T) {
 			So(idx.levels[1], ShouldNotBeNil)
 		})
 
-		Convey("duplicate TokenIDs within a batch deduplicate", func() {
+		Convey("duplicate TokenIDs within a batch merge bitmap", func() {
 			idx := NewSpatialIndex()
 			v := makeValue(7)
 			idx.InsertBatch([]uint64{7, 7, 7}, v)
 
 			bm := idx.ExactLookup(7)
-			So(bm.GetCardinality(), ShouldBeGreaterThan, uint64(0))
+			So(bm.GetCardinality(), ShouldEqual, ValueFrameBitmap(v).GetCardinality())
 		})
 
 		Convey("colliding TokenIDs across batches merge bitmaps", func() {
@@ -112,40 +115,31 @@ func TestInsertBatch(t *testing.T) {
 			idx.InsertBatch([]uint64{9}, v2)
 
 			bm := idx.ExactLookup(9)
-			So(bm.GetCardinality(), ShouldBeGreaterThan, uint64(0))
+			union := ValueFrameBitmap(v1)
+			union.Or(ValueFrameBitmap(v2))
+			So(bm.Equals(union), ShouldBeTrue)
 		})
 	})
 }
 
-func TestQueryHamming(t *testing.T) {
-	Convey("QueryHamming", t, func() {
+func TestLookupKeysByValue(t *testing.T) {
+	Convey("LookupKeysByValue", t, func() {
 		idx := NewSpatialIndex()
+		v := makeValue(42)
+		idx.InsertBatch([]uint64{100, 200, 300}, v)
 
-		// Insert a Value whose affinity word (index 63) is 0b0000.
-		v0 := makeValue(0)
-		v0[63] = 0b0000
-		idx.InsertBatch([]uint64{1}, v0)
-
-		// Insert a Value whose affinity word is 0b0001 (distance 1 from 0b0000).
-		v1 := makeValue(1)
-		v1[63] = 0b0001
-		idx.InsertBatch([]uint64{2}, v1)
-
-		Convey("distance 0 returns only exact affinity match", func() {
-			frames := idx.QueryHamming(0b0000, 0)
-			So(len(frames), ShouldEqual, 1)
-			So(frames[0][63], ShouldEqual, uint64(0b0000))
-		})
-
-		Convey("distance 1 includes single-bit neighbor", func() {
-			frames := idx.QueryHamming(0b0000, 1)
-			So(len(frames), ShouldEqual, 2)
+		Convey("returns all keys for that exact frame", func() {
+			keys := idx.LookupKeysByValue(v)
+			So(len(keys), ShouldEqual, 3)
 		})
 
 		Convey("empty index returns nil", func() {
 			empty := NewSpatialIndex()
-			frames := empty.QueryHamming(0xDEAD, 64)
-			So(frames, ShouldBeNil)
+			So(empty.LookupKeysByValue(v), ShouldBeNil)
+		})
+
+		Convey("different frame returns nil", func() {
+			So(idx.LookupKeysByValue(makeValue(99)), ShouldBeNil)
 		})
 	})
 }
@@ -156,9 +150,9 @@ func TestExactLookup(t *testing.T) {
 		v := makeValue(42)
 		idx.InsertBatch([]uint64{10}, v)
 
-		Convey("returns non-empty bitmap for the exact TokenID", func() {
+		Convey("returns encoded bitmap for the exact TokenID", func() {
 			bm := idx.ExactLookup(10)
-			So(bm.GetCardinality(), ShouldBeGreaterThan, uint64(0))
+			So(bm.Equals(ValueFrameBitmap(v)), ShouldBeTrue)
 		})
 
 		Convey("missing TokenID returns empty bitmap", func() {
@@ -177,6 +171,7 @@ func TestGetStats(t *testing.T) {
 		stats := idx.GetStats()
 		So(stats["num_levels"], ShouldBeGreaterThan, 0)
 		So(stats["memory_bytes"], ShouldBeGreaterThan, uint64(0))
+		So(stats["total_keys"], ShouldEqual, uint64(3))
 	})
 }
 
@@ -215,13 +210,13 @@ func BenchmarkInsertBatchCascade(b *testing.B) {
 	}
 }
 
-func BenchmarkQueryHamming(b *testing.B) {
+func BenchmarkLookupKeysByValue(b *testing.B) {
 	idx := buildBenchIndex(100000)
-	target := uint64(0xAAAAAAAAAAAAAAAA)
+	v := makeValue(99)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		idx.QueryHamming(target, 8)
+		idx.LookupKeysByValue(v)
 	}
 }
 

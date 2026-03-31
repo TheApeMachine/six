@@ -272,7 +272,7 @@ func frameRoutingAffinity(left, right []byte) uint64 {
 }
 
 func frameAffinity(frame []byte) uint64 {
-	start := core.Cfg.AffinityIndex * 8
+	start := core.Cfg.Value.Region.Affinity.Start * 8
 	end := start + 8
 	if start < 0 || end > len(frame) {
 		return 0

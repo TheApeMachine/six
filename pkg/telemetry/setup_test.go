@@ -9,7 +9,6 @@ import (
 	"testing"
 
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/core"
 )
 
 func resolveTelemetryTestConfigPath() string {
@@ -27,10 +26,6 @@ func TestMain(m *testing.M) {
 	viper.SetConfigFile(resolveTelemetryTestConfigPath())
 	if err := viper.ReadInConfig(); err != nil {
 		fmt.Fprintf(os.Stderr, "telemetry tests: viper.ReadInConfig: %v\n", err)
-		os.Exit(1)
-	}
-	if err := core.LoadValueConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "telemetry tests: core.LoadValueConfig: %v\n", err)
 		os.Exit(1)
 	}
 	os.Exit(m.Run())

@@ -36,10 +36,6 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
-	if err := core.LoadValueConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "primitive/value_test: core.LoadValueConfig: %v\n", err)
-		os.Exit(1)
-	}
 	viper.Set("loglevel", "error")
 	viper.Set("logging.trace.path", os.DevNull)
 	loggingCfg, err := core.LoadLoggingConfig()
@@ -53,6 +49,21 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	_ = errnie.Shutdown(context.Background())
 	os.Exit(code)
+}
+
+func TestCopyFrameLeavesSrcUntouchedWhenDstMutated(t *testing.T) {
+	Convey("CopyFrame copies full frame; mutating dst does not change src", t, func() {
+		src, err := NewValue([]byte("alpha"))
+		So(err, ShouldBeNil)
+		defer src.Close()
+
+		var dst Value
+		CopyFrame(&dst, src)
+		So(dst[0], ShouldEqual, src[0])
+
+		dst[0] ^= 0xdeadbeefdeadbeef
+		So(src[0], ShouldNotEqual, dst[0])
+	})
 }
 
 func TestRead(t *testing.T) {
@@ -77,8 +88,8 @@ func TestRead(t *testing.T) {
 		})
 
 		Convey("And Value A has the Viral Firmware", func() {
-			valueA[core.Cfg.FW] = core.FirmwareRegisterViral
-			valueA[core.Cfg.RegPC] = 0
+			valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterViral
+			valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
 			Convey("And the Values are Folded", func() {
 				n, err := io.Copy(valueA, valueB)
@@ -104,8 +115,8 @@ func TestWrite(t *testing.T) {
 		defer valueC.Close()
 
 		Convey("And Value A has the Viral Firmware", func() {
-			valueA[core.Cfg.FW] = core.FirmwareRegisterViral
-			valueA[core.Cfg.RegPC] = 0
+			valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterViral
+			valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
 			Convey("And ValueB is Folded into ValueA (signal emission model)", func() {
 				wire := make([]byte, ByteSize)
@@ -147,9 +158,9 @@ func TestLearnAdvancesStateSequenceInBand(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer valueB.Close()
 
-		valueA[core.Cfg.StateSequence] = 1
-		valueA[core.Cfg.FW] = core.FirmwareRegisterLearn
-		valueA[core.Cfg.RegPC] = 0
+		valueA[core.Cfg.Value.Region.State.Sequence] = 1
+		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
+		valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
 		n, err := valueA.Write(valueB.Bytes())
 		So(err, ShouldBeNil)
@@ -168,11 +179,11 @@ func TestLearnWeavesAccumulatorWithSequenceInBand(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer valueB.Close()
 
-		valueA[core.Cfg.StateSequence] = 1
-		valueA[core.Cfg.StateAccumulator] = 0x82
-		valueA[core.Cfg.R6] = 1
-		valueA[core.Cfg.FW] = core.FirmwareRegisterLearn
-		valueA[core.Cfg.RegPC] = 0
+		valueA[core.Cfg.Value.Region.State.Sequence] = 1
+		valueA[core.Cfg.Value.Region.State.Accumulator] = 0x82
+		valueA[core.Cfg.Value.Region.Registers.R6] = 1
+		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
+		valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
 		n, err := valueA.Write(valueB.Bytes())
 		So(err, ShouldBeNil)
@@ -191,17 +202,17 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer valueB.Close()
 
-		anchorWords := []int{core.Cfg.TokenIndex, core.Cfg.TokenIndex + 7, core.Cfg.TokenIndex + 14, core.Cfg.TokenIndex + 21, core.Cfg.TokenIndex + 28, core.Cfg.TokenIndex + 35}
+		anchorWords := []int{core.Cfg.Value.Region.Tokens.Start, core.Cfg.Value.Region.Tokens.Start + 7, core.Cfg.Value.Region.Tokens.Start + 14, core.Cfg.Value.Region.Tokens.Start + 21, core.Cfg.Value.Region.Tokens.Start + 28, core.Cfg.Value.Region.Tokens.Start + 35}
 		seedTokens := []uint64{0x55, 0x11, 0x22, 0x33, 0x44, 0x66}
 
 		for i, idx := range anchorWords {
 			valueA[idx] = seedTokens[i]
 		}
 
-		valueA[core.Cfg.AffinityIndex] = 0b10110100
-		valueA[core.Cfg.FW] = core.FirmwareRegisterBuild
-		valueA[core.Cfg.RegPC] = 0
-		valueB[core.Cfg.AffinityIndex] = 0b00110110
+		valueA[core.Cfg.Value.Region.Affinity.Start] = 0b10110100
+		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterBuild
+		valueA[core.Cfg.Value.Region.Registers.PC] = 0
+		valueB[core.Cfg.Value.Region.Affinity.Start] = 0b00110110
 
 		n, err := valueA.Write(valueB.Bytes())
 		So(err, ShouldBeNil)
@@ -211,7 +222,7 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 }
 
 func TestNewValueIndexesOriginalBytesInLSM(t *testing.T) {
-	Convey("NewValue stores original byte/sequence tokens in the LSM with the affinity word", t, func() {
+	Convey("NewValue stores TokenIDs mapping to the full Value frame bitmap", t, func() {
 		idx := store.ResetDefaultSpatialIndex()
 		defer store.ResetDefaultSpatialIndex()
 
@@ -219,18 +230,20 @@ func TestNewValueIndexesOriginalBytesInLSM(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer value.Close()
 
-		affinity := value[core.Cfg.AffinityIndex]
-
-		So(idx.ExactLookup(Tokenize('A', 0)).Contains(affinity), ShouldBeTrue)
-		So(idx.ExactLookup(Tokenize('B', 1)).Contains(affinity), ShouldBeTrue)
-		So(idx.ExactLookup(Tokenize('A', 2)).Contains(affinity), ShouldBeTrue)
+		want := store.ValueFrameBitmap([Words]uint64(*value))
+		So(idx.ExactLookup(Tokenize('A', 0)).Equals(want), ShouldBeTrue)
+		So(idx.ExactLookup(Tokenize('B', 1)).Equals(want), ShouldBeTrue)
+		So(idx.ExactLookup(Tokenize('A', 2)).Equals(want), ShouldBeTrue)
 		So(idx.ExactLookup(Tokenize('A', 1)).GetCardinality(), ShouldEqual, uint64(0))
+
+		keys := idx.LookupKeysByValue([Words]uint64(*value))
+		So(len(keys), ShouldEqual, 3)
 	})
 }
 
 func assertViralPartnerState(partner *Value) {
-	So(partner[core.Cfg.FW], ShouldEqual, core.FirmwareRegisterLearn)
-	So(partner[core.Cfg.RegPC], ShouldEqual, uint64(0))
+	So(partner[core.Cfg.Value.Region.Registers.FW], ShouldEqual, core.FirmwareRegisterLearn)
+	So(partner[core.Cfg.Value.Region.Registers.PC], ShouldEqual, uint64(0))
 }
 
 func BenchmarkValue_Read(b *testing.B) {

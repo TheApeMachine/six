@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/store"
 	"github.com/theapemachine/six/pkg/vm"
 )
 
@@ -99,6 +100,8 @@ func (pipeline *Pipeline) Run() (err error) {
 		if closeErr := machine.Close(); closeErr != nil && err == nil {
 			err = errnie.Error(closeErr)
 		}
+		// Flush emitted dataset Structures (Machine RegisterDefaultLSM) into LSM levels.
+		store.DefaultSpatialIndex().Flush()
 	}()
 
 	// Grab prompts early so we can size the drop-out buffer.
@@ -139,7 +142,7 @@ func (pipeline *Pipeline) Run() (err error) {
 
 		observed, obsErr := pipeline.observePrompt(machine, value)
 		value.InstallTombstone()
-		
+
 		if obsErr != nil {
 			return errnie.Error(obsErr)
 		}

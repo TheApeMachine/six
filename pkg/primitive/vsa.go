@@ -29,16 +29,14 @@ func init() {
 	initVSA()
 }
 
-// ---------------------------------------------------------------------------
-// HCAM — Holographic Content-Addressable Memory operations
-// ---------------------------------------------------------------------------
-
-// UnbindHD performs XOR unbinding: Residue = Fact ⊕ Query across the Tokens
-// region. In HCAM, if Fact = S⊕I⊕G and Query = S⊕I, then Residue = G.
-// The result is written into dst's Tokens region.
+/*
+UnbindHD performs XOR unbinding: Residue = Fact ⊕ Query across the Tokens
+region. In HCAM, if Fact = S⊕I⊕G and Query = S⊕I, then Residue = G.
+The result is written into dst's Tokens region.
+*/
 func UnbindHD(dst, fact, query *Value) {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
-	base := core.Cfg.TokenIndex
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
 	for i := 0; i < nWords; i++ {
 		idx := base + i
 		if idx >= Words {
@@ -48,15 +46,17 @@ func UnbindHD(dst, fact, query *Value) {
 	}
 }
 
-// BundleHD performs majority-rule bundling of multiple Tokens regions into dst.
-// For each bit position, the output is 1 if more than half the inputs have 1.
-// This is the VSA "superposition" operator.
+/*
+BundleHD performs majority-rule bundling of multiple Tokens regions into dst.
+For each bit position, the output is 1 if more than half the inputs have 1.
+This is the VSA "superposition" operator.
+*/
 func BundleHD(dst *Value, sources []*Value) {
 	if len(sources) == 0 {
 		return
 	}
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
-	base := core.Cfg.TokenIndex
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
 	threshold := len(sources) / 2
 
 	for i := 0; i < nWords; i++ {
@@ -81,11 +81,13 @@ func BundleHD(dst *Value, sources []*Value) {
 	}
 }
 
-// TokensHammingDistance returns the Hamming distance between two Values'
-// Tokens regions — the number of differing bits.
+/*
+TokensHammingDistance returns the Hamming distance between two Values'
+Tokens regions — the number of differing bits.
+*/
 func TokensHammingDistance(a, b *Value) int {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
-	base := core.Cfg.TokenIndex
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
 	dist := 0
 	for i := 0; i < nWords; i++ {
 		idx := base + i
@@ -97,10 +99,12 @@ func TokensHammingDistance(a, b *Value) int {
 	return dist
 }
 
-// CosineSimilarityHD approximates cosine similarity for binary vectors via
-// (N - 2*HammingDistance) / N where N is the total bit width. Returns [-1, 1].
+/*
+CosineSimilarityHD approximates cosine similarity for binary vectors via
+(N - 2*HammingDistance) / N where N is the total bit width. Returns [-1, 1].
+*/
 func CosineSimilarityHD(a, b *Value) float64 {
-	n := float64(core.Cfg.TokenBits)
+	n := float64(core.Cfg.Value.Region.Tokens.Bits)
 	if n == 0 {
 		return 0
 	}
@@ -108,19 +112,17 @@ func CosineSimilarityHD(a, b *Value) float64 {
 	return (n - 2*hd) / n
 }
 
-// ---------------------------------------------------------------------------
-// LSH — Locality-Sensitive Hash: project Tokens → 64-bit Affinity
-// ---------------------------------------------------------------------------
-
-// ComputeAffinityLSH projects the 3648-bit Tokens region into a 64-bit
-// Affinity word using SimHash: partition Tokens into 64 blocks, set each
-// Affinity bit to 1 if the block's popcount exceeds half its width.
+/*
+ComputeAffinityLSH projects the 3648-bit Tokens region into a 64-bit
+Affinity word using SimHash: partition Tokens into 64 blocks, set each
+Affinity bit to 1 if the block's popcount exceeds half its width.
+*/
 func (value *Value) ComputeAffinityLSH() {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	if nWords == 0 {
 		return
 	}
-	base := core.Cfg.TokenIndex
+	base := core.Cfg.Value.Region.Tokens.Start
 	blockSize := nWords / 64
 	if blockSize < 1 {
 		blockSize = 1
@@ -148,16 +150,14 @@ func (value *Value) ComputeAffinityLSH() {
 		}
 	}
 
-	value[core.Cfg.AffinityIndex] = affinity
+	value[core.Cfg.Value.Region.Affinity.Start] = affinity
 }
 
-// ---------------------------------------------------------------------------
-// Bloom Filter — n-gram based substring fingerprint in Affinity
-// ---------------------------------------------------------------------------
-
-// ComputeAffinityBloom computes a 64-bit Bloom filter from overlapping
-// 3-byte n-grams of the raw input data. Two Values sharing high
-// AND-popcount in their Affinity words are likely to share substrings.
+/*
+ComputeAffinityBloom computes a 64-bit Bloom filter from overlapping
+3-byte n-grams of the raw input data. Two Values sharing high
+AND-popcount in their Affinity words are likely to share substrings.
+*/
 func ComputeAffinityBloom(data []byte) uint64 {
 	if len(data) < 3 {
 		if len(data) > 0 {
@@ -172,8 +172,10 @@ func ComputeAffinityBloom(data []byte) uint64 {
 	return bloom
 }
 
-// fnvBit hashes a small byte slice to a single bit position (0..63)
-// using FNV-1a.
+/*
+fnvBit hashes a small byte slice to a single bit position (0..63)
+using FNV-1a.
+*/
 func fnvBit(data []byte) uint64 {
 	h := uint64(14695981039346656037)
 	for _, b := range data {
@@ -183,19 +185,19 @@ func fnvBit(data []byte) uint64 {
 	return 1 << (h & 63)
 }
 
-// BloomOverlap returns the number of shared Bloom filter bits between two
-// 64-bit Affinity words — equivalent to Popcount(A & B).
+/*
+BloomOverlap returns the number of shared Bloom filter bits between two
+64-bit Affinity words — equivalent to Popcount(A & B).
+*/
 func BloomOverlap(a, b uint64) int {
 	return bits.OnesCount64(a & b)
 }
 
-// ---------------------------------------------------------------------------
-// LFSR — Linear-Feedback Shift Register with Mersenne-prime period
-// ---------------------------------------------------------------------------
-
-// LFSRStep advances a 13-bit LFSR by one step, producing a maximal-length
-// cycle of 2^13 - 1 = 8191 states. Uses the primitive polynomial
-// x^13 + x^4 + x^3 + x + 1 (taps at bits 12, 3, 2, 0).
+/*
+LFSRStep advances a 13-bit LFSR by one step, producing a maximal-length
+cycle of 2^13 - 1 = 8191 states. Uses the primitive polynomial
+x^13 + x^4 + x^3 + x + 1 (taps at bits 12, 3, 2, 0).
+*/
 func LFSRStep(state uint64) uint64 {
 	if state == 0 {
 		state = 1 // LFSR must never be all-zero
@@ -205,7 +207,9 @@ func LFSRStep(state uint64) uint64 {
 	return state
 }
 
-// LFSRAdvance advances the LFSR by n steps.
+/*
+LFSRAdvance advances the LFSR by n steps.
+*/
 func LFSRAdvance(state uint64, n int) uint64 {
 	for i := 0; i < n; i++ {
 		state = LFSRStep(state)
@@ -213,21 +217,23 @@ func LFSRAdvance(state uint64, n int) uint64 {
 	return state
 }
 
-// AdvanceSequence advances the Value's StateSequence word by one LFSR step.
+/*
+AdvanceSequence advances the Value's StateSequence word by one LFSR step.
+*/
 func (value *Value) AdvanceSequence() {
-	value[core.Cfg.StateSequence] = LFSRStep(value[core.Cfg.StateSequence])
+	value[core.Cfg.Value.Region.State.Sequence] = LFSRStep(
+		value[core.Cfg.Value.Region.State.Sequence],
+	)
 }
 
-// ---------------------------------------------------------------------------
-// Delta Encoding — XOR-Delta for state transitions
-// ---------------------------------------------------------------------------
-
-// AccumulateDelta XORs the Tokens region of current and previous into the
-// StateAccumulator word. This captures the "change" between two states
-// as a compressed differential sketch.
+/*
+AccumulateDelta XORs the Tokens region of current and previous into the
+StateAccumulator word. This captures the "change" between two states
+as a compressed differential sketch.
+*/
 func AccumulateDelta(current, previous *Value) uint64 {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
-	base := core.Cfg.TokenIndex
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
 	var delta uint64
 	for i := 0; i < nWords; i++ {
 		idx := base + i
@@ -236,16 +242,18 @@ func AccumulateDelta(current, previous *Value) uint64 {
 		}
 		delta ^= current[idx] ^ previous[idx]
 	}
-	current[core.Cfg.StateAccumulator] = delta
+	current[core.Cfg.Value.Region.State.Accumulator] = delta
 	return delta
 }
 
-// ApplyDelta generates a predicted next token region by XORing the current
-// Tokens with the accumulated delta stored in StateAccumulator.
+/*
+ApplyDelta generates a predicted next token region by XORing the current
+Tokens with the accumulated delta stored in StateAccumulator.
+*/
 func ApplyDelta(dst, current *Value) {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
-	base := core.Cfg.TokenIndex
-	delta := current[core.Cfg.StateAccumulator]
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
+	delta := current[core.Cfg.Value.Region.State.Accumulator]
 	for i := 0; i < nWords; i++ {
 		idx := base + i
 		if idx >= Words {
@@ -255,19 +263,19 @@ func ApplyDelta(dst, current *Value) {
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Kademlia XOR Distance
-// ---------------------------------------------------------------------------
-
-// XORDistance returns the XOR distance between two 64-bit Affinity words.
-// In a Kademlia topology this defines a valid metric space.
+/*
+XORDistance returns the XOR distance between two 64-bit Affinity words.
+In a Kademlia topology this defines a valid metric space.
+*/
 func XORDistance(a, b uint64) uint64 {
 	return a ^ b
 }
 
-// XORDistanceLog returns the log2 of the XOR distance (the index of the
-// highest differing bit), used for Kademlia k-bucket placement.
-// Returns -1 if a == b.
+/*
+XORDistanceLog returns the log2 of the XOR distance (the index of the
+highest differing bit), used for Kademlia k-bucket placement.
+Returns -1 if a == b.
+*/
 func XORDistanceLog(a, b uint64) int {
 	d := a ^ b
 	if d == 0 {

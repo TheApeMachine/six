@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/bits"
 	"slices"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -97,6 +98,15 @@ The core concepts behind its design are:
 */
 type Value [Words]uint64
 
+// CopyFrame overwrites dst with a full-frame copy of src (all Words).
+// Kernels may mutate dst while leaving canonical src unchanged (signals on copies; see README).
+func CopyFrame(dst, src *Value) {
+	if dst == nil || src == nil {
+		return
+	}
+	*dst = *src
+}
+
 func init() {
 	x := uint16(1)
 
@@ -152,7 +162,7 @@ a Value that has not been properly tombstoned.
 var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
-		val[core.Cfg.ValueID] = atomic.AddUint64(&globalValueIDCounter, 1)
+		val[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
 		val.installFirmware(core.FirmwareTypeBootloader)
 		return val
 	},
@@ -166,7 +176,7 @@ func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
 	registerPooledLifecycle(value)
 
-	tokenIDs := make([]uint64, 0, int((core.Cfg.TokenBits+63)/64))
+	tokenIDs := make([]uint64, 0, int((core.Cfg.Value.Region.Tokens.Bits+63)/64))
 
 	var seed uint64
 
@@ -180,7 +190,7 @@ func NewValue(p []byte) (*Value, error) {
 	// catastrophic destruction during Build firmware crossover (IDEAS.md §3).
 	firmware.InsertIntrons((*[Words]uint64)(value), 8)
 
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 
 	if tokenWords <= 0 {
 		return nil, errnie.Error(
@@ -190,8 +200,8 @@ func NewValue(p []byte) (*Value, error) {
 
 	// can hold more now since it's superimposed, but let's bound it safely.
 	// TODO: Calculate Shannon capacity and do not exceed > 40%.
-	if len(p) > int(core.Cfg.TokenBits/8) {
-		p = p[:int(core.Cfg.TokenBits/8)]
+	if len(p) > int(core.Cfg.Value.Region.Tokens.Bits/8) {
+		p = p[:int(core.Cfg.Value.Region.Tokens.Bits/8)]
 	}
 
 	for idx, b := range p {
@@ -208,29 +218,30 @@ func NewValue(p []byte) (*Value, error) {
 		seed = 1
 	}
 
-	value[core.Cfg.StateSequence] = seed
+	value[core.Cfg.Value.Region.State.Sequence] = seed
 
 	// Derive Affinity from raw data (Bloom filter of 3-byte n-grams) and
 	// from the encoded Tokens region (SimHash LSH), then combine.
 	bloom := ComputeAffinityBloom(p)
-	value[core.Cfg.AffinityIndex] = bloom
+	value[core.Cfg.Value.Region.Affinity.Start] = bloom
 	value.ComputeAffinityLSH() // overwrite with LSH; OR in Bloom bits
-	value[core.Cfg.AffinityIndex] |= bloom
-	value[core.Cfg.StateAccumulator] = value[core.Cfg.AffinityIndex]
+	value[core.Cfg.Value.Region.Affinity.Start] |= bloom
+	value[core.Cfg.Value.Region.State.Accumulator] = value[core.Cfg.Value.Region.Affinity.Start]
 
 	store.DefaultSpatialIndex().InsertBatch(tokenIDs, *value)
 
 	return value, nil
 }
 
-func tokenRegionFingerprint(value *Value) uint64 {
+// TokenRegionFingerprint hashes the token region and affinity for indexing (e.g. LSM keys).
+func TokenRegionFingerprint(value *Value) uint64 {
 	if value == nil {
 		return 0
 	}
 	h := uint64(14695981039346656037)
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	for i := 0; i < nWords; i++ {
-		idx := core.Cfg.TokenIndex + i
+		idx := core.Cfg.Value.Region.Tokens.Start + i
 		if idx >= Words {
 			break
 		}
@@ -240,17 +251,17 @@ func tokenRegionFingerprint(value *Value) uint64 {
 			h *= 1099511628211
 		}
 	}
-	h ^= uint64(nWords) + uint64(bits.OnesCount64(value[core.Cfg.AffinityIndex]))
+	h ^= uint64(nWords) + uint64(bits.OnesCount64(value[core.Cfg.Value.Region.Affinity.Start]))
 	h *= 1099511628211
 	return h
 }
 
 // LeftShiftTokens performs a 1-bit circular left shift on the entire Tokens region.
 func (value *Value) LeftShiftTokens() {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	var carry uint64 = 0
 	for i := 0; i < nWords; i++ {
-		idx := core.Cfg.TokenIndex + i
+		idx := core.Cfg.Value.Region.Tokens.Start + i
 		if idx >= Words {
 			break
 		}
@@ -261,7 +272,7 @@ func (value *Value) LeftShiftTokens() {
 	}
 	// Circular wrap-around
 	if carry > 0 {
-		idx := core.Cfg.TokenIndex
+		idx := core.Cfg.Value.Region.Tokens.Start
 		if idx < Words {
 			value[idx] |= carry
 		}
@@ -270,10 +281,10 @@ func (value *Value) LeftShiftTokens() {
 
 // BindTokenHD XORs the static random 3648-bit FSM signature for the given byte.
 func (value *Value) BindTokenHD(b byte) {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	sig := ByteSignatures[b]
 	for i := 0; i < nWords && i < len(sig); i++ {
-		idx := core.Cfg.TokenIndex + i
+		idx := core.Cfg.Value.Region.Tokens.Start + i
 		if idx >= Words {
 			break
 		}
@@ -402,9 +413,9 @@ func ViewValue(p []byte) *Value {
 
 func (value *Value) isTombstoned() error {
 	if slices.Max(slices.Concat(
-		value[core.Cfg.TokenIndex:core.Cfg.TokenIndex+int(core.Cfg.TokenBits/64)-3],
-		value[core.Cfg.AffinityIndex:core.Cfg.AffinityIndex+int(core.Cfg.AffinityBits/64)],
-		value[core.Cfg.ProgramIndex:core.Cfg.ProgramIndex+int(core.Cfg.ProgramBits/64)],
+		value[core.Cfg.Value.Region.Tokens.Start:core.Cfg.Value.Region.Tokens.Start+int(core.Cfg.Value.Region.Tokens.Bits/64)-3],
+		value[core.Cfg.Value.Region.Affinity.Start:core.Cfg.Value.Region.Affinity.Start+int(core.Cfg.Value.Region.Affinity.Bits/64)],
+		value[core.Cfg.Value.Region.Program.Start:core.Cfg.Value.Region.Program.Start+int(core.Cfg.Value.Region.Program.Bits/64)],
 	)) > 0 {
 		return errnie.Error(NewValueError(ValueErrorNotTombstoned))
 	}
@@ -448,9 +459,9 @@ func (value *Value) isPoolReusable() bool {
 		}
 	}
 
-	checkRegion(core.Cfg.TokenIndex, core.Cfg.TokenBits)
-	checkRegion(core.Cfg.AffinityIndex, core.Cfg.AffinityBits)
-	checkRegion(core.Cfg.ProgramIndex, core.Cfg.ProgramBits)
+	checkRegion(core.Cfg.Value.Region.Tokens.Start, core.Cfg.Value.Region.Tokens.Bits)
+	checkRegion(core.Cfg.Value.Region.Affinity.Start, core.Cfg.Value.Region.Affinity.Bits)
+	checkRegion(core.Cfg.Value.Region.Program.Start, core.Cfg.Value.Region.Program.Bits)
 
 	return wiped
 }
@@ -461,19 +472,19 @@ func (value *Value) isPoolReusable() bool {
 // ALU FALSE batch — the tombstone is fully self-erasing.
 func (value *Value) InstallTombstone() {
 	value.installFirmware(core.FirmwareTypeTombstone)
-	value[core.Cfg.RegPC] = 0
+	value[core.Cfg.Value.Region.Registers.PC] = 0
 }
 
 // InstallLearnFirmware installs the learn firmware and resets the PC.
 func (value *Value) InstallLearnFirmware() {
 	value.installFirmware(core.FirmwareTypeLearn)
-	value[core.Cfg.RegPC] = 0
+	value[core.Cfg.Value.Region.Registers.PC] = 0
 }
 
 // InstallBuildFirmware installs the build firmware and resets the PC.
 func (value *Value) InstallBuildFirmware() {
 	value.installFirmware(core.FirmwareTypeBuild)
-	value[core.Cfg.RegPC] = 0
+	value[core.Cfg.Value.Region.Registers.PC] = 0
 }
 
 /*
@@ -485,7 +496,7 @@ the bootloader starts) is the correct way to install firmware.
 */
 func (value *Value) installFirmware(fw core.FirmwareType) {
 	prog := core.Cfg.Firmware[fw]
-	wordBase := uint64(core.Cfg.ProgramIndex)
+	wordBase := uint64(core.Cfg.Value.Region.Program.Start)
 
 	for i := 0; i < len(prog); i += 4 {
 		wordPos := wordBase + uint64(i/4)
@@ -513,39 +524,24 @@ func (value *Value) installFirmware(fw core.FirmwareType) {
 
 /*
 String returns the Token region of the Value as a readable string.
-It finds the original TokenIDs in the LSM, using the Affinity as
-a query.
+It resolves TokenIDs in the LSM by exact Value-frame bitmap match, then
+orders by the sequence index packed in each TokenID (Tokenize).
 */
 func (value *Value) String() string {
-	affinity := value[core.Cfg.AffinityIndex]
-
-	var builder strings.Builder
-
-	// Walk outward from exact match to a loose bound, stopping at the first hit.
-	var frames [][Words]uint64
-	for dist := 0; dist <= 8; dist++ {
-		frames = store.DefaultSpatialIndex().QueryHamming(affinity, dist)
-		if len(frames) > 0 {
-			break
-		}
+	keys := store.DefaultSpatialIndex().LookupKeysByValue([Words]uint64(*value))
+	if len(keys) == 0 {
+		return "[superposed state]"
 	}
 
-	// Decode the token region of each matched Value frame.
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
-	for _, frame := range frames {
-		v := Value(frame)
-		nWords := tokenWords
-		if core.Cfg.TokenIndex+nWords > Words {
-			nWords = Words - core.Cfg.TokenIndex
-		}
-		for i := 0; i < nWords; i++ {
-			w := v[core.Cfg.TokenIndex+i]
-			for shift := 0; shift < 64; shift += 8 {
-				b := byte(w >> shift)
-				if b >= 0x20 && b < 0x7F {
-					builder.WriteByte(b)
-				}
-			}
+	sort.Slice(keys, func(i, j int) bool {
+		return (keys[i] & 0xFFFFFFFF) < (keys[j] & 0xFFFFFFFF)
+	})
+
+	var builder strings.Builder
+	for _, tid := range keys {
+		b := byte(tid >> 32)
+		if b >= 0x20 && b < 0x7F {
+			builder.WriteByte(b)
 		}
 	}
 
@@ -577,9 +573,9 @@ func Tokenize(b byte, index uint64) uint64 {
 }
 
 func region0TokenIndexOK(index int) bool {
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
-	hi := core.Cfg.TokenIndex + tokenWords
-	return index >= core.Cfg.TokenIndex && index < hi
+	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	hi := core.Cfg.Value.Region.Tokens.Start + tokenWords
+	return index >= core.Cfg.Value.Region.Tokens.Start && index < hi
 }
 
 func (value *Value) TokenID(index int) uint64 {
@@ -598,10 +594,10 @@ func (value *Value) SetTokenID(index int, token uint64) bool {
 }
 
 func (value *Value) TokenIDs() []uint64 {
-	n := int((core.Cfg.TokenBits + 63) / 64)
+	n := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	out := make([]uint64, n)
 	for i := 0; i < n; i++ {
-		idx := core.Cfg.TokenIndex + i
+		idx := core.Cfg.Value.Region.Tokens.Start + i
 		if idx >= Words {
 			break
 		}
@@ -611,10 +607,10 @@ func (value *Value) TokenIDs() []uint64 {
 }
 
 func (value *Value) SetTokenIDs(tokens []uint64) int {
-	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	n := min(len(tokens), nWords)
 	for i := 0; i < n; i++ {
-		idx := core.Cfg.TokenIndex + i
+		idx := core.Cfg.Value.Region.Tokens.Start + i
 		if idx >= Words {
 			break
 		}
@@ -668,7 +664,7 @@ func (value *Value) Clone() *Value {
 		clone[i] = value[i]
 	}
 	registerPooledLifecycle(clone)
-	clone[core.Cfg.ValueID] = atomic.AddUint64(&globalValueIDCounter, 1)
+	clone[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
 	// Do not blindly install bootloader on a clone, we want to clone the exact state!
 	return clone
 }
@@ -734,11 +730,11 @@ func (value *Value) ExecExitCode() uint16 {
 
 func (value *Value) HasProgram() bool {
 	// If the firmware register is set, it signals a program should be loaded
-	if value[core.Cfg.FW] > 0 {
+	if value[core.Cfg.Value.Region.Registers.FW] > 0 {
 		return true
 	}
-	startWord := core.Cfg.ProgramIndex
-	nProgWords := int((core.Cfg.ProgramBits + 63) / 64)
+	startWord := core.Cfg.Value.Region.Program.Start
+	nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
 	endWord := startWord + nProgWords
 	if startWord < 0 {
 		startWord = 0

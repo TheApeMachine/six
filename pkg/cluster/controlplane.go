@@ -8,8 +8,7 @@ import (
 
 // ControlPlane owns the Kademlia routing table and is the single entry point
 // for inserting Values into the cluster and querying for nearest neighbors.
-// Each k-bucket in the routing table has its own LSM, giving O(log N) routed
-// spatial queries across the full Value population.
+// Each k-bucket in the routing table has its own LSM (TokenID → Value bitmap).
 type ControlPlane struct {
 	rt *RoutingTable
 }
@@ -39,17 +38,6 @@ func (cp *ControlPlane) FindClosest(targetAffinity uint64) []primitive.Value {
 	values := make([]primitive.Value, len(entries))
 	for i, e := range entries {
 		values[i] = *e.value
-	}
-	return values
-}
-
-// QueryHamming returns all Value frames within maxDistance Hamming distance
-// of targetAffinity, routed via the Kademlia tree.
-func (cp *ControlPlane) QueryHamming(targetAffinity uint64, maxDistance int) []primitive.Value {
-	frames := cp.rt.QueryHamming(targetAffinity, maxDistance)
-	values := make([]primitive.Value, len(frames))
-	for i, f := range frames {
-		values[i] = primitive.Value(f)
 	}
 	return values
 }

@@ -11,21 +11,22 @@ import (
 
 func TestUniversalBitwise(t *testing.T) {
 	convey.Convey("Given a CPU Kernel backend", t, func() {
-		// Mock config required for pi usage
-		core.Cfg = &core.Config{ProgramIndex: 76}
-
 		backend := NewBackend(context.Background())
 
 		convey.Convey("When testing the raw SIMD execWordBlock operations", func() {
 			dst := make([]uint64, 4)
 			src := make([]uint64, 4)
 
-			for i := 0; i < 4; i++ {
-				dst[i] = 0xAAAAAAAAAAAAAAAA // 10101010...
-				src[i] = 0xCCCCCCCCCCCCCCCC // 11001100...
+			seed := func() {
+				for i := 0; i < 4; i++ {
+					dst[i] = 0xAAAAAAAAAAAAAAAA // 10101010...
+					src[i] = 0xCCCCCCCCCCCCCCCC // 11001100...
+				}
 			}
+			seed()
 
 			convey.Convey("It should correctly apply AND (0x1)", func() {
+				seed()
 				execWordBlock(dst, src, 0x1)
 				for i := 0; i < 4; i++ {
 					convey.So(dst[i], convey.ShouldEqual, uint64(0x8888888888888888))
@@ -33,6 +34,7 @@ func TestUniversalBitwise(t *testing.T) {
 			})
 
 			convey.Convey("It should correctly apply COPY (0x3)", func() {
+				seed()
 				execWordBlock(dst, src, 0x3)
 				for i := 0; i < 4; i++ {
 					convey.So(dst[i], convey.ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
@@ -40,6 +42,7 @@ func TestUniversalBitwise(t *testing.T) {
 			})
 
 			convey.Convey("It should correctly apply XOR (0x6)", func() {
+				seed()
 				execWordBlock(dst, src, 0x6)
 				for i := 0; i < 4; i++ {
 					// 1010 ^ 1100 = 0110
@@ -48,6 +51,7 @@ func TestUniversalBitwise(t *testing.T) {
 			})
 
 			convey.Convey("It should correctly apply OR (0x7)", func() {
+				seed()
 				execWordBlock(dst, src, 0x7)
 				for i := 0; i < 4; i++ {
 					// 1010 | 1100 = 1110
@@ -56,6 +60,7 @@ func TestUniversalBitwise(t *testing.T) {
 			})
 
 			convey.Convey("It should correctly apply src &^ dst (0x2)", func() {
+				seed()
 				// src &^ dst
 				execWordBlock(dst, src, 0x2)
 				for i := 0; i < 4; i++ {
@@ -68,8 +73,8 @@ func TestUniversalBitwise(t *testing.T) {
 			valA := new([128]uint64)
 			valB := new([128]uint64)
 
-			core.Cfg.ProgramIndex = 76
-			pi := core.Cfg.ProgramIndex
+			core.Cfg.Value.Region.Program.Start = 76
+			pi := core.Cfg.Value.Region.Program.Start
 
 			// Instruction encoding helpers matching the 16-bit RISC spec in the backend
 			encodeMem := func(dir, reg, ctx, word uint16) uint16 {
@@ -112,7 +117,7 @@ func TestUniversalBitwise(t *testing.T) {
 }
 
 func BenchmarkUniversalBitwise(b *testing.B) {
-	core.Cfg = &core.Config{ProgramIndex: 76}
+	core.Cfg.Value.Region.Program.Start = 76
 	backend := NewBackend(context.Background())
 
 	// We create a large batch simulating typical usage
@@ -139,7 +144,7 @@ func BenchmarkUniversalBitwise(b *testing.B) {
 		0x0000,                   // HALT
 	}
 
-	pi := core.Cfg.ProgramIndex
+	pi := core.Cfg.Value.Region.Program.Start
 
 	// Inject the payload into every item in the batch
 	for i := 0; i < batchSize; i++ {

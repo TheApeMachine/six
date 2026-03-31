@@ -125,10 +125,10 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 		)
 	}
 
-	pi := uint64(core.Cfg.ProgramIndex)
-	pcIdx := core.Cfg.RegPC
-	if pcIdx == 0 && core.Cfg.ProgramIndex > 0 {
-		pcIdx = core.Cfg.ProgramIndex - 1
+	pi := uint64(core.Cfg.Value.Region.Program.Start)
+	pcIdx := uint64(core.Cfg.Value.Region.Registers.PC)	
+	if pcIdx == 0 && core.Cfg.Value.Region.Program.Start > 0 {
+		pcIdx = uint64(core.Cfg.Value.Region.Program.Start - 1)
 	}
 	pcReg := uint64(pcIdx)
 

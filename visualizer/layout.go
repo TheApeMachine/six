@@ -57,35 +57,35 @@ type ValueLayoutSpan struct {
 BuildValueLayout snapshots the current config into a browser-friendly shape.
 */
 func BuildValueLayout() ValueLayout {
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
-	programWords := int((core.Cfg.ProgramBits + 63) / 64)
-	stateWords := (core.Cfg.StateBits + 63) / 64
+	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	programWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+	stateWords := (core.Cfg.Value.Region.State.Index + 63) / 64
 	if stateWords < 1 {
 		stateWords = 1
 	}
-	stateStart := core.Cfg.StateIndex
-	for _, w := range []int{core.Cfg.StateSequence, core.Cfg.StateAccumulator} {
+	stateStart := core.Cfg.Value.Region.State.Index
+	for _, w := range []int{core.Cfg.Value.Region.State.Sequence, core.Cfg.Value.Region.State.Accumulator} {
 		if w < stateStart {
 			stateStart = w
 		}
 	}
-	registersStart := core.Cfg.R0
-	registersWordCount := max(0, core.Cfg.RegPC-registersStart)
+	registersStart := core.Cfg.Value.Region.Registers.R0
+	registersWordCount := max(0, core.Cfg.Value.Region.Registers.PC-registersStart)
 
 	fields := []ValueLayoutSpan{
 		{
 			Name:      "tokens",
 			Kind:      "tokens",
 			Label:     "Tokens",
-			StartWord: core.Cfg.TokenIndex,
+			StartWord: core.Cfg.Value.Region.Tokens.Start,
 			WordCount: tokenWords,
-			Bits:      int(core.Cfg.TokenBits),
+			Bits:      int(core.Cfg.Value.Region.Tokens.Bits),
 		},
 		{
 			Name:      "value-id",
 			Kind:      "identity",
 			Label:     "Value ID",
-			StartWord: core.Cfg.ValueID,
+			StartWord: core.Cfg.Value.Region.ID.Start,
 			WordCount: 1,
 			Bits:      64,
 		},
@@ -93,7 +93,7 @@ func BuildValueLayout() ValueLayout {
 			Name:      "prev-id",
 			Kind:      "link",
 			Label:     "Prev ID",
-			StartWord: core.Cfg.PreviousID,
+			StartWord: core.Cfg.Value.Region.Prev.Start,
 			WordCount: 1,
 			Bits:      64,
 		},
@@ -101,7 +101,7 @@ func BuildValueLayout() ValueLayout {
 			Name:      "next-id",
 			Kind:      "link",
 			Label:     "Next ID",
-			StartWord: core.Cfg.NextID,
+			StartWord: core.Cfg.Value.Region.Next.Start,
 			WordCount: 1,
 			Bits:      64,
 		},
@@ -111,7 +111,7 @@ func BuildValueLayout() ValueLayout {
 			Label:     "State",
 			StartWord: stateStart,
 			WordCount: stateWords,
-			Bits:      core.Cfg.StateBits,
+			Bits:      core.Cfg.Value.Region.State.Index,
 		},
 		{
 			Name:      "exec-status",
@@ -125,9 +125,9 @@ func BuildValueLayout() ValueLayout {
 			Name:      "affinity",
 			Kind:      "affinity",
 			Label:     "Affinity",
-			StartWord: core.Cfg.AffinityIndex,
-			WordCount: int((core.Cfg.AffinityBits + 63) / 64),
-			Bits:      int(core.Cfg.AffinityBits),
+			StartWord: core.Cfg.Value.Region.Affinity.Start,
+			WordCount: int((core.Cfg.Value.Region.Affinity.Bits + 63) / 64),
+			Bits:      int(core.Cfg.Value.Region.Affinity.Bits),
 		},
 		{
 			Name:      "registers",
@@ -141,7 +141,7 @@ func BuildValueLayout() ValueLayout {
 			Name:      "pc",
 			Kind:      "pc",
 			Label:     "PC",
-			StartWord: core.Cfg.RegPC,
+			StartWord: core.Cfg.Value.Region.Registers.PC,
 			WordCount: 1,
 			Bits:      64,
 		},
@@ -149,9 +149,9 @@ func BuildValueLayout() ValueLayout {
 			Name:      "program",
 			Kind:      "program",
 			Label:     "Program",
-			StartWord: core.Cfg.ProgramIndex,
+			StartWord: core.Cfg.Value.Region.Program.Start,
 			WordCount: programWords,
-			Bits:      int(core.Cfg.ProgramBits),
+			Bits:      int(core.Cfg.Value.Region.Program.Bits),
 		},
 	}
 
@@ -163,36 +163,36 @@ func BuildValueLayout() ValueLayout {
 	return ValueLayout{
 		Words:      primitive.Words,
 		ByteSize:   primitive.ByteSize,
-		TokenBits:  core.Cfg.TokenBits,
+		TokenBits:  core.Cfg.Value.Region.Tokens.Bits,
 		TokenWords: tokenWords,
 		Indices: ValueLayoutIndex{
-			ValueID:        core.Cfg.ValueID,
-			PrevID:         core.Cfg.PreviousID,
-			NextID:         core.Cfg.NextID,
-			State:          core.Cfg.StateIndex,
-			Sequence:       core.Cfg.StateSequence,
-			Accumulator:    core.Cfg.StateAccumulator,
+			ValueID:        core.Cfg.Value.Region.ID.Start,
+			PrevID:         core.Cfg.Value.Region.Prev.Start,
+			NextID:         core.Cfg.Value.Region.Next.Start,
+			State:          core.Cfg.Value.Region.State.Index,
+			Sequence:       core.Cfg.Value.Region.State.Sequence,
+			Accumulator:    core.Cfg.Value.Region.State.Accumulator,
 			ExecStatus:     primitive.ExecStatusWord,
-			Affinity:       core.Cfg.AffinityIndex,
+			Affinity:       core.Cfg.Value.Region.Affinity.Start,
 			RegistersStart: registersStart,
-			PC:             core.Cfg.RegPC,
-			Program:        core.Cfg.ProgramIndex,
+			PC:             core.Cfg.Value.Region.Registers.PC,
+			Program:        core.Cfg.Value.Region.Program.Start,
 			ProgramWords:   programWords,
 			ProgramSlots:   programWords * 2,
 		},
 		Registers: map[string]int{
-			"r0": core.Cfg.R0,
-			"r1": core.Cfg.R1,
-			"r2": core.Cfg.R2,
-			"r3": core.Cfg.R3,
-			"r4": core.Cfg.R4,
-			"r5": core.Cfg.R5,
-			"r6": core.Cfg.R6,
-			"r7": core.Cfg.R7,
-			"r8": core.Cfg.R8,
-			"r9": core.Cfg.R9,
-			"fw": core.Cfg.FW,
-			"pc": core.Cfg.RegPC,
+			"r0": core.Cfg.Value.Region.Registers.R0,
+			"r1": core.Cfg.Value.Region.Registers.R1,
+			"r2": core.Cfg.Value.Region.Registers.R2,
+			"r3": core.Cfg.Value.Region.Registers.R3,
+			"r4": core.Cfg.Value.Region.Registers.R4,
+			"r5": core.Cfg.Value.Region.Registers.R5,
+			"r6": core.Cfg.Value.Region.Registers.R6,
+			"r7": core.Cfg.Value.Region.Registers.R7,
+			"r8": core.Cfg.Value.Region.Registers.R8,
+			"r9": core.Cfg.Value.Region.Registers.R9,
+			"fw": core.Cfg.Value.Region.Registers.FW,
+			"pc": core.Cfg.Value.Region.Registers.PC,
 		},
 		Fields:        fields,
 		OpcodeNames:   opcodes,

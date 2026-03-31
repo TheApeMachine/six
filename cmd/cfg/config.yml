@@ -33,16 +33,13 @@ logging:
 
 system:
   projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
-
-numerics:
-  words: 128
-  corebits: 8191
-  epsilon: 1e-9
-  nsymbols: 256
-  nbasis: 512
+  batchSize: 10000
+  batchWindow: 500
+  queueSize: 20000
 
 value:
   words: 128
+  bytes: 1024
   region:
     tokens:
       start: 0

@@ -56,6 +56,9 @@ type Pool struct {
 	dropThreshold   uint64
 	dropWindowStart time.Time
 	dropWindowCount uint64
+
+	// workersOnce ensures Run() is started at most once (e.g. from StartWorkers).
+	workersOnce sync.Once
 }
 
 type poolOpts func(*Pool)
@@ -174,6 +177,25 @@ func (pool *Pool) SetDropObserver(observer func(error)) {
 	pool.dropStateMu.Lock()
 	pool.dropObserver = observer
 	pool.dropStateMu.Unlock()
+}
+
+// StartWorkers ensures worker goroutines are running so Schedule enqueues are processed.
+// Safe to call multiple times. Job failures are reported with errnie.Error; call Run()
+// directly if you need a different error path.
+func (pool *Pool) StartWorkers() {
+	if pool == nil {
+		return
+	}
+	pool.workersOnce.Do(func() {
+		errCh := pool.Run()
+		go func() {
+			for err := range errCh {
+				if err != nil {
+					_ = errnie.Error(err)
+				}
+			}
+		}()
+	})
 }
 
 func (pool *Pool) Run() chan error {

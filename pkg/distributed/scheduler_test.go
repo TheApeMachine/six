@@ -17,10 +17,6 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "distributed/scheduler_test: viper.ReadInConfig: %v\n", err)
 		os.Exit(1)
 	}
-	if err := core.LoadValueConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "distributed/scheduler_test: core.LoadValueConfig: %v\n", err)
-		os.Exit(1)
-	}
 	os.Exit(m.Run())
 }
 
@@ -121,7 +117,7 @@ func TestCandidateOrderFallsBackWhenNoShardMatches(t *testing.T) {
 func makeFrameWithAffinity(region, regions int) []byte {
 	frame := make([]byte, primitive.ByteSize)
 	affinity := affinityForRegion(region, regions)
-	binary.LittleEndian.PutUint64(frame[core.Cfg.AffinityIndex*8:], affinity)
+	binary.LittleEndian.PutUint64(frame[core.Cfg.Value.Region.Affinity.Start*8:], affinity)
 	return frame
 }
 

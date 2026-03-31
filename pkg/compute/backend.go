@@ -9,7 +9,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
@@ -17,14 +16,6 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-)
-
-const (
-	batchSize          = 10000
-	defaultQueueSize   = 20000
-	defaultBatchWindow = 500 * time.Microsecond
-	frameWords         = 128
-	frameBytes         = frameWords * 8
 )
 
 type bitwiseJob struct {
@@ -78,8 +69,8 @@ func NewBackend(opts ...BackendOption) *Backend {
 	backend := &Backend{
 		hardware:    make([]kernel.Substrate, 0),
 		observer:    kernel.NoopObserver{},
-		batchSize:   batchSize,
-		batchWindow: defaultBatchWindow,
+		batchSize:   core.Cfg.System.BatchSize,
+		batchWindow: core.Cfg.System.BatchWindow,
 	}
 
 	for _, opt := range opts {
@@ -99,7 +90,7 @@ func NewBackend(opts ...BackendOption) *Backend {
 		backend.batchWindow = 0
 	}
 	if backend.jobQueue == nil {
-		capHint := defaultQueueSize
+		capHint := core.Cfg.System.QueueSize
 		if backend.batchSize > capHint {
 			capHint = backend.batchSize * 2
 		}
@@ -121,6 +112,7 @@ func NewBackend(opts ...BackendOption) *Backend {
 				"saturation_total", backend.pool.SaturationEvents(),
 			)
 		})
+		backend.pool.StartWorkers()
 	}
 
 	for idx := 0; idx < cuda.Available(); idx++ {
@@ -167,6 +159,7 @@ func defaultBackend() *Backend {
 		if err != nil {
 			panic(err)
 		}
+		pool.StartWorkers()
 
 		defaultBackendMu.Lock()
 		observer := defaultObserver
@@ -258,7 +251,6 @@ func (backend *Backend) executeBatch(batch []bitwiseJob) {
 
 	hw := backend.selectSubstrate(batch)
 	if len(batch) == 1 {
-		firmware.PreloadFirmwareBatch(batch[0].a, 1)
 		err := hw.UniversalBitwise(batch[0].a, batch[0].b, 1)
 		batch[0].done <- err
 		return
@@ -268,18 +260,16 @@ func (backend *Backend) executeBatch(batch []bitwiseJob) {
 	defer backend.releaseBuffers(buf)
 
 	for i, job := range batch {
-		offset := i * frameWords
+		offset := i * core.Cfg.Value.Words
 		copy(
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatA[offset])), frameBytes),
-			unsafe.Slice((*byte)(job.a), frameBytes),
+			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatA[offset])), core.Cfg.Value.Bytes),
+			unsafe.Slice((*byte)(job.a), core.Cfg.Value.Bytes),
 		)
 		copy(
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatB[offset])), frameBytes),
-			unsafe.Slice((*byte)(job.b), frameBytes),
+			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatB[offset])), core.Cfg.Value.Bytes),
+			unsafe.Slice((*byte)(job.b), core.Cfg.Value.Bytes),
 		)
 	}
-
-	firmware.PreloadFirmwareBatch(unsafe.Pointer(&buf.flatA[0]), len(batch))
 
 	err := hw.UniversalBitwise(
 		unsafe.Pointer(&buf.flatA[0]),
@@ -288,14 +278,14 @@ func (backend *Backend) executeBatch(batch []bitwiseJob) {
 	)
 
 	for i, job := range batch {
-		offset := i * frameWords
+		offset := i * core.Cfg.Value.Words
 		copy(
-			unsafe.Slice((*byte)(job.a), frameBytes),
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatA[offset])), frameBytes),
+			unsafe.Slice((*byte)(job.a), core.Cfg.Value.Bytes),
+			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatA[offset])), core.Cfg.Value.Bytes),
 		)
 		copy(
-			unsafe.Slice((*byte)(job.b), frameBytes),
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatB[offset])), frameBytes),
+			unsafe.Slice((*byte)(job.b), core.Cfg.Value.Bytes),
+			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatB[offset])), core.Cfg.Value.Bytes),
 		)
 		job.done <- err
 	}
@@ -325,18 +315,18 @@ func frameRequiresProgramExecution(ptr unsafe.Pointer) bool {
 	if ptr == nil {
 		return false
 	}
-	frame := unsafe.Slice((*uint64)(ptr), frameWords)
+	frame := unsafe.Slice((*uint64)(ptr), core.Cfg.Value.Words)
 	if core.Cfg == nil {
 		return false
 	}
-	if frame[core.Cfg.FW] > 0 {
+	if frame[core.Cfg.Value.Region.Registers.FW] > 0 {
 		return true
 	}
-	startWord := core.Cfg.ProgramIndex
+	startWord := core.Cfg.Value.Region.Program.Start
 	if startWord < 0 || startWord >= len(frame) {
 		return false
 	}
-	progWords := int((core.Cfg.ProgramBits + 63) / 64)
+	progWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
 	endWord := startWord + progWords
 	if endWord > len(frame) {
 		endWord = len(frame)
@@ -359,7 +349,7 @@ func (backend *Backend) nextSubstrate() kernel.Substrate {
 
 func (backend *Backend) acquireBuffers(batchLen int) *batchBuffers {
 	buf := backend.bufferPool.Get().(*batchBuffers)
-	need := batchLen * frameWords
+	need := batchLen * core.Cfg.Value.Words
 
 	if cap(buf.flatA) < need {
 		buf.flatA = make([]uint64, need)
@@ -385,6 +375,11 @@ func (backend *Backend) releaseBuffers(buf *batchBuffers) {
 	backend.bufferPool.Put(buf)
 }
 
+/*
+UniversalBitwise runs pairwise firmware on the frames at a and b. For immutable
+canonical Values, pass pointers to disposable full-frame copies; results are
+written into those buffers (and for batched jobs, copied back to the same pointers).
+*/
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	if backend == nil {
 		return errors.New("compute.Backend.UniversalBitwise: nil backend")
@@ -404,63 +399,19 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
 	}
 }
 
-// UniversalBitwise is the package-level compatibility entrypoint used by the
-// Value substrate. The first call lazily constructs the default backend.
+/*
+UniversalBitwise is the package-level compatibility entrypoint used by the
+Value substrate. The first call lazily constructs the default backend.
+*/
 func UniversalBitwise(a, b unsafe.Pointer) error {
 	return defaultBackend().UniversalBitwise(a, b)
 }
 
 /*
-WithContext sets the context for the backend.
+SetKernelObserver updates the observer for the active default backend. When
+called before the default backend is initialized, the observer is retained
+and applied during lazy construction.
 */
-func WithContext(ctx context.Context) BackendOption {
-	return func(backend *Backend) {
-		if ctx == nil {
-			ctx = context.Background()
-		}
-		backend.ctx, backend.cancel = context.WithCancel(ctx)
-	}
-}
-
-/*
-WithPool injects the worker pool for job scheduling.
-*/
-func WithPool(p *Pool) BackendOption {
-	return func(backend *Backend) {
-		backend.pool = p
-	}
-}
-
-// WithKernelObserver injects a kernel observer for all discovered backends.
-func WithKernelObserver(observer kernel.Observer) BackendOption {
-	return func(backend *Backend) {
-		backend.observer = kernel.NormalizeObserver(observer)
-	}
-}
-
-// WithBatchSize overrides the maximum number of frames folded together in one
-// batched hardware dispatch.
-func WithBatchSize(n int) BackendOption {
-	return func(backend *Backend) {
-		if n > 0 {
-			backend.batchSize = n
-		}
-	}
-}
-
-// WithBatchWindow sets the maximum time the gather loop will wait for more
-// work before dispatching the current batch.
-func WithBatchWindow(window time.Duration) BackendOption {
-	return func(backend *Backend) {
-		if window >= 0 {
-			backend.batchWindow = window
-		}
-	}
-}
-
-// SetKernelObserver updates the observer for the active default backend. When
-// called before the default backend is initialized, the observer is retained
-// and applied during lazy construction.
 func SetKernelObserver(observer kernel.Observer) {
 	normalized := kernel.NormalizeObserver(observer)
 
@@ -549,60 +500,4 @@ func (backend *Backend) Close() {
 			close(backend.jobQueue)
 		}
 	})
-}
-
-type BackendErrorType string
-
-const (
-	BackendErrorNoHardware         BackendErrorType = "no hardware initialized"
-	BackendErrorCompleteSaturation BackendErrorType = "complete saturation"
-)
-
-type BackendError struct {
-	Type BackendErrorType
-	Err  error
-	Msg  string
-	Op   string
-}
-
-func NewBackendError(typ BackendErrorType, err error, op string) *BackendError {
-	msg := string(typ)
-	if msg == "" && err != nil {
-		msg = err.Error()
-	}
-	return &BackendError{
-		Type: typ,
-		Err:  err,
-		Msg:  msg,
-		Op:   op,
-	}
-}
-
-// AsType reports whether err wraps a *BackendError whose Type matches.
-func AsType(err error, t BackendErrorType) bool {
-	var be *BackendError
-	return errors.As(err, &be) && be.Type == t
-}
-
-func (e *BackendError) Error() string {
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	if e.Type != "" {
-		if e.Op != "" {
-			return fmt.Sprintf("%s (%s)", e.Type, e.Op)
-		}
-		return string(e.Type)
-	}
-	if e.Msg != "" {
-		return e.Msg
-	}
-	if e.Op != "" {
-		return fmt.Sprintf("backend error (%s)", e.Op)
-	}
-	return "backend error"
-}
-
-func (e *BackendError) Unwrap() error {
-	return e.Err
 }

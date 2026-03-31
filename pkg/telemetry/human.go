@@ -53,7 +53,7 @@ func InstructionFromValue(v *primitive.Value) uint8 {
 	if v == nil {
 		return DefaultVMInstruction & 0xF
 	}
-	pc := int(v[core.Cfg.RegPC])
+	pc := int(v[core.Cfg.Value.Region.Registers.PC])
 	return programOpAt(v, pc) & 0xF
 }
 
@@ -67,9 +67,9 @@ func HumanDescribeValue(v *primitive.Value) string {
 	}
 
 	instr := uint8(0)
-	dataPop := cpu.Popcount(unsafe.Pointer(v), 0, int(core.Cfg.TokenBits))
-	affPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.AffinityIndex), int(core.Cfg.AffinityBits))
-	progPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.ProgramIndex), int(core.Cfg.ProgramBits))
+	dataPop := cpu.Popcount(unsafe.Pointer(v), 0, int(core.Cfg.Value.Region.Tokens.Bits))
+	affPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.Value.Region.Affinity.Start), int(core.Cfg.Value.Region.Affinity.Bits))
+	progPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.Value.Region.Program.Start), int(core.Cfg.Value.Region.Program.Bits))
 	tokens := v.String()
 	if tokens == "" {
 		tokens = v.String()
@@ -94,7 +94,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 // countProgramOps counts instruction slots until VM HALT (opcode 0 with slot > 0), matching the CPU core loop.
 func countProgramOps(v *primitive.Value) int {
 	count := 0
-	for i := 0; i < core.Cfg.MaxPC; i++ {
+	for i := 0; i < int(core.Cfg.Value.Region.Program.Bits); i++ {
 		op := programOpAt(v, i)
 		if op == 0 && i > 0 {
 			break
@@ -107,10 +107,10 @@ func countProgramOps(v *primitive.Value) int {
 }
 
 func programOpAt(v *primitive.Value, slot int) uint8 {
-	if v == nil || slot < 0 || slot >= core.Cfg.MaxPC {
+	if v == nil || slot < 0 || slot >= int(core.Cfg.Value.Region.Program.Bits) {
 		return 0
 	}
-	wordPos := core.Cfg.ProgramIndex + slot/2
+	wordPos := core.Cfg.Value.Region.Program.Start + slot/2
 	if wordPos < 0 || wordPos >= primitive.Words {
 		return 0
 	}

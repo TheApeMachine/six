@@ -21,8 +21,8 @@ func TestHCAMUnbinding(t *testing.T) {
 		// Fact = Sandra ⊕ IsIn ⊕ Garden (bind all three into one Value)
 		fact, _ := NewValue(nil)
 		defer fact.Close()
-		nWords := int((core.Cfg.TokenBits + 63) / 64)
-		base := core.Cfg.TokenIndex
+		nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+		base := core.Cfg.Value.Region.Tokens.Start
 		for i := 0; i < nWords; i++ {
 			idx := base + i
 			if idx >= Words {
@@ -116,9 +116,9 @@ func TestComputeAffinityLSH(t *testing.T) {
 		defer v.Close()
 
 		Convey("ComputeAffinityLSH produces a non-zero affinity", func() {
-			v[core.Cfg.AffinityIndex] = 0
+			v[core.Cfg.Value.Region.Affinity.Start] = 0
 			v.ComputeAffinityLSH()
-			So(v[core.Cfg.AffinityIndex], ShouldNotEqual, 0)
+			So(v[core.Cfg.Value.Region.Affinity.Start], ShouldNotEqual, 0)
 		})
 
 		Convey("Similar data produces similar affinity", func() {
@@ -126,7 +126,7 @@ func TestComputeAffinityLSH(t *testing.T) {
 			defer v2.Close()
 			v.ComputeAffinityLSH()
 			v2.ComputeAffinityLSH()
-			overlap := BloomOverlap(v[core.Cfg.AffinityIndex], v2[core.Cfg.AffinityIndex])
+			overlap := BloomOverlap(v[core.Cfg.Value.Region.Affinity.Start], v2[core.Cfg.Value.Region.Affinity.Start])
 			So(overlap, ShouldBeGreaterThan, 0)
 		})
 	})
@@ -181,11 +181,11 @@ func TestAdvanceSequence(t *testing.T) {
 	Convey("Given a Value with a seeded sequence", t, func() {
 		v, _ := NewValue([]byte("test"))
 		defer v.Close()
-		initial := v[core.Cfg.StateSequence]
+		initial := v[core.Cfg.Value.Region.State.Sequence]
 
 		Convey("AdvanceSequence changes the StateSequence", func() {
 			v.AdvanceSequence()
-			So(v[core.Cfg.StateSequence], ShouldNotEqual, initial)
+			So(v[core.Cfg.Value.Region.State.Sequence], ShouldNotEqual, initial)
 		})
 	})
 }
@@ -200,7 +200,7 @@ func TestAccumulateDelta(t *testing.T) {
 		Convey("AccumulateDelta produces a non-zero delta", func() {
 			delta := AccumulateDelta(a, b)
 			So(delta, ShouldNotEqual, 0)
-			So(a[core.Cfg.StateAccumulator], ShouldEqual, delta)
+			So(a[core.Cfg.Value.Region.State.Accumulator], ShouldEqual, delta)
 		})
 	})
 
@@ -221,15 +221,15 @@ func TestApplyDelta(t *testing.T) {
 	Convey("Given current Value with a known delta", t, func() {
 		current, _ := NewValue([]byte("data1"))
 		defer current.Close()
-		current[core.Cfg.StateAccumulator] = 0xDEADBEEF
+		current[core.Cfg.Value.Region.State.Accumulator] = 0xDEADBEEF
 
 		Convey("ApplyDelta XORs the delta across all token words", func() {
 			dst, _ := NewValue(nil)
 			defer dst.Close()
 			ApplyDelta(dst, current)
 
-			nWords := int((core.Cfg.TokenBits + 63) / 64)
-			base := core.Cfg.TokenIndex
+			nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+			base := core.Cfg.Value.Region.Tokens.Start
 			for i := 0; i < nWords; i++ {
 				idx := base + i
 				if idx >= Words {

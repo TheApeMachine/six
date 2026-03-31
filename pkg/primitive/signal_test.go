@@ -50,14 +50,14 @@ func TestExtractSpan(t *testing.T) {
 }
 
 func TestScanSignals(t *testing.T) {
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
-	baseIdx := core.Cfg.TokenIndex
+	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	baseIdx := core.Cfg.Value.Region.Tokens.Start
 
 	// Create two Values with identical token regions → XOR = all zeros.
 	a := &Value{}
 	b := &Value{}
-	a[core.Cfg.ValueID] = 100
-	b[core.Cfg.ValueID] = 200
+	a[core.Cfg.Value.Region.ID.Start] = 100
+	b[core.Cfg.Value.Region.ID.Start] = 200
 
 	for w := 0; w < tokenWords; w++ {
 		idx := baseIdx + w
@@ -109,14 +109,14 @@ func TestScanSignals(t *testing.T) {
 }
 
 func TestScanSignalsDifferent(t *testing.T) {
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
-	baseIdx := core.Cfg.TokenIndex
+	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	baseIdx := core.Cfg.Value.Region.Tokens.Start
 
 	// Two completely different Values → XOR = all ones, AND = all zeros.
 	a := &Value{}
 	b := &Value{}
-	a[core.Cfg.ValueID] = 300
-	b[core.Cfg.ValueID] = 400
+	a[core.Cfg.Value.Region.ID.Start] = 300
+	b[core.Cfg.Value.Region.ID.Start] = 400
 
 	for w := 0; w < tokenWords; w++ {
 		idx := baseIdx + w

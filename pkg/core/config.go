@@ -1,25 +1,17 @@
 package core
 
 import (
-	"fmt"
-	"reflect"
-	"strings"
-	"sync"
+	"time"
 
 	"github.com/spf13/viper"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
-// typeNameCache maps reflect.Type to its String() for cheap, repeated Get[T] type errors.
-var typeNameCache sync.Map
+var (
+	Cfg *Config
+)
 
-func cachedTypeName(t reflect.Type) string {
-	if v, ok := typeNameCache.Load(t); ok {
-		return v.(string)
-	}
-	s := t.String()
-	typeNameCache.Store(t, s)
-	return s
+func init() {
+	Cfg = NewConfig()
 }
 
 type FirmwareType uint
@@ -32,11 +24,18 @@ const (
 	FirmwareTypeBuild
 )
 
+type SystemConfig struct {
+	BatchSize   int           `mapstructure:"batchSize"`
+	BatchWindow time.Duration `mapstructure:"batchWindow"`
+	QueueSize   int           `mapstructure:"queueSize"`
+}
+
 /*
 ValueConfig holds the configuration for a Value.
 */
 type ValueConfig struct {
 	Words   int                `mapstructure:"words"`
+	Bytes   int                `mapstructure:"bytes"`
 	Region  ValueRegionConfig  `mapstructure:"region"`
 	Opcodes ValueOpcodesConfig `mapstructure:"opcodes"`
 }
@@ -120,124 +119,12 @@ type ValueOpcodesConfig struct {
 }
 
 /*
-vCfg holds the loaded Value configuration.
-Populated by LoadValueConfig.
-*/
-var vCfg ValueConfig
-
-/*
-LoadValueConfig reads the "value" section from viper into V.
-*/
-func LoadValueConfig() (err error) {
-	if err = viper.GetViper().UnmarshalKey(
-		"value", &vCfg,
-	); err != nil {
-		return errnie.Error(
-			NewConfigError(
-				ConfigErrorTypeMissingKey,
-				"value",
-				err.Error(),
-			),
-		)
-	}
-
-	syncCfgFromVCfg()
-	syncTelemetryFromViper()
-	return LoadFirmware()
-}
-
-func syncTelemetryFromViper() {
-	Cfg.TelemetryEnabled = viper.GetBool("telemetry.enabled")
-	Cfg.TelemetryEndpoint = strings.TrimSpace(viper.GetString("telemetry.udp_endpoint"))
-	if Cfg.TelemetryEndpoint == "" {
-		Cfg.TelemetryEndpoint = "127.0.0.1:8258"
-	}
-}
-
-// syncCfgFromVCfg copies unmarshaled layout from vCfg into the global Cfg
-// after LoadValueConfig unmarshals vCfg from config.
-func syncCfgFromVCfg() {
-	Cfg.ValueSize = 1024
-	Cfg.StateIndex = vCfg.Region.State.Index
-	Cfg.StateSequence = vCfg.Region.State.Sequence
-	Cfg.StateAccumulator = vCfg.Region.State.Accumulator
-	si, sq, sa := Cfg.StateIndex, Cfg.StateSequence, Cfg.StateAccumulator
-	minS, maxS := si, si
-	for _, w := range []int{sq, sa} {
-		if w < minS {
-			minS = w
-		}
-		if w > maxS {
-			maxS = w
-		}
-	}
-	stateWords := maxS - minS + 1
-	if stateWords < 1 {
-		stateWords = 1
-	}
-	Cfg.StateBits = stateWords * 64
-	Cfg.TokenIndex = vCfg.Region.Tokens.Start
-	Cfg.TokenBits = vCfg.Region.Tokens.Bits
-	Cfg.ValueID = vCfg.Region.ID.Start
-	Cfg.PreviousID = vCfg.Region.Prev.Start
-	Cfg.NextID = vCfg.Region.Next.Start
-	Cfg.AffinityIndex = vCfg.Region.Affinity.Start
-	Cfg.AffinityBits = vCfg.Region.Affinity.Bits
-	Cfg.ProgramIndex = vCfg.Region.Program.Start
-	Cfg.ProgramBits = vCfg.Region.Program.Bits
-	Cfg.MaxPC = int(vCfg.Region.Program.Bits) / 32
-	Cfg.R0 = vCfg.Region.Registers.R0
-	Cfg.R1 = vCfg.Region.Registers.R1
-	Cfg.R2 = vCfg.Region.Registers.R2
-	Cfg.R3 = vCfg.Region.Registers.R3
-	Cfg.R4 = vCfg.Region.Registers.R4
-	Cfg.R5 = vCfg.Region.Registers.R5
-	Cfg.R6 = vCfg.Region.Registers.R6
-	Cfg.R7 = vCfg.Region.Registers.R7
-	Cfg.R8 = vCfg.Region.Registers.R8
-	Cfg.R9 = vCfg.Region.Registers.R9
-	Cfg.FW = vCfg.Region.Registers.FW
-	Cfg.RegPC = vCfg.Region.Registers.PC
-}
-
-/*
-Cfg is the global config accessor. Layout fields are populated by
-LoadValueConfig; until then they are zero — call LoadValueConfig before use.
-*/
-var Cfg = new(Config)
-
-/*
 Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
-	ValueSize        int
-	StateIndex       int
-	StateSequence    int
-	StateAccumulator int
-	StateBits        int
-	TokenIndex       int
-	TokenBits        uint64
-	ValueID          int
-	PreviousID       int
-	NextID           int
-	AffinityIndex    int
-	AffinityBits     uint64
-	ProgramIndex     int
-	ProgramBits      uint64
-	MaxPC            int
-	R0               int
-	R1               int
-	R2               int
-	R3               int
-	R4               int
-	R5               int
-	R6               int
-	R7               int
-	R8               int
-	R9               int
-	FW               int
-	RegPC            int
+	System SystemConfig
+	Value  ValueConfig
 
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
@@ -253,93 +140,109 @@ type Config struct {
 	TelemetryEndpoint string
 }
 
+func NewConfig() *Config {
+	Cfg = &Config{
+		System: SystemConfig{
+			BatchSize:   viper.GetInt("system.batchSize"),
+			BatchWindow: time.Duration(viper.GetInt("system.batchWindow")) * time.Microsecond,
+			QueueSize:   viper.GetInt("system.queueSize"),
+		},
+		Value: ValueConfig{
+			Words: viper.GetInt("value.words"),
+			Bytes: viper.GetInt("value.bytes"),
+			Region: ValueRegionConfig{
+				Tokens: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.tokens.start"),
+					Bits:  viper.GetUint64("value.region.tokens.bits"),
+				},
+				ID: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.id.start"),
+					Bits:  viper.GetUint64("value.region.id.bits"),
+				},
+				Prev: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.prev.start"),
+					Bits:  viper.GetUint64("value.region.prev.bits"),
+				},
+				Next: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.next.start"),
+					Bits:  viper.GetUint64("value.region.next.bits"),
+				},
+				State: ValueRegionConfigState{
+					Index:       viper.GetInt("value.region.state.index"),
+					Sequence:    viper.GetInt("value.region.state.sequence"),
+					Accumulator: viper.GetInt("value.region.state.accumulator"),
+				},
+				Affinity: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.affinity.start"),
+					Bits:  viper.GetUint64("value.region.affinity.bits"),
+				},
+				Registers: ValueRegistersConfig{
+					Start: viper.GetInt("value.region.registers.start"),
+					Bits:  viper.GetInt("value.region.registers.bits"),
+					R0:    viper.GetInt("value.region.registers.r0"),
+					R1:    viper.GetInt("value.region.registers.r1"),
+					R2:    viper.GetInt("value.region.registers.r2"),
+					R3:    viper.GetInt("value.region.registers.r3"),
+					R4:    viper.GetInt("value.region.registers.r4"),
+					R5:    viper.GetInt("value.region.registers.r5"),
+					R6:    viper.GetInt("value.region.registers.r6"),
+					R7:    viper.GetInt("value.region.registers.r7"),
+					R8:    viper.GetInt("value.region.registers.r8"),
+					R9:    viper.GetInt("value.region.registers.r9"),
+					FW:    viper.GetInt("value.region.registers.fw"),
+					PC:    viper.GetInt("value.region.registers.pc"),
+				},
+				Program: ValueOffsetConfig{
+					Start: viper.GetInt("value.region.program.start"),
+					Bits:  viper.GetUint64("value.region.program.bits"),
+				},
+			},
+			Opcodes: ValueOpcodesConfig{
+				False:    viper.GetString("value.opcodes.false"),
+				And:      viper.GetString("value.opcodes.and"),
+				AandNotB: viper.GetString("value.opcodes.aandnotb"),
+				A:        viper.GetString("value.opcodes.a"),
+				NotAandB: viper.GetString("value.opcodes.notandb"),
+				B:        viper.GetString("value.opcodes.b"),
+				XOR:      viper.GetString("value.opcodes.xor"),
+				OR:       viper.GetString("value.opcodes.or"),
+				NOR:      viper.GetString("value.opcodes.nor"),
+				XNOR:     viper.GetString("value.opcodes.xnor"),
+				NOTB:     viper.GetString("value.opcodes.notb"),
+				IFBTHENA: viper.GetString("value.opcodes.ifbthena"),
+			},
+		},
+		Firmware: [FirmwareTypeBuild + 1][]uint16{
+			FirmwareTypeLearn: Cfg.compileAndAssign(
+				FirmwareTypeLearn, viper.GetString("programs.learn"),
+			),
+			FirmwareTypeBootloader: Cfg.compileAndAssign(
+				FirmwareTypeBootloader, viper.GetString("programs.bootloader")),
+			FirmwareTypeTombstone: Cfg.compileAndAssign(
+				FirmwareTypeTombstone, viper.GetString("programs.tombstone"),
+			),
+			FirmwareTypeViral: Cfg.compileAndAssign(
+				FirmwareTypeViral, viper.GetString("programs.viral"),
+			),
+			FirmwareTypeBuild: Cfg.compileAndAssign(
+				FirmwareTypeBuild, viper.GetString("programs.build"),
+			),
+		},
+	}
+
+	return Cfg
+}
+
 /*
 LoadFirmware compiles all programs from the config's `programs` section
 into Cfg.Firmware. Must be called after viper has loaded config.
 */
-func compileAndAssign(ft FirmwareType, src string) error {
+func (config *Config) compileAndAssign(ft FirmwareType, src string) []uint16 {
 	program, err := CompileFunc(src)
+
 	if err != nil {
-		return errnie.Error(err)
+		return nil
 	}
-	Cfg.Firmware[ft] = program
-	return nil
-}
 
-func LoadFirmware() error {
-	fwLearn := viper.GetViper().GetString("programs.learn")
-	fwBootloader := viper.GetViper().GetString("programs.bootloader")
-	fwTombstone := viper.GetViper().GetString("programs.tombstone")
-	fwViral := viper.GetViper().GetString("programs.viral")
-	fwBuild := viper.GetViper().GetString("programs.build")
-
-	if err := compileAndAssign(FirmwareTypeLearn, fwLearn); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeBootloader, fwBootloader); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeTombstone, fwTombstone); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeViral, fwViral); err != nil {
-		return err
-	}
-	if err := compileAndAssign(FirmwareTypeBuild, fwBuild); err != nil {
-		return err
-	}
-	return nil
-}
-
-/*
-Get is a type-safe wrapper around viper.GetViper().Get.
-*/
-func Get[T any](key string) (T, error) {
-	var zero T
-	raw := viper.GetViper().Get(key)
-	if raw == nil {
-		return zero, fmt.Errorf("config: missing key %q", key)
-	}
-	if v, ok := raw.(T); ok {
-		return v, nil
-	}
-	return zero, fmt.Errorf(
-		"config: key %q has type %T, want %s",
-		key, raw, cachedTypeName(reflect.TypeOf(zero)),
-	)
-}
-
-/*
-ConfigErrorType is the type of a config error.
-*/
-type ConfigErrorType string
-
-const (
-	ConfigErrorTypeMissingKey   ConfigErrorType = "missing_key"
-	ConfigErrorTypeInvalidValue ConfigErrorType = "invalid_value"
-	ConfigErrorMissingFirmware  ConfigErrorType = "missing_firmware"
-	ConfigErrorFirmwareCompile  ConfigErrorType = "firmware_compile"
-)
-
-/*
-ConfigError is an error that occurs when loading the config.
-*/
-type ConfigError struct {
-	Type ConfigErrorType
-	Key  string
-	Msg  string
-}
-
-/*
-NewConfigError creates a new config error.
-*/
-func NewConfigError(t ConfigErrorType, key, msg string) ConfigError {
-	return ConfigError{Type: t, Key: key, Msg: msg}
-}
-
-/*
-Error returns the error message.
-*/
-func (e ConfigError) Error() string {
-	return fmt.Sprintf("%s: %s: %s", e.Type, e.Key, e.Msg)
+	return program
 }

@@ -141,13 +141,6 @@ func initConfig() {
 		errnie.Warn(fmt.Sprintf("could not merge default logging config: %v", err))
 	}
 
-	// Always ensure the core value config is populated from whichever source we loaded
-	if err := core.LoadValueConfig(); err != nil {
-		initErr = fmt.Errorf("core.LoadValueConfig: %w", err)
-		errnie.Error(initErr)
-		return
-	}
-
 	if core.Cfg.TelemetryEnabled {
 		if sender, err := telemetry.NewUDPSender(core.Cfg.TelemetryEndpoint); err == nil {
 			telemetry.SetGlobal(sender)

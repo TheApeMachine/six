@@ -45,9 +45,8 @@ type entry struct {
 	value *primitive.Value
 }
 
-// kBucket is a fixed-capacity bucket of the K closest seen nodes
-// at a given prefix distance. It also owns an LSM for fast spatial queries
-// within its prefix range.
+// kBucket is a fixed-capacity bucket of the K closest seen nodes at a given
+// prefix distance. It also owns an LSM for tokenID → Value bitmap.
 type kBucket struct {
 	mu      sync.RWMutex
 	entries []entry // ordered: least-recently seen at front
@@ -72,7 +71,6 @@ func (b *kBucket) touch(id NodeID, value *primitive.Value) {
 		if e.id == id {
 			copy(b.entries[i:], b.entries[i+1:])
 			b.entries[len(b.entries)-1] = entry{id: id, value: value}
-			// LSM does not deduplicate; only insert on new entries (see below).
 			return
 		}
 	}
@@ -103,19 +101,13 @@ func (b *kBucket) closest(target NodeID, k int) []entry {
 	return out
 }
 
-// queryHamming returns Value frames from this bucket's LSM within
-// maxDistance Hamming distance of targetAffinity.
-func (b *kBucket) queryHamming(targetAffinity uint64, maxDistance int) [][primitive.Words]uint64 {
-	return b.lsm.QueryHamming(targetAffinity, maxDistance)
-}
-
 // RoutingTable is the Kademlia routing table: IDBits k-buckets indexed by
 // prefix distance from the local node ID.
 type RoutingTable struct {
-	mu          sync.RWMutex
-	local       NodeID
+	mu           sync.RWMutex
+	local        NodeID
 	bootstrapped bool
-	buckets     [IDBits]*kBucket
+	buckets      [IDBits]*kBucket
 }
 
 // NewRoutingTable creates a routing table for the given local NodeID.
@@ -186,18 +178,6 @@ func (rt *RoutingTable) FindClosest(target NodeID, k int) []entry {
 	return candidates
 }
 
-// QueryHamming walks all buckets and returns every Value frame within
-// maxDistance Hamming distance of targetAffinity. Does not break early —
-// Hamming distance and XOR prefix distance do not map 1:1 so all buckets
-// must be checked to avoid silently discarding valid matches.
-func (rt *RoutingTable) QueryHamming(targetAffinity uint64, maxDistance int) [][primitive.Words]uint64 {
-	var results [][primitive.Words]uint64
-	for i := range rt.buckets {
-		results = append(results, rt.buckets[i].queryHamming(targetAffinity, maxDistance)...)
-	}
-	return results
-}
-
 // FindNode is a stub for the iterative Kademlia FIND_NODE lookup.
 // In a single-node deployment this is equivalent to FindClosest.
 // TODO: Replace with network RPC queries to candidate nodes via UniConn.
@@ -212,8 +192,8 @@ func (rt *RoutingTable) Store(value *primitive.Value) {
 
 // tokenIDsFor extracts the non-zero token words from a Value's token region.
 func tokenIDsFor(value *primitive.Value) []uint64 {
-	tokenIndex := core.Cfg.TokenIndex
-	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	tokenIndex := core.Cfg.Value.Region.Tokens.Start
+	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	ids := make([]uint64, 0, tokenWords)
 	for i := 0; i < tokenWords; i++ {
 		if w := value[tokenIndex+i]; w != 0 {
@@ -225,5 +205,5 @@ func tokenIDsFor(value *primitive.Value) []uint64 {
 
 // affinityWordIndex returns the word index of the affinity register from config.
 func affinityWordIndex() int {
-	return core.Cfg.AffinityIndex
+	return core.Cfg.Value.Region.Affinity.Start
 }

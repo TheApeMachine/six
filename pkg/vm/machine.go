@@ -73,7 +73,7 @@ func (machine *Machine) start() (err error) {
 	scanner := bufio.NewScanner(machine.sources)
 	// Buffer sized to the token region capacity: TokenBits/8 bytes minus
 	// 3 reserved words (ValueID, PrevID, NextID) × 8 bytes each.
-	tokenBytes := int(core.Cfg.TokenBits/8) - 3*8
+	tokenBytes := int(core.Cfg.Value.Region.Tokens.Bits/8) - 3*8
 	scanner.Buffer(make([]byte, tokenBytes), tokenBytes)
 
 	for {
@@ -104,11 +104,23 @@ func (machine *Machine) start() (err error) {
 				continue
 			}
 
-			value.InstallLearnFirmware()
+			// README Signals: bitwise work runs on copies; cut points live in the
+			// workspace after the kernel returns. Canonical Value is not mutated.
+			var workSelf, workPartner primitive.Value
+			primitive.CopyFrame(&workSelf, value)
+			primitive.CopyFrame(&workPartner, value)
+			workSelf.InstallLearnFirmware()
 
-			machine.backend.UniversalBitwise(
-				unsafe.Pointer(value), unsafe.Pointer(value),
-			)
+			if err = machine.backend.UniversalBitwise(
+				unsafe.Pointer(&workSelf),
+				unsafe.Pointer(&workPartner),
+			); err != nil {
+				_ = errnie.Error(err)
+				continue
+			}
+
+			st := StructureFromWorkspace(StructureKindLearnCancel, value, &workSelf)
+			st.RegisterDefaultLSM()
 		}
 	}
 }
@@ -137,7 +149,7 @@ func WithSources(readers io.ReadCloser) machineOption {
 	return func(machine *Machine) {
 		machine.sources = io.LimitReader(io.MultiReader(
 			readers,
-		), int64(core.Cfg.ValueSize))
+		), int64(core.Cfg.Value.Bytes))
 	}
 }
 

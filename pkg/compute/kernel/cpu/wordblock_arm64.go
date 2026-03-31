@@ -32,8 +32,8 @@ func execWordBlock(dst, src []uint64, op uint8) {
 	switch op {
 	case 0x1: // AND
 		simdAnd(&dst[0], &src[0], n)
-	case 0x2: // src &^ dst (A ∧ ¬B)
-		simdSrcAndNotDst(&dst[0], &src[0], n)
+	case 0x2: // src &^ dst — NEON simdSrcAndNotDst used a broken invert; scalar matches backend.execute.
+		execWordBlockScalar(dst, src, op)
 	case 0x3: // COPY
 		copy(dst, src)
 	case 0x4: // dst &^= src (¬A ∧ B)

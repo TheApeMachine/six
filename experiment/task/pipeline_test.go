@@ -46,11 +46,6 @@ func TestMain(m *testing.M) {
 
 	errnie.InitLogger(loggingCfg)
 
-	if err := core.LoadValueConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed loading value config: %v\n", err)
-		os.Exit(1)
-	}
-
 	// Same wiring as cmd/root: Observer.Emit / EmitFrame go to the global emitter.
 	// With `go run . viz --listen`, UDP must match config telemetry.udp_endpoint
 	// (default HTTP :8257 → UDP :8258).

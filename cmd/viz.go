@@ -119,7 +119,7 @@ accepting graph events via UDP from external test runs.`,
 				}
 				defer value.Close()
 
-				idx := core.Cfg.StateIndex
+				idx := core.Cfg.Value.Region.State.Index
 				if idx >= 0 && idx < len(value) {
 					value[idx] = 1
 				}
