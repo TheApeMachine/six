@@ -157,6 +157,7 @@ func syncTelemetryFromViper() {
 // syncCfgFromVCfg copies unmarshaled layout from vCfg into the global Cfg
 // after LoadValueConfig unmarshals vCfg from config.
 func syncCfgFromVCfg() {
+	Cfg.ValueSize = 1024
 	Cfg.StateIndex = vCfg.Region.State.Index
 	Cfg.StateSequence = vCfg.Region.State.Sequence
 	Cfg.StateAccumulator = vCfg.Region.State.Accumulator
@@ -210,38 +211,38 @@ Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
+	ValueSize        int
 	StateIndex       int
 	StateSequence    int
 	StateAccumulator int
-	// StateBits is the total bit span covering Index, Sequence, and Accumulator words (multiple of 64).
-	StateBits     int
-	TokenIndex    int
-	TokenBits     uint64
-	ValueID       int
-	PreviousID    int
-	NextID        int
-	AffinityIndex int
-	AffinityBits  uint64
-	ProgramIndex  int
-	ProgramBits   uint64
-	MaxPC         int
-	R0            int
-	R1            int
-	R2            int
-	R3            int
-	R4            int
-	R5            int
-	R6            int
-	R7            int
-	R8            int
-	R9            int
-	FW            int
-	RegPC         int
+	StateBits        int
+	TokenIndex       int
+	TokenBits        uint64
+	ValueID          int
+	PreviousID       int
+	NextID           int
+	AffinityIndex    int
+	AffinityBits     uint64
+	ProgramIndex     int
+	ProgramBits      uint64
+	MaxPC            int
+	R0               int
+	R1               int
+	R2               int
+	R3               int
+	R4               int
+	R5               int
+	R6               int
+	R7               int
+	R8               int
+	R9               int
+	FW               int
+	RegPC            int
 
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
 	// assuming the host enum ordinals are stable.
-	Firmware [FirmwareTypeBuild + 1][]uint32
+	Firmware [FirmwareTypeBuild + 1][]uint16
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
 	// When false, all Emit calls resolve to a zero-cost NoopEmitter.

@@ -375,7 +375,7 @@ func (server *Server) handlePromptCommand(msg string) {
 	resultText := string(result)
 	if len(result) == primitive.ByteSize {
 		if value := primitive.BytesToValue(result); value != nil {
-			resultText = primitive.DecodeTokensToText(value)
+			resultText = value.String()
 			_ = value.Close()
 		}
 	}

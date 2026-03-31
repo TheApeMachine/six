@@ -129,7 +129,7 @@ func TestUDPMulticastCloseOnBound(t *testing.T) {
 		group := "224.0.0.251:9995"
 		udp := NewUDPMulticast(UDPMulticastWithDialer(group))
 		gc.So(udp.err, gc.ShouldBeNil)
-		gc.So(udp.conn, gc.ShouldNotBeNil)
+		gc.So(udp.pub, gc.ShouldNotBeNil)
 
 		gc.Convey("Close should release the socket without error", func() {
 			gc.So(udp.Close(), gc.ShouldBeNil)

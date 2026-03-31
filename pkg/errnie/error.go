@@ -5,72 +5,50 @@ import (
 	"errors"
 )
 
+type ErrnieErrorType string
+
 type ErrnieError struct {
-	Msg           string
-	Err           error
-	Op            string
-	Keyvals       []any
-	Reschedulable bool
-	Ctx           context.Context
+	ctx           context.Context
+	wrapped       error
+	keyvals       []any
+	reschedulable bool
+}
+
+func NewErrnieError(err error, keyvals ...any) *ErrnieError {
+	if err == nil {
+		return nil
+	}
+
+	return &ErrnieError{
+		wrapped: err,
+		keyvals: keyvals,
+	}
 }
 
 func (err *ErrnieError) Error() string {
-	if err.Op != "" {
-		return err.Op + ": " + err.Msg
-	}
-
-	return err.Msg
+	return err.wrapped.Error()
 }
 
-func Wrap(err error, keyvals ...any) *ErrnieError {
-	if err == nil {
-		return nil
-	}
-	return &ErrnieError{
-		Msg:     err.Error(),
-		Err:     err,
-		Op:      "",
-		Keyvals: keyvals,
-	}
-}
-
-func (err *ErrnieError) WithContext(ctx context.Context) *ErrnieError {
-	if err == nil {
-		return nil
-	}
-	clone := *err
-	clone.Ctx = ctx
-	return &clone
-}
-
-func (err *ErrnieError) WithReschedule() *ErrnieError {
-	if err == nil {
-		return nil
-	}
-	clone := *err
-	clone.Reschedulable = true
-	return &clone
+func (err *ErrnieError) Join(werr error) *ErrnieError {
+	errors.Join(err.wrapped, werr)
+	return err
 }
 
 func (err *ErrnieError) Unwrap() error {
 	if err == nil {
 		return nil
 	}
-	return err.Err
+
+	return err.wrapped
 }
 
 func IsReschedulable(err error) bool {
-	var e *ErrnieError
-	if errors.As(err, &e) {
-		return e.Reschedulable
+	if e, ok := err.(*ErrnieError); ok {
+		return e.reschedulable
 	}
 	return false
 }
 
 func HasContext(err error) context.Context {
-	var e *ErrnieError
-	if errors.As(err, &e) {
-		return e.Ctx
-	}
-	return nil
+	return nil // placeholder, not implemented cleanly in this branch yet
 }

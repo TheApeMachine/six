@@ -9,10 +9,12 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 )
@@ -139,7 +141,7 @@ func NewBackend(opts ...BackendOption) *Backend {
 
 	errnie.Info("compute.backend: CPU substrate registered")
 	backend.hardware = append(backend.hardware, cpu.NewBackend(
-		cpu.BackendWithObserver(backend.observer),
+		backend.ctx,
 	))
 
 	if err := validate.Require(map[string]any{
@@ -254,8 +256,9 @@ func (backend *Backend) executeBatch(batch []bitwiseJob) {
 		return
 	}
 
-	hw := backend.nextSubstrate()
+	hw := backend.selectSubstrate(batch)
 	if len(batch) == 1 {
+		firmware.PreloadFirmwareBatch(batch[0].a, 1)
 		err := hw.UniversalBitwise(batch[0].a, batch[0].b, 1)
 		batch[0].done <- err
 		return
@@ -276,6 +279,8 @@ func (backend *Backend) executeBatch(batch []bitwiseJob) {
 		)
 	}
 
+	firmware.PreloadFirmwareBatch(unsafe.Pointer(&buf.flatA[0]), len(batch))
+
 	err := hw.UniversalBitwise(
 		unsafe.Pointer(&buf.flatA[0]),
 		unsafe.Pointer(&buf.flatB[0]),
@@ -294,6 +299,54 @@ func (backend *Backend) executeBatch(batch []bitwiseJob) {
 		)
 		job.done <- err
 	}
+}
+
+func (backend *Backend) selectSubstrate(batch []bitwiseJob) kernel.Substrate {
+	if cpuHW := backend.cpuSubstrate(); cpuHW != nil {
+		for _, job := range batch {
+			if frameRequiresProgramExecution(job.a) {
+				return cpuHW
+			}
+		}
+	}
+	return backend.nextSubstrate()
+}
+
+func (backend *Backend) cpuSubstrate() kernel.Substrate {
+	for _, hw := range backend.hardware {
+		if _, ok := hw.(*cpu.Backend); ok {
+			return hw
+		}
+	}
+	return nil
+}
+
+func frameRequiresProgramExecution(ptr unsafe.Pointer) bool {
+	if ptr == nil {
+		return false
+	}
+	frame := unsafe.Slice((*uint64)(ptr), frameWords)
+	if core.Cfg == nil {
+		return false
+	}
+	if frame[core.Cfg.FW] > 0 {
+		return true
+	}
+	startWord := core.Cfg.ProgramIndex
+	if startWord < 0 || startWord >= len(frame) {
+		return false
+	}
+	progWords := int((core.Cfg.ProgramBits + 63) / 64)
+	endWord := startWord + progWords
+	if endWord > len(frame) {
+		endWord = len(frame)
+	}
+	for i := startWord; i < endWord; i++ {
+		if frame[i] != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 func (backend *Backend) nextSubstrate() kernel.Substrate {

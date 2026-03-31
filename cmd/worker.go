@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/distributed"
 )
 
@@ -50,6 +51,16 @@ var workerCmd = &cobra.Command{
 		shardBits := uint8(workerShardBits)
 		shardMask := workerShardMask & 0x0000FFFFFFFFFFFF
 
+		var (
+			worker *distributed.Worker
+			err    error
+		)
+
+		p, err := compute.NewPool()
+		if err != nil {
+			return fmt.Errorf("failed to create compute pool: %w", err)
+		}
+
 		discovery := distributed.NewDiscovery(
 			ctx,
 			distributed.DiscoveryWithNodeID(workerNodeID),
@@ -62,10 +73,6 @@ var workerCmd = &cobra.Command{
 			distributed.DiscoveryWithAffinityShard(shardMask, shardBits),
 		)
 
-		var (
-			worker *distributed.Worker
-			err    error
-		)
 		if shardBits > 0 {
 			worker, err = distributed.NewWorker(
 				ctx,
@@ -74,6 +81,7 @@ var workerCmd = &cobra.Command{
 				distributed.WorkerWithCapacity(max(1, runtime.NumCPU()-1)),
 				distributed.WorkerWithDiscovery(discovery),
 				distributed.WorkerWithAffinityShard(shardMask, shardBits),
+				distributed.WorkerWithPool(p),
 			)
 		} else if workerAutoShardBits > 0 {
 			worker, err = distributed.NewWorker(
@@ -83,6 +91,7 @@ var workerCmd = &cobra.Command{
 				distributed.WorkerWithCapacity(max(1, runtime.NumCPU()-1)),
 				distributed.WorkerWithDiscovery(discovery),
 				distributed.WorkerWithAutoAffinityShard(uint8(workerAutoShardBits)),
+				distributed.WorkerWithPool(p),
 			)
 		} else {
 			worker, err = distributed.NewWorker(
@@ -91,6 +100,7 @@ var workerCmd = &cobra.Command{
 				distributed.WorkerWithAdvertiseAddr(workerAdvertise),
 				distributed.WorkerWithCapacity(max(1, runtime.NumCPU()-1)),
 				distributed.WorkerWithDiscovery(discovery),
+				distributed.WorkerWithPool(p),
 			)
 		}
 		if err != nil {

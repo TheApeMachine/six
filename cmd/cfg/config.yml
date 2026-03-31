@@ -104,590 +104,237 @@ value:
 
 
 # Substrate Firmware Programs
-# Format: src dest gate (Reverse Polish Notation, 2-address)
 #
-# Operands:
-#   number    = immediate value (0-16383)
-#   rN        = register (r0-r9, pc, fw)
+# ISA (16-bit instructions, 4 per uint64 word):
 #
-# Registers (triple model):
-#   r0    = context A (0=self, 1=partner)
-#   r1    = start A
-#   r2    = end A
-#   r3    = context B (0=self, 1=partner)
-#   r4    = start B
-#   r5    = end B
-#   r6-r9 = scratch registers
-#   fw    = firmware selector
-#   pc    = program counter
+#   HALT                      — stop execution (instr == 0)
+#   MEM LOAD  reg ctx  word   — reg = frame[ctx][word]  (ctx: c0=self, c1=partner)
+#   MEM STORE reg      word   — self[word] = reg
+#   MEM IMM   reg      value  — reg = immediate (0-1023)
+#   ALU op    reg ctx  word   — self[word] = op(reg, frame[ctx][word])
+#   CTL SKIPZ  reg            — skip next if reg == 0
+#   CTL SKIPNZ reg            — skip next if reg != 0
+#   CTL SHL    reg            — circular left shift reg by 1
+#   CTL SHR    reg            — circular right shift reg by 1
 #
-# Gates: all 16 two-input boolean truth tables (0000-1111)
-#   0000=FALSE  0001=AND   0010=A∧¬B  0011=A
-#   0100=¬A∧B   0101=B     0110=XOR   0111=OR
-#   1000=NOR    1001=XNOR  1010=¬B    1011=B→A
-#   1100=¬A     1101=A→B   1110=NAND  1111=TRUE
+# Registers: r0 r1 r2 r3  (r0 is primary scratch)
+# Frame layout: tokens[0-56]  id=57 prev=58 next=59
+#               state_index=60 state_seq=61 state_acc=62
+#               affinity=63  r0=64 r1=65 r2=66 r3=67
+#               fw=74 pc=75  program[76-127]
 #
-# Control flow:
-#   Directly manipulate the PC register (word 78) to branch.
-#   Write a line number to PC to jump. 
-#   Loop: Write target line to PC. Exit loop: Write currentpc + 1 to PC.
+# ALU opcodes: FALSE AND COPY XOR OR TRUE POPCOUNT (and numeric 0x0-0xF)
 
 programs:
-  # Evaluate checks if the generated instruction found a feature (r6 > 0).
-  # If yes: fw=3 (Viral). If no: Frustration++, if timeout fw=2 (Tombstone), else fw=4 (Build).
+  # learn: XOR self token words [0-56] with partner using DJNZ loop.
+  # r1=counter(57), r2=word index (indirect address), r3=1 (increment).
+  # Per iteration: load partner[r2], load self[r2], XOR via scratch[69], store back indirect.
+  # After execution, self[0-56] = XOR(self, partner) — the cancel signal map.
   learn: |
-    0     r0  0011 # Advance StateSequence as a geometric position signal
-    4544  r1  0011
-    4545  r2  0011
-    0     r3  0011
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0000
+    MEM IMM r1 57
+    MEM IMM r2 0
+    MEM STORE r2 68
+    MEM IMM r3 1
+    MEM ILOAD r0 c1 r2
+    MEM ILOAD r3 c0 r2
+    MEM STORE r3 69
+    ALU XOR r0 c0 69
+    MEM LOAD r3 c0 69
+    MEM ISTORE r3 r2
+    ALU ADD r3 c0 68
+    MEM LOAD r2 c0 68
+    CTL DJNZ r1 -8
+    HALT
 
-    0     r0  0011 # feedback ^= bit0 (staged in r7 bit0)
-    3904  r1  0011
-    3905  r2  0011
-    0     r3  0011
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0011
-
-    0     r0  0011 # feedback ^= bit1
-    3905  r1  0011
-    3906  r2  0011
-    0     r3  0011
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0110
-
-    0     r0  0011 # feedback ^= bit3
-    3907  r1  0011
-    3908  r2  0011
-    0     r3  0011
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0110
-
-    0     r0  0011 # feedback ^= bit4
-    3908  r1  0011
-    3909  r2  0011
-    0     r3  0011
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0110
-
-    0     r0  0011 # rotate remaining bits right by one slot
-    3905  r1  0011
-    3968  r2  0011
-    0     r3  0011
-    3904  r4  0011
-    3967  r5  0011
-    r0    r3  0011
-
-    0     r0  0011 # install staged feedback into the top bit
-    3967  r1  0011
-    3968  r2  0011
-    0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
-    r0    r3  0000
-
-    0     r0  0011
-    4544  r1  0011
-    4545  r2  0011
-    0     r3  0011
-    3967  r4  0011
-    3968  r5  0011
-    r0    r3  0011
-
-    0     r0  0011 # Weave the evolved sequence into the delta sketch
-    3904  r1  0011
-    3968  r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    4480  r1  0011
-    4543  r2  0011
-    0     r3  0011
-    4481  r4  0011
-    4544  r5  0011
-    r0    r3  0111 # OR Cascade. Bit 4543 is 1 if r6 != 0.
-
-    0     r0  0011
-    4543  r1  0011
-    4544  r2  0011
-    0     r3  0011
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0011 # Seed r7
-
-    0     r0  0011
-    4544  r1  0011
-    4607  r2  0011
-    0     r3  0011
-    4545  r4  0011
-    4608  r5  0011
-    r0    r3  0111 # r7 = Success Mask
-
-    0     r0  0011
-    4544  r1  0011
-    4608  r2  0011
-    0     r3  0011
-    4672  r4  0011
-    4736  r5  0011
-    r0    r3  1100 # r9 = Fail Mask
-
-    0     r0  0011 # Shift StateIndex Left
-    3840  r1  0011
-    3903  r2  0011
-    0     r3  0011 # r8
-    4609  r4  0011
-    4672  r5  0011
-    r0    r3  0011 
-
-    1     r8  0111 # Insert 1 at bit 0
-
-    0     r0  0011 # r9
-    4672  r1  0011
-    4736  r2  0011
-    0     r3  0011 # r8
-    4608  r4  0011
-    4672  r5  0011
-    r0    r3  0001 # r8 &= Fail Mask
-
-    0     r0  0011 # r7
-    4544  r1  0011
-    4608  r2  0011
-    0     r3  0011 # StateIndex
-    3840  r4  0011
-    3904  r5  0011
-    r0    r3  0001 # StateIndex &= Success Mask
-
-    0     r0  0011 # r8
-    4608  r1  0011
-    4672  r2  0011
-    0     r3  0011 # StateIndex
-    3840  r4  0011
-    3904  r5  0011
-    r0    r3  0111 # StateIndex |= r8
-
-    0     r0  0011 # Check Timeout
-    3903  r1  0011
-    3904  r2  0011
-    0     r3  0011 # r8 (Timeout Mask)
-    4608  r4  0011
-    4609  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    4608  r1  0011
-    4671  r2  0011
-    0     r3  0011
-    4609  r4  0011
-    4672  r5  0011
-    r0    r3  0111 # r8 is Dead Mask
-
-    0     r0  0011 # Rebuild Fail Mask into r9
-    4544  r1  0011
-    4608  r2  0011
-    0     r3  0011 
-    4672  r4  0011
-    4736  r5  0011
-    r0    r3  1100 
-
-    0     r3  0011 # Clear FW
-    4736  r4  0011
-    4800  r5  0011
-    r0    r3  0000
-
-    3     r6  0011 # Viral
-    0     r0  0011 # r7
-    4544  r1  0011
-    4608  r2  0011
-    0     r3  0011 # r6
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0001 
-    
-    0     r0  0011 # r6
-    4480  r1  0011
-    4544  r2  0011
-    0     r3  0011 # fw
-    4736  r4  0011
-    4800  r5  0011
-    r0    r3  0111 
-
-    0     r0  0011 # r9 (Fail)
-    4672  r1  0011
-    4736  r2  0011
-    0     r3  0011 # r8 (Dead)
-    4608  r4  0011
-    4672  r5  0011
-    r0    r3  0001 # r8 = Dead & Fail
-    
-    2     r6  0011 # Tombstone
-    0     r0  0011 # r8
-    4608  r1  0011
-    4672  r2  0011
-    0     r3  0011 # r6
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0001 
-
-    0     r0  0011 # r6
-    4480  r1  0011
-    4544  r2  0011
-    0     r3  0011 # fw
-    4736  r4  0011
-    4800  r5  0011
-    r0    r3  0111 
-
-    0     r0  0011 # r8 (Dead & Fail)
-    4608  r1  0011
-    4672  r2  0011
-    0     r3  0011 # r9 (Fail)
-    4672  r4  0011
-    4736  r5  0011
-    r0    r3  0100 # r9 = Fail & Not Dead
-
-    4     r6  0011 # Build
-    0     r0  0011 # r9
-    4672  r1  0011
-    4736  r2  0011
-    0     r3  0011 # r6
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0001 
-
-    0     r0  0011 # r6
-    4480  r1  0011
-    4544  r2  0011
-    0     r3  0011 # fw
-    4736  r4  0011
-    4800  r5  0011
-    r0    r3  0111 
-
-    104   pc  0011 # Halt
-
+  # bootloader: initialize registers to zero and set fw=1 (learn) for next execution.
   bootloader: |
-    0     r0  0011 # Clear Affinity
-    4032  r1  0011
-    4096  r2  0011
-    0     r3  0011
-    4032  r4  0011
-    4096  r5  0011
-    r0    r3  0000
+    MEM IMM r0 1
+    MEM STORE r0 74
+    HALT
 
-    0     r0  0011 # Project dispersed token bytes into the 48-bit routing prefix
-    32    r1  0011
-    40    r2  0011
-    0     r3  0011
-    4072  r4  0011
-    4080  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    480   r1  0011
-    488   r2  0011
-    0     r3  0011
-    4064  r4  0011
-    4072  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    928   r1  0011
-    936   r2  0011
-    0     r3  0011
-    4056  r4  0011
-    4064  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    1376  r1  0011
-    1384  r2  0011
-    0     r3  0011
-    4048  r4  0011
-    4056  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    1824  r1  0011
-    1832  r2  0011
-    0     r3  0011
-    4040  r4  0011
-    4048  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    2272  r1  0011
-    2280  r2  0011
-    0     r3  0011
-    4032  r4  0011
-    4040  r5  0011
-    r0    r3  0011
-
-    0     r0  0011 # Clear StateSequence
-    3904  r1  0011
-    3968  r2  0011
-    0     r3  0011
-    3904  r4  0011
-    3968  r5  0011
-    r0    r3  0000
-
-    0     r0  0011 # Seed StateSequence from leading token span
-    0     r1  0011
-    64    r2  0011
-    0     r3  0011
-    3904  r4  0011
-    3968  r5  0011
-    r0    r3  0110
-
-    0     r0  0011 # Clear StateAccumulator
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0000
-
-    0     r0  0011 # Seed Accumulator with XOR delta sketch
-    0     r1  0011
-    64    r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    448   r1  0011
-    512   r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    5120  r1  0011
-    8192  r2  0011
-    0     r3  0011
-    5120  r4  0011
-    8192  r5  0011
-    r0    r3  0000 
-
-    0     r0  0011 # Clear StateIndex
-    3840  r1  0011
-    3904  r2  0011
-    0     r3  0011
-    3840  r4  0011
-    3904  r5  0011
-    r0    r3  0000
-
-    4     fw  0011 # Sequence to Build
-    104   pc  0011 # Halt
-
+  # tombstone: zero token words [0-54] and affinity word [63].
+  # The Go substrate zeros the program region after execution completes.
   tombstone: |
-    0     r0  0011
-    5120  r1  0011 
-    8192  r2  0011 
-    1     r3  0011 
-    5120  r4  0011
-    8192  r5  0011
-    r0    r3  0011 
+    ALU FALSE r0 c0 0
+    ALU FALSE r0 c0 1
+    ALU FALSE r0 c0 2
+    ALU FALSE r0 c0 3
+    ALU FALSE r0 c0 4
+    ALU FALSE r0 c0 5
+    ALU FALSE r0 c0 6
+    ALU FALSE r0 c0 7
+    ALU FALSE r0 c0 8
+    ALU FALSE r0 c0 9
+    ALU FALSE r0 c0 10
+    ALU FALSE r0 c0 11
+    ALU FALSE r0 c0 12
+    ALU FALSE r0 c0 13
+    ALU FALSE r0 c0 14
+    ALU FALSE r0 c0 15
+    ALU FALSE r0 c0 16
+    ALU FALSE r0 c0 17
+    ALU FALSE r0 c0 18
+    ALU FALSE r0 c0 19
+    ALU FALSE r0 c0 20
+    ALU FALSE r0 c0 21
+    ALU FALSE r0 c0 22
+    ALU FALSE r0 c0 23
+    ALU FALSE r0 c0 24
+    ALU FALSE r0 c0 25
+    ALU FALSE r0 c0 26
+    ALU FALSE r0 c0 27
+    ALU FALSE r0 c0 28
+    ALU FALSE r0 c0 29
+    ALU FALSE r0 c0 30
+    ALU FALSE r0 c0 31
+    ALU FALSE r0 c0 32
+    ALU FALSE r0 c0 33
+    ALU FALSE r0 c0 34
+    ALU FALSE r0 c0 35
+    ALU FALSE r0 c0 36
+    ALU FALSE r0 c0 37
+    ALU FALSE r0 c0 38
+    ALU FALSE r0 c0 39
+    ALU FALSE r0 c0 40
+    ALU FALSE r0 c0 41
+    ALU FALSE r0 c0 42
+    ALU FALSE r0 c0 43
+    ALU FALSE r0 c0 44
+    ALU FALSE r0 c0 45
+    ALU FALSE r0 c0 46
+    ALU FALSE r0 c0 47
+    ALU FALSE r0 c0 48
+    ALU FALSE r0 c0 49
+    ALU FALSE r0 c0 50
+    ALU FALSE r0 c0 51
+    ALU FALSE r0 c0 52
+    ALU FALSE r0 c0 53
+    ALU FALSE r0 c0 54
+    ALU FALSE r0 c0 63
+    HALT
 
-    0     r0  0011
-    3648  r1  0011 
-    3712  r2  0011
-    0     r3  0011 
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0011
-
-    1     r0  0011
-    3712  r1  0011
-    3776  r2  0011
-    0     r3  0011 
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  1001
-
-    0     r0  0011
-    4480  r1  0011
-    4543  r2  0011
-    0     r3  0011
-    4481  r4  0011
-    4544  r5  0011
-    r0    r3  0001
-
-    0     r0  0011
-    4543  r1  0011
-    4544  r2  0011
-    0     r3  0011 
-    4544  r4  0011
-    4545  r5  0011
-    r0    r3  0011
-
-    0     r0  0011
-    4544  r1  0011
-    4607  r2  0011
-    0     r3  0011
-    4545  r4  0011
-    4608  r5  0011
-    r0    r3  0111
-
-    0     r0  0011
-    4544  r1  0011
-    4608  r2  0011
-    0     r3  0011 
-    4608  r4  0011
-    4672  r5  0011
-    r0    r3  1100
-
-    0     r0  0011
-    4608  r1  0011
-    4672  r2  0011
-    1     r3  0011 
-    3712  r4  0011
-    3776  r5  0011
-    r0    r3  0001
-
-    104   pc  0011 # Halt
-
+  # viral: deprecated — Values no longer fold into each other.
   viral: |
-    0     r0  0011 # Copy Program
-    5120  r1  0011
-    8192  r2  0011
-    1     r3  0011
-    5120  r4  0011
-    8192  r5  0011
-    r0    r3  0011
+    HALT
 
-    1     r8  0011 # Learn fw=1
-    0     r0  0011
-    4608  r1  0011
-    4672  r2  0011
-    1     r3  0011 # Partner
-    4736  r4  0011
-    4800  r5  0011
-    r0    r3  0011
-
-    1     r3  0011 # Clear Partner PC
-    4800  r4  0011
-    4864  r5  0011
-    0     r0  0000
-    r0    r3  0000
-
-    0     r0  0011
-    4608  r1  0011
-    4672  r2  0011
-    0     r3  0011 # Self
-    4736  r4  0011
-    4800  r5  0011
-    r0    r3  0011
-
-    104   pc  0011 # Halt
-
-  # Build explicitly constructs a logic gate from Partner's tokens, targeting r6.
+  # build: AND self token words [0-56] with partner token words [0-56].
+  # After execution, self[0-56] contains AND(self,partner) — the merge signal map.
+  # The Go substrate scans for the longest one-run to find the convergence point.
   build: |
-    0     r0  0011 # Clear r6 feature register
-    4480  r1  0011
-    4544  r2  0011
-    0     r3  0011
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0000
-
-    0     r0  0011 # Seed r6 with self affinity
-    4032  r1  0011
-    4096  r2  0011
-    0     r3  0011
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0011
-
-    1     r0  0011 # r6 = self affinity & partner affinity
-    4032  r1  0011
-    4096  r2  0011
-    0     r3  0011
-    4480  r4  0011
-    4544  r5  0011
-    r0    r3  0001
-
-    0     r0  0011 # Clear StateAccumulator delta sketch
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0000
-
-    0     r0  0011 # Seed StateAccumulator with self affinity
-    4032  r1  0011
-    4096  r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0011
-
-    1     r0  0011 # StateAccumulator = self affinity XOR partner affinity
-    4032  r1  0011
-    4096  r2  0011
-    0     r3  0011
-    3968  r4  0011
-    4032  r5  0011
-    r0    r3  0110
-
-    0     r0  0011 # Apply predicted XOR-delta across locality anchor spans
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    0     r4  0011
-    64    r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    448   r4  0011
-    512   r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    896   r4  0011
-    960   r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    1344  r4  0011
-    1408  r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    1792  r4  0011
-    1856  r5  0011
-    r0    r3  0110
-
-    0     r0  0011
-    3968  r1  0011
-    4032  r2  0011
-    0     r3  0011
-    2240  r4  0011
-    2304  r5  0011
-    r0    r3  0110
-
-    1     fw  0011 # Next state: Learn
-    104   pc  0011 # Halt
+    MEM LOAD r0 c1 0
+    ALU AND r0 c0 0
+    MEM LOAD r0 c1 1
+    ALU AND r0 c0 1
+    MEM LOAD r0 c1 2
+    ALU AND r0 c0 2
+    MEM LOAD r0 c1 3
+    ALU AND r0 c0 3
+    MEM LOAD r0 c1 4
+    ALU AND r0 c0 4
+    MEM LOAD r0 c1 5
+    ALU AND r0 c0 5
+    MEM LOAD r0 c1 6
+    ALU AND r0 c0 6
+    MEM LOAD r0 c1 7
+    ALU AND r0 c0 7
+    MEM LOAD r0 c1 8
+    ALU AND r0 c0 8
+    MEM LOAD r0 c1 9
+    ALU AND r0 c0 9
+    MEM LOAD r0 c1 10
+    ALU AND r0 c0 10
+    MEM LOAD r0 c1 11
+    ALU AND r0 c0 11
+    MEM LOAD r0 c1 12
+    ALU AND r0 c0 12
+    MEM LOAD r0 c1 13
+    ALU AND r0 c0 13
+    MEM LOAD r0 c1 14
+    ALU AND r0 c0 14
+    MEM LOAD r0 c1 15
+    ALU AND r0 c0 15
+    MEM LOAD r0 c1 16
+    ALU AND r0 c0 16
+    MEM LOAD r0 c1 17
+    ALU AND r0 c0 17
+    MEM LOAD r0 c1 18
+    ALU AND r0 c0 18
+    MEM LOAD r0 c1 19
+    ALU AND r0 c0 19
+    MEM LOAD r0 c1 20
+    ALU AND r0 c0 20
+    MEM LOAD r0 c1 21
+    ALU AND r0 c0 21
+    MEM LOAD r0 c1 22
+    ALU AND r0 c0 22
+    MEM LOAD r0 c1 23
+    ALU AND r0 c0 23
+    MEM LOAD r0 c1 24
+    ALU AND r0 c0 24
+    MEM LOAD r0 c1 25
+    ALU AND r0 c0 25
+    MEM LOAD r0 c1 26
+    ALU AND r0 c0 26
+    MEM LOAD r0 c1 27
+    ALU AND r0 c0 27
+    MEM LOAD r0 c1 28
+    ALU AND r0 c0 28
+    MEM LOAD r0 c1 29
+    ALU AND r0 c0 29
+    MEM LOAD r0 c1 30
+    ALU AND r0 c0 30
+    MEM LOAD r0 c1 31
+    ALU AND r0 c0 31
+    MEM LOAD r0 c1 32
+    ALU AND r0 c0 32
+    MEM LOAD r0 c1 33
+    ALU AND r0 c0 33
+    MEM LOAD r0 c1 34
+    ALU AND r0 c0 34
+    MEM LOAD r0 c1 35
+    ALU AND r0 c0 35
+    MEM LOAD r0 c1 36
+    ALU AND r0 c0 36
+    MEM LOAD r0 c1 37
+    ALU AND r0 c0 37
+    MEM LOAD r0 c1 38
+    ALU AND r0 c0 38
+    MEM LOAD r0 c1 39
+    ALU AND r0 c0 39
+    MEM LOAD r0 c1 40
+    ALU AND r0 c0 40
+    MEM LOAD r0 c1 41
+    ALU AND r0 c0 41
+    MEM LOAD r0 c1 42
+    ALU AND r0 c0 42
+    MEM LOAD r0 c1 43
+    ALU AND r0 c0 43
+    MEM LOAD r0 c1 44
+    ALU AND r0 c0 44
+    MEM LOAD r0 c1 45
+    ALU AND r0 c0 45
+    MEM LOAD r0 c1 46
+    ALU AND r0 c0 46
+    MEM LOAD r0 c1 47
+    ALU AND r0 c0 47
+    MEM LOAD r0 c1 48
+    ALU AND r0 c0 48
+    MEM LOAD r0 c1 49
+    ALU AND r0 c0 49
+    MEM LOAD r0 c1 50
+    ALU AND r0 c0 50
+    MEM LOAD r0 c1 51
+    ALU AND r0 c0 51
+    MEM LOAD r0 c1 52
+    ALU AND r0 c0 52
+    MEM LOAD r0 c1 53
+    ALU AND r0 c0 53
+    MEM LOAD r0 c1 54
+    ALU AND r0 c0 54
+    MEM LOAD r0 c1 55
+    ALU AND r0 c0 55
+    MEM LOAD r0 c1 56
+    ALU AND r0 c0 56
+    HALT
 
 

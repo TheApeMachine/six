@@ -1,21 +1,44 @@
 package network
 
-import "fmt"
+import (
+	"errors"
+	"fmt"
 
-// TransportError wraps a network transport failure with the protocol layer,
-// operation, optional address, and underlying cause.
+	"github.com/theapemachine/six/pkg/errnie"
+)
+
+type NetworkErrorType string
+
+const (
+	ErrTransportFailure NetworkErrorType = "transport failure"
+)
+
+type NetworkError struct {
+	*errnie.ErrnieError
+	Type NetworkErrorType
+}
+
+func NewNetworkError(
+	errType NetworkErrorType, keyvals ...any,
+) *NetworkError {
+	return &NetworkError{
+		ErrnieError: errnie.NewErrnieError(
+			errors.New(string(errType)),
+			keyvals...,
+		),
+		Type: errType,
+	}
+}
+
+// TransportError is a structured error for transport-layer failures.
 type TransportError struct {
-	Layer string // "quic", "udp", "ipc", "uniconn"
-	Op    string // "read", "write", "accept", "dial", "close"
-	Addr  string // remote or local address (when known)
-	Err   error  // underlying cause (sentinel or OS-level)
+	Layer string
+	Op    string
+	Err   error
 }
 
 func (e *TransportError) Error() string {
-	if e.Addr != "" {
-		return fmt.Sprintf("%s: %s [%s]: %v", e.Layer, e.Op, e.Addr, e.Err)
-	}
-	return fmt.Sprintf("%s: %s: %v", e.Layer, e.Op, e.Err)
+	return fmt.Sprintf("%s %s: %v", e.Layer, e.Op, e.Err)
 }
 
 func (e *TransportError) Unwrap() error { return e.Err }

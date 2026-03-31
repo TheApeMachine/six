@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"io"
+	"math"
 	"net/http"
 	"runtime"
 	"strings"
@@ -22,6 +23,12 @@ import (
 
 type workerOption func(*Worker)
 
+func WorkerWithPool(p *compute.Pool) workerOption {
+	return func(w *Worker) {
+		w.pool = p
+	}
+}
+
 type Worker struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -35,6 +42,7 @@ type Worker struct {
 	discovery     *Discovery
 	server        *http.Server
 	path          string
+	pool          *compute.Pool
 }
 
 func NewWorker(ctx context.Context, opts ...workerOption) (*Worker, error) {
@@ -218,6 +226,17 @@ func (w *Worker) refreshAdvertisedCapacity(inFlight int64) {
 	if capacity < 0 {
 		capacity = 0
 	}
+
+	// Apply exponential decay based on local pool saturation
+	if w.pool != nil {
+		saturationTotal := float64(w.pool.SaturationEvents())
+		if saturationTotal > 0 {
+			// Mathematical curve for exponential decay to gracefully shift traffic
+			decayFactor := math.Exp(-0.1 * saturationTotal)
+			capacity = int(float64(capacity) * decayFactor)
+		}
+	}
+
 	w.discovery.SetCapacity(capacity)
 }
 

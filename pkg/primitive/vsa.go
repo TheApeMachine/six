@@ -1,0 +1,277 @@
+package primitive
+
+import (
+	"math/bits"
+	"math/rand"
+	"sync"
+
+	"github.com/theapemachine/six/pkg/core"
+)
+
+var (
+	ByteSignatures [256][57]uint64
+	vsaInitOnce    sync.Once
+)
+
+func initVSA() {
+	vsaInitOnce.Do(func() {
+		// Use a fixed seed so signatures are consistent across runs
+		rng := rand.New(rand.NewSource(42))
+		for i := 0; i < 256; i++ {
+			for w := 0; w < 57; w++ {
+				ByteSignatures[i][w] = rng.Uint64()
+			}
+		}
+	})
+}
+
+func init() {
+	initVSA()
+}
+
+// ---------------------------------------------------------------------------
+// HCAM — Holographic Content-Addressable Memory operations
+// ---------------------------------------------------------------------------
+
+// UnbindHD performs XOR unbinding: Residue = Fact ⊕ Query across the Tokens
+// region. In HCAM, if Fact = S⊕I⊕G and Query = S⊕I, then Residue = G.
+// The result is written into dst's Tokens region.
+func UnbindHD(dst, fact, query *Value) {
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	base := core.Cfg.TokenIndex
+	for i := 0; i < nWords; i++ {
+		idx := base + i
+		if idx >= Words {
+			break
+		}
+		dst[idx] = fact[idx] ^ query[idx]
+	}
+}
+
+// BundleHD performs majority-rule bundling of multiple Tokens regions into dst.
+// For each bit position, the output is 1 if more than half the inputs have 1.
+// This is the VSA "superposition" operator.
+func BundleHD(dst *Value, sources []*Value) {
+	if len(sources) == 0 {
+		return
+	}
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	base := core.Cfg.TokenIndex
+	threshold := len(sources) / 2
+
+	for i := 0; i < nWords; i++ {
+		idx := base + i
+		if idx >= Words {
+			break
+		}
+		var result uint64
+		for bit := 0; bit < 64; bit++ {
+			count := 0
+			mask := uint64(1) << bit
+			for _, src := range sources {
+				if src[idx]&mask != 0 {
+					count++
+				}
+			}
+			if count > threshold {
+				result |= mask
+			}
+		}
+		dst[idx] = result
+	}
+}
+
+// TokensHammingDistance returns the Hamming distance between two Values'
+// Tokens regions — the number of differing bits.
+func TokensHammingDistance(a, b *Value) int {
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	base := core.Cfg.TokenIndex
+	dist := 0
+	for i := 0; i < nWords; i++ {
+		idx := base + i
+		if idx >= Words {
+			break
+		}
+		dist += bits.OnesCount64(a[idx] ^ b[idx])
+	}
+	return dist
+}
+
+// CosineSimilarityHD approximates cosine similarity for binary vectors via
+// (N - 2*HammingDistance) / N where N is the total bit width. Returns [-1, 1].
+func CosineSimilarityHD(a, b *Value) float64 {
+	n := float64(core.Cfg.TokenBits)
+	if n == 0 {
+		return 0
+	}
+	hd := float64(TokensHammingDistance(a, b))
+	return (n - 2*hd) / n
+}
+
+// ---------------------------------------------------------------------------
+// LSH — Locality-Sensitive Hash: project Tokens → 64-bit Affinity
+// ---------------------------------------------------------------------------
+
+// ComputeAffinityLSH projects the 3648-bit Tokens region into a 64-bit
+// Affinity word using SimHash: partition Tokens into 64 blocks, set each
+// Affinity bit to 1 if the block's popcount exceeds half its width.
+func (value *Value) ComputeAffinityLSH() {
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	if nWords == 0 {
+		return
+	}
+	base := core.Cfg.TokenIndex
+	blockSize := nWords / 64
+	if blockSize < 1 {
+		blockSize = 1
+	}
+
+	var affinity uint64
+	for bit := 0; bit < 64; bit++ {
+		start := bit * blockSize
+		end := start + blockSize
+		if end > nWords {
+			end = nWords
+		}
+		totalBits := 0
+		totalCapacity := 0
+		for w := start; w < end; w++ {
+			idx := base + w
+			if idx >= Words {
+				break
+			}
+			totalBits += bits.OnesCount64(value[idx])
+			totalCapacity += 64
+		}
+		if totalBits > totalCapacity/2 {
+			affinity |= 1 << bit
+		}
+	}
+
+	value[core.Cfg.AffinityIndex] = affinity
+}
+
+// ---------------------------------------------------------------------------
+// Bloom Filter — n-gram based substring fingerprint in Affinity
+// ---------------------------------------------------------------------------
+
+// ComputeAffinityBloom computes a 64-bit Bloom filter from overlapping
+// 3-byte n-grams of the raw input data. Two Values sharing high
+// AND-popcount in their Affinity words are likely to share substrings.
+func ComputeAffinityBloom(data []byte) uint64 {
+	if len(data) < 3 {
+		if len(data) > 0 {
+			return fnvBit(data)
+		}
+		return 0
+	}
+	var bloom uint64
+	for i := 0; i <= len(data)-3; i++ {
+		bloom |= fnvBit(data[i : i+3])
+	}
+	return bloom
+}
+
+// fnvBit hashes a small byte slice to a single bit position (0..63)
+// using FNV-1a.
+func fnvBit(data []byte) uint64 {
+	h := uint64(14695981039346656037)
+	for _, b := range data {
+		h ^= uint64(b)
+		h *= 1099511628211
+	}
+	return 1 << (h & 63)
+}
+
+// BloomOverlap returns the number of shared Bloom filter bits between two
+// 64-bit Affinity words — equivalent to Popcount(A & B).
+func BloomOverlap(a, b uint64) int {
+	return bits.OnesCount64(a & b)
+}
+
+// ---------------------------------------------------------------------------
+// LFSR — Linear-Feedback Shift Register with Mersenne-prime period
+// ---------------------------------------------------------------------------
+
+// LFSRStep advances a 13-bit LFSR by one step, producing a maximal-length
+// cycle of 2^13 - 1 = 8191 states. Uses the primitive polynomial
+// x^13 + x^4 + x^3 + x + 1 (taps at bits 12, 3, 2, 0).
+func LFSRStep(state uint64) uint64 {
+	if state == 0 {
+		state = 1 // LFSR must never be all-zero
+	}
+	bit := ((state >> 12) ^ (state >> 3) ^ (state >> 2) ^ state) & 1
+	state = ((state << 1) | bit) & 0x1FFF // mask to 13 bits
+	return state
+}
+
+// LFSRAdvance advances the LFSR by n steps.
+func LFSRAdvance(state uint64, n int) uint64 {
+	for i := 0; i < n; i++ {
+		state = LFSRStep(state)
+	}
+	return state
+}
+
+// AdvanceSequence advances the Value's StateSequence word by one LFSR step.
+func (value *Value) AdvanceSequence() {
+	value[core.Cfg.StateSequence] = LFSRStep(value[core.Cfg.StateSequence])
+}
+
+// ---------------------------------------------------------------------------
+// Delta Encoding — XOR-Delta for state transitions
+// ---------------------------------------------------------------------------
+
+// AccumulateDelta XORs the Tokens region of current and previous into the
+// StateAccumulator word. This captures the "change" between two states
+// as a compressed differential sketch.
+func AccumulateDelta(current, previous *Value) uint64 {
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	base := core.Cfg.TokenIndex
+	var delta uint64
+	for i := 0; i < nWords; i++ {
+		idx := base + i
+		if idx >= Words {
+			break
+		}
+		delta ^= current[idx] ^ previous[idx]
+	}
+	current[core.Cfg.StateAccumulator] = delta
+	return delta
+}
+
+// ApplyDelta generates a predicted next token region by XORing the current
+// Tokens with the accumulated delta stored in StateAccumulator.
+func ApplyDelta(dst, current *Value) {
+	nWords := int((core.Cfg.TokenBits + 63) / 64)
+	base := core.Cfg.TokenIndex
+	delta := current[core.Cfg.StateAccumulator]
+	for i := 0; i < nWords; i++ {
+		idx := base + i
+		if idx >= Words {
+			break
+		}
+		dst[idx] = current[idx] ^ delta
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Kademlia XOR Distance
+// ---------------------------------------------------------------------------
+
+// XORDistance returns the XOR distance between two 64-bit Affinity words.
+// In a Kademlia topology this defines a valid metric space.
+func XORDistance(a, b uint64) uint64 {
+	return a ^ b
+}
+
+// XORDistanceLog returns the log2 of the XOR distance (the index of the
+// highest differing bit), used for Kademlia k-bucket placement.
+// Returns -1 if a == b.
+func XORDistanceLog(a, b uint64) int {
+	d := a ^ b
+	if d == 0 {
+		return -1
+	}
+	return 63 - bits.LeadingZeros64(d)
+}

@@ -3,20 +3,27 @@ package transport
 import (
 	"errors"
 	"io"
+	"sync"
 
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
+
+var bufPool = sync.Pool{
+	New: func() any {
+		buf := make([]byte, primitive.ByteSize)
+		return buf
+	},
+}
 
 /*
 Emitter creates a side-channel for emitting the contents of a
 read/write stream. It is used to perform the folding operation.
 */
 type Emitter struct {
-	passthrough io.Writer
-	forward     io.Reader
+	passthrough io.Reader
+	emit        io.Writer
+	tee         io.Reader
 	wait        *primitive.Value
-	scratch     *primitive.Value
 }
 
 /*
@@ -28,10 +35,11 @@ with every consumed partner. This preserves a constant population without
 pinning the same catalyst frame forever: after a fold, the old wait is written
 back into the ring and the just-collided partner becomes the new wait.
 */
-func NewEmitter(forward io.Reader, target io.Writer) *Emitter {
+func NewEmitter(passthrough io.Reader, emit io.Writer) *Emitter {
 	return &Emitter{
-		passthrough: target,
-		forward:     forward,
+		passthrough: passthrough,
+		emit:        emit,
+		tee:         io.NopCloser(io.TeeReader(passthrough, emit)),
 	}
 }
 
@@ -47,56 +55,53 @@ func (emitter *Emitter) Read(p []byte) (n int, err error) {
 	if len(p) < primitive.ByteSize {
 		return 0, io.ErrShortBuffer
 	}
-	p = p[:primitive.ByteSize]
+
+	// We make a new buffer for the incoming Value.
+	buf := bufPool.Get().([]byte)
+	defer bufPool.Put(buf)
+
+	// We read the side-channel so we have a copy of the Value that
+	// has already been passed through unmodified.
+	if _, err = io.ReadFull(emitter.tee, buf); err != nil {
+		return 0, err
+	}
+
+	// We convert the incoming data to a Value.
+	next := primitive.BytesToValue(buf)
 
 	if emitter.wait == nil {
-		if _, err = io.ReadFull(emitter.forward, p); err != nil {
-			errnie.Error(err)
-			return 0, err
-		}
-
-		emitter.wait = primitive.BytesToValue(p)
-		return primitive.ByteSize, nil
+		emitter.wait = next
+		return emitter.wait.Read(p)
 	}
 
-	if emitter.scratch == nil {
-		emitter.scratch, err = primitive.NewValue(nil)
-		if err != nil {
-			return 0, err
-		}
+	if !emitter.wait.HasProgram() {
+		oldWait := emitter.wait
+		emitter.wait = next
+		n, err = emitter.wait.Read(p)
+		_ = oldWait.Close()
+		return n, err
 	}
 
-	var next [primitive.ByteSize]byte
-	if _, err = io.ReadFull(emitter.forward, next[:]); err != nil {
-		return 0, err
+	// We perform the fold, this is now happening entirely on
+	// copies of the original Values.
+	if _, err = emitter.wait.Write(buf); err != nil {
+		emitter.wait.Close()
+		return n, err
 	}
 
-	if err = emitter.scratch.ApplyWireFrame(next[:]); err != nil {
-		return 0, err
+	// The Value makes sure that whenever Read is called on it, it will
+	// produce the result of the fold.
+	if n, err = emitter.wait.Read(p); err != nil {
+		emitter.wait.Close()
+		return n, err
 	}
 
-	oldWait := emitter.wait
-	newWait := emitter.scratch
+	// We rotate the wait to the incoming Value, so it can wait on the
+	// next one and fold with it.
+	emitter.wait.Close()
+	emitter.wait = next
 
-	if err = oldWait.Fold(newWait); err != nil {
-		return 0, err
-	}
-
-	if err = primitive.ValueToBytes(oldWait, next[:]); err != nil {
-		return 0, err
-	}
-	if _, err = emitter.passthrough.Write(next[:]); err != nil {
-		return 0, err
-	}
-
-	emitter.wait = newWait
-	emitter.scratch = oldWait
-
-	if err = primitive.ValueToBytes(emitter.wait, p); err != nil {
-		return 0, err
-	}
-
-	return primitive.ByteSize, nil
+	return n, err
 }
 
 /*
@@ -104,7 +109,15 @@ Write writes to the emitter's passthrough writer. Folding happens on Read;
 Write simply injects new wire frames into the ring.
 */
 func (emitter *Emitter) Write(p []byte) (n int, err error) {
-	return emitter.passthrough.Write(p)
+	// We need to set the first wait, which is the value being
+	// held back to fold with the next incoming value.
+	if emitter.wait == nil {
+		emitter.wait = primitive.BytesToValue(p)
+	}
+
+	// This is where the original value is passed through completely
+	// unmodified, so we do not need to think about it anymore.
+	return emitter.emit.Write(p)
 }
 
 // Close releases any Values retained by the emitter.
@@ -114,17 +127,14 @@ func (emitter *Emitter) Close() error {
 	}
 
 	var errs []error
+
 	if emitter.wait != nil {
 		if err := emitter.wait.Close(); err != nil {
 			errs = append(errs, err)
 		}
+
 		emitter.wait = nil
 	}
-	if emitter.scratch != nil {
-		if err := emitter.scratch.Close(); err != nil {
-			errs = append(errs, err)
-		}
-		emitter.scratch = nil
-	}
+
 	return errors.Join(errs...)
 }

@@ -8,6 +8,7 @@ import (
 	"io"
 	"math/bits"
 	"net/http"
+	"sort"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -210,29 +211,26 @@ func candidateOrder(nodes []Node, left, right []byte, rr uint64) []Node {
 		return rotateNodes(nodes, affinityStartIndex(routingAffinity, len(nodes), rr))
 	}
 
-	weighted := make([]Node, 0, len(positive)*2)
+	// When nodes do not advertise explicit shard ownership, the routing rules
+	// are prefix-directed round-robin rather than ShardMask XOR sorting. This
+	// keeps stream/scheduler semantics aligned with the region-prefix routing
+	// described in IDEAS.md and the existing scheduler tests.
+	hasExplicitShards := false
 	for _, n := range positive {
-		weight := n.Capacity
-		if weight > 8 {
-			weight = 8
+		if n.ShardBits > 0 {
+			hasExplicitShards = true
+			break
 		}
-		for i := 0; i < weight; i++ {
-			weighted = append(weighted, n)
-		}
+	}
+	if !hasExplicitShards {
+		return rotateNodes(positive, affinityStartIndex(routingAffinity, len(positive), rr))
 	}
 
-	start := affinityStartIndex(routingAffinity, len(weighted), rr)
-	seen := make(map[string]struct{}, len(positive))
-	out := make([]Node, 0, len(positive))
-	for i := 0; i < len(weighted) && len(out) < len(positive); i++ {
-		n := weighted[(start+i)%len(weighted)]
-		if _, ok := seen[n.ID]; ok {
-			continue
-		}
-		seen[n.ID] = struct{}{}
-		out = append(out, n)
-	}
-	return out
+	// Kademlia XOR-distance sort: prefer nodes whose shard mask is closest
+	// to the routing affinity, measured by XOR distance (lower = closer).
+	sortByXORDistance(positive, routingAffinity)
+
+	return positive
 }
 
 func preferAffinityShard(nodes []Node, affinity uint64) []Node {
@@ -318,12 +316,24 @@ func nodeOwnsAffinity(node Node, affinity uint64) bool {
 	return (affinity & mask) == (node.ShardMask & mask)
 }
 
-func prefixMask(bits uint8) uint64 {
-	if bits == 0 {
+func prefixMask(b uint8) uint64 {
+	if b == 0 {
 		return 0
 	}
-	if bits >= 48 {
+	if b >= 48 {
 		return 0x0000FFFFFFFFFFFF
 	}
-	return ((uint64(1) << bits) - 1) << (48 - bits)
+	return ((uint64(1) << b) - 1) << (48 - b)
+}
+
+// sortByXORDistance sorts nodes so that those whose ShardMask is closest
+// (by XOR distance) to the target affinity come first. This implements
+// Kademlia-style O(log N) directed routing from IDEAS.md §1.
+func sortByXORDistance(nodes []Node, targetAffinity uint64) {
+	target := targetAffinity & 0x0000FFFFFFFFFFFF
+	sort.Slice(nodes, func(i, j int) bool {
+		di := (nodes[i].ShardMask & 0x0000FFFFFFFFFFFF) ^ target
+		dj := (nodes[j].ShardMask & 0x0000FFFFFFFFFFFF) ^ target
+		return di < dj
+	})
 }

@@ -8,7 +8,6 @@ import (
 
 	tools "github.com/theapemachine/six/experiment"
 	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/vm"
@@ -27,6 +26,10 @@ type viralLearnSeeder interface {
 
 type seedValueProvider interface {
 	SeedValues() []*primitive.Value
+}
+
+type rawOutputObserver interface {
+	RawOutput() bool
 }
 
 /*
@@ -61,7 +64,6 @@ type Pipeline struct {
 	reporter   Reporter
 	timing     runTiming
 	population int // Tracks the number of resident Values currently in the substrate
-	config     vm.SubstrateConfig
 }
 
 type pipelineOpts func(*Pipeline)
@@ -77,10 +79,6 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 
 	for _, opt := range opts {
 		opt(pipeline)
-	}
-
-	if pipeline.config.ValueConfig == nil {
-		pipeline.config.ValueConfig = core.Cfg
 	}
 
 	if pipeline.experiment == nil {
@@ -103,7 +101,6 @@ func (pipeline *Pipeline) Run() (err error) {
 	machine, err := vm.NewMachine(
 		pipeline.ctx,
 		vm.WithDataset(pipeline.experiment.Dataset()),
-		vm.WithConfig(pipeline.config),
 	)
 
 	if err != nil {
@@ -125,28 +122,8 @@ func (pipeline *Pipeline) Run() (err error) {
 		return errnie.Error(PipelineErrNoPrompt)
 	}
 
-	if err := pipeline.hydrateDataset(observer); err != nil {
-		return errnie.Error(err)
-	}
-
-	// Recirculation loop: pump the stream to allow the dataset and seed to mix and evolve.
-	// We pump based on the size of the stream/dataset to ensure full mixing rather than a hardcoded 2000.
-	pumpCount := pipeline.population * 2 // Apply a 2x mixing multiplier to hydrated data.
-	if pumpCount == 0 {
-		pumpCount = 100 // fallback if no dataset was hydrated
-	}
-
-	for i := 0; i < pumpCount; i++ {
-		buf := make([]byte, primitive.ByteSize)
-		if _, err := observer.Read(buf); err != nil {
-			break
-		}
-		if err := pipeline.recirculate(observer, buf); err != nil {
-			return errnie.Error(err)
-		}
-	}
-
 	promptStart := time.Now()
+
 	for idx, prompt := range prompts {
 		select {
 		case <-pipeline.ctx.Done():
@@ -161,9 +138,8 @@ func (pipeline *Pipeline) Run() (err error) {
 			continue
 		}
 
-		value[pipeline.config.ValueConfig.StateIndex] = 1
-
 		holdout := []byte(nil)
+
 		if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
 			if h, ok := provider.HoldoutForPrompt(idx); ok {
 				holdout = append([]byte(nil), h...)
@@ -176,12 +152,18 @@ func (pipeline *Pipeline) Run() (err error) {
 			"holdout", string(holdout),
 		)
 
+		observed, obsErr := pipeline.observePrompt(observer, value)
+		_ = value.Close()
+		if obsErr != nil {
+			return errnie.Error(obsErr)
+		}
+
 		pipeline.experiment.AddResult(tools.ExperimentalData{
 			Idx:      idx,
 			Name:     fmt.Sprintf("prompt-%d", idx),
 			Prefix:   []byte(prompt),
 			Holdout:  holdout,
-			Observed: []byte(value.String()),
+			Observed: observed,
 		})
 
 		pipeline.timing.n++
@@ -211,6 +193,35 @@ func (pipeline *Pipeline) Run() (err error) {
 	return nil
 }
 
+func (pipeline *Pipeline) observePrompt(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
+	if observer == nil || value == nil {
+		return nil, PipelineError("nil prompt observer/value")
+	}
+
+	if _, err := io.Copy(observer, value); err != nil {
+		return nil, err
+	}
+
+	frame := make([]byte, primitive.ByteSize)
+	if _, err := io.ReadFull(observer, frame); err != nil {
+		return nil, err
+	}
+
+	if exp, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && exp.ObserveWorkspaceAsTokens() {
+		observed := primitive.BytesToValue(frame)
+		defer observed.Close()
+		return observed.Bytes(), nil
+	}
+
+	if exp, ok := pipeline.experiment.(rawOutputObserver); ok && exp.RawOutput() {
+		return frame, nil
+	}
+
+	observed := primitive.BytesToValue(frame)
+	defer observed.Close()
+	return []byte(observed.String()), nil
+}
+
 func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value) error {
 	if _, err := io.Copy(observer, value); err != nil {
 		return err
@@ -222,79 +233,6 @@ func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value)
 func (pipeline *Pipeline) recirculate(observer io.ReadWriter, frame []byte) error {
 	_, err := observer.Write(frame)
 	return err
-}
-
-func (pipeline *Pipeline) hydrateDataset(observer io.ReadWriter) error {
-	dataset := pipeline.experiment.Dataset()
-	if dataset == nil {
-		return nil
-	}
-
-	// NewValue stores one tokenized byte per 64-bit token word.
-	chunkSize := int((pipeline.config.ValueConfig.TokenBits + 63) / 64)
-	if chunkSize <= 0 {
-		return nil
-	}
-
-	chunk := make([]byte, 0, chunkSize)
-	flush := func() error {
-		if len(chunk) == 0 {
-			return nil
-		}
-
-		frame, err := primitive.NewValue(append([]byte(nil), chunk...))
-		if err != nil {
-			return err
-		}
-		frame[pipeline.config.ValueConfig.StateIndex] = 1
-
-		if err := pipeline.inject(observer, frame); err != nil {
-			return err
-		}
-		closeErr := frame.Close()
-		if closeErr != nil {
-			return closeErr
-		}
-
-		chunk = chunk[:0]
-		return nil
-	}
-
-	for b := range dataset.Generate() {
-		chunk = append(chunk, b)
-		if len(chunk) == chunkSize {
-			if err := flush(); err != nil {
-				return err
-			}
-		}
-	}
-
-	return flush()
-}
-
-func (pipeline *Pipeline) maybeSeedValues(observer io.ReadWriter) error {
-	provider, ok := pipeline.experiment.(seedValueProvider)
-	if !ok {
-		return nil
-	}
-
-	for _, seed := range provider.SeedValues() {
-		if seed == nil {
-			continue
-		}
-		if idx := pipeline.config.ValueConfig.StateIndex; idx >= 0 && idx < len(seed) && seed[idx] == 0 {
-			seed[idx] = 1
-		}
-		if err := pipeline.inject(observer, seed); err != nil {
-			_ = seed.Close()
-			return err
-		}
-		if err := seed.Close(); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 /*
@@ -320,12 +258,6 @@ func promptsFromDataset(dataset data.Provider) []string {
 	}
 
 	return prompts
-}
-
-func PipelineWithConfig(config vm.SubstrateConfig) pipelineOpts {
-	return func(pipeline *Pipeline) {
-		pipeline.config = config
-	}
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {

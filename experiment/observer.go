@@ -5,10 +5,7 @@ import (
 	"io"
 	"sync/atomic"
 	"time"
-	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -128,13 +125,9 @@ func (o *Observer) measure(p []byte, n int) {
 		defer val.Close()
 
 		// Extract observability metrics directly from the topological frame
-		pressure := cpu.Popcount(unsafe.Pointer(val), int(core.Cfg.StateSequence), 64)
 		instr := telemetry.InstructionFromValue(val)
-		density := cpu.Popcount(unsafe.Pointer(val), int(core.Cfg.StateAccumulator), 64)
 
 		o.lastInstr.Store(uint32(instr))
-		o.lastPressure.Store(int64(pressure))
-		o.lastDensity.Store(int64(density))
 		o.opsCount.Add(1)
 
 		var frameCopy [primitive.ByteSize]byte

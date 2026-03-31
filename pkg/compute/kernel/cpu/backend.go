@@ -2,40 +2,18 @@ package cpu
 
 import (
 	"context"
-	"fmt"
 	"math/bits"
 	"runtime"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
-type GraphEvent struct {
-	Type       string
-	NodeID     uint64
-	NodeTokens string
-	NodeType   string
-	FromID     uint64
-	ToID       uint64
-}
-
-/*
-Backend is the CPU kernel backend. It is now a dumb physics engine
-that performs in-band affinity-based pairing and program execution.
-
-The old "residents" array, cancellation logic, and Go-level orchestration
-have been removed. Values now carry their own programs in Region 3 and
-affinity masks in Region 2. The backend simply streams Values through
-the UniversalBitwise ALU.
-*/
 type Backend struct {
-	batchCap        int
+	ctx             context.Context
+	cancel          context.CancelFunc
 	nextID          uint64
-	graphFn         func(GraphEvent)
 	useAffinityMode bool
-	traceEnabled    bool
-	observer        kernel.Observer
 }
 
 type backendOption func(*Backend)
@@ -50,456 +28,298 @@ const (
 	execExitBadWord   = 3
 )
 
-/*
-NewBackend returns a CPU Backend.
-*/
-func NewBackend(opts ...backendOption) *Backend {
+func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
+	ctx, cancel := context.WithCancel(ctx)
+
 	backend := &Backend{
-		batchCap:        max(2, runtime.NumCPU()-1),
+		ctx:             ctx,
+		cancel:          cancel,
 		nextID:          1,
 		useAffinityMode: true,
-		observer:        kernel.NoopObserver{},
 	}
 
 	for _, opt := range opts {
 		opt(backend)
 	}
 
-	if backend.batchCap < 2 {
-		backend.batchCap = 2
-	}
-
 	return backend
 }
 
-func BackendWithBatchCap(batchCap int) backendOption {
-	return func(backend *Backend) {
-		backend.batchCap = batchCap
-	}
-}
+func Available() int { return runtime.NumCPU() }
 
-// BackendWithGraphHook attaches a callback invoked during splits so an
-// external visualizer can render the graph structure in real time.
-func BackendWithGraphHook(fn func(GraphEvent)) backendOption {
-	return func(backend *Backend) {
-		backend.graphFn = fn
+/*
+execute applies the specified opcode to the two 64-bit inputs.
+opcodes 0x0–0xF are the 16 boolean truth tables.
+0x10 = POPCOUNT (Hamming distance).
+0x11 = Memory SHL: y << (x & 63).
+0x12 = Memory SHR: y >> (x & 63).
+*/
+func (backend *Backend) execute(op uint8, x, y uint64) uint64 {
+	switch op {
+	case 0x0:
+		return 0
+	case 0x1:
+		return x & y
+	case 0x2:
+		return x &^ y
+	case 0x3:
+		return x
+	case 0x4:
+		return ^x & y
+	case 0x5:
+		return y
+	case 0x6:
+		return x ^ y
+	case 0x7:
+		return x | y
+	case 0x8:
+		return ^(x | y)
+	case 0x9:
+		return ^(x ^ y)
+	case 0xA:
+		return ^y
+	case 0xB:
+		return x | ^y
+	case 0xC:
+		return ^x
+	case 0xD:
+		return ^x | y
+	case 0xE:
+		return ^(x & y)
+	case 0xF:
+		return ^uint64(0)
+	case 0x10:
+		return uint64(bits.OnesCount64(x ^ y))
+	case 0x11:
+		return y << (x & 63) // Memory SHL
+	case 0x12:
+		return y >> (x & 63) // Memory SHR
 	}
-}
-
-// BackendWithAffinityMode toggles in-band affinity + program execution mode.
-// NewBackend enables this mode by default; pass false to disable (legacy behavior).
-func BackendWithAffinityMode(enabled bool) backendOption {
-	return func(backend *Backend) {
-		backend.useAffinityMode = enabled
-	}
-}
-
-// BackendWithTraceEnabled enables the verbose UniversalBitwise trace path.
-// It is disabled by default because it is far too expensive for normal runs.
-func BackendWithTraceEnabled(enabled bool) backendOption {
-	return func(backend *Backend) {
-		backend.traceEnabled = enabled
-	}
-}
-
-// BackendWithObserver injects a kernel observer used for optional trace/error
-// reporting. Pass nil to disable.
-func BackendWithObserver(observer kernel.Observer) backendOption {
-	return func(backend *Backend) {
-		backend.observer = kernel.NormalizeObserver(observer)
-	}
-}
-
-// SetObserver updates the backend observer at runtime.
-func (backend *Backend) SetObserver(observer kernel.Observer) {
-	backend.observer = kernel.NormalizeObserver(observer)
-}
-
-func (backend *Backend) emitGraph(ev GraphEvent) {
-	if backend.graphFn != nil {
-		backend.graphFn(ev)
-	}
-}
-
-func traceBackend(observer kernel.Observer, enabled bool, msg string, keyvals ...any) {
-	if !enabled {
-		return
-	}
-	kernel.NormalizeObserver(observer).Trace(msg, keyvals...)
+	return 0
 }
 
 /*
-Available returns the number of logical CPU cores.
+UniversalBitwise executes the in-band program stored in each Value frame.
+Four 16-bit instructions are packed per uint64 word in the program region.
+
+Instruction classes (bits [15:14]):
+
+	00 / HALT  — instr == 0 stops execution
+	01 / MEM   — load, store, or immediate
+	10 / ALU   — boolean truth-table operation
+	11 / CTL   — control flow: JMPZ, DJNZ, SHL, SHR
+
+CTL sub-opcodes (bits [13:12]):
+
+	00 JMPZ  — if reg == 0, jump by signed 10-bit offset (bits [9:0])
+	01 DJNZ  — reg--; if reg != 0, jump by signed 10-bit offset
+	10 SHL   — reg <<= imm (bits [9:0], 0 means 1)
+	11 SHR   — reg >>= imm (bits [9:0], 0 means 1)
 */
-func Available() int {
-	return runtime.NumCPU()
-}
-
-/*
-HammingDistance calculates the topological distance between two Values
-by counting the number of differing bits (symmetric difference).
-*/
-func HammingDistance(a, b unsafe.Pointer) int {
-	dist := 0
-	contexts := [2]*[128]uint64{(*[128]uint64)(a), (*[128]uint64)(b)}
-
-	for i := range 128 {
-		// We use a simple bitwise XOR and count the set bits
-		// to find the geometric distance between two Values.
-		diff := contexts[0][i] ^ contexts[1][i]
-		dist += bits.OnesCount64(diff)
-	}
-	return dist
-}
-
-/*
-UniversalBitwise is the hardware ALU. The only valid way to execute a
-program is by applying the 4 bit truth table directly to the spans.
-
-For reference:
-
-	r0 = context A (0=a, 1=b)
-	r1 = start A
-	r2 = end A
-	r3 = context B (0=a, 1=b)
-	r4 = start B
-	r5 = end B
-	pc = program counter (index of next instruction)
-	fw = in-band firmware register code (selects next payload firmware)
-
-In many cases you would need r0 and r3 to both be a (self).
-Keep the following in mind: you select the src and dst bits, you
-apply the truth table to the bits, that's basically it.
-It is important to mind the bootloader, which should be installed
-into all new Values.
-*/
-// loadFirmware resolves the in-band fw register to a payload firmware and
-// installs it into the payload region after the resident bootloader. This is
-// what makes the self-programming loop coherent: fresh Values cold-boot via
-// the resident bootloader, while Viral / Build / Learn can sequence the next
-// payload entirely in-band through fw+pc.
-func loadFirmware(c *[128]uint64, _p, _w uint64) bool {
-	if c == nil {
-		return false
-	}
-	return preloadPendingFirmware(c)
-}
-
-func resolveFirmwareRegister(sel uint64) (core.FirmwareType, bool) {
-	switch sel {
-	case core.FirmwareRegisterLearn:
-		return core.FirmwareTypeLearn, true
-	case core.FirmwareRegisterTombstone:
-		return core.FirmwareTypeTombstone, true
-	case core.FirmwareRegisterViral:
-		return core.FirmwareTypeViral, true
-	case core.FirmwareRegisterBuild:
-		return core.FirmwareTypeBuild, true
-	default:
-		return 0, false
-	}
-}
-
-func payloadProgramWordStart() int {
-	return core.Cfg.ProgramIndex + core.PayloadProgramWordOffset
-}
-
-func payloadProgramPCStart() uint64 {
-	return uint64(core.PayloadProgramPCOffset)
-}
-
-func clearPayloadProgram(c *[128]uint64) {
-	if c == nil {
-		return
-	}
-	for slot := int(payloadProgramPCStart()); slot < core.Cfg.MaxPC; slot++ {
-		wordIdx := core.Cfg.ProgramIndex + slot/2
-		if wordIdx < 0 || wordIdx >= len(c) {
-			break
-		}
-		shift := uint((slot % 2) * 32)
-		mask := uint64(0xFFFFFFFF) << shift
-		c[wordIdx] &^= mask
-	}
-}
-
-func installProgramAtSlot(c *[128]uint64, startSlot int, program []uint32) {
-	if c == nil || startSlot < 0 || startSlot >= core.Cfg.MaxPC {
-		return
-	}
-	for i, instr := range program {
-		slot := startSlot + i
-		if slot >= core.Cfg.MaxPC {
-			break
-		}
-		wordIdx := core.Cfg.ProgramIndex + slot/2
-		if wordIdx < 0 || wordIdx >= len(c) {
-			break
-		}
-		shift := uint((slot % 2) * 32)
-		mask := uint64(0xFFFFFFFF) << shift
-		c[wordIdx] = (c[wordIdx] &^ mask) | (uint64(instr) << shift)
-	}
-}
-
-func frameReadyForFirmwareLoad(c *[128]uint64) bool {
-	if c == nil {
-		return false
-	}
-	pc := c[core.Cfg.RegPC]
-	if pc == 0 || pc >= uint64(core.Cfg.MaxPC) {
-		return true
-	}
-	wordPos := core.Cfg.ProgramIndex + int(pc/2)
-	if wordPos < 0 || wordPos >= len(c) {
-		return true
-	}
-	shift := uint((pc % 2) * 32)
-	return uint32(c[wordPos]>>shift) == 0
-}
-
-func preloadPendingFirmware(c *[128]uint64) bool {
-	if c == nil {
-		return false
-	}
-	ft, ok := resolveFirmwareRegister(c[core.Cfg.FW])
-	if !ok || !frameReadyForFirmwareLoad(c) {
-		return false
-	}
-	prog := core.Cfg.Firmware[ft]
-	if len(prog) == 0 {
-		c[core.Cfg.FW] = core.FirmwareRegisterNone
-		return false
-	}
-	clearPayloadProgram(c)
-	installProgramAtSlot(c, int(payloadProgramPCStart()), prog)
-	cc := core.FirmwareRegisterNone
-	c[core.Cfg.FW] = cc
-	c[core.Cfg.RegPC] = payloadProgramPCStart()
-	return true
-}
-
-// fetch returns the next instruction word and the pre-increment pc.
-// Returns 0, _, true when execution should halt.
-func fetch(c *[128]uint64, p, w uint64) (instr uint32, pc uint64, halt bool, exitCode uint16) {
-	pc = c[p]
-	j := w + pc/2
-	if pc >= uint64(core.Cfg.MaxPC) {
-		return 0, pc, true, execExitExhausted
-	}
-	if int(j) >= 128 {
-		return 0, pc, true, execExitBadWord
-	}
-	instr = uint32(c[j] >> (pc % 2 * 32))
-	if instr == 0 {
-		return 0, pc, true, execExitHalt
-	}
-	c[p]++
-	return instr, pc, false, 0
-}
-
-// decode splits a 32-bit instruction into its opcode and operand fields.
-func decode(instr uint32) (op uint8, sc, dc uint16, sSp, dSp bool) {
-	op = uint8(instr & 0xF)
-	sc, dc = uint16((instr>>4)&0x3FFF), uint16((instr>>18)&0x3FFF)
-	sSp, dSp = sc&0x3F80 == 0x3000, dc&0x3F80 == 0x3000
-	return
-}
-
-// execSpan applies the 4-bit truth table bit-by-bit across two spans.
-func execSpan(c [2]*[128]uint64, op uint8, sc, dc uint16) {
-	sB, dB := uint64(sc&0x7F), uint64(dc&0x7F)
-	if int(sB)+2 >= 128 || int(dB)+2 >= 128 {
-		return
-	}
-	sL, sS, sE := int(c[0][sB])&1, c[0][sB+1], c[0][sB+2]
-	dL, dS, dE := int(c[0][dB])&1, c[0][dB+1], c[0][dB+2]
-	if sE <= sS || dE <= dS {
-		return
-	}
-	sN, dN := sE-sS, dE-dS
-	limit := min(sN, dN)
-	if sN == 1 {
-		limit = dN
-	}
-
-	m0 := uint64(0) - uint64((op>>3)&1)
-	m1 := uint64(0) - uint64((op>>2)&1)
-	m2 := uint64(0) - uint64((op>>1)&1)
-	m3 := uint64(0) - uint64(op&1)
-
-	if sN == 1 {
-		sWord := sS / 64
-		sShift := sS % 64
-		if sWord >= 128 {
-			return
-		}
-		sb := (c[sL][sWord] >> sShift) & 1
-		var left uint64
-		if sb == 1 {
-			left = ^uint64(0)
-		}
-
-		for i := uint64(0); i < limit; {
-			di := (dS + i) / 64
-			ds := (dS + i) % 64
-			if di >= 128 {
-				break
-			}
-
-			chunk := uint64(64) - ds
-			if i+chunk > limit {
-				chunk = limit - i
-			}
-
-			var mask uint64
-			if chunk == 64 {
-				mask = ^uint64(0)
-			} else {
-				mask = (1 << chunk) - 1
-			}
-			mask <<= ds
-
-			right := c[dL][di]
-			res := m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
-
-			c[dL][di] = (right & ^mask) | (res & mask)
-			i += chunk
-		}
-	} else {
-		for i := uint64(0); i < limit; {
-			di := (dS + i) / 64
-			ds := (dS + i) % 64
-			if di >= 128 {
-				break
-			}
-
-			chunk := uint64(64) - ds
-			if i+chunk > limit {
-				chunk = limit - i
-			}
-
-			var mask uint64
-			if chunk == 64 {
-				mask = ^uint64(0)
-			} else {
-				mask = (1 << chunk) - 1
-			}
-			mask <<= ds
-
-			sBit := sS + i
-			si := sBit / 64
-			ss := sBit % 64
-			if si >= 128 {
-				break
-			}
-
-			left := c[sL][si] >> ss
-			if ss+chunk > 64 && si+1 < 128 {
-				left |= c[sL][si+1] << (64 - ss)
-			}
-			left <<= ds
-
-			right := c[dL][di]
-			res := m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
-
-			c[dL][di] = (right & ^mask) | (res & mask)
-			i += chunk
-		}
-	}
-}
-
-// writeReg applies the truth table to a control/register word destination.
-func writeReg(c *[128]uint64, op uint8, dc, sc uint16) {
-	if idx := uint64(dc & 0x7F); int(idx) < 128 {
-		left := uint64(sc)
-		if sc&0x3F80 == 0x3000 {
-			if src := uint64(sc & 0x7F); int(src) < 128 {
-				left = c[src]
-			} else {
-				return
-			}
-		}
-		right := c[idx]
-		m0 := uint64(0) - uint64((op>>3)&1)
-		m1 := uint64(0) - uint64((op>>2)&1)
-		m2 := uint64(0) - uint64((op>>1)&1)
-		m3 := uint64(0) - uint64(op&1)
-		c[idx] = m0 ^ ((m0 ^ m2) & left) ^ ((m0 ^ m1) & right) ^ ((m0 ^ m1 ^ m2 ^ m3) & (left & right))
-	}
-}
-
-// detectLoop tracks hardware loop state on backward PC writes.
-func detectLoop(c *[128]uint64, p, pc, le uint64, lp bool) (uint64, bool) {
-	n := c[p]
-	if !lp && n < pc {
-		return pc, true
-	}
-	if lp && n > le {
-		return 0, false
-	}
-	return le, lp
-}
-
-func armNextFirmware(c *[128]uint64, p uint64) {
-	if c == nil {
-		return
-	}
-	if _, ok := resolveFirmwareRegister(c[uint64(core.Cfg.FW)]); ok {
-		clearPayloadProgram(c)
-		c[p] = 0
-	}
-}
-
-func clearExecExit(c *[128]uint64) {
-	if c == nil || execStatusWord >= len(c) {
-		return
-	}
-	c[execStatusWord] &= execStatusMask
-}
-
-func markExecExit(c *[128]uint64, code uint16) {
-	if c == nil || execStatusWord >= len(c) {
-		return
-	}
-	c[execStatusWord] = (c[execStatusWord] & execStatusMask) | (uint64(code) << execStatusShift)
-}
-
-func (k *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
+func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 	if a == nil || b == nil {
-		return fmt.Errorf("cpu.Backend.UniversalBitwise: nil value pointer")
+		return NewSimdeezNutsError(ErrNilValuePointer,
+			"a", a, "b", b,
+		)
 	}
-	p, w := uint64(core.Cfg.RegPC), uint64(core.Cfg.ProgramIndex)
+
+	pi := uint64(core.Cfg.ProgramIndex)
+	pcIdx := core.Cfg.RegPC
+	if pcIdx == 0 && core.Cfg.ProgramIndex > 0 {
+		pcIdx = core.Cfg.ProgramIndex - 1
+	}
+	pcReg := uint64(pcIdx)
+
+	var scratch [128]uint64
 
 	for i := 0; i < count; i++ {
 		curA := unsafe.Pointer(uintptr(a) + uintptr(i)*1024)
 		curB := unsafe.Pointer(uintptr(b) + uintptr(i)*1024)
-		c := [2]*[128]uint64{(*[128]uint64)(curA), (*[128]uint64)(curB)}
+		ctx := [2]*[128]uint64{(*[128]uint64)(curA), (*[128]uint64)(curB)}
 
-		loadFirmware(c[0], p, w)
-		clearExecExit(c[0])
+		var regs [4]uint64
 
-		var le uint64
-		lp := false
 		for {
-			instr, pc, halt, exitCode := fetch(c[0], p, w)
-			if halt {
-				if exitCode != 0 {
-					markExecExit(c[0], exitCode)
-				}
-				armNextFirmware(c[0], p)
-				break
+			pc := ctx[0][pcReg&127]
+
+			word := (pi + (pc >> 2)) & 127
+			shift := (pc & 3) << 4
+			instr := uint16(ctx[0][word] >> shift)
+
+			if instr == 0 {
+				break // HALT
 			}
-			op, sc, dc, sSp, dSp := decode(instr)
-			if sSp && dSp {
-				execSpan(c, op, sc, dc)
-			} else if dSp {
-				writeReg(c[0], op, dc, sc)
+
+			switch cls := instr >> 14; cls {
+			case 1: // MEM
+				pc = backend.handleMem(
+					ctx, instr, pcReg, regs, pc,
+				)
+			case 2, 0: // ALU & EXT ALU (cls=0)
+				pc = backend.handleAlu(
+					ctx, instr, pcReg, regs, scratch, cls, pi, pc,
+				)
+			case 3: // CTL
+				pc = backend.handleCtl(
+					ctx, instr, pcReg, regs, pc,
+				)
 			}
-			le, lp = detectLoop(c[0], p, pc, le, lp)
+
+			ctx[0][pcReg&127] = pc
 		}
 	}
 	return nil
+}
+
+func (backend *Backend) handleMem(
+	ctx [2]*[128]uint64,
+	instr uint16,
+	pcReg uint64,
+	regs [4]uint64,
+	pc uint64,
+) (npc uint64) {
+	ctx[0][pcReg&127] = pc + 1
+	dir := (instr >> 13) & 1
+	reg := (instr >> 11) & 3
+	sub := (instr >> 10) & 1
+
+	if dir == 0 { // LOAD: ctx in sub bit
+		regs[reg] = ctx[sub][instr&0x7F]
+	} else if sub == 0 { // STORE
+		ctx[0][instr&0x7F] = regs[reg]
+	} else { // IMM
+		regs[reg] = uint64(instr & 0x3FF)
+	}
+
+	return pc + 1
+}
+
+func (backend *Backend) handleAlu(
+	ctx [2]*[128]uint64,
+	instr uint16,
+	pcReg uint64,
+	regs [4]uint64,
+	scratch [128]uint64,
+	cls uint16,
+	pi uint64,
+	pc uint64,
+) (npc uint64) {
+	op := uint8((instr >> 10) & 0xF)
+
+	if cls == 0 {
+		op += 16
+	}
+
+	reg := (instr >> 8) & 3
+	fctx := (instr >> 7) & 1
+	fword := (instr & 0x7F)
+
+	// JIT fusion: batch consecutive same-op word-sequential instructions.
+	n := uint16(1)
+	expectedNext := instr + 1
+
+	for n < 128-fword {
+		nextPC := pc + uint64(n)
+		nWordIdx := (pi + (nextPC >> 2)) & 127
+		nShift := (nextPC & 3) << 4
+
+		if uint16(ctx[0][nWordIdx]>>nShift) != expectedNext {
+			break
+		}
+
+		n++
+		expectedNext++
+	}
+
+	if n < 4 {
+		ctx[0][fword] = backend.execute(op, regs[reg], ctx[fctx][fword])
+		ctx[0][pcReg&127] = pc + 1
+		return ctx[0][pcReg&127]
+	}
+
+	rVal := regs[reg]
+
+	for k := uint16(0); k < n; k++ {
+		scratch[k] = rVal
+	}
+
+	if fctx == 1 {
+		copy(ctx[0][fword:fword+n], ctx[1][fword:fword+n])
+	}
+
+	execWordBlock(ctx[0][fword:fword+n], scratch[:n], op)
+	ctx[0][pcReg&127] = pc + uint64(n)
+
+	return ctx[0][pcReg&127]
+}
+
+func (backend *Backend) handleCtl(
+	ctx [2]*[128]uint64,
+	instr uint16,
+	pcReg uint64,
+	regs [4]uint64,
+	pc uint64,
+) (npc uint64) {
+	sub := (instr >> 12) & 3
+	reg := (instr >> 10) & 3
+	// 10-bit signed offset, sign-extended from bit 9.
+	raw := int16(instr & 0x3FF)
+
+	if raw&0x200 != 0 {
+		raw |= -512 // sign-extend 10-bit → 16-bit
+	}
+
+	offset := int64(raw)
+
+	switch sub {
+	case 0: // JMPZ — jump by offset if reg == 0, else advance by 1
+		if regs[reg] != 0 {
+			ctx[0][pcReg&127] = pc + 1
+			break
+		}
+
+		ctx[0][pcReg&127] = uint64(int64(pc) + offset)
+	case 1: // DJNZ — decrement reg; jump by offset if still != 0
+		regs[reg]--
+
+		if regs[reg] == 0 {
+			ctx[0][pcReg&127] = pc + 1
+			break
+		}
+
+		ctx[0][pcReg&127] = uint64(int64(pc) + offset)
+	case 2: // SHL — logical left shift by imm (0 → shift by 1)
+		s := uint(instr&0x3FF) & 63
+
+		if s == 0 {
+			s = 1
+		}
+
+		regs[reg] <<= s
+	case 3: // SHR — logical right shift by imm (0 → shift by 1)
+		s := uint(instr&0x3FF) & 63
+
+		if s == 0 {
+			s = 1
+		}
+
+		regs[reg] >>= s
+	}
+
+	return ctx[0][pcReg&127]
+}
+
+func WithAffinityMode(enabled bool) backendOption {
+	return func(backend *Backend) { backend.useAffinityMode = enabled }
+}
+
+func (backend *Backend) Shutdown() error {
+	backend.cancel()
+	return nil
+}
+
+func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
+	return job(context.Background())
 }
 
 func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
@@ -523,22 +343,21 @@ func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
 		lane = contexts[word] >> uint(shift)
 
 		if shift > 0 && word+1 < 128 {
-			lane |= contexts[word+1] << uint(64-shift)
+			val := contexts[word+1]
+			lane |= val << uint(64-shift)
 		}
 
-		if chunk < 64 {
-			lane &= (uint64(1) << uint(chunk)) - 1
+		mask := uint64(1<<chunk) - 1
+		if chunk == 64 {
+			mask = ^uint64(0)
 		}
 
-		total += bits.OnesCount64(lane)
+		total += bits.OnesCount64(lane & mask)
+
 		remaining -= chunk
 		word++
 		shift = 0
 	}
 
 	return total
-}
-
-func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
-	return job(context.Background())
 }

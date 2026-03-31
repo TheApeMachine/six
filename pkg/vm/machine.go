@@ -1,24 +1,15 @@
 package vm
 
 import (
+	"bufio"
 	"context"
-	"errors"
-	"fmt"
 	"io"
-
-	"go.uber.org/zap"
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/transport"
-	"github.com/theapemachine/six/pkg/transport/adapter"
+	"github.com/theapemachine/six/pkg/primitive"
 )
-
-type SubstrateConfig struct {
-	ValueConfig *core.Config
-	Logger      *zap.Logger
-}
 
 /*
 Machine provides a unified stream processing pipeline. All machine options are
@@ -26,177 +17,110 @@ applied during construction so tests and callers can instantiate isolated
 machines without relying on package-level state.
 */
 type Machine struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	stream  *transport.Stream
-	dataset io.ReadCloser
-	config  SubstrateConfig
-
-	regions     int
-	autoS3      bool
-	streamOpts  []transport.StreamOption
-	streamSides []io.ReadWriter
+	ctx          context.Context
+	cancel       context.CancelFunc
+	err          error
+	sources      io.Reader
+	destinations io.Writer
+	values       []*primitive.Value
 }
 
 type machineOption func(*Machine)
 
-func WithConfig(config SubstrateConfig) machineOption {
-	return func(machine *Machine) {
-		machine.config = config
-	}
-}
-
-// WithRegionsCount configures how many parallel stream regions are constructed.
-func WithRegionsCount(n int) machineOption {
-	return func(machine *Machine) {
-		if n > 0 {
-			machine.regions = n
-		}
-	}
-}
-
-// WithStreamOptions appends low-level transport options to the machine.
-func WithStreamOptions(opts ...transport.StreamOption) machineOption {
-	return func(machine *Machine) {
-		machine.streamOpts = append(machine.streamOpts, opts...)
-	}
-}
-
-// WithStreamAdapter attaches an additional observer / sink to the stream.
-func WithStreamAdapter(side io.ReadWriter) machineOption {
-	return func(machine *Machine) {
-		if side != nil {
-			machine.streamSides = append(machine.streamSides, side)
-		}
-	}
-}
-
-// WithS3Adapter opts in to the LakeFS / MinIO adapter. It is disabled by
-// default so NewMachine remains side-effect free in tests.
-func WithS3Adapter() machineOption {
-	return func(machine *Machine) {
-		machine.autoS3 = true
-	}
-}
-
-// NewMachine constructs a Machine: it applies opts, validates ctx/cancel, and
-// wires an isolated transport stream.
-func NewMachine(ctx context.Context, opts ...machineOption) (machine *Machine, err error) {
+/*
+NewMachine constructs a new Machine with the provided options.
+It requires a context for lifecycle management and will return
+an error if the context is invalid or if the underlying stream
+fails to start. The machine can be configured with various options,
+such as custom datasets, stream adapters, and region counts.
+*/
+func NewMachine(
+	ctx context.Context, opts ...machineOption,
+) (machine *Machine, err error) {
 	if ctx == nil {
-		ctx = context.Background()
+		return nil, errnie.Error(
+			NewMachineError(ErrNoContext),
+		)
 	}
 
-	machine = &Machine{regions: 1}
+	machine = &Machine{}
 	machine.ctx, machine.cancel = context.WithCancel(ctx)
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	if machine.config.ValueConfig == nil {
-		machine.config.ValueConfig = core.Cfg
-	}
-
 	if machine.err = validate.Require(map[string]any{
-		"ctx":    machine.ctx,
-		"cancel": machine.cancel,
+		"ctx":     machine.ctx,
+		"cancel":  machine.cancel,
+		"sources": machine.sources,
 	}); machine.err != nil {
 		return nil, errnie.Error(
-			NewMachineError(MachineErrFailStart, machine.err),
-		)
-	}
-
-	streamOpts := make([]transport.StreamOption, 0, len(machine.streamOpts)+1+len(machine.streamSides)+1)
-	streamOpts = append(streamOpts, transport.StreamWithRegions(machine.regions))
-	streamOpts = append(streamOpts, machine.streamOpts...)
-
-	if machine.autoS3 {
-		s3adapter, s3Err := adapter.NewS3Adapter(machine.ctx)
-		if s3Err == nil && s3adapter != nil {
-			streamOpts = append(streamOpts, transport.StreamWithAdapter(s3adapter))
-		} else if s3Err != nil {
-			errnie.Trace("vm.NewMachine", "s3_adapter", "disabled/not_configured: "+s3Err.Error())
-		}
-	}
-
-	for _, side := range machine.streamSides {
-		streamOpts = append(streamOpts, transport.StreamWithAdapter(side))
-	}
-
-	machine.stream = transport.NewStream(machine.ctx, streamOpts...)
-	if machine.stream == nil {
-		return nil, errnie.Error(
-			NewMachineError(MachineErrFailStart, errors.New("stream failed to start")),
+			NewMachineError(ErrNotValidated, machine.err),
 		)
 	}
 
 	return machine, nil
 }
 
+func (machine *Machine) start() (err error) {
+	scanner := bufio.NewScanner(machine.sources)
+	buf := make([]byte, 0, core.Cfg.ValueSize/128)
+
+	for {
+		select {
+		case <-machine.ctx.Done():
+			return nil
+		default:
+			if !scanner.Scan() {
+				if err := scanner.Err(); err != nil {
+					return errnie.Error(
+						NewMachineError(ErrDatasetNotClosed, err),
+					)
+				}
+
+				return nil
+			}
+
+			scanner.Buffer(buf, len(buf))
+
+			var value *primitive.Value
+
+			if value, err = primitive.NewValue(buf); err != nil {
+				return errnie.Error(
+					NewMachineError(ErrValueError, err),
+				)
+			}
+
+			machine.values = append(machine.values, value)
+			buf = buf[:0]
+		}
+	}
+}
+
 func (machine *Machine) Read(p []byte) (n int, err error) {
-	return machine.stream.Read(p)
+	return machine.sources.Read(p)
 }
 
 func (machine *Machine) Write(p []byte) (n int, err error) {
-	return machine.stream.Write(p)
+	if machine.destinations == nil {
+		return len(p), nil
+	}
+	return machine.destinations.Write(p)
 }
 
-func (machine *Machine) Close() error {
+func (machine *Machine) Close() (err error) {
 	if machine.cancel != nil {
 		machine.cancel()
 	}
 
-	var errs []error
-
-	if machine.dataset != nil {
-		if err := machine.dataset.Close(); err != nil {
-			errs = append(errs, err)
-		}
-		machine.dataset = nil
-	}
-
-	if machine.stream != nil {
-		if err := machine.stream.Close(); err != nil {
-			errs = append(errs, err)
-		}
-	}
-
-	return errors.Join(errs...)
+	return err
 }
 
 func WithDataset(dataset io.ReadCloser) machineOption {
 	return func(machine *Machine) {
-		machine.dataset = dataset
-	}
-}
-
-type MachineErrorType string
-
-const (
-	MachineErrFailStart MachineErrorType = "failed to start machine"
-)
-
-type MachineError struct {
-	Err error
-	Msg string
-}
-
-func (err *MachineError) Error() string {
-	return err.Msg
-}
-
-func (err *MachineError) Unwrap() error {
-	return err.Err
-}
-
-func NewMachineError(typ MachineErrorType, cause error) *MachineError {
-	msg := string(typ)
-	if cause != nil {
-		msg = fmt.Sprintf("%s: %v", typ, cause)
-	}
-	return &MachineError{
-		Msg: msg,
-		Err: cause,
+		machine.sources = io.LimitReader(io.MultiReader(
+			dataset,
+		), int64(core.Cfg.ValueSize))
 	}
 }

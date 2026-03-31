@@ -24,13 +24,14 @@ construction time. It implements io.ReadWriteCloser so that Value
 frames flow through the same interface regardless of the underlying wire.
 */
 type UniConn struct {
-	err      error
-	ctx      context.Context
-	cancel   context.CancelFunc
-	connType UniConnType
-	rwc      io.ReadWriteCloser
-	readyErr error
-	ready    sync.Once
+	err          error
+	ctx          context.Context
+	cancel       context.CancelFunc
+	transports   map[UniConnType]io.ReadWriteCloser
+	sources      io.Writer
+	destinations io.Reader
+	readyErr     error
+	ready        sync.Once
 }
 
 /*
@@ -42,8 +43,8 @@ type uniConnOption func(*UniConn)
 NewUniConn constructs a UniConn. Without options it has no transport;
 pass UniConnWithIPC, UniConnWithUDP, or UniConnWithQUIC to wire one up.
 */
-func NewUniConn(opts ...uniConnOption) *UniConn {
-	ctx, cancel := context.WithCancel(context.Background())
+func NewUniConn(ctx context.Context, opts ...uniConnOption) *UniConn {
+	ctx, cancel := context.WithCancel(ctx)
 
 	conn := &UniConn{
 		ctx:    ctx,
@@ -65,7 +66,7 @@ func (conn *UniConn) Read(p []byte) (int, error) {
 		return 0, err
 	}
 
-	return conn.rwc.Read(p)
+	return conn.destinations.Read(p)
 }
 
 /*
@@ -76,7 +77,7 @@ func (conn *UniConn) Write(p []byte) (int, error) {
 		return 0, err
 	}
 
-	return conn.rwc.Write(p)
+	return conn.sources.Write(p)
 }
 
 // Ready blocks until the configured transport reaches a protocol-specific
@@ -92,20 +93,20 @@ Close tears down the connection context and the underlying transport.
 func (conn *UniConn) Close() error {
 	conn.cancel()
 
-	if conn.rwc == nil {
+	if conn.sources == nil && conn.destinations == nil {
 		return nil
 	}
 
-	return conn.rwc.Close()
+	return nil
 }
 
 func (conn *UniConn) ensureReady() error {
-	if conn.rwc == nil {
-		return &TransportError{Layer: "uniconn", Op: "ready", Err: ErrNoTransport}
+	if conn.sources == nil && conn.destinations == nil {
+		return NewNetworkError(ErrTransportFailure)
 	}
 
 	conn.ready.Do(func() {
-		if ready, ok := conn.rwc.(ReadyTransport); ok {
+		if ready, ok := conn.sources.(ReadyTransport); ok {
 			conn.readyErr = ready.Ready(conn.ctx)
 		}
 	})
@@ -124,32 +125,13 @@ func UniConnWithContext(ctx context.Context) uniConnOption {
 }
 
 /*
-UniConnWithIPC wires a shared-memory IPC transport.
+UniConnWithTransport wires a new transport.
 */
-func UniConnWithIPC(transport *IPC) uniConnOption {
+func UniConnWithTransport(
+	transportType *IPC, transport io.ReadWriteCloser,
+) uniConnOption {
 	return func(conn *UniConn) {
-		conn.connType = IPCType
-		conn.rwc = transport
-	}
-}
-
-/*
-UniConnWithUDP wires a UDP multicast transport.
-*/
-func UniConnWithUDP(transport *UDPMulticast) uniConnOption {
-	return func(conn *UniConn) {
-		conn.connType = UDPType
-		conn.rwc = transport
-	}
-}
-
-/*
-UniConnWithQUIC wires a QUIC transport for WAN communication.
-*/
-func UniConnWithQUIC(transport *QUIC) uniConnOption {
-	return func(conn *UniConn) {
-		conn.connType = QUICType
-		conn.rwc = transport
+		conn.transports[IPCType] = transport
 	}
 }
 

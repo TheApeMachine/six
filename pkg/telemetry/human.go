@@ -70,7 +70,7 @@ func HumanDescribeValue(v *primitive.Value) string {
 	dataPop := cpu.Popcount(unsafe.Pointer(v), 0, int(core.Cfg.TokenBits))
 	affPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.AffinityIndex), int(core.Cfg.AffinityBits))
 	progPop := cpu.Popcount(unsafe.Pointer(v), int(core.Cfg.ProgramIndex), int(core.Cfg.ProgramBits))
-	tokens := primitive.DecodeTokensToText(v)
+	tokens := v.String()
 	if tokens == "" {
 		tokens = v.String()
 	}

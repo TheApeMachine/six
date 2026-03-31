@@ -6,7 +6,6 @@ import (
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/textutil"
 )
 
 /*
@@ -84,14 +83,14 @@ func BuildSystemTopology() SystemTopology {
 		{
 			ID:     "backend",
 			Label:  "Backend",
-			Detail: fmt.Sprintf("%d substrate%s", backendCount, textutil.Pluralize(backendCount, "", "s")),
+			Detail: fmt.Sprintf("%d substrate%s", backendCount, ""),
 			Kind:   "backend",
 			Count:  backendCount,
 		},
 		{
 			ID:     "pool",
 			Label:  "Pool",
-			Detail: fmt.Sprintf("%d worker%s", poolWorkers, textutil.Pluralize(poolWorkers, "", "s")),
+			Detail: fmt.Sprintf("%d worker%s", poolWorkers, ""),
 			Kind:   "pool",
 			Count:  poolWorkers,
 		},
@@ -101,14 +100,14 @@ func BuildSystemTopology() SystemTopology {
 		{
 			ID:     "cuda",
 			Label:  "Cuda",
-			Detail: fmt.Sprintf("%d %s", cudaCount, textutil.Pluralize(cudaCount, "device", "devices")),
+			Detail: fmt.Sprintf("%d %s", cudaCount, "devices"),
 			Kind:   "cuda",
 			Count:  cudaCount,
 		},
 		{
 			ID:     "metal",
 			Label:  "Metal",
-			Detail: fmt.Sprintf("%d %s", metalCount, textutil.Pluralize(metalCount, "device", "devices")),
+			Detail: fmt.Sprintf("%d %s", metalCount, "devices"),
 			Kind:   "metal",
 			Count:  metalCount,
 		},
