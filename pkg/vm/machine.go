@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"context"
 	"io"
+	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
@@ -136,7 +138,23 @@ func WithSources(readers io.ReadCloser) machineOption {
 func WithDestinations(writers io.WriteCloser) machineOption {
 	return func(machine *Machine) {
 		machine.destinations = io.MultiWriter(
-			writers,	
+			writers,
 		)
 	}
+}
+
+// Exec runs the prompt Value through the population by pairing it with every
+// resident Value via UniversalBitwise. The learn firmware XORs token regions,
+// accumulating the residue in the prompt Value. Call value.String() after to
+// decode the residue back to text.
+func (machine *Machine) Exec(value *primitive.Value) error {
+	for _, resident := range machine.values {
+		if err := compute.UniversalBitwise(
+			unsafe.Pointer(value),
+			unsafe.Pointer(resident),
+		); err != nil {
+			return errnie.Error(err)
+		}
+	}
+	return nil
 }

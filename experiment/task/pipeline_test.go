@@ -31,7 +31,7 @@ func TestMain(m *testing.M) {
 	}
 
 	viper.Set("loglevel", "trace")
-	viper.Set("logging.elasticsearch.enabled", false) // Avoid noisy elastic logs during tests; re-enable for benchmarking.
+	viper.Set("logging.elasticsearch.enabled", true)
 	viper.Set("logging.trace.path", os.DevNull)
 	viper.Set("logging.elasticsearch.endpoint", "https://127.0.0.1:9200")
 	viper.Set("logging.elasticsearch.index", "six-logs")

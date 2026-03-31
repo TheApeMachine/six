@@ -218,14 +218,7 @@ func NewValue(p []byte) (*Value, error) {
 	value[core.Cfg.AffinityIndex] |= bloom
 	value[core.Cfg.StateAccumulator] = value[core.Cfg.AffinityIndex]
 
-	affinities := make([]uint64, len(tokenIDs))
-	for i := range affinities {
-		affinities[i] = value[core.Cfg.AffinityIndex]
-	}
-
-	store.DefaultSpatialIndex().InsertBatch(
-		tokenIDs, affinities,
-	)
+	store.DefaultSpatialIndex().InsertBatch(tokenIDs, *value)
 
 	return value, nil
 }
@@ -529,30 +522,30 @@ func (value *Value) String() string {
 	var builder strings.Builder
 
 	// Walk outward from exact match to a loose bound, stopping at the first hit.
-	var tokenIDs []uint64
+	var frames [][Words]uint64
 	for dist := 0; dist <= 8; dist++ {
-		tokenIDs = store.DefaultSpatialIndex().QueryHamming(affinity, dist)
-		if len(tokenIDs) > 0 {
+		frames = store.DefaultSpatialIndex().QueryHamming(affinity, dist)
+		if len(frames) > 0 {
 			break
 		}
 	}
 
-	slices.SortFunc(tokenIDs, func(a, b uint64) int {
-		idxA := a & 0xFFFFFFFF
-		idxB := b & 0xFFFFFFFF
-		if idxA < idxB {
-			return -1
+	// Decode the token region of each matched Value frame.
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
+	for _, frame := range frames {
+		v := Value(frame)
+		nWords := tokenWords
+		if core.Cfg.TokenIndex+nWords > Words {
+			nWords = Words - core.Cfg.TokenIndex
 		}
-		if idxA > idxB {
-			return 1
-		}
-		return 0
-	})
-
-	for _, token := range tokenIDs {
-		b := byte(token >> 32)
-		if b > 0 {
-			builder.WriteByte(b)
+		for i := 0; i < nWords; i++ {
+			w := v[core.Cfg.TokenIndex+i]
+			for shift := 0; shift < 64; shift += 8 {
+				b := byte(w >> shift)
+				if b > 0 && b >= 0x20 && b < 0x7F {
+					builder.WriteByte(b)
+				}
+			}
 		}
 	}
 
