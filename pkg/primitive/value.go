@@ -354,15 +354,17 @@ func (value *Value) Retain() int64 {
 
 // Release decrements the external reference count for pooled Values and
 // returns them to the pool only after the final owner releases.
+// For untracked Values (created via ViewValue), this is a no-op.
 func (value *Value) Release() (err error) {
-	if err = value.isTombstoned(); err != nil {
-		return err
-	}
-
 	lc, ok := lifecycleFor(value)
 
 	if !ok {
+		// Untracked value (e.g. ViewValue) — nothing to release.
 		return nil
+	}
+
+	if err = value.isTombstoned(); err != nil {
+		return err
 	}
 
 	refs := lc.refs.Add(-1)
@@ -387,6 +389,22 @@ func (value *Value) Release() (err error) {
 	}
 
 	return nil
+}
+
+// ViewValue creates a non-pooled, non-lifecycle-tracked copy of a 1024-byte
+// frame for read-only inspection (e.g. reading Affinity, calling String()).
+// The returned Value is stack-allocated and its Close() is a no-op, so no
+// tombstone firmware is needed before discarding it.
+func ViewValue(p []byte) *Value {
+	var v Value
+	if len(p) >= ByteSize {
+		valueFrom(p[:ByteSize], &v)
+	} else {
+		var frame [ByteSize]byte
+		copy(frame[:], p)
+		valueFrom(frame[:], &v)
+	}
+	return &v
 }
 
 func (value *Value) isTombstoned() error {
@@ -444,12 +462,23 @@ func (value *Value) isPoolReusable() bool {
 	return wiped
 }
 
-func (value *Value) installLearnFirmware() {
+// InstallTombstone installs the tombstone firmware into the Value's program
+// region and resets the PC. After the next ALU execution the Tokens, Affinity,
+// state metadata, and program region are all zeroed in-band via JIT-fused
+// ALU FALSE batch — the tombstone is fully self-erasing.
+func (value *Value) InstallTombstone() {
+	value.installFirmware(core.FirmwareTypeTombstone)
+	value[core.Cfg.RegPC] = 0
+}
+
+// InstallLearnFirmware installs the learn firmware and resets the PC.
+func (value *Value) InstallLearnFirmware() {
 	value.installFirmware(core.FirmwareTypeLearn)
 	value[core.Cfg.RegPC] = 0
 }
 
-func (value *Value) installBuildFirmware() {
+// InstallBuildFirmware installs the build firmware and resets the PC.
+func (value *Value) InstallBuildFirmware() {
 	value.installFirmware(core.FirmwareTypeBuild)
 	value[core.Cfg.RegPC] = 0
 }

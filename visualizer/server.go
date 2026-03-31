@@ -374,10 +374,7 @@ func (server *Server) handlePromptCommand(msg string) {
 
 	resultText := string(result)
 	if len(result) == primitive.ByteSize {
-		if value := primitive.BytesToValue(result); value != nil {
-			resultText = value.String()
-			_ = value.Close()
-		}
+		resultText = primitive.ViewValue(result).String()
 	}
 
 	stage := "prompt-complete"

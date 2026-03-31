@@ -127,214 +127,148 @@ value:
 
 programs:
   # learn: XOR self token words [0-56] with partner using DJNZ loop.
-  # r1=counter(57), r2=word index (indirect address), r3=1 (increment).
-  # Per iteration: load partner[r2], load self[r2], XOR via scratch[69], store back indirect.
-  # After execution, self[0-56] = XOR(self, partner) — the cancel signal map.
+  # Registers: r0=partner word, r1=counter(57), r2=current index, r3=scratch/increment.
+  # self[68] = index scratch; self[69] = XOR result scratch.
+  # Loop (instructions 3-12, DJNZ offset=-9 → jumps back to instruction 3):
+  #   reload index from self[68], ILOAD partner and self, XOR via scratch,
+  #   ISTORE result, reload r3=1, ADD to index, DJNZ.
+  # After execution: self[0-56] = XOR(self, partner) — the cancel signal map.
   learn: |
     MEM IMM r1 57
     MEM IMM r2 0
     MEM STORE r2 68
-    MEM IMM r3 1
+    MEM LOAD r2 c0 68
     MEM ILOAD r0 c1 r2
     MEM ILOAD r3 c0 r2
     MEM STORE r3 69
     ALU XOR r0 c0 69
     MEM LOAD r3 c0 69
     MEM ISTORE r3 r2
+    MEM IMM r3 1
     ALU ADD r3 c0 68
-    MEM LOAD r2 c0 68
-    CTL DJNZ r1 -8
+    CTL DJNZ r1 -9
     HALT
 
-  # bootloader: initialize registers to zero and set fw=1 (learn) for next execution.
+  # bootloader: set fw=1 (learn) so the next ALU execution runs the learn firmware.
   bootloader: |
     MEM IMM r0 1
     MEM STORE r0 74
     HALT
 
-  # tombstone: zero token words [0-54] and affinity word [63].
-  # The Go substrate zeros the program region after execution completes.
+  # tombstone: erase this Value's presence from the linked list and zero all data,
+  #            including the program region itself.
+  #
+  # Phase 1 (instrs 0-9) — save ValueID, zero token words [0-56]:
+  #   r0 = self[57] (ValueID, preserved for XOR spread).
+  #   r1 = 57 (loop counter). self[68] = index scratch.
+  #   Loop (instrs 4-9, DJNZ offset=-5): load index, ISTORE 0, add 1.
+  #
+  # Phase 2 (instrs 10-16) — XOR spread + zero metadata:
+  #   self[58] ^= r0 (PrevID encodes departure).
+  #   self[59] ^= r0 (NextID encodes departure).
+  #   Zero state words 60-62, affinity 63, ValueID 57.
+  #
+  # Phase 3 (instrs 17-68) — zero program region [76-127] in-band via JIT fusion:
+  #   52 consecutive ALU FALSE r0 c0 N instructions (N=76..127).
+  #   The JIT fusion engine batches them into a single execWordBlock call that
+  #   zeroes words 76-127 atomically. PC then advances past all 52 instructions
+  #   into the (now-zeroed) region, which reads as HALT (0) — execution stops.
   tombstone: |
-    ALU FALSE r0 c0 0
-    ALU FALSE r0 c0 1
-    ALU FALSE r0 c0 2
-    ALU FALSE r0 c0 3
-    ALU FALSE r0 c0 4
-    ALU FALSE r0 c0 5
-    ALU FALSE r0 c0 6
-    ALU FALSE r0 c0 7
-    ALU FALSE r0 c0 8
-    ALU FALSE r0 c0 9
-    ALU FALSE r0 c0 10
-    ALU FALSE r0 c0 11
-    ALU FALSE r0 c0 12
-    ALU FALSE r0 c0 13
-    ALU FALSE r0 c0 14
-    ALU FALSE r0 c0 15
-    ALU FALSE r0 c0 16
-    ALU FALSE r0 c0 17
-    ALU FALSE r0 c0 18
-    ALU FALSE r0 c0 19
-    ALU FALSE r0 c0 20
-    ALU FALSE r0 c0 21
-    ALU FALSE r0 c0 22
-    ALU FALSE r0 c0 23
-    ALU FALSE r0 c0 24
-    ALU FALSE r0 c0 25
-    ALU FALSE r0 c0 26
-    ALU FALSE r0 c0 27
-    ALU FALSE r0 c0 28
-    ALU FALSE r0 c0 29
-    ALU FALSE r0 c0 30
-    ALU FALSE r0 c0 31
-    ALU FALSE r0 c0 32
-    ALU FALSE r0 c0 33
-    ALU FALSE r0 c0 34
-    ALU FALSE r0 c0 35
-    ALU FALSE r0 c0 36
-    ALU FALSE r0 c0 37
-    ALU FALSE r0 c0 38
-    ALU FALSE r0 c0 39
-    ALU FALSE r0 c0 40
-    ALU FALSE r0 c0 41
-    ALU FALSE r0 c0 42
-    ALU FALSE r0 c0 43
-    ALU FALSE r0 c0 44
-    ALU FALSE r0 c0 45
-    ALU FALSE r0 c0 46
-    ALU FALSE r0 c0 47
-    ALU FALSE r0 c0 48
-    ALU FALSE r0 c0 49
-    ALU FALSE r0 c0 50
-    ALU FALSE r0 c0 51
-    ALU FALSE r0 c0 52
-    ALU FALSE r0 c0 53
-    ALU FALSE r0 c0 54
+    MEM LOAD r0 c0 57
+    MEM IMM r1 57
+    MEM IMM r2 0
+    MEM STORE r2 68
+    MEM LOAD r2 c0 68
+    MEM IMM r3 0
+    MEM ISTORE r3 r2
+    MEM IMM r3 1
+    ALU ADD r3 c0 68
+    CTL DJNZ r1 -5
+    ALU XOR r0 c0 58
+    ALU XOR r0 c0 59
+    ALU FALSE r0 c0 60
+    ALU FALSE r0 c0 61
+    ALU FALSE r0 c0 62
     ALU FALSE r0 c0 63
-    HALT
+    ALU FALSE r0 c0 57
+    ALU FALSE r0 c0 76
+    ALU FALSE r0 c0 77
+    ALU FALSE r0 c0 78
+    ALU FALSE r0 c0 79
+    ALU FALSE r0 c0 80
+    ALU FALSE r0 c0 81
+    ALU FALSE r0 c0 82
+    ALU FALSE r0 c0 83
+    ALU FALSE r0 c0 84
+    ALU FALSE r0 c0 85
+    ALU FALSE r0 c0 86
+    ALU FALSE r0 c0 87
+    ALU FALSE r0 c0 88
+    ALU FALSE r0 c0 89
+    ALU FALSE r0 c0 90
+    ALU FALSE r0 c0 91
+    ALU FALSE r0 c0 92
+    ALU FALSE r0 c0 93
+    ALU FALSE r0 c0 94
+    ALU FALSE r0 c0 95
+    ALU FALSE r0 c0 96
+    ALU FALSE r0 c0 97
+    ALU FALSE r0 c0 98
+    ALU FALSE r0 c0 99
+    ALU FALSE r0 c0 100
+    ALU FALSE r0 c0 101
+    ALU FALSE r0 c0 102
+    ALU FALSE r0 c0 103
+    ALU FALSE r0 c0 104
+    ALU FALSE r0 c0 105
+    ALU FALSE r0 c0 106
+    ALU FALSE r0 c0 107
+    ALU FALSE r0 c0 108
+    ALU FALSE r0 c0 109
+    ALU FALSE r0 c0 110
+    ALU FALSE r0 c0 111
+    ALU FALSE r0 c0 112
+    ALU FALSE r0 c0 113
+    ALU FALSE r0 c0 114
+    ALU FALSE r0 c0 115
+    ALU FALSE r0 c0 116
+    ALU FALSE r0 c0 117
+    ALU FALSE r0 c0 118
+    ALU FALSE r0 c0 119
+    ALU FALSE r0 c0 120
+    ALU FALSE r0 c0 121
+    ALU FALSE r0 c0 122
+    ALU FALSE r0 c0 123
+    ALU FALSE r0 c0 124
+    ALU FALSE r0 c0 125
+    ALU FALSE r0 c0 126
+    ALU FALSE r0 c0 127
 
   # viral: deprecated — Values no longer fold into each other.
   viral: |
     HALT
 
-  # build: AND self token words [0-56] with partner token words [0-56].
-  # After execution, self[0-56] contains AND(self,partner) — the merge signal map.
-  # The Go substrate scans for the longest one-run to find the convergence point.
+  # build: AND self token words [0-56] with partner using DJNZ loop.
+  # Registers: r0=partner word, r1=counter(57), r2=current index, r3=scratch/increment.
+  # self[68] = index scratch; self[69] = AND result scratch.
+  # Loop (instructions 3-12, DJNZ offset=-9 → jumps back to instruction 3):
+  #   reload index from self[68], ILOAD partner and self, AND via scratch,
+  #   ISTORE result, reload r3=1, ADD to index, DJNZ.
+  # After execution: self[0-56] = AND(self, partner) — the merge signal map.
   build: |
-    MEM LOAD r0 c1 0
-    ALU AND r0 c0 0
-    MEM LOAD r0 c1 1
-    ALU AND r0 c0 1
-    MEM LOAD r0 c1 2
-    ALU AND r0 c0 2
-    MEM LOAD r0 c1 3
-    ALU AND r0 c0 3
-    MEM LOAD r0 c1 4
-    ALU AND r0 c0 4
-    MEM LOAD r0 c1 5
-    ALU AND r0 c0 5
-    MEM LOAD r0 c1 6
-    ALU AND r0 c0 6
-    MEM LOAD r0 c1 7
-    ALU AND r0 c0 7
-    MEM LOAD r0 c1 8
-    ALU AND r0 c0 8
-    MEM LOAD r0 c1 9
-    ALU AND r0 c0 9
-    MEM LOAD r0 c1 10
-    ALU AND r0 c0 10
-    MEM LOAD r0 c1 11
-    ALU AND r0 c0 11
-    MEM LOAD r0 c1 12
-    ALU AND r0 c0 12
-    MEM LOAD r0 c1 13
-    ALU AND r0 c0 13
-    MEM LOAD r0 c1 14
-    ALU AND r0 c0 14
-    MEM LOAD r0 c1 15
-    ALU AND r0 c0 15
-    MEM LOAD r0 c1 16
-    ALU AND r0 c0 16
-    MEM LOAD r0 c1 17
-    ALU AND r0 c0 17
-    MEM LOAD r0 c1 18
-    ALU AND r0 c0 18
-    MEM LOAD r0 c1 19
-    ALU AND r0 c0 19
-    MEM LOAD r0 c1 20
-    ALU AND r0 c0 20
-    MEM LOAD r0 c1 21
-    ALU AND r0 c0 21
-    MEM LOAD r0 c1 22
-    ALU AND r0 c0 22
-    MEM LOAD r0 c1 23
-    ALU AND r0 c0 23
-    MEM LOAD r0 c1 24
-    ALU AND r0 c0 24
-    MEM LOAD r0 c1 25
-    ALU AND r0 c0 25
-    MEM LOAD r0 c1 26
-    ALU AND r0 c0 26
-    MEM LOAD r0 c1 27
-    ALU AND r0 c0 27
-    MEM LOAD r0 c1 28
-    ALU AND r0 c0 28
-    MEM LOAD r0 c1 29
-    ALU AND r0 c0 29
-    MEM LOAD r0 c1 30
-    ALU AND r0 c0 30
-    MEM LOAD r0 c1 31
-    ALU AND r0 c0 31
-    MEM LOAD r0 c1 32
-    ALU AND r0 c0 32
-    MEM LOAD r0 c1 33
-    ALU AND r0 c0 33
-    MEM LOAD r0 c1 34
-    ALU AND r0 c0 34
-    MEM LOAD r0 c1 35
-    ALU AND r0 c0 35
-    MEM LOAD r0 c1 36
-    ALU AND r0 c0 36
-    MEM LOAD r0 c1 37
-    ALU AND r0 c0 37
-    MEM LOAD r0 c1 38
-    ALU AND r0 c0 38
-    MEM LOAD r0 c1 39
-    ALU AND r0 c0 39
-    MEM LOAD r0 c1 40
-    ALU AND r0 c0 40
-    MEM LOAD r0 c1 41
-    ALU AND r0 c0 41
-    MEM LOAD r0 c1 42
-    ALU AND r0 c0 42
-    MEM LOAD r0 c1 43
-    ALU AND r0 c0 43
-    MEM LOAD r0 c1 44
-    ALU AND r0 c0 44
-    MEM LOAD r0 c1 45
-    ALU AND r0 c0 45
-    MEM LOAD r0 c1 46
-    ALU AND r0 c0 46
-    MEM LOAD r0 c1 47
-    ALU AND r0 c0 47
-    MEM LOAD r0 c1 48
-    ALU AND r0 c0 48
-    MEM LOAD r0 c1 49
-    ALU AND r0 c0 49
-    MEM LOAD r0 c1 50
-    ALU AND r0 c0 50
-    MEM LOAD r0 c1 51
-    ALU AND r0 c0 51
-    MEM LOAD r0 c1 52
-    ALU AND r0 c0 52
-    MEM LOAD r0 c1 53
-    ALU AND r0 c0 53
-    MEM LOAD r0 c1 54
-    ALU AND r0 c0 54
-    MEM LOAD r0 c1 55
-    ALU AND r0 c0 55
-    MEM LOAD r0 c1 56
-    ALU AND r0 c0 56
+    MEM IMM r1 57
+    MEM IMM r2 0
+    MEM STORE r2 68
+    MEM LOAD r2 c0 68
+    MEM ILOAD r0 c1 r2
+    MEM ILOAD r3 c0 r2
+    MEM STORE r3 69
+    ALU AND r0 c0 69
+    MEM LOAD r3 c0 69
+    MEM ISTORE r3 r2
+    MEM IMM r3 1
+    ALU ADD r3 c0 68
+    CTL DJNZ r1 -9
     HALT
 
 

@@ -100,7 +100,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	loadStart := time.Now()
 	machine, err := vm.NewMachine(
 		pipeline.ctx,
-		vm.WithDataset(pipeline.experiment.Dataset()),
+		vm.WithSources(pipeline.experiment.Dataset()),
 	)
 
 	if err != nil {
@@ -112,9 +112,6 @@ func (pipeline *Pipeline) Run() (err error) {
 			err = errnie.Error(closeErr)
 		}
 	}()
-
-	observer := tools.NewObserver(machine)
-	defer observer.Close()
 
 	// Grab prompts early so we can size the drop-out buffer.
 	prompts := pipeline.experiment.Prompts()
@@ -152,7 +149,7 @@ func (pipeline *Pipeline) Run() (err error) {
 			"holdout", string(holdout),
 		)
 
-		observed, obsErr := pipeline.observePrompt(observer, value)
+		observed, obsErr := pipeline.observePrompt(machine, value)
 		_ = value.Close()
 		if obsErr != nil {
 			return errnie.Error(obsErr)
@@ -193,33 +190,15 @@ func (pipeline *Pipeline) Run() (err error) {
 	return nil
 }
 
-func (pipeline *Pipeline) observePrompt(observer io.ReadWriter, value *primitive.Value) ([]byte, error) {
-	if observer == nil || value == nil {
-		return nil, PipelineError("nil prompt observer/value")
+func (pipeline *Pipeline) observePrompt(_ io.ReadWriter, value *primitive.Value) ([]byte, error) {
+	if value == nil {
+		return nil, PipelineError("nil prompt value")
 	}
 
-	if _, err := io.Copy(observer, value); err != nil {
-		return nil, err
-	}
-
-	frame := make([]byte, primitive.ByteSize)
-	if _, err := io.ReadFull(observer, frame); err != nil {
-		return nil, err
-	}
-
-	if exp, ok := pipeline.experiment.(tools.WorkspaceTokenObserver); ok && exp.ObserveWorkspaceAsTokens() {
-		observed := primitive.BytesToValue(frame)
-		defer observed.Close()
-		return observed.Bytes(), nil
-	}
-
-	if exp, ok := pipeline.experiment.(rawOutputObserver); ok && exp.RawOutput() {
-		return frame, nil
-	}
-
-	observed := primitive.BytesToValue(frame)
-	defer observed.Close()
-	return []byte(observed.String()), nil
+	// The Value is the program. NewValue encoded the prompt as a hypervector
+	// and registered it in the LSM. String() queries the LSM by affinity to
+	// retrieve the nearest matching content from the dataset population.
+	return []byte(value.String()), nil
 }
 
 func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value) error {

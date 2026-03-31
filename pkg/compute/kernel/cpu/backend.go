@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 type Backend struct {
@@ -94,6 +95,8 @@ func (backend *Backend) execute(op uint8, x, y uint64) uint64 {
 		return y << (x & 63) // Memory SHL
 	case 0x12:
 		return y >> (x & 63) // Memory SHR
+	case 0x13:
+		return x + y // ADD
 	}
 	return 0
 }
@@ -153,15 +156,15 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 			switch cls := instr >> 14; cls {
 			case 1: // MEM
 				pc = backend.handleMem(
-					ctx, instr, pcReg, regs, pc,
+					ctx, instr, pcReg, &regs, pc,
 				)
 			case 2, 0: // ALU & EXT ALU (cls=0)
 				pc = backend.handleAlu(
-					ctx, instr, pcReg, regs, scratch, cls, pi, pc,
+					ctx, instr, pcReg, &regs, scratch, cls, pi, pc,
 				)
 			case 3: // CTL
 				pc = backend.handleCtl(
-					ctx, instr, pcReg, regs, pc,
+					ctx, instr, pcReg, &regs, pc,
 				)
 			}
 
@@ -175,19 +178,36 @@ func (backend *Backend) handleMem(
 	ctx [2]*[128]uint64,
 	instr uint16,
 	pcReg uint64,
-	regs [4]uint64,
+	regs *[4]uint64,
 	pc uint64,
 ) (npc uint64) {
-	ctx[0][pcReg&127] = pc + 1
 	dir := (instr >> 13) & 1
 	reg := (instr >> 11) & 3
 	sub := (instr >> 10) & 1
+	indirect := (instr >> 9) & 1
 
-	if dir == 0 { // LOAD: ctx in sub bit
-		regs[reg] = ctx[sub][instr&0x7F]
-	} else if sub == 0 { // STORE
-		ctx[0][instr&0x7F] = regs[reg]
-	} else { // IMM
+	if dir == 0 {
+		if indirect == 1 {
+			// ILOAD: reg = ctx[sub][regs[addrReg] & 127]
+			addrReg := instr & 3
+			addr := regs[addrReg] & 127
+			regs[reg] = ctx[sub][addr]
+		} else {
+			// LOAD: reg = ctx[sub][word]
+			regs[reg] = ctx[sub][instr&0x7F]
+		}
+	} else if sub == 0 {
+		if indirect == 1 {
+			// ISTORE: ctx[0][regs[addrReg] & 127] = regs[reg]
+			addrReg := instr & 3
+			addr := regs[addrReg] & 127
+			ctx[0][addr] = regs[reg]
+		} else {
+			// STORE: ctx[0][word] = regs[reg]
+			ctx[0][instr&0x7F] = regs[reg]
+		}
+	} else {
+		// IMM: regs[reg] = immediate (0-1023)
 		regs[reg] = uint64(instr & 0x3FF)
 	}
 
@@ -198,7 +218,7 @@ func (backend *Backend) handleAlu(
 	ctx [2]*[128]uint64,
 	instr uint16,
 	pcReg uint64,
-	regs [4]uint64,
+	regs *[4]uint64,
 	scratch [128]uint64,
 	cls uint16,
 	pi uint64,
@@ -232,8 +252,20 @@ func (backend *Backend) handleAlu(
 	}
 
 	if n < 4 {
+		errnie.Trace(
+			"cpu.Backend.handleAlu",
+			"hw", "cpu",
+			"op", op,
+			"reg", reg,
+			"fctx", fctx,
+			"fword", fword,
+			"pc", pc,
+			"n", n,
+		)
+
 		ctx[0][fword] = backend.execute(op, regs[reg], ctx[fctx][fword])
 		ctx[0][pcReg&127] = pc + 1
+
 		return ctx[0][pcReg&127]
 	}
 
@@ -257,7 +289,7 @@ func (backend *Backend) handleCtl(
 	ctx [2]*[128]uint64,
 	instr uint16,
 	pcReg uint64,
-	regs [4]uint64,
+	regs *[4]uint64,
 	pc uint64,
 ) (npc uint64) {
 	sub := (instr >> 12) & 3

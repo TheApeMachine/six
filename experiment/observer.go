@@ -121,8 +121,7 @@ func (o *Observer) Read(p []byte) (n int, err error) {
 
 func (o *Observer) measure(p []byte, n int) {
 	if n >= primitive.ByteSize {
-		val := primitive.BytesToValue(p)
-		defer val.Close()
+		val := primitive.ViewValue(p)
 
 		// Extract observability metrics directly from the topological frame
 		instr := telemetry.InstructionFromValue(val)

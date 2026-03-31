@@ -1,6 +1,10 @@
 package cpu
 
-import "math/bits"
+import (
+	"math/bits"
+
+	"github.com/theapemachine/six/pkg/errnie"
+)
 
 // execWordBlockScalar applies a truth-table opcode across aligned slices of
 // uint64 words. This is the pure-Go reference implementation. On arm64 the
@@ -10,6 +14,14 @@ import "math/bits"
 // Convention: src = A (source / left operand), dst = B (destination / right
 // operand). The result is written into dst. Opcode 0x2 = A &^ B, NOT B &^ A.
 func execWordBlockScalar(dst, src []uint64, op uint8) {
+	errnie.Trace(
+		"cpu.Backend.handleAlu",
+		"hw", "cpu",
+		"op", op,
+		"dst", dst,
+		"src", src,
+	)
+
 	n := len(dst)
 	if len(src) < n {
 		n = len(src)

@@ -60,6 +60,8 @@ func NewMachine(
 		)
 	}
 
+	machine.start()
+
 	return machine, nil
 }
 
@@ -106,6 +108,7 @@ func (machine *Machine) Write(p []byte) (n int, err error) {
 	if machine.destinations == nil {
 		return len(p), nil
 	}
+
 	return machine.destinations.Write(p)
 }
 
@@ -117,10 +120,18 @@ func (machine *Machine) Close() (err error) {
 	return err
 }
 
-func WithDataset(dataset io.ReadCloser) machineOption {
+func WithSources(readers io.ReadCloser) machineOption {
 	return func(machine *Machine) {
 		machine.sources = io.LimitReader(io.MultiReader(
-			dataset,
+			readers,
 		), int64(core.Cfg.ValueSize))
+	}
+}
+
+func WithDestinations(writers io.WriteCloser) machineOption {
+	return func(machine *Machine) {
+		machine.destinations = io.MultiWriter(
+			writers,	
+		)
 	}
 }
