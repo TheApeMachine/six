@@ -6,6 +6,7 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store"
 )
@@ -41,7 +42,7 @@ func bucketIndex(local, remote NodeID) int {
 // entry holds a Value and its NodeID (affinity) within a k-bucket.
 type entry struct {
 	id    NodeID
-	value primitive.Value
+	value *primitive.Value
 }
 
 // kBucket is a fixed-capacity bucket of the K closest seen nodes
@@ -62,7 +63,7 @@ func newKBucket() *kBucket {
 
 // touch inserts or refreshes a Value in the bucket. If the bucket is full
 // the oldest entry is evicted using in-place copy to preserve capacity.
-func (b *kBucket) touch(id NodeID, value primitive.Value) {
+func (b *kBucket) touch(id NodeID, value *primitive.Value) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 
@@ -83,7 +84,7 @@ func (b *kBucket) touch(id NodeID, value primitive.Value) {
 	}
 
 	b.entries = append(b.entries, entry{id: id, value: value})
-	b.lsm.InsertBatch(tokenIDsFor(value), [primitive.Words]uint64(value))
+	b.lsm.InsertBatch(tokenIDsFor(value), [primitive.Words]uint64(*value))
 }
 
 // closest returns up to k entries sorted by XOR distance to target.
@@ -111,8 +112,10 @@ func (b *kBucket) queryHamming(targetAffinity uint64, maxDistance int) [][primit
 // RoutingTable is the Kademlia routing table: IDBits k-buckets indexed by
 // prefix distance from the local node ID.
 type RoutingTable struct {
-	local   NodeID
-	buckets [IDBits]*kBucket
+	mu          sync.RWMutex
+	local       NodeID
+	bootstrapped bool
+	buckets     [IDBits]*kBucket
 }
 
 // NewRoutingTable creates a routing table for the given local NodeID.
@@ -124,13 +127,32 @@ func NewRoutingTable(local NodeID) *RoutingTable {
 	return rt
 }
 
+// SetLocal sets the local NodeID in a thread-safe manner and marks the table
+// as bootstrapped so NodeID(0) is never mistaken for an uninitialized state.
+func (rt *RoutingTable) SetLocal(id NodeID) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.local = id
+	rt.bootstrapped = true
+}
+
+// isBootstrapped reports whether the local ID has been set.
+func (rt *RoutingTable) isBootstrapped() bool {
+	rt.mu.RLock()
+	defer rt.mu.RUnlock()
+	return rt.bootstrapped
+}
+
 // Insert adds or refreshes a Value in the appropriate k-bucket.
-func (rt *RoutingTable) Insert(value primitive.Value) {
+func (rt *RoutingTable) Insert(value *primitive.Value) {
 	id := NodeID(value[affinityWordIndex()])
-	if id == rt.local {
+	rt.mu.RLock()
+	local := rt.local
+	rt.mu.RUnlock()
+	if id == local {
 		return
 	}
-	idx := bucketIndex(rt.local, id)
+	idx := bucketIndex(local, id)
 	rt.buckets[idx].touch(id, value)
 }
 
@@ -138,7 +160,10 @@ func (rt *RoutingTable) Insert(value primitive.Value) {
 // Expands outward from the target bucket one bucket at a time, only visiting
 // each bucket index once.
 func (rt *RoutingTable) FindClosest(target NodeID, k int) []entry {
-	idx := bucketIndex(rt.local, target)
+	rt.mu.RLock()
+	local := rt.local
+	rt.mu.RUnlock()
+	idx := bucketIndex(local, target)
 	var candidates []entry
 
 	candidates = append(candidates, rt.buckets[idx].closest(target, k)...)
@@ -181,15 +206,14 @@ func (rt *RoutingTable) FindNode(_ context.Context, target NodeID) []entry {
 }
 
 // Store places a Value into the routing table.
-func (rt *RoutingTable) Store(value primitive.Value) {
+func (rt *RoutingTable) Store(value *primitive.Value) {
 	rt.Insert(value)
 }
 
-// tokenIDsFor extracts the non-zero token words from a Value's token region
-// (words 0-56).
-func tokenIDsFor(value primitive.Value) []uint64 {
-	const tokenIndex = 0
-	const tokenWords = 57
+// tokenIDsFor extracts the non-zero token words from a Value's token region.
+func tokenIDsFor(value *primitive.Value) []uint64 {
+	tokenIndex := core.Cfg.TokenIndex
+	tokenWords := int((core.Cfg.TokenBits + 63) / 64)
 	ids := make([]uint64, 0, tokenWords)
 	for i := 0; i < tokenWords; i++ {
 		if w := value[tokenIndex+i]; w != 0 {
@@ -199,7 +223,7 @@ func tokenIDsFor(value primitive.Value) []uint64 {
 	return ids
 }
 
-// affinityWordIndex returns the word index of the affinity register (word 63).
+// affinityWordIndex returns the word index of the affinity register from config.
 func affinityWordIndex() int {
-	return 63
+	return core.Cfg.AffinityIndex
 }

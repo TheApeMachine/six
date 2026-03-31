@@ -542,7 +542,7 @@ func (value *Value) String() string {
 			w := v[core.Cfg.TokenIndex+i]
 			for shift := 0; shift < 64; shift += 8 {
 				b := byte(w >> shift)
-				if b > 0 && b >= 0x20 && b < 0x7F {
+				if b >= 0x20 && b < 0x7F {
 					builder.WriteByte(b)
 				}
 			}

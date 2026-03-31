@@ -263,8 +263,13 @@ func Debug(msg string, keyvals ...any) { logZ(zapcore.DebugLevel, msg, keyvals) 
 func Warn(msg string, keyvals ...any)  { logZ(zapcore.WarnLevel, msg, keyvals) }
 
 /*
-Trace logs at debug level with component=trace for structured sinks, and optionally
-appends a plain line to logging.trace.path or ./trace.log when path is empty.
+Trace logs with component=trace for structured sinks (including Elasticsearch), and optionally
+appends a plain line to logging.trace.path or ./trace.log.
+
+When logging.elasticsearch.enabled is true and the logger initialized successfully, traces are
+always shipped to Zap even if the global loglevel is info or warn: they are emitted at Info
+so they pass the level filter (Debug-level traces would otherwise be dropped before the ES core).
+Plain debug-level behavior is unchanged when loglevel is trace or debug.
 */
 func Trace(msg string, keyvals ...any) {
 	l := loggerPtr.Load()
@@ -275,20 +280,26 @@ func Trace(msg string, keyvals ...any) {
 	debugEnabled := z != nil && z.Core().Enabled(zapcore.DebugLevel)
 
 	cfg, _ := loggingCfg.Load().(LoggingConfig)
+	esShipping := cfg.Elasticsearch.Enabled && initErr == nil
 	tracePath := strings.TrimSpace(cfg.Trace.Path)
 	traceEnabled := traceFile != nil || (tracePath != "" && filepath.Clean(tracePath) != os.DevNull)
 
-	if !debugEnabled && !traceEnabled {
+	if !debugEnabled && !traceEnabled && !esShipping {
 		return
 	}
 
 	formatted := traceKeyvalsFormatted(keyvals)
-	if debugEnabled {
+	if z != nil {
 		base := keyvalsToFields(formatted)
 		fields := make([]zap.Field, len(base)+1)
 		copy(fields, base)
 		fields[len(base)] = zap.String("component", "trace")
-		z.Debug(msg, fields...)
+		switch {
+		case debugEnabled:
+			z.Debug(msg, fields...)
+		case esShipping:
+			z.Info(msg, fields...)
+		}
 	}
 	if traceEnabled {
 		ensureTraceFile()
@@ -298,7 +309,9 @@ func Trace(msg string, keyvals ...any) {
 			return
 		}
 	}
-	fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
+	if debugEnabled || (traceEnabled && traceFile == nil) {
+		fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))
+	}
 }
 
 func Error(err error, keyvals ...any) error {

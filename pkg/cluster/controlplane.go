@@ -26,10 +26,10 @@ func NewControlPlane() *ControlPlane {
 // Insert adds a Value to the routing table and its bucket's LSM.
 func (cp *ControlPlane) Insert(value primitive.Value) {
 	// Bootstrap local ID from the first Value inserted.
-	if cp.rt.local == 0 {
-		cp.rt.local = NodeID(value[affinityWordIndex()])
+	if !cp.rt.isBootstrapped() {
+		cp.rt.SetLocal(NodeID(value[affinityWordIndex()]))
 	}
-	cp.rt.Store(value)
+	cp.rt.Store(&value)
 }
 
 // FindClosest returns the K Values whose affinity is closest (by XOR distance)
@@ -38,7 +38,7 @@ func (cp *ControlPlane) FindClosest(targetAffinity uint64) []primitive.Value {
 	entries := cp.rt.FindNode(context.Background(), NodeID(targetAffinity))
 	values := make([]primitive.Value, len(entries))
 	for i, e := range entries {
-		values[i] = e.value
+		values[i] = *e.value
 	}
 	return values
 }

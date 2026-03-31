@@ -107,7 +107,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 		}
 		pool, err := certPoolFromPEM(caPEM)
 		if err != nil {
-			fmt.Println(os.Stderr, "errnie: warning: failed to parse elasticsearch ca_cert: %v; using empty pool\n", err)
+			fmt.Fprintf(os.Stderr, "errnie: warning: failed to parse elasticsearch ca_cert: %v; using empty pool\n", err)
 			return nil, err
 		}
 		transport = &http.Transport{
@@ -126,7 +126,7 @@ func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {
 	} else {
 		pool, err := x509.SystemCertPool()
 		if err != nil || pool == nil {
-			fmt.Println(os.Stderr, "errnie: warning: failed to load system cert pool: %v; using empty pool\n", err)
+			fmt.Fprintf(os.Stderr, "errnie: warning: failed to load system cert pool: %v; using empty pool\n", err)
 			pool = x509.NewCertPool()
 		}
 		transport = &http.Transport{

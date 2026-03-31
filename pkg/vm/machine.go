@@ -22,6 +22,7 @@ type Machine struct {
 	ctx          context.Context
 	cancel       context.CancelFunc
 	err          error
+	backend      *compute.Backend
 	sources      io.Reader
 	destinations io.Writer
 	values       []*primitive.Value
@@ -47,6 +48,7 @@ func NewMachine(
 
 	machine = &Machine{}
 	machine.ctx, machine.cancel = context.WithCancel(ctx)
+	machine.backend = compute.NewBackend()
 
 	for _, opt := range opts {
 		opt(machine)
@@ -90,6 +92,7 @@ func (machine *Machine) start() (err error) {
 			}
 
 			line := scanner.Bytes()
+
 			if len(line) == 0 {
 				continue
 			}
@@ -102,7 +105,10 @@ func (machine *Machine) start() (err error) {
 			}
 
 			value.InstallLearnFirmware()
-			machine.values = append(machine.values, value)
+
+			machine.backend.UniversalBitwise(
+				unsafe.Pointer(value), unsafe.Pointer(value),
+			)
 		}
 	}
 }
@@ -141,20 +147,4 @@ func WithDestinations(writers io.WriteCloser) machineOption {
 			writers,
 		)
 	}
-}
-
-// Exec runs the prompt Value through the population by pairing it with every
-// resident Value via UniversalBitwise. The learn firmware XORs token regions,
-// accumulating the residue in the prompt Value. Call value.String() after to
-// decode the residue back to text.
-func (machine *Machine) Exec(value *primitive.Value) error {
-	for _, resident := range machine.values {
-		if err := compute.UniversalBitwise(
-			unsafe.Pointer(value),
-			unsafe.Pointer(resident),
-		); err != nil {
-			return errnie.Error(err)
-		}
-	}
-	return nil
 }

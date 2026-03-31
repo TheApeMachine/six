@@ -86,7 +86,7 @@ require (
 	github.com/spf13/pflag v1.0.10 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.4
-	golang.org/x/sys v0.42.0 // indirect
+	golang.org/x/sys v0.42.0
 	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/check.v1 v1.0.0-20201130134442-10cb98267c6c // indirect
 )

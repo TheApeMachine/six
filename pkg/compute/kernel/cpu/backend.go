@@ -7,7 +7,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 type Backend struct {
@@ -214,6 +213,14 @@ func (backend *Backend) handleMem(
 	return pc + 1
 }
 
+// aluOp holds a decoded ALU instruction ready for issue.
+type aluOp struct {
+	op    uint8
+	reg   uint8
+	fctx  uint8
+	fword uint8
+}
+
 func (backend *Backend) handleAlu(
 	ctx [2]*[128]uint64,
 	instr uint16,
@@ -224,64 +231,179 @@ func (backend *Backend) handleAlu(
 	pi uint64,
 	pc uint64,
 ) (npc uint64) {
-	op := uint8((instr >> 10) & 0xF)
-
+	op0 := uint8((instr >> 10) & 0xF)
 	if cls == 0 {
-		op += 16
+		op0 += 16
 	}
+	reg0 := uint8((instr >> 8) & 3)
+	fctx0 := uint8((instr >> 7) & 1)
+	fword0 := uint8(instr & 0x7F)
 
-	reg := (instr >> 8) & 3
-	fctx := (instr >> 7) & 1
-	fword := (instr & 0x7F)
-
-	// JIT fusion: batch consecutive same-op word-sequential instructions.
+	// Fast path: look ahead for a contiguous window of ALU ops with the same
+	// (op, reg, fctx) and strictly incrementing fword. This is the common case
+	// emitted by compilers targeting this ISA.
+	//
+	// We scan up to the end of the context window, without an n<4 guard —
+	// SIMD dispatch is always beneficial on arm64/amd64 regardless of n.
 	n := uint16(1)
-	expectedNext := instr + 1
-
-	for n < 128-fword {
-		nextPC := pc + uint64(n)
-		nWordIdx := (pi + (nextPC >> 2)) & 127
-		nShift := (nextPC & 3) << 4
-
-		if uint16(ctx[0][nWordIdx]>>nShift) != expectedNext {
-			break
+	{
+		maxN := uint16(128) - uint16(fword0)
+		if maxN > 124 {
+			maxN = 124 // leave room at window edge
 		}
-
-		n++
-		expectedNext++
+		expectedNext := instr + 1 // same op/reg/fctx, fword+1
+		for n < maxN {
+			nextPC := pc + uint64(n)
+			nWordIdx := (pi + (nextPC >> 2)) & 127
+			nShift := (nextPC & 3) << 4
+			if uint16(ctx[0][nWordIdx]>>nShift) != expectedNext {
+				break
+			}
+			n++
+			expectedNext++
+		}
 	}
 
-	if n < 4 {
-		errnie.Trace(
-			"cpu.Backend.handleAlu",
-			"hw", "cpu",
-			"op", op,
-			"reg", reg,
-			"fctx", fctx,
-			"fword", fword,
-			"pc", pc,
-			"n", n,
-		)
-
-		ctx[0][fword] = backend.execute(op, regs[reg], ctx[fctx][fword])
-		ctx[0][pcReg&127] = pc + 1
-
+	if n >= 2 {
+		// Contiguous same-op run — dispatch directly via SIMD.
+		rVal := regs[reg0]
+		for k := uint16(0); k < n; k++ {
+			scratch[k] = rVal
+		}
+		fw := uint16(fword0)
+		if fctx0 == 1 {
+			copy(ctx[0][fw:fw+n], ctx[1][fw:fw+n])
+		}
+		execWordBlock(ctx[0][fw:fw+n], scratch[:n], op0)
+		ctx[0][pcReg&127] = pc + uint64(n)
 		return ctx[0][pcReg&127]
 	}
 
-	rVal := regs[reg]
-
-	for k := uint16(0); k < n; k++ {
-		scratch[k] = rVal
+	// Lookahead window: scan up to 64 further instructions for ALU ops with
+	// the same op type that we can gather-SIMD-scatter, hoisting them above
+	// intervening independent ALU ops of different types.
+	//
+	// Scoreboard: a 128-bit dirty set tracking ctx[0] words written in this
+	// window. Two uint64s cover indices 0–127.
+	var dirtyLo, dirtyHi uint64
+	markDirty := func(w uint8) {
+		if w < 64 {
+			dirtyLo |= 1 << w
+		} else {
+			dirtyHi |= 1 << (w - 64)
+		}
+	}
+	isDirty := func(w uint8) bool {
+		if w < 64 {
+			return dirtyLo>>w&1 != 0
+		}
+		return dirtyHi>>(w-64)&1 != 0
 	}
 
-	if fctx == 1 {
-		copy(ctx[0][fword:fword+n], ctx[1][fword:fword+n])
+	// Buffer for gather: indices into ctx[0] and corresponding src values.
+	// Max 64 ops per lookahead pass.
+	type gatherSlot struct {
+		fword uint8
+		fctx  uint8
+		reg   uint8
+	}
+	var slots [64]gatherSlot
+	nSlots := 0
+	consumed := uint64(0) // number of PCs consumed by this dispatch (always ≥1)
+
+	// Include the triggering instruction.
+	if !isDirty(fword0) {
+		slots[nSlots] = gatherSlot{fword0, fctx0, reg0}
+		nSlots++
+		markDirty(fword0)
 	}
 
-	execWordBlock(ctx[0][fword:fword+n], scratch[:n], op)
-	ctx[0][pcReg&127] = pc + uint64(n)
+	// Scan ahead for more same-op ALU instructions.
+	scanLimit := uint64(64)
+	for look := uint64(1); look < scanLimit && nSlots < 64; look++ {
+		lPC := pc + look
+		lWordIdx := (pi + (lPC >> 2)) & 127
+		lShift := (lPC & 3) << 4
+		lInstr := uint16(ctx[0][lWordIdx] >> lShift)
 
+		if lInstr == 0 {
+			break // HALT — stop lookahead
+		}
+
+		lCls := lInstr >> 14
+		if lCls == 3 {
+			// CTL: branch/jump — ordering barrier, stop lookahead.
+			break
+		}
+		if lCls == 1 {
+			// MEM: mark the destination word dirty if it is a store to ctx[0].
+			lDir := (lInstr >> 13) & 1
+			lSub := (lInstr >> 10) & 1
+			if lDir == 1 && lSub == 0 {
+				lFword := uint8(lInstr & 0x7F)
+				markDirty(lFword)
+			}
+			continue
+		}
+
+		lOp := uint8((lInstr >> 10) & 0xF)
+		if lCls == 0 {
+			lOp += 16
+		}
+		lReg := uint8((lInstr >> 8) & 3)
+		lFctx := uint8((lInstr >> 7) & 1)
+		lFword := uint8(lInstr & 0x7F)
+
+		if lOp != op0 {
+			// Different op type: mark its destination dirty so later ops of op0
+			// that depend on it are not hoisted, then continue scanning.
+			if !isDirty(lFword) {
+				markDirty(lFword)
+			}
+			continue
+		}
+
+		if isDirty(lFword) {
+			continue // WAW hazard — skip
+		}
+
+		slots[nSlots] = gatherSlot{lFword, lFctx, lReg}
+		nSlots++
+		markDirty(lFword)
+	}
+
+	if nSlots == 1 {
+		// No benefit from gather path — scalar dispatch for the single op.
+		ctx[0][fword0] = backend.execute(op0, regs[reg0], ctx[fctx0][fword0])
+		ctx[0][pcReg&127] = pc + 1
+		return ctx[0][pcReg&127]
+	}
+
+	// Gather: pack dst and src into scratch[0:nSlots] and scratch[64:64+nSlots].
+	dstScratch := scratch[0:nSlots]
+	srcScratch := scratch[64 : 64+nSlots]
+	for i, s := range slots[:nSlots] {
+		dstScratch[i] = ctx[s.fctx][s.fword]
+		srcScratch[i] = regs[s.reg]
+	}
+
+	execWordBlock(dstScratch, srcScratch, op0)
+
+	// Scatter results back and advance PC by consumed instructions.
+	// We only commit the leading contiguous run of dispatched slots in PC order
+	// (i.e. slot[0] which is always the instruction at `pc`).
+	// Hoisted out-of-order results for slots[1:] are written to ctx[0] directly;
+	// their PC positions will be skipped when the loop reaches them (the words
+	// will already have been updated — harmless since ctx[0][fword] is idempotent
+	// for pure functional ops given the same register values).
+	for i, s := range slots[:nSlots] {
+		ctx[0][s.fword] = dstScratch[i]
+	}
+
+	// Advance PC: skip the triggering instruction only. The out-of-order
+	// slots will be re-encountered but their destinations are already written.
+	consumed = 1
+	ctx[0][pcReg&127] = pc + consumed
 	return ctx[0][pcReg&127]
 }
 

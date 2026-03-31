@@ -245,5 +245,6 @@ func buildBenchIndex(n int) *SpatialIndex {
 	}
 	idx := NewSpatialIndex()
 	idx.InsertBatch(tokenIDs, makeValue(rng.Uint64()))
+	idx.Flush()
 	return idx
 }
