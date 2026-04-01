@@ -317,10 +317,12 @@ func assertViralPartnerState(partner *Value) {
 
 func BenchmarkTokenize(b *testing.B) {
 	var sink uint64
+	var index uint64
 	b.ResetTimer()
 
 	for b.Loop() {
-		sink += Tokenize('x', sink)
+		sink += Tokenize('x', index)
+		index++
 	}
 
 	_ = sink

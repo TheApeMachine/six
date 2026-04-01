@@ -11,7 +11,9 @@ import (
 )
 
 func init() {
-	// Tests run without viper/config.yml, so set the layout manually.
+	// These package-wide defaults are intentional for this test package: the CPU
+	// backend tests run without viper/config.yml and need a stable in-memory
+	// layout so every test shares the same explicit frame contract.
 	core.Cfg.Value.Region.Program.Start = 76
 	core.Cfg.Value.Region.Program.Bits = 3328 // 52 words * 64
 	core.Cfg.Value.Region.State.Accumulator = 62
@@ -133,7 +135,7 @@ func TestUniversalBitwiseMultipleFrames(t *testing.T) {
 		convey.So(err, convey.ShouldBeNil)
 
 		for i := range frames {
-			expected := uint64(i) & 0xFFFFFFFFFFFFFFFF
+			expected := uint64(i)
 			convey.So(frames[i][1], convey.ShouldEqual, expected)
 		}
 	})

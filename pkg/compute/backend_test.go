@@ -10,7 +10,14 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
-func init() {
+func setupTestConfig(t *testing.T) {
+	t.Helper()
+
+	original := *core.Cfg
+	t.Cleanup(func() {
+		*core.Cfg = original
+	})
+
 	core.Cfg.Value.Region.Program.Start = 76
 	core.Cfg.Value.Region.Program.Bits = 3328
 	core.Cfg.Value.Region.State.Accumulator = 62
@@ -23,6 +30,7 @@ func init() {
 
 func makeTestBackend(t *testing.T) *Backend {
 	t.Helper()
+	setupTestConfig(t)
 	ctx := context.Background()
 	pool, err := NewPool(
 		PoolWithContext(ctx),
@@ -80,7 +88,9 @@ var _ kernel.Substrate = (*recordingSubstrate)(nil)
 
 func TestGroupFramesByProgram(t *testing.T) {
 	convey.Convey("Frames are grouped by identical program regions before dispatch", t, func() {
-		backend := &Backend{}
+		backend := makeTestBackend(t)
+		defer backend.Shutdown()
+
 		var frameA, frameB, frameC [128]uint64
 
 		frameA[76] = 0x1111
@@ -101,6 +111,8 @@ func TestGroupFramesByProgram(t *testing.T) {
 
 func TestExecuteBatchDispatchesProgramGroups(t *testing.T) {
 	convey.Convey("executeBatch dispatches homogeneous program groups separately", t, func() {
+		setupTestConfig(t)
+
 		substrate := &recordingSubstrate{}
 		backend := &Backend{
 			ctx:      context.Background(),
@@ -110,6 +122,7 @@ func TestExecuteBatchDispatchesProgramGroups(t *testing.T) {
 				NORMAL:   make(chan unsafe.Pointer, 8),
 			},
 		}
+		backend.ensureHardwareMetrics()
 
 		var frameA, frameB, frameC [128]uint64
 		frameA[76] = 0x1111
@@ -126,5 +139,46 @@ func TestExecuteBatchDispatchesProgramGroups(t *testing.T) {
 		convey.So(len(substrate.calls), convey.ShouldEqual, 2)
 		convey.So(len(substrate.calls[0]), convey.ShouldEqual, 2)
 		convey.So(len(substrate.calls[1]), convey.ShouldEqual, 1)
+	})
+}
+
+func TestQueuePriorityNilReturnsError(t *testing.T) {
+	convey.Convey("QueuePriority(nil) returns an error", t, func() {
+		backend := makeTestBackend(t)
+		defer backend.Shutdown()
+
+		err := backend.QueuePriority(nil)
+		convey.So(err, convey.ShouldNotBeNil)
+	})
+}
+
+func TestExecuteBatchSelectsLeastLoadedHardware(t *testing.T) {
+	convey.Convey("executeBatch selects the least-loaded accelerator", t, func() {
+		setupTestConfig(t)
+
+		busy := &recordingSubstrate{}
+		idle := &recordingSubstrate{}
+		backend := &Backend{
+			ctx:      context.Background(),
+			hardware: []kernel.Substrate{busy, idle},
+			queues: map[QueueType]chan unsafe.Pointer{
+				PRIORITY: make(chan unsafe.Pointer, 8),
+				NORMAL:   make(chan unsafe.Pointer, 8),
+			},
+		}
+		backend.ensureHardwareMetrics()
+		backend.hardwareState[0].inflight.Store(2)
+		backend.hardwareState[0].emaServiceNanos.Store(20)
+		backend.hardwareState[1].inflight.Store(1)
+		backend.hardwareState[1].emaServiceNanos.Store(10)
+
+		var frame [128]uint64
+		frame[76] = 0x1111
+
+		err := backend.executeBatch([]unsafe.Pointer{unsafe.Pointer(&frame)})
+
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(len(busy.calls), convey.ShouldEqual, 0)
+		convey.So(len(idle.calls), convey.ShouldEqual, 1)
 	})
 }

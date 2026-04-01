@@ -156,7 +156,7 @@ func (value *Value) ComputeAffinityLSH() {
 			ones += int((value[wordIdx] >> b) & 1)
 		}
 
-		if counted > 0 && ones*2 > counted {
+		if counted > 0 && ones*2 >= counted {
 			affinity |= 1 << uint(outBit)
 		}
 	}

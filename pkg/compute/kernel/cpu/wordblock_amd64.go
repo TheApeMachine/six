@@ -49,6 +49,11 @@ func execWordBlock(dst, src []uint64, op uint8) {
 			simdShr(&dst[0], &src[0], n)
 			return
 		}
+
+		if op < 0x10 {
+			simdTruthTable(&dst[0], &src[0], n, op)
+			return
+		}
 	}
 
 	execWordBlockScalar(dst, src, op)

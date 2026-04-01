@@ -18,7 +18,12 @@ tokenizerChunkBytes returns the ingest chunk size derived from the live config.
 It must not run at package init because viper-backed Cfg is populated after
 TestMain (and Defaults would yield 0 bits before subtracting headers).
 */
-func tokenizerChunkBytes() int {
+var (
+	tokenizerChunkOnce sync.Once
+	tokenizerChunkSize int
+)
+
+func computeTokenizerChunkBytes() int {
 	raw := int(core.Cfg.Value.Region.Tokens.Bits/8) - 3*8
 	if raw < 1 {
 		return 1
@@ -27,10 +32,37 @@ func tokenizerChunkBytes() int {
 	return raw
 }
 
+func tokenizerChunkBytes() int {
+	tokenizerChunkOnce.Do(func() {
+		tokenizerChunkSize = computeTokenizerChunkBytes()
+	})
+
+	return tokenizerChunkSize
+}
+
 var bufPool = sync.Pool{
 	New: func() interface{} {
 		return make([]byte, tokenizerChunkBytes())
 	},
+}
+
+func getTokenizerBuffer() []byte {
+	size := tokenizerChunkBytes()
+	buf := bufPool.Get().([]byte)
+	if cap(buf) < size {
+		return make([]byte, size)
+	}
+
+	return buf[:size]
+}
+
+func putTokenizerBuffer(buf []byte) {
+	size := tokenizerChunkBytes()
+	if cap(buf) < size {
+		return
+	}
+
+	bufPool.Put(buf[:size])
 }
 
 /*
@@ -98,8 +130,8 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 	case <-tokenizer.ctx.Done():
 		return 0, tokenizer.ctx.Err()
 	default:
-		buf := bufPool.Get().([]byte)
-		defer bufPool.Put(buf)
+		buf := getTokenizerBuffer()
+		defer putTokenizerBuffer(buf)
 
 		n, tokenizer.err = tokenizer.rb.Read(buf)
 

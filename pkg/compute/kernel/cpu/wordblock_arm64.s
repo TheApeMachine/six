@@ -634,7 +634,7 @@ shr_done:
 //
 // Branchless 4-bit truth table for all 16 binary Boolean opcodes.
 // For each lane:
-//   result = (~a & ~b & m0) | (a & ~b & m1) | (~a & b & m2) | (a & b & m3)
+//   result = (a & b & m0) | (a & ~b & m1) | (~a & b & m2) | (~a & ~b & m3)
 // where a = src[i], b = dst[i], and m0..m3 are all-ones or all-zeros masks
 // derived from the 4-bit opcode.
 //
@@ -792,20 +792,20 @@ tt_tail:
 	VLD1	(R1), [V0.D1]			// a (upper lane zeroed)
 	VLD1	(R0), [V4.D1]			// b (upper lane zeroed)
 
-	VEOR	V0.B16, V24.B16, V8.B16	// ~a
-	VEOR	V4.B16, V24.B16, V9.B16	// ~b
-	VAND	V8.B16, V9.B16, V10.B16
-	VAND	V0.B16, V9.B16, V11.B16
-	VAND	V11.B16, V29.B16, V11.B16
-	VAND	V8.B16, V4.B16, V12.B16
-	VAND	V12.B16, V30.B16, V12.B16
-	VAND	V0.B16, V4.B16, V13.B16
-	VAND	V13.B16, V28.B16, V13.B16
-	VAND	V10.B16, V31.B16, V10.B16
-	VORR	V10.B16, V11.B16, V10.B16
-	VORR	V12.B16, V13.B16, V12.B16
-	VORR	V10.B16, V12.B16, V0.B16
+	VEOR	V0.B8, V24.B8, V8.B8	// ~a
+	VEOR	V4.B8, V24.B8, V9.B8	// ~b
+	VAND	V8.B8, V9.B8, V10.B8
+	VAND	V0.B8, V9.B8, V11.B8
+	VAND	V11.B8, V29.B8, V11.B8
+	VAND	V8.B8, V4.B8, V12.B8
+	VAND	V12.B8, V30.B8, V12.B8
+	VAND	V0.B8, V4.B8, V13.B8
+	VAND	V13.B8, V28.B8, V13.B8
+	VAND	V10.B8, V31.B8, V10.B8
+	VORR	V10.B8, V11.B8, V10.B8
+	VORR	V12.B8, V13.B8, V12.B8
+	VORR	V10.B8, V12.B8, V0.B8
 
-	VST1	[V0.D1], (R0)
+	VST1	[V0.B8], (R0)
 tt_done:
 	RET

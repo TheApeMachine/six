@@ -166,7 +166,7 @@ func TestPipeline(t *testing.T) {
 func TestObservePrompt(t *testing.T) {
 	Convey("When holdout is empty the partner matches the prompt and learn XOR cancels the token payload", t, func() {
 		backend := compute.NewBackgroundBackend()
-		defer backend.Close()
+		defer backend.Shutdown()
 
 		prefix := []byte("orca ")
 		value, err := primitive.NewValue(prefix)
@@ -185,7 +185,7 @@ func TestObservePrompt(t *testing.T) {
 
 	Convey("When holdout is non-empty the partner encodes the supervised full sample so readout is non-empty", t, func() {
 		backend := compute.NewBackgroundBackend()
-		defer backend.Close()
+		defer backend.Shutdown()
 
 		prefix := []byte("orca ")
 		holdout := []byte("whale")
@@ -206,7 +206,7 @@ func TestObservePrompt(t *testing.T) {
 
 func BenchmarkObservePrompt(b *testing.B) {
 	backend := compute.NewBackgroundBackend()
-	defer backend.Close()
+	defer backend.Shutdown()
 
 	prefix := []byte("orca ")
 	holdout := []byte("whale")

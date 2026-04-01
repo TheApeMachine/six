@@ -42,6 +42,8 @@ const (
 
 var tokenIDMulInverse uint64
 
+const detokenizeCacheSize = 4096
+
 // Exit reasons written into ExecStatusWord by CPU / GPU kernels (high 16 bits).
 const (
 	ExecExitNone uint16 = iota
@@ -62,6 +64,51 @@ var (
 	*/
 	stepwiseInstallFn func(*Value, core.FirmwareType) bool
 )
+
+type detokenizeCacheEntry struct {
+	tid   uint64
+	index uint64
+	b     byte
+	ok    bool
+	used  bool
+}
+
+var detokenizeCache = struct {
+	sync.RWMutex
+	slots [detokenizeCacheSize]detokenizeCacheEntry
+}{}
+
+func detokenizeCacheIndex(tid uint64) int {
+	return int((tid ^ bits.RotateLeft64(tid, 17)) & (detokenizeCacheSize - 1))
+}
+
+func loadDetokenizeCache(tid uint64) (b byte, index uint64, ok bool, hit bool) {
+	slot := detokenizeCacheIndex(tid)
+
+	detokenizeCache.RLock()
+	entry := detokenizeCache.slots[slot]
+	detokenizeCache.RUnlock()
+
+	if !entry.used || entry.tid != tid {
+		return 0, 0, false, false
+	}
+
+	return entry.b, entry.index, entry.ok, true
+}
+
+func storeDetokenizeCacheResult(tid uint64, b byte, index uint64, ok bool) {
+	slot := detokenizeCacheIndex(tid)
+
+	detokenizeCache.Lock()
+	detokenizeCache.slots[slot] = detokenizeCacheEntry{
+		tid:   tid,
+		index: index,
+		b:     b,
+		ok:    ok,
+		used:  true,
+	}
+	detokenizeCache.Unlock()
+}
 
 /*
 SetStepwiseInstallFunc registers the handler that attempts to install
@@ -576,24 +623,43 @@ func (value *Value) String() string {
 		return "[superposed state]"
 	}
 
-	sort.Slice(keys, func(i, j int) bool {
-		_, idxI, okI := DetokenizeTokenID(keys[i])
-		_, idxJ, okJ := DetokenizeTokenID(keys[j])
-		if !okI || !okJ {
-			return keys[i] < keys[j]
+	type decodedTokenID struct {
+		tid   uint64
+		index uint64
+		b     byte
+		ok    bool
+	}
+
+	decoded := make([]decodedTokenID, len(keys))
+	for index, tid := range keys {
+		b, tokenIndex, ok := DetokenizeTokenID(tid)
+		decoded[index] = decodedTokenID{
+			tid:   tid,
+			index: tokenIndex,
+			b:     b,
+			ok:    ok,
+		}
+	}
+
+	sort.Slice(decoded, func(i, j int) bool {
+		if decoded[i].ok && decoded[j].ok {
+			if decoded[i].index != decoded[j].index {
+				return decoded[i].index < decoded[j].index
+			}
+
+			return decoded[i].tid < decoded[j].tid
 		}
 
-		return idxI < idxJ
+		return decoded[i].tid < decoded[j].tid
 	})
 
 	var builder strings.Builder
-	for _, tid := range keys {
-		b, _, ok := DetokenizeTokenID(tid)
-		if !ok {
+	for _, token := range decoded {
+		if !token.ok {
 			continue
 		}
-		if b >= 0x20 && b < 0x7F {
-			builder.WriteByte(b)
+		if token.b >= 0x20 && token.b < 0x7F {
+			builder.WriteByte(token.b)
 		}
 	}
 
@@ -666,6 +732,10 @@ Indices below 2^32 are accepted so arbitrary high residues from wrong
 bytes are rejected before the Tokenize confirmation step.
 */
 func DetokenizeTokenID(tid uint64) (b byte, index uint64, ok bool) {
+	if b, index, ok, hit := loadDetokenizeCache(tid); hit {
+		return b, index, ok
+	}
+
 	inv := tokenIDMulInverse
 	const maxReasonableIndex = uint64(1 << 32)
 
@@ -677,6 +747,7 @@ func DetokenizeTokenID(tid uint64) (b byte, index uint64, ok bool) {
 		}
 
 		if Tokenize(byte(candidate), idx) == tid {
+			storeDetokenizeCacheResult(tid, byte(candidate), idx, true)
 			return byte(candidate), idx, true
 		}
 	}

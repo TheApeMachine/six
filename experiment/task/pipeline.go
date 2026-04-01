@@ -143,7 +143,7 @@ func (pipeline *Pipeline) Run() (err error) {
 
 		value.InstallTombstone()
 
-		if execErr := backend.Queue(unsafe.Pointer(value)); execErr != nil {
+		if execErr := backend.UniversalBitwise(unsafe.Pointer(value)); execErr != nil {
 			return errnie.Error(execErr)
 		}
 
@@ -210,7 +210,13 @@ func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primiti
 
 		partnerDisposable.InstallTombstone()
 
-		_ = backend.Queue(unsafe.Pointer(partnerDisposable))
+		if queueErr := backend.Queue(unsafe.Pointer(partnerDisposable)); queueErr != nil {
+			_ = errnie.Error(
+				queueErr,
+				"cleanup", true,
+				"stage", "partnerDisposable.InstallTombstone()->Queue",
+			)
+		}
 		_ = partnerDisposable.Close()
 	}()
 
@@ -237,7 +243,7 @@ func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primiti
 
 	workSelf.InstallLearnFirmware()
 
-	if err := backend.Queue(unsafe.Pointer(&workSelf)); err != nil {
+	if err := backend.UniversalBitwise(unsafe.Pointer(&workSelf)); err != nil {
 		return nil, err
 	}
 

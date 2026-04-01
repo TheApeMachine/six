@@ -10,6 +10,13 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+const (
+	// Deterministic affine LCG parameters for follow-up program selection.
+	affineFollowUpMultiplier = uint64(6364136223846793005)
+	affineFollowUpAddend     = uint64(1)
+	affineFollowUpModulus    = 6
+)
+
 type Backend struct {
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -87,7 +94,7 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 		acc := f[accWord]
 
 		// Affine jump vector: deterministic, non-repeating orbit through programs.
-		nextID := firmware.AffineNextProgramID(acc, 6364136223846793005, 1, 6)
+		nextID := firmware.AffineNextProgramID(acc, affineFollowUpMultiplier, affineFollowUpAddend, affineFollowUpModulus)
 
 		// Holographic schedule signature: mix program ID with data structure.
 		scanStride := f[core.Cfg.Value.Region.State.Sequence]
@@ -203,9 +210,7 @@ func executePerSlotGroups(frames []unsafe.Pointer, progStart int, nProgWords int
 		groupInstrs := make([]uint32, 0, 8)
 		groupFrameIndexes := make([][]int, 0, 8)
 
-		for instr := range groupIndexByInstr {
-			delete(groupIndexByInstr, instr)
-		}
+		clear(groupIndexByInstr)
 
 		for frameIndex := range frames {
 			frame := (*[128]uint64)(frames[frameIndex])
@@ -294,7 +299,13 @@ func TruthTable(op uint8, a, b uint64) uint64 {
 }
 
 /*
-ExecWord is the single-lane scalar entry point for external callers.
+ExecWord executes one opcode on a single lane.
+Opcodes 0x0..0xF use the canonical truth-table fallback in TruthTable.
+Extended opcodes are:
+0x10 = popcount(x ^ y)
+0x11 = logical left shift of y by (x & 63)
+0x12 = logical right shift of y by (x & 63)
+0x13 = x + y
 */
 func ExecWord(op uint8, x, y uint64) uint64 {
 	switch op {

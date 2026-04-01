@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"math"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
@@ -39,8 +40,11 @@ func TestAffineNextProgramID(t *testing.T) {
 func TestHolographicScheduleSignature(t *testing.T) {
 	Convey("HolographicScheduleSignature XOR-mixes id with score and stride", t, func() {
 		base := uint64(0x1234)
+		const golden = uint64(0x9E3779B97F4A7C15)
+		stride := uint64(17)
+		expected := base ^ (math.Float64bits(0.75) >> 1) ^ (stride * golden)
 		got := HolographicScheduleSignature(base, 0.75, 17)
-		So(got, ShouldNotEqual, base)
+		So(got, ShouldEqual, expected)
 		got2 := HolographicScheduleSignature(base, 0.75, 17)
 		So(got2, ShouldEqual, got)
 	})

@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"fmt"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -23,6 +24,13 @@ const (
 	NORMAL
 )
 
+const hardwareEMAAlphaShift = 2
+
+type hardwareMetrics struct {
+	inflight        atomic.Int64
+	emaServiceNanos atomic.Uint64
+}
+
 /*
 Backend acts as an intelligent Multi-Substrate Load Balancer. It monitors
 pressure across available local arithmetic hardware (GPU/CPU) and geometrically
@@ -38,13 +46,15 @@ Accelerators are chosen by least in-flight depth, then lowest EMA service time,
 rather than round‑robin.
 */
 type Backend struct {
-	ctx         context.Context
-	cancel      context.CancelFunc
-	hardware    []kernel.Substrate
-	pool        *Pool
-	batchSize   int
-	batchWindow time.Duration
-	queues      map[QueueType]chan unsafe.Pointer
+	ctx                      context.Context
+	cancel                   context.CancelFunc
+	hardware                 []kernel.Substrate
+	pool                     *Pool
+	batchSize                int
+	batchWindow              time.Duration
+	queues                   map[QueueType]chan unsafe.Pointer
+	hardwareState            []hardwareMetrics
+	droppedPriorityFollowUps atomic.Uint64
 }
 
 // BackendOption configures the multi-substrate router.
@@ -81,7 +91,6 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 		"queues":      backend.queues,
 		"batchSize":   backend.batchSize,
 		"batchWindow": backend.batchWindow,
-		"pool":        backend.pool,
 	}); err != nil {
 		errnie.Error(err)
 		return nil
@@ -99,6 +108,7 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 
 	errnie.Info("compute.backend: CPU substrate registered")
 	backend.hardware = append(backend.hardware, cpu.NewBackend(backend.ctx))
+	backend.ensureHardwareMetrics()
 
 	if err := validate.Require(map[string]any{
 		"hardware": backend.hardware,
@@ -130,9 +140,8 @@ func (backend *Backend) runQueue(queueType QueueType) {
 				continue
 			}
 
-			dispatchBatch := append([]unsafe.Pointer(nil), batch...)
 			if err := backend.Schedule(func(ctx context.Context) error {
-				return backend.executeBatch(dispatchBatch)
+				return backend.executeBatch(batch)
 			}); err != nil {
 				_ = errnie.Error(err)
 			}
@@ -200,7 +209,18 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		if err := backend.hardware[0].UniversalBitwise(group); err != nil {
+		hardwareIndex := backend.selectHardwareIndex()
+		if hardwareIndex < 0 {
+			return NewBackendError(BackendErrorNoHardware, nil, "executeBatch")
+		}
+
+		metrics := &backend.hardwareState[hardwareIndex]
+		metrics.inflight.Add(1)
+		start := time.Now()
+		err := backend.hardware[hardwareIndex].UniversalBitwise(group)
+		metrics.inflight.Add(-1)
+		backend.recordHardwareServiceTime(hardwareIndex, time.Since(start))
+		if err != nil {
 			return err
 		}
 
@@ -219,8 +239,19 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 			continue
 		}
 
-		firmware.NOPShatterLGP(frame, int(frame[fwWord]&0x7F), 0)
-		backend.queues[PRIORITY] <- value
+		multiplier := firmware.AffineCoprimeMultiplier(int(frame[fwWord]&0x7F), firmware.AffineSlotShuffleModulus)
+		firmware.NOPShatterLGP(frame, multiplier, 0)
+
+		select {
+		case backend.queues[PRIORITY] <- value:
+		default:
+			dropped := backend.droppedPriorityFollowUps.Add(1)
+			errnie.Warn(
+				"compute.backend: dropped priority follow-up",
+				"dropped_total", dropped,
+				"fw", frame[fwWord],
+			)
+		}
 	}
 }
 
@@ -318,22 +349,98 @@ func sameProgramFrame(left, right *[128]uint64, progStart int, nProgWords int) b
 	return true
 }
 
+func (backend *Backend) ensureHardwareMetrics() {
+	if len(backend.hardwareState) == len(backend.hardware) {
+		return
+	}
+
+	backend.hardwareState = make([]hardwareMetrics, len(backend.hardware))
+}
+
+func (backend *Backend) selectHardwareIndex() int {
+	if len(backend.hardware) == 0 {
+		return -1
+	}
+
+	backend.ensureHardwareMetrics()
+
+	bestIndex := 0
+	bestDepth := backend.hardwareState[0].inflight.Load()
+	bestEMA := backend.hardwareState[0].emaServiceNanos.Load()
+
+	for index := 1; index < len(backend.hardware); index++ {
+		depth := backend.hardwareState[index].inflight.Load()
+		ema := backend.hardwareState[index].emaServiceNanos.Load()
+
+		if depth < bestDepth || (depth == bestDepth && ema < bestEMA) {
+			bestIndex = index
+			bestDepth = depth
+			bestEMA = ema
+		}
+	}
+
+	return bestIndex
+}
+
+func (backend *Backend) recordHardwareServiceTime(index int, duration time.Duration) {
+	if index < 0 || index >= len(backend.hardwareState) {
+		return
+	}
+
+	sample := uint64(duration)
+	metric := &backend.hardwareState[index].emaServiceNanos
+
+	for {
+		current := metric.Load()
+
+		var next uint64
+		if current == 0 {
+			next = sample
+		} else if sample >= current {
+			next = current + ((sample - current) >> hardwareEMAAlphaShift)
+		} else {
+			next = current - ((current - sample) >> hardwareEMAAlphaShift)
+		}
+
+		if metric.CompareAndSwap(current, next) {
+			return
+		}
+	}
+}
+
 /*
 Queue a new value for execution.
 This prepares the value for execution and potentially optimizes
 the execution path by batching similar values together.
 */
 func (backend *Backend) Queue(value unsafe.Pointer) error {
+	return backend.enqueue(value, NORMAL, "Queue")
+}
+
+func (backend *Backend) QueuePriority(value unsafe.Pointer) error {
+	return backend.enqueue(value, PRIORITY, "QueuePriority")
+}
+
+func (backend *Backend) enqueue(value unsafe.Pointer, queueType QueueType, op string) error {
 	if value == nil {
-		return NewBackendError(BackendErrorNoValues, nil, "Queue")
+		return NewBackendError(BackendErrorNoValues, nil, op)
 	}
 
-	backend.queues[NORMAL] <- value
+	queue, ok := backend.queues[queueType]
+	if !ok {
+		return NewBackendError(BackendErrorNoComputeResource, nil, op)
+	}
+
+	queue <- value
 	return nil
 }
 
 func (backend *Backend) Shutdown() {
 	backend.cancel()
+}
+
+func (backend *Backend) UniversalBitwise(frames ...unsafe.Pointer) error {
+	return backend.executeBatch(frames)
 }
 
 /*

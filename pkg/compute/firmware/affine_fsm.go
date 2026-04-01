@@ -1,6 +1,7 @@
 package firmware
 
 import (
+	"fmt"
 	"math"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -12,6 +13,45 @@ AffineSlotShuffleModulus matches the fixed-size branchless pipeline narrative
 shatter uses this modulus for the affine slot permutation the FSM spec calls for.
 */
 const AffineSlotShuffleModulus = 52
+
+func gcdInt(a, b int) int {
+	if a < 0 {
+		a = -a
+	}
+
+	if b < 0 {
+		b = -b
+	}
+
+	for b != 0 {
+		a, b = b, a%b
+	}
+
+	return a
+}
+
+func AffineCoprimeMultiplier(affineA, modulus int) int {
+	if modulus <= 1 {
+		return 1
+	}
+
+	affineA %= modulus
+	if affineA < 0 {
+		affineA += modulus
+	}
+	if affineA == 0 {
+		affineA = 1
+	}
+
+	for gcdInt(affineA, modulus) != 1 {
+		affineA++
+		if affineA >= modulus {
+			affineA = 1
+		}
+	}
+
+	return affineA
+}
 
 /*
 AffineUnrollSlots builds branchless unrolled slot payloads without DJNZ:
@@ -98,6 +138,15 @@ func NOPShatterLGP(c *[128]uint64, affineA, modulus int) {
 		n = modulus
 	}
 
+	effectiveA := affineA % modulus
+	if effectiveA < 0 {
+		effectiveA += modulus
+	}
+
+	if effectiveA == 0 || gcdInt(effectiveA, modulus) != 1 {
+		panic(fmt.Sprintf("firmware.NOPShatterLGP: affineA=%d modulus=%d is not bijective", affineA, modulus))
+	}
+
 	old := make([]uint32, n)
 
 	for idx := 0; idx < n; idx++ {
@@ -107,7 +156,7 @@ func NOPShatterLGP(c *[128]uint64, affineA, modulus int) {
 	shattered := make([]uint32, n)
 
 	for idx := 0; idx < n; idx++ {
-		dst := (affineA * idx) % modulus
+		dst := (effectiveA * idx) % modulus
 		if dst >= n {
 			dst = dst % n
 		}
@@ -153,6 +202,10 @@ AffinePipelineWordCount is the number of uint64 program words in the configured
 region (Region.Program.Bits / 64), for doc / viz parity with “52 words”.
 */
 func AffinePipelineWordCount() int {
+	if core.Cfg == nil {
+		return AffineSlotShuffleModulus
+	}
+
 	bits := int(core.Cfg.Value.Region.Program.Bits)
 	if bits <= 0 {
 		return AffineSlotShuffleModulus

@@ -113,13 +113,47 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 }
 
 func scanSignalsLinear(opWords []uint64, spec signalScanSpec, tokenBits int, idA, idB uint64) []Signal {
+	return scanSignalsWithIndexFunc(
+		opWords,
+		spec,
+		tokenBits,
+		idA,
+		idB,
+		0,
+		func(absBit int) int { return absBit },
+	)
+}
+
+func scanSignalsAffineStride(opWords []uint64, spec signalScanSpec, stride uint64, tokenBits int, idA, idB uint64) []Signal {
+	return scanSignalsWithIndexFunc(
+		opWords,
+		spec,
+		tokenBits,
+		idA,
+		idB,
+		stride,
+		func(absBit int) int {
+			return int((stride*uint64(absBit))%signalAffineRing) % tokenBits
+		},
+	)
+}
+
+func scanSignalsWithIndexFunc(
+	opWords []uint64,
+	spec signalScanSpec,
+	tokenBits int,
+	idA, idB uint64,
+	scanStride uint64,
+	bitIndexFunc func(absBit int) int,
+) []Signal {
 	var allRuns []Signal
 
 	currentStart := -1
 	currentLen := 0
 
 	for absBit := 0; absBit < tokenBits; absBit++ {
-		bitSet := int(readOpWordBit(opWords, absBit))
+		phys := bitIndexFunc(absBit)
+		bitSet := int(readOpWordBit(opWords, phys))
 		if spec.invertForScan {
 			bitSet ^= 1
 		}
@@ -143,7 +177,7 @@ func scanSignalsLinear(opWords []uint64, spec signalScanSpec, tokenBits int, idA
 				Length:     currentLen,
 				SourceA:    idA,
 				SourceB:    idB,
-				ScanStride: 0,
+				ScanStride: scanStride,
 			})
 			currentStart = -1
 			currentLen = 0
@@ -158,61 +192,7 @@ func scanSignalsLinear(opWords []uint64, spec signalScanSpec, tokenBits int, idA
 			Length:     currentLen,
 			SourceA:    idA,
 			SourceB:    idB,
-			ScanStride: 0,
-		})
-	}
-
-	return allRuns
-}
-
-func scanSignalsAffineStride(opWords []uint64, spec signalScanSpec, stride uint64, tokenBits int, idA, idB uint64) []Signal {
-	var allRuns []Signal
-
-	currentStart := -1
-	currentLen := 0
-
-	for step := 0; step < tokenBits; step++ {
-		phys := int((stride*uint64(step))%signalAffineRing) % tokenBits
-		bitSet := int(readOpWordBit(opWords, phys))
-		if spec.invertForScan {
-			bitSet ^= 1
-		}
-
-		if bitSet == 1 {
-			if currentStart < 0 {
-				currentStart = step
-				currentLen = 1
-			} else {
-				currentLen++
-			}
-
-			continue
-		}
-
-		if currentLen > 0 {
-			allRuns = append(allRuns, Signal{
-				Kind:       spec.kind,
-				Op:         spec.op,
-				StartBit:   currentStart,
-				Length:     currentLen,
-				SourceA:    idA,
-				SourceB:    idB,
-				ScanStride: stride,
-			})
-			currentStart = -1
-			currentLen = 0
-		}
-	}
-
-	if currentLen > 0 {
-		allRuns = append(allRuns, Signal{
-			Kind:       spec.kind,
-			Op:         spec.op,
-			StartBit:   currentStart,
-			Length:     currentLen,
-			SourceA:    idA,
-			SourceB:    idB,
-			ScanStride: stride,
+			ScanStride: scanStride,
 		})
 	}
 

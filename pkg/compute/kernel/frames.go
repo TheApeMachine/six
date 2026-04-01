@@ -21,13 +21,18 @@ func valueBytes() int {
 }
 
 /*
-PackValueFrames copies each host frame into one contiguous byte slab row-major
-(1024-byte rows by default), suitable for the Metal/CUDA batch host buffers.
-Nil pointers are skipped without copying; callers should reject nils before packing.
+PackValueFrames copies valueBytes() bytes from each non-nil frame pointer into
+one contiguous byte slab row-major, suitable for the Metal/CUDA host buffers.
+Each non-nil pointer must reference exactly valueBytes() bytes of valid memory;
+current callers pass Value frames backed by [128]uint64. Nil pointers are
+skipped without copying.
 */
 func PackValueFrames(frames []unsafe.Pointer) []byte {
 
 	vb := valueBytes()
+	if vb <= 0 {
+		return nil
+	}
 	out := make([]byte, len(frames)*vb)
 
 	for index, framePtr := range frames {
@@ -48,8 +53,18 @@ UnpackValueFrames writes each row of slab back to the corresponding frame pointe
 func UnpackValueFrames(frames []unsafe.Pointer, slab []byte) {
 
 	vb := valueBytes()
+	if vb <= 0 || len(frames) == 0 || len(slab) < vb {
+		return
+	}
 
-	for index, framePtr := range frames {
+	maxFrames := len(slab) / vb
+	limit := len(frames)
+	if maxFrames < limit {
+		limit = maxFrames
+	}
+
+	for index := 0; index < limit; index++ {
+		framePtr := frames[index]
 		if framePtr == nil {
 			continue
 		}
