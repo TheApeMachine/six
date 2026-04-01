@@ -12,6 +12,8 @@ const (
 	BackendErrorCompleteSaturation BackendErrorType = "complete saturation"
 	BackendErrorNoComputeResource  BackendErrorType = "no compute resource"
 	BackendErrorNoValues           BackendErrorType = "no values"
+	BackendErrorPoolEnqueueFailed  BackendErrorType = "pool enqueue failed"
+	BackendErrorInlineJobFailed    BackendErrorType = "inline job failed"
 )
 
 type BackendError struct {

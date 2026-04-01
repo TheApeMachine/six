@@ -111,7 +111,7 @@ func programOpAt(v *primitive.Value, slot int) uint8 {
 		return 0
 	}
 	wordPos := core.Cfg.Value.Region.Program.Start + slot/2
-	if wordPos < 0 || wordPos >= primitive.Words {
+	if wordPos < 0 || wordPos >= core.Cfg.Value.Words {
 		return 0
 	}
 	shift := uint((slot % 2) * 32)

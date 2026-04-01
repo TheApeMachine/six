@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/distributed"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -72,9 +73,9 @@ var meshRunCmd = &cobra.Command{
 			return err
 		}
 
-		out := primitive.ViewValue(resp.Left)
+		out := primitive.BytesToValue(resp.Left)
 
-		fmt.Printf("node=%s duration_ms=%d output=%q\n", resp.NodeID, resp.DurationMS, out.String())
+		fmt.Printf("node=%s duration_ms=%d output=%q\n", resp.NodeID, resp.DurationMS, string(out.Bytes()))
 		return nil
 	},
 }
@@ -106,7 +107,7 @@ func frameFromText(text string) ([]byte, error) {
 	}
 	defer v.Close()
 
-	frame := make([]byte, primitive.ByteSize)
+	frame := make([]byte, core.Cfg.Value.Bytes)
 	if err := primitive.ValueToBytes(v, frame); err != nil {
 		return nil, err
 	}

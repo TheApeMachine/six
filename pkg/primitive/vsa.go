@@ -39,7 +39,7 @@ func UnbindHD(dst, fact, query *Value) {
 	base := core.Cfg.Value.Region.Tokens.Start
 	for i := 0; i < nWords; i++ {
 		idx := base + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		dst[idx] = fact[idx] ^ query[idx]
@@ -61,7 +61,7 @@ func BundleHD(dst *Value, sources []*Value) {
 
 	for i := 0; i < nWords; i++ {
 		idx := base + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		var result uint64
@@ -91,7 +91,7 @@ func TokensHammingDistance(a, b *Value) int {
 	dist := 0
 	for i := 0; i < nWords; i++ {
 		idx := base + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		dist += bits.OnesCount64(a[idx] ^ b[idx])
@@ -148,7 +148,7 @@ func (value *Value) ComputeAffinityLSH() {
 			w := idx / 64
 			b := uint(idx % 64)
 			wordIdx := base + w
-			if wordIdx >= Words || w >= nWords {
+			if wordIdx >= core.Cfg.Value.Words || w >= nWords {
 				continue
 			}
 
@@ -248,7 +248,7 @@ func AccumulateDelta(current, previous *Value) uint64 {
 	var delta uint64
 	for i := 0; i < nWords; i++ {
 		idx := base + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		delta ^= current[idx] ^ previous[idx]
@@ -267,7 +267,7 @@ func ApplyDelta(dst, current *Value) {
 	delta := current[core.Cfg.Value.Region.State.Accumulator]
 	for i := 0; i < nWords; i++ {
 		idx := base + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		dst[idx] = current[idx] ^ delta

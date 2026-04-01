@@ -16,6 +16,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
@@ -205,11 +206,13 @@ func (w *Worker) Close() error {
 	if w.cancel != nil {
 		w.cancel()
 	}
+
 	if w.computeBackend != nil {
-		w.computeBackend.Shutdown()
 		w.computeBackend = nil
 	}
+
 	var errs []error
+
 	if w.server != nil {
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -217,11 +220,13 @@ func (w *Worker) Close() error {
 			errs = append(errs, err)
 		}
 	}
+
 	if w.discovery != nil {
 		if err := w.discovery.Close(); err != nil {
 			errs = append(errs, err)
 		}
 	}
+
 	return errorsJoin(errs)
 }
 
@@ -229,7 +234,9 @@ func (w *Worker) refreshAdvertisedCapacity(inFlight int64) {
 	if w.discovery == nil {
 		return
 	}
+
 	capacity := w.maxCapacity - int(inFlight)
+
 	if capacity < 0 {
 		capacity = 0
 	}
@@ -250,21 +257,26 @@ func (w *Worker) refreshAdvertisedCapacity(inFlight int64) {
 func (w *Worker) beginJob() func() {
 	inFlight := w.inFlight.Add(1)
 	w.refreshAdvertisedCapacity(inFlight)
+
 	return func() {
 		inFlight := w.inFlight.Add(-1)
+
 		if inFlight < 0 {
 			for {
 				cur := w.inFlight.Load()
+
 				if cur >= 0 {
 					inFlight = cur
 					break
 				}
+
 				if w.inFlight.CompareAndSwap(cur, 0) {
 					inFlight = 0
 					break
 				}
 			}
 		}
+
 		w.refreshAdvertisedCapacity(inFlight)
 	}
 }
@@ -274,7 +286,9 @@ func (w *Worker) handleHealth(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	self := w.discovery.Self()
+
 	writeJSON(rw, http.StatusOK, map[string]any{
 		"node_id":     self.ID,
 		"addr":        self.Addr,
@@ -291,8 +305,10 @@ func (w *Worker) handleNodes(rw http.ResponseWriter, req *http.Request) {
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	nodes := w.discovery.Nodes(true)
 	payload := make([]map[string]any, 0, len(nodes))
+
 	for _, node := range nodes {
 		payload = append(payload, map[string]any{
 			"id":          node.ID,
@@ -305,6 +321,7 @@ func (w *Worker) handleNodes(rw http.ResponseWriter, req *http.Request) {
 			"self":        node.Self,
 		})
 	}
+
 	writeJSON(rw, http.StatusOK, payload)
 }
 
@@ -312,9 +329,11 @@ func shardLabel(mask uint64, bits uint8) string {
 	if bits == 0 {
 		return "unassigned"
 	}
+
 	if bits > 48 {
 		bits = 48
 	}
+
 	prefix := mask >> (48 - bits)
 	return fmt.Sprintf("%0*b/%d", bits, prefix, bits)
 }
@@ -322,13 +341,16 @@ func shardLabel(mask uint64, bits uint8) string {
 func autoShardIdentity(advertiseAddr string, discovery *Discovery) string {
 	if discovery != nil {
 		self := discovery.Self()
+
 		if self.ID != "" {
 			if advertiseAddr != "" {
 				return self.ID + "@" + advertiseAddr
 			}
+
 			return self.ID
 		}
 	}
+
 	return advertiseAddr
 }
 
@@ -348,38 +370,42 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 		http.Error(rw, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
+
 	done := w.beginJob()
 	defer done()
 
-	body := make([]byte, primitive.ByteSize*2)
+	body := make([]byte, core.Cfg.Value.Bytes*2)
 	n, err := io.ReadFull(req.Body, body)
+
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		http.Error(rw, fmt.Sprintf("read request: %v", err), http.StatusBadRequest)
 		return
 	}
 
-	if n != primitive.ByteSize && n != primitive.ByteSize*2 {
-		http.Error(rw, fmt.Sprintf("invalid payload size %d, want %d or %d", n, primitive.ByteSize, primitive.ByteSize*2), http.StatusBadRequest)
+	if n != core.Cfg.Value.Bytes && n != core.Cfg.Value.Bytes*2 {
+		http.Error(rw, fmt.Sprintf("invalid payload size %d, want %d or %d", n, core.Cfg.Value.Bytes, core.Cfg.Value.Bytes*2), http.StatusBadRequest)
 		return
 	}
 
-	leftBytes := body[:primitive.ByteSize]
+	leftBytes := body[:core.Cfg.Value.Bytes]
 	var rightBytes []byte
-	if n == primitive.ByteSize*2 {
-		rightBytes = body[primitive.ByteSize:]
+
+	if n == core.Cfg.Value.Bytes*2 {
+		rightBytes = body[core.Cfg.Value.Bytes:]
 	} else {
-		rightBytes = make([]byte, primitive.ByteSize)
+		rightBytes = make([]byte, core.Cfg.Value.Bytes)
 	}
 
 	start := time.Now()
 	left := primitive.BytesToValue(leftBytes)
 	right := primitive.BytesToValue(rightBytes)
 
-	defer left.Release()
-	defer right.Release()
+	defer left.Close()
+	defer right.Close()
 
 	if err := w.computeBackend.Queue(unsafe.Pointer(left)); err != nil {
 		dur := time.Since(start)
+
 		telemetry.Emit(telemetry.Event{
 			Component: "Pool",
 			Action:    "JobFail",
@@ -390,6 +416,7 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 				Message:    err.Error(),
 			},
 		})
+
 		rw.WriteHeader(http.StatusInternalServerError)
 		rw.Write([]byte(err.Error()))
 		return
@@ -411,10 +438,17 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 	rw.Header().Set("X-Six-Duration-Ms", fmt.Sprintf("%d", dur.Milliseconds()))
 	rw.WriteHeader(http.StatusOK)
 
-	leftOut := make([]byte, primitive.ByteSize)
-	rightOut := make([]byte, primitive.ByteSize)
-	_ = primitive.ValueToBytes(left, leftOut)
-	_ = primitive.ValueToBytes(right, rightOut)
+	leftOut := make([]byte, core.Cfg.Value.Bytes)
+	rightOut := make([]byte, core.Cfg.Value.Bytes)
+	if err := primitive.ValueToBytes(left, leftOut); err != nil {
+		http.Error(rw, fmt.Sprintf("write response: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	if err := primitive.ValueToBytes(right, rightOut); err != nil {
+		http.Error(rw, fmt.Sprintf("write response: %v", err), http.StatusInternalServerError)
+		return
+	}
 
 	rw.Write(leftOut)
 	rw.Write(rightOut)

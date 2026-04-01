@@ -34,6 +34,7 @@ type TextClassificationExperiment struct {
 	dataset             data.Provider
 	prompt              []string
 	holdouts            [][]byte
+	corpusRows          map[uint64]classificationCorpusRow
 	evaluator           *tools.Evaluator
 	predictionsComputed bool
 }
@@ -51,7 +52,7 @@ func NewTextClassificationExperiment() *TextClassificationExperiment {
 		),
 		evaluator: tools.NewEvaluator(
 			tools.EvalWithLabels(agNewsLabels),
-			tools.EvalWithExpectation(0.30, 0.85),
+			tools.EvalWithFixedExpectation(0.30, 0.85),
 		),
 	}
 
@@ -75,8 +76,9 @@ func (experiment *TextClassificationExperiment) Dataset() data.Provider {
 }
 
 // Prompts builds one prompt per structured sample: article text without the
-// classification suffix (GeneratePrompts.Text). Holdout is the label string
-// for byte-level resonance scoring against Observed.
+// classification suffix (GeneratePrompts.Text). Holdout keeps the exact gold
+// label string on the scoring side; prompt-time observation must recover that
+// label from staged corpus evidence rather than from byte overlap shortcuts.
 func (experiment *TextClassificationExperiment) Prompts() []string {
 	experiment.prompt = experiment.prompt[:0]
 	experiment.holdouts = experiment.holdouts[:0]
@@ -108,7 +110,9 @@ func (experiment *TextClassificationExperiment) HoldoutForPrompt(idx int) ([]byt
 func (experiment *TextClassificationExperiment) AddResult(results tools.ExperimentalData) {
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
-			results.TrueLabel = tools.OptionalLabel(label)
+			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
+				results.TrueLabel = tools.OptionalLabel(normalized)
+			}
 		}
 	}
 
@@ -135,7 +139,8 @@ func (experiment *TextClassificationExperiment) ComputePredictions() {
 
 /*
 Outcome delegates to the Evaluator which holds the real expectation
-thresholds. Baseline = 0.30 (above random for 4 classes), Target = 0.85.
+thresholds. Baseline = 0.30, Target = 0.85. The score is exact
+macro-averaged F1 over predicted labels, not byte-overlap resonance.
 */
 func (experiment *TextClassificationExperiment) Outcome() (
 	any, Assertion, any,
@@ -149,7 +154,10 @@ func (experiment *TextClassificationExperiment) Score() float64 {
 	if n == 0 {
 		return 0
 	}
-	return experiment.evaluator.Metrics(experiment.tableData, n).Accuracy
+
+	metrics := experiment.evaluator.Metrics(experiment.tableData, n)
+
+	return metrics.MacroF1
 }
 
 func (experiment *TextClassificationExperiment) TableData() any {
@@ -170,13 +178,13 @@ func (experiment *TextClassificationExperiment) Artifacts() []tools.Artifact {
 on the AG News dataset (\texttt{sh0416/ag\_news}).  Articles from four
 categories---World, Sports, Business, and Science/Technology---are ingested
 with their label appended.  At test time the label suffix is stripped via
-substring holdout; the system must surface the correct category word through
-value co-occurrence in its generated output.`,
+substring holdout; the system must recover the correct category word from the
+closest resident labelled article in the substrate.`,
 		Results: fmt.Sprintf(`Table~\ref{tab:text_classification_metrics} summarises the classification
 metrics across $N = %d$ test samples.
 The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.`,
 			numSamples),
-		Assessment: textClassificationAssessment(metrics.Accuracy, numSamples),
+		Assessment: textClassificationAssessment(metrics.MacroF1, numSamples),
 		Table: fmt.Sprintf(`\begin{table}[htbp]
   \centering
   \caption{Text Classification --- summary metrics.}
@@ -185,17 +193,17 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
     \toprule
     \textbf{Metric} & \textbf{Value} \\
     \midrule
+    Macro-F1          & %s \\
     Overall Accuracy  & %s \\
     Balanced Accuracy & %s \\
-    Macro-F1          & %s \\
-    Mean Resonance    & %s \\
+    Exact Score       & %s \\
     Sample Size       & $N = %d$ \\
     \bottomrule
   \end{tabular}
 \end{table}`,
+			projector.F3(metrics.MacroF1),
 			fmt.Sprintf("%.1f\\%%", metrics.Accuracy*100),
 			fmt.Sprintf("%.1f\\%%", metrics.BalancedAcc*100),
-			projector.F3(metrics.MacroF1),
 			projector.F4(score),
 			numSamples),
 	}
@@ -220,12 +228,12 @@ The confusion matrix is shown in Figure~\ref{fig:text_classification_confusion}.
 	}
 }
 
-func textClassificationAssessment(accuracy float64, n int) string {
+func textClassificationAssessment(macroF1 float64, n int) string {
 	switch {
-	case accuracy > 0.7:
+	case macroF1 > 0.7:
 		return `The substrate achieved strong topical separation, correctly routing the
 majority of article value patterns to their ground-truth category attractors.`
-	case accuracy > 0.4:
+	case macroF1 > 0.4:
 		return `The substrate demonstrated moderate classification capability.
 Some categories are reliably separated while others exhibit value overlap,
 suggesting attractor boundaries between topically adjacent classes could

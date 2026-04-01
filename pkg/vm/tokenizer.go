@@ -10,6 +10,7 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
@@ -44,25 +45,6 @@ var bufPool = sync.Pool{
 	New: func() interface{} {
 		return make([]byte, tokenizerChunkBytes())
 	},
-}
-
-func getTokenizerBuffer() []byte {
-	size := tokenizerChunkBytes()
-	buf := bufPool.Get().([]byte)
-	if cap(buf) < size {
-		return make([]byte, size)
-	}
-
-	return buf[:size]
-}
-
-func putTokenizerBuffer(buf []byte) {
-	size := tokenizerChunkBytes()
-	if cap(buf) < size {
-		return
-	}
-
-	bufPool.Put(buf[:size])
 }
 
 /*
@@ -115,7 +97,7 @@ func NewTokenizer(
 		"pw":      tokenizer.pw,
 		"backend": tokenizer.backend,
 	}); err != nil {
-		return nil, err
+		return nil, errnie.Error(err)
 	}
 
 	tokenizer.rb = tokenizer.rb.WithCancel(tokenizer.ctx)
@@ -130,15 +112,15 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 	case <-tokenizer.ctx.Done():
 		return 0, tokenizer.ctx.Err()
 	default:
-		buf := getTokenizerBuffer()
-		defer putTokenizerBuffer(buf)
+		buf := bufPool.Get().([]byte)
+		defer bufPool.Put(buf)
 
 		n, tokenizer.err = tokenizer.rb.Read(buf)
 
 		value, err := primitive.NewValue(buf[:n])
 
 		if err != nil {
-			return 0, err
+			return 0, errnie.Error(err)
 		}
 
 		tokenizer.backend.Queue(unsafe.Pointer(value))
@@ -158,11 +140,11 @@ func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
 		value, tokenizer.err = primitive.NewValue(p)
 
 		if tokenizer.err != nil {
-			return 0, tokenizer.err
+			return 0, errnie.Error(tokenizer.err)
 		}
 
 		n, tokenizer.err = tokenizer.rb.Write(value.Bytes())
-		return n, tokenizer.err
+		return n, errnie.Error(tokenizer.err)
 	}
 }
 

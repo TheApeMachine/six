@@ -7,19 +7,29 @@ import (
 	"sync"
 
 	gc "github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/core"
 )
 
 /*
 Expectation defines the scoring thresholds for an experiment.
 Baseline is the regression floor — if the score drops below it,
-the test fails. Target is the aspirational goal (unused by assertions
-but reported in artifacts for context).
+the test fails. Target is the aspirational goal. Gate selects which
+threshold Outcome asserts against. LegacyDynamicBaseline reports whether
+the baseline was rewritten by the legacy magic-number helper.
 */
 type Expectation struct {
-	Baseline float64
-	Target   float64
+	Baseline              float64
+	Target                float64
+	Gate                  ExpectationGate
+	LegacyDynamicBaseline bool
 }
+
+type ExpectationGate uint8
+
+const (
+	ExpectationGateBaseline ExpectationGate = iota
+	ExpectationGateTarget
+)
 
 /*
 Evaluator centralizes scoring, prediction, and outcome assertion
@@ -67,13 +77,29 @@ func (evaluator *Evaluator) MeanScore(data []ExperimentalData) float64 {
 	return evaluator.scorer.Aggregate(data)
 }
 
+func (evaluator *Evaluator) Expectation() Expectation {
+	if evaluator == nil {
+		return Expectation{}
+	}
+
+	return evaluator.expectation
+}
+
 /*
 Outcome produces the GoConvey assertion triple using the configured
-Expectation baseline. This replaces the pattern of every experiment
-hardcoding its own (often meaningless) threshold.
+Expectation gate. This replaces the pattern of every experiment
+hardcoding its own thresholding logic.
 */
 func (evaluator *Evaluator) Outcome(score float64) (any, gc.Assertion, any) {
-	return score, gc.ShouldBeGreaterThanOrEqualTo, evaluator.expectation.Baseline
+	return score, gc.ShouldBeGreaterThanOrEqualTo, evaluator.expectation.threshold()
+}
+
+func (expectation Expectation) threshold() float64 {
+	if expectation.Gate == ExpectationGateTarget {
+		return expectation.Target
+	}
+
+	return expectation.Baseline
 }
 
 /*
@@ -257,8 +283,8 @@ func calculateRandomBaseline() float64 {
 		var sum float64
 
 		for i := 0; i < samples; i++ {
-			obs := make([]byte, primitive.ByteSize)
-			hold := make([]byte, primitive.ByteSize)
+			obs := make([]byte, core.Cfg.Value.Bytes)
+			hold := make([]byte, core.Cfg.Value.Bytes)
 			_, _ = rand.Read(obs)
 			_, _ = rand.Read(hold)
 
@@ -293,14 +319,45 @@ Baseline is the regression floor. Target is the aspirational goal.
 */
 func EvalWithExpectation(baseline, target float64) evalOpts {
 	return func(evaluator *Evaluator) {
+		dynamic := false
+
 		// Use dynamic baseline if the provided baseline looks like the old hardcoded magic logic
 		if baseline == 0.05 || baseline == 0.03 || baseline == 0.10 || baseline == 0.20 || baseline == 0.30 {
 			baseline = calculateRandomBaseline()
+			dynamic = true
 		}
 
 		evaluator.expectation = Expectation{
+			Baseline:              baseline,
+			Target:                target,
+			Gate:                  ExpectationGateBaseline,
+			LegacyDynamicBaseline: dynamic,
+		}
+	}
+}
+
+/*
+EvalWithFixedExpectation preserves the provided baseline and target exactly.
+Use this when the threshold has been intentionally chosen and should not be
+rewritten by the legacy dynamic-baseline helper.
+*/
+func EvalWithFixedExpectation(baseline, target float64) evalOpts {
+	return func(evaluator *Evaluator) {
+		evaluator.expectation = Expectation{
 			Baseline: baseline,
 			Target:   target,
+			Gate:     ExpectationGateBaseline,
 		}
+	}
+}
+
+/*
+EvalAssertTarget makes Outcome assert against the configured target rather than
+the regression baseline. Pair this with EvalWithFixedExpectation when an
+experiment is mature enough to require its target score in tests.
+*/
+func EvalAssertTarget() evalOpts {
+	return func(evaluator *Evaluator) {
+		evaluator.expectation.Gate = ExpectationGateTarget
 	}
 }

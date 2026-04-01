@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -69,11 +68,11 @@ func (s *Scheduler) Nodes() []Node {
 func (s *Scheduler) ScheduleUniversalBitwise(
 	ctx context.Context, left, right []byte,
 ) (*UniversalBitwiseJobResponse, error) {
-	if len(left) != primitive.ByteSize {
-		return nil, fmt.Errorf("left frame size %d, want %d", len(left), primitive.ByteSize)
+	if len(left) != core.Cfg.Value.Bytes {
+		return nil, fmt.Errorf("left frame size %d, want %d", len(left), core.Cfg.Value.Bytes)
 	}
-	if len(right) > 0 && len(right) != primitive.ByteSize {
-		return nil, fmt.Errorf("right frame size %d, want %d", len(right), primitive.ByteSize)
+	if len(right) > 0 && len(right) != core.Cfg.Value.Bytes {
+		return nil, fmt.Errorf("right frame size %d, want %d", len(right), core.Cfg.Value.Bytes)
 	}
 
 	nodes := s.Nodes()
@@ -134,10 +133,10 @@ func (s *Scheduler) tryNode(
 	node Node,
 	left, right []byte,
 ) (*UniversalBitwiseJobResponse, error) {
-	reqBody := make([]byte, primitive.ByteSize*2)
-	copy(reqBody[:primitive.ByteSize], left)
+	reqBody := make([]byte, core.Cfg.Value.Bytes*2)
+	copy(reqBody[:core.Cfg.Value.Bytes], left)
 	if len(right) > 0 {
-		copy(reqBody[primitive.ByteSize:], right)
+		copy(reqBody[core.Cfg.Value.Bytes:], right)
 	}
 
 	url := toHTTPURL(node.Addr, s.path)
@@ -158,12 +157,12 @@ func (s *Scheduler) tryNode(
 		return nil, fmt.Errorf("node %s status %d: %s", node.Addr, httpResp.StatusCode, strings.TrimSpace(string(body)))
 	}
 
-	respBody := make([]byte, primitive.ByteSize*2)
+	respBody := make([]byte, core.Cfg.Value.Bytes*2)
 	n, err := io.ReadFull(httpResp.Body, respBody)
 	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
 		return nil, fmt.Errorf("node %s read response: %w", node.Addr, err)
 	}
-	if n != primitive.ByteSize*2 {
+	if n != core.Cfg.Value.Bytes*2 {
 		return nil, fmt.Errorf("node %s returned invalid frame sizes left+right=%d", node.Addr, n)
 	}
 
@@ -181,8 +180,8 @@ func (s *Scheduler) tryNode(
 	return &UniversalBitwiseJobResponse{
 		NodeID:     nodeID,
 		DurationMS: durationMs,
-		Left:       respBody[:primitive.ByteSize],
-		Right:      respBody[primitive.ByteSize:],
+		Left:       respBody[:core.Cfg.Value.Bytes],
+		Right:      respBody[core.Cfg.Value.Bytes:],
 	}, nil
 }
 

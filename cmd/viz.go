@@ -128,7 +128,7 @@ accepting graph events via UDP from external test runs.`,
 					return nil, err
 				}
 
-				observedFrame := make([]byte, primitive.ByteSize)
+				observedFrame := make([]byte, core.Cfg.Value.Bytes)
 				if _, err := io.ReadFull(observer, observedFrame); err != nil {
 					return nil, err
 				}

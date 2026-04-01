@@ -7,7 +7,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/theapemachine/six/pkg/compute/stepwise"
 	"github.com/theapemachine/six/pkg/lang/pysix"
 )
 
@@ -48,7 +47,7 @@ Examples:
 			return fmt.Errorf("py: compile: %w", errCompile)
 		}
 
-		var frame [stepwise.FrameWords]uint64
+		var frame [128]uint64
 
 		if errRun := pysix.Run(&frame, prog); errRun != nil {
 			return fmt.Errorf("py: run: %w", errRun)

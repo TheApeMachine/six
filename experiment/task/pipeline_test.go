@@ -6,11 +6,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
 	tools "github.com/theapemachine/six/experiment"
+	"github.com/theapemachine/six/experiment/data"
+	"github.com/theapemachine/six/experiment/data/local"
 	"github.com/theapemachine/six/experiment/task/classification"
 	"github.com/theapemachine/six/experiment/task/codegen"
 	"github.com/theapemachine/six/experiment/task/imagegen"
@@ -25,6 +26,61 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
+
+type testReporter struct{}
+
+func (testReporter) WriteResults(tools.PipelineExperiment) error { return nil }
+func (testReporter) WriteArtifact(tools.PipelineExperiment, tools.Artifact) error {
+	return nil
+}
+
+type holdoutProbeExperiment struct {
+	name     string
+	prompts  []string
+	holdouts [][]byte
+	results  []tools.ExperimentalData
+	dataset  data.Provider
+}
+
+func newHoldoutProbeExperiment(name string, prompts []string, holdouts [][]byte) *holdoutProbeExperiment {
+	return &holdoutProbeExperiment{
+		name:     name,
+		prompts:  append([]string(nil), prompts...),
+		holdouts: append([][]byte(nil), holdouts...),
+		results:  []tools.ExperimentalData{},
+		dataset:  local.New(local.WithStrings(prompts)),
+	}
+}
+
+func (experiment *holdoutProbeExperiment) Name() string { return experiment.name }
+
+func (experiment *holdoutProbeExperiment) Section() string { return "test" }
+
+func (experiment *holdoutProbeExperiment) Dataset() data.Provider { return experiment.dataset }
+
+func (experiment *holdoutProbeExperiment) Prompts() []string {
+	return append([]string(nil), experiment.prompts...)
+}
+
+func (experiment *holdoutProbeExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(experiment.holdouts) {
+		return nil, false
+	}
+
+	return append([]byte(nil), experiment.holdouts[idx]...), true
+}
+
+func (experiment *holdoutProbeExperiment) AddResult(result tools.ExperimentalData) {
+	experiment.results = append(experiment.results, result)
+}
+
+func (experiment *holdoutProbeExperiment) Outcome() (any, Assertion, any) {
+	return 1.0, ShouldEqual, 1.0
+}
+
+func (experiment *holdoutProbeExperiment) TableData() any { return experiment.results }
+
+func (experiment *holdoutProbeExperiment) Artifacts() []tools.Artifact { return nil }
 
 func TestMain(m *testing.M) {
 	viper.SetConfigFile("../../cmd/cfg/config.yml")
@@ -164,49 +220,70 @@ func TestPipeline(t *testing.T) {
 }
 
 func TestObservePrompt(t *testing.T) {
-	Convey("When holdout is empty the partner matches the prompt and learn XOR cancels the token payload", t, func() {
+	Convey("observePrompt returns a substrate workspace readout without requiring holdout bytes", t, func() {
 		backend := compute.NewBackgroundBackend()
-		defer backend.Shutdown()
 
 		prefix := []byte("orca ")
 		value, err := primitive.NewValue(prefix)
 		So(err, ShouldBeNil)
 
 		var pipeline Pipeline
-		observed, err := pipeline.observePrompt(backend, value, prefix, nil)
+		observedA, err := pipeline.observePrompt(backend, value, prefix, nil)
 		So(err, ShouldBeNil)
-		So(len(observed), ShouldEqual, 0)
+		So(len(observedA), ShouldBeGreaterThan, 0)
 
-		value.InstallTombstone()
+		observedB, err := pipeline.observePrompt(backend, value, prefix, []byte("whale"))
+		So(err, ShouldBeNil)
+		So(len(observedB), ShouldBeGreaterThan, 0)
 
-		So(backend.UniversalBitwise(unsafe.Pointer(value)), ShouldBeNil)
+		value.InstallFirmware(core.FirmwareTypeTombstone)
+
 		So(value.Close(), ShouldBeNil)
 	})
+}
 
-	Convey("When holdout is non-empty the partner encodes the supervised full sample so readout is non-empty", t, func() {
-		backend := compute.NewBackgroundBackend()
-		defer backend.Shutdown()
+func TestPipelineObservedDoesNotDependOnHoldout(t *testing.T) {
+	Convey("Changing only the gold holdout must not change pipeline Observed output", t, func() {
+		prompts := []string{"alpha prompt"}
 
-		prefix := []byte("orca ")
-		holdout := []byte("whale")
-		value, err := primitive.NewValue(prefix)
+		experimentA := newHoldoutProbeExperiment(
+			"holdout-probe-a",
+			prompts,
+			[][]byte{[]byte("first holdout")},
+		)
+
+		pipelineA, err := NewPipeline(
+			t.Context(),
+			PipelineWithExperiment(experimentA),
+			PipelineWithReporter(testReporter{}),
+		)
+
 		So(err, ShouldBeNil)
+		So(pipelineA.Run(), ShouldBeNil)
+		So(len(experimentA.results), ShouldEqual, 1)
 
-		var pipeline Pipeline
-		observed, err := pipeline.observePrompt(backend, value, prefix, holdout)
+		experimentB := newHoldoutProbeExperiment(
+			"holdout-probe-b",
+			prompts,
+			[][]byte{[]byte("second, different holdout")},
+		)
+
+		pipelineB, err := NewPipeline(
+			t.Context(),
+			PipelineWithExperiment(experimentB),
+			PipelineWithReporter(testReporter{}),
+		)
+
 		So(err, ShouldBeNil)
-		So(len(observed), ShouldBeGreaterThan, 0)
+		So(pipelineB.Run(), ShouldBeNil)
+		So(len(experimentB.results), ShouldEqual, 1)
 
-		value.InstallTombstone()
-
-		So(backend.UniversalBitwise(unsafe.Pointer(value)), ShouldBeNil)
-		So(value.Close(), ShouldBeNil)
+		So(experimentA.results[0].Observed, ShouldResemble, experimentB.results[0].Observed)
 	})
 }
 
 func BenchmarkObservePrompt(b *testing.B) {
 	backend := compute.NewBackgroundBackend()
-	defer backend.Shutdown()
 
 	prefix := []byte("orca ")
 	holdout := []byte("whale")
@@ -221,11 +298,16 @@ func BenchmarkObservePrompt(b *testing.B) {
 
 		var pipeline Pipeline
 
-		_, _ = pipeline.observePrompt(backend, value, prefix, holdout)
+		if _, err := pipeline.observePrompt(backend, value, prefix, holdout); err != nil {
+			b.Fatal(err)
+		}
 
-		value.InstallTombstone()
+		if err := value.InstallFirmware(core.FirmwareTypeTombstone); err != nil {
+			b.Fatal(err)
+		}
 
-		_ = backend.UniversalBitwise(unsafe.Pointer(value))
-		_ = value.Close()
+		if err := value.Close(); err != nil {
+			b.Fatal(err)
+		}
 	}
 }

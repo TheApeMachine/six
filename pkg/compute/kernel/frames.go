@@ -4,21 +4,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
 )
-
-/*
-valueBytes returns the packed host size of one Value frame for kernel I/O.
-Config wins when loaded; otherwise we use the primitive default (1024).
-*/
-func valueBytes() int {
-
-	if core.Cfg != nil && core.Cfg.Value.Bytes > 0 {
-		return core.Cfg.Value.Bytes
-	}
-
-	return primitive.ByteSize
-}
 
 /*
 PackValueFrames copies valueBytes() bytes from each non-nil frame pointer into
@@ -29,10 +15,7 @@ skipped without copying.
 */
 func PackValueFrames(frames []unsafe.Pointer) []byte {
 
-	vb := valueBytes()
-	if vb <= 0 {
-		return nil
-	}
+	vb := core.Cfg.Value.Bytes
 	out := make([]byte, len(frames)*vb)
 
 	for index, framePtr := range frames {
@@ -52,18 +35,12 @@ UnpackValueFrames writes each row of slab back to the corresponding frame pointe
 */
 func UnpackValueFrames(frames []unsafe.Pointer, slab []byte) {
 
-	vb := valueBytes()
-	if vb <= 0 || len(frames) == 0 || len(slab) < vb {
+	vb := core.Cfg.Value.Bytes
+	if len(frames) == 0 || len(slab) < vb {
 		return
 	}
 
-	maxFrames := len(slab) / vb
-	limit := len(frames)
-	if maxFrames < limit {
-		limit = maxFrames
-	}
-
-	for index := 0; index < limit; index++ {
+	for index := 0; index < len(frames); index++ {
 		framePtr := frames[index]
 		if framePtr == nil {
 			continue

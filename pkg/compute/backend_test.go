@@ -31,26 +31,29 @@ func setupTestConfig(t *testing.T) {
 func makeTestBackend(t *testing.T) *Backend {
 	t.Helper()
 	setupTestConfig(t)
-	ctx := context.Background()
+
 	pool, err := NewPool(
-		PoolWithContext(ctx),
+		PoolWithContext(t.Context()),
 		PoolWithProcs(4),
 		PoolWithJobBuffer(64),
 	)
+
 	if err != nil {
 		t.Fatal(err)
 	}
-	backend := NewBackend(ctx, WithPool(pool))
+
+	backend := NewBackend(t.Context(), WithPool(pool))
+
 	if backend == nil {
 		t.Fatal("NewBackend returned nil")
 	}
+
 	return backend
 }
 
 func TestQueueNilReturnsError(t *testing.T) {
 	convey.Convey("Queue(nil) returns an error", t, func() {
 		backend := makeTestBackend(t)
-		defer backend.Shutdown()
 
 		err := backend.Queue(nil)
 		convey.So(err, convey.ShouldNotBeNil)
@@ -60,7 +63,6 @@ func TestQueueNilReturnsError(t *testing.T) {
 func TestQueueAcceptsValidFrame(t *testing.T) {
 	convey.Convey("Queue accepts a valid frame pointer", t, func() {
 		backend := makeTestBackend(t)
-		defer backend.Shutdown()
 
 		var f [128]uint64
 		err := backend.Queue(unsafe.Pointer(&f))
@@ -89,7 +91,6 @@ var _ kernel.Substrate = (*recordingSubstrate)(nil)
 func TestGroupFramesByProgram(t *testing.T) {
 	convey.Convey("Frames are grouped by identical program regions before dispatch", t, func() {
 		backend := makeTestBackend(t)
-		defer backend.Shutdown()
 
 		var frameA, frameB, frameC [128]uint64
 
@@ -145,9 +146,8 @@ func TestExecuteBatchDispatchesProgramGroups(t *testing.T) {
 func TestQueuePriorityNilReturnsError(t *testing.T) {
 	convey.Convey("QueuePriority(nil) returns an error", t, func() {
 		backend := makeTestBackend(t)
-		defer backend.Shutdown()
 
-		err := backend.QueuePriority(nil)
+		err := backend.Queue(nil)
 		convey.So(err, convey.ShouldNotBeNil)
 	})
 }

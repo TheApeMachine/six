@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/stepwise"
 )
 
 func python3OK() bool {
@@ -25,7 +24,7 @@ func TestCompileSourceAdd(t *testing.T) {
 
 		convey.So(err, convey.ShouldBeNil)
 
-		var frame [stepwise.FrameWords]uint64
+		var frame [FrameWords]uint64
 
 		convey.So(Run(&frame, prog), convey.ShouldBeNil)
 
@@ -45,7 +44,7 @@ func TestCompileSourceLargeLiteral(t *testing.T) {
 
 		convey.So(err, convey.ShouldBeNil)
 
-		var frame [stepwise.FrameWords]uint64
+		var frame [FrameWords]uint64
 
 		convey.So(Run(&frame, prog), convey.ShouldBeNil)
 
@@ -71,7 +70,7 @@ else:
 
 		convey.So(err, convey.ShouldBeNil)
 
-		var frame [stepwise.FrameWords]uint64
+		var frame [FrameWords]uint64
 
 		convey.So(Run(&frame, prog), convey.ShouldBeNil)
 
@@ -95,7 +94,7 @@ for i in range(4):
 
 		convey.So(err, convey.ShouldBeNil)
 
-		var frame [stepwise.FrameWords]uint64
+		var frame [FrameWords]uint64
 
 		convey.So(Run(&frame, prog), convey.ShouldBeNil)
 
@@ -115,7 +114,7 @@ func TestCompileSourceMultiply(t *testing.T) {
 
 		convey.So(err, convey.ShouldBeNil)
 
-		var frame [stepwise.FrameWords]uint64
+		var frame [FrameWords]uint64
 
 		convey.So(Run(&frame, prog), convey.ShouldBeNil)
 

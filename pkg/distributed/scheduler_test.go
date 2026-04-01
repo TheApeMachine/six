@@ -8,7 +8,6 @@ import (
 
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestMain(m *testing.M) {
@@ -45,7 +44,7 @@ func TestCandidateOrderFallsBackToRoundRobinWithoutAffinity(t *testing.T) {
 		{ID: "n2", Addr: "n2:1", Capacity: 1},
 	}
 
-	left := make([]byte, primitive.ByteSize)
+	left := make([]byte, core.Cfg.Value.Bytes)
 	ordered := candidateOrder(nodes, left, nil, 1)
 	if got := ordered[0].ID; got != "n1" {
 		t.Fatalf("round-robin fallback mismatch: got %s want n1", got)
@@ -115,7 +114,7 @@ func TestCandidateOrderFallsBackWhenNoShardMatches(t *testing.T) {
 }
 
 func makeFrameWithAffinity(region, regions int) []byte {
-	frame := make([]byte, primitive.ByteSize)
+	frame := make([]byte, core.Cfg.Value.Bytes)
 	affinity := affinityForRegion(region, regions)
 	binary.LittleEndian.PutUint64(frame[core.Cfg.Value.Region.Affinity.Start*8:], affinity)
 	return frame

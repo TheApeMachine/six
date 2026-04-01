@@ -2,7 +2,6 @@ package compute
 
 import (
 	"context"
-	"fmt"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -235,6 +234,12 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 
 	for _, value := range frames {
 		frame := (*[128]uint64)(value)
+
+		if frameShouldSkipFollowUp(frame) {
+			frame[fwWord] = 0
+			continue
+		}
+
 		if frame[fwWord] == 0 {
 			continue
 		}
@@ -253,6 +258,41 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 			)
 		}
 	}
+}
+
+func frameShouldSkipFollowUp(frame *[128]uint64) bool {
+	if frame == nil {
+		return true
+	}
+
+	wiped := true
+
+	checkRegion := func(start int, bits uint64) {
+		if !wiped {
+			return
+		}
+
+		nWords := int((bits + 63) / 64)
+
+		for offset := 0; offset < nWords; offset++ {
+			index := start + offset
+
+			if index < 0 || index >= len(frame) {
+				continue
+			}
+
+			if frame[index] != 0 {
+				wiped = false
+				return
+			}
+		}
+	}
+
+	checkRegion(core.Cfg.Value.Region.Tokens.Start, core.Cfg.Value.Region.Tokens.Bits)
+	checkRegion(core.Cfg.Value.Region.Affinity.Start, core.Cfg.Value.Region.Affinity.Bits)
+	checkRegion(core.Cfg.Value.Region.Program.Start, core.Cfg.Value.Region.Program.Bits)
+
+	return wiped
 }
 
 func (backend *Backend) groupFramesByProgram(frames []unsafe.Pointer) [][]unsafe.Pointer {
@@ -414,33 +454,18 @@ This prepares the value for execution and potentially optimizes
 the execution path by batching similar values together.
 */
 func (backend *Backend) Queue(value unsafe.Pointer) error {
-	return backend.enqueue(value, NORMAL, "Queue")
-}
-
-func (backend *Backend) QueuePriority(value unsafe.Pointer) error {
-	return backend.enqueue(value, PRIORITY, "QueuePriority")
-}
-
-func (backend *Backend) enqueue(value unsafe.Pointer, queueType QueueType, op string) error {
 	if value == nil {
-		return NewBackendError(BackendErrorNoValues, nil, op)
+		return NewBackendError(BackendErrorNoValues, nil, "Queue")
 	}
 
-	queue, ok := backend.queues[queueType]
+	queue, ok := backend.queues[NORMAL]
+
 	if !ok {
-		return NewBackendError(BackendErrorNoComputeResource, nil, op)
+		return NewBackendError(BackendErrorNoComputeResource, nil, "Queue")
 	}
 
 	queue <- value
 	return nil
-}
-
-func (backend *Backend) Shutdown() {
-	backend.cancel()
-}
-
-func (backend *Backend) UniversalBitwise(frames ...unsafe.Pointer) error {
-	return backend.executeBatch(frames)
 }
 
 /*
@@ -451,14 +476,19 @@ enqueue failure / context cancellation / inline job failure.
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	if backend.pool != nil {
 		if err := backend.pool.Schedule(backend.ctx, job); err != nil {
-			_ = errnie.Error(err)
-			return fmt.Errorf("compute.Backend.Schedule: %w", err)
+			return errnie.Error(NewBackendError(
+				BackendErrorPoolEnqueueFailed, err, "Schedule",
+			))
 		}
+
 		return nil
 	}
+
 	if err := job(backend.ctx); err != nil {
-		_ = errnie.Error(err)
-		return fmt.Errorf("compute.Backend.Schedule: %w", err)
+		return errnie.Error(NewBackendError(
+			BackendErrorInlineJobFailed, err, "Schedule",
+		))
 	}
+
 	return nil
 }

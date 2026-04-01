@@ -25,7 +25,7 @@ func TestHCAMUnbinding(t *testing.T) {
 		base := core.Cfg.Value.Region.Tokens.Start
 		for i := 0; i < nWords; i++ {
 			idx := base + i
-			if idx >= Words {
+			if idx >= core.Cfg.Value.Words {
 				break
 			}
 			fact[idx] = sandra[idx] ^ isIn[idx] ^ garden[idx]
@@ -36,7 +36,7 @@ func TestHCAMUnbinding(t *testing.T) {
 			defer query.Close()
 			for i := 0; i < nWords; i++ {
 				idx := base + i
-				if idx >= Words {
+				if idx >= core.Cfg.Value.Words {
 					break
 				}
 				query[idx] = sandra[idx] ^ isIn[idx]
@@ -49,7 +49,7 @@ func TestHCAMUnbinding(t *testing.T) {
 			Convey("Then the residue equals Garden's token region", func() {
 				for i := 0; i < nWords; i++ {
 					idx := base + i
-					if idx >= Words {
+					if idx >= core.Cfg.Value.Words {
 						break
 					}
 					So(result[idx], ShouldEqual, garden[idx])
@@ -232,7 +232,7 @@ func TestApplyDelta(t *testing.T) {
 			base := core.Cfg.Value.Region.Tokens.Start
 			for i := 0; i < nWords; i++ {
 				idx := base + i
-				if idx >= Words {
+				if idx >= core.Cfg.Value.Words {
 					break
 				}
 				expected := current[idx] ^ 0xDEADBEEF

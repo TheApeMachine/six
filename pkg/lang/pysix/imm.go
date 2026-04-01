@@ -1,4 +1,4 @@
-package stepwise
+package pysix
 
 import (
 	"errors"

@@ -11,12 +11,15 @@ instruction; all others use the branchless TruthTable scalar loop.
 */
 func execWordBlock(dst, src []uint64, op uint8) {
 	n := len(dst)
+
 	if len(src) < n {
 		n = len(src)
 	}
+
 	if n == 0 {
 		return
 	}
+
 	dst = dst[:n]
 	src = src[:n]
 

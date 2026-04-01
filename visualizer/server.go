@@ -17,7 +17,7 @@ import (
 	_ "net/http/pprof"
 
 	"github.com/gorilla/websocket"
-	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -91,11 +91,11 @@ func (server *Server) runFrameBroadcaster() {
 
 func (server *Server) flushLatestFrame() {
 	server.frameMu.Lock()
-	if len(server.latestFrame) != primitive.ByteSize {
+	if len(server.latestFrame) != core.Cfg.Value.Bytes {
 		server.frameMu.Unlock()
 		return
 	}
-	frame := make([]byte, primitive.ByteSize)
+	frame := make([]byte, core.Cfg.Value.Bytes)
 	copy(frame, server.latestFrame)
 	server.latestFrame = nil
 	server.frameMu.Unlock()
@@ -136,7 +136,7 @@ func (server *Server) listenUDP(conn *net.UDPConn) error {
 			return err
 		}
 
-		if n == primitive.ByteSize {
+		if n == core.Cfg.Value.Bytes {
 			server.BroadcastValueFrame(buf[:n])
 			continue
 		}
@@ -373,9 +373,6 @@ func (server *Server) handlePromptCommand(msg string) {
 	}
 
 	resultText := string(result)
-	if len(result) == primitive.ByteSize {
-		resultText = primitive.ViewValue(result).String()
-	}
 
 	stage := "prompt-complete"
 	if len(result) == 0 {
@@ -469,15 +466,15 @@ BroadcastValueFrame pushes a raw 1024-byte Value frame to clients as a binary
 WebSocket message so the browser can map the buffer without JSON overhead.
 */
 func (server *Server) BroadcastValueFrame(frame []byte) {
-	if len(frame) != primitive.ByteSize {
+	if len(frame) != core.Cfg.Value.Bytes {
 		return
 	}
 
 	server.frameMu.Lock()
-	if cap(server.latestFrame) < primitive.ByteSize {
-		server.latestFrame = make([]byte, primitive.ByteSize)
+	if cap(server.latestFrame) < core.Cfg.Value.Bytes {
+		server.latestFrame = make([]byte, core.Cfg.Value.Bytes)
 	} else {
-		server.latestFrame = server.latestFrame[:primitive.ByteSize]
+		server.latestFrame = server.latestFrame[:core.Cfg.Value.Bytes]
 	}
 	copy(server.latestFrame, frame)
 	server.frameMu.Unlock()

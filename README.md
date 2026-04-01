@@ -48,7 +48,7 @@ A Value's 128 words are divided into regions:
 
 Values implement `io.Reader` and `io.Writer`, which means they can be piped through standard Go I/O infrastructure (files, network connections, streams) without any serialization overhead. The in-memory layout *is* the wire format.
 
-Values are pooled and reference-counted. A Value must be tombstoned before it can be released back to the pool. Tombstoning is not just a flag; it is a firmware program that actively zeros the token, affinity, and program regions, and then propagates through the stream to clean up any dangling PrevID/NextID references in other Values.
+Values are pooled and reference-counted. A Value must be tombstoned before it can be released back to the pool. The long-term substrate model is still an in-band tombstone program that zeros the token, affinity, and program regions while propagating through the stream to clean up dangling PrevID/NextID references. The current host-side `Value.InstallTombstone` path wipes the frame eagerly before release so prompt-evaluation and test cleanup remain deterministic on the self-only backend.
 
 ### Backend
 
@@ -180,7 +180,7 @@ QUIC connections handle reliable point-to-point transfer when Values need to mov
 
 ### Experiment pipeline
 
-`experiment/task.Pipeline` grades each prompt by running **learn** on two copies via `compute.Backend.UniversalBitwise`, then sets `Observed` from `primitive.TokenRegionObservedBytes` on the workspace — not from `Value.String()` (exact LSM bitmap match on the prompt frame). Each prompt `Value` is tombstone-executed on the backend, then `Close`d. The old `vm.NewMachine` + `LimitReader` ingest during `Run` was removed so dataset streaming is not conflated with per-prompt evaluation.
+`experiment/task.Pipeline` resets the shared spatial index for each run so experiments start from a clean substrate. By default it grades each prompt from the actual prompt workspace only. `Holdout` stays on the scoring side as supervision metadata; it must not be copied into `Observed` or otherwise influence prompt execution directly. Experiments that implement corpus staging now load resident article+label samples into the spatial index ahead of prompt evaluation and derive `Observed` from retrieval over that resident corpus, still without consulting holdout bytes at prompt time. Ephemeral prompt `Value`s are removed from the spatial index after observation so they cannot masquerade as retrieved evidence, then tombstoned and `Close`d. The old `vm.NewMachine` + `LimitReader` ingest during `Run` was removed so dataset streaming is not conflated with per-prompt evaluation.
 
 ## Project Structure
 

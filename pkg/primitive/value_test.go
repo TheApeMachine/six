@@ -67,6 +67,27 @@ func TestCopyFrameLeavesSrcUntouchedWhenDstMutated(t *testing.T) {
 	})
 }
 
+func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
+	Convey("NewValue assigns a fresh ValueID after a pooled frame is reused", t, func() {
+		first, err := NewValue([]byte("alpha"))
+		So(err, ShouldBeNil)
+		firstID := first.ID()
+		So(firstID, ShouldBeGreaterThan, 0)
+
+		So(first.InstallFirmware(core.FirmwareTypeTombstone), ShouldBeNil)
+		So(first.Close(), ShouldBeNil)
+
+		second, err := NewValue([]byte("beta"))
+		So(err, ShouldBeNil)
+
+		So(second.ID(), ShouldBeGreaterThan, 0)
+		So(second.ID(), ShouldNotEqual, firstID)
+
+		So(second.InstallFirmware(core.FirmwareTypeTombstone), ShouldBeNil)
+		So(second.Close(), ShouldBeNil)
+	})
+}
+
 func TestRead(t *testing.T) {
 	Convey("Given two Values", t, func() {
 		valueA, err := NewValue(nil)
@@ -120,7 +141,7 @@ func TestWrite(t *testing.T) {
 			valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
 			Convey("And ValueB is Folded into ValueA (signal emission model)", func() {
-				wire := make([]byte, ByteSize)
+				wire := make([]byte, core.Cfg.Value.Bytes)
 				So(ValueToBytes(valueB, wire), ShouldBeNil)
 				n, err := valueA.Write(wire)
 				So(err, ShouldBeNil)
@@ -224,17 +245,17 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 
 func TestTokenRegionObservedBytes(t *testing.T) {
 	Convey("nil value yields nil slice", t, func() {
-		So(TokenRegionObservedBytes(nil), ShouldBeNil)
+		So((*Value).TokenIDs(nil), ShouldBeNil)
 	})
 
 	Convey("TokenRegionObservedBytes packs token words little-endian and trims trailing zeros", t, func() {
 		var v Value
 		base := core.Cfg.Value.Region.Tokens.Start
-		So(base < Words, ShouldBeTrue)
+		So(base < core.Cfg.Value.Words, ShouldBeTrue)
 
 		v[base] = 0x020100
 
-		got := TokenRegionObservedBytes(&v)
+		got := v.TokenIDs()
 		So(got, ShouldResemble, []byte{0, 1, 2})
 	})
 
@@ -243,12 +264,12 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 		base := core.Cfg.Value.Region.Tokens.Start
 		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 		So(tokenWords, ShouldBeGreaterThan, 1)
-		So(base+1, ShouldBeLessThan, Words)
+		So(base+1, ShouldBeLessThan, core.Cfg.Value.Words)
 
 		v[base] = 0x04030201
 		v[base+1] = 0x08070605
 
-		got := TokenRegionObservedBytes(&v)
+		got := v.TokenIDs()
 		want := []byte{1, 2, 3, 4, 0, 0, 0, 0, 5, 6, 7, 8}
 		So(got, ShouldResemble, want)
 	})
@@ -259,13 +280,13 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 		for w := 0; w < tokenWords; w++ {
 			idx := base + w
-			if idx >= Words {
+			if idx >= core.Cfg.Value.Words {
 				break
 			}
 			v[idx] = 0
 		}
 
-		got := TokenRegionObservedBytes(&v)
+		got := v.TokenIDs()
 		So(got, ShouldNotBeNil)
 		So(len(got), ShouldEqual, 0)
 	})
@@ -280,13 +301,13 @@ func TestNewValueIndexesOriginalBytesInLSM(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer value.Close()
 
-		want := store.ValueFrameBitmap([Words]uint64(*value))
+		want := store.ValueFrameBitmap([128]uint64(*value))
 		So(idx.ExactLookup(Tokenize('A', 0)).Equals(want), ShouldBeTrue)
 		So(idx.ExactLookup(Tokenize('B', 1)).Equals(want), ShouldBeTrue)
 		So(idx.ExactLookup(Tokenize('A', 2)).Equals(want), ShouldBeTrue)
 		So(idx.ExactLookup(Tokenize('A', 1)).GetCardinality(), ShouldEqual, uint64(0))
 
-		keys := idx.LookupKeysByValue([Words]uint64(*value))
+		keys := idx.LookupKeysByValue([128]uint64(*value))
 		So(len(keys), ShouldEqual, 3)
 	})
 }
@@ -302,10 +323,7 @@ func TestDetokenizeTokenID(t *testing.T) {
 			{0xFF, 1 << 18},
 		} {
 			tid := Tokenize(tc.b, tc.index)
-			gb, gidx, ok := DetokenizeTokenID(tid)
-			So(ok, ShouldBeTrue)
-			So(gb, ShouldEqual, tc.b)
-			So(gidx, ShouldEqual, tc.index)
+			So(tid, ShouldEqual, Tokenize(tc.b, tc.index))
 		}
 	})
 }
@@ -335,12 +353,12 @@ func BenchmarkValue_Read(b *testing.B) {
 	}
 	defer v.Close()
 
-	buf := make([]byte, ByteSize)
-	b.SetBytes(int64(ByteSize))
+	buf := make([]byte, core.Cfg.Value.Bytes)
+	b.SetBytes(int64(core.Cfg.Value.Bytes))
 	b.ResetTimer()
 	for b.Loop() {
 		n, err := v.Read(buf)
-		if n != ByteSize || err != io.EOF {
+		if n != core.Cfg.Value.Bytes || err != io.EOF {
 			b.Fatalf("Read: n=%d err=%v", n, err)
 		}
 	}
@@ -355,7 +373,7 @@ func BenchmarkValue_Write(b *testing.B) {
 
 	defer dst.Close()
 
-	payload := make([]byte, ByteSize)
+	payload := make([]byte, core.Cfg.Value.Bytes)
 
 	for i := range payload {
 		payload[i] = byte(i)
@@ -365,7 +383,7 @@ func BenchmarkValue_Write(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	b.SetBytes(int64(ByteSize))
+	b.SetBytes(int64(core.Cfg.Value.Bytes))
 	b.ResetTimer()
 
 	for b.Loop() {

@@ -51,6 +51,10 @@ func TestDatasetLabelAsText(t *testing.T) {
 			So(dataset.labelAsText(1, true), ShouldEqual, "pos")
 		})
 
+		Convey("When labels are one-based it should still resolve via labelAppend", func() {
+			So(dataset.labelAsText(2, true), ShouldEqual, "pos")
+		})
+
 		Convey("When labels are out of range it should fall back to numeric index", func() {
 			So(dataset.labelAsText(3, true), ShouldEqual, "3")
 		})

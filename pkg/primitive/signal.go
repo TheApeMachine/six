@@ -75,7 +75,7 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 	}
 
 	idWord := core.Cfg.Value.Region.ID.Start
-	if idWord < 0 || idWord >= Words {
+	if idWord < 0 || idWord >= core.Cfg.Value.Words {
 		return nil
 	}
 
@@ -88,7 +88,7 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 	for _, spec := range specs {
 		for w := 0; w < tokenWords; w++ {
 			idx := baseIdx + w
-			if idx >= Words {
+			if idx >= core.Cfg.Value.Words {
 				break
 			}
 

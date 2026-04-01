@@ -5,12 +5,13 @@ import (
 	"io"
 	"sync"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
 var bufPool = sync.Pool{
 	New: func() any {
-		buf := make([]byte, primitive.ByteSize)
+		buf := make([]byte, core.Cfg.Value.Bytes)
 		return buf
 	},
 }
@@ -52,7 +53,7 @@ next partner directly in Value space, rotate the partner into wait, and
 reinsert the mutated previous wait into the ring.
 */
 func (emitter *Emitter) Read(p []byte) (n int, err error) {
-	if len(p) < primitive.ByteSize {
+	if len(p) < core.Cfg.Value.Bytes {
 		return 0, io.ErrShortBuffer
 	}
 

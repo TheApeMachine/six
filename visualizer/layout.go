@@ -2,7 +2,6 @@ package visualizer
 
 import (
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -117,7 +116,7 @@ func BuildValueLayout() ValueLayout {
 			Name:      "exec-status",
 			Kind:      "exec",
 			Label:     "Exec Status",
-			StartWord: primitive.ExecStatusWord,
+			StartWord: core.Cfg.Value.Region.State.Accumulator,
 			WordCount: 1,
 			Bits:      64,
 		},
@@ -161,8 +160,8 @@ func BuildValueLayout() ValueLayout {
 	}
 
 	return ValueLayout{
-		Words:      primitive.Words,
-		ByteSize:   primitive.ByteSize,
+		Words:      core.Cfg.Value.Words,
+		ByteSize:   core.Cfg.Value.Bytes,
 		TokenBits:  core.Cfg.Value.Region.Tokens.Bits,
 		TokenWords: tokenWords,
 		Indices: ValueLayoutIndex{
@@ -172,7 +171,7 @@ func BuildValueLayout() ValueLayout {
 			State:          core.Cfg.Value.Region.State.Index,
 			Sequence:       core.Cfg.Value.Region.State.Sequence,
 			Accumulator:    core.Cfg.Value.Region.State.Accumulator,
-			ExecStatus:     primitive.ExecStatusWord,
+			ExecStatus:     core.Cfg.Value.Region.State.Accumulator,
 			Affinity:       core.Cfg.Value.Region.Affinity.Start,
 			RegistersStart: registersStart,
 			PC:             core.Cfg.Value.Region.Registers.PC,

@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -30,7 +31,7 @@ type Observer struct {
 	done    chan struct{}
 	emitter telemetry.Emitter
 
-	lastFrame atomic.Pointer[[primitive.ByteSize]byte]
+	lastFrame atomic.Pointer[[1024]byte]
 }
 
 func NewObserver(target io.ReadWriter) *Observer {
@@ -120,8 +121,8 @@ func (o *Observer) Read(p []byte) (n int, err error) {
 }
 
 func (o *Observer) measure(p []byte, n int) {
-	if n >= primitive.ByteSize {
-		val := primitive.ViewValue(p)
+	if n >= core.Cfg.Value.Bytes {
+		val := primitive.BytesToValue(p)
 
 		// Extract observability metrics directly from the topological frame
 		instr := telemetry.InstructionFromValue(val)
@@ -129,8 +130,8 @@ func (o *Observer) measure(p []byte, n int) {
 		o.lastInstr.Store(uint32(instr))
 		o.opsCount.Add(1)
 
-		var frameCopy [primitive.ByteSize]byte
-		copy(frameCopy[:], p[:primitive.ByteSize])
+		var frameCopy [1024]byte
+		copy(frameCopy[:], p[:1024])
 		o.lastFrame.Store(&frameCopy)
 	}
 }

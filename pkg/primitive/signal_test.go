@@ -61,7 +61,7 @@ func TestScanSignals(t *testing.T) {
 
 	for w := 0; w < tokenWords; w++ {
 		idx := baseIdx + w
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		a[idx] = 0xDEADBEEFCAFEBABE
@@ -120,7 +120,7 @@ func TestScanSignalsDifferent(t *testing.T) {
 
 	for w := 0; w < tokenWords; w++ {
 		idx := baseIdx + w
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		a[idx] = 0xAAAAAAAAAAAAAAAA

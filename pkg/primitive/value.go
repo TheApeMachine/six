@@ -2,13 +2,10 @@
 package primitive
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"math/bits"
 	"slices"
-	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -20,24 +17,12 @@ import (
 )
 
 const (
-	// Compile-time constants needed for the Value type definition.
-	Words    = 128
-	ByteSize = Words * 8
-
-	// SignalMask is the mechanical bit-pattern used to reset the sequence index.
-	SignalMask = 0xF
-
 	/*
 		tokenIDPrime is a 64-bit prime (2^64-59) so TokenID maps
 		(multiplier*index + byte) mod prime across the full uint64 range.
 	*/
 	tokenIDPrime      = uint64(18446744073709551557)
 	tokenIDMultiplier = uint64(6364136223846793005)
-
-	// ExecStatusWord is the word reserved for kernel exit markers (high 16 bits);
-	// must match generated pkg/compute/kernel/shared/primitives.h EXEC_STATUS_WORD.
-	ExecStatusWord  = 63
-	ExecStatusShift = 48
 )
 
 var tokenIDMulInverse uint64
@@ -57,98 +42,7 @@ var (
 	valueFrom func([]byte, *Value)
 
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
-
-	/*
-		stepwiseInstallFn is registered from pkg/compute init so primitive never
-		imports stepwise (avoids import cycles with compute/kernel/cpu tests).
-	*/
-	stepwiseInstallFn func(*Value, core.FirmwareType) bool
 )
-
-type detokenizeCacheEntry struct {
-	tid   uint64
-	index uint64
-	b     byte
-	ok    bool
-	used  bool
-}
-
-var detokenizeCache = struct {
-	sync.RWMutex
-	slots [detokenizeCacheSize]detokenizeCacheEntry
-}{}
-
-func detokenizeCacheIndex(tid uint64) int {
-	return int((tid ^ bits.RotateLeft64(tid, 17)) & (detokenizeCacheSize - 1))
-}
-
-func loadDetokenizeCache(tid uint64) (b byte, index uint64, ok bool, hit bool) {
-	slot := detokenizeCacheIndex(tid)
-
-	detokenizeCache.RLock()
-	entry := detokenizeCache.slots[slot]
-	detokenizeCache.RUnlock()
-
-	if !entry.used || entry.tid != tid {
-		return 0, 0, false, false
-	}
-
-	return entry.b, entry.index, entry.ok, true
-}
-
-func storeDetokenizeCacheResult(tid uint64, b byte, index uint64, ok bool) {
-	slot := detokenizeCacheIndex(tid)
-
-	detokenizeCache.Lock()
-	detokenizeCache.slots[slot] = detokenizeCacheEntry{
-		tid:   tid,
-		index: index,
-		b:     b,
-		ok:    ok,
-		used:  true,
-	}
-	detokenizeCache.Unlock()
-}
-
-/*
-SetStepwiseInstallFunc registers the handler that attempts to install
-programsStepwise.* via pkg/compute/stepwise. Must be called from compute init.
-*/
-func SetStepwiseInstallFunc(fn func(*Value, core.FirmwareType) bool) {
-	stepwiseInstallFn = fn
-}
-
-type valueLifecycle struct {
-	refs   atomic.Int64
-	pooled atomic.Bool
-}
-
-type lifecycleShard struct {
-	sync.RWMutex
-	m map[*Value]*valueLifecycle
-}
-
-const numLifecycleShards = 256
-
-var lifecycleShards [numLifecycleShards]lifecycleShard
-
-func init() {
-	for i := 0; i < numLifecycleShards; i++ {
-		lifecycleShards[i].m = make(map[*Value]*valueLifecycle)
-	}
-
-	tokenIDMulInverse = modPowU64(tokenIDMultiplier, tokenIDPrime-2, tokenIDPrime)
-}
-
-func getLifecycleShard(value *Value) *lifecycleShard {
-	if value == nil {
-		return &lifecycleShards[0]
-	}
-
-	key := uintptr(unsafe.Pointer(value))
-	hash := (key ^ (key >> 16)) % numLifecycleShards
-	return &lifecycleShards[hash]
-}
 
 /*
 Value is the self-programmable type that acts as the fundamental unit of
@@ -168,7 +62,7 @@ The core concepts behind its design are:
     As much as possible is carried in-band, balanced against
     hardware symphathy.
 */
-type Value [Words]uint64
+type Value [128]uint64
 
 // CopyFrame overwrites dst with a full-frame copy of src (all Words).
 // Kernels may mutate dst while leaving canonical src unchanged (signals on copies; see README).
@@ -185,10 +79,10 @@ func init() {
 	// Fast-path memory alignment for little-endian architectures
 	if *(*byte)(unsafe.Pointer(&x)) == 1 {
 		valueTo = func(v *Value, p []byte) {
-			copy(p, unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), ByteSize))
+			copy(p, unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), core.Cfg.Value.Bytes))
 		}
 		valueFrom = func(p []byte, v *Value) {
-			copy(unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), ByteSize), p)
+			copy(unsafe.Slice((*byte)(unsafe.Pointer(&v[0])), core.Cfg.Value.Bytes), p)
 		}
 		return
 	}
@@ -198,7 +92,7 @@ func init() {
 }
 
 func valueToPortable(v *Value, p []byte) {
-	for i := range Words {
+	for i := range core.Cfg.Value.Words {
 		p[i*8] = byte(v[i])
 		p[i*8+1] = byte(v[i] >> 8)
 		p[i*8+2] = byte(v[i] >> 16)
@@ -211,7 +105,7 @@ func valueToPortable(v *Value, p []byte) {
 }
 
 func valueFromPortable(p []byte, v *Value) {
-	for i := range Words {
+	for i := range core.Cfg.Value.Words {
 		v[i] = uint64(p[i*8]) |
 			uint64(p[i*8+1])<<8 |
 			uint64(p[i*8+2])<<16 |
@@ -235,7 +129,6 @@ var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
 		val[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
-		val.installFirmware(core.FirmwareTypeBootloader)
 		return val
 	},
 }
@@ -246,7 +139,12 @@ This method should not be used to create temporary Values.
 */
 func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
-	registerPooledLifecycle(value)
+
+	if value.ID() == 0 {
+		value[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
+	}
+
+	value.InstallFirmware(core.FirmwareTypeBootloader)
 
 	tokenIDs := make([]uint64, 0, int((core.Cfg.Value.Region.Tokens.Bits+63)/64))
 
@@ -258,16 +156,9 @@ func NewValue(p []byte) (*Value, error) {
 		seed = 1
 	}
 
-	// LGP introns use legacy 32-bit instruction slots; they corrupt stepwise
-	// descriptor bands, so skip when the bootloader comes from programsStepwise.
-	useStepwiseBoot := core.Cfg.System.StepwiseUniversalBitwise &&
-		core.Cfg.StepwiseFirmwareSource[core.FirmwareTypeBootloader] != ""
-
-	if !useStepwiseBoot {
-		// LGP: insert protective introns every 8 instruction slots to prevent
-		// catastrophic destruction during Build firmware crossover (IDEAS.md §3).
-		firmware.InsertIntrons((*[Words]uint64)(value), 8)
-	}
+	// LGP: insert protective introns every 8 instruction slots to prevent
+	// catastrophic destruction during Build firmware crossover (IDEAS.md §3).
+	firmware.InsertIntrons((*[128]uint64)(value), 8)
 
 	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 
@@ -312,6 +203,17 @@ func NewValue(p []byte) (*Value, error) {
 	return value, nil
 }
 
+func (value *Value) InstallFirmware(
+	firmwareType core.FirmwareType,
+) error {
+	if value == nil {
+		return errnie.Error(NewValueError(ValueErrorFailedByteConversion))
+	}
+
+	value[core.Cfg.Value.Region.Registers.FW] = uint64(firmwareType)
+	return nil
+}
+
 // TokenRegionFingerprint hashes the token region and affinity for indexing (e.g. LSM keys).
 func TokenRegionFingerprint(value *Value) uint64 {
 	if value == nil {
@@ -321,7 +223,7 @@ func TokenRegionFingerprint(value *Value) uint64 {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	for i := 0; i < nWords; i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		w := value[idx]
@@ -341,7 +243,7 @@ func (value *Value) LeftShiftTokens() {
 	var carry uint64 = 0
 	for i := 0; i < nWords; i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		curr := value[idx]
@@ -352,7 +254,7 @@ func (value *Value) LeftShiftTokens() {
 	// Circular wrap-around
 	if carry > 0 {
 		idx := core.Cfg.Value.Region.Tokens.Start
-		if idx < Words {
+		if idx < core.Cfg.Value.Words {
 			value[idx] |= carry
 		}
 	}
@@ -364,7 +266,7 @@ func (value *Value) BindTokenHD(b byte) {
 	sig := ByteSignatures[b]
 	for i := 0; i < nWords && i < len(sig); i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		value[idx] ^= sig[i]
@@ -382,12 +284,12 @@ traditional serialization tax, because the Value is already
 serialized in memory.
 */
 func (value *Value) Read(p []byte) (int, error) {
-	if len(p) < ByteSize {
+	if len(p) < core.Cfg.Value.Bytes {
 		return 0, io.ErrShortBuffer
 	}
 
 	valueTo(value, p)
-	return ByteSize, io.EOF
+	return core.Cfg.Value.Bytes, io.EOF
 }
 
 /*
@@ -398,7 +300,7 @@ use their own data for computation, and they will be immutable, so any
 computation (which will now be "signals") will emit new Values instead.
 */
 func (value *Value) Write(p []byte) (int, error) {
-	if len(p) < ByteSize {
+	if len(p) < core.Cfg.Value.Bytes {
 		return 0, io.ErrShortBuffer
 	}
 
@@ -413,81 +315,12 @@ as a quick-and-dirty way to discard a Value, that has to
 be done by loading the tombstone firmware.
 */
 func (value *Value) Close() error {
-	return value.Release()
-}
-
-// Retain increments the external reference count for pooled Values.
-// For unmanaged Values (e.g. stack / raw overlays) this is a no-op.
-func (value *Value) Retain() int64 {
-	lc, ok := lifecycleFor(value)
-	if !ok {
-		return 1
-	}
-
-	for {
-		current := lc.refs.Load()
-		if current <= 0 {
-			return current
-		}
-		if lc.refs.CompareAndSwap(current, current+1) {
-			return current + 1
-		}
-	}
-}
-
-// Release decrements the external reference count for pooled Values and
-// returns them to the pool only after the final owner releases.
-// For untracked Values (created via ViewValue), this is a no-op.
-func (value *Value) Release() (err error) {
-	lc, ok := lifecycleFor(value)
-
-	if !ok {
-		// Untracked value (e.g. ViewValue) — nothing to release.
-		return nil
-	}
-
-	if err = value.isTombstoned(); err != nil {
+	if err := value.isTombstoned(); err != nil {
 		return err
 	}
 
-	refs := lc.refs.Add(-1)
-	if refs > 0 {
-		return nil
-	}
-	if refs < 0 {
-		lc.refs.Store(0)
-		return errnie.Error(
-			NewValueError(ValueErrorRefcountUnderflow),
-		)
-	}
-
-	shard := getLifecycleShard(value)
-	shard.Lock()
-	delete(shard.m, value)
-	shard.Unlock()
-
-	if lc.pooled.Load() && (value.shouldRecycleFromExecStatus() || value.isPoolReusable()) {
-		value.resetForPool()
-		valuePool.Put(value)
-	}
-
+	valuePool.Put(value)
 	return nil
-}
-
-// ViewValue creates a non-pooled, non-lifecycle-tracked copy of a 1024-byte
-// frame for read-only inspection (e.g. reading Affinity, calling String()).
-// The returned Value is stack-allocated and its Close() is a no-op, so no
-// tombstone firmware is needed before discarding it.
-func ViewValue(p []byte) *Value {
-	var v Value
-	if len(p) >= ByteSize {
-		valueFrom(p[:ByteSize], &v)
-	} else {
-		var frame [ByteSize]byte
-		copy(frame[:], p)
-		valueFrom(frame[:], &v)
-	}
-	return &v
 }
 
 func (value *Value) isTombstoned() error {
@@ -502,178 +335,28 @@ func (value *Value) isTombstoned() error {
 	return nil
 }
 
-func (value *Value) shouldRecycleFromExecStatus() bool {
-	switch value.ExecExitCode() {
-	case ExecExitHaltOpcode, ExecExitExhausted, ExecExitBadProgramWord:
-		return true
-	default:
-		return false
-	}
-}
-
-func (value *Value) resetForPool() {
-	for i := range value {
-		value[i] = 0
-	}
-}
-
-func (value *Value) isPoolReusable() bool {
-	wiped := true
-
-	// Cfg *Bits fields are bit widths; convert to word spans before indexing value[i].
-	checkRegion := func(start int, bits uint64) {
-		if !wiped {
-			return
-		}
-		n := int((bits + 63) / 64)
-		for i := 0; i < n; i++ {
-			idx := start + i
-			if idx < 0 || idx >= Words {
-				continue
-			}
-			if value[idx] != 0 {
-				wiped = false
-				return
-			}
-		}
-	}
-
-	checkRegion(core.Cfg.Value.Region.Tokens.Start, core.Cfg.Value.Region.Tokens.Bits)
-	checkRegion(core.Cfg.Value.Region.Affinity.Start, core.Cfg.Value.Region.Affinity.Bits)
-	checkRegion(core.Cfg.Value.Region.Program.Start, core.Cfg.Value.Region.Program.Bits)
-
-	return wiped
-}
-
-// InstallTombstone installs the tombstone firmware into the Value's program
-// region and resets the PC. After the next ALU execution the Tokens, Affinity,
-// state metadata, and program region are all zeroed in-band via JIT-fused
-// ALU FALSE batch — the tombstone is fully self-erasing.
-func (value *Value) InstallTombstone() {
-	value.installFirmware(core.FirmwareTypeTombstone)
-	value[core.Cfg.Value.Region.Registers.PC] = 0
-}
-
-// InstallLearnFirmware installs the learn firmware and resets the PC.
-func (value *Value) InstallLearnFirmware() {
-	value.installFirmware(core.FirmwareTypeLearn)
-	value[core.Cfg.Value.Region.Registers.PC] = 0
-}
-
-// InstallBuildFirmware installs the build firmware and resets the PC.
-func (value *Value) InstallBuildFirmware() {
-	value.installFirmware(core.FirmwareTypeBuild)
-	value[core.Cfg.Value.Region.Registers.PC] = 0
-}
-
-// InstallQueryFirmware installs programs.query from config and resets the PC.
-// Host sets fw to core.FirmwareRegisterQuery when routing through the bootloader protocol.
-func (value *Value) InstallQueryFirmware() {
-	value.installFirmware(core.FirmwareTypeQuery)
-	value[core.Cfg.Value.Region.Registers.PC] = 0
-}
-
-/*
-installFirmware installs the firmware into the Value. This should
-ideally only be used to install the bootloader firmware. In all
-other cases, setting the fw register to the in-band firmware code and
-setting the pc register to the program index (which is where)
-the bootloader starts) is the correct way to install firmware.
-*/
-func (value *Value) installFirmware(fw core.FirmwareType) {
-	if stepwiseInstallFn != nil && stepwiseInstallFn(value, fw) {
-		return
-	}
-
-	prog := core.Cfg.Firmware[fw]
-	wordBase := uint64(core.Cfg.Value.Region.Program.Start)
-
-	for i := 0; i < len(prog); i += 4 {
-		wordPos := wordBase + uint64(i/4)
-
-		if int(wordPos) >= Words {
-			break
-		}
-
-		var w uint64
-		w = uint64(prog[i])
-
-		if i+1 < len(prog) {
-			w |= uint64(prog[i+1]) << 16
-		}
-		if i+2 < len(prog) {
-			w |= uint64(prog[i+2]) << 32
-		}
-		if i+3 < len(prog) {
-			w |= uint64(prog[i+3]) << 48
-		}
-
-		value[wordPos] = w
-	}
-}
-
 /*
 String returns the Token region of the Value as a readable string.
 It resolves TokenIDs in the LSM by exact Value-frame bitmap match, then
 orders by the sequence index packed in each TokenID (Tokenize).
 */
 func (value *Value) String() string {
-	keys := store.DefaultSpatialIndex().LookupKeysByValue([Words]uint64(*value))
-	if len(keys) == 0 {
-		return "[superposed state]"
+	return fmt.Sprintf("Value{%d}", value.ID())
+}
+
+/*
+ID returns the ValueID stored in the identity region.
+*/
+func (value *Value) ID() uint64 {
+	if value == nil {
+		return 0
 	}
 
-	type decodedTokenID struct {
-		tid   uint64
-		index uint64
-		b     byte
-		ok    bool
-	}
-
-	decoded := make([]decodedTokenID, len(keys))
-	for index, tid := range keys {
-		b, tokenIndex, ok := DetokenizeTokenID(tid)
-		decoded[index] = decodedTokenID{
-			tid:   tid,
-			index: tokenIndex,
-			b:     b,
-			ok:    ok,
-		}
-	}
-
-	sort.Slice(decoded, func(i, j int) bool {
-		if decoded[i].ok && decoded[j].ok {
-			if decoded[i].index != decoded[j].index {
-				return decoded[i].index < decoded[j].index
-			}
-
-			return decoded[i].tid < decoded[j].tid
-		}
-
-		return decoded[i].tid < decoded[j].tid
-	})
-
-	var builder strings.Builder
-	for _, token := range decoded {
-		if !token.ok {
-			continue
-		}
-		if token.b >= 0x20 && token.b < 0x7F {
-			builder.WriteByte(token.b)
-		}
-	}
-
-	if builder.Len() == 0 {
-		return "[superposed state]"
-	}
-
-	str := builder.String()
-	errnie.Info(str)
-	return str
+	return value[core.Cfg.Value.Region.ID.Start]
 }
 
 func (value *Value) Bytes() []byte {
-	p := make([]byte, ByteSize)
+	p := make([]byte, core.Cfg.Value.Bytes)
 
 	if ValueToBytes(value, p) != nil {
 		errnie.Error(NewValueError(ValueErrorFailedByteConversion))
@@ -725,36 +408,6 @@ func subModU64(x, y, mod uint64) uint64 {
 	return mod - (y - x)
 }
 
-/*
-DetokenizeTokenID recovers (byte, index) from a Tokenize-produced id by
-solving (tid - b) ≡ multiplier*index (mod prime) for byte tags in 0..255.
-Indices below 2^32 are accepted so arbitrary high residues from wrong
-bytes are rejected before the Tokenize confirmation step.
-*/
-func DetokenizeTokenID(tid uint64) (b byte, index uint64, ok bool) {
-	if b, index, ok, hit := loadDetokenizeCache(tid); hit {
-		return b, index, ok
-	}
-
-	inv := tokenIDMulInverse
-	const maxReasonableIndex = uint64(1 << 32)
-
-	for candidate := 0; candidate < 256; candidate++ {
-		diff := subModU64(tid, uint64(candidate), tokenIDPrime)
-		idx := modMulU64(diff, inv, tokenIDPrime)
-		if idx >= maxReasonableIndex {
-			continue
-		}
-
-		if Tokenize(byte(candidate), idx) == tid {
-			storeDetokenizeCacheResult(tid, byte(candidate), idx, true)
-			return byte(candidate), idx, true
-		}
-	}
-
-	return 0, 0, false
-}
-
 func region0TokenIndexOK(index int) bool {
 	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	hi := core.Cfg.Value.Region.Tokens.Start + tokenWords
@@ -779,59 +432,15 @@ func (value *Value) SetTokenID(index int, token uint64) bool {
 func (value *Value) TokenIDs() []uint64 {
 	n := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	out := make([]uint64, n)
+
 	for i := 0; i < n; i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
-		if idx >= Words {
+
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
+
 		out[i] = value[idx]
-	}
-	return out
-}
-
-/*
-TokenRegionObservedBytes packs the token region into a byte slice without using
-the spatial index. Little-endian byte order per uint64 word; trailing zero bytes
-are trimmed. Used by the experiment pipeline after learn for a substrate-faithful
-readout that does not depend on exact frame equality in the LSM.
-*/
-func TokenRegionObservedBytes(value *Value) []byte {
-	if value == nil {
-		return nil
-	}
-
-	tokenBits := core.Cfg.Value.Region.Tokens.Bits
-	if tokenBits == 0 {
-		return nil
-	}
-
-	nWords := int((tokenBits + 63) / 64)
-	base := core.Cfg.Value.Region.Tokens.Start
-	if nWords <= 0 || base < 0 {
-		return nil
-	}
-
-	out := make([]byte, 0, nWords*8)
-
-	for wordIdx := 0; wordIdx < nWords; wordIdx++ {
-		idx := base + wordIdx
-		if idx >= Words {
-			break
-		}
-
-		word := value[idx]
-
-		for shift := 0; shift < 64; shift += 8 {
-			out = append(out, byte(word>>shift))
-		}
-	}
-
-	for len(out) > 0 && out[len(out)-1] == 0 {
-		out = out[:len(out)-1]
-	}
-
-	if len(out) == 0 {
-		return []byte{}
 	}
 
 	return out
@@ -840,47 +449,18 @@ func TokenRegionObservedBytes(value *Value) []byte {
 func (value *Value) SetTokenIDs(tokens []uint64) int {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	n := min(len(tokens), nWords)
+
 	for i := 0; i < n; i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
-		if idx >= Words {
+
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
+
 		value[idx] = tokens[i]
 	}
+
 	return n
-}
-
-func registerPooledLifecycle(value *Value) {
-	if value == nil {
-		return
-	}
-
-	shard := getLifecycleShard(value)
-
-	shard.Lock()
-	entry, ok := shard.m[value]
-	if !ok {
-		entry = &valueLifecycle{}
-		shard.m[value] = entry
-	}
-	shard.Unlock()
-
-	entry.pooled.Store(true)
-	entry.refs.Store(1)
-}
-
-func lifecycleFor(value *Value) (*valueLifecycle, bool) {
-	if value == nil {
-		return nil, false
-	}
-
-	shard := getLifecycleShard(value)
-
-	shard.RLock()
-	entry, ok := shard.m[value]
-	shard.RUnlock()
-
-	return entry, ok
 }
 
 /*
@@ -894,7 +474,6 @@ func (value *Value) Clone() *Value {
 	for i := range value {
 		clone[i] = value[i]
 	}
-	registerPooledLifecycle(clone)
 	clone[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
 	// Do not blindly install bootloader on a clone, we want to clone the exact state!
 	return clone
@@ -905,21 +484,23 @@ BytesToValue overlays a 1024-byte slice onto the Value pointer via unsafe memory
 */
 func BytesToValue(p []byte) *Value {
 	v := valuePool.Get().(*Value)
-	registerPooledLifecycle(v)
+
 	for i := range v {
 		v[i] = 0
 	}
-	if len(p) > ByteSize {
-		p = p[:ByteSize]
+
+	if len(p) > core.Cfg.Value.Bytes {
+		p = p[:core.Cfg.Value.Bytes]
 	}
-	if len(p) != ByteSize {
-		var frame [ByteSize]byte
+
+	if len(p) != core.Cfg.Value.Bytes {
+		var frame [128]byte
 		copy(frame[:], p)
 		valueFrom(frame[:], v)
 		return v
 	}
-	valueFrom(p, v)
 
+	valueFrom(p, v)
 	return v
 }
 
@@ -931,83 +512,29 @@ func ValueToBytes(v *Value, p []byte) error {
 	return nil
 }
 
-/*
-ApplyWireFrame copies a single serialized 1024-byte frame into the Value (the inverse
-of ValueToBytes). Use this for bulk frame transfer; Value.Write tokenizes a byte
-stream and is not appropriate for raw wire frames.
-*/
-func (v *Value) ApplyWireFrame(p []byte) error {
-	if len(p) != ByteSize {
-		return fmt.Errorf("primitive: wire frame length %d, want %d", len(p), ByteSize)
-	}
-	valueFrom(p, v)
-	return nil
-}
-
-// ClearExecExitCode clears the kernel exit marker in the high bits of ExecStatusWord.
-func (value *Value) ClearExecExitCode() {
-	value[ExecStatusWord] &= 0x0000FFFFFFFFFFFF
-}
-
-// SetExecExitCode records why a native kernel stopped (high 16 bits of ExecStatusWord).
-func (value *Value) SetExecExitCode(code uint16) {
-	value[ExecStatusWord] = (value[ExecStatusWord] & 0x0000FFFFFFFFFFFF) | (uint64(code) << ExecStatusShift)
-}
-
-// ExecExitCode returns the last kernel exit marker, if any.
-func (value *Value) ExecExitCode() uint16 {
-	return uint16(value[ExecStatusWord] >> ExecStatusShift)
-}
-
 func (value *Value) HasProgram() bool {
 	// If the firmware register is set, it signals a program should be loaded
 	if value[core.Cfg.Value.Region.Registers.FW] > 0 {
 		return true
 	}
+
 	startWord := core.Cfg.Value.Region.Program.Start
 	nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
 	endWord := startWord + nProgWords
+
 	if startWord < 0 {
 		startWord = 0
 	}
-	if endWord > Words {
-		endWord = Words
+
+	if endWord > core.Cfg.Value.Words {
+		endWord = core.Cfg.Value.Words
 	}
+
 	for i := startWord; i < endWord; i++ {
 		if value[i] != 0 {
 			return true
 		}
 	}
+
 	return false
-}
-
-type ValueErrorType string
-
-const (
-	ValueErrorFailedToken          ValueErrorType = "failed_token"
-	ValueErrorDivergence           ValueErrorType = "divergence"
-	ValueErrorDataFull             ValueErrorType = "data_full"
-	ValueErrorInvalidProgramWord   ValueErrorType = "invalid_program_word"
-	ValueErrorRefcountUnderflow    ValueErrorType = "refcount_underflow"
-	ValueErrorFailedByteConversion ValueErrorType = "failed_byte_conversion"
-	ValueErrorNotTombstoned        ValueErrorType = "not_tombstoned"
-)
-
-type ValueError struct {
-	Err error
-}
-
-func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Err: errors.New(string(err))}
-}
-
-func (e *ValueError) Error() string {
-	if e.Err != nil {
-		return e.Err.Error()
-	}
-	return "value error"
-}
-
-func (e *ValueError) Unwrap() error {
-	return e.Err
 }

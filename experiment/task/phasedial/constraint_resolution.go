@@ -115,6 +115,8 @@ type ConstraintResolutionExperiment struct {
 	expected [][][]byte
 }
 
+var _ tools.HoldoutProvider = (*ConstraintResolutionExperiment)(nil)
+
 /*
 NewConstraintResolutionExperiment builds the corpus: suspect ingestion samples
 (N_s × N_per_suspect) followed by N_stages × N_clues_per_stage clue prompts
@@ -180,6 +182,25 @@ func (exp *ConstraintResolutionExperiment) Dataset() data.Provider { return exp.
 
 func (exp *ConstraintResolutionExperiment) Prompts() []string {
 	return exp.pipelinePrompts
+}
+
+func (exp *ConstraintResolutionExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
+	if idx < 0 || idx >= len(exp.pipelinePrompts) {
+		return nil, false
+	}
+
+	holdoutBytes := crSampleLen * crHoldoutPct / 100
+	sample := []byte(exp.pipelinePrompts[idx])
+
+	if len(sample) == 0 {
+		return nil, false
+	}
+
+	if holdoutBytes >= len(sample) {
+		return append([]byte(nil), sample...), true
+	}
+
+	return append([]byte(nil), sample[len(sample)-holdoutBytes:]...), true
 }
 
 /*

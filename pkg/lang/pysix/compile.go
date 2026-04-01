@@ -3,8 +3,6 @@ package pysix
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/theapemachine/six/pkg/compute/stepwise"
 )
 
 const (
@@ -89,8 +87,8 @@ func CompileSource(python string) ([]uint64, map[string]uint8, error) {
 
 func (compiler *Compiler) emitPrologue() {
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeImm(slotZero, 0))
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x0C, slotZero, slotZero, slotOnes))
+	compiler.prog = append(compiler.prog, EncodeImm(slotZero, 0))
+	compiler.prog = append(compiler.prog, EncodeStep(0x0C, slotZero, slotZero, slotOnes))
 }
 
 func (compiler *Compiler) resetTemps() {
@@ -246,7 +244,7 @@ func (compiler *Compiler) compileAugAssign(stmt map[string]interface{}) error {
 	switch op {
 
 	case "Add":
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, cur, rhsSlot, cur))
+		compiler.prog = append(compiler.prog, EncodeStep(0x13, cur, rhsSlot, cur))
 
 	case "Sub":
 		if err := compiler.emitSubInto(cur, rhsSlot, cur); err != nil {
@@ -261,7 +259,7 @@ func (compiler *Compiler) compileAugAssign(stmt map[string]interface{}) error {
 		}
 
 		if k == 0 {
-			compiler.prog = append(compiler.prog, stepwise.EncodeImm(cur, 0))
+			compiler.prog = append(compiler.prog, EncodeImm(cur, 0))
 
 			return nil
 		}
@@ -272,10 +270,10 @@ func (compiler *Compiler) compileAugAssign(stmt map[string]interface{}) error {
 			return err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x3, cur, cur, base))
+		compiler.prog = append(compiler.prog, EncodeStep(0xA, cur, cur, base))
 
 		for i := uint64(1); i < k; i++ {
-			compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, cur, base, cur))
+			compiler.prog = append(compiler.prog, EncodeStep(0x13, base, cur, cur))
 		}
 
 	default:
@@ -511,7 +509,7 @@ func (compiler *Compiler) evalCompareAsMask(test map[string]interface{}) (uint8,
 		return 0, err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x6, a, b, diff))
+	compiler.prog = append(compiler.prog, EncodeStep(0x6, b, a, diff))
 
 	switch op {
 
@@ -531,8 +529,8 @@ func (compiler *Compiler) evalCompareAsMask(test map[string]interface{}) (uint8,
 			return 0, err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeImm(one, 1))
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x6, m, one, m))
+		compiler.prog = append(compiler.prog, EncodeImm(one, 1))
+		compiler.prog = append(compiler.prog, EncodeStep(0x6, one, m, m))
 
 		return m, nil
 
@@ -552,7 +550,7 @@ func (compiler *Compiler) popEqZeroMask(diff uint8) (uint8, error) {
 		return 0, err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x10, diff, slotZero, pop))
+	compiler.prog = append(compiler.prog, EncodeStep(0x10, diff, slotZero, pop))
 
 	nz, err := compiler.emitNonZeroBit(pop)
 
@@ -566,7 +564,7 @@ func (compiler *Compiler) popEqZeroMask(diff uint8) (uint8, error) {
 		return 0, err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeImm(one, 1))
+	compiler.prog = append(compiler.prog, EncodeImm(one, 1))
 
 	if err := compiler.emitSubInto(one, nz, nz); err != nil {
 		return 0, err
@@ -586,7 +584,7 @@ func (compiler *Compiler) emitNonZeroBit(x uint8) (uint8, error) {
 		return 0, err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x3, x, x, cp))
+	compiler.prog = append(compiler.prog, EncodeStep(0xA, x, x, cp))
 
 	cur := cp
 
@@ -597,7 +595,7 @@ func (compiler *Compiler) emitNonZeroBit(x uint8) (uint8, error) {
 			return 0, err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeImm(tSh, sh))
+		compiler.prog = append(compiler.prog, EncodeImm(tSh, sh))
 
 		tShr, err := compiler.allocTemp()
 
@@ -605,8 +603,8 @@ func (compiler *Compiler) emitNonZeroBit(x uint8) (uint8, error) {
 			return 0, err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x12, tSh, cur, tShr))
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x7, cur, tShr, cur))
+		compiler.prog = append(compiler.prog, EncodeStep(0x12, tSh, cur, tShr))
+		compiler.prog = append(compiler.prog, EncodeStep(0x7, tShr, cur, cur))
 	}
 
 	one, err := compiler.allocTemp()
@@ -615,8 +613,8 @@ func (compiler *Compiler) emitNonZeroBit(x uint8) (uint8, error) {
 		return 0, err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeImm(one, 1))
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x1, cur, one, cur))
+	compiler.prog = append(compiler.prog, EncodeImm(one, 1))
+	compiler.prog = append(compiler.prog, EncodeStep(0x1, one, cur, cur))
 
 	return cur, nil
 }
@@ -643,7 +641,7 @@ func (compiler *Compiler) emitSelect(condSlot, aSlot, bSlot, dst uint8) error {
 		return err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x1, aSlot, negMask, tT))
+	compiler.prog = append(compiler.prog, EncodeStep(0x1, negMask, aSlot, tT))
 
 	notMask, err := compiler.allocTemp()
 
@@ -651,7 +649,7 @@ func (compiler *Compiler) emitSelect(condSlot, aSlot, bSlot, dst uint8) error {
 		return err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x6, negMask, slotOnes, notMask))
+	compiler.prog = append(compiler.prog, EncodeStep(0x6, slotOnes, negMask, notMask))
 
 	tF, err := compiler.allocTemp()
 
@@ -659,8 +657,8 @@ func (compiler *Compiler) emitSelect(condSlot, aSlot, bSlot, dst uint8) error {
 		return err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x1, bSlot, notMask, tF))
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x7, tT, tF, dst))
+	compiler.prog = append(compiler.prog, EncodeStep(0x1, notMask, bSlot, tF))
+	compiler.prog = append(compiler.prog, EncodeStep(0x7, tF, tT, dst))
 
 	return nil
 }
@@ -712,7 +710,7 @@ func (compiler *Compiler) evalExprInto(expr map[string]interface{}, dst uint8) e
 			return err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x3, src, src, dst))
+		compiler.prog = append(compiler.prog, EncodeStep(0xA, src, src, dst))
 
 		return nil
 
@@ -784,7 +782,7 @@ func (compiler *Compiler) evalBinOp(expr map[string]interface{}, dst uint8) erro
 	switch op {
 
 	case "Add":
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, ls, rs, dst))
+		compiler.prog = append(compiler.prog, EncodeStep(0x13, ls, rs, dst))
 
 	case "Sub":
 		if err := compiler.emitSubInto(ls, rs, dst); err != nil {
@@ -806,10 +804,10 @@ func (compiler *Compiler) evalBinOp(expr map[string]interface{}, dst uint8) erro
 			return compiler.emitLoadUInt64(0, dst)
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x3, ls, ls, dst))
+		compiler.prog = append(compiler.prog, EncodeStep(0xA, ls, ls, dst))
 
 		for i := uint64(1); i < k; i++ {
-			compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, dst, ls, dst))
+			compiler.prog = append(compiler.prog, EncodeStep(0x13, ls, dst, dst))
 		}
 
 	default:
@@ -827,7 +825,7 @@ func (compiler *Compiler) emitSubInto(a, b, dst uint8) error {
 		return err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x0A, slotZero, b, tNot))
+	compiler.prog = append(compiler.prog, EncodeStep(0xA, slotZero, b, tNot))
 
 	tOne, err := compiler.allocTemp()
 
@@ -835,7 +833,7 @@ func (compiler *Compiler) emitSubInto(a, b, dst uint8) error {
 		return err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeImm(tOne, 1))
+	compiler.prog = append(compiler.prog, EncodeImm(tOne, 1))
 
 	tNegB, err := compiler.allocTemp()
 
@@ -843,8 +841,8 @@ func (compiler *Compiler) emitSubInto(a, b, dst uint8) error {
 		return err
 	}
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, tNot, tOne, tNegB))
-	compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, a, tNegB, dst))
+	compiler.prog = append(compiler.prog, EncodeStep(0x13, tNot, tOne, tNegB))
+	compiler.prog = append(compiler.prog, EncodeStep(0x13, tNegB, a, dst))
 
 	return nil
 }
@@ -852,14 +850,14 @@ func (compiler *Compiler) emitSubInto(a, b, dst uint8) error {
 func (compiler *Compiler) emitLoadUInt64(val uint64, target uint8) error {
 
 	if val <= 0xffff {
-		compiler.prog = append(compiler.prog, stepwise.EncodeImm(target, uint16(val)))
+		compiler.prog = append(compiler.prog, EncodeImm(target, uint16(val)))
 
 		return nil
 	}
 
 	cur := target
 
-	compiler.prog = append(compiler.prog, stepwise.EncodeImm(cur, uint16(val&0xffff)))
+	compiler.prog = append(compiler.prog, EncodeImm(cur, uint16(val&0xffff)))
 
 	val >>= 16
 	shift := 16
@@ -871,7 +869,7 @@ func (compiler *Compiler) emitLoadUInt64(val uint64, target uint8) error {
 			return err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeImm(limb, uint16(val&0xffff)))
+		compiler.prog = append(compiler.prog, EncodeImm(limb, uint16(val&0xffff)))
 
 		tSh, err := compiler.allocTemp()
 
@@ -879,7 +877,7 @@ func (compiler *Compiler) emitLoadUInt64(val uint64, target uint8) error {
 			return err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeImm(tSh, uint16(shift)))
+		compiler.prog = append(compiler.prog, EncodeImm(tSh, uint16(shift)))
 
 		tShVal, err := compiler.allocTemp()
 
@@ -887,7 +885,7 @@ func (compiler *Compiler) emitLoadUInt64(val uint64, target uint8) error {
 			return err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x11, tSh, limb, tShVal))
+		compiler.prog = append(compiler.prog, EncodeStep(0x11, tSh, limb, tShVal))
 
 		tNext, err := compiler.allocTemp()
 
@@ -895,14 +893,14 @@ func (compiler *Compiler) emitLoadUInt64(val uint64, target uint8) error {
 			return err
 		}
 
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x13, cur, tShVal, tNext))
+		compiler.prog = append(compiler.prog, EncodeStep(0x13, tShVal, cur, tNext))
 		cur = tNext
 		val >>= 16
 		shift += 16
 	}
 
 	if cur != target {
-		compiler.prog = append(compiler.prog, stepwise.EncodeStep(0x3, cur, cur, target))
+		compiler.prog = append(compiler.prog, EncodeStep(0xA, cur, cur, target))
 	}
 
 	return nil

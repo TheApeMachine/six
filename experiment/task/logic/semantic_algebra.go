@@ -40,7 +40,8 @@ func NewSemanticAlgebraExperiment() *SemanticAlgebraExperiment {
 		// is meaningless for this task — it either works or it doesn't.
 		// Target 1.0: perfect cancellation is the design goal.
 		evaluator: tools.NewEvaluator(
-			tools.EvalWithExpectation(0.95, 1.0),
+			tools.EvalWithFixedExpectation(0.95, 1.0),
+			tools.EvalAssertTarget(),
 		),
 	}
 }

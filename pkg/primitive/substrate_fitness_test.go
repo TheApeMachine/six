@@ -21,7 +21,7 @@ func TestSubstrateExploitScore(t *testing.T) {
 
 		for w := 0; w < tokenWords; w++ {
 			idx := baseIdx + w
-			if idx >= Words {
+			if idx >= core.Cfg.Value.Words {
 				break
 			}
 			parent[idx] = 0xDEADBEEFCAFEBABE
@@ -45,7 +45,7 @@ func BenchmarkSubstrateExploitScore(b *testing.B) {
 	var parent, workspace Value
 	for w := 0; w < tokenWords; w++ {
 		idx := baseIdx + w
-		if idx >= Words {
+		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		parent[idx] = ^uint64(w)

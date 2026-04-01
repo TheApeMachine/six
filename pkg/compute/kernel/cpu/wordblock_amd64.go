@@ -2,7 +2,7 @@
 
 package cpu
 
-import "golang.org/x/sys/cpu"
+import syscpu "golang.org/x/sys/cpu"
 
 /*
 execWordBlock applies a 4-bit truth-table opcode across all lanes.
@@ -11,16 +11,19 @@ instruction; all others use the branchless TruthTable scalar loop.
 */
 func execWordBlock(dst, src []uint64, op uint8) {
 	n := len(dst)
+
 	if len(src) < n {
 		n = len(src)
 	}
+
 	if n == 0 {
 		return
 	}
+
 	dst = dst[:n]
 	src = src[:n]
 
-	if cpu.X86.HasAVX2 {
+	if syscpu.X86.HasAVX2 {
 		switch op {
 		case 0x0:
 			clear(dst)
@@ -66,9 +69,11 @@ func HasHammingMatch(frame []uint64, target uint64, maxDist uint64) bool {
 	if len(frame) == 0 {
 		return false
 	}
-	if cpu.X86.HasAVX2 {
+	
+	if syscpu.X86.HasAVX2 || syscpu.ARM.HasNEON {
 		return simdHasHammingMatch(&frame[0], len(frame), target, maxDist)
 	}
+
 	for _, w := range frame {
 		d := uint64(0)
 		xw := w ^ target

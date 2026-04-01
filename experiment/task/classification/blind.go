@@ -98,7 +98,9 @@ func (experiment *BlindClassificationExperiment) HoldoutForPrompt(idx int) ([]by
 func (experiment *BlindClassificationExperiment) AddResult(results tools.ExperimentalData) {
 	if dataset, ok := experiment.dataset.(*huggingface.Dataset); ok {
 		if label, ok := dataset.LabelForSample(uint32(results.Idx)); ok {
-			results.TrueLabel = tools.OptionalLabel(label)
+			if normalized, ok := normalizeClassificationLabelIndex(label, experiment.ClassLabels()); ok {
+				results.TrueLabel = tools.OptionalLabel(normalized)
+			}
 		}
 	}
 

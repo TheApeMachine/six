@@ -303,6 +303,10 @@ func (dataset *Dataset) labelAsText(label int, hasLabel bool) string {
 		return dataset.labelAppend[label]
 	}
 
+	if len(dataset.labelAppend) > 0 && label > 0 && label <= len(dataset.labelAppend) {
+		return dataset.labelAppend[label-1]
+	}
+
 	return strconv.Itoa(label)
 }
 
