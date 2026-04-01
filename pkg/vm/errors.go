@@ -13,6 +13,7 @@ const (
 	ErrNotValidated     MachineErrorType = "machine configuration did not pass validation"
 	ErrDatasetNotClosed MachineErrorType = "dataset was not closed properly"
 	ErrValueError       MachineErrorType = "error constructing Value from input"
+	ErrStreamFailed     MachineErrorType = "stream failed"
 )
 
 type MachineError struct {

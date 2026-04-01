@@ -30,19 +30,20 @@ func WorkerWithPool(p *compute.Pool) workerOption {
 }
 
 type Worker struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	listenAddr    string
-	advertiseAddr string
-	maxCapacity   int
-	shardBits     uint8
-	shardMask     uint64
-	autoShardBits uint8
-	inFlight      atomic.Int64
-	discovery     *Discovery
-	server        *http.Server
-	path          string
-	pool          *compute.Pool
+	ctx            context.Context
+	cancel         context.CancelFunc
+	listenAddr     string
+	advertiseAddr  string
+	maxCapacity    int
+	shardBits      uint8
+	shardMask      uint64
+	autoShardBits  uint8
+	inFlight       atomic.Int64
+	discovery      *Discovery
+	server         *http.Server
+	path           string
+	pool           *compute.Pool
+	computeBackend *compute.Backend
 }
 
 func NewWorker(ctx context.Context, opts ...workerOption) (*Worker, error) {
@@ -101,6 +102,8 @@ func NewWorker(ctx context.Context, opts ...workerOption) (*Worker, error) {
 		w.discovery.shardMask = w.shardMask & 0x0000FFFFFFFFFFFF
 		w.discovery.SetCapacity(w.maxCapacity)
 	}
+
+	w.computeBackend = compute.NewBackgroundBackend(compute.WithPool(w.pool))
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v1/health", w.handleHealth)
@@ -201,6 +204,10 @@ func (w *Worker) ListenAndServe() error {
 func (w *Worker) Close() error {
 	if w.cancel != nil {
 		w.cancel()
+	}
+	if w.computeBackend != nil {
+		w.computeBackend.Close()
+		w.computeBackend = nil
 	}
 	var errs []error
 	if w.server != nil {
@@ -371,7 +378,7 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 	defer left.Release()
 	defer right.Release()
 
-	if err := compute.UniversalBitwise(unsafe.Pointer(left), unsafe.Pointer(right)); err != nil {
+	if err := w.computeBackend.UniversalBitwise(unsafe.Pointer(left), unsafe.Pointer(right)); err != nil {
 		dur := time.Since(start)
 		telemetry.Emit(telemetry.Event{
 			Component: "Pool",

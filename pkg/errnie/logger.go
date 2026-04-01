@@ -65,7 +65,10 @@ func buildLogger(enab zapcore.LevelEnabler, escfg ElasticsearchConfig) (*zap.Log
 		esEncCfg.EncodeTime = zapcore.ISO8601TimeEncoder
 		jsonEnc := zapcore.NewJSONEncoder(esEncCfg)
 		esCore := zapcore.NewCore(jsonEnc, zapcore.AddSync(esOut), enab)
-		cores = append(cores, esCore)
+		// Avoid duplicate firehose: Elasticsearch is the primary sink; stderr stays quiet
+		// so local runs match “inspect in Kibana” workflows (trace file and InitLogger lines
+		// on stderr are unchanged).
+		cores = []zapcore.Core{esCore}
 	}
 
 	core := zapcore.NewTee(cores...)
@@ -308,6 +311,9 @@ func Trace(msg string, keyvals ...any) {
 			writeTraceLine(line)
 			return
 		}
+	}
+	if esShipping {
+		return
 	}
 	if debugEnabled || (traceEnabled && traceFile == nil) {
 		fmt.Fprintln(os.Stderr, buildTraceLine(msg, formatted))

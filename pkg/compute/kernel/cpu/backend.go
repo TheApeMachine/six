@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/bits"
 	"runtime"
+	"sync"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
@@ -101,6 +102,26 @@ func (backend *Backend) execute(op uint8, x, y uint64) uint64 {
 }
 
 /*
+ExecWord applies opcode to a single 64-bit lane with the same semantics as
+UniversalBitwise ALU execution (left operand x, right operand y). It exists so
+other packages can share the opcode map without holding a Backend.
+*/
+func ExecWord(op uint8, x, y uint64) uint64 {
+	var backend Backend
+
+	return backend.execute(op, x, y)
+}
+
+/*
+BitwiseFrame pins one (A,B) Value pair for host-side execution. Pointers must
+remain valid and disjoint frames until UniversalBitwiseFrames returns.
+*/
+type BitwiseFrame struct {
+	A unsafe.Pointer
+	B unsafe.Pointer
+}
+
+/*
 UniversalBitwise executes the in-band program stored in each Value frame.
 Four 16-bit instructions are packed per uint64 word in the program region.
 
@@ -117,16 +138,179 @@ CTL sub-opcodes (bits [13:12]):
 	01 DJNZ  — reg--; if reg != 0, jump by signed 10-bit offset
 	10 SHL   — reg <<= imm (bits [9:0], 0 means 1)
 	11 SHR   — reg >>= imm (bits [9:0], 0 means 1)
+
+When count>1 and GOMAXPROCS>1, independent frames execute in parallel so each
+P‑core drives its own interpreter + AVX/NEON ALU windows — serializing count on
+one goroutine left SIMD units idle across packages.
 */
+func valueFrameStride() uintptr {
+
+	bytes := core.Cfg.Value.Bytes
+	if bytes > 0 {
+		return uintptr(bytes)
+	}
+
+	words := core.Cfg.Value.Words
+	if words > 0 {
+		return uintptr(words * 8)
+	}
+
+	// Tests and minimal embedders sometimes run before viper fills Value.* ; the
+	// canonical on-disk layout is still 128 × uint64.
+	return 128 * 8
+}
+
 func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
+
 	if a == nil || b == nil {
 		return NewSimdeezNutsError(ErrNilValuePointer,
 			"a", a, "b", b,
 		)
 	}
 
+	if count <= 0 {
+		return nil
+	}
+
+	if count == 1 {
+		backend.universalBitwiseOne(a, b)
+		return nil
+	}
+
+	backend.universalBitwiseContiguousParallel(a, b, count)
+	return nil
+}
+
+/*
+UniversalBitwiseFrames executes heterogeneous frame pointers with no contiguity
+assumption — used by the compute router to avoid packing scattered heap Values
+into a staging buffer on the CPU path.
+*/
+func (backend *Backend) UniversalBitwiseFrames(frames []BitwiseFrame) error {
+
+	if len(frames) == 0 {
+		return nil
+	}
+
+	if len(frames) == 1 {
+		if frames[0].A == nil || frames[0].B == nil {
+			return NewSimdeezNutsError(ErrNilValuePointer,
+				"a", frames[0].A, "b", frames[0].B,
+			)
+		}
+		backend.universalBitwiseOne(frames[0].A, frames[0].B)
+		return nil
+	}
+
+	for i := range frames {
+		if frames[i].A == nil || frames[i].B == nil {
+			return NewSimdeezNutsError(ErrNilValuePointer,
+				"a", frames[i].A, "b", frames[i].B,
+			)
+		}
+	}
+
+	backend.universalBitwiseFramesParallel(frames)
+	return nil
+}
+
+func (backend *Backend) universalBitwiseContiguousParallel(a, b unsafe.Pointer, count int) {
+
+	procs := runtime.GOMAXPROCS(0)
+	if procs <= 1 {
+		stride := valueFrameStride()
+		for i := 0; i < count; i++ {
+			curA := unsafe.Pointer(uintptr(a) + stride*uintptr(i))
+			curB := unsafe.Pointer(uintptr(b) + stride*uintptr(i))
+			backend.universalBitwiseOne(curA, curB)
+		}
+		return
+	}
+
+	workers := procs
+	if workers > count {
+		workers = count
+	}
+
+	stride := valueFrameStride()
+	var wait sync.WaitGroup
+	wait.Add(workers)
+
+	chunk := (count + workers - 1) / workers
+
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > count {
+			end = count
+		}
+
+		if start >= end {
+			wait.Done()
+			continue
+		}
+
+		go func(from, to int) {
+			defer wait.Done()
+			for i := from; i < to; i++ {
+				curA := unsafe.Pointer(uintptr(a) + stride*uintptr(i))
+				curB := unsafe.Pointer(uintptr(b) + stride*uintptr(i))
+				backend.universalBitwiseOne(curA, curB)
+			}
+		}(start, end)
+	}
+
+	wait.Wait()
+}
+
+func (backend *Backend) universalBitwiseFramesParallel(frames []BitwiseFrame) {
+
+	procs := runtime.GOMAXPROCS(0)
+	n := len(frames)
+	if procs <= 1 {
+		for i := range frames {
+			backend.universalBitwiseOne(frames[i].A, frames[i].B)
+		}
+		return
+	}
+
+	workers := procs
+	if workers > n {
+		workers = n
+	}
+
+	var wait sync.WaitGroup
+	wait.Add(workers)
+
+	chunk := (n + workers - 1) / workers
+
+	for worker := 0; worker < workers; worker++ {
+		start := worker * chunk
+		end := start + chunk
+		if end > n {
+			end = n
+		}
+
+		if start >= end {
+			wait.Done()
+			continue
+		}
+
+		go func(from, to int) {
+			defer wait.Done()
+			for i := from; i < to; i++ {
+				backend.universalBitwiseOne(frames[i].A, frames[i].B)
+			}
+		}(start, end)
+	}
+
+	wait.Wait()
+}
+
+func (backend *Backend) universalBitwiseOne(a, b unsafe.Pointer) {
+
 	pi := uint64(core.Cfg.Value.Region.Program.Start)
-	pcIdx := uint64(core.Cfg.Value.Region.Registers.PC)	
+	pcIdx := uint64(core.Cfg.Value.Region.Registers.PC)
 	if pcIdx == 0 && core.Cfg.Value.Region.Program.Start > 0 {
 		pcIdx = uint64(core.Cfg.Value.Region.Program.Start - 1)
 	}
@@ -134,43 +318,37 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 
 	var scratch [128]uint64
 
-	for i := 0; i < count; i++ {
-		curA := unsafe.Pointer(uintptr(a) + uintptr(i)*1024)
-		curB := unsafe.Pointer(uintptr(b) + uintptr(i)*1024)
-		ctx := [2]*[128]uint64{(*[128]uint64)(curA), (*[128]uint64)(curB)}
+	ctx := [2]*[128]uint64{(*[128]uint64)(a), (*[128]uint64)(b)}
+	var regs [4]uint64
 
-		var regs [4]uint64
+	for {
+		pc := ctx[0][pcReg&127]
 
-		for {
-			pc := ctx[0][pcReg&127]
+		word := (pi + (pc >> 2)) & 127
+		shift := (pc & 3) << 4
+		instr := uint16(ctx[0][word] >> shift)
 
-			word := (pi + (pc >> 2)) & 127
-			shift := (pc & 3) << 4
-			instr := uint16(ctx[0][word] >> shift)
-
-			if instr == 0 {
-				break // HALT
-			}
-
-			switch cls := instr >> 14; cls {
-			case 1: // MEM
-				pc = backend.handleMem(
-					ctx, instr, pcReg, &regs, pc,
-				)
-			case 2, 0: // ALU & EXT ALU (cls=0)
-				pc = backend.handleAlu(
-					ctx, instr, pcReg, &regs, scratch, cls, pi, pc,
-				)
-			case 3: // CTL
-				pc = backend.handleCtl(
-					ctx, instr, pcReg, &regs, pc,
-				)
-			}
-
-			ctx[0][pcReg&127] = pc
+		if instr == 0 {
+			break // HALT
 		}
+
+		switch cls := instr >> 14; cls {
+		case 1: // MEM
+			pc = backend.handleMem(
+				ctx, instr, pcReg, &regs, pc,
+			)
+		case 2, 0: // ALU & EXT ALU (cls=0)
+			pc = backend.handleAlu(
+				ctx, instr, pcReg, &regs, scratch, cls, pi, pc,
+			)
+		case 3: // CTL
+			pc = backend.handleCtl(
+				ctx, instr, pcReg, &regs, pc,
+			)
+		}
+
+		ctx[0][pcReg&127] = pc
 	}
-	return nil
 }
 
 func (backend *Backend) handleMem(
@@ -267,9 +445,7 @@ func (backend *Backend) handleAlu(
 	if n >= 2 {
 		// Contiguous same-op run — dispatch directly via SIMD.
 		rVal := regs[reg0]
-		for k := uint16(0); k < n; k++ {
-			scratch[k] = rVal
-		}
+		broadcastFillU64(scratch[:n], rVal)
 		fw := uint16(fword0)
 		if fctx0 == 1 {
 			copy(ctx[0][fw:fw+n], ctx[1][fw:fw+n])

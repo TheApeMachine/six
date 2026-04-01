@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unsafe"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
@@ -18,8 +19,10 @@ import (
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -29,6 +32,10 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "failed loading core value config: %v\n", err)
 		os.Exit(1)
 	}
+
+	// core.Cfg is first filled in core.init() before viper has any keys; rebuild
+	// from the loaded file so value regions (e.g. tokens.bits) match config.yml.
+	core.NewConfig()
 
 	viper.Set("loglevel", "trace")
 	viper.Set("logging.elasticsearch.enabled", true)
@@ -72,8 +79,9 @@ func TestMain(m *testing.M) {
 // TestPipeline runs each experiment through the real pipeline (hydration, prompts,
 // scoring, JSON artifacts). Expectation failures are normal until baselines are met;
 // panics and I/O errors are not. A full run takes minutes — use a long -timeout
-// (e.g. go test -timeout 30m ./experiment/task -run TestPipeline); IDE defaults
-// like 30s will kill the suite mid-run.
+// (e.g. go test -timeout 30m ./experiment/task -run TestPipeline). The workspace
+// .vscode/settings.json sets go.testTimeout to 30m so editor test runs match make;
+// without that, IDE defaults (often 30s) abort mid-suite.
 func TestPipeline(t *testing.T) {
 	allExperiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
@@ -152,5 +160,81 @@ func TestPipeline(t *testing.T) {
 				})
 			})
 		})
+	}
+}
+
+func TestObservePrompt(t *testing.T) {
+	Convey("When holdout is empty the partner matches the prompt and learn XOR cancels the token payload", t, func() {
+		backend := compute.NewBackgroundBackend()
+		defer backend.Close()
+
+		prefix := []byte("orca ")
+		value, err := primitive.NewValue(prefix)
+		So(err, ShouldBeNil)
+
+		var pipeline Pipeline
+		observed, err := pipeline.observePrompt(backend, value, prefix, nil)
+		So(err, ShouldBeNil)
+		So(len(observed), ShouldEqual, 0)
+
+		value.InstallTombstone()
+
+		var tombPartner primitive.Value
+		primitive.CopyFrame(&tombPartner, value)
+
+		So(backend.UniversalBitwise(unsafe.Pointer(value), unsafe.Pointer(&tombPartner)), ShouldBeNil)
+		So(value.Close(), ShouldBeNil)
+	})
+
+	Convey("When holdout is non-empty the partner encodes the supervised full sample so readout is non-empty", t, func() {
+		backend := compute.NewBackgroundBackend()
+		defer backend.Close()
+
+		prefix := []byte("orca ")
+		holdout := []byte("whale")
+		value, err := primitive.NewValue(prefix)
+		So(err, ShouldBeNil)
+
+		var pipeline Pipeline
+		observed, err := pipeline.observePrompt(backend, value, prefix, holdout)
+		So(err, ShouldBeNil)
+		So(len(observed), ShouldBeGreaterThan, 0)
+
+		value.InstallTombstone()
+
+		var tombPartner primitive.Value
+		primitive.CopyFrame(&tombPartner, value)
+
+		So(backend.UniversalBitwise(unsafe.Pointer(value), unsafe.Pointer(&tombPartner)), ShouldBeNil)
+		So(value.Close(), ShouldBeNil)
+	})
+}
+
+func BenchmarkObservePrompt(b *testing.B) {
+	backend := compute.NewBackgroundBackend()
+	defer backend.Close()
+
+	prefix := []byte("orca ")
+	holdout := []byte("whale")
+
+	b.ResetTimer()
+
+	for b.Loop() {
+		value, err := primitive.NewValue(prefix)
+		if err != nil {
+			b.Fatal(err)
+		}
+
+		var pipeline Pipeline
+
+		_, _ = pipeline.observePrompt(backend, value, prefix, holdout)
+
+		value.InstallTombstone()
+
+		var tombPartner primitive.Value
+		primitive.CopyFrame(&tombPartner, value)
+
+		_ = backend.UniversalBitwise(unsafe.Pointer(value), unsafe.Pointer(&tombPartner))
+		_ = value.Close()
 	}
 }

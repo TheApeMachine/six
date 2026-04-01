@@ -22,38 +22,44 @@ func TestGatherBatchUsesWindow(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
+	q := make(chan bitwiseJob, 4)
 	backend := &Backend{
 		ctx:         ctx,
 		cancel:      cancel,
-		jobQueue:    make(chan bitwiseJob, 4),
 		batchSize:   4,
 		batchWindow: 5 * time.Millisecond,
 	}
 
-	backend.jobQueue <- bitwiseJob{done: make(chan error, 1)}
-	batch := backend.gatherBatch(bitwiseJob{done: make(chan error, 1)})
+	q <- bitwiseJob{done: make(chan error, 1)}
+	batch := backend.gatherBatch(q, bitwiseJob{done: make(chan error, 1)})
 
 	if got, want := len(batch), 2; got != want {
 		t.Fatalf("gatherBatch len=%d want=%d", got, want)
 	}
 }
 
-func TestNextSubstrateRoundRobin(t *testing.T) {
+func TestPickAcceleratorPrefersLeastInflight(t *testing.T) {
 	backend := &Backend{
-		hardware: []kernel.Substrate{fakeSubstrate{id: 1}, fakeSubstrate{id: 2}},
+		accel: []accelSlot{
+			{sub: fakeSubstrate{id: 1}, inflight: 9, emaPerFrameNs: 1},
+			{sub: fakeSubstrate{id: 2}, inflight: 1, emaPerFrameNs: 1000},
+		},
 	}
 
-	first := backend.nextSubstrate()
-	second := backend.nextSubstrate()
-	third := backend.nextSubstrate()
+	if idx := backend.pickAccelerator(); idx != 1 {
+		t.Fatalf("pickAccelerator: idx=%d want 1 (least inflight)", idx)
+	}
+}
 
-	if first == nil || second == nil || third == nil {
-		t.Fatal("nextSubstrate returned nil substrate")
+func TestPickAcceleratorTieBreaksOnEMA(t *testing.T) {
+	backend := &Backend{
+		accel: []accelSlot{
+			{sub: fakeSubstrate{id: 1}, inflight: 2, emaPerFrameNs: 500},
+			{sub: fakeSubstrate{id: 2}, inflight: 2, emaPerFrameNs: 100},
+		},
 	}
-	if first != third {
-		t.Fatal("round-robin did not wrap back to first substrate")
-	}
-	if first == second {
-		t.Fatal("round-robin did not advance to the next substrate")
+
+	if idx := backend.pickAccelerator(); idx != 1 {
+		t.Fatalf("pickAccelerator: idx=%d want 1 (lower EMA)", idx)
 	}
 }

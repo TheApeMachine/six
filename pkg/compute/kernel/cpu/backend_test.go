@@ -2,11 +2,13 @@ package cpu
 
 import (
 	"context"
+	"runtime"
 	"testing"
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func TestUniversalBitwise(t *testing.T) {
@@ -112,6 +114,150 @@ func TestUniversalBitwise(t *testing.T) {
 				// We expect valA[0] to be overwritten with the XOR of 0xAAAA... and 0xCCCC...
 				convey.So(valA[0], convey.ShouldEqual, uint64(0x6666666666666666))
 			})
+		})
+
+		convey.Convey("When batching with GOMAXPROCS=1, It should match per-frame execution", func() {
+			saved := runtime.GOMAXPROCS(0)
+			runtime.GOMAXPROCS(1)
+			defer runtime.GOMAXPROCS(saved)
+
+			core.Cfg.Value.Region.Program.Start = 76
+			pi := core.Cfg.Value.Region.Program.Start
+			n := 48
+			aWant := make([]uint64, 128*n)
+			bWant := make([]uint64, 128*n)
+			aBatch := make([]uint64, 128*n)
+			bBatch := make([]uint64, 128*n)
+
+			encodeMem := func(dir, reg, ctx, word uint16) uint16 {
+				return (1 << 14) | (dir << 13) | (reg << 11) | (ctx << 10) | word
+			}
+			encodeAlu := func(op, reg, ctx, word uint16) uint16 {
+				return (2 << 14) | (op << 10) | (reg << 8) | (ctx << 7) | word
+			}
+
+			prog := []uint16{
+				encodeMem(0, 0, 1, 0),
+				encodeAlu(0x6, 0, 0, 0),
+				encodeMem(0, 1, 1, 32),
+				encodeAlu(0x1, 1, 0, 32),
+				0x0000,
+			}
+
+			reg0 := core.Cfg.Value.Region.Registers.Start
+			prog0 := core.Cfg.Value.Region.Program.Start
+
+			seed := func(aBuf, bBuf []uint64) {
+				for i := 0; i < n; i++ {
+					offset := i * 128
+					for j := range 128 {
+						aBuf[offset+j] = uint64(i + j)
+						bBuf[offset+j] = uint64((i + j) * 3)
+					}
+					for w := reg0; w < prog0 && w < 128; w++ {
+						aBuf[offset+w] = 0
+						bBuf[offset+w] = 0
+					}
+					for k, instr := range prog {
+						w := offset + int(pi) + k/4
+						shift := (k % 4) * 16
+						aBuf[w] |= uint64(instr) << shift
+					}
+				}
+			}
+
+			seed(aWant, bWant)
+			seed(aBatch, bBatch)
+
+			oneByOne := NewBackend(context.Background())
+			stride := uintptr(primitive.ByteSize)
+			baseA := uintptr(unsafe.Pointer(&aWant[0]))
+			baseB := uintptr(unsafe.Pointer(&bWant[0]))
+			for i := 0; i < n; i++ {
+				off := stride * uintptr(i)
+				convey.So(oneByOne.UniversalBitwise(
+					unsafe.Pointer(baseA+off),
+					unsafe.Pointer(baseB+off),
+					1,
+				), convey.ShouldBeNil)
+			}
+
+			batched := NewBackend(context.Background())
+			convey.So(batched.UniversalBitwise(unsafe.Pointer(&aBatch[0]), unsafe.Pointer(&bBatch[0]), n), convey.ShouldBeNil)
+
+			convey.So(aBatch, convey.ShouldResemble, aWant)
+		})
+
+		convey.Convey("When batching multi-core, It should match per-frame execution", func() {
+			if runtime.GOMAXPROCS(0) < 2 {
+				return
+			}
+
+			core.Cfg.Value.Region.Program.Start = 76
+			pi := core.Cfg.Value.Region.Program.Start
+			n := 48
+			aWant := make([]uint64, 128*n)
+			bWant := make([]uint64, 128*n)
+			aBatch := make([]uint64, 128*n)
+			bBatch := make([]uint64, 128*n)
+
+			encodeMem := func(dir, reg, ctx, word uint16) uint16 {
+				return (1 << 14) | (dir << 13) | (reg << 11) | (ctx << 10) | word
+			}
+			encodeAlu := func(op, reg, ctx, word uint16) uint16 {
+				return (2 << 14) | (op << 10) | (reg << 8) | (ctx << 7) | word
+			}
+
+			prog := []uint16{
+				encodeMem(0, 0, 1, 0),
+				encodeAlu(0x6, 0, 0, 0),
+				encodeMem(0, 1, 1, 32),
+				encodeAlu(0x1, 1, 0, 32),
+				0x0000,
+			}
+
+			reg0 := core.Cfg.Value.Region.Registers.Start
+			prog0 := core.Cfg.Value.Region.Program.Start
+
+			seed := func(aBuf, bBuf []uint64) {
+				for i := 0; i < n; i++ {
+					offset := i * 128
+					for j := range 128 {
+						aBuf[offset+j] = uint64(i + j)
+						bBuf[offset+j] = uint64((i + j) * 3)
+					}
+					for w := reg0; w < prog0 && w < 128; w++ {
+						aBuf[offset+w] = 0
+						bBuf[offset+w] = 0
+					}
+					for k, instr := range prog {
+						w := offset + int(pi) + k/4
+						shift := (k % 4) * 16
+						aBuf[w] |= uint64(instr) << shift
+					}
+				}
+			}
+
+			seed(aWant, bWant)
+			seed(aBatch, bBatch)
+
+			oneByOne := NewBackend(context.Background())
+			stride := uintptr(primitive.ByteSize)
+			baseA := uintptr(unsafe.Pointer(&aWant[0]))
+			baseB := uintptr(unsafe.Pointer(&bWant[0]))
+			for i := 0; i < n; i++ {
+				off := stride * uintptr(i)
+				convey.So(oneByOne.UniversalBitwise(
+					unsafe.Pointer(baseA+off),
+					unsafe.Pointer(baseB+off),
+					1,
+				), convey.ShouldBeNil)
+			}
+
+			batched := NewBackend(context.Background())
+			convey.So(batched.UniversalBitwise(unsafe.Pointer(&aBatch[0]), unsafe.Pointer(&bBatch[0]), n), convey.ShouldBeNil)
+
+			convey.So(aBatch, convey.ShouldResemble, aWant)
 		})
 	})
 }

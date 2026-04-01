@@ -10,6 +10,7 @@ const (
 	FirmwareRegisterTombstone
 	FirmwareRegisterViral
 	FirmwareRegisterBuild
+	FirmwareRegisterQuery
 )
 
 const (

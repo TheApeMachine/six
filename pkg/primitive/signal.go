@@ -1,6 +1,10 @@
 package primitive
 
-import "math/bits"
+import (
+	"math/bits"
+
+	"github.com/theapemachine/six/pkg/core"
+)
 
 // SignalKind classifies what a detected span implies.
 type SignalKind uint8
@@ -49,8 +53,13 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 		{op: 0x1, kind: SignalMerge, invertForScan: false}, // AND → one-run
 	}
 
-	idA := a[57] // ValueID at word 57
-	idB := b[57]
+	idWord := core.Cfg.Value.Region.ID.Start
+	if idWord < 0 || idWord >= Words {
+		return nil
+	}
+
+	idA := a[idWord]
+	idB := b[idWord]
 
 	var signals []Signal
 

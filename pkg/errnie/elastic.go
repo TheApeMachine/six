@@ -42,7 +42,7 @@ func (s *esLogSink) Write(p []byte) (int, error) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	raw := append([]byte(nil), line...)
+	raw := sanitizeLogLineForElasticsearch(append([]byte(nil), line...))
 	err := s.bi.Add(ctx, esutil.BulkIndexerItem{
 		Action: "index",
 		Body:   bytes.NewReader(raw),
@@ -71,6 +71,24 @@ func closeElasticsearchSink(ctx context.Context) {
 		_ = esBulkIndexer.Close(ctx)
 		esBulkIndexer = nil
 	}
+}
+
+/*
+ElasticsearchBulkIndexerStats returns live bulk indexer counters when the
+Elasticsearch sink is open (logging.elasticsearch.enabled was true and client
+startup succeeded). Use this while the process is running to see whether events
+are being queued (NumAdded) vs accepted by the cluster (NumIndexed) vs
+failures (NumFailed).
+
+When the second return value is false, ES shipping is not active for this process.
+*/
+func ElasticsearchBulkIndexerStats() (esutil.BulkIndexerStats, bool) {
+	esBulkMu.Lock()
+	defer esBulkMu.Unlock()
+	if esBulkIndexer == nil {
+		return esutil.BulkIndexerStats{}, false
+	}
+	return esBulkIndexer.Stats(), true
 }
 
 func newElasticsearchClientAndSink(cfg ElasticsearchConfig) (io.Writer, error) {

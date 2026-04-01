@@ -7,6 +7,9 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+// benchSink prevents the benchmark body from being optimized away.
+var benchSink float64
+
 func TestSubstrateExploitScore(t *testing.T) {
 	Convey("Identical token regions yield a score of 1", t, func() {
 		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
@@ -51,6 +54,6 @@ func BenchmarkSubstrateExploitScore(b *testing.B) {
 
 	b.ResetTimer()
 	for b.Loop() {
-		_ = SubstrateExploitScore(&parent, &workspace)
+		benchSink += SubstrateExploitScore(&parent, &workspace)
 	}
 }

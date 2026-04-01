@@ -69,7 +69,7 @@ func TestStructureFromWorkspaceLinksParentAndRegistersLSM(t *testing.T) {
 		primitive.CopyFrame(&workPartner, parent)
 		workSelf.InstallLearnFirmware()
 
-		backend := compute.NewBackend()
+		backend := compute.NewBackgroundBackend()
 		So(backend.UniversalBitwise(
 			unsafe.Pointer(&workSelf),
 			unsafe.Pointer(&workPartner),
@@ -107,7 +107,7 @@ func TestStructureFromWorkspaceAppliesHIEWhenProgramsDiffer(t *testing.T) {
 		firmware.SetInstructionSlot((*[primitive.Words]uint64)(parent), slot, 0x11111111)
 		firmware.SetInstructionSlot((*[primitive.Words]uint64)(&workSelf), slot, 0xEEEEEEEE)
 
-		backend := compute.NewBackend()
+		backend := compute.NewBackgroundBackend()
 		So(backend.UniversalBitwise(
 			unsafe.Pointer(&workSelf),
 			unsafe.Pointer(&workPartner),

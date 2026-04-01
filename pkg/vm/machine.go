@@ -1,16 +1,12 @@
 package vm
 
 import (
-	"bufio"
 	"context"
 	"io"
-	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -23,9 +19,8 @@ type Machine struct {
 	cancel       context.CancelFunc
 	err          error
 	backend      *compute.Backend
-	sources      io.Reader
-	destinations io.Writer
-	values       []*primitive.Value
+	sources      io.Writer
+	destinations io.Reader
 }
 
 type machineOption func(*Machine)
@@ -48,16 +43,36 @@ func NewMachine(
 
 	machine = &Machine{}
 	machine.ctx, machine.cancel = context.WithCancel(ctx)
-	machine.backend = compute.NewBackend()
+
+	machine.backend = compute.NewBackend(ctx)
+	tokenizer, err := NewTokenizer(ctx, machine.backend)
+
+	if err != nil {
+		return nil, errnie.Error(
+			NewMachineError(ErrNotValidated, err),
+		)
+	}
+
+	machine.sources = io.MultiWriter(
+		tokenizer,
+		machine.sources,
+	)
+
+	machine.destinations = io.MultiReader(
+		tokenizer,
+		machine.destinations,
+	)
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
 	if machine.err = validate.Require(map[string]any{
-		"ctx":     machine.ctx,
-		"cancel":  machine.cancel,
-		"sources": machine.sources,
+		"ctx":          machine.ctx,
+		"cancel":       machine.cancel,
+		"sources":      machine.sources,
+		"destinations": machine.destinations,
+		"backend":      machine.backend,
 	}); machine.err != nil {
 		return nil, errnie.Error(
 			NewMachineError(ErrNotValidated, machine.err),
@@ -69,74 +84,56 @@ func NewMachine(
 	return machine, nil
 }
 
+/*
+start the machine as an infinite loop by making it read from itself, and
+write to itself, which will automatically sequence the
+io.MultiReader and io.MultiWriter, and create a seamless feedback loop.
+*/
 func (machine *Machine) start() (err error) {
-	scanner := bufio.NewScanner(machine.sources)
-	// Buffer sized to the token region capacity: TokenBits/8 bytes minus
-	// 3 reserved words (ValueID, PrevID, NextID) × 8 bytes each.
-	tokenBytes := int(core.Cfg.Value.Region.Tokens.Bits/8) - 3*8
-	scanner.Buffer(make([]byte, tokenBytes), tokenBytes)
-
 	for {
 		select {
 		case <-machine.ctx.Done():
 			return nil
 		default:
-			if !scanner.Scan() {
-				if err := scanner.Err(); err != nil {
-					return errnie.Error(
-						NewMachineError(ErrDatasetNotClosed, err),
-					)
-				}
-
-				return nil
+			if _, machine.err = io.Copy(machine, machine); machine.err != nil {
+				return errnie.Error(
+					NewMachineError(ErrStreamFailed, machine.err),
+				)
 			}
-
-			line := scanner.Bytes()
-
-			if len(line) == 0 {
-				continue
-			}
-
-			var value *primitive.Value
-
-			if value, err = primitive.NewValue(line); err != nil {
-				_ = errnie.Error(err)
-				continue
-			}
-
-			// README Signals: bitwise work runs on copies; cut points live in the
-			// workspace after the kernel returns. Canonical Value is not mutated.
-			var workSelf, workPartner primitive.Value
-			primitive.CopyFrame(&workSelf, value)
-			primitive.CopyFrame(&workPartner, value)
-			workSelf.InstallLearnFirmware()
-
-			if err = machine.backend.UniversalBitwise(
-				unsafe.Pointer(&workSelf),
-				unsafe.Pointer(&workPartner),
-			); err != nil {
-				_ = errnie.Error(err)
-				continue
-			}
-
-			st := StructureFromWorkspace(StructureKindLearnCancel, value, &workSelf)
-			st.RegisterDefaultLSM()
 		}
 	}
 }
 
+/*
+Read implements io.Reader so the machine acts as a wiring mechanism between
+sources and destinations. These are explicitely MultiReader and MultiWriter
+objects, so they can be used to connect multiple sources and destinations
+via the machine.
+*/
 func (machine *Machine) Read(p []byte) (n int, err error) {
-	return machine.sources.Read(p)
+	return machine.destinations.Read(p)
 }
 
+/*
+Write implements io.Writer so the machine acts as a wiring mechanism between
+sources and destinations. These are explicitely MultiReader and MultiWriter
+objects, so they can be used to connect multiple sources and destinations
+via the machine.
+*/
 func (machine *Machine) Write(p []byte) (n int, err error) {
 	if machine.destinations == nil {
 		return len(p), nil
 	}
 
-	return machine.destinations.Write(p)
+	return machine.sources.Write(p)
 }
 
+/*
+Close implements io.Closer so the machine can be closed, which will cancel
+the context, and if everything is wired up correctly, this should trigger
+a full system-wide shutdown. This means that the system's context must be
+the ultimate root context for the system.
+*/
 func (machine *Machine) Close() (err error) {
 	if machine.cancel != nil {
 		machine.cancel()
@@ -145,18 +142,26 @@ func (machine *Machine) Close() (err error) {
 	return err
 }
 
-func WithSources(readers io.ReadCloser) machineOption {
+/*
+WithSources configures the machine with one or more sources, which act as
+the ingress points for data.
+*/
+func WithSources(writers ...io.Writer) machineOption {
 	return func(machine *Machine) {
-		machine.sources = io.LimitReader(io.MultiReader(
-			readers,
-		), int64(core.Cfg.Value.Bytes))
+		machine.sources = io.MultiWriter(
+			append([]io.Writer{machine.sources}, writers...)...,
+		)
 	}
 }
 
-func WithDestinations(writers io.WriteCloser) machineOption {
+/*
+WithDestinations configures the machine with one or more destinations,
+which act as the egress points for data.
+*/
+func WithDestinations(readers ...io.Reader) machineOption {
 	return func(machine *Machine) {
-		machine.destinations = io.MultiWriter(
-			writers,
+		machine.destinations = io.MultiReader(
+			append([]io.Reader{machine.destinations}, readers...)...,
 		)
 	}
 }

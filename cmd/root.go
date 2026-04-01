@@ -212,12 +212,14 @@ func (err *RootError) Error() string {
 	).Error()
 }
 
-// mergeEmbeddedLoggingIfMissing copies the embedded cfg's "logging" tree into Viper
-// when the loaded config file does not define "logging" (common for older ~/.six/config.yml).
+// mergeEmbeddedLoggingIfMissing copies logging defaults from the embedded repo
+// config into Viper when the loaded file omits pieces Go would otherwise zero out.
+//
+//  1. No "logging" at all → merge the full embedded logging tree (legacy ~/.six).
+//  2. "logging" exists but "logging.elasticsearch" was never set → merge only the
+//     embedded elasticsearch subtree so partial YAML does not disable shipping with
+//     ElasticsearchConfig.Enabled == false.
 func mergeEmbeddedLoggingIfMissing() error {
-	if viper.IsSet("logging") {
-		return nil
-	}
 	b, err := embedded.ReadFile("cfg/config.yml")
 	if err != nil {
 		return err
@@ -226,8 +228,18 @@ func mergeEmbeddedLoggingIfMissing() error {
 	if err := yaml.Unmarshal(b, &root); err != nil {
 		return err
 	}
-	if lg, ok := root["logging"]; ok {
-		viper.Set("logging", lg)
+	embeddedLogging, ok := root["logging"].(map[string]any)
+	if !ok {
+		return nil
+	}
+	if !viper.IsSet("logging") {
+		viper.Set("logging", embeddedLogging)
+		return nil
+	}
+	if !viper.IsSet("logging.elasticsearch") {
+		if es, ok := embeddedLogging["elasticsearch"]; ok {
+			viper.Set("logging.elasticsearch", es)
+		}
 	}
 	return nil
 }

@@ -7,6 +7,26 @@
 
 This research project started from a simple question: *"Can we reject gradient descent and backpropagation long enough to convince ourselves that we may not need them?"*
 
+## Motivations
+
+1. I got tired of waiting on training runs.
+2. I feel that the barrier to entry for testing large scale models is too high, and the hardware requirements prohibitly expensive.
+3. I disagree with the cost (financial, environmental, societal) versus benefit of current state of the art models.
+
+## Assumptions
+
+There is no denying that this work is experimental, and relies on highly personal assumptions to drive the work forwards, so it seems prudent to explicitely state what these assumptions are.
+
+1. **Intelligence is compression**
+2. **Entropy is overstated** I find enough truth in work done by people such as [George Kingsley Zipf](https://en.wikipedia.org/wiki/George_Kingsley_Zipf) to believe that structure exists everywhere, so I want to investigate an idea where I move the battlefield by not fighting the natural structures within data, no matter how chaotic it might seem to my own eyes. In other words, I question wether or not the fault lies with my own ability to perceive the structure, rather than assume the data is not structured.
+
+## F.R.C. (Frequently Raised Critiques)
+
+1. **The entropy of natural language** I would suggest this discussion is better with [George Kingsley Zipf](https://en.wikipedia.org/wiki/George_Kingsley_Zipf). I propose we agree that on either side of this argument we are operating purely on assumtion. I am just testing the other side, there are no guarantees, until there are.
+2. **Rigid bitwise operations are too brittle** Agreed, if you are considering the `Value` type in isolation. But in the substrate the `Value` type is not by itself, the gradient you may be looking for is still there, it is in the field.
+3. **Unstructured data** Disagree, it is unstructured only if you feel the need to force the data into a structure that works for your architecture. This architecture accepts the natural structure of the data as already perfectly conditioned.
+4. **The Gemma reliance** That is a misreading of why the experiment exists in the first place. This is the only experiment that uses a large language model, and its origin is a direct answer to the first thing most people say when first taking a look at this architecture: "Is it a transformer killer? No." This has never been relevant to the motivation behind this architecture, however, I figured I would show some early value to the traditional machine learning field and investigate what is possible (and what is not possible) by integrating multiple architectures. I think the early results, while limited in scope and scale, reveal interesting signals.
+
 ## Types
 
 This section provides a high-level overview of the main types that play a structural role in the architecture.
@@ -95,6 +115,10 @@ AND produces ones only where both Values agree. The longest contiguous one-run r
 In the example above, when `[Roy]{is in the}[Kitchen]` is paired with `[Harold]{is in the}[Kitchen]`, the `AND` of their token regions produces a long one-run across `[Kitchen]`, because both Values agree densely there. The merge signal consolidates them: `[Kitchen]` becomes a single node pointing back to both `[Roy]` and `[Harold]`.
 
 **The longest sequential run is always the decisive signal.** Both operations produce multiple runs of varying lengths. `ScanSignals` detects all of them, sorts by length, and the longest of each kind becomes the local action. Shorter signals are published for inter-cluster exchange.
+
+**Implementation (stream ingest).** `pkg/vm.Machine` now pairs each dataset line with the **previous** line’s frame (the first line still pairs with itself). After learn, it registers the full XOR workspace via `StructureFromWorkspace` as before, then calls `EmitFromPairwiseSignals`: `SplitSignals` picks the decisive cancel and merge spans, and each cancel span expands into up to three `Structure` frames (shared bit-run from the agreement region, left residue, right residue), each Prev-linked to the parent canonical Value, HIE-blended, and inserted into the spatial index. Merge spans emit a consolidation frame from the AND row. Token-empty cuts still register under a synthetic spine key so every emission has an LSM row.
+
+**Query hook (tests).** `vm.ResolvePromptIntersection` takes prompt bytes and intersects LSM postings for each `Tokenize(byte, index)` key (same as `NewValue` indexing). After a `Machine` ingest, a shared prefix such as `X: ` should resolve all matching canonical rows (`Machine.IngestedCanonicalValueIDs` lists them). `vm.PrevChainBackward` follows `Prev` through stored frames so a signal cut can be traced to its canonical parent. Run `go test ./pkg/vm -run 'TestResolvePromptIntersection|TestPrevChainBackward' -count=1`. Full in-Value query firmware and `experiment/task.Pipeline` integration are still future work.
 
 ### Firmware
 

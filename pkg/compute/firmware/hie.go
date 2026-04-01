@@ -130,7 +130,7 @@ func hieNoiseThirdParent(hvDonorA uint64, rng *rand.Rand, parentBias float64) ui
 		return 0
 	}
 
-	if parentBias != parentBias || parentBias <= 0 {
+	if math.IsNaN(parentBias) || parentBias <= 0 {
 		return rng.Uint64()
 	}
 
@@ -171,7 +171,7 @@ func HolographicCrossover(recipient, donorA, donorB *[128]uint64, rng *rand.Rand
 		return
 	}
 
-	if parentBias != parentBias {
+	if math.IsNaN(parentBias) {
 		parentBias = 0
 	}
 

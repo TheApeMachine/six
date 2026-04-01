@@ -22,12 +22,19 @@ const (
 	FirmwareTypeTombstone
 	FirmwareTypeViral
 	FirmwareTypeBuild
+	FirmwareTypeQuery
 )
 
 type SystemConfig struct {
 	BatchSize   int           `mapstructure:"batchSize"`
 	BatchWindow time.Duration `mapstructure:"batchWindow"`
 	QueueSize   int           `mapstructure:"queueSize"`
+
+	// StepwiseUniversalBitwise enables per-frame routing: when the program band
+	// starts with stepwise.PackEmbeddedHeader, execution uses the fixed-step
+	// executor; otherwise the legacy 16-bit RISC interpreter runs. GPU kernels
+	// are unchanged.
+	StepwiseUniversalBitwise bool `mapstructure:"stepwiseUniversalBitwise"`
 }
 
 /*
@@ -129,7 +136,12 @@ type Config struct {
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
 	// assuming the host enum ordinals are stable.
-	Firmware [FirmwareTypeBuild + 1][]uint16
+	Firmware [FirmwareTypeQuery + 1][]uint16
+
+	// StepwiseFirmwareSource holds raw programsStepwise.* YAML when
+	// system.stepwiseUniversalBitwise is true. primitive.installFirmware compiles
+	// these via pkg/compute/stepwise at install time (avoid core→stepwise import cycle).
+	StepwiseFirmwareSource [FirmwareTypeQuery + 1]string
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
 	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
@@ -146,6 +158,9 @@ func NewConfig() *Config {
 			BatchSize:   viper.GetInt("system.batchSize"),
 			BatchWindow: time.Duration(viper.GetInt("system.batchWindow")) * time.Microsecond,
 			QueueSize:   viper.GetInt("system.queueSize"),
+			StepwiseUniversalBitwise: viper.GetBool(
+				"system.stepwiseUniversalBitwise",
+			),
 		},
 		Value: ValueConfig{
 			Words: viper.GetInt("value.words"),
@@ -212,7 +227,7 @@ func NewConfig() *Config {
 				IFBTHENA: viper.GetString("value.opcodes.ifbthena"),
 			},
 		},
-		Firmware: [FirmwareTypeBuild + 1][]uint16{
+		Firmware: [FirmwareTypeQuery + 1][]uint16{
 			FirmwareTypeLearn: Cfg.compileAndAssign(
 				FirmwareTypeLearn, viper.GetString("programs.learn"),
 			),
@@ -227,7 +242,31 @@ func NewConfig() *Config {
 			FirmwareTypeBuild: Cfg.compileAndAssign(
 				FirmwareTypeBuild, viper.GetString("programs.build"),
 			),
+			FirmwareTypeQuery: Cfg.compileAndAssign(
+				FirmwareTypeQuery, viper.GetString("programs.query"),
+			),
 		},
+	}
+
+	if Cfg.System.StepwiseUniversalBitwise {
+		Cfg.StepwiseFirmwareSource[FirmwareTypeLearn] = viper.GetString(
+			"programsStepwise.learn",
+		)
+		Cfg.StepwiseFirmwareSource[FirmwareTypeBootloader] = viper.GetString(
+			"programsStepwise.bootloader",
+		)
+		Cfg.StepwiseFirmwareSource[FirmwareTypeTombstone] = viper.GetString(
+			"programsStepwise.tombstone",
+		)
+		Cfg.StepwiseFirmwareSource[FirmwareTypeViral] = viper.GetString(
+			"programsStepwise.viral",
+		)
+		Cfg.StepwiseFirmwareSource[FirmwareTypeBuild] = viper.GetString(
+			"programsStepwise.build",
+		)
+		Cfg.StepwiseFirmwareSource[FirmwareTypeQuery] = viper.GetString(
+			"programsStepwise.query",
+		)
 	}
 
 	return Cfg

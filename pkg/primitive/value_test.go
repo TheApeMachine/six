@@ -223,6 +223,10 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 }
 
 func TestTokenRegionObservedBytes(t *testing.T) {
+	Convey("nil value yields nil slice", t, func() {
+		So(TokenRegionObservedBytes(nil), ShouldBeNil)
+	})
+
 	Convey("TokenRegionObservedBytes packs token words little-endian and trims trailing zeros", t, func() {
 		var v Value
 		base := core.Cfg.Value.Region.Tokens.Start
@@ -232,6 +236,38 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 
 		got := TokenRegionObservedBytes(&v)
 		So(got, ShouldResemble, []byte{0, 1, 2})
+	})
+
+	Convey("multiple token words emit little-endian bytes per word; only trailing zeros of full pack are trimmed", t, func() {
+		var v Value
+		base := core.Cfg.Value.Region.Tokens.Start
+		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+		So(tokenWords, ShouldBeGreaterThan, 1)
+		So(base+1, ShouldBeLessThan, Words)
+
+		v[base] = 0x04030201
+		v[base+1] = 0x08070605
+
+		got := TokenRegionObservedBytes(&v)
+		want := []byte{1, 2, 3, 4, 0, 0, 0, 0, 5, 6, 7, 8}
+		So(got, ShouldResemble, want)
+	})
+
+	Convey("all-zero token region yields empty non-nil slice", t, func() {
+		var v Value
+		base := core.Cfg.Value.Region.Tokens.Start
+		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+		for w := 0; w < tokenWords; w++ {
+			idx := base + w
+			if idx >= Words {
+				break
+			}
+			v[idx] = 0
+		}
+
+		got := TokenRegionObservedBytes(&v)
+		So(got, ShouldNotBeNil)
+		So(len(got), ShouldEqual, 0)
 	})
 }
 

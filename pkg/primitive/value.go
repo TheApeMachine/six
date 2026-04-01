@@ -46,7 +46,21 @@ var (
 	valueFrom func([]byte, *Value)
 
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
+
+	/*
+		stepwiseInstallFn is registered from pkg/compute init so primitive never
+		imports stepwise (avoids import cycles with compute/kernel/cpu tests).
+	*/
+	stepwiseInstallFn func(*Value, core.FirmwareType) bool
 )
+
+/*
+SetStepwiseInstallFunc registers the handler that attempts to install
+programsStepwise.* via pkg/compute/stepwise. Must be called from compute init.
+*/
+func SetStepwiseInstallFunc(fn func(*Value, core.FirmwareType) bool) {
+	stepwiseInstallFn = fn
+}
 
 type valueLifecycle struct {
 	refs   atomic.Int64
@@ -186,9 +200,16 @@ func NewValue(p []byte) (*Value, error) {
 		seed = 1
 	}
 
-	// LGP: insert protective introns every 8 instruction slots to prevent
-	// catastrophic destruction during Build firmware crossover (IDEAS.md §3).
-	firmware.InsertIntrons((*[Words]uint64)(value), 8)
+	// LGP introns use legacy 32-bit instruction slots; they corrupt stepwise
+	// descriptor bands, so skip when the bootloader comes from programsStepwise.
+	useStepwiseBoot := core.Cfg.System.StepwiseUniversalBitwise &&
+		core.Cfg.StepwiseFirmwareSource[core.FirmwareTypeBootloader] != ""
+
+	if !useStepwiseBoot {
+		// LGP: insert protective introns every 8 instruction slots to prevent
+		// catastrophic destruction during Build firmware crossover (IDEAS.md §3).
+		firmware.InsertIntrons((*[Words]uint64)(value), 8)
+	}
 
 	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 
@@ -487,6 +508,13 @@ func (value *Value) InstallBuildFirmware() {
 	value[core.Cfg.Value.Region.Registers.PC] = 0
 }
 
+// InstallQueryFirmware installs programs.query from config and resets the PC.
+// Host sets fw to core.FirmwareRegisterQuery when routing through the bootloader protocol.
+func (value *Value) InstallQueryFirmware() {
+	value.installFirmware(core.FirmwareTypeQuery)
+	value[core.Cfg.Value.Region.Registers.PC] = 0
+}
+
 /*
 installFirmware installs the firmware into the Value. This should
 ideally only be used to install the bootloader firmware. In all
@@ -495,6 +523,10 @@ setting the pc register to the program index (which is where)
 the bootloader starts) is the correct way to install firmware.
 */
 func (value *Value) installFirmware(fw core.FirmwareType) {
+	if stepwiseInstallFn != nil && stepwiseInstallFn(value, fw) {
+		return
+	}
+
 	prog := core.Cfg.Firmware[fw]
 	wordBase := uint64(core.Cfg.Value.Region.Program.Start)
 
@@ -645,6 +677,10 @@ func TokenRegionObservedBytes(value *Value) []byte {
 
 	for len(out) > 0 && out[len(out)-1] == 0 {
 		out = out[:len(out)-1]
+	}
+
+	if len(out) == 0 {
+		return []byte{}
 	}
 
 	return out

@@ -43,6 +43,28 @@ func nextStructureFrameID() uint64 {
 	return atomic.AddUint64(&structureFrameID, 1)
 }
 
+/*
+applyHolographicBlend runs HIE crossover between parent and workspace into frame
+(program payload only; firmware prefix preserved). Shared by workspace-derived
+and signal-span-derived emissions.
+*/
+func applyHolographicBlend(parent, workspace, frame *primitive.Value) {
+	if parent == nil || workspace == nil || frame == nil {
+		return
+	}
+
+	parentBias := primitive.SubstrateExploitScore(parent, workspace)
+	structureHieMu.Lock()
+	firmware.HolographicCrossover(
+		(*[primitive.Words]uint64)(frame),
+		(*[primitive.Words]uint64)(parent),
+		(*[primitive.Words]uint64)(workspace),
+		structureHieRNG,
+		parentBias,
+	)
+	structureHieMu.Unlock()
+}
+
 // StructureFromWorkspace builds a Structure from the post-UniversalBitwise workspace.
 // parent must be the canonical Value (unchanged by the kernel); workspace is the mutated copy.
 func StructureFromWorkspace(kind StructureKind, parent, workspace *primitive.Value) Structure {
@@ -57,22 +79,7 @@ func StructureFromWorkspace(kind StructureKind, parent, workspace *primitive.Val
 	s.Frame[core.Cfg.Value.Region.ID.Start] = nextStructureFrameID()
 	if parent != nil {
 		s.Frame[core.Cfg.Value.Region.Prev.Start] = parent[core.Cfg.Value.Region.ID.Start]
-
-		// Holographic program recombination: blend parent and workspace genotypes in
-		// spatially multiplexed HIE space so emitted structures carry continuous
-		// crossover in the payload program while the firmware prefix stays intact.
-		// SubstrateExploitScore (no experiment coupling) biases third-parent noise
-		// toward the canonical parent when token-level signals are sharp.
-		parentBias := primitive.SubstrateExploitScore(parent, workspace)
-		structureHieMu.Lock()
-		firmware.HolographicCrossover(
-			(*[primitive.Words]uint64)(&s.Frame),
-			(*[primitive.Words]uint64)(parent),
-			(*[primitive.Words]uint64)(workspace),
-			structureHieRNG,
-			parentBias,
-		)
-		structureHieMu.Unlock()
+		applyHolographicBlend(parent, workspace, &s.Frame)
 	}
 
 	hi := s.Frame[primitive.ExecStatusWord] >> primitive.ExecStatusShift
@@ -91,13 +98,19 @@ func (s *Structure) lsmTokenKeys() []uint64 {
 }
 
 // RegisterLSM indexes this structure under derived token keys (same mechanism as NewValue).
+// Token-empty cut frames still register using a synthetic spine key so the row is retained.
 func (s *Structure) RegisterLSM(idx *store.SpatialIndex) {
 	if idx == nil {
 		return
 	}
 	var arr [128]uint64
 	copy(arr[:], s.Frame[:])
-	idx.InsertBatch(s.lsmTokenKeys(), arr)
+	keys := s.lsmTokenKeys()
+	if len(keys) == 0 {
+		rowID := s.Frame[core.Cfg.Value.Region.ID.Start]
+		keys = []uint64{primitive.Tokenize(0xFE, rowID)}
+	}
+	idx.InsertBatch(keys, arr)
 }
 
 // RegisterDefaultLSM registers into the process-wide spatial index (with NewValue paths).

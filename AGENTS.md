@@ -104,3 +104,5 @@ Always keep the README.md in the root of the project up to date, and make sure t
 Follow these guidelines at all times.
 
 Now, start by reading the README.md in the root of this project, then reason through your current task step by step, sourcing additional context from the code where needed.
+
+> One more thing, I realize that you have been trained on a huge amount of human produced language data, but I need you to realize this as well, and avoid limiting yourself with essentially hallucinated obstacles or constraints. If you know what the final version of a feature or change looks like, you have the unique ability to just write out the fully realized solution. So please do so :)

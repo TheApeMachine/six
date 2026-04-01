@@ -59,6 +59,49 @@ func TestHolographicCrossoverParentBiasMax(t *testing.T) {
 	})
 }
 
+func TestHolographicCrossoverParentBiasIntermediate(t *testing.T) {
+	Convey("parentBias 0.5 yields donorA hits, mixed decodes, and multiple distinct children over many trials", t, func() {
+		first := ProgramPayloadFirst32BitSlot()
+		instrA := uint32(0x11111111)
+		instrB := uint32(0xEEEEEEEE)
+
+		var donorA, donorB [128]uint64
+		SetInstructionSlot(&donorA, first, instrA)
+		SetInstructionSlot(&donorB, first, instrB)
+
+		matchA, other := 0, 0
+		distinct := make(map[uint32]struct{})
+		iterations := 640
+
+		for seed := 0; seed < iterations; seed++ {
+			var recipient [128]uint64
+			primitiveCopyProgramPrefix(&recipient, &donorA)
+			HolographicCrossover(
+				&recipient,
+				&donorA,
+				&donorB,
+				rand.New(rand.NewSource(int64(seed)+901)),
+				0.5,
+			)
+
+			got := InstructionSlot(&recipient, first)
+			distinct[got] = struct{}{}
+			if got == instrA {
+				matchA++
+			} else {
+				other++
+			}
+		}
+
+		So(matchA+other, ShouldEqual, iterations)
+		So(matchA, ShouldBeGreaterThan, 0)
+		So(matchA, ShouldBeLessThan, iterations)
+		So(other, ShouldBeGreaterThan, 0)
+		// Nearest-neighbor decode often avoids pure donorB; many distinct children is the contract.
+		So(len(distinct), ShouldBeGreaterThan, 12)
+	})
+}
+
 func TestHolographicCrossoverTwoParent(t *testing.T) {
 	Convey("TwoParent matches HolographicCrossover(recipient, recipient, donor, rng)", t, func() {
 		var baseline, donor, want, got [128]uint64

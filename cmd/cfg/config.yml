@@ -36,6 +36,9 @@ system:
   batchSize: 10000
   batchWindow: 500
   queueSize: 20000
+  # Loads programsStepwise.* and enables stepwise installFirmware + CPU routing
+  # (header at program.base). Frames without the stepwise magic still use RISC.
+  stepwiseUniversalBitwise: true
 
 value:
   words: 128
@@ -268,4 +271,18 @@ programs:
     CTL DJNZ r1 -9
     HALT
 
+  # query: minimal graph probe — copy Prev (word 58) into state.index (word 60)
+  # so telemetry / following steps can read the parent link after one backend run.
+  # Partner frame is ignored. Extend with loops + partner XOR for real navigation.
+  query: |
+    MEM LOAD r0 c0 58
+    MEM STORE r0 60
+    HALT
+
+# Stepwise fixed-step programs (pkg/compute/stepwise). When non-empty for a slot,
+# installFirmware uses InstallEmbedded and overwrites legacy programs.* packing for
+# that firmware only. Syntax: IMM, NOP, TTNAME ia ib idst [LEFT_B] [RIGHT_B].
+programsStepwise:
+  bootloader: |
+    IMM 74 1
 

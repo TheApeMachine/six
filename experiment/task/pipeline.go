@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sync/atomic"
 	"time"
 	"unsafe"
 
@@ -32,9 +33,13 @@ Current execution path (aligned with the substrate, not the historical
  2. For each prompt: NewValue encodes the text into token HV form and
     indexes it in the spatial store (corpus side — separate from readout).
  3. Observe: copy the prompt frame, install learn, run UniversalBitwise
-    against an identical partner copy (README pairwise learn), then grade
-    TokenRegionObservedBytes on the workspace — no Value.String() / exact
-    frame-equality LSM readout on the prompt object.
+    against a partner frame. When the experiment exposes a non-empty holdout,
+    the partner encodes append(prompt, holdout) so XOR cancels the shared
+    prefix/suffix structure and leaves a non-trivial residue (README cancel
+    signal). With no holdout, the partner remains a copy of the prompt —
+    XOR then fully cancels identical token regions (diagnostic / degenerate).
+    Grade TokenRegionObservedBytes on the workspace — no Value.String() LSM
+    readout on the prompt object.
  4. Install tombstone, execute it once on the Backend so regions zero,
     then Close the Value back to the pool.
 
@@ -49,6 +54,9 @@ type Pipeline struct {
 	reporter   Reporter
 	timing     runTiming
 	population int // Tracks the number of resident Values currently in the substrate
+
+	// promptInitFailures counts primitive.NewValue rejections during Run (atomic for safe future concurrent loops).
+	promptInitFailures atomic.Int64
 }
 
 type pipelineOpts func(*Pipeline)
@@ -83,7 +91,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	defer pipeline.cancel()
 
 	loadStart := time.Now()
-	backend := compute.NewBackend()
+	backend := compute.NewBackgroundBackend()
 	pipeline.timing.loadDur = time.Since(loadStart)
 	defer func() {
 		backend.Close()
@@ -109,6 +117,7 @@ func (pipeline *Pipeline) Run() (err error) {
 		value, newErr := primitive.NewValue([]byte(prompt))
 
 		if newErr != nil {
+			pipeline.promptInitFailures.Add(1)
 			_ = errnie.Error(newErr)
 			continue
 		}
@@ -127,13 +136,14 @@ func (pipeline *Pipeline) Run() (err error) {
 			"holdout", string(holdout),
 		)
 
-		observed, obsErr := pipeline.observePrompt(backend, value)
+		observed, obsErr := pipeline.observePrompt(backend, value, []byte(prompt), holdout)
 		if obsErr != nil {
 			return errnie.Error(obsErr)
 		}
 
-		value.InstallTombstone()
 		var tombPartner primitive.Value
+		primitive.CopyFrame(&tombPartner, value)
+		value.InstallTombstone()
 
 		if execErr := backend.UniversalBitwise(
 			unsafe.Pointer(value),
@@ -158,6 +168,12 @@ func (pipeline *Pipeline) Run() (err error) {
 	}
 	pipeline.timing.promptDur = time.Since(promptStart)
 
+	errnie.Trace(
+		"experiment.task.pipeline.summary",
+		"prompt_init_failures", pipeline.promptInitFailures.Load(),
+		"prompts_processed_ok", pipeline.timing.n,
+	)
+
 	type finalizer interface {
 		Finalize(any) error
 	}
@@ -181,7 +197,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	return nil
 }
 
-func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primitive.Value) ([]byte, error) {
+func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primitive.Value, prompt []byte, holdout []byte) ([]byte, error) {
 	if backend == nil {
 		return nil, PipelineError("nil compute backend")
 	}
@@ -190,9 +206,47 @@ func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primiti
 		return nil, PipelineError("nil prompt value")
 	}
 
+	var partnerDisposable *primitive.Value
+
+	defer func() {
+		if partnerDisposable == nil {
+			return
+		}
+
+		partnerDisposable.InstallTombstone()
+
+		var tombPartner primitive.Value
+
+		primitive.CopyFrame(&tombPartner, partnerDisposable)
+
+		_ = backend.UniversalBitwise(
+			unsafe.Pointer(partnerDisposable),
+			unsafe.Pointer(&tombPartner),
+		)
+		_ = partnerDisposable.Close()
+	}()
+
 	var workSelf, workPartner primitive.Value
+
 	primitive.CopyFrame(&workSelf, value)
-	primitive.CopyFrame(&workPartner, value)
+
+	if len(holdout) > 0 {
+		full := make([]byte, 0, len(prompt)+len(holdout))
+		full = append(full, prompt...)
+		full = append(full, holdout...)
+
+		partnerVal, newErr := primitive.NewValue(full)
+
+		if newErr != nil {
+			return nil, newErr
+		}
+
+		partnerDisposable = partnerVal
+		primitive.CopyFrame(&workPartner, partnerVal)
+	} else {
+		primitive.CopyFrame(&workPartner, value)
+	}
+
 	workSelf.InstallLearnFirmware()
 
 	if err := backend.UniversalBitwise(
@@ -202,8 +256,6 @@ func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primiti
 		return nil, err
 	}
 
-	// Substrate readout: packed token words after learn — not LSM/String() self-lookup.
-	// WorkspaceTokenObserver on an experiment documents that grading expects this path.
 	return primitive.TokenRegionObservedBytes(&workSelf), nil
 }
 
@@ -267,6 +319,15 @@ func PipelineWithSnapshotReporter() pipelineOpts {
 	return func(pipeline *Pipeline) {
 		pipeline.reporter = NewSnapshotReporter()
 	}
+}
+
+// PromptInitFailures reports how many prompts failed primitive.NewValue during the last Run.
+func (pipeline *Pipeline) PromptInitFailures() int64 {
+	if pipeline == nil {
+		return 0
+	}
+
+	return pipeline.promptInitFailures.Load()
 }
 
 func (pipeline *Pipeline) writeStandardSummary() error {

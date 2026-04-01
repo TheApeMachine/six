@@ -8,6 +8,13 @@ import (
 )
 
 /*
+NewBackgroundBackend returns NewBackend(context.Background(), opts...).
+*/
+func NewBackgroundBackend(opts ...BackendOption) *Backend {
+	return NewBackend(context.Background(), opts...)
+}
+
+/*
 WithContext sets the context for the backend.
 */
 func WithContext(ctx context.Context) BackendOption {
