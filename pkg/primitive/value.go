@@ -27,11 +27,20 @@ const (
 	// SignalMask is the mechanical bit-pattern used to reset the sequence index.
 	SignalMask = 0xF
 
+	/*
+		tokenIDPrime is a 64-bit prime (2^64-59) so TokenID maps
+		(multiplier*index + byte) mod prime across the full uint64 range.
+	*/
+	tokenIDPrime      = uint64(18446744073709551557)
+	tokenIDMultiplier = uint64(6364136223846793005)
+
 	// ExecStatusWord is the word reserved for kernel exit markers (high 16 bits);
 	// must match generated pkg/compute/kernel/shared/primitives.h EXEC_STATUS_WORD.
 	ExecStatusWord  = 63
 	ExecStatusShift = 48
 )
+
+var tokenIDMulInverse uint64
 
 // Exit reasons written into ExecStatusWord by CPU / GPU kernels (high 16 bits).
 const (
@@ -80,6 +89,8 @@ func init() {
 	for i := 0; i < numLifecycleShards; i++ {
 		lifecycleShards[i].m = make(map[*Value]*valueLifecycle)
 	}
+
+	tokenIDMulInverse = modPowU64(tokenIDMultiplier, tokenIDPrime-2, tokenIDPrime)
 }
 
 func getLifecycleShard(value *Value) *lifecycleShard {
@@ -566,12 +577,21 @@ func (value *Value) String() string {
 	}
 
 	sort.Slice(keys, func(i, j int) bool {
-		return (keys[i] & 0xFFFFFFFF) < (keys[j] & 0xFFFFFFFF)
+		_, idxI, okI := DetokenizeTokenID(keys[i])
+		_, idxJ, okJ := DetokenizeTokenID(keys[j])
+		if !okI || !okJ {
+			return keys[i] < keys[j]
+		}
+
+		return idxI < idxJ
 	})
 
 	var builder strings.Builder
 	for _, tid := range keys {
-		b := byte(tid >> 32)
+		b, _, ok := DetokenizeTokenID(tid)
+		if !ok {
+			continue
+		}
 		if b >= 0x20 && b < 0x7F {
 			builder.WriteByte(b)
 		}
@@ -598,10 +618,70 @@ func (value *Value) Bytes() []byte {
 }
 
 /*
-Tokenize securely packs a byte and its sequence index into a 64-bit hardware token.
+Tokenize packs a byte and sequence index into a 64-bit LSM key via affine
+mixing mod tokenIDPrime so keys spread uniformly instead of clustering on
+byte-high half-words.
 */
 func Tokenize(b byte, index uint64) uint64 {
-	return (uint64(b) << 32) | index
+	hi, lo := bits.Mul64(tokenIDMultiplier, index)
+	lo, carry := bits.Add64(lo, uint64(b), 0)
+	hi, _ = bits.Add64(hi, 0, carry)
+	_, rem := bits.Div64(hi, lo, tokenIDPrime)
+
+	return rem
+}
+
+func modMulU64(a, b, mod uint64) uint64 {
+	hi, lo := bits.Mul64(a, b)
+	_, rem := bits.Div64(hi, lo, mod)
+
+	return rem
+}
+
+func modPowU64(base, exp, mod uint64) uint64 {
+	res := uint64(1)
+	for exp > 0 {
+		if exp&1 == 1 {
+			res = modMulU64(res, base, mod)
+		}
+		base = modMulU64(base, base, mod)
+		exp >>= 1
+	}
+
+	return res
+}
+
+func subModU64(x, y, mod uint64) uint64 {
+	if x >= y {
+		return x - y
+	}
+
+	return mod - (y - x)
+}
+
+/*
+DetokenizeTokenID recovers (byte, index) from a Tokenize-produced id by
+solving (tid - b) ≡ multiplier*index (mod prime) for byte tags in 0..255.
+Indices below 2^32 are accepted so arbitrary high residues from wrong
+bytes are rejected before the Tokenize confirmation step.
+*/
+func DetokenizeTokenID(tid uint64) (b byte, index uint64, ok bool) {
+	inv := tokenIDMulInverse
+	const maxReasonableIndex = uint64(1 << 32)
+
+	for candidate := 0; candidate < 256; candidate++ {
+		diff := subModU64(tid, uint64(candidate), tokenIDPrime)
+		idx := modMulU64(diff, inv, tokenIDPrime)
+		if idx >= maxReasonableIndex {
+			continue
+		}
+
+		if Tokenize(byte(candidate), idx) == tid {
+			return byte(candidate), idx, true
+		}
+	}
+
+	return 0, 0, false
 }
 
 func region0TokenIndexOK(index int) bool {

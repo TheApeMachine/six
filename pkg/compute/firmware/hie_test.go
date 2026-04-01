@@ -102,6 +102,21 @@ func TestHolographicCrossoverParentBiasIntermediate(t *testing.T) {
 	})
 }
 
+func TestHieNoiseThirdParent(t *testing.T) {
+	Convey("Affine third-parent generation is deterministic per seed and varies by slot", t, func() {
+		instrA := uint32(0x12345678)
+		instrB := uint32(0x87654321)
+
+		first := hieNoiseThirdParent(8, instrA, instrB, rand.New(rand.NewSource(77)), 0)
+		repeat := hieNoiseThirdParent(8, instrA, instrB, rand.New(rand.NewSource(77)), 0)
+		next := hieNoiseThirdParent(9, instrA, instrB, rand.New(rand.NewSource(77)), 0)
+
+		So(first, ShouldEqual, repeat)
+		So(first, ShouldNotEqual, next)
+		So(DecodeHIE(first), ShouldNotEqual, 0)
+	})
+}
+
 func TestHolographicCrossoverTwoParent(t *testing.T) {
 	Convey("TwoParent matches HolographicCrossover(recipient, recipient, donor, rng)", t, func() {
 		var baseline, donor, want, got [128]uint64
@@ -156,5 +171,17 @@ func BenchmarkHolographicCrossover(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		HolographicCrossover(&recipient, &donorA, &donorB, rng, 0)
+	}
+}
+
+func BenchmarkHieNoiseThirdParent(b *testing.B) {
+	rng := rand.New(rand.NewSource(1))
+	instrA := uint32(0x12345678)
+	instrB := uint32(0x87654321)
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = hieNoiseThirdParent(ProgramPayloadFirst32BitSlot(), instrA, instrB, rng, 0.5)
 	}
 }

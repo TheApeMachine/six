@@ -10,6 +10,8 @@ type BackendErrorType string
 const (
 	BackendErrorNoHardware         BackendErrorType = "no hardware initialized"
 	BackendErrorCompleteSaturation BackendErrorType = "complete saturation"
+	BackendErrorNoComputeResource  BackendErrorType = "no compute resource"
+	BackendErrorNoValues           BackendErrorType = "no values"
 )
 
 type BackendError struct {

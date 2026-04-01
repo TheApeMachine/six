@@ -168,7 +168,8 @@ func initConfig() {
 			},
 		})
 	})
-	compute.SetKernelObserver(compute.NewErrnieKernelObserver(2048))
+	// TODO: kernel observer removed during cleanup
+	_ = compute.BackendOption(nil) // keep import alive
 	errnie.Info(
 		"six.init",
 		"config_file", viper.ConfigFileUsed(),

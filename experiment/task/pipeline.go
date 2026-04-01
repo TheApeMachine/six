@@ -94,7 +94,7 @@ func (pipeline *Pipeline) Run() (err error) {
 	backend := compute.NewBackgroundBackend()
 	pipeline.timing.loadDur = time.Since(loadStart)
 	defer func() {
-		backend.Close()
+		backend.Shutdown()
 		// Flush any memtables from prompt-time indexing / structure emissions.
 		store.DefaultSpatialIndex().Flush()
 	}()
@@ -141,14 +141,9 @@ func (pipeline *Pipeline) Run() (err error) {
 			return errnie.Error(obsErr)
 		}
 
-		var tombPartner primitive.Value
-		primitive.CopyFrame(&tombPartner, value)
 		value.InstallTombstone()
 
-		if execErr := backend.UniversalBitwise(
-			unsafe.Pointer(value),
-			unsafe.Pointer(&tombPartner),
-		); execErr != nil {
+		if execErr := backend.Queue(unsafe.Pointer(value)); execErr != nil {
 			return errnie.Error(execErr)
 		}
 
@@ -215,14 +210,7 @@ func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primiti
 
 		partnerDisposable.InstallTombstone()
 
-		var tombPartner primitive.Value
-
-		primitive.CopyFrame(&tombPartner, partnerDisposable)
-
-		_ = backend.UniversalBitwise(
-			unsafe.Pointer(partnerDisposable),
-			unsafe.Pointer(&tombPartner),
-		)
+		_ = backend.Queue(unsafe.Pointer(partnerDisposable))
 		_ = partnerDisposable.Close()
 	}()
 
@@ -249,10 +237,7 @@ func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primiti
 
 	workSelf.InstallLearnFirmware()
 
-	if err := backend.UniversalBitwise(
-		unsafe.Pointer(&workSelf),
-		unsafe.Pointer(&workPartner),
-	); err != nil {
+	if err := backend.Queue(unsafe.Pointer(&workSelf)); err != nil {
 		return nil, err
 	}
 

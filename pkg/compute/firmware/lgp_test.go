@@ -51,9 +51,14 @@ func TestInsertIntrons(t *testing.T) {
 		Convey("InsertIntrons places introns at regular intervals", func() {
 			InsertIntrons(&c, 4)
 
-			start := int(core.Cfg.Value.Region.Program.Start)
+			start, last := PayloadLGPSpan()
 			intronCount := 0
-			for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits); slot++ {
+
+			for slot := 0; slot < start; slot++ {
+				So(InstructionSlot(&c, slot), ShouldEqual, 0)
+			}
+
+			for slot := start; slot < last; slot++ {
 				instr := InstructionSlot(&c, slot)
 				if (slot-start)%5 == 4 {
 					So(IsIntron(instr), ShouldBeTrue)
@@ -70,14 +75,14 @@ func TestTraceEffective(t *testing.T) {
 		var c [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
 		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
-		start := int(core.Cfg.Value.Region.Program.Start)
+		start := ProgramPayloadFirst32BitSlot()
 
 		instr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
 		SetInstructionSlot(&c, start, instr)
 
 		Convey("TraceEffective marks that slot as effective", func() {
 			mask := TraceEffective(&c)
-			So(mask&1, ShouldNotEqual, 0)
+			So(traceMaskHas(mask, 0), ShouldBeTrue)
 		})
 	})
 
@@ -85,14 +90,31 @@ func TestTraceEffective(t *testing.T) {
 		var c [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
 		r1 := uint16(core.Cfg.Value.Region.Registers.R1)
-		start := int(core.Cfg.Value.Region.Program.Start)
+		start := ProgramPayloadFirst32BitSlot()
 
 		instr := uint32(0x1) | (uint32(r1) << 4) | (uint32(r0) << 18)
 		SetInstructionSlot(&c, start, instr)
 
 		Convey("TraceEffective returns 0 (no r6 influence)", func() {
 			mask := TraceEffective(&c)
-			So(mask, ShouldEqual, 0)
+			So(traceMaskHas(mask, 0), ShouldBeFalse)
+		})
+	})
+
+	Convey("Given a write that reuses the existing r6 value as an input", t, func() {
+		var c [128]uint64
+		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
+		r1 := uint16(core.Cfg.Value.Region.Registers.R1)
+		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+		start := ProgramPayloadFirst32BitSlot()
+
+		SetInstructionSlot(&c, start, uint32(0x6)|(uint32(r0)<<4)|(uint32(r6)<<18))
+		SetInstructionSlot(&c, start+1, uint32(0x7)|(uint32(r1)<<4)|(uint32(r6)<<18))
+
+		Convey("TraceEffective keeps both the original write and the update", func() {
+			mask := TraceEffective(&c)
+			So(traceMaskHas(mask, 0), ShouldBeTrue)
+			So(traceMaskHas(mask, 1), ShouldBeTrue)
 		})
 	})
 }
@@ -102,7 +124,7 @@ func TestHomologousCrossover(t *testing.T) {
 		var donor, recipient [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
 		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
-		start := int(core.Cfg.Value.Region.Program.Start)
+		start := ProgramPayloadFirst32BitSlot()
 
 		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
 		SetInstructionSlot(&donor, start, donorInstr)
@@ -115,4 +137,22 @@ func TestHomologousCrossover(t *testing.T) {
 			So(got, ShouldEqual, donorInstr)
 		})
 	})
+}
+
+func BenchmarkTraceEffective(b *testing.B) {
+	var c [128]uint64
+	start := ProgramPayloadFirst32BitSlot()
+	r0 := uint16(core.Cfg.Value.Region.Registers.R0)
+	r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+
+	for slot := 0; slot < 32; slot++ {
+		op := uint32(0x6 + (slot % 2))
+		SetInstructionSlot(&c, start+slot, op|(uint32(r0)<<4)|(uint32(r6)<<18))
+	}
+
+	b.ReportAllocs()
+
+	for b.Loop() {
+		_ = TraceEffective(&c)
+	}
 }

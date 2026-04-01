@@ -77,19 +77,17 @@ func Available() int {
 	return int(C.count_metal_devices())
 }
 
-
 /*
 UniversalBitwise dispatches a batch of Values to the compiled Metal kernel.
 
-The opcode is no longer passed externally — each Value carries its own
-64-op program in Region 3 (words 68–71). The unified_bitwise_kernel reads
-that program and executes up to 64 ticks per Value, halting at opcode 0.
-The batch may therefore be heterogeneous: each Value runs its own independent
-program in parallel on the GPU.
+Each frame carries its own in-band program. Non-contiguous host pointers are
+packed into a contiguous slab for the Metal API; the second device buffer
+receives a byte-identical copy so legacy kernels that still read a “B” layer
+see the same snapshot as the A context (self-only host contract).
 */
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
-	backend.observer.Trace("metal.Backend.UniversalBitwise", "a", a, "b", b)
-	
+func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
+
+	backend.observer.Trace("metal.Backend.UniversalBitwise", "frames", len(frames))
 
 	if !metalReady.Load() {
 		return NewMetalError(
@@ -99,9 +97,31 @@ func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
 		)
 	}
 
-	if C.unified_bitwise_metal(a, b, C.uint32_t(count)) != 0 {
+	if len(frames) == 0 {
+		return nil
+	}
+
+	if len(frames) == 1 && frames[0] != nil {
+		if C.unified_bitwise_metal(frames[0], frames[0], 1) != 0 {
+			return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
+		}
+
+		return nil
+	}
+
+	slabA := kernel.PackValueFrames(frames)
+	slabB := append([]byte(nil), slabA...)
+
+	if C.unified_bitwise_metal(
+		unsafe.Pointer(&slabA[0]),
+		unsafe.Pointer(&slabB[0]),
+		C.uint32_t(len(frames)),
+	) != 0 {
 		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
 	}
+
+	kernel.UnpackValueFrames(frames, slabA)
+
 	return nil
 }
 

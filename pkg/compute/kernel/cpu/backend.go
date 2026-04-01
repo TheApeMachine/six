@@ -4,39 +4,25 @@ import (
 	"context"
 	"math/bits"
 	"runtime"
-	"sync"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/core"
 )
 
 type Backend struct {
-	ctx             context.Context
-	cancel          context.CancelFunc
-	nextID          uint64
-	useAffinityMode bool
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 type backendOption func(*Backend)
-
-const (
-	execStatusWord  = 63
-	execStatusMask  = 0x0000FFFFFFFFFFFF
-	execStatusShift = 48
-
-	execExitExhausted = 1
-	execExitHalt      = 2
-	execExitBadWord   = 3
-)
 
 func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 	ctx, cancel := context.WithCancel(ctx)
 
 	backend := &Backend{
-		ctx:             ctx,
-		cancel:          cancel,
-		nextID:          1,
-		useAffinityMode: true,
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	for _, opt := range opts {
@@ -49,598 +35,280 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int { return runtime.NumCPU() }
 
 /*
-execute applies the specified opcode to the two 64-bit inputs.
-opcodes 0x0–0xF are the 16 boolean truth tables.
-0x10 = POPCOUNT (Hamming distance).
-0x11 = Memory SHL: y << (x & 63).
-0x12 = Memory SHR: y >> (x & 63).
+UniversalBitwise executes multiple value's in-band programs in parallel.
+This uses the branchless and loop-less implementation programming model,
+where every line of code follows the exact same execution mechanism,
+and applying the opcode uses the actual truth table from the code to
+shift the bits. This allows for the most efficient execution of the
+in-band programs, across all hardware architectures, and ALU
+implementations, keeping the entire backend homogeneous.
+To not lose branching and looping capabilities, we will need a
+few crucial changes to the programming model:
+
+ 1. No HALT instruction, each program is always executed from start to
+    end of the program region, and the compiler will need to insert a
+    NOP instruction for any lines that are empty.
+ 2. The final lines of the program region will need an instruction to
+    shift the bits in such a way that a follow-up program can be selected.
+    When the program ends, and has a follow-up of LOOP or JMP, it will be
+    rescheduled onto the priority queue for another round of execution.
+ 3. Values ONLY operate on themselves, and there is NO partner Value.
+    That means NO partner data is ever read or written at ANY stage.
+    Values use their own Token region as the data to operate on.
 */
-func (backend *Backend) execute(op uint8, x, y uint64) uint64 {
-	switch op {
-	case 0x0:
+func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
+	n := len(frames)
+	if n == 0 {
+		return nil
+	}
+
+	for index := range frames {
+		if frames[index] == nil {
+			return NewSimdeezNutsError(ErrNilValuePointer,
+				"frame", frames[index], "i", index,
+			)
+		}
+	}
+
+	progStart := core.Cfg.Value.Region.Program.Start
+	nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+	if hasHomogeneousImmutableProgram(frames, progStart, nProgWords) {
+		executeHomogeneousProgram(frames, progStart, nProgWords)
+	} else {
+		executePerSlotGroups(frames, progStart, nProgWords)
+	}
+
+	// --- Affine follow-up: compute next program ID and schedule signature ---
+	accWord := core.Cfg.Value.Region.State.Accumulator
+	fwWord := core.Cfg.Value.Region.Registers.FW
+
+	for i := 0; i < n; i++ {
+		f := (*[128]uint64)(frames[i])
+		acc := f[accWord]
+
+		// Affine jump vector: deterministic, non-repeating orbit through programs.
+		nextID := firmware.AffineNextProgramID(acc, 6364136223846793005, 1, 6)
+
+		// Holographic schedule signature: mix program ID with data structure.
+		scanStride := f[core.Cfg.Value.Region.State.Sequence]
+		sig := firmware.HolographicScheduleSignature(nextID, 0, scanStride)
+
+		// Write follow-up into the frame for the outer scheduler to read.
+		f[fwWord] = sig
+		f[accWord] = acc ^ sig // Evolve accumulator so the orbit advances.
+	}
+
+	return nil
+}
+
+func hasHomogeneousImmutableProgram(frames []unsafe.Pointer, progStart int, nProgWords int) bool {
+	if len(frames) == 0 {
+		return false
+	}
+
+	first := (*[128]uint64)(frames[0])
+	if programWritesProgramRegion(first, progStart, nProgWords) {
+		return false
+	}
+
+	for index := 1; index < len(frames); index++ {
+		frame := (*[128]uint64)(frames[index])
+		if !sameProgramRegion(first, frame, progStart, nProgWords) {
+			return false
+		}
+	}
+
+	return true
+}
+
+func programWritesProgramRegion(frame *[128]uint64, progStart int, nProgWords int) bool {
+	if frame == nil || nProgWords <= 0 {
+		return false
+	}
+
+	progEnd := progStart + nProgWords
+	totalSlots := nProgWords * 2
+
+	for slot := 0; slot < totalSlots; slot++ {
+		instr := instructionAtSlot(frame, progStart, slot)
+		if instr == 0 {
+			continue
+		}
+
+		dstWord := int((instr >> 18) & 0x3FFF)
+		if dstWord >= progStart && dstWord < progEnd {
+			return true
+		}
+	}
+
+	return false
+}
+
+func sameProgramRegion(left, right *[128]uint64, progStart int, nProgWords int) bool {
+	if left == nil || right == nil {
+		return false
+	}
+
+	for word := 0; word < nProgWords; word++ {
+		index := progStart + word
+		if index < 0 || index >= len(left) || index >= len(right) {
+			return false
+		}
+
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
+}
+
+func executeHomogeneousProgram(frames []unsafe.Pointer, progStart int, nProgWords int) {
+	totalSlots := nProgWords * 2
+	srcScratch := make([]uint64, len(frames))
+	dstScratch := make([]uint64, len(frames))
+	progFrame := (*[128]uint64)(frames[0])
+
+	for slot := 0; slot < totalSlots; slot++ {
+		instr := instructionAtSlot(progFrame, progStart, slot)
+		if instr == 0 {
+			continue
+		}
+
+		op := uint8(instr & 0xF)
+		srcWord := int((instr>>4)&0x3FFF) & 127
+		dstWord := int((instr>>18)&0x3FFF) & 127
+
+		for index := range frames {
+			frame := (*[128]uint64)(frames[index])
+			srcScratch[index] = frame[srcWord]
+			dstScratch[index] = frame[dstWord]
+		}
+
+		execWordBlock(dstScratch, srcScratch, op)
+
+		for index := range frames {
+			(*[128]uint64)(frames[index])[dstWord] = dstScratch[index]
+		}
+	}
+}
+
+func executePerSlotGroups(frames []unsafe.Pointer, progStart int, nProgWords int) {
+	totalSlots := nProgWords * 2
+	srcScratch := make([]uint64, len(frames))
+	dstScratch := make([]uint64, len(frames))
+	groupIndexByInstr := make(map[uint32]int, 8)
+
+	for slot := 0; slot < totalSlots; slot++ {
+		groupInstrs := make([]uint32, 0, 8)
+		groupFrameIndexes := make([][]int, 0, 8)
+
+		for instr := range groupIndexByInstr {
+			delete(groupIndexByInstr, instr)
+		}
+
+		for frameIndex := range frames {
+			frame := (*[128]uint64)(frames[frameIndex])
+			instr := instructionAtSlot(frame, progStart, slot)
+			if instr == 0 {
+				continue
+			}
+
+			groupIndex, seen := groupIndexByInstr[instr]
+			if !seen {
+				groupIndex = len(groupInstrs)
+				groupIndexByInstr[instr] = groupIndex
+				groupInstrs = append(groupInstrs, instr)
+				groupFrameIndexes = append(groupFrameIndexes, nil)
+			}
+
+			groupFrameIndexes[groupIndex] = append(groupFrameIndexes[groupIndex], frameIndex)
+		}
+
+		for groupIndex, instr := range groupInstrs {
+			frameIndexes := groupFrameIndexes[groupIndex]
+			executeInstructionBatch(
+				frames,
+				frameIndexes,
+				instr,
+				srcScratch[:len(frameIndexes)],
+				dstScratch[:len(frameIndexes)],
+			)
+		}
+	}
+}
+
+func instructionAtSlot(frame *[128]uint64, progStart int, slot int) uint32 {
+	if frame == nil {
 		return 0
-	case 0x1:
-		return x & y
-	case 0x2:
-		return x &^ y
-	case 0x3:
-		return x
-	case 0x4:
-		return ^x & y
-	case 0x5:
-		return y
-	case 0x6:
-		return x ^ y
-	case 0x7:
-		return x | y
-	case 0x8:
-		return ^(x | y)
-	case 0x9:
-		return ^(x ^ y)
-	case 0xA:
-		return ^y
-	case 0xB:
-		return x | ^y
-	case 0xC:
-		return ^x
-	case 0xD:
-		return ^x | y
-	case 0xE:
-		return ^(x & y)
-	case 0xF:
-		return ^uint64(0)
+	}
+
+	wordIdx := progStart + slot/2
+	if wordIdx < 0 || wordIdx >= len(frame) {
+		return 0
+	}
+
+	shift := uint((slot % 2) * 32)
+	return uint32(frame[wordIdx] >> shift)
+}
+
+func executeInstructionBatch(
+	frames []unsafe.Pointer,
+	frameIndexes []int,
+	instr uint32,
+	srcScratch []uint64,
+	dstScratch []uint64,
+) {
+	if len(frameIndexes) == 0 {
+		return
+	}
+
+	op := uint8(instr & 0xF)
+	srcWord := int((instr>>4)&0x3FFF) & 127
+	dstWord := int((instr>>18)&0x3FFF) & 127
+
+	for index, frameIndex := range frameIndexes {
+		frame := (*[128]uint64)(frames[frameIndex])
+		srcScratch[index] = frame[srcWord]
+		dstScratch[index] = frame[dstWord]
+	}
+
+	execWordBlock(dstScratch, srcScratch, op)
+
+	for index, frameIndex := range frameIndexes {
+		(*[128]uint64)(frames[frameIndex])[dstWord] = dstScratch[index]
+	}
+}
+
+/*
+TruthTable applies a 4-bit opcode as the truth table it literally encodes.
+Bit 0 is the output for (a=1, b=1), bit 1 for (1,0), bit 2 for (0,1),
+and bit 3 for (0,0), matching cmd/cfg/config.yml.
+Branchless so the compiler can emit SIMD for loops over []uint64.
+*/
+func TruthTable(op uint8, a, b uint64) uint64 {
+	return (a & b & -uint64(op&1)) |
+		(a & ^b & -uint64((op>>1)&1)) |
+		(^a & b & -uint64((op>>2)&1)) |
+		(^a & ^b & -uint64((op>>3)&1))
+}
+
+/*
+ExecWord is the single-lane scalar entry point for external callers.
+*/
+func ExecWord(op uint8, x, y uint64) uint64 {
+	switch op {
 	case 0x10:
 		return uint64(bits.OnesCount64(x ^ y))
 	case 0x11:
-		return y << (x & 63) // Memory SHL
+		return y << (x & 63)
 	case 0x12:
-		return y >> (x & 63) // Memory SHR
+		return y >> (x & 63)
 	case 0x13:
-		return x + y // ADD
-	}
-	return 0
-}
-
-/*
-ExecWord applies opcode to a single 64-bit lane with the same semantics as
-UniversalBitwise ALU execution (left operand x, right operand y). It exists so
-other packages can share the opcode map without holding a Backend.
-*/
-func ExecWord(op uint8, x, y uint64) uint64 {
-	var backend Backend
-
-	return backend.execute(op, x, y)
-}
-
-/*
-BitwiseFrame pins one (A,B) Value pair for host-side execution. Pointers must
-remain valid and disjoint frames until UniversalBitwiseFrames returns.
-*/
-type BitwiseFrame struct {
-	A unsafe.Pointer
-	B unsafe.Pointer
-}
-
-/*
-UniversalBitwise executes the in-band program stored in each Value frame.
-Four 16-bit instructions are packed per uint64 word in the program region.
-
-Instruction classes (bits [15:14]):
-
-	00 / HALT  — instr == 0 stops execution
-	01 / MEM   — load, store, or immediate
-	10 / ALU   — boolean truth-table operation
-	11 / CTL   — control flow: JMPZ, DJNZ, SHL, SHR
-
-CTL sub-opcodes (bits [13:12]):
-
-	00 JMPZ  — if reg == 0, jump by signed 10-bit offset (bits [9:0])
-	01 DJNZ  — reg--; if reg != 0, jump by signed 10-bit offset
-	10 SHL   — reg <<= imm (bits [9:0], 0 means 1)
-	11 SHR   — reg >>= imm (bits [9:0], 0 means 1)
-
-When count>1 and GOMAXPROCS>1, independent frames execute in parallel so each
-P‑core drives its own interpreter + AVX/NEON ALU windows — serializing count on
-one goroutine left SIMD units idle across packages.
-*/
-func valueFrameStride() uintptr {
-
-	bytes := core.Cfg.Value.Bytes
-	if bytes > 0 {
-		return uintptr(bytes)
+		return x + y
 	}
 
-	words := core.Cfg.Value.Words
-	if words > 0 {
-		return uintptr(words * 8)
-	}
-
-	// Tests and minimal embedders sometimes run before viper fills Value.* ; the
-	// canonical on-disk layout is still 128 × uint64.
-	return 128 * 8
-}
-
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
-
-	if a == nil || b == nil {
-		return NewSimdeezNutsError(ErrNilValuePointer,
-			"a", a, "b", b,
-		)
-	}
-
-	if count <= 0 {
-		return nil
-	}
-
-	if count == 1 {
-		backend.universalBitwiseOne(a, b)
-		return nil
-	}
-
-	backend.universalBitwiseContiguousParallel(a, b, count)
-	return nil
-}
-
-/*
-UniversalBitwiseFrames executes heterogeneous frame pointers with no contiguity
-assumption — used by the compute router to avoid packing scattered heap Values
-into a staging buffer on the CPU path.
-*/
-func (backend *Backend) UniversalBitwiseFrames(frames []BitwiseFrame) error {
-
-	if len(frames) == 0 {
-		return nil
-	}
-
-	if len(frames) == 1 {
-		if frames[0].A == nil || frames[0].B == nil {
-			return NewSimdeezNutsError(ErrNilValuePointer,
-				"a", frames[0].A, "b", frames[0].B,
-			)
-		}
-		backend.universalBitwiseOne(frames[0].A, frames[0].B)
-		return nil
-	}
-
-	for i := range frames {
-		if frames[i].A == nil || frames[i].B == nil {
-			return NewSimdeezNutsError(ErrNilValuePointer,
-				"a", frames[i].A, "b", frames[i].B,
-			)
-		}
-	}
-
-	backend.universalBitwiseFramesParallel(frames)
-	return nil
-}
-
-func (backend *Backend) universalBitwiseContiguousParallel(a, b unsafe.Pointer, count int) {
-
-	procs := runtime.GOMAXPROCS(0)
-	if procs <= 1 {
-		stride := valueFrameStride()
-		for i := 0; i < count; i++ {
-			curA := unsafe.Pointer(uintptr(a) + stride*uintptr(i))
-			curB := unsafe.Pointer(uintptr(b) + stride*uintptr(i))
-			backend.universalBitwiseOne(curA, curB)
-		}
-		return
-	}
-
-	workers := procs
-	if workers > count {
-		workers = count
-	}
-
-	stride := valueFrameStride()
-	var wait sync.WaitGroup
-	wait.Add(workers)
-
-	chunk := (count + workers - 1) / workers
-
-	for worker := 0; worker < workers; worker++ {
-		start := worker * chunk
-		end := start + chunk
-		if end > count {
-			end = count
-		}
-
-		if start >= end {
-			wait.Done()
-			continue
-		}
-
-		go func(from, to int) {
-			defer wait.Done()
-			for i := from; i < to; i++ {
-				curA := unsafe.Pointer(uintptr(a) + stride*uintptr(i))
-				curB := unsafe.Pointer(uintptr(b) + stride*uintptr(i))
-				backend.universalBitwiseOne(curA, curB)
-			}
-		}(start, end)
-	}
-
-	wait.Wait()
-}
-
-func (backend *Backend) universalBitwiseFramesParallel(frames []BitwiseFrame) {
-
-	procs := runtime.GOMAXPROCS(0)
-	n := len(frames)
-	if procs <= 1 {
-		for i := range frames {
-			backend.universalBitwiseOne(frames[i].A, frames[i].B)
-		}
-		return
-	}
-
-	workers := procs
-	if workers > n {
-		workers = n
-	}
-
-	var wait sync.WaitGroup
-	wait.Add(workers)
-
-	chunk := (n + workers - 1) / workers
-
-	for worker := 0; worker < workers; worker++ {
-		start := worker * chunk
-		end := start + chunk
-		if end > n {
-			end = n
-		}
-
-		if start >= end {
-			wait.Done()
-			continue
-		}
-
-		go func(from, to int) {
-			defer wait.Done()
-			for i := from; i < to; i++ {
-				backend.universalBitwiseOne(frames[i].A, frames[i].B)
-			}
-		}(start, end)
-	}
-
-	wait.Wait()
-}
-
-func (backend *Backend) universalBitwiseOne(a, b unsafe.Pointer) {
-
-	pi := uint64(core.Cfg.Value.Region.Program.Start)
-	pcIdx := uint64(core.Cfg.Value.Region.Registers.PC)
-	if pcIdx == 0 && core.Cfg.Value.Region.Program.Start > 0 {
-		pcIdx = uint64(core.Cfg.Value.Region.Program.Start - 1)
-	}
-	pcReg := uint64(pcIdx)
-
-	var scratch [128]uint64
-
-	ctx := [2]*[128]uint64{(*[128]uint64)(a), (*[128]uint64)(b)}
-	var regs [4]uint64
-
-	for {
-		pc := ctx[0][pcReg&127]
-
-		word := (pi + (pc >> 2)) & 127
-		shift := (pc & 3) << 4
-		instr := uint16(ctx[0][word] >> shift)
-
-		if instr == 0 {
-			break // HALT
-		}
-
-		switch cls := instr >> 14; cls {
-		case 1: // MEM
-			pc = backend.handleMem(
-				ctx, instr, pcReg, &regs, pc,
-			)
-		case 2, 0: // ALU & EXT ALU (cls=0)
-			pc = backend.handleAlu(
-				ctx, instr, pcReg, &regs, scratch, cls, pi, pc,
-			)
-		case 3: // CTL
-			pc = backend.handleCtl(
-				ctx, instr, pcReg, &regs, pc,
-			)
-		}
-
-		ctx[0][pcReg&127] = pc
-	}
-}
-
-func (backend *Backend) handleMem(
-	ctx [2]*[128]uint64,
-	instr uint16,
-	pcReg uint64,
-	regs *[4]uint64,
-	pc uint64,
-) (npc uint64) {
-	dir := (instr >> 13) & 1
-	reg := (instr >> 11) & 3
-	sub := (instr >> 10) & 1
-	indirect := (instr >> 9) & 1
-
-	if dir == 0 {
-		if indirect == 1 {
-			// ILOAD: reg = ctx[sub][regs[addrReg] & 127]
-			addrReg := instr & 3
-			addr := regs[addrReg] & 127
-			regs[reg] = ctx[sub][addr]
-		} else {
-			// LOAD: reg = ctx[sub][word]
-			regs[reg] = ctx[sub][instr&0x7F]
-		}
-	} else if sub == 0 {
-		if indirect == 1 {
-			// ISTORE: ctx[0][regs[addrReg] & 127] = regs[reg]
-			addrReg := instr & 3
-			addr := regs[addrReg] & 127
-			ctx[0][addr] = regs[reg]
-		} else {
-			// STORE: ctx[0][word] = regs[reg]
-			ctx[0][instr&0x7F] = regs[reg]
-		}
-	} else {
-		// IMM: regs[reg] = immediate (0-1023)
-		regs[reg] = uint64(instr & 0x3FF)
-	}
-
-	return pc + 1
-}
-
-// aluOp holds a decoded ALU instruction ready for issue.
-type aluOp struct {
-	op    uint8
-	reg   uint8
-	fctx  uint8
-	fword uint8
-}
-
-func (backend *Backend) handleAlu(
-	ctx [2]*[128]uint64,
-	instr uint16,
-	pcReg uint64,
-	regs *[4]uint64,
-	scratch [128]uint64,
-	cls uint16,
-	pi uint64,
-	pc uint64,
-) (npc uint64) {
-	op0 := uint8((instr >> 10) & 0xF)
-	if cls == 0 {
-		op0 += 16
-	}
-	reg0 := uint8((instr >> 8) & 3)
-	fctx0 := uint8((instr >> 7) & 1)
-	fword0 := uint8(instr & 0x7F)
-
-	// Fast path: look ahead for a contiguous window of ALU ops with the same
-	// (op, reg, fctx) and strictly incrementing fword. This is the common case
-	// emitted by compilers targeting this ISA.
-	//
-	// We scan up to the end of the context window, without an n<4 guard —
-	// SIMD dispatch is always beneficial on arm64/amd64 regardless of n.
-	n := uint16(1)
-	{
-		maxN := uint16(128) - uint16(fword0)
-		if maxN > 124 {
-			maxN = 124 // leave room at window edge
-		}
-		expectedNext := instr + 1 // same op/reg/fctx, fword+1
-		for n < maxN {
-			nextPC := pc + uint64(n)
-			nWordIdx := (pi + (nextPC >> 2)) & 127
-			nShift := (nextPC & 3) << 4
-			if uint16(ctx[0][nWordIdx]>>nShift) != expectedNext {
-				break
-			}
-			n++
-			expectedNext++
-		}
-	}
-
-	if n >= 2 {
-		// Contiguous same-op run — dispatch directly via SIMD.
-		rVal := regs[reg0]
-		broadcastFillU64(scratch[:n], rVal)
-		fw := uint16(fword0)
-		if fctx0 == 1 {
-			copy(ctx[0][fw:fw+n], ctx[1][fw:fw+n])
-		}
-		execWordBlock(ctx[0][fw:fw+n], scratch[:n], op0)
-		ctx[0][pcReg&127] = pc + uint64(n)
-		return ctx[0][pcReg&127]
-	}
-
-	// Lookahead window: scan up to 64 further instructions for ALU ops with
-	// the same op type that we can gather-SIMD-scatter, hoisting them above
-	// intervening independent ALU ops of different types.
-	//
-	// Scoreboard: a 128-bit dirty set tracking ctx[0] words written in this
-	// window. Two uint64s cover indices 0–127.
-	var dirtyLo, dirtyHi uint64
-	markDirty := func(w uint8) {
-		if w < 64 {
-			dirtyLo |= 1 << w
-		} else {
-			dirtyHi |= 1 << (w - 64)
-		}
-	}
-	isDirty := func(w uint8) bool {
-		if w < 64 {
-			return dirtyLo>>w&1 != 0
-		}
-		return dirtyHi>>(w-64)&1 != 0
-	}
-
-	// Buffer for gather: indices into ctx[0] and corresponding src values.
-	// Max 64 ops per lookahead pass.
-	type gatherSlot struct {
-		fword uint8
-		fctx  uint8
-		reg   uint8
-	}
-	var slots [64]gatherSlot
-	nSlots := 0
-	consumed := uint64(0) // number of PCs consumed by this dispatch (always ≥1)
-
-	// Include the triggering instruction.
-	if !isDirty(fword0) {
-		slots[nSlots] = gatherSlot{fword0, fctx0, reg0}
-		nSlots++
-		markDirty(fword0)
-	}
-
-	// Scan ahead for more same-op ALU instructions.
-	scanLimit := uint64(64)
-	for look := uint64(1); look < scanLimit && nSlots < 64; look++ {
-		lPC := pc + look
-		lWordIdx := (pi + (lPC >> 2)) & 127
-		lShift := (lPC & 3) << 4
-		lInstr := uint16(ctx[0][lWordIdx] >> lShift)
-
-		if lInstr == 0 {
-			break // HALT — stop lookahead
-		}
-
-		lCls := lInstr >> 14
-		if lCls == 3 {
-			// CTL: branch/jump — ordering barrier, stop lookahead.
-			break
-		}
-		if lCls == 1 {
-			// MEM: mark the destination word dirty if it is a store to ctx[0].
-			lDir := (lInstr >> 13) & 1
-			lSub := (lInstr >> 10) & 1
-			if lDir == 1 && lSub == 0 {
-				lFword := uint8(lInstr & 0x7F)
-				markDirty(lFword)
-			}
-			continue
-		}
-
-		lOp := uint8((lInstr >> 10) & 0xF)
-		if lCls == 0 {
-			lOp += 16
-		}
-		lReg := uint8((lInstr >> 8) & 3)
-		lFctx := uint8((lInstr >> 7) & 1)
-		lFword := uint8(lInstr & 0x7F)
-
-		if lOp != op0 {
-			// Different op type: mark its destination dirty so later ops of op0
-			// that depend on it are not hoisted, then continue scanning.
-			if !isDirty(lFword) {
-				markDirty(lFword)
-			}
-			continue
-		}
-
-		if isDirty(lFword) {
-			continue // WAW hazard — skip
-		}
-
-		slots[nSlots] = gatherSlot{lFword, lFctx, lReg}
-		nSlots++
-		markDirty(lFword)
-	}
-
-	if nSlots == 1 {
-		// No benefit from gather path — scalar dispatch for the single op.
-		ctx[0][fword0] = backend.execute(op0, regs[reg0], ctx[fctx0][fword0])
-		ctx[0][pcReg&127] = pc + 1
-		return ctx[0][pcReg&127]
-	}
-
-	// Gather: pack dst and src into scratch[0:nSlots] and scratch[64:64+nSlots].
-	dstScratch := scratch[0:nSlots]
-	srcScratch := scratch[64 : 64+nSlots]
-	for i, s := range slots[:nSlots] {
-		dstScratch[i] = ctx[s.fctx][s.fword]
-		srcScratch[i] = regs[s.reg]
-	}
-
-	execWordBlock(dstScratch, srcScratch, op0)
-
-	// Scatter results back and advance PC by consumed instructions.
-	// We only commit the leading contiguous run of dispatched slots in PC order
-	// (i.e. slot[0] which is always the instruction at `pc`).
-	// Hoisted out-of-order results for slots[1:] are written to ctx[0] directly;
-	// their PC positions will be skipped when the loop reaches them (the words
-	// will already have been updated — harmless since ctx[0][fword] is idempotent
-	// for pure functional ops given the same register values).
-	for i, s := range slots[:nSlots] {
-		ctx[0][s.fword] = dstScratch[i]
-	}
-
-	// Advance PC: skip the triggering instruction only. The out-of-order
-	// slots will be re-encountered but their destinations are already written.
-	consumed = 1
-	ctx[0][pcReg&127] = pc + consumed
-	return ctx[0][pcReg&127]
-}
-
-func (backend *Backend) handleCtl(
-	ctx [2]*[128]uint64,
-	instr uint16,
-	pcReg uint64,
-	regs *[4]uint64,
-	pc uint64,
-) (npc uint64) {
-	sub := (instr >> 12) & 3
-	reg := (instr >> 10) & 3
-	// 10-bit signed offset, sign-extended from bit 9.
-	raw := int16(instr & 0x3FF)
-
-	if raw&0x200 != 0 {
-		raw |= -512 // sign-extend 10-bit → 16-bit
-	}
-
-	offset := int64(raw)
-
-	switch sub {
-	case 0: // JMPZ — jump by offset if reg == 0, else advance by 1
-		if regs[reg] != 0 {
-			ctx[0][pcReg&127] = pc + 1
-			break
-		}
-
-		ctx[0][pcReg&127] = uint64(int64(pc) + offset)
-	case 1: // DJNZ — decrement reg; jump by offset if still != 0
-		regs[reg]--
-
-		if regs[reg] == 0 {
-			ctx[0][pcReg&127] = pc + 1
-			break
-		}
-
-		ctx[0][pcReg&127] = uint64(int64(pc) + offset)
-	case 2: // SHL — logical left shift by imm (0 → shift by 1)
-		s := uint(instr&0x3FF) & 63
-
-		if s == 0 {
-			s = 1
-		}
-
-		regs[reg] <<= s
-	case 3: // SHR — logical right shift by imm (0 → shift by 1)
-		s := uint(instr&0x3FF) & 63
-
-		if s == 0 {
-			s = 1
-		}
-
-		regs[reg] >>= s
-	}
-
-	return ctx[0][pcReg&127]
-}
-
-func WithAffinityMode(enabled bool) backendOption {
-	return func(backend *Backend) { backend.useAffinityMode = enabled }
+	return TruthTable(op, x, y)
 }
 
 func (backend *Backend) Shutdown() error {

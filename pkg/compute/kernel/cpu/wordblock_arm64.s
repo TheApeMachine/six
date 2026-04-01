@@ -627,3 +627,185 @@ shr_tail:
 	VST1	[V0.D1], (R0)
 shr_done:
 	RET
+
+
+// ----------------------------------------------------------------------------
+// dst[i] = truthTable(dst[i], src[i], op)
+//
+// Branchless 4-bit truth table for all 16 binary Boolean opcodes.
+// For each lane:
+//   result = (~a & ~b & m0) | (a & ~b & m1) | (~a & b & m2) | (a & b & m3)
+// where a = src[i], b = dst[i], and m0..m3 are all-ones or all-zeros masks
+// derived from the 4-bit opcode.
+//
+// Signature: func(dst, src *uint64, n int, op uint8)
+// ----------------------------------------------------------------------------
+TEXT ·simdTruthTable(SB), NOSPLIT|NOFRAME, $0-25
+	MOVD	dst+0(FP), R0
+	MOVD	src+8(FP), R1
+	MOVD	n+16(FP), R2
+	MOVBU	op+24(FP), R4
+
+	// Build scalar masks: m = -uint64(bit), i.e. 0 or 0xFFFFFFFFFFFFFFFF.
+	AND	$1, R4, R5
+	NEG	R5, R5
+	LSR	$1, R4, R6
+	AND	$1, R6, R6
+	NEG	R6, R6
+	LSR	$2, R4, R7
+	AND	$1, R7, R7
+	NEG	R7, R7
+	LSR	$3, R4, R8
+	AND	$1, R8, R8
+	NEG	R8, R8
+
+	// Broadcast m0..m3 into V28..V31.
+	VMOV	R5, V28.D[0]
+	VDUP	V28.D[0], V28.D2		// m0
+	VMOV	R6, V29.D[0]
+	VDUP	V29.D[0], V29.D2		// m1
+	VMOV	R7, V30.D[0]
+	VDUP	V30.D[0], V30.D2		// m2
+	VMOV	R8, V31.D[0]
+	VDUP	V31.D[0], V31.D2		// m3
+
+	// Prepare all-ones register for NOT.
+	WORD	$0x6F00E7F8			// movi v24.16b, #0xff
+
+	MOVD	R2, R3
+	LSR	$3, R2, R2
+	CBZ	R2, tt_mid_setup
+
+tt_hot:
+	// Load 4x Q from src (a) and dst (b).
+	VLD1.P	16(R1), [V0.B16]
+	VLD1.P	16(R1), [V1.B16]
+	VLD1.P	16(R1), [V2.B16]
+	VLD1.P	16(R1), [V3.B16]
+
+	VLD1.P	16(R0), [V4.B16]
+	VLD1.P	16(R0), [V5.B16]
+	VLD1.P	16(R0), [V6.B16]
+	VLD1.P	16(R0), [V7.B16]
+
+	// --- lane 0: a=V0, b=V4 ---
+	VEOR	V0.B16, V24.B16, V8.B16	// ~a
+	VEOR	V4.B16, V24.B16, V9.B16	// ~b
+	VAND	V8.B16, V9.B16, V10.B16	// ~a & ~b
+	VAND	V0.B16, V9.B16, V11.B16	// a & ~b
+	VAND	V11.B16, V29.B16, V11.B16	// & m1
+	VAND	V8.B16, V4.B16, V12.B16	// ~a & b
+	VAND	V12.B16, V30.B16, V12.B16	// & m2
+	VAND	V0.B16, V4.B16, V13.B16	// a & b
+	VAND	V13.B16, V28.B16, V13.B16	// & m0
+	VAND	V10.B16, V31.B16, V10.B16	// & m3
+	VORR	V10.B16, V11.B16, V10.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V10.B16, V12.B16, V0.B16
+
+	// --- lane 1: a=V1, b=V5 ---
+	VEOR	V1.B16, V24.B16, V8.B16
+	VEOR	V5.B16, V24.B16, V9.B16
+	VAND	V8.B16, V9.B16, V10.B16
+	VAND	V1.B16, V9.B16, V11.B16
+	VAND	V11.B16, V29.B16, V11.B16
+	VAND	V8.B16, V5.B16, V12.B16
+	VAND	V12.B16, V30.B16, V12.B16
+	VAND	V1.B16, V5.B16, V13.B16
+	VAND	V13.B16, V28.B16, V13.B16
+	VAND	V10.B16, V31.B16, V10.B16
+	VORR	V10.B16, V11.B16, V10.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V10.B16, V12.B16, V1.B16
+
+	// --- lane 2: a=V2, b=V6 ---
+	VEOR	V2.B16, V24.B16, V8.B16
+	VEOR	V6.B16, V24.B16, V9.B16
+	VAND	V8.B16, V9.B16, V10.B16
+	VAND	V2.B16, V9.B16, V11.B16
+	VAND	V11.B16, V29.B16, V11.B16
+	VAND	V8.B16, V6.B16, V12.B16
+	VAND	V12.B16, V30.B16, V12.B16
+	VAND	V2.B16, V6.B16, V13.B16
+	VAND	V13.B16, V28.B16, V13.B16
+	VAND	V10.B16, V31.B16, V10.B16
+	VORR	V10.B16, V11.B16, V10.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V10.B16, V12.B16, V2.B16
+
+	// --- lane 3: a=V3, b=V7 ---
+	VEOR	V3.B16, V24.B16, V8.B16
+	VEOR	V7.B16, V24.B16, V9.B16
+	VAND	V8.B16, V9.B16, V10.B16
+	VAND	V3.B16, V9.B16, V11.B16
+	VAND	V11.B16, V29.B16, V11.B16
+	VAND	V8.B16, V7.B16, V12.B16
+	VAND	V12.B16, V30.B16, V12.B16
+	VAND	V3.B16, V7.B16, V13.B16
+	VAND	V13.B16, V28.B16, V13.B16
+	VAND	V10.B16, V31.B16, V10.B16
+	VORR	V10.B16, V11.B16, V10.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V10.B16, V12.B16, V3.B16
+
+	// Store 4x Q back to dst.
+	SUB	$64, R0, R0
+	VST1.P	[V0.B16], 16(R0)
+	VST1.P	[V1.B16], 16(R0)
+	VST1.P	[V2.B16], 16(R0)
+	VST1.P	[V3.B16], 16(R0)
+
+	SUB	$1, R2, R2
+	CBNZ	R2, tt_hot
+
+tt_mid_setup:
+	AND	$7, R3, R3
+	LSR	$1, R3, R2
+	CBZ	R2, tt_tail
+
+tt_mid:
+	VLD1.P	16(R1), [V0.B16]		// a
+	VLD1.P	16(R0), [V4.B16]		// b
+
+	VEOR	V0.B16, V24.B16, V8.B16	// ~a
+	VEOR	V4.B16, V24.B16, V9.B16	// ~b
+	VAND	V8.B16, V9.B16, V10.B16
+	VAND	V0.B16, V9.B16, V11.B16
+	VAND	V11.B16, V29.B16, V11.B16
+	VAND	V8.B16, V4.B16, V12.B16
+	VAND	V12.B16, V30.B16, V12.B16
+	VAND	V0.B16, V4.B16, V13.B16
+	VAND	V13.B16, V28.B16, V13.B16
+	VAND	V10.B16, V31.B16, V10.B16
+	VORR	V10.B16, V11.B16, V10.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V10.B16, V12.B16, V0.B16
+
+	SUB	$16, R0, R0
+	VST1.P	[V0.B16], 16(R0)
+	SUB	$1, R2, R2
+	CBNZ	R2, tt_mid
+
+tt_tail:
+	TBZ	$0, R3, tt_done
+
+	VLD1	(R1), [V0.D1]			// a (upper lane zeroed)
+	VLD1	(R0), [V4.D1]			// b (upper lane zeroed)
+
+	VEOR	V0.B16, V24.B16, V8.B16	// ~a
+	VEOR	V4.B16, V24.B16, V9.B16	// ~b
+	VAND	V8.B16, V9.B16, V10.B16
+	VAND	V0.B16, V9.B16, V11.B16
+	VAND	V11.B16, V29.B16, V11.B16
+	VAND	V8.B16, V4.B16, V12.B16
+	VAND	V12.B16, V30.B16, V12.B16
+	VAND	V0.B16, V4.B16, V13.B16
+	VAND	V13.B16, V28.B16, V13.B16
+	VAND	V10.B16, V31.B16, V10.B16
+	VORR	V10.B16, V11.B16, V10.B16
+	VORR	V12.B16, V13.B16, V12.B16
+	VORR	V10.B16, V12.B16, V0.B16
+
+	VST1	[V0.D1], (R0)
+tt_done:
+	RET

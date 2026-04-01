@@ -6,6 +6,26 @@ import (
 	"github.com/theapemachine/six/pkg/core"
 )
 
+/*
+signalAffineRing is the smallest prime above the 3648-bit token region so an
+affine index map can permute scan order without folding through a composite
+modulus.
+*/
+const signalAffineRing = 3659
+
+/*
+signalScanStrides are coprime to signalAffineRing; each stride defines a
+different reordering of token bits before longest-run detection so cancel /
+merge spans can align non-contiguous agreements as well as literal runs.
+*/
+var signalScanStrides = [...]uint64{2, 7, 11, 13, 17, 23}
+
+type signalScanSpec struct {
+	op            uint8
+	kind          SignalKind
+	invertForScan bool
+}
+
 // SignalKind classifies what a detected span implies.
 type SignalKind uint8
 
@@ -24,10 +44,13 @@ const (
 type Signal struct {
 	Kind     SignalKind
 	Op       uint8  // truth-table opcode that produced the result
-	StartBit int    // absolute bit offset of the longest run
+	StartBit int    // physical bit offset for linear scan (ScanStride==0); virtual step start when ScanStride!=0
 	Length   int    // length of the run in bits
 	SourceA  uint64 // ValueID of operand A
 	SourceB  uint64 // ValueID of operand B
+	// ScanStride selects affine order: physicalBit(step)=((ScanStride*step)%signalAffineRing)%tokenBits.
+	// Zero means StartBit indexes a linear physical span (legacy ExtractSpan path).
+	ScanStride uint64
 }
 
 // ScanSignals applies every relevant opcode between two Values' token regions,
@@ -40,15 +63,13 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 		return nil
 	}
 
-	// We scan XOR (cancel) and AND (merge) — the two fundamental signal types.
-	type scanSpec struct {
-		op   uint8
-		kind SignalKind
-		// For cancel we look at zero-runs in XOR result.
-		// For merge we look at one-runs in AND result.
-		invertForScan bool // if true, count zero-runs; else count one-runs
+	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
+	if tokenBits <= 0 {
+		tokenBits = tokenWords * 64
 	}
-	specs := []scanSpec{
+
+	// We scan XOR (cancel) and AND (merge) — the two fundamental signal types.
+	specs := []signalScanSpec{
 		{op: 0x6, kind: SignalCancel, invertForScan: true}, // XOR → zero-run
 		{op: 0x1, kind: SignalMerge, invertForScan: false}, // AND → one-run
 	}
@@ -61,88 +82,29 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 	idA := a[idWord]
 	idB := b[idWord]
 
+	opWords := make([]uint64, tokenWords)
 	var signals []Signal
 
 	for _, spec := range specs {
-		bestStart, bestLen := -1, 0
-		var allRuns []Signal
-
-		currentStart := -1
-		currentLen := 0
-
 		for w := 0; w < tokenWords; w++ {
 			idx := baseIdx + w
 			if idx >= Words {
 				break
 			}
 
-			var result uint64
 			switch spec.op {
 			case 0x6:
-				result = a[idx] ^ b[idx]
+				opWords[w] = a[idx] ^ b[idx]
 			case 0x1:
-				result = a[idx] & b[idx]
-			}
-
-			// For cancel (XOR) we want zero-runs → invert so ones = zeros.
-			scanWord := result
-			if spec.invertForScan {
-				scanWord = ^result
-			}
-
-			// Walk bits in this word, extending or closing runs.
-			for bit := 0; bit < 64; bit++ {
-				bitSet := (scanWord >> bit) & 1
-				absBit := w*64 + bit
-
-				if bitSet == 1 {
-					if currentStart < 0 {
-						currentStart = absBit
-						currentLen = 1
-					} else {
-						currentLen++
-					}
-				} else {
-					if currentLen > 0 {
-						sig := Signal{
-							Kind:     spec.kind,
-							Op:       spec.op,
-							StartBit: currentStart,
-							Length:   currentLen,
-							SourceA:  idA,
-							SourceB:  idB,
-						}
-						allRuns = append(allRuns, sig)
-						if currentLen > bestLen {
-							bestLen = currentLen
-							bestStart = currentStart
-						}
-						currentStart = -1
-						currentLen = 0
-					}
-				}
+				opWords[w] = a[idx] & b[idx]
 			}
 		}
 
-		// Close any trailing run.
-		if currentLen > 0 {
-			sig := Signal{
-				Kind:     spec.kind,
-				Op:       spec.op,
-				StartBit: currentStart,
-				Length:   currentLen,
-				SourceA:  idA,
-				SourceB:  idB,
-			}
-			allRuns = append(allRuns, sig)
-			if currentLen > bestLen {
-				bestLen = currentLen
-				bestStart = currentStart
-			}
+		for _, stride := range signalScanStrides {
+			signals = append(signals, scanSignalsAffineStride(opWords, spec, stride, tokenBits, idA, idB)...)
 		}
 
-		_ = bestStart // used to identify which is longest
-		signals = append(signals, allRuns...)
+		signals = append(signals, scanSignalsLinear(opWords, spec, tokenBits, idA, idB)...)
 	}
 
 	// Sort by length descending so caller can easily separate longest from rest.
@@ -150,15 +112,188 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 	return signals
 }
 
-// sortSignals sorts signals by length descending (longest first).
+func scanSignalsLinear(opWords []uint64, spec signalScanSpec, tokenBits int, idA, idB uint64) []Signal {
+	var allRuns []Signal
+
+	currentStart := -1
+	currentLen := 0
+
+	for absBit := 0; absBit < tokenBits; absBit++ {
+		bitSet := int(readOpWordBit(opWords, absBit))
+		if spec.invertForScan {
+			bitSet ^= 1
+		}
+
+		if bitSet == 1 {
+			if currentStart < 0 {
+				currentStart = absBit
+				currentLen = 1
+			} else {
+				currentLen++
+			}
+
+			continue
+		}
+
+		if currentLen > 0 {
+			allRuns = append(allRuns, Signal{
+				Kind:       spec.kind,
+				Op:         spec.op,
+				StartBit:   currentStart,
+				Length:     currentLen,
+				SourceA:    idA,
+				SourceB:    idB,
+				ScanStride: 0,
+			})
+			currentStart = -1
+			currentLen = 0
+		}
+	}
+
+	if currentLen > 0 {
+		allRuns = append(allRuns, Signal{
+			Kind:       spec.kind,
+			Op:         spec.op,
+			StartBit:   currentStart,
+			Length:     currentLen,
+			SourceA:    idA,
+			SourceB:    idB,
+			ScanStride: 0,
+		})
+	}
+
+	return allRuns
+}
+
+func scanSignalsAffineStride(opWords []uint64, spec signalScanSpec, stride uint64, tokenBits int, idA, idB uint64) []Signal {
+	var allRuns []Signal
+
+	currentStart := -1
+	currentLen := 0
+
+	for step := 0; step < tokenBits; step++ {
+		phys := int((stride*uint64(step))%signalAffineRing) % tokenBits
+		bitSet := int(readOpWordBit(opWords, phys))
+		if spec.invertForScan {
+			bitSet ^= 1
+		}
+
+		if bitSet == 1 {
+			if currentStart < 0 {
+				currentStart = step
+				currentLen = 1
+			} else {
+				currentLen++
+			}
+
+			continue
+		}
+
+		if currentLen > 0 {
+			allRuns = append(allRuns, Signal{
+				Kind:       spec.kind,
+				Op:         spec.op,
+				StartBit:   currentStart,
+				Length:     currentLen,
+				SourceA:    idA,
+				SourceB:    idB,
+				ScanStride: stride,
+			})
+			currentStart = -1
+			currentLen = 0
+		}
+	}
+
+	if currentLen > 0 {
+		allRuns = append(allRuns, Signal{
+			Kind:       spec.kind,
+			Op:         spec.op,
+			StartBit:   currentStart,
+			Length:     currentLen,
+			SourceA:    idA,
+			SourceB:    idB,
+			ScanStride: stride,
+		})
+	}
+
+	return allRuns
+}
+
+func readOpWordBit(opWords []uint64, phys int) uint64 {
+	if phys < 0 {
+		return 0
+	}
+
+	w := phys / 64
+	b := uint(phys % 64)
+	if w >= len(opWords) {
+		return 0
+	}
+
+	return (opWords[w] >> b) & 1
+}
+
+/*
+ExtractAffineRun packs length bits read from wordSrc along the affine scan
+defined by stride and virtualStart (same convention as ScanSignals).
+*/
+func ExtractAffineRun(wordSrc []uint64, stride uint64, virtualStart, length, tokenBits int) []uint64 {
+	if length <= 0 {
+		return nil
+	}
+
+	nWords := (length + 63) / 64
+	out := make([]uint64, nWords)
+
+	for i := 0; i < length; i++ {
+		step := virtualStart + i
+		phys := int((stride*uint64(step))%signalAffineRing) % tokenBits
+		if readOpWordBit(wordSrc, phys) != 0 {
+			dw := i / 64
+			db := uint(i % 64)
+			out[dw] |= 1 << db
+		}
+	}
+
+	return out
+}
+
+/*
+ExtractSpanForSignal copies the bits described by a Signal from a linear token
+word slice; affine strides use ExtractAffineRun so Structure extraction matches
+how the run was found.
+*/
+func ExtractSpanForSignal(wordSrc []uint64, sig Signal, tokenBits int) []uint64 {
+	if sig.ScanStride == 0 {
+		return ExtractSpan(wordSrc, sig.StartBit, sig.Length)
+	}
+
+	return ExtractAffineRun(wordSrc, sig.ScanStride, sig.StartBit, sig.Length, tokenBits)
+}
+
+// sortSignals sorts signals by length descending (longest first),
+// then by ScanStride ascending so physical (zero-stride) ties win over affine.
 // Uses insertion sort — signal count per pair is small.
 func sortSignals(sigs []Signal) {
 	for i := 1; i < len(sigs); i++ {
 		key := sigs[i]
 		j := i - 1
-		for j >= 0 && sigs[j].Length < key.Length {
-			sigs[j+1] = sigs[j]
-			j--
+		for j >= 0 {
+			if sigs[j].Length < key.Length {
+				sigs[j+1] = sigs[j]
+				j--
+
+				continue
+			}
+
+			if sigs[j].Length == key.Length && sigs[j].ScanStride > key.ScanStride {
+				sigs[j+1] = sigs[j]
+				j--
+
+				continue
+			}
+
+			break
 		}
 		sigs[j+1] = key
 	}

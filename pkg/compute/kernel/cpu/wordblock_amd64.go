@@ -2,23 +2,14 @@
 
 package cpu
 
-import (
-	"github.com/theapemachine/six/pkg/errnie"
-	"golang.org/x/sys/cpu"
-)
+import "golang.org/x/sys/cpu"
 
-// execWordBlock dispatches the body of a word-aligned span operation.
-// Hot opcodes are served by AVX2 assembly when AVX2 is available;
-// otherwise the portable scalar kernel is used.
+/*
+execWordBlock applies a 4-bit truth-table opcode across all lanes.
+AVX2 assembly is used for opcodes that map directly to a single SIMD
+instruction; all others use the branchless TruthTable scalar loop.
+*/
 func execWordBlock(dst, src []uint64, op uint8) {
-	errnie.Trace(
-		"cpu.Backend.handleAlu",
-		"hw", "simd-accelerated amd64",
-		"op", op,
-		"dst", dst,
-		"src", src,
-	)
-
 	n := len(dst)
 	if len(src) < n {
 		n = len(src)
@@ -29,33 +20,38 @@ func execWordBlock(dst, src []uint64, op uint8) {
 	dst = dst[:n]
 	src = src[:n]
 
-	if !cpu.X86.HasAVX2 {
-		execWordBlockScalar(dst, src, op)
-		return
+	if cpu.X86.HasAVX2 {
+		switch op {
+		case 0x0:
+			clear(dst)
+			return
+		case 0x1:
+			simdAnd(&dst[0], &src[0], n)
+			return
+		case 0x2:
+			simdSrcAndNotDst(&dst[0], &src[0], n)
+			return
+		case 0x5:
+			return
+		case 0x6:
+			simdXor(&dst[0], &src[0], n)
+			return
+		case 0x7:
+			simdOr(&dst[0], &src[0], n)
+			return
+		case 0x10:
+			simdPopcnt(&dst[0], &src[0], n)
+			return
+		case 0x11:
+			simdShl(&dst[0], &src[0], n)
+			return
+		case 0x12:
+			simdShr(&dst[0], &src[0], n)
+			return
+		}
 	}
 
-	switch op {
-	case 0x1: // AND
-		simdAnd(&dst[0], &src[0], n)
-	case 0x2: // src &^ dst (A ∧ ¬B)
-		simdSrcAndNotDst(&dst[0], &src[0], n)
-	case 0x3: // COPY
-		copy(dst, src)
-	case 0x4: // dst &^= src (¬A ∧ B) — VPANDN with swapped operands
-		simdDstAndNotSrc(&dst[0], &src[0], n)
-	case 0x6: // XOR
-		simdXor(&dst[0], &src[0], n)
-	case 0x7: // OR
-		simdOr(&dst[0], &src[0], n)
-	case 0x10: // POPCOUNT (Hamming distance)
-		simdPopcnt(&dst[0], &src[0], n)
-	case 0x11: // Memory SHL: dst[i] = dst[i] << (src[i] & 63)
-		simdShl(&dst[0], &src[0], n)
-	case 0x12: // Memory SHR: dst[i] = dst[i] >> (src[i] & 63)
-		simdShr(&dst[0], &src[0], n)
-	default:
-		execWordBlockScalar(dst, src, op)
-	}
+	execWordBlockScalar(dst, src, op)
 }
 
 // HasHammingMatch returns true if any word in frame has
@@ -108,6 +104,9 @@ func simdShl(dst, src *uint64, n int)
 
 //go:noescape
 func simdShr(dst, src *uint64, n int)
+
+//go:noescape
+func simdTruthTable(dst, src *uint64, n int, op uint8)
 
 //go:noescape
 func simdHasHammingMatch(frame *uint64, n int, target uint64, maxDist uint64) bool

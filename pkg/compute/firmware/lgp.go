@@ -12,9 +12,22 @@ import (
 // Implements IDEAS.md §3: Intron management and Homologous Crossover.
 // ---------------------------------------------------------------------------
 
+const (
+	// traceMaskWordBits is the width of one trace mask block.
+	traceMaskWordBits = 64
+
+	// traceMaskWordCapacity covers the fixed payload span of the 52-word program
+	// region after the 4-word bootstrap prefix: 48 words = 96 32-bit slots.
+	traceMaskWordCapacity = 2
+)
+
+type traceMask struct {
+	words [traceMaskWordCapacity]uint64
+}
+
 // InstructionSlot reads the 32-bit instruction at the given program slot.
 func InstructionSlot(c *[128]uint64, slot int) uint32 {
-	if c == nil || slot < 0 || slot >= int(core.Cfg.Value.Region.Program.Bits) {
+	if c == nil || slot < 0 || slot >= program32BitSlotCount() {
 		return 0
 	}
 	wordIdx := core.Cfg.Value.Region.Program.Start + slot/2
@@ -27,7 +40,7 @@ func InstructionSlot(c *[128]uint64, slot int) uint32 {
 
 // SetInstructionSlot writes a 32-bit instruction at the given program slot.
 func SetInstructionSlot(c *[128]uint64, slot int, instr uint32) {
-	if c == nil || slot < 0 || slot >= int(core.Cfg.Value.Region.Program.Bits) {
+	if c == nil || slot < 0 || slot >= program32BitSlotCount() {
 		return
 	}
 	wordIdx := core.Cfg.Value.Region.Program.Start + slot/2
@@ -81,14 +94,71 @@ func InsertIntrons(c *[128]uint64, spacing int) {
 	if c == nil || spacing <= 0 {
 		return
 	}
-	start := int(core.Cfg.Value.Region.Program.Start)
+
+	firstSlot, lastSlot := PayloadLGPSpan()
+	if firstSlot >= lastSlot {
+		return
+	}
+
 	// Use r0 for intron identity operations (word index of r0)
 	intronInstr := MakeIntron(uint16(core.Cfg.Value.Region.Registers.R0))
-	for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits); slot++ {
-		if (slot-start)%(spacing+1) == spacing {
+
+	for slot := firstSlot; slot < lastSlot; slot++ {
+		if (slot-firstSlot)%(spacing+1) == spacing {
 			SetInstructionSlot(c, slot, intronInstr)
 		}
 	}
+}
+
+func traceMaskLimit(slotCount int) int {
+	limit := traceMaskWordCapacity * traceMaskWordBits
+	if slotCount < limit {
+		return slotCount
+	}
+
+	return limit
+}
+
+func traceMaskSet(mask *traceMask, slot int) {
+	if slot < 0 {
+		return
+	}
+
+	word := slot / traceMaskWordBits
+	if word < 0 || word >= len(mask.words) {
+		return
+	}
+
+	mask.words[word] |= uint64(1) << (slot % traceMaskWordBits)
+}
+
+func traceMaskHas(mask traceMask, slot int) bool {
+	if slot < 0 {
+		return false
+	}
+
+	word := slot / traceMaskWordBits
+	if word < 0 || word >= len(mask.words) {
+		return false
+	}
+
+	return mask.words[word]&(uint64(1)<<(slot%traceMaskWordBits)) != 0
+}
+
+func traceMaskOr(dst *traceMask, src traceMask) {
+	for idx := range dst.words {
+		dst.words[idx] |= src.words[idx]
+	}
+}
+
+func traceMaskAny(mask traceMask) bool {
+	for _, word := range mask.words {
+		if word != 0 {
+			return true
+		}
+	}
+
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -99,33 +169,26 @@ func InsertIntrons(c *[128]uint64, spacing int) {
 // a bitmask where bit i is set if instruction i influenced register r6
 // (the output/feature register). Only effective instructions should be
 // propagated during crossover.
-func TraceEffective(c *[128]uint64) uint64 {
+func TraceEffective(c *[128]uint64) traceMask {
 	if c == nil {
-		return 0
+		return traceMask{}
 	}
+
+	firstSlot, lastSlot := PayloadLGPSpan()
+	if firstSlot >= lastSlot {
+		return traceMask{}
+	}
+
+	slotCount := traceMaskLimit(lastSlot - firstSlot)
+	lastSlot = firstSlot + slotCount
 
 	r6Idx := uint16(core.Cfg.Value.Region.Registers.R6 & 0x7F)
 
 	// Dependency tracking: for each register, which instruction slots wrote to it.
-	type regDep struct {
-		slots uint64 // bitmask of instruction slots
-	}
-	deps := make(map[uint16]*regDep)
-	ensureDep := func(r uint16) *regDep {
-		if d, ok := deps[r]; ok {
-			return d
-		}
-		d := &regDep{}
-		deps[r] = d
-		return d
-	}
+	var deps [128]traceMask
 
-	start := int(core.Cfg.Value.Region.Program.Start)
-	for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits) && slot-start < 64; slot++ {
+	for slot := firstSlot; slot < lastSlot; slot++ {
 		instr := InstructionSlot(c, slot)
-		if instr == 0 {
-			break
-		}
 		if IsIntron(instr) {
 			continue
 		}
@@ -134,23 +197,23 @@ func TraceEffective(c *[128]uint64) uint64 {
 		dc := uint16((instr >> 18) & 0x3FFF)
 		dstReg := dc & 0x7F
 
-		// The instruction at this slot writes to dstReg.
-		// It depends on src and dst register values.
 		srcReg := sc & 0x7F
-		bit := uint64(1) << (slot - start)
+		slotIndex := slot - firstSlot
 
-		d := ensureDep(dstReg)
-		d.slots |= bit
-		// Inherit dependencies from source
-		if sd, ok := deps[srcReg]; ok {
-			d.slots |= sd.slots
-		}
+		// The result written to dstReg depends on both the incoming source register
+		// and the previous destination value, because the truth-table ALU consumes both.
+		nextDst := traceMask{}
+		traceMaskOr(&nextDst, deps[dstReg])
+		traceMaskOr(&nextDst, deps[srcReg])
+		traceMaskSet(&nextDst, slotIndex)
+		deps[dstReg] = nextDst
 	}
 
-	if d, ok := deps[r6Idx]; ok {
-		return d.slots
+	if traceMaskAny(deps[r6Idx]) {
+		return deps[r6Idx]
 	}
-	return 0
+
+	return traceMask{}
 }
 
 // ---------------------------------------------------------------------------
@@ -169,9 +232,13 @@ func HomologousCrossover(recipient, donor *[128]uint64, rng *rand.Rand) {
 	donorEffective := TraceEffective(donor)
 	recipientEffective := TraceEffective(recipient)
 
-	start := int(core.Cfg.Value.Region.Program.Start)
-	for slot := start; slot < int(core.Cfg.Value.Region.Program.Bits) && slot-start < 64; slot++ {
-		bit := uint64(1) << (slot - start)
+	firstSlot, lastSlot := PayloadLGPSpan()
+	if firstSlot >= lastSlot {
+		return
+	}
+
+	for slot := firstSlot; slot < lastSlot; slot++ {
+		slotIndex := slot - firstSlot
 
 		donorInstr := InstructionSlot(donor, slot)
 		if donorInstr == 0 {
@@ -180,8 +247,8 @@ func HomologousCrossover(recipient, donor *[128]uint64, rng *rand.Rand) {
 
 		// Only copy from donor if the slot is effective in the donor
 		// AND not effective in the recipient (to avoid overwriting working code).
-		donorIsEffective := donorEffective&bit != 0
-		recipientIsEffective := recipientEffective&bit != 0
+		donorIsEffective := traceMaskHas(donorEffective, slotIndex)
+		recipientIsEffective := traceMaskHas(recipientEffective, slotIndex)
 
 		if donorIsEffective && !recipientIsEffective {
 			SetInstructionSlot(recipient, slot, donorInstr)

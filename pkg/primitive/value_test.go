@@ -291,9 +291,39 @@ func TestNewValueIndexesOriginalBytesInLSM(t *testing.T) {
 	})
 }
 
+func TestDetokenizeTokenID(t *testing.T) {
+	Convey("DetokenizeTokenID recovers byte and index from Tokenize", t, func() {
+		for _, tc := range []struct {
+			b     byte
+			index uint64
+		}{
+			{'a', 0},
+			{'Z', 99},
+			{0xFF, 1 << 18},
+		} {
+			tid := Tokenize(tc.b, tc.index)
+			gb, gidx, ok := DetokenizeTokenID(tid)
+			So(ok, ShouldBeTrue)
+			So(gb, ShouldEqual, tc.b)
+			So(gidx, ShouldEqual, tc.index)
+		}
+	})
+}
+
 func assertViralPartnerState(partner *Value) {
 	So(partner[core.Cfg.Value.Region.Registers.FW], ShouldEqual, core.FirmwareRegisterLearn)
 	So(partner[core.Cfg.Value.Region.Registers.PC], ShouldEqual, uint64(0))
+}
+
+func BenchmarkTokenize(b *testing.B) {
+	var sink uint64
+	b.ResetTimer()
+
+	for b.Loop() {
+		sink += Tokenize('x', sink)
+	}
+
+	_ = sink
 }
 
 func BenchmarkValue_Read(b *testing.B) {

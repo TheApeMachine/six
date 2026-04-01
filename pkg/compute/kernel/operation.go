@@ -12,24 +12,19 @@ surface needed by the workflow pipeline with the vectorized kernel
 dispatch. The compiler enforces that all backends implement every method.
 */
 type Substrate interface {
-	// UniversalBitwise is the primary dispatch method. It reads the 4-bit
-	// opcode from each Value's instruction region and executes the
-	// corresponding boolean gate across the data lanes. Values carrying a
-	// full 64-tick program in Region 3 execute that program instead.
-	// This is the canonical in-band instruction path.
+	// UniversalBitwise is the primary dispatch method. Each element of frames
+	// is one Value: in-band programs read operands from that frame’s own
+	// layout (token region and register file); there is no second “partner”
+	// frame in this contract. Implementations execute every non-nil pointer
+	// in order and may pack non-contiguous host pointers into accelerator
+	// batch buffers internally.
 	//
-	// Memory contract: a and b must each point to a valid Value frame
-	// (1024 bytes, 128×uint64 words in little-endian order per word) suitable for the host
-	// and sufficiently aligned for uintptr(unsafe.Pointer) use (typical
-	// Go heap allocation is word-aligned; do not pass arbitrary byte slices
-	// without ensuring alignment and size). Both frames remain owned by the
-	// caller; the callee reads and writes them in place during the call and
-	// does not retain the pointers after it returns. Callers must not free
-	// or reuse the backing storage until UniversalBitwise returns.
-	// Do not invoke concurrently on the same *Value instances unless you
-	// externally synchronize those frames; distinct Value pointers may be
-	// used from different goroutines per backend.
-	UniversalBitwise(a, b unsafe.Pointer, count int) error
+	// Memory contract: each pointer must reference a full Value frame (1024
+	// bytes / 128×uint64 by default, per core.Cfg) aligned for uintptr use.
+	// Frames remain owned by the caller; the callee mutates them in place
+	// and does not retain pointers after return. Do not overlap concurrent
+	// UniversalBitwise calls on the same frames without external sync.
+	UniversalBitwise(frames []unsafe.Pointer) error
 
 	// Schedule runs job on the backend worker path (or synchronously if
 	// there is no pool). When a pool is used, the returned error reflects

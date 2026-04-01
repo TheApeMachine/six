@@ -54,7 +54,7 @@ func Available() int {
 	return 0
 }
 
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer, count int) error {
+func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	return NewMetalError(MetalErrorUnavailable, nil, "UniversalBitwise")
 }
 

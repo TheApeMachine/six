@@ -2,320 +2,301 @@ package cpu
 
 import (
 	"context"
-	"runtime"
 	"testing"
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
-func TestUniversalBitwise(t *testing.T) {
-	convey.Convey("Given a CPU Kernel backend", t, func() {
+func init() {
+	// Tests run without viper/config.yml, so set the layout manually.
+	core.Cfg.Value.Region.Program.Start = 76
+	core.Cfg.Value.Region.Program.Bits = 3328 // 52 words * 64
+	core.Cfg.Value.Region.State.Accumulator = 62
+	core.Cfg.Value.Region.State.Sequence = 61
+	core.Cfg.Value.Region.Registers.FW = 74
+	core.Cfg.Value.Region.Registers.PC = 75
+}
+
+// encode32 builds a 32-bit LGP instruction: [3:0] op, [17:4] src, [31:18] dst.
+func encode32(op uint8, src, dst int) uint32 {
+	return uint32(op&0xF) | uint32(src&0x3FFF)<<4 | uint32(dst&0x3FFF)<<18
+}
+
+// installSlot writes a 32-bit instruction into the program region of a frame.
+func installSlot(frame *[128]uint64, slot int, instr uint32) {
+	wordIdx := core.Cfg.Value.Region.Program.Start + slot/2
+	shift := uint((slot % 2) * 32)
+	mask := uint64(0xFFFFFFFF) << shift
+	frame[wordIdx] = (frame[wordIdx] &^ mask) | (uint64(instr) << shift)
+}
+
+func TestUniversalBitwiseTruthTable(t *testing.T) {
+	convey.Convey("Given the branchless 32-bit LGP pipeline", t, func() {
 		backend := NewBackend(context.Background())
 
-		convey.Convey("When testing the raw SIMD execWordBlock operations", func() {
-			dst := make([]uint64, 4)
-			src := make([]uint64, 4)
+		convey.Convey("AND (op=0x1): src=0, dst=1", func() {
+			var f [128]uint64
+			f[0] = 0xAAAAAAAAAAAAAAAA // src word (A)
+			f[1] = 0xCCCCCCCCCCCCCCCC // dst word (B)
+			installSlot(&f, 0, encode32(0x1, 0, 1))
 
-			seed := func() {
-				for i := 0; i < 4; i++ {
-					dst[i] = 0xAAAAAAAAAAAAAAAA // 10101010...
-					src[i] = 0xCCCCCCCCCCCCCCCC // 11001100...
-				}
-			}
-			seed()
-
-			convey.Convey("It should correctly apply AND (0x1)", func() {
-				seed()
-				execWordBlock(dst, src, 0x1)
-				for i := 0; i < 4; i++ {
-					convey.So(dst[i], convey.ShouldEqual, uint64(0x8888888888888888))
-				}
-			})
-
-			convey.Convey("It should correctly apply COPY (0x3)", func() {
-				seed()
-				execWordBlock(dst, src, 0x3)
-				for i := 0; i < 4; i++ {
-					convey.So(dst[i], convey.ShouldEqual, uint64(0xCCCCCCCCCCCCCCCC))
-				}
-			})
-
-			convey.Convey("It should correctly apply XOR (0x6)", func() {
-				seed()
-				execWordBlock(dst, src, 0x6)
-				for i := 0; i < 4; i++ {
-					// 1010 ^ 1100 = 0110
-					convey.So(dst[i], convey.ShouldEqual, uint64(0x6666666666666666))
-				}
-			})
-
-			convey.Convey("It should correctly apply OR (0x7)", func() {
-				seed()
-				execWordBlock(dst, src, 0x7)
-				for i := 0; i < 4; i++ {
-					// 1010 | 1100 = 1110
-					convey.So(dst[i], convey.ShouldEqual, uint64(0xEEEEEEEEEEEEEEEE))
-				}
-			})
-
-			convey.Convey("It should correctly apply src &^ dst (0x2)", func() {
-				seed()
-				// src &^ dst
-				execWordBlock(dst, src, 0x2)
-				for i := 0; i < 4; i++ {
-					convey.So(dst[i], convey.ShouldEqual, uint64(0x4444444444444444))
-				}
-			})
-		})
-
-		convey.Convey("When testing the UniversalBitwise VM engine (execution loop)", func() {
-			valA := new([128]uint64)
-			valB := new([128]uint64)
-
-			core.Cfg.Value.Region.Program.Start = 76
-			pi := core.Cfg.Value.Region.Program.Start
-
-			// Instruction encoding helpers matching the 16-bit RISC spec in the backend
-			encodeMem := func(dir, reg, ctx, word uint16) uint16 {
-				return (1 << 14) | (dir << 13) | (reg << 11) | (ctx << 10) | word
-			}
-			encodeAlu := func(op, reg, ctx, word uint16) uint16 {
-				return (2 << 14) | (op << 10) | (reg << 8) | (ctx << 7) | word
-			}
-			encodeCtl := func(sub, reg uint16) uint16 {
-				return (3 << 14) | (sub << 12) | (reg << 10)
-			}
-			_ = encodeCtl // to avoid unused warning if omitted below
-
-			prog := []uint16{
-				encodeMem(0, 0, 1, 0),   // LOAD r0 = valB[0]
-				encodeAlu(0x6, 0, 0, 0), // ALU XOR: valA[0] = r0 ^ valA[0]
-				0x0000,                  // HALT
-			}
-
-			// Pack program into valA's program index
-			for i, instr := range prog {
-				w := pi + i/4
-				shift := (i % 4) * 16
-				valA[w] |= uint64(instr) << shift
-			}
-
-			// Seed data words at index 0 for both contexts
-			valA[0] = 0xAAAAAAAAAAAAAAAA
-			valB[0] = 0xCCCCCCCCCCCCCCCC
-
-			err := backend.UniversalBitwise(unsafe.Pointer(valA), unsafe.Pointer(valB), 1)
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
 			convey.So(err, convey.ShouldBeNil)
-
-			convey.Convey("It should execute the RISC instructions and compute XOR manually", func() {
-				// We expect valA[0] to be overwritten with the XOR of 0xAAAA... and 0xCCCC...
-				convey.So(valA[0], convey.ShouldEqual, uint64(0x6666666666666666))
-			})
+			convey.So(f[1], convey.ShouldEqual, uint64(0x8888888888888888))
 		})
 
-		convey.Convey("When batching with GOMAXPROCS=1, It should match per-frame execution", func() {
-			saved := runtime.GOMAXPROCS(0)
-			runtime.GOMAXPROCS(1)
-			defer runtime.GOMAXPROCS(saved)
+		convey.Convey("XOR (op=0x6): src=0, dst=1", func() {
+			var f [128]uint64
+			f[0] = 0xAAAAAAAAAAAAAAAA
+			f[1] = 0xCCCCCCCCCCCCCCCC
+			installSlot(&f, 0, encode32(0x6, 0, 1))
 
-			core.Cfg.Value.Region.Program.Start = 76
-			pi := core.Cfg.Value.Region.Program.Start
-			n := 48
-			aWant := make([]uint64, 128*n)
-			bWant := make([]uint64, 128*n)
-			aBatch := make([]uint64, 128*n)
-			bBatch := make([]uint64, 128*n)
-
-			encodeMem := func(dir, reg, ctx, word uint16) uint16 {
-				return (1 << 14) | (dir << 13) | (reg << 11) | (ctx << 10) | word
-			}
-			encodeAlu := func(op, reg, ctx, word uint16) uint16 {
-				return (2 << 14) | (op << 10) | (reg << 8) | (ctx << 7) | word
-			}
-
-			prog := []uint16{
-				encodeMem(0, 0, 1, 0),
-				encodeAlu(0x6, 0, 0, 0),
-				encodeMem(0, 1, 1, 32),
-				encodeAlu(0x1, 1, 0, 32),
-				0x0000,
-			}
-
-			reg0 := core.Cfg.Value.Region.Registers.Start
-			prog0 := core.Cfg.Value.Region.Program.Start
-
-			seed := func(aBuf, bBuf []uint64) {
-				for i := 0; i < n; i++ {
-					offset := i * 128
-					for j := range 128 {
-						aBuf[offset+j] = uint64(i + j)
-						bBuf[offset+j] = uint64((i + j) * 3)
-					}
-					for w := reg0; w < prog0 && w < 128; w++ {
-						aBuf[offset+w] = 0
-						bBuf[offset+w] = 0
-					}
-					for k, instr := range prog {
-						w := offset + int(pi) + k/4
-						shift := (k % 4) * 16
-						aBuf[w] |= uint64(instr) << shift
-					}
-				}
-			}
-
-			seed(aWant, bWant)
-			seed(aBatch, bBatch)
-
-			oneByOne := NewBackend(context.Background())
-			stride := uintptr(primitive.ByteSize)
-			baseA := uintptr(unsafe.Pointer(&aWant[0]))
-			baseB := uintptr(unsafe.Pointer(&bWant[0]))
-			for i := 0; i < n; i++ {
-				off := stride * uintptr(i)
-				convey.So(oneByOne.UniversalBitwise(
-					unsafe.Pointer(baseA+off),
-					unsafe.Pointer(baseB+off),
-					1,
-				), convey.ShouldBeNil)
-			}
-
-			batched := NewBackend(context.Background())
-			convey.So(batched.UniversalBitwise(unsafe.Pointer(&aBatch[0]), unsafe.Pointer(&bBatch[0]), n), convey.ShouldBeNil)
-
-			convey.So(aBatch, convey.ShouldResemble, aWant)
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(f[1], convey.ShouldEqual, uint64(0x6666666666666666))
 		})
 
-		convey.Convey("When batching multi-core, It should match per-frame execution", func() {
-			if runtime.GOMAXPROCS(0) < 2 {
-				return
-			}
+		convey.Convey("OR (op=0x7): src=0, dst=1", func() {
+			var f [128]uint64
+			f[0] = 0xAAAAAAAAAAAAAAAA
+			f[1] = 0xCCCCCCCCCCCCCCCC
+			installSlot(&f, 0, encode32(0x7, 0, 1))
 
-			core.Cfg.Value.Region.Program.Start = 76
-			pi := core.Cfg.Value.Region.Program.Start
-			n := 48
-			aWant := make([]uint64, 128*n)
-			bWant := make([]uint64, 128*n)
-			aBatch := make([]uint64, 128*n)
-			bBatch := make([]uint64, 128*n)
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(f[1], convey.ShouldEqual, uint64(0xEEEEEEEEEEEEEEEE))
+		})
 
-			encodeMem := func(dir, reg, ctx, word uint16) uint16 {
-				return (1 << 14) | (dir << 13) | (reg << 11) | (ctx << 10) | word
-			}
-			encodeAlu := func(op, reg, ctx, word uint16) uint16 {
-				return (2 << 14) | (op << 10) | (reg << 8) | (ctx << 7) | word
-			}
+		convey.Convey("FALSE (op=0x0): dst zeroed", func() {
+			var f [128]uint64
+			f[0] = 0xFFFFFFFFFFFFFFFF
+			f[1] = 0xFFFFFFFFFFFFFFFF
+			installSlot(&f, 0, encode32(0x0, 0, 1))
 
-			prog := []uint16{
-				encodeMem(0, 0, 1, 0),
-				encodeAlu(0x6, 0, 0, 0),
-				encodeMem(0, 1, 1, 32),
-				encodeAlu(0x1, 1, 0, 32),
-				0x0000,
-			}
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(f[1], convey.ShouldEqual, uint64(0))
+		})
 
-			reg0 := core.Cfg.Value.Region.Registers.Start
-			prog0 := core.Cfg.Value.Region.Program.Start
+		convey.Convey("TRUE (op=0xF): dst all ones", func() {
+			var f [128]uint64
+			f[0] = 0
+			f[1] = 0
+			installSlot(&f, 0, encode32(0xF, 0, 1))
 
-			seed := func(aBuf, bBuf []uint64) {
-				for i := 0; i < n; i++ {
-					offset := i * 128
-					for j := range 128 {
-						aBuf[offset+j] = uint64(i + j)
-						bBuf[offset+j] = uint64((i + j) * 3)
-					}
-					for w := reg0; w < prog0 && w < 128; w++ {
-						aBuf[offset+w] = 0
-						bBuf[offset+w] = 0
-					}
-					for k, instr := range prog {
-						w := offset + int(pi) + k/4
-						shift := (k % 4) * 16
-						aBuf[w] |= uint64(instr) << shift
-					}
-				}
-			}
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(f[1], convey.ShouldEqual, ^uint64(0))
+		})
 
-			seed(aWant, bWant)
-			seed(aBatch, bBatch)
+		convey.Convey("COPY A (op=0x3): dst = src", func() {
+			var f [128]uint64
+			f[0] = 0xDEADBEEFDEADBEEF
+			f[1] = 0
+			installSlot(&f, 0, encode32(0x3, 0, 1))
 
-			oneByOne := NewBackend(context.Background())
-			stride := uintptr(primitive.ByteSize)
-			baseA := uintptr(unsafe.Pointer(&aWant[0]))
-			baseB := uintptr(unsafe.Pointer(&bWant[0]))
-			for i := 0; i < n; i++ {
-				off := stride * uintptr(i)
-				convey.So(oneByOne.UniversalBitwise(
-					unsafe.Pointer(baseA+off),
-					unsafe.Pointer(baseB+off),
-					1,
-				), convey.ShouldBeNil)
-			}
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(f[1], convey.ShouldEqual, uint64(0xDEADBEEFDEADBEEF))
+		})
 
-			batched := NewBackend(context.Background())
-			convey.So(batched.UniversalBitwise(unsafe.Pointer(&aBatch[0]), unsafe.Pointer(&bBatch[0]), n), convey.ShouldBeNil)
-
-			convey.So(aBatch, convey.ShouldResemble, aWant)
+		convey.Convey("NOP slots are skipped, data unchanged", func() {
+			var f [128]uint64
+			f[1] = 0x1234
+			// No instructions installed — all slots are 0 (NOP).
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(f[1], convey.ShouldEqual, uint64(0x1234))
 		})
 	})
 }
 
+func TestUniversalBitwiseMultipleFrames(t *testing.T) {
+	convey.Convey("Multiple frames execute the same program via SIMD gather-scatter", t, func() {
+		backend := NewBackend(context.Background())
+
+		n := 64
+		frames := make([][128]uint64, n)
+		ptrs := make([]unsafe.Pointer, n)
+
+		for i := range frames {
+			frames[i][0] = uint64(i)                        // src: different per frame
+			frames[i][1] = 0xFFFFFFFFFFFFFFFF               // dst: same
+			installSlot(&frames[i], 0, encode32(0x1, 0, 1)) // AND
+			ptrs[i] = unsafe.Pointer(&frames[i])
+		}
+
+		err := backend.UniversalBitwise(ptrs)
+		convey.So(err, convey.ShouldBeNil)
+
+		for i := range frames {
+			expected := uint64(i) & 0xFFFFFFFFFFFFFFFF
+			convey.So(frames[i][1], convey.ShouldEqual, expected)
+		}
+	})
+}
+
+func TestUniversalBitwiseHeterogeneousPrograms(t *testing.T) {
+	convey.Convey("Different frames keep their own program shape inside one batch", t, func() {
+		backend := NewBackend(context.Background())
+
+		frames := make([][128]uint64, 3)
+		ptrs := make([]unsafe.Pointer, len(frames))
+
+		for index := range frames {
+			frames[index][0] = 0xAAAAAAAAAAAAAAAA
+			frames[index][1] = 0xCCCCCCCCCCCCCCCC
+			ptrs[index] = unsafe.Pointer(&frames[index])
+		}
+
+		installSlot(&frames[0], 0, encode32(0x1, 0, 1))
+		installSlot(&frames[1], 0, encode32(0x6, 0, 1))
+		installSlot(&frames[2], 0, encode32(0x7, 0, 1))
+
+		err := backend.UniversalBitwise(ptrs)
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(frames[0][1], convey.ShouldEqual, uint64(0x8888888888888888))
+		convey.So(frames[1][1], convey.ShouldEqual, uint64(0x6666666666666666))
+		convey.So(frames[2][1], convey.ShouldEqual, uint64(0xEEEEEEEEEEEEEEEE))
+	})
+}
+
+func TestUniversalBitwiseSelfModifyingPrograms(t *testing.T) {
+	convey.Convey("Frames that rewrite later slots diverge correctly inside one batch", t, func() {
+		backend := NewBackend(context.Background())
+
+		var xorFrame, orFrame [128]uint64
+		ptrs := []unsafe.Pointer{
+			unsafe.Pointer(&xorFrame),
+			unsafe.Pointer(&orFrame),
+		}
+
+		xorFrame[1] = 0xAAAAAAAAAAAAAAAA
+		xorFrame[2] = 0xCCCCCCCCCCCCCCCC
+		xorFrame[3] = uint64(encode32(0x6, 1, 2)) << 32
+
+		orFrame[1] = 0xAAAAAAAAAAAAAAAA
+		orFrame[2] = 0xCCCCCCCCCCCCCCCC
+		orFrame[3] = uint64(encode32(0x7, 1, 2)) << 32
+
+		// Slot 0 copies word 3 into the first program word, replacing slot 1.
+		installSlot(&xorFrame, 0, encode32(0x3, 3, 76))
+		installSlot(&orFrame, 0, encode32(0x3, 3, 76))
+
+		err := backend.UniversalBitwise(ptrs)
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(xorFrame[2], convey.ShouldEqual, uint64(0x6666666666666666))
+		convey.So(orFrame[2], convey.ShouldEqual, uint64(0xEEEEEEEEEEEEEEEE))
+	})
+}
+
+func TestUniversalBitwiseChainedSlots(t *testing.T) {
+	convey.Convey("Multiple instruction slots execute sequentially", t, func() {
+		backend := NewBackend(context.Background())
+
+		var f [128]uint64
+		f[0] = 0xFF00FF00FF00FF00
+		f[1] = 0x00FF00FF00FF00FF
+		f[2] = 0
+
+		// Slot 0: XOR word 0 and word 1, result in word 2
+		// But XOR takes src and dst, so: word2 = TT(0x6, word0, word2)
+		// That XORs word0 into word2 (which is 0), so word2 = word0.
+		installSlot(&f, 0, encode32(0x6, 0, 2)) // word2 ^= word0 → word2 = word0
+		// Slot 1: XOR word1 into word2: word2 = word0 ^ word1
+		installSlot(&f, 1, encode32(0x6, 1, 2)) // word2 ^= word1
+
+		err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(f[2], convey.ShouldEqual, uint64(0xFFFFFFFFFFFFFFFF))
+	})
+}
+
+func TestUniversalBitwiseAffineFollowUp(t *testing.T) {
+	convey.Convey("After execution, FW and Accumulator are updated for rescheduling", t, func() {
+		backend := NewBackend(context.Background())
+
+		var f [128]uint64
+		f[core.Cfg.Value.Region.State.Accumulator] = 42
+		f[core.Cfg.Value.Region.State.Sequence] = 7
+		// Install at least one non-NOP so execution runs.
+		installSlot(&f, 0, encode32(0x3, 0, 0)) // COPY A (dst=src=0, noop)
+
+		err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+		convey.So(err, convey.ShouldBeNil)
+
+		fwWord := core.Cfg.Value.Region.Registers.FW
+		accWord := core.Cfg.Value.Region.State.Accumulator
+
+		// FW should be non-zero (holographic schedule signature).
+		convey.So(f[fwWord], convey.ShouldNotEqual, 0)
+		// Accumulator should have evolved.
+		convey.So(f[accWord], convey.ShouldNotEqual, 42)
+	})
+}
+
+func TestUniversalBitwiseNilFrame(t *testing.T) {
+	convey.Convey("Nil frame returns error", t, func() {
+		backend := NewBackend(context.Background())
+		err := backend.UniversalBitwise([]unsafe.Pointer{nil})
+		convey.So(err, convey.ShouldNotBeNil)
+	})
+}
+
+func TestUniversalBitwiseAffineUnroll(t *testing.T) {
+	convey.Convey("AffineUnrollSlots produces correct program for SIMD execution", t, func() {
+		backend := NewBackend(context.Background())
+
+		var f [128]uint64
+		// Fill token words 0-7 with data.
+		for i := 0; i < 8; i++ {
+			f[i] = 0xAAAAAAAAAAAAAAAA
+		}
+		// Word 8 will be the src for all ops.
+		f[8] = 0x5555555555555555
+
+		// Use AffineUnrollSlots to generate 8 AND instructions:
+		// each targets dst words 0..7 with src=8, stride=1.
+		// encode32 format: op=0x1(AND), src=8, dst=0..7
+		baseOp := uint32(0x1) | uint32(8)<<4 // op=AND, src=8, dst will be added
+		slots := firmware.AffineUnrollSlots(baseOp, 1, 8, 18, 8)
+
+		for i, instr := range slots {
+			installSlot(&f, i, instr)
+		}
+
+		err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+		convey.So(err, convey.ShouldBeNil)
+
+		for i := 0; i < 8; i++ {
+			convey.So(f[i], convey.ShouldEqual, uint64(0x0000000000000000))
+		}
+	})
+}
+
 func BenchmarkUniversalBitwise(b *testing.B) {
-	core.Cfg.Value.Region.Program.Start = 76
 	backend := NewBackend(context.Background())
 
-	// We create a large batch simulating typical usage
 	batchSize := 1024
+	frames := make([][128]uint64, batchSize)
+	ptrs := make([]unsafe.Pointer, batchSize)
 
-	// Allocate strictly 1024 bytes per Value
-	aData := make([]uint64, 128*batchSize)
-	bData := make([]uint64, 128*batchSize)
-
-	encodeMem := func(dir, reg, ctx, word uint16) uint16 {
-		return (1 << 14) | (dir << 13) | (reg << 11) | (ctx << 10) | word
+	for i := range frames {
+		frames[i][0] = uint64(i)
+		frames[i][1] = 0xFFFFFFFFFFFFFFFF
+		installSlot(&frames[i], 0, encode32(0x6, 0, 1))
+		installSlot(&frames[i], 1, encode32(0x1, 0, 1))
+		ptrs[i] = unsafe.Pointer(&frames[i])
 	}
-	encodeAlu := func(op, reg, ctx, word uint16) uint16 {
-		return (2 << 14) | (op << 10) | (reg << 8) | (ctx << 7) | word
-	}
-
-	// This is a minimal, hot loop representative VM payload
-	// 5 instructions that do 2 massive AVX block loads and XOR execution.
-	prog := []uint16{
-		encodeMem(0, 0, 1, 0),    // LOAD r0 = valB[0]
-		encodeAlu(0x6, 0, 0, 0),  // ALU XOR: valA[0] = r0 ^ valA[0]
-		encodeMem(0, 1, 1, 32),   // LOAD r1 = valB[32]
-		encodeAlu(0x1, 1, 0, 32), // ALU AND: valA[32] = r1 & valA[32]
-		0x0000,                   // HALT
-	}
-
-	pi := core.Cfg.Value.Region.Program.Start
-
-	// Inject the payload into every item in the batch
-	for i := 0; i < batchSize; i++ {
-		offset := i * 128
-		for j := range 128 {
-			aData[offset+j] = uint64(i + j) // salt the data
-			bData[offset+j] = uint64((i + j) * 3)
-		}
-
-		for k, instr := range prog {
-			w := offset + int(pi) + k/4
-			shift := (k % 4) * 16
-			aData[w] |= uint64(instr) << shift
-		}
-	}
-
-	aPtr := unsafe.Pointer(&aData[0])
-	bPtr := unsafe.Pointer(&bData[0])
 
 	b.ResetTimer()
 	b.ReportAllocs()
 
-	for n := 0; n < b.N; n++ {
-		err := backend.UniversalBitwise(aPtr, bPtr, batchSize)
-		if err != nil {
+	for range b.N {
+		if err := backend.UniversalBitwise(ptrs); err != nil {
 			b.Fatal(err)
 		}
 	}

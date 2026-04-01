@@ -2,49 +2,25 @@ package compute
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sync"
 	"time"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
-	"github.com/theapemachine/six/pkg/compute/stepwise"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 )
 
-type bitwiseJob struct {
-	a, b unsafe.Pointer
-	done chan error
-}
+type QueueType uint
 
-type batchBuffers struct {
-	flatA []uint64
-	flatB []uint64
-}
-
-/*
-accelSlot tracks per-device pressure for heterogeneous dispatch. inflight counts
-batches not yet finished on that accelerator; emaPerFrameNs is an exponential moving
-average of observed nanoseconds per frame from the last batches (cold start uses 0).
-*/
-type accelSlot struct {
-	sub           kernel.Substrate
-	inflight      int32
-	emaPerFrameNs uint64
-}
-
-var (
-	defaultBackendOnce sync.Once
-	defaultBackendMu   sync.Mutex
-	defaultBackendInst *Backend
-	defaultObserver    kernel.Observer = kernel.NoopObserver{}
+const (
+	PRIORITY QueueType = iota
+	NORMAL
 )
 
 /*
@@ -62,20 +38,13 @@ Accelerators are chosen by least in-flight depth, then lowest EMA service time,
 rather than round‑robin.
 */
 type Backend struct {
-	ctx      context.Context
-	cancel   context.CancelFunc
-	hardware []kernel.Substrate
-	cpuIdx   int
-	accel    []accelSlot
-	pool     *Pool
-	observer kernel.Observer
-
-	jobQueueAccel chan bitwiseJob
-	jobQueueCPU   chan bitwiseJob
-	batchSize     int
-	batchWindow   time.Duration
-	bufferPool    sync.Pool
-	closeOnce     sync.Once
+	ctx         context.Context
+	cancel      context.CancelFunc
+	hardware    []kernel.Substrate
+	pool        *Pool
+	batchSize   int
+	batchWindow time.Duration
+	queues      map[QueueType]chan unsafe.Pointer
 }
 
 // BackendOption configures the multi-substrate router.
@@ -94,153 +63,108 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 		ctx:         ctx,
 		cancel:      cancel,
 		hardware:    make([]kernel.Substrate, 0),
-		observer:    kernel.NoopObserver{},
 		batchSize:   core.Cfg.System.BatchSize,
 		batchWindow: core.Cfg.System.BatchWindow,
+		queues: map[QueueType]chan unsafe.Pointer{
+			PRIORITY: make(chan unsafe.Pointer, 1024),
+			NORMAL:   make(chan unsafe.Pointer, 1024),
+		},
 	}
 
 	for _, opt := range opts {
 		opt(backend)
 	}
 
-	backend.observer = kernel.NormalizeObserver(backend.observer)
-
-	if backend.ctx == nil {
-		backend.ctx, backend.cancel = context.WithCancel(context.Background())
-	}
-
-	if backend.batchSize <= 0 {
-		backend.batchSize = 1
-	}
-	if backend.batchWindow < 0 {
-		backend.batchWindow = 0
-	}
-	if backend.jobQueueAccel == nil {
-		capHint := core.Cfg.System.QueueSize
-		if backend.batchSize > capHint {
-			capHint = backend.batchSize * 2
-		}
-		backend.jobQueueAccel = make(chan bitwiseJob, capHint)
-		backend.jobQueueCPU = make(chan bitwiseJob, capHint)
-	}
-	backend.bufferPool.New = func() any {
-		return &batchBuffers{}
-	}
-
-	if backend.pool != nil {
-		backend.pool.SetDropObserver(func(err error) {
-			if err == nil {
-				return
-			}
-			backend.observer.Error(
-				"compute.pool.saturation",
-				err,
-				"dropped_total", backend.pool.DroppedErrors(),
-				"saturation_total", backend.pool.SaturationEvents(),
-			)
-		})
-		backend.pool.StartWorkers()
-	}
-
-	for idx := 0; idx < cuda.Available(); idx++ {
-		errnie.Info("compute.backend: CUDA substrate registered")
-		backend.hardware = append(backend.hardware, cuda.NewBackend(
-			idx,
-			cuda.BackendWithObserver(backend.observer),
-		))
-	}
-
-	for idx := 0; idx < metal.Available(); idx++ {
-		errnie.Info("compute.backend: Metal substrate registered")
-		backend.hardware = append(backend.hardware, metal.NewBackend(
-			idx,
-			metal.BackendWithObserver(backend.observer),
-		))
-	}
-
-	errnie.Info("compute.backend: CPU substrate registered")
-	backend.hardware = append(backend.hardware, cpu.NewBackend(
-		backend.ctx,
-	))
-
-	backend.cpuIdx = -1
-
-	for i, hw := range backend.hardware {
-		if _, ok := hw.(*cpu.Backend); ok {
-			backend.cpuIdx = i
-			continue
-		}
-		backend.accel = append(backend.accel, accelSlot{sub: hw})
-	}
-
 	if err := validate.Require(map[string]any{
-		"ctx":           backend.ctx,
-		"cancel":        backend.cancel,
-		"hardware":      backend.hardware,
-		"jobQueueAccel": backend.jobQueueAccel,
-		"jobQueueCPU":   backend.jobQueueCPU,
+		"ctx":         backend.ctx,
+		"cancel":      backend.cancel,
+		"queues":      backend.queues,
+		"batchSize":   backend.batchSize,
+		"batchWindow": backend.batchWindow,
+		"pool":        backend.pool,
 	}); err != nil {
 		errnie.Error(err)
 		return nil
 	}
 
-	go backend.runAccelLoop()
-	go backend.runCPULoop()
+	for idx := 0; idx < cuda.Available(); idx++ {
+		errnie.Info("compute.backend: CUDA substrate registered")
+		backend.hardware = append(backend.hardware, cuda.NewBackend(idx))
+	}
+
+	for idx := 0; idx < metal.Available(); idx++ {
+		errnie.Info("compute.backend: Metal substrate registered")
+		backend.hardware = append(backend.hardware, metal.NewBackend(idx))
+	}
+
+	errnie.Info("compute.backend: CPU substrate registered")
+	backend.hardware = append(backend.hardware, cpu.NewBackend(backend.ctx))
+
+	if err := validate.Require(map[string]any{
+		"hardware": backend.hardware,
+	}); err != nil {
+		errnie.Error(err)
+		return nil
+	}
+
+	return backend.start()
+}
+
+func (backend *Backend) start() *Backend {
+	go backend.runQueue(PRIORITY)
+	go backend.runQueue(NORMAL)
+
 	return backend
 }
 
-func (backend *Backend) runAccelLoop() {
+func (backend *Backend) runQueue(queueType QueueType) {
+	queue := backend.queues[queueType]
 
 	for {
 		select {
 		case <-backend.ctx.Done():
 			return
-		case job, ok := <-backend.jobQueueAccel:
-			if !ok {
-				return
+		case value := <-queue:
+			batch := backend.gatherBatch(queue, value)
+			if len(batch) == 0 {
+				continue
 			}
-			batch := backend.gatherBatch(backend.jobQueueAccel, job)
-			backend.executeAccelBatch(batch)
+
+			dispatchBatch := append([]unsafe.Pointer(nil), batch...)
+			if err := backend.Schedule(func(ctx context.Context) error {
+				return backend.executeBatch(dispatchBatch)
+			}); err != nil {
+				_ = errnie.Error(err)
+			}
 		}
 	}
 }
 
-func (backend *Backend) runCPULoop() {
-
-	for {
-		select {
-		case <-backend.ctx.Done():
-			return
-		case job, ok := <-backend.jobQueueCPU:
-			if !ok {
-				return
-			}
-			batch := backend.gatherBatch(backend.jobQueueCPU, job)
-			backend.executeCPUBatch(batch)
-		}
+func (backend *Backend) gatherBatch(queue <-chan unsafe.Pointer, first unsafe.Pointer) []unsafe.Pointer {
+	if first == nil {
+		return nil
 	}
-}
-
-func (backend *Backend) gatherBatch(q chan bitwiseJob, first bitwiseJob) []bitwiseJob {
-	batch := make([]bitwiseJob, 1, backend.batchSize)
-	batch[0] = first
 
 	if backend.batchSize <= 1 {
-		return batch
+		return []unsafe.Pointer{first}
 	}
 
-	if backend.batchWindow == 0 {
+	batch := make([]unsafe.Pointer, 1, backend.batchSize)
+	batch[0] = first
+
+	if backend.batchWindow <= 0 {
 		for len(batch) < backend.batchSize {
 			select {
-			case job, ok := <-q:
-				if !ok {
-					return batch
+			case value := <-queue:
+				if value == nil {
+					continue
 				}
-				batch = append(batch, job)
+				batch = append(batch, value)
 			default:
 				return batch
 			}
 		}
+
 		return batch
 	}
 
@@ -251,413 +175,165 @@ func (backend *Backend) gatherBatch(q chan bitwiseJob, first bitwiseJob) []bitwi
 		select {
 		case <-backend.ctx.Done():
 			return batch
-		case job, ok := <-q:
-			if !ok {
-				return batch
-			}
-			batch = append(batch, job)
 		case <-timer.C:
 			return batch
+		case value := <-queue:
+			if value == nil {
+				continue
+			}
+			batch = append(batch, value)
 		}
 	}
 
 	return batch
 }
 
-func (backend *Backend) pickAccelerator() int {
-
-	if len(backend.accel) == 1 {
-		return 0
+func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
+	if len(frames) == 0 {
+		return nil
 	}
 
-	best := 0
-	bestInfl := int32(1<<30 - 1)
-	bestEma := uint64(^uint64(0))
+	frameGroups := backend.groupFramesByProgram(frames)
 
-	for i := range backend.accel {
-		infl := backend.accel[i].inflight
-		ema := backend.accel[i].emaPerFrameNs
-		if ema == 0 {
-			ema = 1
-		}
-		if infl < bestInfl || (infl == bestInfl && ema < bestEma) {
-			best = i
-			bestInfl = infl
-			bestEma = ema
-		}
-	}
-
-	return best
-}
-
-func (backend *Backend) recordAccelSample(idx int, elapsed time.Duration, frames int) {
-
-	if frames <= 0 || idx < 0 || idx >= len(backend.accel) {
-		return
-	}
-
-	sample := uint64(elapsed.Nanoseconds()) / uint64(frames)
-	if sample == 0 {
-		sample = 1
-	}
-
-	slot := &backend.accel[idx]
-	old := slot.emaPerFrameNs
-
-	if old == 0 {
-		slot.emaPerFrameNs = sample
-		return
-	}
-
-	slot.emaPerFrameNs = (old*7 + sample) / 8
-}
-
-func (backend *Backend) executeAccelBatch(batch []bitwiseJob) {
-
-	if len(batch) == 0 {
-		return
-	}
-
-	if len(backend.accel) == 0 {
-		err := NewBackendError(BackendErrorNoHardware, nil, "UniversalBitwise")
-		for _, job := range batch {
-			job.done <- err
-		}
-		return
-	}
-
-	idx := backend.pickAccelerator()
-	slot := &backend.accel[idx]
-	slot.inflight++
-	start := time.Now()
-
-	defer func() {
-		slot.inflight--
-		backend.recordAccelSample(idx, time.Since(start), len(batch))
-	}()
-
-	hw := slot.sub
-
-	if len(batch) == 1 {
-		err := hw.UniversalBitwise(batch[0].a, batch[0].b, 1)
-		batch[0].done <- err
-		return
-	}
-
-	buf := backend.acquireBuffers(len(batch))
-	defer backend.releaseBuffers(buf)
-
-	for i, job := range batch {
-		offset := i * core.Cfg.Value.Words
-		copy(
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatA[offset])), core.Cfg.Value.Bytes),
-			unsafe.Slice((*byte)(job.a), core.Cfg.Value.Bytes),
-		)
-		copy(
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatB[offset])), core.Cfg.Value.Bytes),
-			unsafe.Slice((*byte)(job.b), core.Cfg.Value.Bytes),
-		)
-	}
-
-	err := hw.UniversalBitwise(
-		unsafe.Pointer(&buf.flatA[0]),
-		unsafe.Pointer(&buf.flatB[0]),
-		len(batch),
-	)
-
-	for i, job := range batch {
-		offset := i * core.Cfg.Value.Words
-		copy(
-			unsafe.Slice((*byte)(job.a), core.Cfg.Value.Bytes),
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatA[offset])), core.Cfg.Value.Bytes),
-		)
-		copy(
-			unsafe.Slice((*byte)(job.b), core.Cfg.Value.Bytes),
-			unsafe.Slice((*byte)(unsafe.Pointer(&buf.flatB[offset])), core.Cfg.Value.Bytes),
-		)
-		job.done <- err
-	}
-}
-
-func (backend *Backend) executeCPUBatch(batch []bitwiseJob) {
-
-	if len(batch) == 0 {
-		return
-	}
-
-	if backend.cpuIdx < 0 || backend.cpuIdx >= len(backend.hardware) {
-		err := NewBackendError(BackendErrorNoHardware, nil, "UniversalBitwise")
-		for _, job := range batch {
-			job.done <- err
-		}
-		return
-	}
-
-	cpuKernel, ok := backend.hardware[backend.cpuIdx].(*cpu.Backend)
-	if !ok || cpuKernel == nil {
-		err := NewBackendError(BackendErrorNoHardware, nil, "UniversalBitwise")
-		for _, job := range batch {
-			job.done <- err
-		}
-		return
-	}
-
-	stepwiseIdx := make([]int, 0, len(batch))
-	legacyIdx := make([]int, 0, len(batch))
-
-	for i := range batch {
-		if stepwise.DetectEmbeddedStepwise((*[stepwise.FrameWords]uint64)(batch[i].a)) {
-			stepwiseIdx = append(stepwiseIdx, i)
+	for _, group := range frameGroups {
+		if len(group) == 0 {
 			continue
 		}
 
-		legacyIdx = append(legacyIdx, i)
-	}
-
-	if len(legacyIdx) == 0 {
-		for _, i := range stepwiseIdx {
-			batch[i].done <- stepwise.RunEmbeddedPair(
-				(*[stepwise.FrameWords]uint64)(batch[i].a),
-				(*[stepwise.FrameWords]uint64)(batch[i].b),
-			)
+		if err := backend.hardware[0].UniversalBitwise(group); err != nil {
+			return err
 		}
 
-		return
+		backend.handleFollowUp(group)
 	}
 
-	if len(stepwiseIdx) == 0 {
-		if len(batch) == 1 {
-			err := cpuKernel.UniversalBitwise(batch[0].a, batch[0].b, 1)
-			batch[0].done <- err
-			return
+	return nil
+}
+
+func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
+	fwWord := core.Cfg.Value.Region.Registers.FW
+
+	for _, value := range frames {
+		frame := (*[128]uint64)(value)
+		if frame[fwWord] == 0 {
+			continue
 		}
 
-		frames := make([]cpu.BitwiseFrame, len(batch))
-		for i := range batch {
-			frames[i] = cpu.BitwiseFrame{
-				A: batch[i].a,
-				B: batch[i].b,
+		firmware.NOPShatterLGP(frame, int(frame[fwWord]&0x7F), 0)
+		backend.queues[PRIORITY] <- value
+	}
+}
+
+func (backend *Backend) groupFramesByProgram(frames []unsafe.Pointer) [][]unsafe.Pointer {
+	if len(frames) <= 1 {
+		return [][]unsafe.Pointer{frames}
+	}
+
+	progStart := core.Cfg.Value.Region.Program.Start
+	nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+	type programGroup struct {
+		fingerprint uint64
+		frames      []unsafe.Pointer
+	}
+
+	groups := make([]programGroup, 0, len(frames))
+	groupIndexByFingerprint := make(map[uint64][]int, len(frames))
+
+	for _, ptr := range frames {
+		frame := (*[128]uint64)(ptr)
+		fingerprint := programFingerprint(frame, progStart, nProgWords)
+		candidates := groupIndexByFingerprint[fingerprint]
+		matched := false
+
+		for _, groupIndex := range candidates {
+			groupFrame := (*[128]uint64)(groups[groupIndex].frames[0])
+			if sameProgramFrame(groupFrame, frame, progStart, nProgWords) {
+				groups[groupIndex].frames = append(groups[groupIndex].frames, ptr)
+				matched = true
+				break
 			}
 		}
 
-		err := cpuKernel.UniversalBitwiseFrames(frames)
-		for i := range batch {
-			batch[i].done <- err
+		if matched {
+			continue
 		}
 
-		return
-	}
-
-	for _, i := range stepwiseIdx {
-		batch[i].done <- stepwise.RunEmbeddedPair(
-			(*[stepwise.FrameWords]uint64)(batch[i].a),
-			(*[stepwise.FrameWords]uint64)(batch[i].b),
-		)
-	}
-
-	for _, i := range legacyIdx {
-		batch[i].done <- cpuKernel.UniversalBitwise(batch[i].a, batch[i].b, 1)
-	}
-
-	return
-}
-
-func frameRequiresProgramExecution(ptr unsafe.Pointer) bool {
-	if ptr == nil || core.Cfg == nil {
-		return false
-	}
-
-	words := core.Cfg.Value.Words
-	if words <= 0 {
-		words = primitive.Words
-	}
-
-	frame := unsafe.Slice((*uint64)(ptr), words)
-
-	fwIdx := core.Cfg.Value.Region.Registers.FW
-	if fwIdx >= 0 && fwIdx < len(frame) && frame[fwIdx] > 0 {
-		return true
-	}
-
-	startWord := core.Cfg.Value.Region.Program.Start
-	if startWord < 0 || startWord >= len(frame) {
-		return false
-	}
-
-	progWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
-	if progWords <= 0 {
-		if startWord == 0 {
-			startWord = stepwise.DefaultProgramWordBase
-			if startWord >= len(frame) {
-				return false
-			}
-		}
-
-		progWords = len(frame) - startWord
-	}
-
-	if progWords <= 0 {
-		return false
-	}
-
-	endWord := startWord + progWords
-	if endWord > len(frame) {
-		endWord = len(frame)
-	}
-	for i := startWord; i < endWord; i++ {
-		if frame[i] != 0 {
-			return true
-		}
-	}
-	return false
-}
-
-func (backend *Backend) acquireBuffers(batchLen int) *batchBuffers {
-	buf := backend.bufferPool.Get().(*batchBuffers)
-	need := batchLen * core.Cfg.Value.Words
-
-	if cap(buf.flatA) < need {
-		buf.flatA = make([]uint64, need)
-	} else {
-		buf.flatA = buf.flatA[:need]
-		clear(buf.flatA)
-	}
-
-	if cap(buf.flatB) < need {
-		buf.flatB = make([]uint64, need)
-	} else {
-		buf.flatB = buf.flatB[:need]
-		clear(buf.flatB)
-	}
-
-	return buf
-}
-
-func (backend *Backend) releaseBuffers(buf *batchBuffers) {
-	if buf == nil {
-		return
-	}
-	backend.bufferPool.Put(buf)
-}
-
-/*
-UniversalBitwise runs pairwise firmware on the frames at a and b. For immutable
-canonical Values, pass pointers to disposable full-frame copies; results are
-written into those buffers (and for batched jobs, copied back to the same pointers).
-*/
-func (backend *Backend) UniversalBitwise(a, b unsafe.Pointer) error {
-	if backend == nil {
-		return errors.New("compute.Backend.UniversalBitwise: nil backend")
-	}
-	if len(backend.hardware) == 0 {
-		return NewBackendError(BackendErrorNoHardware, nil, "UniversalBitwise")
-	}
-
-	done := make(chan error, 1)
-	job := bitwiseJob{a: a, b: b, done: done}
-
-	var q chan bitwiseJob
-	if frameRequiresProgramExecution(a) {
-		// Program execution (legacy RISC or stepwise) always uses the CPU queue.
-		// Accelerators still run the legacy unified bitwise kernel for SIMD-only work.
-		q = backend.jobQueueCPU
-	} else if len(backend.accel) > 0 {
-		q = backend.jobQueueAccel
-	} else {
-		q = backend.jobQueueCPU
-	}
-
-	select {
-	case <-backend.ctx.Done():
-		return backend.ctx.Err()
-	case q <- job:
-		return <-done
-	}
-}
-
-/*
-Queue executes the frame at self against a private full-frame copy so inbound
-token work participates in the same fold semantics as UniversalBitwise(self, partner)
-without compute importing primitive (tests already import compute).
-*/
-func (backend *Backend) Queue(self unsafe.Pointer) error {
-
-	if backend == nil {
-		return errors.New("compute.Backend.Queue: nil backend")
-	}
-	if self == nil {
-		return errors.New("compute.Backend.Queue: nil frame pointer")
-	}
-
-	words := core.Cfg.Value.Words
-	if words <= 0 {
-		return errors.New("compute.Backend.Queue: invalid value.words in config")
-	}
-
-	partner := make([]uint64, words)
-	src := unsafe.Slice((*uint64)(self), words)
-	copy(partner, src)
-
-	return backend.UniversalBitwise(self, unsafe.Pointer(&partner[0]))
-}
-
-/*
-SetKernelObserver updates the observer for the active default backend. When
-called before the default backend is initialized, the observer is retained
-and applied during lazy construction.
-*/
-func SetKernelObserver(observer kernel.Observer) {
-	normalized := kernel.NormalizeObserver(observer)
-
-	defaultBackendMu.Lock()
-	defaultObserver = normalized
-	backend := defaultBackendInst
-	defaultBackendMu.Unlock()
-
-	if backend == nil {
-		return
-	}
-
-	backend.observer = normalized
-	for _, hw := range backend.hardware {
-		if aware, ok := hw.(kernel.ObserverAware); ok {
-			aware.SetObserver(normalized)
-		}
-	}
-	if backend.pool != nil {
-		backend.pool.SetDropObserver(func(err error) {
-			if err == nil {
-				return
-			}
-			backend.observer.Error(
-				"compute.pool.saturation",
-				err,
-				"dropped_total", backend.pool.DroppedErrors(),
-				"saturation_total", backend.pool.SaturationEvents(),
-			)
+		groupIndex := len(groups)
+		groups = append(groups, programGroup{
+			fingerprint: fingerprint,
+			frames:      []unsafe.Pointer{ptr},
 		})
+		groupIndexByFingerprint[fingerprint] = append(groupIndexByFingerprint[fingerprint], groupIndex)
 	}
-}
 
-type errnieKernelObserver struct{}
-
-func (errnieKernelObserver) Trace(event string, keyvals ...any) {
-	errnie.Trace(event, keyvals...)
-}
-
-func (errnieKernelObserver) Error(event string, err error, keyvals ...any) {
-	if err == nil {
-		return
+	out := make([][]unsafe.Pointer, 0, len(groups))
+	for _, group := range groups {
+		out = append(out, group.frames)
 	}
-	kv := make([]any, 0, len(keyvals)+2)
-	kv = append(kv, "event", event)
-	kv = append(kv, keyvals...)
-	_ = errnie.Error(err, kv...)
+
+	return out
 }
 
-// NewErrnieKernelObserver returns an async observer that forwards to errnie.
-func NewErrnieKernelObserver(queueSize int) kernel.Observer {
-	return kernel.NewAsyncObserver(errnieKernelObserver{}, queueSize)
+func programFingerprint(frame *[128]uint64, progStart int, nProgWords int) uint64 {
+	const offset = uint64(14695981039346656037)
+	const prime = uint64(1099511628211)
+
+	if frame == nil {
+		return 0
+	}
+
+	hash := offset
+	for word := 0; word < nProgWords; word++ {
+		index := progStart + word
+		if index < 0 || index >= len(frame) {
+			break
+		}
+
+		value := frame[index]
+		for shift := 0; shift < 64; shift += 8 {
+			hash ^= uint64(byte(value >> shift))
+			hash *= prime
+		}
+	}
+
+	return hash
+}
+
+func sameProgramFrame(left, right *[128]uint64, progStart int, nProgWords int) bool {
+	if left == nil || right == nil {
+		return false
+	}
+
+	for word := 0; word < nProgWords; word++ {
+		index := progStart + word
+		if index < 0 || index >= len(left) || index >= len(right) {
+			return false
+		}
+
+		if left[index] != right[index] {
+			return false
+		}
+	}
+
+	return true
+}
+
+/*
+Queue a new value for execution.
+This prepares the value for execution and potentially optimizes
+the execution path by batching similar values together.
+*/
+func (backend *Backend) Queue(value unsafe.Pointer) error {
+	if value == nil {
+		return NewBackendError(BackendErrorNoValues, nil, "Queue")
+	}
+
+	backend.queues[NORMAL] <- value
+	return nil
+}
+
+func (backend *Backend) Shutdown() {
+	backend.cancel()
 }
 
 /*
@@ -678,23 +354,4 @@ func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 		return fmt.Errorf("compute.Backend.Schedule: %w", err)
 	}
 	return nil
-}
-
-// Close stops the backend's batching worker. It is primarily intended for
-// explicitly constructed backends used in tests.
-func (backend *Backend) Close() {
-	if backend == nil {
-		return
-	}
-	backend.closeOnce.Do(func() {
-		if backend.cancel != nil {
-			backend.cancel()
-		}
-		if backend.jobQueueAccel != nil {
-			close(backend.jobQueueAccel)
-		}
-		if backend.jobQueueCPU != nil {
-			close(backend.jobQueueCPU)
-		}
-	})
 }

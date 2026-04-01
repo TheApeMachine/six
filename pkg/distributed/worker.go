@@ -206,7 +206,7 @@ func (w *Worker) Close() error {
 		w.cancel()
 	}
 	if w.computeBackend != nil {
-		w.computeBackend.Close()
+		w.computeBackend.Shutdown()
 		w.computeBackend = nil
 	}
 	var errs []error
@@ -378,7 +378,7 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 	defer left.Release()
 	defer right.Release()
 
-	if err := w.computeBackend.UniversalBitwise(unsafe.Pointer(left), unsafe.Pointer(right)); err != nil {
+	if err := w.computeBackend.Queue(unsafe.Pointer(left)); err != nil {
 		dur := time.Since(start)
 		telemetry.Emit(telemetry.Event{
 			Component: "Pool",

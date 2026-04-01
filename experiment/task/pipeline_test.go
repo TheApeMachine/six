@@ -179,10 +179,7 @@ func TestObservePrompt(t *testing.T) {
 
 		value.InstallTombstone()
 
-		var tombPartner primitive.Value
-		primitive.CopyFrame(&tombPartner, value)
-
-		So(backend.UniversalBitwise(unsafe.Pointer(value), unsafe.Pointer(&tombPartner)), ShouldBeNil)
+		So(backend.UniversalBitwise(unsafe.Pointer(value)), ShouldBeNil)
 		So(value.Close(), ShouldBeNil)
 	})
 
@@ -202,10 +199,7 @@ func TestObservePrompt(t *testing.T) {
 
 		value.InstallTombstone()
 
-		var tombPartner primitive.Value
-		primitive.CopyFrame(&tombPartner, value)
-
-		So(backend.UniversalBitwise(unsafe.Pointer(value), unsafe.Pointer(&tombPartner)), ShouldBeNil)
+		So(backend.UniversalBitwise(unsafe.Pointer(value)), ShouldBeNil)
 		So(value.Close(), ShouldBeNil)
 	})
 }
@@ -231,10 +225,7 @@ func BenchmarkObservePrompt(b *testing.B) {
 
 		value.InstallTombstone()
 
-		var tombPartner primitive.Value
-		primitive.CopyFrame(&tombPartner, value)
-
-		_ = backend.UniversalBitwise(unsafe.Pointer(value), unsafe.Pointer(&tombPartner))
+		_ = backend.UniversalBitwise(unsafe.Pointer(value))
 		_ = value.Close()
 	}
 }

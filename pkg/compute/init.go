@@ -3,8 +3,6 @@ package compute
 import (
 	"context"
 	"time"
-
-	"github.com/theapemachine/six/pkg/compute/kernel"
 )
 
 /*
@@ -35,15 +33,10 @@ func WithPool(p *Pool) BackendOption {
 	}
 }
 
-// WithKernelObserver injects a kernel observer for all discovered backends.
-func WithKernelObserver(observer kernel.Observer) BackendOption {
-	return func(backend *Backend) {
-		backend.observer = kernel.NormalizeObserver(observer)
-	}
-}
-
-// WithBatchSize overrides the maximum number of frames folded together in one
-// batched hardware dispatch.
+/*
+WithBatchSize sets the maximum number of frames folded together in one
+batched hardware dispatch.
+*/
 func WithBatchSize(n int) BackendOption {
 	return func(backend *Backend) {
 		if n > 0 {
@@ -52,8 +45,10 @@ func WithBatchSize(n int) BackendOption {
 	}
 }
 
-// WithBatchWindow sets the maximum time the gather loop will wait for more
-// work before dispatching the current batch.
+/*
+WithBatchWindow sets the maximum time the gather loop will wait for more
+work before dispatching the current batch.
+*/
 func WithBatchWindow(window time.Duration) BackendOption {
 	return func(backend *Backend) {
 		if window >= 0 {

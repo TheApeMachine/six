@@ -643,3 +643,205 @@ shr_scalar:
 shr_done:
 	VZEROUPPER
 	RET
+
+
+// simdTruthTable applies a branchless 4-bit truth table to dst and src.
+// For each word: result = (a & b & m0) | (a & ~b & m1) | (~a & b & m2) | (~a & ~b & m3)
+// where a = src[i], b = dst[i], and m0..m3 are broadcast masks derived from op bits 0..3.
+// Signature: func(dst, src *uint64, n int, op uint8)
+//   dst+0(FP)  — pointer to destination words (also "b" operand)
+//   src+8(FP)  — pointer to source words ("a" operand)
+//   n+16(FP)   — number of uint64 words to process
+//   op+24(FP)  — 4-bit opcode (0–15)
+TEXT ·simdTruthTable(SB), NOSPLIT, $0-25
+	MOVQ	dst+0(FP), DI
+	MOVQ	src+8(FP), SI
+	MOVQ	n+16(FP), CX
+	MOVBQZX	op+24(FP), AX
+
+	// Build m0..m3 from op bits: m_k = -uint64((op>>k) & 1).
+	// bit 0 → m0
+	MOVQ	AX, R8
+	ANDQ	$1, R8
+	NEGQ	R8			// R8 = m0
+
+	// bit 1 → m1
+	MOVQ	AX, R9
+	SHRQ	$1, R9
+	ANDQ	$1, R9
+	NEGQ	R9			// R9 = m1
+
+	// bit 2 → m2
+	MOVQ	AX, R10
+	SHRQ	$2, R10
+	ANDQ	$1, R10
+	NEGQ	R10			// R10 = m2
+
+	// bit 3 → m3
+	MOVQ	AX, R11
+	SHRQ	$3, R11
+	ANDQ	$1, R11
+	NEGQ	R11			// R11 = m3
+
+	// Broadcast masks into YMM registers: Y12=m0, Y13=m1, Y14=m2, Y15=m3.
+	VMOVQ		R8, X12
+	VPBROADCASTQ	X12, Y12
+	VMOVQ		R9, X13
+	VPBROADCASTQ	X13, Y13
+	VMOVQ		R10, X14
+	VPBROADCASTQ	X14, Y14
+	VMOVQ		R11, X15
+	VPBROADCASTQ	X15, Y15
+
+	// Y11 = all ones (for NOT via VPXOR).
+	VPCMPEQD	Y11, Y11, Y11
+
+	// Hot loop: 16 words per iteration (4× YMM).
+	MOVQ	CX, DX
+	SHRQ	$4, CX
+	JZ	tt_mid_setup
+
+tt_hot:
+	// --- lane 0 (words 0..3) ---
+	VMOVDQU	0*32(SI), Y0		// a
+	VMOVDQU	0*32(DI), Y1		// b
+	VPXOR	Y11, Y0, Y2		// ~a
+	VPXOR	Y11, Y1, Y3		// ~b
+	VPAND	Y2, Y3, Y4		// ~a & ~b
+	VPAND	Y0, Y3, Y5		// a & ~b
+	VPAND	Y13, Y5, Y5		// & m1
+	VPAND	Y2, Y1, Y6		// ~a & b
+	VPAND	Y14, Y6, Y6		// & m2
+	VPAND	Y0, Y1, Y7		// a & b
+	VPAND	Y12, Y7, Y7		// & m0
+	VPAND	Y15, Y4, Y4		// & m3
+	VPOR	Y4, Y5, Y4
+	VPOR	Y4, Y6, Y4
+	VPOR	Y4, Y7, Y4
+	VMOVDQU	Y4, 0*32(DI)
+
+	// --- lane 1 (words 4..7) ---
+	VMOVDQU	1*32(SI), Y0
+	VMOVDQU	1*32(DI), Y1
+	VPXOR	Y11, Y0, Y2
+	VPXOR	Y11, Y1, Y3
+	VPAND	Y2, Y3, Y4
+	VPAND	Y0, Y3, Y5
+	VPAND	Y13, Y5, Y5
+	VPAND	Y2, Y1, Y6
+	VPAND	Y14, Y6, Y6
+	VPAND	Y0, Y1, Y7
+	VPAND	Y12, Y7, Y7
+	VPAND	Y15, Y4, Y4
+	VPOR	Y4, Y5, Y4
+	VPOR	Y4, Y6, Y4
+	VPOR	Y4, Y7, Y4
+	VMOVDQU	Y4, 1*32(DI)
+
+	// --- lane 2 (words 8..11) ---
+	VMOVDQU	2*32(SI), Y0
+	VMOVDQU	2*32(DI), Y1
+	VPXOR	Y11, Y0, Y2
+	VPXOR	Y11, Y1, Y3
+	VPAND	Y2, Y3, Y4
+	VPAND	Y0, Y3, Y5
+	VPAND	Y13, Y5, Y5
+	VPAND	Y2, Y1, Y6
+	VPAND	Y14, Y6, Y6
+	VPAND	Y0, Y1, Y7
+	VPAND	Y12, Y7, Y7
+	VPAND	Y15, Y4, Y4
+	VPOR	Y4, Y5, Y4
+	VPOR	Y4, Y6, Y4
+	VPOR	Y4, Y7, Y4
+	VMOVDQU	Y4, 2*32(DI)
+
+	// --- lane 3 (words 12..15) ---
+	VMOVDQU	3*32(SI), Y0
+	VMOVDQU	3*32(DI), Y1
+	VPXOR	Y11, Y0, Y2
+	VPXOR	Y11, Y1, Y3
+	VPAND	Y2, Y3, Y4
+	VPAND	Y0, Y3, Y5
+	VPAND	Y13, Y5, Y5
+	VPAND	Y2, Y1, Y6
+	VPAND	Y14, Y6, Y6
+	VPAND	Y0, Y1, Y7
+	VPAND	Y12, Y7, Y7
+	VPAND	Y15, Y4, Y4
+	VPOR	Y4, Y5, Y4
+	VPOR	Y4, Y6, Y4
+	VPOR	Y4, Y7, Y4
+	VMOVDQU	Y4, 3*32(DI)
+
+	ADDQ	$128, SI
+	ADDQ	$128, DI
+	DECQ	CX
+	JNZ	tt_hot
+
+	// Middle: 4 words at a time from remainder.
+tt_mid_setup:
+	ANDQ	$15, DX
+	MOVQ	DX, CX
+	SHRQ	$2, CX
+	JZ	tt_tail
+tt_mid:
+	VMOVDQU	(SI), Y0
+	VMOVDQU	(DI), Y1
+	VPXOR	Y11, Y0, Y2
+	VPXOR	Y11, Y1, Y3
+	VPAND	Y2, Y3, Y4
+	VPAND	Y0, Y3, Y5
+	VPAND	Y13, Y5, Y5
+	VPAND	Y2, Y1, Y6
+	VPAND	Y14, Y6, Y6
+	VPAND	Y0, Y1, Y7
+	VPAND	Y12, Y7, Y7
+	VPAND	Y15, Y4, Y4
+	VPOR	Y4, Y5, Y4
+	VPOR	Y4, Y6, Y4
+	VPOR	Y4, Y7, Y4
+	VMOVDQU	Y4, (DI)
+	ADDQ	$32, SI
+	ADDQ	$32, DI
+	DECQ	CX
+	JNZ	tt_mid
+
+	// Scalar tail: 0–3 words.
+tt_tail:
+	ANDQ	$3, DX
+	JZ	tt_done
+tt_scalar:
+	MOVQ	(SI), AX		// a
+	MOVQ	(DI), BX		// b
+	MOVQ	AX, R12
+	NOTQ	R12			// ~a
+	MOVQ	BX, R13
+	NOTQ	R13			// ~b
+	// minterm 0: a & b & m0
+	MOVQ	AX, R14
+	ANDQ	BX, R14
+	ANDQ	R8, R14
+	// minterm 1: a & ~b & m1
+	MOVQ	AX, R15
+	ANDQ	R13, R15
+	ANDQ	R9, R15
+	ORQ	R15, R14
+	// minterm 2: ~a & b & m2
+	MOVQ	R12, R15
+	ANDQ	BX, R15
+	ANDQ	R10, R15
+	ORQ	R15, R14
+	// minterm 3: ~a & ~b & m3
+	MOVQ	R12, R15
+	ANDQ	R13, R15
+	ANDQ	R11, R15
+	ORQ	R15, R14
+	MOVQ	R14, (DI)
+	ADDQ	$8, SI
+	ADDQ	$8, DI
+	DECQ	DX
+	JNZ	tt_scalar
+tt_done:
+	VZEROUPPER
+	RET

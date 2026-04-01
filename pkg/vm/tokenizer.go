@@ -13,14 +13,25 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 )
 
-var (
-	tokenBytes = int(core.Cfg.Value.Region.Tokens.Bits/8) - 3*8
-	bufPool    = sync.Pool{
-		New: func() interface{} {
-			return make([]byte, tokenBytes)
-		},
+/*
+tokenizerChunkBytes returns the ingest chunk size derived from the live config.
+It must not run at package init because viper-backed Cfg is populated after
+TestMain (and Defaults would yield 0 bits before subtracting headers).
+*/
+func tokenizerChunkBytes() int {
+	raw := int(core.Cfg.Value.Region.Tokens.Bits/8) - 3*8
+	if raw < 1 {
+		return 1
 	}
-)
+
+	return raw
+}
+
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return make([]byte, tokenizerChunkBytes())
+	},
+}
 
 /*
 Tokenizer takes a raw byte stream, chunks the incoming data to
@@ -48,13 +59,13 @@ func NewTokenizer(
 	opts ...TokenizerOpts,
 ) (*Tokenizer, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	rb := ringbuffer.New(tokenBytes * 128)
+	rb := ringbuffer.New(tokenizerChunkBytes() * 128)
 	pr, pw := rb.Pipe()
 
 	tokenizer := &Tokenizer{
 		ctx:     ctx,
 		cancel:  cancel,
-		rb:      ringbuffer.New(tokenBytes * 128),
+		rb:      rb,
 		pr:      pr,
 		pw:      pw,
 		backend: backend,
@@ -139,7 +150,7 @@ func (tokenizer *Tokenizer) Close() (err error) {
 
 func TokenizerWithBuffer(n int) TokenizerOpts {
 	return func(tokenizer *Tokenizer) {
-		tokenizer.rb = ringbuffer.New(tokenBytes * n)
+		tokenizer.rb = ringbuffer.New(tokenizerChunkBytes() * n)
 		tokenizer.pr, tokenizer.pw = tokenizer.rb.Pipe()
 	}
 }

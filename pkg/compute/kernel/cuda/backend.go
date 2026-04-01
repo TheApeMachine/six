@@ -8,7 +8,7 @@ package cuda
 int cuda_device_count();
 void cleanup_cuda_pools();
 
-int unified_bitwise_cuda(int device_id, void* a_host, const void* b_host);
+int unified_bitwise_cuda(int device_id, void* a_host, const void* b_host, uint32_t num_values);
 */
 import "C"
 import (
@@ -124,10 +124,49 @@ reads that program and executes up to 64 ticks per Value, halting at the
 first zero opcode. The batch may therefore be heterogeneous: each Value
 runs its own independent program in parallel.
 */
-func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer, count int) error {
-	preloadFirmwareFrameBatch(a, count)
+func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 
-	if C.unified_bitwise_cuda(C.int(backend.deviceIdx), unsafe.Pointer(a), unsafe.Pointer(bPtr), C.uint32_t(count)) != 0 {
+	if len(frames) == 0 {
+		return nil
+	}
+
+	if len(frames) == 1 && frames[0] != nil {
+		preloadFirmwareFrameBatch(frames[0], 1)
+
+		if C.unified_bitwise_cuda(
+			C.int(backend.deviceIdx),
+			frames[0],
+			frames[0],
+			C.uint32_t(1),
+		) != 0 {
+			err := NewCUDAError(
+				CUDAErrorDispatchFailed,
+				errors.New("failed to dispatch unified bitwise operation"),
+				"UniversalBitwise",
+				1,
+			)
+			backend.observer.Error(
+				"cuda.Backend.UniversalBitwise",
+				err,
+				"device_idx", backend.deviceIdx,
+			)
+			return err
+		}
+
+		return nil
+	}
+
+	slabA := kernel.PackValueFrames(frames)
+	slabB := append([]byte(nil), slabA...)
+
+	preloadFirmwareFrameBatch(unsafe.Pointer(&slabA[0]), len(frames))
+
+	if C.unified_bitwise_cuda(
+		C.int(backend.deviceIdx),
+		unsafe.Pointer(&slabA[0]),
+		unsafe.Pointer(&slabB[0]),
+		C.uint32_t(len(frames)),
+	) != 0 {
 		err := NewCUDAError(
 			CUDAErrorDispatchFailed,
 			errors.New("failed to dispatch unified bitwise operation"),
@@ -141,6 +180,8 @@ func (backend *Backend) UniversalBitwise(a, bPtr unsafe.Pointer, count int) erro
 		)
 		return err
 	}
+
+	kernel.UnpackValueFrames(frames, slabA)
 
 	return nil
 }

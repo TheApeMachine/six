@@ -2,23 +2,14 @@
 
 package cpu
 
-import (
-	"math/bits"
+import "math/bits"
 
-	"github.com/theapemachine/six/pkg/errnie"
-)
-
-// execWordBlock dispatches the body of a word-aligned span operation.
-// NEON assembly is used for all supported opcodes on arm64.
+/*
+execWordBlock applies a 4-bit truth-table opcode across all lanes.
+NEON assembly is used for opcodes that map directly to a single SIMD
+instruction; all others use the branchless TruthTable scalar loop.
+*/
 func execWordBlock(dst, src []uint64, op uint8) {
-	errnie.Trace(
-		"cpu.Backend.handleAlu",
-		"hw", "simd-accelerated arm64",
-		"op", op,
-		"dst", dst,
-		"src", src,
-	)
-
 	n := len(dst)
 	if len(src) < n {
 		n = len(src)
@@ -30,27 +21,35 @@ func execWordBlock(dst, src []uint64, op uint8) {
 	src = src[:n]
 
 	switch op {
-	case 0x1: // AND
+	case 0x0:
+		clear(dst)
+		return
+	case 0x1:
 		simdAnd(&dst[0], &src[0], n)
-	case 0x2: // src &^ dst — NEON simdSrcAndNotDst used a broken invert; scalar matches backend.execute.
-		execWordBlockScalar(dst, src, op)
-	case 0x3: // COPY
-		copy(dst, src)
-	case 0x4: // dst &^= src (¬A ∧ B)
-		simdDstAndNotSrc(&dst[0], &src[0], n)
-	case 0x6: // XOR
+		return
+	case 0x2:
+		simdSrcAndNotDst(&dst[0], &src[0], n)
+		return
+	case 0x5:
+		return
+	case 0x6:
 		simdXor(&dst[0], &src[0], n)
-	case 0x7: // OR
+		return
+	case 0x7:
 		simdOr(&dst[0], &src[0], n)
-	case 0x10: // POPCOUNT (Hamming distance)
+		return
+	case 0x10:
 		simdPopcnt(&dst[0], &src[0], n)
-	case 0x11: // Memory SHL: dst[i] = dst[i] << (src[i] & 63)
+		return
+	case 0x11:
 		simdShl(&dst[0], &src[0], n)
-	case 0x12: // Memory SHR: dst[i] = dst[i] >> (src[i] & 63)
+		return
+	case 0x12:
 		simdShr(&dst[0], &src[0], n)
-	default:
-		execWordBlockScalar(dst, src, op)
+		return
 	}
+
+	execWordBlockScalar(dst, src, op)
 }
 
 // HasHammingMatch returns true if any word in frame has
@@ -93,6 +92,9 @@ func simdShl(dst, src *uint64, n int)
 
 //go:noescape
 func simdShr(dst, src *uint64, n int)
+
+//go:noescape
+func simdTruthTable(dst, src *uint64, n int, op uint8)
 
 //go:noescape
 func simdHasHammingMatch(frame *uint64, n int, target uint64, maxDist uint64) bool

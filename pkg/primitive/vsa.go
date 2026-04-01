@@ -113,40 +113,51 @@ func CosineSimilarityHD(a, b *Value) float64 {
 }
 
 /*
-ComputeAffinityLSH projects the 3648-bit Tokens region into a 64-bit
-Affinity word using SimHash: partition Tokens into 64 blocks, set each
-Affinity bit to 1 if the block's popcount exceeds half its width.
+affinityLSHRing and affinityLSHStride spread SimHash samples across the whole
+Tokens frame so shared prefixes no longer dominate the 64-bit Kademlia key.
+*/
+const affinityLSHRing = 3659
+const affinityLSHStride = 73
+const affinityLSHSamples = 57
+
+/*
+ComputeAffinityLSH projects the Tokens region into a 64-bit Affinity word:
+for each output bit, majority vote over 57 samples at
+(outBit*affinityLSHStride + step) mod affinityLSHRing — affine sampling
+instead of contiguous blocks.
 */
 func (value *Value) ComputeAffinityLSH() {
+	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	if nWords == 0 {
+	if nWords == 0 || tokenBits <= 0 {
 		return
 	}
 	base := core.Cfg.Value.Region.Tokens.Start
-	blockSize := nWords / 64
-	if blockSize < 1 {
-		blockSize = 1
-	}
 
 	var affinity uint64
-	for bit := 0; bit < 64; bit++ {
-		start := bit * blockSize
-		end := start + blockSize
-		if end > nWords {
-			end = nWords
-		}
-		totalBits := 0
-		totalCapacity := 0
-		for w := start; w < end; w++ {
-			idx := base + w
-			if idx >= Words {
-				break
+	for outBit := 0; outBit < 64; outBit++ {
+		ones := 0
+		counted := 0
+
+		for step := 0; step < affinityLSHSamples; step++ {
+			idx := (outBit*affinityLSHStride + step) % affinityLSHRing
+			if idx >= tokenBits {
+				continue
 			}
-			totalBits += bits.OnesCount64(value[idx])
-			totalCapacity += 64
+
+			w := idx / 64
+			b := uint(idx % 64)
+			wordIdx := base + w
+			if wordIdx >= Words || w >= nWords {
+				continue
+			}
+
+			counted++
+			ones += int((value[wordIdx] >> b) & 1)
 		}
-		if totalBits > totalCapacity/2 {
-			affinity |= 1 << bit
+
+		if counted > 0 && ones*2 > counted {
+			affinity |= 1 << uint(outBit)
 		}
 	}
 
