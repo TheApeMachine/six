@@ -81,14 +81,10 @@ func Available() int {
 UniversalBitwise dispatches a batch of Values to the compiled Metal kernel.
 
 Each frame carries its own in-band program. Non-contiguous host pointers are
-packed into a contiguous slab for the Metal API; the second device buffer
-receives a byte-identical copy so legacy kernels that still read a “B” layer
-see the same snapshot as the A context (self-only host contract).
+packed into a contiguous slab for the Metal API, then executed self-only
+against the same 32-bit slot sweep the CPU backend uses.
 */
 func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
-
-	backend.observer.Trace("metal.Backend.UniversalBitwise", "frames", len(frames))
-
 	if !metalReady.Load() {
 		return NewMetalError(
 			MetalErrorUnavailable,
@@ -102,7 +98,7 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	}
 
 	if len(frames) == 1 && frames[0] != nil {
-		if C.unified_bitwise_metal(frames[0], frames[0], 1) != 0 {
+		if C.unified_bitwise_metal(frames[0], 1) != 0 {
 			return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
 		}
 
@@ -110,13 +106,7 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	}
 
 	slabA := kernel.PackValueFrames(frames)
-	slabB := append([]byte(nil), slabA...)
-
-	if C.unified_bitwise_metal(
-		unsafe.Pointer(&slabA[0]),
-		unsafe.Pointer(&slabB[0]),
-		C.uint32_t(len(frames)),
-	) != 0 {
+	if C.unified_bitwise_metal(unsafe.Pointer(&slabA[0]), C.uint32_t(len(frames))) != 0 {
 		return NewMetalError(MetalErrorDispatchFailed, nil, "UniversalBitwise")
 	}
 

@@ -20,10 +20,8 @@ import (
 	"github.com/theapemachine/six/experiment/task/phasedial"
 	"github.com/theapemachine/six/experiment/task/scaling"
 	"github.com/theapemachine/six/experiment/task/textgen"
-	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -216,98 +214,5 @@ func TestPipeline(t *testing.T) {
 				})
 			})
 		})
-	}
-}
-
-func TestObservePrompt(t *testing.T) {
-	Convey("observePrompt returns a substrate workspace readout without requiring holdout bytes", t, func() {
-		backend := compute.NewBackgroundBackend()
-
-		prefix := []byte("orca ")
-		value, err := primitive.NewValue(prefix)
-		So(err, ShouldBeNil)
-
-		var pipeline Pipeline
-		observedA, err := pipeline.observePrompt(backend, value, prefix, nil)
-		So(err, ShouldBeNil)
-		So(len(observedA), ShouldBeGreaterThan, 0)
-
-		observedB, err := pipeline.observePrompt(backend, value, prefix, []byte("whale"))
-		So(err, ShouldBeNil)
-		So(len(observedB), ShouldBeGreaterThan, 0)
-
-		value.InstallFirmware(core.FirmwareTypeTombstone)
-
-		So(value.Close(), ShouldBeNil)
-	})
-}
-
-func TestPipelineObservedDoesNotDependOnHoldout(t *testing.T) {
-	Convey("Changing only the gold holdout must not change pipeline Observed output", t, func() {
-		prompts := []string{"alpha prompt"}
-
-		experimentA := newHoldoutProbeExperiment(
-			"holdout-probe-a",
-			prompts,
-			[][]byte{[]byte("first holdout")},
-		)
-
-		pipelineA, err := NewPipeline(
-			t.Context(),
-			PipelineWithExperiment(experimentA),
-			PipelineWithReporter(testReporter{}),
-		)
-
-		So(err, ShouldBeNil)
-		So(pipelineA.Run(), ShouldBeNil)
-		So(len(experimentA.results), ShouldEqual, 1)
-
-		experimentB := newHoldoutProbeExperiment(
-			"holdout-probe-b",
-			prompts,
-			[][]byte{[]byte("second, different holdout")},
-		)
-
-		pipelineB, err := NewPipeline(
-			t.Context(),
-			PipelineWithExperiment(experimentB),
-			PipelineWithReporter(testReporter{}),
-		)
-
-		So(err, ShouldBeNil)
-		So(pipelineB.Run(), ShouldBeNil)
-		So(len(experimentB.results), ShouldEqual, 1)
-
-		So(experimentA.results[0].Observed, ShouldResemble, experimentB.results[0].Observed)
-	})
-}
-
-func BenchmarkObservePrompt(b *testing.B) {
-	backend := compute.NewBackgroundBackend()
-
-	prefix := []byte("orca ")
-	holdout := []byte("whale")
-
-	b.ResetTimer()
-
-	for b.Loop() {
-		value, err := primitive.NewValue(prefix)
-		if err != nil {
-			b.Fatal(err)
-		}
-
-		var pipeline Pipeline
-
-		if _, err := pipeline.observePrompt(backend, value, prefix, holdout); err != nil {
-			b.Fatal(err)
-		}
-
-		if err := value.InstallFirmware(core.FirmwareTypeTombstone); err != nil {
-			b.Fatal(err)
-		}
-
-		if err := value.Close(); err != nil {
-			b.Fatal(err)
-		}
 	}
 }

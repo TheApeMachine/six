@@ -16,11 +16,10 @@ static int initResult = 0;
 #define VALUE_BYTES 1024
 
 /*
-Single shared buffer pool: two host-visible buffers (poolA, poolB) that grow
-geometrically (capacity tracked in poolCap) and are reused by every kernel path.
+Single shared buffer pool: one host-visible buffer (poolA) that grows
+geometrically (capacity tracked in poolCap) and is reused by every kernel path.
 */
 static id<MTLBuffer> poolA   = nil;
-static id<MTLBuffer> poolB   = nil;
 static uint32_t      poolCap = 0;
 
 static int ensure_pool(uint32_t num_values) {
@@ -30,14 +29,12 @@ static int ensure_pool(uint32_t num_values) {
     if (cap < 1024) cap = 1024;
 
     if (poolA)   { [poolA release];   poolA   = nil; }
-    if (poolB)   { [poolB release];   poolB   = nil; }
 
     NSUInteger bytes = (NSUInteger)cap * VALUE_BYTES;
 
     poolA   = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
-    poolB   = [device newBufferWithLength:bytes options:MTLResourceStorageModeShared];
 
-    if (!poolA || !poolB) { poolCap = 0; return -1; }
+    if (!poolA) { poolCap = 0; return -1; }
 
     poolCap = cap;
     return 0;
@@ -116,32 +113,28 @@ static int commitAndWait(id<MTLCommandBuffer> cb) {
 }
 
 /*
-Unified Bitwise dispatch — no external opcode; each Value carries its own
-64-op program in Region 3 which the kernel reads and executes in-band.
+Unified Bitwise dispatch — each Value carries its own 32-bit in-band program
+and the kernel executes the self-only slot sweep directly from the frame.
 */
-int unified_bitwise_metal(void* a_host, const void* b_host, uint32_t num_values) {
-    if (!pipelineUnifiedBitwise || !a_host || !b_host) return -1;
+int unified_bitwise_metal(void* a_host, uint32_t num_values) {
+    if (!pipelineUnifiedBitwise || !a_host) return -1;
     if (ensure_pool(num_values) != 0) return -1;
 
     @autoreleasepool {
         NSUInteger reqBytes = (NSUInteger)num_values * VALUE_BYTES;
         NSUInteger la = [poolA length];
-        NSUInteger lb = [poolB length];
-        if (la < reqBytes || lb < reqBytes) {
-            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu poolB=%lu",
-                  (unsigned long)reqBytes, (unsigned long)la, (unsigned long)lb);
+        if (la < reqBytes) {
+            NSLog(@"metal: pool buffer too small (need %lu): poolA=%lu",
+                  (unsigned long)reqBytes, (unsigned long)la);
             return -6;
         }
 
         memcpy([poolA contents], a_host, reqBytes);
-        memcpy([poolB contents], b_host, reqBytes);
 
         id<MTLCommandBuffer> cb = [commandQueue commandBuffer];
         id<MTLComputeCommandEncoder> enc = [cb computeCommandEncoder];
 
         [enc setBuffer:poolA   offset:0 atIndex:0];
-        [enc setBuffer:poolB   offset:0 atIndex:1];
-        // No op byte — program dispatch is fully in-band.
 
         dispatchKernel(enc, pipelineUnifiedBitwise, num_values);
         [enc endEncoding];
@@ -156,6 +149,5 @@ int unified_bitwise_metal(void* a_host, const void* b_host, uint32_t num_values)
 
 void cleanup_metal_pools(void) {
     if (poolA)   { [poolA release];   poolA   = nil; }
-    if (poolB)   { [poolB release];   poolB   = nil; }
     poolCap = 0;
 }

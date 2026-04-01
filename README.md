@@ -43,8 +43,8 @@ A Value's 128 words are divided into regions:
 | Identity  | 57–59  | ValueID (unique), PrevID, and NextID. These form the linked-list pointers that let Values chain into sequences and graphs.                                                                                                          |
 | State     | 60–62  | StateIndex, StateSequence, and StateAccumulator. These track the Value's computational progress across execution cycles.                                                                                                            |
 | Affinity  | 63     | A combined Bloom filter and SimHash locality-sensitive hash over the token region. Used for fast approximate nearest-neighbor lookup without scanning the full token payload.                                                       |
-| Registers | 64–75  | General-purpose registers r0–r9, a firmware selector (fw), and a program counter (pc). The fw register tells the bootloader which firmware to install next.                                                                         |
-| Program   | 76–127 | 52 words of instruction memory holding 16-bit RISC instructions, packed four per word. This region is where firmware gets installed and where evolved programs live.                                                                |
+| Registers | 64–75  | General-purpose registers r0–r9 plus `fw` and `pc`. These remain in-band state words; the backend does not mutate them out-of-band after execution.                                                                                 |
+| Program   | 76–127 | 52 words of instruction memory holding 32-bit slot instructions, packed two per word. This region is where the bootstrap program and evolved payload programs live.                                                                  |
 
 Values implement `io.Reader` and `io.Writer`, which means they can be piped through standard Go I/O infrastructure (files, network connections, streams) without any serialization overhead. The in-memory layout *is* the wire format.
 
@@ -52,20 +52,15 @@ Values are pooled and reference-counted. A Value must be tombstoned before it ca
 
 ### Backend
 
-The Backend executes bitwise operations over Value frames. It is the system's ALU. The instruction set consists of the 16 entries in the 4-bit truth table (`FALSE`, `AND`, `A ∧ ¬B`, `A`, `¬A ∧ B`, `B`, `XOR`, `OR`, `NOR`, `XNOR`, `¬B`, `A ∨ ¬B`, `¬A`, `¬A ∨ B`, `NAND`, `TRUE`) plus a `POPCOUNT` extension for Hamming distance.
+The Backend executes self-only bitwise programs over Value frames. It is the system's ALU. The current live instruction format is a 32-bit slot packed into the program region:
 
-Execution follows a 16-bit RISC encoding with four instruction classes:
+- bits `[3:0]`: 4-bit truth-table opcode (`FALSE`, `AND`, `A ∧ ¬B`, `A`, `¬A ∧ B`, `B`, `XOR`, `OR`, `NOR`, `XNOR`, `¬B`, `A ∨ ¬B`, `¬A`, `¬A ∨ B`, `NAND`, `TRUE`)
+- bits `[17:4]`: source word index
+- bits `[31:18]`: destination word index
 
-| Class | Bits [15:14] | Function                                                                                                                                       |
-|-------|--------------|------------------------------------------------------------------------------------------------------------------------------------------------|
-| MEM   | 01           | Load, store, immediate, and indirect memory access between registers and frame words. Supports two contexts: c0 (self) and c1 (partner Value). |
-| ALU   | 10           | Apply a truth-table opcode between a register and a frame word, writing the result back into the frame.                                        |
-| EXT   | 00           | Extended ALU for opcodes above 0xF (currently POPCOUNT and ADD).                                                                               |
-| CTL   | 11           | Control flow: conditional skip (SKIPZ/SKIPNZ), rotate left/right, and loop (DJNZ).                                                             |
+Execution is a straight sweep across the configured program region, two slots per `uint64` word. A zero slot is a NOP, not a halt. There is no partner Value, no `c1` context, and no host-side post-run rewrite of `fw`, `pc`, `accumulator`, or the program band. If those bits move, they move because the in-band program wrote them.
 
-The Backend operates on raw `unsafe.Pointer` pairs, processing batches of Value frames in a tight loop. On amd64, hot opcodes (AND, OR, XOR, ANDN, POPCOUNT) are served by hand-written AVX2 assembly that processes 1024 bits per iteration using 4× YMM unrolling. On arm64, the Go compiler auto-vectorizes to NEON. A CUDA backend and Metal backend exist for GPU offload.
-
-The execution loop includes a JIT fusion pass: when consecutive instructions operate on adjacent words with the same opcode and register, they are batched into a single SIMD call instead of executing one at a time.
+The Backend operates on raw `unsafe.Pointer` frames, processing batches in a tight loop. The CPU path groups homogeneous programs for a gather/scatter word kernel, while CUDA and Metal execute the same self-only slot sweep on packed slabs so all three backends share one runtime contract.
 
 ## Concepts
 

@@ -8,7 +8,7 @@ package cuda
 int cuda_device_count();
 void cleanup_cuda_pools();
 
-int unified_bitwise_cuda(int device_id, void* a_host, const void* b_host, uint32_t num_values);
+int unified_bitwise_cuda(int device_id, void* a_host, uint32_t num_values);
 */
 import "C"
 import (
@@ -18,7 +18,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/core"
 )
 
 //go:generate nvcc -lib backend.cu -o libbackend.a -std=c++11
@@ -101,28 +100,12 @@ func Available() int {
 	return b.deviceCount
 }
 
-func preloadFirmwareFrame(c *[128]uint64) {
-	if c == nil {
-		return
-	}
-	core.PreloadPendingFirmware(c[:])
-}
-
-func preloadFirmwareFrameBatch(a unsafe.Pointer, count int) {
-	for i := 0; i < count; i++ {
-		c := (*[128]uint64)(unsafe.Pointer(uintptr(a) + uintptr(i)*1024))
-		preloadFirmwareFrame(c)
-	}
-}
-
 /*
 UniversalBitwise dispatches a batch of Values to the compiled CUDA kernel.
 
-The opcode is no longer passed explicitly — each Value carries its own
-64-op program in Region 3 (bits 4352–4607). The unified_bitwise_kernel
-reads that program and executes up to 64 ticks per Value, halting at the
-first zero opcode. The batch may therefore be heterogeneous: each Value
-runs its own independent program in parallel.
+Each Value carries its own 32-bit in-band program. The CUDA kernel executes the
+configured program slot sweep against the frame itself only, matching the
+self-only CPU backend contract.
 */
 func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 
@@ -131,11 +114,8 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	}
 
 	if len(frames) == 1 && frames[0] != nil {
-		preloadFirmwareFrameBatch(frames[0], 1)
-
 		if C.unified_bitwise_cuda(
 			C.int(backend.deviceIdx),
-			frames[0],
 			frames[0],
 			C.uint32_t(1),
 		) != 0 {
@@ -157,14 +137,10 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 	}
 
 	slabA := kernel.PackValueFrames(frames)
-	slabB := append([]byte(nil), slabA...)
-
-	preloadFirmwareFrameBatch(unsafe.Pointer(&slabA[0]), len(frames))
 
 	if C.unified_bitwise_cuda(
 		C.int(backend.deviceIdx),
 		unsafe.Pointer(&slabA[0]),
-		unsafe.Pointer(&slabB[0]),
 		C.uint32_t(len(frames)),
 	) != 0 {
 		err := NewCUDAError(

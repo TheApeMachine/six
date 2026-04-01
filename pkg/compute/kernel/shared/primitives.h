@@ -8,7 +8,7 @@
 #define REG_PC                                   75
 #define FW_WORD                                  74
 #define PROGRAM_INDEX_WORD                       76
-#define PAYLOAD_PROGRAM_WORD_OFFSET                4
+#define PAYLOAD_PROGRAM_WORD_OFFSET              4
 #define USER_PROGRAM_PC_START                    8
 #define MAX_PC                                   104
 #define EXEC_STATUS_WORD                         63
@@ -18,5 +18,3 @@
 #define EXEC_EXIT_BAD_WORD                       3
 
 #endif // SUBSTRATE_PRIMITIVES_H
-
-

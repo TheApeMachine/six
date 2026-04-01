@@ -3,17 +3,15 @@ package task
 import (
 	"context"
 	"fmt"
-	"io"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/experiment/data"
-	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 type runTiming struct {
@@ -82,106 +80,86 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() (err error) {
-	defer pipeline.cancel()
+	machine, err := vm.NewMachine(
+		pipeline.ctx,
+		vm.WithDestinations(
+			pipeline.experiment.Dataset(),
+		),
+	)
 
-	store.ResetDefaultSpatialIndex()
-
-	loadStart := time.Now()
-	backend := compute.NewBackgroundBackend()
-	defer func() {
-		store.ResetDefaultSpatialIndex()
-	}()
-
-	// Grab prompts early so we can size the drop-out buffer.
-	prompts := pipeline.experiment.Prompts()
-	if len(prompts) == 0 {
-		return errnie.Error(PipelineErrNoPrompt)
+	if err != nil {
+		return errnie.Error(err)
 	}
 
-	if provider, ok := pipeline.experiment.(tools.CorpusProvider); ok {
-		if err := pipeline.stageResidentCorpus(backend, provider); err != nil {
-			return errnie.Error(err)
-		}
-	}
+	defer machine.Close()
 
-	pipeline.timing.loadDur = time.Since(loadStart)
-
-	promptStart := time.Now()
-
-	for idx, prompt := range prompts {
+	for idx, prompt := range pipeline.experiment.Prompts() {
 		select {
 		case <-pipeline.ctx.Done():
 			return errnie.Error(pipeline.ctx.Err())
 		default:
-		}
+			value, newErr := primitive.NewValue([]byte(prompt))
 
-		value, newErr := primitive.NewValue([]byte(prompt))
-
-		if newErr != nil {
-			pipeline.promptInitFailures.Add(1)
-			_ = errnie.Error(newErr)
-			continue
-		}
-
-		holdout := []byte(nil)
-
-		if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
-			if h, ok := provider.HoldoutForPrompt(idx); ok {
-				holdout = append([]byte(nil), h...)
+			if newErr != nil {
+				pipeline.promptInitFailures.Add(1)
+				_ = errnie.Error(newErr)
+				continue
 			}
+
+			holdout := []byte(nil)
+
+			if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
+				if h, ok := provider.HoldoutForPrompt(idx); ok {
+					holdout = append([]byte(nil), h...)
+				}
+			}
+
+			errnie.Trace(
+				"experiment.task.pipeline.Run",
+				"prompt", prompt,
+				"holdout", string(holdout),
+			)
+
+			store.DefaultSpatialIndex().RemoveValueIDImmediate(value.ID())
+
+			value.InstallFirmware(core.FirmwareTypeTombstone)
+
+			if closeErr := value.Close(); closeErr != nil {
+				return errnie.Error(closeErr)
+			}
+
+			pipeline.experiment.AddResult(tools.ExperimentalData{
+				Idx:      idx,
+				Name:     fmt.Sprintf("prompt-%d", idx),
+				Prefix:   []byte(prompt),
+				Holdout:  holdout,
+				Observed: value.Bytes(),
+			})
+
+			pipeline.timing.n++
 		}
 
 		errnie.Trace(
-			"experiment.task.pipeline.Run",
-			"prompt", prompt,
-			"holdout", string(holdout),
+			"experiment.task.pipeline.summary",
+			"prompt_init_failures", pipeline.promptInitFailures.Load(),
+			"prompts_processed_ok", pipeline.timing.n,
 		)
-
-		observed, obsErr := pipeline.observePromptValue(backend, value, []byte(prompt), holdout)
-		if obsErr != nil {
-			return errnie.Error(obsErr)
-		}
-
-		store.DefaultSpatialIndex().RemoveValueIDImmediate(value.ID())
-
-		value.InstallFirmware(core.FirmwareTypeTombstone)
-
-		if closeErr := value.Close(); closeErr != nil {
-			return errnie.Error(closeErr)
-		}
-
-		pipeline.experiment.AddResult(tools.ExperimentalData{
-			Idx:      idx,
-			Name:     fmt.Sprintf("prompt-%d", idx),
-			Prefix:   []byte(prompt),
-			Holdout:  holdout,
-			Observed: observed,
-		})
-
-		pipeline.timing.n++
 	}
-	pipeline.timing.promptDur = time.Since(promptStart)
-
-	errnie.Trace(
-		"experiment.task.pipeline.summary",
-		"prompt_init_failures", pipeline.promptInitFailures.Load(),
-		"prompts_processed_ok", pipeline.timing.n,
-	)
 
 	type finalizer interface {
 		Finalize(any) error
 	}
+
 	if f, ok := pipeline.experiment.(finalizer); ok {
-		finalizeStart := time.Now()
 		if err := f.Finalize(nil); err != nil {
 			return errnie.Error(err)
 		}
-		pipeline.timing.finalizeDur = time.Since(finalizeStart)
 	}
 
 	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
 		return errnie.Error(err)
 	}
+
 	for _, artifact := range pipeline.experiment.Artifacts() {
 		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
 			return errnie.Error(err)
@@ -189,102 +167,6 @@ func (pipeline *Pipeline) Run() (err error) {
 	}
 
 	return nil
-}
-
-func (pipeline *Pipeline) stageResidentCorpus(backend *compute.Backend, provider tools.CorpusProvider) error {
-	if provider == nil {
-		return nil
-	}
-
-	registrar, _ := pipeline.experiment.(tools.CorpusRegistrar)
-
-	for _, sample := range provider.CorpusSamples() {
-		if len(sample) == 0 {
-			continue
-		}
-
-		value, err := primitive.NewValue(sample)
-		if err != nil {
-			return err
-		}
-
-		if registrar != nil {
-			registrar.RegisterCorpusSample(value.ID(), sample)
-		}
-
-		value.InstallFirmware(core.FirmwareTypeTombstone)
-
-		if err := value.Close(); err != nil {
-			return err
-		}
-
-		pipeline.population++
-	}
-
-	return nil
-}
-
-func (pipeline *Pipeline) observePromptValue(backend *compute.Backend, value *primitive.Value, prompt []byte, holdout []byte) ([]byte, error) {
-	if observer, ok := pipeline.experiment.(tools.CorpusObserver); ok {
-		return observer.ObserveFromCorpus(prompt, value.ID())
-	}
-
-	return pipeline.observePrompt(backend, value, prompt, holdout)
-}
-
-func (pipeline *Pipeline) observePrompt(backend *compute.Backend, value *primitive.Value, prompt []byte, holdout []byte) ([]byte, error) {
-	if backend == nil {
-		return nil, PipelineError("nil compute backend")
-	}
-
-	if value == nil {
-		return nil, PipelineError("nil prompt value")
-	}
-
-	var workspace primitive.Value
-
-	primitive.CopyFrame(&workspace, value)
-	workspace.InstallFirmware(core.FirmwareTypeLearn)
-
-	return workspace.Bytes(), nil
-}
-
-func (pipeline *Pipeline) inject(observer io.ReadWriter, value *primitive.Value) error {
-	if _, err := io.Copy(observer, value); err != nil {
-		return err
-	}
-	pipeline.population++
-	return nil
-}
-
-func (pipeline *Pipeline) recirculate(observer io.ReadWriter, frame []byte) error {
-	_, err := observer.Write(frame)
-	return err
-}
-
-/*
-promptsFromDataset reconstructs full text samples from a dataset's byte stream,
-ordered by SampleID, for use as prompts when the experiment does not provide
-explicit prompts.
-*/
-func promptsFromDataset(dataset data.Provider) []string {
-	byID := map[byte][]byte{}
-	order := []byte{}
-
-	for tok := range dataset.Generate() {
-		if _, exists := byID[tok]; !exists {
-			order = append(order, tok)
-		}
-
-		byID[tok] = append(byID[tok], tok)
-	}
-
-	prompts := make([]string, len(order))
-	for i, tok := range order {
-		prompts[i] = string(tok)
-	}
-
-	return prompts
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {
@@ -311,17 +193,9 @@ func PipelineWithSnapshotReporter() pipelineOpts {
 	}
 }
 
-// PromptInitFailures reports how many prompts failed primitive.NewValue during the last Run.
-func (pipeline *Pipeline) PromptInitFailures() int64 {
-	if pipeline == nil {
-		return 0
-	}
-
-	return pipeline.promptInitFailures.Load()
-}
-
 func (pipeline *Pipeline) writeStandardSummary() error {
 	rows, ok := pipeline.experiment.TableData().([]tools.ExperimentalData)
+
 	if !ok || len(rows) == 0 {
 		return nil
 	}

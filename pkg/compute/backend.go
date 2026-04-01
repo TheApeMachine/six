@@ -6,7 +6,6 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
@@ -243,9 +242,6 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 		if frame[fwWord] == 0 {
 			continue
 		}
-
-		multiplier := firmware.AffineCoprimeMultiplier(int(frame[fwWord]&0x7F), firmware.AffineSlotShuffleModulus)
-		firmware.NOPShatterLGP(frame, multiplier, 0)
 
 		select {
 		case backend.queues[PRIORITY] <- value:

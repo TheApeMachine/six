@@ -217,13 +217,14 @@ func TestUniversalBitwiseChainedSlots(t *testing.T) {
 	})
 }
 
-func TestUniversalBitwiseAffineFollowUp(t *testing.T) {
-	convey.Convey("After execution, FW and Accumulator are updated for rescheduling", t, func() {
+func TestUniversalBitwisePreservesFollowUpRegistersWithoutInBandWrite(t *testing.T) {
+	convey.Convey("Execution leaves FW and Accumulator untouched unless the program writes them", t, func() {
 		backend := NewBackend(context.Background())
 
 		var f [128]uint64
 		f[core.Cfg.Value.Region.State.Accumulator] = 42
 		f[core.Cfg.Value.Region.State.Sequence] = 7
+		f[core.Cfg.Value.Region.Registers.FW] = 9
 		// Install at least one non-NOP so execution runs.
 		installSlot(&f, 0, encode32(0x3, 0, 0)) // COPY A (dst=src=0, noop)
 
@@ -233,10 +234,8 @@ func TestUniversalBitwiseAffineFollowUp(t *testing.T) {
 		fwWord := core.Cfg.Value.Region.Registers.FW
 		accWord := core.Cfg.Value.Region.State.Accumulator
 
-		// FW should be non-zero (holographic schedule signature).
-		convey.So(f[fwWord], convey.ShouldNotEqual, 0)
-		// Accumulator should have evolved.
-		convey.So(f[accWord], convey.ShouldNotEqual, 42)
+		convey.So(f[fwWord], convey.ShouldEqual, uint64(9))
+		convey.So(f[accWord], convey.ShouldEqual, uint64(42))
 	})
 }
 

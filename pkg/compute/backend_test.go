@@ -182,3 +182,27 @@ func TestExecuteBatchSelectsLeastLoadedHardware(t *testing.T) {
 		convey.So(len(idle.calls), convey.ShouldEqual, 1)
 	})
 }
+
+func TestHandleFollowUpDoesNotMutateProgramRegion(t *testing.T) {
+	convey.Convey("handleFollowUp only requeues frames; it does not rewrite their program bits", t, func() {
+		setupTestConfig(t)
+
+		backend := &Backend{
+			ctx: context.Background(),
+			queues: map[QueueType]chan unsafe.Pointer{
+				PRIORITY: make(chan unsafe.Pointer, 8),
+				NORMAL:   make(chan unsafe.Pointer, 8),
+			},
+		}
+
+		var frame [128]uint64
+		frame[core.Cfg.Value.Region.Registers.FW] = 7
+		frame[76] = 0xDEADBEEF
+		frame[0] = 1
+
+		backend.handleFollowUp([]unsafe.Pointer{unsafe.Pointer(&frame)})
+
+		convey.So(frame[76], convey.ShouldEqual, uint64(0xDEADBEEF))
+		convey.So(len(backend.queues[PRIORITY]), convey.ShouldEqual, 1)
+	})
+}
