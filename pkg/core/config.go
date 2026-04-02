@@ -25,6 +25,12 @@ const (
 	FirmwareTypeQuery
 )
 
+type ControlPlaneConfig struct {
+	K        int               `mapstructure:"k"`
+	Alpha    int               `mapstructure:"alpha"`
+	Affinity ValueOffsetConfig `mapstructure:"affinity"`
+}
+
 type SystemConfig struct {
 	BatchSize   int           `mapstructure:"batchSize"`
 	BatchWindow time.Duration `mapstructure:"batchWindow"`
@@ -130,8 +136,9 @@ Config wraps viper with strict typed accessors that refuse to
 return zero-values for missing keys.
 */
 type Config struct {
-	System SystemConfig
-	Value  ValueConfig
+	System       SystemConfig
+	Value        ValueConfig
+	ControlPlane ControlPlaneConfig
 
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
@@ -161,6 +168,14 @@ func NewConfig() *Config {
 			StepwiseUniversalBitwise: viper.GetBool(
 				"system.stepwiseUniversalBitwise",
 			),
+		},
+		ControlPlane: ControlPlaneConfig{
+			K:     viper.GetInt("controlplane.k"),
+			Alpha: viper.GetInt("controlplane.alpha"),
+			Affinity: ValueOffsetConfig{
+				Start: viper.GetInt("controlplane.affinity.start"),
+				Bits:  viper.GetUint64("controlplane.affinity.bits"),
+			},
 		},
 		Value: ValueConfig{
 			Words: viper.GetInt("value.words"),

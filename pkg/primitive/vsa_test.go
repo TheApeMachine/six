@@ -89,7 +89,7 @@ func TestBundleHD(t *testing.T) {
 func TestTokensHammingDistance(t *testing.T) {
 	Convey("Given two identical Values", t, func() {
 		a, _ := NewValue([]byte("hello world"))
-		b := a.Clone()
+		b, _ := NewValue([]byte("hello world"))
 		defer a.Close()
 		defer b.Close()
 
@@ -206,7 +206,7 @@ func TestAccumulateDelta(t *testing.T) {
 
 	Convey("Given two identical Values", t, func() {
 		a, _ := NewValue([]byte("same"))
-		b := a.Clone()
+		b, _ := NewValue([]byte("same"))
 		defer a.Close()
 		defer b.Close()
 
@@ -263,7 +263,7 @@ func TestXORDistance(t *testing.T) {
 func TestCosineSimilarityHD(t *testing.T) {
 	Convey("Given identical Values", t, func() {
 		a, _ := NewValue([]byte("identical"))
-		b := a.Clone()
+		b, _ := NewValue([]byte("identical"))
 		defer a.Close()
 		defer b.Close()
 

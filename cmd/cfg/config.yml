@@ -40,6 +40,13 @@ system:
   # (header at program.base). Frames without the stepwise magic still use RISC.
   stepwiseUniversalBitwise: true
 
+controlplane:
+  k: 20
+  alpha: 3
+  affinity:
+    start: 63
+    bits: 64
+
 value:
   words: 128
   bytes: 1024

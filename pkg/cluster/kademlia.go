@@ -11,17 +11,12 @@ import (
 	"github.com/theapemachine/six/pkg/store"
 )
 
-const (
-	// K is the maximum number of Values per k-bucket.
-	K = 20
-	// IDBits is the width of the NodeID space (matches affinity word).
-	IDBits = 64
-	// Alpha is the concurrency factor for iterative lookups.
-	Alpha = 3
-)
-
 // NodeID is a 64-bit identifier derived from a Value's affinity word.
 type NodeID uint64
+
+const (
+	IDBits = 64
+)
 
 // xorDist returns the XOR distance between two NodeIDs.
 func xorDist(a, b NodeID) uint64 {
@@ -34,7 +29,7 @@ func xorDist(a, b NodeID) uint64 {
 func bucketIndex(local, remote NodeID) int {
 	d := xorDist(local, remote)
 	if d == 0 {
-		return IDBits - 1
+		return int(core.Cfg.ControlPlane.Affinity.Bits - 1)
 	}
 	return bits.LeadingZeros64(d)
 }
@@ -55,43 +50,43 @@ type kBucket struct {
 
 func newKBucket() *kBucket {
 	return &kBucket{
-		entries: make([]entry, 0, K),
+		entries: make([]entry, 0, core.Cfg.ControlPlane.K),
 		lsm:     store.NewSpatialIndex(),
 	}
 }
 
 // touch inserts or refreshes a Value in the bucket. If the bucket is full
 // the oldest entry is evicted using in-place copy to preserve capacity.
-func (b *kBucket) touch(id NodeID, value *primitive.Value) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
+func (bucket *kBucket) touch(id NodeID, value *primitive.Value) {
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
 
 	// Check if already present — move to tail (most-recently seen).
-	for i, e := range b.entries {
+	for i, e := range bucket.entries {
 		if e.id == id {
-			copy(b.entries[i:], b.entries[i+1:])
-			b.entries[len(b.entries)-1] = entry{id: id, value: value}
+			copy(bucket.entries[i:], bucket.entries[i+1:])
+			bucket.entries[len(bucket.entries)-1] = entry{id: id, value: value}
 			return
 		}
 	}
 
 	// Evict oldest in-place to preserve backing array capacity.
-	if len(b.entries) >= K {
-		copy(b.entries, b.entries[1:])
-		b.entries = b.entries[:K-1]
+	if len(bucket.entries) >= core.Cfg.ControlPlane.K {
+		copy(bucket.entries, bucket.entries[1:])
+		bucket.entries = bucket.entries[:core.Cfg.ControlPlane.K-1]
 	}
 
-	b.entries = append(b.entries, entry{id: id, value: value})
-	b.lsm.InsertBatch(tokenIDsFor(value), *value)
+	bucket.entries = append(bucket.entries, entry{id: id, value: value})
+	bucket.lsm.InsertBatch(tokenIDsFor(value), *value)
 }
 
 // closest returns up to k entries sorted by XOR distance to target.
-func (b *kBucket) closest(target NodeID, k int) []entry {
-	b.mu.RLock()
-	defer b.mu.RUnlock()
+func (bucket *kBucket) closest(target NodeID, k int) []entry {
+	bucket.mu.RLock()
+	defer bucket.mu.RUnlock()
 
-	out := make([]entry, len(b.entries))
-	copy(out, b.entries)
+	out := make([]entry, len(bucket.entries))
+	copy(out, bucket.entries)
 	sort.Slice(out, func(i, j int) bool {
 		return xorDist(out[i].id, target) < xorDist(out[j].id, target)
 	})
@@ -101,8 +96,10 @@ func (b *kBucket) closest(target NodeID, k int) []entry {
 	return out
 }
 
-// RoutingTable is the Kademlia routing table: IDBits k-buckets indexed by
-// prefix distance from the local node ID.
+/*
+RoutingTable is the Kademlia routing table: IDBits k-buckets
+indexed by prefix distance from the local node ID.
+*/
 type RoutingTable struct {
 	mu           sync.RWMutex
 	local        NodeID
@@ -110,17 +107,24 @@ type RoutingTable struct {
 	buckets      [IDBits]*kBucket
 }
 
-// NewRoutingTable creates a routing table for the given local NodeID.
+/*
+NewRoutingTable creates a routing table for the given local NodeID.
+*/
 func NewRoutingTable(local NodeID) *RoutingTable {
 	rt := &RoutingTable{local: local}
+
 	for i := range rt.buckets {
 		rt.buckets[i] = newKBucket()
 	}
+
 	return rt
 }
 
-// SetLocal sets the local NodeID in a thread-safe manner and marks the table
-// as bootstrapped so NodeID(0) is never mistaken for an uninitialized state.
+/*
+SetLocal sets the local NodeID in a thread-safe manner
+and marks the table as bootstrapped so NodeID(0) is
+never mistaken for an uninitialized state.
+*/
 func (rt *RoutingTable) SetLocal(id NodeID) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
@@ -128,82 +132,114 @@ func (rt *RoutingTable) SetLocal(id NodeID) {
 	rt.bootstrapped = true
 }
 
-// isBootstrapped reports whether the local ID has been set.
+/*
+isBootstrapped reports whether the local ID has been set.
+*/
 func (rt *RoutingTable) isBootstrapped() bool {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
 	return rt.bootstrapped
 }
 
-// Insert adds or refreshes a Value in the appropriate k-bucket.
+/*
+Insert adds or refreshes a Value in the appropriate k-bucket.
+*/
 func (rt *RoutingTable) Insert(value *primitive.Value) {
 	id := NodeID(value[affinityWordIndex()])
 	rt.mu.RLock()
 	local := rt.local
 	rt.mu.RUnlock()
+
 	if id == local {
 		return
 	}
+
 	idx := bucketIndex(local, id)
 	rt.buckets[idx].touch(id, value)
 }
 
-// FindClosest returns up to k Values whose NodeIDs are closest to target.
-// Expands outward from the target bucket one bucket at a time, only visiting
-// each bucket index once.
+/*
+FindClosest returns up to k Values whose NodeIDs are closest
+to target. Expands outward from the target bucket one bucket
+at a time, only visiting each bucket index once.
+*/
 func (rt *RoutingTable) FindClosest(target NodeID, k int) []entry {
 	rt.mu.RLock()
 	local := rt.local
 	rt.mu.RUnlock()
 	idx := bucketIndex(local, target)
-	var candidates []entry
 
+	var candidates []entry
 	candidates = append(candidates, rt.buckets[idx].closest(target, k)...)
 
 	for radius := 1; radius < IDBits && len(candidates) < k; radius++ {
 		if lo := idx - radius; lo >= 0 {
-			candidates = append(candidates, rt.buckets[lo].closest(target, k)...)
+			candidates = append(
+				candidates,
+				rt.buckets[lo].closest(target, k)...,
+			)
 		}
+
 		if hi := idx + radius; hi < IDBits {
-			candidates = append(candidates, rt.buckets[hi].closest(target, k)...)
+			candidates = append(
+				candidates,
+				rt.buckets[hi].closest(target, k)...,
+			)
 		}
 	}
 
 	sort.Slice(candidates, func(i, j int) bool {
-		return xorDist(candidates[i].id, target) < xorDist(candidates[j].id, target)
+		return xorDist(
+			candidates[i].id, target,
+		) < xorDist(
+			candidates[j].id, target,
+		)
 	})
+
 	if len(candidates) > k {
 		candidates = candidates[:k]
 	}
+
 	return candidates
 }
 
-// FindNode is a stub for the iterative Kademlia FIND_NODE lookup.
-// In a single-node deployment this is equivalent to FindClosest.
-// TODO: Replace with network RPC queries to candidate nodes via UniConn.
+/*
+FindNode is a stub for the iterative Kademlia FIND_NODE lookup.
+In a single-node deployment this is equivalent to FindClosest.
+TODO: Replace with network RPC queries to candidate nodes via UniConn.
+*/
 func (rt *RoutingTable) FindNode(_ context.Context, target NodeID) []entry {
-	return rt.FindClosest(target, K)
+	return rt.FindClosest(target, core.Cfg.ControlPlane.K)
 }
 
-// Store places a Value into the routing table.
+/*
+Store places a Value into the routing table.
+*/
 func (rt *RoutingTable) Store(value *primitive.Value) {
 	rt.Insert(value)
 }
 
-// tokenIDsFor extracts the non-zero token words from a Value's token region.
+/*
+tokenIDsFor extracts the non-zero token words from a Value's token region.
+*/
 func tokenIDsFor(value *primitive.Value) []uint64 {
 	tokenIndex := core.Cfg.Value.Region.Tokens.Start
 	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	ids := make([]uint64, 0, tokenWords)
+
 	for i := 0; i < tokenWords; i++ {
 		if w := value[tokenIndex+i]; w != 0 {
 			ids = append(ids, w)
 		}
 	}
+
 	return ids
 }
 
-// affinityWordIndex returns the word index of the affinity register from config.
+/*
+affinityWordIndex returns the word index of the 
+affinity register from the Value's region.
+*/
 func affinityWordIndex() int {
 	return core.Cfg.Value.Region.Affinity.Start
 }

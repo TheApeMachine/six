@@ -8,7 +8,7 @@ import (
 
 func TestRead(t *testing.T) {
 	Convey("Given a ControlPlane", t, func() {
-		controlPlane := NewControlPlane()
+		controlPlane := NewControlPlane(t.Context())
 		So(controlPlane, ShouldNotBeNil)
 	})
 }

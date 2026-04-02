@@ -47,8 +47,14 @@ func TestTextClassificationCorpusSamples(t *testing.T) {
 		samples := experiment.CorpusSamples()
 
 		So(samples, ShouldHaveLength, 2)
-		So(string(samples[0]), ShouldEqual, "market tumbles on earnings miss → business")
-		So(string(samples[1]), ShouldEqual, "club seals dramatic playoff win → sports")
+		So(
+			string(samples[0]), ShouldEqual,
+			"market tumbles on earnings miss → business",
+		)
+		So(
+			string(samples[1]), ShouldEqual,
+			"club seals dramatic playoff win → sports",
+		)
 	})
 }
 
@@ -68,12 +74,21 @@ func TestTextClassificationObserveFromCorpus(t *testing.T) {
 			[]byte("sports"),
 		}
 
-		stageClassificationCorpus(t, backend, experiment, experiment.CorpusSamples())
+		stageClassificationCorpus(
+			t, backend, experiment, experiment.CorpusSamples(),
+		)
 
-		promptValue, err := primitive.NewValue([]byte("club seals dramatic playoff win"))
+		promptValue, err := primitive.NewValue(
+			[]byte("club seals dramatic playoff win"),
+		)
+
 		So(err, ShouldBeNil)
 
-		observed, err := experiment.ObserveFromCorpus([]byte("club seals dramatic playoff win"), promptValue.ID())
+		observed, err := experiment.ObserveFromCorpus(
+			[]byte("club seals dramatic playoff win"),
+			promptValue.GetWord(core.Cfg.Value.Region.ID.Start),
+		)
+
 		So(err, ShouldBeNil)
 		So(string(observed), ShouldEqual, "sports")
 
@@ -87,10 +102,17 @@ func TestTextClassificationObserveFromCorpus(t *testing.T) {
 
 		experiment := NewTextClassificationExperiment()
 
-		promptValue, err := primitive.NewValue([]byte("club seals dramatic playoff win"))
+		promptValue, err := primitive.NewValue(
+			[]byte("club seals dramatic playoff win"),
+		)
+
 		So(err, ShouldBeNil)
 
-		observed, err := experiment.ObserveFromCorpus([]byte("club seals dramatic playoff win"), promptValue.ID())
+		observed, err := experiment.ObserveFromCorpus(
+			[]byte("club seals dramatic playoff win"),
+			promptValue.GetWord(core.Cfg.Value.Region.ID.Start),
+		)
+
 		So(err, ShouldBeNil)
 		So(observed, ShouldResemble, []byte{})
 
@@ -129,7 +151,9 @@ func BenchmarkTextClassificationObserveFromCorpus(b *testing.B) {
 			b.Fatal(err)
 		}
 
-		if _, err := experiment.ObserveFromCorpus(prompt, value.ID()); err != nil {
+		if _, err := experiment.ObserveFromCorpus(
+			prompt, value.GetWord(core.Cfg.Value.Region.ID.Start),
+		); err != nil {
 			b.Fatal(err)
 		}
 
@@ -137,7 +161,12 @@ func BenchmarkTextClassificationObserveFromCorpus(b *testing.B) {
 	}
 }
 
-func stageClassificationCorpus(tb testing.TB, backend *compute.Backend, experiment *TextClassificationExperiment, samples [][]byte) {
+func stageClassificationCorpus(
+	tb testing.TB,
+	backend *compute.Backend,
+	experiment *TextClassificationExperiment,
+	samples [][]byte,
+) {
 	tb.Helper()
 
 	for _, sample := range samples {
@@ -146,16 +175,27 @@ func stageClassificationCorpus(tb testing.TB, backend *compute.Backend, experime
 			tb.Fatal(err)
 		}
 
-		experiment.RegisterCorpusSample(value.ID(), sample)
+		experiment.RegisterCorpusSample(
+			value.GetWord(core.Cfg.Value.Region.ID.Start),
+			sample,
+		)
+
 		cleanupClassificationValue(tb, backend, value, false)
 	}
 }
 
-func cleanupClassificationValue(tb testing.TB, backend *compute.Backend, value *primitive.Value, removeFromStore bool) {
+func cleanupClassificationValue(
+	tb testing.TB,
+	backend *compute.Backend,
+	value *primitive.Value,
+	removeFromStore bool,
+) {
 	tb.Helper()
 
 	if removeFromStore {
-		store.DefaultSpatialIndex().RemoveValueIDImmediate(value.ID())
+		store.DefaultSpatialIndex().RemoveValueIDImmediate(
+			value.GetWord(core.Cfg.Value.Region.ID.Start),
+		)
 	}
 
 	value.InstallFirmware(core.FirmwareTypeTombstone)

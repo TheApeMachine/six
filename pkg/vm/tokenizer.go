@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"sync"
-	"unsafe"
 
 	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/compute"
@@ -69,7 +68,6 @@ of 128 token region-sized sequences.
 */
 func NewTokenizer(
 	ctx context.Context,
-	backend *compute.Backend,
 	opts ...TokenizerOpts,
 ) (*Tokenizer, error) {
 	ctx, cancel := context.WithCancel(ctx)
@@ -77,12 +75,11 @@ func NewTokenizer(
 	pr, pw := rb.Pipe()
 
 	tokenizer := &Tokenizer{
-		ctx:     ctx,
-		cancel:  cancel,
-		rb:      rb,
-		pr:      pr,
-		pw:      pw,
-		backend: backend,
+		ctx:    ctx,
+		cancel: cancel,
+		rb:     rb,
+		pr:     pr,
+		pw:     pw,
 	}
 
 	for _, opt := range opts {
@@ -123,7 +120,6 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 			return 0, errnie.Error(err)
 		}
 
-		tokenizer.backend.Queue(unsafe.Pointer(value))
 		return value.Read(p)
 	}
 }
@@ -144,6 +140,7 @@ func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
 		}
 
 		n, tokenizer.err = tokenizer.rb.Write(value.Bytes())
+
 		if tokenizer.err != nil {
 			return n, errnie.Error(tokenizer.err)
 		}

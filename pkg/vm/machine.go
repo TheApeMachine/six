@@ -3,10 +3,13 @@ package vm
 import (
 	"context"
 	"io"
+	"unsafe"
 
+	"github.com/theapemachine/six/pkg/cluster"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 /*
@@ -21,6 +24,9 @@ type Machine struct {
 	backend      *compute.Backend
 	sources      io.Reader
 	destinations io.Writer
+	controlplane *cluster.ControlPlane
+	prevID       uint64
+	nextID       uint64
 }
 
 type machineOption func(*Machine)
@@ -35,17 +41,16 @@ such as custom datasets, stream adapters, and region counts.
 func NewMachine(
 	ctx context.Context, opts ...machineOption,
 ) (machine *Machine, err error) {
-	if ctx == nil {
-		return nil, errnie.Error(
-			NewMachineError(ErrNoContext),
-		)
+	ctx, cancel := context.WithCancel(ctx)
+
+	machine = &Machine{
+		ctx:          ctx,
+		cancel:       cancel,
+		backend:      compute.NewBackend(ctx),
+		controlplane: cluster.NewControlPlane(ctx),
 	}
 
-	machine = &Machine{}
-	machine.ctx, machine.cancel = context.WithCancel(ctx)
-
-	machine.backend = compute.NewBackend(ctx)
-	tokenizer, err := NewTokenizer(ctx, machine.backend)
+	tokenizer, err := NewTokenizer(ctx)
 
 	if err != nil {
 		return nil, errnie.Error(
@@ -112,7 +117,16 @@ objects, so they can be used to connect multiple sources and destinations
 via the machine.
 */
 func (machine *Machine) Read(p []byte) (n int, err error) {
-	return machine.sources.Read(p)
+	select {
+	case <-machine.ctx.Done():
+		return 0, machine.ctx.Err()
+	default:
+		value := primitive.BytesToValue(p)
+		machine.controlplane.Insert(*value)
+		machine.backend.Queue(unsafe.Pointer(value))
+
+		return machine.sources.Read(p)
+	}
 }
 
 /*

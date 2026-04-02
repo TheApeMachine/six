@@ -107,8 +107,9 @@ func (pipeline *Pipeline) Run() (err error) {
 				holdout = []byte(nil)
 			}
 
+			promptBytes := []byte(prompt)
 			value, newErr := primitive.NewValue(
-				bytes.ReplaceAll(prompter.Bytes(), holdout, []byte{}),
+				bytes.ReplaceAll(promptBytes, holdout, []byte{}),
 			)
 
 			if newErr != nil {
@@ -117,7 +118,11 @@ func (pipeline *Pipeline) Run() (err error) {
 				continue
 			}
 
-			io.Copy(prompter, value)
+			_, err = io.Copy(machine, value)
+
+			if err != nil {
+				return errnie.Error(err)
+			}
 
 			errnie.Trace(
 				"experiment.task.pipeline.Run",

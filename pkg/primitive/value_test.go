@@ -14,17 +14,21 @@ import (
 	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/store"
 )
 
 func resolveValueTestConfigPath() string {
 	if e := strings.TrimSpace(os.Getenv("TEST_CONFIG_PATH")); e != "" {
 		return filepath.Clean(e)
 	}
+
 	_, file, _, ok := runtime.Caller(0)
+
 	if ok {
-		return filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml"))
+		return filepath.Clean(filepath.Join(
+			filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml",
+		))
 	}
+
 	return filepath.Clean(filepath.Join("..", "..", "cmd", "cfg", "config.yml"))
 }
 
@@ -32,7 +36,11 @@ func TestMain(m *testing.M) {
 	viper.SetConfigFile(resolveValueTestConfigPath())
 
 	if err := viper.ReadInConfig(); err != nil {
-		fmt.Fprintf(os.Stderr, "primitive/value_test: viper.ReadInConfig: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"primitive/value_test: viper.ReadInConfig: %v\n",
+			err,
+		)
 		os.Exit(1)
 	}
 
@@ -42,36 +50,34 @@ func TestMain(m *testing.M) {
 	loggingCfg, err := core.LoadLoggingConfig()
 
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "primitive/value_test: core.LoadLoggingConfig: %v\n", err)
+		fmt.Fprintf(
+			os.Stderr,
+			"primitive/value_test: core.LoadLoggingConfig: %v\n",
+			err,
+		)
 		os.Exit(1)
 	}
 
 	errnie.InitLogger(loggingCfg)
 	code := m.Run()
-	_ = errnie.Shutdown(context.Background())
+
+	if err := errnie.Shutdown(context.Background()); err != nil {
+		fmt.Fprintf(
+			os.Stderr,
+			"primitive/value_test: errnie.Shutdown: %v\n",
+			err,
+		)
+		os.Exit(1)
+	}
+
 	os.Exit(code)
-}
-
-func TestCopyFrameLeavesSrcUntouchedWhenDstMutated(t *testing.T) {
-	Convey("CopyFrame copies full frame; mutating dst does not change src", t, func() {
-		src, err := NewValue([]byte("alpha"))
-		So(err, ShouldBeNil)
-		defer src.Close()
-
-		var dst Value
-		CopyFrame(&dst, src)
-		So(dst[0], ShouldEqual, src[0])
-
-		dst[0] ^= 0xdeadbeefdeadbeef
-		So(src[0], ShouldNotEqual, dst[0])
-	})
 }
 
 func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
 	Convey("NewValue assigns a fresh ValueID after a pooled frame is reused", t, func() {
 		first, err := NewValue([]byte("alpha"))
 		So(err, ShouldBeNil)
-		firstID := first.ID()
+		firstID := first.GetWord(core.Cfg.Value.Region.ID.Start)
 		So(firstID, ShouldBeGreaterThan, 0)
 
 		So(first.InstallFirmware(core.FirmwareTypeTombstone), ShouldBeNil)
@@ -80,8 +86,8 @@ func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
 		second, err := NewValue([]byte("beta"))
 		So(err, ShouldBeNil)
 
-		So(second.ID(), ShouldBeGreaterThan, 0)
-		So(second.ID(), ShouldNotEqual, firstID)
+		So(second.GetWord(core.Cfg.Value.Region.ID.Start), ShouldBeGreaterThan, 0)
+		So(second.GetWord(core.Cfg.Value.Region.ID.Start), ShouldNotEqual, firstID)
 
 		So(second.InstallFirmware(core.FirmwareTypeTombstone), ShouldBeNil)
 		So(second.Close(), ShouldBeNil)
@@ -224,8 +230,18 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer valueB.Close()
 
-		anchorWords := []int{core.Cfg.Value.Region.Tokens.Start, core.Cfg.Value.Region.Tokens.Start + 7, core.Cfg.Value.Region.Tokens.Start + 14, core.Cfg.Value.Region.Tokens.Start + 21, core.Cfg.Value.Region.Tokens.Start + 28, core.Cfg.Value.Region.Tokens.Start + 35}
-		seedTokens := []uint64{0x55, 0x11, 0x22, 0x33, 0x44, 0x66}
+		anchorWords := []int{
+			core.Cfg.Value.Region.Tokens.Start,
+			core.Cfg.Value.Region.Tokens.Start + 7,
+			core.Cfg.Value.Region.Tokens.Start + 14,
+			core.Cfg.Value.Region.Tokens.Start + 21,
+			core.Cfg.Value.Region.Tokens.Start + 28,
+			core.Cfg.Value.Region.Tokens.Start + 35,
+		}
+
+		seedTokens := []uint64{
+			0x55, 0x11, 0x22, 0x33, 0x44, 0x66,
+		}
 
 		for i, idx := range anchorWords {
 			valueA[idx] = seedTokens[i]
@@ -278,37 +294,20 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 		var v Value
 		base := core.Cfg.Value.Region.Tokens.Start
 		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+
 		for w := 0; w < tokenWords; w++ {
 			idx := base + w
+
 			if idx >= core.Cfg.Value.Words {
 				break
 			}
+
 			v[idx] = 0
 		}
 
 		got := v.TokenIDs()
 		So(got, ShouldNotBeNil)
 		So(len(got), ShouldEqual, 0)
-	})
-}
-
-func TestNewValueIndexesOriginalBytesInLSM(t *testing.T) {
-	Convey("NewValue stores TokenIDs mapping to the full Value frame bitmap", t, func() {
-		idx := store.ResetDefaultSpatialIndex()
-		defer store.ResetDefaultSpatialIndex()
-
-		value, err := NewValue([]byte("ABA"))
-		So(err, ShouldBeNil)
-		defer value.Close()
-
-		want := store.ValueFrameBitmap([128]uint64(*value))
-		So(idx.ExactLookup(Tokenize('A', 0)).Equals(want), ShouldBeTrue)
-		So(idx.ExactLookup(Tokenize('B', 1)).Equals(want), ShouldBeTrue)
-		So(idx.ExactLookup(Tokenize('A', 2)).Equals(want), ShouldBeTrue)
-		So(idx.ExactLookup(Tokenize('A', 1)).GetCardinality(), ShouldEqual, uint64(0))
-
-		keys := idx.LookupKeysByValue([128]uint64(*value))
-		So(len(keys), ShouldEqual, 3)
 	})
 }
 

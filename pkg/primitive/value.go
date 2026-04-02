@@ -13,7 +13,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/store"
 )
 
 const (
@@ -63,15 +62,6 @@ The core concepts behind its design are:
     hardware symphathy.
 */
 type Value [128]uint64
-
-// CopyFrame overwrites dst with a full-frame copy of src (all Words).
-// Kernels may mutate dst while leaving canonical src unchanged (signals on copies; see README).
-func CopyFrame(dst, src *Value) {
-	if dst == nil || src == nil {
-		return
-	}
-	*dst = *src
-}
 
 func init() {
 	x := uint16(1)
@@ -128,7 +118,10 @@ a Value that has not been properly tombstoned.
 var valuePool = sync.Pool{
 	New: func() any {
 		val := &Value{}
-		val[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
+		val[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(
+			&globalValueIDCounter, 1,
+		)
+
 		return val
 	},
 }
@@ -140,20 +133,22 @@ This method should not be used to create temporary Values.
 func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
 
-	if value.ID() == 0 {
-		value[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
+	if value.GetWord(
+		core.Cfg.Value.Region.ID.Start,
+	) == 0 {
+		value[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(
+			&globalValueIDCounter, 1,
+		)
 	}
 
 	value.InstallFirmware(core.FirmwareTypeBootloader)
-
-	tokenIDs := make([]uint64, 0, int((core.Cfg.Value.Region.Tokens.Bits+63)/64))
-
-	var seed uint64
+	tokenIDs := make([]uint64, 0, int(
+		(core.Cfg.Value.Region.Tokens.Bits+63)/64,
+	))
+	seed := uint64(1)
 
 	if len(p) > 0 {
 		seed = uint64(p[0])
-	} else {
-		seed = 1
 	}
 
 	// LGP: insert protective introns every 8 instruction slots to prevent
@@ -168,8 +163,9 @@ func NewValue(p []byte) (*Value, error) {
 		)
 	}
 
-	// can hold more now since it's superimposed, but let's bound it safely.
-	// TODO: Calculate Shannon capacity and do not exceed > 40%.
+	// can hold more now since it's superimposed, but
+	// let's bound it safely. TODO: Calculate Shannon
+	// capacity and do not exceed > 40%.
 	if len(p) > int(core.Cfg.Value.Region.Tokens.Bits/8) {
 		p = p[:int(core.Cfg.Value.Region.Tokens.Bits/8)]
 	}
@@ -198,8 +194,6 @@ func NewValue(p []byte) (*Value, error) {
 	value[core.Cfg.Value.Region.Affinity.Start] |= bloom
 	value[core.Cfg.Value.Region.State.Accumulator] = value[core.Cfg.Value.Region.Affinity.Start]
 
-	store.DefaultSpatialIndex().InsertBatch(tokenIDs, *value)
-
 	return value, nil
 }
 
@@ -207,75 +201,71 @@ func (value *Value) InstallFirmware(
 	firmwareType core.FirmwareType,
 ) error {
 	if value == nil {
-		return errnie.Error(NewValueError(ValueErrorFailedByteConversion))
+		return errnie.Error(
+			NewValueError(ValueErrorFailedByteConversion),
+		)
 	}
 
 	value[core.Cfg.Value.Region.Registers.FW] = uint64(firmwareType)
 
 	for i := range core.Cfg.Firmware[firmwareType] {
-		value[core.Cfg.Value.Region.Program.Start+i] = uint64(core.Cfg.Firmware[firmwareType][i])
+		value[core.Cfg.Value.Region.Program.Start+i] = uint64(
+			core.Cfg.Firmware[firmwareType][i],
+		)
 	}
 
-	value[core.Cfg.Value.Region.PC.Start] = uint64(core.Cfg.Value.Region.Program.Start)
+	value[core.Cfg.Value.Region.PC.Start] = uint64(
+		core.Cfg.Value.Region.Program.Start,
+	)
 
 	return nil
 }
 
-// TokenRegionFingerprint hashes the token region and affinity for indexing (e.g. LSM keys).
-func TokenRegionFingerprint(value *Value) uint64 {
-	if value == nil {
-		return 0
-	}
-	h := uint64(14695981039346656037)
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	for i := 0; i < nWords; i++ {
-		idx := core.Cfg.Value.Region.Tokens.Start + i
-		if idx >= core.Cfg.Value.Words {
-			break
-		}
-		w := value[idx]
-		for shift := 0; shift < 64; shift += 8 {
-			h ^= uint64(byte(w >> shift))
-			h *= 1099511628211
-		}
-	}
-	h ^= uint64(nWords) + uint64(bits.OnesCount64(value[core.Cfg.Value.Region.Affinity.Start]))
-	h *= 1099511628211
-	return h
-}
-
-// LeftShiftTokens performs a 1-bit circular left shift on the entire Tokens region.
+/*
+LeftShiftTokens performs a 1-bit circular left
+shift on the entire Tokens region.
+*/
 func (value *Value) LeftShiftTokens() {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	var carry uint64 = 0
+
 	for i := 0; i < nWords; i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
+
 		if idx >= core.Cfg.Value.Words {
 			break
 		}
+
 		curr := value[idx]
 		nextCarry := curr >> 63
 		value[idx] = (curr << 1) | carry
 		carry = nextCarry
 	}
-	// Circular wrap-around
+
 	if carry > 0 {
 		idx := core.Cfg.Value.Region.Tokens.Start
+
 		if idx < core.Cfg.Value.Words {
 			value[idx] |= carry
 		}
 	}
 }
 
-// BindTokenHD XORs the static random 3648-bit FSM signature for the given byte.
+/*
+BindTokenHD XORs the static random 3648-bit FSM
+signature for the given byte.
+*/
 func (value *Value) BindTokenHD(b byte) {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	sig := ByteSignatures[b]
+
 	for i := 0; i < nWords && i < len(sig); i++ {
 		idx := core.Cfg.Value.Region.Tokens.Start + i
+
 		if idx >= core.Cfg.Value.Words {
 			break
 		}
+
 		value[idx] ^= sig[i]
 	}
 }
@@ -316,14 +306,16 @@ func (value *Value) Write(p []byte) (int, error) {
 
 /*
 Close implements io.Closer, and must be called when a Value
-is discarded. It guarantees a sane exist from the substrate
+is discarded. It guarantees a sane exit from the substrate
 and returns the value to the value pool. This is not meant
 as a quick-and-dirty way to discard a Value, that has to
 be done by loading the tombstone firmware.
 */
 func (value *Value) Close() error {
 	if err := value.isTombstoned(); err != nil {
-		return err
+		return errnie.Error(
+			NewValueError(ValueErrorNotTombstoned),
+		)
 	}
 
 	valuePool.Put(value)
@@ -332,14 +324,46 @@ func (value *Value) Close() error {
 
 func (value *Value) isTombstoned() error {
 	if slices.Max(slices.Concat(
-		value[core.Cfg.Value.Region.Tokens.Start:core.Cfg.Value.Region.Tokens.Start+int(core.Cfg.Value.Region.Tokens.Bits/64)-3],
-		value[core.Cfg.Value.Region.Affinity.Start:core.Cfg.Value.Region.Affinity.Start+int(core.Cfg.Value.Region.Affinity.Bits/64)],
-		value[core.Cfg.Value.Region.Program.Start:core.Cfg.Value.Region.Program.Start+int(core.Cfg.Value.Region.Program.Bits/64)],
+		value[core.Cfg.Value.Region.Tokens.Start:core.Cfg.Value.Region.Tokens.Start+int(
+			core.Cfg.Value.Region.Tokens.Bits/64,
+		)-3],
+		value[core.Cfg.Value.Region.Affinity.Start:core.Cfg.Value.Region.Affinity.Start+int(
+			core.Cfg.Value.Region.Affinity.Bits/64,
+		)],
+		value[core.Cfg.Value.Region.Program.Start:core.Cfg.Value.Region.Program.Start+int(
+			core.Cfg.Value.Region.Program.Bits/64,
+		)],
 	)) > 0 {
-		return errnie.Error(NewValueError(ValueErrorNotTombstoned))
+		return errnie.Error(
+			NewValueError(ValueErrorNotTombstoned),
+		)
 	}
 
 	return nil
+}
+
+/*
+Link sets the PrevID and NextID of the Value, which turns the
+Values into a doubly linked list.
+*/
+func (value *Value) Link(prev, next uint64) {
+	if value == nil {
+		return
+	}
+
+	if prev != 0 {
+		value.SetWord(
+			core.Cfg.Value.Region.Prev.Start,
+			prev,
+		)
+	}
+
+	if next != 0 {
+		value.SetWord(
+			core.Cfg.Value.Region.Next.Start,
+			next,
+		)
+	}
 }
 
 /*
@@ -348,29 +372,45 @@ It resolves TokenIDs in the LSM by exact Value-frame bitmap match, then
 orders by the sequence index packed in each TokenID (Tokenize).
 */
 func (value *Value) String() string {
-	return fmt.Sprintf("Value{%d}", value.ID())
-}
-
-/*
-ID returns the ValueID stored in the identity region.
-*/
-func (value *Value) ID() uint64 {
-	if value == nil {
-		return 0
-	}
-
-	return value[core.Cfg.Value.Region.ID.Start]
+	return fmt.Sprintf(
+		"Value{%d}", value.GetWord(core.Cfg.Value.Region.ID.Start),
+	)
 }
 
 func (value *Value) Bytes() []byte {
 	p := make([]byte, core.Cfg.Value.Bytes)
 
 	if ValueToBytes(value, p) != nil {
-		errnie.Error(NewValueError(ValueErrorFailedByteConversion))
+		errnie.Error(
+			NewValueError(ValueErrorFailedByteConversion),
+		)
+
 		return nil
 	}
 
 	return p
+}
+
+/*
+GetWord returns the word at the given index.
+*/
+func (value *Value) GetWord(index int) uint64 {
+	if value == nil {
+		return 0
+	}
+
+	return value[index]
+}
+
+/*
+SetWord sets the word at the given index.
+*/
+func (value *Value) SetWord(index int, word uint64) {
+	if value == nil {
+		return
+	}
+
+	value[index] = word
 }
 
 /*
@@ -468,22 +508,6 @@ func (value *Value) SetTokenIDs(tokens []uint64) int {
 	}
 
 	return n
-}
-
-/*
-Clone is used to create a new Value from an existing one, which is how
-we emit new Values from the substrate. It copies the entire frame, including
-the ValueID, so we need to set a new ValueID for the clone. We intentionally
-do not install the bootloader, because it should already be there.
-*/
-func (value *Value) Clone() *Value {
-	clone := valuePool.Get().(*Value)
-	for i := range value {
-		clone[i] = value[i]
-	}
-	clone[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(&globalValueIDCounter, 1)
-	// Do not blindly install bootloader on a clone, we want to clone the exact state!
-	return clone
 }
 
 /*
