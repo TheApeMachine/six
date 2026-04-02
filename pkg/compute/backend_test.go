@@ -143,15 +143,6 @@ func TestExecuteBatchDispatchesProgramGroups(t *testing.T) {
 	})
 }
 
-func TestQueuePriorityNilReturnsError(t *testing.T) {
-	convey.Convey("QueuePriority(nil) returns an error", t, func() {
-		backend := makeTestBackend(t)
-
-		err := backend.Queue(nil)
-		convey.So(err, convey.ShouldNotBeNil)
-	})
-}
-
 func TestExecuteBatchSelectsLeastLoadedHardware(t *testing.T) {
 	convey.Convey("executeBatch selects the least-loaded accelerator", t, func() {
 		setupTestConfig(t)

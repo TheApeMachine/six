@@ -82,7 +82,7 @@ func (b *kBucket) touch(id NodeID, value *primitive.Value) {
 	}
 
 	b.entries = append(b.entries, entry{id: id, value: value})
-	b.lsm.InsertBatch(tokenIDsFor(value), [128]uint64(*value))
+	b.lsm.InsertBatch(tokenIDsFor(value), *value)
 }
 
 // closest returns up to k entries sorted by XOR distance to target.

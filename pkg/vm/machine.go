@@ -19,8 +19,8 @@ type Machine struct {
 	cancel       context.CancelFunc
 	err          error
 	backend      *compute.Backend
-	sources      io.Writer
-	destinations io.Reader
+	sources      io.Reader
+	destinations io.Writer
 }
 
 type machineOption func(*Machine)
@@ -53,15 +53,12 @@ func NewMachine(
 		)
 	}
 
-	machine.sources = io.MultiWriter(
-		tokenizer,
-		machine.sources,
-	)
-
-	machine.destinations = io.MultiReader(
-		tokenizer,
-		machine.destinations,
-	)
+	/*
+		Wire tokenizer as the sole initial source/destination. Do not pass nil into
+		io.MultiReader/io.MultiWriter: a nil slot panics on Read/Write (see std io/multi.go).
+	*/
+	machine.sources = tokenizer
+	machine.destinations = tokenizer
 
 	for _, opt := range opts {
 		opt(machine)
@@ -90,18 +87,22 @@ write to itself, which will automatically sequence the
 io.MultiReader and io.MultiWriter, and create a seamless feedback loop.
 */
 func (machine *Machine) start() (err error) {
-	for {
-		select {
-		case <-machine.ctx.Done():
-			return nil
-		default:
-			if _, machine.err = io.Copy(machine, machine); machine.err != nil {
-				return errnie.Error(
-					NewMachineError(ErrStreamFailed, machine.err),
-				)
+	go func() {
+		for {
+			select {
+			case <-machine.ctx.Done():
+				return
+			default:
+				if _, machine.err = io.Copy(machine, machine); machine.err != nil {
+					machine.err = errnie.Error(
+						NewMachineError(ErrStreamFailed, machine.err),
+					)
+				}
 			}
 		}
-	}
+	}()
+
+	return nil
 }
 
 /*
@@ -111,7 +112,7 @@ objects, so they can be used to connect multiple sources and destinations
 via the machine.
 */
 func (machine *Machine) Read(p []byte) (n int, err error) {
-	return machine.destinations.Read(p)
+	return machine.sources.Read(p)
 }
 
 /*
@@ -125,7 +126,7 @@ func (machine *Machine) Write(p []byte) (n int, err error) {
 		return len(p), nil
 	}
 
-	return machine.sources.Write(p)
+	return machine.destinations.Write(p)
 }
 
 /*
@@ -146,10 +147,10 @@ func (machine *Machine) Close() (err error) {
 WithSources configures the machine with one or more sources, which act as
 the ingress points for data.
 */
-func WithSources(writers ...io.Writer) machineOption {
+func WithSources(readers ...io.Reader) machineOption {
 	return func(machine *Machine) {
-		machine.sources = io.MultiWriter(
-			append([]io.Writer{machine.sources}, writers...)...,
+		machine.sources = io.MultiReader(
+			append([]io.Reader{machine.sources}, readers...)...,
 		)
 	}
 }
@@ -158,10 +159,10 @@ func WithSources(writers ...io.Writer) machineOption {
 WithDestinations configures the machine with one or more destinations,
 which act as the egress points for data.
 */
-func WithDestinations(readers ...io.Reader) machineOption {
+func WithDestinations(writers ...io.Writer) machineOption {
 	return func(machine *Machine) {
-		machine.destinations = io.MultiReader(
-			append([]io.Reader{machine.destinations}, readers...)...,
+		machine.destinations = io.MultiWriter(
+			append([]io.Writer{machine.destinations}, writers...)...,
 		)
 	}
 }

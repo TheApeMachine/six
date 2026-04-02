@@ -175,7 +175,9 @@ QUIC connections handle reliable point-to-point transfer when Values need to mov
 
 ### Experiment pipeline
 
-`experiment/task.Pipeline` resets the shared spatial index for each run so experiments start from a clean substrate. By default it grades each prompt from the actual prompt workspace only. `Holdout` stays on the scoring side as supervision metadata; it must not be copied into `Observed` or otherwise influence prompt execution directly. Experiments that implement corpus staging now load resident article+label samples into the spatial index ahead of prompt evaluation and derive `Observed` from retrieval over that resident corpus, still without consulting holdout bytes at prompt time. Ephemeral prompt `Value`s are removed from the spatial index after observation so they cannot masquerade as retrieved evidence, then tombstoned and `Close`d. The old `vm.NewMachine` + `LimitReader` ingest during `Run` was removed so dataset streaming is not conflated with per-prompt evaluation.
+`experiment/task.Pipeline` is the paper-facing execution path. It is expected to run the real system, not a stripped-down surrogate, because its generated `Artifacts` are compiled directly into the research paper. Dataset ingress, machine execution, prompt observation, and cleanup therefore belong to the same end-to-end path that the rest of the substrate uses.
+
+`Holdout` remains supervision metadata on the scoring side. It must not be copied into `Observed`, and it must not be allowed to leak into prompt execution through hidden shortcut wiring. If an experiment stages resident corpus data ahead of prompt evaluation, that staging is still part of the real system path. Any reduced execution mode is acceptable only when it is explicitly treated as an ablation, debugging aid, or microbenchmark, never as the default paper pipeline.
 
 ## Project Structure
 

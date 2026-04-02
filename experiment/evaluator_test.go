@@ -23,7 +23,8 @@ func TestEvalWithExpectationUsesLegacyDynamicBaseline(t *testing.T) {
 		So(score, ShouldEqual, 0.25)
 		So(threshold, ShouldEqual, expectation.Baseline)
 		So(assertion(0.25, threshold), ShouldEqual, "")
-		So(assertion(0.0, threshold), ShouldNotEqual, "")
+		// Below threshold must fail; avoid score 0.0 because a zero dynamic baseline makes 0 >= 0 a pass.
+		So(assertion(-1.0, threshold), ShouldNotEqual, "")
 	})
 }
 
@@ -57,5 +58,56 @@ func TestEvalAssertTargetUsesTargetThreshold(t *testing.T) {
 		So(threshold, ShouldEqual, 1.0)
 		So(assertion(1.0, threshold), ShouldEqual, "")
 		So(assertion(0.99, threshold), ShouldNotEqual, "")
+	})
+}
+
+func TestEvalOutcomeEdgeCases(t *testing.T) {
+	Convey("Outcome at score 0.0 fails baseline gate when threshold is positive", t, func() {
+		evaluator := NewEvaluator(
+			EvalWithFixedExpectation(0.10, 0.90),
+		)
+
+		expectation := evaluator.Expectation()
+		So(expectation.Gate, ShouldEqual, ExpectationGateBaseline)
+
+		score, assertion, threshold := evaluator.Outcome(0.0)
+		So(score, ShouldEqual, 0.0)
+		So(threshold, ShouldEqual, 0.10)
+		So(assertion(0.0, threshold), ShouldNotEqual, "")
+	})
+
+	Convey("Outcome allows scores above 1.0 when asserting against target", t, func() {
+		evaluator := NewEvaluator(
+			EvalWithFixedExpectation(0.0, 1.0),
+			EvalAssertTarget(),
+		)
+
+		score, assertion, threshold := evaluator.Outcome(1.25)
+		So(score, ShouldEqual, 1.25)
+		So(threshold, ShouldEqual, 1.0)
+		So(assertion(1.25, threshold), ShouldEqual, "")
+		So(assertion(0.99, threshold), ShouldNotEqual, "")
+	})
+
+	Convey("Outcome does not reject baseline greater than target; threshold follows gate", t, func() {
+		evaluator := NewEvaluator(
+			EvalWithFixedExpectation(0.95, 0.50),
+		)
+
+		score, assertion, threshold := evaluator.Outcome(0.96)
+		So(score, ShouldEqual, 0.96)
+		So(threshold, ShouldEqual, 0.95)
+		So(assertion(0.96, threshold), ShouldEqual, "")
+		So(assertion(0.94, threshold), ShouldNotEqual, "")
+
+		evaluatorTarget := NewEvaluator(
+			EvalWithFixedExpectation(0.95, 0.50),
+			EvalAssertTarget(),
+		)
+
+		_, assertionT, thresholdT := evaluatorTarget.Outcome(0.60)
+		So(thresholdT, ShouldEqual, 0.50)
+		So(assertionT(0.60, thresholdT), ShouldEqual, "")
+		So(assertionT(0.40, thresholdT), ShouldNotEqual, "")
 	})
 }

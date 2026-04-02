@@ -433,13 +433,9 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 		},
 	})
 
-	rw.Header().Set("Content-Type", "application/octet-stream")
-	rw.Header().Set("X-Six-Node-ID", w.discovery.Self().ID)
-	rw.Header().Set("X-Six-Duration-Ms", fmt.Sprintf("%d", dur.Milliseconds()))
-	rw.WriteHeader(http.StatusOK)
-
 	leftOut := make([]byte, core.Cfg.Value.Bytes)
 	rightOut := make([]byte, core.Cfg.Value.Bytes)
+
 	if err := primitive.ValueToBytes(left, leftOut); err != nil {
 		http.Error(rw, fmt.Sprintf("write response: %v", err), http.StatusInternalServerError)
 		return
@@ -450,6 +446,10 @@ func (w *Worker) handleUniversalBitwise(rw http.ResponseWriter, req *http.Reques
 		return
 	}
 
+	rw.Header().Set("Content-Type", "application/octet-stream")
+	rw.Header().Set("X-Six-Node-ID", w.discovery.Self().ID)
+	rw.Header().Set("X-Six-Duration-Ms", fmt.Sprintf("%d", dur.Milliseconds()))
+	rw.WriteHeader(http.StatusOK)
 	rw.Write(leftOut)
 	rw.Write(rightOut)
 }

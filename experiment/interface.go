@@ -67,6 +67,7 @@ type PipelineExperiment interface {
 	Section() string
 	Dataset() data.Provider
 	Prompts() []string
+	HoldoutForPrompt(idx int) ([]byte, bool)
 	AddResult(ExperimentalData)
 	Outcome() (any, Assertion, any)
 	TableData() any

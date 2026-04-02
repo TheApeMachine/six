@@ -4,7 +4,7 @@ import (
 	"errors"
 )
 
-var errImmBadIndex = errors.New("stepwise.immStep: dst index out of range")
+var errImmBadIndex = errors.New("pysix.immStep: dst index out of range")
 
 /*
 EncodeImm builds a word that applyStep executes as: a[dst] = uint64(imm).

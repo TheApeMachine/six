@@ -314,6 +314,26 @@ func calculateRandomBaseline() float64 {
 }
 
 /*
+legacyExpectationBaselines are the discrete baseline floors historically passed to
+EvalWithExpectation across early task constructors (0.05 was the common regression
+floor; 0.03 / 0.10 / 0.20 / 0.30 appeared as task-specific defaults before
+calculateRandomBaseline existed). Any incoming baseline equal to one of these
+still opts into the legacy dynamic rewrite for backward compatibility with older
+call sites that relied on magic numbers rather than measured random performance.
+*/
+var legacyExpectationBaselines = []float64{0.05, 0.03, 0.10, 0.20, 0.30}
+
+func isLegacyBaseline(value float64) bool {
+	for _, legacy := range legacyExpectationBaselines {
+		if value == legacy {
+			return true
+		}
+	}
+
+	return false
+}
+
+/*
 EvalWithExpectation sets the baseline and target thresholds.
 Baseline is the regression floor. Target is the aspirational goal.
 */
@@ -322,7 +342,7 @@ func EvalWithExpectation(baseline, target float64) evalOpts {
 		dynamic := false
 
 		// Use dynamic baseline if the provided baseline looks like the old hardcoded magic logic
-		if baseline == 0.05 || baseline == 0.03 || baseline == 0.10 || baseline == 0.20 || baseline == 0.30 {
+		if isLegacyBaseline(baseline) {
 			baseline = calculateRandomBaseline()
 			dynamic = true
 		}

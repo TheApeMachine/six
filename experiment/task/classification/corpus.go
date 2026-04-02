@@ -34,7 +34,9 @@ func (experiment *TextClassificationExperiment) CorpusSamples() [][]byte {
 		experiment.Prompts()
 	}
 
-	experiment.corpusRows = make(map[uint64]classificationCorpusRow, len(experiment.prompt))
+	if experiment.corpusRows == nil {
+		experiment.corpusRows = make(map[uint64]classificationCorpusRow, len(experiment.prompt))
+	}
 
 	samples := make([][]byte, 0, len(experiment.prompt))
 
@@ -170,7 +172,7 @@ func (experiment *TextClassificationExperiment) corpusCandidates(prompt []byte, 
 
 func (experiment *TextClassificationExperiment) extractObservedLabel(text string) (string, bool) {
 	for _, label := range experiment.ClassLabels() {
-		if strings.HasSuffix(text, label) {
+		if text == label || strings.HasSuffix(text, textClassificationLabelSeparator+label) {
 			return label, true
 		}
 	}

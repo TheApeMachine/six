@@ -1,16 +1,16 @@
 package task
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/store"
 	"github.com/theapemachine/six/pkg/vm"
 )
 
@@ -80,10 +80,13 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 }
 
 func (pipeline *Pipeline) Run() (err error) {
+	prompter := bytes.NewBuffer(make([]byte, 0, 1024))
+
 	machine, err := vm.NewMachine(
 		pipeline.ctx,
-		vm.WithDestinations(
+		vm.WithSources(
 			pipeline.experiment.Dataset(),
+			prompter,
 		),
 	)
 
@@ -98,7 +101,15 @@ func (pipeline *Pipeline) Run() (err error) {
 		case <-pipeline.ctx.Done():
 			return errnie.Error(pipeline.ctx.Err())
 		default:
-			value, newErr := primitive.NewValue([]byte(prompt))
+			holdout, ok := pipeline.experiment.HoldoutForPrompt(idx)
+
+			if !ok {
+				holdout = []byte(nil)
+			}
+
+			value, newErr := primitive.NewValue(
+				bytes.ReplaceAll(prompter.Bytes(), holdout, []byte{}),
+			)
 
 			if newErr != nil {
 				pipeline.promptInitFailures.Add(1)
@@ -106,27 +117,13 @@ func (pipeline *Pipeline) Run() (err error) {
 				continue
 			}
 
-			holdout := []byte(nil)
-
-			if provider, ok := pipeline.experiment.(tools.HoldoutProvider); ok {
-				if h, ok := provider.HoldoutForPrompt(idx); ok {
-					holdout = append([]byte(nil), h...)
-				}
-			}
+			io.Copy(prompter, value)
 
 			errnie.Trace(
 				"experiment.task.pipeline.Run",
 				"prompt", prompt,
 				"holdout", string(holdout),
 			)
-
-			store.DefaultSpatialIndex().RemoveValueIDImmediate(value.ID())
-
-			value.InstallFirmware(core.FirmwareTypeTombstone)
-
-			if closeErr := value.Close(); closeErr != nil {
-				return errnie.Error(closeErr)
-			}
 
 			pipeline.experiment.AddResult(tools.ExperimentalData{
 				Idx:      idx,
@@ -138,12 +135,6 @@ func (pipeline *Pipeline) Run() (err error) {
 
 			pipeline.timing.n++
 		}
-
-		errnie.Trace(
-			"experiment.task.pipeline.summary",
-			"prompt_init_failures", pipeline.promptInitFailures.Load(),
-			"prompts_processed_ok", pipeline.timing.n,
-		)
 	}
 
 	type finalizer interface {
@@ -165,6 +156,12 @@ func (pipeline *Pipeline) Run() (err error) {
 			return errnie.Error(err)
 		}
 	}
+
+	errnie.Trace(
+		"experiment.task.pipeline.summary",
+		"prompt_init_failures", pipeline.promptInitFailures.Load(),
+		"prompts_processed_ok", pipeline.timing.n,
+	)
 
 	return nil
 }

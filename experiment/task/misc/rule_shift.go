@@ -157,18 +157,7 @@ func (exp *RuleShiftExperiment) HoldoutForPrompt(idx int) ([]byte, bool) {
 		return nil, false
 	}
 
-	holdoutBytes := ruleShiftSampleLen * ruleShiftHoldoutPct / 100
-	sample := []byte(exp.pipelinePrompts[idx])
-
-	if len(sample) == 0 {
-		return nil, false
-	}
-
-	if holdoutBytes >= len(sample) {
-		return append([]byte(nil), sample...), true
-	}
-
-	return append([]byte(nil), sample[len(sample)-holdoutBytes:]...), true
+	return tools.HoldoutSuffixFromSample([]byte(exp.pipelinePrompts[idx]), ruleShiftHoldoutPct, ruleShiftSampleLen)
 }
 
 /*

@@ -189,18 +189,7 @@ func (exp *ConstraintResolutionExperiment) HoldoutForPrompt(idx int) ([]byte, bo
 		return nil, false
 	}
 
-	holdoutBytes := crSampleLen * crHoldoutPct / 100
-	sample := []byte(exp.pipelinePrompts[idx])
-
-	if len(sample) == 0 {
-		return nil, false
-	}
-
-	if holdoutBytes >= len(sample) {
-		return append([]byte(nil), sample...), true
-	}
-
-	return append([]byte(nil), sample[len(sample)-holdoutBytes:]...), true
+	return tools.HoldoutSuffixFromSample([]byte(exp.pipelinePrompts[idx]), crHoldoutPct, crSampleLen)
 }
 
 /*

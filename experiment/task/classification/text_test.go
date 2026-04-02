@@ -55,6 +55,7 @@ func TestTextClassificationCorpusSamples(t *testing.T) {
 func TestTextClassificationObserveFromCorpus(t *testing.T) {
 	Convey("Text classification recovers an exact label from staged corpus evidence", t, func() {
 		store.ResetDefaultSpatialIndex()
+		defer store.ResetDefaultSpatialIndex()
 		backend := compute.NewBackgroundBackend()
 
 		experiment := NewTextClassificationExperiment()

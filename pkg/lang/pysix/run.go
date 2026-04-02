@@ -2,6 +2,7 @@ package pysix
 
 import (
 	"errors"
+	"fmt"
 
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/core"
@@ -61,12 +62,12 @@ func DecodeStep(word uint64) (
 
 	if word&(1<<63) != 0 {
 		return 0, 0, 0, 0, false, false,
-			errors.New("stepwise.DecodeStep: IMM words are not TT descriptors")
+			errors.New("pysix.DecodeStep: IMM words are not TT descriptors")
 	}
 
 	if word>>33 != 0 {
 		return 0, 0, 0, 0, false, false,
-			errors.New("stepwise.DecodeStep: reserved bits 33:62 must be zero")
+			errors.New("pysix.DecodeStep: reserved bits 33:62 must be zero")
 	}
 
 	op = uint8(word & 0xFF)
@@ -78,7 +79,7 @@ func DecodeStep(word uint64) (
 
 	if uint16(idxA) >= FrameWords || uint16(idxB) >= FrameWords || uint16(idxDst) >= FrameWords {
 		return 0, 0, 0, 0, false, false,
-			errors.New("stepwise.DecodeStep: index >= FrameWords")
+			errors.New("pysix.DecodeStep: index >= FrameWords")
 	}
 
 	return op, idxA, idxB, idxDst, leftFromB, rightFromB, nil
@@ -92,7 +93,7 @@ func loadWord(
 
 	if fromB {
 		if b == nil {
-			return 0, errors.New("stepwise: partner frame required for operand")
+			return 0, errors.New("pysix: partner frame required for operand")
 		}
 
 		return b[idx], nil
@@ -153,7 +154,7 @@ operand source when descriptor flags request it).
 func RunPair(a, b *[FrameWords]uint64, program []uint64) error {
 
 	if a == nil || b == nil {
-		return errors.New("stepwise.RunPair: nil frame")
+		return errors.New("pysix.RunPair: nil frame")
 	}
 
 	for step := range program {
@@ -175,17 +176,17 @@ func RunEmbedded(ctx *[FrameWords]uint64) error {
 	maxAfterHeader := FrameWords - base - 1
 
 	if maxAfterHeader <= 0 {
-		return errors.New("stepwise.RunEmbedded: no room for header and descriptors")
+		return errors.New("pysix.RunEmbedded: no room for header and descriptors")
 	}
 
 	hdr := ctx[base]
 	stepCount, ok := EmbeddedDescriptorCount(hdr)
 	if !ok {
-		return errors.New("stepwise.RunEmbedded: missing or invalid stepwise header word")
+		return errors.New("pysix.RunEmbedded: missing or invalid stepwise header word")
 	}
 
 	if stepCount > maxAfterHeader {
-		stepCount = maxAfterHeader
+		return fmt.Errorf("pysix.RunEmbedded: invalid header: claimed %d steps but only %d fit after header", stepCount, maxAfterHeader)
 	}
 
 	for step := 0; step < stepCount; step++ {
@@ -205,24 +206,24 @@ Results are written only into a.
 func RunEmbeddedPair(a, b *[FrameWords]uint64) error {
 
 	if a == nil || b == nil {
-		return errors.New("stepwise.RunEmbeddedPair: nil frame")
+		return errors.New("pysix.RunEmbeddedPair: nil frame")
 	}
 
 	base := EmbeddedProgramBase()
 	maxAfterHeader := FrameWords - base - 1
 
 	if maxAfterHeader <= 0 {
-		return errors.New("stepwise.RunEmbeddedPair: no room for batch header and descriptors")
+		return errors.New("pysix.RunEmbeddedPair: no room for batch header and descriptors")
 	}
 
 	hdr := a[base]
 	stepCount, ok := EmbeddedDescriptorCount(hdr)
 	if !ok {
-		return errors.New("stepwise.RunEmbeddedPair: missing or invalid stepwise header word")
+		return errors.New("pysix.RunEmbeddedPair: missing or invalid stepwise header word")
 	}
 
 	if stepCount > maxAfterHeader {
-		stepCount = maxAfterHeader
+		return fmt.Errorf("pysix.RunEmbeddedPair: invalid header: claimed %d steps but only %d fit after header", stepCount, maxAfterHeader)
 	}
 
 	for step := 0; step < stepCount; step++ {

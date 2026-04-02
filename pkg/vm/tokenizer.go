@@ -144,7 +144,11 @@ func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
 		}
 
 		n, tokenizer.err = tokenizer.rb.Write(value.Bytes())
-		return n, errnie.Error(tokenizer.err)
+		if tokenizer.err != nil {
+			return n, errnie.Error(tokenizer.err)
+		}
+
+		return n, nil
 	}
 }
 

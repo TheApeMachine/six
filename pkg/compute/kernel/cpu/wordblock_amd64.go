@@ -70,7 +70,7 @@ func HasHammingMatch(frame []uint64, target uint64, maxDist uint64) bool {
 		return false
 	}
 	
-	if syscpu.X86.HasAVX2 || syscpu.ARM.HasNEON {
+	if syscpu.X86.HasAVX2 {
 		return simdHasHammingMatch(&frame[0], len(frame), target, maxDist)
 	}
 

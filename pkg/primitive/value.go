@@ -211,6 +211,13 @@ func (value *Value) InstallFirmware(
 	}
 
 	value[core.Cfg.Value.Region.Registers.FW] = uint64(firmwareType)
+
+	for i := range core.Cfg.Firmware[firmwareType] {
+		value[core.Cfg.Value.Region.Program.Start+i] = uint64(core.Cfg.Firmware[firmwareType][i])
+	}
+
+	value[core.Cfg.Value.Region.PC.Start] = uint64(core.Cfg.Value.Region.Program.Start)
+
 	return nil
 }
 
@@ -494,9 +501,9 @@ func BytesToValue(p []byte) *Value {
 	}
 
 	if len(p) != core.Cfg.Value.Bytes {
-		var frame [128]byte
-		copy(frame[:], p)
-		valueFrom(frame[:], v)
+		frame := make([]byte, core.Cfg.Value.Bytes)
+		copy(frame, p)
+		valueFrom(frame, v)
 		return v
 	}
 

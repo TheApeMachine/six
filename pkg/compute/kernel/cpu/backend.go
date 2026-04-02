@@ -48,7 +48,7 @@ func (backend *Backend) UniversalBitwise(frames []unsafe.Pointer) error {
 
 	for index := range frames {
 		if frames[index] == nil {
-			return NewSimdeezNutsError(ErrNilValuePointer,
+			return NewBackendError(ErrNilValuePointer,
 				"frame", frames[index], "i", index,
 			)
 		}

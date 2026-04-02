@@ -92,7 +92,7 @@ accepting graph events via UDP from external test runs.`,
 				newM: func() (*vm.Machine, error) {
 					return vm.NewMachine(
 						ctx,
-						vm.WithDestinations(huggingface.New(
+						vm.WithSources(huggingface.New(
 							huggingface.DatasetWithContext(ctx),
 							huggingface.DatasetWithRepo(vizRepo),
 							huggingface.DatasetWithSubset(vizSubset),

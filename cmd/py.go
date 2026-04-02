@@ -47,7 +47,7 @@ Examples:
 			return fmt.Errorf("py: compile: %w", errCompile)
 		}
 
-		var frame [128]uint64
+		var frame [pysix.FrameWords]uint64
 
 		if errRun := pysix.Run(&frame, prog); errRun != nil {
 			return fmt.Errorf("py: run: %w", errRun)

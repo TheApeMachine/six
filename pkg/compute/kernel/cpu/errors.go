@@ -6,25 +6,25 @@ import (
 	"github.com/theapemachine/six/pkg/errnie"
 )
 
-type SimdeezNutsErrorType string
+type BackendErrorType string
 
 const (
-	ErrNilValuePointer     SimdeezNutsErrorType = "nil value pointer"
-	ErrInvalidInstruction  SimdeezNutsErrorType = "invalid instruction"
-	ErrInvalidMemoryAccess SimdeezNutsErrorType = "invalid memory access"
-	ErrInvalidControlFlow  SimdeezNutsErrorType = "invalid control flow"
-	ErrInvalidRegister     SimdeezNutsErrorType = "invalid register"
+	ErrNilValuePointer     BackendErrorType = "nil value pointer"
+	ErrInvalidInstruction  BackendErrorType = "invalid instruction"
+	ErrInvalidMemoryAccess BackendErrorType = "invalid memory access"
+	ErrInvalidControlFlow  BackendErrorType = "invalid control flow"
+	ErrInvalidRegister     BackendErrorType = "invalid register"
 )
 
-type SimdeezNutsError struct {
+type BackendError struct {
 	*errnie.ErrnieError
-	Type SimdeezNutsErrorType
+	Type BackendErrorType
 }
 
-func NewSimdeezNutsError(
-	errType SimdeezNutsErrorType, keyvals ...any,
-) *SimdeezNutsError {
-	return &SimdeezNutsError{
+func NewBackendError(
+	errType BackendErrorType, keyvals ...any,
+) *BackendError {
+	return &BackendError{
 		ErrnieError: errnie.NewErrnieError(
 			errors.New(string(errType)),
 			keyvals...,
