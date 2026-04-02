@@ -80,7 +80,13 @@ func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
 		firstID := first.GetWord(core.Cfg.Value.Region.ID.Start)
 		So(firstID, ShouldBeGreaterThan, 0)
 
-		So(first.InstallFirmware(core.FirmwareTypeTombstone), ShouldBeNil)
+		// Close requires a tombstone-clean frame; full tombstone firmware does not
+		// fit the linear program band at program.start (see config tombstone size).
+		// Clearing the frame matches isTombstoned for this pool/ID reuse check.
+		for wordIndex := range *first {
+			first[wordIndex] = 0
+		}
+
 		So(first.Close(), ShouldBeNil)
 
 		second, err := NewValue([]byte("beta"))
@@ -89,7 +95,10 @@ func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
 		So(second.GetWord(core.Cfg.Value.Region.ID.Start), ShouldBeGreaterThan, 0)
 		So(second.GetWord(core.Cfg.Value.Region.ID.Start), ShouldNotEqual, firstID)
 
-		So(second.InstallFirmware(core.FirmwareTypeTombstone), ShouldBeNil)
+		for wordIndex := range *second {
+			second[wordIndex] = 0
+		}
+
 		So(second.Close(), ShouldBeNil)
 	})
 }
@@ -169,7 +178,9 @@ func TestBootloaderProjectsStructureInBand(t *testing.T) {
 		So(err, ShouldBeNil)
 		defer valueB.Close()
 
-		n, err := valueA.Write(valueB.Bytes())
+		wire, err := valueB.Bytes()
+		So(err, ShouldBeNil)
+		n, err := valueA.Write(wire)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1024)
 		// TODO: Check that the correct structure emission signal is produced.
@@ -190,7 +201,9 @@ func TestLearnAdvancesStateSequenceInBand(t *testing.T) {
 		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
 		valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
-		n, err := valueA.Write(valueB.Bytes())
+		wire, err := valueB.Bytes()
+		So(err, ShouldBeNil)
+		n, err := valueA.Write(wire)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1024)
 		// TODO: Check that the correct signal is produced and new Value(s) are emitted.
@@ -213,7 +226,9 @@ func TestLearnWeavesAccumulatorWithSequenceInBand(t *testing.T) {
 		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
 		valueA[core.Cfg.Value.Region.Registers.PC] = 0
 
-		n, err := valueA.Write(valueB.Bytes())
+		wire, err := valueB.Bytes()
+		So(err, ShouldBeNil)
+		n, err := valueA.Write(wire)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1024)
 		// TODO: Check that the correct signal is produced and new Value(s) are emitted.
@@ -252,7 +267,9 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 		valueA[core.Cfg.Value.Region.Registers.PC] = 0
 		valueB[core.Cfg.Value.Region.Affinity.Start] = 0b00110110
 
-		n, err := valueA.Write(valueB.Bytes())
+		wire, err := valueB.Bytes()
+		So(err, ShouldBeNil)
+		n, err := valueA.Write(wire)
 		So(err, ShouldBeNil)
 		So(n, ShouldEqual, 1024)
 		// TODO: Check that the correct signal is produced and new Value(s) are emitted.

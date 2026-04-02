@@ -23,8 +23,12 @@ the affinity of the first inserted Value; until then it uses 0 as a
 placeholder (the routing table self-corrects on first Insert).
 */
 func NewControlPlane(ctx context.Context) *ControlPlane {
+	ctx, cancel := context.WithCancel(ctx)
+
 	return &ControlPlane{
-		rt: NewRoutingTable(0),
+		ctx:    ctx,
+		cancel: cancel,
+		rt:     NewRoutingTable(0),
 	}
 }
 
@@ -45,7 +49,13 @@ FindClosest returns the K Values whose affinity is closest (by XOR distance)
 to the target affinity.
 */
 func (cp *ControlPlane) FindClosest(targetAffinity uint64) []primitive.Value {
-	entries := cp.rt.FindNode(context.Background(), NodeID(targetAffinity))
+	lookupCtx := cp.ctx
+
+	if lookupCtx == nil {
+		lookupCtx = context.Background()
+	}
+
+	entries := cp.rt.FindNode(lookupCtx, NodeID(targetAffinity))
 	values := make([]primitive.Value, len(entries))
 
 	for i, e := range entries {

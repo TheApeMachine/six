@@ -33,11 +33,12 @@ const (
 
 type S3Adapter struct {
 	io.ReadWriteCloser
-	ctx    context.Context
-	cancel context.CancelFunc
-	client *s3.Client
-	bucket *string
-	tm     *transfermanager.Client
+	ctx        context.Context
+	cancel     context.CancelFunc
+	client     *s3.Client
+	bucket     *string
+	tm         *transfermanager.Client
+	readRemain []byte
 }
 
 type s3AdapterOpts func(*S3Adapter)
@@ -73,7 +74,7 @@ func NewS3Adapter(
 	if err != nil {
 		cancel()
 		return nil, errnie.Error(
-			NewStoreError(StoreErrorNotValidated),
+			NewStoreError(StoreErrorNotValidated, err),
 		)
 	}
 
@@ -105,32 +106,47 @@ Read implements io.Reader and is used to store the current state
 of the system on S3 (LakeFS).
 */
 func (adapter *S3Adapter) Read(p []byte) (n int, err error) {
-	writerAt := types.NewWriteAtBuffer([]byte{})
+	if len(adapter.readRemain) == 0 {
+		writerAt := types.NewWriteAtBuffer([]byte{})
 
-	_, err = adapter.tm.DownloadObject(
-		adapter.ctx, &transfermanager.DownloadObjectInput{
-			Bucket: adapter.bucket,
-			Key: aws.String(fmt.Sprintf(
-				"values",
-			)),
-			WriterAt: writerAt,
-		},
-	)
-
-	if err != nil {
-		return 0, errnie.Error(
-			NewStoreError(StoreErrorFailedToDownload),
+		_, err = adapter.tm.DownloadObject(
+			adapter.ctx, &transfermanager.DownloadObjectInput{
+				Bucket:   adapter.bucket,
+				Key:      aws.String("values"),
+				WriterAt: writerAt,
+			},
 		)
+
+		if err != nil {
+			return 0, errnie.Error(
+				NewStoreError(StoreErrorFailedToDownload, err),
+			)
+		}
+
+		adapter.readRemain = writerAt.Bytes()
 	}
 
-	return copy(
-		p, writerAt.Bytes(),
-	), nil
+	total := len(adapter.readRemain)
+
+	if total == 0 {
+		return 0, io.EOF
+	}
+
+	n = copy(p, adapter.readRemain)
+	adapter.readRemain = adapter.readRemain[n:]
+
+	if n < total {
+		return n, nil
+	}
+
+	return n, io.EOF
 }
 
 /*
-Write implements io.Writer and is used to retrieve the current state
-of the system on S3 (LakeFS).
+Write implements io.Writer: it uploads the given frame bytes to S3 (LakeFS)
+under a key derived from the Value's affinity and ID regions. It returns the
+number of bytes accepted from p (the full len(p) on success) or an error when
+the upload fails.
 */
 func (adapter *S3Adapter) Write(p []byte) (n int, err error) {
 	value := primitive.BytesToValue(p)
@@ -150,11 +166,15 @@ func (adapter *S3Adapter) Write(p []byte) (n int, err error) {
 
 	if err != nil {
 		return 0, errnie.Error(
-			NewStoreError(StoreErrorFailedToUpload),
+			NewStoreError(StoreErrorFailedToUpload, err),
 		)
 	}
 
-	return int(*output.ContentLength), nil
+	if output.ContentLength != nil {
+		return int(aws.ToInt64(output.ContentLength)), nil
+	}
+
+	return len(p), nil
 }
 
 /*

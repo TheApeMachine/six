@@ -16,6 +16,8 @@ func TestMain(m *testing.M) {
 		fmt.Fprintf(os.Stderr, "distributed/scheduler_test: viper.ReadInConfig: %v\n", err)
 		os.Exit(1)
 	}
+
+	core.NewConfig()
 	os.Exit(m.Run())
 }
 

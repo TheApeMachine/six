@@ -4,6 +4,8 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
+
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 var (
@@ -261,6 +263,33 @@ func NewConfig() *Config {
 				FirmwareTypeQuery, viper.GetString("programs.query"),
 			),
 		},
+	}
+
+	if Cfg.ControlPlane.K < 1 {
+		errnie.Info(
+			"core.config: controlplane.k defaulted",
+			"was", Cfg.ControlPlane.K,
+			"now", 20,
+		)
+		Cfg.ControlPlane.K = 20
+	}
+
+	if Cfg.ControlPlane.Alpha < 1 {
+		errnie.Info(
+			"core.config: controlplane.alpha defaulted",
+			"was", Cfg.ControlPlane.Alpha,
+			"now", 3,
+		)
+		Cfg.ControlPlane.Alpha = 3
+	}
+
+	if Cfg.ControlPlane.Affinity.Bits == 0 {
+		errnie.Info(
+			"core.config: controlplane.affinity.bits defaulted",
+			"was", 0,
+			"now", uint64(1),
+		)
+		Cfg.ControlPlane.Affinity.Bits = 1
 	}
 
 	if Cfg.System.StepwiseUniversalBitwise {

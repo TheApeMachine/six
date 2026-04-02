@@ -25,8 +25,6 @@ type Machine struct {
 	sources      io.Reader
 	destinations io.Writer
 	controlplane *cluster.ControlPlane
-	prevID       uint64
-	nextID       uint64
 }
 
 type machineOption func(*Machine)
@@ -121,12 +119,19 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 	case <-machine.ctx.Done():
 		return 0, machine.ctx.Err()
 	default:
-		value := primitive.BytesToValue(p)
-		machine.controlplane.Insert(*value)
-		machine.backend.Queue(unsafe.Pointer(value))
-
-		return machine.sources.Read(p)
 	}
+
+	n, err = machine.sources.Read(p)
+
+	if n == 0 {
+		return n, err
+	}
+
+	value := primitive.BytesToValue(p[:n])
+	machine.controlplane.Insert(*value)
+	machine.backend.Queue(unsafe.Pointer(value))
+
+	return n, err
 }
 
 /*

@@ -75,7 +75,18 @@ var meshRunCmd = &cobra.Command{
 
 		out := primitive.BytesToValue(resp.Left)
 
-		fmt.Printf("node=%s duration_ms=%d output=%q\n", resp.NodeID, resp.DurationMS, string(out.Bytes()))
+		outBytes, berr := out.Bytes()
+
+		if berr != nil {
+			return berr
+		}
+
+		fmt.Printf(
+			"node=%s duration_ms=%d output=%q\n",
+			resp.NodeID,
+			resp.DurationMS,
+			string(outBytes),
+		)
 		return nil
 	},
 }

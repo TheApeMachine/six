@@ -139,7 +139,15 @@ func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
 			return 0, errnie.Error(tokenizer.err)
 		}
 
-		n, tokenizer.err = tokenizer.rb.Write(value.Bytes())
+		var frame []byte
+
+		frame, tokenizer.err = value.Bytes()
+
+		if tokenizer.err != nil {
+			return 0, errnie.Error(tokenizer.err)
+		}
+
+		n, tokenizer.err = tokenizer.rb.Write(frame)
 
 		if tokenizer.err != nil {
 			return n, errnie.Error(tokenizer.err)

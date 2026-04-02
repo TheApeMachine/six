@@ -130,12 +130,18 @@ func (pipeline *Pipeline) Run() (err error) {
 				"holdout", string(holdout),
 			)
 
+			observed, convErr := value.Bytes()
+
+			if convErr != nil {
+				return errnie.Error(convErr)
+			}
+
 			pipeline.experiment.AddResult(tools.ExperimentalData{
 				Idx:      idx,
 				Name:     fmt.Sprintf("prompt-%d", idx),
 				Prefix:   []byte(prompt),
 				Holdout:  holdout,
-				Observed: value.Bytes(),
+				Observed: observed,
 			})
 
 			pipeline.timing.n++

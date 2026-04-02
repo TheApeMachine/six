@@ -11,15 +11,19 @@ import (
 func TestHCAMUnbinding(t *testing.T) {
 	Convey("Given HCAM fact encoding S⊕I⊕G", t, func() {
 		// Build three random token vectors representing three concepts.
-		sandra, _ := NewValue([]byte("Sandra"))
-		isIn, _ := NewValue([]byte("is_in"))
-		garden, _ := NewValue([]byte("Garden"))
+		sandra, err := NewValue([]byte("Sandra"))
+		So(err, ShouldBeNil)
+		isIn, err := NewValue([]byte("is_in"))
+		So(err, ShouldBeNil)
+		garden, err := NewValue([]byte("Garden"))
+		So(err, ShouldBeNil)
 		defer sandra.Close()
 		defer isIn.Close()
 		defer garden.Close()
 
 		// Fact = Sandra ⊕ IsIn ⊕ Garden (bind all three into one Value)
-		fact, _ := NewValue(nil)
+		fact, err := NewValue(nil)
+		So(err, ShouldBeNil)
 		defer fact.Close()
 		nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 		base := core.Cfg.Value.Region.Tokens.Start
@@ -32,7 +36,8 @@ func TestHCAMUnbinding(t *testing.T) {
 		}
 
 		Convey("When we unbind with query S⊕I", func() {
-			query, _ := NewValue(nil)
+			query, err := NewValue(nil)
+			So(err, ShouldBeNil)
 			defer query.Close()
 			for i := 0; i < nWords; i++ {
 				idx := base + i
@@ -42,7 +47,8 @@ func TestHCAMUnbinding(t *testing.T) {
 				query[idx] = sandra[idx] ^ isIn[idx]
 			}
 
-			result, _ := NewValue(nil)
+			result, err := NewValue(nil)
+			So(err, ShouldBeNil)
 			defer result.Close()
 			UnbindHD(result, fact, query)
 
@@ -61,15 +67,19 @@ func TestHCAMUnbinding(t *testing.T) {
 
 func TestBundleHD(t *testing.T) {
 	Convey("Given three random Values", t, func() {
-		a, _ := NewValue([]byte("alpha"))
-		b, _ := NewValue([]byte("bravo"))
-		c, _ := NewValue([]byte("charlie"))
+		a, err := NewValue([]byte("alpha"))
+		So(err, ShouldBeNil)
+		b, err := NewValue([]byte("bravo"))
+		So(err, ShouldBeNil)
+		c, err := NewValue([]byte("charlie"))
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 		defer c.Close()
 
 		Convey("When bundled via majority rule", func() {
-			dst, _ := NewValue(nil)
+			dst, err := NewValue(nil)
+			So(err, ShouldBeNil)
 			defer dst.Close()
 			BundleHD(dst, []*Value{a, b, c})
 
@@ -88,8 +98,10 @@ func TestBundleHD(t *testing.T) {
 
 func TestTokensHammingDistance(t *testing.T) {
 	Convey("Given two identical Values", t, func() {
-		a, _ := NewValue([]byte("hello world"))
-		b, _ := NewValue([]byte("hello world"))
+		a, err := NewValue([]byte("hello world"))
+		So(err, ShouldBeNil)
+		b, err := NewValue([]byte("hello world"))
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 
@@ -99,8 +111,10 @@ func TestTokensHammingDistance(t *testing.T) {
 	})
 
 	Convey("Given two different Values", t, func() {
-		a, _ := NewValue([]byte("hello"))
-		b, _ := NewValue([]byte("world"))
+		a, err := NewValue([]byte("hello"))
+		So(err, ShouldBeNil)
+		b, err := NewValue([]byte("world"))
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 
@@ -112,7 +126,8 @@ func TestTokensHammingDistance(t *testing.T) {
 
 func TestComputeAffinityLSH(t *testing.T) {
 	Convey("Given a Value with tokens", t, func() {
-		v, _ := NewValue([]byte("some interesting data"))
+		v, err := NewValue([]byte("some interesting data"))
+		So(err, ShouldBeNil)
 		defer v.Close()
 
 		Convey("ComputeAffinityLSH produces a non-zero affinity", func() {
@@ -122,7 +137,8 @@ func TestComputeAffinityLSH(t *testing.T) {
 		})
 
 		Convey("Similar data produces similar affinity", func() {
-			v2, _ := NewValue([]byte("some interesting data!"))
+			v2, err := NewValue([]byte("some interesting data!"))
+			So(err, ShouldBeNil)
 			defer v2.Close()
 			v.ComputeAffinityLSH()
 			v2.ComputeAffinityLSH()
@@ -179,7 +195,8 @@ func TestLFSRStep(t *testing.T) {
 
 func TestAdvanceSequence(t *testing.T) {
 	Convey("Given a Value with a seeded sequence", t, func() {
-		v, _ := NewValue([]byte("test"))
+		v, err := NewValue([]byte("test"))
+		So(err, ShouldBeNil)
 		defer v.Close()
 		initial := v[core.Cfg.Value.Region.State.Sequence]
 
@@ -192,8 +209,10 @@ func TestAdvanceSequence(t *testing.T) {
 
 func TestAccumulateDelta(t *testing.T) {
 	Convey("Given two Values with different tokens", t, func() {
-		a, _ := NewValue([]byte("hello"))
-		b, _ := NewValue([]byte("world"))
+		a, err := NewValue([]byte("hello"))
+		So(err, ShouldBeNil)
+		b, err := NewValue([]byte("world"))
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 
@@ -205,8 +224,10 @@ func TestAccumulateDelta(t *testing.T) {
 	})
 
 	Convey("Given two identical Values", t, func() {
-		a, _ := NewValue([]byte("same"))
-		b, _ := NewValue([]byte("same"))
+		a, err := NewValue([]byte("same"))
+		So(err, ShouldBeNil)
+		b, err := NewValue([]byte("same"))
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 
@@ -219,12 +240,14 @@ func TestAccumulateDelta(t *testing.T) {
 
 func TestApplyDelta(t *testing.T) {
 	Convey("Given current Value with a known delta", t, func() {
-		current, _ := NewValue([]byte("data1"))
+		current, err := NewValue([]byte("data1"))
+		So(err, ShouldBeNil)
 		defer current.Close()
 		current[core.Cfg.Value.Region.State.Accumulator] = 0xDEADBEEF
 
 		Convey("ApplyDelta XORs the delta across all token words", func() {
-			dst, _ := NewValue(nil)
+			dst, err := NewValue(nil)
+			So(err, ShouldBeNil)
 			defer dst.Close()
 			ApplyDelta(dst, current)
 
@@ -262,8 +285,10 @@ func TestXORDistance(t *testing.T) {
 
 func TestCosineSimilarityHD(t *testing.T) {
 	Convey("Given identical Values", t, func() {
-		a, _ := NewValue([]byte("identical"))
-		b, _ := NewValue([]byte("identical"))
+		a, err := NewValue([]byte("identical"))
+		So(err, ShouldBeNil)
+		b, err := NewValue([]byte("identical"))
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 
@@ -278,8 +303,10 @@ func TestCosineSimilarityHD(t *testing.T) {
 		dataB := make([]byte, 50)
 		rng.Read(dataA)
 		rng.Read(dataB)
-		a, _ := NewValue(dataA)
-		b, _ := NewValue(dataB)
+		a, err := NewValue(dataA)
+		So(err, ShouldBeNil)
+		b, err := NewValue(dataB)
+		So(err, ShouldBeNil)
 		defer a.Close()
 		defer b.Close()
 

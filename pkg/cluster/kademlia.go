@@ -27,11 +27,31 @@ func xorDist(a, b NodeID) uint64 {
 // based on the length of the common prefix with the local ID.
 // Bucket 0 = distance >= 2^63 (differs in MSB), bucket 63 = closest.
 func bucketIndex(local, remote NodeID) int {
-	d := xorDist(local, remote)
-	if d == 0 {
-		return int(core.Cfg.ControlPlane.Affinity.Bits - 1)
+	bitsCfg := core.Cfg.ControlPlane.Affinity.Bits
+
+	if bitsCfg == 0 {
+		bitsCfg = 1
 	}
-	return bits.LeadingZeros64(d)
+
+	d := xorDist(local, remote)
+
+	var idx int
+
+	if d == 0 {
+		idx = int(bitsCfg) - 1
+	} else {
+		idx = bits.LeadingZeros64(d)
+	}
+
+	if idx < 0 {
+		idx = 0
+	}
+
+	if idx >= IDBits {
+		idx = IDBits - 1
+	}
+
+	return idx
 }
 
 // entry holds a Value and its NodeID (affinity) within a k-bucket.
@@ -237,7 +257,7 @@ func tokenIDsFor(value *primitive.Value) []uint64 {
 }
 
 /*
-affinityWordIndex returns the word index of the 
+affinityWordIndex returns the word index of the
 affinity register from the Value's region.
 */
 func affinityWordIndex() int {

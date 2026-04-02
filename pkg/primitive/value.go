@@ -2,6 +2,7 @@
 package primitive
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"math/bits"
@@ -208,9 +209,17 @@ func (value *Value) InstallFirmware(
 
 	value[core.Cfg.Value.Region.Registers.FW] = uint64(firmwareType)
 
-	for i := range core.Cfg.Firmware[firmwareType] {
-		value[core.Cfg.Value.Region.Program.Start+i] = uint64(
-			core.Cfg.Firmware[firmwareType][i],
+	for instructionIndex := range core.Cfg.Firmware[firmwareType] {
+		wordIndex := core.Cfg.Value.Region.Program.Start + instructionIndex
+
+		if wordIndex < 0 || wordIndex >= len(*value) {
+			return errnie.Error(
+				NewValueError(ValueErrorInvalidProgramWord),
+			)
+		}
+
+		value[wordIndex] = uint64(
+			core.Cfg.Firmware[firmwareType][instructionIndex],
 		)
 	}
 
@@ -377,18 +386,24 @@ func (value *Value) String() string {
 	)
 }
 
-func (value *Value) Bytes() []byte {
-	p := make([]byte, core.Cfg.Value.Bytes)
+func (value *Value) Bytes() ([]byte, error) {
+	if value == nil {
+		ve := NewValueError(ValueErrorFailedByteConversion)
+		errnie.Error(ve, "nil value")
 
-	if ValueToBytes(value, p) != nil {
-		errnie.Error(
-			NewValueError(ValueErrorFailedByteConversion),
-		)
-
-		return nil
+		return nil, ve
 	}
 
-	return p
+	p := make([]byte, core.Cfg.Value.Bytes)
+
+	if convErr := ValueToBytes(value, p); convErr != nil {
+		ve := NewValueError(ValueErrorFailedByteConversion)
+		errnie.Error(ve, convErr)
+
+		return nil, errors.Join(ve, convErr)
+	}
+
+	return p, nil
 }
 
 /*
@@ -396,6 +411,10 @@ GetWord returns the word at the given index.
 */
 func (value *Value) GetWord(index int) uint64 {
 	if value == nil {
+		return 0
+	}
+
+	if index < 0 || index >= len(*value) {
 		return 0
 	}
 
@@ -407,6 +426,10 @@ SetWord sets the word at the given index.
 */
 func (value *Value) SetWord(index int, word uint64) {
 	if value == nil {
+		return
+	}
+
+	if index < 0 || index >= len(*value) {
 		return
 	}
 
@@ -536,10 +559,23 @@ func BytesToValue(p []byte) *Value {
 }
 
 /*
-ValueToBytes writes the Value's 1024-byte frame into p.
+ValueToBytes writes the Value's frame (core.Cfg.Value.Bytes bytes) into p.
 */
 func ValueToBytes(v *Value, p []byte) error {
+	if v == nil {
+		return fmt.Errorf("primitive.ValueToBytes: nil value")
+	}
+
+	if len(p) < core.Cfg.Value.Bytes {
+		return fmt.Errorf(
+			"primitive.ValueToBytes: len(p)=%d, need >= %d",
+			len(p),
+			core.Cfg.Value.Bytes,
+		)
+	}
+
 	valueTo(v, p)
+
 	return nil
 }
 

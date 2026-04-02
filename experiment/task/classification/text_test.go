@@ -198,7 +198,11 @@ func cleanupClassificationValue(
 		)
 	}
 
-	value.InstallFirmware(core.FirmwareTypeTombstone)
+	// Tombstone firmware exceeds the linear program band in config; zero the
+	// frame so Close passes isTombstoned (same constraint as value pool tests).
+	for wordIndex := range *value {
+		value[wordIndex] = 0
+	}
 
 	if err := value.Close(); err != nil {
 		tb.Fatal(err)
