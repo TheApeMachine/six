@@ -25,6 +25,7 @@ const (
 	FirmwareTypeViral
 	FirmwareTypeBuild
 	FirmwareTypeQuery
+	FirmwareTypePrompt
 )
 
 type ControlPlaneConfig struct {
@@ -145,12 +146,12 @@ type Config struct {
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
 	// assuming the host enum ordinals are stable.
-	Firmware [FirmwareTypeQuery + 1][]uint16
+	Firmware [FirmwareTypePrompt + 1][]uint16
 
 	// StepwiseFirmwareSource holds raw programsStepwise.* YAML when
 	// system.stepwiseUniversalBitwise is true. primitive.installFirmware compiles
 	// these via pkg/compute/stepwise at install time (avoid core→stepwise import cycle).
-	StepwiseFirmwareSource [FirmwareTypeQuery + 1]string
+	StepwiseFirmwareSource [FirmwareTypePrompt + 1]string
 
 	// TelemetryEnabled controls whether the global telemetry emitter is initialized.
 	// When false, all Emit calls resolve to a zero-cost NoopEmitter.
@@ -244,7 +245,7 @@ func NewConfig() *Config {
 				IFBTHENA: viper.GetString("value.opcodes.ifbthena"),
 			},
 		},
-		Firmware: [FirmwareTypeQuery + 1][]uint16{
+		Firmware: [FirmwareTypePrompt + 1][]uint16{
 			FirmwareTypeLearn: Cfg.compileAndAssign(
 				FirmwareTypeLearn, viper.GetString("programs.learn"),
 			),
@@ -261,6 +262,9 @@ func NewConfig() *Config {
 			),
 			FirmwareTypeQuery: Cfg.compileAndAssign(
 				FirmwareTypeQuery, viper.GetString("programs.query"),
+			),
+			FirmwareTypePrompt: Cfg.compileAndAssign(
+				FirmwareTypePrompt, viper.GetString("programs.prompt"),
 			),
 		},
 	}
@@ -310,6 +314,9 @@ func NewConfig() *Config {
 		)
 		Cfg.StepwiseFirmwareSource[FirmwareTypeQuery] = viper.GetString(
 			"programsStepwise.query",
+		)
+		Cfg.StepwiseFirmwareSource[FirmwareTypePrompt] = viper.GetString(
+			"programsStepwise.prompt",
 		)
 	}
 

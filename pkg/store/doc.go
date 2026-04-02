@@ -1,7 +1,8 @@
 /*
 Package store implements SpatialIndex: a hybrid LSM-style inverted index (token → ValueIDs)
-with Roaring BitSliceIndexing columns for PC, firmware, sequence, and accumulator, plus
-full Value frame retention for ExactLookup and SIMD-friendly materialization.
+with Roaring BitSliceIndexing columns for PC, firmware, sequence, accumulator, and
+Prev/Next pointers, plus full Value frame retention for ExactLookup and SIMD-friendly
+materialization.
 
 Typical consumption:
 

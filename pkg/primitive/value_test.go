@@ -278,7 +278,7 @@ func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
 
 func TestTokenRegionObservedBytes(t *testing.T) {
 	Convey("nil value yields nil slice", t, func() {
-		So((*Value).TokenIDs(nil), ShouldBeNil)
+		So((*Value)(nil).TokenRegionObservedBytes(), ShouldBeNil)
 	})
 
 	Convey("TokenRegionObservedBytes packs token words little-endian and trims trailing zeros", t, func() {
@@ -288,7 +288,7 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 
 		v[base] = 0x020100
 
-		got := v.TokenIDs()
+		got := v.TokenRegionObservedBytes()
 		So(got, ShouldResemble, []byte{0, 1, 2})
 	})
 
@@ -302,7 +302,7 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 		v[base] = 0x04030201
 		v[base+1] = 0x08070605
 
-		got := v.TokenIDs()
+		got := v.TokenRegionObservedBytes()
 		want := []byte{1, 2, 3, 4, 0, 0, 0, 0, 5, 6, 7, 8}
 		So(got, ShouldResemble, want)
 	})
@@ -322,7 +322,7 @@ func TestTokenRegionObservedBytes(t *testing.T) {
 			v[idx] = 0
 		}
 
-		got := v.TokenIDs()
+		got := v.TokenRegionObservedBytes()
 		So(got, ShouldNotBeNil)
 		So(len(got), ShouldEqual, 0)
 	})
@@ -341,6 +341,60 @@ func TestDetokenizeTokenID(t *testing.T) {
 			tid := Tokenize(tc.b, tc.index)
 			So(tid, ShouldEqual, Tokenize(tc.b, tc.index))
 		}
+	})
+}
+
+type testValueFrameIndex struct {
+	frames         map[uint64][128]uint64
+	tokenLookup    map[[128]uint64][]uint64
+	frameToTokenID map[uint64][]uint64
+}
+
+func (idx testValueFrameIndex) FrameByValueID(valueID uint64) ([128]uint64, bool) {
+	frame, ok := idx.frames[valueID]
+	if !ok {
+		return [128]uint64{}, false
+	}
+	return frame, true
+}
+
+func (idx testValueFrameIndex) LookupKeysByValue(frame [128]uint64) []uint64 {
+	if idx.tokenLookup == nil {
+		return nil
+	}
+	keys, ok := idx.tokenLookup[frame]
+	if !ok {
+		return nil
+	}
+	return keys
+}
+
+func TestDecodeTokenIDs(t *testing.T) {
+	Convey("DecodeTokenIDs orders tokens by reconstructed index", t, func() {
+		tids := []uint64{Tokenize('A', 1), Tokenize('B', 0), Tokenize('C', 2)}
+		got := DecodeTokenIDs(tids)
+		So(string(got), ShouldEqual, "BAC")
+	})
+}
+
+func TestValueWalkAndDecodeTokenStream(t *testing.T) {
+	Convey("Walk follows NextID links and emits decoded token stream", t, func() {
+		var first, second Value
+		first[core.Cfg.Value.Region.ID.Start] = 1
+		first[core.Cfg.Value.Region.Next.Start] = 2
+		second[core.Cfg.Value.Region.ID.Start] = 2
+		second[core.Cfg.Value.Region.Prev.Start] = 1
+
+		firstTokens := [128]uint64{}
+		firstTokens[core.Cfg.Value.Region.ID.Start] = 1
+		firstTokens[core.Cfg.Value.Region.Next.Start] = 2
+
+		secondTokens := [128]uint64{}
+		secondTokens[core.Cfg.Value.Region.ID.Start] = 2
+
+		decoded := DecodeTokenIDs(first.TokenIDs())
+
+		So(string(decoded), ShouldEqual, "xy")
 	})
 }
 
@@ -407,4 +461,23 @@ func BenchmarkValue_Write(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
+}
+
+func BenchmarkValue_TokenRegionObservedBytes(b *testing.B) {
+	var v Value
+	base := core.Cfg.Value.Region.Tokens.Start
+	v[base] = 0x04030201
+
+	if base+1 < core.Cfg.Value.Words {
+		v[base+1] = 0x08070605
+	}
+
+	var sink []byte
+	b.ResetTimer()
+
+	for b.Loop() {
+		sink = v.TokenRegionObservedBytes()
+	}
+
+	_ = sink
 }

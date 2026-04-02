@@ -2,15 +2,19 @@ package errnie
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"syscall"
 
 	"github.com/spf13/viper"
+	"go.uber.org/multierr"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -133,6 +137,52 @@ func InitLogger(cfg LoggingConfig) {
 	}
 }
 
+/*
+syncZapLogger wraps zap.Logger.Sync, dropping failures that only reflect OS limits on
+flushing console streams (pipes, ttys, or runners that close / duplicate stderr).
+
+Those surfaces are not true disks; fsync-style flush often returns EINVAL, EBADF, or
+ENOTTY. Elasticsearch and file sinks still return actionable errors from Sync.
+*/
+func syncZapLogger(z *zap.Logger) error {
+	err := z.Sync()
+	if err == nil {
+		return nil
+	}
+
+	var filtered error
+
+	for _, fragment := range multierr.Errors(err) {
+		if fragment == nil || zapSyncFailureIgnorable(fragment) {
+			continue
+		}
+
+		filtered = multierr.Append(filtered, fragment)
+	}
+
+	return filtered
+}
+
+func zapSyncFailureIgnorable(err error) bool {
+	var pathErr *fs.PathError
+	if !errors.As(err, &pathErr) || pathErr.Op != "sync" {
+		return false
+	}
+
+	if !errors.Is(pathErr.Err, syscall.EINVAL) &&
+		!errors.Is(pathErr.Err, syscall.EBADF) &&
+		!errors.Is(pathErr.Err, syscall.ENOTTY) {
+		return false
+	}
+
+	path := pathErr.Path
+
+	return path == "/dev/stderr" ||
+		path == "/dev/stdout" ||
+		strings.EqualFold(path, "stderr") ||
+		strings.EqualFold(path, "stdout")
+}
+
 // Sync flushes any buffered stdout/stderr log I/O (see zap.Logger.Sync).
 func Sync() error {
 	l := loggerPtr.Load()
@@ -143,7 +193,7 @@ func Sync() error {
 	if z == nil {
 		return nil
 	}
-	return z.Sync()
+	return syncZapLogger(z)
 }
 
 // Shutdown closes the Elasticsearch bulk indexer (if enabled), drains the trace

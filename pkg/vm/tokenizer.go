@@ -3,9 +3,11 @@ package vm
 import (
 	"context"
 	"errors"
+	"io"
 	"sync"
 
 	"github.com/smallnest/ringbuffer"
+	"github.com/theapemachine/six/pkg/cluster"
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
@@ -40,10 +42,11 @@ func tokenizerChunkBytes() int {
 	return tokenizerChunkSize
 }
 
-var bufPool = sync.Pool{
-	New: func() interface{} {
-		return make([]byte, tokenizerChunkBytes())
-	},
+// TokenizerChunkBytes exposes the active ingest chunk size used by the tokenizer.
+// This is required by prompt injection helpers that must mirror tokenizer payload
+// packing exactly.
+func TokenizerChunkBytes() int {
+	return tokenizerChunkBytes()
 }
 
 /*
@@ -51,13 +54,14 @@ Tokenizer takes a raw byte stream, chunks the incoming data to
 match the token region size, and produces the canonical Values.
 */
 type Tokenizer struct {
-	ctx     context.Context
-	cancel  context.CancelFunc
-	err     error
-	rb      *ringbuffer.RingBuffer
-	pr      *ringbuffer.PipeReader
-	pw      *ringbuffer.PipeWriter
-	backend *compute.Backend
+	ctx           context.Context
+	cancel        context.CancelFunc
+	err           error
+	rb            *ringbuffer.RingBuffer
+	pr            *ringbuffer.PipeReader
+	pw            *ringbuffer.PipeWriter
+	backend       *compute.Backend
+	store         *cluster.ControlPlane
 }
 
 type TokenizerOpts func(*Tokenizer)
@@ -109,18 +113,21 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 	case <-tokenizer.ctx.Done():
 		return 0, tokenizer.ctx.Err()
 	default:
-		buf := bufPool.Get().([]byte)
-		defer bufPool.Put(buf)
-
-		n, tokenizer.err = tokenizer.rb.Read(buf)
-
-		value, err := primitive.NewValue(buf[:n])
-
-		if err != nil {
-			return 0, errnie.Error(err)
+		if len(p) < core.Cfg.Value.Bytes {
+			return 0, io.ErrShortBuffer
 		}
 
-		return value.Read(p)
+		if core.Cfg.Value.Bytes <= 0 {
+			return 0, io.ErrShortBuffer
+		}
+
+		frame := p[:core.Cfg.Value.Bytes]
+		_, tokenizer.err = io.ReadFull(tokenizer.pr, frame)
+		if tokenizer.err != nil {
+			return 0, errnie.Error(tokenizer.err)
+		}
+
+		return primitive.BytesToValue(frame).Read(p)
 	}
 }
 
@@ -133,27 +140,32 @@ func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
 		return 0, tokenizer.ctx.Err()
 	default:
 		var value *primitive.Value
-		value, tokenizer.err = primitive.NewValue(p)
 
-		if tokenizer.err != nil {
+		// Accept full serialized frame writes (e.g. vm.Write passthrough).
+		// This keeps prompt metadata such as ID, link pointers, and firmware
+		// marker intact when data is looped back through the machine.
+		if len(p) == core.Cfg.Value.Bytes {
+			value = primitive.BytesToValue(p)
+		} else {
+			// Otherwise treat input as raw payload and tokenize it into a frame.
+			if value, tokenizer.err = primitive.NewValue(p); tokenizer.err != nil {
+				return 0, errnie.Error(tokenizer.err)
+			}
+		}
+
+		// Route the Value into the control plane by affinity. The LSM itself
+		// still indexes the Value under its TokenIDs inside InsertBatch.
+		if tokenizer.store != nil {
+			key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
+			tokenizer.store.Insert(key, *value)
+		}
+
+		var nn int64
+		if nn, tokenizer.err = io.Copy(tokenizer.pw, value); tokenizer.err != nil {
 			return 0, errnie.Error(tokenizer.err)
 		}
 
-		var frame []byte
-
-		frame, tokenizer.err = value.Bytes()
-
-		if tokenizer.err != nil {
-			return 0, errnie.Error(tokenizer.err)
-		}
-
-		n, tokenizer.err = tokenizer.rb.Write(frame)
-
-		if tokenizer.err != nil {
-			return n, errnie.Error(tokenizer.err)
-		}
-
-		return n, nil
+		return int(nn), nil
 	}
 }
 
@@ -175,5 +187,11 @@ func TokenizerWithBuffer(n int) TokenizerOpts {
 	return func(tokenizer *Tokenizer) {
 		tokenizer.rb = ringbuffer.New(tokenizerChunkBytes() * n)
 		tokenizer.pr, tokenizer.pw = tokenizer.rb.Pipe()
+	}
+}
+
+func TokenizerWithStore(store *cluster.ControlPlane) TokenizerOpts {
+	return func(tokenizer *Tokenizer) {
+		tokenizer.store = store
 	}
 }

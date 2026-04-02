@@ -10,6 +10,7 @@ import (
 	"github.com/RoaringBitmap/roaring/v2/roaring64"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 const valueWords = 128
@@ -69,7 +70,7 @@ SpatialIndex is a hybrid inverted index plus bit-sliced metadata columns.
 Token keys map to Roaring sets of ValueIDs. Full-frame ExactLookup semantics are
 preserved by OR-ing ValueFrameBitmap over every posted ValueID (frames are stored
 once per ValueID). Roaring BitSliceIndexing BSIs hold PC, FW, sequence, and
-accumulator using dense column ids, because github.com/RoaringBitmap BSI encodes
+accumulator, prev, and next using dense column ids, because github.com/RoaringBitmap BSI encodes
 column keys as uint32 while ValueIDs are uint64 (including structure frames).
 */
 type SpatialIndex struct {
@@ -88,6 +89,8 @@ type SpatialIndex struct {
 	metaFW          *bsi.BSI
 	metaSequence    *bsi.BSI
 	metaAccumulator *bsi.BSI
+	metaPrev        *bsi.BSI
+	metaNext        *bsi.BSI
 
 	// postingTombstones lists ValueIDs logically removed from inverted-index reads until
 	// ProcessPostingsTombstones peels them from physical posting bitmaps.
@@ -111,6 +114,8 @@ func NewSpatialIndex() *SpatialIndex {
 		metaFW:            bsi.NewDefaultBSI(),
 		metaSequence:      bsi.NewDefaultBSI(),
 		metaAccumulator:   bsi.NewDefaultBSI(),
+		metaPrev:          bsi.NewDefaultBSI(),
+		metaNext:          bsi.NewDefaultBSI(),
 		postingTombstones: roaring64.New(),
 	}
 }
@@ -258,6 +263,8 @@ func (idx *SpatialIndex) InsertBatch(tokenIDs []uint64, value [valueWords]uint64
 	idx.metaFW.SetValue(uint64(dense), int64(value[reg.Registers.FW]))
 	idx.metaSequence.SetValue(uint64(dense), int64(value[reg.State.Sequence]))
 	idx.metaAccumulator.SetValue(uint64(dense), int64(value[reg.State.Accumulator]))
+	idx.metaPrev.SetValue(uint64(dense), int64(value[reg.Prev.Start]))
+	idx.metaNext.SetValue(uint64(dense), int64(value[reg.Next.Start]))
 
 	for _, tokenID := range tokenIDs {
 		if _, exists := idx.memtable[tokenID]; !exists {
@@ -354,8 +361,8 @@ func (idx *SpatialIndex) ExactLookup(tokenID uint64) *roaring64.Bitmap {
 LookupKeysByValue returns every tokenID whose stored bitmap equals the encoding
 of v. This scans all keys in the index (memtable and flushed levels).
 */
-func (idx *SpatialIndex) LookupKeysByValue(v [valueWords]uint64) []uint64 {
-	target := ValueFrameBitmap(v)
+func (idx *SpatialIndex) LookupKeysByValue(value *primitive.Value) []uint64 {
+	target := ValueFrameBitmap([128]uint64(*value))
 
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
@@ -389,6 +396,57 @@ func (idx *SpatialIndex) LookupKeysByValue(v [valueWords]uint64) []uint64 {
 	if len(out) == 0 {
 		return nil
 	}
+	return out
+}
+
+/*
+LookupKeysByValueID returns every tokenID whose merged postings include valueID.
+
+This tracks the ingest-time association even when the live frame no longer
+matches ValueFrameBitmap equality (for example after firmware mutates words
+between tokenizer Insert and prompt Read).
+*/
+func (idx *SpatialIndex) LookupKeysByValueID(valueID uint64) []uint64 {
+	if valueID == 0 {
+		return nil
+	}
+
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	seen := make(map[uint64]struct{})
+	var out []uint64
+
+	try := func(tokenID uint64) {
+		if _, ok := seen[tokenID]; ok {
+			return
+		}
+
+		postings := idx.mergedPostingsLocked(tokenID)
+		if postings.Contains(valueID) {
+			seen[tokenID] = struct{}{}
+			out = append(out, tokenID)
+		}
+	}
+
+	for tokenID := range idx.memtable {
+		try(tokenID)
+	}
+
+	for _, lvl := range idx.levels {
+		if lvl == nil {
+			continue
+		}
+
+		for _, tokenID := range lvl.keys {
+			try(tokenID)
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
 	return out
 }
 
@@ -522,6 +580,34 @@ func (idx *SpatialIndex) CompareAccumulator(parallelism int, op bsi.Operation, n
 }
 
 /*
+ComparePrev filters ValueIDs by Prev pointer register value.
+*/
+func (idx *SpatialIndex) ComparePrev(
+	parallelism int,
+	op bsi.Operation,
+	needle, end int64,
+	tokenValueIDs *roaring64.Bitmap,
+) *roaring64.Bitmap {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.compareRegister(parallelism, idx.metaPrev, op, needle, end, tokenValueIDs)
+}
+
+/*
+CompareNext filters ValueIDs by Next pointer register value.
+*/
+func (idx *SpatialIndex) CompareNext(
+	parallelism int,
+	op bsi.Operation,
+	needle, end int64,
+	tokenValueIDs *roaring64.Bitmap,
+) *roaring64.Bitmap {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	return idx.compareRegister(parallelism, idx.metaNext, op, needle, end, tokenValueIDs)
+}
+
+/*
 GetStats returns usage statistics for the index.
 */
 func (idx *SpatialIndex) GetStats() map[string]interface{} {
@@ -564,5 +650,7 @@ func (idx *SpatialIndex) GetStats() map[string]interface{} {
 		"meta_fw_bits":    idx.metaFW.BitCount(),
 		"meta_seq_bits":   idx.metaSequence.BitCount(),
 		"meta_accum_bits": idx.metaAccumulator.BitCount(),
+		"meta_prev_bits":  idx.metaPrev.BitCount(),
+		"meta_next_bits":  idx.metaNext.BitCount(),
 	}
 }

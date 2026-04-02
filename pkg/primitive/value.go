@@ -7,6 +7,7 @@ import (
 	"io"
 	"math/bits"
 	"slices"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"unsafe"
@@ -41,8 +42,69 @@ var (
 	valueTo   func(*Value, []byte)
 	valueFrom func([]byte, *Value)
 
+	valueTokenIDs sync.Map
+
 	globalValueIDCounter uint64 = 1000000 // Start high to avoid clashing with Backend
 )
+
+/*
+persistTokenIDsByValueID stores the reversible TokenIDs generated during
+constructor-time tokenization for exact reverse lookup during decode.
+*/
+func persistTokenIDsByValueID(value *Value, tokenIDs []uint64) {
+	if value == nil {
+		return
+	}
+
+	valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+	if valueID == 0 {
+		return
+	}
+
+	if len(tokenIDs) == 0 {
+		valueTokenIDs.Store(valueID, []uint64(nil))
+		return
+	}
+
+	cached := make([]uint64, len(tokenIDs))
+	copy(cached, tokenIDs)
+
+	valueTokenIDs.Store(valueID, cached)
+}
+
+/*
+valueTokenIDsForLookup resolves constructor-time TokenIDs for a ValueID.
+*/
+func valueTokenIDsForLookup(valueID uint64) []uint64 {
+	raw, ok := valueTokenIDs.Load(valueID)
+	if !ok {
+		return nil
+	}
+
+	if tokenIDs, ok := raw.([]uint64); ok {
+		return tokenIDs
+	}
+
+	return nil
+}
+
+/*
+discardTokenIDsByValueID clears constructor-time token metadata for a ValueID.
+*/
+func discardTokenIDsByValueID(valueID uint64) {
+	if valueID == 0 {
+		return
+	}
+
+	valueTokenIDs.Delete(valueID)
+}
+
+/*
+ValueTokenIDsForLookup returns cached TokenIDs captured during NewValue.
+*/
+func ValueTokenIDsForLookup(valueID uint64) []uint64 {
+	return valueTokenIDsForLookup(valueID)
+}
 
 /*
 Value is the self-programmable type that acts as the fundamental unit of
@@ -64,8 +126,97 @@ The core concepts behind its design are:
 */
 type Value [128]uint64
 
+/*
+ValueFrameReader provides the minimal shape to walk linked frames by ValueID.
+*/
+type ValueFrameReader interface {
+	FrameByValueID(valueID uint64) ([128]uint64, bool)
+}
+
+/*
+Walk traverses the linked list of frames starting at value by following NextID.
+It is index-agnostic and only uses in-band pointers.
+*/
+func (value *Value) Walk(index ValueFrameReader, visit func(valueID uint64, frame [128]uint64) bool) {
+	if value == nil || index == nil {
+		return
+	}
+
+	seen := make(map[uint64]struct{}, 8)
+	cursor := value.GetWord(core.Cfg.Value.Region.ID.Start)
+
+	for cursor != 0 {
+		if _, exists := seen[cursor]; exists {
+			return
+		}
+
+		seen[cursor] = struct{}{}
+
+		frame, ok := index.FrameByValueID(cursor)
+		if !ok {
+			return
+		}
+
+		if visit != nil && !visit(cursor, frame) {
+			return
+		}
+
+		cursor = frame[core.Cfg.Value.Region.Next.Start]
+	}
+}
+
+/*
+DecodeTokenIDs reverses affine TokenIDs into bytes and orders them by decoded
+sequence index. It returns only tokens that match a valid detokenize candidate.
+*/
+func DecodeTokenIDs(tokenIDs []uint64) []byte {
+	if len(tokenIDs) == 0 {
+		return nil
+	}
+
+	maxIndex := uint64(1)
+	if core.Cfg.Value.Region.Tokens.Bits > 0 {
+		maxIndex = uint64(core.Cfg.Value.Region.Tokens.Bits / 8)
+	}
+
+	observed := make(map[uint64]byte, len(tokenIDs))
+	for _, tokenID := range tokenIDs {
+		b, idx, ok := DetokenizeTokenID(tokenID)
+		if !ok {
+			continue
+		}
+
+		if idx >= maxIndex {
+			continue
+		}
+
+		if _, exists := observed[idx]; !exists {
+			observed[idx] = b
+		}
+	}
+
+	if len(observed) == 0 {
+		return nil
+	}
+
+	indices := make([]uint64, 0, len(observed))
+	for idx := range observed {
+		indices = append(indices, idx)
+	}
+
+	sort.Slice(indices, func(a, b int) bool { return indices[a] < indices[b] })
+
+	out := make([]byte, len(indices))
+	for i, idx := range indices {
+		out[i] = observed[idx]
+	}
+
+	return out
+}
+
 func init() {
 	x := uint16(1)
+	tokenIDMulInverse = modPowU64(tokenIDMultiplier, tokenIDPrime-2, tokenIDPrime)
 
 	// Fast-path memory alignment for little-endian architectures
 	if *(*byte)(unsafe.Pointer(&x)) == 1 {
@@ -198,6 +349,21 @@ func NewValue(p []byte) (*Value, error) {
 	return value, nil
 }
 
+/*
+IsPrompt returns true if the Value is a prompt.
+*/
+func (value *Value) IsPrompt() bool {
+	if value.GetWord(
+		core.Cfg.Value.Region.Registers.FW,
+	) == uint64(
+		core.FirmwareTypePrompt,
+	) {
+		return true
+	}
+
+	return false
+}
+
 func (value *Value) InstallFirmware(
 	firmwareType core.FirmwareType,
 ) error {
@@ -310,7 +476,8 @@ func (value *Value) Write(p []byte) (int, error) {
 		return 0, io.ErrShortBuffer
 	}
 
-	return len(p), nil
+	valueFrom(p, value)
+	return core.Cfg.Value.Bytes, nil
 }
 
 /*
@@ -327,6 +494,7 @@ func (value *Value) Close() error {
 		)
 	}
 
+	discardTokenIDsByValueID(value.GetWord(core.Cfg.Value.Region.ID.Start))
 	valuePool.Put(value)
 	return nil
 }
@@ -450,6 +618,25 @@ func Tokenize(b byte, index uint64) uint64 {
 	return rem
 }
 
+/*
+DetokenizeTokenID reverses the affine Tokenize map.
+It returns (byte, index, ok), where ok is true only for exact forward-match.
+*/
+func DetokenizeTokenID(tokenID uint64) (byte, uint64, bool) {
+	for candidate := 0; candidate <= 255; candidate++ {
+		diff := subModU64(tokenID, uint64(candidate), tokenIDPrime)
+		index := modMulU64(diff, tokenIDMulInverse, tokenIDPrime)
+
+		if index < 1<<32 {
+			if Tokenize(byte(candidate), index) == tokenID {
+				return byte(candidate), index, true
+			}
+		}
+	}
+
+	return 0, 0, false
+}
+
 func modMulU64(a, b, mod uint64) uint64 {
 	hi, lo := bits.Mul64(a, b)
 	_, rem := bits.Div64(hi, lo, mod)
@@ -531,6 +718,51 @@ func (value *Value) SetTokenIDs(tokens []uint64) int {
 	}
 
 	return n
+}
+
+/*
+TokenRegionObservedBytes packs the configured token-region words into one contiguous
+little-endian byte serialization (eight bytes per word) and trims trailing zero bytes.
+
+A nil receiver returns nil so absence stays distinguishable from an all-zero region,
+which yields a non-nil slice with length zero after trimming.
+*/
+func (value *Value) TokenRegionObservedBytes() []byte {
+	if value == nil {
+		return nil
+	}
+
+	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
+	buf := make([]byte, 0, nWords*8)
+
+	var wordLE [8]byte
+
+	for wordIdx := 0; wordIdx < nWords; wordIdx++ {
+		idx := base + wordIdx
+
+		if idx >= core.Cfg.Value.Words {
+			break
+		}
+
+		w := value[idx]
+		wordLE[0] = byte(w)
+		wordLE[1] = byte(w >> 8)
+		wordLE[2] = byte(w >> 16)
+		wordLE[3] = byte(w >> 24)
+		wordLE[4] = byte(w >> 32)
+		wordLE[5] = byte(w >> 40)
+		wordLE[6] = byte(w >> 48)
+		wordLE[7] = byte(w >> 56)
+
+		buf = append(buf, wordLE[:]...)
+	}
+
+	for len(buf) > 0 && buf[len(buf)-1] == 0 {
+		buf = buf[:len(buf)-1]
+	}
+
+	return buf
 }
 
 /*

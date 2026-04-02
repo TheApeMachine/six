@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store"
 )
@@ -75,31 +76,6 @@ func newKBucket() *kBucket {
 	}
 }
 
-// touch inserts or refreshes a Value in the bucket. If the bucket is full
-// the oldest entry is evicted using in-place copy to preserve capacity.
-func (bucket *kBucket) touch(id NodeID, value *primitive.Value) {
-	bucket.mu.Lock()
-	defer bucket.mu.Unlock()
-
-	// Check if already present — move to tail (most-recently seen).
-	for i, e := range bucket.entries {
-		if e.id == id {
-			copy(bucket.entries[i:], bucket.entries[i+1:])
-			bucket.entries[len(bucket.entries)-1] = entry{id: id, value: value}
-			return
-		}
-	}
-
-	// Evict oldest in-place to preserve backing array capacity.
-	if len(bucket.entries) >= core.Cfg.ControlPlane.K {
-		copy(bucket.entries, bucket.entries[1:])
-		bucket.entries = bucket.entries[:core.Cfg.ControlPlane.K-1]
-	}
-
-	bucket.entries = append(bucket.entries, entry{id: id, value: value})
-	bucket.lsm.InsertBatch(tokenIDsFor(value), *value)
-}
-
 // closest returns up to k entries sorted by XOR distance to target.
 func (bucket *kBucket) closest(target NodeID, k int) []entry {
 	bucket.mu.RLock()
@@ -164,18 +140,13 @@ func (rt *RoutingTable) isBootstrapped() bool {
 /*
 Insert adds or refreshes a Value in the appropriate k-bucket.
 */
-func (rt *RoutingTable) Insert(value *primitive.Value) {
-	id := NodeID(value[affinityWordIndex()])
+func (rt *RoutingTable) Insert(key uint64, value *primitive.Value) {
 	rt.mu.RLock()
 	local := rt.local
 	rt.mu.RUnlock()
-
-	if id == local {
-		return
-	}
-
-	idx := bucketIndex(local, id)
-	rt.buckets[idx].touch(id, value)
+	idx := bucketIndex(local, NodeID(key))
+	rt.buckets[idx].lsm.InsertBatch(value.TokenIDs(), *value)
+	errnie.Trace("cluster.kademlia.Insert", "key", key, "value", value)
 }
 
 /*
@@ -220,6 +191,7 @@ func (rt *RoutingTable) FindClosest(target NodeID, k int) []entry {
 		candidates = candidates[:k]
 	}
 
+	errnie.Trace("cluster.kademlia.FindClosest", "target", target, "candidates", candidates)
 	return candidates
 }
 
@@ -230,30 +202,6 @@ TODO: Replace with network RPC queries to candidate nodes via UniConn.
 */
 func (rt *RoutingTable) FindNode(_ context.Context, target NodeID) []entry {
 	return rt.FindClosest(target, core.Cfg.ControlPlane.K)
-}
-
-/*
-Store places a Value into the routing table.
-*/
-func (rt *RoutingTable) Store(value *primitive.Value) {
-	rt.Insert(value)
-}
-
-/*
-tokenIDsFor extracts the non-zero token words from a Value's token region.
-*/
-func tokenIDsFor(value *primitive.Value) []uint64 {
-	tokenIndex := core.Cfg.Value.Region.Tokens.Start
-	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	ids := make([]uint64, 0, tokenWords)
-
-	for i := 0; i < tokenWords; i++ {
-		if w := value[tokenIndex+i]; w != 0 {
-			ids = append(ids, w)
-		}
-	}
-
-	return ids
 }
 
 /*

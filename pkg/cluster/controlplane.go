@@ -35,13 +35,112 @@ func NewControlPlane(ctx context.Context) *ControlPlane {
 /*
 Insert adds a Value to the routing table and its bucket's LSM.
 */
-func (cp *ControlPlane) Insert(value primitive.Value) {
+func (cp *ControlPlane) Insert(key uint64, value primitive.Value) {
 	// Bootstrap local ID from the first Value inserted.
 	if !cp.rt.isBootstrapped() {
-		cp.rt.SetLocal(NodeID(value[affinityWordIndex()]))
+		cp.rt.SetLocal(NodeID(key))
 	}
 
-	cp.rt.Store(&value)
+	cp.rt.Insert(key, &value)
+}
+
+func (cp *ControlPlane) bucketsSnapshot() [IDBits]*kBucket {
+	var buckets [IDBits]*kBucket
+
+	if cp == nil || cp.rt == nil {
+		return buckets
+	}
+
+	cp.rt.mu.RLock()
+	buckets = cp.rt.buckets
+	cp.rt.mu.RUnlock()
+
+	return buckets
+}
+
+/*
+FrameByValueID returns the frame stored by valueID across all k-buckets.
+*/
+func (cp *ControlPlane) FrameByValueID(valueID uint64) (frame [128]uint64, ok bool) {
+	buckets := cp.bucketsSnapshot()
+
+	for _, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+
+		frame, ok = bucket.lsm.FrameByValueID(valueID)
+		if ok {
+			return frame, ok
+		}
+	}
+
+	return [128]uint64{}, false
+}
+
+/*
+LookupKeysByValue reverse-resolves token keys for the exact frame value match by
+searching each bucket LSM.
+*/
+func (cp *ControlPlane) LookupKeysByValue(value *primitive.Value) []uint64 {
+	buckets := cp.bucketsSnapshot()
+
+	seen := make(map[uint64]struct{}, 16)
+	out := make([]uint64, 0)
+
+	for _, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+
+		keys := bucket.lsm.LookupKeysByValue(value)
+		for _, key := range keys {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+
+			seen[key] = struct{}{}
+			out = append(out, key)
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
+}
+
+/*
+LookupKeysByValueID collects token keys that index valueID across bucket LSMs.
+*/
+func (cp *ControlPlane) LookupKeysByValueID(valueID uint64) []uint64 {
+	buckets := cp.bucketsSnapshot()
+
+	seen := make(map[uint64]struct{}, 16)
+	out := make([]uint64, 0)
+
+	for _, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+
+		keys := bucket.lsm.LookupKeysByValueID(valueID)
+		for _, key := range keys {
+			if _, exists := seen[key]; exists {
+				continue
+			}
+
+			seen[key] = struct{}{}
+			out = append(out, key)
+		}
+	}
+
+	if len(out) == 0 {
+		return nil
+	}
+
+	return out
 }
 
 /*

@@ -1,17 +1,11 @@
 package task
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"io"
 	"sync/atomic"
 	"time"
 
 	tools "github.com/theapemachine/six/experiment"
-	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/vm"
 )
 
 type runTiming struct {
@@ -77,104 +71,6 @@ func NewPipeline(ctx context.Context, opts ...pipelineOpts) (*Pipeline, error) {
 	}
 
 	return pipeline, nil
-}
-
-func (pipeline *Pipeline) Run() (err error) {
-	prompter := bytes.NewBuffer(make([]byte, 0, 1024))
-
-	machine, err := vm.NewMachine(
-		pipeline.ctx,
-		vm.WithSources(
-			pipeline.experiment.Dataset(),
-			prompter,
-		),
-	)
-
-	if err != nil {
-		return errnie.Error(err)
-	}
-
-	defer machine.Close()
-
-	for idx, prompt := range pipeline.experiment.Prompts() {
-		select {
-		case <-pipeline.ctx.Done():
-			return errnie.Error(pipeline.ctx.Err())
-		default:
-			holdout, ok := pipeline.experiment.HoldoutForPrompt(idx)
-
-			if !ok {
-				holdout = []byte(nil)
-			}
-
-			promptBytes := []byte(prompt)
-			value, newErr := primitive.NewValue(
-				bytes.ReplaceAll(promptBytes, holdout, []byte{}),
-			)
-
-			if newErr != nil {
-				pipeline.promptInitFailures.Add(1)
-				_ = errnie.Error(newErr)
-				continue
-			}
-
-			_, err = io.Copy(machine, value)
-
-			if err != nil {
-				return errnie.Error(err)
-			}
-
-			errnie.Trace(
-				"experiment.task.pipeline.Run",
-				"prompt", prompt,
-				"holdout", string(holdout),
-			)
-
-			observed, convErr := value.Bytes()
-
-			if convErr != nil {
-				return errnie.Error(convErr)
-			}
-
-			pipeline.experiment.AddResult(tools.ExperimentalData{
-				Idx:      idx,
-				Name:     fmt.Sprintf("prompt-%d", idx),
-				Prefix:   []byte(prompt),
-				Holdout:  holdout,
-				Observed: observed,
-			})
-
-			pipeline.timing.n++
-		}
-	}
-
-	type finalizer interface {
-		Finalize(any) error
-	}
-
-	if f, ok := pipeline.experiment.(finalizer); ok {
-		if err := f.Finalize(nil); err != nil {
-			return errnie.Error(err)
-		}
-	}
-
-	if err := pipeline.reporter.WriteResults(pipeline.experiment); err != nil {
-		return errnie.Error(err)
-	}
-
-	for _, artifact := range pipeline.experiment.Artifacts() {
-		if err := pipeline.reporter.WriteArtifact(pipeline.experiment, artifact); err != nil {
-			return errnie.Error(err)
-		}
-	}
-
-	errnie.Trace(
-		"experiment.task.pipeline.summary",
-		"prompt_init_failures", pipeline.promptInitFailures.Load(),
-		"prompts_processed_ok", pipeline.timing.n,
-	)
-
-	return nil
 }
 
 func PipelineWithExperiment(experiment tools.PipelineExperiment) pipelineOpts {

@@ -14,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/primitive"
 )
 
 func resolveStoreTestConfigPath() string {
@@ -165,18 +166,54 @@ func TestLookupKeysByValue(t *testing.T) {
 		v := makeValue(42)
 		idx.InsertBatch([]uint64{100, 200, 300}, v)
 
+		pv := primitive.Value(v)
+
 		Convey("returns all keys for that exact frame", func() {
-			keys := idx.LookupKeysByValue(v)
+			keys := idx.LookupKeysByValue(&pv)
 			So(len(keys), ShouldEqual, 3)
 		})
 
 		Convey("empty index returns nil", func() {
 			empty := NewSpatialIndex()
-			So(empty.LookupKeysByValue(v), ShouldBeNil)
+			So(empty.LookupKeysByValue(&pv), ShouldBeNil)
 		})
 
 		Convey("different frame returns nil", func() {
-			So(idx.LookupKeysByValue(makeValue(99)), ShouldBeNil)
+			other := primitive.Value(makeValue(99))
+			So(idx.LookupKeysByValue(&other), ShouldBeNil)
+		})
+	})
+}
+
+func TestLookupKeysByValueID(t *testing.T) {
+	Convey("LookupKeysByValueID", t, func() {
+		idx := NewSpatialIndex()
+
+		reg := core.Cfg.Value.Region
+		v := makeValue(42)
+		v[reg.ID.Start] = 4242
+
+		idx.InsertBatch([]uint64{100, 200, 300}, v)
+
+		Convey("returns token keys that post the ValueID", func() {
+			keys := idx.LookupKeysByValueID(4242)
+			So(len(keys), ShouldEqual, 3)
+		})
+
+		Convey("still resolves after the live frame diverges from ingest bitmap", func() {
+			live := primitive.Value(v)
+			live[0] ^= 0xFFFFFFFFFFFFFFFF
+
+			So(idx.LookupKeysByValue(&live), ShouldBeNil)
+			So(len(idx.LookupKeysByValueID(4242)), ShouldEqual, 3)
+		})
+
+		Convey("zero ValueID returns nil", func() {
+			So(idx.LookupKeysByValueID(0), ShouldBeNil)
+		})
+
+		Convey("unknown ValueID returns nil", func() {
+			So(idx.LookupKeysByValueID(999999), ShouldBeNil)
 		})
 	})
 }
@@ -270,11 +307,28 @@ func BenchmarkInsertBatchCascade(b *testing.B) {
 
 func BenchmarkLookupKeysByValue(b *testing.B) {
 	idx := buildBenchIndex(100000)
-	v := makeValue(99)
+	pv := primitive.Value(makeValue(99))
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		idx.LookupKeysByValue(v)
+		idx.LookupKeysByValue(&pv)
+	}
+}
+
+func BenchmarkLookupKeysByValueID(b *testing.B) {
+	idx := NewSpatialIndex()
+
+	reg := core.Cfg.Value.Region
+	fr := makeValue(7)
+	fr[reg.ID.Start] = 424242
+
+	idx.InsertBatch([]uint64{0xFFFF_AAAA_0001, 0xFFFF_AAAA_0002, 0xFFFF_AAAA_0003}, fr)
+
+	id := fr[reg.ID.Start]
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		idx.LookupKeysByValueID(id)
 	}
 }
 

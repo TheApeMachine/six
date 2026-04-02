@@ -1,11 +1,16 @@
 package task
 
 import (
+	"bytes"
+	"encoding/binary"
+	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	. "github.com/smartystreets/goconvey/convey"
 	"github.com/spf13/viper"
@@ -22,7 +27,9 @@ import (
 	"github.com/theapemachine/six/experiment/task/textgen"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
+	"github.com/theapemachine/six/pkg/vm"
 )
 
 type testReporter struct{}
@@ -79,6 +86,184 @@ func (experiment *holdoutProbeExperiment) Outcome() (any, Assertion, any) {
 func (experiment *holdoutProbeExperiment) TableData() any { return experiment.results }
 
 func (experiment *holdoutProbeExperiment) Artifacts() []tools.Artifact { return nil }
+
+const promptOutputTimeout = 2 * time.Second
+
+type outputBus struct {
+	frames chan []byte
+}
+
+func newOutputBus() *outputBus {
+	return &outputBus{frames: make(chan []byte, 128)}
+}
+
+func (bus *outputBus) Read(p []byte) (n int, err error) {
+	return 0, io.EOF
+}
+
+func (bus *outputBus) Write(p []byte) (n int, err error) {
+	if len(p) == 0 {
+		return 0, nil
+	}
+
+	frame := make([]byte, len(p))
+	copy(frame, p)
+
+	bus.frames <- frame
+
+	return len(p), nil
+}
+
+func (bus *outputBus) nextFrame(timeout time.Duration) ([]byte, error) {
+	select {
+	case frame, ok := <-bus.frames:
+		if !ok {
+			return nil, io.EOF
+		}
+
+		return frame, nil
+	case <-time.After(timeout):
+		return nil, errors.New("timed out waiting for prompt output frame")
+	}
+}
+
+func frameToValueWords(frame []byte) ([128]uint64, bool) {
+	if len(frame) < core.Cfg.Value.Bytes {
+		return [128]uint64{}, false
+	}
+
+	var words [128]uint64
+
+	for i := range words {
+		offset := i * 8
+		words[i] = binary.LittleEndian.Uint64(frame[offset:])
+	}
+
+	return words, true
+}
+
+func frameWord(frame []byte, wordIndex int) uint64 {
+	byteOffset := wordIndex * 8
+	if byteOffset+8 > len(frame) {
+		return 0
+	}
+
+	return binary.LittleEndian.Uint64(frame[byteOffset:])
+}
+
+func readPromptFrameID(frame []byte) uint64 {
+	if len(frame) == 0 {
+		return 0
+	}
+
+	return frameWord(frame, core.Cfg.Value.Region.ID.Start)
+}
+
+func readPromptFrameNextID(frame []byte) uint64 {
+	if len(frame) == 0 {
+		return 0
+	}
+
+	return frameWord(frame, core.Cfg.Value.Region.Next.Start)
+}
+
+func collectOutput(bus *outputBus, firstID uint64) (values [][]byte, err error) {
+	const deadlineSlack = 50 * time.Millisecond
+
+	if firstID == 0 {
+		return nil, errors.New("first prompt frame id must be non-zero")
+	}
+
+	deadline := time.Now().Add(promptOutputTimeout)
+	pending := map[uint64][]byte{}
+	nextID := firstID
+
+	for nextID != 0 {
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			return nil, errors.New("timed out while collecting linked output frames")
+		}
+
+		if frame, ok := pending[nextID]; ok {
+			values = append(values, frame)
+			delete(pending, nextID)
+			nextID = readPromptFrameNextID(frame)
+			continue
+		}
+
+		frame, readErr := bus.nextFrame(remaining + deadlineSlack)
+		if readErr != nil {
+			return nil, readErr
+		}
+
+		frameID := readPromptFrameID(frame)
+		if frameID == 0 {
+			continue
+		}
+
+		pending[frameID] = frame
+	}
+
+	return values, nil
+}
+
+func promptFrames(prompt, holdout []byte) ([]*primitive.Value, error) {
+	payload := bytes.ReplaceAll(prompt, holdout, []byte{})
+	chunkSize := int(vm.TokenizerChunkBytes())
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+
+	values := make([]*primitive.Value, 0, max(1, len(payload)/chunkSize+1))
+
+	for offset := 0; offset < len(payload); offset += chunkSize {
+		limit := offset + chunkSize
+
+		if limit > len(payload) {
+			limit = len(payload)
+		}
+
+		value, err := primitive.NewValue(payload[offset:limit])
+		if err != nil {
+			return nil, err
+		}
+
+		if err := value.InstallFirmware(core.FirmwareTypePrompt); err != nil {
+			return nil, err
+		}
+
+		values = append(values, value)
+	}
+
+	if len(values) == 0 {
+		empty, err := primitive.NewValue(nil)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := empty.InstallFirmware(core.FirmwareTypePrompt); err != nil {
+			return nil, err
+		}
+
+		values = append(values, empty)
+	}
+
+	for idx := range values {
+		var prev, next uint64
+
+		if idx > 0 {
+			prev = values[idx-1].GetWord(core.Cfg.Value.Region.ID.Start)
+		}
+
+		if idx < len(values)-1 {
+			next = values[idx+1].GetWord(core.Cfg.Value.Region.ID.Start)
+		}
+
+		values[idx].Link(prev, next)
+	}
+
+	return values, nil
+}
 
 func TestMain(m *testing.M) {
 	viper.SetConfigFile("../../cmd/cfg/config.yml")
@@ -182,35 +367,116 @@ func TestPipeline(t *testing.T) {
 				So(err, ShouldBeNil)
 				So(pipeline, ShouldNotBeNil)
 
-				Convey("When: "+experiment.Name()+" produces an outcome", func() {
-					So(pipeline.Run(), ShouldBeNil)
+				Convey("And a vm.Machine", func() {
+					outputBus := newOutputBus()
 
-					Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
-						So(experiment.Outcome())
-					})
+					machine, err := vm.NewMachine(
+						t.Context(),
+						vm.WithSources(experiment.Dataset()),
+						vm.WithOutput(outputBus),
+					)
 
-					Convey("It should have produced paper ready artifacts for "+experiment.Name(), func() {
-						section := experiment.Section()
+					So(err, ShouldBeNil)
+					So(machine, ShouldNotBeNil)
+					defer machine.Close()
 
-						_, resultsErr := os.Stat(
-							filepath.Join(
-								PaperDir(section),
-								tools.Slugify(experiment.Name())+"_results.json",
-							),
-						)
+					for idx, prompt := range experiment.Prompts() {
+						var errs error
 
-						So(resultsErr, ShouldBeNil)
+						Convey("When prompted with:\n\n"+prompt, func() {
+							holdout, ok := experiment.HoldoutForPrompt(idx)
 
-						for _, artifact := range experiment.Artifacts() {
-							path := filepath.Join(
-								PaperDir(section),
-								artifactJSONFileName(artifact.FileName),
+							if !ok {
+								holdout = []byte(nil)
+							}
+
+							promptValues, err := promptFrames(
+								[]byte(prompt),
+								holdout,
 							)
 
-							_, statErr := os.Stat(path)
-							So(statErr, ShouldBeNil)
-						}
-					})
+							if err != nil {
+								errs = errors.Join(errs, err)
+							}
+
+							So(promptValues, ShouldNotBeNil)
+							So(len(promptValues), ShouldBeGreaterThan, 0)
+
+							for _, value := range promptValues {
+								_, copyErr := io.Copy(machine, value)
+								if copyErr != nil {
+									errs = errors.Join(errs, copyErr)
+								}
+							}
+
+							/*
+								Prompt completion bytes are vm.Machine.Write output to WithOutput
+								(DecodeTokenIDs), not the scratch buffer filled by value.Read inside
+								Machine.Read. The recirculating Copy loop drains tokenizer frames; we
+								collect one bus frame per linked prompt chunk.
+							*/
+							observedParts := make([][]byte, 0, len(promptValues))
+							for range promptValues {
+								frame, frameErr := outputBus.nextFrame(promptOutputTimeout)
+								if frameErr != nil {
+									errs = errors.Join(errs, frameErr)
+									break
+								}
+
+								observedParts = append(observedParts, frame)
+							}
+
+							observed := bytes.Join(observedParts, nil)
+
+							experiment.AddResult(tools.ExperimentalData{
+								Idx:      idx,
+								Name:     fmt.Sprintf("prompt-%d", idx),
+								Prefix:   []byte(prompt),
+								Holdout:  holdout,
+								Observed: observed,
+							})
+
+							errnie.Trace(
+								"task.TestPipeline",
+								"prompt", prompt,
+								"holdout", string(holdout),
+								"observed", string(observed),
+								"errs", errs,
+							)
+
+							Convey("It should have produced a linked output stream", func() {
+								So(observed, ShouldNotBeNil)
+								So(string(observed), ShouldEqual, string(holdout))
+							})
+						})
+					}
+				})
+
+				Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
+					So(experiment.Outcome())
+				})
+
+				Convey("It should have produced paper ready artifacts for "+experiment.Name(), func() {
+					section := experiment.Section()
+
+					_, resultsErr := os.Stat(
+						filepath.Join(
+							PaperDir(section),
+							tools.Slugify(experiment.Name())+"_results.json",
+						),
+					)
+
+					So(resultsErr, ShouldBeNil)
+
+					for _, artifact := range experiment.Artifacts() {
+						path := filepath.Join(
+							PaperDir(section),
+							artifactJSONFileName(artifact.FileName),
+						)
+
+						_, statErr := os.Stat(path)
+						So(statErr, ShouldBeNil)
+					}
 				})
 			})
 		})

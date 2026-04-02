@@ -32,6 +32,8 @@ func (idx *SpatialIndex) RemoveValueID(valueID uint64) {
 		idx.metaFW.ClearValues(mask)
 		idx.metaSequence.ClearValues(mask)
 		idx.metaAccumulator.ClearValues(mask)
+		idx.metaPrev.ClearValues(mask)
+		idx.metaNext.ClearValues(mask)
 		delete(idx.valueToDense, valueID)
 		if int(dense) < len(idx.denseToValue) {
 			idx.denseToValue[dense] = 0
@@ -93,6 +95,8 @@ func (idx *SpatialIndex) RemoveValueIDImmediate(valueID uint64) {
 		idx.metaFW.ClearValues(mask)
 		idx.metaSequence.ClearValues(mask)
 		idx.metaAccumulator.ClearValues(mask)
+		idx.metaPrev.ClearValues(mask)
+		idx.metaNext.ClearValues(mask)
 		delete(idx.valueToDense, valueID)
 		if int(dense) < len(idx.denseToValue) {
 			idx.denseToValue[dense] = 0

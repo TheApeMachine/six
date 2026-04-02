@@ -141,6 +141,14 @@ func initConfig() {
 		errnie.Warn(fmt.Sprintf("could not merge default logging config: %v", err))
 	}
 
+	/*
+		core.init runs NewConfig while viper is still empty, so Value.Bytes and the
+		rest of Cfg are zero until we rebuild from the loaded file. Without this,
+		the tokenizer and vm.Machine IO loop see value.bytes==0 and return
+		io.ErrShortBuffer forever.
+	*/
+	core.NewConfig()
+
 	if core.Cfg.TelemetryEnabled {
 		if sender, err := telemetry.NewUDPSender(core.Cfg.TelemetryEndpoint); err == nil {
 			telemetry.SetGlobal(sender)

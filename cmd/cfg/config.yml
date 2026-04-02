@@ -286,6 +286,13 @@ programs:
     MEM STORE r0 60
     HALT
 
+  # prompt: substrate program for FirmwareTypePrompt frames (pipeline / tokenizer tests).
+  # Aligns with query until retrieval-based completion is folded in here.
+  prompt: |
+    MEM LOAD r0 c0 58
+    MEM STORE r0 60
+    HALT
+
 # Stepwise fixed-step programs (pkg/compute/stepwise). When non-empty for a slot,
 # installFirmware uses InstallEmbedded and overwrites legacy programs.* packing for
 # that firmware only. Syntax: IMM, NOP, TTNAME ia ib idst [LEFT_B] [RIGHT_B].

@@ -51,6 +51,18 @@ func TestSanitizeLogLineForElasticsearch(t *testing.T) {
 			So(hasSrc, ShouldBeTrue)
 		})
 
+		Convey("It should rewrite key to key_u64 string for cluster routing uint64", func() {
+			huge := strconv.FormatUint(math.MaxUint64, 10)
+			in := []byte(`{"msg":"cluster.kademlia.Insert","key":` + huge + `}`)
+			out := sanitizeLogLineForElasticsearch(in)
+			var decoded map[string]interface{}
+			So(json.Unmarshal(out, &decoded), ShouldBeNil)
+			So(decoded["key"], ShouldBeNil)
+			s, ok := decoded["key_u64"].(string)
+			So(ok, ShouldBeTrue)
+			So(s, ShouldEqual, huge)
+		})
+
 		Convey("It should pass through invalid JSON unchanged", func() {
 			in := []byte(`not-json`)
 			out := sanitizeLogLineForElasticsearch(in)

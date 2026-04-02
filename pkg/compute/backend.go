@@ -471,9 +471,7 @@ enqueue failure / context cancellation / inline job failure.
 */
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	if backend.pool != nil {
-		errnie.Trace(
-			"compute.backend: scheduling job on pool",
-		)
+		errnie.Trace("compute.backend.Schedule", "action", "scheduling job on pool")
 
 		if err := backend.pool.Schedule(backend.ctx, job); err != nil {
 			return errnie.Error(NewBackendError(

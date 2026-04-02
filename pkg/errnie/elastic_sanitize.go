@@ -19,6 +19,9 @@ already map dst/src as long, so we:
 
   - rewrite dst → dst_words and src → src_words
   - set those fields to a single JSON text string of the sanitized array/object
+  - rewrite key → key_u64 as a decimal string so routing/affinity uint64 values
+    (and existing indices that already mapped key as signed long) do not reject
+    values above math.MaxInt64.
 
 New fields pick up keyword/text mapping; the oversized long problem and
 mixed long/string arrays go away without deleting the index.
@@ -62,6 +65,13 @@ func sanitizeJSONValue(value interface{}) interface{} {
 				delete(typed, key)
 				continue
 			}
+
+			if key == "key" {
+				typed["key_u64"] = stringifyForElasticsearchNumericKey(sanitizeJSONValue(inner))
+				delete(typed, key)
+				continue
+			}
+
 			typed[key] = sanitizeJSONValue(inner)
 		}
 		return typed
@@ -83,6 +93,39 @@ func stringifyForElasticsearchTraceWords(value interface{}) string {
 		return fmt.Sprint(value)
 	}
 	return string(b)
+}
+
+/*
+stringifyForElasticsearchNumericKey turns trace numeric keys into a single
+decimal string so dynamic mapping prefers keyword and clusters never coerce
+uint64-sized values into a signed long.
+*/
+func stringifyForElasticsearchNumericKey(value interface{}) string {
+	switch typed := value.(type) {
+	case json.Number:
+		return typed.String()
+	case int64:
+		return strconv.FormatInt(typed, 10)
+	case float64:
+		if typed != math.Trunc(typed) {
+			return strconv.FormatFloat(typed, 'f', -1, 64)
+		}
+
+		if typed >= float64(math.MinInt64) && typed <= float64(math.MaxInt64) {
+			return strconv.FormatInt(int64(typed), 10)
+		}
+
+		return strconv.FormatFloat(typed, 'f', 0, 64)
+	case string:
+		return typed
+	default:
+		b, err := json.Marshal(value)
+		if err != nil {
+			return fmt.Sprint(value)
+		}
+
+		return string(b)
+	}
 }
 
 func normalizeFloat64ForElasticsearch(value float64) interface{} {
