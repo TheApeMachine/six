@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
-	"time"
+	"sync/atomic"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/cluster"
@@ -32,18 +32,14 @@ type Machine struct {
 	output       io.ReadWriter
 	controlplane *cluster.ControlPlane
 	tokenizer    *Tokenizer
+
+	// ingressActive is set once start() launches the ingress goroutine.
+	// Machine.Read checks this to prevent a second concurrent consumer
+	// from racing on machine.sources.
+	ingressActive atomic.Bool
 }
 
 type machineOption func(*Machine)
-
-const (
-	// promptSettleDeadline must exceed evolutionBatchWindow (default 75ms)
-	// plus kernel execution time, otherwise the prompt is read back before
-	// the backend has even started processing it.
-	promptSettleDeadline = 200 * time.Millisecond
-	promptSettlePoll     = 500 * time.Microsecond
-	promptStableSamples  = 3
-)
 
 /*
 NewMachine constructs a new Machine with the provided options.
@@ -126,9 +122,12 @@ memory speed. Recirculation is handled exclusively by the backend's
 handleFollowUp mechanism (fw register → PRIORITY queue).
 */
 func (machine *Machine) start() (err error) {
+	machine.ingressActive.Store(true)
 	buf := make([]byte, core.Cfg.Value.Bytes)
 
 	go func() {
+		defer machine.ingressActive.Store(false)
+
 		for {
 			select {
 			case <-machine.ctx.Done():
@@ -154,26 +153,31 @@ func (machine *Machine) start() (err error) {
 						continue
 					}
 
-					isPrompt := value.IsPrompt()
-					if isPrompt {
-						telemetry.Emit(telemetry.Event{
-							Component: "Machine",
-							Action:    "Pipeline",
-							Data: telemetry.EventData{
-								Stage:   "prompt-start",
-								Message: "waiting for prompt settle",
-								NodeID:  valueID,
-							},
-						})
-						machine.waitForPrompt(value)
+					if value.IsPrompt() {
+						// Offload prompt settle + output collection to a
+						// separate goroutine so the read loop stays responsive
+						// to new ingress frames.
+						promptValue := value
+						promptID := valueID
+						go func() {
+							telemetry.Emit(telemetry.Event{
+								Component: "Machine",
+								Action:    "Pipeline",
+								Data: telemetry.EventData{
+									Stage:   "prompt-start",
+									Message: "waiting for prompt settle",
+									NodeID:  promptID,
+								},
+							})
 
-						output := machine.collectPromptOutput(value)
+							output := machine.collectPromptOutput(promptValue)
 
-						if machine.output != nil {
-							if _, writeErr := machine.output.Write(output); writeErr != nil {
-								errnie.Error(writeErr)
+							if machine.output != nil {
+								if _, writeErr := machine.output.Write(output); writeErr != nil {
+									errnie.Error(writeErr)
+								}
 							}
-						}
+						}()
 					}
 				}
 
@@ -201,44 +205,23 @@ Read implements io.Reader for external consumers that need to pull
 processed frames. The main ingress pipeline no longer uses this method
 (see start()). This remains for backward-compat with callers that treat
 Machine as an io.Reader.
+
+IMPORTANT: Read returns an error if the ingress goroutine is active,
+because both would consume from machine.sources and lose frames.
 */
 func (machine *Machine) Read(p []byte) (n int, err error) {
+	if machine.ingressActive.Load() {
+		return 0, errors.New(
+			"vm.Machine.Read: ingress goroutine is active; " +
+				"use machine.output or WithOutput to consume results",
+		)
+	}
+
 	select {
 	case <-machine.ctx.Done():
 		return 0, machine.ctx.Err()
 	default:
 		return machine.sources.Read(p)
-	}
-}
-
-func (machine *Machine) waitForPrompt(value *primitive.Value) {
-	if machine == nil || value == nil {
-		return
-	}
-
-	deadline := time.Now().Add(promptSettleDeadline)
-	snapshot := *value
-	sawChange := false
-	stable := 0
-
-	for time.Now().Before(deadline) {
-		if machine.ctx.Err() != nil {
-			return
-		}
-
-		current := *value
-		if current == snapshot {
-			stable++
-			if sawChange && stable >= promptStableSamples {
-				return
-			}
-		} else {
-			snapshot = current
-			sawChange = true
-			stable = 0
-		}
-
-		time.Sleep(promptSettlePoll)
 	}
 }
 
@@ -271,7 +254,10 @@ func (machine *Machine) collectPromptOutput(value *primitive.Value) []byte {
 			}
 			seen[cursor] = true
 
-			// Try to decode this linked Value's tokenIDs.
+			// Try to decode this linked Value's tokenIDs. Values created
+			// via NewValue have cached affine-mapped TokenIDs that
+			// DecodeTokenIDs can reverse. Signal-emitted children don't
+			// have those, so fall back to raw token region bytes.
 			tokenIDs := primitive.ValueTokenIDsForLookup(cursor)
 			if len(tokenIDs) == 0 {
 				tokenIDs = machine.controlplane.LookupKeysByValueID(cursor)
@@ -281,6 +267,20 @@ func (machine *Machine) collectPromptOutput(value *primitive.Value) []byte {
 				decoded := primitive.DecodeTokenIDs(tokenIDs)
 				if len(decoded) > 0 {
 					output = append(output, decoded...)
+				}
+			} else {
+				// Signal children: their token region contains raw
+				// HD-extracted bits, not affine-mapped TokenIDs. Read
+				// the token region directly as observed bytes.
+				frame, ok := machine.controlplane.FrameByValueID(cursor)
+				if ok {
+					frameVal := primitive.Value(frame)
+					raw := frameVal.TokenRegionObservedBytes()
+					if len(raw) > 0 {
+						output = append(output, raw...)
+					}
+					cursor = frame[core.Cfg.Value.Region.Next.Start]
+					continue
 				}
 			}
 
@@ -375,101 +375,6 @@ func (machine *Machine) Close() (err error) {
 	}
 
 	return err
-}
-
-/*
-Backend returns the compute backend for direct frame injection (e.g. corpus
-loading, prompt injection). Callers that need to bypass the io.Reader/Writer
-stream interface use this to queue Values directly.
-*/
-func (machine *Machine) Backend() *compute.Backend {
-	return machine.backend
-}
-
-/*
-ControlPlane returns the spatial index for direct Value insertion.
-*/
-func (machine *Machine) ControlPlane() *cluster.ControlPlane {
-	return machine.controlplane
-}
-
-/*
-LoadCorpus reads the entire dataset from the given reader, chunks it into
-Values with Learn firmware, indexes each in the spatial store (control plane),
-and queues them all for backend execution. This must be called BEFORE prompt
-injection so the substrate has material to evolve structure from.
-
-Returns the number of Values created and any error encountered.
-*/
-func (machine *Machine) LoadCorpus(dataset io.Reader) (int, error) {
-	if dataset == nil {
-		return 0, nil
-	}
-
-	chunkSize := tokenizerChunkBytes()
-	if chunkSize <= 0 {
-		chunkSize = 1
-	}
-
-	buf := make([]byte, chunkSize)
-	var count int
-
-	for {
-		if machine.ctx.Err() != nil {
-			return count, machine.ctx.Err()
-		}
-
-		n, readErr := dataset.Read(buf)
-		if n > 0 {
-			value, err := primitive.NewValue(buf[:n])
-			if err != nil {
-				errnie.Warn("vm.Machine.LoadCorpus: NewValue failed", "err", err)
-				if readErr != nil {
-					break
-				}
-				continue
-			}
-
-			// Set fw register to Learn so handleFollowUp re-queues for recirculation.
-			value.SetWord(
-				core.Cfg.Value.Region.Registers.FW,
-				core.FirmwareRegisterLearn,
-			)
-
-			// Index in the spatial store.
-			if machine.controlplane != nil {
-				key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
-				machine.controlplane.Insert(key, *value)
-			}
-
-			// Queue for backend execution.
-			if err := machine.backend.Queue(unsafe.Pointer(value)); err != nil {
-				errnie.Warn("vm.Machine.LoadCorpus: Queue failed", "err", err)
-			}
-
-			count++
-
-			telemetry.Emit(telemetry.Event{
-				Component: "Machine",
-				Action:    "Pipeline",
-				Data: telemetry.EventData{
-					Stage:   "corpus-ingest",
-					NodeID:  value.GetWord(core.Cfg.Value.Region.ID.Start),
-					Message: "corpus Value queued",
-				},
-			})
-		}
-
-		if readErr != nil {
-			break // EOF or real error — corpus is fully loaded.
-		}
-	}
-
-	errnie.Info("vm.Machine.LoadCorpus: complete",
-		"values_created", count,
-	)
-
-	return count, nil
 }
 
 /*

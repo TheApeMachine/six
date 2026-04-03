@@ -102,7 +102,10 @@ func (em *EvolutionManager) evolveProgramsInGroup(group []unsafe.Pointer) {
 		seed ^= uint64(index+1) * 0x85EBCA6B
 	}
 
-	rng := rand.New(rand.NewSource(int64(seed ^ (seed >> 32))))
+	// Reinterpret the full 64-bit seed as int64 without XOR-folding.
+	// This preserves all entropy bits; the sign bit is irrelevant for
+	// the PRNG's internal state.
+	rng := rand.New(rand.NewSource(int64(seed)))
 
 	for pairIdx := 0; pairIdx+1 < len(group); pairIdx += 2 {
 		recipient := (*[128]uint64)(group[pairIdx])
@@ -142,7 +145,7 @@ func (em *EvolutionManager) emitSignalsInBatch(frames []unsafe.Pointer) {
 		seed ^= uint64(index+1) * 0x9E3779B97F4A7C15
 	}
 
-	rng := rand.New(rand.NewSource(int64(seed ^ (seed >> 32))))
+	rng := rand.New(rand.NewSource(int64(seed)))
 
 	nextWord := core.Cfg.Value.Region.Next.Start
 
@@ -158,6 +161,8 @@ func (em *EvolutionManager) emitSignalsInBatch(frames []unsafe.Pointer) {
 			continue
 		}
 
+		prevWord := core.Cfg.Value.Region.Prev.Start
+
 		// Link parent A → first child via NextID so the chain is walkable.
 		firstChildID := children[0][idWord]
 		if firstChildID != 0 && frameA[nextWord] == 0 {
@@ -166,6 +171,24 @@ func (em *EvolutionManager) emitSignalsInBatch(frames []unsafe.Pointer) {
 			if em.onEmit != nil {
 				parentVal := primitive.Value(*frameA)
 				em.onEmit(&parentVal)
+			}
+		}
+
+		// Link last child → parent B via NextID, and parent B back via PrevID.
+		// This completes the chain: A → child₁ → … → childₙ → B, making B
+		// reachable through chain-walking. Without this, parent B is orphaned
+		// and its content is unreachable from the signal graph.
+		lastChild := children[len(children)-1]
+		bID := frameB[idWord]
+		if bID != 0 && lastChild[nextWord] == 0 {
+			lastChild[nextWord] = bID
+		}
+		if firstChildID != 0 && frameB[prevWord] == 0 {
+			frameB[prevWord] = firstChildID
+
+			if em.onEmit != nil {
+				parentBVal := primitive.Value(*frameB)
+				em.onEmit(&parentBVal)
 			}
 		}
 

@@ -125,8 +125,10 @@ func ReleaseFrame(frame *[128]uint64) {
 	for i := range frame {
 		frame[i] = 0
 	}
-	v := Value(*frame)
-	valuePool.Put(&v)
+	// Cast the original pointer back to *Value rather than copying the
+	// frame onto the stack. Value is [128]uint64, so the types have
+	// identical layout — this avoids leaking the heap allocation.
+	valuePool.Put((*Value)(frame))
 }
 
 /*

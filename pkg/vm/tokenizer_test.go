@@ -61,7 +61,7 @@ func TestTokenizerRead(t *testing.T) {
 			So(err, ShouldBeNil)
 			defer tokenizer.Close()
 
-			payload := bytes.Repeat([]byte("q"), tokenizerChunkBytes())
+			payload := bytes.Repeat([]byte("q"), core.Cfg.Value.Bytes)
 			_, err = tokenizer.Write(payload)
 			So(err, ShouldBeNil)
 
@@ -90,7 +90,7 @@ func TestTokenizerWrite(t *testing.T) {
 			So(err, ShouldBeNil)
 			defer tokenizer.Close()
 
-			payload := bytes.Repeat([]byte("w"), tokenizerChunkBytes())
+			payload := bytes.Repeat([]byte("w"), core.Cfg.Value.Bytes)
 			n, werr := tokenizer.Write(payload)
 			So(werr, ShouldBeNil)
 			So(n, ShouldBeGreaterThan, 0)
@@ -114,7 +114,7 @@ func TestTokenizerWriteSerializedFrame(t *testing.T) {
 			So(err, ShouldBeNil)
 			defer tokenizer.Close()
 
-			payload := bytes.Repeat([]byte("p"), tokenizerChunkBytes())
+			payload := bytes.Repeat([]byte("p"), core.Cfg.Value.Bytes)
 			inputValue, err := primitive.NewValue(payload)
 			So(err, ShouldBeNil)
 
@@ -239,7 +239,7 @@ func BenchmarkTokenizerWriteRead(b *testing.B) {
 
 	defer tokenizer.Close()
 
-	payload := bytes.Repeat([]byte("b"), tokenizerChunkBytes())
+	payload := bytes.Repeat([]byte("b"), core.Cfg.Value.Bytes)
 	out := make([]byte, 4096)
 	b.ReportAllocs()
 	b.ResetTimer()

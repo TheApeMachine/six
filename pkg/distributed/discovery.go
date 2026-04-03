@@ -319,7 +319,6 @@ func (d *Discovery) recvLoop() {
 			if d.ctx.Err() != nil {
 				return
 			}
-			errnie.Debug("distributed.discovery.recv", "err", err)
 			continue
 		}
 

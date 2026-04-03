@@ -1,7 +1,6 @@
 package store
 
 import (
-	"math"
 	"sort"
 	"sync"
 
@@ -15,6 +14,11 @@ import (
 )
 
 const valueWords = 128
+
+/*
+denseIndexLimit caps dense BSI columns because dense column ids are stored as uint32.
+*/
+const denseIndexLimit uint64 = 0xFFFF_FFFF
 
 /*
 FrameWords is the number of uint64 lanes in a Value frame (must match primitive.Words).
@@ -496,8 +500,8 @@ func (idx *SpatialIndex) denseFor(valueID uint64) uint32 {
 		return dense
 	}
 
-	if len(idx.denseToValue) > math.MaxUint32 {
-		panic("store.SpatialIndex: dense BSI column count exceeds math.MaxUint32")
+	if uint64(len(idx.denseToValue)) > denseIndexLimit {
+		panic("store.SpatialIndex: dense BSI column count exceeds uint32 range")
 	}
 
 	dense := uint32(len(idx.denseToValue))

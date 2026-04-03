@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"io"
-	"sync"
 
 	"github.com/smallnest/ringbuffer"
 	"github.com/theapemachine/six/pkg/cluster"
@@ -15,40 +14,6 @@ import (
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
-
-/*
-tokenizerChunkBytes returns the ingest chunk size derived from the live config.
-It must not run at package init because viper-backed Cfg is populated after
-TestMain (and Defaults would yield 0 bits before subtracting headers).
-*/
-var (
-	tokenizerChunkOnce sync.Once
-	tokenizerChunkSize int
-)
-
-func computeTokenizerChunkBytes() int {
-	raw := int(core.Cfg.Value.Region.Tokens.Bits/8) - 3*8
-	if raw < 1 {
-		return 1
-	}
-
-	return raw
-}
-
-func tokenizerChunkBytes() int {
-	tokenizerChunkOnce.Do(func() {
-		tokenizerChunkSize = computeTokenizerChunkBytes()
-	})
-
-	return tokenizerChunkSize
-}
-
-// TokenizerChunkBytes exposes the active ingest chunk size used by the tokenizer.
-// This is required by prompt injection helpers that must mirror tokenizer payload
-// packing exactly.
-func TokenizerChunkBytes() int {
-	return tokenizerChunkBytes()
-}
 
 /*
 Tokenizer takes a raw byte stream, chunks the incoming data to
@@ -76,7 +41,7 @@ func NewTokenizer(
 	opts ...TokenizerOpts,
 ) (*Tokenizer, error) {
 	ctx, cancel := context.WithCancel(ctx)
-	rb := ringbuffer.New(tokenizerChunkBytes() * 128)
+	rb := ringbuffer.New(core.Cfg.Value.Bytes * 128)
 	pr, pw := rb.Pipe()
 
 	tokenizer := &Tokenizer{
@@ -229,7 +194,7 @@ func (tokenizer *Tokenizer) Close() (err error) {
 
 func TokenizerWithBuffer(n int) TokenizerOpts {
 	return func(tokenizer *Tokenizer) {
-		tokenizer.rb = ringbuffer.New(tokenizerChunkBytes() * n)
+		tokenizer.rb = ringbuffer.New(core.Cfg.Value.Bytes * n)
 		tokenizer.pr, tokenizer.pw = tokenizer.rb.Pipe()
 	}
 }

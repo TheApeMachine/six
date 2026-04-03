@@ -7,7 +7,6 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 type Backend struct {
@@ -100,15 +99,6 @@ func executeFrameTile(
 	srcScratch []uint64,
 	dstScratch []uint64,
 ) {
-	errnie.Debug(
-		"cpu.Backend.executeFrameTile",
-		"frames", frames,
-		"progStart", progStart,
-		"totalSlots", totalSlots,
-		"srcScratch", srcScratch,
-		"dstScratch", dstScratch,
-	)
-
 	if len(frames) == 0 || totalSlots <= 0 {
 		return
 	}

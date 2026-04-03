@@ -7,7 +7,6 @@ import (
 	"sync"
 
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/store"
 )
@@ -205,8 +204,6 @@ func (rt *RoutingTable) Insert(key uint64, value *primitive.Value) {
 	if id != local {
 		bucket.insert(id, value)
 	}
-
-	errnie.Trace("cluster.kademlia.Insert", "key", key, "bucket", idx)
 }
 
 /*
@@ -274,7 +271,6 @@ func (rt *RoutingTable) FindClosest(target NodeID, k int) []entry {
 		candidates = candidates[:k]
 	}
 
-	errnie.Trace("cluster.kademlia.FindClosest", "target", target, "candidates", candidates)
 	return candidates
 }
 
@@ -285,12 +281,4 @@ TODO: Replace with network RPC queries to candidate nodes via UniConn.
 */
 func (rt *RoutingTable) FindNode(_ context.Context, target NodeID) []entry {
 	return rt.FindClosest(target, core.Cfg.ControlPlane.K)
-}
-
-/*
-affinityWordIndex returns the word index of the
-affinity register from the Value's region.
-*/
-func affinityWordIndex() int {
-	return core.Cfg.Value.Region.Affinity.Start
 }

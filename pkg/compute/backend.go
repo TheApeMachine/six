@@ -33,11 +33,16 @@ const hardwareEMAAlphaShift = 2
 // fallback while the operator has no visibility into the failure.
 const circuitBreakerThreshold = 5
 
+// circuitBreakerProbeInterval is the base interval between recovery probes
+// for ejected substrates. Each probe attempt doubles the interval (exponential
+// backoff) to avoid flapping.
+const circuitBreakerProbeInterval = 5 * time.Second
+
 type hardwareMetrics struct {
-	inflight           atomic.Int64
-	emaServiceNanos    atomic.Uint64
+	inflight            atomic.Int64
+	emaServiceNanos     atomic.Uint64
 	consecutiveFailures atomic.Int64
-	ejected            atomic.Bool
+	ejected             atomic.Bool
 }
 
 /*
@@ -154,8 +159,81 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 
 func (backend *Backend) start() *Backend {
 	go backend.runUnifiedQueue()
+	go backend.runCircuitBreakerProbe()
 
 	return backend
+}
+
+/*
+runCircuitBreakerProbe periodically probes ejected substrates with a minimal
+synthetic frame. On success the substrate is readmitted to the dispatch order.
+Probes use exponential backoff per substrate to avoid flapping.
+*/
+func (backend *Backend) runCircuitBreakerProbe() {
+	// Per-substrate backoff multiplier (doubles on each failed probe).
+	backoff := make([]int, len(backend.hardware))
+	for i := range backoff {
+		backoff[i] = 1
+	}
+
+	ticker := time.NewTicker(circuitBreakerProbeInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-backend.ctx.Done():
+			return
+		case <-ticker.C:
+		}
+
+		for i := range backend.hardware {
+			if !backend.hardwareState[i].ejected.Load() {
+				continue
+			}
+
+			// Exponential backoff: only probe when tick count aligns.
+			// backoff[i] starts at 1 and doubles on failure, so the first
+			// probe fires immediately after ejection.
+			if backoff[i] > 1 {
+				backoff[i]--
+				continue
+			}
+
+			// Build a minimal synthetic frame (all zeros — NOP program).
+			var probe [128]uint64
+			probePtr := unsafe.Pointer(&probe)
+
+			err := backend.hardware[i].UniversalBitwise([]unsafe.Pointer{probePtr})
+			if err != nil {
+				// Still broken — double the backoff (cap at 64× base interval).
+				b := backoff[i] * 2
+				if b > 64 {
+					b = 64
+				}
+				backoff[i] = b
+				continue
+			}
+
+			// Probe succeeded — readmit the substrate.
+			backend.hardwareState[i].ejected.Store(false)
+			backend.hardwareState[i].consecutiveFailures.Store(0)
+			backoff[i] = 1
+
+			substrateName := backend.hardware[i].Name()
+			errnie.Info(
+				"compute.backend: substrate readmitted after successful probe",
+				"substrate", substrateName,
+			)
+			telemetry.Emit(telemetry.Event{
+				Component: "Substrate",
+				Action:    "Readmitted",
+				Data: telemetry.EventData{
+					Stage:   substrateName,
+					Message: substrateName + " readmitted after successful probe",
+				},
+			})
+		}
+	}
 }
 
 /*
@@ -296,7 +374,6 @@ func (backend *Backend) gatherCoalesceDuration() time.Duration {
 // gatherBatch is no longer used — replaced by gatherUnifiedBatch which
 // drains both PRIORITY and NORMAL into a single batch. Kept as a
 // compile-time reminder in case any caller still references it.
-
 
 /*
 universalBitwisePreferredWithFallback runs UniversalBitwise on the load-balanced
@@ -763,8 +840,6 @@ enqueue failure / context cancellation / inline job failure.
 */
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	if backend.pool != nil {
-		errnie.Debug("compute.backend.Schedule", "action", "scheduling job on pool")
-
 		if err := backend.pool.Schedule(backend.ctx, job); err != nil {
 			return errnie.Error(NewBackendError(
 				BackendErrorPoolEnqueueFailed, err, "Schedule",

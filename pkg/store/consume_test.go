@@ -36,8 +36,8 @@ func TestMaterializeTokenRegionWords(t *testing.T) {
 		ids := []uint64{6001, 6002}
 		buf := idx.MaterializeTokenRegionWords(ids)
 		So(len(buf), ShouldEqual, len(ids)*tw)
-		So(buf[0], ShouldEqual, 0xDEADBEEF)
-		So(buf[tw], ShouldEqual, 0xCAFEBABE)
+		So(buf[0], ShouldEqual, uint64(0xDEADBEEF))
+		So(buf[tw], ShouldEqual, uint64(0xCAFEBABE))
 	})
 }
 

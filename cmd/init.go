@@ -60,8 +60,11 @@ func writeConfig() error {
 	configPath := filepath.Join(configDir, "config.yml")
 
 	// Safety guard: refuse to silently overwrite an existing config.
+	// Differentiate "exists" from real I/O errors (permissions, etc.).
 	if _, err := os.Stat(configPath); err == nil {
 		return fmt.Errorf("configuration already exists at %s; remove it manually to re-initialize", configPath)
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("cannot stat %s: %w", configPath, err)
 	}
 
 	b, err := embedded.ReadFile("cfg/config.yml")

@@ -3,7 +3,6 @@ package core
 import (
 	"hash/fnv"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
@@ -14,9 +13,9 @@ import (
 
 /*
 stableNodeID derives a deterministic 64-bit node identity from the host's
-hostname and PID. This ensures a node's position in the Kademlia DHT is
-stable across restarts (same host) and distinct across machines, without
-depending on transient workload frames.
+hostname. This ensures a node's position in the Kademlia DHT is stable
+across process restarts on the same host, and distinct across machines,
+without depending on transient workload frames or PIDs.
 */
 func stableNodeID() uint64 {
 	hostname, _ := os.Hostname()
@@ -25,8 +24,6 @@ func stableNodeID() uint64 {
 	}
 	h := fnv.New64a()
 	h.Write([]byte(hostname))
-	h.Write([]byte(":"))
-	h.Write([]byte(strconv.Itoa(os.Getpid())))
 	return h.Sum64()
 }
 

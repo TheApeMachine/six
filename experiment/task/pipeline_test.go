@@ -406,7 +406,6 @@ func TestPipeline(t *testing.T) {
 					)
 
 					// ── Phase 2: Let evolution run ────────────────────────
-					// The backend is processing batches in the background.
 					// Signal emission creates child Values, evolution blends
 					// programs, and handleFollowUp recirculates. Give it time.
 					time.Sleep(evolutionBudget)

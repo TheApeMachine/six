@@ -2,7 +2,6 @@ package telemetry
 
 import (
 	"encoding/json"
-	"fmt"
 	"net"
 	"sync"
 	"sync/atomic"
@@ -176,12 +175,6 @@ func (s *UDPSender) Send(ev Event) {
 	}
 	data, err := json.Marshal(ev)
 	if err != nil {
-		errnie.Debug(
-			"telemetry.UDPSender.Send",
-			"op", "json.Marshal",
-			"err", err,
-			"event_type", fmt.Sprintf("%T", ev),
-		)
 		return
 	}
 	werr := s.writeWithDeadline(func() error {

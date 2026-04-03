@@ -4,21 +4,11 @@ package cpu
 
 import (
 	"math/bits"
-
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 // execWordBlock dispatches to the scalar Go kernel. On arm64 (Apple Silicon,
 // etc.) the compiler emits NEON for the simple inner loops automatically.
 func execWordBlock(dst, src []uint64, op uint8) {
-	errnie.Debug(
-		"cpu.Backend.handleAlu",
-		"hw", "cpu - scalar fallback",
-		"op", op,
-		"dst", dst,
-		"src", src,
-	)
-
 	execWordBlockScalar(dst, src, op)
 }
 
