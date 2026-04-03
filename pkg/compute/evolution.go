@@ -59,6 +59,18 @@ func NewEvolutionManager(onEmit EmitCallback, queues map[QueueType]chan unsafe.P
 }
 
 /*
+EliteArchive returns the MAP-Elites reservoir used during crossover, or nil.
+*/
+func (em *EvolutionManager) EliteArchive() *EliteArchive {
+
+	if em == nil {
+		return nil
+	}
+
+	return em.elites
+}
+
+/*
 ProcessBatch applies evolutionary operators to executed frames.
 Phase 1: pairwise crossover within program groups.
 Phase 2: signal emission across the full batch.

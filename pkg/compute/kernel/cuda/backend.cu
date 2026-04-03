@@ -9,15 +9,7 @@ __device__ static uint64_t rotl64(uint64_t x, int r) {
 }
 
 __device__ static uint64_t majority_u64(uint64_t a, uint64_t b, uint64_t c) {
-    uint64_t out = 0;
-    for (int bit = 0; bit < 64; bit++) {
-        uint64_t m = 1ULL << bit;
-        int cnt = ((a & m) != 0) + ((b & m) != 0) + ((c & m) != 0);
-        if (cnt >= 2) {
-            out |= m;
-        }
-    }
-    return out;
+    return (a & b) | (b & c) | (a & c);
 }
 
 __device__ static void execute_extended_slot(uint64_t* ctx, uint32_t instr) {
@@ -31,6 +23,10 @@ __device__ static void execute_extended_slot(uint64_t* ctx, uint32_t instr) {
 
     switch (op) {
     case 1u:
+        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
+            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
+            break;
+        }
         for (int i = 0; i < TOKEN_WORDS; i++) {
             int wi = TOKENS_START_WORD + i;
             int ai = argA + i;
@@ -38,6 +34,11 @@ __device__ static void execute_extended_slot(uint64_t* ctx, uint32_t instr) {
         }
         break;
     case 2u:
+        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
+            argB < 0 || argB + TOKEN_WORDS > WORDS ||
+            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
+            break;
+        }
         for (int i = 0; i < TOKEN_WORDS; i++) {
             int wi = TOKENS_START_WORD + i;
             int ai = argA + i;
@@ -64,7 +65,10 @@ __device__ static void execute_extended_slot(uint64_t* ctx, uint32_t instr) {
         if (sh == 0) {
             break;
         }
-        uint64_t buf[128];
+        if (TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
+            break;
+        }
+        uint64_t buf[TOKEN_WORDS];
         for (int i = 0; i < TOKEN_WORDS; i++) {
             buf[i] = ctx[TOKENS_START_WORD + i];
         }

@@ -93,7 +93,8 @@ type SystemConfig struct {
 	HolisticHammingMax float64 `mapstructure:"holisticHammingMax"`
 
 	// MapElitesInjectionRate is the probability [0,1] of copying the program
-	// band from a sampled elite bin before crossover.
+	// band from a sampled elite bin before crossover. Zero disables injection;
+	// negative values at load time are replaced with 0.08 (default-on bootstrap).
 	MapElitesInjectionRate float64 `mapstructure:"mapElitesInjectionRate"`
 
 	// MapElitesGridShift number of high bits of Affinity XOR-folded into a bin.
@@ -420,15 +421,11 @@ func NewConfig() *Config {
 	}
 
 	if Cfg.System.MapElitesInjectionRate < 0 {
-		Cfg.System.MapElitesInjectionRate = 0
+		Cfg.System.MapElitesInjectionRate = 0.08
 	}
 
 	if Cfg.System.MapElitesInjectionRate > 1 {
 		Cfg.System.MapElitesInjectionRate = 1
-	}
-
-	if Cfg.System.MapElitesInjectionRate <= 0 {
-		Cfg.System.MapElitesInjectionRate = 0.08
 	}
 
 	if Cfg.System.TokenSettleMaxPasses <= 0 {

@@ -75,6 +75,12 @@ return ok false when no neighbor exists.
 type MemoryLoadHook func(queryAffinity uint64) (primitive.Value, bool)
 
 /*
+MemoryLoadEnqueueHook returns spatial neighbors for active LSM fetch (opcode 5
+with meta flag). Frames are cloned before enqueue so the cold store stays read-only.
+*/
+type MemoryLoadEnqueueHook func(queryAffinity uint64) []primitive.Value
+
+/*
 SemanticAffinityReinsert is invoked when RefreshSemanticAffinityKey changes
 the in-frame Affinity word so the control plane can re-index the Value.
 */
@@ -98,6 +104,7 @@ type Backend struct {
 	droppedPriorityFollowUps atomic.Uint64
 	onEmit                   EmitCallback
 	memoryLoad               MemoryLoadHook
+	memoryEnqueue            MemoryLoadEnqueueHook
 	semanticReinsert         SemanticAffinityReinsert
 	sleepSample              SleepSampleFunc
 	evolution                EvolutionStage
@@ -126,6 +133,16 @@ func WithMemoryLoad(hook MemoryLoadHook) BackendOption {
 }
 
 /*
+WithMemoryEnqueue registers neighbors for active fetch: pending opcode-5 marks
+with the meta flag enqueue cloned Values on PRIORITY instead of inlining one word.
+*/
+func WithMemoryEnqueue(hook MemoryLoadEnqueueHook) BackendOption {
+	return func(backend *Backend) {
+		backend.memoryEnqueue = hook
+	}
+}
+
+/*
 WithSemanticAffinityReinsert registers a callback after UniversalBitwise when
 semantic affinity refresh moves the routing key.
 */
@@ -147,11 +164,36 @@ func WithSleepSample(fn SleepSampleFunc) BackendOption {
 
 func (backend *Backend) drainMemoryLoads(frames []unsafe.Pointer) {
 
-	if backend.memoryLoad == nil {
+	if backend.memoryLoad == nil && backend.memoryEnqueue == nil {
 		return
 	}
 
-	primitive.ProcessMemoryLoadRequests(frames, backend.memoryLoad)
+	primitive.ProcessMemoryLoadRequests(
+		frames,
+		backend.memoryLoad,
+		backend.memoryEnqueue,
+		backend.enqueuePriorityUnsafe,
+	)
+}
+
+func (backend *Backend) enqueuePriorityUnsafe(ptr unsafe.Pointer) {
+
+	if backend == nil || ptr == nil {
+		return
+	}
+
+	queue, ok := backend.queues[PRIORITY]
+	if !ok {
+		return
+	}
+
+	select {
+	case queue <- ptr:
+	default:
+		errnie.Warn(
+			"compute.backend: dropped PRIORITY active-fetch frame",
+		)
+	}
 }
 
 /*
@@ -190,8 +232,22 @@ func (backend *Backend) runUniversalWithSettling(group []unsafe.Pointer) error {
 			}
 
 			frame := (*[128]uint64)(ptr)
+			frameLen := len(frame)
+			end := base + tokenWords
+
+			if base < 0 || base >= frameLen || end > frameLen {
+				errnie.Warn(
+					"compute.backend: token snapshot slice out of bounds; skipping frame",
+					"base", base,
+					"tokenWords", tokenWords,
+					"frameLen", frameLen,
+				)
+
+				continue
+			}
+
 			buf := make([]uint64, tokenWords)
-			copy(buf, frame[base:base+tokenWords])
+			copy(buf, frame[base:end])
 			snapshots[index] = buf
 		}
 
@@ -838,6 +894,13 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 
 func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 	fwWord := core.Cfg.Value.Region.Registers.FW
+	pcWord := core.Cfg.Value.Region.PC.Start
+
+	var elites *EliteArchive
+
+	if em, ok := backend.evolution.(*EvolutionManager); ok {
+		elites = em.EliteArchive()
+	}
 
 	for _, value := range frames {
 		if value == nil {
@@ -845,6 +908,30 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 		}
 
 		frame := (*[128]uint64)(value)
+
+		/*
+			Dynamic skill morph: FW values above FirmwareTypePrompt are treated as
+			MAP-Elites host keys; the matching elite program band replaces the frame
+			program and FW drops back to Learn for the next flat kernel sweep.
+		*/
+		if elites != nil && fwWord >= 0 && fwWord < len(frame) {
+			fwVal := frame[fwWord]
+
+			if fwVal > uint64(core.FirmwareTypePrompt) {
+				if pcWord >= 0 && pcWord < len(frame) {
+					bin := EliteBinFromHostKey(fwVal)
+					band, haveBand := elites.LookupBand(bin)
+
+					if haveBand && len(band) > 0 {
+						applyProgramBand(frame, band)
+					}
+
+					frame[pcWord] = uint64(core.Cfg.Value.Region.Program.Start)
+				}
+
+				frame[fwWord] = core.FirmwareRegisterLearn
+			}
+		}
 
 		if frameShouldSkipFollowUp(frame) {
 			frame[fwWord] = 0

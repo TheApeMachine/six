@@ -15,12 +15,20 @@ Layout when bit 31 is set:
 	[6:0]   extended opcode
 	[13:7]  argA — source word index (0–127)
 	[20:14] argB — second source / dest word index
-	[27:21] argC — rotation amount or roll distance
-	[30:28] reserved (must be 0 for forward compatibility)
+	[27:21] argC — rotation, roll distance, register index, or memory-load arg
+	[28]     meta — opcode-dependent (active LSM fetch; resonator uses reg for rot)
+	[30:29] reserved
 
 Legacy slots keep bit 31 clear; decoding matches README (4-bit TT + 14-bit indices).
 */
 const LGPExtendedMarker uint32 = 0x80000000
+
+/*
+LGPXMetaFlagBit is bit 28. Meaning depends on extended opcode: opcode 5
+selects active LSM fetch (clone neighbors to PRIORITY); opcode 6 means argC
+is a register index whose low 6 bits supply rotation instead of an immediate.
+*/
+const LGPXMetaFlagBit uint32 = 1 << 28
 
 /*
 PackExtendedInstruction builds a 32-bit extended LGP slot from opcode and
@@ -28,11 +36,26 @@ three 7-bit word indices / immediates.
 */
 func PackExtendedInstruction(op uint8, argA, argB, argC int) uint32 {
 
-	return LGPExtendedMarker |
+	return PackExtendedInstructionMeta(op, argA, argB, argC, false)
+}
+
+/*
+PackExtendedInstructionMeta is like PackExtendedInstruction but sets the
+meta flag when active (see LGPXMetaFlagBit).
+*/
+func PackExtendedInstructionMeta(op uint8, argA, argB, argC int, meta bool) uint32 {
+
+	v := LGPExtendedMarker |
 		uint32(op&0x7F) |
 		uint32(argA&0x7F)<<7 |
 		uint32(argB&0x7F)<<14 |
 		uint32(argC&0x7F)<<21
+
+	if meta {
+		v |= LGPXMetaFlagBit
+	}
+
+	return v
 }
 
 /*
@@ -51,19 +74,21 @@ const (
 
 /*
 DecodeExtendedInstruction extracts fields when instr carries LGPExtendedMarker.
+meta is the opcode-dependent flag at bit 28.
 */
-func DecodeExtendedInstruction(instr uint32) (op uint8, argA, argB, argC int, extended bool) {
+func DecodeExtendedInstruction(instr uint32) (op uint8, argA, argB, argC int, meta bool, extended bool) {
 
 	if instr&LGPExtendedMarker == 0 {
-		return 0, 0, 0, 0, false
+		return 0, 0, 0, 0, false, false
 	}
 
 	op = uint8(instr & 0x7F)
 	argA = int((instr >> 7) & 0x7F)
 	argB = int((instr >> 14) & 0x7F)
 	argC = int((instr >> 21) & 0x7F)
+	meta = instr&LGPXMetaFlagBit != 0
 
-	return op, argA, argB, argC, true
+	return op, argA, argB, argC, meta, true
 }
 
 func clampWordIndex(idx int) int {
@@ -81,30 +106,7 @@ func clampWordIndex(idx int) int {
 
 func majorityU64(a, b, c uint64) uint64 {
 
-	var out uint64
-
-	for bit := 0; bit < 64; bit++ {
-		mask := uint64(1) << bit
-		count := 0
-
-		if a&mask != 0 {
-			count++
-		}
-
-		if b&mask != 0 {
-			count++
-		}
-
-		if c&mask != 0 {
-			count++
-		}
-
-		if count >= 2 {
-			out |= mask
-		}
-	}
-
-	return out
+	return (a & b) | (b & c) | (a & c)
 }
 
 /*
@@ -112,7 +114,7 @@ ExecuteExtendedInstruction applies one extended slot to a single frame.
 */
 func ExecuteExtendedInstruction(frame *[128]uint64, instr uint32) {
 
-	op, argA, argB, argC, ok := DecodeExtendedInstruction(instr)
+	op, argA, argB, argC, meta, ok := DecodeExtendedInstruction(instr)
 	if !ok {
 		return
 	}
@@ -186,15 +188,33 @@ func ExecuteExtendedInstruction(frame *[128]uint64, instr uint32) {
 		var buffer [128]uint64
 
 		for offset := 0; offset < tokenWords; offset++ {
-			buffer[offset] = frame[base+offset]
+			readIdx := base + offset
+
+			if readIdx < 0 || readIdx >= len(frame) {
+				return
+			}
+
+			buffer[offset] = frame[readIdx]
 		}
 
 		for offset := 0; offset < tokenWords; offset++ {
 			target := (offset + shift) % tokenWords
-			frame[base+target] = buffer[offset]
+			destIdx := base + target
+
+			if destIdx < 0 || destIdx >= len(frame) {
+				return
+			}
+
+			frame[destIdx] = buffer[offset]
 		}
 
 	case LGPXMemoryLoadMark:
+		if meta {
+			primitive.SetMemoryLoadActiveFetchPending(frame, argA)
+
+			break
+		}
+
 		primitive.SetMemoryLoadPending(frame, argA, argB)
 
 	case LGPXResonatorUnbind:
@@ -210,7 +230,16 @@ func ExecuteExtendedInstruction(frame *[128]uint64, instr uint32) {
 			pivot = frame[prevWord]
 		}
 
-		primitive.ApplyResonatorUnbindToTokens(frame, pivot, argC)
+		rot := argC
+		if meta {
+			rot = 0
+
+			if argC >= 0 && argC < len(frame) {
+				rot = int(frame[argC] & 63)
+			}
+		}
+
+		primitive.ApplyResonatorUnbindToTokens(frame, pivot, rot)
 
 	default:
 		return

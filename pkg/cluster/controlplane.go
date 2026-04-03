@@ -195,9 +195,6 @@ func (cp *ControlPlane) SampleSleepScratchPairs(maxPairs int) [][2]*primitive.Va
 	}
 
 	need := maxPairs * 2
-	if need < 2 {
-		return nil
-	}
 
 	ent := cp.rt.SamplePeerEntries(need)
 

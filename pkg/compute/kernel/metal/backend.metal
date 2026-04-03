@@ -8,15 +8,7 @@ inline ulong rotl64(ulong x, int r) {
 }
 
 inline ulong majority_u64(ulong a, ulong b, ulong c) {
-    ulong out = 0;
-    for (int bit = 0; bit < 64; bit++) {
-        ulong m = 1UL << bit;
-        int cnt = ((a & m) != 0) + ((b & m) != 0) + ((c & m) != 0);
-        if (cnt >= 2) {
-            out |= m;
-        }
-    }
-    return out;
+    return (a & b) | (b & c) | (a & c);
 }
 
 void execute_extended_slot(thread ulong* ctx, uint instr) {
@@ -30,6 +22,10 @@ void execute_extended_slot(thread ulong* ctx, uint instr) {
 
     switch (op) {
     case 1u:
+        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
+            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
+            break;
+        }
         for (int i = 0; i < TOKEN_WORDS; i++) {
             int wi = TOKENS_START_WORD + i;
             int ai = argA + i;
@@ -37,6 +33,11 @@ void execute_extended_slot(thread ulong* ctx, uint instr) {
         }
         break;
     case 2u:
+        if (argA < 0 || argA + TOKEN_WORDS > WORDS ||
+            argB < 0 || argB + TOKEN_WORDS > WORDS ||
+            TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
+            break;
+        }
         for (int i = 0; i < TOKEN_WORDS; i++) {
             int wi = TOKENS_START_WORD + i;
             int ai = argA + i;
@@ -63,7 +64,10 @@ void execute_extended_slot(thread ulong* ctx, uint instr) {
         if (sh == 0) {
             break;
         }
-        ulong buf[128];
+        if (TOKENS_START_WORD < 0 || TOKENS_START_WORD + TOKEN_WORDS > WORDS) {
+            break;
+        }
+        ulong buf[TOKEN_WORDS];
         for (int i = 0; i < TOKEN_WORDS; i++) {
             buf[i] = ctx[TOKENS_START_WORD + i];
         }

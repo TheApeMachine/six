@@ -31,6 +31,24 @@ func NewEliteArchive() *EliteArchive {
 	}
 }
 
+/*
+clampedGridShift returns MAP-Elites high-bit fold width: default 8 when unset,
+capped at 63 so (64 - shift) is always positive.
+*/
+func clampedGridShift() uint {
+
+	shift := core.Cfg.System.MapElitesGridShift
+	if shift == 0 {
+		return 8
+	}
+
+	if shift >= 64 {
+		return 63
+	}
+
+	return shift
+}
+
 func eliteBinFromFrame(frame *[128]uint64) uint16 {
 
 	if frame == nil {
@@ -42,16 +60,20 @@ func eliteBinFromFrame(frame *[128]uint64) uint16 {
 		return 0
 	}
 
-	shift := core.Cfg.System.MapElitesGridShift
-	if shift == 0 {
-		shift = 8
-	}
-
-	if shift >= 64 {
-		shift = 63
-	}
+	shift := clampedGridShift()
 
 	return uint16(frame[affWord] >> (64 - shift))
+}
+
+/*
+EliteBinFromHostKey maps a host-written FW hash to the same MAP-Elites bin
+layout used by StoreIfBetter, so dynamic skill selection addresses the archive.
+*/
+func EliteBinFromHostKey(hostKey uint64) uint16 {
+
+	shift := clampedGridShift()
+
+	return uint16(hostKey >> (64 - shift))
 }
 
 func snapshotProgramBand(frame *[128]uint64) []uint64 {
@@ -132,6 +154,10 @@ func (archive *EliteArchive) TryInject(dst *[128]uint64, rng *rand.Rand) bool {
 			idx = 0
 		}
 
+		if idx > 0xffff {
+			idx = 0xffff
+		}
+
 		bin := uint16(idx)
 		band, ok := archive.bands[bin]
 		if !ok || len(band) == 0 {
@@ -144,4 +170,28 @@ func (archive *EliteArchive) TryInject(dst *[128]uint64, rng *rand.Rand) bool {
 	}
 
 	return false
+}
+
+/*
+LookupBand returns a copy of the elite program band for an explicit bin, if one
+exists. The caller must hold no EliteArchive locks.
+*/
+func (archive *EliteArchive) LookupBand(bin uint16) (band []uint64, ok bool) {
+
+	if archive == nil {
+		return nil, false
+	}
+
+	archive.mu.Lock()
+	defer archive.mu.Unlock()
+
+	src, exists := archive.bands[bin]
+	if !exists || len(src) == 0 {
+		return nil, false
+	}
+
+	band = make([]uint64, len(src))
+	copy(band, src)
+
+	return band, true
 }

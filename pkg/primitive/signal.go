@@ -92,11 +92,16 @@ func ScanSignals(a, b *Value, tokenWords int, baseIdx int) []Signal {
 				break
 			}
 
+			maskA := TokenAttentionMaskForWord(a, w)
+			maskB := TokenAttentionMaskForWord(b, w)
+			ta := a[idx] & maskA
+			tb := b[idx] & maskB
+
 			switch spec.op {
 			case 0x6:
-				opWords[w] = a[idx] ^ b[idx]
+				opWords[w] = ta ^ tb
 			case 0x1:
-				opWords[w] = a[idx] & b[idx]
+				opWords[w] = ta & tb
 			}
 		}
 

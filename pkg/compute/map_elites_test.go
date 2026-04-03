@@ -46,3 +46,39 @@ func TestEliteArchiveStoreAndInject(t *testing.T) {
 		convey.So(dst[76], convey.ShouldEqual, highFit[76])
 	})
 }
+
+func TestEliteArchiveLookupBand(t *testing.T) {
+
+	convey.Convey("LookupBand returns a stored band for EliteBinFromHostKey", t, func() {
+		saved := core.Cfg.System.MapElitesGridShift
+		core.Cfg.System.MapElitesGridShift = 8
+		defer func() {
+			core.Cfg.System.MapElitesGridShift = saved
+		}()
+
+		core.Cfg.Value.Words = 128
+		core.Cfg.Value.Region.Affinity.Start = 63
+		core.Cfg.Value.Region.Program.Start = 76
+		core.Cfg.Value.Region.Program.Bits = 3328
+
+		archive := NewEliteArchive()
+
+		convey.Convey("returns ok false when bin has no elite", func() {
+			emptyBin := EliteBinFromHostKey(0xDEADBEEFCAFEBABE)
+			bandEmpty, okEmpty := archive.LookupBand(emptyBin)
+			convey.So(okEmpty, convey.ShouldBeFalse)
+			convey.So(bandEmpty, convey.ShouldBeNil)
+		})
+
+		var frame [128]uint64
+		frame[63] = 0x9000000000000000
+		frame[76] = 0x1111111111111111
+
+		archive.StoreIfBetter(&frame, 0.5)
+		bin := EliteBinFromHostKey(0x9000000000000000)
+		band, ok := archive.LookupBand(bin)
+		convey.So(ok, convey.ShouldBeTrue)
+		convey.So(len(band), convey.ShouldBeGreaterThan, 0)
+		convey.So(band[0], convey.ShouldEqual, frame[76])
+	})
+}

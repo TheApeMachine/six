@@ -109,6 +109,23 @@ func DiscardTokenIDsByValueID(valueID uint64) {
 }
 
 /*
+ClonePooledFrame returns a distinct pooled Value with identical words to src.
+Used when enqueueing LSM neighbors so PRIORITY batches do not alias live index
+storage.
+*/
+func ClonePooledFrame(src *Value) *Value {
+
+	if src == nil {
+		return nil
+	}
+
+	dst := valuePool.Get().(*Value)
+	*dst = *src
+
+	return dst
+}
+
+/*
 ReleaseFrame zeros the frame, discards its token metadata, and returns
 it to the value pool. Use this instead of letting frames fall to the GC
 when they exit the pipeline without a Close() call (e.g. dropped

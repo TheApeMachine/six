@@ -13,6 +13,17 @@ MacroGraph buffers hold XOR-accumulated token strips keyed by a parent ValueID
 */
 var macroGraph sync.Map // uint64 -> []uint64
 
+// macroGraphLocks serializes XOR updates per parent so concurrent emissions
+// do not drop accumulation steps.
+var macroGraphLocks sync.Map // uint64 -> *sync.Mutex
+
+func macroGraphMutex(parentValueID uint64) *sync.Mutex {
+
+	v, _ := macroGraphLocks.LoadOrStore(parentValueID, new(sync.Mutex))
+
+	return v.(*sync.Mutex)
+}
+
 /*
 MacroGraphAccumulateFromChild XORs a child token region into the macro buffer
 for parentValueID (typically canonical parent A after signal emission).
@@ -26,6 +37,10 @@ func MacroGraphAccumulateFromChild(parentValueID uint64, child *Value) {
 	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
 	tokenWords := int((tokenBits + 63) / 64)
 	base := core.Cfg.Value.Region.Tokens.Start
+
+	mu := macroGraphMutex(parentValueID)
+	mu.Lock()
+	defer mu.Unlock()
 
 	buf := make([]uint64, tokenWords)
 
@@ -55,6 +70,10 @@ func MacroGraphSnapshot(valueID uint64) ([]uint64, bool) {
 		return nil, false
 	}
 
+	mu := macroGraphMutex(valueID)
+	mu.Lock()
+	defer mu.Unlock()
+
 	raw, ok := macroGraph.Load(valueID)
 	if !ok {
 		return nil, false
@@ -75,6 +94,14 @@ func MacroGraphSnapshot(valueID uint64) ([]uint64, bool) {
 MacroGraphDiscard removes a macro buffer (e.g. when a Value evaporates).
 */
 func MacroGraphDiscard(valueID uint64) {
+
+	if valueID == 0 {
+		return
+	}
+
+	mu := macroGraphMutex(valueID)
+	mu.Lock()
+	defer mu.Unlock()
 
 	macroGraph.Delete(valueID)
 }

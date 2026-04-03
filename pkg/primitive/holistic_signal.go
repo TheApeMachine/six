@@ -52,7 +52,19 @@ func ChunkedHolisticStrength(
 			break
 		}
 
-		dist := tokenRegionHammingWindow(parent, workspace, base, chunkStart, width)
+		var dist int
+
+		if TokenAttentionActive(parent, workspace) {
+			dist = tokenRegionHammingWindowMasked(
+				parent,
+				workspace,
+				base,
+				chunkStart,
+				width,
+			)
+		} else {
+			dist = tokenRegionHammingWindow(parent, workspace, base, chunkStart, width)
+		}
 		norm := float64(dist) / float64(width)
 
 		if bestNorm < 0 || norm < bestNorm {
@@ -88,6 +100,10 @@ func tokenRegionHammingWindow(
 	base, bitStart, width int,
 ) int {
 
+	if a == nil || b == nil {
+		return 0
+	}
+
 	if width <= 0 {
 		return 0
 	}
@@ -107,6 +123,47 @@ func tokenRegionHammingWindow(
 		vb := (b[wordIdx] >> uint(shift)) & 1
 
 		if va != vb {
+			dist++
+		}
+	}
+
+	return dist
+}
+
+func tokenRegionHammingWindowMasked(
+	a, b *Value,
+	base, bitStart, width int,
+) int {
+
+	if a == nil || b == nil {
+		return 0
+	}
+
+	if width <= 0 {
+		return 0
+	}
+
+	dist := 0
+
+	for offset := 0; offset < width; offset++ {
+		bit := bitStart + offset
+		wordOffset := bit / 64
+		shift := bit % 64
+		wordIdx := base + wordOffset
+
+		if wordIdx < 0 || wordIdx >= len(*a) || wordIdx >= len(*b) {
+			break
+		}
+
+		maskA := TokenAttentionMaskForWord(a, wordOffset)
+		maskB := TokenAttentionMaskForWord(b, wordOffset)
+
+		va := (a[wordIdx] >> uint(shift)) & 1
+		vb := (b[wordIdx] >> uint(shift)) & 1
+		ma := (maskA >> uint(shift)) & 1
+		mb := (maskB >> uint(shift)) & 1
+
+		if va&ma != vb&mb {
 			dist++
 		}
 	}

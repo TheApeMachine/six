@@ -4,8 +4,8 @@ import (
 	"context"
 	"errors"
 	"io"
-	"iter"
 	"sync/atomic"
+	"time"
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/cluster"
@@ -44,12 +44,11 @@ type machineOption func(*Machine)
 
 /*
 CorpusProvider is the ingest shape of experiment/data.Provider without pulling
-experiment packages into vm. Staging loads ReadAll on the ReadCloser then
-closes it.
+experiment packages into vm. LoadCorpus reads the full stream via io.ReadAll
+then closes the provider; streaming iteration is the provider's own concern.
 */
 type CorpusProvider interface {
 	io.ReadCloser
-	Generate() iter.Seq[byte]
 }
 
 /*
@@ -104,6 +103,30 @@ func NewMachine(
 				}
 
 				return controlplane.SampleSleepScratchPairs(maxPairs)
+			},
+		),
+		compute.WithMemoryLoad(
+			func(queryAffinity uint64) (primitive.Value, bool) {
+				if controlplane == nil {
+					return primitive.Value{}, false
+				}
+
+				closest := controlplane.FindClosest(queryAffinity)
+
+				if len(closest) > 0 {
+					return closest[0], true
+				}
+
+				return primitive.Value{}, false
+			},
+		),
+		compute.WithMemoryEnqueue(
+			func(queryAffinity uint64) []primitive.Value {
+				if controlplane == nil {
+					return nil
+				}
+
+				return controlplane.FindClosest(queryAffinity)
 			},
 		),
 	}
@@ -206,6 +229,25 @@ func (machine *Machine) start() (err error) {
 									NodeID:  promptID,
 								},
 							})
+
+							/*
+								Wait for the prompt frame to settle: handleFollowUp clears
+								FW once the frame exits active queues, or we time out so
+								UniversalBitwise + emitSignalsInBatch can finish linking.
+							*/
+							settleDeadline := time.Now().Add(250 * time.Millisecond)
+
+							for time.Now().Before(settleDeadline) {
+								fw := promptValue.GetWord(
+									core.Cfg.Value.Region.Registers.FW,
+								)
+
+								if fw == 0 {
+									break
+								}
+
+								time.Sleep(5 * time.Millisecond)
+							}
 
 							output := machine.collectPromptOutput(promptValue)
 
@@ -344,6 +386,51 @@ func (machine *Machine) collectPromptOutput(value *primitive.Value) []byte {
 				},
 			})
 			return output
+		}
+	}
+
+	/*
+		Semantic resonance: when NextID chaining yields nothing, use the prompt
+		affinity against the Kademlia LSM to fetch near neighbors, then pick the
+		highest SubstrateExploitScore so output is not reduced to self-echo.
+	*/
+	if machine.controlplane != nil {
+		affinity := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
+		closest := machine.controlplane.FindClosest(affinity)
+
+		var bestMatch *primitive.Value
+		bestScore := -1.0
+
+		for index := range closest {
+			candidate := &closest[index]
+			candID := candidate.GetWord(core.Cfg.Value.Region.ID.Start)
+
+			if candID == valueID || candID == 0 {
+				continue
+			}
+
+			score := primitive.SubstrateExploitScore(value, candidate)
+
+			if score > bestScore {
+				bestScore = score
+				bestMatch = candidate
+			}
+		}
+
+		if bestMatch != nil && bestScore > 0 {
+			bestID := bestMatch.GetWord(core.Cfg.Value.Region.ID.Start)
+
+			candTokenIDs := primitive.ValueTokenIDsForLookup(bestID)
+
+			if len(candTokenIDs) == 0 {
+				candTokenIDs = machine.controlplane.LookupKeysByValueID(bestID)
+			}
+
+			if len(candTokenIDs) > 0 {
+				return primitive.DecodeTokenIDs(candTokenIDs)
+			}
+
+			return bestMatch.TokenRegionObservedBytes()
 		}
 	}
 
