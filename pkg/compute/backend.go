@@ -203,7 +203,9 @@ func (backend *Backend) enqueuePriorityUnsafe(ptr unsafe.Pointer) {
 
 /*
 pushPrioritySpill enqueues into the lock-free spill ring when the PRIORITY
-channel is saturated. Never drops the frame — spins on transient full ring.
+channel is saturated. Spins while the ring is transiently full, but returns
+without enqueueing when backend.ctx is cancelled so teardown is not blocked
+if consumers have stopped (the frame is abandoned on shutdown).
 */
 func (backend *Backend) pushPrioritySpill(ptr unsafe.Pointer) {
 
@@ -214,6 +216,14 @@ func (backend *Backend) pushPrioritySpill(ptr unsafe.Pointer) {
 	ring := backend.spillRingForPush()
 
 	for !ring.tryPush(ptr) {
+		if backend.ctx != nil {
+			select {
+			case <-backend.ctx.Done():
+				return
+			default:
+			}
+		}
+
 		runtime.Gosched()
 	}
 }

@@ -4,6 +4,7 @@ import (
 	"runtime"
 	"sync"
 	"testing"
+	"time"
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
@@ -82,15 +83,28 @@ func TestPrioritySpillRingTryPushConcurrentWithTryPop(t *testing.T) {
 		popped := 0
 		target := perProducer * 2
 
+		drainTimeout := time.NewTimer(30 * time.Second)
+		defer drainTimeout.Stop()
+
 		for popped < target {
-			ptr := ring.tryPop()
-			if ptr == nil {
-				runtime.Gosched()
+			select {
+			case <-drainTimeout.C:
+				t.Fatalf(
+					"TestPrioritySpillRingTryPushConcurrentWithTryPop: drain timed out (ring.tryPop stalled; popped=%d target=%d perProducer=%d runProducer)",
+					popped,
+					target,
+					perProducer,
+				)
+			default:
+				ptr := ring.tryPop()
+				if ptr == nil {
+					runtime.Gosched()
 
-				continue
+					continue
+				}
+
+				popped++
 			}
-
-			popped++
 		}
 
 		producers.Wait()
