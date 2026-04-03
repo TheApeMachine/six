@@ -215,3 +215,24 @@ func TokenizerWithBackend(backend *compute.Backend) TokenizerOpts {
 		tokenizer.backend = backend
 	}
 }
+
+/*
+TokenizerChunkBytes is the maximum raw payload length primitive.NewValue keeps
+per frame (token region bit capacity ÷ 8). Callers that split a long byte slice
+into multiple Values should use this stride so chunks match tokenizer ingress
+and NewValue bounds.
+*/
+func TokenizerChunkBytes() int {
+
+	bits := core.Cfg.Value.Region.Tokens.Bits
+	if bits <= 0 {
+		return 1
+	}
+
+	n := int(bits / 8)
+	if n <= 0 {
+		return 1
+	}
+
+	return n
+}

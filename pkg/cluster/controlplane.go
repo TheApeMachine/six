@@ -182,3 +182,43 @@ func (cp *ControlPlane) FindClosest(targetAffinity uint64) []primitive.Value {
 
 	return values
 }
+
+/*
+SampleSleepScratchPairs clones random peer frames from the routing table,
+rewires them as scratch Values, and returns up to maxPairs disjoint pairs
+for backend sleep consolidation.
+*/
+func (cp *ControlPlane) SampleSleepScratchPairs(maxPairs int) [][2]*primitive.Value {
+
+	if cp == nil || cp.rt == nil || maxPairs <= 0 {
+		return nil
+	}
+
+	need := maxPairs * 2
+	if need < 2 {
+		return nil
+	}
+
+	ent := cp.rt.SamplePeerEntries(need)
+
+	out := make([][2]*primitive.Value, 0, maxPairs)
+
+	for index := 0; index+1 < len(ent) && len(out) < maxPairs; index += 2 {
+		if ent[index].value == nil || ent[index+1].value == nil {
+			continue
+		}
+
+		left := new(primitive.Value)
+		right := new(primitive.Value)
+
+		*left = *ent[index].value
+		*right = *ent[index+1].value
+
+		primitive.PrepareSleepScratchFrame(left)
+		primitive.PrepareSleepScratchFrame(right)
+
+		out = append(out, [2]*primitive.Value{left, right})
+	}
+
+	return out
+}

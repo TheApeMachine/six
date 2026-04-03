@@ -25,6 +25,26 @@ func TestDecodeHIE(t *testing.T) {
 	})
 }
 
+func TestHolographicCrossoverXORBind(t *testing.T) {
+
+	Convey("XORBind produces a decoded payload distinct from pure majority crossover", t, func() {
+		var recipientMAJ, recipientXOR, donorA, donorB [128]uint64
+		rng := rand.New(rand.NewSource(11))
+		first := ProgramPayloadFirst32BitSlot()
+		instrA := uint32(0x00FF00EE)
+		instrB := uint32(0xEE00FF11)
+		SetInstructionSlot(&donorA, first, instrA)
+		SetInstructionSlot(&donorB, first, instrB)
+		primitiveCopyProgramPrefix(&recipientMAJ, &donorA)
+		primitiveCopyProgramPrefix(&recipientXOR, &donorA)
+
+		HolographicCrossover(&recipientMAJ, &donorA, &donorB, rng, 0.4)
+		HolographicCrossoverXORBind(&recipientXOR, &donorA, &donorB, rand.New(rand.NewSource(11)), 0.4)
+
+		So(InstructionSlot(&recipientMAJ, first), ShouldNotEqual, InstructionSlot(&recipientXOR, first))
+	})
+}
+
 func TestHolographicCrossover(t *testing.T) {
 	Convey("Given two donors with distinct payload instructions", t, func() {
 		var recipient, donorA, donorB [128]uint64

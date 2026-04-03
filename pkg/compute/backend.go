@@ -2,6 +2,7 @@ package compute
 
 import (
 	"context"
+	"math/bits"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -66,6 +67,25 @@ index (control plane). The backend handles re-queuing for execution.
 */
 type EmitCallback func(value *primitive.Value)
 
+/*
+MemoryLoadHook resolves LGPXMemoryLoadMark requests after UniversalBitwise.
+The query is the uint64 read from the query word index encoded in the slot;
+return ok false when no neighbor exists.
+*/
+type MemoryLoadHook func(queryAffinity uint64) (primitive.Value, bool)
+
+/*
+SemanticAffinityReinsert is invoked when RefreshSemanticAffinityKey changes
+the in-frame Affinity word so the control plane can re-index the Value.
+*/
+type SemanticAffinityReinsert func(value *primitive.Value)
+
+/*
+SleepSampleFunc returns scratch frame pairs for offline consolidation (cloned
+frames with fresh IDs — see cluster.ControlPlane.SampleSleepScratchPairs).
+*/
+type SleepSampleFunc func(maxPairs int) [][2]*primitive.Value
+
 type Backend struct {
 	ctx                      context.Context
 	cancel                   context.CancelFunc
@@ -77,6 +97,9 @@ type Backend struct {
 	hardwareState            []hardwareMetrics
 	droppedPriorityFollowUps atomic.Uint64
 	onEmit                   EmitCallback
+	memoryLoad               MemoryLoadHook
+	semanticReinsert         SemanticAffinityReinsert
+	sleepSample              SleepSampleFunc
 	evolution                EvolutionStage
 }
 
@@ -90,6 +113,129 @@ func WithEmitCallback(fn EmitCallback) BackendOption {
 	return func(backend *Backend) {
 		backend.onEmit = fn
 	}
+}
+
+/*
+WithMemoryLoad registers a hook that satisfies in-band LGPXMemoryLoadMark
+requests (see pkg/compute/kernel/cpu extended ISA).
+*/
+func WithMemoryLoad(hook MemoryLoadHook) BackendOption {
+	return func(backend *Backend) {
+		backend.memoryLoad = hook
+	}
+}
+
+/*
+WithSemanticAffinityReinsert registers a callback after UniversalBitwise when
+semantic affinity refresh moves the routing key.
+*/
+func WithSemanticAffinityReinsert(fn SemanticAffinityReinsert) BackendOption {
+	return func(backend *Backend) {
+		backend.semanticReinsert = fn
+	}
+}
+
+/*
+WithSleepSample registers a provider of scratch pairs for periodic sleep
+consolidation (fixed-interval ticker via core.SubstrateSleepIdle).
+*/
+func WithSleepSample(fn SleepSampleFunc) BackendOption {
+	return func(backend *Backend) {
+		backend.sleepSample = fn
+	}
+}
+
+func (backend *Backend) drainMemoryLoads(frames []unsafe.Pointer) {
+
+	if backend.memoryLoad == nil {
+		return
+	}
+
+	primitive.ProcessMemoryLoadRequests(frames, backend.memoryLoad)
+}
+
+/*
+runUniversalWithSettling runs UniversalBitwise, drains memory loads, and
+optionally repeats until the token region Hamming delta falls below epsilon.
+*/
+func (backend *Backend) runUniversalWithSettling(group []unsafe.Pointer) error {
+
+	err := backend.universalBitwisePreferredWithFallback(group)
+	if err != nil {
+		return err
+	}
+
+	backend.drainMemoryLoads(group)
+
+	maxPass := core.Cfg.System.TokenSettleMaxPasses
+	if maxPass <= 0 {
+		maxPass = core.DefaultTokenSettleMaxPasses
+	}
+
+	epsilon := core.Cfg.System.TokenSettleEpsilonBits
+	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
+	tokenWords := int((tokenBits + 63) / 64)
+	base := core.Cfg.Value.Region.Tokens.Start
+
+	if tokenWords <= 0 || base < 0 {
+		return nil
+	}
+
+	for pass := 1; pass <= maxPass; pass++ {
+		snapshots := make([][]uint64, len(group))
+
+		for index, ptr := range group {
+			if ptr == nil {
+				continue
+			}
+
+			frame := (*[128]uint64)(ptr)
+			buf := make([]uint64, tokenWords)
+			copy(buf, frame[base:base+tokenWords])
+			snapshots[index] = buf
+		}
+
+		err = backend.universalBitwisePreferredWithFallback(group)
+		if err != nil {
+			return err
+		}
+
+		backend.drainMemoryLoads(group)
+
+		settled := true
+
+		for index, ptr := range group {
+			if ptr == nil {
+				continue
+			}
+
+			prev := snapshots[index]
+			if len(prev) == 0 {
+				continue
+			}
+
+			frame := (*[128]uint64)(ptr)
+			ham := 0
+
+			for word := 0; word < tokenWords; word++ {
+				ham += bits.OnesCount64(
+					frame[base+word] ^ prev[word],
+				)
+			}
+
+			if ham > epsilon {
+				settled = false
+
+				break
+			}
+		}
+
+		if settled {
+			break
+		}
+	}
+
+	return nil
 }
 
 /*
@@ -159,9 +305,89 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 
 func (backend *Backend) start() *Backend {
 	go backend.runUnifiedQueue()
+
+	if backend.sleepSample != nil {
+		go backend.runSleepLoop()
+	}
+
 	go backend.runCircuitBreakerProbe()
 
 	return backend
+}
+
+func (backend *Backend) runSleepLoop() {
+
+	ticker := time.NewTicker(core.SubstrateSleepIdle)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-backend.ctx.Done():
+			return
+		case <-ticker.C:
+			backend.runSleepConsolidation()
+		}
+	}
+}
+
+func (backend *Backend) runSleepConsolidation() {
+
+	if backend.sleepSample == nil || backend.evolution == nil {
+		return
+	}
+
+	maxPairs := core.Cfg.System.SleepMaxPairs
+	if maxPairs <= 0 {
+		return
+	}
+
+	pairs := backend.sleepSample(maxPairs)
+	if len(pairs) == 0 {
+		return
+	}
+
+	for _, pair := range pairs {
+		if pair[0] == nil || pair[1] == nil {
+			continue
+		}
+
+		ptrs := []unsafe.Pointer{
+			unsafe.Pointer(pair[0]),
+			unsafe.Pointer(pair[1]),
+		}
+
+		frameGroups := backend.groupFramesByProgram(ptrs)
+
+		for _, group := range frameGroups {
+			if len(group) == 0 {
+				continue
+			}
+
+			if err := backend.runUniversalWithSettling(group); err != nil {
+				errnie.Warn(
+					"compute.backend: sleep UniversalBitwise failed",
+					"err", err,
+				)
+			}
+		}
+
+		backend.evolution.ProcessBatch(frameGroups, ptrs)
+
+		primitive.ReleaseFrame((*[128]uint64)(unsafe.Pointer(pair[0])))
+		primitive.ReleaseFrame((*[128]uint64)(unsafe.Pointer(pair[1])))
+	}
+}
+
+func compactUnsafePointers(frames []unsafe.Pointer) []unsafe.Pointer {
+
+	out := frames[:0]
+	for _, ptr := range frames {
+		if ptr != nil {
+			out = append(out, ptr)
+		}
+	}
+
+	return out
 }
 
 /*
@@ -362,10 +588,8 @@ coalesce:
 func (backend *Backend) gatherCoalesceDuration() time.Duration {
 	coalesce := backend.batchWindow
 
-	if core.Cfg.System.ProgramEvolution {
-		if ew := core.Cfg.System.EvolutionBatchWindow; ew > coalesce {
-			coalesce = ew
-		}
+	if ew := core.Cfg.System.EvolutionBatchWindow; ew > coalesce {
+		coalesce = ew
 	}
 
 	return coalesce
@@ -503,7 +727,7 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		if err := backend.universalBitwisePreferredWithFallback(group); err != nil {
+		if err := backend.runUniversalWithSettling(group); err != nil {
 			return err
 		}
 
@@ -517,6 +741,32 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 		})
 	}
 
+	affWord := core.Cfg.Value.Region.Affinity.Start
+
+	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
+		value := (*primitive.Value)(ptr)
+
+		oldAff := uint64(0)
+		if affWord >= 0 && affWord < len(*value) {
+			oldAff = (*value)[affWord]
+		}
+
+		value.RefreshSemanticAffinityKey()
+
+		newAff := uint64(0)
+		if affWord >= 0 && affWord < len(*value) {
+			newAff = (*value)[affWord]
+		}
+
+		if backend.semanticReinsert != nil && oldAff != newAff {
+			backend.semanticReinsert(value)
+		}
+	}
+
 	// ── Phase 2: Evolution lifecycle ────────────────────────────────
 	// Delegate to the EvolutionStage for crossover and signal emission.
 	// The backend does NOT know about HolographicCrossover, parentBias,
@@ -525,11 +775,40 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 		backend.evolution.ProcessBatch(frameGroups, frames)
 	}
 
-	// ── Phase 3: Telemetry and follow-up ────────────────────────────
 	idWord := core.Cfg.Value.Region.ID.Start
+
+	for index := range frames {
+		ptr := frames[index]
+		if ptr == nil {
+			continue
+		}
+
+		frame := (*[128]uint64)(ptr)
+
+		primitive.ApplyThermodynamicDecay(frame)
+		if primitive.ThermodynamicIsExhausted(frame) {
+			vid := frame[idWord]
+
+			primitive.MacroGraphDiscard(vid)
+
+			value := (*primitive.Value)(frame)
+			_ = value.InstallFirmware(core.FirmwareTypeTombstone)
+
+			primitive.ReleaseFrame(frame)
+			frames[index] = nil
+		}
+	}
+
+	frames = compactUnsafePointers(frames)
+
+	// ── Phase 3: Telemetry and follow-up ────────────────────────────
 	prevWord := core.Cfg.Value.Region.Prev.Start
 	nextWord := core.Cfg.Value.Region.Next.Start
 	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
 		frame := (*[128]uint64)(ptr)
 		vid := frame[idWord]
 		pid := frame[prevWord]
@@ -561,6 +840,10 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 	fwWord := core.Cfg.Value.Region.Registers.FW
 
 	for _, value := range frames {
+		if value == nil {
+			continue
+		}
+
 		frame := (*[128]uint64)(value)
 
 		if frameShouldSkipFollowUp(frame) {
@@ -641,6 +924,10 @@ func (backend *Backend) groupFramesByProgram(frames []unsafe.Pointer) [][]unsafe
 	groupIndexByFingerprint := make(map[uint64][]int, len(frames))
 
 	for _, ptr := range frames {
+		if ptr == nil {
+			continue
+		}
+
 		frame := (*[128]uint64)(ptr)
 		fingerprint := programFingerprint(frame, progStart, nProgWords)
 		candidates := groupIndexByFingerprint[fingerprint]

@@ -11,6 +11,10 @@
 #define PAYLOAD_PROGRAM_WORD_OFFSET              4
 #define USER_PROGRAM_PC_START                    8
 #define MAX_PC                                   104
+#define TOKENS_START_WORD                        0
+#define TOKEN_WORDS                              57
+#define STATE_INDEX_WORD                         60
+#define STATE_ACCUM_WORD                         62
 #define EXEC_STATUS_WORD                         63
 #define EXEC_STATUS_SHIFT                        48
 #define EXEC_EXIT_EXHAUSTED                      1

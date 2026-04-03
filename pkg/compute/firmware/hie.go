@@ -298,3 +298,37 @@ func HolographicCrossoverTwoParent(recipient, donor *[128]uint64, rng *rand.Rand
 
 	HolographicCrossover(recipient, recipient, donor, rng, parentBias)
 }
+
+/*
+HolographicCrossoverXORBind is polycomputational crossover: HIE hypervectors are
+XOR-superposed (VSA-style bind) before nearest-codeword decode, instead of
+3-way majority. Third-parent noise still breaks symmetry so slots do not
+collapse to xor-only minima.
+*/
+func HolographicCrossoverXORBind(
+	recipient, donorA, donorB *[128]uint64,
+	rng *rand.Rand,
+	parentBias float64,
+) {
+
+	if recipient == nil || donorA == nil || donorB == nil || rng == nil {
+		return
+	}
+
+	parentBias = clampParentBias(parentBias)
+
+	firstEvolved := ProgramPayloadFirst32BitSlot()
+	numSlots := program32BitSlotCount()
+
+	for slot := firstEvolved; slot < numSlots; slot++ {
+		instrA := InstructionSlot(donorA, slot)
+		instrB := InstructionSlot(donorB, slot)
+		hvA := EncodeHIE(instrA)
+		hvB := EncodeHIE(instrB)
+		noise := hieNoiseThirdParent(slot, instrA, instrB, rng, parentBias)
+		childHV := hvA ^ hvB ^ noise
+		childInstr := DecodeHIE(childHV)
+
+		SetInstructionSlot(recipient, slot, childInstr)
+	}
+}

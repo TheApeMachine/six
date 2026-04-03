@@ -381,8 +381,16 @@ func NewValue(p []byte) (*Value, error) {
 
 	for idx, b := range p {
 		tokenIDs = append(tokenIDs, Tokenize(b, uint64(idx)))
+
+		value.TemporalRotateTokens(int(uint64(idx)*11 + 3))
+
 		value.LeftShiftTokens()
 		value.BindTokenHD(b)
+
+		if idx >= 2 {
+			value.LeftShiftTokens()
+			value.BindTokenHD(trigramMixByte(p[idx-2], p[idx-1], b))
+		}
 
 		if idx >= 1 {
 			seed = (seed*31 + uint64(b)) & 0x1FFF
@@ -407,6 +415,8 @@ func NewValue(p []byte) (*Value, error) {
 	// token *region words* are superposed HD state; using those as LSM keys
 	// breaks reverse lookup (DecodeTokenIDs sees garbage / a lone stray match).
 	persistTokenIDsByValueID(value, tokenIDs)
+
+	SeedThermodynamicEnergy((*[128]uint64)(value))
 
 	return value, nil
 }

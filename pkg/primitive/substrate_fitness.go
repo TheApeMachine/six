@@ -8,16 +8,30 @@ import (
 
 /*
 SubstrateExploitScore maps pairwise token-region structure to [0, 1] using only
-substrate math: ScanSignals between parent and workspace, then the longest
-local cancel or merge run normalized by the configured token bit width.
-
-High values mean a large coherent agreement span (XOR zero-run / AND one-run)
-between the canonical frame and the post-execution workspace — a substrate-native
-proxy for “this interaction produced sharp structure” without holdouts or text.
+substrate math. Longest-run signal strength and chunked holistic similarity are
+both computed; the larger score wins (same combine rule the emitter uses when
+run-path emission is empty).
 
 nil inputs yield 0.
 */
 func SubstrateExploitScore(parent, workspace *Value) float64 {
+
+	if parent == nil || workspace == nil {
+		return 0
+	}
+
+	runScore := substrateExploitScoreRuns(parent, workspace)
+	hol := HolisticSubstrateScore(parent, workspace)
+
+	if hol > runScore {
+		return hol
+	}
+
+	return runScore
+}
+
+func substrateExploitScoreRuns(parent, workspace *Value) float64 {
+
 	if parent == nil || workspace == nil {
 		return 0
 	}

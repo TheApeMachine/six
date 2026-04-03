@@ -14,12 +14,16 @@ func init() {
 	// These package-wide defaults are intentional for this test package: the CPU
 	// backend tests run without viper/config.yml and need a stable in-memory
 	// layout so every test shares the same explicit frame contract.
+	core.Cfg.Value.Region.Tokens.Start = 0
+	core.Cfg.Value.Region.Tokens.Bits = 3648
 	core.Cfg.Value.Region.Program.Start = 76
 	core.Cfg.Value.Region.Program.Bits = 3328 // 52 words * 64
+	core.Cfg.Value.Region.State.Index = 60
 	core.Cfg.Value.Region.State.Accumulator = 62
 	core.Cfg.Value.Region.State.Sequence = 61
 	core.Cfg.Value.Region.Registers.FW = 74
 	core.Cfg.Value.Region.Registers.PC = 75
+	core.Cfg.Value.Words = 128
 }
 
 // encode32 builds a 32-bit LGP instruction: [3:0] op, [17:4] src, [31:18] dst.
@@ -236,6 +240,30 @@ func TestUniversalBitwisePreservesFollowUpRegistersWithoutInBandWrite(t *testing
 
 		convey.So(f[fwWord], convey.ShouldEqual, uint64(9))
 		convey.So(f[accWord], convey.ShouldEqual, uint64(42))
+	})
+}
+
+func TestUniversalBitwiseExtendedTokenBindStrip(t *testing.T) {
+	convey.Convey("Given an extended VSA bind strip slot", t, func() {
+		backend := NewBackend(context.Background())
+		tok := core.Cfg.Value.Region.Tokens.Start
+
+		convey.Convey("XOR-folds the token head with a same-length strip at argA", func() {
+			var f [128]uint64
+			f[tok] = 0xFFFFFFFFFFFFFFFF
+			f[40] = 0x00FF00FF00FF00FF
+
+			instr := PackExtendedInstruction(LGPXTokenBindStrip, 40, 0, 0)
+			installSlot(&f, 0, instr)
+
+			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
+			convey.So(err, convey.ShouldBeNil)
+			convey.So(
+				f[tok],
+				convey.ShouldEqual,
+				uint64(0xFFFFFFFFFFFFFFFF^0x00FF00FF00FF00FF),
+			)
+		})
 	})
 }
 

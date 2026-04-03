@@ -282,3 +282,43 @@ TODO: Replace with network RPC queries to candidate nodes via UniConn.
 func (rt *RoutingTable) FindNode(_ context.Context, target NodeID) []entry {
 	return rt.FindClosest(target, core.Cfg.ControlPlane.K)
 }
+
+/*
+SamplePeerEntries returns up to limit routing-table entries from peer buckets
+for offline sleep consolidation. Order is bucket-major then entry order; callers
+should clone frames before mutating.
+*/
+func (rt *RoutingTable) SamplePeerEntries(limit int) []entry {
+
+	if limit <= 0 || rt == nil {
+		return nil
+	}
+
+	rt.mu.RLock()
+	buckets := rt.buckets
+	rt.mu.RUnlock()
+
+	out := make([]entry, 0, limit)
+
+	for _, bucket := range buckets {
+		if bucket == nil {
+			continue
+		}
+
+		if len(out) >= limit {
+			break
+		}
+
+		bucket.mu.RLock()
+		for _, ent := range bucket.entries {
+			if len(out) >= limit {
+				break
+			}
+
+			out = append(out, ent)
+		}
+		bucket.mu.RUnlock()
+	}
+
+	return out
+}

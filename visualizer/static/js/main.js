@@ -463,11 +463,11 @@ function formatSubstrateHud(sub) {
   }
   const lines = [
     [
-      `evolution=${sub.programEvolution ? 'on' : 'off'}`,
+      'substrate=unified',
       `batchSize=${sub.batchSize}`,
       `batchWindow=${sub.batchWindow || '—'}`,
       `evoWindow=${sub.evolutionBatchWindow || '—'}`,
-      sub.stepwiseUniversalBitwise ? 'stepwiseUniversalBitwise' : '',
+      `sleepTick=${sub.substrateSleepIdle || '—'}`,
     ].filter(Boolean).join(' · '),
     sub.execSummary || '',
     sub.ingressSummary || '',

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"iter"
 	"sync/atomic"
 	"unsafe"
 
@@ -42,6 +43,16 @@ type Machine struct {
 type machineOption func(*Machine)
 
 /*
+CorpusProvider is the ingest shape of experiment/data.Provider without pulling
+experiment packages into vm. Staging loads ReadAll on the ReadCloser then
+closes it.
+*/
+type CorpusProvider interface {
+	io.ReadCloser
+	Generate() iter.Seq[byte]
+}
+
+/*
 NewMachine constructs a new Machine with the provided options.
 It requires a context for lifecycle management and will return
 an error if the context is invalid or if the underlying stream
@@ -63,15 +74,41 @@ func NewMachine(
 
 	// Create backend with emit callback so signal-emitted children get
 	// inserted into the spatial index automatically.
-	machine.backend = compute.NewBackend(ctx, compute.WithEmitCallback(
-		func(value *primitive.Value) {
-			if controlplane == nil || value == nil {
-				return
-			}
-			key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
-			controlplane.Insert(key, *value)
-		},
-	))
+	backendOpts := []compute.BackendOption{
+		compute.WithEmitCallback(
+			func(value *primitive.Value) {
+				if controlplane == nil || value == nil {
+					return
+				}
+
+				key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
+				controlplane.Insert(key, *value)
+			},
+		),
+		compute.WithSemanticAffinityReinsert(
+			func(value *primitive.Value) {
+				if controlplane == nil || value == nil {
+					return
+				}
+
+				key := value.GetWord(
+					core.Cfg.Value.Region.Affinity.Start,
+				)
+				controlplane.Insert(key, *value)
+			},
+		),
+		compute.WithSleepSample(
+			func(maxPairs int) [][2]*primitive.Value {
+				if controlplane == nil {
+					return nil
+				}
+
+				return controlplane.SampleSleepScratchPairs(maxPairs)
+			},
+		),
+	}
+
+	machine.backend = compute.NewBackend(ctx, backendOpts...)
 
 	tokenizer, err := NewTokenizer(
 		ctx,
@@ -348,6 +385,59 @@ func (machine *Machine) collectPromptOutput(value *primitive.Value) []byte {
 	})
 
 	return output
+}
+
+/*
+LoadCorpus reads all bytes from provider, splits them into TokenizerChunkBytes
+slices, builds Learn Values, indexes them in the control plane, and enqueues
+each for backend execution.
+*/
+func (machine *Machine) LoadCorpus(provider CorpusProvider) (count int, err error) {
+
+	if machine == nil || provider == nil {
+		return 0, errors.New("vm.Machine.LoadCorpus: nil machine or provider")
+	}
+
+	defer func() {
+		_ = provider.Close()
+	}()
+
+	payload, readErr := io.ReadAll(provider)
+	if readErr != nil {
+		return 0, errnie.Error(readErr)
+	}
+
+	chunkSize := TokenizerChunkBytes()
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+
+	for offset := 0; offset < len(payload); offset += chunkSize {
+		limit := offset + chunkSize
+		if limit > len(payload) {
+			limit = len(payload)
+		}
+
+		value, newErr := primitive.NewValue(payload[offset:limit])
+		if newErr != nil {
+			return count, errnie.Error(newErr)
+		}
+
+		if firmwareErr := value.InstallFirmware(core.FirmwareTypeLearn); firmwareErr != nil {
+			return count, errnie.Error(firmwareErr)
+		}
+
+		key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
+		machine.controlplane.Insert(key, *value)
+
+		if queueErr := machine.backend.Queue(unsafe.Pointer(value)); queueErr != nil {
+			return count, errnie.Error(queueErr)
+		}
+
+		count++
+	}
+
+	return count, nil
 }
 
 /*

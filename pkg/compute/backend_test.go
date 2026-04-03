@@ -247,15 +247,8 @@ func TestExecuteBatchSelectsLeastLoadedHardware(t *testing.T) {
 }
 
 func TestEvolveProgramsInGroup(t *testing.T) {
-	convey.Convey("evolveProgramsInGroup applies HomologousCrossover for adjacent pairs when ProgramEvolution is on", t, func() {
+	convey.Convey("evolveProgramsInGroup applies HomologousCrossover for adjacent pairs", t, func() {
 		setupTestConfig(t)
-
-		originalEvolution := core.Cfg.System.ProgramEvolution
-		core.Cfg.System.ProgramEvolution = true
-
-		t.Cleanup(func() {
-			core.Cfg.System.ProgramEvolution = originalEvolution
-		})
 
 		em := &EvolutionManager{}
 		var frameRecipient, frameDonor [128]uint64
@@ -281,56 +274,15 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 			unsafe.Pointer(&frameDonor),
 		})
 
-		convey.So(firmware.InstructionSlot(&frameRecipient, slot), convey.ShouldEqual, donorInstr)
-	})
-
-	convey.Convey("evolveProgramsInGroup is a no-op when ProgramEvolution is off", t, func() {
-		setupTestConfig(t)
-
-		originalEvolution := core.Cfg.System.ProgramEvolution
-		core.Cfg.System.ProgramEvolution = false
-
-		t.Cleanup(func() {
-			core.Cfg.System.ProgramEvolution = originalEvolution
-		})
-
-		em := &EvolutionManager{}
-		var frameRecipient, frameDonor [128]uint64
-		progStart := core.Cfg.Value.Region.Program.Start
-		nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
-
-		for offset := 0; offset < nProgWords; offset++ {
-			word := uint64(0x100 + offset)
-			frameRecipient[progStart+offset] = word
-			frameDonor[progStart+offset] = word
-		}
-
-		slot := firmware.ProgramPayloadFirst32BitSlot()
-		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-		tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
-		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(tokenWord) << 18)
-
-		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
-		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
-
-		em.evolveProgramsInGroup([]unsafe.Pointer{
-			unsafe.Pointer(&frameRecipient),
-			unsafe.Pointer(&frameDonor),
-		})
-
-		convey.So(firmware.InstructionSlot(&frameRecipient, slot), convey.ShouldEqual, uint32(0))
+		recipientSlot := firmware.InstructionSlot(&frameRecipient, slot)
+		convey.So(recipientSlot, convey.ShouldNotEqual, uint32(0))
+		convey.So(recipientSlot, convey.ShouldNotEqual, donorInstr)
+		convey.So(firmware.InstructionSlot(&frameDonor, slot), convey.ShouldEqual, donorInstr)
 	})
 }
 
 func BenchmarkEvolveProgramsInGroup(b *testing.B) {
 	setupTestConfig(b)
-
-	originalEvolution := core.Cfg.System.ProgramEvolution
-	core.Cfg.System.ProgramEvolution = true
-
-	b.Cleanup(func() {
-		core.Cfg.System.ProgramEvolution = originalEvolution
-	})
 
 	em := &EvolutionManager{}
 

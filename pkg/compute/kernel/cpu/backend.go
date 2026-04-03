@@ -127,6 +127,14 @@ func executeFrameTile(
 				continue
 			}
 
+			if _, _, _, _, extended := DecodeExtendedInstruction(instr); extended {
+				for index := range frames {
+					ExecuteExtendedInstruction((*[128]uint64)(frames[index]), instr)
+				}
+
+				continue
+			}
+
 			executeTileInstruction(frames, instr, srcScratch, dstScratch)
 			continue
 		}
@@ -181,6 +189,12 @@ func executeScalarInstruction(frame *[128]uint64, progStart int, slot int) {
 
 	instr := instructionAtSlot(frame, progStart, slot)
 	if instr == 0 {
+		return
+	}
+
+	if _, _, _, _, extended := DecodeExtendedInstruction(instr); extended {
+		ExecuteExtendedInstruction(frame, instr)
+
 		return
 	}
 

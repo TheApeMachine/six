@@ -42,15 +42,20 @@ and invokes it after hardware dispatch completes.
 type EvolutionManager struct {
 	onEmit EmitCallback
 	queues map[QueueType]chan unsafe.Pointer
+	elites *EliteArchive
 }
 
 // NewEvolutionManager creates an EvolutionManager wired to the backend's
 // emit callback and queue system for child re-injection.
 func NewEvolutionManager(onEmit EmitCallback, queues map[QueueType]chan unsafe.Pointer) *EvolutionManager {
-	return &EvolutionManager{
+
+	em := &EvolutionManager{
 		onEmit: onEmit,
 		queues: queues,
+		elites: NewEliteArchive(),
 	}
+
+	return em
 }
 
 /*
@@ -70,7 +75,7 @@ func (em *EvolutionManager) ProcessBatch(groups [][]unsafe.Pointer, allFrames []
 
 /*
 evolveProgramsInGroup performs pairwise HolographicCrossover on adjacent frames
-within a program group when system.programEvolution is enabled.
+within each executeBatch program group after UniversalBitwise.
 
 HolographicCrossover blends two parents plus a structured third-parent noise
 source via majority-rule in HIE (holographic instruction encoding) space. The
@@ -82,10 +87,6 @@ The RNG is seeded from batch shape and frame IDs so runs are reproducible for
 a given queued ordering without introducing yet another global entropy source.
 */
 func (em *EvolutionManager) evolveProgramsInGroup(group []unsafe.Pointer) {
-	if !core.Cfg.System.ProgramEvolution {
-		return
-	}
-
 	if len(group) < 2 {
 		return
 	}
@@ -115,7 +116,25 @@ func (em *EvolutionManager) evolveProgramsInGroup(group []unsafe.Pointer) {
 		donorValue := primitive.Value(*donor)
 		parentBias := primitive.SubstrateExploitScore(&recipientValue, &donorValue)
 
-		firmware.HolographicCrossover(recipient, recipient, donor, rng, parentBias)
+		if em.elites != nil && core.Cfg.System.MapElitesInjectionRate > 0 {
+			if rng.Float64() < core.Cfg.System.MapElitesInjectionRate {
+				em.elites.TryInject(recipient, rng)
+
+				recipientValue = primitive.Value(*recipient)
+				parentBias = primitive.SubstrateExploitScore(&recipientValue, &donorValue)
+			}
+		}
+
+		firmware.HolographicCrossoverXORBind(
+			recipient, recipient, donor, rng, parentBias,
+		)
+
+		if em.elites != nil {
+			childVal := primitive.Value(*recipient)
+			fit := primitive.SubstrateExploitScore(&childVal, &donorValue)
+
+			em.elites.StoreIfBetter(recipient, fit)
+		}
 	}
 }
 
@@ -192,7 +211,11 @@ func (em *EvolutionManager) emitSignalsInBatch(frames []unsafe.Pointer) {
 			}
 		}
 
+		parentAID := frameA[idWord]
+
 		for _, child := range children {
+			primitive.MacroGraphAccumulateFromChild(parentAID, child)
+
 			if em.onEmit != nil {
 				em.onEmit(child)
 			}
@@ -207,6 +230,14 @@ func (em *EvolutionManager) emitSignalsInBatch(frames []unsafe.Pointer) {
 				)
 			}
 		}
+
+		gain := core.Cfg.System.ThermodynamicEmitGain
+		if gain <= 0 {
+			gain = 8
+		}
+
+		primitive.ThermodynamicGain(frameA, gain)
+		primitive.ThermodynamicGain(frameB, gain)
 
 		telemetry.Emit(telemetry.Event{
 			Component: "Substrate",

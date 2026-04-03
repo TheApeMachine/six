@@ -54,12 +54,28 @@ func EmitFromSignals(a, b *Value, rng *rand.Rand) []*Value {
 		return nil
 	}
 
+	runChildren := emitFromRunSignals(
+		a, b, tokenBits, tokenWords, baseIdx, rng,
+	)
+
+	if len(runChildren) > 0 {
+		return runChildren
+	}
+
+	return emitHolisticAndChild(a, b, tokenWords, baseIdx, rng)
+}
+
+func emitFromRunSignals(
+	a, b *Value,
+	tokenBits, tokenWords, baseIdx int,
+	rng *rand.Rand,
+) []*Value {
+
 	signals := ScanSignals(a, b, tokenWords, baseIdx)
 	if len(signals) == 0 {
 		return nil
 	}
 
-	// Strongest signal = first (already sorted by length descending).
 	winner := signals[0]
 
 	if winner.Length < minSignalBits {
@@ -74,6 +90,43 @@ func EmitFromSignals(a, b *Value, rng *rand.Rand) []*Value {
 	default:
 		return nil
 	}
+}
+
+/*
+emitHolisticAndChild emits a single consolidation when chunked holistic
+resonance fires (full-token AND), without requiring a long contiguous run.
+*/
+func emitHolisticAndChild(
+	a, b *Value,
+	tokenWords, baseIdx int,
+	rng *rand.Rand,
+) []*Value {
+
+	_, ok := ChunkedHolisticStrength(
+		a,
+		b,
+		core.Cfg.System.HolisticChunkBits,
+		core.Cfg.System.HolisticHammingMax,
+	)
+	if !ok {
+		return nil
+	}
+
+	andWords := make([]uint64, tokenWords)
+
+	for offset := 0; offset < tokenWords; offset++ {
+		andWords[offset] = a[baseIdx+offset] & b[baseIdx+offset]
+	}
+
+	child := newChildValue(andWords, tokenWords, baseIdx)
+	if child == nil {
+		return nil
+	}
+
+	children := []*Value{child}
+	linkAndBlend(a, b, children, rng)
+
+	return children
 }
 
 /*
@@ -211,6 +264,8 @@ func newChildValue(tokenBits []uint64, tokenWords, baseIdx int) *Value {
 
 	// Set fw register so handleFollowUp will re-queue this child.
 	value[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
+
+	SeedThermodynamicEnergy((*[128]uint64)(value))
 
 	return value
 }
