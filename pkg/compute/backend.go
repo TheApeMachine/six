@@ -3,6 +3,7 @@ package compute
 import (
 	"context"
 	"math/bits"
+	"runtime"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -93,21 +94,27 @@ frames with fresh IDs — see cluster.ControlPlane.SampleSleepScratchPairs).
 type SleepSampleFunc func(maxPairs int) [][2]*primitive.Value
 
 type Backend struct {
-	ctx                      context.Context
-	cancel                   context.CancelFunc
-	hardware                 []kernel.Substrate
-	pool                     *Pool
-	batchSize                int
-	batchWindow              time.Duration
-	queues                   map[QueueType]chan unsafe.Pointer
-	hardwareState            []hardwareMetrics
-	droppedPriorityFollowUps atomic.Uint64
-	onEmit                   EmitCallback
-	memoryLoad               MemoryLoadHook
-	memoryEnqueue            MemoryLoadEnqueueHook
-	semanticReinsert         SemanticAffinityReinsert
-	sleepSample              SleepSampleFunc
-	evolution                EvolutionStage
+	ctx           context.Context
+	cancel        context.CancelFunc
+	hardware      []kernel.Substrate
+	pool          *Pool
+	batchSize     int
+	batchWindow   time.Duration
+	queues        map[QueueType]chan unsafe.Pointer
+	hardwareState []hardwareMetrics
+
+	// prioritySpill is a bounded Vyukov MPMC ring for PRIORITY channel overflow.
+	// runUnifiedQueue drains it with strict preference over NORMAL. Loaded with
+	// atomic.Pointer so hand-built Backend literals in tests still work on
+	// first push (NewBackend pre-initializes the ring).
+	prioritySpill atomic.Pointer[prioritySpillRing]
+
+	onEmit           EmitCallback
+	memoryLoad       MemoryLoadHook
+	memoryEnqueue    MemoryLoadEnqueueHook
+	semanticReinsert SemanticAffinityReinsert
+	sleepSample      SleepSampleFunc
+	evolution        EvolutionStage
 }
 
 // BackendOption configures the multi-substrate router.
@@ -190,10 +197,61 @@ func (backend *Backend) enqueuePriorityUnsafe(ptr unsafe.Pointer) {
 	select {
 	case queue <- ptr:
 	default:
-		errnie.Warn(
-			"compute.backend: dropped PRIORITY active-fetch frame",
-		)
+		backend.pushPrioritySpill(ptr)
 	}
+}
+
+/*
+pushPrioritySpill enqueues into the lock-free spill ring when the PRIORITY
+channel is saturated. Never drops the frame — spins on transient full ring.
+*/
+func (backend *Backend) pushPrioritySpill(ptr unsafe.Pointer) {
+
+	if backend == nil || ptr == nil {
+		return
+	}
+
+	ring := backend.spillRingForPush()
+
+	for !ring.tryPush(ptr) {
+		runtime.Gosched()
+	}
+}
+
+/*
+popPrioritySpill returns the oldest overflowed priority frame, or nil.
+*/
+func (backend *Backend) popPrioritySpill() unsafe.Pointer {
+
+	if backend == nil {
+		return nil
+	}
+
+	ring := backend.prioritySpill.Load()
+	if ring == nil {
+		return nil
+	}
+
+	return ring.tryPop()
+}
+
+/*
+spillRingForPush returns the spill ring, allocating once if the Backend was
+constructed without NewBackend (tests).
+*/
+func (backend *Backend) spillRingForPush() *prioritySpillRing {
+
+	ring := backend.prioritySpill.Load()
+	if ring != nil {
+		return ring
+	}
+
+	created := newPrioritySpillRing(prioritySpillRingCapacity)
+	if backend.prioritySpill.CompareAndSwap(nil, created) {
+		return created
+	}
+
+	return backend.prioritySpill.Load()
 }
 
 /*
@@ -314,6 +372,8 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 			NORMAL:   make(chan unsafe.Pointer, 1024),
 		},
 	}
+
+	backend.prioritySpill.Store(newPrioritySpillRing(prioritySpillRingCapacity))
 
 	for _, opt := range opts {
 		opt(backend)
@@ -530,13 +590,16 @@ func (backend *Backend) runUnifiedQueue() {
 	normal := backend.queues[NORMAL]
 
 	for {
-		// Block until at least one Value is available from either queue.
-		var first unsafe.Pointer
-		select {
-		case <-backend.ctx.Done():
-			return
-		case first = <-priority:
-		case first = <-normal:
+		// Drain priority spill first (overflow from full PRIORITY channel),
+		// then block on channels — same ordering as strict PRIORITY-before-NORMAL.
+		first := backend.popPrioritySpill()
+		if first == nil {
+			select {
+			case <-backend.ctx.Done():
+				return
+			case first = <-priority:
+			case first = <-normal:
+			}
 		}
 
 		batch := backend.gatherUnifiedBatch(priority, normal, first)
@@ -584,8 +647,14 @@ func (backend *Backend) gatherUnifiedBatch(priority, normal <-chan unsafe.Pointe
 	batch := make([]unsafe.Pointer, 1, backend.batchSize)
 	batch[0] = first
 
-	// Drain priority first (non-blocking).
+	// Drain priority spill and priority channel (non-blocking) before NORMAL.
 	for len(batch) < backend.batchSize {
+		if ptr := backend.popPrioritySpill(); ptr != nil {
+			batch = append(batch, ptr)
+
+			continue
+		}
+
 		select {
 		case value := <-priority:
 			if value != nil {
@@ -622,6 +691,20 @@ coalesce:
 	defer timer.Stop()
 
 	for len(batch) < backend.batchSize {
+		for len(batch) < backend.batchSize {
+			if ptr := backend.popPrioritySpill(); ptr != nil {
+				batch = append(batch, ptr)
+
+				continue
+			}
+
+			break
+		}
+
+		if len(batch) >= backend.batchSize {
+			return batch
+		}
+
 		select {
 		case <-backend.ctx.Done():
 			return batch
@@ -949,13 +1032,7 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 		select {
 		case backend.queues[PRIORITY] <- value:
 		default:
-			dropped := backend.droppedPriorityFollowUps.Add(1)
-			errnie.Warn(
-				"compute.backend: dropped priority follow-up",
-				"dropped_total", dropped,
-				"fw", frame[fwWord],
-			)
-			primitive.ReleaseFrame(frame)
+			backend.pushPrioritySpill(value)
 		}
 	}
 }

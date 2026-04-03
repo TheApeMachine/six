@@ -341,3 +341,36 @@ func TestHandleFollowUpDoesNotMutateProgramRegion(t *testing.T) {
 		convey.So(len(backend.queues[PRIORITY]), convey.ShouldEqual, 1)
 	})
 }
+
+func TestHandleFollowUpPrioritySpillPreservesFrame(t *testing.T) {
+
+	convey.Convey("handleFollowUp spills to internal queue when PRIORITY channel is full", t, func() {
+		setupTestConfig(t)
+
+		var occupant [128]uint64
+		occupant[core.Cfg.Value.Region.Program.Start] = 1
+
+		priorityChan := make(chan unsafe.Pointer, 1)
+		priorityChan <- unsafe.Pointer(&occupant)
+
+		backend := &Backend{
+			ctx: context.Background(),
+			queues: map[QueueType]chan unsafe.Pointer{
+				PRIORITY: priorityChan,
+				NORMAL:   make(chan unsafe.Pointer, 4),
+			},
+		}
+
+		var followUp [128]uint64
+		followUp[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
+		followUp[core.Cfg.Value.Region.Program.Start] = 0xFACEB00C
+
+		ptr := unsafe.Pointer(&followUp)
+		backend.handleFollowUp([]unsafe.Pointer{ptr})
+
+		convey.So(len(priorityChan), convey.ShouldEqual, 1)
+		popped := backend.popPrioritySpill()
+		convey.So(popped, convey.ShouldEqual, ptr)
+		convey.So(backend.popPrioritySpill() == nil, convey.ShouldBeTrue)
+	})
+}
