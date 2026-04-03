@@ -2,10 +2,12 @@ package compute
 
 import (
 	"context"
+	"math/rand"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
@@ -195,6 +197,67 @@ func (backend *Backend) gatherBatch(queue <-chan unsafe.Pointer, first unsafe.Po
 	return batch
 }
 
+/*
+universalBitwisePreferredWithFallback runs UniversalBitwise on the load-balanced
+substrate first, then tries the rest in registration order.
+
+NVML can report GPUs while the active Go build uses a CUDA stub whose
+UniversalBitwise always errors; Metal can be unavailable on non-darwin or cgo.
+Without fallback, index 0 would fail and the CPU interpreter never runs, so
+queued frames appear to bypass “backend processing” entirely.
+*/
+func (backend *Backend) universalBitwisePreferredWithFallback(
+	group []unsafe.Pointer,
+) error {
+	if len(backend.hardware) == 0 {
+		return NewBackendError(BackendErrorNoHardware, nil, "executeBatch")
+	}
+
+	preferred := backend.selectHardwareIndex()
+	if preferred < 0 {
+		return NewBackendError(BackendErrorNoHardware, nil, "executeBatch")
+	}
+
+	order := make([]int, 0, len(backend.hardware))
+	seen := make(map[int]struct{}, len(backend.hardware))
+
+	appendIndex := func(index int) {
+		if index < 0 || index >= len(backend.hardware) {
+			return
+		}
+
+		if _, exists := seen[index]; exists {
+			return
+		}
+
+		seen[index] = struct{}{}
+		order = append(order, index)
+	}
+
+	appendIndex(preferred)
+
+	for index := range backend.hardware {
+		appendIndex(index)
+	}
+
+	var runErr error
+
+	for _, hardwareIndex := range order {
+		metrics := &backend.hardwareState[hardwareIndex]
+		metrics.inflight.Add(1)
+		start := time.Now()
+		runErr = backend.hardware[hardwareIndex].UniversalBitwise(group)
+		metrics.inflight.Add(-1)
+		backend.recordHardwareServiceTime(hardwareIndex, time.Since(start))
+
+		if runErr == nil {
+			return nil
+		}
+	}
+
+	return runErr
+}
+
 func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 	if len(frames) == 0 {
 		return nil
@@ -207,25 +270,52 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 			continue
 		}
 
-		hardwareIndex := backend.selectHardwareIndex()
-		if hardwareIndex < 0 {
-			return NewBackendError(BackendErrorNoHardware, nil, "executeBatch")
-		}
-
-		metrics := &backend.hardwareState[hardwareIndex]
-		metrics.inflight.Add(1)
-		start := time.Now()
-		err := backend.hardware[hardwareIndex].UniversalBitwise(group)
-		metrics.inflight.Add(-1)
-		backend.recordHardwareServiceTime(hardwareIndex, time.Since(start))
-		if err != nil {
+		if err := backend.universalBitwisePreferredWithFallback(group); err != nil {
 			return err
 		}
 
+		backend.evolveProgramsInGroup(group)
 		backend.handleFollowUp(group)
 	}
 
 	return nil
+}
+
+/*
+evolveProgramsInGroup performs pairwise HomologousCrossover on adjacent frames
+within a UniversalBitwise batch group when system.programEvolution is enabled.
+The RNG is seeded from batch shape and frame IDs so runs are reproducible for
+a given queued ordering without introducing yet another global entropy source.
+*/
+func (backend *Backend) evolveProgramsInGroup(group []unsafe.Pointer) {
+	if !core.Cfg.System.ProgramEvolution {
+		return
+	}
+
+	if len(group) < 2 {
+		return
+	}
+
+	seed := uint64(len(group)) * 0x9E3779B97F4A7C15
+	idWord := core.Cfg.Value.Region.ID.Start
+
+	for index, ptr := range group {
+		frame := (*[128]uint64)(ptr)
+		if idWord >= 0 && idWord < len(frame) {
+			seed ^= frame[idWord]
+		}
+
+		seed ^= uint64(index+1) * 0x85EBCA6B
+	}
+
+	rng := rand.New(rand.NewSource(int64(seed ^ (seed >> 32))))
+
+	for pairIdx := 0; pairIdx+1 < len(group); pairIdx += 2 {
+		recipient := (*[128]uint64)(group[pairIdx])
+		donor := (*[128]uint64)(group[pairIdx+1])
+
+		firmware.HomologousCrossover(recipient, donor, rng)
+	}
 }
 
 func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
@@ -471,7 +561,7 @@ enqueue failure / context cancellation / inline job failure.
 */
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	if backend.pool != nil {
-		errnie.Trace("compute.backend.Schedule", "action", "scheduling job on pool")
+		errnie.Debug("compute.backend.Schedule", "action", "scheduling job on pool")
 
 		if err := backend.pool.Schedule(backend.ctx, job); err != nil {
 			return errnie.Error(NewBackendError(

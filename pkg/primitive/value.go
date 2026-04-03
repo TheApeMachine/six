@@ -269,13 +269,27 @@ a Value that has not been properly tombstoned.
 */
 var valuePool = sync.Pool{
 	New: func() any {
-		val := &Value{}
-		val[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(
-			&globalValueIDCounter, 1,
-		)
-
-		return val
+		return &Value{}
 	},
+}
+
+func clearProgramWords(value *Value) {
+	if value == nil {
+		return
+	}
+
+	reg := core.Cfg.Value.Region.Program
+	nWords := int((reg.Bits + 63) / 64)
+
+	for offset := 0; offset < nWords; offset++ {
+		index := reg.Start + offset
+
+		if index < 0 || index >= len(*value) {
+			continue
+		}
+
+		(*value)[index] = 0
+	}
 }
 
 /*
@@ -285,15 +299,24 @@ This method should not be used to create temporary Values.
 func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
 
-	if value.GetWord(
-		core.Cfg.Value.Region.ID.Start,
-	) == 0 {
-		value[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(
-			&globalValueIDCounter, 1,
-		)
+	// Always mint a fresh ValueID. sync.Pool may return a frame with any prior
+	// header state; relying on ID==0 invited stale IDs, broken affine caches,
+	// and prompt decode failures mid-stream.
+	value[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(
+		&globalValueIDCounter,
+		1,
+	)
+
+	clearProgramWords(value)
+
+	if err := value.InstallFirmware(core.FirmwareTypeLearn); err != nil {
+		return nil, errnie.Error(err)
 	}
 
-	value.InstallFirmware(core.FirmwareTypeBootloader)
+	// Payload span starts after the bootstrap prefix; introns survive because
+	// they do not overlap the fixed learn kernel slots written above.
+	firmware.InsertIntrons((*[128]uint64)(value), 8)
+
 	tokenIDs := make([]uint64, 0, int(
 		(core.Cfg.Value.Region.Tokens.Bits+63)/64,
 	))
@@ -302,10 +325,6 @@ func NewValue(p []byte) (*Value, error) {
 	if len(p) > 0 {
 		seed = uint64(p[0])
 	}
-
-	// LGP: insert protective introns every 8 instruction slots to prevent
-	// catastrophic destruction during Build firmware crossover (IDEAS.md §3).
-	firmware.InsertIntrons((*[128]uint64)(value), 8)
 
 	tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 
@@ -345,6 +364,11 @@ func NewValue(p []byte) (*Value, error) {
 	value.ComputeAffinityLSH() // overwrite with LSH; OR in Bloom bits
 	value[core.Cfg.Value.Region.Affinity.Start] |= bloom
 	value[core.Cfg.Value.Region.State.Accumulator] = value[core.Cfg.Value.Region.Affinity.Start]
+
+	// Affine TokenIDs (Tokenize per byte) are what DetokenizeTokenID inverts. The
+	// token *region words* are superposed HD state; using those as LSM keys
+	// breaks reverse lookup (DecodeTokenIDs sees garbage / a lone stray match).
+	persistTokenIDsByValueID(value, tokenIDs)
 
 	return value, nil
 }

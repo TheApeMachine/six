@@ -63,6 +63,7 @@ func NewMachine(
 	tokenizer, err := NewTokenizer(
 		ctx,
 		TokenizerWithStore(machine.controlplane),
+		TokenizerWithBackend(machine.backend),
 	)
 
 	if err != nil {
@@ -190,10 +191,14 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 		}
 
 		if isPrompt {
-			tokenIDs := machine.controlplane.LookupKeysByValue(value)
+			valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+			tokenIDs := primitive.ValueTokenIDsForLookup(valueID)
 
 			if len(tokenIDs) == 0 {
-				valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+				tokenIDs = machine.controlplane.LookupKeysByValue(value)
+			}
+
+			if len(tokenIDs) == 0 {
 				tokenIDs = machine.controlplane.LookupKeysByValueID(valueID)
 			}
 
@@ -202,6 +207,9 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 			}
 
 			output := primitive.DecodeTokenIDs(tokenIDs)
+			if output == nil {
+				output = make([]byte, 0)
+			}
 
 			if machine.output != nil {
 				if _, writeErr := machine.output.Write(output); writeErr != nil {

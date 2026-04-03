@@ -11,7 +11,7 @@ import (
 // execWordBlock dispatches to the scalar Go kernel. On arm64 (Apple Silicon,
 // etc.) the compiler emits NEON for the simple inner loops automatically.
 func execWordBlock(dst, src []uint64, op uint8) {
-	errnie.Trace(
+	errnie.Debug(
 		"cpu.Backend.handleAlu",
 		"hw", "cpu - scalar fallback",
 		"op", op,

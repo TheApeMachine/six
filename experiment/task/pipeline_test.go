@@ -102,10 +102,9 @@ func (bus *outputBus) Read(p []byte) (n int, err error) {
 }
 
 func (bus *outputBus) Write(p []byte) (n int, err error) {
-	if len(p) == 0 {
-		return 0, nil
-	}
-
+	// Prompt chunks must signal completion even when DecodeTokenIDs yields no
+	// bytes (e.g. trailing whitespace-only span or all candidates filtered).
+	// Skipping the channel would strand pipeline_test waiting for frame N.
 	frame := make([]byte, len(p))
 	copy(frame, p)
 
@@ -412,8 +411,8 @@ func TestPipeline(t *testing.T) {
 							/*
 								Prompt completion bytes are vm.Machine.Write output to WithOutput
 								(DecodeTokenIDs), not the scratch buffer filled by value.Read inside
-								Machine.Read. The recirculating Copy loop drains tokenizer frames; we
-								collect one bus frame per linked prompt chunk.
+								Machine.Read. outputBus must publish a frame even when the decode
+								is empty (see outputBus.Write) so we do not wedge on chunk tail.
 							*/
 							observedParts := make([][]byte, 0, len(promptValues))
 							for range promptValues {

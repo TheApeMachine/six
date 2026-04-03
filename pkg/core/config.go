@@ -44,6 +44,10 @@ type SystemConfig struct {
 	// executor; otherwise the legacy 16-bit RISC interpreter runs. GPU kernels
 	// are unchanged.
 	StepwiseUniversalBitwise bool `mapstructure:"stepwiseUniversalBitwise"`
+
+	// ProgramEvolution runs HomologousCrossover on adjacent pairs within each
+	// executeBatch group after UniversalBitwise (pkg/compute/firmware).
+	ProgramEvolution bool `mapstructure:"programEvolution"`
 }
 
 /*
@@ -171,6 +175,7 @@ func NewConfig() *Config {
 			StepwiseUniversalBitwise: viper.GetBool(
 				"system.stepwiseUniversalBitwise",
 			),
+			ProgramEvolution: viper.GetBool("system.programEvolution"),
 		},
 		ControlPlane: ControlPlaneConfig{
 			K:     viper.GetInt("controlplane.k"),

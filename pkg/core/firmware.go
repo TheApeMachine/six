@@ -2,9 +2,9 @@ package core
 
 const (
 	// Firmware register protocol values carried in-band by Value frames.
-	// These are distinct from the FirmwareType enum because Bootloader is not
-	// selected through the fw register; new frames already begin with the
-	// bootloader installed in the system slots.
+	// These are distinct from the FirmwareType enum: constructors (e.g.
+	// primitive.NewValue) install programs by FirmwareType while live frames
+	// use these register codes for routing and follow-up.
 	FirmwareRegisterNone uint64 = iota
 	FirmwareRegisterLearn
 	FirmwareRegisterTombstone

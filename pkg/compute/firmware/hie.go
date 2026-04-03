@@ -36,10 +36,10 @@ func init() {
 
 	var takenByte [8][256]bool
 
-	for nibbleIdx := 0; nibbleIdx < 8; nibbleIdx++ {
+	for nibbleIdx := range 8 {
 		currentHV := uint64(rng.Intn(256))
 
-		for val := 0; val < 16; val++ {
+		for val := range 16 {
 			byteVal := byte(currentHV & 0xFF)
 
 			for takenByte[nibbleIdx][byteVal] {
@@ -104,7 +104,7 @@ spatially multiplexed hypervector.
 func EncodeHIE(instr uint32) uint64 {
 	var hv uint64
 
-	for n := 0; n < 8; n++ {
+	for n := range 8 {
 		nibbleVal := (instr >> (n * 4)) & 0xF
 		band := hieBandPerm[n]
 		hv |= (hieCodebookNibble[n][nibbleVal] & 0xFF) << (band * 8)

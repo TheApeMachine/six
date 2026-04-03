@@ -9,6 +9,7 @@ import (
 	. "github.com/smartystreets/goconvey/convey"
 
 	"github.com/theapemachine/six/pkg/cluster"
+	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 )
@@ -21,9 +22,13 @@ func tokenizerTestContext() (context.Context, context.CancelFunc) {
 	return context.WithCancel(context.Background())
 }
 
+func tokenizerTestComputeBackend(ctx context.Context) *compute.Backend {
+	return compute.NewBackend(ctx)
+}
+
 func TestNewTokenizer(t *testing.T) {
 	Convey("NewTokenizer", t, func() {
-		Convey("requires a non-nil backend after options apply", func() {
+		Convey("wires a non-nil compute Backend via TokenizerWithBackend", func() {
 			ctx, cancel := tokenizerTestContext()
 			defer cancel()
 
@@ -31,6 +36,7 @@ func TestNewTokenizer(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 			)
 			So(err, ShouldBeNil)
 			So(tokenizer, ShouldNotBeNil)
@@ -49,6 +55,7 @@ func TestTokenizerRead(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 				TokenizerWithBuffer(8),
 			)
 			So(err, ShouldBeNil)
@@ -77,6 +84,7 @@ func TestTokenizerWrite(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 				TokenizerWithBuffer(8),
 			)
 			So(err, ShouldBeNil)
@@ -100,6 +108,7 @@ func TestTokenizerWriteSerializedFrame(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 				TokenizerWithBuffer(8),
 			)
 			So(err, ShouldBeNil)
@@ -148,6 +157,7 @@ func TestTokenizerWriteSerializesIntoStoreByValueID(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 				TokenizerWithBuffer(8),
 			)
 			So(err, ShouldBeNil)
@@ -181,6 +191,7 @@ func TestTokenizerClose(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 			)
 			So(err, ShouldBeNil)
 			So(tokenizer.Close(), ShouldNotBeNil)
@@ -201,6 +212,7 @@ func TestTokenizerWithBuffer(t *testing.T) {
 			tokenizer, err := NewTokenizer(
 				ctx,
 				TokenizerWithStore(store),
+				TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 				TokenizerWithBuffer(32),
 			)
 			So(err, ShouldBeNil)
@@ -218,6 +230,7 @@ func BenchmarkTokenizerWriteRead(b *testing.B) {
 		ctx,
 		TokenizerWithBuffer(256),
 		TokenizerWithStore(store),
+		TokenizerWithBackend(tokenizerTestComputeBackend(ctx)),
 	)
 
 	if err != nil {

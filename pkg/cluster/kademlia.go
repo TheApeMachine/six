@@ -145,8 +145,31 @@ func (rt *RoutingTable) Insert(key uint64, value *primitive.Value) {
 	local := rt.local
 	rt.mu.RUnlock()
 	idx := bucketIndex(local, NodeID(key))
-	rt.buckets[idx].lsm.InsertBatch(value.TokenIDs(), *value)
+	rt.buckets[idx].lsm.InsertBatch(insertTokenKeysForValue(value), *value)
 	errnie.Trace("cluster.kademlia.Insert", "key", key, "value", value)
+}
+
+/*
+insertTokenKeysForValue chooses LSM inverted-index keys for a frame.
+
+NewValue persists per-byte affine TokenIDs (constructor Tokenize output). Those
+are the same identifiers DecodeTokenIDs expects. The in-band token region holds
+superimposed composite words, so value.TokenIDs() is the wrong key space for
+postings used to rebuild plaintext.
+*/
+func insertTokenKeysForValue(value *primitive.Value) []uint64 {
+	if value == nil {
+		return nil
+	}
+
+	valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+	if valueID != 0 {
+		if keys := primitive.ValueTokenIDsForLookup(valueID); len(keys) > 0 {
+			return keys
+		}
+	}
+
+	return value.TokenIDs()
 }
 
 /*

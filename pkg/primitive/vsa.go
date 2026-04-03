@@ -17,8 +17,8 @@ func initVSA() {
 	vsaInitOnce.Do(func() {
 		// Use a fixed seed so signatures are consistent across runs
 		rng := rand.New(rand.NewSource(42))
-		for i := 0; i < 256; i++ {
-			for w := 0; w < 57; w++ {
+		for i := range 256 {
+			for w := range 57 {
 				ByteSignatures[i][w] = rng.Uint64()
 			}
 		}
@@ -37,7 +37,7 @@ The result is written into dst's Tokens region.
 func UnbindHD(dst, fact, query *Value) {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	base := core.Cfg.Value.Region.Tokens.Start
-	for i := 0; i < nWords; i++ {
+	for i := range nWords {
 		idx := base + i
 		if idx >= core.Cfg.Value.Words {
 			break
@@ -59,13 +59,13 @@ func BundleHD(dst *Value, sources []*Value) {
 	base := core.Cfg.Value.Region.Tokens.Start
 	threshold := len(sources) / 2
 
-	for i := 0; i < nWords; i++ {
+	for i := range nWords {
 		idx := base + i
 		if idx >= core.Cfg.Value.Words {
 			break
 		}
 		var result uint64
-		for bit := 0; bit < 64; bit++ {
+		for bit := range 64 {
 			count := 0
 			mask := uint64(1) << bit
 			for _, src := range sources {
@@ -89,7 +89,7 @@ func TokensHammingDistance(a, b *Value) int {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	base := core.Cfg.Value.Region.Tokens.Start
 	dist := 0
-	for i := 0; i < nWords; i++ {
+	for i := range nWords {
 		idx := base + i
 		if idx >= core.Cfg.Value.Words {
 			break
@@ -135,11 +135,11 @@ func (value *Value) ComputeAffinityLSH() {
 	base := core.Cfg.Value.Region.Tokens.Start
 
 	var affinity uint64
-	for outBit := 0; outBit < 64; outBit++ {
+	for outBit := range 64 {
 		ones := 0
 		counted := 0
 
-		for step := 0; step < affinityLSHSamples; step++ {
+		for step := range affinityLSHSamples {
 			idx := (outBit*affinityLSHStride + step) % affinityLSHRing
 			if idx >= tokenBits {
 				continue
@@ -222,7 +222,7 @@ func LFSRStep(state uint64) uint64 {
 LFSRAdvance advances the LFSR by n steps.
 */
 func LFSRAdvance(state uint64, n int) uint64 {
-	for i := 0; i < n; i++ {
+	for range n {
 		state = LFSRStep(state)
 	}
 	return state
@@ -246,7 +246,7 @@ func AccumulateDelta(current, previous *Value) uint64 {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	base := core.Cfg.Value.Region.Tokens.Start
 	var delta uint64
-	for i := 0; i < nWords; i++ {
+	for i := range nWords {
 		idx := base + i
 		if idx >= core.Cfg.Value.Words {
 			break
@@ -265,7 +265,7 @@ func ApplyDelta(dst, current *Value) {
 	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
 	base := core.Cfg.Value.Region.Tokens.Start
 	delta := current[core.Cfg.Value.Region.State.Accumulator]
-	for i := 0; i < nWords; i++ {
+	for i := range nWords {
 		idx := base + i
 		if idx >= core.Cfg.Value.Words {
 			break

@@ -54,14 +54,14 @@ Tokenizer takes a raw byte stream, chunks the incoming data to
 match the token region size, and produces the canonical Values.
 */
 type Tokenizer struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	err           error
-	rb            *ringbuffer.RingBuffer
-	pr            *ringbuffer.PipeReader
-	pw            *ringbuffer.PipeWriter
-	backend       *compute.Backend
-	store         *cluster.ControlPlane
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	rb      *ringbuffer.RingBuffer
+	pr      *ringbuffer.PipeReader
+	pw      *ringbuffer.PipeWriter
+	backend *compute.Backend
+	store   *cluster.ControlPlane
 }
 
 type TokenizerOpts func(*Tokenizer)
@@ -193,5 +193,16 @@ func TokenizerWithBuffer(n int) TokenizerOpts {
 func TokenizerWithStore(store *cluster.ControlPlane) TokenizerOpts {
 	return func(tokenizer *Tokenizer) {
 		tokenizer.store = store
+	}
+}
+
+/*
+TokenizerWithBackend attaches the same compute Backend used for Machine.Queue.
+The tokenizer’s Read/Write hot path does not enqueue work today; the field
+exists for validation, future ingress-side execution, and wiring clarity.
+*/
+func TokenizerWithBackend(backend *compute.Backend) TokenizerOpts {
+	return func(tokenizer *Tokenizer) {
+		tokenizer.backend = backend
 	}
 }

@@ -103,6 +103,27 @@ func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
 	})
 }
 
+func TestNewValuePersistsAffineTokenIDsForDecode(t *testing.T) {
+	Convey("NewValue stores per-byte affine TokenIDs for Detokenize / LSM keys", t, func() {
+		payload := []byte("Lab")
+		value, err := NewValue(payload)
+		So(err, ShouldBeNil)
+		defer value.Close()
+
+		valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+		So(valueID, ShouldBeGreaterThan, 0)
+
+		cached := ValueTokenIDsForLookup(valueID)
+		So(len(cached), ShouldEqual, len(payload))
+
+		for index, expectedByte := range payload {
+			So(cached[index], ShouldEqual, Tokenize(expectedByte, uint64(index)))
+		}
+
+		So(string(DecodeTokenIDs(cached)), ShouldEqual, string(payload))
+	})
+}
+
 func TestRead(t *testing.T) {
 	Convey("Given two Values", t, func() {
 		valueA, err := NewValue(nil)
@@ -167,8 +188,8 @@ func TestWrite(t *testing.T) {
 	})
 }
 
-func TestBootloaderProjectsStructureInBand(t *testing.T) {
-	Convey("Bootloader derives affinity and state seeds from token spans in-band", t, func() {
+func TestNewValueProjectsStructureInBand(t *testing.T) {
+	Convey("NewValue (learn + introns) derives affinity and state seeds from token spans in-band", t, func() {
 		text := []byte("Mary moved to the kitchen.")
 		valueA, err := NewValue(text)
 		So(err, ShouldBeNil)
@@ -377,24 +398,46 @@ func TestDecodeTokenIDs(t *testing.T) {
 	})
 }
 
+type walkDecodeIndex map[uint64][128]uint64
+
+func (index walkDecodeIndex) FrameByValueID(valueID uint64) ([128]uint64, bool) {
+	frame, ok := index[valueID]
+	return frame, ok
+}
+
 func TestValueWalkAndDecodeTokenStream(t *testing.T) {
 	Convey("Walk follows NextID links and emits decoded token stream", t, func() {
-		var first, second Value
-		first[core.Cfg.Value.Region.ID.Start] = 1
-		first[core.Cfg.Value.Region.Next.Start] = 2
-		second[core.Cfg.Value.Region.ID.Start] = 2
-		second[core.Cfg.Value.Region.Prev.Start] = 1
+		tokenBase := core.Cfg.Value.Region.Tokens.Start
 
-		firstTokens := [128]uint64{}
-		firstTokens[core.Cfg.Value.Region.ID.Start] = 1
-		firstTokens[core.Cfg.Value.Region.Next.Start] = 2
+		var firstFrame Value
+		firstFrame[core.Cfg.Value.Region.ID.Start] = 1
+		firstFrame[core.Cfg.Value.Region.Next.Start] = 2
+		firstFrame[tokenBase] = Tokenize('x', 0)
+		firstFrame[tokenBase+1] = Tokenize('y', 1)
 
-		secondTokens := [128]uint64{}
-		secondTokens[core.Cfg.Value.Region.ID.Start] = 2
+		var secondFrame Value
+		secondFrame[core.Cfg.Value.Region.ID.Start] = 2
+		secondFrame[core.Cfg.Value.Region.Prev.Start] = 1
+		secondFrame[tokenBase] = Tokenize('z', 0)
 
-		decoded := DecodeTokenIDs(first.TokenIDs())
+		index := walkDecodeIndex{
+			1: firstFrame,
+			2: secondFrame,
+		}
 
-		So(string(decoded), ShouldEqual, "xy")
+		var head Value
+		head[core.Cfg.Value.Region.ID.Start] = 1
+
+		var decoded []byte
+
+		head.Walk(index, func(valueID uint64, frame [128]uint64) bool {
+			cursor := Value(frame)
+			decoded = append(decoded, DecodeTokenIDs(cursor.TokenIDs())...)
+
+			return true
+		})
+
+		So(string(decoded), ShouldEqual, "xyz")
 	})
 }
 

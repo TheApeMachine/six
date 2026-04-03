@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
 
 type Backend struct {
@@ -82,11 +83,20 @@ func executeFrameTile(
 	srcScratch []uint64,
 	dstScratch []uint64,
 ) {
+	errnie.Debug(
+		"cpu.Backend.executeFrameTile",
+		"frames", frames,
+		"progStart", progStart,
+		"totalSlots", totalSlots,
+		"srcScratch", srcScratch,
+		"dstScratch", dstScratch,
+	)
+
 	if len(frames) == 0 || totalSlots <= 0 {
 		return
 	}
 
-	for slot := 0; slot < totalSlots; slot++ {
+	for slot := range totalSlots {
 		instr, homogeneous := tileInstruction(frames, progStart, slot)
 		if homogeneous {
 			if instr == 0 {

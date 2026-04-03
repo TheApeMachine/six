@@ -2,19 +2,21 @@ package compute
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
+	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
 	"github.com/theapemachine/six/pkg/core"
 )
 
-func setupTestConfig(t *testing.T) {
-	t.Helper()
+func setupTestConfig(tb testing.TB) {
+	tb.Helper()
 
 	original := *core.Cfg
-	t.Cleanup(func() {
+	tb.Cleanup(func() {
 		*core.Cfg = original
 	})
 
@@ -87,6 +89,64 @@ func (substrate *recordingSubstrate) Schedule(job func(ctx context.Context) erro
 }
 
 var _ kernel.Substrate = (*recordingSubstrate)(nil)
+
+type errUniversalSubstrate struct{}
+
+func (errUniversalSubstrate) UniversalBitwise([]unsafe.Pointer) error {
+	return errors.New("substrate UniversalBitwise failed")
+}
+
+func (errUniversalSubstrate) Schedule(job func(ctx context.Context) error) error {
+	return job(context.Background())
+}
+
+type countingOKSubstrate struct {
+	calls int
+}
+
+func (substrate *countingOKSubstrate) UniversalBitwise([]unsafe.Pointer) error {
+	substrate.calls++
+
+	return nil
+}
+
+func (countingOKSubstrate) Schedule(job func(ctx context.Context) error) error {
+	return job(context.Background())
+}
+
+var (
+	_ kernel.Substrate = errUniversalSubstrate{}
+	_ kernel.Substrate = (*countingOKSubstrate)(nil)
+)
+
+func TestExecuteBatchFallsBackWhenPreferredSubstrateErrors(t *testing.T) {
+	convey.Convey("executeBatch runs UniversalBitwise on a later substrate when preferred errors", t, func() {
+		setupTestConfig(t)
+
+		good := &countingOKSubstrate{}
+		backend := &Backend{
+			ctx: context.Background(),
+			hardware: []kernel.Substrate{
+				errUniversalSubstrate{},
+				good,
+			},
+			queues: map[QueueType]chan unsafe.Pointer{
+				PRIORITY: make(chan unsafe.Pointer, 8),
+				NORMAL:   make(chan unsafe.Pointer, 8),
+			},
+			batchSize:   1,
+			batchWindow: 0,
+		}
+		backend.ensureHardwareMetrics()
+
+		var frame [128]uint64
+		frame[76] = 0x1111
+
+		err := backend.executeBatch([]unsafe.Pointer{unsafe.Pointer(&frame)})
+		convey.So(err, convey.ShouldBeNil)
+		convey.So(good.calls, convey.ShouldEqual, 1)
+	})
+}
 
 func TestGroupFramesByProgram(t *testing.T) {
 	convey.Convey("Frames are grouped by identical program regions before dispatch", t, func() {
@@ -172,6 +232,126 @@ func TestExecuteBatchSelectsLeastLoadedHardware(t *testing.T) {
 		convey.So(len(busy.calls), convey.ShouldEqual, 0)
 		convey.So(len(idle.calls), convey.ShouldEqual, 1)
 	})
+}
+
+func TestEvolveProgramsInGroup(t *testing.T) {
+	convey.Convey("evolveProgramsInGroup applies HomologousCrossover for adjacent pairs when ProgramEvolution is on", t, func() {
+		setupTestConfig(t)
+
+		originalEvolution := core.Cfg.System.ProgramEvolution
+		core.Cfg.System.ProgramEvolution = true
+
+		t.Cleanup(func() {
+			core.Cfg.System.ProgramEvolution = originalEvolution
+		})
+
+		backend := &Backend{}
+		var frameRecipient, frameDonor [128]uint64
+		progStart := core.Cfg.Value.Region.Program.Start
+		nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+
+		for offset := 0; offset < nProgWords; offset++ {
+			word := uint64(0x100 + offset)
+			frameRecipient[progStart+offset] = word
+			frameDonor[progStart+offset] = word
+		}
+
+		slot := firmware.ProgramPayloadFirst32BitSlot()
+		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
+		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+
+		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
+		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
+
+		backend.evolveProgramsInGroup([]unsafe.Pointer{
+			unsafe.Pointer(&frameRecipient),
+			unsafe.Pointer(&frameDonor),
+		})
+
+		convey.So(firmware.InstructionSlot(&frameRecipient, slot), convey.ShouldEqual, donorInstr)
+	})
+
+	convey.Convey("evolveProgramsInGroup is a no-op when ProgramEvolution is off", t, func() {
+		setupTestConfig(t)
+
+		originalEvolution := core.Cfg.System.ProgramEvolution
+		core.Cfg.System.ProgramEvolution = false
+
+		t.Cleanup(func() {
+			core.Cfg.System.ProgramEvolution = originalEvolution
+		})
+
+		backend := &Backend{}
+		var frameRecipient, frameDonor [128]uint64
+		progStart := core.Cfg.Value.Region.Program.Start
+		nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+
+		for offset := 0; offset < nProgWords; offset++ {
+			word := uint64(0x100 + offset)
+			frameRecipient[progStart+offset] = word
+			frameDonor[progStart+offset] = word
+		}
+
+		slot := firmware.ProgramPayloadFirst32BitSlot()
+		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
+		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+
+		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
+		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
+
+		backend.evolveProgramsInGroup([]unsafe.Pointer{
+			unsafe.Pointer(&frameRecipient),
+			unsafe.Pointer(&frameDonor),
+		})
+
+		convey.So(firmware.InstructionSlot(&frameRecipient, slot), convey.ShouldEqual, uint32(0))
+	})
+}
+
+func BenchmarkEvolveProgramsInGroup(b *testing.B) {
+	setupTestConfig(b)
+
+	originalEvolution := core.Cfg.System.ProgramEvolution
+	core.Cfg.System.ProgramEvolution = true
+
+	b.Cleanup(func() {
+		core.Cfg.System.ProgramEvolution = originalEvolution
+	})
+
+	backend := &Backend{}
+
+	var templateRecipient, templateDonor [128]uint64
+	progStart := core.Cfg.Value.Region.Program.Start
+	nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+
+	for offset := 0; offset < nProgWords; offset++ {
+		word := uint64(0x100 + offset)
+		templateRecipient[progStart+offset] = word
+		templateDonor[progStart+offset] = word
+	}
+
+	slot := firmware.ProgramPayloadFirst32BitSlot()
+	r0 := uint16(core.Cfg.Value.Region.Registers.R0)
+	r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+	donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+
+	firmware.SetInstructionSlot(&templateRecipient, slot, 0)
+	firmware.SetInstructionSlot(&templateDonor, slot, donorInstr)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+
+	for b.Loop() {
+		frameRecipient := templateRecipient
+		frameDonor := templateDonor
+
+		backend.evolveProgramsInGroup([]unsafe.Pointer{
+			unsafe.Pointer(&frameRecipient),
+			unsafe.Pointer(&frameDonor),
+		})
+	}
 }
 
 func TestHandleFollowUpDoesNotMutateProgramRegion(t *testing.T) {

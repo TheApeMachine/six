@@ -36,6 +36,8 @@ system:
   batchSize: 10000
   batchWindow: 500
   queueSize: 20000
+  # Post-batch HomologousCrossover pairs in executeBatch (see pkg/compute/backend.go).
+  programEvolution: true
   # Loads programsStepwise.* and enables stepwise installFirmware + CPU routing
   # (header at program.base). Frames without the stepwise magic still use RISC.
   stepwiseUniversalBitwise: true
