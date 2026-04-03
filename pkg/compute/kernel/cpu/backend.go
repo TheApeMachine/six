@@ -37,6 +37,23 @@ func NewBackend(ctx context.Context, opts ...backendOption) *Backend {
 func Available() int { return runtime.NumCPU() }
 
 /*
+UniversalBitwiseSlotInfo is passed to UniversalBitwiseSlotHook once per LGP slot,
+before that slot is executed. Instr is taken from frames[0] (representative).
+Homogeneous is true when every frame in the tile shares the same instruction word
+for this slot (SIMD tile fast path).
+*/
+type UniversalBitwiseSlotInfo struct {
+	Slot        int
+	TotalSlots  int
+	Instr       uint32
+	FrameCount  int
+	Homogeneous bool
+}
+
+// UniversalBitwiseSlotHook is optional; cmd wires pkg/telemetry when enabled.
+var UniversalBitwiseSlotHook func(UniversalBitwiseSlotInfo)
+
+/*
 UniversalBitwise executes the in-band 32-bit slot program carried by each Value.
 The CPU path follows the same self-only execution contract as CUDA and Metal,
 but it opportunistically uses SIMD across tiles of Values when a slot decodes
@@ -98,6 +115,23 @@ func executeFrameTile(
 
 	for slot := range totalSlots {
 		instr, homogeneous := tileInstruction(frames, progStart, slot)
+
+		if UniversalBitwiseSlotHook != nil {
+			firstInstr := uint32(0)
+
+			if len(frames) > 0 {
+				firstInstr = instructionAtSlot((*[128]uint64)(frames[0]), progStart, slot)
+			}
+
+			UniversalBitwiseSlotHook(UniversalBitwiseSlotInfo{
+				Slot:        slot,
+				TotalSlots:  totalSlots,
+				Instr:       firstInstr,
+				FrameCount:  len(frames),
+				Homogeneous: homogeneous,
+			})
+		}
+
 		if homogeneous {
 			if instr == 0 {
 				continue
@@ -225,6 +259,8 @@ func (backend *Backend) Shutdown() error {
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	return job(context.Background())
 }
+
+func (backend *Backend) Name() string { return "cpu" }
 
 func Popcount(value unsafe.Pointer, startBit, bitLen int) int {
 	contexts := (*[128]uint64)(value)

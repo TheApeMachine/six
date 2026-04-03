@@ -9,8 +9,12 @@ import { CSS2DRenderer } from 'three/addons/renderers/CSS2DRenderer.js';
 export const scene = new THREE.Scene();
 scene.fog = new THREE.FogExp2(0x060e1e, 0.012);
 
-export const camera = new THREE.PerspectiveCamera(55, innerWidth / innerHeight, 0.1, 800);
-camera.position.set(7, 38, 40);
+const GRAPH_STRIP_HEIGHT = 160;
+export const GRAPH_STRIP_H = GRAPH_STRIP_HEIGHT;
+
+const canvasH = () => innerHeight - GRAPH_STRIP_HEIGHT;
+export const camera = new THREE.PerspectiveCamera(55, innerWidth / canvasH(), 0.1, 800);
+camera.position.set(4, 48, 50);
 
 // ── WebGL Renderer ─────────────────────────────────────────
 export const renderer = new THREE.WebGLRenderer({
@@ -19,7 +23,7 @@ export const renderer = new THREE.WebGLRenderer({
   alpha: false,
   powerPreference: 'high-performance',
 });
-renderer.setSize(innerWidth, innerHeight);
+renderer.setSize(innerWidth, canvasH());
 renderer.setPixelRatio(Math.min(devicePixelRatio, 1.5));
 renderer.setClearColor(0x060e1e);
 renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -32,9 +36,9 @@ if (!document.getElementById('three-canvas')) {
 
 // ── CSS2D Label Renderer ───────────────────────────────────
 export const labelRenderer = new CSS2DRenderer();
-labelRenderer.setSize(innerWidth, innerHeight);
+labelRenderer.setSize(innerWidth, canvasH());
 labelRenderer.domElement.style.position = 'absolute';
-labelRenderer.domElement.style.top = '0';
+labelRenderer.domElement.style.top = GRAPH_STRIP_HEIGHT + 'px';
 labelRenderer.domElement.style.pointerEvents = 'none';
 labelRenderer.domElement.style.zIndex = '1';
 document.body.appendChild(labelRenderer.domElement);
@@ -43,7 +47,7 @@ document.body.appendChild(labelRenderer.domElement);
 export const controls = new OrbitControls(camera, renderer.domElement);
 controls.enableDamping = true;
 controls.dampingFactor = 0.06;
-controls.target.set(7, 2, 0);
+controls.target.set(4, 2, 6);
 controls.minDistance = 5;
 controls.maxDistance = 200;
 controls.maxPolarAngle = Math.PI * 0.85;
@@ -66,12 +70,12 @@ centerGlow.position.set(0, 3, 0);
 scene.add(centerGlow);
 
 // ── Grid ───────────────────────────────────────────────────
-const gridHelper = new THREE.GridHelper(80, 80, 0x152540, 0x0c1830);
+const gridHelper = new THREE.GridHelper(100, 100, 0x152540, 0x0c1830);
 gridHelper.material.transparent = true;
 gridHelper.material.opacity = 0.2;
 scene.add(gridHelper);
 
-const gridMajor = new THREE.GridHelper(80, 16, 0x1e3860, 0x1e3860);
+const gridMajor = new THREE.GridHelper(100, 20, 0x1e3860, 0x1e3860);
 gridMajor.material.transparent = true;
 gridMajor.material.opacity = 0.1;
 gridMajor.position.y = 0.01;
@@ -169,8 +173,9 @@ export function updateFlyAnimation() {
 
 // ── Resize ─────────────────────────────────────────────────
 window.addEventListener('resize', () => {
-  camera.aspect = innerWidth / innerHeight;
+  const h = canvasH();
+  camera.aspect = innerWidth / h;
   camera.updateProjectionMatrix();
-  renderer.setSize(innerWidth, innerHeight);
-  labelRenderer.setSize(innerWidth, innerHeight);
+  renderer.setSize(innerWidth, h);
+  labelRenderer.setSize(innerWidth, h);
 });

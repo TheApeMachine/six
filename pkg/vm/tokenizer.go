@@ -13,6 +13,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -127,7 +128,19 @@ func (tokenizer *Tokenizer) Read(p []byte) (n int, err error) {
 			return 0, errnie.Error(tokenizer.err)
 		}
 
-		return primitive.BytesToValue(frame).Read(p)
+		value := primitive.BytesToValue(frame)
+		valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+		telemetry.Emit(telemetry.Event{
+			Component: "Tokenizer",
+			Action:    "Value",
+			Data: telemetry.EventData{
+				Stage:   "tokenize",
+				Message: "value read from ring buffer",
+				NodeID:  valueID,
+			},
+		})
+
+		return value.Read(p)
 	}
 }
 
@@ -152,6 +165,37 @@ func (tokenizer *Tokenizer) Write(p []byte) (n int, err error) {
 				return 0, errnie.Error(tokenizer.err)
 			}
 		}
+
+		valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+
+		// Emit ingest-tokenize: raw bytes → Value
+		chunkPreview := string(p)
+		if len(chunkPreview) > 50 {
+			chunkPreview = chunkPreview[:50]
+		}
+		telemetry.Emit(telemetry.Event{
+			Component: "Tokenizer",
+			Action:    "Value",
+			Data: telemetry.EventData{
+				Stage:     "ingest-tokenize",
+				ChunkText: chunkPreview,
+				NodeID:    valueID,
+			},
+		})
+
+		// Emit Value/Frame with link pointers for graph visualization
+		prevID := value.GetWord(core.Cfg.Value.Region.Prev.Start)
+		nextID := value.GetWord(core.Cfg.Value.Region.Next.Start)
+		telemetry.Emit(telemetry.Event{
+			Component: "Value",
+			Action:    "Frame",
+			Data: telemetry.EventData{
+				NodeID:    valueID,
+				FromID:    prevID,
+				ToID:      nextID,
+				ChunkText: chunkPreview,
+			},
+		})
 
 		// Route the Value into the control plane by affinity. The LSM itself
 		// still indexes the Value under its TokenIDs inside InsertBatch.

@@ -6,35 +6,92 @@ import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { zoneGroup } from './scene.js';
 
-/* Actual runtime subsystems:
-   machine → stream → emitter → backend → pool, with hardware substrates above. */
+/*
+Layout matches actual Go pipeline:
+
+  DATASET (bottom) feeds raw bytes into MACHINE via io.Writer.
+  MACHINE runs a single background goroutine: io.CopyBuffer(machine, machine, buf).
+    Machine.Write(raw) → TOKENIZER.Write(raw) → NewValue → ControlPlane.Insert → ring buffer
+    Machine.Read(buf)  → TOKENIZER.Read(buf)  → pulls Value from ring buffer
+                       → backend.Queue(value)  → BACKEND
+
+  TOKENIZER inserts every new Value into CONTROLPLANE (Kademlia + per-bucket LSMs).
+  CONTROLPLANE sits above TOKENIZER — each k-bucket has its own LSM.
+
+  BACKEND has two queues (NORMAL + PRIORITY channels).
+    runQueue loops gather batches → executeBatch:
+      groupFramesByProgram → UniversalBitwise dispatch → evolveProgramsInGroup → handleFollowUp
+    EXEC is where UniversalBitwise runs on the selected substrate.
+    POOL.Schedule sends batch jobs to worker goroutines.
+
+  WORKERS are the pool goroutines consuming jobs.
+  CUDA / METAL / CPU are the compute substrates dispatched from exec.
+
+  Follow-up: if FW register ≠ 0 after exec, frame is re-queued to PRIORITY queue.
+*/
 export const SYS = {
-  machine: { x: 0,   z: 14,  y: 0, w: 12, h: 8, depth: 6, label: 'MACHINE', color: 0xffcc66, accent: true },
-  stream:  { x: -14, z: 0,   y: 0, w: 10, h: 6, depth: 4, label: 'STREAM',  color: 0x5090d0 },
-  emitter: { x: 0,   z: 0,   y: 0, w: 10, h: 6, depth: 4, label: 'EMITTER', color: 0x50c0a0 },
-  backend: { x: 14,  z: 0,   y: 0, w: 10, h: 6, depth: 5, label: 'BACKEND', color: 0xa070e0 },
-  pool:    { x: 28,  z: 0,   y: 0, w: 10, h: 6, depth: 5, label: 'POOL',    color: 0x8fdc7a },
-  cuda:    { x: 8,   z: -12, y: 0, w: 6,  h: 4, depth: 3, label: 'CUDA',    color: 0x7fb8ff },
-  metal:   { x: 18,  z: -12, y: 0, w: 6,  h: 4, depth: 3, label: 'METAL',   color: 0x6de0c0 },
-  cpu:     { x: 28,  z: -12, y: 0, w: 6,  h: 4, depth: 3, label: 'CPU',     color: 0xffb84d },
+  // ── Data ingress ────────────────────────────────────────
+  dataset:      { x: 0, z: 24, y: 0, w: 10, h: 6, depth: 4,   label: 'DATASET',       color: 0x6090b0 },
+
+  // ── Core pipeline ──────────────────────────────────────
+  machine:      { x: 0, z: 14, y: 0, w: 12, h: 8, depth: 6,   label: 'MACHINE',        color: 0xffcc66, accent: true },
+  stream:       { x: -14, z: 6, y: 0, w: 9, h: 6, depth: 4,   label: 'TOKENIZER',      color: 0x5090d0 },
+
+  // ── Routing & storage ──────────────────────────────────
+  controlplane: { x: -14, z: -4, y: 0, w: 9, h: 8, depth: 5,  label: 'CONTROLPLANE',   color: 0xc080f0 },
+  lsm:          { x: -14, z: -14, y: 0, w: 9, h: 5, depth: 3, label: 'LSM · k-buckets', color: 0x9070d0 },
+
+  // ── Compute dispatch ───────────────────────────────────
+  backend:      { x: 14, z: 14, y: 0, w: 18, h: 10, depth: 7, label: 'BACKEND',        color: 0xa070e0, wireOpacity: 0.11, hull: true },
+  emitter:      { x: 8, z: 14, y: 0, w: 4.8, h: 5.5, depth: 4.2, label: 'QUEUE',       color: 0x50c0a0 },
+  exec:         { x: 14, z: 14, y: 0, w: 4.8, h: 5.5, depth: 4.2, label: 'EXEC·UB',    color: 0x9040c0 },
+  pool:         { x: 20, z: 14, y: 0, w: 4.8, h: 5.5, depth: 4.2, label: 'WORKERS',    color: 0x8fdc7a },
+
+  // ── Compute substrates ─────────────────────────────────
+  cuda:         { x: 10, z: 2, y: 0, w: 5.5, h: 4, depth: 3,  label: 'CUDA',           color: 0x7fb8ff },
+  metal:        { x: 16, z: 2, y: 0, w: 5.5, h: 4, depth: 3,  label: 'METAL',          color: 0x6de0c0 },
+  cpu:          { x: 22, z: 2, y: 0, w: 5.5, h: 4, depth: 3,  label: 'CPU',            color: 0xffb84d },
 };
 
 export const CONNS = [
-  { from: 'machine', to: 'stream',  tag: 'load' },
-  { from: 'stream',  to: 'emitter', tag: 'frame' },
-  { from: 'emitter', to: 'backend', tag: 'dispatch' },
-  { from: 'backend', to: 'pool',    tag: 'jobs' },
-  { from: 'pool',    to: 'machine', tag: 'result' },
-  { from: 'backend', to: 'cuda',    tag: 'CUDA' },
-  { from: 'backend', to: 'metal',   tag: 'Metal' },
-  { from: 'backend', to: 'cpu',     tag: 'CPU' },
+  // ── Data ingress ───────────────────────────────────────
+  { from: 'dataset', to: 'machine',      tag: 'raw bytes' },
+
+  // ── Machine ↔ Tokenizer (io.CopyBuffer loop) ──────────
+  { from: 'machine', to: 'stream',       tag: 'Write (raw)' },
+  { from: 'stream',  to: 'machine',      tag: 'Read (Value)' },
+
+  // ── Tokenizer → ControlPlane (Insert on every new Value)
+  { from: 'stream',       to: 'controlplane', tag: 'Insert' },
+  { from: 'controlplane', to: 'lsm',          tag: 'k-bucket route' },
+
+  // ── Machine.Read → Backend.Queue ───────────────────────
+  { from: 'machine', to: 'emitter',      tag: 'Queue' },
+
+  // ── Backend internal: Queue → Exec → Workers ──────────
+  { from: 'emitter', to: 'exec',         tag: 'gatherBatch' },
+  { from: 'exec',    to: 'pool',         tag: 'Schedule' },
+
+  // ── Workers dispatch to substrates ─────────────────────
+  { from: 'exec', to: 'cuda',            tag: 'CUDA' },
+  { from: 'exec', to: 'metal',           tag: 'Metal' },
+  { from: 'exec', to: 'cpu',             tag: 'CPU' },
+
+  // ── Follow-up: FW≠0 → re-queue to PRIORITY ────────────
+  { from: 'pool', to: 'emitter',         tag: 'follow-up' },
+
+  // ── Prompt decode: Machine ← ControlPlane (LSM lookup) ─
+  { from: 'controlplane', to: 'machine', tag: 'LookupKeys' },
 ];
 
 const ZONE_ALIASES = {
-  dataset: 'machine',
+  dataset: 'dataset',
   frame: 'stream',
   chamber: 'emitter',
-  kernel: 'backend',
+  kernel: 'exec',
+  cluster: 'controlplane',
+  dmt: 'controlplane',
+  workers: 'pool',
 };
 
 export function resolveZoneKey(sysKey) {
@@ -103,8 +160,9 @@ function createCornerBrackets(w, h, y, color, opacity = 0.35) {
 export function buildArchitecture() {
   for (const [key, sys] of Object.entries(SYS)) {
     const baseY = sys.depth / 2;
+    const wireOpacity = sys.wireOpacity != null ? sys.wireOpacity : 0.28;
 
-    const wireBox = createWireframeBox(sys.w, sys.h, sys.depth, sys.color, 0.3);
+    const wireBox = createWireframeBox(sys.w, sys.h, sys.depth, sys.color, wireOpacity);
     wireBox.position.set(sys.x, baseY, sys.z);
     zoneGroup.add(wireBox);
 
@@ -138,9 +196,10 @@ export function buildArchitecture() {
 
     const div = document.createElement('div');
     div.className = sys.accent ? 'subsystem-label center' : 'subsystem-label';
+    if (sys.hull) div.classList.add('backend-hull-label');
     div.textContent = sys.label;
     const lbl = new CSS2DObject(div);
-    lbl.position.set(sys.x, sys.depth + 0.5, sys.z);
+    lbl.position.set(sys.x, sys.depth + 0.55, sys.z);
     zoneGroup.add(lbl);
 
     sys.center = new THREE.Vector3(sys.x, baseY, sys.z);
@@ -221,10 +280,9 @@ export function buildArchitecture() {
 }
 
 // ── Stream Pipe Ring ──────────────────────────────────────
-// Shows the actual multi-region ring buffer rotation. Each region is a distinct
-// frame slot around the ring. The rotation pointer (ptr) advances on Write(),
-// causing Read() to access frames at (i + ptr) % regions — so frame slots
-// shift position each cycle, mixing which emitter reads which frame.
+// Tokenizer pipe ring: each region is a slot; the ptr advances on Write() so
+// Read() sees (i + ptr) % regions — mirroring how the vm.Tokenizer multiplexes
+// frames before Machine.Read pulls a full Value wire buffer.
 // Count defaults to 4; sync with GET /api/system → streamRegions via setStreamRegionCount + rebuildStreamRing.
 export let streamRegionCount = 4;
 let streamSlots = [];     // Visual slot meshes (+ CSS2D labels)

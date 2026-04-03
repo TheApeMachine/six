@@ -227,10 +227,14 @@ function renderInternalsTab() {
     case 'stream':
       renderTokenizerInternals();
       break;
+    case 'controlplane':
+      renderControlPlaneInternals();
+      break;
     case 'emitter':
       renderEmitterInternals();
       break;
     case 'backend':
+    case 'exec':
       renderKernelInternals();
       break;
     case 'pool':
@@ -260,15 +264,31 @@ function computeSubsystemStats(sysKey, events) {
       stats.push(['Token nodes', { text: state.totalTokenNodes.toLocaleString() }]);
       stats.push(['Flow edges', { text: state.totalFlowEdges.toLocaleString() }]);
       break;
+    case 'controlplane': {
+      const lsmEv = state.eventsByComponent.get('LSM') || [];
+      const siEv = state.eventsByComponent.get('SpatialIndex') || [];
+      const dmtEv = state.eventsByComponent.get('DMT') || [];
+      stats.push(['LSM events', { text: lsmEv.length.toLocaleString(), cls: 'accent' }]);
+      stats.push(['SpatialIndex events', { text: siEv.length.toLocaleString() }]);
+      stats.push(['DMT events', { text: dmtEv.length.toLocaleString() }]);
+      stats.push(['Edges (Σ)', { text: state.totalEdges.toLocaleString() }]);
+      stats.push(['Paths (Σ)', { text: state.totalPaths.toLocaleString() }]);
+      break;
+    }
     case 'emitter':
       stats.push(['Value snapshots', { text: state.valueHistory.length.toLocaleString(), cls: 'accent' }]);
       stats.push(['Selected value', { text: state.lastValueSummary || '—' }]);
       stats.push(['Value events', { text: state.totalValueFrames.toLocaleString() }]);
       break;
-    case 'backend': {
+    case 'backend':
+    case 'exec': {
       const kernelEvents = state.eventsByComponent.get('Kernel') || [];
+      const backendEvents = state.eventsByComponent.get('Backend') || [];
+      const ubSlots = backendEvents.filter(e => e.action === 'UniversalBitwise' && e.data?.stage === 'slot');
       stats.push(['Route events', { text: kernelEvents.filter(e => e.action === 'Route').length.toLocaleString(), cls: 'accent' }]);
-      stats.push(['Backend events', { text: (state.eventsByComponent.get('Backend') || []).length.toLocaleString() }]);
+      stats.push(['Backend events', { text: backendEvents.length.toLocaleString() }]);
+      stats.push(['UB slot events', { text: ubSlots.length.toLocaleString() }]);
+      stats.push(['Last UB slot', { text: state.lastUbSlot >= 0 ? `${state.lastUbSlot}/${state.lastUbSlotsTotal || '?'}` : '—' }]);
       stats.push(['Pool jobs done', { text: state.totalJobsDone.toLocaleString() }]);
       break;
     }
@@ -428,6 +448,18 @@ function renderTokenizerInternals() {
   els.body.appendChild(sec1);
 }
 
+function renderControlPlaneInternals() {
+  const intro = makeSection('cluster.ControlPlane');
+  const note = document.createElement('div');
+  note.className = 'inspector-empty';
+  note.textContent =
+    'Kademlia-style buckets each hold a SpatialIndex (LSM) for token→Value. Inserts come from the tokenizer Write path; lookups feed prompt decode and graph work.';
+  intro.appendChild(note);
+  els.body.appendChild(intro);
+
+  renderForestInternals();
+}
+
 function renderEmitterInternals() {
   const sec1 = makeSection('Recent Value Snapshots');
   const recent = [...state.valueHistory].slice(-24).reverse();
@@ -444,7 +476,7 @@ function renderEmitterInternals() {
       const promptA = document.createElement('div');
       promptA.className = 'prompt-a';
       promptA.textContent = `prev=${snapshot.prevId || '0'} · next=${snapshot.nextId || '0'} · ` +
-        `aff=${snapshot.affinityPop ?? 0} · pc=${snapshot.pc || '0'}`;
+        `aff=${snapshot.affinityPop ?? 0} · pcWord=${snapshot.pcWordIndex ?? '—'} · pc=${snapshot.pc || '0'}`;
       row.append(promptQ, promptA);
       sec1.appendChild(row);
     }
@@ -467,6 +499,7 @@ function renderEmitterInternals() {
       summary: compact.summary,
       affinity: compact.affinity,
       pc: compact.pc,
+      pcWordIndex: compact.pcWordIndex,
       ttl: compact.ttlValue,
     }, null, 2);
     sec2.appendChild(pre);
@@ -740,12 +773,24 @@ function renderValueProgramTab() {
   }
 
   const sec1 = makeSection('Program');
-  const activePc = Number.parseInt(String(expanded.pc || '0'), 10) || 0;
-  const activeSlot = Number.isFinite(activePc) ? activePc : 0;
+  const pcHeadSlot = Number.isFinite(expanded.currentSlot) ? expanded.currentSlot : -1;
+  const ubSlot = Number.isFinite(state.lastUbSlot) && state.lastUbSlot >= 0 ? state.lastUbSlot : -1;
+  const ubTotal = state.lastUbSlotsTotal > 0 ? state.lastUbSlotsTotal : (expanded.programSlotsTotal ?? expanded.indices?.programSlots ?? 0);
+
+  const hint = document.createElement('div');
+  hint.className = 'program-legend';
+  hint.textContent = 'PC row = firmware entry word (low slot). Non-NOP slots are visited in order during UniversalBitwise. Green edge = live CPU slot when telemetry.universal_bitwise_slots is enabled.';
+  sec1.appendChild(hint);
 
   for (const instr of expanded.program) {
     const row = document.createElement('div');
-    row.className = `program-row${instr.slot === activeSlot ? ' active' : ''}`;
+    const nonNop = instr.raw && instr.raw !== '0x00000000';
+    const cls = ['program-row'];
+    if (nonNop) cls.push('ub-sweep');
+    else cls.push('ub-nop');
+    if (pcHeadSlot >= 0 && instr.slot === pcHeadSlot) cls.push('pc-head');
+    if (ubSlot >= 0 && instr.slot === ubSlot) cls.push('ub-active');
+    row.className = cls.join(' ');
     const slot = document.createElement('span');
     slot.className = 'program-slot';
     slot.textContent = `#${String(instr.slot).padStart(2, '0')}`;

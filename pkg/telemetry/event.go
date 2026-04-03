@@ -68,4 +68,12 @@ type EventData struct {
 	NodeType   string `json:"nodeType,omitempty"`
 	FromID     uint64 `json:"fromId,omitempty"`
 	ToID       uint64 `json:"toId,omitempty"`
+
+	// UniversalBitwise (CPU path, optional telemetry.universal_bitwise_slots):
+	// one-based-ish slot index is LgpSlot; raw 32-bit LGP encoding is LgpInstr.
+	LgpSlot       int    `json:"lgpSlot,omitempty"`
+	LgpSlotsTotal int    `json:"lgpSlotsTotal,omitempty"`
+	LgpInstr      uint32 `json:"lgpInstr,omitempty"`
+	UbHomogeneous bool   `json:"ubHomogeneous,omitempty"`
+	UbFrameCount  int    `json:"ubFrameCount,omitempty"`
 }

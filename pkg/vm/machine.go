@@ -13,6 +13,7 @@ import (
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -36,9 +37,12 @@ type Machine struct {
 type machineOption func(*Machine)
 
 const (
-	promptSettleDeadline = 50 * time.Millisecond
+	// promptSettleDeadline must exceed evolutionBatchWindow (default 75ms)
+	// plus kernel execution time, otherwise the prompt is read back before
+	// the backend has even started processing it.
+	promptSettleDeadline = 200 * time.Millisecond
 	promptSettlePoll     = 500 * time.Microsecond
-	promptStableSamples  = 2
+	promptStableSamples  = 3
 )
 
 /*
@@ -53,12 +57,25 @@ func NewMachine(
 ) (machine *Machine, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 
+	controlplane := cluster.NewControlPlane(ctx)
+
 	machine = &Machine{
 		ctx:          ctx,
 		cancel:       cancel,
-		backend:      compute.NewBackend(ctx),
-		controlplane: cluster.NewControlPlane(ctx),
+		controlplane: controlplane,
 	}
+
+	// Create backend with emit callback so signal-emitted children get
+	// inserted into the spatial index automatically.
+	machine.backend = compute.NewBackend(ctx, compute.WithEmitCallback(
+		func(value *primitive.Value) {
+			if controlplane == nil || value == nil {
+				return
+			}
+			key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
+			controlplane.Insert(key, *value)
+		},
+	))
 
 	tokenizer, err := NewTokenizer(
 		ctx,
@@ -169,12 +186,33 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 		}
 
 		value := primitive.BytesToValue(p[:n])
+
+		valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+		telemetry.Emit(telemetry.Event{
+			Component: "Machine",
+			Action:    "Pipeline",
+			Data: telemetry.EventData{
+				Stage:   "queue",
+				Message: "frame from tokenizer → backend queue",
+				NodeID:  valueID,
+			},
+		})
+
 		if err = machine.backend.Queue(unsafe.Pointer(value)); err != nil {
 			return 0, errnie.Error(err)
 		}
 
 		isPrompt := value.IsPrompt()
 		if isPrompt {
+			telemetry.Emit(telemetry.Event{
+				Component: "Machine",
+				Action:    "Pipeline",
+				Data: telemetry.EventData{
+					Stage:   "prompt-start",
+					Message: "waiting for prompt settle",
+					NodeID:  valueID,
+				},
+			})
 			machine.waitForPrompt(value)
 		}
 
@@ -191,25 +229,7 @@ func (machine *Machine) Read(p []byte) (n int, err error) {
 		}
 
 		if isPrompt {
-			valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
-			tokenIDs := primitive.ValueTokenIDsForLookup(valueID)
-
-			if len(tokenIDs) == 0 {
-				tokenIDs = machine.controlplane.LookupKeysByValue(value)
-			}
-
-			if len(tokenIDs) == 0 {
-				tokenIDs = machine.controlplane.LookupKeysByValueID(valueID)
-			}
-
-			if len(tokenIDs) == 0 {
-				return n, errnie.Error(errors.New("no token IDs found for prompt"))
-			}
-
-			output := primitive.DecodeTokenIDs(tokenIDs)
-			if output == nil {
-				output = make([]byte, 0)
-			}
+			output := machine.collectPromptOutput(value)
 
 			if machine.output != nil {
 				if _, writeErr := machine.output.Write(output); writeErr != nil {
@@ -260,6 +280,114 @@ func (machine *Machine) waitForPrompt(value *primitive.Value) {
 }
 
 /*
+collectPromptOutput walks the NextID chain from a prompt Value, decoding
+tokenIDs from each linked Value in the chain. This is how the substrate
+returns results: the prompt's program (and signal emission) link it to
+relevant Values, and walking that chain produces the output.
+
+If the chain is empty (NextID == 0), falls back to decoding the prompt's
+own tokenIDs as a baseline.
+*/
+func (machine *Machine) collectPromptOutput(value *primitive.Value) []byte {
+	if value == nil {
+		return nil
+	}
+
+	valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+	nextID := value.GetWord(core.Cfg.Value.Region.Next.Start)
+
+	// Walk the NextID chain to collect output from linked Values.
+	if nextID != 0 && machine.controlplane != nil {
+		var output []byte
+		cursor := nextID
+		seen := map[uint64]bool{valueID: true} // don't revisit prompt itself
+
+		for cursor != 0 {
+			if seen[cursor] {
+				break // cycle guard
+			}
+			seen[cursor] = true
+
+			// Try to decode this linked Value's tokenIDs.
+			tokenIDs := primitive.ValueTokenIDsForLookup(cursor)
+			if len(tokenIDs) == 0 {
+				tokenIDs = machine.controlplane.LookupKeysByValueID(cursor)
+			}
+
+			if len(tokenIDs) > 0 {
+				decoded := primitive.DecodeTokenIDs(tokenIDs)
+				if len(decoded) > 0 {
+					output = append(output, decoded...)
+				}
+			}
+
+			// Follow the chain: look up the frame to read its NextID.
+			frame, ok := machine.controlplane.FrameByValueID(cursor)
+			if !ok {
+				break
+			}
+			cursor = frame[core.Cfg.Value.Region.Next.Start]
+		}
+
+		if len(output) > 0 {
+			resultPreview := string(output)
+			if len(resultPreview) > 200 {
+				resultPreview = resultPreview[:200]
+			}
+			telemetry.Emit(telemetry.Event{
+				Component: "Machine",
+				Action:    "Pipeline",
+				Data: telemetry.EventData{
+					Stage:      "prompt-complete",
+					ResultText: resultPreview,
+					NodeID:     valueID,
+				},
+			})
+			return output
+		}
+	}
+
+	// Fallback: decode the prompt's own tokenIDs (self-echo baseline).
+	tokenIDs := primitive.ValueTokenIDsForLookup(valueID)
+	if len(tokenIDs) == 0 && machine.controlplane != nil {
+		tokenIDs = machine.controlplane.LookupKeysByValue(value)
+	}
+	if len(tokenIDs) == 0 && machine.controlplane != nil {
+		tokenIDs = machine.controlplane.LookupKeysByValueID(valueID)
+	}
+
+	if len(tokenIDs) == 0 {
+		telemetry.Emit(telemetry.Event{
+			Component: "Machine",
+			Action:    "Pipeline",
+			Data: telemetry.EventData{
+				Stage:   "prompt-empty",
+				Message: "no linked Values and no token IDs for prompt",
+				NodeID:  valueID,
+			},
+		})
+		return []byte{}
+	}
+
+	output := primitive.DecodeTokenIDs(tokenIDs)
+	if output == nil {
+		output = []byte{}
+	}
+
+	telemetry.Emit(telemetry.Event{
+		Component: "Machine",
+		Action:    "Pipeline",
+		Data: telemetry.EventData{
+			Stage:   "prompt-fallback",
+			Message: "no linked Values; decoded prompt's own tokenIDs",
+			NodeID:  valueID,
+		},
+	})
+
+	return output
+}
+
+/*
 Write implements io.Writer so the machine acts as a wiring mechanism between
 sources and destinations. Destinations can still aggregate outputs via
 io.MultiWriter for fan-out.
@@ -284,6 +412,101 @@ func (machine *Machine) Close() (err error) {
 	}
 
 	return err
+}
+
+/*
+Backend returns the compute backend for direct frame injection (e.g. corpus
+loading, prompt injection). Callers that need to bypass the io.Reader/Writer
+stream interface use this to queue Values directly.
+*/
+func (machine *Machine) Backend() *compute.Backend {
+	return machine.backend
+}
+
+/*
+ControlPlane returns the spatial index for direct Value insertion.
+*/
+func (machine *Machine) ControlPlane() *cluster.ControlPlane {
+	return machine.controlplane
+}
+
+/*
+LoadCorpus reads the entire dataset from the given reader, chunks it into
+Values with Learn firmware, indexes each in the spatial store (control plane),
+and queues them all for backend execution. This must be called BEFORE prompt
+injection so the substrate has material to evolve structure from.
+
+Returns the number of Values created and any error encountered.
+*/
+func (machine *Machine) LoadCorpus(dataset io.Reader) (int, error) {
+	if dataset == nil {
+		return 0, nil
+	}
+
+	chunkSize := tokenizerChunkBytes()
+	if chunkSize <= 0 {
+		chunkSize = 1
+	}
+
+	buf := make([]byte, chunkSize)
+	var count int
+
+	for {
+		if machine.ctx.Err() != nil {
+			return count, machine.ctx.Err()
+		}
+
+		n, readErr := dataset.Read(buf)
+		if n > 0 {
+			value, err := primitive.NewValue(buf[:n])
+			if err != nil {
+				errnie.Warn("vm.Machine.LoadCorpus: NewValue failed", "err", err)
+				if readErr != nil {
+					break
+				}
+				continue
+			}
+
+			// Set fw register to Learn so handleFollowUp re-queues for recirculation.
+			value.SetWord(
+				core.Cfg.Value.Region.Registers.FW,
+				core.FirmwareRegisterLearn,
+			)
+
+			// Index in the spatial store.
+			if machine.controlplane != nil {
+				key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
+				machine.controlplane.Insert(key, *value)
+			}
+
+			// Queue for backend execution.
+			if err := machine.backend.Queue(unsafe.Pointer(value)); err != nil {
+				errnie.Warn("vm.Machine.LoadCorpus: Queue failed", "err", err)
+			}
+
+			count++
+
+			telemetry.Emit(telemetry.Event{
+				Component: "Machine",
+				Action:    "Pipeline",
+				Data: telemetry.EventData{
+					Stage:   "corpus-ingest",
+					NodeID:  value.GetWord(core.Cfg.Value.Region.ID.Start),
+					Message: "corpus Value queued",
+				},
+			})
+		}
+
+		if readErr != nil {
+			break // EOF or real error — corpus is fully loaded.
+		}
+	}
+
+	errnie.Info("vm.Machine.LoadCorpus: complete",
+		"values_created", count,
+	)
+
+	return count, nil
 }
 
 /*

@@ -88,6 +88,10 @@ func (substrate *recordingSubstrate) Schedule(job func(ctx context.Context) erro
 	return job(context.Background())
 }
 
+func (*recordingSubstrate) Name() string {
+	return "recording"
+}
+
 var _ kernel.Substrate = (*recordingSubstrate)(nil)
 
 type errUniversalSubstrate struct{}
@@ -98,6 +102,10 @@ func (errUniversalSubstrate) UniversalBitwise([]unsafe.Pointer) error {
 
 func (errUniversalSubstrate) Schedule(job func(ctx context.Context) error) error {
 	return job(context.Background())
+}
+
+func (errUniversalSubstrate) Name() string {
+	return "err-universal"
 }
 
 type countingOKSubstrate struct {
@@ -112,6 +120,10 @@ func (substrate *countingOKSubstrate) UniversalBitwise([]unsafe.Pointer) error {
 
 func (countingOKSubstrate) Schedule(job func(ctx context.Context) error) error {
 	return job(context.Background())
+}
+
+func (countingOKSubstrate) Name() string {
+	return "counting-ok"
 }
 
 var (
@@ -258,8 +270,8 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 
 		slot := firmware.ProgramPayloadFirst32BitSlot()
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
-		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+		tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
+		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(tokenWord) << 18)
 
 		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
 		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
@@ -295,8 +307,8 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 
 		slot := firmware.ProgramPayloadFirst32BitSlot()
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
-		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+		tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
+		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(tokenWord) << 18)
 
 		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
 		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
@@ -334,8 +346,8 @@ func BenchmarkEvolveProgramsInGroup(b *testing.B) {
 
 	slot := firmware.ProgramPayloadFirst32BitSlot()
 	r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-	r6 := uint16(core.Cfg.Value.Region.Registers.R6)
-	donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+	tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
+	donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(tokenWord) << 18)
 
 	firmware.SetInstructionSlot(&templateRecipient, slot, 0)
 	firmware.SetInstructionSlot(&templateDonor, slot, donorInstr)

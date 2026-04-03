@@ -162,13 +162,20 @@ func traceMaskAny(mask traceMask) bool {
 }
 
 // ---------------------------------------------------------------------------
-// Execution Tracing — track which instructions influence the output register
+// Execution Tracing — which slots influence phenotype (non-scratch) words
 // ---------------------------------------------------------------------------
 
-// TraceEffective executes a simulated trace of a program and returns
-// a bitmask where bit i is set if instruction i influenced register r6
-// (the output/feature register). Only effective instructions should be
-// propagated during crossover.
+/*
+TraceEffective simulates dataflow through the branchless slot program and returns
+a bitmask of slots that influence any “phenotype” word: word indices below the
+program region, minus the general-purpose register band registers.R0–R9 when that
+band is configured (R0 > 0, R9 < program start). When R0 is zero, no scratch
+words are excluded so minimal test configs still trace token outputs.
+
+That includes Tokens, graph links, state, affinity, FW, and PC. Scratch words are
+staging only; if work never reaches a non-scratch, non-program word, those slots
+are introns for crossover purposes.
+*/
 func TraceEffective(c *[128]uint64) traceMask {
 	if c == nil {
 		return traceMask{}
@@ -182,9 +189,16 @@ func TraceEffective(c *[128]uint64) traceMask {
 	slotCount := traceMaskLimit(lastSlot - firstSlot)
 	lastSlot = firstSlot + slotCount
 
-	r6Idx := uint16(core.Cfg.Value.Region.Registers.R6 & 0x7F)
+	progStart := core.Cfg.Value.Region.Program.Start
+	reg := core.Cfg.Value.Region.Registers
+	scratchLo := reg.R0
+	scratchHi := reg.R9
 
-	// Dependency tracking: for each register, which instruction slots wrote to it.
+	// Ignore R0–R9 when unset (both zero) or malformed so tests without full
+	// register layout still trace token outputs. Real frames use R0 < progStart.
+	skipScratch := scratchLo > 0 && scratchHi >= scratchLo && scratchHi < progStart
+
+	// Dependency tracking: for each word index, which instruction slots wrote to it.
 	var deps [128]traceMask
 
 	for slot := firstSlot; slot < lastSlot; slot++ {
@@ -209,11 +223,21 @@ func TraceEffective(c *[128]uint64) traceMask {
 		deps[dstReg] = nextDst
 	}
 
-	if traceMaskAny(deps[r6Idx]) {
-		return deps[r6Idx]
+	var effective traceMask
+
+	for wordIdx := 0; wordIdx < 128; wordIdx++ {
+		if wordIdx >= progStart {
+			continue
+		}
+
+		if skipScratch && wordIdx >= scratchLo && wordIdx <= scratchHi {
+			continue
+		}
+
+		traceMaskOr(&effective, deps[wordIdx])
 	}
 
-	return traceMask{}
+	return effective
 }
 
 // ---------------------------------------------------------------------------

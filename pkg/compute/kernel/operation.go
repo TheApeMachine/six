@@ -31,4 +31,7 @@ type Substrate interface {
 	// enqueue / context cancellation only; the job itself may still fail
 	// asynchronously inside the pool. Without a pool, the error is the job's.
 	Schedule(job func(ctx context.Context) error) error
+
+	// Name returns a human-readable identifier for the substrate (e.g. "cpu", "cuda", "metal").
+	Name() string
 }

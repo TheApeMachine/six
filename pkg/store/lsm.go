@@ -11,6 +11,7 @@ import (
 
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 const valueWords = 128
@@ -274,6 +275,16 @@ func (idx *SpatialIndex) InsertBatch(tokenIDs []uint64, value [valueWords]uint64
 		idx.memSize++
 	}
 
+	telemetry.Emit(telemetry.Event{
+		Component: "LSM",
+		Action:    "Insert",
+		Data: telemetry.EventData{
+			EdgeCount:  len(tokenIDs),
+			EntryCount: len(idx.frames),
+			NodeID:     rowID,
+		},
+	})
+
 	if idx.memSize >= core.Cfg.System.QueueSize {
 		idx.flushMemtable()
 	}
@@ -354,7 +365,18 @@ OR of ValueFrameBitmap for every posted ValueID.
 func (idx *SpatialIndex) ExactLookup(tokenID uint64) *roaring64.Bitmap {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
-	return idx.exactLookupLocked(tokenID)
+	result := idx.exactLookupLocked(tokenID)
+
+	telemetry.Emit(telemetry.Event{
+		Component: "SpatialIndex",
+		Action:    "Lookup",
+		Data: telemetry.EventData{
+			PathCount: int(result.GetCardinality()),
+			NodeID:    tokenID,
+		},
+	})
+
+	return result
 }
 
 /*

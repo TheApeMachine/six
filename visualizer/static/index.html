@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <title>SIX — Substrate Visualizer</title>
-  <meta name="description" content="Real-time 3D view of the machine, stream, emitter, backend, and pool pipeline">
+  <meta name="description" content="Live tokenizer, backend queue, batch execution, and Value frame decode aligned with pkg/vm and pkg/compute">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500&family=Space+Mono:wght@400;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/css/base.css">
@@ -20,38 +20,41 @@
     <div class="hud-divider"></div>
     <div class="hud-stat"><span>Status</span> <span class="val" id="stat-conn">offline</span></div>
     <div class="hud-stat"><span>Replay</span> <span class="val" id="stat-replay">live</span></div>
+    <div class="hud-divider"></div>
+    <div class="hud-stat hud-substrate"><span>Substrate</span></div>
+    <pre class="hud-substrate-body" id="hud-substrate">—</pre>
   </div>
 
   <!-- ── Pipeline Flow ────────────────────────────────────── -->
   <div id="pipeline" class="panel">
-    <div class="pipeline-title">Runtime Flow · Machine → Stream → Emitter → Backend → Pool</div>
+    <div class="pipeline-title">Dataset → Machine → Tokenizer → Backend → Substrates</div>
     <div class="pipeline-stage" id="stage-tokenize">
       <div class="dot"></div>
-      <span class="stage-label">Machine</span>
+      <span class="stage-label">Dataset → Machine</span>
       <span class="stage-info" id="stage-tokenize-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-insert">
       <div class="dot"></div>
-      <span class="stage-label">Stream</span>
+      <span class="stage-label">Tokenizer (NewValue)</span>
       <span class="stage-info" id="stage-insert-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-lookup">
       <div class="dot"></div>
-      <span class="stage-label">Emitter</span>
+      <span class="stage-label">ControlPlane / LSM Insert</span>
       <span class="stage-info" id="stage-lookup-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-fold">
       <div class="dot"></div>
-      <span class="stage-label">Backend</span>
+      <span class="stage-label">Backend Queue → Exec (UB)</span>
       <span class="stage-info" id="stage-fold-info"></span>
     </div>
     <div class="pipeline-connector"></div>
     <div class="pipeline-stage" id="stage-decode">
       <div class="dot"></div>
-      <span class="stage-label">Pool</span>
+      <span class="stage-label">Workers → CUDA/Metal/CPU</span>
       <span class="stage-info" id="stage-decode-info"></span>
     </div>
   </div>
@@ -76,17 +79,33 @@
   <div id="density-label">Accum</div>
   <div id="density-bar" class="panel"><div id="density-fill" style="height: 0%"></div></div>
 
-  <!-- ── Graph Panel (SVG) ────────────────────────────────── -->
-  <div id="graph-panel" class="panel" style="display:none">
-    <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg">
-      <defs>
-        <marker id="arrowhead" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto">
-          <polygon points="0 0, 8 3, 0 6" fill="rgba(120, 180, 240, 0.5)" />
-        </marker>
-      </defs>
-      <g id="graph-edges"></g>
-      <g id="graph-nodes"></g>
-    </svg>
+  <!-- ── Value Chain Graph (SVG strip) ─────────────────────── -->
+  <div id="graph-strip">
+    <div class="graph-strip-header">
+      <span class="graph-strip-title">Value Chain</span>
+      <span class="graph-strip-count" id="graph-count">0 nodes</span>
+      <button class="graph-strip-btn" id="graph-clear-btn" title="Clear graph">CLR</button>
+      <button class="graph-strip-btn" id="graph-fit-btn" title="Fit to view">FIT</button>
+    </div>
+    <div class="graph-strip-viewport" id="graph-viewport">
+      <svg id="graph-svg" xmlns="http://www.w3.org/2000/svg" width="100%" height="100%">
+        <defs>
+          <marker id="arrow-prev" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+            <polygon points="0 0, 8 3, 0 6" fill="rgba(127, 184, 255, 0.7)" />
+          </marker>
+          <marker id="arrow-next" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+            <polygon points="0 0, 8 3, 0 6" fill="rgba(255, 211, 125, 0.7)" />
+          </marker>
+          <marker id="arrow-link" markerWidth="8" markerHeight="6" refX="8" refY="3" orient="auto" markerUnits="userSpaceOnUse">
+            <polygon points="0 0, 8 3, 0 6" fill="rgba(80, 128, 176, 0.6)" />
+          </marker>
+        </defs>
+        <g id="graph-world">
+          <g id="graph-edges"></g>
+          <g id="graph-nodes"></g>
+        </g>
+      </svg>
+    </div>
   </div>
 
   <!-- ── Inspector Panel ──────────────────────────────────── -->
@@ -165,7 +184,7 @@
 
   <!-- ── Navigation Hint ──────────────────────────────────── -->
   <div id="nav-hint">
-    Click zone to inspect · Double-click to fly · Keys 1–8 for subsystems · 0 for overview
+    Click zone to inspect · Double-click to fly · 1=Dataset 2=Machine 3=Tokenizer 4=ControlPlane 5=Queue 6=Exec 7=Workers 8=CUDA 9=CPU · 0=overview
   </div>
 
   <!-- ── Three.js Canvas ──────────────────────────────────── -->

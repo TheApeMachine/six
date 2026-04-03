@@ -399,8 +399,11 @@ func (value *Value) InstallFirmware(
 
 	value[core.Cfg.Value.Region.Registers.FW] = uint64(firmwareType)
 
+	clearProgramWords(value)
+
 	for instructionIndex := range core.Cfg.Firmware[firmwareType] {
-		wordIndex := core.Cfg.Value.Region.Program.Start + instructionIndex
+		// Two 32-bit LGP slots per 64-bit program word (UniversalBitwise layout).
+		wordIndex := core.Cfg.Value.Region.Program.Start + instructionIndex/2
 
 		if wordIndex < 0 || wordIndex >= len(*value) {
 			return errnie.Error(
@@ -408,9 +411,11 @@ func (value *Value) InstallFirmware(
 			)
 		}
 
-		value[wordIndex] = uint64(
-			core.Cfg.Firmware[firmwareType][instructionIndex],
-		)
+		instr := uint64(core.Cfg.Firmware[firmwareType][instructionIndex])
+		shift := uint((instructionIndex % 2) * 32)
+		mask := uint64(0xFFFFFFFF) << shift
+
+		value[wordIndex] = (value[wordIndex] &^ mask) | (instr << shift)
 	}
 
 	value[core.Cfg.Value.Region.PC.Start] = uint64(

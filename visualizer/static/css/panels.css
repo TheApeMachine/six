@@ -2,9 +2,105 @@
    SIX — Panel, HUD, Inspector & UI Component Styles
    ═══════════════════════════════════════════════════════════ */
 
+/* ── Graph Strip (top) ────────────────────────────────── */
+#graph-strip {
+  position: absolute; top: 0; left: 0; right: 0;
+  height: 160px; z-index: 90;
+  background: rgba(6, 14, 30, 0.95);
+  border-bottom: 1px solid var(--bp-line-strong);
+  display: flex; flex-direction: column;
+}
+.graph-strip-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--bp-line);
+  flex-shrink: 0;
+}
+.graph-strip-title {
+  font-size: 8px; font-weight: 500;
+  letter-spacing: 4px; text-transform: uppercase;
+  color: var(--bp-accent);
+}
+.graph-strip-count {
+  font-size: 8px; color: var(--bp-ink-faint);
+  letter-spacing: 0.5px; margin-left: auto;
+}
+.graph-strip-btn {
+  background: rgba(10, 20, 45, 0.8);
+  border: 1px solid var(--bp-line);
+  color: var(--bp-ink-dim); font-family: var(--bp-font);
+  font-size: 7px; padding: 2px 8px; cursor: pointer;
+  letter-spacing: 1px; text-transform: uppercase;
+  transition: all 0.15s;
+}
+.graph-strip-btn:hover {
+  color: var(--bp-ink); border-color: var(--bp-accent-dim);
+}
+.graph-strip-viewport {
+  flex: 1; overflow: hidden; position: relative;
+  cursor: grab;
+}
+.graph-strip-viewport:active { cursor: grabbing; }
+#graph-svg {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100%;
+}
+/* SVG graph node styling */
+.svg-node rect {
+  fill: rgba(6, 14, 30, 0.92);
+  stroke: rgba(140, 200, 255, 0.28);
+  stroke-width: 1;
+  cursor: pointer;
+  transition: stroke 0.15s;
+}
+.svg-node:hover rect {
+  stroke: rgba(255, 220, 140, 0.65);
+}
+.svg-node.type-raw rect {
+  stroke: rgba(90, 130, 190, 0.2);
+  stroke-dasharray: 3 2;
+}
+.svg-node.type-ref rect {
+  stroke: rgba(90, 130, 190, 0.15);
+  stroke-dasharray: 2 2;
+  fill: rgba(6, 14, 30, 0.7);
+}
+.svg-node-id {
+  font-family: var(--bp-font);
+  font-size: 10px;
+  fill: var(--bp-ink);
+  font-weight: 500;
+}
+.svg-node-text {
+  font-family: var(--bp-font);
+  font-size: 8px;
+  fill: var(--bp-ink-dim);
+}
+.svg-node-chain {
+  font-family: var(--bp-font);
+  font-size: 7px;
+  fill: var(--bp-ink-faint);
+}
+.svg-edge {
+  fill: none;
+  stroke-width: 1.5;
+}
+.svg-edge.edge-prev {
+  stroke: rgba(127, 184, 255, 0.5);
+  marker-end: url(#arrow-prev);
+}
+.svg-edge.edge-next {
+  stroke: rgba(255, 211, 125, 0.45);
+  marker-end: url(#arrow-next);
+}
+.svg-edge.edge-link {
+  stroke: rgba(80, 128, 176, 0.35);
+  marker-end: url(#arrow-link);
+}
+
 /* ── HUD ──────────────────────────────────────────────── */
 #hud {
-  position: absolute; top: 16px; left: 16px;
+  position: absolute; top: 176px; left: 16px;
   z-index: 100; pointer-events: none;
   padding: 14px 18px; min-width: 220px;
 }
@@ -22,10 +118,22 @@
 }
 .hud-stat .val { color: var(--bp-ink); font-weight: 400; }
 .hud-divider { height: 1px; background: var(--bp-line); margin: 6px 0; }
+.hud-substrate { margin-bottom: 4px; }
+.hud-substrate-body {
+  font-family: "IBM Plex Mono", "Space Mono", monospace;
+  font-size: 8px;
+  line-height: 1.4;
+  margin: 0 0 6px 0;
+  max-width: min(420px, 92vw);
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--bp-ink-dim);
+  opacity: 0.9;
+}
 
 /* ── Pipeline Flow ────────────────────────────────────── */
 #pipeline {
-  position: absolute; top: 16px; right: 16px;
+  position: absolute; top: 176px; right: 16px;
   width: 240px; z-index: 100; pointer-events: none;
   padding: 14px 16px;
 }
@@ -461,6 +569,28 @@
 .program-row.active {
   border-left-color: var(--bp-accent);
   background: rgba(255, 220, 140, 0.08);
+}
+.program-legend {
+  margin-bottom: 10px;
+  padding: 6px 8px;
+  line-height: 1.35;
+  max-width: 100%;
+  opacity: 0.88;
+}
+.program-row.pc-head {
+  border-left-color: #ffcc66;
+  background: rgba(255, 204, 102, 0.07);
+}
+.program-row.ub-sweep {
+  border-left-color: rgba(160, 112, 224, 0.55);
+}
+.program-row.ub-nop {
+  opacity: 0.42;
+}
+.program-row.ub-active {
+  border-left-color: #50f0c0;
+  box-shadow: 0 0 12px rgba(80, 240, 192, 0.18);
+  background: rgba(80, 240, 192, 0.06);
 }
 .program-slot {
   color: var(--bp-accent);

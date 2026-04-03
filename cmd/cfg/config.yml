@@ -4,6 +4,8 @@ loglevel: trace
 telemetry:
   enabled: true
   udp_endpoint: "127.0.0.1:8258"
+  # High volume: one UDP event per LGP slot per CPU UniversalBitwise tile (viz / debug only).
+  universal_bitwise_slots: true
 
 # Logging and trace shipping (see pkg/errnie/logging_config.go).
 logging:
@@ -35,6 +37,10 @@ system:
   projectRoot: "/Users/theapemachine/go/src/github.com/theapemachine/six"
   batchSize: 10000
   batchWindow: 500
+  # When programEvolution is true, gatherBatch waits at least this long (µs) so a
+  # second frame can arrive after prompt settle (Machine.Read waitForPrompt ~50ms).
+  # Without it, batchWindow is far shorter than settle and pairs never coalesce.
+  evolutionBatchWindow: 75000
   queueSize: 20000
   # Post-batch HomologousCrossover pairs in executeBatch (see pkg/compute/backend.go).
   programEvolution: true
@@ -114,189 +120,52 @@ value:
 
 # Substrate Firmware Programs
 #
-# ISA (16-bit instructions, 4 per uint64 word):
-#
-#   HALT                      — stop execution (instr == 0)
-#   MEM LOAD  reg ctx  word   — reg = frame[ctx][word]  (ctx: c0=self, c1=partner)
-#   MEM STORE reg      word   — self[word] = reg
-#   MEM IMM   reg      value  — reg = immediate (0-1023)
-#   ALU op    reg ctx  word   — self[word] = op(reg, frame[ctx][word])
-#   CTL SKIPZ  reg            — skip next if reg == 0
-#   CTL SKIPNZ reg            — skip next if reg != 0
-#   CTL SHL    reg            — circular left shift reg by 1
-#   CTL SHR    reg            — circular right shift reg by 1
-#
-# Registers: r0 r1 r2 r3  (r0 is primary scratch)
-# Frame layout: tokens[0-56]  id=57 prev=58 next=59
-#               state_index=60 state_seq=61 state_acc=62
-#               affinity=63  r0=64 r1=65 r2=66 r3=67
-#               fw=74 pc=75  program[76-127]
-#
-# ALU opcodes: FALSE AND COPY XOR OR TRUE POPCOUNT (and numeric 0x0-0xF)
+# 32-bit hardware LGP assembly (two slots per uint64 program word).
+# Each line: OP SRC_WORD DST_WORD — see pkg/core/CompileFunc and
+# pkg/compute/kernel/cpu.executeScalarInstruction (NOP / HALT → opcode 0).
 
 programs:
-  # learn: XOR self token words [0-56] with partner using DJNZ loop.
-  # Registers: r0=partner word, r1=counter(57), r2=current index, r3=scratch/increment.
-  # self[68] = index scratch; self[69] = XOR result scratch.
-  # Loop (instructions 3-12, DJNZ offset=-9 → jumps back to instruction 3):
-  #   reload index from self[68], ILOAD partner and self, XOR via scratch,
-  #   ISTORE result, reload r3=1, ADD to index, DJNZ.
-  # After execution: self[0-56] = XOR(self, partner) — the cancel signal map.
   learn: |
-    MEM IMM r1 57
-    MEM IMM r2 0
-    MEM STORE r2 68
-    MEM LOAD r2 c0 68
-    MEM ILOAD r0 c1 r2
-    MEM ILOAD r3 c0 r2
-    MEM STORE r3 69
-    ALU XOR r0 c0 69
-    MEM LOAD r3 c0 69
-    MEM ISTORE r3 r2
-    MEM IMM r3 1
-    ALU ADD r3 c0 68
-    CTL DJNZ r1 -9
-    HALT
+    NOP
+    NOP
 
-  # bootloader: set fw=1 (learn) so the next ALU execution runs the learn firmware.
   bootloader: |
-    MEM IMM r0 1
-    MEM STORE r0 74
-    HALT
+    NOP
+    NOP
 
-  # tombstone: erase this Value's presence from the linked list and zero all data,
-  #            including the program region itself.
-  #
-  # Phase 1 (instrs 0-9) — save ValueID, zero token words [0-56]:
-  #   r0 = self[57] (ValueID, preserved for XOR spread).
-  #   r1 = 57 (loop counter). self[68] = index scratch.
-  #   Loop (instrs 4-9, DJNZ offset=-5): load index, ISTORE 0, add 1.
-  #
-  # Phase 2 (instrs 10-16) — XOR spread + zero metadata:
-  #   self[58] ^= r0 (PrevID encodes departure).
-  #   self[59] ^= r0 (NextID encodes departure).
-  #   Zero state words 60-62, affinity 63, ValueID 57.
-  #
-  # Phase 3 (instrs 17-68) — zero program region [76-127] in-band via JIT fusion:
-  #   52 consecutive ALU FALSE r0 c0 N instructions (N=76..127).
-  #   The JIT fusion engine batches them into a single execWordBlock call that
-  #   zeroes words 76-127 atomically. PC then advances past all 52 instructions
-  #   into the (now-zeroed) region, which reads as HALT (0) — execution stops.
+  # Tombstone: zero selected words via FALSE (truth-table 0) with arbitrary src.
   tombstone: |
-    MEM LOAD r0 c0 57
-    MEM IMM r1 57
-    MEM IMM r2 0
-    MEM STORE r2 68
-    MEM LOAD r2 c0 68
-    MEM IMM r3 0
-    MEM ISTORE r3 r2
-    MEM IMM r3 1
-    ALU ADD r3 c0 68
-    CTL DJNZ r1 -5
-    ALU XOR r0 c0 58
-    ALU XOR r0 c0 59
-    ALU FALSE r0 c0 60
-    ALU FALSE r0 c0 61
-    ALU FALSE r0 c0 62
-    ALU FALSE r0 c0 63
-    ALU FALSE r0 c0 57
-    ALU FALSE r0 c0 76
-    ALU FALSE r0 c0 77
-    ALU FALSE r0 c0 78
-    ALU FALSE r0 c0 79
-    ALU FALSE r0 c0 80
-    ALU FALSE r0 c0 81
-    ALU FALSE r0 c0 82
-    ALU FALSE r0 c0 83
-    ALU FALSE r0 c0 84
-    ALU FALSE r0 c0 85
-    ALU FALSE r0 c0 86
-    ALU FALSE r0 c0 87
-    ALU FALSE r0 c0 88
-    ALU FALSE r0 c0 89
-    ALU FALSE r0 c0 90
-    ALU FALSE r0 c0 91
-    ALU FALSE r0 c0 92
-    ALU FALSE r0 c0 93
-    ALU FALSE r0 c0 94
-    ALU FALSE r0 c0 95
-    ALU FALSE r0 c0 96
-    ALU FALSE r0 c0 97
-    ALU FALSE r0 c0 98
-    ALU FALSE r0 c0 99
-    ALU FALSE r0 c0 100
-    ALU FALSE r0 c0 101
-    ALU FALSE r0 c0 102
-    ALU FALSE r0 c0 103
-    ALU FALSE r0 c0 104
-    ALU FALSE r0 c0 105
-    ALU FALSE r0 c0 106
-    ALU FALSE r0 c0 107
-    ALU FALSE r0 c0 108
-    ALU FALSE r0 c0 109
-    ALU FALSE r0 c0 110
-    ALU FALSE r0 c0 111
-    ALU FALSE r0 c0 112
-    ALU FALSE r0 c0 113
-    ALU FALSE r0 c0 114
-    ALU FALSE r0 c0 115
-    ALU FALSE r0 c0 116
-    ALU FALSE r0 c0 117
-    ALU FALSE r0 c0 118
-    ALU FALSE r0 c0 119
-    ALU FALSE r0 c0 120
-    ALU FALSE r0 c0 121
-    ALU FALSE r0 c0 122
-    ALU FALSE r0 c0 123
-    ALU FALSE r0 c0 124
-    ALU FALSE r0 c0 125
-    ALU FALSE r0 c0 126
-    ALU FALSE r0 c0 127
+    FALSE 0 0
+    FALSE 0 1
+    FALSE 0 2
+    FALSE 0 3
+    FALSE 0 4
+    FALSE 0 5
+    FALSE 0 6
+    FALSE 0 7
+    FALSE 0 57
+    FALSE 0 58
+    FALSE 0 59
+    FALSE 0 60
+    FALSE 0 61
+    FALSE 0 62
+    FALSE 0 63
 
-  # viral: deprecated — Values no longer fold into each other.
   viral: |
-    HALT
+    NOP
 
-  # build: AND self token words [0-56] with partner using DJNZ loop.
-  # Registers: r0=partner word, r1=counter(57), r2=current index, r3=scratch/increment.
-  # self[68] = index scratch; self[69] = AND result scratch.
-  # Loop (instructions 3-12, DJNZ offset=-9 → jumps back to instruction 3):
-  #   reload index from self[68], ILOAD partner and self, AND via scratch,
-  #   ISTORE result, reload r3=1, ADD to index, DJNZ.
-  # After execution: self[0-56] = AND(self, partner) — the merge signal map.
   build: |
-    MEM IMM r1 57
-    MEM IMM r2 0
-    MEM STORE r2 68
-    MEM LOAD r2 c0 68
-    MEM ILOAD r0 c1 r2
-    MEM ILOAD r3 c0 r2
-    MEM STORE r3 69
-    ALU AND r0 c0 69
-    MEM LOAD r3 c0 69
-    MEM ISTORE r3 r2
-    MEM IMM r3 1
-    ALU ADD r3 c0 68
-    CTL DJNZ r1 -9
-    HALT
+    NOP
+    NOP
 
-  # query: minimal graph probe — copy Prev (word 58) into state.index (word 60)
-  # so telemetry / following steps can read the parent link after one backend run.
-  # Partner frame is ignored. Extend with loops + partner XOR for real navigation.
   query: |
-    MEM LOAD r0 c0 58
-    MEM STORE r0 60
-    HALT
+    COPY 58 60
 
-  # prompt: substrate program for FirmwareTypePrompt frames (pipeline / tokenizer tests).
-  # Aligns with query until retrieval-based completion is folded in here.
   prompt: |
-    MEM LOAD r0 c0 58
-    MEM STORE r0 60
-    HALT
+    COPY 58 60
 
 # Stepwise fixed-step programs (pkg/compute/stepwise). When non-empty for a slot,
-# installFirmware uses InstallEmbedded and overwrites legacy programs.* packing for
+# installFirmware uses InstallEmbedded and overwrites programs.* packing for
 # that firmware only. Syntax: IMM, NOP, TTNAME ia ib idst [LEFT_B] [RIGHT_B].
 programsStepwise:
   bootloader: |

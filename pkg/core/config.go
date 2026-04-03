@@ -1,6 +1,7 @@
 package core
 
 import (
+	"strings"
 	"time"
 
 	"github.com/spf13/viper"
@@ -41,13 +42,20 @@ type SystemConfig struct {
 
 	// StepwiseUniversalBitwise enables per-frame routing: when the program band
 	// starts with stepwise.PackEmbeddedHeader, execution uses the fixed-step
-	// executor; otherwise the legacy 16-bit RISC interpreter runs. GPU kernels
-	// are unchanged.
+	// executor; otherwise the frame uses in-band 32-bit LGP slots only. GPU
+	// kernels are unchanged.
 	StepwiseUniversalBitwise bool `mapstructure:"stepwiseUniversalBitwise"`
 
 	// ProgramEvolution runs HomologousCrossover on adjacent pairs within each
 	// executeBatch group after UniversalBitwise (pkg/compute/firmware).
 	ProgramEvolution bool `mapstructure:"programEvolution"`
+
+	// EvolutionBatchWindow is an optional lower bound on ingress coalescing time
+	// when ProgramEvolution is true (see pkg/compute.Backend.gatherBatch). Prompt
+	// Values block Machine.Read on settle polling; sub-millisecond BatchWindow
+	// closes the batch before a mate is queued, so crossover never runs. Set
+	// this above vm.promptSettleDeadline (e.g. 75ms) for eval / paper runs.
+	EvolutionBatchWindow time.Duration `mapstructure:"evolutionBatchWindow"`
 }
 
 /*
@@ -150,7 +158,7 @@ type Config struct {
 	// Firmware holds compiled programs from config.yml, indexed by FirmwareType.
 	// Values should write the in-band FirmwareRegister* codes to fw rather than
 	// assuming the host enum ordinals are stable.
-	Firmware [FirmwareTypePrompt + 1][]uint16
+	Firmware [FirmwareTypePrompt + 1][]uint32
 
 	// StepwiseFirmwareSource holds raw programsStepwise.* YAML when
 	// system.stepwiseUniversalBitwise is true. primitive.installFirmware compiles
@@ -162,8 +170,11 @@ type Config struct {
 	TelemetryEnabled bool
 
 	// TelemetryEndpoint is the UDP address for experiment/visualizer telemetry (e.g. "127.0.0.1:8258").
-	// Populated by LoadValueConfig from viper key "telemetry.udp_endpoint"; empty uses default in syncTelemetryFromViper.
 	TelemetryEndpoint string
+
+	// TelemetryUniversalBitwiseSlots emits one Backend/UniversalBitwise event per LGP slot per CPU
+	// tile iteration (very high volume). Use only with viz / short runs.
+	TelemetryUniversalBitwiseSlots bool
 }
 
 func NewConfig() *Config {
@@ -176,6 +187,9 @@ func NewConfig() *Config {
 				"system.stepwiseUniversalBitwise",
 			),
 			ProgramEvolution: viper.GetBool("system.programEvolution"),
+			EvolutionBatchWindow: time.Duration(
+				viper.GetInt("system.evolutionBatchWindow"),
+			) * time.Microsecond,
 		},
 		ControlPlane: ControlPlaneConfig{
 			K:     viper.GetInt("controlplane.k"),
@@ -250,7 +264,10 @@ func NewConfig() *Config {
 				IFBTHENA: viper.GetString("value.opcodes.ifbthena"),
 			},
 		},
-		Firmware: [FirmwareTypePrompt + 1][]uint16{
+		TelemetryEnabled:               viper.GetBool("telemetry.enabled"),
+		TelemetryEndpoint:              viper.GetString("telemetry.udp_endpoint"),
+		TelemetryUniversalBitwiseSlots: viper.GetBool("telemetry.universal_bitwise_slots"),
+		Firmware: [FirmwareTypePrompt + 1][]uint32{
 			FirmwareTypeLearn: Cfg.compileAndAssign(
 				FirmwareTypeLearn, viper.GetString("programs.learn"),
 			),
@@ -301,6 +318,10 @@ func NewConfig() *Config {
 		Cfg.ControlPlane.Affinity.Bits = 1
 	}
 
+	if Cfg.TelemetryEnabled && strings.TrimSpace(Cfg.TelemetryEndpoint) == "" {
+		Cfg.TelemetryEndpoint = "127.0.0.1:8258"
+	}
+
 	if Cfg.System.StepwiseUniversalBitwise {
 		Cfg.StepwiseFirmwareSource[FirmwareTypeLearn] = viper.GetString(
 			"programsStepwise.learn",
@@ -332,7 +353,7 @@ func NewConfig() *Config {
 LoadFirmware compiles all programs from the config's `programs` section
 into Cfg.Firmware. Must be called after viper has loaded config.
 */
-func (config *Config) compileAndAssign(ft FirmwareType, src string) []uint16 {
+func (config *Config) compileAndAssign(ft FirmwareType, src string) []uint32 {
 	program, err := CompileFunc(src)
 
 	if err != nil {

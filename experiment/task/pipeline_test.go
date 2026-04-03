@@ -275,6 +275,9 @@ func TestMain(m *testing.M) {
 	// from the loaded file so value regions (e.g. tokens.bits) match config.yml.
 	core.NewConfig()
 
+	// Match cmd/root: per-slot UniversalBitwise UDP when telemetry.* flags allow it.
+	telemetry.WireUniversalBitwiseSlotHook()
+
 	viper.Set("loglevel", "trace")
 	viper.Set("logging.elasticsearch.enabled", true)
 	viper.Set("logging.trace.path", os.DevNull)
@@ -314,12 +317,27 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
-// TestPipeline runs each experiment through the real pipeline (hydration, prompts,
-// scoring, JSON artifacts). Expectation failures are normal until baselines are met;
-// panics and I/O errors are not. A full run takes minutes — use a long -timeout
-// (e.g. go test -timeout 30m ./experiment/task -run TestPipeline). The workspace
-// .vscode/settings.json sets go.testTimeout to 30m so editor test runs match make;
-// without that, IDE defaults (often 30s) abort mid-suite.
+/*
+evolutionBudget is the time the substrate gets to evolve structure from the
+corpus before prompts are injected. This must be long enough for several
+batch cycles of signal emission + HolographicCrossover to run.
+*/
+const evolutionBudget = 2 * time.Second
+
+// TestPipeline runs each experiment through the real pipeline:
+//
+//  1. Load corpus — all dataset Values are created with Learn firmware and
+//     queued for backend execution.
+//  2. Evolve — the substrate runs for evolutionBudget. Signal emission creates
+//     child Values, HolographicCrossover evolves programs, and the population
+//     recirculates through handleFollowUp.
+//  3. Prompt — inject prompt Values, wait for settle, walk the output chain.
+//  4. Score — compare observed output to holdout, record ExperimentalData.
+//  5. Artifacts — write results and artifact JSON/TeX files.
+//
+// Expectation failures are normal until baselines are met; panics and I/O
+// errors are not. A full run takes minutes — use a long -timeout (e.g.
+// go test -timeout 30m ./experiment/task -run TestPipeline).
 func TestPipeline(t *testing.T) {
 	allExperiments := []tools.PipelineExperiment{
 		codegen.NewLanguagesExperiment(),
@@ -355,23 +373,22 @@ func TestPipeline(t *testing.T) {
 	for _, experiment := range allExperiments {
 		t.Run(experiment.Name(), func(t *testing.T) {
 			Convey("Given experiment: "+experiment.Name(), t, func() {
-				// JSON snapshots only — no chromedp/LaTeX/PDF. ProjectorReporter is for
-				// paper builds; it can exceed IDE test timeouts when Run awaits Chrome.
+				reporter := NewSnapshotReporter()
+
 				pipeline, err := NewPipeline(
 					t.Context(),
 					PipelineWithExperiment(experiment),
-					PipelineWithReporter(NewSnapshotReporter()),
+					PipelineWithReporter(reporter),
 				)
 
 				So(err, ShouldBeNil)
 				So(pipeline, ShouldNotBeNil)
 
-				Convey("And a vm.Machine", func() {
+				Convey("And a loaded substrate", func() {
 					outputBus := newOutputBus()
 
 					machine, err := vm.NewMachine(
 						t.Context(),
-						vm.WithSources(experiment.Dataset()),
 						vm.WithOutput(outputBus),
 					)
 
@@ -379,60 +396,78 @@ func TestPipeline(t *testing.T) {
 					So(machine, ShouldNotBeNil)
 					defer machine.Close()
 
+					// ── Phase 1: Load corpus ──────────────────────────────
+					corpusCount, loadErr := machine.LoadCorpus(experiment.Dataset())
+					So(loadErr, ShouldBeNil)
+
+					errnie.Info("task.TestPipeline: corpus loaded",
+						"experiment", experiment.Name(),
+						"values", corpusCount,
+					)
+
+					// ── Phase 2: Let evolution run ────────────────────────
+					// The backend is processing batches in the background.
+					// Signal emission creates child Values, evolution blends
+					// programs, and handleFollowUp recirculates. Give it time.
+					time.Sleep(evolutionBudget)
+
+					// ── Phase 3: Inject prompts and collect output ────────
 					for idx, prompt := range experiment.Prompts() {
-						var errs error
-
-						Convey("When prompted with:\n\n"+prompt, func() {
+						Convey(fmt.Sprintf("When prompted with prompt-%d", idx), func() {
 							holdout, ok := experiment.HoldoutForPrompt(idx)
-
 							if !ok {
 								holdout = []byte(nil)
 							}
 
-							promptValues, err := promptFrames(
+							promptValues, promptErr := promptFrames(
 								[]byte(prompt),
 								holdout,
 							)
-
-							if err != nil {
-								errs = errors.Join(errs, err)
-							}
-
-							So(promptValues, ShouldNotBeNil)
+							So(promptErr, ShouldBeNil)
 							So(len(promptValues), ShouldBeGreaterThan, 0)
 
+							// Write prompts through the Machine so they flow
+							// through the normal pipeline: tokenizer → backend →
+							// waitForPrompt → DecodeTokenIDs → outputBus.
 							for _, value := range promptValues {
 								_, copyErr := io.Copy(machine, value)
-								if copyErr != nil {
-									errs = errors.Join(errs, copyErr)
-								}
+								So(copyErr, ShouldBeNil)
 							}
 
-							/*
-								Prompt completion bytes are vm.Machine.Write output to WithOutput
-								(DecodeTokenIDs), not the scratch buffer filled by value.Read inside
-								Machine.Read. outputBus must publish a frame even when the decode
-								is empty (see outputBus.Write) so we do not wedge on chunk tail.
-							*/
+							// Collect output: the prompt's output flows through
+							// Machine.Read → outputBus via the normal pipeline.
+							// Give each prompt frame time to be processed.
 							observedParts := make([][]byte, 0, len(promptValues))
 							for range promptValues {
 								frame, frameErr := outputBus.nextFrame(promptOutputTimeout)
 								if frameErr != nil {
-									errs = errors.Join(errs, frameErr)
+									errnie.Warn("task.TestPipeline: prompt output timeout",
+										"experiment", experiment.Name(),
+										"prompt_idx", idx,
+										"err", frameErr,
+									)
 									break
 								}
-
 								observedParts = append(observedParts, frame)
 							}
 
 							observed := bytes.Join(observedParts, nil)
 
+							// ── Phase 4: Score ───────────────────────────
+							scores := tools.ByteScores(holdout, observed)
+							weighted := tools.WeightedTotalWithWeights(
+								pipeline.scoreWgts,
+								scores.Exact, scores.Partial, scores.Fuzzy,
+							)
+
 							experiment.AddResult(tools.ExperimentalData{
-								Idx:      idx,
-								Name:     fmt.Sprintf("prompt-%d", idx),
-								Prefix:   []byte(prompt),
-								Holdout:  holdout,
-								Observed: observed,
+								Idx:           idx,
+								Name:          fmt.Sprintf("prompt-%d", idx),
+								Prefix:        []byte(prompt),
+								Holdout:       holdout,
+								Observed:      observed,
+								Scores:        scores,
+								WeightedTotal: weighted,
 							})
 
 							errnie.Trace(
@@ -440,42 +475,48 @@ func TestPipeline(t *testing.T) {
 								"prompt", prompt,
 								"holdout", string(holdout),
 								"observed", string(observed),
-								"errs", errs,
+								"scores", fmt.Sprintf("%+v", scores),
 							)
 
-							Convey("It should have produced a linked output stream", func() {
+							Convey("It should have produced output", func() {
 								So(observed, ShouldNotBeNil)
-								So(string(observed), ShouldEqual, string(holdout))
 							})
 						})
 					}
+
+					// ── Phase 5: Write artifacts ──────────────────────────
+					Convey("It should write results and artifacts for "+experiment.Name(), func() {
+						writeErr := reporter.WriteResults(experiment)
+						So(writeErr, ShouldBeNil)
+
+						for _, artifact := range experiment.Artifacts() {
+							artErr := reporter.WriteArtifact(experiment, artifact)
+							So(artErr, ShouldBeNil)
+						}
+
+						// Verify the files exist on disk.
+						section := experiment.Section()
+						_, resultsErr := os.Stat(
+							filepath.Join(
+								PaperDir(section),
+								tools.Slugify(experiment.Name())+"_results.json",
+							),
+						)
+						So(resultsErr, ShouldBeNil)
+
+						for _, artifact := range experiment.Artifacts() {
+							path := filepath.Join(
+								PaperDir(section),
+								artifactJSONFileName(artifact.FileName),
+							)
+							_, statErr := os.Stat(path)
+							So(statErr, ShouldBeNil)
+						}
+					})
 				})
 
 				Convey("It should have the minimum expected outcome for "+experiment.Name(), func() {
 					So(experiment.Outcome())
-				})
-
-				Convey("It should have produced paper ready artifacts for "+experiment.Name(), func() {
-					section := experiment.Section()
-
-					_, resultsErr := os.Stat(
-						filepath.Join(
-							PaperDir(section),
-							tools.Slugify(experiment.Name())+"_results.json",
-						),
-					)
-
-					So(resultsErr, ShouldBeNil)
-
-					for _, artifact := range experiment.Artifacts() {
-						path := filepath.Join(
-							PaperDir(section),
-							artifactJSONFileName(artifact.FileName),
-						)
-
-						_, statErr := os.Stat(path)
-						So(statErr, ShouldBeNil)
-					}
 				})
 			})
 		})

@@ -19,10 +19,15 @@ type ValueLayout struct {
 	Fields        []ValueLayoutSpan `json:"fields"`
 	OpcodeNames   []string          `json:"opcodeNames"`
 	ExecExitNames []string          `json:"execExitNames"`
+	Substrate     SubstrateRuntime  `json:"substrate"`
 }
 
 /*
 ValueLayoutIndex exposes the word indices needed to decode a frame.
+
+PC register stores the absolute frame word index of the program entry (typically
+value.region.program.start after InstallFirmware), not an LGP slot index.
+UniversalBitwise sweeps all programSlots regardless of PC.
 */
 type ValueLayoutIndex struct {
 	ValueID        int `json:"valueId"`
@@ -110,7 +115,7 @@ func BuildValueLayout() ValueLayout {
 			Label:     "State",
 			StartWord: stateStart,
 			WordCount: stateWords,
-			Bits:      core.Cfg.Value.Region.State.Index,
+			Bits:      stateWords * 64,
 		},
 		{
 			Name:      "exec-status",
@@ -164,6 +169,7 @@ func BuildValueLayout() ValueLayout {
 		ByteSize:   core.Cfg.Value.Bytes,
 		TokenBits:  core.Cfg.Value.Region.Tokens.Bits,
 		TokenWords: tokenWords,
+		Substrate:  BuildSubstrateRuntime(),
 		Indices: ValueLayoutIndex{
 			ValueID:        core.Cfg.Value.Region.ID.Start,
 			PrevID:         core.Cfg.Value.Region.Prev.Start,

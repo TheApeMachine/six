@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/theapemachine/six/pkg/primitive"
+	"github.com/theapemachine/six/pkg/telemetry"
 )
 
 /*
@@ -42,6 +43,21 @@ func (cp *ControlPlane) Insert(key uint64, value primitive.Value) {
 	}
 
 	cp.rt.Insert(key, &value)
+
+	cp.rt.mu.RLock()
+	localID := cp.rt.local
+	cp.rt.mu.RUnlock()
+
+	telemetry.Emit(telemetry.Event{
+		Component: "LSM",
+		Action:    "Insert",
+		Data: telemetry.EventData{
+			Stage:   "kademlia-route",
+			NodeID:  key,
+			Bin:     bucketIndex(localID, NodeID(key)),
+			Message: "routed to k-bucket",
+		},
+	})
 }
 
 func (cp *ControlPlane) bucketsSnapshot() [IDBits]*kBucket {

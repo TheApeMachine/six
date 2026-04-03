@@ -63,6 +63,18 @@ func TestNewConfig(t *testing.T) {
 			So(cfg.ControlPlane.Alpha, ShouldEqual, 3)
 			So(cfg.ControlPlane.Affinity.Bits, ShouldEqual, 1)
 		})
+
+		Convey("loads telemetry settings from viper", func() {
+			viper.Set("telemetry.enabled", true)
+			viper.Set("telemetry.udp_endpoint", "127.0.0.1:9191")
+			viper.Set("telemetry.universal_bitwise_slots", true)
+
+			cfg := NewConfig()
+
+			So(cfg.TelemetryEnabled, ShouldBeTrue)
+			So(cfg.TelemetryEndpoint, ShouldEqual, "127.0.0.1:9191")
+			So(cfg.TelemetryUniversalBitwiseSlots, ShouldBeTrue)
+		})
 	})
 }
 

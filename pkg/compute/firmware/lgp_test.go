@@ -71,13 +71,14 @@ func TestInsertIntrons(t *testing.T) {
 }
 
 func TestTraceEffective(t *testing.T) {
-	Convey("Given a program that writes to r6", t, func() {
+	tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
+
+	Convey("Given a program that writes to the token region", t, func() {
 		var c [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
 		start := ProgramPayloadFirst32BitSlot()
 
-		instr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+		instr := uint32(0x6) | (uint32(r0) << 4) | (uint32(tokenWord) << 18)
 		SetInstructionSlot(&c, start, instr)
 
 		Convey("TraceEffective marks that slot as effective", func() {
@@ -86,7 +87,7 @@ func TestTraceEffective(t *testing.T) {
 		})
 	})
 
-	Convey("Given a program that only writes to r0 (not r6)", t, func() {
+	Convey("Given a program that only writes to scratch (r0)", t, func() {
 		var c [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
 		r1 := uint16(core.Cfg.Value.Region.Registers.R1)
@@ -95,23 +96,22 @@ func TestTraceEffective(t *testing.T) {
 		instr := uint32(0x1) | (uint32(r1) << 4) | (uint32(r0) << 18)
 		SetInstructionSlot(&c, start, instr)
 
-		Convey("TraceEffective returns 0 (no r6 influence)", func() {
+		Convey("TraceEffective marks no phenotype outputs", func() {
 			mask := TraceEffective(&c)
 			So(traceMaskHas(mask, 0), ShouldBeFalse)
 		})
 	})
 
-	Convey("Given a write that reuses the existing r6 value as an input", t, func() {
+	Convey("Given two writes that chain into the same token word", t, func() {
 		var c [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
 		r1 := uint16(core.Cfg.Value.Region.Registers.R1)
-		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
 		start := ProgramPayloadFirst32BitSlot()
 
-		SetInstructionSlot(&c, start, uint32(0x6)|(uint32(r0)<<4)|(uint32(r6)<<18))
-		SetInstructionSlot(&c, start+1, uint32(0x7)|(uint32(r1)<<4)|(uint32(r6)<<18))
+		SetInstructionSlot(&c, start, uint32(0x6)|(uint32(r0)<<4)|(uint32(tokenWord)<<18))
+		SetInstructionSlot(&c, start+1, uint32(0x7)|(uint32(r1)<<4)|(uint32(tokenWord)<<18))
 
-		Convey("TraceEffective keeps both the original write and the update", func() {
+		Convey("TraceEffective keeps both slots in the dependency closure", func() {
 			mask := TraceEffective(&c)
 			So(traceMaskHas(mask, 0), ShouldBeTrue)
 			So(traceMaskHas(mask, 1), ShouldBeTrue)
@@ -123,10 +123,10 @@ func TestHomologousCrossover(t *testing.T) {
 	Convey("Given a donor with effective instructions and a blank recipient", t, func() {
 		var donor, recipient [128]uint64
 		r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-		r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+		tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
 		start := ProgramPayloadFirst32BitSlot()
 
-		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(r6) << 18)
+		donorInstr := uint32(0x6) | (uint32(r0) << 4) | (uint32(tokenWord) << 18)
 		SetInstructionSlot(&donor, start, donorInstr)
 
 		rng := rand.New(rand.NewSource(42))
@@ -143,11 +143,11 @@ func BenchmarkTraceEffective(b *testing.B) {
 	var c [128]uint64
 	start := ProgramPayloadFirst32BitSlot()
 	r0 := uint16(core.Cfg.Value.Region.Registers.R0)
-	r6 := uint16(core.Cfg.Value.Region.Registers.R6)
+	tokenWord := uint16(core.Cfg.Value.Region.Tokens.Start)
 
 	for slot := 0; slot < 32; slot++ {
 		op := uint32(0x6 + (slot % 2))
-		SetInstructionSlot(&c, start+slot, op|(uint32(r0)<<4)|(uint32(r6)<<18))
+		SetInstructionSlot(&c, start+slot, op|(uint32(r0)<<4)|(uint32(tokenWord)<<18))
 	}
 
 	b.ReportAllocs()

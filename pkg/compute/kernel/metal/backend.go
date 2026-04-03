@@ -161,3 +161,5 @@ func reportInitError(err error) {
 func (backend *Backend) Schedule(job func(ctx context.Context) error) error {
 	return job(context.Background())
 }
+
+func (backend *Backend) Name() string { return "metal" }

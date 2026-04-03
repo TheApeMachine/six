@@ -66,6 +66,9 @@ const DEFAULT_LAYOUT = normalizeValueLayout({
 
 let valueLayout = DEFAULT_LAYOUT;
 
+/** Populated from GET /api/layout → substrate; not part of ring geometry. */
+let substrateRuntime = null;
+
 const FIELD_COLORS = {
   tokens: 0x4090e0,
   identity: 0x8fdc7a,
@@ -224,7 +227,14 @@ export function getValueLayout() {
   return valueLayout;
 }
 
+export function getSubstrateRuntime() {
+  return substrateRuntime;
+}
+
 export function setValueLayout(layout) {
+  substrateRuntime = layout && typeof layout.substrate === 'object'
+    ? layout.substrate
+    : null;
   valueLayout = normalizeValueLayout(layout);
 }
 
@@ -336,20 +346,15 @@ function resolveRegisterName(wordIndex) {
   return null;
 }
 
+// decodeOperand: 14-bit absolute Value word index (LGP packing); registers
+// resolve when the index matches layout.registers.
 function decodeOperand(code) {
-  const flags = code & 0x3000;
-  const idx = code & 0x0FFF;
-  const regName = resolveRegisterName(idx);
+  const wordIdx = code & 0x3FFF;
+  const regName = resolveRegisterName(wordIdx);
 
-  if (flags === 0x3000) {
-    return regName || `word${idx}`;
-  }
+  if (regName) return regName;
 
-  if (flags === 0x2000) {
-    return regName ? `*${regName}` : `*word${idx}`;
-  }
-
-  return `${code & 0x3FFF}`;
+  return `w${wordIdx}`;
 }
 
 function decodeInstruction(instr, slot) {
@@ -357,16 +362,19 @@ function decodeInstruction(instr, slot) {
   const srcCode = (instr >> 4) & 0x3FFF;
   const dstCode = (instr >> 18) & 0x3FFF;
   const opcodeName = valueLayout.opcodeNames[op] || `op-${op.toString(16)}`;
+  const src = decodeOperand(srcCode);
+  const dst = decodeOperand(dstCode);
+
   return {
     slot,
     op,
     opcodeName,
     srcCode,
     dstCode,
-    src: decodeOperand(srcCode),
-    dst: decodeOperand(dstCode),
+    src,
+    dst,
     raw: `0x${instr.toString(16).padStart(8, '0')}`,
-    text: `${decodeOperand(srcCode)} ${decodeOperand(dstCode)} ${opcodeName}`,
+    text: `${opcodeName} ${src} ${dst}`,
   };
 }
 
@@ -376,23 +384,28 @@ function buildProgramSummary(words) {
   const program = [];
   let nonZero = 0;
 
+  // One row per LGP slot (incl. NOP), matching CPU/CUDA slot-major UniversalBitwise sweep.
   for (let i = 0; i < programWordCount; i++) {
     const word = words[programWordStart + i];
     const low = Number(word & 0xFFFFFFFFn);
     const high = Number((word >> 32n) & 0xFFFFFFFFn);
     const baseSlot = i * 2;
+
     if (low !== 0) {
-      const decoded = decodeInstruction(low, baseSlot);
-      decoded.wordIndex = programWordStart + i;
-      program.push(decoded);
-      if (decoded.op !== 0) nonZero++;
+      nonZero++;
     }
+
+    const decodedLow = decodeInstruction(low, baseSlot);
+    decodedLow.wordIndex = programWordStart + i;
+    program.push(decodedLow);
+
     if (high !== 0) {
-      const decoded = decodeInstruction(high, baseSlot + 1);
-      decoded.wordIndex = programWordStart + i;
-      program.push(decoded);
-      if (decoded.op !== 0) nonZero++;
+      nonZero++;
     }
+
+    const decodedHigh = decodeInstruction(high, baseSlot + 1);
+    decodedHigh.wordIndex = programWordStart + i;
+    program.push(decodedHigh);
   }
 
   return { program, nonZero };
@@ -470,11 +483,19 @@ function decodeFrame(bytes, includeProgram = false) {
     return total;
   })();
 
-  const currentPc = Number(pcWord & 0xFFFFFFFFn);
-  const currentInstrWord = words[indices.program + Math.floor(currentPc / 2)] || 0n;
-  const currentInstr = Number((currentPc % 2 === 0)
-    ? (currentInstrWord & 0xFFFFFFFFn)
-    : ((currentInstrWord >> 32n) & 0xFFFFFFFFn));
+  // PC: absolute program word index; opcode shown = low 32 bits of words[PC].
+  const progStart = indices.program;
+  const progEnd = progStart + indices.programWords;
+  const pcWordIdx = Number(pcWord & 0xFFFFFFFFn);
+  let currentInstr = 0;
+  let currentSlot = 0;
+
+  if (pcWordIdx >= progStart && pcWordIdx < progEnd) {
+    const instrWord = words[pcWordIdx] ?? 0n;
+    currentInstr = Number(instrWord & 0xFFFFFFFFn);
+    currentSlot = (pcWordIdx - progStart) * 2;
+  }
+
   const currentOp = currentInstr & 0xF;
   const currentOpName = valueLayout.opcodeNames[currentOp] || `op-${currentOp.toString(16)}`;
 
@@ -489,7 +510,8 @@ function decodeFrame(bytes, includeProgram = false) {
     `tokens=${JSON.stringify(tokenChars.join(''))}`,
     `op=${currentOpName}`,
     `aff=${formatHexWord(affinityWord)}:${affinityPop}`,
-    `pc=${currentPc}`,
+    `pcWord=${pcWordIdx}`,
+    `slot=${currentSlot}`,
     `ttl=${ttlValue}`,
     `prog=${programPop}`,
   ].join(' · ');
@@ -525,12 +547,15 @@ function decodeFrame(bytes, includeProgram = false) {
       pc: formatHexWord(pcWord),
     },
     pc: formatBigIntWord(pcWord),
+    pcWordIndex: pcWordIdx,
+    currentSlot,
     currentOp,
     currentOpName,
     programPop,
     execStatusCode,
     execStatusName,
     summary,
+    programSlotsTotal: indices.programWords * 2,
   };
 
   if (includeProgram) {

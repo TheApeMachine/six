@@ -17,6 +17,14 @@ export let totalJobsDone = 0;
 export let totalJobsFailed = 0;
 export let totalJobsScheduled = 0;
 
+// UniversalBitwise live slot (telemetry.universal_bitwise_slots, CPU path).
+export let lastUbSlot = -1;
+export let lastUbSlotsTotal = 0;
+
+// Short line for HUD “current activity” when Value frames are idle but UB is live.
+export let activityUbShort = '';
+export let activityUbDetail = '';
+
 // Pool state
 export let poolWorkerCount = 0;
 export let poolIdleWorkers = 0;
@@ -82,25 +90,29 @@ export const SPARK_MAX = 200;
 
 // Subsystem config
 export const ZONE_COMPONENTS = {
-  machine: ['Machine', 'Program', 'Substrate', 'UniConn'],
-  stream:  ['Tokenizer', 'Sequencer', 'DMT', 'LSM'],
-  emitter: ['Value'],
-  backend: ['Kernel', 'Backend', 'Graph', 'SpatialIndex', 'Substrate'],
-  pool:    ['Pool'],
+  machine: ['Machine', 'Read', 'Write', 'Tokenizer', 'UniConn'],
+  stream:  ['Tokenizer', 'RingBuffer', 'Pipe'],
+  controlplane: ['ControlPlane', 'Kademlia', 'LSM', 'SpatialIndex', 'DMT'],
+  emitter: ['Backend.Queue', 'NORMAL', 'PRIORITY'],
+  backend: ['Backend', 'gatherBatch', 'executeBatch', 'UniversalBitwise', 'Graph', 'UB'],
+  exec: ['Backend', 'gatherBatch', 'executeBatch', 'UniversalBitwise', 'Graph', 'UB'],
+  pool:    ['Pool', 'follow-up'],
   cuda:    ['Kernel', 'Backend'],
   metal:   ['Kernel', 'Backend'],
   cpu:     ['Kernel', 'Backend'],
 };
 
 export const ZONE_DESCRIPTIONS = {
-  machine: 'Orchestrates prompts, ingest, and value circulation',
-  stream:  'Frames and tokens moving through transport',
-  emitter: 'Captures framed Value snapshots and preserves wire content',
-  backend: 'Routes work to CPU, CUDA, and Metal substrates',
-  pool:    'Schedules jobs across worker goroutines',
+  machine: 'io.Copy loop: Read pulls tokenizer bytes, Backend.Queue enqueues Values, Write feeds the tokenizer',
+  stream:  'Tokenizer ring; full frames copy toward Machine.Read',
+  controlplane: 'cluster.ControlPlane: Kademlia k-buckets, each with LSM (store.SpatialIndex) for TokenID→Value',
+  emitter: 'Logical ingress FIFO inside compute.Backend (NORMAL/PRIORITY)',
+  backend: 'Outer hull: queues · executeBatch · pool · substrates (see QUEUE · EXEC·UB · POOL inside)',
+  exec: 'executeBatch + UniversalBitwise sweep + evolution; this is the hot compute volume inside BACKEND',
+  pool:    'Worker pool inside backend lifecycle: jobs run after batch steps',
   cuda:    'CUDA device routes selected by the backend',
   metal:   'Metal device routes selected by the backend',
-  cpu:     'CPU fallback routes selected by the backend',
+  cpu:     'CPU interpreter / SIMD UniversalBitwise; first choice when universal_bitwise_slots telemetry is on',
 };
 
 // Mutator helpers (since ES modules export bindings by reference for let)
@@ -147,6 +159,10 @@ export function set(name, value) {
     case 'tokenBinMax': tokenBinMax = value; break;
     case 'totalFoldLinks': totalFoldLinks = value; break;
     case 'totalFolds': totalFolds = value; break;
+    case 'lastUbSlot': lastUbSlot = value; break;
+    case 'lastUbSlotsTotal': lastUbSlotsTotal = value; break;
+    case 'activityUbShort': activityUbShort = value; break;
+    case 'activityUbDetail': activityUbDetail = value; break;
     default:
       console.warn('[state.set] unrecognized key:', name, value);
   }
@@ -191,6 +207,10 @@ export function resetCounters() {
   inspectorMode = 'zone';
   inspectorKey = null;
   lastValueSummary = '—';
+  lastUbSlot = -1;
+  lastUbSlotsTotal = 0;
+  activityUbShort = '';
+  activityUbDetail = '';
 }
 
 const MAX_ALL_EVENTS = 2000;

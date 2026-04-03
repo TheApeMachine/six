@@ -29,6 +29,12 @@ Current execution path (aligned with the substrate, not the historical
     they must not influence Observed directly.
  4. Tombstone the prompt Value and Close it back to the pool.
 
+Paper / eval runs use the same ingress as production vm.Machine: UniversalBitwise
+executes each batch, then HomologousCrossover when system.programEvolution is on.
+Prompt frames stall Read until settle; system.evolutionBatchWindow in config must
+be long enough (see pkg/compute.Backend.gatherCoalesceDuration) or mates never
+share a batch and evolution is a no-op despite the flag.
+
 A full stream recirculator can be reintroduced later; eval runs must not
 pretend it already exists.
 */

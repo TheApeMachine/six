@@ -23,6 +23,45 @@ let graphAddEdgeFn = null;
 let graphAddValueNodeFn = null;
 let updateValueHudFn = null;
 
+// NOP-heavy UB slot telemetry would drown the log; still log every slot change and periodic samples.
+let ubLogLastTs = 0;
+let ubLogLastSlot = -2;
+
+function universalBitwiseTelemetryLooksLikeNop(message, instruction) {
+  const msg = String(message || '');
+  const ins = String(instruction || '');
+
+  return msg.includes('NOP')
+    || msg.includes('kernel skips')
+    || ins === ''
+    || ins === '0'
+    || /^nop\b/i.test(ins);
+}
+
+function shouldLogUniversalBitwiseSlot(ev, slot, instruction, message) {
+  if (!universalBitwiseTelemetryLooksLikeNop(message, instruction)) {
+    return true;
+  }
+
+  const ts = Number(ev._ts);
+  const t = Number.isFinite(ts) ? ts : Date.now();
+
+  if (slot !== ubLogLastSlot) {
+    ubLogLastSlot = slot;
+    ubLogLastTs = t;
+
+    return true;
+  }
+
+  if (t - ubLogLastTs >= 480) {
+    ubLogLastTs = t;
+
+    return true;
+  }
+
+  return false;
+}
+
 export function initEventHandler(opts) {
   hudUpdateFn = opts.updateHud;
   inspectorRefreshFn = opts.refreshInspector;
@@ -96,14 +135,6 @@ export function handleEvent(ev) {
   const d = ev.data || {};
   state.accumulateEvent(ev);
 
-  // ── DMT Insert ──
-  if (ev.component === 'DMT' && ev.action === 'Insert') {
-    if (d.bin !== undefined) state.forestKeyBins[d.bin & 0xFF]++;
-    addZoneLabel('frame', `entry #${d.entryCount || '?'}`);
-    pulseZone('frame');
-    refreshInspector('frame');
-  }
-
   // ── Tokenizer Value ──
   if (ev.component === 'Tokenizer' && ev.action === 'Value') {
     const stg = d.stage || '';
@@ -115,20 +146,27 @@ export function handleEvent(ev) {
       advanceStreamPtr(); // Stream write advances ptr
       spawnUniConnFrame(null, 'in'); // Data arrived via network transport
       activateStage('tokenize', `${edgeCount} edges`);
+      // Real flow: Dataset → Machine.Write → Tokenizer.Write → NewValue
       visualizeFlow({
         from: 'dataset',
-        to: 'frame',
+        to: 'machine',
         streamText: text || 'raw bytes',
         streamClass: 'stream-ingest',
-        duration: 1200,
-        labelZone: 'frame',
-        labelText: text,
-        pulseZones: ['dataset', 'frame'],
+        duration: 800,
+        labelZone: 'machine',
+        labelText: 'raw bytes → Write',
+        pulseZones: ['dataset', 'machine'],
         logText: `Ingest: "${text.slice(0, 50)}"`,
         logType: 'ingest',
         ev,
         skipRefreshInspector: true,
       });
+      // Machine.Write → Tokenizer.Write (raw → NewValue)
+      setTimeout(() => {
+        spawnDataStream('machine', 'stream', text || 'NewValue', 'stream-ingest', 900);
+        addZoneLabel('stream', text || 'NewValue');
+        pulseZone('stream');
+      }, 400);
     }
 
     if (stg === 'tokenize') {
@@ -159,47 +197,62 @@ export function handleEvent(ev) {
     refreshInspector('frame');
   }
 
-  // ── LSM Insert ──
+  // ── LSM Insert (SpatialIndex insert + Kademlia k-bucket routing) ──
   else if (ev.component === 'LSM' && ev.action === 'Insert') {
+    const stg = d.stage || '';
     const edges = d.edges || d.edgeCount || 0;
-    const insertText = d.chunkText || `${edges} edge`;
-    state.inc('totalEdges', edges);
-    activateStage('insert', `${edges} stored`);
-    visualizeFlow({
-      from: 'machine',
-      to: 'stream',
-      streamText: insertText,
-      streamClass: 'stream-store',
-      duration: 1400,
-      labelZone: 'stream',
-      labelText: insertText,
-      pulseZones: ['stream'],
-      logText: `Radix insert: ${insertText}`,
-      logType: 'ingest',
-      ev,
-      inspectorKey: 'stream',
-    });
-    state.inc('totalFlowEdges');
+    const entryCount = d.entryCount || 0;
+
+    if (stg === 'kademlia-route') {
+      // Kademlia routing: Value placed in k-bucket → per-bucket LSM
+      if (d.bin !== undefined) state.forestKeyBins[d.bin & 0xFF]++;
+      addZoneLabel('controlplane', `bucket #${d.bin} (${entryCount} frames)`);
+      addZoneLabel('lsm', `bucket #${d.bin}`);
+      pulseZone('controlplane');
+      pulseZone('lsm');
+      log(`Kademlia route: bucket=${d.bin} key=${d.nodeId}`, 'ingest', ev);
+      refreshInspector('controlplane');
+    } else {
+      // SpatialIndex insert: token→posting in per-bucket LSM
+      const insertText = d.chunkText || `${edges} tokens → ${entryCount} frames`;
+      state.inc('totalEdges', edges);
+      activateStage('insert', `${edges} stored`);
+      visualizeFlow({
+        from: 'controlplane',
+        to: 'lsm',
+        streamText: insertText,
+        streamClass: 'stream-store',
+        duration: 1400,
+        labelZone: 'lsm',
+        labelText: insertText,
+        pulseZones: ['controlplane', 'lsm'],
+        logText: `LSM insert: ${insertText}`,
+        logType: 'ingest',
+        ev,
+        inspectorKey: 'controlplane',
+      });
+      state.inc('totalFlowEdges');
+    }
   }
 
-  // ── SpatialIndex Lookup ──
+  // ── SpatialIndex Lookup (per-bucket index in control plane) ──
   else if (ev.component === 'SpatialIndex' && ev.action === 'Lookup') {
     const pathCount = d.pathCount || d.paths || 0;
     state.inc('totalPaths', pathCount);
     activateStage('lookup', `${pathCount} paths`);
     visualizeFlow({
-      from: 'backend',
-      to: 'pool',
+      from: 'controlplane',
+      to: 'exec',
       streamText: `${pathCount} paths found`,
       streamClass: 'stream-lookup',
       duration: 1000,
-      labelZone: 'backend',
+      labelZone: 'controlplane',
       labelText: `${pathCount} paths`,
-      pulseZones: ['backend'],
+      pulseZones: ['controlplane', 'exec'],
       logText: `Lookup: ${pathCount} paths`,
       logType: 'lookup',
       ev,
-      inspectorKey: 'backend',
+      inspectorKey: 'controlplane',
       skipFlowParticles: true,
     });
   }
@@ -208,9 +261,10 @@ export function handleEvent(ev) {
   else if (ev.component === 'Graph' && ev.action === 'Evaluate') {
     const pathCount = d.pathCount || 0;
     activateStage('fold', `${pathCount} results`);
-    spawnDataStream('backend', 'pool', `evaluate ${pathCount} paths`, 'stream-fold', 1200);
+    spawnDataStream('exec', 'pool', `evaluate ${pathCount} paths`, 'stream-fold', 1200);
+    activateFlowParticles('exec', 'pool');
     log(`Fold complete: ${pathCount} result paths`, 'fold', ev);
-    refreshInspector('backend');
+    refreshInspector('exec');
   }
 
   // ── Graph Fold ──
@@ -229,18 +283,18 @@ export function handleEvent(ev) {
     while (state.foldHistory.length > 200) state.foldHistory.shift();
 
     visualizeFlow({
-      from: 'backend',
+      from: 'exec',
       to: 'pool',
       streamText: foldText || `L${d.level} fold`,
       streamClass: 'stream-fold',
       duration: 1400,
-      labelZone: 'backend',
+      labelZone: 'exec',
       labelText: foldText || `L${d.level} fold`,
-      pulseZones: ['backend'],
+      pulseZones: ['exec'],
       logText: `Fold L${d.level} bin=${d.bin} children=${d.childCount} "${foldText.slice(0, 40)}"`,
       logType: 'fold',
       ev,
-      inspectorKey: 'backend',
+      inspectorKey: 'exec',
     });
   }
 
@@ -275,12 +329,12 @@ export function handleEvent(ev) {
       ? `"${spanText.slice(0, 20)}" L${level} [${d.left}:${d.right}]`
       : `L${level} [${d.left}:${d.right}] ×${d.spanSize || 0}`;
     visualizeFlow({
-      from: 'backend',
+      from: 'exec',
       to: 'pool',
       streamText: spanText || 'span',
       streamClass: 'stream-fold',
       duration: 1000,
-      labelZone: 'backend',
+      labelZone: 'exec',
       labelText: spanLabel,
       pulseZones: [],
       logText: `FoldSpan L${level}: [${d.left}:${d.right}] "${spanText.slice(0, 40)}"`,
@@ -319,20 +373,33 @@ export function handleEvent(ev) {
     handleSubstrateEvent(ev, d);
   }
 
-  // ── Backend (graph nodes/edges) ──
+  // ── Backend (graph nodes/edges, Queue, UniversalBitwise telemetry) ──
   else if (ev.component === 'Backend') {
-    pulseSystemNode('backend', d.nodeType || ev.action || 'backend');
-    const nodeType = String(d.nodeType || '').toLowerCase();
-    if (nodeType === 'cuda' || nodeType === 'metal' || nodeType === 'cpu') {
-      pulseSystemNode(nodeType, d.nodeTokens || d.nodeId || ev.action || nodeType);
-    }
-    if (ev.action === 'AddNode' && graphAddNodeFn) {
-      graphAddNodeFn(d.nodeId, d.nodeTokens || '', d.nodeType || 'raw');
-      log(`Node #${d.nodeId} [${d.nodeTokens}] (${d.nodeType})`, 'fold', ev);
-    }
-    if (ev.action === 'AddEdge' && graphAddEdgeFn) {
-      graphAddEdgeFn(d.fromId, d.toId);
-      log(`Edge ${d.fromId} → ${d.toId}`, 'fold', ev);
+    if (ev.action === 'Queue') {
+      const qs = d.queueSize || 0;
+      activateStage('insert', `queue=${qs}`);
+      spawnDataStream('machine', 'emitter', `queue ${qs}`, 'stream-token', 800);
+      activateFlowParticles('machine', 'emitter');
+      addZoneLabel('emitter', `queued (${qs})`);
+      pulseZone('emitter');
+      log(`Backend queue: size=${qs}`, 'pipeline', ev);
+      refreshInspector('emitter');
+    } else if (ev.action === 'UniversalBitwise') {
+      handleUniversalBitwiseTelemetry(ev, d);
+    } else {
+      pulseSystemNode('exec', d.nodeType || ev.action || 'backend');
+      const nodeType = String(d.nodeType || '').toLowerCase();
+      if (nodeType === 'cuda' || nodeType === 'metal' || nodeType === 'cpu') {
+        pulseSystemNode(nodeType, d.nodeTokens || d.nodeId || ev.action || nodeType);
+      }
+      if (ev.action === 'AddNode' && graphAddNodeFn) {
+        graphAddNodeFn(d.nodeId, d.nodeTokens || '', d.nodeType || 'raw');
+        log(`Node #${d.nodeId} [${d.nodeTokens}] (${d.nodeType})`, 'fold', ev);
+      }
+      if (ev.action === 'AddEdge' && graphAddEdgeFn) {
+        graphAddEdgeFn(d.fromId, d.toId);
+        log(`Edge ${d.fromId} → ${d.toId}`, 'fold', ev);
+      }
     }
   }
 
@@ -347,6 +414,12 @@ function handleValueEvent(d, ev) {
   if (snapshot._ts == null) {
     snapshot._ts = ev._ts || Date.now();
   }
+
+  // Map Go telemetry field names to visualizer snapshot names
+  if (!snapshot.valueId && snapshot.nodeId) snapshot.valueId = snapshot.nodeId;
+  if (!snapshot.prevId && snapshot.fromId) snapshot.prevId = snapshot.fromId;
+  if (!snapshot.nextId && snapshot.toId) snapshot.nextId = snapshot.toId;
+  if (!snapshot.tokenPreview && snapshot.chunkText) snapshot.tokenPreview = snapshot.chunkText;
 
   state.inc('totalValueFrames');
   state.rememberValueSnapshot(snapshot);
@@ -369,24 +442,28 @@ function handleValueEvent(d, ev) {
     pulseZone('emitter');
   }
 
-  spawnDataStream('stream', 'emitter', snapshot.tokenPreview || snapshot.tokenText || 'value', 'stream-token', 900);
-  activateFlowParticles('stream', 'emitter');
-  spawnDataStream('emitter', 'backend', snapshot.summary || snapshot.tokenPreview || 'value', 'stream-fold', 1100);
-  activateFlowParticles('emitter', 'backend');
+  spawnDataStream('stream', 'machine', snapshot.tokenPreview || snapshot.tokenText || 'value', 'stream-token', 900);
+  activateFlowParticles('stream', 'machine');
+  spawnDataStream('machine', 'emitter', snapshot.summary || snapshot.tokenPreview || snapshot.tokenText || 'value', 'stream-token', 880);
+  activateFlowParticles('machine', 'emitter');
+  spawnDataStream('emitter', 'exec', snapshot.summary || snapshot.tokenPreview || 'value', 'stream-fold', 1100);
+  activateFlowParticles('emitter', 'exec');
 
-  // Continue the pipeline: backend → pool → machine (full loop)
+  // Continue the pipeline: exec → pool → machine (full loop)
   const shortLabel = (snapshot.tokenPreview || snapshot.tokenText || 'value').slice(0, 20);
   setTimeout(() => {
-    addZoneLabel('backend', shortLabel);
+    addZoneLabel('exec', shortLabel);
     pulseZone('backend');
+    pulseZone('exec');
+
     // Backend dispatches to a compute substrate (CPU by default)
-    spawnDataStream('backend', 'cpu', 'compute', 'stream-compute', 700);
-    activateFlowParticles('backend', 'cpu');
+    spawnDataStream('exec', 'cpu', 'compute', 'stream-compute', 700);
+    activateFlowParticles('exec', 'cpu');
     pulseZone('cpu');
   }, 500);
   setTimeout(() => {
-    spawnDataStream('backend', 'pool', 'result', 'stream-compute', 900);
-    activateFlowParticles('backend', 'pool');
+    spawnDataStream('exec', 'pool', 'result', 'stream-compute', 900);
+    activateFlowParticles('exec', 'pool');
     addZoneLabel('pool', 'result');
     pulseZone('pool');
   }, 1000);
@@ -408,7 +485,7 @@ function handleValueEvent(d, ev) {
   refreshInspector('machine');
   refreshInspector('stream');
   refreshInspector('emitter');
-  refreshInspector('backend');
+  refreshInspector('exec');
 }
 
 function handleMachineEvent(d, ev) {
@@ -425,17 +502,24 @@ function handleMachineEvent(d, ev) {
     addZoneLabel('stream', promptText);
     pulseZone('stream');
     setTimeout(() => {
-      spawnDataStream('stream', 'emitter', promptText, 'stream-prompt', 800);
-      activateFlowParticles('stream', 'emitter');
-      addZoneLabel('emitter', promptText);
-      pulseZone('emitter');
+      spawnDataStream('stream', 'machine', promptText, 'stream-prompt', 800);
+      activateFlowParticles('stream', 'machine');
+      addZoneLabel('machine', promptText.slice(0, 40));
+      pulseZone('machine');
     }, 400);
     setTimeout(() => {
-      spawnDataStream('emitter', 'backend', promptText, 'stream-prompt', 800);
-      activateFlowParticles('emitter', 'backend');
-      addZoneLabel('backend', promptText);
-      pulseZone('backend');
+      spawnDataStream('machine', 'emitter', promptText, 'stream-prompt', 800);
+      activateFlowParticles('machine', 'emitter');
+      addZoneLabel('emitter', promptText);
+      pulseZone('emitter');
     }, 800);
+    setTimeout(() => {
+      spawnDataStream('emitter', 'exec', promptText, 'stream-prompt', 800);
+      activateFlowParticles('emitter', 'exec');
+      addZoneLabel('exec', promptText);
+      pulseZone('backend');
+      pulseZone('exec');
+    }, 1200);
 
     addZoneLabel('machine', promptText);
     pulseZone('machine');
@@ -449,8 +533,8 @@ function handleMachineEvent(d, ev) {
     activateStage('decode', '✓');
     const resultContent = (d.resultText || '').slice(0, 200);
     pulseSystemNode('machine', resultContent || 'complete');
-    spawnDataStream('backend', 'pool', resultContent || 'result', 'stream-result', 1000);
-    activateFlowParticles('backend', 'pool');
+    spawnDataStream('exec', 'pool', resultContent || 'result', 'stream-result', 1000);
+    activateFlowParticles('exec', 'pool');
     spawnDataStream('pool', 'machine', resultContent || 'result', 'stream-result', 1000);
     activateFlowParticles('pool', 'machine');
     addZoneLabel('machine', resultContent.slice(0, 30));
@@ -507,8 +591,10 @@ function handleProgramExecute(d, ev) {
     const adv = d.advanced;
 
     const stepLabel = `step ${step}: ${pre}→${post}`;
-    spawnDataStream('stream', 'emitter', stepLabel, adv ? 'stream-result' : 'stream-fold', 700);
-    activateFlowParticles('stream', 'emitter');
+    spawnDataStream('stream', 'machine', stepLabel, adv ? 'stream-result' : 'stream-fold', 700);
+    activateFlowParticles('stream', 'machine');
+    spawnDataStream('machine', 'emitter', stepLabel, adv ? 'stream-result' : 'stream-fold', 680);
+    activateFlowParticles('machine', 'emitter');
     addZoneLabel('emitter', stepLabel);
     pulseZone('emitter');
 
@@ -540,8 +626,8 @@ function handlePoolEvent(ev, d) {
   if (ev.action === 'Schedule') {
     state.inc('totalJobsScheduled');
     pulseSystemNode('pool', d.jobId || d.taskType || 'schedule');
-    spawnDataStream('backend', 'pool', d.jobId || 'job', 'stream-compute', 800);
-    activateFlowParticles('backend', 'pool');
+    spawnDataStream('exec', 'pool', d.jobId || 'job', 'stream-compute', 800);
+    activateFlowParticles('exec', 'pool');
     addZoneLabel('pool', `schedule: ${d.jobId || '?'}`);
     pulseZone('pool');
     log(`Schedule: ${d.jobId} type=${d.taskType} queue=${d.queueSize}`, 'pool', ev);
@@ -549,7 +635,7 @@ function handlePoolEvent(ev, d) {
 
   if (ev.action === 'Dispatch') {
     pulseSystemNode('pool', d.taskType || d.jobId || 'dispatch');
-    spawnDataStream('backend', 'pool', d.taskType || 'task', 'stream-compute', 600);
+    spawnDataStream('exec', 'pool', d.taskType || 'task', 'stream-compute', 600);
     addZoneLabel('pool', `dispatch: ${d.taskType || '?'}`);
     log(`Dispatch: ${d.jobId} type=${d.taskType}`, 'pool', ev);
   }
@@ -609,20 +695,63 @@ function handlePoolEvent(ev, d) {
   refreshInspector('pool');
 }
 
+function handleUniversalBitwiseTelemetry(ev, d) {
+  if (d.stage !== 'slot') {
+    return;
+  }
+
+  const slot = Number(d.lgpSlot);
+  const total = Number(d.lgpSlotsTotal);
+  const slotKey = Number.isFinite(slot) ? slot : -1;
+
+  if (Number.isFinite(slot)) {
+    state.set('lastUbSlot', slot);
+  }
+
+  if (Number.isFinite(total) && total > 0) {
+    state.set('lastUbSlotsTotal', total);
+  }
+
+  const slotShown = Number.isFinite(slot) ? `${slot + 1}` : '?';
+  const label = Number.isFinite(total) && total > 0
+    ? `UB ${slotShown}/${total} ${d.instruction || ''}`.trim()
+    : (d.message || 'UB').slice(0, 40);
+
+  const detail = String(d.message || '').slice(0, 400);
+
+  state.set('activityUbShort', label);
+  state.set('activityUbDetail', detail);
+
+  activateStage('fold', label);
+  pulseSystemNode('exec', d.instruction || label);
+  addZoneLabel('exec', label);
+  pulseZone('backend');
+  pulseZone('exec');
+  spawnDataStream('exec', 'cpu', label, 'stream-compute', 420);
+  activateFlowParticles('exec', 'cpu');
+
+  if (detail && shouldLogUniversalBitwiseSlot(ev, slotKey, d.instruction, d.message)) {
+    log(detail, 'backend', ev);
+  }
+
+  refreshInspector('exec');
+}
+
 function handleKernelEvent(ev, d) {
   if (ev.action === 'Route') {
     const selectedHardware = pulseSystemBackendSelection(d.bestIndex, `route #${d.bestIndex}`);
     d.selectedHardware = selectedHardware;
-    addZoneLabel('backend', `backend #${d.bestIndex} avail=${d.avail}`);
-    spawnDataStream('backend', 'pool', `backend #${d.bestIndex}`, 'stream-kernel', 800);
-    activateFlowParticles('backend', 'pool');
+    addZoneLabel('exec', `backend #${d.bestIndex} avail=${d.avail}`);
+    spawnDataStream('exec', 'pool', `backend #${d.bestIndex}`, 'stream-kernel', 800);
+    activateFlowParticles('exec', 'pool');
     pulseZone('backend');
+    pulseZone('exec');
     log(`Route: backend #${d.bestIndex} avail=${d.avail}`, 'backend', ev);
   }
 
   if (ev.action === 'PeerAdd') {
-    pulseSystemNode('backend', d.nodeAddr || 'peer');
-    addZoneLabel('backend', `peer: ${d.nodeAddr}`);
+    pulseSystemNode('exec', d.nodeAddr || 'peer');
+    addZoneLabel('exec', `peer: ${d.nodeAddr}`);
     // Wire into UniConn viz — peer nodes appear on network layer
     const addr = d.nodeAddr || '';
     if (addr.includes(':')) {
@@ -636,12 +765,12 @@ function handleKernelEvent(ev, d) {
   }
 
   if (ev.action === 'WriteError') {
-    pulseSystemNode('backend', d.message || 'write error');
-    addZoneLabel('backend', `ERR: ${(d.message || '').slice(0, 20)}`);
+    pulseSystemNode('exec', d.message || 'write error');
+    addZoneLabel('exec', `ERR: ${(d.message || '').slice(0, 20)}`);
     log(`Kernel error: ${d.message}`, 'backend', ev);
   }
 
-  refreshInspector('backend');
+  refreshInspector('exec');
 }
 
 function handleSubstrateEvent(ev, d) {
@@ -653,6 +782,28 @@ function handleSubstrateEvent(ev, d) {
       pulseSystemNode('machine', d.message || 'substrate start');
       log(`Substrate: ${d.message}`, 'substrate', ev);
       refreshInspector('machine');
+    }
+
+    if (d.stage === 'batch-start') {
+      const frames = d.ubFrameCount || 0;
+      activateStage('insert', `batch ${frames} frames`);
+      spawnDataStream('emitter', 'exec', `batch ${frames}`, 'stream-compute', 900);
+      activateFlowParticles('emitter', 'exec');
+      addZoneLabel('exec', `batch ${frames} frames`);
+      pulseZone('backend');
+      pulseZone('exec');
+      log(`Batch start: ${frames} frames`, 'substrate', ev);
+      refreshInspector('exec');
+    }
+
+    if (d.stage === 'batch-complete') {
+      const frames = d.ubFrameCount || 0;
+      spawnDataStream('exec', 'pool', `done ${frames}`, 'stream-compute', 800);
+      activateFlowParticles('exec', 'pool');
+      addZoneLabel('pool', `batch done ${frames}`);
+      pulseZone('pool');
+      log(`Batch complete: ${frames} frames`, 'substrate', ev);
+      refreshInspector('pool');
     }
 
     if (d.stage === 'complete') {
@@ -687,28 +838,31 @@ function handleSubstrateEvent(ev, d) {
 
     if (st === 'chamber-before') {
       activateStage('insert', 'absorb');
-      pulseSystemNode('emitter', d.instruction || 'emitter before');
-      spawnDataStream('stream', 'emitter', 'frame', 'stream-token', 900);
-      activateFlowParticles('stream', 'emitter');
+      pulseSystemNode('emitter', d.instruction || 'queue before');
+      spawnDataStream('stream', 'machine', 'frame', 'stream-token', 900);
+      activateFlowParticles('stream', 'machine');
+      spawnDataStream('machine', 'emitter', d.instruction || 'queue', 'stream-token', 880);
+      activateFlowParticles('machine', 'emitter');
       addZoneLabel('emitter', `before · ${(d.instruction || '').slice(0, 12)}`);
       pulseZone('emitter');
-      log(`Emitter (before): ${d.message}`, 'substrate', ev);
+      log(`Queue (before): ${d.message}`, 'substrate', ev);
       refreshInspector('emitter');
     }
 
     if (st === 'chamber-after') {
       activateStage('insert', `merged · ${d.instruction || '?'}`);
-      pulseSystemNode('backend', d.message || 'backend after');
+      pulseSystemNode('exec', d.message || 'backend after');
       // Fold: incoming written into receiver, ALU executes
       spawnFoldEffect(d.chunkText || '', d.instruction || '', d.firmware || '');
-      spawnDataStream('emitter', 'backend', (d.message || '').slice(0, 24), 'stream-fold', 1000);
-      activateFlowParticles('emitter', 'backend');
-      addZoneLabel('backend', (d.message || '').slice(0, 28));
+      spawnDataStream('emitter', 'exec', (d.message || '').slice(0, 24), 'stream-fold', 1000);
+      activateFlowParticles('emitter', 'exec');
+      addZoneLabel('exec', (d.message || '').slice(0, 28));
       pulseZone('backend');
+      pulseZone('exec');
       // Continue flow through pool and back to machine (full pipeline loop)
       setTimeout(() => {
-        spawnDataStream('backend', 'pool', 'fold result', 'stream-compute', 900);
-        activateFlowParticles('backend', 'pool');
+        spawnDataStream('exec', 'pool', 'fold result', 'stream-compute', 900);
+        activateFlowParticles('exec', 'pool');
         addZoneLabel('pool', 'fold result');
         pulseZone('pool');
       }, 400);
@@ -718,18 +872,19 @@ function handleSubstrateEvent(ev, d) {
         pulseZone('machine');
       }, 900);
       log(`Backend (after): ${d.message}`, 'substrate', ev);
-      refreshInspector('backend');
+      refreshInspector('exec');
     }
 
     if (st === 'kernel') {
       activateStage('lookup', d.instruction || 'cpu');
-      pulseSystemNode('backend', d.instruction || 'cpu');
-      spawnDataStream('backend', 'pool', d.instruction || 'ALU', 'stream-compute', 850);
-      activateFlowParticles('backend', 'pool');
-      addZoneLabel('backend', (d.instruction || 'op').slice(0, 20));
+      pulseSystemNode('exec', d.instruction || 'cpu');
+      spawnDataStream('exec', 'pool', d.instruction || 'ALU', 'stream-compute', 850);
+      activateFlowParticles('exec', 'pool');
+      addZoneLabel('exec', (d.instruction || 'op').slice(0, 20));
       pulseZone('backend');
+      pulseZone('exec');
       log(`Backend: ${d.message}`, 'substrate', ev);
-      refreshInspector('backend');
+      refreshInspector('exec');
 
       // Update Value visualization
       updateValueDisplay({
@@ -744,10 +899,10 @@ function handleSubstrateEvent(ev, d) {
       const dens = d.density || 0;
       pushSpark(dens, 'accum');
       activateStage('fold', `${d.instruction || ''} · p=${d.accumPop ?? '?'}`);
-      pulseSystemNode('backend', d.instruction || 'cpu');
-      spawnDataStream('backend', 'pool', d.instruction || 'cpu', 'stream-compute', 900);
+      pulseSystemNode('exec', d.instruction || 'cpu');
+      spawnDataStream('exec', 'pool', d.instruction || 'cpu', 'stream-compute', 900);
       spawnDataStream('pool', 'machine', 'out', 'stream-result', 800);
-      activateFlowParticles('backend', 'pool');
+      activateFlowParticles('exec', 'pool');
       activateFlowParticles('pool', 'machine');
       addZoneLabel('pool', `${d.instruction || 'op'} acc=${d.accumPop ?? '?'}`);
       pulseZone('pool');
@@ -761,6 +916,19 @@ function handleSubstrateEvent(ev, d) {
         affinityPop: d.affinityPop,
         density: dens,
       });
+    }
+
+    // Hardware substrate execution (cpu, cuda, metal)
+    if (st === 'cpu' || st === 'cuda' || st === 'metal') {
+      const frames = d.ubFrameCount || 0;
+      const dur = d.durationMs || 0;
+      pulseSystemNode(st, `${frames}f ${dur}ms`);
+      spawnDataStream('exec', st, `${st} ${frames}f`, 'stream-compute', 700);
+      activateFlowParticles('exec', st);
+      addZoneLabel(st, `${frames} frames ${dur}ms`);
+      pulseZone(st);
+      log(`${st.toUpperCase()}: ${frames} frames in ${dur}ms`, 'substrate', ev);
+      refreshInspector(st);
     }
   }
 }

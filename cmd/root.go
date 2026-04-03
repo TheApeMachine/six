@@ -176,6 +176,8 @@ func initConfig() {
 			},
 		})
 	})
+
+	telemetry.WireUniversalBitwiseSlotHook()
 	errnie.Info(
 		"six.init",
 		"config_file", viper.ConfigFileUsed(),

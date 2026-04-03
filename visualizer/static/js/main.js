@@ -9,6 +9,7 @@ import {
   foldLayer, raycaster, mouseVec,
   updateLabelZoom,
   flyTo, updateFlyAnimation,
+  GRAPH_STRIP_H,
 } from './scene.js';
 import {
   SYS, zonePlanes,
@@ -20,7 +21,13 @@ import {
   animateUniConn,
   setStreamRegionCount, rebuildStreamRing,
 } from './architecture.js';
-import { buildValueRing, animateValueRing, setValueLayout, decodeValueFrame } from './value-viz.js';
+import {
+  buildValueRing,
+  animateValueRing,
+  setValueLayout,
+  decodeValueFrame,
+  getSubstrateRuntime,
+} from './value-viz.js';
 import { buildSystemOrbit, animateSystemOrbit, setSystemTopology } from './system-viz.js';
 import {
   updateDataStreams, clearDataStreams,
@@ -28,6 +35,7 @@ import {
 } from './particles.js';
 import * as state from './state.js';
 import {
+  recording,
   recordEvent, isReplayMode, getRecordingLength,
   enterReplayMode, enterLiveMode, replayTo,
   startPlayback, pausePlayback, stepForward,
@@ -39,6 +47,13 @@ import {
   initInspector, openInspector, closeInspector, refreshInspectorIfMatch,
   openValueInspector, showEventDetail, closeEventDetail, isDetailOpen,
 } from './inspector.js';
+import {
+  graphAddNode as graph2dAddNode,
+  graphAddEdge as graph2dAddEdge,
+  graphAddValueNode as graph2dAddValueNode,
+  graphClear as graph2dClear,
+  fitGraph as graph2dFit,
+} from './graph2d.js';
 
 // ═══════════════════════════════════════════════════════════
 // DOM REFERENCES
@@ -358,288 +373,26 @@ document.querySelectorAll('.log-filter-btn').forEach(btn => {
 });
 
 // ═══════════════════════════════════════════════════════════
-// GRAPH (SVG 2D — kept for graph events)
+// GRAPH — delegates to graph2d.js (2D SVG strip)
 // ═══════════════════════════════════════════════════════════
-const graphNodes = new Map();
-const graphNodeOrder = [];
-const graphEdges = [];
-const graphEdgeSet = new Set();
-const graphPendingEdges = new Map();
-const MAX_GRAPH_NODES = 40;
+// Wire click handler so graph nodes open the value inspector
+window._graphNodeClick = (id) => openValueInspector(id);
 
-function hashString(text) {
-  let hash = 2166136261;
-  for (const ch of String(text)) {
-    hash ^= ch.charCodeAt(0);
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
-}
-
-function disposeGraphObj(obj) {
-  if (!obj) return;
-  foldLayer.remove(obj);
-  if (obj.geometry) obj.geometry.dispose();
-  const mat = obj.material;
-  if (mat) {
-    (Array.isArray(mat) ? mat : [mat]).forEach((item) => {
-      if (item && typeof item.dispose === 'function') item.dispose();
-    });
-  }
-}
-
-function disposeGraphLine(line) {
-  disposeGraphObj(line);
-}
-
-function removeGraphNode(id) {
-  const key = String(id);
-  const node = graphNodes.get(key);
-  if (!node) return;
-
-  foldLayer.remove(node.lbl);
-  graphNodes.delete(key);
-
-  for (let i = graphEdges.length - 1; i >= 0; i--) {
-    const edge = graphEdges[i];
-    if (edge.fromKey === key || edge.toKey === key) {
-      disposeGraphLine(edge.line);
-      disposeGraphObj(edge.arrow);
-      graphEdgeSet.delete(edge.key);
-      graphEdges.splice(i, 1);
-    }
-  }
-
-  for (const [pendingKey, edge] of graphPendingEdges.entries()) {
-    if (edge.fromKey === key || edge.toKey === key) {
-      graphPendingEdges.delete(pendingKey);
-    }
-  }
-}
-
-function pruneGraphNodes() {
-  while (graphNodeOrder.length > MAX_GRAPH_NODES) {
-    const oldest = graphNodeOrder.shift();
-    removeGraphNode(oldest);
-  }
-}
-
-let graphNodeCounter = 0;
-
+// Thin wrappers that delegate to graph2d module
 function graphAddNode(id, tokens, type, extra = {}) {
-  const key = String(id);
-  const existing = graphNodes.get(key);
-  if (existing) {
-    if (extra.text !== undefined) {
-      existing.textSpan.textContent = extra.text;
-    } else if (tokens !== undefined) {
-      existing.textSpan.textContent = (tokens || '').trim() || '[empty val]';
-    }
-    existing.metaSpan.textContent = extra.summary || `#${key} · ${type}`;
-    existing.type = type;
-    existing.snapshot = extra.snapshot || existing.snapshot;
-    existing.lbl.element.title = extra.summary || existing.metaSpan.textContent;
-    flushPendingGraphEdges();
-    return existing;
-  }
-
-  // Spiral layout: nodes orbit outward from a center point above the scene.
-  // Reflects the singly-linked chain that learn firmware builds — each Value
-  // extends the chain, and the spiral keeps everything compact and centered.
-  const idx = graphNodeCounter++;
-  const centerX = 7;   // Centered over the scene (midpoint of all subsystems)
-  const centerZ = 2;   // Above the middle row of subsystems
-  const y = 12.0;      // Fixed height above the scene
-
-  // Fermat spiral: r = a * sqrt(idx), theta = idx * golden_angle
-  // Distributes nodes evenly — compact and centered.
-  // At 40 nodes max: radius = 1.1 * sqrt(40) = ~7 units
-  const goldenAngle = 2.399963;
-  const spacing = 1.1;
-  const theta = idx * goldenAngle;
-  const r = spacing * Math.sqrt(Math.max(1, idx));
-  const x = centerX + r * Math.cos(theta);
-  const z = centerZ + r * Math.sin(theta);
-
-  // Label IS the node — no 3D sphere, just the CSS2D label box (Neo4j style)
-  const idShort = key.length > 6 ? key.slice(-6) : key;
-  const div = document.createElement('div');
-  div.className = 'graph-node';
-
-  const textSpan = document.createElement('span');
-  textSpan.className = 'graph-node-text';
-  textSpan.textContent = extra.text || (tokens || '').trim() || idShort;
-  div.appendChild(textSpan);
-
-  const metaSpan = document.createElement('span');
-  metaSpan.className = 'graph-node-meta';
-  const prevShort = extra.snapshot?.prevId ? extra.snapshot.prevId.slice(-4) : '—';
-  const nextShort = extra.snapshot?.nextId ? extra.snapshot.nextId.slice(-4) : '—';
-  metaSpan.textContent = `#${idShort} ${prevShort} → ${nextShort}`;
-  div.appendChild(metaSpan);
-
-  if (type === 'value') {
-    div.title = extra.summary || key;
-    div.addEventListener('click', (e) => {
-      e.stopPropagation();
-      openValueInspector(key);
-    });
-  }
-
-  const lbl = new CSS2DObject(div);
-  lbl.position.set(x, y, z);
-  foldLayer.add(lbl);
-
-  const node = {
-    id: key,
-    tokens,
-    type,
-    snapshot: extra.snapshot || null,
-    textSpan,
-    metaSpan,
-    pos: new THREE.Vector3(x, y, z),
-    lbl,
-  };
-  graphNodes.set(key, node);
-  graphNodeOrder.push(key);
-  pruneGraphNodes();
-  flushPendingGraphEdges();
-  return node;
+  return graph2dAddNode(id, tokens, type, extra);
 }
 
 function graphAddEdge(fromId, toId, kind = 'link') {
-  const fromKey = String(fromId);
-  const toKey = String(toId);
-  const key = `${kind}:${fromKey}:${toKey}`;
-  if (graphEdgeSet.has(key)) return;
-  const from = graphNodes.get(fromKey);
-  const to = graphNodes.get(toKey);
-
-  if (!from || !to) {
-    graphPendingEdges.set(key, { fromKey, toKey, kind });
-    return;
-  }
-
-  graphPendingEdges.delete(key);
-  graphEdgeSet.add(key);
-  const color = kind === 'prev'
-    ? 0x7fb8ff
-    : kind === 'next'
-      ? 0xffd37d
-      : kind === 'affinity'
-        ? 0x9d7bff
-        : 0x5080b0;
-  const opacity = kind === 'prev'
-    ? 0.85
-    : kind === 'next'
-      ? 0.75
-      : kind === 'affinity'
-        ? 0.6
-        : 0.65;
-
-  // Visible edge: cylinder mesh between nodes (WebGL lines are 1px, invisible)
-  const dir = new THREE.Vector3().subVectors(to.pos, from.pos);
-  const length = dir.length();
-  dir.normalize();
-  const midpoint = new THREE.Vector3().lerpVectors(from.pos, to.pos, 0.5);
-
-  const lineGeo = new THREE.CylinderGeometry(0.04, 0.04, length, 4, 1);
-  const mat = new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  const line = new THREE.Mesh(lineGeo, mat);
-  line.position.copy(midpoint);
-  line.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  foldLayer.add(line);
-
-  // Arrowhead at 80% along the line, pointing toward target
-  const arrowPos = new THREE.Vector3().lerpVectors(from.pos, to.pos, 0.80);
-  const arrowGeo = new THREE.ConeGeometry(0.18, 0.5, 6);
-  const arrowMat = new THREE.MeshBasicMaterial({
-    color, transparent: true, opacity: opacity * 0.9,
-    blending: THREE.AdditiveBlending, depthWrite: false,
-  });
-  const arrow = new THREE.Mesh(arrowGeo, arrowMat);
-  arrow.position.copy(arrowPos);
-  arrow.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  foldLayer.add(arrow);
-
-  graphEdges.push({ key, fromKey, toKey, kind, line, arrow });
-}
-
-function flushPendingGraphEdges() {
-  if (graphPendingEdges.size === 0) return;
-
-  for (const [key, edge] of [...graphPendingEdges.entries()]) {
-    if (!graphNodes.has(edge.fromKey) || !graphNodes.has(edge.toKey)) continue;
-    graphPendingEdges.delete(key);
-    graphAddEdge(edge.fromKey, edge.toKey, edge.kind);
-  }
+  graph2dAddEdge(fromId, toId, kind);
 }
 
 function graphClear() {
-  for (const n of graphNodes.values()) {
-    foldLayer.remove(n.lbl);
-  }
-  graphNodes.clear();
-  graphNodeOrder.length = 0;
-  graphNodeCounter = 0;
-
-  for (const e of graphEdges) {
-    disposeGraphLine(e.line);
-    disposeGraphObj(e.arrow);
-  }
-  graphEdges.length = 0;
-  graphEdgeSet.clear();
-  graphPendingEdges.clear();
+  graph2dClear();
 }
 
 function graphAddValueNode(snapshot) {
-  if (!snapshot || !snapshot.valueId) return null;
-
-  // Only show Values where learn firmware has actually executed and built
-  // chain links. The definitive signal is a non-zero prevId or nextId:
-  //   learn copies old NextID → PrevID, writes partner → NextID.
-  // Raw ingest frames — even those with firmware pre-loaded (programPop > 0)
-  // — will have prevId=0 and nextId=0 until they've been folded and learn
-  // has run. We want to see the *result* of learn, not the raw input.
-  const hasChainLink = (snapshot.prevId && snapshot.prevId !== '0')
-    || (snapshot.nextId && snapshot.nextId !== '0');
-  if (!hasChainLink) return null;
-
-  const text = snapshot.tokenPreview || snapshot.tokenText || '[empty val]';
-  const fw = snapshot.registers?.fw || '';
-  const fwLabel = fw && fw !== '0x0000000000000000' ? ` fw=${fw}` : '';
-  const summary = snapshot.summary
-    || `#${snapshot.valueId} prev=${snapshot.prevId || '0'} next=${snapshot.nextId || '0'}${fwLabel}`;
-
-  const node = graphAddNode(snapshot.valueId, text, 'value', {
-    text,
-    summary,
-    snapshot,
-  });
-
-  // The learn firmware builds a chain:
-  //   old NextID → PrevID (backward pointer)
-  //   partner ValueID → NextID (forward chain link)
-  // So prevId points backward in the chain, nextId points forward.
-  // Create stub nodes for referenced IDs that don't exist yet, so
-  // edges are always drawn (not left pending forever).
-  if (snapshot.prevId && snapshot.prevId !== '0') {
-    if (!graphNodes.has(String(snapshot.prevId))) {
-      graphAddNode(snapshot.prevId, '', 'ref', { text: `#${String(snapshot.prevId).slice(-6)}` });
-    }
-    graphAddEdge(snapshot.prevId, snapshot.valueId, 'prev');
-  }
-  if (snapshot.nextId && snapshot.nextId !== '0') {
-    if (!graphNodes.has(String(snapshot.nextId))) {
-      graphAddNode(snapshot.nextId, '', 'ref', { text: `#${String(snapshot.nextId).slice(-6)}` });
-    }
-    graphAddEdge(snapshot.valueId, snapshot.nextId, 'next');
-  }
-
-  return node;
+  return graph2dAddValueNode(snapshot);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -658,6 +411,7 @@ function resetVisualization() {
   resultText.style.display = 'none';
   if (statLastOp) statLastOp.textContent = '—';
   logBox.innerHTML = '';
+  _prevUbActivitySig = '';
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -665,6 +419,7 @@ function resetVisualization() {
 // ═══════════════════════════════════════════════════════════
 function updateValueHud(snapshot) {
   if (!snapshot) return;
+  _prevUbActivitySig = '';
   chunkText.textContent = snapshot.tokenPreview || snapshot.tokenText || '—';
   resultText.style.display = 'block';
   resultText.textContent = snapshot.summary || snapshot.tokenPreview || 'Value snapshot';
@@ -674,6 +429,7 @@ function updateValueHud(snapshot) {
 let _prevHudEvents = -1;
 let _prevHudIngested = -1;
 let _prevHudOp = '';
+let _prevUbActivitySig = '';
 
 function updateHud() {
   const evts = getRecordingLength();
@@ -690,6 +446,43 @@ function updateHud() {
     _prevHudOp = op;
     statLastOp.textContent = op;
   }
+
+  const ubSig = `${state.activityUbShort}\n${state.activityUbDetail}`;
+  if (state.totalValueFrames === 0 && ubSig.trim() && ubSig !== _prevUbActivitySig) {
+    _prevUbActivitySig = ubSig;
+    chunkText.textContent = state.activityUbShort || '—';
+    resultText.style.display = 'block';
+    resultText.textContent = state.activityUbDetail
+      || 'UniversalBitwise slot telemetry (executeBatch). Instruction words are not LSM keys.';
+  }
+}
+
+function formatSubstrateHud(sub) {
+  if (!sub || typeof sub !== 'object') {
+    return '—';
+  }
+  const lines = [
+    [
+      `evolution=${sub.programEvolution ? 'on' : 'off'}`,
+      `batchSize=${sub.batchSize}`,
+      `batchWindow=${sub.batchWindow || '—'}`,
+      `evoWindow=${sub.evolutionBatchWindow || '—'}`,
+      sub.stepwiseUniversalBitwise ? 'stepwiseUniversalBitwise' : '',
+    ].filter(Boolean).join(' · '),
+    sub.execSummary || '',
+    sub.ingressSummary || '',
+    sub.programModel || '',
+    sub.ubTelemetryNote || '',
+  ].filter((line) => line && String(line).trim());
+
+  return lines.length ? lines.join('\n') : '—';
+}
+
+const hudSubstrateEl = document.getElementById('hud-substrate');
+
+function applySubstrateHud() {
+  if (!hudSubstrateEl) return;
+  hudSubstrateEl.textContent = formatSubstrateHud(getSubstrateRuntime());
 }
 
 async function loadValueLayout() {
@@ -698,6 +491,7 @@ async function loadValueLayout() {
     if (!res.ok) return;
     const layout = await res.json();
     setValueLayout(layout);
+    applySubstrateHud();
   } catch (err) {
     console.warn('Six viz layout fetch failed:', err);
   }
@@ -762,10 +556,10 @@ initWebSocket(
         },
       };
       recordEvent(ev);
-      if (!isReplayMode()) handleEvent(ev);
+      if (!isReplayMode() && !state.animationPaused) handleEvent(ev);
     } else {
       recordEvent(ev);
-      if (!isReplayMode()) handleEvent(ev);
+      if (!isReplayMode() && !state.animationPaused) handleEvent(ev);
     }
     // Update slider
     slider.max = getRecordingLength() - 1;
@@ -815,11 +609,24 @@ btnPlay.addEventListener('click', () => {
   });
 });
 
+let pausedAtRecIdx = 0;
+
 btnPause.addEventListener('click', () => {
   pausePlayback();
-  // Toggle animation freeze
-  state.set('animationPaused', !state.animationPaused);
-  btnPause.classList.toggle('active', state.animationPaused);
+  const wasPaused = state.animationPaused;
+  state.set('animationPaused', !wasPaused);
+  btnPause.classList.toggle('active', !wasPaused);
+
+  if (!wasPaused) {
+    // Pausing: remember current recording index
+    pausedAtRecIdx = getRecordingLength();
+  } else {
+    // Unpausing: replay events that arrived while paused
+    const rec = recording;
+    for (let i = pausedAtRecIdx; i < rec.length; i++) {
+      handleEvent(rec[i]);
+    }
+  }
 });
 
 btnStep.addEventListener('click', () => {
@@ -928,6 +735,15 @@ slider.addEventListener('input', () => {
 // ── Zone Click / Hover ──
 let mouseDownPos = null;
 
+// Helper: map clientX/Y to normalized device coords relative to the 3D canvas
+function canvasNDC(e) {
+  const canvasH = innerHeight - GRAPH_STRIP_H;
+  return {
+    x: (e.clientX / innerWidth) * 2 - 1,
+    y: -((e.clientY - GRAPH_STRIP_H) / canvasH) * 2 + 1,
+  };
+}
+
 renderer.domElement.addEventListener('pointerdown', (e) => {
   mouseDownPos = { x: e.clientX, y: e.clientY };
 });
@@ -938,8 +754,9 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const dy = e.clientY - mouseDownPos.y;
   if (Math.abs(dx) > 4 || Math.abs(dy) > 4) return;
 
-  mouseVec.x = (e.clientX / innerWidth) * 2 - 1;
-  mouseVec.y = -(e.clientY / innerHeight) * 2 + 1;
+  const ndc = canvasNDC(e);
+  mouseVec.x = ndc.x;
+  mouseVec.y = ndc.y;
   raycaster.setFromCamera(mouseVec, camera);
 
   const planes = Object.values(zonePlanes);
@@ -950,8 +767,9 @@ renderer.domElement.addEventListener('pointerup', (e) => {
 });
 
 renderer.domElement.addEventListener('dblclick', (e) => {
-  mouseVec.x = (e.clientX / innerWidth) * 2 - 1;
-  mouseVec.y = -(e.clientY / innerHeight) * 2 + 1;
+  const ndc = canvasNDC(e);
+  mouseVec.x = ndc.x;
+  mouseVec.y = ndc.y;
   raycaster.setFromCamera(mouseVec, camera);
 
   const planes = Object.values(zonePlanes);
@@ -971,8 +789,9 @@ renderer.domElement.addEventListener('dblclick', (e) => {
 });
 
 renderer.domElement.addEventListener('pointermove', (e) => {
-  mouseVec.x = (e.clientX / innerWidth) * 2 - 1;
-  mouseVec.y = -(e.clientY / innerHeight) * 2 + 1;
+  const ndc = canvasNDC(e);
+  mouseVec.x = ndc.x;
+  mouseVec.y = ndc.y;
   raycaster.setFromCamera(mouseVec, camera);
 
   const planes = Object.values(zonePlanes);
@@ -1000,7 +819,17 @@ document.addEventListener('keydown', (e) => {
     if (state.inspectorOpen) closeInspector();
   }
 
-  const zoneKeys = { '1': 'machine', '2': 'stream', '3': 'emitter', '4': 'backend', '5': 'pool', '6': 'cuda', '7': 'metal', '8': 'cpu' };
+  const zoneKeys = {
+    '1': 'dataset',
+    '2': 'machine',
+    '3': 'stream',
+    '4': 'controlplane',
+    '5': 'emitter',
+    '6': 'exec',
+    '7': 'pool',
+    '8': 'cuda',
+    '9': 'cpu',
+  };
   if (zoneKeys[e.key]) {
     openInspector(zoneKeys[e.key]);
     // Fly to zone
@@ -1016,8 +845,8 @@ document.addEventListener('keydown', (e) => {
   // Home key to reset camera
   if (e.key === 'Home' || e.key === '0') {
     flyTo(
-      new THREE.Vector3(7, 38, 40),
-      new THREE.Vector3(7, 2, 0),
+      new THREE.Vector3(4, 48, 50),
+      new THREE.Vector3(4, 2, 6),
     );
   }
 });

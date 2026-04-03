@@ -47,14 +47,23 @@ var truthOpNames = []string{
 // InstructionFromValue instead.
 const DefaultVMInstruction uint8 = 0b0011
 
-// InstructionFromValue returns the current 4-bit opcode at the Value's PC.
-// When v is nil or the PC is out of range, it returns DefaultVMInstruction.
+// InstructionFromValue returns the 4-bit truth-table opcode at the first LGP
+// slot of the program word referenced by the PC register (PC is an absolute
+// word index, usually program.start — not an LGP slot counter).
 func InstructionFromValue(v *primitive.Value) uint8 {
 	if v == nil {
 		return DefaultVMInstruction & 0xF
 	}
-	pc := int(v[core.Cfg.Value.Region.Registers.PC])
-	return programOpAt(v, pc) & 0xF
+
+	pcWord := int(v[core.Cfg.Value.Region.Registers.PC])
+	progStart := core.Cfg.Value.Region.Program.Start
+	slot := 0
+
+	if pcWord >= progStart {
+		slot = 2 * (pcWord - progStart)
+	}
+
+	return programOpAt(v, slot) & 0xF
 }
 
 /*
@@ -75,11 +84,12 @@ func HumanDescribeValue(v *primitive.Value) string {
 		tokens = v.String()
 	}
 
-	// Show program info if present (first-slot opcode when program bits exist)
+	// Show program info if present (first payload slot opcode when program bits exist)
 	progInfo := ""
 	if progPop > 0 {
-		instr = programOpAt(v, 0)
-		progInfo = fmt.Sprintf(" program=%dops", countProgramOps(v))
+		first := int(core.PayloadProgramWordOffset) * 2
+		instr = programOpAt(v, first)
+		progInfo = fmt.Sprintf(" program=%dslots", countProgramSlots(v))
 	} else {
 		instr = DefaultVMInstruction & 0xF
 	}
@@ -91,32 +101,44 @@ func HumanDescribeValue(v *primitive.Value) string {
 	)
 }
 
-// countProgramOps counts instruction slots until VM HALT (opcode 0 with slot > 0), matching the CPU core loop.
-func countProgramOps(v *primitive.Value) int {
+// countProgramSlots counts non-NOP 32-bit LGP slots in the configured program band.
+func countProgramSlots(v *primitive.Value) int {
+	nSlots := programLGPSlotCount()
 	count := 0
-	for i := 0; i < int(core.Cfg.Value.Region.Program.Bits); i++ {
-		op := programOpAt(v, i)
-		if op == 0 && i > 0 {
-			break
-		}
-		if op != 0 {
+
+	for slot := 0; slot < nSlots; slot++ {
+		if fullInstructionAt(v, slot) != 0 {
 			count++
 		}
 	}
+
 	return count
 }
 
-func programOpAt(v *primitive.Value, slot int) uint8 {
-	if v == nil || slot < 0 || slot >= int(core.Cfg.Value.Region.Program.Bits) {
+func programLGPSlotCount() int {
+	nWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
+
+	return nWords * 2
+}
+
+func fullInstructionAt(v *primitive.Value, slot int) uint32 {
+	if v == nil || slot < 0 || slot >= programLGPSlotCount() {
 		return 0
 	}
+
 	wordPos := core.Cfg.Value.Region.Program.Start + slot/2
+
 	if wordPos < 0 || wordPos >= core.Cfg.Value.Words {
 		return 0
 	}
+
 	shift := uint((slot % 2) * 32)
-	instr := uint32(v[wordPos] >> shift)
-	return uint8(instr & 0xF)
+
+	return uint32(v[wordPos] >> shift)
+}
+
+func programOpAt(v *primitive.Value, slot int) uint8 {
+	return uint8(fullInstructionAt(v, slot) & 0xF)
 }
 
 /*

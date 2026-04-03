@@ -1,7 +1,7 @@
 /* ═══════════════════════════════════════════════════════════
    system-viz.js — system-level orbit around the live machine
    Adds the runtime topology labels:
-   Machine, Stream, Emitter, Backend, Pool, CUDA, Metal, CPU.
+   Machine, Tokenizer, Control plane, Backend, CUDA, Metal, CPU.
    ═══════════════════════════════════════════════════════════ */
 import * as THREE from 'three';
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
@@ -17,42 +17,38 @@ const SYSTEM_CORE = [
   {
     id: 'machine',
     label: 'Machine',
-    detail: 'orchestrator',
+    detail: 'Read → Backend.Queue; Write → tokenizer',
     angle: -Math.PI / 2,
     radius: SYSTEM_RING_RADIUS,
     kind: 'machine',
+    count: 1,
   },
   {
     id: 'stream',
-    label: 'Stream',
-    detail: 'transport',
+    label: 'Tokenizer',
+    detail: 'ring · pipe to Read',
     angle: Math.PI,
     radius: SYSTEM_RING_RADIUS,
     kind: 'stream',
+    count: 1,
   },
   {
-    id: 'emitter',
-    label: 'Emitter',
-    detail: 'frame capture',
+    id: 'controlplane',
+    label: 'Control plane',
+    detail: 'Kademlia · bucket LSM',
     angle: Math.PI / 2,
     radius: SYSTEM_RING_RADIUS,
-    kind: 'emitter',
+    kind: 'controlplane',
+    count: 1,
   },
   {
     id: 'backend',
     label: 'Backend',
-    detail: 'route',
+    detail: 'queues · pool · batch · substrates',
     angle: 0,
     radius: SYSTEM_RING_RADIUS,
     kind: 'backend',
-  },
-  {
-    id: 'pool',
-    label: 'Pool',
-    detail: 'workers',
-    angle: -Math.PI / 3,
-    radius: SYSTEM_RING_RADIUS,
-    kind: 'pool',
+    count: 1,
   },
 ];
 
@@ -86,8 +82,10 @@ const SYSTEM_CHILDREN = [
 const SYSTEM_COLORS = {
   machine: 0xffcc66,
   stream: 0x5090d0,
+  controlplane: 0xc080f0,
   emitter: 0x50c0a0,
   pool: 0x8fdc7a,
+  exec: 0x9040c0,
   backend: 0xa070e0,
   cuda: 0x7fb8ff,
   metal: 0x6de0c0,
@@ -97,12 +95,15 @@ const SYSTEM_COLORS = {
 
 const DEFAULT_SYSTEM_TOPOLOGY = {
   title: 'SYSTEM',
-  subtitle: 'machine · stream · emitter · backend · pool',
+  subtitle: 'machine · tokenizer · Kademlia/LSM · backend',
   core: SYSTEM_CORE,
   hardware: SYSTEM_CHILDREN,
   links: [
     { from: 'machine', to: 'stream' },
-    { from: 'stream', to: 'emitter' },
+    { from: 'stream', to: 'machine' },
+    { from: 'stream', to: 'controlplane' },
+    { from: 'controlplane', to: 'backend' },
+    { from: 'machine', to: 'emitter' },
     { from: 'emitter', to: 'backend' },
     { from: 'backend', to: 'pool' },
     { from: 'pool', to: 'machine' },
@@ -352,7 +353,15 @@ export function buildSystemOrbit() {
 }
 
 export function pulseSystemNode(id, detail = '') {
-  const node = systemNodes.get(resolveZoneKey(id));
+  let key = resolveZoneKey(id);
+  let node = systemNodes.get(key);
+
+  // EXEC exists only in the 3D architecture; orbit still names that volume “Backend”.
+  if (!node && key === 'exec') {
+    key = 'backend';
+    node = systemNodes.get(key);
+  }
+
   if (!node) return;
 
   node.div.classList.add('active');
