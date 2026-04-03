@@ -40,8 +40,11 @@ func (s *esLogSink) Write(p []byte) (int, error) {
 	if len(line) == 0 {
 		return len(p), nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	// Use a generous timeout for admission into the bulk queue. The context
+	// is consumed by Add() for blocking admission only — the HTTP flush
+	// happens later on the BulkIndexer's own lifecycle, so canceling here
+	// does not affect delivery.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	raw := sanitizeLogLineForElasticsearch(append([]byte(nil), line...))
 	err := s.bi.Add(ctx, esutil.BulkIndexerItem{
 		Action: "index",
@@ -55,6 +58,7 @@ func (s *esLogSink) Write(p []byte) (int, error) {
 				resp.Status, resp.Error.Type, reason)
 		},
 	})
+	cancel() // Safe to cancel after Add returns; flush uses its own context.
 	if err != nil {
 		fmt.Println(err)
 		return 0, err

@@ -2,20 +2,19 @@ package compute
 
 import (
 	"context"
-	"math/rand"
+	"strconv"
 	"sync/atomic"
 	"time"
 	"unsafe"
 
-	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/compute/kernel"
-	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/compute/kernel/cpu"
 	"github.com/theapemachine/six/pkg/compute/kernel/cuda"
 	"github.com/theapemachine/six/pkg/compute/kernel/metal"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
+	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
 
@@ -28,9 +27,17 @@ const (
 
 const hardwareEMAAlphaShift = 2
 
+// circuitBreakerThreshold is the number of consecutive failures before
+// a substrate is temporarily ejected from the dispatch order. This
+// prevents a broken GPU from silently degrading every batch to the CPU
+// fallback while the operator has no visibility into the failure.
+const circuitBreakerThreshold = 5
+
 type hardwareMetrics struct {
-	inflight        atomic.Int64
-	emaServiceNanos atomic.Uint64
+	inflight           atomic.Int64
+	emaServiceNanos    atomic.Uint64
+	consecutiveFailures atomic.Int64
+	ejected            atomic.Bool
 }
 
 /*
@@ -65,6 +72,7 @@ type Backend struct {
 	hardwareState            []hardwareMetrics
 	droppedPriorityFollowUps atomic.Uint64
 	onEmit                   EmitCallback
+	evolution                EvolutionStage
 }
 
 // BackendOption configures the multi-substrate router.
@@ -136,6 +144,11 @@ func NewBackend(ctx context.Context, opts ...BackendOption) *Backend {
 		return nil
 	}
 
+	// Wire the evolution lifecycle as a separate stage that intercepts
+	// frames after hardware dispatch. This keeps the load balancer free
+	// of algorithmic concerns (crossover, signal emission).
+	backend.evolution = NewEvolutionManager(backend.onEmit, backend.queues)
+
 	return backend.start()
 }
 
@@ -171,10 +184,30 @@ func (backend *Backend) runUnifiedQueue() {
 			continue
 		}
 
-		if err := backend.Schedule(func(ctx context.Context) error {
-			return backend.executeBatch(batch)
-		}); err != nil {
-			_ = errnie.Error(err)
+		// Retry with backpressure instead of silently dropping the batch.
+		// If the pool is saturated, wait briefly and retry up to 3 times
+		// before falling back to inline execution.
+		var schedErr error
+		for attempt := 0; attempt < 3; attempt++ {
+			schedErr = backend.Schedule(func(ctx context.Context) error {
+				return backend.executeBatch(batch)
+			})
+			if schedErr == nil {
+				break
+			}
+			// Brief backpressure pause before retry.
+			select {
+			case <-backend.ctx.Done():
+				return
+			case <-time.After(time.Duration(attempt+1) * time.Millisecond):
+			}
+		}
+		if schedErr != nil {
+			// All retries failed — execute inline rather than dropping data.
+			errnie.Warn("compute.backend: pool saturated, executing batch inline")
+			if err := backend.executeBatch(batch); err != nil {
+				_ = errnie.Error(err)
+			}
 		}
 	}
 }
@@ -312,6 +345,12 @@ func (backend *Backend) universalBitwisePreferredWithFallback(
 
 	for _, hardwareIndex := range order {
 		metrics := &backend.hardwareState[hardwareIndex]
+
+		// Circuit breaker: skip ejected substrates entirely.
+		if metrics.ejected.Load() {
+			continue
+		}
+
 		metrics.inflight.Add(1)
 		start := time.Now()
 		runErr = backend.hardware[hardwareIndex].UniversalBitwise(group)
@@ -320,6 +359,9 @@ func (backend *Backend) universalBitwisePreferredWithFallback(
 		backend.recordHardwareServiceTime(hardwareIndex, elapsed)
 
 		if runErr == nil {
+			// Reset failure counter on success.
+			metrics.consecutiveFailures.Store(0)
+
 			substrateName := backend.hardware[hardwareIndex].Name()
 			telemetry.Emit(telemetry.Event{
 				Component: "Substrate",
@@ -332,6 +374,26 @@ func (backend *Backend) universalBitwisePreferredWithFallback(
 				},
 			})
 			return nil
+		}
+
+		// Track consecutive failures and eject if threshold is exceeded.
+		failures := metrics.consecutiveFailures.Add(1)
+		if failures >= int64(circuitBreakerThreshold) && !metrics.ejected.Load() {
+			metrics.ejected.Store(true)
+			substrateName := backend.hardware[hardwareIndex].Name()
+			errnie.Error(NewBackendError(
+				BackendErrorSubstrateEjected, runErr,
+				substrateName+" ejected after "+
+					strconv.FormatInt(failures, 10)+" consecutive failures",
+			))
+			telemetry.Emit(telemetry.Event{
+				Component: "Substrate",
+				Action:    "Ejected",
+				Data: telemetry.EventData{
+					Stage:   substrateName,
+					Message: substrateName + " ejected: chronic dispatch failure",
+				},
+			})
 		}
 	}
 
@@ -353,8 +415,10 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 		},
 	})
 
-	// Phase 1: Execute each program group via UniversalBitwise + evolve.
-	// Grouping by program is a SIMD optimization for execution only.
+	// ── Phase 1: Hardware dispatch ──────────────────────────────────
+	// Group by program for SIMD optimization, then dispatch each group
+	// to the best available substrate (CUDA → Metal → CPU fallback).
+	// This is the ONLY thing the load balancer does with the frames.
 	frameGroups := backend.groupFramesByProgram(frames)
 
 	for _, group := range frameGroups {
@@ -374,18 +438,17 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 				UbFrameCount: len(group),
 			},
 		})
-
-		// Evolution is within program groups (same-program crossover).
-		backend.evolveProgramsInGroup(group)
 	}
 
-	// Phase 2: Signal emission across the FULL batch (cross-group).
-	// Signals are about token-region structure, not program similarity.
-	// A prompt and a corpus Value with different programs can still
-	// produce strong signals — this is how prompts find structure.
-	backend.emitSignalsInBatch(frames)
+	// ── Phase 2: Evolution lifecycle ────────────────────────────────
+	// Delegate to the EvolutionStage for crossover and signal emission.
+	// The backend does NOT know about HolographicCrossover, parentBias,
+	// or EmitFromSignals — that's the evolution stage's domain.
+	if backend.evolution != nil {
+		backend.evolution.ProcessBatch(frameGroups, frames)
+	}
 
-	// Phase 3: Telemetry and follow-up on all frames.
+	// ── Phase 3: Telemetry and follow-up ────────────────────────────
 	idWord := core.Cfg.Value.Region.ID.Start
 	prevWord := core.Cfg.Value.Region.Prev.Start
 	nextWord := core.Cfg.Value.Region.Next.Start
@@ -412,147 +475,10 @@ func (backend *Backend) executeBatch(frames []unsafe.Pointer) error {
 	return nil
 }
 
-/*
-emitSignalsInBatch scans signals between adjacent frame pairs across the
-full batch (not per program group) after all UniversalBitwise groups have
-executed. Signals are about token-region structure, not program similarity —
-a prompt Value and a corpus Value with completely different programs can
-produce strong signals. This is how prompts discover structure.
-
-New children are inserted into the spatial index via onEmit and queued
-for execution.
-*/
-func (backend *Backend) emitSignalsInBatch(group []unsafe.Pointer) {
-	if len(group) < 2 {
-		return
-	}
-
-	// Build a deterministic RNG from the group shape (same approach as evolve).
-	seed := uint64(len(group)) * 0x517CC1B727220A95
-	idWord := core.Cfg.Value.Region.ID.Start
-
-	for index, ptr := range group {
-		frame := (*[128]uint64)(ptr)
-		if idWord >= 0 && idWord < len(frame) {
-			seed ^= frame[idWord]
-		}
-		seed ^= uint64(index+1) * 0x9E3779B97F4A7C15
-	}
-
-	rng := rand.New(rand.NewSource(int64(seed ^ (seed >> 32))))
-
-	nextWord := core.Cfg.Value.Region.Next.Start
-
-	for pairIdx := 0; pairIdx+1 < len(group); pairIdx += 2 {
-		frameA := (*[128]uint64)(group[pairIdx])
-		frameB := (*[128]uint64)(group[pairIdx+1])
-
-		a := primitive.Value(*frameA)
-		b := primitive.Value(*frameB)
-
-		children := primitive.EmitFromSignals(&a, &b, rng)
-		if len(children) == 0 {
-			continue
-		}
-
-		// Link parent A → first child via NextID so the chain is walkable.
-		// This updates the ORIGINAL frame in-place (via unsafe pointer),
-		// which is visible to waitForPrompt and subsequent reads.
-		firstChildID := children[0][idWord]
-		if firstChildID != 0 && frameA[nextWord] == 0 {
-			frameA[nextWord] = firstChildID
-
-			// Re-insert parent A into the spatial index so the updated
-			// NextID is visible to chain walkers (FrameByValueID).
-			if backend.onEmit != nil {
-				parentVal := primitive.Value(*frameA)
-				backend.onEmit(&parentVal)
-			}
-		}
-
-		for _, child := range children {
-			// Notify the spatial index (control plane) about the new Value.
-			if backend.onEmit != nil {
-				backend.onEmit(child)
-			}
-
-			// Queue the child for execution.
-			ptr := unsafe.Pointer(child)
-			select {
-			case backend.queues[NORMAL] <- ptr:
-			default:
-				errnie.Warn(
-					"compute.backend: dropped emitted child",
-					"child_id", child[idWord],
-				)
-			}
-		}
-
-		telemetry.Emit(telemetry.Event{
-			Component: "Substrate",
-			Action:    "Emit",
-			Data: telemetry.EventData{
-				Stage:        "signal-emission",
-				UbFrameCount: len(children),
-				Message:      "emitted child Values from signal detection",
-			},
-		})
-	}
-}
-
-/*
-evolveProgramsInGroup performs pairwise HolographicCrossover on adjacent frames
-within a UniversalBitwise batch group when system.programEvolution is enabled.
-
-HolographicCrossover blends two parents plus a structured third-parent noise
-source via majority-rule in HIE (holographic instruction encoding) space. The
-parentBias parameter steers between exploration (0 = pure affine noise orbit)
-and exploitation (1 = collapse to donor). SubstrateExploitScore provides the
-bias: high token-region structure similarity → exploit, low → explore.
-
-This replaces the earlier HomologousCrossover which could not bootstrap from
-NOP-only programs since it only recombines existing effective instructions.
-
-The RNG is seeded from batch shape and frame IDs so runs are reproducible for
-a given queued ordering without introducing yet another global entropy source.
-*/
-func (backend *Backend) evolveProgramsInGroup(group []unsafe.Pointer) {
-	if !core.Cfg.System.ProgramEvolution {
-		return
-	}
-
-	if len(group) < 2 {
-		return
-	}
-
-	seed := uint64(len(group)) * 0x9E3779B97F4A7C15
-	idWord := core.Cfg.Value.Region.ID.Start
-
-	for index, ptr := range group {
-		frame := (*[128]uint64)(ptr)
-		if idWord >= 0 && idWord < len(frame) {
-			seed ^= frame[idWord]
-		}
-
-		seed ^= uint64(index+1) * 0x85EBCA6B
-	}
-
-	rng := rand.New(rand.NewSource(int64(seed ^ (seed >> 32))))
-
-	for pairIdx := 0; pairIdx+1 < len(group); pairIdx += 2 {
-		recipient := (*[128]uint64)(group[pairIdx])
-		donor := (*[128]uint64)(group[pairIdx+1])
-
-		// Compute parentBias from token-region structure similarity.
-		// High overlap (sharp structure) → exploit (bias → 1, less noise).
-		// Low overlap (NOP-only, early bootstrap) → explore (bias → 0, max noise).
-		recipientValue := primitive.Value(*recipient)
-		donorValue := primitive.Value(*donor)
-		parentBias := primitive.SubstrateExploitScore(&recipientValue, &donorValue)
-
-		firmware.HolographicCrossover(recipient, recipient, donor, rng, parentBias)
-	}
-}
+// Evolution methods (evolveProgramsInGroup, emitSignalsInBatch) have been
+// extracted to evolution.go behind the EvolutionStage interface. The Backend
+// no longer owns evolutionary behavior — it delegates to backend.evolution
+// after hardware dispatch completes in executeBatch.
 
 func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 	fwWord := core.Cfg.Value.Region.Registers.FW
@@ -562,10 +488,14 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 
 		if frameShouldSkipFollowUp(frame) {
 			frame[fwWord] = 0
+			// Release the frame back to the pool and clean up token metadata
+			// to prevent the global sync.Map from growing indefinitely.
+			primitive.ReleaseFrame(frame)
 			continue
 		}
 
 		if frame[fwWord] == 0 {
+			primitive.ReleaseFrame(frame)
 			continue
 		}
 
@@ -578,6 +508,7 @@ func (backend *Backend) handleFollowUp(frames []unsafe.Pointer) {
 				"dropped_total", dropped,
 				"fw", frame[fwWord],
 			)
+			primitive.ReleaseFrame(frame)
 		}
 	}
 }
@@ -726,15 +657,20 @@ func (backend *Backend) selectHardwareIndex() int {
 
 	backend.ensureHardwareMetrics()
 
-	bestIndex := 0
-	bestDepth := backend.hardwareState[0].inflight.Load()
-	bestEMA := backend.hardwareState[0].emaServiceNanos.Load()
+	bestIndex := -1
+	var bestDepth int64
+	var bestEMA uint64
 
-	for index := 1; index < len(backend.hardware); index++ {
+	for index := 0; index < len(backend.hardware); index++ {
+		// Skip ejected substrates — they've exceeded the failure threshold.
+		if backend.hardwareState[index].ejected.Load() {
+			continue
+		}
+
 		depth := backend.hardwareState[index].inflight.Load()
 		ema := backend.hardwareState[index].emaServiceNanos.Load()
 
-		if depth < bestDepth || (depth == bestDepth && ema < bestEMA) {
+		if bestIndex < 0 || depth < bestDepth || (depth == bestDepth && ema < bestEMA) {
 			bestIndex = index
 			bestDepth = depth
 			bestEMA = ema

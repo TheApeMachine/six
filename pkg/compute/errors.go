@@ -14,6 +14,7 @@ const (
 	BackendErrorNoValues           BackendErrorType = "no values"
 	BackendErrorPoolEnqueueFailed  BackendErrorType = "pool enqueue failed"
 	BackendErrorInlineJobFailed    BackendErrorType = "inline job failed"
+	BackendErrorSubstrateEjected   BackendErrorType = "substrate ejected"
 )
 
 type BackendError struct {

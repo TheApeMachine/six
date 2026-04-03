@@ -116,23 +116,17 @@ func NewMachine(
 }
 
 /*
-start the machine as a single in-band loop:
-  - sources are serialized in machine.sources
-  - each read queues the frame, then writes it through machine.Write
+start launches the ingress goroutine that reads tokenized frames from the
+tokenizer ring buffer and queues them for backend execution.
 
-io.Copy uses a 32KiB buffer by default; Tokenizer.Read and primitive.Value
-serialization require a buffer of at least core.Cfg.Value.Bytes. When
-value.bytes is larger than that, the copy loop must use io.CopyBuffer or
-Read returns io.ErrShortBuffer.
+IMPORTANT: this is a one-way read loop, NOT an io.Copy feedback loop.
+Frames are NOT written back to the tokenizer — that caused an infinite
+recirculation loop where every frame was endlessly re-ingested at
+memory speed. Recirculation is handled exclusively by the backend's
+handleFollowUp mechanism (fw register → PRIORITY queue).
 */
 func (machine *Machine) start() (err error) {
-	frameBytes := core.Cfg.Value.Bytes
-	copyBufSize := 32 * 1024
-	if frameBytes > copyBufSize {
-		copyBufSize = frameBytes
-	}
-
-	copyBuf := make([]byte, copyBufSize)
+	buf := make([]byte, core.Cfg.Value.Bytes)
 
 	go func() {
 		for {
@@ -140,22 +134,61 @@ func (machine *Machine) start() (err error) {
 			case <-machine.ctx.Done():
 				return
 			default:
-				_, machine.err = io.CopyBuffer(machine, machine, copyBuf)
+				n, readErr := machine.sources.Read(buf)
+				if n > 0 {
+					value := primitive.BytesToValue(buf[:n])
 
-				if machine.err == nil || errors.Is(machine.err, io.EOF) {
-					machine.err = nil
-					continue
+					valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
+					telemetry.Emit(telemetry.Event{
+						Component: "Machine",
+						Action:    "Pipeline",
+						Data: telemetry.EventData{
+							Stage:   "queue",
+							Message: "frame from tokenizer → backend queue",
+							NodeID:  valueID,
+						},
+					})
+
+					if queueErr := machine.backend.Queue(unsafe.Pointer(value)); queueErr != nil {
+						errnie.Error(queueErr)
+						continue
+					}
+
+					isPrompt := value.IsPrompt()
+					if isPrompt {
+						telemetry.Emit(telemetry.Event{
+							Component: "Machine",
+							Action:    "Pipeline",
+							Data: telemetry.EventData{
+								Stage:   "prompt-start",
+								Message: "waiting for prompt settle",
+								NodeID:  valueID,
+							},
+						})
+						machine.waitForPrompt(value)
+
+						output := machine.collectPromptOutput(value)
+
+						if machine.output != nil {
+							if _, writeErr := machine.output.Write(output); writeErr != nil {
+								errnie.Error(writeErr)
+							}
+						}
+					}
 				}
 
-				if machine.ctx.Err() != nil {
-					machine.err = nil
+				if readErr != nil {
+					if errors.Is(readErr, io.EOF) {
+						continue
+					}
+					if machine.ctx.Err() != nil {
+						return
+					}
+					machine.err = errnie.Error(
+						NewMachineError(ErrStreamFailed, readErr),
+					)
 					return
 				}
-
-				machine.err = errnie.Error(
-					NewMachineError(ErrStreamFailed, machine.err),
-				)
-				return
 			}
 		}
 	}()
@@ -164,88 +197,18 @@ func (machine *Machine) start() (err error) {
 }
 
 /*
-Read implements io.Reader so the machine acts as a wiring mechanism between
-the tokenizer stream and queue machinery. Frames emitted by prompts can be
-optionally copied to machine.feedback for an explicit loopback path.
+Read implements io.Reader for external consumers that need to pull
+processed frames. The main ingress pipeline no longer uses this method
+(see start()). This remains for backward-compat with callers that treat
+Machine as an io.Reader.
 */
 func (machine *Machine) Read(p []byte) (n int, err error) {
 	select {
 	case <-machine.ctx.Done():
 		return 0, machine.ctx.Err()
 	default:
-		if n, err = machine.sources.Read(p); err != nil {
-			if errors.Is(err, io.EOF) {
-				return n, nil
-			}
-
-			return n, errnie.Error(err)
-		}
-
-		if n == 0 {
-			return n, err
-		}
-
-		value := primitive.BytesToValue(p[:n])
-
-		valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
-		telemetry.Emit(telemetry.Event{
-			Component: "Machine",
-			Action:    "Pipeline",
-			Data: telemetry.EventData{
-				Stage:   "queue",
-				Message: "frame from tokenizer → backend queue",
-				NodeID:  valueID,
-			},
-		})
-
-		if err = machine.backend.Queue(unsafe.Pointer(value)); err != nil {
-			return 0, errnie.Error(err)
-		}
-
-		isPrompt := value.IsPrompt()
-		if isPrompt {
-			telemetry.Emit(telemetry.Event{
-				Component: "Machine",
-				Action:    "Pipeline",
-				Data: telemetry.EventData{
-					Stage:   "prompt-start",
-					Message: "waiting for prompt settle",
-					NodeID:  valueID,
-				},
-			})
-			machine.waitForPrompt(value)
-		}
-
-		n, err = value.Read(p)
-
-		if err != nil && !errors.Is(err, io.EOF) {
-			return n, err
-		}
-
-		// Value.Read returns io.EOF after copying a full wire frame; keep the
-		// caller surface aligned with typical io.Reader success (n, nil).
-		if errors.Is(err, io.EOF) {
-			err = nil
-		}
-
-		if isPrompt {
-			output := machine.collectPromptOutput(value)
-
-			if machine.output != nil {
-				if _, writeErr := machine.output.Write(output); writeErr != nil {
-					return n, errnie.Error(writeErr)
-				}
-			}
-
-			if machine.feedback != nil {
-				if _, writeErr := machine.feedback.Write(p[:n]); writeErr != nil {
-					return n, errnie.Error(writeErr)
-				}
-			}
-		}
+		return machine.sources.Read(p)
 	}
-
-	return n, err
 }
 
 func (machine *Machine) waitForPrompt(value *primitive.Value) {

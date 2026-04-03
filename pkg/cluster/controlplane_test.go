@@ -19,13 +19,18 @@ func TestNewControlPlane(t *testing.T) {
 
 func TestControlPlaneInsert(t *testing.T) {
 	Convey("Insert", t, func() {
-		Convey("accepts remote affinities after local bootstrap", func() {
+		Convey("accepts remote affinities and skips local ID", func() {
+			// Set a known local ID so the test is deterministic.
+			saved := core.Cfg.ControlPlane.NodeID
+			core.Cfg.ControlPlane.NodeID = 0x1010
+			t.Cleanup(func() { core.Cfg.ControlPlane.NodeID = saved })
+
 			controlPlane := NewControlPlane(t.Context())
 			local := clusterTestValue(0x1010, 1)
 			remote := clusterTestValue(0x2020, 2)
 
-			controlPlane.Insert(0x1010, local)
-			controlPlane.Insert(0x2020, remote)
+			controlPlane.Insert(0x1010, local)  // local ID — not added to routing entries
+			controlPlane.Insert(0x2020, remote) // remote — added to routing entries
 
 			found := controlPlane.FindClosest(0x2020)
 			So(len(found), ShouldEqual, 1)

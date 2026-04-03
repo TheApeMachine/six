@@ -76,6 +76,42 @@ func newKBucket() *kBucket {
 	}
 }
 
+// insert adds or refreshes a node in the bucket with LRU semantics.
+// Existing entries are moved to the tail (most-recently seen). When
+// the bucket is full the least-recently seen entry (index 0) is evicted.
+// TODO: implement ping-based eviction per Kademlia spec for multi-node.
+func (bucket *kBucket) insert(id NodeID, value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
+	bucket.mu.Lock()
+	defer bucket.mu.Unlock()
+
+	// Refresh existing entry: shift it out and re-append at tail.
+	for i, e := range bucket.entries {
+		if e.id == id {
+			copy(bucket.entries[i:], bucket.entries[i+1:])
+			bucket.entries[len(bucket.entries)-1] = entry{id: id, value: value}
+			return
+		}
+	}
+
+	limit := core.Cfg.ControlPlane.K
+	if limit <= 0 {
+		limit = 20
+	}
+
+	if len(bucket.entries) < limit {
+		bucket.entries = append(bucket.entries, entry{id: id, value: value})
+		return
+	}
+
+	// Evict least-recently seen (index 0) in place — zero allocations.
+	copy(bucket.entries, bucket.entries[1:])
+	bucket.entries[len(bucket.entries)-1] = entry{id: id, value: value}
+}
+
 // closest returns up to k entries sorted by XOR distance to target.
 func (bucket *kBucket) closest(target NodeID, k int) []entry {
 	bucket.mu.RLock()
@@ -139,14 +175,38 @@ func (rt *RoutingTable) isBootstrapped() bool {
 
 /*
 Insert adds or refreshes a Value in the appropriate k-bucket.
+
+The LSM spatial index is ALWAYS written to — even for the local node's
+own data — because FrameByValueID, LookupKeysByValue, and DecodeTokenIDs
+all depend on it. Without this, the first value inserted during bootstrap
+(which becomes the local ID via ControlPlane) would be silently lost.
+
+Routing-table peer entries are only populated for non-local IDs, which
+preserves the Kademlia invariant that a node does not route to itself.
 */
 func (rt *RoutingTable) Insert(key uint64, value *primitive.Value) {
+	if value == nil {
+		return
+	}
+
 	rt.mu.RLock()
 	local := rt.local
 	rt.mu.RUnlock()
-	idx := bucketIndex(local, NodeID(key))
-	rt.buckets[idx].lsm.InsertBatch(insertTokenKeysForValue(value), *value)
-	errnie.Trace("cluster.kademlia.Insert", "key", key, "value", value)
+
+	id := NodeID(key)
+	idx := bucketIndex(local, id)
+	bucket := rt.buckets[idx]
+
+	// Always index into storage — this is how Values are found by ID,
+	// affinity, and token lookup regardless of who owns them.
+	bucket.lsm.InsertBatch(insertTokenKeysForValue(value), *value)
+
+	// But never add self to peer routing entries.
+	if id != local {
+		bucket.insert(id, value)
+	}
+
+	errnie.Trace("cluster.kademlia.Insert", "key", key, "bucket", idx)
 }
 
 /*

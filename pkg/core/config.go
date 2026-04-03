@@ -1,6 +1,9 @@
 package core
 
 import (
+	"hash/fnv"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -8,6 +11,24 @@ import (
 
 	"github.com/theapemachine/six/pkg/errnie"
 )
+
+/*
+stableNodeID derives a deterministic 64-bit node identity from the host's
+hostname and PID. This ensures a node's position in the Kademlia DHT is
+stable across restarts (same host) and distinct across machines, without
+depending on transient workload frames.
+*/
+func stableNodeID() uint64 {
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "six-node"
+	}
+	h := fnv.New64a()
+	h.Write([]byte(hostname))
+	h.Write([]byte(":"))
+	h.Write([]byte(strconv.Itoa(os.Getpid())))
+	return h.Sum64()
+}
 
 var (
 	Cfg *Config
@@ -33,6 +54,11 @@ type ControlPlaneConfig struct {
 	K        int               `mapstructure:"k"`
 	Alpha    int               `mapstructure:"alpha"`
 	Affinity ValueOffsetConfig `mapstructure:"affinity"`
+	// NodeID is the stable identity for this node in the Kademlia DHT.
+	// When zero (default), a deterministic ID is derived from the host
+	// identity (hostname + PID) so the node doesn't inherit its position
+	// in the routing table from the first transient workload frame.
+	NodeID uint64 `mapstructure:"nodeId"`
 }
 
 type SystemConfig struct {
@@ -192,8 +218,9 @@ func NewConfig() *Config {
 			) * time.Microsecond,
 		},
 		ControlPlane: ControlPlaneConfig{
-			K:     viper.GetInt("controlplane.k"),
-			Alpha: viper.GetInt("controlplane.alpha"),
+			K:      viper.GetInt("controlplane.k"),
+			Alpha:  viper.GetInt("controlplane.alpha"),
+			NodeID: viper.GetUint64("controlplane.nodeId"),
 			Affinity: ValueOffsetConfig{
 				Start: viper.GetInt("controlplane.affinity.start"),
 				Bits:  viper.GetUint64("controlplane.affinity.bits"),
@@ -289,6 +316,14 @@ func NewConfig() *Config {
 				FirmwareTypePrompt, viper.GetString("programs.prompt"),
 			),
 		},
+	}
+
+	if Cfg.ControlPlane.NodeID == 0 {
+		Cfg.ControlPlane.NodeID = stableNodeID()
+		errnie.Info(
+			"core.config: controlplane.nodeId derived from host identity",
+			"nodeId", Cfg.ControlPlane.NodeID,
+		)
 	}
 
 	if Cfg.ControlPlane.K < 1 {

@@ -13,8 +13,17 @@ minSignalBits is the minimum signal length (in bits) required before the
 substrate will emit child Values. Below this threshold the agreement is
 indistinguishable from noise and emitting would flood the substrate with
 junk frames.
+
+The token region uses HD encoding (circular-shift + XOR binding), so
+token words are pseudo-random bit patterns. The expected longest
+contiguous run in a 3648-bit random vector is ~log2(3648) ≈ 12 bits.
+With 7 scan passes (6 affine strides + linear), runs of 16+ are
+statistically meaningful (p < 0.01 under null hypothesis of
+independent bits). Setting to 12 allows the system to bootstrap —
+even weak agreements between related HD vectors create structure that
+evolution can amplify.
 */
-const minSignalBits = 32
+const minSignalBits = 12
 
 /*
 EmitFromSignals implements the substrate-level emission rules. It scans

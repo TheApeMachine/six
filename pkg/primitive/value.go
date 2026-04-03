@@ -100,6 +100,36 @@ func discardTokenIDsByValueID(valueID uint64) {
 }
 
 /*
+DiscardTokenIDsByValueID is the exported variant for callers outside the
+primitive package (e.g. backend.handleFollowUp) that need to release token
+metadata for frames exiting the pipeline without a full Close().
+*/
+func DiscardTokenIDsByValueID(valueID uint64) {
+	discardTokenIDsByValueID(valueID)
+}
+
+/*
+ReleaseFrame zeros the frame, discards its token metadata, and returns
+it to the value pool. Use this instead of letting frames fall to the GC
+when they exit the pipeline without a Close() call (e.g. dropped
+follow-ups in the backend).
+*/
+func ReleaseFrame(frame *[128]uint64) {
+	if frame == nil {
+		return
+	}
+	idWord := core.Cfg.Value.Region.ID.Start
+	if idWord >= 0 && idWord < len(frame) {
+		discardTokenIDsByValueID(frame[idWord])
+	}
+	for i := range frame {
+		frame[i] = 0
+	}
+	v := Value(*frame)
+	valuePool.Put(&v)
+}
+
+/*
 ValueTokenIDsForLookup returns cached TokenIDs captured during NewValue.
 */
 func ValueTokenIDsForLookup(valueID uint64) []uint64 {
@@ -299,9 +329,15 @@ This method should not be used to create temporary Values.
 func NewValue(p []byte) (*Value, error) {
 	value := valuePool.Get().(*Value)
 
-	// Always mint a fresh ValueID. sync.Pool may return a frame with any prior
-	// header state; relying on ID==0 invited stale IDs, broken affine caches,
-	// and prompt decode failures mid-stream.
+	// Zero the entire frame first. sync.Pool may return a frame with
+	// computational residue from its previous lifecycle — stale registers,
+	// link pointers, state words, and scratch data that would corrupt the
+	// new Value's execution if not wiped.
+	for i := range value {
+		value[i] = 0
+	}
+
+	// Always mint a fresh ValueID.
 	value[core.Cfg.Value.Region.ID.Start] = atomic.AddUint64(
 		&globalValueIDCounter,
 		1,

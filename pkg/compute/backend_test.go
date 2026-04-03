@@ -257,7 +257,7 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 			core.Cfg.System.ProgramEvolution = originalEvolution
 		})
 
-		backend := &Backend{}
+		em := &EvolutionManager{}
 		var frameRecipient, frameDonor [128]uint64
 		progStart := core.Cfg.Value.Region.Program.Start
 		nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
@@ -276,7 +276,7 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
 		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
 
-		backend.evolveProgramsInGroup([]unsafe.Pointer{
+		em.evolveProgramsInGroup([]unsafe.Pointer{
 			unsafe.Pointer(&frameRecipient),
 			unsafe.Pointer(&frameDonor),
 		})
@@ -294,7 +294,7 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 			core.Cfg.System.ProgramEvolution = originalEvolution
 		})
 
-		backend := &Backend{}
+		em := &EvolutionManager{}
 		var frameRecipient, frameDonor [128]uint64
 		progStart := core.Cfg.Value.Region.Program.Start
 		nProgWords := int((core.Cfg.Value.Region.Program.Bits + 63) / 64)
@@ -313,7 +313,7 @@ func TestEvolveProgramsInGroup(t *testing.T) {
 		firmware.SetInstructionSlot(&frameRecipient, slot, 0)
 		firmware.SetInstructionSlot(&frameDonor, slot, donorInstr)
 
-		backend.evolveProgramsInGroup([]unsafe.Pointer{
+		em.evolveProgramsInGroup([]unsafe.Pointer{
 			unsafe.Pointer(&frameRecipient),
 			unsafe.Pointer(&frameDonor),
 		})
@@ -332,7 +332,7 @@ func BenchmarkEvolveProgramsInGroup(b *testing.B) {
 		core.Cfg.System.ProgramEvolution = originalEvolution
 	})
 
-	backend := &Backend{}
+	em := &EvolutionManager{}
 
 	var templateRecipient, templateDonor [128]uint64
 	progStart := core.Cfg.Value.Region.Program.Start
@@ -359,7 +359,7 @@ func BenchmarkEvolveProgramsInGroup(b *testing.B) {
 		frameRecipient := templateRecipient
 		frameDonor := templateDonor
 
-		backend.evolveProgramsInGroup([]unsafe.Pointer{
+		em.evolveProgramsInGroup([]unsafe.Pointer{
 			unsafe.Pointer(&frameRecipient),
 			unsafe.Pointer(&frameDonor),
 		})

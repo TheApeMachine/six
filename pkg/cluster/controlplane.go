@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 
+	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/primitive"
 	"github.com/theapemachine/six/pkg/telemetry"
 )
@@ -19,29 +20,31 @@ type ControlPlane struct {
 }
 
 /*
-NewControlPlane creates a ControlPlane. The local NodeID is derived from
-the affinity of the first inserted Value; until then it uses 0 as a
-placeholder (the routing table self-corrects on first Insert).
+NewControlPlane creates a ControlPlane with a stable node identity.
+The local NodeID is read from core.Cfg.ControlPlane.NodeID (derived from
+host identity at config init). This ensures the node's position in the
+Kademlia DHT does not depend on the first transient workload frame.
 */
 func NewControlPlane(ctx context.Context) *ControlPlane {
 	ctx, cancel := context.WithCancel(ctx)
 
+	nodeID := NodeID(core.Cfg.ControlPlane.NodeID)
+	rt := NewRoutingTable(nodeID)
+	rt.SetLocal(nodeID)
+
 	return &ControlPlane{
 		ctx:    ctx,
 		cancel: cancel,
-		rt:     NewRoutingTable(0),
+		rt:     rt,
 	}
 }
 
 /*
 Insert adds a Value to the routing table and its bucket's LSM.
+The local NodeID is set once during NewControlPlane from config,
+so there is no payload-based bootstrapping here.
 */
 func (cp *ControlPlane) Insert(key uint64, value primitive.Value) {
-	// Bootstrap local ID from the first Value inserted.
-	if !cp.rt.isBootstrapped() {
-		cp.rt.SetLocal(NodeID(key))
-	}
-
 	cp.rt.Insert(key, &value)
 
 	cp.rt.mu.RLock()
