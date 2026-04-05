@@ -1,22 +1,17 @@
 /*
-Package store implements SpatialIndex: a hybrid LSM-style inverted index (token → ValueIDs)
-with Roaring BitSliceIndexing columns for PC, firmware, sequence, accumulator, and
-Prev/Next pointers, plus full Value frame retention for ExactLookup and SIMD-friendly
-materialization.
+Package store implements a labeled token-trie for online sequence storage and
+an in-process Kadabra-style DHT node that can publish and retrieve those
+sequences across a peer set.
 
-Typical consumption:
+The sequence layer keeps lazy-decayed per-label counts at each node, learns
+local word co-occurrence, scores next tokens by interpolating over suffix
+contexts, supports token-level fuzzy lookup, beam search, surprisal traces,
+posterior traces, repeated-symbol extraction, and replay-based self-training
+for novel high-confidence generations.
 
- 1. Insert: idx.InsertBatch(tokenKeys, frame) — same as before; frame[cfg.Value.Region.ID.Start] is the row key.
-
- 2. Relational-style narrowing: candidates := idx.ValueIDsForToken(tokenX); subset :=
-    store.AndValueIDs(idx.ComparePC(0, bsi.LT, 100, 0, candidates), idx.CompareFW(0, bsi.EQ, int64(fw), 0, candidates))
-
- 3. Vector / VSA path: ids := store.ValueIDsToSlice(subset); buf := idx.MaterializeTokenRegionWords(ids); pospop.Count64(&counts, buf)
-
- 4. Tombstone: idx.RemoveValueID(valueID) hides the row from index reads immediately; call
-    idx.ProcessPostingsTombstones() in batches to peel IDs off physical posting bitmaps (O(token keys)).
-    idx.RemoveValueIDImmediate(valueID) does synchronous posting removal when you cannot rely on the tombstone set.
-
-BSI column ids are dense uint32s internal to the index; compare helpers always return *roaring64.Bitmap of ValueIDs.
+The DHT layer wraps the store in a 64-bit XOR keyspace with k-buckets, closest
+peer lookup, replicated record placement, iterative retrieval, and per-bucket
+adaptive peer exploration guided by observed RTT and a configurable minimum
+exploration latency floor.
 */
 package store

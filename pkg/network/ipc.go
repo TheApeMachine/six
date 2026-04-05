@@ -2,309 +2,424 @@ package network
 
 import (
 	"context"
+	"errors"
+	"io"
+	"net"
+	"os"
 	"time"
-
-	"github.com/lirm/aeron-go/aeron"
-	"github.com/lirm/aeron-go/aeron/atomic"
-	"github.com/lirm/aeron-go/aeron/idlestrategy"
-	"github.com/lirm/aeron-go/aeron/logbuffer"
 )
 
-const aeronIPCChannel = "aeron:ipc"
-
 /*
-IPC provides same-machine transport over Aeron IPC (shared memory).
-A running Aeron media driver is required before use. The listener side
-derives stream IDs from the socket path and waits in Accept; the dialer
-side mirrors those IDs and is ready immediately.
+IPC provides same-machine transport over Unix domain sockets.
+The listener side binds a Unix socket path and accepts exactly one peer.
+The dialer side connects to that path eagerly during construction.
 
-The Read/Write/Close interface is identical to the previous Unix-socket
-implementation so callers require no changes.
+The Read/Write/Close interface stays stable so callers do not care
+whether the transport is backed by shared memory or sockets.
 */
 type IPC struct {
-	err       error
-	ctx       context.Context
-	cancel    context.CancelFunc
-	client    *aeron.Aeron
-	pub       *aeron.Publication
-	sub       *aeron.Subscription
-	recvCh    chan []byte
-	aeronDir  string
-	timeout   time.Duration
-	pubStream int32
-	subStream int32
-	owner     bool // true for listen-side
+	err      error
+	ctx      context.Context
+	cancel   context.CancelFunc
+	listener *net.UnixListener
+	conn     net.Conn
+	timeout  time.Duration
+	path     string
+	owner    bool
+	monitor  *transportMonitor
 }
 
 type ipcOption func(*IPC)
 
 /*
-NewIPC constructs an Aeron IPC transport. Pass IPCWithListen on the
-server side and IPCWithDial on the client side, both using the same
-path string to derive matching stream IDs.
+NewIPC constructs an IPC transport over Unix domain sockets.
+Pass IPCWithListen on the server side and IPCWithDial on the client side.
 */
 func NewIPC(opts ...ipcOption) *IPC {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	i := &IPC{
+	ipc := &IPC{
 		ctx:     ctx,
 		cancel:  cancel,
-		recvCh:  make(chan []byte, 256),
 		timeout: 10 * time.Second,
+		monitor: newTransportMonitor(TransportTraits{
+			Name:            "ipc",
+			Topology:        TransportTopologySameMachine,
+			Reliable:        true,
+			Ordered:         true,
+			MessageOriented: true,
+			Broadcast:       false,
+			Encrypted:       false,
+			ExternalRuntime: false,
+		}),
 	}
 
 	for _, opt := range opts {
-		opt(i)
+		opt(ipc)
 	}
 
-	// If neither stream is configured (bare NewIPC()) skip driver connection.
-	if i.pubStream == 0 && i.subStream == 0 {
-		return i
+	if ipc.path == "" {
+		return ipc
 	}
 
-	aeronCtx := aeron.NewContext().
-		MediaDriverTimeout(i.timeout).
-		ErrorHandler(func(err error) { i.err = err })
-
-	if i.aeronDir != "" {
-		aeronCtx = aeronCtx.AeronDir(i.aeronDir)
-	}
-
-	client, err := aeron.Connect(aeronCtx)
-	if err != nil {
-		i.err = err
-		return i
-	}
-
-	i.client = client
-
-	if i.pubStream != 0 {
-		pub, err := client.AddPublication(aeronIPCChannel, i.pubStream)
-		if err != nil {
-			i.err = err
-			return i
+	if ipc.owner {
+		if err := ipc.listen(); err != nil {
+			ipc.err = err
+			ipc.monitor.RecordFailure(TransportFailureBind, err, true)
 		}
 
-		i.pub = pub
+		return ipc
 	}
 
-	if i.subStream != 0 {
-		sub, err := client.AddSubscription(aeronIPCChannel, i.subStream)
-		if err != nil {
-			i.err = err
-			return i
-		}
-
-		i.sub = sub
-		i.startPoller()
+	if err := ipc.dial(); err != nil {
+		ipc.err = err
+		ipc.monitor.RecordFailure(TransportFailureDial, err, false)
 	}
 
-	return i
+	return ipc
 }
 
 /*
-Read receives the next message from the Aeron subscription. Blocks until
-a message arrives or the context is cancelled.
+Read receives bytes from the active Unix socket connection.
 */
 func (ipc *IPC) Read(p []byte) (int, error) {
-	if ipc.sub == nil {
-		return 0, ErrIPCNotConnected
+	if err := ipc.monitor.Allow("ipc", "read"); err != nil {
+		return 0, err
 	}
 
-	select {
-	case <-ipc.ctx.Done():
-		return 0, ipc.ctx.Err()
-	case msg := <-ipc.recvCh:
-		n := copy(p, msg)
-		return n, nil
+	connection, err := ipc.ensureConn(false)
+	if err != nil {
+		ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return 0, err
 	}
+
+	n, err := connection.Read(p)
+	if err != nil {
+		mode, systemic := ipc.classifyNetError(err)
+		ipc.monitor.RecordFailure(mode, err, systemic)
+		return n, err
+	}
+
+	ipc.monitor.RecordSuccess()
+	return n, nil
 }
 
 /*
-Write offers p as a single Aeron message. Retries on back-pressure until
-the publication accepts it or the context is cancelled.
+Write sends bytes over the active Unix socket connection.
 */
 func (ipc *IPC) Write(p []byte) (int, error) {
-	if ipc.pub == nil {
-		return 0, ErrIPCNotConnected
+	if err := ipc.monitor.Allow("ipc", "write"); err != nil {
+		return 0, err
 	}
 
-	buf := atomic.MakeBuffer(p)
-	idle := idlestrategy.Sleeping{SleepFor: time.Millisecond}
-
-	for {
-		ret := ipc.pub.Offer(buf, 0, int32(len(p)), nil)
-
-		if ret >= 0 {
-			return len(p), nil
-		}
-
-		if ret == aeron.PublicationClosed {
-			return 0, ErrIPCNotConnected
-		}
-
-		select {
-		case <-ipc.ctx.Done():
-			return 0, ipc.ctx.Err()
-		default:
-			idle.Idle(0)
-		}
+	connection, err := ipc.ensureConn(false)
+	if err != nil {
+		ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return 0, err
 	}
+
+	n, err := connection.Write(p)
+	if err != nil {
+		mode, systemic := ipc.classifyNetError(err)
+		ipc.monitor.RecordFailure(mode, err, systemic)
+		return n, err
+	}
+
+	ipc.monitor.RecordSuccess()
+	return n, nil
 }
 
 /*
-Close shuts down the publication, subscription, and media driver client.
+Close shuts down the accepted connection and listener socket.
 */
 func (ipc *IPC) Close() error {
 	ipc.cancel()
 
-	if ipc.pub != nil {
-		ipc.pub.Close()
-	}
+	var firstErr error
 
-	if ipc.sub != nil {
-		ipc.sub.Close()
-	}
-
-	if ipc.client != nil {
-		ipc.client.Close()
-	}
-
-	return nil
-}
-
-/*
-Accept blocks until the remote side connects (publication becomes
-connected). Must be called after constructing with IPCWithListen.
-*/
-func (ipc *IPC) Accept() error {
-	if !ipc.owner {
-		return ErrIPCNotListening
-	}
-
-	if ipc.pub == nil {
-		return ErrIPCNotConnected
-	}
-
-	for !ipc.pub.IsConnected() {
-		select {
-		case <-ipc.ctx.Done():
-			return ipc.ctx.Err()
-		default:
-			time.Sleep(10 * time.Millisecond)
+	if ipc.conn != nil {
+		if err := ipc.conn.Close(); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 
-	return nil
-}
-
-// Ready blocks until the publication is connected (a subscriber is
-// present). No-op when no publication is configured.
-func (ipc *IPC) Ready(ctx context.Context) error {
-	if ipc.err != nil {
-		return ipc.err
+	if ipc.listener != nil {
+		if err := ipc.listener.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
 	}
 
-	if ipc.pub == nil {
+	if ipc.owner && ipc.path != "" {
+		if err := os.Remove(ipc.path); err != nil && !errors.Is(err, os.ErrNotExist) && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
+}
+
+/*
+Accept blocks until a client connects to the listening socket.
+*/
+func (ipc *IPC) Accept() error {
+	if err := ipc.monitor.Allow("ipc", "accept"); err != nil {
+		return err
+	}
+
+	if !ipc.owner {
+		err := &TransportError{
+			Layer:    "ipc",
+			Op:       "accept",
+			Mode:     TransportFailureBind,
+			Systemic: true,
+			Err:      ErrIPCNotListening,
+		}
+		ipc.monitor.RecordFailure(TransportFailureBind, err, true)
+		return err
+	}
+
+	if ipc.listener == nil {
+		err := &TransportError{
+			Layer:    "ipc",
+			Op:       "accept",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrIPCNotConnected,
+		}
+		ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return err
+	}
+
+	if ipc.conn != nil {
+		ipc.monitor.RecordReady()
 		return nil
 	}
 
-	for !ipc.pub.IsConnected() {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			time.Sleep(10 * time.Millisecond)
-		}
+	deadline := time.Now().Add(ipc.timeout)
+	if err := ipc.listener.SetDeadline(deadline); err != nil {
+		ipc.monitor.RecordFailure(TransportFailureProtocol, err, true)
+		return err
 	}
 
+	connection, err := ipc.listener.Accept()
+	if err != nil {
+		mode, systemic := ipc.classifyNetError(err)
+		ipc.monitor.RecordFailure(mode, err, systemic)
+		return err
+	}
+
+	ipc.conn = connection
+	ipc.monitor.RecordReady()
 	return nil
 }
 
-// startPoller runs a background goroutine that polls the subscription
-// and forwards each received message to recvCh.
-func (ipc *IPC) startPoller() {
-	handler := func(buf *atomic.Buffer, offset, length int32, _ *logbuffer.Header) {
-		data := buf.GetBytesArray(offset, length)
-		cp := make([]byte, len(data))
-		copy(cp, data)
-
-		select {
-		case ipc.recvCh <- cp:
-		default: // drop when full — caller is not consuming fast enough
-		}
+/*
+Ready waits until the IPC transport has an active connection.
+Dialers are ready immediately after a successful constructor dial.
+Listeners normalize readiness through Accept.
+*/
+func (ipc *IPC) Ready(ctx context.Context) error {
+	if ipc.err != nil {
+		ipc.monitor.RecordFailure(TransportFailureDependency, ipc.err, true)
+		return ipc.err
 	}
 
-	idle := idlestrategy.Sleeping{SleepFor: time.Millisecond}
+	if ipc.conn != nil {
+		ipc.monitor.RecordReady()
+		return nil
+	}
 
+	if !ipc.owner {
+		if ipc.path == "" {
+			ipc.monitor.RecordReady()
+			return nil
+		}
+
+		err := &TransportError{
+			Layer:    "ipc",
+			Op:       "ready",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrIPCNotConnected,
+		}
+		ipc.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return err
+	}
+
+	if ctx == nil {
+		ctx = ipc.ctx
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	ready := make(chan error, 1)
 	go func() {
-		for {
-			select {
-			case <-ipc.ctx.Done():
-				return
-			default:
-				n := ipc.sub.Poll(handler, 10)
-				idle.Idle(n)
-			}
-		}
+		ready <- ipc.Accept()
 	}()
-}
 
-// ipcStreamIDs derives a matched pair of stream IDs from a path string
-// so that listener and dialer automatically use complementary streams.
-func ipcStreamIDs(path string) (serverPub, serverSub int32) {
-	var h uint32 = 2166136261 // FNV-1a offset basis
-
-	for i := 0; i < len(path); i++ {
-		h ^= uint32(path[i])
-		h *= 16777619
+	select {
+	case <-ctx.Done():
+		mode := TransportFailureCanceled
+		if ctx.Err() == context.DeadlineExceeded {
+			mode = TransportFailureTimeout
+		}
+		ipc.monitor.RecordFailure(mode, ctx.Err(), false)
+		return ctx.Err()
+	case err := <-ready:
+		return err
 	}
-
-	base := int32(h%900) + 100
-	return base, base + 1000
 }
 
 /*
-IPCWithListen configures the listener side. Stream IDs are derived from
-path so that a matching IPCWithDial(path) peer routes correctly. The
-Aeron media driver must be reachable at the default or configured dir.
+Traits reports the transport semantics of IPC.
+*/
+func (ipc *IPC) Traits() TransportTraits {
+	return ipc.monitor.Traits()
+}
+
+/*
+Status reports the current health snapshot of IPC.
+*/
+func (ipc *IPC) Status() TransportStatus {
+	return ipc.monitor.Status()
+}
+
+func (ipc *IPC) listen() error {
+	if ipc.path == "" {
+		return nil
+	}
+
+	_ = os.Remove(ipc.path)
+
+	address, err := net.ResolveUnixAddr("unix", ipc.path)
+	if err != nil {
+		return err
+	}
+
+	listener, err := net.ListenUnix("unix", address)
+	if err != nil {
+		return err
+	}
+
+	ipc.listener = listener
+	return nil
+}
+
+func (ipc *IPC) dial() error {
+	if ipc.path == "" {
+		return nil
+	}
+
+	address, err := net.ResolveUnixAddr("unix", ipc.path)
+	if err != nil {
+		return err
+	}
+
+	connection, err := net.DialTimeout("unix", address.String(), ipc.timeout)
+	if err != nil {
+		return err
+	}
+
+	ipc.conn = connection
+	ipc.monitor.RecordReady()
+	return nil
+}
+
+func (ipc *IPC) ensureConn(allowAccept bool) (net.Conn, error) {
+	if ipc.conn != nil {
+		return ipc.conn, nil
+	}
+
+	if ipc.path == "" {
+		return nil, ErrIPCNotConnected
+	}
+
+	if allowAccept && ipc.owner {
+		if err := ipc.Accept(); err != nil {
+			return nil, err
+		}
+
+		return ipc.conn, nil
+	}
+
+	if ipc.owner {
+		return nil, ErrIPCNotConnected
+	}
+
+	if err := ipc.dial(); err != nil {
+		return nil, err
+	}
+
+	return ipc.conn, nil
+}
+
+func (ipc *IPC) classifyNetError(err error) (TransportFailureMode, bool) {
+	if err == nil {
+		return TransportFailureNone, false
+	}
+
+	if err == context.Canceled {
+		return TransportFailureCanceled, false
+	}
+
+	if err == context.DeadlineExceeded {
+		return TransportFailureTimeout, false
+	}
+
+	if errors.Is(err, net.ErrClosed) || errors.Is(err, io.EOF) {
+		return TransportFailureClosed, true
+	}
+
+	var netError net.Error
+	if errors.As(err, &netError) && netError.Timeout() {
+		return TransportFailureTimeout, false
+	}
+
+	return TransportFailureProtocol, false
+}
+
+/*
+IPCWithListen configures the listener side on the given Unix socket path.
 */
 func IPCWithListen(path string) ipcOption {
-	return func(i *IPC) {
-		serverPub, serverSub := ipcStreamIDs(path)
-		i.pubStream = serverPub
-		i.subStream = serverSub
-		i.owner = true
+	return func(ipc *IPC) {
+		ipc.path = path
+		ipc.owner = true
 	}
 }
 
 /*
 IPCWithDial connects to a listener created with IPCWithListen(path).
-Stream IDs are derived from path to mirror the listener's configuration.
 */
 func IPCWithDial(path string) ipcOption {
-	return func(i *IPC) {
-		serverPub, serverSub := ipcStreamIDs(path)
-		// Client TX → server RX, client RX ← server TX
-		i.pubStream = serverSub
-		i.subStream = serverPub
-		i.owner = false
+	return func(ipc *IPC) {
+		ipc.path = path
+		ipc.owner = false
 	}
 }
 
 /*
-IPCWithAeronDir overrides the Aeron media driver directory. Defaults to
-the driver's own configured directory (usually /dev/shm/aeron-<user>).
+IPCWithAeronDir is retained for API stability and is a no-op for Unix sockets.
 */
 func IPCWithAeronDir(dir string) ipcOption {
-	return func(i *IPC) { i.aeronDir = dir }
+	return func(ipc *IPC) {
+		_ = dir
+	}
 }
 
 /*
-IPCWithTimeout sets how long to wait for the media driver on connect.
+IPCWithTimeout sets how long listen-side Accept and dial-side connect may block.
 */
-func IPCWithTimeout(d time.Duration) ipcOption {
-	return func(i *IPC) { i.timeout = d }
+func IPCWithTimeout(duration time.Duration) ipcOption {
+	return func(ipc *IPC) {
+		if duration <= 0 {
+			return
+		}
+
+		ipc.timeout = duration
+	}
 }
 
 // IPCError is a typed error for IPC transport failures.

@@ -1,606 +1,173 @@
 package vm
 
 import (
+	"bytes"
 	"context"
-	"errors"
-	"io"
-	"sync/atomic"
-	"time"
-	"unsafe"
+	"os"
+	"strings"
 
-	"github.com/theapemachine/six/pkg/cluster"
-	"github.com/theapemachine/six/pkg/compute"
+	"github.com/theapemachine/six/experiment/data"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/core/validate"
 	"github.com/theapemachine/six/pkg/errnie"
 	"github.com/theapemachine/six/pkg/primitive"
-	"github.com/theapemachine/six/pkg/telemetry"
+	"github.com/theapemachine/six/pkg/store/kadabra"
+)
+
+const (
+	defaultMachineChunkBytes = 64
+	defaultMachineLabel      = "Machine"
 )
 
 /*
-Machine provides a unified stream processing pipeline. All machine options are
-applied during construction so tests and callers can instantiate isolated
-machines without relying on package-level state.
+Machine is a central orchestrator that moves Values through a
+processing pipeline. It should not try and control the process
+it just routes Values between the different components of the system.
 */
 type Machine struct {
-	ctx          context.Context
-	cancel       context.CancelFunc
-	err          error
-	backend      *compute.Backend
-	sources      io.Reader
-	feedback     io.Writer
-	destinations io.Writer
-	output       io.ReadWriter
-	controlplane *cluster.ControlPlane
-	tokenizer    *Tokenizer
-
-	// ingressActive is set once start() launches the ingress goroutine.
-	// Machine.Read checks this to prevent a second concurrent consumer
-	// from racing on machine.sources.
-	ingressActive atomic.Bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	err     error
+	dataset data.Provider
+	kadabra *kadabra.KadabraNode
+	label   string
 }
 
-type machineOption func(*Machine)
+type machineOpts func(*Machine)
 
-/*
-CorpusProvider is the ingest shape of experiment/data.Provider without pulling
-experiment packages into vm. LoadCorpus reads the full stream via io.ReadAll
-then closes the provider; streaming iteration is the provider's own concern.
-*/
-type CorpusProvider interface {
-	io.ReadCloser
-}
-
-/*
-NewMachine constructs a new Machine with the provided options.
-It requires a context for lifecycle management and will return
-an error if the context is invalid or if the underlying stream
-fails to start. The machine can be configured with various options,
-such as custom datasets, stream adapters, and region counts.
-*/
 func NewMachine(
-	ctx context.Context, opts ...machineOption,
-) (machine *Machine, err error) {
+	ctx context.Context, opts ...machineOpts,
+) (*Machine, error) {
 	ctx, cancel := context.WithCancel(ctx)
 
-	controlplane := cluster.NewControlPlane(ctx)
-
-	machine = &Machine{
-		ctx:          ctx,
-		cancel:       cancel,
-		controlplane: controlplane,
+	machine := &Machine{
+		ctx:    ctx,
+		cancel: cancel,
+		label:  defaultMachineLabel,
 	}
-
-	// Create backend with emit callback so signal-emitted children get
-	// inserted into the spatial index automatically.
-	backendOpts := []compute.BackendOption{
-		compute.WithEmitCallback(
-			func(value *primitive.Value) {
-				if controlplane == nil || value == nil {
-					return
-				}
-
-				key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
-				controlplane.Insert(key, *value)
-			},
-		),
-		compute.WithSemanticAffinityReinsert(
-			func(value *primitive.Value) {
-				if controlplane == nil || value == nil {
-					return
-				}
-
-				key := value.GetWord(
-					core.Cfg.Value.Region.Affinity.Start,
-				)
-				controlplane.Insert(key, *value)
-			},
-		),
-		compute.WithSleepSample(
-			func(maxPairs int) [][2]*primitive.Value {
-				if controlplane == nil {
-					return nil
-				}
-
-				return controlplane.SampleSleepScratchPairs(maxPairs)
-			},
-		),
-		compute.WithMemoryLoad(
-			func(queryAffinity uint64) (primitive.Value, bool) {
-				if controlplane == nil {
-					return primitive.Value{}, false
-				}
-
-				closest := controlplane.FindClosest(queryAffinity)
-
-				if len(closest) > 0 {
-					return closest[0], true
-				}
-
-				return primitive.Value{}, false
-			},
-		),
-		compute.WithMemoryEnqueue(
-			func(queryAffinity uint64) []primitive.Value {
-				if controlplane == nil {
-					return nil
-				}
-
-				return controlplane.FindClosest(queryAffinity)
-			},
-		),
-	}
-
-	machine.backend = compute.NewBackend(ctx, backendOpts...)
-
-	tokenizer, err := NewTokenizer(
-		ctx,
-		TokenizerWithStore(machine.controlplane),
-		TokenizerWithBackend(machine.backend),
-	)
-
-	if err != nil {
-		return nil, errnie.Error(
-			NewMachineError(ErrNotValidated, err),
-		)
-	}
-
-	machine.sources = tokenizer
-	machine.tokenizer = tokenizer
-	machine.destinations = tokenizer
 
 	for _, opt := range opts {
 		opt(machine)
 	}
 
-	if machine.err = validate.Require(map[string]any{
-		"ctx":          machine.ctx,
-		"cancel":       machine.cancel,
-		"sources":      machine.sources,
-		"destinations": machine.destinations,
-		"backend":      machine.backend,
-		"tokenizer":    machine.tokenizer,
-	}); machine.err != nil {
-		return nil, errnie.Error(
-			NewMachineError(ErrNotValidated, machine.err),
-		)
+	if machine.kadabra == nil {
+		machine.kadabra = kadabra.NewKadabraNode(machine.defaultNodeID())
 	}
 
-	machine.start()
-
-	return machine, nil
+	return machine, validate.Require(map[string]any{
+		"ctx":    machine.ctx,
+		"cancel": machine.cancel,
+	})
 }
 
-/*
-start launches the ingress goroutine that reads tokenized frames from the
-tokenizer ring buffer and queues them for backend execution.
+func (machine *Machine) Run() error {
+	validate.Require(map[string]any{
+		"machine": machine,
+		"ctx":     machine.ctx,
+		"cancel":  machine.cancel,
+		"dataset": machine.dataset,
+		"kadabra": machine.kadabra,
+	})
 
-IMPORTANT: this is a one-way read loop, NOT an io.Copy feedback loop.
-Frames are NOT written back to the tokenizer — that caused an infinite
-recirculation loop where every frame was endlessly re-ingested at
-memory speed. Recirculation is handled exclusively by the backend's
-handleFollowUp mechanism (fw register → PRIORITY queue).
-*/
-func (machine *Machine) start() (err error) {
-	machine.ingressActive.Store(true)
-	buf := make([]byte, core.Cfg.Value.Bytes)
-
-	go func() {
-		defer machine.ingressActive.Store(false)
-
-		for {
-			select {
-			case <-machine.ctx.Done():
-				return
-			default:
-				n, readErr := machine.sources.Read(buf)
-				if n > 0 {
-					value := primitive.BytesToValue(buf[:n])
-
-					valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
-					telemetry.Emit(telemetry.Event{
-						Component: "Machine",
-						Action:    "Pipeline",
-						Data: telemetry.EventData{
-							Stage:   "queue",
-							Message: "frame from tokenizer → backend queue",
-							NodeID:  valueID,
-						},
-					})
-
-					if queueErr := machine.backend.Queue(unsafe.Pointer(value)); queueErr != nil {
-						errnie.Error(queueErr)
-						continue
-					}
-
-					if value.IsPrompt() {
-						// Offload prompt settle + output collection to a
-						// separate goroutine so the read loop stays responsive
-						// to new ingress frames.
-						promptValue := value
-						promptID := valueID
-						go func() {
-							telemetry.Emit(telemetry.Event{
-								Component: "Machine",
-								Action:    "Pipeline",
-								Data: telemetry.EventData{
-									Stage:   "prompt-start",
-									Message: "waiting for prompt settle",
-									NodeID:  promptID,
-								},
-							})
-
-							/*
-								Wait for the prompt frame to settle: handleFollowUp clears
-								FW once the frame exits active queues, or we time out so
-								UniversalBitwise + emitSignalsInBatch can finish linking.
-							*/
-							settleDeadline := time.Now().Add(250 * time.Millisecond)
-
-							for time.Now().Before(settleDeadline) {
-								fw := promptValue.GetWord(
-									core.Cfg.Value.Region.Registers.FW,
-								)
-
-								if fw == 0 {
-									break
-								}
-
-								time.Sleep(5 * time.Millisecond)
-							}
-
-							output := machine.collectPromptOutput(promptValue)
-
-							if machine.output != nil {
-								if _, writeErr := machine.output.Write(output); writeErr != nil {
-									errnie.Error(writeErr)
-								}
-							}
-						}()
-					}
-				}
-
-				if readErr != nil {
-					if errors.Is(readErr, io.EOF) {
-						continue
-					}
-					if machine.ctx.Err() != nil {
-						return
-					}
-					machine.err = errnie.Error(
-						NewMachineError(ErrStreamFailed, readErr),
-					)
-					return
-				}
-			}
-		}
+	defer func() {
+		errnie.Error(
+			machine.dataset.Close(),
+		)
 	}()
 
-	return nil
-}
+	buffer := bytes.NewBuffer(make([]byte, 0, defaultMachineChunkBytes))
 
-/*
-Read implements io.Reader for external consumers that need to pull
-processed frames. The main ingress pipeline no longer uses this method
-(see start()). This remains for backward-compat with callers that treat
-Machine as an io.Reader.
+	for b := range machine.dataset.Generate() {
+		buffer.WriteByte(b)
 
-IMPORTANT: Read returns an error if the ingress goroutine is active,
-because both would consume from machine.sources and lose frames.
-*/
-func (machine *Machine) Read(p []byte) (n int, err error) {
-	if machine.ingressActive.Load() {
-		return 0, errors.New(
-			"vm.Machine.Read: ingress goroutine is active; " +
-				"use machine.output or WithOutput to consume results",
-		)
+		if buffer.Len() < defaultMachineChunkBytes {
+			continue
+		}
+
+		if err := machine.publishChunk(buffer.Bytes()); err != nil {
+			return err
+		}
+
+		buffer.Reset()
 	}
 
-	select {
-	case <-machine.ctx.Done():
-		return 0, machine.ctx.Err()
-	default:
-		return machine.sources.Read(p)
-	}
-}
-
-/*
-collectPromptOutput walks the NextID chain from a prompt Value, decoding
-tokenIDs from each linked Value in the chain. This is how the substrate
-returns results: the prompt's program (and signal emission) link it to
-relevant Values, and walking that chain produces the output.
-
-If the chain is empty (NextID == 0), falls back to decoding the prompt's
-own tokenIDs as a baseline.
-*/
-func (machine *Machine) collectPromptOutput(value *primitive.Value) []byte {
-	if value == nil {
+	if buffer.Len() == 0 {
 		return nil
 	}
 
-	valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
-	nextID := value.GetWord(core.Cfg.Value.Region.Next.Start)
+	return machine.publishChunk(buffer.Bytes())
+}
 
-	// Walk the NextID chain to collect output from linked Values.
-	if nextID != 0 && machine.controlplane != nil {
-		var output []byte
-		cursor := nextID
-		seen := map[uint64]bool{valueID: true} // don't revisit prompt itself
-
-		for cursor != 0 {
-			if seen[cursor] {
-				break // cycle guard
-			}
-			seen[cursor] = true
-
-			// Try to decode this linked Value's tokenIDs. Values created
-			// via NewValue have cached affine-mapped TokenIDs that
-			// DecodeTokenIDs can reverse. Signal-emitted children don't
-			// have those, so fall back to raw token region bytes.
-			tokenIDs := primitive.ValueTokenIDsForLookup(cursor)
-			if len(tokenIDs) == 0 {
-				tokenIDs = machine.controlplane.LookupKeysByValueID(cursor)
-			}
-
-			if len(tokenIDs) > 0 {
-				decoded := primitive.DecodeTokenIDs(tokenIDs)
-				if len(decoded) > 0 {
-					output = append(output, decoded...)
-				}
-			} else {
-				// Signal children: their token region contains raw
-				// HD-extracted bits, not affine-mapped TokenIDs. Read
-				// the token region directly as observed bytes.
-				frame, ok := machine.controlplane.FrameByValueID(cursor)
-				if ok {
-					frameVal := primitive.Value(frame)
-					raw := frameVal.TokenRegionObservedBytes()
-					if len(raw) > 0 {
-						output = append(output, raw...)
-					}
-					cursor = frame[core.Cfg.Value.Region.Next.Start]
-					continue
-				}
-			}
-
-			// Follow the chain: look up the frame to read its NextID.
-			frame, ok := machine.controlplane.FrameByValueID(cursor)
-			if !ok {
-				break
-			}
-			cursor = frame[core.Cfg.Value.Region.Next.Start]
-		}
-
-		if len(output) > 0 {
-			resultPreview := string(output)
-			if len(resultPreview) > 200 {
-				resultPreview = resultPreview[:200]
-			}
-			telemetry.Emit(telemetry.Event{
-				Component: "Machine",
-				Action:    "Pipeline",
-				Data: telemetry.EventData{
-					Stage:      "prompt-complete",
-					ResultText: resultPreview,
-					NodeID:     valueID,
-				},
-			})
-			return output
-		}
-	}
-
-	/*
-		Semantic resonance: when NextID chaining yields nothing, use the prompt
-		affinity against the Kademlia LSM to fetch near neighbors, then pick the
-		highest SubstrateExploitScore so output is not reduced to self-echo.
-	*/
-	if machine.controlplane != nil {
-		affinity := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
-		closest := machine.controlplane.FindClosest(affinity)
-
-		var bestMatch *primitive.Value
-		bestScore := -1.0
-
-		for index := range closest {
-			candidate := &closest[index]
-			candID := candidate.GetWord(core.Cfg.Value.Region.ID.Start)
-
-			if candID == valueID || candID == 0 {
-				continue
-			}
-
-			score := primitive.SubstrateExploitScore(value, candidate)
-
-			if score > bestScore {
-				bestScore = score
-				bestMatch = candidate
-			}
-		}
-
-		if bestMatch != nil && bestScore > 0 {
-			bestID := bestMatch.GetWord(core.Cfg.Value.Region.ID.Start)
-
-			candTokenIDs := primitive.ValueTokenIDsForLookup(bestID)
-
-			if len(candTokenIDs) == 0 {
-				candTokenIDs = machine.controlplane.LookupKeysByValueID(bestID)
-			}
-
-			if len(candTokenIDs) > 0 {
-				return primitive.DecodeTokenIDs(candTokenIDs)
-			}
-
-			return bestMatch.TokenRegionObservedBytes()
-		}
-	}
-
-	// Fallback: decode the prompt's own tokenIDs (self-echo baseline).
-	tokenIDs := primitive.ValueTokenIDsForLookup(valueID)
-	if len(tokenIDs) == 0 && machine.controlplane != nil {
-		tokenIDs = machine.controlplane.LookupKeysByValue(value)
-	}
-	if len(tokenIDs) == 0 && machine.controlplane != nil {
-		tokenIDs = machine.controlplane.LookupKeysByValueID(valueID)
-	}
-
-	if len(tokenIDs) == 0 {
-		telemetry.Emit(telemetry.Event{
-			Component: "Machine",
-			Action:    "Pipeline",
-			Data: telemetry.EventData{
-				Stage:   "prompt-empty",
-				Message: "no linked Values and no token IDs for prompt",
-				NodeID:  valueID,
-			},
-		})
-		return []byte{}
-	}
-
-	output := primitive.DecodeTokenIDs(tokenIDs)
-	if output == nil {
-		output = []byte{}
-	}
-
-	telemetry.Emit(telemetry.Event{
-		Component: "Machine",
-		Action:    "Pipeline",
-		Data: telemetry.EventData{
-			Stage:   "prompt-fallback",
-			Message: "no linked Values; decoded prompt's own tokenIDs",
-			NodeID:  valueID,
-		},
-	})
-
-	return output
+func (machine *Machine) Prompt(prompt string) error {
+	return machine.publishChunk([]byte(prompt))
 }
 
 /*
-LoadCorpus reads all bytes from provider, splits them into TokenizerChunkBytes
-slices, builds Learn Values, indexes them in the control plane, and enqueues
-each for backend execution.
+Kadabra returns the local Kadabra DHT node used by the machine.
 */
-func (machine *Machine) LoadCorpus(provider CorpusProvider) (count int, err error) {
-
-	if machine == nil || provider == nil {
-		return 0, errors.New("vm.Machine.LoadCorpus: nil machine or provider")
+func (machine *Machine) Kadabra() *kadabra.KadabraNode {
+	if machine == nil {
+		return nil
 	}
 
-	defer func() {
-		_ = provider.Close()
-	}()
+	return machine.kadabra
+}
 
-	payload, readErr := io.ReadAll(provider)
-	if readErr != nil {
-		return 0, errnie.Error(readErr)
+func (machine *Machine) publishChunk(chunk []byte) error {
+	if len(chunk) == 0 {
+		return nil
 	}
 
-	chunkSize := TokenizerChunkBytes()
-	if chunkSize <= 0 {
-		chunkSize = 1
+	if _, err := primitive.NewValue(chunk); err != nil {
+		return err
 	}
 
-	for offset := 0; offset < len(payload); offset += chunkSize {
-		limit := offset + chunkSize
-		if limit > len(payload) {
-			limit = len(payload)
-		}
+	machine.kadabra.Publish(string(chunk), machine.label)
+	return nil
+}
 
-		value, newErr := primitive.NewValue(payload[offset:limit])
-		if newErr != nil {
-			return count, errnie.Error(newErr)
-		}
-
-		if firmwareErr := value.InstallFirmware(core.FirmwareTypeLearn); firmwareErr != nil {
-			return count, errnie.Error(firmwareErr)
-		}
-
-		key := value.GetWord(core.Cfg.Value.Region.Affinity.Start)
-		machine.controlplane.Insert(key, *value)
-
-		if queueErr := machine.backend.Queue(unsafe.Pointer(value)); queueErr != nil {
-			return count, errnie.Error(queueErr)
-		}
-
-		count++
+func (machine *Machine) defaultNodeID() kadabra.NodeID {
+	if core.Cfg != nil && core.Cfg.ControlPlane.NodeID != 0 {
+		return kadabra.NodeID(core.Cfg.ControlPlane.NodeID)
 	}
 
-	return count, nil
+	hostname, err := os.Hostname()
+
+	if err == nil && hostname != "" {
+		return kadabra.NodeIDFromString(hostname)
+	}
+
+	return kadabra.NodeIDFromString("six-machine")
 }
 
 /*
-Write implements io.Writer so the machine acts as a wiring mechanism between
-sources and destinations. Destinations can still aggregate outputs via
-io.MultiWriter for fan-out.
+WithDataset sets the dataset for the machine.
 */
-func (machine *Machine) Write(p []byte) (n int, err error) {
-	if machine.destinations == nil {
-		return len(p), nil
-	}
-
-	return machine.destinations.Write(p)
-}
-
-/*
-Close implements io.Closer so the machine can be closed, which will cancel
-the context, and if everything is wired up correctly, this should trigger
-a full system-wide shutdown. This means that the system's context must be
-the ultimate root context for the system.
-*/
-func (machine *Machine) Close() (err error) {
-	if machine.cancel != nil {
-		machine.cancel()
-	}
-
-	return err
-}
-
-/*
-WithSources configures the machine with one or more sources, which act as
-the ingress points for data.
-*/
-func WithSources(readers ...io.Reader) machineOption {
+func MachineWithDataset(dataset data.Provider) machineOpts {
 	return func(machine *Machine) {
-		machine.sources = io.MultiReader(
-			append([]io.Reader{machine.sources}, readers...)...,
-		)
+		machine.dataset = dataset
 	}
 }
 
 /*
-WithFeedback configures an additional prompt-output sink.
-Prompt Values can be written to this output to build an explicit feedback
-ingress path.
+MachineWithKadabraNode sets the Kadabra node used for sequence publishing.
 */
-func WithFeedback(writers ...io.Writer) machineOption {
+func MachineWithKadabraNode(node *kadabra.KadabraNode) machineOpts {
 	return func(machine *Machine) {
-		if len(writers) == 0 {
+		machine.kadabra = node
+	}
+}
+
+/*
+MachineWithKadabraLabel sets the fallback label used for unlabeled sequences.
+*/
+func MachineWithKadabraLabel(label string) machineOpts {
+	return func(machine *Machine) {
+		label = strings.TrimSpace(label)
+		if label == "" {
 			return
 		}
 
-		machine.feedback = io.MultiWriter(
-			append([]io.Writer{}, writers...)...,
-		)
-	}
-}
-
-/*
-WithDestinations configures the machine with one or more destinations,
-which act as the egress points for data.
-*/
-func WithDestinations(writers ...io.Writer) machineOption {
-	return func(machine *Machine) {
-		machine.destinations = io.MultiWriter(
-			append([]io.Writer{machine.destinations}, writers...)...,
-		)
-	}
-}
-
-/*
-WithOutput configures the machine with an output reader, which is used to
-capture the output of the machine.
-*/
-func WithOutput(rw io.ReadWriter) machineOption {
-	return func(machine *Machine) {
-		machine.output = rw
+		machine.label = label
 	}
 }

@@ -2,115 +2,10 @@ package primitive
 
 import (
 	"math/bits"
-	"math/rand"
-	"sync"
 
 	"github.com/theapemachine/six/pkg/core"
+	"github.com/theapemachine/six/pkg/errnie"
 )
-
-var (
-	ByteSignatures [256][57]uint64
-	vsaInitOnce    sync.Once
-)
-
-func initVSA() {
-	vsaInitOnce.Do(func() {
-		// Use a fixed seed so signatures are consistent across runs
-		rng := rand.New(rand.NewSource(42))
-		for i := range 256 {
-			for w := range 57 {
-				ByteSignatures[i][w] = rng.Uint64()
-			}
-		}
-	})
-}
-
-func init() {
-	initVSA()
-}
-
-/*
-UnbindHD performs XOR unbinding: Residue = Fact ⊕ Query across the Tokens
-region. In HCAM, if Fact = S⊕I⊕G and Query = S⊕I, then Residue = G.
-The result is written into dst's Tokens region.
-*/
-func UnbindHD(dst, fact, query *Value) {
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	base := core.Cfg.Value.Region.Tokens.Start
-	for i := range nWords {
-		idx := base + i
-		if idx >= core.Cfg.Value.Words {
-			break
-		}
-		dst[idx] = fact[idx] ^ query[idx]
-	}
-}
-
-/*
-BundleHD performs majority-rule bundling of multiple Tokens regions into dst.
-For each bit position, the output is 1 if more than half the inputs have 1.
-This is the VSA "superposition" operator.
-*/
-func BundleHD(dst *Value, sources []*Value) {
-	if len(sources) == 0 {
-		return
-	}
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	base := core.Cfg.Value.Region.Tokens.Start
-	threshold := len(sources) / 2
-
-	for i := range nWords {
-		idx := base + i
-		if idx >= core.Cfg.Value.Words {
-			break
-		}
-		var result uint64
-		for bit := range 64 {
-			count := 0
-			mask := uint64(1) << bit
-			for _, src := range sources {
-				if src[idx]&mask != 0 {
-					count++
-				}
-			}
-			if count > threshold {
-				result |= mask
-			}
-		}
-		dst[idx] = result
-	}
-}
-
-/*
-TokensHammingDistance returns the Hamming distance between two Values'
-Tokens regions — the number of differing bits.
-*/
-func TokensHammingDistance(a, b *Value) int {
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	base := core.Cfg.Value.Region.Tokens.Start
-	dist := 0
-	for i := range nWords {
-		idx := base + i
-		if idx >= core.Cfg.Value.Words {
-			break
-		}
-		dist += bits.OnesCount64(a[idx] ^ b[idx])
-	}
-	return dist
-}
-
-/*
-CosineSimilarityHD approximates cosine similarity for binary vectors via
-(N - 2*HammingDistance) / N where N is the total bit width. Returns [-1, 1].
-*/
-func CosineSimilarityHD(a, b *Value) float64 {
-	n := float64(core.Cfg.Value.Region.Tokens.Bits)
-	if n == 0 {
-		return 0
-	}
-	hd := float64(TokensHammingDistance(a, b))
-	return (n - 2*hd) / n
-}
 
 /*
 affinityLSHRing and affinityLSHStride spread SimHash samples across the whole
@@ -126,42 +21,42 @@ for each output bit, majority vote over 57 samples at
 (outBit*affinityLSHStride + step) mod affinityLSHRing — affine sampling
 instead of contiguous blocks.
 */
-func (value *Value) ComputeAffinityLSH() {
-	tokenBits := int(core.Cfg.Value.Region.Tokens.Bits)
-	nWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-	if nWords == 0 || tokenBits <= 0 {
-		return
+func (value *Value) ComputeAffinityLSH() error {
+	bits := int(core.Cfg.Value.Region.Tokens.Bits)
+	nWords := (bits + 63) / 64
+	if nWords == 0 || bits <= 0 {
+		return errnie.Error(NewPrimitiveError(
+			ErrPrimitiveInvalidValue,
+			nil,
+			"ComputeAffinityLSH",
+		))
 	}
-	base := core.Cfg.Value.Region.Tokens.Start
 
 	var affinity uint64
-	for outBit := range 64 {
-		ones := 0
-		counted := 0
+	start := core.Cfg.Value.Region.Tokens.Start
 
-		for step := range affinityLSHSamples {
-			idx := (outBit*affinityLSHStride + step) % affinityLSHRing
-			if idx >= tokenBits {
-				continue
-			}
+	for out := range 64 {
+		ones, counted := 0, 0
 
+		for s := range affinityLSHSamples {
+			idx := (out*affinityLSHStride + s) % affinityLSHRing
 			w := idx / 64
-			b := uint(idx % 64)
-			wordIdx := base + w
-			if wordIdx >= core.Cfg.Value.Words || w >= nWords {
+		
+			if idx >= bits || w >= nWords || start+w >= core.Cfg.Value.Words {
 				continue
 			}
-
+		
 			counted++
-			ones += int((value[wordIdx] >> b) & 1)
+			ones += int((value[start+w] >> uint(idx%64)) & 1)
 		}
-
+		
 		if counted > 0 && ones*2 >= counted {
-			affinity |= 1 << uint(outBit)
+			affinity |= 1 << uint(out)
 		}
 	}
 
 	value[core.Cfg.Value.Region.Affinity.Start] = affinity
+	return nil
 }
 
 /*

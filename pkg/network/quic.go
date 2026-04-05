@@ -24,6 +24,7 @@ type QUIC struct {
 	endpoint *quic.Endpoint
 	conn     *quic.Conn
 	stream   *quic.Stream
+	monitor  *transportMonitor
 }
 
 /*
@@ -42,6 +43,16 @@ func NewQUIC(opts ...quicOption) *QUIC {
 	q := &QUIC{
 		ctx:    ctx,
 		cancel: cancel,
+		monitor: newTransportMonitor(TransportTraits{
+			Name:            "quic",
+			Topology:        TransportTopologyWAN,
+			Reliable:        true,
+			Ordered:         true,
+			MessageOriented: false,
+			Broadcast:       false,
+			Encrypted:       true,
+			ExternalRuntime: false,
+		}),
 	}
 
 	for _, opt := range opts {
@@ -55,11 +66,42 @@ func NewQUIC(opts ...quicOption) *QUIC {
 Read receives bytes from the QUIC stream.
 */
 func (q *QUIC) Read(p []byte) (int, error) {
-	if q.stream == nil {
-		return 0, &TransportError{Layer: "quic", Op: "read", Err: ErrQUICNoStream}
+	if err := q.monitor.Allow("quic", "read"); err != nil {
+		return 0, err
 	}
 
-	return q.stream.Read(p)
+	if q.stream == nil {
+		err := &TransportError{
+			Layer:    "quic",
+			Op:       "read",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrQUICNoStream,
+		}
+		q.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return 0, err
+	}
+
+	n, err := q.stream.Read(p)
+	if err != nil {
+		mode := TransportFailureUnknown
+		systemic := false
+		if err == context.Canceled {
+			mode = TransportFailureCanceled
+		}
+		if err == context.DeadlineExceeded {
+			mode = TransportFailureTimeout
+		}
+		if err == io.EOF {
+			mode = TransportFailureClosed
+			systemic = true
+		}
+		q.monitor.RecordFailure(mode, err, systemic)
+		return n, err
+	}
+
+	q.monitor.RecordSuccess()
+	return n, nil
 }
 
 /*
@@ -67,17 +109,53 @@ Write sends bytes over the QUIC stream, flushing immediately so each
 Value hits the wire as a distinct datagram when possible.
 */
 func (q *QUIC) Write(p []byte) (int, error) {
+	if err := q.monitor.Allow("quic", "write"); err != nil {
+		return 0, err
+	}
+
 	if q.stream == nil {
-		return 0, &TransportError{Layer: "quic", Op: "write", Err: ErrQUICNoStream}
+		err := &TransportError{
+			Layer:    "quic",
+			Op:       "write",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrQUICNoStream,
+		}
+		q.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return 0, err
 	}
 
 	n, err := q.stream.Write(p)
 
 	if err != nil {
+		mode := TransportFailureUnknown
+		systemic := false
+		if err == context.Canceled {
+			mode = TransportFailureCanceled
+		}
+		if err == context.DeadlineExceeded {
+			mode = TransportFailureTimeout
+		}
+		q.monitor.RecordFailure(mode, err, systemic)
 		return n, err
 	}
 
-	return n, q.stream.Flush()
+	err = q.stream.Flush()
+	if err != nil {
+		mode := TransportFailureUnknown
+		systemic := false
+		if err == context.Canceled {
+			mode = TransportFailureCanceled
+		}
+		if err == context.DeadlineExceeded {
+			mode = TransportFailureTimeout
+		}
+		q.monitor.RecordFailure(mode, err, systemic)
+		return n, err
+	}
+
+	q.monitor.RecordSuccess()
+	return n, nil
 }
 
 /*
@@ -116,6 +194,7 @@ created by QUICWithListen, then opens the first bidirectional stream.
 */
 func (q *QUIC) Accept() error {
 	if q.stream != nil {
+		q.monitor.RecordReady()
 		return nil
 	}
 
@@ -124,7 +203,15 @@ func (q *QUIC) Accept() error {
 
 func (q *QUIC) accept(ctx context.Context) error {
 	if q.endpoint == nil {
-		return &TransportError{Layer: "quic", Op: "accept", Err: ErrQUICNotListening}
+		err := &TransportError{
+			Layer:    "quic",
+			Op:       "accept",
+			Mode:     TransportFailureBind,
+			Systemic: true,
+			Err:      ErrQUICNotListening,
+		}
+		q.monitor.RecordFailure(TransportFailureBind, err, true)
+		return err
 	}
 
 	if ctx == nil {
@@ -137,6 +224,15 @@ func (q *QUIC) accept(ctx context.Context) error {
 	conn, err := q.endpoint.Accept(ctx)
 
 	if err != nil {
+		mode := TransportFailureUnknown
+		systemic := false
+		if err == context.Canceled {
+			mode = TransportFailureCanceled
+		}
+		if err == context.DeadlineExceeded {
+			mode = TransportFailureTimeout
+		}
+		q.monitor.RecordFailure(mode, err, systemic)
 		return err
 	}
 
@@ -144,17 +240,20 @@ func (q *QUIC) accept(ctx context.Context) error {
 
 	if err != nil {
 		conn.Close()
+		q.monitor.RecordFailure(TransportFailureProtocol, err, true)
 		return err
 	}
 
 	if err := q.consumeHandshake(stream); err != nil {
 		stream.Close()
 		conn.Close()
+		q.monitor.RecordFailure(TransportFailureHandshake, err, false)
 		return err
 	}
 
 	q.conn = conn
 	q.stream = stream
+	q.monitor.RecordReady()
 
 	return nil
 }
@@ -163,13 +262,23 @@ func (q *QUIC) accept(ctx context.Context) error {
 // connection+stream and consumes the internal handshake before reporting ready.
 func (q *QUIC) Ready(ctx context.Context) error {
 	if q.err != nil {
+		q.monitor.RecordFailure(TransportFailureDial, q.err, true)
 		return q.err
 	}
 	if q.stream != nil {
+		q.monitor.RecordReady()
 		return nil
 	}
 	if q.endpoint == nil {
-		return &TransportError{Layer: "quic", Op: "ready", Err: ErrQUICNoStream}
+		err := &TransportError{
+			Layer:    "quic",
+			Op:       "ready",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrQUICNoStream,
+		}
+		q.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return err
 	}
 	return q.accept(ctx)
 }
@@ -186,6 +295,7 @@ func QUICWithListen(addr string, tlsConf *tls.Config) quicOption {
 
 		if err != nil {
 			q.err = err
+			q.monitor.RecordFailure(TransportFailureBind, err, true)
 			return
 		}
 
@@ -204,6 +314,7 @@ func QUICWithDial(addr string, tlsConf *tls.Config) quicOption {
 
 		if err != nil {
 			q.err = err
+			q.monitor.RecordFailure(TransportFailureBind, err, true)
 			return
 		}
 
@@ -214,6 +325,7 @@ func QUICWithDial(addr string, tlsConf *tls.Config) quicOption {
 		if err != nil {
 			endpoint.Close(context.Background())
 			q.err = err
+			q.monitor.RecordFailure(TransportFailureDial, err, false)
 			return
 		}
 
@@ -223,6 +335,7 @@ func QUICWithDial(addr string, tlsConf *tls.Config) quicOption {
 			conn.Close()
 			endpoint.Close(context.Background())
 			q.err = err
+			q.monitor.RecordFailure(TransportFailureProtocol, err, true)
 			return
 		}
 
@@ -231,12 +344,14 @@ func QUICWithDial(addr string, tlsConf *tls.Config) quicOption {
 			conn.Close()
 			endpoint.Close(context.Background())
 			q.err = err
+			q.monitor.RecordFailure(TransportFailureHandshake, err, false)
 			return
 		}
 
 		q.endpoint = endpoint
 		q.conn = conn
 		q.stream = stream
+		q.monitor.RecordReady()
 	}
 }
 
@@ -263,6 +378,20 @@ func QUICWithContext(ctx context.Context) quicOption {
 }
 
 /*
+Traits reports the transport semantics of QUIC.
+*/
+func (q *QUIC) Traits() TransportTraits {
+	return q.monitor.Traits()
+}
+
+/*
+Status reports the current health snapshot of QUIC.
+*/
+func (q *QUIC) Status() TransportStatus {
+	return q.monitor.Status()
+}
+
+/*
 QUICError is a typed error for QUIC transport failures.
 */
 type QUICError string
@@ -282,7 +411,13 @@ func (quicErr QUICError) Error() string {
 
 func (q *QUIC) sendHandshake(stream *quic.Stream) error {
 	if stream == nil {
-		return &TransportError{Layer: "quic", Op: "handshake_write", Err: ErrQUICNoStream}
+		return &TransportError{
+			Layer:    "quic",
+			Op:       "handshake_write",
+			Mode:     TransportFailureHandshake,
+			Systemic: true,
+			Err:      ErrQUICNoStream,
+		}
 	}
 	if _, err := stream.Write([]byte{quicReadyHandshakeByte}); err != nil {
 		return err
@@ -292,7 +427,13 @@ func (q *QUIC) sendHandshake(stream *quic.Stream) error {
 
 func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
 	if stream == nil {
-		return &TransportError{Layer: "quic", Op: "handshake_read", Err: ErrQUICNoStream}
+		return &TransportError{
+			Layer:    "quic",
+			Op:       "handshake_read",
+			Mode:     TransportFailureHandshake,
+			Systemic: true,
+			Err:      ErrQUICNoStream,
+		}
 	}
 
 	var buf [1]byte
@@ -301,9 +442,11 @@ func (q *QUIC) consumeHandshake(stream *quic.Stream) error {
 	}
 	if buf[0] != quicReadyHandshakeByte {
 		return &TransportError{
-			Layer: "quic",
-			Op:    "handshake_read",
-			Err:   fmt.Errorf("%w: got=0x%02x", ErrQUICHandshake, buf[0]),
+			Layer:    "quic",
+			Op:       "handshake_read",
+			Mode:     TransportFailureHandshake,
+			Systemic: false,
+			Err:      fmt.Errorf("%w: got=0x%02x", ErrQUICHandshake, buf[0]),
 		}
 	}
 	return nil

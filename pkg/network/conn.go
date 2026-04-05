@@ -27,7 +27,9 @@ type UniConn struct {
 	err          error
 	ctx          context.Context
 	cancel       context.CancelFunc
-	transports   map[UniConnType]io.ReadWriteCloser
+	transports   map[UniConnType]ManagedTransport
+	activeType   UniConnType
+	active       ManagedTransport
 	sources      io.Writer
 	destinations io.Reader
 	readyErr     error
@@ -47,8 +49,9 @@ func NewUniConn(ctx context.Context, opts ...uniConnOption) *UniConn {
 	ctx, cancel := context.WithCancel(ctx)
 
 	conn := &UniConn{
-		ctx:    ctx,
-		cancel: cancel,
+		ctx:        ctx,
+		cancel:     cancel,
+		transports: make(map[UniConnType]ManagedTransport),
 	}
 
 	for _, opt := range opts {
@@ -93,25 +96,64 @@ Close tears down the connection context and the underlying transport.
 func (conn *UniConn) Close() error {
 	conn.cancel()
 
-	if conn.sources == nil && conn.destinations == nil {
+	if len(conn.transports) == 0 {
 		return nil
 	}
 
-	return nil
+	var firstErr error
+	for _, transport := range conn.transports {
+		if transport == nil {
+			continue
+		}
+
+		if err := transport.Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return firstErr
 }
 
 func (conn *UniConn) ensureReady() error {
-	if conn.sources == nil && conn.destinations == nil {
+	if conn.active == nil || conn.sources == nil || conn.destinations == nil {
 		return NewNetworkError(ErrTransportFailure)
 	}
 
 	conn.ready.Do(func() {
-		if ready, ok := conn.sources.(ReadyTransport); ok {
+		if ready, ok := conn.active.(ReadyTransport); ok {
 			conn.readyErr = ready.Ready(conn.ctx)
 		}
 	})
 
 	return conn.readyErr
+}
+
+/*
+Traits reports the semantic properties of the active transport.
+*/
+func (conn *UniConn) Traits() TransportTraits {
+	if conn.active == nil {
+		return TransportTraits{}
+	}
+
+	return conn.active.Traits()
+}
+
+/*
+Status reports the current health snapshot of the active transport.
+*/
+func (conn *UniConn) Status() TransportStatus {
+	if conn.active == nil {
+		return TransportStatus{
+			LastFailureMode: TransportFailureNotReady,
+			LastFailure:     ErrNoTransport,
+			SystemicFailure: true,
+			Degraded:        true,
+			Breaker:         CircuitOpen,
+		}
+	}
+
+	return conn.active.Status()
 }
 
 /*
@@ -128,10 +170,22 @@ func UniConnWithContext(ctx context.Context) uniConnOption {
 UniConnWithTransport wires a new transport.
 */
 func UniConnWithTransport(
-	transportType *IPC, transport io.ReadWriteCloser,
+	transportType UniConnType, transport ManagedTransport,
 ) uniConnOption {
 	return func(conn *UniConn) {
-		conn.transports[IPCType] = transport
+		if transport == nil {
+			return
+		}
+
+		conn.transports[transportType] = transport
+		if conn.active != nil {
+			return
+		}
+
+		conn.activeType = transportType
+		conn.active = transport
+		conn.sources = transport
+		conn.destinations = transport
 	}
 }
 

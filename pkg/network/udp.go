@@ -2,248 +2,293 @@ package network
 
 import (
 	"context"
-	"fmt"
+	"errors"
+	"net"
 	"time"
 
-	"github.com/lirm/aeron-go/aeron"
-	"github.com/lirm/aeron-go/aeron/atomic"
-	"github.com/lirm/aeron-go/aeron/idlestrategy"
-	"github.com/lirm/aeron-go/aeron/logbuffer"
+	"golang.org/x/net/ipv4"
 )
 
-const defaultUDPStreamID = int32(2001)
-
 /*
-UDPMulticast provides LAN-scoped broadcast transport via Aeron UDP
-multicast. One message = one Aeron offer. Write publishes to the
-multicast group; Read receives from any member.
-
-A running Aeron media driver is required. The channel URI is built from
-the multicast group address and optional interface, following Aeron's
-aeron:udp?endpoint=<group>|interface=<iface> convention.
+UDPMulticast provides LAN-scoped broadcast transport over native UDP multicast.
+One write maps to one datagram. Listener mode joins the multicast group and
+receives from any member. Dialer mode sends datagrams to the group.
 */
 type UDPMulticast struct {
-	err      error
-	ctx      context.Context
-	cancel   context.CancelFunc
-	client   *aeron.Aeron
-	pub      *aeron.Publication
-	sub      *aeron.Subscription
-	recvCh   chan []byte
-	aeronDir string
-	timeout  time.Duration
-	dialed   bool // true when constructed as a sender (dial side)
+	err     error
+	ctx     context.Context
+	cancel  context.CancelFunc
+	sub     *net.UDPConn
+	pub     *net.UDPConn
+	group   *net.UDPAddr
+	timeout time.Duration
+	dialed  bool
+	monitor *transportMonitor
 }
 
 type udpMulticastOption func(*UDPMulticast)
 
 /*
-NewUDPMulticast constructs an Aeron UDP multicast transport.
+NewUDPMulticast constructs a native UDP multicast transport.
 Use UDPMulticastWithListener on receivers and UDPMulticastWithDialer on senders.
 */
 func NewUDPMulticast(opts ...udpMulticastOption) *UDPMulticast {
 	ctx, cancel := context.WithCancel(context.Background())
 
-	u := &UDPMulticast{
+	udp := &UDPMulticast{
 		ctx:     ctx,
 		cancel:  cancel,
-		recvCh:  make(chan []byte, 256),
 		timeout: 10 * time.Second,
+		monitor: newTransportMonitor(TransportTraits{
+			Name:            "udp-multicast",
+			Topology:        TransportTopologyLAN,
+			Reliable:        false,
+			Ordered:         false,
+			MessageOriented: true,
+			Broadcast:       true,
+			Encrypted:       false,
+			ExternalRuntime: false,
+		}),
 	}
 
 	for _, opt := range opts {
-		opt(u)
+		opt(udp)
 	}
 
-	return u
+	return udp
 }
 
 /*
-Read receives the next message from the Aeron subscription.
-Blocks until a message arrives or the context is cancelled.
+Read receives the next UDP datagram from the joined multicast group.
 */
 func (udp *UDPMulticast) Read(p []byte) (int, error) {
+	if err := udp.monitor.Allow("udp", "read"); err != nil {
+		return 0, err
+	}
+
 	if udp.sub == nil {
-		return 0, &TransportError{Layer: "udp", Op: "read", Err: ErrUDPNotBound}
+		err := &TransportError{
+			Layer:    "udp",
+			Op:       "read",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrUDPNotBound,
+		}
+		udp.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return 0, err
 	}
-
-	select {
-	case <-udp.ctx.Done():
-		return 0, udp.ctx.Err()
-	case msg := <-udp.recvCh:
-		n := copy(p, msg)
-		return n, nil
-	}
-}
-
-/*
-Write publishes p to the Aeron UDP multicast channel. Retries on
-back-pressure until the publication accepts it or the context is cancelled.
-*/
-func (udp *UDPMulticast) Write(p []byte) (int, error) {
-	if udp.pub == nil {
-		return 0, &TransportError{Layer: "udp", Op: "write", Err: ErrUDPNotBound}
-	}
-
-	buf := atomic.MakeBuffer(p)
-	idle := idlestrategy.Sleeping{SleepFor: time.Millisecond}
 
 	for {
-		ret := udp.pub.Offer(buf, 0, int32(len(p)), nil)
-
-		if ret >= 0 {
-			return len(p), nil
+		if err := udp.sub.SetReadDeadline(time.Now().Add(50 * time.Millisecond)); err != nil {
+			udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
+			return 0, err
 		}
 
-		if ret == aeron.PublicationClosed {
-			return 0, &TransportError{Layer: "udp", Op: "write", Err: ErrUDPNotBound}
+		n, _, err := udp.sub.ReadFromUDP(p)
+		if err == nil {
+			udp.monitor.RecordSuccess()
+			return n, nil
 		}
 
-		select {
-		case <-udp.ctx.Done():
+		if udp.ctx.Err() != nil {
+			mode := TransportFailureCanceled
+			if udp.ctx.Err() == context.DeadlineExceeded {
+				mode = TransportFailureTimeout
+			}
+			udp.monitor.RecordFailure(mode, udp.ctx.Err(), false)
 			return 0, udp.ctx.Err()
-		default:
-			idle.Idle(0)
 		}
+
+		var netError net.Error
+		if errors.As(err, &netError) && netError.Timeout() {
+			continue
+		}
+
+		mode, systemic := udp.classifyNetError(err)
+		udp.monitor.RecordFailure(mode, err, systemic)
+		return 0, err
 	}
 }
 
 /*
-Close tears down the publication, subscription, and media driver client.
+Write publishes one UDP datagram to the multicast group.
+*/
+func (udp *UDPMulticast) Write(p []byte) (int, error) {
+	if err := udp.monitor.Allow("udp", "write"); err != nil {
+		return 0, err
+	}
+
+	if udp.pub == nil {
+		err := &TransportError{
+			Layer:    "udp",
+			Op:       "write",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrUDPNotBound,
+		}
+		udp.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return 0, err
+	}
+
+	if err := udp.pub.SetWriteDeadline(time.Now().Add(udp.timeout)); err != nil {
+		udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
+		return 0, err
+	}
+
+	n, err := udp.pub.Write(p)
+	if err != nil {
+		mode, systemic := udp.classifyNetError(err)
+		udp.monitor.RecordFailure(mode, err, systemic)
+		return n, err
+	}
+
+	udp.monitor.RecordSuccess()
+	return n, nil
+}
+
+/*
+Close releases the multicast sockets.
 */
 func (udp *UDPMulticast) Close() error {
 	udp.cancel()
 
-	if udp.pub != nil {
-		udp.pub.Close()
-	}
+	var firstErr error
 
 	if udp.sub != nil {
-		udp.sub.Close()
-	}
-
-	if udp.client != nil {
-		udp.client.Close()
-	}
-
-	return nil
-}
-
-// Ready reports whether the UDP transport is bound.
-func (udp *UDPMulticast) Ready(ctx context.Context) error {
-	_ = ctx
-	if udp.pub == nil && udp.sub == nil {
-		return &TransportError{Layer: "udp", Op: "ready", Err: ErrUDPNotBound}
-	}
-
-	return nil
-}
-
-// connectAeron creates an Aeron client and stores it on udp.
-// Returns false and sets udp.err on failure.
-func (udp *UDPMulticast) connectAeron() bool {
-	aeronCtx := aeron.NewContext().
-		MediaDriverTimeout(udp.timeout).
-		ErrorHandler(func(err error) { udp.err = err })
-
-	if udp.aeronDir != "" {
-		aeronCtx = aeronCtx.AeronDir(udp.aeronDir)
-	}
-
-	client, err := aeron.Connect(aeronCtx)
-	if err != nil {
-		udp.err = err
-		return false
-	}
-
-	udp.client = client
-	return true
-}
-
-// startPoller runs a background goroutine that polls the subscription.
-func (udp *UDPMulticast) startPoller() {
-	handler := func(buf *atomic.Buffer, offset, length int32, _ *logbuffer.Header) {
-		data := buf.GetBytesArray(offset, length)
-		cp := make([]byte, len(data))
-		copy(cp, data)
-
-		select {
-		case udp.recvCh <- cp:
-		default:
+		if err := udp.sub.Close(); err != nil && firstErr == nil {
+			firstErr = err
 		}
 	}
 
-	idle := idlestrategy.Sleeping{SleepFor: time.Millisecond}
-
-	go func() {
-		for {
-			select {
-			case <-udp.ctx.Done():
-				return
-			default:
-				n := udp.sub.Poll(handler, 10)
-				idle.Idle(n)
-			}
+	if udp.pub != nil {
+		if err := udp.pub.Close(); err != nil && firstErr == nil {
+			firstErr = err
 		}
-	}()
+	}
+
+	return firstErr
 }
 
 /*
-UDPMulticastWithListener joins the multicast group and sets up an Aeron
-subscription. iface selects the network interface; empty string lets the
-OS pick. The listener also creates a publication for the WriteToUDP path.
+Ready reports whether the multicast transport has the required sockets bound.
+*/
+func (udp *UDPMulticast) Ready(ctx context.Context) error {
+	_ = ctx
+
+	if udp.pub == nil && udp.sub == nil {
+		err := &TransportError{
+			Layer:    "udp",
+			Op:       "ready",
+			Mode:     TransportFailureNotReady,
+			Systemic: true,
+			Err:      ErrUDPNotBound,
+		}
+		udp.monitor.RecordFailure(TransportFailureNotReady, err, true)
+		return err
+	}
+
+	udp.monitor.RecordReady()
+	return nil
+}
+
+/*
+Traits reports the transport semantics of UDP multicast.
+*/
+func (udp *UDPMulticast) Traits() TransportTraits {
+	return udp.monitor.Traits()
+}
+
+/*
+Status reports the current health snapshot of UDP multicast.
+*/
+func (udp *UDPMulticast) Status() TransportStatus {
+	return udp.monitor.Status()
+}
+
+/*
+UDPMulticastWithListener joins the multicast group and binds a receiving socket.
+The same transport also creates a sender socket so listener-side writes work.
 */
 func UDPMulticastWithListener(group string, iface string) udpMulticastOption {
 	return func(udp *UDPMulticast) {
-		if !udp.connectAeron() {
-			return
-		}
-
-		subChannel := fmt.Sprintf("aeron:udp?endpoint=%s", group)
-		if iface != "" {
-			subChannel += fmt.Sprintf("|interface=%s", iface)
-		}
-
-		sub, err := udp.client.AddSubscription(subChannel, defaultUDPStreamID)
+		groupAddress, err := net.ResolveUDPAddr("udp4", group)
 		if err != nil {
 			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureBind, err, true)
 			return
 		}
 
-		udp.sub = sub
-		udp.startPoller()
-
-		// Listener-side publication uses the same channel for write capability.
-		pub, err := udp.client.AddPublication(subChannel, defaultUDPStreamID)
+		networkInterface, err := multicastInterface(iface)
 		if err != nil {
 			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureBind, err, true)
 			return
 		}
 
-		udp.pub = pub
+		listener, err := net.ListenMulticastUDP("udp4", networkInterface, groupAddress)
+		if err != nil {
+			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureBind, err, true)
+			return
+		}
+
+		if err := listener.SetReadBuffer(1 << 20); err != nil {
+			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
+			_ = listener.Close()
+			return
+		}
+
+		publisher, err := net.DialUDP("udp4", nil, groupAddress)
+		if err != nil {
+			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureDial, err, true)
+			_ = listener.Close()
+			return
+		}
+
+		if networkInterface != nil {
+			if err := ipv4.NewPacketConn(publisher).SetMulticastInterface(networkInterface); err != nil {
+				udp.err = err
+				udp.monitor.RecordFailure(TransportFailureProtocol, err, true)
+				_ = listener.Close()
+				_ = publisher.Close()
+				return
+			}
+		}
+
+		_ = ipv4.NewPacketConn(publisher).SetMulticastLoopback(true)
+
+		udp.group = groupAddress
+		udp.sub = listener
+		udp.pub = publisher
 		udp.dialed = false
 	}
 }
 
 /*
-UDPMulticastWithDialer opens an Aeron publication connected to the
-multicast group for sending.
+UDPMulticastWithDialer opens a sender socket connected to the multicast group.
 */
 func UDPMulticastWithDialer(group string) udpMulticastOption {
 	return func(udp *UDPMulticast) {
-		if !udp.connectAeron() {
-			return
-		}
-
-		channel := fmt.Sprintf("aeron:udp?endpoint=%s", group)
-
-		pub, err := udp.client.AddPublication(channel, defaultUDPStreamID)
+		groupAddress, err := net.ResolveUDPAddr("udp4", group)
 		if err != nil {
 			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureDial, err, true)
 			return
 		}
 
-		udp.pub = pub
+		publisher, err := net.DialUDP("udp4", nil, groupAddress)
+		if err != nil {
+			udp.err = err
+			udp.monitor.RecordFailure(TransportFailureDial, err, false)
+			return
+		}
+
+		_ = ipv4.NewPacketConn(publisher).SetMulticastLoopback(true)
+
+		udp.group = groupAddress
+		udp.pub = publisher
 		udp.dialed = true
 	}
 }
@@ -259,10 +304,45 @@ func UDPMulticastWithContext(ctx context.Context) udpMulticastOption {
 }
 
 /*
-UDPMulticastWithAeronDir overrides the Aeron media driver directory.
+UDPMulticastWithAeronDir is retained for API stability and is a no-op.
 */
 func UDPMulticastWithAeronDir(dir string) udpMulticastOption {
-	return func(udp *UDPMulticast) { udp.aeronDir = dir }
+	return func(udp *UDPMulticast) {
+		_ = dir
+	}
+}
+
+func multicastInterface(name string) (*net.Interface, error) {
+	if name == "" {
+		return nil, nil
+	}
+
+	return net.InterfaceByName(name)
+}
+
+func (udp *UDPMulticast) classifyNetError(err error) (TransportFailureMode, bool) {
+	if err == nil {
+		return TransportFailureNone, false
+	}
+
+	if err == context.Canceled {
+		return TransportFailureCanceled, false
+	}
+
+	if err == context.DeadlineExceeded {
+		return TransportFailureTimeout, false
+	}
+
+	if errors.Is(err, net.ErrClosed) {
+		return TransportFailureClosed, true
+	}
+
+	var netError net.Error
+	if errors.As(err, &netError) && netError.Timeout() {
+		return TransportFailureTimeout, false
+	}
+
+	return TransportFailureProtocol, false
 }
 
 // UDPMulticastError is a typed error for UDP multicast transport failures.

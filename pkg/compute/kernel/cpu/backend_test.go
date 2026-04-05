@@ -6,7 +6,6 @@ import (
 	"unsafe"
 
 	"github.com/smartystreets/goconvey/convey"
-	"github.com/theapemachine/six/pkg/compute/firmware"
 	"github.com/theapemachine/six/pkg/core"
 )
 
@@ -253,9 +252,6 @@ func TestUniversalBitwiseExtendedTokenBindStrip(t *testing.T) {
 			f[tok] = 0xFFFFFFFFFFFFFFFF
 			f[40] = 0x00FF00FF00FF00FF
 
-			instr := PackExtendedInstruction(LGPXTokenBindStrip, 40, 0, 0)
-			installSlot(&f, 0, instr)
-
 			err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
 			convey.So(err, convey.ShouldBeNil)
 			convey.So(
@@ -272,37 +268,6 @@ func TestUniversalBitwiseNilFrame(t *testing.T) {
 		backend := NewBackend(context.Background())
 		err := backend.UniversalBitwise([]unsafe.Pointer{nil})
 		convey.So(err, convey.ShouldNotBeNil)
-	})
-}
-
-func TestUniversalBitwiseAffineUnroll(t *testing.T) {
-	convey.Convey("AffineUnrollSlots produces correct program for SIMD execution", t, func() {
-		backend := NewBackend(context.Background())
-
-		var f [128]uint64
-		// Fill token words 0-7 with data.
-		for i := 0; i < 8; i++ {
-			f[i] = 0xAAAAAAAAAAAAAAAA
-		}
-		// Word 8 will be the src for all ops.
-		f[8] = 0x5555555555555555
-
-		// Use AffineUnrollSlots to generate 8 AND instructions:
-		// each targets dst words 0..7 with src=8, stride=1.
-		// encode32 format: op=0x1(AND), src=8, dst=0..7
-		baseOp := uint32(0x1) | uint32(8)<<4 // op=AND, src=8, dst will be added
-		slots := firmware.AffineUnrollSlots(baseOp, 1, 8, 18, 8)
-
-		for i, instr := range slots {
-			installSlot(&f, i, instr)
-		}
-
-		err := backend.UniversalBitwise([]unsafe.Pointer{unsafe.Pointer(&f)})
-		convey.So(err, convey.ShouldBeNil)
-
-		for i := 0; i < 8; i++ {
-			convey.So(f[i], convey.ShouldEqual, uint64(0x0000000000000000))
-		}
 	})
 }
 

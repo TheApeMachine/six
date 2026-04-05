@@ -156,6 +156,8 @@ The LGP subsystem provides three mechanisms to make this safe:
 
 **Substrate exploit score.** `SubstrateExploitScore` (`pkg/primitive/substrate_fitness.go`) is experiment-agnostic: it uses `ScanSignals` / `SplitSignals` on the parent vs workspace token regions and returns the longest local cancel or merge run normalized to `[0, 1]`. That value biases the affine third parent toward donor A (the canonical parent frame), so sharp token-level structure increases exploitation of the canonical program; weak structure keeps the third parent on a broader affine orbit instead of collapsing to white noise. `HolographicCrossoverTwoParent` takes the same `parentBias` argument for call sites that only have one donor.
 
+**Local coherence revise (host-side falsification).** `NeighborChainCoherence` in `pkg/primitive/local_coherence.go` is a deliberately small harness: wire a short linear chain with `WireLinearChain`, measure mean edge coherence via `SubstrateExploitScore`, corrupt only the middle node’s token band, then run `ReviseMiddleGreedy`. Each step tries a fixed menu of token edits and commits a single move only if the mean edge score strictly improves. `ReviseMiddleGreedyWithMask` disables operators for ablation. `LocalReviseOperatorNames` labels the seven operators for logs. `ReviseReport` records `BestOperatorPerStep` and `OperatorWinCounts`. Corruptors: `CorruptMiddleTokensWith` (full token-band replace), `CorruptMiddleFractionFromSource` (random word substitution), `CorruptMiddleRandomBitFlips` (uniform bit flips in the token span), and `CorruptMiddleZeroContiguousWords` (erasure run). `EdgeCoherenceSlice`, `TokenRegionHammingBits`, and `TokenRegionHammingAgainstSnapshot` support edge- and bit-level diagnostics. Operators include bitwise majority against neighbors, half- and full-band copies from prev/next, per-word rotation, and **cancel strip** `middle[i] ^= prev[i] ^ next[i]` (same shape as extended VSA bind-strip when the strip is neighbor XOR). **Monte Carlo:** `RunLocalCoherenceMonteCarlo` (`pkg/primitive/local_coherence_monte_carlo.go`) returns a **`MonteCarloSummary`** (globals + **`PerKind`** breakdown) so tests, benchmarks, and one-off analysis share one loop — no copy-paste. Neighbor mode **`MonteCarloIdenticalNeighbors`** vs **`MonteCarloDivergentNeighbors`** (three payloads). `TestLocalCoherenceMonteCarloOperatorDistribution` runs the identical regime with per-kind thresholds (smooth dominance on full/fraction, no full-copy-beats-majority on bit flips, majority+half floors on zero-span). `TestLocalCoherenceMonteCarloDivergentVsIdenticalCopyMix` (skipped under `-short`) checks divergent chains raise **copy-operator** win share vs the identical baseline. Defaults: 180 trials (32 with `-short`); **`SIX_COHERENCE_MONTE_CARLO_TRIALS`** overrides. **`ReviseReport`** includes **`InitialEdgeCoherence` / `FinalEdgeCoherence`**; **`EdgeCoherenceImbalance`** scores edge spread. No firmware or evolution here: substrate-only local repair.
+
 ### Token Encoding
 
 Raw bytes are not stored verbatim in the token region. Each byte is encoded using a hyperdimensional computing scheme:
@@ -181,13 +183,19 @@ Values are 1024 bytes. This is not an accident. It is the size of a single UDP p
 
 The distributed layer uses UDP multicast for peer discovery with heartbeats and TTL-based expiry. Each node advertises an affinity shard mask, allowing the cluster to partition the Value space by affinity region. Work is distributed through a scheduler that assigns Value pairs to workers based on available capacity and shard ownership.
 
-QUIC connections handle reliable point-to-point transfer when Values need to move between nodes. An IPC transport exists for same-machine communication between processes. An S3 adapter provides durable storage for Values that need to survive node restarts.
+`pkg/network.UniConn` is the topology-facing abstraction over the concrete transports. IPC is used for same-machine traffic, UDP multicast is used for LAN discovery, and QUIC is used for WAN point-to-point traffic. The abstraction now carries transport traits and a live health snapshot, including typed failure modes, systemic-failure marking, and an internal circuit breaker, so callers can reason about failure semantics without losing the specifics of the underlying transport.
+
+QUIC connections handle reliable point-to-point transfer when Values need to move between nodes. IPC now runs over Unix domain sockets, and LAN discovery runs over native UDP multicast, so neither path depends on an external Aeron media driver. An S3 adapter provides durable storage for Values that need to survive node restarts.
 
 ### Experiment pipeline
 
 `experiment/task.Pipeline` is the paper-facing execution path. It is expected to run the real system, not a stripped-down surrogate, because its generated `Artifacts` are compiled directly into the research paper. Dataset ingress, machine execution, prompt observation, and cleanup therefore belong to the same end-to-end path that the rest of the substrate uses.
 
 `Holdout` remains supervision metadata on the scoring side. It must not be copied into `Observed`, and it must not be allowed to leak into prompt execution through hidden shortcut wiring. If an experiment stages resident corpus data ahead of prompt evaluation, that staging is still part of the real system path. Any reduced execution mode is acceptable only when it is explicitly treated as an ablation, debugging aid, or microbenchmark, never as the default paper pipeline.
+
+### Sequence Store
+
+`pkg/store` now implements a labeled token-trie for online sequence storage together with a Kadabra-style DHT node wrapper for decentralized publish and lookup. The sequence layer records lazy-decayed per-label counts, trains suffix paths over tokenized sequences, learns a local co-occurrence vocabulary for edit-distance and similarity-based token remapping, interpolates next-token probabilities across short suffix contexts, and exposes posterior traces, surprisal traces, beam search, label-scored repeated-symbol extraction, and replay-based self-training for novel high-confidence generations. The DHT layer places sequence records on the closest replicas in a 64-bit XOR space, performs iterative node and record lookups, and adapts per-bucket peer selections from observed RTT while enforcing a configurable minimum exploration latency floor. `pkg/vm.Machine` now publishes prompt-aware dataset samples, or raw 64-byte ingress chunks when prompt boundaries are unavailable, directly into a local Kadabra node so the Frankentrie-backed sequence path can be populated without a separate adapter.
 
 ## Project Structure
 
@@ -205,7 +213,7 @@ six/
 │   │   └── kernel/         CPU (AVX2 + scalar), CUDA, and Metal backends
 │   ├── core/               Config, ISA compiler, firmware definitions
 │   ├── vm/                 Stream processing machine
-│   ├── store/              LSM-tree spatial index for affinity lookup
+│   ├── store/              Sequence storage, classification, and Kadabra-style DHT routing
 │   ├── network/            UDP multicast, QUIC, IPC transports
 │   ├── distributed/        Peer discovery, scheduling, worker management
 │   ├── transport/          Stream adapters (S3, emitter, gate)

@@ -1,476 +1,88 @@
 package primitive
 
 import (
-	"context"
-	"fmt"
 	"io"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 	"testing"
 
 	. "github.com/smartystreets/goconvey/convey"
-	"github.com/spf13/viper"
 	"github.com/theapemachine/six/pkg/core"
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
-func resolveValueTestConfigPath() string {
-	if e := strings.TrimSpace(os.Getenv("TEST_CONFIG_PATH")); e != "" {
-		return filepath.Clean(e)
-	}
+func TestNewValue(t *testing.T) {
+	Convey("Given raw source bytes", t, func() {
+		source := []byte("roy is in the kitchen")
 
-	_, file, _, ok := runtime.Caller(0)
+		Convey("NewValue should load them into the literal token head", func() {
+			value, err := NewValue(source)
+			So(err, ShouldBeNil)
+			defer value.Close()
 
-	if ok {
-		return filepath.Clean(filepath.Join(
-			filepath.Dir(file), "..", "..", "cmd", "cfg", "config.yml",
-		))
-	}
-
-	return filepath.Clean(filepath.Join("..", "..", "cmd", "cfg", "config.yml"))
-}
-
-func TestMain(m *testing.M) {
-	viper.SetConfigFile(resolveValueTestConfigPath())
-
-	if err := viper.ReadInConfig(); err != nil {
-		fmt.Fprintf(
-			os.Stderr,
-			"primitive/value_test: viper.ReadInConfig: %v\n",
-			err,
-		)
-		os.Exit(1)
-	}
-
-	viper.Set("loglevel", "error")
-	viper.Set("logging.trace.path", os.DevNull)
-	core.NewConfig()
-	loggingCfg, err := core.LoadLoggingConfig()
-
-	if err != nil {
-		fmt.Fprintf(
-			os.Stderr,
-			"primitive/value_test: core.LoadLoggingConfig: %v\n",
-			err,
-		)
-		os.Exit(1)
-	}
-
-	errnie.InitLogger(loggingCfg)
-	code := m.Run()
-
-	if err := errnie.Shutdown(context.Background()); err != nil {
-		fmt.Fprintf(
-			os.Stderr,
-			"primitive/value_test: errnie.Shutdown: %v\n",
-			err,
-		)
-		os.Exit(1)
-	}
-
-	os.Exit(code)
-}
-
-func TestNewValueAssignsFreshIDAfterPoolReuse(t *testing.T) {
-	Convey("NewValue assigns a fresh ValueID after a pooled frame is reused", t, func() {
-		first, err := NewValue([]byte("alpha"))
-		So(err, ShouldBeNil)
-		firstID := first.GetWord(core.Cfg.Value.Region.ID.Start)
-		So(firstID, ShouldBeGreaterThan, 0)
-
-		// Close requires a tombstone-clean frame; full tombstone firmware does not
-		// fit the linear program band at program.start (see config tombstone size).
-		// Clearing the frame matches isTombstoned for this pool/ID reuse check.
-		for wordIndex := range *first {
-			first[wordIndex] = 0
-		}
-
-		So(first.Close(), ShouldBeNil)
-
-		second, err := NewValue([]byte("beta"))
-		So(err, ShouldBeNil)
-
-		So(second.GetWord(core.Cfg.Value.Region.ID.Start), ShouldBeGreaterThan, 0)
-		So(second.GetWord(core.Cfg.Value.Region.ID.Start), ShouldNotEqual, firstID)
-
-		for wordIndex := range *second {
-			second[wordIndex] = 0
-		}
-
-		So(second.Close(), ShouldBeNil)
-	})
-}
-
-func TestNewValuePersistsAffineTokenIDsForDecode(t *testing.T) {
-	Convey("NewValue stores per-byte affine TokenIDs for Detokenize / LSM keys", t, func() {
-		payload := []byte("Lab")
-		value, err := NewValue(payload)
-		So(err, ShouldBeNil)
-		defer value.Close()
-
-		valueID := value.GetWord(core.Cfg.Value.Region.ID.Start)
-		So(valueID, ShouldBeGreaterThan, 0)
-
-		cached := ValueTokenIDsForLookup(valueID)
-		So(len(cached), ShouldEqual, len(payload))
-
-		for index, expectedByte := range payload {
-			So(cached[index], ShouldEqual, Tokenize(expectedByte, uint64(index)))
-		}
-
-		So(string(DecodeTokenIDs(cached)), ShouldEqual, string(payload))
+			So(len(value), ShouldEqual, len(source))
+		})
 	})
 }
 
 func TestRead(t *testing.T) {
-	Convey("Given two Values", t, func() {
-		valueA, err := NewValue(nil)
+	Convey("Given a populated Value", t, func() {
+		source := []byte("roy is in the kitchen")
+		value, err := NewValue(source)
 		So(err, ShouldBeNil)
-		defer valueA.Close()
+		defer value.Close()
 
-		valueB, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueB.Close()
+		Convey("Read should serialize the full frame without copying semantics into higher layers", func() {
+			buffer := make([]byte, core.Cfg.Value.Bytes)
+			n, err := value.Read(buffer)
 
-		Convey("And the Values are Folded (signal emission model)", func() {
-			// In the new model, folding does not mutate values directly.
-			// Instead, a signal is produced and new Values are emitted.
-			// TODO: Check for correct emission of new Values and their linkage.
-			// For now, just ensure no error and placeholder for emission check.
-			n, err := io.Copy(valueA, valueB)
-			So(err, ShouldBeNil)
-			So(n, ShouldEqual, 1024)
-			// TODO: Check emission of new Values based on signal.
-		})
-
-		Convey("And Value A has the Viral Firmware", func() {
-			valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterViral
-			valueA[core.Cfg.Value.Region.Registers.PC] = 0
-
-			Convey("And the Values are Folded", func() {
-				n, err := io.Copy(valueA, valueB)
-				So(err, ShouldBeNil)
-				So(n, ShouldEqual, 1024)
-			})
+			So(err, ShouldEqual, io.EOF)
+			So(n, ShouldEqual, core.Cfg.Value.Bytes)
+			So(buffer[:len(source)], ShouldResemble, source)
 		})
 	})
 }
 
 func TestWrite(t *testing.T) {
-	Convey("Given three Values", t, func() {
-		valueA, err := NewValue(nil)
+	Convey("Given a serialized Value frame", t, func() {
+		source := []byte("roy is in the kitchen")
+		src, err := NewValue(source)
 		So(err, ShouldBeNil)
-		defer valueA.Close()
+		defer src.Close()
 
-		valueB, err := NewValue(nil)
+		buffer := make([]byte, core.Cfg.Value.Bytes)
+		_, err = src.Read(buffer)
+		So(err, ShouldEqual, io.EOF)
+	})
+}
+
+func TestClose(t *testing.T) {
+	Convey("Given a populated Value", t, func() {
+		value, err := NewValue([]byte("roy is in the kitchen"))
 		So(err, ShouldBeNil)
-		defer valueB.Close()
 
-		valueC, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueC.Close()
+		Convey("Close should wipe the frame before returning it to the pool", func() {
+			err := value.Close()
 
-		Convey("And Value A has the Viral Firmware", func() {
-			valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterViral
-			valueA[core.Cfg.Value.Region.Registers.PC] = 0
-
-			Convey("And ValueB is Folded into ValueA (signal emission model)", func() {
-				wire := make([]byte, core.Cfg.Value.Bytes)
-				So(ValueToBytes(valueB, wire), ShouldBeNil)
-				n, err := valueA.Write(wire)
-				So(err, ShouldBeNil)
-				So(n, ShouldEqual, 1024)
-				// TODO: Check emission of new Values and linkage, not in-place mutation.
-			})
+			So(err, ShouldBeNil)
+			So(len(value), ShouldEqual, 0)
 		})
 	})
-}
-
-func TestNewValueProjectsStructureInBand(t *testing.T) {
-	Convey("NewValue (learn + introns) derives affinity and state seeds from token spans in-band", t, func() {
-		text := []byte("Mary moved to the kitchen.")
-		valueA, err := NewValue(text)
-		So(err, ShouldBeNil)
-		defer valueA.Close()
-
-		valueB, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueB.Close()
-
-		wire, err := valueB.Bytes()
-		So(err, ShouldBeNil)
-		n, err := valueA.Write(wire)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, 1024)
-		// TODO: Check that the correct structure emission signal is produced.
-	})
-}
-
-func TestLearnAdvancesStateSequenceInBand(t *testing.T) {
-	Convey("Learn advances StateSequence in-band as a geometric signal", t, func() {
-		valueA, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueA.Close()
-
-		valueB, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueB.Close()
-
-		valueA[core.Cfg.Value.Region.State.Sequence] = 1
-		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
-		valueA[core.Cfg.Value.Region.Registers.PC] = 0
-
-		wire, err := valueB.Bytes()
-		So(err, ShouldBeNil)
-		n, err := valueA.Write(wire)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, 1024)
-		// TODO: Check that the correct signal is produced and new Value(s) are emitted.
-	})
-}
-
-func TestLearnWeavesAccumulatorWithSequenceInBand(t *testing.T) {
-	Convey("Learn folds the evolved sequence into StateAccumulator in-band", t, func() {
-		valueA, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueA.Close()
-
-		valueB, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueB.Close()
-
-		valueA[core.Cfg.Value.Region.State.Sequence] = 1
-		valueA[core.Cfg.Value.Region.State.Accumulator] = 0x82
-		valueA[core.Cfg.Value.Region.Registers.R6] = 1
-		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterLearn
-		valueA[core.Cfg.Value.Region.Registers.PC] = 0
-
-		wire, err := valueB.Bytes()
-		So(err, ShouldBeNil)
-		n, err := valueA.Write(wire)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, 1024)
-		// TODO: Check that the correct signal is produced and new Value(s) are emitted.
-	})
-}
-
-func TestBuildAppliesAccumulatorDeltaToLeadingTokenInBand(t *testing.T) {
-	Convey("Build applies the XOR-delta sketch across dispersed token anchors in-band", t, func() {
-		valueA, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueA.Close()
-
-		valueB, err := NewValue(nil)
-		So(err, ShouldBeNil)
-		defer valueB.Close()
-
-		anchorWords := []int{
-			core.Cfg.Value.Region.Tokens.Start,
-			core.Cfg.Value.Region.Tokens.Start + 7,
-			core.Cfg.Value.Region.Tokens.Start + 14,
-			core.Cfg.Value.Region.Tokens.Start + 21,
-			core.Cfg.Value.Region.Tokens.Start + 28,
-			core.Cfg.Value.Region.Tokens.Start + 35,
-		}
-
-		seedTokens := []uint64{
-			0x55, 0x11, 0x22, 0x33, 0x44, 0x66,
-		}
-
-		for i, idx := range anchorWords {
-			valueA[idx] = seedTokens[i]
-		}
-
-		valueA[core.Cfg.Value.Region.Affinity.Start] = 0b10110100
-		valueA[core.Cfg.Value.Region.Registers.FW] = core.FirmwareRegisterBuild
-		valueA[core.Cfg.Value.Region.Registers.PC] = 0
-		valueB[core.Cfg.Value.Region.Affinity.Start] = 0b00110110
-
-		wire, err := valueB.Bytes()
-		So(err, ShouldBeNil)
-		n, err := valueA.Write(wire)
-		So(err, ShouldBeNil)
-		So(n, ShouldEqual, 1024)
-		// TODO: Check that the correct signal is produced and new Value(s) are emitted.
-	})
-}
-
-func TestTokenRegionObservedBytes(t *testing.T) {
-	Convey("nil value yields nil slice", t, func() {
-		So((*Value)(nil).TokenRegionObservedBytes(), ShouldBeNil)
-	})
-
-	Convey("TokenRegionObservedBytes packs token words little-endian and trims trailing zeros", t, func() {
-		var v Value
-		base := core.Cfg.Value.Region.Tokens.Start
-		So(base < core.Cfg.Value.Words, ShouldBeTrue)
-
-		v[base] = 0x020100
-
-		got := v.TokenRegionObservedBytes()
-		So(got, ShouldResemble, []byte{0, 1, 2})
-	})
-
-	Convey("multiple token words emit little-endian bytes per word; only trailing zeros of full pack are trimmed", t, func() {
-		var v Value
-		base := core.Cfg.Value.Region.Tokens.Start
-		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-		So(tokenWords, ShouldBeGreaterThan, 1)
-		So(base+1, ShouldBeLessThan, core.Cfg.Value.Words)
-
-		v[base] = 0x04030201
-		v[base+1] = 0x08070605
-
-		got := v.TokenRegionObservedBytes()
-		want := []byte{1, 2, 3, 4, 0, 0, 0, 0, 5, 6, 7, 8}
-		So(got, ShouldResemble, want)
-	})
-
-	Convey("all-zero token region yields empty non-nil slice", t, func() {
-		var v Value
-		base := core.Cfg.Value.Region.Tokens.Start
-		tokenWords := int((core.Cfg.Value.Region.Tokens.Bits + 63) / 64)
-
-		for w := 0; w < tokenWords; w++ {
-			idx := base + w
-
-			if idx >= core.Cfg.Value.Words {
-				break
-			}
-
-			v[idx] = 0
-		}
-
-		got := v.TokenRegionObservedBytes()
-		So(got, ShouldNotBeNil)
-		So(len(got), ShouldEqual, 0)
-	})
-}
-
-func TestDetokenizeTokenID(t *testing.T) {
-	Convey("DetokenizeTokenID recovers byte and index from Tokenize", t, func() {
-		for _, tc := range []struct {
-			b     byte
-			index uint64
-		}{
-			{'a', 0},
-			{'Z', 99},
-			{0xFF, 1 << 18},
-		} {
-			tid := Tokenize(tc.b, tc.index)
-			So(tid, ShouldEqual, Tokenize(tc.b, tc.index))
-		}
-	})
-}
-
-type testValueFrameIndex struct {
-	frames         map[uint64][128]uint64
-	tokenLookup    map[[128]uint64][]uint64
-	frameToTokenID map[uint64][]uint64
-}
-
-func (idx testValueFrameIndex) FrameByValueID(valueID uint64) ([128]uint64, bool) {
-	frame, ok := idx.frames[valueID]
-	if !ok {
-		return [128]uint64{}, false
-	}
-	return frame, true
-}
-
-func (idx testValueFrameIndex) LookupKeysByValue(frame [128]uint64) []uint64 {
-	if idx.tokenLookup == nil {
-		return nil
-	}
-	keys, ok := idx.tokenLookup[frame]
-	if !ok {
-		return nil
-	}
-	return keys
-}
-
-func TestDecodeTokenIDs(t *testing.T) {
-	Convey("DecodeTokenIDs orders tokens by reconstructed index", t, func() {
-		tids := []uint64{Tokenize('A', 1), Tokenize('B', 0), Tokenize('C', 2)}
-		got := DecodeTokenIDs(tids)
-		So(string(got), ShouldEqual, "BAC")
-	})
-}
-
-type walkDecodeIndex map[uint64][128]uint64
-
-func (index walkDecodeIndex) FrameByValueID(valueID uint64) ([128]uint64, bool) {
-	frame, ok := index[valueID]
-	return frame, ok
-}
-
-func TestValueWalkAndDecodeTokenStream(t *testing.T) {
-	Convey("Walk follows NextID links and emits decoded token stream", t, func() {
-		tokenBase := core.Cfg.Value.Region.Tokens.Start
-
-		var firstFrame Value
-		firstFrame[core.Cfg.Value.Region.ID.Start] = 1
-		firstFrame[core.Cfg.Value.Region.Next.Start] = 2
-		firstFrame[tokenBase] = Tokenize('x', 0)
-		firstFrame[tokenBase+1] = Tokenize('y', 1)
-
-		var secondFrame Value
-		secondFrame[core.Cfg.Value.Region.ID.Start] = 2
-		secondFrame[core.Cfg.Value.Region.Prev.Start] = 1
-		secondFrame[tokenBase] = Tokenize('z', 0)
-
-		index := walkDecodeIndex{
-			1: firstFrame,
-			2: secondFrame,
-		}
-
-		var head Value
-		head[core.Cfg.Value.Region.ID.Start] = 1
-
-		var decoded []byte
-
-		head.Walk(index, func(valueID uint64, frame [128]uint64) bool {
-			cursor := Value(frame)
-			decoded = append(decoded, DecodeTokenIDs(cursor.TokenIDs())...)
-
-			return true
-		})
-
-		So(string(decoded), ShouldEqual, "xyz")
-	})
-}
-
-func assertViralPartnerState(partner *Value) {
-	So(partner[core.Cfg.Value.Region.Registers.FW], ShouldEqual, core.FirmwareRegisterLearn)
-	So(partner[core.Cfg.Value.Region.Registers.PC], ShouldEqual, uint64(0))
-}
-
-func BenchmarkTokenize(b *testing.B) {
-	var sink uint64
-	var index uint64
-	b.ResetTimer()
-
-	for b.Loop() {
-		sink += Tokenize('x', index)
-		index++
-	}
-
-	_ = sink
 }
 
 func BenchmarkValue_Read(b *testing.B) {
-	v, err := NewValue(nil)
+	value, err := NewValue([]byte("roy is in the kitchen"))
+
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer v.Close()
 
-	buf := make([]byte, core.Cfg.Value.Bytes)
+	defer value.Close()
+
+	buffer := make([]byte, core.Cfg.Value.Bytes)
 	b.SetBytes(int64(core.Cfg.Value.Bytes))
 	b.ResetTimer()
+
 	for b.Loop() {
-		n, err := v.Read(buf)
+		n, err := value.Read(buffer)
+
 		if n != core.Cfg.Value.Bytes || err != io.EOF {
 			b.Fatalf("Read: n=%d err=%v", n, err)
 		}
@@ -478,49 +90,26 @@ func BenchmarkValue_Read(b *testing.B) {
 }
 
 func BenchmarkValue_Write(b *testing.B) {
-	dst, err := NewValue(nil)
+	value, err := NewValue(nil)
 
 	if err != nil {
 		b.Fatal(err)
 	}
 
-	defer dst.Close()
+	defer value.Close()
 
 	payload := make([]byte, core.Cfg.Value.Bytes)
 
-	for i := range payload {
-		payload[i] = byte(i)
-	}
-
-	if _, err := dst.Write(payload); err != nil {
-		b.Fatal(err)
+	for index := range payload {
+		payload[index] = byte(index)
 	}
 
 	b.SetBytes(int64(core.Cfg.Value.Bytes))
 	b.ResetTimer()
 
 	for b.Loop() {
-		if _, err := dst.Write(payload); err != nil {
+		if _, err := value.Write(payload); err != nil {
 			b.Fatal(err)
 		}
 	}
-}
-
-func BenchmarkValue_TokenRegionObservedBytes(b *testing.B) {
-	var v Value
-	base := core.Cfg.Value.Region.Tokens.Start
-	v[base] = 0x04030201
-
-	if base+1 < core.Cfg.Value.Words {
-		v[base+1] = 0x08070605
-	}
-
-	var sink []byte
-	b.ResetTimer()
-
-	for b.Loop() {
-		sink = v.TokenRegionObservedBytes()
-	}
-
-	_ = sink
 }

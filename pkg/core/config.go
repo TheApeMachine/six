@@ -3,12 +3,9 @@ package core
 import (
 	"hash/fnv"
 	"os"
-	"strings"
 	"time"
 
 	"github.com/spf13/viper"
-
-	"github.com/theapemachine/six/pkg/errnie"
 )
 
 /*
@@ -125,6 +122,12 @@ type SystemConfig struct {
 	// SleepMaxPairs caps how many random frame pairs sleep consolidation tries
 	// per tick. Non-positive values default to 4 at load time.
 	SleepMaxPairs int `mapstructure:"sleepMaxPairs"`
+
+	// KBucketCoLocatedBatch builds compute batches from one Kademlia bucket
+	// (seed + peers sampled in that bucket). The backend wraps sampled peers
+	// in witness clones (see primitive.WitnessCloneFromPeer) so routing and
+	// crossover skip disposable copies.
+	KBucketCoLocatedBatch bool `mapstructure:"kBucketCoLocatedBatch"`
 }
 
 /*
@@ -267,6 +270,9 @@ func NewConfig() *Config {
 			ThermodynamicDecayDelta: viper.GetInt("system.thermodynamicDecayDelta"),
 			ThermodynamicEmitGain:   viper.GetInt("system.thermodynamicEmitGain"),
 			SleepMaxPairs:           viper.GetInt("system.sleepMaxPairs"),
+			KBucketCoLocatedBatch: viper.GetBool(
+				"system.kBucketCoLocatedBatch",
+			),
 		},
 		ControlPlane: ControlPlaneConfig{
 			K:      viper.GetInt("controlplane.k"),
@@ -345,148 +351,7 @@ func NewConfig() *Config {
 		TelemetryEnabled:               viper.GetBool("telemetry.enabled"),
 		TelemetryEndpoint:              viper.GetString("telemetry.udp_endpoint"),
 		TelemetryUniversalBitwiseSlots: viper.GetBool("telemetry.universal_bitwise_slots"),
-		Firmware: [FirmwareTypePrompt + 1][]uint32{
-			FirmwareTypeLearn: Cfg.compileAndAssign(
-				FirmwareTypeLearn, viper.GetString("programs.learn"),
-			),
-			FirmwareTypeBootloader: Cfg.compileAndAssign(
-				FirmwareTypeBootloader, viper.GetString("programs.bootloader")),
-			FirmwareTypeTombstone: Cfg.compileAndAssign(
-				FirmwareTypeTombstone, viper.GetString("programs.tombstone"),
-			),
-			FirmwareTypeViral: Cfg.compileAndAssign(
-				FirmwareTypeViral, viper.GetString("programs.viral"),
-			),
-			FirmwareTypeBuild: Cfg.compileAndAssign(
-				FirmwareTypeBuild, viper.GetString("programs.build"),
-			),
-			FirmwareTypeQuery: Cfg.compileAndAssign(
-				FirmwareTypeQuery, viper.GetString("programs.query"),
-			),
-			FirmwareTypePrompt: Cfg.compileAndAssign(
-				FirmwareTypePrompt, viper.GetString("programs.prompt"),
-			),
-		},
 	}
-
-	if Cfg.ControlPlane.NodeID == 0 {
-		Cfg.ControlPlane.NodeID = stableNodeID()
-		errnie.Info(
-			"core.config: controlplane.nodeId derived from host identity",
-			"nodeId", Cfg.ControlPlane.NodeID,
-		)
-	}
-
-	if Cfg.ControlPlane.K < 1 {
-		errnie.Info(
-			"core.config: controlplane.k defaulted",
-			"was", Cfg.ControlPlane.K,
-			"now", 20,
-		)
-		Cfg.ControlPlane.K = 20
-	}
-
-	if Cfg.ControlPlane.Alpha < 1 {
-		errnie.Info(
-			"core.config: controlplane.alpha defaulted",
-			"was", Cfg.ControlPlane.Alpha,
-			"now", 3,
-		)
-		Cfg.ControlPlane.Alpha = 3
-	}
-
-	if Cfg.ControlPlane.Affinity.Bits == 0 {
-		errnie.Info(
-			"core.config: controlplane.affinity.bits defaulted",
-			"was", 0,
-			"now", uint64(1),
-		)
-		Cfg.ControlPlane.Affinity.Bits = 1
-	}
-
-	if Cfg.TelemetryEnabled && strings.TrimSpace(Cfg.TelemetryEndpoint) == "" {
-		Cfg.TelemetryEndpoint = "127.0.0.1:8258"
-	}
-
-	if Cfg.System.HolisticChunkBits <= 0 {
-		Cfg.System.HolisticChunkBits = 512
-	}
-
-	if Cfg.System.HolisticHammingMax <= 0 {
-		Cfg.System.HolisticHammingMax = 0.45
-	}
-
-	if Cfg.System.MapElitesGridShift == 0 {
-		Cfg.System.MapElitesGridShift = 8
-	}
-
-	if Cfg.System.MapElitesInjectionRate < 0 {
-		Cfg.System.MapElitesInjectionRate = 0.08
-	}
-
-	if Cfg.System.MapElitesInjectionRate > 1 {
-		Cfg.System.MapElitesInjectionRate = 1
-	}
-
-	if Cfg.System.TokenSettleMaxPasses <= 0 {
-		Cfg.System.TokenSettleMaxPasses = DefaultTokenSettleMaxPasses
-	}
-
-	if Cfg.System.TokenSettleEpsilonBits < 0 {
-		Cfg.System.TokenSettleEpsilonBits = 0
-	}
-
-	if Cfg.System.ThermodynamicBirthEnergy < 0 {
-		Cfg.System.ThermodynamicBirthEnergy = 0
-	}
-
-	if Cfg.System.ThermodynamicDecayDelta < 0 {
-		Cfg.System.ThermodynamicDecayDelta = 0
-	}
-
-	if Cfg.System.ThermodynamicEmitGain < 0 {
-		Cfg.System.ThermodynamicEmitGain = 0
-	}
-
-	if Cfg.System.SleepMaxPairs <= 0 {
-		Cfg.System.SleepMaxPairs = 4
-	}
-
-	Cfg.StepwiseFirmwareSource[FirmwareTypeLearn] = viper.GetString(
-		"programsStepwise.learn",
-	)
-	Cfg.StepwiseFirmwareSource[FirmwareTypeBootloader] = viper.GetString(
-		"programsStepwise.bootloader",
-	)
-	Cfg.StepwiseFirmwareSource[FirmwareTypeTombstone] = viper.GetString(
-		"programsStepwise.tombstone",
-	)
-	Cfg.StepwiseFirmwareSource[FirmwareTypeViral] = viper.GetString(
-		"programsStepwise.viral",
-	)
-	Cfg.StepwiseFirmwareSource[FirmwareTypeBuild] = viper.GetString(
-		"programsStepwise.build",
-	)
-	Cfg.StepwiseFirmwareSource[FirmwareTypeQuery] = viper.GetString(
-		"programsStepwise.query",
-	)
-	Cfg.StepwiseFirmwareSource[FirmwareTypePrompt] = viper.GetString(
-		"programsStepwise.prompt",
-	)
 
 	return Cfg
-}
-
-/*
-LoadFirmware compiles all programs from the config's `programs` section
-into Cfg.Firmware. Must be called after viper has loaded config.
-*/
-func (config *Config) compileAndAssign(ft FirmwareType, src string) []uint32 {
-	program, err := CompileFunc(src)
-
-	if err != nil {
-		return nil
-	}
-
-	return program
 }

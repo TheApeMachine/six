@@ -1,34 +1,34 @@
 package primitive
 
-import "errors"
-
-type ValueErrorType string
+type PrimitiveErrorType string
 
 const (
-	ValueErrorFailedToken          ValueErrorType = "failed_token"
-	ValueErrorDivergence           ValueErrorType = "divergence"
-	ValueErrorDataFull             ValueErrorType = "data_full"
-	ValueErrorInvalidProgramWord   ValueErrorType = "invalid_program_word"
-	ValueErrorRefcountUnderflow    ValueErrorType = "refcount_underflow"
-	ValueErrorFailedByteConversion ValueErrorType = "failed_byte_conversion"
-	ValueErrorNotTombstoned        ValueErrorType = "not_tombstoned"
+	ErrPrimitiveInvalidValue PrimitiveErrorType = "invalid value"
+	
 )
 
-type ValueError struct {
-	Err error
+type PrimitiveError struct {
+	Type PrimitiveErrorType
+	Err  error
+	Op   string
 }
 
-func NewValueError(err ValueErrorType) *ValueError {
-	return &ValueError{Err: errors.New(string(err))}
-}
-
-func (e *ValueError) Error() string {
-	if e.Err != nil {
-		return e.Err.Error()
+func NewPrimitiveError(
+	typ PrimitiveErrorType,
+	err error,
+	op string,
+) *PrimitiveError {
+	return &PrimitiveError{
+		Type: typ,
+		Err:  err,
+		Op:   op,
 	}
-	return "value error"
 }
 
-func (e *ValueError) Unwrap() error {
-	return e.Err
+func (err *PrimitiveError) Error() string {
+	return err.Error()
+}
+
+func (err *PrimitiveError) Unwrap() error {
+	return err.Err
 }

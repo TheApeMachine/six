@@ -13,8 +13,6 @@ import (
 	"github.com/theapemachine/six/pkg/compute"
 	"github.com/theapemachine/six/pkg/core"
 	"github.com/theapemachine/six/pkg/errnie"
-	"github.com/theapemachine/six/pkg/telemetry"
-	yaml "go.yaml.in/yaml/v3"
 )
 
 /*
@@ -137,10 +135,6 @@ func initConfig() {
 		}
 	}
 
-	if err := mergeEmbeddedLoggingIfMissing(); err != nil {
-		errnie.Warn(fmt.Sprintf("could not merge default logging config: %v", err))
-	}
-
 	/*
 		core.init runs NewConfig while viper is still empty, so Value.Bytes and the
 		rest of Cfg are zero until we rebuild from the loaded file. Without this,
@@ -148,41 +142,6 @@ func initConfig() {
 		io.ErrShortBuffer forever.
 	*/
 	core.NewConfig()
-
-	if core.Cfg.TelemetryEnabled {
-		if sender, err := telemetry.NewUDPSender(core.Cfg.TelemetryEndpoint); err == nil {
-			telemetry.SetGlobal(sender)
-		} else {
-			errnie.Warn(fmt.Sprintf("telemetry: UDP sender disabled: %v", err))
-		}
-	}
-
-	loggingCfg, err := core.LoadLoggingConfig()
-	if err != nil {
-		initErr = fmt.Errorf("core.LoadLoggingConfig: %w", err)
-		errnie.Error(initErr)
-		return
-	}
-	errnie.InitLogger(loggingCfg)
-	compute.SetPoolEmitFunc(func(ev compute.PoolEvent) {
-		telemetry.Emit(telemetry.Event{
-			Component: "Pool",
-			Action:    ev.Action,
-			Data: telemetry.EventData{
-				DurationMs:  ev.DurationMs,
-				QueueSize:   ev.QueueSize,
-				WorkerCount: ev.Workers,
-				Message:     ev.Message,
-			},
-		})
-	})
-
-	telemetry.WireUniversalBitwiseSlotHook()
-	errnie.Info(
-		"six.init",
-		"config_file", viper.ConfigFileUsed(),
-		"elasticsearch", loggingCfg.Elasticsearch.Enabled,
-	)
 }
 
 const roottxt = `
@@ -219,36 +178,4 @@ func (err *RootError) Error() string {
 	return fmt.Errorf(
 		"[root] %s: %w", err.Message, err.Err,
 	).Error()
-}
-
-// mergeEmbeddedLoggingIfMissing copies logging defaults from the embedded repo
-// config into Viper when the loaded file omits pieces Go would otherwise zero out.
-//
-//  1. No "logging" at all → merge the full embedded logging tree (legacy ~/.six).
-//  2. "logging" exists but "logging.elasticsearch" was never set → merge only the
-//     embedded elasticsearch subtree so partial YAML does not disable shipping with
-//     ElasticsearchConfig.Enabled == false.
-func mergeEmbeddedLoggingIfMissing() error {
-	b, err := embedded.ReadFile("cfg/config.yml")
-	if err != nil {
-		return err
-	}
-	var root map[string]any
-	if err := yaml.Unmarshal(b, &root); err != nil {
-		return err
-	}
-	embeddedLogging, ok := root["logging"].(map[string]any)
-	if !ok {
-		return nil
-	}
-	if !viper.IsSet("logging") {
-		viper.Set("logging", embeddedLogging)
-		return nil
-	}
-	if !viper.IsSet("logging.elasticsearch") {
-		if es, ok := embeddedLogging["elasticsearch"]; ok {
-			viper.Set("logging.elasticsearch", es)
-		}
-	}
-	return nil
 }

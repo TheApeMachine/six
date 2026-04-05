@@ -34,7 +34,6 @@ type TextClassificationExperiment struct {
 	dataset             data.Provider
 	prompt              []string
 	holdouts            [][]byte
-	corpusRows          map[uint64]classificationCorpusRow
 	evaluator           *tools.Evaluator
 	predictionsComputed bool
 }

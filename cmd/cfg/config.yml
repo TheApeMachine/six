@@ -51,6 +51,9 @@ system:
   thermodynamicDecayDelta: 1
   thermodynamicEmitGain: 8
   sleepMaxPairs: 4
+  # When true, seed frames collocate with K-bucket peers; disposable witness
+  # clones carry the high ID bit so Move/crossover/decay skip them.
+  kBucketCoLocatedBatch: true
   queueSize: 20000
 
 controlplane:
@@ -163,11 +166,16 @@ programs:
     NOP
     NOP
 
+  # Same physics as prompt: active LSM fetch + affinity-driven FW for MAP-Elites routing.
   query: |
-    COPY 58 60
+    2415927173 0 0
+    COPY 63 74
 
+  # Active fetch (LGPXMemoryLoadMark, meta): argA=63 affinity, neighbors → PRIORITY.
+  # Then COPY 63 74 — morph FW (word 74) from current affinity hash for next tick.
   prompt: |
-    COPY 58 60
+    2415927173 0 0
+    COPY 63 74
 
 # Stepwise fixed-step programs (pkg/compute/stepwise). When non-empty for a slot,
 # installFirmware uses InstallEmbedded and overwrites programs.* packing for
